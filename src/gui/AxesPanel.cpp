@@ -1,113 +1,139 @@
 #include "AxesPanel.h"
 
+static const auto kGreen  = juce::Colour(0xff4a9eff);
+static const auto kDim    = juce::Colour(0xff888888);
+static const auto kDimmer = juce::Colour(0xff606060);
+
+static const juce::StringArray kSemanticAxes {
+    "—",
+    "tonal / noisy (d=4.81)",
+    "rhythmic / sustained (d=2.60)",
+    "bright / dark (d=1.28)",
+    "loud / quiet (d=1.02)",
+    "smooth / harsh (d=0.81)",
+    "fast / slow (d=0.80)",
+    "close / distant (d=0.76)",
+    "dense / sparse (d=0.74)"
+};
+
+static const juce::StringArray kPcaAxes {
+    "—",
+    "PC1: natural / synthetic",
+    "PC2: sonic / physical",
+    "PC3: tonal / atonal",
+    "PC4: continuous / impulsive",
+    "PC5: harmonic / inharmonic",
+    "PC6: wet / dry",
+    "PC7: melodic / percussive",
+    "PC8: soft / aggressive",
+    "PC9: clean / distorted",
+    "PC10: ambient / direct"
+};
+
 AxesPanel::AxesPanel()
 {
-    addAxis("tonal_noisy",        "tonal",    "noisy");
-    addAxis("rhythmic_sustained", "rhythmic", "sustained");
-    addAxis("bright_dark",        "bright",   "dark");
-    addAxis("loud_quiet",         "loud",     "quiet");
-    addAxis("smooth_harsh",       "smooth",   "harsh");
-    addAxis("fast_slow",          "fast",     "slow");
-    addAxis("close_distant",      "close",    "distant");
-    addAxis("dense_sparse",       "dense",    "sparse");
+    semHeader.setText("SEMANTIC AXES", juce::dontSendNotification);
+    semHeader.setColour(juce::Label::textColourId, kDim);
+    addAndMakeVisible(semHeader);
+
+    pcaHeader.setText("PCA AXES", juce::dontSendNotification);
+    pcaHeader.setColour(juce::Label::textColourId, kDim);
+    addAndMakeVisible(pcaHeader);
+
+    semSlots.resize(3);
+    for (auto& slot : semSlots)
+        initSlot(slot, kSemanticAxes);
+
+    pcaSlots.resize(6);
+    for (auto& slot : pcaSlots)
+        initSlot(slot, kPcaAxes);
 }
 
-void AxesPanel::addAxis(const juce::String& name, const juce::String& poleA, const juce::String& poleB)
+void AxesPanel::initSlot(AxisSlot& slot, const juce::StringArray& options)
 {
-    auto& row = rows.emplace_back();
-    row.name = name;
-    row.poleA = poleA;
-    row.poleB = poleB;
+    slot.dropdown = std::make_unique<juce::ComboBox>();
+    slot.dropdown->addItemList(options, 1);
+    slot.dropdown->setSelectedId(1, juce::dontSendNotification); // "—"
+    slot.dropdown->onChange = [this] { resized(); };
+    addAndMakeVisible(*slot.dropdown);
 
-    row.slider = std::make_unique<juce::Slider>();
-    row.slider->setSliderStyle(juce::Slider::LinearHorizontal);
-    row.slider->setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    row.slider->setRange(-1.0, 1.0, 0.01);
-    row.slider->setValue(0.0, juce::dontSendNotification);
-    row.slider->setColour(juce::Slider::trackColourId, juce::Colour(0xff4a9eff));
-    row.slider->setColour(juce::Slider::backgroundColourId, juce::Colour(0xff1a1a1a));
-    row.slider->setColour(juce::Slider::thumbColourId, juce::Colour(0xffe3e3e3));
-    addAndMakeVisible(*row.slider);
+    slot.slider = std::make_unique<juce::Slider>();
+    slot.slider->setSliderStyle(juce::Slider::LinearHorizontal);
+    slot.slider->setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+    slot.slider->setRange(-1.0, 1.0, 0.01);
+    slot.slider->setValue(0.0, juce::dontSendNotification);
+    slot.slider->setColour(juce::Slider::trackColourId, kGreen);
+    slot.slider->setColour(juce::Slider::backgroundColourId, juce::Colour(0xff1a1a1a));
+    addAndMakeVisible(*slot.slider);
 
-    row.labelA = std::make_unique<juce::Label>("", poleA);
-    row.labelA->setJustificationType(juce::Justification::centredRight);
-    row.labelA->setColour(juce::Label::textColourId, juce::Colour(0xff666666));
-    addAndMakeVisible(*row.labelA);
+    slot.valueLabel = std::make_unique<juce::Label>("", "0.00");
+    slot.valueLabel->setColour(juce::Label::textColourId, kGreen);
+    slot.valueLabel->setJustificationType(juce::Justification::centredRight);
+    addAndMakeVisible(*slot.valueLabel);
 
-    row.labelB = std::make_unique<juce::Label>("", poleB);
-    row.labelB->setJustificationType(juce::Justification::centredLeft);
-    row.labelB->setColour(juce::Label::textColourId, juce::Colour(0xff666666));
-    addAndMakeVisible(*row.labelB);
+    slot.slider->onValueChange = [&slot] {
+        slot.valueLabel->setText(juce::String(slot.slider->getValue(), 2), juce::dontSendNotification);
+    };
 }
 
-void AxesPanel::paint(juce::Graphics& g)
+float AxesPanel::fs() const
 {
-    float topH = (getTopLevelComponent() != nullptr) ? static_cast<float>(getTopLevelComponent()->getHeight()) : 800.0f;
-    float fs = juce::jlimit(10.0f, 16.0f, topH * 0.016f);
-    g.setFont(juce::FontOptions(fs));
-    g.setColour(juce::Colour(0xff888888));
-    float pad = getWidth() * 0.03f;
-    g.drawText("AXES", juce::roundToInt(pad), 0, getWidth(),
-               juce::roundToInt(static_cast<float>(getHeight()) * 0.08f),
-               juce::Justification::centredLeft);
+    float topH = (getTopLevelComponent() != nullptr)
+                     ? static_cast<float>(getTopLevelComponent()->getHeight()) : 800.0f;
+    return juce::jlimit(14.0f, 26.0f, topH * 0.030f);
+}
+
+void AxesPanel::paint(juce::Graphics&) {}
+
+void AxesPanel::layoutSlots(std::vector<AxisSlot>& slots, juce::Rectangle<int>& area, float f)
+{
+    int rowH = juce::roundToInt(f * 1.4f);
+    int sliderH = juce::roundToInt(f * 1.2f);
+    int gap = juce::roundToInt(f * 0.2f);
+    int valW = juce::roundToInt(f * 3.0f);
+
+    for (auto& slot : slots)
+    {
+        bool active = slot.dropdown->getSelectedId() != 1; // 1 = "—"
+
+        slot.dropdown->setBounds(area.removeFromTop(rowH));
+        slot.slider->setVisible(active);
+        slot.valueLabel->setVisible(active);
+
+        if (active)
+        {
+            auto sliderRow = area.removeFromTop(sliderH);
+            slot.valueLabel->setFont(juce::FontOptions(f * 0.8f));
+            slot.valueLabel->setBounds(sliderRow.removeFromRight(valW));
+            slot.slider->setBounds(sliderRow);
+        }
+        area.removeFromTop(gap);
+    }
 }
 
 void AxesPanel::resized()
 {
-    if (rows.empty()) return;
     float w = static_cast<float>(getWidth());
     float h = static_cast<float>(getHeight());
-    float pad = w * 0.03f;
-    float headerH = h * 0.09f;
-    float rowH = (h - headerH) / static_cast<float>(rows.size());
-    float topH2 = (getTopLevelComponent() != nullptr) ? static_cast<float>(getTopLevelComponent()->getHeight()) : 800.0f;
-    float fs = juce::jlimit(9.0f, 13.0f, topH2 * 0.013f);
-    float labelW = w * 0.22f;
+    int pad = juce::roundToInt(w * 0.04f);
+    auto area = getLocalBounds().reduced(pad, juce::roundToInt(h * 0.01f));
+    float f = fs();
+    int headerH = juce::roundToInt(f * 1.3f);
 
-    for (size_t i = 0; i < rows.size(); ++i)
-    {
-        auto& row = rows[i];
-        int y = juce::roundToInt(headerH + static_cast<float>(i) * rowH);
-        int rh = juce::roundToInt(rowH);
-        int lw = juce::roundToInt(labelW);
-        int px = juce::roundToInt(pad);
+    semHeader.setFont(juce::FontOptions(f * 0.85f));
+    semHeader.setBounds(area.removeFromTop(headerH));
+    layoutSlots(semSlots, area, f * 0.75f);
 
-        row.labelA->setFont(juce::FontOptions(fs));
-        row.labelA->setBounds(px, y, lw, rh);
-        row.labelB->setFont(juce::FontOptions(fs));
-        row.labelB->setBounds(getWidth() - lw - px, y, lw, rh);
+    area.removeFromTop(juce::roundToInt(f * 0.5f));
 
-        int sliderX = px + lw + 2;
-        int sliderW = getWidth() - 2 * (px + lw + 2);
-        row.slider->setBounds(sliderX, y, juce::jmax(10, sliderW), rh);
-    }
+    pcaHeader.setFont(juce::FontOptions(f * 0.85f));
+    pcaHeader.setBounds(area.removeFromTop(headerH));
+    layoutSlots(pcaSlots, area, f * 0.65f);
 }
 
 std::map<juce::String, float> AxesPanel::getAxisValues() const
 {
     std::map<juce::String, float> vals;
-    for (auto& row : rows)
-        if (row.slider->getValue() != 0.0)
-            vals[row.name] = static_cast<float>(row.slider->getValue());
+    // TODO: map dropdown selection back to axis names
     return vals;
-}
-
-void AxesPanel::setAxes(const juce::var& axesData)
-{
-    if (!axesData.isArray()) return;
-    for (auto& row : rows)
-    {
-        removeChildComponent(row.slider.get());
-        removeChildComponent(row.labelA.get());
-        removeChildComponent(row.labelB.get());
-    }
-    rows.clear();
-    for (int i = 0; i < axesData.size(); ++i)
-    {
-        auto axis = axesData[i];
-        addAxis(axis.getProperty("name", "").toString(),
-                axis.getProperty("pole_a", "").toString(),
-                axis.getProperty("pole_b", "").toString());
-    }
-    resized();
 }

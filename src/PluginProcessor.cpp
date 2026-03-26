@@ -56,6 +56,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"filter_type", 1}, "Filter Type",
         juce::StringArray{"Lowpass", "Highpass", "Bandpass"}, 0));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"filter_slope", 1}, "Filter Slope",
+        juce::StringArray{"12dB", "24dB"}, 1));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"filter_mix", 1}, "Filter Mix",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"filter_kbd_track", 1}, "Filter Kbd Track",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
 
     // Delay
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -91,6 +100,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"gen_cfg", 1}, "CFG Scale",
         juce::NormalisableRange<float>(1.0f, 15.0f, 0.1f), 7.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"gen_start", 1}, "Start Position",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{"gen_seed", 1}, "Seed", -1, 999999999, -1));
 
     // Engine mode
     params.push_back(std::make_unique<juce::AudioParameterChoice>(

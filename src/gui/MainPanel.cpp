@@ -4,19 +4,20 @@
 MainPanel::MainPanel(T5ynthProcessor& processor)
     : processorRef(processor),
       promptPanel(processor),
-      synthPanel(processor.getValueTreeState()),
-      effectsPanel(processor.getValueTreeState()),
+      synthPanel(processor),
+      modulationPanel(processor.getValueTreeState()),
+      fxPanel(processor.getValueTreeState()),
       sequencerPanel(processor)
 {
     addAndMakeVisible(promptPanel);
     addAndMakeVisible(axesPanel);
-    addAndMakeVisible(dimensionExplorer);
     addAndMakeVisible(synthPanel);
-    addAndMakeVisible(effectsPanel);
+    addAndMakeVisible(dimensionExplorer);
+    addAndMakeVisible(modulationPanel);
+    addAndMakeVisible(fxPanel);
     addAndMakeVisible(sequencerPanel);
     addAndMakeVisible(statusBar);
 
-    // Wire status bar
     processorRef.getBackendManager().setStatusCallback(
         [this](BackendManager::Status s)
         {
@@ -41,26 +42,22 @@ void MainPanel::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colour(0xff0a0a0a));
 
-    // Column separators
-    float h = static_cast<float>(getHeight());
     float w = static_cast<float>(getWidth());
-    float bottomH = h * 0.16f + h * 0.03f; // seq + status
+    float h = static_cast<float>(getHeight());
+    float bottomH = h * 0.16f;
+    float topH = h - bottomH;
 
     g.setColour(juce::Colour(0xff1a1a1a));
 
-    // Vertical separators between columns
-    float col1 = w * 0.22f;
-    float col2 = col1 + w * 0.22f;
-    float col3 = col2 + w * 0.30f;
-    float topArea = h - bottomH;
-    g.drawVerticalLine(juce::roundToInt(col1), 0.0f, topArea);
-    g.drawVerticalLine(juce::roundToInt(col2), 0.0f, topArea);
-    g.drawVerticalLine(juce::roundToInt(col3), 0.0f, topArea);
+    // 4 column separators
+    float x1 = w * 0.25f;
+    float x2 = x1 + w * 0.35f;
+    float x3 = x2 + w * 0.25f;
+    g.drawVerticalLine(juce::roundToInt(x1), 0.0f, topH);
+    g.drawVerticalLine(juce::roundToInt(x2), 0.0f, topH);
+    g.drawVerticalLine(juce::roundToInt(x3), 0.0f, topH);
 
-    // Horizontal separator above sequencer
-    g.drawHorizontalLine(juce::roundToInt(topArea), 0.0f, w);
-
-    // Horizontal separator above status bar
+    g.drawHorizontalLine(juce::roundToInt(topH), 0.0f, w);
     g.drawHorizontalLine(juce::roundToInt(h - h * 0.03f), 0.0f, w);
 }
 
@@ -70,27 +67,32 @@ void MainPanel::resized()
     float w = static_cast<float>(b.getWidth());
     float h = static_cast<float>(b.getHeight());
 
-    // Bottom: status bar (3% height) + sequencer (13% height)
     int statusH = juce::roundToInt(h * 0.03f);
     int seqH = juce::roundToInt(h * 0.13f);
-
     statusBar.setBounds(b.removeFromBottom(statusH));
     sequencerPanel.setBounds(b.removeFromBottom(seqH));
 
-    // 4 columns: SOURCE 22% | EXPLORE 22% | OSC/ENV/MOD 30% | FILTER/FX 26%
-    int col1W = juce::roundToInt(w * 0.22f);
-    int col2W = juce::roundToInt(w * 0.22f);
-    int col3W = juce::roundToInt(w * 0.30f);
+    // 4 columns: 25% | 35% | 25% | 15%
+    int col1W = juce::roundToInt(w * 0.25f);
+    int col2W = juce::roundToInt(w * 0.35f);
+    int col3W = juce::roundToInt(w * 0.25f);
     int col4W = b.getWidth() - col1W - col2W - col3W;
 
-    promptPanel.setBounds(b.removeFromLeft(col1W));
+    // Col 1: GENERATION
+    auto genCol = b.removeFromLeft(col1W);
+    int promptH = juce::roundToInt(static_cast<float>(genCol.getHeight()) * 0.60f);
+    promptPanel.setBounds(genCol.removeFromTop(promptH));
+    axesPanel.setBounds(genCol);
 
-    // EXPLORE column: axes on top (55%), dimension explorer below (45%)
-    auto exploreCol = b.removeFromLeft(col2W);
-    int axesH = juce::roundToInt(static_cast<float>(exploreCol.getHeight()) * 0.55f);
-    axesPanel.setBounds(exploreCol.removeFromTop(axesH));
-    dimensionExplorer.setBounds(exploreCol);
+    // Col 2: MODE + FILTER + EXPLORE
+    auto modeCol = b.removeFromLeft(col2W);
+    int dimExpH = juce::jmax(160, juce::roundToInt(static_cast<float>(modeCol.getHeight()) * 0.22f));
+    dimensionExplorer.setBounds(modeCol.removeFromBottom(dimExpH));
+    synthPanel.setBounds(modeCol);
 
-    synthPanel.setBounds(b.removeFromLeft(col3W));
-    effectsPanel.setBounds(b);
+    // Col 3: MODULATION
+    modulationPanel.setBounds(b.removeFromLeft(col3W));
+
+    // Col 4: FX + VOLUME
+    fxPanel.setBounds(b);
 }

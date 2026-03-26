@@ -15,7 +15,7 @@ void StatusBar::paint(juce::Graphics& g)
     g.fillEllipse(dotX, (h - dotSize) * 0.5f, dotSize, dotSize);
 
     float topH = (getTopLevelComponent() != nullptr) ? static_cast<float>(getTopLevelComponent()->getHeight()) : 800.0f;
-    float fs = juce::jlimit(10.0f, 14.0f, topH * 0.015f);
+    float fs = juce::jlimit(14.0f, 26.0f, topH * 0.030f);
     g.setColour(juce::Colour(0xffe3e3e3));
     g.setFont(juce::FontOptions(fs));
     int textX = juce::roundToInt(dotX + dotSize + h * 0.3f);

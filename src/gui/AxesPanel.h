@@ -4,8 +4,8 @@
 #include <map>
 
 /**
- * Semantic axes as compact bipolar sliders (pole_a ←→ pole_b).
- * All visible, no scrollbar.
+ * Semantic + PCA axes. Separated sections with dropdown selection.
+ * Max 3 semantic slots, max 6 PCA slots.
  */
 class AxesPanel : public juce::Component
 {
@@ -17,18 +17,23 @@ public:
     void resized() override;
 
     std::map<juce::String, float> getAxisValues() const;
-    void setAxes(const juce::var& axesData);
 
 private:
-    struct AxisRow
+    float fs() const;
+
+    struct AxisSlot
     {
-        juce::String name, poleA, poleB;
+        std::unique_ptr<juce::ComboBox> dropdown;
         std::unique_ptr<juce::Slider> slider;
-        std::unique_ptr<juce::Label> labelA, labelB;
+        std::unique_ptr<juce::Label> labelA, labelB, valueLabel;
     };
 
-    std::vector<AxisRow> rows;
-    void addAxis(const juce::String& name, const juce::String& poleA, const juce::String& poleB);
+    juce::Label semHeader, pcaHeader;
+    std::vector<AxisSlot> semSlots;  // max 3
+    std::vector<AxisSlot> pcaSlots;  // max 6
+
+    void initSlot(AxisSlot& slot, const juce::StringArray& options);
+    void layoutSlots(std::vector<AxisSlot>& slots, juce::Rectangle<int>& area, float f);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AxesPanel)
 };

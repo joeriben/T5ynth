@@ -67,7 +67,7 @@ void SequencerPanel::resized()
     float h = static_cast<float>(getHeight());
     int pad = juce::roundToInt(w * 0.01f);
     float topH = (getTopLevelComponent() != nullptr) ? static_cast<float>(getTopLevelComponent()->getHeight()) : 800.0f;
-    float fs = juce::jlimit(9.0f, 13.0f, topH * 0.013f);
+    float fs = juce::jlimit(14.0f, 24.0f, topH * 0.026f);
 
     bpmLabel.setFont(juce::FontOptions(fs));
     octLabel.setFont(juce::FontOptions(fs));

@@ -1,221 +1,242 @@
 #include "SynthPanel.h"
+#include "../PluginProcessor.h"
 
-static void initKnob(juce::Slider& k, juce::Label& l, const juce::String& text, juce::Component* p)
+static const auto kGreen   = juce::Colour(0xff4a9eff);
+static const auto kDim     = juce::Colour(0xff888888);
+static const auto kDimmer  = juce::Colour(0xff606060);
+static const auto kSurface = juce::Colour(0xff1a1a1a);
+static const auto kGreenBg = juce::Colour(0xff1a2a3a);
+
+static void makeLinearSlider(juce::Slider& s, juce::Label& label, juce::Label& value,
+                             const juce::String& name, juce::Component* p)
 {
-    k.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-    k.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 1, 1);
-    k.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(0xff4a9eff));
-    k.setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colour(0xff2a2a2a));
-    p->addAndMakeVisible(k);
-    l.setText(text, juce::dontSendNotification);
-    l.setJustificationType(juce::Justification::centred);
-    l.setColour(juce::Label::textColourId, juce::Colour(0xff888888));
-    p->addAndMakeVisible(l);
+    s.setSliderStyle(juce::Slider::LinearHorizontal);
+    s.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+    s.setColour(juce::Slider::trackColourId, kGreen);
+    s.setColour(juce::Slider::backgroundColourId, kSurface);
+    p->addAndMakeVisible(s);
+    label.setText(name, juce::dontSendNotification);
+    label.setColour(juce::Label::textColourId, kDim);
+    label.setJustificationType(juce::Justification::centredLeft);
+    p->addAndMakeVisible(label);
+    value.setColour(juce::Label::textColourId, kGreen);
+    value.setJustificationType(juce::Justification::centredRight);
+    p->addAndMakeVisible(value);
 }
 
-SynthPanel::SynthPanel(juce::AudioProcessorValueTreeState& apvts)
+SynthPanel::SynthPanel(T5ynthProcessor& processor)
+    : processorRef(processor)
 {
-    // Engine mode
-    engineModeBox.addItemList({"Looper", "Wavetable"}, 1);
-    addAndMakeVisible(engineModeBox);
+    // Horizontal engine switch
+    looperBtn.setColour(juce::TextButton::buttonColourId, kGreenBg);
+    looperBtn.setColour(juce::TextButton::buttonOnColourId, kGreen);
+    looperBtn.setColour(juce::TextButton::textColourOffId, kDim);
+    looperBtn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    looperBtn.setClickingTogglesState(true);
+    looperBtn.setRadioGroupId(1001);
+    looperBtn.setToggleState(true, juce::dontSendNotification);
+    addAndMakeVisible(looperBtn);
 
-    // Osc scan
-    initKnob(scanKnob, scanLabel, "Scan", this);
+    wavetableBtn.setColour(juce::TextButton::buttonColourId, kSurface);
+    wavetableBtn.setColour(juce::TextButton::buttonOnColourId, kGreen);
+    wavetableBtn.setColour(juce::TextButton::textColourOffId, kDim);
+    wavetableBtn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    wavetableBtn.setClickingTogglesState(true);
+    wavetableBtn.setRadioGroupId(1001);
+    addAndMakeVisible(wavetableBtn);
 
-    // Amp Env
-    initKnob(ampA, ampAL, "A", this);
-    initKnob(ampD, ampDL, "D", this);
-    initKnob(ampS, ampSL, "S", this);
-    initKnob(ampR, ampRL, "R", this);
+    // Hidden combo for APVTS attachment
+    engineModeHidden.addItemList({"Looper", "Wavetable"}, 1);
+    engineModeHidden.onChange = [this] {
+        bool isLooper = engineModeHidden.getSelectedId() == 1;
+        looperBtn.setToggleState(isLooper, juce::dontSendNotification);
+        wavetableBtn.setToggleState(!isLooper, juce::dontSendNotification);
+    };
+    looperBtn.onClick = [this] { engineModeHidden.setSelectedId(1); };
+    wavetableBtn.onClick = [this] { engineModeHidden.setSelectedId(2); };
 
-    // Mod Env 1
-    initKnob(mod1A, mod1AL, "A", this);
-    initKnob(mod1D, mod1DL, "D", this);
-    initKnob(mod1S, mod1SL, "S", this);
-    initKnob(mod1R, mod1RL, "R", this);
+    addAndMakeVisible(waveformDisplay);
 
-    // Mod Env 2
-    initKnob(mod2A, mod2AL, "A", this);
-    initKnob(mod2D, mod2DL, "D", this);
-    initKnob(mod2S, mod2SL, "S", this);
-    initKnob(mod2R, mod2RL, "R", this);
+    // Scan
+    makeLinearSlider(scanSlider, scanLabel, scanValue, "Scan Position", this);
+    scanHint.setText("Morph between frames (0 = start, 1 = end)", juce::dontSendNotification);
+    scanHint.setColour(juce::Label::textColourId, kDimmer);
+    addAndMakeVisible(scanHint);
+    scanSlider.onValueChange = [this] {
+        scanValue.setText(juce::String(scanSlider.getValue(), 2), juce::dontSendNotification);
+    };
 
-    // LFO 1
-    initKnob(lfo1Rate, lfo1RateL, "Rate", this);
-    initKnob(lfo1Depth, lfo1DepthL, "Dep", this);
-    lfo1Wave.addItemList({"Sin", "Tri", "Saw", "Sq", "S&H"}, 1);
-    addAndMakeVisible(lfo1Wave);
+    // Filter
+    filterToggle.setColour(juce::ToggleButton::textColourId, kDim);
+    filterToggle.setColour(juce::ToggleButton::tickColourId, kGreen);
+    filterToggle.setToggleState(true, juce::dontSendNotification);
+    filterToggle.onClick = [this] { resized(); repaint(); };
+    addAndMakeVisible(filterToggle);
 
-    // LFO 2
-    initKnob(lfo2Rate, lfo2RateL, "Rate", this);
-    initKnob(lfo2Depth, lfo2DepthL, "Dep", this);
-    lfo2Wave.addItemList({"Sin", "Tri", "Saw", "Sq", "S&H"}, 1);
-    addAndMakeVisible(lfo2Wave);
+    filterTypeBox.addItemList({"LP", "HP", "BP"}, 1);
+    addAndMakeVisible(filterTypeBox);
+    filterSlopeBox.addItemList({"12dB", "24dB"}, 1);
+    addAndMakeVisible(filterSlopeBox);
 
-    // Drift
-    driftToggle.setColour(juce::ToggleButton::textColourId, juce::Colour(0xff888888));
-    driftToggle.setColour(juce::ToggleButton::tickColourId, juce::Colour(0xff4a9eff));
-    addAndMakeVisible(driftToggle);
-    for (auto* s : { &drift1Rate, &drift1Depth, &drift2Rate, &drift2Depth, &drift3Rate, &drift3Depth })
+    auto makeFilterKnob = [this](juce::Slider& s, juce::Label& label, juce::Label& value, const juce::String& name)
     {
-        s->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        s->setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-        s->setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(0xff4a9eff));
-        s->setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colour(0xff2a2a2a));
-        addAndMakeVisible(*s);
-    }
+        s.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        s.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 1, 1);
+        s.setColour(juce::Slider::rotarySliderFillColourId, kGreen);
+        s.setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colour(0xff2a2a2a));
+        addAndMakeVisible(s);
+        label.setText(name, juce::dontSendNotification);
+        label.setColour(juce::Label::textColourId, kDim);
+        label.setJustificationType(juce::Justification::centred);
+        addAndMakeVisible(label);
+        value.setColour(juce::Label::textColourId, kGreen);
+        value.setJustificationType(juce::Justification::centred);
+        addAndMakeVisible(value);
+    };
 
-    // Attachments
-    engineModeAttach = std::make_unique<CA>(apvts, "engine_mode", engineModeBox);
-    scanAttach = std::make_unique<SA>(apvts, "osc_scan", scanKnob);
+    makeFilterKnob(cutoffSlider, cutoffLabel, cutoffValue, "Cutoff");
+    cutoffSlider.onValueChange = [this] {
+        cutoffValue.setText(juce::String(juce::roundToInt(cutoffSlider.getValue())) + " Hz", juce::dontSendNotification);
+    };
 
-    ampAA = std::make_unique<SA>(apvts, "amp_attack", ampA);
-    ampDA = std::make_unique<SA>(apvts, "amp_decay", ampD);
-    ampSA = std::make_unique<SA>(apvts, "amp_sustain", ampS);
-    ampRA = std::make_unique<SA>(apvts, "amp_release", ampR);
+    makeFilterKnob(resoSlider, resoLabel, resoValue, "Reso");
+    resoSlider.onValueChange = [this] {
+        resoValue.setText(juce::String(resoSlider.getValue(), 2), juce::dontSendNotification);
+    };
 
-    mod1AA = std::make_unique<SA>(apvts, "mod1_attack", mod1A);
-    mod1DA = std::make_unique<SA>(apvts, "mod1_decay", mod1D);
-    mod1SA = std::make_unique<SA>(apvts, "mod1_sustain", mod1S);
-    mod1RA = std::make_unique<SA>(apvts, "mod1_release", mod1R);
+    makeFilterKnob(filterMixSlider, filterMixLabel, filterMixValue, "Mix");
+    filterMixSlider.onValueChange = [this] {
+        filterMixValue.setText(juce::String(juce::roundToInt(filterMixSlider.getValue() * 100.0)) + "%", juce::dontSendNotification);
+    };
 
-    mod2AA = std::make_unique<SA>(apvts, "mod2_attack", mod2A);
-    mod2DA = std::make_unique<SA>(apvts, "mod2_decay", mod2D);
-    mod2SA = std::make_unique<SA>(apvts, "mod2_sustain", mod2S);
-    mod2RA = std::make_unique<SA>(apvts, "mod2_release", mod2R);
+    makeFilterKnob(kbdTrackSlider, kbdTrackLabel, kbdTrackValue, "Kbd");
+    kbdTrackSlider.onValueChange = [this] {
+        kbdTrackValue.setText(juce::String(juce::roundToInt(kbdTrackSlider.getValue() * 100.0)) + "%", juce::dontSendNotification);
+    };
 
-    lfo1RateA  = std::make_unique<SA>(apvts, "lfo1_rate", lfo1Rate);
-    lfo1DepthA = std::make_unique<SA>(apvts, "lfo1_depth", lfo1Depth);
-    lfo1WaveA  = std::make_unique<CA>(apvts, "lfo1_wave", lfo1Wave);
-    lfo2RateA  = std::make_unique<SA>(apvts, "lfo2_rate", lfo2Rate);
-    lfo2DepthA = std::make_unique<SA>(apvts, "lfo2_depth", lfo2Depth);
-    lfo2WaveA  = std::make_unique<CA>(apvts, "lfo2_wave", lfo2Wave);
+    // APVTS
+    auto& apvts = processor.getValueTreeState();
+    engineModeA = std::make_unique<CA>(apvts, "engine_mode", engineModeHidden);
+    scanA       = std::make_unique<SA>(apvts, "osc_scan", scanSlider);
+    cutoffA     = std::make_unique<SA>(apvts, "filter_cutoff", cutoffSlider);
+    resoA       = std::make_unique<SA>(apvts, "filter_resonance", resoSlider);
+    filterTypeA = std::make_unique<CA>(apvts, "filter_type", filterTypeBox);
+    filterSlopeA= std::make_unique<CA>(apvts, "filter_slope", filterSlopeBox);
+    filterMixA  = std::make_unique<SA>(apvts, "filter_mix", filterMixSlider);
+    kbdTrackA   = std::make_unique<SA>(apvts, "filter_kbd_track", kbdTrackSlider);
+}
 
-    driftEnableA = std::make_unique<BA>(apvts, "drift_enabled", driftToggle);
-    d1RA = std::make_unique<SA>(apvts, "drift1_rate", drift1Rate);
-    d1DA = std::make_unique<SA>(apvts, "drift1_depth", drift1Depth);
-    d2RA = std::make_unique<SA>(apvts, "drift2_rate", drift2Rate);
-    d2DA = std::make_unique<SA>(apvts, "drift2_depth", drift2Depth);
-    d3RA = std::make_unique<SA>(apvts, "drift3_rate", drift3Rate);
-    d3DA = std::make_unique<SA>(apvts, "drift3_depth", drift3Depth);
+float SynthPanel::fs() const
+{
+    float topH = (getTopLevelComponent() != nullptr)
+                     ? static_cast<float>(getTopLevelComponent()->getHeight()) : 800.0f;
+    return juce::jlimit(14.0f, 26.0f, topH * 0.030f);
 }
 
 void SynthPanel::paint(juce::Graphics& g)
 {
+    float f = fs();
     float h = static_cast<float>(getHeight());
     float w = static_cast<float>(getWidth());
-    float topH = (getTopLevelComponent() != nullptr) ? static_cast<float>(getTopLevelComponent()->getHeight()) : 800.0f;
-    float fs = juce::jlimit(10.0f, 16.0f, topH * 0.016f);
+    float pad = w * 0.03f;
 
-    // Section headers drawn directly
-    g.setFont(juce::FontOptions(fs));
-    g.setColour(juce::Colour(0xff888888));
-
-    float pad = w * 0.04f;
-    float y = h * 0.001f;
-    auto hdrY = [&](float frac) { return juce::roundToInt(h * frac); };
-
-    g.drawText("OSC", juce::roundToInt(pad), hdrY(0.01f), getWidth(), juce::roundToInt(fs + 4), juce::Justification::centredLeft);
-    g.drawText("AMP ENV", juce::roundToInt(pad), hdrY(0.17f), getWidth(), juce::roundToInt(fs + 4), juce::Justification::centredLeft);
-    g.drawText("MOD ENV 1", juce::roundToInt(pad), hdrY(0.33f), getWidth(), juce::roundToInt(fs + 4), juce::Justification::centredLeft);
-    g.drawText("MOD ENV 2", juce::roundToInt(pad), hdrY(0.47f), getWidth(), juce::roundToInt(fs + 4), juce::Justification::centredLeft);
-    g.drawText("LFO 1        LFO 2", juce::roundToInt(pad), hdrY(0.61f), getWidth(), juce::roundToInt(fs + 4), juce::Justification::centredLeft);
-    g.drawText("DRIFT", juce::roundToInt(pad), hdrY(0.80f), getWidth(), juce::roundToInt(fs + 4), juce::Justification::centredLeft);
-
-    // Thin separator lines
+    // Filter section separator
     g.setColour(juce::Colour(0xff1a1a1a));
-    for (float frac : { 0.165f, 0.325f, 0.465f, 0.605f, 0.795f })
-        g.drawHorizontalLine(hdrY(frac), pad, w - pad);
+    int filterY = juce::roundToInt(h * 0.48f);
+    g.drawHorizontalLine(filterY, pad, w - pad);
+
+    g.setFont(juce::FontOptions(f * 0.85f));
+    g.setColour(kDim);
+    g.drawText("FILTER", juce::roundToInt(pad), filterY + 2,
+               juce::roundToInt(w * 0.3f), juce::roundToInt(f * 1.3f),
+               juce::Justification::centredLeft);
 }
 
 void SynthPanel::resized()
 {
     float w = static_cast<float>(getWidth());
     float h = static_cast<float>(getHeight());
-    int pad = juce::roundToInt(w * 0.04f);
-    float topH = (getTopLevelComponent() != nullptr) ? static_cast<float>(getTopLevelComponent()->getHeight()) : 800.0f;
-    float fs = juce::jlimit(10.0f, 14.0f, topH * 0.014f);
+    int pad = juce::roundToInt(w * 0.03f);
+    auto area = getLocalBounds().reduced(pad);
+    float f = fs();
+    float fSmall = f * 0.8f;
+    int rowH = juce::roundToInt(f * 1.5f);
+    int sliderH = juce::roundToInt(f * 1.3f);
+    int hintH = juce::roundToInt(fSmall * 1.2f);
+    int gap = juce::roundToInt(h * 0.01f);
 
-    auto placeKnob = [&](juce::Slider& knob, juce::Label& label, int x, int y, int dia)
-    {
-        int tbW = juce::roundToInt(dia * 0.85f);
-        int tbH = juce::roundToInt(fs + 3.0f);
-        knob.setBounds(x, y, dia, dia);
-        knob.setTextBoxStyle(juce::Slider::TextBoxBelow, false, tbW, tbH);
-        label.setFont(juce::FontOptions(fs));
-        label.setBounds(x, y + dia, dia, juce::roundToInt(h * 0.02f));
-    };
+    auto setFs = [](juce::Label& l, float size) { l.setFont(juce::FontOptions(size)); };
 
-    // 4 knobs in a row helper
-    auto placeEnvRow = [&](juce::Slider& a, juce::Label& al,
-                           juce::Slider& d, juce::Label& dl,
-                           juce::Slider& s, juce::Label& sl,
-                           juce::Slider& r, juce::Label& rl,
-                           float yFrac)
+    // --- MODE: horizontal switch ---
+    auto modeRow = area.removeFromTop(juce::roundToInt(f * 2.0f));
+    int halfW = modeRow.getWidth() / 2;
+    looperBtn.setBounds(modeRow.removeFromLeft(halfW));
+    wavetableBtn.setBounds(modeRow);
+    area.removeFromTop(gap);
+
+    // Waveform display
+    int waveH = juce::roundToInt(h * 0.18f);
+    waveformDisplay.setBounds(area.removeFromTop(waveH));
+    area.removeFromTop(gap);
+
+    // Scan
+    setFs(scanLabel, f);
+    setFs(scanValue, f);
+    auto scanRow = area.removeFromTop(rowH);
+    scanLabel.setBounds(scanRow.removeFromLeft(scanRow.getWidth() / 2));
+    scanValue.setBounds(scanRow);
+    scanSlider.setBounds(area.removeFromTop(sliderH));
+    setFs(scanHint, fSmall);
+    scanHint.setBounds(area.removeFromTop(hintH));
+
+    // --- FILTER section ---
+    area.removeFromTop(juce::roundToInt(h * 0.05f)); // space for header in paint()
+
+    bool filterOn = filterToggle.getToggleState();
+    auto filterHeaderRow = area.removeFromTop(rowH);
+    filterToggle.setBounds(filterHeaderRow.removeFromLeft(juce::roundToInt(w * 0.22f)));
+    if (filterOn)
     {
-        int rowY = juce::roundToInt(h * yFrac);
-        int colW = (getWidth() - pad * 2) / 4;
-        int dia = juce::jmin(juce::roundToInt(h * 0.10f), colW - 4);
-        for (int i = 0; i < 4; ++i)
+        filterTypeBox.setBounds(filterHeaderRow.removeFromLeft(juce::roundToInt(w * 0.14f)));
+        filterHeaderRow.removeFromLeft(4);
+        filterSlopeBox.setBounds(filterHeaderRow.removeFromLeft(juce::roundToInt(w * 0.14f)));
+    }
+    filterTypeBox.setVisible(filterOn);
+    filterSlopeBox.setVisible(filterOn);
+    area.removeFromTop(gap);
+
+    // Conditional visibility for all filter controls
+    for (auto* c : std::initializer_list<juce::Component*>{
+            &cutoffSlider, &cutoffLabel, &cutoffValue,
+            &resoSlider, &resoLabel, &resoValue,
+            &filterMixSlider, &filterMixLabel, &filterMixValue,
+            &kbdTrackSlider, &kbdTrackLabel, &kbdTrackValue })
+        c->setVisible(filterOn);
+
+    if (filterOn)
+    {
+        int cols = 4;
+        int colW = area.getWidth() / cols;
+        int knobDia = juce::jmin(juce::roundToInt(h * 0.12f), colW - 8);
+        int labelH = juce::roundToInt(f * 1.0f);
+        int tbW = juce::roundToInt(knobDia * 0.9f);
+        int tbH = juce::roundToInt(fSmall);
+
+        auto knobRow = area.removeFromTop(knobDia + labelH * 2);
+
+        auto placeKnob = [&](juce::Slider& knob, juce::Label& label, juce::Label& value, int col)
         {
-            auto& knob = (i == 0) ? a : (i == 1) ? d : (i == 2) ? s : r;
-            auto& lab  = (i == 0) ? al : (i == 1) ? dl : (i == 2) ? sl : rl;
-            int cx = pad + i * colW + (colW - dia) / 2;
-            placeKnob(knob, lab, cx, rowY, dia);
-        }
-    };
+            int x = knobRow.getX() + col * colW + (colW - knobDia) / 2;
+            int y = knobRow.getY();
+            setFs(label, fSmall);
+            label.setBounds(x, y, knobDia, labelH);
+            knob.setBounds(x, y + labelH, knobDia, knobDia);
+            knob.setTextBoxStyle(juce::Slider::TextBoxBelow, false, tbW, tbH);
+        };
 
-    // OSC section: engine mode + scan
-    int oscY = juce::roundToInt(h * 0.04f);
-    int modeW = juce::roundToInt(w * 0.45f);
-    int modeH = juce::roundToInt(h * 0.035f);
-    engineModeBox.setBounds(pad, oscY, modeW, modeH);
-
-    int scanDia = juce::jmin(juce::roundToInt(h * 0.09f), juce::roundToInt(w * 0.25f));
-    placeKnob(scanKnob, scanLabel, pad + modeW + juce::roundToInt(w * 0.05f), oscY, scanDia);
-
-    // Amp Env
-    placeEnvRow(ampA, ampAL, ampD, ampDL, ampS, ampSL, ampR, ampRL, 0.20f);
-
-    // Mod Env 1
-    placeEnvRow(mod1A, mod1AL, mod1D, mod1DL, mod1S, mod1SL, mod1R, mod1RL, 0.355f);
-
-    // Mod Env 2
-    placeEnvRow(mod2A, mod2AL, mod2D, mod2DL, mod2S, mod2SL, mod2R, mod2RL, 0.495f);
-
-    // LFO 1 + LFO 2 side by side
-    int lfoY = juce::roundToInt(h * 0.645f);
-    int halfW = (getWidth() - pad * 2) / 2;
-    int lfoDia = juce::jmin(juce::roundToInt(h * 0.08f), halfW / 3);
-    int comboH = juce::roundToInt(h * 0.03f);
-
-    auto placeLfo = [&](juce::Slider& rate, juce::Label& rateL,
-                        juce::Slider& depth, juce::Label& depthL,
-                        juce::ComboBox& wave, int xOff)
-    {
-        int x = pad + xOff;
-        placeKnob(rate, rateL, x, lfoY, lfoDia);
-        placeKnob(depth, depthL, x + lfoDia + 4, lfoY, lfoDia);
-        wave.setBounds(x, lfoY + lfoDia + juce::roundToInt(h * 0.025f),
-                       lfoDia * 2 + 4, comboH);
-    };
-    placeLfo(lfo1Rate, lfo1RateL, lfo1Depth, lfo1DepthL, lfo1Wave, 0);
-    placeLfo(lfo2Rate, lfo2RateL, lfo2Depth, lfo2DepthL, lfo2Wave, halfW);
-
-    // Drift
-    int driftY = juce::roundToInt(h * 0.835f);
-    int driftDia = juce::jmin(juce::roundToInt(h * 0.055f), (getWidth() - pad * 2) / 7);
-    driftToggle.setBounds(pad, driftY, juce::roundToInt(w * 0.25f), juce::roundToInt(h * 0.03f));
-
-    int dkY = driftY + juce::roundToInt(h * 0.035f);
-    int dkX = pad;
-    int dkStep = driftDia + 2;
-    drift1Rate.setBounds(dkX, dkY, driftDia, driftDia);
-    drift1Depth.setBounds(dkX + dkStep, dkY, driftDia, driftDia);
-    dkX += dkStep * 2 + juce::roundToInt(w * 0.03f);
-    drift2Rate.setBounds(dkX, dkY, driftDia, driftDia);
-    drift2Depth.setBounds(dkX + dkStep, dkY, driftDia, driftDia);
-    dkX += dkStep * 2 + juce::roundToInt(w * 0.03f);
-    drift3Rate.setBounds(dkX, dkY, driftDia, driftDia);
-    drift3Depth.setBounds(dkX + dkStep, dkY, driftDia, driftDia);
+        placeKnob(cutoffSlider, cutoffLabel, cutoffValue, 0);
+        placeKnob(resoSlider, resoLabel, resoValue, 1);
+        placeKnob(filterMixSlider, filterMixLabel, filterMixValue, 2);
+        placeKnob(kbdTrackSlider, kbdTrackLabel, kbdTrackValue, 3);
+    }
 }

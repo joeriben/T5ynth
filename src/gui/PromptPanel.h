@@ -1,11 +1,10 @@
 #pragma once
 #include <JuceHeader.h>
-#include "WaveformDisplay.h"
 
 class T5ynthProcessor;
 
 /**
- * SOURCE column: 2 prompts with alpha between them, generation controls, waveform.
+ * GENERATION column: prompts, embedding controls, compact params, generate.
  */
 class PromptPanel : public juce::Component
 {
@@ -18,33 +17,36 @@ public:
 
 private:
     void triggerGeneration();
+    float fs() const;
 
     T5ynthProcessor& processorRef;
 
-    juce::Label headerLabel;
+    // Prompts
+    juce::Label promptALabel, promptBLabel;
+    juce::TextEditor promptAEditor, promptBEditor;
 
-    // Prompts + interpolation
-    juce::TextEditor promptAEditor;
-    juce::Slider alphaSlider;       // horizontal between A and B
-    juce::TextEditor promptBEditor;
+    // Embedding controls (linear sliders)
+    juce::Slider alphaSlider, magnitudeSlider, noiseSlider;
+    juce::Label alphaLabel, alphaValue, alphaHint;
+    juce::Label magLabel, magValue, magHint;
+    juce::Label noiseLabel, noiseValue, noiseHint;
 
-    // Secondary: embedding control
-    juce::Slider magnitudeKnob, noiseKnob;
-    juce::Label magnitudeLabel, noiseLabel;
+    // Compact params row: Duration, Start, Steps, CFG, Seed
+    juce::Slider durationSlider, startSlider;
+    juce::Slider stepsSlider, cfgSlider, seedSlider;
+    juce::Label durLabel, durValue, durHint;
+    juce::Label startLabel, startValue, startHint;
+    juce::Label stepsLabel, stepsValue, stepsHint;
+    juce::Label cfgLabel, cfgValue, cfgHint;
+    juce::Label seedLabel, seedValue;
 
-    // Tertiary: generation tech settings (compact)
-    juce::Slider durationSlider, stepsSlider, cfgSlider;
-    juce::Label durationLabel, stepsLabel, cfgLabel;
-
-    juce::TextButton generateButton { "GENERATE" };
-    WaveformDisplay waveformDisplay;
+    juce::TextButton generateButton { "Generate" };
     juce::Label infoLabel;
 
     bool generating = false;
 
     using Attachment = juce::AudioProcessorValueTreeState::SliderAttachment;
-    std::unique_ptr<Attachment> alphaAttach, magnitudeAttach, noiseAttach;
-    std::unique_ptr<Attachment> durationAttach, stepsAttach, cfgAttach;
+    std::unique_ptr<Attachment> alphaA, magA, noiseA, durA, startA, stepsA, cfgA, seedA;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PromptPanel)
 };

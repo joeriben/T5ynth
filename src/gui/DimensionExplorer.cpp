@@ -19,7 +19,7 @@ void DimensionExplorer::paint(juce::Graphics& g)
 
     // Header
     float topH = (getTopLevelComponent() != nullptr) ? static_cast<float>(getTopLevelComponent()->getHeight()) : 800.0f;
-    float fs = juce::jlimit(10.0f, 16.0f, topH * 0.016f);
+    float fs = juce::jlimit(14.0f, 26.0f, topH * 0.030f);
     g.setFont(juce::FontOptions(fs));
     g.setColour(juce::Colour(0xff888888));
     g.drawText("EXPLORE", juce::roundToInt(pad + 4), juce::roundToInt(pad),

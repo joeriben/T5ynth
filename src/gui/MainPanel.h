@@ -5,6 +5,7 @@
 #include "DimensionExplorer.h"
 #include "SynthPanel.h"
 #include "EffectsPanel.h"
+#include "DriftPanel.h"
 #include "SequencerPanel.h"
 #include "StatusBar.h"
 
@@ -22,12 +23,17 @@ public:
 private:
     T5ynthProcessor& processorRef;
 
-    // 4 columns: SOURCE | EXPLORE | OSC/ENV/MOD | FILTER/FX
+    // Col 1: GENERATION (30%) — prompts, gen params, axes
     PromptPanel promptPanel;
     AxesPanel axesPanel;
-    DimensionExplorer dimensionExplorer;
+
+    // Col 2: MODE + FILTER + EXPLORE (40%)
     SynthPanel synthPanel;
-    EffectsPanel effectsPanel;
+    DimensionExplorer dimensionExplorer;
+
+    // Col 3: MODULATION + FX (30%)
+    EffectsPanel modulationPanel;
+    DriftPanel fxPanel;
 
     // Bottom
     SequencerPanel sequencerPanel;

@@ -1,68 +1,54 @@
 #pragma once
 #include <JuceHeader.h>
+#include "WaveformDisplay.h"
+
+class T5ynthProcessor;
 
 /**
- * OSC / ENV / MOD column: engine mode, scan, 3 envelopes, 2 LFOs, drift.
+ * MODE + FILTER column (40%).
+ * Engine: horizontal switch (Looper | Wavetable), waveform, scan.
+ * Filter: toggle, type, slope, cutoff, reso, mix, kbd track.
  */
 class SynthPanel : public juce::Component
 {
 public:
-    explicit SynthPanel(juce::AudioProcessorValueTreeState& apvts);
+    explicit SynthPanel(T5ynthProcessor& processor);
     ~SynthPanel() override = default;
 
     void paint(juce::Graphics& g) override;
     void resized() override;
 
 private:
-    // Engine
-    juce::ComboBox engineModeBox;
+    float fs() const;
 
-    // Oscillator
-    juce::Slider scanKnob;
-    juce::Label scanLabel;
+    T5ynthProcessor& processorRef;
 
-    // Amp Envelope (4 knobs in a row)
-    juce::Slider ampA, ampD, ampS, ampR;
-    juce::Label ampAL, ampDL, ampSL, ampRL;
+    // Engine mode: horizontal switch
+    juce::TextButton looperBtn { "Looper" };
+    juce::TextButton wavetableBtn { "Wavetable" };
+    WaveformDisplay waveformDisplay;
 
-    // Mod Envelope 1
-    juce::Slider mod1A, mod1D, mod1S, mod1R;
-    juce::Label mod1AL, mod1DL, mod1SL, mod1RL;
+    // Scan
+    juce::Slider scanSlider;
+    juce::Label scanLabel, scanValue, scanHint;
 
-    // Mod Envelope 2
-    juce::Slider mod2A, mod2D, mod2S, mod2R;
-    juce::Label mod2AL, mod2DL, mod2SL, mod2RL;
+    // Filter
+    juce::ToggleButton filterToggle { "Filter" };
+    juce::ComboBox filterTypeBox, filterSlopeBox;
+    juce::Slider cutoffSlider, resoSlider, filterMixSlider, kbdTrackSlider;
+    juce::Label cutoffLabel, cutoffValue;
+    juce::Label resoLabel, resoValue;
+    juce::Label filterMixLabel, filterMixValue;
+    juce::Label kbdTrackLabel, kbdTrackValue;
 
-    // LFO 1
-    juce::Slider lfo1Rate, lfo1Depth;
-    juce::ComboBox lfo1Wave;
-    juce::Label lfo1RateL, lfo1DepthL;
-
-    // LFO 2
-    juce::Slider lfo2Rate, lfo2Depth;
-    juce::ComboBox lfo2Wave;
-    juce::Label lfo2RateL, lfo2DepthL;
-
-    // Drift
-    juce::ToggleButton driftToggle { "Drift" };
-    juce::Slider drift1Rate, drift1Depth, drift2Rate, drift2Depth, drift3Rate, drift3Depth;
-
-    // Attachments
     using SA = juce::AudioProcessorValueTreeState::SliderAttachment;
     using CA = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
-    using BA = juce::AudioProcessorValueTreeState::ButtonAttachment;
+    std::unique_ptr<SA> scanA, cutoffA, resoA, filterMixA, kbdTrackA;
+    std::unique_ptr<CA> filterTypeA, filterSlopeA;
 
-    std::unique_ptr<CA> engineModeAttach;
-    std::unique_ptr<SA> scanAttach;
-    std::unique_ptr<SA> ampAA, ampDA, ampSA, ampRA;
-    std::unique_ptr<SA> mod1AA, mod1DA, mod1SA, mod1RA;
-    std::unique_ptr<SA> mod2AA, mod2DA, mod2SA, mod2RA;
-    std::unique_ptr<SA> lfo1RateA, lfo1DepthA;
-    std::unique_ptr<CA> lfo1WaveA;
-    std::unique_ptr<SA> lfo2RateA, lfo2DepthA;
-    std::unique_ptr<CA> lfo2WaveA;
-    std::unique_ptr<BA> driftEnableA;
-    std::unique_ptr<SA> d1RA, d1DA, d2RA, d2DA, d3RA, d3DA;
+    // Engine mode is driven by APVTS but we use buttons, not ComboBox
+    std::unique_ptr<CA> engineModeA;
+    juce::ComboBox engineModeHidden; // hidden, just for APVTS attachment
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SynthPanel)
 };

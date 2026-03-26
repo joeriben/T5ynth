@@ -2,7 +2,8 @@
 #include <JuceHeader.h>
 
 /**
- * FILTER / FX column: filter, delay, reverb, limiter.
+ * MODULATION column (20%): ENVs, LFOs, Drift.
+ * Rotary knobs with target dropdowns. Hidden when target = "—".
  */
 class EffectsPanel : public juce::Component
 {
@@ -14,32 +15,50 @@ public:
     void resized() override;
 
 private:
-    // Filter
-    juce::Slider cutoffKnob, resoKnob;
-    juce::Label cutoffLabel, resoLabel;
-    juce::ComboBox filterTypeBox;
+    float fs() const;
 
-    // Delay
-    juce::Slider delayTimeKnob, delayFbKnob, delayMixKnob;
-    juce::Label delayTimeLabel, delayFbLabel, delayMixLabel;
+    // Per-envelope section
+    struct EnvSection
+    {
+        juce::Label header;
+        juce::ComboBox targetBox;
+        juce::Slider a, d, s, r;
+        juce::Label aL, dL, sL, rL;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> aA, dA, sA, rA;
+    };
 
-    // Reverb
-    juce::Slider reverbMixKnob;
-    juce::Label reverbMixLabel;
-    juce::ComboBox reverbIrBox;
+    EnvSection ampEnv, mod1Env, mod2Env;
 
-    // Limiter
-    juce::Slider limThreshKnob, limReleaseKnob;
-    juce::Label limThreshLabel, limReleaseLabel;
+    // Per-LFO section
+    struct LfoSection
+    {
+        juce::Label header;
+        juce::ComboBox targetBox, waveBox;
+        juce::Slider rate, depth;
+        juce::Label rateL, depthL;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> rateA, depthA;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> waveA;
+    };
 
-    using SA = juce::AudioProcessorValueTreeState::SliderAttachment;
-    using CA = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
-    std::unique_ptr<SA> cutoffA, resoA;
-    std::unique_ptr<CA> filterTypeA;
-    std::unique_ptr<SA> delayTimeA, delayFbA, delayMixA;
-    std::unique_ptr<SA> reverbMixA;
-    std::unique_ptr<CA> reverbIrA;
-    std::unique_ptr<SA> limThreshA, limReleaseA;
+    LfoSection lfo1, lfo2;
+
+    // Drift
+    juce::ToggleButton driftToggle { "Drift" };
+    juce::Slider d1Rate, d1Depth, d2Rate, d2Depth, d3Rate, d3Depth;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> driftEnableA;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+        d1RA, d1DA, d2RA, d2DA, d3RA, d3DA;
+
+    void initEnv(EnvSection& env, const juce::String& name,
+                 const juce::String& aId, const juce::String& dId,
+                 const juce::String& sId, const juce::String& rId,
+                 juce::AudioProcessorValueTreeState& apvts);
+    void initLfo(LfoSection& lfo, const juce::String& name,
+                 const juce::String& rateId, const juce::String& depthId,
+                 const juce::String& waveId,
+                 juce::AudioProcessorValueTreeState& apvts);
+    void layoutEnv(EnvSection& env, juce::Rectangle<int>& area, float f, int knobDia);
+    void layoutLfo(LfoSection& lfo, juce::Rectangle<int>& area, float f, int knobDia);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(EffectsPanel)
 };

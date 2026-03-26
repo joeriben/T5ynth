@@ -2,171 +2,268 @@
 #include "../PluginProcessor.h"
 #include "../backend/GenerationRequest.h"
 
+static const auto kGreen   = juce::Colour(0xff4a9eff);
+static const auto kDim     = juce::Colour(0xff888888);
+static const auto kDimmer  = juce::Colour(0xff606060);
+static const auto kSurface = juce::Colour(0xff1a1a1a);
+
+static void makeSlider(juce::Slider& s, juce::Component* p)
+{
+    s.setSliderStyle(juce::Slider::LinearHorizontal);
+    s.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+    s.setColour(juce::Slider::trackColourId, kGreen);
+    s.setColour(juce::Slider::backgroundColourId, kSurface);
+    p->addAndMakeVisible(s);
+}
+
+static void makeLabel(juce::Label& l, const juce::String& text, juce::Colour col,
+                      juce::Justification just, juce::Component* p)
+{
+    l.setText(text, juce::dontSendNotification);
+    l.setColour(juce::Label::textColourId, col);
+    l.setJustificationType(just);
+    p->addAndMakeVisible(l);
+}
+
 PromptPanel::PromptPanel(T5ynthProcessor& processor)
     : processorRef(processor)
 {
-    headerLabel.setText("SOURCE", juce::dontSendNotification);
-    headerLabel.setColour(juce::Label::textColourId, juce::Colour(0xff888888));
-    addAndMakeVisible(headerLabel);
-
-    // Prompt editors
+    makeLabel(promptALabel, "Prompt A (Basis)", kDim, juce::Justification::centredLeft, this);
     promptAEditor.setMultiLine(false);
-    promptAEditor.setTextToShowWhenEmpty("prompt A", juce::Colour(0xff555555));
+    promptAEditor.setTextToShowWhenEmpty("text prompt for base embedding", juce::Colour(0xff444444));
     promptAEditor.onReturnKey = [this] { triggerGeneration(); };
     addAndMakeVisible(promptAEditor);
 
+    makeLabel(promptBLabel, "Prompt B (optional, for interpolation)", kDim, juce::Justification::centredLeft, this);
     promptBEditor.setMultiLine(false);
-    promptBEditor.setTextToShowWhenEmpty("prompt B", juce::Colour(0xff555555));
+    promptBEditor.setTextToShowWhenEmpty("second prompt for A/B blending", juce::Colour(0xff444444));
     addAndMakeVisible(promptBEditor);
 
-    // Alpha: horizontal slider between prompts — the A↔B interpolation
-    alphaSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    alphaSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    alphaSlider.setColour(juce::Slider::trackColourId, juce::Colour(0xff4a9eff));
-    alphaSlider.setColour(juce::Slider::backgroundColourId, juce::Colour(0xff1a1a1a));
-    addAndMakeVisible(alphaSlider);
-
-    // Magnitude + Noise: rotary knobs
-    auto setupKnob = [this](juce::Slider& knob, juce::Label& label, const juce::String& text)
-    {
-        knob.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        knob.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 1, 1);
-        knob.setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(0xff4a9eff));
-        knob.setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colour(0xff2a2a2a));
-        addAndMakeVisible(knob);
-        label.setText(text, juce::dontSendNotification);
-        label.setJustificationType(juce::Justification::centred);
-        label.setColour(juce::Label::textColourId, juce::Colour(0xff888888));
-        addAndMakeVisible(label);
+    // Alpha
+    makeSlider(alphaSlider, this);
+    makeLabel(alphaLabel, "Alpha", kDim, juce::Justification::centredLeft, this);
+    makeLabel(alphaValue, "0.50", kGreen, juce::Justification::centredRight, this);
+    makeLabel(alphaHint, "Interpolation: -1.0 = A only, 1.0 = B only", kDimmer, juce::Justification::centredLeft, this);
+    alphaSlider.onValueChange = [this] {
+        alphaValue.setText(juce::String(alphaSlider.getValue(), 2), juce::dontSendNotification);
     };
-    setupKnob(magnitudeKnob, magnitudeLabel, "Mag");
-    setupKnob(noiseKnob, noiseLabel, "Noise");
 
-    // Tertiary: compact horizontal sliders
-    auto setupCompact = [this](juce::Slider& slider, juce::Label& label, const juce::String& text)
-    {
-        slider.setSliderStyle(juce::Slider::LinearHorizontal);
-        slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 1, 1);
-        slider.setColour(juce::Slider::trackColourId, juce::Colour(0xff3a3a3a));
-        slider.setColour(juce::Slider::backgroundColourId, juce::Colour(0xff151515));
-        addAndMakeVisible(slider);
-        label.setText(text, juce::dontSendNotification);
-        label.setJustificationType(juce::Justification::centredLeft);
-        label.setColour(juce::Label::textColourId, juce::Colour(0xff666666));
-        addAndMakeVisible(label);
+    // Magnitude
+    makeSlider(magnitudeSlider, this);
+    makeLabel(magLabel, "Magnitude", kDim, juce::Justification::centredLeft, this);
+    makeLabel(magValue, "1.00", kGreen, juce::Justification::centredRight, this);
+    makeLabel(magHint, "Embedding scale (1.0 = unchanged)", kDimmer, juce::Justification::centredLeft, this);
+    magnitudeSlider.onValueChange = [this] {
+        magValue.setText(juce::String(magnitudeSlider.getValue(), 2), juce::dontSendNotification);
     };
-    setupCompact(durationSlider, durationLabel, "Dur");
-    setupCompact(stepsSlider, stepsLabel, "Steps");
-    setupCompact(cfgSlider, cfgLabel, "CFG");
 
+    // Noise
+    makeSlider(noiseSlider, this);
+    makeLabel(noiseLabel, "Noise", kDim, juce::Justification::centredLeft, this);
+    makeLabel(noiseValue, "0.00", kGreen, juce::Justification::centredRight, this);
+    makeLabel(noiseHint, "Gaussian noise on embedding (0 = none)", kDimmer, juce::Justification::centredLeft, this);
+    noiseSlider.onValueChange = [this] {
+        noiseValue.setText(juce::String(noiseSlider.getValue(), 2), juce::dontSendNotification);
+    };
+
+    // --- Compact params ---
+    // Duration
+    makeSlider(durationSlider, this);
+    makeLabel(durLabel, "Duration", kDimmer, juce::Justification::centredLeft, this);
+    makeLabel(durValue, "1.0s", kGreen, juce::Justification::centredRight, this);
+    makeLabel(durHint, "Audio length (seconds)", kDimmer, juce::Justification::centredLeft, this);
+    durationSlider.onValueChange = [this] {
+        durValue.setText(juce::String(durationSlider.getValue(), 1) + "s", juce::dontSendNotification);
+    };
+
+    // Start Position
+    makeSlider(startSlider, this);
+    makeLabel(startLabel, "Start", kDimmer, juce::Justification::centredLeft, this);
+    makeLabel(startValue, "0%", kGreen, juce::Justification::centredRight, this);
+    makeLabel(startHint, "0% = attack, higher = sustained", kDimmer, juce::Justification::centredLeft, this);
+    startSlider.onValueChange = [this] {
+        startValue.setText(juce::String(juce::roundToInt(startSlider.getValue() * 100.0)) + "%", juce::dontSendNotification);
+    };
+
+    // Steps
+    makeSlider(stepsSlider, this);
+    makeLabel(stepsLabel, "Steps", kDimmer, juce::Justification::centredLeft, this);
+    makeLabel(stepsValue, "20", kGreen, juce::Justification::centredRight, this);
+    makeLabel(stepsHint, "More = higher quality", kDimmer, juce::Justification::centredLeft, this);
+    stepsSlider.onValueChange = [this] {
+        stepsValue.setText(juce::String(juce::roundToInt(stepsSlider.getValue())), juce::dontSendNotification);
+    };
+
+    // CFG
+    makeSlider(cfgSlider, this);
+    makeLabel(cfgLabel, "CFG", kDimmer, juce::Justification::centredLeft, this);
+    makeLabel(cfgValue, "7.0", kGreen, juce::Justification::centredRight, this);
+    makeLabel(cfgHint, "Classifier-free guidance", kDimmer, juce::Justification::centredLeft, this);
+    cfgSlider.onValueChange = [this] {
+        cfgValue.setText(juce::String(cfgSlider.getValue(), 1), juce::dontSendNotification);
+    };
+
+    // Seed
+    makeSlider(seedSlider, this);
+    makeLabel(seedLabel, "Seed", kDimmer, juce::Justification::centredLeft, this);
+    makeLabel(seedValue, "-1", kGreen, juce::Justification::centredRight, this);
+    seedSlider.onValueChange = [this] {
+        seedValue.setText(juce::String(juce::roundToInt(seedSlider.getValue())), juce::dontSendNotification);
+    };
+
+    // Generate
+    generateButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff1a2a3a));
+    generateButton.setColour(juce::TextButton::textColourOffId, kGreen);
     generateButton.onClick = [this] { triggerGeneration(); };
     addAndMakeVisible(generateButton);
-    addAndMakeVisible(waveformDisplay);
 
-    infoLabel.setColour(juce::Label::textColourId, juce::Colour(0xff888888));
-    addAndMakeVisible(infoLabel);
+    makeLabel(infoLabel, "", kDim, juce::Justification::centredLeft, this);
 
-    // APVTS attachments
+    // APVTS
     auto& apvts = processor.getValueTreeState();
-    alphaAttach     = std::make_unique<Attachment>(apvts, "gen_alpha", alphaSlider);
-    magnitudeAttach = std::make_unique<Attachment>(apvts, "gen_magnitude", magnitudeKnob);
-    noiseAttach     = std::make_unique<Attachment>(apvts, "gen_noise", noiseKnob);
-    durationAttach  = std::make_unique<Attachment>(apvts, "gen_duration", durationSlider);
-    stepsAttach     = std::make_unique<Attachment>(apvts, "gen_steps", stepsSlider);
-    cfgAttach       = std::make_unique<Attachment>(apvts, "gen_cfg", cfgSlider);
+    alphaA  = std::make_unique<Attachment>(apvts, "gen_alpha", alphaSlider);
+    magA    = std::make_unique<Attachment>(apvts, "gen_magnitude", magnitudeSlider);
+    noiseA  = std::make_unique<Attachment>(apvts, "gen_noise", noiseSlider);
+    durA    = std::make_unique<Attachment>(apvts, "gen_duration", durationSlider);
+    startA  = std::make_unique<Attachment>(apvts, "gen_start", startSlider);
+    stepsA  = std::make_unique<Attachment>(apvts, "gen_steps", stepsSlider);
+    cfgA    = std::make_unique<Attachment>(apvts, "gen_cfg", cfgSlider);
+    seedA   = std::make_unique<Attachment>(apvts, "gen_seed", seedSlider);
 }
 
-void PromptPanel::paint(juce::Graphics&)
+float PromptPanel::fs() const
 {
+    float topH = (getTopLevelComponent() != nullptr)
+                     ? static_cast<float>(getTopLevelComponent()->getHeight()) : 800.0f;
+    return juce::jlimit(14.0f, 26.0f, topH * 0.030f);
 }
+
+void PromptPanel::paint(juce::Graphics&) {}
 
 void PromptPanel::resized()
 {
     auto b = getLocalBounds();
     float w = static_cast<float>(b.getWidth());
     float h = static_cast<float>(b.getHeight());
-    float pad = w * 0.04f;
-    auto area = b.reduced(juce::roundToInt(pad));
+    int pad = juce::roundToInt(w * 0.04f);
+    auto area = b.reduced(pad);
 
-    float topH = (getTopLevelComponent() != nullptr) ? static_cast<float>(getTopLevelComponent()->getHeight()) : 800.0f;
-    float fs = juce::jlimit(10.0f, 16.0f, topH * 0.016f);
-    float fsSmall = fs * 0.85f;
-    headerLabel.setFont(juce::FontOptions(fs));
-    infoLabel.setFont(juce::FontOptions(fsSmall));
-    magnitudeLabel.setFont(juce::FontOptions(fsSmall));
-    noiseLabel.setFont(juce::FontOptions(fsSmall));
-    durationLabel.setFont(juce::FontOptions(fsSmall));
-    stepsLabel.setFont(juce::FontOptions(fsSmall));
-    cfgLabel.setFont(juce::FontOptions(fsSmall));
+    float f = fs();
+    float fSmall = f * 0.80f;
+    float fHint = f * 0.65f;
+    int rowH = juce::roundToInt(f * 1.4f);
+    int sliderH = juce::roundToInt(f * 1.2f);
+    int hintH = juce::roundToInt(fHint * 1.3f);
+    int inputH = juce::roundToInt(f * 1.8f);
+    int gap = juce::roundToInt(f * 0.3f);
 
-    int g = juce::roundToInt(h * 0.01f);  // gap
-    int inputH = juce::roundToInt(h * 0.042f);
+    auto setFs = [](juce::Label& l, float size) { l.setFont(juce::FontOptions(size)); };
 
-    // Header
-    headerLabel.setBounds(area.removeFromTop(juce::roundToInt(h * 0.03f)));
-    area.removeFromTop(g);
+    // --- Main slider layout: [Label ... Value] \n [slider] \n [hint] ---
+    auto layoutSlider = [&](juce::Label& label, juce::Slider& slider, juce::Label& value,
+                            juce::Label* hint, float labelSize)
+    {
+        setFs(label, labelSize);
+        setFs(value, labelSize);
+        auto hdr = area.removeFromTop(rowH);
+        label.setBounds(hdr.removeFromLeft(hdr.getWidth() * 2 / 3));
+        value.setBounds(hdr);
+        slider.setBounds(area.removeFromTop(sliderH));
+        if (hint != nullptr)
+        {
+            setFs(*hint, fHint);
+            hint->setBounds(area.removeFromTop(hintH));
+        }
+        area.removeFromTop(gap);
+    };
 
     // Prompt A
+    setFs(promptALabel, fSmall);
+    promptALabel.setBounds(area.removeFromTop(rowH));
+    promptAEditor.setFont(juce::FontOptions(f));
     promptAEditor.setBounds(area.removeFromTop(inputH));
-    area.removeFromTop(g / 2);
-
-    // Alpha slider (A↔B) — thin, full width
-    alphaSlider.setBounds(area.removeFromTop(juce::roundToInt(h * 0.03f)));
-    area.removeFromTop(g / 2);
+    area.removeFromTop(gap);
 
     // Prompt B
+    setFs(promptBLabel, fSmall);
+    promptBLabel.setBounds(area.removeFromTop(rowH));
+    promptBEditor.setFont(juce::FontOptions(f));
     promptBEditor.setBounds(area.removeFromTop(inputH));
-    area.removeFromTop(g);
+    area.removeFromTop(gap * 2);
 
-    // Mag + Noise knobs side by side
-    int knobH = juce::roundToInt(h * 0.14f);
-    int labelH = juce::roundToInt(h * 0.025f);
-    int knobDia = juce::jmin(knobH - labelH, juce::roundToInt(w * 0.38f));
-    int tbW = juce::roundToInt(knobDia * 0.85f);
-    int tbH = juce::roundToInt(fsSmall + 4.0f);
+    // Alpha, Magnitude, Noise
+    layoutSlider(alphaLabel, alphaSlider, alphaValue, &alphaHint, f);
+    layoutSlider(magLabel, magnitudeSlider, magValue, &magHint, f);
+    layoutSlider(noiseLabel, noiseSlider, noiseValue, &noiseHint, f);
+
+    area.removeFromTop(gap);
+
+    // --- Compact params: 2 columns x 3 rows ---
+    // Row 1: Duration | Start Position
+    // Row 2: Steps | CFG
+    // Row 3: Seed (full width)
+    int compactSliderH = juce::roundToInt(f * 0.9f);
+    int compactRowH = juce::roundToInt(fSmall * 1.2f);
+    int compactHintH = juce::roundToInt(fHint * 1.1f);
+    int colGap = juce::roundToInt(w * 0.03f);
+
+    auto layoutCompactPair = [&](juce::Label& lbl1, juce::Slider& sl1, juce::Label& val1, juce::Label* hint1,
+                                  juce::Label& lbl2, juce::Slider& sl2, juce::Label& val2, juce::Label* hint2)
     {
-        auto knobRow = area.removeFromTop(knobH);
-        int colW = knobRow.getWidth() / 2;
-        for (int i = 0; i < 2; ++i)
+        int colW = (area.getWidth() - colGap) / 2;
+
+        // Headers
+        auto hdrRow = area.removeFromTop(compactRowH);
+        auto leftHdr = hdrRow.removeFromLeft(colW);
+        hdrRow.removeFromLeft(colGap);
+        auto rightHdr = hdrRow;
+
+        setFs(lbl1, fSmall); setFs(val1, fSmall);
+        lbl1.setBounds(leftHdr.removeFromLeft(leftHdr.getWidth() * 2 / 3));
+        val1.setBounds(leftHdr);
+        setFs(lbl2, fSmall); setFs(val2, fSmall);
+        lbl2.setBounds(rightHdr.removeFromLeft(rightHdr.getWidth() * 2 / 3));
+        val2.setBounds(rightHdr);
+
+        // Sliders
+        auto slRow = area.removeFromTop(compactSliderH);
+        sl1.setBounds(slRow.removeFromLeft(colW));
+        slRow.removeFromLeft(colGap);
+        sl2.setBounds(slRow);
+
+        // Hints
+        if (hint1 != nullptr || hint2 != nullptr)
         {
-            auto& knob = (i == 0) ? magnitudeKnob : noiseKnob;
-            auto& label = (i == 0) ? magnitudeLabel : noiseLabel;
-            auto cell = knobRow.removeFromLeft(colW);
-            auto kr = cell.removeFromTop(knobDia).withSizeKeepingCentre(knobDia, knobDia);
-            knob.setBounds(kr);
-            knob.setTextBoxStyle(juce::Slider::TextBoxBelow, false, tbW, tbH);
-            label.setBounds(cell.withHeight(labelH));
+            auto hintRow = area.removeFromTop(compactHintH);
+            if (hint1) { setFs(*hint1, fHint); hint1->setBounds(hintRow.removeFromLeft(colW)); }
+            else hintRow.removeFromLeft(colW);
+            hintRow.removeFromLeft(colGap);
+            if (hint2) { setFs(*hint2, fHint); hint2->setBounds(hintRow); }
         }
-    }
-    area.removeFromTop(g);
-
-    // Tertiary: Duration / Steps / CFG — compact rows
-    int compactH = juce::roundToInt(h * 0.03f);
-    int labelW = juce::roundToInt(w * 0.22f);
-    int textBoxW = juce::roundToInt(w * 0.2f);
-    auto layoutCompact = [&](juce::Label& label, juce::Slider& slider)
-    {
-        auto row = area.removeFromTop(compactH);
-        label.setBounds(row.removeFromLeft(labelW));
-        slider.setBounds(row);
-        slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, textBoxW, compactH);
-        area.removeFromTop(g / 3);
+        area.removeFromTop(gap);
     };
-    layoutCompact(durationLabel, durationSlider);
-    layoutCompact(stepsLabel, stepsSlider);
-    layoutCompact(cfgLabel, cfgSlider);
-    area.removeFromTop(g);
+
+    layoutCompactPair(durLabel, durationSlider, durValue, &durHint,
+                      startLabel, startSlider, startValue, &startHint);
+    layoutCompactPair(stepsLabel, stepsSlider, stepsValue, &stepsHint,
+                      cfgLabel, cfgSlider, cfgValue, &cfgHint);
+
+    // Seed: full width
+    setFs(seedLabel, fSmall); setFs(seedValue, fSmall);
+    auto seedHdr = area.removeFromTop(compactRowH);
+    seedLabel.setBounds(seedHdr.removeFromLeft(seedHdr.getWidth() * 2 / 3));
+    seedValue.setBounds(seedHdr);
+    seedSlider.setBounds(area.removeFromTop(compactSliderH));
+    area.removeFromTop(gap * 2);
 
     // Generate button
-    generateButton.setBounds(area.removeFromTop(juce::roundToInt(h * 0.05f)));
-    area.removeFromTop(g);
+    int btnH = juce::roundToInt(f * 2.0f);
+    generateButton.setBounds(area.removeFromTop(btnH));
+    area.removeFromTop(gap);
 
-    // Info at bottom
-    infoLabel.setBounds(area.removeFromBottom(juce::roundToInt(h * 0.025f)));
-    area.removeFromBottom(g / 2);
-
-    // Waveform fills remaining space
-    waveformDisplay.setBounds(area);
+    // Info
+    setFs(infoLabel, fSmall);
+    infoLabel.setBounds(area.removeFromTop(rowH));
 }
 
 void PromptPanel::triggerGeneration()
@@ -195,8 +292,10 @@ void PromptPanel::triggerGeneration()
     request.setMagnitude(apvts.getRawParameterValue("gen_magnitude")->load());
     request.setNoiseSigma(apvts.getRawParameterValue("gen_noise")->load());
     request.setDurationSeconds(apvts.getRawParameterValue("gen_duration")->load());
+    request.setStartPosition(apvts.getRawParameterValue("gen_start")->load());
     request.setSteps(static_cast<int>(apvts.getRawParameterValue("gen_steps")->load()));
     request.setCfgScale(apvts.getRawParameterValue("gen_cfg")->load());
+    request.setSeed(static_cast<int>(apvts.getRawParameterValue("gen_seed")->load()));
 
     processorRef.getBackendConnection().requestGeneration(request,
         [this](BackendConnection::GenerationResult result)
@@ -206,9 +305,6 @@ void PromptPanel::triggerGeneration()
             if (result.success)
             {
                 processorRef.loadGeneratedAudio(result.audioBuffer, result.sampleRate);
-                if (result.audioBuffer.getNumSamples() > 0)
-                    waveformDisplay.setWaveform(result.audioBuffer.getReadPointer(0),
-                                                result.audioBuffer.getNumSamples());
                 infoLabel.setText(juce::String(result.generationTimeMs / 1000.0f, 1) + "s | seed "
                                   + juce::String(result.seed), juce::dontSendNotification);
             }
