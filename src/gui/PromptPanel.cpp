@@ -28,13 +28,13 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 {
     makeLabel(promptALabel, "Prompt A (Basis)", kDim, juce::Justification::centredLeft, this);
     promptAEditor.setMultiLine(false);
-    promptAEditor.setTextToShowWhenEmpty("text prompt for base embedding", juce::Colour(0xff444444));
+    promptAEditor.setText("a steady clean saw wave, c3");
     promptAEditor.onReturnKey = [this] { triggerGeneration(); };
     addAndMakeVisible(promptAEditor);
 
     makeLabel(promptBLabel, "Prompt B (optional, for interpolation)", kDim, juce::Justification::centredLeft, this);
     promptBEditor.setMultiLine(false);
-    promptBEditor.setTextToShowWhenEmpty("second prompt for A/B blending", juce::Colour(0xff444444));
+    promptBEditor.setText("glass breaking");
     addAndMakeVisible(promptBEditor);
 
     // Alpha

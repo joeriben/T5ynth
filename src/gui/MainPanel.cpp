@@ -16,6 +16,15 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     addAndMakeVisible(sequencerPanel);
     addAndMakeVisible(statusBar);
 
+    // Master volume
+    masterVolRow = std::make_unique<SliderRow>("Vol", [](double v) {
+        return juce::String(v, 1) + "dB";
+    });
+    addAndMakeVisible(*masterVolRow);
+    masterVolA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        processor.getValueTreeState(), "master_vol", masterVolRow->getSlider());
+    masterVolRow->updateValue();
+
     // DimExplorer overlay — initially hidden
     dimensionExplorer.setVisible(false);
     addChildComponent(dimensionExplorer);
@@ -114,9 +123,12 @@ void MainPanel::resized()
     int footerH = juce::roundToInt(h * 0.10f);
     statusBar.setBounds(b.removeFromBottom(statusH));
 
-    // Footer: Sequencer (left 60%) | FX (right 40%)
+    // Footer: Sequencer (left) | FX (right) | Master Vol (far right)
     auto footer = b.removeFromBottom(footerH);
-    int fxW = juce::roundToInt(w * 0.35f);
+    int volW = juce::roundToInt(w * 0.10f);
+    int fxW = juce::roundToInt(w * 0.30f);
+    auto volArea = footer.removeFromRight(volW);
+    masterVolRow->setBounds(volArea.reduced(4, volArea.getHeight() / 2 - 10));
     fxPanel.setBounds(footer.removeFromRight(fxW));
     sequencerPanel.setBounds(footer);
 

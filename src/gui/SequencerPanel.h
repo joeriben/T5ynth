@@ -5,7 +5,7 @@
 
 class T5ynthProcessor;
 
-class SequencerPanel : public juce::Component
+class SequencerPanel : public juce::Component, private juce::Timer
 {
 public:
     explicit SequencerPanel(T5ynthProcessor& processor);
@@ -16,13 +16,15 @@ public:
     void mouseDown(const juce::MouseEvent& e) override;
 
 private:
+    void timerCallback() override;
+
     T5ynthProcessor& processorRef;
 
     juce::TextButton playButton { ">" };
     juce::TextButton stopButton { "||" };
     juce::ComboBox modeBox;
+    juce::Label beatLabel;
 
-    // Linear slider rows instead of rotary knobs
     std::unique_ptr<SliderRow> bpmRow;
     std::unique_ptr<SliderRow> octRow;
 
@@ -33,6 +35,8 @@ private:
 
     static constexpr int numVisibleSteps = 16;
     std::array<bool, 64> stepStates {};
+    int currentStep = -1; // -1 = stopped
+    bool playing = false;
 
     juce::Rectangle<int> getStepBounds(int step) const;
     juce::Rectangle<int> gridArea;

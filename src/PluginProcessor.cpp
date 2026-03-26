@@ -277,6 +277,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{"seq_steps", 1}, "Seq Steps", 1, 64, 16));
 
+    // Master volume
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"master_vol", 1}, "Master Volume",
+        juce::NormalisableRange<float>(-60.0f, 6.0f, 0.1f), 0.0f));
+
     return { params.begin(), params.end() };
 }
 

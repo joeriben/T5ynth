@@ -44,6 +44,10 @@ private:
     SequencerPanel sequencerPanel;
     StatusBar statusBar;
 
+    // Master volume (footer, right edge)
+    std::unique_ptr<SliderRow> masterVolRow;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterVolA;
+
     // Overlay: Dimension Explorer
     DimensionExplorer dimensionExplorer;
     juce::TextButton dimExplorerClose { "Close" };
