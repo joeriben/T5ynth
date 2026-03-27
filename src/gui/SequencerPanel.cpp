@@ -7,11 +7,22 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& processor)
     playButton.setColour(juce::TextButton::buttonColourId, kSurface);
     playButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff4caf50));
     playButton.onClick = [this] {
+        // Push step states and notes to processor's sequencer
+        auto& seq = processorRef.getStepSequencer();
+        int oct = juce::roundToInt(octRow->getSlider().getValue());
+        int baseNote = juce::jlimit(0, 108, oct * 12);
+        for (int i = 0; i < numVisibleSteps; ++i)
+        {
+            seq.setStepEnabled(i, stepStates[static_cast<size_t>(i)]);
+            seq.setStepNote(i, baseNote + i);
+        }
+
+        // Set seq_running parameter (audio thread picks it up)
+        if (auto* param = processorRef.getValueTreeState().getParameter("seq_running"))
+            param->setValueNotifyingHost(1.0f);
+
         playing = true;
-        currentStep = 0;
-        auto bpm = processorRef.getValueTreeState().getRawParameterValue("seq_bpm")->load();
-        int intervalMs = juce::roundToInt(60000.0f / bpm / 4.0f); // 16th notes
-        startTimer(juce::jmax(10, intervalMs));
+        startTimerHz(30); // 30Hz display poll
         repaint();
     };
     addAndMakeVisible(playButton);
@@ -19,9 +30,13 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& processor)
     stopButton.setColour(juce::TextButton::buttonColourId, kSurface);
     stopButton.setColour(juce::TextButton::textColourOffId, kDim);
     stopButton.onClick = [this] {
+        if (auto* param = processorRef.getValueTreeState().getParameter("seq_running"))
+            param->setValueNotifyingHost(0.0f);
+
         playing = false;
         currentStep = -1;
         stopTimer();
+        beatLabel.setText("", juce::dontSendNotification);
         repaint();
     };
     addAndMakeVisible(stopButton);
@@ -46,19 +61,25 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& processor)
     auto& apvts = processor.getValueTreeState();
     bpmAttach  = std::make_unique<SA>(apvts, "seq_bpm",     bpmRow->getSlider());
     octAttach  = std::make_unique<SA>(apvts, "arp_octaves", octRow->getSlider());
-    modeAttach = std::make_unique<CA>(apvts, "arp_mode",    modeBox);
+    modeAttach = std::make_unique<CA>(apvts, "seq_mode",    modeBox);
 
     bpmRow->updateValue();
     octRow->updateValue();
 
-    // BPM changes update timer interval
     bpmRow->getSlider().onValueChange = [this] {
         bpmRow->updateValue();
+    };
+
+    // Octave changes update step notes
+    octRow->getSlider().onValueChange = [this] {
+        octRow->updateValue();
         if (playing)
         {
-            auto bpm = bpmRow->getSlider().getValue();
-            int intervalMs = juce::roundToInt(60000.0 / bpm / 4.0); // 16th notes
-            startTimer(juce::jmax(10, intervalMs));
+            auto& seq = processorRef.getStepSequencer();
+            int oct = juce::roundToInt(octRow->getSlider().getValue());
+            int baseNote = juce::jlimit(0, 108, oct * 12);
+            for (int i = 0; i < numVisibleSteps; ++i)
+                seq.setStepNote(i, baseNote + i);
         }
     };
 
@@ -68,13 +89,18 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& processor)
 
 void SequencerPanel::timerCallback()
 {
-    currentStep = (currentStep + 1) % numVisibleSteps;
-
-    int bar = currentStep / 4 + 1;
-    int beat = currentStep % 4 + 1;
-    beatLabel.setText(juce::String(bar) + "." + juce::String(beat), juce::dontSendNotification);
-
-    repaint();
+    int step = processorRef.getStepSequencer().currentStepForGui.load(std::memory_order_relaxed);
+    if (step != currentStep)
+    {
+        currentStep = step;
+        if (step >= 0)
+        {
+            int bar = step / 4 + 1;
+            int beat = step % 4 + 1;
+            beatLabel.setText(juce::String(bar) + "." + juce::String(beat), juce::dontSendNotification);
+        }
+        repaint();
+    }
 }
 
 void SequencerPanel::paint(juce::Graphics& g)
@@ -178,6 +204,7 @@ void SequencerPanel::mouseDown(const juce::MouseEvent& e)
         if (getStepBounds(i).contains(e.getPosition()))
         {
             stepStates[static_cast<size_t>(i)] = !stepStates[static_cast<size_t>(i)];
+            processorRef.getStepSequencer().setStepEnabled(i, stepStates[static_cast<size_t>(i)]);
             repaint();
             return;
         }

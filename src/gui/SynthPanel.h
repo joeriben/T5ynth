@@ -11,7 +11,7 @@ class T5ynthProcessor;
  *           3 envelopes, 2 LFOs, drift, explore button.
  * ALL controls are compact linear slider rows — zero rotary knobs.
  */
-class SynthPanel : public juce::Component
+class SynthPanel : public juce::Component, private juce::Timer
 {
 public:
     explicit SynthPanel(T5ynthProcessor& processor);
@@ -24,6 +24,7 @@ public:
     std::function<void()> onExploreClicked;
 
 private:
+    void timerCallback() override;
     float fs() const;
     void updateVisibility();
     bool initialized = false;

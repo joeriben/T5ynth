@@ -276,22 +276,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{"reverb_ir", 1}, "Reverb IR",
         juce::StringArray{"Bright", "Medium", "Dark"}, 1));
 
-    // Arpeggiator
+    // Sequencer / Arpeggiator
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{"arp_mode", 1}, "Arp Mode",
-        juce::StringArray{"Up", "Down", "UpDown", "Random", "Order"}, 0));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{"arp_rate", 1}, "Arp Rate",
-        juce::NormalisableRange<float>(0.25f, 4.0f, 0.25f), 1.0f));
-    params.push_back(std::make_unique<juce::AudioParameterInt>(
-        juce::ParameterID{"arp_octaves", 1}, "Arp Octaves", 1, 4, 1));
-
-    // Sequencer
+        juce::ParameterID{"seq_mode", 1}, "Seq Mode",
+        juce::StringArray{"Sequencer", "Arp Up", "Arp Down", "Arp UpDown", "Arp Random"}, 0));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"seq_running", 1}, "Seq Running", false));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"seq_bpm", 1}, "Seq BPM",
         juce::NormalisableRange<float>(20.0f, 300.0f, 0.1f), 120.0f));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{"seq_steps", 1}, "Seq Steps", 1, 64, 16));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"arp_rate", 1}, "Arp Rate",
+        juce::NormalisableRange<float>(0.25f, 4.0f, 0.25f), 1.0f));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{"arp_octaves", 1}, "Arp Octaves", 1, 4, 1));
 
     // Master volume
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -314,6 +314,8 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     delay.prepare(sampleRate, samplesPerBlock);
     reverb.prepare(sampleRate, samplesPerBlock);
     limiter.prepare(sampleRate, samplesPerBlock);
+    stepSequencer.prepare(sampleRate, samplesPerBlock);
+    arpeggiator.prepare(sampleRate, samplesPerBlock);
 }
 
 void T5ynthProcessor::releaseResources()
@@ -396,6 +398,57 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     // Apply drift to scan if targeted (target 4 = WtScan in DriftLFO enum)
     float driftScanOffset = driftLfo.getOffsetForTarget(4); // WtScan
+
+    // ── Sequencer / Arpeggiator ─────────────────────────────────────────────
+    int seqMode = static_cast<int>(parameters.getRawParameterValue("seq_mode")->load());
+    bool seqRunning = parameters.getRawParameterValue("seq_running")->load() > 0.5f;
+    float seqBpm = parameters.getRawParameterValue("seq_bpm")->load();
+    int seqSteps = static_cast<int>(parameters.getRawParameterValue("seq_steps")->load());
+    float arpRate = parameters.getRawParameterValue("arp_rate")->load();
+    int arpOctaves = static_cast<int>(parameters.getRawParameterValue("arp_octaves")->load());
+
+    if (seqRunning && seqMode == 0)
+    {
+        // Sequencer mode: generate MIDI from step pattern
+        stepSequencer.setBpm(static_cast<double>(seqBpm));
+        stepSequencer.setNumSteps(seqSteps);
+        stepSequencer.start();
+        stepSequencer.processBlock(buffer, midiMessages);
+    }
+    else if (seqRunning && seqMode >= 1)
+    {
+        // Arp mode: consume incoming note-on/off, generate arpeggiated output
+        stepSequencer.stop();
+        stepSequencer.processBlock(buffer, midiMessages); // sends final note-off if needed
+
+        arpeggiator.setBpm(static_cast<double>(seqBpm));
+        arpeggiator.setRate(arpRate);
+        arpeggiator.setOctaveRange(arpOctaves);
+        arpeggiator.setMode(static_cast<T5ynthArpeggiator::Mode>(seqMode - 1));
+
+        // Feed incoming MIDI note events to arpeggiator, remove them from buffer
+        juce::MidiBuffer filtered;
+        for (const auto metadata : midiMessages)
+        {
+            auto msg = metadata.getMessage();
+            if (msg.isNoteOn())
+                arpeggiator.noteOn(msg.getNoteNumber(), msg.getFloatVelocity());
+            else if (msg.isNoteOff())
+                arpeggiator.noteOff(msg.getNoteNumber());
+            else
+                filtered.addEvent(msg, metadata.samplePosition); // keep CC, pitchbend, etc.
+        }
+        midiMessages.swapWith(filtered);
+
+        arpeggiator.processBlock(buffer, midiMessages);
+    }
+    else
+    {
+        // Stopped: ensure clean note-offs
+        stepSequencer.stop();
+        stepSequencer.processBlock(buffer, midiMessages);
+        arpeggiator.reset();
+    }
 
     // ── MIDI ────────────────────────────────────────────────────────────────
     for (const auto metadata : midiMessages)
@@ -546,6 +599,14 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
 {
     looper.loadBuffer(audioBuffer, sr);
     wavetableOsc.extractFramesFromBuffer(audioBuffer, sr);
+
+    // Snapshot channel 0 for waveform display
+    if (audioBuffer.getNumChannels() > 0 && audioBuffer.getNumSamples() > 0)
+    {
+        waveformSnapshot.setSize(1, audioBuffer.getNumSamples(), false, false, true);
+        waveformSnapshot.copyFrom(0, 0, audioBuffer, 0, 0, audioBuffer.getNumSamples());
+        newWaveformReady.store(true, std::memory_order_release);
+    }
 }
 
 juce::AudioProcessorEditor* T5ynthProcessor::createEditor()

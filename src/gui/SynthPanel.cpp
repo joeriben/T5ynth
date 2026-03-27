@@ -292,6 +292,50 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     lfo2TargetA = std::make_unique<CA>(apvts, "lfo2_target", lfo2.targetBox);
 
     updateVisibility();
+    startTimerHz(30);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Waveform display polling
+// ──────────────────────────────────────────────────────────────────────────────
+void SynthPanel::timerCallback()
+{
+    if (processorRef.hasNewWaveform())
+    {
+        auto& snap = processorRef.getWaveformSnapshot();
+        int numSamples = snap.getNumSamples();
+        if (numSamples > 0)
+        {
+            const int displayPoints = 1024;
+            const float* src = snap.getReadPointer(0);
+
+            if (numSamples > displayPoints * 2)
+            {
+                // Peak-preserving downsample
+                std::vector<float> display(displayPoints);
+                int bucketSize = numSamples / displayPoints;
+                for (int i = 0; i < displayPoints; ++i)
+                {
+                    int start = i * bucketSize;
+                    int end = juce::jmin(start + bucketSize, numSamples);
+                    float peak = 0.0f;
+                    int peakIdx = start;
+                    for (int j = start; j < end; ++j)
+                    {
+                        float absVal = std::abs(src[j]);
+                        if (absVal > peak) { peak = absVal; peakIdx = j; }
+                    }
+                    display[static_cast<size_t>(i)] = src[peakIdx];
+                }
+                waveformDisplay.setWaveform(display.data(), displayPoints);
+            }
+            else
+            {
+                waveformDisplay.setWaveform(src, numSamples);
+            }
+        }
+        processorRef.clearNewWaveformFlag();
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

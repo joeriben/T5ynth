@@ -56,6 +56,15 @@ public:
     BackendManager& getBackendManager() { return backendManager; }
     BackendConnection& getBackendConnection() { return backendConnection; }
 
+    // Sequencer
+    T5ynthStepSequencer& getStepSequencer() { return stepSequencer; }
+    T5ynthArpeggiator& getArpeggiator() { return arpeggiator; }
+
+    // Waveform display data
+    bool hasNewWaveform() const { return newWaveformReady.load(std::memory_order_acquire); }
+    void clearNewWaveformFlag() { newWaveformReady.store(false, std::memory_order_release); }
+    const juce::AudioBuffer<float>& getWaveformSnapshot() const { return waveformSnapshot; }
+
 private:
     juce::AudioProcessorValueTreeState parameters;
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -90,6 +99,10 @@ private:
     float currentNote = -1.0f;
     float currentVelocity = 0.0f;
     bool noteIsOn = false;
+
+    // Waveform display
+    juce::AudioBuffer<float> waveformSnapshot;
+    std::atomic<bool> newWaveformReady { false };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(T5ynthProcessor)
 };

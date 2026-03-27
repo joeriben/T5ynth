@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include <array>
+#include <atomic>
 
 /**
  * Step sequencer for triggering notes and parameter changes.
@@ -28,14 +29,17 @@ public:
     void setStepEnabled(int step, bool enabled);
 
     /** Set playback rate in BPM. */
-    void setBpm(double bpm) { this->bpm = bpm; }
+    void setBpm(double newBpm) { bpm = newBpm; }
 
     /** Start/stop sequencer. */
-    void start() { running = true; }
-    void stop() { running = false; currentStep = 0; }
+    void start() { running = true; samplesUntilNextStep = 0.0; }
+    void stop() { running = false; }
     bool isRunning() const { return running; }
 
     int getCurrentStep() const { return currentStep; }
+
+    /** Atomic step position for GUI polling (written on audio thread). */
+    std::atomic<int> currentStepForGui { -1 };
 
 private:
     struct Step
@@ -52,4 +56,5 @@ private:
     double sampleRate = 44100.0;
     double samplesUntilNextStep = 0.0;
     bool running = false;
+    int lastPlayedNote = -1;
 };
