@@ -7,12 +7,14 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
       promptPanel(processor),
       synthPanel(processor),
       fxPanel(processor.getValueTreeState()),
+      presetPanel(processor),
       sequencerPanel(processor)
 {
     addAndMakeVisible(promptPanel);
     addAndMakeVisible(axesPanel);
     addAndMakeVisible(synthPanel);
     addAndMakeVisible(fxPanel);
+    addAndMakeVisible(presetPanel);
     addAndMakeVisible(sequencerPanel);
     addAndMakeVisible(statusBar);
 
@@ -168,10 +170,11 @@ void MainPanel::resized()
     int footerH = juce::roundToInt(h * 0.10f);
     statusBar.setBounds(b.removeFromBottom(statusH));
 
-    // Footer: Sequencer (left) | FX (right) | Master Vol knob (far right)
+    // Footer: Sequencer (left) | Preset (center) | FX (right) | Master Vol knob (far right)
     auto footer = b.removeFromBottom(footerH);
     int volW = juce::roundToInt(w * 0.06f);
     int fxW = juce::roundToInt(w * 0.30f);
+    int presetH = 36;
     auto volArea = footer.removeFromRight(volW);
     int knobSize = juce::jmin(volArea.getWidth(), volArea.getHeight() - 16);
     masterVolKnob.setBounds(volArea.getCentreX() - knobSize / 2, volArea.getY() + 2,
@@ -180,6 +183,7 @@ void MainPanel::resized()
     masterVolLabel.setBounds(volArea.getX(), masterVolKnob.getBottom() - 2,
                              volArea.getWidth(), 14);
     fxPanel.setBounds(footer.removeFromRight(fxW));
+    presetPanel.setBounds(footer.removeFromTop(presetH));
     sequencerPanel.setBounds(footer);
 
     // 2 columns: 25% | 75%

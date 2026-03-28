@@ -694,6 +694,452 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
         parameters.replaceState(juce::ValueTree::fromXml(*xml));
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// JSON Preset Import/Export (compatible with Vue reference format)
+// ═══════════════════════════════════════════════════════════════════
+
+// Conversion helpers matching useFilter.ts:
+//   normalizedToFreq(n) = 20 * pow(1000, n)     // 0→20Hz, 1→20kHz
+//   freqToNormalized(f) = log(f/20) / log(1000)
+static float cutoffNormToHz(float n) { return 20.0f * std::pow(1000.0f, juce::jlimit(0.0f, 1.0f, n)); }
+static float cutoffHzToNorm(float hz) { return std::log(juce::jlimit(20.0f, 20000.0f, hz) / 20.0f) / std::log(1000.0f); }
+
+// String↔index mappings for preset fields
+static int filterTypeFromString(const juce::String& s) {
+    if (s == "highpass") return 1;
+    if (s == "bandpass") return 2;
+    return 0; // lowpass
+}
+static juce::String filterTypeToString(int i) {
+    if (i == 1) return "highpass";
+    if (i == 2) return "bandpass";
+    return "lowpass";
+}
+
+static int filterSlopeFromString(const juce::String& s) { return s == "24" ? 1 : 0; }
+static juce::String filterSlopeToString(int i) { return i == 1 ? "24" : "12"; }
+
+static int reverbVariantFromString(const juce::String& s) {
+    if (s == "bright") return 0;
+    if (s == "dark") return 2;
+    return 1; // medium
+}
+static juce::String reverbVariantToString(int i) {
+    if (i == 0) return "bright";
+    if (i == 2) return "dark";
+    return "medium";
+}
+
+// Mod target: reference uses strings, JUCE uses choice index
+// Current JUCE env targets: 0=DCA, 1=Filter, 2=Scan, 3=None
+// Current JUCE LFO targets: 0=Filter, 1=Scan, 2=Alpha, 3=None
+// Reference targets: none, dca, dcf_cutoff, pitch, delay_time, delay_feedback, delay_mix,
+//                    reverb_mix, lfo1_rate, lfo2_rate, lfo1_depth, lfo2_depth, wt_scan
+static int envTargetFromString(const juce::String& s) {
+    if (s == "dca") return 0;
+    if (s == "dcf_cutoff") return 1;
+    if (s == "wt_scan") return 2;
+    return 3; // none (or unsupported target mapped to none)
+}
+static juce::String envTargetToString(int i) {
+    if (i == 0) return "dca";
+    if (i == 1) return "dcf_cutoff";
+    if (i == 2) return "wt_scan";
+    return "none";
+}
+
+static int lfoTargetFromString(const juce::String& s) {
+    if (s == "dcf_cutoff") return 0;
+    if (s == "wt_scan") return 1;
+    // alpha not in reference LFO targets but in JUCE
+    return 3; // none
+}
+static juce::String lfoTargetToString(int i) {
+    if (i == 0) return "dcf_cutoff";
+    if (i == 1) return "wt_scan";
+    if (i == 2) return "alpha";
+    return "none";
+}
+
+static int lfoWaveFromString(const juce::String& s) {
+    if (s == "triangle") return 1;
+    if (s == "sawtooth") return 2;
+    if (s == "square") return 3;
+    return 0; // sine
+}
+static juce::String lfoWaveToString(int i) {
+    if (i == 1) return "triangle";
+    if (i == 2) return "sawtooth";
+    if (i == 3) return "square";
+    return "sine";
+}
+
+static int lfoModeFromString(const juce::String& s) { return s == "trigger" ? 1 : 0; }
+static juce::String lfoModeToString(int i) { return i == 1 ? "trigger" : "free"; }
+
+static int driftTargetFromString(const juce::String& s) {
+    if (s == "alpha") return 1;
+    if (s == "sem_axis_1") return 2;
+    if (s == "sem_axis_2") return 3;
+    if (s == "sem_axis_3") return 4;
+    if (s == "wt_scan") return 5;
+    return 0; // none
+}
+static juce::String driftTargetToString(int i) {
+    if (i == 1) return "alpha";
+    if (i == 2) return "sem_axis_1";
+    if (i == 3) return "sem_axis_2";
+    if (i == 4) return "sem_axis_3";
+    if (i == 5) return "wt_scan";
+    return "none";
+}
+
+static int driftWaveFromString(const juce::String& s) {
+    if (s == "triangle") return 1;
+    if (s == "sawtooth") return 2;
+    if (s == "square") return 3;
+    return 0; // sine
+}
+static juce::String driftWaveToString(int i) {
+    if (i == 1) return "triangle";
+    if (i == 2) return "sawtooth";
+    if (i == 3) return "square";
+    return "sine";
+}
+
+// Helper to safely set a parameter value
+static void setParam(juce::AudioProcessorValueTreeState& p, const juce::String& id, float val) {
+    if (auto* param = p.getParameter(id))
+        param->setValueNotifyingHost(param->convertTo0to1(val));
+}
+
+juce::String T5ynthProcessor::exportJsonPreset() const
+{
+    auto* p = const_cast<juce::AudioProcessorValueTreeState*>(&parameters);
+    auto get = [&](const juce::String& id) { return p->getRawParameterValue(id)->load(); };
+
+    juce::DynamicObject::Ptr root = new juce::DynamicObject();
+    root->setProperty("version", 1);
+    root->setProperty("name", "T5ynth Export");
+    root->setProperty("timestamp", juce::Time::getCurrentTime().toISO8601(true));
+
+    // Synth params
+    juce::DynamicObject::Ptr synth = new juce::DynamicObject();
+    synth->setProperty("promptA", ""); // prompts are GUI-only, not in APVTS
+    synth->setProperty("promptB", "");
+    synth->setProperty("alpha", get("gen_alpha"));
+    synth->setProperty("magnitude", get("gen_magnitude"));
+    synth->setProperty("noise", get("gen_noise"));
+    synth->setProperty("duration", get("gen_duration"));
+    synth->setProperty("startPosition", get("gen_start"));
+    synth->setProperty("steps", static_cast<int>(get("gen_steps")));
+    synth->setProperty("cfg", get("gen_cfg"));
+    synth->setProperty("seed", static_cast<int>(get("gen_seed")));
+    root->setProperty("synth", synth.get());
+
+    // Engine
+    juce::DynamicObject::Ptr engine = new juce::DynamicObject();
+    engine->setProperty("mode", engineMode == EngineMode::Looper ? "looper" : "wavetable");
+    int lm = static_cast<int>(get("loop_mode"));
+    engine->setProperty("loopMode", lm == 0 ? "oneshot" : (lm == 1 ? "loop" : "pingpong"));
+    engine->setProperty("loopStartFrac", static_cast<double>(looper.getLoopStart()));
+    engine->setProperty("loopEndFrac", static_cast<double>(looper.getLoopEnd()));
+    engine->setProperty("crossfadeMs", get("crossfade_ms"));
+    root->setProperty("engine", engine.get());
+
+    // Modulation: 3 envelopes
+    juce::DynamicObject::Ptr modObj = new juce::DynamicObject();
+    juce::Array<juce::var> envArr;
+    const juce::String envPrefixes[] = {"amp_", "mod1_", "mod2_"};
+    const juce::String envTargetIds[] = {"", "mod1_target", "mod2_target"};
+    for (int i = 0; i < 3; ++i)
+    {
+        juce::DynamicObject::Ptr env = new juce::DynamicObject();
+        env->setProperty("attackMs", get(envPrefixes[i] + "attack"));
+        env->setProperty("decayMs", get(envPrefixes[i] + "decay"));
+        env->setProperty("sustain", get(envPrefixes[i] + "sustain"));
+        env->setProperty("releaseMs", get(envPrefixes[i] + "release"));
+        env->setProperty("amount", get(envPrefixes[i] + "amount"));
+        if (i == 0)
+            env->setProperty("target", "dca"); // amp env is always DCA
+        else
+            env->setProperty("target", envTargetToString(static_cast<int>(get(envTargetIds[i]))));
+        env->setProperty("loop", get(envPrefixes[i] + "loop") > 0.5f);
+        envArr.add(env.get());
+    }
+    modObj->setProperty("envs", envArr);
+
+    // Modulation: 2 LFOs
+    juce::Array<juce::var> lfoArr;
+    for (int i = 0; i < 2; ++i)
+    {
+        juce::DynamicObject::Ptr lfo = new juce::DynamicObject();
+        juce::String pre = "lfo" + juce::String(i + 1) + "_";
+        lfo->setProperty("rate", get(pre + "rate"));
+        lfo->setProperty("depth", get(pre + "depth"));
+        lfo->setProperty("waveform", lfoWaveToString(static_cast<int>(get(pre + "wave"))));
+        lfo->setProperty("target", lfoTargetToString(static_cast<int>(get(pre + "target"))));
+        lfo->setProperty("mode", lfoModeToString(static_cast<int>(get(pre + "mode"))));
+        lfoArr.add(lfo.get());
+    }
+    modObj->setProperty("lfos", lfoArr);
+    root->setProperty("modulation", modObj.get());
+
+    // Drift LFOs
+    juce::Array<juce::var> driftArr;
+    for (int i = 0; i < 3; ++i)
+    {
+        juce::DynamicObject::Ptr d = new juce::DynamicObject();
+        juce::String pre = "drift" + juce::String(i + 1) + "_";
+        d->setProperty("rate", get(pre + "rate"));
+        d->setProperty("depth", get(pre + "depth"));
+        d->setProperty("waveform", driftWaveToString(static_cast<int>(get(pre + "wave"))));
+        d->setProperty("target", driftTargetToString(static_cast<int>(get(pre + "target"))));
+        driftArr.add(d.get());
+    }
+    root->setProperty("driftLfos", driftArr);
+    root->setProperty("autoRegen", get("drift_regen") > 0.5f);
+
+    // Wavetable
+    juce::DynamicObject::Ptr wt = new juce::DynamicObject();
+    wt->setProperty("scan", get("osc_scan"));
+    root->setProperty("wavetable", wt.get());
+
+    // Effects
+    juce::DynamicObject::Ptr fx = new juce::DynamicObject();
+    fx->setProperty("delayEnabled", get("delay_enabled") > 0.5f);
+    fx->setProperty("delayTimeMs", get("delay_time"));
+    fx->setProperty("delayFeedback", get("delay_feedback"));
+    fx->setProperty("delayMix", get("delay_mix"));
+    fx->setProperty("reverbEnabled", get("reverb_enabled") > 0.5f);
+    fx->setProperty("reverbMix", get("reverb_mix"));
+    fx->setProperty("reverbVariant", reverbVariantToString(static_cast<int>(get("reverb_ir"))));
+    root->setProperty("effects", fx.get());
+
+    // Filter — store NORMALIZED cutoff (0-1), not Hz
+    juce::DynamicObject::Ptr filt = new juce::DynamicObject();
+    filt->setProperty("enabled", get("filter_enabled") > 0.5f);
+    filt->setProperty("type", filterTypeToString(static_cast<int>(get("filter_type"))));
+    filt->setProperty("slope", filterSlopeToString(static_cast<int>(get("filter_slope"))));
+    filt->setProperty("cutoff", cutoffHzToNorm(get("filter_cutoff")));
+    filt->setProperty("resonance", get("filter_resonance"));
+    filt->setProperty("mix", get("filter_mix"));
+    filt->setProperty("kbdTrack", get("filter_kbd_track"));
+    root->setProperty("filter", filt.get());
+
+    // Sequencer
+    juce::DynamicObject::Ptr seq = new juce::DynamicObject();
+    seq->setProperty("enabled", get("seq_running") > 0.5f);
+    seq->setProperty("bpm", get("seq_bpm"));
+    seq->setProperty("stepCount", static_cast<int>(get("seq_steps")));
+    juce::Array<juce::var> stepArr;
+    for (int i = 0; i < static_cast<int>(get("seq_steps")); ++i)
+    {
+        juce::DynamicObject::Ptr s = new juce::DynamicObject();
+        // StepSequencer stores note as MIDI, preset stores semitone offset from C3
+        s->setProperty("active", stepSequencer.isRunning()); // TODO: per-step access needed
+        s->setProperty("semitone", 0);
+        s->setProperty("velocity", 0.8);
+        s->setProperty("gate", 0.8);
+        s->setProperty("glide", false);
+        stepArr.add(s.get());
+    }
+    seq->setProperty("steps", stepArr);
+    root->setProperty("sequencer", seq.get());
+
+    // Arpeggiator
+    juce::DynamicObject::Ptr arp = new juce::DynamicObject();
+    int seqMode = static_cast<int>(get("seq_mode"));
+    arp->setProperty("enabled", seqMode >= 1);
+    const char* arpPatterns[] = {"up", "down", "updown", "random"};
+    arp->setProperty("pattern", seqMode >= 1 ? arpPatterns[std::min(seqMode - 1, 3)] : "up");
+    arp->setProperty("rate", "1/16");
+    arp->setProperty("octaveRange", static_cast<int>(get("arp_octaves")));
+    root->setProperty("arpeggiator", arp.get());
+
+    return juce::JSON::toString(root.get(), true);
+}
+
+bool T5ynthProcessor::importJsonPreset(const juce::String& json)
+{
+    auto parsed = juce::JSON::parse(json);
+    if (!parsed.isObject()) return false;
+
+    auto* root = parsed.getDynamicObject();
+    if (!root) return false;
+
+    // ── Synth params ──
+    if (auto* synth = root->getProperty("synth").getDynamicObject())
+    {
+        setParam(parameters, "gen_alpha", static_cast<float>(synth->getProperty("alpha")));
+        setParam(parameters, "gen_magnitude", static_cast<float>(synth->getProperty("magnitude")));
+        setParam(parameters, "gen_noise", static_cast<float>(synth->getProperty("noise")));
+        setParam(parameters, "gen_duration", static_cast<float>(synth->getProperty("duration")));
+        setParam(parameters, "gen_start", static_cast<float>(synth->getProperty("startPosition")));
+        setParam(parameters, "gen_steps", static_cast<float>(static_cast<int>(synth->getProperty("steps"))));
+        setParam(parameters, "gen_cfg", static_cast<float>(synth->getProperty("cfg")));
+        setParam(parameters, "gen_seed", static_cast<float>(static_cast<int>(synth->getProperty("seed"))));
+    }
+
+    // ── Engine ──
+    if (auto* engine = root->getProperty("engine").getDynamicObject())
+    {
+        juce::String mode = engine->getProperty("mode").toString();
+        engineMode = (mode == "wavetable") ? EngineMode::Wavetable : EngineMode::Looper;
+        setParam(parameters, "engine_mode", mode == "wavetable" ? 1.0f : 0.0f);
+
+        juce::String lm = engine->getProperty("loopMode").toString();
+        int loopModeIdx = (lm == "loop") ? 1 : (lm == "pingpong" ? 2 : 0);
+        setParam(parameters, "loop_mode", static_cast<float>(loopModeIdx));
+
+        looper.setLoopStart(static_cast<float>(engine->getProperty("loopStartFrac")));
+        looper.setLoopEnd(static_cast<float>(engine->getProperty("loopEndFrac")));
+        setParam(parameters, "crossfade_ms", static_cast<float>(engine->getProperty("crossfadeMs")));
+    }
+
+    // ── Modulation ──
+    if (auto* mod = root->getProperty("modulation").getDynamicObject())
+    {
+        auto* envsArr = mod->getProperty("envs").getArray();
+        if (envsArr)
+        {
+            const juce::String envPrefixes[] = {"amp_", "mod1_", "mod2_"};
+            const juce::String envTargetIds[] = {"", "mod1_target", "mod2_target"};
+            for (int i = 0; i < std::min(3, envsArr->size()); ++i)
+            {
+                auto* env = (*envsArr)[i].getDynamicObject();
+                if (!env) continue;
+                setParam(parameters, envPrefixes[i] + "attack", static_cast<float>(env->getProperty("attackMs")));
+                setParam(parameters, envPrefixes[i] + "decay", static_cast<float>(env->getProperty("decayMs")));
+                setParam(parameters, envPrefixes[i] + "sustain", static_cast<float>(env->getProperty("sustain")));
+                setParam(parameters, envPrefixes[i] + "release", static_cast<float>(env->getProperty("releaseMs")));
+                setParam(parameters, envPrefixes[i] + "amount", static_cast<float>(env->getProperty("amount")));
+                setParam(parameters, envPrefixes[i] + "loop", env->getProperty("loop") ? 1.0f : 0.0f);
+                if (i > 0)
+                    setParam(parameters, envTargetIds[i], static_cast<float>(envTargetFromString(env->getProperty("target").toString())));
+            }
+        }
+
+        auto* lfosArr = mod->getProperty("lfos").getArray();
+        if (lfosArr)
+        {
+            for (int i = 0; i < std::min(2, lfosArr->size()); ++i)
+            {
+                auto* lfo = (*lfosArr)[i].getDynamicObject();
+                if (!lfo) continue;
+                juce::String pre = "lfo" + juce::String(i + 1) + "_";
+                setParam(parameters, pre + "rate", static_cast<float>(lfo->getProperty("rate")));
+                setParam(parameters, pre + "depth", static_cast<float>(lfo->getProperty("depth")));
+                setParam(parameters, pre + "wave", static_cast<float>(lfoWaveFromString(lfo->getProperty("waveform").toString())));
+                setParam(parameters, pre + "target", static_cast<float>(lfoTargetFromString(lfo->getProperty("target").toString())));
+                setParam(parameters, pre + "mode", static_cast<float>(lfoModeFromString(lfo->getProperty("mode").toString())));
+            }
+        }
+    }
+
+    // ── Drift LFOs ──
+    auto* driftArr = root->getProperty("driftLfos").getArray();
+    if (driftArr)
+    {
+        for (int i = 0; i < std::min(3, driftArr->size()); ++i)
+        {
+            auto* d = (*driftArr)[i].getDynamicObject();
+            if (!d) continue;
+            juce::String pre = "drift" + juce::String(i + 1) + "_";
+            setParam(parameters, pre + "rate", static_cast<float>(d->getProperty("rate")));
+            setParam(parameters, pre + "depth", static_cast<float>(d->getProperty("depth")));
+            setParam(parameters, pre + "wave", static_cast<float>(driftWaveFromString(d->getProperty("waveform").toString())));
+            setParam(parameters, pre + "target", static_cast<float>(driftTargetFromString(d->getProperty("target").toString())));
+        }
+    }
+    if (root->hasProperty("autoRegen"))
+        setParam(parameters, "drift_regen", root->getProperty("autoRegen") ? 1.0f : 0.0f);
+
+    // ── Wavetable ──
+    if (auto* wt = root->getProperty("wavetable").getDynamicObject())
+    {
+        if (wt->hasProperty("scan"))
+            setParam(parameters, "osc_scan", static_cast<float>(wt->getProperty("scan")));
+    }
+
+    // ── Effects ──
+    if (auto* fx = root->getProperty("effects").getDynamicObject())
+    {
+        setParam(parameters, "delay_enabled", fx->getProperty("delayEnabled") ? 1.0f : 0.0f);
+        setParam(parameters, "delay_time", static_cast<float>(fx->getProperty("delayTimeMs")));
+        setParam(parameters, "delay_feedback", static_cast<float>(fx->getProperty("delayFeedback")));
+        setParam(parameters, "delay_mix", static_cast<float>(fx->getProperty("delayMix")));
+        setParam(parameters, "reverb_enabled", fx->getProperty("reverbEnabled") ? 1.0f : 0.0f);
+        setParam(parameters, "reverb_mix", static_cast<float>(fx->getProperty("reverbMix")));
+        if (fx->hasProperty("reverbVariant"))
+            setParam(parameters, "reverb_ir", static_cast<float>(reverbVariantFromString(fx->getProperty("reverbVariant").toString())));
+    }
+
+    // ── Filter — CRITICAL: cutoff is normalized 0-1, convert to Hz ──
+    if (auto* filt = root->getProperty("filter").getDynamicObject())
+    {
+        setParam(parameters, "filter_enabled", filt->getProperty("enabled") ? 1.0f : 0.0f);
+        setParam(parameters, "filter_type", static_cast<float>(filterTypeFromString(filt->getProperty("type").toString())));
+        if (filt->hasProperty("slope"))
+            setParam(parameters, "filter_slope", static_cast<float>(filterSlopeFromString(filt->getProperty("slope").toString())));
+        // Convert normalized cutoff to Hz: 20 * pow(1000, n)
+        float cutoffNorm = static_cast<float>(filt->getProperty("cutoff"));
+        setParam(parameters, "filter_cutoff", cutoffNormToHz(cutoffNorm));
+        setParam(parameters, "filter_resonance", static_cast<float>(filt->getProperty("resonance")));
+        if (filt->hasProperty("mix"))
+            setParam(parameters, "filter_mix", static_cast<float>(filt->getProperty("mix")));
+        if (filt->hasProperty("kbdTrack"))
+            setParam(parameters, "filter_kbd_track", static_cast<float>(filt->getProperty("kbdTrack")));
+    }
+
+    // ── Sequencer ──
+    if (auto* seq = root->getProperty("sequencer").getDynamicObject())
+    {
+        bool seqEnabled = seq->getProperty("enabled");
+        setParam(parameters, "seq_running", seqEnabled ? 1.0f : 0.0f);
+        setParam(parameters, "seq_bpm", static_cast<float>(seq->getProperty("bpm")));
+        int stepCount = static_cast<int>(seq->getProperty("stepCount"));
+        setParam(parameters, "seq_steps", static_cast<float>(stepCount));
+        stepSequencer.setNumSteps(stepCount);
+
+        auto* stepsArr = seq->getProperty("steps").getArray();
+        if (stepsArr)
+        {
+            for (int i = 0; i < std::min(stepCount, stepsArr->size()); ++i)
+            {
+                auto* s = (*stepsArr)[i].getDynamicObject();
+                if (!s) continue;
+                int semitone = static_cast<int>(s->getProperty("semitone"));
+                stepSequencer.setStepNote(i, 60 + semitone); // C3 + semitone offset
+                stepSequencer.setStepVelocity(i, static_cast<float>(s->getProperty("velocity")));
+                stepSequencer.setStepEnabled(i, static_cast<bool>(s->getProperty("active")));
+            }
+        }
+    }
+
+    // ── Arpeggiator ──
+    if (auto* arp = root->getProperty("arpeggiator").getDynamicObject())
+    {
+        bool arpEnabled = arp->getProperty("enabled");
+        if (arpEnabled)
+        {
+            juce::String pattern = arp->getProperty("pattern").toString();
+            int mode = 1; // default: Up
+            if (pattern == "down") mode = 2;
+            else if (pattern == "updown") mode = 3;
+            else if (pattern == "random") mode = 4;
+            setParam(parameters, "seq_mode", static_cast<float>(mode));
+        }
+        else
+        {
+            setParam(parameters, "seq_mode", 0.0f); // Seq only, no arp
+        }
+        setParam(parameters, "arp_octaves", static_cast<float>(static_cast<int>(arp->getProperty("octaveRange"))));
+    }
+
+    return true;
+}
+
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new T5ynthProcessor();

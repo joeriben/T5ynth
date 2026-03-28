@@ -8,6 +8,7 @@
 #include "SequencerPanel.h"
 #include "StatusBar.h"
 #include "SetupWizard.h"
+#include "PresetPanel.h"
 
 class T5ynthProcessor;
 
@@ -43,6 +44,9 @@ private:
 
     // Col 3: FX
     FxPanel fxPanel;
+
+    // Presets
+    PresetPanel presetPanel;
 
     // Bottom
     SequencerPanel sequencerPanel;

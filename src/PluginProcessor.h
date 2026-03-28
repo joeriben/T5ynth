@@ -65,6 +65,13 @@ public:
     void clearNewWaveformFlag() { newWaveformReady.store(false, std::memory_order_release); }
     const juce::AudioBuffer<float>& getWaveformSnapshot() const { return waveformSnapshot; }
 
+    // JSON preset import/export (compatible with Vue reference format)
+    juce::String exportJsonPreset() const;
+    bool importJsonPreset(const juce::String& json);
+
+    // Looper access for preset import (loop region brackets)
+    AudioLooper& getLooper() { return looper; }
+
 private:
     juce::AudioProcessorValueTreeState parameters;
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
