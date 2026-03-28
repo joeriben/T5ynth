@@ -2,44 +2,112 @@
 #include <JuceHeader.h>
 
 /**
- * Simple audio looper for AI-generated audio playback.
+ * Sample playback engine (ported from useAudioLooper.ts).
  *
- * Loads a buffer and plays it back in a loop with sample-rate conversion.
+ * Features:
+ *   - Forward loop, one-shot, ping-pong (palindrome buffer)
+ *   - Equal-power crossfade baked into buffer at loop boundary
+ *   - Cross-correlation loop-point optimization
+ *   - Peak normalization (0.95 target)
+ *   - Fractional loop start/end ("brackets")
+ *   - MIDI transposition via playback rate
+ *   - Retrigger (hard restart for non-legato)
  */
 class AudioLooper
 {
 public:
+    enum class LoopMode { OneShot, Loop, PingPong };
+
     AudioLooper() = default;
 
     void prepare(double sampleRate, int samplesPerBlock);
     void reset();
 
-    /** Load audio data for looped playback. */
+    /** Load audio data. Calls preparePlaybackBuffer() internally. */
     void loadBuffer(const juce::AudioBuffer<float>& buffer, double bufferSampleRate);
 
-    /** Process a block (adds to buffer). */
+    /** Process a block (writes into output buffer). */
     void processBlock(juce::AudioBuffer<float>& output);
 
-    /** True if audio has been loaded. */
     bool hasAudio() const { return audioLoaded; }
 
-    /** Start playback. */
-    void play() { playing = true; }
+    void play()  { playing = true; }
+    void stop()  { playing = false; }
 
-    /** Stop playback and reset position. */
-    void stop() { playing = false; readPosition = 0.0; }
+    /** Hard stop + restart from loop start. For non-legato MIDI retrigger. */
+    void retrigger();
 
     /** Set transposition from MIDI note (60 = original pitch). */
-    void setMidiNote(int note) { transposeRatio = std::pow(2.0, (note - 60) / 12.0); }
+    void setMidiNote(int note);
 
     bool isPlaying() const { return playing; }
 
+    // ─── Loop region ("brackets") ───
+    /** Set loop start as fraction of buffer (0.0–1.0). */
+    void setLoopStart(float frac);
+    /** Set loop end as fraction of buffer (0.0–1.0). */
+    void setLoopEnd(float frac);
+
+    float getLoopStart() const { return loopStartFrac; }
+    float getLoopEnd()   const { return loopEndFrac; }
+
+    // ─── Modes and processing ───
+    void setLoopMode(LoopMode mode);
+    void setCrossfadeMs(float ms);
+    void setNormalize(bool on);
+    void setLoopOptimize(bool on);
+
+    LoopMode getLoopMode()  const { return loopMode; }
+    float getCrossfadeMs()  const { return crossfadeMsVal; }
+    bool  getNormalize()    const { return normalizeOn; }
+
 private:
-    juce::AudioBuffer<float> loopBuffer;
+    // Original (unprocessed) buffer — kept for re-preparation when settings change
+    juce::AudioBuffer<float> originalBuffer;
+    // Prepared (crossfaded/palindromed/normalized) playback buffer
+    juce::AudioBuffer<float> playBuffer;
+
     double playbackSampleRate = 44100.0;
-    double bufferOriginalSR = 44100.0;
-    double readPosition = 0.0;
-    double transposeRatio = 1.0;
-    bool audioLoaded = false;
-    bool playing = true;
+    double bufferOriginalSR   = 44100.0;
+    double readPosition       = 0.0;
+    double transposeRatio     = 1.0;
+    bool   audioLoaded        = false;
+    bool   playing            = false;
+
+    // Loop region (fractions of original buffer length)
+    float loopStartFrac = 0.0f;
+    float loopEndFrac   = 1.0f;
+
+    // Playback bounds in samples (within playBuffer)
+    int playStart  = 0;
+    int playEnd    = 0;
+    int coldStart  = 0; // past crossfade zone for cold starts
+
+    // Settings
+    LoopMode loopMode     = LoopMode::Loop;
+    float crossfadeMsVal  = 150.0f;
+    bool  normalizeOn     = false;
+    bool  loopOptimizeOn  = false;
+
+    // Dirty flag — when settings change, re-prepare on next processBlock
+    bool needsReprepare = false;
+
+    /** Re-build playBuffer from originalBuffer with current settings. */
+    void preparePlaybackBuffer();
+
+    /** Cross-correlation loop-end optimizer (channel 0). */
+    int optimizeLoopEnd(const float* data, int loopStart, int loopEnd, int bufLen) const;
+
+    /** Apply equal-power crossfade at loop boundary. */
+    void applyLoopCrossfade(juce::AudioBuffer<float>& buf, int loopStart, int& loopEnd) const;
+
+    /** Create palindrome for ping-pong mode. */
+    void createPalindrome(const juce::AudioBuffer<float>& src, int loopStart, int loopEnd,
+                          juce::AudioBuffer<float>& dest, int& palindromeEnd) const;
+
+    /** Peak-normalize buffer to 0.95. */
+    void normalizeBuffer(juce::AudioBuffer<float>& buf) const;
+
+    static constexpr int XCORR_WINDOW = 512;
+    static constexpr int XCORR_SEARCH = 2000;
 };

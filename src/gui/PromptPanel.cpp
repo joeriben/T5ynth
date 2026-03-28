@@ -326,7 +326,9 @@ void PromptPanel::triggerGeneration()
     if (promptB.isNotEmpty()) request.setPromptB(promptB);
 
     auto& apvts = processorRef.getValueTreeState();
-    request.setAlpha(apvts.getRawParameterValue("gen_alpha")->load());
+    // Convert UI alpha (-2..+2) to backend range (0..1): alpha/2 + 0.5
+    float rawAlpha = apvts.getRawParameterValue("gen_alpha")->load();
+    request.setAlpha(rawAlpha / 2.0f + 0.5f);
     request.setMagnitude(apvts.getRawParameterValue("gen_magnitude")->load());
     request.setNoiseSigma(apvts.getRawParameterValue("gen_noise")->load());
     request.setDurationSeconds(apvts.getRawParameterValue("gen_duration")->load());

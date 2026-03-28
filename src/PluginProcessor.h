@@ -104,6 +104,9 @@ private:
     juce::AudioBuffer<float> waveformSnapshot;
     std::atomic<bool> newWaveformReady { false };
 
+    // Track loaded reverb IR index to avoid reloading every block
+    int lastReverbIr = -1;
+
 public:
     // MIDI monitor (audio thread writes, GUI reads)
     std::atomic<int> lastMidiNote { -1 };
