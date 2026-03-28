@@ -65,6 +65,8 @@ void T5ynthFilter::setResonance(float q)
 
 void T5ynthFilter::setType(int type)
 {
+    if (type == currentType) return; // avoid resetting filter state on every block
+    currentType = type;
     switch (type)
     {
         case 0:

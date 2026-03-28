@@ -536,26 +536,21 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     }
     else
     {
-        // Fallback sine oscillator — play sound even before audio is generated
+        // Fallback sine oscillator — always produces sound for MIDI
         for (int i = 0; i < numSamples; ++i)
         {
-            float ampEnv = ampEnvelope.processSample() * ampAmount;
-            float mod1Env = modEnvelope1.processSample() * mod1Amount;
-            float mod2Env = modEnvelope2.processSample() * mod2Amount;
+            ampEnvelope.processSample();
+            modEnvelope1.processSample();
+            modEnvelope2.processSample();
             lfo1.processSample();
             lfo2.processSample();
 
-            float vca = ampEnv;
-            if (mod1Target == 0) vca *= (1.0f + mod1Env);
-            if (mod2Target == 0) vca *= (1.0f + mod2Env);
-
-            // Simple sine from currentNote frequency
-            if (currentNote >= 0)
+            if (currentNote >= 0 && noteIsOn)
             {
                 float freq = juce::MidiMessage::getMidiNoteInHertz(static_cast<int>(currentNote));
                 fallbackPhase += freq / static_cast<float>(getSampleRate());
                 if (fallbackPhase >= 1.0f) fallbackPhase -= 1.0f;
-                float sample = std::sin(fallbackPhase * juce::MathConstants<float>::twoPi) * vca;
+                float sample = std::sin(fallbackPhase * juce::MathConstants<float>::twoPi) * 0.3f;
                 for (int ch = 0; ch < numChannels; ++ch)
                     buffer.setSample(ch, i, sample);
             }
@@ -611,13 +606,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
 void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBuffer, double sr)
 {
-    DBG("loadGeneratedAudio: channels=" + juce::String(audioBuffer.getNumChannels())
-        + " samples=" + juce::String(audioBuffer.getNumSamples())
-        + " sr=" + juce::String(sr));
     looper.loadBuffer(audioBuffer, sr);
     wavetableOsc.extractFramesFromBuffer(audioBuffer, sr);
-    DBG("loadGeneratedAudio: looper.hasAudio()=" + juce::String(looper.hasAudio() ? "true" : "false")
-        + " wavetableOsc.hasFrames()=" + juce::String(wavetableOsc.hasFrames() ? "true" : "false"));
 
     // Snapshot channel 0 for waveform display
     if (audioBuffer.getNumChannels() > 0 && audioBuffer.getNumSamples() > 0)

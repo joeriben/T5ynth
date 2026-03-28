@@ -33,5 +33,6 @@ private:
     double sr = 44100.0;
     int blockSize = 512;
     float currentMix = 1.0f;
+    int currentType = -1;
     bool prepared = false;
 };
