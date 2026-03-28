@@ -35,16 +35,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // Amplitude Envelope
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"amp_attack", 1}, "Attack",
-        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 10.0f));
+        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"amp_decay", 1}, "Decay",
-        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 100.0f));
+        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"amp_sustain", 1}, "Sustain",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.8f));
+        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"amp_release", 1}, "Release",
-        juce::NormalisableRange<float>(0.0f, 10000.0f, 0.1f, 0.3f), 200.0f));
+        juce::NormalisableRange<float>(0.0f, 10000.0f, 0.1f, 0.3f), 0.0f));
 
     // Filter
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -461,6 +461,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             modEnvelope1.noteOn(currentVelocity);
             modEnvelope2.noteOn(currentVelocity);
             wavetableOsc.setFrequency(juce::MidiMessage::getMidiNoteInHertz(msg.getNoteNumber()));
+            looper.setMidiNote(msg.getNoteNumber());
 
             // LFO trigger mode: reset phase on note-on
             if (static_cast<int>(parameters.getRawParameterValue("lfo1_mode")->load()) == 1)

@@ -29,6 +29,9 @@ public:
     /** Stop playback and reset position. */
     void stop() { playing = false; readPosition = 0.0; }
 
+    /** Set transposition from MIDI note (60 = original pitch). */
+    void setMidiNote(int note) { transposeRatio = std::pow(2.0, (note - 60) / 12.0); }
+
     bool isPlaying() const { return playing; }
 
 private:
@@ -36,6 +39,7 @@ private:
     double playbackSampleRate = 44100.0;
     double bufferOriginalSR = 44100.0;
     double readPosition = 0.0;
+    double transposeRatio = 1.0;
     bool audioLoaded = false;
     bool playing = true;
 };

@@ -31,7 +31,7 @@ void AudioLooper::processBlock(juce::AudioBuffer<float>& output)
     const int numOutSamples = output.getNumSamples();
     const int loopLength = loopBuffer.getNumSamples();
     const int loopChannels = loopBuffer.getNumChannels();
-    const double speedRatio = bufferOriginalSR / playbackSampleRate;
+    const double speedRatio = (bufferOriginalSR / playbackSampleRate) * transposeRatio;
 
     for (int i = 0; i < numOutSamples; ++i)
     {
