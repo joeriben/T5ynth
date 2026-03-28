@@ -15,6 +15,10 @@ public:
     void paint(juce::Graphics& g) override;
     void resized() override;
 
+    /** Load preset data that isn't in APVTS (prompts, seed, random toggle). */
+    void loadPresetData(const juce::String& promptA, const juce::String& promptB,
+                        int seed, bool randomSeed);
+
 private:
     void triggerGeneration();
     float fs() const;

@@ -161,6 +161,12 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
 
     addAndMakeVisible(waveformDisplay);
 
+    // Wire bracket handles to looper
+    waveformDisplay.onLoopRegionChanged = [this](float start, float end) {
+        processorRef.getLooper().setLoopStart(start);
+        processorRef.getLooper().setLoopEnd(end);
+    };
+
     // ── Loop mode ──
     auto styleLoopBtn = [](juce::TextButton& btn) {
         btn.setColour(juce::TextButton::buttonColourId, kSurface);
@@ -334,6 +340,11 @@ void SynthPanel::timerCallback()
                 waveformDisplay.setWaveform(src, numSamples);
             }
         }
+        // Update buffer duration for time labels
+        double sr = processorRef.getSampleRate();
+        if (sr > 0)
+            waveformDisplay.setBufferDuration(static_cast<float>(numSamples / sr));
+
         processorRef.clearNewWaveformFlag();
     }
 }

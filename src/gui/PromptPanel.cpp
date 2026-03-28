@@ -304,6 +304,17 @@ void PromptPanel::resized()
     infoLabel.setBounds(area.removeFromTop(rowH));
 }
 
+void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String& promptB,
+                                  int seed, bool randomSeed)
+{
+    promptAEditor.setText(promptA, false);
+    promptBEditor.setText(promptB, false);
+    seedEditor.setText(juce::String(seed), false);
+    randomSeedToggle.setToggleState(randomSeed, juce::dontSendNotification);
+    seedEditor.setEnabled(!randomSeed);
+    seedEditor.setAlpha(randomSeed ? 0.3f : 1.0f);
+}
+
 void PromptPanel::triggerGeneration()
 {
     if (generating) return;

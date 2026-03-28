@@ -46,7 +46,31 @@ void PresetPanel::importPreset()
 
             auto json = file.loadFileAsString();
             if (processor.importJsonPreset(json))
+            {
                 statusLabel.setText("Loaded: " + file.getFileNameWithoutExtension(), juce::dontSendNotification);
+
+                // Extract GUI-only data (prompts, seed) and notify parent
+                if (onPresetLoaded)
+                {
+                    auto parsed = juce::JSON::parse(json);
+                    if (auto* root = parsed.getDynamicObject())
+                    {
+                        juce::String promptA, promptB;
+                        int seed = -1;
+                        bool randomSeed = true;
+
+                        if (auto* synth = root->getProperty("synth").getDynamicObject())
+                        {
+                            promptA = synth->getProperty("promptA").toString();
+                            promptB = synth->getProperty("promptB").toString();
+                            seed = static_cast<int>(synth->getProperty("seed"));
+                            // seed > 0 means fixed seed, -1 or absent means random
+                            randomSeed = (seed <= 0);
+                        }
+                        onPresetLoaded(promptA, promptB, seed > 0 ? seed : 123456789, randomSeed);
+                    }
+                }
+            }
             else
                 statusLabel.setText("Import failed", juce::dontSendNotification);
         });

@@ -18,6 +18,12 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     addAndMakeVisible(sequencerPanel);
     addAndMakeVisible(statusBar);
 
+    // Wire preset import callback to update GUI-only prompt/seed state
+    presetPanel.onPresetLoaded = [this](const juce::String& pA, const juce::String& pB,
+                                        int seed, bool randomSeed) {
+        promptPanel.loadPresetData(pA, pB, seed, randomSeed);
+    };
+
     // Master volume (rotary knob)
     masterVolKnob.setSliderStyle(juce::Slider::RotaryVerticalDrag);
     masterVolKnob.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 14);
