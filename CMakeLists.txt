@@ -88,7 +88,7 @@ target_link_libraries(T5ynth
         CURL::libcurl
     PUBLIC
         juce::juce_recommended_config_flags
-        juce::juce_recommended_lto_flags
+        # juce::juce_recommended_lto_flags  # disabled — too CPU-intensive for dev builds
         juce::juce_recommended_warning_flags
 )
 
