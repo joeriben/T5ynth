@@ -610,12 +610,6 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
     looper.loadBuffer(audioBuffer, sr);
     wavetableOsc.extractFramesFromBuffer(audioBuffer, sr);
 
-    // Auto-trigger envelopes so looper plays immediately without MIDI
-    noteIsOn = true;
-    ampEnvelope.noteOn(1.0f);
-    modEnvelope1.noteOn(1.0f);
-    modEnvelope2.noteOn(1.0f);
-
     // Snapshot channel 0 for waveform display
     if (audioBuffer.getNumChannels() > 0 && audioBuffer.getNumSamples() > 0)
     {
