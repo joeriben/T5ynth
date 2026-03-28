@@ -44,6 +44,12 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     // Wire up Explore button in SynthPanel
     synthPanel.onExploreClicked = [this] { showDimExplorer(); };
 
+    // Settings overlay
+    settingsPage.setVisible(false);
+    addChildComponent(settingsPage);
+    settingsPage.onClose = [this] { hideSettings(); };
+    statusBar.onSettingsClicked = [this] { showSettings(); };
+
     // Backend status
     processorRef.getBackendManager().setStatusCallback(
         [this](BackendManager::Status s)
@@ -87,6 +93,22 @@ void MainPanel::hideDimExplorer()
     repaint();
 }
 
+void MainPanel::showSettings()
+{
+    settingsVisible = true;
+    settingsPage.setVisible(true);
+    settingsPage.toFront(false);
+    resized();
+    repaint();
+}
+
+void MainPanel::hideSettings()
+{
+    settingsVisible = false;
+    settingsPage.setVisible(false);
+    repaint();
+}
+
 void MainPanel::paint(juce::Graphics& g)
 {
     g.fillAll(kBg);
@@ -105,8 +127,8 @@ void MainPanel::paint(juce::Graphics& g)
     // Bottom strip separator
     g.drawHorizontalLine(juce::roundToInt(topH), 0.0f, w);
 
-    // DimExplorer overlay background
-    if (dimExplorerVisible)
+    // Overlay backgrounds
+    if (dimExplorerVisible || settingsVisible)
     {
         g.setColour(juce::Colour(0xdd101016));
         g.fillRect(getLocalBounds());
@@ -143,6 +165,10 @@ void MainPanel::resized()
 
     // Col 2: ENGINE + FILTER + MODULATION
     synthPanel.setBounds(b);
+
+    // Settings overlay
+    if (settingsVisible)
+        settingsPage.setBounds(getLocalBounds());
 
     // DimExplorer overlay
     if (dimExplorerVisible)

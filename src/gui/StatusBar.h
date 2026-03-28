@@ -13,17 +13,14 @@ public:
     void setStatusText(const juce::String& text);
     void setConnected(bool connected);
 
-    /** Called when user selects a model directory. */
-    std::function<void(const juce::File&)> onModelSelected;
+    /** Called when user clicks the Settings button. */
+    std::function<void()> onSettingsClicked;
 
 private:
     juce::String statusText = "Ready";
     bool backendConnected = false;
 
-    juce::TextButton modelButton { "Model..." };
-    std::unique_ptr<juce::FileChooser> fileChooser;
-
-    void browseForModel();
+    juce::TextButton settingsButton { "Settings" };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StatusBar)
 };

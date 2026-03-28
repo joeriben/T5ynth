@@ -7,6 +7,7 @@
 #include "FxPanel.h"
 #include "SequencerPanel.h"
 #include "StatusBar.h"
+#include "SetupWizard.h"
 
 class T5ynthProcessor;
 
@@ -56,6 +57,12 @@ private:
 
     void showDimExplorer();
     void hideDimExplorer();
+
+    // Overlay: Settings page
+    SettingsPage settingsPage;
+    bool settingsVisible = false;
+    void showSettings();
+    void hideSettings();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainPanel)
 };
