@@ -170,7 +170,7 @@ juce::String BackendConnection::httpGet(const juce::String& path, int& statusCod
     juce::URL url(endpoint + path);
 
     auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                       .withConnectionTimeoutMs(5000)
+                       .withConnectionTimeoutMs(120000)
                        .withStatusCode(&statusCode);
 
     auto stream = url.createInputStream(options);
@@ -190,7 +190,7 @@ juce::String BackendConnection::httpPost(const juce::String& path, const juce::S
 
     auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inPostData)
                        .withExtraHeaders("Content-Type: application/json")
-                       .withConnectionTimeoutMs(5000)
+                       .withConnectionTimeoutMs(120000)
                        .withStatusCode(&statusCode);
 
     auto stream = url.createInputStream(options);
