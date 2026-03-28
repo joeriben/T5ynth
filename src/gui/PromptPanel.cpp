@@ -101,13 +101,25 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         cfgValue.setText(juce::String(cfgSlider.getValue(), 1), juce::dontSendNotification);
     };
 
-    // Seed
-    makeSlider(seedSlider, this);
+    // Seed (text field + random toggle)
     makeLabel(seedLabel, "Seed", kDimmer, juce::Justification::centredLeft, this);
-    makeLabel(seedValue, "-1", kAccent, juce::Justification::centredRight, this);
-    seedSlider.onValueChange = [this] {
-        seedValue.setText(juce::String(juce::roundToInt(seedSlider.getValue())), juce::dontSendNotification);
+    seedEditor.setColour(juce::TextEditor::backgroundColourId, kSurface);
+    seedEditor.setColour(juce::TextEditor::textColourId, kAccent);
+    seedEditor.setColour(juce::TextEditor::outlineColourId, kBorder);
+    seedEditor.setInputRestrictions(12, "0123456789");
+    seedEditor.setText("123456789", false);
+    addAndMakeVisible(seedEditor);
+
+    randomSeedToggle.setColour(juce::ToggleButton::textColourId, kDim);
+    randomSeedToggle.setColour(juce::ToggleButton::tickColourId, kAccent);
+    randomSeedToggle.setToggleState(true, juce::dontSendNotification);
+    randomSeedToggle.onClick = [this] {
+        seedEditor.setEnabled(!randomSeedToggle.getToggleState());
+        seedEditor.setAlpha(randomSeedToggle.getToggleState() ? 0.3f : 1.0f);
     };
+    addAndMakeVisible(randomSeedToggle);
+    seedEditor.setEnabled(false);
+    seedEditor.setAlpha(0.3f);
 
     // Generate — prominent green button like web UI
     generateButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff1b5e20));
@@ -126,7 +138,6 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     startA  = std::make_unique<Attachment>(apvts, "gen_start", startSlider);
     stepsA  = std::make_unique<Attachment>(apvts, "gen_steps", stepsSlider);
     cfgA    = std::make_unique<Attachment>(apvts, "gen_cfg", cfgSlider);
-    seedA   = std::make_unique<Attachment>(apvts, "gen_seed", seedSlider);
 }
 
 float PromptPanel::fs() const
@@ -272,12 +283,15 @@ void PromptPanel::resized()
     layoutCompactPair(stepsLabel, stepsSlider, stepsValue, &stepsHint,
                       cfgLabel, cfgSlider, cfgValue, &cfgHint);
 
-    // Seed: full width
-    setFs(seedLabel, fSmall); setFs(seedValue, fSmall);
-    auto seedHdr = area.removeFromTop(compactRowH);
-    seedLabel.setBounds(seedHdr.removeFromLeft(seedHdr.getWidth() * 2 / 3));
-    seedValue.setBounds(seedHdr);
-    seedSlider.setBounds(area.removeFromTop(compactSliderH));
+    // Seed: label | text field | random toggle
+    setFs(seedLabel, fSmall);
+    auto seedRow = area.removeFromTop(compactRowH + 2);
+    int seedLabelW = juce::roundToInt(seedRow.getWidth() * 0.15f);
+    int toggleW = juce::roundToInt(seedRow.getWidth() * 0.35f);
+    seedLabel.setBounds(seedRow.removeFromLeft(seedLabelW));
+    randomSeedToggle.setBounds(seedRow.removeFromRight(toggleW));
+    seedEditor.setFont(juce::FontOptions(fSmall));
+    seedEditor.setBounds(seedRow.reduced(0, 1));
     area.removeFromTop(gap * 2);
 
     // Generate button
@@ -319,7 +333,10 @@ void PromptPanel::triggerGeneration()
     request.setStartPosition(apvts.getRawParameterValue("gen_start")->load());
     request.setSteps(static_cast<int>(apvts.getRawParameterValue("gen_steps")->load()));
     request.setCfgScale(apvts.getRawParameterValue("gen_cfg")->load());
-    request.setSeed(static_cast<int>(apvts.getRawParameterValue("gen_seed")->load()));
+    if (randomSeedToggle.getToggleState())
+        request.setSeed(-1);
+    else
+        request.setSeed(seedEditor.getText().getIntValue());
 
     processorRef.getBackendConnection().requestGeneration(request,
         [this](BackendConnection::GenerationResult result)

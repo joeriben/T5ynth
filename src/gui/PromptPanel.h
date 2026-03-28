@@ -33,12 +33,14 @@ private:
 
     // Compact params row: Duration, Start, Steps, CFG, Seed
     juce::Slider durationSlider, startSlider;
-    juce::Slider stepsSlider, cfgSlider, seedSlider;
+    juce::Slider stepsSlider, cfgSlider;
     juce::Label durLabel, durValue, durHint;
     juce::Label startLabel, startValue, startHint;
     juce::Label stepsLabel, stepsValue, stepsHint;
     juce::Label cfgLabel, cfgValue, cfgHint;
-    juce::Label seedLabel, seedValue;
+    juce::Label seedLabel;
+    juce::TextEditor seedEditor;
+    juce::ToggleButton randomSeedToggle { "Random" };
 
     juce::TextButton generateButton { "Generate" };
     juce::Label infoLabel;
@@ -46,7 +48,7 @@ private:
     bool generating = false;
 
     using Attachment = juce::AudioProcessorValueTreeState::SliderAttachment;
-    std::unique_ptr<Attachment> alphaA, magA, noiseA, durA, startA, stepsA, cfgA, seedA;
+    std::unique_ptr<Attachment> alphaA, magA, noiseA, durA, startA, stepsA, cfgA;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PromptPanel)
 };

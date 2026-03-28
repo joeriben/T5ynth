@@ -22,7 +22,6 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& processor)
             param->setValueNotifyingHost(1.0f);
 
         playing = true;
-        startTimerHz(30); // 30Hz display poll
         repaint();
     };
     addAndMakeVisible(playButton);
@@ -35,8 +34,8 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& processor)
 
         playing = false;
         currentStep = -1;
-        stopTimer();
         beatLabel.setText("", juce::dontSendNotification);
+        midiMonitor.setText("", juce::dontSendNotification);
         repaint();
     };
     addAndMakeVisible(stopButton);
@@ -47,6 +46,13 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& processor)
     beatLabel.setColour(juce::Label::textColourId, kAccent);
     beatLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(beatLabel);
+
+    midiMonitor.setColour(juce::Label::textColourId, juce::Colour(0xff4ade80));
+    midiMonitor.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(midiMonitor);
+
+    // Always run timer for MIDI monitor
+    startTimerHz(30);
 
     bpmRow = std::make_unique<SliderRow>("BPM", [](double v) {
         return juce::String(juce::roundToInt(v));
@@ -87,8 +93,15 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& processor)
         stepStates[static_cast<size_t>(i)] = true;
 }
 
+static juce::String midiNoteToName(int note)
+{
+    static const char* names[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+    return juce::String(names[note % 12]) + juce::String(note / 12 - 1);
+}
+
 void SequencerPanel::timerCallback()
 {
+    // Step position
     int step = processorRef.getStepSequencer().currentStepForGui.load(std::memory_order_relaxed);
     if (step != currentStep)
     {
@@ -100,6 +113,19 @@ void SequencerPanel::timerCallback()
             beatLabel.setText(juce::String(bar) + "." + juce::String(beat), juce::dontSendNotification);
         }
         repaint();
+    }
+
+    // MIDI monitor
+    int note = processorRef.lastMidiNote.load(std::memory_order_relaxed);
+    bool on = processorRef.lastMidiNoteOn.load(std::memory_order_relaxed);
+    int vel = processorRef.lastMidiVelocity.load(std::memory_order_relaxed);
+    if (note >= 0)
+    {
+        juce::String txt = on ? ("MIDI: " + midiNoteToName(note) + " v" + juce::String(vel))
+                              : ("MIDI: " + midiNoteToName(note) + " off");
+        midiMonitor.setText(txt, juce::dontSendNotification);
+        midiMonitor.setColour(juce::Label::textColourId,
+                              on ? juce::Colour(0xff4ade80) : kDim);
     }
 }
 
@@ -179,6 +205,9 @@ void SequencerPanel::resized()
 
     controls.removeFromTop(2);
     modeBox.setBounds(controls.removeFromTop(rowH));
+    controls.removeFromTop(2);
+    midiMonitor.setFont(juce::FontOptions(juce::jmax(9.0f, static_cast<float>(rowH) * 0.55f)));
+    midiMonitor.setBounds(controls);
 
     // BPM + Oct
     area.removeFromLeft(pad);

@@ -279,7 +279,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // Sequencer / Arpeggiator
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"seq_mode", 1}, "Seq Mode",
-        juce::StringArray{"Sequencer", "Arp Up", "Arp Down", "Arp UpDown", "Arp Random"}, 0));
+        juce::StringArray{"Seq", "Arp Up", "Arp Dn", "Arp UD", "Arp Rnd"}, 0));
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"seq_running", 1}, "Seq Running", false));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -399,34 +399,33 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // Apply drift to scan if targeted (target 4 = WtScan in DriftLFO enum)
     float driftScanOffset = driftLfo.getOffsetForTarget(4); // WtScan
 
-    // ── Sequencer / Arpeggiator ─────────────────────────────────────────────
+    // ── Sequencer / Arpeggiator (in series: Seq → Arp → synth) ─────────────
     int seqMode = static_cast<int>(parameters.getRawParameterValue("seq_mode")->load());
     bool seqRunning = parameters.getRawParameterValue("seq_running")->load() > 0.5f;
     float seqBpm = parameters.getRawParameterValue("seq_bpm")->load();
     int seqSteps = static_cast<int>(parameters.getRawParameterValue("seq_steps")->load());
     float arpRate = parameters.getRawParameterValue("arp_rate")->load();
     int arpOctaves = static_cast<int>(parameters.getRawParameterValue("arp_octaves")->load());
+    bool arpEnabled = (seqMode >= 1); // 0=Seq only, 1-4=Arp modes
 
-    if (seqRunning && seqMode == 0)
-    {
-        // Sequencer mode: generate MIDI from step pattern
-        stepSequencer.setBpm(static_cast<double>(seqBpm));
-        stepSequencer.setNumSteps(seqSteps);
+    // Stage 1: Step sequencer (generates MIDI notes from step grid)
+    stepSequencer.setBpm(static_cast<double>(seqBpm));
+    stepSequencer.setNumSteps(seqSteps);
+    if (seqRunning)
         stepSequencer.start();
-        stepSequencer.processBlock(buffer, midiMessages);
-    }
-    else if (seqRunning && seqMode >= 1)
-    {
-        // Arp mode: consume incoming note-on/off, generate arpeggiated output
+    else
         stepSequencer.stop();
-        stepSequencer.processBlock(buffer, midiMessages); // sends final note-off if needed
+    stepSequencer.processBlock(buffer, midiMessages);
 
+    // Stage 2: Arpeggiator (consumes note-on/off, generates arpeggiated output)
+    if (arpEnabled)
+    {
         arpeggiator.setBpm(static_cast<double>(seqBpm));
         arpeggiator.setRate(arpRate);
         arpeggiator.setOctaveRange(arpOctaves);
         arpeggiator.setMode(static_cast<T5ynthArpeggiator::Mode>(seqMode - 1));
 
-        // Feed incoming MIDI note events to arpeggiator, remove them from buffer
+        // Feed note events (from seq + external MIDI) to arpeggiator
         juce::MidiBuffer filtered;
         for (const auto metadata : midiMessages)
         {
@@ -436,17 +435,13 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             else if (msg.isNoteOff())
                 arpeggiator.noteOff(msg.getNoteNumber());
             else
-                filtered.addEvent(msg, metadata.samplePosition); // keep CC, pitchbend, etc.
+                filtered.addEvent(msg, metadata.samplePosition);
         }
         midiMessages.swapWith(filtered);
-
         arpeggiator.processBlock(buffer, midiMessages);
     }
     else
     {
-        // Stopped: ensure clean note-offs
-        stepSequencer.stop();
-        stepSequencer.processBlock(buffer, midiMessages);
         arpeggiator.reset();
     }
 
@@ -459,6 +454,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             currentNote = static_cast<float>(msg.getNoteNumber());
             currentVelocity = msg.getFloatVelocity();
             noteIsOn = true;
+            lastMidiNote.store(msg.getNoteNumber(), std::memory_order_relaxed);
+            lastMidiVelocity.store(juce::roundToInt(msg.getFloatVelocity() * 127.0f), std::memory_order_relaxed);
+            lastMidiNoteOn.store(true, std::memory_order_relaxed);
             ampEnvelope.noteOn(currentVelocity);
             modEnvelope1.noteOn(currentVelocity);
             modEnvelope2.noteOn(currentVelocity);
@@ -473,6 +471,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         else if (msg.isNoteOff())
         {
             noteIsOn = false;
+            lastMidiNoteOn.store(false, std::memory_order_relaxed);
             ampEnvelope.noteOff();
             modEnvelope1.noteOff();
             modEnvelope2.noteOff();

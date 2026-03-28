@@ -32,7 +32,7 @@ public:
     void setBpm(double newBpm) { bpm = newBpm; }
 
     /** Start/stop sequencer. */
-    void start() { running = true; samplesUntilNextStep = 0.0; }
+    void start() { if (!running) { running = true; samplesUntilNextStep = 0.0; currentStep = 0; } }
     void stop() { running = false; }
     bool isRunning() const { return running; }
 

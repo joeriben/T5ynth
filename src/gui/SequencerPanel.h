@@ -24,6 +24,7 @@ private:
     juce::TextButton stopButton { "||" };
     juce::ComboBox modeBox;
     juce::Label beatLabel;
+    juce::Label midiMonitor;
 
     std::unique_ptr<SliderRow> bpmRow;
     std::unique_ptr<SliderRow> octRow;

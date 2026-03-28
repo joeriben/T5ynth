@@ -104,5 +104,13 @@ private:
     juce::AudioBuffer<float> waveformSnapshot;
     std::atomic<bool> newWaveformReady { false };
 
+public:
+    // MIDI monitor (audio thread writes, GUI reads)
+    std::atomic<int> lastMidiNote { -1 };
+    std::atomic<int> lastMidiVelocity { 0 };
+    std::atomic<bool> lastMidiNoteOn { false };
+
+private:
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(T5ynthProcessor)
 };
