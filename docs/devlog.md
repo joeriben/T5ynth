@@ -1,5 +1,29 @@
 # T5ynth Development Log
 
+## 2026-03-29 — Session 6: DSP Bugfixes + LibTorch Migration Start
+
+### DSP Bugfixes (3 remaining from Session 5 audit)
+- **modPitch dead code:** Pitch modulation was accumulated in processBlock but never applied. Moved to per-sample in `SynthVoice::renderSample()` where env/LFO values are available. Applies `freq *= (1 + pitchMod)` to wavetable oscillator.
+- **barStartFlag unconsumed:** StepSequencer sets flag at bar boundaries but processBlock never read it. Now consumed via `exchange(false)`.
+- **DCF idle cutoff drop:** Verified already fixed — `!isIdle()` guard correctly prevents filter modulation when envelope is idle.
+
+### Architecture Decision: LibTorch Migration
+- HTTP-based Python backend (Flask + diffusers) is architecturally unacceptable for a standalone audio plugin
+- Decision: migrate to LibTorch C++ inference — no Python, no HTTP, no server process
+- VRAM properly freed on plugin destructor
+
+### TorchScript Export Progress
+- Created `tools/export_to_torchscript.py` — exports Stable Audio components individually
+- **T5 Encoder:** Successfully exported (0.00 max diff, 438.9 MB)
+- **Projection Model:** Successfully exported (0.00 max diff, 1.6 MB)
+- **DiT (Diffusion Transformer):** BLOCKED — diffusers attention processor uses `repeat_interleave` with `output_size` that causes CPU/CUDA device mismatch during tracing
+- **VAE Decoder:** Not yet reached (blocked by DiT)
+
+### DiT Export — Next Steps
+The fix requires replacing `StableAudioAttnProcessor2_0` with a custom processor that avoids the `output_size` argument in `repeat_interleave`, or patching diffusers locally. Input shapes confirmed: `hidden_states=[1,64,1024]`, `global_hidden_states=[1,1536]`, `encoder_attention_mask` must be bool not long.
+
+---
+
 ## 2026-03-28 — Session 4: Reference Audit + Critical Repairs
 
 ### Full Gap Analysis Against Reference (useAudioLooper.ts, useModulation.ts, useEffects.ts, useFilter.ts, useDriftLfo.ts, crossmodal_lab.vue)
