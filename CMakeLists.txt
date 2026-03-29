@@ -41,6 +41,7 @@ target_sources(T5ynth PRIVATE
     src/dsp/Limiter.cpp
     src/dsp/AudioLooper.cpp
     src/dsp/SynthVoice.cpp
+    src/dsp/VoiceManager.cpp
     src/dsp/ModulationMatrix.cpp
 
     # Sequencer

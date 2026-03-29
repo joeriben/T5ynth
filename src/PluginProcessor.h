@@ -1,8 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include <vector>
-#include <algorithm>
-#include "dsp/SynthVoice.h"
+#include "dsp/VoiceManager.h"
 #include "dsp/LFO.h"
 #include "dsp/DriftLFO.h"
 #include "dsp/DelayLine.h"
@@ -77,14 +75,14 @@ private:
     // Engine
     EngineMode engineMode = EngineMode::Looper;
 
-    // DSP — per-voice
-    SynthVoice voice;
+    // DSP — polyphonic voice pool
+    VoiceManager voiceManager;
 
-    // Master data holders (own the audio/frame data, voice shares from these)
+    // Master data holders (own the audio/frame data, voices share from these)
     WavetableOscillator masterOsc;
     AudioLooper masterLooper;
 
-    // DSP — global (shared across voices)
+    // DSP — global (shared across voices, post-sum)
     LFO lfo1;
     LFO lfo2;
     DriftLFO driftLfo;
@@ -100,16 +98,8 @@ private:
     BackendManager backendManager;
     BackendConnection backendConnection;
 
-    // State
-    float currentNote = -1.0f;
-    float currentVelocity = 0.0f;
-    bool noteIsOn = false;
-
-    // Monophonic note stack (last-note priority)
-    std::vector<int> heldNotes;
-
-    // Engine-stop countdown: stop engines N samples after last note-off
-    int engineStopCountdown = -1;
+    // Last triggered note (for pitch modulation in block-rate section)
+    int lastTriggeredNote = -1;
 
     // Waveform display
     juce::AudioBuffer<float> waveformSnapshot;

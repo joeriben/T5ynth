@@ -328,7 +328,7 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     masterOsc.prepare(sampleRate, samplesPerBlock);
     masterLooper.prepare(sampleRate, samplesPerBlock);
-    voice.prepare(sampleRate, samplesPerBlock);
+    voiceManager.prepare(sampleRate, samplesPerBlock);
     lfo1.prepare(sampleRate);
     lfo2.prepare(sampleRate);
     delay.prepare(sampleRate, samplesPerBlock);
@@ -346,7 +346,7 @@ void T5ynthProcessor::releaseResources()
 {
     masterOsc.reset();
     masterLooper.reset();
-    voice.reset();
+    voiceManager.reset();
 }
 
 void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
@@ -413,8 +413,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     // Engine mode
     bp.engineIsWavetable = (engineMode == EngineMode::Wavetable);
-    voice.setEngineMode(bp.engineIsWavetable ? SynthVoice::EngineMode::Wavetable
-                                              : SynthVoice::EngineMode::Looper);
+    voiceManager.setEngineMode(bp.engineIsWavetable ? SynthVoice::EngineMode::Wavetable
+                                                     : SynthVoice::EngineMode::Looper);
 
     // Master volume (dB → linear)
     float masterDb = parameters.getRawParameterValue("master_vol")->load();
@@ -494,7 +494,10 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         arpeggiator.reset();
     }
 
-    // ── MIDI with monophonic note stack (last-note priority) ─────────────
+    // ── MIDI → VoiceManager (polyphonic) ──────────────────────────────────
+    bool lfo1TrigMode = static_cast<int>(parameters.getRawParameterValue("lfo1_mode")->load()) == 1;
+    bool lfo2TrigMode = static_cast<int>(parameters.getRawParameterValue("lfo2_mode")->load()) == 1;
+
     for (const auto metadata : midiMessages)
     {
         const auto msg = metadata.getMessage();
@@ -502,139 +505,69 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         {
             int note = msg.getNoteNumber();
             float velocity = msg.getFloatVelocity();
-            bool isGlide = (msg.getChannel() == 2); // ch2 = glide flag from sequencer
+            bool isGlide = (msg.getChannel() == 2);
 
             lastMidiNote.store(note, std::memory_order_relaxed);
             lastMidiVelocity.store(juce::roundToInt(velocity * 127.0f), std::memory_order_relaxed);
             lastMidiNoteOn.store(true, std::memory_order_relaxed);
 
-            engineStopCountdown = -1; // cancel pending engine stop
-
-            if (isGlide && noteIsOn)
-            {
-                // Glide: ramp pitch without retriggering envelope
-                currentNote = static_cast<float>(note);
-                voice.glideToNote(note, stepSequencer.getGlideTime());
-            }
-            else
-            {
-                bool wasEmpty = heldNotes.empty();
-
-                // Remove duplicate if re-pressed, then push to top
-                heldNotes.erase(std::remove(heldNotes.begin(), heldNotes.end(), note), heldNotes.end());
-                heldNotes.push_back(note);
-
-                currentNote = static_cast<float>(note);
-                currentVelocity = velocity;
-                noteIsOn = true;
-
-                bool legato = !wasEmpty;
-                voice.noteOn(note, velocity, legato);
-
-                if (wasEmpty)
-                {
-                    // Non-legato: retrigger looper
-                    if (engineMode == EngineMode::Looper && voice.getLooper().hasAudio())
-                        voice.getLooper().retrigger();
-                    if (engineMode == EngineMode::Wavetable)
-                        voice.getLooper().stop();
-
-                    // LFO trigger mode: reset phase
-                    if (static_cast<int>(parameters.getRawParameterValue("lfo1_mode")->load()) == 1)
-                        lfo1.reset();
-                    if (static_cast<int>(parameters.getRawParameterValue("lfo2_mode")->load()) == 1)
-                        lfo2.reset();
-                }
-            }
+            voiceManager.noteOn(note, velocity, isGlide, stepSequencer.getGlideTime(),
+                                lfo1TrigMode, lfo2TrigMode);
         }
         else if (msg.isNoteOff())
         {
-            int note = msg.getNoteNumber();
-            heldNotes.erase(std::remove(heldNotes.begin(), heldNotes.end(), note), heldNotes.end());
-
-            if (heldNotes.empty())
-            {
-                // Last note released: start release phase
-                noteIsOn = false;
+            voiceManager.noteOff(msg.getNoteNumber());
+            if (!voiceManager.hasActiveVoices())
                 lastMidiNoteOn.store(false, std::memory_order_relaxed);
-                voice.noteOff();
-
-                // Schedule engine stop after release + 50ms
-                float releaseMs = parameters.getRawParameterValue("amp_release")->load();
-                engineStopCountdown = static_cast<int>((releaseMs + 50.0f) * 0.001f * getSampleRate());
-            }
-            else
-            {
-                // Notes remaining: switch to last held note (legato)
-                int lastNote = heldNotes.back();
-                currentNote = static_cast<float>(lastNote);
-                voice.noteOn(lastNote, currentVelocity, true); // legato
-            }
         }
     }
 
-    // Engine stop countdown (stop engines after release completes)
-    if (engineStopCountdown > 0)
-    {
-        engineStopCountdown -= numSamples;
-        if (engineStopCountdown <= 0 && heldNotes.empty())
-        {
-            voice.getLooper().stop();
-            engineStopCountdown = -1;
-        }
-    }
-
-    // ── Audio generation via SynthVoice + global LFOs ────────────────────────
-    // Read base LFO rates for cross-modulation
+    // ── Audio generation via VoiceManager + global LFOs ─────────────────────
     float baseLfo1Rate = parameters.getRawParameterValue("lfo1_rate")->load();
     float baseLfo2Rate = parameters.getRawParameterValue("lfo2_rate")->load();
     float baseLfo1Depth = parameters.getRawParameterValue("lfo1_depth")->load();
     float baseLfo2Depth = parameters.getRawParameterValue("lfo2_depth")->load();
 
-    // Capture last modulation values for block-rate targets
-    float lastMod1Val = 0.0f, lastMod2Val = 0.0f;
-    float lastLfo1Val = 0.0f, lastLfo2Val = 0.0f;
-
-    // Accumulators for block-rate modulation of delay/reverb parameters
-    float modDelayTime = 0.0f, modDelayFb = 0.0f, modDelayMix = 0.0f, modReverbMix = 0.0f;
-    float modPitch = 0.0f;
-
-    // Re-prepare master looper if settings changed, then sync to voice
+    // Re-prepare master looper if settings changed, then distribute to all voices
     if (masterLooper.hasAudio())
     {
         if (masterLooper.needsReprepare())
             masterLooper.preparePlaybackBuffer();
-        if (!bp.engineIsWavetable)
-            voice.getLooper().shareBufferFrom(masterLooper);
+        voiceManager.distributeLooperBuffer(masterLooper);
     }
 
-    // Configure voice envelopes once per block (not per sample)
-    voice.configureForBlock(bp);
-
-    // Per-sample rendering loop
+    // Pre-compute global LFO values for the block (needed by VoiceManager)
+    std::vector<float> lfo1Buf(static_cast<size_t>(numSamples));
+    std::vector<float> lfo2Buf(static_cast<size_t>(numSamples));
     for (int i = 0; i < numSamples; ++i)
     {
-        float lfo1Val = lfo1.processSample();
-        float lfo2Val = lfo2.processSample();
+        float l1 = lfo1.processSample();
+        float l2 = lfo2.processSample();
 
         // LFO cross-modulation
-        if (bp.lfo1Target == 7) lfo2.setRate(baseLfo2Rate * (1.0f + lfo1Val));
-        if (bp.lfo1Target == 8) lfo2.setDepth(std::max(0.0f, baseLfo2Depth + lfo1Val * baseLfo2Depth));
-        if (bp.lfo2Target == 7) lfo1.setRate(baseLfo1Rate * (1.0f + lfo2Val));
-        if (bp.lfo2Target == 8) lfo1.setDepth(std::max(0.0f, baseLfo1Depth + lfo2Val * baseLfo1Depth));
+        if (bp.lfo1Target == 7) lfo2.setRate(baseLfo2Rate * (1.0f + l1));
+        if (bp.lfo1Target == 8) lfo2.setDepth(std::max(0.0f, baseLfo2Depth + l1 * baseLfo2Depth));
+        if (bp.lfo2Target == 7) lfo1.setRate(baseLfo1Rate * (1.0f + l2));
+        if (bp.lfo2Target == 8) lfo1.setDepth(std::max(0.0f, baseLfo1Depth + l2 * baseLfo1Depth));
 
-        auto result = voice.renderSample(bp, lfo1Val, lfo2Val);
-
-        lastMod1Val = result.mod1EnvVal;
-        lastMod2Val = result.mod2EnvVal;
-        lastLfo1Val = lfo1Val;
-        lastLfo2Val = lfo2Val;
-
-        for (int ch = 0; ch < numChannels; ++ch)
-            buffer.setSample(ch, i, result.sample);
+        lfo1Buf[static_cast<size_t>(i)] = l1;
+        lfo2Buf[static_cast<size_t>(i)] = l2;
     }
 
+    // Render all voices (summed with 1/sqrt(N) scaling)
+    auto voiceOut = voiceManager.renderBlock(buffer, bp, lfo1Buf.data(), lfo2Buf.data(), numSamples);
+    lastTriggeredNote = voiceOut.lastTriggeredNote;
+
+    // Capture last LFO values for block-rate modulation
+    float lastMod1Val = voiceOut.lastMod1Val;
+    float lastMod2Val = voiceOut.lastMod2Val;
+    float lastLfo1Val = lfo1Buf.empty() ? 0.0f : lfo1Buf.back();
+    float lastLfo2Val = lfo2Buf.empty() ? 0.0f : lfo2Buf.back();
+
     // ── Accumulate block-rate modulation for delay/reverb/pitch ─────────────
+    float modDelayTime = 0.0f, modDelayFb = 0.0f, modDelayMix = 0.0f, modReverbMix = 0.0f;
+    float modPitch = 0.0f;
+
     if (bp.mod1Target == 4) modDelayTime += lastMod1Val;
     if (bp.mod1Target == 5) modDelayFb += lastMod1Val;
     if (bp.mod1Target == 6) modDelayMix += lastMod1Val;
@@ -655,24 +588,6 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     if (bp.lfo2Target == 5) modDelayMix += lastLfo2Val;
     if (bp.lfo2Target == 6) modReverbMix += lastLfo2Val;
     if (bp.lfo2Target == 2) modPitch += lastLfo2Val;
-
-    // ── Apply pitch modulation ─────────────────────────────────────────────
-    if (modPitch != 0.0f && noteIsOn)
-    {
-        float pitchMul = 1.0f + modPitch;
-        if (engineMode == EngineMode::Wavetable)
-        {
-            float baseFreq = juce::MidiMessage::getMidiNoteInHertz(static_cast<int>(currentNote));
-            voice.getOsc().setFrequency(juce::jlimit(20.0f, 20000.0f, baseFreq * pitchMul));
-        }
-    }
-
-    // ── Per-voice filter (block-rate modulation) ───────────────────────────
-    if (bp.filterEnabled)
-    {
-        voice.processFilter(bp, lastMod1Val, lastMod2Val, lastLfo1Val, lastLfo2Val);
-        voice.getFilter().processBlock(buffer);
-    }
 
     // ── Effects (parallel send-bus: dry + delay + reverb → limiter) ───────
     bool delayEnabled = parameters.getRawParameterValue("delay_enabled")->load() > 0.5f;
@@ -774,9 +689,9 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
     masterLooper.loadBuffer(audioBuffer, sr);
     masterOsc.extractFramesFromBuffer(audioBuffer, sr);
 
-    // Share data with voice
-    voice.getLooper().shareBufferFrom(masterLooper);
-    voice.getOsc().shareFramesFrom(masterOsc);
+    // Distribute data to all voices
+    voiceManager.distributeLooperBuffer(masterLooper);
+    voiceManager.distributeWavetableFrames(masterOsc);
 
     // Snapshot channel 0 for waveform display
     if (audioBuffer.getNumChannels() > 0 && audioBuffer.getNumSamples() > 0)

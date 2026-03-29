@@ -60,6 +60,8 @@ public:
     ADSREnvelope& getModEnvelope1() { return modEnv1; }
     ADSREnvelope& getModEnvelope2() { return modEnv2; }
     T5ynthFilter& getFilter() { return filter; }
+    LFO& getPerVoiceLfo1() { return perVoiceLfo1; }
+    LFO& getPerVoiceLfo2() { return perVoiceLfo2; }
 
     // Voice age for stealing (monotonic counter set by VoiceManager)
     uint64_t noteOnTimestamp = 0;
