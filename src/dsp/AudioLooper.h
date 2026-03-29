@@ -29,6 +29,9 @@ public:
     /** Process a block (writes into output buffer). */
     void processBlock(juce::AudioBuffer<float>& output);
 
+    /** Render one mono sample (channel 0, linear interpolation). Advances read position. */
+    float processSample();
+
     bool hasAudio() const { return audioLoaded; }
 
     void play()  { playing = true; }
@@ -54,6 +57,11 @@ public:
     float getLoopStart() const { return loopStartFrac; }
     float getLoopEnd()   const { return loopEndFrac; }
 
+    /** Share playback buffer from a master looper (for polyphonic voices).
+     *  Shared-mode loopers have their own read position but read from the
+     *  master's prepared buffer. loadBuffer/preparePlaybackBuffer are no-ops. */
+    void shareBufferFrom(const AudioLooper& master);
+
     // ─── Modes and processing ───
     void setLoopMode(LoopMode mode);
     void setCrossfadeMs(float ms);
@@ -63,6 +71,12 @@ public:
     LoopMode getLoopMode()  const { return loopMode; }
     float getCrossfadeMs()  const { return crossfadeMsVal; }
     bool  getNormalize()    const { return normalizeOn; }
+
+    /** True if settings changed and buffer needs re-preparation. */
+    bool needsReprepare() const { return needsReprepareFlag; }
+
+    /** Re-build playBuffer from originalBuffer with current settings. */
+    void preparePlaybackBuffer();
 
 private:
     // Original (unprocessed) buffer — kept for re-preparation when settings change
@@ -96,10 +110,11 @@ private:
     bool  loopOptimizeOn  = false;
 
     // Dirty flag — when settings change, re-prepare on next processBlock
-    bool needsReprepare = false;
+    bool needsReprepareFlag = false;
 
-    /** Re-build playBuffer from originalBuffer with current settings. */
-    void preparePlaybackBuffer();
+    // Shared-buffer mode: reads from external playBuffer, no ownership
+    bool sharedMode = false;
+    const juce::AudioBuffer<float>* sharedPlayBuffer = nullptr;
 
     /** Cross-correlation loop-end optimizer (channel 0). */
     int optimizeLoopEnd(const float* data, int loopStart, int loopEnd, int bufLen) const;

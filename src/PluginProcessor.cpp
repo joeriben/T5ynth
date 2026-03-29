@@ -326,14 +326,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
 
 void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    wavetableOsc.prepare(sampleRate, samplesPerBlock);
-    looper.prepare(sampleRate, samplesPerBlock);
-    ampEnvelope.prepare(sampleRate);
-    modEnvelope1.prepare(sampleRate);
-    modEnvelope2.prepare(sampleRate);
+    masterOsc.prepare(sampleRate, samplesPerBlock);
+    masterLooper.prepare(sampleRate, samplesPerBlock);
+    voice.prepare(sampleRate, samplesPerBlock);
     lfo1.prepare(sampleRate);
     lfo2.prepare(sampleRate);
-    filter.prepare(sampleRate, samplesPerBlock);
     delay.prepare(sampleRate, samplesPerBlock);
     reverb.prepare(sampleRate, samplesPerBlock);
     // Load default IR (medium plate)
@@ -347,8 +344,9 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 
 void T5ynthProcessor::releaseResources()
 {
-    wavetableOsc.reset();
-    looper.reset();
+    masterOsc.reset();
+    masterLooper.reset();
+    voice.reset();
 }
 
 void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
@@ -365,55 +363,58 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // Post-Sum:  Delay+Reverb up to ~2.7x → Master 0dB max → Limiter -3dB
     // ────────────────────────────────────────────────────────────────────────
 
-    // ── Read all parameters at block start ──────────────────────────────────
-    // Amp envelope
-    ampEnvelope.setAttack(parameters.getRawParameterValue("amp_attack")->load());
-    ampEnvelope.setDecay(parameters.getRawParameterValue("amp_decay")->load());
-    ampEnvelope.setSustain(parameters.getRawParameterValue("amp_sustain")->load());
-    ampEnvelope.setRelease(parameters.getRawParameterValue("amp_release")->load());
-    float ampAmount = parameters.getRawParameterValue("amp_amount")->load();
-    ampEnvelope.setLooping(parameters.getRawParameterValue("amp_loop")->load() > 0.5f);
+    // ── Read all parameters into BlockParams ──────────────────────────────────
+    BlockParams bp;
+    bp.ampAttack  = parameters.getRawParameterValue("amp_attack")->load();
+    bp.ampDecay   = parameters.getRawParameterValue("amp_decay")->load();
+    bp.ampSustain = parameters.getRawParameterValue("amp_sustain")->load();
+    bp.ampRelease = parameters.getRawParameterValue("amp_release")->load();
+    bp.ampAmount  = parameters.getRawParameterValue("amp_amount")->load();
+    bp.ampLoop    = parameters.getRawParameterValue("amp_loop")->load() > 0.5f;
 
-    // Mod envelope 1
-    modEnvelope1.setAttack(parameters.getRawParameterValue("mod1_attack")->load());
-    modEnvelope1.setDecay(parameters.getRawParameterValue("mod1_decay")->load());
-    modEnvelope1.setSustain(parameters.getRawParameterValue("mod1_sustain")->load());
-    modEnvelope1.setRelease(parameters.getRawParameterValue("mod1_release")->load());
-    float mod1Amount = parameters.getRawParameterValue("mod1_amount")->load();
-    int mod1Target = static_cast<int>(parameters.getRawParameterValue("mod1_target")->load());
-    modEnvelope1.setLooping(parameters.getRawParameterValue("mod1_loop")->load() > 0.5f);
+    bp.mod1Attack  = parameters.getRawParameterValue("mod1_attack")->load();
+    bp.mod1Decay   = parameters.getRawParameterValue("mod1_decay")->load();
+    bp.mod1Sustain = parameters.getRawParameterValue("mod1_sustain")->load();
+    bp.mod1Release = parameters.getRawParameterValue("mod1_release")->load();
+    bp.mod1Amount  = parameters.getRawParameterValue("mod1_amount")->load();
+    bp.mod1Target  = static_cast<int>(parameters.getRawParameterValue("mod1_target")->load());
+    bp.mod1Loop    = parameters.getRawParameterValue("mod1_loop")->load() > 0.5f;
 
-    // Mod envelope 2
-    modEnvelope2.setAttack(parameters.getRawParameterValue("mod2_attack")->load());
-    modEnvelope2.setDecay(parameters.getRawParameterValue("mod2_decay")->load());
-    modEnvelope2.setSustain(parameters.getRawParameterValue("mod2_sustain")->load());
-    modEnvelope2.setRelease(parameters.getRawParameterValue("mod2_release")->load());
-    float mod2Amount = parameters.getRawParameterValue("mod2_amount")->load();
-    int mod2Target = static_cast<int>(parameters.getRawParameterValue("mod2_target")->load());
-    modEnvelope2.setLooping(parameters.getRawParameterValue("mod2_loop")->load() > 0.5f);
+    bp.mod2Attack  = parameters.getRawParameterValue("mod2_attack")->load();
+    bp.mod2Decay   = parameters.getRawParameterValue("mod2_decay")->load();
+    bp.mod2Sustain = parameters.getRawParameterValue("mod2_sustain")->load();
+    bp.mod2Release = parameters.getRawParameterValue("mod2_release")->load();
+    bp.mod2Amount  = parameters.getRawParameterValue("mod2_amount")->load();
+    bp.mod2Target  = static_cast<int>(parameters.getRawParameterValue("mod2_target")->load());
+    bp.mod2Loop    = parameters.getRawParameterValue("mod2_loop")->load() > 0.5f;
 
-    // LFOs
+    // LFOs (global)
     lfo1.setRate(parameters.getRawParameterValue("lfo1_rate")->load());
     lfo1.setDepth(parameters.getRawParameterValue("lfo1_depth")->load());
     lfo1.setWaveform(static_cast<int>(parameters.getRawParameterValue("lfo1_wave")->load()));
-    int lfo1Target = static_cast<int>(parameters.getRawParameterValue("lfo1_target")->load());
+    bp.lfo1Target = static_cast<int>(parameters.getRawParameterValue("lfo1_target")->load());
 
     lfo2.setRate(parameters.getRawParameterValue("lfo2_rate")->load());
     lfo2.setDepth(parameters.getRawParameterValue("lfo2_depth")->load());
     lfo2.setWaveform(static_cast<int>(parameters.getRawParameterValue("lfo2_wave")->load()));
-    int lfo2Target = static_cast<int>(parameters.getRawParameterValue("lfo2_target")->load());
+    bp.lfo2Target = static_cast<int>(parameters.getRawParameterValue("lfo2_target")->load());
 
-    // Filter base values
-    bool filterEnabled = parameters.getRawParameterValue("filter_enabled")->load() > 0.5f;
-    float baseCutoff = parameters.getRawParameterValue("filter_cutoff")->load();
-    float baseReso = parameters.getRawParameterValue("filter_resonance")->load();
-    int filterType = static_cast<int>(parameters.getRawParameterValue("filter_type")->load());
-    int filterSlope = static_cast<int>(parameters.getRawParameterValue("filter_slope")->load());
-    float filterMix = parameters.getRawParameterValue("filter_mix")->load();
-    float kbdTrack = parameters.getRawParameterValue("filter_kbd_track")->load();
+    // Filter
+    bp.filterEnabled = parameters.getRawParameterValue("filter_enabled")->load() > 0.5f;
+    bp.baseCutoff = parameters.getRawParameterValue("filter_cutoff")->load();
+    bp.baseReso = parameters.getRawParameterValue("filter_resonance")->load();
+    bp.filterType = static_cast<int>(parameters.getRawParameterValue("filter_type")->load());
+    bp.filterSlope = static_cast<int>(parameters.getRawParameterValue("filter_slope")->load());
+    bp.filterMix = parameters.getRawParameterValue("filter_mix")->load();
+    bp.kbdTrack = parameters.getRawParameterValue("filter_kbd_track")->load();
 
-    // Scan base value
-    float baseScan = parameters.getRawParameterValue("osc_scan")->load();
+    // Scan
+    bp.baseScan = parameters.getRawParameterValue("osc_scan")->load();
+
+    // Engine mode
+    bp.engineIsWavetable = (engineMode == EngineMode::Wavetable);
+    voice.setEngineMode(bp.engineIsWavetable ? SynthVoice::EngineMode::Wavetable
+                                              : SynthVoice::EngineMode::Looper);
 
     // Master volume (dB → linear)
     float masterDb = parameters.getRawParameterValue("master_vol")->load();
@@ -437,13 +438,13 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     driftLfo.tick(static_cast<double>(numSamples) / getSampleRate());
 
     // Apply drift to scan if targeted (APVTS target 5 = WtScan)
-    float driftScanOffset = driftLfo.getOffsetForTarget(5); // WtScan
+    bp.driftScanOffset = driftLfo.getOffsetForTarget(5); // WtScan
 
     // ── Looper settings ─────────────────────────────────────────────────────
     int loopModeIdx = static_cast<int>(parameters.getRawParameterValue("loop_mode")->load());
-    looper.setLoopMode(static_cast<AudioLooper::LoopMode>(loopModeIdx));
-    looper.setCrossfadeMs(parameters.getRawParameterValue("crossfade_ms")->load());
-    looper.setNormalize(parameters.getRawParameterValue("normalize")->load() > 0.5f);
+    masterLooper.setLoopMode(static_cast<AudioLooper::LoopMode>(loopModeIdx));
+    masterLooper.setCrossfadeMs(parameters.getRawParameterValue("crossfade_ms")->load());
+    masterLooper.setNormalize(parameters.getRawParameterValue("normalize")->load() > 0.5f);
 
     // ── Sequencer / Arpeggiator (in series: Seq → Arp → synth) ─────────────
     int seqMode = static_cast<int>(parameters.getRawParameterValue("seq_mode")->load());
@@ -513,11 +514,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             {
                 // Glide: ramp pitch without retriggering envelope
                 currentNote = static_cast<float>(note);
-                float glideMs = stepSequencer.getGlideTime();
-                if (engineMode == EngineMode::Looper)
-                    looper.glideToSemitones(note - 60, glideMs);
-                else
-                    wavetableOsc.glideToFrequency(juce::MidiMessage::getMidiNoteInHertz(note), glideMs);
+                voice.glideToNote(note, stepSequencer.getGlideTime());
             }
             else
             {
@@ -531,35 +528,22 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 currentVelocity = velocity;
                 noteIsOn = true;
 
+                bool legato = !wasEmpty;
+                voice.noteOn(note, velocity, legato);
+
                 if (wasEmpty)
                 {
-                    // Non-legato: retrigger engine + attack
-                    ampEnvelope.noteOn(velocity);
-                    modEnvelope1.noteOn(velocity);
-                    modEnvelope2.noteOn(velocity);
-
-                    wavetableOsc.setFrequency(juce::MidiMessage::getMidiNoteInHertz(note));
-                    looper.setMidiNote(note);
-
-                    if (engineMode == EngineMode::Looper && looper.hasAudio())
-                        looper.retrigger();
-                    // WT mode: stop looper (shared DCA, avoid bleed)
+                    // Non-legato: retrigger looper
+                    if (engineMode == EngineMode::Looper && voice.getLooper().hasAudio())
+                        voice.getLooper().retrigger();
                     if (engineMode == EngineMode::Wavetable)
-                        looper.stop();
+                        voice.getLooper().stop();
 
                     // LFO trigger mode: reset phase
                     if (static_cast<int>(parameters.getRawParameterValue("lfo1_mode")->load()) == 1)
                         lfo1.reset();
                     if (static_cast<int>(parameters.getRawParameterValue("lfo2_mode")->load()) == 1)
                         lfo2.reset();
-                }
-                else
-                {
-                    // Legato: just transpose pitch, envelope stays in sustain
-                    if (engineMode == EngineMode::Looper)
-                        looper.setMidiNote(note);
-                    else
-                        wavetableOsc.setFrequency(juce::MidiMessage::getMidiNoteInHertz(note));
                 }
             }
         }
@@ -573,9 +557,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 // Last note released: start release phase
                 noteIsOn = false;
                 lastMidiNoteOn.store(false, std::memory_order_relaxed);
-                ampEnvelope.noteOff();
-                modEnvelope1.noteOff();
-                modEnvelope2.noteOff();
+                voice.noteOff();
 
                 // Schedule engine stop after release + 50ms
                 float releaseMs = parameters.getRawParameterValue("amp_release")->load();
@@ -583,13 +565,10 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             }
             else
             {
-                // Notes remaining: switch to last held note (last-note priority)
+                // Notes remaining: switch to last held note (legato)
                 int lastNote = heldNotes.back();
                 currentNote = static_cast<float>(lastNote);
-                if (engineMode == EngineMode::Looper)
-                    looper.setMidiNote(lastNote);
-                else
-                    wavetableOsc.setFrequency(juce::MidiMessage::getMidiNoteInHertz(lastNote));
+                voice.noteOn(lastNote, currentVelocity, true); // legato
             }
         }
     }
@@ -600,19 +579,12 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         engineStopCountdown -= numSamples;
         if (engineStopCountdown <= 0 && heldNotes.empty())
         {
-            looper.stop();
-            // wavetableOsc doesn't need explicit stop — it just produces silence at gain=0
+            voice.getLooper().stop();
             engineStopCountdown = -1;
         }
     }
 
-    // ── Audio generation + per-sample modulation ────────────────────────────
-    // Env target indices: 0=DCA, 1=Filter, 2=Scan, 3=Pitch,
-    //   4=DlyTime, 5=DlyFB, 6=DlyMix, 7=RevMix, 8=None
-    // LFO target indices: 0=Filter, 1=Scan, 2=Pitch, 3=DlyTime,
-    //   4=DlyFB, 5=DlyMix, 6=RevMix, 7=LFO2Rate(lfo1)/LFO1Rate(lfo2),
-    //   8=LFO2Depth(lfo1)/LFO1Depth(lfo2), 9=None
-
+    // ── Audio generation via SynthVoice + global LFOs ────────────────────────
     // Read base LFO rates for cross-modulation
     float baseLfo1Rate = parameters.getRawParameterValue("lfo1_rate")->load();
     float baseLfo2Rate = parameters.getRawParameterValue("lfo2_rate")->load();
@@ -627,116 +599,62 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     float modDelayTime = 0.0f, modDelayFb = 0.0f, modDelayMix = 0.0f, modReverbMix = 0.0f;
     float modPitch = 0.0f;
 
-    if (engineMode == EngineMode::Wavetable && wavetableOsc.hasFrames())
+    // Re-prepare master looper if settings changed, then sync to voice
+    if (masterLooper.hasAudio())
     {
-        for (int i = 0; i < numSamples; ++i)
-        {
-            float ampEnv = ampEnvelope.processSample() * ampAmount;
-            float mod1Env = modEnvelope1.processSample() * mod1Amount;
-            float mod2Env = modEnvelope2.processSample() * mod2Amount;
-            float lfo1Val = lfo1.processSample();
-            float lfo2Val = lfo2.processSample();
-
-            // LFO cross-modulation: LFO1 target 7 = LFO2 Rate, 8 = LFO2 Depth
-            if (lfo1Target == 7) lfo2.setRate(baseLfo2Rate * (1.0f + lfo1Val));
-            if (lfo1Target == 8) lfo2.setDepth(std::max(0.0f, baseLfo2Depth + lfo1Val * baseLfo2Depth));
-            // LFO2 target 7 = LFO1 Rate, 8 = LFO1 Depth
-            if (lfo2Target == 7) lfo1.setRate(baseLfo1Rate * (1.0f + lfo2Val));
-            if (lfo2Target == 8) lfo1.setDepth(std::max(0.0f, baseLfo1Depth + lfo2Val * baseLfo1Depth));
-
-            lastMod1Val = mod1Env;
-            lastMod2Val = mod2Env;
-            lastLfo1Val = lfo1Val;
-            lastLfo2Val = lfo2Val;
-
-            // Scan modulation
-            float scanMod = baseScan + driftScanOffset;
-            if (mod1Target == 2) scanMod += mod1Env;
-            if (mod2Target == 2) scanMod += mod2Env;
-            if (lfo1Target == 1) scanMod += lfo1Val;
-            if (lfo2Target == 1) scanMod += lfo2Val;
-            wavetableOsc.setScanPosition(juce::jlimit(0.0f, 1.0f, scanMod));
-
-            float sample = wavetableOsc.processSample();
-
-            // DCA: multiplicative mod routing (reference behavior).
-            // Worst case both mods→DCA at max amount: 4.0x gain. Limiter catches it.
-            float vca = ampEnv;
-            if (mod1Target == 0) vca *= (1.0f + mod1Env);
-            if (mod2Target == 0) vca *= (1.0f + mod2Env);
-            sample *= vca;
-
-            for (int ch = 0; ch < numChannels; ++ch)
-                buffer.setSample(ch, i, sample);
-        }
+        if (masterLooper.needsReprepare())
+            masterLooper.preparePlaybackBuffer();
+        if (!bp.engineIsWavetable)
+            voice.getLooper().shareBufferFrom(masterLooper);
     }
-    else if (engineMode == EngineMode::Looper && looper.hasAudio())
+
+    // Configure voice envelopes once per block (not per sample)
+    voice.configureForBlock(bp);
+
+    // Per-sample rendering loop
+    for (int i = 0; i < numSamples; ++i)
     {
-        looper.processBlock(buffer);
+        float lfo1Val = lfo1.processSample();
+        float lfo2Val = lfo2.processSample();
 
-        for (int i = 0; i < numSamples; ++i)
-        {
-            float ampEnv = ampEnvelope.processSample() * ampAmount;
-            float mod1Env = modEnvelope1.processSample() * mod1Amount;
-            float mod2Env = modEnvelope2.processSample() * mod2Amount;
-            float lfo1Val = lfo1.processSample();
-            float lfo2Val = lfo2.processSample();
+        // LFO cross-modulation
+        if (bp.lfo1Target == 7) lfo2.setRate(baseLfo2Rate * (1.0f + lfo1Val));
+        if (bp.lfo1Target == 8) lfo2.setDepth(std::max(0.0f, baseLfo2Depth + lfo1Val * baseLfo2Depth));
+        if (bp.lfo2Target == 7) lfo1.setRate(baseLfo1Rate * (1.0f + lfo2Val));
+        if (bp.lfo2Target == 8) lfo1.setDepth(std::max(0.0f, baseLfo1Depth + lfo2Val * baseLfo1Depth));
 
-            if (lfo1Target == 7) lfo2.setRate(baseLfo2Rate * (1.0f + lfo1Val));
-            if (lfo1Target == 8) lfo2.setDepth(std::max(0.0f, baseLfo2Depth + lfo1Val * baseLfo2Depth));
-            if (lfo2Target == 7) lfo1.setRate(baseLfo1Rate * (1.0f + lfo2Val));
-            if (lfo2Target == 8) lfo1.setDepth(std::max(0.0f, baseLfo1Depth + lfo2Val * baseLfo1Depth));
+        auto result = voice.renderSample(bp, lfo1Val, lfo2Val);
 
-            lastMod1Val = mod1Env;
-            lastMod2Val = mod2Env;
-            lastLfo1Val = lfo1Val;
-            lastLfo2Val = lfo2Val;
+        lastMod1Val = result.mod1EnvVal;
+        lastMod2Val = result.mod2EnvVal;
+        lastLfo1Val = lfo1Val;
+        lastLfo2Val = lfo2Val;
 
-            // DCA: multiplicative mod routing (reference behavior).
-            // Worst case both mods→DCA at max amount: 4.0x gain. Limiter catches it.
-            float vca = ampEnv;
-            if (mod1Target == 0) vca *= (1.0f + mod1Env);
-            if (mod2Target == 0) vca *= (1.0f + mod2Env);
-
-            for (int ch = 0; ch < numChannels; ++ch)
-                buffer.setSample(ch, i, buffer.getSample(ch, i) * vca);
-        }
-    }
-    else
-    {
-        for (int i = 0; i < numSamples; ++i)
-        {
-            lastMod1Val = modEnvelope1.processSample() * mod1Amount;
-            lastMod2Val = modEnvelope2.processSample() * mod2Amount;
-            lastLfo1Val = lfo1.processSample();
-            lastLfo2Val = lfo2.processSample();
-            ampEnvelope.processSample();
-        }
+        for (int ch = 0; ch < numChannels; ++ch)
+            buffer.setSample(ch, i, result.sample);
     }
 
     // ── Accumulate block-rate modulation for delay/reverb/pitch ─────────────
-    // Env → delay/reverb targets (uses last captured values)
-    if (mod1Target == 4) modDelayTime += lastMod1Val;   // Env→DelayTime
-    if (mod1Target == 5) modDelayFb += lastMod1Val;     // Env→DelayFB
-    if (mod1Target == 6) modDelayMix += lastMod1Val;    // Env→DelayMix
-    if (mod1Target == 7) modReverbMix += lastMod1Val;   // Env→ReverbMix
-    if (mod1Target == 3) modPitch += lastMod1Val;       // Env→Pitch
-    if (mod2Target == 4) modDelayTime += lastMod2Val;
-    if (mod2Target == 5) modDelayFb += lastMod2Val;
-    if (mod2Target == 6) modDelayMix += lastMod2Val;
-    if (mod2Target == 7) modReverbMix += lastMod2Val;
-    if (mod2Target == 3) modPitch += lastMod2Val;
-    // LFO → delay/reverb targets
-    if (lfo1Target == 3) modDelayTime += lastLfo1Val;
-    if (lfo1Target == 4) modDelayFb += lastLfo1Val;
-    if (lfo1Target == 5) modDelayMix += lastLfo1Val;
-    if (lfo1Target == 6) modReverbMix += lastLfo1Val;
-    if (lfo1Target == 2) modPitch += lastLfo1Val;       // LFO→Pitch
-    if (lfo2Target == 3) modDelayTime += lastLfo2Val;
-    if (lfo2Target == 4) modDelayFb += lastLfo2Val;
-    if (lfo2Target == 5) modDelayMix += lastLfo2Val;
-    if (lfo2Target == 6) modReverbMix += lastLfo2Val;
-    if (lfo2Target == 2) modPitch += lastLfo2Val;
+    if (bp.mod1Target == 4) modDelayTime += lastMod1Val;
+    if (bp.mod1Target == 5) modDelayFb += lastMod1Val;
+    if (bp.mod1Target == 6) modDelayMix += lastMod1Val;
+    if (bp.mod1Target == 7) modReverbMix += lastMod1Val;
+    if (bp.mod1Target == 3) modPitch += lastMod1Val;
+    if (bp.mod2Target == 4) modDelayTime += lastMod2Val;
+    if (bp.mod2Target == 5) modDelayFb += lastMod2Val;
+    if (bp.mod2Target == 6) modDelayMix += lastMod2Val;
+    if (bp.mod2Target == 7) modReverbMix += lastMod2Val;
+    if (bp.mod2Target == 3) modPitch += lastMod2Val;
+    if (bp.lfo1Target == 3) modDelayTime += lastLfo1Val;
+    if (bp.lfo1Target == 4) modDelayFb += lastLfo1Val;
+    if (bp.lfo1Target == 5) modDelayMix += lastLfo1Val;
+    if (bp.lfo1Target == 6) modReverbMix += lastLfo1Val;
+    if (bp.lfo1Target == 2) modPitch += lastLfo1Val;
+    if (bp.lfo2Target == 3) modDelayTime += lastLfo2Val;
+    if (bp.lfo2Target == 4) modDelayFb += lastLfo2Val;
+    if (bp.lfo2Target == 5) modDelayMix += lastLfo2Val;
+    if (bp.lfo2Target == 6) modReverbMix += lastLfo2Val;
+    if (bp.lfo2Target == 2) modPitch += lastLfo2Val;
 
     // ── Apply pitch modulation ─────────────────────────────────────────────
     if (modPitch != 0.0f && noteIsOn)
@@ -745,51 +663,15 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         if (engineMode == EngineMode::Wavetable)
         {
             float baseFreq = juce::MidiMessage::getMidiNoteInHertz(static_cast<int>(currentNote));
-            wavetableOsc.setFrequency(juce::jlimit(20.0f, 20000.0f, baseFreq * pitchMul));
+            voice.getOsc().setFrequency(juce::jlimit(20.0f, 20000.0f, baseFreq * pitchMul));
         }
-        // Looper pitch mod: modify transpose ratio directly
-        // (looper reads transposeRatio per-sample, so this takes effect immediately)
     }
 
-    // ── Filter with modulation ──────────────────────────────────────────────
-    if (filterEnabled)
+    // ── Per-voice filter (block-rate modulation) ───────────────────────────
+    if (bp.filterEnabled)
     {
-        float cutoffMod = baseCutoff;
-
-        // Keyboard tracking
-        if (kbdTrack > 0.0f && currentNote >= 0)
-            cutoffMod *= std::pow(2.0f, (currentNote - 60.0f) / 12.0f * kbdTrack);
-
-        // DCF Envelope: subtractive sweep (reference useModulation.ts:272-290)
-        // Start = base * (1 - amount), Peak = base * (1 + amount * 8)
-        // Only active when envelope is running (not idle) — prevents permanent cutoff drop.
-        if (mod1Target == 1 && !modEnvelope1.isIdle())
-        {
-            float startFactor = 1.0f - mod1Amount;
-            float peakFactor = 1.0f + mod1Amount * 8.0f;
-            float envFactor = startFactor + (peakFactor - startFactor) * lastMod1Val;
-            cutoffMod *= envFactor;
-        }
-        if (mod2Target == 1 && !modEnvelope2.isIdle())
-        {
-            float startFactor = 1.0f - mod2Amount;
-            float peakFactor = 1.0f + mod2Amount * 8.0f;
-            float envFactor = startFactor + (peakFactor - startFactor) * lastMod2Val;
-            cutoffMod *= envFactor;
-        }
-
-        // LFO → filter: bipolar, depth-scaled
-        if (lfo1Target == 0) cutoffMod *= (1.0f + lastLfo1Val);
-        if (lfo2Target == 0) cutoffMod *= (1.0f + lastLfo2Val);
-
-        cutoffMod = juce::jlimit(20.0f, 20000.0f, cutoffMod);
-
-        filter.setCutoff(cutoffMod);
-        filter.setResonance(baseReso); // Q-mapping applied inside setResonance()
-        filter.setType(filterType);
-        filter.setSlope(filterSlope);
-        filter.setMix(filterMix);
-        filter.processBlock(buffer);
+        voice.processFilter(bp, lastMod1Val, lastMod2Val, lastLfo1Val, lastLfo2Val);
+        voice.getFilter().processBlock(buffer);
     }
 
     // ── Effects (parallel send-bus: dry + delay + reverb → limiter) ───────
@@ -889,8 +771,12 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
 void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBuffer, double sr)
 {
-    looper.loadBuffer(audioBuffer, sr);
-    wavetableOsc.extractFramesFromBuffer(audioBuffer, sr);
+    masterLooper.loadBuffer(audioBuffer, sr);
+    masterOsc.extractFramesFromBuffer(audioBuffer, sr);
+
+    // Share data with voice
+    voice.getLooper().shareBufferFrom(masterLooper);
+    voice.getOsc().shareFramesFrom(masterOsc);
 
     // Snapshot channel 0 for waveform display
     if (audioBuffer.getNumChannels() > 0 && audioBuffer.getNumSamples() > 0)
@@ -1078,8 +964,8 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     engine->setProperty("mode", engineMode == EngineMode::Looper ? "looper" : "wavetable");
     int lm = static_cast<int>(get("loop_mode"));
     engine->setProperty("loopMode", lm == 0 ? "oneshot" : (lm == 1 ? "loop" : "pingpong"));
-    engine->setProperty("loopStartFrac", static_cast<double>(looper.getLoopStart()));
-    engine->setProperty("loopEndFrac", static_cast<double>(looper.getLoopEnd()));
+    engine->setProperty("loopStartFrac", static_cast<double>(masterLooper.getLoopStart()));
+    engine->setProperty("loopEndFrac", static_cast<double>(masterLooper.getLoopEnd()));
     engine->setProperty("crossfadeMs", get("crossfade_ms"));
     root->setProperty("engine", engine.get());
 
@@ -1233,8 +1119,8 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         int loopModeIdx = (lm == "loop") ? 1 : (lm == "pingpong" ? 2 : 0);
         setParam(parameters, "loop_mode", static_cast<float>(loopModeIdx));
 
-        looper.setLoopStart(static_cast<float>(engine->getProperty("loopStartFrac")));
-        looper.setLoopEnd(static_cast<float>(engine->getProperty("loopEndFrac")));
+        masterLooper.setLoopStart(static_cast<float>(engine->getProperty("loopStartFrac")));
+        masterLooper.setLoopEnd(static_cast<float>(engine->getProperty("loopEndFrac")));
         setParam(parameters, "crossfade_ms", static_cast<float>(engine->getProperty("crossfadeMs")));
     }
 

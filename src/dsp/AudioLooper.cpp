@@ -17,11 +17,26 @@ void AudioLooper::reset()
 
 void AudioLooper::loadBuffer(const juce::AudioBuffer<float>& buffer, double bufferSampleRate)
 {
+    if (sharedMode) return; // shared-mode loopers don't own audio
     originalBuffer.makeCopyOf(buffer);
     bufferOriginalSR = bufferSampleRate;
     audioLoaded = true;
     preparePlaybackBuffer();
     playing = true;
+}
+
+void AudioLooper::shareBufferFrom(const AudioLooper& master)
+{
+    sharedMode = true;
+    sharedPlayBuffer = &master.playBuffer;
+    bufferOriginalSR = master.bufferOriginalSR;
+    playStart = master.playStart;
+    playEnd = master.playEnd;
+    coldStart = master.coldStart;
+    loopMode = master.loopMode;
+    audioLoaded = master.audioLoaded;
+    readPosition = static_cast<double>(coldStart);
+    needsReprepareFlag = false;
 }
 
 void AudioLooper::setMidiNote(int note)
@@ -53,7 +68,7 @@ void AudioLooper::setLoopStart(float frac)
     if (clamped != loopStartFrac)
     {
         loopStartFrac = clamped;
-        needsReprepare = true;
+        needsReprepareFlag = true;
     }
 }
 
@@ -63,29 +78,29 @@ void AudioLooper::setLoopEnd(float frac)
     if (clamped != loopEndFrac)
     {
         loopEndFrac = clamped;
-        needsReprepare = true;
+        needsReprepareFlag = true;
     }
 }
 
 void AudioLooper::setLoopMode(LoopMode mode)
 {
-    if (mode != loopMode) { loopMode = mode; needsReprepare = true; }
+    if (mode != loopMode) { loopMode = mode; needsReprepareFlag = true; }
 }
 
 void AudioLooper::setCrossfadeMs(float ms)
 {
     float clamped = juce::jlimit(0.0f, 500.0f, ms);
-    if (clamped != crossfadeMsVal) { crossfadeMsVal = clamped; needsReprepare = true; }
+    if (clamped != crossfadeMsVal) { crossfadeMsVal = clamped; needsReprepareFlag = true; }
 }
 
 void AudioLooper::setNormalize(bool on)
 {
-    if (on != normalizeOn) { normalizeOn = on; needsReprepare = true; }
+    if (on != normalizeOn) { normalizeOn = on; needsReprepareFlag = true; }
 }
 
 void AudioLooper::setLoopOptimize(bool on)
 {
-    if (on != loopOptimizeOn) { loopOptimizeOn = on; needsReprepare = true; }
+    if (on != loopOptimizeOn) { loopOptimizeOn = on; needsReprepareFlag = true; }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -153,75 +168,86 @@ void AudioLooper::preparePlaybackBuffer()
 
     // Reset read position to cold start
     readPosition = static_cast<double>(coldStart);
-    needsReprepare = false;
+    needsReprepareFlag = false;
 }
 
 // ═══════════════════════════════════════════════════════════════════
 // processBlock
 // ═══════════════════════════════════════════════════════════════════
 
+float AudioLooper::processSample()
+{
+    const int regionLen = playEnd - playStart;
+    if (regionLen <= 0 || !playing) return 0.0f;
+
+    // Apply pitch glide (per-sample linear ramp)
+    if (glideSamplesLeft > 0)
+    {
+        transposeRatio += glideRatioIncr;
+        glideSamplesLeft--;
+        if (glideSamplesLeft == 0)
+            transposeRatio = glideTargetRatio;
+    }
+
+    const double srRatio = bufferOriginalSR / playbackSampleRate;
+    double speedRatio = srRatio * transposeRatio;
+
+    // Map readPosition into the play region
+    double posInRegion = readPosition - static_cast<double>(playStart);
+
+    int pos0 = static_cast<int>(std::floor(posInRegion));
+    float frac = static_cast<float>(posInRegion - pos0);
+
+    // Clamp into region
+    if (pos0 < 0) pos0 = 0;
+    int absPos0 = playStart + (pos0 % regionLen);
+    int absPos1 = playStart + ((pos0 + 1) % regionLen);
+
+    // Read mono (channel 0) with linear interpolation
+    const auto& buf = sharedMode ? *sharedPlayBuffer : playBuffer;
+    const auto* bufPtr = buf.getReadPointer(0);
+    float s0 = bufPtr[absPos0];
+    float s1 = bufPtr[absPos1];
+    float result = s0 + (s1 - s0) * frac;
+
+    readPosition += speedRatio;
+
+    // Handle wrapping / stopping based on mode
+    if (readPosition >= static_cast<double>(playEnd))
+    {
+        if (loopMode == LoopMode::OneShot)
+        {
+            playing = false;
+        }
+        else
+        {
+            // Loop or PingPong: wrap back to loop start
+            readPosition -= static_cast<double>(regionLen);
+        }
+    }
+
+    return result;
+}
+
 void AudioLooper::processBlock(juce::AudioBuffer<float>& output)
 {
     if (!audioLoaded || !playing || playBuffer.getNumSamples() == 0)
         return;
 
-    // Re-prepare if settings changed (loop bounds, mode, crossfade, etc.)
-    if (needsReprepare)
+    // Re-prepare if settings changed (shared-mode loopers skip this)
+    if (needsReprepareFlag && !sharedMode)
         preparePlaybackBuffer();
 
     const int numOutChannels = output.getNumChannels();
     const int numOutSamples  = output.getNumSamples();
-    const int playCh         = playBuffer.getNumChannels();
-    const double srRatio     = bufferOriginalSR / playbackSampleRate;
-
-    const int regionLen = playEnd - playStart;
-    if (regionLen <= 0) return;
 
     for (int i = 0; i < numOutSamples; ++i)
     {
-        // Apply pitch glide (per-sample linear ramp)
-        if (glideSamplesLeft > 0)
-        {
-            transposeRatio += glideRatioIncr;
-            glideSamplesLeft--;
-            if (glideSamplesLeft == 0)
-                transposeRatio = glideTargetRatio;
-        }
-
-        double speedRatio = srRatio * transposeRatio;
-
-        // Map readPosition into the play region
-        double posInRegion = readPosition - static_cast<double>(playStart);
-
-        int pos0 = static_cast<int>(std::floor(posInRegion));
-        float frac = static_cast<float>(posInRegion - pos0);
-
-        // Clamp into region
-        if (pos0 < 0) pos0 = 0;
-        int absPos0 = playStart + (pos0 % regionLen);
-        int absPos1 = playStart + ((pos0 + 1) % regionLen);
+        float sample = processSample();
+        if (!playing) break; // one-shot ended
 
         for (int ch = 0; ch < numOutChannels; ++ch)
-        {
-            int srcCh = ch < playCh ? ch : 0;
-            float s0 = playBuffer.getSample(srcCh, absPos0);
-            float s1 = playBuffer.getSample(srcCh, absPos1);
-            output.addSample(ch, i, s0 + (s1 - s0) * frac);
-        }
-
-        readPosition += speedRatio;
-
-        // Handle wrapping / stopping based on mode
-        if (readPosition >= static_cast<double>(playEnd))
-        {
-            if (loopMode == LoopMode::OneShot)
-            {
-                playing = false;
-                break;
-            }
-            // Loop or PingPong: wrap back to loop start
-            readPosition -= static_cast<double>(regionLen);
-        }
+            output.addSample(ch, i, sample);
     }
 }
 

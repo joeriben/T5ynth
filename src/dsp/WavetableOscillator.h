@@ -51,9 +51,16 @@ public:
 
     int getNumFrames() const { return numFrames; }
 
+    /** Share mip-mapped frames from a master oscillator (for polyphonic voices).
+     *  Shared-mode oscillators have their own phase/frequency/scan but read
+     *  from the master's frame data. extractFramesFromBuffer is a no-op. */
+    void shareFramesFrom(const WavetableOscillator& source);
+
 private:
     // Mip-mapped frames: mipFrames[level][frameIndex] = vector<float>(FRAME_SIZE)
     std::vector<std::vector<std::vector<float>>> mipFrames;
+    const std::vector<std::vector<std::vector<float>>>* sharedMipFrames = nullptr;
+    bool sharedMode = false;
 
     int numFrames = 0;
     int numLevels = 0;
@@ -74,6 +81,12 @@ private:
     float scanSmoothCoeff = 0.0f;
 
     bool doInterpolate = true;
+
+    /** Return the active frames (own or shared). */
+    const std::vector<std::vector<std::vector<float>>>& getActiveFrames() const
+    {
+        return sharedMode ? *sharedMipFrames : mipFrames;
+    }
 
     // FFT helpers for mip-level generation
     static void fft(std::vector<double>& re, std::vector<double>& im);

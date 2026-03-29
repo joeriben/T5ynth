@@ -15,6 +15,14 @@ void WavetableOscillator::reset()
     smoothedScan = 0.0f;
 }
 
+void WavetableOscillator::shareFramesFrom(const WavetableOscillator& source)
+{
+    sharedMode = true;
+    sharedMipFrames = &source.mipFrames;
+    numFrames = source.numFrames;
+    numLevels = source.numLevels;
+}
+
 // ─── FFT (Radix-2 Cooley-Tukey, in-place) ───
 
 void WavetableOscillator::fft(std::vector<double>& re, std::vector<double>& im)
@@ -204,6 +212,7 @@ float WavetableOscillator::lanczosSample(const float* src, int srcLen, double po
 
 void WavetableOscillator::extractFramesFromBuffer(const juce::AudioBuffer<float>& buffer, double bufferSr)
 {
+    if (sharedMode) return; // shared-mode oscillators don't own frame data
     const float* data = buffer.getReadPointer(0);
     const int totalSamples = buffer.getNumSamples();
 
@@ -309,7 +318,7 @@ float WavetableOscillator::processSample()
     const float invBaseFreq = FRAME_SIZE / static_cast<float>(sampleRate);
     const float rawLevel = std::log2(targetFrequency * invBaseFreq);
     const int mipLevel = juce::jlimit(0, numLevels - 1, static_cast<int>(std::ceil(rawLevel)));
-    const auto& frames = mipFrames[mipLevel];
+    const auto& frames = getActiveFrames()[mipLevel];
 
     // Frame selection
     const float framePos = smoothedScan * (numFrames - 1);

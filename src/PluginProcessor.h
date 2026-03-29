@@ -2,12 +2,9 @@
 #include <JuceHeader.h>
 #include <vector>
 #include <algorithm>
-#include "dsp/WavetableOscillator.h"
-#include "dsp/AudioLooper.h"
-#include "dsp/ADSREnvelope.h"
+#include "dsp/SynthVoice.h"
 #include "dsp/LFO.h"
 #include "dsp/DriftLFO.h"
-#include "dsp/StateVariableFilter.h"
 #include "dsp/DelayLine.h"
 #include "dsp/ConvolutionReverb.h"
 #include "dsp/Limiter.h"
@@ -71,7 +68,7 @@ public:
     bool importJsonPreset(const juce::String& json);
 
     // Looper access for preset import (loop region brackets)
-    AudioLooper& getLooper() { return looper; }
+    AudioLooper& getLooper() { return masterLooper; }
 
 private:
     juce::AudioProcessorValueTreeState parameters;
@@ -80,16 +77,17 @@ private:
     // Engine
     EngineMode engineMode = EngineMode::Looper;
 
-    // DSP
-    WavetableOscillator wavetableOsc;
-    AudioLooper looper;
-    ADSREnvelope ampEnvelope;
-    ADSREnvelope modEnvelope1;
-    ADSREnvelope modEnvelope2;
+    // DSP — per-voice
+    SynthVoice voice;
+
+    // Master data holders (own the audio/frame data, voice shares from these)
+    WavetableOscillator masterOsc;
+    AudioLooper masterLooper;
+
+    // DSP — global (shared across voices)
     LFO lfo1;
     LFO lfo2;
     DriftLFO driftLfo;
-    T5ynthFilter filter;
     T5ynthDelayLine delay;
     ConvolutionReverb reverb;
     T5ynthLimiter limiter;
