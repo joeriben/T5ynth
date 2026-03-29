@@ -59,7 +59,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::StringArray{"Lowpass", "Highpass", "Bandpass"}, 0));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"filter_slope", 1}, "Filter Slope",
-        juce::StringArray{"12dB", "24dB"}, 1));
+        juce::StringArray{"12dB", "24dB"}, 0));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"filter_mix", 1}, "Filter Mix",
         juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
@@ -70,18 +70,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // Delay
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"delay_time", 1}, "Delay Time",
-        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f), 300.0f));
+        juce::NormalisableRange<float>(1.0f, 5000.0f, 0.1f), 250.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"delay_feedback", 1}, "Delay Feedback",
-        juce::NormalisableRange<float>(0.0f, 0.95f), 0.3f));
+        juce::NormalisableRange<float>(0.0f, 0.95f), 0.35f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"delay_mix", 1}, "Delay Mix",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.3f));
 
     // Reverb
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"reverb_mix", 1}, "Reverb Mix",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.25f));
 
     // Generation
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -112,55 +112,55 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{"engine_mode", 1}, "Engine Mode",
         juce::StringArray{"Looper", "Wavetable"}, 0));
 
-    // Mod Envelope 1
+    // Mod Envelope 1 (reference defaults: atk=0, dec=0, sus=1, rel=0, amt=0.5)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mod1_attack", 1}, "Mod1 Attack",
-        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 10.0f));
+        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mod1_decay", 1}, "Mod1 Decay",
-        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 100.0f));
+        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mod1_sustain", 1}, "Mod1 Sustain",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
+        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mod1_release", 1}, "Mod1 Release",
-        juce::NormalisableRange<float>(0.0f, 10000.0f, 0.1f, 0.3f), 200.0f));
+        juce::NormalisableRange<float>(0.0f, 10000.0f, 0.1f, 0.3f), 0.0f));
 
-    // Mod Envelope 2
+    // Mod Envelope 2 (reference defaults: atk=0, dec=0, sus=1, rel=0, amt=0.5)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mod2_attack", 1}, "Mod2 Attack",
-        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 10.0f));
+        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mod2_decay", 1}, "Mod2 Decay",
-        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 100.0f));
+        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mod2_sustain", 1}, "Mod2 Sustain",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
+        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mod2_release", 1}, "Mod2 Release",
-        juce::NormalisableRange<float>(0.0f, 10000.0f, 0.1f, 0.3f), 200.0f));
+        juce::NormalisableRange<float>(0.0f, 10000.0f, 0.1f, 0.3f), 0.0f));
 
-    // LFO 1
+    // LFO 1 (reference defaults: rate=2.0, depth=0, sine)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"lfo1_rate", 1}, "LFO1 Rate",
-        juce::NormalisableRange<float>(0.01f, 30.0f, 0.01f, 0.3f), 1.0f));
+        juce::NormalisableRange<float>(0.01f, 30.0f, 0.01f, 0.3f), 2.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"lfo1_depth", 1}, "LFO1 Depth",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"lfo1_wave", 1}, "LFO1 Wave",
         juce::StringArray{"Sine", "Tri", "Saw", "Square"}, 0));
 
-    // LFO 2
+    // LFO 2 (reference defaults: rate=0.5, depth=0, triangle)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"lfo2_rate", 1}, "LFO2 Rate",
-        juce::NormalisableRange<float>(0.01f, 30.0f, 0.01f, 0.3f), 1.0f));
+        juce::NormalisableRange<float>(0.01f, 30.0f, 0.01f, 0.3f), 0.5f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"lfo2_depth", 1}, "LFO2 Depth",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"lfo2_wave", 1}, "LFO2 Wave",
-        juce::StringArray{"Sine", "Tri", "Saw", "Square"}, 0));
+        juce::StringArray{"Sine", "Tri", "Saw", "Square"}, 1));
 
     // Drift LFO
     params.push_back(std::make_unique<juce::AudioParameterBool>(
@@ -169,22 +169,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{"drift_regen", 1}, "Drift Regen", false));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"drift1_rate", 1}, "Drift1 Rate",
-        juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.1f));
+        juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.01f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"drift1_depth", 1}, "Drift1 Depth",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.2f));
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"drift2_rate", 1}, "Drift2 Rate",
-        juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.07f));
+        juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.005f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"drift2_depth", 1}, "Drift2 Depth",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.15f));
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"drift3_rate", 1}, "Drift3 Rate",
-        juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.03f));
+        juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.002f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"drift3_depth", 1}, "Drift3 Depth",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.1f));
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
 
     // Drift targets + waveform selection
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
@@ -214,10 +214,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mod1_amount", 1}, "Mod1 Amount",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mod2_amount", 1}, "Mod2 Amount",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
 
     // ENV Loop (per envelope)
     params.push_back(std::make_unique<juce::AudioParameterBool>(
@@ -252,7 +252,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // Delay damp
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"delay_damp", 1}, "Delay Damp",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
 
     // Looper controls
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
@@ -262,7 +262,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{"crossfade_ms", 1}, "Crossfade",
         juce::NormalisableRange<float>(0.0f, 500.0f, 10.0f), 150.0f));
     params.push_back(std::make_unique<juce::AudioParameterBool>(
-        juce::ParameterID{"normalize", 1}, "Normalize", false));
+        juce::ParameterID{"normalize", 1}, "Normalize", true));
 
     // Effect enables
     params.push_back(std::make_unique<juce::AudioParameterBool>(
@@ -275,7 +275,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // Limiter
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"limiter_thresh", 1}, "Limiter Threshold",
-        juce::NormalisableRange<float>(-30.0f, 0.0f, 0.1f), -0.3f));
+        juce::NormalisableRange<float>(-30.0f, 0.0f, 0.1f), -3.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"limiter_release", 1}, "Limiter Release",
         juce::NormalisableRange<float>(1.0f, 500.0f, 0.1f, 0.3f), 100.0f));
@@ -388,6 +388,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     float baseCutoff = parameters.getRawParameterValue("filter_cutoff")->load();
     float baseReso = parameters.getRawParameterValue("filter_resonance")->load();
     int filterType = static_cast<int>(parameters.getRawParameterValue("filter_type")->load());
+    int filterSlope = static_cast<int>(parameters.getRawParameterValue("filter_slope")->load());
     float filterMix = parameters.getRawParameterValue("filter_mix")->load();
     float kbdTrack = parameters.getRawParameterValue("filter_kbd_track")->load();
 
@@ -404,16 +405,19 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     driftLfo.setLfoRate(0, parameters.getRawParameterValue("drift1_rate")->load());
     driftLfo.setLfoDepth(0, parameters.getRawParameterValue("drift1_depth")->load());
     driftLfo.setLfoTarget(0, static_cast<int>(parameters.getRawParameterValue("drift1_target")->load()));
+    driftLfo.setLfoWaveform(0, static_cast<int>(parameters.getRawParameterValue("drift1_wave")->load()));
     driftLfo.setLfoRate(1, parameters.getRawParameterValue("drift2_rate")->load());
     driftLfo.setLfoDepth(1, parameters.getRawParameterValue("drift2_depth")->load());
     driftLfo.setLfoTarget(1, static_cast<int>(parameters.getRawParameterValue("drift2_target")->load()));
+    driftLfo.setLfoWaveform(1, static_cast<int>(parameters.getRawParameterValue("drift2_wave")->load()));
     driftLfo.setLfoRate(2, parameters.getRawParameterValue("drift3_rate")->load());
     driftLfo.setLfoDepth(2, parameters.getRawParameterValue("drift3_depth")->load());
     driftLfo.setLfoTarget(2, static_cast<int>(parameters.getRawParameterValue("drift3_target")->load()));
+    driftLfo.setLfoWaveform(2, static_cast<int>(parameters.getRawParameterValue("drift3_wave")->load()));
     driftLfo.tick(static_cast<double>(numSamples) / getSampleRate());
 
-    // Apply drift to scan if targeted (target 4 = WtScan in DriftLFO enum)
-    float driftScanOffset = driftLfo.getOffsetForTarget(4); // WtScan
+    // Apply drift to scan if targeted (APVTS target 5 = WtScan)
+    float driftScanOffset = driftLfo.getOffsetForTarget(5); // WtScan
 
     // ── Looper settings ─────────────────────────────────────────────────────
     int loopModeIdx = static_cast<int>(parameters.getRawParameterValue("loop_mode")->load());
@@ -607,23 +611,25 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         cutoffMod = juce::jlimit(20.0f, 20000.0f, cutoffMod);
 
         filter.setCutoff(cutoffMod);
-        filter.setResonance(baseReso);
+        filter.setResonance(baseReso); // Q-mapping applied inside setResonance()
         filter.setType(filterType);
+        filter.setSlope(filterSlope);
         filter.setMix(filterMix);
         filter.processBlock(buffer);
     }
 
-    // ── Effects ─────────────────────────────────────────────────────────────
+    // ── Effects (parallel send-bus: dry + delay + reverb → limiter) ───────
     bool delayEnabled = parameters.getRawParameterValue("delay_enabled")->load() > 0.5f;
+    bool reverbEnabled = parameters.getRawParameterValue("reverb_enabled")->load() > 0.5f;
+
     if (delayEnabled)
     {
         delay.setTime(parameters.getRawParameterValue("delay_time")->load());
         delay.setFeedback(parameters.getRawParameterValue("delay_feedback")->load());
         delay.setMix(parameters.getRawParameterValue("delay_mix")->load());
-        delay.processBlock(buffer);
+        delay.setDamp(parameters.getRawParameterValue("delay_damp")->load());
     }
 
-    bool reverbEnabled = parameters.getRawParameterValue("reverb_enabled")->load() > 0.5f;
     if (reverbEnabled)
     {
         // Switch IR if the selection changed
@@ -647,10 +653,19 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 lastReverbIr = irIndex;
             }
         }
-
         reverb.setMix(parameters.getRawParameterValue("reverb_mix")->load());
-        reverb.processBlock(buffer);
     }
+
+    // Parallel processing: delay and reverb each get a copy of the source signal.
+    // The delay processBlock already implements parallel send-bus internally
+    // (dry * dryCompensation + delayed * wetMix).
+    // Reverb uses its own DryWetMixer which also produces a parallel sum.
+    // We process them in sequence on the buffer since each internally adds wet to dry.
+    if (delayEnabled)
+        delay.processBlock(buffer);
+
+    if (reverbEnabled)
+        reverb.processBlock(buffer);
 
     // ── Master volume ───────────────────────────────────────────────────────
     buffer.applyGain(masterGain);
