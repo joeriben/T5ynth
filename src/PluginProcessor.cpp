@@ -897,30 +897,40 @@ static juce::String reverbVariantToString(int i) {
 // Current JUCE LFO targets: 0=Filter, 1=Scan, 2=Alpha, 3=None
 // Reference targets: none, dca, dcf_cutoff, pitch, delay_time, delay_feedback, delay_mix,
 //                    reverb_mix, lfo1_rate, lfo2_rate, lfo1_depth, lfo2_depth, wt_scan
+// Env targets: 0=DCA, 1=Filter, 2=Scan, 3=Pitch, 4=DlyTime, 5=DlyFB, 6=DlyMix, 7=RevMix, 8=None
 static int envTargetFromString(const juce::String& s) {
     if (s == "dca") return 0;
     if (s == "dcf_cutoff") return 1;
     if (s == "wt_scan") return 2;
-    return 3; // none (or unsupported target mapped to none)
+    if (s == "pitch") return 3;
+    if (s == "delay_time") return 4;
+    if (s == "delay_feedback") return 5;
+    if (s == "delay_mix") return 6;
+    if (s == "reverb_mix") return 7;
+    return 8; // none
 }
 static juce::String envTargetToString(int i) {
-    if (i == 0) return "dca";
-    if (i == 1) return "dcf_cutoff";
-    if (i == 2) return "wt_scan";
-    return "none";
+    const char* names[] = {"dca","dcf_cutoff","wt_scan","pitch","delay_time","delay_feedback","delay_mix","reverb_mix","none"};
+    return (i >= 0 && i <= 8) ? names[i] : "none";
 }
 
+// LFO targets: 0=Filter, 1=Scan, 2=Pitch, 3=DlyTime, 4=DlyFB, 5=DlyMix, 6=RevMix,
+//              7=LFO2Rate/LFO1Rate, 8=LFO2Depth/LFO1Depth, 9=None
 static int lfoTargetFromString(const juce::String& s) {
     if (s == "dcf_cutoff") return 0;
     if (s == "wt_scan") return 1;
-    // alpha not in reference LFO targets but in JUCE
-    return 3; // none
+    if (s == "pitch") return 2;
+    if (s == "delay_time") return 3;
+    if (s == "delay_feedback") return 4;
+    if (s == "delay_mix") return 5;
+    if (s == "reverb_mix") return 6;
+    if (s == "lfo1_rate" || s == "lfo2_rate") return 7;
+    if (s == "lfo1_depth" || s == "lfo2_depth") return 8;
+    return 9; // none
 }
 static juce::String lfoTargetToString(int i) {
-    if (i == 0) return "dcf_cutoff";
-    if (i == 1) return "wt_scan";
-    if (i == 2) return "alpha";
-    return "none";
+    const char* names[] = {"dcf_cutoff","wt_scan","pitch","delay_time","delay_feedback","delay_mix","reverb_mix","lfo_rate","lfo_depth","none"};
+    return (i >= 0 && i <= 9) ? names[i] : "none";
 }
 
 static int lfoWaveFromString(const juce::String& s) {
@@ -1073,6 +1083,7 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     fx->setProperty("delayTimeMs", get("delay_time"));
     fx->setProperty("delayFeedback", get("delay_feedback"));
     fx->setProperty("delayMix", get("delay_mix"));
+    fx->setProperty("delayDamp", get("delay_damp"));
     fx->setProperty("reverbEnabled", get("reverb_enabled") > 0.5f);
     fx->setProperty("reverbMix", get("reverb_mix"));
     fx->setProperty("reverbVariant", reverbVariantToString(static_cast<int>(get("reverb_ir"))));
@@ -1093,17 +1104,18 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     juce::DynamicObject::Ptr seq = new juce::DynamicObject();
     seq->setProperty("enabled", get("seq_running") > 0.5f);
     seq->setProperty("bpm", get("seq_bpm"));
-    seq->setProperty("stepCount", static_cast<int>(get("seq_steps")));
+    int stepCount = static_cast<int>(get("seq_steps"));
+    seq->setProperty("stepCount", stepCount);
     juce::Array<juce::var> stepArr;
-    for (int i = 0; i < static_cast<int>(get("seq_steps")); ++i)
+    for (int i = 0; i < stepCount; ++i)
     {
+        const auto& step = stepSequencer.getStep(i);
         juce::DynamicObject::Ptr s = new juce::DynamicObject();
-        // StepSequencer stores note as MIDI, preset stores semitone offset from C3
-        s->setProperty("active", stepSequencer.isRunning()); // TODO: per-step access needed
-        s->setProperty("semitone", 0);
-        s->setProperty("velocity", 0.8);
-        s->setProperty("gate", 0.8);
-        s->setProperty("glide", false);
+        s->setProperty("active", step.enabled);
+        s->setProperty("semitone", step.note - 60); // MIDI → semitone offset from C3
+        s->setProperty("velocity", static_cast<double>(step.velocity));
+        s->setProperty("gate", static_cast<double>(step.gate));
+        s->setProperty("glide", step.glide);
         stepArr.add(s.get());
     }
     seq->setProperty("steps", stepArr);
@@ -1115,7 +1127,10 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     arp->setProperty("enabled", seqMode >= 1);
     const char* arpPatterns[] = {"up", "down", "updown", "random"};
     arp->setProperty("pattern", seqMode >= 1 ? arpPatterns[std::min(seqMode - 1, 3)] : "up");
-    arp->setProperty("rate", "1/16");
+    // Export arp rate as musical division string
+    const char* arpRates[] = {"1/4", "1/8", "1/16", "1/32", "1/4T", "1/8T", "1/16T"};
+    int arpRateIdx = static_cast<int>(get("arp_rate"));
+    arp->setProperty("rate", arpRateIdx >= 0 && arpRateIdx < 7 ? arpRates[arpRateIdx] : "1/16");
     arp->setProperty("octaveRange", static_cast<int>(get("arp_octaves")));
     root->setProperty("arpeggiator", arp.get());
 
@@ -1231,6 +1246,8 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         setParam(parameters, "delay_time", static_cast<float>(fx->getProperty("delayTimeMs")));
         setParam(parameters, "delay_feedback", static_cast<float>(fx->getProperty("delayFeedback")));
         setParam(parameters, "delay_mix", static_cast<float>(fx->getProperty("delayMix")));
+        if (fx->hasProperty("delayDamp"))
+            setParam(parameters, "delay_damp", static_cast<float>(fx->getProperty("delayDamp")));
         setParam(parameters, "reverb_enabled", fx->getProperty("reverbEnabled") ? 1.0f : 0.0f);
         setParam(parameters, "reverb_mix", static_cast<float>(fx->getProperty("reverbMix")));
         if (fx->hasProperty("reverbVariant"))
@@ -1275,6 +1292,10 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 stepSequencer.setStepNote(i, 60 + semitone); // C3 + semitone offset
                 stepSequencer.setStepVelocity(i, static_cast<float>(s->getProperty("velocity")));
                 stepSequencer.setStepEnabled(i, static_cast<bool>(s->getProperty("active")));
+                if (s->hasProperty("gate"))
+                    stepSequencer.setStepGate(i, static_cast<float>(s->getProperty("gate")));
+                if (s->hasProperty("glide"))
+                    stepSequencer.setStepGlide(i, static_cast<bool>(s->getProperty("glide")));
             }
         }
     }
@@ -1297,6 +1318,19 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
             setParam(parameters, "seq_mode", 0.0f); // Seq only, no arp
         }
         setParam(parameters, "arp_octaves", static_cast<float>(static_cast<int>(arp->getProperty("octaveRange"))));
+        if (arp->hasProperty("rate"))
+        {
+            juce::String rateStr = arp->getProperty("rate").toString();
+            int rateIdx = 2; // default 1/16
+            if (rateStr == "1/4") rateIdx = 0;
+            else if (rateStr == "1/8") rateIdx = 1;
+            else if (rateStr == "1/16") rateIdx = 2;
+            else if (rateStr == "1/32") rateIdx = 3;
+            else if (rateStr == "1/4T") rateIdx = 4;
+            else if (rateStr == "1/8T") rateIdx = 5;
+            else if (rateStr == "1/16T") rateIdx = 6;
+            setParam(parameters, "arp_rate", static_cast<float>(rateIdx));
+        }
     }
 
     return true;
