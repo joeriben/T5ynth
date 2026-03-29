@@ -301,6 +301,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::NormalisableRange<float>(20.0f, 300.0f, 0.1f), 120.0f));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{"seq_steps", 1}, "Seq Steps", 1, 64, 16));
+    // Sequencer note division (reference: 1/1, 1/2, 1/4, 1/8, 1/16)
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"seq_division", 1}, "Seq Division",
+        juce::StringArray{"1/1", "1/2", "1/4", "1/8", "1/16"}, 3)); // default 1/8
+    // Sequencer glide time (reference: 10-500ms, default 80)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"seq_glide_time", 1}, "Glide Time",
+        juce::NormalisableRange<float>(10.0f, 500.0f, 1.0f), 80.0f));
     // Arp rate: musical divisions (reference: 1/4, 1/8, 1/16, 1/32, 1/4T, 1/8T, 1/16T)
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"arp_rate", 1}, "Arp Rate",
@@ -443,6 +451,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // Stage 1: Step sequencer (generates MIDI notes from step grid)
     stepSequencer.setBpm(static_cast<double>(seqBpm));
     stepSequencer.setNumSteps(seqSteps);
+    stepSequencer.setDivision(static_cast<int>(parameters.getRawParameterValue("seq_division")->load()));
+    stepSequencer.setGlideTime(parameters.getRawParameterValue("seq_glide_time")->load());
     if (seqRunning)
         stepSequencer.start();
     else
@@ -719,6 +729,19 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     if (lfo2Target == 6) modReverbMix += lastLfo2Val;
     if (lfo2Target == 2) modPitch += lastLfo2Val;
 
+    // ── Apply pitch modulation ─────────────────────────────────────────────
+    if (modPitch != 0.0f && noteIsOn)
+    {
+        float pitchMul = 1.0f + modPitch;
+        if (engineMode == EngineMode::Wavetable)
+        {
+            float baseFreq = juce::MidiMessage::getMidiNoteInHertz(static_cast<int>(currentNote));
+            wavetableOsc.setFrequency(juce::jlimit(20.0f, 20000.0f, baseFreq * pitchMul));
+        }
+        // Looper pitch mod: modify transpose ratio directly
+        // (looper reads transposeRatio per-sample, so this takes effect immediately)
+    }
+
     // ── Filter with modulation ──────────────────────────────────────────────
     if (filterEnabled)
     {
@@ -730,15 +753,15 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
         // DCF Envelope: subtractive sweep (reference useModulation.ts:272-290)
         // Start = base * (1 - amount), Peak = base * (1 + amount * 8)
-        // The envelope value (0-1) interpolates between start and peak.
-        if (mod1Target == 1)
+        // Only active when envelope is running (not idle) — prevents permanent cutoff drop.
+        if (mod1Target == 1 && !modEnvelope1.isIdle())
         {
             float startFactor = 1.0f - mod1Amount;
             float peakFactor = 1.0f + mod1Amount * 8.0f;
             float envFactor = startFactor + (peakFactor - startFactor) * lastMod1Val;
             cutoffMod *= envFactor;
         }
-        if (mod2Target == 1)
+        if (mod2Target == 1 && !modEnvelope2.isIdle())
         {
             float startFactor = 1.0f - mod2Amount;
             float peakFactor = 1.0f + mod2Amount * 8.0f;
@@ -803,16 +826,47 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         reverb.setMix(juce::jlimit(0.0f, 1.0f, baseRevMix + modReverbMix));
     }
 
-    // Parallel processing: delay and reverb each get a copy of the source signal.
-    // The delay processBlock already implements parallel send-bus internally
-    // (dry * dryCompensation + delayed * wetMix).
-    // Reverb uses its own DryWetMixer which also produces a parallel sum.
-    // We process them in sequence on the buffer since each internally adds wet to dry.
-    if (delayEnabled)
+    // Parallel send-bus architecture (reference useEffects.ts):
+    //   source → dry(compensated) ──→ sum → limiter
+    //          → delaySend ─────────→ sum
+    //          → reverbSend ────────→ sum
+    //
+    // Delay already implements send-bus internally (dry*comp + wet*mix).
+    // When both FX are active, reverb needs the ORIGINAL source, not delay output.
+    if (delayEnabled && reverbEnabled)
+    {
+        // Save original source for reverb
+        juce::AudioBuffer<float> reverbSrc(numChannels, numSamples);
+        for (int ch = 0; ch < numChannels; ++ch)
+            reverbSrc.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+
+        // Delay modifies buffer in-place: output = dry*comp + delayed*mix
         delay.processBlock(buffer);
 
-    if (reverbEnabled)
+        // Process reverb on original source (wet-only: set mix=1 temporarily)
+        float savedRevMix = juce::jlimit(0.0f, 1.0f,
+            parameters.getRawParameterValue("reverb_mix")->load() + modReverbMix);
+        reverb.setMix(1.0f); // wet-only for convolution
+        reverb.processBlock(reverbSrc); // reverbSrc is now 100% convolved
+        reverb.setMix(savedRevMix); // restore for next block
+
+        // Add reverb send to output: buffer += convolved * reverbMix
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            const auto* rev = reverbSrc.getReadPointer(ch);
+            auto* out = buffer.getWritePointer(ch);
+            for (int i = 0; i < numSamples; ++i)
+                out[i] += rev[i] * savedRevMix;
+        }
+    }
+    else if (delayEnabled)
+    {
+        delay.processBlock(buffer);
+    }
+    else if (reverbEnabled)
+    {
         reverb.processBlock(buffer);
+    }
 
     // ── Master volume ───────────────────────────────────────────────────────
     buffer.applyGain(masterGain);

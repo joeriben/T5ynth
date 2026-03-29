@@ -8,8 +8,8 @@ void T5ynthLimiter::prepare(double sampleRate, int samplesPerBlock)
     spec.numChannels = 2;
 
     limiter.prepare(spec);
-    limiter.setThreshold(-0.3f);
-    limiter.setRelease(100.0f);
+    limiter.setThreshold(-3.0f);   // Reference: threshold = -3dB
+    limiter.setRelease(100.0f);    // Reference: release = 100ms
     prepared = true;
 }
 
