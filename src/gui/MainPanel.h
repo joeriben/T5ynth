@@ -65,6 +65,7 @@ private:
 
     void showDimExplorer();
     void hideDimExplorer();
+    void tryLoadInferenceModels();
 
     // Overlay: Settings page
     SettingsPage settingsPage;

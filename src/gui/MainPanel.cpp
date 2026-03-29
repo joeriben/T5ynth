@@ -1,6 +1,7 @@
 #include "MainPanel.h"
 #include "../PluginProcessor.h"
 #include "GuiHelpers.h"
+#include <thread>
 
 MainPanel::MainPanel(T5ynthProcessor& processor)
     : processorRef(processor),
@@ -71,17 +72,22 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     addChildComponent(settingsPage);
     settingsPage.onClose = [this] { hideSettings(); };
 
-    // Backend status
+    // Try loading native inference models from known locations
+    tryLoadInferenceModels();
+
+    // Legacy backend status (fallback when native inference not available)
     processorRef.getBackendManager().setStatusCallback(
         [this](BackendManager::Status s)
         {
             juce::MessageManager::callAsync([this, s]()
             {
+                // Only show backend status if native inference isn't loaded
+                if (processorRef.isInferenceReady()) return;
+
                 bool running = (s == BackendManager::Status::Running);
                 statusBar.setConnected(running);
                 settingsPage.setBackendConnected(running);
 
-                // Sync BackendConnection's connected state when manager reports Running
                 if (running)
                     processorRef.getBackendConnection().checkHealth();
 
@@ -89,7 +95,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
                 {
                     case BackendManager::Status::Stopped:  statusBar.setStatusText("Backend stopped"); break;
                     case BackendManager::Status::Starting:  statusBar.setStatusText("Starting..."); break;
-                    case BackendManager::Status::Running:   statusBar.setStatusText("Ready"); break;
+                    case BackendManager::Status::Running:   statusBar.setStatusText("Ready (HTTP)"); break;
                     case BackendManager::Status::Failed:    statusBar.setStatusText("Backend failed"); break;
                 }
             });
@@ -97,6 +103,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
 
     processorRef.getBackendConnection().setConnectionCallback(
         [this](bool connected) {
+            if (processorRef.isInferenceReady()) return;
             statusBar.setConnected(connected);
             settingsPage.setBackendConnected(connected);
         });
@@ -138,6 +145,53 @@ void MainPanel::hideSettings()
     settingsVisible = false;
     settingsPage.setVisible(false);
     repaint();
+}
+
+void MainPanel::tryLoadInferenceModels()
+{
+    auto home = juce::File::getSpecialLocation(juce::File::userHomeDirectory);
+
+    // Scan for exported TorchScript models (dit.pt is the key indicator)
+    std::vector<juce::File> candidates = {
+        // Project-local exported models
+        juce::File::getCurrentWorkingDirectory().getChildFile("exported_models"),
+        // User home
+        home.getChildFile("t5ynth/exported_models"),
+        home.getChildFile("ai/t5ynth/exported_models"),
+    };
+
+    for (auto& dir : candidates)
+    {
+        if (dir.getChildFile("dit.pt").existsAsFile())
+        {
+            statusBar.setStatusText("Loading models...");
+
+            // Load on a background thread to avoid blocking the GUI
+            auto* processor = &processorRef;
+            auto modelDir = dir;
+            std::thread([this, processor, modelDir]()
+            {
+                bool ok = processor->loadInferenceModels(modelDir);
+                juce::MessageManager::callAsync([this, ok, modelDir]()
+                {
+                    if (ok)
+                    {
+                        statusBar.setConnected(true);
+                        statusBar.setStatusText("Ready (native)");
+                        settingsPage.setBackendConnected(true);
+                    }
+                    else
+                    {
+                        statusBar.setStatusText("Model load failed");
+                    }
+                });
+            }).detach();
+            return;
+        }
+    }
+
+    // No exported models found — fall back to legacy backend
+    statusBar.setStatusText("No exported models found");
 }
 
 void MainPanel::paint(juce::Graphics& g)

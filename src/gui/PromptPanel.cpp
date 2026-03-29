@@ -2,6 +2,8 @@
 #include "GuiHelpers.h"
 #include "../PluginProcessor.h"
 #include "../backend/GenerationRequest.h"
+#include "../inference/T5ynthInference.h"
+#include <thread>
 
 // Colors from GuiHelpers.h (kAccent, kDim, kDimmer, kSurface)
 
@@ -321,9 +323,11 @@ void PromptPanel::triggerGeneration()
     auto promptA = promptAEditor.getText().trim();
     if (promptA.isEmpty()) return;
 
-    if (!processorRef.getBackendConnection().isConnected())
+    bool useNative = processorRef.isInferenceReady();
+
+    if (!useNative && !processorRef.getBackendConnection().isConnected())
     {
-        infoLabel.setText("not connected", juce::dontSendNotification);
+        infoLabel.setText("no models loaded", juce::dontSendNotification);
         return;
     }
 
@@ -331,38 +335,81 @@ void PromptPanel::triggerGeneration()
     generateButton.setEnabled(false);
     infoLabel.setText("generating...", juce::dontSendNotification);
 
-    GenerationRequest request;
-    request.setPromptA(promptA);
-    auto promptB = promptBEditor.getText().trim();
-    if (promptB.isNotEmpty()) request.setPromptB(promptB);
-
     auto& apvts = processorRef.getValueTreeState();
     // Convert UI alpha (-2..+2) to backend range (0..1): alpha/2 + 0.5
     float rawAlpha = apvts.getRawParameterValue("gen_alpha")->load();
-    request.setAlpha(rawAlpha / 2.0f + 0.5f);
-    request.setMagnitude(apvts.getRawParameterValue("gen_magnitude")->load());
-    request.setNoiseSigma(apvts.getRawParameterValue("gen_noise")->load());
-    request.setDurationSeconds(apvts.getRawParameterValue("gen_duration")->load());
-    request.setStartPosition(apvts.getRawParameterValue("gen_start")->load());
-    request.setSteps(static_cast<int>(apvts.getRawParameterValue("gen_steps")->load()));
-    request.setCfgScale(apvts.getRawParameterValue("gen_cfg")->load());
-    if (randomSeedToggle.getToggleState())
-        request.setSeed(-1);
-    else
-        request.setSeed(seedEditor.getText().getIntValue());
+    float alpha = rawAlpha / 2.0f + 0.5f;
+    float magnitude = apvts.getRawParameterValue("gen_magnitude")->load();
+    float noiseSigma = apvts.getRawParameterValue("gen_noise")->load();
+    float duration = apvts.getRawParameterValue("gen_duration")->load();
+    float startPos = apvts.getRawParameterValue("gen_start")->load();
+    int steps = static_cast<int>(apvts.getRawParameterValue("gen_steps")->load());
+    float cfgScale = apvts.getRawParameterValue("gen_cfg")->load();
+    int seed = randomSeedToggle.getToggleState() ? -1 : seedEditor.getText().getIntValue();
+    auto promptB = promptBEditor.getText().trim();
 
-    processorRef.getBackendConnection().requestGeneration(request,
-        [this](BackendConnection::GenerationResult result)
+    if (useNative)
+    {
+        // Native LibTorch inference on background thread
+        T5ynthInference::Request req;
+        req.promptA = promptA;
+        if (promptB.isNotEmpty()) req.promptB = promptB;
+        req.alpha = alpha;
+        req.magnitude = magnitude;
+        req.noiseSigma = noiseSigma;
+        req.durationSeconds = duration;
+        req.startPosition = startPos;
+        req.steps = steps;
+        req.cfgScale = cfgScale;
+        req.seed = seed;
+
+        auto* processor = &processorRef;
+        std::thread([this, processor, req]()
         {
-            generating = false;
-            generateButton.setEnabled(true);
-            if (result.success)
+            auto result = processor->getInference().generate(req);
+            juce::MessageManager::callAsync([this, processor, result = std::move(result)]()
             {
-                processorRef.loadGeneratedAudio(result.audioBuffer, result.sampleRate);
-                infoLabel.setText(juce::String(result.generationTimeMs / 1000.0f, 1) + "s | seed "
-                                  + juce::String(result.seed), juce::dontSendNotification);
-            }
-            else
-                infoLabel.setText(result.errorMessage, juce::dontSendNotification);
-        });
+                generating = false;
+                generateButton.setEnabled(true);
+                if (result.success)
+                {
+                    processor->loadGeneratedAudio(result.audio, 44100.0);
+                    infoLabel.setText(juce::String(result.generationTimeMs / 1000.0f, 1) + "s | seed "
+                                      + juce::String(result.seed), juce::dontSendNotification);
+                }
+                else
+                    infoLabel.setText(result.errorMessage, juce::dontSendNotification);
+            });
+        }).detach();
+    }
+    else
+    {
+        // Legacy HTTP backend fallback
+        GenerationRequest request;
+        request.setPromptA(promptA);
+        if (promptB.isNotEmpty()) request.setPromptB(promptB);
+        request.setAlpha(alpha);
+        request.setMagnitude(magnitude);
+        request.setNoiseSigma(noiseSigma);
+        request.setDurationSeconds(duration);
+        request.setStartPosition(startPos);
+        request.setSteps(steps);
+        request.setCfgScale(cfgScale);
+        request.setSeed(seed);
+
+        processorRef.getBackendConnection().requestGeneration(request,
+            [this](BackendConnection::GenerationResult result)
+            {
+                generating = false;
+                generateButton.setEnabled(true);
+                if (result.success)
+                {
+                    processorRef.loadGeneratedAudio(result.audioBuffer, result.sampleRate);
+                    infoLabel.setText(juce::String(result.generationTimeMs / 1000.0f, 1) + "s | seed "
+                                      + juce::String(result.seed), juce::dontSendNotification);
+                }
+                else
+                    infoLabel.setText(result.errorMessage, juce::dontSendNotification);
+            });
+    }
 }

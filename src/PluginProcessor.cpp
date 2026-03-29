@@ -21,7 +21,13 @@ T5ynthProcessor::T5ynthProcessor()
 
 T5ynthProcessor::~T5ynthProcessor()
 {
+    inference.unloadModels();
     backendManager.stop();
+}
+
+bool T5ynthProcessor::loadInferenceModels(const juce::File& modelDir)
+{
+    return inference.loadModels(modelDir);
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParameterLayout()

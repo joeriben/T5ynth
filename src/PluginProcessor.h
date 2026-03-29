@@ -10,6 +10,7 @@
 #include "sequencer/Arpeggiator.h"
 #include "backend/BackendManager.h"
 #include "backend/BackendConnection.h"
+#include "inference/T5ynthInference.h"
 
 class T5ynthProcessor : public juce::AudioProcessor
 {
@@ -48,9 +49,14 @@ public:
     // Load generated audio into the engine
     void loadGeneratedAudio(const juce::AudioBuffer<float>& buffer, double sampleRate);
 
-    // Backend
+    // Backend (legacy HTTP — kept for fallback)
     BackendManager& getBackendManager() { return backendManager; }
     BackendConnection& getBackendConnection() { return backendConnection; }
+
+    // Native inference (LibTorch)
+    T5ynthInference& getInference() { return inference; }
+    bool loadInferenceModels(const juce::File& modelDir);
+    bool isInferenceReady() const { return inference.isLoaded(); }
 
     // Sequencer
     T5ynthStepSequencer& getStepSequencer() { return stepSequencer; }
@@ -97,6 +103,9 @@ private:
     // Backend (backendConnection destroyed before backendManager — correct order)
     BackendManager backendManager;
     BackendConnection backendConnection;
+
+    // Native inference (LibTorch — replaces backend)
+    T5ynthInference inference;
 
     // Last triggered note (for pitch modulation in block-rate section)
     int lastTriggeredNote = -1;
