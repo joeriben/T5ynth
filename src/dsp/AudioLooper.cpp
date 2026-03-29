@@ -27,6 +27,18 @@ void AudioLooper::loadBuffer(const juce::AudioBuffer<float>& buffer, double buff
 void AudioLooper::setMidiNote(int note)
 {
     transposeRatio = std::pow(2.0, (note - 60) / 12.0);
+    glideSamplesLeft = 0; // cancel any active glide
+}
+
+void AudioLooper::glideToSemitones(int semitones, float durationMs)
+{
+    double targetRatio = std::pow(2.0, semitones / 12.0);
+    double durationSamples = (durationMs / 1000.0) * playbackSampleRate;
+    int samples = std::max(1, static_cast<int>(durationSamples));
+
+    glideTargetRatio = targetRatio;
+    glideRatioIncr = (targetRatio - transposeRatio) / static_cast<double>(samples);
+    glideSamplesLeft = samples;
 }
 
 void AudioLooper::retrigger()
@@ -160,13 +172,24 @@ void AudioLooper::processBlock(juce::AudioBuffer<float>& output)
     const int numOutChannels = output.getNumChannels();
     const int numOutSamples  = output.getNumSamples();
     const int playCh         = playBuffer.getNumChannels();
-    const double speedRatio  = (bufferOriginalSR / playbackSampleRate) * transposeRatio;
+    const double srRatio     = bufferOriginalSR / playbackSampleRate;
 
     const int regionLen = playEnd - playStart;
     if (regionLen <= 0) return;
 
     for (int i = 0; i < numOutSamples; ++i)
     {
+        // Apply pitch glide (per-sample linear ramp)
+        if (glideSamplesLeft > 0)
+        {
+            transposeRatio += glideRatioIncr;
+            glideSamplesLeft--;
+            if (glideSamplesLeft == 0)
+                transposeRatio = glideTargetRatio;
+        }
+
+        double speedRatio = srRatio * transposeRatio;
+
         // Map readPosition into the play region
         double posInRegion = readPosition - static_cast<double>(playStart);
 

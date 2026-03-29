@@ -1,5 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
+#include <vector>
+#include <algorithm>
 #include "dsp/WavetableOscillator.h"
 #include "dsp/AudioLooper.h"
 #include "dsp/ADSREnvelope.h"
@@ -106,6 +108,12 @@ private:
     float currentNote = -1.0f;
     float currentVelocity = 0.0f;
     bool noteIsOn = false;
+
+    // Monophonic note stack (last-note priority)
+    std::vector<int> heldNotes;
+
+    // Engine-stop countdown: stop engines N samples after last note-off
+    int engineStopCountdown = -1;
 
     // Waveform display
     juce::AudioBuffer<float> waveformSnapshot;

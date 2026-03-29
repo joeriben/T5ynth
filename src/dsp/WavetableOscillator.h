@@ -32,7 +32,10 @@ public:
     void extractFramesFromBuffer(const juce::AudioBuffer<float>& buffer, double bufferSampleRate);
 
     /** Set playback frequency in Hz. */
-    void setFrequency(float hz) { targetFrequency = hz; }
+    void setFrequency(float hz) { targetFrequency = hz; glideFreqSamplesLeft = 0; }
+
+    /** Smooth frequency ramp to target Hz over durationMs (portamento). */
+    void glideToFrequency(float hz, float durationMs);
 
     /** Set scan position (0–1, morphs between frames). */
     void setScanPosition(float pos) { targetScanPosition = juce::jlimit(0.0f, 1.0f, pos); }
@@ -59,6 +62,11 @@ private:
     // Phase accumulator
     double phase = 0.0;
     float targetFrequency = 440.0f;
+
+    // Frequency glide state
+    float glideFreqTarget = 440.0f;
+    float glideFreqIncr = 0.0f;
+    int   glideFreqSamplesLeft = 0;
 
     // Scan position with smoothing
     float targetScanPosition = 0.0f;

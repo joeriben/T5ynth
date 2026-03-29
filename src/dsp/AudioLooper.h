@@ -40,6 +40,9 @@ public:
     /** Set transposition from MIDI note (60 = original pitch). */
     void setMidiNote(int note);
 
+    /** Smooth pitch ramp to target semitones over durationMs (portamento). */
+    void glideToSemitones(int semitones, float durationMs);
+
     bool isPlaying() const { return playing; }
 
     // ─── Loop region ("brackets") ───
@@ -71,6 +74,9 @@ private:
     double bufferOriginalSR   = 44100.0;
     double readPosition       = 0.0;
     double transposeRatio     = 1.0;
+    double glideTargetRatio   = 1.0;
+    double glideRatioIncr     = 0.0;  // per-sample increment
+    int    glideSamplesLeft   = 0;
     bool   audioLoaded        = false;
     bool   playing            = false;
 

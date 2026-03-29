@@ -278,9 +278,29 @@ void WavetableOscillator::extractFramesFromBuffer(const juce::AudioBuffer<float>
 
 // ─── Per-sample processing ───
 
+void WavetableOscillator::glideToFrequency(float hz, float durationMs)
+{
+    hz = juce::jlimit(20.0f, 20000.0f, hz);
+    float durationSamples = (durationMs / 1000.0f) * static_cast<float>(sampleRate);
+    int samples = std::max(1, static_cast<int>(durationSamples));
+
+    glideFreqTarget = hz;
+    glideFreqIncr = (hz - targetFrequency) / static_cast<float>(samples);
+    glideFreqSamplesLeft = samples;
+}
+
 float WavetableOscillator::processSample()
 {
     if (numFrames == 0) return 0.0f;
+
+    // Apply frequency glide (per-sample linear ramp)
+    if (glideFreqSamplesLeft > 0)
+    {
+        targetFrequency += glideFreqIncr;
+        glideFreqSamplesLeft--;
+        if (glideFreqSamplesLeft == 0)
+            targetFrequency = glideFreqTarget;
+    }
 
     // Smooth scan position
     smoothedScan += (targetScanPosition - smoothedScan) * scanSmoothCoeff;

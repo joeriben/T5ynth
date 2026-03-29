@@ -477,40 +477,116 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         arpeggiator.reset();
     }
 
-    // ── MIDI ────────────────────────────────────────────────────────────────
+    // ── MIDI with monophonic note stack (last-note priority) ─────────────
     for (const auto metadata : midiMessages)
     {
         const auto msg = metadata.getMessage();
         if (msg.isNoteOn())
         {
-            currentNote = static_cast<float>(msg.getNoteNumber());
-            currentVelocity = msg.getFloatVelocity();
-            noteIsOn = true;
-            lastMidiNote.store(msg.getNoteNumber(), std::memory_order_relaxed);
-            lastMidiVelocity.store(juce::roundToInt(msg.getFloatVelocity() * 127.0f), std::memory_order_relaxed);
-            lastMidiNoteOn.store(true, std::memory_order_relaxed);
-            ampEnvelope.noteOn(currentVelocity);
-            modEnvelope1.noteOn(currentVelocity);
-            modEnvelope2.noteOn(currentVelocity);
-            wavetableOsc.setFrequency(juce::MidiMessage::getMidiNoteInHertz(msg.getNoteNumber()));
-            looper.setMidiNote(msg.getNoteNumber());
-            // Retrigger looper on note-on (reference: looper.retrigger() in triggerEngine)
-            if (engineMode == EngineMode::Looper && looper.hasAudio())
-                looper.retrigger();
+            int note = msg.getNoteNumber();
+            float velocity = msg.getFloatVelocity();
+            bool isGlide = (msg.getChannel() == 2); // ch2 = glide flag from sequencer
 
-            // LFO trigger mode: reset phase on note-on
-            if (static_cast<int>(parameters.getRawParameterValue("lfo1_mode")->load()) == 1)
-                lfo1.reset();
-            if (static_cast<int>(parameters.getRawParameterValue("lfo2_mode")->load()) == 1)
-                lfo2.reset();
+            lastMidiNote.store(note, std::memory_order_relaxed);
+            lastMidiVelocity.store(juce::roundToInt(velocity * 127.0f), std::memory_order_relaxed);
+            lastMidiNoteOn.store(true, std::memory_order_relaxed);
+
+            engineStopCountdown = -1; // cancel pending engine stop
+
+            if (isGlide && noteIsOn)
+            {
+                // Glide: ramp pitch without retriggering envelope
+                currentNote = static_cast<float>(note);
+                float glideMs = stepSequencer.getGlideTime();
+                if (engineMode == EngineMode::Looper)
+                    looper.glideToSemitones(note - 60, glideMs);
+                else
+                    wavetableOsc.glideToFrequency(juce::MidiMessage::getMidiNoteInHertz(note), glideMs);
+            }
+            else
+            {
+                bool wasEmpty = heldNotes.empty();
+
+                // Remove duplicate if re-pressed, then push to top
+                heldNotes.erase(std::remove(heldNotes.begin(), heldNotes.end(), note), heldNotes.end());
+                heldNotes.push_back(note);
+
+                currentNote = static_cast<float>(note);
+                currentVelocity = velocity;
+                noteIsOn = true;
+
+                if (wasEmpty)
+                {
+                    // Non-legato: retrigger engine + attack
+                    ampEnvelope.noteOn(velocity);
+                    modEnvelope1.noteOn(velocity);
+                    modEnvelope2.noteOn(velocity);
+
+                    wavetableOsc.setFrequency(juce::MidiMessage::getMidiNoteInHertz(note));
+                    looper.setMidiNote(note);
+
+                    if (engineMode == EngineMode::Looper && looper.hasAudio())
+                        looper.retrigger();
+                    // WT mode: stop looper (shared DCA, avoid bleed)
+                    if (engineMode == EngineMode::Wavetable)
+                        looper.stop();
+
+                    // LFO trigger mode: reset phase
+                    if (static_cast<int>(parameters.getRawParameterValue("lfo1_mode")->load()) == 1)
+                        lfo1.reset();
+                    if (static_cast<int>(parameters.getRawParameterValue("lfo2_mode")->load()) == 1)
+                        lfo2.reset();
+                }
+                else
+                {
+                    // Legato: just transpose pitch, envelope stays in sustain
+                    if (engineMode == EngineMode::Looper)
+                        looper.setMidiNote(note);
+                    else
+                        wavetableOsc.setFrequency(juce::MidiMessage::getMidiNoteInHertz(note));
+                }
+            }
         }
         else if (msg.isNoteOff())
         {
-            noteIsOn = false;
-            lastMidiNoteOn.store(false, std::memory_order_relaxed);
-            ampEnvelope.noteOff();
-            modEnvelope1.noteOff();
-            modEnvelope2.noteOff();
+            int note = msg.getNoteNumber();
+            heldNotes.erase(std::remove(heldNotes.begin(), heldNotes.end(), note), heldNotes.end());
+
+            if (heldNotes.empty())
+            {
+                // Last note released: start release phase
+                noteIsOn = false;
+                lastMidiNoteOn.store(false, std::memory_order_relaxed);
+                ampEnvelope.noteOff();
+                modEnvelope1.noteOff();
+                modEnvelope2.noteOff();
+
+                // Schedule engine stop after release + 50ms
+                float releaseMs = parameters.getRawParameterValue("amp_release")->load();
+                engineStopCountdown = static_cast<int>((releaseMs + 50.0f) * 0.001f * getSampleRate());
+            }
+            else
+            {
+                // Notes remaining: switch to last held note (last-note priority)
+                int lastNote = heldNotes.back();
+                currentNote = static_cast<float>(lastNote);
+                if (engineMode == EngineMode::Looper)
+                    looper.setMidiNote(lastNote);
+                else
+                    wavetableOsc.setFrequency(juce::MidiMessage::getMidiNoteInHertz(lastNote));
+            }
+        }
+    }
+
+    // Engine stop countdown (stop engines after release completes)
+    if (engineStopCountdown > 0)
+    {
+        engineStopCountdown -= numSamples;
+        if (engineStopCountdown <= 0 && heldNotes.empty())
+        {
+            looper.stop();
+            // wavetableOsc doesn't need explicit stop — it just produces silence at gain=0
+            engineStopCountdown = -1;
         }
     }
 
