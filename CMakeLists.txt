@@ -6,6 +6,39 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(CURL REQUIRED)
 
+# ── LibTorch ──────────────────────────────────────────────
+# Requires a pre-built LibTorch distribution (NOT pip torch).
+# Download from https://pytorch.org/get-started/locally/ → LibTorch.
+#
+# Configure with:
+#   -DCMAKE_PREFIX_PATH=/path/to/libtorch
+#
+# Platform notes:
+#   Linux CUDA:  libtorch-cxx11-abi-shared-with-deps (cu124 or later)
+#   Linux CPU:   libtorch-cxx11-abi-shared-with-deps (cpu)
+#   macOS (MPS): libtorch-macos-arm64 (MPS support automatic on Apple Silicon)
+find_package(Torch REQUIRED)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+
+# ── SentencePiece (for T5 tokenizer) ─────────────────────
+include(FetchContent)
+FetchContent_Declare(
+    sentencepiece
+    GIT_REPOSITORY https://github.com/google/sentencepiece.git
+    GIT_TAG        v0.2.1
+)
+set(SPM_ENABLE_SHARED OFF CACHE BOOL "" FORCE)
+set(SPM_ENABLE_TCMALLOC OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(sentencepiece)
+
+# ── nlohmann/json (header-only, for config parsing) ──────
+FetchContent_Declare(
+    json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        v3.11.3
+)
+FetchContent_MakeAvailable(json)
+
 add_subdirectory(JUCE)
 
 juce_add_plugin(T5ynth
@@ -48,12 +81,16 @@ target_sources(T5ynth PRIVATE
     src/sequencer/StepSequencer.cpp
     src/sequencer/Arpeggiator.cpp
 
-    # Backend
+    # Backend (legacy HTTP — will be removed)
     src/backend/BackendManager.cpp
     src/backend/BackendConnection.cpp
     src/backend/SemanticAxes.cpp
     src/backend/GenerationRequest.cpp
     src/backend/ModelDownloader.cpp
+
+    # Inference (native LibTorch pipeline)
+    src/inference/T5ynthInference.cpp
+    src/inference/DiffusionScheduler.cpp
 
     # GUI
     src/gui/MainPanel.cpp
@@ -73,7 +110,10 @@ target_sources(T5ynth PRIVATE
     src/presets/PresetFormat.cpp
 )
 
-target_include_directories(T5ynth PRIVATE src)
+target_include_directories(T5ynth PRIVATE
+    src
+    ${sentencepiece_SOURCE_DIR}/src
+)
 
 juce_add_binary_data(T5ynthData SOURCES
     resources/ir/emt_140_plate_bright.wav
@@ -88,11 +128,17 @@ target_link_libraries(T5ynth
         juce::juce_dsp
         juce::juce_gui_extra
         CURL::libcurl
+        ${TORCH_LIBRARIES}
+        sentencepiece-static
+        nlohmann_json::nlohmann_json
     PUBLIC
         juce::juce_recommended_config_flags
         # juce::juce_recommended_lto_flags  # disabled — too CPU-intensive for dev builds
         juce::juce_recommended_warning_flags
 )
+
+# LibTorch requires position-independent code
+set_property(TARGET T5ynth PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 target_compile_definitions(T5ynth
     PUBLIC
