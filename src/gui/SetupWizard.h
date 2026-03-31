@@ -2,12 +2,14 @@
 #include <JuceHeader.h>
 
 /**
- * Settings page / first-run wizard.
+ * Model settings panel.
  *
  * Shows model status, auto-scans known paths, browse for model directory,
- * download instructions. Displayed as an overlay in MainPanel.
+ * download from HuggingFace with token.
+ * Embedded in the JUCE Audio/MIDI Settings dialog.
  */
-class SettingsPage : public juce::Component
+class SettingsPage : public juce::Component,
+                     private juce::Timer
 {
 public:
     SettingsPage();
@@ -16,39 +18,64 @@ public:
     void paint(juce::Graphics& g) override;
     void resized() override;
 
-    /** Scan known paths for the Stable Audio model. Returns found path or empty. */
     juce::File scanForModel();
-
-    /** Set model path and create symlink at ~/t5ynth/models/stable-audio-open-1.0 */
     void setModelPath(const juce::File& dir);
-
-    /** Get the resolved model path (empty if not found). */
     juce::File getModelPath() const { return modelPath; }
-
-    /** Update backend connection status display. */
     void setBackendConnected(bool connected);
 
-    /** Called when user clicks Close. */
     std::function<void()> onClose;
+
+    /** Called when a model becomes available (after download or browse). */
+    std::function<void()> onModelReady;
+
+    static juce::File getAppSupportModelDir();
 
 private:
     void browseForModel();
+    void startDownload();
     void updateStatus();
+    void timerCallback() override;
+
+    void downloadNextFile();
+    void onDownloadFinished(bool success, const juce::String& error);
 
     juce::File modelPath;
 
+    // UI elements
     juce::Label titleLabel;
     juce::Label modelStatusLabel;
     juce::Label modelPathLabel;
     juce::Label backendStatusLabel;
     juce::Label instructionsLabel;
+    juce::Label downloadStatusLabel;
     bool backendConnected = false;
 
-    juce::TextButton scanButton    { "Auto-Scan" };
-    juce::TextButton browseButton  { "Browse..." };
-    juce::TextButton closeButton   { "Close" };
+    juce::Label tokenLabel;
+    juce::TextEditor tokenEditor;
+
+    double downloadProgress = 0.0;
+    juce::ProgressBar progressBar { downloadProgress };
+
+    juce::TextButton scanButton     { "Auto-Scan" };
+    juce::TextButton browseButton   { "Browse..." };
+    juce::TextButton downloadButton { "Download" };
 
     std::unique_ptr<juce::FileChooser> fileChooser;
+
+    struct DownloadFile {
+        juce::String remotePath;
+        int64_t size = 0;
+    };
+    std::vector<DownloadFile> filesToDownload;
+    size_t currentFileIndex = 0;
+    int64_t totalBytes = 0;
+    int64_t downloadedBytes = 0;
+    bool downloading = false;
+    std::unique_ptr<juce::URL::DownloadTask> currentDownloadTask;
+
+    void loadSettings();
+    void saveSettings();
+    juce::File getSettingsFile() const;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SettingsPage)
 };

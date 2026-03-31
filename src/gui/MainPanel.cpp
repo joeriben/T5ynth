@@ -19,13 +19,13 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     addAndMakeVisible(sequencerPanel);
     addAndMakeVisible(statusBar);
 
-    // Wire preset import callback to update GUI-only prompt/seed state
+    // Wire preset import callback
     presetPanel.onPresetLoaded = [this](const juce::String& pA, const juce::String& pB,
                                         int seed, bool randomSeed) {
         promptPanel.loadPresetData(pA, pB, seed, randomSeed);
     };
 
-    // Master volume (rotary knob)
+    // Master volume
     masterVolKnob.setSliderStyle(juce::Slider::RotaryVerticalDrag);
     masterVolKnob.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 14);
     masterVolKnob.setColour(juce::Slider::rotarySliderFillColourId, kAccent);
@@ -43,7 +43,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     masterVolA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor.getValueTreeState(), "master_vol", masterVolKnob);
 
-    // DimExplorer overlay — initially hidden
+    // DimExplorer overlay
     dimensionExplorer.setVisible(false);
     addChildComponent(dimensionExplorer);
 
@@ -59,29 +59,26 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     dimExplorerReset.setVisible(false);
     addChildComponent(dimExplorerReset);
 
-    // Wire up Explore button in SynthPanel
     synthPanel.onExploreClicked = [this] { showDimExplorer(); };
 
-    // Settings button — will be injected into JUCE standalone header
-    settingsButton.setColour(juce::TextButton::buttonColourId, kSurface);
-    settingsButton.setColour(juce::TextButton::textColourOffId, kAccent);
-    settingsButton.onClick = [this] { showSettings(); };
+    // When model becomes available (download/browse), start backend automatically
+    settingsPage.onModelReady = [this] {
+        if (!processorRef.getBackendManager().isRunning())
+        {
+            statusBar.setStatusText("Starting backend...");
+            processorRef.getBackendManager().start();
+        }
+    };
 
-    // Settings overlay
-    settingsPage.setVisible(false);
-    addChildComponent(settingsPage);
-    settingsPage.onClose = [this] { hideSettings(); };
-
-    // Try loading native inference models from known locations
+    // Try loading native inference models
     tryLoadInferenceModels();
 
-    // Legacy backend status (fallback when native inference not available)
+    // Legacy backend status
     processorRef.getBackendManager().setStatusCallback(
         [this](BackendManager::Status s)
         {
             juce::MessageManager::callAsync([this, s]()
             {
-                // Only show backend status if native inference isn't loaded
                 if (processorRef.isInferenceReady()) return;
 
                 bool running = (s == BackendManager::Status::Running);
@@ -131,31 +128,14 @@ void MainPanel::hideDimExplorer()
     repaint();
 }
 
-void MainPanel::showSettings()
-{
-    settingsVisible = true;
-    settingsPage.setVisible(true);
-    settingsPage.toFront(false);
-    resized();
-    repaint();
-}
-
-void MainPanel::hideSettings()
-{
-    settingsVisible = false;
-    settingsPage.setVisible(false);
-    repaint();
-}
+void MainPanel::toggleSettings() {}
 
 void MainPanel::tryLoadInferenceModels()
 {
     auto home = juce::File::getSpecialLocation(juce::File::userHomeDirectory);
 
-    // Scan for exported TorchScript models (dit.pt is the key indicator)
     std::vector<juce::File> candidates = {
-        // Project-local exported models
         juce::File::getCurrentWorkingDirectory().getChildFile("exported_models"),
-        // User home
         home.getChildFile("t5ynth/exported_models"),
         home.getChildFile("ai/t5ynth/exported_models"),
     };
@@ -166,7 +146,6 @@ void MainPanel::tryLoadInferenceModels()
         {
             statusBar.setStatusText("Loading models...");
 
-            // Load on a background thread to avoid blocking the GUI
             auto* processor = &processorRef;
             auto modelDir = dir;
             std::thread([this, processor, modelDir]()
@@ -190,8 +169,16 @@ void MainPanel::tryLoadInferenceModels()
         }
     }
 
-    // No exported models found — fall back to legacy backend
-    statusBar.setStatusText("No exported models found");
+    // No native models — start the Python backend if the HF model is available
+    if (settingsPage.scanForModel().exists())
+    {
+        statusBar.setStatusText("Starting backend...");
+        processorRef.getBackendManager().start();
+    }
+    else
+    {
+        statusBar.setStatusText("No model found — open Settings");
+    }
 }
 
 void MainPanel::paint(juce::Graphics& g)
@@ -204,16 +191,11 @@ void MainPanel::paint(juce::Graphics& g)
     float topH = h - bottomH;
 
     g.setColour(kBorder);
-
-    // Column separator
     float x1 = w * 0.25f;
     g.drawVerticalLine(juce::roundToInt(x1), 0.0f, topH);
-
-    // Bottom strip separator
     g.drawHorizontalLine(juce::roundToInt(topH), 0.0f, w);
 
-    // Overlay backgrounds
-    if (dimExplorerVisible || settingsVisible)
+    if (dimExplorerVisible)
     {
         g.setColour(juce::Colour(0xdd101016));
         g.fillRect(getLocalBounds());
@@ -226,11 +208,11 @@ void MainPanel::resized()
     float w = static_cast<float>(b.getWidth());
     float h = static_cast<float>(b.getHeight());
 
-    int statusH = juce::roundToInt(h * 0.03f);
+    int statusH = juce::jmax(22, juce::roundToInt(h * 0.03f));
     int footerH = juce::roundToInt(h * 0.10f);
     statusBar.setBounds(b.removeFromBottom(statusH));
 
-    // Footer: Sequencer (left) | Preset (center) | FX (right) | Master Vol knob (far right)
+    // Footer
     auto footer = b.removeFromBottom(footerH);
     int volW = juce::roundToInt(w * 0.06f);
     int fxW = juce::roundToInt(w * 0.30f);
@@ -246,21 +228,18 @@ void MainPanel::resized()
     presetPanel.setBounds(footer.removeFromTop(presetH));
     sequencerPanel.setBounds(footer);
 
-    // 2 columns: 25% | 75%
+    // Col 1: Settings button + GENERATION
     int col1W = juce::roundToInt(w * 0.25f);
-
-    // Col 1: GENERATION
     auto genCol = b.removeFromLeft(col1W);
+
     int promptH = juce::roundToInt(static_cast<float>(genCol.getHeight()) * 0.55f);
     promptPanel.setBounds(genCol.removeFromTop(promptH));
     axesPanel.setBounds(genCol);
 
-    // Col 2: ENGINE + FILTER + MODULATION
+    // Col 2: ENGINE
     synthPanel.setBounds(b);
 
-    // Settings overlay
-    if (settingsVisible)
-        settingsPage.setBounds(getLocalBounds());
+
 
     // DimExplorer overlay
     if (dimExplorerVisible)

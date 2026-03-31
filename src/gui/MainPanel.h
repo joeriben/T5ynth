@@ -12,14 +12,6 @@
 
 class T5ynthProcessor;
 
-/**
- * 2-column layout:
- *   Col 1 (25%): GENERATION (PromptPanel + AxesPanel)
- *   Col 2 (75%): ENGINE + FILTER + MODULATION (SynthPanel)
- *   Footer: SequencerPanel + FxPanel (compact) + StatusBar
- *
- * DimensionExplorer opens as a modal overlay.
- */
 class MainPanel : public juce::Component
 {
 public:
@@ -28,9 +20,8 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
-
-    // Settings button (injected into JUCE standalone header next to Options)
-    juce::TextButton settingsButton { "Settings" };
+    void toggleSettings();
+    SettingsPage& getModelPanel() { return settingsPage; }
 
 private:
     T5ynthProcessor& processorRef;
@@ -42,7 +33,7 @@ private:
     // Col 2: ENGINE + FILTER + MODULATION
     SynthPanel synthPanel;
 
-    // Col 3: FX
+    // FX
     FxPanel fxPanel;
 
     // Presets
@@ -52,7 +43,7 @@ private:
     SequencerPanel sequencerPanel;
     StatusBar statusBar;
 
-    // Master volume (footer, rotary knob)
+    // Master volume
     juce::Slider masterVolKnob;
     juce::Label masterVolLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterVolA;
@@ -67,11 +58,8 @@ private:
     void hideDimExplorer();
     void tryLoadInferenceModels();
 
-    // Overlay: Settings page
+    // Model settings (embedded in JUCE Audio/MIDI Settings dialog)
     SettingsPage settingsPage;
-    bool settingsVisible = false;
-    void showSettings();
-    void hideSettings();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainPanel)
 };

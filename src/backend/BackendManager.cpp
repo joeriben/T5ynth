@@ -153,12 +153,25 @@ juce::File BackendManager::findPythonExecutable() const
     if (venvPython.existsAsFile())
         return venvPython;
 
-    // 2. Check for venv one level up (project root)
+    // 2. Check for .venv inside backend dir
+  #if JUCE_WINDOWS
+    auto dotVenvPython = backendDir.getChildFile(".venv/Scripts/python.exe");
+  #else
+    auto dotVenvPython = backendDir.getChildFile(".venv/bin/python");
+  #endif
+    if (dotVenvPython.existsAsFile())
+        return dotVenvPython;
+
+    // 3. Check for venv or .venv one level up (project root)
   #if JUCE_WINDOWS
     auto rootVenvPython = backendDir.getParentDirectory().getChildFile("venv/Scripts/python.exe");
+    auto rootDotVenvPython = backendDir.getParentDirectory().getChildFile(".venv/Scripts/python.exe");
   #else
     auto rootVenvPython = backendDir.getParentDirectory().getChildFile("venv/bin/python");
+    auto rootDotVenvPython = backendDir.getParentDirectory().getChildFile(".venv/bin/python");
   #endif
+    if (rootDotVenvPython.existsAsFile())
+        return rootDotVenvPython;
     if (rootVenvPython.existsAsFile())
         return rootVenvPython;
 

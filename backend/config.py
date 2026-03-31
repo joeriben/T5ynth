@@ -26,7 +26,30 @@ HOST = os.environ.get("T5YNTH_HOST", "127.0.0.1")  # Loopback only — no extern
 PORT = int(os.environ.get("T5YNTH_PORT", "17850"))
 
 # --- Model Storage ---
-MODEL_DIR = Path(os.environ.get("T5YNTH_MODEL_DIR", str(Path.home() / "t5ynth" / "models")))
+# Platform-agnostic: check app data directory first, then legacy ~/t5ynth/models
+import sys
+
+def _default_model_dir() -> Path:
+    """Return the first existing model directory, or the platform-standard one."""
+    if sys.platform == "darwin":
+        app_support = Path.home() / "Library" / "Application Support" / "T5ynth" / "models"
+    elif sys.platform == "win32":
+        app_support = Path(os.environ.get("APPDATA", "")) / "T5ynth" / "models"
+    else:  # Linux
+        app_support = Path.home() / ".local" / "share" / "T5ynth" / "models"
+
+    legacy = Path.home() / "t5ynth" / "models"
+
+    # Prefer app support if the model exists there
+    if (app_support / "stable-audio-open-1.0" / "model_index.json").is_file():
+        return app_support
+    if (legacy / "stable-audio-open-1.0" / "model_index.json").is_file():
+        return legacy
+
+    # Default to app support (will be created by the GUI download)
+    return app_support
+
+MODEL_DIR = Path(os.environ.get("T5YNTH_MODEL_DIR", str(_default_model_dir())))
 
 # --- Stable Audio ---
 STABLE_AUDIO_ENABLED = os.environ.get("STABLE_AUDIO_ENABLED", "true").lower() == "true"
