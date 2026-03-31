@@ -1,5 +1,38 @@
 # T5ynth Development Log
 
+## 2026-03-31 — Session 8: Signal Chain Fixes + RT Safety
+
+### Critical Bug Fixes
+
+- **Filter never called (CRITICAL):** `SynthVoice::processFilter()` existed with full modulation logic but was never invoked anywhere. Per-voice buffers don't exist (voices are summed sample-by-sample), so a per-voice filter was architecturally impossible without major refactor. **Fix:** Added post-sum `T5ynthFilter postFilter` to `PluginProcessor`, wired between voice rendering and effects chain. Full modulation ported from the dead per-voice code: keyboard tracking (uses newest voice's note), mod envelope → cutoff (subtractive sweep with `1 ± amount × 8` peak/floor), LFO → cutoff (bipolar multiplicative). `hasActiveVoices` guard prevents stale mod values from shifting cutoff when silent.
+
+- **Pitch accumulation (CRITICAL):** `renderSample()` did `osc.setFrequency(osc.getFrequency() * pitchFactor)` — multiplied the *current* frequency by the pitch factor each sample, causing exponential drift to 20kHz in ~100 samples. **Fix:** Added `float baseFrequency` to `SynthVoice`, cached at `noteOn()` and `glideToNote()`. Pitch modulation now uses `osc.setFrequency(baseFrequency * (1 + pitchMod))` — always absolute, never accumulating. Frequency resets cleanly when modulation stops.
+
+### Real-Time Safety
+
+- **Debug FILE* logging removed:** `static FILE* dbgFile` with `fopen`/`fprintf`/`fflush` on audio thread — RT violation + file handle leak. Deleted.
+- **LFO buffer heap allocation removed:** `std::vector<float>` was allocated per `processBlock` call. Moved to pre-allocated member vectors resized in `prepareToPlay()`.
+
+### Cleanup
+
+- Renamed `Looper` → `Sampler` throughout (EngineMode enum, GUI buttons, accessor methods, preset import/export). Aligns with actual functionality.
+- Added porting comparison CSVs (`docs/portierung_*.csv`) for all composables.
+
+### Correct Signal Flow (after fix)
+```
+Voices (Osc/Sampler → VCA → sum with 1/sqrt(N))
+  → Post-Sum Filter (kbd tracking + env→cutoff + LFO→cutoff)
+  → Effects (Delay ‖ Reverb parallel send-bus)
+  → Master Volume → Limiter
+```
+
+### Known Remaining RT Violations (deferred)
+- `T5ynthFilter::processBlock()` allocates `dryBuffer` when mix ∈ (0,1)
+- `reverbSrc` buffer allocated when both delay+reverb are enabled simultaneously
+- Per-voice `processFilter()` and per-voice `T5ynthFilter filter` are now dead code
+
+---
+
 ## 2026-03-29 — Session 6: DSP Bugfixes + LibTorch Migration Start
 
 ### DSP Bugfixes (3 remaining from Session 5 audit)
@@ -146,11 +179,11 @@ The fix requires replacing `StableAudioAttnProcessor2_0` with a custom processor
 ```
 MIDI In → Sequencer → Arpeggiator → Note Processing
                                          ↓
-              Wavetable Oscillator / Audio Looper / Fallback Sine
+              Wavetable Oscillator / Audio Sampler
+                    ↓ (per-voice VCA, sum with 1/sqrt(N))
+              Post-Sum Filter (SVT, modulated cutoff)
                                          ↓
-                        Filter (SVT, modulated cutoff)
-                                         ↓
-                         Delay → Reverb → Master Vol → Limiter → Out
+                    Delay ‖ Reverb (parallel send-bus) → Master Vol → Limiter → Out
 ```
 
 ### Audio Generation Flow
