@@ -1,0 +1,883 @@
+"Nr","Funktion","Original-Code (TypeScript)","Legacy-JUCE (C++)","Neuer Code (C++)","Kommentar"
+"1","MOD_TARGETS Liste","export type ModTarget =
+  | 'dca' | 'dcf_cutoff' | 'pitch'
+  | 'delay_time' | 'delay_feedback' | 'delay_mix' | 'reverb_mix'
+  | 'lfo1_rate' | 'lfo2_rate' | 'lfo1_depth' | 'lfo2_depth'
+  | 'wt_scan'
+  | 'none'
+
+export const MOD_TARGETS: ModTarget[] = [
+  'none', 'dca', 'dcf_cutoff', 'pitch',
+  'delay_time', 'delay_feedback', 'delay_mix', 'reverb_mix',
+  'lfo1_rate', 'lfo2_rate', 'lfo1_depth', 'lfo2_depth', 'wt_scan',
+]","// ENV targets (PluginProcessor.cpp):
+// 0=DCA, 1=Filter, 2=Scan, 3=Pitch, 4=DlyTime, 5=DlyFB, 6=DlyMix, 7=RevMix, 8=None
+juce::StringArray{""DCA"", ""Filter"", ""Scan"", ""Pitch"", ""Dly Time"", ""Dly FB"", ""Dly Mix"", ""Rev Mix"", ""---""}
+
+// LFO targets (PluginProcessor.cpp):
+// 0=Filter, 1=Scan, 2=Pitch, 3=DlyTime, 4=DlyFB, 5=DlyMix, 6=RevMix, 7=LFO2Rate, 8=LFO2Depth, 9=None
+juce::StringArray{""Filter"", ""Scan"", ""Pitch"", ""Dly Time"", ""Dly FB"", ""Dly Mix"", ""Rev Mix"", ""LFO2 Rate"", ""LFO2 Depth"", ""---""}","","DIFFERENZ: TS hat 13 Targets (none,dca,dcf_cutoff,pitch,delay_time,delay_feedback,delay_mix,reverb_mix,lfo1_rate,lfo2_rate,lfo1_depth,lfo2_depth,wt_scan). JUCE hat separate Env-Targets (9 Werte inkl DCA,Scan) und LFO-Targets (10 Werte, kein DCA, dafuer LFO-Cross-Mod). Env-Targets und LFO-Targets verwenden UNTERSCHIEDLICHE Index-Nummern fuer gleiche Ziele (z.B. pitch=3 bei Env, pitch=2 bei LFO). TS verwendet einheitliche String-IDs."
+"2","EnvState Interface / Envelope Defaults","export interface EnvState {
+  attackMs: Ref<number>
+  decayMs: Ref<number>
+  sustain: Ref<number>
+  releaseMs: Ref<number>
+  amount: Ref<number>
+  target: Ref<ModTarget>
+  loop: Ref<boolean>
+}
+
+const envs: EnvState[] = [
+  {
+    attackMs: ref(0), decayMs: ref(0), sustain: ref(1), releaseMs: ref(0),
+    amount: ref(1), target: ref<ModTarget>('dca'), loop: ref(false),
+  },
+  {
+    attackMs: ref(0), decayMs: ref(0), sustain: ref(1), releaseMs: ref(0),
+    amount: ref(0.5), target: ref<ModTarget>('none'), loop: ref(false),
+  },
+  {
+    attackMs: ref(0), decayMs: ref(0), sustain: ref(1), releaseMs: ref(0),
+    amount: ref(0.5), target: ref<ModTarget>('none'), loop: ref(false),
+  },
+]","// ADSREnvelope.h (3 instances: ampEnv, modEnv1, modEnv2 in SynthVoice)
+class ADSREnvelope {
+    float attackMs     = 0.0f;
+    float decayMs      = 0.0f;
+    float sustainLevel = 1.0f;
+    float releaseMs    = 0.0f;
+    float currentLevel = 0.0f;
+    float targetVelocity = 1.0f;
+    bool looping = false;
+};
+
+// BlockParams.h defaults:
+// Amp: ampAttack=0, ampDecay=0, ampSustain=1, ampRelease=0, ampAmount=1, ampLoop=false
+// Mod1: mod1Attack=0, mod1Decay=0, mod1Sustain=1, mod1Release=0, mod1Amount=0, mod1Target=8(None), mod1Loop=false
+// Mod2: mod2Attack=0, mod2Decay=0, mod2Sustain=1, mod2Release=0, mod2Amount=0, mod2Target=8(None), mod2Loop=false
+
+// APVTS defaults (PluginProcessor.cpp):
+// amp_amount default=1.0, mod1_amount default=0.5, mod2_amount default=0.5","","DIFFERENZ: (1) TS amount ist Teil von EnvState, JUCE amount ist in BlockParams und wird extern multipliziert (ampEnv.processSample() * p.ampAmount). (2) TS target ist Teil von EnvState, JUCE target ist int in BlockParams. (3) TS Env0 default target='dca', JUCE ampEnv hat kein target-Feld (implizit immer DCA). (4) BlockParams mod1Amount default=0 weicht ab von APVTS default=0.5 - BlockParams wird immer von APVTS ueberschrieben, also kein Runtime-Bug."
+"3","LfoState Interface / LFO Defaults","export interface LfoState {
+  rate: Ref<number>
+  depth: Ref<number>
+  waveform: Ref<LfoWaveform>
+  target: Ref<ModTarget>
+  mode: Ref<LfoMode>
+}
+
+const lfos: LfoState[] = [
+  { rate: ref(2.0), depth: ref(0), waveform: ref<LfoWaveform>('sine'),
+    target: ref<ModTarget>('none'), mode: ref<LfoMode>('free') },
+  { rate: ref(0.5), depth: ref(0), waveform: ref<LfoWaveform>('triangle'),
+    target: ref<ModTarget>('none'), mode: ref<LfoMode>('free') },
+]","// LFO.h
+class LFO {
+    float rate = 1.0f;
+    int waveform = 0;  // 0=Sine, 1=Triangle, 2=Saw, 3=Square
+    float depth = 1.0f;
+};
+
+// APVTS defaults (PluginProcessor.cpp):
+// lfo1_rate: NormalisableRange(0.01, 40.0, 0.01, 0.3), default=2.0
+// lfo1_depth: NormalisableRange(0.0, 1.0), default=0.0
+// lfo1_wave: {Sine,Tri,Saw,Sq}, default=0 (Sine)
+// lfo1_target: default=9 (None)
+// lfo1_mode: {Free,Trig}, default=0 (Free)
+// lfo2_rate: default=0.5
+// lfo2_depth: default=0.0
+// lfo2_wave: default=0 (Sine)
+// lfo2_target: default=9 (None)
+// lfo2_mode: default=0 (Free)","","DIFFERENZ: (1) LFO.h depth default=1.0, aber APVTS default=0.0. APVTS ueberschreibt immer, kein Runtime-Bug. (2) LFO.h rate default=1.0, aber APVTS/TS defaults stimmen ueberein (lfo1=2.0, lfo2=0.5). (3) TS LFO2 default waveform='triangle', JUCE lfo2_wave default=0 (Sine) -- FEHLT: LFO2 sollte Triangle (1) als Default haben. (4) TS hat 'sawtooth' als Waveform-Name, JUCE hat Saw (index 2) -- gleiche Funktion, anderer Name. (5) LFO.h hat keinen mode/target -- diese sind in PluginProcessor/BlockParams."
+"4","init()","function init(ac: AudioContext): void {
+  ctx = ac
+  for (let i = 0; i < 3; i++) {
+    envGainNodes[i] = ac.createGain()
+    envGainNodes[i]!.gain.value = 0  // Closed gate
+  }
+  for (let i = 0; i < 2; i++) {
+    createLfoNodes(ac, i)
+  }
+}","// SynthVoice::prepare (SynthVoice.cpp)
+void SynthVoice::prepare(double sampleRate, int samplesPerBlock) {
+    sr = sampleRate;
+    osc.prepare(sampleRate, samplesPerBlock);
+    looper.prepare(sampleRate, samplesPerBlock);
+    ampEnv.prepare(sampleRate);
+    modEnv1.prepare(sampleRate);
+    modEnv2.prepare(sampleRate);
+    perVoiceLfo1.prepare(sampleRate);
+    perVoiceLfo2.prepare(sampleRate);
+    filter.prepare(sampleRate, samplesPerBlock);
+}
+
+// ADSREnvelope::prepare (ADSREnvelope.cpp)
+void ADSREnvelope::prepare(double sampleRate) {
+    sr = sampleRate;
+    state = State::Idle;
+    currentLevel = 0.0f;
+    bypassed = false;
+}
+
+// LFO::prepare (LFO.cpp)
+void LFO::prepare(double sampleRate) {
+    sr = sampleRate;
+    phase = 0.0;
+}","","KORREKT: TS init erstellt GainNodes (closed gate, gain=0) und LFO-Nodes. JUCE prepare setzt sampleRate und initialen Zustand (Idle/0.0). Semantisch aequivalent -- TS hat Web-Audio-Node-Erstellung, JUCE hat DSP-State-Init."
+"5","createLfoNodes()","function createLfoNodes(ac: AudioContext, idx: number): void {
+  // Clean up old connections
+  if (lfoCurrentParams[idx]) {
+    try { lfoGains[idx]?.disconnect(lfoCurrentParams[idx]!) } catch {}
+    lfoCurrentParams[idx] = null
+  }
+  if (lfoOscs[idx]) { try { lfoOscs[idx]!.stop() } catch {}; lfoOscs[idx]!.disconnect() }
+  if (lfoGains[idx]) lfoGains[idx]!.disconnect()
+  if (lfoAnalysers[idx]) lfoAnalysers[idx]!.disconnect()
+
+  const osc = ac.createOscillator()
+  const gain = ac.createGain()
+  const analyser = ac.createAnalyser()
+  analyser.fftSize = 32
+
+  osc.type = lfos[idx]!.waveform.value
+  osc.frequency.value = lfos[idx]!.rate.value
+  gain.gain.value = 0
+
+  osc.connect(gain)
+  gain.connect(analyser)
+  osc.start()
+  lfoOscs[idx] = osc
+  lfoGains[idx] = gain
+  lfoAnalysers[idx] = analyser
+}","// LFO::reset (LFO.cpp) -- used for trigger mode retrigger
+void LFO::reset() {
+    phase = 0.0;
+}
+
+// VoiceManager::noteOn (VoiceManager.cpp):
+if (lfo1TrigMode)
+    v.getPerVoiceLfo1().reset();
+if (lfo2TrigMode)
+    v.getPerVoiceLfo2().reset();","","DIFFERENZ: TS createLfoNodes zerstoert und erstellt komplett neue Web Audio Nodes (OscillatorNode, GainNode, AnalyserNode). JUCE macht nur phase=0 Reset -- kein Node-Teardown noetig in sample-basiertem DSP. TS braucht createLfoNodes auch fuer Trigger-Modus (OscillatorNode kann nicht restarted werden). JUCE-Aequivalent ist einfacher (nur Phase-Reset)."
+"6","setTargets()","function setTargets(targets: Record<string, { param: AudioParam; baseValue: () => number }>): void {
+  for (const [key, { param, baseValue }] of Object.entries(targets)) {
+    targetParams[key] = param
+    targetBaseGetters[key] = baseValue
+  }
+  // Also register LFO rate params as targets
+  if (lfoOscs[0]) {
+    targetParams['lfo1_rate'] = lfoOscs[0]!.frequency
+    targetBaseGetters['lfo1_rate'] = () => lfos[0]!.rate.value
+  }
+  if (lfoGains[0]) {
+    targetParams['lfo1_depth'] = lfoGains[0]!.gain
+    targetBaseGetters['lfo1_depth'] = () => lfoGains[0]!.gain.value
+  }
+  if (lfoOscs[1]) {
+    targetParams['lfo2_rate'] = lfoOscs[1]!.frequency
+    targetBaseGetters['lfo2_rate'] = () => lfos[1]!.rate.value
+  }
+  if (lfoGains[1]) {
+    targetParams['lfo2_depth'] = lfoGains[1]!.gain
+    targetBaseGetters['lfo2_depth'] = () => lfoGains[1]!.gain.value
+  }
+  applyLfoRouting()
+}","// Kein direktes Aequivalent.
+// JUCE routing ist statisch ueber int-Target-Indices in BlockParams.
+// LFO cross-mod in processBlock (PluginProcessor.cpp):
+if (bp.lfo1Target == 7) lfo2.setRate(baseLfo2Rate * (1.0f + l1));
+if (bp.lfo1Target == 8) lfo2.setDepth(std::max(0.0f, baseLfo2Depth + l1 * baseLfo2Depth));
+if (bp.lfo2Target == 7) lfo1.setRate(baseLfo1Rate * (1.0f + l2));
+if (bp.lfo2Target == 8) lfo1.setDepth(std::max(0.0f, baseLfo1Depth + l2 * baseLfo1Depth));","","DIFFERENZ: TS registriert AudioParam-Referenzen dynamisch in einem Record<string, AudioParam>, dann verbindet LFO-Nodes direkt an AudioParams. JUCE hat keine dynamische Target-Registrierung -- Routing ist hart kodiert via if/else-Ketten auf int-Indizes in processBlock und renderSample. LFO Cross-Mod (lfo_rate/lfo_depth) direkt in processBlock-Schleife."
+"7","setCallbackTargets()","function setCallbackTargets(targets: Record<string, { callback: (v: number) => void; baseValue: () => number }>): void {
+  for (const [key, { callback, baseValue }] of Object.entries(targets)) {
+    callbackTargets[key] = callback
+    callbackBaseGetters[key] = baseValue
+  }
+}","// Kein Aequivalent in JUCE.
+// wt_scan Modulation ist direkt in renderSample (SynthVoice.cpp):
+float scanMod = p.baseScan + p.driftScanOffset;
+if (p.mod1Target == 2) scanMod += mod1EnvVal;
+if (p.mod2Target == 2) scanMod += mod2EnvVal;
+if (p.lfo1Target == 1) scanMod += lfo1Val;
+if (p.lfo2Target == 1) scanMod += lfo2Val;
+osc.setScanPosition(juce::jlimit(0.0f, 1.0f, scanMod));","","DIFFERENZ: TS braucht Callback-Targets weil wt_scan kein AudioParam ist (kein Web Audio Node). JUCE braucht kein Callback-System -- wt_scan wird direkt per-sample in renderSample berechnet. Sauberer in JUCE."
+"8","getDcaGainNode()","function getDcaGainNode(): GainNode | null {
+  return envGainNodes[0] ?? null
+}","// Kein direktes Aequivalent.
+// DCA wird in renderSample direkt berechnet:
+float vca = ampEnvVal;
+if (p.mod1Target == 0) vca *= (1.0f + mod1EnvVal);
+if (p.mod2Target == 0) vca *= (1.0f + mod2EnvVal);
+sample *= vca;","","DIFFERENZ: TS gibt GainNode zurueck, damit externer Code (useSynth) die Audio-Routing-Kette aufbauen kann (osc -> envGain -> destination). JUCE hat keine separaten Audio-Nodes -- VCA ist direkt im renderSample als Multiplikation."
+"9","isCallbackTarget()","function isCallbackTarget(target: ModTarget): boolean {
+  return target in callbackTargets
+}","// Kein Aequivalent in JUCE.
+// Alle Targets werden uniform per-sample verarbeitet.","","DIFFERENZ: TS unterscheidet AudioParam-Targets und Callback-Targets (wt_scan). JUCE hat diese Unterscheidung nicht -- alles ist per-sample DSP."
+"10","triggerAttack()","function triggerAttack(velocity = 1): void {
+  if (!ctx) return
+  for (let i = 0; i < 3; i++) {
+    triggerEnvAttack(i, velocity)
+  }
+  // Retrigger LFOs in trigger mode
+  for (let i = 0; i < 2; i++) {
+    if (lfos[i]!.mode.value === 'trigger' && ctx) {
+      createLfoNodes(ctx, i)
+      applyLfoRouting()
+    }
+  }
+  startLfoCallbackPolling()
+}","// VoiceManager::noteOn (VoiceManager.cpp):
+v.noteOn(note, velocity, false);  // -> ampEnv.noteOn + modEnv1.noteOn + modEnv2.noteOn
+
+// SynthVoice::noteOn (SynthVoice.cpp):
+if (!legato) {
+    ampEnv.noteOn(velocity);
+    modEnv1.noteOn(velocity);
+    modEnv2.noteOn(velocity);
+}
+
+// VoiceManager::noteOn -- LFO trigger mode:
+if (lfo1TrigMode)
+    v.getPerVoiceLfo1().reset();
+if (lfo2TrigMode)
+    v.getPerVoiceLfo2().reset();","","KORREKT: Beide feuern alle 3 Envelopes und retriggern LFOs im Trigger-Modus. DIFFERENZ: (1) TS hat kein legato-Konzept bei triggerAttack (immer alle Envelopes). JUCE hat legato-Flag das Envelope-Retrigger unterdrueckt. (2) TS ruft createLfoNodes (komplett neue Nodes) auf, JUCE macht nur phase=0 Reset. (3) TS startet LFO-Callback-Polling (fuer wt_scan), JUCE braucht das nicht."
+"11","triggerRelease()","function triggerRelease(): void {
+  if (!ctx) return
+  for (let i = 0; i < 3; i++) {
+    triggerEnvRelease(i)
+  }
+}","// VoiceManager::noteOff + SynthVoice::noteOff (SynthVoice.cpp):
+void SynthVoice::noteOff() {
+    noteHeld = false;
+    ampEnv.noteOff();
+    modEnv1.noteOff();
+    modEnv2.noteOff();
+}","","KORREKT: Beide releasen alle 3 Envelopes. Semantisch identisch."
+"12","triggerEnvAttack - DCA","// DCA path in triggerEnvAttack:
+if (target === 'dca') {
+  const gain = envGainNodes[0]
+  if (!gain) return
+  const peak = velocity * amount
+  const susLevel = sus * peak
+  // Soft retrigger: hold current value, ramp from there
+  gain.gain.cancelScheduledValues(now)
+  gain.gain.setValueAtTime(gain.gain.value, now)
+  gain.gain.linearRampToValueAtTime(peak, now + Math.max(atk, 0.003))
+  gain.gain.linearRampToValueAtTime(susLevel, now + Math.max(atk, 0.003) + Math.max(dec, 0.003))
+
+  if (env.loop.value) {
+    scheduleEnvLoop(idx, velocity, atk + dec)
+  }
+}","// ADSREnvelope::noteOn (ADSREnvelope.cpp):
+void ADSREnvelope::noteOn(float velocity) {
+    targetVelocity = velocity;
+    bypassed = false;
+    float peak = targetVelocity; // amount applied externally
+    float atkSec = std::max(attackMs / 1000.0f, MIN_RAMP_SEC);
+    int atkSamples = std::max(1, static_cast<int>(atkSec * static_cast<float>(sr)));
+    attackTarget = peak;
+    attackIncr = (attackTarget - currentLevel) / static_cast<float>(atkSamples);
+    float susLevel = sustainLevel * peak;
+    float decSec = std::max(decayMs / 1000.0f, MIN_RAMP_SEC);
+    int decSamples = std::max(1, static_cast<int>(decSec * static_cast<float>(sr)));
+    decayTarget = susLevel;
+    decayIncr = (decayTarget - attackTarget) / static_cast<float>(decSamples);
+    state = State::Attack;
+    // Don't reset currentLevel -- soft retrigger
+}","","KORREKT: Beide implementieren: (1) Soft retrigger (keine currentLevel-Reset). (2) Linear attack ramp zu peak. (3) Linear decay ramp zu sustain*peak. (4) 3ms Minimum-Ramp. DIFFERENZ: (1) TS peak = velocity * amount, JUCE peak = velocity (amount wird extern multipliziert: ampEnv.processSample() * p.ampAmount in renderSample). Gleicher Effekt, anderer Ort. (2) TS verwendet Web Audio scheduling (cancelScheduledValues + linearRampToValueAtTime), JUCE per-sample Increment."
+"13","triggerEnvAttack - dcf_cutoff","// DCF path in triggerEnvAttack:
+if (target === 'dcf_cutoff') {
+  const minFreq = 20
+  startVal = Math.max(minFreq, baseVal * (1 - amount))
+  peakVal = Math.min(20000, baseVal * (1 + amount * 8))
+  susVal = Math.max(minFreq, startVal + (peakVal - startVal) * sus)
+}
+// ...
+if (target === 'dcf_cutoff') {
+  param.setValueAtTime(Math.max(startVal, 20), now)
+  param.exponentialRampToValueAtTime(Math.max(peakVal, 20), now + Math.max(atk, 0.003))
+  param.exponentialRampToValueAtTime(Math.max(susVal, 20), now + Math.max(atk, 0.003) + Math.max(dec, 0.003))
+}","// SynthVoice::processFilter (SynthVoice.cpp):
+if (p.mod1Target == 1 && !modEnv1.isIdle()) {
+    float startFactor = 1.0f - p.mod1Amount;
+    float peakFactor = 1.0f + p.mod1Amount * 8.0f;
+    float envFactor = startFactor + (peakFactor - startFactor) * lastMod1Val;
+    cutoffMod *= envFactor;
+}
+if (p.mod2Target == 1 && !modEnv2.isIdle()) {
+    float startFactor = 1.0f - p.mod2Amount;
+    float peakFactor = 1.0f + p.mod2Amount * 8.0f;
+    float envFactor = startFactor + (peakFactor - startFactor) * lastMod2Val;
+    cutoffMod *= envFactor;
+}","","DIFFERENZ: (1) TS verwendet EXPONENTIAL ramps (exponentialRampToValueAtTime) fuer Filter-Sweep. JUCE ADSREnvelope hat nur LINEAR ramps, dann wird envFactor per-block auf cutoff multipliziert. Exponentielle Frequenz-Skalierung fehlt im JUCE Envelope selbst. (2) TS berechnet absolute Hz-Werte (startVal=baseVal*(1-amount), peakVal=baseVal*(1+amount*8)). JUCE berechnet Faktoren (startFactor, peakFactor) und multipliziert auf cutoffMod. Gleicher Algorithmus, aber JUCE macht es multiplikativ statt absolut. (3) TS clampt auf 20-20000 Hz, JUCE clampt erst am Ende (juce::jlimit 20-20000). (4) TS scheduled die Attack/Decay Phasen separat fuer dcf_cutoff, JUCE verwendet denselben linearen ADSREnvelope fuer alle Targets und moduliert block-rate."
+"14","triggerEnvAttack - andere Params","// Other params path in triggerEnvAttack:
+else {
+  startVal = baseVal
+  peakVal = baseVal + amount * baseVal
+  susVal = baseVal + (peakVal - baseVal) * sus
+}
+// ...
+param.setValueAtTime(Math.max(startVal, 0.001), now)
+param.linearRampToValueAtTime(peakVal, now + Math.max(atk, 0.003))
+param.linearRampToValueAtTime(susVal, now + Math.max(atk, 0.003) + Math.max(dec, 0.003))","// Delay/Reverb modulation in processBlock (PluginProcessor.cpp):
+float modDelayTime = 0.0f, modDelayFb = 0.0f, modDelayMix = 0.0f, modReverbMix = 0.0f;
+if (bp.mod1Target == 4) modDelayTime += lastMod1Val;
+if (bp.mod1Target == 5) modDelayFb += lastMod1Val;
+if (bp.mod1Target == 6) modDelayMix += lastMod1Val;
+if (bp.mod1Target == 7) modReverbMix += lastMod1Val;
+// ...dann angewendet:
+delay.setTime(juce::jlimit(1.0f, 5000.0f, baseDelayTime * (1.0f + modDelayTime)));
+delay.setFeedback(juce::jlimit(0.0f, 0.95f, baseDelayFb + modDelayFb * baseDelayFb));
+delay.setMix(juce::jlimit(0.0f, 1.0f, baseDelayMix + modDelayMix));","","DIFFERENZ: (1) TS berechnet startVal/peakVal/susVal als absolute Werte und scheduled sie als Audio-Rate Ramps auf dem AudioParam. JUCE addiert den rohen Envelope-Wert (lastMod1Val) als Offset und wendet ihn block-rate an. (2) TS Formel: peakVal = baseVal + amount * baseVal. JUCE: baseVal * (1 + envVal) oder baseVal + envVal * baseVal -- aehnlich, aber der envVal in JUCE ist bereits amount-skaliert (processSample * amount). (3) TS hat 3ms minimum ramp (Math.max(atk, 0.003)), JUCE hat nur block-rate Update."
+"15","triggerEnvAttack - Callback Target (wt_scan)","// Callback target path in triggerEnvAttack:
+if (isCallbackTarget(target)) {
+  const st = cbEnvState[idx]!
+  st.active = true
+  st.releasing = false
+  st.startTime = performance.now()
+  st.velocity = velocity
+  if (!st.rafId) startCbEnvLoop(idx)
+  return
+}","// In JUCE: wt_scan ist Env-Target 2 (Scan).
+// Kein separater Callback-Pfad noetig.
+// Scan-Modulation in renderSample (SynthVoice.cpp):
+float scanMod = p.baseScan + p.driftScanOffset;
+if (p.mod1Target == 2) scanMod += mod1EnvVal;
+if (p.mod2Target == 2) scanMod += mod2EnvVal;
+if (p.lfo1Target == 1) scanMod += lfo1Val;
+if (p.lfo2Target == 1) scanMod += lfo2Val;
+osc.setScanPosition(juce::jlimit(0.0f, 1.0f, scanMod));","","DIFFERENZ: TS braucht rAF-Callback-System (requestAnimationFrame) weil wt_scan kein AudioParam ist. JUCE braucht das nicht -- wt_scan wird direkt per-sample in renderSample berechnet. JUCE-Loesung ist sauberer und hat bessere Zeitaufloesung (Sample-Rate vs ~60Hz rAF)."
+"16","holdAndRelease()","function holdAndRelease(param: AudioParam, target: number, now: number, duration: number): void {
+  const dur = Math.max(duration, 0.003)
+  if (typeof param.cancelAndHoldAtTime === 'function') {
+    param.cancelAndHoldAtTime(now)
+  } else {
+    const current = param.value
+    param.cancelScheduledValues(now)
+    param.setValueAtTime(current || 0.001, now)
+  }
+  // RC discharge: tau = dur/5
+  param.setTargetAtTime(target, now, dur / 5)
+  // Hard-zero at end
+  param.setValueAtTime(target, now + dur)
+}","// ADSREnvelope::noteOff (ADSREnvelope.cpp):
+void ADSREnvelope::noteOff() {
+    if (state == State::Idle) return;
+    float relSec = std::max(releaseMs / 1000.0f, MIN_RAMP_SEC);
+    releaseTau = relSec / 5.0f;
+    releaseStartLevel = currentLevel;
+    releaseSampleCount = 0;
+    releaseTotalSamples = static_cast<int>(relSec * static_cast<float>(sr));
+    state = State::Release;
+}
+
+// ADSREnvelope::processSample -- Release state:
+case State::Release: {
+    releaseSampleCount++;
+    float t = static_cast<float>(releaseSampleCount) / static_cast<float>(sr);
+    currentLevel = releaseStartLevel * std::exp(-t / releaseTau);
+    if (releaseSampleCount >= releaseTotalSamples) {
+        currentLevel = 0.0f;
+        state = State::Idle;
+    }
+    return currentLevel;
+}","","KORREKT: Beide implementieren RC-Discharge: e^(-t/tau), tau=releaseMs/5, mit Hard-Zero am Ende der Release-Dauer. DIFFERENZ: (1) TS hat cancelAndHoldAtTime-Fallback fuer Browser-Kompatibilitaet (Chrome vs Firefox/Safari). JUCE braucht das nicht. (2) TS holdAndRelease ist generisch (funktioniert fuer jeden AudioParam-Target), JUCE noteOff ist nur fuer DCA. Filter/Delay/Reverb Release fehlt in ADSREnvelope (siehe triggerEnvRelease)."
+"17","triggerEnvRelease - DCA","// DCA release path:
+if (target === 'dca') {
+  const gain = envGainNodes[0]
+  if (!gain) return
+  holdAndRelease(gain.gain, 0, now, rel)
+}","// ADSREnvelope::noteOff -- immer RC-discharge zu 0.
+// (gleicher Code wie Nr.16)
+void ADSREnvelope::noteOff() {
+    if (state == State::Idle) return;
+    float relSec = std::max(releaseMs / 1000.0f, MIN_RAMP_SEC);
+    releaseTau = relSec / 5.0f;
+    releaseStartLevel = currentLevel;
+    releaseSampleCount = 0;
+    releaseTotalSamples = static_cast<int>(relSec * static_cast<float>(sr));
+    state = State::Release;
+}","","KORREKT: Identisches Verhalten -- RC-Discharge zu 0."
+"18","triggerEnvRelease - dcf_cutoff","// DCF release path:
+if (target === 'dcf_cutoff') {
+  const baseVal = targetBaseGetters[target]?.() ?? 1000
+  const releaseTarget = Math.max(20, baseVal * (1 - env.amount.value))
+  holdAndRelease(param, releaseTarget, now, rel)
+}","// ADSREnvelope::noteOff -- gleicher Code fuer alle Targets (RC-discharge zu 0).
+// processFilter liest modEnv.isIdle() und wendet dann keinen envFactor mehr an.
+// Effektiv: wenn Envelope idle, cutoffMod = baseCutoff (kein Sweep).","","DIFFERENZ: TS released DCF zu baseVal*(1-amount) mit RC-Discharge (nicht zu 0!). JUCE ADSREnvelope released immer zu 0, dann prueft processFilter isIdle() und setzt cutoffMod=baseCutoff. TS hat smoothen RC-Uebergang zum Release-Target, JUCE springt nach Envelope-Ende abrupt auf baseCutoff zurueck. MOEGLICHER BUG: Waehrend JUCE Release-Phase moduliert envFactor den Cutoff mit abfallendem envVal (Richtung startFactor), was ein aehnliches Ergebnis liefert wie TS."
+"19","triggerEnvRelease - andere Params","// Other params release path:
+else {
+  const baseVal = targetBaseGetters[target]?.() ?? 1
+  holdAndRelease(param, baseVal, now, rel)
+}","// ADSREnvelope::noteOff -- gleicher Code fuer alle Targets (RC-discharge zu 0).
+// processBlock: modulation offset sinkt mit envVal gegen 0.
+// Effektiv: delay/reverb params kehren zurueck zu base-Werten wenn envVal=0.","","DIFFERENZ: TS released explizit zu baseVal mit RC-Discharge. JUCE Envelope released zu 0 und der additive Offset in processBlock verschwindet dadurch automatisch (base + 0 = base). Gleiches Endergebnis, aber TS hat smootheren Uebergang bei Targets wo der Release-Target != 0 ist."
+"20","triggerEnvRelease - Callback Target","// Callback target release:
+if (isCallbackTarget(target)) {
+  const st = cbEnvState[idx]!
+  st.releasing = true
+  st.releaseTime = performance.now()
+  return
+}","// Kein separater Pfad in JUCE.
+// modEnv.noteOff() -> State::Release -> processSample liefert abfallenden Wert.
+// renderSample addiert envVal auf scanMod -- sinkt automatisch.","","KORREKT: Aequivalentes Verhalten. TS setzt releasing-Flag fuer rAF-Loop, JUCE Envelope geht in Release-State und liefert abfallende Werte per-sample."
+"21","scheduleEnvLoop()","function scheduleEnvLoop(idx: number, velocity: number, cycleTime: number): void {
+  envLoopTimers[idx] = setTimeout(() => {
+    if (envs[idx]!.loop.value && envs[idx]!.target.value !== 'none') {
+      triggerEnvAttack(idx, velocity)
+    }
+  }, cycleTime * 1000)
+}","// ADSREnvelope::processSample -- Sustain state (ADSREnvelope.cpp):
+case State::Sustain: {
+    if (looping) {
+        float peak = targetVelocity;
+        float atkSec = std::max(attackMs / 1000.0f, MIN_RAMP_SEC);
+        int atkSamples = std::max(1, static_cast<int>(atkSec * static_cast<float>(sr)));
+        attackTarget = peak;
+        attackIncr = (attackTarget - currentLevel) / static_cast<float>(atkSamples);
+        float susLevel = sustainLevel * peak;
+        float decSec = std::max(decayMs / 1000.0f, MIN_RAMP_SEC);
+        int decSamples = std::max(1, static_cast<int>(decSec * static_cast<float>(sr)));
+        decayTarget = susLevel;
+        decayIncr = (decayTarget - attackTarget) / static_cast<float>(decSamples);
+        state = State::Attack;
+    }
+    return currentLevel;
+}","","KORREKT: Beide implementieren Envelope-Looping (re-trigger Attack wenn Sustain erreicht). DIFFERENZ: (1) TS verwendet setTimeout mit cycleTime (atk+dec) und ruft triggerEnvAttack rekursiv auf. JUCE erkennt Loop in processSample Sustain-State und setzt direkt Attack-State. (2) TS Loop kann gestoppt werden via clearTimeout bei Release, JUCE Loop wird durch noteOff (-> Release state) automatisch gestoppt. (3) TS Loop funktioniert fuer alle Target-Typen (DCA, dcf_cutoff, andere Params). JUCE Loop funktioniert uniform in ADSREnvelope."
+"22","computeEnvValue() (Callback Envelope)","function computeEnvValue(idx: number, now: number): number {
+  const env = envs[idx]!
+  const st = cbEnvState[idx]!
+  const atk = env.attackMs.value
+  const dec = env.decayMs.value
+  const sus = env.sustain.value
+  const rel = env.releaseMs.value
+  const amount = env.amount.value
+
+  if (st.releasing) {
+    const elapsed = now - st.releaseTime
+    if (elapsed >= rel) { st.active = false; return 0 }
+    const preRelLevel = computeSustainLevel(idx, st.releaseTime - st.startTime)
+    const tau = Math.max(rel, 1) / 5
+    return preRelLevel * Math.exp(-elapsed / tau) * amount * st.velocity
+  }
+
+  const elapsed = now - st.startTime
+  let level: number
+  if (elapsed < atk) {
+    level = atk > 0 ? elapsed / atk : 1
+  } else if (elapsed < atk + dec) {
+    const t = (elapsed - atk) / Math.max(dec, 1)
+    level = 1 - t * (1 - sus)
+  } else {
+    level = sus
+    if (env.loop.value && !st.releasing) {
+      st.startTime = now - 0
+      level = 0
+    }
+  }
+  return level * amount * st.velocity
+}","// ADSREnvelope::processSample (ADSREnvelope.cpp):
+// Gleiche Logik, per-sample statt per-rAF-frame:
+// Attack: linear ramp (currentLevel += attackIncr)
+// Decay: linear ramp (currentLevel += decayIncr)
+// Sustain: holds decayTarget
+// Release: RC-discharge e^(-t/tau), tau=releaseMs/5
+// Loop: re-enters Attack from Sustain","","KORREKT: Identischer ADSR-Algorithmus. DIFFERENZ: (1) TS arbeitet in Millisekunden (performance.now()), JUCE in Samples. (2) TS hat amount*velocity Skalierung in computeEnvValue, JUCE hat amount extern (processSample * amount in renderSample). (3) TS Callback-Envelope laeuft bei ~60Hz (rAF), JUCE laeuft bei Sample-Rate (44100/48000Hz). JUCE hat deutlich bessere Zeitaufloesung."
+"23","computeSustainLevel()","function computeSustainLevel(idx: number, elapsed: number): number {
+  const env = envs[idx]!
+  const atk = env.attackMs.value
+  const dec = env.decayMs.value
+  const sus = env.sustain.value
+  if (elapsed < atk) return atk > 0 ? elapsed / atk : 1
+  if (elapsed < atk + dec) return 1 - ((elapsed - atk) / Math.max(dec, 1)) * (1 - sus)
+  return sus
+}","// Kein separates Aequivalent in JUCE.
+// In ADSREnvelope::noteOff wird releaseStartLevel = currentLevel gesetzt,
+// was dem aktuellen Envelope-Level zum Zeitpunkt des Release entspricht.
+// Gleicher Effekt: JUCE trackt currentLevel kontinuierlich per-sample.","","KORREKT: TS braucht computeSustainLevel() um den Envelope-Level zum Release-Zeitpunkt nachzuberechnen (weil rAF nicht exakt den Moment trifft). JUCE hat currentLevel immer aktuell per-sample, daher keine Nachberechnung noetig."
+"24","startCbEnvLoop()","function startCbEnvLoop(idx: number): void {
+  const st = cbEnvState[idx]!
+  const env = envs[idx]!
+
+  function tick() {
+    if (!st.active) { st.rafId = null; return }
+    const target = env.target.value
+    const cb = callbackTargets[target]
+    const baseGet = callbackBaseGetters[target]
+    if (cb && baseGet) {
+      const envVal = computeEnvValue(idx, performance.now())
+      const base = baseGet()
+      cb(base + envVal)
+    }
+    st.rafId = requestAnimationFrame(tick)
+  }
+  st.rafId = requestAnimationFrame(tick)
+}","// Kein Aequivalent in JUCE.
+// wt_scan Envelope-Modulation passiert per-sample in renderSample:
+float scanMod = p.baseScan + p.driftScanOffset;
+if (p.mod1Target == 2) scanMod += mod1EnvVal;
+if (p.mod2Target == 2) scanMod += mod2EnvVal;
+osc.setScanPosition(juce::jlimit(0.0f, 1.0f, scanMod));","","DIFFERENZ: TS braucht rAF-Poll-Loop bei ~60Hz um Callback-Targets (wt_scan) zu modulieren. JUCE berechnet scanMod direkt per-sample in renderSample. JUCE-Loesung ist ueberlegen: (1) Sample-genaue Modulation statt 60Hz. (2) Kein Polling-Overhead. (3) Kein separater Code-Pfad fuer verschiedene Target-Typen."
+"25","startLfoCallbackPolling()","function startLfoCallbackPolling(): void {
+  if (lfoRafId !== null) return
+  function poll() {
+    let anyActive = false
+    for (let i = 0; i < 2; i++) {
+      const lfo = lfos[i]!
+      const target = lfo.target.value
+      if (target === 'none' || lfo.depth.value === 0) continue
+      const cb = callbackTargets[target]
+      if (!cb) continue
+      const analyser = lfoAnalysers[i]
+      if (!analyser) continue
+
+      anyActive = true
+      analyser.getFloatTimeDomainData(lfoSampleBuf)
+      const lfoVal = lfoSampleBuf[0]!
+      const baseGet = callbackBaseGetters[target]
+      const base = baseGet?.() ?? 0.5
+      cb(base + lfoVal * lfo.depth.value)
+    }
+    if (anyActive) {
+      lfoRafId = requestAnimationFrame(poll)
+    } else {
+      lfoRafId = null
+    }
+  }
+  lfoRafId = requestAnimationFrame(poll)
+}","// Kein Aequivalent in JUCE.
+// LFO -> wt_scan in renderSample (SynthVoice.cpp):
+if (p.lfo1Target == 1) scanMod += lfo1Val;
+if (p.lfo2Target == 1) scanMod += lfo2Val;","","DIFFERENZ: TS liest LFO-Wert via AnalyserNode.getFloatTimeDomainData() in rAF-Poll-Loop (~60Hz). JUCE hat LFO-Werte direkt per-sample verfuegbar (lfo1Val, lfo2Val). Gleicher Algorithmus (base + lfoVal * depth), aber JUCE hat volle Sample-Rate-Aufloesung."
+"26","applyLfoRouting()","function applyLfoRouting(): void {
+  for (let i = 0; i < 2; i++) {
+    const gain = lfoGains[i]
+    const osc = lfoOscs[i]
+    const lfo = lfos[i]!
+    if (!gain || !osc) continue
+
+    osc.frequency.value = lfo.rate.value
+    osc.type = lfo.waveform.value
+
+    const newTarget = lfo.target.value
+    const inactive = newTarget === 'none' || lfo.depth.value === 0
+    const isCallback = !inactive && isCallbackTarget(newTarget)
+    const newParam = (!inactive && !isCallback) ? (targetParams[newTarget] ?? null) : null
+
+    const prevParam = lfoCurrentParams[i]
+    if (newParam !== prevParam) {
+      if (newParam) gain.connect(newParam)
+      if (prevParam) { try { gain.disconnect(prevParam) } catch {} }
+      lfoCurrentParams[i] = newParam
+    }
+
+    const analyser = lfoAnalysers[i]
+    if (analyser) { try { gain.connect(analyser) } catch {} }
+
+    if (inactive) { gain.gain.value = 0; continue }
+    if (isCallback) { gain.gain.value = 1; startLfoCallbackPolling(); continue }
+
+    if (newParam) {
+      const baseVal = targetBaseGetters[newTarget]?.() ?? newParam.value
+      gain.gain.value = baseVal * lfo.depth.value
+    } else {
+      gain.gain.value = 0
+    }
+  }
+}","// LFO routing verteilt ueber mehrere Stellen:
+
+// 1) processBlock LFO setup (PluginProcessor.cpp):
+lfo1.setRate(parameters.getRawParameterValue(""lfo1_rate"")->load());
+lfo1.setDepth(parameters.getRawParameterValue(""lfo1_depth"")->load());
+lfo1.setWaveform(static_cast<int>(parameters.getRawParameterValue(""lfo1_wave"")->load()));
+
+// 2) LFO cross-mod (PluginProcessor.cpp):
+if (bp.lfo1Target == 7) lfo2.setRate(baseLfo2Rate * (1.0f + l1));
+if (bp.lfo1Target == 8) lfo2.setDepth(std::max(0.0f, baseLfo2Depth + l1 * baseLfo2Depth));
+
+// 3) Per-voice routing in renderSample (SynthVoice.cpp):
+// DCF: if (p.lfo1Target == 0) cutoffMod *= (1.0f + lastLfo1Val);
+// Scan: if (p.lfo1Target == 1) scanMod += lfo1Val;
+// Pitch: if (p.lfo1Target == 2) pitchMod += lfo1Val;
+
+// 4) Block-rate routing in processBlock (PluginProcessor.cpp):
+// Delay/Reverb: if (bp.lfo1Target == 3) modDelayTime += lastLfo1Val;
+// etc.","","DIFFERENZ: (1) TS hat dynamisches Routing via Web Audio Node connect/disconnect. JUCE hat statische if/else-Ketten. (2) TS gain.gain.value = baseVal * depth (skaliert LFO-Amplitude relativ zum Base-Wert). JUCE depth wird direkt in LFO::processSample multipliziert (return output * depth). (3) TS hat atomic swap (connect new before disconnect old) fuer glitch-freies Umrouten. JUCE hat keine Glitch-Gefahr da Routing per if-check und nicht via Audio-Node-Graph. (4) TS hat Callback/AudioParam-Unterscheidung. JUCE hat einheitliches Routing."
+"27","setEnvParam()","function setEnvParam(idx: number, key: keyof EnvState, value: number | boolean | ModTarget): void {
+  const env = envs[idx]
+  if (!env) return
+  const r = env[key] as Ref<any>
+  r.value = value
+  if (key === 'target') applyLfoRouting()
+}","// APVTS Parameter-Updates via Slider/GUI (SynthPanel.cpp).
+// configureForBlock liest alle Parameter pro Block (SynthVoice.cpp):
+void SynthVoice::configureForBlock(const BlockParams& p) {
+    ampEnv.setAttack(p.ampAttack);
+    ampEnv.setDecay(p.ampDecay);
+    ampEnv.setSustain(p.ampSustain);
+    ampEnv.setRelease(p.ampRelease);
+    ampEnv.setLooping(p.ampLoop);
+    modEnv1.setAttack(p.mod1Attack);
+    // ... (gleich fuer modEnv1, modEnv2)
+}","","DIFFERENZ: TS setzt Envelope-Parameter sofort als Vue Ref und ruft applyLfoRouting() bei target-Aenderung auf. JUCE liest alle Parameter block-rate aus APVTS und uebergibt sie via BlockParams an configureForBlock. Kein expliziter Trigger bei Target-Aenderung -- Routing wird jeden Block neu evaluiert."
+"28","setLfoParam()","function setLfoParam(idx: number, key: keyof LfoState, value: number | string): void {
+  const lfo = lfos[idx]
+  if (!lfo) return
+  const r = lfo[key] as Ref<any>
+  r.value = value
+
+  const osc = lfoOscs[idx]
+  if (osc && key === 'rate') osc.frequency.value = value as number
+  if (osc && key === 'waveform') osc.type = value as OscillatorType
+
+  if (key === 'target' || key === 'depth') applyLfoRouting()
+}","// LFO Parameter-Updates pro Block in processBlock (PluginProcessor.cpp):
+lfo1.setRate(parameters.getRawParameterValue(""lfo1_rate"")->load());
+lfo1.setDepth(parameters.getRawParameterValue(""lfo1_depth"")->load());
+lfo1.setWaveform(static_cast<int>(parameters.getRawParameterValue(""lfo1_wave"")->load()));
+bp.lfo1Target = static_cast<int>(parameters.getRawParameterValue(""lfo1_target"")->load());
+// (gleich fuer lfo2)","","DIFFERENZ: TS setzt LFO-Parameter sofort und aktualisiert OscillatorNode direkt. Bei target/depth-Aenderung wird applyLfoRouting() aufgerufen. JUCE liest LFO-Parameter block-rate aus APVTS und setzt sie auf LFO-Objekt. Kein expliziter Routing-Trigger noetig."
+"29","bypass()","function bypass(): void {
+  if (!ctx) return
+  const now = ctx.currentTime
+  for (let i = 0; i < 3; i++) {
+    if (envLoopTimers[i]) { clearTimeout(envLoopTimers[i]!); envLoopTimers[i] = null }
+    cbEnvState[i]!.active = false
+    const env = envs[i]!
+    if (env.target.value === 'dca') {
+      const gain = envGainNodes[0]
+      if (gain) {
+        gain.gain.cancelScheduledValues(now)
+        gain.gain.setValueAtTime(1, now)
+      }
+    } else if (env.target.value !== 'none' && !isCallbackTarget(env.target.value)) {
+      const param = targetParams[env.target.value]
+      if (param) {
+        param.cancelScheduledValues(now)
+        param.setValueAtTime(targetBaseGetters[env.target.value]?.() ?? param.value, now)
+      }
+    }
+  }
+}","// ADSREnvelope::bypass (ADSREnvelope.cpp):
+void ADSREnvelope::bypass() {
+    bypassed = true;
+    currentLevel = 1.0f;
+    state = State::Sustain;
+}
+
+// processSample returns 1.0 when bypassed:
+if (bypassed) return 1.0f;","","DIFFERENZ: TS bypass() setzt DCA-Gain auf 1, setzt alle anderen Params auf Base-Werte zurueck, und stoppt Loop-Timer/Callback-Envelopes. JUCE bypass() setzt nur bypassed=true und currentLevel=1.0 -- gibt immer 1.0 zurueck. JUCE bypass wirkt nur auf den einzelnen Envelope (DCA). Die anderen Targets (Filter, Delay, etc.) werden nicht explizit zurueckgesetzt -- aber da envVal=1.0*amount, aendert sich die Modulation. MOEGLICHES PROBLEM: JUCE bypass setzt state=Sustain, nicht Idle. Looping koennte theoretisch weiterlaufen."
+"30","dispose()","function dispose(): void {
+  for (let i = 0; i < 3; i++) {
+    if (envLoopTimers[i]) clearTimeout(envLoopTimers[i]!)
+    cbEnvState[i]!.active = false
+    if (cbEnvState[i]!.rafId) cancelAnimationFrame(cbEnvState[i]!.rafId!)
+    if (envGainNodes[i]) envGainNodes[i]!.disconnect()
+  }
+  if (lfoRafId !== null) cancelAnimationFrame(lfoRafId)
+  for (let i = 0; i < 2; i++) {
+    lfoCurrentParams[i] = null
+    if (lfoOscs[i]) { try { lfoOscs[i]!.stop() } catch {}; lfoOscs[i]!.disconnect() }
+    if (lfoGains[i]) lfoGains[i]!.disconnect()
+    if (lfoAnalysers[i]) lfoAnalysers[i]!.disconnect()
+  }
+  ctx = null
+}","// SynthVoice::reset (SynthVoice.cpp):
+void SynthVoice::reset() {
+    osc.reset();
+    looper.reset();
+    filter.reset();
+    active = false;
+    noteHeld = false;
+    currentNote = -1;
+    lastAmpEnvLevel = 0.0f;
+}
+
+// LFO::reset (LFO.cpp):
+void LFO::reset() { phase = 0.0; }","","DIFFERENZ: TS disconnect/stop alle Web Audio Nodes und cleared alle Timer/rAF-IDs. JUCE reset setzt nur State zurueck -- keine Audio-Nodes zum Disconnecten. TS nullt ctx (Audio Context), JUCE hat keinen globalen Context zu nullen."
+"31","LFO Waveforms","export type LfoWaveform = 'sine' | 'triangle' | 'square' | 'sawtooth'","// LFO.h: 0=Sine, 1=Triangle, 2=Saw, 3=Square
+// LFO::processSample (LFO.cpp):
+switch (waveform) {
+    case 0: output = static_cast<float>(std::sin(phase * TWO_PI)); break;
+    case 1: { // Triangle
+        double t = phase;
+        output = static_cast<float>(t < 0.5 ? (4.0 * t - 1.0) : (3.0 - 4.0 * t));
+        break;
+    }
+    case 2: output = static_cast<float>(2.0 * phase - 1.0); break; // Saw
+    case 3: output = phase < 0.5 ? 1.0f : -1.0f; break; // Square
+}","","KORREKT: Gleiche 4 Waveforms in gleicher Reihenfolge. TS verwendet Web Audio OscillatorType ('sine','triangle','square','sawtooth'), JUCE int-Enum. TS 'sawtooth' = JUCE Saw (2). Beachte: TS verwendet Web Audio Built-in Waveforms (bandlimited), JUCE LFO ist nicht bandlimited (kein Problem bei LFO-Frequenzen)."
+"32","LFO Mode (free/trigger)","export type LfoMode = 'free' | 'trigger'
+
+// triggerAttack: LFO trigger handling
+for (let i = 0; i < 2; i++) {
+  if (lfos[i]!.mode.value === 'trigger' && ctx) {
+    createLfoNodes(ctx, i)
+    applyLfoRouting()
+  }
+}","// PluginProcessor.cpp:
+bool lfo1TrigMode = static_cast<int>(parameters.getRawParameterValue(""lfo1_mode"")->load()) == 1;
+bool lfo2TrigMode = static_cast<int>(parameters.getRawParameterValue(""lfo2_mode"")->load()) == 1;
+
+// VoiceManager::noteOn:
+if (lfo1TrigMode) v.getPerVoiceLfo1().reset();
+if (lfo2TrigMode) v.getPerVoiceLfo2().reset();
+
+// SynthVoice.cpp renderSample:
+// Comment: ""Use global LFO values (freerun mode -- trigger mode will be added in Phase 3)""
+float lfo1Val = globalLfo1Val;
+float lfo2Val = globalLfo2Val;","","DIFFERENZ: (1) TS erstellt komplett neue OscillatorNodes bei Trigger (Web Audio OscillatorNode kann nicht restarted werden). JUCE macht nur phase=0 Reset (LFO::reset). (2) JUCE hat perVoiceLfo1/perVoiceLfo2 in SynthVoice aber renderSample verwendet immer globalLfo1Val/globalLfo2Val! Der Kommentar sagt 'trigger mode will be added in Phase 3'. FEHLT: Per-Voice LFO-Werte werden nie verwendet -- Trigger-Mode Phase-Reset hat keinen hoerbaren Effekt da der globale LFO-Wert benutzt wird."
+"33","DCA Modulation Routing","// triggerEnvAttack DCA path:
+const peak = velocity * amount
+const susLevel = sus * peak
+gain.gain.linearRampToValueAtTime(peak, ...)
+gain.gain.linearRampToValueAtTime(susLevel, ...)","// renderSample (SynthVoice.cpp):
+float ampEnvVal = ampEnv.processSample() * p.ampAmount;
+float vca = ampEnvVal;
+if (p.mod1Target == 0) vca *= (1.0f + mod1EnvVal);
+if (p.mod2Target == 0) vca *= (1.0f + mod2EnvVal);
+sample *= vca;","","DIFFERENZ: (1) TS DCA ist Envelope 0 mit amount*velocity als peak, direkt als GainNode. JUCE DCA ist ampEnv * ampAmount, dann optional mod1/mod2 multiplikativ. (2) TS: Nur Env0 kann DCA sein (hardcoded). JUCE: Env1/Env2 koennen AUCH DCA modulieren (mod1Target==0 / mod2Target==0) -- zusaetzliches Feature. (3) TS DCA Modulation: single envelope steuert gain direkt. JUCE DCA Modulation: ampEnv * (1+mod1) * (1+mod2) -- mod envs sind additiv-multiplikativ."
+"34","DCF Filter Modulation Routing","// triggerEnvAttack dcf_cutoff (TS):
+// Attack/Decay scheduled as exponentialRamp
+startVal = Math.max(20, baseVal * (1 - amount))
+peakVal = Math.min(20000, baseVal * (1 + amount * 8))
+susVal = Math.max(20, startVal + (peakVal - startVal) * sus)
+
+// LFO -> Filter via applyLfoRouting:
+// gain.gain.value = baseVal * lfo.depth.value
+// Connected directly to filter cutoff AudioParam","// processFilter (SynthVoice.cpp):
+float cutoffMod = p.baseCutoff;
+// Keyboard tracking
+if (p.kbdTrack > 0.0f && currentNote >= 0)
+    cutoffMod *= std::pow(2.0f, (static_cast<float>(currentNote) - 60.0f) / 12.0f * p.kbdTrack);
+// Env -> Filter:
+if (p.mod1Target == 1 && !modEnv1.isIdle()) {
+    float startFactor = 1.0f - p.mod1Amount;
+    float peakFactor = 1.0f + p.mod1Amount * 8.0f;
+    float envFactor = startFactor + (peakFactor - startFactor) * lastMod1Val;
+    cutoffMod *= envFactor;
+}
+// LFO -> Filter:
+if (p.lfo1Target == 0) cutoffMod *= (1.0f + lastLfo1Val);
+if (p.lfo2Target == 0) cutoffMod *= (1.0f + lastLfo2Val);
+cutoffMod = juce::jlimit(20.0f, 20000.0f, cutoffMod);","","DIFFERENZ: (1) TS exponentialRamp fuer Filter-Sweep, JUCE linearer Envelope * multiplikativer Faktor. (2) TS scheduled Envelope direkt auf Filter-Cutoff AudioParam (sample-rate). JUCE berechnet envFactor block-rate und multipliziert auf cutoffMod. (3) JUCE hat Keyboard Tracking (kbdTrack) -- FEHLT in TS. (4) TS nur 1 Envelope pro Target, JUCE erlaubt mod1 UND mod2 gleichzeitig auf Filter. (5) LFO->Filter: TS additive (connects LFO output to AudioParam), JUCE multiplikativ (cutoffMod *= 1+lfoVal)."
+"35","Pitch Modulation Routing","// triggerEnvAttack 'pitch' (TS):
+// Treated as 'other params': linear ramp
+startVal = baseVal
+peakVal = baseVal + amount * baseVal
+susVal = baseVal + (peakVal - baseVal) * sus
+
+// LFO -> pitch via applyLfoRouting:
+// LFO connects to pitch AudioParam (detune/frequency)","// renderSample (SynthVoice.cpp):
+float pitchMod = 0.0f;
+if (p.mod1Target == 3) pitchMod += mod1EnvVal;
+if (p.mod2Target == 3) pitchMod += mod2EnvVal;
+if (p.lfo1Target == 2) pitchMod += lfo1Val;
+if (p.lfo2Target == 2) pitchMod += lfo2Val;
+
+if (pitchMod != 0.0f) {
+    float pitchFactor = 1.0f + pitchMod;
+    if (p.engineIsWavetable && osc.hasFrames())
+        osc.setFrequency(osc.getFrequency() * pitchFactor);
+}","","DIFFERENZ: (1) TS scheduled Envelope direkt auf pitch AudioParam mit baseVal-relativen Ramps. JUCE addiert envVal/lfoVal und multipliziert als Factor (1+pitchMod) auf Frequency. (2) TS pitch mod via Web Audio AudioParam (sample-rate, smooth). JUCE pitch mod per-sample, aber setzt Frequenz direkt via setFrequency (kein Smoothing). (3) JUCE Pitch-Mod nur fuer Wavetable-Modus implementiert -- Sampler/Looper pitch mod kommentiert als 'handled via transposeRatio'. (4) Akkumulation: JUCE addiert alle Pitch-Mods (env1+env2+lfo1+lfo2), TS kann nur 1 Envelope auf pitch routen."
+"36","Scan (wt_scan) Modulation Routing","// triggerEnvAttack wt_scan (TS):
+// Callback target path -> startCbEnvLoop
+// Additive: cb(base + envVal)
+
+// LFO -> wt_scan via startLfoCallbackPolling:
+// cb(base + lfoVal * lfo.depth.value)","// renderSample (SynthVoice.cpp):
+float scanMod = p.baseScan + p.driftScanOffset;
+if (p.mod1Target == 2) scanMod += mod1EnvVal;
+if (p.mod2Target == 2) scanMod += mod2EnvVal;
+if (p.lfo1Target == 1) scanMod += lfo1Val;
+if (p.lfo2Target == 1) scanMod += lfo2Val;
+osc.setScanPosition(juce::jlimit(0.0f, 1.0f, scanMod));","","KORREKT: Beide addieren Envelope/LFO-Werte auf Base-Scan-Position. DIFFERENZ: (1) TS bei ~60Hz (rAF), JUCE per-sample. (2) JUCE hat driftScanOffset (DriftLFO) -- FEHLT in TS useModulation (Drift ist separates System in TS). (3) TS clamped nicht explizit (Callback kann beliebigen Wert empfangen), JUCE clamped auf 0-1 via jlimit."
+"37","Delay/Reverb Modulation Routing","// triggerEnvAttack 'delay_time'/'delay_feedback'/'delay_mix'/'reverb_mix' (TS):
+// Treated as 'other params': linear ramp
+startVal = baseVal
+peakVal = baseVal + amount * baseVal
+susVal = baseVal + (peakVal - baseVal) * sus
+// Scheduled on respective AudioParams
+
+// LFO -> delay/reverb via applyLfoRouting:
+// gain.gain.value = baseVal * lfo.depth.value
+// Connected to delay/reverb AudioParams","// processBlock (PluginProcessor.cpp):
+float modDelayTime = 0.0f, modDelayFb = 0.0f, modDelayMix = 0.0f, modReverbMix = 0.0f;
+if (bp.mod1Target == 4) modDelayTime += lastMod1Val;
+if (bp.mod1Target == 5) modDelayFb += lastMod1Val;
+if (bp.mod1Target == 6) modDelayMix += lastMod1Val;
+if (bp.mod1Target == 7) modReverbMix += lastMod1Val;
+// ... (gleich fuer mod2, lfo1, lfo2)
+delay.setTime(juce::jlimit(1.0f, 5000.0f, baseDelayTime * (1.0f + modDelayTime)));
+delay.setFeedback(juce::jlimit(0.0f, 0.95f, baseDelayFb + modDelayFb * baseDelayFb));
+delay.setMix(juce::jlimit(0.0f, 1.0f, baseDelayMix + modDelayMix));
+reverb.setMix(juce::jlimit(0.0f, 1.0f, baseRevMix + modReverbMix));","","DIFFERENZ: (1) TS scheduled Envelope-Ramps direkt auf AudioParams (sample-rate). JUCE wendet modulation block-rate an (lastMod1Val = letzter Wert des Blocks). (2) Delay-Time: TS additive (baseVal + amount*baseVal), JUCE multiplikativ (baseTime * (1+modVal)). (3) Delay-Feedback: TS additive, JUCE additive-proportional (baseFb + modVal*baseFb). (4) JUCE hat Clamping (jlimit), TS setzt Werte direkt auf AudioParams (Web Audio clamped intern)."
+"38","LFO Cross-Modulation","// setTargets registers LFO rate/depth as targets:
+targetParams['lfo1_rate'] = lfoOscs[0]!.frequency
+targetParams['lfo2_rate'] = lfoOscs[1]!.frequency
+targetParams['lfo1_depth'] = lfoGains[0]!.gain
+targetParams['lfo2_depth'] = lfoGains[1]!.gain
+
+// Envelopes can target lfo_rate/lfo_depth like any other param
+// LFO -> LFO via applyLfoRouting (connects gain to other LFO's frequency/depth)","// processBlock LFO cross-mod (PluginProcessor.cpp):
+for (int i = 0; i < numSamples; ++i) {
+    float l1 = lfo1.processSample();
+    float l2 = lfo2.processSample();
+    if (bp.lfo1Target == 7) lfo2.setRate(baseLfo2Rate * (1.0f + l1));
+    if (bp.lfo1Target == 8) lfo2.setDepth(std::max(0.0f, baseLfo2Depth + l1 * baseLfo2Depth));
+    if (bp.lfo2Target == 7) lfo1.setRate(baseLfo1Rate * (1.0f + l2));
+    if (bp.lfo2Target == 8) lfo1.setDepth(std::max(0.0f, baseLfo1Depth + l2 * baseLfo1Depth));
+}","","DIFFERENZ: (1) TS hat LFO rate/depth als regulaere AudioParam-Targets -- Envelopes UND LFOs koennen sie modulieren. JUCE hat nur LFO->LFO Cross-Mod (kein Envelope->LFO-Rate). (2) TS LFO1 kann lfo1_rate (sich selbst) modulieren, JUCE LFO1 kann nur LFO2 modulieren (und umgekehrt). (3) JUCE Cross-Mod laeuft per-sample in der LFO-Berechnungsschleife -- sehr effizient. (4) TS Envelope->lfo_rate ist ein regulaerer Envelope-Ramp auf den AudioParam, JUCE hat das nicht implementiert."
+"39","Env Target Index Mapping","// TS Target Strings (einheitlich):
+'none' | 'dca' | 'dcf_cutoff' | 'pitch'
+| 'delay_time' | 'delay_feedback' | 'delay_mix' | 'reverb_mix'
+| 'lfo1_rate' | 'lfo2_rate' | 'lfo1_depth' | 'lfo2_depth'
+| 'wt_scan'","// JUCE Env Targets (BlockParams int):
+// 0=DCA, 1=Filter(dcf_cutoff), 2=Scan(wt_scan), 3=Pitch,
+// 4=DelayTime, 5=DelayFB, 6=DelayMix, 7=ReverbMix, 8=None
+
+// JUCE LFO Targets (BlockParams int, ANDERE Reihenfolge!):
+// 0=Filter, 1=Scan, 2=Pitch, 3=DlyTime, 4=DlyFB, 5=DlyMix, 6=RevMix,
+// 7=LFO2Rate/LFO1Rate, 8=LFO2Depth/LFO1Depth, 9=None
+
+// WICHTIG: Env und LFO haben VERSCHIEDENE Index-Mappings!
+// Env: DCA=0, Filter=1, Scan=2, Pitch=3
+// LFO: Filter=0, Scan=1, Pitch=2 (kein DCA!)","","DIFFERENZ: TS verwendet einheitliche String-IDs fuer alle Targets. JUCE hat ZWEI verschiedene int-Enums mit unterschiedlicher Reihenfolge fuer Env-Targets und LFO-Targets. LFO hat kein DCA-Target (korrekt: LFO->DCA macht wenig Sinn als LFO kann tremolo nicht ueber GainNode routen). LFO hat LFO-Cross-Mod Targets die Env nicht hat. Env hat DCA-Target das LFO nicht hat. FEHLT: TS hat lfo1_rate/lfo2_rate/lfo1_depth/lfo2_depth als Envelope-Targets, JUCE Envelopes koennen LFO-Parameter nicht modulieren."
+"40","cbEnvState (Callback Envelope State)","const cbEnvState: Array<{
+  active: boolean; releasing: boolean
+  startTime: number; releaseTime: number
+  velocity: number
+  rafId: number | null
+}> = [
+  { active: false, releasing: false, startTime: 0, releaseTime: 0, velocity: 1, rafId: null },
+  { active: false, releasing: false, startTime: 0, releaseTime: 0, velocity: 1, rafId: null },
+  { active: false, releasing: false, startTime: 0, releaseTime: 0, velocity: 1, rafId: null },
+]","// Kein Aequivalent in JUCE.
+// ADSREnvelope hat integrierten State:
+enum class State { Idle, Attack, Decay, Sustain, Release };
+State state = State::Idle;
+float currentLevel = 0.0f;
+float targetVelocity = 1.0f;","","DIFFERENZ: TS braucht separaten cbEnvState fuer rAF-getriebene Callback-Envelopes (wt_scan). JUCE braucht das nicht -- ADSREnvelope.processSample() liefert den Wert direkt per-sample. cbEnvState ist ein Web-Audio-Workaround."
+"41","Returned API","return {
+  envs,
+  lfos,
+  init,
+  setTargets,
+  setCallbackTargets,
+  getDcaGainNode,
+  triggerAttack,
+  triggerRelease,
+  bypass,
+  setEnvParam,
+  setLfoParam,
+  applyLfoRouting,
+  dispose,
+}","// Verteilt ueber:
+// ADSREnvelope: prepare, noteOn, noteOff, bypass, setLooping, processSample, isIdle,
+//               setAttack, setDecay, setSustain, setRelease
+// LFO: prepare, reset, processSample, setRate, setWaveform, setDepth
+// SynthVoice: prepare, reset, noteOn, noteOff, configureForBlock, renderSample, processFilter
+// VoiceManager: noteOn, noteOff (with lfo trigger mode)
+// PluginProcessor processBlock: LFO setup, cross-mod, block-rate routing","","DIFFERENZ: TS hat eine einzige Composable-Funktion die alles kapselt (useModulation). JUCE hat die Funktionalitaet auf 5+ Klassen verteilt: ADSREnvelope, LFO, SynthVoice, VoiceManager, PluginProcessor. TS API ist kompakter (13 exports). JUCE ist modularer (separate Klassen fuer Envelope/LFO), aber Routing-Logik ist fragmentiert ueber processBlock und renderSample."

@@ -1,0 +1,279 @@
+"Nr","Funktion","Original-Code (TypeScript)","Legacy-JUCE (C++)","Neuer Code (C++)","Kommentar"
+"1","Type: ArpPattern","export type ArpPattern = 'up' | 'down' | 'updown' | 'random'","enum class Mode { Up, Down, UpDown, Random };","","TS: string union. JUCE: enum class. Gleiche 4 Patterns. OK."
+"2","Type: ArpRate","export type ArpRate = '1/4' | '1/8' | '1/16' | '1/32' | '1/4T' | '1/8T' | '1/16T'","enum RateDiv { Rate_1_4 = 0, Rate_1_8, Rate_1_16, Rate_1_32, Rate_1_4T, Rate_1_8T, Rate_1_16T };","","TS: string union. JUCE: int enum. Gleiche 7 Rates inkl. Triplets. OK."
+"3","RATE_FACTORS","const RATE_FACTORS: Record<ArpRate, number> = {
+  '1/4':  1,
+  '1/8':  0.5,
+  '1/16': 0.25,
+  '1/32': 0.125,
+  '1/4T': 2 / 3,
+  '1/8T': 1 / 3,
+  '1/16T': 1 / 6,
+}","static constexpr float RATE_FACTORS[] = { 1.0f, 0.5f, 0.25f, 0.125f, 2.0f/3.0f, 1.0f/3.0f, 1.0f/6.0f };","","Werte identisch. OK."
+"4","CHORD_INTERVALS","const CHORD_INTERVALS = [0, 4, 7]","static constexpr int CHORD_INTERVALS[] = { 0, 4, 7 };
+static constexpr int NUM_CHORD_NOTES = 3;","","Identisch: Major Triad [0, 4, 7]. OK."
+"5","shuffle (Fisher-Yates)","function shuffle(arr: number[]): number[] {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j]!, a[i]!]
+  }
+  return a
+}","void T5ynthArpeggiator::fisherYatesShuffle()
+{
+    for (int i = static_cast<int>(intervals.size()) - 1; i > 0; --i)
+    {
+        int j = rng.nextInt(i + 1);
+        std::swap(intervals[static_cast<size_t>(i)], intervals[static_cast<size_t>(j)]);
+    }
+}","","TS: reines Funktional, gibt neues Array zurueck. JUCE: in-place auf intervals-Member. TS: Math.random(). JUCE: juce::Random rng. Gleicher Fisher-Yates Algorithmus."
+"6","State: enabled","const enabled = ref(false)","// Kein enabled-Flag im Arpeggiator
+bool active = false;","","KRITISCH: TS enabled ist UNABHAENGIG vom Sequencer. enabled=false -> passthrough, enabled=true -> arpeggiate. JUCE active bedeutet 'gerade am Spielen', NICHT 'Arpeggiator aktiviert'. JUCE hat kein Enable/Disable-Toggle."
+"7","State: pattern","const pattern = ref<ArpPattern>('up')","Mode mode = Mode::Up;","","Name: pattern vs mode. Default: up/Up. OK."
+"8","State: rate","const rate = ref<ArpRate>('1/16')","int rate = 2; // default 1/16","","Beide default 1/16. TS: string, JUCE: int index=2. OK."
+"9","State: octaveRange","const octaveRange = ref(1)","int octaveRange = 1;","","OK."
+"10","State: arpTimer","let arpTimer: ReturnType<typeof setTimeout> | null = null
+let arpStepIndex = 0
+let currentIntervals: number[] = []","std::vector<int> intervals;
+int currentIndex = 0;
+double samplesUntilNext = 0.0;","","TS: setTimeout-basiert. JUCE: sample-counter in processBlock. TS: arpStepIndex/currentIntervals. JUCE: currentIndex/intervals."
+"11","State: currentBaseNote/Velocity","let currentBaseNote = 0
+let currentVelocity = 0.8
+let currentNoteOn: ((n: number, v: number) => void) | null = null
+let currentNoteOff: (() => void) | null = null","int baseNote = 60;
+float baseVelocity = 0.8f;
+int lastPlayedNote = -1;","","TS: speichert Callbacks. JUCE: speichert lastPlayedNote fuer NoteOff. JUCE hat keinen Callback-Mechanismus (MIDI direkt)."
+"12","getArpRateMs","function getArpRateMs(): number {
+  const bpm = bpmRef.value || 120
+  const quarterNoteMs = (60 / bpm) * 1000
+  return quarterNoteMs * RATE_FACTORS[rate.value]
+}","// In processBlock:
+double quarterNoteSamples = sampleRateVal * 60.0 / bpm;
+double samplesPerStep = quarterNoteSamples * static_cast<double>(RATE_FACTORS[rate]);","","TS: Dauer in Millisekunden. JUCE: Dauer in Samples. Gleiche Formel. TS hat fallback bpm||120."
+"13","buildIntervals","function buildIntervals(): number[] {
+  const expanded: number[] = []
+  for (let oct = 0; oct < octaveRange.value; oct++) {
+    for (const interval of CHORD_INTERVALS) {
+      expanded.push(interval + oct * 12)
+    }
+  }
+  const p = pattern.value
+  if (p === 'up') return expanded
+  if (p === 'down') return [...expanded].reverse()
+  if (p === 'updown') {
+    if (expanded.length <= 1) return expanded
+    return [...expanded, ...expanded.slice(1, -1).reverse()]
+  }
+  return shuffle(expanded)
+}","void T5ynthArpeggiator::rebuildIntervals()
+{
+    intervals.clear();
+    for (int oct = 0; oct < octaveRange; ++oct)
+        for (int i = 0; i < NUM_CHORD_NOTES; ++i)
+            intervals.push_back(CHORD_INTERVALS[i] + oct * 12);
+    switch (mode)
+    {
+        case Mode::Up:
+            break;
+        case Mode::Down:
+            std::reverse(intervals.begin(), intervals.end());
+            break;
+        case Mode::UpDown:
+        {
+            if (intervals.size() <= 1) break;
+            auto up = intervals;
+            auto down = std::vector<int>(up.rbegin() + 1, up.rend() - 1);
+            intervals.reserve(up.size() + down.size());
+            intervals.insert(intervals.end(), down.begin(), down.end());
+            break;
+        }
+        case Mode::Random:
+            fisherYatesShuffle();
+            break;
+    }
+}","","Logik identisch: Expand ueber Oktaven, dann Pattern-Ordering. Up=as-is, Down=reverse, UpDown=up+reverse(ohne Endpunkte), Random=shuffle. OK."
+"14","scheduleNextArpStep","function scheduleNextArpStep() {
+  if (!enabled.value || !currentNoteOn) return
+  const intervals = currentIntervals
+  if (intervals.length === 0) return
+  const idx = arpStepIndex % intervals.length
+  const note = currentBaseNote + intervals[idx]!
+  currentNoteOn(note, currentVelocity)
+  arpStepIndex++
+  if (arpStepIndex % intervals.length === 0 && pattern.value === 'random') {
+    currentIntervals = shuffle(buildIntervals())
+  }
+  arpTimer = setTimeout(scheduleNextArpStep, getArpRateMs())
+}","// In processBlock:
+if (samplesUntilNext <= 0.0) {
+    if (lastPlayedNote >= 0) {
+        midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), samplePos);
+        lastPlayedNote = -1;
+    }
+    int idx = currentIndex % static_cast<int>(intervals.size());
+    int midiNote = juce::jlimit(0, 127, baseNote + intervals[static_cast<size_t>(idx)]);
+    int velInt = juce::jlimit(1, 127, juce::roundToInt(baseVelocity * 127.0f));
+    midi.addEvent(juce::MidiMessage::noteOn(1, midiNote,
+                  static_cast<juce::uint8>(velInt)), samplePos);
+    lastPlayedNote = midiNote;
+    currentIndex++;
+    if (mode == Mode::Random && currentIndex % static_cast<int>(intervals.size()) == 0)
+        fisherYatesShuffle();
+    samplesUntilNext += samplesPerStep;
+}","","TS: setTimeout-Rekursion, Callback-basiert. JUCE: sample-akkurat in processBlock. Beide: reshuffle bei Random nach vollem Zyklus. JUCE clampt Note 0-127, hat NoteOff fuer vorherige Note. TS hat kein NoteOff vor neuer Note (kein Gate-Off-Tracking)."
+"15","processNote","function processNote(
+  note: number,
+  velocity: number,
+  noteOn: (n: number, v: number) => void,
+  noteOff: () => void,
+): void {
+  if (!enabled.value) {
+    noteOn(note, velocity)
+    return
+  }
+  clearArp()
+  currentBaseNote = note
+  currentVelocity = velocity
+  currentNoteOn = noteOn
+  currentNoteOff = noteOff
+  currentIntervals = buildIntervals()
+  arpStepIndex = 0
+  scheduleNextArpStep()
+}","void T5ynthArpeggiator::setBaseNote(int midiNote, float velocity)
+{
+    baseNote = midiNote;
+    baseVelocity = velocity;
+    active = true;
+    currentIndex = 0;
+    samplesUntilNext = 0.0;
+    rebuildIntervals();
+}","","KRITISCH: TS processNote hat Passthrough-Logik: if !enabled, noteOn direkt. JUCE setBaseNote hat KEINE Passthrough-Logik, setzt immer active=true. TS speichert Callbacks, JUCE nicht. TS ruft sofort scheduleNextArpStep(), JUCE wartet auf naechsten processBlock."
+"16","clearArp","function clearArp() {
+  if (arpTimer != null) {
+    clearTimeout(arpTimer)
+    arpTimer = null
+  }
+  arpStepIndex = 0
+}","// Kein separates clearArp. In stopArp:
+void T5ynthArpeggiator::stopArp()
+{
+    active = false;
+    currentIndex = 0;
+    samplesUntilNext = 0.0;
+}","","TS: clearArp raeumt nur Timer auf, ohne active zu aendern. JUCE stopArp setzt auch active=false."
+"17","stop","function stop(noteOff?: () => void): void {
+  clearArp()
+  const off = noteOff ?? currentNoteOff
+  off?.()
+  currentNoteOn = null
+  currentNoteOff = null
+}","void T5ynthArpeggiator::stopArp()
+{
+    active = false;
+    currentIndex = 0;
+    samplesUntilNext = 0.0;
+}","","TS stop: clearArp + noteOff + Callback-Cleanup. JUCE stopArp: nur State reset. JUCE NoteOff wird in processBlock behandelt (wenn !active, sendet NoteOff fuer lastPlayedNote)."
+"18","setEnabled","function setEnabled(on: boolean): void {
+  enabled.value = on
+  if (!on) clearArp()
+}","(nicht vorhanden)","","FEHLT in JUCE. TS enabled ist ein Toggle: on=arpeggiate, off=passthrough. JUCE hat kein Aequivalent. active bedeutet 'gerade spielend', nicht 'Arpeggiator an'."
+"19","setPattern","function setPattern(p: ArpPattern): void {
+  pattern.value = p
+  if (enabled.value) {
+    currentIntervals = buildIntervals()
+  }
+}","void T5ynthArpeggiator::setMode(Mode m)
+{
+    mode = m;
+    rebuildIntervals();
+}","","TS: rebuild nur wenn enabled. JUCE: rebuild immer. Funktional OK da JUCE intervals nur bei active genutzt werden."
+"20","setRate","function setRate(r: ArpRate): void {
+  rate.value = r
+}","void setRate(int rateIndex) { rate = juce::jlimit(0, NUM_RATES - 1, rateIndex); }","","TS: string. JUCE: int mit Clamping. OK."
+"21","setOctaveRange","function setOctaveRange(oct: number): void {
+  octaveRange.value = Math.max(1, Math.min(4, oct))
+  if (enabled.value) {
+    currentIntervals = buildIntervals()
+  }
+}","void setOctaveRange(int octaves) { octaveRange = juce::jlimit(1, 4, octaves); rebuildIntervals(); }","","Beide clampen 1-4 und rebuild. TS: rebuild nur wenn enabled. JUCE: rebuild immer. OK."
+"22","dispose","function dispose(): void {
+  clearArp()
+  currentNoteOn = null
+  currentNoteOff = null
+}","void T5ynthArpeggiator::reset()
+{
+    active = false;
+    currentIndex = 0;
+    samplesUntilNext = 0.0;
+    lastPlayedNote = -1;
+    intervals.clear();
+}","","TS dispose: Timer cleanup + Callback null. JUCE reset: full state reset inkl. intervals.clear()."
+"23","processBlock (JUCE-only)","(nicht vorhanden — setTimeout-basiert)","void T5ynthArpeggiator::processBlock(juce::AudioBuffer<float>& buffer,
+                                     juce::MidiBuffer& midi)
+{
+    if (!active || intervals.empty())
+    {
+        if (lastPlayedNote >= 0)
+        {
+            midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), 0);
+            lastPlayedNote = -1;
+        }
+        return;
+    }
+    double quarterNoteSamples = sampleRateVal * 60.0 / bpm;
+    double samplesPerStep = quarterNoteSamples * static_cast<double>(RATE_FACTORS[rate]);
+    const int numSamples = buffer.getNumSamples();
+    int samplePos = 0;
+    while (samplePos < numSamples)
+    {
+        if (samplesUntilNext <= 0.0)
+        {
+            if (lastPlayedNote >= 0)
+            {
+                midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), samplePos);
+                lastPlayedNote = -1;
+            }
+            int idx = currentIndex % static_cast<int>(intervals.size());
+            int midiNote = juce::jlimit(0, 127, baseNote + intervals[static_cast<size_t>(idx)]);
+            int velInt = juce::jlimit(1, 127, juce::roundToInt(baseVelocity * 127.0f));
+            midi.addEvent(juce::MidiMessage::noteOn(1, midiNote,
+                          static_cast<juce::uint8>(velInt)), samplePos);
+            lastPlayedNote = midiNote;
+            currentIndex++;
+            if (mode == Mode::Random && currentIndex % static_cast<int>(intervals.size()) == 0)
+                fisherYatesShuffle();
+            samplesUntilNext += samplesPerStep;
+        }
+        int samplesToProcess = juce::jmin(numSamples - samplePos,
+                                          static_cast<int>(std::ceil(samplesUntilNext)));
+        samplesToProcess = std::max(1, samplesToProcess);
+        samplesUntilNext -= samplesToProcess;
+        samplePos += samplesToProcess;
+    }
+}","","JUCE-only. Sample-akkurate MIDI-Generierung in processBlock. Hat NoteOff-Cleanup bei !active. Entspricht funktional TS scheduleNextArpStep + setTimeout, aber sample-genau."
+"24","prepare (JUCE-only)","(nicht vorhanden)","void T5ynthArpeggiator::prepare(double sr, int /*samplesPerBlock*/)
+{
+    sampleRateVal = sr;
+    samplesUntilNext = 0.0;
+}","","JUCE-only. SampleRate-Initialisierung."
+"25","BPM-Referenz","// bpmRef als Readonly<Ref<number>> Parameter:
+export function useArpeggiator(bpmRef: Readonly<Ref<number>>)
+// Zugriff: bpmRef.value || 120","void setBpm(double b) { bpm = b; }","","TS: reaktive Ref, liest BPM live bei jedem getArpRateMs()-Aufruf. JUCE: expliziter setBpm()-Setter. TS hat fallback 120 bei bpmRef.value===0."
+"26","enabled readonly Export","enabled: readonly(enabled),","(nicht vorhanden)","","TS exportiert enabled als readonly. JUCE hat kein enable/disable Konzept."
+"27","Return-Objekt Exports","return {
+  enabled: readonly(enabled),
+  pattern: readonly(pattern),
+  rate: readonly(rate),
+  octaveRange: readonly(octaveRange),
+  setEnabled,
+  setPattern,
+  setRate,
+  setOctaveRange,
+  processNote,
+  stop,
+  dispose,
+}","// Public API:
+// prepare, processBlock, reset
+// setMode, setRate, setOctaveRange, setBpm
+// setBaseNote, stopArp
+// isActive","","TS: readonly State + Setter + processNote. JUCE: prepare/processBlock Pattern + Setter. TS hat processNote (Passthrough-Logik), JUCE hat setBaseNote (kein Passthrough)."

@@ -1,0 +1,434 @@
+"Nr","Funktion","Original-Code (TypeScript)","Legacy-JUCE (C++)","Neuer Code (C++)","Kommentar"
+"1","Konstanten","const SCHEDULE_AHEAD = 0.005
+const XCORR_WINDOW = 512
+const XCORR_SEARCH = 2000","static constexpr int XCORR_WINDOW = 512;
+static constexpr int XCORR_SEARCH = 2000;","","SCHEDULE_AHEAD fehlt (nicht noetig in JUCE, sample-akkurat)"
+"2","State: isPlaying","const isPlaying = ref(false)","bool playing = false;","","Name: isPlaying vs playing"
+"3","State: isLooping","const isLooping = ref(false)","LoopMode loopMode = LoopMode::Loop;","","Vorlage: bool isLooping. JUCE: enum. Default ABWEICHEND: Vorlage=false, JUCE=Loop"
+"4","State: transposeSemitones","const transposeSemitones = ref(0)","double transposeRatio = 1.0;","","Vorlage speichert Semitones, JUCE speichert Ratio direkt"
+"5","State: loopStartFrac","const loopStartFrac = ref(0)","float loopStartFrac = 0.0f;","","OK"
+"6","State: loopEndFrac","const loopEndFrac = ref(1)","float loopEndFrac = 1.0f;","","OK"
+"7","State: bufferDuration","const bufferDuration = ref(0)","(nicht vorhanden)","","FEHLT in JUCE"
+"8","State: hasAudio","const hasAudio = ref(false)","bool audioLoaded = false;","","OK"
+"9","State: crossfadeMs","const crossfadeMs = ref(150)","float crossfadeMsVal = 150.0f;","","OK"
+"10","State: normalizeOn","const normalizeOn = ref(true)","bool normalizeOn = false;","","DEFAULT ABWEICHEND: Vorlage=true, JUCE=false"
+"11","State: peakAmplitude","const peakAmplitude = ref(0)","(nicht vorhanden)","","FEHLT in JUCE"
+"12","State: loopOptimize","const loopOptimize = ref(false)","bool loopOptimizeOn = false;","","OK"
+"13","State: loopPingPong","const loopPingPong = ref(false)","(via LoopMode::PingPong)","","OK, anderer Mechanismus"
+"14","State: optimizedEndFrac","const optimizedEndFrac = ref(1)","(nicht vorhanden)","","FEHLT in JUCE (Display-only)"
+"15","State: preparedLoopStartSec","let preparedLoopStartSec = 0","int playStart = 0;","","Vorlage: Sekunden. JUCE: Samples. Aequivalent."
+"16","State: preparedLoopEndSec","let preparedLoopEndSec = 0","int playEnd = 0;","","Vorlage: Sekunden. JUCE: Samples. Aequivalent."
+"17","State: preparedColdStartSec","let preparedColdStartSec = 0","int coldStart = 0;","","Vorlage: Sekunden. JUCE: Samples. Aequivalent."
+"18","optimizeLoopEndSample","function optimizeLoopEndSample(data: Float32Array, loopStart: number, loopEnd: number): number {
+  const win = Math.min(XCORR_WINDOW, Math.floor((loopEnd - loopStart) / 4))
+  if (win < 16) return loopEnd
+  const searchLo = Math.max(loopStart + win * 2, loopEnd - XCORR_SEARCH)
+  const searchHi = Math.min(data.length, loopEnd + XCORR_SEARCH)
+  let bestCorr = -Infinity
+  let bestEnd = loopEnd
+  for (let cand = searchLo; cand < searchHi; cand++) {
+    const eStart = cand - win
+    if (eStart < loopStart) continue
+    let sum = 0, normA = 0, normB = 0
+    for (let i = 0; i < win; i++) {
+      const a = data[loopStart + i]!
+      const b = data[eStart + i]!
+      sum += a * b
+      normA += a * a
+      normB += b * b
+    }
+    const denom = Math.sqrt(normA * normB)
+    const corr = denom > 0 ? sum / denom : 0
+    if (corr > bestCorr) {
+      bestCorr = corr
+      bestEnd = cand
+    }
+  }
+  return bestEnd
+}","int AudioLooper::optimizeLoopEnd(const float* data, int loopStart, int loopEnd, int bufLen) const {
+    int win = std::min(XCORR_WINDOW, (loopEnd - loopStart) / 4);
+    if (win < 16) return loopEnd;
+    int searchLo = std::max(loopStart + win * 2, loopEnd - XCORR_SEARCH);
+    int searchHi = std::min(bufLen, loopEnd + XCORR_SEARCH);
+    float bestCorr = -1e30f;
+    int bestEnd = loopEnd;
+    for (int cand = searchLo; cand < searchHi; ++cand) {
+        int eStart = cand - win;
+        if (eStart < loopStart) continue;
+        float sum = 0.0f, normA = 0.0f, normB = 0.0f;
+        for (int j = 0; j < win; ++j) {
+            float a = data[loopStart + j];
+            float b = data[eStart + j];
+            sum += a * b;
+            normA += a * a;
+            normB += b * b;
+        }
+        float denom = std::sqrt(normA * normB);
+        float corr = denom > 0.0f ? sum / denom : 0.0f;
+        if (corr > bestCorr) {
+            bestCorr = corr;
+            bestEnd = cand;
+        }
+    }
+    return bestEnd;
+}","","Mathematisch identisch. Vorlage: -Infinity. JUCE: -1e30f. JUCE hat extra param bufLen (=data.length). win-Berechnung: Vorlage floor(), JUCE integer division (identisch fuer positive ints)."
+"19","applyLoopProcessing / applyLoopCrossfade","function applyLoopProcessing(ac, source, loopStart, loopEnd, optimize, crossfadeMs) {
+  const copy = ac.createBuffer(source.numberOfChannels, source.length, source.sampleRate)
+  for (let ch = 0; ch < source.numberOfChannels; ch++) {
+    copy.getChannelData(ch).set(source.getChannelData(ch))
+  }
+  let actualEnd = loopEnd
+  if (optimize && source.numberOfChannels > 0) {
+    actualEnd = optimizeLoopEndSample(source.getChannelData(0), loopStart, loopEnd)
+  }
+  const loopLen = actualEnd - loopStart
+  const fadeSamples = Math.min(
+    Math.floor(crossfadeMs / 1000 * source.sampleRate),
+    Math.floor(loopLen / 2),
+  )
+  if (fadeSamples >= 2) {
+    for (let ch = 0; ch < copy.numberOfChannels; ch++) {
+      const d = copy.getChannelData(ch)
+      for (let i = 0; i < fadeSamples; i++) {
+        const t = i / fadeSamples
+        const gHead = Math.sin(t * Math.PI * 0.5)
+        const gTail = Math.cos(t * Math.PI * 0.5)
+        const headIdx = loopStart + i
+        const tailIdx = actualEnd - fadeSamples + i
+        d[headIdx] = d[headIdx]! * gHead + d[tailIdx]! * gTail
+      }
+    }
+    actualEnd -= fadeSamples
+  }
+  return { buffer: copy, optimizedEnd: actualEnd, fadeSamples }
+}","void AudioLooper::applyLoopCrossfade(juce::AudioBuffer<float>& buf, int loopStart, int& loopEnd) const {
+    int loopLen = loopEnd - loopStart;
+    int fadeSamples = std::min(
+        static_cast<int>(crossfadeMsVal / 1000.0f * static_cast<float>(bufferOriginalSR)),
+        loopLen / 2
+    );
+    if (fadeSamples < 2) return;
+    const float pi_half = juce::MathConstants<float>::halfPi;
+    for (int ch = 0; ch < buf.getNumChannels(); ++ch) {
+        float* d = buf.getWritePointer(ch);
+        for (int i = 0; i < fadeSamples; ++i) {
+            float t = static_cast<float>(i) / static_cast<float>(fadeSamples);
+            float gHead = std::sin(t * pi_half);
+            float gTail = std::cos(t * pi_half);
+            int headIdx = loopStart + i;
+            int tailIdx = loopEnd - fadeSamples + i;
+            d[headIdx] = d[headIdx] * gHead + d[tailIdx] * gTail;
+        }
+    }
+    loopEnd -= fadeSamples;
+}","","JUCE trennt: copy+optimize in preparePlaybackBuffer, crossfade separat. Mathematik identisch. Vorlage: t*PI*0.5. JUCE: t*halfPi. Identisch."
+"20","createPalindromeBuffer","function createPalindromeBuffer(ac, source, loopStart, loopEnd) {
+  const loopLen = loopEnd - loopStart
+  if (loopLen < 4) return { buffer: source, palindromeEnd: loopEnd }
+  const reverseLen = loopLen - 2
+  const newLen = source.length + reverseLen
+  const result = ac.createBuffer(source.numberOfChannels, newLen, source.sampleRate)
+  for (let ch = 0; ch < source.numberOfChannels; ch++) {
+    const src = source.getChannelData(ch)
+    const dst = result.getChannelData(ch)
+    for (let i = 0; i < loopEnd; i++) dst[i] = src[i]!
+    for (let i = 0; i < reverseLen; i++) {
+      dst[loopEnd + i] = src[loopEnd - 2 - i]!
+    }
+    for (let i = loopEnd; i < src.length; i++) {
+      dst[i + reverseLen] = src[i]!
+    }
+  }
+  return { buffer: result, palindromeEnd: loopEnd + reverseLen }
+}","void AudioLooper::createPalindrome(const juce::AudioBuffer<float>& src, int loopStart, int loopEnd,
+                                    juce::AudioBuffer<float>& dest, int& palindromeEnd) const {
+    int loopLen = loopEnd - loopStart;
+    if (loopLen < 4) {
+        dest.makeCopyOf(src);
+        palindromeEnd = loopEnd;
+        return;
+    }
+    int reverseLen = loopLen - 2;
+    int newLen = src.getNumSamples() + reverseLen;
+    int numCh = src.getNumChannels();
+    dest.setSize(numCh, newLen, false, false, true);
+    for (int ch = 0; ch < numCh; ++ch) {
+        const float* s = src.getReadPointer(ch);
+        float* d = dest.getWritePointer(ch);
+        for (int i = 0; i < loopEnd; ++i) d[i] = s[i];
+        for (int i = 0; i < reverseLen; ++i) d[loopEnd + i] = s[loopEnd - 2 - i];
+        for (int i = loopEnd; i < src.getNumSamples(); ++i) d[i + reverseLen] = s[i];
+    }
+    palindromeEnd = loopEnd + reverseLen;
+}","","Mathematisch identisch. loopStart param in JUCE unused (nur loopEnd relevant fuer Kopie). Reverseformel identisch: loopEnd-2-i."
+"21","normalizeBuffer","function normalizeBuffer(buffer: AudioBuffer): void {
+  const peak = measurePeak(buffer)
+  if (peak < 0.001) return
+  const g = 0.95 / peak
+  for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+    const d = buffer.getChannelData(ch)
+    for (let i = 0; i < d.length; i++) d[i]! *= g
+  }
+}","void AudioLooper::normalizeBuffer(juce::AudioBuffer<float>& buf) const {
+    float peak = 0.0f;
+    for (int ch = 0; ch < buf.getNumChannels(); ++ch) {
+        const float* d = buf.getReadPointer(ch);
+        for (int i = 0; i < buf.getNumSamples(); ++i) {
+            float a = std::abs(d[i]);
+            if (a > peak) peak = a;
+        }
+    }
+    if (peak < 0.001f) return;
+    float gain = 0.95f / peak;
+    for (int ch = 0; ch < buf.getNumChannels(); ++ch) {
+        float* d = buf.getWritePointer(ch);
+        for (int i = 0; i < buf.getNumSamples(); ++i)
+            d[i] *= gain;
+    }
+}","","Mathematisch identisch. JUCE inlined measurePeak. Threshold 0.001, gain 0.95/peak."
+"22","prepareBuffer","function prepareBuffer(ac, source) {
+  const [ls, le] = loopBoundsSamples(source)
+  const sr = source.sampleRate
+  let processed
+  if (loopPingPong.value) {
+    let actualEnd = le
+    if (loopOptimize.value && source.numberOfChannels > 0) {
+      actualEnd = optimizeLoopEndSample(source.getChannelData(0), ls, le)
+    }
+    const copy = ac.createBuffer(source.numberOfChannels, source.length, sr)
+    for (let ch = 0; ch < source.numberOfChannels; ch++) {
+      copy.getChannelData(ch).set(source.getChannelData(ch))
+    }
+    const { buffer: palindrome, palindromeEnd } = createPalindromeBuffer(ac, copy, ls, actualEnd)
+    optimizedEndFrac.value = actualEnd / source.length
+    preparedLoopStartSec = ls / sr
+    preparedLoopEndSec = palindromeEnd / sr
+    preparedColdStartSec = preparedLoopStartSec
+    processed = palindrome
+  } else {
+    const { buffer: loopProcessed, optimizedEnd, fadeSamples } = applyLoopProcessing(ac, source, ls, le, loopOptimize.value, crossfadeMs.value)
+    optimizedEndFrac.value = optimizedEnd / source.length
+    preparedLoopStartSec = ls / sr
+    preparedLoopEndSec = optimizedEnd / sr
+    preparedColdStartSec = (ls + fadeSamples) / sr
+    processed = loopProcessed
+  }
+  if (normalizeOn.value) normalizeBuffer(processed)
+  return processed
+}","void AudioLooper::preparePlaybackBuffer() {
+    if (originalBuffer.getNumSamples() == 0) return;
+    const int bufLen = originalBuffer.getNumSamples();
+    const int numCh = originalBuffer.getNumChannels();
+    int ls = static_cast<int>(std::floor(loopStartFrac * bufLen));
+    int le = std::min(bufLen, static_cast<int>(std::ceil(loopEndFrac * bufLen)));
+    if (le - ls < 4) { le = std::min(bufLen, ls + 4); }
+    if (loopMode == LoopMode::PingPong) {
+        int actualEnd = le;
+        if (loopOptimizeOn && numCh > 0)
+            actualEnd = optimizeLoopEnd(originalBuffer.getReadPointer(0), ls, le, bufLen);
+        juce::AudioBuffer<float> working;
+        working.makeCopyOf(originalBuffer);
+        int palindromeEnd = 0;
+        createPalindrome(working, ls, actualEnd, playBuffer, palindromeEnd);
+        playStart = ls;
+        playEnd = palindromeEnd;
+        coldStart = ls;
+    } else {
+        playBuffer.makeCopyOf(originalBuffer);
+        int actualEnd = le;
+        if (loopOptimizeOn && numCh > 0 && loopMode == LoopMode::Loop)
+            actualEnd = optimizeLoopEnd(originalBuffer.getReadPointer(0), ls, le, bufLen);
+        int fadeSamples = 0;
+        if (loopMode == LoopMode::Loop) {
+            int preEnd = actualEnd;
+            applyLoopCrossfade(playBuffer, ls, actualEnd);
+            fadeSamples = preEnd - actualEnd;
+        }
+        playStart = ls;
+        playEnd = actualEnd;
+        coldStart = ls + fadeSamples;
+    }
+    if (normalizeOn) normalizeBuffer(playBuffer);
+    readPosition = static_cast<double>(coldStart);
+    needsReprepareFlag = false;
+}","","Struktur identisch. JUCE hat extra Guard le-ls<4. JUCE optimiert nur bei LoopMode::Loop (nicht OneShot) — Vorlage optimiert immer wenn optimize=true. ABWEICHUNG: OneShot-Modus wird in JUCE nicht optimiert. optimizedEndFrac FEHLT in JUCE."
+"23","rateForPlayback","function rateForPlayback(): number {
+  return Math.pow(2, transposeSemitones.value / 12)
+}","(inline: transposeRatio = std::pow(2.0, (note - 60) / 12.0))","","Vorlage: berechnet Rate aus gespeicherten Semitones. JUCE: speichert Ratio direkt als double."
+"24","loadBuffer","async function loadBuffer(base64Wav: string) {
+  const ac = ensureContext()
+  const decoded = await decodeBase64Wav(base64Wav)
+  originalBuffer = decoded
+  rawBase64 = base64Wav
+  bufferDuration.value = decoded.duration
+  hasAudio.value = true
+  peakAmplitude.value = measurePeak(decoded)
+}","void AudioLooper::loadBuffer(const juce::AudioBuffer<float>& buffer, double bufferSampleRate) {
+    if (sharedMode) return;
+    originalBuffer.makeCopyOf(buffer);
+    bufferOriginalSR = bufferSampleRate;
+    audioLoaded = true;
+    preparePlaybackBuffer();
+    playing = true;
+}","","ABWEICHUNG: JUCE loadBuffer ruft preparePlaybackBuffer() + setzt playing=true. Vorlage loadBuffer SPIELT NICHT (nur decode+store). Vorlage setzt bufferDuration und peakAmplitude — JUCE nicht."
+"25","play","async function play(base64Wav: string) {
+  const ac = ensureContext()
+  const decoded = await decodeBase64Wav(base64Wav)
+  originalBuffer = decoded
+  rawBase64 = base64Wav
+  bufferDuration.value = decoded.duration
+  hasAudio.value = true
+  peakAmplitude.value = measurePeak(decoded)
+  startSource(ac, prepareBuffer(ac, decoded))
+}","(kein Aequivalent — JUCE loadBuffer combined load+play)","","JUCE hat kein separates play() — loadBuffer macht beides. Vorlage trennt load vs play."
+"26","stop","function stop() {
+  if (activeSource) { try { activeSource.stop() } catch {} activeSource = null }
+  if (activeGain) { activeGain.disconnect(); activeGain = null }
+  isPlaying.value = false
+}","void stop() { playing = false; }","","JUCE: setzt nur Flag. Vorlage: stoppt AudioBufferSourceNode + disconnected GainNode. In JUCE reicht Flag weil processSample() prueft playing."
+"27","retrigger","function retrigger() {
+  if (!originalBuffer) return
+  stop()
+  const ac = ensureContext()
+  startSource(ac, prepareBuffer(ac, originalBuffer))
+}","void AudioLooper::retrigger() {
+    readPosition = static_cast<double>(coldStart);
+    playing = true;
+}","","ABWEICHUNG: Vorlage: stop + prepareBuffer + startSource (rebuild buffer, crossfade). JUCE: nur readPosition reset + playing=true (KEIN Re-prepare). Wenn Crossfade-Settings geaendert wurden, spielt JUCE den alten Buffer."
+"28","setTranspose","function setTranspose(semitones: number) {
+  transposeSemitones.value = semitones
+  if (activeSource) activeSource.playbackRate.value = rateForPlayback()
+}","void AudioLooper::setMidiNote(int note) {
+    transposeRatio = std::pow(2.0, (note - 60) / 12.0);
+    glideSamplesLeft = 0;
+}","","Vorlage: semitones relativ zu 0. JUCE: MIDI note relativ zu 60. Mathematisch aequivalent. JUCE cancelt Glide — Vorlage nicht."
+"29","glideToSemitones","function glideToSemitones(semitones: number, timeMs: number) {
+  transposeSemitones.value = semitones
+  if (activeSource && ctx) {
+    const now = ctx.currentTime
+    const rate = Math.pow(2, semitones / 12)
+    activeSource.playbackRate.setValueAtTime(activeSource.playbackRate.value, now)
+    activeSource.playbackRate.linearRampToValueAtTime(rate, now + timeMs / 1000)
+  }
+}","void AudioLooper::glideToSemitones(int semitones, float durationMs) {
+    double targetRatio = std::pow(2.0, semitones / 12.0);
+    double durationSamples = (durationMs / 1000.0) * playbackSampleRate;
+    int samples = std::max(1, static_cast<int>(durationSamples));
+    glideTargetRatio = targetRatio;
+    glideRatioIncr = (targetRatio - transposeRatio) / static_cast<double>(samples);
+    glideSamplesLeft = samples;
+}","","Vorlage: Web Audio linearRamp (subsample-akkurat). JUCE: per-sample linear ramp (sample-akkurat). Mathematisch aequivalent fuer praktische Zwecke."
+"30","setLoopStart","function setLoopStart(frac: number) {
+  loopStartFrac.value = Math.max(0, Math.min(frac, loopEndFrac.value - 0.01))
+  if (activeSource && originalBuffer) {
+    activeSource.loopStart = loopStartFrac.value * originalBuffer.duration
+  }
+}","void AudioLooper::setLoopStart(float frac) {
+    float clamped = juce::jlimit(0.0f, loopEndFrac - 0.01f, frac);
+    if (clamped != loopStartFrac) {
+        loopStartFrac = clamped;
+        needsReprepareFlag = true;
+    }
+}","","Vorlage: sofort auf activeSource.loopStart anwenden. JUCE: setzt dirty flag, re-prepare bei naechstem processBlock. Ergebnis: JUCE hat Latenz bis Aenderung wirkt."
+"31","setLoopEnd","function setLoopEnd(frac: number) {
+  loopEndFrac.value = Math.max(loopStartFrac.value + 0.01, Math.min(frac, 1))
+  optimizedEndFrac.value = loopEndFrac.value
+  if (activeSource && originalBuffer) {
+    activeSource.loopEnd = loopEndFrac.value * originalBuffer.duration
+  }
+}","void AudioLooper::setLoopEnd(float frac) {
+    float clamped = juce::jlimit(loopStartFrac + 0.01f, 1.0f, frac);
+    if (clamped != loopEndFrac) {
+        loopEndFrac = clamped;
+        needsReprepareFlag = true;
+    }
+}","","Wie setLoopStart. JUCE setzt nicht optimizedEndFrac (FEHLT)."
+"32","setCrossfade","function setCrossfade(ms: number) {
+  crossfadeMs.value = Math.max(0, Math.min(ms, 500))
+  debounce(100ms) -> if playing: replay()
+}","void AudioLooper::setCrossfadeMs(float ms) {
+    float clamped = juce::jlimit(0.0f, 500.0f, ms);
+    if (clamped != crossfadeMsVal) { crossfadeMsVal = clamped; needsReprepareFlag = true; }
+}","","Vorlage: debounced replay. JUCE: dirty flag. Aequivalent (beide re-prepare den Buffer)."
+"33","setNormalize","function setNormalize(on: boolean) {
+  normalizeOn.value = on
+  debounce(100ms) -> if playing: replay()
+}","void AudioLooper::setNormalize(bool on) {
+    if (on != normalizeOn) { normalizeOn = on; needsReprepareFlag = true; }
+}","","Aequivalent."
+"34","setLoopOptimize","function setLoopOptimize(on: boolean) {
+  loopOptimize.value = on
+  debounce(100ms) -> if playing: replay()
+}","void AudioLooper::setLoopOptimize(bool on) {
+    if (on != loopOptimizeOn) { loopOptimizeOn = on; needsReprepareFlag = true; }
+}","","Aequivalent."
+"35","setLoopPingPong","function setLoopPingPong(on: boolean) {
+  loopPingPong.value = on
+  debounce(100ms) -> if playing: replay()
+}","void AudioLooper::setLoopMode(LoopMode mode) {
+    if (mode != loopMode) { loopMode = mode; needsReprepareFlag = true; }
+}","","Vorlage: separater bool. JUCE: enum LoopMode. Aequivalent."
+"36","setLoop","function setLoop(on: boolean) {
+  isLooping.value = on
+  if (activeSource) activeSource.loop = on
+}","(kein Aequivalent)","","FEHLT in JUCE. Vorlage: togglet loop on/off auf laufendem Source. JUCE: LoopMode steuert Verhalten in processSample, aber kein runtime-toggle."
+"37","replay","function replay() {
+  if (!originalBuffer) return
+  const ac = ensureContext()
+  startSource(ac, prepareBuffer(ac, originalBuffer))
+}","(kein Aequivalent)","","FEHLT in JUCE. Vorlage: rebuild buffer + restart playback. JUCE: preparePlaybackBuffer() existiert, wird aber nur via dirty flag getriggert."
+"38","startSource (crossfade)","function startSource(ac, playBuffer) {
+  // Crossfade between old and new source
+  // See Zeilen 190-231 in useAudioLooper.ts
+  // Equal-power crossfade via linearRamp on GainNodes
+}","(kein Aequivalent)","","FEHLT in JUCE. Vorlage: crossfade zwischen alter und neuer Source bei Replay/Retrigger. JUCE: harter Schnitt (retrigger = readPosition reset)."
+"39","encodeWav","function encodeWav(buffer, startSample, endSample) {
+  // WAV header + 16-bit PCM
+  // See Zeilen 32-51
+}","(kein Aequivalent)","","FEHLT in JUCE. Vorlage: WAV Export. Low priority."
+"40","exportRaw","function exportRaw(): Blob | null { ... }","(kein Aequivalent)","","FEHLT. Low priority."
+"41","exportLoop","function exportLoop(): Blob | null { ... }","(kein Aequivalent)","","FEHLT. Low priority."
+"42","getWaveformPeaks","function getWaveformPeaks(numBins) {
+  // Peak-preserving downsample to numBins
+  // See Zeilen 505-521
+}","(in WaveformDisplay, separater Mechanismus)","","Anderer Mechanismus: JUCE pollt waveformSnapshot aus PluginProcessor."
+"43","processSample","(Web Audio: BufferSourceNode spielt automatisch)","float AudioLooper::processSample() {
+    const int regionLen = playEnd - playStart;
+    if (regionLen <= 0 || !playing) return 0.0f;
+    if (glideSamplesLeft > 0) {
+        transposeRatio += glideRatioIncr;
+        glideSamplesLeft--;
+        if (glideSamplesLeft == 0) transposeRatio = glideTargetRatio;
+    }
+    const double srRatio = bufferOriginalSR / playbackSampleRate;
+    double speedRatio = srRatio * transposeRatio;
+    double posInRegion = readPosition - static_cast<double>(playStart);
+    int pos0 = static_cast<int>(std::floor(posInRegion));
+    float frac = static_cast<float>(posInRegion - pos0);
+    if (pos0 < 0) pos0 = 0;
+    int absPos0 = playStart + (pos0 % regionLen);
+    int absPos1 = playStart + ((pos0 + 1) % regionLen);
+    const auto& buf = sharedMode ? *sharedPlayBuffer : playBuffer;
+    const auto* bufPtr = buf.getReadPointer(0);
+    float s0 = bufPtr[absPos0];
+    float s1 = bufPtr[absPos1];
+    float result = s0 + (s1 - s0) * frac;
+    readPosition += speedRatio;
+    if (readPosition >= static_cast<double>(playEnd)) {
+        if (loopMode == LoopMode::OneShot) playing = false;
+        else readPosition -= static_cast<double>(regionLen);
+    }
+    return result;
+}","","JUCE-spezifisch (Vorlage nutzt Web Audio BufferSourceNode). Linear interpolation, pitch via speedRatio, wrap/stop basierend auf LoopMode. Korrekte JUCE-Implementierung des Web Audio BufferSourceNode-Verhaltens."
+"44","dispose","function dispose() {
+  stop()
+  originalBuffer = null; rawBase64 = null; hasAudio.value = false
+  if (ctx && ctx.state !== 'closed') ctx.close()
+  ctx = null
+}","void AudioLooper::reset() {
+    originalBuffer.setSize(0, 0);
+    playBuffer.setSize(0, 0);
+    audioLoaded = false;
+    playing = false;
+    readPosition = 0.0;
+}","","Aequivalent. JUCE hat kein AudioContext zu schliessen."

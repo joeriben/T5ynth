@@ -1,0 +1,275 @@
+"Nr","Funktion","Original-Code (TypeScript)","Legacy-JUCE (C++)","Neuer Code (C++)","Kommentar"
+"1","Constants: MIN_FREQ, MAX_FREQ","const MIN_FREQ = 20
+const MAX_FREQ = 20000","// Keine expliziten Konstanten definiert.
+// prepare() setzt Cutoff auf 20000.0f als Default.
+// setCutoff() nimmt direkt Hz entgegen.","","JUCE hat keine MIN_FREQ/MAX_FREQ Konstanten. Der Aufrufer muss die Frequenz bereits in Hz umrechnen. Kein Clamping auf [20, 20000] in setCutoff() — fehlende Absicherung."
+"2","State: defaults","const enabled = ref(false)
+const type = ref<FilterType>('lowpass')
+const slope = ref<FilterSlope>('12')
+const cutoff = ref(1.0)       // 0-1 normalized
+const resonance = ref(0)      // 0-1 mapped to Q
+const mix = ref(1.0)          // 0 = dry, 1 = wet
+const kbdTrack = ref(0)       // 0-1
+let currentNote = 60","// StateVariableFilter.h
+double sr = 44100.0;
+int blockSize = 512;
+float currentMix = 1.0f;
+int currentType = -1;
+int currentSlope = 0; // 0=12dB, 1=24dB
+bool prepared = false;","","JUCE fehlen: enabled-Flag (Mix=0 impliziert disabled), cutoff als normalized 0-1 (nur Hz), resonance-State (nur Q), kbdTrack, currentNote. Die Vorlage speichert alle Parameter als reaktive refs; JUCE speichert nur Mix, Type, Slope als Member. cutoff/resonance werden direkt an die Filter durchgereicht ohne lokale Kopie."
+"3","FilterType / FilterSlope enums","export type FilterType = 'lowpass' | 'highpass' | 'bandpass'
+export type FilterSlope = '12' | '24'","// Kein expliziter Enum. setType() nimmt int:
+// 0=Lowpass, 1=Highpass, 2=Bandpass.
+// setSlope() nimmt int: 0=12dB, 1=24dB.","","JUCE verwendet int statt typisierter Enums. Funktional identisch, aber weniger typsicher."
+"4","normalizedToFreq(n)","export function normalizedToFreq(n: number): number {
+  return MIN_FREQ * Math.pow(MAX_FREQ / MIN_FREQ, Math.max(0, Math.min(1, n)))
+}
+// = 20 * pow(1000, clamp(n, 0, 1))","// Nicht vorhanden.
+// setCutoff(float hz) nimmt direkt Hz entgegen.
+// Die Umrechnung normalized -> Hz muss extern erfolgen.","","FEHLT KOMPLETT in JUCE. Die exponentielle Abbildung 0-1 -> 20-20000 Hz (Formel: 20 * pow(1000, n)) existiert nicht. Der Aufrufer muss die Umrechnung selbst vornehmen. Clamping auf [0,1] fehlt ebenfalls."
+"5","resonanceToQ(r)","function resonanceToQ(r: number): number {
+  return 0.5 * Math.pow(36, r)
+}
+// Bereich: Q 0.5 (r=0) bis Q 18 (r=1)","static float resonanceToQ(float r)
+{
+    return 0.5f * std::pow(36.0f, std::clamp(r, 0.0f, 1.0f));
+}","","MATHEMATISCH IDENTISCH. Formel: 0.5 * pow(36, r). JUCE nutzt zusaetzlich std::clamp, TypeScript nicht (aber Aufrufer clampen manuell in setResonance). ACHTUNG: JUCE StateVariableTPT::setResonance() erwartet Resonanz-Parameter (nicht Q direkt) — Wertebereich und Verhalten unterscheiden sich von BiquadFilterNode.Q. Muss verifiziert werden ob resonanceToQ-Werte fuer TPT korrekt sind."
+"6","createNode(ac)","function createNode(ac: AudioContext): { input: GainNode; output: GainNode } {
+  ctx = ac
+  inputNode = ac.createGain()
+  inputNode.gain.value = 1
+  filterNodes = [ac.createBiquadFilter(), ac.createBiquadFilter()]
+  for (const fn of filterNodes) {
+    fn.type = type.value
+    fn.frequency.value = normalizedToFreq(cutoff.value)
+    fn.Q.value = resonanceToQ(resonance.value)
+  }
+  dryGain = ac.createGain()
+  wetGain = ac.createGain()
+  outputNode = ac.createGain()
+  outputNode.gain.value = 1
+  inputNode.connect(dryGain)
+  dryGain.connect(outputNode)
+  wetGain.connect(outputNode)
+  applySlope()
+  applyMix()
+  return { input: inputNode, output: outputNode }
+}","void T5ynthFilter::prepare(double sampleRate, int samplesPerBlock)
+{
+    sr = sampleRate;
+    blockSize = samplesPerBlock;
+    juce::dsp::ProcessSpec spec;
+    spec.sampleRate = sampleRate;
+    spec.maximumBlockSize = static_cast<juce::uint32>(samplesPerBlock);
+    spec.numChannels = 2;
+    filter1.prepare(spec);
+    filter1.setCutoffFrequency(20000.0f);
+    filter1.setResonance(resonanceToQ(0.0f));
+    filter2.prepare(spec);
+    filter2.setCutoffFrequency(20000.0f);
+    filter2.setResonance(resonanceToQ(0.0f));
+    prepared = true;
+}","","JUCE prepare() entspricht createNode(). Unterschiede: (1) Kein Graph-Aufbau noetig (JUCE hat kein Node-Graph-Modell wie Web Audio). (2) Default-Cutoff 20000 Hz statt normalizedToFreq(1.0)=20000 Hz — numerisch identisch. (3) Default-Resonance resonanceToQ(0)=0.5 — identisch. (4) Kein applySlope()/applyMix() Aufruf in prepare — Slope/Mix Defaults werden erst bei processBlock wirksam. (5) numChannels hardcoded auf 2."
+"7","applySlope()","function applySlope(): void {
+  if (!inputNode || !wetGain || filterNodes.length < 2) return
+  try { inputNode.disconnect(filterNodes[0]!) } catch { /* noop */ }
+  try { filterNodes[0]!.disconnect() } catch { /* noop */ }
+  try { filterNodes[1]!.disconnect() } catch { /* noop */ }
+  if (slope.value === '24') {
+    inputNode.connect(filterNodes[0]!)
+    filterNodes[0]!.connect(filterNodes[1]!)
+    filterNodes[1]!.connect(wetGain)
+  } else {
+    inputNode.connect(filterNodes[0]!)
+    filterNodes[0]!.connect(wetGain)
+  }
+}","void T5ynthFilter::setSlope(int slope)
+{
+    currentSlope = (slope == 1) ? 1 : 0;
+}
+// Cascade-Logik in processBlock():
+//   filter1.process(context);
+//   if (currentSlope == 1) {
+//       filter2.process(context2);
+//   }","","Vorlage aendert den Audio-Graphen dynamisch (disconnect/connect). JUCE speichert nur den Slope-Wert und entscheidet in processBlock() ob filter2 angewendet wird. Funktional identisch: 12dB = 1 Filter, 24dB = 2 kaskadierte Filter. JUCE-Ansatz ist sauberer (kein Graph-Rewiring)."
+"8","applyMix()","function applyMix(): void {
+  if (!dryGain || !wetGain) return
+  if (!enabled.value) {
+    dryGain.gain.value = 1
+    wetGain.gain.value = 0
+  } else {
+    dryGain.gain.value = Math.cos(mix.value * Math.PI / 2)
+    wetGain.gain.value = Math.sin(mix.value * Math.PI / 2)
+  }
+}","// In processBlock():
+const float halfPi = juce::MathConstants<float>::halfPi;
+const float wetGain = std::sin(currentMix * halfPi);
+const float dryGain = std::cos(currentMix * halfPi);
+// ...
+// wet[i] = dry[i] * dryGain + wet[i] * wetGain;","","MATHEMATISCH IDENTISCH: cos(mix * pi/2) / sin(mix * pi/2) Equal-Power Crossfade. Unterschied: Vorlage prueft enabled-Flag separat (disabled -> dryGain=1, wetGain=0). JUCE hat kein enabled-Flag — Bypass nur ueber mix=0 (processBlock returnt frueh bei currentMix < 0.001). Die enabled-Logik FEHLT in JUCE."
+"9","applyParams()","function applyParams(): void {
+  for (const fn of filterNodes) {
+    fn.type = type.value
+    fn.Q.value = resonanceToQ(resonance.value)
+  }
+  applyFrequency()
+  applyMix()
+}","// Kein direktes Aequivalent.
+// Einzelne Setter: setType(), setResonance(), setCutoff()
+// werden separat aufgerufen.","","FEHLT als zusammenhaengende Funktion. In der Vorlage wird applyParams() von allen Settern aufgerufen und batchet Type+Q+Frequency+Mix. In JUCE sind die Setter atomar — kein Batch-Update. applyMix() wird nicht aus setType()/setResonance() aufgerufen."
+"10","applyFrequency()","function applyFrequency(): void {
+  let freq = normalizedToFreq(cutoff.value)
+  if (kbdTrack.value > 0) {
+    const semitones = currentNote - 60
+    freq *= Math.pow(2, (semitones / 12) * kbdTrack.value)
+  }
+  freq = Math.max(MIN_FREQ, Math.min(MAX_FREQ, freq))
+  for (const fn of filterNodes) {
+    fn.frequency.value = freq
+  }
+}","void T5ynthFilter::setCutoff(float hz)
+{
+    filter1.setCutoffFrequency(hz);
+    filter2.setCutoffFrequency(hz);
+}","","KEYBOARD TRACKING FEHLT KOMPLETT in JUCE. Die Vorlage berechnet: (1) normalizedToFreq (exponentiell), (2) kbdTrack-Shift: freq *= pow(2, (semitones/12) * kbdTrack), (3) Clamping auf [20, 20000]. JUCE setCutoff() nimmt nur Hz entgegen, kein normalized-Wert, kein Keyboard-Tracking, kein Clamping."
+"11","getFrequencyParam()","function getFrequencyParam(): AudioParam | null {
+  return filterNodes[0]?.frequency ?? null
+}","// Nicht vorhanden.","","FEHLT. Web Audio erlaubt AudioParam-Referenz fuer direkte Modulation (LFO/Envelope -> frequency). JUCE-Aequivalent waere sample-genaue Modulation in processBlock() oder SmoothedValue."
+"12","getQParam()","function getQParam(): AudioParam | null {
+  return filterNodes[0]?.Q ?? null
+}","// Nicht vorhanden.","","FEHLT. Selbes Problem wie getFrequencyParam() — kein Modulations-Interface fuer Q/Resonance."
+"13","setNote(midiNote)","function setNote(midiNote: number): void {
+  currentNote = midiNote
+  if (kbdTrack.value > 0) applyFrequency()
+}","// Nicht vorhanden.","","FEHLT. Keyboard-Tracking ist nicht implementiert. currentNote wird nirgends gespeichert."
+"14","setEnabled(on)","function setEnabled(on: boolean): void {
+  enabled.value = on
+  applyMix()
+}","// Nicht vorhanden.
+// Bypass nur implizit ueber currentMix < 0.001f
+// in processBlock().","","FEHLT als explizite Funktion. Die Vorlage hat ein enabled-Flag: disabled -> dryGain=1, wetGain=0 unabhaengig von mix-Wert. JUCE simuliert Bypass nur ueber mix=0. Unterschied: In Vorlage kann enabled=false mit mix=0.7 sein — re-enable stellt mix=0.7 wieder her. In JUCE muesste der Aufrufer den Mix-Wert separat speichern."
+"15","setType(t)","function setType(t: FilterType): void {
+  type.value = t
+  applyParams()
+}","void T5ynthFilter::setType(int type)
+{
+    if (type == currentType) return;
+    currentType = type;
+    auto juceType = juce::dsp::StateVariableTPTFilterType::lowpass;
+    switch (type) {
+        case 0: juceType = ...::lowpass; break;
+        case 1: juceType = ...::highpass; break;
+        case 2: juceType = ...::bandpass; break;
+        default: break;
+    }
+    filter1.setType(juceType);
+    filter2.setType(juceType);
+}","","Funktional identisch — Mapping lowpass/highpass/bandpass. Unterschiede: (1) JUCE hat Early-Return wenn type==currentType (Optimierung). (2) Vorlage ruft applyParams() (Type+Q+Freq+Mix); JUCE setzt nur den Typ. (3) Vorlage nutzt String-Enums, JUCE int -> JUCE Enum."
+"16","setSlope(s)","function setSlope(s: FilterSlope): void {
+  slope.value = s
+  applySlope()
+}","void T5ynthFilter::setSlope(int slope)
+{
+    currentSlope = (slope == 1) ? 1 : 0;
+}","","Vorlage rewired den Audiographen sofort (applySlope). JUCE speichert nur den Wert — Auswirkung erst in naechstem processBlock(). Funktional aequivalent, da JUCE blockweise arbeitet."
+"17","setCutoff(n)","function setCutoff(n: number): void {
+  cutoff.value = Math.max(0, Math.min(1, n))
+  applyParams()
+}","void T5ynthFilter::setCutoff(float hz)
+{
+    filter1.setCutoffFrequency(hz);
+    filter2.setCutoffFrequency(hz);
+}","","INTERFACE-UNTERSCHIED: Vorlage nimmt normalized 0-1 mit Clamping, rechnet intern in Hz um. JUCE nimmt direkt Hz. normalizedToFreq()-Umrechnung und Clamping muss extern erfolgen. Kein Batch-Update (applyParams fehlt)."
+"18","setResonance(r)","function setResonance(r: number): void {
+  resonance.value = Math.max(0, Math.min(1, r))
+  applyParams()
+}","void T5ynthFilter::setResonance(float r)
+{
+    float q = resonanceToQ(r);
+    filter1.setResonance(q);
+    filter2.setResonance(q);
+}","","Mapping identisch (resonanceToQ). Unterschied: Vorlage clampt r auf [0,1] und ruft applyParams() (Type+Q+Freq+Mix). JUCE setzt nur Resonance. ACHTUNG: JUCE StateVariableTPT::setResonance() Dokumentation sagt Wert >= 1/sqrt(2) erwartet. resonanceToQ liefert 0.5 bei r=0, was UNTER 1/sqrt(2)=0.707 liegt — potenzielle Instabilitaet!"
+"19","setMix(m)","function setMix(m: number): void {
+  mix.value = Math.max(0, Math.min(1, m))
+  applyMix()
+}","void T5ynthFilter::setMix(float mix)
+{
+    currentMix = juce::jlimit(0.0f, 1.0f, mix);
+}","","Funktional identisch: Clamping auf [0,1]. Vorlage ruft sofort applyMix() (aktualisiert Gain-Nodes). JUCE speichert nur den Wert — Auswirkung in naechstem processBlock()."
+"20","setKbdTrack(k)","function setKbdTrack(k: number): void {
+  kbdTrack.value = Math.max(0, Math.min(1, k))
+  applyFrequency()
+}","// Nicht vorhanden.","","FEHLT KOMPLETT. Keyboard-Tracking ist nicht implementiert."
+"21","processBlock()","// Kein direktes Aequivalent — Web Audio verarbeitet
+// den Graphen automatisch. Die Signal-Kette ist:
+// input -> [dry: dryGain] ---------> outputNode
+//       -> [wet: filter(s) -> wetGain] -> outputNode
+// Gains werden per applyMix() gesetzt.","void T5ynthFilter::processBlock(juce::AudioBuffer<float>& buffer)
+{
+    if (!prepared) return;
+    const int numChannels = buffer.getNumChannels();
+    const int numSamples = buffer.getNumSamples();
+    if (currentMix < 0.001f) return; // bypass
+    const float halfPi = juce::MathConstants<float>::halfPi;
+    const float wetGain = std::sin(currentMix * halfPi);
+    const float dryGain = std::cos(currentMix * halfPi);
+    if (dryGain < 0.001f) { // fully wet
+        juce::dsp::AudioBlock<float> block(buffer);
+        juce::dsp::ProcessContextReplacing<float> context(block);
+        filter1.process(context);
+        if (currentSlope == 1) {
+            juce::dsp::ProcessContextReplacing<float> context2(block);
+            filter2.process(context2);
+        }
+        return;
+    }
+    // Mixed: dry copy, filter, blend
+    juce::AudioBuffer<float> dryBuffer(numChannels, numSamples);
+    for (int ch = 0; ch < numChannels; ++ch)
+        dryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+    juce::dsp::AudioBlock<float> block(buffer);
+    juce::dsp::ProcessContextReplacing<float> context(block);
+    filter1.process(context);
+    if (currentSlope == 1) {
+        juce::dsp::ProcessContextReplacing<float> context2(block);
+        filter2.process(context2);
+    }
+    for (int ch = 0; ch < numChannels; ++ch) {
+        auto* wet = buffer.getWritePointer(ch);
+        const auto* dry = dryBuffer.getReadPointer(ch);
+        for (int i = 0; i < numSamples; ++i)
+            wet[i] = dry[i] * dryGain + wet[i] * wetGain;
+    }
+}","","Signal-Kette funktional identisch: paralleles Dry/Wet mit Equal-Power Crossfade. Optimierungen in JUCE: (1) Early-Return bei mix<0.001 (Bypass), (2) Kein Dry-Buffer bei dryGain<0.001 (fully wet). Allokiert dryBuffer auf dem Stack im Mixed-Fall — potenzielle Echtzeit-Verletzung (Heap-Allokation in Audio-Thread). TOPOLOGIE-UNTERSCHIED: Vorlage nutzt BiquadFilterNode (IIR Biquad), JUCE nutzt StateVariableTPT (Topology-Preserving Transform). TPT hat bessere Stabilitaet bei hohen Frequenzen, aber UNTERSCHIEDLICHE Klangeigenschaften."
+"22","reset()","// Nicht vorhanden (Web Audio Nodes haben kein reset).
+// dispose() disconnected/nullt alles.","void T5ynthFilter::reset()
+{
+    filter1.reset();
+    filter2.reset();
+}","","JUCE-spezifisch. Setzt Filter-State (Verzoegerungselemente) zurueck. Wichtig fuer NoteOn-Reset um Artefakte zu vermeiden. Vorlage hat kein Aequivalent — Web Audio BiquadFilter hat keinen manuellen Reset."
+"23","dispose()","function dispose(): void {
+  for (const fn of filterNodes) fn.disconnect()
+  filterNodes = []
+  if (dryGain) dryGain.disconnect()
+  if (wetGain) wetGain.disconnect()
+  if (inputNode) inputNode.disconnect()
+  if (outputNode) outputNode.disconnect()
+  dryGain = wetGain = inputNode = outputNode = null
+  ctx = null
+}","// Kein explizites Aequivalent.
+// JUCE Destruktor + RAII.","","Vorlage muss Web Audio Nodes manuell disconnecten und nullen. JUCE nutzt RAII — T5ynthFilter-Destruktor raeumt automatisch auf."
+"24","Reactive state (ref/readonly)","enabled: readonly(enabled),
+type: readonly(type),
+slope, cutoff, resonance, mix, kbdTrack,","// Keine reaktiven Properties.
+// Nur private Members + Setter.","","Vorlage exponiert reaktive refs fuer UI-Binding (Vue). JUCE hat nur imperative Setter. GUI-Binding muss ueber ValueTree/APVTS oder manuelles Callback-System erfolgen."
+"25","Gesamtarchitektur: Filter-Topologie","// Web Audio BiquadFilterNode:
+// - IIR Biquad Filter (Direct Form II)
+// - frequency: Cutoff in Hz
+// - Q: Quality factor
+// - Typen: lowpass, highpass, bandpass
+// - Automatische Koeffizienten-Berechnung","// JUCE StateVariableTPTFilter:
+// - State Variable Topology-Preserving Transform
+// - setCutoffFrequency(Hz)
+// - setResonance(value)
+// - Typen: lowpass, highpass, bandpass
+// - Bessere numerische Stabilitaet bei hohen Cutoffs","","FUNDAMENTALER TOPOLOGIE-UNTERSCHIED: BiquadFilterNode (IIR Biquad Direct Form) vs StateVariableTPT. (1) Biquad: 2 Pole, 2 Nullstellen, berechnet a/b-Koeffizienten aus Cutoff/Q. (2) SVF-TPT: trapezoidal integration, inherent stable. (3) Gleiche Filtertypen (LP/HP/BP), ABER unterschiedliche Resonanzcharakteristik, Flankenantwort und Phasengang. (4) Bei identischen Parametern klingen die Filter NICHT identisch. (5) JUCE StateVariableTPT::setResonance() erwartet anderen Wertebereich als BiquadFilter.Q — resonanceToQ()-Mapping muss fuer TPT validiert werden."

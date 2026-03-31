@@ -32,7 +32,7 @@ private:
     T5ynthProcessor& processorRef;
 
     // ── Engine mode ──
-    juce::TextButton looperBtn { "Looper" };
+    juce::TextButton samplerBtn { "Sampler" };
     juce::TextButton wavetableBtn { "Wavetable" };
     juce::ComboBox engineModeHidden;
     WaveformDisplay waveformDisplay;

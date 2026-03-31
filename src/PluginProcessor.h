@@ -41,10 +41,9 @@ public:
 
     juce::AudioProcessorValueTreeState& getValueTreeState() { return parameters; }
 
-    // Engine mode
-    enum class EngineMode { Looper, Wavetable };
-    EngineMode getEngineMode() const { return engineMode; }
-    void setEngineMode(EngineMode mode) { engineMode = mode; }
+    // Engine mode (read from APVTS "engine_mode": 0=Sampler, 1=Wavetable)
+    bool isWavetableMode() const;
+    bool isSamplerMode() const;
 
     // Load generated audio into the engine
     void loadGeneratedAudio(const juce::AudioBuffer<float>& buffer, double sampleRate);
@@ -71,15 +70,14 @@ public:
     juce::String exportJsonPreset() const;
     bool importJsonPreset(const juce::String& json);
 
-    // Looper access for preset import (loop region brackets)
-    AudioLooper& getLooper() { return masterLooper; }
+    // Sampler access for preset import (loop region brackets)
+    AudioLooper& getSampler() { return masterLooper; }
 
 private:
     juce::AudioProcessorValueTreeState parameters;
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
-    // Engine
-    EngineMode engineMode = EngineMode::Looper;
+    // Engine (mode is stored in APVTS "engine_mode", no separate member)
 
     // DSP — polyphonic voice pool
     VoiceManager voiceManager;
@@ -92,6 +90,7 @@ private:
     LFO lfo1;
     LFO lfo2;
     DriftLFO driftLfo;
+    T5ynthFilter postFilter;
     T5ynthDelayLine delay;
     ConvolutionReverb reverb;
     T5ynthLimiter limiter;
@@ -109,6 +108,9 @@ private:
 
     // Last triggered note (for pitch modulation in block-rate section)
     int lastTriggeredNote = -1;
+
+    // Pre-allocated LFO buffers (avoid heap alloc in processBlock)
+    std::vector<float> lfo1Buffer, lfo2Buffer;
 
     // Waveform display
     juce::AudioBuffer<float> waveformSnapshot;

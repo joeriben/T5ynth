@@ -1,0 +1,396 @@
+"Nr","Funktion","Original-Code (TypeScript)","Legacy-JUCE (C++)","Neuer Code (C++)","Kommentar"
+"1","Defaults / Reactive State","const delayEnabled = ref(false)
+const delayTimeMs = ref(250)
+const delayFeedback = ref(0.35)
+const delayDamp = ref(0.5)
+const delayDampFreq = ref(4000)
+const delayMix = ref(0.3)
+
+const reverbEnabled = ref(false)
+const reverbMix = ref(0.25)
+const reverbVariant = ref<PlateVariant>('medium')
+const reverbLoaded = ref(false)","// DelayLine.h
+float delayTimeMs = 250.0f;
+float feedback = 0.35f;
+float wetMix = 0.3f;
+float dampFreq = 4000.0f;
+
+// ConvolutionReverb.h
+float wetMix = 0.0f;
+bool irLoaded = false;
+
+// Limiter.h
+// (no exposed defaults, set in prepare())","","TS hat delayEnabled, reverbEnabled, reverbVariant, reverbLoaded als reactive refs. JUCE hat kein enabled-Flag pro Effekt (Mix=0 als Bypass). Reverb wetMix default 0.0 statt 0.25 (in TS ist reverbMix=0.25 aber reverbSend startet bei 0 weil reverbEnabled=false). JUCE hat keine PlateVariant Auswahl (bright/medium/dark). delayDamp (0-1 Slider-Wert) fehlt als Member in JUCE, nur dampFreq gespeichert."
+"2","createChain()","function createChain(ac: AudioContext, dest: AudioNode): GainNode {
+  ctx = ac
+  destinationNode = dest
+
+  limiter = ac.createDynamicsCompressor()
+  limiter.threshold.value = -3
+  limiter.knee.value = 6
+  limiter.ratio.value = 20
+  limiter.attack.value = 0.001
+  limiter.release.value = 0.1
+  limiter.connect(dest)
+
+  const mixBus = limiter
+
+  inputNode = ac.createGain()
+  inputNode.gain.value = 1
+
+  dryGain = ac.createGain()
+  dryGain.gain.value = 1
+  inputNode.connect(dryGain)
+  dryGain.connect(mixBus)
+
+  delaySend = ac.createGain()
+  delaySend.gain.value = 0
+  delayNode = ac.createDelay(5.0)
+  delayNode.delayTime.value = delayTimeMs.value / 1000
+  feedbackGain = ac.createGain()
+  feedbackGain.gain.value = delayFeedback.value
+  delayOut = ac.createGain()
+  delayOut.gain.value = 1
+
+  feedbackFilter = ac.createBiquadFilter()
+  feedbackFilter.type = 'lowpass'
+  feedbackFilter.frequency.value = Math.round(20000 * Math.pow(500 / 20000, delayDamp.value))
+  feedbackFilter.Q.value = 0.7
+
+  inputNode.connect(delaySend)
+  delaySend.connect(delayNode)
+  delayNode.connect(feedbackGain)
+  feedbackGain.connect(feedbackFilter)
+  feedbackFilter.connect(delayNode)
+  delayNode.connect(delayOut)
+  delayOut.connect(mixBus)
+
+  reverbSend = ac.createGain()
+  reverbSend.gain.value = 0
+  convolver = ac.createConvolver()
+  reverbOut = ac.createGain()
+  reverbOut.gain.value = 1
+
+  inputNode.connect(reverbSend)
+  reverbSend.connect(convolver)
+  convolver.connect(reverbOut)
+  reverbOut.connect(mixBus)
+
+  applyDelayParams()
+  applyReverbParams()
+
+  if (reverbEnabled.value && !reverbLoaded.value) {
+    loadIR(reverbVariant.value)
+  }
+
+  return inputNode
+}","// Kein direktes Aequivalent. Jeder Effekt hat eigene prepare():
+
+// DelayLine.cpp
+void T5ynthDelayLine::prepare(double sampleRate, int samplesPerBlock) {
+    sr = sampleRate;
+    juce::dsp::ProcessSpec spec;
+    spec.sampleRate = sampleRate;
+    spec.maximumBlockSize = static_cast<juce::uint32>(samplesPerBlock);
+    spec.numChannels = 2;
+    delayLine.prepare(spec);
+    delayLine.setDelay(static_cast<float>(delayTimeMs * 0.001 * sr));
+    updateDampCoeffs();
+    prepared = true;
+}
+
+// ConvolutionReverb.cpp
+void ConvolutionReverb::prepare(double sampleRate, int samplesPerBlock) {
+    sr = sampleRate;
+    juce::dsp::ProcessSpec spec;
+    spec.sampleRate = sampleRate;
+    spec.maximumBlockSize = static_cast<juce::uint32>(samplesPerBlock);
+    spec.numChannels = 2;
+    convolution.prepare(spec);
+    mixer.prepare(spec);
+    mixer.setWetMixProportion(wetMix);
+    prepared = true;
+}
+
+// Limiter.cpp
+void T5ynthLimiter::prepare(double sampleRate, int samplesPerBlock) {
+    juce::dsp::ProcessSpec spec;
+    spec.sampleRate = sampleRate;
+    spec.maximumBlockSize = static_cast<juce::uint32>(samplesPerBlock);
+    spec.numChannels = 2;
+    limiter.prepare(spec);
+    limiter.setThreshold(-3.0f);
+    limiter.setRelease(100.0f);
+    prepared = true;
+}","","TS baut gesamten Audio-Graph in einer Funktion (Web Audio Nodes + Verbindungen). JUCE hat 3 separate Klassen mit eigenen prepare(). Die Signalverkettung (input -> dry/delay/reverb -> limiter -> output) muss in der uebergeordneten processBlock()-Reihenfolge abgebildet werden. TS gibt inputNode zurueck; JUCE hat keinen zentralen Eingangsknoten."
+"3","applyDelayParams()","function applyDelayParams(): void {
+  if (!delaySend || !delayNode || !feedbackGain || !dryGain) return
+  delaySend.gain.value = delayEnabled.value ? delayMix.value : 0
+  delayNode.delayTime.value = delayTimeMs.value / 1000
+  feedbackGain.gain.value = Math.min(delayFeedback.value, 0.95)
+  dryGain.gain.value = delayEnabled.value ? 1 - delayMix.value * 0.3 : 1
+}","// Kein direktes Aequivalent als Einzel-Funktion.
+// Dry compensation in processBlock():
+// DelayLine.cpp, processBlock():
+const float dryGain = 1.0f - wetMix * 0.3f;
+
+// Mix wird direkt in processBlock() verwendet (wetMix==0 -> return).
+// Feedback wird in setFeedback() gesetzt.","","TS hat eine zentrale applyDelayParams() die alle 4 Parameter gleichzeitig setzt. JUCE verteilt dies: dryGain wird pro-Sample in processBlock() berechnet, wetMix==0 dient als Bypass (fruehes Return), feedback in setFeedback(). Kein delayEnabled-Boolean in JUCE; stattdessen wetMix=0 als Bypass-Mechanismus."
+"4","setDelayEnabled()","function setDelayEnabled(on: boolean): void {
+  delayEnabled.value = on
+  applyDelayParams()
+}","// Kein Aequivalent.
+// Bypass durch wetMix = 0.0 (processBlock() return bei wetMix==0).","","TS hat explizites enabled-Flag das delaySend.gain und dryGain steuert. JUCE hat kein enabled-Flag; Effekt ist deaktiviert wenn wetMix==0 (processBlock fruehes Return). Uebergeordneter Code muss setMix(0) aufrufen um Delay zu deaktivieren."
+"5","setDelayTime()","function setDelayTime(ms: number): void {
+  delayTimeMs.value = Math.max(1, Math.min(5000, ms))
+  if (delayNode) delayNode.delayTime.value = delayTimeMs.value / 1000
+}","void T5ynthDelayLine::setTime(float ms) {
+    delayTimeMs = ms;
+    if (prepared)
+        delayLine.setDelay(static_cast<float>(ms * 0.001 * sr));
+}","","TS clampt auf [1, 5000] ms. JUCE clampt NICHT explizit (DelayLine max ist 220500 Samples ~ 5s bei 44.1kHz, aber kein Min-Clamp). TS setzt delayTime in Sekunden (ms/1000), JUCE setzt in Samples (ms * 0.001 * sr). Funktional aequivalent, aber JUCE fehlt das Clamping."
+"6","setDelayFeedback()","function setDelayFeedback(fb: number): void {
+  delayFeedback.value = Math.max(0, Math.min(0.95, fb))
+  if (feedbackGain) feedbackGain.gain.value = delayFeedback.value
+}","void T5ynthDelayLine::setFeedback(float fb) {
+    feedback = juce::jlimit(0.0f, 0.95f, fb);
+}","","Identische Logik. Beide clampen auf [0, 0.95]. TS setzt zusaetzlich feedbackGain.gain.value direkt; in JUCE wird feedback nur als Member gespeichert und in processBlock() gelesen."
+"7","setDelayDamp()","function setDelayDamp(d: number): void {
+  delayDamp.value = Math.max(0, Math.min(1, d))
+  const freq = Math.round(20000 * Math.pow(500 / 20000, delayDamp.value))
+  delayDampFreq.value = freq
+  if (feedbackFilter) feedbackFilter.frequency.value = freq
+}","void T5ynthDelayLine::setDamp(float d) {
+    d = juce::jlimit(0.0f, 1.0f, d);
+    dampFreq = 20000.0f * std::pow(500.0f / 20000.0f, d);
+    if (prepared)
+        updateDampCoeffs();
+}
+
+void T5ynthDelayLine::updateDampCoeffs() {
+    auto coeffs = juce::dsp::IIR::Coefficients<float>::makeLowPass(sr, dampFreq, 0.707f);
+    dampFilterL.coefficients = coeffs;
+    dampFilterR.coefficients = coeffs;
+}","","Identische Damping-Formel: freq = 20000 * pow(500/20000, d). TS rundet mit Math.round(), JUCE nicht. TS setzt BiquadFilter.frequency direkt (Web Audio Q=0.7), JUCE berechnet IIR-Koeffizienten manuell mit Q=0.707 (Butterworth). TS speichert delayDampFreq fuer Anzeige; JUCE hat kein Display-Aequivalent. JUCE hat Stereo-Filter (L/R), TS hat nur 1 Filter (mono Web Audio Feedback-Loop)."
+"8","setDelayMix()","function setDelayMix(mix: number): void {
+  delayMix.value = Math.max(0, Math.min(1, mix))
+  applyDelayParams()
+}","void T5ynthDelayLine::setMix(float mix) {
+    wetMix = juce::jlimit(0.0f, 1.0f, mix);
+}","","Beide clampen auf [0, 1]. TS ruft applyDelayParams() auf (setzt delaySend.gain, delayTime, feedback, dryGain). JUCE setzt nur den Member; Auswirkung erst in naechstem processBlock()."
+"9","syncDelayToBpm()","function syncDelayToBpm(bpm: number, division: '1/4' | '1/8' | '1/16' | '1/8T' | '1/4T'): void {
+  const quarterMs = (60 / bpm) * 1000
+  const factors: Record<string, number> = {
+    '1/4': 1, '1/8': 0.5, '1/16': 0.25, '1/8T': 1/3, '1/4T': 2/3,
+  }
+  setDelayTime(quarterMs * (factors[division] ?? 0.5))
+}","// FEHLT komplett in JUCE.","","Komplett fehlend in JUCE. BPM-Sync mit 5 Notenwerten (1/4, 1/8, 1/16, 1/8T, 1/4T). Berechnung: (60/bpm)*1000 * factor. Muss portiert werden."
+"10","applyReverbParams()","function applyReverbParams(): void {
+  if (!reverbSend || !dryGain) return
+  reverbSend.gain.value = reverbEnabled.value ? reverbMix.value : 0
+}","// Kein direktes Aequivalent.
+// ConvolutionReverb::processBlock() returnt frueh bei wetMix==0 || !irLoaded.","","TS setzt reverbSend.gain basierend auf reverbEnabled und reverbMix. JUCE: Bypass durch wetMix==0 und irLoaded==false Check in processBlock(). Kein reverbEnabled-Flag in JUCE."
+"11","loadIR()","async function loadIR(variant: PlateVariant): Promise<void> {
+  if (!ctx || !convolver) return
+  if (loadedVariant === variant && reverbLoaded.value) return
+
+  const url = IR_URLS[variant]
+  try {
+    const resp = await fetch(url)
+    const arrayBuf = await resp.arrayBuffer()
+    const audioBuf = await ctx.decodeAudioData(arrayBuf)
+    convolver.buffer = audioBuf
+    loadedVariant = variant
+    reverbLoaded.value = true
+  } catch (e) {
+    console.warn(`Failed to load IR ${url}:`, e)
+    reverbLoaded.value = false
+  }
+}","void ConvolutionReverb::loadImpulseResponse(const void* data, size_t size) {
+    if (data != nullptr && size > 0) {
+        convolution.loadImpulseResponse(data, size,
+                                         juce::dsp::Convolution::Stereo::yes,
+                                         juce::dsp::Convolution::Trim::yes,
+                                         0);
+        irLoaded = true;
+    }
+}","","TS: Async Fetch von URL, Decode, Zuweisung an ConvolverNode.buffer. Unterstuetzt 3 Varianten (bright/medium/dark) mit Skip-if-already-loaded Check. JUCE: Synchrones Laden von Rohdaten (const void*), keine Varianten-Auswahl, kein Skip-Check. TS hat Error-Handling mit try/catch, JUCE hat nur nullptr/size Check. JUCE nutzt Trim::yes (TS nicht). JUCE fehlt: Varianten-Konzept, loadedVariant-Tracking, async Loading."
+"12","setReverbEnabled()","async function setReverbEnabled(on: boolean): Promise<void> {
+  reverbEnabled.value = on
+  if (on && !reverbLoaded.value) {
+    await loadIR(reverbVariant.value)
+  }
+  applyReverbParams()
+}","// FEHLT in JUCE.
+// Bypass durch wetMix == 0.0 in processBlock().","","Komplett fehlend in JUCE. TS laedt IR lazy beim ersten Aktivieren. JUCE hat keinen enabled-Toggle; Bypass nur durch wetMix=0 und processBlock fruehes Return."
+"13","setReverbMix()","function setReverbMix(mix: number): void {
+  reverbMix.value = Math.max(0, Math.min(1, mix))
+  applyReverbParams()
+}","void ConvolutionReverb::setMix(float mix) {
+    wetMix = juce::jlimit(0.0f, 1.0f, mix);
+    if (prepared)
+        mixer.setWetMixProportion(wetMix);
+}","","Beide clampen auf [0, 1]. TS ruft applyReverbParams() (setzt reverbSend.gain). JUCE setzt DryWetMixer direkt. Unterschiedliche Mixing-Architektur: TS nutzt Send-Gain (parallel), JUCE nutzt DryWetMixer (crossfade). Bei gleichem Mix-Wert klingt JUCE anders (dry wird abgesenkt, TS nicht)."
+"14","setReverbVariant()","async function setReverbVariant(variant: PlateVariant): Promise<void> {
+  reverbVariant.value = variant
+  if (reverbEnabled.value) {
+    await loadIR(variant)
+  }
+}","// FEHLT komplett in JUCE.","","Komplett fehlend in JUCE. TS unterstuetzt 3 PlateVarianten (bright/medium/dark) mit Hot-Swap. JUCE hat nur eine loadImpulseResponse() ohne Varianten-Konzept. Muss portiert werden."
+"15","getInputNode()","function getInputNode(): GainNode | null {
+  return inputNode
+}","// Kein Aequivalent.
+// JUCE: Jeder Effekt hat eigene processBlock(), kein Graph-Routing.","","Web Audio spezifisch. JUCE braucht keinen Input-Node-Accessor; stattdessen wird processBlock() in Reihenfolge aufgerufen."
+"16","getOutputNode()","function getOutputNode(): DynamicsCompressorNode | null {
+  return limiter
+}","// Kein Aequivalent.
+// JUCE: Limiter::processBlock() wird am Ende der Kette aufgerufen.","","Web Audio spezifisch. JUCE braucht keinen Output-Node-Accessor; Limiter-processBlock() wird zuletzt aufgerufen."
+"17","getModTargets()","function getModTargets(): Record<string, { param: AudioParam; baseValue: () => number }> {
+  const targets: Record<string, { param: AudioParam; baseValue: () => number }> = {}
+  if (delayNode) targets.delay_time = { param: delayNode.delayTime, baseValue: () => delayTimeMs.value / 1000 }
+  if (feedbackGain) targets.delay_feedback = { param: feedbackGain.gain, baseValue: () => delayFeedback.value }
+  if (delaySend) targets.delay_mix = { param: delaySend.gain, baseValue: () => delayEnabled.value ? delayMix.value : 0 }
+  if (reverbSend) targets.reverb_mix = { param: reverbSend.gain, baseValue: () => reverbEnabled.value ? reverbMix.value : 0 }
+  return targets
+}","// FEHLT komplett in JUCE.","","Komplett fehlend in JUCE. Exponiert 4 Modulationsziele: delay_time, delay_feedback, delay_mix, reverb_mix. Jedes mit AudioParam-Referenz und baseValue-Getter. Muss portiert werden (JUCE: Modulations-Interface mit Setter-Callbacks oder Parameter-Referenzen)."
+"18","dispose()","function dispose(): void {
+  if (inputNode) { inputNode.disconnect(); inputNode = null }
+  if (dryGain) { dryGain.disconnect(); dryGain = null }
+  if (delaySend) { delaySend.disconnect(); delaySend = null }
+  if (delayNode) { delayNode.disconnect(); delayNode = null }
+  if (feedbackGain) { feedbackGain.disconnect(); feedbackGain = null }
+  if (feedbackFilter) { feedbackFilter.disconnect(); feedbackFilter = null }
+  if (delayOut) { delayOut.disconnect(); delayOut = null }
+  if (reverbSend) { reverbSend.disconnect(); reverbSend = null }
+  if (convolver) { convolver.disconnect(); convolver = null }
+  if (reverbOut) { reverbOut.disconnect(); reverbOut = null }
+  if (limiter) { limiter.disconnect(); limiter = null }
+  reverbLoaded.value = false
+  loadedVariant = null
+  ctx = null
+}","// DelayLine.cpp
+void T5ynthDelayLine::reset() {
+    delayLine.reset();
+    dampFilterL.reset();
+    dampFilterR.reset();
+}
+
+// ConvolutionReverb.cpp
+void ConvolutionReverb::reset() {
+    convolution.reset();
+    mixer.reset();
+}
+
+// Limiter.cpp
+void T5ynthLimiter::reset() {
+    limiter.reset();
+}","","TS disconnectet alle Web Audio Nodes und nullt Referenzen (Garbage Collection). JUCE reset() setzt nur internen State zurueck (Delay-Buffer, Filter-States), zerstoert keine Objekte (Objekte leben auf dem Stack/als Members). JUCE reset() =/= TS dispose() -- reset ist eher ein State-Clear, dispose ist Destruktion."
+"19","processBlock() - Delay","// Kein processBlock in TS.
+// Web Audio verarbeitet automatisch Sample-fuer-Sample im nativen AudioContext.
+
+// Relevante Logik (verteilt):
+// delayNode: DelayNode mit delayTime = delayTimeMs / 1000
+// feedbackGain: gain = feedback (clamped 0.95)
+// feedbackFilter: LP, freq = 20000*pow(500/20000, d), Q=0.7
+// delaySend.gain = delayEnabled ? delayMix : 0
+// dryGain.gain = delayEnabled ? 1 - delayMix * 0.3 : 1
+// Signal: input -> delaySend -> delayNode -> feedbackGain -> feedbackFilter -> delayNode (loop)
+//                                delayNode -> delayOut -> mixBus","void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer) {
+    if (!prepared || wetMix == 0.0f)
+        return;
+
+    const int numChannels = buffer.getNumChannels();
+    const int numSamples = buffer.getNumSamples();
+    const float dryGain = 1.0f - wetMix * 0.3f;
+
+    for (int ch = 0; ch < numChannels; ++ch) {
+        auto* data = buffer.getWritePointer(ch);
+        auto& dampFilter = (ch == 0) ? dampFilterL : dampFilterR;
+
+        for (int i = 0; i < numSamples; ++i) {
+            float drySample = data[i];
+            float delayed = delayLine.popSample(ch);
+            float fbSample = delayed * feedback;
+            float dampedFb = dampFilter.processSample(fbSample);
+            delayLine.pushSample(ch, drySample + dampedFb);
+            data[i] = drySample * dryGain + delayed * wetMix;
+        }
+    }
+}","","JUCE hat explizite Sample-Schleife. TS nutzt Web Audio Graph (native Nodes, kein manuelles Sample-Processing). Signalfluss ist aequivalent: input + damped_feedback -> delay, output = dry*dryGain + delayed*wetMix. JUCE verarbeitet In-Place (ueberschreibt Buffer), TS hat separate Nodes mit parallelen Pfaden."
+"20","processBlock() - Reverb","// Kein processBlock in TS.
+// Web Audio:
+// Signal: input -> reverbSend -> ConvolverNode -> reverbOut -> mixBus
+// reverbSend.gain = reverbEnabled ? reverbMix : 0
+// reverbOut.gain = 1","void ConvolutionReverb::processBlock(juce::AudioBuffer<float>& buffer) {
+    if (!prepared || wetMix == 0.0f || !irLoaded)
+        return;
+
+    juce::dsp::AudioBlock<float> block(buffer);
+    mixer.pushDrySamples(block);
+
+    juce::dsp::ProcessContextReplacing<float> context(block);
+    convolution.process(context);
+
+    mixer.mixWetSamples(block);
+}","","TS: Paralleler Send (reverbSend.gain steuert Wet-Anteil, Dry unberuehrt). JUCE: DryWetMixer (pushDrySamples -> process -> mixWetSamples = Crossfade zwischen dry/wet). Architekturunterschied: TS addiert wet zum dry (Send-Bus), JUCE blendet dry/wet ueber (Insert-Stil). Bei Mix=0.5: TS = 100% dry + 50% wet, JUCE = 50% dry + 50% wet. Klingt unterschiedlich."
+"21","processBlock() - Limiter","// Kein processBlock in TS.
+// Web Audio DynamicsCompressorNode:
+// limiter.threshold.value = -3
+// limiter.knee.value = 6
+// limiter.ratio.value = 20
+// limiter.attack.value = 0.001
+// limiter.release.value = 0.1","void T5ynthLimiter::processBlock(juce::AudioBuffer<float>& buffer) {
+    if (!prepared)
+        return;
+
+    juce::dsp::AudioBlock<float> block(buffer);
+    juce::dsp::ProcessContextReplacing<float> context(block);
+    limiter.process(context);
+}","","TS: DynamicsCompressorNode mit 5 Parametern (threshold=-3, knee=6, ratio=20, attack=0.001, release=0.1). JUCE: juce::dsp::Limiter mit nur 2 Parametern (threshold=-3, release=100ms). JUCE Limiter hat KEIN knee, ratio, attack -- es ist ein anderer Algorithmus (True-Peak Limiter vs. Compressor-als-Limiter). Attack ist intern fest. Klangunterschied wahrscheinlich."
+"22","Signal Chain Architektur","// Parallel Send-Bus:
+// source -> dryGain -> limiter -> destination
+//        -> delaySend -> DelayNode(+feedback+damping) -> delayOut -> limiter
+//        -> reverbSend -> ConvolverNode -> reverbOut -> limiter
+//
+// Alle drei Pfade (dry, delay, reverb) werden parallel summiert am limiter.","// JUCE: Serielle processBlock()-Kette:
+// T5ynthDelayLine::processBlock(buffer)  -- modifiziert buffer in-place
+// ConvolutionReverb::processBlock(buffer) -- modifiziert buffer in-place
+// T5ynthLimiter::processBlock(buffer) -- modifiziert buffer in-place
+//
+// Reihenfolge bestimmt durch uebergeordneten Processor.","","ARCHITEKTUR-UNTERSCHIED: TS hat echte parallele Send-Busse (3 Pfade gleichzeitig, summiert vor Limiter). JUCE verarbeitet seriell in-place: Delay modifiziert Buffer, dann Reverb auf bereits verzoegertes Signal, dann Limiter. Bei JUCE geht Delay-Output in den Reverb (seriell), bei TS nicht (parallel). Muss fuer korrekte Portierung auf parallele Busse umgebaut werden (separate Delay/Reverb-Buffer, dann summieren)."
+"23","Limiter Konfiguration","// DynamicsCompressorNode:
+limiter.threshold.value = -3   // dB
+limiter.knee.value = 6         // dB
+limiter.ratio.value = 20       // near brick-wall
+limiter.attack.value = 0.001   // 1ms
+limiter.release.value = 0.1    // 100ms","// Limiter.cpp, prepare():
+limiter.setThreshold(-3.0f);   // Reference: threshold = -3dB
+limiter.setRelease(100.0f);    // Reference: release = 100ms
+
+// Limiter.h:
+void setThreshold(float dB);
+void setRelease(float ms);","","Threshold (-3dB) und Release (100ms) identisch. JUCE juce::dsp::Limiter hat NUR threshold + release. TS DynamicsCompressorNode hat zusaetzlich: knee=6dB, ratio=20, attack=1ms. Diese 3 Parameter fehlen in JUCE komplett (Limiter-Algorithmus ist anders: True-Peak Limiter, nicht Compressor). Fuer exaktes Verhalten muesste JUCE einen Compressor verwenden."
+"24","IR_URLS / PlateVariant","export type PlateVariant = 'bright' | 'medium' | 'dark'
+
+const IR_URLS: Record<PlateVariant, string> = {
+  bright: new URL('../audio/ir/emt_140_plate_bright.wav', import.meta.url).href,
+  medium: new URL('../audio/ir/emt_140_plate_medium.wav', import.meta.url).href,
+  dark:   new URL('../audio/ir/emt_140_plate_dark.wav', import.meta.url).href,
+}","// FEHLT komplett in JUCE.
+// ConvolutionReverb hat nur:
+// void loadImpulseResponse(const void* data, size_t size);
+// Kein Varianten-Konzept, keine IR-Pfade.","","Komplett fehlend in JUCE. TS hat 3 EMT-140 Plate IR Varianten (bright/medium/dark) als URL-Map. JUCE laed IR nur aus Rohdaten ohne Varianten-Auswahl. Muss portiert werden: enum PlateVariant, IR-Dateien als BinaryData einbetten, Auswahl-Logik."
+"25","Reverb DryWetMixer vs. Send-Bus","// TS: Parallel Send-Bus
+// reverbSend.gain = reverbEnabled ? reverbMix : 0
+// Dry-Signal wird NICHT abgesenkt durch Reverb.
+// Output = dry (100%) + wet (reverbMix%)","// JUCE: DryWetMixer (Crossfade)
+// ConvolutionReverb.h:
+juce::dsp::DryWetMixer<float> mixer;
+
+// ConvolutionReverb.cpp:
+mixer.setWetMixProportion(wetMix);
+// processBlock:
+mixer.pushDrySamples(block);
+convolution.process(context);
+mixer.mixWetSamples(block);
+// Output = dry * (1-mix) + wet * mix","","Fundamentaler Mixing-Unterschied. TS: Send-Bus (dry bleibt voll, wet wird addiert). JUCE: DryWetMixer (Crossfade, dry wird abgesenkt wenn wet steigt). Bei reverbMix=0.5: TS output = 1.0*dry + 0.5*wet, JUCE output = 0.5*dry + 0.5*wet. JUCE ist leiser und hat weniger Dry-Praesenz. Muss auf Send-Bus umgebaut werden fuer korrekte Portierung."

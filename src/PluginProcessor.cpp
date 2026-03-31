@@ -337,6 +337,7 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     voiceManager.prepare(sampleRate, samplesPerBlock);
     lfo1.prepare(sampleRate);
     lfo2.prepare(sampleRate);
+    postFilter.prepare(sampleRate, samplesPerBlock);
     delay.prepare(sampleRate, samplesPerBlock);
     reverb.prepare(sampleRate, samplesPerBlock);
     // Load default IR (medium plate)
@@ -346,6 +347,8 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     limiter.prepare(sampleRate, samplesPerBlock);
     stepSequencer.prepare(sampleRate, samplesPerBlock);
     arpeggiator.prepare(sampleRate, samplesPerBlock);
+    lfo1Buffer.resize(static_cast<size_t>(samplesPerBlock));
+    lfo2Buffer.resize(static_cast<size_t>(samplesPerBlock));
 }
 
 void T5ynthProcessor::releaseResources()
@@ -417,10 +420,11 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // Scan
     bp.baseScan = parameters.getRawParameterValue("osc_scan")->load();
 
-    // Engine mode
-    bp.engineIsWavetable = (engineMode == EngineMode::Wavetable);
+    // Engine mode — read directly from APVTS (0=Sampler, 1=Wavetable)
+    int engineModeRaw = static_cast<int>(parameters.getRawParameterValue("engine_mode")->load());
+    bp.engineIsWavetable = (engineModeRaw == 1);
     voiceManager.setEngineMode(bp.engineIsWavetable ? SynthVoice::EngineMode::Wavetable
-                                                     : SynthVoice::EngineMode::Looper);
+                                                     : SynthVoice::EngineMode::Sampler);
 
     // Master volume (dB → linear)
     float masterDb = parameters.getRawParameterValue("master_vol")->load();
@@ -546,8 +550,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     }
 
     // Pre-compute global LFO values for the block (needed by VoiceManager)
-    std::vector<float> lfo1Buf(static_cast<size_t>(numSamples));
-    std::vector<float> lfo2Buf(static_cast<size_t>(numSamples));
+    float* lfo1Buf = lfo1Buffer.data();
+    float* lfo2Buf = lfo2Buffer.data();
     for (int i = 0; i < numSamples; ++i)
     {
         float l1 = lfo1.processSample();
@@ -559,19 +563,58 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         if (bp.lfo2Target == 7) lfo1.setRate(baseLfo1Rate * (1.0f + l2));
         if (bp.lfo2Target == 8) lfo1.setDepth(std::max(0.0f, baseLfo1Depth + l2 * baseLfo1Depth));
 
-        lfo1Buf[static_cast<size_t>(i)] = l1;
-        lfo2Buf[static_cast<size_t>(i)] = l2;
+        lfo1Buf[i] = l1;
+        lfo2Buf[i] = l2;
     }
 
     // Render all voices (summed with 1/sqrt(N) scaling)
-    auto voiceOut = voiceManager.renderBlock(buffer, bp, lfo1Buf.data(), lfo2Buf.data(), numSamples);
+    auto voiceOut = voiceManager.renderBlock(buffer, bp, lfo1Buf, lfo2Buf, numSamples);
     lastTriggeredNote = voiceOut.lastTriggeredNote;
 
     // Capture last LFO values for block-rate modulation
     float lastMod1Val = voiceOut.lastMod1Val;
     float lastMod2Val = voiceOut.lastMod2Val;
-    float lastLfo1Val = lfo1Buf.empty() ? 0.0f : lfo1Buf.back();
-    float lastLfo2Val = lfo2Buf.empty() ? 0.0f : lfo2Buf.back();
+    float lastLfo1Val = numSamples > 0 ? lfo1Buf[numSamples - 1] : 0.0f;
+    float lastLfo2Val = numSamples > 0 ? lfo2Buf[numSamples - 1] : 0.0f;
+
+    // ── Post-sum filter ───────────────────────────────────────────────────
+    if (bp.filterEnabled)
+    {
+        float cutoffMod = bp.baseCutoff;
+
+        if (voiceOut.hasActiveVoices)
+        {
+            // Keyboard tracking (uses newest voice's note)
+            if (bp.kbdTrack > 0.0f && lastTriggeredNote >= 0)
+                cutoffMod *= std::pow(2.0f, (static_cast<float>(lastTriggeredNote) - 60.0f) / 12.0f * bp.kbdTrack);
+
+            // Mod envelope → filter (target index 1)
+            if (bp.mod1Target == 1)
+            {
+                float startFactor = 1.0f - bp.mod1Amount;
+                float peakFactor  = 1.0f + bp.mod1Amount * 8.0f;
+                cutoffMod *= startFactor + (peakFactor - startFactor) * lastMod1Val;
+            }
+            if (bp.mod2Target == 1)
+            {
+                float startFactor = 1.0f - bp.mod2Amount;
+                float peakFactor  = 1.0f + bp.mod2Amount * 8.0f;
+                cutoffMod *= startFactor + (peakFactor - startFactor) * lastMod2Val;
+            }
+
+            // LFO → filter (target index 0)
+            if (bp.lfo1Target == 0) cutoffMod *= (1.0f + lastLfo1Val);
+            if (bp.lfo2Target == 0) cutoffMod *= (1.0f + lastLfo2Val);
+        }
+
+        cutoffMod = juce::jlimit(20.0f, 20000.0f, cutoffMod);
+        postFilter.setCutoff(cutoffMod);
+        postFilter.setResonance(bp.baseReso);
+        postFilter.setType(bp.filterType);
+        postFilter.setSlope(bp.filterSlope);
+        postFilter.setMix(bp.filterMix);
+        postFilter.processBlock(buffer);
+    }
 
     // ── Accumulate block-rate modulation for delay/reverb ─────────────────
     // (Pitch modulation is handled per-sample in SynthVoice::renderSample)
@@ -687,6 +730,16 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     limiter.setThreshold(parameters.getRawParameterValue("limiter_thresh")->load());
     limiter.setRelease(parameters.getRawParameterValue("limiter_release")->load());
     limiter.processBlock(buffer);
+}
+
+bool T5ynthProcessor::isWavetableMode() const
+{
+    return static_cast<int>(parameters.getRawParameterValue("engine_mode")->load()) == 1;
+}
+
+bool T5ynthProcessor::isSamplerMode() const
+{
+    return !isWavetableMode();
 }
 
 void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBuffer, double sr)
@@ -881,7 +934,7 @@ juce::String T5ynthProcessor::exportJsonPreset() const
 
     // Engine
     juce::DynamicObject::Ptr engine = new juce::DynamicObject();
-    engine->setProperty("mode", engineMode == EngineMode::Looper ? "looper" : "wavetable");
+    engine->setProperty("mode", isSamplerMode() ? "sampler" : "wavetable");
     int lm = static_cast<int>(get("loop_mode"));
     engine->setProperty("loopMode", lm == 0 ? "oneshot" : (lm == 1 ? "loop" : "pingpong"));
     engine->setProperty("loopStartFrac", static_cast<double>(masterLooper.getLoopStart()));
@@ -1032,7 +1085,7 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
     if (auto* engine = root->getProperty("engine").getDynamicObject())
     {
         juce::String mode = engine->getProperty("mode").toString();
-        engineMode = (mode == "wavetable") ? EngineMode::Wavetable : EngineMode::Looper;
+        // Accept both "looper" (legacy) and "sampler" (current)
         setParam(parameters, "engine_mode", mode == "wavetable" ? 1.0f : 0.0f);
 
         juce::String lm = engine->getProperty("loopMode").toString();

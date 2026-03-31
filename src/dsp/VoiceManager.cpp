@@ -66,11 +66,11 @@ void VoiceManager::noteOn(int note, float velocity, bool isGlide, float glideMs,
     if (lfo2TrigMode)
         v.getPerVoiceLfo2().reset();
 
-    // Retrigger looper if in looper mode
-    if (v.getEngineMode() == SynthVoice::EngineMode::Looper && v.getLooper().hasAudio())
-        v.getLooper().retrigger();
+    // Retrigger sampler if in sampler mode
+    if (v.getEngineMode() == SynthVoice::EngineMode::Sampler && v.getSampler().hasAudio())
+        v.getSampler().retrigger();
     if (v.getEngineMode() == SynthVoice::EngineMode::Wavetable)
-        v.getLooper().stop();
+        v.getSampler().stop();
 
     updateGainTarget();
 }
@@ -200,7 +200,7 @@ void VoiceManager::setEngineMode(SynthVoice::EngineMode mode)
 void VoiceManager::distributeLooperBuffer(const AudioLooper& masterLooper)
 {
     for (auto& v : voices)
-        v.getLooper().shareBufferFrom(masterLooper);
+        v.getSampler().shareBufferFrom(masterLooper);
 }
 
 void VoiceManager::distributeWavetableFrames(const WavetableOscillator& masterOsc)

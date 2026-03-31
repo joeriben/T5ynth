@@ -38,9 +38,10 @@ void SynthVoice::noteOn(int note, float velocity, bool legato)
         modEnv2.noteOn(velocity);
     }
 
-    // Set pitch
+    // Set pitch (cache base for modulation reference)
+    baseFrequency = static_cast<float>(juce::MidiMessage::getMidiNoteInHertz(note));
     if (engineMode == EngineMode::Wavetable)
-        osc.setFrequency(juce::MidiMessage::getMidiNoteInHertz(note));
+        osc.setFrequency(baseFrequency);
     else
         looper.setMidiNote(note);
 }
@@ -56,8 +57,9 @@ void SynthVoice::noteOff()
 void SynthVoice::glideToNote(int note, float glideMs)
 {
     currentNote = note;
+    baseFrequency = static_cast<float>(juce::MidiMessage::getMidiNoteInHertz(note));
     if (engineMode == EngineMode::Wavetable)
-        osc.glideToFrequency(juce::MidiMessage::getMidiNoteInHertz(note), glideMs);
+        osc.glideToFrequency(baseFrequency, glideMs);
     else
         looper.glideToSemitones(note - 60, glideMs);
 }
@@ -111,13 +113,9 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
     if (p.lfo1Target == 2) pitchMod += lfo1Val;
     if (p.lfo2Target == 2) pitchMod += lfo2Val;
 
-    if (pitchMod != 0.0f)
-    {
-        float pitchFactor = 1.0f + pitchMod;
-        if (p.engineIsWavetable && osc.hasFrames())
-            osc.setFrequency(osc.getFrequency() * pitchFactor);
-        // Looper pitch mod is handled via transposeRatio (block-rate is fine)
-    }
+    // Always set frequency from baseFrequency to avoid accumulation drift
+    if (p.engineIsWavetable && osc.hasFrames())
+        osc.setFrequency(baseFrequency * (1.0f + pitchMod));
 
     // Generate audio sample
     float sample = 0.0f;

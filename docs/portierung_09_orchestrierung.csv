@@ -1,0 +1,568 @@
+"Nr","Funktion","Original-Code (TypeScript)","Legacy-JUCE (C++)","Neuer Code (C++)","Kommentar"
+"1","wtFreqForNote","function wtFreqForNote(note: number): number {
+  const basePitch = wavetableOsc.detectedPitch.value || 440
+  const semitones = note - MIDI_REF_NOTE
+  return basePitch * Math.pow(2, semitones / 12)
+}","// SynthVoice::noteOn (line 43):
+if (engineMode == EngineMode::Wavetable)
+    osc.setFrequency(juce::MidiMessage::getMidiNoteInHertz(note));
+
+// SynthVoice::glideToNote (line 60):
+if (engineMode == EngineMode::Wavetable)
+    osc.glideToFrequency(juce::MidiMessage::getMidiNoteInHertz(note), glideMs);","","Vorlage: Frequenz relativ zu detectedPitch des Samples berechnet (basePitch * 2^(semitones/12)). MIDI 60 spielt bei erkannter Pitch. JUCE: Ignoriert detectedPitch komplett, nutzt stattdessen juce::MidiMessage::getMidiNoteInHertz(note) = absolute 12-TET Frequenz. Transpose-Semantik geht verloren."
+"2","triggerEngine","function triggerEngine(note: number, velocity: number) {
+  wireEnvelope()
+  filter.setNote(note)
+  const semitones = note - MIDI_REF_NOTE
+  if (engineMode.value === 'looper') {
+    looper.setTranspose(semitones)
+    if (looper.hasAudio.value) looper.retrigger()
+  } else {
+    // Kill the looper — it shares the DCA and will bleed through
+    looper.stop()
+    wavetableOsc.setFrequency(wtFreqForNote(note))
+    if (!wavetableOsc.isPlaying.value && wavetableOsc.hasFrames.value) {
+      wavetableOsc.start()
+    }
+  }
+  modulation.triggerAttack(velocity)
+}","// VoiceManager::noteOn (line 27-76):
+void VoiceManager::noteOn(int note, float velocity, bool isGlide, float glideMs,
+                           bool lfo1TrigMode, bool lfo2TrigMode)
+{
+    if (isGlide) {
+        int newest = -1;
+        uint64_t maxTs = 0;
+        for (int i = 0; i < MAX_VOICES; ++i) {
+            if (voices[static_cast<size_t>(i)].isActive()
+                && voices[static_cast<size_t>(i)].noteOnTimestamp >= maxTs) {
+                maxTs = voices[static_cast<size_t>(i)].noteOnTimestamp;
+                newest = i;
+            }
+        }
+        if (newest >= 0)
+            voices[static_cast<size_t>(newest)].glideToNote(note, glideMs);
+        return;
+    }
+    int idx = findVoiceForNote(note);
+    if (idx < 0) idx = findFreeVoice();
+    if (idx < 0) idx = stealVoice();
+    auto& v = voices[static_cast<size_t>(idx)];
+    if (v.isActive()) v.noteOff();
+    v.noteOn(note, velocity, false);
+    v.noteOnTimestamp = ++noteOnCounter;
+    if (lfo1TrigMode) v.getPerVoiceLfo1().reset();
+    if (lfo2TrigMode) v.getPerVoiceLfo2().reset();
+    if (v.getEngineMode() == SynthVoice::EngineMode::Sampler && v.getSampler().hasAudio())
+        v.getSampler().retrigger();
+    if (v.getEngineMode() == SynthVoice::EngineMode::Wavetable)
+        v.getSampler().stop();
+    updateGainTarget();
+}
+
+// SynthVoice::noteOn (line 27-46):
+void SynthVoice::noteOn(int note, float velocity, bool legato)
+{
+    currentNote = note;
+    currentVelocity = velocity;
+    noteHeld = true;
+    active = true;
+    if (!legato) {
+        ampEnv.noteOn(velocity);
+        modEnv1.noteOn(velocity);
+        modEnv2.noteOn(velocity);
+    }
+    if (engineMode == EngineMode::Wavetable)
+        osc.setFrequency(juce::MidiMessage::getMidiNoteInHertz(note));
+    else
+        looper.setMidiNote(note);
+}","","KRITISCH: (1) Vorlage stoppt Looper explizit bei WT-Modus (looper.stop()), JUCE stoppt nur sampler.stop() aber Looper-Oszillator laueft potentiell weiter. (2) Vorlage prueft wavetableOsc.isPlaying + hasFrames vor start(), JUCE hat kein start()/stop()-Konzept fuer WavetableOsc — Oszillator laeuft immer wenn Voice aktiv. (3) Vorlage ruft wireEnvelope() und filter.setNote() auf, JUCE macht kbd-tracking im Filter per-sample statt bei trigger. (4) JUCE ist polyphon (Voice-Allokation), Vorlage monophon."
+"3","glideEngine","function glideEngine(note: number, timeMs: number) {
+  const semitones = note - MIDI_REF_NOTE
+  if (engineMode.value === 'looper') {
+    looper.glideToSemitones(semitones, timeMs)
+  } else {
+    wavetableOsc.glideToFrequency(wtFreqForNote(note), timeMs)
+  }
+}","// VoiceManager::noteOn (glide path, line 30-47):
+if (isGlide) {
+    int newest = -1;
+    uint64_t maxTs = 0;
+    for (int i = 0; i < MAX_VOICES; ++i) {
+        if (voices[static_cast<size_t>(i)].isActive()
+            && voices[static_cast<size_t>(i)].noteOnTimestamp >= maxTs) {
+            maxTs = voices[static_cast<size_t>(i)].noteOnTimestamp;
+            newest = i;
+        }
+    }
+    if (newest >= 0)
+        voices[static_cast<size_t>(newest)].glideToNote(note, glideMs);
+    return;
+}
+
+// SynthVoice::glideToNote (line 56-63):
+void SynthVoice::glideToNote(int note, float glideMs) {
+    currentNote = note;
+    if (engineMode == EngineMode::Wavetable)
+        osc.glideToFrequency(juce::MidiMessage::getMidiNoteInHertz(note), glideMs);
+    else
+        looper.glideToSemitones(note - 60, glideMs);
+}","","Vorlage: WT-Glide nutzt wtFreqForNote() (relativ zu detectedPitch). JUCE: nutzt getMidiNoteInHertz (absolute Frequenz, kein detectedPitch). Gleicher Fehler wie Nr.1. Looper-Glide: Vorlage rechnet semitones = note - MIDI_REF_NOTE, JUCE rechnet note - 60 (identisch, MIDI_REF_NOTE = 60). Vorlage ist eigenstaendige Funktion, JUCE kodiert Glide als isGlide-Flag in noteOn via MIDI-Channel 2."
+"4","setEngineMode","function setEngineMode(mode: EngineMode) {
+  if (mode === engineMode.value) return
+  const wasPlaying = transport.value === 'playing'
+  // Stop audio engines (but NOT sequencer/arpeggiator)
+  looper.stop()
+  wavetableOsc.stop()
+  engineMode.value = mode
+  if (mode === 'wavetable') {
+    const ac = looper.getContext()
+    wavetableOsc.setContext(ac)
+    if (!envelopeWired) wireEnvelope()
+    const dcaGain = modulation.getDcaGainNode()
+    if (dcaGain) {
+      dcaGain.gain.cancelScheduledValues(ac.currentTime)
+      dcaGain.gain.setValueAtTime(0, ac.currentTime)
+    }
+  }
+  if (wasPlaying && (sequencerEnabled.value || arpeggiator.enabled.value)) {
+    transport.value = 'playing'
+  } else {
+    transport.value = hasLoadedAudio.value ? 'paused' : 'idle'
+  }
+}","// PluginProcessor::processBlock (line 420-424):
+int engineModeRaw = static_cast<int>(
+    parameters.getRawParameterValue(""engine_mode"")->load());
+bp.engineIsWavetable = (engineModeRaw == 1);
+voiceManager.setEngineMode(bp.engineIsWavetable
+    ? SynthVoice::EngineMode::Wavetable
+    : SynthVoice::EngineMode::Sampler);
+
+// VoiceManager::setEngineMode (line 194-198):
+void VoiceManager::setEngineMode(SynthVoice::EngineMode mode) {
+    for (auto& v : voices)
+        v.setEngineMode(mode);
+}
+
+// SynthVoice::setEngineMode (header line 53):
+void setEngineMode(EngineMode mode) { engineMode = mode; }","","KRITISCH: Vorlage stoppt BEIDE Engines explizit (looper.stop() + wavetableOsc.stop()), setzt DCA-Gain auf 0, und bewahrt Sequencer/Arp-Zustand. JUCE aendert nur einen Parameter-Wert — kein Engine-Stop, kein Voice-Reset, kein DCA-Reset. Laufende Voices spielen nach Moduswechsel potentiell die falsche Engine weiter bis naechster noteOn."
+"5","transportStop","function transportStop() {
+  sequencer.stop()
+  arpeggiator.stop()
+  modulation.triggerRelease()
+  // Stop BOTH engines — they share the DCA
+  looper.stop()
+  wavetableOsc.stop()
+  // DCA to 0 immediately — no lingering sustain
+  const dcaGain = modulation.getDcaGainNode()
+  if (dcaGain) {
+    const ac = looper.getContext()
+    dcaGain.gain.cancelScheduledValues(ac.currentTime)
+    dcaGain.gain.setValueAtTime(0, ac.currentTime)
+  }
+  pendingBase64.value = null
+  transport.value = 'paused'
+}","// PluginProcessor::processBlock seq section (line 485-488):
+if (seqRunning)
+    stepSequencer.start();
+else
+    stepSequencer.stop();
+stepSequencer.processBlock(buffer, midiMessages);
+
+// Arpeggiator reset (line 514-517):
+else {
+    arpeggiator.reset();
+}","","Vorlage: explizite transportStop-Funktion die Seq + Arp + beide Engines + Modulation + DCA stoppt. JUCE: kein aequivalentes transportStop — Sequencer/Arp werden per Parameter-Toggle in processBlock gesteuert. Kein expliziter Engine-Stop bei Transport-Stop, keine DCA-auf-0-Logik. Voices klingen natuerlich aus statt sofort zu stoppen."
+"6","wireEnvelope","function wireEnvelope() {
+  if (envelopeWired) return
+  const ac = looper.getContext()
+  modulation.init(ac)
+  const effectsInput = effects.createChain(ac, ac.destination)
+  const { input: filterInput, output: filterOutput } = filter.createNode(ac)
+  filterOutput.connect(effectsInput)
+  const dcaGain = modulation.getDcaGainNode()!
+  dcaGain.connect(filterInput)
+  modulation.setTargets({
+    dca: { param: dcaGain.gain, baseValue: () => 1 },
+    ...(freqParam ? { dcf_cutoff: { ... } } : {}),
+    ...effectTargets,
+  })
+  modulation.setCallbackTargets({
+    wt_scan: {
+      callback: (v) => {
+        const clamped = Math.max(0, Math.min(1, v))
+        wavetableOsc.setScanPosition(mappedScanPosition(clamped))
+      },
+      baseValue: () => wavetableScan.value,
+    },
+  })
+  driftLfo.setCallbacks({ ... })
+  driftLfo.start()
+  looper.setDestination(dcaGain)
+  wavetableOsc.setContext(ac)
+  wavetableOsc.setDestination(dcaGain)
+  envelopeWired = true
+}","// Kein Aequivalent — Audio-Routing ist statisch in prepare()/processBlock:
+// SynthVoice::prepare (line 1-14):
+void SynthVoice::prepare(double sampleRate, int samplesPerBlock) {
+    sr = sampleRate;
+    osc.prepare(sampleRate, samplesPerBlock);
+    looper.prepare(sampleRate, samplesPerBlock);
+    ampEnv.prepare(sampleRate);
+    modEnv1.prepare(sampleRate);
+    modEnv2.prepare(sampleRate);
+    perVoiceLfo1.prepare(sampleRate);
+    perVoiceLfo2.prepare(sampleRate);
+    filter.prepare(sampleRate, samplesPerBlock);
+}
+
+// Signal-Routing in renderSample + processFilter (statisch)","","Architektur-Differenz: Vorlage baut Web Audio Graph dynamisch zur Laufzeit (Nodes verbinden, Destinations setzen). JUCE hat statisches Routing: prepare() initialisiert alle DSP-Objekte, renderSample() berechnet Sample-fuer-Sample, processFilter() laeuft post-render. Kein dynamisches connect/disconnect noetig. Die Vorlage-Funktion hat kein 1:1-Aequivalent — ihr Zweck (lazy init + routing) ist in JUCE auf prepare() + processBlock verteilt."
+"7","midi.onNote (MIDI Note Handling)","midi.onNote((note, velocity, on) => {
+  if (sequencerEnabled.value) return
+  if (on) {
+    wireEnvelope()
+    const wasEmpty = heldNotes.length === 0
+    const idx = heldNotes.indexOf(note)
+    if (idx !== -1) heldNotes.splice(idx, 1)
+    heldNotes.push(note)
+    if (wasEmpty) {
+      arpeggiator.processNote(note, velocity, (n, v) => {
+        triggerEngine(n, v)
+      }, () => {
+        modulation.triggerRelease()
+      })
+    } else {
+      // Legato: just transpose, envelope continues
+      if (engineMode.value === 'looper') {
+        looper.setTranspose(note - MIDI_REF_NOTE)
+      } else {
+        wavetableOsc.setFrequency(wtFreqForNote(note))
+      }
+    }
+  } else {
+    const idx = heldNotes.indexOf(note)
+    if (idx !== -1) heldNotes.splice(idx, 1)
+    if (heldNotes.length === 0) {
+      arpeggiator.stop()
+      modulation.triggerRelease()
+      setTimeout(() => {
+        if (heldNotes.length === 0) {
+          if (engineMode.value === 'looper') looper.stop()
+          else wavetableOsc.stop()
+        }
+      }, modulation.envs[0]!.releaseMs.value + 50)
+    } else {
+      const lastNote = heldNotes[heldNotes.length - 1]!
+      if (engineMode.value === 'looper') {
+        looper.setTranspose(lastNote - MIDI_REF_NOTE)
+      } else {
+        wavetableOsc.setFrequency(wtFreqForNote(lastNote))
+      }
+    }
+  }
+})","// PluginProcessor::processBlock MIDI section (line 526-548):
+for (const auto metadata : midiMessages) {
+    const auto msg = metadata.getMessage();
+    if (msg.isNoteOn()) {
+        int note = msg.getNoteNumber();
+        float velocity = msg.getFloatVelocity();
+        bool isGlide = (msg.getChannel() == 2);
+        lastMidiNote.store(note, std::memory_order_relaxed);
+        lastMidiVelocity.store(
+            juce::roundToInt(velocity * 127.0f),
+            std::memory_order_relaxed);
+        lastMidiNoteOn.store(true, std::memory_order_relaxed);
+        voiceManager.noteOn(note, velocity, isGlide,
+            stepSequencer.getGlideTime(),
+            lfo1TrigMode, lfo2TrigMode);
+    } else if (msg.isNoteOff()) {
+        voiceManager.noteOff(msg.getNoteNumber());
+        if (!voiceManager.hasActiveVoices())
+            lastMidiNoteOn.store(false, std::memory_order_relaxed);
+    }
+}","","KRITISCH: (1) Vorlage ist monophon mit explizitem Note-Stack (heldNotes[]) und Last-Note-Priority. JUCE ist polyphon (bis MAX_VOICES). (2) Vorlage routet MIDI→Arp→Engine mit Callbacks (processNote). JUCE routet MIDI direkt an VoiceManager ohne Arp-Zwischenschicht (Arp laeuft separat als MIDI-Buffer-Manipulation). (3) Vorlage stoppt Engine nach Release+50ms timeout. JUCE laesst Voice natuerlich ausklingen (ampEnv.isIdle()). (4) Vorlage: Legato-Erkennung (wasEmpty) mit Pitch-Change ohne Retrigger. JUCE: kein Legato — jeder noteOn triggert neue Voice oder stiehlt."
+"8","wireSequencerCallbacks","function wireSequencerCallbacks() {
+  sequencer.setCallbacks(
+    // noteOn
+    (note, velocity, glide) => {
+      const octNote = note + seqOctave.value * 12
+          + seqKeyTranspose.value
+      const engineRunning = engineMode.value === 'looper'
+        ? looper.isPlaying.value
+        : wavetableOsc.isPlaying.value
+      if (glide && engineRunning) {
+        glideEngine(octNote, sequencer.glideTime.value)
+        filter.setNote(octNote)
+      } else {
+        arpeggiator.processNote(octNote, velocity,
+          (n, v) => { triggerEngine(n, v) },
+          () => { modulation.triggerRelease() })
+      }
+    },
+    // noteOff
+    () => {
+      arpeggiator.stop()
+      modulation.triggerRelease()
+    },
+  )
+  sequencer.setBarStartCallback(onBarStart)
+}","// PluginProcessor::processBlock (line 471-521):
+// Stage 1: Step sequencer generates MIDI
+stepSequencer.setBpm(static_cast<double>(seqBpm));
+stepSequencer.setNumSteps(seqSteps);
+stepSequencer.setDivision(...);
+stepSequencer.setGlideTime(...);
+if (seqRunning) stepSequencer.start();
+else stepSequencer.stop();
+stepSequencer.processBlock(buffer, midiMessages);
+
+// Stage 2: Arpeggiator consumes MIDI, generates arpeggiated output
+if (arpEnabled) {
+    arpeggiator.setBpm(static_cast<double>(seqBpm));
+    arpeggiator.setRate(arpRate);
+    arpeggiator.setOctaveRange(arpOctaves);
+    arpeggiator.setMode(static_cast<T5ynthArpeggiator::Mode>(
+        seqMode - 1));
+    juce::MidiBuffer filtered;
+    for (const auto metadata : midiMessages) {
+        auto msg = metadata.getMessage();
+        if (msg.isNoteOn())
+            arpeggiator.setBaseNote(msg.getNoteNumber(),
+                msg.getFloatVelocity());
+        else if (msg.isNoteOff())
+            arpeggiator.stopArp();
+        else
+            filtered.addEvent(msg, metadata.samplePosition);
+    }
+    midiMessages.swapWith(filtered);
+    arpeggiator.processBlock(buffer, midiMessages);
+} else {
+    arpeggiator.reset();
+}","","KRITISCH: Architektur-Differenz. Vorlage: Callback-Kette Seq→Arp→Engine. Sequencer ruft noteOn-Callback, der durch Arp routet (processNote), der triggerEngine aufruft. Klare Trennung. JUCE: MIDI-Buffer-Pipeline. Seq schreibt MIDI-Events in Buffer, Arp konsumiert/ersetzt Events im selben Buffer, processBlock-Loop liest finalen Buffer. Kein Callback-Konzept. Konsequenzen: (1) seqOctave/seqKeyTranspose fehlen in JUCE (Seq generiert absolute MIDI-Noten). (2) Glide-Pruefung (engineRunning?) fehlt in JUCE — Seq sendet Glide als Channel-2-Flag ohne Engine-Status-Check. (3) Vorlage: Arp ist optional pro Note (processNote). JUCE: Arp enabled/disabled global ueber seq_mode Parameter-Fusion."
+"9","Arp enabled vs seq_mode Fusion","// Arp ist unabhaengig togglebar:
+// In wireSequencerCallbacks:
+arpeggiator.processNote(octNote, velocity,
+  (n, v) => { triggerEngine(n, v) },
+  () => { modulation.triggerRelease() })
+
+// In midi.onNote:
+arpeggiator.processNote(note, velocity,
+  (n, v) => { triggerEngine(n, v) },
+  () => { modulation.triggerRelease() })
+
+// arpeggiator.processNote entscheidet intern
+// ob Arp aktiv → arpeggiate, oder passthrough","// PluginProcessor::processBlock (line 472-478):
+int seqMode = static_cast<int>(
+    parameters.getRawParameterValue(""seq_mode"")->load());
+bool arpEnabled = (seqMode >= 1); // 0=Seq only, 1-4=Arp modes
+
+// Arp-Modus ist in seq_mode fusioniert:
+// 0 = Sequencer ohne Arp
+// 1-4 = Arp-Modi (Up/Down/UpDown/Random)
+// Kein separater arp_enabled Parameter","","Design-Differenz: Vorlage hat Arpeggiator als eigenstaendiges Modul mit eigenem enabled-Flag — processNote() ist ein Durchlauffilter (passthrough wenn disabled, arpeggiate wenn enabled). JUCE fusioniert Arp-Aktivierung in seq_mode-Parameter (0=off, 1-4=mode). Konsequenz: In JUCE kann Arp nicht unabhaengig vom Sequencer-Modus aktiviert werden. Vorlage erlaubt Arp auch bei MIDI-Input ohne Sequencer."
+"10","loadGeneratedAudio / onGenerated","// runSynth result handling (line 3219-3252):
+if (result.success) {
+  lastSynthBase64.value = result.audio_base64
+  resultAudio.value = base64ToDataUrl(
+      result.audio_base64, 'audio/wav')
+  resultSeed.value = result.seed
+  generationTimeMs.value = result.generation_time_ms
+  embeddingStats.value = result.embedding_stats
+
+  if (!envelopeWired) wireEnvelope()
+
+  // Step 1: Load audio buffer
+  await looper.loadBuffer(result.audio_base64)
+  nextTick(drawWaveform)
+  lastSynthFingerprint.value = synthFingerprint()
+
+  // Step 2: Extract wavetable frames AFTER buffer loaded
+  const buf = looper.getOriginalBuffer()
+  if (buf) {
+    await wavetableOsc.loadFrames(buf)
+    wtRangeStart.value = 0
+    wtRangeEnd.value = wavetableOsc.frameCount.value
+    nextTick(drawWtFrame)
+  }
+
+  if (engineMode.value === 'wavetable') {
+    const ac = looper.getContext()
+    wavetableOsc.setContext(ac)
+  }
+  transport.value = 'paused'
+}","// PluginProcessor::loadGeneratedAudio (line 718-734):
+void T5ynthProcessor::loadGeneratedAudio(
+    const juce::AudioBuffer<float>& audioBuffer, double sr)
+{
+    masterLooper.loadBuffer(audioBuffer, sr);
+    masterOsc.extractFramesFromBuffer(audioBuffer, sr);
+    voiceManager.distributeLooperBuffer(masterLooper);
+    voiceManager.distributeWavetableFrames(masterOsc);
+    if (audioBuffer.getNumChannels() > 0
+        && audioBuffer.getNumSamples() > 0)
+    {
+        waveformSnapshot.setSize(1,
+            audioBuffer.getNumSamples(),
+            false, false, true);
+        waveformSnapshot.copyFrom(0, 0, audioBuffer,
+            0, 0, audioBuffer.getNumSamples());
+        newWaveformReady.store(true,
+            std::memory_order_release);
+    }
+}","","KRITISCH: (1) Vorlage: Zweistufig — erst looper.loadBuffer (dekodiert WAV, analysiert Pitch), DANN wavetableOsc.loadFrames aus dem bereits dekodierten Buffer. Sequentiell, loadFrames nutzt den analysierten Buffer. JUCE: Beides simultan in einer Funktion — masterLooper.loadBuffer UND masterOsc.extractFramesFromBuffer laufen auf dem gleichen rohen audioBuffer. (2) Vorlage speichert embeddingStats, Seed, generationTime fuer UI. JUCE speichert nur Waveform-Snapshot. (3) Vorlage setzt transport='paused' nach Laden. JUCE hat kein Transport-State-Management bei Audio-Load."
+"11","releaseCurrentNote (Engine stop after release)","function releaseCurrentNote() {
+  activeKeyNote.value = null
+  modulation.triggerRelease()
+  const stopDelay = modulation.envs[0]!.releaseMs.value + 50
+  setTimeout(() => {
+    if (activeKeyNote.value !== null) return
+    if (engineMode.value === 'looper') looper.stop()
+    else wavetableOsc.stop()
+  }, stopDelay)
+}","// SynthVoice::renderSample (line 149-151):
+if (ampEnv.isIdle() && !noteHeld)
+    active = false;
+
+// VoiceManager::noteOff (line 78-87):
+void VoiceManager::noteOff(int note) {
+    for (auto& v : voices) {
+        if (v.isActive() && !v.isReleasing()
+            && v.getCurrentNote() == note)
+            v.noteOff();
+    }
+}
+
+// SynthVoice::noteOff (line 48-54):
+void SynthVoice::noteOff() {
+    noteHeld = false;
+    ampEnv.noteOff();
+    modEnv1.noteOff();
+    modEnv2.noteOff();
+}","","Vorlage: Nach Release-Phase wird Engine explizit gestoppt (looper.stop()/wavetableOsc.stop()) per setTimeout(releaseMs+50). Verhindert CPU-Verschwendung durch laufende Oszillatoren. JUCE: Voice wird durch ampEnv.isIdle()-Check in renderSample automatisch inaktiv (active=false). Kein expliziter stop() auf Osc/Looper — sie werden einfach nicht mehr gerendert. Funktional aequivalent aber anders implementiert. JUCE-Ansatz ist sauberer (kein fragiler Timeout)."
+"12","setSequencerEnabled","function setSequencerEnabled(on: boolean) {
+  sequencerEnabled.value = on
+  if (!on && sequencer.isPlaying.value) {
+    sequencer.stop()
+    arpeggiator.stop()
+  }
+}","// Kein direktes Aequivalent. Seq wird per Parameter gesteuert:
+// processBlock (line 472-473):
+int seqMode = static_cast<int>(
+    parameters.getRawParameterValue(""seq_mode"")->load());
+bool seqRunning = parameters.getRawParameterValue(
+    ""seq_running"")->load() > 0.5f;
+
+// seq_running steuert start/stop:
+if (seqRunning) stepSequencer.start();
+else stepSequencer.stop();","","Vorlage: sequencerEnabled ist ein separates Flag — steuert UI-Sichtbarkeit UND ob MIDI-Input ignoriert wird (if (sequencerEnabled.value) return in midi.onNote). Bei Deaktivierung stoppt explizit Seq+Arp. JUCE: Kein sequencerEnabled-Konzept. seq_running Parameter steuert nur ob Sequencer laeuft. Kein MIDI-Blocking wenn Sequencer aktiv — MIDI-Events und Sequencer-Events werden beide an VoiceManager weitergereicht (potentielle Doppel-Trigger)."
+"13","VoiceManager::renderBlock (Voice Rendering)","// Kein direktes Aequivalent — Vorlage ist monophon:
+// looper.processSample() / wavetableOsc.processSample()
+// werden direkt via Web Audio Graph geroutet
+// (DCA → Filter → Effects → Destination)","// VoiceManager::renderBlock (line 102-188):
+VoiceManager::VoiceOutput VoiceManager::renderBlock(
+    juce::AudioBuffer<float>& buffer, const BlockParams& bp,
+    const float* lfo1Buf, const float* lfo2Buf,
+    int numSamples)
+{
+    VoiceOutput out;
+    for (auto& v : voices)
+        if (v.isActive()) v.configureForBlock(bp);
+
+    int newestIdx = -1;
+    uint64_t maxTs = 0;
+    for (int i = 0; i < MAX_VOICES; ++i) {
+        if (voices[i].isActive()
+            && voices[i].noteOnTimestamp >= maxTs) {
+            maxTs = voices[i].noteOnTimestamp;
+            newestIdx = i;
+        }
+    }
+    bool anyBecameInactive = false;
+    for (int i = 0; i < numSamples; ++i) {
+        if (gainRampSamplesLeft > 0) {
+            currentGain += gainRampIncr;
+            gainRampSamplesLeft--;
+            if (gainRampSamplesLeft == 0)
+                currentGain = targetGain;
+        }
+        float sumL = 0.0f;
+        for (int vi = 0; vi < MAX_VOICES; ++vi) {
+            auto& v = voices[vi];
+            if (!v.isActive()) continue;
+            auto result = v.renderSample(bp,
+                lfo1Buf[i], lfo2Buf[i]);
+            sumL += result.sample;
+            if (vi == newestIdx) {
+                out.lastMod1Val = result.mod1EnvVal;
+                out.lastMod2Val = result.mod2EnvVal;
+            }
+            if (!v.isActive())
+                anyBecameInactive = true;
+        }
+        sumL *= currentGain;
+        for (int ch = 0; ch < numChannels; ++ch)
+            buffer.setSample(ch, i, sumL);
+    }
+    if (anyBecameInactive) updateGainTarget();
+    if (newestIdx >= 0) {
+        out.lastTriggeredNote =
+            voices[newestIdx].getCurrentNote();
+        out.hasActiveVoices = true;
+    }
+    return out;
+}","","Architektur-Differenz: Vorlage nutzt Web Audio API (Graph-basiert, Browser rendert Audio). JUCE rendert manuell per-sample in renderBlock. JUCE hat: (1) Polyphonie mit 1/sqrt(N) Gain-Skalierung, (2) Gain-Ramping bei Voice-Count-Aenderungen, (3) Per-Voice Envelope/LFO Tracking. Vorlage hat nichts davon — monophon, ein Oszillator, Web Audio uebernimmt Mixing."
+"14","SynthVoice::renderSample (Per-Sample DSP)","// Kein direktes Aequivalent — Vorlage delegiert an Web Audio:
+// modulation.triggerAttack(velocity) → ADSR auf DCA-GainNode
+// wavetableOsc.processSample() → intern im Web Audio Thread
+// filter via BiquadFilterNode
+// Scan-Modulation via Callback-Targets","// SynthVoice::renderSample (line 88-155):
+SynthVoice::RenderResult SynthVoice::renderSample(
+    const BlockParams& p,
+    float globalLfo1Val, float globalLfo2Val)
+{
+    RenderResult result = { 0.0f, 0.0f, 0.0f };
+    if (!active) return result;
+
+    float ampEnvVal = ampEnv.processSample() * p.ampAmount;
+    float mod1EnvVal = modEnv1.processSample() * p.mod1Amount;
+    float mod2EnvVal = modEnv2.processSample() * p.mod2Amount;
+    lastAmpEnvLevel = ampEnvVal;
+
+    // Pitch modulation
+    float pitchMod = 0.0f;
+    if (p.mod1Target == 3) pitchMod += mod1EnvVal;
+    if (p.mod2Target == 3) pitchMod += mod2EnvVal;
+    if (p.lfo1Target == 2) pitchMod += lfo1Val;
+    if (p.lfo2Target == 2) pitchMod += lfo2Val;
+    if (pitchMod != 0.0f) {
+        float pitchFactor = 1.0f + pitchMod;
+        if (p.engineIsWavetable && osc.hasFrames())
+            osc.setFrequency(osc.getFrequency()
+                * pitchFactor);
+    }
+
+    float sample = 0.0f;
+    if (p.engineIsWavetable && osc.hasFrames()) {
+        float scanMod = p.baseScan + p.driftScanOffset;
+        if (p.mod1Target == 2) scanMod += mod1EnvVal;
+        if (p.mod2Target == 2) scanMod += mod2EnvVal;
+        if (p.lfo1Target == 1) scanMod += lfo1Val;
+        if (p.lfo2Target == 1) scanMod += lfo2Val;
+        osc.setScanPosition(juce::jlimit(0.0f, 1.0f,
+            scanMod));
+        sample = osc.processSample();
+    } else if (!p.engineIsWavetable
+               && looper.hasAudio()) {
+        sample = looper.processSample();
+    }
+
+    float vca = ampEnvVal;
+    if (p.mod1Target == 0) vca *= (1.0f + mod1EnvVal);
+    if (p.mod2Target == 0) vca *= (1.0f + mod2EnvVal);
+    sample *= vca;
+
+    if (ampEnv.isIdle() && !noteHeld)
+        active = false;
+    result.sample = sample;
+    return result;
+}","","Vorlage: Web Audio Nodes (BiquadFilter, GainNode, OscillatorNode) — Browser rendert per-sample intern. Modulations-Routing via AudioParam.setTargetAtTime / Callback-Targets. JUCE: Explizites per-sample DSP mit integer Target-IDs (mod1Target==0 → DCA, ==1 → Filter, etc). Scan-Modulation additiv (base + drift + env + lfo). VCA-Modulation multiplikativ. Pitch-Mod als Frequenz-Faktor. Vorlage hat gleiche Logik aber verteilt auf useModulation.ts Callback-System."

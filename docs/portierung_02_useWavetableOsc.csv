@@ -1,0 +1,898 @@
+"Nr","Funktion","Original-Code (TypeScript)","Legacy-JUCE (C++)","Neuer Code (C++)","Kommentar"
+"1","Konstante: FRAME_SIZE","const FRAME_SIZE = 2048","static constexpr int FRAME_SIZE = 2048;","","OK"
+"2","Konstante: HALF_FRAME","const HALF_FRAME = FRAME_SIZE / 2  // 1024 harmonics max","static constexpr int HALF_FRAME = FRAME_SIZE / 2;","","OK"
+"3","Konstante: NUM_MIP_LEVELS","const NUM_MIP_LEVELS = 8           // octave 0..7","static constexpr int NUM_MIP_LEVELS = 8;","","OK"
+"4","Konstante: MIN_FRAMES","const MIN_FRAMES = 8","static constexpr int MIN_FRAMES = 8;","","OK"
+"5","Konstante: PITCH_ANALYSIS_WINDOW","const PITCH_ANALYSIS_WINDOW = 4096","const int analysisLen = std::min(4096, totalSamples);","","Vorlage: globale Konstante. JUCE: lokale Variable in extractFramesFromBuffer"
+"6","Konstante: PITCH_CONFIDENCE_THRESHOLD","const PITCH_CONFIDENCE_THRESHOLD = 0.9","constexpr float threshold = 0.1f;","","ABWEICHEND: Vorlage nutzt pitchy clarity>=0.9, JUCE nutzt YIN threshold=0.1. Verschiedene Algorithmen, verschiedene Schwellwerte."
+"7","Konstante: SINC_KERNEL_A","const SINC_KERNEL_A = 6","static constexpr int SINC_KERNEL_A = 6;","","OK"
+"8","State: ctx (AudioContext)","let ctx: AudioContext | null = null","(kein Aequivalent)","","Web Audio AudioContext — kein Pendant in JUCE (Host liefert Audio-Callback)"
+"9","State: workletNode","let workletNode: AudioWorkletNode | null = null","(kein Aequivalent)","","Web Audio Worklet — JUCE nutzt processSample() direkt"
+"10","State: gainNode","let gainNode: GainNode | null = null","(kein Aequivalent)","","Web Audio GainNode — Gain in JUCE extern geregelt"
+"11","State: workletReady","let workletReady = false","(kein Aequivalent)","","Web Audio Worklet-Ladelogik"
+"12","State: starting","let starting = false  // Guard against concurrent start() calls","(kein Aequivalent)","","start() Guard — JUCE braucht keinen async-Guard"
+"13","State: stopGeneration","let stopGeneration = 0   // Incremented by stop()","(kein Aequivalent)","","Async-Abbruch-Mechanismus — kein Pendant in JUCE"
+"14","State: lastScanPosition","let lastScanPosition = 0","float targetScanPosition = 0.0f;
+float smoothedScan = 0.0f;
+float scanSmoothCoeff = 0.0f;","","Vorlage: ein Wert. JUCE: target + smoothed + coeff (One-Pole-Smoothing)"
+"15","State: frames","let frames: Float32Array[] = []","(implizit in mipFrames[0])","","Vorlage haelt Rohframes separat. JUCE nur in mipFrames[0]."
+"16","State: mipFrames","let mipFrames: Float32Array[][] = []  // mipFrames[level][frameIndex]","std::vector<std::vector<std::vector<float>>> mipFrames;","","Gleiche Struktur: mipFrames[level][frameIndex][sample]"
+"17","State: destinationNode","let destinationNode: AudioNode | null = null","(kein Aequivalent)","","Web Audio Routing — JUCE nutzt externes Routing"
+"18","State: pendingScan","let pendingScan: { attack: number; decay: number; start: number; end: number } | null = null","(kein Aequivalent)","","Deferred Scan Envelope fuer async start() — JUCE braucht das nicht"
+"19","State: hasFrames (ref)","const hasFrames = ref(false)","bool hasFrames() const { return numFrames > 0; }","","Vorlage: reactive ref. JUCE: Methode die numFrames prueft."
+"20","State: isPlaying (ref)","const isPlaying = ref(false)","(kein Aequivalent)","","FEHLT in JUCE. Playback-State wird vom Host/Voice-Manager gesteuert."
+"21","State: frameCount (ref)","const frameCount = ref(0)","int getNumFrames() const { return numFrames; }","","OK. Vorlage: ref, JUCE: getter."
+"22","State: currentFrequency (ref)","const currentFrequency = ref(440)","float targetFrequency = 440.0f;","","OK. Vorlage: ref, JUCE: member."
+"23","State: detectedPitch (ref)","const detectedPitch = ref(0)","(kein Aequivalent)","","FEHLT in JUCE. Erkannter Pitch wird nicht gespeichert, nur lokal in extractFramesFromBuffer verwendet."
+"24","State: sharedMode / sharedMipFrames","(kein Aequivalent)","const std::vector<std::vector<std::vector<float>>>* sharedMipFrames = nullptr;
+bool sharedMode = false;","","JUCE-spezifisch. Polyphonie: mehrere Voices teilen Frame-Daten eines Master-Oszillators."
+"25","State: phase","(in wavetable-processor.js, nicht in useWavetableOsc.ts)","double phase = 0.0;","","Phase-Accumulator liegt in Vorlage im AudioWorklet, in JUCE direkt im Oszillator."
+"26","State: doInterpolate","(in wavetable-processor.js als AudioParam)","bool doInterpolate = true;","","OK. Vorlage: AudioParam im Worklet. JUCE: bool member."
+"27","State: glide (Freq)","(kein expliziter State — Web Audio linearRampToValueAtTime)","float glideFreqTarget = 440.0f;
+float glideFreqIncr = 0.0f;
+int   glideFreqSamplesLeft = 0;","","Vorlage: Web Audio nativer Ramp. JUCE: manueller linearer Ramp per-Sample."
+"28","fft","function fft(re: Float64Array, im: Float64Array): void {
+  const n = re.length
+  // Bit-reversal permutation
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1
+    for (; j & bit; bit >>= 1) j ^= bit
+    j ^= bit
+    if (i < j) {
+      let tmp = re[i]!; re[i] = re[j]!; re[j] = tmp
+      tmp = im[i]!; im[i] = im[j]!; im[j] = tmp
+    }
+  }
+  // Butterfly stages
+  for (let len = 2; len <= n; len *= 2) {
+    const half = len >> 1
+    const angle = -2 * Math.PI / len
+    const wRe = Math.cos(angle), wIm = Math.sin(angle)
+    for (let i = 0; i < n; i += len) {
+      let curRe = 1, curIm = 0
+      for (let j = 0; j < half; j++) {
+        const a = i + j, b = a + half
+        const tRe = re[b]! * curRe - im[b]! * curIm
+        const tIm = re[b]! * curIm + im[b]! * curRe
+        re[b] = re[a]! - tRe; im[b] = im[a]! - tIm
+        re[a] = re[a]! + tRe; im[a] = im[a]! + tIm
+        const tmp = curRe * wRe - curIm * wIm
+        curIm = curRe * wIm + curIm * wRe
+        curRe = tmp
+      }
+    }
+  }
+}","static void fft(std::vector<double>& re, std::vector<double>& im)
+{
+    const int n = static_cast<int>(re.size());
+    // Bit-reversal permutation
+    for (int i = 1, j = 0; i < n; i++)
+    {
+        int bit = n >> 1;
+        for (; j & bit; bit >>= 1) j ^= bit;
+        j ^= bit;
+        if (i < j) { std::swap(re[i], re[j]); std::swap(im[i], im[j]); }
+    }
+    // Butterfly stages
+    for (int len = 2; len <= n; len *= 2)
+    {
+        const int half = len >> 1;
+        const double angle = -2.0 * juce::MathConstants<double>::pi / len;
+        const double wRe = std::cos(angle), wIm = std::sin(angle);
+        for (int i = 0; i < n; i += len)
+        {
+            double curRe = 1.0, curIm = 0.0;
+            for (int j = 0; j < half; j++)
+            {
+                const int a = i + j, b = a + half;
+                const double tRe = re[b] * curRe - im[b] * curIm;
+                const double tIm = re[b] * curIm + im[b] * curRe;
+                re[b] = re[a] - tRe; im[b] = im[a] - tIm;
+                re[a] = re[a] + tRe; im[a] = im[a] + tIm;
+                const double tmp = curRe * wRe - curIm * wIm;
+                curIm = curRe * wIm + curIm * wRe;
+                curRe = tmp;
+            }
+        }
+    }
+}","","1:1 Portierung. Identischer Algorithmus (Radix-2 Cooley-Tukey). JUCE nutzt juce::MathConstants<double>::pi statt Math.PI."
+"29","ifft","function ifft(re: Float64Array, im: Float64Array): void {
+  const n = re.length
+  // Conjugate
+  for (let i = 0; i < n; i++) im[i] = -im[i]!
+  fft(re, im)
+  // Conjugate + scale
+  const invN = 1 / n
+  for (let i = 0; i < n; i++) {
+    re[i] = re[i]! * invN
+    im[i] = -im[i]! * invN
+  }
+}","static void ifft(std::vector<double>& re, std::vector<double>& im)
+{
+    const int n = static_cast<int>(re.size());
+    for (int i = 0; i < n; i++) im[i] = -im[i];
+    fft(re, im);
+    const double invN = 1.0 / n;
+    for (int i = 0; i < n; i++)
+    {
+        re[i] *= invN;
+        im[i] = -im[i] * invN;
+    }
+}","","1:1 Portierung. Identisch."
+"30","generateMipLevels","function generateMipLevels(srcFrames: Float32Array[]): Float32Array[][] {
+  const numFrames = srcFrames.length
+  const mip: Float32Array[][] = []
+
+  // Level 0 = original frames (full spectrum)
+  mip.push(srcFrames.map(f => new Float32Array(f)))
+
+  // Pre-allocate FFT buffers (reused across frames)
+  const re = new Float64Array(FRAME_SIZE)
+  const im = new Float64Array(FRAME_SIZE)
+
+  for (let level = 1; level < NUM_MIP_LEVELS; level++) {
+    const maxHarmonic = HALF_FRAME >> level  // 512, 256, 128, 64, 32, 16, 8
+    const levelFrames: Float32Array[] = []
+
+    for (let f = 0; f < numFrames; f++) {
+      const src = srcFrames[f]!
+      // Load into FFT buffers
+      for (let i = 0; i < FRAME_SIZE; i++) { re[i] = src[i]!; im[i] = 0 }
+
+      fft(re, im)
+
+      // Zero harmonics above maxHarmonic (keep DC + bins 1..maxHarmonic + conjugates)
+      for (let k = maxHarmonic + 1; k <= FRAME_SIZE - maxHarmonic - 1; k++) {
+        re[k] = 0; im[k] = 0
+      }
+
+      ifft(re, im)
+
+      // Copy back to Float32
+      const out = new Float32Array(FRAME_SIZE)
+      for (let i = 0; i < FRAME_SIZE; i++) out[i] = re[i]!
+      levelFrames.push(out)
+    }
+    mip.push(levelFrames)
+  }
+
+  return mip
+}","void WavetableOscillator::generateMipLevels(const std::vector<std::vector<float>>& srcFrames)
+{
+    const int nFrames = static_cast<int>(srcFrames.size());
+    mipFrames.clear();
+    mipFrames.resize(NUM_MIP_LEVELS);
+
+    // Level 0 = original frames
+    mipFrames[0].resize(nFrames);
+    for (int f = 0; f < nFrames; f++)
+        mipFrames[0][f] = srcFrames[f];
+
+    // FFT buffers (reused)
+    std::vector<double> re(FRAME_SIZE), im(FRAME_SIZE);
+
+    for (int level = 1; level < NUM_MIP_LEVELS; level++)
+    {
+        const int maxHarmonic = HALF_FRAME >> level;
+        mipFrames[level].resize(nFrames);
+
+        for (int f = 0; f < nFrames; f++)
+        {
+            const auto& src = srcFrames[f];
+            for (int i = 0; i < FRAME_SIZE; i++) { re[i] = src[i]; im[i] = 0.0; }
+
+            fft(re, im);
+
+            // Zero harmonics above maxHarmonic
+            for (int k = maxHarmonic + 1; k <= FRAME_SIZE - maxHarmonic - 1; k++)
+            {
+                re[k] = 0.0;
+                im[k] = 0.0;
+            }
+
+            ifft(re, im);
+
+            mipFrames[level][f].resize(FRAME_SIZE);
+            for (int i = 0; i < FRAME_SIZE; i++)
+                mipFrames[level][f][i] = static_cast<float>(re[i]);
+        }
+    }
+
+    numFrames = nFrames;
+    numLevels = NUM_MIP_LEVELS;
+}","","1:1 Portierung. Vorlage gibt mip zurueck, JUCE schreibt in Member mipFrames + setzt numFrames/numLevels."
+"31","sincResample (Lanczos)","function sincResample(input: Float32Array, outputLen: number): Float32Array {
+    const inputLen = input.length
+    if (inputLen === outputLen) return new Float32Array(input)
+    if (inputLen === 0 || outputLen === 0) return new Float32Array(outputLen)
+
+    const output = new Float32Array(outputLen)
+    const ratio = inputLen / outputLen
+    const filterScale = Math.max(1.0, ratio)
+    const kernelRadius = Math.ceil(SINC_KERNEL_A * filterScale)
+    const invFS = 1.0 / filterScale
+
+    for (let i = 0; i < outputLen; i++) {
+      const center = i * ratio
+      const lo = Math.max(0, Math.ceil(center - kernelRadius))
+      const hi = Math.min(inputLen - 1, Math.floor(center + kernelRadius))
+      let sum = 0, wSum = 0
+
+      for (let j = lo; j <= hi; j++) {
+        const x = (j - center) * invFS
+        let w: number
+        if (Math.abs(x) < 1e-7) {
+          w = 1.0
+        } else if (Math.abs(x) >= SINC_KERNEL_A) {
+          w = 0.0
+        } else {
+          const px = Math.PI * x
+          const pxa = px / SINC_KERNEL_A
+          w = (Math.sin(px) / px) * (Math.sin(pxa) / pxa)
+        }
+        sum += input[j]! * w
+        wSum += w
+      }
+      output[i] = wSum > 1e-10 ? sum / wSum : 0
+    }
+    return output
+}","static float lanczosSample(const float* src, int srcLen, double pos)
+{
+    const int center = static_cast<int>(std::floor(pos));
+    const double frac = pos - center;
+    double sum = 0.0, weightSum = 0.0;
+
+    for (int i = -SINC_KERNEL_A + 1; i <= SINC_KERNEL_A; i++)
+    {
+        int idx = center + i;
+        if (idx < 0 || idx >= srcLen) continue;
+
+        double x = frac - i;
+        double w;
+        if (std::abs(x) < 1e-6)
+            w = 1.0;
+        else if (std::abs(x) >= SINC_KERNEL_A)
+            w = 0.0;
+        else
+        {
+            double piX = juce::MathConstants<double>::pi * x;
+            double piXA = piX / SINC_KERNEL_A;
+            w = (std::sin(piX) / piX) * (std::sin(piXA) / piXA);
+        }
+
+        sum += src[idx] * w;
+        weightSum += w;
+    }
+
+    return weightSum > 0.0 ? static_cast<float>(sum / weightSum) : 0.0f;
+}","","ABWEICHEND: Vorlage resampled ganzes Array (vollstaendiges Resampling mit anti-aliasing filterScale). JUCE lanczosSample() interpoliert nur einen einzelnen Punkt — kein filterScale, kein Anti-Aliasing-Filter bei Downsampling. JUCE nutzt fixe Kernel-Breite SINC_KERNEL_A, Vorlage skaliert Kernel mit filterScale=max(1,ratio). Epsilon: TS 1e-7 vs C++ 1e-6."
+"32","nearestZeroCrossing","function nearestZeroCrossing(mono: Float32Array, pos: number, maxSearch: number): number {
+    const len = mono.length
+    let best = pos
+    let bestDist = maxSearch + 1
+    for (let d = 0; d <= maxSearch; d++) {
+      // Search forward
+      const fwd = pos + d
+      if (fwd < len - 1 && mono[fwd]! * mono[fwd + 1]! <= 0 && d < bestDist) {
+        best = fwd
+        bestDist = d
+        break // first found is nearest
+      }
+      // Search backward
+      const bwd = pos - d
+      if (bwd >= 0 && bwd < len - 1 && mono[bwd]! * mono[bwd + 1]! <= 0 && d < bestDist) {
+        best = bwd
+        bestDist = d
+        break
+      }
+    }
+    return best
+}","(kein Aequivalent)","","FEHLT in JUCE. Vorlage aligniert Frame-Extraktion auf Zero-Crossings fuer saubere Loops. JUCE extrahiert ab beliebiger Position."
+"33","makeLoopSafe","function makeLoopSafe(frame: Float32Array): void {
+    const n = frame.length
+    if (n < 2) return
+    const disc = frame[0]! - frame[n - 1]!
+    if (Math.abs(disc) < 1e-7) return
+    const step = disc / (n - 1)
+    for (let i = 0; i < n; i++) {
+      frame[i]! -= step * (n - 1 - i)
+    }
+}","// Seamless loop: linear ramp correction at boundary
+float diff = frame[0] - frame[FRAME_SIZE - 1];
+for (int i = 0; i < FRAME_SIZE; i++)
+    frame[i] += diff * static_cast<float>(i) / FRAME_SIZE;","","MATH ABWEICHUNG: Vorlage subtrahiert step*(n-1-i), verteilt Diskontinuitaet rueckwaerts (Ende wird korrigiert). JUCE addiert diff*i/FRAME_SIZE, verteilt vorwaerts (Anfang bleibt, Ende wird korrigiert). Ergebnis ist invertiert — eine der beiden ist falsch oder zumindest inkonsistent. Vorlage hat Threshold (1e-7), JUCE nicht. JUCE hat keinen n<2 Guard. JUCE ist kein separater Funktion, sondern inline in extractFramesFromBuffer."
+"34","normalizeFrame","function normalizeFrame(frame: Float32Array): void {
+    let peak = 0
+    for (let i = 0; i < frame.length; i++) {
+      const abs = Math.abs(frame[i]!)
+      if (abs > peak) peak = abs
+    }
+    if (peak > 1e-6) {
+      const scale = 1.0 / peak
+      for (let i = 0; i < frame.length; i++) {
+        frame[i]! *= scale
+      }
+    }
+}","(kein Aequivalent)","","FEHLT in JUCE. Vorlage normalisiert jeden Frame auf Peak 1.0 um Lautstaerkesprunge beim Scannen zu vermeiden. JUCE hat keinerlei Normalisierung."
+"35","bufferToMono","function bufferToMono(buffer: AudioBuffer, startSample = 0, endSample = buffer.length): Float32Array {
+    const nc = buffer.numberOfChannels
+    const lo = Math.max(0, startSample)
+    const hi = Math.min(buffer.length, endSample)
+    const len = hi - lo
+    const mono = new Float32Array(len)
+    for (let ch = 0; ch < nc; ch++) {
+      const data = buffer.getChannelData(ch)
+      for (let i = 0; i < len; i++) mono[i] = mono[i]! + data[lo + i]!
+    }
+    if (nc > 1) {
+      const scale = 1 / nc
+      for (let i = 0; i < len; i++) mono[i] = mono[i]! * scale
+    }
+    return mono
+}","const float* data = buffer.getReadPointer(0);","","ABWEICHEND: Vorlage summiert alle Kanaele zu Mono mit Skalierung. JUCE liest nur Kanal 0 (kein Downmix). Vorlage unterstuetzt startSample/endSample Slicing, JUCE nicht."
+"36","extractFrames (Pitch-Sync)","function extractFrames(mono: Float32Array, sr: number): ExtractionResult {
+    const len = mono.length
+
+    // Hann window for fallback path
+    const hann = new Float32Array(FRAME_SIZE)
+    for (let i = 0; i < FRAME_SIZE; i++) {
+      hann[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / FRAME_SIZE))
+    }
+
+    const result: Float32Array[] = []
+    const pitches: number[] = []
+
+    if (len >= PITCH_ANALYSIS_WINDOW) {
+      const detector = PitchDetector.forFloat32Array(PITCH_ANALYSIS_WINDOW)
+      const hop = Math.floor(PITCH_ANALYSIS_WINDOW / 2)
+      const analysisWindow = new Float32Array(PITCH_ANALYSIS_WINDOW)
+
+      for (let pos = 0; pos + PITCH_ANALYSIS_WINDOW <= len; pos += hop) {
+        analysisWindow.set(mono.subarray(pos, pos + PITCH_ANALYSIS_WINDOW))
+        const [pitch, clarity] = detector.findPitch(analysisWindow, sr)
+
+        if (clarity >= PITCH_CONFIDENCE_THRESHOLD && pitch > 20 && pitch < 20000) {
+          pitches.push(pitch)
+          const periodSamples = Math.round(sr / pitch)
+          if (periodSamples < 4 || periodSamples > len) continue
+
+          const center = pos + Math.floor(PITCH_ANALYSIS_WINDOW / 2)
+          const start = nearestZeroCrossing(mono, center - Math.floor(periodSamples / 2), periodSamples)
+
+          if (start >= 0 && start + periodSamples <= len) {
+            const period = mono.slice(start, start + periodSamples)
+            const resampled = sincResample(period, FRAME_SIZE)
+            makeLoopSafe(resampled)
+            normalizeFrame(resampled)
+            result.push(resampled)
+          }
+        }
+      }
+    }
+
+    // --- Fallback: overlapping Hann-windowed extraction ---
+    if (result.length < MIN_FRAMES) {
+      result.length = 0
+      const overlap = Math.floor(FRAME_SIZE / 2)
+      let offset = 0
+      while (offset + FRAME_SIZE <= len) {
+        const frame = new Float32Array(FRAME_SIZE)
+        for (let i = 0; i < FRAME_SIZE; i++) {
+          frame[i] = mono[offset + i]! * hann[i]!
+        }
+        normalizeFrame(frame)
+        result.push(frame)
+        offset += overlap
+      }
+    }
+
+    // Pad to MIN_FRAMES
+    if (result.length === 0) {
+      const padded = new Float32Array(FRAME_SIZE)
+      padded.set(mono.subarray(0, Math.min(len, FRAME_SIZE)))
+      for (let i = 0; i < FRAME_SIZE; i++) padded[i]! *= hann[i]!
+      result.push(padded)
+    }
+    while (result.length < MIN_FRAMES) {
+      result.push(new Float32Array(result[result.length - 1]!))
+    }
+
+    // Median pitch
+    let medianPitchHz = 0
+    if (pitches.length > 0) {
+      pitches.sort((a, b) => a - b)
+      medianPitchHz = pitches[Math.floor(pitches.length / 2)]!
+    }
+
+    return { frames: result, medianPitchHz }
+}","void WavetableOscillator::extractFramesFromBuffer(const juce::AudioBuffer<float>& buffer, double bufferSr)
+{
+    if (sharedMode) return;
+    const float* data = buffer.getReadPointer(0);
+    const int totalSamples = buffer.getNumSamples();
+
+    if (totalSamples < FRAME_SIZE) return;
+
+    const int analysisLen = std::min(4096, totalSamples);
+    float detectedPitch = detectPitch(data, analysisLen, bufferSr);
+
+    std::vector<std::vector<float>> frames;
+
+    if (detectedPitch > 20.0f && detectedPitch < 5000.0f)
+    {
+        double periodSamples = bufferSr / detectedPitch;
+        int pos = 0;
+
+        while (pos + static_cast<int>(periodSamples * 1.5) < totalSamples && static_cast<int>(frames.size()) < 256)
+        {
+            std::vector<float> frame(FRAME_SIZE);
+            for (int i = 0; i < FRAME_SIZE; i++)
+            {
+                double srcPos = pos + (static_cast<double>(i) / FRAME_SIZE) * periodSamples;
+                frame[i] = lanczosSample(data, totalSamples, srcPos);
+            }
+
+            float diff = frame[0] - frame[FRAME_SIZE - 1];
+            for (int i = 0; i < FRAME_SIZE; i++)
+                frame[i] += diff * static_cast<float>(i) / FRAME_SIZE;
+
+            frames.push_back(std::move(frame));
+            pos += static_cast<int>(periodSamples);
+        }
+    }
+    else
+    {
+        const int hop = FRAME_SIZE / 2;
+        int pos = 0;
+
+        while (pos + FRAME_SIZE <= totalSamples && static_cast<int>(frames.size()) < 256)
+        {
+            std::vector<float> frame(FRAME_SIZE);
+            for (int i = 0; i < FRAME_SIZE; i++)
+            {
+                float window = 0.5f * (1.0f - std::cos(2.0f * juce::MathConstants<float>::pi * i / FRAME_SIZE));
+                frame[i] = data[pos + i] * window;
+            }
+
+            float diff = frame[0] - frame[FRAME_SIZE - 1];
+            for (int i = 0; i < FRAME_SIZE; i++)
+                frame[i] += diff * static_cast<float>(i) / FRAME_SIZE;
+
+            frames.push_back(std::move(frame));
+            pos += hop;
+        }
+    }
+
+    while (static_cast<int>(frames.size()) < MIN_FRAMES && !frames.empty())
+    {
+        frames.push_back(frames.back());
+    }
+
+    if (!frames.empty())
+        generateMipLevels(frames);
+}","","MEHRERE ABWEICHUNGEN: (1) Pitch-Algo: Vorlage nutzt pitchy (McLeod), JUCE nutzt YIN — verschiedene Ergebnisse. (2) Vorlage detektiert Pitch MEHRFACH (hop-weise), sammelt pitches[], berechnet Median. JUCE detektiert nur EINMAL (erste 4096 Samples). (3) Vorlage: pitch < 20000, JUCE: pitch < 5000 — obere Grenze abweichend. (4) Vorlage nutzt nearestZeroCrossing, JUCE nicht. (5) Vorlage nutzt sincResample() (ganzes Period-Array), JUCE nutzt lanczosSample() (Sample-fuer-Sample). (6) Vorlage normalisiert Frames, JUCE nicht. (7) Vorlage gibt medianPitchHz zurueck, JUCE nicht. (8) JUCE hat Max-Frame-Limit 256, Vorlage nicht. (9) Vorlage hat leere-Buffer Fallback (Pad mit Hann), JUCE returned einfach bei totalSamples < FRAME_SIZE."
+"37","detectPitch (YIN)","(kein Aequivalent — Vorlage nutzt pitchy PitchDetector extern)","static float detectPitch(const float* data, int length, double sr)
+{
+    if (length < 256) return -1.0f;
+
+    const int halfLen = length / 2;
+    std::vector<float> diff(halfLen, 0.0f);
+
+    // Difference function
+    for (int tau = 1; tau < halfLen; tau++)
+    {
+        float sum = 0.0f;
+        for (int i = 0; i < halfLen; i++)
+        {
+            float d = data[i] - data[i + tau];
+            sum += d * d;
+        }
+        diff[tau] = sum;
+    }
+
+    // Cumulative mean normalized difference
+    diff[0] = 1.0f;
+    float running = 0.0f;
+    for (int tau = 1; tau < halfLen; tau++)
+    {
+        running += diff[tau];
+        diff[tau] = diff[tau] * tau / running;
+    }
+
+    // Absolute threshold (0.1)
+    constexpr float threshold = 0.1f;
+    int tauEstimate = -1;
+    for (int tau = 2; tau < halfLen; tau++)
+    {
+        if (diff[tau] < threshold)
+        {
+            while (tau + 1 < halfLen && diff[tau + 1] < diff[tau])
+                tau++;
+            tauEstimate = tau;
+            break;
+        }
+    }
+
+    if (tauEstimate < 0) return -1.0f;
+
+    // Parabolic interpolation
+    float s0 = diff[std::max(0, tauEstimate - 1)];
+    float s1 = diff[tauEstimate];
+    float s2 = diff[std::min(halfLen - 1, tauEstimate + 1)];
+    float refinedTau = tauEstimate + 0.5f * (s0 - s2) / (s0 - 2.0f * s1 + s2 + 1e-10f);
+
+    return static_cast<float>(sr / refinedTau);
+}","","JUCE-spezifisch. Ersetzt pitchy (McLeod Pitch Method) durch vereinfachtes YIN (Autocorrelation + CMND + parabolic interpolation). Andere Ergebnisse bei komplexen Signalen moeglich."
+"38","sendMipToWorklet","function sendMipToWorklet(): void {
+    if (!workletNode || mipFrames.length === 0) return
+    workletNode.port.postMessage({ mipFrames })
+}","(kein Aequivalent)","","Web-Audio-spezifisch. postMessage an AudioWorklet. In JUCE liegen mipFrames direkt im Oszillator."
+"39","loadFrames","async function loadFrames(buffer: AudioBuffer, startSample = 0, endSample = buffer.length): Promise<void> {
+    const mono = bufferToMono(buffer, startSample, endSample)
+    const { frames: extracted, medianPitchHz } = extractFrames(mono, buffer.sampleRate)
+    frames = extracted
+    mipFrames = generateMipLevels(frames)
+    frameCount.value = frames.length
+    hasFrames.value = true
+    detectedPitch.value = medianPitchHz
+
+    if (medianPitchHz > 0) {
+      currentFrequency.value = medianPitchHz
+      if (workletNode) {
+        const freqParam = workletNode.parameters.get('frequency')
+        if (freqParam) freqParam.value = medianPitchHz
+      }
+    }
+
+    sendMipToWorklet()
+}","void extractFramesFromBuffer(const juce::AudioBuffer<float>& buffer, double bufferSampleRate);","","Vorlage-loadFrames orchestriert: bufferToMono -> extractFrames -> generateMipLevels -> sendMipToWorklet + setzt detectedPitch als Default-Frequenz. JUCE extractFramesFromBuffer macht alles in einer Funktion. JUCE setzt NICHT die Frequenz auf den erkannten Pitch."
+"40","loadRawFrames","function loadRawFrames(rawFrames: Float32Array[]): void {
+    if (rawFrames.length === 0) return
+
+    frames = rawFrames.map(f => {
+      const resampled = f.length === FRAME_SIZE ? new Float32Array(f) : sincResample(f, FRAME_SIZE)
+      makeLoopSafe(resampled)
+      normalizeFrame(resampled)
+      return resampled
+    })
+
+    while (frames.length < MIN_FRAMES) {
+      frames.push(new Float32Array(frames[frames.length - 1]!))
+    }
+
+    mipFrames = generateMipLevels(frames)
+    frameCount.value = frames.length
+    hasFrames.value = true
+
+    sendMipToWorklet()
+}","(kein Aequivalent)","","FEHLT in JUCE. Laed vorextrahierte Frames (z.B. aus semantischem Wavetable-Builder). Resampled auf FRAME_SIZE, makeLoopSafe, normalizeFrame, Pad auf MIN_FRAMES."
+"41","setContext","function setContext(ac: AudioContext): void {
+    if (ctx && ctx !== ac) {
+      stop()
+      workletReady = false
+    }
+    ctx = ac
+    ensureWorklet(ac)
+}","(kein Aequivalent)","","Web-Audio-spezifisch. Shared AudioContext Injection (z.B. vom Looper)."
+"42","ensureContext","function ensureContext(): AudioContext {
+    if (!ctx || ctx.state === 'closed') {
+      ctx = new AudioContext()
+      workletReady = false
+    }
+    if (ctx.state === 'suspended') ctx.resume()
+    return ctx
+}","(kein Aequivalent)","","Web-Audio-spezifisch. AudioContext Lifecycle Management."
+"43","ensureWorklet","async function ensureWorklet(ac: AudioContext): Promise<void> {
+    if (workletReady) return
+    await ac.audioWorklet.addModule(
+      new URL('../audio/wavetable-processor.js', import.meta.url),
+    )
+    workletReady = true
+}","(kein Aequivalent)","","Web-Audio-spezifisch. AudioWorklet Module Loading."
+"44","start","async function start(): Promise<void> {
+    if (isPlaying.value || starting) return
+    starting = true
+    const gen = stopGeneration
+    try {
+      const ac = ensureContext()
+      await ensureWorklet(ac)
+
+      if (gen !== stopGeneration) return
+
+      if (workletNode) { workletNode.disconnect(); workletNode = null }
+      if (gainNode) { gainNode.disconnect(); gainNode = null }
+
+      workletNode = new AudioWorkletNode(ac, 'wavetable-processor', {
+        numberOfInputs: 0,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+      })
+      gainNode = ac.createGain()
+      gainNode.gain.value = 0.5
+      workletNode.connect(gainNode)
+      gainNode.connect(destinationNode ?? ac.destination)
+
+      if (mipFrames.length > 0) {
+        workletNode.port.postMessage({ mipFrames })
+      }
+
+      const freqParam = workletNode.parameters.get('frequency')
+      if (freqParam) freqParam.value = currentFrequency.value
+      const scanParam = workletNode.parameters.get('scanPosition')
+      if (scanParam) scanParam.value = lastScanPosition
+
+      isPlaying.value = true
+
+      if (pendingScan) {
+        const { attack, decay, start: s, end: e } = pendingScan
+        pendingScan = null
+        scheduleScanRamp(attack, decay, s, e)
+      }
+    } finally {
+      starting = false
+    }
+  }","(kein Aequivalent)","","FEHLT in JUCE. Erstellt AudioWorklet-Node-Chain, setzt Gain=0.5, sendet Frames+State. In JUCE wird der Oszillator direkt vom Voice/Processor aufgerufen — kein start/stop-Lifecycle."
+"45","stop","function stop(): void {
+    stopGeneration++
+    pendingScan = null
+    if (workletNode) {
+      workletNode.disconnect()
+      workletNode = null
+    }
+    if (gainNode) {
+      gainNode.disconnect()
+      gainNode = null
+    }
+    isPlaying.value = false
+}","(kein Aequivalent)","","FEHLT in JUCE. Disconnects AudioWorklet + GainNode. JUCE-Oszillator hat keinen expliziten stop — Voice/Processor steuert Lifecycle."
+"46","setFrequency","function setFrequency(hz: number): void {
+    currentFrequency.value = Math.max(20, Math.min(20000, hz))
+    if (workletNode) {
+      const param = workletNode.parameters.get('frequency')
+      if (param) param.value = currentFrequency.value
+    }
+}","void setFrequency(float hz) { targetFrequency = hz; glideFreqSamplesLeft = 0; }","","ABWEICHUNG: Vorlage clampt auf [20, 20000]. JUCE clampt NICHT — kein jlimit. JUCE setzt glideFreqSamplesLeft=0 um laufenden Glide abzubrechen."
+"47","setFrequencyFromNote","function setFrequencyFromNote(midiNote: number): void {
+    setFrequency(440 * Math.pow(2, (midiNote - 69) / 12))
+}","(kein Aequivalent)","","FEHLT in JUCE. MIDI-Note zu Hz Konversion. Muss extern erfolgen."
+"48","glideToNote","function glideToNote(midiNote: number, timeMs: number): void {
+    glideToFrequency(440 * Math.pow(2, (midiNote - 69) / 12), timeMs)
+}","(kein Aequivalent)","","FEHLT in JUCE. Convenience-Wrapper um glideToFrequency mit MIDI-Note."
+"49","glideToFrequency","function glideToFrequency(hz: number, timeMs: number): void {
+    currentFrequency.value = Math.max(20, Math.min(20000, hz))
+    if (workletNode) {
+      const param = workletNode.parameters.get('frequency')
+      if (param) {
+        const ac = ctx ?? ensureContext()
+        const now = ac.currentTime
+        param.setValueAtTime(param.value, now)
+        param.linearRampToValueAtTime(currentFrequency.value, now + timeMs / 1000)
+      }
+    }
+}","void WavetableOscillator::glideToFrequency(float hz, float durationMs)
+{
+    hz = juce::jlimit(20.0f, 20000.0f, hz);
+    float durationSamples = (durationMs / 1000.0f) * static_cast<float>(sampleRate);
+    int samples = std::max(1, static_cast<int>(durationSamples));
+
+    glideFreqTarget = hz;
+    glideFreqIncr = (hz - targetFrequency) / static_cast<float>(samples);
+    glideFreqSamplesLeft = samples;
+}","","Vorlage nutzt Web Audio linearRampToValueAtTime (native). JUCE implementiert linearen Ramp manuell per-Sample in processSample(). Gleiche Semantik, verschiedene Implementierung. JUCE clampt [20,20000], Vorlage ebenso."
+"50","setScanPosition","function setScanPosition(pos: number): void {
+    const clamped = Math.max(0, Math.min(1, pos))
+    lastScanPosition = clamped
+    if (workletNode) {
+      const param = workletNode.parameters.get('scanPosition')
+      if (param) {
+        param.cancelScheduledValues(0)
+        param.value = clamped
+      }
+    }
+}","void setScanPosition(float pos) { targetScanPosition = juce::jlimit(0.0f, 1.0f, pos); }","","Vorlage: setzt AudioParam direkt + cancelScheduledValues (bricht Automation ab). JUCE: setzt nur Target, One-Pole Smoothing in processSample() glaettet den Uebergang."
+"51","setInterpolate","function setInterpolate(on: boolean): void {
+    if (workletNode) {
+      const param = workletNode.parameters.get('interpolate')
+      if (param) param.value = on ? 1 : 0
+    }
+}","void setInterpolation(bool enabled) { doInterpolate = enabled; }","","OK. Gleiche Semantik, verschiedene API (AudioParam vs bool)."
+"52","scheduleScanRamp","function scheduleScanRamp(attackMs: number, decayMs: number, scanStart: number, scanEnd: number): void {
+    if (!workletNode) return
+    const param = workletNode.parameters.get('scanPosition')
+    if (!param) return
+
+    const now = (ctx ?? ensureContext()).currentTime
+    const aSec = attackMs / 1000
+    const dSec = decayMs / 1000
+    const lo = Math.max(0.001, scanStart)
+    const hi = Math.max(0.001, scanEnd)
+
+    param.cancelScheduledValues(now)
+    param.setValueAtTime(lo, now)
+    if (aSec > 0) {
+      param.exponentialRampToValueAtTime(hi, now + aSec)
+    } else {
+      param.setValueAtTime(hi, now)
+    }
+    if (dSec > 0) {
+      param.exponentialRampToValueAtTime(lo, now + aSec + dSec)
+    }
+}","(kein Aequivalent)","","FEHLT in JUCE. ADR-Envelope auf scanPosition via Web Audio exponentialRamp. JUCE hat nur One-Pole Smoothing, keine Scan-Envelope."
+"53","triggerScanEnvelope","function triggerScanEnvelope(attackMs: number, decayMs: number, scanStart = 0, scanEnd = 1): void {
+    pendingScan = { attack: attackMs, decay: decayMs, start: scanStart, end: scanEnd }
+    if (workletNode) {
+      const { attack, decay, start: s, end: e } = pendingScan
+      pendingScan = null
+      scheduleScanRamp(attack, decay, s, e)
+    }
+}","(kein Aequivalent)","","FEHLT in JUCE. Trigger mit deferred-Logik fuer async start(). Nutzt scheduleScanRamp intern."
+"54","stopScanEnvelope","function stopScanEnvelope(releaseMs: number = 200, scanTarget = 0): void {
+    if (!workletNode) return
+    const param = workletNode.parameters.get('scanPosition')
+    if (!param) return
+
+    const now = (ctx ?? ensureContext()).currentTime
+    const rSec = releaseMs / 1000
+    const current = Math.max(0.001, param.value)
+    const target = Math.max(0.001, scanTarget)
+
+    param.cancelScheduledValues(now)
+    param.setValueAtTime(current, now)
+    if (rSec > 0) {
+      param.exponentialRampToValueAtTime(target, now + rSec)
+    } else {
+      param.setValueAtTime(target, now)
+    }
+}","(kein Aequivalent)","","FEHLT in JUCE. Release-Phase der Scan-Envelope. Liest aktuelle Position, rampt exponentiell zum Target."
+"55","setDestination","function setDestination(node: AudioNode | null): void {
+    destinationNode = node
+}","(kein Aequivalent)","","Web-Audio-spezifisch. Routing-Ziel fuer AudioWorklet-Output."
+"56","getContext","function getContext(): AudioContext {
+    return ensureContext()
+}","(kein Aequivalent)","","Web-Audio-spezifisch. AudioContext Accessor."
+"57","getFrameData","function getFrameData(index: number): Float32Array | null {
+    if (index < 0 || index >= frames.length) return null
+    return frames[index]!
+}","(kein Aequivalent)","","FEHLT in JUCE. Frame-Zugriff fuer Visualisierung."
+"58","dispose","function dispose(): void {
+    stop()
+    frames = []
+    mipFrames = []
+    hasFrames.value = false
+    frameCount.value = 0
+    detectedPitch.value = 0
+    if (ctx && ctx.state !== 'closed') ctx.close()
+    ctx = null
+    workletReady = false
+}","(kein Aequivalent)","","FEHLT in JUCE. Vollstaendiges Cleanup + AudioContext.close(). JUCE-Oszillator hat reset() aber kein Dispose (RAII via Destruktor)."
+"59","prepare","(kein Aequivalent)","void WavetableOscillator::prepare(double sr, int /*samplesPerBlock*/)
+{
+    sampleRate = sr;
+    phase = 0.0;
+    smoothedScan = 0.0f;
+    scanSmoothCoeff = 1.0f - std::exp(-1.0f / static_cast<float>(sr * 0.005));
+}","","JUCE-spezifisch. Initialisiert sampleRate, Phase, Scan-Smoothing-Koeffizient (~5ms). Wird vom JUCE-Host bei prepareToPlay aufgerufen."
+"60","reset","(kein Aequivalent)","void WavetableOscillator::reset()
+{
+    phase = 0.0;
+    smoothedScan = 0.0f;
+}","","JUCE-spezifisch. Setzt Phase und Scan zurueck."
+"61","processSample","(in wavetable-processor.js — AudioWorklet process() callback)","float WavetableOscillator::processSample()
+{
+    if (numFrames == 0) return 0.0f;
+
+    // Apply frequency glide (per-sample linear ramp)
+    if (glideFreqSamplesLeft > 0)
+    {
+        targetFrequency += glideFreqIncr;
+        glideFreqSamplesLeft--;
+        if (glideFreqSamplesLeft == 0)
+            targetFrequency = glideFreqTarget;
+    }
+
+    // Smooth scan position
+    smoothedScan += (targetScanPosition - smoothedScan) * scanSmoothCoeff;
+
+    // Select mip level based on frequency
+    const float invBaseFreq = FRAME_SIZE / static_cast<float>(sampleRate);
+    const float rawLevel = std::log2(targetFrequency * invBaseFreq);
+    const int mipLevel = juce::jlimit(0, numLevels - 1, static_cast<int>(std::ceil(rawLevel)));
+    const auto& frames = getActiveFrames()[mipLevel];
+
+    // Frame selection
+    const float framePos = smoothedScan * (numFrames - 1);
+    const int frameA = static_cast<int>(std::floor(framePos));
+
+    // Sample position via phase accumulator
+    const int idx0 = static_cast<int>(std::floor(phase)) % FRAME_SIZE;
+    const int idx1 = (idx0 + 1) % FRAME_SIZE;
+    const float phaseFrac = static_cast<float>(phase - std::floor(phase));
+
+    const auto& fA = frames[juce::jlimit(0, numFrames - 1, frameA)];
+    const float sampleA = fA[idx0] + (fA[idx1] - fA[idx0]) * phaseFrac;
+
+    float output;
+
+    if (doInterpolate)
+    {
+        const float frameMix = framePos - frameA;
+        const int i0 = juce::jlimit(0, numFrames - 1, frameA - 1);
+        const int i1 = juce::jlimit(0, numFrames - 1, frameA);
+        const int i2 = juce::jlimit(0, numFrames - 1, frameA + 1);
+        const int i3 = juce::jlimit(0, numFrames - 1, frameA + 2);
+
+        const auto& f0 = frames[i0];
+        const auto& f1 = frames[i1];
+        const auto& f2 = frames[i2];
+        const auto& f3 = frames[i3];
+
+        const float s0 = f0[idx0] + (f0[idx1] - f0[idx0]) * phaseFrac;
+        const float s1 = f1[idx0] + (f1[idx1] - f1[idx0]) * phaseFrac;
+        const float s2 = f2[idx0] + (f2[idx1] - f2[idx0]) * phaseFrac;
+        const float s3 = f3[idx0] + (f3[idx1] - f3[idx0]) * phaseFrac;
+
+        const float t = frameMix;
+        const float t2 = t * t;
+        const float t3 = t2 * t;
+        output = 0.5f * ((2.0f * s1)
+            + (-s0 + s2) * t
+            + (2.0f * s0 - 5.0f * s1 + 4.0f * s2 - s3) * t2
+            + (-s0 + 3.0f * s1 - 3.0f * s2 + s3) * t3);
+    }
+    else
+    {
+        output = sampleA;
+    }
+
+    // Advance phase
+    phase += targetFrequency * FRAME_SIZE / sampleRate;
+    if (phase >= FRAME_SIZE)
+        phase -= FRAME_SIZE * std::floor(phase / FRAME_SIZE);
+
+    return output;
+}","","JUCE-spezifisch. Ersetzt den AudioWorklet process() callback. Enthaelt: (1) Frequency-Glide per Sample, (2) Scan-Smoothing (One-Pole), (3) Mip-Level-Selektion via log2, (4) Phase-Accumulator mit linearer Interpolation, (5) Catmull-Rom 4-Frame Interpolation (oder stepped). Worklet-Code muesste separat verglichen werden."
+"62","shareFramesFrom","(kein Aequivalent)","void WavetableOscillator::shareFramesFrom(const WavetableOscillator& source)
+{
+    sharedMode = true;
+    sharedMipFrames = &source.mipFrames;
+    numFrames = source.numFrames;
+    numLevels = source.numLevels;
+}","","JUCE-spezifisch. Polyphonie-Optimierung: mehrere Voice-Oszillatoren teilen Frame-Daten eines Masters per Pointer."
+"63","getActiveFrames","(kein Aequivalent)","const std::vector<std::vector<std::vector<float>>>& getActiveFrames() const
+{
+    return sharedMode ? *sharedMipFrames : mipFrames;
+}","","JUCE-spezifisch. Gibt eigene oder shared mipFrames zurueck je nach sharedMode."
+"64","lanczosSample (Punkt-Interpolation)","(kein Aequivalent — sincResample macht ganzes Array)","static float lanczosSample(const float* src, int srcLen, double pos)
+{
+    const int center = static_cast<int>(std::floor(pos));
+    const double frac = pos - center;
+    double sum = 0.0, weightSum = 0.0;
+
+    for (int i = -SINC_KERNEL_A + 1; i <= SINC_KERNEL_A; i++)
+    {
+        int idx = center + i;
+        if (idx < 0 || idx >= srcLen) continue;
+
+        double x = frac - i;
+        double w;
+        if (std::abs(x) < 1e-6)
+            w = 1.0;
+        else if (std::abs(x) >= SINC_KERNEL_A)
+            w = 0.0;
+        else
+        {
+            double piX = juce::MathConstants<double>::pi * x;
+            double piXA = piX / SINC_KERNEL_A;
+            w = (std::sin(piX) / piX) * (std::sin(piXA) / piXA);
+        }
+
+        sum += src[idx] * w;
+        weightSum += w;
+    }
+
+    return weightSum > 0.0 ? static_cast<float>(sum / weightSum) : 0.0f;
+}","","JUCE-spezifisch (Punkt-Variante). Vorlage hat sincResample als Ganzes-Array-Resampler mit Anti-Aliasing (filterScale). JUCE hat nur Einzelpunkt-Interpolation ohne filterScale — kein Anti-Aliasing bei Downsampling."
+"65","ExtractionResult (Interface)","interface ExtractionResult {
+    frames: Float32Array[]
+    medianPitchHz: number
+}","(kein Aequivalent)","","FEHLT in JUCE. Return-Typ von extractFrames. JUCE gibt keinen medianPitchHz zurueck."

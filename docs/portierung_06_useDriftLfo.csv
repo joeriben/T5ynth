@@ -1,0 +1,284 @@
+"Nr","Funktion","Original-Code (TypeScript)","Legacy-JUCE (C++)","Neuer Code (C++)","Kommentar"
+"1","Type: DriftTarget","export type DriftTarget =
+  | 'alpha'
+  | 'sem_axis_1' | 'sem_axis_2' | 'sem_axis_3'
+  | 'wt_scan'
+  | 'none'","enum Target
+{
+    None = -1,
+    Alpha = 0,
+    SemAxis1,
+    SemAxis2,
+    SemAxis3,
+    WtScan,
+    NumTargets
+};","","TS: string union mit 'none'. JUCE: int enum, None=-1 intern aber APVTS index 0=None, 1=Alpha etc. Mapping verschoben um 1."
+"2","DRIFT_TARGETS Array","export const DRIFT_TARGETS: DriftTarget[] = [
+  'none', 'alpha', 'sem_axis_1', 'sem_axis_2', 'sem_axis_3', 'wt_scan',
+]","(nicht vorhanden)","","FEHLT in JUCE. Kein explizites Array der Target-Namen."
+"3","Type: DriftWaveform","export type DriftWaveform = 'sine' | 'triangle' | 'square' | 'sawtooth'","enum Waveform { Sine = 0, Triangle, Sawtooth, Square };","","TS: string union. JUCE: int enum. REIHENFOLGE ABWEICHEND: TS = sine,triangle,square,sawtooth. JUCE = Sine,Triangle,Sawtooth,Square."
+"4","Interface: DriftLfoState","export interface DriftLfoState {
+  rate: Ref<number>      // Hz (0.001 - 2)
+  depth: Ref<number>     // 0 - 1 (exponential mapped)
+  waveform: Ref<DriftWaveform>
+  target: Ref<DriftTarget>
+}","struct InternalLFO
+{
+    double phase = 0.0;
+    float rate = 0.01f;
+    float depth = 0.0f;
+    int target = 0;
+    int waveform = Sine;
+};","","JUCE InternalLFO enthaelt zusaetzlich phase. TS hat phase separat im phases[] Array."
+"5","TARGET_RANGES","export const TARGET_RANGES: Record<string, { min: number; max: number }> = {
+  alpha:      { min: -2, max: 2 },
+  sem_axis_1: { min: -2, max: 2 },
+  sem_axis_2: { min: -2, max: 2 },
+  sem_axis_3: { min: -2, max: 2 },
+  wt_scan:    { min: 0, max: 1 },
+}","static float halfRangeForTarget(int target)
+{
+    switch (target)
+    {
+        case 1: return 2.0f;  // alpha: [-2, 2]
+        case 2: return 2.0f;  // sem_axis_1
+        case 3: return 2.0f;  // sem_axis_2
+        case 4: return 2.0f;  // sem_axis_3
+        case 5: return 0.5f;  // wt_scan: [0, 1]
+        default: return 0.0f; // None
+    }
+}","","TS: min/max als Record, halfRange berechnet als (max-min)/2 im tick. JUCE: halfRange direkt als statische Funktion. Aequivalent: alpha halfRange=2, wt_scan halfRange=0.5. OK."
+"6","Rate-Konstanten","const DRIFT_RATE_MIN = 0.001
+const DRIFT_RATE_MAX = 2","(nicht vorhanden)","","FEHLT in JUCE. Keine Rate-Mapping-Konstanten, da JUCE direkt Hz-Wert empfaengt."
+"7","sliderToDriftRate","export function sliderToDriftRate(v: number): number {
+  return DRIFT_RATE_MIN * Math.pow(DRIFT_RATE_MAX / DRIFT_RATE_MIN, v)
+}","(nicht vorhanden)","","FEHLT in JUCE. Exponentielle Rate-Konvertierung 0.001*pow(2000,v). GUI/APVTS muesste diese Kurve implementieren."
+"8","driftRateToSlider","export function driftRateToSlider(hz: number): number {
+  return Math.log(Math.max(DRIFT_RATE_MIN, hz) / DRIFT_RATE_MIN) / Math.log(DRIFT_RATE_MAX / DRIFT_RATE_MIN)
+}","(nicht vorhanden)","","FEHLT in JUCE. Inverse Konvertierung Hz->Slider."
+"9","formatDriftRate","export function formatDriftRate(hz: number): string {
+  if (hz >= 1) return `${hz.toFixed(2)} Hz`
+  if (hz >= 0.01) return `${hz.toFixed(3)} Hz`
+  return `${hz.toFixed(4)} Hz`
+}","(nicht vorhanden)","","FEHLT in JUCE. Display-Formatierung, GUI-seitig."
+"10","Depth-Konstanten","const DRIFT_DEPTH_MIN = 0.001
+const DRIFT_DEPTH_MAX = 1","(nicht vorhanden)","","FEHLT in JUCE. Keine Depth-Mapping-Konstanten."
+"11","sliderToDriftDepth","export function sliderToDriftDepth(v: number): number {
+  if (v === 0) return 0
+  return DRIFT_DEPTH_MIN * Math.pow(DRIFT_DEPTH_MAX / DRIFT_DEPTH_MIN, v)
+}","(nicht vorhanden)","","FEHLT in JUCE. Exponentielle Depth-Konvertierung 0.001*pow(1000,v). Sonderfall v=0 -> 0."
+"12","driftDepthToSlider","export function driftDepthToSlider(d: number): number {
+  if (d <= 0) return 0
+  return Math.log(Math.max(DRIFT_DEPTH_MIN, d) / DRIFT_DEPTH_MIN) / Math.log(DRIFT_DEPTH_MAX / DRIFT_DEPTH_MIN)
+}","(nicht vorhanden)","","FEHLT in JUCE. Inverse Konvertierung Depth->Slider."
+"13","formatDriftDepth","export function formatDriftDepth(d: number): string {
+  if (d === 0) return '0'
+  if (d >= 0.1) return d.toFixed(2)
+  if (d >= 0.01) return d.toFixed(3)
+  return d.toFixed(4)
+}","(nicht vorhanden)","","FEHLT in JUCE. Display-Formatierung, GUI-seitig."
+"14","waveformValue","function waveformValue(phase: number, type: DriftWaveform): number {
+  const p = phase - Math.floor(phase)
+  switch (type) {
+    case 'sine':
+      return Math.sin(p * Math.PI * 2)
+    case 'triangle':
+      return p < 0.25 ? p * 4
+        : p < 0.75 ? 2 - p * 4
+        : p * 4 - 4
+    case 'square':
+      return p < 0.5 ? 1 : -1
+    case 'sawtooth':
+      return p < 0.5 ? p * 2 : p * 2 - 2
+  }
+}","static float waveformValue(double phase, int type)
+{
+    double p = phase - std::floor(phase);
+    switch (type)
+    {
+        case Sine:
+            return static_cast<float>(std::sin(p * TWO_PI));
+        case Triangle:
+            if (p < 0.25) return static_cast<float>(p * 4.0);
+            if (p < 0.75) return static_cast<float>(2.0 - p * 4.0);
+            return static_cast<float>(p * 4.0 - 4.0);
+        case Square:
+            return p < 0.5 ? 1.0f : -1.0f;
+        case Sawtooth:
+            return p < 0.5 ? static_cast<float>(p * 2.0) : static_cast<float>(p * 2.0 - 2.0);
+        default:
+            return static_cast<float>(std::sin(p * TWO_PI));
+    }
+}","","Logik identisch. JUCE hat zusaetzlich default-case (fallback auf Sine). OK."
+"15","LFO Defaults (3 LFOs)","const lfos: DriftLfoState[] = [
+  { rate: ref(0.01), depth: ref(0), waveform: ref('sine'), target: ref('none') },
+  { rate: ref(0.005), depth: ref(0), waveform: ref('triangle'), target: ref('none') },
+  { rate: ref(0.002), depth: ref(0), waveform: ref('sine'), target: ref('none') },
+]","std::array<InternalLFO, NUM_LFOS> lfos {{
+    { 0.0, 0.01f,  0.0f, 0, Sine },
+    { 0.0, 0.005f, 0.0f, 0, Triangle },
+    { 0.0, 0.002f, 0.0f, 0, Sine },
+}};","","Defaults identisch: Rate 0.01/0.005/0.002, Depth 0, Waveform sine/triangle/sine, Target none. OK."
+"16","Phase-Akkumulatoren","const phases = [0, 0, 0]
+let lastTime = 0
+let rafId: number | null = null","// phase ist in InternalLFO.phase
+// Kein lastTime/rafId noetig (sample-basiert)","","TS: separate phases[], rAF-getrieben mit lastTime. JUCE: phase in struct, tick(dt) wird extern aufgerufen."
+"17","Offsets (reaktiv)","const offsets: Ref<number>[] = [ref(0), ref(0), ref(0)]","(nicht vorhanden)","","FEHLT in JUCE. TS hat reaktive offsets[] fuer visuelle Slider-Indikatoren. JUCE berechnet Offset on-demand via getOffsetForTarget()."
+"18","Callback-Registry","const callbacks: Record<string, (value: number) => void> = {}
+const baseGetters: Record<string, () => number> = {}","(nicht vorhanden)","","FEHLT in JUCE. TS hat Callback-Registry mit target -> setter und baseValue-Getter. JUCE: Caller holt Offset via getOffsetForTarget() und wendet selbst an."
+"19","setCallbacks","function setCallbacks(targets: Record<string, { callback: (v: number) => void; baseValue: () => number }>): void {
+  for (const [key, { callback, baseValue }] of Object.entries(targets)) {
+    callbacks[key] = callback
+    baseGetters[key] = baseValue
+  }
+}","(nicht vorhanden)","","FEHLT in JUCE. Registrierung der Callbacks fuer jedes Target. JUCE nutzt stattdessen Pull-Pattern (getOffsetForTarget)."
+"20","start","function start(): void {
+  if (rafId !== null) return
+  lastTime = performance.now()
+  tick()
+}","void setEnabled(bool enabled) { active = enabled; }","","TS: startet rAF-Loop. JUCE: setzt active-Flag, tick() wird extern aufgerufen."
+"21","stop","function stop(): void {
+  if (rafId !== null) {
+    cancelAnimationFrame(rafId)
+    rafId = null
+  }
+}","void setEnabled(bool enabled) { active = enabled; }","","TS: cancelt rAF-Loop. JUCE: setzt active=false."
+"22","resetPhases","function resetPhases(): void {
+  phases[0] = 0
+  phases[1] = 0
+  phases[2] = 0
+  lastTime = performance.now()
+}","void DriftLFO::reset()
+{
+    for (auto& lfo : lfos)
+        lfo.phase = 0.0;
+}","","Logik identisch: alle Phasen auf 0. TS setzt zusaetzlich lastTime. OK."
+"23","tick","function tick(): void {
+  const now = performance.now()
+  const dt = (now - lastTime) / 1000
+  lastTime = now
+  let anyActive = false
+  for (let i = 0; i < 3; i++) {
+    const lfo = lfos[i]!
+    const target = lfo.target.value
+    if (target === 'none' || lfo.depth.value === 0) {
+      if (offsets[i]!.value !== 0) offsets[i]!.value = 0
+      continue
+    }
+    const cb = callbacks[target]
+    const getter = baseGetters[target]
+    if (!cb || !getter) continue
+    const range = TARGET_RANGES[target]
+    if (!range) continue
+    anyActive = true
+    phases[i] = (phases[i]! + lfo.rate.value * dt) % 1
+    const raw = waveformValue(phases[i]!, lfo.waveform.value)
+    const base = getter()
+    const halfRange = (range.max - range.min) / 2
+    const offset = raw * lfo.depth.value * halfRange
+    offsets[i]!.value = offset
+    const modulated = Math.max(range.min, Math.min(range.max, base + offset))
+    cb(modulated)
+  }
+  if (anyActive) {
+    rafId = requestAnimationFrame(tick)
+  } else {
+    rafId = null
+  }
+}","void DriftLFO::tick(double dt)
+{
+    if (!active)
+        return;
+    for (auto& lfo : lfos)
+    {
+        if (lfo.target == 0 || lfo.depth == 0.0f)
+            continue;
+        lfo.phase += static_cast<double>(lfo.rate) * dt;
+        if (lfo.phase >= 1.0)
+            lfo.phase -= std::floor(lfo.phase);
+    }
+}","","KRITISCH: JUCE tick() aktualisiert NUR die Phase. Berechnet NICHT raw*depth*halfRange, setzt NICHT base+offset, ruft NICHT callbacks auf. TS tick() berechnet alles: Phase-Advance + Waveform-Auswertung + Offset-Berechnung + Clamp + Callback. JUCE delegiert Offset-Berechnung an getOffsetForTarget(). Auto-Start/Stop-Logik (anyActive/rAF) fehlt in JUCE."
+"24","getOffsetForTarget","function getOffsetForTarget(target: DriftTarget): number {
+  let total = 0
+  for (let i = 0; i < 3; i++) {
+    if (lfos[i]!.target.value === target) {
+      total += offsets[i]!.value
+    }
+  }
+  return total
+}","float DriftLFO::getOffsetForTarget(int target) const
+{
+    if (!active || target <= 0 || target > NumTargets)
+        return 0.0f;
+    float totalOffset = 0.0f;
+    const float hr = halfRangeForTarget(target);
+    for (const auto& lfo : lfos)
+    {
+        if (lfo.target == target && lfo.depth != 0.0f)
+        {
+            float value = waveformValue(lfo.phase, lfo.waveform);
+            totalOffset += value * lfo.depth * hr;
+        }
+    }
+    return totalOffset;
+}","","TS: liest vorberechnete offsets[]. JUCE: berechnet waveform*depth*halfRange live im Aufruf. Funktional aequivalent, aber verschiedenes Pattern (Push vs Pull)."
+"25","setParam","function setParam(idx: number, key: keyof DriftLfoState, value: number | string): void {
+  const lfo = lfos[idx]
+  if (!lfo) return
+  if (key === 'target') {
+    const oldTarget = lfo.target.value
+    if (oldTarget !== 'none') {
+      offsets[idx]!.value = 0
+      const cb = callbacks[oldTarget]
+      const getter = baseGetters[oldTarget]
+      if (cb && getter) cb(getter())
+    }
+  }
+  const r = lfo[key] as Ref<any>
+  r.value = value
+  if (key === 'target') {
+    phases[idx] = 0
+  }
+  const anyActive = lfos.some(l => l.target.value !== 'none' && l.depth.value > 0)
+  if (anyActive && rafId === null) {
+    lastTime = performance.now()
+    tick()
+  }
+}","void setLfoRate(int lfoIndex, float hz);
+void setLfoDepth(int lfoIndex, float amount);
+void setLfoTarget(int lfoIndex, int target);
+void setLfoWaveform(int lfoIndex, int waveform);","","TS: generische setParam mit Target-Wechsel-Logik (altes Target zuruecksetzen, Phase reset, Auto-Start). JUCE: vier separate Setter. setLfoTarget() hat Phase-Reset. FEHLT: Undo-Modulation des alten Targets (cb(getter())). FEHLT: Auto-Start/Stop-Logik."
+"26","setLfoRate","(Teil von setParam)","void DriftLFO::setLfoRate(int lfoIndex, float hz)
+{
+    if (lfoIndex >= 0 && lfoIndex < NUM_LFOS)
+        lfos[static_cast<size_t>(lfoIndex)].rate = hz;
+}","","OK. Einfacher Setter."
+"27","setLfoDepth","(Teil von setParam)","void DriftLFO::setLfoDepth(int lfoIndex, float amount)
+{
+    if (lfoIndex >= 0 && lfoIndex < NUM_LFOS)
+        lfos[static_cast<size_t>(lfoIndex)].depth = amount;
+}","","OK. Einfacher Setter."
+"28","setLfoTarget","(Teil von setParam)","void DriftLFO::setLfoTarget(int lfoIndex, int target)
+{
+    if (lfoIndex >= 0 && lfoIndex < NUM_LFOS)
+    {
+        auto& lfo = lfos[static_cast<size_t>(lfoIndex)];
+        if (lfo.target != target)
+        {
+            lfo.phase = 0.0;
+            lfo.target = target;
+        }
+    }
+}","","Phase-Reset bei Target-Wechsel OK. FEHLT: Undo-Modulation des alten Targets (TS ruft cb(getter()) auf, JUCE nicht)."
+"29","setLfoWaveform","(Teil von setParam)","void DriftLFO::setLfoWaveform(int lfoIndex, int waveform)
+{
+    if (lfoIndex >= 0 && lfoIndex < NUM_LFOS)
+        lfos[static_cast<size_t>(lfoIndex)].waveform = waveform;
+}","","OK. Einfacher Setter."
+"30","setEnabled/setAutoRegen (JUCE-only)","(nicht vorhanden)","void setEnabled(bool enabled) { active = enabled; }
+bool isEnabled() const { return active; }
+void setAutoRegen(bool enabled) { autoRegen = enabled; }
+bool isAutoRegenEnabled() const { return autoRegen; }","","JUCE-only. TS hat kein explizites enabled-Flag (Auto-Start/Stop via anyActive-Pruefung). autoRegen ist JUCE-Erweiterung fuer Bar-Boundary-Regen."
+"31","dispose","function dispose(): void {
+  stop()
+}","(nicht vorhanden)","","FEHLT in JUCE. Kein Destruktor/dispose noetig in C++."

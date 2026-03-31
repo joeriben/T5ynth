@@ -1,0 +1,569 @@
+"Nr","Funktion","Original-Code (TypeScript)","Legacy-JUCE (C++)","Neuer Code (C++)","Kommentar"
+"1","Interface: Step","export interface Step {
+  active: boolean
+  semitone: number   // -24 to +24 offset from base note (C3 = 0)
+  velocity: number   // 0-1
+  gate: number       // 0-1 fraction of step duration
+  glide: boolean
+}","struct Step
+{
+    int note = 60;
+    float velocity = 0.8f;
+    float gate = 0.8f;
+    bool enabled = true;
+    bool glide = false;
+};","","KRITISCH: TS speichert semitone-Offset (-24..+24), JUCE speichert absoluten MIDI note (60+semitone). TS: active, JUCE: enabled."
+"2","Interface: Preset","export interface Preset {
+  name: string
+  steps: Step[]
+}","struct PresetData {
+    const char* name;
+    const Step* steps;
+    int count;
+};","","JUCE hat zusaetzlich count. OK."
+"3","StepCountOption","export type StepCountOption = 5 | 8 | 10 | 16 | 32
+export const STEP_COUNT_OPTIONS: StepCountOption[] = [5, 8, 10, 16, 32]","static constexpr int MAX_STEPS = 64;","","TS: diskrete Auswahl 5/8/10/16/32. JUCE: nur MAX_STEPS=64, keine StepCountOption-Einschraenkung. Logik fuer setNumSteps() ist frei 1-64."
+"4","NoteDivision","export type NoteDivision = '1/1' | '1/2' | '1/4' | '1/8' | '1/16'
+export const NOTE_DIVISIONS: NoteDivision[] = ['1/1', '1/2', '1/4', '1/8', '1/16']","enum Division { Div_1_1 = 0, Div_1_2, Div_1_4, Div_1_8, Div_1_16 };","","TS: string type. JUCE: int enum. Gleiche 5 Optionen. OK."
+"5","DIVISION_FACTORS","const DIVISION_FACTORS: Record<NoteDivision, number> = {
+  '1/1': 4, '1/2': 2, '1/4': 1, '1/8': 0.5, '1/16': 0.25,
+}","static constexpr float DIVISION_FACTORS[] = { 4.0f, 2.0f, 1.0f, 0.5f, 0.25f };","","Werte identisch. OK."
+"6","makeStep Helper","function makeStep(semitone = 0, velocity = 0.8, gate = 0.8, active = true, glide = false): Step {
+  return { active, semitone, velocity, gate, glide }
+}","static constexpr T5ynthStepSequencer::Step mkStep(int semi, float vel, float gate, bool active = true, bool glide = false)
+{
+    return { 60 + semi, vel, gate, active, glide };
+}
+static constexpr T5ynthStepSequencer::Step REST = { 60, 0.0f, 0.0f, false, false };","","TS makeStep speichert semitone direkt. JUCE mkStep konvertiert zu 60+semi. JUCE hat zusaetzlich REST-Konstante. TS REST = makeStep(0, 0, 0, false)."
+"7","Preset: eastcoast (16 steps)","name: 'eastcoast',
+steps: [
+  makeStep(0, 0.79, 0.5),
+  makeStep(12, 0.63, 0.25),
+  makeStep(7, 0.63, 0.5),
+  makeStep(12, 0.63, 0.25),
+  makeStep(0, 0.87, 0.5),
+  makeStep(12, 0.63, 0.25),
+  makeStep(10, 0.63, 0.5),
+  makeStep(12, 0.63, 0.25),
+  makeStep(0, 0.79, 0.5),
+  makeStep(12, 0.63, 0.25),
+  makeStep(3, 0.63, 0.5),
+  makeStep(12, 0.63, 0.25),
+  makeStep(0, 0.87, 0.5),
+  makeStep(12, 0.63, 0.25),
+  makeStep(5, 0.71, 0.8),
+  makeStep(7, 0.47, 0.25),
+]","static constexpr Step P_EASTCOAST[] = {
+    mkStep(0,0.79f,0.5f), mkStep(12,0.63f,0.25f), mkStep(7,0.63f,0.5f), mkStep(12,0.63f,0.25f),
+    mkStep(0,0.87f,0.5f), mkStep(12,0.63f,0.25f), mkStep(10,0.63f,0.5f), mkStep(12,0.63f,0.25f),
+    mkStep(0,0.79f,0.5f), mkStep(12,0.63f,0.25f), mkStep(3,0.63f,0.5f), mkStep(12,0.63f,0.25f),
+    mkStep(0,0.87f,0.5f), mkStep(12,0.63f,0.25f), mkStep(5,0.71f,0.8f), mkStep(7,0.47f,0.25f),
+};","","Alle 16 Steps identisch. OK."
+"8","Preset: westcoast (5 steps)","name: 'westcoast',
+steps: [
+  makeStep(0, 1.0, 0.8),
+  makeStep(19, 0.47, 1.0),
+  makeStep(0, 0, 0, false),
+  makeStep(24, 0.79, 0.1),
+  makeStep(3, 0.31, 0.4),
+]","static constexpr Step P_WESTCOAST[] = {
+    mkStep(0,1.0f,0.8f), mkStep(19,0.47f,1.0f), REST, mkStep(24,0.79f,0.1f), mkStep(3,0.31f,0.4f),
+};","","Alle 5 Steps identisch. REST = makeStep(0,0,0,false). OK."
+"9","Preset: synthwave (16 steps)","name: 'synthwave',
+steps: [
+  makeStep(0, 0, 0, false),
+  makeStep(0, 0.79, 0.4),
+  makeStep(0, 0.79, 0.4),
+  makeStep(3, 0.87, 0.4),
+  makeStep(0, 0, 0, false),
+  makeStep(0, 0.79, 0.4),
+  makeStep(0, 0.79, 0.4),
+  makeStep(3, 0.87, 0.4),
+  makeStep(0, 0, 0, false),
+  makeStep(0, 0.79, 0.4),
+  makeStep(0, 0.79, 0.4),
+  makeStep(7, 0.87, 0.4),
+  makeStep(0, 0, 0, false),
+  makeStep(0, 0.79, 0.4),
+  makeStep(0, 0.79, 0.4),
+  makeStep(7, 0.87, 0.4),
+]","static constexpr Step P_SYNTHWAVE[] = {
+    REST, mkStep(0,0.79f,0.4f), mkStep(0,0.79f,0.4f), mkStep(3,0.87f,0.4f),
+    REST, mkStep(0,0.79f,0.4f), mkStep(0,0.79f,0.4f), mkStep(3,0.87f,0.4f),
+    REST, mkStep(0,0.79f,0.4f), mkStep(0,0.79f,0.4f), mkStep(7,0.87f,0.4f),
+    REST, mkStep(0,0.79f,0.4f), mkStep(0,0.79f,0.4f), mkStep(7,0.87f,0.4f),
+};","","Alle 16 Steps identisch. OK."
+"10","Preset: techno/acid (16 steps)","name: 'techno',
+steps: [
+  makeStep(0, 0, 0, false),
+  makeStep(0, 0.79, 0.5),
+  makeStep(0, 0.63, 1.0),
+  makeStep(12, 1.0, 0.5, true, true),
+  makeStep(0, 0, 0, false),
+  makeStep(0, 0.79, 0.5),
+  makeStep(0, 0, 0, false),
+  makeStep(0, 0.79, 0.5),
+  makeStep(0, 0.63, 1.0),
+  makeStep(3, 1.0, 1.0, true, true),
+  makeStep(3, 0.63, 1.0),
+  makeStep(-5, 0.63, 0.5, true, true),
+  makeStep(0, 1.0, 0.5, true, true),
+  makeStep(0, 0, 0, false),
+  makeStep(12, 0.63, 0.5),
+  makeStep(0, 0, 0, false),
+]","static constexpr Step P_TECHNO[] = {
+    REST, mkStep(0,0.79f,0.5f), mkStep(0,0.63f,1.0f), mkStep(12,1.0f,0.5f,true,true),
+    REST, mkStep(0,0.79f,0.5f), REST, mkStep(0,0.79f,0.5f),
+    mkStep(0,0.63f,1.0f), mkStep(3,1.0f,1.0f,true,true), mkStep(3,0.63f,1.0f), mkStep(-5,0.63f,0.5f,true,true),
+    mkStep(0,1.0f,0.5f,true,true), REST, mkStep(12,0.63f,0.5f), REST,
+};","","Alle 16 Steps identisch inkl. glide-Flags. OK."
+"11","Preset: dub_techno (16 steps)","name: 'dub_techno',
+steps: [
+  makeStep(0, 0.71, 0.1),
+  makeStep(0, 0, 0, false),
+  makeStep(0, 0, 0, false),
+  makeStep(0, 0, 0, false),
+  makeStep(0, 0, 0, false),
+  makeStep(0, 0.86, 0.1),
+  makeStep(0, 0, 0, false),
+  makeStep(0, 0, 0, false),
+  makeStep(0, 0, 0, false),
+  makeStep(0, 0, 0, false),
+  makeStep(0, 0.55, 0.1),
+  makeStep(0, 0, 0, false),
+  makeStep(0, 0, 0, false),
+  makeStep(0, 0, 0, false),
+  makeStep(0, 0, 0, false),
+  makeStep(0, 0, 0, false),
+]","static constexpr Step P_DUB_TECHNO[] = {
+    mkStep(0,0.71f,0.1f), REST, REST, REST, REST, mkStep(0,0.86f,0.1f), REST, REST,
+    REST, REST, mkStep(0,0.55f,0.1f), REST, REST, REST, REST, REST,
+};","","Alle 16 Steps identisch. OK."
+"12","Preset: ambient (16 steps)","name: 'ambient',
+steps: [
+  makeStep(0, 0.45, 1.0),
+  makeStep(0, 0.48, 1.0),
+  makeStep(2, 0.5, 1.0),
+  makeStep(2, 0.53, 1.0),
+  makeStep(7, 0.55, 1.0),
+  makeStep(7, 0.6, 1.0),
+  makeStep(5, 0.63, 1.0),
+  makeStep(5, 0.65, 1.0),
+  makeStep(11, 0.7, 1.0),
+  makeStep(11, 0.73, 1.0),
+  makeStep(14, 0.75, 1.0),
+  makeStep(14, 0.78, 1.0),
+  makeStep(12, 0.8, 1.0),
+  makeStep(7, 0.7, 1.0),
+  makeStep(2, 0.55, 1.0),
+  makeStep(0, 0.4, 1.0),
+]","static constexpr Step P_AMBIENT[] = {
+    mkStep(0,0.45f,1.0f), mkStep(0,0.48f,1.0f), mkStep(2,0.5f,1.0f), mkStep(2,0.53f,1.0f),
+    mkStep(7,0.55f,1.0f), mkStep(7,0.6f,1.0f), mkStep(5,0.63f,1.0f), mkStep(5,0.65f,1.0f),
+    mkStep(11,0.7f,1.0f), mkStep(11,0.73f,1.0f), mkStep(14,0.75f,1.0f), mkStep(14,0.78f,1.0f),
+    mkStep(12,0.8f,1.0f), mkStep(7,0.7f,1.0f), mkStep(2,0.55f,1.0f), mkStep(0,0.4f,1.0f),
+};","","Alle 16 Steps identisch. OK."
+"13","Preset: idm_glitch (10 steps)","name: 'idm_glitch',
+steps: [
+  makeStep(6, 1.0, 0.04),
+  makeStep(-8, 0.3, 1.0),
+  makeStep(17, 0.95, 0.12),
+  makeStep(0, 0, 0, false),
+  makeStep(-1, 0.7, 0.7),
+  makeStep(23, 0.4, 0.03),
+  makeStep(-11, 1.0, 0.5),
+  makeStep(8, 0.55, 0.85),
+  makeStep(0, 0, 0, false),
+  makeStep(-4, 0.9, 1.0),
+]","static constexpr Step P_IDM_GLITCH[] = {
+    mkStep(6,1.0f,0.04f), mkStep(-8,0.3f,1.0f), mkStep(17,0.95f,0.12f), REST,
+    mkStep(-1,0.7f,0.7f), mkStep(23,0.4f,0.03f), mkStep(-11,1.0f,0.5f), mkStep(8,0.55f,0.85f),
+    REST, mkStep(-4,0.9f,1.0f),
+};","","Alle 10 Steps identisch. OK."
+"14","Preset: solar (16 steps)","name: 'solar',
+steps: [
+  makeStep(0, 0.9, 0.5), makeStep(1, 0.9, 0.5),
+  makeStep(0, 0.9, 0.5), makeStep(0, 0.9, 0.5),
+  makeStep(5, 0.9, 0.5), makeStep(6, 0.9, 0.5),
+  makeStep(5, 0.9, 0.5), makeStep(5, 0.9, 0.5),
+  makeStep(7, 0.9, 0.5), makeStep(8, 0.9, 0.5),
+  makeStep(7, 0.9, 0.5), makeStep(7, 0.9, 0.5),
+  makeStep(11, 0.9, 0.5), makeStep(12, 0.9, 0.5),
+  makeStep(11, 0.9, 0.5), makeStep(10, 0.9, 0.5),
+]","static constexpr Step P_SOLAR[] = {
+    mkStep(0,0.9f,0.5f), mkStep(1,0.9f,0.5f), mkStep(0,0.9f,0.5f), mkStep(0,0.9f,0.5f),
+    mkStep(5,0.9f,0.5f), mkStep(6,0.9f,0.5f), mkStep(5,0.9f,0.5f), mkStep(5,0.9f,0.5f),
+    mkStep(7,0.9f,0.5f), mkStep(8,0.9f,0.5f), mkStep(7,0.9f,0.5f), mkStep(7,0.9f,0.5f),
+    mkStep(11,0.9f,0.5f), mkStep(12,0.9f,0.5f), mkStep(11,0.9f,0.5f), mkStep(10,0.9f,0.5f),
+};","","Alle 16 Steps identisch. OK."
+"15","Preset: arpeggio_bass (32 steps)","name: 'arpeggio_bass',
+steps: [
+  makeStep(0, 0.8, 0.5), makeStep(7, 0.65, 0.45),
+  makeStep(0, 0.8, 0.5), makeStep(6, 0.65, 0.45),
+  makeStep(0, 0.8, 0.5), makeStep(7, 0.65, 0.45),
+  makeStep(0, 0.8, 0.5), makeStep(10, 0.7, 0.5),
+  makeStep(0, 0.85, 0.5), makeStep(7, 0.7, 0.45),
+  makeStep(0, 0.85, 0.5), makeStep(6, 0.7, 0.45),
+  makeStep(0, 0.85, 0.5), makeStep(7, 0.7, 0.45),
+  makeStep(0, 0.85, 0.5), makeStep(11, 0.75, 0.55),
+  makeStep(0, 0.9, 0.55), makeStep(7, 0.75, 0.5),
+  makeStep(12, 0.9, 0.55), makeStep(6, 0.75, 0.5),
+  makeStep(0, 0.9, 0.55), makeStep(7, 0.75, 0.5),
+  makeStep(12, 0.9, 0.55), makeStep(10, 0.8, 0.55),
+  makeStep(0, 0.95, 0.6), makeStep(7, 0.8, 0.5),
+  makeStep(12, 0.95, 0.6), makeStep(6, 0.8, 0.5),
+  makeStep(0, 1.0, 0.6), makeStep(11, 0.85, 0.55),
+  makeStep(7, 1.0, 0.6), makeStep(0, 0, 0, false),
+]","static constexpr Step P_ARPEGGIO_BASS[] = {
+    mkStep(0,0.8f,0.5f), mkStep(7,0.65f,0.45f), mkStep(0,0.8f,0.5f), mkStep(6,0.65f,0.45f),
+    mkStep(0,0.8f,0.5f), mkStep(7,0.65f,0.45f), mkStep(0,0.8f,0.5f), mkStep(10,0.7f,0.5f),
+    mkStep(0,0.85f,0.5f), mkStep(7,0.7f,0.45f), mkStep(0,0.85f,0.5f), mkStep(6,0.7f,0.45f),
+    mkStep(0,0.85f,0.5f), mkStep(7,0.7f,0.45f), mkStep(0,0.85f,0.5f), mkStep(11,0.75f,0.55f),
+    mkStep(0,0.9f,0.55f), mkStep(7,0.75f,0.5f), mkStep(12,0.9f,0.55f), mkStep(6,0.75f,0.5f),
+    mkStep(0,0.9f,0.55f), mkStep(7,0.75f,0.5f), mkStep(12,0.9f,0.55f), mkStep(10,0.8f,0.55f),
+    mkStep(0,0.95f,0.6f), mkStep(7,0.8f,0.5f), mkStep(12,0.95f,0.6f), mkStep(6,0.8f,0.5f),
+    mkStep(0,1.0f,0.6f), mkStep(11,0.85f,0.55f), mkStep(7,1.0f,0.6f), REST,
+};","","Alle 32 Steps identisch. OK."
+"16","Preset: trance_gate (8 steps)","name: 'trance_gate',
+steps: [
+  makeStep(0, 1.0, 0.9),
+  makeStep(0, 0.3, 0.15),
+  makeStep(0, 0.85, 0.7),
+  makeStep(0, 0.5, 0.3),
+  makeStep(0, 1.0, 0.9),
+  makeStep(0, 0, 0, false),
+  makeStep(0, 0.9, 0.6),
+  makeStep(0, 0.4, 0.2),
+]","static constexpr Step P_TRANCE_GATE[] = {
+    mkStep(0,1.0f,0.9f), mkStep(0,0.3f,0.15f), mkStep(0,0.85f,0.7f), mkStep(0,0.5f,0.3f),
+    mkStep(0,1.0f,0.9f), REST, mkStep(0,0.9f,0.6f), mkStep(0,0.4f,0.2f),
+};","","Alle 8 Steps identisch. OK."
+"17","Preset-Tabelle","const PRESETS: Preset[] = [
+  // 10 Presets: eastcoast, westcoast, synthwave,
+  // techno, dub_techno, ambient, idm_glitch,
+  // solar, arpeggio_bass, trance_gate
+]","const T5ynthStepSequencer::PresetData T5ynthStepSequencer::presetTable[NUM_PRESETS] = {
+    { ""eastcoast"",    P_EASTCOAST,    16 },
+    { ""westcoast"",    P_WESTCOAST,     5 },
+    { ""synthwave"",    P_SYNTHWAVE,    16 },
+    { ""techno"",       P_TECHNO,       16 },
+    { ""dub_techno"",   P_DUB_TECHNO,   16 },
+    { ""ambient"",      P_AMBIENT,      16 },
+    { ""idm_glitch"",   P_IDM_GLITCH,   10 },
+    { ""solar"",        P_SOLAR,        16 },
+    { ""arpeggio_bass"",P_ARPEGGIO_BASS,32 },
+    { ""trance_gate"",  P_TRANCE_GATE,   8 },
+};","","Gleiche 10 Presets, gleiche Reihenfolge, gleiche Counts. OK."
+"18","State: isPlaying","const isPlaying = ref(false)","bool running = false;","","Name: isPlaying vs running."
+"19","State: currentStep","const currentStep = ref(-1)","int currentStep = 0;
+std::atomic<int> currentStepForGui { -1 };","","TS default -1. JUCE: currentStep=0 intern, currentStepForGui=-1 fuer GUI. JUCE hat zusaetzlich atomic fuer thread-sicheren GUI-Zugriff."
+"20","State: bpm","const bpm = ref(120)","double bpm = 120.0;","","OK."
+"21","State: stepCount","const stepCount = ref<StepCountOption>(5)","int numSteps = 16;","","DEFAULT ABWEICHEND: TS=5, JUCE=16."
+"22","State: division","const division = ref<NoteDivision>('1/8')","int division = 3; // default 1/8","","Beide default 1/8. OK."
+"23","State: presetIndex","const presetIndex = ref(-1)","(nicht vorhanden)","","FEHLT in JUCE. Kein Tracking welches Preset geladen ist."
+"24","State: midiClockActive/Bpm","const midiClockActive = ref(false)
+const midiClockBpm = ref(0)","(nicht vorhanden)","","FEHLT in JUCE. Kein MIDI Clock Support."
+"25","State: glideTime","const glideTime = ref(80)  // ms, range 10-500","float glideTimeMs = 80.0f;","","OK. Gleicher Default 80ms."
+"26","Scheduler-Konstanten","const SCHEDULER_INTERVAL_MS = 25
+const LOOKAHEAD_SEC = 0.1
+const BASE_NOTE = 60","// Keine expliziten Konstanten
+// BASE_NOTE implizit in mkStep: 60+semi","","TS: Chris-Wilson-Scheduler mit 25ms Intervall und 100ms Lookahead. JUCE: sample-akkurater processBlock, keine Scheduler-Konstanten noetig. BASE_NOTE=60 in beiden."
+"27","activeStepCount (computed)","const activeStepCount = computed(() => steps.filter(s => s.active).length)","(nicht vorhanden)","","FEHLT in JUCE. Reaktives Computed fuer GUI-Anzeige."
+"28","createDefaultSteps","function createDefaultSteps(count: number): Step[] {
+  return Array.from({ length: count }, () => makeStep(0, 0.8, 0.8, true))
+}","// In resetGrid:
+for (auto& s : steps)
+    s = { 60, 0.8f, 0.8f, true, false };","","Gleiche Defaults: note=C3, velocity=0.8, gate=0.8, active=true. OK."
+"29","setCallbacks","function setCallbacks(
+  onNoteOn: (note: number, velocity: number, glide: boolean) => void,
+  onNoteOff: () => void,
+) {
+  noteOnCb = onNoteOn
+  noteOffCb = onNoteOff
+}","(nicht vorhanden — MIDI direkt in MidiBuffer)","","JUCE schreibt MIDI Events direkt in MidiBuffer statt Callbacks. Glide wird als MIDI Channel 2 kodiert (ch1=normal, ch2=glide)."
+"30","setBarStartCallback","function setBarStartCallback(cb: (() => void) | null) {
+  barStartCb = cb
+}","std::atomic<bool> barStartFlag { false };","","TS: Callback-basiert. JUCE: atomic Flag, GUI pollt. Funktional aequivalent."
+"31","getEffectiveBpm","function getEffectiveBpm(): number {
+  return midiClockActive.value ? midiClockBpm.value : bpm.value
+}","(nicht vorhanden)","","FEHLT in JUCE. Kein MIDI Clock, daher nur internes BPM."
+"32","stepDurationSec","function stepDurationSec(): number {
+  const quarterNote = 60 / getEffectiveBpm()
+  return quarterNote * DIVISION_FACTORS[division.value]
+}","double T5ynthStepSequencer::stepDurationSamples() const
+{
+    return sampleRate * 60.0 / bpm * static_cast<double>(DIVISION_FACTORS[division]);
+}","","TS: Dauer in Sekunden. JUCE: Dauer in Samples. Gleiche Formel, andere Einheit. OK."
+"33","scheduleStep","function scheduleStep(stepIdx: number, time: number, schedId: number) {
+  const step = steps[stepIdx]
+  if (!step || !step.active) return
+  const now = audioCtx?.currentTime ?? 0
+  const delayMs = Math.max(0, (time - now) * 1000)
+  const gateDurMs = step.gate * stepDurationSec() * 1000
+  const midiNote = BASE_NOTE + step.semitone
+  setTimeout(() => {
+    if (!isPlaying.value) return
+    currentStep.value = stepIdx
+    noteOnCb?.(midiNote, step.velocity, step.glide)
+  }, delayMs)
+  const existingTimer = gateTimers.get(schedId)
+  if (existingTimer != null) clearTimeout(existingTimer)
+  const offTimer = setTimeout(() => {
+    if (!isPlaying.value) return
+    gateTimers.delete(schedId)
+    noteOffCb?.()
+  }, delayMs + gateDurMs)
+  gateTimers.set(schedId, offTimer)
+}","// In processBlock:
+if (step.enabled) {
+    int vel = juce::jlimit(1, 127, juce::roundToInt(step.velocity * 127.0f));
+    int channel = step.glide ? 2 : 1;
+    midi.addEvent(juce::MidiMessage::noteOn(channel, step.note,
+                  static_cast<juce::uint8>(vel)), samplePos);
+    lastPlayedNote = step.note;
+    samplesUntilGateOff = step.gate * stepDur;
+}","","TS: setTimeout-basiert (Chris Wilson). JUCE: sample-akkurat in processBlock. TS berechnet BASE_NOTE+semitone. JUCE nutzt gespeicherte absolute Note. Glide: TS via Callback-Parameter, JUCE via MIDI Channel 2."
+"34","schedulerTick","function schedulerTick() {
+  if (!audioCtx || !isPlaying.value) return
+  const endWindow = audioCtx.currentTime + LOOKAHEAD_SEC
+  const count = steps.length
+  while (nextStepTime < endWindow) {
+    const stepIdx = scheduledStep % count
+    if (stepIdx === 0 && scheduledStep > 0 && barStartCb) {
+      const now = audioCtx.currentTime
+      const delayMs = Math.max(0, (nextStepTime - now) * 1000)
+      const cb = barStartCb
+      setTimeout(() => { if (isPlaying.value) cb() }, delayMs)
+    }
+    scheduleStep(stepIdx, nextStepTime, scheduledStep)
+    nextStepTime += stepDurationSec()
+    scheduledStep++
+  }
+}","void T5ynthStepSequencer::processBlock(juce::AudioBuffer<float>& buffer,
+                                       juce::MidiBuffer& midi)
+{
+    // ... sample-accurate step scheduling with gate-off tracking
+    // Bar boundary: barStartFlag.store(true)
+    // Gate-off via samplesUntilGateOff counter
+}","","TS: setInterval(25ms) + Web Audio lookahead. JUCE: processBlock sample-akkurat. Beide: Bar-Boundary bei stepIdx==0 && scheduledStep>0. Gate-off: TS setTimeout, JUCE sample-counter."
+"35","start","function start(ac: AudioContext) {
+  if (isPlaying.value) return
+  audioCtx = ac
+  isPlaying.value = true
+  scheduledStep = 0
+  currentStep.value = -1
+  nextStepTime = ac.currentTime + 0.05
+  schedulerInterval = setInterval(schedulerTick, SCHEDULER_INTERVAL_MS)
+  schedulerTick()
+}","void start() {
+    if (!running) {
+        running = true;
+        samplesUntilNextStep = 0.0;
+        currentStep = 0;
+        scheduledStep = 0;
+    }
+}","","TS: benoetigt AudioContext, startet setInterval. JUCE: setzt nur Flags, processBlock laeuft sowieso. TS currentStep=-1, JUCE currentStep=0 beim Start."
+"36","stop","function stop() {
+  isPlaying.value = false
+  if (schedulerInterval != null) {
+    clearInterval(schedulerInterval)
+    schedulerInterval = null
+  }
+  for (const timer of gateTimers.values()) clearTimeout(timer)
+  gateTimers.clear()
+  currentStep.value = -1
+  scheduledStep = 0
+}","void T5ynthStepSequencer::stop()
+{
+    running = false;
+    lastPlayedNote = -1;
+    samplesUntilGateOff = -1.0;
+    currentStep = 0;
+    scheduledStep = 0;
+    currentStepForGui.store(-1, std::memory_order_relaxed);
+}","","TS: raeumt Timer auf, currentStep=-1. JUCE: raeumt lastPlayedNote/gateOff auf, currentStep=0 intern, GUI-Atomic=-1."
+"37","setBpm","function setBpm(newBpm: number) {
+  bpm.value = Math.max(60, Math.min(200, newBpm))
+}","void setBpm(double newBpm) { bpm = newBpm; }","","TS: clampt 60-200. JUCE: kein Clamping."
+"38","setDivision","function setDivision(div: NoteDivision) {
+  division.value = div
+}","void setDivision(int div) { division = juce::jlimit(0, 4, div); }","","TS: string. JUCE: int mit jlimit. OK."
+"39","setStepCount","function setStepCount(count: StepCountOption) {
+  const wasPlaying = isPlaying.value
+  if (wasPlaying) stop()
+  stepCount.value = count
+  while (steps.length < count) {
+    steps.push(makeStep(0, 0.8, 0.8, true))
+  }
+  while (steps.length > count) {
+    steps.pop()
+  }
+  presetIndex.value = -1
+  if (wasPlaying && audioCtx) start(audioCtx)
+}","void T5ynthStepSequencer::setNumSteps(int s)
+{
+    numSteps = juce::jlimit(1, MAX_STEPS, s);
+}","","TS: stop/resize/restart Logik, setzt presetIndex=-1. JUCE: nur numSteps setzen, kein Stop/Restart, kein Array-Resize (fixed MAX_STEPS=64)."
+"40","loadPreset","function loadPreset(idx: number) {
+  if (idx < 0 || idx >= PRESETS.length) return
+  const preset = PRESETS[idx]!
+  presetIndex.value = idx
+  const wasPlaying = isPlaying.value
+  if (wasPlaying) stop()
+  const presetLen = preset.steps.length
+  const bestCount = STEP_COUNT_OPTIONS.reduce((best, opt) =>
+    Math.abs(opt - presetLen) < Math.abs(best - presetLen) ? opt : best
+  , STEP_COUNT_OPTIONS[0]!)
+  stepCount.value = Math.max(bestCount, presetLen) as StepCountOption
+  steps.length = 0
+  for (let i = 0; i < stepCount.value; i++) {
+    if (i < preset.steps.length) {
+      steps.push({ ...preset.steps[i]! })
+    } else {
+      steps.push(makeStep(0, 0.8, 0.8, false))
+    }
+  }
+  if (wasPlaying && audioCtx) start(audioCtx)
+}","void T5ynthStepSequencer::loadPreset(int index)
+{
+    if (index < 0 || index >= NUM_PRESETS) return;
+    const auto& preset = presetTable[index];
+    numSteps = preset.count;
+    for (int i = 0; i < MAX_STEPS; ++i)
+    {
+        if (i < preset.count)
+            steps[static_cast<size_t>(i)] = preset.steps[i];
+        else
+            steps[static_cast<size_t>(i)] = { 60, 0.8f, 0.8f, false, false };
+    }
+}","","TS: bestCount-Snapping, stop/restart, presetIndex tracking. JUCE: direkt preset.count als numSteps, kein Stop/Restart, kein presetIndex."
+"41","resetGrid","function resetGrid() {
+  const wasPlaying = isPlaying.value
+  if (wasPlaying) stop()
+  presetIndex.value = -1
+  steps.length = 0
+  for (let i = 0; i < stepCount.value; i++) {
+    steps.push(makeStep(0, 0.8, 0.8, true))
+  }
+  if (wasPlaying && audioCtx) start(audioCtx)
+}","void T5ynthStepSequencer::resetGrid()
+{
+    for (auto& s : steps)
+        s = { 60, 0.8f, 0.8f, true, false };
+}","","TS: stop/restart, nur stepCount steps. JUCE: setzt alle MAX_STEPS zurueck, kein Stop/Restart."
+"42","setStepActive","function setStepActive(idx: number, active: boolean) {
+  if (steps[idx]) { steps[idx].active = active; presetIndex.value = -1 }
+}","void T5ynthStepSequencer::setStepEnabled(int step, bool enabled)
+{
+    if (step >= 0 && step < MAX_STEPS)
+        steps[static_cast<size_t>(step)].enabled = enabled;
+}","","TS setzt presetIndex=-1 bei Aenderung, JUCE nicht. Name: active vs enabled."
+"43","setStepSemitone","function setStepSemitone(idx: number, semitone: number) {
+  if (steps[idx]) { steps[idx].semitone = Math.max(-24, Math.min(24, semitone)); presetIndex.value = -1 }
+}","void T5ynthStepSequencer::setStepNote(int step, int midiNote)
+{
+    if (step >= 0 && step < MAX_STEPS)
+        steps[static_cast<size_t>(step)].note = midiNote;
+}","","TS: semitone-Offset mit Clamp -24..+24. JUCE: absolute MIDI note, kein Clamp. Caller muss 60+semitone berechnen."
+"44","setStepVelocity","function setStepVelocity(idx: number, velocity: number) {
+  if (steps[idx]) { steps[idx].velocity = Math.max(0, Math.min(1, velocity)); presetIndex.value = -1 }
+}","void T5ynthStepSequencer::setStepVelocity(int step, float velocity)
+{
+    if (step >= 0 && step < MAX_STEPS)
+        steps[static_cast<size_t>(step)].velocity = juce::jlimit(0.0f, 1.0f, velocity);
+}","","Beide clampen 0-1. TS setzt presetIndex=-1. OK."
+"45","setStepGate","function setStepGate(idx: number, gate: number) {
+  if (steps[idx]) { steps[idx].gate = Math.max(0.1, Math.min(1, gate)); presetIndex.value = -1 }
+}","void T5ynthStepSequencer::setStepGate(int step, float gate)
+{
+    if (step >= 0 && step < MAX_STEPS)
+        steps[static_cast<size_t>(step)].gate = juce::jlimit(0.1f, 1.0f, gate);
+}","","Beide clampen 0.1-1. OK."
+"46","setStepGlide","function setStepGlide(idx: number, glide: boolean) {
+  if (steps[idx]) { steps[idx].glide = glide; presetIndex.value = -1 }
+}","void T5ynthStepSequencer::setStepGlide(int step, bool glide)
+{
+    if (step >= 0 && step < MAX_STEPS)
+        steps[static_cast<size_t>(step)].glide = glide;
+}","","OK."
+"47","setGlideTime","function setGlideTime(ms: number) {
+  glideTime.value = Math.max(10, Math.min(500, ms))
+}","void setGlideTime(float ms) { glideTimeMs = juce::jlimit(10.0f, 500.0f, ms); }","","Beide clampen 10-500ms. OK."
+"48","setAllGates","function setAllGates(gate: number) {
+  const g = Math.max(0.1, Math.min(1, gate))
+  for (const step of steps) step.gate = g
+}","void T5ynthStepSequencer::setAllGates(float gate)
+{
+    float g = juce::jlimit(0.1f, 1.0f, gate);
+    for (auto& s : steps)
+        s.gate = g;
+}","","Logik identisch. OK."
+"49","handleMidiClock","function handleMidiClock(type: MidiClockType) {
+  const now = performance.now()
+  if (type === 'start') {
+    midiClockActive.value = true
+    clockPulseCount = 0
+    lastClockTime = now
+    if (!isPlaying.value && audioCtx) start(audioCtx)
+    return
+  }
+  if (type === 'stop') {
+    midiClockActive.value = false
+    midiClockBpm.value = 0
+    clockPulseCount = 0
+    stop()
+    return
+  }
+  if (!midiClockActive.value) {
+    midiClockActive.value = true
+    lastClockTime = now
+    clockPulseCount = 1
+    return
+  }
+  clockPulseCount++
+  const interval = now - lastClockTime
+  lastClockTime = now
+  if (interval > 0 && interval < 1000) {
+    if (emaInterval === 0) {
+      emaInterval = interval
+    } else {
+      emaInterval = 0.2 * interval + 0.8 * emaInterval
+    }
+    const quarterNoteMs = emaInterval * 24
+    if (quarterNoteMs > 0) {
+      midiClockBpm.value = Math.round(60000 / quarterNoteMs)
+    }
+  }
+}","(nicht vorhanden)","","FEHLT in JUCE. Kompletter MIDI Clock Support: start/stop/clock (0xF8), EMA-Interval-Glaettung, 24ppqn BPM-Berechnung."
+"50","dispose","function dispose() {
+  stop()
+  noteOnCb = null
+  noteOffCb = null
+  barStartCb = null
+  midiClockActive.value = false
+  midiClockBpm.value = 0
+  clockPulseCount = 0
+  emaInterval = 0
+  audioCtx = null
+}","void T5ynthStepSequencer::reset()
+{
+    stop();
+}","","TS: vollstaendiges Cleanup aller Callbacks und MIDI Clock State. JUCE reset() ruft nur stop() auf."
+"51","Gate-Off Scheduling","// Gate-off timers: scheduled step counter -> timer ID
+const gateTimers = new Map<number, ReturnType<typeof setTimeout>>()
+// In scheduleStep:
+const offTimer = setTimeout(() => {
+  if (!isPlaying.value) return
+  gateTimers.delete(schedId)
+  noteOffCb?.()
+}, delayMs + gateDurMs)
+gateTimers.set(schedId, offTimer)","// In processBlock:
+if (samplesUntilGateOff >= 0.0 && samplesUntilGateOff <= samplesUntilNextStep) {
+    int gateOffPos = samplePos + static_cast<int>(samplesUntilGateOff);
+    if (lastPlayedNote >= 0) {
+        midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), gateOffPos);
+        lastPlayedNote = -1;
+    }
+    samplesUntilGateOff = -1.0;
+}","","TS: Map von setTimeout-Timern. JUCE: einzelner samplesUntilGateOff Counter. JUCE kann nur ein Gate-Off gleichzeitig tracken (reicht fuer monophonen Sequencer)."
+"52","MIDI Velocity Conversion","// TS: velocity 0-1 passed to callback directly","int vel = juce::jlimit(1, 127, juce::roundToInt(step.velocity * 127.0f));","","TS: Velocity als 0-1 Float an Callback. JUCE: konvertiert zu 1-127 int fuer MIDI."

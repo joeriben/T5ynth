@@ -144,18 +144,18 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         btn.setRadioGroupId(1001);
         btn.setToggleState(on, juce::dontSendNotification);
     };
-    styleBtn(looperBtn, true);
+    styleBtn(samplerBtn, true);
     styleBtn(wavetableBtn, false);
-    addAndMakeVisible(looperBtn);
+    addAndMakeVisible(samplerBtn);
     addAndMakeVisible(wavetableBtn);
 
-    engineModeHidden.addItemList({"Looper", "Wavetable"}, 1);
+    engineModeHidden.addItemList({"Sampler", "Wavetable"}, 1);
     engineModeHidden.onChange = [this] {
-        bool isLooper = engineModeHidden.getSelectedId() == 1;
-        looperBtn.setToggleState(isLooper, juce::dontSendNotification);
-        wavetableBtn.setToggleState(!isLooper, juce::dontSendNotification);
+        bool isSampler = engineModeHidden.getSelectedId() == 1;
+        samplerBtn.setToggleState(isSampler, juce::dontSendNotification);
+        wavetableBtn.setToggleState(!isSampler, juce::dontSendNotification);
     };
-    looperBtn.onClick = [this] { engineModeHidden.setSelectedId(1); };
+    samplerBtn.onClick = [this] { engineModeHidden.setSelectedId(1); };
     wavetableBtn.onClick = [this] { engineModeHidden.setSelectedId(2); };
     engineModeA = std::make_unique<CA>(apvts, "engine_mode", engineModeHidden);
 
@@ -163,8 +163,8 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
 
     // Wire bracket handles to looper
     waveformDisplay.onLoopRegionChanged = [this](float start, float end) {
-        processorRef.getLooper().setLoopStart(start);
-        processorRef.getLooper().setLoopEnd(end);
+        processorRef.getSampler().setLoopStart(start);
+        processorRef.getSampler().setLoopEnd(end);
     };
 
     // ── Loop mode ──
@@ -522,7 +522,7 @@ void SynthPanel::paint(juce::Graphics& g)
 
     // Card: Engine mode + Waveform + Loop controls + Scan
     {
-        int top = looperBtn.getY() - inset;
+        int top = samplerBtn.getY() - inset;
         int bot = scanHint.getBottom() + inset;
         paintCard(g, juce::Rectangle<int>(padX, top, getWidth() - padX * 2, bot - top));
     }
@@ -581,7 +581,7 @@ void SynthPanel::resized()
     // ── Engine mode: horizontal switch ──
     auto modeRow = area.removeFromTop(juce::roundToInt(f * 1.8f));
     int third = modeRow.getWidth() / 2;
-    looperBtn.setBounds(modeRow.removeFromLeft(third));
+    samplerBtn.setBounds(modeRow.removeFromLeft(third));
     wavetableBtn.setBounds(modeRow);
     area.removeFromTop(gap);
 

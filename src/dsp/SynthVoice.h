@@ -49,13 +49,13 @@ public:
     float getAmpEnvLevel() const { return ampEnv.isIdle() ? 0.0f : lastAmpEnvLevel; }
 
     // ── Engine mode ──
-    enum class EngineMode { Looper, Wavetable };
+    enum class EngineMode { Sampler, Wavetable };
     void setEngineMode(EngineMode mode) { engineMode = mode; }
     EngineMode getEngineMode() const { return engineMode; }
 
     // ── Access to sub-components ──
     WavetableOscillator& getOsc() { return osc; }
-    AudioLooper& getLooper() { return looper; }
+    AudioLooper& getSampler() { return looper; }
     ADSREnvelope& getAmpEnvelope() { return ampEnv; }
     ADSREnvelope& getModEnvelope1() { return modEnv1; }
     ADSREnvelope& getModEnvelope2() { return modEnv2; }
@@ -76,13 +76,14 @@ private:
     LFO perVoiceLfo2;
     T5ynthFilter filter;
 
-    EngineMode engineMode = EngineMode::Looper;
+    EngineMode engineMode = EngineMode::Sampler;
 
     int currentNote = -1;
     float currentVelocity = 0.0f;
     bool active = false;
     bool noteHeld = false;
     float lastAmpEnvLevel = 0.0f;
+    float baseFrequency = 440.0f;
 
     double sr = 44100.0;
 };
