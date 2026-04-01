@@ -88,9 +88,11 @@ target_sources(T5ynth PRIVATE
     src/backend/GenerationRequest.cpp
     src/backend/ModelDownloader.cpp
 
-    # Inference (native LibTorch pipeline)
+    # Inference (native LibTorch pipeline — deprecated)
     src/inference/T5ynthInference.cpp
     src/inference/DiffusionScheduler.cpp
+    # Inference (Python pipe — working implementation)
+    src/inference/PipeInference.cpp
 
     # GUI
     src/gui/MainPanel.cpp

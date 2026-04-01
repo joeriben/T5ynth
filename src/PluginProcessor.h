@@ -11,6 +11,7 @@
 #include "backend/BackendManager.h"
 #include "backend/BackendConnection.h"
 #include "inference/T5ynthInference.h"
+#include "inference/PipeInference.h"
 
 class T5ynthProcessor : public juce::AudioProcessor
 {
@@ -52,10 +53,15 @@ public:
     BackendManager& getBackendManager() { return backendManager; }
     BackendConnection& getBackendConnection() { return backendConnection; }
 
-    // Native inference (LibTorch)
+    // Native inference (LibTorch — deprecated)
     T5ynthInference& getInference() { return inference; }
     bool loadInferenceModels(const juce::File& modelDir);
-    bool isInferenceReady() const { return inference.isLoaded(); }
+    bool isInferenceReady() const { return pipeInference.isReady() || inference.isLoaded(); }
+
+    // Pipe inference (Python subprocess)
+    PipeInference& getPipeInference() { return pipeInference; }
+    bool launchPipeInference(const juce::File& backendDir);
+    bool isPipeInferenceReady() const { return pipeInference.isReady(); }
 
     // Sequencer
     T5ynthStepSequencer& getStepSequencer() { return stepSequencer; }
@@ -103,8 +109,11 @@ private:
     BackendManager backendManager;
     BackendConnection backendConnection;
 
-    // Native inference (LibTorch — replaces backend)
+    // Native inference (LibTorch — deprecated, kept for reference)
     T5ynthInference inference;
+
+    // Pipe inference (Python subprocess — actual working inference)
+    PipeInference pipeInference;
 
     // Last triggered note (for pitch modulation in block-rate section)
     int lastTriggeredNote = -1;
@@ -116,8 +125,18 @@ private:
     juce::AudioBuffer<float> waveformSnapshot;
     std::atomic<bool> newWaveformReady { false };
 
-    // Track loaded reverb IR index to avoid reloading every block
+    // Track loaded reverb IR / seq preset to avoid reloading every block
     int lastReverbIr = -1;
+    int lastSeqPreset = -1;
+
+    // DEBUG: direct sample playback + sequencer bypass
+    juce::AudioBuffer<float> debugSampleBuf;
+    int debugSamplePos = 0;
+    double debugSampleReadPos = 0.0;
+    double debugSampleSpeed = 1.0;
+    double debugSeqCounter = 0.0;
+    double debugSeqGateCounter = 0.0;
+    int debugSeqStep = 0;
 
 public:
     // MIDI monitor (audio thread writes, GUI reads)

@@ -32,7 +32,7 @@ import sys
 def _default_model_dir() -> Path:
     """Return the first existing model directory, or the platform-standard one."""
     if sys.platform == "darwin":
-        app_support = Path.home() / "Library" / "Application Support" / "T5ynth" / "models"
+        app_support = Path.home() / "Library" / "T5ynth" / "models"
     elif sys.platform == "win32":
         app_support = Path(os.environ.get("APPDATA", "")) / "T5ynth" / "models"
     else:  # Linux

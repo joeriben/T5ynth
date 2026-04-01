@@ -91,16 +91,61 @@ void MainPanel::toggleSettings() {}
 
 void MainPanel::tryLoadInferenceModels()
 {
-    auto home = juce::File::getSpecialLocation(juce::File::userHomeDirectory);
+    // Try pipe inference first (Python subprocess — correct audio)
+    statusBar.setStatusText("Loading inference...");
 
+    auto* processor = &processorRef;
+
+    // Find backend directory (contains pipe_inference.py)
+    auto exe = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
+    juce::File backendDir;
+    auto search = exe.getParentDirectory();
+    for (int i = 0; i < 8; ++i)
+    {
+        if (search.getChildFile("backend/pipe_inference.py").existsAsFile())
+        {
+            backendDir = search.getChildFile("backend");
+            break;
+        }
+        search = search.getParentDirectory();
+    }
+
+    if (backendDir.exists())
+    {
+        std::thread([this, processor, backendDir]()
+        {
+            bool ok = processor->launchPipeInference(backendDir);
+            juce::MessageManager::callAsync([this, ok]()
+            {
+                if (ok)
+                {
+                    statusBar.setConnected(true);
+                    statusBar.setStatusText("Ready (Python)");
+                    settingsPage.setBackendConnected(true);
+                }
+                else
+                {
+                    statusBar.setStatusText("Python inference failed — trying native...");
+                    tryLoadNativeInference();
+                }
+            });
+        }).detach();
+    }
+    else
+    {
+        tryLoadNativeInference();
+    }
+}
+
+void MainPanel::tryLoadNativeInference()
+{
+    // Fallback: try native LibTorch inference (deprecated, produces garbage)
+    auto home = juce::File::getSpecialLocation(juce::File::userHomeDirectory);
     auto appData = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
 
     std::vector<juce::File> candidates = {
-        // App data (where the GUI downloads/exports to)
         appData.getChildFile("T5ynth/exported_models"),
-        // Project-local
         juce::File::getCurrentWorkingDirectory().getChildFile("exported_models"),
-        // Legacy locations
         home.getChildFile("t5ynth/exported_models"),
         home.getChildFile("ai/t5ynth/exported_models"),
     };
@@ -109,14 +154,13 @@ void MainPanel::tryLoadInferenceModels()
     {
         if (dir.getChildFile("dit.pt").existsAsFile())
         {
-            statusBar.setStatusText("Loading models...");
-
+            statusBar.setStatusText("Loading native models...");
             auto* processor = &processorRef;
             auto modelDir = dir;
             std::thread([this, processor, modelDir]()
             {
                 bool ok = processor->loadInferenceModels(modelDir);
-                juce::MessageManager::callAsync([this, ok, modelDir]()
+                juce::MessageManager::callAsync([this, ok]()
                 {
                     if (ok)
                     {
@@ -125,16 +169,12 @@ void MainPanel::tryLoadInferenceModels()
                         settingsPage.setBackendConnected(true);
                     }
                     else
-                    {
                         statusBar.setStatusText("Model load failed");
-                    }
                 });
             }).detach();
             return;
         }
     }
-
-    // No exported models found
     statusBar.setStatusText("No model — open Settings to download");
 }
 
@@ -144,7 +184,7 @@ void MainPanel::paint(juce::Graphics& g)
 
     float w = static_cast<float>(getWidth());
     float h = static_cast<float>(getHeight());
-    float bottomH = h * 0.16f;
+    float bottomH = h * 0.26f;
     float topH = h - bottomH;
 
     g.setColour(kBorder);
@@ -166,7 +206,7 @@ void MainPanel::resized()
     float h = static_cast<float>(b.getHeight());
 
     int statusH = juce::jmax(22, juce::roundToInt(h * 0.03f));
-    int footerH = juce::roundToInt(h * 0.10f);
+    int footerH = juce::roundToInt(h * 0.22f);
     statusBar.setBounds(b.removeFromBottom(statusH));
 
     // Footer

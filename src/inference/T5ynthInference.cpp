@@ -380,18 +380,16 @@ T5ynthInference::Result T5ynthInference::generate(const Request& request)
         auto encoderHidden = torch::cat({textHidden, startHidden, endHidden}, /*dim=*/1);
         // global_hidden_states = cat(start, end, dim=2).squeeze(1) → [1, 1536]
         auto globalHidden = torch::cat({startHidden, endHidden}, /*dim=*/2).squeeze(1);
-        // attention mask: all valid
-        auto attentionMask = torch::ones({1, encoderHidden.size(1)},
-                                         torch::TensorOptions().dtype(torch::kBool).device(device_));
+        // attention mask: text mask (padding=false) + time tokens (always true)
+        // This is critical — all-ones mask makes the DiT attend to padding garbage.
+        auto textMask = maskA.to(torch::kBool).to(device_);  // [1, 128]
+        auto timeMask = torch::ones({1, 2}, torch::TensorOptions().dtype(torch::kBool).device(device_));
+        auto attentionMask = torch::cat({textMask, timeMask}, /*dim=*/1);  // [1, 130]
 
-        // 5. Compute latent length from requested duration
-        int latentSeqLen = std::max(1,
-            std::min(static_cast<int>(std::ceil(duration * sampleRate_ / vaeHopLength_)),
-                     kMaxLatentSeqLen));
-
-        // 6. Diffusion loop
+        // 5. Diffusion loop — always use full latent size (matches traced model input).
+        // Duration conditioning tells the model what to generate; we trim output after VAE.
         auto latent = diffusionLoop(encoderHidden, globalHidden, attentionMask,
-                                    latentSeqLen, request.steps, request.cfgScale, seed);
+                                    kMaxLatentSeqLen, request.steps, request.cfgScale, seed);
 
         // 7. VAE decode
         result.audio = decodeLatent(latent);

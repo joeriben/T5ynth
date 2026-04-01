@@ -30,6 +30,11 @@ bool T5ynthProcessor::loadInferenceModels(const juce::File& modelDir)
     return inference.loadModels(modelDir);
 }
 
+bool T5ynthProcessor::launchPipeInference(const juce::File& backendDir)
+{
+    return pipeInference.launch(backendDir);
+}
+
 juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
@@ -92,7 +97,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // Generation
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"gen_alpha", 1}, "Alpha",
-        juce::NormalisableRange<float>(-2.0f, 2.0f), 0.5f));
+        juce::NormalisableRange<float>(-2.0f, 2.0f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"gen_magnitude", 1}, "Magnitude",
         juce::NormalisableRange<float>(0.1f, 5.0f, 0.01f), 1.0f));
@@ -321,6 +326,23 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::StringArray{"1/4", "1/8", "1/16", "1/32", "1/4T", "1/8T", "1/16T"}, 2));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{"arp_octaves", 1}, "Arp Octaves", 1, 4, 1));
+    // Separate arp enable + mode (seq_mode kept for old preset compat)
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"arp_enabled", 1}, "Arp Enabled", false));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"arp_mode", 1}, "Arp Mode",
+        juce::StringArray{"Up", "Down", "UpDown", "Random"}, 0));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"arp_gate", 1}, "Arp Gate",
+        juce::NormalisableRange<float>(0.1f, 1.0f, 0.01f), 0.8f));
+    // Global seq gate + preset
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"seq_gate", 1}, "Seq Gate",
+        juce::NormalisableRange<float>(0.1f, 1.0f, 0.01f), 0.8f));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"seq_preset", 1}, "Seq Preset",
+        juce::StringArray{"East Coast", "West Coast", "Synthwave", "Techno", "Dub Techno",
+                          "Ambient", "IDM Glitch", "Solar", "Arpeggio Bass", "Trance Gate"}, 0));
 
     // Master volume: purely attenuative (0dB max). DAW fader handles boost.
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -332,6 +354,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
 
 void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
+    // DEBUG: confirm prepareToPlay runs
+    {
+        auto dbg = juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
+                       .getChildFile("t5ynth_debug.txt");
+        dbg.appendText("prepareToPlay: sr=" + juce::String(sampleRate)
+            + " blockSize=" + juce::String(samplesPerBlock) + "\n");
+    }
     masterOsc.prepare(sampleRate, samplesPerBlock);
     masterLooper.prepare(sampleRate, samplesPerBlock);
     voiceManager.prepare(sampleRate, samplesPerBlock);
@@ -349,6 +378,7 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     arpeggiator.prepare(sampleRate, samplesPerBlock);
     lfo1Buffer.resize(static_cast<size_t>(samplesPerBlock));
     lfo2Buffer.resize(static_cast<size_t>(samplesPerBlock));
+
 }
 
 void T5ynthProcessor::releaseResources()
@@ -365,6 +395,71 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     const int numSamples = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
+
+    // ══════ DEBUG: MINIMAL SAMPLER + SEQUENCER — BYPASS EVERYTHING ══════
+    // 1970s-style: timer counts samples, fires noteOn/noteOff, plays sample.
+    if (debugSampleBuf.getNumSamples() > 0)
+    {
+        double sr = getSampleRate();
+        double bpm = static_cast<double>(parameters.getRawParameterValue("seq_bpm")->load());
+        double samplesPerStep = sr * 60.0 / bpm * 0.5;  // 1/8 note
+        double gateLen = samplesPerStep * 0.8;           // 80% gate
+
+        // Notes: C major scale from C3
+        static constexpr int SEQ_NOTES[] = { 48, 50, 52, 53, 55, 57, 59, 60 };
+        static constexpr int SEQ_LEN = 8;
+
+        double srcLen = static_cast<double>(debugSampleBuf.getNumSamples());
+        int srcCh = debugSampleBuf.getNumChannels();
+        const float* src0 = debugSampleBuf.getReadPointer(0);
+        const float* src1 = srcCh > 1 ? debugSampleBuf.getReadPointer(1) : src0;
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            // Sequencer: check if we hit a step boundary
+            if (debugSeqCounter >= samplesPerStep)
+            {
+                debugSeqCounter -= samplesPerStep;
+                debugSeqStep = (debugSeqStep + 1) % SEQ_LEN;
+
+                // NoteOn: retrigger sample at new pitch
+                int note = SEQ_NOTES[debugSeqStep];
+                debugSampleReadPos = 0.0;
+                debugSampleSpeed = (44100.0 / sr) * std::pow(2.0, (note - 60) / 12.0);
+                debugSamplePos = 0;
+                debugSeqGateCounter = 0.0;
+            }
+
+            // Gate off
+            if (debugSamplePos >= 0 && debugSeqGateCounter >= gateLen)
+                debugSamplePos = -1;
+
+            // Render sample
+            if (debugSamplePos >= 0)
+            {
+                double pos = debugSampleReadPos;
+                if (pos < srcLen - 1.0)
+                {
+                    int idx = static_cast<int>(pos);
+                    float frac = static_cast<float>(pos - idx);
+                    float L = src0[idx] + (src0[idx+1] - src0[idx]) * frac;
+                    float R = src1[idx] + (src1[idx+1] - src1[idx]) * frac;
+                    buffer.addSample(0, i, L);
+                    if (numChannels > 1) buffer.addSample(1, i, R);
+                    debugSampleReadPos += debugSampleSpeed;
+                }
+                else
+                {
+                    debugSamplePos = -1;
+                }
+            }
+
+            debugSeqCounter += 1.0;
+            debugSeqGateCounter += 1.0;
+        }
+        return;
+    }
+    // ══════ END DEBUG ══════
 
     // ── GAIN STAGING ────────────────────────────────────────────────────────
     // Per Voice: Osc +-1.0 → VCA up to +-4.0 → Filter (gain-neutral, reso +12dB)
@@ -457,34 +552,45 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     masterLooper.setNormalize(parameters.getRawParameterValue("normalize")->load() > 0.5f);
 
     // ── Sequencer / Arpeggiator (in series: Seq → Arp → synth) ─────────────
-    int seqMode = static_cast<int>(parameters.getRawParameterValue("seq_mode")->load());
     bool seqRunning = parameters.getRawParameterValue("seq_running")->load() > 0.5f;
     float seqBpm = parameters.getRawParameterValue("seq_bpm")->load();
     int seqSteps = static_cast<int>(parameters.getRawParameterValue("seq_steps")->load());
+    float seqGate = parameters.getRawParameterValue("seq_gate")->load();
+    int seqPreset = static_cast<int>(parameters.getRawParameterValue("seq_preset")->load());
+    bool arpEnabled = parameters.getRawParameterValue("arp_enabled")->load() > 0.5f;
+    int arpMode = static_cast<int>(parameters.getRawParameterValue("arp_mode")->load());
     int arpRate = static_cast<int>(parameters.getRawParameterValue("arp_rate")->load());
     int arpOctaves = static_cast<int>(parameters.getRawParameterValue("arp_octaves")->load());
-    bool arpEnabled = (seqMode >= 1); // 0=Seq only, 1-4=Arp modes
+    float arpGate = parameters.getRawParameterValue("arp_gate")->load();
 
-    // Stage 1: Step sequencer (generates MIDI notes from step grid)
+    // Preset change detection
+    if (seqPreset != lastSeqPreset)
+    {
+        stepSequencer.loadPreset(seqPreset);
+        lastSeqPreset = seqPreset;
+    }
+
+    // Stage 1: Step sequencer
     stepSequencer.setBpm(static_cast<double>(seqBpm));
     stepSequencer.setNumSteps(seqSteps);
     stepSequencer.setDivision(static_cast<int>(parameters.getRawParameterValue("seq_division")->load()));
     stepSequencer.setGlideTime(parameters.getRawParameterValue("seq_glide_time")->load());
+    stepSequencer.setAllGates(seqGate);
     if (seqRunning)
         stepSequencer.start();
     else
         stepSequencer.stop();
     stepSequencer.processBlock(buffer, midiMessages);
 
-    // Stage 2: Arpeggiator (consumes note-on/off, generates arpeggiated output)
+    // Stage 2: Arpeggiator (consumes seq note events, generates arpeggiated output)
     if (arpEnabled)
     {
         arpeggiator.setBpm(static_cast<double>(seqBpm));
         arpeggiator.setRate(arpRate);
         arpeggiator.setOctaveRange(arpOctaves);
-        arpeggiator.setMode(static_cast<T5ynthArpeggiator::Mode>(seqMode - 1));
+        arpeggiator.setMode(static_cast<T5ynthArpeggiator::Mode>(arpMode));
+        arpeggiator.setGate(arpGate);
 
-        // Feed note events to arpeggiator (chord-interval based, not held-note)
         juce::MidiBuffer filtered;
         for (const auto metadata : midiMessages)
         {
@@ -492,7 +598,12 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             if (msg.isNoteOn())
                 arpeggiator.setBaseNote(msg.getNoteNumber(), msg.getFloatVelocity());
             else if (msg.isNoteOff())
-                arpeggiator.stopArp();
+            {
+                // When seq is running, don't kill arp on seq gate-offs —
+                // arp runs continuously, seq just updates the base note
+                if (!seqRunning)
+                    arpeggiator.stopArp();
+            }
             else
                 filtered.addEvent(msg, metadata.samplePosition);
         }
@@ -501,6 +612,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     }
     else
     {
+        // Clean up any hanging arp note before resetting
+        if (arpeggiator.getLastPlayedNote() >= 0)
+            midiMessages.addEvent(juce::MidiMessage::noteOff(1, arpeggiator.getLastPlayedNote()), 0);
         arpeggiator.reset();
     }
 
@@ -511,11 +625,37 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bool lfo1TrigMode = static_cast<int>(parameters.getRawParameterValue("lfo1_mode")->load()) == 1;
     bool lfo2TrigMode = static_cast<int>(parameters.getRawParameterValue("lfo2_mode")->load()) == 1;
 
+    // DEBUG: log state once via JUCE File API (fopen is sandboxed)
+    {
+        static bool midiDebugOnce = false;
+        if (!midiDebugOnce) {
+            auto dbg = juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
+                           .getChildFile("t5ynth_debug.txt");
+            dbg.appendText("processBlock: midi=" + juce::String(midiMessages.getNumEvents())
+                + " engineMode=" + juce::String(static_cast<int>(parameters.getRawParameterValue("engine_mode")->load()))
+                + " arpEnabled=" + juce::String(parameters.getRawParameterValue("arp_enabled")->load() > 0.5f ? 1 : 0)
+                + " seqRunning=" + juce::String(parameters.getRawParameterValue("seq_running")->load() > 0.5f ? 1 : 0)
+                + " masterHasAudio=" + juce::String(masterLooper.hasAudio() ? 1 : 0)
+                + "\n");
+            midiDebugOnce = true;
+        }
+    }
+
     for (const auto metadata : midiMessages)
     {
         const auto msg = metadata.getMessage();
         if (msg.isNoteOn())
         {
+            // DEBUG: log first noteOn
+            static bool noteOnLogged = false;
+            if (!noteOnLogged) {
+                auto dbg = juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
+                               .getChildFile("t5ynth_debug.txt");
+                dbg.appendText("noteOn: note=" + juce::String(msg.getNoteNumber())
+                    + " vel=" + juce::String(msg.getFloatVelocity())
+                    + " ch=" + juce::String(msg.getChannel()) + "\n");
+                noteOnLogged = true;
+            }
             int note = msg.getNoteNumber();
             float velocity = msg.getFloatVelocity();
             bool isGlide = (msg.getChannel() == 2);
@@ -744,10 +884,15 @@ bool T5ynthProcessor::isSamplerMode() const
 
 void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBuffer, double sr)
 {
+    // Feed debug sampler bypass (the working playback path)
+    debugSampleBuf.makeCopyOf(audioBuffer);
+    debugSamplePos = -1;  // don't auto-play, wait for note/seq trigger
+    debugSampleReadPos = 0.0;
+    debugSampleSpeed = sr / getSampleRate();  // default: original pitch
+
+    // Also feed the original looper/voice chain (still broken, but keeps waveform display working)
     masterLooper.loadBuffer(audioBuffer, sr);
     masterOsc.extractFramesFromBuffer(audioBuffer, sr);
-
-    // Distribute data to all voices
     voiceManager.distributeLooperBuffer(masterLooper);
     voiceManager.distributeWavetableFrames(masterOsc);
 

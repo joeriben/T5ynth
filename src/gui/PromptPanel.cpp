@@ -42,7 +42,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     // Alpha
     makeSlider(alphaSlider, this);
     makeLabel(alphaLabel, "Alpha", kDim, juce::Justification::centredLeft, this);
-    makeLabel(alphaValue, "0.50", kAccent, juce::Justification::centredRight, this);
+    makeLabel(alphaValue, "0.00", kAccent, juce::Justification::centredRight, this);
     makeLabel(alphaHint, "Interpolation: -1.0 = A only, 1.0 = B only", kDimmer, juce::Justification::centredLeft, this);
     alphaSlider.onValueChange = [this] {
         alphaValue.setText(juce::String(alphaSlider.getValue(), 2), juce::dontSendNotification);
@@ -345,34 +345,72 @@ void PromptPanel::triggerGeneration()
     int seed = randomSeedToggle.getToggleState() ? -1 : seedEditor.getText().getIntValue();
     auto promptB = promptBEditor.getText().trim();
 
-    T5ynthInference::Request req;
-    req.promptA = promptA;
-    if (promptB.isNotEmpty()) req.promptB = promptB;
-    req.alpha = alpha;
-    req.magnitude = magnitude;
-    req.noiseSigma = noiseSigma;
-    req.durationSeconds = duration;
-    req.startPosition = startPos;
-    req.steps = steps;
-    req.cfgScale = cfgScale;
-    req.seed = seed;
-
-    auto* processor = &processorRef;
-    std::thread([this, processor, req]()
+    // Use pipe inference (Python subprocess) if available, fall back to native
+    if (processorRef.isPipeInferenceReady())
     {
-        auto result = processor->getInference().generate(req);
-        juce::MessageManager::callAsync([this, processor, result = std::move(result)]()
+        PipeInference::Request req;
+        req.promptA = promptA;
+        if (promptB.isNotEmpty()) req.promptB = promptB;
+        req.alpha = alpha;
+        req.magnitude = magnitude;
+        req.noiseSigma = noiseSigma;
+        req.durationSeconds = duration;
+        req.startPosition = startPos;
+        req.steps = steps;
+        req.cfgScale = cfgScale;
+        req.seed = seed;
+
+        auto* processor = &processorRef;
+        std::thread([this, processor, req]()
         {
-            generating = false;
-            generateButton.setEnabled(true);
-            if (result.success)
+            auto result = processor->getPipeInference().generate(req);
+            juce::MessageManager::callAsync([this, processor, result = std::move(result)]()
             {
-                processor->loadGeneratedAudio(result.audio, 44100.0);
-                infoLabel.setText(juce::String(result.generationTimeMs / 1000.0f, 1) + "s | seed "
-                                  + juce::String(result.seed), juce::dontSendNotification);
-            }
-            else
-                infoLabel.setText(result.errorMessage, juce::dontSendNotification);
-        });
-    }).detach();
+                generating = false;
+                generateButton.setEnabled(true);
+                if (result.success)
+                {
+                    processor->loadGeneratedAudio(result.audio, 44100.0);
+                    infoLabel.setText(juce::String(result.generationTimeMs / 1000.0f, 1) + "s | seed "
+                                      + juce::String(result.seed), juce::dontSendNotification);
+                }
+                else
+                    infoLabel.setText(result.errorMessage, juce::dontSendNotification);
+            });
+        }).detach();
+    }
+    else
+    {
+        // Fallback to native inference (deprecated, produces garbage)
+        T5ynthInference::Request req;
+        req.promptA = promptA;
+        if (promptB.isNotEmpty()) req.promptB = promptB;
+        req.alpha = alpha;
+        req.magnitude = magnitude;
+        req.noiseSigma = noiseSigma;
+        req.durationSeconds = duration;
+        req.startPosition = startPos;
+        req.steps = steps;
+        req.cfgScale = cfgScale;
+        req.seed = seed;
+
+        auto* processor = &processorRef;
+        std::thread([this, processor, req]()
+        {
+            auto result = processor->getInference().generate(req);
+            juce::MessageManager::callAsync([this, processor, result = std::move(result)]()
+            {
+                generating = false;
+                generateButton.setEnabled(true);
+                if (result.success)
+                {
+                    processor->loadGeneratedAudio(result.audio, 44100.0);
+                    infoLabel.setText(juce::String(result.generationTimeMs / 1000.0f, 1) + "s | seed "
+                                      + juce::String(result.seed), juce::dontSendNotification);
+                }
+                else
+                    infoLabel.setText(result.errorMessage, juce::dontSendNotification);
+            });
+        }).detach();
+    }
 }

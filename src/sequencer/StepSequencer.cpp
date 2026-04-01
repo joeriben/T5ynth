@@ -191,7 +191,8 @@ void T5ynthStepSequencer::processBlock(juce::AudioBuffer<float>& buffer,
 void T5ynthStepSequencer::stop()
 {
     running = false;
-    lastPlayedNote = -1;
+    // Don't clear lastPlayedNote here — processBlock() needs it to emit noteOff.
+    // processBlock() will clear it after sending the noteOff event.
     samplesUntilGateOff = -1.0;
     currentStep = 0;
     scheduledStep = 0;

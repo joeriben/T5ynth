@@ -34,6 +34,7 @@ public:
     void setRate(int rateIndex) { rate = juce::jlimit(0, NUM_RATES - 1, rateIndex); }
     void setOctaveRange(int octaves) { octaveRange = juce::jlimit(1, 4, octaves); rebuildIntervals(); }
     void setBpm(double b) { bpm = b; }
+    void setGate(float g) { gate = juce::jlimit(0.1f, 1.0f, g); }
 
     /** Set base note and start arpeggiating. */
     void setBaseNote(int midiNote, float velocity);
@@ -42,6 +43,7 @@ public:
     void stopArp();
 
     bool isActive() const { return active; }
+    int getLastPlayedNote() const { return lastPlayedNote; }
 
 private:
     static constexpr int CHORD_INTERVALS[] = { 0, 4, 7 }; // Major triad
@@ -58,7 +60,9 @@ private:
     int currentIndex = 0;
     double sampleRateVal = 44100.0;
     double bpm = 120.0;
+    float gate = 0.8f;
     double samplesUntilNext = 0.0;
+    double samplesUntilGateOff = -1.0;
     int lastPlayedNote = -1;
 
     juce::Random rng;

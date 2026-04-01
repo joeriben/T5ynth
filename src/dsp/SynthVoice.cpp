@@ -120,6 +120,20 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
     // Generate audio sample
     float sample = 0.0f;
 
+    // DEBUG: which branch runs?
+    {
+        static bool branchLogged = false;
+        if (!branchLogged) {
+            auto dbg = juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
+                           .getChildFile("t5ynth_debug.txt");
+            dbg.appendText("VOICE: isWT=" + juce::String(p.engineIsWavetable?1:0)
+                + " hasFrames=" + juce::String(osc.hasFrames()?1:0)
+                + " hasAudio=" + juce::String(looper.hasAudio()?1:0)
+                + " engineMode=" + juce::String(static_cast<int>(engineMode)) + "\n");
+            branchLogged = true;
+        }
+    }
+
     if (p.engineIsWavetable && osc.hasFrames())
     {
         // Scan modulation
@@ -135,6 +149,22 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
     else if (!p.engineIsWavetable && looper.hasAudio())
     {
         sample = looper.processSample();
+        static bool logged = false;
+        if (!logged) {
+            FILE* f = fopen("/Users/joerissen/Desktop/t5ynth_voice.txt", "w");
+            if (f) { fprintf(f, "SAMPLER branch, sample=%.6f\n", sample); fclose(f); }
+            logged = true;
+        }
+    }
+    else
+    {
+        static bool logged2 = false;
+        if (!logged2) {
+            FILE* f = fopen("/Users/joerissen/Desktop/t5ynth_voice.txt", "w");
+            if (f) { fprintf(f, "ELSE branch! isWT=%d hasAudio=%d hasFrames=%d\n",
+                p.engineIsWavetable?1:0, looper.hasAudio()?1:0, osc.hasFrames()?1:0); fclose(f); }
+            logged2 = true;
+        }
     }
 
     // DCA: multiplicative mod routing (reference behavior).

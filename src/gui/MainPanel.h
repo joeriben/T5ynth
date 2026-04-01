@@ -57,6 +57,7 @@ private:
     void showDimExplorer();
     void hideDimExplorer();
     void tryLoadInferenceModels();
+    void tryLoadNativeInference();
 
     // Model settings (embedded in JUCE Audio/MIDI Settings dialog)
     SettingsPage settingsPage;

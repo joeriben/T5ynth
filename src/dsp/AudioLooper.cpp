@@ -180,6 +180,42 @@ float AudioLooper::processSample()
     const int regionLen = playEnd - playStart;
     if (regionLen <= 0 || !playing) return 0.0f;
 
+    // DEBUG: log once after retrigger
+    static bool debugLogged = false;
+    if (!debugLogged)
+    {
+        const auto& buf = sharedMode ? *sharedPlayBuffer : playBuffer;
+        auto dbg = juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
+                       .getChildFile("t5ynth_debug.txt");
+        dbg.appendText("LOOPER: shared=" + juce::String(sharedMode?1:0)
+            + " bufSamples=" + juce::String(buf.getNumSamples())
+            + " playStart=" + juce::String(playStart)
+            + " playEnd=" + juce::String(playEnd)
+            + " coldStart=" + juce::String(coldStart)
+            + " regionLen=" + juce::String(regionLen)
+            + " srRatio=" + juce::String(bufferOriginalSR/playbackSampleRate)
+            + " transpose=" + juce::String(transposeRatio)
+            + " mode=" + juce::String(static_cast<int>(loopMode))
+            + " readPos=" + juce::String(readPosition) + "\n");
+        // Sample content at key positions
+        if (buf.getNumChannels() > 0 && buf.getNumSamples() > 10000) {
+            const float* d = buf.getReadPointer(0);
+            float rms0=0, rms1=0, rms2=0;
+            for(int i=0;i<1000;i++) { rms0+=d[i]*d[i]; rms1+=d[i+50000]*d[i+50000]; rms2+=d[i+100000]*d[i+100000]; }
+            dbg.appendText("RMS: start=" + juce::String(std::sqrt(rms0/1000.0f))
+                + " mid=" + juce::String(std::sqrt(rms1/1000.0f))
+                + " end=" + juce::String(std::sqrt(rms2/1000.0f)) + "\n");
+            dbg.appendText("@coldStart: " + juce::String(d[coldStart]) + " " + juce::String(d[coldStart+1])
+                + " " + juce::String(d[coldStart+2]) + "\n");
+            // Log 20 evenly spaced samples
+            juce::String spaced = "spaced20: ";
+            int step = buf.getNumSamples() / 20;
+            for(int i=0;i<20;i++) spaced += juce::String(d[i*step], 4) + " ";
+            dbg.appendText(spaced + "\n");
+        }
+        debugLogged = true;
+    }
+
     // Apply pitch glide (per-sample linear ramp)
     if (glideSamplesLeft > 0)
     {

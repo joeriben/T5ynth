@@ -57,12 +57,20 @@ void T5ynthArpeggiator::setMode(Mode m)
 
 void T5ynthArpeggiator::setBaseNote(int midiNote, float velocity)
 {
+    bool wasActive = active;
     baseNote = midiNote;
     baseVelocity = velocity;
     active = true;
-    currentIndex = 0;
-    samplesUntilNext = 0.0;
+
     rebuildIntervals();
+
+    // Only reset timing when starting fresh — don't restart on every seq step
+    if (!wasActive)
+    {
+        currentIndex = 0;
+        samplesUntilNext = 0.0;
+        samplesUntilGateOff = -1.0;
+    }
 }
 
 void T5ynthArpeggiator::stopArp()
@@ -70,6 +78,7 @@ void T5ynthArpeggiator::stopArp()
     active = false;
     currentIndex = 0;
     samplesUntilNext = 0.0;
+    samplesUntilGateOff = -1.0;
 }
 
 void T5ynthArpeggiator::processBlock(juce::AudioBuffer<float>& buffer,
@@ -82,6 +91,7 @@ void T5ynthArpeggiator::processBlock(juce::AudioBuffer<float>& buffer,
             midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), 0);
             lastPlayedNote = -1;
         }
+        samplesUntilGateOff = -1.0;
         return;
     }
 
@@ -94,9 +104,25 @@ void T5ynthArpeggiator::processBlock(juce::AudioBuffer<float>& buffer,
 
     while (samplePos < numSamples)
     {
+        // Check gate-off before next step (mirrors StepSequencer pattern)
+        if (samplesUntilGateOff >= 0.0 && samplesUntilGateOff <= samplesUntilNext)
+        {
+            int gateOffPos = juce::jmin(samplePos + static_cast<int>(samplesUntilGateOff),
+                                        numSamples - 1);
+            if (lastPlayedNote >= 0)
+            {
+                midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), gateOffPos);
+                lastPlayedNote = -1;
+            }
+            samplesUntilNext -= samplesUntilGateOff;
+            samplePos += static_cast<int>(samplesUntilGateOff);
+            samplesUntilGateOff = -1.0;
+            continue;
+        }
+
         if (samplesUntilNext <= 0.0)
         {
-            // Note-off for previous
+            // Note-off for previous (if gate didn't already end it)
             if (lastPlayedNote >= 0)
             {
                 midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), samplePos);
@@ -112,6 +138,9 @@ void T5ynthArpeggiator::processBlock(juce::AudioBuffer<float>& buffer,
             lastPlayedNote = midiNote;
             currentIndex++;
 
+            // Schedule gate-off
+            samplesUntilGateOff = gate * samplesPerStep;
+
             // Rebuild intervals on each cycle for random pattern freshness
             if (mode == Mode::Random && currentIndex % static_cast<int>(intervals.size()) == 0)
                 fisherYatesShuffle();
@@ -119,10 +148,16 @@ void T5ynthArpeggiator::processBlock(juce::AudioBuffer<float>& buffer,
             samplesUntilNext += samplesPerStep;
         }
 
+        // Advance by minimum of remaining step time and gate-off time
+        double advance = samplesUntilNext;
+        if (samplesUntilGateOff >= 0.0)
+            advance = std::min(advance, samplesUntilGateOff);
         int samplesToProcess = juce::jmin(numSamples - samplePos,
-                                          static_cast<int>(std::ceil(samplesUntilNext)));
+                                          static_cast<int>(std::ceil(advance)));
         samplesToProcess = std::max(1, samplesToProcess);
         samplesUntilNext -= samplesToProcess;
+        if (samplesUntilGateOff >= 0.0)
+            samplesUntilGateOff -= samplesToProcess;
         samplePos += samplesToProcess;
     }
 }
@@ -132,6 +167,7 @@ void T5ynthArpeggiator::reset()
     active = false;
     currentIndex = 0;
     samplesUntilNext = 0.0;
+    samplesUntilGateOff = -1.0;
     lastPlayedNote = -1;
     intervals.clear();
 }

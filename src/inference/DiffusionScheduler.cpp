@@ -80,36 +80,23 @@ torch::Tensor DiffusionScheduler::convertModelOutput(const torch::Tensor& modelO
 torch::Tensor DiffusionScheduler::firstOrderUpdate(const torch::Tensor& modelOutput,
                                                    const torch::Tensor& sample,
                                                    int stepIndex,
-                                                   const torch::Tensor& noise) const
+                                                   const torch::Tensor& /*noise*/) const
 {
     float sigmaS = sigmas_[stepIndex];       // current sigma
     float sigmaT = sigmas_[stepIndex + 1];   // next sigma (target)
 
-    // alpha_t = 1 always (pre-scaled inputs)
-    // lambda = log(alpha) - log(sigma) = -log(sigma)
-    float lambdaS = -std::log(sigmaS);
-    float lambdaT = (sigmaT > 0) ? -std::log(sigmaT) : 100.0f; // large value for sigma=0
-    float h = lambdaT - lambdaS;
-
-    // SDE-DPM-Solver++ first order:
-    // x_t = (sigma_t/sigma_s * exp(-h)) * x_s
-    //     + (1 - exp(-2h)) * D0
-    //     + sigma_t * sqrt(1 - exp(-2h)) * noise
-    //
-    // With alpha_t=1: the alpha_t factor in D0 term = 1
-    float ratio = (sigmaT > 0) ? (sigmaT / sigmaS * std::exp(-h)) : 0.0f;
-    float expNeg2h = std::exp(-2.0f * h);
-    float d0Coeff = 1.0f - expNeg2h;               // alpha_t * (1 - exp(-2h)), alpha_t=1
-    float noiseCoeff = sigmaT * std::sqrt(std::max(0.0f, 1.0f - expNeg2h));
-
-    return ratio * sample + d0Coeff * modelOutput + noiseCoeff * noise;
+    // ODE DPM-Solver++ first order (no noise injection):
+    // x_t = (sigma_t / sigma_s) * sample + (1 - sigma_t / sigma_s) * denoised
+    // When sigma_t = 0 (final step): x_t = denoised
+    float ratio = (sigmaS > 0) ? (sigmaT / sigmaS) : 0.0f;
+    return ratio * sample + (1.0f - ratio) * modelOutput;
 }
 
 torch::Tensor DiffusionScheduler::secondOrderUpdate(const torch::Tensor& m0,
                                                     const torch::Tensor& m1,
                                                     const torch::Tensor& sample,
                                                     int stepIndex,
-                                                    const torch::Tensor& noise) const
+                                                    const torch::Tensor& /*noise*/) const
 {
     float sigmaS0 = sigmas_[stepIndex];      // current
     float sigmaS1 = sigmas_[stepIndex - 1];  // previous
@@ -124,16 +111,15 @@ torch::Tensor DiffusionScheduler::secondOrderUpdate(const torch::Tensor& m0,
     float h_0 = lambdaS0 - lambdaS1;
     float r0  = h_0 / h;
 
-    // D0 = m0, D1 = (1/r0) * (m0 - m1)
+    // D0 = m0, D1 = (1/r0) * (m0 - m1) — second-order correction
     auto D0 = m0;
     auto D1 = (1.0f / r0) * (m0 - m1);
 
-    // SDE-DPM-Solver++ midpoint second order
-    float ratio = (sigmaT > 0) ? (sigmaT / sigmaS0 * std::exp(-h)) : 0.0f;
-    float expNeg2h = std::exp(-2.0f * h);
-    float d0Coeff = 1.0f - expNeg2h;
-    float d1Coeff = 0.5f * (1.0f - expNeg2h);  // midpoint: 0.5 factor
-    float noiseCoeff = sigmaT * std::sqrt(std::max(0.0f, 1.0f - expNeg2h));
+    // ODE DPM-Solver++ midpoint second order (no noise injection):
+    // x_t = (sigma_t/sigma_s0) * sample + (1 - sigma_t/sigma_s0) * D0
+    //                                    + 0.5 * (1 - sigma_t/sigma_s0) * D1
+    float ratio = (sigmaS0 > 0) ? (sigmaT / sigmaS0) : 0.0f;
+    float coeff = 1.0f - ratio;
 
-    return ratio * sample + d0Coeff * D0 + d1Coeff * D1 + noiseCoeff * noise;
+    return ratio * sample + coeff * D0 + 0.5f * coeff * D1;
 }
