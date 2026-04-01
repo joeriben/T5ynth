@@ -8,6 +8,8 @@ Protocol:
   Ready:    \x02 on startup when pipeline is loaded
 
 Runs the real diffusers StableAudioPipeline with BrownianTreeNoiseSampler.
+Noise generation is patched to use numpy PCG64 for cross-platform determinism
+(same seed → same audio on CPU, CUDA, ARM, x86).
 """
 
 import json
@@ -20,6 +22,31 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
+# ─── Cross-platform deterministic noise ─────────────────────────────
+# torch.Generator("cpu") and torch.Generator("cuda") are different PRNGs —
+# same seed produces different sequences. torchsde's BrownianTree uses
+# torch.Generator(device) internally (brownian_interval.py:31).
+#
+# Fix: monkey-patch torchsde._randn to use numpy PCG64 which is identical
+# on all platforms (ARM, x86, any OS).
+
+def _patch_torchsde_for_determinism():
+    """Replace torchsde's device-dependent _randn with numpy PCG64."""
+    try:
+        import torchsde._brownian.brownian_interval as _bi
+
+        def _deterministic_randn(size, dtype, device, seed):
+            rng = np.random.Generator(np.random.PCG64(int(seed)))
+            arr = rng.standard_normal(size).astype(np.float32)
+            return torch.from_numpy(arr).to(dtype=dtype, device=device)
+
+        _bi._randn = _deterministic_randn
+        logging.getLogger("pipe_inference").info("torchsde patched for deterministic noise")
+    except ImportError:
+        pass  # torchsde not installed — patch not needed
+
+_patch_torchsde_for_determinism()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s",
                     stream=sys.stderr)
@@ -90,6 +117,9 @@ def generate(pipe, request):
         seed = random.randint(0, 2**31 - 1)
 
     sr = 44100
+    # Use numpy PCG64 for cross-platform deterministic initial noise.
+    # The diffusers pipeline still needs a torch Generator for internal use,
+    # but we override the initial latent generation below.
     generator = torch.Generator("cpu").manual_seed(seed)
 
     # Duration conditioning
@@ -129,10 +159,11 @@ def generate(pipe, request):
         if abs(magnitude - 1.0) > 1e-6:
             manipulated = manipulated * magnitude
 
-        # Noise injection
+        # Noise injection (numpy PCG64 for cross-platform determinism)
         if noise_sigma > 0.0:
-            torch.manual_seed(seed)
-            noise = torch.randn_like(manipulated) * noise_sigma
+            rng = np.random.Generator(np.random.PCG64(seed))
+            noise_np = rng.standard_normal(manipulated.shape).astype(np.float32)
+            noise = torch.from_numpy(noise_np).to(manipulated.device) * noise_sigma
             manipulated = manipulated + noise
 
         # Generate via pipeline with pre-computed embeddings

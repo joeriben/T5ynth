@@ -24,8 +24,36 @@ import logging
 import time
 from typing import Optional, Dict, Any
 import asyncio
+import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+# ─── Cross-platform deterministic noise ─────────────────────────────
+# torch.Generator("cpu") and torch.Generator("cuda") are different PRNGs —
+# same seed produces different sequences. torchsde's BrownianTree uses
+# torch.Generator(device) internally (brownian_interval.py:31).
+#
+# Fix: monkey-patch torchsde._randn to use numpy PCG64 which is identical
+# on all platforms (ARM, x86, any OS).
+
+def _patch_torchsde_for_determinism():
+    """Replace torchsde's device-dependent _randn with numpy PCG64."""
+    try:
+        import torch
+        import torchsde._brownian.brownian_interval as _bi
+
+        def _deterministic_randn(size, dtype, device, seed):
+            rng = np.random.Generator(np.random.PCG64(int(seed)))
+            arr = rng.standard_normal(size).astype(np.float32)
+            return torch.from_numpy(arr).to(dtype=dtype, device=device)
+
+        _bi._randn = _deterministic_randn
+        logger.info("[STABLE-AUDIO] torchsde patched for deterministic noise")
+    except ImportError:
+        pass  # torchsde not installed
+
+_patch_torchsde_for_determinism()
 
 
 class StableAudioGenerator:
@@ -161,7 +189,7 @@ class StableAudioGenerator:
         prompt: str,
         duration_seconds: float = 10.0,
         negative_prompt: str = "",
-        steps: int = 100,
+        steps: int = 20,
         cfg_scale: float = 7.0,
         seed: int = -1,
         output_format: str = "wav",
@@ -173,7 +201,7 @@ class StableAudioGenerator:
             prompt: Text description of desired audio
             duration_seconds: Duration in seconds (max 47.55)
             negative_prompt: Negative conditioning text
-            steps: Number of inference steps (default 100)
+            steps: Number of inference steps (default 20)
             cfg_scale: Classifier-free guidance scale
             seed: Seed for reproducibility (-1 = random)
             output_format: 'wav' or 'mp3'
@@ -198,7 +226,9 @@ class StableAudioGenerator:
                     import random
                     seed = random.randint(0, 2**32 - 1)
 
-                generator = torch.Generator(device=self.device).manual_seed(seed)
+                # CPU generator for cross-platform determinism (BrownianTree
+                # noise is already patched via _patch_torchsde_for_determinism)
+                generator = torch.Generator(device="cpu").manual_seed(seed)
 
                 logger.info(
                     f"[STABLE-AUDIO] Generating: prompt='{prompt[:80]}...', "
@@ -236,7 +266,7 @@ class StableAudioGenerator:
         seconds_start: float = 0.0,
         seconds_end: float = 10.0,
         negative_prompt: str = "",
-        steps: int = 100,
+        steps: int = 20,
         cfg_scale: float = 7.0,
         seed: int = -1,
     ) -> Optional[bytes]:
@@ -260,7 +290,7 @@ class StableAudioGenerator:
             seconds_start: Audio start time
             seconds_end: Audio end time (max 47.55)
             negative_prompt: Ignored when prompt_embeds is provided (kept for API compat)
-            steps: Number of inference steps
+            steps: Number of inference steps (default 20)
             cfg_scale: Classifier-free guidance scale
             seed: Seed for reproducibility (-1 = random)
 
@@ -284,7 +314,8 @@ class StableAudioGenerator:
                     import random
                     seed = random.randint(0, 2**32 - 1)
 
-                generator = torch.Generator(device=self.device).manual_seed(seed)
+                # CPU generator for cross-platform determinism
+                generator = torch.Generator(device="cpu").manual_seed(seed)
 
                 # Move embeddings to device
                 xf_dtype = self._pipeline.transformer.dtype
