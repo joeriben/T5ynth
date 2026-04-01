@@ -107,10 +107,77 @@ def load_pipeline(model_dir):
     return pipe
 
 
+# ─── Latent cache ────────────────────────────────────────────────────
+# Stores pre-VAE latents keyed by name. Enables fast interpolation +
+# VAE-only decode (~2s) instead of full diffusion (~15-50s).
+
+_latent_cache = {}   # {name: torch.Tensor}
+
+
+def vae_decode(pipe, latent, duration):
+    """Decode a latent tensor to audio via VAE. Returns (audio_np, sr)."""
+    sr = 44100
+    with torch.no_grad():
+        # StableAudioPipeline passes raw latents to VAE (no scaling_factor division)
+        audio = pipe.vae.decode(latent).sample
+    audio_np = audio.squeeze(0).cpu().float().numpy()
+    requested_samples = int(math.ceil(duration * sr))
+    if audio_np.shape[-1] > requested_samples:
+        audio_np = audio_np[..., :requested_samples]
+    return audio_np, sr
+
+
+def interpolate_and_decode(pipe, request):
+    """Interpolate between cached latents and VAE-decode. ~2s instead of ~15-50s."""
+    name_a = request["latent_a"]
+    name_b = request["latent_b"]
+    alpha = request.get("lerp_alpha", 0.5)
+    duration = request.get("duration", 3.0)
+
+    if name_a not in _latent_cache:
+        raise ValueError(f"Latent '{name_a}' not in cache (have: {list(_latent_cache.keys())})")
+    if name_b not in _latent_cache:
+        raise ValueError(f"Latent '{name_b}' not in cache (have: {list(_latent_cache.keys())})")
+
+    lat_a = _latent_cache[name_a]
+    lat_b = _latent_cache[name_b]
+    interpolated = (1.0 - alpha) * lat_a + alpha * lat_b
+
+    # Optionally cache the interpolated result
+    cache_as = request.get("cache_as")
+    if cache_as:
+        _latent_cache[cache_as] = interpolated.clone()
+
+    t0 = time.time()
+    audio_np, sr = vae_decode(pipe, interpolated, duration)
+    elapsed = time.time() - t0
+    log.info(f"Interpolated {name_a}↔{name_b} (α={alpha:.2f}), decoded in {elapsed:.1f}s")
+    return audio_np, sr, -1, elapsed
+
+
+def decode_cached(pipe, request):
+    """Decode a single cached latent. For quick re-listen without diffusion."""
+    name = request["latent_name"]
+    duration = request.get("duration", 3.0)
+
+    if name not in _latent_cache:
+        raise ValueError(f"Latent '{name}' not in cache (have: {list(_latent_cache.keys())})")
+
+    t0 = time.time()
+    audio_np, sr = vae_decode(pipe, _latent_cache[name], duration)
+    elapsed = time.time() - t0
+    log.info(f"Decoded cached '{name}' in {elapsed:.1f}s")
+    return audio_np, sr, -1, elapsed
+
+
 # ─── Generation ─────────────────────────────────────────────────────
 
 def generate(pipe, request):
-    """Run generation from request dict. Returns (audio_np, sample_rate)."""
+    """Run generation from request dict. Returns (audio_np, sample_rate).
+
+    If "cache_as" is set in the request, the pre-VAE latent is cached for
+    fast interpolation via interpolate_and_decode().
+    """
     prompt_a = request.get("prompt_a", "")
     prompt_b = request.get("prompt_b", "")
     alpha = request.get("alpha", 0.0)
@@ -121,15 +188,13 @@ def generate(pipe, request):
     steps = request.get("steps", 20)
     cfg_scale = request.get("cfg_scale", 7.0)
     seed = request.get("seed", -1)
+    cache_as = request.get("cache_as")  # optional: cache latent under this name
 
     if seed < 0:
         import random
         seed = random.randint(0, 2**31 - 1)
 
     sr = 44100
-    # Use numpy PCG64 for cross-platform deterministic initial noise.
-    # The diffusers pipeline still needs a torch Generator for internal use,
-    # but we override the initial latent generation below.
     generator = torch.Generator("cpu").manual_seed(seed)
 
     # Duration conditioning
@@ -181,9 +246,13 @@ def generate(pipe, request):
         neg_mask = torch.ones_like(mask_a)
 
         device = next(pipe.transformer.parameters()).device
+        cache_str = f", cache_as='{cache_as}'" if cache_as else ""
         log.info(f"Generating on {device}: '{prompt_a[:60]}' ({duration}s, {steps} steps, "
-                 f"CFG={cfg_scale}, seed={seed})")
+                 f"CFG={cfg_scale}, seed={seed}{cache_str})")
         t0 = time.time()
+
+        # If caching requested: get latent first, then decode separately
+        output_type = "latent" if cache_as else "pt"
 
         result = pipe(
             prompt_embeds=manipulated,
@@ -195,21 +264,33 @@ def generate(pipe, request):
             num_inference_steps=steps,
             guidance_scale=cfg_scale,
             generator=generator,
+            output_type=output_type,
         )
+
+        if cache_as:
+            # result.audios[0] is actually the raw latent when output_type="latent"
+            latent = result.audios[0]
+            if latent.dim() == 2:
+                latent = latent.unsqueeze(0)  # ensure [1, C, T]
+            _latent_cache[cache_as] = latent.clone()
+            log.info(f"Cached latent '{cache_as}': {list(latent.shape)}")
+            # Now VAE-decode for the audio response
+            audio_np, _ = vae_decode(pipe, latent, duration)
+        else:
+            audio = result.audios[0]  # [channels, samples]
+            if hasattr(audio, 'numpy'):
+                audio_np = audio.cpu().float().numpy()
+            else:
+                audio_np = np.array(audio)
+            # Trim to requested duration
+            requested_samples = int(math.ceil(duration * sr))
+            if audio_np.shape[-1] > requested_samples:
+                audio_np = audio_np[..., :requested_samples]
 
         elapsed = time.time() - t0
         log.info(f"Generated in {elapsed:.1f}s")
 
-        audio = result.audios[0]  # [channels, samples]
-        if hasattr(audio, 'numpy'):
-            audio = audio.cpu().float().numpy()
-
-        # Trim to requested duration
-        requested_samples = int(math.ceil(duration * sr))
-        if audio.shape[-1] > requested_samples:
-            audio = audio[..., :requested_samples]
-
-        return audio, sr, seed, elapsed
+        return audio_np, sr, seed, elapsed
 
 
 # ─── Protocol ───────────────────────────────────────────────────────
@@ -267,10 +348,18 @@ def main():
             continue
         try:
             request = json.loads(line)
-            audio, sr, seed, elapsed = generate(pipe, request)
+            mode = request.get("mode", "generate")
+
+            if mode == "interpolate":
+                audio, sr, seed, elapsed = interpolate_and_decode(pipe, request)
+            elif mode == "decode_cached":
+                audio, sr, seed, elapsed = decode_cached(pipe, request)
+            else:
+                audio, sr, seed, elapsed = generate(pipe, request)
+
             send_audio(audio, sr, seed, elapsed)
         except Exception as e:
-            log.error(f"Generation failed: {e}")
+            log.error(f"Request failed (mode={request.get('mode', 'generate')}): {e}")
             import traceback
             traceback.print_exc(file=sys.stderr)
             send_error(str(e))
