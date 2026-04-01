@@ -154,13 +154,13 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 float PromptPanel::fs() const
 {
     // Derive font size from available height so all content fits.
-    // Content budget: ~33 f-units (labels + sliders + hints + device + generate + gaps).
+    // Content budget: ~32 f-units (labels + sliders + hints + device + generate + gaps).
     float h = static_cast<float>(getHeight());
     float w = static_cast<float>(getWidth());
     float pad = w * 0.04f;
     float available = h - 2.0f * pad;
-    float maxF = available / 33.0f;
-    return juce::jlimit(10.0f, 22.0f, maxF);
+    float maxF = available / 32.0f;
+    return juce::jlimit(12.0f, 22.0f, maxF);
 }
 
 void PromptPanel::paint(juce::Graphics& g)

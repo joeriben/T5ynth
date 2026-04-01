@@ -26,11 +26,6 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         promptPanel.loadPresetData(pA, pB, seed, randomSeed, device);
     };
 
-    // StatusBar buttons → PresetPanel logic
-    statusBar.onImportClicked  = [this] { presetPanel.importPreset(); };
-    statusBar.onExportClicked  = [this] { presetPanel.exportPreset(); };
-    statusBar.onSettingsClicked = [this] { toggleSettings(); };
-
     // Master volume
     masterVolKnob.setSliderStyle(juce::Slider::RotaryVerticalDrag);
     masterVolKnob.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 14);
@@ -232,8 +227,8 @@ void MainPanel::resized()
     int col1W = juce::roundToInt(w * 0.25f);
     auto genCol = b.removeFromLeft(col1W);
 
-    int promptH = juce::roundToInt(static_cast<float>(genCol.getHeight()) * 0.50f);
-    int axesH = juce::roundToInt(static_cast<float>(genCol.getHeight()) * 0.30f);
+    int promptH = juce::roundToInt(static_cast<float>(genCol.getHeight()) * 0.55f);
+    int axesH = juce::roundToInt(static_cast<float>(genCol.getHeight()) * 0.25f);
     promptPanel.setBounds(genCol.removeFromTop(promptH));
     axesPanel.setBounds(genCol.removeFromTop(axesH));
     if (!dimExplorerVisible)
