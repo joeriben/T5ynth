@@ -16,9 +16,10 @@ public:
     void paint(juce::Graphics& g) override;
     void resized() override;
 
-    /** Called after import so parent can update GUI-only state (prompts, seed). */
+    /** Called after import so parent can update GUI-only state (prompts, seed, device). */
     std::function<void(const juce::String& promptA, const juce::String& promptB,
-                       int seed, bool randomSeed)> onPresetLoaded;
+                       int seed, bool randomSeed,
+                       const juce::String& device)> onPresetLoaded;
 
 private:
     T5ynthProcessor& processor;

@@ -28,6 +28,10 @@ public:
 
     bool isReady() const { return ready_.load(); }
 
+    /** Devices reported by Python at startup. */
+    const juce::StringArray& getAvailableDevices() const { return availableDevices_; }
+    const juce::String& getDefaultDevice() const { return defaultDevice_; }
+
     struct Request
     {
         juce::String promptA;
@@ -40,6 +44,7 @@ public:
         int steps = 20;
         float cfgScale = 7.0f;
         int seed = -1;
+        juce::String device;       // "mps", "cuda", "cpu", or empty for default
     };
 
     struct Result
@@ -59,6 +64,9 @@ private:
     int stdinFd_ = -1;   // parent → child (write)
     int stdoutFd_ = -1;  // child → parent (read)
     pid_t childPid_ = -1;
+
+    juce::StringArray availableDevices_;
+    juce::String defaultDevice_;
 
     juce::String findPython(const juce::File& backendDir) const;
     bool readExact(void* dest, int numBytes, int timeoutMs = 120000);

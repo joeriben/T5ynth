@@ -123,6 +123,15 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     seedEditor.setEnabled(false);
     seedEditor.setAlpha(0.3f);
 
+    // Device selector — populated when inference launches
+    makeLabel(deviceLabel, "Device", kDimmer, juce::Justification::centredLeft, this);
+    deviceBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
+    deviceBox.setColour(juce::ComboBox::textColourId, kAccent);
+    deviceBox.setColour(juce::ComboBox::outlineColourId, kBorder);
+    deviceBox.addItem("Auto", 1);
+    deviceBox.setSelectedId(1, juce::dontSendNotification);
+    addAndMakeVisible(deviceBox);
+
     // Generate — prominent green button like web UI
     generateButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff1b5e20));
     generateButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff4caf50));
@@ -145,12 +154,12 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 float PromptPanel::fs() const
 {
     // Derive font size from available height so all content fits.
-    // Content budget: ~31 f-units (labels + sliders + hints + generate + gaps).
+    // Content budget: ~33 f-units (labels + sliders + hints + device + generate + gaps).
     float h = static_cast<float>(getHeight());
     float w = static_cast<float>(getWidth());
     float pad = w * 0.04f;
     float available = h - 2.0f * pad;
-    float maxF = available / 31.0f;
+    float maxF = available / 33.0f;
     return juce::jlimit(10.0f, 22.0f, maxF);
 }
 
@@ -294,6 +303,16 @@ void PromptPanel::resized()
     randomSeedToggle.setBounds(seedRow.removeFromRight(toggleW));
     seedEditor.setFont(juce::FontOptions(fSmall));
     seedEditor.setBounds(seedRow.reduced(0, 1));
+    area.removeFromTop(gap);
+
+    // Device selector row
+    {
+        setFs(deviceLabel, fSmall);
+        auto devRow = area.removeFromTop(compactRowH + 2);
+        int devLabelW = juce::roundToInt(devRow.getWidth() * 0.15f);
+        deviceLabel.setBounds(devRow.removeFromLeft(devLabelW));
+        deviceBox.setBounds(devRow.reduced(0, 1));
+    }
     area.removeFromTop(gap * 2);
 
     // Generate button
@@ -307,7 +326,8 @@ void PromptPanel::resized()
 }
 
 void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String& promptB,
-                                  int seed, bool randomSeed)
+                                  int seed, bool randomSeed,
+                                  const juce::String& device)
 {
     promptAEditor.setText(promptA, false);
     promptBEditor.setText(promptB, false);
@@ -315,6 +335,20 @@ void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String
     randomSeedToggle.setToggleState(randomSeed, juce::dontSendNotification);
     seedEditor.setEnabled(!randomSeed);
     seedEditor.setAlpha(randomSeed ? 0.3f : 1.0f);
+
+    // Select device from preset (if available in device list)
+    if (device.isNotEmpty())
+    {
+        for (int i = 0; i < deviceBox.getNumItems(); ++i)
+        {
+            if (deviceBox.getItemText(i).equalsIgnoreCase(device))
+            {
+                deviceBox.setSelectedItemIndex(i, juce::dontSendNotification);
+                return;
+            }
+        }
+    }
+    deviceBox.setSelectedId(1, juce::dontSendNotification);  // fallback to Auto
 }
 
 void PromptPanel::triggerGeneration()
@@ -345,6 +379,20 @@ void PromptPanel::triggerGeneration()
     int seed = randomSeedToggle.getToggleState() ? -1 : seedEditor.getText().getIntValue();
     auto promptB = promptBEditor.getText().trim();
 
+    // Populate device box from Python if not yet done
+    auto& pipeInf = processorRef.getPipeInference();
+    if (deviceBox.getNumItems() == 1 && pipeInf.isReady())
+    {
+        auto& devs = pipeInf.getAvailableDevices();
+        for (int i = 0; i < devs.size(); ++i)
+            deviceBox.addItem(devs[i].toUpperCase(), i + 2);  // id 1 = Auto
+    }
+
+    // Resolve selected device
+    juce::String selectedDevice;
+    if (deviceBox.getSelectedId() > 1)
+        selectedDevice = pipeInf.getAvailableDevices()[deviceBox.getSelectedId() - 2];
+
     // Use pipe inference (Python subprocess) if available, fall back to native
     if (processorRef.isPipeInferenceReady())
     {
@@ -359,20 +407,24 @@ void PromptPanel::triggerGeneration()
         req.steps = steps;
         req.cfgScale = cfgScale;
         req.seed = seed;
+        req.device = selectedDevice;
 
+        auto deviceForLabel = selectedDevice.isEmpty() ? pipeInf.getDefaultDevice() : selectedDevice;
         auto* processor = &processorRef;
-        std::thread([this, processor, req]()
+        std::thread([this, processor, req, deviceForLabel]()
         {
             auto result = processor->getPipeInference().generate(req);
-            juce::MessageManager::callAsync([this, processor, result = std::move(result)]()
+            juce::MessageManager::callAsync([this, processor, result = std::move(result), deviceForLabel]()
             {
                 generating = false;
                 generateButton.setEnabled(true);
                 if (result.success)
                 {
                     processor->loadGeneratedAudio(result.audio, 44100.0);
+                    processor->setLastDevice(deviceForLabel);
                     infoLabel.setText(juce::String(result.generationTimeMs / 1000.0f, 1) + "s | seed "
-                                      + juce::String(result.seed), juce::dontSendNotification);
+                                      + juce::String(result.seed) + " | " + deviceForLabel,
+                                      juce::dontSendNotification);
                 }
                 else
                     infoLabel.setText(result.errorMessage, juce::dontSendNotification);

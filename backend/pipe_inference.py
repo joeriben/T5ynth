@@ -2,12 +2,12 @@
 """Pipe-based inference for T5ynth — stdin JSON requests, stdout binary audio.
 
 Protocol:
-  Request:  Single-line JSON on stdin
-  Response: \x01 + header (3×int32: samples, channels, sampleRate) + float32 PCM
+  Request:  Single-line JSON on stdin (includes optional "device" field)
+  Response: \x01 + header (6 fields: flag,samples,channels,sr,seed,timeMs) + float32 PCM
   Error:    \x00 + uint32 length + UTF-8 message
-  Ready:    \x02 on startup when pipeline is loaded
+  Ready:    \x02 + uint16 length + JSON {"devices": [...], "default": "..."}
 
-Runs the real diffusers StableAudioPipeline with BrownianTreeNoiseSampler.
+Loads one pipeline per available device (MPS, CUDA, CPU) for instant switching.
 Noise generation is patched to use numpy PCG64 for cross-platform determinism
 (same seed → same audio on CPU, CUDA, ARM, x86).
 """
@@ -67,25 +67,19 @@ def find_model_dir():
     return None
 
 
-def detect_device():
-    """Pick best available device: MPS (Apple GPU) > CUDA > CPU."""
+def available_devices():
+    """Return list of available inference devices, best first."""
+    devices = []
     if torch.backends.mps.is_available():
-        return "mps"
+        devices.append("mps")
     if torch.cuda.is_available():
-        return "cuda"
-    return "cpu"
+        devices.append("cuda")
+    devices.append("cpu")
+    return devices
 
 
-def load_pipeline(model_dir):
-    """Load diffusers pipeline on best available device."""
-    from diffusers import StableAudioPipeline
-
-    device = detect_device()
-    log.info(f"Loading pipeline from {model_dir} on {device}...")
-    pipe = StableAudioPipeline.from_pretrained(str(model_dir), torch_dtype=torch.float32)
-    pipe = pipe.to(device)
-
-    # Patch: skip BrownianTree noise at last step (sigma→0 causes torchsde crash)
+def _patch_scheduler(pipe):
+    """Patch scheduler to skip BrownianTree noise at last step (sigma→0 crash)."""
     original_step = pipe.scheduler.step.__func__
 
     def patched_step(self, model_output, timestep, sample, **kwargs):
@@ -104,27 +98,57 @@ def load_pipeline(model_dir):
 
     pipe.scheduler.step = patched_step.__get__(pipe.scheduler)
 
+
+def load_pipeline(model_dir, device):
+    """Load diffusers pipeline on a specific device."""
+    from diffusers import StableAudioPipeline
+
+    log.info(f"Loading pipeline from {model_dir} on {device}...")
+    pipe = StableAudioPipeline.from_pretrained(str(model_dir), torch_dtype=torch.float32)
+    pipe = pipe.to(device)
+
+    _patch_scheduler(pipe)
+
     # Attention slicing reduces peak memory and improves MPS throughput ~20%
     if device in ("mps", "cpu"):
         pipe.enable_attention_slicing()
         log.info(f"Attention slicing enabled for {device}")
 
-    log.info("Pipeline loaded and patched.")
+    log.info(f"Pipeline loaded on {device}.")
     return pipe
+
+
+def load_all_pipelines(model_dir):
+    """Load a pipeline on each available device. Returns (dict, device_list)."""
+    devices = available_devices()
+    pipelines = {}
+    for dev in devices:
+        try:
+            pipelines[dev] = load_pipeline(model_dir, dev)
+        except Exception as e:
+            log.warning(f"Failed to load pipeline on {dev}: {e}")
+
+    if not pipelines:
+        raise RuntimeError("Could not load pipeline on any device")
+
+    loaded = list(pipelines.keys())
+    return pipelines, loaded
 
 
 # ─── Latent cache ────────────────────────────────────────────────────
 # Stores pre-VAE latents keyed by name. Enables fast interpolation +
 # VAE-only decode (~2s) instead of full diffusion (~15-50s).
+# Latents are stored on CPU for device-agnostic access.
 
-_latent_cache = {}   # {name: torch.Tensor}
+_latent_cache = {}   # {name: torch.Tensor on CPU}
 
 
 def vae_decode(pipe, latent, duration):
     """Decode a latent tensor to audio via VAE. Returns (audio_np, sr)."""
     sr = 44100
+    device = next(pipe.vae.parameters()).device
+    latent = latent.to(device)
     with torch.no_grad():
-        # StableAudioPipeline passes raw latents to VAE (no scaling_factor division)
         audio = pipe.vae.decode(latent).sample
     audio_np = audio.squeeze(0).cpu().float().numpy()
     requested_samples = int(math.ceil(duration * sr))
@@ -179,7 +203,7 @@ def decode_cached(pipe, request):
 # ─── Generation ─────────────────────────────────────────────────────
 
 def generate(pipe, request):
-    """Run generation from request dict. Returns (audio_np, sample_rate).
+    """Run generation from request dict. Returns (audio_np, sample_rate, seed, elapsed).
 
     If "cache_as" is set in the request, the pre-VAE latent is cached for
     fast interpolation via interpolate_and_decode().
@@ -278,7 +302,7 @@ def generate(pipe, request):
             latent = result.audios[0]
             if latent.dim() == 2:
                 latent = latent.unsqueeze(0)  # ensure [1, C, T]
-            _latent_cache[cache_as] = latent.clone()
+            _latent_cache[cache_as] = latent.cpu().clone()
             log.info(f"Cached latent '{cache_as}': {list(latent.shape)}")
             # Now VAE-decode for the audio response
             audio_np, _ = vae_decode(pipe, latent, duration)
@@ -301,9 +325,12 @@ def generate(pipe, request):
 
 # ─── Protocol ───────────────────────────────────────────────────────
 
-def send_ready():
-    """Signal ready to JUCE."""
+def send_ready(devices, default_device):
+    """Signal ready to JUCE with device info."""
+    info = json.dumps({"devices": devices, "default": default_device}).encode("utf-8")
     sys.stdout.buffer.write(b'\x02')
+    sys.stdout.buffer.write(struct.pack('<H', len(info)))
+    sys.stdout.buffer.write(info)
     sys.stdout.buffer.flush()
 
 
@@ -339,14 +366,15 @@ def main():
         return
 
     try:
-        pipe = load_pipeline(model_dir)
+        pipelines, devices = load_all_pipelines(model_dir)
     except Exception as e:
-        log.error(f"Failed to load pipeline: {e}")
+        log.error(f"Failed to load pipelines: {e}")
         send_error(f"Pipeline load failed: {e}")
         return
 
-    send_ready()
-    log.info("Ready. Waiting for requests on stdin...")
+    default_device = devices[0]
+    send_ready(devices, default_device)
+    log.info(f"Ready. Devices: {devices}, default: {default_device}")
 
     for line in sys.stdin:
         line = line.strip()
@@ -354,6 +382,13 @@ def main():
             continue
         try:
             request = json.loads(line)
+
+            # Route to correct device pipeline
+            device = request.get("device", default_device)
+            if device == "auto" or device not in pipelines:
+                device = default_device
+            pipe = pipelines[device]
+
             mode = request.get("mode", "generate")
 
             if mode == "interpolate":

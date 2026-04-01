@@ -21,8 +21,9 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
 
     // Wire preset import callback
     presetPanel.onPresetLoaded = [this](const juce::String& pA, const juce::String& pB,
-                                        int seed, bool randomSeed) {
-        promptPanel.loadPresetData(pA, pB, seed, randomSeed);
+                                        int seed, bool randomSeed,
+                                        const juce::String& device) {
+        promptPanel.loadPresetData(pA, pB, seed, randomSeed, device);
     };
 
     // Master volume

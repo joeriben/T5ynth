@@ -15,9 +15,10 @@ public:
     void paint(juce::Graphics& g) override;
     void resized() override;
 
-    /** Load preset data that isn't in APVTS (prompts, seed, random toggle). */
+    /** Load preset data that isn't in APVTS (prompts, seed, random toggle, device). */
     void loadPresetData(const juce::String& promptA, const juce::String& promptB,
-                        int seed, bool randomSeed);
+                        int seed, bool randomSeed,
+                        const juce::String& device = {});
 
 private:
     void triggerGeneration();
@@ -45,6 +46,10 @@ private:
     juce::Label seedLabel;
     juce::TextEditor seedEditor;
     juce::ToggleButton randomSeedToggle { "Random" };
+
+    // Device selector
+    juce::Label deviceLabel;
+    juce::ComboBox deviceBox;
 
     juce::TextButton generateButton { "Generate" };
     juce::Label infoLabel;

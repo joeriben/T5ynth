@@ -55,7 +55,7 @@ void PresetPanel::importPreset()
                     auto parsed = juce::JSON::parse(json);
                     if (auto* root = parsed.getDynamicObject())
                     {
-                        juce::String promptA, promptB;
+                        juce::String promptA, promptB, device;
                         int seed = -1;
                         bool randomSeed = true;
 
@@ -64,10 +64,11 @@ void PresetPanel::importPreset()
                             promptA = synth->getProperty("promptA").toString();
                             promptB = synth->getProperty("promptB").toString();
                             seed = static_cast<int>(synth->getProperty("seed"));
+                            device = synth->getProperty("device").toString();
                             // seed > 0 means fixed seed, -1 or absent means random
                             randomSeed = (seed <= 0);
                         }
-                        onPresetLoaded(promptA, promptB, seed > 0 ? seed : 123456789, randomSeed);
+                        onPresetLoaded(promptA, promptB, seed > 0 ? seed : 123456789, randomSeed, device);
                     }
                 }
             }

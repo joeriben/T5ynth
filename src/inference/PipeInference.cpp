@@ -85,9 +85,10 @@ bool PipeInference::launch(const juce::File& backendDir)
     stdinFd_ = pipeIn[1];
     stdoutFd_ = pipeOut[0];
 
-    // Wait for ready signal (\x02) with 60s timeout
+    // Wait for ready signal (\x02 + uint16 len + JSON) with 120s timeout
+    // (loading two pipelines can take 30-60s)
     char readyByte = 0;
-    if (!readExact(&readyByte, 1, 60000))
+    if (!readExact(&readyByte, 1, 120000))
     {
         juce::Logger::writeToLog("PipeInference: timeout waiting for ready");
         shutdown();
@@ -99,6 +100,25 @@ bool PipeInference::launch(const juce::File& backendDir)
         juce::Logger::writeToLog("PipeInference: unexpected ready byte: " + juce::String((int)readyByte));
         shutdown();
         return false;
+    }
+
+    // Read device info JSON (uint16 length + JSON bytes)
+    uint16_t infoLen = 0;
+    if (readExact(&infoLen, 2, 5000) && infoLen > 0)
+    {
+        std::vector<char> infoBuf(infoLen + 1, 0);
+        if (readExact(infoBuf.data(), infoLen, 5000))
+        {
+            auto infoJson = juce::JSON::parse(juce::String::fromUTF8(infoBuf.data(), infoLen));
+            if (auto* arr = infoJson.getProperty("devices", {}).getArray())
+            {
+                for (auto& d : *arr)
+                    availableDevices_.add(d.toString());
+            }
+            defaultDevice_ = infoJson.getProperty("default", "cpu").toString();
+            juce::Logger::writeToLog("PipeInference: devices=" + availableDevices_.joinIntoString(",")
+                                      + " default=" + defaultDevice_);
+        }
     }
 
     ready_ = true;
@@ -206,6 +226,8 @@ PipeInference::Result PipeInference::generate(const Request& request)
     json->setProperty("steps", request.steps);
     json->setProperty("cfg_scale", request.cfgScale);
     json->setProperty("seed", request.seed);
+    if (request.device.isNotEmpty())
+        json->setProperty("device", request.device);
 
     auto jsonStr = juce::JSON::toString(juce::var(json.get()), true);
     jsonStr = jsonStr.removeCharacters("\n\r") + "\n";

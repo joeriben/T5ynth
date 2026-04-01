@@ -63,6 +63,10 @@ public:
     bool launchPipeInference(const juce::File& backendDir);
     bool isPipeInferenceReady() const { return pipeInference.isReady(); }
 
+    // Last device used for generation (for preset tagging)
+    void setLastDevice(const juce::String& dev) { lastDevice = dev; }
+    const juce::String& getLastDevice() const { return lastDevice; }
+
     // Sequencer
     T5ynthStepSequencer& getStepSequencer() { return stepSequencer; }
     T5ynthArpeggiator& getArpeggiator() { return arpeggiator; }
@@ -117,6 +121,7 @@ private:
 
     // Pipe inference (Python subprocess — actual working inference)
     PipeInference pipeInference;
+    juce::String lastDevice;
 
     // Last triggered note (for pitch modulation in block-rate section)
     int lastTriggeredNote = -1;

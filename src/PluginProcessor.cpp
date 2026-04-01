@@ -1026,6 +1026,7 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     synth->setProperty("steps", static_cast<int>(get("gen_steps")));
     synth->setProperty("cfg", get("gen_cfg"));
     synth->setProperty("seed", static_cast<int>(get("gen_seed")));
+    synth->setProperty("device", lastDevice);
     root->setProperty("synth", synth.get());
 
     // Engine
