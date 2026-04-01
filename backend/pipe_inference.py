@@ -67,15 +67,25 @@ def find_model_dir():
     return None
 
 
+def detect_device():
+    """Pick best available device: MPS (Apple GPU) > CUDA > CPU."""
+    if torch.backends.mps.is_available():
+        return "mps"
+    if torch.cuda.is_available():
+        return "cuda"
+    return "cpu"
+
+
 def load_pipeline(model_dir):
-    """Load diffusers pipeline and patch last step for CPU compatibility."""
+    """Load diffusers pipeline on best available device."""
     from diffusers import StableAudioPipeline
 
-    log.info(f"Loading pipeline from {model_dir}...")
+    device = detect_device()
+    log.info(f"Loading pipeline from {model_dir} on {device}...")
     pipe = StableAudioPipeline.from_pretrained(str(model_dir), torch_dtype=torch.float32)
-    pipe = pipe.to("cpu")
+    pipe = pipe.to(device)
 
-    # Patch: skip BrownianTree noise at last step (sigma→0 causes torchsde crash on CPU)
+    # Patch: skip BrownianTree noise at last step (sigma→0 causes torchsde crash)
     original_step = pipe.scheduler.step.__func__
 
     def patched_step(self, model_output, timestep, sample, **kwargs):
@@ -170,7 +180,8 @@ def generate(pipe, request):
         neg_embeds = torch.zeros_like(manipulated)
         neg_mask = torch.ones_like(mask_a)
 
-        log.info(f"Generating: '{prompt_a[:60]}' ({duration}s, {steps} steps, "
+        device = next(pipe.transformer.parameters()).device
+        log.info(f"Generating on {device}: '{prompt_a[:60]}' ({duration}s, {steps} steps, "
                  f"CFG={cfg_scale}, seed={seed})")
         t0 = time.time()
 
