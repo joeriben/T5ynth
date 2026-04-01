@@ -27,6 +27,7 @@ public:
     void setDepth(float d) { depth = d; }
 
     float getRate() const { return rate; }
+    float getDepth() const { return depth; }
     int getWaveform() const { return waveform; }
 
 private:

@@ -48,7 +48,8 @@ void WaveformDisplay::paint(juce::Graphics& g)
         auto labelArea = getLocalBounds().toFloat().removeFromTop(LABEL_HEIGHT);
         g.setFont(juce::FontOptions(11.0f));
         g.setColour(juce::Colour(0xffaaaaaa));
-        g.drawText("Loop interval", labelArea.removeFromLeft(90), juce::Justification::centredLeft);
+        int labelW = juce::jmax(90, static_cast<int>(g.getCurrentFont().getStringWidthFloat(regionLabel) + 10));
+        g.drawText(regionLabel, labelArea.removeFromLeft(static_cast<float>(labelW)), juce::Justification::centredLeft);
 
         float tStart = loopStart * bufferDurationSec;
         float tEnd   = loopEnd * bufferDurationSec;

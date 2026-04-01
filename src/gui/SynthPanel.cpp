@@ -22,7 +22,8 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     env.header.setColour(juce::Label::textColourId, kModCol);
     addAndMakeVisible(env.header);
 
-    env.targetBox.addItemList({"DCA", "Filter", "Scan", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix", "---"}, 1);
+    env.targetBox.addItemList({"DCA", "Filter", "Scan", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix",
+                               "LFO1 Rate", "LFO1 Depth", "LFO2 Rate", "LFO2 Depth", "---"}, 1);
     env.targetBox.setSelectedId(defaultTarget, juce::dontSendNotification);
     env.targetBox.onChange = [this] { updateVisibility(); resized(); };
     addAndMakeVisible(env.targetBox);
@@ -155,6 +156,8 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         bool isSampler = engineModeHidden.getSelectedId() == 1;
         samplerBtn.setToggleState(isSampler, juce::dontSendNotification);
         wavetableBtn.setToggleState(!isSampler, juce::dontSendNotification);
+        updateVisibility();
+        resized();
     };
     samplerBtn.onClick = [this] { engineModeHidden.setSelectedId(1); };
     wavetableBtn.onClick = [this] { engineModeHidden.setSelectedId(2); };
@@ -204,6 +207,12 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     addAndMakeVisible(*crossfadeRow);
     crossfadeA = std::make_unique<SA>(apvts, "crossfade_ms", crossfadeRow->getSlider());
     crossfadeRow->updateValue();
+
+    // Loop optimize
+    loopOptimizeToggle.setColour(juce::ToggleButton::textColourId, kDim);
+    loopOptimizeToggle.setColour(juce::ToggleButton::tickColourId, kAccent);
+    addAndMakeVisible(loopOptimizeToggle);
+    loopOptimizeA = std::make_unique<BA>(apvts, "loop_optimize", loopOptimizeToggle);
 
     // Normalize
     normalizeToggle.setColour(juce::ToggleButton::textColourId, kDim);
@@ -348,6 +357,15 @@ void SynthPanel::timerCallback()
 
         processorRef.clearNewWaveformFlag();
     }
+
+    // Update ghost indicators from modulated values
+    auto& mv = processorRef.modulatedValues;
+    cutoffRow->setGhostValue(mv.filterCutoff.load(std::memory_order_relaxed));
+    if (lfo1.rateRow)  lfo1.rateRow->setGhostValue(mv.lfo1Rate.load(std::memory_order_relaxed));
+    if (lfo1.depthRow) lfo1.depthRow->setGhostValue(mv.lfo1Depth.load(std::memory_order_relaxed));
+    if (lfo2.rateRow)  lfo2.rateRow->setGhostValue(mv.lfo2Rate.load(std::memory_order_relaxed));
+    if (lfo2.depthRow) lfo2.depthRow->setGhostValue(mv.lfo2Depth.load(std::memory_order_relaxed));
+    if (scanRow->isVisible()) scanRow->setGhostValue(mv.scanPosition.load(std::memory_order_relaxed));
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -372,9 +390,30 @@ void SynthPanel::updateVisibility()
         r->setEnabled(filterOn);
     }
 
-    bool isOneshot = loopModeHidden.getSelectedId() == 1;
-    crossfadeRow->setAlpha(isOneshot ? dimAlpha : 1.0f);
-    crossfadeRow->setEnabled(!isOneshot);
+    bool isWavetable = engineModeHidden.getSelectedId() == 2;
+    bool isSampler = !isWavetable;
+
+    // Sampler-only controls
+    oneshotBtn.setVisible(isSampler);
+    loopModeBtn.setVisible(isSampler);
+    pingpongBtn.setVisible(isSampler);
+    crossfadeRow->setVisible(isSampler);
+    loopOptimizeToggle.setVisible(isSampler);
+    normalizeToggle.setVisible(isSampler);
+
+    // Wavetable-only controls
+    scanRow->setVisible(isWavetable);
+    scanHint.setVisible(isWavetable);
+
+    // Waveform label changes with mode
+    waveformDisplay.setRegionLabel(isWavetable ? "Extraction region" : "Loop interval");
+
+    if (isSampler)
+    {
+        bool isOneshot = loopModeHidden.getSelectedId() == 1;
+        crossfadeRow->setAlpha(isOneshot ? dimAlpha : 1.0f);
+        crossfadeRow->setEnabled(!isOneshot);
+    }
 
     auto setEnvDimmed = [dimAlpha](EnvSection& env) {
         bool active = env.targetBox.getSelectedId() != env.targetBox.getNumItems();
@@ -591,27 +630,33 @@ void SynthPanel::resized()
     waveformDisplay.setBounds(area.removeFromTop(waveH));
     area.removeFromTop(gap);
 
-    // ── Loop mode ──
-    auto loopRow = area.removeFromTop(rowH);
-    int btnW = loopRow.getWidth() / 3;
-    oneshotBtn.setBounds(loopRow.removeFromLeft(btnW));
-    loopModeBtn.setBounds(loopRow.removeFromLeft(btnW));
-    pingpongBtn.setBounds(loopRow);
-    area.removeFromTop(gap);
+    // ── Sampler-only controls ──
+    if (oneshotBtn.isVisible())
+    {
+        auto loopRow = area.removeFromTop(rowH);
+        int btnW = loopRow.getWidth() / 3;
+        oneshotBtn.setBounds(loopRow.removeFromLeft(btnW));
+        loopModeBtn.setBounds(loopRow.removeFromLeft(btnW));
+        pingpongBtn.setBounds(loopRow);
+        area.removeFromTop(gap);
 
-    // Crossfade (dimmed if oneshot)
-    crossfadeRow->setBounds(area.removeFromTop(rowH));
-    area.removeFromTop(gap);
+        crossfadeRow->setBounds(area.removeFromTop(rowH));
+        area.removeFromTop(gap);
 
-    // Normalize
-    normalizeToggle.setBounds(area.removeFromTop(rowH));
-    area.removeFromTop(gap);
+        loopOptimizeToggle.setBounds(area.removeFromTop(rowH));
+        normalizeToggle.setBounds(area.removeFromTop(rowH));
+        area.removeFromTop(gap);
+    }
 
-    // ── Scan ──
-    scanRow->setBounds(area.removeFromTop(rowH));
-    scanHint.setFont(juce::FontOptions(f * 0.7f));
-    scanHint.setBounds(area.removeFromTop(juce::roundToInt(f * 0.9f)));
-    area.removeFromTop(gap * 3);
+    // ── Wavetable-only controls ──
+    if (scanRow->isVisible())
+    {
+        scanRow->setBounds(area.removeFromTop(rowH));
+        scanHint.setFont(juce::FontOptions(f * 0.7f));
+        scanHint.setBounds(area.removeFromTop(juce::roundToInt(f * 0.9f)));
+        area.removeFromTop(gap);
+    }
+    area.removeFromTop(gap * 2);
 
     // ── FILTER section header ──
     filterHeader.setFont(juce::FontOptions(f * 0.85f));

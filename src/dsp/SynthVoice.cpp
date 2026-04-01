@@ -128,7 +128,9 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
         if (p.mod2Target == 2) scanMod += mod2EnvVal;
         if (p.lfo1Target == 1) scanMod += lfo1Val;
         if (p.lfo2Target == 1) scanMod += lfo2Val;
-        osc.setScanPosition(juce::jlimit(0.0f, 1.0f, scanMod));
+        float clampedScan = juce::jlimit(0.0f, 1.0f, scanMod);
+        osc.setScanPosition(clampedScan);
+        result.modulatedScan = clampedScan;
 
         sample = osc.processSample();
     }
@@ -154,24 +156,24 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
             cutoffMod *= std::pow(2.0f, (static_cast<float>(currentNote) - 60.0f) / 12.0f * p.kbdTrack);
 
         // Mod envelope → filter (target index 1)
-        if (p.mod1Target == 1)
+        // Use raw envelope (not pre-scaled by amount) for proper sweep range
         {
-            float startFactor = 1.0f - p.mod1Amount;
-            float peakFactor  = 1.0f + p.mod1Amount * 8.0f;
-            cutoffMod *= startFactor + (peakFactor - startFactor) * mod1EnvVal;
-        }
-        if (p.mod2Target == 1)
-        {
-            float startFactor = 1.0f - p.mod2Amount;
-            float peakFactor  = 1.0f + p.mod2Amount * 8.0f;
-            cutoffMod *= startFactor + (peakFactor - startFactor) * mod2EnvVal;
-        }
+            constexpr float FILTER_DEPTH = 4.0f;
+            float rawEnv1 = (p.mod1Amount > 0.001f) ? mod1EnvVal / p.mod1Amount : 0.0f;
+            float rawEnv2 = (p.mod2Amount > 0.001f) ? mod2EnvVal / p.mod2Amount : 0.0f;
 
-        // LFO → filter (target index 0)
-        if (p.lfo1Target == 0) cutoffMod *= (1.0f + lfo1Val);
-        if (p.lfo2Target == 0) cutoffMod *= (1.0f + lfo2Val);
+            if (p.mod1Target == 1)
+                cutoffMod *= 1.0f + rawEnv1 * p.mod1Amount * FILTER_DEPTH;
+            if (p.mod2Target == 1)
+                cutoffMod *= 1.0f + rawEnv2 * p.mod2Amount * FILTER_DEPTH;
+
+            // LFO → filter (target index 0)
+            if (p.lfo1Target == 0) cutoffMod *= (1.0f + lfo1Val * FILTER_DEPTH);
+            if (p.lfo2Target == 0) cutoffMod *= (1.0f + lfo2Val * FILTER_DEPTH);
+        }
 
         cutoffMod = juce::jlimit(20.0f, 20000.0f, cutoffMod);
+        result.modulatedCutoff = cutoffMod;
 
         filter.setCutoff(cutoffMod);
         filter.setResonance(p.baseReso);

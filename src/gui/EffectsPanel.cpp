@@ -12,7 +12,8 @@ void EffectsPanel::initEnv(EnvSection& env, const juce::String& name,
     env.header.setColour(juce::Label::textColourId, kDim);
     addAndMakeVisible(env.header);
 
-    env.targetBox.addItemList({"DCA", "Filter", "Scan", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix", "---"}, 1);
+    env.targetBox.addItemList({"DCA", "Filter", "Scan", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix",
+                               "LFO1 Rate", "LFO1 Depth", "LFO2 Rate", "LFO2 Depth", "---"}, 1);
     env.targetBox.setSelectedId(name == "AMP" ? 1 : 9, juce::dontSendNotification);
     env.targetBox.onChange = [this] { resized(); };
     addAndMakeVisible(env.targetBox);

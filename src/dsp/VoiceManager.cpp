@@ -155,6 +155,8 @@ VoiceManager::VoiceOutput VoiceManager::renderBlock(
             {
                 out.lastMod1Val = result.mod1EnvVal;
                 out.lastMod2Val = result.mod2EnvVal;
+                out.lastModulatedCutoff = result.modulatedCutoff;
+                out.lastModulatedScan = result.modulatedScan;
             }
 
             // Check if voice just became inactive

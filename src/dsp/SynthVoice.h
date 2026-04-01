@@ -30,6 +30,8 @@ public:
         float sample;        // mono output (post-VCA, post-filter)
         float mod1EnvVal;    // last mod1 envelope value (for block-rate targets)
         float mod2EnvVal;    // last mod2 envelope value
+        float modulatedCutoff = 20000.0f;
+        float modulatedScan = 0.0f;
     };
 
     /** Configure envelopes from block params. Call once per block before renderSample loop. */

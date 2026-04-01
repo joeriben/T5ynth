@@ -43,6 +43,7 @@ private:
     juce::TextButton pingpongBtn { "Ping-Pong" };
     juce::ComboBox loopModeHidden;
     std::unique_ptr<SliderRow> crossfadeRow;
+    juce::ToggleButton loopOptimizeToggle { "Auto-optimize" };
     juce::ToggleButton normalizeToggle { "Normalize" };
 
     // ── Scan ──
@@ -103,7 +104,7 @@ private:
     std::unique_ptr<CA> engineModeA, loopModeA;
     std::unique_ptr<SA> scanA, cutoffA, resoA, filterMixA, kbdTrackA, crossfadeA;
     std::unique_ptr<CA> filterTypeA, filterSlopeA;
-    std::unique_ptr<BA> filterEnableA, normalizeA, driftRegenA;
+    std::unique_ptr<BA> filterEnableA, normalizeA, loopOptimizeA, driftRegenA;
 
     // ENV/LFO target attachments (routed in processBlock)
     std::unique_ptr<CA> mod1TargetA, mod2TargetA, lfo1TargetA, lfo2TargetA;

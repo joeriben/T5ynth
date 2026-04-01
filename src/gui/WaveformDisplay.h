@@ -27,6 +27,9 @@ public:
     /** Set total buffer duration in seconds (for time labels). */
     void setBufferDuration(float seconds) { bufferDurationSec = seconds; repaint(); }
 
+    /** Set the region label (e.g. "Loop interval" or "Extraction region"). */
+    void setRegionLabel(const juce::String& label) { regionLabel = label; repaint(); }
+
     /** Get/set loop region fractions (0–1). */
     float getLoopStart() const { return loopStart; }
     float getLoopEnd() const { return loopEnd; }
@@ -45,6 +48,7 @@ private:
     float loopStart = 0.0f;
     float loopEnd   = 1.0f;
     float bufferDurationSec = 0.0f;
+    juce::String regionLabel { "Loop interval" };
 
     enum DragTarget { None, Start, End };
     DragTarget dragging = None;

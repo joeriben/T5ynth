@@ -136,6 +136,24 @@ public:
     std::atomic<int> lastMidiVelocity { 0 };
     std::atomic<bool> lastMidiNoteOn { false };
 
+    // Modulated parameter values (audio thread writes, GUI reads for ghost indicators)
+    struct ModulatedValues
+    {
+        // NaN = no modulation active → ghost hidden
+        static constexpr float NONE = std::numeric_limits<float>::quiet_NaN();
+        std::atomic<float> filterCutoff { NONE };
+        std::atomic<float> scanPosition { NONE };
+        std::atomic<float> lfo1Rate { NONE };
+        std::atomic<float> lfo1Depth { NONE };
+        std::atomic<float> lfo2Rate { NONE };
+        std::atomic<float> lfo2Depth { NONE };
+        std::atomic<float> delayTime { NONE };
+        std::atomic<float> delayFeedback { NONE };
+        std::atomic<float> delayMix { NONE };
+        std::atomic<float> reverbMix { NONE };
+    };
+    ModulatedValues modulatedValues;
+
 private:
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(T5ynthProcessor)

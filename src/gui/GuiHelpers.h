@@ -85,6 +85,35 @@ public:
             value.setText(valueFormatter(slider.getValue()), juce::dontSendNotification);
     }
 
+    /** Set a ghost marker showing the modulated value. NaN = no ghost. */
+    void setGhostValue(float v)
+    {
+        if (ghostValue != v) { ghostValue = v; repaint(); }
+    }
+    void clearGhost() { setGhostValue(std::numeric_limits<float>::quiet_NaN()); }
+
+    void paint(juce::Graphics& g) override
+    {
+        if (std::isnan(ghostValue)) return;
+
+        // Map ghostValue to slider pixel position
+        auto sb = slider.getBounds();
+        double range = slider.getMaximum() - slider.getMinimum();
+        if (range <= 0.0) return;
+        double norm = (static_cast<double>(ghostValue) - slider.getMinimum()) / range;
+        norm = juce::jlimit(0.0, 1.0, norm);
+
+        int thumbW = slider.getLookAndFeel().getSliderThumbRadius(slider) * 2;
+        int trackX = sb.getX() + thumbW / 2;
+        int trackW = sb.getWidth() - thumbW;
+        float gx = static_cast<float>(trackX) + static_cast<float>(trackW) * static_cast<float>(norm);
+        float gy = static_cast<float>(sb.getCentreY());
+        float r = static_cast<float>(sb.getHeight()) * 0.28f;
+
+        g.setColour(juce::Colour(0xccff9800)); // orange ghost
+        g.fillEllipse(gx - r, gy - r, r * 2.0f, r * 2.0f);
+    }
+
     void resized() override
     {
         auto b = getLocalBounds();
@@ -106,6 +135,7 @@ private:
     juce::Slider slider;
     std::function<juce::String(double)> valueFormatter;
     juce::Colour trackCol;
+    float ghostValue = std::numeric_limits<float>::quiet_NaN();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SliderRow)
 };

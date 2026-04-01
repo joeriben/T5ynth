@@ -44,19 +44,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{"osc_scan", 1}, "Scan Position",
         juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
 
-    // Amplitude Envelope
+    // Amplitude Envelope (A=0, D=200ms, S=10%, R=180ms)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"amp_attack", 1}, "Attack",
         juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"amp_decay", 1}, "Decay",
-        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 200.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"amp_sustain", 1}, "Sustain",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.1f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"amp_release", 1}, "Release",
-        juce::NormalisableRange<float>(0.0f, 10000.0f, 0.1f, 0.3f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 10000.0f, 0.1f, 0.3f), 180.0f));
 
     // Filter
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -123,33 +123,33 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{"engine_mode", 1}, "Engine Mode",
         juce::StringArray{"Sampler", "Wavetable"}, 0));
 
-    // Mod Envelope 1 (reference defaults: atk=0, dec=0, sus=1, rel=0, amt=0.5)
+    // Mod Envelope 1 (A=0, D=2500ms, S=10%, R=4000ms, Amt=100%)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mod1_attack", 1}, "Mod1 Attack",
         juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mod1_decay", 1}, "Mod1 Decay",
-        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 2500.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mod1_sustain", 1}, "Mod1 Sustain",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.1f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mod1_release", 1}, "Mod1 Release",
-        juce::NormalisableRange<float>(0.0f, 10000.0f, 0.1f, 0.3f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 10000.0f, 0.1f, 0.3f), 4000.0f));
 
-    // Mod Envelope 2 (reference defaults: atk=0, dec=0, sus=1, rel=0, amt=0.5)
+    // Mod Envelope 2 (A=0, D=2500ms, S=10%, R=4000ms, Amt=100%)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mod2_attack", 1}, "Mod2 Attack",
         juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mod2_decay", 1}, "Mod2 Decay",
-        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 5000.0f, 0.1f, 0.3f), 2500.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mod2_sustain", 1}, "Mod2 Sustain",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.1f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mod2_release", 1}, "Mod2 Release",
-        juce::NormalisableRange<float>(0.0f, 10000.0f, 0.1f, 0.3f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 10000.0f, 0.1f, 0.3f), 4000.0f));
 
     // LFO 1 (reference defaults: rate=2.0, depth=0, sine)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -225,10 +225,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mod1_amount", 1}, "Mod1 Amount",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
+        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"mod2_amount", 1}, "Mod2 Amount",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
+        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
 
     // ENV Loop (per envelope)
     params.push_back(std::make_unique<juce::AudioParameterBool>(
@@ -238,14 +238,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"mod2_loop", 1}, "Mod2 Loop", false));
 
-    // ENV targets: matches ModTarget enum in reference (useModulation.ts)
-    // 0=DCA, 1=Filter, 2=Scan, 3=Pitch, 4=DelayTime, 5=DelayFB, 6=DelayMix, 7=ReverbMix, 8=None
+    // ENV targets:
+    // 0=DCA, 1=Filter, 2=Scan, 3=Pitch, 4=DelayTime, 5=DelayFB, 6=DelayMix, 7=ReverbMix,
+    // 8=LFO1Rate, 9=LFO1Amt, 10=LFO2Rate, 11=LFO2Amt, 12=None
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"mod1_target", 1}, "Mod1 Target",
-        juce::StringArray{"DCA", "Filter", "Scan", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix", "---"}, 8));
+        juce::StringArray{"DCA", "Filter", "Scan", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix",
+                          "LFO1 Rate", "LFO1 Depth", "LFO2 Rate", "LFO2 Depth", "---"}, 12));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"mod2_target", 1}, "Mod2 Target",
-        juce::StringArray{"DCA", "Filter", "Scan", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix", "---"}, 8));
+        juce::StringArray{"DCA", "Filter", "Scan", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix",
+                          "LFO1 Rate", "LFO1 Depth", "LFO2 Rate", "LFO2 Depth", "---"}, 12));
     // LFO targets: 0=Filter, 1=Scan, 2=Pitch, 3=DlyTime, 4=DlyFB, 5=DlyMix, 6=RevMix,
     //              7=LFO1Rate, 8=LFO2Rate, 9=LFO1Depth, 10=LFO2Depth, 11=None
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
@@ -279,6 +282,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::NormalisableRange<float>(0.0f, 500.0f, 10.0f), 150.0f));
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"normalize", 1}, "Normalize", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"loop_optimize", 1}, "Loop Optimize", false));
 
     // Effect enables
     params.push_back(std::make_unique<juce::AudioParameterBool>(
@@ -479,6 +484,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     masterSampler.setLoopMode(static_cast<SamplePlayer::LoopMode>(loopModeIdx));
     masterSampler.setCrossfadeMs(parameters.getRawParameterValue("crossfade_ms")->load());
     masterSampler.setNormalize(parameters.getRawParameterValue("normalize")->load() > 0.5f);
+    masterSampler.setLoopOptimize(parameters.getRawParameterValue("loop_optimize")->load() > 0.5f);
 
     // ── Sequencer / Arpeggiator (in series: Seq → Arp → synth) ─────────────
     bool seqRunning = parameters.getRawParameterValue("seq_running")->load() > 0.5f;
@@ -634,6 +640,17 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     if (bp.mod2Target == 5) modDelayFb += lastMod2Val;
     if (bp.mod2Target == 6) modDelayMix += lastMod2Val;
     if (bp.mod2Target == 7) modReverbMix += lastMod2Val;
+
+    // Env → LFO modulation (block-rate, applied for next block's LFO computation)
+    // 8=LFO1Rate, 9=LFO1Depth, 10=LFO2Rate, 11=LFO2Depth
+    if (bp.mod1Target == 8)  lfo1.setRate(baseLfo1Rate * (1.0f + lastMod1Val));
+    if (bp.mod1Target == 9)  lfo1.setDepth(std::max(0.0f, baseLfo1Depth + lastMod1Val * baseLfo1Depth));
+    if (bp.mod1Target == 10) lfo2.setRate(baseLfo2Rate * (1.0f + lastMod1Val));
+    if (bp.mod1Target == 11) lfo2.setDepth(std::max(0.0f, baseLfo2Depth + lastMod1Val * baseLfo2Depth));
+    if (bp.mod2Target == 8)  lfo1.setRate(baseLfo1Rate * (1.0f + lastMod2Val));
+    if (bp.mod2Target == 9)  lfo1.setDepth(std::max(0.0f, baseLfo1Depth + lastMod2Val * baseLfo1Depth));
+    if (bp.mod2Target == 10) lfo2.setRate(baseLfo2Rate * (1.0f + lastMod2Val));
+    if (bp.mod2Target == 11) lfo2.setDepth(std::max(0.0f, baseLfo2Depth + lastMod2Val * baseLfo2Depth));
     if (bp.lfo1Target == 3) modDelayTime += lastLfo1Val;
     if (bp.lfo1Target == 4) modDelayFb += lastLfo1Val;
     if (bp.lfo1Target == 5) modDelayMix += lastLfo1Val;
@@ -727,6 +744,64 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     else if (reverbEnabled)
     {
         reverb.processBlock(buffer);
+    }
+
+    // ── Update modulated values for GUI ghost indicators ────────────────────
+    // Only store non-NaN when something actually modulates the parameter.
+    constexpr float NO_GHOST = std::numeric_limits<float>::quiet_NaN();
+
+    // Filter cutoff: modulated by env(target==1), LFO(target==0), or kbd track
+    {
+        bool filterModulated = (bp.mod1Target == 1 || bp.mod2Target == 1 ||
+                                bp.lfo1Target == 0 || bp.lfo2Target == 0 ||
+                                bp.kbdTrack > 0.0f) && voiceOut.hasActiveVoices;
+        modulatedValues.filterCutoff.store(filterModulated ? voiceOut.lastModulatedCutoff : NO_GHOST,
+                                           std::memory_order_relaxed);
+    }
+
+    // Scan: modulated by env(target==2), LFO(target==1), drift
+    {
+        bool scanModulated = (bp.mod1Target == 2 || bp.mod2Target == 2 ||
+                              bp.lfo1Target == 1 || bp.lfo2Target == 1 ||
+                              std::abs(bp.driftScanOffset) > 0.001f) && voiceOut.hasActiveVoices;
+        modulatedValues.scanPosition.store(scanModulated ? voiceOut.lastModulatedScan : NO_GHOST,
+                                           std::memory_order_relaxed);
+    }
+
+    // LFO1 Rate/Depth: modulated by env(8/9) or LFO cross-mod(lfo2Target==7/8)
+    {
+        bool lfo1RateMod  = bp.mod1Target == 8  || bp.mod2Target == 8  || bp.lfo2Target == 7;
+        bool lfo1DepthMod = bp.mod1Target == 9  || bp.mod2Target == 9  || bp.lfo2Target == 8;
+        modulatedValues.lfo1Rate.store(lfo1RateMod ? lfo1.getRate() : NO_GHOST, std::memory_order_relaxed);
+        modulatedValues.lfo1Depth.store(lfo1DepthMod ? lfo1.getDepth() : NO_GHOST, std::memory_order_relaxed);
+    }
+
+    // LFO2 Rate/Depth: modulated by env(10/11) or LFO cross-mod(lfo1Target==7/8)
+    {
+        bool lfo2RateMod  = bp.mod1Target == 10 || bp.mod2Target == 10 || bp.lfo1Target == 7;
+        bool lfo2DepthMod = bp.mod1Target == 11 || bp.mod2Target == 11 || bp.lfo1Target == 8;
+        modulatedValues.lfo2Rate.store(lfo2RateMod ? lfo2.getRate() : NO_GHOST, std::memory_order_relaxed);
+        modulatedValues.lfo2Depth.store(lfo2DepthMod ? lfo2.getDepth() : NO_GHOST, std::memory_order_relaxed);
+    }
+
+    // Delay/Reverb: modulated by env or LFO targeting them
+    {
+        bool dlyTimeMod = modDelayTime != 0.0f;
+        bool dlyFbMod   = modDelayFb != 0.0f;
+        bool dlyMixMod  = modDelayMix != 0.0f;
+        bool revMixMod  = modReverbMix != 0.0f;
+        modulatedValues.delayTime.store(dlyTimeMod && delayEnabled
+            ? juce::jlimit(1.0f, 5000.0f, parameters.getRawParameterValue("delay_time")->load() * (1.0f + modDelayTime))
+            : NO_GHOST, std::memory_order_relaxed);
+        modulatedValues.delayFeedback.store(dlyFbMod && delayEnabled
+            ? juce::jlimit(0.0f, 0.95f, parameters.getRawParameterValue("delay_feedback")->load() * (1.0f + modDelayFb))
+            : NO_GHOST, std::memory_order_relaxed);
+        modulatedValues.delayMix.store(dlyMixMod && delayEnabled
+            ? juce::jlimit(0.0f, 1.0f, parameters.getRawParameterValue("delay_mix")->load() + modDelayMix)
+            : NO_GHOST, std::memory_order_relaxed);
+        modulatedValues.reverbMix.store(revMixMod && reverbEnabled
+            ? juce::jlimit(0.0f, 1.0f, parameters.getRawParameterValue("reverb_mix")->load() + modReverbMix)
+            : NO_GHOST, std::memory_order_relaxed);
     }
 
     // ── Master volume ───────────────────────────────────────────────────────
