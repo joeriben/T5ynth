@@ -17,9 +17,10 @@ public:
     /** Show loaded preset name (empty = no preset). */
     void setPresetName(const juce::String& name);
 
-    /** Callbacks for preset buttons. */
+    /** Callbacks for buttons. */
     std::function<void()> onSavePreset;
     std::function<void()> onLoadPreset;
+    std::function<void()> onSettings;
 
 private:
     juce::String statusText = "Ready";
@@ -28,6 +29,7 @@ private:
 
     juce::TextButton saveBtn { "Save" };
     juce::TextButton loadBtn { "Load" };
+    juce::TextButton settingsBtn { "Settings" };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StatusBar)
 };

@@ -12,6 +12,11 @@ StatusBar::StatusBar()
     loadBtn.setColour(juce::TextButton::textColourOffId, kDim);
     loadBtn.onClick = [this] { if (onLoadPreset) onLoadPreset(); };
     addAndMakeVisible(loadBtn);
+
+    settingsBtn.setColour(juce::TextButton::buttonColourId, kSurface);
+    settingsBtn.setColour(juce::TextButton::textColourOffId, kDim);
+    settingsBtn.onClick = [this] { if (onSettings) onSettings(); };
+    addAndMakeVisible(settingsBtn);
 }
 
 void StatusBar::paint(juce::Graphics& g)
@@ -51,7 +56,9 @@ void StatusBar::resized()
     int btnH = b.getHeight() - 2;
     int y = 1;
 
-    loadBtn.setBounds(b.getRight() - btnW - 4, y, btnW, btnH);
+    int settingsW = 60;
+    settingsBtn.setBounds(b.getRight() - settingsW - 4, y, settingsW, btnH);
+    loadBtn.setBounds(settingsBtn.getX() - btnW - 4, y, btnW, btnH);
     saveBtn.setBounds(loadBtn.getX() - btnW - 4, y, btnW, btnH);
 }
 

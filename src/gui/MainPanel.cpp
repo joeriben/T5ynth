@@ -27,9 +27,16 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
 
     // Axes description note is inside AxesPanel
 
-    // Wire preset Save/Load buttons in StatusBar
+    // Wire StatusBar buttons
     statusBar.onSavePreset = [this] { savePreset(); };
     statusBar.onLoadPreset = [this] { loadPreset(); };
+    statusBar.onSettings = [this] { if (settingsVisible) hideSettings(); else showSettings(); };
+
+    // Settings overlay (same pattern as DimExplorer)
+    settingsScrim.onClick = [this] { hideSettings(); };
+    settingsScrim.setVisible(false);
+    addChildComponent(settingsScrim);
+    addChildComponent(settingsPage);
 
     // Master volume — vertical slider
     masterVolKnob.setSliderStyle(juce::Slider::LinearVertical);
@@ -154,16 +161,43 @@ void MainPanel::hideDimExplorer()
 
 void MainPanel::mouseDown(const juce::MouseEvent& e)
 {
-    // Close DimExplorer overlay on click outside
+    // Close overlays on click outside
     if (dimExplorerVisible)
     {
         auto dimBounds = dimensionExplorer.getBounds();
         if (!dimBounds.contains(e.x, e.y))
             hideDimExplorer();
     }
+    if (settingsVisible)
+    {
+        auto settingsBounds = settingsPage.getBounds();
+        if (!settingsBounds.contains(e.x, e.y))
+            hideSettings();
+    }
 }
 
-void MainPanel::toggleSettings() {}
+void MainPanel::toggleSettings()
+{
+    if (settingsVisible) hideSettings(); else showSettings();
+}
+
+void MainPanel::showSettings()
+{
+    settingsVisible = true;
+    settingsScrim.setVisible(true);
+    settingsScrim.toFront(false);
+    settingsPage.setVisible(true);
+    settingsPage.toFront(false);
+    resized();
+}
+
+void MainPanel::hideSettings()
+{
+    settingsVisible = false;
+    settingsScrim.setVisible(false);
+    settingsPage.setVisible(false);
+    resized();
+}
 
 void MainPanel::tryLoadInferenceModels()
 {
@@ -368,8 +402,19 @@ void MainPanel::resized()
 
 
 
-    // Scrim covers everything
+    // Scrims cover everything
     dimScrim.setBounds(getLocalBounds());
+    settingsScrim.setBounds(getLocalBounds());
+
+    // Settings overlay (bottom-right, above StatusBar)
+    if (settingsVisible)
+    {
+        int settingsW = juce::jlimit(400, 600, juce::roundToInt(w * 0.4f));
+        int settingsH = juce::jlimit(300, 500, juce::roundToInt(h * 0.55f));
+        int sx = getWidth() - settingsW - 20;
+        int sy = getHeight() - statusH - settingsH - 30;
+        settingsPage.setBounds(sx, sy, settingsW, settingsH);
+    }
 
     // DimExplorer overlay
     if (dimExplorerVisible)

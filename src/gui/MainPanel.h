@@ -70,9 +70,13 @@ private:
     void tryLoadNativeInference();
     void savePreset();
     void loadPreset();
+    void showSettings();
+    void hideSettings();
 
-    // Model settings (embedded in JUCE Audio/MIDI Settings dialog)
+    // Model settings overlay
     SettingsPage settingsPage;
+    Scrim settingsScrim;
+    bool settingsVisible = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainPanel)
 };
