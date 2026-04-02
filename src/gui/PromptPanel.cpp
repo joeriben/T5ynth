@@ -116,14 +116,14 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 
     randomSeedToggle.setColour(juce::ToggleButton::textColourId, kDim);
     randomSeedToggle.setColour(juce::ToggleButton::tickColourId, kAccent);
-    randomSeedToggle.setToggleState(true, juce::dontSendNotification);
+    randomSeedToggle.setToggleState(false, juce::dontSendNotification);
     randomSeedToggle.onClick = [this] {
         seedEditor.setEnabled(!randomSeedToggle.getToggleState());
         seedEditor.setAlpha(randomSeedToggle.getToggleState() ? 0.3f : 1.0f);
     };
     addAndMakeVisible(randomSeedToggle);
-    seedEditor.setEnabled(false);
-    seedEditor.setAlpha(0.3f);
+    seedEditor.setEnabled(true);
+    seedEditor.setAlpha(1.0f);
 
     // Device selector — GPU / CPU toggle
     for (auto* btn : { &gpuBtn, &cpuBtn })

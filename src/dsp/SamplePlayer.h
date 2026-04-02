@@ -126,8 +126,11 @@ private:
     void createPalindrome(const juce::AudioBuffer<float>& src, int loopStart, int loopEnd,
                           juce::AudioBuffer<float>& dest, int& palindromeEnd) const;
 
-    /** Peak-normalize buffer to 0.95. */
-    void normalizeBuffer(juce::AudioBuffer<float>& buf) const;
+    /** Peak-normalize play region to 0.95. */
+    void normalizeBuffer(juce::AudioBuffer<float>& buf, int regionStart, int regionEnd) const;
+
+    /** Remove leading near-zero samples (< ~-60 dB) from originalBuffer. */
+    void trimLeadingSilence();
 
     static constexpr int XCORR_WINDOW = 512;
     static constexpr int XCORR_SEARCH = 2000;

@@ -828,7 +828,7 @@ void SynthPanel::resized()
 
     // ── Drift + Regenerate (part of modulation section) ──
     area.removeFromTop(gap);
-    regenHeader.setFont(juce::FontOptions(f * 0.85f));
+    regenHeader.setFont(juce::FontOptions(f));
     regenHeader.setBounds(area.removeFromTop(headerH));
     area.removeFromTop(gap);
     {

@@ -121,11 +121,10 @@ public:
     {
         if (std::isnan(ghostValue)) return;
 
-        // Map ghostValue to slider pixel position
+        // Map ghostValue to slider pixel position using the slider's NormalisableRange
+        // (respects skew factor for exponential parameters like filter cutoff)
         auto sb = slider.getBounds();
-        double range = slider.getMaximum() - slider.getMinimum();
-        if (range <= 0.0) return;
-        double norm = (static_cast<double>(ghostValue) - slider.getMinimum()) / range;
+        double norm = slider.valueToProportionOfLength(static_cast<double>(ghostValue));
         norm = juce::jlimit(0.0, 1.0, norm);
 
         int thumbW = slider.getLookAndFeel().getSliderThumbRadius(slider) * 2;

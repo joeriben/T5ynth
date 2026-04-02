@@ -22,15 +22,20 @@ float DriftLFO::waveformValue(double phase, int type)
 
 float DriftLFO::halfRangeForTarget(int target)
 {
-    // APVTS index: 0=None, 1=Alpha, 2=Axis1, 3=Axis2, 4=Axis3, 5=WtScan
     switch (target)
     {
-        case 1: return 2.0f;  // alpha: [-2, 2]
-        case 2: return 2.0f;  // sem_axis_1
-        case 3: return 2.0f;  // sem_axis_2
-        case 4: return 2.0f;  // sem_axis_3
-        case 5: return 0.5f;  // wt_scan: [0, 1]
-        default: return 0.0f; // None
+        case TgtAlpha:     return 2.0f;   // alpha: [-2, 2]
+        case TgtAxis1:     return 2.0f;   // sem_axis_1
+        case TgtAxis2:     return 2.0f;   // sem_axis_2
+        case TgtAxis3:     return 2.0f;   // sem_axis_3
+        case TgtWtScan:    return 0.5f;   // wt_scan: [0, 1]
+        case TgtFilter:    return 0.3f;   // filter cutoff: ±30% modulation depth
+        case TgtPitch:     return 12.0f;  // pitch: ±12 semitones
+        case TgtDelayTime: return 0.5f;   // delay time: ±50% of base
+        case TgtDelayFb:   return 0.3f;   // delay feedback: ±30%
+        case TgtDelayMix:  return 0.5f;   // delay mix: ±0.5
+        case TgtReverbMix: return 0.5f;   // reverb mix: ±0.5
+        default:           return 0.0f;   // None
     }
 }
 

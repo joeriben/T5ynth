@@ -17,15 +17,21 @@
 class DriftLFO
 {
 public:
-    /** Target parameter indices. Matches APVTS choice order (None=0, Alpha=1, etc.) */
+    /** Target parameter indices. Matches APVTS choice order (0=None, 1=Alpha, etc.) */
     enum Target
     {
-        None = -1, // internal only; APVTS uses 0 for None
-        Alpha = 0,
-        SemAxis1,
-        SemAxis2,
-        SemAxis3,
-        WtScan,
+        TgtNone = 0,
+        TgtAlpha,      // 1
+        TgtAxis1,      // 2
+        TgtAxis2,      // 3
+        TgtAxis3,      // 4
+        TgtWtScan,     // 5
+        TgtFilter,     // 6
+        TgtPitch,      // 7
+        TgtDelayTime,  // 8
+        TgtDelayFb,    // 9
+        TgtDelayMix,   // 10
+        TgtReverbMix,  // 11
         NumTargets
     };
 

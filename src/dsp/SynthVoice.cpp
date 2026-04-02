@@ -106,8 +106,8 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
     float lfo1Val = globalLfo1Val;
     float lfo2Val = globalLfo2Val;
 
-    // Pitch modulation: env/LFO → pitch (target index 3 for env, 2 for LFO)
-    float pitchMod = 0.0f;
+    // Pitch modulation: env/LFO/drift → pitch (target index 3 for env, 2 for LFO)
+    float pitchMod = p.driftPitchOffset;
     if (p.mod1Target == 3) pitchMod += mod1EnvVal;
     if (p.mod2Target == 3) pitchMod += mod2EnvVal;
     if (p.lfo1Target == 2) pitchMod += lfo1Val;
@@ -156,20 +156,24 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
             cutoffMod *= std::pow(2.0f, (static_cast<float>(currentNote) - 60.0f) / 12.0f * p.kbdTrack);
 
         // Mod envelope → filter (target index 1)
-        // Use raw envelope (not pre-scaled by amount) for proper sweep range
+        // Octave-based modulation: amount controls sweep range (up to 10 octaves = full 20Hz–20kHz)
         {
-            constexpr float FILTER_DEPTH = 4.0f;
+            constexpr float FILTER_OCTAVES = 10.0f;
             float rawEnv1 = (p.mod1Amount > 0.001f) ? mod1EnvVal / p.mod1Amount : 0.0f;
             float rawEnv2 = (p.mod2Amount > 0.001f) ? mod2EnvVal / p.mod2Amount : 0.0f;
 
             if (p.mod1Target == 1)
-                cutoffMod *= 1.0f + rawEnv1 * p.mod1Amount * FILTER_DEPTH;
+                cutoffMod *= std::pow(2.0f, rawEnv1 * p.mod1Amount * FILTER_OCTAVES);
             if (p.mod2Target == 1)
-                cutoffMod *= 1.0f + rawEnv2 * p.mod2Amount * FILTER_DEPTH;
+                cutoffMod *= std::pow(2.0f, rawEnv2 * p.mod2Amount * FILTER_OCTAVES);
 
             // LFO → filter (target index 0)
-            if (p.lfo1Target == 0) cutoffMod *= (1.0f + lfo1Val * FILTER_DEPTH);
-            if (p.lfo2Target == 0) cutoffMod *= (1.0f + lfo2Val * FILTER_DEPTH);
+            if (p.lfo1Target == 0) cutoffMod *= std::pow(2.0f, lfo1Val * FILTER_OCTAVES);
+            if (p.lfo2Target == 0) cutoffMod *= std::pow(2.0f, lfo2Val * FILTER_OCTAVES);
+
+            // Drift → filter
+            if (p.driftFilterOffset != 0.0f)
+                cutoffMod *= std::pow(2.0f, p.driftFilterOffset * FILTER_OCTAVES);
         }
 
         cutoffMod = juce::jlimit(20.0f, 20000.0f, cutoffMod);
@@ -218,14 +222,16 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
             if (p.kbdTrack > 0.0f && currentNote >= 0)
                 cutoffMod *= std::pow(2.0f, (static_cast<float>(currentNote) - 60.0f) / 12.0f * p.kbdTrack);
 
-            constexpr float FILTER_DEPTH = 4.0f;
+            constexpr float FILTER_OCTAVES = 10.0f;
             float rawEnv1 = (p.mod1Amount > 0.001f) ? lastMod1Val_ / p.mod1Amount : 0.0f;
             float rawEnv2 = (p.mod2Amount > 0.001f) ? lastMod2Val_ / p.mod2Amount : 0.0f;
 
-            if (p.mod1Target == 1) cutoffMod *= 1.0f + rawEnv1 * p.mod1Amount * FILTER_DEPTH;
-            if (p.mod2Target == 1) cutoffMod *= 1.0f + rawEnv2 * p.mod2Amount * FILTER_DEPTH;
-            if (p.lfo1Target == 0) cutoffMod *= (1.0f + lfo1Mid * FILTER_DEPTH);
-            if (p.lfo2Target == 0) cutoffMod *= (1.0f + lfo2Mid * FILTER_DEPTH);
+            if (p.mod1Target == 1) cutoffMod *= std::pow(2.0f, rawEnv1 * p.mod1Amount * FILTER_OCTAVES);
+            if (p.mod2Target == 1) cutoffMod *= std::pow(2.0f, rawEnv2 * p.mod2Amount * FILTER_OCTAVES);
+            if (p.lfo1Target == 0) cutoffMod *= std::pow(2.0f, lfo1Mid * FILTER_OCTAVES);
+            if (p.lfo2Target == 0) cutoffMod *= std::pow(2.0f, lfo2Mid * FILTER_OCTAVES);
+            if (p.driftFilterOffset != 0.0f)
+                cutoffMod *= std::pow(2.0f, p.driftFilterOffset * FILTER_OCTAVES);
 
             cutoffMod = juce::jlimit(20.0f, 20000.0f, cutoffMod);
             lastModulatedCutoff_ = cutoffMod;
@@ -250,8 +256,8 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
             float lfo1Val = lfo1Buf[i];
             float lfo2Val = lfo2Buf[i];
 
-            // Pitch modulation
-            float pitchMod = 0.0f;
+            // Pitch modulation (env/LFO/drift)
+            float pitchMod = p.driftPitchOffset;
             if (p.mod1Target == 3) pitchMod += mod1EnvVal;
             if (p.mod2Target == 3) pitchMod += mod2EnvVal;
             if (p.lfo1Target == 2) pitchMod += lfo1Val;

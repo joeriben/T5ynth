@@ -42,8 +42,9 @@ struct BlockParams
     float baseScan = 0.0f;
     float driftScanOffset = 0.0f;
 
-    // Pitch modulation (accumulated from env/LFO → pitch targets)
-    float modPitch = 0.0f;
+    // Drift offsets for filter and pitch (applied per-voice in SynthVoice)
+    float driftFilterOffset = 0.0f;  // multiplicative: cutoff *= (1 + offset * FILTER_DEPTH)
+    float driftPitchOffset = 0.0f;   // additive: pitchMod += offset
 
     // Engine
     bool engineIsWavetable = false;

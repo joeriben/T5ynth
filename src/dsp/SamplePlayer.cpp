@@ -20,6 +20,7 @@ void SamplePlayer::loadBuffer(const juce::AudioBuffer<float>& buffer, double buf
     if (sharedMode) return; // shared-mode players don't own audio
     originalBuffer.makeCopyOf(buffer);
     bufferOriginalSR = bufferSampleRate;
+    trimLeadingSilence();
     audioLoaded = true;
     preparePlaybackBuffer();
     playing = true;
@@ -165,9 +166,9 @@ void SamplePlayer::preparePlaybackBuffer()
         coldStart = ls + fadeSamples;
     }
 
-    // Normalize if enabled
+    // Normalize if enabled (only scan the play region for peak)
     if (normalizeOn)
-        normalizeBuffer(playBuffer);
+        normalizeBuffer(playBuffer, playStart, playEnd);
 
     // Reset read position to cold start
     readPosition = static_cast<double>(coldStart);
@@ -377,13 +378,18 @@ void SamplePlayer::createPalindrome(const juce::AudioBuffer<float>& src, int loo
 // Peak normalize to 0.95 (from useSamplePlayer.ts)
 // ═══════════════════════════════════════════════════════════════════
 
-void SamplePlayer::normalizeBuffer(juce::AudioBuffer<float>& buf) const
+void SamplePlayer::normalizeBuffer(juce::AudioBuffer<float>& buf, int regionStart, int regionEnd) const
 {
+    // Find peak only within the play region (avoid spikes outside brackets)
+    int rs = juce::jlimit(0, buf.getNumSamples(), regionStart);
+    int re = juce::jlimit(rs, buf.getNumSamples(), regionEnd);
+    if (re <= rs) return;
+
     float peak = 0.0f;
     for (int ch = 0; ch < buf.getNumChannels(); ++ch)
     {
         const float* d = buf.getReadPointer(ch);
-        for (int i = 0; i < buf.getNumSamples(); ++i)
+        for (int i = rs; i < re; ++i)
         {
             float a = std::abs(d[i]);
             if (a > peak) peak = a;
@@ -399,4 +405,50 @@ void SamplePlayer::normalizeBuffer(juce::AudioBuffer<float>& buf) const
         for (int i = 0; i < buf.getNumSamples(); ++i)
             d[i] *= gain;
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Trim leading silence — removes near-zero head with no aesthetic value
+// ═══════════════════════════════════════════════════════════════════
+
+void SamplePlayer::trimLeadingSilence()
+{
+    const int numSamples = originalBuffer.getNumSamples();
+    const int numCh      = originalBuffer.getNumChannels();
+    if (numSamples == 0 || numCh == 0) return;
+
+    // Threshold: ~-60 dB — anything below is acoustically inaudible
+    constexpr float threshold = 0.001f;
+
+    // Find first sample above threshold (across all channels)
+    int firstActive = 0;
+    for (int i = 0; i < numSamples; ++i)
+    {
+        bool active = false;
+        for (int ch = 0; ch < numCh; ++ch)
+        {
+            if (std::abs(originalBuffer.getReadPointer(ch)[i]) > threshold)
+            {
+                active = true;
+                break;
+            }
+        }
+        if (active)
+        {
+            firstActive = i;
+            break;
+        }
+        // If we reach the end, everything is silent — keep as-is
+        if (i == numSamples - 1) return;
+    }
+
+    if (firstActive == 0) return; // nothing to trim
+
+    // Truncate: copy from firstActive onward into a new buffer
+    int newLen = numSamples - firstActive;
+    juce::AudioBuffer<float> trimmed(numCh, newLen);
+    for (int ch = 0; ch < numCh; ++ch)
+        trimmed.copyFrom(ch, 0, originalBuffer, ch, firstActive, newLen);
+
+    originalBuffer = std::move(trimmed);
 }
