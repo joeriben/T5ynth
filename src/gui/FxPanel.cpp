@@ -5,7 +5,9 @@ static juce::String fmtF2(double v)  { return juce::String(v, 2); }
 
 static juce::String fmtDampHz(double v)
 {
-    double hz = 200.0 * std::pow(100.0, v);
+    // Must match DSP mapping in DelayLine::setDamp: freq = 20000 * pow(500/20000, d)
+    // 0 = bright (20kHz cutoff), 1 = dark (500Hz cutoff)
+    double hz = 20000.0 * std::pow(500.0 / 20000.0, v);
     if (hz >= 1000.0) return juce::String(hz / 1000.0, 1) + "k";
     return juce::String(juce::roundToInt(hz)) + "Hz";
 }
