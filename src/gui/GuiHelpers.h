@@ -151,11 +151,8 @@ public:
         value.setFont(juce::FontOptions(f * 0.75f));
 
         label.setBounds(b.removeFromLeft(labelW));
-        // Cap slider width, then place value immediately after slider
-        int maxSliderW = 400;
-        int sliderW = juce::jmin(b.getWidth() - valueW, maxSliderW);
-        slider.setBounds(b.removeFromLeft(sliderW));
-        value.setBounds(b.removeFromLeft(valueW));
+        value.setBounds(b.removeFromRight(valueW));
+        slider.setBounds(b);
     }
 
 private:

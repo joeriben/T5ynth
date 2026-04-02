@@ -7,27 +7,27 @@ static const juce::Colour kAxisColors[] = { kAxis1, kAxis2, kAxis3 };
 // Ranked by effectiveness at short duration. PCA axes excluded (collapse at 1s).
 static const juce::StringArray kEffectiveAxes {
     "---",
-    "music / noise",
-    "acoustic / electronic",
-    "improvised / composed",
-    "refined / raw",
-    "solo / ensemble",
-    "sacred / secular",
-    "tonal / noisy",
-    "rhythmic / sustained"
+    "noise / music",
+    "electronic / acoustic",
+    "composed / improvised",
+    "raw / refined",
+    "ensemble / solo",
+    "secular / sacred",
+    "noisy / tonal",
+    "sustained / rhythmic"
 };
 
 // Map display names → backend axis keys (cross_aesthetic_backend.py SEMANTIC_AXES)
 static juce::String axisDisplayToKey(const juce::String& display)
 {
-    if (display.contains("music / noise"))          return "music_noise";
-    if (display.contains("acoustic / electronic"))  return "acoustic_electronic";
-    if (display.contains("improvised / composed"))  return "improvised_composed";
-    if (display.contains("refined / raw"))           return "refined_raw";
-    if (display.contains("solo / ensemble"))         return "solo_ensemble";
-    if (display.contains("sacred / secular"))        return "sacred_secular";
-    if (display.contains("tonal / noisy"))           return "tonal_noisy";
-    if (display.contains("rhythmic / sustained"))    return "rhythmic_sustained";
+    if (display.contains("noise / music"))            return "music_noise";
+    if (display.contains("electronic / acoustic"))    return "acoustic_electronic";
+    if (display.contains("composed / improvised"))    return "improvised_composed";
+    if (display.contains("raw / refined"))             return "refined_raw";
+    if (display.contains("ensemble / solo"))           return "solo_ensemble";
+    if (display.contains("secular / sacred"))          return "sacred_secular";
+    if (display.contains("noisy / tonal"))             return "tonal_noisy";
+    if (display.contains("sustained / rhythmic"))      return "rhythmic_sustained";
     return {};
 }
 
@@ -133,7 +133,6 @@ void AxesPanel::paint(juce::Graphics& g)
 void AxesPanel::layoutSlots(std::vector<AxisSlot>& slotsVec, juce::Rectangle<int>& area, float f, int dotOffset)
 {
     int rowH = juce::roundToInt(f * 1.4f);
-    int sliderH = juce::roundToInt(f * 1.2f);
     int gap = juce::roundToInt(f * 0.2f);
     int valW = juce::roundToInt(f * 3.0f);
 
@@ -141,36 +140,30 @@ void AxesPanel::layoutSlots(std::vector<AxisSlot>& slotsVec, juce::Rectangle<int
     {
         bool active = slot.dropdown->getSelectedId() != 1; // 1 = "---"
 
-        auto dropRow = area.removeFromTop(rowH);
+        auto row = area.removeFromTop(rowH);
         if (dotOffset > 0)
-            dropRow.removeFromLeft(dotOffset);
-        slot.dropdown->setBounds(dropRow);
+            row.removeFromLeft(dotOffset);
 
+        // Pole labels no longer shown (axis name visible in dropdown text)
+        slot.poleLabelA->setVisible(false);
+        slot.poleLabelB->setVisible(false);
         slot.slider->setVisible(active);
         slot.valueLabel->setVisible(active);
-        slot.poleLabelA->setVisible(active);
-        slot.poleLabelB->setVisible(active);
 
         if (active)
         {
-            int poleH = juce::roundToInt(f * 0.9f);
-            auto poleRow = area.removeFromTop(poleH);
-            if (dotOffset > 0)
-                poleRow.removeFromLeft(dotOffset);
-            auto poleRight = poleRow.removeFromRight(valW);
-            int poleLabelW = poleRow.getWidth() / 2;
-            slot.poleLabelA->setFont(juce::FontOptions(f * 0.7f));
-            slot.poleLabelB->setFont(juce::FontOptions(f * 0.7f));
-            slot.poleLabelA->setBounds(poleRow.removeFromLeft(poleLabelW));
-            slot.poleLabelB->setBounds(poleRow);
-
-            auto sliderRow = area.removeFromTop(sliderH);
-            if (dotOffset > 0)
-                sliderRow.removeFromLeft(dotOffset);
+            // Single row: [dropdown ~45%] [slider] [value]
+            int dropW = juce::roundToInt(row.getWidth() * 0.45f);
+            slot.dropdown->setBounds(row.removeFromLeft(dropW));
             slot.valueLabel->setFont(juce::FontOptions(f * 0.8f));
-            slot.valueLabel->setBounds(sliderRow.removeFromRight(valW));
-            slot.slider->setBounds(sliderRow);
+            slot.valueLabel->setBounds(row.removeFromRight(valW));
+            slot.slider->setBounds(row);
         }
+        else
+        {
+            slot.dropdown->setBounds(row);
+        }
+
         area.removeFromTop(gap);
     }
 }

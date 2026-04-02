@@ -117,16 +117,31 @@ void FxPanel::updateVisibility()
     if (!reverbMixRow)
         return;
 
-    bool delayOn = delayTypeHidden.getSelectedId() > 1; // > OFF
-    for (auto* r : { delayTimeRow.get(), delayFbRow.get(), delayDampRow.get(), delayMixRow.get() })
-        r->setVisible(delayOn);
+    constexpr float dimAlpha = 0.3f;
 
-    bool reverbOn = reverbTypeHidden.getSelectedId() > 1; // > OFF
-    bool algoOn   = reverbTypeHidden.getSelectedId() == 5; // Algo
-    reverbMixRow->setVisible(reverbOn);
-    algoRoomRow->setVisible(algoOn);
-    algoDampRow->setVisible(algoOn);
-    algoWidthRow->setVisible(algoOn);
+    // Delay: always visible, dimmed when OFF
+    bool delayOn = delayTypeHidden.getSelectedId() > 1;
+    float delayAlpha = delayOn ? 1.0f : dimAlpha;
+    for (auto* r : { delayTimeRow.get(), delayFbRow.get(), delayDampRow.get(), delayMixRow.get() })
+    {
+        r->setAlpha(delayAlpha);
+        r->setEnabled(delayOn);
+    }
+
+    // Reverb: always visible; dim params based on mode
+    bool reverbOn = reverbTypeHidden.getSelectedId() > 1;
+    bool algoOn   = reverbTypeHidden.getSelectedId() == 5;
+    float reverbAlpha = reverbOn ? 1.0f : dimAlpha;
+    // Room/Damp/Width: active only for Algo, dimmed for Convolution and OFF
+    float algoParamAlpha = algoOn ? 1.0f : dimAlpha;
+    for (auto* r : { algoRoomRow.get(), algoDampRow.get(), algoWidthRow.get() })
+    {
+        r->setAlpha(algoParamAlpha);
+        r->setEnabled(algoOn);
+    }
+    // Mix: active whenever reverb is on
+    reverbMixRow->setAlpha(reverbAlpha);
+    reverbMixRow->setEnabled(reverbOn);
 
     resized();
     repaint();
@@ -183,9 +198,7 @@ void FxPanel::resized()
         .getUnion(delayTypeBtns[kNumDelayBtns - 1].getBounds());
     area.removeFromTop(gap);
 
-    // Delay params (visible when ON)
-    bool delayOn = delayTypeHidden.getSelectedId() > 1;
-    if (delayOn)
+    // Delay params — always laid out, dimmed when OFF
     {
         int colW = (area.getWidth() - 2) / 2;
         auto row1 = area.removeFromTop(rowH);
@@ -222,29 +235,18 @@ void FxPanel::resized()
         .getUnion(reverbTypeBtns[kNumReverbBtns - 1].getBounds());
     area.removeFromTop(gap);
 
-    // Reverb params (visible when ON)
-    bool reverbOn = reverbTypeHidden.getSelectedId() > 1;
-    bool algoOn   = reverbTypeHidden.getSelectedId() == 5;
-    if (reverbOn)
+    // Reverb params — always 2 rows: Room+Damp, Width+Mix (dimmed when inactive)
     {
-        if (algoOn)
-        {
-            // Algo: Room+Damp on one row, Width+Mix on next
-            int colW = (area.getWidth() - 2) / 2;
-            auto row1 = area.removeFromTop(rowH);
-            algoRoomRow->setBounds(row1.removeFromLeft(colW));
-            row1.removeFromLeft(2);
-            algoDampRow->setBounds(row1);
+        int colW = (area.getWidth() - 2) / 2;
+        auto row1 = area.removeFromTop(rowH);
+        algoRoomRow->setBounds(row1.removeFromLeft(colW));
+        row1.removeFromLeft(2);
+        algoDampRow->setBounds(row1);
 
-            area.removeFromTop(gap);
-            auto row2 = area.removeFromTop(rowH);
-            algoWidthRow->setBounds(row2.removeFromLeft(colW));
-            row2.removeFromLeft(2);
-            reverbMixRow->setBounds(row2);
-        }
-        else
-        {
-            reverbMixRow->setBounds(area.removeFromTop(rowH));
-        }
+        area.removeFromTop(gap);
+        auto row2 = area.removeFromTop(rowH);
+        algoWidthRow->setBounds(row2.removeFromLeft(colW));
+        row2.removeFromLeft(2);
+        reverbMixRow->setBounds(row2);
     }
 }

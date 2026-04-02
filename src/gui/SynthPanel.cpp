@@ -339,7 +339,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     initDrift(drift2, "DRIFT 2", "drift2_rate", "drift2_depth", "drift2_target", "drift2_wave", apvts);
 
     // Regenerate mode switchbox
-    paintSectionHeader(regenHeader, "REGENERATE", kDriftCol);
+    paintSectionHeader(regenHeader, "DRIFT + REGENERATE", kDriftCol);
     addAndMakeVisible(regenHeader);
 
     regenHidden.addItemList({"Manual", "Auto", "1st Bar"}, 1);
@@ -833,7 +833,7 @@ void SynthPanel::resized()
     area.removeFromTop(gap);
     {
         auto regenRow = area.removeFromTop(rowH);
-        int regenCellW = regenRow.getWidth() / kNumRegenBtns;
+        int regenCellW = juce::roundToInt(f * 4.5f);
         for (int i = 0; i < kNumRegenBtns; ++i)
         {
             int edges = 0;
