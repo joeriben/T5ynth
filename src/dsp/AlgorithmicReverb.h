@@ -18,6 +18,15 @@ public:
     /** Set dry/wet mix (0=dry, 1=wet). */
     void setMix(float mix);
 
+    /** Set room size (0=small, 1=large). */
+    void setRoomSize(float size);
+
+    /** Set high-frequency damping (0=bright, 1=dark). */
+    void setDamping(float damp);
+
+    /** Set stereo width (0=mono, 1=full stereo). */
+    void setWidth(float w);
+
 private:
     juce::dsp::Reverb reverb;
     juce::dsp::DryWetMixer<float> mixer;

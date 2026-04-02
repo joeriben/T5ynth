@@ -62,3 +62,24 @@ void AlgorithmicReverb::setMix(float mix)
     if (prepared)
         mixer.setWetMixProportion(wetMix);
 }
+
+void AlgorithmicReverb::setRoomSize(float size)
+{
+    auto params = reverb.getParameters();
+    params.roomSize = juce::jlimit(0.0f, 1.0f, size);
+    reverb.setParameters(params);
+}
+
+void AlgorithmicReverb::setDamping(float damp)
+{
+    auto params = reverb.getParameters();
+    params.damping = juce::jlimit(0.0f, 1.0f, damp);
+    reverb.setParameters(params);
+}
+
+void AlgorithmicReverb::setWidth(float w)
+{
+    auto params = reverb.getParameters();
+    params.width = juce::jlimit(0.0f, 1.0f, w);
+    reverb.setParameters(params);
+}

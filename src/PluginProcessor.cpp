@@ -94,6 +94,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{"reverb_mix", 1}, "Reverb Mix",
         juce::NormalisableRange<float>(0.0f, 1.0f), 0.25f));
 
+    // Algorithmic reverb parameters (only active when reverb_type == Algo)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"algo_room", 1}, "Algo Room",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.7f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"algo_damping", 1}, "Algo Damping",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.4f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"algo_width", 1}, "Algo Width",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
+
     // Generation
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"gen_alpha", 1}, "Alpha",
@@ -201,10 +212,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // Drift targets + waveform selection
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"drift1_target", 1}, "Drift1 Target",
-        juce::StringArray{"None", "Alpha", "Axis 1", "Axis 2", "Axis 3", "WT Scan"}, 0));
+        juce::StringArray{"None", "Alpha", "Axis 1", "Axis 2", "Axis 3", "WT Scan", "Filter", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix"}, 0));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"drift2_target", 1}, "Drift2 Target",
-        juce::StringArray{"None", "Alpha", "Axis 1", "Axis 2", "Axis 3", "WT Scan"}, 0));
+        juce::StringArray{"None", "Alpha", "Axis 1", "Axis 2", "Axis 3", "WT Scan", "Filter", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix"}, 0));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"drift1_wave", 1}, "Drift1 Wave",
         juce::StringArray{"Sine", "Tri", "Saw", "Sq"}, 0));
@@ -215,7 +226,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // Drift 3 target + waveform (was missing — drift3 rate/depth existed but had no target/wave)
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"drift3_target", 1}, "Drift3 Target",
-        juce::StringArray{"None", "Alpha", "Axis 1", "Axis 2", "Axis 3", "WT Scan"}, 0));
+        juce::StringArray{"None", "Alpha", "Axis 1", "Axis 2", "Axis 3", "WT Scan", "Filter", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix"}, 0));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"drift3_wave", 1}, "Drift3 Wave",
         juce::StringArray{"Sine", "Tri", "Saw", "Sq"}, 0));
@@ -502,8 +513,11 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     driftLfo.setLfoWaveform(2, static_cast<int>(parameters.getRawParameterValue("drift3_wave")->load()));
     driftLfo.tick(static_cast<double>(numSamples) / getSampleRate());
 
-    // Apply drift to scan if targeted (APVTS target 5 = WtScan)
-    bp.driftScanOffset = driftLfo.getOffsetForTarget(5); // WtScan
+    // Apply drift offsets to their respective targets
+    bp.driftScanOffset   = driftLfo.getOffsetForTarget(DriftLFO::TgtWtScan);
+    bp.driftFilterOffset = driftLfo.getOffsetForTarget(DriftLFO::TgtFilter);
+    bp.driftPitchOffset  = driftLfo.getOffsetForTarget(DriftLFO::TgtPitch);
+    // Block-level drift targets (delay/reverb) applied after modDelayTime etc. are declared
 
     // ── Sampler settings ─────────────────────────────────────────────────────
     int loopModeIdx = static_cast<int>(parameters.getRawParameterValue("loop_mode")->load());
@@ -620,6 +634,12 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     // Modulation values (zero when skipping synthesis)
     float modDelayTime = 0.0f, modDelayFb = 0.0f, modDelayMix = 0.0f, modReverbMix = 0.0f;
+
+    // Drift → block-level FX targets (runs even during tail for smooth drift)
+    modDelayTime += driftLfo.getOffsetForTarget(DriftLFO::TgtDelayTime);
+    modDelayFb   += driftLfo.getOffsetForTarget(DriftLFO::TgtDelayFb);
+    modDelayMix  += driftLfo.getOffsetForTarget(DriftLFO::TgtDelayMix);
+    modReverbMix += driftLfo.getOffsetForTarget(DriftLFO::TgtReverbMix);
     VoiceManager::VoiceOutput voiceOut;
 
     if (!skipSynthesis)
@@ -731,6 +751,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
         if (reverbIsAlgo)
         {
+            algoReverb.setRoomSize(parameters.getRawParameterValue("algo_room")->load());
+            algoReverb.setDamping(parameters.getRawParameterValue("algo_damping")->load());
+            algoReverb.setWidth(parameters.getRawParameterValue("algo_width")->load());
             algoReverb.setMix(revMix);
         }
         else
@@ -1128,15 +1151,19 @@ static int driftTargetFromString(const juce::String& s) {
     if (s == "sem_axis_2") return 3;
     if (s == "sem_axis_3") return 4;
     if (s == "wt_scan") return 5;
+    if (s == "filter") return 6;
+    if (s == "pitch") return 7;
+    if (s == "delay_time") return 8;
+    if (s == "delay_feedback") return 9;
+    if (s == "delay_mix") return 10;
+    if (s == "reverb_mix") return 11;
     return 0; // none
 }
 static juce::String driftTargetToString(int i) {
-    if (i == 1) return "alpha";
-    if (i == 2) return "sem_axis_1";
-    if (i == 3) return "sem_axis_2";
-    if (i == 4) return "sem_axis_3";
-    if (i == 5) return "wt_scan";
-    return "none";
+    const char* names[] = {"none","alpha","sem_axis_1","sem_axis_2","sem_axis_3",
+                           "wt_scan","filter","pitch","delay_time","delay_feedback",
+                           "delay_mix","reverb_mix"};
+    return (i >= 0 && i <= 11) ? names[i] : "none";
 }
 
 static int driftWaveFromString(const juce::String& s) {

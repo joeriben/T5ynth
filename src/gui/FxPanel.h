@@ -35,12 +35,13 @@ private:
     juce::ComboBox reverbTypeHidden;
     juce::Rectangle<int> reverbTypeSwitchBounds;
     std::unique_ptr<SliderRow> reverbMixRow;
+    std::unique_ptr<SliderRow> algoRoomRow, algoDampRow, algoWidthRow;
 
     using SA = juce::AudioProcessorValueTreeState::SliderAttachment;
     using CA = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
 
     std::unique_ptr<SA> delayTimeA, delayFbA, delayDampA, delayMixA;
-    std::unique_ptr<SA> reverbMixA;
+    std::unique_ptr<SA> reverbMixA, algoRoomA, algoDampA, algoWidthA;
     std::unique_ptr<CA> delayTypeA, reverbTypeA;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FxPanel)

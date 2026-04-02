@@ -89,11 +89,23 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts)
         addAndMakeVisible(reverbTypeBtns[i]);
     }
 
-    reverbMixRow = std::make_unique<SliderRow>("Mix", fmtF2, kFxCol);
-    addAndMakeVisible(*reverbMixRow);
+    reverbMixRow  = std::make_unique<SliderRow>("Mix",   fmtF2, kFxCol);
+    algoRoomRow   = std::make_unique<SliderRow>("Room",  fmtF2, kFxCol);
+    algoDampRow   = std::make_unique<SliderRow>("Damp",  fmtF2, kFxCol);
+    algoWidthRow  = std::make_unique<SliderRow>("Width", fmtF2, kFxCol);
 
-    reverbMixA = std::make_unique<SA>(apvts, "reverb_mix", reverbMixRow->getSlider());
+    for (auto* r : { reverbMixRow.get(), algoRoomRow.get(), algoDampRow.get(), algoWidthRow.get() })
+        addAndMakeVisible(*r);
+
+    reverbMixA = std::make_unique<SA>(apvts, "reverb_mix",   reverbMixRow->getSlider());
+    algoRoomA  = std::make_unique<SA>(apvts, "algo_room",    algoRoomRow->getSlider());
+    algoDampA  = std::make_unique<SA>(apvts, "algo_damping", algoDampRow->getSlider());
+    algoWidthA = std::make_unique<SA>(apvts, "algo_width",   algoWidthRow->getSlider());
+
     reverbMixRow->updateValue();
+    algoRoomRow->updateValue();
+    algoDampRow->updateValue();
+    algoWidthRow->updateValue();
 
     // Attach APVTS AFTER buttons are set up
     reverbTypeA = std::make_unique<CA>(apvts, "reverb_type", reverbTypeHidden);
@@ -110,7 +122,11 @@ void FxPanel::updateVisibility()
         r->setVisible(delayOn);
 
     bool reverbOn = reverbTypeHidden.getSelectedId() > 1; // > OFF
+    bool algoOn   = reverbTypeHidden.getSelectedId() == 5; // Algo
     reverbMixRow->setVisible(reverbOn);
+    algoRoomRow->setVisible(algoOn);
+    algoDampRow->setVisible(algoOn);
+    algoWidthRow->setVisible(algoOn);
 
     resized();
     repaint();
@@ -208,8 +224,27 @@ void FxPanel::resized()
 
     // Reverb params (visible when ON)
     bool reverbOn = reverbTypeHidden.getSelectedId() > 1;
+    bool algoOn   = reverbTypeHidden.getSelectedId() == 5;
     if (reverbOn)
     {
-        reverbMixRow->setBounds(area.removeFromTop(rowH));
+        if (algoOn)
+        {
+            // Algo: Room+Damp on one row, Width+Mix on next
+            int colW = (area.getWidth() - 2) / 2;
+            auto row1 = area.removeFromTop(rowH);
+            algoRoomRow->setBounds(row1.removeFromLeft(colW));
+            row1.removeFromLeft(2);
+            algoDampRow->setBounds(row1);
+
+            area.removeFromTop(gap);
+            auto row2 = area.removeFromTop(rowH);
+            algoWidthRow->setBounds(row2.removeFromLeft(colW));
+            row2.removeFromLeft(2);
+            reverbMixRow->setBounds(row2);
+        }
+        else
+        {
+            reverbMixRow->setBounds(area.removeFromTop(rowH));
+        }
     }
 }
