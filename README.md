@@ -46,14 +46,22 @@ Whether this actually succeeds in reframing the human-AI relationship is an open
 
 The core of T5ynth is a new kind of oscillator that doesn't exist in any conventional synthesizer. Where traditional oscillators generate sound from mathematical waveforms (sine, saw, square) or from recorded samples, the T5 Oscillator generates sound from *meaning*.
 
-A text prompt is encoded by a T5 language model into a 768-dimensional embedding vector. This vector — a point in semantic space — conditions a diffusion process that synthesizes audio. The result is a waveform whose timbral character is shaped not by parameters like "detune" or "pulse width" but by semantic proximity: the distance between "glass breaking" and "ice cracking", the interpolation between "warm analog pad" and "frozen digital texture", the unexplored spaces between concepts that have no name.
+The key operation is not prompting — it is **vector manipulation in a learned semantic space**.
+
+Two text prompts (A and B) are each encoded by a T5 language model into 768-dimensional embedding vectors. These are not audio signals — they are points in a high-dimensional space where semantic relationships are encoded as geometric relationships. T5ynth operates on these vectors before any audio is generated:
+
+- **Interpolation and Extrapolation** — A continuous alpha parameter blends between embedding A and B. Crucially, this is not mixing two audio signals — it is moving through the semantic space between two concepts. And the parameter is not clamped to [0, 1]: extrapolation beyond either pole pushes into regions of the embedding space that neither prompt alone would reach, producing sounds that correspond to no text description.
+- **Magnitude Control** — The length of the embedding vector can be scaled independently of its direction, controlling how strongly the semantic content influences the diffusion process. Low magnitudes drift toward the model's prior (generic, neutral sounds); high magnitudes push toward more extreme, sometimes unstable sonic territory.
+- **Noise Injection** — Gaussian noise can be added to the embedding vector, introducing controlled stochastic variation. This is not audio noise — it is semantic noise, perturbation in meaning-space, producing timbral variations that are semantically adjacent to the original.
+- **Semantic Axes** — 8 pre-computed axes (tonal/noisy, bright/dark, harmonic/inharmonic, etc.) define musically meaningful directions in the 768d space. Each axis is derived from the difference between two pole prompts (e.g., "tonal sound" vs. "noisy sound"), providing intuitive navigation of perceptual qualities.
+- **Dimension Explorer** — Direct access to all 768 individual T5 dimensions, sorted by activation magnitude. Each dimension can be offset manually, enabling precise sculpting of the embedding at a granularity below what any text prompt could express. This is where the embedding space becomes a truly navigable instrument — not a text interface with a generate button.
+
+The manipulated embedding then conditions a diffusion process (DiT transformer, 20 denoising steps, BrownianTree SDE sampler) followed by VAE decoding to produce 44.1kHz stereo audio.
 
 Two playback modes make this musically useful:
 
 - **Sampler Mode** — The generated audio is played back directly with loop points (one-shot, loop, ping-pong), crossfade control, and silence-trimmed auto-bracketing. Useful for longer textures and evolving material.
 - **Wavetable Mode** — The audio is analyzed via pitch detection (YIN algorithm), sliced into pitch-synchronous frames of 2048 samples, band-limited across 8 mip levels via FFT, and scanned in real-time. This turns any generated sound into a playable, pitch-tracked wavetable oscillator with Catmull-Rom interpolation between frames.
-
-The embedding space itself is navigable: A/B prompt interpolation blends two semantic poles, 8 semantic axes (tonal/noisy, bright/dark, harmonic/inharmonic, etc.) provide musically meaningful navigation dimensions, and the Dimension Explorer gives direct access to all 768 individual T5 dimensions — sorted by perceptual magnitude — for precise sculpting of the embedding before generation.
 
 ### Synthesizer
 
