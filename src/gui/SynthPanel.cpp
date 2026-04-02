@@ -107,7 +107,8 @@ void SynthPanel::initDrift(DriftSection& drift, const juce::String& name,
     drift.header.setColour(juce::Label::textColourId, kDriftCol);
     addAndMakeVisible(drift.header);
 
-    drift.targetBox.addItemList({"None", "Alpha", "Axis 1", "Axis 2", "Axis 3", "WT Scan"}, 1);
+    drift.targetBox.addItemList({"None", "Alpha", "Axis 1", "Axis 2", "Axis 3", "WT Scan",
+                                  "Filter", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix"}, 1);
     drift.targetBox.onChange = [this] { updateVisibility(); resized(); };
     addAndMakeVisible(drift.targetBox);
 
@@ -736,27 +737,25 @@ void SynthPanel::resized()
     // ── Sampler-only controls ──
     if (oneshotBtn.isVisible())
     {
-        // Compact switchbox: [One-shot] [Loop] [Ping-Pong]
+        // [One-shot] [Loop] [Ping-Pong]  [Normalize] [Auto-opt]
         auto loopRow = area.removeFromTop(rowH);
         int cellW = juce::roundToInt(f * 5.0f);
         oneshotBtn.setBounds(loopRow.removeFromLeft(cellW));
         loopModeBtn.setBounds(loopRow.removeFromLeft(cellW));
         pingpongBtn.setBounds(loopRow.removeFromLeft(cellW));
         loopSwitchBounds = oneshotBtn.getBounds().getUnion(pingpongBtn.getBounds());
+
+        loopRow.removeFromLeft(juce::roundToInt(f * 1.0f));
+        int optW = juce::roundToInt(f * 5.0f);
+        normalizeToggle.setBounds(loopRow.removeFromLeft(optW));
+        loopRow.removeFromLeft(4);
+        loopOptimizeToggle.setBounds(loopRow.removeFromLeft(optW));
+        optSwitchBounds = normalizeToggle.getBounds().getUnion(loopOptimizeToggle.getBounds());
         area.removeFromTop(gap);
 
         crossfadeRow->setBounds(area.removeFromTop(rowH));
         area.removeFromTop(gap);
-
-        // Normalize + Auto-opt: rectangular on/off buttons, same row
-        auto optRow = area.removeFromTop(rowH);
-        int optW = juce::roundToInt(f * 5.0f);
-        normalizeToggle.setBounds(optRow.removeFromLeft(optW));
-        optRow.removeFromLeft(4);
-        loopOptimizeToggle.setBounds(optRow.removeFromLeft(optW));
-        optSwitchBounds = normalizeToggle.getBounds().getUnion(loopOptimizeToggle.getBounds());
-        area.removeFromTop(gap);
-        engineCardBottom = loopOptimizeToggle.getBottom();
+        engineCardBottom = crossfadeRow->getBottom();
     }
 
     // ── Wavetable-only controls ──
