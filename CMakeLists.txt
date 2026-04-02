@@ -103,7 +103,6 @@ target_sources(T5ynth PRIVATE
     src/gui/AxesPanel.cpp
     src/gui/DimensionExplorer.cpp
     src/gui/WaveformDisplay.cpp
-    src/gui/PresetPanel.cpp
     src/gui/SetupWizard.cpp
     src/gui/StatusBar.cpp
     src/gui/T5ynthLookAndFeel.cpp

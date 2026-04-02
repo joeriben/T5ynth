@@ -8,7 +8,6 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
       promptPanel(processor),
       synthPanel(processor),
       fxPanel(processor.getValueTreeState()),
-      presetPanel(processor),
       sequencerPanel(processor)
 {
     addAndMakeVisible(promptPanel);
@@ -27,13 +26,10 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     addAndMakeVisible(dimHeader);
 
     // Axes description note is inside AxesPanel
-    // PresetPanel is kept as logic handler but not shown — buttons are in StatusBar
 
-    // Wire preset import callback
-    presetPanel.onPresetLoaded = [this](const juce::String& pA, const juce::String& pB,
-                                        int seed, const juce::String& device) {
-        promptPanel.loadPresetData(pA, pB, seed, true, device);
-    };
+    // Wire preset Save/Load buttons in StatusBar
+    statusBar.onSavePreset = [this] { savePreset(); };
+    statusBar.onLoadPreset = [this] { loadPreset(); };
 
     // Master volume — vertical slider
     masterVolKnob.setSliderStyle(juce::Slider::LinearVertical);
@@ -307,7 +303,7 @@ void MainPanel::resized()
     float w = static_cast<float>(b.getWidth());
     float h = static_cast<float>(b.getHeight());
 
-    int statusH = 14;
+    int statusH = 20;
     int footerH = juce::jlimit(160, 280, juce::roundToInt(h * 0.24f));
     statusBar.setBounds(b.removeFromBottom(statusH));
 
@@ -397,4 +393,68 @@ void MainPanel::resized()
 
         dimensionExplorer.setBounds(overlayBounds.reduced(20, 10));
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Preset Save / Load
+// ═══════════════════════════════════════════════════════════════════
+
+void MainPanel::savePreset()
+{
+    // Store current prompt state in processor before saving
+    // (PromptPanel stores them on generation, but user may have edited since)
+    processorRef.setLastPrompts(promptPanel.getPromptA(), promptPanel.getPromptB());
+    processorRef.setLastSeed(promptPanel.getSeed());
+
+    auto presetsDir = PresetFormat::getPresetsDirectory();
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Save Preset", presetsDir, "*.t5p");
+
+    chooser->launchAsync(juce::FileBrowserComponent::saveMode,
+        [this, chooser](const juce::FileChooser& fc)
+        {
+            auto file = fc.getResult();
+            if (file == juce::File()) return;
+
+            if (PresetFormat::saveToFile(file, processorRef))
+                statusBar.setPresetName(file.getFileNameWithoutExtension());
+        });
+}
+
+void MainPanel::loadPreset()
+{
+    auto presetsDir = PresetFormat::getPresetsDirectory();
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Load Preset", presetsDir, "*.t5p;*.json");
+
+    chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+        [this, chooser](const juce::FileChooser& fc)
+        {
+            auto file = fc.getResult();
+            if (!file.existsAsFile()) return;
+
+            auto result = PresetFormat::loadFromFile(file, processorRef);
+            if (!result.success) return;
+
+            // Restore prompts/seed to GUI
+            promptPanel.loadPresetData(result.promptA, result.promptB,
+                                       result.seed, true, result.device);
+
+            // Restore audio into engine (skips generation!)
+            if (result.hasAudio)
+            {
+                processorRef.loadGeneratedAudio(result.audio, result.sampleRate);
+                processorRef.setLastSeed(result.seed);
+                processorRef.setLastPrompts(result.promptA, result.promptB);
+            }
+
+            // Restore embeddings to DimExplorer
+            if (!result.embeddingA.empty())
+            {
+                processorRef.setLastEmbeddings(result.embeddingA, result.embeddingB);
+                dimensionExplorer.setEmbeddings(result.embeddingA, result.embeddingB);
+            }
+
+            statusBar.setPresetName(result.presetName);
+        });
 }

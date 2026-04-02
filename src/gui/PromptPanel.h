@@ -23,6 +23,11 @@ public:
                         int seed, bool randomSeed,
                         const juce::String& device = {});
 
+    /** Read current prompt/seed state (for preset save). */
+    juce::String getPromptA() const { return promptAEditor.getText().trim(); }
+    juce::String getPromptB() const { return promptBEditor.getText().trim(); }
+    int getSeed() const { return seedEditor.getText().getIntValue(); }
+
     /** Trigger generation with optional dimension offsets from DimensionExplorer. */
     void triggerGenerationWithOffsets(std::vector<std::pair<int, float>> offsets);
 

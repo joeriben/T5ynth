@@ -872,6 +872,10 @@ bool T5ynthProcessor::isSamplerMode() const
 
 void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBuffer, double sr)
 {
+    // Store full audio for preset embedding
+    generatedAudioFull.makeCopyOf(audioBuffer);
+    generatedSampleRate = sr;
+
     // Feed the sampler/voice chain
     masterSampler.loadBuffer(audioBuffer, sr);
 

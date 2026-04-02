@@ -67,6 +67,22 @@ public:
     void setLastDevice(const juce::String& dev) { lastDevice = dev; }
     const juce::String& getLastDevice() const { return lastDevice; }
 
+    // Preset metadata (GUI-only state that must survive save/load)
+    void setLastPrompts(const juce::String& a, const juce::String& b) { lastPromptA = a; lastPromptB = b; }
+    const juce::String& getLastPromptA() const { return lastPromptA; }
+    const juce::String& getLastPromptB() const { return lastPromptB; }
+
+    void setLastSeed(int s) { lastSeed = s; }
+    int getLastSeed() const { return lastSeed; }
+
+    void setLastEmbeddings(const std::vector<float>& a, const std::vector<float>& b) { lastEmbeddingA = a; lastEmbeddingB = b; }
+    const std::vector<float>& getLastEmbeddingA() const { return lastEmbeddingA; }
+    const std::vector<float>& getLastEmbeddingB() const { return lastEmbeddingB; }
+
+    /** Get the raw generated audio buffer (channel 0 snapshot for display). */
+    const juce::AudioBuffer<float>& getGeneratedAudio() const { return generatedAudioFull; }
+    double getGeneratedSampleRate() const { return generatedSampleRate; }
+
     // Sequencer
     T5ynthStepSequencer& getStepSequencer() { return stepSequencer; }
     T5ynthArpeggiator& getArpeggiator() { return arpeggiator; }
@@ -122,6 +138,13 @@ private:
     // Pipe inference (Python subprocess — actual working inference)
     PipeInference pipeInference;
     juce::String lastDevice;
+
+    // Preset metadata (stored here so preset save can access them)
+    juce::String lastPromptA, lastPromptB;
+    int lastSeed = 123456789;
+    std::vector<float> lastEmbeddingA, lastEmbeddingB;
+    juce::AudioBuffer<float> generatedAudioFull;  // full stereo buffer for preset embedding
+    double generatedSampleRate = 44100.0;
 
     // Last triggered note (for pitch modulation in block-rate section)
     int lastTriggeredNote = -1;

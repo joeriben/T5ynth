@@ -8,7 +8,7 @@
 #include "SequencerPanel.h"
 #include "StatusBar.h"
 #include "SetupWizard.h"
-#include "PresetPanel.h"
+#include "../presets/PresetFormat.h"
 
 class T5ynthProcessor;
 
@@ -40,9 +40,6 @@ private:
     // FX
     FxPanel fxPanel;
 
-    // Presets
-    PresetPanel presetPanel;
-
     // Bottom
     SequencerPanel sequencerPanel;
     StatusBar statusBar;
@@ -71,6 +68,8 @@ private:
     void hideDimExplorer();
     void tryLoadInferenceModels();
     void tryLoadNativeInference();
+    void savePreset();
+    void loadPreset();
 
     // Model settings (embedded in JUCE Audio/MIDI Settings dialog)
     SettingsPage settingsPage;

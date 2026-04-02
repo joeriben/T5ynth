@@ -430,12 +430,19 @@ void PromptPanel::triggerGeneration()
                 {
                     processor->loadGeneratedAudio(result.audio, 44100.0);
                     processor->setLastDevice(deviceForLabel);
+                    processor->setLastSeed(result.seed);
+                    processor->setLastPrompts(promptAEditor.getText().trim(),
+                                              promptBEditor.getText().trim());
                     auto info = juce::String(result.generationTimeMs / 1000.0f, 1) + "s | seed "
                                 + juce::String(result.seed) + " | " + deviceForLabel;
                     if (onStatusChanged) onStatusChanged(info, false);
 
-                    if (onEmbeddingsReady && !result.embeddingA.empty())
-                        onEmbeddingsReady(result.embeddingA, result.embeddingB);
+                    if (!result.embeddingA.empty())
+                    {
+                        processor->setLastEmbeddings(result.embeddingA, result.embeddingB);
+                        if (onEmbeddingsReady)
+                            onEmbeddingsReady(result.embeddingA, result.embeddingB);
+                    }
                 }
                 else
                 {
