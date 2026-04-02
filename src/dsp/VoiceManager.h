@@ -66,6 +66,10 @@ private:
     int   gainRampSamplesLeft = 0;
 
     double sr = 44100.0;
+    int maxBlockSize = 512;
+
+    // Pre-allocated per-voice scratch buffers
+    std::array<std::vector<float>, MAX_VOICES> voiceScratch;
 
     // ── Voice allocation ──
     int findVoiceForNote(int note) const;

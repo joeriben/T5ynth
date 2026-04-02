@@ -19,12 +19,14 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     addAndMakeVisible(statusBar);
 
     // Left column section headers
-    paintSectionHeader(oscHeader, "OSCILLATOR", kOscCol);
+    paintSectionHeader(oscHeader, "T5 OSCILLATOR", kOscCol);
     addAndMakeVisible(oscHeader);
-    paintSectionHeader(axesHeader, "AXES", kOscCol);
+    paintSectionHeader(axesHeader, "SEMANTIC AXES", kOscCol);
     addAndMakeVisible(axesHeader);
-    paintSectionHeader(dimHeader, "DIM EXPLORER", kOscCol);
+    paintSectionHeader(dimHeader, "LATENT DIMENSION EXPLORER", kOscCol);
     addAndMakeVisible(dimHeader);
+
+    // Axes description note is inside AxesPanel
     // PresetPanel is kept as logic handler but not shown — buttons are in StatusBar
 
     // Wire preset import callback
@@ -350,7 +352,7 @@ void MainPanel::resized()
     promptPanel.setBounds(genCol.removeFromTop(oscH));
     genCol.removeFromTop(kGap);
 
-    // Card 2: AXES
+    // Card 2: SEMANTIC AXES
     axesHeader.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.85f));
     axesHeader.setBounds(genCol.removeFromTop(headerH));
     axesPanel.setBounds(genCol.removeFromTop(axesH));

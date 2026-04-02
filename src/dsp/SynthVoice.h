@@ -39,6 +39,19 @@ public:
 
     RenderResult renderSample(const BlockParams& p, float globalLfo1Val, float globalLfo2Val);
 
+    /** Block-based rendering with sub-block filter coefficient updates.
+     *  Writes numSamples mono samples into output. */
+    void renderBlock(float* output, const BlockParams& p,
+                     const float* lfo1Buf, const float* lfo2Buf, int numSamples);
+
+    static constexpr int SUB_BLOCK_SIZE = 32;
+
+    // Mod value accessors (for VoiceManager to capture after renderBlock)
+    float getLastMod1Val() const { return lastMod1Val_; }
+    float getLastMod2Val() const { return lastMod2Val_; }
+    float getLastModulatedCutoff() const { return lastModulatedCutoff_; }
+    float getLastModulatedScan() const { return lastModulatedScan_; }
+
     // ── State queries ──
     bool isActive() const { return active; }
     bool isReleasing() const { return active && !noteHeld; }
@@ -83,4 +96,10 @@ private:
     float baseFrequency = 440.0f;
 
     double sr = 44100.0;
+
+    // Cached mod values from last renderBlock (for VoiceManager capture)
+    float lastMod1Val_ = 0.0f;
+    float lastMod2Val_ = 0.0f;
+    float lastModulatedCutoff_ = 20000.0f;
+    float lastModulatedScan_ = 0.0f;
 };

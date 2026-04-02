@@ -35,6 +35,7 @@ private:
     };
 
     juce::Label header;
+    juce::Label noteLabel;
     std::vector<AxisSlot> slots;  // 3
 
     void initSlot(AxisSlot& slot, const juce::StringArray& options, int axisIndex);

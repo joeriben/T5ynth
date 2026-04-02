@@ -424,10 +424,12 @@ void SequencerPanel::paint(juce::Graphics& g)
 void SequencerPanel::resized()
 {
     auto area = getLocalBounds().reduced(6, 0);
-    int headerH = 18;
-    seqHeader.setFont(juce::FontOptions(headerH * 0.78f));
+    float topH = getTopLevelComponent()
+                     ? static_cast<float>(getTopLevelComponent()->getHeight()) : 800.0f;
+    int headerH = juce::jlimit(14, 20, juce::roundToInt(topH * 0.022f));
+    seqHeader.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.85f));
     seqHeader.setBounds(area.removeFromTop(headerH));
-    area.removeFromTop(2);
+    area.removeFromTop(juce::jmax(3, headerH / 5));
 
     int rH = 22;
     int g = 3;

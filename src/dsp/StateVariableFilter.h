@@ -31,7 +31,7 @@ public:
      *  Uses equal-power crossfade: dry = cos(mix*pi/2), wet = sin(mix*pi/2). */
     void setMix(float mix);
 
-    /** Set filter slope: 0=12dB/oct (single), 1=24dB/oct (cascade). */
+    /** Set filter slope: 0=6dB, 1=12dB, 2=18dB, 3=24dB. */
     void setSlope(int slope);
 
     /** Process a single mono sample (channel 0). For per-voice use. */
@@ -46,10 +46,24 @@ public:
 private:
     juce::dsp::StateVariableTPTFilter<float> filter1;
     juce::dsp::StateVariableTPTFilter<float> filter2; // second stage for 24dB cascade
+
+    // One-pole filter for 6dB and 18dB slopes
+    float onePoleState = 0.0f;
+    float onePoleCoeff = 0.0f;  // computed from cutoff
+    void updateOnePoleCoeff(float cutoffHz);
+
     double sr = 44100.0;
     int blockSize = 512;
     float currentMix = 1.0f;
     int currentType = -1;
-    int currentSlope = 0; // 0=12dB, 1=24dB
+    int currentSlope = 1; // 0=6dB, 1=12dB, 2=18dB, 3=24dB
     bool prepared = false;
+
+    // Cached values to skip redundant coefficient recomputation
+    float lastSetCutoff = 20000.0f;
+    float lastSetReso = 0.0f;
+
+    // Pre-computed dry/wet gains (avoid sin/cos per sample)
+    float cachedWetGain = 1.0f;
+    float cachedDryGain = 0.0f;
 };

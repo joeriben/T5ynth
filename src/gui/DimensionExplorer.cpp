@@ -192,7 +192,7 @@ void DimensionExplorer::paint(juce::Graphics& g)
     {
         g.setFont(juce::FontOptions(fs));
         g.setColour(kDim);
-        juce::String header = hasBPrompt_ ? "DIMENSION EXPLORER (A-B)" : "DIMENSION EXPLORER";
+        juce::String header = hasBPrompt_ ? "LATENT DIMENSION EXPLORER (A-B)" : "LATENT DIMENSION EXPLORER";
         g.drawText(header, area.reduced(6, 2).removeFromTop(static_cast<int>(fs + 4)),
                    juce::Justification::centredLeft);
     }

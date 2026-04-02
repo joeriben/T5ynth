@@ -67,10 +67,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"filter_type", 1}, "Filter Type",
-        juce::StringArray{"Lowpass", "Highpass", "Bandpass"}, 0));
+        juce::StringArray{"Off", "Lowpass", "Highpass", "Bandpass"}, 1));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"filter_slope", 1}, "Filter Slope",
-        juce::StringArray{"12dB", "24dB"}, 0));
+        juce::StringArray{"6dB", "12dB", "18dB", "24dB"}, 1));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"filter_mix", 1}, "Filter Mix",
         juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
@@ -461,10 +461,14 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.lfo2Target = static_cast<int>(parameters.getRawParameterValue("lfo2_target")->load());
 
     // Filter
-    bp.filterEnabled = parameters.getRawParameterValue("filter_enabled")->load() > 0.5f;
+    // filter_type: 0=Off, 1=LP, 2=HP, 3=BP → filterEnabled from type, DSP type is 0-based
+    {
+        int ft = static_cast<int>(parameters.getRawParameterValue("filter_type")->load());
+        bp.filterEnabled = (ft > 0);
+        bp.filterType = ft > 0 ? ft - 1 : 0;  // 0=LP, 1=HP, 2=BP for DSP
+    }
     bp.baseCutoff = parameters.getRawParameterValue("filter_cutoff")->load();
     bp.baseReso = parameters.getRawParameterValue("filter_resonance")->load();
-    bp.filterType = static_cast<int>(parameters.getRawParameterValue("filter_type")->load());
     bp.filterSlope = static_cast<int>(parameters.getRawParameterValue("filter_slope")->load());
     bp.filterMix = parameters.getRawParameterValue("filter_mix")->load();
     bp.kbdTrack = parameters.getRawParameterValue("filter_kbd_track")->load();
@@ -998,19 +1002,33 @@ static float cutoffNormToHz(float n) { return 20.0f * std::pow(1000.0f, juce::jl
 static float cutoffHzToNorm(float hz) { return std::log(juce::jlimit(20.0f, 20000.0f, hz) / 20.0f) / std::log(1000.0f); }
 
 // String↔index mappings for preset fields
+// filter_type: 0=Off, 1=Lowpass, 2=Highpass, 3=Bandpass
 static int filterTypeFromString(const juce::String& s) {
-    if (s == "highpass") return 1;
-    if (s == "bandpass") return 2;
-    return 0; // lowpass
+    if (s == "off") return 0;
+    if (s == "highpass") return 2;
+    if (s == "bandpass") return 3;
+    return 1; // lowpass (default)
 }
 static juce::String filterTypeToString(int i) {
-    if (i == 1) return "highpass";
-    if (i == 2) return "bandpass";
+    if (i == 0) return "off";
+    if (i == 2) return "highpass";
+    if (i == 3) return "bandpass";
     return "lowpass";
 }
 
-static int filterSlopeFromString(const juce::String& s) { return s == "24" ? 1 : 0; }
-static juce::String filterSlopeToString(int i) { return i == 1 ? "24" : "12"; }
+// filter_slope: 0=6dB, 1=12dB, 2=18dB, 3=24dB
+static int filterSlopeFromString(const juce::String& s) {
+    if (s == "6") return 0;
+    if (s == "18") return 2;
+    if (s == "24") return 3;
+    return 1; // 12dB (default)
+}
+static juce::String filterSlopeToString(int i) {
+    if (i == 0) return "6";
+    if (i == 2) return "18";
+    if (i == 3) return "24";
+    return "12";
+}
 
 static int reverbVariantFromString(const juce::String& s) {
     if (s == "bright") return 0;
@@ -1223,8 +1241,9 @@ juce::String T5ynthProcessor::exportJsonPreset() const
 
     // Filter — store NORMALIZED cutoff (0-1), not Hz
     juce::DynamicObject::Ptr filt = new juce::DynamicObject();
-    filt->setProperty("enabled", get("filter_enabled") > 0.5f);
-    filt->setProperty("type", filterTypeToString(static_cast<int>(get("filter_type"))));
+    int ftRaw = static_cast<int>(get("filter_type"));
+    filt->setProperty("enabled", ftRaw > 0);
+    filt->setProperty("type", filterTypeToString(ftRaw));
     filt->setProperty("slope", filterSlopeToString(static_cast<int>(get("filter_slope"))));
     filt->setProperty("cutoff", cutoffHzToNorm(get("filter_cutoff")));
     filt->setProperty("resonance", get("filter_resonance"));
@@ -1389,8 +1408,11 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
     // ── Filter — CRITICAL: cutoff is normalized 0-1, convert to Hz ──
     if (auto* filt = root->getProperty("filter").getDynamicObject())
     {
-        setParam(parameters, "filter_enabled", filt->getProperty("enabled") ? 1.0f : 0.0f);
-        setParam(parameters, "filter_type", static_cast<float>(filterTypeFromString(filt->getProperty("type").toString())));
+        // Merge enabled + type: if enabled=false, set type to Off (0)
+        bool filtEnabled = filt->getProperty("enabled");
+        int filtType = filterTypeFromString(filt->getProperty("type").toString());
+        if (!filtEnabled) filtType = 0;  // Off
+        setParam(parameters, "filter_type", static_cast<float>(filtType));
         if (filt->hasProperty("slope"))
             setParam(parameters, "filter_slope", static_cast<float>(filterSlopeFromString(filt->getProperty("slope").toString())));
         // Convert normalized cutoff to Hz: 20 * pow(1000, n)

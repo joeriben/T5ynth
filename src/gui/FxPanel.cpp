@@ -81,10 +81,12 @@ void FxPanel::paint(juce::Graphics& g)
 void FxPanel::resized()
 {
     auto area = getLocalBounds().reduced(6, 0);
-    int headerH = 18;
-    fxHeader.setFont(juce::FontOptions(headerH * 0.78f));
+    float topH = getTopLevelComponent()
+                     ? static_cast<float>(getTopLevelComponent()->getHeight()) : 800.0f;
+    int headerH = juce::jlimit(14, 20, juce::roundToInt(topH * 0.022f));
+    fxHeader.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.85f));
     fxHeader.setBounds(area.removeFromTop(headerH));
-    area.removeFromTop(2);
+    area.removeFromTop(juce::jmax(3, headerH / 5));
 
     int rowH = juce::jmin(juce::roundToInt(static_cast<float>(getHeight()) * 0.22f), 20);
     int gap = 2;

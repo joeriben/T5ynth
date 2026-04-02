@@ -40,8 +40,8 @@ private:
     juce::TextButton pingpongBtn { "Ping-Pong" };
     juce::ComboBox loopModeHidden;
     std::unique_ptr<SliderRow> crossfadeRow;
-    juce::ToggleButton loopOptimizeToggle { "Auto-optimize" };
-    juce::ToggleButton normalizeToggle { "Normalize" };
+    juce::TextButton loopOptimizeToggle { "Auto-opt" };
+    juce::TextButton normalizeToggle { "Normalize" };
 
     // ── Scan ──
     std::unique_ptr<SliderRow> scanRow;
@@ -51,8 +51,14 @@ private:
     juce::Label engineHeader, filterHeader, modHeader, driftHeader;
 
     // ── Filter ──
-    juce::ToggleButton filterToggle { "Filter" };
-    juce::ComboBox filterTypeBox, filterSlopeBox;
+    // Type switchbox: OFF LP HP BP (drives filter_type APVTS via hidden ComboBox)
+    static constexpr int kNumTypeBtns = 4;
+    juce::TextButton filterTypeBtns[kNumTypeBtns];
+    juce::ComboBox filterTypeHidden;
+    // Slope switchbox: 6dB 12dB 18dB 24dB
+    static constexpr int kNumSlopeBtns = 4;
+    juce::TextButton filterSlopeBtns[kNumSlopeBtns];
+    juce::ComboBox filterSlopeHidden;
     std::unique_ptr<SliderRow> cutoffRow, resoRow, filterMixRow, kbdTrackRow;
 
     // ── Envelope sections ──
@@ -98,7 +104,7 @@ private:
     std::unique_ptr<CA> engineModeA, loopModeA;
     std::unique_ptr<SA> scanA, cutoffA, resoA, filterMixA, kbdTrackA, crossfadeA;
     std::unique_ptr<CA> filterTypeA, filterSlopeA;
-    std::unique_ptr<BA> filterEnableA, normalizeA, loopOptimizeA, driftRegenA;
+    std::unique_ptr<BA> driftRegenA;
 
     // ENV/LFO target attachments (routed in processBlock)
     std::unique_ptr<CA> mod1TargetA, mod2TargetA, lfo1TargetA, lfo2TargetA;

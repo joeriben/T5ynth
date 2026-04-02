@@ -3,8 +3,11 @@
 void VoiceManager::prepare(double sampleRate, int samplesPerBlock)
 {
     sr = sampleRate;
+    maxBlockSize = samplesPerBlock;
     for (auto& v : voices)
         v.prepare(sampleRate, samplesPerBlock);
+    for (auto& scratch : voiceScratch)
+        scratch.resize(static_cast<size_t>(samplesPerBlock));
     currentGain = 1.0f;
     targetGain = 1.0f;
     gainRampSamplesLeft = 0;
@@ -136,57 +139,58 @@ VoiceManager::VoiceOutput VoiceManager::renderBlock(
 
     bool anyBecameInactive = false;
 
-    // Per-sample rendering
+    // ── Voice-first rendering: each voice renders its full block ──
+    int activeCount = 0;
+    int activeIndices[MAX_VOICES];
+
+    for (int vi = 0; vi < MAX_VOICES; ++vi)
+    {
+        auto& v = voices[static_cast<size_t>(vi)];
+        if (!v.isActive()) continue;
+
+        // Use sub-block renderBlock for active voices
+        float* scratch = voiceScratch[static_cast<size_t>(vi)].data();
+        v.renderBlock(scratch, bp, lfo1Buf, lfo2Buf, numSamples);
+
+        if (!v.isActive())
+            anyBecameInactive = true;
+
+        activeIndices[activeCount++] = vi;
+    }
+
+    // ── Sum voice buffers + apply gain ramp ──
     for (int i = 0; i < numSamples; ++i)
     {
-        // Gain ramp for voice-count transitions
         if (gainRampSamplesLeft > 0)
         {
             currentGain += gainRampIncr;
-            gainRampSamplesLeft--;
-            if (gainRampSamplesLeft == 0)
+            if (--gainRampSamplesLeft == 0)
                 currentGain = targetGain;
         }
 
-        float sumL = 0.0f;
+        float sum = 0.0f;
+        for (int a = 0; a < activeCount; ++a)
+            sum += voiceScratch[static_cast<size_t>(activeIndices[a])][static_cast<size_t>(i)];
 
-        for (int vi = 0; vi < MAX_VOICES; ++vi)
-        {
-            auto& v = voices[static_cast<size_t>(vi)];
-            if (!v.isActive()) continue;
-
-            auto result = v.renderSample(bp, lfo1Buf[i], lfo2Buf[i]);
-            sumL += result.sample;
-
-            // Capture mod values from newest voice
-            if (vi == newestIdx)
-            {
-                out.lastMod1Val = result.mod1EnvVal;
-                out.lastMod2Val = result.mod2EnvVal;
-                out.lastModulatedCutoff = result.modulatedCutoff;
-                out.lastModulatedScan = result.modulatedScan;
-            }
-
-            // Check if voice just became inactive
-            if (!v.isActive())
-                anyBecameInactive = true;
-        }
-
-        // Apply 1/sqrt(N) gain scaling
-        sumL *= currentGain;
+        sum *= currentGain;
 
         for (int ch = 0; ch < numChannels; ++ch)
-            buffer.setSample(ch, i, sumL);
+            buffer.setSample(ch, i, sum);
     }
 
     // Update gain target if voices became inactive during this block
     if (anyBecameInactive)
         updateGainTarget();
 
-    // Set output
+    // Capture mod values from newest voice (end-of-block snapshot)
     if (newestIdx >= 0)
     {
-        out.lastTriggeredNote = voices[static_cast<size_t>(newestIdx)].getCurrentNote();
+        auto& nv = voices[static_cast<size_t>(newestIdx)];
+        out.lastMod1Val = nv.getLastMod1Val();
+        out.lastMod2Val = nv.getLastMod2Val();
+        out.lastModulatedCutoff = nv.getLastModulatedCutoff();
+        out.lastModulatedScan = nv.getLastModulatedScan();
+        out.lastTriggeredNote = nv.getCurrentNote();
         out.hasActiveVoices = true;
     }
     else

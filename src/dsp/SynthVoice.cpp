@@ -191,3 +191,119 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
     return result;
 }
 
+void SynthVoice::renderBlock(float* output, const BlockParams& p,
+                              const float* lfo1Buf, const float* lfo2Buf, int numSamples)
+{
+    if (!active)
+    {
+        std::memset(output, 0, sizeof(float) * static_cast<size_t>(numSamples));
+        return;
+    }
+
+    int pos = 0;
+    while (pos < numSamples && active)
+    {
+        int subBlockEnd = std::min(pos + SUB_BLOCK_SIZE, numSamples);
+        int subBlockLen = subBlockEnd - pos;
+
+        // ── Sub-block boundary: update filter coefficients ONCE ──
+        if (p.filterEnabled)
+        {
+            int midIdx = pos + subBlockLen / 2;
+            float lfo1Mid = lfo1Buf[midIdx];
+            float lfo2Mid = lfo2Buf[midIdx];
+
+            float cutoffMod = p.baseCutoff;
+
+            if (p.kbdTrack > 0.0f && currentNote >= 0)
+                cutoffMod *= std::pow(2.0f, (static_cast<float>(currentNote) - 60.0f) / 12.0f * p.kbdTrack);
+
+            constexpr float FILTER_DEPTH = 4.0f;
+            float rawEnv1 = (p.mod1Amount > 0.001f) ? lastMod1Val_ / p.mod1Amount : 0.0f;
+            float rawEnv2 = (p.mod2Amount > 0.001f) ? lastMod2Val_ / p.mod2Amount : 0.0f;
+
+            if (p.mod1Target == 1) cutoffMod *= 1.0f + rawEnv1 * p.mod1Amount * FILTER_DEPTH;
+            if (p.mod2Target == 1) cutoffMod *= 1.0f + rawEnv2 * p.mod2Amount * FILTER_DEPTH;
+            if (p.lfo1Target == 0) cutoffMod *= (1.0f + lfo1Mid * FILTER_DEPTH);
+            if (p.lfo2Target == 0) cutoffMod *= (1.0f + lfo2Mid * FILTER_DEPTH);
+
+            cutoffMod = juce::jlimit(20.0f, 20000.0f, cutoffMod);
+            lastModulatedCutoff_ = cutoffMod;
+
+            filter.setCutoff(cutoffMod);
+            filter.setResonance(p.baseReso);
+            filter.setType(p.filterType);
+            filter.setSlope(p.filterSlope);
+            filter.setMix(p.filterMix);
+        }
+
+        // ── Per-sample inner loop: envelopes + osc + VCA ──
+        for (int i = pos; i < subBlockEnd; ++i)
+        {
+            float ampEnvVal = ampEnv.processSample() * p.ampAmount;
+            float mod1EnvVal = modEnv1.processSample() * p.mod1Amount;
+            float mod2EnvVal = modEnv2.processSample() * p.mod2Amount;
+            lastAmpEnvLevel = ampEnvVal;
+            lastMod1Val_ = mod1EnvVal;
+            lastMod2Val_ = mod2EnvVal;
+
+            float lfo1Val = lfo1Buf[i];
+            float lfo2Val = lfo2Buf[i];
+
+            // Pitch modulation
+            float pitchMod = 0.0f;
+            if (p.mod1Target == 3) pitchMod += mod1EnvVal;
+            if (p.mod2Target == 3) pitchMod += mod2EnvVal;
+            if (p.lfo1Target == 2) pitchMod += lfo1Val;
+            if (p.lfo2Target == 2) pitchMod += lfo2Val;
+
+            if (p.engineIsWavetable && osc.hasFrames())
+                osc.setFrequency(baseFrequency * (1.0f + pitchMod));
+
+            // Generate sample
+            float sample = 0.0f;
+            if (p.engineIsWavetable && osc.hasFrames())
+            {
+                float scanMod = p.baseScan + p.driftScanOffset;
+                if (p.mod1Target == 2) scanMod += mod1EnvVal;
+                if (p.mod2Target == 2) scanMod += mod2EnvVal;
+                if (p.lfo1Target == 1) scanMod += lfo1Val;
+                if (p.lfo2Target == 1) scanMod += lfo2Val;
+                float clampedScan = juce::jlimit(0.0f, 1.0f, scanMod);
+                osc.setScanPosition(clampedScan);
+                lastModulatedScan_ = clampedScan;
+                sample = osc.processSample();
+            }
+            else if (!p.engineIsWavetable && sampler.hasAudio())
+            {
+                sample = sampler.processSample();
+            }
+
+            // VCA
+            float vca = ampEnvVal;
+            if (p.mod1Target == 0) vca *= (1.0f + mod1EnvVal);
+            if (p.mod2Target == 0) vca *= (1.0f + mod2EnvVal);
+            sample *= vca;
+
+            output[i] = sample;
+
+            if (ampEnv.isIdle() && !noteHeld)
+            {
+                active = false;
+                for (int j = i + 1; j < numSamples; ++j)
+                    output[j] = 0.0f;
+                return;
+            }
+        }
+
+        // ── Apply filter to sub-block (uses cached coefficients) ──
+        if (p.filterEnabled)
+        {
+            for (int i = pos; i < subBlockEnd; ++i)
+                output[i] = filter.processSample(output[i]);
+        }
+
+        pos = subBlockEnd;
+    }
+}
+

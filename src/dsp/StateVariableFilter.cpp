@@ -19,6 +19,13 @@ void T5ynthFilter::prepare(double sampleRate, int samplesPerBlock)
     filter2.setResonance(resonanceToQ(0.0f));
 
     prepared = true;
+    lastSetCutoff = 20000.0f;
+    lastSetReso = 0.0f;
+
+    // Initialize cached mix gains
+    const float halfPi = juce::MathConstants<float>::halfPi;
+    cachedWetGain = std::sin(currentMix * halfPi);
+    cachedDryGain = std::cos(currentMix * halfPi);
 }
 
 void T5ynthFilter::processBlock(juce::AudioBuffer<float>& buffer)
@@ -89,17 +96,31 @@ void T5ynthFilter::reset()
 
 void T5ynthFilter::setMix(float mix)
 {
-    currentMix = juce::jlimit(0.0f, 1.0f, mix);
+    mix = juce::jlimit(0.0f, 1.0f, mix);
+    if (mix == currentMix) return;
+    currentMix = mix;
+
+    // Pre-compute crossfade gains (avoids sin/cos per sample)
+    const float halfPi = juce::MathConstants<float>::halfPi;
+    cachedWetGain = std::sin(currentMix * halfPi);
+    cachedDryGain = std::cos(currentMix * halfPi);
 }
 
 void T5ynthFilter::setCutoff(float hz)
 {
+    // Skip redundant coefficient update (std::tan is expensive)
+    if (std::abs(hz - lastSetCutoff) < 0.5f) return;
+    lastSetCutoff = hz;
     filter1.setCutoffFrequency(hz);
     filter2.setCutoffFrequency(hz);
+    updateOnePoleCoeff(hz);
 }
 
 void T5ynthFilter::setResonance(float r)
 {
+    // Skip redundant coefficient update
+    if (std::abs(r - lastSetReso) < 0.001f) return;
+    lastSetReso = r;
     float q = resonanceToQ(r);
     filter1.setResonance(q);
     filter2.setResonance(q);
@@ -125,7 +146,14 @@ void T5ynthFilter::setType(int type)
 
 void T5ynthFilter::setSlope(int slope)
 {
-    currentSlope = (slope == 1) ? 1 : 0;
+    currentSlope = juce::jlimit(0, 3, slope);
+}
+
+void T5ynthFilter::updateOnePoleCoeff(float cutoffHz)
+{
+    // RC low-pass: coeff = 1 - e^(-2pi * fc / sr)
+    double wc = juce::MathConstants<double>::twoPi * static_cast<double>(cutoffHz) / sr;
+    onePoleCoeff = static_cast<float>(1.0 - std::exp(-wc));
 }
 
 float T5ynthFilter::processSample(float sample)
@@ -133,15 +161,53 @@ float T5ynthFilter::processSample(float sample)
     if (!prepared || currentMix < 0.001f)
         return sample;
 
-    float wet = filter1.processSample(0, sample);
-    if (currentSlope == 1)
-        wet = filter2.processSample(0, wet);
+    float wet;
+    switch (currentSlope)
+    {
+        case 0: // 6dB — one-pole only
+            if (currentType == 0) // LP
+            {
+                onePoleState += onePoleCoeff * (sample - onePoleState);
+                wet = onePoleState;
+            }
+            else if (currentType == 1) // HP
+            {
+                onePoleState += onePoleCoeff * (sample - onePoleState);
+                wet = sample - onePoleState;
+            }
+            else // BP — use SVF for bandpass (no meaningful 1-pole BP)
+            {
+                wet = filter1.processSample(0, sample);
+            }
+            break;
+
+        case 1: // 12dB — single SVF
+            wet = filter1.processSample(0, sample);
+            break;
+
+        case 2: // 18dB — SVF + one-pole
+            wet = filter1.processSample(0, sample);
+            if (currentType == 0) {
+                onePoleState += onePoleCoeff * (wet - onePoleState);
+                wet = onePoleState;
+            } else if (currentType == 1) {
+                onePoleState += onePoleCoeff * (wet - onePoleState);
+                wet = wet - onePoleState;
+            }
+            break;
+
+        case 3: // 24dB — two SVFs cascaded
+            wet = filter1.processSample(0, sample);
+            wet = filter2.processSample(0, wet);
+            break;
+
+        default:
+            wet = filter1.processSample(0, sample);
+            break;
+    }
 
     if (currentMix > 0.999f)
         return wet;
 
-    const float halfPi = juce::MathConstants<float>::halfPi;
-    float wetGain = std::sin(currentMix * halfPi);
-    float dryGain = std::cos(currentMix * halfPi);
-    return sample * dryGain + wet * wetGain;
+    return sample * cachedDryGain + wet * cachedWetGain;
 }

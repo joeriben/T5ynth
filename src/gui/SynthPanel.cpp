@@ -212,17 +212,29 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     crossfadeA = std::make_unique<SA>(apvts, "crossfade_ms", crossfadeRow->getSlider());
     crossfadeRow->updateValue();
 
-    // Loop optimize
-    loopOptimizeToggle.setColour(juce::ToggleButton::textColourId, kDim);
-    loopOptimizeToggle.setColour(juce::ToggleButton::tickColourId, kAccent);
-    addAndMakeVisible(loopOptimizeToggle);
-    loopOptimizeA = std::make_unique<BA>(apvts, "loop_optimize", loopOptimizeToggle);
-
-    // Normalize
-    normalizeToggle.setColour(juce::ToggleButton::textColourId, kDim);
-    normalizeToggle.setColour(juce::ToggleButton::tickColourId, kAccent);
-    addAndMakeVisible(normalizeToggle);
-    normalizeA = std::make_unique<BA>(apvts, "normalize", normalizeToggle);
+    // Loop optimize + Normalize — rectangular on/off buttons
+    for (auto* btn : { &loopOptimizeToggle, &normalizeToggle })
+    {
+        btn->setColour(juce::TextButton::buttonColourId, kSurface);
+        btn->setColour(juce::TextButton::buttonOnColourId, kAccent);
+        btn->setColour(juce::TextButton::textColourOffId, kDim);
+        btn->setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        btn->setClickingTogglesState(true);
+        addAndMakeVisible(btn);
+    }
+    loopOptimizeToggle.onClick = [this] {
+        auto* param = processorRef.getValueTreeState().getParameter("loop_optimize");
+        if (param) param->setValueNotifyingHost(loopOptimizeToggle.getToggleState() ? 1.0f : 0.0f);
+    };
+    normalizeToggle.onClick = [this] {
+        auto* param = processorRef.getValueTreeState().getParameter("normalize");
+        if (param) param->setValueNotifyingHost(normalizeToggle.getToggleState() ? 1.0f : 0.0f);
+    };
+    // Sync initial state from APVTS
+    loopOptimizeToggle.setToggleState(
+        apvts.getRawParameterValue("loop_optimize")->load() > 0.5f, juce::dontSendNotification);
+    normalizeToggle.setToggleState(
+        apvts.getRawParameterValue("normalize")->load() > 0.5f, juce::dontSendNotification);
 
     // ── Scan ──
     scanRow = std::make_unique<SliderRow>("Scan", fmtF2);
@@ -245,17 +257,52 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     makeHeader(filterHeader, "FILTER", kFilterCol);
     makeHeader(modHeader, "MODULATION", kModCol);
 
-    // ── Filter ──
-    filterToggle.setColour(juce::ToggleButton::textColourId, kDim);
-    filterToggle.setColour(juce::ToggleButton::tickColourId, kAccent);
-    filterToggle.onClick = [this] { updateVisibility(); resized(); };
-    addAndMakeVisible(filterToggle);
-    filterEnableA = std::make_unique<BA>(apvts, "filter_enabled", filterToggle);
+    // ── Filter type switchbox: OFF LP HP BP ──
+    {
+        const juce::StringArray typeLabels { "OFF", "LP", "HP", "BP" };
+        filterTypeHidden.addItemList(typeLabels, 1);
+        filterTypeHidden.onChange = [this] {
+            int id = filterTypeHidden.getSelectedId();
+            for (int i = 0; i < kNumTypeBtns; ++i)
+                filterTypeBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
+            updateVisibility();
+        };
+        for (int i = 0; i < kNumTypeBtns; ++i)
+        {
+            filterTypeBtns[i].setButtonText(typeLabels[i]);
+            filterTypeBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
+            filterTypeBtns[i].setColour(juce::TextButton::buttonOnColourId, kFilterCol);
+            filterTypeBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
+            filterTypeBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            filterTypeBtns[i].setClickingTogglesState(true);
+            filterTypeBtns[i].setRadioGroupId(3001);
+            filterTypeBtns[i].onClick = [this, i] { filterTypeHidden.setSelectedId(i + 1); };
+            addAndMakeVisible(filterTypeBtns[i]);
+        }
+    }
 
-    filterTypeBox.addItemList({"LP", "HP", "BP"}, 1);
-    addAndMakeVisible(filterTypeBox);
-    filterSlopeBox.addItemList({"12dB", "24dB"}, 1);
-    addAndMakeVisible(filterSlopeBox);
+    // ── Filter slope switchbox: 6dB 12dB 18dB 24dB ──
+    {
+        const juce::StringArray slopeLabels { "6dB", "12dB", "18dB", "24dB" };
+        filterSlopeHidden.addItemList(slopeLabels, 1);
+        filterSlopeHidden.onChange = [this] {
+            int id = filterSlopeHidden.getSelectedId();
+            for (int i = 0; i < kNumSlopeBtns; ++i)
+                filterSlopeBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
+        };
+        for (int i = 0; i < kNumSlopeBtns; ++i)
+        {
+            filterSlopeBtns[i].setButtonText(slopeLabels[i]);
+            filterSlopeBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
+            filterSlopeBtns[i].setColour(juce::TextButton::buttonOnColourId, kFilterCol);
+            filterSlopeBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
+            filterSlopeBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            filterSlopeBtns[i].setClickingTogglesState(true);
+            filterSlopeBtns[i].setRadioGroupId(3002);
+            filterSlopeBtns[i].onClick = [this, i] { filterSlopeHidden.setSelectedId(i + 1); };
+            addAndMakeVisible(filterSlopeBtns[i]);
+        }
+    }
 
     cutoffRow    = std::make_unique<SliderRow>("Cutoff",    fmtHz,  kFilterCol);
     resoRow      = std::make_unique<SliderRow>("Resonance", fmtF2, kFilterCol);
@@ -269,8 +316,8 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     filterMixA = std::make_unique<SA>(apvts, "filter_mix",       filterMixRow->getSlider());
     kbdTrackA  = std::make_unique<SA>(apvts, "filter_kbd_track", kbdTrackRow->getSlider());
 
-    filterTypeA  = std::make_unique<CA>(apvts, "filter_type",  filterTypeBox);
-    filterSlopeA = std::make_unique<CA>(apvts, "filter_slope", filterSlopeBox);
+    filterTypeA  = std::make_unique<CA>(apvts, "filter_type",  filterTypeHidden);
+    filterSlopeA = std::make_unique<CA>(apvts, "filter_slope", filterSlopeHidden);
 
     cutoffRow->updateValue();
     resoRow->updateValue();
@@ -388,12 +435,13 @@ void SynthPanel::updateVisibility()
     // All sections always visible — inactive ones get dimmed via alpha
     constexpr float dimAlpha = 0.3f;
 
-    bool filterOn = filterToggle.getToggleState();
+    bool filterOn = (filterTypeHidden.getSelectedId() > 1);  // 1=OFF, 2+=LP/HP/BP
     float filterAlpha = filterOn ? 1.0f : dimAlpha;
-    filterTypeBox.setAlpha(filterAlpha);
-    filterSlopeBox.setAlpha(filterAlpha);
-    filterTypeBox.setEnabled(filterOn);
-    filterSlopeBox.setEnabled(filterOn);
+    for (int i = 0; i < kNumSlopeBtns; ++i)
+    {
+        filterSlopeBtns[i].setAlpha(filterAlpha);
+        filterSlopeBtns[i].setEnabled(filterOn);
+    }
     for (auto* r : { cutoffRow.get(), resoRow.get(), filterMixRow.get(), kbdTrackRow.get() })
     {
         r->setAlpha(filterAlpha);
@@ -626,15 +674,23 @@ void SynthPanel::resized()
     int rowH = juce::roundToInt(f * 1.4f);
     int gap = juce::roundToInt(f * 0.25f);
 
-    // ── ENGINE section header ──
-    engineHeader.setFont(juce::FontOptions(f * 0.85f));
-    engineHeader.setBounds(area.removeFromTop(juce::roundToInt(f * 1.1f)));
+    // ── Section header — derived from window height to match left column ──
+    float topH = getTopLevelComponent()
+                     ? static_cast<float>(getTopLevelComponent()->getHeight()) : 800.0f;
+    int headerH = juce::jlimit(14, 20, juce::roundToInt(topH * 0.022f));
+    float headerFs = static_cast<float>(headerH) * 0.85f;
+    int headerGap = juce::jmax(3, headerH / 5);  // ~20% of header height
+    engineHeader.setFont(juce::FontOptions(headerFs));
+    engineHeader.setBounds(area.removeFromTop(headerH));
+    area.removeFromTop(headerGap);
 
-    // ── Engine mode: horizontal switch ──
-    auto modeRow = area.removeFromTop(juce::roundToInt(f * 1.8f));
-    int third = modeRow.getWidth() / 2;
-    samplerBtn.setBounds(modeRow.removeFromLeft(third));
-    wavetableBtn.setBounds(modeRow);
+    // ── Engine mode: compact switchbox ──
+    auto modeRow = area.removeFromTop(rowH);
+    {
+        int cellW = juce::roundToInt(f * 5.0f);  // uniform cell width
+        samplerBtn.setBounds(modeRow.removeFromLeft(cellW));
+        wavetableBtn.setBounds(modeRow.removeFromLeft(cellW));
+    }
     area.removeFromTop(gap);
 
     // ── Waveform ──
@@ -645,18 +701,23 @@ void SynthPanel::resized()
     // ── Sampler-only controls ──
     if (oneshotBtn.isVisible())
     {
+        // Compact switchbox: [One-shot] [Loop] [Ping-Pong]
         auto loopRow = area.removeFromTop(rowH);
-        int btnW = loopRow.getWidth() / 3;
-        oneshotBtn.setBounds(loopRow.removeFromLeft(btnW));
-        loopModeBtn.setBounds(loopRow.removeFromLeft(btnW));
-        pingpongBtn.setBounds(loopRow);
+        int cellW = juce::roundToInt(f * 5.0f);
+        oneshotBtn.setBounds(loopRow.removeFromLeft(cellW));
+        loopModeBtn.setBounds(loopRow.removeFromLeft(cellW));
+        pingpongBtn.setBounds(loopRow.removeFromLeft(cellW));
         area.removeFromTop(gap);
 
         crossfadeRow->setBounds(area.removeFromTop(rowH));
         area.removeFromTop(gap);
 
-        loopOptimizeToggle.setBounds(area.removeFromTop(rowH));
-        normalizeToggle.setBounds(area.removeFromTop(rowH));
+        // Normalize + Auto-opt: rectangular on/off buttons, same row
+        auto optRow = area.removeFromTop(rowH);
+        int optW = juce::roundToInt(f * 5.0f);
+        normalizeToggle.setBounds(optRow.removeFromLeft(optW));
+        optRow.removeFromLeft(4);
+        loopOptimizeToggle.setBounds(optRow.removeFromLeft(optW));
         area.removeFromTop(gap);
     }
 
@@ -671,15 +732,23 @@ void SynthPanel::resized()
     area.removeFromTop(gap * 2);
 
     // ── FILTER section header ──
-    filterHeader.setFont(juce::FontOptions(f * 0.85f));
-    filterHeader.setBounds(area.removeFromTop(juce::roundToInt(f * 1.1f)));
+    filterHeader.setFont(juce::FontOptions(headerFs));
+    filterHeader.setBounds(area.removeFromTop(headerH));
+    area.removeFromTop(headerGap);
 
-    // ── Filter ──
+    // ── Filter switchboxes: [OFF LP HP BP]  [6dB 12dB 18dB 24dB] ──
     auto filterHdr = area.removeFromTop(rowH);
-    filterToggle.setBounds(filterHdr.removeFromLeft(juce::roundToInt(w * 0.18f)));
-    filterTypeBox.setBounds(filterHdr.removeFromLeft(juce::roundToInt(w * 0.10f)));
-    filterHdr.removeFromLeft(4);
-    filterSlopeBox.setBounds(filterHdr.removeFromLeft(juce::roundToInt(w * 0.10f)));
+    {
+        int cellW = juce::roundToInt(f * 3.2f);
+        for (int i = 0; i < kNumTypeBtns; ++i)
+            filterTypeBtns[i].setBounds(filterHdr.removeFromLeft(cellW));
+
+        filterHdr.removeFromLeft(juce::roundToInt(f * 0.5f));
+
+        int slopeCellW = juce::roundToInt(f * 3.2f);
+        for (int i = 0; i < kNumSlopeBtns; ++i)
+            filterSlopeBtns[i].setBounds(filterHdr.removeFromLeft(slopeCellW));
+    }
     area.removeFromTop(gap);
 
     {
@@ -701,8 +770,9 @@ void SynthPanel::resized()
 
     // ── MODULATION section header ──
     area.removeFromTop(sectionGap);
-    modHeader.setFont(juce::FontOptions(f * 0.85f));
-    modHeader.setBounds(area.removeFromTop(juce::roundToInt(f * 1.1f)));
+    modHeader.setFont(juce::FontOptions(headerFs));
+    modHeader.setBounds(area.removeFromTop(headerH));
+    area.removeFromTop(headerGap);
 
     // ── Envelopes ──
     layoutEnv(ampEnv,  area, f, rowH, gap);
