@@ -1,5 +1,8 @@
 # T5ynth
 
+(note: this description has been written by the co-coding AI, Claude Opus 4.6)
+
+
 **A text-to-sound synthesizer that navigates the T5 embedding space of a diffusion audio model.**
 
 T5ynth is a JUCE-based synthesizer plugin (Standalone / VST3 / AU) that repurposes Stability AI's [Stable Audio Open](https://huggingface.co/stabilityai/stable-audio-open-1.0) model as an oscillator — not to generate finished music, but to produce raw sonic material for human-nonhuman artistic collaboration.
@@ -18,7 +21,7 @@ Text-to-audio models like Stable Audio are designed for a specific purpose: gene
 
 ### Open Source as Strategy
 
-Stable Audio Open deserves credit: it was trained on ~486,000 Creative Commons-licensed recordings from Freesound and the Free Music Archive — not on copyrighted music. Stability AI conducted copyright verification and removed flagged content before training. This is genuinely better practice than much of the industry.
+Stable Audio Open deserves credit: Unlike its commercial siblings which rob artists of their works, it was trained on ~486,000 Creative Commons-licensed recordings from Freesound and the Free Music Archive — not on copyrighted music. Stability AI conducted copyright verification and removed flagged content before training. This is genuinely better practice than much of the industry.
 
 At the same time, "open source" in the AI industry operates as strategic marketing. Releasing a smaller, less capable model (Open) builds community and ecosystem around commercial products (Stable Audio Pro). The openness is real and useful, but it serves a business strategy. We should be honest about this dialectic rather than either dismissing or celebrating it uncritically.
 
@@ -39,10 +42,22 @@ Whether this actually succeeds in reframing the human-AI relationship is an open
 
 ## Features
 
-- **Two Engine Modes:** Sampler (loop/one-shot/ping-pong) and Wavetable (pitch-synchronous frame extraction with mip-mapped band-limiting)
-- **Embedding Space Navigation:** Direct manipulation of 768 T5 dimensions, 8 semantic axes (tonal/noisy, bright/dark, etc.), A/B prompt interpolation
-- **Dimension Explorer:** Visualize and edit individual embedding dimensions, sorted by magnitude
-- **Full Synthesizer Architecture:** ADSR envelopes (amplitude + 2 mod), 2 LFOs, 3 drift LFOs, state-variable filter (LP/HP/BP, 6-24dB), modulation matrix
+### The T5 Oscillator
+
+The core of T5ynth is a new kind of oscillator that doesn't exist in any conventional synthesizer. Where traditional oscillators generate sound from mathematical waveforms (sine, saw, square) or from recorded samples, the T5 Oscillator generates sound from *meaning*.
+
+A text prompt is encoded by a T5 language model into a 768-dimensional embedding vector. This vector — a point in semantic space — conditions a diffusion process that synthesizes audio. The result is a waveform whose timbral character is shaped not by parameters like "detune" or "pulse width" but by semantic proximity: the distance between "glass breaking" and "ice cracking", the interpolation between "warm analog pad" and "frozen digital texture", the unexplored spaces between concepts that have no name.
+
+Two playback modes make this musically useful:
+
+- **Sampler Mode** — The generated audio is played back directly with loop points (one-shot, loop, ping-pong), crossfade control, and silence-trimmed auto-bracketing. Useful for longer textures and evolving material.
+- **Wavetable Mode** — The audio is analyzed via pitch detection (YIN algorithm), sliced into pitch-synchronous frames of 2048 samples, band-limited across 8 mip levels via FFT, and scanned in real-time. This turns any generated sound into a playable, pitch-tracked wavetable oscillator with Catmull-Rom interpolation between frames.
+
+The embedding space itself is navigable: A/B prompt interpolation blends two semantic poles, 8 semantic axes (tonal/noisy, bright/dark, harmonic/inharmonic, etc.) provide musically meaningful navigation dimensions, and the Dimension Explorer gives direct access to all 768 individual T5 dimensions — sorted by perceptual magnitude — for precise sculpting of the embedding before generation.
+
+### Synthesizer
+
+- **Full Synthesizer Architecture:** ADSR envelopes (amplitude + 2 modulation), 2 LFOs, 3 drift LFOs, state-variable filter (LP/HP/BP, 6-24dB), modulation matrix
 - **Effects:** Delay with damping, convolution reverb (EMT 140 plate), limiter
 - **Sequencer & Arpeggiator:** 16-step sequencer with per-step note/velocity/gate/glide, arpeggiator (up/down/updown/random)
 - **Presets with Embedded Audio:** .t5p format stores parameters + generated audio + embeddings — instant recall without regeneration
