@@ -17,6 +17,10 @@ public:
     /** Process one sample, returns value in [-1, 1]. */
     float processSample();
 
+    /** Advance phase by numSamples without computing output.
+     *  Keeps free-running LFOs phase-accurate during idle. */
+    void advancePhase(int numSamples);
+
     /** Set rate in Hz. */
     void setRate(float hz) { rate = hz; }
 

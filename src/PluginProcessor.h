@@ -137,8 +137,18 @@ private:
     int lastReverbIr = -1;
     int lastSeqPreset = -1;
 
+    // Idle detection (audio thread only — not atomic)
+    int silentBlockCount = 0;
+    static constexpr int TAIL_BLOCKS = 344;  // ~4s at 44.1kHz/512
+
+    // Pre-allocated buffer for parallel reverb send (avoids heap alloc in processBlock)
+    juce::AudioBuffer<float> reverbSendBuffer;
+
 
 public:
+    // Audio idle state (audio thread writes, GUI reads for timer gating)
+    std::atomic<bool> audioIdle { false };
+
     // MIDI monitor (audio thread writes, GUI reads)
     std::atomic<int> lastMidiNote { -1 };
     std::atomic<int> lastMidiVelocity { 0 };

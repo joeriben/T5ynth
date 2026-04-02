@@ -23,6 +23,18 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
     if (!prepared || wetMix == 0.0f)
         return;
 
+    // Silence detection: skip per-sample processing after tail has decayed
+    float magnitude = buffer.getMagnitude(0, buffer.getNumSamples());
+    if (magnitude < 1e-6f)
+    {
+        if (++silentInputBlocks > DELAY_TAIL_BLOCKS)
+            return;
+    }
+    else
+    {
+        silentInputBlocks = 0;
+    }
+
     const int numChannels = buffer.getNumChannels();
     const int numSamples = buffer.getNumSamples();
 

@@ -45,3 +45,10 @@ float LFO::processSample()
 
     return output * depth;
 }
+
+void LFO::advancePhase(int numSamples)
+{
+    double advance = static_cast<double>(rate) / sr * numSamples;
+    phase += advance;
+    phase -= std::floor(phase);  // wrap to [0, 1)
+}

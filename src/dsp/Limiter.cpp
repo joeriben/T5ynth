@@ -18,6 +18,10 @@ void T5ynthLimiter::processBlock(juce::AudioBuffer<float>& buffer)
     if (!prepared)
         return;
 
+    // Skip limiter entirely when buffer is silent (no tail to process)
+    if (buffer.getMagnitude(0, buffer.getNumSamples()) < 1e-6f)
+        return;
+
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> context(block);
     limiter.process(context);

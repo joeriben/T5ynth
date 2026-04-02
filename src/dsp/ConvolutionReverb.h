@@ -28,4 +28,8 @@ private:
     float wetMix = 0.0f;
     bool prepared = false;
     bool irLoaded = false;
+
+    // Silence detection — skip FFT convolution after tail has decayed
+    int silentInputBlocks = 0;
+    static constexpr int REVERB_TAIL_BLOCKS = 344;  // ~4s at 44.1kHz/512
 };

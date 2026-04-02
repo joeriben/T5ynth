@@ -343,6 +343,13 @@ void SequencerPanel::syncStepCount()
 
 void SequencerPanel::timerCallback()
 {
+    // Skip expensive updates when audio is idle and sequencer stopped
+    bool seqIdle = processorRef.audioIdle.load(std::memory_order_relaxed)
+                   && !(processorRef.getValueTreeState()
+                        .getRawParameterValue("seq_running")->load() > 0.5f);
+    if (seqIdle)
+        return;
+
     // Step highlight
     int step = processorRef.getStepSequencer().currentStepForGui.load(std::memory_order_relaxed);
     if (step != currentStep)

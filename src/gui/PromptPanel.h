@@ -60,10 +60,9 @@ private:
     juce::TextEditor seedEditor;
     juce::ToggleButton randomSeedToggle { "Random" };
 
-    // Device selector (segmented toggle strip)
-    static constexpr int kMaxDevBtns = 4;
-    juce::TextButton deviceBtns[kMaxDevBtns];
-    int numDeviceBtns = 0;
+    // Device selector (GPU / CPU toggle)
+    juce::TextButton gpuBtn { "GPU" }, cpuBtn { "CPU" };
+    juce::String gpuBackend_;  // "mps" or "cuda" — resolved at runtime
     bool devicesPopulated = false;
     void populateDeviceButtons();
 

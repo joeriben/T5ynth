@@ -104,6 +104,14 @@ VoiceManager::VoiceOutput VoiceManager::renderBlock(
     const float* lfo1Buf, const float* lfo2Buf, int numSamples)
 {
     VoiceOutput out;
+
+    // Early exit when no voices are active — buffer already cleared by caller
+    if (!hasActiveVoices())
+    {
+        out.hasActiveVoices = false;
+        return out;
+    }
+
     const int numChannels = buffer.getNumChannels();
 
     // Configure all active voices' envelopes once per block

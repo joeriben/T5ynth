@@ -125,23 +125,20 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     seedEditor.setEnabled(false);
     seedEditor.setAlpha(0.3f);
 
-    // Device selector — segmented toggle strip (populated when Python reports devices)
-    for (int i = 0; i < kMaxDevBtns; ++i)
+    // Device selector — GPU / CPU toggle
+    for (auto* btn : { &gpuBtn, &cpuBtn })
     {
-        deviceBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
-        deviceBtns[i].setColour(juce::TextButton::buttonOnColourId, kAccent);
-        deviceBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
-        deviceBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
-        deviceBtns[i].setClickingTogglesState(true);
-        deviceBtns[i].setRadioGroupId(1003);
-        deviceBtns[i].setVisible(false);
-        addChildComponent(deviceBtns[i]);
+        btn->setColour(juce::TextButton::buttonColourId, kSurface);
+        btn->setColour(juce::TextButton::buttonOnColourId, kAccent);
+        btn->setColour(juce::TextButton::textColourOffId, kDim);
+        btn->setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        btn->setClickingTogglesState(true);
+        btn->setRadioGroupId(1003);
+        addAndMakeVisible(btn);
     }
-    // Start with just "Auto"
-    deviceBtns[0].setButtonText("Auto");
-    deviceBtns[0].setToggleState(true, juce::dontSendNotification);
-    deviceBtns[0].setVisible(true);
-    numDeviceBtns = 1;
+    gpuBtn.setToggleState(true, juce::dontSendNotification);
+    gpuBtn.setConnectedEdges(juce::Button::ConnectedOnRight);
+    cpuBtn.setConnectedEdges(juce::Button::ConnectedOnLeft);
 
     // Generate button is now in MainPanel — keep internal for triggerGeneration()
     generateButton.setVisible(false);
@@ -205,41 +202,27 @@ void PromptPanel::resized()
 
     auto setFs = [](juce::Label& l, float size) { l.setFont(juce::FontOptions(size)); };
 
-    // ── Reserve bottom: Info + Device + Seed ──
+    // ── Reserve bottom: Info + Seed/Device row ──
     setFs(infoLabel, fSmall);
     infoLabel.setBounds(area.removeFromBottom(rowH));
     area.removeFromBottom(gap);
 
-    // Device row
-    {
-        auto devRow = area.removeFromBottom(compactRowH + 2);
-        int totalW = devRow.getWidth();
-        int maxBtnW = 80;
-        int perBtn = juce::jmin(maxBtnW, (numDeviceBtns > 0) ? totalW / numDeviceBtns : totalW);
-        for (int i = 0; i < numDeviceBtns; ++i)
-        {
-            int edges = 0;
-            if (i > 0) edges |= juce::Button::ConnectedOnLeft;
-            if (i < numDeviceBtns - 1) edges |= juce::Button::ConnectedOnRight;
-            deviceBtns[i].setConnectedEdges(edges);
-            deviceBtns[i].setBounds(devRow.getX() + i * perBtn, devRow.getY(),
-                                     perBtn, devRow.getHeight());
-        }
-    }
-    area.removeFromBottom(gap);
-
-    // Seed row
+    // Seed + Device row (GPU/CPU toggle left, then Seed label + field, then Random)
     {
         setFs(seedLabel, fSmall);
         auto seedRow = area.removeFromBottom(compactRowH + 2);
-        int seedLabelW = juce::roundToInt(seedRow.getWidth() * 0.10f);
-        int toggleW = juce::roundToInt(seedRow.getWidth() * 0.22f);
+        int btnW = juce::roundToInt(seedRow.getWidth() * 0.11f);
+        gpuBtn.setBounds(seedRow.removeFromLeft(btnW));
+        cpuBtn.setBounds(seedRow.removeFromLeft(btnW));
+        seedRow.removeFromLeft(gap);
+        int seedLabelW = juce::roundToInt(fSmall * 2.5f);
         seedLabel.setBounds(seedRow.removeFromLeft(seedLabelW));
+        int toggleW = juce::roundToInt(seedRow.getWidth() * 0.30f);
         randomSeedToggle.setBounds(seedRow.removeFromRight(toggleW));
         seedEditor.setFont(juce::FontOptions(fSmall));
         seedEditor.setBounds(seedRow.reduced(0, 1));
     }
-    area.removeFromBottom(gap);
+    area.removeFromBottom(gap * 2);
 
     // Show hints only if enough vertical space remains
     bool showHints = area.getHeight() > 350;
@@ -349,32 +332,30 @@ void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String
     seedEditor.setEnabled(!randomSeed);
     seedEditor.setAlpha(randomSeed ? 0.3f : 1.0f);
 
-    // Select device from preset (if available in toggle strip)
-    if (device.isNotEmpty())
-    {
-        for (int i = 0; i < numDeviceBtns; ++i)
-        {
-            if (deviceBtns[i].getButtonText().equalsIgnoreCase(device))
-            {
-                deviceBtns[i].setToggleState(true, juce::dontSendNotification);
-                return;
-            }
-        }
-    }
-    deviceBtns[0].setToggleState(true, juce::dontSendNotification);
+    // Select device from preset — "cpu" selects CPU, anything else selects GPU
+    if (device.equalsIgnoreCase("cpu"))
+        cpuBtn.setToggleState(true, juce::dontSendNotification);
+    else
+        gpuBtn.setToggleState(true, juce::dontSendNotification);
 }
 
 void PromptPanel::populateDeviceButtons()
 {
     auto& devs = processorRef.getPipeInference().getAvailableDevices();
-    numDeviceBtns = 1 + juce::jmin(static_cast<int>(devs.size()), kMaxDevBtns - 1);
-    for (int i = 0; i < devs.size() && i + 1 < kMaxDevBtns; ++i)
+    // Find the GPU backend (mps or cuda) — first non-cpu device
+    gpuBackend_ = {};
+    for (auto& d : devs)
     {
-        deviceBtns[i + 1].setButtonText(devs[i].toUpperCase());
-        deviceBtns[i + 1].setVisible(true);
+        if (d != "cpu") { gpuBackend_ = d; break; }
+    }
+    // If no GPU available, disable the GPU button and select CPU
+    if (gpuBackend_.isEmpty())
+    {
+        gpuBtn.setEnabled(false);
+        gpuBtn.setAlpha(0.3f);
+        cpuBtn.setToggleState(true, juce::dontSendNotification);
     }
     devicesPopulated = true;
-    resized();  // re-layout with new buttons
 }
 
 void PromptPanel::triggerGenerationWithOffsets(std::vector<std::pair<int, float>> offsets)
@@ -411,21 +392,13 @@ void PromptPanel::triggerGeneration()
     int seed = randomSeedToggle.getToggleState() ? -1 : seedEditor.getText().getIntValue();
     auto promptB = promptBEditor.getText().trim();
 
-    // Populate device buttons from Python if not yet done
+    // Populate device info from Python if not yet done
     auto& pipeInf = processorRef.getPipeInference();
     if (!devicesPopulated && pipeInf.isReady())
         populateDeviceButtons();
 
-    // Resolve selected device from toggle strip
-    juce::String selectedDevice;
-    for (int i = 1; i < numDeviceBtns; ++i)
-    {
-        if (deviceBtns[i].getToggleState())
-        {
-            selectedDevice = pipeInf.getAvailableDevices()[i - 1];
-            break;
-        }
-    }
+    // Resolve selected device: GPU → gpuBackend_ (mps/cuda), CPU → "cpu"
+    juce::String selectedDevice = cpuBtn.getToggleState() ? "cpu" : gpuBackend_;
 
     // Use pipe inference (Python subprocess) if available, fall back to native
     if (processorRef.isPipeInferenceReady())

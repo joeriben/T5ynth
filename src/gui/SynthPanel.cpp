@@ -365,14 +365,17 @@ void SynthPanel::timerCallback()
         processorRef.clearNewWaveformFlag();
     }
 
-    // Update ghost indicators from modulated values
-    auto& mv = processorRef.modulatedValues;
-    cutoffRow->setGhostValue(mv.filterCutoff.load(std::memory_order_relaxed));
-    if (lfo1.rateRow)  lfo1.rateRow->setGhostValue(mv.lfo1Rate.load(std::memory_order_relaxed));
-    if (lfo1.depthRow) lfo1.depthRow->setGhostValue(mv.lfo1Depth.load(std::memory_order_relaxed));
-    if (lfo2.rateRow)  lfo2.rateRow->setGhostValue(mv.lfo2Rate.load(std::memory_order_relaxed));
-    if (lfo2.depthRow) lfo2.depthRow->setGhostValue(mv.lfo2Depth.load(std::memory_order_relaxed));
-    if (scanRow->isVisible()) scanRow->setGhostValue(mv.scanPosition.load(std::memory_order_relaxed));
+    // Update ghost indicators from modulated values (skip when audio is idle)
+    if (!processorRef.audioIdle.load(std::memory_order_relaxed))
+    {
+        auto& mv = processorRef.modulatedValues;
+        cutoffRow->setGhostValue(mv.filterCutoff.load(std::memory_order_relaxed));
+        if (lfo1.rateRow)  lfo1.rateRow->setGhostValue(mv.lfo1Rate.load(std::memory_order_relaxed));
+        if (lfo1.depthRow) lfo1.depthRow->setGhostValue(mv.lfo1Depth.load(std::memory_order_relaxed));
+        if (lfo2.rateRow)  lfo2.rateRow->setGhostValue(mv.lfo2Rate.load(std::memory_order_relaxed));
+        if (lfo2.depthRow) lfo2.depthRow->setGhostValue(mv.lfo2Depth.load(std::memory_order_relaxed));
+        if (scanRow->isVisible()) scanRow->setGhostValue(mv.scanPosition.load(std::memory_order_relaxed));
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
