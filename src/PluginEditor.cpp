@@ -1,6 +1,5 @@
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
-#include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
 
 T5ynthEditor::T5ynthEditor(T5ynthProcessor& processor)
     : AudioProcessorEditor(processor),
@@ -10,9 +9,7 @@ T5ynthEditor::T5ynthEditor(T5ynthProcessor& processor)
     setLookAndFeel(&lookAndFeel);
     addAndMakeVisible(mainPanel);
 
-    // Register model panel in the standalone settings dialog
-    if (auto* holder = StandalonePluginHolder::getInstance())
-        holder->extraSettingsPanel = &mainPanel.getModelPanel();
+    // Model settings are now in our own overlay — no longer in JUCE's dialog
 
     setSize(1200, 800);
     setResizable(true, true);
@@ -22,9 +19,6 @@ T5ynthEditor::T5ynthEditor(T5ynthProcessor& processor)
 
 T5ynthEditor::~T5ynthEditor()
 {
-    if (auto* holder = StandalonePluginHolder::getInstance())
-        holder->extraSettingsPanel = nullptr;
-
     setLookAndFeel(nullptr);
 }
 
