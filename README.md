@@ -65,30 +65,95 @@ The embedding space itself is navigable: A/B prompt interpolation blends two sem
 
 ## Architecture
 
+### T5 Oscillator — Embedding to Audio Pipeline
+
 ```
-┌─────────────────────────────────────────────────────┐
-│  JUCE Plugin (C++)                                  │
-│  ┌─────────┐  ┌──────────┐  ┌────────┐  ┌───────┐ │
-│  │ Sampler  │  │Wavetable │  │ Filter │  │Effects│ │
-│  │ Player   │  │Oscillator│  │  SVF   │  │Dly+Rev│ │
-│  └────┬─────┘  └────┬─────┘  └───┬────┘  └──┬────┘ │
-│       └──────┬───────┘            │          │      │
-│         Voice Manager (8 voices)──┴──────────┘      │
-│              ↑                                      │
-│    ┌─────────┴──────────┐                           │
-│    │ loadGeneratedAudio │                           │
-│    └─────────┬──────────┘                           │
-│              │ Unix pipes (stdin/stdout)             │
-├──────────────┼──────────────────────────────────────┤
-│  Python Backend                                     │
-│  ┌─────────┐ ┌──────────┐ ┌─────┐ ┌─────────────┐ │
-│  │T5 Encode│→│ Embedding│→│ DiT │→│ VAE Decode  │ │
-│  │ (768d)  │ │   Manip  │ │     │ │ 44.1kHz PCM │ │
-│  └─────────┘ └──────────┘ └─────┘ └─────────────┘ │
-└─────────────────────────────────────────────────────┘
+                        ┌─────────────────────────────────────────────┐
+                        │          EMBEDDING SPACE (768d)             │
+                        │                                             │
+  Prompt A ──→ T5 Encode ──→ Embedding A ─┐                          │
+                        │                  ├─→ Interpolation (alpha)  │
+  Prompt B ──→ T5 Encode ──→ Embedding B ─┘        │                 │
+                        │                           ▼                 │
+                        │    Semantic Axes ──→ Axis Offsets ─┐        │
+                        │    (8 navigable                    │        │
+                        │     dimensions)                    ▼        │
+                        │                        Magnitude + Noise    │
+                        │                              │              │
+                        │    Dimension Explorer ──→ Per-Dim Offsets   │
+                        │    (768 editable bars)       │              │
+                        │                              ▼              │
+                        │                     Final Embedding (768d)  │
+                        └──────────────────────────────┬──────────────┘
+                                                       │
+                        ┌──────────────────────────────┼──────────────┐
+                        │  DIFFUSION (Python Backend)  │              │
+                        │                              ▼              │
+                        │  ┌────────────────────────────────────────┐ │
+                        │  │ DiT (Diffusion Transformer)           │ │
+                        │  │ 20 denoising steps, CFG guidance      │ │
+                        │  │ BrownianTree SDE sampler (torchsde)   │ │
+                        │  └───────────────────┬────────────────────┘ │
+                        │                      ▼                      │
+                        │  ┌────────────────────────────────────────┐ │
+                        │  │ VAE Decode → 44.1kHz stereo float32   │ │
+                        │  └───────────────────┬────────────────────┘ │
+                        └──────────────────────┼──────────────────────┘
+                              Unix pipes       │
+                              (binary protocol)│
+                        ┌──────────────────────┼──────────────────────┐
+                        │  T5 OSCILLATOR       ▼        (JUCE C++)   │
+                        │                                             │
+                        │  ┌─────────────┐  ┌────────────────────┐   │
+                        │  │   SAMPLER   │  │     WAVETABLE      │   │
+                        │  │             │  │                    │   │
+                        │  │ Loop modes: │  │ YIN pitch detect   │   │
+                        │  │ one-shot    │  │ Frame extraction   │   │
+                        │  │ loop        │  │ 2048 smp/frame     │   │
+                        │  │ ping-pong   │  │ 8 mip levels (FFT) │   │
+                        │  │ crossfade   │  │ Catmull-Rom interp │   │
+                        │  │             │  │ Real-time scan     │   │
+                        │  └──────┬──────┘  └─────────┬──────────┘   │
+                        │         └────────┬──────────┘              │
+                        │                  ▼                          │
+                        └──────────────────┼──────────────────────────┘
+                                           │
+                        ┌──────────────────┼──────────────────────────┐
+                        │  SYNTHESIZER     ▼                          │
+                        │                                             │
+                        │  Voice Manager (8 voices, note stealing)    │
+                        │         │                                   │
+                        │         ▼                                   │
+                        │  ┌─────────────────────────────────────┐   │
+                        │  │ Per Voice:                          │   │
+                        │  │   Amp Envelope (ADSR + loop)       │   │
+                        │  │   2× Mod Envelopes → mod matrix    │   │
+                        │  │   Filter (SVF: LP/HP/BP, 6-24dB)   │   │
+                        │  └────────────────┬────────────────────┘   │
+                        │                   ▼                         │
+                        │  ┌─────────────────────────────────────┐   │
+                        │  │ Global:                             │   │
+                        │  │   2× LFO (sin/tri/saw/sq/S&H)     │   │
+                        │  │   3× Drift LFO (slow modulation)   │   │
+                        │  │   Delay (feedback + damping)        │   │
+                        │  │   Reverb (EMT 140 convolution)      │   │
+                        │  │   Limiter                           │   │
+                        │  └────────────────┬────────────────────┘   │
+                        │                   ▼                         │
+                        │  Sequencer (16-step) / Arpeggiator         │
+                        │                   │                         │
+                        │                   ▼                         │
+                        │              Stereo Out                     │
+                        └─────────────────────────────────────────────┘
 ```
 
-The inference runs in a Python subprocess (BrownianTree SDE sampler requires torchsde). Audio transfers to JUCE via binary pipe protocol — no HTTP overhead.
+### IPC
+
+The inference runs in a Python subprocess — the BrownianTree SDE sampler (torchsde) is essential for audio quality and not available in C++. Audio transfers to JUCE via a binary pipe protocol (stdin/stdout): JSON request in, binary header + float32 PCM + embedding stats out. No HTTP overhead, subprocess stays alive between generations.
+
+### Preset Format (.t5p)
+
+Presets store everything needed for instant recall: synthesis parameters (JSON), the generated audio (raw float32 PCM), and the 768d embeddings — so loading a preset does not require regeneration. The format auto-detects legacy JSON and XML presets for backwards compatibility.
 
 ---
 
