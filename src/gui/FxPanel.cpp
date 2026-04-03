@@ -1,6 +1,11 @@
 #include "FxPanel.h"
 
-static juce::String fmtMs(double v)  { return juce::String(juce::roundToInt(v)) + "ms"; }
+static juce::String fmtMs(double v)
+{
+    int ms = juce::roundToInt(v);
+    if (ms >= 1000) return juce::String(v / 1000.0, 2) + "s";
+    return juce::String(ms) + "ms";
+}
 static juce::String fmtF2(double v)  { return juce::String(v, 2); }
 
 static juce::String fmtDampHz(double v)

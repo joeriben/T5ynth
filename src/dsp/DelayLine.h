@@ -33,7 +33,7 @@ public:
     float getMix() const { return wetMix; }
 
 private:
-    juce::dsp::DelayLine<float> delayLine { 220500 }; // Max ~5 seconds at 44.1kHz
+    juce::dsp::DelayLine<float> delayLine { 96000 }; // Max 2 seconds at 48kHz
 
     // Feedback damping: one LP filter per channel
     juce::dsp::IIR::Filter<float> dampFilterL;
@@ -48,7 +48,7 @@ private:
 
     // Silence detection — skip per-sample processing after tail has decayed
     int silentInputBlocks = 0;
-    static constexpr int DELAY_TAIL_BLOCKS = 344;  // ~4s at 44.1kHz/512
+    static constexpr int DELAY_TAIL_BLOCKS = 172;  // ~2s at 44.1kHz/512
 
     void updateDampCoeffs();
 };

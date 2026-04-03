@@ -81,7 +81,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // Delay
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"delay_time", 1}, "Delay Time",
-        juce::NormalisableRange<float>(1.0f, 5000.0f, 0.1f), 250.0f));
+        juce::NormalisableRange<float>(1.0f, 2000.0f, 0.1f, 0.35f), 250.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"delay_feedback", 1}, "Delay Feedback",
         juce::NormalisableRange<float>(0.0f, 0.95f), 0.35f));
@@ -913,7 +913,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             bool dlyMixMod  = modDelayMix != 0.0f;
             bool revMixMod  = modReverbMix != 0.0f;
             modulatedValues.delayTime.store(dlyTimeMod && delayEnabled
-                ? juce::jlimit(1.0f, 5000.0f, parameters.getRawParameterValue("delay_time")->load() * (1.0f + modDelayTime))
+                ? juce::jlimit(1.0f, 2000.0f, parameters.getRawParameterValue("delay_time")->load() * (1.0f + modDelayTime))
                 : NO_GHOST, std::memory_order_relaxed);
             modulatedValues.delayFeedback.store(dlyFbMod && delayEnabled
                 ? juce::jlimit(0.0f, 0.95f, parameters.getRawParameterValue("delay_feedback")->load() * (1.0f + modDelayFb))
