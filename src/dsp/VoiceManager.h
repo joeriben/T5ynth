@@ -14,7 +14,7 @@
 class VoiceManager
 {
 public:
-    static constexpr int MAX_VOICES = 8;
+    static constexpr int MAX_VOICES = 16;
 
     VoiceManager() = default;
 
@@ -51,6 +51,11 @@ public:
     int getActiveVoiceCount() const;
     bool hasActiveVoices() const;
 
+    /** Set voice limit at runtime (1=mono, 4/6/8/12/16). */
+    void setVoiceLimit(int limit) { voiceLimit = juce::jlimit(1, MAX_VOICES, limit); }
+    int getVoiceLimit() const { return voiceLimit; }
+    bool isMono() const { return voiceLimit == 1; }
+
     SynthVoice& getVoice(int index) { return voices[static_cast<size_t>(index)]; }
 
 private:
@@ -67,6 +72,7 @@ private:
 
     double sr = 44100.0;
     int maxBlockSize = 512;
+    int voiceLimit = 8; // runtime polyphony (1=mono)
 
     // Pre-allocated per-voice scratch buffers
     std::array<std::vector<float>, MAX_VOICES> voiceScratch;

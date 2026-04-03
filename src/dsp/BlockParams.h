@@ -1,5 +1,41 @@
 #pragma once
 
+// ── Target index constants (must match APVTS AudioParameterChoice order) ──
+
+namespace EnvTarget {
+    enum : int {
+        None = 0,
+        DCA = 1,
+        Filter = 2,
+        Scan = 3,
+        Pitch = 4,
+        DelayTime = 5,
+        DelayFB = 6,
+        DelayMix = 7,
+        ReverbMix = 8,
+        LFO1Rate = 9,
+        LFO1Depth = 10,
+        LFO2Rate = 11,
+        LFO2Depth = 12
+    };
+}
+
+namespace LfoTarget {
+    enum : int {
+        None = 0,
+        Filter = 1,
+        Scan = 2,
+        Pitch = 3,
+        DelayTime = 4,
+        DelayFB = 5,
+        DelayMix = 6,
+        ReverbMix = 7,
+        Env1Amt = 8,
+        Env2Amt = 9,
+        Env3Amt = 10
+    };
+}
+
 /**
  * Snapshot of all block-rate parameters, read once per processBlock from APVTS.
  * Passed to SynthVoice(s) to avoid per-voice atomic reads.

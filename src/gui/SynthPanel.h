@@ -34,6 +34,12 @@ private:
     juce::ComboBox engineModeHidden;
     WaveformDisplay waveformDisplay;
 
+    // ── Voice count ──
+    static constexpr int kNumVoiceBtns = 6;
+    juce::TextButton voiceBtns[kNumVoiceBtns];
+    juce::ComboBox voiceCountHidden;
+    juce::Rectangle<int> voiceSwitchBounds;
+
     // ── Loop controls ──
     juce::TextButton oneshotBtn { "One-shot" };
     juce::TextButton loopModeBtn { "Loop" };
@@ -111,7 +117,7 @@ private:
     using CA = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
     using BA = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
-    std::unique_ptr<CA> engineModeA, loopModeA;
+    std::unique_ptr<CA> engineModeA, loopModeA, voiceCountA;
     std::unique_ptr<SA> scanA, cutoffA, resoA, filterMixA, kbdTrackA, crossfadeA;
     std::unique_ptr<CA> filterTypeA, filterSlopeA;
     std::unique_ptr<CA> driftRegenA;

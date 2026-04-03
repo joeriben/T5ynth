@@ -85,12 +85,17 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         {
             mainGenerateBtn.setButtonText("generating...");
             mainGenerateBtn.setEnabled(false);
+            dimApplyBtn.setButtonText("generating...");
+            dimApplyBtn.setEnabled(false);
         }
         else
         {
             mainGenerateBtn.setButtonText("Re-Generate");
             mainGenerateBtn.setEnabled(true);
+            dimApplyBtn.setButtonText("Apply + Generate");
+            dimApplyBtn.setEnabled(true);
         }
+        statusBar.setStatusText(text);
     };
 
     // Scrim (click outside DimExplorer overlay to close)

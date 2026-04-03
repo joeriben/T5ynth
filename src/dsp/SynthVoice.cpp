@@ -113,12 +113,12 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
     float lfo1Val = globalLfo1Val;
     float lfo2Val = globalLfo2Val;
 
-    // Pitch modulation: env/LFO/drift → pitch (target index 4 for env, 3 for LFO)
+    // Pitch modulation
     float pitchMod = p.driftPitchOffset;
-    if (p.mod1Target == 4) pitchMod += mod1EnvVal;
-    if (p.mod2Target == 4) pitchMod += mod2EnvVal;
-    if (p.lfo1Target == 3) pitchMod += lfo1Val;
-    if (p.lfo2Target == 3) pitchMod += lfo2Val;
+    if (p.mod1Target == EnvTarget::Pitch) pitchMod += mod1EnvVal;
+    if (p.mod2Target == EnvTarget::Pitch) pitchMod += mod2EnvVal;
+    if (p.lfo1Target == LfoTarget::Pitch) pitchMod += lfo1Val;
+    if (p.lfo2Target == LfoTarget::Pitch) pitchMod += lfo2Val;
 
     // Always set frequency from baseFrequency to avoid accumulation drift
     if (p.engineIsWavetable && osc.hasFrames())
@@ -131,10 +131,10 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
     {
         // Scan modulation
         float scanMod = p.baseScan + p.driftScanOffset;
-        if (p.mod1Target == 3) scanMod += mod1EnvVal;
-        if (p.mod2Target == 3) scanMod += mod2EnvVal;
-        if (p.lfo1Target == 2) scanMod += lfo1Val;
-        if (p.lfo2Target == 2) scanMod += lfo2Val;
+        if (p.mod1Target == EnvTarget::Scan) scanMod += mod1EnvVal;
+        if (p.mod2Target == EnvTarget::Scan) scanMod += mod2EnvVal;
+        if (p.lfo1Target == LfoTarget::Scan) scanMod += lfo1Val;
+        if (p.lfo2Target == LfoTarget::Scan) scanMod += lfo2Val;
         float clampedScan = juce::jlimit(0.0f, 1.0f, scanMod);
         osc.setScanPosition(clampedScan);
         result.modulatedScan = clampedScan;
@@ -146,11 +146,10 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
         sample = sampler.processSample();
     }
 
-    // DCA: multiplicative mod routing (reference behavior).
-    // Worst case both mods→DCA at max amount: 4.0x gain. Limiter catches it.
+    // DCA
     float vca = ampEnvVal;
-    if (p.mod1Target == 1) vca *= (1.0f + mod1EnvVal);
-    if (p.mod2Target == 1) vca *= (1.0f + mod2EnvVal);
+    if (p.mod1Target == EnvTarget::DCA) vca *= (1.0f + mod1EnvVal);
+    if (p.mod2Target == EnvTarget::DCA) vca *= (1.0f + mod2EnvVal);
     sample *= vca;
 
     // Per-voice filter with envelope/LFO modulation
@@ -162,21 +161,20 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
         if (p.kbdTrack > 0.0f && currentNote >= 0)
             cutoffMod *= std::pow(2.0f, (static_cast<float>(currentNote) - 60.0f) / 12.0f * p.kbdTrack);
 
-        // Mod envelope → filter (target index 2)
-        // Octave-based modulation: amount controls sweep range (up to 10 octaves = full 20Hz–20kHz)
+        // Mod envelope → filter (octave-based)
         {
             constexpr float FILTER_OCTAVES = 10.0f;
             float rawEnv1 = (p.mod1Amount > 0.001f) ? mod1EnvVal / p.mod1Amount : 0.0f;
             float rawEnv2 = (p.mod2Amount > 0.001f) ? mod2EnvVal / p.mod2Amount : 0.0f;
 
-            if (p.mod1Target == 2)
+            if (p.mod1Target == EnvTarget::Filter)
                 cutoffMod *= std::pow(2.0f, rawEnv1 * p.mod1Amount * FILTER_OCTAVES);
-            if (p.mod2Target == 2)
+            if (p.mod2Target == EnvTarget::Filter)
                 cutoffMod *= std::pow(2.0f, rawEnv2 * p.mod2Amount * FILTER_OCTAVES);
 
-            // LFO → filter (target index 1)
-            if (p.lfo1Target == 1) cutoffMod *= std::pow(2.0f, lfo1Val * FILTER_OCTAVES);
-            if (p.lfo2Target == 1) cutoffMod *= std::pow(2.0f, lfo2Val * FILTER_OCTAVES);
+            // LFO → filter
+            if (p.lfo1Target == LfoTarget::Filter) cutoffMod *= std::pow(2.0f, lfo1Val * FILTER_OCTAVES);
+            if (p.lfo2Target == LfoTarget::Filter) cutoffMod *= std::pow(2.0f, lfo2Val * FILTER_OCTAVES);
 
             // Drift → filter
             if (p.driftFilterOffset != 0.0f)
@@ -233,10 +231,10 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
             float rawEnv1 = (p.mod1Amount > 0.001f) ? lastMod1Val_ / p.mod1Amount : 0.0f;
             float rawEnv2 = (p.mod2Amount > 0.001f) ? lastMod2Val_ / p.mod2Amount : 0.0f;
 
-            if (p.mod1Target == 2) cutoffMod *= std::pow(2.0f, rawEnv1 * p.mod1Amount * FILTER_OCTAVES);
-            if (p.mod2Target == 2) cutoffMod *= std::pow(2.0f, rawEnv2 * p.mod2Amount * FILTER_OCTAVES);
-            if (p.lfo1Target == 1) cutoffMod *= std::pow(2.0f, lfo1Mid * FILTER_OCTAVES);
-            if (p.lfo2Target == 1) cutoffMod *= std::pow(2.0f, lfo2Mid * FILTER_OCTAVES);
+            if (p.mod1Target == EnvTarget::Filter) cutoffMod *= std::pow(2.0f, rawEnv1 * p.mod1Amount * FILTER_OCTAVES);
+            if (p.mod2Target == EnvTarget::Filter) cutoffMod *= std::pow(2.0f, rawEnv2 * p.mod2Amount * FILTER_OCTAVES);
+            if (p.lfo1Target == LfoTarget::Filter) cutoffMod *= std::pow(2.0f, lfo1Mid * FILTER_OCTAVES);
+            if (p.lfo2Target == LfoTarget::Filter) cutoffMod *= std::pow(2.0f, lfo2Mid * FILTER_OCTAVES);
             if (p.driftFilterOffset != 0.0f)
                 cutoffMod *= std::pow(2.0f, p.driftFilterOffset * FILTER_OCTAVES);
 
@@ -263,12 +261,12 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
             float lfo1Val = lfo1Buf[i];
             float lfo2Val = lfo2Buf[i];
 
-            // Pitch modulation (env/LFO/drift)
+            // Pitch modulation
             float pitchMod = p.driftPitchOffset;
-            if (p.mod1Target == 4) pitchMod += mod1EnvVal;
-            if (p.mod2Target == 4) pitchMod += mod2EnvVal;
-            if (p.lfo1Target == 3) pitchMod += lfo1Val;
-            if (p.lfo2Target == 3) pitchMod += lfo2Val;
+            if (p.mod1Target == EnvTarget::Pitch) pitchMod += mod1EnvVal;
+            if (p.mod2Target == EnvTarget::Pitch) pitchMod += mod2EnvVal;
+            if (p.lfo1Target == LfoTarget::Pitch) pitchMod += lfo1Val;
+            if (p.lfo2Target == LfoTarget::Pitch) pitchMod += lfo2Val;
 
             if (p.engineIsWavetable && osc.hasFrames())
                 osc.setFrequency(baseFrequency * (1.0f + pitchMod));
@@ -278,10 +276,10 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
             if (p.engineIsWavetable && osc.hasFrames())
             {
                 float scanMod = p.baseScan + p.driftScanOffset;
-                if (p.mod1Target == 3) scanMod += mod1EnvVal;
-                if (p.mod2Target == 3) scanMod += mod2EnvVal;
-                if (p.lfo1Target == 2) scanMod += lfo1Val;
-                if (p.lfo2Target == 2) scanMod += lfo2Val;
+                if (p.mod1Target == EnvTarget::Scan) scanMod += mod1EnvVal;
+                if (p.mod2Target == EnvTarget::Scan) scanMod += mod2EnvVal;
+                if (p.lfo1Target == LfoTarget::Scan) scanMod += lfo1Val;
+                if (p.lfo2Target == LfoTarget::Scan) scanMod += lfo2Val;
                 float clampedScan = juce::jlimit(0.0f, 1.0f, scanMod);
                 osc.setScanPosition(clampedScan);
                 lastModulatedScan_ = clampedScan;
@@ -294,8 +292,8 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
 
             // VCA
             float vca = ampEnvVal;
-            if (p.mod1Target == 1) vca *= (1.0f + mod1EnvVal);
-            if (p.mod2Target == 1) vca *= (1.0f + mod2EnvVal);
+            if (p.mod1Target == EnvTarget::DCA) vca *= (1.0f + mod1EnvVal);
+            if (p.mod2Target == EnvTarget::DCA) vca *= (1.0f + mod2EnvVal);
             sample *= vca;
 
             output[i] = sample;

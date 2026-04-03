@@ -30,12 +30,37 @@ void VoiceManager::reset()
 void VoiceManager::noteOn(int note, float velocity, bool isGlide, float glideMs,
                            bool lfo1TrigMode, bool lfo2TrigMode)
 {
+    // ── Mono mode: always voice 0, legato (no retrigger if held) ──
+    if (voiceLimit == 1)
+    {
+        auto& v = voices[0];
+        bool legato = v.isActive() && !v.isReleasing();
+        if (legato || isGlide)
+        {
+            // Glide pitch without retriggering envelopes
+            v.glideToNote(note, glideMs > 0.0f ? glideMs : 30.0f);
+            return;
+        }
+        if (v.isActive()) v.noteOff();
+        v.noteOn(note, velocity, false);
+        v.noteOnTimestamp = ++noteOnCounter;
+        if (lfo1TrigMode) v.getPerVoiceLfo1().reset();
+        if (lfo2TrigMode) v.getPerVoiceLfo2().reset();
+        if (v.getEngineMode() == SynthVoice::EngineMode::Sampler && v.getSampler().hasAudio())
+            v.getSampler().retrigger();
+        if (v.getEngineMode() == SynthVoice::EngineMode::Wavetable)
+            v.getSampler().stop();
+        updateGainTarget();
+        return;
+    }
+
+    // ── Poly: glide handling ──
     if (isGlide)
     {
         // Glide: change pitch of most recently triggered active voice
         int newest = -1;
         uint64_t maxTs = 0;
-        for (int i = 0; i < MAX_VOICES; ++i)
+        for (int i = 0; i < voiceLimit; ++i)
         {
             if (voices[static_cast<size_t>(i)].isActive()
                 && voices[static_cast<size_t>(i)].noteOnTimestamp >= maxTs)
@@ -232,7 +257,7 @@ void VoiceManager::distributeWavetableFrames(const WavetableOscillator& masterOs
 
 int VoiceManager::findVoiceForNote(int note) const
 {
-    for (int i = 0; i < MAX_VOICES; ++i)
+    for (int i = 0; i < voiceLimit; ++i)
     {
         if (voices[static_cast<size_t>(i)].isActive()
             && voices[static_cast<size_t>(i)].getCurrentNote() == note)
@@ -243,7 +268,7 @@ int VoiceManager::findVoiceForNote(int note) const
 
 int VoiceManager::findFreeVoice() const
 {
-    for (int i = 0; i < MAX_VOICES; ++i)
+    for (int i = 0; i < voiceLimit; ++i)
     {
         if (!voices[static_cast<size_t>(i)].isActive())
             return i;
@@ -256,7 +281,7 @@ int VoiceManager::stealVoice() const
     // Oldest-note policy: steal voice with lowest noteOnTimestamp
     int oldest = 0;
     uint64_t minTs = voices[0].noteOnTimestamp;
-    for (int i = 1; i < MAX_VOICES; ++i)
+    for (int i = 1; i < voiceLimit; ++i)
     {
         if (voices[static_cast<size_t>(i)].noteOnTimestamp < minTs)
         {

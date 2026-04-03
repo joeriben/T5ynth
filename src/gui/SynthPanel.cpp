@@ -74,7 +74,7 @@ void SynthPanel::initLfo(LfoSection& lfo, const juce::String& name,
     addAndMakeVisible(lfo.header);
 
     lfo.targetBox.addItemList({"---", "Filter", "Scan", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix",
-                               "Xmod Rate", "Xmod Depth"}, 1);
+                               "ENV1 Amt", "ENV2 Amt", "ENV3 Amt"}, 1);
     lfo.targetBox.setSelectedId(1, juce::dontSendNotification);
     lfo.targetBox.onChange = [this] { updateVisibility(); resized(); };
     addAndMakeVisible(lfo.targetBox);
@@ -112,7 +112,8 @@ void SynthPanel::initDrift(DriftSection& drift, const juce::String& name,
     addAndMakeVisible(drift.header);
 
     drift.targetBox.addItemList({"---", "Alpha", "Axis 1", "Axis 2", "Axis 3", "WT Scan",
-                                  "Filter", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix"}, 1);
+                                  "Filter", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix",
+                                  "ENV1 Amt", "ENV2 Amt", "ENV3 Amt"}, 1);
     drift.targetBox.onChange = [this] { updateVisibility(); resized(); };
     addAndMakeVisible(drift.targetBox);
 
@@ -167,6 +168,30 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     samplerBtn.onClick = [this] { engineModeHidden.setSelectedId(1); };
     wavetableBtn.onClick = [this] { engineModeHidden.setSelectedId(2); };
     engineModeA = std::make_unique<CA>(apvts, "engine_mode", engineModeHidden);
+
+    // ── Voice count switchbox ──
+    {
+        const juce::StringArray vcLabels { "Mono", "4", "6", "8", "12", "16" };
+        voiceCountHidden.addItemList(vcLabels, 1);
+        voiceCountHidden.onChange = [this] {
+            int id = voiceCountHidden.getSelectedId();
+            for (int i = 0; i < kNumVoiceBtns; ++i)
+                voiceBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
+        };
+        for (int i = 0; i < kNumVoiceBtns; ++i)
+        {
+            voiceBtns[i].setButtonText(vcLabels[i]);
+            voiceBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
+            voiceBtns[i].setColour(juce::TextButton::buttonOnColourId, kAccent);
+            voiceBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
+            voiceBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            voiceBtns[i].setClickingTogglesState(true);
+            voiceBtns[i].setRadioGroupId(1002);
+            voiceBtns[i].onClick = [this, i] { voiceCountHidden.setSelectedId(i + 1); };
+            addAndMakeVisible(voiceBtns[i]);
+        }
+        voiceCountA = std::make_unique<CA>(apvts, "voice_count", voiceCountHidden);
+    }
 
     addAndMakeVisible(waveformDisplay);
 
@@ -653,6 +678,7 @@ void SynthPanel::paint(juce::Graphics& g)
 
         // Switchbox borders
         paintSwitchBoxBorder(g, engineSwitchBounds);
+        paintSwitchBoxBorder(g, voiceSwitchBounds);
         if (oneshotBtn.isVisible())
         {
             paintSwitchBoxBorder(g, loopSwitchBounds);
@@ -724,13 +750,19 @@ void SynthPanel::resized()
     engineHeader.setBounds(area.removeFromTop(headerH));
     area.removeFromTop(headerGap);
 
-    // ── Engine mode: compact switchbox ──
+    // ── Engine mode + Voice count: compact switchboxes ──
     auto modeRow = area.removeFromTop(rowH);
     {
-        int cellW = juce::roundToInt(f * 5.0f);  // uniform cell width
+        int cellW = juce::roundToInt(f * 5.0f);
         samplerBtn.setBounds(modeRow.removeFromLeft(cellW));
         wavetableBtn.setBounds(modeRow.removeFromLeft(cellW));
         engineSwitchBounds = samplerBtn.getBounds().getUnion(wavetableBtn.getBounds());
+
+        modeRow.removeFromLeft(juce::roundToInt(f * 1.5f)); // gap
+        int vcW = juce::roundToInt(f * 2.8f);
+        for (int i = 0; i < kNumVoiceBtns; ++i)
+            voiceBtns[i].setBounds(modeRow.removeFromLeft(vcW));
+        voiceSwitchBounds = voiceBtns[0].getBounds().getUnion(voiceBtns[kNumVoiceBtns - 1].getBounds());
     }
     area.removeFromTop(gap);
 
@@ -759,7 +791,8 @@ void SynthPanel::resized()
         optSwitchBounds = normalizeToggle.getBounds().getUnion(loopOptimizeToggle.getBounds());
         area.removeFromTop(gap);
 
-        crossfadeRow->setBounds(area.removeFromTop(rowH));
+        auto cfRow = area.removeFromTop(rowH);
+        crossfadeRow->setBounds(cfRow.removeFromLeft((cfRow.getWidth() - 4) / 2));
         area.removeFromTop(gap);
         engineCardBottom = crossfadeRow->getBottom();
     }
