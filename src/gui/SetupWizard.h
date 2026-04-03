@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include <atomic>
 
 /**
  * Model settings panel.
@@ -29,6 +30,7 @@ public:
     std::function<void()> onModelReady;
 
     static juce::File getAppSupportModelDir();
+    static juce::File getAppSupportModelDir(const juce::String& modelId);
 
 private:
     void browseForModel();
@@ -36,8 +38,15 @@ private:
     void updateStatus();
     void timerCallback() override;
 
-    void downloadNextFile();
+    void downloadAllFilesInThread();
+    void downloadGhReleaseInThread();
     void onDownloadFinished(bool success, const juce::String& error);
+    static bool isLfsPointer(const juce::File& file);
+    void cleanupBadFiles(const juce::File& dir);
+
+    juce::String selectedModelId();
+    juce::String selectedHfRepo();
+    juce::String selectedGhRelease();
 
     juce::File modelPath;
 
@@ -46,7 +55,7 @@ private:
     juce::Label modelStatusLabel;
     juce::Label modelPathLabel;
     juce::Label backendStatusLabel;
-    juce::Label instructionsLabel;
+    juce::TextEditor instructionsLabel;
     juce::Label downloadStatusLabel;
     bool backendConnected = false;
 
@@ -56,6 +65,7 @@ private:
     double downloadProgress = 0.0;
     juce::ProgressBar progressBar { downloadProgress };
 
+    juce::ComboBox modelChooser;
     juce::TextButton scanButton     { "Auto-Scan" };
     juce::TextButton browseButton   { "Browse..." };
     juce::TextButton downloadButton { "Download" };
@@ -67,11 +77,9 @@ private:
         int64_t size = 0;
     };
     std::vector<DownloadFile> filesToDownload;
-    size_t currentFileIndex = 0;
     int64_t totalBytes = 0;
-    int64_t downloadedBytes = 0;
-    bool downloading = false;
-    std::unique_ptr<juce::URL::DownloadTask> currentDownloadTask;
+    std::atomic<int64_t> downloadedBytes { 0 };
+    std::atomic<bool> downloading { false };
 
     void loadSettings();
     void saveSettings();

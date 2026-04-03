@@ -54,17 +54,51 @@ log = logging.getLogger("pipe_inference")
 
 # ─── Model loading ──────────────────────────────────────────────────
 
-def find_model_dir():
-    """Find the Stable Audio model directory."""
-    candidates = [
-        Path.home() / "Library" / "T5ynth" / "models" / "stable-audio-open-1.0",  # macOS
-        Path.home() / ".local" / "share" / "T5ynth" / "models" / "stable-audio-open-1.0",  # Linux
-        Path.home() / "t5ynth" / "models" / "stable-audio-open-1.0",  # Legacy
-    ]
-    for d in candidates:
-        if (d / "model_index.json").is_file():
-            return d
+def _model_format(model_dir):
+    """Detect model format. Returns 'diffusers', 'native', or None."""
+    if (model_dir / "model_index.json").is_file():
+        return "diffusers"
+    if (model_dir / "model_config.json").is_file():
+        return "native"
     return None
+
+# {name: "diffusers"|"native"} — format of each discovered model
+_model_formats = {}
+
+def find_models():
+    """Discover all model directories (diffusers or native). Returns {name: Path}."""
+    base_dirs = [
+        Path.home() / "Library" / "T5ynth" / "models",       # macOS
+        Path.home() / ".local" / "share" / "T5ynth" / "models",  # Linux
+        Path.home() / "t5ynth" / "models",                    # Legacy
+    ]
+    models = {}
+    for base in base_dirs:
+        if not base.is_dir():
+            continue
+        for child in sorted(base.iterdir()):
+            fmt = _model_format(child) if child.is_dir() else None
+            if fmt and child.name not in models:
+                models[child.name] = child
+                _model_formats[child.name] = fmt
+    return models
+
+
+# ─── Lazy pipeline cache ──────────────────────────────────────────────
+_available_models = {}   # {name: Path}  — set in main()
+_loaded_pipelines = {}   # {(model, device): pipeline}
+
+
+def get_pipeline(model_name, device):
+    """Get or lazily load a pipeline for model+device."""
+    key = (model_name, device)
+    if key not in _loaded_pipelines:
+        if model_name not in _available_models:
+            raise ValueError(f"Unknown model: {model_name} (have: {list(_available_models.keys())})")
+        model_dir = _available_models[model_name]
+        log.info(f"Lazy-loading {model_name} on {device}...")
+        _loaded_pipelines[key] = load_pipeline(model_dir, device)
+    return _loaded_pipelines[key]
 
 
 def available_devices():
@@ -80,6 +114,9 @@ def available_devices():
 
 def _patch_scheduler(pipe):
     """Patch scheduler to skip BrownianTree noise at last step (sigma→0 crash)."""
+    if not hasattr(pipe.scheduler.step, '__func__'):
+        log.info("Scheduler patch not applicable (no __func__)")
+        return
     original_step = pipe.scheduler.step.__func__
 
     def patched_step(self, model_output, timestep, sample, **kwargs):
@@ -100,10 +137,19 @@ def _patch_scheduler(pipe):
 
 
 def load_pipeline(model_dir, device):
-    """Load diffusers pipeline on a specific device."""
+    """Load pipeline on a specific device. Dispatches by format."""
+    model_name = model_dir.name
+    fmt = _model_formats.get(model_name, "diffusers")
+    if fmt == "native":
+        return _load_native_pipeline(model_dir, device)
+    return _load_diffusers_pipeline(model_dir, device)
+
+
+def _load_diffusers_pipeline(model_dir, device):
+    """Load diffusers StableAudioPipeline."""
     from diffusers import StableAudioPipeline
 
-    log.info(f"Loading pipeline from {model_dir} on {device}...")
+    log.info(f"Loading diffusers pipeline from {model_dir} on {device}...")
     pipe = StableAudioPipeline.from_pretrained(str(model_dir), torch_dtype=torch.float32)
     pipe = pipe.to(device)
 
@@ -114,25 +160,97 @@ def load_pipeline(model_dir, device):
         pipe.enable_attention_slicing()
         log.info(f"Attention slicing enabled for {device}")
 
-    log.info(f"Pipeline loaded on {device}.")
+    log.info(f"Diffusers pipeline loaded on {device}.")
     return pipe
 
 
-def load_all_pipelines(model_dir):
-    """Load a pipeline on each available device. Returns (dict, device_list)."""
-    devices = available_devices()
-    pipelines = {}
+def _mock_optional_deps():
+    """Mock non-essential stable-audio-tools dependencies for minimal import."""
+    import types
+    mocks = ['skimage', 'skimage.transform', 'dac', 'encodec', 'laion_clap',
+             'pedalboard', 'pedalboard.io', 'pytorch_lightning', 'wandb',
+             'v_diffusion_pytorch', 'gradio', 'jsonmerge', 'clean_fid', 'kornia']
+    k_diff = types.ModuleType('k_diffusion')
+    for sub in ['augmentation', 'config', 'evaluation', 'external', 'gns',
+                'layers', 'models', 'sampling', 'utils']:
+        mod = types.ModuleType(f'k_diffusion.{sub}')
+        setattr(k_diff, sub, mod)
+        sys.modules[f'k_diffusion.{sub}'] = mod
+    sys.modules['k_diffusion'] = k_diff
+    for mod in mocks:
+        if mod not in sys.modules:
+            sys.modules[mod] = types.ModuleType(mod)
+
+
+class NativePipeline:
+    """Wrapper for stable-audio-tools native format models."""
+
+    def __init__(self, model, model_config, device):
+        self.model = model
+        self.model_config = model_config
+        self.device = device
+        self.sample_size = model_config["sample_size"]
+        self.sample_rate = model_config["sample_rate"]
+        # Extract T5 encoder reference for embedding access
+        self._t5_conditioner = None
+        for key, cond in model.conditioner.conditioners.items():
+            if hasattr(cond, 'tokenizer') and hasattr(cond, 'model'):
+                self._t5_conditioner = cond
+                break
+
+    @property
+    def tokenizer(self):
+        return self._t5_conditioner.tokenizer if self._t5_conditioner else None
+
+    @property
+    def text_encoder(self):
+        return self._t5_conditioner.model if self._t5_conditioner else None
+
+
+def _load_native_pipeline(model_dir, device):
+    """Load native stable-audio-tools model."""
+    _mock_optional_deps()
+
+    from stable_audio_tools.models.factory import create_model_from_config
+    from stable_audio_tools.models.utils import load_ckpt_state_dict
+
+    config_path = model_dir / "model_config.json"
+    weights_path = model_dir / "model.safetensors"
+    if not weights_path.is_file():
+        weights_path = model_dir / "model.ckpt"
+
+    log.info(f"Loading native pipeline from {model_dir} on {device}...")
+
+    # Suppress any stdout output during model loading (protects IPC pipe)
+    real_stdout = sys.stdout
+    sys.stdout = sys.stderr
+    try:
+        with open(config_path) as f:
+            model_config = json.load(f)
+
+        model = create_model_from_config(model_config)
+        model.load_state_dict(load_ckpt_state_dict(str(weights_path)))
+        model.eval()
+        model = model.to(device)
+    finally:
+        sys.stdout = real_stdout
+
+    log.info(f"Native pipeline loaded on {device}.")
+    return NativePipeline(model, model_config, device)
+
+
+def load_default_model(model_name, devices):
+    """Eagerly load the default model on all devices. Returns list of loaded devices."""
+    loaded = []
     for dev in devices:
         try:
-            pipelines[dev] = load_pipeline(model_dir, dev)
+            get_pipeline(model_name, dev)
+            loaded.append(dev)
         except Exception as e:
-            log.warning(f"Failed to load pipeline on {dev}: {e}")
-
-    if not pipelines:
-        raise RuntimeError("Could not load pipeline on any device")
-
-    loaded = list(pipelines.keys())
-    return pipelines, loaded
+            log.warning(f"Failed to load {model_name} on {dev}: {e}")
+    if not loaded:
+        raise RuntimeError(f"Could not load {model_name} on any device")
+    return loaded
 
 
 # ─── Latent cache ────────────────────────────────────────────────────
@@ -200,6 +318,71 @@ def decode_cached(pipe, request):
     return audio_np, sr, -1, elapsed
 
 
+# ─── Semantic axes ───────────────────────────────────────────────────
+# Pole prompts matching AxesPanel.cpp kEffectiveAxes (display → key mapping)
+
+SEMANTIC_AXIS_POLES = {
+    "music_noise":          ("noise",       "music"),
+    "acoustic_electronic":  ("electronic",  "acoustic"),
+    "improvised_composed":  ("improvised",  "composed"),
+    "refined_raw":          ("raw",         "refined"),
+    "solo_ensemble":        ("ensemble",    "solo"),
+    "sacred_secular":       ("secular",     "sacred"),
+    "tonal_noisy":          ("noisy",       "tonal"),
+    "rhythmic_sustained":   ("sustained",   "rhythmic"),
+}
+
+_axis_emb_cache = {}  # {(axis_key, model_name): (dir_tensor, neutral_emb)}
+
+
+def _apply_semantic_axes(manipulated, axes_dict, encode_fn, model_name):
+    """Apply semantic axis deltas to embedding tensor [1, seq, 768].
+
+    axes_dict: {"music_noise": 0.5, "tonal_noisy": -0.3, ...}
+    encode_fn: function(text) → (emb[1,seq,768], mask[1,seq])
+
+    For each axis, computes direction = pole_emb - neutral_emb,
+    then adds direction * value to the manipulated embedding.
+    """
+    if not axes_dict:
+        return manipulated
+
+    # Encode neutral once (cached per model)
+    cache_key = ("__neutral__", model_name)
+    if cache_key not in _axis_emb_cache:
+        neutral_emb, _ = encode_fn("")
+        _axis_emb_cache[cache_key] = neutral_emb.detach()
+    neutral_emb = _axis_emb_cache[cache_key].to(manipulated.device)
+
+    for axis_key, value in axes_dict.items():
+        if abs(value) < 0.001:
+            continue
+        poles = SEMANTIC_AXIS_POLES.get(axis_key)
+        if not poles:
+            continue
+        pole_a_text, pole_b_text = poles
+
+        # Cache pole embeddings per model
+        for pole_text in (pole_a_text, pole_b_text):
+            ck = (axis_key + "_" + pole_text, model_name)
+            if ck not in _axis_emb_cache:
+                emb, _ = encode_fn(pole_text)
+                _axis_emb_cache[ck] = emb.detach()
+
+        emb_a = _axis_emb_cache[(axis_key + "_" + pole_a_text, model_name)].to(manipulated.device)
+        emb_b = _axis_emb_cache[(axis_key + "_" + pole_b_text, model_name)].to(manipulated.device)
+
+        # Direction: positive value → pole_b, negative → pole_a
+        if value >= 0:
+            direction = emb_b - neutral_emb
+            manipulated = manipulated + direction * value
+        else:
+            direction = emb_a - neutral_emb
+            manipulated = manipulated + direction * abs(value)
+
+    return manipulated
+
+
 # ─── Generation ─────────────────────────────────────────────────────
 
 def _mean_pool(emb, mask):
@@ -210,6 +393,122 @@ def _mean_pool(emb, mask):
     return pooled.squeeze(0).cpu().float().numpy()  # [768]
 
 
+def _generate_native(pipe, request):
+    """Generate audio using native stable-audio-tools pipeline (e.g. small model).
+
+    Supports the same embedding manipulations as the diffusers path:
+    alpha interpolation, magnitude, noise injection, dimension offsets.
+    """
+    from stable_audio_tools.inference.generation import generate_diffusion_cond
+
+    prompt_a = request.get("prompt_a", "")
+    prompt_b = request.get("prompt_b", "")
+    alpha = request.get("alpha", 0.0)
+    magnitude = request.get("magnitude", 1.0)
+    noise_sigma = request.get("noise_sigma", 0.0)
+    duration = request.get("duration", 3.0)
+    steps = request.get("steps", 8)
+    cfg_scale = request.get("cfg_scale", 4.0)
+    seed = request.get("seed", -1)
+    dim_offsets = request.get("dimension_offsets")
+
+    if seed < 0:
+        import random
+        seed = random.randint(0, 2**31 - 1)
+
+    sr = pipe.sample_rate
+    device = pipe.device
+
+    # ── Encode prompts via the model's built-in T5 conditioner ──
+    # Then manipulate embeddings (alpha, magnitude, noise, dim offsets)
+    # and pass as pre-computed conditioning_tensors.
+    with torch.no_grad():
+        # Run full conditioner to get base conditioning tensors
+        cond_a = pipe.model.conditioner([{"prompt": prompt_a, "seconds_total": duration}], device)
+
+        # Extract T5 embedding for manipulation: {"prompt": [emb_tensor, None], ...}
+        prompt_emb_a = cond_a["prompt"][0]   # [1, seq, 768]
+
+        # Mean-pool for DimensionExplorer stats (before manipulation)
+        # Use attention-style pooling (non-zero tokens)
+        emb_a_pooled = prompt_emb_a.squeeze(0).mean(dim=0).cpu().float().numpy()
+
+        if prompt_b:
+            cond_b = pipe.model.conditioner([{"prompt": prompt_b, "seconds_total": duration}], device)
+            prompt_emb_b = cond_b["prompt"][0]
+            emb_b_pooled = prompt_emb_b.squeeze(0).mean(dim=0).cpu().float().numpy()
+            # Alpha interpolation: 0 = midpoint, -1 = pure A, +1 = pure B
+            manipulated = (0.5 - 0.5 * alpha) * prompt_emb_a + (0.5 + 0.5 * alpha) * prompt_emb_b
+            if alpha < -1.0 or alpha > 1.0:
+                ref_norm = prompt_emb_a.norm() if alpha < 0.0 else prompt_emb_b.norm()
+                res_norm = manipulated.norm()
+                if res_norm > 1e-8:
+                    manipulated = manipulated * (ref_norm / res_norm)
+        else:
+            emb_b_pooled = np.zeros(768, dtype=np.float32)
+            manipulated = prompt_emb_a.clone()
+
+        # Magnitude scaling
+        if abs(magnitude - 1.0) > 1e-6:
+            manipulated = manipulated * magnitude
+
+        # Noise injection (numpy PCG64 for cross-platform determinism)
+        if noise_sigma > 0.0:
+            rng = np.random.Generator(np.random.PCG64(seed))
+            noise_np = rng.standard_normal(manipulated.shape).astype(np.float32)
+            noise = torch.from_numpy(noise_np).to(manipulated.device) * noise_sigma
+            manipulated = manipulated + noise
+
+        # Dimension offsets from DimensionExplorer
+        if dim_offsets:
+            for idx, val in dim_offsets:
+                if 0 <= idx < manipulated.shape[-1]:
+                    manipulated[:, :, idx] += val
+
+        # Apply semantic axes
+        sem_axes = request.get("semantic_axes")
+        if sem_axes:
+            def native_encode(text):
+                cond = pipe.model.conditioner([{"prompt": text, "seconds_total": 1}], device)
+                return cond["prompt"][0], None
+            manipulated = _apply_semantic_axes(manipulated, sem_axes, native_encode, "native")
+
+        # Replace prompt embedding in conditioning tensors
+        cond_a["prompt"] = [manipulated, cond_a["prompt"][1]]
+
+    offsets_str = f", {len(dim_offsets)} offsets" if dim_offsets else ""
+    log.info(f"Generating (native) on {device}: '{prompt_a[:60]}' ({duration}s, {steps} steps, "
+             f"CFG={cfg_scale}, mag={magnitude}, noise={noise_sigma}, seed={seed}{offsets_str})")
+    t0 = time.time()
+
+    # stable_audio_tools prints seed + tqdm progress to stdout, which would
+    # corrupt the binary IPC pipe to JUCE. Redirect stdout → stderr temporarily.
+    real_stdout = sys.stdout
+    sys.stdout = sys.stderr
+    try:
+        output = generate_diffusion_cond(
+            pipe.model,
+            steps=steps,
+            cfg_scale=cfg_scale,
+            conditioning_tensors=cond_a,
+            sample_size=pipe.sample_size,
+            device=device,
+            seed=seed,
+        )
+    finally:
+        sys.stdout = real_stdout
+
+    elapsed = time.time() - t0
+    audio_np = output.squeeze(0).cpu().float().numpy()  # [channels, samples]
+    requested_samples = int(math.ceil(duration * sr))
+    if audio_np.shape[-1] > requested_samples:
+        audio_np = audio_np[..., :requested_samples]
+
+    log.info(f"Generated (native) in {elapsed:.1f}s")
+    emb_stats = (emb_a_pooled, emb_b_pooled)
+    return audio_np, sr, seed, elapsed, emb_stats
+
+
 def generate(pipe, request):
     """Run generation from request dict. Returns (audio_np, sample_rate, seed, elapsed, emb_stats).
 
@@ -217,6 +516,8 @@ def generate(pipe, request):
     If "cache_as" is set in the request, the pre-VAE latent is cached for
     fast interpolation via interpolate_and_decode().
     """
+    if isinstance(pipe, NativePipeline):
+        return _generate_native(pipe, request)
     prompt_a = request.get("prompt_a", "")
     prompt_b = request.get("prompt_b", "")
     alpha = request.get("alpha", 0.0)
@@ -292,6 +593,11 @@ def generate(pipe, request):
                 if 0 <= idx < manipulated.shape[-1]:
                     manipulated[:, :, idx] += val
 
+        # Apply semantic axes
+        sem_axes = request.get("semantic_axes")
+        if sem_axes:
+            manipulated = _apply_semantic_axes(manipulated, sem_axes, encode_text, "diffusers")
+
         # Generate via pipeline with pre-computed embeddings
         neg_embeds = torch.zeros_like(manipulated)
         neg_mask = torch.ones_like(mask_a)
@@ -348,9 +654,14 @@ def generate(pipe, request):
 
 # ─── Protocol ───────────────────────────────────────────────────────
 
-def send_ready(devices, default_device):
-    """Signal ready to JUCE with device info."""
-    info = json.dumps({"devices": devices, "default": default_device}).encode("utf-8")
+def send_ready(devices, default_device, models, default_model):
+    """Signal ready to JUCE with device and model info."""
+    info = json.dumps({
+        "devices": devices,
+        "default": default_device,
+        "models": list(models.keys()),
+        "default_model": default_model,
+    }).encode("utf-8")
     sys.stdout.buffer.write(b'\x02')
     sys.stdout.buffer.write(struct.pack('<H', len(info)))
     sys.stdout.buffer.write(info)
@@ -392,24 +703,34 @@ def send_error(message):
 # ─── Main loop ──────────────────────────────────────────────────────
 
 def main():
+    global _available_models
     import sys
     sys.setrecursionlimit(50000)  # torchsde workaround
 
-    model_dir = find_model_dir()
-    if model_dir is None:
-        send_error("No model directory found")
+    _available_models = find_models()
+    if not _available_models:
+        send_error("No model directories found")
         return
 
+    devices = available_devices()
+
+    # Default model: prefer stable-audio-open-1.0 for backward compat
+    if "stable-audio-open-1.0" in _available_models:
+        default_model = "stable-audio-open-1.0"
+    else:
+        default_model = next(iter(_available_models))
+
     try:
-        pipelines, devices = load_all_pipelines(model_dir)
+        loaded_devices = load_default_model(default_model, devices)
     except Exception as e:
-        log.error(f"Failed to load pipelines: {e}")
+        log.error(f"Failed to load default model: {e}")
         send_error(f"Pipeline load failed: {e}")
         return
 
-    default_device = devices[0]
-    send_ready(devices, default_device)
-    log.info(f"Ready. Devices: {devices}, default: {default_device}")
+    default_device = loaded_devices[0]
+    send_ready(loaded_devices, default_device, _available_models, default_model)
+    log.info(f"Ready. Models: {list(_available_models.keys())}, default: {default_model}, "
+             f"devices: {loaded_devices}, default device: {default_device}")
 
     for line in sys.stdin:
         line = line.strip()
@@ -418,13 +739,27 @@ def main():
         try:
             request = json.loads(line)
 
-            # Route to correct device pipeline
+            # Route to correct model + device
+            model = request.get("model", default_model)
             device = request.get("device", default_device)
-            if device == "auto" or device not in pipelines:
+            if model not in _available_models:
+                model = default_model
+            if device == "auto" or device not in devices:
                 device = default_device
-            pipe = pipelines[device]
 
             mode = request.get("mode", "generate")
+
+            if mode == "preload":
+                # Just load the pipeline (lazy-load cache), respond with empty audio
+                log.info(f"Preloading {model} on {device}...")
+                pipe = get_pipeline(model, device)
+                log.info(f"Preload complete: {model} on {device}")
+                # Send minimal success response (0 samples)
+                empty = np.zeros((2, 0), dtype=np.float32)
+                send_audio(empty, 44100, 0, 0.0)
+                continue
+
+            pipe = get_pipeline(model, device)
             emb_stats = None
 
             if mode == "interpolate":
@@ -436,7 +771,8 @@ def main():
 
             send_audio(audio, sr, seed, elapsed, emb_stats)
         except Exception as e:
-            log.error(f"Request failed (mode={request.get('mode', 'generate')}): {e}")
+            log.error(f"Request failed (model={request.get('model', '?')}, "
+                      f"mode={request.get('mode', 'generate')}): {e}")
             import traceback
             traceback.print_exc(file=sys.stderr)
             send_error(str(e))

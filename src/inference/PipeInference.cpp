@@ -138,8 +138,18 @@ bool PipeInference::launch(const juce::File& backendDir)
                     availableDevices_.add(d.toString());
             }
             defaultDevice_ = infoJson.getProperty("default", "cpu").toString();
+
+            if (auto* arr = infoJson.getProperty("models", {}).getArray())
+            {
+                for (auto& m : *arr)
+                    availableModels_.add(m.toString());
+            }
+            defaultModel_ = infoJson.getProperty("default_model", "").toString();
+
             juce::Logger::writeToLog("PipeInference: devices=" + availableDevices_.joinIntoString(",")
-                                      + " default=" + defaultDevice_);
+                                      + " default=" + defaultDevice_
+                                      + " models=" + availableModels_.joinIntoString(",")
+                                      + " default_model=" + defaultModel_);
         }
     }
 
@@ -262,6 +272,8 @@ PipeInference::Result PipeInference::generate(const Request& request)
     json->setProperty("seed", request.seed);
     if (request.device.isNotEmpty())
         json->setProperty("device", request.device);
+    if (request.model.isNotEmpty())
+        json->setProperty("model", request.model);
 
     // Serialize dimension offsets from DimensionExplorer
     if (!request.dimensionOffsets.empty())
@@ -275,6 +287,15 @@ PipeInference::Result PipeInference::generate(const Request& request)
             offsets.add(juce::var(pair));
         }
         json->setProperty("dimension_offsets", juce::var(offsets));
+    }
+
+    // Serialize semantic axes
+    if (!request.semanticAxes.empty())
+    {
+        auto axesObj = juce::DynamicObject::Ptr(new juce::DynamicObject());
+        for (auto& [key, val] : request.semanticAxes)
+            axesObj->setProperty(key, val);
+        json->setProperty("semantic_axes", juce::var(axesObj.get()));
     }
 
     auto jsonStr = juce::JSON::toString(juce::var(json.get()), true);
@@ -369,4 +390,57 @@ PipeInference::Result PipeInference::generate(const Request& request)
     }
 
     return result;
+}
+
+bool PipeInference::preload(const juce::String& model, const juce::String& device)
+{
+    if (!ready_ || stdinFd_ < 0) return false;
+
+    auto json = juce::DynamicObject::Ptr(new juce::DynamicObject());
+    json->setProperty("mode", "preload");
+    json->setProperty("model", model);
+    if (device.isNotEmpty())
+        json->setProperty("device", device);
+
+    auto jsonStr = juce::JSON::toString(juce::var(json.get()), true);
+    jsonStr = jsonStr.removeCharacters("\n\r") + "\n";
+
+    if (!writeExact(jsonStr.toRawUTF8(), static_cast<int>(jsonStr.getNumBytesAsUTF8())))
+        return false;
+
+    // Read and discard the preload response (empty audio)
+    char status = 0;
+    if (!readExact(&status, 1, 120000)) return false;
+
+    if (status == '\x01')
+    {
+        // Read and discard header + 0-sample PCM + embedding footer
+        struct { int32_t flag, samples, channels, sampleRate, seed; float timeMs; } header;
+        if (!readExact(&header, sizeof(header))) return false;
+        int totalFloats = header.samples * header.channels;
+        if (totalFloats > 0)
+        {
+            std::vector<float> discard(static_cast<size_t>(totalFloats));
+            readExact(discard.data(), totalFloats * static_cast<int>(sizeof(float)));
+        }
+        uint16_t numDims = 0;
+        readExact(&numDims, 2, 5000);
+        if (numDims > 0)
+        {
+            std::vector<float> discard(numDims * 2);
+            readExact(discard.data(), numDims * 2 * static_cast<int>(sizeof(float)), 5000);
+        }
+        return true;
+    }
+    else if (status == '\x00')
+    {
+        // Error — read and discard error message
+        juce::uint32 msgLen = 0;
+        if (readExact(&msgLen, 4))
+        {
+            std::vector<char> msg(msgLen + 1, 0);
+            readExact(msg.data(), static_cast<int>(msgLen));
+        }
+    }
+    return false;
 }

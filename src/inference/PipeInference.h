@@ -3,6 +3,7 @@
 #include <atomic>
 #include <vector>
 #include <utility>
+#include <map>
 
 /**
  * Pipe-based inference — runs diffusers in a Python subprocess.
@@ -34,6 +35,10 @@ public:
     const juce::StringArray& getAvailableDevices() const { return availableDevices_; }
     const juce::String& getDefaultDevice() const { return defaultDevice_; }
 
+    /** Models reported by Python at startup. */
+    const juce::StringArray& getAvailableModels() const { return availableModels_; }
+    const juce::String& getDefaultModel() const { return defaultModel_; }
+
     struct Request
     {
         juce::String promptA;
@@ -47,7 +52,9 @@ public:
         float cfgScale = 7.0f;
         int seed = -1;
         juce::String device;       // "mps", "cuda", "cpu", or empty for default
+        juce::String model;        // model ID (e.g. "stable-audio-open-1.0"), or empty for default
         std::vector<std::pair<int, float>> dimensionOffsets;  // DimensionExplorer offsets
+        std::map<juce::String, float> semanticAxes;           // SemanticAxes key→value
     };
 
     struct Result
@@ -65,6 +72,10 @@ public:
      *  Auto-restarts Python if subprocess died. */
     Result generate(const Request& request);
 
+    /** Preload a model+device combo so first generate is fast.
+     *  Blocking — call from background thread. Returns true on success. */
+    bool preload(const juce::String& model, const juce::String& device);
+
     /** Check if the Python subprocess is still alive. */
     bool isChildAlive() const;
 
@@ -76,6 +87,8 @@ private:
 
     juce::StringArray availableDevices_;
     juce::String defaultDevice_;
+    juce::StringArray availableModels_;
+    juce::String defaultModel_;
     juce::File backendDir_;   // remembered for auto-restart
 
     juce::String findPython(const juce::File& backendDir) const;

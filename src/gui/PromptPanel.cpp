@@ -114,8 +114,11 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 
     seedEditor.onReturnKey = [this] { triggerGeneration(); };
 
-    randomSeedToggle.setColour(juce::ToggleButton::textColourId, kDim);
-    randomSeedToggle.setColour(juce::ToggleButton::tickColourId, kAccent);
+    randomSeedToggle.setColour(juce::TextButton::buttonColourId, kSurface);
+    randomSeedToggle.setColour(juce::TextButton::buttonOnColourId, kOscCol);
+    randomSeedToggle.setColour(juce::TextButton::textColourOffId, kDim);
+    randomSeedToggle.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    randomSeedToggle.setClickingTogglesState(true);
     randomSeedToggle.setToggleState(false, juce::dontSendNotification);
     randomSeedToggle.onClick = [this] {
         seedEditor.setEnabled(!randomSeedToggle.getToggleState());
@@ -129,7 +132,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     for (auto* btn : { &gpuBtn, &cpuBtn })
     {
         btn->setColour(juce::TextButton::buttonColourId, kSurface);
-        btn->setColour(juce::TextButton::buttonOnColourId, kAccent);
+        btn->setColour(juce::TextButton::buttonOnColourId, kOscCol);
         btn->setColour(juce::TextButton::textColourOffId, kDim);
         btn->setColour(juce::TextButton::textColourOnId, juce::Colours::white);
         btn->setClickingTogglesState(true);
@@ -139,6 +142,60 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     gpuBtn.setToggleState(true, juce::dontSendNotification);
     gpuBtn.setConnectedEdges(juce::Button::ConnectedOnRight);
     cpuBtn.setConnectedEdges(juce::Button::ConnectedOnLeft);
+
+    // Model selector — fixed 3 slots, always visible (disabled = gray until model found)
+    {
+        const char* slotLabels[kNumModelSlots] = { "SA Open 1.0", "SA Small", "AudioLDM2" };
+        for (int i = 0; i < kNumModelSlots; ++i)
+        {
+            modelBtns[i].setButtonText(slotLabels[i]);
+            modelBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
+            modelBtns[i].setColour(juce::TextButton::buttonOnColourId, kOscCol);
+            modelBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
+            modelBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            modelBtns[i].setClickingTogglesState(true);
+            modelBtns[i].setRadioGroupId(1004);
+            int edges = 0;
+            if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+            if (i < kNumModelSlots - 1) edges |= juce::Button::ConnectedOnRight;
+            modelBtns[i].setConnectedEdges(edges);
+            modelBtns[i].setEnabled(false);  // gray until Python reports availability
+            modelBtns[i].setAlpha(0.3f);
+            modelBtns[i].onClick = [this, i]()
+            {
+                if (!modelBtns[i].getToggleState()) return;
+                auto model = modelSlotIds[i];
+                if (model.isEmpty() || generating) return;
+
+                // Apply model-specific parameter defaults
+                auto& apvts = processorRef.getValueTreeState();
+                bool isSmall = model.containsIgnoreCase("small");
+                apvts.getParameter("gen_steps")->setValueNotifyingHost(
+                    apvts.getParameter("gen_steps")->convertTo0to1(isSmall ? 8.0f : 20.0f));
+                apvts.getParameter("gen_cfg")->setValueNotifyingHost(
+                    apvts.getParameter("gen_cfg")->convertTo0to1(isSmall ? 4.0f : 7.0f));
+
+                // Preload model in background so first generate is instant
+                if (onStatusChanged) onStatusChanged("Loading " + model + "...", true);
+                generateButton.setEnabled(false);
+
+                auto& pipeInf = processorRef.getPipeInference();
+                juce::String device = cpuBtn.getToggleState() ? "cpu" : gpuBackend_;
+                std::thread([this, &pipeInf, model, device]()
+                {
+                    bool ok = pipeInf.preload(model, device);
+                    juce::MessageManager::callAsync([this, ok, model]()
+                    {
+                        if (!generating)
+                            generateButton.setEnabled(true);
+                        if (onStatusChanged)
+                            onStatusChanged(ok ? model + " ready" : model + " load failed", false);
+                    });
+                }).detach();
+            };
+            addAndMakeVisible(modelBtns[i]);
+        }
+    }
 
     // Generate button is now in MainPanel — keep internal for triggerGeneration()
     generateButton.setVisible(false);
@@ -163,6 +220,7 @@ void PromptPanel::timerCallback()
     if (!devicesPopulated && processorRef.isPipeInferenceReady())
     {
         populateDeviceButtons();
+        populateModelSelector();
         stopTimer();
     }
 }
@@ -177,9 +235,10 @@ float PromptPanel::fs() const
     return juce::jlimit(12.0f, 20.0f, maxF);
 }
 
-void PromptPanel::paint(juce::Graphics&)
+void PromptPanel::paint(juce::Graphics& g)
 {
-    // Background painted by MainPanel (uniform card system)
+    // Model switchbox border (always 3 fixed slots)
+    paintSwitchBoxBorder(g, modelSwitchBounds);
 }
 
 void PromptPanel::resized()
@@ -202,27 +261,20 @@ void PromptPanel::resized()
 
     auto setFs = [](juce::Label& l, float size) { l.setFont(juce::FontOptions(size)); };
 
-    // ── Reserve bottom: Info + Seed/Device row ──
-    setFs(infoLabel, fSmall);
-    infoLabel.setBounds(area.removeFromBottom(rowH));
-    area.removeFromBottom(gap);
-
-    // Seed + Device row (GPU/CPU toggle left, then Seed label + field, then Random)
+    // ── Model selector switchbox at top (compact, fixed 3 slots) ──
     {
-        setFs(seedLabel, fSmall);
-        auto seedRow = area.removeFromBottom(compactRowH + 2);
-        int btnW = juce::roundToInt(seedRow.getWidth() * 0.11f);
-        gpuBtn.setBounds(seedRow.removeFromLeft(btnW));
-        cpuBtn.setBounds(seedRow.removeFromLeft(btnW));
-        seedRow.removeFromLeft(gap);
-        int seedLabelW = juce::roundToInt(fSmall * 2.5f);
-        seedLabel.setBounds(seedRow.removeFromLeft(seedLabelW));
-        int toggleW = juce::roundToInt(seedRow.getWidth() * 0.30f);
-        randomSeedToggle.setBounds(seedRow.removeFromRight(toggleW));
-        seedEditor.setFont(juce::FontOptions(fSmall));
-        seedEditor.setBounds(seedRow.reduced(0, 1));
+        auto modelRow = area.removeFromTop(compactRowH + 2);
+        int cellW = juce::roundToInt(f * 5.5f);
+        for (int i = 0; i < kNumModelSlots; ++i)
+            modelBtns[i].setBounds(modelRow.removeFromLeft(cellW));
+        modelSwitchBounds = modelBtns[0].getBounds()
+            .getUnion(modelBtns[kNumModelSlots - 1].getBounds());
+        area.removeFromTop(gap);
     }
-    area.removeFromBottom(gap * 2);
+
+    // ── Reserve bottom: Info label only ──
+    setFs(infoLabel, fSmall);
+    infoLabel.setBounds(area.removeFromBottom(compactRowH));
 
     // Show hints only if enough vertical space remains
     bool showHints = area.getHeight() > 350;
@@ -358,6 +410,55 @@ void PromptPanel::populateDeviceButtons()
     devicesPopulated = true;
 }
 
+void PromptPanel::populateModelSelector()
+{
+    auto& pipeInf = processorRef.getPipeInference();
+    auto& models = pipeInf.getAvailableModels();
+    auto& defaultModel = pipeInf.getDefaultModel();
+
+    // Match available models to fixed slots by pattern
+    // Slot 0: SA Open 1.0, Slot 1: SA Small, Slot 2: AudioLDM2
+    for (int i = 0; i < kNumModelSlots; ++i)
+        modelSlotIds[i] = {};
+
+    int firstAvail = -1;
+    for (auto& m : models)
+    {
+        int slot = -1;
+        if (m.containsIgnoreCase("small"))                   slot = 1;  // check "small" first
+        else if (m.containsIgnoreCase("stable-audio-open"))  slot = 0;
+        else if (m.containsIgnoreCase("audioldm") ||
+                 m.containsIgnoreCase("audio-ldm"))          slot = 2;
+
+        if (slot >= 0 && slot < kNumModelSlots)
+        {
+            modelSlotIds[slot] = m;
+            modelBtns[slot].setEnabled(true);
+            modelBtns[slot].setAlpha(1.0f);
+            if (firstAvail < 0) firstAvail = slot;
+        }
+    }
+
+    // Select default model's slot, or first available
+    int selectIdx = -1;
+    for (int i = 0; i < kNumModelSlots; ++i)
+        if (modelSlotIds[i] == defaultModel) { selectIdx = i; break; }
+    if (selectIdx < 0) selectIdx = firstAvail;
+    if (selectIdx >= 0)
+        modelBtns[selectIdx].setToggleState(true, juce::dontSendNotification);
+
+    modelsPopulated = true;
+    resized();
+}
+
+juce::String PromptPanel::getSelectedModel() const
+{
+    for (int i = 0; i < kNumModelSlots; ++i)
+        if (modelBtns[i].getToggleState() && modelSlotIds[i].isNotEmpty())
+            return modelSlotIds[i];
+    return {};
+}
+
 void PromptPanel::triggerGenerationWithOffsets(std::vector<std::pair<int, float>> offsets)
 {
     pendingOffsets_ = std::move(offsets);
@@ -391,13 +492,19 @@ void PromptPanel::triggerGeneration()
     int seed = randomSeedToggle.getToggleState() ? -1 : seedEditor.getText().getIntValue();
     auto promptB = promptBEditor.getText().trim();
 
-    // Populate device info from Python if not yet done
+    // Populate device/model info from Python if not yet done
     auto& pipeInf = processorRef.getPipeInference();
     if (!devicesPopulated && pipeInf.isReady())
+    {
         populateDeviceButtons();
+        populateModelSelector();
+    }
 
     // Resolve selected device: GPU → gpuBackend_ (mps/cuda), CPU → "cpu"
     juce::String selectedDevice = cpuBtn.getToggleState() ? "cpu" : gpuBackend_;
+
+    // Resolve selected model
+    juce::String selectedModel = getSelectedModel();
 
     // Use pipe inference (Python subprocess) if available, fall back to native
     if (processorRef.isPipeInferenceReady())
@@ -414,14 +521,17 @@ void PromptPanel::triggerGeneration()
         req.cfgScale = cfgScale;
         req.seed = seed;
         req.device = selectedDevice;
+        req.model = selectedModel;
         req.dimensionOffsets = std::move(pendingOffsets_);
+        req.semanticAxes = std::move(pendingAxes_);
 
         auto deviceForLabel = selectedDevice.isEmpty() ? pipeInf.getDefaultDevice() : selectedDevice;
+        auto modelForLabel = selectedModel.isEmpty() ? pipeInf.getDefaultModel() : selectedModel;
         auto* processor = &processorRef;
-        std::thread([this, processor, req, deviceForLabel]()
+        std::thread([this, processor, req, deviceForLabel, modelForLabel]()
         {
             auto result = processor->getPipeInference().generate(req);
-            juce::MessageManager::callAsync([this, processor, result = std::move(result), deviceForLabel]()
+            juce::MessageManager::callAsync([this, processor, result = std::move(result), deviceForLabel, modelForLabel]()
             {
                 generating = false;
                 generateButton.setEnabled(true);
@@ -435,7 +545,8 @@ void PromptPanel::triggerGeneration()
                     // Show used seed in seed field (especially useful for random seeds)
                     seedEditor.setText(juce::String(result.seed), false);
                     auto info = juce::String(result.generationTimeMs / 1000.0f, 1) + "s | seed "
-                                + juce::String(result.seed) + " | " + deviceForLabel;
+                                + juce::String(result.seed) + " | " + modelForLabel
+                                + " | " + deviceForLabel;
                     if (onStatusChanged) onStatusChanged(info, false);
 
                     if (!result.embeddingA.empty())

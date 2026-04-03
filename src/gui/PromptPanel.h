@@ -31,6 +31,9 @@ public:
     /** Trigger generation with optional dimension offsets from DimensionExplorer. */
     void triggerGenerationWithOffsets(std::vector<std::pair<int, float>> offsets);
 
+    /** Set semantic axis values to include in the next generation request. */
+    void setSemanticAxes(std::map<juce::String, float> axes) { pendingAxes_ = std::move(axes); }
+
     /** Called after generation with embedding stats (for DimensionExplorer). */
     std::function<void(const std::vector<float>&, const std::vector<float>&)> onEmbeddingsReady;
 
@@ -63,7 +66,16 @@ private:
     juce::Label cfgLabel, cfgValue, cfgHint;
     juce::Label seedLabel;
     juce::TextEditor seedEditor;
-    juce::ToggleButton randomSeedToggle { "Random" };
+    juce::TextButton randomSeedToggle { "Random" };
+
+    // Model selector (fixed 3-slot switchbox: SA Open 1.0 | SA Small | AudioLDM2)
+    static constexpr int kNumModelSlots = 3;
+    juce::TextButton modelBtns[kNumModelSlots];
+    juce::String modelSlotIds[kNumModelSlots];  // resolved model directory name per slot
+    juce::Rectangle<int> modelSwitchBounds;
+    bool modelsPopulated = false;
+    void populateModelSelector();
+    juce::String getSelectedModel() const;
 
     // Device selector (GPU / CPU toggle)
     juce::TextButton gpuBtn { "GPU" }, cpuBtn { "CPU" };
@@ -76,6 +88,7 @@ private:
 
     bool generating = false;
     std::vector<std::pair<int, float>> pendingOffsets_;  // for DimensionExplorer
+    std::map<juce::String, float> pendingAxes_;          // for SemanticAxes
 
     using Attachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     std::unique_ptr<Attachment> alphaA, magA, noiseA, durA, startA, stepsA, cfgA;
