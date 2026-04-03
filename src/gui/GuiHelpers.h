@@ -3,7 +3,7 @@
 #include <functional>
 
 // ── Color constants (shared across all GUI files) ──────────────────────────
-static const auto kAccent  = juce::Colour(0xff4a9eff);  // Blue accent
+static const auto kAccent  = juce::Colour(0xffe91e63);  // C — Pink (engine accent)
 static const auto kDim     = juce::Colour(0xff888888);
 static const auto kDimmer  = juce::Colour(0xff606060);
 static const auto kSurface = juce::Colour(0xff1e2130);  // Slider track bg, input fields
@@ -24,17 +24,18 @@ static const auto kPca4    = juce::Colour(0xffcddc39);  // Lime
 static const auto kPca5    = juce::Colour(0xffff5722);  // Deep orange
 static const auto kPca6    = juce::Colour(0xff8bc34a);  // Light green
 
-// Section accent colors (for headers/highlights per module)
-static const auto kFilterCol = juce::Colour(0xff00bcd4);  // Cyan
-static const auto kEnvCol    = juce::Colour(0xffffb74d);  // Light orange (envelopes)
-static const auto kModCol    = juce::Colour(0xffff9800);  // Medium orange (LFOs) — also used for section header
-static const auto kLfoCol    = juce::Colour(0xffff9800);  // Medium orange (LFOs)
-static const auto kDriftCol  = juce::Colour(0xffe65100);  // Dark orange (drift)
+// Section accent colors — UCDCAE brand palette in logo order
+// U=#667eea  C=#e91e63  D=#7C4DFF  C=#FF6F00  A=#4CAF50  E=#00BCD4
+static const auto kFilterCol = juce::Colour(0xff7C4DFF);  // D — Violet (filter)
+static const auto kEnvCol    = juce::Colour(0xffFF6F00);  // C₂ — Amber (envelopes)
+static const auto kModCol    = juce::Colour(0xffFF6F00);  // C₂ — Amber (LFOs)
+static const auto kLfoCol    = juce::Colour(0xffFF6F00);  // C₂ — Amber (LFOs)
+static const auto kDriftCol  = juce::Colour(0xffe65100);  // C₂ darker variant (drift)
 
-// Module lead colors (for headers/sliders in each top-level module)
-static const auto kOscCol    = juce::Colour(0xff4caf50);  // Green (oscillator/generation)
-static const auto kSeqCol    = juce::Colour(0xff26a69a);  // Teal (sequencer)
-static const auto kFxCol     = juce::Colour(0xff9c27b0);  // Purple (effects)
+// Module lead colors (UCDCAE: C=Engine D=Filter U=Osc C₂=Mod A=Seq E=FX)
+static const auto kOscCol    = juce::Colour(0xff667eea);  // U — Periwinkle (prompt/osc)
+static const auto kSeqCol    = juce::Colour(0xff4CAF50);  // A — Green (sequencer)
+static const auto kFxCol     = juce::Colour(0xff00BCD4);  // E — Cyan (effects)
 
 /** Configure a label as an inverted section header bar (colored bg, dark text). */
 inline void paintSectionHeader(juce::Label& lbl, const juce::String& text, juce::Colour col)
