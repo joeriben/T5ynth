@@ -12,7 +12,7 @@
 
 class T5ynthProcessor;
 
-class MainPanel : public juce::Component
+class MainPanel : public juce::Component, private juce::Timer
 {
 public:
     explicit MainPanel(T5ynthProcessor& processor);
@@ -28,11 +28,13 @@ private:
     T5ynthProcessor& processorRef;
 
     // Col 1: GENERATION — three cards with headers
-    juce::Label oscHeader, axesHeader, dimHeader, axesNote;
+    juce::Label oscHeader, axesHeader, dimHeader, axesNote, poweredByLabel;
     PromptPanel promptPanel;
     AxesPanel axesPanel;
     juce::TextButton mainGenerateBtn { "Generate" };
-    bool generateHighlight = false;
+    float glowPhase = 0.0f;
+    bool glowGenerating = false;
+    void timerCallback() override;
 
     // Col 2: ENGINE + FILTER + MODULATION
     SynthPanel synthPanel;
@@ -84,8 +86,10 @@ private:
 
     // About overlay
     Scrim aboutScrim;
+    juce::Component aboutPanel;
     juce::TextEditor aboutText;
     bool aboutVisible = false;
+    static juce::String markdownToPlainText(const juce::String& md);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainPanel)
 };

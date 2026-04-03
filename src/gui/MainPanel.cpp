@@ -20,6 +20,12 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     // Left column section headers
     paintSectionHeader(oscHeader, "T5 OSCILLATOR", kOscCol);
     addAndMakeVisible(oscHeader);
+
+    poweredByLabel.setText("Powered by Stability AI", juce::dontSendNotification);
+    poweredByLabel.setColour(juce::Label::textColourId, kBg.withAlpha(0.7f));
+    poweredByLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    poweredByLabel.setJustificationType(juce::Justification::centredRight);
+    addAndMakeVisible(poweredByLabel);
     paintSectionHeader(axesHeader, "SEMANTIC AXES", kOscCol);
     addAndMakeVisible(axesHeader);
     paintSectionHeader(dimHeader, "LATENT DIMENSION EXPLORER", kOscCol);
@@ -44,14 +50,18 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     aboutScrim.onClick = [this] { hideAbout(); };
     aboutScrim.setVisible(false);
     addChildComponent(aboutScrim);
+
+    // About panel
+    aboutPanel.setVisible(false);
+    addChildComponent(aboutPanel);
+
     aboutText.setMultiLine(true);
     aboutText.setReadOnly(true);
     aboutText.setColour(juce::TextEditor::backgroundColourId, kCard);
     aboutText.setColour(juce::TextEditor::textColourId, juce::Colour(0xffe3e3e3));
-    aboutText.setColour(juce::TextEditor::outlineColourId, kBorder);
+    aboutText.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
     aboutText.setScrollbarsShown(true);
-    aboutText.setVisible(false);
-    addChildComponent(aboutText);
+    aboutPanel.addAndMakeVisible(aboutText);
 
     // Master volume — vertical slider
     masterVolKnob.setSliderStyle(juce::Slider::LinearVertical);
@@ -72,15 +82,21 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         processor.getValueTreeState(), "master_vol", masterVolKnob);
 
     // Main Generate button at bottom of left column
-    mainGenerateBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff1b5e20));
-    mainGenerateBtn.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff4caf50));
+    mainGenerateBtn.setColour(juce::TextButton::buttonColourId, kOscCol);
+    mainGenerateBtn.setColour(juce::TextButton::buttonOnColourId, kOscCol.darker(0.3f));
+    mainGenerateBtn.setColour(juce::TextButton::textColourOffId, kBg);
+    mainGenerateBtn.setColour(juce::TextButton::textColourOnId, kBg);
     mainGenerateBtn.onClick = [this] {
+        promptPanel.setSemanticAxes(axesPanel.getAxisValues());
         promptPanel.triggerGenerationWithOffsets({});
     };
     addAndMakeVisible(mainGenerateBtn);
 
     // Status callback — show in Generate button
+    startTimerHz(30);  // 30fps glow animation
+
     promptPanel.onStatusChanged = [this](const juce::String& text, bool isGenerating) {
+        glowGenerating = isGenerating;
         if (isGenerating)
         {
             mainGenerateBtn.setButtonText("generating...");
@@ -115,9 +131,10 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     };
 
     // "Anwenden + generieren" — green, triggers generation with offsets
-    dimApplyBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff1b5e20));
-    dimApplyBtn.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff4caf50));
+    dimApplyBtn.setColour(juce::TextButton::buttonColourId, kOscCol);
+    dimApplyBtn.setColour(juce::TextButton::textColourOffId, kBg);
     dimApplyBtn.onClick = [this] {
+        promptPanel.setSemanticAxes(axesPanel.getAxisValues());
         auto offsets = dimensionExplorer.getDimensionOffsets();
         promptPanel.triggerGenerationWithOffsets(std::move(offsets));
     };
@@ -199,7 +216,7 @@ void MainPanel::mouseDown(const juce::MouseEvent& e)
     }
     if (aboutVisible)
     {
-        auto ab = aboutText.getBounds();
+        auto ab = aboutPanel.getBounds();
         if (!ab.contains(e.x, e.y))
             hideAbout();
     }
@@ -358,6 +375,31 @@ void MainPanel::paint(juce::Graphics& g)
         int cardW = dimensionExplorer.getWidth() + inset * 2;
         paintCard(g, juce::Rectangle<int>(left, top, cardW, bot - top));
     }
+
+    // ── Pulsing glow behind Generate button ──
+    {
+        float pulse = std::sin(glowPhase);
+        float expand = 4.0f + 6.0f * (0.5f + 0.5f * pulse);
+        float alpha  = 0.12f + 0.10f * (0.5f + 0.5f * pulse);
+        if (glowGenerating) alpha += 0.10f;
+
+        auto gb = mainGenerateBtn.getBounds().toFloat();
+        for (int i = 3; i >= 0; --i)
+        {
+            float layerExpand = expand * (1.0f + static_cast<float>(i) * 0.4f);
+            float layerAlpha  = alpha * (0.25f + 0.75f / (1.0f + static_cast<float>(i)));
+            g.setColour(kOscCol.withAlpha(layerAlpha));
+            g.fillRect(gb.expanded(layerExpand));
+        }
+    }
+}
+
+void MainPanel::timerCallback()
+{
+    glowPhase += glowGenerating ? 0.25f : 0.08f;
+    if (glowPhase > juce::MathConstants<float>::twoPi)
+        glowPhase -= juce::MathConstants<float>::twoPi;
+    repaint(mainGenerateBtn.getBounds().expanded(16));
 }
 
 void MainPanel::resized()
@@ -401,13 +443,16 @@ void MainPanel::resized()
 
     // Proportional distribution of remaining space
     int available = genCol.getHeight() - headerH * 3 - kGap * 2;
-    int oscH = juce::jmax(260, juce::roundToInt(available * 0.55f));
+    int oscH = juce::jmax(360, juce::roundToInt(available * 0.55f));
     int axesH = juce::jmax(80, juce::roundToInt(available * 0.18f));
     // dimH gets the rest
 
     // Card 1: OSCILLATOR
     oscHeader.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.85f));
     oscHeader.setBounds(genCol.removeFromTop(headerH));
+    // "Powered by Stability AI" overlays right side of header
+    poweredByLabel.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.6f));
+    poweredByLabel.setBounds(oscHeader.getBounds());
     promptPanel.setBounds(genCol.removeFromTop(oscH));
     genCol.removeFromTop(kGap);
 
@@ -423,8 +468,10 @@ void MainPanel::resized()
     if (!dimExplorerVisible)
         dimensionExplorer.setBounds(genCol);
 
-    // Generate button
-    mainGenerateBtn.setBounds(genBtnArea);
+    // Generate button — compact, centered (not full-width like headers)
+    int genW = juce::roundToInt(genBtnArea.getWidth() * 0.6f);
+    int genX = genBtnArea.getX() + (genBtnArea.getWidth() - genW) / 2;
+    mainGenerateBtn.setBounds(genX, genBtnArea.getY(), genW, genBtnArea.getHeight());
 
     // Col 2: ENGINE
     synthPanel.setBounds(b);
@@ -439,11 +486,13 @@ void MainPanel::resized()
     // About overlay (centered)
     if (aboutVisible)
     {
-        int aboutW = juce::jlimit(500, 800, juce::roundToInt(w * 0.55f));
-        int aboutH = juce::jlimit(400, 600, juce::roundToInt(h * 0.7f));
+        int aboutW = juce::jlimit(600, 1000, juce::roundToInt(w * 0.7f));
+        int aboutH = juce::jlimit(400, 700, juce::roundToInt(h * 0.8f));
         int ax = (getWidth() - aboutW) / 2;
         int ay = (getHeight() - aboutH) / 2;
-        aboutText.setBounds(ax, ay, aboutW, aboutH);
+        aboutPanel.setBounds(ax, ay, aboutW, aboutH);
+
+        aboutText.setBounds(aboutPanel.getLocalBounds().reduced(8));
     }
 
     // Settings overlay (bottom-right, above StatusBar)
@@ -567,13 +616,68 @@ void MainPanel::exportWav()
 // About
 // ═══════════════════════════════════════════════════════════════════
 
+juce::String MainPanel::markdownToPlainText(const juce::String& md)
+{
+    juce::String result;
+    bool inCodeBlock = false;
+    auto lines = juce::StringArray::fromLines(md);
+
+    for (int i = 0; i < lines.size(); ++i)
+    {
+        auto line = lines[i];
+
+        // Skip code blocks entirely (ASCII diagrams don't display well)
+        if (line.trimStart().startsWith("```"))
+        {
+            inCodeBlock = !inCodeBlock;
+            continue;
+        }
+        if (inCodeBlock) continue;
+
+        auto trimmed = line.trim();
+
+        // Headings → uppercase with separator
+        if (trimmed.startsWith("### "))     { result += "\n" + trimmed.substring(4).toUpperCase() + "\n"; continue; }
+        if (trimmed.startsWith("## "))      { result += "\n" + trimmed.substring(3).toUpperCase() + "\n"; continue; }
+        if (trimmed.startsWith("# "))       { result += "\n" + trimmed.substring(2).toUpperCase() + "\n"; continue; }
+
+        // Horizontal rule
+        if (trimmed == "---") { result += "\n"; continue; }
+
+        // Blockquote
+        if (trimmed.startsWith("> ")) { result += trimmed.substring(2) + "\n"; continue; }
+
+        // Strip **bold** markers
+        auto clean = trimmed.replace("**", "");
+
+        // Strip [text](url) → text
+        while (clean.contains("["))
+        {
+            int lb = clean.indexOf("[");
+            int rb = clean.indexOf(lb, "]");
+            int lp = clean.indexOf(rb, "(");
+            int rp = clean.indexOf(lp, ")");
+            if (lb >= 0 && rb > lb && lp == rb + 1 && rp > lp)
+                clean = clean.substring(0, lb) + clean.substring(lb + 1, rb) + clean.substring(rp + 1);
+            else
+                break;
+        }
+
+        // Strip inline `code` markers
+        clean = clean.replace("`", "");
+
+        result += clean + "\n";
+    }
+    return result;
+}
+
 void MainPanel::showAbout()
 {
     aboutVisible = true;
     aboutScrim.setVisible(true);
     aboutScrim.toFront(false);
 
-    // Load README content
+    // Load README
     auto exe = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
     juce::File readmeFile;
     auto search = exe.getParentDirectory();
@@ -587,25 +691,18 @@ void MainPanel::showAbout()
         search = search.getParentDirectory();
     }
 
-    juce::String content;
-    content += "T5ynth\n";
-    content += "A text-to-sound synthesizer by Prof. Dr. Benjamin Joerissen\n";
-    content += "UCDCAE AI Lab / AI4ArtsEd\n\n";
-    content += juce::String(juce::CharPointer_UTF8(
-        "Funded by the German Federal Ministry for Family Affairs,\n"
-        "Senior Citizens, Women and Youth (BMFSFJ),\n"
-        "grant no. 01JKT2408A.\n\n"));
-    content += "Licensed under GNU General Public License v3.0\n";
-    content += "Powered by Stability AI (Stable Audio Open 1.0)\n\n";
-
+    juce::String md;
     if (readmeFile.existsAsFile())
-        content += readmeFile.loadFileAsString();
+        md = readmeFile.loadFileAsString();
+    else
+        md = "# T5ynth\n\nREADME not found.\n";
 
     aboutText.setFont(juce::FontOptions(13.0f));
-    aboutText.setText(content);
-    aboutText.setVisible(true);
-    aboutText.toFront(false);
+    aboutText.setText(markdownToPlainText(md));
     aboutText.setCaretPosition(0);
+
+    aboutPanel.setVisible(true);
+    aboutPanel.toFront(false);
     resized();
 }
 
@@ -613,7 +710,7 @@ void MainPanel::hideAbout()
 {
     aboutVisible = false;
     aboutScrim.setVisible(false);
-    aboutText.setVisible(false);
+    aboutPanel.setVisible(false);
 }
 
 // ═══════════════════════════════════════════════════════════════════

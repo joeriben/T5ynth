@@ -7,13 +7,13 @@
 
 T5ynth is a JUCE-based synthesizer plugin (Standalone / VST3 / AU) that repurposes Stability AI's [Stable Audio Open](https://huggingface.co/stabilityai/stable-audio-open-1.0) model as an oscillator — not to generate finished music, but to produce raw sonic material for human-nonhuman artistic collaboration.
 
-> *T5ynth is developed by [Prof. Dr. Benjamin Jörissen](https://github.com/joeriben) as part of the [AI4ArtsEd](https://github.com/joeriben/ucdcae-ai-lab) project at the UCDCAE AI Lab. Funded by the German Federal Ministry for Family Affairs, Senior Citizens, Women and Youth (BMFSFJ), grant no. 01JKT2408A.*
+> *T5ynth is a personal side-project by Prof. Dr. Benjamin Jörissen, UNESCO Chair in Digital Culture and Arts Education (UCDCAE), Friedrich-Alexander-Universität Erlangen-Nürnberg, and part of the UCDCAE AI Lab Software Collection. It is inspired by his research in [AI4ArtsEd](https://kubi-meta.de/ai4artsed) and [ComeArts](https://comearts.uni-due.de/comenets/artsacross/) (both funded by the Federal Ministry for Education, Family, Senior Citizens, Women and Youth (BMBFSFJ)).*
 
 ---
 
 ## Context: Why This Exists
 
-T5ynth emerged from [AI4ArtsEd](https://github.com/joeriben/ucdcae-ai-lab), a research project investigating alternative, non-standard uses of AI for educational purposes. AI4ArtsEd deliberately subverts consumerist user-subject positions and approaches AI from a critical, empowerment-oriented perspective.
+T5ynth emerged from [AI4ArtsEd](https://kubi-meta.de/ai4artsed), a research project investigating alternative, non-standard uses of AI for educational purposes. AI4ArtsEd deliberately subverts consumerist user-subject positions and approaches AI from a critical, empowerment-oriented perspective.
 
 ### The Problem with Generative Audio AI
 
