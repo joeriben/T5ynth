@@ -75,14 +75,14 @@ void DimensionExplorer::rebuildBars()
         return std::abs(a.baseValue) > std::abs(b.baseValue);
     });
 
-    // Initialize undo stack if empty
-    if (undoStack_.empty())
-    {
-        UndoState state;
-        state.offsets.resize(static_cast<size_t>(numDims), 0.0f);
-        undoStack_.push_back(std::move(state));
-        undoPos_ = 0;
-    }
+    // Reset undo stack (bar order may have changed after re-sort)
+    undoStack_.clear();
+    UndoState state;
+    state.offsets.resize(bars_.size());
+    for (size_t i = 0; i < bars_.size(); ++i)
+        state.offsets[i] = bars_[i].offset;
+    undoStack_.push_back(std::move(state));
+    undoPos_ = 0;
 }
 
 std::vector<std::pair<int, float>> DimensionExplorer::getDimensionOffsets() const
@@ -244,6 +244,21 @@ void DimensionExplorer::paint(juce::Graphics& g)
             g.fillRect(x, centreY, w, topY - centreY);
     }
 
+    // Axis hints (only in overlay mode with two prompts)
+    if (overlayMode_ && hasBPrompt_)
+    {
+        float hintFs = juce::jlimit(10.0f, 15.0f, fs * 0.7f);
+        g.setFont(juce::FontOptions(hintFs).withStyle("Bold"));
+        g.setColour(juce::Colour(0x40ffffff));
+        float hintY = barArea_.getBottom() - hintFs - 4.0f;
+        g.drawText("prompt balance",
+                   juce::roundToInt(barArea_.getX() + 4.0f), juce::roundToInt(hintY),
+                   200, juce::roundToInt(hintFs + 2), juce::Justification::centredLeft);
+        g.drawText("sound character",
+                   juce::roundToInt(barArea_.getRight() - 204.0f), juce::roundToInt(hintY),
+                   200, juce::roundToInt(hintFs + 2), juce::Justification::centredRight);
+    }
+
     // Tooltip for hovered bar
     if (hoveredBar_ >= 0 && hoveredBar_ < numBars)
     {
@@ -293,6 +308,8 @@ void DimensionExplorer::mouseDown(const juce::MouseEvent& e)
     int idx = barAtX(static_cast<float>(e.x));
     if (idx < 0) return;
 
+    // Save pre-edit state for undo before modifying anything
+    pushUndoState();
     dragBar_ = idx;
     dragStartY_ = static_cast<float>(e.y);
     dragStartValue_ = bars_[static_cast<size_t>(idx)].offset;
@@ -311,11 +328,7 @@ void DimensionExplorer::mouseDrag(const juce::MouseEvent& e)
 
 void DimensionExplorer::mouseUp(const juce::MouseEvent&)
 {
-    if (dragBar_ >= 0)
-    {
-        pushUndoState();
-        dragBar_ = -1;
-    }
+    dragBar_ = -1;
 }
 
 void DimensionExplorer::mouseMove(const juce::MouseEvent& e)

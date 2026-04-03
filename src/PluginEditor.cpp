@@ -11,7 +11,7 @@ T5ynthEditor::T5ynthEditor(T5ynthProcessor& processor)
 
     // Model settings are now in our own overlay — no longer in JUCE's dialog
 
-    setSize(1200, 800);
+    setSize(1300, 867);
     setResizable(true, true);
     setResizeLimits(1050, 700, 2400, 1600);
     getConstrainer()->setFixedAspectRatio(3.0 / 2.0);

@@ -371,6 +371,22 @@ void PromptPanel::resized()
                       startLabel, startSlider, startValue, &startHint);
     layoutCompactPair(stepsLabel, stepsSlider, stepsValue, &stepsHint,
                       cfgLabel, cfgSlider, cfgValue, &cfgHint);
+
+    // Seed + Device row (top-down, directly after compact params)
+    {
+        setFs(seedLabel, fSmall);
+        auto seedRow = area.removeFromTop(compactRowH);
+        int btnW = juce::roundToInt(seedRow.getWidth() * 0.11f);
+        gpuBtn.setBounds(seedRow.removeFromLeft(btnW));
+        cpuBtn.setBounds(seedRow.removeFromLeft(btnW));
+        seedRow.removeFromLeft(gap);
+        int seedLabelW = juce::roundToInt(fSmall * 2.5f);
+        seedLabel.setBounds(seedRow.removeFromLeft(seedLabelW));
+        int toggleW = juce::roundToInt(seedRow.getWidth() * 0.30f);
+        randomSeedToggle.setBounds(seedRow.removeFromRight(toggleW));
+        seedEditor.setFont(juce::FontOptions(fSmall));
+        seedEditor.setBounds(seedRow.reduced(0, 1));
+    }
 }
 
 void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String& promptB,

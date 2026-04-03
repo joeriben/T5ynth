@@ -171,15 +171,20 @@ void FxPanel::paint(juce::Graphics& g)
     paintSwitchBoxBorder(g, delayTypeSwitchBounds);
     paintSwitchBoxBorder(g, reverbTypeSwitchBounds);
 
-    // ── Wordmark: "T5ynth by UCDCAE AI LAB" ──
+    // ── Wordmark: "T5ynth by UCDCAE AI LAB" — always visible, scales with panel ──
+    if (reverbMixRow)
     {
-        int wmH = 28;
-        int wmY = getHeight() - wmH - 4;
-        float wmFs = 20.0f;
+        int spaceBelow = getHeight() - reverbMixRow->getBottom();
+        int panelW = getWidth() - 16;
+        // Size to fit panel width: "T5ynth by UCDCAE AI LAB" is ~22 chars
+        float wmFs = std::max(6.0f, std::min(static_cast<float>(panelW) / 16.0f,
+                                              static_cast<float>(spaceBelow) * 0.65f));
+        int wmH = juce::roundToInt(wmFs * 1.4f);
+        int wmY = reverbMixRow->getBottom() + (spaceBelow - wmH) / 2;
         g.setFont(juce::FontOptions(wmFs));
 
         // "T5ynth by " in dim gray
-        juce::String prefix = "T5ynth by ";
+        juce::String prefix = "T5ynth by  ";
         int prefixW = g.getCurrentFont().getStringWidth(prefix);
         g.setColour(kDimmer);
         int startX = 8;
@@ -188,22 +193,23 @@ void FxPanel::paint(juce::Graphics& g)
         // Per-letter colored "UCDCAE AI LAB"
         struct LetterColor { char ch; juce::Colour col; };
         LetterColor letters[] = {
-            {'U', juce::Colour(0xff3949ab)}, {'C', juce::Colour(0xffe91e63)},
-            {'D', juce::Colour(0xff2196f3)}, {'C', juce::Colour(0xffff9800)},
-            {'A', juce::Colour(0xffab47bc)}, {'E', juce::Colour(0xffff5722)},
+            {'U', juce::Colour(0xff667eea)}, {'C', juce::Colour(0xffe91e63)},
+            {'D', juce::Colour(0xff7C4DFF)}, {'C', juce::Colour(0xffFF6F00)},
+            {'A', juce::Colour(0xff4CAF50)}, {'E', juce::Colour(0xff00BCD4)},
             {' ', {}},
-            {'A', juce::Colour(0xffff9800)}, {'I', juce::Colour(0xfff44336)},
+            {'A', juce::Colour(0xff667eea)}, {'I', juce::Colour(0xffe91e63)},
             {' ', {}},
-            {'L', juce::Colour(0xff4caf50)}, {'A', juce::Colour(0xff009688)},
-            {'B', juce::Colour(0xff8bc34a)}
+            {'L', juce::Colour(0xff7C4DFF)}, {'A', juce::Colour(0xffFF6F00)},
+            {'B', juce::Colour(0xff4CAF50)}
         };
         int x = startX + prefixW;
+        int tracking = juce::roundToInt(wmFs * 0.15f);
         for (auto& lc : letters)
         {
             juce::String ch(juce::CharPointer_ASCII(&lc.ch), 1);
             int cw = g.getCurrentFont().getStringWidth(ch);
             if (lc.ch != ' ') { g.setColour(lc.col); g.drawText(ch, x, wmY, cw + 1, wmH, juce::Justification::centredLeft); }
-            x += cw;
+            x += cw + tracking;
         }
     }
 }
@@ -218,6 +224,10 @@ void FxPanel::resized()
 
     int rowH = juce::jmin(juce::roundToInt(static_cast<float>(getHeight()) * 0.14f), 20);
     int gap = 2;
+
+    // Reserve space at bottom for wordmark
+    int wmReserve = juce::jmax(14, juce::roundToInt(static_cast<float>(getHeight()) * 0.09f));
+    area.removeFromBottom(wmReserve);
 
     // ── DELAY header ──
     delayHeader.setFont(juce::FontOptions(f * 0.85f));

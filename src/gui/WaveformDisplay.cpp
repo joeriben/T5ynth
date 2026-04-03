@@ -10,6 +10,7 @@ juce::Rectangle<float> WaveformDisplay::getWaveformArea() const
 {
     return getLocalBounds().toFloat()
         .withTrimmedTop(LABEL_HEIGHT)
+        .withTrimmedBottom(static_cast<float>(bottomReserve))
         .reduced(HANDLE_RADIUS, HANDLE_RADIUS);
 }
 
@@ -73,12 +74,12 @@ void WaveformDisplay::paint(juce::Graphics& g)
 
     if (xStart > area.getX())
     {
-        g.setColour(juce::Colour(0x60000000));
+        g.setColour(juce::Colour(0xbb000000));
         g.fillRect(area.getX(), area.getY(), xStart - area.getX(), area.getHeight());
     }
     if (xEnd < area.getRight())
     {
-        g.setColour(juce::Colour(0x60000000));
+        g.setColour(juce::Colour(0xbb000000));
         g.fillRect(xEnd, area.getY(), area.getRight() - xEnd, area.getHeight());
     }
 
@@ -97,12 +98,16 @@ void WaveformDisplay::paint(juce::Graphics& g)
     g.setColour(kAccent);
     g.strokePath(path, juce::PathStrokeType(1.5f));
 
-    // ── Loop region line (green horizontal bar between handles) ──
-    float lineY = area.getBottom() - 2.0f;
-    g.setColour(kAccent);
-    g.drawLine(xStart, lineY, xEnd, lineY, 2.0f);
+    // ── Bracket/scan line — below the waveform when bottomReserve > 0 ──
+    float lineY = (bottomReserve > 0)
+        ? area.getBottom() + HANDLE_RADIUS + static_cast<float>(bottomReserve) * 0.5f
+        : area.getBottom() - 2.0f;
 
-    // ── Bracket handles (green circles) ──
+    // Horizontal line spanning full waveform width
+    g.setColour(kAccent);
+    g.drawLine(area.getX(), lineY, area.getRight(), lineY, 2.0f);
+
+    // ── Bracket handles (circles on the line) ──
     auto drawHandle = [&](float x) {
         g.setColour(kAccent);
         g.fillEllipse(x - HANDLE_RADIUS, lineY - HANDLE_RADIUS,
@@ -115,6 +120,15 @@ void WaveformDisplay::paint(juce::Graphics& g)
     };
     drawHandle(xStart);
     drawHandle(xEnd);
+
+    // ── Scan position indicator (filled dot on the same line) ──
+    if (scanVisible)
+    {
+        float scanX = area.getX() + scanPos * area.getWidth();
+        g.setColour(kAccent.brighter(0.3f));
+        g.fillEllipse(scanX - HANDLE_RADIUS * 0.6f, lineY - HANDLE_RADIUS * 0.6f,
+                      HANDLE_RADIUS * 1.2f, HANDLE_RADIUS * 1.2f);
+    }
 }
 
 void WaveformDisplay::resized() {}
@@ -125,14 +139,44 @@ void WaveformDisplay::mouseDown(const juce::MouseEvent& e)
     float xS = fracToX(loopStart);
     float xE = fracToX(loopEnd);
 
-    // Hit test: which handle is closer?
     float distS = std::abs(mx - xS);
     float distE = std::abs(mx - xE);
 
+    // Scan hit test (smaller dot, check first if visible)
+    if (scanVisible)
+    {
+        auto area = getWaveformArea();
+        float scanX = area.getX() + scanPos * area.getWidth();
+        float distScan = std::abs(mx - scanX);
+        if (distScan <= HANDLE_RADIUS * 2.0f && distScan <= distS && distScan <= distE)
+        {
+            dragging = Scan;
+            return;
+        }
+    }
+
+    // Bracket handle hit test
     if (distS <= HANDLE_RADIUS * 2.0f && distS <= distE)
         dragging = Start;
     else if (distE <= HANDLE_RADIUS * 2.0f)
         dragging = End;
+    else if (scanVisible)
+    {
+        // Click anywhere on the line area sets scan position
+        auto area = getWaveformArea();
+        float lineYCheck = (bottomReserve > 0)
+            ? area.getBottom() + HANDLE_RADIUS + static_cast<float>(bottomReserve) * 0.5f
+            : area.getBottom() - 2.0f;
+        if (std::abs(static_cast<float>(e.getPosition().getY()) - lineYCheck) <= HANDLE_RADIUS * 2.0f)
+        {
+            dragging = Scan;
+            scanPos = xToFrac(mx);
+            if (onScanChanged) onScanChanged(scanPos);
+            repaint();
+            return;
+        }
+        dragging = None;
+    }
     else
         dragging = None;
 }
@@ -142,6 +186,14 @@ void WaveformDisplay::mouseDrag(const juce::MouseEvent& e)
     if (dragging == None) return;
 
     float frac = xToFrac(static_cast<float>(e.getPosition().getX()));
+
+    if (dragging == Scan)
+    {
+        scanPos = juce::jlimit(0.0f, 1.0f, frac);
+        if (onScanChanged) onScanChanged(scanPos);
+        repaint();
+        return;
+    }
 
     if (dragging == Start)
         loopStart = juce::jlimit(0.0f, loopEnd - 0.01f, frac);

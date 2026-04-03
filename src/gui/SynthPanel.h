@@ -18,6 +18,7 @@ public:
     ~SynthPanel() override = default;
 
     void paint(juce::Graphics& g) override;
+    void paintOverChildren(juce::Graphics& g) override;
     void resized() override;
 
 private:
@@ -41,9 +42,9 @@ private:
     juce::Rectangle<int> voiceSwitchBounds;
 
     // ── Loop controls ──
-    juce::TextButton oneshotBtn { "One-shot" };
-    juce::TextButton loopModeBtn { "Loop" };
-    juce::TextButton pingpongBtn { "Ping-Pong" };
+    juce::TextButton oneshotBtn;   // ▶ one-shot (icon drawn in paintOverChildren)
+    juce::TextButton loopModeBtn;  // ↻ loop
+    juce::TextButton pingpongBtn;  // ⇄ ping-pong
     juce::ComboBox loopModeHidden;
     std::unique_ptr<SliderRow> crossfadeRow;
     juce::TextButton loopOptimizeToggle { "Auto-opt" };

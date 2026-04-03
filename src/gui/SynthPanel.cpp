@@ -154,6 +154,8 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     };
     styleBtn(samplerBtn, true);
     styleBtn(wavetableBtn, false);
+    samplerBtn.setConnectedEdges(juce::Button::ConnectedOnRight);
+    wavetableBtn.setConnectedEdges(juce::Button::ConnectedOnLeft);
     addAndMakeVisible(samplerBtn);
     addAndMakeVisible(wavetableBtn);
 
@@ -187,6 +189,10 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
             voiceBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
             voiceBtns[i].setClickingTogglesState(true);
             voiceBtns[i].setRadioGroupId(1002);
+            int edges = 0;
+            if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+            if (i < kNumVoiceBtns - 1) edges |= juce::Button::ConnectedOnRight;
+            voiceBtns[i].setConnectedEdges(edges);
             voiceBtns[i].onClick = [this, i] { voiceCountHidden.setSelectedId(i + 1); };
             addAndMakeVisible(voiceBtns[i]);
         }
@@ -205,6 +211,11 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
             processorRef.reextractWavetable();
     };
 
+    // Scan position: dragging in WaveformDisplay updates the APVTS slider
+    waveformDisplay.onScanChanged = [this](float pos) {
+        scanRow->getSlider().setValue(static_cast<double>(pos), juce::sendNotificationSync);
+    };
+
     // ── Loop mode ──
     auto styleLoopBtn = [](juce::TextButton& btn) {
         btn.setColour(juce::TextButton::buttonColourId, kSurface);
@@ -212,12 +223,18 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         btn.setColour(juce::TextButton::textColourOffId, kDim);
         btn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
         btn.setClickingTogglesState(true);
-        btn.setRadioGroupId(1002);
+        btn.setRadioGroupId(1003);
     };
     styleLoopBtn(oneshotBtn);
     styleLoopBtn(loopModeBtn);
     styleLoopBtn(pingpongBtn);
+    oneshotBtn.setConnectedEdges(juce::Button::ConnectedOnRight);
+    loopModeBtn.setConnectedEdges(juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
+    pingpongBtn.setConnectedEdges(juce::Button::ConnectedOnLeft);
     oneshotBtn.setToggleState(true, juce::dontSendNotification);
+    oneshotBtn.setTooltip("One-shot");
+    loopModeBtn.setTooltip("Loop");
+    pingpongBtn.setTooltip("Ping-pong");
     addAndMakeVisible(oneshotBtn);
     addAndMakeVisible(loopModeBtn);
     addAndMakeVisible(pingpongBtn);
@@ -242,7 +259,9 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     crossfadeA = std::make_unique<SA>(apvts, "crossfade_ms", crossfadeRow->getSlider());
     crossfadeRow->updateValue();
 
-    // Loop optimize + Normalize — rectangular on/off buttons
+    // Loop optimize + Normalize — rectangular on/off buttons (connected switchbox)
+    normalizeToggle.setConnectedEdges(juce::Button::ConnectedOnRight);
+    loopOptimizeToggle.setConnectedEdges(juce::Button::ConnectedOnLeft);
     for (auto* btn : { &loopOptimizeToggle, &normalizeToggle })
     {
         btn->setColour(juce::TextButton::buttonColourId, kSurface);
@@ -267,7 +286,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         apvts.getRawParameterValue("normalize")->load() > 0.5f, juce::dontSendNotification);
 
     // ── Scan ──
-    scanRow = std::make_unique<SliderRow>("Scan", fmtF2);
+    scanRow = std::make_unique<SliderRow>("", fmtF2);
     addAndMakeVisible(*scanRow);
     scanHint.setText("Morph between frames (0 = start, 1 = end)", juce::dontSendNotification);
     scanHint.setColour(juce::Label::textColourId, kDimmer);
@@ -306,6 +325,10 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
             filterTypeBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
             filterTypeBtns[i].setClickingTogglesState(true);
             filterTypeBtns[i].setRadioGroupId(3001);
+            { int edges = 0;
+              if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+              if (i < kNumTypeBtns - 1) edges |= juce::Button::ConnectedOnRight;
+              filterTypeBtns[i].setConnectedEdges(edges); }
             filterTypeBtns[i].onClick = [this, i] { filterTypeHidden.setSelectedId(i + 1); };
             addAndMakeVisible(filterTypeBtns[i]);
         }
@@ -329,6 +352,10 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
             filterSlopeBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
             filterSlopeBtns[i].setClickingTogglesState(true);
             filterSlopeBtns[i].setRadioGroupId(3002);
+            { int edges = 0;
+              if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+              if (i < kNumSlopeBtns - 1) edges |= juce::Button::ConnectedOnRight;
+              filterSlopeBtns[i].setConnectedEdges(edges); }
             filterSlopeBtns[i].onClick = [this, i] { filterSlopeHidden.setSelectedId(i + 1); };
             addAndMakeVisible(filterSlopeBtns[i]);
         }
@@ -471,7 +498,8 @@ void SynthPanel::timerCallback()
         if (lfo1.depthRow) lfo1.depthRow->setGhostValue(mv.lfo1Depth.load(std::memory_order_relaxed));
         if (lfo2.rateRow)  lfo2.rateRow->setGhostValue(mv.lfo2Rate.load(std::memory_order_relaxed));
         if (lfo2.depthRow) lfo2.depthRow->setGhostValue(mv.lfo2Depth.load(std::memory_order_relaxed));
-        if (scanRow->isVisible()) scanRow->setGhostValue(mv.scanPosition.load(std::memory_order_relaxed));
+        if (waveformDisplay.isVisible())
+            waveformDisplay.setScanPosition(mv.scanPosition.load(std::memory_order_relaxed));
     }
 }
 
@@ -724,6 +752,88 @@ void SynthPanel::paint(juce::Graphics& g)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Play-mode icon drawing (painted over children so icons sit on top of buttons)
+// ──────────────────────────────────────────────────────────────────────────────
+void SynthPanel::paintOverChildren(juce::Graphics& g)
+{
+    if (!oneshotBtn.isVisible()) return;
+
+    auto iconCol = [](const juce::TextButton& btn) {
+        return btn.getToggleState() ? juce::Colours::white : kDim;
+    };
+
+    // ▶ One-shot: filled play triangle
+    {
+        auto b = oneshotBtn.getBounds().toFloat();
+        float s = b.getHeight() * 0.32f;
+        float cx = b.getCentreX(), cy = b.getCentreY();
+        juce::Path p;
+        p.addTriangle(cx - s * 0.5f, cy - s,
+                      cx - s * 0.5f, cy + s,
+                      cx + s * 0.7f, cy);
+        g.setColour(iconCol(oneshotBtn));
+        g.fillPath(p);
+    }
+
+    // ↻ Loop: circular arc with arrowhead
+    {
+        auto b = loopModeBtn.getBounds().toFloat();
+        float cx = b.getCentreX(), cy = b.getCentreY();
+        float r = b.getHeight() * 0.3f;
+        float sw = juce::jmax(1.5f, r * 0.22f);
+
+        juce::Path arc;
+        float startA = -juce::MathConstants<float>::halfPi;
+        float endA = startA + juce::MathConstants<float>::twoPi * 0.78f;
+        arc.addCentredArc(cx, cy, r, r, 0.0f, startA, endA, true);
+        g.setColour(iconCol(loopModeBtn));
+        g.strokePath(arc, juce::PathStrokeType(sw, juce::PathStrokeType::curved));
+
+        // Arrowhead at arc end (pointing clockwise along tangent)
+        float ex = cx + r * std::cos(endA);
+        float ey = cy + r * std::sin(endA);
+        float as = r * 0.55f;
+        float tx = -std::sin(endA), ty = std::cos(endA);   // tangent
+        float nx = std::cos(endA),  ny = std::sin(endA);   // normal (outward)
+        juce::Path ah;
+        ah.addTriangle(ex + tx * as * 0.6f, ey + ty * as * 0.6f,
+                       ex - nx * as * 0.45f, ey - ny * as * 0.45f,
+                       ex + nx * as * 0.45f, ey + ny * as * 0.45f);
+        g.fillPath(ah);
+    }
+
+    // ⇄ Ping-pong: two opposing arrows (→ above, ← below)
+    {
+        auto b = pingpongBtn.getBounds().toFloat();
+        float cx = b.getCentreX(), cy = b.getCentreY();
+        float hw = b.getWidth() * 0.28f;
+        float voff = b.getHeight() * 0.15f;
+        float sw = juce::jmax(1.5f, b.getHeight() * 0.09f);
+        float as = b.getHeight() * 0.18f;
+
+        g.setColour(iconCol(pingpongBtn));
+
+        // Top: → right arrow
+        float ty = cy - voff;
+        g.drawLine(cx - hw, ty, cx + hw, ty, sw);
+        juce::Path ra;
+        ra.addTriangle(cx + hw + as * 0.3f, ty,
+                       cx + hw - as * 0.5f, ty - as * 0.65f,
+                       cx + hw - as * 0.5f, ty + as * 0.65f);
+        g.fillPath(ra);
+
+        // Bottom: ← left arrow
+        float by = cy + voff;
+        g.drawLine(cx + hw, by, cx - hw, by, sw);
+        juce::Path la;
+        la.addTriangle(cx - hw - as * 0.3f, by,
+                       cx - hw + as * 0.5f, by - as * 0.65f,
+                       cx - hw + as * 0.5f, by + as * 0.65f);
+        g.fillPath(la);
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Resized
 // ──────────────────────────────────────────────────────────────────────────────
 void SynthPanel::resized()
@@ -766,45 +876,68 @@ void SynthPanel::resized()
     }
     area.removeFromTop(gap);
 
-    // ── Waveform ──
-    int waveH = juce::roundToInt(h * 0.12f);
-    waveformDisplay.setBounds(area.removeFromTop(waveH));
-    area.removeFromTop(gap * 3);  // extra room for bracket drag handles
-    engineCardBottom = waveformDisplay.getBottom();
+    // ── Waveform — give it all space not needed by sections below ──
+    // Calculate height needed below: sampler/WT controls + filter + mod + LFO + drift
+    // Always reserve same space for engine controls (max of sampler/WT)
+    // so waveform height stays stable when switching modes
+    int samplerCtrlH = rowH + gap * 2;
+    int filterH = headerH + headerGap + rowH + gap + rowH * 2 + gap; // header + type row + cutoff/reso + mix/kbd
+    int modH = gap * 3 + headerH + headerGap; // section gap + header
+    int envH = (rowH * 4 + gap) * 3; // 3 envelopes × (header + 3 slider rows + gap)
+    int lfoH = gap + (rowH * 2 + gap) * 2; // 2 LFOs × (header + rate row + gap)
+    int driftH = gap + headerH + gap + rowH + (rowH * 2 + gap) * 2; // header + regen row + 2 drifts
+    int belowWave = samplerCtrlH + filterH + modH + envH + lfoH + driftH + gap * 5;
+    int waveH = juce::jmax(60, area.getHeight() - belowWave);
 
-    // ── Sampler-only controls ──
-    if (oneshotBtn.isVisible())
-    {
-        // [One-shot] [Loop] [Ping-Pong]  [Normalize] [Auto-opt]
-        auto loopRow = area.removeFromTop(rowH);
-        int cellW = juce::roundToInt(f * 5.0f);
-        oneshotBtn.setBounds(loopRow.removeFromLeft(cellW));
-        loopModeBtn.setBounds(loopRow.removeFromLeft(cellW));
-        pingpongBtn.setBounds(loopRow.removeFromLeft(cellW));
-        loopSwitchBounds = oneshotBtn.getBounds().getUnion(pingpongBtn.getBounds());
-
-        loopRow.removeFromLeft(juce::roundToInt(f * 1.0f));
-        int optW = juce::roundToInt(f * 5.0f);
-        normalizeToggle.setBounds(loopRow.removeFromLeft(optW));
-        loopRow.removeFromLeft(4);
-        loopOptimizeToggle.setBounds(loopRow.removeFromLeft(optW));
-        optSwitchBounds = normalizeToggle.getBounds().getUnion(loopOptimizeToggle.getBounds());
-        area.removeFromTop(gap);
-
-        auto cfRow = area.removeFromTop(rowH);
-        crossfadeRow->setBounds(cfRow.removeFromLeft((cfRow.getWidth() - 4) / 2));
-        area.removeFromTop(gap);
-        engineCardBottom = crossfadeRow->getBottom();
-    }
-
-    // ── Wavetable-only controls ──
     if (scanRow->isVisible())
     {
-        scanRow->setBounds(area.removeFromTop(rowH));
-        scanHint.setFont(juce::FontOptions(f * 0.7f));
-        scanHint.setBounds(area.removeFromTop(juce::roundToInt(f * 0.9f)));
+        // ── Wavetable: scan dot + brackets on one line below waveform ──
+        int scanLineH = juce::roundToInt(WaveformDisplay::HANDLE_RADIUS * 2.0f + 4.0f);
+        waveformDisplay.setBottomReserve(scanLineH);
+        waveformDisplay.setScanVisible(true);
+        waveformDisplay.setBounds(area.removeFromTop(waveH + scanLineH));
+
+        // Hide the scanRow slider (APVTS still connected), scan is drawn by WaveformDisplay
+        scanRow->setBounds(-1000, -1000, 10, 10);
+        scanHint.setVisible(false);
+
+        area.removeFromTop(gap * 3);
+        engineCardBottom = area.getY();
         area.removeFromTop(gap);
-        engineCardBottom = scanHint.getBottom();
+    }
+    else
+    {
+        // ── Sampler: waveform + bracket handles + controls row ──
+        waveformDisplay.setBottomReserve(0);
+        waveformDisplay.setScanVisible(false);
+        waveformDisplay.setBounds(area.removeFromTop(waveH));
+        area.removeFromTop(gap * 3);  // bracket handle space
+
+        // [▶][↻][⇄] Crossfade [slider]    [Normalize][Auto-opt]
+        auto loopRow = area.removeFromTop(rowH);
+        int colW = (loopRow.getWidth() - 4) / 2;
+
+        // Left half: loop icons + crossfade (loop-related, grouped together)
+        auto leftHalf = loopRow.removeFromLeft(colW);
+        int iconW = juce::roundToInt(f * 2.8f);
+        oneshotBtn.setBounds(leftHalf.removeFromLeft(iconW));
+        loopModeBtn.setBounds(leftHalf.removeFromLeft(iconW));
+        pingpongBtn.setBounds(leftHalf.removeFromLeft(iconW));
+        loopSwitchBounds = oneshotBtn.getBounds().getUnion(pingpongBtn.getBounds());
+        leftHalf.removeFromLeft(juce::roundToInt(f * 0.3f));
+        crossfadeRow->setBounds(leftHalf);  // short slider, ends at column midpoint
+
+        loopRow.removeFromLeft(4);  // column gap
+
+        // Right half: Normalize + Auto-opt
+        int optW = juce::roundToInt(f * 5.0f);
+        normalizeToggle.setBounds(loopRow.removeFromLeft(optW));
+        loopRow.removeFromLeft(2);
+        loopOptimizeToggle.setBounds(loopRow.removeFromLeft(optW));
+        optSwitchBounds = normalizeToggle.getBounds().getUnion(loopOptimizeToggle.getBounds());
+
+        area.removeFromTop(gap);
+        engineCardBottom = oneshotBtn.getBottom();
     }
     area.removeFromTop(gap * 2);
 
@@ -886,5 +1019,4 @@ void SynthPanel::resized()
     }
     layoutDrift(drift1, area, f, rowH, gap);
     layoutDrift(drift2, area, f, rowH, gap);
-
 }

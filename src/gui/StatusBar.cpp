@@ -46,13 +46,6 @@ void StatusBar::paint(juce::Graphics& g)
                    juce::Justification::centred);
     }
 
-    // "Powered by Stability AI"
-    float smallFs = juce::jlimit(8.0f, 10.0f, h * 0.45f);
-    g.setFont(juce::FontOptions(smallFs));
-    g.setColour(kDimmer);
-    int poweredW = 130;
-    g.drawText("Powered by Stability AI", saveBtn.getX() - poweredW - 12, 0, poweredW, getHeight(),
-               juce::Justification::centredRight);
 }
 
 void StatusBar::resized()

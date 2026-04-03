@@ -30,6 +30,14 @@ public:
     /** Set the region label (e.g. "Loop interval" or "Extraction region"). */
     void setRegionLabel(const juce::String& label) { regionLabel = label; repaint(); }
 
+    /** Reserve pixels at the bottom for the bracket/scan line area. */
+    void setBottomReserve(int px) { bottomReserve = px; repaint(); }
+
+    /** Scan position indicator (shown on the bracket line in WT mode). */
+    void setScanPosition(float pos) { if (scanPos != pos) { scanPos = pos; repaint(); } }
+    void setScanVisible(bool v) { scanVisible = v; repaint(); }
+    std::function<void(float)> onScanChanged;
+
     /** Get/set loop region fractions (0–1). */
     float getLoopStart() const { return loopStart; }
     float getLoopEnd() const { return loopEnd; }
@@ -50,11 +58,16 @@ private:
     float bufferDurationSec = 0.0f;
     juce::String regionLabel { "Loop interval" };
 
-    enum DragTarget { None, Start, End };
+    enum DragTarget { None, Start, End, Scan };
     DragTarget dragging = None;
+    bool scanVisible = false;
+    float scanPos = 0.0f;
 
+public:
     static constexpr float HANDLE_RADIUS = 7.0f;
     static constexpr float LABEL_HEIGHT  = 18.0f;
+private:
+    int bottomReserve = 0;
 
     juce::Rectangle<float> getWaveformArea() const;
     float fracToX(float frac) const;
