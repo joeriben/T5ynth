@@ -200,12 +200,7 @@ void FxPanel::paint(juce::Graphics& g)
         };
         int tracking = juce::roundToInt(wmFs * 0.15f);
 
-        // Measure total width for centring
-        int suffixW = 0;
-        for (auto& lc : letters)
-            suffixW += g.getCurrentFont().getStringWidth(juce::String(juce::CharPointer_ASCII(&lc.ch), 1)) + tracking;
-        int totalW = prefixW + suffixW;
-        int startX = (getWidth() - totalW) / 2;
+        int startX = 8;
 
         g.setColour(kDimmer);
         g.drawText(prefix, startX, wmY, prefixW, wmH, juce::Justification::centredLeft);
