@@ -106,9 +106,23 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
 
     // Generation
+    // Alpha: quadratic curve around 0 for fine control near center (±0.15 sensitive zone)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"gen_alpha", 1}, "Alpha",
-        juce::NormalisableRange<float>(-2.0f, 2.0f), 0.0f));
+        juce::NormalisableRange<float>(-2.0f, 2.0f,
+            [](float s, float e, float n) {
+                float c = n * 2.0f - 1.0f;
+                float curved = (c >= 0.0f ? 1.0f : -1.0f) * c * c;
+                return s + (e - s) * (curved * 0.5f + 0.5f);
+            },
+            [](float s, float e, float v) {
+                float norm = (v - s) / (e - s);
+                float c = norm * 2.0f - 1.0f;
+                float uncurved = (c >= 0.0f ? 1.0f : -1.0f) * std::sqrt(std::abs(c));
+                return uncurved * 0.5f + 0.5f;
+            },
+            [](float s, float e, float v) { return juce::jlimit(s, e, v); }
+        ), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"gen_magnitude", 1}, "Magnitude",
         juce::NormalisableRange<float>(0.1f, 5.0f, 0.01f), 1.0f));
@@ -242,6 +256,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{"mod2_amount", 1}, "Mod2 Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
 
+    // Velocity sensitivity (per envelope, 0=fixed, 1=full velocity)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"amp_vel_sens", 1}, "Amp Vel Sens",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"mod1_vel_sens", 1}, "Mod1 Vel Sens",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"mod2_vel_sens", 1}, "Mod2 Vel Sens",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
+
     // ENV Loop (per envelope)
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"amp_loop", 1}, "Amp Loop", false));
@@ -262,15 +287,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::StringArray{"DCA", "Filter", "Scan", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix",
                           "LFO1 Rate", "LFO1 Depth", "LFO2 Rate", "LFO2 Depth", "---"}, 12));
     // LFO targets: 0=Filter, 1=Scan, 2=Pitch, 3=DlyTime, 4=DlyFB, 5=DlyMix, 6=RevMix,
-    //              7=LFOxRate, 8=LFOxDepth, 9=ENV1Amt, 10=ENV2Amt, 11=ENV3Amt, 12=None
+    //              7=ENV1Amt, 8=ENV2Amt, 9=ENV3Amt, 10=None
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"lfo1_target", 1}, "LFO1 Target",
         juce::StringArray{"Filter", "Scan", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix",
-                          "LFO2 Rate", "LFO2 Depth", "ENV1 Amt", "ENV2 Amt", "ENV3 Amt", "---"}, 12));
+                          "ENV1 Amt", "ENV2 Amt", "ENV3 Amt", "---"}, 10));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"lfo2_target", 1}, "LFO2 Target",
         juce::StringArray{"Filter", "Scan", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix",
-                          "LFO1 Rate", "LFO1 Depth", "ENV1 Amt", "ENV2 Amt", "ENV3 Amt", "---"}, 12));
+                          "ENV1 Amt", "ENV2 Amt", "ENV3 Amt", "---"}, 10));
 
     // LFO Mode
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
@@ -355,8 +380,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::NormalisableRange<float>(0.1f, 1.0f, 0.01f), 0.8f));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"seq_preset", 1}, "Seq Preset",
-        juce::StringArray{"East Coast", "West Coast", "Synthwave", "Techno", "Dub Techno",
-                          "Ambient", "IDM Glitch", "Solar", "Arpeggio Bass", "Trance Gate"}, 0));
+        juce::StringArray{"Octave Bounce", "Wide Leap", "Off-Beat Minor", "Glide Groove", "Sparse Stab",
+                          "Rising Arc", "Scatter", "Chromatic", "Bass Walk", "Gated Pulse"}, 0));
 
     // Master volume: purely attenuative (0dB max). DAW fader handles boost.
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -441,6 +466,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.ampSustain = parameters.getRawParameterValue("amp_sustain")->load();
     bp.ampRelease = parameters.getRawParameterValue("amp_release")->load();
     bp.ampAmount  = parameters.getRawParameterValue("amp_amount")->load();
+    bp.ampVelSens = parameters.getRawParameterValue("amp_vel_sens")->load();
     bp.ampLoop    = parameters.getRawParameterValue("amp_loop")->load() > 0.5f;
 
     bp.mod1Attack  = parameters.getRawParameterValue("mod1_attack")->load();
@@ -448,6 +474,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.mod1Sustain = parameters.getRawParameterValue("mod1_sustain")->load();
     bp.mod1Release = parameters.getRawParameterValue("mod1_release")->load();
     bp.mod1Amount  = parameters.getRawParameterValue("mod1_amount")->load();
+    bp.mod1VelSens = parameters.getRawParameterValue("mod1_vel_sens")->load();
     bp.mod1Target  = static_cast<int>(parameters.getRawParameterValue("mod1_target")->load());
     bp.mod1Loop    = parameters.getRawParameterValue("mod1_loop")->load() > 0.5f;
 
@@ -456,6 +483,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.mod2Sustain = parameters.getRawParameterValue("mod2_sustain")->load();
     bp.mod2Release = parameters.getRawParameterValue("mod2_release")->load();
     bp.mod2Amount  = parameters.getRawParameterValue("mod2_amount")->load();
+    bp.mod2VelSens = parameters.getRawParameterValue("mod2_vel_sens")->load();
     bp.mod2Target  = static_cast<int>(parameters.getRawParameterValue("mod2_target")->load());
     bp.mod2Loop    = parameters.getRawParameterValue("mod2_loop")->load() > 0.5f;
 
@@ -671,26 +699,21 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             float l1 = lfo1.processSample();
             float l2 = lfo2.processSample();
 
-            // LFO cross-modulation
-            if (bp.lfo1Target == 7) lfo2.setRate(baseLfo2Rate * (1.0f + l1));
-            if (bp.lfo1Target == 8) lfo2.setDepth(std::max(0.0f, baseLfo2Depth + l1 * baseLfo2Depth));
-            if (bp.lfo2Target == 7) lfo1.setRate(baseLfo1Rate * (1.0f + l2));
-            if (bp.lfo2Target == 8) lfo1.setDepth(std::max(0.0f, baseLfo1Depth + l2 * baseLfo1Depth));
-
             lfo1Buf[i] = l1;
             lfo2Buf[i] = l2;
         }
 
         // LFO → envelope amounts (multiplicative, clamped to 0–1)
+        // 7=ENV1Amt, 8=ENV2Amt, 9=ENV3Amt
         {
             float l1End = numSamples > 0 ? lfo1Buf[numSamples - 1] : 0.0f;
             float l2End = numSamples > 0 ? lfo2Buf[numSamples - 1] : 0.0f;
-            if (bp.lfo1Target == 9)  bp.ampAmount  = juce::jlimit(0.0f, 1.0f, bp.ampAmount  * (1.0f + l1End));
-            if (bp.lfo1Target == 10) bp.mod1Amount = juce::jlimit(0.0f, 1.0f, bp.mod1Amount * (1.0f + l1End));
-            if (bp.lfo1Target == 11) bp.mod2Amount = juce::jlimit(0.0f, 1.0f, bp.mod2Amount * (1.0f + l1End));
-            if (bp.lfo2Target == 9)  bp.ampAmount  = juce::jlimit(0.0f, 1.0f, bp.ampAmount  * (1.0f + l2End));
-            if (bp.lfo2Target == 10) bp.mod1Amount = juce::jlimit(0.0f, 1.0f, bp.mod1Amount * (1.0f + l2End));
-            if (bp.lfo2Target == 11) bp.mod2Amount = juce::jlimit(0.0f, 1.0f, bp.mod2Amount * (1.0f + l2End));
+            if (bp.lfo1Target == 7) bp.ampAmount  = juce::jlimit(0.0f, 1.0f, bp.ampAmount  * (1.0f + l1End));
+            if (bp.lfo1Target == 8) bp.mod1Amount = juce::jlimit(0.0f, 1.0f, bp.mod1Amount * (1.0f + l1End));
+            if (bp.lfo1Target == 9) bp.mod2Amount = juce::jlimit(0.0f, 1.0f, bp.mod2Amount * (1.0f + l1End));
+            if (bp.lfo2Target == 7) bp.ampAmount  = juce::jlimit(0.0f, 1.0f, bp.ampAmount  * (1.0f + l2End));
+            if (bp.lfo2Target == 8) bp.mod1Amount = juce::jlimit(0.0f, 1.0f, bp.mod1Amount * (1.0f + l2End));
+            if (bp.lfo2Target == 9) bp.mod2Amount = juce::jlimit(0.0f, 1.0f, bp.mod2Amount * (1.0f + l2End));
         }
 
         // Render all voices (summed with 1/sqrt(N) scaling)
@@ -890,18 +913,18 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                                                std::memory_order_relaxed);
         }
 
-        // LFO1 Rate/Depth: modulated by env(8/9) or LFO cross-mod(lfo2Target==7/8)
+        // LFO1 Rate/Depth: modulated by env(8/9)
         {
-            bool lfo1RateMod  = bp.mod1Target == 8  || bp.mod2Target == 8  || bp.lfo2Target == 7;
-            bool lfo1DepthMod = bp.mod1Target == 9  || bp.mod2Target == 9  || bp.lfo2Target == 8;
+            bool lfo1RateMod  = bp.mod1Target == 8  || bp.mod2Target == 8;
+            bool lfo1DepthMod = bp.mod1Target == 9  || bp.mod2Target == 9;
             modulatedValues.lfo1Rate.store(lfo1RateMod ? lfo1.getRate() : NO_GHOST, std::memory_order_relaxed);
             modulatedValues.lfo1Depth.store(lfo1DepthMod ? lfo1.getDepth() : NO_GHOST, std::memory_order_relaxed);
         }
 
-        // LFO2 Rate/Depth: modulated by env(10/11) or LFO cross-mod(lfo1Target==7/8)
+        // LFO2 Rate/Depth: modulated by env(10/11)
         {
-            bool lfo2RateMod  = bp.mod1Target == 10 || bp.mod2Target == 10 || bp.lfo1Target == 7;
-            bool lfo2DepthMod = bp.mod1Target == 11 || bp.mod2Target == 11 || bp.lfo1Target == 8;
+            bool lfo2RateMod  = bp.mod1Target == 10 || bp.mod2Target == 10;
+            bool lfo2DepthMod = bp.mod1Target == 11 || bp.mod2Target == 11;
             modulatedValues.lfo2Rate.store(lfo2RateMod ? lfo2.getRate() : NO_GHOST, std::memory_order_relaxed);
             modulatedValues.lfo2Depth.store(lfo2DepthMod ? lfo2.getDepth() : NO_GHOST, std::memory_order_relaxed);
         }

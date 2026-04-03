@@ -45,8 +45,11 @@ void VoiceManager::noteOn(int note, float velocity, bool isGlide, float glideMs,
             }
         }
         if (newest >= 0)
+        {
             voices[static_cast<size_t>(newest)].glideToNote(note, glideMs);
-        return;
+            return;
+        }
+        // No active voice to glide — fall through to normal noteOn
     }
 
     // Find a voice: re-trigger same note > free > steal oldest

@@ -170,6 +170,41 @@ void FxPanel::paint(juce::Graphics& g)
     // SwitchBox borders
     paintSwitchBoxBorder(g, delayTypeSwitchBounds);
     paintSwitchBoxBorder(g, reverbTypeSwitchBounds);
+
+    // ── Wordmark: "T5ynth by UCDCAE AI LAB" ──
+    {
+        int wmY = getHeight() - 18;
+        float wmFs = 10.0f;
+        g.setFont(juce::FontOptions(wmFs));
+
+        // "T5ynth by " in dim gray
+        juce::String prefix = "T5ynth by ";
+        int prefixW = g.getCurrentFont().getStringWidth(prefix);
+        g.setColour(kDimmer);
+        int startX = 8;
+        g.drawText(prefix, startX, wmY, prefixW, 16, juce::Justification::centredLeft);
+
+        // Per-letter colored "UCDCAE AI LAB"
+        struct LetterColor { char ch; juce::Colour col; };
+        LetterColor letters[] = {
+            {'U', juce::Colour(0xff3949ab)}, {'C', juce::Colour(0xffe91e63)},
+            {'D', juce::Colour(0xff2196f3)}, {'C', juce::Colour(0xffff9800)},
+            {'A', juce::Colour(0xffab47bc)}, {'E', juce::Colour(0xffff5722)},
+            {' ', {}},
+            {'A', juce::Colour(0xffff9800)}, {'I', juce::Colour(0xfff44336)},
+            {' ', {}},
+            {'L', juce::Colour(0xff4caf50)}, {'A', juce::Colour(0xff009688)},
+            {'B', juce::Colour(0xff8bc34a)}
+        };
+        int x = startX + prefixW;
+        for (auto& lc : letters)
+        {
+            juce::String ch(juce::CharPointer_ASCII(&lc.ch), 1);
+            int cw = g.getCurrentFont().getStringWidth(ch);
+            if (lc.ch != ' ') { g.setColour(lc.col); g.drawText(ch, x, wmY, cw + 1, 16, juce::Justification::centredLeft); }
+            x += cw;
+        }
+    }
 }
 
 void FxPanel::resized()

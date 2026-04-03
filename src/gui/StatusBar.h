@@ -20,7 +20,9 @@ public:
     /** Callbacks for buttons. */
     std::function<void()> onSavePreset;
     std::function<void()> onLoadPreset;
+    std::function<void()> onExportWav;
     std::function<void()> onSettings;
+    std::function<void()> onAbout;
 
 private:
     juce::String statusText = "Ready";
@@ -29,7 +31,9 @@ private:
 
     juce::TextButton saveBtn { "Save" };
     juce::TextButton loadBtn { "Load" };
+    juce::TextButton exportBtn { "Export" };
     juce::TextButton settingsBtn { "Settings" };
+    juce::TextButton aboutBtn { "About" };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StatusBar)
 };

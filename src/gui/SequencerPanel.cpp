@@ -159,23 +159,17 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     paintSectionHeader(seqHeader, "SEQUENCER", kSeqCol);
     addAndMakeVisible(seqHeader);
 
-    // ── Transport ──
-    playButton.setColour(juce::TextButton::buttonColourId, kSurface);
-    playButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff4caf50));
-    playButton.onClick = [this] {
-        if (auto* par = processorRef.getValueTreeState().getParameter("seq_running"))
-            par->setValueNotifyingHost(1.0f);
+    // ── Transport (single toggle) ──
+    transportBtn.setColour(juce::TextButton::buttonColourId, kSurface);
+    transportBtn.setColour(juce::TextButton::textColourOffId, juce::Colour(0xff4caf50));
+    transportBtn.onClick = [this] {
+        auto* par = processorRef.getValueTreeState().getParameter("seq_running");
+        if (!par) return;
+        bool playing = par->getValue() > 0.5f;
+        par->setValueNotifyingHost(playing ? 0.0f : 1.0f);
+        if (playing) currentStep = -1;
     };
-    addAndMakeVisible(playButton);
-
-    stopButton.setColour(juce::TextButton::buttonColourId, kSurface);
-    stopButton.setColour(juce::TextButton::textColourOffId, kDim);
-    stopButton.onClick = [this] {
-        if (auto* par = processorRef.getValueTreeState().getParameter("seq_running"))
-            par->setValueNotifyingHost(0.0f);
-        currentStep = -1;
-    };
-    addAndMakeVisible(stopButton);
+    addAndMakeVisible(transportBtn);
 
     // ── Step count dropdown (2-32) ──
     for (int i = 2; i <= 32; ++i)
@@ -231,8 +225,8 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     addAndMakeVisible(midiMonitor);
 
     // ── Preset ──
-    presetBox.addItemList({"East Coast","West Coast","Synthwave","Techno","Dub Techno",
-                           "Ambient","IDM Glitch","Solar","Arp Bass","Trance Gate"}, 1);
+    presetBox.addItemList({"Octave Bounce","Wide Leap","Off-Beat Minor","Glide Groove","Sparse Stab",
+                           "Rising Arc","Scatter","Chromatic","Bass Walk","Gated Pulse"}, 1);
     addAndMakeVisible(presetBox);
     presetA = std::make_unique<CA>(apvts, "seq_preset", presetBox);
 
@@ -353,16 +347,26 @@ void SequencerPanel::timerCallback()
             stepCols[static_cast<size_t>(i)]->isCurrentStep = (i == currentStep);
     }
 
+    // Transport button state
+    bool playing = processorRef.getValueTreeState()
+                       .getRawParameterValue("seq_running")->load() > 0.5f;
+    transportBtn.setButtonText(playing ? "STOP" : "PLAY");
+    transportBtn.setColour(juce::TextButton::buttonColourId,
+                           playing ? kSeqCol.darker(0.3f) : kSurface);
+    transportBtn.setColour(juce::TextButton::textColourOffId,
+                           playing ? juce::Colours::white : juce::Colour(0xff4caf50));
+
     // MIDI monitor
     int note = processorRef.lastMidiNote.load(std::memory_order_relaxed);
     bool on  = processorRef.lastMidiNoteOn.load(std::memory_order_relaxed);
     int vel  = processorRef.lastMidiVelocity.load(std::memory_order_relaxed);
     if (note >= 0)
     {
-        auto txt = on ? ("MIDI: " + noteName(note) + " v" + juce::String(vel))
-                      : ("MIDI: " + noteName(note) + " off");
+        auto txt = on ? (noteName(note) + " v" + juce::String(vel))
+                      : (noteName(note) + " off");
         midiMonitor.setText(txt, juce::dontSendNotification);
         midiMonitor.setColour(juce::Label::textColourId, on ? juce::Colour(0xff4ade80) : kDim);
+        repaint(); // repaint for MIDI LED
     }
 
     // Sync step count if changed externally
@@ -389,13 +393,15 @@ void SequencerPanel::paint(juce::Graphics& g)
 {
     g.fillAll(kCard);
 
-    // Playing LED
-    bool playing = processorRef.getValueTreeState()
-                       .getRawParameterValue("seq_running")->load() > 0.5f;
-    int ledX = playButton.getX() - 12;
-    int ledY = playButton.getBounds().getCentreY() - 4;
-    g.setColour(playing ? kSeqCol : kDimmer);
-    g.fillEllipse(static_cast<float>(ledX), static_cast<float>(ledY), 8.0f, 8.0f);
+    // MIDI activity LED (next to note display)
+    if (!midiMonitor.getBounds().isEmpty())
+    {
+        bool noteOn = processorRef.lastMidiNoteOn.load(std::memory_order_relaxed);
+        float ledX = static_cast<float>(midiMonitor.getX()) - 12.0f;
+        float ledY = static_cast<float>(midiMonitor.getBounds().getCentreY()) - 4.0f;
+        g.setColour(noteOn ? juce::Colour(0xff4ade80) : kDimmer);
+        g.fillEllipse(ledX, ledY, 8.0f, 8.0f);
+    }
 
     // Separator above step grid
     if (!gridArea.isEmpty())
@@ -428,11 +434,9 @@ void SequencerPanel::resized()
     int rH = 22;
     int g = 3;
 
-    // ═══ Row 1: LED, transport, step count, division, BPM, MIDI ═══
+    // ═══ Row 1: transport, step count, division, BPM, MIDI ═══
     auto r1 = area.removeFromTop(rH);
-    r1.removeFromLeft(14); // LED space
-    playButton.setBounds(r1.removeFromLeft(26));  r1.removeFromLeft(g);
-    stopButton.setBounds(r1.removeFromLeft(26));  r1.removeFromLeft(g * 2);
+    transportBtn.setBounds(r1.removeFromLeft(52));  r1.removeFromLeft(g * 2);
 
     stepCountBox.setBounds(r1.removeFromLeft(58)); r1.removeFromLeft(g);
 

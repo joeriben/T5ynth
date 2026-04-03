@@ -70,13 +70,21 @@ private:
     void tryLoadNativeInference();
     void savePreset();
     void loadPreset();
+    void exportWav();
     void showSettings();
     void hideSettings();
+    void showAbout();
+    void hideAbout();
 
     // Model settings overlay
     SettingsPage settingsPage;
     Scrim settingsScrim;
     bool settingsVisible = false;
+
+    // About overlay
+    Scrim aboutScrim;
+    juce::TextEditor aboutText;
+    bool aboutVisible = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainPanel)
 };

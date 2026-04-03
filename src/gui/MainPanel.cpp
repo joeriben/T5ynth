@@ -30,13 +30,28 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     // Wire StatusBar buttons
     statusBar.onSavePreset = [this] { savePreset(); };
     statusBar.onLoadPreset = [this] { loadPreset(); };
+    statusBar.onExportWav = [this] { exportWav(); };
     statusBar.onSettings = [this] { if (settingsVisible) hideSettings(); else showSettings(); };
+    statusBar.onAbout = [this] { showAbout(); };
 
     // Settings overlay (same pattern as DimExplorer)
     settingsScrim.onClick = [this] { hideSettings(); };
     settingsScrim.setVisible(false);
     addChildComponent(settingsScrim);
     addChildComponent(settingsPage);
+
+    // About overlay
+    aboutScrim.onClick = [this] { hideAbout(); };
+    aboutScrim.setVisible(false);
+    addChildComponent(aboutScrim);
+    aboutText.setMultiLine(true);
+    aboutText.setReadOnly(true);
+    aboutText.setColour(juce::TextEditor::backgroundColourId, kCard);
+    aboutText.setColour(juce::TextEditor::textColourId, juce::Colour(0xffe3e3e3));
+    aboutText.setColour(juce::TextEditor::outlineColourId, kBorder);
+    aboutText.setScrollbarsShown(true);
+    aboutText.setVisible(false);
+    addChildComponent(aboutText);
 
     // Master volume — vertical slider
     masterVolKnob.setSliderStyle(juce::Slider::LinearVertical);
@@ -173,6 +188,12 @@ void MainPanel::mouseDown(const juce::MouseEvent& e)
         auto settingsBounds = settingsPage.getBounds();
         if (!settingsBounds.contains(e.x, e.y))
             hideSettings();
+    }
+    if (aboutVisible)
+    {
+        auto ab = aboutText.getBounds();
+        if (!ab.contains(e.x, e.y))
+            hideAbout();
     }
 }
 
@@ -405,6 +426,17 @@ void MainPanel::resized()
     // Scrims cover everything
     dimScrim.setBounds(getLocalBounds());
     settingsScrim.setBounds(getLocalBounds());
+    aboutScrim.setBounds(getLocalBounds());
+
+    // About overlay (centered)
+    if (aboutVisible)
+    {
+        int aboutW = juce::jlimit(500, 800, juce::roundToInt(w * 0.55f));
+        int aboutH = juce::jlimit(400, 600, juce::roundToInt(h * 0.7f));
+        int ax = (getWidth() - aboutW) / 2;
+        int ay = (getHeight() - aboutH) / 2;
+        aboutText.setBounds(ax, ay, aboutW, aboutH);
+    }
 
     // Settings overlay (bottom-right, above StatusBar)
     if (settingsVisible)
@@ -438,6 +470,104 @@ void MainPanel::resized()
 
         dimensionExplorer.setBounds(overlayBounds.reduced(20, 10));
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// WAV Export
+// ═══════════════════════════════════════════════════════════════════
+
+void MainPanel::exportWav()
+{
+    const auto& audio = processorRef.getGeneratedAudio();
+    if (audio.getNumSamples() == 0)
+    {
+        statusBar.setStatusText("No audio to export");
+        return;
+    }
+
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Export WAV", juce::File::getSpecialLocation(juce::File::userDesktopDirectory), "*.wav");
+
+    chooser->launchAsync(juce::FileBrowserComponent::saveMode,
+        [this, chooser](const juce::FileChooser& fc)
+        {
+            auto file = fc.getResult();
+            if (file == juce::File()) return;
+
+            // Ensure .wav extension
+            if (!file.hasFileExtension("wav"))
+                file = file.withFileExtension("wav");
+
+            const auto& buf = processorRef.getGeneratedAudio();
+            auto outStream = file.createOutputStream();
+            if (!outStream) { statusBar.setStatusText("Export failed"); return; }
+
+            juce::WavAudioFormat wav;
+            std::unique_ptr<juce::AudioFormatWriter> writer(
+                wav.createWriterFor(outStream.release(), 44100.0,
+                                    static_cast<unsigned int>(buf.getNumChannels()),
+                                    16, {}, 0));
+            if (writer)
+            {
+                writer->writeFromAudioSampleBuffer(buf, 0, buf.getNumSamples());
+                statusBar.setStatusText("Exported: " + file.getFileName());
+            }
+            else
+                statusBar.setStatusText("Export failed");
+        });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// About
+// ═══════════════════════════════════════════════════════════════════
+
+void MainPanel::showAbout()
+{
+    aboutVisible = true;
+    aboutScrim.setVisible(true);
+    aboutScrim.toFront(false);
+
+    // Load README content
+    auto exe = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
+    juce::File readmeFile;
+    auto search = exe.getParentDirectory();
+    for (int i = 0; i < 8; ++i)
+    {
+        if (search.getChildFile("README.md").existsAsFile())
+        {
+            readmeFile = search.getChildFile("README.md");
+            break;
+        }
+        search = search.getParentDirectory();
+    }
+
+    juce::String content;
+    content += "T5ynth\n";
+    content += "A text-to-sound synthesizer by Prof. Dr. Benjamin Joerissen\n";
+    content += "UCDCAE AI Lab / AI4ArtsEd\n\n";
+    content += juce::String(juce::CharPointer_UTF8(
+        "Funded by the German Federal Ministry for Family Affairs,\n"
+        "Senior Citizens, Women and Youth (BMFSFJ),\n"
+        "grant no. 01JKT2408A.\n\n"));
+    content += "Licensed under GNU General Public License v3.0\n";
+    content += "Powered by Stability AI (Stable Audio Open 1.0)\n\n";
+
+    if (readmeFile.existsAsFile())
+        content += readmeFile.loadFileAsString();
+
+    aboutText.setFont(juce::FontOptions(13.0f));
+    aboutText.setText(content);
+    aboutText.setVisible(true);
+    aboutText.toFront(false);
+    aboutText.setCaretPosition(0);
+    resized();
+}
+
+void MainPanel::hideAbout()
+{
+    aboutVisible = false;
+    aboutScrim.setVisible(false);
+    aboutText.setVisible(false);
 }
 
 // ═══════════════════════════════════════════════════════════════════

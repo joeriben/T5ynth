@@ -97,6 +97,11 @@ private:
 
     double sr = 44100.0;
 
+    // Velocity sensitivity (updated per block from BlockParams)
+    float ampVelSens_ = 1.0f;
+    float mod1VelSens_ = 1.0f;
+    float mod2VelSens_ = 1.0f;
+
     // Cached mod values from last renderBlock (for VoiceManager capture)
     float lastMod1Val_ = 0.0f;
     float lastMod2Val_ = 0.0f;

@@ -33,8 +33,7 @@ private:
     juce::Label seqHeader;
 
     // Row 1: Transport + step config
-    juce::TextButton playButton { ">" };
-    juce::TextButton stopButton { "||" };
+    juce::TextButton transportBtn { "PLAY" };
     juce::ComboBox stepCountBox;                  // dropdown 2-32
     static constexpr int kNumDivBtns = 5;
     juce::TextButton divBtns[kNumDivBtns];        // [1/1][1/2][1/4][1/8][1/16]

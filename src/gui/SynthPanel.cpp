@@ -15,7 +15,8 @@ static juce::String fmtHzF2(double v){ return juce::String(v, 2) + " Hz"; }
 void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultTarget,
                           const juce::String& aId, const juce::String& dId,
                           const juce::String& sId, const juce::String& rId,
-                          const juce::String& amtId, const juce::String& loopId,
+                          const juce::String& amtId, const juce::String& velId,
+                          const juce::String& loopId,
                           juce::AudioProcessorValueTreeState& apvts)
 {
     env.header.setText(name, juce::dontSendNotification);
@@ -37,9 +38,10 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     env.sRow   = std::make_unique<SliderRow>("S",   fmtF2, kEnvCol);
     env.rRow   = std::make_unique<SliderRow>("R",   fmtMs, kEnvCol);
     env.amtRow = std::make_unique<SliderRow>("Amt", fmtF2, kEnvCol);
+    env.velRow = std::make_unique<SliderRow>("Vel", fmtF2, kEnvCol);
 
     for (auto* row : { env.aRow.get(), env.dRow.get(), env.sRow.get(),
-                       env.rRow.get(), env.amtRow.get() })
+                       env.rRow.get(), env.amtRow.get(), env.velRow.get() })
         addAndMakeVisible(*row);
 
     env.aA   = std::make_unique<SA>(apvts, aId,   env.aRow->getSlider());
@@ -47,6 +49,7 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     env.sA   = std::make_unique<SA>(apvts, sId,   env.sRow->getSlider());
     env.rA   = std::make_unique<SA>(apvts, rId,   env.rRow->getSlider());
     env.amtA = std::make_unique<SA>(apvts, amtId, env.amtRow->getSlider());
+    env.velA = std::make_unique<SA>(apvts, velId,  env.velRow->getSlider());
     env.loopA = std::make_unique<BA>(apvts, loopId, env.loopToggle);
 
     // Trigger initial value display
@@ -55,6 +58,7 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     env.sRow->updateValue();
     env.rRow->updateValue();
     env.amtRow->updateValue();
+    env.velRow->updateValue();
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -326,9 +330,9 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     kbdTrackRow->updateValue();
 
     // ── Envelopes ──
-    initEnv(ampEnv,  "ENV 1", 1, "amp_attack",  "amp_decay",  "amp_sustain",  "amp_release",  "amp_amount",  "amp_loop",  apvts);
-    initEnv(mod1Env, "ENV 2", 4, "mod1_attack", "mod1_decay", "mod1_sustain", "mod1_release", "mod1_amount", "mod1_loop", apvts);
-    initEnv(mod2Env, "ENV 3", 4, "mod2_attack", "mod2_decay", "mod2_sustain", "mod2_release", "mod2_amount", "mod2_loop", apvts);
+    initEnv(ampEnv,  "ENV 1", 1, "amp_attack",  "amp_decay",  "amp_sustain",  "amp_release",  "amp_amount",  "amp_vel_sens",  "amp_loop",  apvts);
+    initEnv(mod1Env, "ENV 2", 4, "mod1_attack", "mod1_decay", "mod1_sustain", "mod1_release", "mod1_amount", "mod1_vel_sens", "mod1_loop", apvts);
+    initEnv(mod2Env, "ENV 3", 4, "mod2_attack", "mod2_decay", "mod2_sustain", "mod2_release", "mod2_amount", "mod2_vel_sens", "mod2_loop", apvts);
 
     // ── LFOs ──
     initLfo(lfo1, "LFO 1", "lfo1_rate", "lfo1_depth", "lfo1_wave", "lfo1_mode", apvts);
@@ -500,7 +504,7 @@ void SynthPanel::updateVisibility()
         env.loopToggle.setAlpha(alpha);
         env.loopToggle.setEnabled(active);
         for (auto* r : { env.aRow.get(), env.dRow.get(), env.sRow.get(),
-                         env.rRow.get(), env.amtRow.get() })
+                         env.rRow.get(), env.amtRow.get(), env.velRow.get() })
             if (r) { r->setAlpha(alpha); r->setEnabled(active); }
     };
     setEnvDimmed(ampEnv);
@@ -575,6 +579,8 @@ void SynthPanel::layoutEnv(EnvSection& env, juce::Rectangle<int>& area, float f,
 
     auto amtRow = area.removeFromTop(rowH);
     env.amtRow->setBounds(amtRow.removeFromLeft(colW));
+    amtRow.removeFromLeft(4);
+    env.velRow->setBounds(amtRow);
 
     area.removeFromTop(gap);
 }

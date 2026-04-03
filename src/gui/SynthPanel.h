@@ -72,8 +72,8 @@ private:
         juce::Label header;
         juce::ComboBox targetBox;
         juce::ToggleButton loopToggle { "Loop" };
-        std::unique_ptr<SliderRow> aRow, dRow, sRow, rRow, amtRow;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> aA, dA, sA, rA, amtA;
+        std::unique_ptr<SliderRow> aRow, dRow, sRow, rRow, amtRow, velRow;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> aA, dA, sA, rA, amtA, velA;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> loopA;
     };
     EnvSection ampEnv, mod1Env, mod2Env;
@@ -122,7 +122,8 @@ private:
     void initEnv(EnvSection& env, const juce::String& name, int defaultTarget,
                  const juce::String& aId, const juce::String& dId,
                  const juce::String& sId, const juce::String& rId,
-                 const juce::String& amtId, const juce::String& loopId,
+                 const juce::String& amtId, const juce::String& velId,
+                 const juce::String& loopId,
                  juce::AudioProcessorValueTreeState& apvts);
     void initLfo(LfoSection& lfo, const juce::String& name,
                  const juce::String& rateId, const juce::String& depthId,

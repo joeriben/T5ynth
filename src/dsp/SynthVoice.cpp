@@ -33,9 +33,13 @@ void SynthVoice::noteOn(int note, float velocity, bool legato)
 
     if (!legato)
     {
-        ampEnv.noteOn(velocity);
-        modEnv1.noteOn(velocity);
-        modEnv2.noteOn(velocity);
+        // Apply velocity sensitivity: 0=fixed (always 1), 1=full velocity
+        float ampVel  = (1.0f - ampVelSens_)  + ampVelSens_  * velocity;
+        float mod1Vel = (1.0f - mod1VelSens_) + mod1VelSens_ * velocity;
+        float mod2Vel = (1.0f - mod2VelSens_) + mod2VelSens_ * velocity;
+        ampEnv.noteOn(ampVel);
+        modEnv1.noteOn(mod1Vel);
+        modEnv2.noteOn(mod2Vel);
     }
 
     // Set pitch (cache base for modulation reference)
@@ -73,18 +77,21 @@ void SynthVoice::configureForBlock(const BlockParams& p)
     ampEnv.setSustain(p.ampSustain);
     ampEnv.setRelease(p.ampRelease);
     ampEnv.setLooping(p.ampLoop);
+    ampVelSens_ = p.ampVelSens;
 
     modEnv1.setAttack(p.mod1Attack);
     modEnv1.setDecay(p.mod1Decay);
     modEnv1.setSustain(p.mod1Sustain);
     modEnv1.setRelease(p.mod1Release);
     modEnv1.setLooping(p.mod1Loop);
+    mod1VelSens_ = p.mod1VelSens;
 
     modEnv2.setAttack(p.mod2Attack);
     modEnv2.setDecay(p.mod2Decay);
     modEnv2.setSustain(p.mod2Sustain);
     modEnv2.setRelease(p.mod2Release);
     modEnv2.setLooping(p.mod2Loop);
+    mod2VelSens_ = p.mod2VelSens;
 }
 
 SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float globalLfo1Val, float globalLfo2Val)

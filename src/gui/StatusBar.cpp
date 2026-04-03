@@ -3,20 +3,18 @@
 
 StatusBar::StatusBar()
 {
-    saveBtn.setColour(juce::TextButton::buttonColourId, kSurface);
-    saveBtn.setColour(juce::TextButton::textColourOffId, kDim);
-    saveBtn.onClick = [this] { if (onSavePreset) onSavePreset(); };
-    addAndMakeVisible(saveBtn);
+    for (auto* btn : { &saveBtn, &loadBtn, &exportBtn, &settingsBtn, &aboutBtn })
+    {
+        btn->setColour(juce::TextButton::buttonColourId, kSurface);
+        btn->setColour(juce::TextButton::textColourOffId, kDim);
+        addAndMakeVisible(btn);
+    }
 
-    loadBtn.setColour(juce::TextButton::buttonColourId, kSurface);
-    loadBtn.setColour(juce::TextButton::textColourOffId, kDim);
-    loadBtn.onClick = [this] { if (onLoadPreset) onLoadPreset(); };
-    addAndMakeVisible(loadBtn);
-
-    settingsBtn.setColour(juce::TextButton::buttonColourId, kSurface);
-    settingsBtn.setColour(juce::TextButton::textColourOffId, kDim);
+    saveBtn.onClick     = [this] { if (onSavePreset) onSavePreset(); };
+    loadBtn.onClick     = [this] { if (onLoadPreset) onLoadPreset(); };
+    exportBtn.onClick   = [this] { if (onExportWav) onExportWav(); };
     settingsBtn.onClick = [this] { if (onSettings) onSettings(); };
-    addAndMakeVisible(settingsBtn);
+    aboutBtn.onClick    = [this] { if (onAbout) onAbout(); };
 }
 
 void StatusBar::paint(juce::Graphics& g)
@@ -30,25 +28,25 @@ void StatusBar::paint(juce::Graphics& g)
     g.fillEllipse(dotX, (h - dotSize) * 0.5f, dotSize, dotSize);
 
     float fs = juce::jlimit(10.0f, 14.0f, h * 0.55f);
-    g.setColour(juce::Colour(0xffe3e3e3));
     g.setFont(juce::FontOptions(fs));
-    int textX = juce::roundToInt(dotX + dotSize + 6.0f);
 
-    // Status text (left side, up to save button)
-    int textW = saveBtn.getX() - textX - 8;
-    g.drawText(statusText, textX, 0, textW, getHeight(),
+    int textX = juce::roundToInt(dotX + dotSize + 6.0f);
+    int rightEdge = saveBtn.getX() - 8;
+
+    // Status text (left side)
+    g.setColour(juce::Colour(0xffe3e3e3));
+    g.drawText(statusText, textX, 0, rightEdge - textX, getHeight(),
                juce::Justification::centredLeft);
 
-    // Preset name
+    // Preset name (centered between status text and buttons)
     if (presetName.isNotEmpty())
     {
-        int presetX = textX + textW / 2;
         g.setColour(kAccent);
-        g.drawText(presetName, presetX, 0, textW / 2, getHeight(),
-                   juce::Justification::centredRight);
+        g.drawText(presetName, textX, 0, rightEdge - textX, getHeight(),
+                   juce::Justification::centred);
     }
 
-    // "Powered by Stability AI" — required by Stable Audio Community License
+    // "Powered by Stability AI"
     float smallFs = juce::jlimit(8.0f, 10.0f, h * 0.45f);
     g.setFont(juce::FontOptions(smallFs));
     g.setColour(kDimmer);
@@ -63,11 +61,18 @@ void StatusBar::resized()
     int btnW = 50;
     int btnH = b.getHeight() - 2;
     int y = 1;
+    int gap = 4;
 
+    // Right to left: About, Settings, Export, Load, Save
+    int aboutW = 50;
     int settingsW = 60;
-    settingsBtn.setBounds(b.getRight() - settingsW - 4, y, settingsW, btnH);
-    loadBtn.setBounds(settingsBtn.getX() - btnW - 4, y, btnW, btnH);
-    saveBtn.setBounds(loadBtn.getX() - btnW - 4, y, btnW, btnH);
+    int exportW = 54;
+
+    aboutBtn.setBounds(b.getRight() - aboutW - gap, y, aboutW, btnH);
+    settingsBtn.setBounds(aboutBtn.getX() - settingsW - gap, y, settingsW, btnH);
+    exportBtn.setBounds(settingsBtn.getX() - exportW - gap, y, exportW, btnH);
+    loadBtn.setBounds(exportBtn.getX() - btnW - gap, y, btnW, btnH);
+    saveBtn.setBounds(loadBtn.getX() - btnW - gap, y, btnW, btnH);
 }
 
 void StatusBar::setStatusText(const juce::String& text)

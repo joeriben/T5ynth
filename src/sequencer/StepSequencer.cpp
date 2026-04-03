@@ -68,16 +68,16 @@ static constexpr T5ynthStepSequencer::Step P_TRANCE_GATE[] = {
 // clang-format on
 
 const T5ynthStepSequencer::PresetData T5ynthStepSequencer::presetTable[NUM_PRESETS] = {
-    { "eastcoast",    P_EASTCOAST,    16 },
-    { "westcoast",    P_WESTCOAST,     5 },
-    { "synthwave",    P_SYNTHWAVE,    16 },
-    { "techno",       P_TECHNO,       16 },
-    { "dub_techno",   P_DUB_TECHNO,   16 },
-    { "ambient",      P_AMBIENT,      16 },
-    { "idm_glitch",   P_IDM_GLITCH,   10 },
-    { "solar",        P_SOLAR,        16 },
-    { "arpeggio_bass",P_ARPEGGIO_BASS,32 },
-    { "trance_gate",  P_TRANCE_GATE,   8 },
+    { "Octave Bounce",  P_EASTCOAST,    16 },
+    { "Wide Leap",      P_WESTCOAST,     5 },
+    { "Off-Beat Minor", P_SYNTHWAVE,    16 },
+    { "Glide Groove",   P_TECHNO,       16 },
+    { "Sparse Stab",    P_DUB_TECHNO,   16 },
+    { "Rising Arc",     P_AMBIENT,      16 },
+    { "Scatter",        P_IDM_GLITCH,   10 },
+    { "Chromatic",      P_SOLAR,        16 },
+    { "Bass Walk",      P_ARPEGGIO_BASS,32 },
+    { "Gated Pulse",    P_TRANCE_GATE,   8 },
 };
 
 // ─── Implementation ────────────────────────────────────────────────────────

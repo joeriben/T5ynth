@@ -45,7 +45,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     makeLabel(alphaValue, "0.00", kOscCol, juce::Justification::centredRight, this);
     makeLabel(alphaHint, "Interpolation: -1.0 = A only, 1.0 = B only", kDim, juce::Justification::centredLeft, this);
     alphaSlider.onValueChange = [this] {
-        alphaValue.setText(juce::String(alphaSlider.getValue(), 2), juce::dontSendNotification);
+        alphaValue.setText(juce::String(alphaSlider.getValue(), 3), juce::dontSendNotification);
     };
 
     // Magnitude
@@ -432,6 +432,8 @@ void PromptPanel::triggerGeneration()
                     processor->setLastSeed(result.seed);
                     processor->setLastPrompts(promptAEditor.getText().trim(),
                                               promptBEditor.getText().trim());
+                    // Show used seed in seed field (especially useful for random seeds)
+                    seedEditor.setText(juce::String(result.seed), false);
                     auto info = juce::String(result.generationTimeMs / 1000.0f, 1) + "s | seed "
                                 + juce::String(result.seed) + " | " + deviceForLabel;
                     if (onStatusChanged) onStatusChanged(info, false);
