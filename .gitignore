@@ -1,4 +1,5 @@
-build/
+/build/
+/build_clean/
 .cache/
 *.o
 *.so
