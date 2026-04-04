@@ -77,6 +77,31 @@ and are installed separately by the user.
 
 ---
 
+## Signalsmith Stretch
+
+**Version:** 1.1.0
+**Author:** Geraint Luff / Signalsmith Audio Ltd.
+**License:** MIT
+**URL:** https://github.com/Signalsmith-Audio/signalsmith-stretch
+
+Pitch-preserving sample transposition (STFT-based pitch shifting).
+Fetched at build time via CMake FetchContent. Header-only library,
+compiled into the T5ynth binary.
+
+---
+
+## nlohmann/json
+
+**Version:** 3.11.3
+**Author:** Niels Lohmann
+**License:** MIT
+**URL:** https://github.com/nlohmann/json
+
+JSON parsing for configuration and preset files.
+Fetched at build time via CMake FetchContent.
+
+---
+
 ## SentencePiece
 
 **License:** Apache 2.0
