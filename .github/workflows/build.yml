@@ -86,7 +86,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip install pyinstaller
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install torch --index-url https://download.pytorch.org/whl/cu124
           pip install -r backend/requirements.txt
 
       - name: Bundle Python backend (PyInstaller)
@@ -127,6 +127,13 @@ jobs:
         with:
           submodules: true
 
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -143,7 +150,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip install pyinstaller
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install torch --index-url https://download.pytorch.org/whl/cu124
           pip install -r backend/requirements.txt
 
       - name: Bundle Python backend (PyInstaller)
