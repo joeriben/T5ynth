@@ -86,6 +86,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip install pyinstaller
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install -r backend/requirements.txt
 
       - name: Bundle Python backend (PyInstaller)
@@ -120,7 +121,7 @@ jobs:
 
   # ── Linux ───────────────────────────────────────────────────────
   linux:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -142,6 +143,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip install pyinstaller
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install -r backend/requirements.txt
 
       - name: Bundle Python backend (PyInstaller)

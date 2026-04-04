@@ -4,7 +4,12 @@ project(T5ynth VERSION 0.1.0)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(CURL REQUIRED)
+# libcurl: required on Linux (JUCE URL backend), optional elsewhere
+if(UNIX AND NOT APPLE)
+    find_package(CURL REQUIRED)
+else()
+    find_package(CURL QUIET)
+endif()
 
 # ── nlohmann/json (header-only, for config parsing) ──────
 include(FetchContent)
@@ -94,7 +99,7 @@ target_link_libraries(T5ynth
         juce::juce_audio_utils
         juce::juce_dsp
         juce::juce_gui_extra
-        CURL::libcurl
+        $<$<BOOL:${CURL_FOUND}>:CURL::libcurl>
         nlohmann_json::nlohmann_json
     PUBLIC
         juce::juce_recommended_config_flags
@@ -105,7 +110,7 @@ target_link_libraries(T5ynth
 target_compile_definitions(T5ynth
     PUBLIC
         JUCE_WEB_BROWSER=0
-        JUCE_USE_CURL=1
+        JUCE_USE_CURL=$<BOOL:${CURL_FOUND}>
         JUCE_VST3_CAN_REPLACE_VST2=0
         JUCE_DISPLAY_SPLASH_SCREEN=0
     PRIVATE
