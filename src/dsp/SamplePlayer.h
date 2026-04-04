@@ -137,13 +137,10 @@ private:
     std::vector<float> rawReadBuf;
     int maxBlockSize = 512;
 
-    static constexpr int PITCH_PROCESS_CHUNK = 64;
+    // ─── Catmull-Rom cubic interpolation (fast, high quality) ───
 
-    // ─── Lanczos sinc interpolation ───
-    static constexpr int SINC_KERNEL_A = 6;
-
-    /** 6-tap Lanczos sinc interpolation at fractional buffer position. */
-    float lanczosSample(double pos) const;
+    /** 4-point Catmull-Rom cubic interpolation at fractional buffer position. */
+    float cubicSample(double pos) const;
 
     /** Read raw samples at 1:1 speed (SR-corrected only, no transposition).
      *  Advances readPosition and handles loop wrapping. */

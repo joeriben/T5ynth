@@ -187,47 +187,33 @@ void SamplePlayer::preparePlaybackBuffer()
 // ═══════════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════════
-// Lanczos sinc interpolation (6-tap kernel)
+// Catmull-Rom cubic interpolation (4-point, no trig — ~20× faster than Lanczos)
 // ═══════════════════════════════════════════════════════════════════
 
-float SamplePlayer::lanczosSample(double pos) const
+float SamplePlayer::cubicSample(double pos) const
 {
     const auto& buf = sharedMode ? *sharedPlayBuffer : playBuffer;
     const float* data = buf.getReadPointer(0);
     const int bufLen = buf.getNumSamples();
 
-    const int center = static_cast<int>(std::floor(pos));
-    const double frac = pos - center;
+    int i1 = static_cast<int>(std::floor(pos));
+    float t = static_cast<float>(pos - i1);
 
-    // Fast path: integer position
-    if (frac < 1e-8 && center >= 0 && center < bufLen)
-        return data[center];
+    // Clamp indices to buffer bounds
+    int i0 = (i1 > 0) ? i1 - 1 : 0;
+    if (i1 < 0) i1 = 0;
+    else if (i1 >= bufLen) i1 = bufLen - 1;
+    int i2 = (i1 + 1 < bufLen) ? i1 + 1 : bufLen - 1;
+    int i3 = (i1 + 2 < bufLen) ? i1 + 2 : bufLen - 1;
 
-    double sum = 0.0, weightSum = 0.0;
+    float p0 = data[i0], p1 = data[i1], p2 = data[i2], p3 = data[i3];
 
-    for (int i = -SINC_KERNEL_A + 1; i <= SINC_KERNEL_A; ++i)
-    {
-        int idx = center + i;
-        if (idx < 0 || idx >= bufLen) continue;
-
-        double x = frac - i;
-        double w;
-        if (std::abs(x) < 1e-6)
-            w = 1.0;
-        else if (std::abs(x) >= SINC_KERNEL_A)
-            w = 0.0;
-        else
-        {
-            double piX = juce::MathConstants<double>::pi * x;
-            double piXA = piX / SINC_KERNEL_A;
-            w = (std::sin(piX) / piX) * (std::sin(piXA) / piXA);
-        }
-
-        sum += data[idx] * w;
-        weightSum += w;
-    }
-
-    return weightSum > 0.0 ? static_cast<float>(sum / weightSum) : 0.0f;
+    // Catmull-Rom spline: 12 mul + 8 add, zero trig
+    float a = -0.5f * p0 + 1.5f * p1 - 1.5f * p2 + 0.5f * p3;
+    float b =         p0 - 2.5f * p1 + 2.0f * p2 - 0.5f * p3;
+    float c = -0.5f * p0              + 0.5f * p2;
+    // d = p1
+    return ((a * t + b) * t + c) * t + p1;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -251,8 +237,8 @@ float SamplePlayer::processSample()
     const double srRatio = bufferOriginalSR / playbackSampleRate;
     double speedRatio = srRatio * transposeRatio;
 
-    // Read with Lanczos sinc interpolation
-    float result = lanczosSample(readPosition);
+    // Read with cubic interpolation
+    float result = cubicSample(readPosition);
 
     readPosition += speedRatio;
 
@@ -285,7 +271,7 @@ void SamplePlayer::readRawSamples(float* output, int numSamples)
 
     for (int i = 0; i < numSamples; ++i)
     {
-        output[i] = lanczosSample(readPosition);
+        output[i] = cubicSample(readPosition);
         readPosition += srRatio; // 1:1 speed, only SR correction
 
         if (readPosition >= static_cast<double>(playEnd))
@@ -321,8 +307,25 @@ void SamplePlayer::renderPitchedBlock(float* output, int numSamples)
     if (needsReprepareFlag && !sharedMode)
         preparePlaybackBuffer();
 
-    // Bypass: original speed-based transposition (with sinc interpolation)
-    if (pitchQuality == PitchShiftQuality::Bypass)
+    // Advance glide state for the entire block
+    if (glideSamplesLeft > 0)
+    {
+        int steps = std::min(glideSamplesLeft, numSamples);
+        transposeRatio += glideRatioIncr * steps;
+        glideSamplesLeft -= steps;
+        if (glideSamplesLeft <= 0)
+        {
+            transposeRatio = glideTargetRatio;
+            glideSamplesLeft = 0;
+        }
+    }
+
+    // Bypass: speed-based transposition (with cubic interpolation)
+    // Also bypass when transposition is negligible (< 0.1 semitone)
+    float semitones = static_cast<float>(12.0 * std::log2(std::max(transposeRatio, 1e-6)));
+    bool nearUnity = std::abs(semitones) < 0.1f;
+
+    if (pitchQuality == PitchShiftQuality::Bypass || nearUnity)
     {
         for (int i = 0; i < numSamples; ++i)
         {
@@ -340,49 +343,15 @@ void SamplePlayer::renderPitchedBlock(float* output, int numSamples)
     if (!stretcherPrepared)
         prepareStretcher();
 
-    // Process in sub-chunks for smooth glide transitions
-    int remaining = numSamples;
-    int offset = 0;
+    // Set pitch transposition and process the full block at once
+    stretcher.setTransposeSemitones(semitones);
 
-    while (remaining > 0 && playing)
-    {
-        int chunkSize = std::min(remaining, PITCH_PROCESS_CHUNK);
+    // Read raw samples at original speed (SR-corrected only)
+    readRawSamples(rawReadBuf.data(), numSamples);
 
-        // Advance glide state for this chunk
-        if (glideSamplesLeft > 0)
-        {
-            int steps = std::min(glideSamplesLeft, chunkSize);
-            transposeRatio += glideRatioIncr * steps;
-            glideSamplesLeft -= steps;
-            if (glideSamplesLeft <= 0)
-            {
-                transposeRatio = glideTargetRatio;
-                glideSamplesLeft = 0;
-            }
-        }
-
-        // Set pitch transposition on the stretcher
-        float semitones = static_cast<float>(12.0 * std::log2(transposeRatio));
-        stretcher.setTransposeSemitones(semitones);
-
-        // Read raw samples at original speed (SR-corrected only)
-        if (rawReadBuf.size() < static_cast<size_t>(chunkSize))
-            rawReadBuf.resize(static_cast<size_t>(chunkSize));
-        readRawSamples(rawReadBuf.data(), chunkSize);
-
-        // Pitch-shift through Signalsmith Stretch (mono: 1 channel)
-        float* inPtr = rawReadBuf.data();
-        float* outPtr = output + offset;
-        stretcher.process(&inPtr, chunkSize, &outPtr, chunkSize);
-
-        offset += chunkSize;
-        remaining -= chunkSize;
-    }
-
-    // Zero remainder if playback stopped mid-block
-    if (offset < numSamples)
-        std::memset(output + offset, 0,
-                    sizeof(float) * static_cast<size_t>(numSamples - offset));
+    // Pitch-shift through Signalsmith Stretch (mono: 1 channel)
+    float* inPtr = rawReadBuf.data();
+    stretcher.process(&inPtr, numSamples, &output, numSamples);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -395,18 +364,18 @@ void SamplePlayer::prepareStretcher()
     switch (pitchQuality)
     {
         case PitchShiftQuality::Bypass:
-            break; // no stretcher needed
+            break;
         case PitchShiftQuality::Efficient:
             stretcher.presetCheaper(1, sr);
             break;
+        case PitchShiftQuality::Default:
+            stretcher.presetCheaper(1, sr); // cheap enough for polyphonic real-time
+            break;
         case PitchShiftQuality::HighQuality:
             stretcher.presetDefault(1, sr);
-            // Larger block for higher quality (4096 samples, 256 interval)
-            stretcher.configure(1, 4096, 256);
             break;
-        case PitchShiftQuality::Default:
         default:
-            stretcher.presetDefault(1, sr);
+            stretcher.presetCheaper(1, sr);
             break;
     }
     stretcherPrepared = (pitchQuality != PitchShiftQuality::Bypass);
