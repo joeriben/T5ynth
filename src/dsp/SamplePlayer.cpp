@@ -347,14 +347,15 @@ void SamplePlayer::renderPitchedBlock(float* output, int numSamples)
     if (!stretcherPrepared)
         prepareStretcher();
 
+    // Set transposition BEFORE priming — primeStretcher() runs process()
+    // internally, which must use the new note's pitch, not the previous one's.
+    stretcher.setTransposeSemitones(semitones);
+
     if (stretcherNeedsPriming)
     {
         primeStretcher();
         stretcherNeedsPriming = false;
     }
-
-    // Set pitch transposition and process the full block at once
-    stretcher.setTransposeSemitones(semitones);
 
     // Read raw samples at original speed (SR-corrected only)
     readRawSamples(rawReadBuf.data(), numSamples);
