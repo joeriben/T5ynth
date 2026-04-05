@@ -52,16 +52,16 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     makeLabel(magValue, "1.00", kOscCol, juce::Justification::centredRight, this);
     makeLabel(magHint, "Embedding scale (1.0 = unchanged)", kDim, juce::Justification::centredLeft, this);
     magnitudeSlider.onValueChange = [this] {
-        magValue.setText(juce::String(magnitudeSlider.getValue(), 2), juce::dontSendNotification);
+        magValue.setText(juce::String(magnitudeSlider.getValue(), 3), juce::dontSendNotification);
     };
 
     // Noise
     makeSlider(noiseSlider, this);
     makeLabel(noiseLabel, "Noise", kDim, juce::Justification::centredLeft, this);
-    makeLabel(noiseValue, "0.00", kOscCol, juce::Justification::centredRight, this);
+    makeLabel(noiseValue, "0.000", kOscCol, juce::Justification::centredRight, this);
     makeLabel(noiseHint, "Gaussian noise on embedding (0 = none)", kDim, juce::Justification::centredLeft, this);
     noiseSlider.onValueChange = [this] {
-        noiseValue.setText(juce::String(noiseSlider.getValue(), 2), juce::dontSendNotification);
+        noiseValue.setText(juce::String(noiseSlider.getValue(), 3), juce::dontSendNotification);
     };
 
     // --- Compact params ---

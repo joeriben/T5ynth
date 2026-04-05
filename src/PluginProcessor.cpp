@@ -73,12 +73,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::NormalisableRange<float>(0.0f, 0.95f), 0.35f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"delay_mix", 1}, "Delay Mix",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.3f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f, 0.3f), 0.3f));
 
     // Reverb
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"reverb_mix", 1}, "Reverb Mix",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.25f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f, 0.3f), 0.25f));
 
     // Algorithmic reverb parameters (only active when reverb_type == Algo)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -111,10 +111,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         ), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"gen_magnitude", 1}, "Magnitude",
-        juce::NormalisableRange<float>(0.1f, 5.0f, 0.01f), 1.0f));
+        juce::NormalisableRange<float>(0.001f, 5.0f, 0.001f, 0.3f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"gen_noise", 1}, "Noise",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f, 0.3f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"gen_duration", 1}, "Duration",
         juce::NormalisableRange<float>(0.1f, 47.0f, 0.1f, 0.3f), 1.0f));
@@ -720,15 +720,16 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                     {
                         int note = msg.getNoteNumber();
                         float velocity = msg.getFloatVelocity();
-                        bool isGlide = (msg.getChannel() == 2);
+                        bool isBind = (msg.getChannel() == 2);
 
                         lastMidiNote.store(note, std::memory_order_relaxed);
                         lastMidiVelocity.store(juce::roundToInt(velocity * 127.0f),
                                                std::memory_order_relaxed);
                         lastMidiNoteOn.store(true, std::memory_order_relaxed);
 
-                        voiceManager.noteOn(note, velocity, isGlide,
-                            stepSequencer.getGlideTime(), lfo1TrigMode, lfo2TrigMode);
+                        voiceManager.noteOn(note, velocity, isBind,
+                            isBind ? 0.0f : stepSequencer.getGlideTime(),
+                            lfo1TrigMode, lfo2TrigMode);
                     }
                     else if (msg.isNoteOff())
                     {
@@ -1447,7 +1448,7 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         s->setProperty("semitone", step.note - 60); // MIDI → semitone offset from C3
         s->setProperty("velocity", static_cast<double>(step.velocity));
         s->setProperty("gate", static_cast<double>(step.gate));
-        s->setProperty("glide", step.glide);
+        s->setProperty("bind", step.bind);
         stepArr.add(s.get());
     }
     seq->setProperty("steps", stepArr);
@@ -1674,8 +1675,10 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 stepSequencer.setStepEnabled(i, static_cast<bool>(s->getProperty("active")));
                 if (s->hasProperty("gate"))
                     stepSequencer.setStepGate(i, static_cast<float>(s->getProperty("gate")));
-                if (s->hasProperty("glide"))
-                    stepSequencer.setStepGlide(i, static_cast<bool>(s->getProperty("glide")));
+                if (s->hasProperty("bind"))
+                    stepSequencer.setStepBind(i, static_cast<bool>(s->getProperty("bind")));
+                else if (s->hasProperty("glide"))  // backward compat
+                    stepSequencer.setStepBind(i, static_cast<bool>(s->getProperty("glide")));
             }
         }
     }

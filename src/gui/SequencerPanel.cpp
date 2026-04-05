@@ -62,7 +62,7 @@ void SequencerPanel::StepColumn::paint(juce::Graphics& g)
         g.fillRect(velR.getX(), velR.getY(), juce::roundToInt(velPx), velR.getHeight());
     }
 
-    // ── Bottom buttons: [On][Glide] side by side (remaining 32%) ──
+    // ── Bottom buttons: [On][Bind] side by side (remaining 32%) ──
     auto btnArea = b;
     int halfW = btnArea.getWidth() / 2;
     auto onR = btnArea.removeFromLeft(halfW);
@@ -76,12 +76,12 @@ void SequencerPanel::StepColumn::paint(juce::Graphics& g)
     g.setFont(juce::FontOptions(btnFs));
     g.drawText("On", onR, juce::Justification::centred);
 
-    // Glide button
-    g.setColour(step.glide ? kSeqCol.withAlpha(0.30f) : kDimmer.withAlpha(0.15f));
+    // Bind button
+    g.setColour(step.bind ? kSeqCol.withAlpha(0.30f) : kDimmer.withAlpha(0.15f));
     g.fillRect(glR.reduced(1));
-    g.setColour(step.glide ? juce::Colours::white : kDimmer);
+    g.setColour(step.bind ? juce::Colours::white : kDimmer);
     g.setFont(juce::FontOptions(btnFs));
-    g.drawText("Gli", glR, juce::Justification::centred);
+    g.drawText("Bind", glR, juce::Justification::centred);
 }
 
 void SequencerPanel::StepColumn::mouseDown(const juce::MouseEvent& e)
@@ -107,11 +107,11 @@ void SequencerPanel::StepColumn::mouseDown(const juce::MouseEvent& e)
     }
     else
     {
-        // Bottom buttons: left half = On, right half = Glide
+        // Bottom buttons: left half = On, right half = Bind
         if (e.getPosition().getX() < getWidth() / 2)
             seq.setStepEnabled(stepIndex, !step.enabled);
         else
-            seq.setStepGlide(stepIndex, !step.glide);
+            seq.setStepBind(stepIndex, !step.bind);
         dragZone = 2;
     }
     repaint();
@@ -225,7 +225,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     addAndMakeVisible(midiMonitor);
 
     // ── Preset ──
-    presetBox.addItemList({"Octave Bounce","Wide Leap","Off-Beat Minor","Glide Groove","Sparse Stab",
+    presetBox.addItemList({"Octave Bounce","Wide Leap","Off-Beat Minor","Bind Groove","Sparse Stab",
                            "Rising Arc","Scatter","Chromatic","Bass Walk","Gated Pulse"}, 1);
     addAndMakeVisible(presetBox);
     presetA = std::make_unique<CA>(apvts, "seq_preset", presetBox);

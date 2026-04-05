@@ -2,9 +2,9 @@
 
 // ─── Preset patterns (exact port from useStepSequencer.ts) ─────────────────
 
-static constexpr T5ynthStepSequencer::Step mkStep(int semi, float vel, float gate, bool active = true, bool glide = false)
+static constexpr T5ynthStepSequencer::Step mkStep(int semi, float vel, float gate, bool active = true, bool bind = false)
 {
-    return { 60 + semi, vel, gate, active, glide };
+    return { 60 + semi, vel, gate, active, bind };
 }
 static constexpr T5ynthStepSequencer::Step REST = { 60, 0.0f, 0.0f, false, false };
 
@@ -168,7 +168,7 @@ void T5ynthStepSequencer::processBlock(juce::AudioBuffer<float>& buffer,
 
         // Note-off for previous — but SKIP if this step is a glide
         // (glide needs the previous voice alive to slide its pitch)
-        if (lastPlayedNote >= 0 && !step.glide)
+        if (lastPlayedNote >= 0 && !step.bind)
         {
             midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), eventPos);
             lastPlayedNote = -1;
@@ -178,17 +178,17 @@ void T5ynthStepSequencer::processBlock(juce::AudioBuffer<float>& buffer,
         if (step.enabled)
         {
             int vel = juce::jlimit(1, 127, juce::roundToInt(step.velocity * 127.0f));
-            int channel = step.glide ? 2 : 1;
+            int channel = step.bind ? 2 : 1;
             midi.addEvent(juce::MidiMessage::noteOn(channel, step.note,
                           static_cast<juce::uint8>(vel)), eventPos);
             lastPlayedNote = step.note;
 
-            // If the NEXT step has glide, hold this note for the full step
-            // (no early gate-off, so the voice is still sustaining for the glide)
+            // If the NEXT step has bind, hold this note for the full step
+            // (no early gate-off, so the voice stays alive for the pitch change)
             int nextIdx = (scheduledStep + 1) % numSteps;
-            bool nextIsGlide = steps[static_cast<size_t>(nextIdx)].glide
-                            && steps[static_cast<size_t>(nextIdx)].enabled;
-            samplesUntilGateOff = nextIsGlide ? -1.0 : step.gate * stepDur;
+            bool nextIsBind = steps[static_cast<size_t>(nextIdx)].bind
+                           && steps[static_cast<size_t>(nextIdx)].enabled;
+            samplesUntilGateOff = nextIsBind ? -1.0 : step.gate * stepDur;
         }
         else
         {
@@ -247,10 +247,10 @@ void T5ynthStepSequencer::setStepGate(int step, float gate)
         steps[static_cast<size_t>(step)].gate = juce::jlimit(0.1f, 1.0f, gate);
 }
 
-void T5ynthStepSequencer::setStepGlide(int step, bool glide)
+void T5ynthStepSequencer::setStepBind(int step, bool bind)
 {
     if (step >= 0 && step < MAX_STEPS)
-        steps[static_cast<size_t>(step)].glide = glide;
+        steps[static_cast<size_t>(step)].bind = bind;
 }
 
 void T5ynthStepSequencer::setAllGates(float gate)

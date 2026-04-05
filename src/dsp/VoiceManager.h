@@ -22,7 +22,7 @@ public:
     void reset();
 
     // ── MIDI handling ──
-    void noteOn(int note, float velocity, bool isGlide, float glideMs,
+    void noteOn(int note, float velocity, bool isBind, float glideMs,
                 bool lfo1TrigMode, bool lfo2TrigMode);
     void noteOff(int note);
     void allNotesOff();

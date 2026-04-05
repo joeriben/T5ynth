@@ -7,6 +7,7 @@ static juce::String fmtMs(double v)
     return juce::String(ms) + "ms";
 }
 static juce::String fmtF2(double v)  { return juce::String(v, 2); }
+static juce::String fmtF3(double v)  { return juce::String(v, 3); }
 
 static juce::String fmtDampHz(double v)
 {
@@ -49,7 +50,7 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts)
     delayTimeRow = std::make_unique<SliderRow>("Time", fmtMs, kFxCol);
     delayFbRow   = std::make_unique<SliderRow>("FB",   fmtF2, kFxCol);
     delayDampRow = std::make_unique<SliderRow>("Damp", fmtDampHz, kFxCol);
-    delayMixRow  = std::make_unique<SliderRow>("Mix",  fmtF2, kFxCol);
+    delayMixRow  = std::make_unique<SliderRow>("Mix",  fmtF3, kFxCol);
 
     for (auto* r : { delayTimeRow.get(), delayFbRow.get(), delayDampRow.get(), delayMixRow.get() })
         addAndMakeVisible(*r);
@@ -94,7 +95,7 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts)
         addAndMakeVisible(reverbTypeBtns[i]);
     }
 
-    reverbMixRow  = std::make_unique<SliderRow>("Mix",   fmtF2, kFxCol);
+    reverbMixRow  = std::make_unique<SliderRow>("Mix",   fmtF3, kFxCol);
     algoRoomRow   = std::make_unique<SliderRow>("Room",  fmtF2, kFxCol);
     algoDampRow   = std::make_unique<SliderRow>("Damp",  fmtF2, kFxCol);
     algoWidthRow  = std::make_unique<SliderRow>("Width", fmtF2, kFxCol);

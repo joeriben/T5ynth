@@ -8,10 +8,10 @@
  * Step sequencer — port of useStepSequencer.ts.
  *
  * Features:
- * - Per-step: note (MIDI), velocity (0-1), gate (0.1-1), glide (bool), enabled
+ * - Per-step: note (MIDI), velocity (0-1), gate (0.1-1), bind (bool), enabled
  * - 5 note divisions: 1/1, 1/2, 1/4, 1/8, 1/16
  * - Gate controls note duration as fraction of step duration
- * - Glide flag passed to callback for pitch-ramp instead of retrigger
+ * - Bind flag: pitch change without note retrigger (preceding noteOff suppressed)
  * - 10 preset patterns from reference
  * - Bar-start callback (atomic flag) for drift regen sync
  */
@@ -40,7 +40,7 @@ public:
     void setStepVelocity(int step, float velocity);
     void setStepEnabled(int step, bool enabled);
     void setStepGate(int step, float gate);
-    void setStepGlide(int step, bool glide);
+    void setStepBind(int step, bool bind);
 
     /** Bulk set gate for all steps. */
     void setAllGates(float gate);
@@ -83,7 +83,7 @@ public:
         float velocity = 0.8f;
         float gate = 0.8f;
         bool enabled = true;
-        bool glide = false;
+        bool bind = false;
     };
 
     const Step& getStep(int idx) const { return steps[static_cast<size_t>(juce::jlimit(0, MAX_STEPS - 1, idx))]; }

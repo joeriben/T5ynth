@@ -27,7 +27,7 @@ void VoiceManager::reset()
 // MIDI → Voice allocation
 // ═══════════════════════════════════════════════════════════════════
 
-void VoiceManager::noteOn(int note, float velocity, bool isGlide, float glideMs,
+void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
                            bool lfo1TrigMode, bool lfo2TrigMode)
 {
     // ── Mono mode: always voice 0, legato (no retrigger if held) ──
@@ -35,7 +35,7 @@ void VoiceManager::noteOn(int note, float velocity, bool isGlide, float glideMs,
     {
         auto& v = voices[0];
         bool legato = v.isActive() && !v.isReleasing();
-        if (legato || (isGlide && v.isActive()))
+        if (legato || (isBind && v.isActive()))
         {
             // Glide pitch without retriggering envelopes
             // (If voice is releasing, re-hold it so it stays alive during glide)
@@ -61,7 +61,7 @@ void VoiceManager::noteOn(int note, float velocity, bool isGlide, float glideMs,
     }
 
     // ── Poly: glide handling ──
-    if (isGlide)
+    if (isBind)
     {
         // Glide: change pitch of most recently triggered active voice
         int newest = -1;
