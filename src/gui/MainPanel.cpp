@@ -471,12 +471,11 @@ void MainPanel::resized()
     int genX = genBtnArea.getX() + (genBtnArea.getWidth() - genW) / 2;
     mainGenerateBtn.setBounds(genX, genBtnArea.getY(), genW, genBtnArea.getHeight());
 
-    // HF toggle — 60% height, centered between Generate right edge and genCol right edge
-    int hfH = juce::roundToInt(genBtnArea.getHeight() * 0.6f);
-    int hfW = hfH;  // square
-    int hfMidX = genX + genW + (genBtnArea.getRight() - (genX + genW)) / 2;
-    int hfY = genBtnArea.getY() + (genBtnArea.getHeight() - hfH) / 2;
-    hfBoostBtn.setBounds(hfMidX - hfW / 2, hfY, hfW, hfH);
+    // HF toggle — full height, centered between Generate right edge and column right edge
+    int hfW = juce::roundToInt(genBtnArea.getHeight() * 1.4f);
+    int gap = (genBtnArea.getRight() - (genX + genW));
+    int hfX = genX + genW + (gap - hfW) / 2;
+    hfBoostBtn.setBounds(hfX, genBtnArea.getY(), hfW, genBtnArea.getHeight());
 
     // Col 2: ENGINE
     synthPanel.setBounds(b);

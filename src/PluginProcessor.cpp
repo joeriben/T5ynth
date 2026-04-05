@@ -404,6 +404,8 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     reverbSendBuffer.setSize(2, samplesPerBlock);
 
     silentBlockCount = 0;
+    // Allow ~10 seconds of reverb tail before deep idle
+    tailBlocks = std::max(1, static_cast<int>(10.0 * sampleRate / samplesPerBlock));
 }
 
 void T5ynthProcessor::releaseResources()
@@ -433,7 +435,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         ++silentBlockCount;
 
     // PHASE 2: Deep idle (tails fully decayed) → buffer already cleared, just return
-    if (silentBlockCount > TAIL_BLOCKS)
+    if (silentBlockCount > tailBlocks)
     {
         audioIdle.store(true, std::memory_order_relaxed);
         // Keep free-running LFOs phase-accurate

@@ -153,7 +153,7 @@ private:
 
     // Idle detection (audio thread only — not atomic)
     int silentBlockCount = 0;
-    static constexpr int TAIL_BLOCKS = 344;  // ~4s at 44.1kHz/512
+    int tailBlocks = 860;  // recalculated in prepareToPlay (~10s of reverb tail)
 
     // Pre-allocated buffer for parallel reverb send (avoids heap alloc in processBlock)
     juce::AudioBuffer<float> reverbSendBuffer;
