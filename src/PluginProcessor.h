@@ -140,6 +140,9 @@ private:
     /** Two-band high shelf to compensate VAE decoder HF rolloff. */
     static void applyHfBoost(juce::AudioBuffer<float>& buffer, double sampleRate);
 
+    /** Rumble filter — 2nd-order Butterworth HP at 25 Hz, removes DC/sub-rumble from VAE output. */
+    static void applyRumbleFilter(juce::AudioBuffer<float>& buffer, double sampleRate);
+
     // Last triggered note (for pitch modulation in block-rate section)
     int lastTriggeredNote = -1;
 

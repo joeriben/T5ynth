@@ -473,6 +473,13 @@ def _generate_native(pipe, request):
                 return cond["prompt"][0], None
             manipulated = _apply_semantic_axes(manipulated, sem_axes, native_encode, "native")
 
+        # Re-apply attention mask to zero out padding (native conditioner zeros
+        # padding, but manipulations like noise/offsets/axes can pollute it;
+        # the DiT disables cross_attn_cond_mask so padding must stay zero)
+        mask = cond_a["prompt"][1]
+        if mask is not None:
+            manipulated = manipulated * mask.unsqueeze(-1).float()
+
         # Replace prompt embedding in conditioning tensors
         cond_a["prompt"] = [manipulated, cond_a["prompt"][1]]
 

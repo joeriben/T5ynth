@@ -305,8 +305,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::NormalisableRange<float>(0.0f, 500.0f, 10.0f), 150.0f));
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"normalize", 1}, "Normalize", true));
-    params.push_back(std::make_unique<juce::AudioParameterBool>(
-        juce::ParameterID{"loop_optimize", 1}, "Loop Optimize", false));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"loop_optimize", 2}, "Loop Optimize",
+        juce::StringArray{ "Off", "Low", "High" }, 0));
 
     // Effect enables
     params.push_back(std::make_unique<juce::AudioParameterBool>(
@@ -563,7 +564,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     masterSampler.setLoopMode(static_cast<SamplePlayer::LoopMode>(loopModeIdx));
     masterSampler.setCrossfadeMs(parameters.getRawParameterValue("crossfade_ms")->load());
     masterSampler.setNormalize(parameters.getRawParameterValue("normalize")->load() > 0.5f);
-    masterSampler.setLoopOptimize(parameters.getRawParameterValue("loop_optimize")->load() > 0.5f);
+    masterSampler.setLoopOptimizeLevel(static_cast<int>(parameters.getRawParameterValue("loop_optimize")->load()));
 
     // ── Sequencer / Arpeggiator (in series: Seq → Arp → synth) ─────────────
     // (seqRunning already read above for idle detection)
@@ -1019,15 +1020,16 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
         generatedAudioRaw.makeCopyOf(audioBuffer);
     generatedSampleRate = sr;
 
+    // Rumble filter — always on, removes DC/sub-bass from VAE output
+    juce::AudioBuffer<float> cleanBuffer;
+    cleanBuffer.makeCopyOf(audioBuffer);
+    applyRumbleFilter(cleanBuffer, sr);
+
     // Conditionally apply HF boost to compensate VAE decoder rolloff
     bool hfOn = parameters.getRawParameterValue("gen_hf_boost")->load() > 0.5f;
-    juce::AudioBuffer<float> boostedBuffer;
     if (hfOn)
-    {
-        boostedBuffer.makeCopyOf(audioBuffer);
-        applyHfBoost(boostedBuffer, sr);
-    }
-    const auto& feedBuffer = hfOn ? boostedBuffer : audioBuffer;
+        applyHfBoost(cleanBuffer, sr);
+    const auto& feedBuffer = cleanBuffer;
 
     // Keep generatedAudioFull in sync (used for waveform display + presets)
     generatedAudioFull.makeCopyOf(feedBuffer);
@@ -1357,6 +1359,26 @@ void T5ynthProcessor::applyHfBoost(juce::AudioBuffer<float>& buffer, double samp
             data[i] = f1.processSample(data[i]);
             data[i] = f2.processSample(data[i]);
         }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Rumble filter — 2nd-order Butterworth HP at 25 Hz
+// Removes DC offset and sub-bass rumble from VAE decoder output
+// ═══════════════════════════════════════════════════════════════════
+
+void T5ynthProcessor::applyRumbleFilter(juce::AudioBuffer<float>& buffer, double sampleRate)
+{
+    auto hp = juce::dsp::IIR::Coefficients<float>::makeHighPass(sampleRate, 25.0, 0.707);
+    juce::dsp::IIR::Filter<float> f;
+    f.coefficients = hp;
+
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        f.reset();
+        auto* data = buffer.getWritePointer(ch);
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+            data[i] = f.processSample(data[i]);
     }
 }
 

@@ -177,7 +177,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
                 apvts.getParameter("gen_steps")->setValueNotifyingHost(
                     apvts.getParameter("gen_steps")->convertTo0to1(isSmall ? 8.0f : 20.0f));
                 apvts.getParameter("gen_cfg")->setValueNotifyingHost(
-                    apvts.getParameter("gen_cfg")->convertTo0to1(isSmall ? 4.0f : 7.0f));
+                    apvts.getParameter("gen_cfg")->convertTo0to1(isSmall ? 1.0f : 7.0f));
 
                 // Preload model in background so first generate is instant
                 if (onStatusChanged) onStatusChanged("Loading " + model + "...", true);
