@@ -323,7 +323,7 @@ void VoiceManager::updateGainTarget()
     // Only count held (non-releasing) voices — releasing voices are already
     // fading via their own amplitude envelope and don't need extra attenuation.
     int n = getHeldVoiceCount();
-    float newTarget = (n > 0) ? 1.0f / std::sqrt(static_cast<float>(n)) : 1.0f;
+    float newTarget = (n > 0) ? 1.0f / std::pow(static_cast<float>(n), 0.3f) : 1.0f;
 
     if (newTarget != targetGain)
     {
