@@ -393,22 +393,46 @@ void SamplePlayer::prepareStretcher()
 
 void SamplePlayer::primeStretcher()
 {
-    // Use seek() to provide pre-roll context for the STFT analysis buffer.
-    // Unlike process(), seek() doesn't affect speed calculation and produces
-    // no output — the stretcher is ready to emit valid samples immediately.
-    int seekSamples = stretcher.blockSamples() + stretcher.intervalSamples();
-    if (seekSamples <= 0) return;
+    const double srRatio = bufferOriginalSR / playbackSampleRate;
 
-    std::vector<float> seekBuf(static_cast<size_t>(seekSamples));
+    // ── Step 1: seek() — fill STFT analysis context with pre-roll audio ──
+    // Reads audio BEFORE readPosition (coldStart) so the first STFT frames
+    // have real left context instead of post-reset silence.
+    int seekLen = stretcher.blockSamples() + stretcher.intervalSamples();
+    double seekStart = readPosition - seekLen * srRatio;
+    if (seekStart < 0.0)
+    {
+        seekLen = std::max(0, static_cast<int>(readPosition / srRatio));
+        seekStart = readPosition - seekLen * srRatio;
+    }
+    if (seekLen > 0)
+    {
+        std::vector<float> seekBuf(static_cast<size_t>(seekLen));
+        double pos = seekStart;
+        for (int i = 0; i < seekLen; ++i)
+        {
+            seekBuf[static_cast<size_t>(i)] = cubicSample(pos);
+            pos += srRatio;
+        }
+        float* seekPtr = seekBuf.data();
+        stretcher.seek(&seekPtr, seekLen, 1.0);
+    }
 
-    // Read audio from current position, then restore — real playback
-    // starts from the same position, seek only provides context.
-    double savedPos = readPosition;
-    readRawSamples(seekBuf.data(), seekSamples);
-    readPosition = savedPos;
+    // ── Step 2: process()+discard — pay STFT output latency ──
+    // After seek, the first inputLatency() output samples correspond to
+    // pre-roll audio, not coldStart. Discard them so the next real output
+    // starts at approximately coldStart. readPosition advances intentionally.
+    int primeSamples = stretcher.inputLatency();
+    if (primeSamples <= 0) return;
 
-    float* seekPtr = seekBuf.data();
-    stretcher.seek(&seekPtr, seekSamples, 1.0);
+    std::vector<float> primeBuf(static_cast<size_t>(primeSamples));
+    std::vector<float> discardBuf(static_cast<size_t>(primeSamples));
+
+    readRawSamples(primeBuf.data(), primeSamples);
+
+    float* inPtr = primeBuf.data();
+    float* outPtr = discardBuf.data();
+    stretcher.process(&inPtr, primeSamples, &outPtr, primeSamples);
 }
 
 void SamplePlayer::setPitchShiftQuality(PitchShiftQuality quality)
