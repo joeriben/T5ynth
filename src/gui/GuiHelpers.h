@@ -145,8 +145,8 @@ public:
         auto b = getLocalBounds();
         float f = static_cast<float>(b.getHeight());
 
-        int labelW = juce::jlimit(40, 70, juce::roundToInt(b.getWidth() * 0.22f));
-        int valueW = juce::jlimit(40, 65, juce::roundToInt(b.getWidth() * 0.20f));
+        int labelW = juce::jlimit(30, 55, juce::roundToInt(b.getWidth() * 0.18f));
+        int valueW = juce::jlimit(30, 50, juce::roundToInt(b.getWidth() * 0.16f));
 
         label.setFont(juce::FontOptions(f * 0.75f));
         value.setFont(juce::FontOptions(f * 0.75f));

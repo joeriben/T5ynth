@@ -622,8 +622,8 @@ void SequencerPanel::resized()
     midiMonitor.setBounds(r1.removeFromRight(80));
     r1.removeFromRight(g);
 
-    // BPM (75%) and Gate (25%) — BPM needs resolution, gate is less critical
-    int bpmW = r1.getWidth() * 3 / 4 - 1;
+    // BPM (2/3) and Gate (1/3) — BPM needs resolution, gate is less critical
+    int bpmW = r1.getWidth() * 2 / 3 - 1;
     bpmRow->setBounds(r1.removeFromLeft(bpmW));
     r1.removeFromLeft(2);
     gateRow->setBounds(r1);
