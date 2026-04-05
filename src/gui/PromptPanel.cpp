@@ -253,16 +253,9 @@ void PromptPanel::timerCallback()
         // Don't stop timer — continue for drift regen polling + ghost updates
     }
 
-    // Ghost indicator for alpha slider (drift modulation)
-    {
-        float prev = alphaGhostValue_;
-        alphaGhostValue_ = processorRef.modulatedValues.driftAlpha.load(std::memory_order_relaxed);
-        // Only repaint if ghost changed visibility or position meaningfully
-        bool prevVisible = !std::isnan(prev);
-        bool nowVisible = !std::isnan(alphaGhostValue_);
-        if (prevVisible != nowVisible || (prevVisible && nowVisible && std::abs(prev - alphaGhostValue_) > 0.005f))
-            repaint(alphaSlider.getBounds().expanded(4));
-    }
+    // Ghost indicator for alpha slider (drift modulation) — update every tick
+    alphaGhostValue_ = processorRef.modulatedValues.driftAlpha.load(std::memory_order_relaxed);
+    repaint(alphaSlider.getBounds().expanded(4));
 
     // Auto-regen polling
     pollDriftRegen();

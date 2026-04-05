@@ -1068,9 +1068,11 @@ void SynthPanel::resized()
         }
         regenSwitchBounds = regenBtns[0].getBounds()
             .getUnion(regenBtns[kNumRegenBtns - 1].getBounds());
-        // XFade slider fills the remaining space in the same row
+        // XFade slider in the same row, capped to left half of panel
         regenRow.removeFromLeft(juce::roundToInt(f * 0.5f)); // small gap
-        crossfadeRegenRow->setBounds(regenRow);
+        int halfW = area.getWidth() / 2;
+        int xfadeMaxW = halfW - (regenRow.getX() - area.getX());
+        crossfadeRegenRow->setBounds(regenRow.removeFromLeft(std::max(0, xfadeMaxW)));
     }
     layoutDrift(drift1, area, f, rowH, gap);
     layoutDrift(drift2, area, f, rowH, gap);

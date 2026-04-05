@@ -113,17 +113,10 @@ float AxesPanel::fs() const
 
 void AxesPanel::setGhostOffsets(float o1, float o2, float o3)
 {
-    float newOff[] = { o1, o2, o3 };
-    bool changed = false;
-    for (int i = 0; i < 3; ++i)
-    {
-        bool wasNaN = std::isnan(ghostOffsets_[i]);
-        bool isNaN  = std::isnan(newOff[i]);
-        if (wasNaN != isNaN || (!wasNaN && !isNaN && std::abs(ghostOffsets_[i] - newOff[i]) > 0.005f))
-            changed = true;
-        ghostOffsets_[i] = newOff[i];
-    }
-    if (changed) repaint();
+    ghostOffsets_[0] = o1;
+    ghostOffsets_[1] = o2;
+    ghostOffsets_[2] = o3;
+    repaint();
 }
 
 void AxesPanel::paint(juce::Graphics& g)
