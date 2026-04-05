@@ -1075,10 +1075,35 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
         }
     }
 
-    // Wavetable extraction respects the bracket region
+    // Extract frames for the wavetable oscillator (both modes use it now)
     float extractStart = masterSampler.getLoopStart();
     float extractEnd   = masterSampler.getLoopEnd();
-    masterOsc.extractFramesFromBuffer(feedBuffer, sr, extractStart, extractEnd);
+
+    if (isWavetableMode())
+    {
+        // Pitch-synchronous extraction (one frame per detected period)
+        masterOsc.extractFramesFromBuffer(feedBuffer, sr, extractStart, extractEnd);
+    }
+    else
+    {
+        // Contiguous extraction for sampler mode (one frame per FRAME_SIZE chunk)
+        masterOsc.extractContiguousFrames(feedBuffer, sr, extractStart, extractEnd);
+    }
+
+    // Set auto-scan rate: scan 0→1 matches the original audio duration
+    int regionSamples = static_cast<int>((extractEnd - extractStart) * feedBuffer.getNumSamples());
+    masterOsc.setAutoScanRate(sr, regionSamples);
+
+    // Sampler loop region → auto-scan loop (relative to extraction region)
+    auto loopMode = masterSampler.getLoopMode();
+    WavetableOscillator::LoopMode oscLoopMode;
+    switch (loopMode)
+    {
+        case SamplePlayer::LoopMode::OneShot:  oscLoopMode = WavetableOscillator::LoopMode::OneShot;  break;
+        case SamplePlayer::LoopMode::PingPong: oscLoopMode = WavetableOscillator::LoopMode::PingPong; break;
+        default:                               oscLoopMode = WavetableOscillator::LoopMode::Loop;     break;
+    }
+    masterOsc.setAutoScanLoop(0.0f, 1.0f, oscLoopMode);
 
     voiceManager.distributeSamplerBuffer(masterSampler);
     voiceManager.distributeWavetableFrames(masterOsc);
@@ -1112,7 +1137,14 @@ void T5ynthProcessor::reextractWavetable()
     {
         float start = masterSampler.getLoopStart();
         float end   = masterSampler.getLoopEnd();
-        masterOsc.extractFramesFromBuffer(waveformSnapshot, getSampleRate(), start, end);
+
+        if (isWavetableMode())
+            masterOsc.extractFramesFromBuffer(waveformSnapshot, getSampleRate(), start, end);
+        else
+            masterOsc.extractContiguousFrames(waveformSnapshot, getSampleRate(), start, end);
+
+        int regionSamples = static_cast<int>((end - start) * waveformSnapshot.getNumSamples());
+        masterOsc.setAutoScanRate(getSampleRate(), regionSamples);
         voiceManager.distributeWavetableFrames(masterOsc);
     }
 }

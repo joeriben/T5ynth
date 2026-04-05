@@ -47,10 +47,18 @@ void SynthVoice::noteOn(int note, float velocity, bool legato)
 
     // Set pitch (cache base for modulation reference)
     baseFrequency = static_cast<float>(juce::MidiMessage::getMidiNoteInHertz(note));
-    if (engineMode == EngineMode::Wavetable)
-        osc.setFrequency(baseFrequency);
+    osc.setFrequency(baseFrequency);
+
+    if (engineMode == EngineMode::Sampler)
+    {
+        osc.setAutoScan(true);
+        osc.retriggerAutoScan();
+        sampler.setMidiNote(note);  // keep sampler in sync for bracket/loop state
+    }
     else
-        sampler.setMidiNote(note);
+    {
+        osc.setAutoScan(false);
+    }
 }
 
 void SynthVoice::noteOff()
@@ -65,17 +73,10 @@ void SynthVoice::glideToNote(int note, float glideMs)
 {
     currentNote = note;
     float targetFreq = static_cast<float>(juce::MidiMessage::getMidiNoteInHertz(note));
-    if (engineMode == EngineMode::Wavetable)
-    {
-        // Don't update baseFrequency yet — renderBlock uses it for setFrequency()
-        // which would override the glide. baseFrequency is synced after glide completes.
-        osc.glideToFrequency(targetFreq, glideMs);
-    }
-    else
-    {
-        baseFrequency = targetFreq;
-        sampler.glideToSemitones(note - 60, glideMs);
-    }
+    // Both modes use osc for pitch — glide without overriding baseFrequency
+    osc.glideToFrequency(targetFreq, glideMs);
+    if (engineMode == EngineMode::Sampler)
+        sampler.glideToSemitones(note - 60, glideMs);  // keep sampler in sync
 }
 
 void SynthVoice::configureForBlock(const BlockParams& p)
@@ -223,14 +224,8 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
         return;
     }
 
-    // ── Pre-render sampler block with pitch-preserving transposition ──
-    bool useSampler = !p.engineIsWavetable && sampler.hasAudio();
-    if (useSampler)
-    {
-        if (samplerBlockBuf_.size() < static_cast<size_t>(numSamples))
-            samplerBlockBuf_.resize(static_cast<size_t>(numSamples));
-        sampler.renderPitchedBlock(samplerBlockBuf_.data(), numSamples);
-    }
+    // Both engine modes now use osc — sampler mode uses auto-scan
+    bool oscReady = osc.hasFrames();
 
     int pos = 0;
     while (pos < numSamples && active)
@@ -291,39 +286,42 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
             if (p.lfo1Target == LfoTarget::Pitch) pitchMod += lfo1Val;
             if (p.lfo2Target == LfoTarget::Pitch) pitchMod += lfo2Val;
 
-            if (p.engineIsWavetable && osc.hasFrames())
+            // Pitch modulation — applies to osc in both modes
+            if (oscReady)
             {
                 if (osc.isGliding())
                 {
                     // Don't call setFrequency during glide — it cancels the glide.
-                    // Sync baseFrequency when glide completes on next iteration.
                 }
                 else
                 {
-                    // Sync baseFrequency after glide completed
                     baseFrequency = static_cast<float>(
                         juce::MidiMessage::getMidiNoteInHertz(currentNote));
                     osc.setFrequency(baseFrequency * (1.0f + pitchMod));
                 }
             }
 
-            // Generate sample
+            // Generate sample — both modes use osc
             float sample = 0.0f;
-            if (p.engineIsWavetable && osc.hasFrames())
+            if (oscReady)
             {
-                float scanMod = p.baseScan + p.driftScanOffset;
-                if (p.mod1Target == EnvTarget::Scan) scanMod += mod1EnvVal;
-                if (p.mod2Target == EnvTarget::Scan) scanMod += mod2EnvVal;
-                if (p.lfo1Target == LfoTarget::Scan) scanMod += lfo1Val;
-                if (p.lfo2Target == LfoTarget::Scan) scanMod += lfo2Val;
-                float clampedScan = juce::jlimit(0.0f, 1.0f, scanMod);
-                osc.setScanPosition(clampedScan);
-                lastModulatedScan_ = clampedScan;
+                // Scan modulation (additive — in sampler mode this offsets auto-scan)
+                if (!osc.isAutoScan())
+                {
+                    // Wavetable: scan fully controlled by modulation
+                    float scanMod = p.baseScan + p.driftScanOffset;
+                    if (p.mod1Target == EnvTarget::Scan) scanMod += mod1EnvVal;
+                    if (p.mod2Target == EnvTarget::Scan) scanMod += mod2EnvVal;
+                    if (p.lfo1Target == LfoTarget::Scan) scanMod += lfo1Val;
+                    if (p.lfo2Target == LfoTarget::Scan) scanMod += lfo2Val;
+                    osc.setScanPosition(juce::jlimit(0.0f, 1.0f, scanMod));
+                }
+                // Sampler: auto-scan handles position, processSample advances it
+
+                lastModulatedScan_ = osc.isAutoScan()
+                    ? static_cast<float>(osc.isAutoScan()) // TODO: expose autoScanPos
+                    : p.baseScan;
                 sample = osc.processSample();
-            }
-            else if (useSampler)
-            {
-                sample = samplerBlockBuf_[static_cast<size_t>(i)];
             }
 
             // VCA

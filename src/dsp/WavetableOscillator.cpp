@@ -320,6 +320,94 @@ void WavetableOscillator::extractFramesFromBuffer(const juce::AudioBuffer<float>
         generateMipLevels(frames);
 }
 
+// ─── Auto-scan (sampler-style temporal progression) ───
+
+void WavetableOscillator::setAutoScanRate(double bufferSR, int bufferLen)
+{
+    // Scan goes from 0 to 1 in (bufferLen / bufferSR) seconds
+    double durationSeconds = static_cast<double>(bufferLen) / bufferSR;
+    if (durationSeconds > 0.0)
+        autoScanIncr_ = 1.0 / (durationSeconds * sampleRate);
+    else
+        autoScanIncr_ = 0.0;
+}
+
+void WavetableOscillator::setAutoScanLoop(float startFrac, float endFrac, LoopMode mode)
+{
+    autoScanLoopStart_ = juce::jlimit(0.0f, 1.0f, startFrac);
+    autoScanLoopEnd_   = juce::jlimit(0.0f, 1.0f, endFrac);
+    if (autoScanLoopEnd_ <= autoScanLoopStart_)
+        autoScanLoopEnd_ = 1.0f;
+    autoScanLoopMode_ = mode;
+}
+
+void WavetableOscillator::retriggerAutoScan()
+{
+    autoScanPos_ = static_cast<double>(autoScanLoopStart_);
+    autoScanReverse_ = false;
+    // Jump scan immediately (no smoothing lag on retrigger)
+    targetScanPosition = static_cast<float>(autoScanPos_);
+    smoothedScan = targetScanPosition;
+}
+
+// ─── Contiguous frame extraction (sampler-style) ───
+
+void WavetableOscillator::extractContiguousFrames(const juce::AudioBuffer<float>& buffer, double bufferSR,
+                                                    float startFrac, float endFrac)
+{
+    if (sharedSource_ != nullptr) return;
+
+    const int bufferLen = buffer.getNumSamples();
+    startFrac = juce::jlimit(0.0f, 1.0f, startFrac);
+    endFrac   = juce::jlimit(0.0f, 1.0f, endFrac);
+    if (endFrac <= startFrac) endFrac = 1.0f;
+
+    const int regionStart = static_cast<int>(startFrac * bufferLen);
+    const int regionEnd   = static_cast<int>(endFrac * bufferLen);
+    const float* data = buffer.getReadPointer(0) + regionStart;
+    const int totalSamples = regionEnd - regionStart;
+
+    if (totalSamples < FRAME_SIZE) return;
+
+    std::vector<std::vector<float>> frames;
+
+    // Extract contiguous windows — no pitch detection, no resampling
+    int pos = 0;
+    while (pos + FRAME_SIZE <= totalSamples)
+    {
+        std::vector<float> frame(FRAME_SIZE);
+        for (int i = 0; i < FRAME_SIZE; i++)
+            frame[i] = data[pos + i];
+
+        // Seamless loop correction (linear ramp to close boundary gap)
+        float diff = frame[0] - frame[FRAME_SIZE - 1];
+        for (int i = 0; i < FRAME_SIZE; i++)
+            frame[i] += diff * static_cast<float>(i) / FRAME_SIZE;
+
+        frames.push_back(std::move(frame));
+        pos += FRAME_SIZE;  // non-overlapping
+    }
+
+    // Normalize each frame
+    for (auto& frame : frames)
+    {
+        float peak = 0.0f;
+        for (float s : frame) peak = std::max(peak, std::abs(s));
+        if (peak > 0.001f)
+        {
+            float gain = 0.95f / peak;
+            for (float& s : frame) s *= gain;
+        }
+    }
+
+    if (static_cast<int>(frames.size()) < MIN_FRAMES && !frames.empty())
+        while (static_cast<int>(frames.size()) < MIN_FRAMES)
+            frames.push_back(frames.back());
+
+    if (!frames.empty())
+        generateMipLevels(frames);
+}
+
 // ─── Per-sample processing ───
 
 void WavetableOscillator::glideToFrequency(float hz, float durationMs)
@@ -346,6 +434,43 @@ float WavetableOscillator::processSample()
         glideFreqSamplesLeft--;
         if (glideFreqSamplesLeft == 0)
             targetFrequency = glideFreqTarget;
+    }
+
+    // Auto-scan: advance scan position per sample
+    if (autoScan_)
+    {
+        const double loopLen = static_cast<double>(autoScanLoopEnd_ - autoScanLoopStart_);
+
+        if (autoScanReverse_)
+            autoScanPos_ -= autoScanIncr_;
+        else
+            autoScanPos_ += autoScanIncr_;
+
+        // Loop wrapping
+        if (autoScanPos_ >= static_cast<double>(autoScanLoopEnd_))
+        {
+            if (autoScanLoopMode_ == LoopMode::OneShot)
+                autoScanPos_ = static_cast<double>(autoScanLoopEnd_) - 0.0001;
+            else if (autoScanLoopMode_ == LoopMode::PingPong)
+            {
+                autoScanPos_ = static_cast<double>(autoScanLoopEnd_) - (autoScanPos_ - static_cast<double>(autoScanLoopEnd_));
+                autoScanReverse_ = true;
+            }
+            else // Loop
+                autoScanPos_ -= loopLen;
+        }
+        else if (autoScanPos_ < static_cast<double>(autoScanLoopStart_))
+        {
+            if (autoScanLoopMode_ == LoopMode::PingPong)
+            {
+                autoScanPos_ = static_cast<double>(autoScanLoopStart_) + (static_cast<double>(autoScanLoopStart_) - autoScanPos_);
+                autoScanReverse_ = false;
+            }
+            else
+                autoScanPos_ += loopLen;
+        }
+
+        targetScanPosition = static_cast<float>(autoScanPos_);
     }
 
     // Smooth scan position

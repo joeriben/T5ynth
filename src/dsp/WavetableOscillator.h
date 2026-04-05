@@ -56,6 +56,29 @@ public:
     /** Enable/disable Catmull-Rom interpolation between frames. */
     void setInterpolation(bool enabled) { doInterpolate = enabled; }
 
+    // ── Auto-scan (sampler-style temporal progression) ──────────────
+
+    /** Enable auto-scan: scan position advances per sample at the original
+     *  audio rate, independent of playback pitch. Sampling = wavetable + auto-scan. */
+    void setAutoScan(bool on) { autoScan_ = on; }
+    bool isAutoScan() const { return autoScan_; }
+
+    /** Set auto-scan rate from original audio timing.
+     *  Scan advances from 0→1 in (bufferLen / bufferSR) seconds. */
+    void setAutoScanRate(double bufferSR, int bufferLen);
+
+    /** Set auto-scan loop region (frame indices). */
+    enum class LoopMode { OneShot, Loop, PingPong };
+    void setAutoScanLoop(float startFrac, float endFrac, LoopMode mode);
+
+    /** Reset scan to loop start (call on noteOn). */
+    void retriggerAutoScan();
+
+    /** Extract contiguous (non-pitch-synchronous) frames from audio buffer.
+     *  For sampler-style playback where frames represent temporal chunks. */
+    void extractContiguousFrames(const juce::AudioBuffer<float>& buffer, double bufferSR,
+                                 float startFrac = 0.0f, float endFrac = 1.0f);
+
     /** Process a single sample. */
     float processSample();
 
@@ -101,6 +124,15 @@ private:
     float scanSmoothCoeff = 0.0f;
 
     bool doInterpolate = true;
+
+    // Auto-scan state (per-voice, not shared)
+    bool autoScan_ = false;
+    double autoScanPos_ = 0.0;       // 0.0–1.0
+    double autoScanIncr_ = 0.0;      // per-sample increment
+    float autoScanLoopStart_ = 0.0f; // fraction 0–1
+    float autoScanLoopEnd_ = 1.0f;   // fraction 0–1
+    LoopMode autoScanLoopMode_ = LoopMode::Loop;
+    bool autoScanReverse_ = false;   // for ping-pong
 
     /** Return the active mip data (own or shared master's). Lock-free for audio thread. */
     const MipData& getActiveMipData() const
