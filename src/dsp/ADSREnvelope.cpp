@@ -126,13 +126,12 @@ float ADSREnvelope::processSample()
         case State::Release:
         {
             // RC-discharge: e^(-t/τ), τ = releaseMs/5
-            // Reference: setTargetAtTime(0, now, τ) followed by setValueAtTime(0, now + dur)
             releaseSampleCount++;
             float t = static_cast<float>(releaseSampleCount) / static_cast<float>(sr);
             currentLevel = releaseStartLevel * std::exp(-t / releaseTau);
 
-            // Hard-zero at end of release duration
-            if (releaseSampleCount >= releaseTotalSamples)
+            // Threshold cutoff at -80 dB — no audible click
+            if (currentLevel < 1e-4f)
             {
                 currentLevel = 0.0f;
                 state = State::Idle;
