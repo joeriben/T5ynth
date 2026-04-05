@@ -230,6 +230,97 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     addAndMakeVisible(presetBox);
     presetA = std::make_unique<CA>(apvts, "seq_preset", presetBox);
 
+    // Save/Load buttons for sequencer patterns
+    for (auto* btn : { &seqSaveBtn, &seqLoadBtn })
+    {
+        btn->setColour(juce::TextButton::buttonColourId, kSurface);
+        btn->setColour(juce::TextButton::textColourOffId, kDim);
+        addAndMakeVisible(btn);
+    }
+    seqSaveBtn.onClick = [this] {
+        auto chooser = std::make_shared<juce::FileChooser>("Save Sequencer Pattern", juce::File(), "*.t5seq");
+        chooser->launchAsync(juce::FileBrowserComponent::saveMode, [this, chooser](const juce::FileChooser& fc) {
+            auto f = fc.getResult();
+            if (f == juce::File()) return;
+            auto file = f.withFileExtension("t5seq");
+            auto& seq = processorRef.getStepSequencer();
+            juce::var root(new juce::DynamicObject());
+            auto* obj = root.getDynamicObject();
+            obj->setProperty("numSteps", seq.getNumSteps());
+            obj->setProperty("division", static_cast<int>(processorRef.getValueTreeState().getRawParameterValue("seq_division")->load()));
+            obj->setProperty("gate", static_cast<double>(processorRef.getValueTreeState().getRawParameterValue("seq_gate")->load()));
+            obj->setProperty("bpm", static_cast<double>(processorRef.getValueTreeState().getRawParameterValue("seq_bpm")->load()));
+            // Arp settings
+            obj->setProperty("arpMode", static_cast<int>(processorRef.getValueTreeState().getRawParameterValue("arp_mode")->load()));
+            obj->setProperty("arpRate", static_cast<int>(processorRef.getValueTreeState().getRawParameterValue("arp_rate")->load()));
+            obj->setProperty("arpOctaves", static_cast<int>(processorRef.getValueTreeState().getRawParameterValue("arp_octaves")->load()));
+            obj->setProperty("arpGate", static_cast<double>(processorRef.getValueTreeState().getRawParameterValue("arp_gate")->load()));
+            juce::Array<juce::var> steps;
+            for (int i = 0; i < seq.getNumSteps(); ++i)
+            {
+                auto step = seq.getStep(i);
+                auto* s = new juce::DynamicObject();
+                s->setProperty("note", step.note);
+                s->setProperty("velocity", static_cast<double>(step.velocity));
+                s->setProperty("gate", static_cast<double>(step.gate));
+                s->setProperty("enabled", step.enabled);
+                s->setProperty("bind", step.bind);
+                steps.add(juce::var(s));
+            }
+            obj->setProperty("steps", steps);
+            file.replaceWithText(juce::JSON::toString(root));
+        });
+    };
+    seqLoadBtn.onClick = [this] {
+        auto chooser = std::make_shared<juce::FileChooser>("Load Sequencer Pattern", juce::File(), "*.t5seq");
+        chooser->launchAsync(juce::FileBrowserComponent::openMode, [this, chooser](const juce::FileChooser& fc) {
+            auto file = fc.getResult();
+            if (!file.existsAsFile()) return;
+            auto root = juce::JSON::parse(file.loadFileAsString());
+            if (!root.isObject()) return;
+            auto& apvts = processorRef.getValueTreeState();
+            auto& seq = processorRef.getStepSequencer();
+            if (root.hasProperty("numSteps"))
+                seq.setNumSteps(static_cast<int>(root["numSteps"]));
+            if (root.hasProperty("division"))
+                apvts.getParameter("seq_division")->setValueNotifyingHost(
+                    apvts.getParameter("seq_division")->convertTo0to1(static_cast<float>(static_cast<int>(root["division"]))));
+            if (root.hasProperty("gate"))
+                apvts.getParameter("seq_gate")->setValueNotifyingHost(
+                    apvts.getParameter("seq_gate")->convertTo0to1(static_cast<float>(root["gate"])));
+            if (root.hasProperty("bpm"))
+                apvts.getParameter("seq_bpm")->setValueNotifyingHost(
+                    apvts.getParameter("seq_bpm")->convertTo0to1(static_cast<float>(root["bpm"])));
+            if (root.hasProperty("arpMode"))
+                apvts.getParameter("arp_mode")->setValueNotifyingHost(
+                    apvts.getParameter("arp_mode")->convertTo0to1(static_cast<float>(static_cast<int>(root["arpMode"]))));
+            if (root.hasProperty("arpRate"))
+                apvts.getParameter("arp_rate")->setValueNotifyingHost(
+                    apvts.getParameter("arp_rate")->convertTo0to1(static_cast<float>(static_cast<int>(root["arpRate"]))));
+            if (root.hasProperty("arpOctaves"))
+                apvts.getParameter("arp_octaves")->setValueNotifyingHost(
+                    apvts.getParameter("arp_octaves")->convertTo0to1(static_cast<float>(static_cast<int>(root["arpOctaves"]))));
+            if (root.hasProperty("arpGate"))
+                apvts.getParameter("arp_gate")->setValueNotifyingHost(
+                    apvts.getParameter("arp_gate")->convertTo0to1(static_cast<float>(root["arpGate"])));
+            auto* stepsArr = root["steps"].getArray();
+            if (stepsArr)
+            {
+                for (int i = 0; i < stepsArr->size() && i < T5ynthStepSequencer::MAX_STEPS; ++i)
+                {
+                    const auto& s = (*stepsArr)[i];
+                    if (s.hasProperty("note")) seq.setStepNote(i, static_cast<int>(s["note"]));
+                    if (s.hasProperty("velocity")) seq.setStepVelocity(i, static_cast<float>(s["velocity"]));
+                    if (s.hasProperty("gate")) seq.setStepGate(i, static_cast<float>(s["gate"]));
+                    if (s.hasProperty("enabled")) seq.setStepEnabled(i, static_cast<bool>(s["enabled"]));
+                    if (s.hasProperty("bind")) seq.setStepBind(i, static_cast<bool>(s["bind"]));
+                }
+            }
+            syncStepCount();
+            repaint();
+        });
+    };
+
     // ── Gate ──
     gateRow = std::make_unique<SliderRow>("Gate", [](double v) { return juce::String(juce::roundToInt(v*100)) + "%"; }, kSeqCol);
     addAndMakeVisible(*gateRow);
@@ -427,14 +518,18 @@ void SequencerPanel::resized()
     int rH = 22;
     int g = 3;
 
-    // ═══ Row 1: transport, step count, division, BPM, MIDI ═══
+    // ═══ Row 1: transport, preset, save/load, steps, division, BPM, gate, MIDI ═══
     auto r1 = area.removeFromTop(rH);
-    transportBtn.setBounds(r1.removeFromLeft(52));  r1.removeFromLeft(g * 2);
+    transportBtn.setBounds(r1.removeFromLeft(36));  r1.removeFromLeft(g);
 
-    stepCountBox.setBounds(r1.removeFromLeft(58)); r1.removeFromLeft(g);
+    presetBox.setBounds(r1.removeFromLeft(90)); r1.removeFromLeft(2);
+    seqSaveBtn.setBounds(r1.removeFromLeft(rH)); r1.removeFromLeft(1);
+    seqLoadBtn.setBounds(r1.removeFromLeft(rH)); r1.removeFromLeft(g);
+
+    stepCountBox.setBounds(r1.removeFromLeft(50)); r1.removeFromLeft(g);
 
     // Division toggle strip
-    int divBtnW = 32;
+    int divBtnW = 26;
     for (int i = 0; i < kNumDivBtns; ++i)
     {
         int edges = 0;
@@ -445,18 +540,16 @@ void SequencerPanel::resized()
     }
     r1.removeFromLeft(g);
 
-    // BPM gets remaining width after MIDI monitor
+    // MIDI monitor on far right
     midiMonitor.setFont(juce::FontOptions(juce::jmax(9.0f, rH * 0.6f)));
-    midiMonitor.setBounds(r1.removeFromRight(120));
+    midiMonitor.setBounds(r1.removeFromRight(80));
     r1.removeFromRight(g);
-    bpmRow->setBounds(r1);
 
-    area.removeFromTop(g);
-
-    // ═══ Row 2: Preset, Gate ═══
-    auto r2 = area.removeFromTop(rH);
-    presetBox.setBounds(r2.removeFromLeft(110));  r2.removeFromLeft(g);
-    gateRow->setBounds(r2);
+    // BPM and Gate share remaining width
+    int halfW = r1.getWidth() / 2 - 1;
+    bpmRow->setBounds(r1.removeFromLeft(halfW));
+    r1.removeFromLeft(2);
+    gateRow->setBounds(r1);
 
     area.removeFromTop(g);
 

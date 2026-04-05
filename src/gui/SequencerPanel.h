@@ -43,6 +43,8 @@ private:
 
     // Row 2: Seq params
     juce::ComboBox presetBox;
+    juce::TextButton seqSaveBtn { "S" };
+    juce::TextButton seqLoadBtn { "L" };
     std::unique_ptr<SliderRow> gateRow;
 
 
@@ -59,9 +61,9 @@ private:
         void mouseDrag(const juce::MouseEvent& e) override;
         void mouseUp(const juce::MouseEvent& e) override;
         // Zone geometry (set by paint based on bounds)
-        int noteBottom() const { return juce::roundToInt(getHeight() * 0.55f); }
-        int velBottom() const { return juce::roundToInt(getHeight() * 0.68f); }
-        // bottom 32%: [On][Glide] buttons
+        int noteBottom() const { return juce::roundToInt(getHeight() * 0.68f); }
+        int velBottom() const { return juce::roundToInt(getHeight() * 0.84f); }
+        // bottom 16%: [On][Bind] buttons (half height, like velocity bar)
     };
     static constexpr int MAX_COLS = 32;
     std::array<std::unique_ptr<StepColumn>, MAX_COLS> stepCols;

@@ -34,6 +34,7 @@ public:
 
     /** Set the number of active steps (1-64). */
     void setNumSteps(int steps);
+    int getNumSteps() const { return numSteps; }
 
     /** Set step data. */
     void setStepNote(int step, int midiNote);
