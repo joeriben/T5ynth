@@ -253,3 +253,25 @@ std::map<juce::String, float> AxesPanel::getAxisValuesWithOffsets(float off1, fl
     }
     return vals;
 }
+
+std::array<AxesPanel::SlotState, 3> AxesPanel::getSlotStates() const
+{
+    std::array<SlotState, 3> states;
+    for (size_t i = 0; i < slots.size() && i < 3; ++i)
+    {
+        states[i].dropdownId = slots[i].dropdown->getSelectedId();
+        states[i].value = static_cast<float>(slots[i].slider->getValue());
+    }
+    return states;
+}
+
+void AxesPanel::setSlotStates(const std::array<SlotState, 3>& states)
+{
+    for (size_t i = 0; i < slots.size() && i < 3; ++i)
+    {
+        slots[i].dropdown->setSelectedId(states[i].dropdownId, juce::sendNotificationSync);
+        slots[i].slider->setValue(static_cast<double>(states[i].value), juce::dontSendNotification);
+        slots[i].valueLabel->setText(juce::String(states[i].value, 2), juce::dontSendNotification);
+    }
+    resized();
+}

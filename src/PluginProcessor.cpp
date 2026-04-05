@@ -192,6 +192,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{"drift_regen", 1}, "Regenerate",
         juce::StringArray{"Manual", "Auto", "1st Bar"}, 0));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"drift_crossfade", 1}, "Drift Crossfade",
+        juce::NormalisableRange<float>(0.0f, 2000.0f, 1.0f), 200.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"drift1_rate", 1}, "Drift1 Rate",
         juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.01f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -674,9 +677,13 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         midiMessages.swapWith(transposed);
     }
 
-    // Consume bar-start flag → forward to GUI for 1st-bar regen mode
+    // Consume bar-start flag → forward to GUI + trigger pending 1st-bar load
     if (stepSequencer.barStartFlag.exchange(false))
+    {
         barBoundaryFlag.store(true, std::memory_order_relaxed);
+        if (pendingBarLoadReady.load(std::memory_order_relaxed))
+            triggerPendingLoad.store(true, std::memory_order_relaxed);
+    }
 
     // Stage 2: Arpeggiator (consumes seq note events, generates arpeggiated output)
     if (arpEnabled)

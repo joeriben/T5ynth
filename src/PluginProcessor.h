@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include <array>
 #include <limits>
 #include "dsp/VoiceManager.h"
 #include "dsp/LFO.h"
@@ -68,6 +69,11 @@ public:
     void setLastSeed(int s) { lastSeed = s; }
     int getLastSeed() const { return lastSeed; }
 
+    // Semantic axes state (GUI-only, 3 slots: dropdownId + value)
+    struct AxisSlotState { int dropdownId = 1; float value = 0.0f; };
+    void setLastAxes(const std::array<AxisSlotState, 3>& a) { lastAxes = a; }
+    const std::array<AxisSlotState, 3>& getLastAxes() const { return lastAxes; }
+
     void setLastEmbeddings(const std::vector<float>& a, const std::vector<float>& b) { lastEmbeddingA = a; lastEmbeddingB = b; }
     const std::vector<float>& getLastEmbeddingA() const { return lastEmbeddingA; }
     const std::vector<float>& getLastEmbeddingB() const { return lastEmbeddingB; }
@@ -132,6 +138,7 @@ private:
     // Preset metadata (stored here so preset save can access them)
     juce::String lastPromptA, lastPromptB;
     int lastSeed = 123456789;
+    std::array<AxisSlotState, 3> lastAxes;
     std::vector<float> lastEmbeddingA, lastEmbeddingB;
     juce::AudioBuffer<float> generatedAudioFull;  // boosted buffer for engines + display
     juce::AudioBuffer<float> generatedAudioRaw;   // raw VAE output (for re-apply on toggle)
@@ -201,6 +208,10 @@ public:
     std::atomic<bool>  driftHasOscTarget { false };
     std::atomic<int>   driftRegenMode { 0 };       // 0=Manual, 1=Auto, 2=1stBar
     std::atomic<bool>  barBoundaryFlag { false };
+    // 1st-bar sync: GUI sets pendingBarLoadReady when regen result is stored,
+    // audio thread sets triggerPendingLoad at the next bar boundary.
+    std::atomic<bool>  pendingBarLoadReady { false };
+    std::atomic<bool>  triggerPendingLoad { false };
 
 private:
 

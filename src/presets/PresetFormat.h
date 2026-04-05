@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include <array>
 #include <vector>
 
 class T5ynthProcessor;
@@ -36,6 +37,11 @@ public:
         juce::AudioBuffer<float> audio;
         double sampleRate = 44100.0;
         bool hasAudio = false;
+
+        // Semantic axes (3 slots: dropdown selection + value)
+        struct AxisState { int dropdownId = 1; float value = 0.0f; };
+        std::array<AxisState, 3> axes;
+        bool hasAxes = false;
 
         // Embeddings (empty if not available)
         std::vector<float> embeddingA, embeddingB;

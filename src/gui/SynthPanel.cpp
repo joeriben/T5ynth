@@ -439,6 +439,12 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     }
     driftRegenA = std::make_unique<CA>(apvts, "drift_regen", regenHidden);
 
+    // Crossfade slider for drift regeneration
+    crossfadeRegenRow = std::make_unique<SliderRow>("XFade", fmtMs, kDriftCol);
+    addAndMakeVisible(*crossfadeRegenRow);
+    crossfadeRegenA = std::make_unique<SA>(apvts, "drift_crossfade", crossfadeRegenRow->getSlider());
+    crossfadeRegenRow->updateValue();
+
     // All components are now set up — enable callbacks and trigger initial state
     initialized = true;
 
@@ -624,6 +630,11 @@ void SynthPanel::updateVisibility()
             regenBtns[i].setEnabled(regenAvailable);
         }
         regenHeader.setAlpha(regenAlpha);
+        if (crossfadeRegenRow)
+        {
+            crossfadeRegenRow->setAlpha(regenAlpha);
+            crossfadeRegenRow->setEnabled(regenAvailable);
+        }
     }
 }
 
@@ -1057,6 +1068,9 @@ void SynthPanel::resized()
         }
         regenSwitchBounds = regenBtns[0].getBounds()
             .getUnion(regenBtns[kNumRegenBtns - 1].getBounds());
+        // XFade slider fills the remaining space in the same row
+        regenRow.removeFromLeft(juce::roundToInt(f * 0.5f)); // small gap
+        crossfadeRegenRow->setBounds(regenRow);
     }
     layoutDrift(drift1, area, f, rowH, gap);
     layoutDrift(drift2, area, f, rowH, gap);

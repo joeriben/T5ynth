@@ -569,6 +569,18 @@ void MainPanel::loadDefaultPreset()
     promptPanel.loadPresetData(result.promptA, result.promptB,
                                result.seed, result.randomSeed, result.device, result.model);
 
+    // Restore semantic axes
+    if (result.hasAxes)
+    {
+        std::array<AxesPanel::SlotState, 3> states;
+        for (int i = 0; i < 3; ++i)
+        {
+            states[static_cast<size_t>(i)].dropdownId = result.axes[static_cast<size_t>(i)].dropdownId;
+            states[static_cast<size_t>(i)].value = result.axes[static_cast<size_t>(i)].value;
+        }
+        axesPanel.setSlotStates(states);
+    }
+
     if (result.hasAudio)
     {
         processorRef.loadGeneratedAudio(result.audio, result.sampleRate);
@@ -741,6 +753,17 @@ void MainPanel::savePreset()
     // (PromptPanel stores them on generation, but user may have edited since)
     processorRef.setLastPrompts(promptPanel.getPromptA(), promptPanel.getPromptB());
     processorRef.setLastSeed(promptPanel.getSeed());
+    // Store axes state (GUI-only, not in APVTS)
+    {
+        auto axStates = axesPanel.getSlotStates();
+        std::array<T5ynthProcessor::AxisSlotState, 3> procAxes;
+        for (int i = 0; i < 3; ++i)
+        {
+            procAxes[static_cast<size_t>(i)].dropdownId = axStates[static_cast<size_t>(i)].dropdownId;
+            procAxes[static_cast<size_t>(i)].value = axStates[static_cast<size_t>(i)].value;
+        }
+        processorRef.setLastAxes(procAxes);
+    }
 
     auto presetsDir = PresetFormat::getPresetsDirectory();
     auto chooser = std::make_shared<juce::FileChooser>(
@@ -775,6 +798,18 @@ void MainPanel::loadPreset()
             // Restore prompts/seed to GUI
             promptPanel.loadPresetData(result.promptA, result.promptB,
                                        result.seed, result.randomSeed, result.device, result.model);
+
+            // Restore semantic axes
+            if (result.hasAxes)
+            {
+                std::array<AxesPanel::SlotState, 3> states;
+                for (int i = 0; i < 3; ++i)
+                {
+                    states[static_cast<size_t>(i)].dropdownId = result.axes[static_cast<size_t>(i)].dropdownId;
+                    states[static_cast<size_t>(i)].value = result.axes[static_cast<size_t>(i)].value;
+                }
+                axesPanel.setSlotStates(states);
+            }
 
             // Restore audio into engine (skips generation!)
             if (result.hasAudio)

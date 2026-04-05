@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include <array>
 #include <vector>
 #include <map>
 #include <limits>
@@ -28,6 +29,11 @@ public:
 
     /** Set per-slot ghost offsets for drift visualization. NaN = no ghost. */
     void setGhostOffsets(float o1, float o2, float o3);
+
+    /** Per-slot state for preset save/load. */
+    struct SlotState { int dropdownId = 1; float value = 0.0f; };
+    std::array<SlotState, 3> getSlotStates() const;
+    void setSlotStates(const std::array<SlotState, 3>& states);
 
 private:
     float fs() const;

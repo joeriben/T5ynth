@@ -112,6 +112,7 @@ private:
     juce::TextButton regenBtns[kNumRegenBtns];
     juce::ComboBox regenHidden;
     juce::Rectangle<int> regenSwitchBounds;
+    std::unique_ptr<SliderRow> crossfadeRegenRow;
 
     // ── APVTS attachments ──
     using SA = juce::AudioProcessorValueTreeState::SliderAttachment;
@@ -122,6 +123,7 @@ private:
     std::unique_ptr<SA> scanA, cutoffA, resoA, filterMixA, kbdTrackA, crossfadeA;
     std::unique_ptr<CA> filterTypeA, filterSlopeA;
     std::unique_ptr<CA> driftRegenA;
+    std::unique_ptr<SA> crossfadeRegenA;
 
     // ENV/LFO target attachments (routed in processBlock)
     std::unique_ptr<CA> mod1TargetA, mod2TargetA, lfo1TargetA, lfo2TargetA;

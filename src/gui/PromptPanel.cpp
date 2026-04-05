@@ -2,8 +2,33 @@
 #include "GuiHelpers.h"
 #include "../PluginProcessor.h"
 #include <thread>
+#include <cmath>
 
 // Colors from GuiHelpers.h (kAccent, kDim, kDim, kSurface)
+
+// Equal-power crossfade between old and new audio buffers.
+// Blends the first xfadeSamples of newBuf with corresponding samples from oldBuf.
+static void applyDriftCrossfade(juce::AudioBuffer<float>& newBuf,
+                                 const juce::AudioBuffer<float>& oldBuf,
+                                 int xfadeSamples)
+{
+    int len = std::min(xfadeSamples, std::min(newBuf.getNumSamples(), oldBuf.getNumSamples()));
+    if (len <= 0) return;
+    int channels = std::min(newBuf.getNumChannels(), oldBuf.getNumChannels());
+    for (int ch = 0; ch < channels; ++ch)
+    {
+        float* dst = newBuf.getWritePointer(ch);
+        const float* src = oldBuf.getReadPointer(ch);
+        for (int i = 0; i < len; ++i)
+        {
+            float t = static_cast<float>(i) / static_cast<float>(len);
+            // Equal-power: sin/cos curves for smooth energy transition
+            float gainNew = std::sin(t * juce::MathConstants<float>::halfPi);
+            float gainOld = std::cos(t * juce::MathConstants<float>::halfPi);
+            dst[i] = src[i] * gainOld + dst[i] * gainNew;
+        }
+    }
+}
 
 static void makeSlider(juce::Slider& s, juce::Component* p)
 {
@@ -696,17 +721,28 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
             generateButton.setEnabled(true);
             if (result.success)
             {
+                // Apply crossfade between old and new audio
+                auto newAudio = result.audio; // mutable copy
+                float xfadeMs = processor->getValueTreeState()
+                    .getRawParameterValue("drift_crossfade")->load();
+                int xfadeSamples = juce::roundToInt(xfadeMs * 0.001f * 44100.0f);
+                if (xfadeSamples > 0)
+                    applyDriftCrossfade(newAudio, processor->getGeneratedAudio(), xfadeSamples);
+
                 if (holdForBar)
                 {
                     // 1st Bar mode: defer audio load until bar boundary
-                    pendingAudio_ = result.audio;
+                    pendingAudio_ = newAudio;
                     pendingSampleRate_ = 44100.0;
                     pendingBarLoad_ = true;
+                    // Clear stale flags, then signal audio thread we're ready
+                    processor->triggerPendingLoad.store(false, std::memory_order_relaxed);
+                    processor->pendingBarLoadReady.store(true, std::memory_order_relaxed);
                 }
                 else
                 {
                     // Auto mode: load immediately
-                    processor->loadGeneratedAudio(result.audio, 44100.0);
+                    processor->loadGeneratedAudio(newAudio, 44100.0);
                 }
                 processor->setLastSeed(result.seed);
                 seedEditor.setText(juce::String(result.seed), false);
@@ -739,14 +775,13 @@ void PromptPanel::pollDriftRegen()
     int regenMode = processorRef.driftRegenMode.load(std::memory_order_relaxed);
     if (regenMode == 0) return; // Manual — no auto-regen
 
-    // 1st Bar: check if pending audio should be loaded at bar boundary
+    // 1st Bar: check if audio thread signalled bar boundary while pending
     if (pendingBarLoad_)
     {
-        bool barHit = processorRef.barBoundaryFlag.exchange(false, std::memory_order_relaxed);
-        // Also trigger on first MIDI note when sequencer is not running
-        bool midiTrigger = processorRef.lastMidiNoteOn.load(std::memory_order_relaxed);
-        if (barHit || midiTrigger)
+        bool loadNow = processorRef.triggerPendingLoad.exchange(false, std::memory_order_relaxed);
+        if (loadNow)
         {
+            processorRef.pendingBarLoadReady.store(false, std::memory_order_relaxed);
             processorRef.loadGeneratedAudio(pendingAudio_, pendingSampleRate_);
             pendingBarLoad_ = false;
             if (onStatusChanged) onStatusChanged("drift regen loaded", false);

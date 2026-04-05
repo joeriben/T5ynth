@@ -28,6 +28,20 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
         synth->setProperty("randomSeed", genSeed == -1);
     }
 
+    // Semantic axes (GUI-only state, 3 slots)
+    {
+        juce::Array<juce::var> axesArr;
+        const auto& axes = processor.getLastAxes();
+        for (int i = 0; i < 3; ++i)
+        {
+            juce::DynamicObject::Ptr ax = new juce::DynamicObject();
+            ax->setProperty("dropdownId", axes[static_cast<size_t>(i)].dropdownId);
+            ax->setProperty("value", static_cast<double>(axes[static_cast<size_t>(i)].value));
+            axesArr.add(ax.get());
+        }
+        root->setProperty("semanticAxes", axesArr);
+    }
+
     // Audio metadata
     const auto& audioBuf = processor.getGeneratedAudio();
     int numSamples = audioBuf.getNumSamples();
@@ -132,6 +146,22 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
             result.model = synth->getProperty("model").toString();
             if (synth->hasProperty("randomSeed"))
                 result.randomSeed = static_cast<bool>(synth->getProperty("randomSeed"));
+        }
+
+        // Extract semantic axes
+        if (auto* axesArr = root->getProperty("semanticAxes").getArray())
+        {
+            for (int i = 0; i < std::min(axesArr->size(), 3); ++i)
+            {
+                if (auto* ax = (*axesArr)[i].getDynamicObject())
+                {
+                    result.axes[static_cast<size_t>(i)].dropdownId =
+                        static_cast<int>(ax->getProperty("dropdownId"));
+                    result.axes[static_cast<size_t>(i)].value =
+                        static_cast<float>(ax->getProperty("value"));
+                }
+            }
+            result.hasAxes = true;
         }
 
         // Extract embeddings
