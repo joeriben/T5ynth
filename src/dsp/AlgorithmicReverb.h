@@ -33,7 +33,7 @@ private:
     float wetMix = 0.0f;
     bool prepared = false;
 
-    // Silence detection
-    int silentInputBlocks = 0;
-    static constexpr int REVERB_TAIL_BLOCKS = 344;
+    // Silence detection — skip processing only after output has truly decayed
+    int silentOutputBlocks = 0;
+    static constexpr int SILENCE_CONFIRM_BLOCKS = 4;
 };

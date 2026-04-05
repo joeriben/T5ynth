@@ -29,17 +29,12 @@ void AlgorithmicReverb::processBlock(juce::AudioBuffer<float>& buffer)
     if (!prepared || wetMix == 0.0f)
         return;
 
-    // Silence detection
-    float magnitude = buffer.getMagnitude(0, buffer.getNumSamples());
-    if (magnitude < 1e-6f)
-    {
-        if (++silentInputBlocks > REVERB_TAIL_BLOCKS)
-            return;
-    }
-    else
-    {
-        silentInputBlocks = 0;
-    }
+    // Silence detection: skip only after output has truly decayed
+    float inMag = buffer.getMagnitude(0, buffer.getNumSamples());
+    bool inputSilent = inMag < 1e-6f;
+
+    if (inputSilent && silentOutputBlocks > SILENCE_CONFIRM_BLOCKS)
+        return;
 
     juce::dsp::AudioBlock<float> block(buffer);
     mixer.pushDrySamples(block);
@@ -48,6 +43,13 @@ void AlgorithmicReverb::processBlock(juce::AudioBuffer<float>& buffer)
     reverb.process(context);
 
     mixer.mixWetSamples(block);
+
+    // Check output magnitude — count as silent only when input is also silent
+    float outMag = buffer.getMagnitude(0, buffer.getNumSamples());
+    if (outMag < 1e-6f && inputSilent)
+        ++silentOutputBlocks;
+    else
+        silentOutputBlocks = 0;
 }
 
 void AlgorithmicReverb::reset()

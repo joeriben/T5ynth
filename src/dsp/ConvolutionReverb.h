@@ -29,7 +29,7 @@ private:
     bool prepared = false;
     bool irLoaded = false;
 
-    // Silence detection — skip FFT convolution after tail has decayed
-    int silentInputBlocks = 0;
-    static constexpr int REVERB_TAIL_BLOCKS = 344;  // ~4s at 44.1kHz/512
+    // Silence detection — skip FFT convolution only after output has truly decayed
+    int silentOutputBlocks = 0;
+    static constexpr int SILENCE_CONFIRM_BLOCKS = 4;
 };

@@ -20,17 +20,12 @@ void ConvolutionReverb::processBlock(juce::AudioBuffer<float>& buffer)
     if (!prepared || wetMix == 0.0f || !irLoaded)
         return;
 
-    // Silence detection: skip expensive FFT convolution after tail has decayed
-    float magnitude = buffer.getMagnitude(0, buffer.getNumSamples());
-    if (magnitude < 1e-6f)
-    {
-        if (++silentInputBlocks > REVERB_TAIL_BLOCKS)
-            return;
-    }
-    else
-    {
-        silentInputBlocks = 0;
-    }
+    // Silence detection: skip only after output has truly decayed
+    float inMag = buffer.getMagnitude(0, buffer.getNumSamples());
+    bool inputSilent = inMag < 1e-6f;
+
+    if (inputSilent && silentOutputBlocks > SILENCE_CONFIRM_BLOCKS)
+        return;
 
     juce::dsp::AudioBlock<float> block(buffer);
     mixer.pushDrySamples(block);
@@ -39,6 +34,13 @@ void ConvolutionReverb::processBlock(juce::AudioBuffer<float>& buffer)
     convolution.process(context);
 
     mixer.mixWetSamples(block);
+
+    // Check output magnitude — count as silent only when input is also silent
+    float outMag = buffer.getMagnitude(0, buffer.getNumSamples());
+    if (outMag < 1e-6f && inputSilent)
+        ++silentOutputBlocks;
+    else
+        silentOutputBlocks = 0;
 }
 
 void ConvolutionReverb::reset()
@@ -63,6 +65,6 @@ void ConvolutionReverb::loadImpulseResponse(const void* data, size_t size)
                                          juce::dsp::Convolution::Trim::yes,
                                          0);
         irLoaded = true;
-        silentInputBlocks = 0;
+        silentOutputBlocks = 0;
     }
 }

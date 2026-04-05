@@ -46,9 +46,9 @@ private:
     float dampFreq = 4000.0f;       // Default at damp=0.5
     bool prepared = false;
 
-    // Silence detection — skip per-sample processing after tail has decayed
-    int silentInputBlocks = 0;
-    static constexpr int DELAY_TAIL_BLOCKS = 172;  // ~2s at 44.1kHz/512
+    // Silence detection — skip processing only after output has truly decayed
+    int silentOutputBlocks = 0;
+    static constexpr int SILENCE_CONFIRM_BLOCKS = 4;
 
     void updateDampCoeffs();
 };
