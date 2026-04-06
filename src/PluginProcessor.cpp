@@ -1288,6 +1288,10 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
     std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(data, sizeInBytes));
     if (xml != nullptr && xml->hasTagName(parameters.state.getType()))
         parameters.replaceState(juce::ValueTree::fromXml(*xml));
+
+    // Never auto-start sequencers on session restore — no acoustic surprises
+    parameters.getParameter("seq_running")->setValueNotifyingHost(0.0f);
+    parameters.getParameter("gen_seq_running")->setValueNotifyingHost(0.0f);
 }
 
 // ═══════════════════════════════════════════════════════════════════
