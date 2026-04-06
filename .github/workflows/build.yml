@@ -204,16 +204,17 @@ jobs:
         run: |
           cd artifacts
           for dir in T5ynth-*; do
-            tar czf "${dir}.tar.gz" "$dir"
+            # xz -3 gives much better compression than gzip for CUDA binaries
+            tar -cJf "${dir}.tar.xz" "$dir"
           done
-          ls -lh *.tar.gz
+          ls -lh *.tar.xz
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ github.ref_name }}" \
-            artifacts/*.tar.gz \
+            artifacts/*.tar.xz \
             --title "T5ynth ${{ github.ref_name }}" \
             --generate-notes \
             --prerelease

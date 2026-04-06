@@ -80,6 +80,25 @@ a = Analysis(
     noarchive=False,
 )
 
+# ── Strip CUDA libraries not needed for inference (saves ~800 MB) ────
+# Keep: cublas, cublasLt, cudnn, curand, cudart (required for GPU inference)
+# Drop: training-only, multi-GPU, JIT, and profiling libs
+import re as _re
+
+_cuda_exclude = _re.compile(
+    r'libnccl|nccl\d'           # multi-GPU communication
+    r'|libcufft|cufft\d'        # FFT (only in training losses)
+    r'|libcusparse|cusparse\d'  # sparse matrices
+    r'|libcusolver|cusolver\d'  # dense/sparse solvers
+    r'|libnvrtc|nvrtc\d'        # runtime compiler
+    r'|libnvJitLink|nvJitLink'  # JIT linker
+    r'|libcupti|cupti\d'        # profiling tools
+    r'|triton'                  # Triton JIT (no torch.compile used)
+)
+
+a.binaries = [b for b in a.binaries if not _cuda_exclude.search(b[0])]
+a.datas    = [d for d in a.datas    if 'triton' not in d[0]]
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
