@@ -654,11 +654,34 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         {
             if (genModeWanted)
             {
-                // Step → Gen: stop step seq, start gen seq
+                // Step → Gen: seed from current step seq pattern, then switch
+                int seqCount = stepSequencer.getNumSteps();
+                int seedNotes[T5ynthStepSequencer::MAX_STEPS]{};
+                bool seedEnabled[T5ynthStepSequencer::MAX_STEPS]{};
+                int pulseCount = 0;
+                for (int i = 0; i < seqCount; ++i)
+                {
+                    const auto& step = stepSequencer.getStep(i);
+                    seedNotes[i] = step.note;
+                    seedEnabled[i] = step.enabled;
+                    if (step.enabled) pulseCount++;
+                }
+
                 stepSequencer.stop();
                 generativeSequencer.setBpm(static_cast<double>(seqBpm));
                 generativeSequencer.setDivision(seqDivision);
                 generativeSequencer.setGate(seqGate);
+                generativeSequencer.setScale(
+                    static_cast<int>(parameters.getRawParameterValue("scale_type")->load()),
+                    static_cast<int>(parameters.getRawParameterValue("scale_root")->load()));
+                generativeSequencer.seedFromSteps(seedNotes, seedEnabled, seqCount);
+
+                // Update gen params to match seeded pattern
+                if (auto* par = parameters.getParameter("gen_steps"))
+                    par->setValueNotifyingHost(par->convertTo0to1(static_cast<float>(seqCount)));
+                if (auto* par = parameters.getParameter("gen_pulses"))
+                    par->setValueNotifyingHost(par->convertTo0to1(static_cast<float>(pulseCount)));
+
                 genModeActiveInAudio = true;
             }
             else

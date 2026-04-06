@@ -53,6 +53,9 @@ public:
     void stop();
     bool isRunning() const { return running; }
 
+    /** Seed pattern from step sequencer data (skips Euclidean generation). */
+    void seedFromSteps(const int* midiNotes, const bool* enabled, int count);
+
     /** Atomic step position for GUI polling. */
     std::atomic<int> currentStepForGui { -1 };
 
@@ -87,12 +90,20 @@ private:
     int lastPlayedNote = -1;
     int cycleCount = 0;
 
+    // Euclidean drift state (evolve-controlled)
+    int driftCycle = 0;
+    static constexpr int DRIFT_PERIOD = 8;  // drift evaluated over 8-cycle windows
+    int basePulses = 5;
+    int pulseDriftAccum = 0;
+    bool pulseDriftUp = true;
+
     // Pattern data
     std::array<bool, MAX_STEPS> eucPattern{};    // true = pulse position
     std::array<int, MAX_STEPS> notePattern{};    // MIDI note per step (0 = rest)
     std::array<float, MAX_STEPS> velocityPattern{}; // velocity per step
     std::array<int, MAX_STEPS> degreePattern{};  // scale degree index per pulse (for mutation)
     bool patternDirty = true;
+    bool patternSeeded = false;  // prevents start() from overriding seed
 
     // Turing Machine state
     std::mt19937 rng { 42 };
@@ -103,4 +114,7 @@ private:
     void mutatePattern();
     void computeGaps(int* gaps, int* gapCount) const;
     void publishPatternToGui();
+    void applyEuclideanDrift();
+    void addPulse();
+    void removePulse();
 };

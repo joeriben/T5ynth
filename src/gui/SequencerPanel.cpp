@@ -242,7 +242,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     addAndMakeVisible(midiMonitor);
 
     // ── Preset ──
-    presetBox.addItemList({"Octave Bounce","Wide Leap","Off-Beat Minor","Bind Groove","Sparse Stab",
+    presetBox.addItemList({"Octave Bounce","Wide Leap","Off-Beat Minor","Glide Groove","Sparse Stab",
                            "Rising Arc","Scatter","Chromatic","Bass Walk","Gated Pulse"}, 1);
     addAndMakeVisible(presetBox);
     presetA = std::make_unique<CA>(apvts, "seq_preset", presetBox);
@@ -826,7 +826,7 @@ void SequencerPanel::resized()
 
     // Visibility: step grid vs gen controls (Row 1 stays ALWAYS visible)
     for (int i = 0; i < MAX_COLS; ++i)
-        stepCols[static_cast<size_t>(i)]->setVisible(!genModeActive);
+        stepCols[static_cast<size_t>(i)]->setVisible(!genModeActive && i < numVisibleSteps);
 
     genStepsRow->setVisible(genModeActive);
     genPulsesRow->setVisible(genModeActive);

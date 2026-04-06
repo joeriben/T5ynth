@@ -9,75 +9,103 @@ static constexpr T5ynthStepSequencer::Step mkStep(int semi, float vel, float gat
 static constexpr T5ynthStepSequencer::Step REST = { 60, 0.0f, 0.0f, false, false };
 
 // clang-format off
-static constexpr T5ynthStepSequencer::Step P_EASTCOAST[] = {
-    mkStep(0,0.79f,0.5f), mkStep(12,0.63f,0.25f), mkStep(7,0.63f,0.5f), mkStep(12,0.63f,0.25f),
-    mkStep(0,0.87f,0.5f), mkStep(12,0.63f,0.25f), mkStep(10,0.63f,0.5f), mkStep(12,0.63f,0.25f),
-    mkStep(0,0.79f,0.5f), mkStep(12,0.63f,0.25f), mkStep(3,0.63f,0.5f), mkStep(12,0.63f,0.25f),
-    mkStep(0,0.87f,0.5f), mkStep(12,0.63f,0.25f), mkStep(5,0.71f,0.8f), mkStep(7,0.47f,0.25f),
+
+// 1. Octave Bounce — root bouncing against octave, scale tones between
+//    Even steps: scale tones (1,3,5,6); odd steps: octave (12)
+static constexpr T5ynthStepSequencer::Step P_OCTAVE_BOUNCE[] = {
+    mkStep(0,0.90f,0.4f),  mkStep(12,0.70f,0.25f), mkStep(4,0.75f,0.4f),  mkStep(12,0.65f,0.25f),
+    mkStep(7,0.85f,0.4f),  mkStep(12,0.70f,0.25f), mkStep(9,0.75f,0.4f),  mkStep(12,0.65f,0.25f),
+    mkStep(0,0.90f,0.4f),  mkStep(12,0.70f,0.25f), mkStep(4,0.75f,0.4f),  mkStep(12,0.65f,0.25f),
+    mkStep(7,0.85f,0.4f),  mkStep(12,0.70f,0.25f), mkStep(10,0.80f,0.5f), mkStep(12,0.65f,0.25f),
 };
-static constexpr T5ynthStepSequencer::Step P_WESTCOAST[] = {
-    mkStep(0,1.0f,0.8f), mkStep(19,0.47f,1.0f), REST, mkStep(24,0.79f,0.1f), mkStep(3,0.31f,0.4f),
+
+// 2. Wide Leap — every interval ≥ P4 (5 semitones), alternating up/down
+static constexpr T5ynthStepSequencer::Step P_WIDE_LEAP[] = {
+    mkStep(0,0.85f,0.5f),   mkStep(7,0.75f,0.5f),   mkStep(-12,0.90f,0.5f), mkStep(9,0.70f,0.5f),
+    mkStep(-9,0.80f,0.5f),  mkStep(11,0.75f,0.5f),  mkStep(-7,0.85f,0.5f),  mkStep(12,0.70f,0.5f),
+    mkStep(0,0.90f,0.5f),   mkStep(8,0.75f,0.5f),   mkStep(-10,0.80f,0.5f), mkStep(10,0.70f,0.5f),
+    mkStep(-8,0.85f,0.5f),  mkStep(7,0.75f,0.5f),   mkStep(-14,0.90f,0.5f), mkStep(12,0.70f,0.5f),
 };
-static constexpr T5ynthStepSequencer::Step P_SYNTHWAVE[] = {
-    REST, mkStep(0,0.79f,0.4f), mkStep(0,0.79f,0.4f), mkStep(3,0.87f,0.4f),
-    REST, mkStep(0,0.79f,0.4f), mkStep(0,0.79f,0.4f), mkStep(3,0.87f,0.4f),
-    REST, mkStep(0,0.79f,0.4f), mkStep(0,0.79f,0.4f), mkStep(7,0.87f,0.4f),
-    REST, mkStep(0,0.79f,0.4f), mkStep(0,0.79f,0.4f), mkStep(7,0.87f,0.4f),
+
+// 3. Off-Beat Minor — natural minor (0,2,3,5,7,8,10) on odd steps only
+static constexpr T5ynthStepSequencer::Step P_OFFBEAT_MINOR[] = {
+    REST, mkStep(0,0.80f,0.4f),  REST, mkStep(3,0.85f,0.4f),
+    REST, mkStep(5,0.80f,0.4f),  REST, mkStep(7,0.90f,0.4f),
+    REST, mkStep(8,0.75f,0.4f),  REST, mkStep(10,0.85f,0.4f),
+    REST, mkStep(12,0.90f,0.4f), REST, mkStep(8,0.80f,0.4f),
 };
-static constexpr T5ynthStepSequencer::Step P_TECHNO[] = {
-    REST, mkStep(0,0.79f,0.5f), mkStep(0,0.63f,1.0f), mkStep(12,1.0f,0.5f,true,true),
-    REST, mkStep(0,0.79f,0.5f), REST, mkStep(0,0.79f,0.5f),
-    mkStep(0,0.63f,1.0f), mkStep(3,1.0f,1.0f,true,true), mkStep(3,0.63f,1.0f), mkStep(-5,0.63f,0.5f,true,true),
-    mkStep(0,1.0f,0.5f,true,true), REST, mkStep(12,0.63f,0.5f), REST,
+
+// 4. Glide Groove — stepwise motion with bind/glide between connected notes
+static constexpr T5ynthStepSequencer::Step P_GLIDE_GROOVE[] = {
+    mkStep(0,0.85f,0.8f), mkStep(2,0.70f,0.8f,true,true),  mkStep(3,0.70f,0.8f,true,true), mkStep(7,0.90f,0.6f),
+    mkStep(5,0.70f,0.8f,true,true), mkStep(3,0.80f,0.6f),  mkStep(0,0.70f,0.8f,true,true), mkStep(2,0.70f,0.8f,true,true),
+    mkStep(3,0.85f,0.8f), mkStep(5,0.70f,0.8f,true,true),  mkStep(7,0.70f,0.8f,true,true), mkStep(8,0.90f,0.6f),
+    mkStep(10,0.75f,0.8f,true,true), mkStep(8,0.70f,0.8f,true,true), mkStep(7,0.80f,0.6f), mkStep(5,0.70f,0.8f,true,true),
 };
-static constexpr T5ynthStepSequencer::Step P_DUB_TECHNO[] = {
-    mkStep(0,0.71f,0.1f), REST, REST, REST, REST, mkStep(0,0.86f,0.1f), REST, REST,
-    REST, REST, mkStep(0,0.55f,0.1f), REST, REST, REST, REST, REST,
+
+// 5. Sparse Stab — 4 notes in 16 steps, short gates (staccato stabs)
+static constexpr T5ynthStepSequencer::Step P_SPARSE_STAB[] = {
+    mkStep(0,1.00f,0.1f), REST, REST, REST,
+    mkStep(7,0.85f,0.1f), REST, REST, REST,
+    mkStep(3,0.90f,0.1f), REST, REST, REST,
+    mkStep(10,0.80f,0.1f),REST, REST, REST,
 };
-static constexpr T5ynthStepSequencer::Step P_AMBIENT[] = {
-    mkStep(0,0.45f,1.0f), mkStep(0,0.48f,1.0f), mkStep(2,0.5f,1.0f), mkStep(2,0.53f,1.0f),
-    mkStep(7,0.55f,1.0f), mkStep(7,0.6f,1.0f), mkStep(5,0.63f,1.0f), mkStep(5,0.65f,1.0f),
-    mkStep(11,0.7f,1.0f), mkStep(11,0.73f,1.0f), mkStep(14,0.75f,1.0f), mkStep(14,0.78f,1.0f),
-    mkStep(12,0.8f,1.0f), mkStep(7,0.7f,1.0f), mkStep(2,0.55f,1.0f), mkStep(0,0.4f,1.0f),
+
+// 6. Rising Arc — ascending concave curve: semi[i] = round(24·sin(π/2·i/15))
+//    Velocity crescendo from p to ff mirrors the pitch arc
+static constexpr T5ynthStepSequencer::Step P_RISING_ARC[] = {
+    mkStep(0,0.50f,0.9f),  mkStep(3,0.53f,0.9f),  mkStep(5,0.57f,0.9f),  mkStep(7,0.60f,0.9f),
+    mkStep(10,0.63f,0.9f), mkStep(12,0.67f,0.9f),  mkStep(14,0.70f,0.9f), mkStep(16,0.73f,0.9f),
+    mkStep(18,0.77f,0.9f), mkStep(19,0.80f,0.9f),  mkStep(21,0.83f,0.9f), mkStep(22,0.87f,0.9f),
+    mkStep(23,0.90f,0.9f), mkStep(23,0.93f,0.9f),  mkStep(24,0.97f,0.9f), mkStep(24,1.00f,0.9f),
 };
-static constexpr T5ynthStepSequencer::Step P_IDM_GLITCH[] = {
-    mkStep(6,1.0f,0.04f), mkStep(-8,0.3f,1.0f), mkStep(17,0.95f,0.12f), REST,
-    mkStep(-1,0.7f,0.7f), mkStep(23,0.4f,0.03f), mkStep(-11,1.0f,0.5f), mkStep(8,0.55f,0.85f),
-    REST, mkStep(-4,0.9f,1.0f),
+
+// 7. Scatter — modular stride (i·7 mod 13 → degree, mapped to semitones),
+//    every 4th step is a rest for rhythmic breath
+static constexpr T5ynthStepSequencer::Step P_SCATTER[] = {
+    mkStep(0,0.85f,0.4f),  mkStep(12,0.75f,0.4f), mkStep(2,0.80f,0.4f),  REST,
+    mkStep(4,0.85f,0.4f),  mkStep(16,0.70f,0.4f), mkStep(5,0.80f,0.4f),  REST,
+    mkStep(7,0.85f,0.4f),  mkStep(19,0.75f,0.4f), mkStep(9,0.80f,0.4f),  REST,
+    mkStep(11,0.90f,0.4f), mkStep(0,0.70f,0.4f),  mkStep(12,0.80f,0.4f), REST,
 };
-static constexpr T5ynthStepSequencer::Step P_SOLAR[] = {
-    mkStep(0,0.9f,0.5f), mkStep(1,0.9f,0.5f), mkStep(0,0.9f,0.5f), mkStep(0,0.9f,0.5f),
-    mkStep(5,0.9f,0.5f), mkStep(6,0.9f,0.5f), mkStep(5,0.9f,0.5f), mkStep(5,0.9f,0.5f),
-    mkStep(7,0.9f,0.5f), mkStep(8,0.9f,0.5f), mkStep(7,0.9f,0.5f), mkStep(7,0.9f,0.5f),
-    mkStep(11,0.9f,0.5f), mkStep(12,0.9f,0.5f), mkStep(11,0.9f,0.5f), mkStep(10,0.9f,0.5f),
+
+// 8. Chromatic — strict half-steps: ascending chromatic scale, turning at octave
+static constexpr T5ynthStepSequencer::Step P_CHROMATIC[] = {
+    mkStep(0,0.80f,0.5f),  mkStep(1,0.75f,0.5f),  mkStep(2,0.80f,0.5f),  mkStep(3,0.75f,0.5f),
+    mkStep(4,0.80f,0.5f),  mkStep(5,0.75f,0.5f),  mkStep(6,0.80f,0.5f),  mkStep(7,0.75f,0.5f),
+    mkStep(8,0.80f,0.5f),  mkStep(9,0.75f,0.5f),  mkStep(10,0.80f,0.5f), mkStep(11,0.75f,0.5f),
+    mkStep(12,0.90f,0.5f), mkStep(11,0.70f,0.5f), mkStep(10,0.70f,0.5f), mkStep(9,0.70f,0.5f),
 };
-static constexpr T5ynthStepSequencer::Step P_ARPEGGIO_BASS[] = {
-    mkStep(0,0.8f,0.5f), mkStep(7,0.65f,0.45f), mkStep(0,0.8f,0.5f), mkStep(6,0.65f,0.45f),
-    mkStep(0,0.8f,0.5f), mkStep(7,0.65f,0.45f), mkStep(0,0.8f,0.5f), mkStep(10,0.7f,0.5f),
-    mkStep(0,0.85f,0.5f), mkStep(7,0.7f,0.45f), mkStep(0,0.85f,0.5f), mkStep(6,0.7f,0.45f),
-    mkStep(0,0.85f,0.5f), mkStep(7,0.7f,0.45f), mkStep(0,0.85f,0.5f), mkStep(11,0.75f,0.55f),
-    mkStep(0,0.9f,0.55f), mkStep(7,0.75f,0.5f), mkStep(12,0.9f,0.55f), mkStep(6,0.75f,0.5f),
-    mkStep(0,0.9f,0.55f), mkStep(7,0.75f,0.5f), mkStep(12,0.9f,0.55f), mkStep(10,0.8f,0.55f),
-    mkStep(0,0.95f,0.6f), mkStep(7,0.8f,0.5f), mkStep(12,0.95f,0.6f), mkStep(6,0.8f,0.5f),
-    mkStep(0,1.0f,0.6f), mkStep(11,0.85f,0.55f), mkStep(7,1.0f,0.6f), REST,
+
+// 9. Bass Walk — classic walking bass: root–3rd–5th–approach, low register (C3 base)
+static constexpr T5ynthStepSequencer::Step P_BASS_WALK[] = {
+    mkStep(-12,0.90f,0.5f), mkStep(-8,0.75f,0.5f),  mkStep(-5,0.80f,0.5f),  mkStep(-3,0.70f,0.5f),
+    mkStep(-2,0.75f,0.5f),  mkStep(-5,0.80f,0.5f),  mkStep(-8,0.75f,0.5f),  mkStep(-10,0.70f,0.5f),
+    mkStep(-12,0.90f,0.5f), mkStep(-10,0.75f,0.5f), mkStep(-8,0.80f,0.5f),  mkStep(-7,0.75f,0.5f),
+    mkStep(-5,0.85f,0.5f),  mkStep(-3,0.75f,0.5f),  mkStep(-2,0.80f,0.5f),  mkStep(-1,0.70f,0.5f),
 };
-static constexpr T5ynthStepSequencer::Step P_TRANCE_GATE[] = {
-    mkStep(0,1.0f,0.9f), mkStep(0,0.3f,0.15f), mkStep(0,0.85f,0.7f), mkStep(0,0.5f,0.3f),
-    mkStep(0,1.0f,0.9f), REST, mkStep(0,0.9f,0.6f), mkStep(0,0.4f,0.2f),
+
+// 10. Gated Pulse — single pitch, rhythmic velocity gating (Euclidean feel)
+static constexpr T5ynthStepSequencer::Step P_GATED_PULSE[] = {
+    mkStep(0,1.00f,0.15f), mkStep(0,0.50f,0.15f), REST,               mkStep(0,0.80f,0.15f),
+    mkStep(0,0.40f,0.15f), REST,                   mkStep(0,1.00f,0.15f), REST,
+    mkStep(0,0.90f,0.15f), mkStep(0,0.45f,0.15f), REST,               mkStep(0,0.70f,0.15f),
+    REST,                   mkStep(0,0.85f,0.15f), mkStep(0,0.50f,0.15f), REST,
 };
+
 // clang-format on
 
 const T5ynthStepSequencer::PresetData T5ynthStepSequencer::presetTable[NUM_PRESETS] = {
-    { "Octave Bounce",  P_EASTCOAST,    16 },
-    { "Wide Leap",      P_WESTCOAST,     5 },
-    { "Off-Beat Minor", P_SYNTHWAVE,    16 },
-    { "Glide Groove",   P_TECHNO,       16 },
-    { "Sparse Stab",    P_DUB_TECHNO,   16 },
-    { "Rising Arc",     P_AMBIENT,      16 },
-    { "Scatter",        P_IDM_GLITCH,   10 },
-    { "Chromatic",      P_SOLAR,        16 },
-    { "Bass Walk",      P_ARPEGGIO_BASS,32 },
-    { "Gated Pulse",    P_TRANCE_GATE,   8 },
+    { "Octave Bounce",  P_OCTAVE_BOUNCE,  16 },
+    { "Wide Leap",      P_WIDE_LEAP,      16 },
+    { "Off-Beat Minor", P_OFFBEAT_MINOR,  16 },
+    { "Glide Groove",   P_GLIDE_GROOVE,   16 },
+    { "Sparse Stab",    P_SPARSE_STAB,    16 },
+    { "Rising Arc",     P_RISING_ARC,     16 },
+    { "Scatter",        P_SCATTER,        16 },
+    { "Chromatic",      P_CHROMATIC,      16 },
+    { "Bass Walk",      P_BASS_WALK,      16 },
+    { "Gated Pulse",    P_GATED_PULSE,    16 },
 };
 
 // ─── Implementation ────────────────────────────────────────────────────────
