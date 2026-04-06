@@ -1,6 +1,7 @@
 #include "MainPanel.h"
 #include "../PluginProcessor.h"
 #include "GuiHelpers.h"
+#include "BinaryData.h"
 #include <thread>
 
 MainPanel::MainPanel(T5ynthProcessor& processor)
@@ -557,12 +558,14 @@ void MainPanel::loadDefaultPreset()
     if (processorRef.getGeneratedAudio().getNumSamples() > 0)
         return;
 
-    auto file = PresetFormat::getPresetsDirectory()
-                    .getChildFile("ghostly trombone, -0.35 WT.t5p");
-    if (!file.existsAsFile())
-        return;
+    // Write bundled default preset to temp file, then load it
+    auto tmpFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                       .getChildFile("t5ynth_default.t5p");
+    tmpFile.replaceWithData(BinaryData::DEMO_T5OscillatorDrift_t5p,
+                            static_cast<size_t>(BinaryData::DEMO_T5OscillatorDrift_t5pSize));
 
-    auto result = PresetFormat::loadFromFile(file, processorRef);
+    auto result = PresetFormat::loadFromFile(tmpFile, processorRef);
+    tmpFile.deleteFile();
     if (!result.success)
         return;
 

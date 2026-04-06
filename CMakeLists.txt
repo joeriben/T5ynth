@@ -72,8 +72,10 @@ target_sources(T5ynth PRIVATE
     # Sequencer
     src/sequencer/StepSequencer.cpp
     src/sequencer/Arpeggiator.cpp
+    src/sequencer/GenerativeSequencer.cpp
     src/sequencer/EuclideanRhythm.h
     src/sequencer/ScaleQuantizer.h
+    src/sequencer/GenerativeSequencer.h
 
     # Inference (Python pipe IPC)
     src/inference/PipeInference.cpp
@@ -106,6 +108,7 @@ juce_add_binary_data(T5ynthData SOURCES
     resources/ir/emt_140_plate_bright.wav
     resources/ir/emt_140_plate_medium.wav
     resources/ir/emt_140_plate_dark.wav
+    "resources/presets/DEMO T5-Oscillator-Drift.t5p"
 )
 
 target_link_libraries(T5ynth
