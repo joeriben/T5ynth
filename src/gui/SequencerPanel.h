@@ -84,9 +84,14 @@ private:
     juce::Rectangle<int> gridArea;
 
     // Generative sequencer controls
-    juce::TextButton genTransportBtn { "GEN" };
-    std::unique_ptr<SliderRow> genStepsRow, genPulsesRow, genRotationRow, genRangeRow, genMutationRow;
+    juce::TextButton genTransportBtn { "GEN" };  // mode toggle, not transport
+    std::unique_ptr<SliderRow> genStepsRow, genPulsesRow, genRotationRow, genMutationRow;
     juce::ComboBox genScaleRootBox, genScaleTypeBox;
+    // Range switchbox [1][2][3][4]
+    static constexpr int kNumRangeBtns = 4;
+    juce::TextButton genRangeBtns[kNumRangeBtns];
+    juce::ComboBox genRangeHidden;  // hidden, for APVTS
+    juce::Label genRangeLabel;
 
     // Gen visualisation (painted in paint(), positioned in resized())
     juce::Rectangle<int> genVisArea;
@@ -107,9 +112,9 @@ private:
     using SA = juce::AudioProcessorValueTreeState::SliderAttachment;
     using CA = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
     using BA = juce::AudioProcessorValueTreeState::ButtonAttachment;
-    std::unique_ptr<SA> bpmA, gateA, genStepsA, genPulsesA, genRotationA, genRangeA, genMutationA;
+    std::unique_ptr<SA> bpmA, gateA, genStepsA, genPulsesA, genRotationA, genMutationA;
     std::unique_ptr<CA> divA, presetA, arpModeA, arpRateA, arpOctA, octShiftA,
-                        genScaleRootA, genScaleTypeA;
+                        genScaleRootA, genScaleTypeA, genRangeA;
     std::unique_ptr<BA> genRunningA;
 
     int currentStep = -1;

@@ -399,12 +399,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     genTransportBtn.setColour(juce::TextButton::textColourOffId, kSeqCol);
     genTransportBtn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
     genTransportBtn.setClickingTogglesState(true);
-    genTransportBtn.onClick = [this] {
-        auto* par = processorRef.getValueTreeState().getParameter("gen_seq_running");
-        if (!par) return;
-        bool playing = par->getValue() > 0.5f;
-        par->setValueNotifyingHost(playing ? 0.0f : 1.0f);
-    };
+    // No onClick needed — ButtonAttachment handles parameter sync
     addAndMakeVisible(genTransportBtn);
     genRunningA = std::make_unique<BA>(apvts, "gen_seq_running", genTransportBtn);
 
@@ -427,12 +422,30 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     genRotationRow->getSlider().onValueChange = [this] { genRotationRow->updateValue(); };
     genRotationRow->updateValue();
 
-    genRangeRow = std::make_unique<SliderRow>("Range",
-        [](double v) { return juce::String(juce::roundToInt(v)) + " oct"; }, kSeqCol);
-    addAndMakeVisible(*genRangeRow);
-    genRangeA = std::make_unique<SA>(apvts, "gen_range", genRangeRow->getSlider());
-    genRangeRow->getSlider().onValueChange = [this] { genRangeRow->updateValue(); };
-    genRangeRow->updateValue();
+    // Range switchbox [1][2][3][4] octaves
+    genRangeHidden.addItemList({"1","2","3","4"}, 1);
+    genRangeHidden.onChange = [this] {
+        int id = genRangeHidden.getSelectedId();
+        for (int i = 0; i < kNumRangeBtns; ++i)
+            genRangeBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
+    };
+    for (int i = 0; i < kNumRangeBtns; ++i)
+    {
+        genRangeBtns[i].setButtonText(juce::String(i + 1));
+        genRangeBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
+        genRangeBtns[i].setColour(juce::TextButton::buttonOnColourId, kSeqCol);
+        genRangeBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
+        genRangeBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        genRangeBtns[i].setClickingTogglesState(true);
+        genRangeBtns[i].setRadioGroupId(2005);
+        genRangeBtns[i].onClick = [this, i] { genRangeHidden.setSelectedId(i + 1); };
+        addAndMakeVisible(genRangeBtns[i]);
+    }
+    genRangeA = std::make_unique<CA>(apvts, "gen_range", genRangeHidden);
+    genRangeLabel.setText("Range", juce::dontSendNotification);
+    genRangeLabel.setColour(juce::Label::textColourId, kDim);
+    genRangeLabel.setJustificationType(juce::Justification::centredRight);
+    addAndMakeVisible(genRangeLabel);
 
     genMutationRow = std::make_unique<SliderRow>("Mutation",
         [](double v) { return juce::String(juce::roundToInt(v * 100)) + "%"; }, kSeqCol);
@@ -567,8 +580,7 @@ void SequencerPanel::timerCallback()
             repaint(); // repaint visualization
         }
 
-        // Gen transport button state
-        genTransportBtn.setButtonText(genRunning ? "GEN STOP" : "GEN");
+        // GEN button stays "GEN" — toggle state shown via color (on/off)
     }
     else
     {
@@ -735,14 +747,14 @@ void SequencerPanel::resized()
     int rH = 22;
     int g = 3;
 
-    // ═══ Row 1: transport, preset, save/load, steps, division, BPM, gate, MIDI ═══
+    // ═══ Row 1: ALWAYS the same — transport, GEN, preset, save/load, steps, division, etc. ═══
     auto r1 = area.removeFromTop(rH);
     transportBtn.setBounds(r1.removeFromLeft(36));  r1.removeFromLeft(g);
+    genTransportBtn.setBounds(r1.removeFromLeft(36));  r1.removeFromLeft(g);
 
     presetBox.setBounds(r1.removeFromLeft(90)); r1.removeFromLeft(2);
     seqSaveBtn.setBounds(r1.removeFromLeft(rH)); r1.removeFromLeft(1);
     seqLoadBtn.setBounds(r1.removeFromLeft(rH)); r1.removeFromLeft(g);
-
     stepCountBox.setBounds(r1.removeFromLeft(50)); r1.removeFromLeft(g);
 
     // Division toggle strip (wider to fit "1/16")
@@ -812,43 +824,52 @@ void SequencerPanel::resized()
     genModeActive = processorRef.getValueTreeState()
         .getRawParameterValue("gen_seq_running")->load() > 0.5f;
 
-    // Visibility: step-seq controls vs gen controls
+    // Visibility: step grid vs gen controls (Row 1 stays ALWAYS visible)
     for (int i = 0; i < MAX_COLS; ++i)
         stepCols[static_cast<size_t>(i)]->setVisible(!genModeActive);
-    presetBox.setVisible(!genModeActive);
-    seqSaveBtn.setVisible(!genModeActive);
-    seqLoadBtn.setVisible(!genModeActive);
-    stepCountBox.setVisible(!genModeActive);
 
     genStepsRow->setVisible(genModeActive);
     genPulsesRow->setVisible(genModeActive);
     genRotationRow->setVisible(genModeActive);
-    genRangeRow->setVisible(genModeActive);
     genMutationRow->setVisible(genModeActive);
     genScaleRootBox.setVisible(genModeActive);
     genScaleTypeBox.setVisible(genModeActive);
+    genRangeLabel.setVisible(genModeActive);
+    for (int i = 0; i < kNumRangeBtns; ++i)
+        genRangeBtns[i].setVisible(genModeActive);
 
     if (genModeActive)
     {
-        // ═══ Gen mode: controls row + visualization ═══
+        // ═══ Gen mode: two control rows + visualization ═══
         int genCtrlH = juce::jmax(rH, 26);
-        auto genR = area.removeFromTop(genCtrlH);
 
-        // GEN transport button
-        genTransportBtn.setBounds(genR.removeFromLeft(50));  genR.removeFromLeft(g);
+        // Row A: [C▾](44) [Min▾](70) Steps[===140===] Pulses[===140===] Rotation[===140===]
+        auto rowA = area.removeFromTop(genCtrlH);
+        genScaleRootBox.setBounds(rowA.removeFromLeft(44));  rowA.removeFromLeft(2);
+        genScaleTypeBox.setBounds(rowA.removeFromLeft(70));  rowA.removeFromLeft(g);
+        {
+            int sliderW = (rowA.getWidth() - g * 2) / 3;
+            genStepsRow->setBounds(rowA.removeFromLeft(sliderW));     rowA.removeFromLeft(g);
+            genPulsesRow->setBounds(rowA.removeFromLeft(sliderW));    rowA.removeFromLeft(g);
+            genRotationRow->setBounds(rowA);
+        }
+        area.removeFromTop(g);
 
-        // Scale dropdowns on the right
-        genScaleRootBox.setBounds(genR.removeFromRight(44));  genR.removeFromRight(2);
-        genScaleTypeBox.setBounds(genR.removeFromRight(70));  genR.removeFromRight(g);
-
-        // 5 SliderRows split remaining space equally
-        int totalG = g * 4;
-        int sliderW = (genR.getWidth() - totalG) / 5;
-        genStepsRow->setBounds(genR.removeFromLeft(sliderW));     genR.removeFromLeft(g);
-        genPulsesRow->setBounds(genR.removeFromLeft(sliderW));    genR.removeFromLeft(g);
-        genRotationRow->setBounds(genR.removeFromLeft(sliderW));  genR.removeFromLeft(g);
-        genRangeRow->setBounds(genR.removeFromLeft(sliderW));     genR.removeFromLeft(g);
-        genMutationRow->setBounds(genR);
+        // Row B: Range[1][2][3][4]  Mutation[===========]
+        auto rowB = area.removeFromTop(genCtrlH);
+        genRangeLabel.setFont(juce::FontOptions(juce::jmax(9.0f, genCtrlH * 0.55f)));
+        genRangeLabel.setBounds(rowB.removeFromLeft(42));  rowB.removeFromLeft(2);
+        int rangeBtnW = 22;
+        for (int i = 0; i < kNumRangeBtns; ++i)
+        {
+            int edges = 0;
+            if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+            if (i < kNumRangeBtns - 1) edges |= juce::Button::ConnectedOnRight;
+            genRangeBtns[i].setConnectedEdges(edges);
+            genRangeBtns[i].setBounds(rowB.removeFromLeft(rangeBtnW));
+        }
+        rowB.removeFromLeft(g * 2);
+        genMutationRow->setBounds(rowB);
 
         area.removeFromTop(g);
 

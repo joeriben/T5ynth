@@ -132,6 +132,7 @@ private:
     T5ynthStepSequencer stepSequencer;
     T5ynthGenerativeSequencer generativeSequencer;
     T5ynthArpeggiator arpeggiator;
+    bool genModeActiveInAudio = false;  // tracks which engine is currently running
 
     // Inference (Python subprocess)
     PipeInference pipeInference;
