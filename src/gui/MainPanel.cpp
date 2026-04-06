@@ -730,7 +730,7 @@ void MainPanel::showAbout()
     else
         md = "# T5ynth\n\nREADME not found.\n";
 
-    aboutText.setFont(juce::FontOptions(13.0f));
+    aboutText.setFont(juce::FontOptions(15.0f));
     aboutText.setText(markdownToPlainText(md));
     aboutText.setCaretPosition(0);
 
