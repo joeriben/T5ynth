@@ -133,6 +133,8 @@ private:
     T5ynthGenerativeSequencer generativeSequencer;
     T5ynthArpeggiator arpeggiator;
     bool genModeActiveInAudio = false;  // tracks which engine is currently running
+    int lastGenSteps = -1, lastGenPulses = -1, lastGenRotation = -1;
+    float lastGenMutation = -1.0f;
 
     // Inference (Python subprocess)
     PipeInference pipeInference;

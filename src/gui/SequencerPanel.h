@@ -93,6 +93,16 @@ private:
     juce::ComboBox genRangeHidden;  // hidden, for APVTS
     juce::Label genRangeLabel;
 
+    // Fix toggle buttons (lock/unlock icons)
+    juce::TextButton genFixStepsBtn, genFixPulsesBtn, genFixRotationBtn, genFixMutationBtn;
+
+    struct LockIconLnF : juce::LookAndFeel_V4
+    {
+        void drawButtonBackground(juce::Graphics&, juce::Button&, const juce::Colour&, bool, bool) override;
+        void drawButtonText(juce::Graphics&, juce::TextButton&, bool, bool) override;
+    };
+    LockIconLnF lockLnf;
+
     // Gen visualisation (painted in paint(), positioned in resized())
     juce::Rectangle<int> genVisArea;
     bool genModeActive = false;
@@ -116,6 +126,7 @@ private:
     std::unique_ptr<CA> divA, presetA, arpModeA, arpRateA, arpOctA, octShiftA,
                         genScaleRootA, genScaleTypeA, genRangeA;
     std::unique_ptr<BA> genRunningA;
+    std::unique_ptr<BA> genFixStepsA, genFixPulsesA, genFixRotationA, genFixMutationA;
 
     int currentStep = -1;
 

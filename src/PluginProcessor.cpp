@@ -389,6 +389,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"gen_range", 1}, "Gen Range",
         juce::StringArray{"1","2","3","4"}, 2)); // default index 2 = "3" octaves
+    // Fix toggles — lock parameters against Euclidean drift
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"gen_fix_steps", 1}, "Fix Steps", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"gen_fix_pulses", 1}, "Fix Pulses", false));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"gen_fix_rotation", 1}, "Fix Rotation", false));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"gen_fix_mutation", 1}, "Fix Mutation", true));
     // Scale (shared between gen seq and future features)
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"scale_root", 1}, "Scale Root",
@@ -682,6 +691,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 if (auto* par = parameters.getParameter("gen_pulses"))
                     par->setValueNotifyingHost(par->convertTo0to1(static_cast<float>(pulseCount)));
 
+                lastGenSteps = lastGenPulses = lastGenRotation = -1;
+                lastGenMutation = -1.0f;
                 genModeActiveInAudio = true;
             }
             else
@@ -720,11 +731,37 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         generativeSequencer.setBpm(static_cast<double>(seqBpm));
         generativeSequencer.setDivision(seqDivision);
         generativeSequencer.setGate(seqGate);
-        generativeSequencer.setSteps(static_cast<int>(parameters.getRawParameterValue("gen_steps")->load()));
-        generativeSequencer.setPulses(static_cast<int>(parameters.getRawParameterValue("gen_pulses")->load()));
-        generativeSequencer.setRotation(static_cast<int>(parameters.getRawParameterValue("gen_rotation")->load()));
-        generativeSequencer.setMutation(parameters.getRawParameterValue("gen_mutation")->load());
-        generativeSequencer.setRange(static_cast<int>(parameters.getRawParameterValue("gen_range")->load()) + 1); // choice 0-3 → range 1-4
+
+        // Fix flags
+        bool fxS = parameters.getRawParameterValue("gen_fix_steps")->load() > 0.5f;
+        bool fxP = parameters.getRawParameterValue("gen_fix_pulses")->load() > 0.5f;
+        bool fxR = parameters.getRawParameterValue("gen_fix_rotation")->load() > 0.5f;
+        bool fxM = parameters.getRawParameterValue("gen_fix_mutation")->load() > 0.5f;
+        generativeSequencer.setFixSteps(fxS);
+        generativeSequencer.setFixPulses(fxP);
+        generativeSequencer.setFixRotation(fxR);
+        generativeSequencer.setFixMutation(fxM);
+
+        // Steps/Pulses/Rotation: if FIXED, overwrite every block.
+        // If UNFIXED, only overwrite when user changes the slider.
+        {
+            int gs = static_cast<int>(parameters.getRawParameterValue("gen_steps")->load());
+            int gp = static_cast<int>(parameters.getRawParameterValue("gen_pulses")->load());
+            int gr = static_cast<int>(parameters.getRawParameterValue("gen_rotation")->load());
+
+            if (fxS || gs != lastGenSteps)    { generativeSequencer.setSteps(gs);    lastGenSteps = gs; }
+            if (fxP || gp != lastGenPulses)   { generativeSequencer.setPulses(gp);   lastGenPulses = gp; }
+            if (fxR || gr != lastGenRotation) { generativeSequencer.setRotation(gr); lastGenRotation = gr; }
+        }
+
+        // Mutation: always update base; only overwrite effective rate if fixed or user changed slider
+        {
+            float gm = parameters.getRawParameterValue("gen_mutation")->load();
+            generativeSequencer.setBaseMutation(gm);
+            if (fxM || gm != lastGenMutation) { generativeSequencer.setMutation(gm); lastGenMutation = gm; }
+        }
+
+        generativeSequencer.setRange(static_cast<int>(parameters.getRawParameterValue("gen_range")->load()) + 1);
         generativeSequencer.setScale(
             static_cast<int>(parameters.getRawParameterValue("scale_type")->load()),
             static_cast<int>(parameters.getRawParameterValue("scale_root")->load()));
@@ -1688,10 +1725,7 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     }
     seq->setProperty("steps", stepArr);
     seq->setProperty("octaveShift", static_cast<int>(get("seq_octave")) - 2);
-    // Euclidean + Scale
-    seq->setProperty("euclidean", get("euc_enabled") > 0.5f);
-    seq->setProperty("eucPulses", static_cast<int>(get("euc_pulses")));
-    seq->setProperty("eucRotation", static_cast<int>(get("euc_rotation")));
+    // Scale
     static const char* scaleRootNames[] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
     int srIdx = static_cast<int>(get("scale_root"));
     seq->setProperty("scaleRoot", srIdx >= 0 && srIdx < 12 ? scaleRootNames[srIdx] : "C");
@@ -1721,6 +1755,10 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     genSeq->setProperty("rotation", static_cast<int>(get("gen_rotation")));
     genSeq->setProperty("mutation", get("gen_mutation"));
     genSeq->setProperty("range", static_cast<int>(get("gen_range")));
+    genSeq->setProperty("fixSteps",    get("gen_fix_steps") > 0.5f);
+    genSeq->setProperty("fixPulses",   get("gen_fix_pulses") > 0.5f);
+    genSeq->setProperty("fixRotation", get("gen_fix_rotation") > 0.5f);
+    genSeq->setProperty("fixMutation", get("gen_fix_mutation") > 0.5f);
     root->setProperty("generativeSeq", genSeq.get());
 
     return juce::JSON::toString(root.get(), true);
@@ -1942,13 +1980,11 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
             int oct = static_cast<int>(seq->getProperty("octaveShift"));
             setParam(parameters, "seq_octave", static_cast<float>(oct + 2));
         }
-        // Euclidean + Scale (backward-compatible)
-        if (seq->hasProperty("euclidean"))
-            setParam(parameters, "euc_enabled", static_cast<bool>(seq->getProperty("euclidean")) ? 1.0f : 0.0f);
+        // Scale (backward-compatible: old euc_* keys mapped to gen_* params)
         if (seq->hasProperty("eucPulses"))
-            setParam(parameters, "euc_pulses", static_cast<float>(static_cast<int>(seq->getProperty("eucPulses"))));
+            setParam(parameters, "gen_pulses", static_cast<float>(static_cast<int>(seq->getProperty("eucPulses"))));
         if (seq->hasProperty("eucRotation"))
-            setParam(parameters, "euc_rotation", static_cast<float>(static_cast<int>(seq->getProperty("eucRotation"))));
+            setParam(parameters, "gen_rotation", static_cast<float>(static_cast<int>(seq->getProperty("eucRotation"))));
         if (seq->hasProperty("scaleRoot"))
         {
             juce::String rootStr = seq->getProperty("scaleRoot").toString();
@@ -2026,6 +2062,14 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         if (gs->hasProperty("range"))
             setParam(parameters, "gen_range",
                      static_cast<float>(static_cast<int>(gs->getProperty("range"))));
+        if (gs->hasProperty("fixSteps"))
+            setParam(parameters, "gen_fix_steps",    static_cast<bool>(gs->getProperty("fixSteps")) ? 1.0f : 0.0f);
+        if (gs->hasProperty("fixPulses"))
+            setParam(parameters, "gen_fix_pulses",   static_cast<bool>(gs->getProperty("fixPulses")) ? 1.0f : 0.0f);
+        if (gs->hasProperty("fixRotation"))
+            setParam(parameters, "gen_fix_rotation", static_cast<bool>(gs->getProperty("fixRotation")) ? 1.0f : 0.0f);
+        if (gs->hasProperty("fixMutation"))
+            setParam(parameters, "gen_fix_mutation", static_cast<bool>(gs->getProperty("fixMutation")) ? 1.0f : 0.0f);
     }
 
     return true;

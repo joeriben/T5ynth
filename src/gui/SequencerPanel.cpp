@@ -26,6 +26,40 @@ void SequencerPanel::IconLnF::drawButtonText(juce::Graphics& g, juce::TextButton
                  icon.getTransformToScaleToFit(bounds, true));
 }
 
+// ─── LockIconLnF ─────────────────────────────────────────────────
+void SequencerPanel::LockIconLnF::drawButtonBackground(juce::Graphics&, juce::Button&,
+                                                         const juce::Colour&, bool, bool) {}
+
+void SequencerPanel::LockIconLnF::drawButtonText(juce::Graphics& g, juce::TextButton& b,
+                                                    bool over, bool)
+{
+    auto bounds = b.getLocalBounds().toFloat().reduced(3.0f);
+    bool locked = b.getToggleState();
+    float w = bounds.getWidth(), h = bounds.getHeight();
+    float cx = bounds.getCentreX();
+
+    // Lock body (lower rectangle)
+    float bodyW = w * 0.7f, bodyH = h * 0.42f;
+    float bodyX = cx - bodyW * 0.5f;
+    float bodyY = bounds.getBottom() - bodyH;
+
+    // Shackle (U-shape above body)
+    float shW = bodyW * 0.55f, shH = h * 0.38f;
+    float shX = cx - shW * 0.5f;
+    float shY = locked ? (bodyY - shH) : (bodyY - shH - h * 0.12f);
+    float shXoff = locked ? 0.0f : shW * 0.15f;
+
+    juce::Path icon;
+    icon.addRoundedRectangle(bodyX, bodyY, bodyW, bodyH, 1.5f);
+    icon.startNewSubPath(shX + shXoff, bodyY);
+    icon.lineTo(shX + shXoff, shY + shH * 0.5f);
+    icon.addArc(shX + shXoff, shY, shW, shH, juce::MathConstants<float>::pi, 0.0f, true);
+    icon.lineTo(shX + shXoff + shW, bodyY);
+
+    g.setColour(locked ? kDim : (over ? kSeqCol.brighter(0.2f) : kSeqCol));
+    g.strokePath(icon, juce::PathStrokeType(1.3f));
+}
+
 // ─── StepColumn ────────────────────────────────────────────────────
 
 void SequencerPanel::StepColumn::paint(juce::Graphics& g)
@@ -454,6 +488,22 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     genMutationRow->getSlider().onValueChange = [this] { genMutationRow->updateValue(); };
     genMutationRow->updateValue();
 
+    // Fix toggle buttons (lock/unlock)
+    auto setupFixBtn = [this](juce::TextButton& btn, const juce::String& tip) {
+        btn.setClickingTogglesState(true);
+        btn.setLookAndFeel(&lockLnf);
+        btn.setTooltip(tip);
+        addAndMakeVisible(btn);
+    };
+    setupFixBtn(genFixStepsBtn,    "Lock Steps against drift");
+    setupFixBtn(genFixPulsesBtn,   "Lock Pulses against drift");
+    setupFixBtn(genFixRotationBtn, "Lock Rotation against drift");
+    setupFixBtn(genFixMutationBtn, "Lock Evolve against drift");
+    genFixStepsA    = std::make_unique<BA>(apvts, "gen_fix_steps",    genFixStepsBtn);
+    genFixPulsesA   = std::make_unique<BA>(apvts, "gen_fix_pulses",   genFixPulsesBtn);
+    genFixRotationA = std::make_unique<BA>(apvts, "gen_fix_rotation", genFixRotationBtn);
+    genFixMutationA = std::make_unique<BA>(apvts, "gen_fix_mutation", genFixMutationBtn);
+
     genScaleRootBox.addItemList({"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"}, 1);
     genScaleRootBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
     genScaleRootBox.setColour(juce::ComboBox::textColourId, kSeqCol);
@@ -538,6 +588,10 @@ SequencerPanel::~SequencerPanel()
 {
     seqSaveBtn.setLookAndFeel(nullptr);
     seqLoadBtn.setLookAndFeel(nullptr);
+    genFixStepsBtn.setLookAndFeel(nullptr);
+    genFixPulsesBtn.setLookAndFeel(nullptr);
+    genFixRotationBtn.setLookAndFeel(nullptr);
+    genFixMutationBtn.setLookAndFeel(nullptr);
 }
 
 void SequencerPanel::syncStepCount()
@@ -837,26 +891,41 @@ void SequencerPanel::resized()
     genRangeLabel.setVisible(genModeActive);
     for (int i = 0; i < kNumRangeBtns; ++i)
         genRangeBtns[i].setVisible(genModeActive);
+    genFixStepsBtn.setVisible(genModeActive);
+    genFixPulsesBtn.setVisible(genModeActive);
+    genFixRotationBtn.setVisible(genModeActive);
+    genFixMutationBtn.setVisible(genModeActive);
 
     if (genModeActive)
     {
-        // ═══ Gen mode: 2-column grid (matching SynthPanel pattern) ═══
+        // ═══ Gen mode: 2-column grid with lock buttons ═══
         int genCtrlH = rH;
         int colGap = 4;
+        int lockW = genCtrlH;  // square lock button
+        int lockGap = 1;
         int colW = (area.getWidth() - colGap) / 2;
+        int sliderW = colW - lockW - lockGap;
 
-        // Row 1:  Steps [=======]  |  Pulses [=======]
+        // Row 1:  Steps [====] [🔒]  |  Pulses [====] [🔓]
         auto row1 = area.removeFromTop(genCtrlH);
-        genStepsRow->setBounds(row1.removeFromLeft(colW));
+        genStepsRow->setBounds(row1.removeFromLeft(sliderW));
+        row1.removeFromLeft(lockGap);
+        genFixStepsBtn.setBounds(row1.removeFromLeft(lockW));
         row1.removeFromLeft(colGap);
-        genPulsesRow->setBounds(row1);
+        genPulsesRow->setBounds(row1.removeFromLeft(sliderW));
+        row1.removeFromLeft(lockGap);
+        genFixPulsesBtn.setBounds(row1.removeFromLeft(lockW));
         area.removeFromTop(2);
 
-        // Row 2:  Rotation [====]  |  Mutation [=====]
+        // Row 2:  Rotation [==] [🔓]  |  Evolve [===] [🔒]
         auto row2 = area.removeFromTop(genCtrlH);
-        genRotationRow->setBounds(row2.removeFromLeft(colW));
+        genRotationRow->setBounds(row2.removeFromLeft(sliderW));
+        row2.removeFromLeft(lockGap);
+        genFixRotationBtn.setBounds(row2.removeFromLeft(lockW));
         row2.removeFromLeft(colGap);
-        genMutationRow->setBounds(row2);
+        genMutationRow->setBounds(row2.removeFromLeft(sliderW));
+        row2.removeFromLeft(lockGap);
+        genFixMutationBtn.setBounds(row2.removeFromLeft(lockW));
         area.removeFromTop(2);
 
         // Row 3:  [C▾] [Min▾]     |  Range [1][2][3][4]

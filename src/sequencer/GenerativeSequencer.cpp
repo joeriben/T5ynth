@@ -65,6 +65,18 @@ void T5ynthGenerativeSequencer::setGate(float g) { gate_ = juce::jlimit(0.1f, 1.
 void T5ynthGenerativeSequencer::setBpm(double b) { bpm_ = b; }
 void T5ynthGenerativeSequencer::setDivision(int d) { division_ = juce::jlimit(0, 4, d); }
 
+void T5ynthGenerativeSequencer::setFixSteps(bool f)    { fixSteps = f; }
+void T5ynthGenerativeSequencer::setFixPulses(bool f)   { fixPulses = f; }
+void T5ynthGenerativeSequencer::setFixRotation(bool f) { fixRotation = f; }
+void T5ynthGenerativeSequencer::setFixMutation(bool f) { fixMutation = f; }
+
+void T5ynthGenerativeSequencer::setBaseMutation(float rate)
+{
+    baseMutation = juce::jlimit(0.0f, 1.0f, rate);
+    if (fixMutation)
+        mutationRate = baseMutation;
+}
+
 // ─── Start / Stop ──────────────────────────────────────────────────────────
 
 void T5ynthGenerativeSequencer::start()
@@ -184,9 +196,13 @@ void T5ynthGenerativeSequencer::rebuildPattern()
 
     patternDirty = false;
     basePulses = numPulses;
+    baseSteps = numSteps;
     driftCycle = 0;
     pulseDriftAccum = 0;
     pulseDriftUp = true;
+    stepsDriftAccum = 0;
+    stepsDriftUp = true;
+    mutationDriftPhase = 0;
     publishPatternToGui();
 }
 
@@ -248,8 +264,7 @@ void T5ynthGenerativeSequencer::applyEuclideanDrift()
     int driftIdx = (driftCycle - 1) % DRIFT_PERIOD;
 
     // ── Rotation drift: Euclidean-distributed circular shifts ──
-    //    At 100% evolve → shifts every cycle; at 50% → every other cycle.
-    if (numSteps > 1)
+    if (!fixRotation && numSteps > 1)
     {
         int rotPulses = juce::jmax(0, juce::roundToInt(
             mutationRate * static_cast<float>(DRIFT_PERIOD)));
@@ -269,9 +284,8 @@ void T5ynthGenerativeSequencer::applyEuclideanDrift()
         }
     }
 
-    // ── Pulse count drift: Euclidean-distributed, oscillating around base ──
-    //    At 100% evolve → changes every other cycle; at 50% → every 4th.
-    //    Oscillates ±rangeOctaves pulses around basePulses (surgical, no rebuild).
+    // ── Pulse count drift ──
+    if (!fixPulses)
     {
         int pulseDriftPulses = juce::jmax(0, juce::roundToInt(
             mutationRate * static_cast<float>(DRIFT_PERIOD) * 0.5f));
@@ -289,6 +303,85 @@ void T5ynthGenerativeSequencer::applyEuclideanDrift()
             else if (pulseDriftAccum <= -maxDrift) pulseDriftUp = true;
         }
     }
+
+    // ── Steps drift ──
+    if (!fixSteps)
+        applyStepsDrift();
+
+    // ── Mutation drift ──
+    if (!fixMutation)
+        applyMutationDrift();
+}
+
+// ─── Steps drift ────────────────────────────────────────────────────────────
+
+void T5ynthGenerativeSequencer::applyStepsDrift()
+{
+    int driftIdx = (driftCycle - 1) % DRIFT_PERIOD;
+
+    int stepsDriftPulses = juce::jmax(0, juce::roundToInt(
+        mutationRate * static_cast<float>(DRIFT_PERIOD) * 0.35f));
+    auto stepsDrift = EuclideanRhythm::generate(DRIFT_PERIOD, stepsDriftPulses, 0);
+
+    if (!stepsDrift[static_cast<size_t>(driftIdx)])
+        return;
+
+    int delta = stepsDriftUp ? 1 : -1;
+    if (mutationRate > 0.7f)
+    {
+        std::uniform_int_distribution<int> magDist(1, 2);
+        delta *= magDist(rng);
+    }
+
+    int newSteps = juce::jlimit(2, MAX_STEPS, numSteps + delta);
+    if (newSteps == numSteps) return;
+
+    // Preserve pulse density ratio
+    float ratio = static_cast<float>(numPulses) / static_cast<float>(numSteps);
+
+    if (newSteps > numSteps)
+    {
+        for (int i = numSteps; i < newSteps; ++i)
+        {
+            eucPattern[static_cast<size_t>(i)] = false;
+            notePattern[static_cast<size_t>(i)] = 0;
+            velocityPattern[static_cast<size_t>(i)] = 0.0f;
+            degreePattern[static_cast<size_t>(i)] = 0;
+        }
+    }
+
+    int newPulses;
+    if (newSteps < numSteps)
+    {
+        int surviving = 0;
+        for (int i = 0; i < newSteps; ++i)
+            if (eucPattern[static_cast<size_t>(i)]) surviving++;
+        newPulses = juce::jmax(1, surviving);
+    }
+    else
+    {
+        newPulses = juce::jlimit(1, newSteps, juce::roundToInt(ratio * static_cast<float>(newSteps)));
+    }
+
+    numSteps = newSteps;
+    numPulses = newPulses;
+    stepsDriftAccum += (delta > 0) ? 1 : -1;
+
+    int maxDrift = juce::jmax(1, rangeOctaves);
+    if (stepsDriftAccum >= maxDrift) stepsDriftUp = false;
+    else if (stepsDriftAccum <= -maxDrift) stepsDriftUp = true;
+}
+
+// ─── Mutation drift ─────────────────────────────────────────────────────────
+
+void T5ynthGenerativeSequencer::applyMutationDrift()
+{
+    mutationDriftPhase = (mutationDriftPhase + 1) % (DRIFT_PERIOD * 2);
+    float phase = static_cast<float>(mutationDriftPhase) / static_cast<float>(DRIFT_PERIOD * 2);
+    float sinVal = std::sin(phase * juce::MathConstants<float>::twoPi);
+    // Map sin [-1..+1] to [0.5..1.0] multiplier — breathes down, never exceeds user setting
+    float multiplier = 0.75f + 0.25f * sinVal;
+    mutationRate = juce::jlimit(0.0f, 1.0f, baseMutation * multiplier);
 }
 
 // ─── Surgical pulse add/remove (preserves Turing mutations) ─────────────────

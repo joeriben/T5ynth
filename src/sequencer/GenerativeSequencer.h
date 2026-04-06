@@ -48,6 +48,11 @@ public:
     void setGate(float gate);
     void setBpm(double bpm);
     void setDivision(int div);
+    void setFixSteps(bool fixed);
+    void setFixPulses(bool fixed);
+    void setFixRotation(bool fixed);
+    void setFixMutation(bool fixed);
+    void setBaseMutation(float rate);
 
     void start();
     void stop();
@@ -90,12 +95,27 @@ private:
     int lastPlayedNote = -1;
     int cycleCount = 0;
 
+    // Fix flags — when true, parameter is locked against drift
+    bool fixSteps = true;
+    bool fixPulses = false;
+    bool fixRotation = false;
+    bool fixMutation = true;
+
     // Euclidean drift state (evolve-controlled)
     int driftCycle = 0;
     static constexpr int DRIFT_PERIOD = 8;  // drift evaluated over 8-cycle windows
     int basePulses = 5;
     int pulseDriftAccum = 0;
     bool pulseDriftUp = true;
+
+    // Steps drift state
+    int baseSteps = 8;
+    int stepsDriftAccum = 0;
+    bool stepsDriftUp = true;
+
+    // Mutation drift state
+    float baseMutation = 0.15f;
+    int mutationDriftPhase = 0;
 
     // Pattern data
     std::array<bool, MAX_STEPS> eucPattern{};    // true = pulse position
@@ -115,6 +135,8 @@ private:
     void computeGaps(int* gaps, int* gapCount) const;
     void publishPatternToGui();
     void applyEuclideanDrift();
+    void applyStepsDrift();
+    void applyMutationDrift();
     void addPulse();
     void removePulse();
 };
