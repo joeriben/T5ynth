@@ -251,11 +251,11 @@ We recommend starting with <strong>Stable Audio Small</strong> — it's a smalle
 
 <h4>Via the Settings panel (recommended)</h4>
 <ol>
-  <li>Launch T5ynth and click <strong>Settings</strong> (gear icon in the status bar)</li>
+  <li>Launch T5ynth and click <strong>Settings</strong> in the status bar</li>
   <li>Select the model you want to install:
     <ul>
-      <li><strong>Stable Audio Small</strong> (recommended to start) — smaller, faster download.</li>
-      <li><strong>Stable Audio Open 1.0</strong> (~11 GB) — higher quality, larger download.</li>
+      <li><strong>Stable Audio Small</strong> (recommended to start) — smaller, faster download, no account needed.</li>
+      <li><strong>Stable Audio Open 1.0</strong> (~11 GB) — higher quality. Downloads via HuggingFace; requires a free <a href="https://huggingface.co/settings/tokens">HuggingFace token</a> (read-only is sufficient).</li>
     </ul>
   </li>
   <li>Wait for the download to complete (progress bar shown). The model is stored in the application data directory.</li>
@@ -293,7 +293,7 @@ On first launch, the status bar shows backend connection status. Once you see <s
 </p>
 
 <div class="tip">
-  If the status bar shows an error, check: (1) Is the Python venv set up? (2) Is at least one model downloaded? (3) Is there enough disk space and RAM/VRAM? Stable Audio Open 1.0 needs ~4 GB VRAM.
+  If the status bar shows an error, check: (1) Is at least one model downloaded? (2) Is there enough disk space and RAM/VRAM? Stable Audio Open 1.0 needs ~4 GB VRAM.
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -373,7 +373,7 @@ These embedding vectors — not the text itself — are what steers the diffusio
   <tr>
     <td><strong>Auto</strong></td>
     <td>on / off</td>
-    <td>Automatic re-generation after every parameter change in the oscillator section. <em>(Planned feature — not yet implemented.)</em></td>
+    <td>Automatic re-generation after every parameter change in the oscillator section.</td>
   </tr>
 </table>
 
@@ -425,7 +425,7 @@ The Dimension Explorer gives you direct access to all <strong>768 individual dim
 After generating audio, T5ynth receives the 768-dimensional embedding vectors for your prompts. The DimExplorer displays these as a row of vertical bars — one per dimension, sorted by magnitude (the most significant dimensions appear on the left).
 </p>
 <ul>
-  <li><strong>With two prompts:</strong> Each bar shows the <em>difference</em> between Prompt A and Prompt B for that dimension. <span style="color:var(--green)">Green</span> bars point toward A, <span style="color:var(--accent2)">orange</span> bars toward B. The leftmost bars are the dimensions where your two prompts differ most — the dimensions that define the sonic difference between A and B.</li>
+  <li><strong>With two prompts:</strong> Each bar shows the <em>difference</em> between Prompt A and Prompt B for that dimension. <span style="color:var(--green)">Green</span> bars point toward A, <span style="color:var(--accent2)">orange</span> bars toward B. The leftmost bars are the dimensions where your two prompts differ most — editing here affects the A/B contrast. The rightmost bars are where A and B are nearly identical — editing here changes what both prompts share, often producing more fundamental sonic shifts.</li>
   <li><strong>With one prompt:</strong> Bars show the absolute activation values of the embedding.</li>
 </ul>
 
@@ -469,7 +469,7 @@ Extracts pitch-synchronous frames from the audio to build a scannable wavetable.
 
 <h4>Voice Count</h4>
 <p>
-Applies to both modes: Mono, 4, 6, 8, 12, or 16 voices. Gain auto-scales (equal power: each voice at 1/√N). Oldest notes are stolen when the limit is reached.
+Applies to both modes: Mono, 4, 6, 8, 12, or 16 voices. Gain auto-scales per voice count. Oldest notes are stolen when the limit is reached.
 </p>
 
 <!-- ═══════════════════════════════════════════ -->
@@ -512,7 +512,7 @@ Three identical ADSR envelopes, each with a <strong>Target dropdown</strong> to 
   <tr><td><strong>Depth</strong></td><td>0.0 – 1.0</td><td></td></tr>
   <tr><td><strong>Waveform</strong></td><td>Sine / Tri / Saw / Square</td><td></td></tr>
   <tr><td><strong>Mode</strong></td><td>Free / Trigger</td><td>Free runs continuously; Trigger resets on note-on</td></tr>
-  <tr><td><strong>Target</strong></td><td>Dropdown</td><td>See <a href="#mod">Modulation Routing</a></td></tr>
+  <tr><td><strong>Target</strong></td><td>Dropdown</td><td>Filter, Scan, Pitch, Delay, Reverb, Env amounts</td></tr>
 </table>
 
 <div class="note">
@@ -809,7 +809,13 @@ The DimExplorer (see <a href="#dimex">section 3</a> for basic usage) operates on
 
 <h4>Why Sorted by Magnitude?</h4>
 <p>
-Sorting the 768 bars by <code>|emb_A[i] − emb_B[i]|</code> is not just a display convenience — it surfaces the dimensions along which your two prompts are most semantically distinct. These high-magnitude dimensions are where the T5 encoder "disagrees" most about A and B. Editing these dimensions has the highest probability of producing an audible change; the low-magnitude bars on the right are dimensions where A and B are nearly identical and where edits tend to have little effect.
+Sorting the 768 bars by <code>|emb_A[i] − emb_B[i]|</code> is not just a display convenience — it creates two distinct editing zones:
+</p>
+<ul>
+  <li><strong>Left side</strong> (high magnitude) — dimensions where A and B differ most. Editing here affects what distinguishes your two prompts from each other.</li>
+  <li><strong>Right side</strong> (low magnitude) — dimensions where A and B are nearly identical, i.e., what they have in common. Editing here tends to produce more fundamental changes to the overall character of the sound, since you are altering the shared foundation rather than the A/B contrast.</li>
+</ul>
+<p>
 </p>
 
 <h4>What Does a Dimension Represent?</h4>
