@@ -24,12 +24,14 @@ void T5ynthGenerativeSequencer::setSteps(int s)
 {
     s = juce::jlimit(2, MAX_STEPS, s);
     if (s != numSteps) { numSteps = s; patternDirty = true; }
+    effectiveStepsForGui.store(numSteps, std::memory_order_relaxed);
 }
 
 void T5ynthGenerativeSequencer::setPulses(int p)
 {
     p = juce::jlimit(1, numSteps, p);
     if (p != numPulses) { numPulses = p; patternDirty = true; }
+    effectivePulsesForGui.store(numPulses, std::memory_order_relaxed);
 }
 
 void T5ynthGenerativeSequencer::setRotation(int r)
@@ -41,6 +43,7 @@ void T5ynthGenerativeSequencer::setRotation(int r)
 void T5ynthGenerativeSequencer::setMutation(float rate)
 {
     mutationRate = juce::jlimit(0.0f, 1.0f, rate);
+    effectiveMutationForGui.store(mutationRate, std::memory_order_relaxed);
 }
 
 void T5ynthGenerativeSequencer::setRange(int octaves)
@@ -521,6 +524,9 @@ void T5ynthGenerativeSequencer::seedFromSteps(const int* midiNotes,
 void T5ynthGenerativeSequencer::publishPatternToGui()
 {
     numStepsForGui.store(numSteps, std::memory_order_relaxed);
+    effectiveStepsForGui.store(numSteps, std::memory_order_relaxed);
+    effectivePulsesForGui.store(numPulses, std::memory_order_relaxed);
+    effectiveMutationForGui.store(mutationRate, std::memory_order_relaxed);
     for (int i = 0; i < MAX_STEPS; ++i)
         notePatternForGui[static_cast<size_t>(i)].store(
             i < numSteps ? notePattern[static_cast<size_t>(i)] : 0,

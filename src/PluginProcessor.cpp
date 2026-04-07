@@ -839,6 +839,32 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         else
             generativeSequencer.stop();
         generativeSequencer.processBlock(buffer, midiMessages);
+
+        // Write effective (post-drift) values back to APVTS so sliders move
+        {
+            int effS = generativeSequencer.effectiveStepsForGui.load(std::memory_order_relaxed);
+            int effP = generativeSequencer.effectivePulsesForGui.load(std::memory_order_relaxed);
+            float effM = generativeSequencer.effectiveMutationForGui.load(std::memory_order_relaxed);
+
+            if (!fxS && effS != lastGenSteps)
+            {
+                if (auto* par = parameters.getParameter("gen_steps"))
+                    par->setValueNotifyingHost(par->convertTo0to1(static_cast<float>(effS)));
+                lastGenSteps = effS;
+            }
+            if (!fxP && effP != lastGenPulses)
+            {
+                if (auto* par = parameters.getParameter("gen_pulses"))
+                    par->setValueNotifyingHost(par->convertTo0to1(static_cast<float>(effP)));
+                lastGenPulses = effP;
+            }
+            if (!fxM && effM != lastGenMutation)
+            {
+                if (auto* par = parameters.getParameter("gen_mutation"))
+                    par->setValueNotifyingHost(par->convertTo0to1(effM));
+                lastGenMutation = effM;
+            }
+        }
     }
     else
     {

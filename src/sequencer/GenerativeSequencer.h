@@ -69,6 +69,11 @@ public:
     std::array<std::atomic<int>, MAX_STEPS> notePatternForGui{};
     std::atomic<int> numStepsForGui { 0 };
 
+    /** Effective (post-drift) values for GUI polling. */
+    std::atomic<int> effectiveStepsForGui { 0 };
+    std::atomic<int> effectivePulsesForGui { 0 };
+    std::atomic<float> effectiveMutationForGui { 0.0f };
+
 private:
     // Euclidean parameters
     int numSteps = 8;

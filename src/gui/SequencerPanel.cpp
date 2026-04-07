@@ -26,39 +26,6 @@ void SequencerPanel::IconLnF::drawButtonText(juce::Graphics& g, juce::TextButton
                  icon.getTransformToScaleToFit(bounds, true));
 }
 
-// ─── LockIconLnF ─────────────────────────────────────────────────
-void SequencerPanel::LockIconLnF::drawButtonBackground(juce::Graphics&, juce::Button&,
-                                                         const juce::Colour&, bool, bool) {}
-
-void SequencerPanel::LockIconLnF::drawButtonText(juce::Graphics& g, juce::TextButton& b,
-                                                    bool over, bool)
-{
-    auto bounds = b.getLocalBounds().toFloat().reduced(3.0f);
-    bool locked = b.getToggleState();
-    float w = bounds.getWidth(), h = bounds.getHeight();
-    float cx = bounds.getCentreX();
-
-    // Lock body (lower rectangle)
-    float bodyW = w * 0.7f, bodyH = h * 0.42f;
-    float bodyX = cx - bodyW * 0.5f;
-    float bodyY = bounds.getBottom() - bodyH;
-
-    // Shackle (U-shape above body)
-    float shW = bodyW * 0.55f, shH = h * 0.38f;
-    float shX = cx - shW * 0.5f;
-    float shY = locked ? (bodyY - shH) : (bodyY - shH - h * 0.12f);
-    float shXoff = locked ? 0.0f : shW * 0.15f;
-
-    juce::Path icon;
-    icon.addRoundedRectangle(bodyX, bodyY, bodyW, bodyH, 1.5f);
-    icon.startNewSubPath(shX + shXoff, bodyY);
-    icon.lineTo(shX + shXoff, shY + shH * 0.5f);
-    icon.addArc(shX + shXoff, shY, shW, shH, juce::MathConstants<float>::pi, 0.0f, true);
-    icon.lineTo(shX + shXoff + shW, bodyY);
-
-    g.setColour(locked ? kDim : (over ? kSeqCol.brighter(0.2f) : kSeqCol));
-    g.strokePath(icon, juce::PathStrokeType(1.3f));
-}
 
 // ─── StepColumn ────────────────────────────────────────────────────
 
@@ -488,10 +455,14 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     genMutationRow->getSlider().onValueChange = [this] { genMutationRow->updateValue(); };
     genMutationRow->updateValue();
 
-    // Fix toggle buttons (lock/unlock)
+    // Fix toggle buttons (FIX = locked against drift)
     auto setupFixBtn = [this](juce::TextButton& btn, const juce::String& tip) {
+        btn.setButtonText("FIX");
         btn.setClickingTogglesState(true);
-        btn.setLookAndFeel(&lockLnf);
+        btn.setColour(juce::TextButton::buttonColourId, kSurface);
+        btn.setColour(juce::TextButton::buttonOnColourId, kSeqCol);
+        btn.setColour(juce::TextButton::textColourOffId, kDim);
+        btn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
         btn.setTooltip(tip);
         addAndMakeVisible(btn);
     };
