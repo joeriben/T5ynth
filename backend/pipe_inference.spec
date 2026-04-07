@@ -71,7 +71,7 @@ a = Analysis(
         'flask',
         'matplotlib',
         'tkinter',
-        'unittest',
+        # 'unittest',  # required by torch.utils._config_module since torch 2.11
         'pytest',
         'IPython',
         'notebook',

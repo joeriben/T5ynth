@@ -191,6 +191,10 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
 
     // Load native inference models
     tryLoadInferenceModels();
+
+    // Auto-open settings if no model found on first launch
+    if (!settingsPage.getModelPath().exists())
+        showSettings();
 }
 
 void MainPanel::showDimExplorer()
