@@ -93,6 +93,24 @@ bool PipeInference::tryRestart()
 
 bool PipeInference::launch(const juce::File& backendDir)
 {
+    // Atomic guard: only one launch() may run at a time
+    bool expected = false;
+    if (!launching_.compare_exchange_strong(expected, true))
+    {
+        juce::Logger::writeToLog("PipeInference: launch already in progress, skipping");
+        return ready_.load();
+    }
+
+    // If subprocess is already running, nothing to do
+    if (ready_.load() && isChildAlive())
+    {
+        juce::Logger::writeToLog("PipeInference: already running, skipping launch");
+        launching_ = false;
+        return true;
+    }
+    // Kill any orphaned subprocess before starting a new one
+    shutdown();
+
     backendDir_ = backendDir;
 
     // Resolve executable: bundled binary (PyInstaller) or Python + script
@@ -234,6 +252,7 @@ bool PipeInference::launch(const juce::File& backendDir)
     {
         juce::Logger::writeToLog("PipeInference: timeout waiting for ready");
         shutdown();
+        launching_ = false;
         return false;
     }
 
@@ -241,6 +260,7 @@ bool PipeInference::launch(const juce::File& backendDir)
     {
         juce::Logger::writeToLog("PipeInference: unexpected ready byte: " + juce::String((int)readyByte));
         shutdown();
+        launching_ = false;
         return false;
     }
 
@@ -274,6 +294,7 @@ bool PipeInference::launch(const juce::File& backendDir)
     }
 
     ready_ = true;
+    launching_ = false;
     juce::Logger::writeToLog("PipeInference: ready");
     return true;
 }
@@ -297,7 +318,15 @@ void PipeInference::shutdown()
     if (childPid_ > 0)
     {
         kill(childPid_, SIGTERM);
-        waitpid(childPid_, nullptr, WNOHANG);
+        // Wait up to 3s for graceful exit, then force-kill
+        for (int i = 0; i < 30; ++i)
+        {
+            if (waitpid(childPid_, nullptr, WNOHANG) != 0)
+                break;
+            juce::Thread::sleep(100);
+        }
+        kill(childPid_, SIGKILL);
+        waitpid(childPid_, nullptr, 0);
         childPid_ = -1;
     }
 #endif

@@ -87,6 +87,7 @@ public:
 
 private:
     std::atomic<bool> ready_ { false };
+    std::atomic<bool> launching_ { false };  // prevents concurrent launch() calls
    #ifdef _WIN32
     HANDLE hChildStdinWr_  = INVALID_HANDLE_VALUE;  // parent → child
     HANDLE hChildStdoutRd_ = INVALID_HANDLE_VALUE;  // child → parent
