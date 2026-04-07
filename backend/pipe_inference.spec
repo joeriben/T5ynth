@@ -44,20 +44,6 @@ hidden += ['safetensors', 'safetensors.torch']
 # requests: needed by transformers for model metadata/downloads
 hidden += ['requests']
 
-# ── Package metadata ──────────────────────────────────────────────
-# transformers checks dependency versions via importlib.metadata at import time
-datas += copy_metadata('requests')
-datas += copy_metadata('transformers')
-datas += copy_metadata('torch')
-datas += copy_metadata('safetensors')
-datas += copy_metadata('huggingface_hub')
-datas += copy_metadata('filelock')
-datas += copy_metadata('pyyaml')
-datas += copy_metadata('regex')
-datas += copy_metadata('packaging')
-datas += copy_metadata('tqdm')
-datas += copy_metadata('numpy')
-
 # accelerate: used by diffusers for device placement
 hidden += collect_submodules('accelerate')
 
@@ -72,6 +58,23 @@ datas += collect_data_files('diffusers', includes=['**/*.json'])
 datas += collect_data_files('transformers', includes=['**/*.json'])
 datas += collect_data_files('stable_audio_tools', includes=['**/*.json', '**/*.yaml'])
 
+# ── Package metadata ──────────────────────────────────────────────
+# transformers checks dependency versions via importlib.metadata at import time
+datas += copy_metadata('requests')
+datas += copy_metadata('transformers')
+datas += copy_metadata('torch')
+datas += copy_metadata('safetensors')
+datas += copy_metadata('huggingface_hub')
+datas += copy_metadata('filelock')
+datas += copy_metadata('pyyaml')
+datas += copy_metadata('regex')
+datas += copy_metadata('packaging')
+datas += copy_metadata('tqdm')
+datas += copy_metadata('numpy')
+datas += copy_metadata('torchsde')
+datas += copy_metadata('accelerate')
+datas += copy_metadata('diffusers')
+
 # ── Analysis ────────────────────────────────────────────────────────
 
 a = Analysis(
@@ -82,7 +85,7 @@ a = Analysis(
     hiddenimports=hidden,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['runtime_hook.py'],
     excludes=[
         # Not needed at runtime
         'flask',
