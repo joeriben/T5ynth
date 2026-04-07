@@ -463,6 +463,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         btn.setColour(juce::TextButton::buttonOnColourId, kSeqCol);
         btn.setColour(juce::TextButton::textColourOffId, kDim);
         btn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        btn.setColour(juce::ComboBox::outlineColourId, kSeqCol.withAlpha(0.5f));
         btn.setTooltip(tip);
         addAndMakeVisible(btn);
     };
@@ -806,10 +807,11 @@ void SequencerPanel::resized()
     }
     r1.removeFromLeft(g);
 
-    // MIDI monitor on far right
+    // MIDI monitor on far right (80 text + 14 for LED dot to the left)
+    r1.removeFromRight(2);
     midiMonitor.setFont(juce::FontOptions(juce::jmax(9.0f, rH * 0.6f)));
     midiMonitor.setBounds(r1.removeFromRight(80));
-    r1.removeFromRight(g);
+    r1.removeFromRight(14);
 
     // BPM (2/3) and Gate (1/3) — BPM needs resolution, gate is less critical
     int bpmW = r1.getWidth() * 2 / 3 - 1;
@@ -869,34 +871,29 @@ void SequencerPanel::resized()
 
     if (genModeActive)
     {
-        // ═══ Gen mode: 2-column grid with lock buttons ═══
+        // ═══ Gen mode: 2-column grid with fix buttons ═══
         int genCtrlH = rH;
         int colGap = 4;
-        int lockW = genCtrlH;  // square lock button
-        int lockGap = 1;
+        int fixW = 28;
         int colW = (area.getWidth() - colGap) / 2;
-        int sliderW = colW - lockW - lockGap;
+        int sliderW = colW - fixW;
 
-        // Row 1:  Steps [====] [🔒]  |  Pulses [====] [🔓]
+        // Row 1:  Steps [====] 21 [FIX]  |  Pulses [====] 16 [FIX]
         auto row1 = area.removeFromTop(genCtrlH);
         genStepsRow->setBounds(row1.removeFromLeft(sliderW));
-        row1.removeFromLeft(lockGap);
-        genFixStepsBtn.setBounds(row1.removeFromLeft(lockW));
+        genFixStepsBtn.setBounds(row1.removeFromLeft(fixW));
         row1.removeFromLeft(colGap);
         genPulsesRow->setBounds(row1.removeFromLeft(sliderW));
-        row1.removeFromLeft(lockGap);
-        genFixPulsesBtn.setBounds(row1.removeFromLeft(lockW));
+        genFixPulsesBtn.setBounds(row1.removeFromLeft(fixW));
         area.removeFromTop(2);
 
-        // Row 2:  Rotation [==] [🔓]  |  Evolve [===] [🔒]
+        // Row 2:  Rotation [====] 2 [FIX]  |  Evolve [====] 80% [FIX]
         auto row2 = area.removeFromTop(genCtrlH);
         genRotationRow->setBounds(row2.removeFromLeft(sliderW));
-        row2.removeFromLeft(lockGap);
-        genFixRotationBtn.setBounds(row2.removeFromLeft(lockW));
+        genFixRotationBtn.setBounds(row2.removeFromLeft(fixW));
         row2.removeFromLeft(colGap);
         genMutationRow->setBounds(row2.removeFromLeft(sliderW));
-        row2.removeFromLeft(lockGap);
-        genFixMutationBtn.setBounds(row2.removeFromLeft(lockW));
+        genFixMutationBtn.setBounds(row2.removeFromLeft(fixW));
         area.removeFromTop(2);
 
         // Row 3:  [C▾] [Min▾]     |  Range [1][2][3][4]

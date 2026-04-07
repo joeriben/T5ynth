@@ -89,7 +89,7 @@ public:
         addAndMakeVisible(slider);
 
         value.setColour(juce::Label::textColourId, trackCol);
-        value.setJustificationType(juce::Justification::centredRight);
+        value.setJustificationType(juce::Justification::centredLeft);
         addAndMakeVisible(value);
     }
 
@@ -146,7 +146,7 @@ public:
         float f = static_cast<float>(b.getHeight());
 
         int labelW = juce::jlimit(30, 55, juce::roundToInt(b.getWidth() * 0.18f));
-        int valueW = juce::jlimit(30, 50, juce::roundToInt(b.getWidth() * 0.16f));
+        int valueW = juce::jlimit(22, 42, juce::roundToInt(b.getWidth() * 0.12f));
 
         // Scale fonts to fit available width (prevents "Da...", "0...." truncation in narrow 2-col layouts)
         float maxFs = f * 0.75f;
@@ -166,6 +166,65 @@ private:
     float ghostValue = std::numeric_limits<float>::quiet_NaN();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SliderRow)
+};
+
+/**
+ * Square button that draws a curve icon (Log/Lin/Exp) and cycles on click.
+ * Bordered so it's recognisable as an interactive control.
+ */
+class CurveButton : public juce::Component
+{
+public:
+    CurveButton() { setMouseCursor(juce::MouseCursor::PointingHandCursor); }
+
+    void setCurveShape(int shape) { if (curveShape != shape) { curveShape = shape; repaint(); } }
+    int  getCurveShape() const    { return curveShape; }
+
+    std::function<void()> onClick;
+
+    void mouseDown(const juce::MouseEvent&) override { if (onClick) onClick(); }
+
+    void paint(juce::Graphics& g) override
+    {
+        auto b = getLocalBounds().toFloat();
+
+        // Background + border
+        g.setColour(kSurface);
+        g.fillRect(b);
+        g.setColour(kBorder);
+        g.drawRect(b, 1.0f);
+
+        // Draw curve from bottom-left to top-right
+        float pad = 3.0f;
+        float x0 = b.getX() + pad;
+        float y0 = b.getBottom() - pad;
+        float w  = b.getWidth()  - pad * 2.0f;
+        float h  = b.getHeight() - pad * 2.0f;
+
+        juce::Path path;
+        path.startNewSubPath(x0, y0);
+
+        constexpr int steps = 20;
+        for (int i = 1; i <= steps; ++i)
+        {
+            float t = static_cast<float>(i) / static_cast<float>(steps);
+            float shaped;
+            switch (curveShape)
+            {
+                case 0:  shaped = t * t * t; break;                                       // Log (convex)
+                case 2:  { float inv = 1.0f - t; shaped = 1.0f - inv * inv * inv; } break; // Exp (concave)
+                default: shaped = t; break;                                                 // Lin
+            }
+            path.lineTo(x0 + t * w, y0 - shaped * h);
+        }
+
+        g.setColour(kEnvCol);
+        g.strokePath(path, juce::PathStrokeType(1.5f));
+    }
+
+private:
+    int curveShape = 1; // 0=Log, 1=Lin, 2=Exp
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CurveButton)
 };
 
 /**
