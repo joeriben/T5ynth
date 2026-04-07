@@ -14,7 +14,10 @@ float DriftLFO::waveformValue(double phase, int type)
         case Square:
             return p < 0.5 ? 1.0f : -1.0f;
         case Sawtooth:
-            return p < 0.5 ? static_cast<float>(p * 2.0) : static_cast<float>(p * 2.0 - 2.0);
+            // Asymmetric ping-pong saw: fast rise (20%), slow fall (60%), fast rise (20%)
+            if (p < 0.2) return static_cast<float>(p * 5.0);
+            if (p < 0.8) return static_cast<float>(1.0 - (p - 0.2) * (10.0 / 3.0));
+            return static_cast<float>(-1.0 + (p - 0.8) * 5.0);
         default:
             return static_cast<float>(std::sin(p * TWO_PI));
     }
