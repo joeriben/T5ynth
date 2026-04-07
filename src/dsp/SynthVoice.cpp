@@ -8,6 +8,7 @@ void SynthVoice::prepare(double sampleRate, int samplesPerBlock)
     samplerBlockBuf_.resize(static_cast<size_t>(samplesPerBlock));
     osc.prepare(sampleRate, samplesPerBlock);
     sampler.prepare(sampleRate, samplesPerBlock);
+    noise.prepare(sampleRate);
     ampEnv.prepare(sampleRate);
     modEnv1.prepare(sampleRate);
     modEnv2.prepare(sampleRate);
@@ -21,6 +22,7 @@ void SynthVoice::reset()
     osc.reset();
     sampler.reset();
     filter.reset();
+    noise.reset();
     active = false;
     noteHeld = false;
     currentNote = -1;
@@ -327,8 +329,16 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
                 if (p.lfo2Target == LfoTarget::Scan) scanMod += lfo2Val;
                 osc.setScanPosition(juce::jlimit(0.0f, 1.0f, scanMod));
                 lastModulatedScan_ = scanMod;
+                osc.setInterpolation(p.wtSmooth);
 
                 sample = osc.processSample();
+            }
+
+            // Mix noise oscillator (goes through VCA + filter with the main signal)
+            if (p.noiseLevel > 0.001f)
+            {
+                noise.setColorCutoff(p.noiseColor);
+                sample += noise.processSample() * p.noiseLevel;
             }
 
             // VCA

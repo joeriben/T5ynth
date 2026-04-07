@@ -38,7 +38,8 @@ public:
      *  startFrac/endFrac define the extraction region as fraction of the buffer (0–1).
      *  Thread-safe: builds into inactive slot, then atomically swaps. */
     void extractFramesFromBuffer(const juce::AudioBuffer<float>& buffer, double bufferSampleRate,
-                                 float startFrac = 0.0f, float endFrac = 1.0f);
+                                 float startFrac = 0.0f, float endFrac = 1.0f,
+                                 int maxFrames = 256);
 
     /** Set playback frequency in Hz. Cancels any active glide. */
     void setFrequency(float hz) { targetFrequency = hz; glideFreqSamplesLeft = 0; }

@@ -58,6 +58,7 @@ target_sources(T5ynth PRIVATE
     # DSP
     src/dsp/WavetableOscillator.cpp
     src/dsp/WavetableBank.cpp
+    src/dsp/NoiseGenerator.cpp
     src/dsp/ADSREnvelope.cpp
     src/dsp/LFO.cpp
     src/dsp/DriftLFO.cpp

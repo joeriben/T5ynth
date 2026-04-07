@@ -54,6 +54,15 @@ private:
     std::unique_ptr<SliderRow> scanRow;
     juce::Label scanHint;
 
+    // ── Wavetable controls row ──
+    std::unique_ptr<SliderRow> noiseLevelRow, noiseColorRow; // kept for APVTS (hidden)
+    static constexpr int kNumFrameBtns = 4;
+    juce::TextButton frameBtns[kNumFrameBtns];
+    juce::ComboBox framesHidden;
+    juce::Rectangle<int> framesSwitchBounds;
+    juce::TextButton smoothToggle { "Smooth" };
+    juce::Label frameCountLabel;
+
     // ── Section headers ──
     juce::Label engineHeader, filterHeader, modHeader, driftHeader;
 
@@ -120,7 +129,9 @@ private:
     using BA = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
     std::unique_ptr<CA> engineModeA, loopModeA, voiceCountA;
-    std::unique_ptr<SA> scanA, cutoffA, resoA, filterMixA, kbdTrackA, crossfadeA;
+    std::unique_ptr<SA> scanA, noiseLevelA, noiseColorA, cutoffA, resoA, filterMixA, kbdTrackA, crossfadeA;
+    std::unique_ptr<CA> wtFramesA;
+    std::unique_ptr<BA> wtSmoothA;
     std::unique_ptr<CA> filterTypeA, filterSlopeA;
     std::unique_ptr<CA> driftRegenA;
     std::unique_ptr<SA> crossfadeRegenA;

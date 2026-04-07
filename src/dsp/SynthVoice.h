@@ -4,6 +4,7 @@
 #include "ADSREnvelope.h"
 #include "LFO.h"
 #include "StateVariableFilter.h"
+#include "NoiseGenerator.h"
 #include "BlockParams.h"
 #include <vector>
 
@@ -86,6 +87,7 @@ private:
     LFO perVoiceLfo1; // used when LFO mode == Trigger
     LFO perVoiceLfo2;
     T5ynthFilter filter;
+    NoiseGenerator noise;
 
     EngineMode engineMode = EngineMode::Sampler;
 

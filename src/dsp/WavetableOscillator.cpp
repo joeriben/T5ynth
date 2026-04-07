@@ -217,8 +217,9 @@ float WavetableOscillator::lanczosSample(const float* src, int srcLen, double po
 // ─── Frame extraction from audio buffer ───
 
 void WavetableOscillator::extractFramesFromBuffer(const juce::AudioBuffer<float>& buffer, double bufferSr,
-                                                   float startFrac, float endFrac)
+                                                   float startFrac, float endFrac, int maxFrames)
 {
+    maxFrames = juce::jlimit(8, 256, maxFrames);
     if (sharedSource_ != nullptr) return; // shared-mode oscillators don't own frame data
     const int bufferLen = buffer.getNumSamples();
 
@@ -242,11 +243,14 @@ void WavetableOscillator::extractFramesFromBuffer(const juce::AudioBuffer<float>
 
     if (detectedPitch > 20.0f && detectedPitch < 5000.0f)
     {
-        // Pitch-synchronous extraction
+        // Pitch-synchronous extraction with adaptive pitch tracking
         double periodSamples = bufferSr / detectedPitch;
-        int pos = 0;
+        double pos = 0.0;
+        int framesSinceDetect = 0;
+        constexpr int REDETECT_INTERVAL = 8;
 
-        while (pos + static_cast<int>(periodSamples * 1.5) < totalSamples && static_cast<int>(frames.size()) < 256)
+        while (static_cast<int>(pos + periodSamples * 1.5) < totalSamples
+               && static_cast<int>(frames.size()) < maxFrames)
         {
             // Extract one period and resample to FRAME_SIZE via Lanczos
             std::vector<float> frame(FRAME_SIZE);
@@ -262,7 +266,22 @@ void WavetableOscillator::extractFramesFromBuffer(const juce::AudioBuffer<float>
                 frame[i] += diff * static_cast<float>(i) / FRAME_SIZE;
 
             frames.push_back(std::move(frame));
-            pos += static_cast<int>(periodSamples);
+            pos += periodSamples;
+
+            // Re-detect pitch periodically to track evolving content
+            if (++framesSinceDetect >= REDETECT_INTERVAL)
+            {
+                int intPos = static_cast<int>(pos);
+                int remaining = totalSamples - intPos;
+                int analysisLen = std::min(4096, remaining);
+                if (analysisLen >= 256)
+                {
+                    float newPitch = detectPitch(data + intPos, analysisLen, bufferSr);
+                    if (newPitch > 20.0f && newPitch < 5000.0f)
+                        periodSamples = bufferSr / newPitch;
+                }
+                framesSinceDetect = 0;
+            }
         }
     }
     else
@@ -271,13 +290,19 @@ void WavetableOscillator::extractFramesFromBuffer(const juce::AudioBuffer<float>
         const int hop = FRAME_SIZE / 2;
         int pos = 0;
 
-        while (pos + FRAME_SIZE <= totalSamples && static_cast<int>(frames.size()) < 256)
+        while (pos + FRAME_SIZE <= totalSamples && static_cast<int>(frames.size()) < maxFrames)
         {
             std::vector<float> frame(FRAME_SIZE);
+            constexpr float tukeyAlpha = 0.1f;
+            const int taperLen = static_cast<int>(tukeyAlpha * FRAME_SIZE * 0.5f);
             for (int i = 0; i < FRAME_SIZE; i++)
             {
-                // Hann window
-                float window = 0.5f * (1.0f - std::cos(2.0f * juce::MathConstants<float>::pi * i / FRAME_SIZE));
+                // Tukey window: flat center (90%), cosine taper at edges (5% each side)
+                float window = 1.0f;
+                if (i < taperLen)
+                    window = 0.5f * (1.0f - std::cos(juce::MathConstants<float>::pi * static_cast<float>(i) / taperLen));
+                else if (i >= FRAME_SIZE - taperLen)
+                    window = 0.5f * (1.0f - std::cos(juce::MathConstants<float>::pi * static_cast<float>(FRAME_SIZE - 1 - i) / taperLen));
                 frame[i] = data[pos + i] * window;
             }
 

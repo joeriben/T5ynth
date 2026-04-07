@@ -99,8 +99,9 @@ public:
     juce::String exportJsonPreset() const;
     bool importJsonPreset(const juce::String& json);
 
-    // Sampler access for preset import (loop region brackets)
+    // Sampler/oscillator access for preset import and UI queries
     SamplePlayer& getSampler() { return masterSampler; }
+    const WavetableOscillator& getMasterOsc() const { return masterOsc; }
 
     /** Re-extract wavetable frames using current bracket region. */
     void reextractWavetable();

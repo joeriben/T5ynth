@@ -85,6 +85,11 @@ struct BlockParams
     float driftFilterOffset = 0.0f;  // multiplicative: cutoff *= (1 + offset * FILTER_DEPTH)
     float driftPitchOffset = 0.0f;   // additive: pitchMod += offset
 
+    // Noise oscillator
+    float noiseLevel = 0.0f;      // 0-1 mix level
+    float noiseColor = 20000.0f;  // LP filter cutoff Hz for noise spectral shape
+
     // Engine
     bool engineIsWavetable = false;
+    bool wtSmooth = true; // Catmull-Rom frame interpolation
 };

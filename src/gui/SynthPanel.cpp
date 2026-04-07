@@ -314,6 +314,59 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     scanA = std::make_unique<SA>(apvts, "osc_scan", scanRow->getSlider());
     scanRow->updateValue();
 
+    // ── Wavetable controls row: frame count switchbox + actual count label ──
+    // Noise sliders: APVTS-connected but hidden (no UI for now)
+    noiseLevelRow = std::make_unique<SliderRow>("Noise", fmtF2);
+    noiseLevelA = std::make_unique<SA>(apvts, "noise_level", noiseLevelRow->getSlider());
+    noiseColorRow = std::make_unique<SliderRow>("Color", fmtHz);
+    noiseColorA = std::make_unique<SA>(apvts, "noise_color", noiseColorRow->getSlider());
+
+    // Frame count switchbox: 32 | 64 | 128 | 256
+    {
+        const juce::StringArray frameLabels { "32", "64", "128", "256" };
+        framesHidden.addItemList(frameLabels, 1);
+        framesHidden.onChange = [this] {
+            int id = framesHidden.getSelectedId();
+            auto textCol = kDimmer;
+            for (int i = 0; i < kNumFrameBtns; ++i)
+            {
+                bool sel = (i + 1 == id);
+                frameBtns[i].setToggleState(sel, juce::dontSendNotification);
+                frameBtns[i].setColour(juce::TextButton::buttonColourId,
+                                        sel ? kAccent : juce::Colours::transparentBlack);
+                frameBtns[i].setColour(juce::TextButton::textColourOffId,
+                                        sel ? juce::Colour(0xff0e1018) : textCol);
+            }
+            processorRef.reextractWavetable();
+        };
+        for (int i = 0; i < kNumFrameBtns; ++i)
+        {
+            frameBtns[i].setButtonText(frameLabels[i]);
+            frameBtns[i].setClickingTogglesState(false);
+            frameBtns[i].onClick = [this, i] { framesHidden.setSelectedId(i + 1); };
+            addAndMakeVisible(frameBtns[i]);
+        }
+        wtFramesA = std::make_unique<CA>(apvts, "wt_frames", framesHidden);
+    }
+
+    // Smooth toggle
+    smoothToggle.setClickingTogglesState(true);
+    smoothToggle.setToggleState(true, juce::dontSendNotification);
+    smoothToggle.onClick = [this] {
+        bool on = smoothToggle.getToggleState();
+        smoothToggle.setColour(juce::TextButton::buttonColourId,
+                                on ? kAccent : juce::Colours::transparentBlack);
+        smoothToggle.setColour(juce::TextButton::textColourOnId,
+                                on ? juce::Colour(0xff0e1018) : kDimmer);
+    };
+    addAndMakeVisible(smoothToggle);
+    wtSmoothA = std::make_unique<BA>(apvts, "wt_smooth", smoothToggle);
+    smoothToggle.onClick(); // sync initial colors
+
+    frameCountLabel.setColour(juce::Label::textColourId, kDimmer);
+    frameCountLabel.setJustificationType(juce::Justification::centredRight);
+    addAndMakeVisible(frameCountLabel);
+
     // ── Section headers — inverted (colored bg, dark text) ──
     auto makeHeader = [this](juce::Label& lbl, const juce::String& text, juce::Colour col) {
         lbl.setText(" " + text, juce::dontSendNotification);
@@ -520,6 +573,10 @@ void SynthPanel::timerCallback()
         }
 
         processorRef.clearNewWaveformFlag();
+
+        // Update frame count display
+        int nf = processorRef.getMasterOsc().getNumFrames();
+        frameCountLabel.setText(juce::String(nf) + " frames", juce::dontSendNotification);
     }
 
     // Update ghost indicators from modulated values (skip when audio is idle)
@@ -573,6 +630,10 @@ void SynthPanel::updateVisibility()
     // Wavetable-only controls
     scanRow->setVisible(isWavetable);
     scanHint.setVisible(isWavetable);
+    for (int i = 0; i < kNumFrameBtns; ++i)
+        frameBtns[i].setVisible(isWavetable);
+    smoothToggle.setVisible(isWavetable);
+    frameCountLabel.setVisible(isWavetable);
 
     // Waveform label changes with mode
     waveformDisplay.setRegionLabel(isWavetable ? "Extraction region" : "Loop interval");
@@ -768,6 +829,8 @@ void SynthPanel::paint(juce::Graphics& g)
             paintSwitchBoxBorder(g, loopSwitchBounds);
             paintSwitchBoxBorder(g, optSwitchBounds);
         }
+        if (frameBtns[0].isVisible())
+            paintSwitchBoxBorder(g, framesSwitchBounds);
     }
 
     // Card: Filter section
@@ -939,7 +1002,7 @@ void SynthPanel::resized()
     // Calculate height needed below: sampler/WT controls + filter + mod + LFO + drift
     // Always reserve same space for engine controls (max of sampler/WT)
     // so waveform height stays stable when switching modes
-    int samplerCtrlH = rowH + gap * 2;
+    int samplerCtrlH = rowH + gap * 2; // one controls row (sampler or wavetable)
     int filterH = headerH + headerGap + rowH + gap + rowH * 2 + gap; // header + type row + cutoff/reso + mix/kbd
     int modH = gap * 3 + headerH + headerGap; // section gap + header
     int envH = (rowH * 4 + gap) * 3; // 3 envelopes × (header + 3 slider rows + gap)
@@ -961,8 +1024,33 @@ void SynthPanel::resized()
         scanHint.setVisible(false);
 
         area.removeFromTop(gap * 3);
-        engineCardBottom = area.getY();
+
+        // Wavetable controls row: [32|64|128|256]  [N frames]
+        auto wtRow = area.removeFromTop(rowH);
+
+        // Left: frame count switchbox
+        int cellW = juce::roundToInt(f * 3.2f);
+        for (int i = 0; i < kNumFrameBtns; ++i)
+            frameBtns[i].setBounds(wtRow.removeFromLeft(cellW));
+        framesSwitchBounds = frameBtns[0].getBounds().getUnion(frameBtns[kNumFrameBtns - 1].getBounds());
+
+        wtRow.removeFromLeft(juce::roundToInt(f * 0.5f));
+
+        // Smooth toggle
+        int smoothW = juce::roundToInt(f * 5.0f);
+        smoothToggle.setBounds(wtRow.removeFromLeft(smoothW));
+
+        wtRow.removeFromLeft(juce::roundToInt(f * 0.5f));
+
+        // Right: actual frame count label
+        frameCountLabel.setBounds(wtRow);
+
+        // Hide noise sliders (APVTS still connected)
+        noiseLevelRow->setBounds(-1000, -1000, 10, 10);
+        noiseColorRow->setBounds(-1000, -1000, 10, 10);
+
         area.removeFromTop(gap);
+        engineCardBottom = noiseLevelRow->getBottom();
     }
     else
     {
@@ -997,6 +1085,11 @@ void SynthPanel::resized()
 
         area.removeFromTop(gap);
         engineCardBottom = oneshotBtn.getBottom();
+
+        // Hide wavetable controls in sampler mode
+        noiseLevelRow->setBounds(-1000, -1000, 10, 10);
+        noiseColorRow->setBounds(-1000, -1000, 10, 10);
+        frameCountLabel.setBounds(-1000, -1000, 10, 10);
     }
     area.removeFromTop(gap * 2);
 
