@@ -52,23 +52,64 @@ jobs:
           mkdir -p "$APP/Contents/Resources/backend"
           cp -R backend/dist/pipe_inference/* "$APP/Contents/Resources/backend/"
 
+      - name: Smoke-test app bundle
+        run: |
+          APP=build/T5ynth_artefacts/Release/Standalone/T5ynth.app
+          # Verify binary is executable
+          test -x "$APP/Contents/MacOS/T5ynth"
+          # Verify backend is executable
+          test -x "$APP/Contents/Resources/backend/pipe_inference"
+          # Check dylib dependencies resolve
+          otool -L "$APP/Contents/MacOS/T5ynth"
+          # Try to launch — kill after 5s, exit 0 if it stayed alive (success)
+          "$APP/Contents/MacOS/T5ynth" &
+          APP_PID=$!
+          sleep 5
+          if kill -0 "$APP_PID" 2>/dev/null; then
+            echo "App launched successfully (PID $APP_PID)"
+            kill "$APP_PID" || true
+          else
+            wait "$APP_PID" || EXIT_CODE=$?
+            echo "App exited with code ${EXIT_CODE:-unknown} — check logs above"
+            exit 1
+          fi
+
+      # tar on the build machine to preserve Unix permissions (+x bits)
+      # upload-artifact strips permissions — the release job uses these archives directly
+      - name: Create archives
+        run: |
+          mkdir -p archives
+          # Include license files alongside binaries
+          for d in build/T5ynth_artefacts/Release/Standalone \
+                   build/T5ynth_artefacts/Release/VST3 \
+                   build/T5ynth_artefacts/Release/AU; do
+            cp LICENSE THIRD_PARTY_LICENSES.md "$d/"
+          done
+          tar -cJf archives/T5ynth-macOS-Standalone.tar.xz \
+            -C build/T5ynth_artefacts/Release/Standalone T5ynth.app LICENSE THIRD_PARTY_LICENSES.md
+          tar -cJf archives/T5ynth-macOS-VST3.tar.xz \
+            -C build/T5ynth_artefacts/Release/VST3 .
+          tar -cJf archives/T5ynth-macOS-AU.tar.xz \
+            -C build/T5ynth_artefacts/Release/AU .
+          ls -lh archives/
+
       - name: Upload Standalone
         uses: actions/upload-artifact@v4
         with:
           name: T5ynth-macOS-Standalone
-          path: build/T5ynth_artefacts/Release/Standalone/
+          path: archives/T5ynth-macOS-Standalone.tar.xz
 
       - name: Upload VST3
         uses: actions/upload-artifact@v4
         with:
           name: T5ynth-macOS-VST3
-          path: build/T5ynth_artefacts/Release/VST3/
+          path: archives/T5ynth-macOS-VST3.tar.xz
 
       - name: Upload AU
         uses: actions/upload-artifact@v4
         with:
           name: T5ynth-macOS-AU
-          path: build/T5ynth_artefacts/Release/AU/
+          path: archives/T5ynth-macOS-AU.tar.xz
 
   # ── Windows ─────────────────────────────────────────────────────
   windows:
@@ -106,18 +147,29 @@ jobs:
           cp -R build/T5ynth_artefacts/Release/Standalone/* dist/T5ynth/
           mkdir -p dist/T5ynth/backend
           cp -R backend/dist/pipe_inference/* dist/T5ynth/backend/
+          cp LICENSE THIRD_PARTY_LICENSES.md dist/T5ynth/
+
+      - name: Create archives
+        shell: bash
+        run: |
+          mkdir -p archives
+          cp LICENSE THIRD_PARTY_LICENSES.md build/T5ynth_artefacts/Release/VST3/
+          tar -cJf archives/T5ynth-Windows-Standalone.tar.xz -C dist T5ynth
+          tar -cJf archives/T5ynth-Windows-VST3.tar.xz \
+            -C build/T5ynth_artefacts/Release/VST3 .
+          ls -lh archives/
 
       - name: Upload Standalone
         uses: actions/upload-artifact@v4
         with:
           name: T5ynth-Windows-Standalone
-          path: dist/T5ynth
+          path: archives/T5ynth-Windows-Standalone.tar.xz
 
       - name: Upload VST3
         uses: actions/upload-artifact@v4
         with:
           name: T5ynth-Windows-VST3
-          path: build/T5ynth_artefacts/Release/VST3/
+          path: archives/T5ynth-Windows-VST3.tar.xz
 
   # ── Linux ───────────────────────────────────────────────────────
   linux:
@@ -173,18 +225,28 @@ jobs:
           cp build/T5ynth_artefacts/Release/Standalone/T5ynth dist/T5ynth/
           mkdir -p dist/T5ynth/backend
           cp -R backend/dist/pipe_inference/* dist/T5ynth/backend/
+          cp LICENSE THIRD_PARTY_LICENSES.md dist/T5ynth/
+
+      - name: Create archives
+        run: |
+          mkdir -p archives
+          cp LICENSE THIRD_PARTY_LICENSES.md build/T5ynth_artefacts/Release/VST3/
+          tar -cJf archives/T5ynth-Linux-Standalone.tar.xz -C dist T5ynth
+          tar -cJf archives/T5ynth-Linux-VST3.tar.xz \
+            -C build/T5ynth_artefacts/Release/VST3 .
+          ls -lh archives/
 
       - name: Upload Standalone
         uses: actions/upload-artifact@v4
         with:
           name: T5ynth-Linux-Standalone
-          path: dist/T5ynth
+          path: archives/T5ynth-Linux-Standalone.tar.xz
 
       - name: Upload VST3
         uses: actions/upload-artifact@v4
         with:
           name: T5ynth-Linux-VST3
-          path: build/T5ynth_artefacts/Release/VST3/
+          path: archives/T5ynth-Linux-VST3.tar.xz
 
   # ── Release (only on tags) ──────────────────────────────────────
   release:
@@ -200,21 +262,45 @@ jobs:
         with:
           path: artifacts
 
-      - name: Create archives
+      # Archives are pre-built on each platform to preserve Unix permissions
+      - name: Collect archives
         run: |
-          cd artifacts
-          for dir in T5ynth-*; do
-            # xz -3 gives much better compression than gzip for CUDA binaries
-            tar -cJf "${dir}.tar.xz" "$dir"
-          done
-          ls -lh *.tar.xz
+          mkdir -p release
+          find artifacts -name '*.tar.xz' -exec mv {} release/ \;
+          ls -lh release/
+
+      - name: Generate release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > release_notes.md <<'EOF'
+## Installation
+
+### macOS
+Extract the `.tar.xz` archive, then **remove the quarantine flag** before first launch:
+```bash
+xattr -cr T5ynth.app
+```
+Alternatively: right-click the app → **Open** → confirm in the dialog.
+
+This is required because T5ynth is not signed with an Apple Developer certificate.
+
+### Linux
+Extract and run. You may need to `chmod +x T5ynth` and `chmod +x backend/pipe_inference` if your archive tool does not preserve permissions.
+
+---
+EOF
+          # Append auto-generated changelog
+          gh api repos/${{ github.repository }}/releases/generate-notes \
+            -f tag_name="${{ github.ref_name }}" \
+            --jq '.body' >> release_notes.md
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ github.ref_name }}" \
-            artifacts/*.tar.xz \
+            release/*.tar.xz \
             --title "T5ynth ${{ github.ref_name }}" \
-            --generate-notes \
+            --notes-file release_notes.md \
             --prerelease
