@@ -29,6 +29,31 @@ Training data attribution: https://info.stability.ai/attributions
 
 ---
 
+## Stable Audio Open Small
+
+**Model:** `stabilityai/stable-audio-open-small`
+**License:** Stability AI Community License Agreement
+**URL:** https://huggingface.co/stabilityai/stable-audio-open-small
+
+T5ynth uses the Stable Audio Open Small diffusion model as an alternative,
+lighter-weight audio generation engine. The model weights are redistributed
+via GitHub Releases with the required license and attribution.
+
+**Powered by Stability AI**
+
+The same license terms as Stable Audio Open 1.0 apply (see above):
+- Licensed for research, non-commercial, and commercial use
+  (with revenue threshold; see license for details)
+- Commercial use above USD $1,000,000 annual revenue requires a separate
+  enterprise license from Stability AI
+- Users must comply with Stability AI's Acceptable Use Policy
+- The model may not be used to create competing foundational AI models
+- Full license: https://stability.ai/community-license-agreement
+
+Training data attribution: https://info.stability.ai/attributions
+
+---
+
 ## JUCE Framework
 
 **Version:** 8.0.6
