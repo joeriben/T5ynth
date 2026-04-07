@@ -113,7 +113,7 @@ void SynthPanel::initDrift(DriftSection& drift, const juce::String& name,
 
     drift.targetBox.addItemList({"---", "Alpha", "Axis 1", "Axis 2", "Axis 3", "WT Scan",
                                   "Filter", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix",
-                                  "ENV1 Amt", "ENV2 Amt", "ENV3 Amt"}, 1);
+                                  "ENV1 Amt", "ENV2 Amt", "ENV3 Amt", "Noise", "Magnitude"}, 1);
     drift.targetBox.onChange = [this] { updateVisibility(); resized(); };
     addAndMakeVisible(drift.targetBox);
 
@@ -418,13 +418,20 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     paintSectionHeader(regenHeader, "DRIFT + REGENERATE", kDriftCol);
     addAndMakeVisible(regenHeader);
 
-    regenHidden.addItemList({"Manual", "Auto", "1st Bar"}, 1);
+    regenHidden.addItemList({"Manual", "Auto",
+        juce::String(juce::CharPointer_UTF8("max 1\xe2\x99\xa9")),
+        juce::String(juce::CharPointer_UTF8("max 4\xe2\x99\xa9")),
+        juce::String(juce::CharPointer_UTF8("max 16\xe2\x99\xa9"))}, 1);
     regenHidden.onChange = [this] {
         int id = regenHidden.getSelectedId();
         for (int i = 0; i < kNumRegenBtns; ++i)
             regenBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
     };
-    static const char* regenLabels[] = {"Manual", "Auto", "1st Bar"};
+    static const juce::String regenLabels[] = {
+        "Manual", "Auto",
+        juce::String(juce::CharPointer_UTF8("max 1\xe2\x99\xa9")),
+        juce::String(juce::CharPointer_UTF8("max 4\xe2\x99\xa9")),
+        juce::String(juce::CharPointer_UTF8("max 16\xe2\x99\xa9"))};
     for (int i = 0; i < kNumRegenBtns; ++i)
     {
         regenBtns[i].setButtonText(regenLabels[i]);
@@ -615,11 +622,11 @@ void SynthPanel::updateVisibility()
     setDriftDimmed(drift2);
 
     // Regen buttons only active when a drift target requires audio regeneration
-    // Osc targets: Alpha(2), Axis1(3), Axis2(4), Axis3(5) in ComboBox 1-based IDs
+    // Osc targets: Alpha(2), Axis1-3(3-5), Noise(16), Magnitude(17) in ComboBox 1-based IDs
     {
         auto isOscTarget = [](int selId) {
             int tgt = selId - 1; // 1-based → 0-based APVTS index
-            return tgt >= 1 && tgt <= 4;
+            return (tgt >= 1 && tgt <= 4) || tgt == 15 || tgt == 16;
         };
         bool regenAvailable = isOscTarget(drift1.targetBox.getSelectedId())
                            || isOscTarget(drift2.targetBox.getSelectedId());
@@ -1057,7 +1064,7 @@ void SynthPanel::resized()
     area.removeFromTop(gap);
     {
         auto regenRow = area.removeFromTop(rowH);
-        int regenCellW = juce::roundToInt(f * 4.5f);
+        int regenCellW = juce::roundToInt(f * 3.5f);
         for (int i = 0; i < kNumRegenBtns; ++i)
         {
             int edges = 0;

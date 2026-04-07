@@ -700,7 +700,7 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                                             std::map<juce::String, float> effectiveAxes,
                                             float effectiveNoise,
                                             float effectiveMagnitude,
-                                            bool holdForBar)
+                                            bool /*holdForBar*/)
 {
     if (generating) return;
     if (promptAEditor.getText().trim().isEmpty()) return;
@@ -717,10 +717,10 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
 
     auto req = buildInferenceRequest(effectiveAlpha, effectiveAxes, effectiveNoise, effectiveMagnitude);
     auto* processor = &processorRef;
-    std::thread([this, processor, req, holdForBar]()
+    std::thread([this, processor, req]()
     {
         auto result = processor->getPipeInference().generate(req);
-        juce::MessageManager::callAsync([this, processor, result = std::move(result), holdForBar]()
+        juce::MessageManager::callAsync([this, processor, result = std::move(result)]()
         {
             generating = false;
             generateButton.setEnabled(true);
@@ -734,21 +734,7 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                 if (xfadeSamples > 0)
                     applyDriftCrossfade(newAudio, processor->getGeneratedAudio(), xfadeSamples);
 
-                if (holdForBar)
-                {
-                    // 1st Bar mode: defer audio load until bar boundary
-                    pendingAudio_ = newAudio;
-                    pendingSampleRate_ = 44100.0;
-                    pendingBarLoad_ = true;
-                    // Clear stale flags, then signal audio thread we're ready
-                    processor->triggerPendingLoad.store(false, std::memory_order_relaxed);
-                    processor->pendingBarLoadReady.store(true, std::memory_order_relaxed);
-                }
-                else
-                {
-                    // Auto mode: load immediately
-                    processor->loadGeneratedAudio(newAudio, 44100.0);
-                }
+                processor->loadGeneratedAudio(newAudio, 44100.0);
                 processor->setLastSeed(result.seed);
                 seedEditor.setText(juce::String(result.seed), false);
                 auto info = juce::String(result.generationTimeMs / 1000.0f, 1) + "s | drift regen";
@@ -780,18 +766,16 @@ void PromptPanel::pollDriftRegen()
     int regenMode = processorRef.driftRegenMode.load(std::memory_order_relaxed);
     if (regenMode == 0) return; // Manual — no auto-regen
 
-    // 1st Bar: check if audio thread signalled bar boundary while pending
-    if (pendingBarLoad_)
+    // Beat-based cooldown: modes 2-5 = max 1/4/8/16 beats
+    if (regenMode >= 2)
     {
-        bool loadNow = processorRef.triggerPendingLoad.exchange(false, std::memory_order_relaxed);
-        if (loadNow)
-        {
-            processorRef.pendingBarLoadReady.store(false, std::memory_order_relaxed);
-            processorRef.loadGeneratedAudio(pendingAudio_, pendingSampleRate_);
-            pendingBarLoad_ = false;
-            if (onStatusChanged) onStatusChanged("drift regen loaded", false);
-        }
-        return; // don't start new generation while waiting to load
+        static constexpr int beatCounts[] = { 0, 0, 1, 4, 16 };
+        int beats = beatCounts[juce::jlimit(0, 4, regenMode)];
+        float bpm = processorRef.driftRegenBpm.load(std::memory_order_relaxed);
+        double cooldownMs = (beats * 60000.0) / static_cast<double>(juce::jmax(1.0f, bpm));
+        double now = juce::Time::getMillisecondCounterHiRes();
+        if ((now - lastRegenTimeMs_) < cooldownMs)
+            return; // cooldown not elapsed
     }
 
     // Read effective drift values from processor atomics
@@ -845,6 +829,6 @@ void PromptPanel::pollDriftRegen()
     float genMag = std::isnan(effMag)
         ? apvts.getRawParameterValue("gen_magnitude")->load() : effMag;
 
-    bool holdForBar = (regenMode == 2); // 1st Bar
-    triggerDriftRegeneration(genAlpha, effAxes, genNoise, genMag, holdForBar);
+    lastRegenTimeMs_ = juce::Time::getMillisecondCounterHiRes();
+    triggerDriftRegeneration(genAlpha, effAxes, genNoise, genMag, false);
 }

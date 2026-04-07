@@ -189,7 +189,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{"drift_enabled", 1}, "Drift Enabled", false));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"drift_regen", 1}, "Regenerate",
-        juce::StringArray{"Manual", "Auto", "1st Bar"}, 0));
+        juce::StringArray{"Manual", "Auto",
+                          juce::String(juce::CharPointer_UTF8("max 1\xe2\x99\xa9")),
+                          juce::String(juce::CharPointer_UTF8("max 4\xe2\x99\xa9")),
+                          juce::String(juce::CharPointer_UTF8("max 16\xe2\x99\xa9"))}, 0));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"drift_crossfade", 1}, "Drift Crossfade",
         juce::NormalisableRange<float>(0.0f, 2000.0f, 1.0f), 200.0f));
@@ -215,10 +218,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // Drift targets + waveform selection
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"drift1_target", 1}, "Drift1 Target",
-        juce::StringArray{"---", "Alpha", "Axis 1", "Axis 2", "Axis 3", "WT Scan", "Filter", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix", "ENV1 Amt", "ENV2 Amt", "ENV3 Amt"}, 0));
+        juce::StringArray{"---", "Alpha", "Axis 1", "Axis 2", "Axis 3", "WT Scan", "Filter", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix", "ENV1 Amt", "ENV2 Amt", "ENV3 Amt", "Noise", "Magnitude"}, 0));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"drift2_target", 1}, "Drift2 Target",
-        juce::StringArray{"---", "Alpha", "Axis 1", "Axis 2", "Axis 3", "WT Scan", "Filter", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix", "ENV1 Amt", "ENV2 Amt", "ENV3 Amt"}, 0));
+        juce::StringArray{"---", "Alpha", "Axis 1", "Axis 2", "Axis 3", "WT Scan", "Filter", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix", "ENV1 Amt", "ENV2 Amt", "ENV3 Amt", "Noise", "Magnitude"}, 0));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"drift1_wave", 1}, "Drift1 Wave",
         juce::StringArray{"Sine", "Tri", "Saw", "Sq"}, 0));
@@ -229,7 +232,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // Drift 3 target + waveform (was missing — drift3 rate/depth existed but had no target/wave)
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"drift3_target", 1}, "Drift3 Target",
-        juce::StringArray{"---", "Alpha", "Axis 1", "Axis 2", "Axis 3", "WT Scan", "Filter", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix", "ENV1 Amt", "ENV2 Amt", "ENV3 Amt"}, 0));
+        juce::StringArray{"---", "Alpha", "Axis 1", "Axis 2", "Axis 3", "WT Scan", "Filter", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix", "ENV1 Amt", "ENV2 Amt", "ENV3 Amt", "Noise", "Magnitude"}, 0));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"drift3_wave", 1}, "Drift3 Wave",
         juce::StringArray{"Sine", "Tri", "Saw", "Sq"}, 0));
@@ -568,10 +571,11 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     int d3t = static_cast<int>(parameters.getRawParameterValue("drift3_target")->load());
     // Auto-enable drift when any target is set (target 0 = "---" = None)
     bool driftHasTarget = (d1t != 0) || (d2t != 0) || (d3t != 0);
-    // Osc targets (Alpha=1, Axis1-3=2-4) require regeneration
+    // Osc targets (Alpha, Axis1-3, Noise, Magnitude) require regeneration
     bool hasOsc = false;
     for (int t : {d1t, d2t, d3t})
-        if (t >= DriftLFO::TgtAlpha && t <= DriftLFO::TgtAxis3) hasOsc = true;
+        if ((t >= DriftLFO::TgtAlpha && t <= DriftLFO::TgtAxis3)
+            || t == DriftLFO::TgtNoise || t == DriftLFO::TgtMagnitude) hasOsc = true;
     driftHasOscTarget.store(hasOsc, std::memory_order_relaxed);
     driftRegenMode.store(static_cast<int>(parameters.getRawParameterValue("drift_regen")->load()),
                          std::memory_order_relaxed);
@@ -602,13 +606,15 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.mod1Amount = juce::jlimit(0.0f, 1.0f, bp.mod1Amount + driftLfo.getOffsetForTarget(DriftLFO::TgtEnv2Amt));
     bp.mod2Amount = juce::jlimit(0.0f, 1.0f, bp.mod2Amount + driftLfo.getOffsetForTarget(DriftLFO::TgtEnv3Amt));
 
-    // Drift → Osc targets (Alpha, Axes) — store effective values for GUI ghost + auto-regen
+    // Drift → Osc targets (Alpha, Axes, Noise, Magnitude) — store effective values for GUI ghost + auto-regen
     {
         static constexpr float NO_GHOST = std::numeric_limits<float>::quiet_NaN();
         float alphaOff = driftLfo.getOffsetForTarget(DriftLFO::TgtAlpha);
         float ax1Off   = driftLfo.getOffsetForTarget(DriftLFO::TgtAxis1);
         float ax2Off   = driftLfo.getOffsetForTarget(DriftLFO::TgtAxis2);
         float ax3Off   = driftLfo.getOffsetForTarget(DriftLFO::TgtAxis3);
+        float noiseOff = driftLfo.getOffsetForTarget(DriftLFO::TgtNoise);
+        float magOff   = driftLfo.getOffsetForTarget(DriftLFO::TgtMagnitude);
         float baseAlpha = parameters.getRawParameterValue("gen_alpha")->load();
         modulatedValues.driftAlpha.store(
             std::abs(alphaOff) > 0.001f ? baseAlpha + alphaOff : NO_GHOST,
@@ -619,6 +625,14 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             std::abs(ax2Off) > 0.001f ? ax2Off : NO_GHOST, std::memory_order_relaxed);
         modulatedValues.driftAxis3.store(
             std::abs(ax3Off) > 0.001f ? ax3Off : NO_GHOST, std::memory_order_relaxed);
+        float baseNoise = parameters.getRawParameterValue("gen_noise")->load();
+        modulatedValues.driftNoise.store(
+            std::abs(noiseOff) > 0.001f ? baseNoise + noiseOff : NO_GHOST,
+            std::memory_order_relaxed);
+        float baseMag = parameters.getRawParameterValue("gen_magnitude")->load();
+        modulatedValues.driftMagnitude.store(
+            std::abs(magOff) > 0.001f ? baseMag + magOff : NO_GHOST,
+            std::memory_order_relaxed);
     }
 
     // ── Sampler settings ─────────────────────────────────────────────────────
@@ -802,13 +816,12 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         midiMessages.swapWith(transposed);
     }
 
-    // Consume bar-start flag → forward to GUI + trigger pending 1st-bar load
+    // Consume bar-start flag (still used for sequencer display)
     if (stepSequencer.barStartFlag.exchange(false))
-    {
         barBoundaryFlag.store(true, std::memory_order_relaxed);
-        if (pendingBarLoadReady.load(std::memory_order_relaxed))
-            triggerPendingLoad.store(true, std::memory_order_relaxed);
-    }
+
+    // Expose current BPM for drift regen cooldown (GUI reads)
+    driftRegenBpm.store(seqBpm, std::memory_order_relaxed);
 
     // Stage 2: Arpeggiator (consumes seq note events, generates arpeggiated output)
     if (arpEnabled)
@@ -1505,13 +1518,19 @@ static int driftTargetFromString(const juce::String& s) {
     if (s == "delay_feedback") return 9;
     if (s == "delay_mix") return 10;
     if (s == "reverb_mix") return 11;
+    if (s == "env1_amt") return 12;
+    if (s == "env2_amt") return 13;
+    if (s == "env3_amt") return 14;
+    if (s == "noise") return 15;
+    if (s == "magnitude") return 16;
     return 0; // none
 }
 static juce::String driftTargetToString(int i) {
     const char* names[] = {"none","alpha","sem_axis_1","sem_axis_2","sem_axis_3",
                            "wt_scan","filter","pitch","delay_time","delay_feedback",
-                           "delay_mix","reverb_mix"};
-    return (i >= 0 && i <= 11) ? names[i] : "none";
+                           "delay_mix","reverb_mix","env1_amt","env2_amt","env3_amt",
+                           "noise","magnitude"};
+    return (i >= 0 && i <= 16) ? names[i] : "none";
 }
 
 static int driftWaveFromString(const juce::String& s) {
@@ -1667,10 +1686,10 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         driftArr.add(d.get());
     }
     root->setProperty("driftLfos", driftArr);
-    // Regen mode: 0=Manual, 1=Auto, 2=1st Bar
+    // Regen mode: 0=Manual, 1=Auto, 2=max1beat, 3=max4beats, 4=max16beats
     int regenMode = static_cast<int>(get("drift_regen"));
-    const char* regenNames[] = {"manual", "auto", "1st_bar"};
-    root->setProperty("regenMode", regenNames[juce::jlimit(0, 2, regenMode)]);
+    const char* regenNames[] = {"manual", "auto", "max_1beat", "max_4beats", "max_16beats"};
+    root->setProperty("regenMode", regenNames[juce::jlimit(0, 4, regenMode)]);
 
     // Wavetable
     juce::DynamicObject::Ptr wt = new juce::DynamicObject();
@@ -1856,13 +1875,17 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
             setParam(parameters, pre + "target", static_cast<float>(driftTargetFromString(d->getProperty("target").toString())));
         }
     }
-    // Regen mode (new: "manual"/"auto"/"1st_bar", old: bool autoRegen)
+    // Regen mode
     if (root->hasProperty("regenMode"))
     {
         juce::String rm = root->getProperty("regenMode").toString();
         int rIdx = 0;
         if (rm == "auto") rIdx = 1;
-        else if (rm == "1st_bar") rIdx = 2;
+        else if (rm == "max_1beat") rIdx = 2;
+        else if (rm == "max_4beats") rIdx = 3;
+        else if (rm == "max_16beats") rIdx = 4;
+        else if (rm == "max_8beats") rIdx = 3;  // legacy: map to max 4♩
+        else if (rm == "1st_bar") rIdx = 1;     // legacy: map to Auto
         setParam(parameters, "drift_regen", static_cast<float>(rIdx));
     }
     else if (root->hasProperty("autoRegen"))

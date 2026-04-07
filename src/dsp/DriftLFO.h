@@ -35,6 +35,8 @@ public:
         TgtEnv1Amt,    // 12
         TgtEnv2Amt,    // 13
         TgtEnv3Amt,    // 14
+        TgtNoise,      // 15
+        TgtMagnitude,  // 16
         NumTargets
     };
 

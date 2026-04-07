@@ -537,7 +537,7 @@ Diffusion inference is never real-time — a single generation takes seconds, no
 While the synth is playing, multiple drift LFOs continuously and independently shift the Alpha slider and the semantic axes. Each LFO moves at its own rate and depth — Alpha might slowly sweep from Prompt A toward B over 30 seconds, while Axis 1 (e.g., tonal/noisy) oscillates on a different cycle, and Axis 2 (e.g., sustained/rhythmic) drifts at yet another pace. These modulations run simultaneously and asynchronously, tracing a complex, never-repeating path through the embedding space.
 </p>
 <p>
-When Auto or 1st Bar regen mode is active, T5ynth monitors how far the modulated embedding has drifted from the last generated state. Once the drift exceeds a threshold, it fires a new inference request in the background. The current sound keeps playing uninterrupted. When the new generation arrives — typically a few seconds later — it is crossfaded into the playback buffer, smoothly replacing the old sound with the new one.
+When an auto regen mode is active, T5ynth monitors how far the modulated embedding has drifted from the last generated state. Once the drift exceeds a threshold, it fires a new inference request in the background. The current sound keeps playing uninterrupted. When the new generation arrives — typically a few seconds later — it is crossfaded into the playback buffer, smoothly replacing the old sound with the new one.
 </p>
 <p>
 The result is a <strong>continuous stream of new generations</strong>, each one produced from a slightly different position in the embedding space between and around the two prompts. The sound never loops back to exactly where it was. Every few seconds, a new variation emerges — not randomly, but along the trajectories defined by your drift LFO settings. You hear a sound that perpetually transforms: sometimes closer to Prompt A, sometimes to B, sometimes in between, colored by whichever semantic axes are drifting, at whatever pace you have set.
@@ -570,8 +570,8 @@ Drift modulation of generation parameters only changes the <em>embedding</em> �
 <table>
   <tr><th>Mode</th><th>Behavior</th></tr>
   <tr><td><strong>Manual</strong></td><td>You click Generate yourself. Drift still modulates the embedding, but nothing re-generates until you trigger it.</td></tr>
-  <tr><td><strong>Auto</strong></td><td>Automatically re-generates when drift pushes Alpha or Axes far enough from the last generated state.</td></tr>
-  <tr><td><strong>1st Bar</strong></td><td>Like Auto, but defers re-generation to the next bar boundary — keeps the new generation in rhythmic sync.</td></tr>
+  <tr><td><strong>Auto</strong></td><td>Automatically re-generates as soon as drift pushes parameters far enough from the last generated state. No rate limit — fastest option, highest energy use.</td></tr>
+  <tr><td><strong>max 1♩ / 4♩ / 16♩</strong></td><td>Like Auto, but with a minimum cooldown between generations: at most one re-generation per 1, 4, or 16 beats (at the current BPM). "max" means this is a <em>maximum rate</em>, not a guarantee — actual generation time depends on your hardware and model settings.</td></tr>
 </table>
 
 <table>
@@ -580,7 +580,7 @@ Drift modulation of generation parameters only changes the <em>embedding</em> �
 </table>
 
 <div class="tip">
-  <strong>Energy awareness:</strong> Each re-generation runs the full diffusion inference pipeline on the GPU (or CPU). Auto-regen with fast drift rates can trigger many generations per minute. This consumes significant compute and energy. For responsible use, keep drift rates low and consider whether Manual mode is sufficient for your purpose.
+  <strong>Energy awareness:</strong> Each re-generation runs the full diffusion inference pipeline on the GPU (or CPU). Auto-regen with fast drift rates can trigger many generations per minute. The beat-limited modes (max 4♩, max 16♩) help keep compute and energy use in check. Consider whether Manual mode is sufficient for your purpose.
 </div>
 
 <!-- ═══════════════════════════════════════════ -->

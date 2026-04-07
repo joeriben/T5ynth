@@ -56,14 +56,18 @@ private:
     void timerCallback() override;
     void triggerGeneration();
 
-    /** Build a PipeInference::Request from current UI state, with optional alpha/axes override. */
+    /** Build a PipeInference::Request from current UI state, with optional overrides. */
     PipeInference::Request buildInferenceRequest(float alphaOverride = std::numeric_limits<float>::quiet_NaN(),
-                                                  std::map<juce::String, float> axesOverride = {});
+                                                  std::map<juce::String, float> axesOverride = {},
+                                                  float noiseOverride = std::numeric_limits<float>::quiet_NaN(),
+                                                  float magnitudeOverride = std::numeric_limits<float>::quiet_NaN());
 
-    /** Trigger generation from drift auto-regen. holdForBar=true defers audio load to bar boundary. */
+    /** Trigger generation from drift auto-regen. */
     void triggerDriftRegeneration(float effectiveAlpha,
                                   std::map<juce::String, float> effectiveAxes,
-                                  bool holdForBar);
+                                  float effectiveNoise,
+                                  float effectiveMagnitude,
+                                  bool holdForBar = false);
 
     /** Check if drift requires auto-regeneration (called from timerCallback). */
     void pollDriftRegen();
@@ -119,10 +123,10 @@ private:
 
     // Auto-regen state
     float lastGenAlpha_ = std::numeric_limits<float>::quiet_NaN();
+    float lastGenNoise_ = std::numeric_limits<float>::quiet_NaN();
+    float lastGenMagnitude_ = std::numeric_limits<float>::quiet_NaN();
     std::map<juce::String, float> lastGenAxes_;
-    bool pendingBarLoad_ = false;
-    juce::AudioBuffer<float> pendingAudio_;
-    double pendingSampleRate_ = 44100.0;
+    double lastRegenTimeMs_ = 0.0; // for beat-based cooldown
     float alphaGhostValue_ = std::numeric_limits<float>::quiet_NaN();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PromptPanel)

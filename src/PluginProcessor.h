@@ -202,22 +202,21 @@ public:
         std::atomic<float> delayFeedback { NONE };
         std::atomic<float> delayMix { NONE };
         std::atomic<float> reverbMix { NONE };
-        // Drift → Osc targets (Alpha = effective base+offset; Axes = offset only)
+        // Drift → Osc targets (Alpha/Noise/Magnitude = effective base+offset; Axes = offset only)
         std::atomic<float> driftAlpha { NONE };
         std::atomic<float> driftAxis1 { NONE };
         std::atomic<float> driftAxis2 { NONE };
         std::atomic<float> driftAxis3 { NONE };
+        std::atomic<float> driftNoise { NONE };
+        std::atomic<float> driftMagnitude { NONE };
     };
     ModulatedValues modulatedValues;
 
     // Drift regen coordination (audio thread writes, GUI reads)
     std::atomic<bool>  driftHasOscTarget { false };
-    std::atomic<int>   driftRegenMode { 0 };       // 0=Manual, 1=Auto, 2=1stBar
+    std::atomic<int>   driftRegenMode { 0 };       // 0=Manual, 1=Auto, 2-5=max N beats
+    std::atomic<float> driftRegenBpm { 120.0f };   // current BPM for cooldown calc
     std::atomic<bool>  barBoundaryFlag { false };
-    // 1st-bar sync: GUI sets pendingBarLoadReady when regen result is stored,
-    // audio thread sets triggerPendingLoad at the next bar boundary.
-    std::atomic<bool>  pendingBarLoadReady { false };
-    std::atomic<bool>  triggerPendingLoad { false };
 
 private:
 

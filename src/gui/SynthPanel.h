@@ -106,9 +106,9 @@ private:
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> targetA, waveA;
     };
     DriftSection drift1, drift2;
-    // Regenerate mode switchbox: Manual / Auto / 1st Bar
+    // Regenerate mode switchbox: Manual / Auto / max 1♩ / max 4♩ / max 16♩
     juce::Label regenHeader;
-    static constexpr int kNumRegenBtns = 3;
+    static constexpr int kNumRegenBtns = 5;
     juce::TextButton regenBtns[kNumRegenBtns];
     juce::ComboBox regenHidden;
     juce::Rectangle<int> regenSwitchBounds;

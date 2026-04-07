@@ -75,7 +75,7 @@ The manipulated embedding then conditions a diffusion process (DiT transformer, 
 
 Without it, you generate a sound and then shape it with conventional synth tools — the source stays fixed. With Drift & Regenerate, the sound source itself continuously evolves.
 
-Three slow drift LFOs (0.001–2.0 Hz) can target generation-level parameters — Alpha and the semantic axes. While the synth is playing, multiple drift LFOs continuously and independently shift these parameters, tracing a complex, never-repeating path through the embedding space. When Auto or 1st Bar regen mode is active, T5ynth monitors how far the embedding has drifted and fires new inference requests in the background. The current sound keeps playing; when the new generation arrives, it is crossfaded into the playback buffer.
+Three slow drift LFOs (0.001–2.0 Hz) can target generation-level parameters — Alpha, the semantic axes, Noise, and Magnitude. While the synth is playing, multiple drift LFOs continuously and independently shift these parameters, tracing a complex, never-repeating path through the embedding space. When an auto regen mode is active, T5ynth monitors how far the embedding has drifted and fires new inference requests in the background. The current sound keeps playing; when the new generation arrives, it is crossfaded into the playback buffer. Beat-limited modes (max 1♩/4♩/16♩) let you cap the regeneration rate relative to the current BPM.
 
 The result is an asynchronous feedback loop between the modulation system and the T5 oscillator: a continuous stream of new generations, each from a slightly different position in embedding space. The oscillator is no longer a static waveform — it is a living, moving trajectory through a 768-dimensional sonic landscape.
 
