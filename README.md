@@ -233,8 +233,8 @@ T5ynth requires at least one diffusion model. Models are not bundled — they mu
 
 On first launch, use the **Settings** panel to either:
 
-1. **Stable Audio Open 1.0** (~11GB): Enter your [HuggingFace token](https://huggingface.co/settings/tokens) (requires accepting the [model license](https://huggingface.co/stabilityai/stable-audio-open-1.0)) and click Download
-2. **Stable Audio Small**: Downloads from GitHub Releases, no token needed
+1. **Stable Audio Small** (recommended to start) — smaller, faster download
+2. **Stable Audio Open 1.0** (~11GB) — higher quality, larger download
 3. **Manual:** Place model files in `~/Library/T5ynth/models/` (macOS) or `~/.local/share/T5ynth/models/` (Linux)
 
 ---
