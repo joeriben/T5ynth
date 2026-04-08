@@ -6,8 +6,10 @@
 
 // Colors from GuiHelpers.h (kAccent, kDim, kDim, kSurface)
 
-// Equal-power crossfade between old and new audio buffers.
+// Linear crossfade between old and new audio buffers.
 // Blends the first xfadeSamples of newBuf with corresponding samples from oldBuf.
+// Linear (not equal-power) because this is applied iteratively during drift regens —
+// equal-power has gain > 1 (peak √2) which compounds with normalize into degeneration.
 static void applyDriftCrossfade(juce::AudioBuffer<float>& newBuf,
                                  const juce::AudioBuffer<float>& oldBuf,
                                  int xfadeSamples)
@@ -22,10 +24,7 @@ static void applyDriftCrossfade(juce::AudioBuffer<float>& newBuf,
         for (int i = 0; i < len; ++i)
         {
             float t = static_cast<float>(i) / static_cast<float>(len);
-            // Equal-power: sin/cos curves for smooth energy transition
-            float gainNew = std::sin(t * juce::MathConstants<float>::halfPi);
-            float gainOld = std::cos(t * juce::MathConstants<float>::halfPi);
-            dst[i] = src[i] * gainOld + dst[i] * gainNew;
+            dst[i] = src[i] * (1.0f - t) + dst[i] * t;
         }
     }
 }
@@ -732,7 +731,7 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                     .getRawParameterValue("drift_crossfade")->load();
                 int xfadeSamples = juce::roundToInt(xfadeMs * 0.001f * 44100.0f);
                 if (xfadeSamples > 0)
-                    applyDriftCrossfade(newAudio, processor->getGeneratedAudio(), xfadeSamples);
+                    applyDriftCrossfade(newAudio, processor->getGeneratedAudioRaw(), xfadeSamples);
 
                 processor->loadGeneratedAudio(newAudio, 44100.0);
                 processor->setLastSeed(result.seed);
