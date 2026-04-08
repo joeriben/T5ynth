@@ -302,15 +302,20 @@ void T5ynthGenerativeSequencer::applyEuclideanDrift()
         auto pulseDrift = EuclideanRhythm::generate(DRIFT_PERIOD, pulseDriftPulses, 0);
         if (pulseDrift[static_cast<size_t>(driftIdx)])
         {
+            int oldPulses = numPulses;
             if (pulseDriftUp)
                 addPulse();
             else
                 removePulse();
-            pulseDriftAccum += pulseDriftUp ? 1 : -1;
+            // Only update accumulator if pulse count actually changed
+            if (numPulses != oldPulses)
+            {
+                pulseDriftAccum += pulseDriftUp ? 1 : -1;
 
-            int maxDrift = juce::jmax(1, rangeOctaves);
-            if (pulseDriftAccum >= maxDrift) pulseDriftUp = false;
-            else if (pulseDriftAccum <= -maxDrift) pulseDriftUp = true;
+                int maxDrift = juce::jmax(1, rangeOctaves);
+                if (pulseDriftAccum >= maxDrift) pulseDriftUp = false;
+                else if (pulseDriftAccum <= -maxDrift) pulseDriftUp = true;
+            }
         }
     }
 
@@ -389,8 +394,8 @@ void T5ynthGenerativeSequencer::applyMutationDrift()
     mutationDriftPhase = (mutationDriftPhase + 1) % (DRIFT_PERIOD * 2);
     float phase = static_cast<float>(mutationDriftPhase) / static_cast<float>(DRIFT_PERIOD * 2);
     float sinVal = std::sin(phase * juce::MathConstants<float>::twoPi);
-    // Map sin [-1..+1] to [0.5..1.0] multiplier — breathes down, never exceeds user setting
-    float multiplier = 0.75f + 0.25f * sinVal;
+    // Map sin [-1..+1] to [0.75..1.25] multiplier — breathes symmetrically around user setting
+    float multiplier = 1.0f + 0.25f * sinVal;
     // Additive floor (5%) prevents unfixed mutation from getting permanently stuck at 0
     float floor = fixMutation ? 0.0f : 0.05f;
     mutationRate = juce::jlimit(0.0f, 1.0f, std::max(floor, baseMutation * multiplier));
