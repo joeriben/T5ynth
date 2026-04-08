@@ -81,6 +81,7 @@ private:
     int64_t totalBytes = 0;
     std::atomic<int64_t> downloadedBytes { 0 };
     std::atomic<bool> downloading { false };
+    bool licenseAccepted_ = false;
 
     void loadSettings();
     void saveSettings();

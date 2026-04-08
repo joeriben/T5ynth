@@ -380,7 +380,7 @@ These embedding vectors — not the text itself — are what steers the diffusio
 </table>
 
 <div class="note">
-  <strong>This is not a static oscillator.</strong> The generation parameters above — Alpha, Axes, Noise, Magnitude — can all be modulated by the <a href="#drift">Drift &amp; Regenerate</a> system. With Drift active, these values shift continuously, and T5ynth can automatically re-generate audio as they move. The T5 oscillator becomes a living sound source that evolves over time, not a one-shot sample generator. See <a href="#drift">section 6</a> for details.
+  <strong>This is not a static oscillator.</strong> The generation parameters above — Alpha, Axes, Noise, Magnitude — can all be modulated by the <a href="#drift">Drift &amp; Regenerate</a> system. With Drift active, these values shift continuously, and T5ynth can automatically re-generate audio as they move. The T5 oscillator becomes a continuously evolving sound source, not a one-shot sample generator. See <a href="#drift">section 6</a> for details.
 </div>
 
 <h3>Model &amp; Device</h3>
@@ -527,7 +527,7 @@ Three identical ADSR envelopes, each with a <strong>Target dropdown</strong> to 
 <div style="background:linear-gradient(135deg, rgba(233,69,96,0.15), rgba(255,152,0,0.15)); border:2px solid var(--accent); border-radius:8px; padding:1.2rem 1.5rem; margin-bottom:1.2rem;">
 <p style="font-size:1.1rem; margin:0;">
 <strong style="color:var(--accent); font-size:1.15rem;">Drift &amp; Regenerate is what makes T5ynth more than a sample player or wavetable synth.</strong><br>
-Without it, you generate a sound and then shape it with conventional synth tools — the source stays fixed. With Drift &amp; Regenerate, the sound source itself continuously evolves. T5ynth becomes an instrument that transforms in real time, autonomously navigating the embedding space while you play. The oscillator is no longer a static waveform — it is a living, moving trajectory through a 768-dimensional sonic landscape.
+Without it, you generate a sound and then shape it with conventional synth tools — the source stays fixed. With Drift &amp; Regenerate, the sound source itself continuously evolves. The modulation system shifts generation parameters over time, triggering new inference runs in the background. The oscillator is no longer a static waveform — it traces a continuous trajectory through the 768-dimensional embedding space.
 </p>
 </div>
 

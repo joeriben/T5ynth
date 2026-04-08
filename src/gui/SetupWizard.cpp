@@ -26,7 +26,7 @@ struct KnownModel {
     bool        needsToken;   // true = gated model, HF token required
 };
 static const KnownModel kKnownModels[] = {
-    { "stable-audio-open-1.0",   "Stable Audio 1.0",          "stabilityai/stable-audio-open-1.0", nullptr,
+    { "stable-audio-open-1.0",   "Stable Audio Open 1.0",     "stabilityai/stable-audio-open-1.0", nullptr,
       "https://stability.ai/community-license-agreement",
       "This model is licensed under the Stability AI Community License.\n\n"
       "- Non-commercial use: free\n"
@@ -34,7 +34,7 @@ static const KnownModel kKnownModels[] = {
       "- Commercial use over $1M: enterprise license required\n\n"
       "T5ynth does not provide the model weights. By downloading, you accept\n"
       "the license terms and take responsibility for compliance.", true },
-    { "stable-audio-open-small", "Stable Audio Small (fast)",  "stabilityai/stable-audio-open-small",
+    { "stable-audio-open-small", "Stable Audio Open Small",    "stabilityai/stable-audio-open-small",
       "https://github.com/joeriben/t5ynth/releases/download/models-v1",
       "https://stability.ai/community-license-agreement",
       "This model is licensed under the Stability AI Community License.\n\n"
@@ -43,7 +43,7 @@ static const KnownModel kKnownModels[] = {
       "- Commercial use over $1M: enterprise license required\n\n"
       "T5ynth does not provide the model weights. By downloading, you accept\n"
       "the license terms and take responsibility for compliance.", false },
-    { "audioldm2",               "AudioLDM2 (experimental)",   "cvssp/audioldm2", nullptr,
+    { "audioldm2",               "AudioLDM2",                  "cvssp/audioldm2", nullptr,
       "https://creativecommons.org/licenses/by-nc-sa/4.0/",
       "This model is licensed under CC BY-NC-SA 4.0.\n\n"
       "- Non-commercial use only (no revenue threshold, no exceptions)\n"
@@ -143,24 +143,12 @@ SettingsPage::SettingsPage()
     instructionsLabel.setScrollbarsShown(true);
     addAndMakeVisible(instructionsLabel);
 
-    tokenLabel.setText("HF Token:", juce::dontSendNotification);
-    tokenLabel.setColour(juce::Label::textColourId, kDim);
-    addAndMakeVisible(tokenLabel);
-
-    tokenEditor.setPasswordCharacter(0x2022);
-    tokenEditor.setColour(juce::TextEditor::backgroundColourId, kSurface);
-    tokenEditor.setColour(juce::TextEditor::textColourId, juce::Colours::white);
-    tokenEditor.setColour(juce::TextEditor::outlineColourId, kBorder);
-    tokenEditor.setTextToShowWhenEmpty("hf_...", kDimmer);
-    addAndMakeVisible(tokenEditor);
-
     downloadStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
     addAndMakeVisible(downloadStatusLabel);
 
     progressBar.setColour(juce::ProgressBar::foregroundColourId, kAccent);
     progressBar.setColour(juce::ProgressBar::backgroundColourId, kSurface);
-    progressBar.setVisible(false);
-    addAndMakeVisible(progressBar);
+    addChildComponent(progressBar);  // hidden until download starts
 
     scanButton.setColour(juce::TextButton::buttonColourId, kSurface);
     scanButton.setColour(juce::TextButton::textColourOffId, kAccent);
@@ -256,18 +244,25 @@ void SettingsPage::startDownload()
 {
     // Show license confirmation dialog before any download
     int idx = modelChooser.getSelectedItemIndex();
-    if (idx >= 0 && idx < kNumKnownModels && kKnownModels[idx].licenseNotice != nullptr)
+    if (idx >= 0 && idx < kNumKnownModels && kKnownModels[idx].licenseNotice != nullptr
+        && !licenseAccepted_)
     {
         auto& km = kKnownModels[idx];
         auto licenseUrl = juce::String(km.licenseUrl);
-        bool accepted = juce::AlertWindow::showOkCancelBox(
+        juce::AlertWindow::showOkCancelBox(
             juce::MessageBoxIconType::InfoIcon,
-            juce::String(km.displayName) + " — License",
-            juce::String(km.licenseNotice) + "\n\nFull license: " + licenseUrl,
-            "Accept & Download", "Cancel", nullptr, nullptr);
-        if (!accepted)
-            return;
+            juce::String(km.displayName) + " \xe2\x80\x94 License",
+            juce::String(km.licenseNotice) + "\n\nFull license:\n" + licenseUrl,
+            "Accept & Download", "Cancel", this,
+            juce::ModalCallbackFunction::create([this](int result) {
+                if (result == 1) {
+                    licenseAccepted_ = true;
+                    startDownload();  // re-enter, this time skips dialog
+                }
+            }));
+        return;  // async — startDownload will be called again from callback
     }
+    licenseAccepted_ = false;  // reset for next time
 
     auto ghRelease = selectedGhRelease();
 
@@ -306,9 +301,8 @@ void SettingsPage::startDownload()
     std::thread([this, hfToken, hfRepo, modelId]() {
         juce::URL apiUrl("https://huggingface.co/api/models/" + hfRepo + "/tree/main?recursive=true");
         auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                        .withExtraHeaders(hfToken.isNotEmpty() ? "Authorization: Bearer " + hfToken : juce::String())
                         .withConnectionTimeoutMs(15000);
-        if (hfToken.isNotEmpty())
-            opts = opts.withExtraHeaders("Authorization: Bearer " + hfToken);
         auto stream = apiUrl.createInputStream(opts);
         if (!stream) {
             juce::MessageManager::callAsync([this]() {
@@ -523,9 +517,8 @@ void SettingsPage::downloadAllFilesInThread()
             // Download via createInputStream — follows HF's LFS redirects
             juce::URL fileUrl("https://huggingface.co/" + hfRepo + "/resolve/main/" + fileName);
             auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                            .withExtraHeaders(token.isNotEmpty() ? "Authorization: Bearer " + token : juce::String())
                             .withConnectionTimeoutMs(30000);
-            if (token.isNotEmpty())
-                opts = opts.withExtraHeaders("Authorization: Bearer " + token);
             auto stream = fileUrl.createInputStream(opts);
 
             if (!stream)
@@ -642,7 +635,22 @@ void SettingsPage::onDownloadFinished(bool success, const juce::String& error)
     if (success) {
         downloadProgress = 1.0;
         progressBar.setVisible(false);
-        downloadStatusLabel.setText("Download complete!", juce::dontSendNotification);
+
+        // AudioLDM2 ships with GPT2Model in model_index.json but transformers >=4.45
+        // removed GenerationMixin from PreTrainedModel — patch to GPT2LMHeadModel
+        auto modelId = selectedModelId();
+        auto modelIdx = getAppSupportModelDir(modelId).getChildFile("model_index.json");
+        if (modelIdx.existsAsFile())
+        {
+            auto content = modelIdx.loadFileAsString();
+            if (content.contains("\"GPT2Model\""))
+            {
+                content = content.replace("\"GPT2Model\"", "\"GPT2LMHeadModel\"");
+                modelIdx.replaceWithText(content);
+            }
+        }
+
+        downloadStatusLabel.setText("Download complete! Restart T5ynth to use the new model.", juce::dontSendNotification);
         downloadStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xff4ade80));
         auto found = scanForModel();
         if (found.exists()) setModelPath(found);
@@ -780,14 +788,9 @@ void SettingsPage::resized()
     browseButton.setBounds(btnRow.removeFromLeft(btnW));
     area.removeFromTop(gap * 2);
 
-    // Token: label | editor | download
-    auto tokenRow = area.removeFromTop(26);
-    tokenLabel.setFont(juce::FontOptions(13.0f));
-    tokenLabel.setBounds(tokenRow.removeFromLeft(70));
-    tokenRow.removeFromLeft(4);
-    downloadButton.setBounds(tokenRow.removeFromRight(80));
-    tokenRow.removeFromRight(4);
-    tokenEditor.setBounds(tokenRow);
+    // Download button
+    auto dlRow = area.removeFromTop(26);
+    downloadButton.setBounds(dlRow.removeFromLeft(100));
     area.removeFromTop(gap);
 
     // Download progress

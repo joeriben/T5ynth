@@ -34,8 +34,6 @@ Text-to-audio models like Stable Audio are designed for a specific purpose: gene
 
 Stable Audio Open deserves credit: Unlike its commercial siblings which rob artists of their works, it was trained on ~486,000 Creative Commons-licensed recordings from Freesound and the Free Music Archive — not on copyrighted music. Stability AI conducted copyright verification and removed flagged content before training. This is genuinely better practice than much of the industry.
 
-At the same time, "open source" in the AI industry operates as strategic marketing. Releasing a smaller, less capable model (Open) builds community and ecosystem around commercial products (Stable Audio Pro). The openness is real and useful, but it serves a business strategy. We should be honest about this dialectic rather than either dismissing or celebrating it uncritically.
-
 ### What T5ynth Does Differently
 
 T5ynth takes this openly released model and implements a non-intended use: instead of generating finished audio, it treats the model's 768-dimensional T5 text embedding space as a navigable sonic terrain. The diffusion model becomes an oscillator — a sound source that a musician shapes, filters, modulates, and sequences like any other synthesizer component.
@@ -46,8 +44,6 @@ This inverts the appropriation relationship:
 - **T5ynth:** Human navigates embedding space → AI produces raw material → Human creates
 
 The generated audio is not the output — it is the starting point. It requires human musicianship, sound design, and compositional decisions to become anything. T5ynth does not make music. It makes material for making music.
-
-Whether this actually succeeds in reframing the human-AI relationship is an open question, not a solved one. That's the research.
 
 ---
 
@@ -77,18 +73,18 @@ Without it, you generate a sound and then shape it with conventional synth tools
 
 Three slow drift LFOs (0.001–2.0 Hz) can target generation-level parameters — Alpha, the semantic axes, Noise, and Magnitude. While the synth is playing, multiple drift LFOs continuously and independently shift these parameters, tracing a complex, never-repeating path through the embedding space. When an auto regen mode is active, T5ynth monitors how far the embedding has drifted and fires new inference requests in the background. The current sound keeps playing; when the new generation arrives, it is crossfaded into the playback buffer. Beat-limited modes (max 1♩/4♩/16♩) let you cap the regeneration rate relative to the current BPM.
 
-The result is an asynchronous feedback loop between the modulation system and the T5 oscillator: a continuous stream of new generations, each from a slightly different position in embedding space. The oscillator is no longer a static waveform — it is a living, moving trajectory through a 768-dimensional sonic landscape.
+The result is an asynchronous feedback loop between the modulation system and the T5 oscillator: a continuous stream of new generations, each from a slightly different position in embedding space. The oscillator is no longer a static waveform — it traces a continuous trajectory through the 768-dimensional embedding space.
 
 ### Engine Modes
 
 Two playback modes turn the generated audio into something a synthesizer can work with:
 
 - **Sampler Mode** — Plays back the generated audio with loop points (one-shot, loop, ping-pong) and crossfade. Pitch follows MIDI via time-stretching. Useful for longer textures where the raw character of the generation matters.
-- **Wavetable Mode** — Extracts pitch-synchronous single-cycle frames from the audio and builds a scannable wavetable. This turns any generated sound into a pitched, playable oscillator that tracks MIDI notes — the more radical transformation, and where T5ynth starts to feel like a synthesizer rather than a sample player.
+- **Wavetable Mode** — Extracts pitch-synchronous single-cycle frames from the audio and builds a scannable wavetable. This turns any generated sound into a pitched, playable oscillator that tracks MIDI notes directly.
 
 ### Synthesizer
 
-The point of wrapping a radically unconventional oscillator in a conventional synthesizer is that musicians can actually use it. The T5 Oscillator produces unfamiliar material — the signal chain that follows is deliberately standard so that familiar tools can be applied to shape it.
+The T5 Oscillator produces unconventional material — the signal chain that follows is a standard synth architecture so that familiar tools can shape it.
 
 - **Envelopes:** 3 identical ADSR envelopes, each assignable to any modulation destination via target dropdown. There is no hard-wired amplitude envelope — to use one as a VCA, assign its target to DCA.
 - **Filter:** State-variable filter (TPT topology), LP/HP/BP, 6-24dB, with keyboard tracking and dry/wet mix
@@ -264,4 +260,3 @@ https://github.com/joeriben/t5ynth
 
 ---
 
-*T5ynth is a research artifact. It is an argument in code form about what generative AI could be when we refuse the subject positions it was designed to produce.*
