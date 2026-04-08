@@ -1457,6 +1457,30 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
 
         newWaveformReady.store(true, std::memory_order_release);
     }
+
+    // Re-apply preset points that were deferred past auto-bracketing
+    if (hasPendingPresetPoints_)
+    {
+        masterSampler.setLoopStart(pendingPresetP2_);
+        masterSampler.setLoopEnd(pendingPresetP3_);
+        masterSampler.setStartPos(pendingPresetP1_);
+        hasPendingPresetPoints_ = false;
+    }
+}
+
+void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& processed)
+{
+    // Update stored audio and reload into sampler without Rumble/HF/Normalize
+    generatedAudioFull.makeCopyOf(processed);
+    masterSampler.loadBuffer(processed, generatedSampleRate);
+    voiceManager.distributeSamplerBuffer(masterSampler);
+
+    if (processed.getNumChannels() > 0 && processed.getNumSamples() > 0)
+    {
+        waveformSnapshot.setSize(1, processed.getNumSamples(), false, false, true);
+        waveformSnapshot.copyFrom(0, 0, processed, 0, 0, processed.getNumSamples());
+        newWaveformReady.store(true, std::memory_order_release);
+    }
 }
 
 void T5ynthProcessor::reextractWavetable()
@@ -1969,13 +1993,15 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         int loopModeIdx = (lm == "loop") ? 1 : (lm == "pingpong" ? 2 : 0);
         setParam(parameters, "loop_mode", static_cast<float>(loopModeIdx));
 
-        masterSampler.setLoopStart(static_cast<float>(engine->getProperty("loopStartFrac")));
-        masterSampler.setLoopEnd(static_cast<float>(engine->getProperty("loopEndFrac")));
-        if (engine->hasProperty("startPosFrac"))
-            masterSampler.setStartPos(static_cast<float>(engine->getProperty("startPosFrac")));
-        else
-            masterSampler.setStartPos(masterSampler.getLoopStart()); // backward compat
-        masterSampler.setUserPointsAdjusted(false); // preset owns the points now
+        // Store preset points — they'll be re-applied after loadGeneratedAudio
+        // (which overwrites them via auto-bracketing when userPointsAdjusted is false)
+        pendingPresetP2_ = static_cast<float>(engine->getProperty("loopStartFrac"));
+        pendingPresetP3_ = static_cast<float>(engine->getProperty("loopEndFrac"));
+        pendingPresetP1_ = engine->hasProperty("startPosFrac")
+            ? static_cast<float>(engine->getProperty("startPosFrac"))
+            : pendingPresetP2_; // backward compat: P1 = P2
+        hasPendingPresetPoints_ = true;
+        masterSampler.setUserPointsAdjusted(false);
         setParam(parameters, "crossfade_ms", static_cast<float>(engine->getProperty("crossfadeMs")));
         if (engine->hasProperty("normalize"))
             setParam(parameters, "normalize", static_cast<bool>(engine->getProperty("normalize")) ? 1.0f : 0.0f);

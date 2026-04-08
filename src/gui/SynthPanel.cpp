@@ -679,11 +679,8 @@ void SynthPanel::timerCallback()
             float s = processorRef.getSampler().getLoopStart();
             float e = processorRef.getSampler().getLoopEnd();
             float p1 = processorRef.getSampler().getStartPos();
-            if (processorRef.isWavetableMode())
-            {
-                waveformDisplay.setLoopStart(s);
-                waveformDisplay.setLoopEnd(e);
-            }
+            waveformDisplay.setLoopStart(s);
+            waveformDisplay.setLoopEnd(e);
             waveformDisplay.setStartPos(p1);
         }
 

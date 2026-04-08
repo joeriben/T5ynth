@@ -564,6 +564,7 @@ void MainPanel::loadDefaultPreset()
     if (result.hasAudio)
     {
         processorRef.loadGeneratedAudio(result.audio, result.sampleRate);
+        processorRef.applyPendingPresetPoints();
         processorRef.setLastSeed(result.seed);
         processorRef.setLastPrompts(result.promptA, result.promptB);
     }
@@ -795,6 +796,7 @@ void MainPanel::loadPreset()
             if (result.hasAudio)
             {
                 processorRef.loadGeneratedAudio(result.audio, result.sampleRate);
+                processorRef.applyPendingPresetPoints(); // re-apply after auto-bracket
                 processorRef.setLastSeed(result.seed);
                 processorRef.setLastPrompts(result.promptA, result.promptB);
             }

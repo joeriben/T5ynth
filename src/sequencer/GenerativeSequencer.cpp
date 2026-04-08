@@ -391,7 +391,9 @@ void T5ynthGenerativeSequencer::applyMutationDrift()
     float sinVal = std::sin(phase * juce::MathConstants<float>::twoPi);
     // Map sin [-1..+1] to [0.5..1.0] multiplier — breathes down, never exceeds user setting
     float multiplier = 0.75f + 0.25f * sinVal;
-    mutationRate = juce::jlimit(0.0f, 1.0f, baseMutation * multiplier);
+    // Additive floor (5%) prevents unfixed mutation from getting permanently stuck at 0
+    float floor = fixMutation ? 0.0f : 0.05f;
+    mutationRate = juce::jlimit(0.0f, 1.0f, std::max(floor, baseMutation * multiplier));
 }
 
 // ─── Surgical pulse add/remove (preserves Turing mutations) ─────────────────

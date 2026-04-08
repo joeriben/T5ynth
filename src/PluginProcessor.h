@@ -49,6 +49,8 @@ public:
 
     // Load generated audio into the engine
     void loadGeneratedAudio(const juce::AudioBuffer<float>& buffer, double sampleRate);
+    /** Reload already-processed audio into sampler (no Rumble/HF/Normalize). */
+    void reloadProcessedAudio(const juce::AudioBuffer<float>& processed);
 
     // Inference (Python subprocess)
     bool isInferenceReady() const { return pipeInference.isReady(); }
@@ -151,6 +153,23 @@ private:
     juce::AudioBuffer<float> generatedAudioFull;  // boosted buffer for engines + display
     juce::AudioBuffer<float> generatedAudioRaw;   // raw VAE output (for re-apply on toggle)
     double generatedSampleRate = 44100.0;
+
+    // Deferred preset points (applied after loadGeneratedAudio auto-bracketing)
+    float pendingPresetP1_ = 0.0f, pendingPresetP2_ = 0.0f, pendingPresetP3_ = 1.0f;
+    bool  hasPendingPresetPoints_ = false;
+
+public:
+    /** Force-apply stored preset points after audio load. */
+    void applyPendingPresetPoints()
+    {
+        if (!hasPendingPresetPoints_) return;
+        masterSampler.setLoopStart(pendingPresetP2_);
+        masterSampler.setLoopEnd(pendingPresetP3_);
+        masterSampler.setStartPos(pendingPresetP1_);
+        hasPendingPresetPoints_ = false;
+    }
+    bool hasPendingPresetPoints() const { return hasPendingPresetPoints_; }
+private:
 
     /** Two-band high shelf to compensate VAE decoder HF rolloff. */
     static void applyHfBoost(juce::AudioBuffer<float>& buffer, double sampleRate);
