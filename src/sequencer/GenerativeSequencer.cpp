@@ -197,6 +197,11 @@ void T5ynthGenerativeSequencer::rebuildPattern()
         }
     }
 
+    // Warm-up: scramble the deterministic stride walk so the initial
+    // pattern is never a boring ascending scale
+    for (int w = 0; w < 4; ++w)
+        mutateNotes(1.0f, totalDegrees, static_cast<int>(scale), baseNote);
+
     patternDirty = false;
     basePulses = numPulses;
     baseSteps = numSteps;
@@ -209,6 +214,39 @@ void T5ynthGenerativeSequencer::rebuildPattern()
     publishPatternToGui();
 }
 
+void T5ynthGenerativeSequencer::mutateNotes(float rate, int totalDegrees,
+                                             int scaleEnum, int baseNote)
+{
+    auto scale = static_cast<ScaleQuantizer::Scale>(scaleEnum);
+    int pulseIndices[MAX_STEPS];
+    int pulseCount = 0;
+    for (int i = 0; i < numSteps; ++i)
+        if (eucPattern[static_cast<size_t>(i)])
+            pulseIndices[pulseCount++] = i;
+
+    int numMutations = juce::jmax(1, juce::roundToInt(
+        rate * static_cast<float>(pulseCount) * 0.6f));
+
+    if (pulseCount > 0)
+    {
+        std::uniform_int_distribution<int> pickDist(0, pulseCount - 1);
+        std::uniform_int_distribution<int> jumpDist(1, 4);
+        std::uniform_int_distribution<int> dirDist(0, 1);
+
+        for (int m = 0; m < numMutations; ++m)
+        {
+            int idx = pulseIndices[pickDist(rng)];
+            int dir = dirDist(rng) == 0 ? -1 : 1;
+            int jump = jumpDist(rng);
+            int newDeg = degreePattern[static_cast<size_t>(idx)] + dir * jump;
+            newDeg = ((newDeg % totalDegrees) + totalDegrees) % totalDegrees;
+            degreePattern[static_cast<size_t>(idx)] = newDeg;
+            notePattern[static_cast<size_t>(idx)] =
+                ScaleQuantizer::degreeToMidi(newDeg, scaleRoot, scale, baseNote);
+        }
+    }
+}
+
 void T5ynthGenerativeSequencer::mutatePattern()
 {
     if (mutationRate <= 0.0f) return;
@@ -219,42 +257,11 @@ void T5ynthGenerativeSequencer::mutatePattern()
     int totalDegrees = dpOct * rangeOctaves;
     int baseNote = 48;
 
-    std::uniform_int_distribution<int> dirDist(0, 1);
-
     // ── Euclidean drift: rotation + pulse count evolve per cycle ──
     applyEuclideanDrift();
 
     // ── Note mutation: Turing Machine — mutate notes per cycle ──
-    //    Stronger scaling: at 55% evolve w/ 17 pulses → ~6 mutations/cycle.
-    //    No double probability gate — numMutations already scales with rate.
-    {
-        int pulseIndices[MAX_STEPS];
-        int pulseCount = 0;
-        for (int i = 0; i < numSteps; ++i)
-            if (eucPattern[static_cast<size_t>(i)])
-                pulseIndices[pulseCount++] = i;
-
-        int numMutations = juce::jmax(1, juce::roundToInt(
-            mutationRate * static_cast<float>(pulseCount) * 0.6f));
-
-        if (pulseCount > 0)
-        {
-            std::uniform_int_distribution<int> pickDist(0, pulseCount - 1);
-            std::uniform_int_distribution<int> jumpDist(1, 4);
-
-            for (int m = 0; m < numMutations; ++m)
-            {
-                int idx = pulseIndices[pickDist(rng)];
-                int dir = dirDist(rng) == 0 ? -1 : 1;
-                int jump = jumpDist(rng);
-                int newDeg = degreePattern[static_cast<size_t>(idx)] + dir * jump;
-                newDeg = ((newDeg % totalDegrees) + totalDegrees) % totalDegrees;
-                degreePattern[static_cast<size_t>(idx)] = newDeg;
-                notePattern[static_cast<size_t>(idx)] =
-                    ScaleQuantizer::degreeToMidi(newDeg, scaleRoot, scale, baseNote);
-            }
-        }
-    }
+    mutateNotes(mutationRate, totalDegrees, static_cast<int>(scale), baseNote);
 
     publishPatternToGui();
 }

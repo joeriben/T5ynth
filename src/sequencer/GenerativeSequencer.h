@@ -131,7 +131,7 @@ private:
     bool patternSeeded = false;  // prevents start() from overriding seed
 
     // Turing Machine state
-    std::mt19937 rng { 42 };
+    std::mt19937 rng { static_cast<std::mt19937::result_type>(std::random_device{}()) };
 
     // Internal
     double stepDurationSamples() const;
@@ -139,6 +139,7 @@ private:
     void mutatePattern();
     void computeGaps(int* gaps, int* gapCount) const;
     void publishPatternToGui();
+    void mutateNotes(float rate, int totalDegrees, int scaleEnum, int baseNote);
     void applyEuclideanDrift();
     void applyStepsDrift();
     void applyMutationDrift();
