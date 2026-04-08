@@ -725,7 +725,9 @@ def _generate_native(pipe, request):
     if audio_np.shape[-1] > requested_samples:
         audio_np = audio_np[..., :requested_samples]
 
-    log.info(f"Generated (native) in {elapsed:.1f}s")
+    rms = float(np.sqrt(np.mean(audio_np ** 2)))
+    peak = float(np.max(np.abs(audio_np)))
+    log.info(f"Generated (native) in {elapsed:.1f}s, RMS={rms:.4f}, peak={peak:.4f}, shape={audio_np.shape}")
     emb_stats = (emb_a_pooled, emb_b_pooled)
     return audio_np, sr, seed, elapsed, emb_stats
 
