@@ -378,7 +378,7 @@ void MainPanel::paint(juce::Graphics& g)
     if (!dimExplorerVisible)
     {
         int top = dimHeader.getY() - inset;
-        int bot = mainGenerateBtn.getBottom() + inset;
+        int bot = sequencerPanel.getY() - inset;
         int left = dimHeader.getX() - inset;
         int cardW = dimensionExplorer.getWidth() + inset * 2;
         paintCard(g, juce::Rectangle<int>(left, top, cardW, bot - top));
@@ -452,11 +452,6 @@ void MainPanel::resized()
     constexpr int kGenBtnH = 34;
     int kGap = juce::jlimit(3, 6, juce::roundToInt(h * 0.005f));
 
-    // Reserve Generate button at bottom — fixed 10px spacing
-    genCol.removeFromBottom(10);
-    auto genBtnArea = genCol.removeFromBottom(kGenBtnH);
-    genCol.removeFromBottom(10);
-
     int available = genCol.getHeight() - headerH * 3 - kGap * 2;
     int oscH = juce::jmax(300, juce::roundToInt(available * 0.55f));
     int axesH = juce::jmax(70, juce::roundToInt(available * 0.18f));
@@ -480,10 +475,14 @@ void MainPanel::resized()
     // Card 3: DIM EXPLORER
     dimHeader.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.85f));
     dimHeader.setBounds(genCol.removeFromTop(headerH));
+    int dimH = genCol.getHeight() / 3;
     if (!dimExplorerVisible)
-        dimensionExplorer.setBounds(genCol);
+        dimensionExplorer.setBounds(genCol.removeFromTop(dimH));
 
-    // Generate button — centered at 60% width
+    // Generate button — vertically centered in remaining space
+    int remainH = genCol.getHeight();
+    int genBtnY = genCol.getY() + (remainH - kGenBtnH) / 2;
+    auto genBtnArea = juce::Rectangle<int>(genCol.getX(), genBtnY, genCol.getWidth(), kGenBtnH);
     int genW = juce::roundToInt(genBtnArea.getWidth() * 0.6f);
     int genX = genBtnArea.getX() + (genBtnArea.getWidth() - genW) / 2;
     mainGenerateBtn.setBounds(genX, genBtnArea.getY(), genW, genBtnArea.getHeight());

@@ -125,7 +125,7 @@ private:
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> rateA, depthA;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> targetA, waveA;
     };
-    DriftSection drift1, drift2;
+    DriftSection drift1, drift2, drift3;
     // Regenerate mode switchbox: Manual / Auto / max 1♩ / max 4♩ / max 16♩
     juce::Label regenHeader;
     static constexpr int kNumRegenBtns = 5;

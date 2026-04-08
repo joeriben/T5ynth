@@ -530,6 +530,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     // ── Drift ──
     initDrift(drift1, "DRIFT 1", "drift1_rate", "drift1_depth", "drift1_target", "drift1_wave", apvts);
     initDrift(drift2, "DRIFT 2", "drift2_rate", "drift2_depth", "drift2_target", "drift2_wave", apvts);
+    initDrift(drift3, "DRIFT 3", "drift3_rate", "drift3_depth", "drift3_target", "drift3_wave", apvts);
 
     // Regenerate mode switchbox
     paintSectionHeader(regenHeader, "DRIFT + REGENERATE", kDriftCol);
@@ -757,6 +758,7 @@ void SynthPanel::updateVisibility()
     };
     setDriftDimmed(drift1);
     setDriftDimmed(drift2);
+    setDriftDimmed(drift3);
 
     // Regen buttons only active when a drift target requires audio regeneration
     // Osc targets: Alpha(2), Axis1-3(3-5), Noise(16), Magnitude(17) in ComboBox 1-based IDs
@@ -790,9 +792,9 @@ float SynthPanel::fs() const
     float h = static_cast<float>(getHeight());
     float padY = h * 0.005f;
     float available = h - 2.0f * padY;
-    float waveform = h * 0.12f;
+    float waveform = h * 0.08f;
     float remaining = available - waveform;
-    float maxF = remaining / 53.0f;
+    float maxF = remaining / 56.0f;
     return juce::jlimit(9.0f, 20.0f, maxF);
 }
 
@@ -935,7 +937,8 @@ void SynthPanel::paint(juce::Graphics& g)
         int bot = juce::jmax(ampEnv.amtRow->getBottom(), mod1Env.amtRow->getBottom(),
                              mod2Env.amtRow->getBottom());
         bot = juce::jmax(bot, lfo1.depthRow->getBottom(), lfo2.depthRow->getBottom());
-        bot = juce::jmax(bot, drift1.depthRow->getBottom(), drift2.depthRow->getBottom());
+        bot = juce::jmax(bot, drift1.depthRow->getBottom(), drift2.depthRow->getBottom(),
+                         drift3.depthRow->getBottom());
         paintCard(g, juce::Rectangle<int>(padX, top, getWidth() - padX * 2, bot - top + inset));
 
         // Subtle separator lines between sub-sections
@@ -1092,9 +1095,10 @@ void SynthPanel::resized()
     int modH = gap * 3 + headerH + headerGap; // section gap + header
     int envH = (rowH * 4 + gap) * 3; // 3 envelopes × (header + 3 slider rows + gap)
     int lfoH = gap + (rowH * 2 + gap) * 2; // 2 LFOs × (header + rate row + gap)
-    int driftH = gap + headerH + gap + rowH + (rowH * 2 + gap) * 2; // header + regen row + 2 drifts
+    int driftH = gap + headerH + gap + rowH + (rowH * 2 + gap) * 3; // header + regen row + 3 drifts
     int belowWave = samplerCtrlH + filterH + modH + envH + lfoH + driftH + gap * 5;
-    int waveH = juce::jmax(60, area.getHeight() - belowWave);
+    int maxWaveH = juce::roundToInt(area.getHeight() * 0.14f); // cap waveform to ~14% of panel
+    int waveH = juce::jlimit(60, maxWaveH, area.getHeight() - belowWave);
 
     if (scanRow->isVisible())
     {
@@ -1276,4 +1280,5 @@ void SynthPanel::resized()
     }
     layoutDrift(drift1, area, f, rowH, gap);
     layoutDrift(drift2, area, f, rowH, gap);
+    layoutDrift(drift3, area, f, rowH, gap);
 }
