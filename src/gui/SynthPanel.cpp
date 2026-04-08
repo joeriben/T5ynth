@@ -365,6 +365,33 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     scanA = std::make_unique<SA>(apvts, "osc_scan", scanRow->getSlider());
     scanRow->updateValue();
 
+    // ── Octave shift switchbox: -2 | -1 | 0 | +1 | +2 ──
+    {
+        const juce::StringArray octLabels { "-2", "-1", "0", "+1", "+2" };
+        octaveHidden.addItemList(octLabels, 1);
+        octaveHidden.onChange = [this] {
+            int id = octaveHidden.getSelectedId();
+            for (int i = 0; i < kNumOctBtns; ++i)
+            {
+                bool sel = (i + 1 == id);
+                octBtns[i].setToggleState(sel, juce::dontSendNotification);
+                octBtns[i].setColour(juce::TextButton::buttonColourId,
+                                      sel ? kAccent : juce::Colours::transparentBlack);
+                octBtns[i].setColour(juce::TextButton::textColourOffId,
+                                      sel ? juce::Colour(0xff0e1018) : kDimmer);
+            }
+        };
+        for (int i = 0; i < kNumOctBtns; ++i)
+        {
+            octBtns[i].setButtonText(octLabels[i]);
+            octBtns[i].setClickingTogglesState(false);
+            octBtns[i].onClick = [this, i] { octaveHidden.setSelectedId(i + 1); };
+            addAndMakeVisible(octBtns[i]);
+        }
+        addChildComponent(octaveHidden);
+        octaveA = std::make_unique<CA>(apvts, "osc_octave", octaveHidden);
+    }
+
     // ── Noise type switchbox: W | P | B  (shared: both modes) ──
     {
         const juce::StringArray noiseLabels { "White", "Pink", "Brown" };
@@ -936,6 +963,8 @@ void SynthPanel::paint(juce::Graphics& g)
             paintSwitchBoxBorder(g, loopSwitchBounds);
         if (frameBtns[0].isVisible())
             paintSwitchBoxBorder(g, framesSwitchBounds);
+        if (octBtns[0].isVisible())
+            paintSwitchBoxBorder(g, octaveSwitchBounds);
         if (noiseBtns[0].isVisible())
             paintSwitchBoxBorder(g, noiseSwitchBounds);
     }
@@ -1203,7 +1232,13 @@ void SynthPanel::resized()
 
         loopRow.removeFromLeft(4); // column gap
 
-        // ── Right column: [White|Pink|Brown] Lvl[===] ──
+        // ── Right column: [-2|-1|0|+1|+2] [White|Pink|Brown] Lvl[===] ──
+        int oCellW = juce::roundToInt(f * 2.5f);
+        for (int i = 0; i < kNumOctBtns; ++i)
+            octBtns[i].setBounds(loopRow.removeFromLeft(oCellW));
+        octaveSwitchBounds = octBtns[0].getBounds().getUnion(octBtns[kNumOctBtns - 1].getBounds());
+        loopRow.removeFromLeft(juce::roundToInt(f * 1.5f));
+
         int nCellW = juce::roundToInt(f * 4.0f);
         for (int i = 0; i < kNumNoiseBtns; ++i)
             noiseBtns[i].setBounds(loopRow.removeFromLeft(nCellW));

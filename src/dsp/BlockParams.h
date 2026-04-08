@@ -92,6 +92,9 @@ struct BlockParams
     float noiseLevel = 0.0f;      // 0-1 mix level
     int   noiseType = 0;          // 0=White, 1=Pink, 2=Brown
 
+    // Octave shift (-2..+2)
+    int octaveShift = 0;
+
     // Engine
     bool engineIsWavetable = false;
     bool wtSmooth = true; // Catmull-Rom frame interpolation

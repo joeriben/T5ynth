@@ -63,6 +63,12 @@ private:
     juce::TextButton smoothToggle { "Smooth" };
     juce::Label frameCountLabel;
 
+    // ── Octave shift ──
+    static constexpr int kNumOctBtns = 5;
+    juce::TextButton octBtns[kNumOctBtns];
+    juce::ComboBox octaveHidden;
+    juce::Rectangle<int> octaveSwitchBounds;
+
     // ── Noise (shared: both Sampler + Wavetable) ──
     static constexpr int kNumNoiseBtns = 3;
     juce::TextButton noiseBtns[kNumNoiseBtns];
@@ -143,6 +149,7 @@ private:
     std::unique_ptr<CA> engineModeA, loopModeA, voiceCountA;
     std::unique_ptr<SA> scanA, noiseLevelA, cutoffA, resoA, filterMixA, kbdTrackA, crossfadeA;
     std::unique_ptr<CA> noiseTypeA;
+    std::unique_ptr<CA> octaveA;
     std::unique_ptr<CA> wtFramesA;
     std::unique_ptr<BA> wtSmoothA;
     std::unique_ptr<CA> filterTypeA, filterSlopeA;

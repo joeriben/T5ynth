@@ -434,6 +434,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"gen_hf_boost", 1}, "HF Boost", true));
 
+    // Octave shift: -2 to +2 (index 0-4, default 2 = 0 octaves)
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"osc_octave", 1}, "Octave Shift",
+        juce::StringArray{"-2", "-1", "0", "+1", "+2"}, 2));
+
     // Noise oscillator: level + type
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"noise_level", 1}, "Noise Level",
@@ -600,6 +605,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     // Scan
     bp.baseScan = parameters.getRawParameterValue("osc_scan")->load();
+
+    // Octave shift (APVTS choice 0-4, maps to -2..+2)
+    bp.octaveShift = static_cast<int>(parameters.getRawParameterValue("osc_octave")->load()) - 2;
 
     // Noise oscillator
     bp.noiseLevel = parameters.getRawParameterValue("noise_level")->load();
@@ -1820,6 +1828,7 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     // Wavetable + Noise
     juce::DynamicObject::Ptr wt = new juce::DynamicObject();
     wt->setProperty("scan", get("osc_scan"));
+    wt->setProperty("octaveShift", get("osc_octave"));
     wt->setProperty("noiseLevel", get("noise_level"));
     wt->setProperty("noiseType", get("noise_type"));
     wt->setProperty("frames", get("wt_frames"));
@@ -2073,6 +2082,8 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
     {
         if (wt->hasProperty("scan"))
             setParam(parameters, "osc_scan", static_cast<float>(wt->getProperty("scan")));
+        if (wt->hasProperty("octaveShift"))
+            setParam(parameters, "osc_octave", static_cast<float>(wt->getProperty("octaveShift")));
         if (wt->hasProperty("noiseLevel"))
             setParam(parameters, "noise_level", static_cast<float>(wt->getProperty("noiseLevel")));
         if (wt->hasProperty("noiseType"))

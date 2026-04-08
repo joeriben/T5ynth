@@ -92,6 +92,7 @@ private:
     EngineMode engineMode = EngineMode::Sampler;
 
     int currentNote = -1;
+    int octaveShift_ = 0;
     float currentVelocity = 0.0f;
     bool active = false;
     bool noteHeld = false;

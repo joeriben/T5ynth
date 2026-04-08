@@ -48,12 +48,13 @@ void SynthVoice::noteOn(int note, float velocity, bool legato)
     }
 
     // Set pitch (cache base for modulation reference)
-    baseFrequency = static_cast<float>(juce::MidiMessage::getMidiNoteInHertz(note));
+    int shiftedNote = note + octaveShift_ * 12;
+    baseFrequency = static_cast<float>(juce::MidiMessage::getMidiNoteInHertz(shiftedNote));
     osc.setFrequency(baseFrequency);
 
     if (engineMode == EngineMode::Sampler)
     {
-        sampler.setMidiNote(note);
+        sampler.setMidiNote(shiftedNote);
     }
     else
     {
@@ -72,13 +73,14 @@ void SynthVoice::noteOff()
 void SynthVoice::glideToNote(int note, float glideMs)
 {
     currentNote = note;
+    int shiftedNote = note + octaveShift_ * 12;
     if (engineMode == EngineMode::Sampler)
     {
-        sampler.glideToSemitones(note - 60, glideMs);
+        sampler.glideToSemitones(shiftedNote - 60, glideMs);
     }
     else
     {
-        float targetFreq = static_cast<float>(juce::MidiMessage::getMidiNoteInHertz(note));
+        float targetFreq = static_cast<float>(juce::MidiMessage::getMidiNoteInHertz(shiftedNote));
         osc.glideToFrequency(targetFreq, glideMs);
     }
 }
@@ -86,6 +88,8 @@ void SynthVoice::glideToNote(int note, float glideMs)
 void SynthVoice::configureForBlock(const BlockParams& p)
 {
     if (!active) return;
+
+    octaveShift_ = p.octaveShift;
 
     ampEnv.setAttack(p.ampAttack);
     ampEnv.setDecay(p.ampDecay);
@@ -148,7 +152,7 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
     if (p.engineIsWavetable && osc.hasFrames() && !osc.isGliding())
     {
         baseFrequency = static_cast<float>(
-            juce::MidiMessage::getMidiNoteInHertz(currentNote));
+            juce::MidiMessage::getMidiNoteInHertz(currentNote + octaveShift_ * 12));
         osc.setFrequency(baseFrequency * (1.0f + pitchMod));
     }
 
