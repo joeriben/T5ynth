@@ -94,7 +94,7 @@ The T5 Oscillator produces unconventional material — the signal chain that fol
 - **Generative Sequencer:** Euclidean rhythm (Bjorklund) + Turing Machine melodic mutation + parameter drift. Self-evolving patterns with scale quantization.
 - **Arpeggiator:** Serial after sequencer (Up/Down/UpDown/Random, 1-4 octaves, musical rate divisions including triplets)
 - **Presets:** .t5p format stores parameters + generated audio + embeddings — loading a preset does not require regeneration
-- **Platforms:** macOS (MPS acceleration on Apple Silicon), Linux (CUDA), CPU fallback
+- **Platforms:** macOS on Apple Silicon (MPS acceleration), Linux with NVIDIA GPU (CUDA), Windows 11 with NVIDIA GPU (CUDA), CPU fallback on all three
 
 ## Architecture
 
@@ -225,14 +225,23 @@ cmake --build build
 
 ### Model Download
 
-T5ynth requires at least one diffusion model. Models are not bundled — they must be downloaded separately.
+T5ynth requires at least one diffusion model. Models are not bundled — they must be downloaded separately. T5ynth never asks for a HuggingFace token; installation works differently depending on how the model is licensed.
 
-On first launch, use the **Settings** panel to either:
+Use the **Settings** panel on first launch:
 
-1. **Stable Audio Small** (recommended to start) — smaller, faster download, no account needed
-2. **Stable Audio Open 1.0** (~11GB) — higher quality; requires a free [HuggingFace token](https://huggingface.co/settings/tokens) (read-only)
-3. **AudioLDM2** (experimental) — alternative engine, no account needed. Licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) (non-commercial only)
-4. **Manual:** Place model files in `~/Library/T5ynth/models/` (macOS) or `~/.local/share/T5ynth/models/` (Linux)
+1. **Stable Audio Open Small** — recommended main model. Commercial use is free under $1M annual revenue ([Stability AI Community License](https://stability.ai/community-license-agreement)). The model is gated on HuggingFace, so install is a one-time manual step: click *Open Model Page* in Settings, log in, accept the license, download `model.safetensors`, `model_config.json`, and `LICENSE` to your system Downloads folder, then click *Auto-Scan*. T5ynth finds the files and copies them to the right place automatically.
+2. **AudioLDM2** (experimental) — the only model T5ynth can download itself in a single click, because it is ungated. Licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) — **non-commercial only, no revenue threshold, no exceptions**.
+3. **Stable Audio Open 1.0** — larger, slower, and less suitable for T5ynth's signal flow than SA Small. Because it consists of many files in nested subfolders, the realistic install path is `huggingface-cli` in a terminal. See the in-app instructions.
+
+Manual install locations if you prefer to place files yourself:
+
+| Platform | Models Directory |
+| --- | --- |
+| macOS | `~/Library/T5ynth/models/<model-id>/` |
+| Linux | `~/.local/share/T5ynth/models/<model-id>/` |
+| Windows 11 | `%APPDATA%\T5ynth\models\<model-id>\` |
+
+After a manual install, click *Auto-Scan* in Settings to register the model.
 
 ---
 

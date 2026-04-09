@@ -212,7 +212,7 @@ without whom AI4ArtsEd would not have come into being.
 <nav class="toc">
   <strong style="color:var(--accent)">Contents</strong>
   <ul>
-    <li class="sub"><a href="#setup">Setup: Models &amp; Python Backend</a></li>
+    <li class="sub"><a href="#setup">Setup: Model Installation</a></li>
     <li><strong>Part I — How to Use T5ynth</strong></li>
     <li class="sub"><a href="#gen">1. The Generation Section (Oscillator)</a></li>
     <li class="sub"><a href="#axes">2. Semantic Axes</a></li>
@@ -237,43 +237,69 @@ without whom AI4ArtsEd would not have come into being.
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- SETUP -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<h2 id="setup">Setup: Models &amp; Python Backend</h2>
-
-<p>
-T5ynth handles the Python backend transparently — you don't need to set up a Python environment yourself. The only thing you need to do is <strong>download at least one model</strong>.
-</p>
+<h2 id="setup">Setup: Model Installation</h2>
 
 <h3>Model Download</h3>
 <p>
-T5ynth requires at least one diffusion model. Models are <strong>not bundled</strong> — they must be downloaded separately.
-We recommend starting with <strong>Stable Audio Small</strong> — it's a smaller download and generates faster (useful for getting to know the synth). You can always add Stable Audio Open 1.0 later for higher quality.
+T5ynth requires at least one diffusion model. Models are <strong>not bundled</strong> — they must be downloaded separately. T5ynth never asks you for a HuggingFace access token; the install flow depends on how each model is licensed.
+</p>
+<p>
+Open the <strong>Settings</strong> panel from the status bar, pick a model from the dropdown, and read the per-model instructions shown there. The summary below tells you which model to pick.
 </p>
 
-<h4>Via the Settings panel (recommended)</h4>
+<h4>Stable Audio Open Small — recommended main model</h4>
+<p>
+Higher quality than AudioLDM2, faster than Stable Audio Open 1.0, and commercial use is free below $1&nbsp;MUSD annual revenue under the <a href="https://stability.ai/community-license-agreement">Stability AI Community License</a>. The model is gated on HuggingFace, so installation is a one-time manual step. No terminal required.
+</p>
 <ol>
-  <li>Launch T5ynth and click <strong>Settings</strong> in the status bar</li>
-  <li>Select the model you want to install:
+  <li>In Settings, click <strong>Open Model Page</strong>. Your browser opens the HuggingFace page for the model.</li>
+  <li>Sign up or log in on HuggingFace (free account).</li>
+  <li>Click <strong>Agree and access repository</strong> to accept the license.</li>
+  <li>Open the <strong>Files and versions</strong> tab and download exactly these three files to your usual Downloads folder:
     <ul>
-      <li><strong>Stable Audio Small</strong> (recommended to start) — smaller, faster download. Downloads directly from GitHub, no account needed.</li>
-      <li><strong>Stable Audio Open 1.0</strong> (~11 GB) — higher quality. Downloads from HuggingFace, which requires a free HuggingFace account and token. This is because Stability AI requires users to accept the <a href="https://stability.ai/community-license-agreement">model license</a> before downloading. To get a token: create a free account at <a href="https://huggingface.co/join">huggingface.co</a>, go to <a href="https://huggingface.co/settings/tokens">Settings → Tokens</a>, create a read-only token, and paste it in the Settings panel. Takes about 30 seconds.</li>
-      <li><strong>AudioLDM2</strong> (experimental) — an alternative engine based on the <a href="https://huggingface.co/cvssp/audioldm2">CVSSP AudioLDM2</a> model. Downloads directly from HuggingFace, no account needed. Licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> — <strong>non-commercial use only</strong>.</li>
+      <li><code>model.safetensors</code> (~1.56&nbsp;GB)</li>
+      <li><code>model_config.json</code></li>
+      <li><code>LICENSE</code></li>
     </ul>
+    Do <strong>not</strong> download <code>model.ckpt</code>, <code>base_model.ckpt</code>, <code>base_model.safetensors</code>, or <code>base_model_config.json</code> — those are alternative formats T5ynth does not use.
   </li>
-  <li>A license confirmation dialog will appear — read the terms and confirm to proceed.</li>
-  <li>Wait for the download to complete (progress bar shown). The model is stored in the application data directory.</li>
+  <li>Back in T5ynth, click <strong>Auto-Scan</strong>. T5ynth finds the three files in your Downloads folder and copies them to the right place. You can delete the originals from Downloads afterwards.</li>
+</ol>
+<p>
+If you saved the files to a folder other than Downloads, Auto-Scan opens a folder picker and asks you to point at the folder.
+</p>
+
+<h4>AudioLDM2 — single-click install (non-commercial only)</h4>
+<p>
+AudioLDM2 is the only model T5ynth can install for you directly, because it is ungated on HuggingFace. In Settings, select AudioLDM2 and click <strong>Download from HuggingFace</strong>. The model is based on <a href="https://huggingface.co/cvssp/audioldm2">CVSSP AudioLDM2</a> and licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> — <strong>non-commercial use only, no revenue threshold, no exceptions</strong>. Quality is lower than the Stable Audio models; use it if you cannot or do not want to create a HuggingFace account.
+</p>
+
+<h4>Stable Audio Open 1.0 — terminal install</h4>
+<p>
+Larger and slower than Stable Audio Open Small, and less suitable for T5ynth's signal flow. If you are starting fresh, use SA Small instead. SA 1.0 consists of many files in nested subfolders, so a browser-only install is impractical; the realistic path is the terminal:
+</p>
+<ol>
+  <li>In Settings, click <strong>Open Model Page</strong>, sign in on HuggingFace, and accept the license.</li>
+  <li>In a terminal, run:
+    <pre><code>huggingface-cli login    # paste your HF access token
+huggingface-cli download stabilityai/stable-audio-open-1.0 \
+  --local-dir "&lt;target directory shown in Settings&gt;"</code></pre>
+  </li>
+  <li>Click <strong>Auto-Scan</strong> in Settings, or use <strong>Browse…</strong> and select that folder.</li>
 </ol>
 
-<h4>Manual download</h4>
+<h4>Manual install locations</h4>
 <p>
-Alternatively, download models manually and place them in the models directory:
+If you prefer to place files yourself, use these directories (each model lives in its own subdirectory, e.g.&nbsp;<code>stable-audio-open-small/</code>):
 </p>
 <table>
   <tr><th>Platform</th><th>Models Directory</th></tr>
   <tr><td>macOS</td><td><code>~/Library/T5ynth/models/</code></td></tr>
   <tr><td>Linux</td><td><code>~/.local/share/T5ynth/models/</code></td></tr>
+  <tr><td>Windows 11</td><td><code>%APPDATA%\T5ynth\models\</code></td></tr>
 </table>
 <p>
-Each model lives in its own subdirectory (e.g., <code>stable-audio-open-1.0/</code>). T5ynth auto-detects models by looking for <code>model_index.json</code> (Diffusers format) or <code>model_config.json</code> (native format).
+T5ynth auto-detects installed models by looking for <code>model_index.json</code> (Diffusers format) or <code>model_config.json</code> (native format) plus the actual weight files. After a manual install, click <strong>Auto-Scan</strong> in Settings.
 </p>
 
 <h3>Device Selection</h3>
@@ -282,7 +308,7 @@ T5ynth auto-detects the best available compute device:
 </p>
 <ul>
   <li><strong>Apple Silicon Mac</strong> → MPS (Metal Performance Shaders), ~3× faster than CPU</li>
-  <li><strong>NVIDIA GPU (Linux)</strong> → CUDA</li>
+  <li><strong>NVIDIA GPU on Linux or Windows 11</strong> → CUDA</li>
   <li><strong>No GPU</strong> → CPU fallback (works, but slow)</li>
 </ul>
 <p>
@@ -344,18 +370,18 @@ These embedding vectors — not the text itself — are what steers the diffusio
   </tr>
   <tr>
     <td><strong>Duration</strong></td>
-    <td>0.1 … 47 s</td>
-    <td>Length of generated audio. Short values (0.5–3s) work well for loops and wavetable sources. Longer values create evolving textures.</td>
+    <td>0.1 … 11 s</td>
+    <td>Length of generated audio. T5ynth targets short sound material, not finished music, so the slider is capped at 11&nbsp;s — the maximum output length of Stable Audio Open Small. Short values (0.5–3&nbsp;s) work well for loops and wavetable sources. Longer values create evolving textures.</td>
   </tr>
   <tr>
     <td><strong>Steps</strong></td>
     <td>1 … 100</td>
-    <td>Diffusion denoising iterations. More steps = higher quality but slower. The useful range depends on the model: <strong>Stable Audio Open 1.0</strong> benefits from 20–100 steps (20 is a good default, higher values refine detail). <strong>Stable Audio Small</strong> converges quickly — above 8 steps there is no positive effect.</td>
+    <td>Diffusion denoising iterations. More steps = higher quality but slower. The useful range depends on the model: <strong>Stable Audio Open 1.0</strong> benefits from 20–100 steps (20 is a good default, higher values refine detail). <strong>Stable Audio Open Small</strong> converges quickly — above 8 steps there is no positive effect.</td>
   </tr>
   <tr>
     <td><strong>CFG Scale</strong></td>
     <td>1.0 … 15.0</td>
-    <td>Classifier-Free Guidance — how strictly the model follows your prompt. Model-dependent: <strong>Stable Audio Open 1.0</strong> works well at 5–8 (default 7). <strong>Stable Audio Small</strong> should stay at 1 — higher values produce artifacts rather than better adherence. In general: low values are loose and dreamy, high values are literal but can sound harsh.</td>
+    <td>Classifier-Free Guidance — how strictly the model follows your prompt. Model-dependent: <strong>Stable Audio Open 1.0</strong> works well at 5–8 (default 7). <strong>Stable Audio Open Small</strong> should stay at 1 — higher values produce artifacts rather than better adherence. In general: low values are loose and dreamy, high values are literal but can sound harsh.</td>
   </tr>
   <tr>
     <td><strong>Start Position</strong></td>
@@ -385,7 +411,7 @@ These embedding vectors — not the text itself — are what steers the diffusio
 
 <h3>Model &amp; Device</h3>
 <p>
-Three model slots are available: Stable Audio Open 1.0, Stable Audio Small, and AudioLDM2 <em>(experimental, CC BY-NC-SA 4.0 — non-commercial only)</em>. The device toggle switches between GPU (MPS on Mac, CUDA on Linux) and CPU. GPU is typically 3× faster on Apple Silicon.
+Three model slots are available: Stable Audio Open 1.0, Stable Audio Open Small, and AudioLDM2 <em>(experimental, CC BY-NC-SA 4.0 — non-commercial only)</em>. The device toggle switches between GPU (MPS on Apple Silicon, CUDA on Linux or Windows 11) and CPU. GPU is typically 3× faster on Apple Silicon.
 </p>
 
 <!-- ═══════════════════════════════════════════ -->
@@ -713,7 +739,7 @@ Get a generation you like <em>before</em> touching synth parameters. A great fil
 
 <h4>2. Use low step counts for speed</h4>
 <p>
-While exploring, keep Steps low to iterate quickly. With <strong>Stable Audio Small</strong>, 8 steps is already the ceiling — more steps add nothing. With <strong>Stable Audio Open 1.0</strong>, start at 20 and only go higher once you've found a direction worth refining.
+While exploring, keep Steps low to iterate quickly. With <strong>Stable Audio Open Small</strong>, 8 steps is already the ceiling — more steps add nothing. With <strong>Stable Audio Open 1.0</strong>, start at 20 and only go higher once you've found a direction worth refining.
 </p>
 
 <h4>3. Exploit the seed</h4>
