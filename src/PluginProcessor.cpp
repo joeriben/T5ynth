@@ -291,27 +291,31 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"mod2_release_curve", 2}, "Mod2 Release Curve", curveChoices, 4));
 
-    // ENV targets:
-    // 0=None, 1=DCA, 2=Filter, 3=Scan, 4=Pitch, 5=DelayTime, 6=DelayFB, 7=DelayMix, 8=ReverbMix,
-    // 9=LFO1Rate, 10=LFO1Depth, 11=LFO2Rate, 12=LFO2Depth
+    // ENV targets: see BlockParams::EnvTarget enum — must stay in lock-step
+    // with both this StringArray and gui/SynthPanel.cpp env.targetBox.
+    const juce::StringArray envTargetChoices {
+        "---", "DCA", "Filter", "Scan", "Pitch",
+        "Dly Time", "Dly FB", "Dly Mix", "Rev Mix",
+        "LFO1 Rate", "LFO1 Depth", "LFO2 Rate", "LFO2 Depth"
+    };
+    jassert(envTargetChoices.size() == EnvTarget::kCount);
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{"mod1_target", 1}, "Mod1 Target",
-        juce::StringArray{"---", "DCA", "Filter", "Scan", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix",
-                          "LFO1 Rate", "LFO1 Depth", "LFO2 Rate", "LFO2 Depth"}, 0));
+        juce::ParameterID{"mod1_target", 1}, "Mod1 Target", envTargetChoices, 0));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{"mod2_target", 1}, "Mod2 Target",
-        juce::StringArray{"---", "DCA", "Filter", "Scan", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix",
-                          "LFO1 Rate", "LFO1 Depth", "LFO2 Rate", "LFO2 Depth"}, 0));
-    // LFO targets: 0=None, 1=Filter, 2=Scan, 3=Pitch, 4=DlyTime, 5=DlyFB, 6=DlyMix, 7=RevMix,
-    //              8=ENV1Amt, 9=ENV2Amt, 10=ENV3Amt
+        juce::ParameterID{"mod2_target", 1}, "Mod2 Target", envTargetChoices, 0));
+
+    // LFO targets: see BlockParams::LfoTarget enum — must stay in lock-step
+    // with both this StringArray and gui/SynthPanel.cpp lfo.targetBox.
+    const juce::StringArray lfoTargetChoices {
+        "---", "Filter", "Scan", "Pitch",
+        "Dly Time", "Dly FB", "Dly Mix", "Rev Mix",
+        "ENV1 Amt", "ENV2 Amt", "ENV3 Amt"
+    };
+    jassert(lfoTargetChoices.size() == LfoTarget::kCount);
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{"lfo1_target", 1}, "LFO1 Target",
-        juce::StringArray{"---", "Filter", "Scan", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix",
-                          "ENV1 Amt", "ENV2 Amt", "ENV3 Amt"}, 0));
+        juce::ParameterID{"lfo1_target", 1}, "LFO1 Target", lfoTargetChoices, 0));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{"lfo2_target", 1}, "LFO2 Target",
-        juce::StringArray{"---", "Filter", "Scan", "Pitch", "Dly Time", "Dly FB", "Dly Mix", "Rev Mix",
-                          "ENV1 Amt", "ENV2 Amt", "ENV3 Amt"}, 0));
+        juce::ParameterID{"lfo2_target", 1}, "LFO2 Target", lfoTargetChoices, 0));
 
     // LFO Mode
     params.push_back(std::make_unique<juce::AudioParameterChoice>(

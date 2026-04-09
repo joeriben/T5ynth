@@ -1,6 +1,16 @@
 #pragma once
 
 // ── Target index constants (must match APVTS AudioParameterChoice order) ──
+//
+// These enums are kept in lock-step with:
+//   - juce::AudioParameterChoice StringArrays in PluginProcessor.cpp
+//     (mod{1,2}_target, lfo{1,2}_target)
+//   - juce::ComboBox::addItemList calls in gui/SynthPanel.cpp
+//     (env.targetBox, lfo.targetBox)
+// The kCount constants below are the single source of truth for the
+// expected number of entries. PluginProcessor.cpp asserts the
+// StringArray sizes match these counts at construction time — adding
+// a new target without updating all three sites will trip that assert.
 
 namespace EnvTarget {
     enum : int {
@@ -18,6 +28,12 @@ namespace EnvTarget {
         LFO2Rate = 11,
         LFO2Depth = 12
     };
+    static constexpr int kCount = 13;
+    static_assert(LFO2Depth + 1 == kCount,
+                  "EnvTarget::kCount out of sync with the last enum value. "
+                  "When adding a new env target, update kCount here *and* "
+                  "the matching StringArray in PluginProcessor.cpp *and* "
+                  "the addItemList call in gui/SynthPanel.cpp.");
 }
 
 namespace LfoTarget {
@@ -34,6 +50,12 @@ namespace LfoTarget {
         Env2Amt = 9,
         Env3Amt = 10
     };
+    static constexpr int kCount = 11;
+    static_assert(Env3Amt + 1 == kCount,
+                  "LfoTarget::kCount out of sync with the last enum value. "
+                  "When adding a new LFO target, update kCount here *and* "
+                  "the matching StringArray in PluginProcessor.cpp *and* "
+                  "the addItemList call in gui/SynthPanel.cpp.");
 }
 
 /**
