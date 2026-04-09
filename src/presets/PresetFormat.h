@@ -8,14 +8,18 @@ class T5ynthProcessor;
 /**
  * Preset serialization and deserialization.
  *
- * Format v2 (.t5p): Binary container with embedded audio.
+ * Format v3 (.t5p): Binary container with embedded audio.
  *   [4B] Magic "T5YN"
- *   [4B] Version (uint32 LE, currently 2)
+ *   [4B] Version (uint32 LE, currently 3)
  *   [4B] JSON length (uint32 LE)
  *   [NB] JSON (params + meta + embeddings)
  *   [MB] Raw float32 interleaved stereo PCM (rest of file)
  *
- * Backwards compatible: detects old XML or JSON .t5p files automatically.
+ * Format break v2 → v3: all choice-parameter JSON fields are now
+ * serialized as stable snake_case keys drawn from BlockParams.h
+ * kEntries tables (the `.key` column). Old v2/v1 presets are rejected
+ * by the strict version check in PresetFormat.cpp — migrate via the
+ * one-off Python tool used for the bundled DEMO preset.
  */
 class PresetFormat
 {
@@ -61,7 +65,7 @@ public:
 
 private:
     static constexpr char kMagic[4] = { 'T', '5', 'Y', 'N' };
-    static constexpr uint32_t kVersion = 2;
+    static constexpr uint32_t kVersion = 3;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PresetFormat)
 };

@@ -609,27 +609,23 @@ void MainPanel::resized()
 // Default Preset
 // ═══════════════════════════════════════════════════════════════════
 
-void MainPanel::loadDefaultPreset()
+bool MainPanel::loadBundledPreset(const char* data, int size, const juce::String& tempName)
 {
-    // Only load if no audio present (fresh launch, not DAW session restore)
-    if (processorRef.getGeneratedAudio().getNumSamples() > 0)
-        return;
-
-    // Write bundled default preset to temp file, then load it
+    // Write bundled preset binary to a temp file, then route it through
+    // the standard PresetFormat loader (which validates the magic + strict
+    // version check). Used by loadDefaultPreset / loadInitPreset.
     auto tmpFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                       .getChildFile("t5ynth_default.t5p");
-    tmpFile.replaceWithData(BinaryData::DEMO_T5OscillatorDrift_t5p,
-                            static_cast<size_t>(BinaryData::DEMO_T5OscillatorDrift_t5pSize));
+                       .getChildFile(tempName);
+    tmpFile.replaceWithData(data, static_cast<size_t>(size));
 
     auto result = PresetFormat::loadFromFile(tmpFile, processorRef);
     tmpFile.deleteFile();
     if (!result.success)
-        return;
+        return false;
 
     promptPanel.loadPresetData(result.promptA, result.promptB,
                                result.seed, result.randomSeed, result.device, result.model);
 
-    // Restore semantic axes
     if (result.hasAxes)
     {
         std::array<AxesPanel::SlotState, 3> states;
@@ -656,6 +652,25 @@ void MainPanel::loadDefaultPreset()
     }
 
     statusBar.setPresetName(result.presetName);
+    return true;
+}
+
+void MainPanel::loadDefaultPreset()
+{
+    // Only load if no audio present (fresh launch, not DAW session restore)
+    if (processorRef.getGeneratedAudio().getNumSamples() > 0)
+        return;
+
+    loadBundledPreset(BinaryData::DEMO_T5OscillatorDrift_t5p,
+                      BinaryData::DEMO_T5OscillatorDrift_t5pSize,
+                      "t5ynth_default.t5p");
+}
+
+void MainPanel::loadInitPreset()
+{
+    loadBundledPreset(BinaryData::INIT_t5p,
+                      BinaryData::INIT_t5pSize,
+                      "t5ynth_init.t5p");
 }
 
 // ═══════════════════════════════════════════════════════════════════

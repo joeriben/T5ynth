@@ -145,6 +145,7 @@ juce_add_binary_data(T5ynthData SOURCES
     resources/ir/emt_140_plate_medium.wav
     resources/ir/emt_140_plate_dark.wav
     "resources/presets/DEMO T5-Oscillator-Drift.t5p"
+    resources/presets/INIT.t5p
     resources/T5ynth_Guide.html
 )
 
