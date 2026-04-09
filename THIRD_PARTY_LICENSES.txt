@@ -54,6 +54,33 @@ Training data attribution: https://info.stability.ai/attributions
 
 ---
 
+## AudioLDM2
+
+**Model:** `cvssp/audioldm2`
+**License:** Creative Commons Attribution-NonCommercial-ShareAlike 4.0
+             (CC BY-NC-SA 4.0)
+**URL:** https://huggingface.co/cvssp/audioldm2
+**Authors:** CVSSP (Centre for Vision, Speech and Signal Processing),
+             University of Surrey — Liu et al., 2023
+
+T5ynth includes AudioLDM2 as an experimental alternative audio generation
+engine. The model is not included in this repository and must be downloaded
+separately by the user from HuggingFace (ungated, no account required).
+
+Per the CC BY-NC-SA 4.0 license:
+- AudioLDM2 is licensed for **non-commercial use only**
+- There is **no revenue threshold** — commercial use of any kind is
+  **not permitted** under this license
+- Derivative works must be shared under the same license (ShareAlike)
+- Attribution to the original authors is required
+- Full license: https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+T5ynth does not provide the model weights. By downloading AudioLDM2 via
+T5ynth's Setup Wizard, users accept the CC BY-NC-SA 4.0 license terms and
+take responsibility for compliance.
+
+---
+
 ## JUCE Framework
 
 **Version:** 8.0.6
