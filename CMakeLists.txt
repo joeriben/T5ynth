@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(T5ynth VERSION 0.1.0)
+project(T5ynth VERSION 1.0.1)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
