@@ -123,6 +123,13 @@ target_link_libraries(T5ynth
         juce::juce_gui_extra
         $<$<BOOL:${CURL_FOUND}>:CURL::libcurl>
         nlohmann_json::nlohmann_json
+        # JUCE 8's juce_gui_extra module header does not declare a
+        # linuxPackages: line, so its Linux WebBrowserComponent deps
+        # (webkit2gtk + gtk3) are not auto-linked. JUCEUtils.cmake creates
+        # a JUCE_BROWSER_LINUX_DEPS pkgconfig target but leaves linkage
+        # to the user. Without this explicit link, Linux builds fail with
+        # 'gtk/gtk.h: No such file or directory' in juce_gui_extra.cpp.
+        $<$<BOOL:${UNIX}>:$<$<NOT:$<BOOL:${APPLE}>>:juce::pkgconfig_JUCE_BROWSER_LINUX_DEPS>>
     PUBLIC
         juce::juce_recommended_config_flags
         # juce::juce_recommended_lto_flags  # disabled — too CPU-intensive for dev builds
