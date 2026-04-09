@@ -1582,11 +1582,24 @@ static juce::String reverbVariantToString(int i) {
 }
 
 // Mod target: reference uses strings, JUCE uses choice index
-// Current JUCE env targets: 0=DCA, 1=Filter, 2=Scan, 3=None
-// Current JUCE LFO targets: 0=Filter, 1=Scan, 2=Alpha, 3=None
-// Reference targets: none, dca, dcf_cutoff, pitch, delay_time, delay_feedback, delay_mix,
-//                    reverb_mix, lfo1_rate, lfo2_rate, lfo1_depth, lfo2_depth, wt_scan
-// Env targets: 0=DCA, 1=Filter, 2=Scan, 3=Pitch, 4=DlyTime, 5=DlyFB, 6=DlyMix, 7=RevMix, 8=None
+// Env / LFO target (de)serialization.
+//
+// IMPORTANT: the string tables below deliberately do NOT match the
+// APVTS choice index order. They encode a *historical* index space
+// shipped in v1.0.x release presets — every existing .t5p file was
+// written through these same mappings, so the round-trip is internally
+// consistent even though the individual JSON labels look shifted
+// relative to the APVTS choice names. Do not renumber the 0..8 (env)
+// or 0..10 (lfo) entries without a preset format migration — doing so
+// would silently re-interpret targets in every shipped preset.
+//
+// Env target APVTS indices (mod{1,2}_target):
+//   0=None, 1=DCA, 2=Filter, 3=Scan, 4=Pitch, 5=DlyTime, 6=DlyFB,
+//   7=DlyMix, 8=RevMix, 9=LFO1Rate, 10=LFO1Depth, 11=LFO2Rate, 12=LFO2Depth
+//
+// Entries 9..12 (LFO cross-mod) were added after the string tables were
+// first written and were previously falling through to "none" on save
+// and to index 8 on load — a silent data loss on preset round-trip.
 static int envTargetFromString(const juce::String& s) {
     if (s == "dca") return 0;
     if (s == "dcf_cutoff") return 1;
@@ -1596,15 +1609,25 @@ static int envTargetFromString(const juce::String& s) {
     if (s == "delay_feedback") return 5;
     if (s == "delay_mix") return 6;
     if (s == "reverb_mix") return 7;
+    if (s == "lfo1_rate") return 9;
+    if (s == "lfo1_depth") return 10;
+    if (s == "lfo2_rate") return 11;
+    if (s == "lfo2_depth") return 12;
     return 8; // none
 }
 static juce::String envTargetToString(int i) {
-    const char* names[] = {"dca","dcf_cutoff","wt_scan","pitch","delay_time","delay_feedback","delay_mix","reverb_mix","none"};
-    return (i >= 0 && i <= 8) ? names[i] : "none";
+    const char* names[] = {
+        "dca", "dcf_cutoff", "wt_scan", "pitch", "delay_time",
+        "delay_feedback", "delay_mix", "reverb_mix", "none",
+        "lfo1_rate", "lfo1_depth", "lfo2_rate", "lfo2_depth"
+    };
+    return (i >= 0 && i <= 12) ? names[i] : "none";
 }
 
-// LFO targets: 0=Filter, 1=Scan, 2=Pitch, 3=DlyTime, 4=DlyFB, 5=DlyMix, 6=RevMix,
-//              7=LFO2Rate/LFO1Rate, 8=LFO2Depth/LFO1Depth, 9=None
+// LFO targets: historical index space (see note above).
+//   0..6 = Filter/Scan/Pitch/DlyTime/DlyFB/DlyMix/RevMix
+//   7 = RevMix-cross / 8 = ENV1Amt / 9 = ENV2Amt / 10 = ENV3Amt
+// All 11 APVTS values round-trip; no missing entries.
 static int lfoTargetFromString(const juce::String& s) {
     if (s == "dcf_cutoff") return 0;
     if (s == "wt_scan") return 1;
