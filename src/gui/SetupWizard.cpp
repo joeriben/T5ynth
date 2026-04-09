@@ -55,7 +55,7 @@ static const KnownModel kKnownModels[] = {
       "- Commercial use over $1M: enterprise license required\n\n"
       "T5ynth does not provide the model weights. By downloading, you accept\n"
       "the license terms and take responsibility for compliance.", false },
-    { "stable-audio-open-small", "Stable Audio Open Small (recommended)", "stabilityai/stable-audio-open-small",
+    { "stable-audio-open-small", "Stable Audio Open Small", "stabilityai/stable-audio-open-small",
       nullptr,
       "https://stability.ai/community-license-agreement",
       "This model is licensed under the Stability AI Community License.\n\n"
@@ -133,7 +133,7 @@ SettingsPage::SettingsPage()
     modelChooser.setColour(juce::ComboBox::outlineColourId, kBorder);
     for (int i = 0; i < kNumKnownModels; ++i)
         modelChooser.addItem(kKnownModels[i].displayName, i + 1);
-    // Default to Stable Audio Open Small — the recommended main model.
+    // Default to Stable Audio Open Small.
     // Index in kKnownModels is 1, so ComboBox id (1-based) is 2.
     modelChooser.setSelectedId(2, juce::dontSendNotification);
     modelChooser.onChange = [this] { updateStatus(); resized(); };
@@ -1002,61 +1002,53 @@ void SettingsPage::updateStatus()
 
         if (id == "audioldm2") {
             instructionsLabel.setText(
-                "AudioLDM2 is the only model T5ynth can install directly \xe2\x80\x94 "
-                "it is ungated on HuggingFace. Click 'Download from HuggingFace' above "
-                "and wait for the download to finish.\n\n"
+                "AUDIOLDM2\n"
+                "Academic latent-diffusion text-to-audio model published by CVSSP / "
+                "University of Surrey and collaborators (Liu et al., 2023), released "
+                "as an open research artefact for studying generalised audio, music "
+                "and speech generation from text. Ungated on HuggingFace and the only "
+                "engine T5ynth can install directly. Click 'Download from HuggingFace' "
+                "above and wait for the download to finish.\n\n"
                 "  Source: https://huggingface.co/" + hfRepo + "\n"
                 "  Target: " + targetPath + "\n\n"
                 "License: CC BY-NC-SA 4.0 \xe2\x80\x94 non-commercial use only, no revenue "
-                "threshold, no exceptions.\n\n"
-                "For commercial use, install Stable Audio Open Small instead "
-                "(select it in the dropdown above).", false);
+                "threshold, no exceptions.", false);
         } else if (id == "stable-audio-open-small") {
             instructionsLabel.setText(
-                "STABLE AUDIO OPEN SMALL \xe2\x80\x94 recommended main model\n"
-                "Higher quality than AudioLDM2, faster than SA 1.0, and commercial "
-                "use is free under $1M annual revenue (Stability AI Community "
-                "License). It is gated on HuggingFace, so install is a one-time "
-                "manual step. No terminal required.\n\n"
-                "WHAT IS HUGGINGFACE?\n"
-                "HuggingFace is the standard platform for sharing AI models \xe2\x80\x94 "
-                "like GitHub for code, but for model weights. It is free and well "
-                "established; a free account is all you need.\n\n"
-                "ONE-TIME INSTALL:\n"
+                "STABLE AUDIO OPEN SMALL\n"
+                "Licensed under the Stability AI Community License. Gated on "
+                "HuggingFace \xe2\x80\x94 a free HuggingFace account is required once to "
+                "accept the license and download the files. No terminal required.\n\n"
+                "  Source: https://huggingface.co/" + hfRepo + "\n"
+                "  Target: " + targetPath + "\n\n"
+                "INSTALL:\n"
                 "  1. Click 'Open Model Page' above. Your browser opens the\n"
                 "     HuggingFace page for this model.\n"
                 "  2. On that page, sign up or log in (top-right corner).\n"
                 "  3. Click 'Agree and access repository' to accept the license.\n"
                 "  4. On the same page, click the 'Files and versions' tab.\n"
-                "  5. Download exactly THESE THREE FILES to your usual Downloads\n"
+                "  5. Download exactly these three files to your usual Downloads\n"
                 "     folder (one click each on the filename, then the download\n"
                 "     icon on the right):\n"
-                "        model.safetensors       (1.56 GB)\n"
-                "        model_config.json       (6 KB)\n"
-                "        LICENSE                 (12 KB)\n"
-                "     Do NOT download: model.ckpt, base_model.ckpt,\n"
-                "     base_model.safetensors, base_model_config.json \xe2\x80\x94\n"
+                "        model.safetensors\n"
+                "        model_config.json\n"
+                "        LICENSE\n"
+                "     Do not download model.ckpt, base_model.ckpt,\n"
+                "     base_model.safetensors, or base_model_config.json \xe2\x80\x94\n"
                 "     they are alternative formats T5ynth does not use.\n"
                 "  6. Come back here and click 'Auto-Scan' above.\n"
                 "     T5ynth finds the files in your Downloads folder and copies\n"
-                "     them to the right place automatically. You can delete the\n"
-                "     originals from Downloads afterwards.\n\n"
+                "     them into the target directory. You can delete the originals\n"
+                "     from Downloads afterwards.\n\n"
                 "If you saved them somewhere other than Downloads, Auto-Scan will "
-                "open a folder picker and ask you to point at the folder.\n\n"
-                "NO HUGGINGFACE ACCOUNT? \n"
-                "Switch the dropdown above to AudioLDM2 \xe2\x80\x94 that one installs in a "
-                "single click. Quality is lower and it is non-commercial only.", false);
+                "open a folder picker and ask you to point at the folder.", false);
         } else {
             // SA 1.0 (and any future gated Stability model)
             instructionsLabel.setText(
                 "STABLE AUDIO OPEN 1.0\n"
-                "This model is larger, slower, and less suitable for T5ynth's "
-                "signal flow than Stable Audio Open Small. If you are starting "
-                "fresh, switch the dropdown above to 'Stable Audio Open Small "
-                "(recommended)' for the guided install.\n\n"
-                "SA 1.0 consists of many files in nested subfolders, so a "
-                "browser-only install is impractical. The realistic path is the "
-                "terminal:\n\n"
+                "Licensed under the Stability AI Community License. Gated on "
+                "HuggingFace. The model consists of many files in nested "
+                "subfolders, so the install path is the terminal:\n\n"
                 "  1. Click 'Open Model Page' above, sign in, and accept the\n"
                 "     license on the HuggingFace page.\n"
                 "  2. In a terminal:\n"

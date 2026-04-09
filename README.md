@@ -225,13 +225,13 @@ cmake --build build
 
 ### Model Download
 
-T5ynth requires at least one diffusion model. Models are not bundled — they must be downloaded separately. T5ynth never asks for a HuggingFace token; installation works differently depending on how the model is licensed.
+T5ynth requires at least one diffusion model. Models are not bundled — they must be downloaded separately.
 
 Use the **Settings** panel on first launch:
 
-1. **Stable Audio Open Small** — recommended main model. Commercial use is free under $1M annual revenue ([Stability AI Community License](https://stability.ai/community-license-agreement)). The model is gated on HuggingFace, so install is a one-time manual step: click *Open Model Page* in Settings, log in, accept the license, download `model.safetensors`, `model_config.json`, and `LICENSE` to your system Downloads folder, then click *Auto-Scan*. T5ynth finds the files and copies them to the right place automatically.
-2. **AudioLDM2** (experimental) — the only model T5ynth can download itself in a single click, because it is ungated. Licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) — **non-commercial only, no revenue threshold, no exceptions**.
-3. **Stable Audio Open 1.0** — larger, slower, and less suitable for T5ynth's signal flow than SA Small. Because it consists of many files in nested subfolders, the realistic install path is `huggingface-cli` in a terminal. See the in-app instructions.
+1. **Stable Audio Open Small** — licensed under the [Stability AI Community License](https://stability.ai/community-license-agreement). Gated on HuggingFace: install is a one-time manual step. Click *Open Model Page* in Settings, log in, accept the license, download `model.safetensors`, `model_config.json`, and `LICENSE` to your system Downloads folder, then click *Auto-Scan*. T5ynth finds the files and copies them into the target directory.
+2. **AudioLDM2** — an academic latent-diffusion text-to-audio model published by CVSSP / University of Surrey and collaborators ([Liu et al., 2023](https://arxiv.org/abs/2308.05734)), released as an open research artefact for studying generalised audio, music, and speech generation from text. Ungated on HuggingFace and the only engine T5ynth can install directly. Licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) — **non-commercial only, no revenue threshold, no exceptions**. Included as an alternative sound source for non-commercial musical exploration.
+3. **Stable Audio Open 1.0** — licensed under the [Stability AI Community License](https://stability.ai/community-license-agreement). Gated on HuggingFace. The model consists of many files in nested subfolders, so the install path is `huggingface-cli` in a terminal. See the in-app instructions.
 
 Manual install locations if you prefer to place files yourself:
 

@@ -175,7 +175,10 @@
 <h1>T5ynth</h1>
 <p class="subtitle">
   A text-to-audio synthesizer that navigates the T5 embedding space of a diffusion audio model.<br>
-  This guide covers how to use T5ynth and the ideas behind it.
+  This guide covers how to use T5ynth and the ideas behind it.<br>
+  <span style="font-size:0.85rem; color:var(--text-dim); font-style:italic;">
+    Transparency note: this manual was drafted by Claude (Anthropic) and edited by the human author.
+  </span>
 </p>
 
 <!-- ═══════════════════════════════════════════ PREAMBLE -->
@@ -231,6 +234,9 @@ without whom AI4ArtsEd would not have come into being.
     <li class="sub"><a href="#bg-dimex">14. The DimExplorer In Depth</a></li>
     <li class="sub"><a href="#bg-genseq">15. Principles of the Generative Sequencer</a></li>
     <li class="sub"><a href="#bg-pipeline">16. The Inference Pipeline</a></li>
+    <li><strong>Legal</strong></li>
+    <li class="sub"><a href="#license">License (GPLv3)</a></li>
+    <li class="sub"><a href="#thirdparty">Third-Party Components</a></li>
   </ul>
 </nav>
 
@@ -241,15 +247,15 @@ without whom AI4ArtsEd would not have come into being.
 
 <h3>Model Download</h3>
 <p>
-T5ynth requires at least one diffusion model. Models are <strong>not bundled</strong> — they must be downloaded separately. T5ynth never asks you for a HuggingFace access token; the install flow depends on how each model is licensed.
+T5ynth requires at least one diffusion model. Models are <strong>not bundled</strong> — they must be downloaded separately.
 </p>
 <p>
 Open the <strong>Settings</strong> panel from the status bar, pick a model from the dropdown, and read the per-model instructions shown there. The summary below tells you which model to pick.
 </p>
 
-<h4>Stable Audio Open Small — recommended main model</h4>
+<h4>Stable Audio Open Small</h4>
 <p>
-Higher quality than AudioLDM2, faster than Stable Audio Open 1.0, and commercial use is free below $1&nbsp;MUSD annual revenue under the <a href="https://stability.ai/community-license-agreement">Stability AI Community License</a>. The model is gated on HuggingFace, so installation is a one-time manual step. No terminal required.
+Licensed under the <a href="https://stability.ai/community-license-agreement">Stability AI Community License</a>. Gated on HuggingFace &mdash; a free HuggingFace account is required once to accept the license and download the files. No terminal required.
 </p>
 <ol>
   <li>In Settings, click <strong>Open Model Page</strong>. Your browser opens the HuggingFace page for the model.</li>
@@ -269,14 +275,17 @@ Higher quality than AudioLDM2, faster than Stable Audio Open 1.0, and commercial
 If you saved the files to a folder other than Downloads, Auto-Scan opens a folder picker and asks you to point at the folder.
 </p>
 
-<h4>AudioLDM2 — single-click install (non-commercial only)</h4>
+<h4>AudioLDM2</h4>
 <p>
-AudioLDM2 is the only model T5ynth can install for you directly, because it is ungated on HuggingFace. In Settings, select AudioLDM2 and click <strong>Download from HuggingFace</strong>. The model is based on <a href="https://huggingface.co/cvssp/audioldm2">CVSSP AudioLDM2</a> and licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> — <strong>non-commercial use only, no revenue threshold, no exceptions</strong>. Quality is lower than the Stable Audio models; use it if you cannot or do not want to create a HuggingFace account.
+AudioLDM2 is an academic latent-diffusion text-to-audio model published by the Centre for Vision, Speech and Signal Processing (CVSSP) at the University of Surrey together with collaborators; see the paper <a href="https://arxiv.org/abs/2308.05734">"AudioLDM&nbsp;2: Learning Holistic Audio Generation with Self-supervised Pretraining" (Liu et al., 2023)</a>. It was released as an open research artefact to study generalised audio, music, and speech generation from text, not as a commercial product. It is ungated on HuggingFace and the only engine T5ynth can install for you directly &mdash; in Settings, select AudioLDM2 and click <strong>Download from HuggingFace</strong>.
+</p>
+<p>
+Model: <a href="https://huggingface.co/cvssp/audioldm2">cvssp/audioldm2</a>. License: <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> &mdash; <strong>non-commercial use only, no revenue threshold, no exceptions</strong>. T5ynth includes AudioLDM2 as an alternative sound source for non-commercial musical exploration, particularly for users who do not want to create a HuggingFace account.
 </p>
 
-<h4>Stable Audio Open 1.0 — terminal install</h4>
+<h4>Stable Audio Open 1.0</h4>
 <p>
-Larger and slower than Stable Audio Open Small, and less suitable for T5ynth's signal flow. If you are starting fresh, use SA Small instead. SA 1.0 consists of many files in nested subfolders, so a browser-only install is impractical; the realistic path is the terminal:
+Licensed under the Stability AI Community License. Gated on HuggingFace. The model consists of many files in nested subfolders, so the install path is the terminal:
 </p>
 <ol>
   <li>In Settings, click <strong>Open Model Page</strong>, sign in on HuggingFace, and accept the license.</li>
@@ -495,6 +504,29 @@ Extracts pitch-synchronous frames from the audio to build a scannable wavetable.
   <li><strong>Scan</strong> (0.0–1.0) — Selects the current frame position in the wavetable. Can be modulated by LFOs, envelopes, or drift.</li>
 </ul>
 
+<h4>Noise Generator</h4>
+<p>
+Alongside the sampler/wavetable source each voice has an independent noise generator that is summed into the voice signal before the filter. It follows the voice's amplitude envelope and note-off just like the main source, so notes including a noise component decay cleanly.
+</p>
+<table>
+  <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
+  <tr><td><strong>Noise Level</strong></td><td>0.0 – 1.0</td><td>Mix of the noise generator into the voice signal. 0 disables the noise oscillator entirely.</td></tr>
+  <tr><td><strong>Noise Type</strong></td><td>White / Pink / Brown</td><td>White is flat-spectrum (xorshift64 PRNG). Pink rolls off at −3&nbsp;dB/oct (Paul Kellet approximation). Brown rolls off at −6&nbsp;dB/oct (leaky integrator). A one-pole DC blocker at ~5&nbsp;Hz is always applied.</td></tr>
+</table>
+
+<h4>Generated Audio Processing</h4>
+<p>
+Before the generated audio reaches the sampler/wavetable source, two filters and one optional gain stage are applied to the raw VAE output:
+</p>
+<ul>
+  <li><strong>Rumble filter</strong> — always on, 2nd-order Butterworth high-pass at 25&nbsp;Hz. Removes the DC offset and sub-bass rumble the VAE decoder tends to add. Not user-switchable; this is a baseline cleanup step.</li>
+  <li><strong>HF</strong> (toggle, in Sampler controls) — two-band high shelf (+3&nbsp;dB @ 4&nbsp;kHz, +4.5&nbsp;dB @ 10&nbsp;kHz) that compensates the high-frequency rolloff inherent to the VAE decoder. Whether you prefer the brighter boosted or the darker raw sound is a matter of taste; T5ynth stores both.</li>
+  <li><strong>Normalize</strong> (toggle, in Sampler controls) — peak-normalizes the play region to 0.95 before playback, useful for quiet generations.</li>
+</ul>
+<p>
+All three operate on the generated buffer, not on the real-time voice signal — re-toggling HF or Normalize re-processes the stored audio from the raw source without regenerating.
+</p>
+
 <h4>Voice Count</h4>
 <p>
 Applies to both modes: Mono, 4, 6, 8, 12, or 16 voices. Gain auto-scales per voice count. Oldest notes are stolen when the limit is reached.
@@ -527,11 +559,23 @@ Three identical ADSR envelopes, each with a <strong>Target dropdown</strong> to 
   <tr><td><strong>Decay</strong></td><td>0 – 5000 ms</td><td></td></tr>
   <tr><td><strong>Sustain</strong></td><td>0.0 – 1.0</td><td></td></tr>
   <tr><td><strong>Release</strong></td><td>0 – 10 000 ms</td><td></td></tr>
+  <tr><td><strong>A / D / R Curve</strong></td><td>Log / SLog / Lin / SExp / Exp</td><td>Per-stage slope shape. Each of the three stages (Attack, Decay, Release) has its own 5-position selector, so an envelope can e.g. be linear on the way up but exponential on release. Minimum ramp 3&nbsp;ms on every stage. Defaults: A = Lin, D = Lin, R = Exp. See the <em>Curve shapes</em> note below the table.</td></tr>
   <tr><td><strong>Amount</strong></td><td>0.0 – 1.0</td><td>Output scaling</td></tr>
   <tr><td><strong>Vel Sens</strong></td><td>0.0 – 1.0</td><td>0 = fixed level, 1 = full velocity response. Aftertouch sensitivity <em>(planned)</em>.</td></tr>
   <tr><td><strong>Loop</strong></td><td>on / off</td><td>Re-triggers attack when sustain is reached</td></tr>
   <tr><td><strong>Target</strong></td><td>Dropdown</td><td>DCA, Filter, Scan, Pitch, Dly Time/FB/Mix, Rev Mix, LFO1/2 Rate, LFO1/2 Depth</td></tr>
 </table>
+
+<div class="note">
+  <strong>Curve shapes</strong> (applied to the normalised stage progress <em>t&nbsp;∈&nbsp;[0,&nbsp;1]</em>):
+  <ul>
+    <li><strong>Exp</strong> — fast initial change, decelerates (concave, cubic). Classic "snappy" analogue feel.</li>
+    <li><strong>SExp</strong> — mild fast start (concave, quadratic).</li>
+    <li><strong>Lin</strong> — constant rate. Predictable, useful for filter sweeps.</li>
+    <li><strong>SLog</strong> — mild slow start (convex, quadratic).</li>
+    <li><strong>Log</strong> — slow initial change, accelerates (convex, cubic). Good for swells and pad entries.</li>
+  </ul>
+</div>
 
 <h3>LFOs (LFO 1 &amp; LFO 2)</h3>
 <table>
@@ -916,6 +960,90 @@ All drift is bounded and reversible — parameters oscillate rather than running
 Understanding the inference pipeline helps explain why certain controls interact the way they do.
 </p>
 
+<h3>Complete Audio Flow</h3>
+<p>
+Top-down view of every stage from text prompt to stereo output. Each outer box is one architectural layer; the arrow between layers crosses the Python/C++ boundary only once (Unix pipe, binary protocol).
+</p>
+<div class="signal-chain">┌─────────────────────────────────────────────────────────────────┐
+│             EMBEDDING SPACE   (768d, JUCE → Python)             │
+│                                                                 │
+│ Prompt A  ──→  T5 Encoder  ──→  Embedding A ─┐                  │
+│                                               │                 │
+│ Prompt B  ──→  T5 Encoder  ──→  Embedding B ─┤                  │
+│                                               ▼                 │
+│                 Interpolate along alpha (A↔B)                   │
+│                               │                                 │
+│       Semantic Axes  ──→  + axis offsets                        │
+│                               │                                 │
+│       DimExplorer    ──→  + per-dim offsets                     │
+│                               │                                 │
+│       Magnitude  +  Noise  scale / perturb                      │
+│                               │                                 │
+│                               ▼                                 │
+│                     Final Embedding (768d)                      │
+└────────────────────────────────┬────────────────────────────────┘
+                                 ▼                                 
+┌────────────────────────────────┼────────────────────────────────┐
+│                  DIFFUSION   (Python backend)                   │
+│                                                                 │
+│                   DiT (Diffusion Transformer)                   │
+│               BrownianTree SDE sampler (torchsde)               │
+│                          CFG guidance                           │
+│                                                                 │
+│                                ▼                                │
+│              VAE Decode → 44.1 kHz stereo float32               │
+└────────────────────────────────┬────────────────────────────────┘
+                                 ▼                                 
+                                 │  Unix pipe (binary protocol)    
+                                 ▼                                 
+┌────────────────────────────────┼────────────────────────────────┐
+│                  GENERATED AUDIO   (JUCE C++)                   │
+│                                                                 │
+│               Rumble HP 25 Hz  →  HF Boost (opt)                │
+│              →  Normalize (opt)  →  stored buffer               │
+└────────────────────────────────┬────────────────────────────────┘
+                                 ▼                                 
+┌────────────────────────────────┼────────────────────────────────┐
+│                   T5 OSCILLATOR   (per voice)                   │
+│                                                                 │
+│   ┌────────────┐      ┌────────────────┐                        │
+│   │  SAMPLER   │      │   WAVETABLE    │                        │
+│   │            │      │                │                        │
+│   │ one-shot / │      │ YIN pitch      │                        │
+│   │ loop /     │      │ frame extract  │                        │
+│   │ ping-pong  │      │ 8 mip levels   │                        │
+│   │ crossfade  │      │ Catmull scan   │                        │
+│   └─────┬──────┘      └────────┬───────┘                        │
+│         └──────────┬───────────┘                                │
+│                    │                                            │
+│   Noise Gen (White / Pink / Brown) ─→ sum into voice            │
+│                    │                                            │
+│                    ▼                                            │
+└────────────────────────────────┬────────────────────────────────┘
+                                 ▼                                 
+┌────────────────────────────────┼────────────────────────────────┐
+│                           SYNTHESIZER                           │
+│                                                                 │
+│ Voice Manager  —  up to 16 voices, note stealing                │
+│                    │                                            │
+│                    ▼                                            │
+│ Per voice:  3× ADSR   (5 curves: Log/SLog/Lin/                  │
+│                               SExp/Exp, per stage)              │
+│             SVF filter   (LP/HP/BP, 6–24 dB/oct)                │
+│                    │                                            │
+│                    ▼                                            │
+│ Global:     2× LFO   (sin/tri/saw/sq)                           │
+│             3× Drift LFO  → Alpha/Axes → Auto-Regen             │
+│             Delay  ·  Reverb (EMT 140)  ·  Limiter              │
+│                    │                                            │
+│                    ▼                                            │
+│ Sequencer (Step + Generative) → Arpeggiator → Out               │
+└─────────────────────────────────────────────────────────────────┘</div>
+
+<h3>Inference Pipeline Detail</h3>
+<p>
+Same pipeline from a parameter-routing perspective: which UI control feeds which step of the inference backend.
+</p>
 <div class="signal-chain">JUCE (GUI)                         Python (Inference)
     │                                     │
     ├─ Prompt A text ──────────────────── T5 Tokenizer + Encoder ─── emb_a [1, seq, 768]
@@ -955,9 +1083,122 @@ Key observations from this flow:
   <li>Determinism is guaranteed across platforms (same seed + settings = identical audio on Mac, Linux, GPU, or CPU) via a patched numpy PCG64 random number generator.</li>
 </ul>
 
-<div class="note" style="margin-top:2rem;">
-  The <strong>About</strong> button in the status bar opens an overlay showing project information, credits, and license details.
-</div>
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- LEGAL / LICENSE -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="license">License</h2>
+<p>
+T5ynth is licensed under the <strong>GNU General Public License v3.0</strong>. You are free to use, modify, and redistribute T5ynth, provided that derivative works are also released under GPLv3 with source code available.
+</p>
+<p>
+Full license text: <a href="https://www.gnu.org/licenses/gpl-3.0.txt">gnu.org/licenses/gpl-3.0.txt</a> — also shipped as <code>LICENSE.txt</code> alongside the source distribution.
+</p>
+<p>
+Source code: <a href="https://github.com/joeriben/t5ynth">github.com/joeriben/t5ynth</a>
+</p>
+<p>
+Copyright © 2024–2026 Prof. Dr. Benjamin Jörissen / AI4ArtsEd (UCDCAE AI Lab), Friedrich-Alexander-Universität Erlangen-Nürnberg.
+</p>
+
+<h3>Citation</h3>
+<p>
+If you use T5ynth in academic work, please cite:
+</p>
+<div class="signal-chain">Prof. Dr. Benjamin Jörissen / AI4ArtsEd — UCDCAE AI Lab
+https://github.com/joeriben/t5ynth</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- THIRD-PARTY COMPONENTS -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<h2 id="thirdparty">Third-Party Components</h2>
+<p>
+T5ynth incorporates or depends on the following third-party components. The models themselves are <strong>not</strong> bundled with T5ynth — users download them separately and accept the respective model licenses.
+</p>
+
+<h3>Stable Audio Open 1.0 &amp; Stable Audio Open Small</h3>
+<p>
+<strong>Publisher:</strong> Stability AI.<br>
+<strong>License:</strong> <a href="https://stability.ai/community-license-agreement">Stability AI Community License Agreement</a>.<br>
+<strong>URLs:</strong> <a href="https://huggingface.co/stabilityai/stable-audio-open-1.0">stable-audio-open-1.0</a>, <a href="https://huggingface.co/stabilityai/stable-audio-open-small">stable-audio-open-small</a>.
+</p>
+<p>
+Under the Stability AI Community License, the models are free for research, non-commercial, and commercial use below USD $1,000,000 annual revenue. Commercial use above that threshold requires a separate enterprise license from Stability AI. Users must comply with Stability AI's Acceptable Use Policy. The models may not be used to create competing foundational AI models. Training data attribution: <a href="https://info.stability.ai/attributions">info.stability.ai/attributions</a>.
+</p>
+<p>
+<em>Powered by Stability AI.</em>
+</p>
+
+<h3>AudioLDM2</h3>
+<p>
+<strong>Publisher:</strong> Centre for Vision, Speech and Signal Processing (CVSSP), University of Surrey.<br>
+<strong>License:</strong> <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">Creative Commons Attribution-NonCommercial-ShareAlike 4.0 (CC BY-NC-SA 4.0)</a>.<br>
+<strong>URL:</strong> <a href="https://huggingface.co/cvssp/audioldm2">huggingface.co/cvssp/audioldm2</a>.
+</p>
+<p>
+AudioLDM2 is licensed for <strong>non-commercial use only</strong>. There is no revenue threshold; commercial use of any kind is not permitted under this license.
+</p>
+
+<h3>JUCE Framework</h3>
+<p>
+<strong>Version:</strong> 8.0.6.<br>
+<strong>License:</strong> GNU AGPLv3 / Commercial JUCE License (dual-licensed).<br>
+<strong>URL:</strong> <a href="https://juce.com">juce.com</a>.
+</p>
+<p>
+T5ynth uses JUCE under the AGPLv3. The JUCE source is vendored in the <code>JUCE/</code> directory of the T5ynth repository. JUCE itself includes additional third-party components documented in <code>JUCE/LICENSE.md</code> (AudioUnitSDK, Oboe, FLAC, Ogg Vorbis, VST3 SDK, LV2, and others).
+</p>
+
+<h3>EMT 140 Plate Reverb Impulse Responses</h3>
+<p>
+<strong>Author:</strong> Greg Hopkins.<br>
+<strong>License:</strong> <a href="https://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution (CC BY)</a>.<br>
+<strong>Source:</strong> <a href="https://oramics.github.io/sampled/IR/EMT140-Plate/">oramics.github.io/sampled/IR/EMT140-Plate/</a>.
+</p>
+<p>
+Three IR variants (bright / medium / dark) are bundled in the T5ynth binary and used by the convolution reverb.
+</p>
+
+<h3>Signalsmith Stretch</h3>
+<p>
+<strong>Version:</strong> 1.1.0 &nbsp;·&nbsp; <strong>Author:</strong> Geraint Luff / Signalsmith Audio Ltd. &nbsp;·&nbsp; <strong>License:</strong> MIT.<br>
+<strong>URL:</strong> <a href="https://github.com/Signalsmith-Audio/signalsmith-stretch">github.com/Signalsmith-Audio/signalsmith-stretch</a>.
+</p>
+<p>
+Pitch-preserving sample transposition (STFT-based pitch shifting). Header-only library, compiled into the T5ynth binary.
+</p>
+
+<h3>nlohmann/json</h3>
+<p>
+<strong>Version:</strong> 3.11.3 &nbsp;·&nbsp; <strong>Author:</strong> Niels Lohmann &nbsp;·&nbsp; <strong>License:</strong> MIT.<br>
+<strong>URL:</strong> <a href="https://github.com/nlohmann/json">github.com/nlohmann/json</a>.
+</p>
+<p>
+JSON parsing for configuration and preset files.
+</p>
+
+<h3>SentencePiece</h3>
+<p>
+<strong>License:</strong> Apache 2.0.<br>
+<strong>URL:</strong> <a href="https://github.com/google/sentencepiece">github.com/google/sentencepiece</a>.
+</p>
+<p>
+Used by the native C++ T5 tokenizer.
+</p>
+
+<h3>Python Backend Dependencies</h3>
+<p>
+The following Python packages are used by the inference backend. They are not included in the T5ynth repository and are installed separately via <code>backend/requirements.txt</code>.
+</p>
+<table>
+  <tr><th>Package</th><th>License</th><th>Purpose</th></tr>
+  <tr><td><code>diffusers</code></td><td>Apache 2.0</td><td>Stable Audio pipeline</td></tr>
+  <tr><td><code>transformers</code></td><td>Apache 2.0</td><td>T5 text encoder</td></tr>
+  <tr><td><code>torch</code></td><td>BSD-3</td><td>Deep learning framework</td></tr>
+  <tr><td><code>torchsde</code></td><td>Apache 2.0</td><td>BrownianTree noise (SDE sampler)</td></tr>
+  <tr><td><code>soundfile</code></td><td>BSD-3</td><td>Audio I/O</td></tr>
+  <tr><td><code>scipy</code></td><td>BSD-3</td><td>Signal processing</td></tr>
+  <tr><td><code>sentencepiece</code></td><td>Apache 2.0</td><td>T5 tokenizer</td></tr>
+</table>
 
 <hr style="margin-top:3rem; border:none; border-top:1px solid var(--border)">
 <p style="text-align:center; color:var(--text-dim); margin-top:1.5rem; font-size:0.85rem;">
