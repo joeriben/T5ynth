@@ -630,7 +630,11 @@ void PromptPanel::triggerGeneration()
 
     if (!processorRef.isInferenceReady())
     {
-        if (onStatusChanged) onStatusChanged("No model loaded", false);
+        // isInferenceReady() is just "pipe connection up" — there is no separate
+        // model-loaded state (models are selected per-request). The old "No model
+        // loaded" string was misleading when the actual failure was a missing
+        // backend install (plugin context with no companion Standalone).
+        if (onStatusChanged) onStatusChanged("Backend not connected", false);
         return;
     }
 
@@ -640,12 +644,6 @@ void PromptPanel::triggerGeneration()
     {
         populateDeviceButtons();
         populateModelSelector();
-    }
-
-    if (!processorRef.isPipeInferenceReady())
-    {
-        if (onStatusChanged) onStatusChanged("Backend not ready", false);
-        return;
     }
 
     generating = true;

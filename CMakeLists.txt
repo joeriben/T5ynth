@@ -31,7 +31,7 @@ FetchContent_MakeAvailable(signalsmith_stretch)
 add_subdirectory(JUCE)
 
 juce_add_plugin(T5ynth
-    COMPANY_NAME "AI4ArtsEd"
+    COMPANY_NAME "UCDCAE AI Lab"
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT FALSE
@@ -47,6 +47,39 @@ juce_add_plugin(T5ynth
     BLUETOOTH_PERMISSION_ENABLED TRUE
     BLUETOOTH_PERMISSION_TEXT "T5ynth uses Bluetooth to connect to MIDI controllers."
 )
+
+# ── macOS: ad-hoc sign VST3 / AU bundles after JUCE's build steps ──
+# Two separate JUCE 8.0.6 issues manifest as "plugin does not show up as
+# instrument in Bitwig/Ableton":
+#
+#   1. VST3: JUCE signs the bundle *before* juce_vst3_helper generates
+#      Contents/Resources/moduleinfo.json. That invalidates the sealed
+#      signature ("a sealed resource is missing or invalid") and DAWs on
+#      modern macOS refuse to register the plugin (it appears in scan/debug
+#      lists but not in the instrument browser).
+#
+#   2. AU: JUCE 8.0.6 does not call _juce_adhoc_sign for the AU target at
+#      all (only VST3 and LV2 get it). The linker embeds a minimal ad-hoc
+#      Mach-O signature that expects a sealed _CodeSignature folder, which
+#      never gets created — resulting in "code has no resources but signature
+#      indicates they must be present".
+#
+# Fix for both: re-sign ad-hoc after all JUCE POST_BUILD steps have run.
+# POST_BUILD commands run in the order they are added to a target, so this
+# runs *after* JUCE's own manifest / sign steps.
+if(APPLE)
+    add_custom_command(TARGET T5ynth_VST3 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E echo "re-signing VST3 bundle after moduleinfo.json generation"
+        COMMAND codesign --force --sign - --deep
+            "$<TARGET_BUNDLE_DIR:T5ynth_VST3>"
+        VERBATIM)
+
+    add_custom_command(TARGET T5ynth_AU POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E echo "ad-hoc signing AU component bundle"
+        COMMAND codesign --force --sign - --deep
+            "$<TARGET_BUNDLE_DIR:T5ynth_AU>"
+        VERBATIM)
+endif()
 
 juce_generate_juce_header(T5ynth)
 
