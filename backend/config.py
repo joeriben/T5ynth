@@ -37,7 +37,8 @@ def _default_model_dir() -> Path:
         candidates.append(Path.home() / "Library" / "Application Support" / "T5ynth" / "models")
         candidates.append(Path.home() / "Library" / "T5ynth" / "models")  # legacy
     elif sys.platform == "win32":
-        candidates.append(Path(os.environ.get("APPDATA", "")) / "T5ynth" / "models")
+        candidates.append(Path(os.environ.get("PROGRAMDATA", "C:\\ProgramData")) / "T5ynth" / "models")
+        candidates.append(Path(os.environ.get("APPDATA", "")) / "T5ynth" / "models")  # legacy
     else:  # Linux
         candidates.append(Path.home() / ".local" / "share" / "T5ynth" / "models")
     candidates.append(Path.home() / "t5ynth" / "models")  # legacy

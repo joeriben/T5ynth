@@ -90,7 +90,8 @@ juce::File SettingsPage::getAppSupportModelDir(const juce::String& modelId)
                        .getChildFile("share");
     return appData.getChildFile("T5ynth/models/" + modelId);
    #else
-    auto appData = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
+    // Windows: C:\ProgramData\T5ynth\models\ (created by installer with user-write permissions)
+    auto appData = juce::File::getSpecialLocation(juce::File::commonApplicationDataDirectory);
     return appData.getChildFile("T5ynth/models/" + modelId);
    #endif
 }

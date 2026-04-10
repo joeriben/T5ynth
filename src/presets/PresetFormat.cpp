@@ -272,8 +272,8 @@ juce::File PresetFormat::getFactoryPresetsDirectory()
    #elif JUCE_LINUX
     return juce::File("/usr/local/share/T5ynth/presets");
    #else
-    // Windows: no factory/user split yet
-    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+    // Windows: C:\ProgramData\T5ynth\presets (installed by Setup)
+    return juce::File::getSpecialLocation(juce::File::commonApplicationDataDirectory)
         .getChildFile("T5ynth").getChildFile("presets");
    #endif
 }

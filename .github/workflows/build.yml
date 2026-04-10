@@ -188,6 +188,26 @@ jobs:
           name: T5ynth-Windows-VST3
           path: archives/T5ynth-Windows-VST3.tar.xz
 
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Build Windows installer (Inno Setup)
+        run: |
+          $VERSION = "${{ github.ref_name }}" -replace '^v', ''
+          if (-not $VERSION) { $VERSION = "0.0.0-dev" }
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" /DAppVersion="$VERSION" `
+               /DStandaloneDir="..\..\dist\T5ynth" `
+               /DVst3Dir="..\..\build\T5ynth_artefacts\Release\VST3" `
+               /DPresetsDir="..\..\resources\presets" `
+               /O"archives" `
+               installer\windows\t5ynth.iss
+
+      - name: Upload Windows Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: T5ynth-Windows-Installer
+          path: archives/T5ynth-Windows-Setup.exe
+
   # ── Linux ───────────────────────────────────────────────────────
   linux:
     runs-on: ubuntu-latest
@@ -285,6 +305,7 @@ jobs:
           mkdir -p release
           find artifacts -name '*.tar.xz' -exec mv {} release/ \;
           find artifacts -name '*.pkg' -exec mv {} release/ \;
+          find artifacts -name '*.exe' -exec mv {} release/ \;
           ls -lh release/
 
       - name: Generate release notes
@@ -305,7 +326,7 @@ jobs:
             *-rc*|*-alpha*|*-beta*) PRERELEASE="--prerelease" ;;
           esac
           gh release create "${{ github.ref_name }}" \
-            release/*.tar.xz release/*.pkg \
+            release/*.tar.xz release/*.pkg release/*.exe \
             --title "T5ynth ${{ github.ref_name }}" \
             --notes-file release_notes.md \
             $PRERELEASE
