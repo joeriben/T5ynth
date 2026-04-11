@@ -136,7 +136,7 @@ public:
         return false;
     }
 
-    void paint(juce::Graphics& g) override
+    void paintOverChildren(juce::Graphics& g) override
     {
         if (std::isnan(ghostSmoothed)) return;
 
