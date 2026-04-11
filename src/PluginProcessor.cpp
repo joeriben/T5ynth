@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "BinaryData.h"
+#include "dsp/Tuning.h"
 
 T5ynthProcessor::T5ynthProcessor()
     : AudioProcessor(BusesProperties()
@@ -38,6 +39,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::voiceCount, 1}, "Voice Count",
         toChoices(VoiceCount::kEntries), 3)); // default 8
+
+    // Tuning system
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::tuning, 1}, "Tuning",
+        toChoices(TuningType::kEntries), 0)); // default 12-TET
 
     // Amplitude Envelope (A=0, D=200ms, S=10%, R=180ms)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -547,8 +553,18 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         voiceManager.setVoiceLimit(voiceCounts[juce::jlimit(0, 5, vcIdx)]);
     }
 
+    // ── Tuning table ──────────────────────────────────────────────────────────
+    {
+        int tuningIdx = static_cast<int>(parameters.getRawParameterValue(PID::tuning)->load());
+        int scaleRoot = static_cast<int>(parameters.getRawParameterValue(PID::scaleRoot)->load());
+        auto tt = static_cast<Tuning::Type>(juce::jlimit(0, (int)Tuning::COUNT - 1, tuningIdx));
+        Tuning::buildTable(tuningTable, tt, scaleRoot);
+        voiceManager.setTuningTable(tuningTable);
+    }
+
     // ── Read all parameters into BlockParams ──────────────────────────────────
     BlockParams bp;
+    bp.tuningHz = tuningTable;
     bp.ampAttack  = parameters.getRawParameterValue(PID::ampAttack)->load();
     bp.ampDecay   = parameters.getRawParameterValue(PID::ampDecay)->load();
     bp.ampSustain = parameters.getRawParameterValue(PID::ampSustain)->load();

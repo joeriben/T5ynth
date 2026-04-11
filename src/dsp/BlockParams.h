@@ -34,6 +34,7 @@ namespace PID {
     static constexpr const char* oscOctave        = "osc_octave";
     static constexpr const char* engineMode       = "engine_mode";
     static constexpr const char* voiceCount       = "voice_count";
+    static constexpr const char* tuning           = "tuning";
     static constexpr const char* masterVol        = "master_vol";
     static constexpr const char* ampAttack        = "amp_attack";
     static constexpr const char* ampDecay         = "amp_decay";
@@ -622,6 +623,19 @@ namespace ScaleType {
     static_assert(Slnd + 1 == kCount, "ScaleType out of sync.");
 }
 
+// ── Tuning system ──
+namespace TuningType {
+    enum : int { Equal = 0, Just, Pyth, Maqm };
+    static constexpr ChoiceEntry kEntries[] = {
+        { "eq",   "12-TET"  },
+        { "just", "Just"    },
+        { "pyth", "Pythag"  },
+        { "maqm", "Maqam"   },
+    };
+    static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
+    static_assert(Maqm + 1 == kCount, "TuningType out of sync.");
+}
+
 // ── Generative sequencer octave range ──
 namespace GenRange {
     enum : int { R1 = 0, R2 = 1, R3 = 2, R4 = 3 };
@@ -727,4 +741,8 @@ struct BlockParams
     // Engine
     bool engineIsWavetable = false;
     bool wtSmooth = true; // Catmull-Rom frame interpolation
+
+    // Tuning: 128-entry table (MIDI note → Hz), built per-block in processBlock.
+    // Pointer is valid for the duration of a processBlock call.
+    const float* tuningHz = nullptr;
 };

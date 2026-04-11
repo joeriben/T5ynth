@@ -49,7 +49,7 @@ void SynthVoice::noteOn(int note, float velocity, bool legato)
 
     // Set pitch (cache base for modulation reference)
     int shiftedNote = note + octaveShift_ * 12;
-    baseFrequency = static_cast<float>(juce::MidiMessage::getMidiNoteInHertz(shiftedNote));
+    baseFrequency = tunedHz(shiftedNote);
     osc.setFrequency(baseFrequency);
 
     if (engineMode == EngineMode::Sampler)
@@ -80,7 +80,7 @@ void SynthVoice::glideToNote(int note, float glideMs)
     }
     else
     {
-        float targetFreq = static_cast<float>(juce::MidiMessage::getMidiNoteInHertz(shiftedNote));
+        float targetFreq = tunedHz(shiftedNote);
         osc.glideToFrequency(targetFreq, glideMs);
     }
 }
@@ -151,8 +151,7 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
     // Set frequency — but skip during glide to avoid overriding it
     if (p.engineIsWavetable && osc.hasFrames() && !osc.isGliding())
     {
-        baseFrequency = static_cast<float>(
-            juce::MidiMessage::getMidiNoteInHertz(currentNote + octaveShift_ * 12));
+        baseFrequency = tunedHz(currentNote + octaveShift_ * 12);
         osc.setFrequency(baseFrequency * (1.0f + pitchMod));
     }
 
@@ -329,8 +328,7 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
 
                 if (!osc.isGliding())
                 {
-                    baseFrequency = static_cast<float>(
-                        juce::MidiMessage::getMidiNoteInHertz(currentNote));
+                    baseFrequency = tunedHz(currentNote);
                     osc.setFrequency(baseFrequency * (1.0f + pitchMod));
                 }
 

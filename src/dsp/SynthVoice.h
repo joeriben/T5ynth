@@ -60,6 +60,9 @@ public:
     int  getCurrentNote() const { return currentNote; }
     float getAmpEnvLevel() const { return ampEnv.isIdle() ? 0.0f : lastAmpEnvLevel; }
 
+    // ── Tuning ──
+    void setTuningTable(const float* table) { tuningHz_ = table; }
+
     // ── Engine mode ──
     enum class EngineMode { Sampler, Wavetable };
     void setEngineMode(EngineMode mode) { engineMode = mode; }
@@ -98,6 +101,15 @@ private:
     bool noteHeld = false;
     float lastAmpEnvLevel = 0.0f;
     float baseFrequency = 440.0f;
+    const float* tuningHz_ = nullptr;  // set by VoiceManager per-block
+
+    /** Get frequency for MIDI note using tuning table (falls back to 12-TET). */
+    float tunedHz(int midiNote) const
+    {
+        int n = std::max(0, std::min(127, midiNote));
+        return (tuningHz_ != nullptr) ? tuningHz_[n]
+            : static_cast<float>(juce::MidiMessage::getMidiNoteInHertz(n));
+    }
 
     double sr = 44100.0;
 

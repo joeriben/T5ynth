@@ -117,6 +117,7 @@ private:
 
     // DSP — polyphonic voice pool
     VoiceManager voiceManager;
+    float tuningTable[128] {};  // MIDI note → Hz, rebuilt per-block
 
     // Master data holders (own the audio/frame data, voices share from these)
     WavetableOscillator masterOsc;

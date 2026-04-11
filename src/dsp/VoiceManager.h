@@ -56,6 +56,10 @@ public:
     /** Set voice limit at runtime (1=mono, 4/6/8/12/16). */
     void setVoiceLimit(int limit) { voiceLimit = juce::jlimit(1, MAX_VOICES, limit); }
     int getVoiceLimit() const { return voiceLimit; }
+
+    /** Set tuning table pointer (128 floats, MIDI note → Hz). Must be called before noteOn/renderBlock. */
+    void setTuningTable(const float* table) { tuningHz_ = table; }
+    const float* getTuningTable() const { return tuningHz_; }
     bool isMono() const { return voiceLimit == 1; }
 
     SynthVoice& getVoice(int index) { return voices[static_cast<size_t>(index)]; }
@@ -75,6 +79,7 @@ private:
     double sr = 44100.0;
     int maxBlockSize = 512;
     int voiceLimit = 8; // runtime polyphony (1=mono)
+    const float* tuningHz_ = nullptr;
 
     // Pre-allocated per-voice scratch buffers
     std::array<std::vector<float>, MAX_VOICES> voiceScratch;

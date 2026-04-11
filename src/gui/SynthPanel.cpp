@@ -239,6 +239,18 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         voiceCountA = std::make_unique<CA>(apvts, PID::voiceCount, voiceCountHidden);
     }
 
+    // ── Tuning ──
+    {
+        juce::StringArray tuningItems;
+        for (const auto& e : TuningType::kEntries) tuningItems.add(e.label);
+        tuningBox.addItemList(tuningItems, 1);
+        tuningBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
+        tuningBox.setColour(juce::ComboBox::textColourId, juce::Colours::white);
+        tuningBox.setColour(juce::ComboBox::outlineColourId, juce::Colours::transparentBlack);
+        addAndMakeVisible(tuningBox);
+        tuningA = std::make_unique<CA>(apvts, PID::tuning, tuningBox);
+    }
+
     addAndMakeVisible(waveformDisplay);
 
     // Wire bracket handles: WT mode → extraction region, Sampler → P2/P3
@@ -1169,6 +1181,10 @@ void SynthPanel::resized()
         for (int i = 0; i < kNumVoiceBtns; ++i)
             voiceBtns[i].setBounds(modeRow.removeFromLeft(vcW));
         voiceSwitchBounds = voiceBtns[0].getBounds().getUnion(voiceBtns[kNumVoiceBtns - 1].getBounds());
+
+        modeRow.removeFromLeft(juce::roundToInt(f * 1.5f)); // same gap
+        tuningBox.setBounds(modeRow.removeFromLeft(juce::roundToInt(f * 5.5f)));
+        tuningBox.setJustificationType(juce::Justification::centred);
     }
     area.removeFromTop(gap);
 

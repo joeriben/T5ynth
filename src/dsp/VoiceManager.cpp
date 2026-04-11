@@ -158,9 +158,10 @@ VoiceManager::VoiceOutput VoiceManager::renderBlock(
 
     const int numChannels = buffer.getNumChannels();
 
-    // Configure all active voices' envelopes once per block
+    // Pass tuning table and configure all active voices once per block
     for (auto& v : voices)
     {
+        v.setTuningTable(tuningHz_);
         if (v.isActive())
             v.configureForBlock(bp);
     }

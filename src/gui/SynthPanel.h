@@ -41,6 +41,9 @@ private:
     juce::ComboBox voiceCountHidden;
     juce::Rectangle<int> voiceSwitchBounds;
 
+    // ── Tuning ──
+    juce::ComboBox tuningBox;
+
     // ── Loop controls ──
     juce::TextButton oneshotBtn;   // → one-shot (icon drawn in paintOverChildren)
     juce::TextButton loopModeBtn;  // ↻ loop
@@ -146,7 +149,7 @@ private:
     using CA = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
     using BA = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
-    std::unique_ptr<CA> engineModeA, loopModeA, voiceCountA;
+    std::unique_ptr<CA> engineModeA, loopModeA, voiceCountA, tuningA;
     std::unique_ptr<SA> scanA, noiseLevelA, cutoffA, resoA, filterMixA, kbdTrackA, crossfadeA;
     std::unique_ptr<CA> noiseTypeA;
     std::unique_ptr<CA> octaveA;
