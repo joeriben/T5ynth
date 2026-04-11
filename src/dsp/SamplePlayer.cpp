@@ -60,9 +60,19 @@ void SamplePlayer::setMidiNote(int note)
     glideSamplesLeft = 0; // cancel any active glide
 }
 
+void SamplePlayer::setTransposeRatio(double ratio)
+{
+    transposeRatio = ratio;
+    glideSamplesLeft = 0;
+}
+
 void SamplePlayer::glideToSemitones(int semitones, float durationMs)
 {
-    double targetRatio = std::pow(2.0, semitones / 12.0);
+    glideToRatio(std::pow(2.0, semitones / 12.0), durationMs);
+}
+
+void SamplePlayer::glideToRatio(double targetRatio, float durationMs)
+{
     double durationSamples = (durationMs / 1000.0) * playbackSampleRate;
     int samples = std::max(1, static_cast<int>(durationSamples));
 
@@ -400,25 +410,12 @@ void SamplePlayer::renderPitchedBlock(float* output, int numSamples)
     if (needsReprepareFlag && !sharedMode)
         preparePlaybackBuffer();
 
-    // Advance glide state for the entire block
-    if (glideSamplesLeft > 0)
-    {
-        int steps = std::min(glideSamplesLeft, numSamples);
-        transposeRatio += glideRatioIncr * steps;
-        glideSamplesLeft -= steps;
-        if (glideSamplesLeft <= 0)
-        {
-            transposeRatio = glideTargetRatio;
-            glideSamplesLeft = 0;
-        }
-    }
-
-    // Bypass: speed-based transposition (with cubic interpolation)
-    // Also bypass when transposition is negligible (< 0.1 semitone)
+    // Determine mode before glide advancement (use current ratio)
     double effectiveRatio = transposeRatio * static_cast<double>(pitchModFactor);
     float semitones = static_cast<float>(12.0 * std::log2(std::max(effectiveRatio, 1e-6)));
     bool nearUnity = std::abs(semitones) < 0.1f;
 
+    // Bypass: processSample() handles glide per-sample — no block-level advancement
     if (pitchQuality == PitchShiftQuality::Bypass || nearUnity)
     {
         for (int i = 0; i < numSamples; ++i)
@@ -432,6 +429,22 @@ void SamplePlayer::renderPitchedBlock(float* output, int numSamples)
             }
         }
         return;
+    }
+
+    // Stretch path: advance glide at block level (processSample is not called)
+    if (glideSamplesLeft > 0)
+    {
+        int steps = std::min(glideSamplesLeft, numSamples);
+        transposeRatio += glideRatioIncr * steps;
+        glideSamplesLeft -= steps;
+        if (glideSamplesLeft <= 0)
+        {
+            transposeRatio = glideTargetRatio;
+            glideSamplesLeft = 0;
+        }
+        // Recalculate after glide advancement
+        effectiveRatio = transposeRatio * static_cast<double>(pitchModFactor);
+        semitones = static_cast<float>(12.0 * std::log2(std::max(effectiveRatio, 1e-6)));
     }
 
     if (!stretcherPrepared)

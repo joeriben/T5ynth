@@ -50,11 +50,18 @@ public:
     /** Hard stop + restart from loop start. For non-legato MIDI retrigger. */
     void retrigger();
 
-    /** Set transposition from MIDI note (60 = original pitch). */
+    /** Set transposition from MIDI note (60 = original pitch, 12-TET). */
     void setMidiNote(int note);
 
-    /** Smooth pitch ramp to target semitones over durationMs (portamento). */
+    /** Set transposition ratio directly (1.0 = original pitch).
+     *  Use for microtuning: pass tunedHz(note) / tunedHz(60). */
+    void setTransposeRatio(double ratio);
+
+    /** Smooth pitch ramp to target semitones over durationMs (portamento, 12-TET). */
     void glideToSemitones(int semitones, float durationMs);
+
+    /** Smooth pitch ramp to target ratio over durationMs (portamento, tuning-aware). */
+    void glideToRatio(double targetRatio, float durationMs);
 
     /** Set pitch modulation factor (1.0 = no mod). Applied on top of transposeRatio
      *  in renderPitchedBlock. Use for envelope/LFO pitch modulation at block rate. */

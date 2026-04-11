@@ -6,12 +6,8 @@
 /**
  * Tuning system for non-12-TET intonation.
  *
- * TODO: Tuning presets (Maqam, Shruti, Pelog, Slendro) produce no audible
- * difference. Needs debugging: verify that the tuning table reaches
- * SynthVoice::tunedHz() with non-zero cent offsets, and that the frequency
- * difference is actually applied to the oscillator. See also the Shruti
- * cent values (may be too subtle at ±16c max). Maqam (-50c) and Pelog
- * (up to -60c) should be clearly audible if working.
+ * WT mode: osc uses tunedHz() directly.
+ * Sampler mode: SynthVoice computes tunedHz(note)/tunedHz(60) as transpose ratio.
  *
  * Each tuning type defines cent deviations from 12-TET per chromatic step
  * relative to the scale root. The lookup table is 128 entries mapping

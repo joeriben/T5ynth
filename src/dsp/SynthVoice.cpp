@@ -54,7 +54,9 @@ void SynthVoice::noteOn(int note, float velocity, bool legato)
 
     if (engineMode == EngineMode::Sampler)
     {
-        sampler.setMidiNote(shiftedNote);
+        double ratio = static_cast<double>(tunedHz(shiftedNote))
+                     / static_cast<double>(tunedHz(60));
+        sampler.setTransposeRatio(ratio);
     }
     else
     {
@@ -76,7 +78,9 @@ void SynthVoice::glideToNote(int note, float glideMs)
     int shiftedNote = note + octaveShift_ * 12;
     if (engineMode == EngineMode::Sampler)
     {
-        sampler.glideToSemitones(shiftedNote - 60, glideMs);
+        double ratio = static_cast<double>(tunedHz(shiftedNote))
+                     / static_cast<double>(tunedHz(60));
+        sampler.glideToRatio(ratio, glideMs);
     }
     else
     {
