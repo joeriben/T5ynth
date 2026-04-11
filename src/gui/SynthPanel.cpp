@@ -1185,14 +1185,6 @@ void SynthPanel::resized()
         modeRow.removeFromLeft(juce::roundToInt(f * 1.5f)); // same gap
         tuningBox.setBounds(modeRow.removeFromLeft(juce::roundToInt(f * 5.5f)));
         tuningBox.setJustificationType(juce::Justification::centred);
-        tuningBox.setTextWhenNothingSelected("Tuning");
-        // Match font size to voice buttons
-        auto tuningFont = juce::FontOptions(juce::jmax(9.0f, f * 0.85f));
-        tuningBox.setLookAndFeel(nullptr); // reset first
-        // Font set via the ComboBox's embedded label
-        if (auto* label = tuningBox.getChildComponent(0))
-            if (auto* l = dynamic_cast<juce::Label*>(label))
-                l->setFont(tuningFont);
     }
     area.removeFromTop(gap);
 
