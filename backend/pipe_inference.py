@@ -184,19 +184,24 @@ def _load_diffusers_pipeline(model_dir, device):
 def _mock_optional_deps():
     """Mock non-essential stable-audio-tools dependencies for minimal import."""
     import types
+    import importlib.machinery
     mocks = ['skimage', 'skimage.transform', 'dac', 'encodec', 'laion_clap',
              'pedalboard', 'pedalboard.io', 'pytorch_lightning', 'wandb',
              'v_diffusion_pytorch', 'gradio', 'jsonmerge', 'clean_fid', 'kornia']
     k_diff = types.ModuleType('k_diffusion')
+    k_diff.__spec__ = importlib.machinery.ModuleSpec('k_diffusion', None)
     for sub in ['augmentation', 'config', 'evaluation', 'external', 'gns',
                 'layers', 'models', 'sampling', 'utils']:
-        mod = types.ModuleType(f'k_diffusion.{sub}')
-        setattr(k_diff, sub, mod)
-        sys.modules[f'k_diffusion.{sub}'] = mod
+        m = types.ModuleType(f'k_diffusion.{sub}')
+        m.__spec__ = importlib.machinery.ModuleSpec(f'k_diffusion.{sub}', None)
+        setattr(k_diff, sub, m)
+        sys.modules[f'k_diffusion.{sub}'] = m
     sys.modules['k_diffusion'] = k_diff
-    for mod in mocks:
-        if mod not in sys.modules:
-            sys.modules[mod] = types.ModuleType(mod)
+    for name in mocks:
+        if name not in sys.modules:
+            m = types.ModuleType(name)
+            m.__spec__ = importlib.machinery.ModuleSpec(name, None)
+            sys.modules[name] = m
 
 
 class NativePipeline:
