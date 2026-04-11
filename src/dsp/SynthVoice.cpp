@@ -328,7 +328,7 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
 
                 if (!osc.isGliding())
                 {
-                    baseFrequency = tunedHz(currentNote);
+                    baseFrequency = tunedHz(currentNote + octaveShift_ * 12);
                     osc.setFrequency(baseFrequency * (1.0f + pitchMod));
                 }
 

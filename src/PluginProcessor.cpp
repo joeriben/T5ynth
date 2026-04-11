@@ -564,7 +564,6 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     // ── Read all parameters into BlockParams ──────────────────────────────────
     BlockParams bp;
-    bp.tuningHz = tuningTable;
     bp.ampAttack  = parameters.getRawParameterValue(PID::ampAttack)->load();
     bp.ampDecay   = parameters.getRawParameterValue(PID::ampDecay)->load();
     bp.ampSustain = parameters.getRawParameterValue(PID::ampSustain)->load();

@@ -742,7 +742,4 @@ struct BlockParams
     bool engineIsWavetable = false;
     bool wtSmooth = true; // Catmull-Rom frame interpolation
 
-    // Tuning: 128-entry table (MIDI note → Hz), built per-block in processBlock.
-    // Pointer is valid for the duration of a processBlock call.
-    const float* tuningHz = nullptr;
 };

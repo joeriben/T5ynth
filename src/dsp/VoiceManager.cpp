@@ -34,6 +34,7 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
     if (voiceLimit == 1)
     {
         auto& v = voices[0];
+        v.setTuningTable(tuningHz_);
         bool legato = v.isActive() && !v.isReleasing();
         if (legato || (isBind && v.isActive()))
         {
@@ -80,6 +81,7 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
         }
         if (newest >= 0)
         {
+            voices[static_cast<size_t>(newest)].setTuningTable(tuningHz_);
             voices[static_cast<size_t>(newest)].glideToNote(note, glideMs);
             return;
         }
@@ -92,6 +94,7 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
     if (idx < 0) idx = stealVoice();
 
     auto& v = voices[static_cast<size_t>(idx)];
+    v.setTuningTable(tuningHz_);
 
     // If stealing an active voice, give it a fast release to avoid click
     if (v.isActive())
