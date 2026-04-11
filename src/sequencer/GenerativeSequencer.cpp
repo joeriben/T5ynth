@@ -188,11 +188,7 @@ void T5ynthGenerativeSequencer::rebuildPattern()
             notePattern[static_cast<size_t>(i)] = midiNote;
             degreePattern[static_cast<size_t>(i)] = degree;
 
-            // Velocity: accent based on gap length
-            float gapFrac = (gapCount > 0)
-                ? static_cast<float>(gaps[pulseIdx % gapCount]) / static_cast<float>(numSteps)
-                : 0.5f;
-            velocityPattern[static_cast<size_t>(i)] = juce::jlimit(0.7f, 1.0f, 0.75f + gapFrac * 0.3f);
+            velocityPattern[static_cast<size_t>(i)] = 90.0f / 127.0f;
             pulseIdx++;
         }
     }
@@ -442,7 +438,7 @@ void T5ynthGenerativeSequencer::addPulse()
     degreePattern[static_cast<size_t>(insertIdx)] = newDeg;
     notePattern[static_cast<size_t>(insertIdx)] =
         ScaleQuantizer::degreeToMidi(newDeg, scaleRoot, scale, baseNote);
-    velocityPattern[static_cast<size_t>(insertIdx)] = 0.6f;
+    velocityPattern[static_cast<size_t>(insertIdx)] = 90.0f / 127.0f;
     numPulses++;
 }
 
@@ -509,7 +505,7 @@ void T5ynthGenerativeSequencer::seedFromSteps(const int* midiNotes,
         if (enabled[i] && midiNotes[i] > 0)
         {
             notePattern[static_cast<size_t>(i)] = midiNotes[i];
-            velocityPattern[static_cast<size_t>(i)] = 0.75f;
+            velocityPattern[static_cast<size_t>(i)] = 90.0f / 127.0f;
 
             // Reverse-map MIDI → scale degree for mutation
             int rel = midiNotes[i] - baseNote - scaleRoot;
@@ -644,7 +640,9 @@ void T5ynthGenerativeSequencer::processBlock(juce::AudioBuffer<float>& buffer,
             // Ghost notes are slightly quieter
             if (!isPulse) vel *= 0.75f;
 
-            int velInt = juce::jlimit(1, 127, juce::roundToInt(vel * 127.0f));
+            // Small random velocity variation (±10)
+            std::uniform_int_distribution<int> velJitter(-10, 10);
+            int velInt = juce::jlimit(1, 127, juce::roundToInt(vel * 127.0f) + velJitter(rng));
             midi.addEvent(juce::MidiMessage::noteOn(1, note,
                           static_cast<juce::uint8>(velInt)), eventPos);
             lastPlayedNote = note;
