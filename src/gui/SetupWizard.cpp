@@ -82,17 +82,30 @@ juce::File SettingsPage::getAppSupportModelDir()
 juce::File SettingsPage::getAppSupportModelDir(const juce::String& modelId)
 {
    #if JUCE_MAC
-    // /Library/Application Support/T5ynth/models/ — the visible, system-wide
-    // Library folder (Macintosh HD > Library). NOT ~/Library/ which is hidden.
-    return juce::File("/Library/Application Support/T5ynth/models/" + modelId);
+    // Prefer system-wide path (.pkg installer sets 775/staff on models/).
+    // Fall back to per-user path if system dir is not writable (no installer).
+    auto sysDir = juce::File("/Library/Application Support/T5ynth/models");
+    if (sysDir.isDirectory() && sysDir.hasWriteAccess())
+        return sysDir.getChildFile(modelId);
+    // Also check if model already exists at system path (read-only is fine for loading)
+    if (sysDir.getChildFile(modelId).isDirectory())
+        return sysDir.getChildFile(modelId);
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+               .getChildFile("T5ynth/models/" + modelId);
    #elif JUCE_LINUX
     auto appData = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                        .getChildFile("share");
     return appData.getChildFile("T5ynth/models/" + modelId);
    #else
-    // Windows: C:\ProgramData\T5ynth\models\ (created by installer with user-write permissions)
-    auto appData = juce::File::getSpecialLocation(juce::File::commonApplicationDataDirectory);
-    return appData.getChildFile("T5ynth/models/" + modelId);
+    // Windows: prefer C:\ProgramData, fall back to %APPDATA%
+    auto sysDir = juce::File::getSpecialLocation(juce::File::commonApplicationDataDirectory)
+                      .getChildFile("T5ynth/models");
+    if (sysDir.isDirectory() && sysDir.hasWriteAccess())
+        return sysDir.getChildFile(modelId);
+    if (sysDir.getChildFile(modelId).isDirectory())
+        return sysDir.getChildFile(modelId);
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+               .getChildFile("T5ynth/models/" + modelId);
    #endif
 }
 
@@ -211,8 +224,12 @@ static juce::File scanForModelById(const juce::String& id, const juce::String& h
     auto home = juce::File::getSpecialLocation(juce::File::userHomeDirectory);
     auto oldAppData = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
     std::vector<juce::File> candidates = {
-        SettingsPage::getAppSupportModelDir(id),               // /Library/Application Support/T5ynth/models/
-        oldAppData.getChildFile("T5ynth/models/" + id),        // ~/Library/Application Support/ (legacy)
+        SettingsPage::getAppSupportModelDir(id),               // preferred (system or user, see fallback logic)
+       #if JUCE_MAC
+        juce::File("/Library/Application Support/T5ynth/models/" + id),  // system-wide (.pkg)
+       #endif
+        oldAppData.getChildFile("T5ynth/models/" + id),        // ~/Library/Application Support/ (per-user)
+        home.getChildFile("Library/T5ynth/models/" + id),      // legacy macOS
         home.getChildFile("t5ynth/models/" + id),
         home.getChildFile(".cache/huggingface/hub/" + hfCacheDir),
     };
