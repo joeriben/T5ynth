@@ -1,5 +1,24 @@
 # T5ynth Development Log
 
+## 2026-04-11 — Installers + Path Architecture
+
+### macOS .pkg Installer
+Built with `pkgbuild`/`productbuild`. Four component packages: Standalone (required), VST3, AU, Support Data. The installer creates `/Library/Application Support/T5ynth/presets/` (factory presets, read-only) and `/Library/Application Support/T5ynth/models/` (scan-only). Postinstall removes quarantine flags (`xattr -cr`).
+
+### Windows Inno Setup Installer
+`installer/windows/t5ynth.iss`. Standalone + VST3 components, Start Menu entry, uninstaller. Factory presets in `C:\ProgramData\T5ynth\presets\`, models dir in `C:\ProgramData\T5ynth\models\` with `users-modify` ACL.
+
+### Factory / User Preset Split
+- Factory presets: `/Library/Application Support/T5ynth/presets/` (macOS), `C:\ProgramData\T5ynth\presets\` (Win) — installed by the installer, read-only for users.
+- User presets: `~/Library/Application Support/T5ynth/presets/` (macOS), `%APPDATA%\T5ynth\presets\` (Win) — writable, created on demand.
+- `PresetFormat::getFactoryPresetsDirectory()` / `getUserPresetsDirectory()` / `getAllPresetFiles()` added.
+
+### Design Decision: Models Are Per-User
+Model download target is always the per-user directory (`~/Library/Application Support/T5ynth/models/` on macOS, `%APPDATA%\T5ynth\models\` on Windows). Rationale: model licenses (Stability AI Community License, CC-BY-NC-SA 4.0) are accepted individually per user. Different users on the same machine may have different license status (e.g. commercial vs. non-commercial accounts). The system-wide path (`/Library/Application Support/` / `C:\ProgramData\`) is scanned as a read-only candidate — an admin can pre-deploy models there, but the app never writes to it.
+
+### CI Integration
+Both installers are built in CI (`build.yml`), uploaded as artifacts on every push, and included in GitHub Releases on tags. macOS: `build_pkg.sh` in the `macos` job. Windows: `choco install innosetup` + `iscc` in the `windows` job.
+
 ## 2026-03-31 — Session 8: Signal Chain Fixes + RT Safety
 
 ### Critical Bug Fixes
