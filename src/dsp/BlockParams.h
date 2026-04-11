@@ -580,18 +580,46 @@ namespace ScaleRoot {
 
 // ── Musical scale type ──
 namespace ScaleType {
-    enum : int { Off = 0, Maj = 1, Min = 2, Pent = 3, Dor = 4, Harm = 5, WhlT = 6 };
+    enum : int {
+        Off = 0, Maj, Min, Pent, Dor, Harm, WhlT,           // 0-6: unchanged
+        Mixo, Phry, Lyd, Locr, MinP, Blu, MelM,             // 7-13: western ext.
+        Hira, InSn, Iwat, Kumo, Ryuk,                        // 14-18: east asian
+        Hjz, DblH, Todi, Purv, Pers,                         // 19-23: middle east / south asia
+        HunM, NeaM,                                           // 24-25: european ext.
+        Pelg, Slnd                                             // 26-27: southeast asian
+    };
     static constexpr ChoiceEntry kEntries[] = {
-        { "off",  "Off"  },
-        { "maj",  "Maj"  },
-        { "min",  "Min"  },
-        { "pent", "Pent" },
-        { "dor",  "Dor"  },
-        { "harm", "Harm" },
-        { "whole","WhlT" }
+        { "off",   "Off"       },
+        { "maj",   "Major"     },
+        { "min",   "Minor"     },
+        { "pent",  "Penta"     },
+        { "dor",   "Dorian"    },
+        { "harm",  "Harm.Min"  },
+        { "whole", "WhlTone"   },
+        { "mixo",  "Mixolyd"   },
+        { "phry",  "Phrygian"  },
+        { "lyd",   "Lydian"    },
+        { "locr",  "Locrian"   },
+        { "minp",  "MinPent"   },
+        { "blu",   "Blues"     },
+        { "melm",  "Mel.Min"   },
+        { "hira",  "Hirajoshi" },
+        { "insn",  "In-sen"    },
+        { "iwat",  "Iwato"     },
+        { "kumo",  "Kumoi"     },
+        { "ryuk",  "Ryukyu"    },
+        { "hjz",   "Hijaz"     },
+        { "dblh",  "DblHarm"   },
+        { "todi",  "R.Todi"    },
+        { "purv",  "R.Purvi"   },
+        { "pers",  "Persian"   },
+        { "hunm",  "Hung.Min"  },
+        { "neam",  "Neap.Min"  },
+        { "pelg",  "Pelog"     },
+        { "slnd",  "Slendro"   },
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(WhlT + 1 == kCount, "ScaleType out of sync.");
+    static_assert(Slnd + 1 == kCount, "ScaleType out of sync.");
 }
 
 // ── Generative sequencer octave range ──
