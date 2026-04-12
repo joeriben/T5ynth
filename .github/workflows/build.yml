@@ -120,13 +120,13 @@ jobs:
             --au    build/T5ynth_artefacts/Release/AU/T5ynth.component \
             --presets resources/presets \
             --version "${{ github.ref_name || '0.0.0-dev' }}" \
-            --output archives/T5ynth-macOS.pkg
+            --output archives/T5ynth-macOS-Installer.pkg
 
       - name: Upload macOS Installer
         uses: actions/upload-artifact@v4
         with:
           name: T5ynth-macOS-Installer
-          path: archives/T5ynth-macOS.pkg
+          path: archives/T5ynth-macOS-Installer.pkg
 
   # ── Windows ─────────────────────────────────────────────────────
   windows:

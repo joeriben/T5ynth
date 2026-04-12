@@ -1,7 +1,7 @@
 ## Installation
 
 ### macOS (recommended)
-1. Download **`T5ynth-macOS.pkg`**
+1. Download **`T5ynth-macOS-Installer.pkg`**
 2. Double-click the `.pkg` -- macOS will block it because T5ynth is not signed with an Apple Developer certificate.
 3. Open **System Settings > Privacy & Security**, scroll down, and click **"Open Anyway"** next to the T5ynth message.
 4. Enter your admin password when prompted.
