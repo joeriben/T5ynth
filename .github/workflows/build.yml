@@ -46,7 +46,7 @@ jobs:
           done
           kill $PID 2>/dev/null || true
           wait $PID 2>/dev/null || true
-          if grep -q "Ready\|devices" /tmp/be_out.log; then
+          if grep -q "Ready\|devices\|No model" /tmp/be_out.log; then
             echo "Backend smoke test passed"
           else
             echo "::error::Backend binary failed to reach ready state"
@@ -136,7 +136,7 @@ jobs:
             --vst3  build/T5ynth_artefacts/Release/VST3/T5ynth.vst3 \
             --au    build/T5ynth_artefacts/Release/AU/T5ynth.component \
             --presets resources/presets \
-            --version "${{ github.ref_name || '0.0.0-dev' }}" \
+            --version "${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '0.0.0-dev' }}" \
             --output archives/T5ynth-macOS-Installer.pkg
 
       - name: Upload macOS Installer

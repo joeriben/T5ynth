@@ -49,6 +49,7 @@ pkgbuild \
     --identifier org.ai4artsed.t5ynth.standalone \
     --version "$VERSION" \
     --install-location /Applications \
+    --scripts "$SCRIPT_DIR/scripts-standalone" \
     "$WORK/standalone.pkg"
 
 # ── Stage: VST3 ──────────────────────────────────────────────────────

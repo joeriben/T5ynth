@@ -1,0 +1,5 @@
+#!/bin/bash
+# Remove previous T5ynth.app before installing new version.
+# Prevents stale files from manual installs corrupting the bundle signature.
+rm -rf /Applications/T5ynth.app
+exit 0
