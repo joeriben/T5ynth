@@ -370,22 +370,26 @@ void MainPanel::tryLoadInferenceModels()
 
     if (backendDir.exists())
     {
-        std::thread([this, processor, backendDir]()
+        juce::Component::SafePointer<MainPanel> safeThis(this);
+        std::thread([safeThis, processor, backendDir]()
         {
             bool ok = processor->launchPipeInference(backendDir);
             auto errorMsg = ok ? juce::String() : processor->getPipeInference().getLastError();
-            juce::MessageManager::callAsync([this, ok, errorMsg]()
+            juce::MessageManager::callAsync([safeThis, ok, errorMsg]()
             {
-                if (ok)
+                if (auto* self = safeThis.getComponent())
                 {
-                    statusBar.setConnected(true);
-                    statusBar.setStatusText("Ready");
-                    settingsPage.setBackendConnected(true);
-                }
-                else
-                {
-                    statusBar.setStatusText("Backend: " + errorMsg);
-                    settingsPage.setBackendFailed(errorMsg);
+                    if (ok)
+                    {
+                        self->statusBar.setConnected(true);
+                        self->statusBar.setStatusText("Ready");
+                        self->settingsPage.setBackendConnected(true);
+                    }
+                    else
+                    {
+                        self->statusBar.setStatusText("Backend: " + errorMsg);
+                        self->settingsPage.setBackendFailed(errorMsg);
+                    }
                 }
             });
         }).detach();
@@ -764,9 +768,12 @@ void MainPanel::exportWav()
     auto chooser = std::make_shared<juce::FileChooser>(
         "Export WAV", juce::File::getSpecialLocation(juce::File::userDesktopDirectory), "*.wav");
 
+    juce::Component::SafePointer<MainPanel> safeThis(this);
     chooser->launchAsync(juce::FileBrowserComponent::saveMode,
-        [this, chooser](const juce::FileChooser& fc)
+        [safeThis, chooser](const juce::FileChooser& fc)
         {
+            if (!safeThis) return;
+            auto* self = safeThis.getComponent();
             auto file = fc.getResult();
             if (file == juce::File()) return;
 
@@ -774,9 +781,9 @@ void MainPanel::exportWav()
             if (!file.hasFileExtension("wav"))
                 file = file.withFileExtension("wav");
 
-            const auto& buf = processorRef.getGeneratedAudio();
+            const auto& buf = self->processorRef.getGeneratedAudio();
             auto outStream = file.createOutputStream();
-            if (!outStream) { statusBar.setStatusText("Export failed"); return; }
+            if (!outStream) { self->statusBar.setStatusText("Export failed"); return; }
 
             juce::WavAudioFormat wav;
             std::unique_ptr<juce::AudioFormatWriter> writer(
@@ -786,10 +793,10 @@ void MainPanel::exportWav()
             if (writer)
             {
                 writer->writeFromAudioSampleBuffer(buf, 0, buf.getNumSamples());
-                statusBar.setStatusText("Exported: " + file.getFileName());
+                self->statusBar.setStatusText("Exported: " + file.getFileName());
             }
             else
-                statusBar.setStatusText("Export failed");
+                self->statusBar.setStatusText("Export failed");
         });
 }
 
@@ -860,14 +867,16 @@ void MainPanel::savePreset()
     auto chooser = std::make_shared<juce::FileChooser>(
         "Save Preset", presetsDir, "*.t5p");
 
+    juce::Component::SafePointer<MainPanel> safeThis(this);
     chooser->launchAsync(juce::FileBrowserComponent::saveMode,
-        [this, chooser](const juce::FileChooser& fc)
+        [safeThis, chooser](const juce::FileChooser& fc)
         {
+            if (!safeThis) return;
             auto file = fc.getResult();
             if (file == juce::File()) return;
 
-            if (PresetFormat::saveToFile(file, processorRef))
-                statusBar.setPresetName(file.getFileNameWithoutExtension());
+            if (PresetFormat::saveToFile(file, safeThis->processorRef))
+                safeThis->statusBar.setPresetName(file.getFileNameWithoutExtension());
         });
 }
 
@@ -877,18 +886,21 @@ void MainPanel::loadPreset()
     auto chooser = std::make_shared<juce::FileChooser>(
         "Load Preset", presetsDir, "*.t5p;*.json");
 
+    juce::Component::SafePointer<MainPanel> safeThis(this);
     chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-        [this, chooser](const juce::FileChooser& fc)
+        [safeThis, chooser](const juce::FileChooser& fc)
         {
+            if (!safeThis) return;
+            auto* self = safeThis.getComponent();
             auto file = fc.getResult();
             if (!file.existsAsFile()) return;
 
-            auto result = PresetFormat::loadFromFile(file, processorRef);
+            auto result = PresetFormat::loadFromFile(file, self->processorRef);
             if (!result.success) return;
 
             // Restore prompts/seed to GUI
-            promptPanel.loadPresetData(result.promptA, result.promptB,
-                                       result.seed, result.randomSeed, result.device, result.model);
+            self->promptPanel.loadPresetData(result.promptA, result.promptB,
+                                             result.seed, result.randomSeed, result.device, result.model);
 
             // Restore semantic axes
             if (result.hasAxes)
@@ -899,24 +911,24 @@ void MainPanel::loadPreset()
                     states[static_cast<size_t>(i)].dropdownId = result.axes[static_cast<size_t>(i)].dropdownId;
                     states[static_cast<size_t>(i)].value = result.axes[static_cast<size_t>(i)].value;
                 }
-                axesPanel.setSlotStates(states);
+                self->axesPanel.setSlotStates(states);
             }
 
             // Restore audio into engine (skips generation!)
             if (result.hasAudio)
             {
-                processorRef.loadGeneratedAudio(result.audio, result.sampleRate);
-                processorRef.setLastSeed(result.seed);
-                processorRef.setLastPrompts(result.promptA, result.promptB);
+                self->processorRef.loadGeneratedAudio(result.audio, result.sampleRate);
+                self->processorRef.setLastSeed(result.seed);
+                self->processorRef.setLastPrompts(result.promptA, result.promptB);
             }
 
             // Restore embeddings to DimExplorer
             if (!result.embeddingA.empty())
             {
-                processorRef.setLastEmbeddings(result.embeddingA, result.embeddingB);
-                dimensionExplorer.setEmbeddings(result.embeddingA, result.embeddingB);
+                self->processorRef.setLastEmbeddings(result.embeddingA, result.embeddingB);
+                self->dimensionExplorer.setEmbeddings(result.embeddingA, result.embeddingB);
             }
 
-            statusBar.setPresetName(result.presetName);
+            self->statusBar.setPresetName(result.presetName);
         });
 }

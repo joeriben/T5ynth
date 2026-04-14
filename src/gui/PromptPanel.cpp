@@ -55,11 +55,13 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     promptAEditor.setMultiLine(false);
     promptAEditor.setText("a steady clean saw wave, c3");
     promptAEditor.onReturnKey = [this] { triggerGeneration(); };
+    promptAEditor.setBufferedToImage(true);
     addAndMakeVisible(promptAEditor);
 
     makeLabel(promptBLabel, "Prompt B (optional, for interpolation)", kDim, juce::Justification::centredLeft, this);
     promptBEditor.setMultiLine(false);
     promptBEditor.setText("glass breaking");
+    promptBEditor.setBufferedToImage(true);
     addAndMakeVisible(promptBEditor);
 
     // Alpha
@@ -139,6 +141,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     seedEditor.setColour(juce::TextEditor::outlineColourId, kBorder);
     seedEditor.setInputRestrictions(12, "0123456789");
     seedEditor.setText("123456789", false);
+    seedEditor.setBufferedToImage(true);
     addAndMakeVisible(seedEditor);
 
     seedEditor.onReturnKey = [this] { triggerGeneration(); };
@@ -222,15 +225,20 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 
                 auto& pipeInf = processorRef.getPipeInference();
                 juce::String device = cpuBtn.getToggleState() ? "cpu" : gpuBackend_;
-                std::thread([this, &pipeInf, model, device]()
+                juce::Component::SafePointer<PromptPanel> safeThis(this);
+                auto* pipePtr = &pipeInf;
+                std::thread([safeThis, pipePtr, model, device]()
                 {
-                    bool ok = pipeInf.preload(model, device);
-                    juce::MessageManager::callAsync([this, ok, model]()
+                    bool ok = pipePtr->preload(model, device);
+                    juce::MessageManager::callAsync([safeThis, ok, model]()
                     {
-                        if (!generating)
-                            generateButton.setEnabled(true);
-                        if (onStatusChanged)
-                            onStatusChanged(ok ? model + " ready" : model + " load failed", false);
+                        if (auto* self = safeThis.getComponent())
+                        {
+                            if (!self->generating)
+                                self->generateButton.setEnabled(true);
+                            if (self->onStatusChanged)
+                                self->onStatusChanged(ok ? model + " ready" : model + " load failed", false);
+                        }
                     });
                 }).detach();
             };
@@ -670,37 +678,41 @@ void PromptPanel::triggerGeneration()
     auto deviceForLabel = req.device.isEmpty() ? pipeInf.getDefaultDevice() : req.device;
     auto modelForLabel = req.model.isEmpty() ? pipeInf.getDefaultModel() : req.model;
     auto* processor = &processorRef;
-    std::thread([this, processor, req, deviceForLabel, modelForLabel]()
+    juce::Component::SafePointer<PromptPanel> safeThis(this);
+    std::thread([safeThis, processor, req, deviceForLabel, modelForLabel]()
     {
         auto result = processor->getPipeInference().generate(req);
-        juce::MessageManager::callAsync([this, processor, result = std::move(result), deviceForLabel, modelForLabel]()
+        juce::MessageManager::callAsync([safeThis, processor, result = std::move(result), deviceForLabel, modelForLabel]()
         {
-            generating = false;
-            generateButton.setEnabled(true);
-            if (result.success)
+            if (auto* self = safeThis.getComponent())
             {
-                processor->loadGeneratedAudio(result.audio, 44100.0);
-                processor->setLastDevice(deviceForLabel);
-                processor->setLastModel(modelForLabel);
-                processor->setLastSeed(result.seed);
-                processor->setLastPrompts(promptAEditor.getText().trim(),
-                                          promptBEditor.getText().trim());
-                seedEditor.setText(juce::String(result.seed), false);
-                auto info = juce::String(result.generationTimeMs / 1000.0f, 1) + "s | seed "
-                            + juce::String(result.seed) + " | " + modelForLabel
-                            + " | " + deviceForLabel;
-                if (onStatusChanged) onStatusChanged(info, false);
-
-                if (!result.embeddingA.empty())
+                self->generating = false;
+                self->generateButton.setEnabled(true);
+                if (result.success)
                 {
-                    processor->setLastEmbeddings(result.embeddingA, result.embeddingB);
-                    if (onEmbeddingsReady)
-                        onEmbeddingsReady(result.embeddingA, result.embeddingB);
+                    processor->loadGeneratedAudio(result.audio, 44100.0);
+                    processor->setLastDevice(deviceForLabel);
+                    processor->setLastModel(modelForLabel);
+                    processor->setLastSeed(result.seed);
+                    processor->setLastPrompts(self->promptAEditor.getText().trim(),
+                                              self->promptBEditor.getText().trim());
+                    self->seedEditor.setText(juce::String(result.seed), false);
+                    auto info = juce::String(result.generationTimeMs / 1000.0f, 1) + "s | seed "
+                                + juce::String(result.seed) + " | " + modelForLabel
+                                + " | " + deviceForLabel;
+                    if (self->onStatusChanged) self->onStatusChanged(info, false);
+
+                    if (!result.embeddingA.empty())
+                    {
+                        processor->setLastEmbeddings(result.embeddingA, result.embeddingB);
+                        if (self->onEmbeddingsReady)
+                            self->onEmbeddingsReady(result.embeddingA, result.embeddingB);
+                    }
                 }
-            }
-            else
-            {
-                if (onStatusChanged) onStatusChanged(result.errorMessage, false);
+                else
+                {
+                    if (self->onStatusChanged) self->onStatusChanged(result.errorMessage, false);
+                }
             }
         });
     }).detach();
@@ -730,42 +742,45 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
 
     auto req = buildInferenceRequest(effectiveAlpha, effectiveAxes, effectiveNoise, effectiveMagnitude);
     auto* processor = &processorRef;
-    std::thread([this, processor, req]()
+    juce::Component::SafePointer<PromptPanel> safeThis(this);
+    std::thread([safeThis, processor, req]()
     {
         auto result = processor->getPipeInference().generate(req);
-        juce::MessageManager::callAsync([this, processor, result = std::move(result)]()
+        juce::MessageManager::callAsync([safeThis, processor, result = std::move(result)]()
         {
-            generating = false;
-            generateButton.setEnabled(true);
-            if (result.success)
+            if (auto* self = safeThis.getComponent())
             {
-                // Crossfade two RAW signals, then single load (Rumble→HF→Norm once)
-                auto newAudio = result.audio; // mutable copy
-                float xfadeMs = processor->getValueTreeState()
-                    .getRawParameterValue(PID::driftCrossfade)->load();
-                int xfadeSamples = juce::roundToInt(xfadeMs * 0.001f * 44100.0f);
-                if (xfadeSamples > 0)
+                self->generating = false;
+                self->generateButton.setEnabled(true);
+                if (result.success)
                 {
-                    const auto& oldRaw = processor->getGeneratedAudioRaw();
-                    if (oldRaw.getNumSamples() > 0)
-                        applyDriftCrossfade(newAudio, oldRaw, xfadeSamples);
-                }
-                processor->loadGeneratedAudio(newAudio, 44100.0);
-                processor->setLastSeed(result.seed);
-                seedEditor.setText(juce::String(result.seed), false);
-                auto info = juce::String(result.generationTimeMs / 1000.0f, 1) + "s | drift regen";
-                if (onStatusChanged) onStatusChanged(info, false);
+                    auto newAudio = result.audio;
+                    float xfadeMs = processor->getValueTreeState()
+                        .getRawParameterValue(PID::driftCrossfade)->load();
+                    int xfadeSamples = juce::roundToInt(xfadeMs * 0.001f * 44100.0f);
+                    if (xfadeSamples > 0)
+                    {
+                        const auto& oldRaw = processor->getGeneratedAudioRaw();
+                        if (oldRaw.getNumSamples() > 0)
+                            applyDriftCrossfade(newAudio, oldRaw, xfadeSamples);
+                    }
+                    processor->loadGeneratedAudio(newAudio, 44100.0);
+                    processor->setLastSeed(result.seed);
+                    self->seedEditor.setText(juce::String(result.seed), false);
+                    auto info = juce::String(result.generationTimeMs / 1000.0f, 1) + "s | drift regen";
+                    if (self->onStatusChanged) self->onStatusChanged(info, false);
 
-                if (!result.embeddingA.empty())
-                {
-                    processor->setLastEmbeddings(result.embeddingA, result.embeddingB);
-                    if (onEmbeddingsReady)
-                        onEmbeddingsReady(result.embeddingA, result.embeddingB);
+                    if (!result.embeddingA.empty())
+                    {
+                        processor->setLastEmbeddings(result.embeddingA, result.embeddingB);
+                        if (self->onEmbeddingsReady)
+                            self->onEmbeddingsReady(result.embeddingA, result.embeddingB);
+                    }
                 }
-            }
-            else
-            {
-                if (onStatusChanged) onStatusChanged(result.errorMessage, false);
+                else
+                {
+                    if (self->onStatusChanged) self->onStatusChanged(result.errorMessage, false);
+                }
             }
         });
     }).detach();

@@ -1770,7 +1770,11 @@ void T5ynthProcessor::applyRumbleFilter(juce::AudioBuffer<float>& buffer, double
 juce::String T5ynthProcessor::exportJsonPreset() const
 {
     auto* p = const_cast<juce::AudioProcessorValueTreeState*>(&parameters);
-    auto get = [&](const juce::String& id) { return p->getRawParameterValue(id)->load(); };
+    auto get = [&](const juce::String& id) -> float {
+        auto* val = p->getRawParameterValue(id);
+        jassert(val != nullptr); // fires in debug if PID is missing
+        return val ? val->load() : 0.0f;
+    };
 
     juce::DynamicObject::Ptr root = new juce::DynamicObject();
     root->setProperty("version", 1);

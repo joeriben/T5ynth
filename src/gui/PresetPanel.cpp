@@ -38,19 +38,22 @@ void PresetPanel::importPreset()
         "Import Preset", juce::File::getSpecialLocation(juce::File::userHomeDirectory),
         "*.json");
 
+    juce::Component::SafePointer<PresetPanel> safeThis(this);
     chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-        [this, chooser](const juce::FileChooser& fc)
+        [safeThis, chooser](const juce::FileChooser& fc)
         {
+            if (!safeThis) return;
+            auto* self = safeThis.getComponent();
             auto file = fc.getResult();
             if (!file.existsAsFile()) return;
 
             auto json = file.loadFileAsString();
-            if (processor.importJsonPreset(json))
+            if (self->processor.importJsonPreset(json))
             {
-                statusLabel.setText("Loaded: " + file.getFileNameWithoutExtension(), juce::dontSendNotification);
+                self->statusLabel.setText("Loaded: " + file.getFileNameWithoutExtension(), juce::dontSendNotification);
 
                 // Extract GUI-only data (prompts, seed) and notify parent
-                if (onPresetLoaded)
+                if (self->onPresetLoaded)
                 {
                     auto parsed = juce::JSON::parse(json);
                     if (auto* root = parsed.getDynamicObject())
@@ -66,12 +69,12 @@ void PresetPanel::importPreset()
                             if (s > 0) seed = s;
                             device = synth->getProperty("device").toString();
                         }
-                        onPresetLoaded(promptA, promptB, seed, device);
+                        self->onPresetLoaded(promptA, promptB, seed, device);
                     }
                 }
             }
             else
-                statusLabel.setText("Import failed", juce::dontSendNotification);
+                self->statusLabel.setText("Import failed", juce::dontSendNotification);
         });
 }
 
@@ -81,15 +84,18 @@ void PresetPanel::exportPreset()
         "Export Preset", juce::File::getSpecialLocation(juce::File::userHomeDirectory),
         "*.json");
 
+    juce::Component::SafePointer<PresetPanel> safeThis(this);
     chooser->launchAsync(juce::FileBrowserComponent::saveMode,
-        [this, chooser](const juce::FileChooser& fc)
+        [safeThis, chooser](const juce::FileChooser& fc)
         {
+            if (!safeThis) return;
+            auto* self = safeThis.getComponent();
             auto file = fc.getResult();
             if (file == juce::File()) return;
 
             auto jsonFile = file.withFileExtension("json");
-            auto json = processor.exportJsonPreset();
+            auto json = self->processor.exportJsonPreset();
             jsonFile.replaceWithText(json);
-            statusLabel.setText("Saved: " + jsonFile.getFileNameWithoutExtension(), juce::dontSendNotification);
+            self->statusLabel.setText("Saved: " + jsonFile.getFileNameWithoutExtension(), juce::dontSendNotification);
         });
 }

@@ -597,17 +597,19 @@ void SettingsPage::startDownload()
 
     downloadStatusLabel.setText("Fetching file list...", juce::dontSendNotification);
     auto hfRepo = selectedHfRepo();
-    std::thread([this, hfRepo, modelId]() {
+    juce::Component::SafePointer<SettingsPage> safeThis(this);
+    std::thread([safeThis, hfRepo, modelId]() {
         juce::URL apiUrl("https://huggingface.co/api/models/" + hfRepo + "/tree/main?recursive=true");
         auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                         .withConnectionTimeoutMs(15000);
         auto stream = apiUrl.createInputStream(opts);
         if (!stream) {
-            juce::MessageManager::callAsync([this, hfRepo]() {
-                onDownloadFinished(false,
-                    "Failed to contact https://huggingface.co/api/models/"
-                    + hfRepo + "/tree/main\n\n"
-                    "Check your network connection and try again.");
+            juce::MessageManager::callAsync([safeThis, hfRepo]() {
+                if (auto* self = safeThis.getComponent())
+                    self->onDownloadFinished(false,
+                        "Failed to contact https://huggingface.co/api/models/"
+                        + hfRepo + "/tree/main\n\n"
+                        "Check your network connection and try again.");
             });
             return;
         }
@@ -618,9 +620,10 @@ void SettingsPage::startDownload()
             // HF API returns {"error":"..."} for any failure — surface verbatim.
             if (json.is_object() && json.contains("error")) {
                 auto errMsg = juce::String(json["error"].get<std::string>());
-                juce::MessageManager::callAsync([this, errMsg, hfRepo]() {
-                    onDownloadFinished(false,
-                        "HuggingFace API error for " + hfRepo + ":\n\n" + errMsg);
+                juce::MessageManager::callAsync([safeThis, errMsg, hfRepo]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->onDownloadFinished(false,
+                            "HuggingFace API error for " + hfRepo + ":\n\n" + errMsg);
                 });
                 return;
             }
@@ -635,23 +638,27 @@ void SettingsPage::startDownload()
                 total += df.size;
                 files.push_back(df);
             }
-            juce::MessageManager::callAsync([this, files, total, modelId]() {
-                filesToDownload = files;
-                totalBytes = total;
-                downloadedBytes = 0;
-                downloadStatusLabel.setText(juce::String(filesToDownload.size()) + " files, "
-                    + juce::String(static_cast<double>(totalBytes) / (1024.0 * 1024.0), 0) + " MB",
-                    juce::dontSendNotification);
-                auto targetDir = getAppSupportModelDir(modelId);
-                targetDir.createDirectory();
-                cleanupBadFiles(targetDir);
-                downloadAllFilesInThread();
+            juce::MessageManager::callAsync([safeThis, files, total, modelId]() {
+                if (auto* self = safeThis.getComponent())
+                {
+                    self->filesToDownload = files;
+                    self->totalBytes = total;
+                    self->downloadedBytes = 0;
+                    self->downloadStatusLabel.setText(juce::String(self->filesToDownload.size()) + " files, "
+                        + juce::String(static_cast<double>(self->totalBytes) / (1024.0 * 1024.0), 0) + " MB",
+                        juce::dontSendNotification);
+                    auto targetDir = getAppSupportModelDir(modelId);
+                    targetDir.createDirectory();
+                    self->cleanupBadFiles(targetDir);
+                    self->downloadAllFilesInThread();
+                }
             });
         } catch (const std::exception& e) {
             auto err = juce::String(e.what());
-            juce::MessageManager::callAsync([this, err, hfRepo]() {
-                onDownloadFinished(false,
-                    "Could not parse HuggingFace response for " + hfRepo + ":\n\n" + err);
+            juce::MessageManager::callAsync([safeThis, err, hfRepo]() {
+                if (auto* self = safeThis.getComponent())
+                    self->onDownloadFinished(false,
+                        "Could not parse HuggingFace response for " + hfRepo + ":\n\n" + err);
             });
         }
     }).detach();
@@ -677,7 +684,9 @@ void SettingsPage::downloadGhReleaseInThread()
     downloadedBytes = 0;
     startTimer(250);
 
-    std::thread([this, ghBase, targetDir]()
+    juce::Component::SafePointer<SettingsPage> safeThis(this);
+    auto* bytesCounter = &downloadedBytes;
+    std::thread([safeThis, bytesCounter, ghBase, targetDir]()
     {
         int64_t bytesCompleted = 0;
 
@@ -691,15 +700,16 @@ void SettingsPage::downloadGhReleaseInThread()
             if (targetFile.existsAsFile() && targetFile.getSize() > gf.expectedSize * 9 / 10)
             {
                 bytesCompleted += gf.expectedSize;
-                downloadedBytes.store(bytesCompleted);
+                bytesCounter->store(bytesCompleted);
                 continue;
             }
 
             auto fileNum = i + 1;
-            juce::MessageManager::callAsync([this, fileName, fileNum]() {
-                downloadStatusLabel.setText("Downloading: " + fileName + " ("
-                    + juce::String(fileNum) + "/" + juce::String(kNumFiles) + ")",
-                    juce::dontSendNotification);
+            juce::MessageManager::callAsync([safeThis, fileName, fileNum]() {
+                if (auto* self = safeThis.getComponent())
+                    self->downloadStatusLabel.setText("Downloading: " + fileName + " ("
+                        + juce::String(fileNum) + "/" + juce::String(kNumFiles) + ")",
+                        juce::dontSendNotification);
             });
 
             juce::URL fileUrl(ghBase + "/" + fileName);
@@ -709,9 +719,10 @@ void SettingsPage::downloadGhReleaseInThread()
 
             if (!stream)
             {
-                juce::MessageManager::callAsync([this, fileName]() {
-                    onDownloadFinished(false, "Connection failed for: " + fileName
-                        + "\n\nCheck your internet connection.");
+                juce::MessageManager::callAsync([safeThis, fileName]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->onDownloadFinished(false, "Connection failed for: " + fileName
+                            + "\n\nCheck your internet connection.");
                 });
                 return;
             }
@@ -720,8 +731,9 @@ void SettingsPage::downloadGhReleaseInThread()
             auto outStream = targetFile.createOutputStream();
             if (!outStream)
             {
-                juce::MessageManager::callAsync([this, fileName]() {
-                    onDownloadFinished(false, "Cannot write: " + fileName);
+                juce::MessageManager::callAsync([safeThis, fileName]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->onDownloadFinished(false, "Cannot write: " + fileName);
                 });
                 return;
             }
@@ -734,16 +746,17 @@ void SettingsPage::downloadGhReleaseInThread()
                 if (bytesRead <= 0) break;
                 outStream->write(buffer, static_cast<size_t>(bytesRead));
                 written += bytesRead;
-                downloadedBytes.store(bytesCompleted + written);
+                bytesCounter->store(bytesCompleted + written);
             }
             outStream.reset();
 
             bytesCompleted += juce::jmax(written, gf.expectedSize);
-            downloadedBytes.store(bytesCompleted);
+            bytesCounter->store(bytesCompleted);
         }
 
-        juce::MessageManager::callAsync([this]() {
-            onDownloadFinished(true, {});
+        juce::MessageManager::callAsync([safeThis]() {
+            if (auto* self = safeThis.getComponent())
+                self->onDownloadFinished(true, {});
         });
     }).detach();
 }
@@ -777,7 +790,9 @@ void SettingsPage::downloadAllFilesInThread()
 
     startTimer(250);  // timer updates progress bar from atomic downloadedBytes
 
-    std::thread([this, hfRepo, targetDir, files]()
+    juce::Component::SafePointer<SettingsPage> safeThis(this);
+    auto* bytesCounter = &downloadedBytes;
+    std::thread([safeThis, bytesCounter, hfRepo, targetDir, files]()
     {
         int64_t bytesCompleted = 0;
 
@@ -792,7 +807,7 @@ void SettingsPage::downloadAllFilesInThread()
                 && (df.size == 0 || targetFile.getSize() >= df.size * 9 / 10))
             {
                 bytesCompleted += df.size;
-                downloadedBytes.store(bytesCompleted);
+                bytesCounter->store(bytesCompleted);
                 continue;
             }
 
@@ -800,10 +815,11 @@ void SettingsPage::downloadAllFilesInThread()
             auto fileName = df.remotePath;
             auto fileNum = i + 1;
             auto fileCount = files.size();
-            juce::MessageManager::callAsync([this, fileName, fileNum, fileCount]() {
-                downloadStatusLabel.setText("Downloading: " + fileName + " ("
-                    + juce::String(fileNum) + "/" + juce::String(fileCount) + ")",
-                    juce::dontSendNotification);
+            juce::MessageManager::callAsync([safeThis, fileName, fileNum, fileCount]() {
+                if (auto* self = safeThis.getComponent())
+                    self->downloadStatusLabel.setText("Downloading: " + fileName + " ("
+                        + juce::String(fileNum) + "/" + juce::String(fileCount) + ")",
+                        juce::dontSendNotification);
             });
 
             // Download via createInputStream — follows HF's LFS redirects
@@ -814,11 +830,12 @@ void SettingsPage::downloadAllFilesInThread()
 
             if (!stream)
             {
-                juce::MessageManager::callAsync([this, fileName, hfRepo]() {
-                    onDownloadFinished(false,
-                        "Could not open:\n"
-                        "  https://huggingface.co/" + hfRepo + "/resolve/main/" + fileName
-                        + "\n\nCheck your network connection.");
+                juce::MessageManager::callAsync([safeThis, fileName, hfRepo]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->onDownloadFinished(false,
+                            "Could not open:\n"
+                            "  https://huggingface.co/" + hfRepo + "/resolve/main/" + fileName
+                            + "\n\nCheck your network connection.");
                 });
                 return;
             }
@@ -828,8 +845,9 @@ void SettingsPage::downloadAllFilesInThread()
             auto outStream = targetFile.createOutputStream();
             if (!outStream)
             {
-                juce::MessageManager::callAsync([this, fileName]() {
-                    onDownloadFinished(false, "Cannot write: " + fileName);
+                juce::MessageManager::callAsync([safeThis, fileName]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->onDownloadFinished(false, "Cannot write: " + fileName);
                 });
                 return;
             }
@@ -842,7 +860,7 @@ void SettingsPage::downloadAllFilesInThread()
                 if (bytesRead <= 0) break;
                 outStream->write(buffer, static_cast<size_t>(bytesRead));
                 written += bytesRead;
-                downloadedBytes.store(bytesCompleted + written);
+                bytesCounter->store(bytesCompleted + written);
             }
             outStream.reset();
 
@@ -866,10 +884,11 @@ void SettingsPage::downloadAllFilesInThread()
                 if (serverMsg.isNotEmpty())
                 {
                     targetFile.deleteFile();
-                    juce::MessageManager::callAsync([this, fileName, serverMsg, hfRepo]() {
-                        onDownloadFinished(false,
-                            "HuggingFace rejected download of " + fileName + " from "
-                            + hfRepo + ":\n\n" + serverMsg);
+                    juce::MessageManager::callAsync([safeThis, fileName, serverMsg, hfRepo]() {
+                        if (auto* self = safeThis.getComponent())
+                            self->onDownloadFinished(false,
+                                "HuggingFace rejected download of " + fileName + " from "
+                                + hfRepo + ":\n\n" + serverMsg);
                     });
                     return;
                 }
@@ -884,22 +903,24 @@ void SettingsPage::downloadAllFilesInThread()
                 auto gotStr = (written < 1024 * 1024)
                     ? juce::String(written / 1024) + " KB"
                     : juce::String(written / (1024 * 1024)) + " MB";
-                juce::MessageManager::callAsync([this, fileName, expectedStr, gotStr, hfRepo]() {
-                    onDownloadFinished(false,
-                        "Transfer ended early for " + fileName + " (" + hfRepo + ")\n"
-                        "Expected " + expectedStr + ", received " + gotStr + ".\n\n"
-                        "Retry the download, or use Browse... to point at an "
-                        "existing copy of the model.");
+                juce::MessageManager::callAsync([safeThis, fileName, expectedStr, gotStr, hfRepo]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->onDownloadFinished(false,
+                            "Transfer ended early for " + fileName + " (" + hfRepo + ")\n"
+                            "Expected " + expectedStr + ", received " + gotStr + ".\n\n"
+                            "Retry the download, or use Browse... to point at an "
+                            "existing copy of the model.");
                 });
                 return;
             }
 
             bytesCompleted += juce::jmax(written, df.size);
-            downloadedBytes.store(bytesCompleted);
+            bytesCounter->store(bytesCompleted);
         }
 
-        juce::MessageManager::callAsync([this]() {
-            onDownloadFinished(true, {});
+        juce::MessageManager::callAsync([safeThis]() {
+            if (auto* self = safeThis.getComponent())
+                self->onDownloadFinished(true, {});
         });
     }).detach();
 }

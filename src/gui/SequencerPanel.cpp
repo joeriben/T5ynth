@@ -284,7 +284,10 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     seqLoadBtn.setTooltip("Load pattern");
     seqSaveBtn.onClick = [this] {
         auto chooser = std::make_shared<juce::FileChooser>("Save Sequencer Pattern", juce::File(), "*.t5seq");
-        chooser->launchAsync(juce::FileBrowserComponent::saveMode, [this, chooser](const juce::FileChooser& fc) {
+        juce::Component::SafePointer<SequencerPanel> safeThis(this);
+        chooser->launchAsync(juce::FileBrowserComponent::saveMode, [safeThis, chooser](const juce::FileChooser& fc) {
+            if (!safeThis) return;
+            auto& processorRef = safeThis->processorRef;
             auto f = fc.getResult();
             if (f == juce::File()) return;
             auto file = f.withFileExtension("t5seq");
@@ -318,13 +321,15 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     };
     seqLoadBtn.onClick = [this] {
         auto chooser = std::make_shared<juce::FileChooser>("Load Sequencer Pattern", juce::File(), "*.t5seq");
-        chooser->launchAsync(juce::FileBrowserComponent::openMode, [this, chooser](const juce::FileChooser& fc) {
+        juce::Component::SafePointer<SequencerPanel> safeThis(this);
+        chooser->launchAsync(juce::FileBrowserComponent::openMode, [safeThis, chooser](const juce::FileChooser& fc) {
+            if (!safeThis) return;
             auto file = fc.getResult();
             if (!file.existsAsFile()) return;
             auto root = juce::JSON::parse(file.loadFileAsString());
             if (!root.isObject()) return;
-            auto& apvts = processorRef.getValueTreeState();
-            auto& seq = processorRef.getStepSequencer();
+            auto& apvts = safeThis->processorRef.getValueTreeState();
+            auto& seq = safeThis->processorRef.getStepSequencer();
             if (root.hasProperty("numSteps"))
                 seq.setNumSteps(static_cast<int>(root["numSteps"]));
             if (root.hasProperty("division"))
@@ -362,8 +367,8 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
                     if (s.hasProperty("bind")) seq.setStepBind(i, static_cast<bool>(s["bind"]));
                 }
             }
-            syncStepCount();
-            repaint();
+            safeThis->syncStepCount();
+            safeThis->repaint();
         });
     };
 
