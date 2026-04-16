@@ -308,6 +308,32 @@ def load_default_model(model_name, devices):
     return loaded
 
 
+def startup_model_candidates(models):
+    """Return startup candidates in preferred order."""
+    preferred = [
+        "stable-audio-open-1.0",
+        "stable-audio-open-small",
+    ]
+    ordered = [name for name in preferred if name in models]
+    ordered.extend(name for name in models.keys() if name not in ordered)
+    return ordered
+
+
+def choose_startup_model(models, devices):
+    """Pick the first model that actually loads on at least one device."""
+    failures = []
+    for model_name in startup_model_candidates(models):
+        try:
+            loaded_devices = load_default_model(model_name, devices)
+            return model_name, loaded_devices, failures
+        except Exception as e:
+            msg = f"{model_name}: {e}"
+            failures.append(msg)
+            log.warning(f"Startup model rejected: {msg}")
+    failure_summary = "; ".join(failures) if failures else "no startup candidates"
+    raise RuntimeError(f"No usable model could be loaded ({failure_summary})")
+
+
 # ─── Audio resampling ────────────────────────────────────────────────
 
 def _resample_audio(audio_np, from_sr, to_sr):
@@ -950,14 +976,8 @@ def main():
 
     devices = available_devices()
 
-    # Default model: prefer stable-audio-open-1.0 for backward compat
-    if "stable-audio-open-1.0" in _available_models:
-        default_model = "stable-audio-open-1.0"
-    else:
-        default_model = next(iter(_available_models))
-
     try:
-        loaded_devices = load_default_model(default_model, devices)
+        default_model, loaded_devices, startup_failures = choose_startup_model(_available_models, devices)
     except Exception as e:
         log.error(f"Failed to load default model: {e}")
         send_error(f"Pipeline load failed: {e}")
@@ -967,6 +987,8 @@ def main():
     send_ready(loaded_devices, default_device, _available_models, default_model)
     log.info(f"Ready. Models: {list(_available_models.keys())}, default: {default_model}, "
              f"devices: {loaded_devices}, default device: {default_device}")
+    if startup_failures:
+        log.warning(f"Skipped unusable startup models: {startup_failures}")
 
     for line in sys.stdin:
         line = line.strip()

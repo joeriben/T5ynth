@@ -1,6 +1,7 @@
 #include "SetupWizard.h"
 #include "GuiHelpers.h"
 #include <nlohmann/json.hpp>
+#include <set>
 #include <thread>
 
 // A valid model directory contains one of these metadata files…
@@ -29,6 +30,52 @@ static bool hasModelMarker(const juce::File& dir)
             weightBytes += f.getSize();
 
     return weightBytes >= kMinWeightBytes;
+}
+
+static bool isEssentialDiffusersFile(const juce::String& remotePath)
+{
+    auto path = remotePath.replaceCharacter('\\', '/');
+
+    // Root metadata plus the standard config/tokenizer files expected by
+    // diffusers/transformers component loaders.
+    if (path == "model_index.json")
+        return true;
+
+    if (path.endsWith("/config.json")
+        || path.endsWith("/scheduler_config.json")
+        || path.endsWith("/preprocessor_config.json")
+        || path.endsWith("/tokenizer.json")
+        || path.endsWith("/tokenizer_config.json")
+        || path.endsWith("/special_tokens_map.json")
+        || path.endsWith("/merges.txt")
+        || path.endsWith("/vocab.json")
+        || path.endsWith("/spiece.model"))
+        return true;
+
+    return false;
+}
+
+static bool shouldDownloadHfFile(const juce::String& remotePath,
+                                 const std::set<std::string>& allPaths)
+{
+    auto path = remotePath.replaceCharacter('\\', '/');
+
+    if (isEssentialDiffusersFile(path))
+        return true;
+
+    if (path.endsWith(".safetensors"))
+        return true;
+
+    if (path.endsWith(".bin"))
+    {
+        // Prefer safetensors when both formats exist for the same component.
+        auto safetensorsAlt = path.upToLastOccurrenceOf(".bin", false, false) + ".safetensors";
+        return allPaths.find(safetensorsAlt.toStdString()) == allPaths.end();
+    }
+
+    // Everything else is optional noise for the in-app downloader
+    // (README, .gitattributes, examples, duplicate formats, etc.).
+    return false;
 }
 
 // Known models — extend this list to add new engines.
@@ -629,11 +676,21 @@ void SettingsPage::startDownload()
             }
 
             std::vector<DownloadFile> files;
+            std::set<std::string> allPaths;
+            for (auto& item : json)
+            {
+                if (item.value("type", "") != "file")
+                    continue;
+                allPaths.insert(item["path"].get<std::string>());
+            }
+
             int64_t total = 0;
             for (auto& item : json) {
                 if (item.value("type", "") != "file") continue;
                 DownloadFile df;
                 df.remotePath = juce::String(item["path"].get<std::string>());
+                if (!shouldDownloadHfFile(df.remotePath, allPaths))
+                    continue;
                 df.size = item.value("size", (int64_t)0);
                 total += df.size;
                 files.push_back(df);
@@ -1015,11 +1072,12 @@ void SettingsPage::updateStatus()
             modelStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xff4ade80));
             instructionsLabel.setText("Ready to generate audio.", false);
         } else if (backendFailReason.isNotEmpty()) {
-            modelStatusLabel.setText(id + ": Model found -- backend failed", juce::dontSendNotification);
+            modelStatusLabel.setText(id + ": Files found -- backend startup failed", juce::dontSendNotification);
             modelStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xfffbbf24));  // amber
             instructionsLabel.setText(
-                "The model files are installed, but the Python backend failed to start.\n\n"
+                "Model files were found, but backend startup failed while validating or loading a model.\n\n"
                 "Error: " + backendFailReason + "\n\n"
+                "This often means a downloaded model is incomplete, incompatible, or failed on the available device.\n\n"
                 "Check the application log for details.", false);
         } else {
             modelStatusLabel.setText(id + ": Installed", juce::dontSendNotification);

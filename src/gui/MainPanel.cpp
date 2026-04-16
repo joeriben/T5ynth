@@ -268,6 +268,10 @@ void MainPanel::tryLoadInferenceModels()
     statusBar.setStatusText("Loading inference...");
 
     auto* processor = &processorRef;
+    const auto bundledBackendMode = juce::SystemStats::getEnvironmentVariable("T5YNTH_REQUIRE_BUNDLED_BACKEND", {})
+                                        .trim();
+    const auto forceBundledBackend = bundledBackendMode.equalsIgnoreCase("1")
+                                  || bundledBackendMode.equalsIgnoreCase("true");
 
     // Find backend directory — accepts either:
     //   backend/pipe_inference.py  (dev: Python script)
@@ -290,9 +294,17 @@ void MainPanel::tryLoadInferenceModels()
     if (hasBackend(resources))
         backendDir = resources;
 
+   #if JUCE_MAC
+    // Test mode for validating packaged apps on a dev machine: only accept the
+    // backend embedded in the current app bundle, never a repo/companion fallback.
+    const bool allowSearchUpwards = !forceBundledBackend;
+   #else
+    const bool allowSearchUpwards = true;
+   #endif
+
     // 2. Walk up from executable (dev builds, Linux/Windows standalone layout:
     //    T5ynth.exe next to backend/).
-    if (!backendDir.exists())
+    if (!backendDir.exists() && allowSearchUpwards)
     {
         auto search = exe.getParentDirectory();
         for (int i = 0; i < 8; ++i)
@@ -311,7 +323,7 @@ void MainPanel::tryLoadInferenceModels()
     //    companion T5ynth Standalone install and borrow its bundled backend.
     //    Release archives ship the heavy backend only with the Standalone —
     //    VST3/AU plugins piggy-back on it so the plugin downloads stay small.
-    if (!backendDir.exists())
+    if (!backendDir.exists() && !forceBundledBackend)
     {
        #if JUCE_MAC
         juce::Array<juce::File> companionApps {
@@ -364,7 +376,7 @@ void MainPanel::tryLoadInferenceModels()
     // 4. Last-resort dev fallback: compile-time project backend path.
     //    Only active in dev builds where T5YNTH_BACKEND_DIR is defined.
    #ifdef T5YNTH_BACKEND_DIR
-    if (!backendDir.exists())
+    if (!backendDir.exists() && !forceBundledBackend)
     {
         juce::File devBackend (T5YNTH_BACKEND_DIR);
         if (hasBackend(devBackend))
@@ -402,11 +414,13 @@ void MainPanel::tryLoadInferenceModels()
     {
         // Plugin context with no companion install is the most common failure —
         // give the user an actionable hint instead of the generic message.
-        const auto msg = juce::JUCEApplicationBase::isStandaloneApp()
-                         ? juce::String("Backend not found — reinstall T5ynth")
-                         : juce::String("Backend not found — install T5ynth Standalone");
+        const auto msg = forceBundledBackend
+                         ? juce::String("Bundled backend not found in app")
+                         : (juce::JUCEApplicationBase::isStandaloneApp()
+                            ? juce::String("Backend not found — reinstall T5ynth")
+                            : juce::String("Backend not found — install T5ynth Standalone"));
         statusBar.setStatusText(msg);
-        settingsPage.setBackendFailed("Not found");
+        settingsPage.setBackendFailed(forceBundledBackend ? "Bundled backend missing" : "Not found");
     }
 }
 
