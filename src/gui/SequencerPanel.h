@@ -40,6 +40,7 @@ private:
     juce::ComboBox divisionHidden;                 // hidden, for APVTS attachment
     std::unique_ptr<SliderRow> bpmRow;
     juce::Label midiMonitor;
+    juce::Rectangle<float> midiLedBounds;
 
     // Octave shift [-2][-1][0][+1][+2]
     static constexpr int kNumOctShiftBtns = 5;

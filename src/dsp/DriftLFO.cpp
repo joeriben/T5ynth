@@ -1,9 +1,18 @@
 #include "DriftLFO.h"
 
-float DriftLFO::waveformValue(double phase, int type)
+float DriftLFO::nextRandom(InternalLFO& lfo)
 {
-    double p = phase - std::floor(phase); // normalize to 0-1
-    switch (type)
+    lfo.rngState ^= lfo.rngState << 13;
+    lfo.rngState ^= lfo.rngState >> 7;
+    lfo.rngState ^= lfo.rngState << 17;
+    return static_cast<float>(static_cast<int64_t>(lfo.rngState))
+         * (1.0f / 9223372036854775808.0f);
+}
+
+float DriftLFO::waveformValue(const InternalLFO& lfo)
+{
+    double p = lfo.phase - std::floor(lfo.phase); // normalize to 0-1
+    switch (lfo.waveform)
     {
         case Sine:
             return static_cast<float>(std::sin(p * TWO_PI));
@@ -18,6 +27,8 @@ float DriftLFO::waveformValue(double phase, int type)
             if (p < 0.2) return static_cast<float>(p * 5.0);
             if (p < 0.8) return static_cast<float>(1.0 - (p - 0.2) * (10.0 / 3.0));
             return static_cast<float>(-1.0 + (p - 0.8) * 5.0);
+        case Random:
+            return lfo.heldValue;
         default:
             return static_cast<float>(std::sin(p * TWO_PI));
     }
@@ -50,7 +61,10 @@ float DriftLFO::halfRangeForTarget(int target)
 void DriftLFO::reset()
 {
     for (auto& lfo : lfos)
+    {
         lfo.phase = 0.0;
+        lfo.heldValue = nextRandom(lfo);
+    }
 }
 
 void DriftLFO::tick(double dt)
@@ -67,7 +81,11 @@ void DriftLFO::tick(double dt)
 
         // Wrap phase to prevent precision loss
         if (lfo.phase >= 1.0)
+        {
             lfo.phase -= std::floor(lfo.phase);
+            if (lfo.waveform == Random)
+                lfo.heldValue = nextRandom(lfo);
+        }
     }
 }
 
@@ -83,7 +101,7 @@ float DriftLFO::getOffsetForTarget(int target) const
     {
         if (lfo.target == target && lfo.depth != 0.0f)
         {
-            float value = waveformValue(lfo.phase, lfo.waveform);
+            float value = waveformValue(lfo);
             totalOffset += value * lfo.depth * hr;
         }
     }
@@ -111,6 +129,8 @@ void DriftLFO::setLfoTarget(int lfoIndex, int target)
         if (lfo.target != target)
         {
             lfo.phase = 0.0; // Phase reset on target change (reference behavior)
+            if (lfo.waveform == Random)
+                lfo.heldValue = nextRandom(lfo);
             lfo.target = target;
         }
     }
@@ -119,5 +139,14 @@ void DriftLFO::setLfoTarget(int lfoIndex, int target)
 void DriftLFO::setLfoWaveform(int lfoIndex, int waveform)
 {
     if (lfoIndex >= 0 && lfoIndex < NUM_LFOS)
-        lfos[static_cast<size_t>(lfoIndex)].waveform = waveform;
+    {
+        auto& lfo = lfos[static_cast<size_t>(lfoIndex)];
+        if (lfo.waveform != waveform)
+        {
+            lfo.waveform = waveform;
+            lfo.phase = 0.0;
+            if (lfo.waveform == Random)
+                lfo.heldValue = nextRandom(lfo);
+        }
+    }
 }

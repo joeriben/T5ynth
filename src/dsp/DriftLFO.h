@@ -5,7 +5,7 @@
 /**
  * Drift LFO system — port of useDriftLfo.ts.
  *
- * 3 internal LFOs with selectable waveform (sine/tri/sq/saw).
+ * 3 internal LFOs with selectable waveform (sine/tri/saw/sq/rnd).
  * Output = waveform(phase) * depth * halfRange (offset added to base).
  * Phase resets to 0 on target change.
  *
@@ -41,7 +41,7 @@ public:
     };
 
     /** Waveform types. Matches APVTS drift_wave choice order. */
-    enum Waveform { Sine = 0, Triangle, Sawtooth, Square };
+    enum Waveform { Sine = 0, Triangle, Sawtooth, Square, Random };
 
     static constexpr int NUM_LFOS = 3;
 
@@ -78,6 +78,8 @@ private:
         float depth = 0.0f;
         int target = 0;         // APVTS index: 0=None, 1=Alpha, etc.
         int waveform = Sine;
+        float heldValue = 0.0f; // latched value for Random waveform
+        uint64_t rngState = 0xA1B2C3D4E5F60789ULL;
     };
 
     std::array<InternalLFO, NUM_LFOS> lfos {{
@@ -92,7 +94,8 @@ private:
     static constexpr double TWO_PI = 6.283185307179586;
 
     /** Compute waveform value for phase 0-1, returns -1..+1. */
-    static float waveformValue(double phase, int type);
+    static float waveformValue(const InternalLFO& lfo);
+    static float nextRandom(InternalLFO& lfo);
 
     /** Get half-range for a target (APVTS index: 0=None, 1=Alpha, ..., 5=WtScan). */
     static float halfRangeForTarget(int target);

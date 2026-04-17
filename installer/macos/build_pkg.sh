@@ -70,8 +70,17 @@ STAGE_APP="$WORK/stage-standalone"
 mkdir -p "$STAGE_APP"
 cp -R "$APP" "$STAGE_APP/"
 
+# Prevent Installer from "following" an existing T5ynth.app with the same
+# bundle identifier into a dev/build path. We always want the packaged app to
+# land at /Applications on the selected volume.
+COMPONENT_PLIST="$WORK/standalone-components.plist"
+pkgbuild --analyze --root "$STAGE_APP" "$COMPONENT_PLIST" >/dev/null
+/usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" "$COMPONENT_PLIST"
+/usr/libexec/PlistBuddy -c "Set :0:BundleIsVersionChecked false" "$COMPONENT_PLIST"
+
 pkgbuild \
     --root "$STAGE_APP" \
+    --component-plist "$COMPONENT_PLIST" \
     --identifier org.ai4artsed.t5ynth.standalone \
     --version "$PACKAGE_VERSION" \
     --install-location /Applications \

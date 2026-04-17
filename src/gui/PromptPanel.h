@@ -58,6 +58,9 @@ public:
 private:
     void timerCallback() override;
     void triggerGeneration();
+    void syncSeedEditorEnabledState();
+    void syncSeedEditorFont(float size);
+    void syncSeedEditorDisplay(int seed, bool force = false);
 
     /** Build a PipeInference::Request from current UI state, with optional overrides. */
     PipeInference::Request buildInferenceRequest(float alphaOverride = std::numeric_limits<float>::quiet_NaN(),

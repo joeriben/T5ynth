@@ -154,13 +154,32 @@ public:
         auto b = getLocalBounds();
         float f = static_cast<float>(b.getHeight());
 
-        int labelW = juce::jlimit(30, 55, juce::roundToInt(b.getWidth() * 0.18f));
-        int valueW = juce::jlimit(22, 42, juce::roundToInt(b.getWidth() * 0.12f));
+        const int totalW = b.getWidth();
+        const bool compact = totalW < 120;
+        const int minSliderW = compact ? 22 : 34;
+
+        int labelW = compact
+            ? juce::jlimit(18, 34, juce::roundToInt(totalW * 0.22f))
+            : juce::jlimit(30, 55, juce::roundToInt(totalW * 0.18f));
+        int valueW = compact
+            ? juce::jlimit(16, 32, juce::roundToInt(totalW * 0.18f))
+            : juce::jlimit(22, 42, juce::roundToInt(totalW * 0.12f));
+
+        const int overflow = labelW + valueW + minSliderW - totalW;
+        if (overflow > 0)
+        {
+            const int labelShrink = juce::jmin(overflow / 2 + overflow % 2,
+                                               juce::jmax(0, labelW - 16));
+            labelW -= labelShrink;
+            valueW -= juce::jmin(overflow - labelShrink, juce::jmax(0, valueW - 14));
+        }
 
         // Scale fonts to fit available width (prevents "Da...", "0...." truncation in narrow 2-col layouts)
         float maxFs = f * 0.75f;
-        label.setFont(juce::FontOptions(juce::jmax(8.0f, juce::jmin(maxFs, static_cast<float>(labelW) * 0.33f))));
-        value.setFont(juce::FontOptions(juce::jmax(8.0f, juce::jmin(maxFs, static_cast<float>(valueW) * 0.33f))));
+        const float labelScale = compact ? 0.42f : 0.33f;
+        const float valueScale = compact ? 0.42f : 0.33f;
+        label.setFont(juce::FontOptions(juce::jmax(7.0f, juce::jmin(maxFs, static_cast<float>(labelW) * labelScale))));
+        value.setFont(juce::FontOptions(juce::jmax(7.0f, juce::jmin(maxFs, static_cast<float>(valueW) * valueScale))));
 
         label.setBounds(b.removeFromLeft(labelW));
         value.setBounds(b.removeFromRight(valueW));

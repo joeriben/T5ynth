@@ -156,12 +156,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         // 11s hard cap in the UI — Stable Audio Open Small tops out at 11s
         // and T5ynth is for short sound samples, not music. SA 1.0 can do
         // more internally but the slider stays unified at 11s.
-        juce::NormalisableRange<float>(0.1f, 11.0f, 0.1f, 0.3f), 1.0f));
+        juce::NormalisableRange<float>(0.1f, 11.0f, 0.1f, 0.3f), 3.0f));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
-        juce::ParameterID{PID::infSteps, 1}, "Steps", 1, 100, 20));
+        juce::ParameterID{PID::infSteps, 1}, "Steps", 1, 100, 8));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::genCfg, 1}, "CFG Scale",
-        juce::NormalisableRange<float>(1.0f, 15.0f, 0.1f), 7.0f));
+        juce::NormalisableRange<float>(1.0f, 15.0f, 0.1f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::genStart, 1}, "Start Position",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));

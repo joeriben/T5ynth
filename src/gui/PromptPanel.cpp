@@ -109,7 +109,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     // Duration
     makeSlider(durationSlider, this);
     makeLabel(durLabel, "Duration", kDim, juce::Justification::centredLeft, this);
-    makeLabel(durValue, "1.0s", kOscCol, juce::Justification::centredRight, this);
+    makeLabel(durValue, "3.0s", kOscCol, juce::Justification::centredRight, this);
     makeLabel(durHint, "Audio length (seconds)", kDim, juce::Justification::centredLeft, this);
     durationSlider.onValueChange = [this] {
         durValue.setText(juce::String(durationSlider.getValue(), 1) + "s", juce::dontSendNotification);
@@ -127,7 +127,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     // Steps
     makeSlider(stepsSlider, this);
     makeLabel(stepsLabel, "Steps", kDim, juce::Justification::centredLeft, this);
-    makeLabel(stepsValue, "20", kOscCol, juce::Justification::centredRight, this);
+    makeLabel(stepsValue, "8", kOscCol, juce::Justification::centredRight, this);
     makeLabel(stepsHint, "More = higher quality", kDim, juce::Justification::centredLeft, this);
     stepsSlider.onValueChange = [this] {
         stepsValue.setText(juce::String(juce::roundToInt(stepsSlider.getValue())), juce::dontSendNotification);
@@ -136,7 +136,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     // CFG
     makeSlider(cfgSlider, this);
     makeLabel(cfgLabel, "CFG", kDim, juce::Justification::centredLeft, this);
-    makeLabel(cfgValue, "7.0", kOscCol, juce::Justification::centredRight, this);
+    makeLabel(cfgValue, "1.0", kOscCol, juce::Justification::centredRight, this);
     makeLabel(cfgHint, "Classifier-free guidance", kDim, juce::Justification::centredLeft, this);
     cfgSlider.onValueChange = [this] {
         cfgValue.setText(juce::String(cfgSlider.getValue(), 1), juce::dontSendNotification);
@@ -148,11 +148,14 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     seedEditor.setColour(juce::TextEditor::textColourId, juce::Colours::white);
     seedEditor.setColour(juce::TextEditor::outlineColourId, kBorder);
     seedEditor.setInputRestrictions(12, "0123456789");
+    seedEditor.setJustification(juce::Justification::centredLeft);
     seedEditor.setText("123456789", false);
+    syncSeedEditorFont(14.0f);
     seedEditor.setBufferedToImage(true);
     addAndMakeVisible(seedEditor);
 
     seedEditor.onReturnKey = [this] { triggerGeneration(); };
+    seedEditor.onTextChange = [this] { syncSeedEditorFont(seedEditor.getFont().getHeight()); };
 
     randomSeedToggle.setColour(juce::TextButton::buttonColourId, kSurface);
     randomSeedToggle.setColour(juce::TextButton::buttonOnColourId, kOscCol);
@@ -161,12 +164,10 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     randomSeedToggle.setClickingTogglesState(true);
     randomSeedToggle.setToggleState(false, juce::dontSendNotification);
     randomSeedToggle.onClick = [this] {
-        seedEditor.setEnabled(!randomSeedToggle.getToggleState());
-        seedEditor.setAlpha(randomSeedToggle.getToggleState() ? 0.3f : 1.0f);
+        syncSeedEditorEnabledState();
     };
     addAndMakeVisible(randomSeedToggle);
-    seedEditor.setEnabled(true);
-    seedEditor.setAlpha(1.0f);
+    syncSeedEditorEnabledState();
 
     // Device selector — GPU / CPU toggle
     for (auto* btn : { &gpuBtn, &cpuBtn })
@@ -481,7 +482,7 @@ void PromptPanel::resized()
         seedLabel.setBounds(seedRow.removeFromLeft(seedLabelW));
         int toggleW = juce::roundToInt(seedRow.getWidth() * 0.30f);
         randomSeedToggle.setBounds(seedRow.removeFromRight(toggleW));
-        seedEditor.setFont(juce::FontOptions(f));
+        syncSeedEditorFont(f);
         seedEditor.setBounds(seedRow.reduced(0, 1));
     }
 
@@ -500,10 +501,9 @@ void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String
     promptBEditor.setText(promptB, false);
     lastGenPromptA_.clear();
     lastGenPromptB_.clear();
-    seedEditor.setText(juce::String(seed), false);
     randomSeedToggle.setToggleState(randomSeed, juce::dontSendNotification);
-    seedEditor.setEnabled(!randomSeed);
-    seedEditor.setAlpha(randomSeed ? 0.3f : 1.0f);
+    syncSeedEditorDisplay(seed, true);
+    syncSeedEditorEnabledState();
 
     // Select device from preset — "cpu" selects CPU, anything else selects GPU
     if (device.equalsIgnoreCase("cpu"))
@@ -643,6 +643,35 @@ juce::String PromptPanel::getSelectedModel() const
     return {};
 }
 
+void PromptPanel::syncSeedEditorEnabledState()
+{
+    const bool randomSeed = randomSeedToggle.getToggleState();
+    seedEditor.setEnabled(!randomSeed);
+    seedEditor.setAlpha(randomSeed ? 0.3f : 1.0f);
+}
+
+void PromptPanel::syncSeedEditorFont(float size)
+{
+    juce::Font font { juce::FontOptions(size) };
+    seedEditor.setFont(font);
+    seedEditor.applyFontToAllText(font);
+}
+
+void PromptPanel::syncSeedEditorDisplay(int seed, bool force)
+{
+    const bool randomSeed = randomSeedToggle.getToggleState();
+    const bool userEditingFixedSeed = !randomSeed && seedEditor.hasKeyboardFocus(true);
+
+    if (!force && userEditingFixedSeed)
+        return;
+
+    const auto seedText = juce::String(seed);
+    if (force || seedEditor.getText() != seedText)
+        seedEditor.setText(seedText, false);
+
+    syncSeedEditorFont(seedEditor.getFont().getHeight());
+}
+
 void PromptPanel::triggerGenerationWithOffsets(std::vector<std::pair<int, float>> offsets)
 {
     pendingOffsets_ = std::move(offsets);
@@ -747,7 +776,7 @@ void PromptPanel::triggerGeneration()
                     processor->setLastPrompts(promptA, promptB);
                     self->lastGenPromptA_ = promptA;
                     self->lastGenPromptB_ = promptB;
-                    self->seedEditor.setText(juce::String(result.seed), false);
+                    self->syncSeedEditorDisplay(result.seed);
                     auto info = juce::String(result.generationTimeMs / 1000.0f, 1) + "s | seed "
                                 + juce::String(result.seed) + " | " + modelForLabel
                                 + " | " + deviceForLabel;
@@ -828,7 +857,7 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                     processor->setLastPrompts(promptA, promptB);
                     self->lastGenPromptA_ = promptA;
                     self->lastGenPromptB_ = promptB;
-                    self->seedEditor.setText(juce::String(result.seed), false);
+                    self->syncSeedEditorDisplay(result.seed);
                     auto info = juce::String(result.generationTimeMs / 1000.0f, 1) + "s | drift regen";
                     if (self->onStatusChanged) self->onStatusChanged(info, false);
 

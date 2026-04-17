@@ -400,15 +400,16 @@ namespace LfoMode {
 
 // ── Drift LFO waveform (label "Sq" differs from LfoWave "Square"!) ──
 namespace DriftWave {
-    enum : int { Sine = 0, Tri = 1, Saw = 2, Square = 3 };
+    enum : int { Sine = 0, Tri = 1, Saw = 2, Square = 3, Random = 4 };
     static constexpr ChoiceEntry kEntries[] = {
         { "sine",     "Sine" },
         { "triangle", "Tri"  },
         { "sawtooth", "Saw"  },
-        { "square",   "Sq"   }
+        { "square",   "Sq"   },
+        { "random",   "Rnd"  }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(Square + 1 == kCount, "DriftWave out of sync.");
+    static_assert(Random + 1 == kCount, "DriftWave out of sync.");
 }
 
 // ── Envelope curve shape (namespace name avoids clash with the global
