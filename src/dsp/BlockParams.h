@@ -208,7 +208,10 @@ namespace LfoTarget {
         NoiseLevel = 8,
         Env1Amt = 9,
         Env2Amt = 10,
-        Env3Amt = 11
+        Env3Amt = 11,
+        Drift1Depth = 12,
+        Drift2Depth = 13,
+        Drift3Depth = 14
     };
     static constexpr ChoiceEntry kEntries[] = {
         { "none",       "---"       },
@@ -222,10 +225,13 @@ namespace LfoTarget {
         { "noise_level","Noise Lvl" },
         { "env1_amt",   "ENV1 Amt"  },
         { "env2_amt",   "ENV2 Amt"  },
-        { "env3_amt",   "ENV3 Amt"  }
+        { "env3_amt",   "ENV3 Amt"  },
+        { "drift1_depth","Drift1 Dpt" },
+        { "drift2_depth","Drift2 Dpt" },
+        { "drift3_depth","Drift3 Dpt" }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(Env3Amt + 1 == kCount,
+    static_assert(Drift3Depth + 1 == kCount,
                   "LfoTarget enum and kEntries are out of sync.");
 }
 

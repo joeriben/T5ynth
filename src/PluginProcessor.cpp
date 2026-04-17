@@ -1017,6 +1017,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         float baseLfo2Rate = parameters.getRawParameterValue(PID::lfo2Rate)->load();
         float baseLfo1Depth = parameters.getRawParameterValue(PID::lfo1Depth)->load();
         float baseLfo2Depth = parameters.getRawParameterValue(PID::lfo2Depth)->load();
+        float baseDrift1Depth = parameters.getRawParameterValue(PID::drift1Depth)->load();
+        float baseDrift2Depth = parameters.getRawParameterValue(PID::drift2Depth)->load();
+        float baseDrift3Depth = parameters.getRawParameterValue(PID::drift3Depth)->load();
 
         // Re-prepare master sampler if settings changed, then distribute to all voices
         if (masterSampler.hasAudio())
@@ -1048,9 +1051,19 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             if (bp.lfo1Target == LfoTarget::Env1Amt) bp.ampAmount  = juce::jlimit(0.0f, 1.0f, bp.ampAmount  * (1.0f + l1End));
             if (bp.lfo1Target == LfoTarget::Env2Amt) bp.mod1Amount = juce::jlimit(0.0f, 1.0f, bp.mod1Amount * (1.0f + l1End));
             if (bp.lfo1Target == LfoTarget::Env3Amt) bp.mod2Amount = juce::jlimit(0.0f, 1.0f, bp.mod2Amount * (1.0f + l1End));
+            if (bp.lfo1Target == LfoTarget::Drift1Depth) baseDrift1Depth = juce::jlimit(0.0f, 1.0f, baseDrift1Depth * (1.0f + l1End));
+            if (bp.lfo1Target == LfoTarget::Drift2Depth) baseDrift2Depth = juce::jlimit(0.0f, 1.0f, baseDrift2Depth * (1.0f + l1End));
+            if (bp.lfo1Target == LfoTarget::Drift3Depth) baseDrift3Depth = juce::jlimit(0.0f, 1.0f, baseDrift3Depth * (1.0f + l1End));
             if (bp.lfo2Target == LfoTarget::Env1Amt) bp.ampAmount  = juce::jlimit(0.0f, 1.0f, bp.ampAmount  * (1.0f + l2End));
             if (bp.lfo2Target == LfoTarget::Env2Amt) bp.mod1Amount = juce::jlimit(0.0f, 1.0f, bp.mod1Amount * (1.0f + l2End));
             if (bp.lfo2Target == LfoTarget::Env3Amt) bp.mod2Amount = juce::jlimit(0.0f, 1.0f, bp.mod2Amount * (1.0f + l2End));
+            if (bp.lfo2Target == LfoTarget::Drift1Depth) baseDrift1Depth = juce::jlimit(0.0f, 1.0f, baseDrift1Depth * (1.0f + l2End));
+            if (bp.lfo2Target == LfoTarget::Drift2Depth) baseDrift2Depth = juce::jlimit(0.0f, 1.0f, baseDrift2Depth * (1.0f + l2End));
+            if (bp.lfo2Target == LfoTarget::Drift3Depth) baseDrift3Depth = juce::jlimit(0.0f, 1.0f, baseDrift3Depth * (1.0f + l2End));
+
+            driftLfo.setLfoDepth(0, baseDrift1Depth);
+            driftLfo.setLfoDepth(1, baseDrift2Depth);
+            driftLfo.setLfoDepth(2, baseDrift3Depth);
         }
 
         // Scan → P1 modulation offset (Sampler mode: retrigger uses it)

@@ -65,7 +65,8 @@ void SequencerPanel::StepColumn::paint(juce::Graphics& g)
         g.setColour(step.enabled ? juce::Colours::white : kDim);
         float fs = juce::jlimit(7.0f, 13.0f, static_cast<float>(w) * 0.24f);
         g.setFont(juce::FontOptions(fs));
-        g.drawText(noteName(semi), noteR, juce::Justification::centredTop);
+        auto noteTextR = noteR.withTrimmedTop(juce::jmin(4, juce::jmax(1, noteR.getHeight() / 12)));
+        g.drawText(noteName(semi), noteTextR, juce::Justification::centredTop);
     }
 
     // ── Velocity horizontal bar (55%–68%) ──
@@ -683,13 +684,11 @@ void SequencerPanel::paint(juce::Graphics& g)
     g.fillAll(kCard);
 
     // MIDI activity LED (next to note display)
-    if (!midiMonitor.getBounds().isEmpty())
+    if (!midiLedBounds.isEmpty())
     {
         bool noteOn = processorRef.lastMidiNoteOn.load(std::memory_order_relaxed);
-        float ledX = static_cast<float>(midiMonitor.getX()) - 12.0f;
-        float ledY = static_cast<float>(midiMonitor.getBounds().getCentreY()) - 4.0f;
         g.setColour(noteOn ? juce::Colour(0xff4ade80) : kDimmer);
-        g.fillEllipse(ledX, ledY, 8.0f, 8.0f);
+        g.fillEllipse(midiLedBounds);
     }
 
     // Separator above step grid
@@ -785,54 +784,170 @@ void SequencerPanel::resized()
 
     int rH = 22;
     int g = 3;
+    const int panelW = getWidth();
+    const bool compactTopRow = panelW < 760;
+    const bool sliderPriorityTopRow = panelW < 700;
+    const bool minimalTopRow = panelW < 560;
 
     // ═══ Row 1: ALWAYS the same — transport, GEN, preset, save/load, steps, division, etc. ═══
     auto r1 = area.removeFromTop(rH);
     transportBtn.setBounds(r1.removeFromLeft(36));  r1.removeFromLeft(g);
     genTransportBtn.setBounds(r1.removeFromLeft(36));  r1.removeFromLeft(g);
 
-    presetBox.setBounds(r1.removeFromLeft(90)); r1.removeFromLeft(2);
-    seqSaveBtn.setBounds(r1.removeFromLeft(rH)); r1.removeFromLeft(1);
-    seqLoadBtn.setBounds(r1.removeFromLeft(rH)); r1.removeFromLeft(g);
-    stepCountBox.setBounds(r1.removeFromLeft(50)); r1.removeFromLeft(g);
-
-    // Division toggle strip (wider to fit "1/16")
-    int divBtnW = 30;
-    for (int i = 0; i < kNumDivBtns; ++i)
+    auto setOctShiftVisible = [this](bool visible)
     {
-        int edges = 0;
-        if (i > 0) edges |= juce::Button::ConnectedOnLeft;
-        if (i < kNumDivBtns - 1) edges |= juce::Button::ConnectedOnRight;
-        divBtns[i].setConnectedEdges(edges);
-        divBtns[i].setBounds(r1.removeFromLeft(divBtnW));
-    }
-    r1.removeFromLeft(g);
-
-    // Octave shift strip [-2][-1][0][+1][+2]
-    int octBtnW = 26;
-    for (int i = 0; i < kNumOctShiftBtns; ++i)
+        for (int i = 0; i < kNumOctShiftBtns; ++i)
+        {
+            octShiftBtns[i].setVisible(visible);
+            if (!visible)
+                octShiftBtns[i].setBounds({});
+        }
+    };
+    auto setDivVisible = [this](bool visible)
     {
-        int edges = 0;
-        if (i > 0) edges |= juce::Button::ConnectedOnLeft;
-        if (i < kNumOctShiftBtns - 1) edges |= juce::Button::ConnectedOnRight;
-        octShiftBtns[i].setConnectedEdges(edges);
-        octShiftBtns[i].setBounds(r1.removeFromLeft(octBtnW));
+        for (int i = 0; i < kNumDivBtns; ++i)
+        {
+            divBtns[i].setVisible(visible);
+            if (!visible)
+                divBtns[i].setBounds({});
+        }
+    };
+
+    const int midiTextW = sliderPriorityTopRow ? (minimalTopRow ? 44 : 48)
+                                             : (compactTopRow ? 56 : 80);
+    const int midiLedW = compactTopRow ? 10 : 14;
+    const int midiGap = compactTopRow ? 2 : 5;
+
+    auto layoutMidiCluster = [this, compactTopRow, midiTextW, midiLedW](juce::Rectangle<int> areaForMidi)
+    {
+        midiMonitor.setVisible(true);
+        midiMonitor.setFont(juce::FontOptions(compactTopRow ? 10.0f : juce::jmax(9.0f, 22.0f * 0.6f)));
+        midiLedBounds = {};
+        if (areaForMidi.getWidth() >= midiLedW + 8)
+        {
+            auto textArea = areaForMidi.removeFromRight(juce::jmin(midiTextW, areaForMidi.getWidth()));
+            midiMonitor.setBounds(textArea);
+            if (areaForMidi.getWidth() > 0)
+            {
+                auto ledArea = areaForMidi.removeFromRight(juce::jmin(midiLedW, areaForMidi.getWidth()));
+                const float dotSize = compactTopRow ? 7.0f : 8.0f;
+                midiLedBounds = juce::Rectangle<float>(dotSize, dotSize)
+                    .withCentre({ static_cast<float>(ledArea.getCentreX()),
+                                  static_cast<float>(textArea.getCentreY()) });
+            }
+        }
+        else
+        {
+            midiMonitor.setBounds(areaForMidi);
+        }
+    };
+
+    if (sliderPriorityTopRow)
+    {
+        presetBox.setVisible(false);      presetBox.setBounds({});
+        stepCountBox.setVisible(false);   stepCountBox.setBounds({});
+        seqSaveBtn.setVisible(false);     seqSaveBtn.setBounds({});
+        seqLoadBtn.setVisible(false);     seqLoadBtn.setBounds({});
+        bpmRow->setVisible(true);
+        gateRow->setVisible(true);
+        setOctShiftVisible(false);
+
+        const int midiClusterW = midiTextW + midiLedW + midiGap;
+        auto midiArea = r1.removeFromRight(juce::jmin(midiClusterW, r1.getWidth()));
+        layoutMidiCluster(midiArea);
+        r1.removeFromRight(1);
+
+        const int sliderGap = 2;
+        const int minSliderW = minimalTopRow ? 88 : 96;
+        const int divBtnW = 20;
+        const int divTotalW = kNumDivBtns * divBtnW;
+        const int minSliderAreaW = minSliderW * 2 + sliderGap;
+
+        if (!minimalTopRow && r1.getWidth() >= divTotalW + g + minSliderAreaW)
+        {
+            setDivVisible(true);
+            for (int i = 0; i < kNumDivBtns; ++i)
+            {
+                int edges = 0;
+                if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+                if (i < kNumDivBtns - 1) edges |= juce::Button::ConnectedOnRight;
+                divBtns[i].setConnectedEdges(edges);
+                divBtns[i].setBounds(r1.removeFromLeft(divBtnW));
+            }
+            r1.removeFromLeft(g);
+        }
+        else
+        {
+            setDivVisible(false);
+        }
+
+        const int sliderAreaW = juce::jmax(0, r1.getWidth());
+        const int eachSliderW = juce::jmax(0, (sliderAreaW - sliderGap) / 2);
+        bpmRow->setBounds(r1.removeFromLeft(eachSliderW));
+        r1.removeFromLeft(sliderGap);
+        gateRow->setBounds(r1.removeFromLeft(eachSliderW));
     }
-    r1.removeFromLeft(g);
+    else
+    {
+        presetBox.setVisible(true);
+        stepCountBox.setVisible(true);
+        seqSaveBtn.setVisible(true);
+        seqLoadBtn.setVisible(true);
+        bpmRow->setVisible(true);
+        gateRow->setVisible(true);
+        setDivVisible(true);
+        setOctShiftVisible(true);
 
-    // MIDI monitor on far right (80 text + 14 for LED dot to the left)
-    r1.removeFromRight(2);
-    midiMonitor.setFont(juce::FontOptions(juce::jmax(9.0f, rH * 0.6f)));
-    midiMonitor.setBounds(r1.removeFromRight(80));
-    r1.removeFromRight(14);
+        const int presetW = compactTopRow ? 72 : 90;
+        const int iconBtnW = compactTopRow ? 18 : rH;
+        const int stepCountW = compactTopRow ? 40 : 50;
+        const int divBtnW = compactTopRow ? 24 : 30;
+        const int octBtnW = compactTopRow ? 20 : 26;
 
-    // BPM (2/3) and Gate (1/3) — BPM needs resolution, gate is less critical
-    int bpmW = r1.getWidth() * 2 / 3 - 1;
-    bpmRow->setBounds(r1.removeFromLeft(bpmW));
-    r1.removeFromLeft(2);
-    gateRow->setBounds(r1);
+        presetBox.setBounds(r1.removeFromLeft(presetW)); r1.removeFromLeft(2);
+        seqSaveBtn.setBounds(r1.removeFromLeft(iconBtnW)); r1.removeFromLeft(1);
+        seqLoadBtn.setBounds(r1.removeFromLeft(iconBtnW)); r1.removeFromLeft(g);
+        stepCountBox.setBounds(r1.removeFromLeft(stepCountW)); r1.removeFromLeft(g);
 
-    area.removeFromTop(g);
+        for (int i = 0; i < kNumDivBtns; ++i)
+        {
+            int edges = 0;
+            if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+            if (i < kNumDivBtns - 1) edges |= juce::Button::ConnectedOnRight;
+            divBtns[i].setConnectedEdges(edges);
+            divBtns[i].setBounds(r1.removeFromLeft(divBtnW));
+        }
+        r1.removeFromLeft(g);
+
+        for (int i = 0; i < kNumOctShiftBtns; ++i)
+        {
+            int edges = 0;
+            if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+            if (i < kNumOctShiftBtns - 1) edges |= juce::Button::ConnectedOnRight;
+            octShiftBtns[i].setConnectedEdges(edges);
+            octShiftBtns[i].setBounds(r1.removeFromLeft(octBtnW));
+        }
+        r1.removeFromLeft(g);
+
+        const int midiClusterW = midiTextW + midiLedW + midiGap;
+        auto midiArea = r1.removeFromRight(juce::jmin(midiClusterW, r1.getWidth()));
+        layoutMidiCluster(midiArea);
+        r1.removeFromRight(compactTopRow ? 1 : 2);
+
+        const int minGateW = compactTopRow ? 112 : 110;
+        const int gapAfterBpm = compactTopRow ? 1 : 2;
+        const int availableForSliders = juce::jmax(0, r1.getWidth());
+        const int bpmMinW = 60;
+        const int maxGateW = juce::jmax(0, availableForSliders - bpmMinW);
+        int gateW = juce::jlimit(juce::jmin(minGateW, maxGateW), maxGateW,
+                                 juce::jmax(minGateW, availableForSliders / 2));
+        int bpmW = juce::jmax(bpmMinW, r1.getWidth() - gateW - gapAfterBpm);
+        bpmRow->setBounds(r1.removeFromLeft(bpmW));
+        r1.removeFromLeft(gapAfterBpm);
+        gateRow->setBounds(r1.removeFromLeft(gateW));
+    }
+
+    area.removeFromTop(compactTopRow ? 5 : g);
 
     // ═══ Row 4 (bottom): Arp controls ═══
     auto r4 = area.removeFromBottom(rH);
