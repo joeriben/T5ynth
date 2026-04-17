@@ -134,9 +134,10 @@ void WavetableOscillator::generateMipLevels(const std::vector<std::vector<float>
 
 // ─── Pitch detection (simplified YIN autocorrelation) ───
 
-float WavetableOscillator::detectPitch(const float* data, int length, double sr)
+WavetableOscillator::PitchEstimate WavetableOscillator::analyzePitchWindow(const float* data,
+                                                                           int length, double sr)
 {
-    if (length < 256) return -1.0f;
+    if (length < 256) return {};
 
     const int halfLen = length / 2;
     std::vector<float> diff(halfLen, 0.0f);
@@ -176,7 +177,7 @@ float WavetableOscillator::detectPitch(const float* data, int length, double sr)
         }
     }
 
-    if (tauEstimate < 0) return -1.0f;
+    if (tauEstimate < 0) return {};
 
     // Parabolic interpolation
     float s0 = diff[std::max(0, tauEstimate - 1)];
@@ -184,7 +185,15 @@ float WavetableOscillator::detectPitch(const float* data, int length, double sr)
     float s2 = diff[std::min(halfLen - 1, tauEstimate + 1)];
     float refinedTau = tauEstimate + 0.5f * (s0 - s2) / (s0 - 2.0f * s1 + s2 + 1e-10f);
 
-    return static_cast<float>(sr / refinedTau);
+    PitchEstimate result;
+    result.hz = static_cast<float>(sr / refinedTau);
+    result.confidence = juce::jlimit(0.0f, 1.0f, 1.0f - s1);
+    return result;
+}
+
+float WavetableOscillator::detectPitch(const float* data, int length, double sr)
+{
+    return analyzePitchWindow(data, length, sr).hz;
 }
 
 // ─── Lanczos sinc interpolation ───
@@ -220,6 +229,52 @@ float WavetableOscillator::lanczosSample(const float* src, int srcLen, double po
     return weightSum > 0.0 ? static_cast<float>(sum / weightSum) : 0.0f;
 }
 
+int WavetableOscillator::nearestZeroCrossing(const float* data, int length, int pos, int maxSearch)
+{
+    if (length < 2) return juce::jlimit(0, juce::jmax(0, length - 1), pos);
+
+    pos = juce::jlimit(0, length - 2, pos);
+    maxSearch = juce::jlimit(0, length - 2, maxSearch);
+
+    for (int d = 0; d <= maxSearch; ++d)
+    {
+        const int fwd = pos + d;
+        if (fwd < length - 1 && data[fwd] * data[fwd + 1] <= 0.0f)
+            return fwd;
+
+        const int bwd = pos - d;
+        if (bwd >= 0 && bwd < length - 1 && data[bwd] * data[bwd + 1] <= 0.0f)
+            return bwd;
+    }
+
+    return pos;
+}
+
+std::vector<float> WavetableOscillator::extractResampledPeriod(const float* data, int totalSamples,
+                                                               double start, double periodSamples)
+{
+    std::vector<float> frame(FRAME_SIZE);
+    for (int i = 0; i < FRAME_SIZE; ++i)
+    {
+        const double srcPos = start + (static_cast<double>(i) / FRAME_SIZE) * periodSamples;
+        frame[i] = lanczosSample(data, totalSamples, srcPos);
+    }
+    return frame;
+}
+
+double WavetableOscillator::computeLoopBoundaryError(const std::vector<float>& frame)
+{
+    if (frame.size() < 4)
+        return 0.0;
+
+    const float boundary = std::abs(frame.front() - frame.back());
+    const float startSlope = frame[1] - frame[0];
+    const float endSlope = frame[static_cast<int>(frame.size()) - 1]
+                         - frame[static_cast<int>(frame.size()) - 2];
+    const float slopeMismatch = std::abs(startSlope - endSlope);
+    return static_cast<double>(boundary) + 0.5 * static_cast<double>(slopeMismatch);
+}
+
 // ─── Frame extraction from audio buffer ───
 
 void WavetableOscillator::extractFramesFromBuffer(const juce::AudioBuffer<float>& buffer, double bufferSr,
@@ -241,14 +296,45 @@ void WavetableOscillator::extractFramesFromBuffer(const juce::AudioBuffer<float>
 
     if (totalSamples < FRAME_SIZE) return;
 
-    // Detect pitch within the extraction region
-    const int analysisLen = std::min(4096, totalSamples);
-    float detectedPitch = detectPitch(data, analysisLen, bufferSr);
-
     std::vector<std::vector<float>> frames;
+    constexpr int analysisWindow = 4096;
+    constexpr int analysisHop = analysisWindow / 2;
+    constexpr float pitchConfidenceThreshold = 0.9f;
+    std::vector<float> pitchCandidates;
 
-    if (detectedPitch > 20.0f && detectedPitch < 5000.0f)
+    if (totalSamples >= 256)
     {
+        if (totalSamples >= analysisWindow)
+        {
+            for (int windowStart = 0; windowStart + analysisWindow <= totalSamples; windowStart += analysisHop)
+            {
+                PitchEstimate estimate = analyzePitchWindow(data + windowStart, analysisWindow, bufferSr);
+                if (estimate.confidence >= pitchConfidenceThreshold
+                    && estimate.hz > 20.0f && estimate.hz < 5000.0f)
+                {
+                    pitchCandidates.push_back(estimate.hz);
+                }
+            }
+        }
+        else
+        {
+            PitchEstimate estimate = analyzePitchWindow(data, totalSamples, bufferSr);
+            if (estimate.confidence >= pitchConfidenceThreshold
+                && estimate.hz > 20.0f && estimate.hz < 5000.0f)
+            {
+                pitchCandidates.push_back(estimate.hz);
+            }
+        }
+    }
+
+    const bool allowPitchSync = !pitchCandidates.empty()
+        && (pitchCandidates.size() >= 2 || totalSamples < analysisWindow * 2);
+
+    if (allowPitchSync)
+    {
+        std::sort(pitchCandidates.begin(), pitchCandidates.end());
+        const float detectedPitch = pitchCandidates[pitchCandidates.size() / 2];
+
         // Pitch-synchronous extraction with adaptive pitch tracking
         double periodSamples = bufferSr / detectedPitch;
         double pos = 0.0;
@@ -258,12 +344,33 @@ void WavetableOscillator::extractFramesFromBuffer(const juce::AudioBuffer<float>
         while (static_cast<int>(pos + periodSamples * 1.5) < totalSamples
                && static_cast<int>(frames.size()) < maxFrames)
         {
-            // Extract one period and resample to FRAME_SIZE via Lanczos
-            std::vector<float> frame(FRAME_SIZE);
-            for (int i = 0; i < FRAME_SIZE; i++)
+            const double baseStart = pos;
+            std::vector<float> frame = extractResampledPeriod(data, totalSamples, baseStart, periodSamples);
+            double bestError = computeLoopBoundaryError(frame);
+            double selectedStart = baseStart;
+
+            const int searchRadius = juce::jlimit(0, totalSamples - 1,
+                static_cast<int>(std::floor(periodSamples * 0.125)));
+            if (searchRadius > 0)
             {
-                double srcPos = pos + (static_cast<double>(i) / FRAME_SIZE) * periodSamples;
-                frame[i] = lanczosSample(data, totalSamples, srcPos);
+                const int baseIndex = juce::jlimit(0, totalSamples - 1,
+                    static_cast<int>(std::round(baseStart)));
+                const int candidateStart = nearestZeroCrossing(data, totalSamples, baseIndex, searchRadius);
+
+                if (candidateStart != baseIndex
+                    && static_cast<double>(candidateStart) + periodSamples <= totalSamples)
+                {
+                    std::vector<float> snapped = extractResampledPeriod(
+                        data, totalSamples, static_cast<double>(candidateStart), periodSamples);
+                    const double snappedError = computeLoopBoundaryError(snapped);
+
+                    if (snappedError + 1.0e-6 < bestError)
+                    {
+                        frame = std::move(snapped);
+                        bestError = snappedError;
+                        selectedStart = static_cast<double>(candidateStart);
+                    }
+                }
             }
 
             // Seamless loop: linear ramp correction at boundary
@@ -272,19 +379,22 @@ void WavetableOscillator::extractFramesFromBuffer(const juce::AudioBuffer<float>
                 frame[i] += diff * static_cast<float>(i) / FRAME_SIZE;
 
             frames.push_back(std::move(frame));
-            pos += periodSamples;
+            pos = selectedStart + periodSamples;
 
             // Re-detect pitch periodically to track evolving content
             if (++framesSinceDetect >= REDETECT_INTERVAL)
             {
                 int intPos = static_cast<int>(pos);
                 int remaining = totalSamples - intPos;
-                int analysisLen = std::min(4096, remaining);
-                if (analysisLen >= 256)
+                int localAnalysisLen = std::min(analysisWindow, remaining);
+                if (localAnalysisLen >= 256)
                 {
-                    float newPitch = detectPitch(data + intPos, analysisLen, bufferSr);
-                    if (newPitch > 20.0f && newPitch < 5000.0f)
-                        periodSamples = bufferSr / newPitch;
+                    PitchEstimate estimate = analyzePitchWindow(data + intPos, localAnalysisLen, bufferSr);
+                    if (estimate.confidence >= pitchConfidenceThreshold
+                        && estimate.hz > 20.0f && estimate.hz < 5000.0f)
+                    {
+                        periodSamples = bufferSr / estimate.hz;
+                    }
                 }
                 framesSinceDetect = 0;
             }

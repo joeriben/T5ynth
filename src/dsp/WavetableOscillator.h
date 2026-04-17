@@ -98,6 +98,11 @@ public:
     void shareFramesFrom(const WavetableOscillator& source);
 
 private:
+    struct PitchEstimate {
+        float hz = -1.0f;
+        float confidence = 0.0f;
+    };
+
     /** Immutable snapshot of mip-mapped frame data.
      *  GUI thread writes to inactive slot, audio thread reads active slot. */
     struct MipData {
@@ -155,7 +160,12 @@ private:
     void generateMipLevels(const std::vector<std::vector<float>>& srcFrames);
 
     // Pitch detection (simplified YIN)
+    static PitchEstimate analyzePitchWindow(const float* data, int length, double sr);
     static float detectPitch(const float* data, int length, double sr);
+    static int nearestZeroCrossing(const float* data, int length, int pos, int maxSearch);
+    static std::vector<float> extractResampledPeriod(const float* data, int totalSamples,
+                                                     double start, double periodSamples);
+    static double computeLoopBoundaryError(const std::vector<float>& frame);
 
     // Lanczos sinc interpolation for frame extraction
     static constexpr int SINC_KERNEL_A = 6;
