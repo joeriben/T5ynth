@@ -20,7 +20,13 @@ compile_commands.json
 # Python backend venv
 backend/venv/
 backend/__pycache__/
+backend/build/
+backend/dist/
 *.pyc
+
+# Local assembled distributions / archives
+dist/
+archives/
 
 # Models (user downloads separately)
 models/
@@ -32,3 +38,7 @@ models/
 .DS_Store
 Thumbs.db
 exported_models/
+
+# Ad-hoc compiled diagnostics
+tools/test_delay_damp
+tools/test_inference

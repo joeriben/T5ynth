@@ -72,25 +72,29 @@ on:
 
 - Pushes to `main` and pull requests run the `macos`, `windows`, and
   `linux` build jobs — but **not** the `release` job.
-- Pushes of a tag matching `v*` run all three build jobs **plus** the
-  `release` job, which is gated by:
+- Pushes of a tag matching `v*` run the `macos` build job plus the
+  `release` job. The `windows` and `linux` jobs are skipped on tags by
+  explicit `if:` guards. The `release` job is gated by:
 
   ```yaml
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [macos, windows, linux]
+    needs: [macos]
   ```
 
 - **Tags are the only way to produce a GitHub Release from CI.** There is no
-  manual dispatch. Do not use the GitHub web UI to cut a release directly —
-  always push a tag.
+  manual dispatch. Do not use the GitHub web UI to cut a release directly,
+  and do not upload locally built assets to an existing release. The release
+  asset must come from the GitHub Actions artifact produced by the tagged run.
+  Always push a tag and let CI publish the release.
 
 ---
 
 ## 4. Build matrix
 
-Three platforms build in parallel. All three must succeed for the `release`
-job to run (declared via `needs: [macos, windows, linux]`).
+On `main` and pull requests, three platforms build in parallel. On tag pushes,
+only the macOS job runs and the `release` job waits for that macOS job
+(`needs: [macos]`).
 
 | Job       | Runner           | Targets                         |
 |-----------|------------------|---------------------------------|
@@ -212,9 +216,8 @@ binary:
 On macOS the backend is embedded directly into
 `T5ynth.app/Contents/Resources/backend/` before the installer is built.
 
-The `release` job downloads all artifacts with `actions/download-artifact`,
-flattens them with `find artifacts -name '*.tar.xz' -exec mv {} release/ \;`,
-also collects `.pkg` / `.exe` installers, and hands the combined set to
+The `release` job downloads artifacts with `actions/download-artifact`,
+collects only `.pkg` files into `release/`, and passes those files to
 `gh release create`.
 
 ### Expected release assets for the current stable line (1 total)
@@ -230,6 +233,10 @@ its own.
 
 If the release page does not contain `T5ynth-macOS-Installer.pkg`, something
 went wrong — investigate before announcing the release.
+
+Hard rule: if CI did not publish `T5ynth-macOS-Installer.pkg`, do not replace
+it by manually uploading a locally built `.pkg`. Fix CI first, then rerun or
+retag so the published asset is traceable to GitHub Actions.
 
 ---
 

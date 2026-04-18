@@ -92,7 +92,6 @@ jobs:
           fi
 
       - name: Import Developer ID certificates
-        if: ${{ secrets.MACOS_APP_CERT_P12_BASE64 != '' && secrets.MACOS_APP_CERT_P12_PASSWORD != '' && secrets.MACOS_PKG_CERT_P12_BASE64 != '' && secrets.MACOS_PKG_CERT_P12_PASSWORD != '' && secrets.MACOS_KEYCHAIN_PASSWORD != '' }}
         env:
           APP_CERT_P12_BASE64: ${{ secrets.MACOS_APP_CERT_P12_BASE64 }}
           APP_CERT_P12_PASSWORD: ${{ secrets.MACOS_APP_CERT_P12_PASSWORD }}
@@ -100,6 +99,11 @@ jobs:
           PKG_CERT_P12_PASSWORD: ${{ secrets.MACOS_PKG_CERT_P12_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
         run: |
+          if [[ -z "$APP_CERT_P12_BASE64" || -z "$APP_CERT_P12_PASSWORD" || -z "$PKG_CERT_P12_BASE64" || -z "$PKG_CERT_P12_PASSWORD" || -z "$KEYCHAIN_PASSWORD" ]]; then
+            echo "Developer ID signing secrets not fully configured; skipping certificate import."
+            exit 0
+          fi
+
           KEYCHAIN="$RUNNER_TEMP/t5ynth-signing.keychain-db"
           APP_CERT="$RUNNER_TEMP/developer-id-application.p12"
           PKG_CERT="$RUNNER_TEMP/developer-id-installer.p12"
@@ -127,11 +131,16 @@ jobs:
           echo "MACOS_PKG_SIGN_IDENTITY=$PKG_IDENTITY" >> "$GITHUB_ENV"
 
       - name: Prepare notary API key
-        if: ${{ secrets.MACOS_NOTARY_API_PRIVATE_KEY != '' && secrets.MACOS_NOTARY_API_KEY_ID != '' && secrets.MACOS_NOTARY_API_ISSUER != '' }}
         env:
           MACOS_NOTARY_API_PRIVATE_KEY: ${{ secrets.MACOS_NOTARY_API_PRIVATE_KEY }}
           MACOS_NOTARY_API_KEY_ID: ${{ secrets.MACOS_NOTARY_API_KEY_ID }}
+          MACOS_NOTARY_API_ISSUER: ${{ secrets.MACOS_NOTARY_API_ISSUER }}
         run: |
+          if [[ -z "$MACOS_NOTARY_API_PRIVATE_KEY" || -z "$MACOS_NOTARY_API_KEY_ID" || -z "$MACOS_NOTARY_API_ISSUER" ]]; then
+            echo "Notary API secrets not fully configured; skipping API key preparation."
+            exit 0
+          fi
+
           KEY_PATH="$RUNNER_TEMP/AuthKey_${MACOS_NOTARY_API_KEY_ID}.p8"
           printf '%s' "$MACOS_NOTARY_API_PRIVATE_KEY" > "$KEY_PATH"
           chmod 600 "$KEY_PATH"
@@ -159,7 +168,7 @@ jobs:
           installer/macos/build_pkg.sh \
             --app   build/T5ynth_artefacts/Release/Standalone/T5ynth.app \
             --presets resources/presets \
-            --version "${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '0.0.0-dev' }}" \
+            --version "${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '0.0.0-alpha.0' }}" \
             --output archives/T5ynth-macOS-Installer.pkg
 
       - name: Upload macOS Installer
