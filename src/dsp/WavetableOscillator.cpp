@@ -20,11 +20,13 @@ void WavetableOscillator::shareFramesFrom(const WavetableOscillator& source)
 {
     sharedSource_ = &source;
     // Copy auto-scan configuration (not per-voice state like pos/direction)
+    autoScan_ = source.autoScan_;
     autoScanIncr_ = source.autoScanIncr_;
     autoScanStartPos_ = source.autoScanStartPos_;
     autoScanLoopStart_ = source.autoScanLoopStart_;
     autoScanLoopEnd_ = source.autoScanLoopEnd_;
     autoScanLoopMode_ = source.autoScanLoopMode_;
+    scanControl_ = source.scanControl_;
 }
 
 // ─── FFT (Radix-2 Cooley-Tukey, in-place) ───
@@ -496,8 +498,10 @@ void WavetableOscillator::retriggerAutoScan()
 
     autoScanPos_ = static_cast<double>(autoScanStartPos_);
     // Jump scan immediately (no smoothing lag on retrigger)
-    targetScanPosition = static_cast<float>(autoScanPos_);
-    smoothedScan = targetScanPosition;
+    const float scanTarget = autoScan_
+        ? juce::jlimit(0.0f, 1.0f, static_cast<float>(autoScanPos_) + scanControl_)
+        : static_cast<float>(autoScanPos_);
+    smoothedScan = scanTarget;
 }
 
 // ─── Contiguous frame extraction (sampler-style) ───
@@ -586,6 +590,8 @@ float WavetableOscillator::processSample()
             targetFrequency = glideFreqTarget;
     }
 
+    float scanTarget = scanControl_;
+
     // Auto-scan: advance scan position per sample (3-point logic)
     if (autoScan_)
     {
@@ -649,11 +655,12 @@ float WavetableOscillator::processSample()
             }
         }
 
-        targetScanPosition = static_cast<float>(autoScanPos_);
+        scanTarget = juce::jlimit(0.0f, 1.0f,
+            static_cast<float>(autoScanPos_) + scanControl_);
     }
 
     // Smooth scan position
-    smoothedScan += (targetScanPosition - smoothedScan) * scanSmoothCoeff;
+    smoothedScan += (scanTarget - smoothedScan) * scanSmoothCoeff;
 
     // Select mip level based on frequency
     const float invBaseFreq = FRAME_SIZE / static_cast<float>(sampleRate);

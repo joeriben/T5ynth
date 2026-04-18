@@ -254,22 +254,13 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
 
     addAndMakeVisible(waveformDisplay);
 
-    // Wire bracket handles: WT mode → extraction region, Sampler → P2/P3
+    // Wire bracket handles: both engines use the same P2/P3 loop semantics.
     waveformDisplay.onLoopRegionChanged = [this](float start, float end) {
-        if (processorRef.isWavetableMode())
-        {
-            processorRef.getSampler().setWtExtractStart(start);
-            processorRef.getSampler().setWtExtractEnd(end);
-        }
-        else
-        {
-            processorRef.getSampler().setLoopStart(start);
-            processorRef.getSampler().setLoopEnd(end);
-        }
+        processorRef.getSampler().setLoopStart(start);
+        processorRef.getSampler().setLoopEnd(end);
         processorRef.getSampler().setPointsLocked(true);
         waveformDisplay.getLockButton().setLocked(true);
 
-        // Re-extract wavetable frames from the updated region
         if (processorRef.isWavetableMode())
             processorRef.reextractWavetable();
     };
@@ -279,6 +270,8 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         processorRef.getSampler().setStartPos(pos);
         processorRef.getSampler().setPointsLocked(true);
         waveformDisplay.getLockButton().setLocked(true);
+        if (processorRef.isWavetableMode())
+            processorRef.reextractWavetable();
     };
 
     // Lock button: toggles P1/P2/P3 preservation across Generate
@@ -516,7 +509,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     smoothToggle.onClick(); // sync initial colors
 
     frameCountLabel.setColour(juce::Label::textColourId, kDimmer);
-    frameCountLabel.setJustificationType(juce::Justification::centredRight);
+    frameCountLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(frameCountLabel);
 
     // ── Section headers — inverted (colored bg, dark text) ──
@@ -717,14 +710,10 @@ void SynthPanel::timerCallback()
         if (sr > 0)
             waveformDisplay.setBufferDuration(static_cast<float>(numSamples / sr));
 
-        // Sync brackets + start position + lock state from processor
-        // WT mode shows its own extraction region, Sampler shows P2/P3
+        // Sync shared P1/P2/P3 playback markers from the processor
         {
-            bool isWT = processorRef.isWavetableMode();
-            float s  = isWT ? processorRef.getSampler().getWtExtractStart()
-                            : processorRef.getSampler().getLoopStart();
-            float e  = isWT ? processorRef.getSampler().getWtExtractEnd()
-                            : processorRef.getSampler().getLoopEnd();
+            float s  = processorRef.getSampler().getLoopStart();
+            float e  = processorRef.getSampler().getLoopEnd();
             float p1 = processorRef.getSampler().getStartPos();
             waveformDisplay.setLoopStart(s);
             waveformDisplay.setLoopEnd(e);
@@ -737,7 +726,7 @@ void SynthPanel::timerCallback()
 
         // Update frame count display
         int nf = processorRef.getMasterOsc().getNumFrames();
-        frameCountLabel.setText(juce::String(nf) + " frames", juce::dontSendNotification);
+        frameCountLabel.setText(juce::String(nf) + "f", juce::dontSendNotification);
     }
 
     // Update ghost targets from modulated values (skip when audio is idle)
@@ -796,10 +785,12 @@ void SynthPanel::updateVisibility()
     bool isWavetable = engineModeHidden.getSelectedId() == 2;
     bool isSampler = !isWavetable;
 
+    // Shared playback traversal controls
+    oneshotBtn.setVisible(true);
+    loopModeBtn.setVisible(true);
+    pingpongBtn.setVisible(true);
+
     // Sampler-only controls
-    oneshotBtn.setVisible(isSampler);
-    loopModeBtn.setVisible(isSampler);
-    pingpongBtn.setVisible(isSampler);
     crossfadeRow->setVisible(isSampler);
     loopOptimizeBtn.setVisible(isSampler);
     normalizeToggle.setVisible(isSampler);
@@ -815,8 +806,7 @@ void SynthPanel::updateVisibility()
     smoothToggle.setVisible(isWavetable);
     frameCountLabel.setVisible(isWavetable);
 
-    // Waveform label changes with mode
-    waveformDisplay.setRegionLabel(isWavetable ? "Extraction region" : "Loop interval");
+    waveformDisplay.setRegionLabel("Loop interval");
 
     if (isSampler)
     {
@@ -1224,27 +1214,33 @@ void SynthPanel::resized()
 
         area.removeFromTop(gap);
 
-        // [32|64|128|256] [Smooth] [N frames] | [White|Pink|Brown] Lvl[===]
+        // [→][↻][⇄] [32|64|128|256] [Smooth] | [Nf] [White|Pink|Brown] Lvl[===]
         auto wtRow = area.removeFromTop(rowH);
-        int colW = (wtRow.getWidth() - 4) / 2;
+        int leftW = juce::roundToInt(wtRow.getWidth() * 0.62f);
+        auto leftCol = wtRow.removeFromLeft(leftW);
+        wtRow.removeFromLeft(4); // column gap
 
-        // ── Left column: frame switchbox + smooth + frame count ──
-        auto leftCol = wtRow.removeFromLeft(colW);
-        int cellW = juce::roundToInt(f * 3.2f);
+        // ── Left column: loop icons + frame switchbox + smooth ──
+        int iconW = juce::roundToInt(f * 2.6f);
+        oneshotBtn.setBounds(leftCol.removeFromLeft(iconW));
+        loopModeBtn.setBounds(leftCol.removeFromLeft(iconW));
+        pingpongBtn.setBounds(leftCol.removeFromLeft(iconW));
+        loopSwitchBounds = oneshotBtn.getBounds().getUnion(pingpongBtn.getBounds());
+        leftCol.removeFromLeft(juce::roundToInt(f * 0.35f));
+
+        int cellW = juce::roundToInt(f * 2.6f);
         for (int i = 0; i < kNumFrameBtns; ++i)
             frameBtns[i].setBounds(leftCol.removeFromLeft(cellW));
         framesSwitchBounds = frameBtns[0].getBounds().getUnion(frameBtns[kNumFrameBtns - 1].getBounds());
-        leftCol.removeFromLeft(juce::roundToInt(f * 0.5f));
+        leftCol.removeFromLeft(juce::roundToInt(f * 0.35f));
 
-        int smoothW = juce::roundToInt(f * 5.0f);
+        int smoothW = juce::jmin(juce::roundToInt(f * 4.2f), leftCol.getWidth());
         smoothToggle.setBounds(leftCol.removeFromLeft(smoothW));
-        leftCol.removeFromLeft(juce::roundToInt(f * 0.5f));
 
-        frameCountLabel.setBounds(leftCol);
-
-        wtRow.removeFromLeft(4); // column gap
-
-        // ── Right column: [White|Pink|Brown] Lvl[===] ──
+        // ── Right column: [Nf] [White|Pink|Brown] Lvl[===] ──
+        int frameCountW = juce::roundToInt(f * 2.8f);
+        frameCountLabel.setBounds(wtRow.removeFromLeft(frameCountW));
+        wtRow.removeFromLeft(juce::roundToInt(f * 0.45f));
         int nCellW = juce::roundToInt(f * 4.0f);
         for (int i = 0; i < kNumNoiseBtns; ++i)
             noiseBtns[i].setBounds(wtRow.removeFromLeft(nCellW));
@@ -1252,7 +1248,7 @@ void SynthPanel::resized()
         noiseLevelRow->setBounds(wtRow);
 
         area.removeFromTop(gap);
-        engineCardBottom = frameBtns[0].getBottom();
+        engineCardBottom = juce::jmax(smoothToggle.getBottom(), noiseLevelRow->getBottom());
     }
     else
     {

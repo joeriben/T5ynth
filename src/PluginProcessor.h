@@ -110,8 +110,20 @@ public:
     void reextractWavetable();
 
 private:
+    struct WtTraversalMapping
+    {
+        float extractStart = 0.0f;
+        float extractEnd = 1.0f;
+        float startInExtract = 0.0f;
+        float loopStartInExtract = 0.0f;
+        float loopEndInExtract = 1.0f;
+        int regionSamples = 0;
+    };
+
     juce::AudioProcessorValueTreeState parameters;
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    WtTraversalMapping makeWtTraversalMapping(int totalSamples) const;
+    void syncWavetableTraversal(double bufferSampleRate, int totalSamples);
 
     // Engine (mode is stored in APVTS "engine_mode", no separate member)
 

@@ -51,8 +51,11 @@ public:
     /** Smooth frequency ramp to target Hz over durationMs (portamento). */
     void glideToFrequency(float hz, float durationMs);
 
-    /** Set scan position (0–1, morphs between frames). */
-    void setScanPosition(float pos) { targetScanPosition = juce::jlimit(0.0f, 1.0f, pos); }
+    /** Set scan control (0–1).
+     *  Without auto-scan this is the absolute frame position.
+     *  With auto-scan it acts as a forward bias on the temporal path. */
+    void setScanPosition(float pos) { scanControl_ = juce::jlimit(0.0f, 1.0f, pos); }
+    float getCurrentScanPosition() const { return juce::jlimit(0.0f, 1.0f, smoothedScan); }
 
     /** Enable/disable Catmull-Rom interpolation between frames. */
     void setInterpolation(bool enabled) { doInterpolate = enabled; }
@@ -128,8 +131,8 @@ private:
     float glideFreqIncr = 0.0f;
     int   glideFreqSamplesLeft = 0;
 
-    // Scan position with smoothing
-    float targetScanPosition = 0.0f;
+    // Scan control + smoothed effective position
+    float scanControl_ = 0.0f;
     float smoothedScan = 0.0f;
     float scanSmoothCoeff = 0.0f;
 

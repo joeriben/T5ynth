@@ -62,10 +62,6 @@ void SynthVoice::noteOn(int note, float velocity, bool legato)
                      / static_cast<double>(tunedHz(60));
         sampler.setTransposeRatio(ratio);
     }
-    else
-    {
-        osc.setAutoScan(false);
-    }
 }
 
 void SynthVoice::noteOff()
@@ -381,8 +377,8 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
         osc.setScanPosition(clampedScan);
 
         sample = osc.processSample();
-        result.modulatedScan = clampedScan;
-        lastModulatedScan_ = clampedScan;
+        result.modulatedScan = osc.getCurrentScanPosition();
+        lastModulatedScan_ = result.modulatedScan;
     }
     else if (!p.engineIsWavetable && sampler.hasAudio())
     {
@@ -563,7 +559,7 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
                 osc.setInterpolation(p.wtSmooth);
 
                 sample = osc.processSample();
-                lastModulatedScan_ = clampedScan;
+                lastModulatedScan_ = osc.getCurrentScanPosition();
             }
 
             // Mix noise oscillator (goes through VCA + filter with the main signal)
