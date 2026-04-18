@@ -40,14 +40,15 @@ private:
     void startDownload();
     void updateStatus();
     void timerCallback() override;
+    void setModelInstallBusy(bool busy, const juce::String& statusText = {});
 
     // Smart Auto-Scan entry point: checks known install paths, and for
-    // SA Small walks the user's Downloads folder looking for the three
+    // SA Small walks the user's Downloads folder looking for the two
     // files they were told to fetch manually from HuggingFace.
     void performAutoScan();
 
     // Try to install SA Small from the given source folder: checks for
-    // the required files, reports missing / wrong / success, copies to
+    // the required files, reports missing / wrong / success, then copies to
     // the target app-support dir on success. Used for both the Downloads
     // folder (primary path) and any folder chosen via the picker fallback.
     // Returns true if the install completed.
@@ -96,6 +97,7 @@ private:
     int64_t totalBytes = 0;
     std::atomic<int64_t> downloadedBytes { 0 };
     std::atomic<bool> downloading { false };
+    std::atomic<bool> modelInstallBusy_ { false };
     bool licenseAccepted_ = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SettingsPage)

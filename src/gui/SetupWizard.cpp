@@ -273,6 +273,23 @@ SettingsPage::SettingsPage()
     setSize(500, 480);
 }
 
+void SettingsPage::setModelInstallBusy(bool busy, const juce::String& statusText)
+{
+    modelInstallBusy_.store(busy);
+    modelChooser.setEnabled(!busy);
+    scanButton.setEnabled(!busy && !downloading.load());
+    browseButton.setEnabled(!busy && !downloading.load());
+    openPageButton.setEnabled(!busy);
+    downloadButton.setEnabled(!busy && !downloading.load());
+
+    if (statusText.isNotEmpty())
+    {
+        downloadStatusLabel.setText(statusText, juce::dontSendNotification);
+        downloadStatusLabel.setColour(juce::Label::textColourId,
+                                      busy ? kAccent : juce::Colour(0xffcccccc));
+    }
+}
+
 // ── Scan ────────────────────────────────────────────────────────────────────
 static juce::File scanForModelById(const juce::String& id, const juce::String& hfRepo)
 {
@@ -339,8 +356,11 @@ void SettingsPage::browseForModel()
         modelPath.exists() ? modelPath : juce::File::getSpecialLocation(juce::File::userHomeDirectory),
         "", true);
     auto modelId = selectedModelId();
+    juce::Component::SafePointer<SettingsPage> safeThis(this);
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
-        [this, modelId](const juce::FileChooser& fc) {
+        [safeThis, modelId](const juce::FileChooser& fc) {
+            auto* self = safeThis.getComponent();
+            if (self == nullptr) return;
             auto result = fc.getResult();
             if (result == juce::File()) return;
             if (!hasModelMarker(result)) {
@@ -349,18 +369,18 @@ void SettingsPage::browseForModel()
                     "Select a folder that contains model_index.json or model_config.json.");
                 return;
             }
-            auto appDir = getAppSupportModelDir(modelId);
+            auto appDir = SettingsPage::getAppSupportModelDir(modelId);
             if (result != appDir) {
                 appDir.getParentDirectory().createDirectory();
                 if (appDir.exists()) appDir.deleteRecursively();
                 appDir.createSymbolicLink(result, false);
             }
-            setModelPath(result);
+            self->setModelPath(result);
         });
 }
 
 // ── Smart Auto-Scan ─────────────────────────────────────────────────────────
-// For SA Small the user follows a manual-download walkthrough (fetch 3 files
+// For SA Small the user follows a manual-download walkthrough (fetch 2 files
 // from HuggingFace to the system Downloads folder). Auto-Scan then hides all
 // path details: it looks there for the files and copies them to the correct
 // app-support location, or guides the user if something is missing / wrong.
@@ -437,62 +457,104 @@ bool SettingsPage::trySaSmallInstallFromFolder(const juce::File& sourceFolder,
                        "by T5ynth and can be deleted to save space:\n  ")
               + wrongFound.joinIntoString("\n  ");
 
-    // Scenario (d): all three required files present — copy and done.
+    // Scenario (d): both required files present — copy and done.
     if (missingNames.isEmpty())
     {
         auto targetDir = getAppSupportModelDir("stable-audio-open-small");
-        if (!targetDir.createDirectory())
-        {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::MessageBoxIconType::WarningIcon,
-                "Could not create model folder",
-                "T5ynth could not create:\n  " + targetDir.getFullPathName()
-                    + "\n\nCheck folder permissions and try again.");
-            return false;
-        }
+        setModelInstallBusy(true,
+            "Copying Stable Audio Open Small into T5ynth. This can take a moment...");
 
-        juce::StringArray copyErrors;
+        juce::Component::SafePointer<SettingsPage> safeThis(this);
+        std::vector<juce::File> requiredFiles;
+        requiredFiles.reserve(static_cast<size_t>(foundRequired.size()));
         for (auto& f : foundRequired)
-        {
-            auto dest = targetDir.getChildFile(f.getFileName());
-            if (dest.existsAsFile()) dest.deleteFile();
-            if (!f.copyFileTo(dest))
-                copyErrors.add(f.getFileName());
-        }
+            requiredFiles.push_back(f);
 
-        if (!copyErrors.isEmpty())
+        std::thread([safeThis, sourceFolder, targetDir, requiredFiles, wrongNote]()
         {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::MessageBoxIconType::WarningIcon,
-                "Copy failed",
-                "Found all required files, but copying failed for:\n  "
-                    + copyErrors.joinIntoString(", ")
-                    + "\n\nCheck disk space and folder permissions in:\n  "
-                    + targetDir.getFullPathName());
-            return false;
-        }
+            juce::String errorTitle;
+            juce::String errorBody;
 
-        if (!hasModelMarker(targetDir))
-        {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::MessageBoxIconType::WarningIcon,
-                "Files copied, but look incomplete",
-                "Files were copied to:\n  " + targetDir.getFullPathName()
-                    + "\n\nBut the model weights look too small. The download may "
-                      "have been interrupted. Re-download model.safetensors from "
-                      "HuggingFace (click 'Open Model Page' above) and try again.");
-            return false;
-        }
+            if (!targetDir.createDirectory())
+            {
+                errorTitle = "Could not create model folder";
+                errorBody = "T5ynth could not create:\n  " + targetDir.getFullPathName()
+                          + "\n\nCheck folder permissions and try again.";
+            }
+            else
+            {
+                juce::StringArray copyErrors;
+                for (const auto& f : requiredFiles)
+                {
+                    auto dest = targetDir.getChildFile(f.getFileName());
+                    if (dest.existsAsFile()) dest.deleteFile();
+                    if (!f.copyFileTo(dest))
+                        copyErrors.add(f.getFileName());
+                }
 
-        setModelPath(targetDir);
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::MessageBoxIconType::InfoIcon,
-            "Stable Audio Open Small -- Installed",
-            "T5ynth copied the model files from:\n  " + sourceFolder.getFullPathName()
-                + "\n\nto:\n  " + targetDir.getFullPathName()
-                + "\n\nThe originals are still in your Downloads folder -- "
-                  "you can delete them now if you want."
-                + wrongNote);
+                if (!copyErrors.isEmpty())
+                {
+                    errorTitle = "Copy failed";
+                    errorBody = "Found all required files, but copying failed for:\n  "
+                              + copyErrors.joinIntoString(", ")
+                              + "\n\nCheck disk space and folder permissions in:\n  "
+                              + targetDir.getFullPathName();
+                }
+                else if (!hasModelMarker(targetDir))
+                {
+                    errorTitle = "Files copied, but look incomplete";
+                    errorBody = "Files were copied to:\n  " + targetDir.getFullPathName()
+                              + "\n\nBut the model weights look too small. The download may "
+                                "have been interrupted. Re-download model.safetensors from "
+                                "HuggingFace (click 'Open Model Page' above) and try again.";
+                }
+            }
+
+            juce::MessageManager::callAsync(
+                [safeThis, sourceFolder, targetDir, wrongNote, errorTitle, errorBody]()
+                {
+                    auto* self = safeThis.getComponent();
+                    if (self == nullptr) return;
+
+                    self->setModelInstallBusy(false);
+
+                    if (errorTitle.isNotEmpty())
+                    {
+                        self->downloadStatusLabel.setText("Model install failed",
+                                                          juce::dontSendNotification);
+                        self->downloadStatusLabel.setColour(juce::Label::textColourId,
+                                                            juce::Colour(0xffef4444));
+                        juce::AlertWindow::showMessageBoxAsync(
+                            juce::MessageBoxIconType::WarningIcon,
+                            errorTitle,
+                            errorBody);
+                        return;
+                    }
+
+                    self->downloadStatusLabel.setText("Model copied. Activating...",
+                                                      juce::dontSendNotification);
+                    self->downloadStatusLabel.setColour(juce::Label::textColourId,
+                                                        juce::Colour(0xff4ade80));
+
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::InfoIcon,
+                        "Stable Audio Open Small -- Installed",
+                        "T5ynth copied the model files from:\n  "
+                            + sourceFolder.getFullPathName()
+                            + "\n\nto:\n  " + targetDir.getFullPathName()
+                            + "\n\nThe originals are still in your Downloads folder -- "
+                              "you can delete them now if you want."
+                            + wrongNote,
+                        "OK",
+                        self,
+                        juce::ModalCallbackFunction::create(
+                            [safeThis, targetDir](int)
+                            {
+                                if (auto* page = safeThis.getComponent())
+                                    page->setModelPath(targetDir);
+                            }));
+                });
+        }).detach();
         return true;
     }
 
@@ -548,6 +610,9 @@ bool SettingsPage::trySaSmallInstallFromFolder(const juce::File& sourceFolder,
 
 void SettingsPage::performAutoScan()
 {
+    if (modelInstallBusy_.load())
+        return;
+
     // 1. Already installed anywhere we recognise?
     auto found = scanForModel();
     if (found.exists())
@@ -603,23 +668,26 @@ void SettingsPage::performAutoScan()
             ? downloads
             : juce::File::getSpecialLocation(juce::File::userHomeDirectory),
         "");
+    juce::Component::SafePointer<SettingsPage> safeThis(this);
     fileChooser->launchAsync(
         juce::FileBrowserComponent::openMode
             | juce::FileBrowserComponent::canSelectDirectories,
-        [this, downloads](const juce::FileChooser& fc)
+        [safeThis, downloads](const juce::FileChooser& fc)
         {
+            auto* self = safeThis.getComponent();
+            if (self == nullptr) return;
             auto folder = fc.getResult();
             if (folder == juce::File())
             {
                 // Cancelled — leave a trail so the user knows nothing happened.
-                downloadStatusLabel.setText(
+                self->downloadStatusLabel.setText(
                     "Auto-Scan cancelled. Follow the instructions below.",
                     juce::dontSendNotification);
-                downloadStatusLabel.setColour(juce::Label::textColourId,
-                                              juce::Colour(0xffef4444));
+                self->downloadStatusLabel.setColour(juce::Label::textColourId,
+                                                    juce::Colour(0xffef4444));
                 return;
             }
-            trySaSmallInstallFromFolder(folder, /*reportIfMissing*/ true);
+            self->trySaSmallInstallFromFolder(folder, /*reportIfMissing*/ true);
         });
 }
 
