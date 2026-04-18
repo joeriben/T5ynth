@@ -717,14 +717,16 @@ PipeInference::Result PipeInference::generate(const Request& request)
     result.seed = header.seed;
     result.generationTimeMs = header.timeMs;
 
-    // Read embedding stats (uint16 num_dims + float32[dims] A + float32[dims] B)
+    // Read embedding stats (uint16 num_dims + float32[dims] A/B/baseline)
     uint16_t numDims = 0;
     if (readExact(&numDims, 2, 5000) && numDims > 0)
     {
         result.embeddingA.resize(numDims);
         result.embeddingB.resize(numDims);
+        result.embeddingBaseline.resize(numDims);
         readExact(result.embeddingA.data(), numDims * static_cast<int>(sizeof(float)), 5000);
         readExact(result.embeddingB.data(), numDims * static_cast<int>(sizeof(float)), 5000);
+        readExact(result.embeddingBaseline.data(), numDims * static_cast<int>(sizeof(float)), 5000);
     }
 
     return result;
@@ -765,8 +767,8 @@ bool PipeInference::preload(const juce::String& model, const juce::String& devic
         readExact(&numDims, 2, 5000);
         if (numDims > 0)
         {
-            std::vector<float> discard(numDims * 2);
-            readExact(discard.data(), numDims * 2 * static_cast<int>(sizeof(float)), 5000);
+            std::vector<float> discard(numDims * 3);
+            readExact(discard.data(), numDims * 3 * static_cast<int>(sizeof(float)), 5000);
         }
         return true;
     }

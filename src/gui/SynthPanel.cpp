@@ -750,6 +750,9 @@ void SynthPanel::timerCallback()
         if (lfo1.depthRow) lfo1.depthRow->setGhostValue(mv.lfo1Depth.load(std::memory_order_relaxed));
         if (lfo2.rateRow)  lfo2.rateRow->setGhostValue(mv.lfo2Rate.load(std::memory_order_relaxed));
         if (lfo2.depthRow) lfo2.depthRow->setGhostValue(mv.lfo2Depth.load(std::memory_order_relaxed));
+        if (drift1.depthRow) drift1.depthRow->setGhostValue(mv.drift1Depth.load(std::memory_order_relaxed));
+        if (drift2.depthRow) drift2.depthRow->setGhostValue(mv.drift2Depth.load(std::memory_order_relaxed));
+        if (drift3.depthRow) drift3.depthRow->setGhostValue(mv.drift3Depth.load(std::memory_order_relaxed));
         if (waveformDisplay.isVisible())
             waveformDisplay.setScanPosition(mv.scanPosition.load(std::memory_order_relaxed));
     }
@@ -761,6 +764,9 @@ void SynthPanel::timerCallback()
     if (lfo1.depthRow) lfo1.depthRow->tickGhost();
     if (lfo2.rateRow)  lfo2.rateRow->tickGhost();
     if (lfo2.depthRow) lfo2.depthRow->tickGhost();
+    if (drift1.depthRow) drift1.depthRow->tickGhost();
+    if (drift2.depthRow) drift2.depthRow->tickGhost();
+    if (drift3.depthRow) drift3.depthRow->tickGhost();
     waveformDisplay.tickScan();
 }
 

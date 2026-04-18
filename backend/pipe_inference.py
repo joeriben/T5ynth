@@ -52,6 +52,62 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message
                     stream=sys.stderr)
 log = logging.getLogger("pipe_inference")
 
+MAX_DIMENSION_OFFSET = 4.0
+
+
+def _sanitize_dimension_offsets(raw_offsets):
+    """Validate and clamp sparse per-dimension offsets from the UI."""
+    if not raw_offsets:
+        return []
+
+    cleaned = []
+    dropped = 0
+    clamped = 0
+
+    for item in raw_offsets:
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            dropped += 1
+            continue
+
+        try:
+            idx = int(item[0])
+            value = float(item[1])
+        except (TypeError, ValueError):
+            dropped += 1
+            continue
+
+        if not math.isfinite(value):
+            dropped += 1
+            continue
+
+        bounded = max(-MAX_DIMENSION_OFFSET, min(MAX_DIMENSION_OFFSET, value))
+        if bounded != value:
+            clamped += 1
+
+        if abs(bounded) <= 1e-8:
+            continue
+
+        cleaned.append((idx, bounded))
+
+    if dropped or clamped:
+        log.warning(
+            "Sanitized dimension offsets: kept=%d, clamped=%d, dropped=%d, limit=%.2f",
+            len(cleaned), clamped, dropped, MAX_DIMENSION_OFFSET,
+        )
+
+    return cleaned
+
+
+def _apply_dimension_offsets(tensor, dim_offsets):
+    """Apply sparse additive offsets to the last tensor dimension."""
+    if not dim_offsets:
+        return
+
+    last_dim = tensor.shape[-1]
+    for idx, value in dim_offsets:
+        if 0 <= idx < last_dim:
+            tensor[:, :, idx] += value
+
 # ─── Model loading ──────────────────────────────────────────────────
 
 def _model_format(model_dir):
@@ -510,7 +566,7 @@ def _generate_audioldm2(wrapper, request):
     steps = request.get("steps", 50)
     cfg_scale = request.get("cfg_scale", 3.5)
     seed = request.get("seed", -1)
-    dim_offsets = request.get("dimension_offsets")
+    dim_offsets = _sanitize_dimension_offsets(request.get("dimension_offsets"))
 
     if seed < 0:
         import random
@@ -590,12 +646,6 @@ def _generate_audioldm2(wrapper, request):
             noise = torch.from_numpy(noise_np).to(manipulated_pe.device) * noise_sigma
             manipulated_pe = manipulated_pe + noise
 
-        # Dimension offsets from DimensionExplorer
-        if dim_offsets:
-            for idx, val in dim_offsets:
-                if 0 <= idx < manipulated_pe.shape[-1]:
-                    manipulated_pe[:, :, idx] += val
-
         # Semantic axes
         sem_axes = request.get("semantic_axes")
         if sem_axes:
@@ -609,6 +659,9 @@ def _generate_audioldm2(wrapper, request):
             manipulated_pe = _apply_semantic_axes(
                 manipulated_pe, sem_axes, audioldm2_encode, "audioldm2"
             )
+
+        # Dimension offsets from DimensionExplorer are always applied last.
+        _apply_dimension_offsets(manipulated_pe, dim_offsets)
 
     offsets_str = f", {len(dim_offsets)} offsets" if dim_offsets else ""
     log.info(f"Generating (AudioLDM2) on {device}: '{prompt_a[:60]}' ({duration}s, {steps} steps, "
@@ -661,7 +714,7 @@ def _generate_native(pipe, request):
     steps = request.get("steps", 8)
     cfg_scale = request.get("cfg_scale", 4.0)
     seed = request.get("seed", -1)
-    dim_offsets = request.get("dimension_offsets")
+    dim_offsets = _sanitize_dimension_offsets(request.get("dimension_offsets"))
 
     if seed < 0:
         import random
@@ -679,6 +732,7 @@ def _generate_native(pipe, request):
 
         # Extract T5 embedding for manipulation: {"prompt": [emb_tensor, None], ...}
         prompt_emb_a = cond_a["prompt"][0]   # [1, seq, 768]
+        mask_a = cond_a["prompt"][1]
 
         # Mean-pool for DimensionExplorer stats (before manipulation)
         # Use attention-style pooling (non-zero tokens)
@@ -687,9 +741,17 @@ def _generate_native(pipe, request):
         if prompt_b:
             cond_b = pipe.model.conditioner([{"prompt": prompt_b, "seconds_total": duration}], device)
             prompt_emb_b = cond_b["prompt"][0]
+            mask_b = cond_b["prompt"][1]
             emb_b_pooled = prompt_emb_b.squeeze(0).mean(dim=0).cpu().float().numpy()
             # Alpha interpolation: 0 = midpoint, -1 = pure A, +1 = pure B
             manipulated = (0.5 - 0.5 * alpha) * prompt_emb_a + (0.5 + 0.5 * alpha) * prompt_emb_b
+            combined_mask = None
+            if mask_a is not None and mask_b is not None:
+                combined_mask = (mask_a | mask_b)
+            elif mask_a is not None:
+                combined_mask = mask_a
+            else:
+                combined_mask = mask_b
             if alpha < -1.0 or alpha > 1.0:
                 ref_norm = prompt_emb_a.norm() if alpha < 0.0 else prompt_emb_b.norm()
                 res_norm = manipulated.norm()
@@ -698,6 +760,7 @@ def _generate_native(pipe, request):
         else:
             emb_b_pooled = np.zeros(768, dtype=np.float32)
             manipulated = prompt_emb_a.clone()
+            combined_mask = mask_a
 
         # Magnitude scaling
         if abs(magnitude - 1.0) > 1e-6:
@@ -710,12 +773,6 @@ def _generate_native(pipe, request):
             noise = torch.from_numpy(noise_np).to(manipulated.device) * noise_sigma
             manipulated = manipulated + noise
 
-        # Dimension offsets from DimensionExplorer
-        if dim_offsets:
-            for idx, val in dim_offsets:
-                if 0 <= idx < manipulated.shape[-1]:
-                    manipulated[:, :, idx] += val
-
         # Apply semantic axes
         sem_axes = request.get("semantic_axes")
         if sem_axes:
@@ -724,15 +781,22 @@ def _generate_native(pipe, request):
                 return cond["prompt"][0], None
             manipulated = _apply_semantic_axes(manipulated, sem_axes, native_encode, "native")
 
+        baseline = manipulated
+        if combined_mask is not None:
+            baseline = baseline * combined_mask.unsqueeze(-1).float()
+        baseline_pooled = baseline.squeeze(0).mean(dim=0).cpu().float().numpy()
+
+        # Dimension offsets from DimensionExplorer are always applied last.
+        _apply_dimension_offsets(manipulated, dim_offsets)
+
         # Re-apply attention mask to zero out padding (native conditioner zeros
         # padding, but manipulations like noise/offsets/axes can pollute it;
         # the DiT disables cross_attn_cond_mask so padding must stay zero)
-        mask = cond_a["prompt"][1]
-        if mask is not None:
-            manipulated = manipulated * mask.unsqueeze(-1).float()
+        if combined_mask is not None:
+            manipulated = manipulated * combined_mask.unsqueeze(-1).float()
 
         # Replace prompt embedding in conditioning tensors
-        cond_a["prompt"] = [manipulated, cond_a["prompt"][1]]
+        cond_a["prompt"] = [manipulated, combined_mask]
 
     offsets_str = f", {len(dim_offsets)} offsets" if dim_offsets else ""
     log.info(f"Generating (native) on {device}: '{prompt_a[:60]}' ({duration}s, {steps} steps, "
@@ -765,7 +829,7 @@ def _generate_native(pipe, request):
     rms = float(np.sqrt(np.mean(audio_np ** 2)))
     peak = float(np.max(np.abs(audio_np)))
     log.info(f"Generated (native) in {elapsed:.1f}s, RMS={rms:.4f}, peak={peak:.4f}, shape={audio_np.shape}")
-    emb_stats = (emb_a_pooled, emb_b_pooled)
+    emb_stats = (emb_a_pooled, emb_b_pooled, baseline_pooled)
     return audio_np, sr, seed, elapsed, emb_stats
 
 
@@ -791,7 +855,7 @@ def generate(pipe, request):
     cfg_scale = request.get("cfg_scale", 7.0)
     seed = request.get("seed", -1)
     cache_as = request.get("cache_as")  # optional: cache latent under this name
-    dim_offsets = request.get("dimension_offsets")  # optional: [[idx, val], ...]
+    dim_offsets = _sanitize_dimension_offsets(request.get("dimension_offsets"))  # optional: [[idx, val], ...]
 
     if seed < 0:
         import random
@@ -826,6 +890,7 @@ def generate(pipe, request):
         if prompt_b:
             emb_b, mask_b = encode_text(prompt_b)
             emb_b_pooled = _mean_pool(emb_b, mask_b)
+            combined_mask = (mask_a | mask_b)
             # alpha: 0 = midpoint, -1 = pure A, +1 = pure B
             manipulated = (0.5 - 0.5 * alpha) * emb_a + (0.5 + 0.5 * alpha) * emb_b
             # Renormalize if extrapolating (|alpha| > 1)
@@ -837,6 +902,7 @@ def generate(pipe, request):
         else:
             emb_b_pooled = np.zeros(768, dtype=np.float32)
             manipulated = emb_a.clone()
+            combined_mask = mask_a
 
         # Magnitude scaling
         if abs(magnitude - 1.0) > 1e-6:
@@ -849,20 +915,20 @@ def generate(pipe, request):
             noise = torch.from_numpy(noise_np).to(manipulated.device) * noise_sigma
             manipulated = manipulated + noise
 
-        # Apply dimension offsets from DimensionExplorer
-        if dim_offsets:
-            for idx, val in dim_offsets:
-                if 0 <= idx < manipulated.shape[-1]:
-                    manipulated[:, :, idx] += val
-
         # Apply semantic axes
         sem_axes = request.get("semantic_axes")
         if sem_axes:
             manipulated = _apply_semantic_axes(manipulated, sem_axes, encode_text, "diffusers")
 
+        baseline_pooled = _mean_pool(manipulated, combined_mask)
+
+        # Apply dimension offsets from DimensionExplorer last so they cannot be
+        # overwritten by later conditioning operations.
+        _apply_dimension_offsets(manipulated, dim_offsets)
+
         # Generate via pipeline with pre-computed embeddings
         neg_embeds = torch.zeros_like(manipulated)
-        neg_mask = torch.ones_like(mask_a)
+        neg_mask = torch.ones_like(combined_mask)
 
         device = next(pipe.transformer.parameters()).device
         cache_str = f", cache_as='{cache_as}'" if cache_as else ""
@@ -876,7 +942,7 @@ def generate(pipe, request):
 
         result = pipe(
             prompt_embeds=manipulated,
-            attention_mask=mask_a,
+            attention_mask=combined_mask,
             negative_prompt_embeds=neg_embeds,
             negative_attention_mask=neg_mask,
             audio_start_in_s=seconds_start,
@@ -910,7 +976,7 @@ def generate(pipe, request):
         elapsed = time.time() - t0
         log.info(f"Generated in {elapsed:.1f}s")
 
-        emb_stats = (emb_a_pooled, emb_b_pooled)
+        emb_stats = (emb_a_pooled, emb_b_pooled, baseline_pooled)
         return audio_np, sr, seed, elapsed, emb_stats
 
 
@@ -933,8 +999,10 @@ def send_ready(devices, default_device, models, default_model):
 def send_audio(audio_np, sr, seed, elapsed_ms, emb_stats=None):
     """Send audio response: \x01 + header + PCM [+ embedding stats].
 
-    If emb_stats is (emb_a[768], emb_b[768]), appends:
-        uint16(num_dims) + float32[num_dims] emb_a + float32[num_dims] emb_b
+    If emb_stats is (emb_a[num_dims], emb_b[num_dims], baseline[num_dims]), appends:
+        uint16(num_dims) + float32[num_dims] emb_a
+                         + float32[num_dims] emb_b
+                         + float32[num_dims] baseline
     """
     channels, samples = audio_np.shape
     pcm = audio_np.astype(np.float32).tobytes()
@@ -943,11 +1011,12 @@ def send_audio(audio_np, sr, seed, elapsed_ms, emb_stats=None):
     sys.stdout.buffer.write(header)
     sys.stdout.buffer.write(pcm)
     if emb_stats is not None:
-        emb_a, emb_b = emb_stats
+        emb_a, emb_b, baseline = emb_stats
         num_dims = len(emb_a)
         sys.stdout.buffer.write(struct.pack('<H', num_dims))
         sys.stdout.buffer.write(emb_a.astype(np.float32).tobytes())
         sys.stdout.buffer.write(emb_b.astype(np.float32).tobytes())
+        sys.stdout.buffer.write(baseline.astype(np.float32).tobytes())
     else:
         sys.stdout.buffer.write(struct.pack('<H', 0))
     sys.stdout.buffer.flush()

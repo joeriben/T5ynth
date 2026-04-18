@@ -1,4 +1,5 @@
 #include "PromptPanel.h"
+#include "DimensionExplorer.h"
 #include "GuiHelpers.h"
 #include "../PluginProcessor.h"
 #include "../dsp/BlockParams.h"
@@ -759,7 +760,7 @@ void PromptPanel::triggerGeneration()
     std::thread([safeThis, processor, req, deviceForLabel, modelForLabel]()
     {
         auto result = processor->getPipeInference().generate(req);
-        juce::MessageManager::callAsync([safeThis, processor, result = std::move(result), deviceForLabel, modelForLabel]()
+        juce::MessageManager::callAsync([safeThis, processor, result = std::move(result), req, deviceForLabel, modelForLabel]()
         {
             if (auto* self = safeThis.getComponent())
             {
@@ -785,8 +786,15 @@ void PromptPanel::triggerGeneration()
                     if (!result.embeddingA.empty())
                     {
                         processor->setLastEmbeddings(result.embeddingA, result.embeddingB);
+                        auto baseline = result.embeddingBaseline;
+                        if (baseline.size() != result.embeddingA.size())
+                        {
+                            baseline = DimensionExplorer::estimateBaselineValues(
+                                result.embeddingA, result.embeddingB,
+                                req.alpha, req.magnitude);
+                        }
                         if (self->onEmbeddingsReady)
-                            self->onEmbeddingsReady(result.embeddingA, result.embeddingB);
+                            self->onEmbeddingsReady(result.embeddingA, result.embeddingB, baseline);
                     }
                 }
                 else
@@ -830,7 +838,7 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
     std::thread([safeThis, processor, req, deviceForLabel, modelForLabel]()
     {
         auto result = processor->getPipeInference().generate(req);
-        juce::MessageManager::callAsync([safeThis, processor, result = std::move(result), deviceForLabel, modelForLabel]()
+        juce::MessageManager::callAsync([safeThis, processor, result = std::move(result), req, deviceForLabel, modelForLabel]()
         {
             if (auto* self = safeThis.getComponent())
             {
@@ -864,8 +872,15 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                     if (!result.embeddingA.empty())
                     {
                         processor->setLastEmbeddings(result.embeddingA, result.embeddingB);
+                        auto baseline = result.embeddingBaseline;
+                        if (baseline.size() != result.embeddingA.size())
+                        {
+                            baseline = DimensionExplorer::estimateBaselineValues(
+                                result.embeddingA, result.embeddingB,
+                                req.alpha, req.magnitude);
+                        }
                         if (self->onEmbeddingsReady)
-                            self->onEmbeddingsReady(result.embeddingA, result.embeddingB);
+                            self->onEmbeddingsReady(result.embeddingA, result.embeddingB, baseline);
                     }
                 }
                 else

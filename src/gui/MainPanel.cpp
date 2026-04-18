@@ -148,8 +148,10 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     };
 
     // Wire PromptPanel → DimensionExplorer (embedding stats after generation)
-    promptPanel.onEmbeddingsReady = [this](const std::vector<float>& a, const std::vector<float>& b) {
-        dimensionExplorer.setEmbeddings(a, b);
+    promptPanel.onEmbeddingsReady = [this](const std::vector<float>& a,
+                                           const std::vector<float>& b,
+                                           const std::vector<float>& baseline) {
+        dimensionExplorer.setEmbeddings(a, b, baseline);
     };
 
     // "Anwenden + generieren" — green, triggers generation with offsets
@@ -178,7 +180,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     // "Alle zurücksetzen" — orange
     dimResetBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff4e2700));
     dimResetBtn.setColour(juce::TextButton::textColourOffId, juce::Colour(0xffff9800));
-    dimResetBtn.onClick = [this] { dimensionExplorer.clear(); dimensionExplorer.repaint(); };
+    dimResetBtn.onClick = [this] { dimensionExplorer.resetOffsets(); };
     dimResetBtn.setVisible(false);
     addChildComponent(dimResetBtn);
 
@@ -746,7 +748,12 @@ bool MainPanel::loadBundledPreset(const char* data, int size, const juce::String
     if (!result.embeddingA.empty())
     {
         processorRef.setLastEmbeddings(result.embeddingA, result.embeddingB);
-        dimensionExplorer.setEmbeddings(result.embeddingA, result.embeddingB);
+        auto& apvts = processorRef.getValueTreeState();
+        auto baseline = DimensionExplorer::estimateBaselineValues(
+            result.embeddingA, result.embeddingB,
+            apvts.getRawParameterValue(PID::genAlpha)->load(),
+            apvts.getRawParameterValue(PID::genMagnitude)->load());
+        dimensionExplorer.setEmbeddings(result.embeddingA, result.embeddingB, baseline, false);
     }
 
     statusBar.setPresetName(result.presetName);
@@ -808,7 +815,12 @@ void MainPanel::loadDefaultPreset()
                 if (!result.embeddingA.empty())
                 {
                     processorRef.setLastEmbeddings(result.embeddingA, result.embeddingB);
-                    dimensionExplorer.setEmbeddings(result.embeddingA, result.embeddingB);
+                    auto& apvts = processorRef.getValueTreeState();
+                    auto baseline = DimensionExplorer::estimateBaselineValues(
+                        result.embeddingA, result.embeddingB,
+                        apvts.getRawParameterValue(PID::genAlpha)->load(),
+                        apvts.getRawParameterValue(PID::genMagnitude)->load());
+                    dimensionExplorer.setEmbeddings(result.embeddingA, result.embeddingB, baseline, false);
                 }
                 statusBar.setPresetName(result.presetName);
                 return;
@@ -1014,7 +1026,12 @@ void MainPanel::loadPreset()
             if (!result.embeddingA.empty())
             {
                 self->processorRef.setLastEmbeddings(result.embeddingA, result.embeddingB);
-                self->dimensionExplorer.setEmbeddings(result.embeddingA, result.embeddingB);
+                auto& apvts = self->processorRef.getValueTreeState();
+                auto baseline = DimensionExplorer::estimateBaselineValues(
+                    result.embeddingA, result.embeddingB,
+                    apvts.getRawParameterValue(PID::genAlpha)->load(),
+                    apvts.getRawParameterValue(PID::genMagnitude)->load());
+                self->dimensionExplorer.setEmbeddings(result.embeddingA, result.embeddingB, baseline, false);
             }
 
             self->statusBar.setPresetName(result.presetName);

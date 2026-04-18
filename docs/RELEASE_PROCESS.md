@@ -217,19 +217,19 @@ flattens them with `find artifacts -name '*.tar.xz' -exec mv {} release/ \;`,
 also collects `.pkg` / `.exe` installers, and hands the combined set to
 `gh release create`.
 
-### Expected release assets (6 total)
+### Expected release assets for the current stable line (1 total)
 
 ```
 T5ynth-macOS-Installer.pkg
-T5ynth-Linux-x86_64-Standalone.tar.xz
-T5ynth-Linux-x86_64-VST3.tar.xz
-T5ynth-Windows-Setup.exe
-T5ynth-Windows-Standalone.tar.xz
-T5ynth-Windows-VST3.tar.xz
 ```
 
-If the release page shows fewer than six assets, something was skipped —
-investigate before announcing the release.
+For the current stable release process, GitHub Releases publish **only** the
+macOS installer. Windows, Linux, VST3 and AU remain planned work, but they are
+not attached to stable tags until each distribution path has been validated on
+its own.
+
+If the release page does not contain `T5ynth-macOS-Installer.pkg`, something
+went wrong — investigate before announcing the release.
 
 ---
 
@@ -246,7 +246,7 @@ Release notes are assembled by the `release` job:
    is appended to `release_notes.md`. This produces a "What's Changed" /
    contributor list section automatically from commit history.
 3. The combined file is passed to `gh release create --notes-file
-   release_notes.md`.
+   release_notes.md`, currently with the macOS installer asset only.
 
 ### Customising release notes
 

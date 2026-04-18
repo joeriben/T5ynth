@@ -72,6 +72,7 @@ public:
         juce::String errorMessage;
         std::vector<float> embeddingA;   // mean-pooled prompt A (768 dims)
         std::vector<float> embeddingB;   // mean-pooled prompt B (768 dims, zeros if no B)
+        std::vector<float> embeddingBaseline; // final conditioning before DimensionExplorer offsets
     };
 
     /** Blocking generation — call from background thread.

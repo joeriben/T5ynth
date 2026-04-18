@@ -41,8 +41,8 @@ public:
     /** Re-read available devices/models after the backend was restarted. */
     void refreshInferenceChoices();
 
-    /** Called after generation with embedding stats (for DimensionExplorer). */
-    std::function<void(const std::vector<float>&, const std::vector<float>&)> onEmbeddingsReady;
+    /** Called after generation with prompt refs + explorer baseline. */
+    std::function<void(const std::vector<float>&, const std::vector<float>&, const std::vector<float>&)> onEmbeddingsReady;
 
     /** Status callback — called with status text (e.g. "generating...", "12.3s | seed 42 | mps") */
     std::function<void(const juce::String&, bool generating)> onStatusChanged;

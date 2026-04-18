@@ -216,6 +216,9 @@ public:
         std::atomic<float> driftAxis1 { NONE };
         std::atomic<float> driftAxis2 { NONE };
         std::atomic<float> driftAxis3 { NONE };
+        std::atomic<float> drift1Depth { NONE };
+        std::atomic<float> drift2Depth { NONE };
+        std::atomic<float> drift3Depth { NONE };
         std::atomic<float> driftNoise { NONE };
         std::atomic<float> driftMagnitude { NONE };
     };

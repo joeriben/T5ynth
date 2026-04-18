@@ -1406,6 +1406,42 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             modulatedValues.lfo2Rate.store(lfo2RateMod ? lfo2.getRate() : NO_GHOST, std::memory_order_relaxed);
             modulatedValues.lfo2Depth.store(lfo2DepthMod ? lfo2.getDepth() : NO_GHOST, std::memory_order_relaxed);
         }
+        else
+        {
+            modulatedValues.lfo1Rate.store(NO_GHOST, std::memory_order_relaxed);
+            modulatedValues.lfo1Depth.store(NO_GHOST, std::memory_order_relaxed);
+            modulatedValues.lfo2Rate.store(NO_GHOST, std::memory_order_relaxed);
+            modulatedValues.lfo2Depth.store(NO_GHOST, std::memory_order_relaxed);
+        }
+
+        // LFO → Drift depth ghosts
+        {
+            auto computeDriftDepthGhost = [&](const char* paramId,
+                                              int target) -> float
+            {
+                bool lfo1Mod = bp.lfo1Target == target;
+                bool lfo2Mod = bp.lfo2Target == target;
+                if (!lfo1Mod && !lfo2Mod)
+                    return NO_GHOST;
+
+                float depth = parameters.getRawParameterValue(paramId)->load();
+                if (lfo1Mod)
+                    depth = juce::jlimit(0.0f, 1.0f, depth * (1.0f + lastLfo1Val_));
+                if (lfo2Mod)
+                    depth = juce::jlimit(0.0f, 1.0f, depth * (1.0f + lastLfo2Val_));
+                return depth;
+            };
+
+            modulatedValues.drift1Depth.store(
+                computeDriftDepthGhost(PID::drift1Depth, LfoTarget::Drift1Depth),
+                std::memory_order_relaxed);
+            modulatedValues.drift2Depth.store(
+                computeDriftDepthGhost(PID::drift2Depth, LfoTarget::Drift2Depth),
+                std::memory_order_relaxed);
+            modulatedValues.drift3Depth.store(
+                computeDriftDepthGhost(PID::drift3Depth, LfoTarget::Drift3Depth),
+                std::memory_order_relaxed);
+        }
 
         // Delay/Reverb ghosts (modulated by env or LFO targeting them)
         {

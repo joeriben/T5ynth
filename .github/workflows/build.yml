@@ -170,6 +170,7 @@ jobs:
 
   # ── Windows ─────────────────────────────────────────────────────
   windows:
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -250,6 +251,7 @@ jobs:
 
   # ── Linux ───────────────────────────────────────────────────────
   linux:
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -337,7 +339,7 @@ jobs:
   # ── Release (only on tags) ──────────────────────────────────────
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [macos, windows, linux]
+    needs: [macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -352,9 +354,7 @@ jobs:
       - name: Collect archives
         run: |
           mkdir -p release
-          find artifacts -name '*.tar.xz' -exec mv {} release/ \;
           find artifacts -name '*.pkg' -exec mv {} release/ \;
-          find artifacts -name '*.exe' -exec mv {} release/ \;
           ls -lh release/
 
       - name: Generate release notes
@@ -375,7 +375,7 @@ jobs:
             *-rc*|*-alpha*|*-beta*) PRERELEASE="--prerelease" ;;
           esac
           gh release create "${{ github.ref_name }}" \
-            release/*.tar.xz release/*.pkg release/*.exe \
+            release/*.pkg \
             --title "T5ynth ${{ github.ref_name }}" \
             --notes-file release_notes.md \
             $PRERELEASE

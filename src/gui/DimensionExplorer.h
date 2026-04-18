@@ -16,14 +16,27 @@ public:
     DimensionExplorer();
     ~DimensionExplorer() override = default;
 
+    /** Estimate the explorer baseline from the last generation settings. */
+    static std::vector<float> estimateBaselineValues(
+        const std::vector<float>& embA,
+        const std::vector<float>& embB,
+        float alpha,
+        float magnitude,
+        const std::vector<std::pair<int, float>>& offsets = {});
+
     void paint(juce::Graphics& g) override;
     void resized() override;
 
     /** Set embedding data from a generation result. */
-    void setEmbeddings(const std::vector<float>& embA, const std::vector<float>& embB);
+    void setEmbeddings(const std::vector<float>& embA, const std::vector<float>& embB,
+                       const std::vector<float>& baselineValues = {},
+                       bool preserveOffsets = true);
 
     /** Clear all data and offsets. */
     void clear();
+
+    /** Reset only user-applied offsets and keep the current embeddings visible. */
+    void resetOffsets();
 
     /** Get current dimension offsets (only non-zero entries). */
     std::vector<std::pair<int, float>> getDimensionOffsets() const;
@@ -60,29 +73,38 @@ private:
     // Sorted bar data
     struct Bar {
         int dimIndex;        // original dimension index (0-767)
-        float baseValue;     // original diff or absolute value
+        float aValue;        // reference value from prompt A
+        float bValue;        // reference value from prompt B (0 if absent)
+        float baseActualValue; // baseline value before the user's local edit
         float offset;        // user-applied offset
-        float displayValue() const { return baseValue + offset; }
     };
     std::vector<Bar> bars_;
 
     // Undo/redo
-    struct UndoState { std::vector<float> offsets; };
+    struct UndoState { std::vector<float> offsets; }; // dense by dimIndex
     std::vector<UndoState> undoStack_;
     int undoPos_ = -1;  // current position in undo stack
     void pushUndoState();
+    UndoState makeUndoState() const;
+    void applyUndoState(const UndoState& state);
 
     bool overlayMode_ = false;
     bool hasUserEdits_ = false;
     int hoveredBar_ = -1;
     int dragBar_ = -1;
-    float dragStartY_ = 0.0f;
-    float dragStartValue_ = 0.0f;
+    int lastPaintBar_ = -1;
+    bool dragDirty_ = false;
+    float valueScaleMax_ = 0.1f;
 
-    void rebuildBars();
+    void rebuildBars(const std::vector<float>& baselineValues, bool preserveOffsets);
     int barAtX(float x) const;
     float valueToY(float value) const;
     float yToValue(float y) const;
+    float barOrientation(const Bar& bar) const;
+    float barMidpoint(const Bar& bar) const;
+    float orientedValue(const Bar& bar, float actualValue) const;
+    float actualValueFromOriented(const Bar& bar, float oriented) const;
+    float displayedActualValue(const Bar& bar) const;
     juce::Rectangle<float> barArea_;  // cached bar drawing area
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DimensionExplorer)
