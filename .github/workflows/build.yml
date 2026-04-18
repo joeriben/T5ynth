@@ -168,7 +168,7 @@ jobs:
           installer/macos/build_pkg.sh \
             --app   build/T5ynth_artefacts/Release/Standalone/T5ynth.app \
             --presets resources/presets \
-            --version "${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '0.0.0-dev' }}" \
+            --version "${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '0.0.0-alpha.0' }}" \
             --output archives/T5ynth-macOS-Installer.pkg
 
       - name: Upload macOS Installer

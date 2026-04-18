@@ -1,6 +1,7 @@
 #pragma once
 #include <cmath>
 #include <array>
+#include <cstdint>
 
 /**
  * Drift LFO system — port of useDriftLfo.ts.
