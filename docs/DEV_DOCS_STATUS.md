@@ -96,7 +96,7 @@ Seven surgical edits after reviewing the Pass 1/1b drafts:
 4. **`docs/ADDING_A_MODEL.md` §2.7 (bundle gotcha)** — removed a leaked
    reference to the editor's private memory file
    `feedback_pyinstaller_multiprocessing.md`; replaced with a pointer to
-   `PYINSTALLER_DIFFUSERS_GUIDE.md` at the repo root.
+   historical PyInstaller notes that used to live at the repo root.
 5. **`docs/ADDING_A_MODEL.md` §9 (testing checklist)** — removed a leaked
    reference to the editor's private memory file `feedback_build_folder.md`
    and corrected a misattribution of `tools/generate_reference.py`

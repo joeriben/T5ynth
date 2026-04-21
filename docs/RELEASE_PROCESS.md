@@ -204,8 +204,6 @@ Each archive contains the platform binary plus:
 
 - `LICENSE.txt`
 - `THIRD_PARTY_LICENSES.txt`
-- `DO_NOT_FORGET.txt` (legacy release notes, bundled on archive-based
-  platforms for simplicity)
 
 On Windows the backend is copied into the distribution alongside the
 binary:

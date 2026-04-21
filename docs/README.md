@@ -58,11 +58,6 @@ In `docs/`:
 - `portierung_09_orchestrierung.csv` — Porting tracking CSV: overall orchestration.
 - `portierung_01_useAudioLooper.ods` — Spreadsheet form of the `useAudioLooper` porting CSV.
 
-At the repo root:
-
-- [`/HANDOVER_AUDIOLDM2.md`](../HANDOVER_AUDIOLDM2.md) — AudioLDM2 integration session notes. Kept for historical context; treat as a snapshot, not current truth.
-- [`/PYINSTALLER_DIFFUSERS_GUIDE.md`](../PYINSTALLER_DIFFUSERS_GUIDE.md) — PyInstaller + Diffusers bundling issues session notes. Kept for historical context; treat as a snapshot, not current truth.
-
 ---
 
 ## I want to…

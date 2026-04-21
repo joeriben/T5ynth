@@ -244,7 +244,6 @@ Verify your new engine does not need any of the excluded libs — add
 exceptions to the regex if it does.
 
 Hostile gotcha: PyInstaller + macOS + multiprocessing is a known landmine.
-See `PYINSTALLER_DIFFUSERS_GUIDE.md` at the repo root for the field report.
 Never add multiprocessing-using packages to `runtime_hook.py`, and always
 test the bundled binary end-to-end through the JUCE app, not only the
 Python source in a venv.

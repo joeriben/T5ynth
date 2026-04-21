@@ -277,8 +277,7 @@ into a single archive.
 
 The spec strips a number of CUDA libraries (cufft, cusparse, cusolver, nccl,
 nvrtc, nvJitLink, cupti, triton) that are present in the wheel but not used
-by inference. This is intentional and saves roughly 800 MB. See
-`PYINSTALLER_DIFFUSERS_GUIDE.md` for the full history.
+by inference. This is intentional and saves roughly 800 MB.
 
 ### 6.1 Smoke-test the bundle
 
@@ -458,10 +457,9 @@ Cause: a known class of issues where PyInstaller's runtime hooks plus
 `multiprocessing.resource_tracker` produce a fork bomb when started under
 the wrong launch conditions.
 
-Fix: see `backend/runtime_hook.py` and `PYINSTALLER_DIFFUSERS_GUIDE.md`
-section "Problem 7: The Fork Bomb". Do not add `multiprocessing`-using
-packages to runtime hooks on macOS without testing the bundle through the
-JUCE app first.
+Fix: see `backend/runtime_hook.py` and keep `multiprocessing`-using packages
+out of runtime hooks on macOS unless you have tested the bundled binary
+end-to-end through the JUCE app.
 
 ### 11.4 `error: no matching constructor for initialization of 'juce::WebBrowserComponent'`
 
@@ -533,6 +531,4 @@ launched, not in the model code.
 - `backend/pipe_inference.spec` — PyInstaller bundling configuration.
 - `backend/runtime_hook.py` — PyInstaller runtime hook (multiprocessing
   workaround).
-- `PYINSTALLER_DIFFUSERS_GUIDE.md` — historical field report on every
-  PyInstaller issue encountered while bringing up CI builds.
 - `docs/IPC_PROTOCOL.md` — JUCE ↔ Python pipe protocol.

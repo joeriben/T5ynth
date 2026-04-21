@@ -214,13 +214,13 @@ jobs:
           cp -R build/T5ynth_artefacts/Release/Standalone/* dist/T5ynth/
           mkdir -p dist/T5ynth/backend
           cp -R backend/dist/pipe_inference/* dist/T5ynth/backend/
-          cp LICENSE.txt THIRD_PARTY_LICENSES.txt DO_NOT_FORGET.txt dist/T5ynth/
+          cp LICENSE.txt THIRD_PARTY_LICENSES.txt dist/T5ynth/
 
       - name: Create archives
         shell: bash
         run: |
           mkdir -p archives
-          cp LICENSE.txt THIRD_PARTY_LICENSES.txt DO_NOT_FORGET.txt build/T5ynth_artefacts/Release/VST3/
+          cp LICENSE.txt THIRD_PARTY_LICENSES.txt build/T5ynth_artefacts/Release/VST3/
           tar -cJf archives/T5ynth-Windows-Standalone.tar.xz -C dist T5ynth
           tar -cJf archives/T5ynth-Windows-VST3.tar.xz \
             -C build/T5ynth_artefacts/Release/VST3 .
@@ -313,7 +313,7 @@ jobs:
           cp build/T5ynth_artefacts/Release/Standalone/T5ynth dist/T5ynth/
           mkdir -p dist/T5ynth/backend
           cp -R backend/dist/pipe_inference/* dist/T5ynth/backend/
-          cp LICENSE.txt THIRD_PARTY_LICENSES.txt DO_NOT_FORGET.txt dist/T5ynth/
+          cp LICENSE.txt THIRD_PARTY_LICENSES.txt dist/T5ynth/
 
       - name: Verify Linux artifact architecture
         run: |
@@ -327,7 +327,7 @@ jobs:
       - name: Create archives
         run: |
           mkdir -p archives
-          cp LICENSE.txt THIRD_PARTY_LICENSES.txt DO_NOT_FORGET.txt build/T5ynth_artefacts/Release/VST3/
+          cp LICENSE.txt THIRD_PARTY_LICENSES.txt build/T5ynth_artefacts/Release/VST3/
           tar -cJf archives/T5ynth-Linux-x86_64-Standalone.tar.xz -C dist T5ynth
           tar -cJf archives/T5ynth-Linux-x86_64-VST3.tar.xz \
             -C build/T5ynth_artefacts/Release/VST3 .
