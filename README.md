@@ -192,35 +192,40 @@ Presets store everything needed for instant recall: synthesis parameters (JSON),
 
 ## Building
 
-### Requirements
+The old minimal snippet in this README was not enough to produce a working
+Linux build. The authoritative build guides now live here:
 
-- **CMake** >= 3.22
-- **C++20** compiler (Clang, GCC, MSVC)
-- **LibTorch** (pre-built, not pip torch) — [download here](https://pytorch.org/get-started/locally/)
-- **libcurl**
-- **Python** >= 3.10 with pip
+- Linux / Fedora 42 install from source: [docs/LINUX_INSTALLATION.md](docs/LINUX_INSTALLATION.md)
+- Cross-platform developer build guide: [docs/DEV_BUILD.md](docs/DEV_BUILD.md)
 
-### Steps
+### Quick Source Build
 
 ```bash
 # Clone
 git clone https://github.com/joeriben/t5ynth.git
 cd t5ynth
 
-# Python backend dependencies
-python3 -m venv .venv
+# Python backend
+python3.11 -m venv .venv --clear
 source .venv/bin/activate
-pip install -r backend/requirements.txt
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install pyinstaller
+python -m pip install torch --index-url https://download.pytorch.org/whl/cu124   # Linux/Windows NVIDIA
+# python -m pip install torch                                                   # macOS or CPU-only fallback
+python -m pip install -r backend/requirements.txt
 
-# Configure (adjust LibTorch path)
-cmake -B build -DCMAKE_PREFIX_PATH=/path/to/libtorch
+# Bundle backend
+( cd backend && pyinstaller pipe_inference.spec --noconfirm )
 
-# Build
-cmake --build build
+# Configure + build
+cmake -S . -B build_clean -DCMAKE_BUILD_TYPE=Release
+cmake --build build_clean --config Release
 
-# Run standalone
-./build/T5ynth_artefacts/Debug/Standalone/T5ynth.app/Contents/MacOS/T5ynth  # macOS
-./build/T5ynth_artefacts/Debug/Standalone/T5ynth                            # Linux
+# Linux standalone layout
+mkdir -p dist/T5ynth/backend
+cp build_clean/T5ynth_artefacts/Release/Standalone/T5ynth dist/T5ynth/
+cp -R backend/dist/pipe_inference/* dist/T5ynth/backend/
+./dist/T5ynth/T5ynth
 ```
 
 ### Model Download
@@ -229,7 +234,7 @@ T5ynth requires at least one diffusion model. Models are not bundled — they mu
 
 Use the **Settings** panel on first launch:
 
-1. **Stable Audio Open Small** — licensed under the [Stability AI Community License](https://stability.ai/community-license-agreement). Gated on HuggingFace: install is a one-time manual step. Click *Open Model Page* in Settings, log in, accept the license, download `model.safetensors`, `model_config.json`, and `LICENSE` to your system Downloads folder, then click *Auto-Scan*. T5ynth finds the files and copies them into the target directory.
+1. **Stable Audio Open Small** — licensed under the [Stability AI Community License](https://stability.ai/community-license-agreement). Gated on HuggingFace: install is a one-time manual step. The user downloads `model.safetensors` and `model_config.json` from HuggingFace, then T5ynth picks them up via *Auto-Scan* or *Browse...* in Settings.
 2. **AudioLDM2** — an academic latent-diffusion text-to-audio model published by CVSSP / University of Surrey and collaborators ([Liu et al., 2023](https://arxiv.org/abs/2308.05734)), released as an open research artefact for studying generalised audio, music, and speech generation from text. Ungated on HuggingFace and the only engine T5ynth can install directly. Licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) — **non-commercial only, no revenue threshold, no exceptions**. Included as an alternative sound source for non-commercial musical exploration.
 3. **Stable Audio Open 1.0** — licensed under the [Stability AI Community License](https://stability.ai/community-license-agreement). Gated on HuggingFace. The model consists of many files in nested subfolders, so the install path is `huggingface-cli` in a terminal. See the in-app instructions.
 
@@ -256,7 +261,7 @@ This means you are free to use, modify, and redistribute T5ynth, provided that d
 - **Stable Audio Open 1.0** — [Stability AI Community License](https://stability.ai/community-license-agreement). The model is not included in this repository. Users download it separately and must accept its license. Powered by Stability AI.
 - **AudioLDM2** — [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). Non-commercial use only. Not included; users download separately.
 - **JUCE Framework** — AGPLv3 (vendored in `JUCE/`)
-- See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for full details.
+- See [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt) for full details.
 
 ### Citation
 
@@ -268,4 +273,3 @@ https://github.com/joeriben/t5ynth
 ```
 
 ---
-

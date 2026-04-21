@@ -626,7 +626,7 @@ void SettingsPage::performAutoScan()
     }
 
     // 2. Model-specific smart scan. Only SA Small is designed for the
-    //    "download 3 files to Downloads, click Auto-Scan" flow.
+    //    "download 2 files to Downloads, click Auto-Scan" flow.
     auto modelId = selectedModelId();
     if (modelId != "stable-audio-open-small")
     {

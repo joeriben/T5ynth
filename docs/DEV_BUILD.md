@@ -40,7 +40,7 @@ in `docs/IPC_PROTOCOL.md`.
 | --- | --- | --- |
 | macOS 14+ on Apple Silicon | MPS (Metal) | Primary development target. |
 | Linux x86_64 (Ubuntu 22.04 / 24.04) | CUDA 12.4 (NVIDIA) | CI target. |
-| Linux x86_64 (Fedora) | CUDA 12.4 (NVIDIA) | Not in CI; package list in this document is an informed guess. |
+| Linux x86_64 (Fedora 42) | CUDA 12.4 (NVIDIA) | Not in CI; package list assembled from Ubuntu CI deps plus Fedora package naming conventions, not yet end-to-end verified. |
 | Windows 11 x86_64 | CUDA 12.4 (NVIDIA) | CI target. MSVC 2022. |
 
 CPU-only fallback works on all three platforms but is too slow for interactive
@@ -137,11 +137,12 @@ one breaks the Linux build.
   case upgrade or pin the 4.1 PPA, since JUCE 8 expects the 4.1 ABI.
 - All other packages match.
 
-Fedora — **not tested by current CI**, supplied as a starting point only:
+Fedora 42 reference:
 
 ```bash
 sudo dnf install -y \
-  cmake gcc-c++ make \
+  cmake gcc-c++ make git pkgconf-pkg-config \
+  python3.11 python3.11-devel python3-pip \
   alsa-lib-devel libcurl-devel freetype-devel \
   libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel \
   libXcomposite-devel libXext-devel libXrender-devel fontconfig-devel \
@@ -181,7 +182,7 @@ running `pip` and `pyinstaller` commands.
 Linux / macOS:
 
 ```bash
-python3 -m venv .venv
+python3 -m venv .venv --clear
 source .venv/bin/activate
 ```
 
@@ -303,11 +304,9 @@ if (!$proc.HasExited) { Stop-Process -Id $proc.Id; "ok" } else { "failed: exit $
 
 ## 7. Configuring and Building the Plugin
 
-The convention used throughout this project — and assumed by every helper
-script and memory note — is the build directory `build_clean/`. Use it. Do
-not invent alternative directories. (CI uses `build/` because the runners
-are ephemeral; locally, `build_clean/` is what every other contributor
-expects.)
+The project-local convention remains `build_clean/`, matching
+[`CLAUDE.md`](../CLAUDE.md). CI uses `build/` on ephemeral runners, but local
+instructions below intentionally stay on `build_clean/`.
 
 ```bash
 cmake -S . -B build_clean -DCMAKE_BUILD_TYPE=Release
@@ -367,8 +366,8 @@ cp -R backend/dist/pipe_inference/* "$APP/Contents/Resources/backend/"
 ```
 
 This is the same step CI runs (see `Assemble app bundle` in
-`.github/workflows/build.yml`), with the build directory swapped from
-`build/` to `build_clean/` to match local convention.
+`.github/workflows/build.yml`), but with the local build directory name changed
+from `build/` to `build_clean/`.
 
 For Linux and Windows builds the equivalent is to place the
 `backend/dist/pipe_inference/` directory next to the `T5ynth` /
