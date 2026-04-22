@@ -72,6 +72,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     manualPanel.setVisible(false);
     addChildComponent(manualPanel);
     manualPanel.addAndMakeVisible(manualWeb);
+    manualWeb.setVisible(false);
 
     manualCloseBtn.setColour(juce::TextButton::buttonColourId, kSurface);
     manualCloseBtn.setColour(juce::TextButton::textColourOffId, kAccent);
@@ -671,6 +672,11 @@ void MainPanel::resized()
         manualWeb.setBounds(inner);
         manualCloseBtn.setBounds(btnRow.removeFromRight(90));
     }
+    else
+    {
+        manualPanel.setBounds({});
+        manualWeb.setBounds(-10000, -10000, 1, 1);
+    }
 
     // Settings overlay (bottom-right, above StatusBar)
     if (settingsVisible)
@@ -907,6 +913,11 @@ void MainPanel::showManual()
     manualScrim.toFront(false);
     manualPanel.setVisible(true);
     manualPanel.toFront(false);
+#if JUCE_LINUX
+    if (manualWeb.getParentComponent() != &manualPanel)
+        manualPanel.addAndMakeVisible(manualWeb);
+#endif
+    manualWeb.setVisible(true);
 
     if (!manualLoaded)
     {
@@ -928,8 +939,14 @@ void MainPanel::hideManual()
     manualVisible = false;
     manualScrim.setVisible(false);
     manualPanel.setVisible(false);
-    // Deliberately keep manualWeb loaded so the next showManual() is
-    // instant — the WebView stays alive as a child of manualPanel.
+    manualWeb.setVisible(false);
+    manualWeb.setBounds(-10000, -10000, 1, 1);
+#if JUCE_LINUX
+    // Linux WebKit child windows can leak through hidden parents; detach the
+    // native view while the overlay is closed to avoid the white artefact.
+    if (manualWeb.getParentComponent() == &manualPanel)
+        manualPanel.removeChildComponent(&manualWeb);
+#endif
 }
 
 // ═══════════════════════════════════════════════════════════════════

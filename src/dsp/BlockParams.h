@@ -129,6 +129,7 @@ namespace PID {
     static constexpr const char* noiseType        = "noise_type";
     static constexpr const char* wtFrames         = "wt_frames";
     static constexpr const char* wtSmooth         = "wt_smooth";
+    static constexpr const char* wtAutoScan       = "wt_auto_scan";
     static constexpr const char* seqMode          = "seq_mode";
     static constexpr const char* seqRunning       = "seq_running";
     static constexpr const char* seqBpm           = "seq_bpm";
@@ -753,5 +754,6 @@ struct BlockParams
     // Engine
     bool engineIsWavetable = false;
     bool wtSmooth = true; // Catmull-Rom frame interpolation
+    bool wtAutoScan = true;
 
 };

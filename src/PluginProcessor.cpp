@@ -156,7 +156,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         // 11s hard cap in the UI — Stable Audio Open Small tops out at 11s
         // and T5ynth is for short sound samples, not music. SA 1.0 can do
         // more internally but the slider stays unified at 11s.
-        juce::NormalisableRange<float>(0.1f, 11.0f, 0.1f, 0.3f), 3.0f));
+        juce::NormalisableRange<float>(0.1f, 11.0f, 0.01f, 0.3f), 3.0f));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{PID::infSteps, 1}, "Steps", 1, 100, 8));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -486,6 +486,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // Wavetable smooth (Catmull-Rom interpolation between frames)
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{PID::wtSmooth, 1}, "WT Smooth", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::wtAutoScan, 1}, "WT Auto Scan", true));
 
     // Master volume: purely attenuative (0dB max). DAW fader handles boost.
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -538,6 +540,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     const int numSamples = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
+    const float seqBpmParam = parameters.getRawParameterValue(PID::seqBpm)->load();
+
+    updateDriftState(numSamples, seqBpmParam);
 
     // ── Idle detection ──────────────────────────────────────────────────────
     bool seqRunning = parameters.getRawParameterValue(PID::seqRunning)->load() > 0.5f;
@@ -554,7 +559,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     if (silentBlockCount > tailBlocks)
     {
         audioIdle.store(true, std::memory_order_relaxed);
-        // Keep free-running LFOs phase-accurate
+        // Keep free-running modulators phase-accurate.
         lfo1.advancePhase(numSamples);
         lfo2.advancePhase(numSamples);
         return;
@@ -656,6 +661,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     // Wavetable smooth
     bp.wtSmooth = parameters.getRawParameterValue(PID::wtSmooth)->load() > 0.5f;
+    bp.wtAutoScan = parameters.getRawParameterValue(PID::wtAutoScan)->load() > 0.5f;
 
     // Engine mode — read directly from APVTS (0=Sampler, 1=Wavetable)
     int engineModeRaw = static_cast<int>(parameters.getRawParameterValue(PID::engineMode)->load());
@@ -667,37 +673,6 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     float masterDb = parameters.getRawParameterValue(PID::masterVol)->load();
     float masterGain = juce::Decibels::decibelsToGain(masterDb);
 
-    // Drift LFOs (block-rate)
-    driftLfo.setRegenMode(static_cast<int>(parameters.getRawParameterValue(PID::driftRegen)->load()));
-    int d1t = static_cast<int>(parameters.getRawParameterValue(PID::drift1Target)->load());
-    int d2t = static_cast<int>(parameters.getRawParameterValue(PID::drift2Target)->load());
-    int d3t = static_cast<int>(parameters.getRawParameterValue(PID::drift3Target)->load());
-    // Auto-enable drift when any target is set (target 0 = "---" = None)
-    bool driftHasTarget = (d1t != 0) || (d2t != 0) || (d3t != 0);
-    // Osc targets (Alpha, Axis1-3, Noise, Magnitude) require regeneration
-    bool hasOsc = false;
-    for (int t : {d1t, d2t, d3t})
-        if ((t >= DriftLFO::TgtAlpha && t <= DriftLFO::TgtAxis3)
-            || t == DriftLFO::TgtNoise || t == DriftLFO::TgtMagnitude) hasOsc = true;
-    driftHasOscTarget.store(hasOsc, std::memory_order_relaxed);
-    driftRegenMode.store(static_cast<int>(parameters.getRawParameterValue(PID::driftRegen)->load()),
-                         std::memory_order_relaxed);
-    bool driftManualEnable = parameters.getRawParameterValue(PID::driftEnabled)->load() > 0.5f;
-    driftLfo.setEnabled(driftHasTarget || driftManualEnable);
-    driftLfo.setLfoRate(0, parameters.getRawParameterValue(PID::drift1Rate)->load());
-    driftLfo.setLfoDepth(0, parameters.getRawParameterValue(PID::drift1Depth)->load());
-    driftLfo.setLfoTarget(0, d1t);
-    driftLfo.setLfoWaveform(0, static_cast<int>(parameters.getRawParameterValue(PID::drift1Wave)->load()));
-    driftLfo.setLfoRate(1, parameters.getRawParameterValue(PID::drift2Rate)->load());
-    driftLfo.setLfoDepth(1, parameters.getRawParameterValue(PID::drift2Depth)->load());
-    driftLfo.setLfoTarget(1, d2t);
-    driftLfo.setLfoWaveform(1, static_cast<int>(parameters.getRawParameterValue(PID::drift2Wave)->load()));
-    driftLfo.setLfoRate(2, parameters.getRawParameterValue(PID::drift3Rate)->load());
-    driftLfo.setLfoDepth(2, parameters.getRawParameterValue(PID::drift3Depth)->load());
-    driftLfo.setLfoTarget(2, d3t);
-    driftLfo.setLfoWaveform(2, static_cast<int>(parameters.getRawParameterValue(PID::drift3Wave)->load()));
-    driftLfo.tick(static_cast<double>(numSamples) / getSampleRate());
-
     // Apply drift offsets to their respective targets
     bp.driftScanOffset   = driftLfo.getOffsetForTarget(DriftLFO::TgtWtScan);
     bp.driftFilterOffset = driftLfo.getOffsetForTarget(DriftLFO::TgtFilter);
@@ -708,35 +683,6 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.ampAmount  = juce::jlimit(0.0f, 1.0f, bp.ampAmount  + driftLfo.getOffsetForTarget(DriftLFO::TgtEnv1Amt));
     bp.mod1Amount = juce::jlimit(0.0f, 1.0f, bp.mod1Amount + driftLfo.getOffsetForTarget(DriftLFO::TgtEnv2Amt));
     bp.mod2Amount = juce::jlimit(0.0f, 1.0f, bp.mod2Amount + driftLfo.getOffsetForTarget(DriftLFO::TgtEnv3Amt));
-
-    // Drift → Osc targets (Alpha, Axes, Noise, Magnitude) — store effective values for GUI ghost + auto-regen
-    {
-        static constexpr float NO_GHOST = std::numeric_limits<float>::quiet_NaN();
-        float alphaOff = driftLfo.getOffsetForTarget(DriftLFO::TgtAlpha);
-        float ax1Off   = driftLfo.getOffsetForTarget(DriftLFO::TgtAxis1);
-        float ax2Off   = driftLfo.getOffsetForTarget(DriftLFO::TgtAxis2);
-        float ax3Off   = driftLfo.getOffsetForTarget(DriftLFO::TgtAxis3);
-        float noiseOff = driftLfo.getOffsetForTarget(DriftLFO::TgtNoise);
-        float magOff   = driftLfo.getOffsetForTarget(DriftLFO::TgtMagnitude);
-        float baseAlpha = parameters.getRawParameterValue(PID::genAlpha)->load();
-        modulatedValues.driftAlpha.store(
-            std::abs(alphaOff) > 0.001f ? baseAlpha + alphaOff : NO_GHOST,
-            std::memory_order_relaxed);
-        modulatedValues.driftAxis1.store(
-            std::abs(ax1Off) > 0.001f ? ax1Off : NO_GHOST, std::memory_order_relaxed);
-        modulatedValues.driftAxis2.store(
-            std::abs(ax2Off) > 0.001f ? ax2Off : NO_GHOST, std::memory_order_relaxed);
-        modulatedValues.driftAxis3.store(
-            std::abs(ax3Off) > 0.001f ? ax3Off : NO_GHOST, std::memory_order_relaxed);
-        float baseNoise = parameters.getRawParameterValue(PID::genNoise)->load();
-        modulatedValues.driftNoise.store(
-            std::abs(noiseOff) > 0.001f ? baseNoise + noiseOff : NO_GHOST,
-            std::memory_order_relaxed);
-        float baseMag = parameters.getRawParameterValue(PID::genMagnitude)->load();
-        modulatedValues.driftMagnitude.store(
-            std::abs(magOff) > 0.001f ? baseMag + magOff : NO_GHOST,
-            std::memory_order_relaxed);
-    }
 
     // ── Sampler settings ─────────────────────────────────────────────────────
     int loopModeIdx = static_cast<int>(parameters.getRawParameterValue(PID::loopMode)->load());
@@ -1536,15 +1482,79 @@ void T5ynthProcessor::syncWavetableTraversal(double bufferSampleRate, int totalS
 
     masterOsc.setAutoScanStartPos(mapping.startInExtract);
     masterOsc.setAutoScanLoop(mapping.loopStartInExtract, mapping.loopEndInExtract, oscLoopMode);
-    if (loopMode == SamplePlayer::LoopMode::OneShot)
-    {
-        masterOsc.setAutoScan(false);
-    }
-    else
+    if (parameters.getRawParameterValue(PID::wtAutoScan)->load() > 0.5f)
     {
         masterOsc.setAutoScan(true);
         masterOsc.setAutoScanRate(bufferSampleRate, mapping.regionSamples);
     }
+    else
+    {
+        masterOsc.setAutoScan(false);
+    }
+}
+
+void T5ynthProcessor::updateDriftState(int numSamples, float seqBpm)
+{
+    driftLfo.setRegenMode(static_cast<int>(parameters.getRawParameterValue(PID::driftRegen)->load()));
+
+    const int d1t = static_cast<int>(parameters.getRawParameterValue(PID::drift1Target)->load());
+    const int d2t = static_cast<int>(parameters.getRawParameterValue(PID::drift2Target)->load());
+    const int d3t = static_cast<int>(parameters.getRawParameterValue(PID::drift3Target)->load());
+
+    bool driftHasTarget = (d1t != 0) || (d2t != 0) || (d3t != 0);
+    bool hasOsc = false;
+    for (int t : { d1t, d2t, d3t })
+        if ((t >= DriftLFO::TgtAlpha && t <= DriftLFO::TgtAxis3)
+            || t == DriftLFO::TgtNoise || t == DriftLFO::TgtMagnitude)
+            hasOsc = true;
+
+    driftHasOscTarget.store(hasOsc, std::memory_order_relaxed);
+    driftRegenMode.store(static_cast<int>(parameters.getRawParameterValue(PID::driftRegen)->load()),
+                         std::memory_order_relaxed);
+    driftRegenBpm.store(seqBpm, std::memory_order_relaxed);
+
+    bool driftManualEnable = parameters.getRawParameterValue(PID::driftEnabled)->load() > 0.5f;
+    driftLfo.setEnabled(driftHasTarget || driftManualEnable);
+    driftLfo.setLfoRate(0, parameters.getRawParameterValue(PID::drift1Rate)->load());
+    driftLfo.setLfoDepth(0, parameters.getRawParameterValue(PID::drift1Depth)->load());
+    driftLfo.setLfoTarget(0, d1t);
+    driftLfo.setLfoWaveform(0, static_cast<int>(parameters.getRawParameterValue(PID::drift1Wave)->load()));
+    driftLfo.setLfoRate(1, parameters.getRawParameterValue(PID::drift2Rate)->load());
+    driftLfo.setLfoDepth(1, parameters.getRawParameterValue(PID::drift2Depth)->load());
+    driftLfo.setLfoTarget(1, d2t);
+    driftLfo.setLfoWaveform(1, static_cast<int>(parameters.getRawParameterValue(PID::drift2Wave)->load()));
+    driftLfo.setLfoRate(2, parameters.getRawParameterValue(PID::drift3Rate)->load());
+    driftLfo.setLfoDepth(2, parameters.getRawParameterValue(PID::drift3Depth)->load());
+    driftLfo.setLfoTarget(2, d3t);
+    driftLfo.setLfoWaveform(2, static_cast<int>(parameters.getRawParameterValue(PID::drift3Wave)->load()));
+    driftLfo.tick(static_cast<double>(numSamples) / getSampleRate());
+
+    static constexpr float NO_GHOST = std::numeric_limits<float>::quiet_NaN();
+    const float alphaOff = driftLfo.getOffsetForTarget(DriftLFO::TgtAlpha);
+    const float ax1Off   = driftLfo.getOffsetForTarget(DriftLFO::TgtAxis1);
+    const float ax2Off   = driftLfo.getOffsetForTarget(DriftLFO::TgtAxis2);
+    const float ax3Off   = driftLfo.getOffsetForTarget(DriftLFO::TgtAxis3);
+    const float noiseOff = driftLfo.getOffsetForTarget(DriftLFO::TgtNoise);
+    const float magOff   = driftLfo.getOffsetForTarget(DriftLFO::TgtMagnitude);
+    const float baseAlpha = parameters.getRawParameterValue(PID::genAlpha)->load();
+    const float baseNoise = parameters.getRawParameterValue(PID::genNoise)->load();
+    const float baseMag = parameters.getRawParameterValue(PID::genMagnitude)->load();
+
+    modulatedValues.driftAlpha.store(
+        std::abs(alphaOff) > 0.001f ? baseAlpha + alphaOff : NO_GHOST,
+        std::memory_order_relaxed);
+    modulatedValues.driftAxis1.store(
+        std::abs(ax1Off) > 0.001f ? ax1Off : NO_GHOST, std::memory_order_relaxed);
+    modulatedValues.driftAxis2.store(
+        std::abs(ax2Off) > 0.001f ? ax2Off : NO_GHOST, std::memory_order_relaxed);
+    modulatedValues.driftAxis3.store(
+        std::abs(ax3Off) > 0.001f ? ax3Off : NO_GHOST, std::memory_order_relaxed);
+    modulatedValues.driftNoise.store(
+        std::abs(noiseOff) > 0.001f ? baseNoise + noiseOff : NO_GHOST,
+        std::memory_order_relaxed);
+    modulatedValues.driftMagnitude.store(
+        std::abs(magOff) > 0.001f ? baseMag + magOff : NO_GHOST,
+        std::memory_order_relaxed);
 }
 
 bool T5ynthProcessor::isWavetableMode() const
@@ -1565,7 +1575,6 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
     // Store raw audio (unmodified) for preset embedding and re-apply on toggle
     if (&audioBuffer != &generatedAudioRaw)
         generatedAudioRaw.makeCopyOf(audioBuffer);
-    generatedSampleRate = sr;
 
     // Rumble filter — always on, removes DC/sub-bass from VAE output
     juce::AudioBuffer<float> cleanBuffer;
@@ -1578,23 +1587,26 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
         applyHfBoost(cleanBuffer, sr);
     const auto& feedBuffer = cleanBuffer;
 
-    // Keep generatedAudioFull in sync (used for waveform display + presets)
-    generatedAudioFull.makeCopyOf(feedBuffer);
-
-    const auto samplerLoopMode = masterSampler.getLoopMode();
-    const bool autoPositionPoints = !masterSampler.getPointsLocked();
+    SamplePlayer::LoopMode samplerLoopMode = SamplePlayer::LoopMode::Loop;
+    bool autoPositionPoints = false;
+    float prevP1 = 0.0f;
+    {
+        const juce::ScopedLock sl (getCallbackLock());
+        samplerLoopMode = masterSampler.getLoopMode();
+        autoPositionPoints = !masterSampler.getPointsLocked();
+        prevP1 = masterSampler.getStartPos();
+    }
 
     // ── Auto-position P1/P2/P3 BEFORE loadBuffer so that preparePlaybackBuffer
     //    (which runs normalization) already sees the correct region. ──────
+    float loopStartFrac = 0.0f;
+    float loopEndFrac   = 1.0f;
+    float activeStartFrac = 0.0f;
+    float activeEndFrac   = 1.0f;
+
     if (autoPositionPoints)
     {
-        float prevP1 = masterSampler.getStartPos();
-
         const int numSamples = feedBuffer.getNumSamples();
-        float activeStartFrac = 0.0f;
-        float activeEndFrac   = 1.0f;
-        float loopStartFrac   = 0.0f;
-        float loopEndFrac     = 1.0f;
 
         if (numSamples > 0)
         {
@@ -1703,100 +1715,120 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
             }
         }
 
-        masterSampler.setLoopStart(loopStartFrac);
-        masterSampler.setLoopEnd(loopEndFrac);
-
-        // P1: preserve the user's choice where possible, but clamp against the
-        // active audio region rather than the loop window.
-        if (prevP1 < activeStartFrac || prevP1 > activeEndFrac)
-            masterSampler.setStartPos(activeStartFrac);
     }
 
-    // Keep currently sounding sampler notes on their old snapshot so a
-    // regenerate only affects newly triggered notes.
-    voiceManager.freezeActiveSamplerVoices();
-
-    // Feed the sampler/voice chain — preparePlaybackBuffer now sees the
-    // correct P2/P3, so normalization targets the right region.
-    masterSampler.loadBuffer(feedBuffer, sr);
-
-    const auto wtMapping = makeWtTraversalMapping(feedBuffer.getNumSamples());
-    float extractStart = isWavetableMode() ? wtMapping.extractStart
-                                           : masterSampler.getLoopStart();
-    float extractEnd   = isWavetableMode() ? wtMapping.extractEnd
-                                           : masterSampler.getLoopEnd();
-
-    // WT frame count: 0=32, 1=64, 2=128, 3=256
-    constexpr int frameCounts[] = {32, 64, 128, 256};
-    int fcIdx = static_cast<int>(parameters.getRawParameterValue(PID::wtFrames)->load());
-    int maxFrames = frameCounts[juce::jlimit(0, 3, fcIdx)];
-
-    if (isWavetableMode())
     {
-        // Pitch-synchronous extraction (one frame per detected period)
-        masterOsc.extractFramesFromBuffer(feedBuffer, sr, extractStart, extractEnd, maxFrames);
-    }
-    else
-    {
-        // Contiguous extraction for sampler mode (one frame per FRAME_SIZE chunk)
-        masterOsc.extractContiguousFrames(feedBuffer, sr, extractStart, extractEnd);
-    }
+        // Guard engine-state mutation against the realtime callback. The Linux
+        // standalone path takes this same lock around processBlock().
+        const juce::ScopedLock sl (getCallbackLock());
 
-    syncWavetableTraversal(sr, feedBuffer.getNumSamples());
+        generatedSampleRate = sr;
 
-    voiceManager.distributeSamplerBuffer(masterSampler);
-    voiceManager.distributeWavetableFrames(masterOsc);
+        // Keep generatedAudioFull in sync (used for waveform display + presets)
+        generatedAudioFull.makeCopyOf(feedBuffer);
 
-    samplerProcessorDebugLog("loadGeneratedAudio end masterAfter={" + masterSampler.debugStateString() + "}");
-
-    // Snapshot channel 0 for waveform display
-    if (feedBuffer.getNumChannels() > 0 && feedBuffer.getNumSamples() > 0)
-    {
-        waveformSnapshot.setSize(1, feedBuffer.getNumSamples(), false, false, true);
-        waveformSnapshot.copyFrom(0, 0, feedBuffer, 0, 0, feedBuffer.getNumSamples());
-
-        // Normalize display when wavetable mode or sampler normalize is active
-        bool normDisplay = isWavetableMode()
-            || (parameters.getRawParameterValue(PID::normalize)->load() > 0.5f);
-        if (normDisplay)
+        if (autoPositionPoints)
         {
-            float peak = 0.0f;
-            const float* d = waveformSnapshot.getReadPointer(0);
-            for (int i = 0; i < waveformSnapshot.getNumSamples(); ++i)
-                peak = std::max(peak, std::abs(d[i]));
-            if (peak > 0.001f)
-                waveformSnapshot.applyGain(0.95f / peak);
+            masterSampler.setLoopStart(loopStartFrac);
+            masterSampler.setLoopEnd(loopEndFrac);
+
+            // P1: preserve the user's choice where possible, but clamp against
+            // the active audio region rather than the loop window.
+            if (prevP1 < activeStartFrac || prevP1 > activeEndFrac)
+                masterSampler.setStartPos(activeStartFrac);
         }
 
-        newWaveformReady.store(true, std::memory_order_release);
-    }
+        // Keep currently sounding sampler notes on their old snapshot so a
+        // regenerate only affects newly triggered notes.
+        voiceManager.freezeActiveSamplerVoices();
 
+        // Feed the sampler/voice chain — preparePlaybackBuffer now sees the
+        // correct P2/P3, so normalization targets the right region.
+        masterSampler.loadBuffer(feedBuffer, sr);
+
+        const auto wtMapping = makeWtTraversalMapping(feedBuffer.getNumSamples());
+        float extractStart = isWavetableMode() ? wtMapping.extractStart
+                                               : masterSampler.getLoopStart();
+        float extractEnd   = isWavetableMode() ? wtMapping.extractEnd
+                                               : masterSampler.getLoopEnd();
+
+        // WT frame count: 0=32, 1=64, 2=128, 3=256
+        constexpr int frameCounts[] = {32, 64, 128, 256};
+        int fcIdx = static_cast<int>(parameters.getRawParameterValue(PID::wtFrames)->load());
+        int maxFrames = frameCounts[juce::jlimit(0, 3, fcIdx)];
+
+        if (isWavetableMode())
+        {
+            // Pitch-synchronous extraction (one frame per detected period)
+            masterOsc.extractFramesFromBuffer(feedBuffer, sr, extractStart, extractEnd, maxFrames);
+        }
+        else
+        {
+            // Contiguous extraction for sampler mode (one frame per FRAME_SIZE chunk)
+            masterOsc.extractContiguousFrames(feedBuffer, sr, extractStart, extractEnd);
+        }
+
+        syncWavetableTraversal(sr, feedBuffer.getNumSamples());
+
+        voiceManager.distributeSamplerBuffer(masterSampler);
+        voiceManager.distributeWavetableFrames(masterOsc);
+
+        samplerProcessorDebugLog("loadGeneratedAudio end masterAfter={" + masterSampler.debugStateString() + "}");
+
+        // Snapshot channel 0 for waveform display
+        if (feedBuffer.getNumChannels() > 0 && feedBuffer.getNumSamples() > 0)
+        {
+            waveformSnapshot.setSize(1, feedBuffer.getNumSamples(), false, false, true);
+            waveformSnapshot.copyFrom(0, 0, feedBuffer, 0, 0, feedBuffer.getNumSamples());
+
+            // Normalize display when wavetable mode or sampler normalize is active
+            bool normDisplay = isWavetableMode()
+                || (parameters.getRawParameterValue(PID::normalize)->load() > 0.5f);
+            if (normDisplay)
+            {
+                float peak = 0.0f;
+                const float* d = waveformSnapshot.getReadPointer(0);
+                for (int i = 0; i < waveformSnapshot.getNumSamples(); ++i)
+                    peak = std::max(peak, std::abs(d[i]));
+                if (peak > 0.001f)
+                    waveformSnapshot.applyGain(0.95f / peak);
+            }
+
+            newWaveformReady.store(true, std::memory_order_release);
+        }
+    }
 }
 
 void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& processed)
 {
     samplerProcessorDebugLog("reloadProcessedAudio begin samples=" + juce::String(processed.getNumSamples())
                              + " masterBefore={" + masterSampler.debugStateString() + "}");
-    // Update stored audio and reload into sampler without Rumble/HF/Normalize
-    generatedAudioFull.makeCopyOf(processed);
-    voiceManager.freezeActiveSamplerVoices();
-    masterSampler.loadBuffer(processed, generatedSampleRate);
-    voiceManager.distributeSamplerBuffer(masterSampler);
-
-    samplerProcessorDebugLog("reloadProcessedAudio end masterAfter={" + masterSampler.debugStateString() + "}");
-
-    if (processed.getNumChannels() > 0 && processed.getNumSamples() > 0)
     {
-        waveformSnapshot.setSize(1, processed.getNumSamples(), false, false, true);
-        waveformSnapshot.copyFrom(0, 0, processed, 0, 0, processed.getNumSamples());
-        if (masterOsc.hasFrames())
-            reextractWavetable();
-        newWaveformReady.store(true, std::memory_order_release);
+        const juce::ScopedLock sl (getCallbackLock());
+
+        // Update stored audio and reload into sampler without Rumble/HF/Normalize
+        generatedAudioFull.makeCopyOf(processed);
+        voiceManager.freezeActiveSamplerVoices();
+        masterSampler.loadBuffer(processed, generatedSampleRate);
+        voiceManager.distributeSamplerBuffer(masterSampler);
+
+        samplerProcessorDebugLog("reloadProcessedAudio end masterAfter={" + masterSampler.debugStateString() + "}");
+
+        if (processed.getNumChannels() > 0 && processed.getNumSamples() > 0)
+        {
+            waveformSnapshot.setSize(1, processed.getNumSamples(), false, false, true);
+            waveformSnapshot.copyFrom(0, 0, processed, 0, 0, processed.getNumSamples());
+            if (masterOsc.hasFrames())
+                reextractWavetable();
+            newWaveformReady.store(true, std::memory_order_release);
+        }
     }
 }
 
 void T5ynthProcessor::reextractWavetable()
 {
+    const juce::ScopedLock sl (getCallbackLock());
+
     if (waveformSnapshot.getNumSamples() > 0)
     {
         const auto wtMapping = makeWtTraversalMapping(waveformSnapshot.getNumSamples());
@@ -2099,6 +2131,7 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     wt->setProperty("noiseType", choiceToKey(static_cast<int>(get(PID::noiseType)), NoiseKind::kEntries));
     wt->setProperty("frames", choiceToKey(static_cast<int>(get(PID::wtFrames)), WtFrames::kEntries));
     wt->setProperty("smooth", get(PID::wtSmooth) > 0.5f);
+    wt->setProperty("autoScan", get(PID::wtAutoScan) > 0.5f);
     root->setProperty("wavetable", wt.get());
 
     // Effects
@@ -2216,21 +2249,24 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         // Restore P1/P2/P3 directly — the explicit pointsLocked flag gates
         // auto-bracketing in loadGeneratedAudio so no pending-apply dance is
         // needed. Older v3 presets without the flag default to unlocked.
-        masterSampler.setLoopStart(static_cast<float>(engine->getProperty("loopStartFrac")));
-        masterSampler.setLoopEnd(static_cast<float>(engine->getProperty("loopEndFrac")));
-        masterSampler.setStartPos(static_cast<float>(engine->getProperty("startPosFrac")));
-        // WT extraction region (fallback to P2/P3 for presets without it)
-        if (engine->hasProperty("wtExtractStart"))
         {
-            masterSampler.setWtExtractStart(static_cast<float>(engine->getProperty("wtExtractStart")));
-            masterSampler.setWtExtractEnd(static_cast<float>(engine->getProperty("wtExtractEnd")));
+            const juce::ScopedLock sl (getCallbackLock());
+            masterSampler.setLoopStart(static_cast<float>(engine->getProperty("loopStartFrac")));
+            masterSampler.setLoopEnd(static_cast<float>(engine->getProperty("loopEndFrac")));
+            masterSampler.setStartPos(static_cast<float>(engine->getProperty("startPosFrac")));
+            // WT extraction region (fallback to P2/P3 for presets without it)
+            if (engine->hasProperty("wtExtractStart"))
+            {
+                masterSampler.setWtExtractStart(static_cast<float>(engine->getProperty("wtExtractStart")));
+                masterSampler.setWtExtractEnd(static_cast<float>(engine->getProperty("wtExtractEnd")));
+            }
+            else
+            {
+                masterSampler.setWtExtractStart(masterSampler.getLoopStart());
+                masterSampler.setWtExtractEnd(masterSampler.getLoopEnd());
+            }
+            masterSampler.setPointsLocked(static_cast<bool>(engine->getProperty("pointsLocked")));
         }
-        else
-        {
-            masterSampler.setWtExtractStart(masterSampler.getLoopStart());
-            masterSampler.setWtExtractEnd(masterSampler.getLoopEnd());
-        }
-        masterSampler.setPointsLocked(static_cast<bool>(engine->getProperty("pointsLocked")));
         setParam(parameters, PID::crossfadeMs, static_cast<float>(engine->getProperty("crossfadeMs")));
         setParam(parameters, PID::normalize, static_cast<bool>(engine->getProperty(PID::normalize)) ? 1.0f : 0.0f);
         setParam(parameters, PID::loopOptimize,
@@ -2319,6 +2355,8 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         setParam(parameters, PID::wtFrames,
                  static_cast<float>(choiceFromKey(wt->getProperty("frames").toString(), WtFrames::kEntries)));
         setParam(parameters, PID::wtSmooth, wt->getProperty("smooth") ? 1.0f : 0.0f);
+        bool autoScan = wt->hasProperty("autoScan") ? static_cast<bool>(wt->getProperty("autoScan")) : true;
+        setParam(parameters, PID::wtAutoScan, autoScan ? 1.0f : 0.0f);
     }
 
     // ── Effects ──

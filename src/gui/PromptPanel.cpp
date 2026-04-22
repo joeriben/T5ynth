@@ -110,10 +110,10 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     // Duration
     makeSlider(durationSlider, this);
     makeLabel(durLabel, "Duration", kDim, juce::Justification::centredLeft, this);
-    makeLabel(durValue, "3.0s", kOscCol, juce::Justification::centredRight, this);
+    makeLabel(durValue, "3.00s", kOscCol, juce::Justification::centredRight, this);
     makeLabel(durHint, "Audio length (seconds)", kDim, juce::Justification::centredLeft, this);
     durationSlider.onValueChange = [this] {
-        durValue.setText(juce::String(durationSlider.getValue(), 1) + "s", juce::dontSendNotification);
+        durValue.setText(juce::String(durationSlider.getValue(), 2) + "s", juce::dontSendNotification);
     };
 
     // Start Position
@@ -778,7 +778,7 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
 
     generating = true;
     generateButton.setEnabled(false);
-    if (onStatusChanged) onStatusChanged("drift regen...", true);
+    if (onStatusChanged) onStatusChanged("auto regen...", true);
 
     lastGenAlpha_ = effectiveAlpha;
     lastGenNoise_ = effectiveNoise;
@@ -824,7 +824,7 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                     self->lastGenPromptA_ = promptA;
                     self->lastGenPromptB_ = promptB;
                     self->syncSeedEditorDisplay(result.seed);
-                    auto info = juce::String(result.generationTimeMs / 1000.0f, 1) + "s | drift regen";
+                    auto info = juce::String(result.generationTimeMs / 1000.0f, 1) + "s | auto regen";
                     if (self->onStatusChanged) self->onStatusChanged(info, false);
 
                     if (!result.embeddingA.empty())
@@ -856,7 +856,6 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
 void PromptPanel::pollDriftRegen()
 {
     if (generating) return;
-    if (!processorRef.driftHasOscTarget.load(std::memory_order_relaxed)) return;
 
     int regenMode = processorRef.driftRegenMode.load(std::memory_order_relaxed);
     if (regenMode == 0) return; // Manual — no auto-regen
@@ -893,7 +892,7 @@ void PromptPanel::pollDriftRegen()
     }
 
     // Check if values changed enough from last generation
-    constexpr float DRIFT_THRESHOLD = 0.02f;
+    constexpr float DRIFT_THRESHOLD = 0.005f;
     bool alphaChanged = !std::isnan(effAlpha) &&
         (std::isnan(lastGenAlpha_) || std::abs(effAlpha - lastGenAlpha_) > DRIFT_THRESHOLD);
 
@@ -918,7 +917,9 @@ void PromptPanel::pollDriftRegen()
         }
     }
 
-    if (!alphaChanged && !axesChanged && !noiseChanged && !magChanged && !promptChanged) return;
+    bool randomRegen = randomSeedToggle.getToggleState();
+    if (!alphaChanged && !axesChanged && !noiseChanged && !magChanged && !promptChanged && !randomRegen)
+        return;
 
     auto& apvts = processorRef.getValueTreeState();
     float genAlpha = std::isnan(effAlpha)

@@ -126,6 +126,7 @@ private:
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     WtTraversalMapping makeWtTraversalMapping(int totalSamples) const;
     void syncWavetableTraversal(double bufferSampleRate, int totalSamples);
+    void updateDriftState(int numSamples, float seqBpm);
 
     // Engine (mode is stored in APVTS "engine_mode", no separate member)
 

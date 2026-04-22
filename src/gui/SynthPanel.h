@@ -65,6 +65,7 @@ private:
     juce::ComboBox framesHidden;
     juce::Rectangle<int> framesSwitchBounds;
     juce::TextButton smoothToggle { "Smooth" };
+    juce::TextButton autoScanToggle { "Auto" };
     juce::Label frameCountLabel;
 
     // ── Octave shift ──
@@ -156,6 +157,7 @@ private:
     std::unique_ptr<CA> octaveA;
     std::unique_ptr<CA> wtFramesA;
     std::unique_ptr<BA> wtSmoothA;
+    std::unique_ptr<BA> wtAutoScanA;
     std::unique_ptr<CA> filterTypeA, filterSlopeA;
     std::unique_ptr<CA> driftRegenA;
     std::unique_ptr<SA> crossfadeRegenA;

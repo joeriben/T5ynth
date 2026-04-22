@@ -368,7 +368,7 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
 
     if (p.engineIsWavetable && osc.hasFrames())
     {
-        float scanBase = osc.isAutoScan() ? p.baseScan : osc.getAutoScanStartPos();
+        float scanBase = p.wtAutoScan ? 0.0f : p.baseScan;
         float scanMod = scanBase + p.driftScanOffset;
         if (p.mod1Target == EnvTarget::Scan) scanMod += mod1EnvVal;
         if (p.mod2Target == EnvTarget::Scan) scanMod += mod2EnvVal;
@@ -550,7 +550,7 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
                     osc.setFrequency(baseFrequency * (1.0f + pitchMod));
                 }
 
-                float scanBase = osc.isAutoScan() ? p.baseScan : osc.getAutoScanStartPos();
+                float scanBase = p.wtAutoScan ? 0.0f : p.baseScan;
                 float scanMod = scanBase + p.driftScanOffset;
                 if (p.mod1Target == EnvTarget::Scan) scanMod += mod1EnvVal;
                 if (p.mod2Target == EnvTarget::Scan) scanMod += mod2EnvVal;

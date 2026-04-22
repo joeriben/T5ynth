@@ -3,12 +3,20 @@
 #include <algorithm>
 
 // ── Helper: format ms (integer) ──
-static juce::String fmtMs(double v)  { return juce::String(juce::roundToInt(v)) + "ms"; }
+static juce::String fmtMs(double v)
+{
+    if (std::abs(v) < 1.0)
+        return juce::String(v, 2) + "ms";
+    if (std::abs(v) < 10.0)
+        return juce::String(v, 1) + "ms";
+    return juce::String(juce::roundToInt(v)) + "ms";
+}
 static juce::String fmtF2(double v)  { return juce::String(v, 2); }
 static juce::String fmtPct(double v) { return juce::String(juce::roundToInt(v * 100.0)) + "%"; }
 static juce::String fmtHz(double v)  { return juce::String(juce::roundToInt(v)) + " Hz"; }
 static juce::String fmtHzF1(double v){ return juce::String(v, 1) + " Hz"; }
 static juce::String fmtHzF2(double v){ return juce::String(v, 2) + " Hz"; }
+static juce::String fmtHzF3(double v){ return juce::String(v, 3) + " Hz"; }
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Envelope init
@@ -158,7 +166,7 @@ void SynthPanel::initDrift(DriftSection& drift, const juce::String& name,
     drift.waveBox.addItemList(driftWaveItems, 1);
     addAndMakeVisible(drift.waveBox);
 
-    drift.rateRow  = std::make_unique<SliderRow>("Rate",  fmtHzF2, kDriftCol);
+    drift.rateRow  = std::make_unique<SliderRow>("Rate",  fmtHzF3, kDriftCol);
     drift.depthRow = std::make_unique<SliderRow>("Depth", fmtF2,   kDriftCol);
     addAndMakeVisible(*drift.rateRow);
     addAndMakeVisible(*drift.depthRow);
@@ -256,6 +264,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
 
     // Wire bracket handles: both engines use the same P2/P3 loop semantics.
     waveformDisplay.onLoopRegionChanged = [this](float start, float end) {
+        const juce::ScopedLock sl (processorRef.getCallbackLock());
         processorRef.getSampler().setLoopStart(start);
         processorRef.getSampler().setLoopEnd(end);
         processorRef.getSampler().setPointsLocked(true);
@@ -266,6 +275,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
 
     // P1 (start position) handle
     waveformDisplay.onStartPosChanged = [this](float pos) {
+        const juce::ScopedLock sl (processorRef.getCallbackLock());
         processorRef.getSampler().setStartPos(pos);
         processorRef.getSampler().setPointsLocked(true);
         waveformDisplay.getLockButton().setLocked(true);
@@ -281,6 +291,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
 
     // Lock button: toggles P1/P2/P3 preservation across Generate
     waveformDisplay.getLockButton().onToggled = [this](bool locked) {
+        const juce::ScopedLock sl (processorRef.getCallbackLock());
         processorRef.getSampler().setPointsLocked(locked);
     };
 
@@ -499,19 +510,32 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         wtFramesA = std::make_unique<CA>(apvts, PID::wtFrames, framesHidden);
     }
 
-    // Smooth toggle
-    smoothToggle.setClickingTogglesState(true);
-    smoothToggle.setToggleState(true, juce::dontSendNotification);
-    smoothToggle.onClick = [this] {
-        bool on = smoothToggle.getToggleState();
-        smoothToggle.setColour(juce::TextButton::buttonColourId,
-                                on ? kAccent : juce::Colours::transparentBlack);
-        smoothToggle.setColour(juce::TextButton::textColourOnId,
-                                on ? juce::Colour(0xff0e1018) : kDimmer);
+    auto setupWtToggle = [](juce::TextButton& btn) {
+        btn.setClickingTogglesState(true);
+        btn.onClick = [&btn] {
+            bool on = btn.getToggleState();
+            btn.setColour(juce::TextButton::buttonColourId,
+                          on ? kAccent : juce::Colours::transparentBlack);
+            btn.setColour(juce::TextButton::textColourOffId,
+                          on ? juce::Colour(0xff0e1018) : kDimmer);
+            btn.setColour(juce::TextButton::textColourOnId,
+                          on ? juce::Colour(0xff0e1018) : juce::Colours::white);
+        };
     };
+
+    // Smooth toggle
+    setupWtToggle(smoothToggle);
+    smoothToggle.setToggleState(true, juce::dontSendNotification);
     addAndMakeVisible(smoothToggle);
     wtSmoothA = std::make_unique<BA>(apvts, PID::wtSmooth, smoothToggle);
     smoothToggle.onClick(); // sync initial colors
+
+    // Auto-scan toggle
+    setupWtToggle(autoScanToggle);
+    autoScanToggle.setToggleState(true, juce::dontSendNotification);
+    addAndMakeVisible(autoScanToggle);
+    wtAutoScanA = std::make_unique<BA>(apvts, PID::wtAutoScan, autoScanToggle);
+    autoScanToggle.onClick(); // sync initial colors
 
     frameCountLabel.setColour(juce::Label::textColourId, kDimmer);
     frameCountLabel.setJustificationType(juce::Justification::centred);
@@ -625,8 +649,11 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     initDrift(drift2, "DRIFT 2", PID::drift2Rate, PID::drift2Depth, PID::drift2Target, PID::drift2Wave, apvts);
     initDrift(drift3, "DRIFT 3", PID::drift3Rate, PID::drift3Depth, PID::drift3Target, PID::drift3Wave, apvts);
 
+    paintSectionHeader(driftHeader, "DRIFT", kDriftCol);
+    addAndMakeVisible(driftHeader);
+
     // Regenerate mode switchbox
-    paintSectionHeader(regenHeader, "DRIFT + REGENERATE", kDriftCol);
+    paintSectionHeader(regenHeader, "REGENERATE", kDriftCol);
     addAndMakeVisible(regenHeader);
 
     juce::StringArray regenItems;
@@ -809,6 +836,7 @@ void SynthPanel::updateVisibility()
     for (int i = 0; i < kNumFrameBtns; ++i)
         frameBtns[i].setVisible(isWavetable);
     smoothToggle.setVisible(isWavetable);
+    autoScanToggle.setVisible(isWavetable);
     frameCountLabel.setVisible(isWavetable);
 
     waveformDisplay.setRegionLabel("Loop interval");
@@ -824,10 +852,12 @@ void SynthPanel::updateVisibility()
         bool active = env.targetBox.getSelectedId() != 1; // 1 = "---"
         float alpha = active ? 1.0f : dimAlpha;
         env.loopToggle.setAlpha(alpha);
-        env.loopToggle.setEnabled(active);
+        env.aCurveBtn.setAlpha(alpha);
+        env.dCurveBtn.setAlpha(alpha);
+        env.rCurveBtn.setAlpha(alpha);
         for (auto* r : { env.aRow.get(), env.dRow.get(), env.sRow.get(),
                          env.rRow.get(), env.amtRow.get(), env.velRow.get() })
-            if (r) { r->setAlpha(alpha); r->setEnabled(active); }
+            if (r) r->setAlpha(alpha);
     };
     setEnvDimmed(ampEnv);
     setEnvDimmed(mod1Env);
@@ -838,10 +868,8 @@ void SynthPanel::updateVisibility()
         float alpha = active ? 1.0f : dimAlpha;
         lfo.waveBox.setAlpha(alpha);
         lfo.modeBox.setAlpha(alpha);
-        lfo.waveBox.setEnabled(active);
-        lfo.modeBox.setEnabled(active);
-        if (lfo.rateRow)  { lfo.rateRow->setAlpha(alpha);  lfo.rateRow->setEnabled(active); }
-        if (lfo.depthRow) { lfo.depthRow->setAlpha(alpha); lfo.depthRow->setEnabled(active); }
+        if (lfo.rateRow)  lfo.rateRow->setAlpha(alpha);
+        if (lfo.depthRow) lfo.depthRow->setAlpha(alpha);
     };
     setLfoDimmed(lfo1);
     setLfoDimmed(lfo2);
@@ -850,36 +878,19 @@ void SynthPanel::updateVisibility()
         bool active = drift.targetBox.getSelectedId() != 1; // 1 = "---"
         float alpha = active ? 1.0f : dimAlpha;
         drift.waveBox.setAlpha(alpha);
-        drift.waveBox.setEnabled(active);
-        if (drift.rateRow)  { drift.rateRow->setAlpha(alpha);  drift.rateRow->setEnabled(active); }
-        if (drift.depthRow) { drift.depthRow->setAlpha(alpha); drift.depthRow->setEnabled(active); }
+        if (drift.rateRow)  drift.rateRow->setAlpha(alpha);
+        if (drift.depthRow) drift.depthRow->setAlpha(alpha);
     };
     setDriftDimmed(drift1);
     setDriftDimmed(drift2);
     setDriftDimmed(drift3);
 
-    // Regen buttons only active when a drift target requires audio regeneration
-    // Osc targets: Alpha(2), Axis1-3(3-5), Noise(16), Magnitude(17) in ComboBox 1-based IDs
-    {
-        auto isOscTarget = [](int selId) {
-            int tgt = selId - 1; // 1-based → 0-based APVTS index
-            return (tgt >= 1 && tgt <= 4) || tgt == 15 || tgt == 16;
-        };
-        bool regenAvailable = isOscTarget(drift1.targetBox.getSelectedId())
-                           || isOscTarget(drift2.targetBox.getSelectedId());
-        float regenAlpha = regenAvailable ? 1.0f : dimAlpha;
-        for (int i = 0; i < kNumRegenBtns; ++i)
-        {
-            regenBtns[i].setAlpha(regenAlpha);
-            regenBtns[i].setEnabled(regenAvailable);
-        }
-        regenHeader.setAlpha(regenAlpha);
-        if (crossfadeRegenRow)
-        {
-            crossfadeRegenRow->setAlpha(regenAlpha);
-            crossfadeRegenRow->setEnabled(regenAvailable);
-        }
-    }
+    driftHeader.setAlpha(1.0f);
+    regenHeader.setAlpha(1.0f);
+    for (int i = 0; i < kNumRegenBtns; ++i)
+        regenBtns[i].setAlpha(1.0f);
+    if (crossfadeRegenRow)
+        crossfadeRegenRow->setAlpha(1.0f);
 }
 
 float SynthPanel::fs() const
@@ -1200,7 +1211,8 @@ void SynthPanel::resized()
     int modH = gap * 3 + headerH + headerGap; // section gap + header
     int envH = (rowH * 4 + gap) * 3; // 3 envelopes × (header + 3 slider rows + gap)
     int lfoH = gap + (rowH * 2 + gap) * 2; // 2 LFOs × (header + rate row + gap)
-    int driftH = gap + headerH + gap + rowH + (rowH * 2 + gap) * 3; // header + regen row + 3 drifts
+    int driftH = gap + headerH + headerGap + (rowH * 2 + gap) * 3
+               + gap + headerH + headerGap + rowH; // drift header + 3 drifts + regen header + row
     int belowWave = samplerCtrlH + filterH + modH + envH + lfoH + driftH + gap * 5;
     int maxWaveH = juce::roundToInt(area.getHeight() * 0.14f); // cap waveform to ~14% of panel
     int waveH = juce::jlimit(60, maxWaveH, area.getHeight() - belowWave);
@@ -1239,8 +1251,11 @@ void SynthPanel::resized()
         framesSwitchBounds = frameBtns[0].getBounds().getUnion(frameBtns[kNumFrameBtns - 1].getBounds());
         leftCol.removeFromLeft(juce::roundToInt(f * 0.35f));
 
-        int smoothW = juce::jmin(juce::roundToInt(f * 4.2f), leftCol.getWidth());
+        int smoothW = juce::jmin(juce::roundToInt(f * 4.0f), leftCol.getWidth());
         smoothToggle.setBounds(leftCol.removeFromLeft(smoothW));
+        leftCol.removeFromLeft(juce::roundToInt(f * 0.25f));
+        int autoW = juce::jmin(juce::roundToInt(f * 3.8f), leftCol.getWidth());
+        autoScanToggle.setBounds(leftCol.removeFromLeft(autoW));
 
         // ── Right column: [Nf] [White|Pink|Brown] Lvl[===] ──
         int frameCountW = juce::roundToInt(f * 2.8f);
@@ -1416,11 +1431,20 @@ void SynthPanel::resized()
     layoutLfo(lfo1, area, f, rowH, gap);
     layoutLfo(lfo2, area, f, rowH, gap);
 
-    // ── Drift + Regenerate (part of modulation section) ──
+    // ── Drift (part of modulation section) ──
+    area.removeFromTop(gap);
+    driftHeader.setFont(juce::FontOptions(headerFs));
+    driftHeader.setBounds(area.removeFromTop(headerH));
+    area.removeFromTop(headerGap);
+    layoutDrift(drift1, area, f, rowH, gap);
+    layoutDrift(drift2, area, f, rowH, gap);
+    layoutDrift(drift3, area, f, rowH, gap);
+
+    // ── Regenerate ──
     area.removeFromTop(gap);
     regenHeader.setFont(juce::FontOptions(headerFs));
     regenHeader.setBounds(area.removeFromTop(headerH));
-    area.removeFromTop(gap);
+    area.removeFromTop(headerGap);
     {
         auto regenRow = area.removeFromTop(rowH);
         int regenCellW = juce::roundToInt(f * 3.5f);
@@ -1440,7 +1464,4 @@ void SynthPanel::resized()
         int xfadeMaxW = halfW - (regenRow.getX() - area.getX());
         crossfadeRegenRow->setBounds(regenRow.removeFromLeft(std::max(0, xfadeMaxW)));
     }
-    layoutDrift(drift1, area, f, rowH, gap);
-    layoutDrift(drift2, area, f, rowH, gap);
-    layoutDrift(drift3, area, f, rowH, gap);
 }
