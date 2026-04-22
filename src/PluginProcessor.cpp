@@ -100,35 +100,26 @@ bool T5ynthProcessor::launchPipeInference(const juce::File& backendDir)
 
 bool T5ynthProcessor::canUseStepHoldPreview() const
 {
-    const bool seqRunning = parameters.getRawParameterValue(PID::seqRunning)->load() > 0.5f;
-    const bool genRunning = parameters.getRawParameterValue(PID::genSeqRunning)->load() > 0.5f;
-    return !seqRunning && !genRunning;
+    // Always available now: VoiceManager reserves the drone voice so the
+    // mouse-held step is protected from seq voice-stealing (poly) and
+    // suppresses seq noteOns on voice 0 (mono) for as long as the mouse is held.
+    return true;
 }
 
 void T5ynthProcessor::beginStepHoldPreview(int midiNote, float velocity)
 {
-    if (!canUseStepHoldPreview())
-        return;
-
     const juce::ScopedLock sl(getCallbackLock());
     const int note = juce::jlimit(0, 127, midiNote);
+    const float vel = juce::jlimit(0.0f, 1.0f, velocity);
     const bool lfo1TrigMode = static_cast<int>(parameters.getRawParameterValue(PID::lfo1Mode)->load()) == 1;
     const bool lfo2TrigMode = static_cast<int>(parameters.getRawParameterValue(PID::lfo2Mode)->load()) == 1;
 
-    if (stepHoldPreviewActive && stepHoldPreviewNote == note)
-        return;
-
-    if (stepHoldPreviewActive && stepHoldPreviewNote >= 0)
-        voiceManager.noteOff(stepHoldPreviewNote);
-
-    voiceManager.noteOn(note, juce::jlimit(0.0f, 1.0f, velocity), false, 0.0f,
-                        lfo1TrigMode, lfo2TrigMode);
+    voiceManager.setDroneNote(note, vel, lfo1TrigMode, lfo2TrigMode);
 
     stepHoldPreviewActive = true;
     stepHoldPreviewNote = note;
     lastMidiNote.store(note, std::memory_order_relaxed);
-    lastMidiVelocity.store(juce::roundToInt(juce::jlimit(0.0f, 1.0f, velocity) * 127.0f),
-                           std::memory_order_relaxed);
+    lastMidiVelocity.store(juce::roundToInt(vel * 127.0f), std::memory_order_relaxed);
     lastMidiNoteOn.store(true, std::memory_order_relaxed);
 }
 
@@ -141,10 +132,10 @@ void T5ynthProcessor::endStepHoldPreview()
 {
     const juce::ScopedLock sl(getCallbackLock());
 
-    if (!stepHoldPreviewActive || stepHoldPreviewNote < 0)
+    if (!stepHoldPreviewActive)
         return;
 
-    voiceManager.noteOff(stepHoldPreviewNote);
+    voiceManager.clearDroneNote();
     stepHoldPreviewActive = false;
     stepHoldPreviewNote = -1;
 
@@ -816,12 +807,11 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.filterDriveMakeup = parameters.getRawParameterValue(PID::filterDriveMakeup)->load() > 0.5f;
     bp.filterDriveOs = static_cast<int>(parameters.getRawParameterValue(PID::filterDriveOs)->load());
     bp.filterDriveGain = std::pow(10.0f, bp.filterDriveDb * (1.0f / 20.0f));
-    // Input-gain compensation: drive pushes the input by +N dB into the
-    // shaper, makeup trims the output by -N dB, so small signals stay unity-
-    // gain and hot signals come out as a level-matched, saturation-squashed
-    // peak. Continuous through 0 dB (gain = 1 at dB = 0).
+    // Peak-match the tanh shaper instead of cancelling its small-signal gain.
+    // 1/driveGain over-attenuates hot settings; 1/tanh(gain) keeps saturated
+    // peaks in the same ballpark without pretending to be a loudness match.
     bp.filterDriveMakeupGain = bp.filterDriveMakeup
-        ? 1.0f / bp.filterDriveGain
+        ? 1.0f / std::max(0.001f, std::tanh(bp.filterDriveGain))
         : 1.0f;
 
     // Scan

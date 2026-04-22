@@ -52,6 +52,8 @@ void VoiceManager::reset()
     gainRampSamplesLeft = 0;
     currentSamplerMaster_ = nullptr;
     hasCurrentBlockParams_ = false;
+    droneVoiceIndex = -1;
+    droneNote = -1;
 }
 
 void VoiceManager::setBlockParams(const BlockParams& bp)
@@ -70,6 +72,9 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
     // ── Mono mode: always voice 0, legato (no retrigger if held) ──
     if (voiceLimit == 1)
     {
+        // Drone owns voice 0 in mono: seq noteOns are fully suppressed while held.
+        if (droneVoiceIndex == 0)
+            return;
         auto& v = voices[0];
         v.setTuningTable(tuningHz_);
         if (hasCurrentBlockParams_)
@@ -118,11 +123,12 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
     // ── Poly: glide handling ──
     if (isBind)
     {
-        // Glide: change pitch of most recently triggered active voice
+        // Glide: change pitch of most recently triggered active voice (exclude drone).
         int newest = -1;
         uint64_t maxTs = 0;
         for (int i = 0; i < voiceLimit; ++i)
         {
+            if (i == droneVoiceIndex) continue;
             if (voices[static_cast<size_t>(i)].isActive()
                 && voices[static_cast<size_t>(i)].noteOnTimestamp >= maxTs)
             {
@@ -191,8 +197,10 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
 
 void VoiceManager::noteOff(int note)
 {
-    for (auto& v : voices)
+    for (int i = 0; i < MAX_VOICES; ++i)
     {
+        if (i == droneVoiceIndex) continue; // drone holds independent of MIDI noteOff
+        auto& v = voices[static_cast<size_t>(i)];
         if (v.isActive() && !v.isReleasing() && v.getCurrentNote() == note)
         {
             if (hasCurrentBlockParams_)
@@ -211,6 +219,9 @@ void VoiceManager::allNotesOff()
         if (v.isActive())
             v.noteOff();
     }
+    // Panic also ends a drone hold (DAW reset / host-driven silence).
+    droneVoiceIndex = -1;
+    droneNote = -1;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -371,6 +382,7 @@ int VoiceManager::findVoiceForNote(int note) const
 {
     for (int i = 0; i < voiceLimit; ++i)
     {
+        if (i == droneVoiceIndex) continue;
         if (voices[static_cast<size_t>(i)].isActive()
             && voices[static_cast<size_t>(i)].getCurrentNote() == note)
             return i;
@@ -382,6 +394,7 @@ int VoiceManager::findFreeVoice() const
 {
     for (int i = 0; i < voiceLimit; ++i)
     {
+        if (i == droneVoiceIndex) continue;
         if (!voices[static_cast<size_t>(i)].isActive())
             return i;
     }
@@ -390,18 +403,23 @@ int VoiceManager::findFreeVoice() const
 
 int VoiceManager::stealVoice() const
 {
-    // Oldest-note policy: steal voice with lowest noteOnTimestamp
-    int oldest = 0;
-    uint64_t minTs = voices[0].noteOnTimestamp;
-    for (int i = 1; i < voiceLimit; ++i)
+    // Oldest-note policy: steal voice with lowest noteOnTimestamp, skipping the
+    // drone voice so a mouse-held step never loses its voice to a seq trigger.
+    int oldest = -1;
+    uint64_t minTs = 0;
+    for (int i = 0; i < voiceLimit; ++i)
     {
-        if (voices[static_cast<size_t>(i)].noteOnTimestamp < minTs)
+        if (i == droneVoiceIndex) continue;
+        if (oldest < 0 || voices[static_cast<size_t>(i)].noteOnTimestamp < minTs)
         {
             minTs = voices[static_cast<size_t>(i)].noteOnTimestamp;
             oldest = i;
         }
     }
-    return oldest;
+    // If every voice in range is the drone (poly=1 with drone on 0), callers
+    // already handle the mono-drone case via the early-return in noteOn(), so
+    // this path is not exercised. Fallback keeps the return value defined.
+    return oldest >= 0 ? oldest : 0;
 }
 
 int VoiceManager::getActiveVoiceCount() const
@@ -447,4 +465,78 @@ int VoiceManager::getHeldVoiceCount() const
         if (v.isActive() && !v.isReleasing()) count++;
     }
     return count;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Drone (step-hold) handling
+// ═══════════════════════════════════════════════════════════════════
+
+void VoiceManager::setDroneNote(int note, float velocity, bool lfo1TrigMode, bool lfo2TrigMode)
+{
+    note = juce::jlimit(0, 127, note);
+    velocity = juce::jlimit(0.0f, 1.0f, velocity);
+
+    // Same pitch as current drone → no-op (mouse stayed at same drag-Y).
+    if (droneVoiceIndex >= 0 && droneNote == note)
+        return;
+
+    if (droneVoiceIndex < 0)
+    {
+        // ── First drone trigger: pick a voice and do a full noteOn on it. ──
+        int idx;
+        if (isMono())
+        {
+            idx = 0;
+        }
+        else
+        {
+            idx = findFreeVoice();
+            if (idx < 0) idx = stealVoice();
+        }
+
+        auto& v = voices[static_cast<size_t>(idx)];
+        v.setTuningTable(tuningHz_);
+        if (hasCurrentBlockParams_)
+            v.configureForBlock(currentBlockParams_);
+        if (v.isActive())
+            v.noteOff();
+        if (v.getEngineMode() == SynthVoice::EngineMode::Sampler && currentSamplerMaster_ != nullptr)
+            v.getSampler().shareBufferFrom(*currentSamplerMaster_);
+
+        v.noteOn(note, velocity, false);
+        v.noteOnTimestamp = ++noteOnCounter;
+        if (lfo1TrigMode) v.getPerVoiceLfo1().reset();
+        if (lfo2TrigMode) v.getPerVoiceLfo2().reset();
+        if (v.getEngineMode() == SynthVoice::EngineMode::Sampler && v.getSampler().hasAudio())
+            v.getSampler().retrigger();
+        if (v.getEngineMode() == SynthVoice::EngineMode::Wavetable)
+        {
+            v.getSampler().stop();
+            v.getOsc().retriggerAutoScan();
+        }
+        droneVoiceIndex = idx;
+    }
+    else
+    {
+        // ── Drone pitch change while held: glide on same voice, no env retrigger. ──
+        auto& v = voices[static_cast<size_t>(droneVoiceIndex)];
+        v.setTuningTable(tuningHz_);
+        if (hasCurrentBlockParams_)
+            v.configureForBlock(currentBlockParams_);
+        v.glideToNote(note, 15.0f);  // short glide keeps mouse-drag scrubs click-free
+    }
+
+    droneNote = note;
+    updateGainTarget();
+}
+
+void VoiceManager::clearDroneNote()
+{
+    if (droneVoiceIndex < 0) return;
+    auto& v = voices[static_cast<size_t>(droneVoiceIndex)];
+    if (v.isActive())
+        v.noteOff();
+    droneVoiceIndex = -1;
+    droneNote = -1;
+    updateGainTarget();
 }

@@ -28,6 +28,17 @@ public:
     void noteOff(int note);
     void allNotesOff();
 
+    // ── Drone (step-hold) handling ──
+    // A drone is a user-held note (e.g. mouse-hold on a sequencer step) that
+    // reserves a voice for as long as the user holds. In mono the drone takes
+    // over voice 0 and suppresses seq noteOns while held. In poly the drone's
+    // voice is excluded from voice stealing and same-note matching by the seq
+    // path, so seq triggers happen in parallel on other voices.
+    void setDroneNote(int note, float velocity, bool lfo1TrigMode, bool lfo2TrigMode);
+    void clearDroneNote();
+    bool hasDrone() const { return droneVoiceIndex >= 0; }
+    int  getDroneNote() const { return droneNote; }
+
     // ── Per-block rendering ──
     struct VoiceOutput {
         float lastMod1Val = 0.0f;
@@ -86,6 +97,10 @@ private:
     const SamplePlayer* currentSamplerMaster_ = nullptr;
     BlockParams currentBlockParams_;
     bool hasCurrentBlockParams_ = false;
+
+    // ── Drone (step-hold) reservation ──
+    int droneVoiceIndex = -1;    // -1 = no drone active
+    int droneNote       = -1;    // last pitch the drone was set to
 
     // Pre-allocated per-voice scratch buffers
     std::array<std::vector<float>, MAX_VOICES> voiceScratch;
