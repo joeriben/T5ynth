@@ -459,15 +459,9 @@ void VoiceManager::updateGainTarget()
 
 int VoiceManager::getHeldVoiceCount() const
 {
-    // The drone voice is intentionally excluded so adding a mouse-held drone
-    // on top of a running pattern doesn't pull the seq's voice gain down.
-    // Consequence: drone is mixed at the same gain the seq voices already had
-    // — it rides on top without rebalancing, which is what "drone" implies.
     int count = 0;
-    for (int i = 0; i < MAX_VOICES; ++i)
+    for (const auto& v : voices)
     {
-        if (i == droneVoiceIndex) continue;
-        const auto& v = voices[static_cast<size_t>(i)];
         if (v.isActive() && !v.isReleasing()) count++;
     }
     return count;
