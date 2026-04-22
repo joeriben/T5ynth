@@ -196,8 +196,14 @@ The old minimal snippet in this README was not enough to produce a working
 Linux build. The authoritative build guides now live here:
 
 - Linux / Fedora 42 source build on a developer/build host: [docs/LINUX_INSTALLATION.md](docs/LINUX_INSTALLATION.md)
-- Fedora RPM packaging path from a prebuilt isolated backend bundle: [docs/LINUX_PACKAGING.md](docs/LINUX_PACKAGING.md)
+- Linux package-layer docs, currently Fedora RPM from a prebuilt isolated backend bundle: [docs/LINUX_PACKAGING.md](docs/LINUX_PACKAGING.md)
 - Cross-platform developer build guide: [docs/DEV_BUILD.md](docs/DEV_BUILD.md)
+
+Linux now has one common build contract and multiple distribution layers:
+
+- the Ubuntu CI `linux` job produces Linux base archives (`T5ynth` plus sibling `backend/`)
+- Fedora RPM wraps that same app/backend layout for installation on Fedora
+- a future Ubuntu/Debian package should consume the same base layout rather than fork a second Linux build path
 
 ### Quick Source Build
 

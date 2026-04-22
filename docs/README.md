@@ -12,7 +12,7 @@ Files in this directory:
 
 - [`DEV_BUILD.md`](DEV_BUILD.md) — Cross-platform build setup (macOS, Linux, Windows 11).
 - [`LINUX_INSTALLATION.md`](LINUX_INSTALLATION.md) — Linux / Fedora 42 source build path for developers and build hosts.
-- [`LINUX_PACKAGING.md`](LINUX_PACKAGING.md) — Fedora RPM packaging path using a named prebuilt isolated backend bundle.
+- [`LINUX_PACKAGING.md`](LINUX_PACKAGING.md) — Linux package-layer docs, currently Fedora RPM, using a named prebuilt isolated backend bundle.
 - [`PYTORCH_BUNDLING_NOTES.md`](PYTORCH_BUNDLING_NOTES.md) — Detailed findings from freezing and packaging the Python/Torch backend on Linux, including Blackwell-specific pitfalls.
 - [`CUDA_BUNDLE_TARGETS.md`](CUDA_BUNDLE_TARGETS.md) — Short target matrix for generic NVIDIA vs. Blackwell bundles and the future Windows installer.
 - [`MACOS_INSTALLATION.md`](MACOS_INSTALLATION.md) — End-user macOS installer and Gatekeeper override notes.

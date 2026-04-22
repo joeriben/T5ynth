@@ -71,7 +71,8 @@ on:
 ```
 
 - Pushes to `main` and pull requests run the `macos`, `windows`, and
-  `linux` build jobs — but **not** the `release` job.
+  Ubuntu-based Linux base-artifact build job (`linux`) — but **not** the
+  `release` job.
 - Pushes of a tag matching `v*` run the `macos` build job plus the
   `release` job. The `windows` and `linux` jobs are skipped on tags by
   explicit `if:` guards. The `release` job is gated by:
@@ -90,17 +91,29 @@ on:
 
 ---
 
-## 4. Build matrix
+## 4. Build and package matrix
 
 On `main` and pull requests, three platforms build in parallel. On tag pushes,
 only the macOS job runs and the `release` job waits for that macOS job
 (`needs: [macos]`).
 
-| Job       | Runner           | Targets                         |
-|-----------|------------------|---------------------------------|
-| `macos`   | `macos-14`       | macOS app + `.pkg` installer    |
-| `linux`   | `ubuntu-latest`  | App, VST3                       |
-| `windows` | `windows-latest` | App, VST3                       |
+| Job       | Runner           | Targets                               |
+|-----------|------------------|---------------------------------------|
+| `macos`   | `macos-14`       | macOS app + `.pkg` installer          |
+| `linux`   | `ubuntu-latest`  | Linux base standalone + VST3 archives |
+| `windows` | `windows-latest` | App, VST3                             |
+
+Important distinction:
+
+- The Ubuntu `linux` job is the **Linux base build layer**. It produces the
+  common Linux app/backend layout as `.tar.xz` artefacts and does not yet
+  publish a distro-specific package.
+- Fedora RPM packaging is a **Linux package layer** built from that same
+  layout contract plus a named staged backend bundle. It is documented in
+  [`LINUX_PACKAGING.md`](LINUX_PACKAGING.md) and is currently validated
+  outside GitHub Actions.
+- A future Ubuntu/Debian package path should consume the same Linux base build
+  contract, not fork a second unrelated Linux build flow.
 
 Every job:
 
@@ -111,9 +124,9 @@ Every job:
      index (`https://download.pytorch.org/whl/cu124`).
 4. Runs `pyinstaller pipe_inference.spec --noconfirm` in `backend/` to
    bundle the Python inference backend.
-   - For Linux packaging, that backend should be staged as a named release
-     bundle and then consumed by the RPM packager, rather than rebuilt on the
-     target machine.
+   - For Linux package-layer outputs such as the Fedora RPM, that backend
+     should be staged as a named release bundle and then consumed by the
+     packager, rather than rebuilt on the target machine.
 5. Runs `cmake -B build -DCMAKE_BUILD_TYPE=Release`, then
    `cmake --build build --config Release -j<ncpu>`.
 6. Assembles a distribution directory containing the built binary plus the
@@ -121,7 +134,7 @@ Every job:
 7. Creates `.tar.xz` archives on the build machine (see §5).
 8. Uploads each archive with `actions/upload-artifact@v4`.
 
-### Linux-specific notes
+### Linux base-build notes
 
 - Swap is expanded to 8 GB before install to give PyTorch / PyInstaller
   headroom.
@@ -196,7 +209,8 @@ without GitHub Actions.
 
 ## 5. Artifact layout
 
-Linux and Windows archives are built with `tar -cJf` (xz-compressed tar)
+Linux base archives and Windows archives are built with `tar -cJf`
+(xz-compressed tar)
 **before** upload. This is deliberate: `actions/upload-artifact` strips
 Unix permission bits, which would break the executable bit on the
 `T5ynth` binary and on `backend/pipe_inference`. By tarring on the build
@@ -208,14 +222,25 @@ Each archive contains the platform binary plus:
 - `LICENSE.txt`
 - `THIRD_PARTY_LICENSES.txt`
 
-On Windows the backend is copied into the distribution alongside the
-binary:
+On Windows and in the Linux base archive the backend is copied into the
+distribution alongside the binary:
 
 - Windows: into `T5ynth/backend/` next to `T5ynth.exe`
-- Linux: into `T5ynth/backend/` next to `T5ynth`
+- Linux base archive: into `T5ynth/backend/` next to `T5ynth`
 
 On macOS the backend is embedded directly into
 `T5ynth.app/Contents/Resources/backend/` before the installer is built.
+
+The current Linux base-archive filenames are:
+
+```text
+T5ynth-Linux-Base-x86_64-Standalone.tar.xz
+T5ynth-Linux-Base-x86_64-VST3.tar.xz
+```
+
+Those are CI artefacts, not GitHub Release assets. Package-layer outputs such
+as the Fedora RPM are separate deliverables built from the same app/backend
+layout contract.
 
 The `release` job downloads artifacts with `actions/download-artifact`,
 collects only `.pkg` files into `release/`, and passes those files to
@@ -228,9 +253,9 @@ T5ynth-macOS-Installer.pkg
 ```
 
 For the current stable release process, GitHub Releases publish **only** the
-macOS installer. Windows, Linux, VST3 and AU remain planned work, but they are
-not attached to stable tags until each distribution path has been validated on
-its own.
+macOS installer. Windows artefacts, Linux base artefacts, Fedora RPMs, VST3 and
+AU remain outside the public stable release page until each distribution path
+has been validated and explicitly wired into CI release publication.
 
 If the release page does not contain `T5ynth-macOS-Installer.pkg`, something
 went wrong — investigate before announcing the release.

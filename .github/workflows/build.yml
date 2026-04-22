@@ -258,8 +258,9 @@ jobs:
           name: T5ynth-Windows-Installer
           path: archives/T5ynth-Windows-Setup.exe
 
-  # ── Linux ───────────────────────────────────────────────────────
+  # ── Linux Base Artifacts (Ubuntu x86_64) ───────────────────────
   linux:
+    name: Linux Base Artifacts (Ubuntu x86_64)
     if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     steps:
@@ -307,7 +308,7 @@ jobs:
       - name: Build
         run: cmake --build build --config Release -j$(nproc)
 
-      - name: Assemble distribution
+      - name: Assemble base distribution
         run: |
           mkdir -p dist/T5ynth
           cp build/T5ynth_artefacts/Release/Standalone/T5ynth dist/T5ynth/
@@ -328,22 +329,22 @@ jobs:
         run: |
           mkdir -p archives
           cp LICENSE.txt THIRD_PARTY_LICENSES.txt build/T5ynth_artefacts/Release/VST3/
-          tar -cJf archives/T5ynth-Linux-x86_64-Standalone.tar.xz -C dist T5ynth
-          tar -cJf archives/T5ynth-Linux-x86_64-VST3.tar.xz \
+          tar -cJf archives/T5ynth-Linux-Base-x86_64-Standalone.tar.xz -C dist T5ynth
+          tar -cJf archives/T5ynth-Linux-Base-x86_64-VST3.tar.xz \
             -C build/T5ynth_artefacts/Release/VST3 .
           ls -lh archives/
 
-      - name: Upload Standalone
+      - name: Upload Linux Base Standalone
         uses: actions/upload-artifact@v4
         with:
-          name: T5ynth-Linux-x86_64-Standalone
-          path: archives/T5ynth-Linux-x86_64-Standalone.tar.xz
+          name: T5ynth-Linux-Base-x86_64-Standalone
+          path: archives/T5ynth-Linux-Base-x86_64-Standalone.tar.xz
 
-      - name: Upload VST3
+      - name: Upload Linux Base VST3
         uses: actions/upload-artifact@v4
         with:
-          name: T5ynth-Linux-x86_64-VST3
-          path: archives/T5ynth-Linux-x86_64-VST3.tar.xz
+          name: T5ynth-Linux-Base-x86_64-VST3
+          path: archives/T5ynth-Linux-Base-x86_64-VST3.tar.xz
 
   # ── Release (only on tags) ──────────────────────────────────────
   release:

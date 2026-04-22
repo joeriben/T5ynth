@@ -1,6 +1,16 @@
 # Linux Packaging
 
-This document covers the Linux installer/distribution path for T5ynth.
+This document covers the Linux package-layer path for T5ynth.
+
+The important distinction is:
+
+- the Ubuntu GitHub Actions `linux` job builds **Linux base artefacts**
+- this document describes **package-layer outputs** built on top of that base
+  app/backend layout
+
+Today, that package layer is Fedora RPM. A future Ubuntu/Debian package should
+consume the same base artefact contract rather than inventing a second Linux
+build path.
 
 Current scope:
 
@@ -12,7 +22,27 @@ Current scope:
 The first RPM path is intentionally standalone-only. VST3 remains a separate
 archive/distribution path for now.
 
-## 1. Why RPM first
+## 1. Base layer vs package layer
+
+Linux packaging is split into two layers:
+
+1. **Base build layer**
+   - builds the standalone binary plus isolated backend bundle
+   - preserves the sibling layout `T5ynth + backend/`
+   - currently produced by the Ubuntu GitHub Actions `linux` job as
+     `T5ynth-Linux-Base-x86_64-*.tar.xz`
+2. **Package layer**
+   - wraps that app/backend layout for a target distribution
+   - adds package metadata, wrappers, desktop integration, and runtime deps
+   - currently implemented as Fedora RPM
+
+That keeps Linux packaging coherent:
+
+- one common Linux build contract
+- multiple package formats derived from it
+- no target machine ever rebuilding Python/Torch
+
+## 2. Why RPM first
 
 For T5ynth, Fedora RPMs are a better first Linux package target than AppImage:
 
@@ -34,7 +64,7 @@ In other words:
 - the Fedora packager selects a named release-built bundle
 - the target installer only installs that selected bundle
 
-## 2. Package layout
+## 3. Package layout
 
 The RPM installs:
 
@@ -52,7 +82,7 @@ The wrapper at `/usr/bin/t5ynth` simply launches `/opt/T5ynth/T5ynth`.
 The app keeps its expected sibling-backend layout, so no runtime path rewrite
 is needed.
 
-## 3. What must exist before packaging
+## 4. What must exist before packaging
 
 The RPM packager expects two prebuilt artefacts:
 
@@ -66,7 +96,7 @@ install machine. The build-host/source-build path is documented in
 [`LINUX_INSTALLATION.md`](LINUX_INSTALLATION.md) and
 [`DEV_BUILD.md`](DEV_BUILD.md).
 
-## 4. Stage a named release bundle
+## 5. Stage a named release bundle
 
 The packaging host should stage the already-built backend into a named bundle
 slot before building the RPM:
@@ -90,7 +120,7 @@ Blackwell, do not stage or package a vague `...-cuda` bundle. Use an explicit
 id such as `fedora42-x86_64-cuda-blackwell`, and stage it from a backend bundle
 whose internal torch runtime reports CUDA 12.8 or newer.
 
-## 5. Build the RPM
+## 6. Build the RPM
 
 Prerequisites:
 
@@ -128,7 +158,7 @@ archives/linux-bundles/<bundle-id>/backend/
 `--backend-bundle` is an override for ad-hoc packaging hosts. The preferred
 release path is the named bundle slot plus `bundle.env`.
 
-## 6. Install and validate
+## 7. Install and validate
 
 Install locally with:
 
@@ -148,7 +178,7 @@ Launch:
 t5ynth
 ```
 
-## 7. Runtime model
+## 8. Runtime model
 
 The RPM does **not** touch or depend on a global Python/Torch installation.
 The bundled backend under `/opt/T5ynth/backend/` carries its own isolated ML
@@ -175,7 +205,7 @@ metadata from `/opt/T5ynth/backend/bundle.env`. On Blackwell hosts it fails
 closed if the installed bundle is not explicitly Blackwell-class or if the
 bundled torch runtime is older than CUDA 12.8.
 
-## 8. Known limits of the first RPM path
+## 9. Known limits of the first RPM path
 
 - standalone only, no VST3 packaging yet
 - Fedora-focused dependency metadata
