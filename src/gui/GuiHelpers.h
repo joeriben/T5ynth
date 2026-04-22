@@ -481,12 +481,15 @@ private:
 
         const float fontSize = label.getFont().getHeight();
         const float textW = static_cast<float>(measureTextWidth(label.getText(), fontSize));
-        const float padX = juce::jmax(3.0f, fontSize * 0.28f);
-        const float padY = juce::jmax(1.0f, fontSize * 0.16f);
-        const float badgeW = juce::jmin(lb.getWidth(), textW + padX * 2.0f);
-        const float badgeH = juce::jmin(lb.getHeight(), fontSize + padY * 2.0f);
-        const float badgeY = lb.getY() + (lb.getHeight() - badgeH) * 0.5f;
-        return { lb.getX(), badgeY, badgeW, badgeH };
+        const float insetX = 1.0f;
+        const float insetY = 1.0f;
+        const float padX = juce::jmax(2.5f, fontSize * 0.22f);
+        const float padY = juce::jmax(0.5f, fontSize * 0.10f);
+        const float badgeW = juce::jmin(lb.getWidth() - insetX, textW + padX * 2.0f);
+        const float badgeH = juce::jmin(lb.getHeight() - insetY * 2.0f, fontSize + padY * 2.0f);
+        const float badgeX = std::floor(lb.getX() + insetX);
+        const float badgeY = std::floor(lb.getY() + (lb.getHeight() - badgeH) * 0.5f);
+        return { badgeX, badgeY, std::floor(badgeW), std::floor(badgeH) };
     }
 
     void updateLabelAppearance()
