@@ -333,21 +333,19 @@ public:
 
     void paint(juce::Graphics& g) override
     {
-        auto lb = label.getBounds().toFloat();
-        if (lb.isEmpty())
+        auto badge = getLabelBadgeBounds();
+        if (badge.isEmpty())
             return;
 
         if (labelMode == LabelMode::Positive)
         {
             g.setColour(trackCol);
-            g.fillRect(lb);
-            g.setColour(trackCol.brighter(0.15f));
-            g.drawRect(lb, 1.0f);
+            g.fillRect(badge);
         }
         else if (labelMode == LabelMode::Negative)
         {
-            g.setColour(juce::Colour(0xccff9800));
-            g.drawRect(lb.reduced(0.5f), 1.0f);
+            g.setColour(trackCol);
+            g.drawRect(badge.reduced(0.5f), 1.0f);
         }
     }
 
@@ -473,6 +471,22 @@ private:
         int thumbW = slider.getLookAndFeel().getSliderThumbRadius(slider) * 2;
         return static_cast<float>(sb.getX() + thumbW / 2)
              + static_cast<float>(sb.getWidth() - thumbW) * static_cast<float>(norm);
+    }
+
+    juce::Rectangle<float> getLabelBadgeBounds() const
+    {
+        auto lb = label.getBounds().toFloat();
+        if (lb.isEmpty() || label.getText().isEmpty())
+            return {};
+
+        const float fontSize = label.getFont().getHeight();
+        const float textW = static_cast<float>(measureTextWidth(label.getText(), fontSize));
+        const float padX = juce::jmax(3.0f, fontSize * 0.28f);
+        const float padY = juce::jmax(1.0f, fontSize * 0.16f);
+        const float badgeW = juce::jmin(lb.getWidth(), textW + padX * 2.0f);
+        const float badgeH = juce::jmin(lb.getHeight(), fontSize + padY * 2.0f);
+        const float badgeY = lb.getY() + (lb.getHeight() - badgeH) * 0.5f;
+        return { lb.getX(), badgeY, badgeW, badgeH };
     }
 
     void updateLabelAppearance()
