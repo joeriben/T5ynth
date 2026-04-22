@@ -62,6 +62,11 @@ float convertSkew03To0To1(float rangeStart, float rangeEnd, float value)
     return std::pow(proportion, skew);
 }
 
+float applyNormalizedOffset(float baseValue, float modulationOffset)
+{
+    return juce::jlimit(0.0f, 1.0f, baseValue + modulationOffset);
+}
+
 void samplerProcessorDebugLog(const juce::String& message)
 {
     if constexpr (kSamplerDebugLogging)
@@ -1100,22 +1105,22 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             lfo2Buf[i] = l2;
         }
 
-        // LFO → envelope amounts (multiplicative, clamped to 0–1)
+        // LFO → normalized amount/depth targets (additive, clamped to 0–1)
         {
             float l1End = numSamples > 0 ? lfo1Buf[numSamples - 1] : 0.0f;
             float l2End = numSamples > 0 ? lfo2Buf[numSamples - 1] : 0.0f;
-            if (bp.lfo1Target == LfoTarget::Env1Amt) bp.ampAmount  = juce::jlimit(0.0f, 1.0f, bp.ampAmount  * (1.0f + l1End));
-            if (bp.lfo1Target == LfoTarget::Env2Amt) bp.mod1Amount = juce::jlimit(0.0f, 1.0f, bp.mod1Amount * (1.0f + l1End));
-            if (bp.lfo1Target == LfoTarget::Env3Amt) bp.mod2Amount = juce::jlimit(0.0f, 1.0f, bp.mod2Amount * (1.0f + l1End));
-            if (bp.lfo1Target == LfoTarget::Drift1Depth) baseDrift1Depth = juce::jlimit(0.0f, 1.0f, baseDrift1Depth * (1.0f + l1End));
-            if (bp.lfo1Target == LfoTarget::Drift2Depth) baseDrift2Depth = juce::jlimit(0.0f, 1.0f, baseDrift2Depth * (1.0f + l1End));
-            if (bp.lfo1Target == LfoTarget::Drift3Depth) baseDrift3Depth = juce::jlimit(0.0f, 1.0f, baseDrift3Depth * (1.0f + l1End));
-            if (bp.lfo2Target == LfoTarget::Env1Amt) bp.ampAmount  = juce::jlimit(0.0f, 1.0f, bp.ampAmount  * (1.0f + l2End));
-            if (bp.lfo2Target == LfoTarget::Env2Amt) bp.mod1Amount = juce::jlimit(0.0f, 1.0f, bp.mod1Amount * (1.0f + l2End));
-            if (bp.lfo2Target == LfoTarget::Env3Amt) bp.mod2Amount = juce::jlimit(0.0f, 1.0f, bp.mod2Amount * (1.0f + l2End));
-            if (bp.lfo2Target == LfoTarget::Drift1Depth) baseDrift1Depth = juce::jlimit(0.0f, 1.0f, baseDrift1Depth * (1.0f + l2End));
-            if (bp.lfo2Target == LfoTarget::Drift2Depth) baseDrift2Depth = juce::jlimit(0.0f, 1.0f, baseDrift2Depth * (1.0f + l2End));
-            if (bp.lfo2Target == LfoTarget::Drift3Depth) baseDrift3Depth = juce::jlimit(0.0f, 1.0f, baseDrift3Depth * (1.0f + l2End));
+            if (bp.lfo1Target == LfoTarget::Env1Amt) bp.ampAmount  = applyNormalizedOffset(bp.ampAmount,  l1End);
+            if (bp.lfo1Target == LfoTarget::Env2Amt) bp.mod1Amount = applyNormalizedOffset(bp.mod1Amount, l1End);
+            if (bp.lfo1Target == LfoTarget::Env3Amt) bp.mod2Amount = applyNormalizedOffset(bp.mod2Amount, l1End);
+            if (bp.lfo1Target == LfoTarget::Drift1Depth) baseDrift1Depth = applyNormalizedOffset(baseDrift1Depth, l1End);
+            if (bp.lfo1Target == LfoTarget::Drift2Depth) baseDrift2Depth = applyNormalizedOffset(baseDrift2Depth, l1End);
+            if (bp.lfo1Target == LfoTarget::Drift3Depth) baseDrift3Depth = applyNormalizedOffset(baseDrift3Depth, l1End);
+            if (bp.lfo2Target == LfoTarget::Env1Amt) bp.ampAmount  = applyNormalizedOffset(bp.ampAmount,  l2End);
+            if (bp.lfo2Target == LfoTarget::Env2Amt) bp.mod1Amount = applyNormalizedOffset(bp.mod1Amount, l2End);
+            if (bp.lfo2Target == LfoTarget::Env3Amt) bp.mod2Amount = applyNormalizedOffset(bp.mod2Amount, l2End);
+            if (bp.lfo2Target == LfoTarget::Drift1Depth) baseDrift1Depth = applyNormalizedOffset(baseDrift1Depth, l2End);
+            if (bp.lfo2Target == LfoTarget::Drift2Depth) baseDrift2Depth = applyNormalizedOffset(baseDrift2Depth, l2End);
+            if (bp.lfo2Target == LfoTarget::Drift3Depth) baseDrift3Depth = applyNormalizedOffset(baseDrift3Depth, l2End);
 
             driftLfo.setLfoDepth(0, baseDrift1Depth);
             driftLfo.setLfoDepth(1, baseDrift2Depth);
@@ -1212,13 +1217,13 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
         // Env → LFO modulation
         if (bp.mod1Target == EnvTarget::LFO1Rate)   lfo1.setRate(baseLfo1Rate * (1.0f + lastMod1Val));
-        if (bp.mod1Target == EnvTarget::LFO1Depth)  lfo1.setDepth(std::max(0.0f, baseLfo1Depth + lastMod1Val * baseLfo1Depth));
+        if (bp.mod1Target == EnvTarget::LFO1Depth)  lfo1.setDepth(applyNormalizedOffset(baseLfo1Depth, lastMod1Val));
         if (bp.mod1Target == EnvTarget::LFO2Rate)   lfo2.setRate(baseLfo2Rate * (1.0f + lastMod1Val));
-        if (bp.mod1Target == EnvTarget::LFO2Depth)  lfo2.setDepth(std::max(0.0f, baseLfo2Depth + lastMod1Val * baseLfo2Depth));
+        if (bp.mod1Target == EnvTarget::LFO2Depth)  lfo2.setDepth(applyNormalizedOffset(baseLfo2Depth, lastMod1Val));
         if (bp.mod2Target == EnvTarget::LFO1Rate)   lfo1.setRate(baseLfo1Rate * (1.0f + lastMod2Val));
-        if (bp.mod2Target == EnvTarget::LFO1Depth)  lfo1.setDepth(std::max(0.0f, baseLfo1Depth + lastMod2Val * baseLfo1Depth));
+        if (bp.mod2Target == EnvTarget::LFO1Depth)  lfo1.setDepth(applyNormalizedOffset(baseLfo1Depth, lastMod2Val));
         if (bp.mod2Target == EnvTarget::LFO2Rate)   lfo2.setRate(baseLfo2Rate * (1.0f + lastMod2Val));
-        if (bp.mod2Target == EnvTarget::LFO2Depth)  lfo2.setDepth(std::max(0.0f, baseLfo2Depth + lastMod2Val * baseLfo2Depth));
+        if (bp.mod2Target == EnvTarget::LFO2Depth)  lfo2.setDepth(applyNormalizedOffset(baseLfo2Depth, lastMod2Val));
         if (bp.lfo1Target == LfoTarget::DelayTime)  modDelayTime += lastLfo1Val;
         if (bp.lfo1Target == LfoTarget::DelayFB)    modDelayFb += lastLfo1Val;
         if (bp.lfo1Target == LfoTarget::DelayMix)   modDelayMix += lastLfo1Val;
@@ -1487,9 +1492,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
                 float depth = parameters.getRawParameterValue(paramId)->load();
                 if (lfo1Mod)
-                    depth = juce::jlimit(0.0f, 1.0f, depth * (1.0f + lastLfo1Val_));
+                    depth = applyNormalizedOffset(depth, lastLfo1Val_);
                 if (lfo2Mod)
-                    depth = juce::jlimit(0.0f, 1.0f, depth * (1.0f + lastLfo2Val_));
+                    depth = applyNormalizedOffset(depth, lastLfo2Val_);
                 return depth;
             };
 
