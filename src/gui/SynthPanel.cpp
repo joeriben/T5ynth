@@ -1098,7 +1098,7 @@ void SynthPanel::paint(juce::Graphics& g)
     // Card: Filter section
     {
         int top = filterHeader.getY() - inset;
-        int bot = filterDriveRow->getBottom();
+        int bot = kbdTrackRow->getBottom();
         paintCard(g, juce::Rectangle<int>(padX, top, getWidth() - padX * 2, bot - top + inset));
 
         // Filter switchbox borders
@@ -1398,7 +1398,7 @@ void SynthPanel::resized()
     filterHeader.setBounds(area.removeFromTop(headerH));
     area.removeFromTop(headerGap);
 
-    // ── Filter switchboxes: [OFF LP HP BP] [6dB 12dB 18dB 24dB] ──
+    // ── Filter switchboxes + Drive: [OFF LP HP BP] [6 12 18 24 dB] [Drive  [Makeup]] ──
     auto filterHdr = area.removeFromTop(rowH);
     {
         const int groupGap = juce::roundToInt(f * 0.75f);
@@ -1408,6 +1408,7 @@ void SynthPanel::resized()
         auto typeArea = filterHdr.removeFromLeft(typeCellW * kNumTypeBtns);
         filterHdr.removeFromLeft(groupGap);
         auto slopeArea = filterHdr.removeFromLeft(slopeCellW * kNumSlopeBtns);
+        filterHdr.removeFromLeft(groupGap);
 
         for (int i = 0; i < kNumTypeBtns; ++i)
             filterTypeBtns[i].setBounds(typeArea.removeFromLeft(typeCellW));
@@ -1418,6 +1419,14 @@ void SynthPanel::resized()
             filterSlopeBtns[i].setBounds(slopeArea.removeFromLeft(slopeCellW));
         filterSlopeSwitchBounds = filterSlopeBtns[0].getBounds()
             .getUnion(filterSlopeBtns[kNumSlopeBtns - 1].getBounds());
+
+        // Drive slider + Makeup toggle fill the remainder of the header row
+        const int makeupW = juce::roundToInt(f * 5.0f);
+        auto makeupArea = filterHdr.removeFromRight(makeupW);
+        filterHdr.removeFromRight(4);
+        filterDriveRow->setBounds(filterHdr);
+        const int toggleH = juce::roundToInt(rowH * 0.72f);
+        filterMakeupBtn.setBounds(makeupArea.withSizeKeepingCentre(makeupArea.getWidth(), toggleH));
     }
     area.removeFromTop(gap);
 
@@ -1432,17 +1441,6 @@ void SynthPanel::resized()
         auto filterBounds2 = layoutSliderRowPairBounds(row2, *filterMixRow, *kbdTrackRow, 4);
         filterMixRow->setBounds(filterBounds2[0]);
         kbdTrackRow->setBounds(filterBounds2[1]);
-
-        // Drive row: slider on the left, Makeup toggle on the right
-        auto row3 = area.removeFromTop(rowH);
-        const int makeupW = juce::roundToInt(f * 6.0f);
-        auto makeupArea = row3.removeFromRight(makeupW);
-        row3.removeFromRight(4);
-        filterDriveRow->setBounds(row3);
-        // Center the toggle vertically within the row
-        const int toggleH = juce::roundToInt(rowH * 0.72f);
-        filterMakeupBtn.setBounds(makeupArea.withSizeKeepingCentre(makeupArea.getWidth(), toggleH));
-
         area.removeFromTop(gap);
     }
 
