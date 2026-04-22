@@ -1,6 +1,25 @@
 #include "SynthVoice.h"
 #include <cstring>
 
+namespace
+{
+float applyNormalizedOffset(float baseValue, float modulationOffset)
+{
+    return juce::jlimit(0.0f, 1.0f, baseValue + modulationOffset);
+}
+
+float computeEffectiveLfoDepth(const BlockParams& p, int target, float baseDepth,
+                               float mod1EnvVal, float mod2EnvVal)
+{
+    float depth = baseDepth;
+    if (p.mod1Target == target)
+        depth = applyNormalizedOffset(depth, mod1EnvVal);
+    if (p.mod2Target == target)
+        depth = applyNormalizedOffset(depth, mod2EnvVal);
+    return depth;
+}
+}
+
 void SynthVoice::prepare(double sampleRate, int samplesPerBlock)
 {
     sr = sampleRate;
@@ -346,8 +365,12 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
     result.mod2EnvVal = mod2EnvVal;
 
     // Use global LFO values (freerun mode — trigger mode will be added in Phase 3)
-    float lfo1Val = globalLfo1Val;
-    float lfo2Val = globalLfo2Val;
+    const float lfo1Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth,
+                                                     p.lfo1Depth, mod1EnvVal, mod2EnvVal);
+    const float lfo2Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth,
+                                                     p.lfo2Depth, mod1EnvVal, mod2EnvVal);
+    float lfo1Val = globalLfo1Val * lfo1Depth;
+    float lfo2Val = globalLfo2Val * lfo2Depth;
 
     // Pitch modulation
     float pitchMod = p.driftPitchOffset;
@@ -466,11 +489,15 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
     {
         // Block-rate pitch modulation (computed at block midpoint)
         int mid = numSamples / 2;
+        const float lfo1Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth,
+                                                         p.lfo1Depth, lastMod1Val_, lastMod2Val_);
+        const float lfo2Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth,
+                                                         p.lfo2Depth, lastMod1Val_, lastMod2Val_);
         float pitchMod = p.driftPitchOffset;
         if (p.mod1Target == EnvTarget::Pitch) pitchMod += lastMod1Val_;
         if (p.mod2Target == EnvTarget::Pitch) pitchMod += lastMod2Val_;
-        if (p.lfo1Target == LfoTarget::Pitch) pitchMod += lfo1Buf[mid];
-        if (p.lfo2Target == LfoTarget::Pitch) pitchMod += lfo2Buf[mid];
+        if (p.lfo1Target == LfoTarget::Pitch) pitchMod += lfo1Buf[mid] * lfo1Depth;
+        if (p.lfo2Target == LfoTarget::Pitch) pitchMod += lfo2Buf[mid] * lfo2Depth;
         sampler.setPitchModulation(1.0f + pitchMod);
 
         sampler.renderPitchedBlock(samplerBlockBuf_.data(), numSamples);
@@ -486,8 +513,12 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
         if (p.filterEnabled)
         {
             int midIdx = pos + subBlockLen / 2;
-            float lfo1Mid = lfo1Buf[midIdx];
-            float lfo2Mid = lfo2Buf[midIdx];
+            const float lfo1Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth,
+                                                             p.lfo1Depth, lastMod1Val_, lastMod2Val_);
+            const float lfo2Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth,
+                                                             p.lfo2Depth, lastMod1Val_, lastMod2Val_);
+            float lfo1Mid = lfo1Buf[midIdx] * lfo1Depth;
+            float lfo2Mid = lfo2Buf[midIdx] * lfo2Depth;
 
             float cutoffMod = p.baseCutoff;
 
@@ -525,8 +556,12 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
             lastMod1Val_ = mod1EnvVal;
             lastMod2Val_ = mod2EnvVal;
 
-            float lfo1Val = lfo1Buf[i];
-            float lfo2Val = lfo2Buf[i];
+            const float lfo1Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth,
+                                                             p.lfo1Depth, mod1EnvVal, mod2EnvVal);
+            const float lfo2Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth,
+                                                             p.lfo2Depth, mod1EnvVal, mod2EnvVal);
+            float lfo1Val = lfo1Buf[i] * lfo1Depth;
+            float lfo2Val = lfo2Buf[i] * lfo2Depth;
 
             float sample = 0.0f;
 
