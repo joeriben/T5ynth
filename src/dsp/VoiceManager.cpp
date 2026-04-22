@@ -443,12 +443,14 @@ bool VoiceManager::hasActiveVoices() const
 
 void VoiceManager::updateGainTarget()
 {
-    // Additive summing, no per-voice attenuation: real-world synths (including
-    // the Hammond/Viscount reference the user called out) don't scale down
-    // each voice as more keys are held — they just sum. Peak excursions are
-    // caught by the end-of-chain limiter. Kept the ramp infrastructure in
-    // place so reintroducing a scaling law later is a one-line change.
-    constexpr float newTarget = 1.0f;
+    // Very gentle per-voice compensation (1/N^0.1):
+    //   n=2  → -0.30 dB     n=8  → -0.90 dB
+    //   n=4  → -0.60 dB     n=16 → -1.20 dB
+    // Sub-perceptual per-voice so engaging a drone or adding a chord note
+    // doesn't audibly duck the mix, while still leaving ~1.2 dB of headroom
+    // at full 16-voice polyphony before the end limiter starts working.
+    int n = getHeldVoiceCount();
+    float newTarget = (n > 0) ? 1.0f / std::pow(static_cast<float>(n), 0.1f) : 1.0f;
 
     if (newTarget != targetGain)
     {
