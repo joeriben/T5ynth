@@ -46,6 +46,9 @@ private:
     void updateStatus();
     void timerCallback() override;
     void setModelInstallBusy(bool busy, const juce::String& statusText = {});
+    juce::Result importModelDirectory(const juce::File& sourceDir,
+                                      juce::File& activeDir,
+                                      bool replaceExistingTarget);
 
     // Smart Auto-Scan entry point: checks known install paths, and for
     // SA Small walks the user's Downloads folder looking for the two
