@@ -205,9 +205,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::filterType, 1}, "Filter Type",
         toChoices(FilterType::kEntries), 1));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::filterTopology, 1}, "Filter Topology",
-        toChoices(FilterTopology::kEntries), FilterTopology::VcaPreFilter));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::filterSlope, 1}, "Filter Slope",
         toChoices(FilterSlope::kEntries), 1));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -216,6 +213,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::filterKbdTrack, 1}, "Filter Kbd Track",
         juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::filterDrive, 1}, "Filter Drive",
+        juce::NormalisableRange<float>(0.0f, 36.0f, 0.1f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::filterDriveMakeup, 1}, "Filter Drive Makeup", true));
 
     // Delay
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -801,13 +803,20 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         int ft = static_cast<int>(parameters.getRawParameterValue(PID::filterType)->load());
         bp.filterEnabled = (ft > 0);
         bp.filterType = ft > 0 ? ft - 1 : 0;  // 0=LP, 1=HP, 2=BP for DSP
-        bp.filterTopology = static_cast<int>(parameters.getRawParameterValue(PID::filterTopology)->load());
     }
     bp.baseCutoff = parameters.getRawParameterValue(PID::filterCutoff)->load();
     bp.baseReso = parameters.getRawParameterValue(PID::filterResonance)->load();
     bp.filterSlope = static_cast<int>(parameters.getRawParameterValue(PID::filterSlope)->load());
     bp.filterMix = parameters.getRawParameterValue(PID::filterMix)->load();
     bp.kbdTrack = parameters.getRawParameterValue(PID::filterKbdTrack)->load();
+    bp.filterDriveDb = parameters.getRawParameterValue(PID::filterDrive)->load();
+    bp.filterDriveMakeup = parameters.getRawParameterValue(PID::filterDriveMakeup)->load() > 0.5f;
+    bp.filterDriveGain = std::pow(10.0f, bp.filterDriveDb * (1.0f / 20.0f));
+    // Peak make-up: after tanh a full-scale sine peaks at tanh(driveGain).
+    // Dividing by that restores the peak to ±1. At driveDb==0 both gains are 1.0.
+    bp.filterDriveMakeupGain = (bp.filterDriveMakeup && bp.filterDriveDb > 0.01f)
+        ? 1.0f / std::tanh(bp.filterDriveGain)
+        : 1.0f;
 
     // Scan
     bp.baseScan = parameters.getRawParameterValue(PID::oscScan)->load();
@@ -2069,9 +2078,6 @@ static juce::String choiceToKey(int i, const ChoiceEntry (&entries)[N]) {
 static int filterTypeFromString(const juce::String& s)  { return choiceFromKey(s, FilterType::kEntries); }
 static juce::String filterTypeToString(int i)           { return choiceToKey(i, FilterType::kEntries); }
 
-static int filterTopologyFromString(const juce::String& s) { return choiceFromKey(s, FilterTopology::kEntries); }
-static juce::String filterTopologyToString(int i)         { return choiceToKey(i, FilterTopology::kEntries); }
-
 static int filterSlopeFromString(const juce::String& s) { return choiceFromKey(s, FilterSlope::kEntries); }
 static juce::String filterSlopeToString(int i)          { return choiceToKey(i, FilterSlope::kEntries); }
 
@@ -2331,12 +2337,13 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     int ftRaw = static_cast<int>(get(PID::filterType));
     filt->setProperty("enabled", ftRaw > 0);
     filt->setProperty("type", filterTypeToString(ftRaw));
-    filt->setProperty("topology", filterTopologyToString(static_cast<int>(get(PID::filterTopology))));
     filt->setProperty("slope", filterSlopeToString(static_cast<int>(get(PID::filterSlope))));
     filt->setProperty("cutoff", cutoffHzToNorm(get(PID::filterCutoff)));
     filt->setProperty("resonance", get(PID::filterResonance));
     filt->setProperty("mix", get(PID::filterMix));
     filt->setProperty("kbdTrack", get(PID::filterKbdTrack));
+    filt->setProperty("drive", get(PID::filterDrive));
+    filt->setProperty("driveMakeup", get(PID::filterDriveMakeup) > 0.5f);
     root->setProperty("filter", filt.get());
 
     // Sequencer
@@ -2571,10 +2578,6 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         int filtType = filterTypeFromString(filt->getProperty("type").toString());
         if (!filtEnabled) filtType = FilterType::Off;
         setParam(parameters, PID::filterType, static_cast<float>(filtType));
-        const int filtTopology = filt->hasProperty("topology")
-            ? filterTopologyFromString(filt->getProperty("topology").toString())
-            : FilterTopology::VcaPreFilter;
-        setParam(parameters, PID::filterTopology, static_cast<float>(filtTopology));
         setParam(parameters, PID::filterSlope,
                  static_cast<float>(filterSlopeFromString(filt->getProperty("slope").toString())));
         // Convert normalized cutoff to Hz: 20 * pow(1000, n)
@@ -2583,6 +2586,11 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         setParam(parameters, PID::filterResonance, static_cast<float>(filt->getProperty("resonance")));
         setParam(parameters, PID::filterMix, static_cast<float>(filt->getProperty("mix")));
         setParam(parameters, PID::filterKbdTrack, static_cast<float>(filt->getProperty("kbdTrack")));
+        // Drive: absent in older presets -> treat as 0 dB, makeup on.
+        setParam(parameters, PID::filterDrive,
+                 filt->hasProperty("drive") ? static_cast<float>(filt->getProperty("drive")) : 0.0f);
+        setParam(parameters, PID::filterDriveMakeup,
+                 filt->hasProperty("driveMakeup") ? (static_cast<bool>(filt->getProperty("driveMakeup")) ? 1.0f : 0.0f) : 1.0f);
     }
 
     // ── Sequencer ──

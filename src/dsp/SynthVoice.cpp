@@ -490,8 +490,6 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
     result.modulatedNoiseLevel = noiseLevel;
     lastModulatedNoiseLevel_ = noiseLevel;
 
-    const bool vcaBeforeFilter = p.filterTopology == FilterTopology::VcaPreFilter;
-
     // DCA
     float vca = ampEnvVal;
     if (p.mod1Target == EnvTarget::DCA) vca *= (1.0f + mod1EnvVal);
@@ -534,13 +532,16 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
         filter.setType(p.filterType);
         filter.setSlope(p.filterSlope);
         filter.setMix(p.filterMix);
-        if (vcaBeforeFilter)
-            sample *= vca;
+
+        // Pre-filter drive (tanh). At 0 dB we skip the call entirely so
+        // presets without drive stay bit-identical to pre-drive builds.
+        if (p.filterDriveDb > 0.01f)
+            sample = std::tanh(sample * p.filterDriveGain) * p.filterDriveMakeupGain;
+
         sample = filter.processSample(sample);
     }
 
-    if (!p.filterEnabled || !vcaBeforeFilter)
-        sample *= vca;
+    sample *= vca;
 
     // Check if voice has finished (envelope idle after release)
     if (ampEnv.isIdle() && !noteHeld)
@@ -624,9 +625,7 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
             filter.setMix(p.filterMix);
         }
 
-        const bool vcaBeforeFilter = p.filterTopology == FilterTopology::VcaPreFilter;
-
-        // ── Per-sample inner loop: envelopes + audio + VCA/filter routing ──
+        // ── Per-sample inner loop: envelopes + audio + drive/filter/VCA ──
         for (int i = pos; i < subBlockEnd; ++i)
         {
             float ampEnvVal = ampEnv.processSample() * p.ampAmount;
@@ -698,8 +697,12 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
             if (p.mod1Target == EnvTarget::DCA) vca *= (1.0f + mod1EnvVal);
             if (p.mod2Target == EnvTarget::DCA) vca *= (1.0f + mod2EnvVal);
 
-            if (p.filterEnabled && !vcaBeforeFilter)
+            if (p.filterEnabled)
+            {
+                if (p.filterDriveDb > 0.01f)
+                    sample = std::tanh(sample * p.filterDriveGain) * p.filterDriveMakeupGain;
                 sample = filter.processSample(sample);
+            }
 
             sample *= vca;
 
@@ -712,13 +715,6 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
                     output[j] = 0.0f;
                 return;
             }
-        }
-
-        // ── Post-VCA topology: filter the already-shaped sub-block ──
-        if (p.filterEnabled && vcaBeforeFilter)
-        {
-            for (int i = pos; i < subBlockEnd; ++i)
-                output[i] = filter.processSample(output[i]);
         }
 
         pos = subBlockEnd;

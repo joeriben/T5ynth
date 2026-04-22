@@ -86,7 +86,7 @@ private:
 
     // ── Layout rects for paint() ──
     juce::Rectangle<int> engineSwitchBounds, loopSwitchBounds, optSwitchBounds;
-    juce::Rectangle<int> filterTypeSwitchBounds, filterSlopeSwitchBounds, filterTopologySwitchBounds;
+    juce::Rectangle<int> filterTypeSwitchBounds, filterSlopeSwitchBounds;
     int engineCardBottom = 0;
 
     // ── Filter ──
@@ -98,11 +98,8 @@ private:
     static constexpr int kNumSlopeBtns = 4;
     juce::TextButton filterSlopeBtns[kNumSlopeBtns];
     juce::ComboBox filterSlopeHidden;
-    // Topology switchbox: VCA->VCF / VCF->VCA
-    static constexpr int kNumTopologyBtns = 2;
-    juce::TextButton filterTopologyBtns[kNumTopologyBtns];
-    juce::ComboBox filterTopologyHidden;
-    std::unique_ptr<SliderRow> cutoffRow, resoRow, filterMixRow, kbdTrackRow;
+    std::unique_ptr<SliderRow> cutoffRow, resoRow, filterMixRow, kbdTrackRow, filterDriveRow;
+    juce::TextButton filterMakeupBtn { "Makeup" };
 
     // ── Envelope sections ──
     struct EnvSection
@@ -164,7 +161,9 @@ private:
     std::unique_ptr<CA> wtFramesA;
     std::unique_ptr<BA> wtSmoothA;
     std::unique_ptr<BA> wtAutoScanA;
-    std::unique_ptr<CA> filterTypeA, filterSlopeA, filterTopologyA;
+    std::unique_ptr<CA> filterTypeA, filterSlopeA;
+    std::unique_ptr<SA> filterDriveA;
+    std::unique_ptr<BA> filterMakeupA;
     std::unique_ptr<CA> driftRegenA;
     std::unique_ptr<SA> crossfadeRegenA;
 

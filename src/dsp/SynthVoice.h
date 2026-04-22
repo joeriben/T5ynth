@@ -12,7 +12,7 @@
  * Single synthesizer voice — owns all per-voice DSP state:
  * oscillator, sample player, envelopes, per-voice LFOs, and filter.
  *
- * Signal chain: Osc/Noise → (VCA → Filter or Filter → VCA) → output
+ * Signal chain: Osc/Noise → Drive (tanh, optional) → Filter (SVF) → VCA → output
  */
 class SynthVoice
 {

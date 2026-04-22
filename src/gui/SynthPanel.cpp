@@ -14,6 +14,7 @@ static juce::String fmtMs(double v)
 static juce::String fmtF2(double v)  { return juce::String(v, 2); }
 static juce::String fmtPct(double v) { return juce::String(juce::roundToInt(v * 100.0)) + "%"; }
 static juce::String fmtHz(double v)  { return juce::String(juce::roundToInt(v)) + " Hz"; }
+static juce::String fmtDb(double v)  { return juce::String(v, 1) + " dB"; }
 static juce::String fmtHzF1(double v){ return juce::String(v, 1) + " Hz"; }
 static juce::String fmtHzF2(double v){ return juce::String(v, 2) + " Hz"; }
 static juce::String fmtHzF3(double v){ return juce::String(v, 3) + " Hz"; }
@@ -643,54 +644,47 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         }
     }
 
-    // ── Filter topology switchbox: VCA->VCF / VCF->VCA ──
-    {
-        juce::StringArray topologyLabels;
-        for (const auto& e : FilterTopology::kEntries) topologyLabels.add(e.label);
-        filterTopologyHidden.addItemList(topologyLabels, 1);
-        filterTopologyHidden.onChange = [this] {
-            int id = filterTopologyHidden.getSelectedId();
-            for (int i = 0; i < kNumTopologyBtns; ++i)
-                filterTopologyBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
-        };
-        for (int i = 0; i < kNumTopologyBtns; ++i)
-        {
-            filterTopologyBtns[i].setButtonText(topologyLabels[i]);
-            filterTopologyBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
-            filterTopologyBtns[i].setColour(juce::TextButton::buttonOnColourId, kFilterCol);
-            filterTopologyBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
-            filterTopologyBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
-            filterTopologyBtns[i].setClickingTogglesState(true);
-            filterTopologyBtns[i].setRadioGroupId(3003);
-            { int edges = 0;
-              if (i > 0) edges |= juce::Button::ConnectedOnLeft;
-              if (i < kNumTopologyBtns - 1) edges |= juce::Button::ConnectedOnRight;
-              filterTopologyBtns[i].setConnectedEdges(edges); }
-            filterTopologyBtns[i].onClick = [this, i] { filterTopologyHidden.setSelectedId(i + 1); };
-            addAndMakeVisible(filterTopologyBtns[i]);
-        }
-    }
-
-    cutoffRow    = std::make_unique<SliderRow>("Cutoff",    fmtHz,  kFilterCol);
-    resoRow      = std::make_unique<SliderRow>("Resonance", fmtF2, kFilterCol);
-    filterMixRow = std::make_unique<SliderRow>("Mix",       fmtPct, kFilterCol);
-    kbdTrackRow  = std::make_unique<SliderRow>("Kbd Track", fmtPct, kFilterCol);
-    for (auto* r : { cutoffRow.get(), resoRow.get(), filterMixRow.get(), kbdTrackRow.get() })
+    cutoffRow      = std::make_unique<SliderRow>("Cutoff",    fmtHz,  kFilterCol);
+    resoRow        = std::make_unique<SliderRow>("Resonance", fmtF2,  kFilterCol);
+    filterMixRow   = std::make_unique<SliderRow>("Mix",       fmtPct, kFilterCol);
+    kbdTrackRow    = std::make_unique<SliderRow>("Kbd Track", fmtPct, kFilterCol);
+    filterDriveRow = std::make_unique<SliderRow>("Drive",     fmtDb,  kFilterCol);
+    for (auto* r : { cutoffRow.get(), resoRow.get(), filterMixRow.get(),
+                     kbdTrackRow.get(), filterDriveRow.get() })
         addAndMakeVisible(*r);
 
-    cutoffA    = std::make_unique<SA>(apvts, PID::filterCutoff,    cutoffRow->getSlider());
-    resoA      = std::make_unique<SA>(apvts, PID::filterResonance, resoRow->getSlider());
-    filterMixA = std::make_unique<SA>(apvts, PID::filterMix,       filterMixRow->getSlider());
-    kbdTrackA  = std::make_unique<SA>(apvts, PID::filterKbdTrack, kbdTrackRow->getSlider());
+    // Makeup toggle — peak-match compensation after the tanh shaper
+    auto setupFilterToggle = [](juce::TextButton& btn) {
+        btn.setClickingTogglesState(true);
+        btn.onClick = [&btn] {
+            bool on = btn.getToggleState();
+            btn.setColour(juce::TextButton::buttonColourId,
+                          on ? kAccent : juce::Colours::transparentBlack);
+            btn.setColour(juce::TextButton::textColourOffId,
+                          on ? juce::Colour(0xff0e1018) : kDimmer);
+            btn.setColour(juce::TextButton::textColourOnId,
+                          on ? juce::Colour(0xff0e1018) : juce::Colours::white);
+        };
+    };
+    setupFilterToggle(filterMakeupBtn);
+    addAndMakeVisible(filterMakeupBtn);
+
+    cutoffA        = std::make_unique<SA>(apvts, PID::filterCutoff,    cutoffRow->getSlider());
+    resoA          = std::make_unique<SA>(apvts, PID::filterResonance, resoRow->getSlider());
+    filterMixA     = std::make_unique<SA>(apvts, PID::filterMix,       filterMixRow->getSlider());
+    kbdTrackA      = std::make_unique<SA>(apvts, PID::filterKbdTrack,  kbdTrackRow->getSlider());
+    filterDriveA   = std::make_unique<SA>(apvts, PID::filterDrive,     filterDriveRow->getSlider());
+    filterMakeupA  = std::make_unique<BA>(apvts, PID::filterDriveMakeup, filterMakeupBtn);
+    filterMakeupBtn.onClick(); // sync initial colours with APVTS state
 
     filterTypeA  = std::make_unique<CA>(apvts, PID::filterType,  filterTypeHidden);
     filterSlopeA = std::make_unique<CA>(apvts, PID::filterSlope, filterSlopeHidden);
-    filterTopologyA = std::make_unique<CA>(apvts, PID::filterTopology, filterTopologyHidden);
 
     cutoffRow->updateValue();
     resoRow->updateValue();
     filterMixRow->updateValue();
     kbdTrackRow->updateValue();
+    filterDriveRow->updateValue();
 
     // ── Envelopes ──
     initEnv(ampEnv,  "ENV 1", 2, PID::ampAttack,  PID::ampDecay,  PID::ampSustain,  PID::ampRelease,
@@ -874,16 +868,14 @@ void SynthPanel::updateVisibility()
         filterSlopeBtns[i].setAlpha(filterAlpha);
         filterSlopeBtns[i].setEnabled(filterOn);
     }
-    for (int i = 0; i < kNumTopologyBtns; ++i)
-    {
-        filterTopologyBtns[i].setAlpha(filterAlpha);
-        filterTopologyBtns[i].setEnabled(filterOn);
-    }
-    for (auto* r : { cutoffRow.get(), resoRow.get(), filterMixRow.get(), kbdTrackRow.get() })
+    for (auto* r : { cutoffRow.get(), resoRow.get(), filterMixRow.get(),
+                     kbdTrackRow.get(), filterDriveRow.get() })
     {
         r->setAlpha(filterAlpha);
         r->setEnabled(filterOn);
     }
+    filterMakeupBtn.setAlpha(filterAlpha);
+    filterMakeupBtn.setEnabled(filterOn);
 
     bool isWavetable = engineModeHidden.getSelectedId() == 2;
     bool isSampler = !isWavetable;
@@ -1106,13 +1098,12 @@ void SynthPanel::paint(juce::Graphics& g)
     // Card: Filter section
     {
         int top = filterHeader.getY() - inset;
-        int bot = kbdTrackRow->getBottom();
+        int bot = filterDriveRow->getBottom();
         paintCard(g, juce::Rectangle<int>(padX, top, getWidth() - padX * 2, bot - top + inset));
 
         // Filter switchbox borders
         paintSwitchBoxBorder(g, filterTypeSwitchBounds);
         paintSwitchBoxBorder(g, filterSlopeSwitchBounds);
-        paintSwitchBoxBorder(g, filterTopologySwitchBounds);
     }
 
     // Card: Modulation (ENVs + LFOs + Drift)
@@ -1407,23 +1398,19 @@ void SynthPanel::resized()
     filterHeader.setBounds(area.removeFromTop(headerH));
     area.removeFromTop(headerGap);
 
-    // ── Filter switchboxes: [OFF LP HP BP] [6dB 12dB 18dB 24dB] [VCA->VCF VCF->VCA] ──
+    // ── Filter switchboxes: [OFF LP HP BP] [6dB 12dB 18dB 24dB] ──
     auto filterHdr = area.removeFromTop(rowH);
     {
         const int groupGap = juce::roundToInt(f * 0.75f);
         const int typeCellW = juce::roundToInt(f * 3.2f);
         const int slopeCellW = juce::roundToInt(f * 3.2f);
-        const int topologyCellW = juce::roundToInt(f * 6.8f);
 
         auto typeArea = filterHdr.removeFromLeft(typeCellW * kNumTypeBtns);
         filterHdr.removeFromLeft(groupGap);
         auto slopeArea = filterHdr.removeFromLeft(slopeCellW * kNumSlopeBtns);
-        filterHdr.removeFromLeft(groupGap);
-        auto topologyArea = filterHdr.removeFromLeft(topologyCellW * kNumTopologyBtns + 4);
 
-        int cellW = typeCellW;
         for (int i = 0; i < kNumTypeBtns; ++i)
-            filterTypeBtns[i].setBounds(typeArea.removeFromLeft(cellW));
+            filterTypeBtns[i].setBounds(typeArea.removeFromLeft(typeCellW));
         filterTypeSwitchBounds = filterTypeBtns[0].getBounds()
             .getUnion(filterTypeBtns[kNumTypeBtns - 1].getBounds());
 
@@ -1431,16 +1418,6 @@ void SynthPanel::resized()
             filterSlopeBtns[i].setBounds(slopeArea.removeFromLeft(slopeCellW));
         filterSlopeSwitchBounds = filterSlopeBtns[0].getBounds()
             .getUnion(filterSlopeBtns[kNumSlopeBtns - 1].getBounds());
-
-        for (int i = 0; i < kNumTopologyBtns; ++i)
-        {
-            auto bounds = topologyArea.removeFromLeft(topologyCellW);
-            if (i + 1 < kNumTopologyBtns)
-                topologyArea.removeFromLeft(4);
-            filterTopologyBtns[i].setBounds(bounds);
-        }
-        filterTopologySwitchBounds = filterTopologyBtns[0].getBounds()
-            .getUnion(filterTopologyBtns[kNumTopologyBtns - 1].getBounds());
     }
     area.removeFromTop(gap);
 
@@ -1455,6 +1432,17 @@ void SynthPanel::resized()
         auto filterBounds2 = layoutSliderRowPairBounds(row2, *filterMixRow, *kbdTrackRow, 4);
         filterMixRow->setBounds(filterBounds2[0]);
         kbdTrackRow->setBounds(filterBounds2[1]);
+
+        // Drive row: slider on the left, Makeup toggle on the right
+        auto row3 = area.removeFromTop(rowH);
+        const int makeupW = juce::roundToInt(f * 6.0f);
+        auto makeupArea = row3.removeFromRight(makeupW);
+        row3.removeFromRight(4);
+        filterDriveRow->setBounds(row3);
+        // Center the toggle vertically within the row
+        const int toggleH = juce::roundToInt(rowH * 0.72f);
+        filterMakeupBtn.setBounds(makeupArea.withSizeKeepingCentre(makeupArea.getWidth(), toggleH));
+
         area.removeFromTop(gap);
     }
 
