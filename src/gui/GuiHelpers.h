@@ -499,12 +499,12 @@ private:
         if (labelMode == LabelMode::Positive)
         {
             textColour = juce::Colours::white;
-            border = juce::BorderSize<int>(0, 2, 1, 3);
+            border = juce::BorderSize<int>(1, 3, 1, 3);
         }
         else if (labelMode == LabelMode::Negative)
         {
             textColour = kDim;
-            border = juce::BorderSize<int>(0, 2, 1, 3);
+            border = juce::BorderSize<int>(1, 3, 1, 3);
         }
         label.setColour(juce::Label::textColourId, textColour);
         label.setBorderSize(border);
