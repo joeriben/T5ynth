@@ -1,5 +1,27 @@
 # T5ynth Development Log
 
+## 2026-04-23 — Session 16: Ladder Drive × Resonance ROAR
+
+Resolves the "drive kills resonance" open item from the earlier entry today. The previous tree had a Version C hot-ceiling hack (`hot = kHotCeil · tanh(raw/kHotCeil)`) that was strictly worse than Version B — it killed both the drive harmonics *and* the resonance peak. Reverted it; the fix lives at the per-stage saturation instead.
+
+**Algorithm A — Huovilainen / Surge thermal-voltage normalised stages.** Replace plain `tanh(y)` at each ladder stage with `satStage(x) = 2·Vt · tanh(x / (2·Vt))`. Slope at zero stays 1 (self-oscillation threshold unchanged at `k = 4`), but the per-stage ceiling widens to ±2·Vt. Because `y4` is bounded by that ceiling, so is the feedback tap `k · y4`. With plain tanh (≡ Vt = 0.5) the feedback amplitude was capped at ±4.2 — not enough to swing a first stage pinned at saturation by a 36 dB hot signal through its linear region, so the resonance ring collapsed. Raising to `kVt = 1.22` (canonical Surge value for VintageLadders) gives ±10.2 of feedback swing — the exact headroom that lets the loop oscillate the drive-pinned first stage across zero each cycle. That's the mechanism behind the Minimoog-style ROAR at high drive + high resonance.
+
+Applied to all five per-sample `tanh` calls in `MoogLadderFilter::processSample` (the pre-ladder `tanh(fbIn)` and the four per-stage `tanh(y_i)`). Mirrored into `CutoffWarpFilter`'s Tanh style (`sat(·, 0) → satStage(·)`); other styles (SoftClip / OJD / Sin / Digital / Asym) kept their original curves on this first pass — revisit per-style if the acceptance matrix falls flat for one of them.
+
+**Why not Algorithm B (drive-inside-the-loop) or cytomic/RK4.** Algorithm A is the canonical Huovilainen form used in production plugins (Surge XT, et al.), ~6 lines of change, no coefficient re-derivation, no stability analysis required. B would change the drive topology away from a real Moog (drive is externally applied there, not intra-loop); C and D (Cytomic SVF-physical, RK4+TV) are 4–10× the implementation cost and not obviously needed if A works.
+
+**Level impact.** At low drive the signal doesn't hit `satStage`'s ceiling, so Vt = 1.22 output is indistinguishable from Vt = 0.5 — no regression on the `d0f78364` level parity with the SVF. At 24–36 dB the tap *is* louder by up to ~2.4×, which is the desired "drive makes it louder + crunchier" behaviour, not a bug. The `kTapComp = 1.20` is unchanged; re-tune only if the listen test reveals an audible mid-drive jump.
+
+**Bundled along with the fix** (each its own commit, independently revertable):
+- `1178002b` — startup visuals of the filter card's radio rows (TYPE / SLOPE / ALG / OS) now sync directly from APVTS instead of relying on the ComboBoxAttachment's initial `onChange` firing, which some JUCE versions skip with `dontSendNotification`. Fixes the "no active button until you click" first-paint glitch.
+- `a021f083` — per-style resonance scaling for `CutoffWarp` (0.65 Sin, 1.35 SoftClip, 1.10 OJD, 1.00 Tanh/Digital/Asym). Each saturation curve has a different DC slope, so a single nominal `k` made Sin ring at r ≈ 0.25 while SoftClip stayed silent at r = 1. Tuned by ear.
+- `acba990c` — full problem-statement / acceptance-test handover doc (`docs/handover_session16_filter_drive.md`) so the reasoning is recoverable.
+- `5d833f55` — Algorithm A itself.
+
+`kVt` is duplicated verbatim in `MoogLadderFilter.h` and `CutoffWarpFilter.h` (both `1.22f`) with cross-reference notes in both. Deliberately kept each filter self-contained rather than introducing a shared constants header for a single float — if a later change needs more shared state, that's the point to extract.
+
+**Open.** Listen test in progress against the acceptance matrix in handover §8. Expected tuning range for `kVt` if adjustment is needed: 1.0 – 1.5. The preset save/load audit that was listed as open in the earlier entry today was already completed in session 15 (handover §9).
+
 ## 2026-04-23 — Nonlinear Filter Algorithms (Huovilainen + Cutoff Warp)
 
 Added two nonlinear filter algorithms alongside the existing linear TPT SVF, selectable via a new Algorithm switchbox in the filter header:
