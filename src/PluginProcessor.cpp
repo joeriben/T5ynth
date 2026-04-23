@@ -1141,6 +1141,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         if (masterOsc.hasFrames() && generatedAudioFull.getNumSamples() > 0)
         {
             syncWavetableTraversal(generatedSampleRate, generatedAudioFull.getNumSamples());
+            masterOsc.setMorphTimeMs(parameters.getRawParameterValue(PID::driftCrossfade)->load());
             voiceManager.distributeWavetableFrames(masterOsc);
         }
 
@@ -1973,6 +1974,7 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
         masterSampler.applyPreparedBufferLoad(std::move(preparedSamplerLoad), samplerConfig);
 
         syncWavetableTraversal(sr, feedBuffer.getNumSamples());
+        masterOsc.setMorphTimeMs(parameters.getRawParameterValue(PID::driftCrossfade)->load());
 
         voiceManager.distributeSamplerBuffer(masterSampler);
         voiceManager.distributeWavetableFrames(masterOsc);
@@ -2040,6 +2042,7 @@ void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& proce
         if (masterOsc.hasFrames())
         {
             syncWavetableTraversal(generatedSampleRate, waveformSnapshot.getNumSamples());
+            masterOsc.setMorphTimeMs(parameters.getRawParameterValue(PID::driftCrossfade)->load());
             voiceManager.distributeWavetableFrames(masterOsc);
         }
 
@@ -2074,6 +2077,7 @@ void T5ynthProcessor::reextractWavetable()
             masterOsc.extractContiguousFrames(waveformSnapshot, generatedSampleRate, start, end);
 
         syncWavetableTraversal(generatedSampleRate, waveformSnapshot.getNumSamples());
+        masterOsc.setMorphTimeMs(parameters.getRawParameterValue(PID::driftCrossfade)->load());
         voiceManager.distributeWavetableFrames(masterOsc);
     }
 }

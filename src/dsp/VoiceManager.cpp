@@ -51,6 +51,7 @@ void VoiceManager::reset()
     targetGain = 1.0f;
     gainRampSamplesLeft = 0;
     currentSamplerMaster_ = nullptr;
+    currentWavetableMaster_ = nullptr;
     hasCurrentBlockParams_ = false;
     droneVoiceIndex = -1;
     droneNote = -1;
@@ -99,6 +100,8 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
             samplerVoiceDebugLog("noteOn mono share voice=0 note=" + juce::String(note)
                                  + " engine=" + juce::String(engineModeName(v.getEngineMode())));
         }
+        if (v.getEngineMode() == SynthVoice::EngineMode::Wavetable && currentWavetableMaster_ != nullptr)
+            v.getOsc().shareFramesFrom(*currentWavetableMaster_);
         v.noteOn(note, velocity, false);
         samplerVoiceDebugLog("noteOn mono trigger voice=0 note=" + juce::String(note)
                              + " velocity=" + juce::String(velocity, 3)
@@ -166,6 +169,8 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
                              + " note=" + juce::String(note)
                              + " engine=" + juce::String(engineModeName(v.getEngineMode())));
     }
+    if (v.getEngineMode() == SynthVoice::EngineMode::Wavetable && currentWavetableMaster_ != nullptr)
+        v.getOsc().shareFramesFrom(*currentWavetableMaster_);
     v.noteOn(note, velocity, false);
     samplerVoiceDebugLog("noteOn poly trigger voice=" + juce::String(idx)
                          + " note=" + juce::String(note)
@@ -370,8 +375,14 @@ void VoiceManager::distributeSamplerBuffer(const SamplePlayer& master)
 
 void VoiceManager::distributeWavetableFrames(const WavetableOscillator& masterOsc)
 {
+    currentWavetableMaster_ = &masterOsc;
     for (auto& v : voices)
-        v.getOsc().shareFramesFrom(masterOsc);
+    {
+        if (v.isActive() && v.getEngineMode() == SynthVoice::EngineMode::Wavetable)
+            v.getOsc().morphToFramesFrom(masterOsc);
+        else
+            v.getOsc().shareFramesFrom(masterOsc);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -506,6 +517,8 @@ void VoiceManager::setDroneNote(int note, float velocity, bool lfo1TrigMode, boo
             v.noteOff();
         if (v.getEngineMode() == SynthVoice::EngineMode::Sampler && currentSamplerMaster_ != nullptr)
             v.getSampler().shareBufferFrom(*currentSamplerMaster_);
+        if (v.getEngineMode() == SynthVoice::EngineMode::Wavetable && currentWavetableMaster_ != nullptr)
+            v.getOsc().shareFramesFrom(*currentWavetableMaster_);
 
         v.noteOn(note, velocity, false);
         v.noteOnTimestamp = ++noteOnCounter;

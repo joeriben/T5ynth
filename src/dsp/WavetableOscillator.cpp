@@ -14,19 +14,146 @@ void WavetableOscillator::reset()
 {
     phase = 0.0;
     smoothedScan = 0.0f;
+    if (!morphActive_)
+        morphAlpha_ = 1.0f;
 }
 
-void WavetableOscillator::shareFramesFrom(const WavetableOscillator& source)
+WavetableOscillator::MipDataPtr WavetableOscillator::loadPublishedMipData() const
 {
-    sharedSource_ = &source;
-    // Copy auto-scan configuration (not per-voice state like pos/direction)
+    return publishedMipData_.load(std::memory_order_acquire);
+}
+
+bool WavetableOscillator::hasFrames() const
+{
+    if (activeMorphMipData_ != nullptr)
+        return activeMorphMipData_->numFrames > 0;
+
+    auto published = loadPublishedMipData();
+    return published != nullptr && published->numFrames > 0;
+}
+
+int WavetableOscillator::getNumFrames() const
+{
+    if (activeMorphMipData_ != nullptr)
+        return activeMorphMipData_->numFrames;
+
+    auto published = loadPublishedMipData();
+    return published != nullptr ? published->numFrames : 0;
+}
+
+void WavetableOscillator::syncSharedConfigFrom(const WavetableOscillator& source)
+{
+    // Copy traversal/morph configuration, but keep per-voice runtime state.
     autoScan_ = source.autoScan_;
     autoScanIncr_ = source.autoScanIncr_;
     autoScanStartPos_ = source.autoScanStartPos_;
     autoScanLoopStart_ = source.autoScanLoopStart_;
     autoScanLoopEnd_ = source.autoScanLoopEnd_;
     autoScanLoopMode_ = source.autoScanLoopMode_;
-    scanControl_ = source.scanControl_;
+    morphTimeMs_ = source.morphTimeMs_;
+}
+
+void WavetableOscillator::adoptMipData(const MipDataPtr& mipData)
+{
+    if (mipData == nullptr)
+        return;
+
+    publishedMipData_.store(mipData, std::memory_order_release);
+    activeMorphMipData_ = mipData;
+    targetMorphMipData_.reset();
+    morphAlpha_ = 1.0f;
+    morphIncrement_ = 0.0f;
+    morphActive_ = false;
+}
+
+void WavetableOscillator::beginMorphToMipData(const MipDataPtr& mipData)
+{
+    if (mipData == nullptr)
+        return;
+
+    publishedMipData_.store(mipData, std::memory_order_release);
+
+    if (activeMorphMipData_ == nullptr || activeMorphMipData_->numFrames == 0)
+    {
+        adoptMipData(mipData);
+        return;
+    }
+
+    if (activeMorphMipData_->generation == mipData->generation
+        || (targetMorphMipData_ != nullptr && targetMorphMipData_->generation == mipData->generation))
+    {
+        if (!morphActive_ && activeMorphMipData_->generation == mipData->generation)
+            adoptMipData(mipData);
+        return;
+    }
+
+    if (morphTimeMs_ <= 0.0f)
+    {
+        adoptMipData(mipData);
+        return;
+    }
+
+    if (morphActive_ && targetMorphMipData_ != nullptr)
+    {
+        const bool targetDominant = morphAlpha_ >= 0.5f;
+        activeMorphMipData_ = targetDominant ? targetMorphMipData_ : activeMorphMipData_;
+    }
+
+    if (activeMorphMipData_ == nullptr
+        || activeMorphMipData_->generation == mipData->generation)
+    {
+        adoptMipData(mipData);
+        return;
+    }
+
+    targetMorphMipData_ = mipData;
+    morphAlpha_ = 0.0f;
+    const int morphSamples = std::max(1, static_cast<int>(std::round(
+        static_cast<double>(morphTimeMs_) * 0.001 * sampleRate)));
+    morphIncrement_ = 1.0f / static_cast<float>(morphSamples);
+    morphActive_ = true;
+}
+
+void WavetableOscillator::shareFramesFrom(const WavetableOscillator& source)
+{
+    sharedSource_ = &source;
+    syncSharedConfigFrom(source);
+
+    auto mipData = source.loadPublishedMipData();
+    if (mipData == nullptr)
+        return;
+
+    const bool sameActive = activeMorphMipData_ != nullptr
+        && activeMorphMipData_->generation == mipData->generation;
+    if (sameActive && !morphActive_)
+    {
+        publishedMipData_.store(mipData, std::memory_order_release);
+        return;
+    }
+
+    adoptMipData(mipData);
+}
+
+void WavetableOscillator::morphToFramesFrom(const WavetableOscillator& source)
+{
+    sharedSource_ = &source;
+    syncSharedConfigFrom(source);
+
+    auto mipData = source.loadPublishedMipData();
+    if (mipData == nullptr)
+        return;
+
+    publishedMipData_.store(mipData, std::memory_order_release);
+
+    const bool sameActive = activeMorphMipData_ != nullptr
+        && activeMorphMipData_->generation == mipData->generation;
+    const bool sameTarget = targetMorphMipData_ != nullptr
+        && targetMorphMipData_->generation == mipData->generation;
+
+    if ((sameActive && !morphActive_) || sameTarget)
+        return;
+
+    beginMorphToMipData(mipData);
 }
 
 // ─── FFT (Radix-2 Cooley-Tukey, in-place) ───
@@ -84,18 +211,13 @@ void WavetableOscillator::ifft(std::vector<double>& re, std::vector<double>& im)
 void WavetableOscillator::generateMipLevels(const std::vector<std::vector<float>>& srcFrames)
 {
     const int nFrames = static_cast<int>(srcFrames.size());
-
-    // Write into the INACTIVE slot (audio thread reads from active slot)
-    int writeSlot = 1 - activeSlot_.load(std::memory_order_relaxed);
-    auto& dest = mipSlots_[writeSlot];
-
-    dest.frames.clear();
-    dest.frames.resize(NUM_MIP_LEVELS);
+    auto dest = std::make_shared<MipData>();
+    dest->frames.resize(NUM_MIP_LEVELS);
 
     // Level 0 = original frames
-    dest.frames[0].resize(nFrames);
+    dest->frames[0].resize(nFrames);
     for (int f = 0; f < nFrames; f++)
-        dest.frames[0][f] = srcFrames[f];
+        dest->frames[0][f] = srcFrames[f];
 
     // FFT buffers (reused)
     std::vector<double> re(FRAME_SIZE), im(FRAME_SIZE);
@@ -103,7 +225,7 @@ void WavetableOscillator::generateMipLevels(const std::vector<std::vector<float>
     for (int level = 1; level < NUM_MIP_LEVELS; level++)
     {
         const int maxHarmonic = HALF_FRAME >> level;
-        dest.frames[level].resize(nFrames);
+        dest->frames[level].resize(nFrames);
 
         for (int f = 0; f < nFrames; f++)
         {
@@ -121,17 +243,17 @@ void WavetableOscillator::generateMipLevels(const std::vector<std::vector<float>
 
             ifft(re, im);
 
-            dest.frames[level][f].resize(FRAME_SIZE);
+            dest->frames[level][f].resize(FRAME_SIZE);
             for (int i = 0; i < FRAME_SIZE; i++)
-                dest.frames[level][f][i] = static_cast<float>(re[i]);
+                dest->frames[level][f][i] = static_cast<float>(re[i]);
         }
     }
 
-    dest.numFrames = nFrames;
-    dest.numLevels = NUM_MIP_LEVELS;
-
-    // Atomically swap — audio thread will pick up the new data on next sample
-    activeSlot_.store(writeSlot, std::memory_order_release);
+    dest->numFrames = nFrames;
+    dest->numLevels = NUM_MIP_LEVELS;
+    dest->generation = ++nextPublishedGeneration_;
+    MipDataPtr published = dest;
+    publishedMipData_.store(std::move(published), std::memory_order_release);
 }
 
 // ─── Pitch detection (simplified YIN autocorrelation) ───
@@ -577,9 +699,10 @@ void WavetableOscillator::glideToFrequency(float hz, float durationMs)
 
 float WavetableOscillator::processSample()
 {
-    // Snapshot the active mip data — lock-free, consistent for this sample
-    const auto& mip = getActiveMipData();
-    if (mip.numFrames == 0) return 0.0f;
+    if (activeMorphMipData_ == nullptr)
+        activeMorphMipData_ = loadPublishedMipData();
+    if (activeMorphMipData_ == nullptr || activeMorphMipData_->numFrames == 0)
+        return 0.0f;
 
     // Apply frequency glide (per-sample linear ramp)
     if (glideFreqSamplesLeft > 0)
@@ -661,59 +784,21 @@ float WavetableOscillator::processSample()
 
     // Smooth scan position
     smoothedScan += (scanTarget - smoothedScan) * scanSmoothCoeff;
+    float output = readMipSample(*activeMorphMipData_, phase, smoothedScan, targetFrequency,
+                                 sampleRate, doInterpolate);
 
-    // Select mip level based on frequency
-    const float invBaseFreq = FRAME_SIZE / static_cast<float>(sampleRate);
-    const float rawLevel = std::log2(targetFrequency * invBaseFreq);
-    const int mipLevel = juce::jlimit(0, mip.numLevels - 1, static_cast<int>(std::ceil(rawLevel)));
-    const auto& frames = mip.frames[mipLevel];
-    const int nf = mip.numFrames;
-
-    // Frame selection
-    const float framePos = smoothedScan * (nf - 1);
-    const int frameA = static_cast<int>(std::floor(framePos));
-
-    // Sample position via phase accumulator
-    const int idx0 = static_cast<int>(std::floor(phase)) % FRAME_SIZE;
-    const int idx1 = (idx0 + 1) % FRAME_SIZE;
-    const float phaseFrac = static_cast<float>(phase - std::floor(phase));
-
-    const auto& fA = frames[juce::jlimit(0, nf - 1, frameA)];
-    const float sampleA = fA[idx0] + (fA[idx1] - fA[idx0]) * phaseFrac;
-
-    float output;
-
-    if (doInterpolate)
+    if (morphActive_ && targetMorphMipData_ != nullptr && targetMorphMipData_->numFrames > 0)
     {
-        // Catmull-Rom cubic interpolation across 4 frames
-        const float frameMix = framePos - frameA;
-        const int i0 = juce::jlimit(0, nf - 1, frameA - 1);
-        const int i1 = juce::jlimit(0, nf - 1, frameA);
-        const int i2 = juce::jlimit(0, nf - 1, frameA + 1);
-        const int i3 = juce::jlimit(0, nf - 1, frameA + 2);
+        const float alpha = juce::jlimit(0.0f, 1.0f, morphAlpha_);
+        const float targetSample = readMipSample(*targetMorphMipData_, phase, smoothedScan,
+                                                 targetFrequency, sampleRate, doInterpolate);
+        const float dryGain = std::cos(alpha * juce::MathConstants<float>::halfPi);
+        const float wetGain = std::sin(alpha * juce::MathConstants<float>::halfPi);
+        output = output * dryGain + targetSample * wetGain;
 
-        const auto& f0 = frames[i0];
-        const auto& f1 = frames[i1];
-        const auto& f2 = frames[i2];
-        const auto& f3 = frames[i3];
-
-        const float s0 = f0[idx0] + (f0[idx1] - f0[idx0]) * phaseFrac;
-        const float s1 = f1[idx0] + (f1[idx1] - f1[idx0]) * phaseFrac;
-        const float s2 = f2[idx0] + (f2[idx1] - f2[idx0]) * phaseFrac;
-        const float s3 = f3[idx0] + (f3[idx1] - f3[idx0]) * phaseFrac;
-
-        // Catmull-Rom spline
-        const float t = frameMix;
-        const float t2 = t * t;
-        const float t3 = t2 * t;
-        output = 0.5f * ((2.0f * s1)
-            + (-s0 + s2) * t
-            + (2.0f * s0 - 5.0f * s1 + 4.0f * s2 - s3) * t2
-            + (-s0 + 3.0f * s1 - 3.0f * s2 + s3) * t3);
-    }
-    else
-    {
-        output = sampleA;
+        morphAlpha_ += morphIncrement_;
+        if (morphAlpha_ >= 1.0f)
+            adoptMipData(targetMorphMipData_);
     }
 
     // Advance phase
@@ -722,4 +807,59 @@ float WavetableOscillator::processSample()
         phase -= FRAME_SIZE * std::floor(phase / FRAME_SIZE);
 
     return output;
+}
+
+float WavetableOscillator::readMipSample(const MipData& mipData, double phase, float scanPosition,
+                                         float frequency, double sampleRate, bool interpolate)
+{
+    if (mipData.numFrames <= 0 || mipData.numLevels <= 0)
+        return 0.0f;
+
+    const float invBaseFreq = FRAME_SIZE / static_cast<float>(sampleRate);
+    const float rawLevel = std::log2(juce::jmax(1.0e-6f, frequency * invBaseFreq));
+    const int mipLevel = juce::jlimit(0, mipData.numLevels - 1,
+                                      static_cast<int>(std::ceil(rawLevel)));
+    const auto& frames = mipData.frames[static_cast<size_t>(mipLevel)];
+    const int nf = mipData.numFrames;
+
+    const float framePos = juce::jlimit(0.0f, 1.0f, scanPosition) * static_cast<float>(nf - 1);
+    const int frameA = static_cast<int>(std::floor(framePos));
+    const int idx0 = static_cast<int>(std::floor(phase)) % FRAME_SIZE;
+    const int idx1 = (idx0 + 1) % FRAME_SIZE;
+    const float phaseFrac = static_cast<float>(phase - std::floor(phase));
+
+    if (!interpolate)
+    {
+        const auto& frame = frames[static_cast<size_t>(juce::jlimit(0, nf - 1, frameA))];
+        return frame[static_cast<size_t>(idx0)]
+             + (frame[static_cast<size_t>(idx1)] - frame[static_cast<size_t>(idx0)]) * phaseFrac;
+    }
+
+    const float frameMix = framePos - static_cast<float>(frameA);
+    const int i0 = juce::jlimit(0, nf - 1, frameA - 1);
+    const int i1 = juce::jlimit(0, nf - 1, frameA);
+    const int i2 = juce::jlimit(0, nf - 1, frameA + 1);
+    const int i3 = juce::jlimit(0, nf - 1, frameA + 2);
+
+    const auto& f0 = frames[static_cast<size_t>(i0)];
+    const auto& f1 = frames[static_cast<size_t>(i1)];
+    const auto& f2 = frames[static_cast<size_t>(i2)];
+    const auto& f3 = frames[static_cast<size_t>(i3)];
+
+    const float s0 = f0[static_cast<size_t>(idx0)]
+                   + (f0[static_cast<size_t>(idx1)] - f0[static_cast<size_t>(idx0)]) * phaseFrac;
+    const float s1 = f1[static_cast<size_t>(idx0)]
+                   + (f1[static_cast<size_t>(idx1)] - f1[static_cast<size_t>(idx0)]) * phaseFrac;
+    const float s2 = f2[static_cast<size_t>(idx0)]
+                   + (f2[static_cast<size_t>(idx1)] - f2[static_cast<size_t>(idx0)]) * phaseFrac;
+    const float s3 = f3[static_cast<size_t>(idx0)]
+                   + (f3[static_cast<size_t>(idx1)] - f3[static_cast<size_t>(idx0)]) * phaseFrac;
+
+    const float t = frameMix;
+    const float t2 = t * t;
+    const float t3 = t2 * t;
+    return 0.5f * ((2.0f * s1)
+        + (-s0 + s2) * t
+        + (2.0f * s0 - 5.0f * s1 + 4.0f * s2 - s3) * t2
+        + (-s0 + 3.0f * s1 - 3.0f * s2 + s3) * t3);
 }

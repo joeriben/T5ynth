@@ -95,6 +95,7 @@ private:
     int voiceLimit = 8; // runtime polyphony (1=mono)
     const float* tuningHz_ = nullptr;
     const SamplePlayer* currentSamplerMaster_ = nullptr;
+    const WavetableOscillator* currentWavetableMaster_ = nullptr;
     BlockParams currentBlockParams_;
     bool hasCurrentBlockParams_ = false;
 

@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include <memory>
 #include <vector>
 #include <cmath>
 #include <atomic>
@@ -17,9 +18,10 @@
  * - Mip level selection based on playback frequency
  *
  * Thread safety:
- * - Double-buffer (two MipData slots + atomic index) allows the GUI thread
- *   to rebuild frames without blocking the audio thread.
- * - Shared-mode voices read from the master's active slot via pointer.
+ * - Immutable MipData snapshots are published atomically from non-audio
+ *   threads without blocking the realtime path.
+ * - Shared-mode voices keep their own phase/scan state and can morph from
+ *   one published bank generation to the next.
  */
 class WavetableOscillator
 {
@@ -60,6 +62,10 @@ public:
     /** Enable/disable Catmull-Rom interpolation between frames. */
     void setInterpolation(bool enabled) { doInterpolate = enabled; }
 
+    /** Set WT bank-morph time for live retargeting of held notes. */
+    void setMorphTimeMs(float ms) { morphTimeMs_ = juce::jlimit(0.0f, 2000.0f, ms); }
+    float getMorphTimeMs() const { return morphTimeMs_; }
+
     // ── Auto-scan (sampler-style temporal progression) ──────────────
 
     /** Enable auto-scan: scan position advances per sample at the original
@@ -91,14 +97,20 @@ public:
     float processSample();
 
     /** True if frames have been loaded. */
-    bool hasFrames() const { return getActiveMipData().numFrames > 0; }
+    bool hasFrames() const;
 
-    int getNumFrames() const { return getActiveMipData().numFrames; }
+    int getNumFrames() const;
 
     /** Share mip-mapped frames from a master oscillator (for polyphonic voices).
-     *  Shared-mode oscillators have their own phase/frequency/scan but read
-     *  from the master's frame data. extractFramesFromBuffer is a no-op. */
+     *  Shared-mode oscillators have their own phase/frequency/scan but adopt
+     *  the master's latest published bank immediately. */
     void shareFramesFrom(const WavetableOscillator& source);
+
+    /** Retarget a held voice towards the master's latest published bank. */
+    void morphToFramesFrom(const WavetableOscillator& source);
+
+    /** True if a live WT bank-morph is still in progress. */
+    bool isMorphing() const { return morphActive_; }
 
 private:
     struct PitchEstimate {
@@ -106,19 +118,26 @@ private:
         float confidence = 0.0f;
     };
 
-    /** Immutable snapshot of mip-mapped frame data.
-     *  GUI thread writes to inactive slot, audio thread reads active slot. */
+    /** Immutable snapshot of one published WT bank generation. */
     struct MipData {
         std::vector<std::vector<std::vector<float>>> frames; // [level][frameIdx][sample]
         int numFrames = 0;
         int numLevels = 0;
+        uint64_t generation = 0;
     };
 
-    MipData mipSlots_[2];
-    std::atomic<int> activeSlot_ { 0 };
+    using MipDataPtr = std::shared_ptr<const MipData>;
+    std::atomic<MipDataPtr> publishedMipData_ {};
+    uint64_t nextPublishedGeneration_ = 0;
 
-    // Shared mode: voice reads from master oscillator's active slot
+    // Shared mode: voice adopts new banks from a master oscillator.
     const WavetableOscillator* sharedSource_ = nullptr;
+    MipDataPtr activeMorphMipData_;
+    MipDataPtr targetMorphMipData_;
+    float morphAlpha_ = 1.0f;
+    float morphIncrement_ = 0.0f;
+    bool morphActive_ = false;
+    float morphTimeMs_ = 200.0f;
 
     double sampleRate = 44100.0;
 
@@ -149,13 +168,12 @@ private:
     bool  autoScanInFirstPass_ = true;   // true until first loop boundary hit
     int   autoScanDirection_ = 1;        // +1 forward, -1 backward
 
-    /** Return the active mip data (own or shared master's). Lock-free for audio thread. */
-    const MipData& getActiveMipData() const
-    {
-        if (sharedSource_ != nullptr)
-            return sharedSource_->mipSlots_[sharedSource_->activeSlot_.load(std::memory_order_acquire)];
-        return mipSlots_[activeSlot_.load(std::memory_order_acquire)];
-    }
+    MipDataPtr loadPublishedMipData() const;
+    void syncSharedConfigFrom(const WavetableOscillator& source);
+    void adoptMipData(const MipDataPtr& mipData);
+    void beginMorphToMipData(const MipDataPtr& mipData);
+    static float readMipSample(const MipData& mipData, double phase, float scanPosition,
+                               float frequency, double sampleRate, bool interpolate);
 
     // FFT helpers for mip-level generation
     static void fft(std::vector<double>& re, std::vector<double>& im);
