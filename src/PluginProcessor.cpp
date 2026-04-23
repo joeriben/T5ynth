@@ -2678,6 +2678,61 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     genSeq->setProperty("fixPulses",   get(PID::genFixPulses) > 0.5f);
     genSeq->setProperty("fixRotation", get(PID::genFixRotation) > 0.5f);
     genSeq->setProperty("fixMutation", get(PID::genFixMutation) > 0.5f);
+
+    // Shared pitch field
+    juce::DynamicObject::Ptr field = new juce::DynamicObject();
+    field->setProperty("mode",     choiceToKey(static_cast<int>(get(PID::genFieldMode)),  FieldMode::kEntries));
+    field->setProperty("rate",     static_cast<int>(get(PID::genFieldRate)));
+    field->setProperty("centerPc", static_cast<int>(get(PID::genFieldCenterPc)));
+    field->setProperty("pivot",    choiceToKey(static_cast<int>(get(PID::genFieldPivot)), FieldPivot::kEntries));
+    genSeq->setProperty("pitchField", field.get());
+
+    // Strand 0 extras (Euclidean params already serialised above under top-level keys)
+    juce::DynamicObject::Ptr strand0 = new juce::DynamicObject();
+    strand0->setProperty("role",      choiceToKey(static_cast<int>(get(PID::genRole)),    StrandRole::kEntries));
+    strand0->setProperty("octave",    static_cast<int>(get(PID::genOctave)));
+    strand0->setProperty("divMult",   choiceToKey(static_cast<int>(get(PID::genDivMult)), StrandDivMult::kEntries));
+    strand0->setProperty("dominance", get(PID::genDominance));
+    genSeq->setProperty("strand0", strand0.get());
+
+    // Strands 2..4 full state
+    struct StrandIds {
+        const char* enable;  const char* role;    const char* octave;  const char* divMult;
+        const char* dominance; const char* steps; const char* pulses;  const char* rotation;
+        const char* mutation; const char* fS;     const char* fP;      const char* fR;      const char* fM;
+    };
+    static const StrandIds kExtras[3] = {
+        { PID::gen2Enable, PID::gen2Role, PID::gen2Octave, PID::gen2DivMult,
+          PID::gen2Dominance, PID::gen2Steps, PID::gen2Pulses, PID::gen2Rotation,
+          PID::gen2Mutation, PID::gen2FixSteps, PID::gen2FixPulses, PID::gen2FixRotation, PID::gen2FixMutation },
+        { PID::gen3Enable, PID::gen3Role, PID::gen3Octave, PID::gen3DivMult,
+          PID::gen3Dominance, PID::gen3Steps, PID::gen3Pulses, PID::gen3Rotation,
+          PID::gen3Mutation, PID::gen3FixSteps, PID::gen3FixPulses, PID::gen3FixRotation, PID::gen3FixMutation },
+        { PID::gen4Enable, PID::gen4Role, PID::gen4Octave, PID::gen4DivMult,
+          PID::gen4Dominance, PID::gen4Steps, PID::gen4Pulses, PID::gen4Rotation,
+          PID::gen4Mutation, PID::gen4FixSteps, PID::gen4FixPulses, PID::gen4FixRotation, PID::gen4FixMutation }
+    };
+    static const char* kExtraKeys[3] = { "strand2", "strand3", "strand4" };
+    for (int i = 0; i < 3; ++i)
+    {
+        const auto& ids = kExtras[i];
+        juce::DynamicObject::Ptr sn = new juce::DynamicObject();
+        sn->setProperty("enabled",     get(ids.enable) > 0.5f);
+        sn->setProperty("role",        choiceToKey(static_cast<int>(get(ids.role)),    StrandRole::kEntries));
+        sn->setProperty("octave",      static_cast<int>(get(ids.octave)));
+        sn->setProperty("divMult",     choiceToKey(static_cast<int>(get(ids.divMult)), StrandDivMult::kEntries));
+        sn->setProperty("dominance",   get(ids.dominance));
+        sn->setProperty("steps",       static_cast<int>(get(ids.steps)));
+        sn->setProperty("pulses",      static_cast<int>(get(ids.pulses)));
+        sn->setProperty("rotation",    static_cast<int>(get(ids.rotation)));
+        sn->setProperty("mutation",    get(ids.mutation));
+        sn->setProperty("fixSteps",    get(ids.fS) > 0.5f);
+        sn->setProperty("fixPulses",   get(ids.fP) > 0.5f);
+        sn->setProperty("fixRotation", get(ids.fR) > 0.5f);
+        sn->setProperty("fixMutation", get(ids.fM) > 0.5f);
+        genSeq->setProperty(kExtraKeys[i], sn.get());
+    }
+
     root->setProperty("generativeSeq", genSeq.get());
 
     return juce::JSON::toString(root.get(), true);
@@ -2956,6 +3011,66 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         setParam(parameters, PID::genFixPulses,   static_cast<bool>(gs->getProperty("fixPulses")) ? 1.0f : 0.0f);
         setParam(parameters, PID::genFixRotation, static_cast<bool>(gs->getProperty("fixRotation")) ? 1.0f : 0.0f);
         setParam(parameters, PID::genFixMutation, static_cast<bool>(gs->getProperty("fixMutation")) ? 1.0f : 0.0f);
+
+        // Shared pitch field (optional — absent in pre-polyphonic presets)
+        if (auto* pf = gs->getProperty("pitchField").getDynamicObject())
+        {
+            setParam(parameters, PID::genFieldMode,
+                     static_cast<float>(choiceFromKey(pf->getProperty("mode").toString(), FieldMode::kEntries)));
+            setParam(parameters, PID::genFieldRate, static_cast<float>(static_cast<int>(pf->getProperty("rate"))));
+            setParam(parameters, PID::genFieldCenterPc, static_cast<float>(static_cast<int>(pf->getProperty("centerPc"))));
+            setParam(parameters, PID::genFieldPivot,
+                     static_cast<float>(choiceFromKey(pf->getProperty("pivot").toString(), FieldPivot::kEntries)));
+        }
+
+        // Strand 0 extras (optional)
+        if (auto* s0 = gs->getProperty("strand0").getDynamicObject())
+        {
+            setParam(parameters, PID::genRole,
+                     static_cast<float>(choiceFromKey(s0->getProperty("role").toString(), StrandRole::kEntries)));
+            setParam(parameters, PID::genOctave, static_cast<float>(static_cast<int>(s0->getProperty("octave"))));
+            setParam(parameters, PID::genDivMult,
+                     static_cast<float>(choiceFromKey(s0->getProperty("divMult").toString(), StrandDivMult::kEntries)));
+            setParam(parameters, PID::genDominance, static_cast<float>(s0->getProperty("dominance")));
+        }
+
+        // Strands 2..4 (optional — pre-polyphonic presets don't include them)
+        struct StrandImportIds {
+            const char* enable;  const char* role;    const char* octave;  const char* divMult;
+            const char* dominance; const char* steps; const char* pulses;  const char* rotation;
+            const char* mutation; const char* fS;     const char* fP;      const char* fR;      const char* fM;
+        };
+        static const StrandImportIds kExtrasImport[3] = {
+            { PID::gen2Enable, PID::gen2Role, PID::gen2Octave, PID::gen2DivMult,
+              PID::gen2Dominance, PID::gen2Steps, PID::gen2Pulses, PID::gen2Rotation,
+              PID::gen2Mutation, PID::gen2FixSteps, PID::gen2FixPulses, PID::gen2FixRotation, PID::gen2FixMutation },
+            { PID::gen3Enable, PID::gen3Role, PID::gen3Octave, PID::gen3DivMult,
+              PID::gen3Dominance, PID::gen3Steps, PID::gen3Pulses, PID::gen3Rotation,
+              PID::gen3Mutation, PID::gen3FixSteps, PID::gen3FixPulses, PID::gen3FixRotation, PID::gen3FixMutation },
+            { PID::gen4Enable, PID::gen4Role, PID::gen4Octave, PID::gen4DivMult,
+              PID::gen4Dominance, PID::gen4Steps, PID::gen4Pulses, PID::gen4Rotation,
+              PID::gen4Mutation, PID::gen4FixSteps, PID::gen4FixPulses, PID::gen4FixRotation, PID::gen4FixMutation }
+        };
+        static const char* kExtraKeysImport[3] = { "strand2", "strand3", "strand4" };
+        for (int i = 0; i < 3; ++i)
+        {
+            auto* sn = gs->getProperty(kExtraKeysImport[i]).getDynamicObject();
+            if (!sn) continue;
+            const auto& ids = kExtrasImport[i];
+            setParam(parameters, ids.enable,    static_cast<bool>(sn->getProperty("enabled")) ? 1.0f : 0.0f);
+            setParam(parameters, ids.role,      static_cast<float>(choiceFromKey(sn->getProperty("role").toString(), StrandRole::kEntries)));
+            setParam(parameters, ids.octave,    static_cast<float>(static_cast<int>(sn->getProperty("octave"))));
+            setParam(parameters, ids.divMult,   static_cast<float>(choiceFromKey(sn->getProperty("divMult").toString(), StrandDivMult::kEntries)));
+            setParam(parameters, ids.dominance, static_cast<float>(sn->getProperty("dominance")));
+            setParam(parameters, ids.steps,     static_cast<float>(static_cast<int>(sn->getProperty("steps"))));
+            setParam(parameters, ids.pulses,    static_cast<float>(static_cast<int>(sn->getProperty("pulses"))));
+            setParam(parameters, ids.rotation,  static_cast<float>(static_cast<int>(sn->getProperty("rotation"))));
+            setParam(parameters, ids.mutation,  static_cast<float>(sn->getProperty("mutation")));
+            setParam(parameters, ids.fS,        static_cast<bool>(sn->getProperty("fixSteps")) ? 1.0f : 0.0f);
+            setParam(parameters, ids.fP,        static_cast<bool>(sn->getProperty("fixPulses")) ? 1.0f : 0.0f);
+            setParam(parameters, ids.fR,        static_cast<bool>(sn->getProperty("fixRotation")) ? 1.0f : 0.0f);
+            setParam(parameters, ids.fM,        static_cast<bool>(sn->getProperty("fixMutation")) ? 1.0f : 0.0f);
+        }
     }
 
     return true;
