@@ -536,17 +536,43 @@ Applies to both modes: Mono, 4, 6, 8, 12, or 16 voices. Gain auto-scales per voi
 
 <h3>Filter</h3>
 <p>
-State-variable filter (TPT topology) with four types and four slopes:
+Three filter algorithms share the same Type / Slope / Cutoff / Resonance /
+Mix / Kbd Track controls; switch between them with the <strong>Algorithm</strong>
+selector in the filter header row.
 </p>
 <table>
   <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
+  <tr><td><strong>Algorithm</strong></td><td>SVF / Ladder / Warp</td><td>See the algorithm notes below. Default <em>SVF</em> — pre-existing presets load on it, so their sound is unchanged.</td></tr>
   <tr><td><strong>Type</strong></td><td>Off / LP / HP / BP</td><td></td></tr>
-  <tr><td><strong>Slope</strong></td><td>6 / 12 / 18 / 24 dB/oct</td><td></td></tr>
+  <tr><td><strong>Slope</strong></td><td>6 / 12 / 18 / 24 dB/oct</td><td>On Ladder / Warp the slope is the ladder tap index (1–4 poles); on SVF it's the order of the SVF / one-pole cascade.</td></tr>
   <tr><td><strong>Cutoff</strong></td><td>20 Hz – 20 kHz</td><td>Exponential scaling. Primary modulation target.</td></tr>
-  <tr><td><strong>Resonance</strong></td><td>0.0 – 1.0</td><td>Maps to Q 0.5–18</td></tr>
+  <tr><td><strong>Resonance</strong></td><td>0.0 – 1.0</td><td>SVF maps to Q 0.5–18. Ladder / Warp map to feedback gain <em>k</em>; at <em>r</em>&nbsp;≈&nbsp;1 both self-oscillate.</td></tr>
   <tr><td><strong>Mix</strong></td><td>0.0 – 1.0</td><td>Equal-power dry/wet crossfade</td></tr>
   <tr><td><strong>Kbd Track</strong></td><td>0.0 – 1.0</td><td>Cutoff offset per MIDI semitone</td></tr>
+  <tr><td><strong>Drive</strong></td><td>0 – 36 dB</td><td>On SVF: pre-filter <code>tanh</code> saturation (optionally oversampled). On Ladder / Warp: input gain into the filter's own nonlinear stages — the filter itself provides the saturation character, master volume handles level.</td></tr>
+  <tr><td><strong>OS</strong></td><td>Off / 2× / 4× / 8×</td><td>Oversampling for the SVF drive <code>tanh</code>. Inactive on Ladder / Warp; their internal nonlinearities aren't oversampled in this first iteration.</td></tr>
+  <tr><td><strong>Style</strong></td><td>Tanh / SoftClip / OJD / Sin / Digital / Asym</td><td>Warp-only — picks the per-pole saturation curve. Greyed out for SVF / Ladder. See algorithm notes.</td></tr>
 </table>
+
+<div class="note">
+  <strong>Algorithm notes</strong>
+
+  <ul>
+    <li><strong>SVF</strong> — linear JUCE <code>StateVariableTPTFilter</code> + one-pole cascade. Clean, cheap on CPU, no character of its own. Keep this on low-powered hardware (similar trade-off to choosing the algorithmic reverb over the convolution reverb). Drive applies a pre-filter <code>tanh</code> + optional oversampling, same as previous T5ynth builds.</li>
+    <li><strong>Ladder</strong> — Huovilainen-style non-linear 4-pole Moog ladder with a half-sample-delay-compensated feedback path. Classic analog-flavoured growl, self-oscillating at high resonance, and the characteristic Moog cutoff-tracking compression. Drive feeds the internal <code>tanh</code> stages directly, so turning drive up produces the "pushed into the ladder" warmth rather than a pre-filter flat-clip.</li>
+    <li><strong>Warp</strong> — Surge-XT-style zero-delay-feedback 4-pole ladder with a selectable per-pole saturation curve (the <em>Style</em> control). Good for shaping large continuous timbral spaces, which is why it's the recommended target when mapping an embedding dimension to filter character. All six styles are centered at zero, so the feedback loop stays stable under modulation. Warp is the most expensive of the three (~2–3× SVF CPU).</li>
+  </ul>
+
+  <strong>Warp styles</strong> — all bounded, all with <code>sat(0) = 0</code> so the feedback loop has a clean zero equilibrium:
+  <ul>
+    <li><strong>Tanh</strong> — symmetric soft, the classic reference.</li>
+    <li><strong>SoftClip</strong> — <code>x / (1 + |x|)</code>; gentler, flatter knee than <code>tanh</code>.</li>
+    <li><strong>OJD</strong> — <code>x / √(1 + x²)</code>; slower approach to the limit than <code>tanh</code> with more odd-harmonic content for a given drive.</li>
+    <li><strong>Sin</strong> — wavefolded sine; FM-like timbre when driven hard.</li>
+    <li><strong>Digital</strong> — hard clamp to ±1; deliberately buzzy, rich in odd harmonics at any drive.</li>
+    <li><strong>Asym</strong> — <code>tanh(x + 0.25) − tanh(0.25)</code>; asymmetric response, prominent 2nd-harmonic colouring, bias-compensated so it's still centered at zero.</li>
+  </ul>
+</div>
 
 <h3>Envelopes (Env 1, Env 2, Env 3)</h3>
 <p>
@@ -1182,6 +1208,49 @@ JSON parsing for configuration and preset files.
 </p>
 <p>
 Used by the native C++ T5 tokenizer.
+</p>
+
+<h3>Huovilainen Moog Ladder Filter</h3>
+<p>
+<strong>Reference:</strong> Antti Huovilainen, <em>"Non-linear digital
+implementation of the moog ladder filter"</em>, Proc. of the 7th Int.
+Conference on Digital Audio Effects (DAFx-04), Naples, 2004.<br>
+<strong>Paper:</strong>
+<a href="https://www.dafx.de/paper-archive/2004/P_061.PDF">dafx.de/paper-archive/2004/P_061.PDF</a>
+</p>
+<p>
+The <code>Ladder</code> filter algorithm (<code>src/dsp/MoogLadderFilter.h</code>)
+is an original implementation of the non-linear digital Moog ladder described
+in Huovilainen 2004 — half-sample-delay-compensated 4-pole with <code>tanh</code>
+at each stage input and in the feedback path. DSP algorithms are not
+themselves copyrightable; credit for the topology and its proper digital
+formulation belongs to Antti Huovilainen. Reference implementations that
+informed our understanding (no code copied):
+<a href="https://github.com/Chowdhury-DSP/chowdsp_utils">chowdsp_utils</a>
+(BSD-3),
+<a href="https://github.com/mtytel/vital">Vital</a> (GPL-3),
+<a href="https://github.com/surge-synthesizer/surge">Surge XT</a> (GPL-3).
+</p>
+
+<h3>Cutoff Warp Filter — design inspiration</h3>
+<p>
+<strong>Reference:</strong> Surge XT
+<code>src/common/dsp/filters/CutoffWarp.cpp</code>
+&nbsp;·&nbsp; <strong>License of reference:</strong> GNU GPLv3<br>
+<strong>URL:</strong>
+<a href="https://github.com/surge-synthesizer/surge">github.com/surge-synthesizer/surge</a>.
+</p>
+<p>
+The <code>Warp</code> filter algorithm (<code>src/dsp/CutoffWarpFilter.h</code>)
+is an original implementation inspired by the Cutoff Warp filter pioneered
+in Surge XT. The ZDF 4-pole ladder topology is a standard digital filter
+formulation and not copyrightable in itself; the specific idea of a
+style-switchable per-feedback nonlinearity as a musical character parameter
+is credited to the Surge XT project. No Surge XT source code was copied —
+our implementation is written from scratch against the published ZDF ladder
+derivation, and our saturation set (Tanh / SoftClip / OJD-like / Sin-fold /
+Digital / Asym) is a musically curated subset rather than a verbatim
+reproduction of Surge's full style list.
 </p>
 
 <h3>Python Backend Dependencies</h3>
