@@ -738,15 +738,24 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     filterAlgA       = std::make_unique<CA>(apvts, PID::filterAlgorithm, filterAlgHidden);
     filterWarpStyleA = std::make_unique<CA>(apvts, PID::filterWarpStyle, filterWarpStyleBox);
 
-    // The ComboBoxAttachment sets the hidden combo's selected ID from APVTS
-    // at construction, but some JUCE versions dispatch that initial set with
-    // dontSendNotification, so the on-change lambdas that drive the radio-
-    // style TextButton toggle states never fire. Poke them explicitly so the
-    // active SVF / LP / 12dB / Off-OS / Tanh buttons light up on first paint.
-    if (filterTypeHidden.onChange)     filterTypeHidden.onChange();
-    if (filterSlopeHidden.onChange)    filterSlopeHidden.onChange();
-    if (filterAlgHidden.onChange)      filterAlgHidden.onChange();
-    if (filterDriveOsHidden.onChange)  filterDriveOsHidden.onChange();
+    // Initial radio-button visual sync. Reading the APVTS choice index
+    // directly is robust against ComboBoxAttachment notification-timing
+    // quirks across JUCE versions — the attachment drives the hidden combo,
+    // but whether its onChange lambda fires on the very first paint has
+    // historically been unreliable, leaving the filter card with no active
+    // TYPE / SLOPE / ALG / OS button until the user clicks one. Direct
+    // APVTS read sidesteps that entirely.
+    auto syncRadioRow = [&apvts](const juce::String& pid,
+                                  juce::TextButton* btns, int n) {
+        const int raw = static_cast<int>(apvts.getRawParameterValue(pid)->load());
+        const int active = juce::jlimit(0, n - 1, raw);
+        for (int i = 0; i < n; ++i)
+            btns[i].setToggleState(i == active, juce::dontSendNotification);
+    };
+    syncRadioRow(PID::filterType,      filterTypeBtns,    kNumTypeBtns);
+    syncRadioRow(PID::filterSlope,     filterSlopeBtns,   kNumSlopeBtns);
+    syncRadioRow(PID::filterAlgorithm, filterAlgBtns,     kNumAlgBtns);
+    syncRadioRow(PID::filterDriveOs,   filterDriveOsBtns, kNumDriveOsBtns);
 
     cutoffRow->updateValue();
     resoRow->updateValue();
