@@ -959,6 +959,8 @@ void SequencerPanel::resized()
     const int octavePrefW = kNumOctShiftBtns * (compactTopRow ? 20 : 24);
     const int octaveMinW = kNumOctShiftBtns * (compactTopRow ? 18 : 20);
     const int midiClusterW = midiTextW + midiLedW + midiGap;
+    const int gateMinW = gateRow->getMinimumWidth();
+    const int gatePrefW = gateMinW;
 
     std::vector<ResponsiveStripItem> items {
         { transportW, transportW, 0, false, ResponsiveStripFallback::none },
@@ -970,7 +972,7 @@ void SequencerPanel::resized()
         { divisionPrefW, divisionMinW, 1, false, ResponsiveStripFallback::overflow },
         { octavePrefW, octaveMinW, 1, false, ResponsiveStripFallback::overflow },
         { bpmRow->getPreferredWidth(),  bpmRow->getMinimumWidth(),  0, true,  ResponsiveStripFallback::none },
-        { gateRow->getPreferredWidth(), gateRow->getMinimumWidth(), 0, true,  ResponsiveStripFallback::none },
+        { gatePrefW, gateMinW, 0, false, ResponsiveStripFallback::none },
         { midiClusterW, midiClusterW, 0, false, ResponsiveStripFallback::none }
     };
 

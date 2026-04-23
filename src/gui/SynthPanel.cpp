@@ -681,29 +681,11 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
                      kbdTrackRow.get(), filterDriveRow.get() })
         addAndMakeVisible(*r);
 
-    // Makeup toggle — peak-match compensation after the tanh shaper
-    auto setupFilterToggle = [](juce::TextButton& btn) {
-        btn.setClickingTogglesState(true);
-        btn.onClick = [&btn] {
-            bool on = btn.getToggleState();
-            btn.setColour(juce::TextButton::buttonColourId,
-                          on ? kAccent : juce::Colours::transparentBlack);
-            btn.setColour(juce::TextButton::textColourOffId,
-                          on ? juce::Colour(0xff0e1018) : kDimmer);
-            btn.setColour(juce::TextButton::textColourOnId,
-                          on ? juce::Colour(0xff0e1018) : juce::Colours::white);
-        };
-    };
-    setupFilterToggle(filterMakeupBtn);
-    addAndMakeVisible(filterMakeupBtn);
-
     cutoffA        = std::make_unique<SA>(apvts, PID::filterCutoff,    cutoffRow->getSlider());
     resoA          = std::make_unique<SA>(apvts, PID::filterResonance, resoRow->getSlider());
     filterMixA     = std::make_unique<SA>(apvts, PID::filterMix,       filterMixRow->getSlider());
     kbdTrackA      = std::make_unique<SA>(apvts, PID::filterKbdTrack,  kbdTrackRow->getSlider());
     filterDriveA   = std::make_unique<SA>(apvts, PID::filterDrive,     filterDriveRow->getSlider());
-    filterMakeupA  = std::make_unique<BA>(apvts, PID::filterDriveMakeup, filterMakeupBtn);
-    filterMakeupBtn.onClick(); // sync initial colours with APVTS state
 
     filterTypeA    = std::make_unique<CA>(apvts, PID::filterType,     filterTypeHidden);
     filterSlopeA   = std::make_unique<CA>(apvts, PID::filterSlope,    filterSlopeHidden);
@@ -903,8 +885,6 @@ void SynthPanel::updateVisibility()
         r->setAlpha(filterAlpha);
         r->setEnabled(filterOn);
     }
-    filterMakeupBtn.setAlpha(filterAlpha);
-    filterMakeupBtn.setEnabled(filterOn);
     for (int i = 0; i < kNumDriveOsBtns; ++i)
     {
         filterDriveOsBtns[i].setAlpha(filterAlpha);
@@ -1433,14 +1413,15 @@ void SynthPanel::resized()
     filterHeader.setBounds(area.removeFromTop(headerH));
     area.removeFromTop(headerGap);
 
-    // ── Filter header: [TYPE] [SLOPE] [Drive]  [Makeup] [OS-Switchbox] ──
+    // ── Filter header: [TYPE] [SLOPE] [Drive] [OS-Switchbox] ──
     auto filterHdr = area.removeFromTop(rowH);
     {
+        auto filterHdrFull = filterHdr;
         const int groupGap = juce::roundToInt(f * 0.75f);
         const int typeCellW = juce::roundToInt(f * 3.2f);
         const int slopeCellW = juce::roundToInt(f * 3.2f);
         const int osCellW = juce::roundToInt(f * 1.5f);
-        const int makeupW = juce::roundToInt(f * 5.0f);
+        const auto driveColumnBounds = layoutSliderRowPairBounds(filterHdrFull, *cutoffRow, *resoRow, 4)[1];
 
         auto typeArea = filterHdr.removeFromLeft(typeCellW * kNumTypeBtns);
         filterHdr.removeFromLeft(groupGap);
@@ -1457,15 +1438,11 @@ void SynthPanel::resized()
         filterSlopeSwitchBounds = filterSlopeBtns[0].getBounds()
             .getUnion(filterSlopeBtns[kNumSlopeBtns - 1].getBounds());
 
-        // From the right: OS-switchbox, Makeup toggle, then Drive slider takes the rest.
-        auto osArea = filterHdr.removeFromRight(osCellW * kNumDriveOsBtns);
-        filterHdr.removeFromRight(4);
-        auto makeupArea = filterHdr.removeFromRight(makeupW);
-        filterHdr.removeFromRight(4);
-        filterDriveRow->setBounds(filterHdr);
-
-        const int toggleH = juce::roundToInt(rowH * 0.72f);
-        filterMakeupBtn.setBounds(makeupArea.withSizeKeepingCentre(makeupArea.getWidth(), toggleH));
+        // Keep Drive aligned with the filter section's right-hand slider column.
+        auto osArea = filterHdrFull.removeFromRight(osCellW * kNumDriveOsBtns);
+        auto driveArea = driveColumnBounds;
+        driveArea.setRight(juce::jmax(driveArea.getX(), osArea.getX() - 4));
+        filterDriveRow->setBounds(driveArea);
 
         for (int i = 0; i < kNumDriveOsBtns; ++i)
             filterDriveOsBtns[i].setBounds(osArea.removeFromLeft(osCellW));
