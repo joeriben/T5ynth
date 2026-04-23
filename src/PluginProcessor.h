@@ -129,6 +129,7 @@ private:
     juce::AudioProcessorValueTreeState parameters;
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     WtTraversalMapping makeWtTraversalMapping(int totalSamples) const;
+    WtTraversalMapping makeWtTraversalMapping(int totalSamples, float p1, float p2, float p3) const;
     void syncWavetableTraversal(double bufferSampleRate, int totalSamples);
     void updateDriftState(int numSamples, float seqBpm);
 

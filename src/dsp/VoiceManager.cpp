@@ -2,7 +2,7 @@
 
 namespace
 {
-constexpr bool kSamplerDebugLogging = true;
+constexpr bool kSamplerDebugLogging = false;
 
 void samplerVoiceDebugLog(const juce::String& message)
 {

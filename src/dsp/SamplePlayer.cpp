@@ -4,7 +4,7 @@
 
 namespace
 {
-constexpr bool kSamplerDebugLogging = true;
+constexpr bool kSamplerDebugLogging = false;
 
 juce::String samplerPtrTag(const void* ptr)
 {
@@ -49,10 +49,12 @@ void SamplePlayer::reset()
 {
     originalBuffer.setSize(0, 0);
     playBuffer.setSize(0, 0);
+    playbackSnapshot_.reset();
     audioLoaded = false;
     playing = false;
     readPosition = 0.0;
     sourceGain_ = 1.0f;
+    sharedMode = false;
     stretcher.reset();
 }
 
@@ -67,19 +69,57 @@ void SamplePlayer::loadBuffer(const juce::AudioBuffer<float>& buffer, double buf
     samplerDebugLog("loadBuffer player=" + samplerPtrTag(this)
                     + " samples=" + juce::String(buffer.getNumSamples())
                     + " sr=" + juce::String(bufferSampleRate, 2));
-    originalBuffer.makeCopyOf(buffer);
-    bufferOriginalSR = bufferSampleRate;
-    trimLeadingSilence();
-    audioLoaded = true;
-    preparePlaybackBuffer();
+    const auto config = capturePrepareConfig();
+    applyPreparedBufferLoad(prepareBufferLoad(buffer, bufferSampleRate, config), config);
     playing = true;
+}
+
+SamplePlayer::PrepareConfig SamplePlayer::capturePrepareConfig() const
+{
+    PrepareConfig config;
+    config.loopMode = loopMode;
+    config.crossfadeMs = crossfadeMsVal;
+    config.normalizeOn = normalizeOn;
+    config.loopOptimizeLevel = loopOptimizeLevel;
+    config.startPosFrac = startPosFrac;
+    config.loopStartFrac = loopStartFrac;
+    config.loopEndFrac = loopEndFrac;
+    return config;
+}
+
+SamplePlayer::PreparedBufferLoad SamplePlayer::prepareBufferLoad(const juce::AudioBuffer<float>& buffer,
+                                                                double bufferSampleRate,
+                                                                const PrepareConfig& config) const
+{
+    PreparedBufferLoad prepared;
+    prepared.originalBuffer.makeCopyOf(buffer);
+    trimLeadingSilence(prepared.originalBuffer);
+    prepared.playbackState = preparePlaybackState(prepared.originalBuffer, bufferSampleRate, config);
+    return prepared;
+}
+
+void SamplePlayer::applyPreparedBufferLoad(PreparedBufferLoad prepared, const PrepareConfig& config)
+{
+    originalBuffer = std::move(prepared.originalBuffer);
+    loopMode = config.loopMode;
+    crossfadeMsVal = config.crossfadeMs;
+    normalizeOn = config.normalizeOn;
+    loopOptimizeLevel = config.loopOptimizeLevel;
+    startPosFrac = config.startPosFrac;
+    loopStartFrac = config.loopStartFrac;
+    loopEndFrac = config.loopEndFrac;
+    applyPreparedPlaybackState(std::move(prepared.playbackState));
+    sharedMode = false;
+    needsReprepareFlag = false;
 }
 
 void SamplePlayer::shareBufferFrom(const SamplePlayer& master)
 {
     bool wasShared = sharedMode;
     sharedMode = true;
-    sharedPlayBuffer = &master.playBuffer;
+    playbackSnapshot_ = master.playbackSnapshot_;
+    if (playbackSnapshot_ == nullptr)
+        playBuffer.setSize(0, 0);
     bufferOriginalSR = master.bufferOriginalSR;
     playStart = master.playStart;
     playEnd = master.playEnd;
@@ -107,15 +147,13 @@ void SamplePlayer::shareBufferFrom(const SamplePlayer& master)
 
 void SamplePlayer::freezeSharedBuffer()
 {
-    if (!sharedMode || sharedPlayBuffer == nullptr)
+    if (!sharedMode || playbackSnapshot_ == nullptr)
         return;
 
     samplerDebugLog("freezeSharedBuffer player=" + samplerPtrTag(this)
                     + " before={" + debugStateString() + "}");
-    playBuffer.makeCopyOf(*sharedPlayBuffer);
-    sharedPlayBuffer = nullptr;
     sharedMode = false;
-    audioLoaded = playBuffer.getNumSamples() > 0;
+    audioLoaded = playbackSnapshot_->playBuffer.getNumSamples() > 0;
     needsReprepareFlag = false;
     samplerDebugLog("freezeSharedBuffer player=" + samplerPtrTag(this)
                     + " after={" + debugStateString() + "}");
@@ -150,7 +188,7 @@ void SamplePlayer::glideToRatio(double targetRatio, float durationMs)
 
 void SamplePlayer::retrigger()
 {
-    const auto& buf = sharedMode ? *sharedPlayBuffer : playBuffer;
+    const auto& buf = currentPlaybackBuffer();
     const int bufLen = buf.getNumSamples();
     if (bufLen == 0) return;
 
@@ -237,65 +275,87 @@ void SamplePlayer::setLoopOptimizeLevel(int level)
 
 void SamplePlayer::preparePlaybackBuffer()
 {
-    if (originalBuffer.getNumSamples() == 0) return;
+    if (originalBuffer.getNumSamples() == 0)
+        return;
 
-    const int bufLen = originalBuffer.getNumSamples();
-    const int numCh  = originalBuffer.getNumChannels();
-
-    int ls = static_cast<int>(std::floor(loopStartFrac * bufLen));
-    int le = std::min(bufLen, static_cast<int>(std::ceil(loopEndFrac * bufLen)));
-
-    if (le - ls < 4) { le = std::min(bufLen, ls + 4); }
-
-    // All modes: start from a plain copy of the original
-    playBuffer.makeCopyOf(originalBuffer);
-
-    int actualEnd = le;
-
-    if (loopMode == LoopMode::Loop)
-    {
-        // Forward loop: optimize loop point + apply crossfade at boundary
-        if (loopOptimizeLevel > 0 && numCh > 0)
-            actualEnd = optimizeLoopEnd(originalBuffer.getReadPointer(0), ls, le, bufLen, loopOptimizeLevel);
-
-        int preEnd = actualEnd;
-        applyLoopCrossfade(playBuffer, ls, actualEnd);
-        int fadeSamples = preEnd - actualEnd;
-
-        playStart = ls;
-        playEnd   = actualEnd;
-        coldStart = ls + fadeSamples; // past crossfade zone
-    }
-    else
-    {
-        // OneShot or PingPong: no crossfade, no palindrome
-        // PingPong uses runtime direction reversal instead of palindrome buffer
-        playStart = ls;
-        playEnd   = actualEnd;
-        coldStart = ls;
-    }
-
-    // Normalize if enabled.
-    // Important for note-triggered playback: every note retriggers from P1, so
-    // the normalization scan must always include the audible note start.
-    // Limiting Loop/PingPong to P2..P3 underestimates clips whose transient or
-    // pre-loop body carries substantial energy, which makes regenerated samples
-    // come out at very different apparent loudness despite "Norm" being on.
-    if (normalizeOn)
-    {
-        int p1 = static_cast<int>(std::floor(startPosFrac * bufLen));
-        int normStart = std::min(p1, playStart); // always include P1 head
-        normalizeBuffer(playBuffer, normStart, playEnd);
-    }
-
-    // Reset read position via retrigger (respects P1)
-    readPosition = static_cast<double>(coldStart);
+    applyPreparedPlaybackState(
+        preparePlaybackState(originalBuffer, bufferOriginalSR, capturePrepareConfig()));
     needsReprepareFlag = false;
 
     samplerDebugLog("preparePlaybackBuffer player=" + samplerPtrTag(this)
-                    + " bufLen=" + juce::String(bufLen)
+                    + " bufLen=" + juce::String(originalBuffer.getNumSamples())
                     + " norm=" + juce::String(normalizeOn ? 1 : 0)
                     + " state={" + debugStateString() + "}");
+}
+
+SamplePlayer::PreparedPlaybackState SamplePlayer::preparePlaybackState(
+    const juce::AudioBuffer<float>& sourceBuffer, double sourceSampleRate, const PrepareConfig& config) const
+{
+    PreparedPlaybackState prepared;
+    prepared.bufferOriginalSR = sourceSampleRate;
+    prepared.audioLoaded = sourceBuffer.getNumSamples() > 0 && sourceBuffer.getNumChannels() > 0;
+
+    if (!prepared.audioLoaded)
+        return prepared;
+
+    const int bufLen = sourceBuffer.getNumSamples();
+    const int numCh  = sourceBuffer.getNumChannels();
+
+    int ls = static_cast<int>(std::floor(config.loopStartFrac * bufLen));
+    int le = std::min(bufLen, static_cast<int>(std::ceil(config.loopEndFrac * bufLen)));
+
+    if (le - ls < 4)
+        le = std::min(bufLen, ls + 4);
+
+    prepared.playBuffer.makeCopyOf(sourceBuffer);
+
+    int actualEnd = le;
+
+    if (config.loopMode == LoopMode::Loop)
+    {
+        if (config.loopOptimizeLevel > 0 && numCh > 0)
+            actualEnd = optimizeLoopEnd(sourceBuffer.getReadPointer(0), ls, le, bufLen, config.loopOptimizeLevel);
+
+        int preEnd = actualEnd;
+        applyLoopCrossfade(prepared.playBuffer, ls, actualEnd, config.crossfadeMs, sourceSampleRate);
+        int fadeSamples = preEnd - actualEnd;
+
+        prepared.playStart = ls;
+        prepared.playEnd   = actualEnd;
+        prepared.coldStart = ls + fadeSamples;
+    }
+    else
+    {
+        prepared.playStart = ls;
+        prepared.playEnd   = actualEnd;
+        prepared.coldStart = ls;
+    }
+
+    if (config.normalizeOn)
+    {
+        int p1 = static_cast<int>(std::floor(config.startPosFrac * bufLen));
+        int normStart = std::min(p1, prepared.playStart);
+        normalizeBuffer(prepared.playBuffer, normStart, prepared.playEnd);
+    }
+
+    return prepared;
+}
+
+void SamplePlayer::applyPreparedPlaybackState(PreparedPlaybackState preparedState)
+{
+    auto snapshot = std::make_shared<PlaybackSnapshot>();
+    snapshot->playBuffer = std::move(preparedState.playBuffer);
+    snapshot->bufferOriginalSR = preparedState.bufferOriginalSR;
+    playbackSnapshot_ = std::move(snapshot);
+
+    playBuffer.setSize(0, 0);
+    bufferOriginalSR = preparedState.bufferOriginalSR;
+    playStart = preparedState.playStart;
+    playEnd = preparedState.playEnd;
+    coldStart = preparedState.coldStart;
+    audioLoaded = preparedState.audioLoaded;
+
+    readPosition = static_cast<double>(coldStart);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -306,9 +366,23 @@ void SamplePlayer::preparePlaybackBuffer()
 // Catmull-Rom cubic interpolation (4-point, no trig — ~20× faster than Lanczos)
 // ═══════════════════════════════════════════════════════════════════
 
+const juce::AudioBuffer<float>& SamplePlayer::currentPlaybackBuffer() const
+{
+    if (playbackSnapshot_ != nullptr)
+        return playbackSnapshot_->playBuffer;
+    return playBuffer;
+}
+
+double SamplePlayer::currentBufferOriginalSR() const
+{
+    if (playbackSnapshot_ != nullptr)
+        return playbackSnapshot_->bufferOriginalSR;
+    return bufferOriginalSR;
+}
+
 float SamplePlayer::cubicSample(double pos) const
 {
-    const auto& buf = sharedMode ? *sharedPlayBuffer : playBuffer;
+    const auto& buf = currentPlaybackBuffer();
     const float* data = buf.getReadPointer(0);
     const int bufLen = buf.getNumSamples();
 
@@ -429,7 +503,7 @@ float SamplePlayer::processSample()
             transposeRatio = glideTargetRatio;
     }
 
-    const double srRatio = bufferOriginalSR / playbackSampleRate;
+    const double srRatio = currentBufferOriginalSR() / playbackSampleRate;
     double speedRatio = srRatio * transposeRatio;
 
     // Read with cubic interpolation
@@ -454,7 +528,7 @@ void SamplePlayer::readRawSamples(float* output, int numSamples)
         return;
     }
 
-    const double srRatio = bufferOriginalSR / playbackSampleRate;
+    const double srRatio = currentBufferOriginalSR() / playbackSampleRate;
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -546,12 +620,12 @@ void SamplePlayer::renderPitchedBlock(float* output, int numSamples)
 
 int SamplePlayer::estimateReferenceLengthSamples() const
 {
-    const auto& buf = sharedMode ? *sharedPlayBuffer : playBuffer;
+    const auto& buf = currentPlaybackBuffer();
     const int bufLen = buf.getNumSamples();
     if (bufLen <= 0 || !audioLoaded)
         return 0;
 
-    const double srRatio = bufferOriginalSR / playbackSampleRate;
+    const double srRatio = currentBufferOriginalSR() / playbackSampleRate;
     if (srRatio <= 0.0)
         return 0;
 
@@ -581,7 +655,7 @@ int SamplePlayer::estimateReferenceLengthSamples() const
 
 juce::String SamplePlayer::debugStateString() const
 {
-    const auto& buf = sharedMode && sharedPlayBuffer != nullptr ? *sharedPlayBuffer : playBuffer;
+    const auto& buf = currentPlaybackBuffer();
 
     return "shared=" + juce::String(sharedMode ? 1 : 0)
         + " playing=" + juce::String(playing ? 1 : 0)
@@ -604,7 +678,7 @@ juce::String SamplePlayer::debugStateString() const
 
 float SamplePlayer::estimatePlaybackRms(const float* gains, int numSamples, float* outPeak) const
 {
-    const auto& buf = sharedMode ? *sharedPlayBuffer : playBuffer;
+    const auto& buf = currentPlaybackBuffer();
     const int bufLen = buf.getNumSamples();
     if (gains == nullptr || numSamples <= 0 || bufLen <= 0 || !audioLoaded)
     {
@@ -612,7 +686,7 @@ float SamplePlayer::estimatePlaybackRms(const float* gains, int numSamples, floa
         return 0.0f;
     }
 
-    const double srRatio = bufferOriginalSR / playbackSampleRate;
+    const double srRatio = currentBufferOriginalSR() / playbackSampleRate;
     const float effectiveP1 = juce::jlimit(0.0f, 1.0f, startPosFrac + startPosOffset_);
 
     bool inFirstPass = true;
@@ -750,7 +824,7 @@ void SamplePlayer::prepareStretcher()
 
 void SamplePlayer::primeStretcher()
 {
-    const double srRatio = bufferOriginalSR / playbackSampleRate;
+    const double srRatio = currentBufferOriginalSR() / playbackSampleRate;
 
     // ── Step 1: seek() — fill STFT analysis context with pre-roll audio ──
     // Reads audio BEFORE readPosition (coldStart) so the first STFT frames
@@ -803,7 +877,7 @@ void SamplePlayer::setPitchShiftQuality(PitchShiftQuality quality)
 
 void SamplePlayer::processBlock(juce::AudioBuffer<float>& output)
 {
-    if (!audioLoaded || !playing || playBuffer.getNumSamples() == 0)
+    if (!audioLoaded || !playing || currentPlaybackBuffer().getNumSamples() == 0)
         return;
 
     // Re-prepare if settings changed (shared-mode players skip this)
@@ -868,11 +942,12 @@ int SamplePlayer::optimizeLoopEnd(const float* data, int loopStart, int loopEnd,
 // Equal-power crossfade at loop boundary (from useSamplePlayer.ts)
 // ═══════════════════════════════════════════════════════════════════
 
-void SamplePlayer::applyLoopCrossfade(juce::AudioBuffer<float>& buf, int loopStart, int& loopEnd) const
+void SamplePlayer::applyLoopCrossfade(juce::AudioBuffer<float>& buf, int loopStart, int& loopEnd,
+                                      float crossfadeMs, double bufferSampleRate)
 {
     int loopLen = loopEnd - loopStart;
     int fadeSamples = std::min(
-        static_cast<int>(crossfadeMsVal / 1000.0f * static_cast<float>(bufferOriginalSR)),
+        static_cast<int>(crossfadeMs / 1000.0f * static_cast<float>(bufferSampleRate)),
         loopLen / 2
     );
 
@@ -959,10 +1034,10 @@ void SamplePlayer::normalizeBuffer(juce::AudioBuffer<float>& buf, int regionStar
 // Trim leading silence — removes near-zero head with no aesthetic value
 // ═══════════════════════════════════════════════════════════════════
 
-void SamplePlayer::trimLeadingSilence()
+void SamplePlayer::trimLeadingSilence(juce::AudioBuffer<float>& buffer) const
 {
-    const int numSamples = originalBuffer.getNumSamples();
-    const int numCh      = originalBuffer.getNumChannels();
+    const int numSamples = buffer.getNumSamples();
+    const int numCh      = buffer.getNumChannels();
     if (numSamples == 0 || numCh == 0) return;
 
     // Threshold: ~-60 dB — anything below is acoustically inaudible
@@ -975,7 +1050,7 @@ void SamplePlayer::trimLeadingSilence()
         bool active = false;
         for (int ch = 0; ch < numCh; ++ch)
         {
-            if (std::abs(originalBuffer.getReadPointer(ch)[i]) > threshold)
+            if (std::abs(buffer.getReadPointer(ch)[i]) > threshold)
             {
                 active = true;
                 break;
@@ -996,7 +1071,7 @@ void SamplePlayer::trimLeadingSilence()
     int newLen = numSamples - firstActive;
     juce::AudioBuffer<float> trimmed(numCh, newLen);
     for (int ch = 0; ch < numCh; ++ch)
-        trimmed.copyFrom(ch, 0, originalBuffer, ch, firstActive, newLen);
+        trimmed.copyFrom(ch, 0, buffer, ch, firstActive, newLen);
 
-    originalBuffer = std::move(trimmed);
+    buffer = std::move(trimmed);
 }

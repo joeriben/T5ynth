@@ -5,7 +5,7 @@
 
 namespace
 {
-constexpr bool kSamplerDebugLogging = true;
+constexpr bool kSamplerDebugLogging = false;
 constexpr float kAlphaAnchorSnapThreshold = 0.04f;
 constexpr float kMagnitudeUnitySnapThreshold = 0.03f;
 constexpr float kDurationSecondSnapThreshold = 0.05f;
@@ -1606,11 +1606,19 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
 T5ynthProcessor::WtTraversalMapping T5ynthProcessor::makeWtTraversalMapping(int totalSamples) const
 {
-    WtTraversalMapping mapping;
-
     const float p1 = masterSampler.getStartPos();
     const float p2 = masterSampler.getLoopStart();
     const float p3 = masterSampler.getLoopEnd();
+
+    return makeWtTraversalMapping(totalSamples, p1, p2, p3);
+}
+
+T5ynthProcessor::WtTraversalMapping T5ynthProcessor::makeWtTraversalMapping(int totalSamples,
+                                                                            float p1,
+                                                                            float p2,
+                                                                            float p3) const
+{
+    WtTraversalMapping mapping;
 
     mapping.extractStart = juce::jlimit(0.0f, 1.0f, std::min(p1, p2));
     mapping.extractEnd = juce::jlimit(0.0f, 1.0f, std::max(p1, p3));
@@ -1763,11 +1771,13 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
     const auto& feedBuffer = cleanBuffer;
 
     SamplePlayer::LoopMode samplerLoopMode = SamplePlayer::LoopMode::Loop;
+    SamplePlayer::PrepareConfig samplerConfig;
     bool autoPositionPoints = false;
     float prevP1 = 0.0f;
     {
         const juce::ScopedLock sl (getCallbackLock());
-        samplerLoopMode = masterSampler.getLoopMode();
+        samplerConfig = masterSampler.capturePrepareConfig();
+        samplerLoopMode = samplerConfig.loopMode;
         autoPositionPoints = !masterSampler.getPointsLocked();
         prevP1 = masterSampler.getStartPos();
     }
@@ -1892,6 +1902,58 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
 
     }
 
+    if (autoPositionPoints)
+    {
+        samplerConfig.loopStartFrac = loopStartFrac;
+        samplerConfig.loopEndFrac = loopEndFrac;
+
+        // P1: preserve the user's choice where possible, but clamp against
+        // the active audio region rather than the loop window.
+        if (prevP1 < activeStartFrac || prevP1 > activeEndFrac)
+            samplerConfig.startPosFrac = activeStartFrac;
+    }
+
+    const bool wavetableMode = isWavetableMode();
+    const auto wtMapping = makeWtTraversalMapping(feedBuffer.getNumSamples(),
+                                                  samplerConfig.startPosFrac,
+                                                  samplerConfig.loopStartFrac,
+                                                  samplerConfig.loopEndFrac);
+    const float extractStart = wavetableMode ? wtMapping.extractStart
+                                             : samplerConfig.loopStartFrac;
+    const float extractEnd   = wavetableMode ? wtMapping.extractEnd
+                                             : samplerConfig.loopEndFrac;
+
+    constexpr int frameCounts[] = {32, 64, 128, 256};
+    int fcIdx = static_cast<int>(parameters.getRawParameterValue(PID::wtFrames)->load());
+    int maxFrames = frameCounts[juce::jlimit(0, 3, fcIdx)];
+
+    auto preparedSamplerLoad = masterSampler.prepareBufferLoad(feedBuffer, sr, samplerConfig);
+    juce::AudioBuffer<float> preparedGeneratedAudio;
+    preparedGeneratedAudio.makeCopyOf(feedBuffer);
+    juce::AudioBuffer<float> preparedWaveformSnapshot;
+    const bool normDisplay = wavetableMode
+        || (parameters.getRawParameterValue(PID::normalize)->load() > 0.5f);
+    if (feedBuffer.getNumChannels() > 0 && feedBuffer.getNumSamples() > 0)
+    {
+        preparedWaveformSnapshot.setSize(1, feedBuffer.getNumSamples(), false, false, true);
+        preparedWaveformSnapshot.copyFrom(0, 0, feedBuffer, 0, 0, feedBuffer.getNumSamples());
+
+        if (normDisplay)
+        {
+            float peak = 0.0f;
+            const float* d = preparedWaveformSnapshot.getReadPointer(0);
+            for (int i = 0; i < preparedWaveformSnapshot.getNumSamples(); ++i)
+                peak = std::max(peak, std::abs(d[i]));
+            if (peak > 0.001f)
+                preparedWaveformSnapshot.applyGain(0.95f / peak);
+        }
+    }
+
+    if (wavetableMode)
+        masterOsc.extractFramesFromBuffer(feedBuffer, sr, extractStart, extractEnd, maxFrames);
+    else
+        masterOsc.extractContiguousFrames(feedBuffer, sr, extractStart, extractEnd);
+
     {
         // Guard engine-state mutation against the realtime callback. The Linux
         // standalone path takes this same lock around processBlock().
@@ -1900,48 +1962,15 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
         generatedSampleRate = sr;
 
         // Keep generatedAudioFull in sync (used for waveform display + presets)
-        generatedAudioFull.makeCopyOf(feedBuffer);
-
-        if (autoPositionPoints)
-        {
-            masterSampler.setLoopStart(loopStartFrac);
-            masterSampler.setLoopEnd(loopEndFrac);
-
-            // P1: preserve the user's choice where possible, but clamp against
-            // the active audio region rather than the loop window.
-            if (prevP1 < activeStartFrac || prevP1 > activeEndFrac)
-                masterSampler.setStartPos(activeStartFrac);
-        }
+        generatedAudioFull = std::move(preparedGeneratedAudio);
 
         // Keep currently sounding sampler notes on their old snapshot so a
         // regenerate only affects newly triggered notes.
         voiceManager.freezeActiveSamplerVoices();
 
-        // Feed the sampler/voice chain — preparePlaybackBuffer now sees the
-        // correct P2/P3, so normalization targets the right region.
-        masterSampler.loadBuffer(feedBuffer, sr);
-
-        const auto wtMapping = makeWtTraversalMapping(feedBuffer.getNumSamples());
-        float extractStart = isWavetableMode() ? wtMapping.extractStart
-                                               : masterSampler.getLoopStart();
-        float extractEnd   = isWavetableMode() ? wtMapping.extractEnd
-                                               : masterSampler.getLoopEnd();
-
-        // WT frame count: 0=32, 1=64, 2=128, 3=256
-        constexpr int frameCounts[] = {32, 64, 128, 256};
-        int fcIdx = static_cast<int>(parameters.getRawParameterValue(PID::wtFrames)->load());
-        int maxFrames = frameCounts[juce::jlimit(0, 3, fcIdx)];
-
-        if (isWavetableMode())
-        {
-            // Pitch-synchronous extraction (one frame per detected period)
-            masterOsc.extractFramesFromBuffer(feedBuffer, sr, extractStart, extractEnd, maxFrames);
-        }
-        else
-        {
-            // Contiguous extraction for sampler mode (one frame per FRAME_SIZE chunk)
-            masterOsc.extractContiguousFrames(feedBuffer, sr, extractStart, extractEnd);
-        }
+        // Publish the already-prepared sampler state inside the lock so the
+        // audio thread only sees a short atomic handoff.
+        masterSampler.applyPreparedBufferLoad(std::move(preparedSamplerLoad), samplerConfig);
 
         syncWavetableTraversal(sr, feedBuffer.getNumSamples());
 
@@ -1951,24 +1980,9 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
         samplerProcessorDebugLog("loadGeneratedAudio end masterAfter={" + masterSampler.debugStateString() + "}");
 
         // Snapshot channel 0 for waveform display
-        if (feedBuffer.getNumChannels() > 0 && feedBuffer.getNumSamples() > 0)
+        if (preparedWaveformSnapshot.getNumSamples() > 0)
         {
-            waveformSnapshot.setSize(1, feedBuffer.getNumSamples(), false, false, true);
-            waveformSnapshot.copyFrom(0, 0, feedBuffer, 0, 0, feedBuffer.getNumSamples());
-
-            // Normalize display when wavetable mode or sampler normalize is active
-            bool normDisplay = isWavetableMode()
-                || (parameters.getRawParameterValue(PID::normalize)->load() > 0.5f);
-            if (normDisplay)
-            {
-                float peak = 0.0f;
-                const float* d = waveformSnapshot.getReadPointer(0);
-                for (int i = 0; i < waveformSnapshot.getNumSamples(); ++i)
-                    peak = std::max(peak, std::abs(d[i]));
-                if (peak > 0.001f)
-                    waveformSnapshot.applyGain(0.95f / peak);
-            }
-
+            waveformSnapshot = std::move(preparedWaveformSnapshot);
             newWaveformReady.store(true, std::memory_order_release);
         }
     }
@@ -1978,23 +1992,61 @@ void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& proce
 {
     samplerProcessorDebugLog("reloadProcessedAudio begin samples=" + juce::String(processed.getNumSamples())
                              + " masterBefore={" + masterSampler.debugStateString() + "}");
+    SamplePlayer::PrepareConfig samplerConfig;
+    bool wavetableMode = false;
+    {
+        const juce::ScopedLock sl (getCallbackLock());
+        samplerConfig = masterSampler.capturePrepareConfig();
+        wavetableMode = isWavetableMode();
+    }
+    auto preparedSamplerLoad = masterSampler.prepareBufferLoad(processed, generatedSampleRate, samplerConfig);
+    juce::AudioBuffer<float> preparedGeneratedAudio;
+    preparedGeneratedAudio.makeCopyOf(processed);
+    juce::AudioBuffer<float> preparedWaveformSnapshot;
+    if (processed.getNumChannels() > 0 && processed.getNumSamples() > 0)
+    {
+        preparedWaveformSnapshot.setSize(1, processed.getNumSamples(), false, false, true);
+        preparedWaveformSnapshot.copyFrom(0, 0, processed, 0, 0, processed.getNumSamples());
+    }
+
+    if (preparedWaveformSnapshot.getNumSamples() > 0 && masterOsc.hasFrames())
+    {
+        const auto wtMapping = makeWtTraversalMapping(preparedWaveformSnapshot.getNumSamples(),
+                                                      samplerConfig.startPosFrac,
+                                                      samplerConfig.loopStartFrac,
+                                                      samplerConfig.loopEndFrac);
+        float start = wavetableMode ? wtMapping.extractStart : samplerConfig.loopStartFrac;
+        float end   = wavetableMode ? wtMapping.extractEnd   : samplerConfig.loopEndFrac;
+
+        constexpr int frameCounts[] = {32, 64, 128, 256};
+        int fcIdx = static_cast<int>(parameters.getRawParameterValue(PID::wtFrames)->load());
+        int maxFrames = frameCounts[juce::jlimit(0, 3, fcIdx)];
+
+        if (wavetableMode)
+            masterOsc.extractFramesFromBuffer(preparedWaveformSnapshot, generatedSampleRate, start, end, maxFrames);
+        else
+            masterOsc.extractContiguousFrames(preparedWaveformSnapshot, generatedSampleRate, start, end);
+    }
     {
         const juce::ScopedLock sl (getCallbackLock());
 
         // Update stored audio and reload into sampler without Rumble/HF/Normalize
-        generatedAudioFull.makeCopyOf(processed);
+        generatedAudioFull = std::move(preparedGeneratedAudio);
         voiceManager.freezeActiveSamplerVoices();
-        masterSampler.loadBuffer(processed, generatedSampleRate);
+        masterSampler.applyPreparedBufferLoad(std::move(preparedSamplerLoad), samplerConfig);
+        if (preparedWaveformSnapshot.getNumSamples() > 0)
+            waveformSnapshot = std::move(preparedWaveformSnapshot);
         voiceManager.distributeSamplerBuffer(masterSampler);
+        if (masterOsc.hasFrames())
+        {
+            syncWavetableTraversal(generatedSampleRate, waveformSnapshot.getNumSamples());
+            voiceManager.distributeWavetableFrames(masterOsc);
+        }
 
         samplerProcessorDebugLog("reloadProcessedAudio end masterAfter={" + masterSampler.debugStateString() + "}");
 
-        if (processed.getNumChannels() > 0 && processed.getNumSamples() > 0)
+        if (waveformSnapshot.getNumSamples() > 0)
         {
-            waveformSnapshot.setSize(1, processed.getNumSamples(), false, false, true);
-            waveformSnapshot.copyFrom(0, 0, processed, 0, 0, processed.getNumSamples());
-            if (masterOsc.hasFrames())
-                reextractWavetable();
             newWaveformReady.store(true, std::memory_order_release);
         }
     }
