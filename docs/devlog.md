@@ -1,6 +1,25 @@
 # T5ynth Development Log
 
-## 2026-04-18 — Sampler Wave Cursor Reverted
+## 2026-04-23 — Nonlinear Filter Algorithms (Huovilainen + Cutoff Warp)
+
+Added two nonlinear filter algorithms alongside the existing linear TPT SVF, selectable via a new Algorithm switchbox in the filter header:
+
+- **Huovilainen-style Moog ladder** (`src/dsp/MoogLadderFilter.h`). 4-pole with `tanh` at each stage input and a half-sample-delay-compensated feedback path (`xPrev` + 50/50 average). The compensation is what makes the classical form actually resonate — without it the loop sees an extra sample of delay and clips instead of ringing. Slope switch taps y1..y4 (6/12/18/24 dB) for the standard Moog multi-mode.
+- **Surge-XT-inspired Cutoff Warp** (`src/dsp/CutoffWarpFilter.h`). ZDF 4-pole ladder with a style-switchable per-stage saturation: Tanh / SoftClip / OJD (x/√(1+x²), centered at zero — the initial atan-with-bias version had DC drift that glitched the ZDF loop under modulation) / Sin-fold / Digital clip / Asym (bias-compensated asymmetric tanh).
+
+Credit: Huovilainen 2004 DAFx paper for the Moog algorithm; Surge XT project (GPLv3) for the Cutoff Warp concept. Implementations written from scratch; no reference code copied. Entries added to `THIRD_PARTY_LICENSES.txt`, `resources/T5ynth_Guide.html`, and `ARCHITECTURE.md`.
+
+**Drive topology difference.** The SVF uses the existing pre-filter `tanh` (+ optional oversampling) as its saturation character — it's LTI on its own, the drive stage *is* the character. Ladder and Warp have their own nonlinear stages, so the pre-filter `tanh` would flat-clip and leave nothing for the filter to shape. Instead the drive amount is forwarded via `setInputDrive()` as input gain only; Phase B is a no-op for them and the filter's own `tanh`/`sat(·)` stages do the work. No output compensation (`1/inDrive`) — drive makes these filters louder + crunchier like an analog Moog, not level-matched.
+
+**Level parity.** The half-sample input averaging is a `cos(ω/2)` FIR lowpass (−3 dB at sr/4) — required for correct resonance but it pulls Ladder/Warp ~1.5 dB under the SVF on broadband material. Compensated with a fixed 1.20× tap gain.
+
+**Feedback-tap evolution.** First ship had `k·tanh(y4)` (Ladder) and `k·sat(y4, style)` (Warp). Both saturations cap the feedback at ±1, so the loop gain ceiling of 4.2 never translated to an actual resonance peak — the reso slider "controlled something" but didn't ring. Fixed by making the feedback tap linear on `y4` and moving the per-stage saturation to each stage's input (not the feedback tap). Stability still comes from the per-stage sat bounding the internal state.
+
+**Unresolved** (see `docs/handover_session15.md`): Ladder/Warp resonance is still too drive-sensitive — at ~50 % drive on Ladder (and >21 dB on Warp Sin) the resonance collapses entirely because the operating point sits deep in the saturation zone where the local derivative is near zero, killing effective loop gain. Also: the filter-type / algorithm radio buttons occasionally don't reflect their APVTS value on first paint (explicit `onChange()` poke after attachment did not fully fix it); and the preset save/load coverage of all filter-related params still needs an audit.
+
+UI: Algorithm switchbox + Warp Style combo live in the filter header row next to TYPE/SLOPE (Drive slider shortened accordingly). Drive-OS default is 4×; old .t5p files without the new fields load on Algorithm=SVF, Warp Style=Tanh, Drive OS=Off so existing sessions stay bit-identical to pre-Ladder/Warp builds.
+
+
 
 Tested a live playback cursor in the sampler waveform view and reverted it. On loop-heavy material the 30 Hz smoothed marker felt visually late relative to the audio and was more distracting than helpful. If this is revisited, it should probably use a different visualization approach rather than a lagged dot/cursor over the waveform.
 
