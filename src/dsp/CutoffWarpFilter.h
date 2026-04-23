@@ -90,14 +90,17 @@ public:
         const float halfIn = 0.5f * (hot + xPrev);
         xPrev = hot;
 
-        // Feedback: style-selected saturation on the tap from the last stage.
-        // Because every sat(·) here is bounded and sat(0) == 0, the loop has
-        // a clean zero equilibrium and can't accumulate DC.
-        const float fb = k * sat(y4, currentStyle);
+        // Feedback is linear on y4. Wrapping the feedback tap in a sat(·) caps
+        // the loop gain at k·1 and throttles the resonant peak before it can
+        // ring up — the filter ends up "controlling something" instead of
+        // resonating. Character and stability come from the per-stage style
+        // saturation on each stage's input instead, where bounding the
+        // internal state is what keeps the ZDF loop well-behaved.
+        const float fb = k * y4;
         y1 = tptStep(s1, sat(halfIn - fb, currentStyle));
-        y2 = tptStep(s2, y1);
-        y3 = tptStep(s3, y2);
-        y4 = tptStep(s4, y3);
+        y2 = tptStep(s2, sat(y1, currentStyle));
+        y3 = tptStep(s3, sat(y2, currentStyle));
+        y4 = tptStep(s4, sat(y3, currentStyle));
 
         // Denormal guard: add & subtract a tiny offset on the integrator state
         // so sub-normal numbers can't slow the CPU to a crawl in long decays.

@@ -89,9 +89,13 @@ public:
         const float halfIn = 0.5f * (hot + xPrev);
         xPrev = hot;
 
-        // Feedback with a tanh'd pickoff from the last stage for bounded loop
-        // gain — keeps self-oscillation stable instead of runaway.
-        const float fbIn = halfIn - k * t4;
+        // Feedback is linear on y4 (NOT t4). Bounding the feedback tap with a
+        // tanh caps loop gain at k·1, which prevents the resonant peak from
+        // ever ringing up: the filter merely "controls something" instead of
+        // resonating / self-oscillating. Stability is provided by the tanh at
+        // each stage input; the feedback itself needs to be free to grow for
+        // the classic Moog peak and self-oscillation to appear.
+        const float fbIn = halfIn - k * y4;
 
         // 4 stacked one-pole stages with tanh saturation at each stage input.
         // Caching tanh(y_i) between samples saves 4 tanh calls per sample.
