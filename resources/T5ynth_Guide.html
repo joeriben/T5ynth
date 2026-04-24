@@ -759,6 +759,63 @@ Press the <strong>GEN</strong> button to switch from the manual step sequencer t
 Each Euclidean parameter (Steps, Pulses, Rotation, Mutation) has a lock toggle. When unlocked, that parameter itself drifts over time — the pattern length, density, rotation, and mutation rate all evolve. Lock what you want stable, unlock what you want to breathe.
 </p>
 
+<h3>Polyphonic Mode — Strands &amp; Pitch Field</h3>
+
+<p>
+GEN runs up to <strong>four parallel Strands</strong> (Strand 0 is always active; Strands 2&ndash;4 enable individually). Each strand owns its own Euclidean pattern (steps, pulses, rotation, mutation, fix flags), an octave shift, a tempo multiplier, and a textural <em>Role</em>. All strands draw their notes from a single shared <strong>Pitch Field</strong>, so the polyphony stays coherent even as each voice evolves independently.
+</p>
+
+<p>
+The result is closer to a small ensemble than to a chord arpeggiator: rhythms cross-relate, registers separate, and the pitch material drifts as a whole.
+</p>
+
+<h4>Per-Strand Controls</h4>
+
+<table>
+  <tr><th>Control</th><th>Range</th><th>What It Does</th></tr>
+  <tr><td><strong>Enable</strong></td><td>on / off</td><td>Activates the strand. Strand 0 is always on; 2&ndash;4 are toggled.</td></tr>
+  <tr><td><strong>Role</strong></td><td>Anchor / Line / Density / Gesture</td><td>Textural function (see below). No bass/lead hierarchy &mdash; deliberately post-tonal.</td></tr>
+  <tr><td><strong>Octave</strong></td><td>&minus;2 &hellip; +2</td><td>Register offset. Use to separate strands vertically.</td></tr>
+  <tr><td><strong>Div&times;</strong></td><td>1/4&times;, 1/2&times;, 1&times;, 2&times;, 4&times;</td><td>Tempo multiplier relative to global division. Creates polyrhythms (e.g.&nbsp;3 strands at 1&times; / 2&times; / 4&times; = nested triplet feel).</td></tr>
+  <tr><td><strong>Dominance</strong></td><td>0.0 &ndash; 1.0</td><td>How strongly the strand snaps to the field's center pitch on strong beats. 0 = pure Turing-machine drift; higher = more tonal anchoring.</td></tr>
+  <tr><td><strong>Steps / Pulses / Rotation / Mutation</strong></td><td>same as monophonic</td><td>Each strand has its own Euclidean DNA &mdash; including its own Fix toggles.</td></tr>
+</table>
+
+<h4>The Four Roles</h4>
+<table>
+  <tr><th>Role</th><th>Character</th><th>Reference</th></tr>
+  <tr><td><strong>Anchor</strong></td><td>Locked to the field's center pitch class, low register, slow &mdash; a held drone or pedal point.</td><td>Satie bourdon</td></tr>
+  <tr><td><strong>Line</strong></td><td>Mid-register stepwise walk through the field. Voice-leading favours the nearest pitch.</td><td>Counterpoint</td></tr>
+  <tr><td><strong>Density</strong></td><td>Chromatic, ignores metric weight &mdash; fills space with motion. High note count, no accent grouping.</td><td>Coltrane "Sheets of Sound"</td></tr>
+  <tr><td><strong>Gesture</strong></td><td>Sparse punctuations in extreme registers. Few notes, high contrast.</td><td>Webern points</td></tr>
+</table>
+
+<h4>Pitch Field Controls</h4>
+<p>
+The Pitch Field is the shared pitch-class set (pc-set) that all strands draw from. It replaces classical chord/scale context with a 12-bit set that can drift, transform, or pivot over time.
+</p>
+
+<table>
+  <tr><th>Control</th><th>Options</th><th>What It Does</th></tr>
+  <tr><td><strong>Mode</strong></td><td>Static / Drift / Transform / Pivot</td><td>How the field evolves on Strand&nbsp;0's cycle boundary.</td></tr>
+  <tr><td><strong>Rate</strong></td><td>1 &ndash; 32 cycles</td><td>How often the field changes (Static = never, regardless of rate).</td></tr>
+  <tr><td><strong>Center PC</strong></td><td>C &ndash; B (0 &ndash; 11)</td><td>Anchor pitch class. Anchor strands lock to this; Dominance pulls other strands toward it on strong beats.</td></tr>
+  <tr><td><strong>Pivot</strong></td><td>m3, M3, Tri (TT), P5</td><td>Coltrane-matrix shift interval, used in Pivot mode.</td></tr>
+</table>
+
+<h4>Field Modes</h4>
+<table>
+  <tr><th>Mode</th><th>Behavior</th></tr>
+  <tr><td><strong>Static</strong></td><td>Fixed pc-set. Defined by the global Scale Root + Scale Type, never changes.</td></tr>
+  <tr><td><strong>Drift</strong></td><td>Each cycle window swaps one pitch class out of the field for another. Slow, organic harmonic motion. The center pc is protected.</td></tr>
+  <tr><td><strong>Transform</strong></td><td>Applies a serial row operation (Tn = transposition, In = inversion, R = retrograde, RI = retrograde inversion) to the ordered row. Twelve-tone style transformation.</td></tr>
+  <tr><td><strong>Pivot</strong></td><td>Rotates the entire pc-set by the Pivot interval each step (Coltrane matrix). Cycles through key centers in equal divisions of the octave.</td></tr>
+</table>
+
+<div class="tip">
+  <strong>Workflow:</strong> Start with one strand (Anchor on C, slow Drift, low Dominance). Add Strand 2 as a Line at 2&times; with octave +1. Add Strand 3 as Density at 4&times; with Mutation high. Lock Strand 0's parameters, leave 2&ndash;4 unlocked. The result is an evolving three-voice texture that never settles &mdash; useful for ambient beds, generative practice, or as a melodic source for the diffusion model when paired with Drift/Regenerate.
+</div>
+
 <!-- ═══════════════════════════════════════════ -->
 <h2 id="arp">10. Arpeggiator</h2>
 
@@ -977,6 +1034,44 @@ When the Fix toggles are unlocked, the Euclidean parameters themselves drift ove
 <p>
 All drift is bounded and reversible — parameters oscillate rather than running away. The combination of melodic mutation, mutation breathing, and parameter drift produces patterns that can evolve for minutes without becoming monotonous or losing coherence.
 </p>
+
+<h3>Layer 4: Polyphonic Strands</h3>
+<p>
+Up to four <strong>Strands</strong> run in parallel, each with its own Euclidean DNA, drift state, role, and tempo multiplier. Strands are not voices in a chord — they are independent agents sharing one pitch space. The polyrhythmic interplay arises naturally from the <code>Div×</code> multipliers (1/4×, 1/2×, 1×, 2×, 4× of the global division), which create non-coincident downbeats; cycle boundaries only realign on the lowest common multiple.
+</p>
+<p>
+Each strand's <em>Role</em> selects a different note-picking strategy from the shared field:
+</p>
+<ul>
+  <li><strong>Anchor</strong> — locks every step to the field's <code>centerPc</code> in a low octave. Functions as a pedal point. Mutation has no effect.</li>
+  <li><strong>Line</strong> — voice-leads to the nearest field member from the previous note. Produces stepwise melodic motion regardless of the underlying degree pattern.</li>
+  <li><strong>Density</strong> — chromatic walk that ignores the pc-set on weak beats and ignores metric weighting entirely. Saturates the texture with continuous motion.</li>
+  <li><strong>Gesture</strong> — sparse, register-extreme. The Turing mutation governs everything; no field-snapping behavior is layered on top.</li>
+</ul>
+<p>
+The <em>Dominance</em> parameter (per strand) blends the strand's natural pitch choice with the field's <code>centerPc</code>, weighted toward strong metric positions. At dominance 0 the strand plays its mutation-driven pattern unaltered; at 1.0 every accented step snaps to <code>centerPc</code>. Useful for binding a Density or Line strand back to a tonal center without destroying its rhythmic identity.
+</p>
+
+<h3>Layer 5: The Pitch Field</h3>
+<p>
+All strands draw from a single shared <strong>Pitch Field</strong> — a 12-bit pitch-class set (<code>pcSet</code>) plus an ordered row used by Transform mode. The field replaces classical chord/scale context with something more flexible: an evolving collection of allowed pitch classes that can transform through several distinct algorithmic paradigms.
+</p>
+<p>
+The field evolves on Strand 0's cycle boundary at the chosen <em>Rate</em> (1–32 cycles between changes). Four modes:
+</p>
+<ul>
+  <li><strong>Static</strong> — derived from Scale Root + Scale Type, never changes. Use when you want the harmonic field stable while only rhythm and mutation evolve.</li>
+  <li><strong>Drift</strong> — each tick, one pitch class is removed and one chromatic pitch class is added (the center pc is protected from removal). Slow harmonic motion that stays close to the starting set. <em>Reference: George Lewis's <code>Voyager</code>.</em></li>
+  <li><strong>Transform</strong> — applies a random twelve-tone row operation each tick: transposition (T<sub>n</sub>), inversion (I<sub>n</sub>), retrograde (R), or retrograde-inversion (RI). The new <code>pcSet</code> is then derived from the transformed row's first <code>rowSize</code> members. <em>Reference: post-Webern serialism.</em></li>
+  <li><strong>Pivot</strong> — rotates the entire pc-set by the configured Pivot interval (m3, M3, Tritone, P5) each tick, accumulating shift over time. After enough cycles the field returns to its origin (e.g.&nbsp;four cycles at m3 = full octave). <em>Reference: John Coltrane's "Giant Steps" cycle of major thirds.</em></li>
+</ul>
+<p>
+Because all strands share the same field, harmonic coherence is automatic: a Drift swap or Transform tick changes what every strand can play simultaneously. The polyphonic texture stays unified even when the individual strand patterns are wildly different — the listener perceives one evolving harmony, not four conflicting voices.
+</p>
+
+<div class="note">
+  Roles, dominance, and field modes are deliberately post-tonal. There is no Bass/Lead/Pad hierarchy and no chord-root tracking. The intent is to produce textures in the lineage of Lewis, Coltrane, Satie, and Webern rather than to emulate functional harmony. For diatonic results, set Field Mode = Static, Dominance high, and one strand to Anchor.
+</div>
 
 <!-- ═══════════════════════════════════════════ -->
 <h2 id="bg-pipeline">16. The Inference Pipeline</h2>
