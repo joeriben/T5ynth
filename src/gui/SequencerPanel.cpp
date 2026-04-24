@@ -1082,14 +1082,15 @@ void SequencerPanel::resized()
 
     // ═══ Row 4 (bottom): Arp controls ═══
     auto r4 = area.removeFromBottom(rH);
-    int modeBtnW = 32;
+    const int modeBtnW = 32;
+    const int offBtnW  = 58;   // first button reads "ARP off" — needs extra room
     for (int i = 0; i < kNumModeBtns; ++i)
     {
         int edges = 0;
         if (i > 0) edges |= juce::Button::ConnectedOnLeft;
         if (i < kNumModeBtns - 1) edges |= juce::Button::ConnectedOnRight;
         arpModeBtns[i].setConnectedEdges(edges);
-        arpModeBtns[i].setBounds(r4.removeFromLeft(modeBtnW));
+        arpModeBtns[i].setBounds(r4.removeFromLeft(i == 0 ? offBtnW : modeBtnW));
     }
     r4.removeFromLeft(g);
     arpRateBox.setBounds(r4.removeFromLeft(60));   r4.removeFromLeft(g);
