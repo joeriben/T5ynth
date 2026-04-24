@@ -47,6 +47,7 @@ All new code uses stack-local `std::uniform_*_distribution`s, fixed-size `std::a
 - Sheets-of-Sound saturation parameter per Density strand (chromatic bridging density)
 - Live MIDI-input → Field-adaptation (Lewis/Voyager-style interactive listening)
 - Per-strand pitch-field override (one strand contrasts against the shared field)
+- **Inline slider values**: evaluate an `SliderRow` variant (or new component) that renders the numeric value *inside* the bar instead of as a tiny label at the right edge. Tested briefly here with `juce::Slider::LinearBar + TextBoxLeft` on the Field Rate slider — ergonomically much better than the current right-aligned readout, especially at narrow widths, but inconsistent with the rest of the panel. Applies to every slider in the app, not just this one row. Worth a dedicated pass after the v1 feature set stabilises.
 
 ## 2026-04-23 — Session 16: Ladder Drive × Resonance ROAR
 

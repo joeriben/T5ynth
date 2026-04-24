@@ -440,17 +440,13 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         addAndMakeVisible(genFieldModeBox);
         genFieldModeA = std::make_unique<CA>(apvts, PID::genFieldMode, genFieldModeBox);
 
-        genFieldRateSlider.setSliderStyle(juce::Slider::LinearBar);
-        genFieldRateSlider.setTextBoxStyle(juce::Slider::TextBoxLeft, false, 40, 16);
-        genFieldRateSlider.setTextValueSuffix(" cyc");
-        genFieldRateSlider.setColour(juce::Slider::backgroundColourId, kSurface);
-        genFieldRateSlider.setColour(juce::Slider::trackColourId, kSeqCol.withAlpha(0.55f));
-        genFieldRateSlider.setColour(juce::Slider::textBoxTextColourId, kSeqCol);
-        genFieldRateSlider.setColour(juce::Slider::textBoxBackgroundColourId, kSurface);
-        genFieldRateSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-        genFieldRateSlider.setTooltip("Cycles between pitch-field evolution ticks");
-        addAndMakeVisible(genFieldRateSlider);
-        genFieldRateA = std::make_unique<SA>(apvts, PID::genFieldRate, genFieldRateSlider);
+        genFieldRateRow = std::make_unique<SliderRow>("Field",
+            [](double v) { return juce::String(juce::roundToInt(v)) + " cyc"; },
+            kSeqCol);
+        addAndMakeVisible(*genFieldRateRow);
+        genFieldRateA = std::make_unique<SA>(apvts, PID::genFieldRate, genFieldRateRow->getSlider());
+        genFieldRateRow->getSlider().onValueChange = [this] { genFieldRateRow->updateValue(); };
+        genFieldRateRow->updateValue();
     }
     {
         juce::StringArray roleItems;
@@ -1132,7 +1128,7 @@ void SequencerPanel::resized()
     genFixRotationBtn.setVisible(genModeActive);
     genFixMutationBtn.setVisible(genModeActive);
     genFieldModeBox.setVisible(genModeActive);
-    genFieldRateSlider.setVisible(genModeActive);
+    if (genFieldRateRow) genFieldRateRow->setVisible(genModeActive);
     for (int i = 0; i < kNumExtraStrands; ++i)
     {
         strandEnableBtns[i].setVisible(genModeActive);
@@ -1213,7 +1209,7 @@ void SequencerPanel::resized()
 
             genFieldModeBox.setBounds(rowP.removeFromLeft(modeW));
             rowP.removeFromLeft(gapA);
-            genFieldRateSlider.setBounds(rowP.removeFromLeft(rateW));
+            if (genFieldRateRow) genFieldRateRow->setBounds(rowP.removeFromLeft(rateW));
             rowP.removeFromLeft(gapB);
             for (int i = 0; i < kNumExtraStrands; ++i)
             {

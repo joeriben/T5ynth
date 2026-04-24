@@ -106,7 +106,7 @@ private:
     // ── Polyphony (Phase 5) ──────────────────────────────────────────────
     // Shared pitch-field controls
     juce::ComboBox genFieldModeBox;
-    juce::Slider   genFieldRateSlider;   // compact LinearBar slider with "cyc" suffix
+    std::unique_ptr<SliderRow> genFieldRateRow;   // TODO: inline-value variant of SliderRow
     // Per-extra-strand (indices 0..2 map to strands 2..4)
     static constexpr int kNumExtraStrands = 3;
     juce::TextButton strandEnableBtns[kNumExtraStrands];
