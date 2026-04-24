@@ -228,27 +228,29 @@ namespace PID {
 
 // ── Modulation envelope targets ──
 namespace EnvTarget {
+    // Note: "Scan" is intentionally absent — at the retrigger moment the
+    // mod envelope is always at zero (Attack just starting), so routing it
+    // to the scan position would be a silent no-op. Use LFO or Drift for
+    // scan modulation.
     enum : int {
         None = 0,
         DCA = 1,
         Filter = 2,
-        Scan = 3,
-        Pitch = 4,
-        DelayTime = 5,
-        DelayFB = 6,
-        DelayMix = 7,
-        ReverbMix = 8,
-        NoiseLevel = 9,
-        LFO1Rate = 10,
-        LFO1Depth = 11,
-        LFO2Rate = 12,
-        LFO2Depth = 13
+        Pitch = 3,
+        DelayTime = 4,
+        DelayFB = 5,
+        DelayMix = 6,
+        ReverbMix = 7,
+        NoiseLevel = 8,
+        LFO1Rate = 9,
+        LFO1Depth = 10,
+        LFO2Rate = 11,
+        LFO2Depth = 12
     };
     static constexpr ChoiceEntry kEntries[] = {
         { "none",       "---"        },
         { "dca",        "DCA"        },
         { "filter",     "Filter"     },
-        { "scan",       "Scan"       },
         { "pitch",      "Pitch"      },
         { "delay_time", "Dly Time"   },
         { "delay_fb",   "Dly FB"     },
@@ -335,7 +337,7 @@ namespace DriftTarget {
         { "axis_1",     "Axis 1"     },
         { "axis_2",     "Axis 2"     },
         { "axis_3",     "Axis 3"     },
-        { "wt_scan",    "WT Scan"    },
+        { "wt_scan",    "Scan"       },
         { "filter",     "Filter"     },
         { "pitch",      "Pitch"      },
         { "delay_time", "Dly Time"   },

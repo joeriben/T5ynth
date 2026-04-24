@@ -1703,15 +1703,14 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         // Scan ghost
         {
             bool lfoModScan = bp.lfo1Target == LfoTarget::Scan || bp.lfo2Target == LfoTarget::Scan;
-            bool envModScan = (bp.mod1Target == EnvTarget::Scan || bp.mod2Target == EnvTarget::Scan
-                               || std::abs(bp.driftScanOffset) > 0.001f) && hasVoices;
+            bool driftModScan = std::abs(bp.driftScanOffset) > 0.001f && hasVoices;
             bool wtTraversalActive = bp.engineIsWavetable && hasVoices;
 
             if (wtTraversalActive)
             {
                 modulatedValues.scanPosition.store(voiceOut.lastModulatedScan, std::memory_order_relaxed);
             }
-            else if (hasVoices && (lfoModScan || envModScan))
+            else if (hasVoices && (lfoModScan || driftModScan))
             {
                 modulatedValues.scanPosition.store(voiceOut.lastModulatedScan, std::memory_order_relaxed);
             }

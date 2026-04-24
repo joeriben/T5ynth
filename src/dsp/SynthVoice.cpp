@@ -483,8 +483,6 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
     {
         float scanBase = p.wtAutoScan ? 0.0f : p.baseScan;
         float scanMod = scanBase + p.driftScanOffset;
-        if (p.mod1Target == EnvTarget::Scan) scanMod += mod1EnvVal;
-        if (p.mod2Target == EnvTarget::Scan) scanMod += mod2EnvVal;
         if (p.lfo1Target == LfoTarget::Scan) scanMod += lfo1Val;
         if (p.lfo2Target == LfoTarget::Scan) scanMod += lfo2Val;
         const float clampedScan = juce::jlimit(0.0f, 1.0f, scanMod);
@@ -718,8 +716,6 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
 
                 float scanBase = p.wtAutoScan ? 0.0f : p.baseScan;
                 float scanMod = scanBase + p.driftScanOffset;
-                if (p.mod1Target == EnvTarget::Scan) scanMod += mod1EnvVal;
-                if (p.mod2Target == EnvTarget::Scan) scanMod += mod2EnvVal;
                 if (p.lfo1Target == LfoTarget::Scan) scanMod += lfo1Val;
                 if (p.lfo2Target == LfoTarget::Scan) scanMod += lfo2Val;
                 const float clampedScan = juce::jlimit(0.0f, 1.0f, scanMod);
