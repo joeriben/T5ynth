@@ -14,8 +14,9 @@ constexpr float kPromptSlider      = 1.2f;
 constexpr float kPromptMultiInput  = 3.0f;   // two-line prompt editor
 constexpr float kPromptCompactRow  = 1.15f;
 constexpr float kPromptCompactCtrl = 0.9f;
+constexpr float kPromptSeedCtrl    = 1.75f;
 constexpr float kPromptGap         = 0.28f;
-constexpr float kPromptContentUnits = 20.0f;
+constexpr float kPromptContentUnits = 20.9f;
 
 float preferredPromptFontForWidth(int width)
 {
@@ -98,7 +99,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 
     // Alpha
     makeSlider(alphaSlider, this);
-    makeLabel(alphaLabel, "Alpha (A <-> B)", kDim, juce::Justification::centredLeft, this);
+    makeLabel(alphaLabel, "Alpha", kDim, juce::Justification::centredLeft, this);
     makeLabel(alphaValue, "0", kOscCol, juce::Justification::centredRight, this);
     makeLabel(alphaHint, "Interpolation: -1.0 = A only, 1.0 = B only", kDim, juce::Justification::centredLeft, this);
     alphaSlider.onValueChange = [this] {
@@ -113,18 +114,18 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 
     // Magnitude
     makeSlider(magnitudeSlider, this);
-    makeLabel(magLabel, "Magnitude (Embedding Scale)", kDim, juce::Justification::centredLeft, this);
+    makeLabel(magLabel, "Magnitude", kDim, juce::Justification::centredLeft, this);
     makeLabel(magValue, "1.00", kOscCol, juce::Justification::centredRight, this);
-    makeLabel(magHint, "Embedding scale (1.0 = unchanged)", kDim, juce::Justification::centredLeft, this);
+    makeLabel(magHint, "Embedding magnitude (1.0 = unchanged)", kDim, juce::Justification::centredLeft, this);
     magnitudeSlider.onValueChange = [this] {
         magValue.setText(juce::String(magnitudeSlider.getValue(), 3), juce::dontSendNotification);
     };
 
-    // Noise
+    // Chaos
     makeSlider(noiseSlider, this);
-    makeLabel(noiseLabel, "Noise (Embedding Chaos)", kDim, juce::Justification::centredLeft, this);
+    makeLabel(noiseLabel, "Chaos", kDim, juce::Justification::centredLeft, this);
     makeLabel(noiseValue, "0.000", kOscCol, juce::Justification::centredRight, this);
-    makeLabel(noiseHint, "Gaussian noise on embedding (0 = none)", kDim, juce::Justification::centredLeft, this);
+    makeLabel(noiseHint, "Embedding chaos (0 = none)", kDim, juce::Justification::centredLeft, this);
     noiseSlider.onValueChange = [this] {
         noiseValue.setText(juce::String(noiseSlider.getValue(), 3), juce::dontSendNotification);
     };
@@ -166,22 +167,25 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     seedEditor.setColour(juce::TextEditor::textColourId, kOscCol);
     seedEditor.setColour(juce::TextEditor::outlineColourId, kBorder);
     seedEditor.setColour(juce::TextEditor::focusedOutlineColourId, kOscCol);
+    seedEditor.setMultiLine(false);
+    seedEditor.setReturnKeyStartsNewLine(false);
     seedEditor.setInputRestrictions(12, "0123456789");
+    seedEditor.setIndents(3, 2);
     seedEditor.setJustification(juce::Justification::centredLeft);
     seedEditor.setText("123456789", false);
     syncSeedEditorFont(14.0f);
-    seedEditor.setBufferedToImage(true);
     addAndMakeVisible(seedEditor);
 
     seedEditor.onReturnKey = [this] { triggerGeneration(); };
-    seedEditor.onTextChange = [this] { syncSeedEditorFont(seedEditor.getFont().getHeight()); };
+    seedEditor.onTextChange = [this] {
+        syncSeedEditorFont(preferredPromptFontForWidth(getWidth()) * 1.25f);
+    };
 
     randomSeedToggle.setColour(juce::TextButton::buttonColourId, kSurface);
     randomSeedToggle.setColour(juce::TextButton::buttonOnColourId, kOscCol);
-    // kDim is too faint for a small button label sitting beside a coloured
-    // seed value — bump the off-state text so "Random" stays legible.
-    randomSeedToggle.setColour(juce::TextButton::textColourOffId, juce::Colour(0xffc8cdd8));
+    randomSeedToggle.setColour(juce::TextButton::textColourOffId, juce::Colour(0xffe3e7f2));
     randomSeedToggle.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    randomSeedToggle.setTooltip("Random seed");
     randomSeedToggle.setClickingTogglesState(true);
     randomSeedToggle.setToggleState(false, juce::dontSendNotification);
     randomSeedToggle.onClick = [this] {
@@ -279,12 +283,14 @@ int PromptPanel::getPreferredHeightForWidth(int width) const
     const int gap = juce::roundToInt(f * kPromptGap);
     const int compactRowH = juce::roundToInt(f * kPromptCompactRow);
     const int compactCtrlH = juce::roundToInt(f * kPromptCompactCtrl);
+    const int seedCtrlH = juce::roundToInt(f * kPromptSeedCtrl);
 
     return (compactRowH + 2) + gap
          + rowH + multiInputH + gap
          + rowH + multiInputH + gap * 2
          + rowH + sliderH + gap
-         + (compactRowH + compactCtrlH + gap) * 3
+         + (compactRowH + compactCtrlH + gap) * 2
+         + compactRowH + seedCtrlH + gap
          + gap + compactRowH;
 }
 
@@ -351,6 +357,7 @@ void PromptPanel::resized()
     int gap = juce::roundToInt(f * kPromptGap);
     int compactRowH = juce::roundToInt(f * kPromptCompactRow);
     int compactCtrlH = juce::roundToInt(f * kPromptCompactCtrl);
+    int seedCtrlH = juce::roundToInt(f * kPromptSeedCtrl);
 
     auto setFs = [](juce::Label& l, float size) { l.setFont(juce::FontOptions(size)); };
 
@@ -446,15 +453,24 @@ void PromptPanel::resized()
         setFs(seedLabel, f);
         seedLabel.setBounds(rightHdr);
 
-        auto controlRow = area.removeFromTop(compactCtrlH);
-        durationSlider.setBounds(controlRow.removeFromLeft(colW));
+        auto controlRow = area.removeFromTop(seedCtrlH);
+        auto durationBounds = controlRow.removeFromLeft(colW);
         controlRow.removeFromLeft(colGap);
 
+        durationSlider.setBounds(durationBounds.withSizeKeepingCentre(durationBounds.getWidth(), compactCtrlH));
+
+        const float seedFontSize = f * 1.25f;
+        const float toggleFontSize = juce::jmin(15.0f, static_cast<float>(seedCtrlH) * 0.72f);
+        const int minToggleW = measureTextWidth(randomSeedToggle.getButtonText(), toggleFontSize)
+                             + juce::roundToInt(f * 1.2f);
+
         auto seedRow = controlRow.reduced(0, 1);
-        int toggleW = juce::roundToInt(seedRow.getWidth() * 0.34f);
+        int toggleW = juce::jmax(juce::roundToInt(seedRow.getWidth() * 0.32f), minToggleW);
+        toggleW = juce::jmin(toggleW, seedRow.getWidth() / 2);
+
         randomSeedToggle.setBounds(seedRow.removeFromRight(toggleW));
-        syncSeedEditorFont(f * 0.92f);
         seedEditor.setBounds(seedRow);
+        syncSeedEditorFont(seedFontSize);
 
         area.removeFromTop(gap);
     };
@@ -609,7 +625,13 @@ void PromptPanel::syncSeedEditorEnabledState()
 
 void PromptPanel::syncSeedEditorFont(float size)
 {
-    juce::Font font { juce::FontOptions(size) };
+    float fittedSize = size;
+    const auto bounds = seedEditor.getLocalBounds();
+
+    if (!bounds.isEmpty())
+        fittedSize = juce::jmin(fittedSize, static_cast<float>(bounds.getHeight()) * 0.78f);
+
+    juce::Font font { juce::FontOptions(fittedSize) };
     seedEditor.setFont(font);
     seedEditor.applyFontToAllText(font);
 }
@@ -626,7 +648,7 @@ void PromptPanel::syncSeedEditorDisplay(int seed, bool force)
     if (force || seedEditor.getText() != seedText)
         seedEditor.setText(seedText, false);
 
-    syncSeedEditorFont(seedEditor.getFont().getHeight());
+    syncSeedEditorFont(preferredPromptFontForWidth(getWidth()) * 1.25f);
 }
 
 void PromptPanel::triggerGenerationWithOffsets(std::vector<std::pair<int, float>> offsets)

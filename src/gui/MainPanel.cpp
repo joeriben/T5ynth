@@ -664,7 +664,7 @@ void MainPanel::resized()
     // visually against the bottom, making it look incidental. Re-Generate is
     // the central action — it must be framed with breathing room, not pinned.
     // See memory/feedback_regenerate_button_layout.md.
-    constexpr int kMaxDimH = 260;
+    constexpr int kMaxDimH = 174;
     dimHeader.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.85f));
     dimHeader.setBounds(genCol.removeFromTop(headerH));
     int dimH = juce::jlimit(48, kMaxDimH, genCol.getHeight() - kGap - kGenBtnH);

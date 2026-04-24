@@ -98,7 +98,7 @@ private:
     juce::Label cfgLabel, cfgValue, cfgHint;
     juce::Label seedLabel;
     juce::TextEditor seedEditor;
-    juce::TextButton randomSeedToggle { "Random" };
+    juce::TextButton randomSeedToggle { "Rnd" };
 
     // Model selector (fixed 3-slot switchbox: SA Open 1.0 | SA Small | AudioLDM2)
     static constexpr int kNumModelSlots = 3;

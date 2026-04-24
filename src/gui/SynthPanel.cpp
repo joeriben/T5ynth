@@ -1396,8 +1396,7 @@ void SynthPanel::resized()
     int driftH = gap + headerH + headerGap + (rowH + gap) * 3;            // drift header + 3 single-row drifts
     int regenH = gap + headerH + headerGap + rowH;                        // regen header + row — last in the natural flow, must stay in the budget
     int belowWave = samplerCtrlH + filterH + modH + envH + lfoH + driftH + regenH + gap * 5;
-    int maxWaveH = juce::roundToInt(area.getHeight() * 0.14f); // cap waveform to ~14% of panel
-    int waveH = juce::jlimit(60, maxWaveH, area.getHeight() - belowWave);
+    int waveH = juce::jmax(60, area.getHeight() - belowWave);
 
     if (scanRow->isVisible())
     {
