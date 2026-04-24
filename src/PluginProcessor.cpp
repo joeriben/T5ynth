@@ -3086,8 +3086,10 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                  static_cast<float>(choiceFromKey(seq->getProperty("division").toString(), SeqDivision::kEntries)));
         setParam(parameters, PID::seqGlideTime, static_cast<float>(seq->getProperty("glideTime")));
         setParam(parameters, PID::seqGate, static_cast<float>(seq->getProperty("gate")));
-        if (seq->hasProperty("shuffle"))
-            setParam(parameters, PID::seqShuffle, static_cast<float>(seq->getProperty("shuffle")));
+        setParam(parameters, PID::seqShuffle,
+                 seq->hasProperty("shuffle")
+                     ? static_cast<float>(seq->getProperty("shuffle"))
+                     : 0.0f);
         setParam(parameters, PID::scaleRoot,
                  static_cast<float>(choiceFromKey(seq->getProperty("scaleRoot").toString(), ScaleRoot::kEntries)));
         setParam(parameters, PID::scaleType,
