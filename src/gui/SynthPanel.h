@@ -82,7 +82,7 @@ private:
     std::unique_ptr<SliderRow> noiseLevelRow;
 
     // ── Section headers ──
-    juce::Label engineHeader, filterHeader, modHeader, driftHeader;
+    juce::Label engineHeader, filterHeader, modHeader, lfoHeader, driftHeader;
 
     // ── Layout rects for paint() ──
     juce::Rectangle<int> engineSwitchBounds, loopSwitchBounds, optSwitchBounds;

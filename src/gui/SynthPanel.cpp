@@ -791,9 +791,12 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     initLfo(lfo2, "LFO 2", PID::lfo2Rate, PID::lfo2Depth, PID::lfo2Wave, PID::lfo2Mode, apvts);
 
     // ── Drift ──
-    initDrift(drift1, "DRIFT 1", PID::drift1Rate, PID::drift1Depth, PID::drift1Target, PID::drift1Wave, apvts);
-    initDrift(drift2, "DRIFT 2", PID::drift2Rate, PID::drift2Depth, PID::drift2Target, PID::drift2Wave, apvts);
-    initDrift(drift3, "DRIFT 3", PID::drift3Rate, PID::drift3Depth, PID::drift3Target, PID::drift3Wave, apvts);
+    initDrift(drift1, "D1", PID::drift1Rate, PID::drift1Depth, PID::drift1Target, PID::drift1Wave, apvts);
+    initDrift(drift2, "D2", PID::drift2Rate, PID::drift2Depth, PID::drift2Target, PID::drift2Wave, apvts);
+    initDrift(drift3, "D3", PID::drift3Rate, PID::drift3Depth, PID::drift3Target, PID::drift3Wave, apvts);
+
+    paintSectionHeader(lfoHeader, "LFO", kLfoCol);
+    addAndMakeVisible(lfoHeader);
 
     paintSectionHeader(driftHeader, "DRIFT", kDriftCol);
     addAndMakeVisible(driftHeader);
@@ -1121,47 +1124,51 @@ void SynthPanel::layoutEnv(EnvSection& env, juce::Rectangle<int>& area, float f,
 
 void SynthPanel::layoutLfo(LfoSection& lfo, juce::Rectangle<int>& area, float f, int rowH, int gap)
 {
+    // Single-row layout: [Label] [Target] [Wave] [Mode] [Rate slider] [Depth slider]
     lfo.header.setFont(juce::FontOptions(f));
-    auto hdr = area.removeFromTop(rowH);
-    int headerW = juce::roundToInt(hdr.getWidth() * 0.18f);
-    int targetW = juce::roundToInt(hdr.getWidth() * 0.22f);
-    int waveW = juce::roundToInt(hdr.getWidth() * 0.18f);
-    int modeW = juce::roundToInt(hdr.getWidth() * 0.15f);
+    auto row = area.removeFromTop(rowH);
 
-    lfo.header.setBounds(hdr.removeFromLeft(headerW));
-    lfo.targetBox.setBounds(hdr.removeFromLeft(targetW));
-    hdr.removeFromLeft(4);
-    lfo.waveBox.setBounds(hdr.removeFromLeft(waveW));
-    hdr.removeFromLeft(4);
-    lfo.modeBox.setBounds(hdr.removeFromLeft(modeW));
+    int headerW = juce::roundToInt(f * 4.0f);   // "LFO 1"
+    int targetW = juce::roundToInt(f * 7.0f);
+    int waveW   = juce::roundToInt(f * 4.5f);
+    int modeW   = juce::roundToInt(f * 4.5f);
+    int boxGap  = 4;
 
-    // Always allocate space
-    auto slRow = area.removeFromTop(rowH);
-    auto lfoBounds = layoutSliderRowPairBounds(slRow, *lfo.rateRow, *lfo.depthRow, 4);
-    lfo.rateRow->setBounds(lfoBounds[0]);
-    lfo.depthRow->setBounds(lfoBounds[1]);
+    lfo.header.setBounds(row.removeFromLeft(headerW));
+    lfo.targetBox.setBounds(row.removeFromLeft(targetW));
+    row.removeFromLeft(boxGap);
+    lfo.waveBox.setBounds(row.removeFromLeft(waveW));
+    row.removeFromLeft(boxGap);
+    lfo.modeBox.setBounds(row.removeFromLeft(modeW));
+    row.removeFromLeft(boxGap * 2);
+
+    auto bounds = layoutSliderRowPairBounds(row, *lfo.rateRow, *lfo.depthRow, boxGap);
+    lfo.rateRow->setBounds(bounds[0]);
+    lfo.depthRow->setBounds(bounds[1]);
 
     area.removeFromTop(gap);
 }
 
 void SynthPanel::layoutDrift(DriftSection& drift, juce::Rectangle<int>& area, float f, int rowH, int gap)
 {
+    // Single-row layout: [Label] [Target] [Wave] [Rate slider] [Depth slider]
     drift.header.setFont(juce::FontOptions(f));
-    auto hdr = area.removeFromTop(rowH);
-    int headerW = juce::roundToInt(hdr.getWidth() * 0.22f);
-    int targetW = juce::roundToInt(hdr.getWidth() * 0.28f);
-    int waveW = juce::roundToInt(hdr.getWidth() * 0.18f);
+    auto row = area.removeFromTop(rowH);
 
-    drift.header.setBounds(hdr.removeFromLeft(headerW));
-    drift.targetBox.setBounds(hdr.removeFromLeft(targetW));
-    hdr.removeFromLeft(4);
-    drift.waveBox.setBounds(hdr.removeFromLeft(waveW));
+    int headerW = juce::roundToInt(f * 2.5f);   // "D1"
+    int targetW = juce::roundToInt(f * 7.5f);
+    int waveW   = juce::roundToInt(f * 4.5f);
+    int boxGap  = 4;
 
-    // Always allocate space
-    auto slRow = area.removeFromTop(rowH);
-    auto driftBounds = layoutSliderRowPairBounds(slRow, *drift.rateRow, *drift.depthRow, 4);
-    drift.rateRow->setBounds(driftBounds[0]);
-    drift.depthRow->setBounds(driftBounds[1]);
+    drift.header.setBounds(row.removeFromLeft(headerW));
+    drift.targetBox.setBounds(row.removeFromLeft(targetW));
+    row.removeFromLeft(boxGap);
+    drift.waveBox.setBounds(row.removeFromLeft(waveW));
+    row.removeFromLeft(boxGap * 2);
+
+    auto bounds = layoutSliderRowPairBounds(row, *drift.rateRow, *drift.depthRow, boxGap);
+    drift.rateRow->setBounds(bounds[0]);
+    drift.depthRow->setBounds(bounds[1]);
 
     area.removeFromTop(gap);
 }
@@ -1223,14 +1230,14 @@ void SynthPanel::paint(juce::Graphics& g)
         g.setColour(kModCol.withAlpha(0.15f));
         int lineL = padX + 8;
         int lineR = getWidth() - padX - 8;
-        for (auto* hdr : { &mod1Env.header, &mod2Env.header, &lfo1.header, &lfo2.header })
+        for (auto* hdr : { &mod1Env.header, &mod2Env.header, &lfoHeader, &lfo2.header })
         {
             int y = hdr->getY() - 2;
             g.drawHorizontalLine(y, static_cast<float>(lineL), static_cast<float>(lineR));
         }
         // Drift separator + switchbox border
         g.setColour(kDriftCol.withAlpha(0.15f));
-        int driftY = regenHeader.getY() - 2;
+        int driftY = driftHeader.getY() - 2;
         g.drawHorizontalLine(driftY, static_cast<float>(lineL), static_cast<float>(lineR));
         paintSwitchBoxBorder(g, regenSwitchBounds);
     }
@@ -1386,8 +1393,8 @@ void SynthPanel::resized()
     int filterH = headerH + headerGap + rowH + gap + rowH * 2 + gap; // header + type/slope/topology + cutoff/reso + mix/kbd
     int modH = gap * 3 + headerH + headerGap; // section gap + header
     int envH = (rowH * 4 + gap) * 3; // 3 envelopes × (header + 3 slider rows + gap)
-    int lfoH = gap + (rowH * 2 + gap) * 2; // 2 LFOs × (header + rate row + gap)
-    int driftH = gap + headerH + headerGap + (rowH * 2 + gap) * 3; // drift header + 3 drifts (regen is reserved separately at the bottom)
+    int lfoH = gap + headerH + headerGap + (rowH + gap) * 2;              // lfo header + 2 single-row LFOs
+    int driftH = gap + headerH + headerGap + (rowH + gap) * 3;            // drift header + 3 single-row drifts (regen reserved separately at the bottom)
     int belowWave = samplerCtrlH + filterH + modH + envH + lfoH + driftH + gap * 5;
     int maxWaveH = juce::roundToInt(area.getHeight() * 0.14f); // cap waveform to ~14% of panel
     int waveH = juce::jlimit(60, maxWaveH, area.getHeight() - belowWave);
@@ -1636,6 +1643,9 @@ void SynthPanel::resized()
 
     // ── LFOs ──
     area.removeFromTop(gap);
+    lfoHeader.setFont(juce::FontOptions(headerFs));
+    lfoHeader.setBounds(area.removeFromTop(headerH));
+    area.removeFromTop(headerGap);
     layoutLfo(lfo1, area, f, rowH, gap);
     layoutLfo(lfo2, area, f, rowH, gap);
 
