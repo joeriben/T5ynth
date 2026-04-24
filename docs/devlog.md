@@ -1,5 +1,57 @@
 # T5ynth Development Log
 
+## 2026-04-24 — Sampler Normalize Rework (signal-aware, linear)
+
+Replaced the sampler's `RMS -> soft-knee tanh` normalize path with a **signal-aware, fully linear normalization stage** in `SamplePlayer`. The old approach could sound fine on some material but broke down on low-RMS choir-style samples because it tried to force a fixed RMS target and then hid the overshoot inside a nonlinearity. The new path explicitly avoids that failure mode.
+
+### New normalize model
+
+`SamplePlayer::normalizeBuffer()` now runs a lightweight analysis over the actual audible play region and chooses one of four modes:
+- **Bypass** — near-silence / floor-guard
+- **PeakCap** — already-hot material; only trim to ceiling if needed
+- **Transient** — short, sparse, or high-crest material; normalize against `p99.9`
+- **Sustained** — dense/tonal material; normalize against active RMS
+
+The gain is then applied as **one linear stereo-linked multiplier**, region-limited to the measured playback span. No soft-knee, no waveshaping, no hard clip, and no scaling of unrelated buffer sections.
+
+### Heuristics
+
+Mode selection uses:
+- duration
+- 50 ms active-block ratio
+- crest factor
+- peak-to-`p99.9` gap
+- peak headroom / near-silence guards
+
+Targets:
+- ceiling: `-1 dBFS`
+- sustained target: `-18 dBFS` active RMS
+- transient target: `-10 dBFS` at `p99.9`
+
+This is intentionally conservative: difficult samples now tend to get either a sane linear lift or a cap/no-op, rather than being "normalized" into audible deformation.
+
+### Validation
+
+Added `tools/batch_normalize_samples.py` to mirror the C++ heuristic offline, batch-render normalized WAVs, and write CSV/Markdown reports for listening checks.
+
+Tested against a deliberately broad corpus:
+- choir pads / soft strings / fortissimo strings
+- speech / interviews / agitated crowd speech
+- clicks / static / crashes / piano / samba / ambience
+- near-silence
+- synthetic fixtures for loop-pad, bright rhythm, sub-heavy bass, and wide stereo texture
+
+Observed behavior matched intent:
+- quiet sustained material gets lifted cleanly
+- sparse/transient material avoids LUFS-style over-push
+- already-hot/noisy files get capped or left alone
+- silence stays silence
+
+### Build / workflow
+
+- `cmake --build build_clean --config Release --target T5ynth_Standalone -j4`
+- offline listening batches written to `/tmp/t5ynth_normalize_batch*`
+
 ## 2026-04-24 — Polyphonic Generative Sequencer (feature/polyphonic-gen-seq)
 
 Turned the previously mono `T5ynthGenerativeSequencer` into a four-strand polyrhythmic, post-tonal engine. Five atomic commits on a feature branch off main; every phase builds clean as an isolated step.

@@ -1,10 +1,22 @@
 #include "SamplePlayer.h"
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
 namespace
 {
 constexpr bool kSamplerDebugLogging = false;
+constexpr float kNormalizeCeilingDb = -1.0f;
+constexpr float kSustainedTargetDb = -18.0f;
+constexpr float kTransientPercentileTargetDb = -10.0f;
+constexpr float kNearSilentPeakDb = -36.0f;
+constexpr float kNearSilentActiveDb = -50.0f;
+constexpr float kHotHeadroomDb = 2.0f;
+constexpr float kShortTransientSeconds = 0.75f;
+constexpr float kActiveBlockThresholdDb = -40.0f;
+constexpr float kTransientActiveRatio = 0.35f;
+constexpr float kTransientCrestDb = 18.0f;
+constexpr float kTransientPeakGapDb = 8.0f;
 
 juce::String samplerPtrTag(const void* ptr)
 {
@@ -34,6 +46,16 @@ const char* loopModeName(SamplePlayer::LoopMode mode)
         case SamplePlayer::LoopMode::PingPong: return "PingPong";
     }
     return "?";
+}
+
+float dbToGain(float db)
+{
+    return juce::Decibels::decibelsToGain(db);
+}
+
+float gainToDb(float gain)
+{
+    return juce::Decibels::gainToDecibels(std::max(gain, 1.0e-9f));
 }
 }
 
@@ -335,7 +357,7 @@ SamplePlayer::PreparedPlaybackState SamplePlayer::preparePlaybackState(
     {
         int p1 = static_cast<int>(std::floor(config.startPosFrac * bufLen));
         int normStart = std::min(p1, prepared.playStart);
-        normalizeBuffer(prepared.playBuffer, normStart, prepared.playEnd);
+        normalizeBuffer(prepared.playBuffer, normStart, prepared.playEnd, sourceSampleRate);
     }
 
     return prepared;
@@ -976,64 +998,219 @@ void SamplePlayer::applyLoopCrossfade(juce::AudioBuffer<float>& buf, int loopSta
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// RMS normalize to -12 dBFS with tanh soft-knee at 0.7 asymptoting 0.95.
-// Diagnostic: earlier hard-clip at 0.95 produced audible distortion on
-// dense, low-peak content (e.g. choir prompts) because the extreme RMS
-// boost (>100× for -53 dBFS input) pushed many samples past the ceiling.
-// The soft-knee is C¹-continuous at the threshold — transparent for
-// material that stays below it, and smoothly compressive above.
+// Signal-aware linear normalization:
+//   - near-silence: bypass
+//   - already-hot material: ceiling cap only
+//   - sparse/transient material: percentile-based upward normalize
+//   - sustained material: active-RMS normalize with peak ceiling
+// The gain is applied only to the measured playback region.
 // ═══════════════════════════════════════════════════════════════════
 
-void SamplePlayer::normalizeBuffer(juce::AudioBuffer<float>& buf, int regionStart, int regionEnd) const
+const char* SamplePlayer::normalizeModeName(NormalizeMode mode)
 {
-    int rs = juce::jlimit(0, buf.getNumSamples(), regionStart);
-    int re = juce::jlimit(rs, buf.getNumSamples(), regionEnd);
-    if (re <= rs) return;
+    switch (mode)
+    {
+        case NormalizeMode::Bypass:    return "Bypass";
+        case NormalizeMode::PeakCap:   return "PeakCap";
+        case NormalizeMode::Transient: return "Transient";
+        case NormalizeMode::Sustained: return "Sustained";
+    }
+    return "?";
+}
+
+SamplePlayer::NormalizeAnalysis SamplePlayer::analyzeNormalizeRegion(const juce::AudioBuffer<float>& buf,
+                                                                    int regionStart,
+                                                                    int regionEnd,
+                                                                    double bufferSampleRate) const
+{
+    NormalizeAnalysis analysis;
+
+    const int rs = juce::jlimit(0, buf.getNumSamples(), regionStart);
+    const int re = juce::jlimit(rs, buf.getNumSamples(), regionEnd);
     const int numChannels = buf.getNumChannels();
-    if (numChannels <= 0) return;
+    if (re <= rs || numChannels <= 0 || bufferSampleRate <= 0.0)
+        return analysis;
 
-    double sumSq = 0.0;
+    const int regionFrames = re - rs;
+    analysis.durationSeconds = static_cast<float>(regionFrames / bufferSampleRate);
+
+    std::vector<float> framePeaks;
+    framePeaks.reserve(static_cast<size_t>(regionFrames));
+
+    const int blockFrames = juce::jmax(1, static_cast<int>(std::round(bufferSampleRate * 0.050)));
+    const float activeThreshold = dbToGain(kActiveBlockThresholdDb);
+
+    double totalSq = 0.0;
     int totalSamples = 0;
+    double activeSq = 0.0;
+    int activeSamples = 0;
+    int activeBlocks = 0;
+    int totalBlocks = 0;
+    double blockSq = 0.0;
+    int framesInBlock = 0;
+
+    for (int i = rs; i < re; ++i)
+    {
+        float framePeak = 0.0f;
+        double frameSq = 0.0;
+
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            const float sample = buf.getReadPointer(ch)[i];
+            const float absSample = std::abs(sample);
+            framePeak = std::max(framePeak, absSample);
+            frameSq += static_cast<double>(sample) * static_cast<double>(sample);
+        }
+
+        framePeaks.push_back(framePeak);
+        analysis.peak = std::max(analysis.peak, framePeak);
+        totalSq += frameSq;
+        totalSamples += numChannels;
+        blockSq += frameSq;
+        ++framesInBlock;
+
+        if (framesInBlock == blockFrames || i == re - 1)
+        {
+            ++totalBlocks;
+            const float blockRms = static_cast<float>(std::sqrt(
+                blockSq / static_cast<double>(framesInBlock * numChannels)));
+            if (blockRms > activeThreshold)
+            {
+                activeSq += blockSq;
+                activeSamples += framesInBlock * numChannels;
+                ++activeBlocks;
+            }
+            blockSq = 0.0;
+            framesInBlock = 0;
+        }
+    }
+
+    if (totalSamples <= 0 || framePeaks.empty())
+        return analysis;
+
+    analysis.rms = static_cast<float>(std::sqrt(totalSq / static_cast<double>(totalSamples)));
+    analysis.activeRms = activeSamples > 0
+        ? static_cast<float>(std::sqrt(activeSq / static_cast<double>(activeSamples)))
+        : analysis.rms;
+    analysis.activeRatio = totalBlocks > 0
+        ? static_cast<float>(activeBlocks) / static_cast<float>(totalBlocks)
+        : 0.0f;
+    analysis.crestDb = gainToDb(analysis.peak / std::max(analysis.rms, 1.0e-9f));
+
+    auto percentilePeaks = framePeaks;
+    const size_t n = percentilePeaks.size();
+    const size_t percentileIndex = juce::jlimit<size_t>(
+        0u,
+        n - 1,
+        static_cast<size_t>(std::floor(0.999 * static_cast<double>(n - 1))));
+    std::nth_element(percentilePeaks.begin(),
+                     percentilePeaks.begin() + static_cast<std::ptrdiff_t>(percentileIndex),
+                     percentilePeaks.end());
+    analysis.percentilePeak = percentilePeaks[percentileIndex];
+    analysis.peakToPercentileDb = gainToDb(
+        analysis.peak / std::max(analysis.percentilePeak, 1.0e-9f));
+
+    return analysis;
+}
+
+SamplePlayer::NormalizeMode SamplePlayer::chooseNormalizeMode(const NormalizeAnalysis& analysis) const
+{
+    if (analysis.peak <= 0.0f)
+        return NormalizeMode::Bypass;
+
+    const float peakDb = gainToDb(analysis.peak);
+    const float activeDb = gainToDb(std::max(analysis.activeRms, analysis.rms));
+    const float headroomDb = -peakDb;
+
+    if (peakDb <= kNearSilentPeakDb && activeDb <= kNearSilentActiveDb)
+        return NormalizeMode::Bypass;
+
+    if (headroomDb < kHotHeadroomDb)
+        return NormalizeMode::PeakCap;
+
+    if (analysis.durationSeconds < kShortTransientSeconds
+        || analysis.activeRatio < kTransientActiveRatio
+        || analysis.crestDb > kTransientCrestDb
+        || analysis.peakToPercentileDb > kTransientPeakGapDb)
+    {
+        return NormalizeMode::Transient;
+    }
+
+    return NormalizeMode::Sustained;
+}
+
+float SamplePlayer::chooseNormalizeGain(const NormalizeAnalysis& analysis, NormalizeMode mode) const
+{
+    if (analysis.peak <= 0.0f)
+        return 1.0f;
+
+    const float ceilingGain = dbToGain(kNormalizeCeilingDb) / analysis.peak;
+
+    switch (mode)
+    {
+        case NormalizeMode::Bypass:
+            return 1.0f;
+
+        case NormalizeMode::PeakCap:
+            return std::min(1.0f, ceilingGain);
+
+        case NormalizeMode::Transient:
+        {
+            if (analysis.percentilePeak <= 0.0f)
+                return std::min(1.0f, ceilingGain);
+
+            const float transientGain = dbToGain(kTransientPercentileTargetDb) / analysis.percentilePeak;
+            return std::min(ceilingGain, std::max(1.0f, transientGain));
+        }
+
+        case NormalizeMode::Sustained:
+        {
+            const float reference = std::max(analysis.activeRms, analysis.rms);
+            if (reference <= 0.0f)
+                return std::min(1.0f, ceilingGain);
+
+            const float sustainedGain = dbToGain(kSustainedTargetDb) / reference;
+            return std::min(ceilingGain, sustainedGain);
+        }
+    }
+
+    return 1.0f;
+}
+
+void SamplePlayer::normalizeBuffer(juce::AudioBuffer<float>& buf,
+                                   int regionStart,
+                                   int regionEnd,
+                                   double bufferSampleRate) const
+{
+    const int rs = juce::jlimit(0, buf.getNumSamples(), regionStart);
+    const int re = juce::jlimit(rs, buf.getNumSamples(), regionEnd);
+    const int numChannels = buf.getNumChannels();
+    if (re <= rs || numChannels <= 0)
+        return;
+
+    const NormalizeAnalysis analysis = analyzeNormalizeRegion(buf, rs, re, bufferSampleRate);
+    const NormalizeMode mode = chooseNormalizeMode(analysis);
+    const float gain = chooseNormalizeGain(analysis, mode);
+    if (!std::isfinite(gain) || std::abs(gain - 1.0f) < 1.0e-4f)
+        return;
+
     for (int ch = 0; ch < numChannels; ++ch)
     {
-        const float* d = buf.getReadPointer(ch);
+        float* data = buf.getWritePointer(ch);
         for (int i = rs; i < re; ++i)
-        {
-            double s = static_cast<double>(d[i]);
-            sumSq += s * s;
-        }
-        totalSamples += (re - rs);
+            data[i] *= gain;
     }
 
-    if (totalSamples == 0) return;
-    float rms = static_cast<float>(std::sqrt(sumSq / totalSamples));
-    if (rms < 1e-6f) return;
-
-    static constexpr float kTargetRms = 0.25f;                         // -12 dBFS
-    static constexpr float kThreshold = 0.7f;                          // knee start
-    static constexpr float kCeiling   = 0.95f;                         // asymptote
-    static constexpr float kKnee      = kCeiling - kThreshold;         // 0.25
-
-    const float gain = kTargetRms / rms;
-
-    for (int ch = 0; ch < numChannels; ++ch)
-    {
-        float* d = buf.getWritePointer(ch);
-        for (int i = 0; i < buf.getNumSamples(); ++i)
-        {
-            float x = d[i] * gain;
-            float a = std::abs(x);
-            if (a > kThreshold)
-            {
-                float y = kThreshold + kKnee * std::tanh((a - kThreshold) / kKnee);
-                d[i] = std::copysign(y, x);
-            }
-            else
-            {
-                d[i] = x;
-            }
-        }
-    }
+    samplerDebugLog("normalizeBuffer mode=" + juce::String(normalizeModeName(mode))
+                    + " gainDb=" + juce::String(gainToDb(gain), 2)
+                    + " peakDb=" + juce::String(gainToDb(analysis.peak), 2)
+                    + " p999Db=" + juce::String(gainToDb(analysis.percentilePeak), 2)
+                    + " rmsDb=" + juce::String(gainToDb(analysis.rms), 2)
+                    + " activeDb=" + juce::String(gainToDb(analysis.activeRms), 2)
+                    + " crestDb=" + juce::String(analysis.crestDb, 2)
+                    + " peakGapDb=" + juce::String(analysis.peakToPercentileDb, 2)
+                    + " activeRatio=" + juce::String(analysis.activeRatio, 3)
+                    + " dur=" + juce::String(analysis.durationSeconds, 3));
 }
 
 // ═══════════════════════════════════════════════════════════════════

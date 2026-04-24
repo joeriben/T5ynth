@@ -11,7 +11,7 @@
  *   - Forward loop, one-shot, ping-pong (palindrome buffer)
  *   - Equal-power crossfade baked into buffer at loop boundary
  *   - Cross-correlation loop-point optimization
- *   - Peak normalization (0.95 target)
+ *   - Signal-aware normalization (sustained vs. transient vs. hot/silent)
  *   - Fractional loop start/end ("brackets")
  *   - MIDI transposition via Signalsmith Stretch (pitch-preserving)
  *   - 6-tap Lanczos sinc interpolation for buffer reads
@@ -178,6 +178,20 @@ public:
     PitchShiftQuality getPitchShiftQuality() const { return pitchQuality; }
 
 private:
+    enum class NormalizeMode { Bypass, PeakCap, Transient, Sustained };
+
+    struct NormalizeAnalysis
+    {
+        float durationSeconds = 0.0f;
+        float peak = 0.0f;
+        float percentilePeak = 0.0f;
+        float rms = 0.0f;
+        float activeRms = 0.0f;
+        float crestDb = 0.0f;
+        float peakToPercentileDb = 0.0f;
+        float activeRatio = 0.0f;
+    };
+
     struct PlaybackSnapshot
     {
         juce::AudioBuffer<float> playBuffer;
@@ -280,8 +294,20 @@ private:
     static void applyLoopCrossfade(juce::AudioBuffer<float>& buf, int loopStart, int& loopEnd,
                                    float crossfadeMs, double bufferSampleRate);
 
-    /** Peak-normalize play region to 0.95. */
-    void normalizeBuffer(juce::AudioBuffer<float>& buf, int regionStart, int regionEnd) const;
+    /** Analyze the audible region and choose a linear normalization mode. */
+    NormalizeAnalysis analyzeNormalizeRegion(const juce::AudioBuffer<float>& buf,
+                                             int regionStart,
+                                             int regionEnd,
+                                             double bufferSampleRate) const;
+    static const char* normalizeModeName(NormalizeMode mode);
+    NormalizeMode chooseNormalizeMode(const NormalizeAnalysis& analysis) const;
+    float chooseNormalizeGain(const NormalizeAnalysis& analysis, NormalizeMode mode) const;
+
+    /** Apply signal-aware linear normalization to the audible play region only. */
+    void normalizeBuffer(juce::AudioBuffer<float>& buf,
+                         int regionStart,
+                         int regionEnd,
+                         double bufferSampleRate) const;
 
     /** Remove leading near-zero samples (< ~-60 dB) from a source buffer. */
     void trimLeadingSilence(juce::AudioBuffer<float>& buffer) const;
