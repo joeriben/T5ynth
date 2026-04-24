@@ -6,6 +6,24 @@
 #include <thread>
 #include <cmath>
 
+namespace
+{
+constexpr float kPromptPadFactor   = 0.04f;
+constexpr float kPromptRow         = 1.4f;
+constexpr float kPromptSlider      = 1.2f;
+constexpr float kPromptInput       = 1.8f;
+constexpr float kPromptCompactRow  = 1.15f;
+constexpr float kPromptCompactCtrl = 0.9f;
+constexpr float kPromptGap         = 0.28f;
+constexpr float kPromptContentUnits = 20.0f;
+
+float preferredPromptFontForWidth(int width)
+{
+    const float innerW = juce::jmax(160.0f, static_cast<float>(width) * (1.0f - 2.0f * kPromptPadFactor));
+    return juce::jlimit(11.5f, 15.5f, innerW * 0.048f);
+}
+}
+
 // Colors from GuiHelpers.h (kAccent, kDim, kDim, kSurface)
 
 // Linear crossfade between old and new audio buffers.
@@ -116,15 +134,6 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         durValue.setText(juce::String(durationSlider.getValue(), 2) + "s", juce::dontSendNotification);
     };
 
-    // Start Position
-    makeSlider(startSlider, this);
-    makeLabel(startLabel, "Start", kDim, juce::Justification::centredLeft, this);
-    makeLabel(startValue, "0%", kOscCol, juce::Justification::centredRight, this);
-    makeLabel(startHint, "0% = attack, higher = sustained", kDim, juce::Justification::centredLeft, this);
-    startSlider.onValueChange = [this] {
-        startValue.setText(juce::String(juce::roundToInt(startSlider.getValue() * 100.0)) + "%", juce::dontSendNotification);
-    };
-
     // Steps
     makeSlider(stepsSlider, this);
     makeLabel(stepsLabel, "Steps", kDim, juce::Justification::centredLeft, this);
@@ -145,9 +154,13 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 
     // Seed (text field + random toggle)
     makeLabel(seedLabel, "Seed", kDim, juce::Justification::centredLeft, this);
-    seedEditor.setColour(juce::TextEditor::backgroundColourId, kSurface);
-    seedEditor.setColour(juce::TextEditor::textColourId, juce::Colours::white);
+    // Match the value-display style used by noiseValue / cfgValue / durValue
+    // (kOscCol on dark surface) so the current seed reads as a first-class
+    // number, not a grey decoration.
+    seedEditor.setColour(juce::TextEditor::backgroundColourId, kSurface.brighter(0.04f));
+    seedEditor.setColour(juce::TextEditor::textColourId, kOscCol);
     seedEditor.setColour(juce::TextEditor::outlineColourId, kBorder);
+    seedEditor.setColour(juce::TextEditor::focusedOutlineColourId, kOscCol);
     seedEditor.setInputRestrictions(12, "0123456789");
     seedEditor.setJustification(juce::Justification::centredLeft);
     seedEditor.setText("123456789", false);
@@ -160,7 +173,9 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 
     randomSeedToggle.setColour(juce::TextButton::buttonColourId, kSurface);
     randomSeedToggle.setColour(juce::TextButton::buttonOnColourId, kOscCol);
-    randomSeedToggle.setColour(juce::TextButton::textColourOffId, kDim);
+    // kDim is too faint for a small button label sitting beside a coloured
+    // seed value — bump the off-state text so "Random" stays legible.
+    randomSeedToggle.setColour(juce::TextButton::textColourOffId, juce::Colour(0xffc8cdd8));
     randomSeedToggle.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
     randomSeedToggle.setClickingTogglesState(true);
     randomSeedToggle.setToggleState(false, juce::dontSendNotification);
@@ -205,15 +220,6 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
                 apvts.getParameter(PID::genCfg)->setValueNotifyingHost(
                     apvts.getParameter(PID::genCfg)->convertTo0to1(defaultCfg));
 
-                // Start position only supported by SA 1.0 (seconds_start)
-                bool startSupported = !isSmall && !isAudioLDM2;
-                startSlider.setEnabled(startSupported);
-                startSlider.setAlpha(startSupported ? 1.0f : 0.3f);
-                if (!startSupported)
-                {
-                    apvts.getParameter(PID::genStart)->setValueNotifyingHost(0.0f);
-                }
-
                 // Preload model in background so first generate is instant
                 if (onStatusChanged) onStatusChanged("Loading " + model + "...", true);
                 generateButton.setEnabled(false);
@@ -251,11 +257,30 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     magA    = std::make_unique<Attachment>(apvts, PID::genMagnitude, magnitudeSlider);
     noiseA  = std::make_unique<Attachment>(apvts, PID::genNoise, noiseSlider);
     durA    = std::make_unique<Attachment>(apvts, PID::genDuration, durationSlider);
-    startA  = std::make_unique<Attachment>(apvts, PID::genStart, startSlider);
     stepsA  = std::make_unique<Attachment>(apvts, PID::infSteps, stepsSlider);
     cfgA    = std::make_unique<Attachment>(apvts, PID::genCfg, cfgSlider);
+    if (auto* startParam = apvts.getParameter(PID::genStart))
+        startParam->setValueNotifyingHost(0.0f);
 
     startTimerHz(10);  // poll for device availability + drift regen + ghost
+}
+
+int PromptPanel::getPreferredHeightForWidth(int width) const
+{
+    const float f = preferredPromptFontForWidth(width);
+    const int rowH = juce::roundToInt(f * kPromptRow);
+    const int sliderH = juce::roundToInt(f * kPromptSlider);
+    const int inputH = juce::roundToInt(f * kPromptInput);
+    const int gap = juce::roundToInt(f * kPromptGap);
+    const int compactRowH = juce::roundToInt(f * kPromptCompactRow);
+    const int compactCtrlH = juce::roundToInt(f * kPromptCompactCtrl);
+
+    return (compactRowH + 2) + gap
+         + rowH + inputH + gap
+         + rowH + inputH + gap * 2
+         + rowH + sliderH + gap
+         + (compactRowH + compactCtrlH + gap) * 3
+         + gap + compactRowH;
 }
 
 void PromptPanel::timerCallback()
@@ -311,38 +336,17 @@ void PromptPanel::resized()
 {
     auto b = getLocalBounds();
     float w = static_cast<float>(b.getWidth());
-    int pad = juce::roundToInt(w * 0.04f);
+    int pad = juce::roundToInt(w * kPromptPadFactor);
     auto area = b.reduced(pad);
 
-    // ── Row heights in font-size units (single source of truth) ──
-    constexpr float kRow        = 1.4f;   // label row
-    constexpr float kSlider     = 1.2f;   // full slider
-    constexpr float kInput      = 1.8f;   // text editor
-    constexpr float kCompactRow = 1.2f;   // compact label row
-    constexpr float kCompactSl  = 0.9f;   // compact slider
-    constexpr float kGap        = 0.3f;   // gap
-
-    // Total content budget (f-units):
-    //   model:      kCompactRow + kGap                    = 1.5
-    //   prompt A:   kRow + kInput + kGap                  = 3.5
-    //   prompt B:   kRow + kInput + kGap*2                = 3.8
-    //   3× slider:  (kRow + kSlider + kGap) * 3           = 8.7
-    //   gap:        kGap                                  = 0.3
-    //   2× compact: (kCompactRow + kCompactSl + kGap) * 2 = 4.8
-    //   seed row:    1.65                                    = 1.65
-    //                                               Total: 24.25
-    constexpr float kContentUnits = 24.25f;
-    constexpr float kHintExtra    = 5.2f;  // 3×1.1 + 2×0.94 hint rows
-
     float f = juce::jlimit(10.0f, 20.0f,
-        (static_cast<float>(area.getHeight()) - 2.0f) / kContentUnits);
-    float fHint = f * 0.85f;
-    int rowH = juce::roundToInt(f * kRow);
-    int sliderH = juce::roundToInt(f * kSlider);
-    int hintH = juce::roundToInt(fHint * 1.3f);
-    int inputH = juce::roundToInt(f * kInput);
-    int gap = juce::roundToInt(f * kGap);
-    int compactRowH = juce::roundToInt(f * kCompactRow);
+        (static_cast<float>(area.getHeight()) - 2.0f) / kPromptContentUnits);
+    int rowH = juce::roundToInt(f * kPromptRow);
+    int sliderH = juce::roundToInt(f * kPromptSlider);
+    int inputH = juce::roundToInt(f * kPromptInput);
+    int gap = juce::roundToInt(f * kPromptGap);
+    int compactRowH = juce::roundToInt(f * kPromptCompactRow);
+    int compactCtrlH = juce::roundToInt(f * kPromptCompactCtrl);
 
     auto setFs = [](juce::Label& l, float size) { l.setFont(juce::FontOptions(size)); };
 
@@ -357,31 +361,22 @@ void PromptPanel::resized()
         area.removeFromTop(gap);
     }
 
-    // Show hints only when the extra hint rows fit within available space
-    bool showHints = static_cast<float>(area.getHeight())
-                     > (kContentUnits + kHintExtra) * f + 2.0f;
+    alphaHint.setVisible(false);
+    magHint.setVisible(false);
+    noiseHint.setVisible(false);
+    durHint.setVisible(false);
+    stepsHint.setVisible(false);
+    cfgHint.setVisible(false);
 
-    // --- Main slider layout: [Label ... Value] \n [slider] \n [hint?] ---
-    auto layoutSlider = [&](juce::Label& label, juce::Slider& slider, juce::Label& value,
-                            juce::Label* hint, float labelSize)
+    // --- Main slider layout: [Label ... Value] \n [slider] ---
+    auto layoutSlider = [&](juce::Label& label, juce::Slider& slider, juce::Label& value)
     {
-        setFs(label, labelSize);
-        setFs(value, labelSize);
+        setFs(label, f);
+        setFs(value, f);
         auto hdr = area.removeFromTop(rowH);
         label.setBounds(hdr.removeFromLeft(hdr.getWidth() * 2 / 3));
         value.setBounds(hdr);
         slider.setBounds(area.removeFromTop(sliderH));
-        if (hint != nullptr)
-        {
-            if (showHints)
-            {
-                setFs(*hint, fHint);
-                hint->setBounds(area.removeFromTop(hintH));
-                hint->setVisible(true);
-            }
-            else
-                hint->setVisible(false);
-        }
         area.removeFromTop(gap);
     };
 
@@ -399,20 +394,14 @@ void PromptPanel::resized()
     promptBEditor.setBounds(area.removeFromTop(inputH));
     area.removeFromTop(gap * 2);
 
-    // Alpha, Magnitude, Noise
-    layoutSlider(alphaLabel, alphaSlider, alphaValue, &alphaHint, f);
-    layoutSlider(magLabel, magnitudeSlider, magValue, &magHint, f);
-    layoutSlider(noiseLabel, noiseSlider, noiseValue, &noiseHint, f);
-
-    area.removeFromTop(gap);
+    // Alpha
+    layoutSlider(alphaLabel, alphaSlider, alphaValue);
 
     // --- Compact params: 2 columns ---
-    int compactSliderH = juce::roundToInt(f * 0.9f);
-    int compactHintH = juce::roundToInt(fHint * 1.1f);
     int colGap = juce::roundToInt(w * 0.03f);
 
-    auto layoutCompactPair = [&](juce::Label& lbl1, juce::Slider& sl1, juce::Label& val1, juce::Label* hint1,
-                                  juce::Label& lbl2, juce::Slider& sl2, juce::Label& val2, juce::Label* hint2)
+    auto layoutCompactPair = [&](juce::Label& lbl1, juce::Slider& sl1, juce::Label& val1,
+                                  juce::Label& lbl2, juce::Slider& sl2, juce::Label& val2)
     {
         int colW = (area.getWidth() - colGap) / 2;
 
@@ -428,44 +417,47 @@ void PromptPanel::resized()
         lbl2.setBounds(rightHdr.removeFromLeft(rightHdr.getWidth() * 2 / 3));
         val2.setBounds(rightHdr);
 
-        auto slRow = area.removeFromTop(compactSliderH);
+        auto slRow = area.removeFromTop(compactCtrlH);
         sl1.setBounds(slRow.removeFromLeft(colW));
         slRow.removeFromLeft(colGap);
         sl2.setBounds(slRow);
-
-        if (showHints && (hint1 != nullptr || hint2 != nullptr))
-        {
-            auto hintRow = area.removeFromTop(compactHintH);
-            if (hint1) { setFs(*hint1, fHint); hint1->setBounds(hintRow.removeFromLeft(colW)); hint1->setVisible(true); }
-            else hintRow.removeFromLeft(colW);
-            hintRow.removeFromLeft(colGap);
-            if (hint2) { setFs(*hint2, fHint); hint2->setBounds(hintRow); hint2->setVisible(true); }
-        }
-        else
-        {
-            if (hint1) hint1->setVisible(false);
-            if (hint2) hint2->setVisible(false);
-        }
         area.removeFromTop(gap);
     };
 
-    layoutCompactPair(durLabel, durationSlider, durValue, &durHint,
-                      startLabel, startSlider, startValue, &startHint);
-    layoutCompactPair(stepsLabel, stepsSlider, stepsValue, &stepsHint,
-                      cfgLabel, cfgSlider, cfgValue, &cfgHint);
-
-    // Seed row
+    auto layoutDurationSeedRow = [&]
     {
-        int seedRowH = juce::roundToInt(f * 1.65f);
-        auto seedRow = area.removeFromTop(seedRowH);
+        int colW = (area.getWidth() - colGap) / 2;
+
+        auto hdrRow = area.removeFromTop(compactRowH);
+        auto leftHdr = hdrRow.removeFromLeft(colW);
+        hdrRow.removeFromLeft(colGap);
+        auto rightHdr = hdrRow;
+
+        setFs(durLabel, f);
+        setFs(durValue, f);
+        durLabel.setBounds(leftHdr.removeFromLeft(leftHdr.getWidth() * 2 / 3));
+        durValue.setBounds(leftHdr);
         setFs(seedLabel, f);
-        int seedLabelW = juce::roundToInt(f * 2.5f);
-        seedLabel.setBounds(seedRow.removeFromLeft(seedLabelW));
-        int toggleW = juce::roundToInt(seedRow.getWidth() * 0.30f);
+        seedLabel.setBounds(rightHdr);
+
+        auto controlRow = area.removeFromTop(compactCtrlH);
+        durationSlider.setBounds(controlRow.removeFromLeft(colW));
+        controlRow.removeFromLeft(colGap);
+
+        auto seedRow = controlRow.reduced(0, 1);
+        int toggleW = juce::roundToInt(seedRow.getWidth() * 0.34f);
         randomSeedToggle.setBounds(seedRow.removeFromRight(toggleW));
-        syncSeedEditorFont(f);
-        seedEditor.setBounds(seedRow.reduced(0, 1));
-    }
+        syncSeedEditorFont(f * 0.92f);
+        seedEditor.setBounds(seedRow);
+
+        area.removeFromTop(gap);
+    };
+
+    layoutCompactPair(magLabel, magnitudeSlider, magValue,
+                      noiseLabel, noiseSlider, noiseValue);
+    layoutCompactPair(stepsLabel, stepsSlider, stepsValue,
+                      cfgLabel, cfgSlider, cfgValue);
+    layoutDurationSeedRow();
 
     // Info label at the bottom of the sequential layout
     area.removeFromTop(gap);
@@ -486,6 +478,8 @@ void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String
     randomSeedToggle.setToggleState(randomSeed, juce::dontSendNotification);
     syncSeedEditorDisplay(seed, true);
     syncSeedEditorEnabledState();
+    if (auto* startParam = processorRef.getValueTreeState().getParameter(PID::genStart))
+        startParam->setValueNotifyingHost(0.0f);
 
     // Select model from preset (match by model directory name)
     if (model.isNotEmpty())
@@ -653,7 +647,6 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
                            ? apvts.getRawParameterValue(PID::genNoise)->load()
                            : noiseOverride;
     float duration = apvts.getRawParameterValue(PID::genDuration)->load();
-    float startPos = apvts.getRawParameterValue(PID::genStart)->load();
     int steps = static_cast<int>(apvts.getRawParameterValue(PID::infSteps)->load());
     float cfgScale = apvts.getRawParameterValue(PID::genCfg)->load();
     int seed = randomSeedToggle.getToggleState() ? -1 : seedEditor.getText().getIntValue();
@@ -666,7 +659,7 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     req.magnitude = magnitude;
     req.noiseSigma = noiseSigma;
     req.durationSeconds = duration;
-    req.startPosition = startPos;
+    req.startPosition = 0.0f;
     req.steps = steps;
     req.cfgScale = cfgScale;
     req.seed = seed;
