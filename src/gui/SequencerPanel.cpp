@@ -1123,8 +1123,11 @@ void SequencerPanel::resized()
         row3.removeFromLeft(colGap);
         auto r3R = row3;
 
+        // Scale-type dropdown holds labels up to "Hirajoshi" (9 chars) and
+        // "Hung.Min"/"Neap.Min" — 70 px clipped to "Kuma" / "Harm". Keep the
+        // root combo narrow (just C..B[#/b], 2 chars max).
         genScaleRootBox.setBounds(r3L.removeFromLeft(55));  r3L.removeFromLeft(2);
-        genScaleTypeBox.setBounds(r3L.removeFromLeft(70));
+        genScaleTypeBox.setBounds(r3L.removeFromLeft(100));
 
         genRangeLabel.setFont(juce::FontOptions(juce::jmax(9.0f, genCtrlH * 0.55f)));
         genRangeLabel.setBounds(r3R.removeFromLeft(42));  r3R.removeFromLeft(2);
@@ -1146,7 +1149,7 @@ void SequencerPanel::resized()
         {
             auto rowP = area.removeFromTop(genCtrlH);
             const int rowW  = rowP.getWidth();
-            const int modeW = 70;   // "Transform" is the longest mode label
+            const int modeW = 95;   // "Transform" is the longest mode label — 70 px truncated it to "Transfo"
             const int onW   = 28;   // "S2"/"S3"/"S4" with margin
             const int gapA  = 4;    // after Field Mode
             const int gapB  = 8;    // between field group and strand group
