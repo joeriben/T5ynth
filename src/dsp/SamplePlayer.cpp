@@ -976,7 +976,12 @@ void SamplePlayer::applyLoopCrossfade(juce::AudioBuffer<float>& buf, int loopSta
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// RMS normalize to -12 dBFS, then peak-limit to 0.95
+// RMS normalize to -12 dBFS with tanh soft-knee at 0.7 asymptoting 0.95.
+// Diagnostic: earlier hard-clip at 0.95 produced audible distortion on
+// dense, low-peak content (e.g. choir prompts) because the extreme RMS
+// boost (>100× for -53 dBFS input) pushed many samples past the ceiling.
+// The soft-knee is C¹-continuous at the threshold — transparent for
+// material that stays below it, and smoothly compressive above.
 // ═══════════════════════════════════════════════════════════════════
 
 void SamplePlayer::normalizeBuffer(juce::AudioBuffer<float>& buf, int regionStart, int regionEnd) const
@@ -987,7 +992,6 @@ void SamplePlayer::normalizeBuffer(juce::AudioBuffer<float>& buf, int regionStar
     const int numChannels = buf.getNumChannels();
     if (numChannels <= 0) return;
 
-    // Compute RMS over the play region (all channels)
     double sumSq = 0.0;
     int totalSamples = 0;
     for (int ch = 0; ch < numChannels; ++ch)
@@ -1003,29 +1007,31 @@ void SamplePlayer::normalizeBuffer(juce::AudioBuffer<float>& buf, int regionStar
 
     if (totalSamples == 0) return;
     float rms = static_cast<float>(std::sqrt(sumSq / totalSamples));
-    if (rms < 1e-6f) return; // silence
+    if (rms < 1e-6f) return;
 
-    // Target: -12 dBFS RMS ≈ 0.25
-    static constexpr float kTargetRms = 0.25f;
-    float gain = kTargetRms / rms;
+    static constexpr float kTargetRms = 0.25f;                         // -12 dBFS
+    static constexpr float kThreshold = 0.7f;                          // knee start
+    static constexpr float kCeiling   = 0.95f;                         // asymptote
+    static constexpr float kKnee      = kCeiling - kThreshold;         // 0.25
 
-    // Apply gain to entire buffer
-    for (int ch = 0; ch < numChannels; ++ch)
-    {
-        float* d = buf.getWritePointer(ch);
-        for (int i = 0; i < buf.getNumSamples(); ++i)
-            d[i] *= gain;
-    }
+    const float gain = kTargetRms / rms;
 
-    // Soft-clip peaks above 0.95 to prevent clipping without crushing dynamics
-    static constexpr float kCeiling = 0.95f;
     for (int ch = 0; ch < numChannels; ++ch)
     {
         float* d = buf.getWritePointer(ch);
         for (int i = 0; i < buf.getNumSamples(); ++i)
         {
-            if (d[i] > kCeiling)       d[i] = kCeiling;
-            else if (d[i] < -kCeiling) d[i] = -kCeiling;
+            float x = d[i] * gain;
+            float a = std::abs(x);
+            if (a > kThreshold)
+            {
+                float y = kThreshold + kKnee * std::tanh((a - kThreshold) / kKnee);
+                d[i] = std::copysign(y, x);
+            }
+            else
+            {
+                d[i] = x;
+            }
         }
     }
 }
