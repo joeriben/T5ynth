@@ -153,10 +153,10 @@ private:
      */
     enum class Role : int
     {
-        Anchor  = 0,   // centerPc-locked, octave −1, slow — low pedal/drone
-        Line    = 1,   // mid-register stepwise field walk
-        Density = 2,   // chromatic, ignores metric weight — high note count
-        Gesture = 3,   // sparse punctuations, extreme register — pointillistic
+        Anchor  = 0,   // centerPc-stable support in the selected strand register
+        Line    = 1,   // voice-led field melody
+        Density = 2,   // short active motion, with weak passing tones
+        Gesture = 3,   // sparse field-based punctuations with register contrast
     };
 
     /** Per-strand pattern + playback state. */
@@ -174,6 +174,7 @@ private:
         double samplesUntilNextStep  = 0.0;
         double samplesUntilGateOff   = -1.0;
         int    lastPlayedNote        = -1;
+        int    previousOutputNote    = -1;     // survives note-offs for role voice-leading
         int    cycleCount            = 0;
 
         // Pattern data
@@ -186,6 +187,9 @@ private:
 
         // Euclidean drift state
         int  driftCycle       = 0;
+        int  requestedSteps   = 8;
+        int  requestedPulses  = 5;
+        int  requestedRotation = 0;
         int  basePulses       = 5;
         int  pulseDriftAccum  = 0;
         bool pulseDriftUp     = true;
@@ -247,6 +251,9 @@ private:
     void   applyMutationDrift(Strand& s);
     void   addPulse(Strand& s);
     void   removePulse(Strand& s);
+    int    countPulses(const Strand& s) const;
+    void   enforcePulseInvariant(Strand& s);
+    float  effectiveMutationFromBase(const Strand& s) const;
 
     // Pitch-field helpers.
     void rebuildPcSetFromScale();   // initialises/resets pcSet from (scaleType, scaleRoot)
@@ -255,10 +262,23 @@ private:
     void applyRowOp();              // random Tn / In / R / RI
     void rebuildPcSetFromRow();     // Transform mode: derive pcSet from row[0..rowSize-1]
     void applyPivot();              // rotate pcSet by pivotInterval semitones
+    void syncRowFromPcSet();        // keep Transform row aligned with current pcSet
 
     // Per-strand rendering — Phase 3.
     double strandStepDurationSamples(const Strand& s) const;
+    int    baseMidiForStrand(const Strand& s) const;
     int    pickNote(Strand& s, int stepIdx, int rawDegree);
     int    voiceLedFieldMember(int rawPc) const;
-    int    chromaticFieldWalk(int lastMidi);
+    bool   fieldContains(int pc) const;
+    int    fieldPcForDegree(int degree) const;
+    int    fieldPcNearCenterByIndex(int index) const;
+    int    closestMidiForPc(int pc, int anchorMidi) const;
+    int    nearestFieldMidi(int preferredMidi, int previousMidi, int fallbackPc) const;
+    int    chromaticPassingNote(int lastMidi, int seedMidi);
+    int    ensembleAdjustedNote(const Strand& s, int candidate, bool isStrong, bool allowPassing) const;
+    bool   hasHardSmallSecondClash(const Strand& s, int candidate) const;
+    bool   isJustifiedPassingTone(const Strand& s, int candidate, bool isStrong) const;
+    float  roleFireProbability(const Strand& s, bool isPulse, bool isStrong) const;
+    int    roleVelocityBase(const Strand& s, bool isPulse, bool isStrong) const;
+    float  roleGateFraction(const Strand& s) const;
 };

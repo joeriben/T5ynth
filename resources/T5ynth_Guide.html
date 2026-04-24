@@ -762,7 +762,7 @@ Each Euclidean parameter (Steps, Pulses, Rotation, Mutation) has a lock toggle. 
 <h3>Polyphonic Mode — Strands &amp; Pitch Field</h3>
 
 <p>
-GEN runs up to <strong>four parallel Strands</strong> (Strand 0 is always active; Strands 2&ndash;4 enable individually). Each strand owns its own Euclidean pattern (steps, pulses, rotation, mutation, fix flags), an octave shift, a tempo multiplier, and a textural <em>Role</em>. All strands draw their notes from a single shared <strong>Pitch Field</strong>, so the polyphony stays coherent even as each voice evolves independently.
+GEN runs up to <strong>four parallel Strands</strong> (Strand 1 is always active; Strands 2&ndash;4 enable individually). Each strand owns its own Euclidean pattern (steps, pulses, rotation, mutation, fix flags), an octave shift, a tempo multiplier, and a textural <em>Role</em>. All strands draw their notes from a single shared <strong>Pitch Field</strong> and check their choices against the notes already sounding in the other strands, so the polyphony behaves as an ensemble rather than four unrelated generators.
 </p>
 
 <p>
@@ -773,7 +773,7 @@ The result is closer to a small ensemble than to a chord arpeggiator: rhythms cr
 
 <table>
   <tr><th>Control</th><th>Range</th><th>What It Does</th></tr>
-  <tr><td><strong>Enable</strong></td><td>on / off</td><td>Activates the strand. Strand 0 is always on; 2&ndash;4 are toggled.</td></tr>
+  <tr><td><strong>Enable</strong></td><td>on / off</td><td>Activates the strand. Strand 1 is always on; 2&ndash;4 are toggled.</td></tr>
   <tr><td><strong>Role</strong></td><td>Anchor / Line / Density / Gesture</td><td>Textural function (see below). Not a bass/lead hierarchy &mdash; each role defines register and rhythmic behavior.</td></tr>
   <tr><td><strong>Octave</strong></td><td>&minus;2 &hellip; +2</td><td>Register offset. Use to separate strands vertically.</td></tr>
   <tr><td><strong>Div&times;</strong></td><td>1/4&times;, 1/2&times;, 1&times;, 2&times;, 4&times;</td><td>Tempo multiplier relative to global division. Creates polyrhythms (e.g.&nbsp;3 strands at 1&times; / 2&times; / 4&times; = nested triplet feel).</td></tr>
@@ -784,10 +784,10 @@ The result is closer to a small ensemble than to a chord arpeggiator: rhythms cr
 <h4>The Four Roles</h4>
 <table>
   <tr><th>Role</th><th>Character</th><th>Typical Use</th></tr>
-  <tr><td><strong>Anchor</strong></td><td>Locked to the field's center pitch class, low register, slow &mdash; a held drone or pedal point.</td><td>Low pedal, drone foundation</td></tr>
-  <tr><td><strong>Line</strong></td><td>Mid-register stepwise walk through the field. Voice-leading favours the nearest pitch.</td><td>Melodic contour</td></tr>
-  <tr><td><strong>Density</strong></td><td>Chromatic, ignores metric weight &mdash; fills space with motion. High note count, no accent grouping.</td><td>Dense texture, motion fill</td></tr>
-  <tr><td><strong>Gesture</strong></td><td>Sparse punctuations in extreme registers. Few notes, high contrast.</td><td>Pointillistic accents</td></tr>
+  <tr><td><strong>Anchor</strong></td><td>Register-stable support. Strong pulses use the field center in the strand's selected octave; weaker pulses may use nearby field tones so the part remains stable without becoming a single stuck note.</td><td>Pedal foundation</td></tr>
+  <tr><td><strong>Line</strong></td><td>Mid-register melodic voice. It moves through the current field with voice-leading from its previous note and avoids vertical minor-second clashes unless they are weak stepwise passing tones.</td><td>Melodic contour</td></tr>
+  <tr><td><strong>Density</strong></td><td>Short, active filler. Weak notes may become chromatic passing tones, but strong notes resolve into the field and the strand avoids unprepared clashes with other sounding voices.</td><td>Dense motion fill</td></tr>
+  <tr><td><strong>Gesture</strong></td><td>Sparse field-based punctuations in wider registers. Gestures leap for contrast but are still checked against the current ensemble harmony.</td><td>Pointillistic accents</td></tr>
 </table>
 
 <h4>Pitch Field Controls</h4>
@@ -797,7 +797,7 @@ The Pitch Field is the shared pitch-class set (pc-set) that all strands draw fro
 
 <table>
   <tr><th>Control</th><th>Options</th><th>What It Does</th></tr>
-  <tr><td><strong>Mode</strong></td><td>Static / Drift / Transform / Pivot</td><td>How the field evolves on Strand&nbsp;0's cycle boundary.</td></tr>
+  <tr><td><strong>Mode</strong></td><td>Static / Drift / Transform / Pivot</td><td>How the field evolves on Strand&nbsp;1's cycle boundary.</td></tr>
   <tr><td><strong>Rate</strong></td><td>1 &ndash; 32 cycles</td><td>How often the field changes (Static = never, regardless of rate).</td></tr>
   <tr><td><strong>Center PC</strong></td><td>C &ndash; B (0 &ndash; 11)</td><td>Anchor pitch class. Anchor strands lock to this; Dominance pulls other strands toward it on strong beats.</td></tr>
   <tr><td><strong>Pivot</strong></td><td>m3, M3, Tri (TT), P5</td><td>Transposition interval applied each tick in Pivot mode.</td></tr>
@@ -813,7 +813,7 @@ The Pitch Field is the shared pitch-class set (pc-set) that all strands draw fro
 </table>
 
 <div class="tip">
-  <strong>Workflow:</strong> Start with one strand (Anchor on C, slow Drift, low Dominance). Add Strand 2 as a Line at 2&times; with octave +1. Add Strand 3 as Density at 4&times; with Mutation high. Lock Strand 0's parameters, leave 2&ndash;4 unlocked. The result is an evolving three-voice texture that never settles &mdash; useful for ambient beds, generative practice, or as a melodic source for the diffusion model when paired with Drift/Regenerate.
+  <strong>Workflow:</strong> Start with one strand (Anchor on C, slow Drift, low Dominance). Add Strand 2 as a Line at 2&times; with octave +1. Add Strand 3 as Density at 4&times; with Mutation high. Lock Strand 1's parameters, leave 2&ndash;4 unlocked. The result is an evolving three-voice texture that never settles &mdash; useful for ambient beds, generative practice, or as a melodic source for the diffusion model when paired with Drift/Regenerate.
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
@@ -1043,13 +1043,13 @@ Up to four <strong>Strands</strong> run in parallel, each with its own Euclidean
 Each strand's <em>Role</em> selects a different note-picking strategy from the shared field:
 </p>
 <ul>
-  <li><strong>Anchor</strong> — locks every step to the field's <code>centerPc</code> in a low octave. Functions as a pedal point. Mutation has no effect.</li>
-  <li><strong>Line</strong> — voice-leads to the nearest field member from the previous note. Produces stepwise melodic motion regardless of the underlying degree pattern.</li>
-  <li><strong>Density</strong> — chromatic walk that ignores the pc-set on weak beats and ignores metric weighting entirely. Saturates the texture with continuous motion.</li>
-  <li><strong>Gesture</strong> — sparse, register-extreme. The Turing mutation governs everything; no field-snapping behavior is layered on top.</li>
+  <li><strong>Anchor</strong> — grounds the ensemble around the field's <code>centerPc</code> in the strand's selected register. Weak pulses may move to nearby field tones, so mutation changes color without destroying the pedal function.</li>
+  <li><strong>Line</strong> — voice-leads through the current field from its previous output note. It may keep a minor-second dissonance only as a weak, stepwise passing tone.</li>
+  <li><strong>Density</strong> — short active motion. Weak notes can be chromatic passing tones; strong notes resolve into the field and are checked against the other sounding strands.</li>
+  <li><strong>Gesture</strong> — sparse, register-contrasting punctuations. It leaps inside the field and avoids accidental close clashes with sustained voices.</li>
 </ul>
 <p>
-The <em>Dominance</em> parameter (per strand) blends the strand's natural pitch choice with the field's <code>centerPc</code>, weighted toward strong metric positions. At dominance 0 the strand plays its mutation-driven pattern unaltered; at 1.0 every accented step snaps to <code>centerPc</code>. Useful for binding a Density or Line strand back to a tonal center without destroying its rhythmic identity.
+The <em>Dominance</em> parameter (per strand) blends the strand's natural pitch choice with the field's <code>centerPc</code>, weighted toward strong metric positions. At dominance 0 the strand follows its role-specific field path; at 1.0 accented steps prefer <code>centerPc</code>. The ensemble check still runs afterwards, so another sustained voice can redirect a note away from an unjustified minor-second collision.
 </p>
 
 <h3>Layer 5: The Pitch Field</h3>
@@ -1057,7 +1057,7 @@ The <em>Dominance</em> parameter (per strand) blends the strand's natural pitch 
 All strands draw from a single shared <strong>Pitch Field</strong> — a 12-bit pitch-class set (<code>pcSet</code>) plus an ordered row used by Transform mode. The field replaces classical chord/scale context with something more flexible: an evolving collection of allowed pitch classes that can transform through several distinct algorithmic paradigms.
 </p>
 <p>
-The field evolves on Strand 0's cycle boundary at the chosen <em>Rate</em> (1–32 cycles between changes). Four modes:
+The field evolves on Strand 1's cycle boundary at the chosen <em>Rate</em> (1–32 cycles between changes). Four modes:
 </p>
 <ul>
   <li><strong>Static</strong> — derived from Scale Root + Scale Type, never changes. Use when you want the harmonic field stable while only rhythm and mutation evolve.</li>
@@ -1066,7 +1066,7 @@ The field evolves on Strand 0's cycle boundary at the chosen <em>Rate</em> (1–
   <li><strong>Pivot</strong> — transposes the entire pc-set by the configured Pivot interval (m3, M3, Tritone, P5) each tick, accumulating shift over time. After enough cycles the field returns to its origin (e.g.&nbsp;four cycles at m3 = full octave).</li>
 </ul>
 <p>
-Because all strands share the same field, harmonic coherence is automatic: a Drift swap or Transform tick changes what every strand can play simultaneously. The polyphonic texture stays unified even when the individual strand patterns are wildly different — the listener perceives one evolving harmony, not four conflicting voices.
+Because all strands share the same field and check active notes against each other, harmonic coherence is negotiated at both levels: a Drift swap or Transform tick changes what every strand can play, while the ensemble check prevents accidental close clashes unless a Line or Density strand is making a weak stepwise passing motion. The listener perceives one evolving texture, not four conflicting voices.
 </p>
 
 <div class="note">

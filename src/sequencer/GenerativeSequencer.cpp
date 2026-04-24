@@ -2,6 +2,29 @@
 #include "EuclideanRhythm.h"
 #include "ScaleQuantizer.h"
 
+namespace
+{
+int wrapPc(int pc)
+{
+    return ((pc % 12) + 12) % 12;
+}
+
+int positiveModulo(int value, int modulus)
+{
+    if (modulus <= 0) return 0;
+    return ((value % modulus) + modulus) % modulus;
+}
+
+int countBits12(std::uint16_t bits)
+{
+    int count = 0;
+    for (int i = 0; i < 12; ++i)
+        if ((bits >> i) & 1u)
+            ++count;
+    return count;
+}
+}
+
 // ─── Timing ────────────────────────────────────────────────────────────────
 
 T5ynthGenerativeSequencer::T5ynthGenerativeSequencer()
@@ -38,30 +61,57 @@ void T5ynthGenerativeSequencer::prepare(double sr, int /*samplesPerBlock*/)
 void T5ynthGenerativeSequencer::setSteps(int n)
 {
     auto& s = strands[0];
-    n = juce::jlimit(2, MAX_STEPS, n);
-    if (n != s.numSteps) { s.numSteps = n; s.patternDirty = true; }
+    const int requested = juce::jlimit(2, MAX_STEPS, n);
+    const bool userChanged = requested != s.requestedSteps;
+    s.requestedSteps = requested;
+    if (s.fixSteps || userChanged)
+    {
+        if (requested != s.numSteps)
+            s.patternDirty = true;
+        s.numSteps = requested;
+        const int clampedPulses = juce::jlimit(1, s.numSteps, s.requestedPulses);
+        if (clampedPulses != s.numPulses)
+            s.numPulses = clampedPulses;
+        s.rotation = positiveModulo(s.requestedRotation, s.numSteps);
+    }
     effectiveStepsForGui.store(s.numSteps, std::memory_order_relaxed);
+    effectivePulsesForGui.store(s.numPulses, std::memory_order_relaxed);
 }
 
 void T5ynthGenerativeSequencer::setPulses(int p)
 {
     auto& s = strands[0];
-    p = juce::jlimit(1, s.numSteps, p);
-    if (p != s.numPulses) { s.numPulses = p; s.patternDirty = true; }
+    const int requested = juce::jlimit(1, MAX_STEPS, p);
+    const bool userChanged = requested != s.requestedPulses;
+    s.requestedPulses = requested;
+    p = juce::jlimit(1, s.numSteps, requested);
+    if ((s.fixPulses || userChanged) && p != s.numPulses)
+    {
+        s.numPulses = p;
+        s.patternDirty = true;
+    }
     effectivePulsesForGui.store(s.numPulses, std::memory_order_relaxed);
 }
 
 void T5ynthGenerativeSequencer::setRotation(int r)
 {
     auto& s = strands[0];
-    r = s.numSteps > 0 ? ((r % s.numSteps) + s.numSteps) % s.numSteps : 0;
-    if (r != s.rotation) { s.rotation = r; s.patternDirty = true; }
+    const int requested = r;
+    const bool userChanged = requested != s.requestedRotation;
+    s.requestedRotation = requested;
+    r = positiveModulo(requested, s.numSteps);
+    if ((s.fixRotation || userChanged) && r != s.rotation)
+    {
+        s.rotation = r;
+        s.patternDirty = true;
+    }
 }
 
 void T5ynthGenerativeSequencer::setMutation(float rate)
 {
     auto& s = strands[0];
-    s.mutationRate = juce::jlimit(0.0f, 1.0f, rate);
+    s.baseMutation = juce::jlimit(0.0f, 1.0f, rate);
+    s.mutationRate = s.fixMutation ? s.baseMutation : effectiveMutationFromBase(s);
     effectiveMutationForGui.store(s.mutationRate, std::memory_order_relaxed);
 }
 
@@ -92,17 +142,54 @@ void T5ynthGenerativeSequencer::setGate(float g)     { gate_ = juce::jlimit(0.1f
 void T5ynthGenerativeSequencer::setBpm(double b)     { bpm_ = b; }
 void T5ynthGenerativeSequencer::setDivision(int d)   { division_ = juce::jlimit(0, 4, d); }
 
-void T5ynthGenerativeSequencer::setFixSteps(bool f)    { strands[0].fixSteps = f; }
-void T5ynthGenerativeSequencer::setFixPulses(bool f)   { strands[0].fixPulses = f; }
-void T5ynthGenerativeSequencer::setFixRotation(bool f) { strands[0].fixRotation = f; }
-void T5ynthGenerativeSequencer::setFixMutation(bool f) { strands[0].fixMutation = f; }
+void T5ynthGenerativeSequencer::setFixSteps(bool f)
+{
+    auto& s = strands[0];
+    s.fixSteps = f;
+    if (f && s.numSteps != s.requestedSteps)
+    {
+        s.numSteps = s.requestedSteps;
+        s.numPulses = juce::jlimit(1, s.numSteps, s.requestedPulses);
+        s.rotation = positiveModulo(s.requestedRotation, s.numSteps);
+        s.patternDirty = true;
+    }
+}
+
+void T5ynthGenerativeSequencer::setFixPulses(bool f)
+{
+    auto& s = strands[0];
+    s.fixPulses = f;
+    const int requested = juce::jlimit(1, s.numSteps, s.requestedPulses);
+    if (f && s.numPulses != requested)
+    {
+        s.numPulses = requested;
+        s.patternDirty = true;
+    }
+}
+
+void T5ynthGenerativeSequencer::setFixRotation(bool f)
+{
+    auto& s = strands[0];
+    s.fixRotation = f;
+    const int requested = positiveModulo(s.requestedRotation, s.numSteps);
+    if (f && s.rotation != requested)
+    {
+        s.rotation = requested;
+        s.patternDirty = true;
+    }
+}
+void T5ynthGenerativeSequencer::setFixMutation(bool f)
+{
+    auto& s = strands[0];
+    s.fixMutation = f;
+    s.mutationRate = f ? s.baseMutation : effectiveMutationFromBase(s);
+}
 
 void T5ynthGenerativeSequencer::setBaseMutation(float rate)
 {
     auto& s = strands[0];
     s.baseMutation = juce::jlimit(0.0f, 1.0f, rate);
-    if (s.fixMutation)
-        s.mutationRate = s.baseMutation;
+    s.mutationRate = s.fixMutation ? s.baseMutation : effectiveMutationFromBase(s);
 }
 
 // ─── Per-strand setters (Phase 4) ──────────────────────────────────────────
@@ -120,6 +207,7 @@ void T5ynthGenerativeSequencer::setStrandEnabled(int idx, bool en)
         s.samplesUntilGateOff  = -1.0;
         s.currentStep          = 0;
         s.scheduledStep        = 0;
+        s.previousOutputNote   = -1;
         s.cycleCount           = 0;
         if (!s.patternSeeded) s.patternDirty = true;
     }
@@ -155,8 +243,17 @@ void T5ynthGenerativeSequencer::setStrandSteps(int idx, int n)
 {
     if (idx < 0 || idx >= MAX_STRANDS) return;
     auto& s = strands[static_cast<size_t>(idx)];
-    n = juce::jlimit(2, MAX_STEPS, n);
-    if (n != s.numSteps) { s.numSteps = n; s.patternDirty = true; }
+    const int requested = juce::jlimit(2, MAX_STEPS, n);
+    const bool userChanged = requested != s.requestedSteps;
+    s.requestedSteps = requested;
+    if (s.fixSteps || userChanged)
+    {
+        if (requested != s.numSteps)
+            s.patternDirty = true;
+        s.numSteps = requested;
+        s.numPulses = juce::jlimit(1, s.numSteps, s.requestedPulses);
+        s.rotation = positiveModulo(s.requestedRotation, s.numSteps);
+    }
     if (idx == 0) effectiveStepsForGui.store(s.numSteps, std::memory_order_relaxed);
 }
 
@@ -164,8 +261,15 @@ void T5ynthGenerativeSequencer::setStrandPulses(int idx, int n)
 {
     if (idx < 0 || idx >= MAX_STRANDS) return;
     auto& s = strands[static_cast<size_t>(idx)];
-    n = juce::jlimit(1, s.numSteps, n);
-    if (n != s.numPulses) { s.numPulses = n; s.patternDirty = true; }
+    const int requested = juce::jlimit(1, MAX_STEPS, n);
+    const bool userChanged = requested != s.requestedPulses;
+    s.requestedPulses = requested;
+    n = juce::jlimit(1, s.numSteps, requested);
+    if ((s.fixPulses || userChanged) && n != s.numPulses)
+    {
+        s.numPulses = n;
+        s.patternDirty = true;
+    }
     if (idx == 0) effectivePulsesForGui.store(s.numPulses, std::memory_order_relaxed);
 }
 
@@ -173,15 +277,23 @@ void T5ynthGenerativeSequencer::setStrandRotation(int idx, int n)
 {
     if (idx < 0 || idx >= MAX_STRANDS) return;
     auto& s = strands[static_cast<size_t>(idx)];
-    n = s.numSteps > 0 ? ((n % s.numSteps) + s.numSteps) % s.numSteps : 0;
-    if (n != s.rotation) { s.rotation = n; s.patternDirty = true; }
+    const int requested = n;
+    const bool userChanged = requested != s.requestedRotation;
+    s.requestedRotation = requested;
+    n = positiveModulo(requested, s.numSteps);
+    if ((s.fixRotation || userChanged) && n != s.rotation)
+    {
+        s.rotation = n;
+        s.patternDirty = true;
+    }
 }
 
 void T5ynthGenerativeSequencer::setStrandMutation(int idx, float r)
 {
     if (idx < 0 || idx >= MAX_STRANDS) return;
     auto& s = strands[static_cast<size_t>(idx)];
-    s.mutationRate = juce::jlimit(0.0f, 1.0f, r);
+    s.baseMutation = juce::jlimit(0.0f, 1.0f, r);
+    s.mutationRate = s.fixMutation ? s.baseMutation : effectiveMutationFromBase(s);
     if (idx == 0) effectiveMutationForGui.store(s.mutationRate, std::memory_order_relaxed);
 }
 
@@ -190,13 +302,56 @@ void T5ynthGenerativeSequencer::setStrandBaseMutation(int idx, float r)
     if (idx < 0 || idx >= MAX_STRANDS) return;
     auto& s = strands[static_cast<size_t>(idx)];
     s.baseMutation = juce::jlimit(0.0f, 1.0f, r);
-    if (s.fixMutation) s.mutationRate = s.baseMutation;
+    s.mutationRate = s.fixMutation ? s.baseMutation : effectiveMutationFromBase(s);
 }
 
-void T5ynthGenerativeSequencer::setStrandFixSteps   (int idx, bool f) { if (idx>=0 && idx<MAX_STRANDS) strands[static_cast<size_t>(idx)].fixSteps    = f; }
-void T5ynthGenerativeSequencer::setStrandFixPulses  (int idx, bool f) { if (idx>=0 && idx<MAX_STRANDS) strands[static_cast<size_t>(idx)].fixPulses   = f; }
-void T5ynthGenerativeSequencer::setStrandFixRotation(int idx, bool f) { if (idx>=0 && idx<MAX_STRANDS) strands[static_cast<size_t>(idx)].fixRotation = f; }
-void T5ynthGenerativeSequencer::setStrandFixMutation(int idx, bool f) { if (idx>=0 && idx<MAX_STRANDS) strands[static_cast<size_t>(idx)].fixMutation = f; }
+void T5ynthGenerativeSequencer::setStrandFixSteps(int idx, bool f)
+{
+    if (idx < 0 || idx >= MAX_STRANDS) return;
+    auto& s = strands[static_cast<size_t>(idx)];
+    s.fixSteps = f;
+    if (f && s.numSteps != s.requestedSteps)
+    {
+        s.numSteps = s.requestedSteps;
+        s.numPulses = juce::jlimit(1, s.numSteps, s.requestedPulses);
+        s.rotation = positiveModulo(s.requestedRotation, s.numSteps);
+        s.patternDirty = true;
+    }
+}
+
+void T5ynthGenerativeSequencer::setStrandFixPulses(int idx, bool f)
+{
+    if (idx < 0 || idx >= MAX_STRANDS) return;
+    auto& s = strands[static_cast<size_t>(idx)];
+    s.fixPulses = f;
+    const int requested = juce::jlimit(1, s.numSteps, s.requestedPulses);
+    if (f && s.numPulses != requested)
+    {
+        s.numPulses = requested;
+        s.patternDirty = true;
+    }
+}
+
+void T5ynthGenerativeSequencer::setStrandFixRotation(int idx, bool f)
+{
+    if (idx < 0 || idx >= MAX_STRANDS) return;
+    auto& s = strands[static_cast<size_t>(idx)];
+    s.fixRotation = f;
+    const int requested = positiveModulo(s.requestedRotation, s.numSteps);
+    if (f && s.rotation != requested)
+    {
+        s.rotation = requested;
+        s.patternDirty = true;
+    }
+}
+
+void T5ynthGenerativeSequencer::setStrandFixMutation(int idx, bool f)
+{
+    if (idx < 0 || idx >= MAX_STRANDS) return;
+    auto& s = strands[static_cast<size_t>(idx)];
+    s.fixMutation = f;
+    s.mutationRate = f ? s.baseMutation : effectiveMutationFromBase(s);
+}
 
 // ─── Pitch-field setters ───────────────────────────────────────────────────
 
@@ -211,15 +366,13 @@ void T5ynthGenerativeSequencer::setFieldChangeRate(int cycles)
     if (n != pitchField.changeRate)
     {
         pitchField.changeRate = n;
-        // Only clamp the in-flight countdown down; don't reset if it's below.
-        if (pitchField.cyclesUntilChange > n)
-            pitchField.cyclesUntilChange = n;
+        pitchField.cyclesUntilChange = n;
     }
 }
 
 void T5ynthGenerativeSequencer::setFieldCenterPc(int pc)
 {
-    pitchField.centerPc = ((pc % 12) + 12) % 12;
+    pitchField.centerPc = wrapPc(pc);
 }
 
 void T5ynthGenerativeSequencer::setFieldPivotInterval(int semitones)
@@ -239,6 +392,7 @@ void T5ynthGenerativeSequencer::start()
             s.samplesUntilNextStep = 0.0;
             s.currentStep          = 0;
             s.scheduledStep        = 0;
+            s.previousOutputNote   = -1;
             s.cycleCount           = 0;
             if (!s.patternSeeded)
                 s.patternDirty = true;  // rebuild on start (unless seeded)
@@ -255,6 +409,7 @@ void T5ynthGenerativeSequencer::stop()
         s.samplesUntilGateOff = -1.0;
         s.currentStep   = 0;
         s.scheduledStep = 0;
+        s.previousOutputNote = -1;
     }
     currentStepForGui.store(-1, std::memory_order_relaxed);
 }
@@ -320,7 +475,7 @@ void T5ynthGenerativeSequencer::rebuildPattern(Strand& s)
         juce::jlimit(1, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
     int dpOct = ScaleQuantizer::degreesPerOctave(scale);
     int totalDegrees = dpOct * rangeOctaves;
-    int baseNote = 48; // C3
+    int baseNote = baseMidiForStrand(s);
 
     // 4. Assign notes using reflected stride walk (zigzag through the scale)
     //    Stride derived from Euclidean params (numSteps - numPulses).
@@ -396,6 +551,7 @@ void T5ynthGenerativeSequencer::rebuildPattern(Strand& s)
         mutateNotes(s, 1.0f, totalDegrees, static_cast<int>(scale), baseNote);
 
     s.patternDirty      = false;
+    enforcePulseInvariant(s);
     s.basePulses        = s.numPulses;
     s.baseSteps         = s.numSteps;
     s.driftCycle        = 0;
@@ -448,7 +604,7 @@ void T5ynthGenerativeSequencer::mutatePattern(Strand& s)
         juce::jlimit(1, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
     int dpOct = ScaleQuantizer::degreesPerOctave(scale);
     int totalDegrees = dpOct * rangeOctaves;
-    int baseNote = 48;
+    int baseNote = baseMidiForStrand(s);
 
     // ── Euclidean drift: rotation + pulse count evolve per cycle ──
     applyEuclideanDrift(s);
@@ -519,6 +675,8 @@ void T5ynthGenerativeSequencer::applyEuclideanDrift(Strand& s)
     // ── Mutation drift ──
     if (!s.fixMutation)
         applyMutationDrift(s);
+
+    enforcePulseInvariant(s);
 }
 
 // ─── Steps drift ────────────────────────────────────────────────────────────
@@ -544,9 +702,6 @@ void T5ynthGenerativeSequencer::applyStepsDrift(Strand& s)
     int newSteps = juce::jlimit(2, MAX_STEPS, s.numSteps + delta);
     if (newSteps == s.numSteps) return;
 
-    // Preserve pulse density ratio
-    float ratio = static_cast<float>(s.numPulses) / static_cast<float>(s.numSteps);
-
     if (newSteps > s.numSteps)
     {
         for (int i = s.numSteps; i < newSteps; ++i)
@@ -558,21 +713,16 @@ void T5ynthGenerativeSequencer::applyStepsDrift(Strand& s)
         }
     }
 
-    int newPulses;
-    if (newSteps < s.numSteps)
+    for (int i = newSteps; i < MAX_STEPS; ++i)
     {
-        int surviving = 0;
-        for (int i = 0; i < newSteps; ++i)
-            if (s.eucPattern[static_cast<size_t>(i)]) surviving++;
-        newPulses = juce::jmax(1, surviving);
-    }
-    else
-    {
-        newPulses = juce::jlimit(1, newSteps, juce::roundToInt(ratio * static_cast<float>(newSteps)));
+        s.eucPattern[static_cast<size_t>(i)]    = false;
+        s.notePattern[static_cast<size_t>(i)]   = 0;
+        s.accentPattern[static_cast<size_t>(i)] = false;
+        s.degreePattern[static_cast<size_t>(i)] = 0;
     }
 
     s.numSteps  = newSteps;
-    s.numPulses = newPulses;
+    enforcePulseInvariant(s);
     s.stepsDriftAccum += (delta > 0) ? 1 : -1;
 
     int maxDrift = juce::jmax(1, rangeOctaves);
@@ -585,13 +735,7 @@ void T5ynthGenerativeSequencer::applyStepsDrift(Strand& s)
 void T5ynthGenerativeSequencer::applyMutationDrift(Strand& s)
 {
     s.mutationDriftPhase = (s.mutationDriftPhase + 1) % (DRIFT_PERIOD * 2);
-    float phase = static_cast<float>(s.mutationDriftPhase) / static_cast<float>(DRIFT_PERIOD * 2);
-    float sinVal = std::sin(phase * juce::MathConstants<float>::twoPi);
-    // Map sin [-1..+1] to [0.75..1.25] multiplier — breathes symmetrically around user setting
-    float multiplier = 1.0f + 0.25f * sinVal;
-    // Additive floor (5%) prevents unfixed mutation from getting permanently stuck at 0
-    float floor = s.fixMutation ? 0.0f : 0.05f;
-    s.mutationRate = juce::jlimit(0.0f, 1.0f, std::max(floor, s.baseMutation * multiplier));
+    s.mutationRate = effectiveMutationFromBase(s);
 }
 
 // ─── Surgical pulse add/remove (preserves Turing mutations) ─────────────────
@@ -604,7 +748,7 @@ void T5ynthGenerativeSequencer::addPulse(Strand& s)
         juce::jlimit(1, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
     int dpOct = ScaleQuantizer::degreesPerOctave(scale);
     int totalDegrees = dpOct * rangeOctaves;
-    int baseNote = 48;
+    int baseNote = baseMidiForStrand(s);
 
     // Find the longest gap between existing pulses → insert in its middle
     int bestStart = -1, bestGap = 0;
@@ -671,6 +815,54 @@ void T5ynthGenerativeSequencer::removePulse(Strand& s)
     s.numPulses--;
 }
 
+int T5ynthGenerativeSequencer::countPulses(const Strand& s) const
+{
+    int count = 0;
+    const int n = juce::jlimit(0, MAX_STEPS, s.numSteps);
+    for (int i = 0; i < n; ++i)
+        if (s.eucPattern[static_cast<size_t>(i)])
+            ++count;
+    return count;
+}
+
+void T5ynthGenerativeSequencer::enforcePulseInvariant(Strand& s)
+{
+    s.numSteps = juce::jlimit(2, MAX_STEPS, s.numSteps);
+    int actual = countPulses(s);
+    if (actual <= 0)
+    {
+        auto scale = static_cast<ScaleQuantizer::Scale>(
+            juce::jlimit(1, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
+        s.eucPattern[0] = true;
+        s.degreePattern[0] = 0;
+        s.notePattern[0] = ScaleQuantizer::degreeToMidi(0, scaleRoot, scale, baseMidiForStrand(s));
+        s.accentPattern[0] = true;
+        actual = 1;
+    }
+
+    for (int i = s.numSteps; i < MAX_STEPS; ++i)
+    {
+        s.eucPattern[static_cast<size_t>(i)]    = false;
+        s.notePattern[static_cast<size_t>(i)]   = 0;
+        s.accentPattern[static_cast<size_t>(i)] = false;
+        s.degreePattern[static_cast<size_t>(i)] = 0;
+    }
+
+    s.numPulses = juce::jlimit(1, s.numSteps, actual);
+}
+
+float T5ynthGenerativeSequencer::effectiveMutationFromBase(const Strand& s) const
+{
+    if (s.fixMutation)
+        return juce::jlimit(0.0f, 1.0f, s.baseMutation);
+
+    const float phase = static_cast<float>(s.mutationDriftPhase)
+                      / static_cast<float>(DRIFT_PERIOD * 2);
+    const float sinVal = std::sin(phase * juce::MathConstants<float>::twoPi);
+    const float multiplier = 1.0f + 0.25f * sinVal;
+    return juce::jlimit(0.0f, 1.0f, std::max(0.05f, s.baseMutation * multiplier));
+}
+
 // ─── Seed from step sequencer (strand 0 only) ───────────────────────────────
 
 void T5ynthGenerativeSequencer::seedFromSteps(const int* midiNotes,
@@ -680,12 +872,14 @@ void T5ynthGenerativeSequencer::seedFromSteps(const int* midiNotes,
     auto& s = strands[0];
     count = juce::jlimit(2, MAX_STEPS, count);
     s.numSteps = count;
+    s.requestedSteps = count;
 
     // Count active steps → pulses
     int pulseCount = 0;
     for (int i = 0; i < count; ++i)
         if (enabled[i]) pulseCount++;
     s.numPulses = juce::jmax(1, pulseCount);
+    s.requestedPulses = s.numPulses;
 
     s.eucPattern.fill(false);
     s.notePattern.fill(0);
@@ -695,7 +889,7 @@ void T5ynthGenerativeSequencer::seedFromSteps(const int* midiNotes,
     auto scale = static_cast<ScaleQuantizer::Scale>(
         juce::jlimit(1, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
     int dpOct = ScaleQuantizer::degreesPerOctave(scale);
-    int baseNote = 48;
+    int baseNote = baseMidiForStrand(s);
 
     for (int i = 0; i < count; ++i)
     {
@@ -720,10 +914,13 @@ void T5ynthGenerativeSequencer::seedFromSteps(const int* midiNotes,
     }
 
     s.basePulses      = s.numPulses;
+    s.baseSteps       = s.numSteps;
     s.driftCycle      = 0;
     s.pulseDriftAccum = 0;
     s.pulseDriftUp    = true;
     s.rotation        = 0;
+    s.requestedRotation = 0;
+    s.previousOutputNote = -1;
     s.patternDirty    = false;
     s.patternSeeded   = true;
     publishStrandToGui(s);
@@ -741,22 +938,29 @@ void T5ynthGenerativeSequencer::publishStrandToGui(const Strand& s)
             std::memory_order_relaxed);
 }
 
-// ─── Note selection (Phase 3) ──────────────────────────────────────────────
+// ─── Note selection ────────────────────────────────────────────────────────
 //
-// pickNote() is the projection from the strand's abstract Turing state
-// (scale-degree walk) onto concrete MIDI output through the shared
-// PitchField. Metric weighting applies on strong positions; roles modulate
-// the selection behavior; Density bypasses metric weighting entirely.
+// The PitchField is the harmonic ground truth. The older scale-degree walk
+// supplies contour and register pressure only; roles then project that
+// contour into the current field. A final ensemble pass rejects unjustified
+// vertical minor-second clashes against currently sounding strands. Line and
+// Density may keep such dissonances only as weak-position stepwise passing
+// tones, i.e. when there is an actual contrapuntal reason.
+
+int T5ynthGenerativeSequencer::baseMidiForStrand(const Strand& s) const
+{
+    return (&s == &strands[0]) ? 60 : 48;
+}
 
 int T5ynthGenerativeSequencer::voiceLedFieldMember(int rawPc) const
 {
     const auto set = pitchField.pcSet;
     if (set == 0) return rawPc;
-    rawPc = ((rawPc % 12) + 12) % 12;
+    rawPc = wrapPc(rawPc);
     // Search outward in pc-space for the closest field member; tie goes lower.
     for (int off = 0; off <= 6; ++off)
     {
-        int below = ((rawPc - off) % 12 + 12) % 12;
+        int below = wrapPc(rawPc - off);
         int above = (rawPc + off) % 12;
         const bool bBelow = (set >> below) & 1u;
         const bool bAbove = (set >> above) & 1u;
@@ -767,57 +971,286 @@ int T5ynthGenerativeSequencer::voiceLedFieldMember(int rawPc) const
     return rawPc;
 }
 
-int T5ynthGenerativeSequencer::chromaticFieldWalk(int lastMidi)
+bool T5ynthGenerativeSequencer::fieldContains(int pc) const
 {
-    // Step ±1 semitone from last note, random direction.
-    // Fully chromatic (ignores pcSet) — the point is dense linear motion.
-    if (lastMidi < 0) return -1;   // caller falls back to raw pc
-    const int lastPc = ((lastMidi % 12) + 12) % 12;
-    std::uniform_int_distribution<int> dirDist(0, 1);
-    const int dir = (dirDist(rng) == 0) ? -1 : 1;
-    return ((lastPc + dir) % 12 + 12) % 12;
+    const auto set = pitchField.pcSet;
+    return set == 0 || ((set >> wrapPc(pc)) & 1u);
+}
+
+int T5ynthGenerativeSequencer::fieldPcForDegree(int degree) const
+{
+    int pcs[12];
+    int count = 0;
+    const int sz = juce::jlimit(0, 12, pitchField.rowSize);
+
+    for (int i = 0; i < sz; ++i)
+    {
+        const int pc = wrapPc(pitchField.row[static_cast<size_t>(i)]);
+        if (!fieldContains(pc)) continue;
+        bool seen = false;
+        for (int j = 0; j < count; ++j)
+            if (pcs[j] == pc) { seen = true; break; }
+        if (!seen) pcs[count++] = pc;
+    }
+
+    for (int pc = 0; pc < 12; ++pc)
+    {
+        if (!fieldContains(pc)) continue;
+        bool seen = false;
+        for (int j = 0; j < count; ++j)
+            if (pcs[j] == pc) { seen = true; break; }
+        if (!seen) pcs[count++] = pc;
+    }
+
+    if (count <= 0)
+        return wrapPc(scaleRoot);
+    return pcs[positiveModulo(degree, count)];
+}
+
+int T5ynthGenerativeSequencer::fieldPcNearCenterByIndex(int index) const
+{
+    int pcs[12];
+    int count = 0;
+    const int center = wrapPc(pitchField.centerPc);
+
+    auto addIfPresent = [&](int pc) {
+        pc = wrapPc(pc);
+        if (!fieldContains(pc)) return;
+        for (int j = 0; j < count; ++j)
+            if (pcs[j] == pc) return;
+        pcs[count++] = pc;
+    };
+
+    addIfPresent(center);
+    for (int off = 1; off <= 6; ++off)
+    {
+        addIfPresent(center - off);
+        addIfPresent(center + off);
+    }
+
+    if (count <= 0)
+        return center;
+    return pcs[positiveModulo(index, count)];
+}
+
+int T5ynthGenerativeSequencer::closestMidiForPc(int pc, int anchorMidi) const
+{
+    pc = wrapPc(pc);
+    int midi = anchorMidi - wrapPc(anchorMidi) + pc;
+    while (midi - anchorMidi > 6) midi -= 12;
+    while (anchorMidi - midi > 6) midi += 12;
+    return juce::jlimit(0, 127, midi);
+}
+
+int T5ynthGenerativeSequencer::nearestFieldMidi(int preferredMidi, int previousMidi, int fallbackPc) const
+{
+    const int targetPc = voiceLedFieldMember(fallbackPc);
+    int best = closestMidiForPc(targetPc, preferredMidi);
+    int bestScore = 99999;
+    const int target = previousMidi >= 0 ? previousMidi : preferredMidi;
+
+    for (int midi = 0; midi <= 127; ++midi)
+    {
+        if (wrapPc(midi) != targetPc) continue;
+
+        // Voice-leading may choose the octave, but it must not replace the
+        // step's selected pitch class. Otherwise the line sticks to the
+        // previous MIDI note even while the displayed degree changes.
+        const int score = std::abs(midi - target) * 2 + std::abs(midi - preferredMidi) * 3;
+        if (score < bestScore)
+        {
+            bestScore = score;
+            best = midi;
+        }
+    }
+
+    return best;
+}
+
+int T5ynthGenerativeSequencer::chromaticPassingNote(int lastMidi, int seedMidi)
+{
+    if (lastMidi < 0)
+        return seedMidi;
+
+    int dir = 0;
+    if (seedMidi > lastMidi) dir = 1;
+    else if (seedMidi < lastMidi) dir = -1;
+    else
+    {
+        std::uniform_int_distribution<int> dirDist(0, 1);
+        dir = dirDist(rng) == 0 ? -1 : 1;
+    }
+
+    return juce::jlimit(0, 127, lastMidi + dir);
+}
+
+bool T5ynthGenerativeSequencer::hasHardSmallSecondClash(const Strand& s, int candidate) const
+{
+    for (const auto& other : strands)
+    {
+        if (&other == &s || !other.enabled || other.lastPlayedNote < 0)
+            continue;
+
+        const int pcInterval = wrapPc(candidate - other.lastPlayedNote);
+        const int ic = juce::jmin(pcInterval, 12 - pcInterval);
+        if (ic == 1)
+            return true;
+    }
+
+    return false;
+}
+
+bool T5ynthGenerativeSequencer::isJustifiedPassingTone(const Strand& s, int candidate, bool isStrong) const
+{
+    if (isStrong || s.previousOutputNote < 0)
+        return false;
+
+    if (s.role != Role::Line && s.role != Role::Density)
+        return false;
+
+    return std::abs(candidate - s.previousOutputNote) <= 2;
+}
+
+int T5ynthGenerativeSequencer::ensembleAdjustedNote(const Strand& s, int candidate,
+                                                     bool isStrong,
+                                                     bool allowPassing) const
+{
+    candidate = juce::jlimit(0, 127, candidate);
+    if (!hasHardSmallSecondClash(s, candidate))
+        return candidate;
+
+    if (allowPassing && isJustifiedPassingTone(s, candidate, isStrong))
+        return candidate;
+
+    const int reference = s.previousOutputNote >= 0 ? s.previousOutputNote : candidate;
+    int best = candidate;
+    int bestScore = 99999;
+
+    for (int midi = 0; midi <= 127; ++midi)
+    {
+        if (!fieldContains(midi) || hasHardSmallSecondClash(s, midi))
+            continue;
+
+        const int score = std::abs(midi - candidate) * 3 + std::abs(midi - reference);
+        if (score < bestScore)
+        {
+            bestScore = score;
+            best = midi;
+        }
+    }
+
+    return bestScore < 99999 ? best : candidate;
+}
+
+float T5ynthGenerativeSequencer::roleFireProbability(const Strand& s, bool isPulse, bool isStrong) const
+{
+    switch (s.role)
+    {
+        case Role::Anchor:
+            return isPulse ? (isStrong ? 0.98f : 0.88f) : 0.02f * s.mutationRate;
+        case Role::Line:
+            return isPulse ? (0.88f + 0.10f * (1.0f - s.mutationRate))
+                           : (0.08f + 0.12f * s.mutationRate);
+        case Role::Density:
+            return isPulse ? 0.96f : (0.12f + 0.30f * s.mutationRate);
+        case Role::Gesture:
+            return isPulse ? (isStrong ? 0.72f : 0.36f)
+                           : (0.01f + 0.05f * s.mutationRate);
+    }
+    return isPulse ? 0.9f : 0.0f;
+}
+
+int T5ynthGenerativeSequencer::roleVelocityBase(const Strand& s, bool isPulse, bool isStrong) const
+{
+    if (!isPulse)
+        return s.role == Role::Density ? 58 : 50;
+
+    switch (s.role)
+    {
+        case Role::Anchor:  return isStrong ? 94 : 76;
+        case Role::Line:    return isStrong ? 102 : 84;
+        case Role::Density: return isStrong ? 82 : 68;
+        case Role::Gesture: return isStrong ? 116 : 96;
+    }
+    return isStrong ? 100 : 85;
+}
+
+float T5ynthGenerativeSequencer::roleGateFraction(const Strand& s) const
+{
+    switch (s.role)
+    {
+        case Role::Anchor:  return juce::jlimit(0.10f, 1.35f, gate_ * 1.20f);
+        case Role::Line:    return juce::jlimit(0.10f, 1.00f, gate_);
+        case Role::Density: return juce::jlimit(0.08f, 0.45f, gate_ * 0.42f);
+        case Role::Gesture: return juce::jlimit(0.08f, 0.70f, gate_ * 0.58f);
+    }
+    return gate_;
 }
 
 int T5ynthGenerativeSequencer::pickNote(Strand& s, int stepIdx, int rawDegree)
 {
-    // Project the strand's Turing-walked degree into MIDI using
-    // (scaleType, scaleRoot) as the *register* source, then re-snap the
-    // pitch class through the shared PitchField according to role + metric
-    // weight.
     auto scale = static_cast<ScaleQuantizer::Scale>(
         juce::jlimit(1, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
-    const int baseNote = 48 + s.octaveShift * 12;
-    const int rawMidi   = ScaleQuantizer::degreeToMidi(rawDegree, scaleRoot, scale, baseNote);
-    const int rawPc     = ((rawMidi % 12) + 12) % 12;
-    const int octaveAnchor = rawMidi - rawPc;
 
     const bool isStrong = (stepIdx == 0) || s.accentPattern[static_cast<size_t>(stepIdx)];
+    const int contourBase = baseMidiForStrand(s) + s.octaveShift * 12;
+    const int contourMidi = ScaleQuantizer::degreeToMidi(rawDegree, scaleRoot, scale, contourBase);
 
-    int targetPc = rawPc;
+    std::uniform_real_distribution<float> probDist(0.0f, 1.0f);
+    const bool pullToCenter = isStrong && s.chordToneDominance > 0.0f
+                           && probDist(rng) < s.chordToneDominance;
 
-    if (s.role == Role::Density)
+    int note = contourMidi;
+    bool allowPassing = false;
+
+    switch (s.role)
     {
-        int walked = chromaticFieldWalk(s.lastPlayedNote);
-        if (walked >= 0) targetPc = walked;
-    }
-    else
-    {
-        std::uniform_real_distribution<float> probDist(0.0f, 1.0f);
-        if (isStrong && s.chordToneDominance > 0.0f
-            && probDist(rng) < s.chordToneDominance)
+        case Role::Anchor:
         {
-            targetPc = ((pitchField.centerPc % 12) + 12) % 12;
+            const int anchorBase = baseMidiForStrand(s) + s.octaveShift * 12;
+            const int pc = (pullToCenter || isStrong)
+                         ? voiceLedFieldMember(pitchField.centerPc)
+                         : fieldPcNearCenterByIndex(rawDegree / 2);
+            note = closestMidiForPc(pc, anchorBase);
+            break;
         }
-        else if (!((pitchField.pcSet >> rawPc) & 1u))
+
+        case Role::Line:
         {
-            // Raw pc lies outside the current field → snap voice-led
-            targetPc = voiceLedFieldMember(rawPc);
+            const int pc = pullToCenter ? voiceLedFieldMember(pitchField.centerPc)
+                                        : fieldPcForDegree(rawDegree);
+            const int preferred = closestMidiForPc(pc, contourMidi);
+            note = nearestFieldMidi(preferred, s.previousOutputNote, pc);
+            allowPassing = true;
+            break;
         }
-        // Else: raw pc is in field already — keep it (preserves Turing dynamics
-        // when field equals scale, for backward compatibility).
+
+        case Role::Density:
+        {
+            const int pc = pullToCenter
+                         ? voiceLedFieldMember(pitchField.centerPc)
+                         : fieldPcForDegree(rawDegree + stepIdx);
+            const int preferred = closestMidiForPc(pc, contourMidi);
+            note = (!isStrong && s.previousOutputNote >= 0)
+                 ? chromaticPassingNote(s.previousOutputNote, preferred)
+                 : nearestFieldMidi(preferred, s.previousOutputNote, pc);
+            allowPassing = !isStrong;
+            break;
+        }
+
+        case Role::Gesture:
+        {
+            const int pc = pullToCenter ? voiceLedFieldMember(pitchField.centerPc)
+                                        : fieldPcForDegree(rawDegree * 3 + stepIdx * 2);
+            const int gestureBase = (((rawDegree + stepIdx) & 1) ? contourMidi + 12 : contourMidi);
+            note = closestMidiForPc(pc, gestureBase);
+            if (s.previousOutputNote >= 0 && std::abs(note - s.previousOutputNote) < 5)
+                note = juce::jlimit(0, 127, note + (note >= s.previousOutputNote ? 12 : -12));
+            break;
+        }
     }
 
-    return juce::jlimit(0, 127, octaveAnchor + targetPc);
+    return ensembleAdjustedNote(s, note, isStrong, allowPassing);
 }
 
 // ─── Process Block ─────────────────────────────────────────────────────────
@@ -916,6 +1349,7 @@ void T5ynthGenerativeSequencer::processBlock(juce::AudioBuffer<float>& buffer,
         if (stepIdx == 0 && s.scheduledStep > 0)
         {
             mutatePattern(s);
+            s.cycleCount++;
             if (&s == &strands[0])
                 advancePitchField();
         }
@@ -929,9 +1363,8 @@ void T5ynthGenerativeSequencer::processBlock(juce::AudioBuffer<float>& buffer,
 
         // Determine if this step should fire
         const bool isPulse = s.eucPattern[static_cast<size_t>(stepIdx)];
-        const float fireProb = isPulse
-            ? (0.90f + 0.10f * (1.0f - s.mutationRate))   // pulse: high probability
-            : (s.mutationRate * 0.15f);                    // rest: ghost-note probability
+        const bool isStrong = (stepIdx == 0) || s.accentPattern[static_cast<size_t>(stepIdx)];
+        const float fireProb = roleFireProbability(s, isPulse, isStrong);
 
         // Resolve the degree for this step. Pulses use their own degree;
         // ghost positions inherit the nearest pulse's degree (non-destructive
@@ -956,22 +1389,15 @@ void T5ynthGenerativeSequencer::processBlock(juce::AudioBuffer<float>& buffer,
         {
             const int note = pickNote(s, stepIdx, rawDegree);
 
-            // Velocity: accent / normal / ghost, with ±5 jitter.
-            int baseVel;
-            if (!isPulse)
-                baseVel = 55;
-            else if (s.accentPattern[static_cast<size_t>(stepIdx)])
-                baseVel = 100;
-            else
-                baseVel = 85;
-
             std::uniform_int_distribution<int> velJitter(-5, 5);
-            const int velInt = juce::jlimit(1, 127, baseVel + velJitter(rng));
+            const int velInt = juce::jlimit(1, 127,
+                roleVelocityBase(s, isPulse, isStrong) + velJitter(rng));
             midi.addEvent(juce::MidiMessage::noteOn(1, note,
                           static_cast<juce::uint8>(velInt)), eventPos);
 
             s.lastPlayedNote       = note;
-            s.samplesUntilGateOff  = static_cast<double>(gate_) * strandStepDurationSamples(s);
+            s.previousOutputNote   = note;
+            s.samplesUntilGateOff  = static_cast<double>(roleGateFraction(s)) * strandStepDurationSamples(s);
         }
         else
         {
@@ -1001,7 +1427,7 @@ void T5ynthGenerativeSequencer::rebuildPcSetFromScale()
     auto scale = static_cast<ScaleQuantizer::Scale>(
         juce::jlimit(1, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
     pitchField.pcSet = ScaleQuantizer::pcSetFromScale(scale, scaleRoot);
-    pitchField.centerPc = ((scaleRoot % 12) + 12) % 12;
+    pitchField.centerPc = wrapPc(scaleRoot);
     // Seed row = ascending pcs of current scale, then fill with chromatic
     pitchField.row = {0,1,2,3,4,5,6,7,8,9,10,11};
     int written = 0;
@@ -1013,6 +1439,7 @@ void T5ynthGenerativeSequencer::rebuildPcSetFromScale()
     pitchField.rowInverted = false;
     pitchField.rowRetrograde = false;
     pitchField.pivotAccum = 0;
+    syncRowFromPcSet();
 }
 
 void T5ynthGenerativeSequencer::advancePitchField()
@@ -1058,6 +1485,7 @@ void T5ynthGenerativeSequencer::driftPcSet()
     int addPc = outPcs[outPick(rng)];
     pitchField.pcSet &= static_cast<std::uint16_t>(~(1u << inPcs[removeIdx]));
     pitchField.pcSet |= static_cast<std::uint16_t>(1u << addPc);
+    syncRowFromPcSet();
 }
 
 void T5ynthGenerativeSequencer::applyRowOp()
@@ -1073,12 +1501,12 @@ void T5ynthGenerativeSequencer::applyRowOp()
     auto transpose = [&](int amount) {
         for (int i = 0; i < sz; ++i)
             pitchField.row[static_cast<size_t>(i)] =
-                (((pitchField.row[static_cast<size_t>(i)] + amount) % 12) + 12) % 12;
+                wrapPc(pitchField.row[static_cast<size_t>(i)] + amount);
     };
     auto invert = [&]() {
         for (int i = 0; i < sz; ++i)
             pitchField.row[static_cast<size_t>(i)] =
-                ((12 - pitchField.row[static_cast<size_t>(i)]) % 12);
+                wrapPc(12 - pitchField.row[static_cast<size_t>(i)]);
     };
     auto retrograde = [&]() {
         for (int i = 0, j = sz - 1; i < j; ++i, --j)
@@ -1107,13 +1535,13 @@ void T5ynthGenerativeSequencer::rebuildPcSetFromRow()
     const int sz = juce::jlimit(3, 12, pitchField.rowSize);
     std::uint16_t newSet = 0;
     for (int i = 0; i < sz; ++i)
-        newSet |= static_cast<std::uint16_t>(1u << (pitchField.row[static_cast<size_t>(i)] & 0xF));
+        newSet |= static_cast<std::uint16_t>(1u << wrapPc(pitchField.row[static_cast<size_t>(i)]));
     // Guard against collapsed row (all identical pcs) — keep previous if new is too small.
-    if (__builtin_popcount(static_cast<unsigned>(newSet)) >= 3)
+    if (countBits12(newSet) >= 3)
         pitchField.pcSet = newSet;
     // Keep centerPc consistent: if it dropped out, shift to row[0].
     if (!((pitchField.pcSet >> pitchField.centerPc) & 1u))
-        pitchField.centerPc = pitchField.row[0] & 0xF;
+        pitchField.centerPc = wrapPc(pitchField.row[0]);
 }
 
 void T5ynthGenerativeSequencer::applyPivot()
@@ -1131,4 +1559,37 @@ void T5ynthGenerativeSequencer::applyPivot()
     pitchField.pcSet    = shifted;
     pitchField.centerPc = (pitchField.centerPc + iv) % 12;
     pitchField.pivotAccum = (pitchField.pivotAccum + iv) % 12;
+
+    const int sz = juce::jlimit(3, 12, pitchField.rowSize);
+    for (int i = 0; i < sz; ++i)
+        pitchField.row[static_cast<size_t>(i)] = wrapPc(pitchField.row[static_cast<size_t>(i)] + iv);
+}
+
+void T5ynthGenerativeSequencer::syncRowFromPcSet()
+{
+    int written = 0;
+    const int center = wrapPc(pitchField.centerPc);
+
+    auto writeIfPresent = [&](int pc) {
+        pc = wrapPc(pc);
+        if (!((pitchField.pcSet >> pc) & 1u)) return;
+        for (int i = 0; i < written; ++i)
+            if (pitchField.row[static_cast<size_t>(i)] == pc) return;
+        pitchField.row[static_cast<size_t>(written++)] = pc;
+    };
+
+    writeIfPresent(center);
+    for (int off = 1; off <= 6 && written < 12; ++off)
+    {
+        writeIfPresent(center - off);
+        if (written < 12)
+            writeIfPresent(center + off);
+    }
+
+    for (int pc = 0; pc < 12 && written < 12; ++pc)
+        writeIfPresent(pc);
+
+    pitchField.rowSize = juce::jlimit(3, 12, written);
+    for (int pc = 0; written < 12 && pc < 12; ++pc)
+        pitchField.row[static_cast<size_t>(written++)] = pc;
 }
