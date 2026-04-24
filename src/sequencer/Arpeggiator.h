@@ -42,6 +42,11 @@ public:
     /** Stop arpeggiator. */
     void stopArp();
 
+    /** Emit note-off for any currently-sounding arp note into `midi` at
+        `sampleOffset`, then clear lastPlayedNote. Does not alter active/
+        pattern state — safe to call unconditionally at any transition. */
+    void allNotesOff(juce::MidiBuffer& midi, int sampleOffset = 0);
+
     bool isActive() const { return active; }
     int getLastPlayedNote() const { return lastPlayedNote; }
 

@@ -91,6 +91,12 @@ public:
 
     void start();
     void stop();
+
+    /** Emit note-off for every strand's currently-sounding note into `midi`
+        at `sampleOffset`, then clear each strand.lastPlayedNote. Does not
+        alter pattern/position — safe to call at any transition. */
+    void allNotesOff(juce::MidiBuffer& midi, int sampleOffset = 0);
+
     bool isRunning() const { return running; }
 
     /** Atomic step position for GUI polling (tracks strand 0). */

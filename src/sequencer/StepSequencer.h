@@ -69,6 +69,12 @@ public:
     /** Start/stop sequencer. */
     void start() { if (!running) { running = true; samplesUntilNextStep = 0.0; currentStep = 0; scheduledStep = 0; } }
     void stop();
+
+    /** Emit note-off for the currently-sounding step note into `midi` at
+        `sampleOffset`, then clear lastPlayedNote. Does not alter running/
+        position — safe to call at any transition. */
+    void allNotesOff(juce::MidiBuffer& midi, int sampleOffset = 0);
+
     bool isRunning() const { return running; }
 
     int getCurrentStep() const { return currentStep; }

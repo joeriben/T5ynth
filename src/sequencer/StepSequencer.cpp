@@ -247,6 +247,16 @@ void T5ynthStepSequencer::reset()
     stop();
 }
 
+void T5ynthStepSequencer::allNotesOff(juce::MidiBuffer& midi, int sampleOffset)
+{
+    if (lastPlayedNote >= 0)
+    {
+        midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), sampleOffset);
+        lastPlayedNote = -1;
+    }
+    samplesUntilGateOff = -1.0;
+}
+
 void T5ynthStepSequencer::setNumSteps(int s)
 {
     numSteps = juce::jlimit(1, MAX_STEPS, s);

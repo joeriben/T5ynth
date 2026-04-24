@@ -1000,6 +1000,18 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     int arpRate = static_cast<int>(parameters.getRawParameterValue(PID::arpRate)->load());
     int arpOctaves = static_cast<int>(parameters.getRawParameterValue(PID::arpOctaves)->load());
 
+    // Arp false→true edge: the active sequencer's currently-sounding note was
+    // emitted direct-to-synth last block, and from this block on the arp will
+    // swallow all seq note-offs — so flush that single note now before the
+    // engines run. Manual keyboard notes stay untouched.
+    if (arpEnabled && !arpWasEnabled)
+    {
+        if (genModeActiveInAudio)
+            generativeSequencer.allNotesOff(midiMessages, 0);
+        else
+            stepSequencer.allNotesOff(midiMessages, 0);
+    }
+
     // Preset change detection
     if (seqPreset != lastSeqPreset)
     {
@@ -1036,6 +1048,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                     if (step.enabled) pulseCount++;
                 }
 
+                // Flush step-seq's currently-sounding note before the gen-seq
+                // takes over — avoids a hanging voice across the engine swap.
+                stepSequencer.allNotesOff(midiMessages, 0);
                 stepSequencer.stop();
                 generativeSequencer.setBpm(static_cast<double>(seqBpm));
                 generativeSequencer.setDivision(seqDivision);
@@ -1079,6 +1094,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                         }
                     }
                 }
+                // Flush every gen-seq strand's sounding note before handing
+                // back to the step-seq — avoids hanging voices across the swap.
+                generativeSequencer.allNotesOff(midiMessages, 0);
                 generativeSequencer.stop();
                 genModeActiveInAudio = false;
             }
@@ -1303,11 +1321,12 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     }
     else
     {
-        // Clean up any hanging arp note before resetting
-        if (arpeggiator.getLastPlayedNote() >= 0)
-            midiMessages.addEvent(juce::MidiMessage::noteOff(1, arpeggiator.getLastPlayedNote()), 0);
+        // Arp off: flush the arp's own sounding note (if any), then drop state.
+        arpeggiator.allNotesOff(midiMessages, 0);
         arpeggiator.reset();
     }
+
+    arpWasEnabled = arpEnabled;
 
     // (barStartFlag consumed + forwarded to barBoundaryFlag above)
 

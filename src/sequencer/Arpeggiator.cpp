@@ -81,6 +81,16 @@ void T5ynthArpeggiator::stopArp()
     samplesUntilGateOff = -1.0;
 }
 
+void T5ynthArpeggiator::allNotesOff(juce::MidiBuffer& midi, int sampleOffset)
+{
+    if (lastPlayedNote >= 0)
+    {
+        midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), sampleOffset);
+        lastPlayedNote = -1;
+    }
+    samplesUntilGateOff = -1.0;
+}
+
 void T5ynthArpeggiator::processBlock(juce::AudioBuffer<float>& buffer,
                                      juce::MidiBuffer& midi)
 {

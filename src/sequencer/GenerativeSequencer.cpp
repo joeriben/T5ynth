@@ -264,6 +264,19 @@ void T5ynthGenerativeSequencer::reset()
     stop();
 }
 
+void T5ynthGenerativeSequencer::allNotesOff(juce::MidiBuffer& midi, int sampleOffset)
+{
+    for (auto& s : strands)
+    {
+        if (s.lastPlayedNote >= 0)
+        {
+            midi.addEvent(juce::MidiMessage::noteOff(1, s.lastPlayedNote), sampleOffset);
+            s.lastPlayedNote = -1;
+        }
+        s.samplesUntilGateOff = -1.0;
+    }
+}
+
 // ─── Pattern generation ────────────────────────────────────────────────────
 
 void T5ynthGenerativeSequencer::computeGaps(const Strand& s, int* gaps, int* gapCount) const

@@ -161,6 +161,11 @@ private:
     int lastGenSteps = -1, lastGenPulses = -1, lastGenRotation = -1;
     float lastGenMutation = -1.0f;
 
+    // Edge-detection for arp-toggle note-off cleanup. When arp transitions
+    // false→true while a sequencer is running, the seq's currently-sounding
+    // note must be flushed before arp's filter starts swallowing noteOffs.
+    bool arpWasEnabled = false;
+
     // Inference (Python subprocess)
     std::shared_ptr<PipeInference> pipeInference = std::make_shared<PipeInference>();
     juce::String lastDevice;
