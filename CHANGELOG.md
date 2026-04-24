@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.0.0-rc.1 - 2026-04-24
+## v1.3.0-beta.1 - 2026-04-24
 
 - Expanded the instrument from an early beta into a fuller text-to-sound workflow with independent wavetable extraction regions, shared P1/P2/P3 traversal controls, and a clearer wavetable start-point model.
 - Added session persistence for the standalone app so working states survive quit/relaunch instead of behaving like disposable test sessions.
@@ -15,5 +15,5 @@
 
 ## Notes
 
-- `v1.0.0-rc.1` is the next monotonic prerelease after the existing public `v1.0.0-beta.*` tags.
-- A new `v0.1.0` tag would sort below already published builds and would regress macOS installer upgrade ordering.
+- `v1.3.0-beta.1` keeps the release on the beta line until VST3 and the remaining public platform releases are part of the validated distribution scope.
+- The version number stays monotonic with the older internal `1.2.x` build line and avoids another downgrade in bundle / installer versioning.
