@@ -297,9 +297,9 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         juce::StringArray tuningItems;
         for (const auto& e : TuningType::kEntries) tuningItems.add(e.label);
         tuningBox.addItemList(tuningItems, 1);
-        tuningBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
-        tuningBox.setColour(juce::ComboBox::textColourId, juce::Colours::white);
-        tuningBox.setColour(juce::ComboBox::outlineColourId, juce::Colours::transparentBlack);
+        tuningBox.setColour(juce::ComboBox::backgroundColourId, kSurface.brighter(0.04f));
+        tuningBox.setColour(juce::ComboBox::textColourId, juce::Colour(0xffd7dde9));
+        tuningBox.setColour(juce::ComboBox::outlineColourId, kBorder);
         addAndMakeVisible(tuningBox);
         tuningA = std::make_unique<CA>(apvts, PID::tuning, tuningBox);
     }
@@ -1344,6 +1344,16 @@ void SynthPanel::resized()
     int headerH = juce::jlimit(14, 20, juce::roundToInt(topH * 0.022f));
     float headerFs = static_cast<float>(headerH) * 0.85f;
     int headerGap = juce::jmax(3, headerH / 5);  // ~20% of header height
+
+    // Reserve the REGENERATE row at the bottom BEFORE any other section
+    // claims its vertical space. Re-Generate is the central function of the
+    // plugin — it must stay fully visible even at the minimum window height
+    // (notebook-friendly min is 700 px). The slack is taken from the last
+    // flex section (typically the waveform or a drift row) instead.
+    // See memory/feedback_regenerate_button_layout.md.
+    int regenReservedH = gap + headerH + headerGap + rowH;
+    auto regenArea = area.removeFromBottom(regenReservedH);
+
     engineHeader.setFont(juce::FontOptions(headerFs));
     engineHeader.setBounds(area.removeFromTop(headerH));
     area.removeFromTop(headerGap);
@@ -1377,8 +1387,7 @@ void SynthPanel::resized()
     int modH = gap * 3 + headerH + headerGap; // section gap + header
     int envH = (rowH * 4 + gap) * 3; // 3 envelopes × (header + 3 slider rows + gap)
     int lfoH = gap + (rowH * 2 + gap) * 2; // 2 LFOs × (header + rate row + gap)
-    int driftH = gap + headerH + headerGap + (rowH * 2 + gap) * 3
-               + gap + headerH + headerGap + rowH; // drift header + 3 drifts + regen header + row
+    int driftH = gap + headerH + headerGap + (rowH * 2 + gap) * 3; // drift header + 3 drifts (regen is reserved separately at the bottom)
     int belowWave = samplerCtrlH + filterH + modH + envH + lfoH + driftH + gap * 5;
     int maxWaveH = juce::roundToInt(area.getHeight() * 0.14f); // cap waveform to ~14% of panel
     int waveH = juce::jlimit(60, maxWaveH, area.getHeight() - belowWave);
@@ -1639,13 +1648,13 @@ void SynthPanel::resized()
     layoutDrift(drift2, area, f, rowH, gap);
     layoutDrift(drift3, area, f, rowH, gap);
 
-    // ── Regenerate ──
-    area.removeFromTop(gap);
+    // ── Regenerate (laid out in the bottom-reserved regenArea) ──
+    regenArea.removeFromTop(gap);
     regenHeader.setFont(juce::FontOptions(headerFs));
-    regenHeader.setBounds(area.removeFromTop(headerH));
-    area.removeFromTop(headerGap);
+    regenHeader.setBounds(regenArea.removeFromTop(headerH));
+    regenArea.removeFromTop(headerGap);
     {
-        auto regenRow = area.removeFromTop(rowH);
+        auto regenRow = regenArea.removeFromTop(rowH);
         int regenCellW = juce::roundToInt(f * 3.5f);
         for (int i = 0; i < kNumRegenBtns; ++i)
         {
@@ -1659,8 +1668,8 @@ void SynthPanel::resized()
             .getUnion(regenBtns[kNumRegenBtns - 1].getBounds());
         // XFade slider in the same row, capped to left half of panel
         regenRow.removeFromLeft(juce::roundToInt(f * 0.5f)); // small gap
-        int halfW = area.getWidth() / 2;
-        int xfadeMaxW = halfW - (regenRow.getX() - area.getX());
+        int halfW = regenArea.getWidth() / 2;
+        int xfadeMaxW = halfW - (regenRow.getX() - regenArea.getX());
         crossfadeRegenRow->setBounds(regenRow.removeFromLeft(std::max(0, xfadeMaxW)));
     }
 }
