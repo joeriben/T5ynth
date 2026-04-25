@@ -1091,6 +1091,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 generativeSequencer.setScale(
                     static_cast<int>(parameters.getRawParameterValue(PID::scaleType)->load()),
                     static_cast<int>(parameters.getRawParameterValue(PID::scaleRoot)->load()));
+                generativeSequencer.setPrimaryTransposeSemitones(seqOctaveShift * 12);
                 generativeSequencer.seedFromSteps(seedNotes, seedEnabled, seqCount);
 
                 // Update gen params to match seeded pattern
@@ -1143,6 +1144,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         generativeSequencer.setDivision(seqDivision);
         generativeSequencer.setGate(seqGate);
         generativeSequencer.setShuffle(seqShuffle);
+        generativeSequencer.setPrimaryTransposeSemitones(seqOctaveShift * 12);
 
         // Fix flags
         bool fxS = parameters.getRawParameterValue(PID::genFixSteps)->load() > 0.5f;
@@ -1240,7 +1242,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 {
                     // Strand 0 is the legacy mono-gen voice: preserve its
                     // original melody/rhythm and let only Seq Octave transpose it.
-                    generativeSequencer.setStrandOctave(i, seqOctaveShift);
+                    generativeSequencer.setStrandOctave(i, 0);
                     generativeSequencer.setStrandDivMult(i, 1.0f);
                     generativeSequencer.setStrandDominance(i, 0.0f);
                     continue;

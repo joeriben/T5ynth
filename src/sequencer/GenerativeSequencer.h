@@ -89,6 +89,7 @@ public:
     void setBpm(double bpm);
     void setDivision(int div);
     void setShuffle(float amount) { shuffle_ = juce::jlimit(0.0f, 0.75f, amount); }
+    void setPrimaryTransposeSemitones(int semitones);
 
     void start();
     void stop();
@@ -201,6 +202,7 @@ private:
         double samplesUntilNextStep  = 0.0;
         double samplesUntilGateOff   = -1.0;
         int    lastPlayedNote        = -1;
+        int    priorOutputNote       = -1;     // note before previousOutputNote, for melodic tendency
         int    previousOutputNote    = -1;     // survives note-offs for role voice-leading
         int    cycleCount            = 0;
         float  spatialPan            = 0.0f;   // -1..+1, carried by this strand's MIDI channel
@@ -246,6 +248,33 @@ private:
         float chordToneDominance = 0.0f;    // 0 = pure Turing, higher = snap to centerPc on strong beats
     };
 
+    /**
+     * Shared momentary ensemble reading.
+     *
+     * Secondary strands use this to read strand 0 as the primary line and
+     * adapt to its recent motion, expected next pulse, and the current stack.
+     */
+    struct EnsembleContext
+    {
+        bool hasPrimary = false;
+        bool primaryIsActive = false;
+        int primaryNote = -1;
+        int primaryPreviousNote = -1;
+        int primaryNextNote = -1;
+        int primaryDirection = 0;
+        int primaryCurrentStep = 0;
+        int primaryNextStep = 0;
+        bool primaryNowStrong = false;
+        bool primaryNextStrong = false;
+        float primaryPhaseAffinity = 0.0f;
+
+        int soundingCount = 0;
+        int distinctPcCount = 0;
+        int soundingPcMask = 0;
+        int lowestNote = 128;
+        int highestNote = -1;
+    };
+
     std::array<Strand, MAX_STRANDS> strands{};
     PitchField pitchField{};
 
@@ -262,6 +291,7 @@ private:
     int rangeOctaves = 2;
     int scaleType    = 1;   // Major (not Off)
     int scaleRoot    = 0;   // C
+    int primaryTransposeSemitones = 0;
 
     // Playback global
     bool running = false;
@@ -305,6 +335,10 @@ private:
     MetricMoment metricMomentForStep(const Strand& s, int stepIdx) const;
     bool   isMetricStrongStep(const Strand& s, int stepIdx) const;
     int    activeOtherStrandCount(const Strand& s) const;
+    int    primaryNoteForStep(int stepIdx) const;
+    int    nextPrimaryPulseStep(int fromStep) const;
+    EnsembleContext ensembleContextFor(const Strand& s, int stepIdx, bool isStrong) const;
+    float  primaryRhythmicSupport(const Strand& s, int stepIdx, bool isStrong) const;
     float  contextualFireProbability(const Strand& s, int stepIdx, bool isPulse, bool isStrong) const;
     float  metricGateScale(const Strand& s, int stepIdx, bool isPulse, bool isStrong) const;
     int    midiChannelForStrand(const Strand& s) const;
@@ -318,8 +352,12 @@ private:
     int    fieldPcNearCenterByIndex(int index) const;
     int    closestMidiForPc(int pc, int anchorMidi) const;
     int    nearestFieldMidi(int preferredMidi, int previousMidi, int fallbackPc) const;
+    int    relatedFieldPc(int primaryMidi, Role role, int seed, bool isStrong) const;
+    int    bestFieldMidiNear(int targetMidi, int contourMidi, int previousMidi, int seedPc) const;
     int    chromaticPassingNote(int lastMidi, int seedMidi);
-    int    ensembleAdjustedNote(const Strand& s, int candidate, bool isStrong, bool allowPassing) const;
+    int    socialIntervalScore(Role role, int candidate, const EnsembleContext& context, bool isStrong) const;
+    int    ensembleAdjustedNote(const Strand& s, const EnsembleContext& context,
+                                int candidate, bool isStrong, bool allowPassing) const;
     bool   hasHardSmallSecondClash(const Strand& s, int candidate) const;
     bool   isJustifiedPassingTone(const Strand& s, int candidate, bool isStrong) const;
     float  roleFireProbability(const Strand& s, bool isPulse, bool isStrong) const;

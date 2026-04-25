@@ -15,6 +15,19 @@ int positiveModulo(int value, int modulus)
     return ((value % modulus) + modulus) % modulus;
 }
 
+int pcDistance(int a, int b)
+{
+    const int d = std::abs(wrapPc(a) - wrapPc(b));
+    return juce::jmin(d, 12 - d);
+}
+
+int circularDistance(int a, int b, int modulus)
+{
+    if (modulus <= 0) return 0;
+    const int d = std::abs(positiveModulo(a, modulus) - positiveModulo(b, modulus));
+    return juce::jmin(d, modulus - d);
+}
+
 int countBits12(std::uint16_t bits)
 {
     int count = 0;
@@ -179,6 +192,10 @@ void T5ynthGenerativeSequencer::setScale(int type, int root)
 void T5ynthGenerativeSequencer::setGate(float g)     { gate_ = juce::jlimit(0.1f, 1.0f, g); }
 void T5ynthGenerativeSequencer::setBpm(double b)     { bpm_ = b; }
 void T5ynthGenerativeSequencer::setDivision(int d)   { division_ = juce::jlimit(0, 4, d); }
+void T5ynthGenerativeSequencer::setPrimaryTransposeSemitones(int semitones)
+{
+    primaryTransposeSemitones = juce::jlimit(-24, 24, semitones);
+}
 
 void T5ynthGenerativeSequencer::setFixSteps(bool f)
 {
@@ -245,6 +262,7 @@ void T5ynthGenerativeSequencer::setStrandEnabled(int idx, bool en)
         s.samplesUntilGateOff  = -1.0;
         s.currentStep          = 0;
         s.scheduledStep        = 0;
+        s.priorOutputNote      = -1;
         s.previousOutputNote   = -1;
         s.cycleCount           = 0;
         if (!s.patternSeeded) s.patternDirty = true;
@@ -435,6 +453,7 @@ void T5ynthGenerativeSequencer::start()
             s.samplesUntilNextStep = 0.0;
             s.currentStep          = 0;
             s.scheduledStep        = 0;
+            s.priorOutputNote      = -1;
             s.previousOutputNote   = -1;
             s.cycleCount           = 0;
             if (!s.patternSeeded)
@@ -452,6 +471,7 @@ void T5ynthGenerativeSequencer::stop()
         s.samplesUntilGateOff = -1.0;
         s.currentStep   = 0;
         s.scheduledStep = 0;
+        s.priorOutputNote = -1;
         s.previousOutputNote = -1;
     }
     currentStepForGui.store(-1, std::memory_order_relaxed);
@@ -966,6 +986,7 @@ void T5ynthGenerativeSequencer::seedFromSteps(const int* midiNotes,
     s.pulseDriftUp    = true;
     s.rotation        = 0;
     s.requestedRotation = 0;
+    s.priorOutputNote = -1;
     s.previousOutputNote = -1;
     s.patternDirty    = false;
     s.patternSeeded   = true;
@@ -1198,6 +1219,192 @@ int T5ynthGenerativeSequencer::activeOtherStrandCount(const Strand& s) const
     return count;
 }
 
+int T5ynthGenerativeSequencer::primaryNoteForStep(int stepIdx) const
+{
+    const auto& primary = strands[0];
+    if (!primary.enabled || primary.numSteps <= 0)
+        return -1;
+
+    stepIdx = positiveModulo(stepIdx, primary.numSteps);
+    const int patternNote = primary.notePattern[static_cast<size_t>(stepIdx)];
+    if (patternNote > 0)
+        return juce::jlimit(0, 127, patternNote + primaryTransposeSemitones);
+
+    int rawDegree = primary.degreePattern[static_cast<size_t>(stepIdx)];
+    if (!primary.eucPattern[static_cast<size_t>(stepIdx)])
+    {
+        for (int off = 1; off <= primary.numSteps; ++off)
+        {
+            const int prev = positiveModulo(stepIdx - off, primary.numSteps);
+            if (primary.eucPattern[static_cast<size_t>(prev)])
+            {
+                rawDegree = primary.degreePattern[static_cast<size_t>(prev)];
+                break;
+            }
+
+            const int next = positiveModulo(stepIdx + off, primary.numSteps);
+            if (primary.eucPattern[static_cast<size_t>(next)])
+            {
+                rawDegree = primary.degreePattern[static_cast<size_t>(next)];
+                break;
+            }
+        }
+    }
+
+    auto scale = static_cast<ScaleQuantizer::Scale>(
+        juce::jlimit(1, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
+    const int baseNote = baseMidiForStrand(primary) + primaryTransposeSemitones;
+    return juce::jlimit(0, 127,
+        ScaleQuantizer::degreeToMidi(rawDegree, scaleRoot, scale, baseNote));
+}
+
+int T5ynthGenerativeSequencer::nextPrimaryPulseStep(int fromStep) const
+{
+    const auto& primary = strands[0];
+    if (!primary.enabled || primary.numSteps <= 0)
+        return 0;
+
+    for (int off = 0; off < primary.numSteps; ++off)
+    {
+        const int step = positiveModulo(fromStep + off, primary.numSteps);
+        if (primary.eucPattern[static_cast<size_t>(step)])
+            return step;
+    }
+
+    return positiveModulo(fromStep, primary.numSteps);
+}
+
+T5ynthGenerativeSequencer::EnsembleContext
+T5ynthGenerativeSequencer::ensembleContextFor(const Strand& s, int stepIdx, bool /*isStrong*/) const
+{
+    EnsembleContext context;
+    const auto& primary = strands[0];
+    if (!primary.enabled || primary.numSteps <= 0)
+        return context;
+
+    context.primaryCurrentStep = positiveModulo(primary.currentStep, primary.numSteps);
+    context.primaryNextStep = nextPrimaryPulseStep(primary.scheduledStep);
+    context.primaryIsActive = primary.lastPlayedNote >= 0;
+
+    context.primaryNote = primary.lastPlayedNote >= 0 ? primary.lastPlayedNote
+                        : primary.previousOutputNote >= 0 ? primary.previousOutputNote
+                        : primaryNoteForStep(context.primaryCurrentStep);
+    context.primaryPreviousNote = primary.priorOutputNote;
+    context.primaryNextNote = primaryNoteForStep(context.primaryNextStep);
+    context.hasPrimary = context.primaryNote >= 0 || context.primaryNextNote >= 0;
+
+    const int directionFrom = primary.previousOutputNote >= 0 ? primary.previousOutputNote
+                            : context.primaryNote;
+    const int directionTo = context.primaryNextNote >= 0 ? context.primaryNextNote
+                          : context.primaryNote;
+    if (directionFrom >= 0 && directionTo >= 0)
+    {
+        const int delta = directionTo - directionFrom;
+        context.primaryDirection = delta > 1 ? 1 : delta < -1 ? -1 : 0;
+    }
+    else if (primary.priorOutputNote >= 0 && primary.previousOutputNote >= 0)
+    {
+        const int delta = primary.previousOutputNote - primary.priorOutputNote;
+        context.primaryDirection = delta > 1 ? 1 : delta < -1 ? -1 : 0;
+    }
+
+    auto primaryStrong = [&](int primaryStep) {
+        primaryStep = positiveModulo(primaryStep, primary.numSteps);
+        return primaryStep == 0
+            || primary.accentPattern[static_cast<size_t>(primaryStep)]
+            || isMetricStrongStep(primary, primaryStep);
+    };
+    context.primaryNowStrong = primaryStrong(context.primaryCurrentStep);
+    context.primaryNextStrong = primaryStrong(context.primaryNextStep);
+
+    const int mappedPrimaryStep = positiveModulo(
+        juce::roundToInt(static_cast<float>(stepIdx) / static_cast<float>(juce::jmax(1, s.numSteps))
+                         * static_cast<float>(primary.numSteps)),
+        primary.numSteps);
+    const int distToCurrent = circularDistance(mappedPrimaryStep, context.primaryCurrentStep,
+                                               primary.numSteps);
+    const int distToNext = circularDistance(mappedPrimaryStep, context.primaryNextStep,
+                                            primary.numSteps);
+    const int phaseDistance = juce::jmin(distToCurrent, distToNext);
+    const float halfCycle = static_cast<float>(juce::jmax(1, primary.numSteps / 2));
+    context.primaryPhaseAffinity = juce::jlimit(0.0f, 1.0f,
+        1.0f - static_cast<float>(phaseDistance) / halfCycle);
+
+    if (primary.accentPattern[static_cast<size_t>(mappedPrimaryStep)])
+        context.primaryPhaseAffinity = juce::jmin(1.0f, context.primaryPhaseAffinity + 0.16f);
+
+    for (const auto& other : strands)
+    {
+        if (!other.enabled || other.lastPlayedNote < 0)
+            continue;
+
+        ++context.soundingCount;
+        context.soundingPcMask |= 1 << wrapPc(other.lastPlayedNote);
+        context.lowestNote = juce::jmin(context.lowestNote, other.lastPlayedNote);
+        context.highestNote = juce::jmax(context.highestNote, other.lastPlayedNote);
+    }
+    context.distinctPcCount = countBits12(static_cast<std::uint16_t>(context.soundingPcMask));
+
+    return context;
+}
+
+float T5ynthGenerativeSequencer::primaryRhythmicSupport(const Strand& s, int stepIdx,
+                                                         bool isStrong) const
+{
+    if (strandIndexOf(s) == 0)
+        return 1.0f;
+
+    const auto context = ensembleContextFor(s, stepIdx, isStrong);
+    if (!context.hasPrimary)
+        return 1.0f;
+
+    const auto moment = metricMomentForStep(s, stepIdx);
+    const bool structural = isStrong || moment.downbeat || moment.groupStart;
+    float factor = 1.0f;
+
+    switch (s.role)
+    {
+        case Role::Anchor:
+            if (structural && (context.primaryNowStrong || context.primaryNextStrong
+                               || context.primaryPhaseAffinity > 0.62f))
+                factor *= 1.20f;
+            if (!structural && context.primaryPhaseAffinity < 0.45f)
+                factor *= 0.76f;
+            if (moment.phraseEnd)
+                factor *= 1.08f;
+            break;
+
+        case Role::Line:
+            if (!structural && context.primaryPhaseAffinity > 0.72f)
+                factor *= 0.72f; // leave V1's local space unless answering structurally
+            if (structural && context.primaryDirection != 0)
+                factor *= 1.08f;
+            if (moment.anticipatesGroup && context.primaryNextStrong)
+                factor *= 1.10f;
+            break;
+
+        case Role::Density:
+            if (!structural && context.distinctPcCount >= 3)
+                factor *= 0.52f;
+            if (!structural && context.primaryPhaseAffinity > 0.70f)
+                factor *= 0.72f;
+            if (structural && context.distinctPcCount < 3)
+                factor *= 1.12f;
+            if (moment.anticipatesGroup && context.primaryNextStrong)
+                factor *= 0.62f; // breathe before a likely V1 arrival
+            break;
+
+        case Role::Gesture:
+            if (context.primaryPhaseAffinity > 0.70f && !structural)
+                factor *= 0.64f;
+            if (moment.phraseEnd)
+                factor *= 1.10f;
+            break;
+    }
+
+    return juce::jlimit(0.35f, 1.35f, factor);
+}
+
 float T5ynthGenerativeSequencer::contextualFireProbability(const Strand& s, int stepIdx,
                                                             bool isPulse,
                                                             bool isStrong) const
@@ -1211,6 +1418,7 @@ float T5ynthGenerativeSequencer::contextualFireProbability(const Strand& s, int 
 
     probability *= 0.88f + 0.12f * moment.accent;
     probability *= moment.breath;
+    probability *= primaryRhythmicSupport(s, stepIdx, isStrong);
 
     if (isPulse && moment.groupStart)
         probability += 0.06f;
@@ -1499,6 +1707,107 @@ int T5ynthGenerativeSequencer::nearestFieldMidi(int preferredMidi, int previousM
     return best;
 }
 
+int T5ynthGenerativeSequencer::relatedFieldPc(int primaryMidi, Role role, int seed,
+                                               bool isStrong) const
+{
+    if (primaryMidi < 0)
+        return voiceLedFieldMember(seed);
+
+    const int primaryPc = wrapPc(primaryMidi);
+    const int centerPc = voiceLedFieldMember(pitchField.centerPc);
+    const int seedPc = voiceLedFieldMember(seed);
+
+    auto intervalCost = [&](int pc) {
+        const int ic = pcDistance(pc, primaryPc);
+        switch (role)
+        {
+            case Role::Anchor:
+                if (ic == 0 || ic == 5 || ic == 7) return 0;
+                if (ic == 3 || ic == 4 || ic == 8 || ic == 9) return 3;
+                if (ic == 2 || ic == 10) return 8;
+                if (ic == 6) return 14;
+                return 22;
+
+            case Role::Line:
+                if (ic == 3 || ic == 4 || ic == 8 || ic == 9) return 0;
+                if (ic == 5 || ic == 7) return 2;
+                if (ic == 2 || ic == 10) return isStrong ? 6 : 3;
+                if (ic == 0) return isStrong ? 8 : 5;
+                if (ic == 6) return 11;
+                return 14;
+
+            case Role::Density:
+                if (ic == 3 || ic == 4 || ic == 8 || ic == 9) return 0;
+                if (ic == 5 || ic == 7) return 1;
+                if (ic == 2 || ic == 10) return isStrong ? 7 : 2;
+                if (ic == 0) return 5;
+                if (ic == 6) return 10;
+                return 13;
+
+            case Role::Gesture:
+                if (ic == 5 || ic == 7) return 0;
+                if (ic == 3 || ic == 4 || ic == 8 || ic == 9) return 2;
+                if (ic == 2 || ic == 10) return 4;
+                if (ic == 6) return 6;
+                return 10;
+        }
+        return 8;
+    };
+
+    int bestPc = seedPc;
+    int bestScore = 99999;
+    for (int pc = 0; pc < 12; ++pc)
+    {
+        if (!fieldContains(pc))
+            continue;
+
+        int score = intervalCost(pc) * 8
+                  + pcDistance(pc, seedPc) * 2;
+        if (role == Role::Anchor)
+            score += pcDistance(pc, centerPc) * 4;
+        else if (role == Role::Density)
+            score += pcDistance(pc, centerPc);
+
+        if (score < bestScore)
+        {
+            bestScore = score;
+            bestPc = pc;
+        }
+    }
+
+    return bestPc;
+}
+
+int T5ynthGenerativeSequencer::bestFieldMidiNear(int targetMidi, int contourMidi,
+                                                  int previousMidi, int seedPc) const
+{
+    targetMidi = juce::jlimit(0, 127, targetMidi);
+    contourMidi = juce::jlimit(0, 127, contourMidi);
+    seedPc = voiceLedFieldMember(seedPc);
+
+    int best = nearestFieldMidi(targetMidi, previousMidi, seedPc);
+    int bestScore = 99999;
+    for (int midi = 0; midi <= 127; ++midi)
+    {
+        if (!fieldContains(midi))
+            continue;
+
+        int score = std::abs(midi - targetMidi) * 5
+                  + std::abs(midi - contourMidi) * 2
+                  + pcDistance(midi, seedPc) * 3;
+        if (previousMidi >= 0)
+            score += std::abs(midi - previousMidi) * 3;
+
+        if (score < bestScore)
+        {
+            bestScore = score;
+            best = midi;
+        }
+    }
+
+    return best;
+}
+
 int T5ynthGenerativeSequencer::chromaticPassingNote(int lastMidi, int seedMidi)
 {
     if (lastMidi < 0)
@@ -1514,6 +1823,56 @@ int T5ynthGenerativeSequencer::chromaticPassingNote(int lastMidi, int seedMidi)
     }
 
     return juce::jlimit(0, 127, lastMidi + dir);
+}
+
+int T5ynthGenerativeSequencer::socialIntervalScore(Role role, int candidate,
+                                                    const EnsembleContext& context,
+                                                    bool isStrong) const
+{
+    if (!context.hasPrimary || context.primaryNote < 0)
+        return 0;
+
+    const int ic = pcDistance(candidate, context.primaryNote);
+    switch (role)
+    {
+        case Role::Anchor:
+        {
+            int score = 0;
+            if (ic == 0 || ic == 5 || ic == 7) score = 0;
+            else if (ic == 3 || ic == 4 || ic == 8 || ic == 9) score = 4;
+            else if (ic == 2 || ic == 10) score = 10;
+            else if (ic == 6) score = 16;
+            else score = 24;
+            if (candidate >= context.primaryNote - 1)
+                score += 7; // Anchor should normally support below V1, not compete with it.
+            return score;
+        }
+
+        case Role::Line:
+            if (ic == 3 || ic == 4 || ic == 8 || ic == 9) return 0;
+            if (ic == 5 || ic == 7) return 2;
+            if (ic == 2 || ic == 10) return isStrong ? 8 : 3;
+            if (ic == 0) return isStrong ? 9 : 5;
+            if (ic == 6) return 12;
+            return 15;
+
+        case Role::Density:
+            if (ic == 3 || ic == 4 || ic == 8 || ic == 9) return 0;
+            if (ic == 5 || ic == 7) return 1;
+            if (ic == 2 || ic == 10) return isStrong ? 9 : 3;
+            if (ic == 0) return context.distinctPcCount >= 3 ? 10 : 5;
+            if (ic == 6) return 12;
+            return 15;
+
+        case Role::Gesture:
+            if (ic == 5 || ic == 7) return 0;
+            if (ic == 3 || ic == 4 || ic == 8 || ic == 9) return 3;
+            if (ic == 2 || ic == 10) return 5;
+            if (ic == 6) return 8;
+            return 12;
+    }
+
+    return 0;
 }
 
 bool T5ynthGenerativeSequencer::hasHardSmallSecondClash(const Strand& s, int candidate) const
@@ -1543,12 +1902,20 @@ bool T5ynthGenerativeSequencer::isJustifiedPassingTone(const Strand& s, int cand
     return std::abs(candidate - s.previousOutputNote) <= 2;
 }
 
-int T5ynthGenerativeSequencer::ensembleAdjustedNote(const Strand& s, int candidate,
+int T5ynthGenerativeSequencer::ensembleAdjustedNote(const Strand& s,
+                                                     const EnsembleContext& context,
+                                                     int candidate,
                                                      bool isStrong,
                                                      bool allowPassing) const
 {
     candidate = juce::jlimit(0, 127, candidate);
-    if (!hasHardSmallSecondClash(s, candidate))
+
+    const int socialScore = socialIntervalScore(s.role, candidate, context, isStrong);
+    const int acceptableScore = s.role == Role::Anchor ? 6
+                              : s.role == Role::Line ? (isStrong ? 7 : 10)
+                              : s.role == Role::Density ? (isStrong ? 6 : 11)
+                              : 10;
+    if (!hasHardSmallSecondClash(s, candidate) && socialScore <= acceptableScore)
         return candidate;
 
     if (allowPassing && isJustifiedPassingTone(s, candidate, isStrong))
@@ -1563,7 +1930,9 @@ int T5ynthGenerativeSequencer::ensembleAdjustedNote(const Strand& s, int candida
         if (!fieldContains(midi) || hasHardSmallSecondClash(s, midi))
             continue;
 
-        const int score = std::abs(midi - candidate) * 3 + std::abs(midi - reference);
+        const int score = std::abs(midi - candidate) * 3
+                        + std::abs(midi - reference) * 2
+                        + socialIntervalScore(s.role, midi, context, isStrong) * 7;
         if (score < bestScore)
         {
             bestScore = score;
@@ -1699,12 +2068,11 @@ int T5ynthGenerativeSequencer::pickNote(Strand& s, int stepIdx, int rawDegree)
 
     if (strandIndexOf(s) == 0)
     {
-        const int octaveOffset = s.octaveShift * 12;
         const int patternNote = s.notePattern[static_cast<size_t>(stepIdx)];
         if (patternNote > 0)
-            return juce::jlimit(0, 127, patternNote + octaveOffset);
+            return juce::jlimit(0, 127, patternNote + primaryTransposeSemitones);
 
-        const int baseNote = baseMidiForStrand(s) + octaveOffset;
+        const int baseNote = baseMidiForStrand(s) + primaryTransposeSemitones;
         return juce::jlimit(0, 127,
             ScaleQuantizer::degreeToMidi(rawDegree, scaleRoot, scale, baseNote));
     }
@@ -1714,6 +2082,7 @@ int T5ynthGenerativeSequencer::pickNote(Strand& s, int stepIdx, int rawDegree)
                        || isMetricStrongStep(s, stepIdx);
     const int contourBase = baseMidiForStrand(s) + s.octaveShift * 12;
     const int contourMidi = ScaleQuantizer::degreeToMidi(rawDegree, scaleRoot, scale, contourBase);
+    const auto context = ensembleContextFor(s, stepIdx, isStrong);
 
     std::uniform_real_distribution<float> probDist(0.0f, 1.0f);
     const bool pullToCenter = isStrong && s.chordToneDominance > 0.0f
@@ -1728,19 +2097,43 @@ int T5ynthGenerativeSequencer::pickNote(Strand& s, int stepIdx, int rawDegree)
         {
             const int anchorBase = baseMidiForStrand(s) + s.octaveShift * 12;
             const auto moment = metricMomentForStep(s, stepIdx);
-            const bool settleToCenter = (stepIdx == 0)
-                                     && ((s.cycleCount % 2) == 0 || pullToCenter);
-            int pc = settleToCenter
-                   ? voiceLedFieldMember(pitchField.centerPc)
-                   : fieldPcNearCenterByIndex(rawDegree + stepIdx + s.cycleCount * 2);
-            note = nearestFieldMidi(closestMidiForPc(pc, anchorBase),
+            const bool settleToCenter = (stepIdx == 0 && ((s.cycleCount % 2) == 0 || pullToCenter))
+                                     || (moment.groupStart && context.primaryNextStrong);
+            int pc = voiceLedFieldMember(pitchField.centerPc);
+            int target = anchorBase;
+
+            if (context.hasPrimary)
+            {
+                const int primaryRef = (context.primaryNextNote >= 0
+                                        && (context.primaryNextStrong || context.primaryNote < 0))
+                                     ? context.primaryNextNote
+                                     : context.primaryNote;
+                pc = settleToCenter
+                   ? relatedFieldPc(primaryRef, Role::Anchor, pitchField.centerPc, true)
+                   : relatedFieldPc(primaryRef, Role::Anchor,
+                                    fieldPcNearCenterByIndex(rawDegree + stepIdx + s.cycleCount * 2),
+                                    isStrong);
+                target = primaryRef - (isStrong || moment.groupStart ? 12 : 7);
+            }
+            else if (!settleToCenter)
+            {
+                pc = fieldPcNearCenterByIndex(rawDegree + stepIdx + s.cycleCount * 2);
+            }
+
+            note = nearestFieldMidi(closestMidiForPc(pc, target),
                                     s.previousOutputNote, pc);
+            if (context.primaryNote >= 0 && note >= context.primaryNote - 1)
+                note = juce::jlimit(0, 127, note - 12);
             if (!settleToCenter && s.previousOutputNote >= 0
                 && wrapPc(note) == wrapPc(s.previousOutputNote)
                 && (moment.groupStart || moment.groupEnd))
             {
-                pc = fieldPcNearCenterByIndex(rawDegree + stepIdx + s.cycleCount * 2 + 1);
-                note = nearestFieldMidi(closestMidiForPc(pc, anchorBase),
+                pc = context.hasPrimary
+                   ? relatedFieldPc(context.primaryNote, Role::Anchor,
+                                    fieldPcNearCenterByIndex(rawDegree + stepIdx + s.cycleCount * 2 + 1),
+                                    isStrong)
+                   : fieldPcNearCenterByIndex(rawDegree + stepIdx + s.cycleCount * 2 + 1);
+                note = nearestFieldMidi(closestMidiForPc(pc, target),
                                         s.previousOutputNote, pc);
             }
             break;
@@ -1752,23 +2145,50 @@ int T5ynthGenerativeSequencer::pickNote(Strand& s, int stepIdx, int rawDegree)
                 s.notePattern[static_cast<size_t>(stepIdx)] > 0
                     ? s.notePattern[static_cast<size_t>(stepIdx)] + s.octaveShift * 12
                     : contourMidi);
-            const int pc = pullToCenter ? voiceLedFieldMember(pitchField.centerPc)
-                                        : voiceLedFieldMember(lineSourceMidi);
-            const int preferred = closestMidiForPc(pc, lineSourceMidi);
-            note = nearestFieldMidi(preferred, s.previousOutputNote, pc);
+            int pc = pullToCenter ? voiceLedFieldMember(pitchField.centerPc)
+                                  : voiceLedFieldMember(lineSourceMidi);
+            int target = lineSourceMidi;
+
+            if (context.hasPrimary)
+            {
+                const int primaryTarget = context.primaryNextNote >= 0
+                                        ? context.primaryNextNote
+                                        : context.primaryNote;
+                const int contraryOffset = context.primaryDirection > 0 ? -4
+                                         : context.primaryDirection < 0 ? 4
+                                         : (((rawDegree + stepIdx) & 1) ? 7 : -5);
+                target = primaryTarget + contraryOffset;
+                pc = relatedFieldPc(primaryTarget, Role::Line, target, isStrong);
+            }
+
+            const int preferred = closestMidiForPc(pc, target);
+            note = bestFieldMidiNear(preferred, lineSourceMidi, s.previousOutputNote, pc);
             allowPassing = true;
             break;
         }
 
         case Role::Density:
         {
-            const int pc = pullToCenter
-                         ? voiceLedFieldMember(pitchField.centerPc)
-                         : fieldPcForDegree(rawDegree + stepIdx);
-            const int preferred = closestMidiForPc(pc, contourMidi);
+            int pc = pullToCenter
+                   ? voiceLedFieldMember(pitchField.centerPc)
+                   : fieldPcForDegree(rawDegree + stepIdx);
+            int target = contourMidi;
+
+            if (context.hasPrimary)
+            {
+                const int primaryTarget = context.primaryNextNote >= 0
+                                        ? context.primaryNextNote
+                                        : context.primaryNote;
+                pc = relatedFieldPc(primaryTarget, Role::Density, pc, isStrong);
+                target = context.distinctPcCount < 3
+                       ? primaryTarget + (((rawDegree + stepIdx) & 1) ? 4 : -3)
+                       : contourMidi;
+            }
+
+            const int preferred = closestMidiForPc(pc, target);
             note = (!isStrong && s.previousOutputNote >= 0)
                  ? chromaticPassingNote(s.previousOutputNote, preferred)
-                 : nearestFieldMidi(preferred, s.previousOutputNote, pc);
+                 : bestFieldMidiNear(preferred, contourMidi, s.previousOutputNote, pc);
             allowPassing = !isStrong;
             break;
         }
@@ -1785,7 +2205,7 @@ int T5ynthGenerativeSequencer::pickNote(Strand& s, int stepIdx, int rawDegree)
         }
     }
 
-    return ensembleAdjustedNote(s, note, isStrong, allowPassing);
+    return ensembleAdjustedNote(s, context, note, isStrong, allowPassing);
 }
 
 // ─── Process Block ─────────────────────────────────────────────────────────
@@ -1935,6 +2355,7 @@ void T5ynthGenerativeSequencer::processBlock(juce::AudioBuffer<float>& buffer,
                           static_cast<juce::uint8>(velInt)), eventPos);
 
             s.lastPlayedNote       = note;
+            s.priorOutputNote      = s.previousOutputNote;
             s.previousOutputNote   = note;
             s.samplesUntilGateOff  = static_cast<double>(roleGateFraction(s)
                                       * metricGateScale(s, stepIdx, isPulse, isStrong)) * stepDur;
