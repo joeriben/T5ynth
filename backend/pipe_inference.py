@@ -23,8 +23,75 @@ import logging
 import copy
 from pathlib import Path
 
+
+def _configure_cpu_budget_env():
+    """Keep inference helper threads from starving the real-time audio process."""
+    worker_threads = os.environ.get("T5YNTH_INFERENCE_CPU_THREADS", "2").strip()
+    interop_threads = os.environ.get("T5YNTH_INFERENCE_INTEROP_THREADS", "1").strip()
+
+    def positive_int_or_default(raw_value, default):
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            return default
+        return max(1, value)
+
+    worker_threads = str(positive_int_or_default(worker_threads, 2))
+    interop_threads = str(positive_int_or_default(interop_threads, 1))
+
+    def cap_thread_env(key, limit):
+        raw_value = os.environ.get(key)
+        try:
+            current = int(raw_value) if raw_value is not None else None
+        except ValueError:
+            current = None
+
+        if current is None or current < 1 or current > int(limit):
+            os.environ[key] = limit
+
+    for key in (
+        "OMP_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+        "BLIS_NUM_THREADS",
+        "TORCH_NUM_THREADS",
+    ):
+        cap_thread_env(key, worker_threads)
+
+    cap_thread_env("TORCH_NUM_INTEROP_THREADS", interop_threads)
+    os.environ.setdefault("OMP_WAIT_POLICY", "PASSIVE")
+    os.environ.setdefault("KMP_BLOCKTIME", "0")
+    os.environ.setdefault("MKL_DYNAMIC", "TRUE")
+
+
+_configure_cpu_budget_env()
+
 import numpy as np
 import torch
+
+
+def _apply_torch_cpu_budget():
+    def env_int(name, default):
+        try:
+            return max(1, int(os.environ.get(name, str(default))))
+        except ValueError:
+            return default
+
+    worker_threads = env_int("TORCH_NUM_THREADS", 2)
+    interop_threads = env_int("TORCH_NUM_INTEROP_THREADS", 1)
+
+    try:
+        torch.set_num_threads(worker_threads)
+        torch.set_num_interop_threads(interop_threads)
+    except RuntimeError as exc:
+        logging.getLogger("pipe_inference").warning(
+            "Could not apply torch CPU budget after startup: %s", exc
+        )
+
+
+_apply_torch_cpu_budget()
 
 # ─── Cross-platform deterministic noise ─────────────────────────────
 # torch.Generator("cpu") and torch.Generator("cuda") are different PRNGs —

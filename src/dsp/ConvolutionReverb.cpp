@@ -1,5 +1,10 @@
 #include "ConvolutionReverb.h"
 
+ConvolutionReverb::ConvolutionReverb()
+    : convolution(juce::dsp::Convolution::NonUniform { 1024 })
+{
+}
+
 void ConvolutionReverb::prepare(double sampleRate, int samplesPerBlock)
 {
     sr = sampleRate;
