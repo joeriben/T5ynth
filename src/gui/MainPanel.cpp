@@ -73,25 +73,24 @@ void MainPanel::GenerateButton::paintButton(juce::Graphics& g, bool highlighted,
     const bool active = isEnabled() || generating;
     bounds = bounds.translated(0.0f, down ? 1.0f : 0.0f);
     const auto body = bounds.reduced(2.0f);
+    const auto border = kDriftCol;
+    const float pulse = 0.5f + 0.5f * std::sin(animationPhase * 0.85f);
+    const float glowAlpha = active ? (generating ? 0.34f : 0.18f) + (generating ? 0.18f : 0.08f) * pulse : 0.06f;
+    const float frameAlpha = active ? (highlighted || generating ? 0.96f : 0.84f) : 0.40f;
 
-    auto base = kCard.brighter(highlighted ? 0.06f : 0.02f);
+    auto base = juce::Colour(0xffeef2f7).brighter(highlighted ? 0.02f : 0.0f);
     if (down)
-        base = base.darker(0.12f);
+        base = base.darker(0.06f);
 
-    g.setColour(base.withAlpha(active ? 1.0f : 0.55f));
+    g.setColour(base.withAlpha(active ? 1.0f : 0.66f));
     g.fillRect(body);
 
-    const auto border = kOscCol;
-    const float borderAlpha = active ? (highlighted || generating ? 0.92f : 0.74f) : 0.34f;
-    g.setColour(border.withAlpha(borderAlpha));
-    g.drawRect(body, 1.2f);
-
-    g.setColour(border.withAlpha(active ? 0.20f : 0.08f));
-    g.drawRect(body.reduced(3.0f), 1.0f);
-
-    g.setColour(kBg.withAlpha(0.35f));
-    g.drawLine(body.getX() + 4.0f, body.getBottom() - 1.0f,
-               body.getRight() - 2.0f, body.getBottom() - 1.0f, 1.0f);
+    g.setColour(border.withAlpha(glowAlpha * 0.34f));
+    g.drawRect(body.expanded(4.0f), 3.5f);
+    g.setColour(border.withAlpha(glowAlpha * 0.58f));
+    g.drawRect(body.expanded(2.0f), 2.5f);
+    g.setColour(border.withAlpha(frameAlpha));
+    g.drawRect(body, 4.0f);
 
     static const juce::Colour palette[] = {
         juce::Colour(0xff667eea), juce::Colour(0xffe91e63),
@@ -99,55 +98,61 @@ void MainPanel::GenerateButton::paintButton(juce::Graphics& g, bool highlighted,
         juce::Colour(0xff4CAF50), juce::Colour(0xff00BCD4)
     };
     static constexpr int numColours = static_cast<int>(sizeof(palette) / sizeof(palette[0]));
-    static constexpr const char* word = "GENERATE";
-    static constexpr int numLetters = 8;
+    static constexpr int numSymbols = 6;
 
-    auto textArea = body.reduced(12.0f, 5.0f);
-    float fontSize = juce::jlimit(16.0f, 24.0f, bounds.getHeight() * 0.40f);
+    float fontSize = juce::jlimit(24.0f, 44.0f, bounds.getHeight() * 0.64f);
 
-    auto measureWord = [](float fs)
+    auto measureSymbolWidth = [](float fs)
     {
-        const int tracking = juce::roundToInt(fs * 0.15f);
-        int total = 0;
-        for (int i = 0; i < numLetters; ++i)
-        {
-            if (i > 0)
-                total += tracking;
-
-            char letterText[] = { word[i], 0 };
-            total += measureTextWidth(juce::String(letterText), fs);
-        }
-        return total;
+        juce::GlyphArrangement glyphs;
+        glyphs.addLineOfText(juce::Font(juce::FontOptions(fs, juce::Font::bold)), ">", 0.0f, 0.0f);
+        return juce::roundToInt(std::ceil(glyphs.getBoundingBox(0, -1, true).getWidth()));
     };
 
-    int wordW = measureWord(fontSize);
-    if (wordW > textArea.getWidth())
+    auto measureArrowRun = [&measureSymbolWidth](float fs)
     {
-        fontSize = juce::jmax(12.0f, fontSize * textArea.getWidth() / static_cast<float>(wordW));
-        wordW = measureWord(fontSize);
+        const int tracking = juce::roundToInt(fs * 0.12f);
+        return measureSymbolWidth(fs) * numSymbols + tracking * (numSymbols - 1);
+    };
+
+    float horizontalInset = juce::jlimit(18.0f, 48.0f, fontSize);
+    float usableTextW = juce::jmax(12.0f, body.getWidth() - horizontalInset * 2.0f);
+
+    int runW = measureArrowRun(fontSize);
+    if (runW > usableTextW)
+    {
+        fontSize = juce::jmax(16.0f, fontSize * usableTextW / static_cast<float>(runW));
+        horizontalInset = juce::jlimit(18.0f, 48.0f, fontSize);
+        usableTextW = juce::jmax(12.0f, body.getWidth() - horizontalInset * 2.0f);
+        runW = measureArrowRun(fontSize);
+        if (runW > usableTextW)
+        {
+            fontSize = juce::jmax(16.0f, fontSize * usableTextW / static_cast<float>(runW));
+            runW = measureArrowRun(fontSize);
+        }
     }
 
-    const int tracking = juce::roundToInt(fontSize * 0.15f);
-    const int textH = juce::roundToInt(fontSize * 1.35f);
-    int x = juce::roundToInt(textArea.getCentreX() - static_cast<float>(wordW) * 0.5f);
+    auto textArea = body.reduced(horizontalInset, 3.0f);
+    const int symbolW = measureSymbolWidth(fontSize);
+    const int tracking = juce::roundToInt(fontSize * 0.12f);
+    const int textH = juce::roundToInt(fontSize * 1.25f);
+    int x = juce::roundToInt(textArea.getCentreX() - static_cast<float>(runW) * 0.5f);
     const int y = juce::roundToInt(textArea.getCentreY() - static_cast<float>(textH) * 0.5f);
     const int colourOffset = generating
         ? static_cast<int>(std::floor((animationPhase / juce::MathConstants<float>::twoPi) * numColours)) % numColours
         : 0;
 
     g.setFont(juce::Font(juce::FontOptions(fontSize, juce::Font::bold)));
-    for (int i = 0; i < numLetters; ++i)
+    for (int i = 0; i < numSymbols; ++i)
     {
         if (i > 0)
             x += tracking;
 
-        char letterText[] = { word[i], 0 };
-        juce::String ch(letterText);
-        const int cw = measureTextWidth(ch, fontSize);
-        auto colour = palette[(i + colourOffset) % numColours];
+        auto colour = palette[(i + colourOffset) % numColours].darker(0.08f);
         g.setColour(colour.withAlpha(active ? 0.96f : 0.45f));
-        g.drawText(ch, x, y, cw + 2, textH, juce::Justification::centredLeft);
-        x += cw;
+        g.drawText(">", x, y, symbolW + juce::roundToInt(fontSize * 0.25f), textH,
+                   juce::Justification::centredLeft);
+        x += symbolW;
     }
 }
 
@@ -1232,9 +1237,9 @@ void MainPanel::resized()
     constexpr int kMinDimH = 72;
     constexpr int kMinOscH = 220;
     constexpr int kMinAxesH = 78;
-    int genBtnH = juce::jlimit(50, 96,
-                               juce::roundToInt(juce::jmax(static_cast<float>(genCol.getWidth()) * 0.20f,
-                                                           h * 0.068f)));
+    int genBtnH = juce::jlimit(50, 112,
+                               juce::roundToInt(juce::jmax(static_cast<float>(genCol.getWidth()) * 0.22f,
+                                                           h * 0.078f)));
 
     int oscH = juce::jmax(kMinOscH, promptPanel.getPreferredHeightForWidth(genCol.getWidth()));
     int axesH = juce::jlimit(kMinAxesH, 128, juce::roundToInt(h * 0.12f));
@@ -1286,7 +1291,7 @@ void MainPanel::resized()
     genBtnH = juce::jmin(genBtnH, juce::jmax(44, remainH));
     int genBtnY = genCol.getY() + juce::jmax(0, (remainH - genBtnH) / 2);
     auto genBtnArea = juce::Rectangle<int>(genCol.getX(), genBtnY, genCol.getWidth(), genBtnH);
-    int genW = juce::roundToInt(genBtnArea.getWidth() * 0.6f);
+    int genW = juce::roundToInt(genBtnArea.getWidth() * 0.66f);
     int genX = genBtnArea.getX() + (genBtnArea.getWidth() - genW) / 2;
     mainGenerateBtn.setBounds(genX, genBtnArea.getY(), genW, genBtnArea.getHeight());
 
