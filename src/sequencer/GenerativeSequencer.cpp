@@ -45,14 +45,36 @@ double T5ynthGenerativeSequencer::strandStepDurationSamples(const Strand& s) con
 double T5ynthGenerativeSequencer::shuffledStrandStepDurationSamples(const Strand& s, int stepIdx) const
 {
     const double base = strandStepDurationSamples(s);
-    if (shuffle_ <= 0.0f || s.numSteps <= 1)
+    if (s.numSteps <= 1)
         return base;
 
-    if ((s.numSteps & 1) != 0 && stepIdx == s.numSteps - 1)
-        return base;
+    double factor = 1.0;
 
-    const double amount = static_cast<double>(shuffle_);
-    return base * ((stepIdx & 1) == 0 ? (1.0 + amount) : (1.0 - amount));
+    if (shuffle_ > 0.0f)
+    {
+        if (!((s.numSteps & 1) != 0 && stepIdx == s.numSteps - 1))
+        {
+            const double amount = static_cast<double>(shuffle_);
+            factor *= ((stepIdx & 1) == 0 ? (1.0 + amount) : (1.0 - amount));
+        }
+    }
+
+    const auto moment = metricMomentForStep(s, stepIdx);
+    const double elasticity = static_cast<double>(0.012f + 0.030f * s.mutationRate);
+    double metricFactor = 1.0;
+    if (moment.downbeat)         metricFactor += elasticity * 0.55;
+    if (moment.groupStart)       metricFactor += elasticity;
+    if (moment.anticipatesGroup) metricFactor -= elasticity * 0.70;
+    if (moment.phraseEnd)        metricFactor += elasticity * (moment.path == MetricPath::OpenBreath ? 1.45 : 0.85);
+
+    const int activeOthers = activeOtherStrandCount(s);
+    if (activeOthers >= 2)
+        metricFactor = 1.0 + (metricFactor - 1.0) * 0.55;
+    if (s.role == Role::Anchor)
+        metricFactor = 1.0 + (metricFactor - 1.0) * 0.45;
+
+    factor *= juce::jlimit(0.84, 1.22, metricFactor);
+    return base * factor;
 }
 
 constexpr float T5ynthGenerativeSequencer::DIVISION_FACTORS[];
@@ -230,8 +252,13 @@ void T5ynthGenerativeSequencer::setStrandEnabled(int idx, bool en)
 void T5ynthGenerativeSequencer::setStrandRole(int idx, int roleIdx)
 {
     if (idx < 0 || idx >= MAX_STRANDS) return;
-    strands[static_cast<size_t>(idx)].role =
-        static_cast<Role>(juce::jlimit(0, 3, roleIdx));
+    auto& s = strands[static_cast<size_t>(idx)];
+    const auto nextRole = static_cast<Role>(juce::jlimit(0, 3, roleIdx));
+    if (s.role != nextRole)
+    {
+        s.role = nextRole;
+        s.patternDirty = true;
+    }
 }
 
 void T5ynthGenerativeSequencer::setStrandOctave(int idx, int shift)
@@ -553,8 +580,10 @@ void T5ynthGenerativeSequencer::rebuildPattern(Strand& s)
                 if (s.eucPattern[static_cast<size_t>(prev)]) break;
                 gapBefore++;
             }
-            // Accent if: downbeat, or preceded by the longest gap
-            s.accentPattern[static_cast<size_t>(i)] = (i == 0) || (gapBefore >= maxGapBefore);
+            // Accent if: downbeat, preceded by longest gap, or a contextual
+            // metric group start (e.g. 9 = 3-3-3 / 4-4-1 depending on role).
+            s.accentPattern[static_cast<size_t>(i)] =
+                (i == 0) || (gapBefore >= maxGapBefore) || isMetricStrongStep(s, i);
         }
     }
 
@@ -960,9 +989,298 @@ void T5ynthGenerativeSequencer::publishStrandToGui(const Strand& s)
 // Density may keep such dissonances only as weak-position stepwise passing
 // tones, i.e. when there is an actual contrapuntal reason.
 
+int T5ynthGenerativeSequencer::strandIndexOf(const Strand& s) const
+{
+    for (int i = 0; i < MAX_STRANDS; ++i)
+        if (&s == &strands[static_cast<size_t>(i)])
+            return i;
+    return 0;
+}
+
+T5ynthGenerativeSequencer::MetricPath
+T5ynthGenerativeSequencer::metricPathForStrand(const Strand& s) const
+{
+    switch (s.role)
+    {
+        case Role::Anchor:
+            return MetricPath::Gathering;
+        case Role::Line:
+            return (s.cycleCount % 8 == 7) ? MetricPath::Gathering
+                                           : MetricPath::Additive;
+        case Role::Density:
+            return (s.cycleCount % 4 == 3) ? MetricPath::OpenBreath
+                                           : MetricPath::Conversational;
+        case Role::Gesture:
+            return activeOtherStrandCount(s) <= 0 ? MetricPath::Conversational
+                                                  : MetricPath::OpenBreath;
+    }
+    return MetricPath::Additive;
+}
+
+void T5ynthGenerativeSequencer::buildMetricGroups(int steps, MetricPath path,
+                                                   int* groups, int* groupCount) const
+{
+    steps = juce::jlimit(1, MAX_STEPS, steps);
+    *groupCount = 0;
+
+    auto push = [&](int len) {
+        if (len <= 0 || *groupCount >= MAX_STEPS) return;
+        groups[(*groupCount)++] = len;
+    };
+
+    auto buildAdditive = [&]() {
+        int remaining = steps;
+        while (remaining > 0 && *groupCount < MAX_STEPS)
+        {
+            if (remaining == 1 && *groupCount > 0)
+            {
+                if (groups[*groupCount - 1] > 2)
+                {
+                    groups[*groupCount - 1] -= 1;
+                    push(2);
+                }
+                else
+                {
+                    groups[*groupCount - 1] += 1;
+                }
+                remaining = 0;
+            }
+            else if (remaining <= 4)
+            {
+                push(remaining);
+                remaining = 0;
+            }
+            else
+            {
+                push(3);
+                remaining -= 3;
+            }
+        }
+    };
+
+    switch (path)
+    {
+        case MetricPath::Gathering:
+        {
+            if (steps % 3 == 0)
+            {
+                for (int remaining = steps; remaining > 0; remaining -= 3)
+                    push(3);
+            }
+            else if (steps >= 10)
+            {
+                int remaining = steps;
+                while (remaining > 0)
+                {
+                    if (remaining > 4) { push(4); remaining -= 4; }
+                    else               { push(remaining); remaining = 0; }
+                }
+            }
+            else
+            {
+                buildAdditive();
+            }
+            break;
+        }
+
+        case MetricPath::Additive:
+            buildAdditive();
+            break;
+
+        case MetricPath::Conversational:
+        {
+            int remaining = steps;
+            while (remaining > 0 && *groupCount < MAX_STEPS)
+            {
+                if (remaining > 4) { push(4); remaining -= 4; }
+                else               { push(remaining); remaining = 0; }
+            }
+            break;
+        }
+
+        case MetricPath::OpenBreath:
+        {
+            int remaining = steps;
+            if (remaining >= 10)      { push(5); remaining -= 5; }
+            else if (remaining >= 7)  { push(4); remaining -= 4; }
+
+            while (remaining > 0 && *groupCount < MAX_STEPS)
+            {
+                if (remaining == 1)      { push(1); remaining = 0; }
+                else if (remaining == 4) { push(2); push(2); remaining = 0; }
+                else                     { const int n = juce::jmin(3, remaining); push(n); remaining -= n; }
+            }
+            break;
+        }
+    }
+
+    if (*groupCount <= 0)
+        push(steps);
+}
+
+int T5ynthGenerativeSequencer::metricPhaseOffset(const Strand& s, MetricPath path) const
+{
+    const int steps = juce::jmax(1, s.numSteps);
+    const int idx = strandIndexOf(s);
+    switch (path)
+    {
+        case MetricPath::Gathering:      return 0;
+        case MetricPath::Additive:       return positiveModulo(idx, steps);
+        case MetricPath::Conversational: return positiveModulo(1 + idx * 2 + s.rotation, steps);
+        case MetricPath::OpenBreath:     return positiveModulo(steps / 2 + idx + s.rotation, steps);
+    }
+    return 0;
+}
+
+T5ynthGenerativeSequencer::MetricMoment
+T5ynthGenerativeSequencer::metricMomentForStep(const Strand& s, int stepIdx) const
+{
+    MetricMoment moment;
+    moment.path = metricPathForStrand(s);
+    moment.downbeat = stepIdx == 0;
+
+    int groups[MAX_STEPS];
+    int groupCount = 0;
+    buildMetricGroups(s.numSteps, moment.path, groups, &groupCount);
+
+    const int localStep = positiveModulo(stepIdx + metricPhaseOffset(s, moment.path), s.numSteps);
+    int pos = 0;
+    int groupIndex = 0;
+    for (; groupIndex < groupCount; ++groupIndex)
+    {
+        const int len = groups[groupIndex];
+        if (localStep >= pos && localStep < pos + len)
+        {
+            moment.groupLength = len;
+            moment.groupStart = localStep == pos;
+            moment.groupEnd = localStep == pos + len - 1;
+            moment.anticipatesGroup = len > 1 && localStep == pos + len - 2;
+            moment.phraseEnd = groupIndex == groupCount - 1 && moment.groupEnd;
+            break;
+        }
+        pos += len;
+    }
+
+    moment.accent = 1.0f;
+    if (moment.downbeat)   moment.accent += 0.42f;
+    if (moment.groupStart) moment.accent += 0.22f;
+    if (moment.groupEnd)   moment.accent -= 0.08f;
+    if (moment.groupLength == 1)
+        moment.accent -= 0.16f;
+
+    moment.breath = 1.0f;
+    if (moment.anticipatesGroup) moment.breath *= 0.92f;
+    if (moment.groupEnd)         moment.breath *= 0.78f;
+    if (moment.phraseEnd)        moment.breath *= 0.72f;
+    if (moment.groupLength == 1) moment.breath *= 0.50f;
+    if (moment.path == MetricPath::OpenBreath && moment.phraseEnd)
+        moment.breath *= 0.60f;
+
+    return moment;
+}
+
+bool T5ynthGenerativeSequencer::isMetricStrongStep(const Strand& s, int stepIdx) const
+{
+    const auto moment = metricMomentForStep(s, stepIdx);
+    return moment.downbeat || moment.groupStart;
+}
+
+int T5ynthGenerativeSequencer::activeOtherStrandCount(const Strand& s) const
+{
+    int count = 0;
+    for (const auto& other : strands)
+        if (&other != &s && other.enabled && other.lastPlayedNote >= 0)
+            ++count;
+    return count;
+}
+
+float T5ynthGenerativeSequencer::contextualFireProbability(const Strand& s, int stepIdx,
+                                                            bool isPulse,
+                                                            bool isStrong) const
+{
+    const auto moment = metricMomentForStep(s, stepIdx);
+    float probability = roleFireProbability(s, isPulse, isStrong);
+
+    probability *= 0.88f + 0.12f * moment.accent;
+    probability *= moment.breath;
+
+    if (isPulse && moment.groupStart)
+        probability += 0.06f;
+    if (!isPulse && moment.groupEnd)
+        probability *= 0.70f;
+    if (moment.phraseEnd && s.role != Role::Anchor)
+        probability *= 0.74f;
+
+    const int activeOthers = activeOtherStrandCount(s);
+    if (activeOthers <= 0)
+    {
+        if (s.role == Role::Anchor || s.role == Role::Line)
+            probability += isStrong ? 0.10f : 0.04f;
+        else if (!isPulse)
+            probability *= 0.75f;
+    }
+    else if (activeOthers >= 2)
+    {
+        switch (s.role)
+        {
+            case Role::Anchor:
+                probability *= isStrong ? 1.04f : 0.92f;
+                break;
+            case Role::Line:
+                probability *= isStrong ? 0.96f : 0.78f;
+                break;
+            case Role::Density:
+                probability *= isStrong ? 0.82f : 0.48f;
+                break;
+            case Role::Gesture:
+                probability *= isStrong ? 0.76f : 0.36f;
+                break;
+        }
+    }
+
+    if (activeOthers >= 3 && !isStrong)
+        probability *= 0.38f;
+
+    return juce::jlimit(0.0f, 1.0f, probability);
+}
+
+float T5ynthGenerativeSequencer::metricGateScale(const Strand& s, int stepIdx,
+                                                  bool isPulse,
+                                                  bool isStrong) const
+{
+    const auto moment = metricMomentForStep(s, stepIdx);
+    float scale = 1.0f;
+
+    if (moment.groupStart && isPulse) scale *= 1.08f;
+    if (moment.anticipatesGroup)      scale *= 0.90f;
+    if (moment.groupEnd)              scale *= 0.84f;
+    if (moment.phraseEnd)             scale *= (s.role == Role::Anchor ? 0.95f : 0.68f);
+    if (isStrong && s.role == Role::Anchor)
+        scale *= 1.10f;
+
+    const int activeOthers = activeOtherStrandCount(s);
+    if (activeOthers >= 2 && (s.role == Role::Density || s.role == Role::Gesture))
+        scale *= 0.76f;
+    if (activeOthers <= 0 && s.role == Role::Anchor)
+        scale *= 1.12f;
+
+    return juce::jlimit(0.35f, 1.25f, scale);
+}
+
 int T5ynthGenerativeSequencer::baseMidiForStrand(const Strand& s) const
 {
-    return (&s == &strands[0]) ? 60 : 48;
+    const int idx = strandIndexOf(s);
+    int base = 60;
+    switch (s.role)
+    {
+        case Role::Anchor:  base = 48; break;
+        case Role::Line:    base = 60; break;
+        case Role::Density: base = 60; break;
+        case Role::Gesture: base = 72; break;
+    }
+
+    static constexpr int kStrandRegisterOffsets[MAX_STRANDS] = { 0, -7, 5, 12 };
+    return juce::jlimit(24, 96, base + kStrandRegisterOffsets[static_cast<size_t>(idx)]);
 }
 
 int T5ynthGenerativeSequencer::voiceLedFieldMember(int rawPc) const
@@ -1200,6 +1518,7 @@ int T5ynthGenerativeSequencer::velocityForNote(const Strand& s, int stepIdx, int
                                                 bool isPulse, bool isStrong)
 {
     int velocity = roleVelocityBase(s, isPulse, isStrong);
+    const auto moment = metricMomentForStep(s, stepIdx);
 
     if (&s == &strands[0] && s.role == Role::Line)
         velocity += 8; // Voice 1 is the foreground melody.
@@ -1208,6 +1527,12 @@ int T5ynthGenerativeSequencer::velocityForNote(const Strand& s, int stepIdx, int
 
     if (isPulse && s.accentPattern[static_cast<size_t>(stepIdx)])
         velocity += s.role == Role::Line ? 6 : 4;
+    if (isPulse && moment.groupStart)
+        velocity += juce::roundToInt((moment.accent - 1.0f) * 14.0f);
+    if (moment.groupEnd && !moment.downbeat)
+        velocity -= 3;
+    if (moment.phraseEnd && s.role != Role::Anchor)
+        velocity -= 7;
 
     if (!isPulse)
         velocity -= s.role == Role::Density ? 8 : 12;
@@ -1228,6 +1553,12 @@ int T5ynthGenerativeSequencer::velocityForNote(const Strand& s, int stepIdx, int
             else if (melodicDelta < 0) velocity -= 1;
         }
     }
+
+    const int activeOthers = activeOtherStrandCount(s);
+    if (activeOthers <= 0 && (s.role == Role::Anchor || s.role == Role::Line))
+        velocity += 3;
+    else if (activeOthers >= 2 && !isStrong)
+        velocity -= (s.role == Role::Density || s.role == Role::Gesture) ? 8 : 3;
 
     const int jitterRange = s.role == Role::Density ? 3
                          : s.role == Role::Gesture ? 5
@@ -1253,7 +1584,9 @@ int T5ynthGenerativeSequencer::pickNote(Strand& s, int stepIdx, int rawDegree)
     auto scale = static_cast<ScaleQuantizer::Scale>(
         juce::jlimit(1, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
 
-    const bool isStrong = (stepIdx == 0) || s.accentPattern[static_cast<size_t>(stepIdx)];
+    const bool isStrong = (stepIdx == 0)
+                       || s.accentPattern[static_cast<size_t>(stepIdx)]
+                       || isMetricStrongStep(s, stepIdx);
     const int contourBase = baseMidiForStrand(s) + s.octaveShift * 12;
     const int contourMidi = ScaleQuantizer::degreeToMidi(rawDegree, scaleRoot, scale, contourBase);
 
@@ -1428,8 +1761,10 @@ void T5ynthGenerativeSequencer::processBlock(juce::AudioBuffer<float>& buffer,
 
         // Determine if this step should fire
         const bool isPulse = s.eucPattern[static_cast<size_t>(stepIdx)];
-        const bool isStrong = (stepIdx == 0) || s.accentPattern[static_cast<size_t>(stepIdx)];
-        const float fireProb = roleFireProbability(s, isPulse, isStrong);
+        const bool isStrong = (stepIdx == 0)
+                           || s.accentPattern[static_cast<size_t>(stepIdx)]
+                           || isMetricStrongStep(s, stepIdx);
+        const float fireProb = contextualFireProbability(s, stepIdx, isPulse, isStrong);
 
         // Resolve the degree for this step. Pulses use their own degree;
         // ghost positions inherit the nearest pulse's degree (non-destructive
@@ -1461,7 +1796,8 @@ void T5ynthGenerativeSequencer::processBlock(juce::AudioBuffer<float>& buffer,
 
             s.lastPlayedNote       = note;
             s.previousOutputNote   = note;
-            s.samplesUntilGateOff  = static_cast<double>(roleGateFraction(s)) * stepDur;
+            s.samplesUntilGateOff  = static_cast<double>(roleGateFraction(s)
+                                      * metricGateScale(s, stepIdx, isPulse, isStrong)) * stepDur;
         }
         else
         {

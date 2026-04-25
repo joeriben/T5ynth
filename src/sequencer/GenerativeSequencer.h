@@ -160,6 +160,32 @@ private:
         Gesture = 3,   // sparse field-based punctuations with register contrast
     };
 
+    /**
+     * Internal rhythmic path. This is intentionally contextual rather than a
+     * public preset parameter for now: role + step count select a distinct
+     * metric attitude without widening preset migration.
+     */
+    enum class MetricPath : int
+    {
+        Gathering      = 0,  // stable common accents around the center
+        Additive       = 1,  // 3/2 additive groupings (9=3-3-3, 11=3-3-3-2)
+        Conversational = 2,  // offset 4-based groupings (9=4-4-1, 11=4-4-3)
+        OpenBreath     = 3,  // sparse windows and caesuras
+    };
+
+    struct MetricMoment
+    {
+        MetricPath path = MetricPath::Additive;
+        bool downbeat = false;
+        bool groupStart = false;
+        bool groupEnd = false;
+        bool anticipatesGroup = false;
+        bool phraseEnd = false;
+        int groupLength = 0;
+        float accent = 1.0f;
+        float breath = 1.0f;
+    };
+
     /** Per-strand pattern + playback state. */
     struct Strand
     {
@@ -270,6 +296,15 @@ private:
     // Per-strand rendering — Phase 3.
     double strandStepDurationSamples(const Strand& s) const;
     int    baseMidiForStrand(const Strand& s) const;
+    int    strandIndexOf(const Strand& s) const;
+    MetricPath metricPathForStrand(const Strand& s) const;
+    void   buildMetricGroups(int steps, MetricPath path, int* groups, int* groupCount) const;
+    int    metricPhaseOffset(const Strand& s, MetricPath path) const;
+    MetricMoment metricMomentForStep(const Strand& s, int stepIdx) const;
+    bool   isMetricStrongStep(const Strand& s, int stepIdx) const;
+    int    activeOtherStrandCount(const Strand& s) const;
+    float  contextualFireProbability(const Strand& s, int stepIdx, bool isPulse, bool isStrong) const;
+    float  metricGateScale(const Strand& s, int stepIdx, bool isPulse, bool isStrong) const;
     int    pickNote(Strand& s, int stepIdx, int rawDegree);
     int    voiceLedFieldMember(int rawPc) const;
     bool   fieldContains(int pc) const;
