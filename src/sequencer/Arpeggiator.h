@@ -52,8 +52,12 @@ public:
     int getLastPlayedNote() const { return lastPlayedNote; }
 
 private:
-    static constexpr int CHORD_INTERVALS[] = { 0, 4, 7 }; // Major triad
-    static constexpr int NUM_CHORD_NOTES = 3;
+    // Classic single-note arpeggio: the held base note is repeated across
+    // the configured octave range. The previous {0, 4, 7} chord stack
+    // forced a major triad on every base note regardless of context, which
+    // collided with non-tonal Pitch-Field material in the gen sequencer.
+    static constexpr int CHORD_INTERVALS[] = { 0 };
+    static constexpr int NUM_CHORD_NOTES = 1;
 
     Mode mode = Mode::Up;
     int rate = 2; // default 1/16
