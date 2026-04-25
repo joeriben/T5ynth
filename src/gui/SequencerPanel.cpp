@@ -454,6 +454,31 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         genFieldRateA = std::make_unique<SA>(apvts, PID::genFieldRate, genFieldRateRow->getSlider());
         genFieldRateRow->getSlider().onValueChange = [this] { genFieldRateRow->updateValue(); };
         genFieldRateRow->updateValue();
+
+        // Field Center PC — pitch-class anchor (Anchor strands lock here;
+        // Dominance pulls others toward it).
+        juce::StringArray pcItems;
+        for (const auto& e : ScaleRoot::kEntries) pcItems.add(e.label);
+        genFieldCenterPcBox.addItemList(pcItems, 1);
+        genFieldCenterPcBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
+        genFieldCenterPcBox.setColour(juce::ComboBox::textColourId, kSeqCol);
+        genFieldCenterPcBox.setColour(juce::ComboBox::outlineColourId, kBorder);
+        genFieldCenterPcBox.setTooltip("Field center pitch-class (downbeat anchor)");
+        addAndMakeVisible(genFieldCenterPcBox);
+        // genFieldCenterPc is AudioParameterInt 0..11; ComboBoxAttachment maps
+        // the 12 dropdown items 1..12 onto the parameter's integer range.
+        genFieldCenterPcA = std::make_unique<CA>(apvts, PID::genFieldCenterPc, genFieldCenterPcBox);
+
+        // Field Pivot interval — only consulted when Mode == Pivot.
+        juce::StringArray pivotItems;
+        for (const auto& e : FieldPivot::kEntries) pivotItems.add(e.label);
+        genFieldPivotBox.addItemList(pivotItems, 1);
+        genFieldPivotBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
+        genFieldPivotBox.setColour(juce::ComboBox::textColourId, kSeqCol);
+        genFieldPivotBox.setColour(juce::ComboBox::outlineColourId, kBorder);
+        genFieldPivotBox.setTooltip("Pivot interval (only used in Pivot mode)");
+        addAndMakeVisible(genFieldPivotBox);
+        genFieldPivotA = std::make_unique<CA>(apvts, PID::genFieldPivot, genFieldPivotBox);
     }
     {
         juce::StringArray roleItems;
@@ -1179,6 +1204,8 @@ void SequencerPanel::resized()
     genFixMutationBtn.setVisible(genModeActive);
     genFieldModeBox.setVisible(genModeActive);
     if (genFieldRateRow) genFieldRateRow->setVisible(genModeActive);
+    genFieldCenterPcBox.setVisible(genModeActive);
+    genFieldPivotBox.setVisible(genModeActive);
     for (int i = 0; i < kNumExtraStrands; ++i)
     {
         strandEnableBtns[i].setVisible(genModeActive);
@@ -1264,12 +1291,18 @@ void SequencerPanel::resized()
             }
             leftCol.removeFromTop(intraGap);
 
-            // ── Left column — Row L2: Field Mode + Field Rate ──
+            // ── Left column — Row L2: Field Mode + Center PC + Pivot + Rate ──
             {
                 auto rowL2 = leftCol;   // remaining height = genCtrlH
-                const int modeW  = 95;
-                const int gapSm  = 4;
+                const int modeW   = 95;
+                const int centerW = 48;   // C..B[#] — 2 chars max
+                const int pivotW  = 50;   // "Tri" / "m3" — 3 chars max
+                const int gapSm   = 4;
                 genFieldModeBox.setBounds(rowL2.removeFromLeft(modeW));
+                rowL2.removeFromLeft(gapSm);
+                genFieldCenterPcBox.setBounds(rowL2.removeFromLeft(centerW));
+                rowL2.removeFromLeft(gapSm);
+                genFieldPivotBox.setBounds(rowL2.removeFromLeft(pivotW));
                 rowL2.removeFromLeft(gapSm);
                 if (genFieldRateRow) genFieldRateRow->setBounds(rowL2);
             }
