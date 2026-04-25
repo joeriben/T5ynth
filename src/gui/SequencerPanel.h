@@ -108,8 +108,8 @@ private:
     // Shared pitch-field controls
     juce::ComboBox genFieldModeBox;
     std::unique_ptr<SliderRow> genFieldRateRow;   // TODO: inline-value variant of SliderRow
-    // Per-extra-strand (indices 0..2 map to strands 2..4)
-    static constexpr int kNumExtraStrands = 3;
+    // Per-extra-strand (indices 0..3 map to strands 2..5)
+    static constexpr int kNumExtraStrands = 4;
     juce::TextButton strandEnableBtns[kNumExtraStrands];
     juce::ComboBox   strandRoleBoxes[kNumExtraStrands];
 

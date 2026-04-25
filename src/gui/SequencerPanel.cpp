@@ -459,12 +459,12 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         juce::StringArray roleItems;
         for (const auto& e : StrandRole::kEntries) roleItems.add(e.label);
         static const char* kEnablePIDs[kNumExtraStrands] = {
-            PID::gen2Enable, PID::gen3Enable, PID::gen4Enable
+            PID::gen2Enable, PID::gen3Enable, PID::gen4Enable, PID::gen5Enable
         };
         static const char* kRolePIDs[kNumExtraStrands] = {
-            PID::gen2Role, PID::gen3Role, PID::gen4Role
+            PID::gen2Role, PID::gen3Role, PID::gen4Role, PID::gen5Role
         };
-        static const char* kStrandLabels[kNumExtraStrands] = { "S2", "S3", "S4" };
+        static const char* kStrandLabels[kNumExtraStrands] = { "S2", "S3", "S4", "S5" };
 
         for (int i = 0; i < kNumExtraStrands; ++i)
         {
@@ -1160,14 +1160,15 @@ void SequencerPanel::resized()
 
         area.removeFromTop(g);
 
-        // Polyphony row: [Mode▾] [Rate==] | [S2][Role▾] [S3][Role▾] [S4][Role▾]
+        // Polyphony row: [Mode▾] [Rate==] | [S2][Role▾] [S3][Role▾] [S4][Role▾] [S5][Role▾]
         // Proportional fill: Field Rate gets 2 units, each Role gets 1 unit
         // of the remaining space after fixed elements + gaps are subtracted.
+        // With kNumExtraStrands strand clusters the unit divisor is 2 + N.
         {
             auto rowP = area.removeFromTop(genCtrlH);
             const int rowW  = rowP.getWidth();
             const int modeW = 95;   // "Transform" is the longest mode label — 70 px truncated it to "Transfo"
-            const int onW   = 28;   // "S2"/"S3"/"S4" with margin
+            const int onW   = 28;   // "Sx" button with margin
             const int gapA  = 4;    // after Field Mode
             const int gapB  = 8;    // between field group and strand group
             const int gapC  = 2;    // between ON btn and role dropdown
@@ -1177,8 +1178,9 @@ void SequencerPanel::resized()
                                  + gapA + gapB
                                  + gapC * kNumExtraStrands
                                  + gapD * (kNumExtraStrands - 1);
-            const int flexTotal  = juce::jmax(5 * 30, rowW - fixedTotal);
-            const int unit       = flexTotal / 5;
+            const int unitDiv    = 2 + kNumExtraStrands;
+            const int flexTotal  = juce::jmax(unitDiv * 30, rowW - fixedTotal);
+            const int unit       = flexTotal / unitDiv;
             const int rateW      = 2 * unit;
             const int roleW      = unit;
 
