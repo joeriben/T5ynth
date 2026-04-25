@@ -17,19 +17,26 @@ PipeInference::~PipeInference()
 
 juce::File PipeInference::findBundledBinary(const juce::File& backendDir) const
 {
-    // PyInstaller-bundled binary: backendDir/dist/pipe_inference/pipe_inference
+    // PyInstaller-bundled binary:
+    //   POSIX   backendDir/dist/pipe_inference/pipe_inference
+    //   Windows backendDir/dist/pipe_inference/pipe_inference.exe
     auto dist = backendDir.getChildFile("dist/pipe_inference/pipe_inference");
     if (isCompatibleBundledBinary(dist)) return dist;
 
-    // Installed layout: binary next to backendDir
-    // macOS app bundle: Contents/Resources/backend/pipe_inference
-    // Linux/Windows:    backend/pipe_inference(.exe)
-    auto sibling = backendDir.getChildFile("pipe_inference");
-    if (isCompatibleBundledBinary(sibling)) return sibling;
-
    #ifdef _WIN32
+    auto distExe = backendDir.getChildFile("dist/pipe_inference/pipe_inference.exe");
+    if (isCompatibleBundledBinary(distExe)) return distExe;
+
+    // Installed layout: binary next to backendDir
+    // Windows: backend/pipe_inference.exe
     auto siblingExe = backendDir.getChildFile("pipe_inference.exe");
     if (isCompatibleBundledBinary(siblingExe)) return siblingExe;
+   #else
+    // Installed layout: binary next to backendDir
+    // macOS app bundle: Contents/Resources/backend/pipe_inference
+    // Linux:            backend/pipe_inference
+    auto sibling = backendDir.getChildFile("pipe_inference");
+    if (isCompatibleBundledBinary(sibling)) return sibling;
    #endif
 
     return {};  // not found — fall back to Python
@@ -234,14 +241,19 @@ bool PipeInference::launch(const juce::File& backendDir)
         if (!script.existsAsFile())
         {
             const auto dist = backendDir.getChildFile("dist/pipe_inference/pipe_inference");
-            const auto sibling = backendDir.getChildFile("pipe_inference");
            #ifdef _WIN32
+            const auto distExe = backendDir.getChildFile("dist/pipe_inference/pipe_inference.exe");
             const auto siblingExe = backendDir.getChildFile("pipe_inference.exe");
+           #else
+            const auto sibling = backendDir.getChildFile("pipe_inference");
            #endif
 
-            if (dist.existsAsFile() || sibling.existsAsFile()
+            if (dist.existsAsFile()
                #ifdef _WIN32
+                || distExe.existsAsFile()
                 || siblingExe.existsAsFile()
+               #else
+                || sibling.existsAsFile()
                #endif
             )
             {
