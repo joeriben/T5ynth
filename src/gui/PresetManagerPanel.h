@@ -7,7 +7,6 @@
 #include "GuiHelpers.h"
 #include "AxesPanel.h"
 #include "../presets/PresetFormat.h"
-#include "../presets/PresetTagSuggester.h"
 
 /**
  * Three-pane preset library overlay.
@@ -182,21 +181,38 @@ public:
                 return a.name.compareIgnoreCase(b.name) < 0;
             });
 
-        // Sidebar vocabulary — banks come from actual disk layout, models +
-        // tags from parsed JSON content. Drives sidebar filter chips.
-        std::set<juce::String> banks, models, tags;
-        for (auto& e : allEntries)
-        {
-            if (e.bank.isNotEmpty())  banks.insert(e.bank);
-            if (e.model.isNotEmpty()) models.insert(e.model);
-            for (auto& t : e.tags)    tags.insert(t);
-        }
-        sidebar.setVocabulary({ banks.begin(),  banks.end()  },
-                              { models.begin(), models.end() },
-                              { tags.begin(),   tags.end()   });
+        refreshSidebarVocabulary();
 
         rebuildFiltered();
         setStatusText(allEntries.empty() ? "No presets found" : "");
+    }
+
+    void updateTagsForFile(const juce::File& file, const juce::StringArray& tags)
+    {
+        const int updatedIndex = findEntryIndexForFile(file);
+        if (updatedIndex < 0) return;
+
+        allEntries[(size_t) updatedIndex].tags = normaliseTags(tags);
+        refreshSidebarVocabulary();
+        rebuildFiltered();
+
+        for (size_t row = 0; row < filteredIndices.size(); ++row)
+        {
+            if (filteredIndices[row] == updatedIndex)
+            {
+                presetList.selectRow((int) row, false, true);
+                detail.setEntry(allEntries[(size_t) updatedIndex]);
+                presetList.repaint();
+                return;
+            }
+        }
+
+        if (selectedEntryIndex == updatedIndex)
+        {
+            selectedEntryIndex = -1;
+            detail.clear();
+        }
+        presetList.repaint();
     }
 
     void setCurrentPreset(const juce::File& file, const juce::String& name)
@@ -286,6 +302,41 @@ private:
         return full;
     }
 
+    static juce::StringArray normaliseTags(const juce::StringArray& input)
+    {
+        juce::StringArray tags = input;
+        tags.trim();
+        tags.removeEmptyStrings();
+        tags.removeDuplicates(true);
+        return tags;
+    }
+
+    int findEntryIndexForFile(const juce::File& file) const
+    {
+        for (size_t i = 0; i < allEntries.size(); ++i)
+            if (allEntries[i].file == file)
+                return (int) i;
+
+        return -1;
+    }
+
+    void refreshSidebarVocabulary()
+    {
+        // Sidebar vocabulary — banks come from actual disk layout, models and
+        // tags from saved preset metadata. Tags remain user-editable state; the
+        // Save dialog is where heuristic suggestions are proposed.
+        std::set<juce::String> banks, models, tags;
+        for (auto& e : allEntries)
+        {
+            if (e.bank.isNotEmpty())  banks.insert(e.bank);
+            if (e.model.isNotEmpty()) models.insert(e.model);
+            for (auto& t : e.tags)    tags.insert(t);
+        }
+        sidebar.setVocabulary({ banks.begin(),  banks.end()  },
+                              { models.begin(), models.end() },
+                              { tags.begin(),   tags.end()   });
+    }
+
     Entry parseEntry(const juce::File& file, bool isFactory)
     {
         Entry e;
@@ -354,15 +405,6 @@ private:
                 auto t = v.toString().trim();
                 if (t.isNotEmpty()) e.tags.addIfNotAlreadyThere(t);
             }
-
-        // Cheap auto-tagging from prompt content — runs on every refresh
-        // for every preset, so the Sidebar TAGS section + filter is useful
-        // even for legacy presets without a persisted `tags` field. Audio-
-        // based tagging (analyzeNormalizeRegion) is not done here because
-        // it would force decoding every preset's embedded PCM on each
-        // library scan.
-        for (auto& t : PresetTagSuggester::fromPrompts(e.promptA, e.promptB))
-            e.tags.addIfNotAlreadyThere(t);
 
         if (auto* axesArr = root->getProperty("semanticAxes").getArray())
         {

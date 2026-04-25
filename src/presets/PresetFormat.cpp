@@ -53,15 +53,13 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
                           ? processor.getLastPresetName().trim()
                           : file.getFileNameWithoutExtension());
 
-    // Tags (optional; written when non-empty so legacy presets stay clean)
+    // Tags are always written, even when empty, so clearing all tags is an
+    // explicit saved state rather than falling back to legacy inference.
     {
         const auto& tags = processor.getLastTags();
-        if (! tags.isEmpty())
-        {
-            juce::Array<juce::var> tagArr;
-            for (auto& t : tags) tagArr.add(t);
-            root->setProperty("tags", tagArr);
-        }
+        juce::Array<juce::var> tagArr;
+        for (auto& t : tags) tagArr.add(t);
+        root->setProperty("tags", tagArr);
     }
 
     // Patch in prompts (exportJsonPreset leaves them empty)

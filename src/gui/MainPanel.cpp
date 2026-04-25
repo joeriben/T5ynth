@@ -135,6 +135,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         }
         if (file == currentPresetFile)
             processorRef.setLastTags(newTags);
+        presetManager.updateTagsForFile(file, newTags);
         presetManager.setStatusText("Tags saved");
     };
     presetManager.onRenameRequested = [this](const juce::File& file)
@@ -564,11 +565,6 @@ bool MainPanel::patchPresetTagsField(const juce::File& file, const juce::StringA
 {
     return patchPresetJson(file, [&](juce::DynamicObject& root)
     {
-        if (newTags.isEmpty())
-        {
-            root.removeProperty("tags");
-            return;
-        }
         juce::Array<juce::var> arr;
         for (auto& t : newTags) arr.add(t);
         root.setProperty("tags", arr);
