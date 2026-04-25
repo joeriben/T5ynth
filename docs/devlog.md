@@ -1,5 +1,31 @@
 # T5ynth Development Log
 
+## 2026-04-25 — Aftertouch Deferred
+
+Aftertouch is explicitly **not a near-term priority**. The feature remains a
+possible later addition, but only after higher-value work is done.
+
+### Why it is deferred
+
+- There is currently **no AT path** in the synth. `PluginProcessor` only handles
+  `NoteOn` / `NoteOff` in the sample-accurate MIDI split loop.
+- The current render path splits the audio block at MIDI event boundaries. A
+  dense AT stream would therefore increase sub-block fragmentation and
+  `renderBlock()` churn.
+- `VoiceManager` and `SynthVoice` currently have no dedicated per-voice pressure
+  state, so **Poly AT** would not be a small UI addition; it would require new
+  voice-state plumbing and careful real-time handling.
+
+### If revisited later
+
+Keep v1 deliberately small:
+- **Channel AT only**
+- one target plus amount
+- targets limited to obvious real-time destinations such as `DCA`, `Filter`, or
+  `Pitch`
+
+Do not start with Poly AT, multi-target routing, or a mini mod-matrix.
+
 ## 2026-04-24 — Sampler Normalize Rework (signal-aware, linear)
 
 Replaced the sampler's `RMS -> soft-knee tanh` normalize path with a **signal-aware, fully linear normalization stage** in `SamplePlayer`. The old approach could sound fine on some material but broke down on low-RMS choir-style samples because it tried to force a fixed RMS target and then hid the overshoot inside a nonlinearity. The new path explicitly avoids that failure mode.
