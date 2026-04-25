@@ -819,8 +819,8 @@ The Pitch Field is the shared pitch-class set (pc-set) that all strands draw fro
   <tr><th>Control</th><th>Options</th><th>What It Does</th></tr>
   <tr><td><strong>Mode</strong></td><td>Static / Drift / Transform / Pivot</td><td>How the field evolves on Strand&nbsp;1's cycle boundary.</td></tr>
   <tr><td><strong>Rate</strong></td><td>1 &ndash; 32 cycles</td><td>How often the field changes (Static = never, regardless of rate).</td></tr>
-  <tr><td><strong>Center PC</strong></td><td>C &ndash; B (0 &ndash; 11)</td><td>Anchor pitch class. Anchor strands lock to this; Dominance pulls other strands toward it on strong beats.</td></tr>
-  <tr><td><strong>Pivot</strong></td><td>m3, M3, Tri (TT), P5</td><td>Transposition interval applied each tick in Pivot mode.</td></tr>
+  <tr><td><strong>Center PC</strong></td><td>derived</td><td>Follows the global <em>Scale Root</em> &mdash; the field anchor is always the chosen tonic. Anchor strands lock to it; Dominance pulls other strands toward it at cycle boundaries.</td></tr>
+  <tr><td><strong>Pivot interval</strong></td><td>derived</td><td>Chosen automatically from the Scale Type's character: <strong>P5</strong> for major-flavoured scales (Major, Mixolydian, Pentatonic, Pelog, Slendro&hellip;), <strong>m3</strong> for minor-flavoured scales (Minor, Dorian, Phrygian, Harmonic Minor, Hirajoshi, Hijaz, Persian&hellip;), <strong>Tri</strong> for symmetric or sharp-fourth scales (Whole-tone, Locrian, Lydian, Hungarian Minor). Used only when Mode = Pivot.</td></tr>
 </table>
 
 <h4>Field Modes</h4>

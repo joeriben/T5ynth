@@ -1224,12 +1224,37 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             parameters.getRawParameterValue(PID::genFieldMode)->load()));
         generativeSequencer.setFieldChangeRate(static_cast<int>(
             parameters.getRawParameterValue(PID::genFieldRate)->load()));
-        generativeSequencer.setFieldCenterPc(static_cast<int>(
-            parameters.getRawParameterValue(PID::genFieldCenterPc)->load()));
+        // Field Center PC follows Scale Root — they are conceptually the
+        // same anchor, and a separate "second tonic" dropdown was confusing.
+        const int scaleRootForField = static_cast<int>(
+            parameters.getRawParameterValue(PID::scaleRoot)->load());
+        generativeSequencer.setFieldCenterPc(scaleRootForField);
+
+        // Field Pivot interval is derived from Scale Type — its musical
+        // character chooses one of three universal pivots: P5 for major
+        // flavours, m3 for minor flavours, Tri for symmetric / sharp-fourth
+        // scales. Pivot mode then transposes the pc-set by this interval.
         {
-            int pivotIdx = juce::jlimit(0, FieldPivot::kCount - 1, static_cast<int>(
-                parameters.getRawParameterValue(PID::genFieldPivot)->load()));
-            generativeSequencer.setFieldPivotInterval(FieldPivot::kSemitones[pivotIdx]);
+            const int scaleTypeForField = static_cast<int>(
+                parameters.getRawParameterValue(PID::scaleType)->load());
+            int pivotSemitones = 7;  // P5 default
+            switch (scaleTypeForField)
+            {
+                case ScaleType::WhlT: case ScaleType::Locr:
+                case ScaleType::HunM: case ScaleType::Lyd:
+                case ScaleType::Hjz:
+                    pivotSemitones = 6; break;   // Tri
+                case ScaleType::Min:  case ScaleType::Dor:  case ScaleType::Phry:
+                case ScaleType::Harm: case ScaleType::MelM: case ScaleType::MinP:
+                case ScaleType::Blu:  case ScaleType::Hira: case ScaleType::InSn:
+                case ScaleType::Iwat: case ScaleType::Kumo: case ScaleType::Ryuk:
+                case ScaleType::DblH: case ScaleType::Todi: case ScaleType::Purv:
+                case ScaleType::Pers: case ScaleType::NeaM:
+                    pivotSemitones = 3; break;   // m3
+                default:
+                    pivotSemitones = 7; break;   // P5
+            }
+            generativeSequencer.setFieldPivotInterval(pivotSemitones);
         }
 
         // ── Inter-strand coordination ──
