@@ -12,11 +12,12 @@ Repository: `joeriben/t5ynth`. Default branch: `main`.
 
 T5ynth uses semantic version tags prefixed with `v`.
 
-- **Current public prerelease line:** `v1.0.0-beta.1`, `v1.0.0-beta.2`, ...
+- **Public prerelease sequence:** `v1.3.0-beta.N`, then `v1.3.0-rc.N`
+- **Current tagged release scope:** GitHub Releases currently publish the macOS and Windows installers.
+- **Stay on the beta line while the broader rollout (Linux, VST3/AU, and additional public platform assets) is still unfinished.**
 - **Do not cut stable `v1.x` until macOS end-user installation is proven reliable.**
-- **Stable releases, once justified:** `v1.0.0`, `v1.0.1`, ...
-- **Release candidates / pre-releases after 1.0:** `v1.0.0-rc.1`,
-  `v1.0.0-beta.1`, etc.
+- **Stable releases, once justified:** `v1.3.0`, `v1.3.1`, ...
+- **Examples:** `v1.3.0-beta.1`, `v1.3.0-beta.2`, `v1.3.0-rc.1`
 
 Implementation detail:
 
@@ -259,14 +260,14 @@ The `release` job downloads artifacts with `actions/download-artifact`,
 collects `.pkg` files plus `T5ynth-Windows-Setup.exe` into `release/`, and
 passes those files to `gh release create`.
 
-### Expected release assets for the current stable line (2 total)
+### Expected release assets for the current tagged release line (2 total)
 
 ```
 T5ynth-macOS-Installer.pkg
 T5ynth-Windows-Setup.exe
 ```
 
-For the current stable release process, GitHub Releases publish the macOS
+For the current tagged release process, GitHub Releases publish the macOS
 installer plus the Windows installer. Windows standalone/VST3 `.tar.xz`
 artefacts, Linux base artefacts, Fedora RPMs, Ubuntu/Debian `.deb`, VST3 and
 AU remain outside the public stable release page until each distribution path

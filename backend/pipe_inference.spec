@@ -46,6 +46,7 @@ hidden += [
     'stable_audio_tools.models.factory',
     'stable_audio_tools.models.utils',
 ]
+hidden += collect_submodules('dac')
 
 # safetensors: used by diffusers/transformers for .safetensors loading
 hidden += ['safetensors', 'safetensors.torch']
@@ -134,6 +135,8 @@ datas += copy_metadata('numpy')
 datas += copy_metadata('torchsde')
 datas += copy_metadata('accelerate')
 datas += copy_metadata('diffusers')
+datas += copy_metadata('descript-audio-codec')
+datas += copy_metadata('descript-audiotools')
 
 # ── Analysis ────────────────────────────────────────────────────────
 

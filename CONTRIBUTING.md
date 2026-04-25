@@ -172,14 +172,15 @@ A change that has only been compiled but never run is not ready for review.
 
 ## Releases and versioning
 
-Releases are tag-driven. Tagging `v*` on `main` triggers the release job in
-`.github/workflows/build.yml`, which builds, archives, and publishes binaries
-for all three platforms. See [docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md)
-for the full procedure.
+Releases are tag-driven. Tagging `v*` on `main` triggers the tag pipeline in
+`.github/workflows/build.yml`. Pull requests and pushes to `main` still build
+the macOS / Linux / Windows matrix, but tagged GitHub Releases currently
+publish only the macOS installer. See
+[docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md) for the full procedure.
 
 Versioning convention:
 
-- Current public prerelease line: `v1.0.0-beta.N`
+- Public prerelease sequence: `v1.0.0-beta.N`, then `v1.0.0-rc.N`
 - Do not cut stable `v1.0.x` until the installer path has been validated on end-user machines.
 - Stable releases, once justified: `v1.0.x`
 - Release candidates / pre-releases after 1.0: `v1.0.x-rc.N` (also `-alpha.N`,
