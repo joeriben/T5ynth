@@ -286,14 +286,27 @@ jobs:
           name: T5ynth-Windows-VST3
           path: archives/T5ynth-Windows-VST3.tar.xz
 
-      - name: Install Inno Setup
-        run: choco install innosetup --version=6.3.3 -y
+      - name: Ensure Inno Setup is available
+        shell: powershell
+        run: |
+          $isccPath = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\iscc.exe"
+          if (Test-Path $isccPath) {
+            Write-Host "Using preinstalled Inno Setup at $isccPath"
+            exit 0
+          }
+          choco install innosetup -y
+          if (-not (Test-Path $isccPath)) {
+            Write-Host "::error::Inno Setup was not found after installation"
+            exit 1
+          }
 
       - name: Build Windows installer (Inno Setup)
+        shell: powershell
         run: |
           $VERSION = "${{ github.ref_name }}" -replace '^v', ''
           if (-not $VERSION) { $VERSION = "0.0.0-dev" }
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" /DAppVersion="$VERSION" `
+          $isccPath = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\iscc.exe"
+          & $isccPath /DAppVersion="$VERSION" `
                /DStandaloneDir="..\..\dist\T5ynth" `
                /DVST3Dir="..\..\build\T5ynth_artefacts\Release\VST3" `
                /DPresetsDir="..\..\resources\presets" `
