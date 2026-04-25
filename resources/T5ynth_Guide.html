@@ -779,7 +779,7 @@ Each Euclidean parameter (Steps, Pulses, Rotation, Mutation) has a lock toggle. 
 <h3>Polyphonic Mode — Strands &amp; Pitch Field</h3>
 
 <p>
-GEN runs up to <strong>four parallel Strands</strong> (Strand 1 is always active; Strands 2&ndash;4 enable individually). Each strand owns its own Euclidean pattern (steps, pulses, rotation, mutation, fix flags), an octave shift, a tempo multiplier, and a textural <em>Role</em>. All strands run the same internal pipeline as Strand&nbsp;1 (Euclidean rhythm &rarr; Turing-machine degree walk &rarr; quantization), differing only in their parameters and their pitch source: Strand&nbsp;1 quantizes to the global Scale, Strands&nbsp;2&ndash;4 draw from the shared <strong>Pitch Field</strong>. Inter-strand interaction is governed by the <strong>Coordination Mode</strong> (see below) &mdash; not by per-event harmonic checks inside each strand.
+GEN runs up to <strong>five parallel Strands</strong> (Strand&nbsp;1 is always active; Strands&nbsp;2&ndash;5 enable individually). Each strand owns its own Euclidean pattern (steps, pulses, rotation, mutation, fix flags), an octave shift, a tempo multiplier, and a textural <em>Role</em>. All strands run the same internal pipeline as Strand&nbsp;1 (Euclidean rhythm &rarr; Turing-machine degree walk &rarr; quantization), differing only in their parameters and their pitch source: Strand&nbsp;1 quantizes to the global Scale, Strands&nbsp;2&ndash;5 draw from the shared <strong>Pitch Field</strong>. Four secondary strands plus the reference voice means each of the four roles (Anchor / Line / Density / Gesture) can be assigned to its own strand alongside Strand&nbsp;1, without having to drop one. Inter-strand interaction is governed by the <strong>Coordination Mode</strong> (see below) &mdash; not by per-event harmonic checks inside each strand.
 </p>
 
 <p>
@@ -790,7 +790,7 @@ The result is closer to a small ensemble than to a chord arpeggiator: rhythms cr
 
 <table>
   <tr><th>Control</th><th>Range</th><th>What It Does</th></tr>
-  <tr><td><strong>Enable</strong></td><td>on / off</td><td>Activates the strand. Strand 1 is always on; 2&ndash;4 are toggled.</td></tr>
+  <tr><td><strong>Enable</strong></td><td>on / off</td><td>Activates the strand. Strand 1 is always on; 2&ndash;5 are toggled.</td></tr>
   <tr><td><strong>Role</strong></td><td>Anchor / Line / Density / Gesture</td><td>Textural function (see below). Not a bass/lead hierarchy &mdash; each role defines register and rhythmic behavior.</td></tr>
   <tr><td><strong>Octave</strong></td><td>&minus;2 &hellip; +2</td><td>Register offset. Use to separate strands vertically.</td></tr>
   <tr><td><strong>Div&times;</strong></td><td>1/4&times;, 1/2&times;, 1&times;, 2&times;, 4&times;</td><td>Tempo multiplier relative to global division. Creates polyrhythms (e.g.&nbsp;3 strands at 1&times; / 2&times; / 4&times; = nested triplet feel).</td></tr>
@@ -1069,7 +1069,7 @@ All drift is bounded and reversible — parameters oscillate rather than running
 
 <h3>Layer 4: Polyphonic Strands</h3>
 <p>
-Up to four <strong>Strands</strong> run in parallel, each with its own Euclidean DNA, drift state, role, and tempo multiplier. Strands are not voices in a chord — they are independent agents sharing one pitch space. The polyrhythmic interplay arises naturally from the <code>Div×</code> multipliers (1/4×, 1/2×, 1×, 2×, 4× of the global division), which create non-coincident downbeats; cycle boundaries only realign on the lowest common multiple. Each strand runs the same internal pipeline as Strand&nbsp;1 (Euclidean rhythm + Turing degree-walk + quantization to its register); the role choice only sets default character. How strands interact (or don't) is decided by the <em>Coordination Mode</em>; see §9.
+Up to five <strong>Strands</strong> run in parallel, each with its own Euclidean DNA, drift state, role, and tempo multiplier. Strands are not voices in a chord — they are independent agents sharing one pitch space. The polyrhythmic interplay arises naturally from the <code>Div×</code> multipliers (1/4×, 1/2×, 1×, 2×, 4× of the global division), which create non-coincident downbeats; cycle boundaries only realign on the lowest common multiple. Each strand runs the same internal pipeline as Strand&nbsp;1 (Euclidean rhythm + Turing degree-walk + quantization to its register); the role choice only sets default character. How strands interact (or don't) is decided by the <em>Coordination Mode</em>; see §9. With four secondary strands available, every role (Anchor, Line, Density, Gesture) can be assigned uniquely if desired.
 </p>
 <p>
 Each strand's <em>Role</em> selects a different note-picking strategy from the shared field:
