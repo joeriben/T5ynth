@@ -21,6 +21,9 @@ public:
     void drawToggleButton(juce::Graphics& g, juce::ToggleButton& btn,
                           bool shouldDrawButtonAsHighlighted,
                           bool shouldDrawButtonAsDown) override;
+    juce::Font getTextButtonFont(juce::TextButton& button, int buttonHeight) override;
+    juce::Font getComboBoxFont(juce::ComboBox& box) override;
+    void positionComboBoxText(juce::ComboBox& box, juce::Label& label) override;
 
     // Colour IDs
     static constexpr juce::uint32 backgroundColourId = 0x1000000;

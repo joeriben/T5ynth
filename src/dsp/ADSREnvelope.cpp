@@ -26,8 +26,25 @@ float ADSREnvelope::applyCurve(float t, CurveShape shape)
 void ADSREnvelope::prepare(double sampleRate)
 {
     sr = sampleRate;
+    reset();
+}
+
+void ADSREnvelope::reset()
+{
     state = State::Idle;
     currentLevel = 0.0f;
+    targetVelocity = 1.0f;
+    attackStartLevel = 0.0f;
+    attackTarget = 1.0f;
+    attackSampleCount = 0;
+    attackTotalSamples = 1;
+    decayStartLevel = 1.0f;
+    decayTarget = sustainLevel;
+    decaySampleCount = 0;
+    decayTotalSamples = 1;
+    releaseStartLevel = 0.0f;
+    releaseSampleCount = 0;
+    releaseTotalSamples = 1;
     bypassed = false;
 }
 

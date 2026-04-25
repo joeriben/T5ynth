@@ -116,6 +116,21 @@ double T5ynthStepSequencer::stepDurationSamples() const
     return sampleRate * 60.0 / bpm * static_cast<double>(DIVISION_FACTORS[division]);
 }
 
+double T5ynthStepSequencer::shuffledStepDurationSamples(int stepIdx) const
+{
+    const double base = stepDurationSamples();
+    if (shuffle <= 0.0f || numSteps <= 1)
+        return base;
+
+    // Complete even/odd pairs keep their combined duration. If the pattern
+    // length is odd, the final unpaired interval stays straight.
+    if ((numSteps & 1) != 0 && stepIdx == numSteps - 1)
+        return base;
+
+    const double amount = static_cast<double>(shuffle);
+    return base * ((stepIdx & 1) == 0 ? (1.0 + amount) : (1.0 - amount));
+}
+
 void T5ynthStepSequencer::prepare(double sr, int /*samplesPerBlock*/)
 {
     sampleRate = sr;
@@ -138,7 +153,6 @@ void T5ynthStepSequencer::processBlock(juce::AudioBuffer<float>& buffer,
         return;
     }
 
-    const double stepDur = stepDurationSamples();
     const int numSamples = buffer.getNumSamples();
     int samplePos = 0;
 
@@ -189,6 +203,7 @@ void T5ynthStepSequencer::processBlock(juce::AudioBuffer<float>& buffer,
 
         // Step boundary event
         int stepIdx = scheduledStep % numSteps;
+        const double stepDur = shuffledStepDurationSamples(stepIdx);
         if (stepIdx == 0 && scheduledStep > 0)
             barStartFlag.store(true, std::memory_order_relaxed);
 
@@ -205,11 +220,12 @@ void T5ynthStepSequencer::processBlock(juce::AudioBuffer<float>& buffer,
         // Note-on for current step if enabled
         if (step.enabled)
         {
+            int midiNote = juce::jlimit(0, 127, step.note + octaveShiftSemitones);
             int vel = juce::jlimit(1, 127, juce::roundToInt(step.velocity * 127.0f));
             int channel = step.bind ? 2 : 1;
-            midi.addEvent(juce::MidiMessage::noteOn(channel, step.note,
+            midi.addEvent(juce::MidiMessage::noteOn(channel, midiNote,
                           static_cast<juce::uint8>(vel)), eventPos);
-            lastPlayedNote = step.note;
+            lastPlayedNote = midiNote;
 
             // If the NEXT step has bind, hold this note for the full step
             // (no early gate-off, so the voice stays alive for the pitch change)
@@ -244,6 +260,16 @@ void T5ynthStepSequencer::stop()
 void T5ynthStepSequencer::reset()
 {
     stop();
+}
+
+void T5ynthStepSequencer::allNotesOff(juce::MidiBuffer& midi, int sampleOffset)
+{
+    if (lastPlayedNote >= 0)
+    {
+        midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), sampleOffset);
+        lastPlayedNote = -1;
+    }
+    samplesUntilGateOff = -1.0;
 }
 
 void T5ynthStepSequencer::setNumSteps(int s)

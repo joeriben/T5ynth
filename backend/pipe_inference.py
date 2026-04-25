@@ -15,14 +15,83 @@ Noise generation is patched to use numpy PCG64 for cross-platform determinism
 
 import json
 import math
+import os
 import struct
 import sys
 import time
 import logging
+import copy
 from pathlib import Path
+
+
+def _configure_cpu_budget_env():
+    """Keep inference helper threads from starving the real-time audio process."""
+    worker_threads = os.environ.get("T5YNTH_INFERENCE_CPU_THREADS", "2").strip()
+    interop_threads = os.environ.get("T5YNTH_INFERENCE_INTEROP_THREADS", "1").strip()
+
+    def positive_int_or_default(raw_value, default):
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            return default
+        return max(1, value)
+
+    worker_threads = str(positive_int_or_default(worker_threads, 2))
+    interop_threads = str(positive_int_or_default(interop_threads, 1))
+
+    def cap_thread_env(key, limit):
+        raw_value = os.environ.get(key)
+        try:
+            current = int(raw_value) if raw_value is not None else None
+        except ValueError:
+            current = None
+
+        if current is None or current < 1 or current > int(limit):
+            os.environ[key] = limit
+
+    for key in (
+        "OMP_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+        "BLIS_NUM_THREADS",
+        "TORCH_NUM_THREADS",
+    ):
+        cap_thread_env(key, worker_threads)
+
+    cap_thread_env("TORCH_NUM_INTEROP_THREADS", interop_threads)
+    os.environ.setdefault("OMP_WAIT_POLICY", "PASSIVE")
+    os.environ.setdefault("KMP_BLOCKTIME", "0")
+    os.environ.setdefault("MKL_DYNAMIC", "TRUE")
+
+
+_configure_cpu_budget_env()
 
 import numpy as np
 import torch
+
+
+def _apply_torch_cpu_budget():
+    def env_int(name, default):
+        try:
+            return max(1, int(os.environ.get(name, str(default))))
+        except ValueError:
+            return default
+
+    worker_threads = env_int("TORCH_NUM_THREADS", 2)
+    interop_threads = env_int("TORCH_NUM_INTEROP_THREADS", 1)
+
+    try:
+        torch.set_num_threads(worker_threads)
+        torch.set_num_interop_threads(interop_threads)
+    except RuntimeError as exc:
+        logging.getLogger("pipe_inference").warning(
+            "Could not apply torch CPU budget after startup: %s", exc
+        )
+
+
+_apply_torch_cpu_budget()
 
 # ─── Cross-platform deterministic noise ─────────────────────────────
 # torch.Generator("cpu") and torch.Generator("cuda") are different PRNGs —
@@ -54,6 +123,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message
 log = logging.getLogger("pipe_inference")
 
 MAX_DIMENSION_OFFSET = 4.0
+BLACKWELL_MIN_CUDA = (12, 8)
 
 
 def _sanitize_dimension_offsets(raw_offsets):
@@ -109,10 +179,85 @@ def _apply_dimension_offsets(tensor, dim_offsets):
         if 0 <= idx < last_dim:
             tensor[:, :, idx] += value
 
+
+def _parse_version_tuple(raw_value):
+    """Parse '12.8' or '2.11.0.dev...' into a comparable integer tuple."""
+    if not raw_value:
+        return None
+
+    parts = []
+    for chunk in str(raw_value).split("."):
+        digits = ""
+        for char in chunk:
+            if char.isdigit():
+                digits += char
+            else:
+                break
+        if not digits:
+            break
+        parts.append(int(digits))
+
+    if not parts:
+        return None
+    if len(parts) == 1:
+        parts.append(0)
+    return tuple(parts[:2])
+
+
+def _is_blackwell_capability(capability):
+    """Treat sm_120+ GPUs as Blackwell-class devices."""
+    return bool(capability) and capability[0] >= 12
+
+
+def _validate_cuda_runtime_or_raise():
+    """Fail closed when the bundled torch runtime is too old for the host GPU."""
+    if os.environ.get("T5YNTH_ALLOW_INCOMPATIBLE_CUDA") == "1":
+        return
+
+    if not torch.cuda.is_available():
+        return
+
+    bundle_cuda_version = _parse_version_tuple(torch.version.cuda)
+    incompatible_devices = []
+
+    for device_index in range(torch.cuda.device_count()):
+        capability = torch.cuda.get_device_capability(device_index)
+        if not _is_blackwell_capability(capability):
+            continue
+
+        if bundle_cuda_version is None or bundle_cuda_version < BLACKWELL_MIN_CUDA:
+            incompatible_devices.append(
+                (
+                    device_index,
+                    torch.cuda.get_device_name(device_index),
+                    f"sm_{capability[0]}{capability[1]}",
+                )
+            )
+
+    if not incompatible_devices:
+        return
+
+    device_summary = ", ".join(
+        f"GPU{device_index} {name} ({sm_name})"
+        for device_index, name, sm_name in incompatible_devices
+    )
+    required_cuda = ".".join(str(part) for part in BLACKWELL_MIN_CUDA)
+    raise RuntimeError(
+        "Incompatible CUDA backend bundle: detected Blackwell GPU(s) "
+        f"{device_summary}, but this backend was built with torch "
+        f"{torch.__version__} / CUDA {torch.version.cuda or 'unknown'}. "
+        f"Blackwell requires a bundle built with CUDA {required_cuda}+ "
+        "(use the pinned Blackwell torch stack, not cu124)."
+    )
+
 # ─── Model loading ──────────────────────────────────────────────────
 
 def _model_format(model_dir):
     """Detect model format. Returns 'diffusers', 'audioldm2', 'native', or None."""
+    native_weights = any(
+        (model_dir / name).is_file()
+        for name in ("model.safetensors", "model.ckpt")
+    )
     model_index = model_dir / "model_index.json"
     if model_index.is_file():
         try:
@@ -122,8 +267,10 @@ def _model_format(model_dir):
                 return "audioldm2"
         except (json.JSONDecodeError, OSError):
             pass
+        if native_weights and (model_dir / "model_config.json").is_file():
+            return "native"
         return "diffusers"
-    if (model_dir / "model_config.json").is_file():
+    if native_weights and (model_dir / "model_config.json").is_file():
         return "native"
     return None
 
@@ -140,6 +287,7 @@ def find_models():
         base_dirs = [
             Path.home() / "Library" / "Application Support" / "T5ynth" / "models",  # per-user macOS (primary)
             Path.home() / "Library" / "T5ynth" / "models",       # legacy macOS
+            Path.home() / ".config" / "share" / "T5ynth" / "models",  # Linux current app data path
             Path.home() / ".local" / "share" / "T5ynth" / "models",  # Linux
             Path.home() / "t5ynth" / "models",                    # legacy
         ]
@@ -157,6 +305,122 @@ def find_models():
                 models[child.name] = child
                 _model_formats[child.name] = fmt
     return models
+
+
+def _user_model_roots():
+    """Return known per-user model roots across supported platforms."""
+    return [
+        Path.home() / "Library" / "Application Support" / "T5ynth" / "models",
+        Path.home() / "Library" / "T5ynth" / "models",
+        Path.home() / ".config" / "share" / "T5ynth" / "models",
+        Path.home() / ".local" / "share" / "T5ynth" / "models",
+        Path.home() / "t5ynth" / "models",
+    ]
+
+
+def _is_local_transformers_model_dir(path):
+    """Return True if the directory looks like a self-contained HF model."""
+    if not path.is_dir():
+        return False
+
+    has_config = (path / "config.json").is_file()
+    has_weights = any(
+        (path / name).is_file()
+        for name in ("model.safetensors", "pytorch_model.bin", "pytorch_model.safetensors")
+    )
+    has_tokenizer = any(
+        (path / name).is_file()
+        for name in ("tokenizer.json", "tokenizer_config.json", "spiece.model")
+    )
+    return has_config and has_weights and has_tokenizer
+
+
+def _candidate_transformers_dirs(model_name, model_dir):
+    """Yield likely local locations for additional HF transformer assets."""
+    model_path = Path(model_name).expanduser()
+    short_name = model_name.rsplit("/", 1)[-1]
+    canonical_name = model_name.replace("/", "--")
+
+    roots = [model_dir, model_dir.parent]
+    roots.extend(_user_model_roots())
+
+    rel_candidates = [
+        model_path,
+        Path(short_name),
+        Path("_hf") / short_name,
+        Path("_hf") / canonical_name,
+        Path("transformers") / short_name,
+        Path("huggingface") / short_name,
+        Path("huggingface") / canonical_name,
+    ]
+
+    seen = set()
+    for root in roots:
+        for rel in rel_candidates:
+            candidate = rel if rel.is_absolute() else root / rel
+            resolved = candidate.expanduser()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            yield resolved
+
+
+def _resolve_local_transformers_model_dir(model_name, model_dir):
+    """Resolve a local HF model directory for a model id like ``t5-base``."""
+    for candidate in _candidate_transformers_dirs(model_name, model_dir):
+        if _is_local_transformers_model_dir(candidate):
+            return candidate
+    return None
+
+
+def _prepare_native_model_config(model_dir, model_config):
+    """Rewrite native model config to use local auxiliary HF assets only."""
+    patched = copy.deepcopy(model_config)
+    conditioning_cfg = patched.get("model", {}).get("conditioning", {})
+    configs = conditioning_cfg.get("configs", [])
+    resolved_t5_models = []
+
+    for cond in configs:
+        if cond.get("type") != "t5":
+            continue
+
+        cond_cfg = cond.setdefault("config", {})
+        model_name = cond_cfg.get("t5_model_name")
+        if not model_name:
+            continue
+
+        resolved = _resolve_local_transformers_model_dir(model_name, model_dir)
+        if resolved is None:
+            searched = [str(path) for path in _candidate_transformers_dirs(model_name, model_dir)]
+            raise RuntimeError(
+                "Native model requires local Hugging Face assets for "
+                f"'{model_name}'. Expected a self-contained transformers model directory "
+                f"(config + tokenizer + weights) in one of: {searched}"
+            )
+
+        cond_cfg["t5_model_name"] = str(resolved)
+        log.info("Resolved local transformers asset %s -> %s", model_name, resolved)
+        resolved_t5_models.append((model_name, str(resolved)))
+
+    return patched, resolved_t5_models
+
+
+def _patch_stable_audio_tools_t5_registry(resolved_t5_models):
+    """Allow stable-audio-tools to accept resolved local T5 model directories."""
+    if not resolved_t5_models:
+        return
+
+    from stable_audio_tools.models import conditioners as sat_conditioners
+
+    for original_name, resolved_path in resolved_t5_models:
+        if original_name not in sat_conditioners.T5Conditioner.T5_MODEL_DIMS:
+            continue
+
+        if resolved_path not in sat_conditioners.T5Conditioner.T5_MODELS:
+            sat_conditioners.T5Conditioner.T5_MODELS.append(resolved_path)
+        sat_conditioners.T5Conditioner.T5_MODEL_DIMS[resolved_path] = (
+            sat_conditioners.T5Conditioner.T5_MODEL_DIMS[original_name]
+        )
 
 
 # ─── Lazy pipeline cache ──────────────────────────────────────────────
@@ -182,6 +446,7 @@ def available_devices():
     if torch.backends.mps.is_available():
         devices.append("mps")
     if torch.cuda.is_available():
+        _validate_cuda_runtime_or_raise()
         devices.append("cuda")
     devices.append("cpu")
     return devices
@@ -245,34 +510,38 @@ def _mock_optional_deps():
     """Mock non-essential stable-audio-tools dependencies for minimal import."""
     import types
     import importlib.machinery
+    try:
+        import pkg_resources  # noqa: F401
+    except ImportError:
+        import packaging
+
+        pkg_resources = types.ModuleType('pkg_resources')
+        pkg_resources.__spec__ = importlib.machinery.ModuleSpec('pkg_resources', None)
+        pkg_resources.packaging = packaging
+        sys.modules['pkg_resources'] = pkg_resources
+
     # Do not mock `dac`: the native stable-audio-open-small path imports
     # dac.nn / dac.model during model construction.
     mocks = ['skimage', 'skimage.transform', 'encodec', 'laion_clap',
              'pedalboard', 'pedalboard.io', 'pytorch_lightning', 'wandb',
              'v_diffusion_pytorch', 'gradio', 'jsonmerge', 'clean_fid', 'kornia']
-    k_diff = types.ModuleType('k_diffusion')
-    k_diff.__spec__ = importlib.machinery.ModuleSpec('k_diffusion', None)
-    for sub in ['augmentation', 'config', 'evaluation', 'external', 'gns',
-                'layers', 'models', 'sampling', 'utils']:
-        m = types.ModuleType(f'k_diffusion.{sub}')
-        m.__spec__ = importlib.machinery.ModuleSpec(f'k_diffusion.{sub}', None)
-        setattr(k_diff, sub, m)
-        sys.modules[f'k_diffusion.{sub}'] = m
-    sys.modules['k_diffusion'] = k_diff
     for name in mocks:
         if name not in sys.modules:
             m = types.ModuleType(name)
             m.__spec__ = importlib.machinery.ModuleSpec(name, None)
+            if name == "jsonmerge":
+                m.merge = lambda base, override, *args, **kwargs: override if override is not None else base
             sys.modules[name] = m
 
 
 class NativePipeline:
     """Wrapper for stable-audio-tools native format models."""
 
-    def __init__(self, model, model_config, device):
+    def __init__(self, model, model_config, device, model_name):
         self.model = model
         self.model_config = model_config
         self.device = device
+        self.model_name = model_name
         self.sample_size = model_config["sample_size"]
         self.sample_rate = model_config["sample_rate"]
         # Extract T5 encoder reference for embedding access
@@ -329,6 +598,21 @@ def _load_native_pipeline(model_dir, device):
     """Load native stable-audio-tools model."""
     _mock_optional_deps()
 
+    # stable-audio-tools imports these via the top-level transformers package.
+    # In the frozen bundle, pre-import them explicitly so the lazy export table
+    # is populated before the conditioner constructs the T5 stack.
+    import transformers
+    from transformers.generation.utils import GenerationMixin
+    from transformers.models.auto.tokenization_auto import AutoTokenizer
+    from transformers.models.t5.modeling_t5 import T5EncoderModel
+
+    # The frozen transformers package can fail to resolve some top-level lazy
+    # exports even though the concrete implementation modules are present.
+    # stable-audio-tools expects these names on the package root.
+    transformers.GenerationMixin = GenerationMixin
+    transformers.AutoTokenizer = AutoTokenizer
+    transformers.T5EncoderModel = T5EncoderModel
+
     from stable_audio_tools.models.factory import create_model_from_config
     from stable_audio_tools.models.utils import load_ckpt_state_dict
 
@@ -344,7 +628,9 @@ def _load_native_pipeline(model_dir, device):
     sys.stdout = sys.stderr
     try:
         with open(config_path) as f:
-            model_config = json.load(f)
+            model_config, resolved_t5_models = _prepare_native_model_config(model_dir, json.load(f))
+
+        _patch_stable_audio_tools_t5_registry(resolved_t5_models)
 
         model = create_model_from_config(model_config)
         model.load_state_dict(load_ckpt_state_dict(str(weights_path)))
@@ -354,7 +640,29 @@ def _load_native_pipeline(model_dir, device):
         sys.stdout = real_stdout
 
     log.info(f"Native pipeline loaded on {device}.")
-    return NativePipeline(model, model_config, device)
+    return NativePipeline(model, model_config, device, model_dir.name)
+
+
+def _native_conditioning_ids(pipe):
+    """Return configured native conditioner ids for a stable-audio-tools model."""
+    configs = pipe.model_config.get("model", {}).get("conditioning", {}).get("configs", [])
+    return {cfg.get("id") for cfg in configs if cfg.get("id")}
+
+
+def _build_native_conditioning_input(pipe, prompt, duration, start_pos=0.0):
+    """Build one metadata dict matching the native model's configured conditioners."""
+    payload = {"prompt": prompt}
+    cond_ids = _native_conditioning_ids(pipe)
+
+    if "seconds_start" in cond_ids or "seconds_total" in cond_ids:
+        start_pos = max(0.0, min(1.0, float(start_pos)))
+        virtual_total = duration / (1.0 - start_pos) if start_pos < 1.0 else duration
+        if "seconds_start" in cond_ids:
+            payload["seconds_start"] = start_pos * virtual_total
+        if "seconds_total" in cond_ids:
+            payload["seconds_total"] = virtual_total
+
+    return payload
 
 
 def load_default_model(model_name, devices):
@@ -555,6 +863,19 @@ def _mean_pool(emb, mask):
     return pooled.squeeze(0).cpu().float().numpy()  # [768]
 
 
+def _echo_through_null(other_emb, null_emb):
+    """Spiegelung am Modell-Null: 2·null − other.
+
+    When one prompt field is empty, the empty side's embedding becomes
+    the reflection of the present side through the null/unconditional
+    encoding (the model's encoding of ""). Standard interpolation
+    (1-α)/2·A + (1+α)/2·B then traces a path from the present prompt
+    through the model-neutral point to its tonal antipode, instead of
+    collapsing to the present prompt for all α.
+    """
+    return 2.0 * null_emb - other_emb
+
+
 def _generate_audioldm2(wrapper, request):
     """Generate audio using AudioLDM2Pipeline with full embedding manipulation.
 
@@ -584,32 +905,73 @@ def _generate_audioldm2(wrapper, request):
     generator = torch.Generator("cpu").manual_seed(seed)
 
     with torch.no_grad():
-        # Encode A with CFG — returns [2, seq, dim] (neg @ 0, pos @ 1)
-        pe_a, mask_a, gpe_a = pipe.encode_prompt(
-            prompt=prompt_a, device=device,
-            num_waveforms_per_prompt=1,
-            do_classifier_free_guidance=True,
-            negative_prompt="",
-        )
-        neg_pe   = pe_a[0:1]
-        pos_pe_a = pe_a[1:2]
-        neg_mask  = mask_a[0:1]
-        pos_mask_a = mask_a[1:2]
-        neg_gpe  = gpe_a[0:1]
-        pos_gpe_a = gpe_a[1:2]
+        # Symmetric prompt handling: encode whichever prompts are present.
+        # encode_prompt with CFG=True returns [neg, pos] — the negative half
+        # is always the encoding of "" and serves as both the CFG anchor and
+        # the Spiegel-Punkt for echo derivation.
+        a_present = bool(prompt_a)
+        b_present = bool(prompt_b)
 
-        if prompt_b:
+        if a_present:
+            pe_a, mask_a, gpe_a = pipe.encode_prompt(
+                prompt=prompt_a, device=device,
+                num_waveforms_per_prompt=1,
+                do_classifier_free_guidance=True,
+                negative_prompt="",
+            )
+            neg_pe     = pe_a[0:1]
+            neg_mask   = mask_a[0:1]
+            neg_gpe    = gpe_a[0:1]
+            pos_pe_a   = pe_a[1:2]
+            pos_mask_a = mask_a[1:2]
+            pos_gpe_a  = gpe_a[1:2]
+
+        if b_present:
             pe_b, mask_b, gpe_b = pipe.encode_prompt(
                 prompt=prompt_b, device=device,
                 num_waveforms_per_prompt=1,
                 do_classifier_free_guidance=True,
                 negative_prompt="",
             )
+            if not a_present:
+                neg_pe   = pe_b[0:1]
+                neg_mask = mask_b[0:1]
+                neg_gpe  = gpe_b[0:1]
             pos_pe_b   = pe_b[1:2]
             pos_mask_b = mask_b[1:2]
             pos_gpe_b  = gpe_b[1:2]
 
-            # Pad prompt_embeds to same seq_len (T5 uses dynamic padding)
+        if not a_present and not b_present:
+            pe_e, mask_e, gpe_e = pipe.encode_prompt(
+                prompt="", device=device,
+                num_waveforms_per_prompt=1,
+                do_classifier_free_guidance=True,
+                negative_prompt="",
+            )
+            neg_pe     = pe_e[0:1]
+            neg_mask   = mask_e[0:1]
+            neg_gpe    = gpe_e[0:1]
+            pos_pe_a   = neg_pe.clone()
+            pos_pe_b   = neg_pe.clone()
+            pos_mask_a = neg_mask
+            pos_mask_b = neg_mask
+            pos_gpe_a  = neg_gpe.clone()
+            pos_gpe_b  = neg_gpe.clone()
+
+        # Echoraum: a leeres Feld is the reflection of the other prompt
+        # through neg_pe (the empty-string encoding).
+        if a_present and not b_present:
+            pos_pe_b   = _echo_through_null(pos_pe_a, neg_pe)
+            pos_mask_b = pos_mask_a
+            pos_gpe_b  = _echo_through_null(pos_gpe_a, neg_gpe)
+        elif b_present and not a_present:
+            pos_pe_a   = _echo_through_null(pos_pe_b, neg_pe)
+            pos_mask_a = pos_mask_b
+            pos_gpe_a  = _echo_through_null(pos_gpe_b, neg_gpe)
+
+        # Pad prompt_embeds to same seq_len (only needed when both prompts
+        # were independently encoded — echoes inherit the source's shape).
+        if a_present and b_present:
             s_a, s_b = pos_pe_a.shape[1], pos_pe_b.shape[1]
             if s_a != s_b:
                 pad_a = max(0, s_b - s_a)
@@ -623,25 +985,21 @@ def _generate_audioldm2(wrapper, request):
                     pos_pe_b   = torch.nn.functional.pad(pos_pe_b, (0, 0, 0, pad_b))
                     pos_mask_b = torch.nn.functional.pad(pos_mask_b, (0, pad_b))
 
-            # Alpha interpolation: 0 = midpoint, -1 = pure A, +1 = pure B
-            w_a = 0.5 - 0.5 * alpha
-            w_b = 0.5 + 0.5 * alpha
-            manipulated_pe  = w_a * pos_pe_a  + w_b * pos_pe_b
-            manipulated_gpe = w_a * pos_gpe_a + w_b * pos_gpe_b
-            pos_mask = (pos_mask_a | pos_mask_b)
+        # Alpha interpolation: 0 = midpoint, -1 = pure A, +1 = pure B
+        w_a = 0.5 - 0.5 * alpha
+        w_b = 0.5 + 0.5 * alpha
+        manipulated_pe  = w_a * pos_pe_a  + w_b * pos_pe_b
+        manipulated_gpe = w_a * pos_gpe_a + w_b * pos_gpe_b
+        pos_mask = (pos_mask_a | pos_mask_b)
 
-            # Renormalize if extrapolating (|alpha| > 1)
-            if alpha < -1.0 or alpha > 1.0:
-                for manip, ref_a, ref_b in [(manipulated_pe, pos_pe_a, pos_pe_b),
-                                             (manipulated_gpe, pos_gpe_a, pos_gpe_b)]:
-                    ref_norm = ref_a.norm() if alpha < 0.0 else ref_b.norm()
-                    res_norm = manip.norm()
-                    if res_norm > 1e-8:
-                        manip.mul_(ref_norm / res_norm)
-        else:
-            manipulated_pe  = pos_pe_a.clone()
-            manipulated_gpe = pos_gpe_a.clone()
-            pos_mask = pos_mask_a
+        # Renormalize if extrapolating (|alpha| > 1)
+        if alpha < -1.0 or alpha > 1.0:
+            for manip, ref_a, ref_b in [(manipulated_pe, pos_pe_a, pos_pe_b),
+                                         (manipulated_gpe, pos_gpe_a, pos_gpe_b)]:
+                ref_norm = ref_a.norm() if alpha < 0.0 else ref_b.norm()
+                res_norm = manip.norm()
+                if res_norm > 1e-8:
+                    manip.mul_(ref_norm / res_norm)
 
         # Magnitude scaling
         if abs(magnitude - 1.0) > 1e-6:
@@ -719,7 +1077,8 @@ def _generate_native(pipe, request):
     magnitude = request.get("magnitude", 1.0)
     noise_sigma = request.get("noise_sigma", 0.0)
     duration = request.get("duration", 3.0)
-    steps = request.get("steps", 8)
+    start_pos = request.get("start_pos", 0.0)
+    steps = max(1, int(request.get("steps", 8)))
     cfg_scale = request.get("cfg_scale", 4.0)
     seed = request.get("seed", -1)
     dim_offsets = _sanitize_dimension_offsets(request.get("dimension_offsets"))
@@ -730,45 +1089,87 @@ def _generate_native(pipe, request):
 
     sr = pipe.sample_rate
     device = pipe.device
+    effective_steps = steps
+    if getattr(pipe.model, "diffusion_objective", None) == "v" and effective_steps < 2:
+        log.warning(
+            "Native %s requested with %d step; clamping to 2 because the k-diffusion sampler "
+            "is unstable below 2 steps",
+            pipe.model_name,
+            effective_steps,
+        )
+        effective_steps = 2
 
     # ── Encode prompts via the model's built-in T5 conditioner ──
     # Then manipulate embeddings (alpha, magnitude, noise, dim offsets)
     # and pass as pre-computed conditioning_tensors.
     with torch.no_grad():
-        # Run full conditioner to get base conditioning tensors
-        cond_a = pipe.model.conditioner([{"prompt": prompt_a, "seconds_total": duration}], device)
+        a_present = bool(prompt_a)
+        b_present = bool(prompt_b)
 
-        # Extract T5 embedding for manipulation: {"prompt": [emb_tensor, None], ...}
-        prompt_emb_a = cond_a["prompt"][0]   # [1, seq, 768]
-        mask_a = cond_a["prompt"][1]
+        # Always encode "" for the Spiegel-Punkt and as conditioning carrier
+        # (for timing fields like seconds_start/seconds_total when neither
+        # prompt is present).
+        cond_null = pipe.model.conditioner(
+            [_build_native_conditioning_input(pipe, "", duration, start_pos)],
+            device,
+        )
+        null_pe = cond_null["prompt"][0]
+        null_mask = cond_null["prompt"][1]
 
-        # Mean-pool for DimensionExplorer stats (before manipulation)
-        # Use attention-style pooling (non-zero tokens)
-        emb_a_pooled = prompt_emb_a.squeeze(0).mean(dim=0).cpu().float().numpy()
+        if a_present:
+            cond_a = pipe.model.conditioner(
+                [_build_native_conditioning_input(pipe, prompt_a, duration, start_pos)],
+                device,
+            )
+            prompt_emb_a = cond_a["prompt"][0]   # [1, seq, 768]
+            mask_a = cond_a["prompt"][1]
+        else:
+            # Carry timing/duration conditioning from cond_null. Deep-copy so
+            # the later cond_a["prompt"] = [...] assignment doesn't corrupt
+            # cond_null in case anything else holds a reference.
+            cond_a = copy.deepcopy(cond_null)
+            prompt_emb_a = null_pe.clone()
+            mask_a = null_mask if null_mask is None else null_mask.clone()
 
-        if prompt_b:
-            cond_b = pipe.model.conditioner([{"prompt": prompt_b, "seconds_total": duration}], device)
+        if b_present:
+            cond_b = pipe.model.conditioner(
+                [_build_native_conditioning_input(pipe, prompt_b, duration, start_pos)],
+                device,
+            )
             prompt_emb_b = cond_b["prompt"][0]
             mask_b = cond_b["prompt"][1]
-            emb_b_pooled = prompt_emb_b.squeeze(0).mean(dim=0).cpu().float().numpy()
-            # Alpha interpolation: 0 = midpoint, -1 = pure A, +1 = pure B
-            manipulated = (0.5 - 0.5 * alpha) * prompt_emb_a + (0.5 + 0.5 * alpha) * prompt_emb_b
-            combined_mask = None
-            if mask_a is not None and mask_b is not None:
-                combined_mask = (mask_a | mask_b)
-            elif mask_a is not None:
-                combined_mask = mask_a
-            else:
-                combined_mask = mask_b
-            if alpha < -1.0 or alpha > 1.0:
-                ref_norm = prompt_emb_a.norm() if alpha < 0.0 else prompt_emb_b.norm()
-                res_norm = manipulated.norm()
-                if res_norm > 1e-8:
-                    manipulated = manipulated * (ref_norm / res_norm)
         else:
-            emb_b_pooled = np.zeros(768, dtype=np.float32)
-            manipulated = prompt_emb_a.clone()
+            prompt_emb_b = null_pe.clone()
+            mask_b = null_mask
+
+        # Echoraum: a leeres Feld is the reflection of the other prompt
+        # through null_pe (encoding of "").
+        if a_present and not b_present:
+            prompt_emb_b = _echo_through_null(prompt_emb_a, null_pe)
+            mask_b = mask_a
+        elif b_present and not a_present:
+            prompt_emb_a = _echo_through_null(prompt_emb_b, null_pe)
+            mask_a = mask_b
+
+        # Mean-pool for DimensionExplorer stats (post-echo, pre-manipulation)
+        emb_a_pooled = prompt_emb_a.squeeze(0).mean(dim=0).cpu().float().numpy()
+        emb_b_pooled = prompt_emb_b.squeeze(0).mean(dim=0).cpu().float().numpy()
+
+        # Alpha interpolation: 0 = midpoint, -1 = pure A, +1 = pure B
+        manipulated = (0.5 - 0.5 * alpha) * prompt_emb_a + (0.5 + 0.5 * alpha) * prompt_emb_b
+        combined_mask = None
+        if mask_a is not None and mask_b is not None:
+            combined_mask = (mask_a | mask_b)
+        elif mask_a is not None:
             combined_mask = mask_a
+        else:
+            combined_mask = mask_b
+
+        if alpha < -1.0 or alpha > 1.0:
+            ref_norm = prompt_emb_a.norm() if alpha < 0.0 else prompt_emb_b.norm()
+            res_norm = manipulated.norm()
+            if res_norm > 1e-8:
+                manipulated = manipulated * (ref_norm / res_norm)
 
         # Magnitude scaling
         if abs(magnitude - 1.0) > 1e-6:
@@ -785,9 +1186,12 @@ def _generate_native(pipe, request):
         sem_axes = request.get("semantic_axes")
         if sem_axes:
             def native_encode(text):
-                cond = pipe.model.conditioner([{"prompt": text, "seconds_total": 1}], device)
+                cond = pipe.model.conditioner(
+                    [_build_native_conditioning_input(pipe, text, 1.0, 0.0)],
+                    device,
+                )
                 return cond["prompt"][0], None
-            manipulated = _apply_semantic_axes(manipulated, sem_axes, native_encode, "native")
+            manipulated = _apply_semantic_axes(manipulated, sem_axes, native_encode, pipe.model_name)
 
         baseline = manipulated
         if combined_mask is not None:
@@ -807,7 +1211,7 @@ def _generate_native(pipe, request):
         cond_a["prompt"] = [manipulated, combined_mask]
 
     offsets_str = f", {len(dim_offsets)} offsets" if dim_offsets else ""
-    log.info(f"Generating (native) on {device}: '{prompt_a[:60]}' ({duration}s, {steps} steps, "
+    log.info(f"Generating (native) on {device}: '{prompt_a[:60]}' ({duration}s, {effective_steps} steps, "
              f"CFG={cfg_scale}, mag={magnitude}, noise={noise_sigma}, seed={seed}{offsets_str})")
     t0 = time.time()
 
@@ -818,7 +1222,7 @@ def _generate_native(pipe, request):
     try:
         output = generate_diffusion_cond(
             pipe.model,
-            steps=steps,
+            steps=effective_steps,
             cfg_scale=cfg_scale,
             conditioning_tensors=cond_a,
             sample_size=pipe.sample_size,
@@ -890,27 +1294,49 @@ def generate(pipe, request):
             out = text_encoder(input_ids=ids, attention_mask=mask)
             return out.last_hidden_state, mask
 
-        emb_a, mask_a = encode_text(prompt_a)
+        a_present = bool(prompt_a)
+        b_present = bool(prompt_b)
 
-        # Mean-pool for DimensionExplorer stats (before manipulation)
-        emb_a_pooled = _mean_pool(emb_a, mask_a)
+        # Always encode "" for the Spiegel-Punkt (used only for echo
+        # derivation; CFG neg_embeds stays as torch.zeros_like below,
+        # unchanged from the original behavior to keep CFG-driven sound
+        # identical when both prompts are present).
+        null_pe, null_mask = encode_text("")
 
-        if prompt_b:
-            emb_b, mask_b = encode_text(prompt_b)
-            emb_b_pooled = _mean_pool(emb_b, mask_b)
-            combined_mask = (mask_a | mask_b)
-            # alpha: 0 = midpoint, -1 = pure A, +1 = pure B
-            manipulated = (0.5 - 0.5 * alpha) * emb_a + (0.5 + 0.5 * alpha) * emb_b
-            # Renormalize if extrapolating (|alpha| > 1)
-            if alpha < -1.0 or alpha > 1.0:
-                ref_norm = emb_a.norm() if alpha < 0.0 else emb_b.norm()
-                res_norm = manipulated.norm()
-                if res_norm > 1e-8:
-                    manipulated = manipulated * (ref_norm / res_norm)
+        if a_present:
+            emb_a, mask_a = encode_text(prompt_a)
         else:
-            emb_b_pooled = np.zeros(768, dtype=np.float32)
-            manipulated = emb_a.clone()
-            combined_mask = mask_a
+            emb_a = null_pe.clone()
+            mask_a = null_mask
+
+        if b_present:
+            emb_b, mask_b = encode_text(prompt_b)
+        else:
+            emb_b = null_pe.clone()
+            mask_b = null_mask
+
+        # Echoraum: a leeres Feld is the reflection of the other prompt
+        # through null_pe (encoding of "").
+        if a_present and not b_present:
+            emb_b = _echo_through_null(emb_a, null_pe)
+            mask_b = mask_a
+        elif b_present and not a_present:
+            emb_a = _echo_through_null(emb_b, null_pe)
+            mask_a = mask_b
+
+        # Mean-pool for DimensionExplorer stats (post-echo, pre-manipulation)
+        emb_a_pooled = _mean_pool(emb_a, mask_a)
+        emb_b_pooled = _mean_pool(emb_b, mask_b)
+
+        combined_mask = (mask_a | mask_b)
+        # alpha: 0 = midpoint, -1 = pure A, +1 = pure B
+        manipulated = (0.5 - 0.5 * alpha) * emb_a + (0.5 + 0.5 * alpha) * emb_b
+        # Renormalize if extrapolating (|alpha| > 1)
+        if alpha < -1.0 or alpha > 1.0:
+            ref_norm = emb_a.norm() if alpha < 0.0 else emb_b.norm()
+            res_norm = manipulated.norm()
+            if res_norm > 1e-8:
+                manipulated = manipulated * (ref_norm / res_norm)
 
         # Magnitude scaling
         if abs(magnitude - 1.0) > 1e-6:
@@ -1048,23 +1474,29 @@ def main():
 
     _available_models = find_models()
     if not _available_models:
-        send_error("No model directories found")
-        return
+        if os.environ.get("T5YNTH_ALLOW_NO_MODELS") == "1":
+            devices = available_devices()
+            default_device = devices[0] if devices else "cpu"
+            default_model = ""
+            send_ready(devices, default_device, _available_models, "")
+            log.warning("No model directories found; continuing in smoke-test mode")
+        else:
+            send_error("No model directories found")
+            return
+    else:
+        try:
+            devices = available_devices()
+            default_model, default_device, startup_failures = choose_startup_model(_available_models, devices)
+        except Exception as e:
+            log.error(f"Failed to load default model: {e}")
+            send_error(f"Pipeline load failed: {e}")
+            return
 
-    devices = available_devices()
-
-    try:
-        default_model, default_device, startup_failures = choose_startup_model(_available_models, devices)
-    except Exception as e:
-        log.error(f"Failed to load default model: {e}")
-        send_error(f"Pipeline load failed: {e}")
-        return
-
-    send_ready(devices, default_device, _available_models, default_model)
-    log.info(f"Ready. Models: {list(_available_models.keys())}, default: {default_model}, "
-             f"devices: {devices}, default device: {default_device}")
-    if startup_failures:
-        log.warning(f"Skipped unusable startup models: {startup_failures}")
+        send_ready(devices, default_device, _available_models, default_model)
+        log.info(f"Ready. Models: {list(_available_models.keys())}, default: {default_model}, "
+                 f"devices: {devices}, default device: {default_device}")
+        if startup_failures:
+            log.warning(f"Skipped unusable startup models: {startup_failures}")
 
     for line in sys.stdin:
         line = line.strip()
@@ -1097,12 +1529,12 @@ def main():
             emb_stats = None
 
             if mode == "interpolate":
-                if isinstance(pipe, AudioLDM2Wrapper):
-                    raise ValueError("Latent interpolation not yet supported for AudioLDM2")
+                if isinstance(pipe, AudioLDM2Wrapper) or not hasattr(pipe, "vae"):
+                    raise ValueError("Latent interpolation is only supported for diffusers Stable Audio pipelines")
                 audio, sr, seed, elapsed = interpolate_and_decode(pipe, request)
             elif mode == "decode_cached":
-                if isinstance(pipe, AudioLDM2Wrapper):
-                    raise ValueError("Latent cache decode not yet supported for AudioLDM2")
+                if isinstance(pipe, AudioLDM2Wrapper) or not hasattr(pipe, "vae"):
+                    raise ValueError("Latent cache decode is only supported for diffusers Stable Audio pipelines")
                 audio, sr, seed, elapsed = decode_cached(pipe, request)
             else:
                 audio, sr, seed, elapsed, emb_stats = generate(pipe, request)

@@ -35,6 +35,7 @@ public:
     void setOctaveRange(int octaves) { octaveRange = juce::jlimit(1, 4, octaves); rebuildIntervals(); }
     void setBpm(double b) { bpm = b; }
     void setGate(float g) { gate = juce::jlimit(0.1f, 1.0f, g); }
+    void setShuffle(float amount) { shuffle = juce::jlimit(0.0f, 0.75f, amount); }
 
     /** Set base note and start arpeggiating. */
     void setBaseNote(int midiNote, float velocity);
@@ -42,12 +43,21 @@ public:
     /** Stop arpeggiator. */
     void stopArp();
 
+    /** Emit note-off for any currently-sounding arp note into `midi` at
+        `sampleOffset`, then clear lastPlayedNote. Does not alter active/
+        pattern state — safe to call unconditionally at any transition. */
+    void allNotesOff(juce::MidiBuffer& midi, int sampleOffset = 0);
+
     bool isActive() const { return active; }
     int getLastPlayedNote() const { return lastPlayedNote; }
 
 private:
-    static constexpr int CHORD_INTERVALS[] = { 0, 4, 7 }; // Major triad
-    static constexpr int NUM_CHORD_NOTES = 3;
+    // Classic single-note arpeggio: the held base note is repeated across
+    // the configured octave range. The previous {0, 4, 7} chord stack
+    // forced a major triad on every base note regardless of context, which
+    // collided with non-tonal Pitch-Field material in the gen sequencer.
+    static constexpr int CHORD_INTERVALS[] = { 0 };
+    static constexpr int NUM_CHORD_NOTES = 1;
 
     Mode mode = Mode::Up;
     int rate = 2; // default 1/16
@@ -61,6 +71,7 @@ private:
     double sampleRateVal = 44100.0;
     double bpm = 120.0;
     float gate = 1.0f;
+    float shuffle = 0.0f;
     double samplesUntilNext = 0.0;
     double samplesUntilGateOff = -1.0;
     int lastPlayedNote = -1;
@@ -69,4 +80,5 @@ private:
 
     void rebuildIntervals();
     void fisherYatesShuffle();
+    double shuffledStepDurationSamples(double baseStepSamples, int stepIdx, int cycleLength) const;
 };

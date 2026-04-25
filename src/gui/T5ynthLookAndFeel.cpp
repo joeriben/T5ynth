@@ -7,8 +7,8 @@ T5ynthLookAndFeel::T5ynthLookAndFeel()
     const auto background   = kBg;
     const auto surface      = kSurface;
     const auto surfaceLight = kBorder;
-    const auto textPrimary  = juce::Colour(0xffe3e3e3);
-    const auto textDim      = kDim;
+    const auto textPrimary  = kTextPrimary;
+    const auto textDim      = kTextSecondary;
     const auto accent       = kAccent;
 
     // Window / general
@@ -109,8 +109,27 @@ void T5ynthLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& 
     // Label text
     float textX = dotX + dotR + 4.0f;
     g.setColour(btn.findColour(juce::ToggleButton::textColourId));
-    g.setFont(juce::FontOptions(juce::jmax(11.0f, h * 0.65f)));
+    g.setFont(juce::FontOptions(juce::jmax(kUiControlFontMin, h * 0.65f)));
     g.drawText(btn.getButtonText(),
                juce::Rectangle<float>(textX, b.getY(), b.getRight() - textX, h),
                juce::Justification::centredLeft);
+}
+
+juce::Font T5ynthLookAndFeel::getTextButtonFont(juce::TextButton&, int buttonHeight)
+{
+    const float size = juce::jlimit(kUiControlFontMin, 13.5f, static_cast<float>(buttonHeight) * 0.58f);
+    return juce::Font(juce::FontOptions(size));
+}
+
+juce::Font T5ynthLookAndFeel::getComboBoxFont(juce::ComboBox& box)
+{
+    return juce::Font(juce::FontOptions(juce::jmax(kUiControlFontMin, static_cast<float>(box.getHeight()) * 0.58f)));
+}
+
+void T5ynthLookAndFeel::positionComboBoxText(juce::ComboBox& box, juce::Label& label)
+{
+    label.setBounds(8, 1, box.getWidth() - 26, box.getHeight() - 2);
+    label.setFont(getComboBoxFont(box));
+    label.setColour(juce::Label::textColourId, box.findColour(juce::ComboBox::textColourId));
+    label.setJustificationType(box.getJustificationType());
 }

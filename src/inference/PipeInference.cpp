@@ -1,5 +1,6 @@
 #include "PipeInference.h"
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <array>
 
@@ -8,7 +9,103 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <sys/resource.h>
 #endif
+
+namespace
+{
+int readEnvInt(const char* name, int fallback, int minValue, int maxValue)
+{
+    if (auto* raw = std::getenv(name))
+    {
+        char* end = nullptr;
+        const auto value = std::strtol(raw, &end, 10);
+        if (end != raw)
+            return juce::jlimit(minValue, maxValue, static_cast<int>(value));
+    }
+
+    return fallback;
+}
+
+void setEnvValue(const char* name, const juce::String& value)
+{
+    const auto valueStd = value.toStdString();
+   #ifdef _WIN32
+    _putenv_s(name, valueStd.c_str());
+   #else
+    setenv(name, valueStd.c_str(), 1);
+   #endif
+}
+
+void setEnvIfUnset(const char* name, const juce::String& value)
+{
+    if (auto* existing = std::getenv(name); existing != nullptr && existing[0] != '\0')
+        return;
+
+    setEnvValue(name, value);
+}
+
+void capThreadEnv(const char* name, int limit)
+{
+    if (auto* raw = std::getenv(name))
+    {
+        char* end = nullptr;
+        const auto current = std::strtol(raw, &end, 10);
+        if (end != raw && current >= 1 && current <= limit)
+            return;
+    }
+
+    setEnvValue(name, juce::String(limit));
+}
+
+void configureInferenceCpuBudget()
+{
+    const auto workerThreads = readEnvInt("T5YNTH_INFERENCE_CPU_THREADS", 2, 1, 16);
+    const auto interopThreads = readEnvInt("T5YNTH_INFERENCE_INTEROP_THREADS", 1, 1, 16);
+
+    for (auto* key : { "OMP_NUM_THREADS",
+                       "MKL_NUM_THREADS",
+                       "OPENBLAS_NUM_THREADS",
+                       "NUMEXPR_NUM_THREADS",
+                       "VECLIB_MAXIMUM_THREADS",
+                       "BLIS_NUM_THREADS",
+                       "TORCH_NUM_THREADS" })
+    {
+        capThreadEnv(key, workerThreads);
+    }
+
+    capThreadEnv("TORCH_NUM_INTEROP_THREADS", interopThreads);
+    setEnvIfUnset("OMP_WAIT_POLICY", "PASSIVE");
+    setEnvIfUnset("KMP_BLOCKTIME", "0");
+    setEnvIfUnset("MKL_DYNAMIC", "TRUE");
+}
+
+#ifdef _WIN32
+DWORD inferencePriorityClass()
+{
+    auto* rawEnv = std::getenv("T5YNTH_INFERENCE_PRIORITY");
+    if (rawEnv == nullptr)
+        return BELOW_NORMAL_PRIORITY_CLASS;
+
+    const juce::String raw { rawEnv };
+    const auto value = raw.trim().toLowerCase();
+
+    if (value == "normal")
+        return 0;
+    if (value == "idle")
+        return IDLE_PRIORITY_CLASS;
+
+    return BELOW_NORMAL_PRIORITY_CLASS;
+}
+#else
+void lowerCurrentProcessPriority()
+{
+    const auto niceValue = readEnvInt("T5YNTH_INFERENCE_NICE", 10, 0, 19);
+    if (niceValue > 0)
+        setpriority(PRIO_PROCESS, 0, niceValue);
+}
+#endif
+}
 
 PipeInference::~PipeInference()
 {
@@ -17,19 +114,26 @@ PipeInference::~PipeInference()
 
 juce::File PipeInference::findBundledBinary(const juce::File& backendDir) const
 {
-    // PyInstaller-bundled binary: backendDir/dist/pipe_inference/pipe_inference
+    // PyInstaller-bundled binary:
+    //   POSIX   backendDir/dist/pipe_inference/pipe_inference
+    //   Windows backendDir/dist/pipe_inference/pipe_inference.exe
     auto dist = backendDir.getChildFile("dist/pipe_inference/pipe_inference");
     if (isCompatibleBundledBinary(dist)) return dist;
 
-    // Installed layout: binary next to backendDir
-    // macOS app bundle: Contents/Resources/backend/pipe_inference
-    // Linux/Windows:    backend/pipe_inference(.exe)
-    auto sibling = backendDir.getChildFile("pipe_inference");
-    if (isCompatibleBundledBinary(sibling)) return sibling;
-
    #ifdef _WIN32
+    auto distExe = backendDir.getChildFile("dist/pipe_inference/pipe_inference.exe");
+    if (isCompatibleBundledBinary(distExe)) return distExe;
+
+    // Installed layout: binary next to backendDir
+    // Windows: backend/pipe_inference.exe
     auto siblingExe = backendDir.getChildFile("pipe_inference.exe");
     if (isCompatibleBundledBinary(siblingExe)) return siblingExe;
+   #else
+    // Installed layout: binary next to backendDir
+    // macOS app bundle: Contents/Resources/backend/pipe_inference
+    // Linux:            backend/pipe_inference
+    auto sibling = backendDir.getChildFile("pipe_inference");
+    if (isCompatibleBundledBinary(sibling)) return sibling;
    #endif
 
     return {};  // not found — fall back to Python
@@ -234,14 +338,19 @@ bool PipeInference::launch(const juce::File& backendDir)
         if (!script.existsAsFile())
         {
             const auto dist = backendDir.getChildFile("dist/pipe_inference/pipe_inference");
-            const auto sibling = backendDir.getChildFile("pipe_inference");
            #ifdef _WIN32
+            const auto distExe = backendDir.getChildFile("dist/pipe_inference/pipe_inference.exe");
             const auto siblingExe = backendDir.getChildFile("pipe_inference.exe");
+           #else
+            const auto sibling = backendDir.getChildFile("pipe_inference");
            #endif
 
-            if (dist.existsAsFile() || sibling.existsAsFile()
+            if (dist.existsAsFile()
                #ifdef _WIN32
+                || distExe.existsAsFile()
                 || siblingExe.existsAsFile()
+               #else
+                || sibling.existsAsFile()
                #endif
             )
             {
@@ -259,6 +368,8 @@ bool PipeInference::launch(const juce::File& backendDir)
         scriptPath = script.getFullPathName();
         juce::Logger::writeToLog("PipeInference: launching " + execPath + " " + scriptPath);
     }
+
+    configureInferenceCpuBudget();
 
 #ifdef _WIN32
     // ── Windows: CreatePipe + CreateProcess ──────────────────────────
@@ -302,8 +413,10 @@ bool PipeInference::launch(const juce::File& backendDir)
     auto cmdWide = cmdLine.toWideCharPointer();
     std::wstring cmdBuf(cmdWide);
 
+    const DWORD creationFlags = CREATE_NO_WINDOW | inferencePriorityClass();
+
     if (!CreateProcessW(nullptr, cmdBuf.data(), nullptr, nullptr, TRUE,
-                        CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi))
+                        creationFlags, nullptr, nullptr, &si, &pi))
     {
         juce::Logger::writeToLog("PipeInference: CreateProcess failed (error "
                                   + juce::String((int)GetLastError()) + ")");
@@ -356,6 +469,8 @@ bool PipeInference::launch(const juce::File& backendDir)
         auto logPath = logDir.getChildFile("backend_stderr.log").getFullPathName().toStdString();
         int logFd = open(logPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (logFd >= 0) { dup2(logFd, STDERR_FILENO); close(logFd); }
+
+        lowerCurrentProcessPriority();
 
         close(pipeIn[0]);
         close(pipeOut[1]);
@@ -604,8 +719,7 @@ PipeInference::Result PipeInference::generate(const Request& request)
     // Build JSON request
     auto json = juce::DynamicObject::Ptr(new juce::DynamicObject());
     json->setProperty("prompt_a", request.promptA);
-    if (request.promptB.isNotEmpty())
-        json->setProperty("prompt_b", request.promptB);
+    json->setProperty("prompt_b", request.promptB);
     json->setProperty("alpha", request.alpha);
     json->setProperty("magnitude", request.magnitude);
     json->setProperty("noise_sigma", request.noiseSigma);

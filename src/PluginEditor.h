@@ -13,8 +13,11 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    void parentHierarchyChanged() override;
 
 private:
+    void applyWindowIcon();
+
     T5ynthProcessor& processorRef;
     T5ynthLookAndFeel lookAndFeel;
     MainPanel mainPanel;

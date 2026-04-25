@@ -20,6 +20,7 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    int getPreferredHeightForWidth(int width) const;
 
     /** Load preset data that isn't in APVTS (prompts, seed, random toggle, device, model). */
     void loadPresetData(const juce::String& promptA, const juce::String& promptB,
@@ -86,20 +87,18 @@ private:
 
     // Embedding controls (linear sliders)
     juce::Slider alphaSlider, magnitudeSlider, noiseSlider;
-    juce::Label alphaLabel, alphaValue, alphaHint;
+    juce::Label alphaLabel, alphaValue;
     juce::Label magLabel, magValue, magHint;
     juce::Label noiseLabel, noiseValue, noiseHint;
 
-    // Compact params row: Duration, Start, Steps, CFG, Seed
-    juce::Slider durationSlider, startSlider;
-    juce::Slider stepsSlider, cfgSlider;
+    // Compact params rows: Magnitude/Noise, Steps/CFG, Duration/Seed
+    juce::Slider durationSlider, stepsSlider, cfgSlider;
     juce::Label durLabel, durValue, durHint;
-    juce::Label startLabel, startValue, startHint;
     juce::Label stepsLabel, stepsValue, stepsHint;
     juce::Label cfgLabel, cfgValue, cfgHint;
     juce::Label seedLabel;
     juce::TextEditor seedEditor;
-    juce::TextButton randomSeedToggle { "Random" };
+    juce::TextButton randomSeedToggle { "Rnd" };
 
     // Model selector (fixed 3-slot switchbox: SA Open 1.0 | SA Small | AudioLDM2)
     static constexpr int kNumModelSlots = 3;
@@ -124,7 +123,7 @@ private:
     std::map<juce::String, float> pendingAxes_;          // for SemanticAxes
 
     using Attachment = juce::AudioProcessorValueTreeState::SliderAttachment;
-    std::unique_ptr<Attachment> alphaA, magA, noiseA, durA, startA, stepsA, cfgA;
+    std::unique_ptr<Attachment> alphaA, magA, noiseA, durA, stepsA, cfgA;
 
     // Auto-regen state
     float lastGenAlpha_ = std::numeric_limits<float>::quiet_NaN();

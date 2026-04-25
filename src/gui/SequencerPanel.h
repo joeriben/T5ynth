@@ -65,6 +65,7 @@ private:
     juce::TextButton seqSaveBtn { "S" };
     juce::TextButton seqLoadBtn { "L" };
     std::unique_ptr<SliderRow> gateRow;
+    std::unique_ptr<SliderRow> shuffleRow;
 
     // Row 3: Step grid
     struct StepColumn : public juce::Component
@@ -74,6 +75,8 @@ private:
         bool isCurrentStep = false;
         int dragZone = -1;        // 0=dot, 1=note, 2=glide, 3=velocity
         float dragStartVal = 0.f;
+        bool noteHoldPreviewActive = false;
+        int noteHoldPreviewNote = -1;
         void paint(juce::Graphics& g) override;
         void mouseDown(const juce::MouseEvent& e) override;
         void mouseDrag(const juce::MouseEvent& e) override;
@@ -101,6 +104,27 @@ private:
     // Fix toggle buttons (lock/unlock icons)
     juce::TextButton genFixStepsBtn, genFixPulsesBtn, genFixRotationBtn, genFixMutationBtn;
 
+    // ── Polyphony (Phase 5) ──────────────────────────────────────────────
+    // Shared pitch-field controls
+    juce::ComboBox genFieldModeBox;
+    std::unique_ptr<SliderRow> genFieldRateRow;   // TODO: inline-value variant of SliderRow
+    // Per-extra-strand (indices 0..3 map to strands 2..5)
+    static constexpr int kNumExtraStrands = 4;
+    juce::TextButton strandEnableBtns[kNumExtraStrands];
+    juce::ComboBox   strandRoleBoxes[kNumExtraStrands];
+    // Per-strand differentiators on the second GEN row, vertically aligned
+    // beneath the [Sx][Role] cluster they belong to.
+    //   Div:  ComboBox showing "1/4x".."4x" — value is its own label
+    //   Oct:  5-switch-button row "-2 -1 0 +1 +2" mirroring SeqOctave's
+    //         convention; the slider stays as a hidden APVTS bridge.
+    //   Dom:  small Label "Dom" + slider 0..1
+    static constexpr int kStrandOctBtns = 5;
+    juce::ComboBox   strandDivBoxes[kNumExtraStrands];
+    juce::TextButton strandOctBtns[kNumExtraStrands][kStrandOctBtns];
+    juce::Slider     strandOctaveSliders[kNumExtraStrands]; // hidden APVTS bridge
+    juce::Slider     strandDomSliders[kNumExtraStrands];
+    juce::Label      strandDomLabels[kNumExtraStrands];
+
 
     // Gen visualisation (painted in paint(), positioned in resized())
     juce::Rectangle<int> genVisArea;
@@ -121,11 +145,20 @@ private:
     using SA = juce::AudioProcessorValueTreeState::SliderAttachment;
     using CA = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
     using BA = juce::AudioProcessorValueTreeState::ButtonAttachment;
-    std::unique_ptr<SA> bpmA, gateA, genStepsA, genPulsesA, genRotationA, genMutationA;
+    std::unique_ptr<SA> bpmA, gateA, shuffleA, genStepsA, genPulsesA, genRotationA, genMutationA;
     std::unique_ptr<CA> divA, presetA, arpModeA, arpRateA, arpOctA, octShiftA,
                         genScaleRootA, genScaleTypeA, genRangeA;
     std::unique_ptr<BA> genRunningA;
     std::unique_ptr<BA> genFixStepsA, genFixPulsesA, genFixRotationA, genFixMutationA;
+
+    // Polyphony attachments
+    std::unique_ptr<CA> genFieldModeA;
+    std::unique_ptr<SA> genFieldRateA;
+    std::unique_ptr<BA> strandEnableA[kNumExtraStrands];
+    std::unique_ptr<CA> strandRoleA[kNumExtraStrands];
+    std::unique_ptr<CA> strandDivA[kNumExtraStrands];
+    std::unique_ptr<SA> strandOctaveA[kNumExtraStrands];
+    std::unique_ptr<SA> strandDomA[kNumExtraStrands];
 
     int currentStep = -1;
 

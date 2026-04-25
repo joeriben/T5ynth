@@ -4,15 +4,19 @@
 #include "ADSREnvelope.h"
 #include "LFO.h"
 #include "StateVariableFilter.h"
+#include "MoogLadderFilter.h"
+#include "CutoffWarpFilter.h"
 #include "NoiseGenerator.h"
 #include "BlockParams.h"
+#include <juce_dsp/juce_dsp.h>
+#include <memory>
 #include <vector>
 
 /**
  * Single synthesizer voice — owns all per-voice DSP state:
  * oscillator, sample player, envelopes, per-voice LFOs, and filter.
  *
- * Signal chain: Osc → VCA (ampEnv * modulation) → Filter (SVF) → output
+ * Signal chain: Osc/Noise → Drive (tanh, optional) → Filter (SVF) → VCA → output
  */
 class SynthVoice
 {
@@ -26,6 +30,8 @@ public:
     void noteOn(int note, float velocity, bool legato);
     void noteOff();
     void glideToNote(int note, float glideMs);
+    /** Smooth an immediate same-voice restart by fading from the last rendered sample. */
+    void beginRestartFade();
 
     // ── Per-sample rendering ──
     struct RenderResult {
@@ -40,12 +46,12 @@ public:
     /** Configure envelopes from block params. Call once per block before renderSample loop. */
     void configureForBlock(const BlockParams& p);
 
-    RenderResult renderSample(const BlockParams& p, float globalLfo1Val, float globalLfo2Val);
+    RenderResult renderSample(const BlockParams& p, float globalLfo1Val, float globalLfo2Val, float globalLfo3Val);
 
     /** Block-based rendering with sub-block filter coefficient updates.
      *  Writes numSamples mono samples into output. */
     void renderBlock(float* output, const BlockParams& p,
-                     const float* lfo1Buf, const float* lfo2Buf, int numSamples);
+                     const float* lfo1Buf, const float* lfo2Buf, const float* lfo3Buf, int numSamples);
 
     static constexpr int SUB_BLOCK_SIZE = 32;
 
@@ -79,6 +85,7 @@ public:
     T5ynthFilter& getFilter() { return filter; }
     LFO& getPerVoiceLfo1() { return perVoiceLfo1; }
     LFO& getPerVoiceLfo2() { return perVoiceLfo2; }
+    LFO& getPerVoiceLfo3() { return perVoiceLfo3; }
 
     // Voice age for stealing (monotonic counter set by VoiceManager)
     uint64_t noteOnTimestamp = 0;
@@ -91,7 +98,15 @@ private:
     ADSREnvelope modEnv2;
     LFO perVoiceLfo1; // used when LFO mode == Trigger
     LFO perVoiceLfo2;
-    T5ynthFilter filter;
+    LFO perVoiceLfo3;
+    T5ynthFilter       filter;       // linear TPT SVF (low-CPU default)
+    MoogLadderFilter   filterLadder; // Huovilainen nonlinear ladder
+    CutoffWarpFilter   filterWarp;   // Surge-XT-style ZDF ladder + style
+    // Drive oversamplers (polyphase IIR half-band). Three instances, prepared in
+    // prepare(); renderBlock() picks the one matching bp.filterDriveOs.
+    std::unique_ptr<juce::dsp::Oversampling<float>> driveOs2x_;  // numStages=1, 2x
+    std::unique_ptr<juce::dsp::Oversampling<float>> driveOs4x_;  // numStages=2, 4x
+    std::unique_ptr<juce::dsp::Oversampling<float>> driveOs8x_;  // numStages=3, 8x
     NoiseGenerator noise;
 
     EngineMode engineMode = EngineMode::Sampler;
@@ -102,6 +117,7 @@ private:
     bool active = false;
     bool noteHeld = false;
     float lastAmpEnvLevel = 0.0f;
+    float lastOutputSample_ = 0.0f;
     float baseFrequency = 440.0f;
     const float* tuningHz_ = nullptr;  // set by VoiceManager per-block
 
@@ -119,6 +135,24 @@ private:
     float ampVelSens_ = 1.0f;
     float mod1VelSens_ = 1.0f;
     float mod2VelSens_ = 1.0f;
+    float ampAttackBaseMs_ = 0.0f;
+    float ampDecayBaseMs_ = 0.0f;
+    float ampReleaseBaseMs_ = 0.0f;
+    int ampAttackVelMode_ = EnvVelTimeMode::Off;
+    int ampDecayVelMode_ = EnvVelTimeMode::Off;
+    int ampReleaseVelMode_ = EnvVelTimeMode::Off;
+    float mod1AttackBaseMs_ = 0.0f;
+    float mod1DecayBaseMs_ = 0.0f;
+    float mod1ReleaseBaseMs_ = 0.0f;
+    int mod1AttackVelMode_ = EnvVelTimeMode::Off;
+    int mod1DecayVelMode_ = EnvVelTimeMode::Off;
+    int mod1ReleaseVelMode_ = EnvVelTimeMode::Off;
+    float mod2AttackBaseMs_ = 0.0f;
+    float mod2DecayBaseMs_ = 0.0f;
+    float mod2ReleaseBaseMs_ = 0.0f;
+    int mod2AttackVelMode_ = EnvVelTimeMode::Off;
+    int mod2DecayVelMode_ = EnvVelTimeMode::Off;
+    int mod2ReleaseVelMode_ = EnvVelTimeMode::Off;
 
     // Cached mod values from last renderBlock (for VoiceManager capture)
     float lastMod1Val_ = 0.0f;
@@ -143,6 +177,9 @@ private:
         int ampAttackCurve = -1;
         int ampDecayCurve = -1;
         int ampReleaseCurve = -1;
+        int ampAttackVelMode = EnvVelTimeMode::Off;
+        int ampDecayVelMode = EnvVelTimeMode::Off;
+        int ampReleaseVelMode = EnvVelTimeMode::Off;
 
         int mod1Target = EnvTarget::None;
         float mod1Attack = -1.0f;
@@ -155,6 +192,9 @@ private:
         int mod1AttackCurve = -1;
         int mod1DecayCurve = -1;
         int mod1ReleaseCurve = -1;
+        int mod1AttackVelMode = EnvVelTimeMode::Off;
+        int mod1DecayVelMode = EnvVelTimeMode::Off;
+        int mod1ReleaseVelMode = EnvVelTimeMode::Off;
 
         int mod2Target = EnvTarget::None;
         float mod2Attack = -1.0f;
@@ -167,6 +207,9 @@ private:
         int mod2AttackCurve = -1;
         int mod2DecayCurve = -1;
         int mod2ReleaseCurve = -1;
+        int mod2AttackVelMode = EnvVelTimeMode::Off;
+        int mod2DecayVelMode = EnvVelTimeMode::Off;
+        int mod2ReleaseVelMode = EnvVelTimeMode::Off;
 
         float velocity = -1.0f;
         float startPos = -1.0f;
@@ -180,6 +223,13 @@ private:
 
     void updateSamplerPreStretchNorm(const BlockParams& p);
     bool preStretchNormStateMatches(const BlockParams& p) const;
+    void applyVelocityTimedEnvelopeTimes();
+    float applyRestartFade(float sample);
+
+    float restartFadeTailSample_ = 0.0f;
+    int restartFadeSamplesLeft_ = 0;
+    int restartFadeTotalSamples_ = 1;
+    static constexpr float RESTART_FADE_MS = 3.0f;
 
     PreStretchNormState preStretchNormState_;
     float samplerPreStretchNormGain_ = 1.0f;

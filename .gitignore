@@ -14,10 +14,14 @@ compile_commands.json
 # IDE
 .vscode/
 .idea/
+.claude/scheduled_tasks.lock
 *.swp
 *~
 
 # Python backend venv
+.venv/
+venv/
+.codex
 backend/venv/
 backend/__pycache__/
 backend/build/

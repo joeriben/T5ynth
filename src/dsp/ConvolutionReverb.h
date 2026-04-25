@@ -9,7 +9,7 @@
 class ConvolutionReverb
 {
 public:
-    ConvolutionReverb() = default;
+    ConvolutionReverb();
 
     void prepare(double sampleRate, int samplesPerBlock);
     void processBlock(juce::AudioBuffer<float>& buffer);

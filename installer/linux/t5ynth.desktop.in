@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=T5ynth
+Comment=Text-to-sound synthesizer
+Exec=@PREFIX@/T5ynth
+Icon=t5ynth
+StartupWMClass=T5ynth
+Terminal=false
+Categories=AudioVideo;Audio;Music;
+Keywords=audio;synth;music;ai;diffusion;
+StartupNotify=true

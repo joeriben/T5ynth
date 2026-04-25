@@ -70,6 +70,12 @@ public:
     void setLastPrompts(const juce::String& a, const juce::String& b) { lastPromptA = a; lastPromptB = b; }
     const juce::String& getLastPromptA() const { return lastPromptA; }
     const juce::String& getLastPromptB() const { return lastPromptB; }
+    void setLastPresetName(const juce::String& name) { lastPresetName = name; }
+    const juce::String& getLastPresetName() const { return lastPresetName; }
+    void setLastTags(const juce::StringArray& tags) { lastTags = tags; }
+    const juce::StringArray& getLastTags() const { return lastTags; }
+    void setLastGenerationTimeMs(float ms) { lastGenerationTimeMs = ms; }
+    float getLastGenerationTimeMs() const { return lastGenerationTimeMs; }
 
     void setLastSeed(int s) { lastSeed = s; }
     int getLastSeed() const { return lastSeed; }
@@ -93,6 +99,10 @@ public:
     T5ynthStepSequencer& getStepSequencer() { return stepSequencer; }
     T5ynthGenerativeSequencer& getGenerativeSequencer() { return generativeSequencer; }
     T5ynthArpeggiator& getArpeggiator() { return arpeggiator; }
+    bool canUseStepHoldPreview() const;
+    void beginStepHoldPreview(int midiNote, float velocity = 0.8f);
+    void updateStepHoldPreview(int midiNote, float velocity = 0.8f);
+    void endStepHoldPreview();
 
     // Waveform display data
     bool hasNewWaveform() const { return newWaveformReady.load(std::memory_order_acquire); }
@@ -125,7 +135,9 @@ private:
     juce::AudioProcessorValueTreeState parameters;
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     WtTraversalMapping makeWtTraversalMapping(int totalSamples) const;
+    WtTraversalMapping makeWtTraversalMapping(int totalSamples, float p1, float p2, float p3) const;
     void syncWavetableTraversal(double bufferSampleRate, int totalSamples);
+    void updateDriftState(int numSamples, float seqBpm);
 
     // Engine (mode is stored in APVTS "engine_mode", no separate member)
 
@@ -140,6 +152,7 @@ private:
     // DSP — global (shared across voices, post-sum)
     LFO lfo1;
     LFO lfo2;
+    LFO lfo3;
     DriftLFO driftLfo;
     T5ynthFilter postFilter;
     T5ynthDelayLine delay;
@@ -154,6 +167,12 @@ private:
     bool genModeActiveInAudio = false;  // tracks which engine is currently running
     int lastGenSteps = -1, lastGenPulses = -1, lastGenRotation = -1;
     float lastGenMutation = -1.0f;
+    std::array<float, 4> genStrandPan {};
+
+    // Edge-detection for arp-toggle note-off cleanup. When arp transitions
+    // false→true while a sequencer is running, the seq's currently-sounding
+    // note must be flushed before arp's filter starts swallowing noteOffs.
+    bool arpWasEnabled = false;
 
     // Inference (Python subprocess)
     std::shared_ptr<PipeInference> pipeInference = std::make_shared<PipeInference>();
@@ -161,7 +180,10 @@ private:
     juce::String lastModel;
 
     // Preset metadata (stored here so preset save can access them)
+    juce::String lastPresetName;
+    juce::StringArray lastTags;
     juce::String lastPromptA, lastPromptB;
+    float lastGenerationTimeMs = 0.0f;
     int lastSeed = 123456789;
     std::array<AxisSlotState, 3> lastAxes;
     std::vector<float> lastEmbeddingA, lastEmbeddingB;
@@ -179,10 +201,10 @@ private:
     int lastTriggeredNote = -1;
 
     // Pre-allocated LFO buffers (avoid heap alloc in processBlock)
-    std::vector<float> lfo1Buffer, lfo2Buffer;
+    std::vector<float> lfo1Buffer, lfo2Buffer, lfo3Buffer;
 
     // Persisted LFO output for ghost display (updated every block, even during idle)
-    float lastLfo1Val_ = 0.0f, lastLfo2Val_ = 0.0f;
+    float lastLfo1Val_ = 0.0f, lastLfo2Val_ = 0.0f, lastLfo3Val_ = 0.0f;
 
     // Waveform display
     juce::AudioBuffer<float> waveformSnapshot;
@@ -191,6 +213,10 @@ private:
     // Track loaded reverb IR / seq preset to avoid reloading every block
     int lastReverbIr = -1;
     int lastSeqPreset = -1;
+
+    // Temporary preview note from step-grid mouse-hold editing.
+    bool stepHoldPreviewActive = false;
+    int stepHoldPreviewNote = -1;
 
     // Idle detection (audio thread only — not atomic)
     int silentBlockCount = 0;
@@ -221,6 +247,8 @@ public:
         std::atomic<float> lfo1Depth { NONE };
         std::atomic<float> lfo2Rate { NONE };
         std::atomic<float> lfo2Depth { NONE };
+        std::atomic<float> lfo3Rate { NONE };
+        std::atomic<float> lfo3Depth { NONE };
         std::atomic<float> delayTime { NONE };
         std::atomic<float> delayFeedback { NONE };
         std::atomic<float> delayMix { NONE };

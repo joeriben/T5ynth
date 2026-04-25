@@ -160,3 +160,49 @@ Fetched at build time via CMake FetchContent.
 **URL:** https://github.com/google/sentencepiece
 
 Fetched at build time via CMake FetchContent for the native C++ T5 tokenizer.
+
+---
+
+## Huovilainen Moog Ladder Filter
+
+**Reference:** Antti Huovilainen, "Non-linear digital implementation of the
+               moog ladder filter", Proc. of the 7th Int. Conference on
+               Digital Audio Effects (DAFx-04), Naples, 2004.
+**URL:** https://www.dafx.de/paper-archive/2004/P_061.PDF
+
+The `MoogLadderFilter` class (`src/dsp/MoogLadderFilter.h`) is an original
+implementation of the non-linear digital Moog ladder described in
+Huovilainen 2004 (half-sample-delay compensated 4-pole with tanh at each
+stage input and in the feedback path). Signal-processing algorithms are not
+themselves copyrightable; no source code was copied from any reference
+implementation. Credit for the topology and its proper digital formulation
+goes to Antti Huovilainen.
+
+Known reference implementations whose structure informed our understanding
+(no code copied):
+- chowdsp_utils `NonlinearLadderFilter`  (BSD-3) — https://github.com/Chowdhury-DSP/chowdsp_utils
+- Vital `ladder_filter.cpp`              (GPL-3) — https://github.com/mtytel/vital
+- Surge XT `VintageLadders.cpp`          (GPL-3) — https://github.com/surge-synthesizer/surge
+
+---
+
+## Cutoff Warp Filter (design inspiration: Surge XT)
+
+**Reference:** Surge XT `src/common/dsp/filters/CutoffWarp.cpp`
+**License of reference:** GNU GPLv3
+**URL:** https://github.com/surge-synthesizer/surge
+
+The `CutoffWarpFilter` class (`src/dsp/CutoffWarpFilter.h`) is an original
+implementation inspired by the Cutoff Warp filter pioneered in Surge XT.
+The ZDF 4-pole ladder topology is a standard digital filter formulation and
+not copyrightable in itself; the specific idea of a style-switchable per-
+feedback nonlinearity as a musical character parameter is credited to the
+Surge XT project. No source code was copied from Surge XT — our
+implementation is written from scratch against the published ZDF-ladder
+derivation, and our saturation curve set (tanh / softclip / OJD-like /
+sin-fold / digital / asym-tanh) is a subset chosen for musical coverage
+rather than a verbatim reproduction of Surge's style list.
+
+If T5ynth ever needs to directly incorporate Surge XT source code (rather
+than only the concept), that code carries the GPLv3 and must be documented
+here and in the top-level license accordingly.

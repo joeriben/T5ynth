@@ -26,6 +26,7 @@ public:
 
     juce::File scanForModel();
     bool hasAnyInstalledModel();
+    void importDiscoveredModels();
     void setModelPath(const juce::File& dir);
     juce::File getModelPath() const { return modelPath; }
     void setBackendConnected(bool connected);
@@ -46,6 +47,10 @@ private:
     void updateStatus();
     void timerCallback() override;
     void setModelInstallBusy(bool busy, const juce::String& statusText = {});
+    juce::Result importModelDirectoryForId(const juce::String& modelId,
+                                           const juce::File& sourceDir,
+                                           juce::File& activeDir,
+                                           bool replaceExistingTarget);
 
     // Smart Auto-Scan entry point: checks known install paths, and for
     // SA Small walks the user's Downloads folder looking for the two

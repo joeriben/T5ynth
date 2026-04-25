@@ -120,6 +120,8 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     algoDampRow->updateValue();
     algoWidthRow->updateValue();
 
+    addAndMakeVisible(wordmark);
+
     // Attach APVTS AFTER buttons are set up
     reverbTypeA = std::make_unique<CA>(apvts, PID::reverbType, reverbTypeHidden);
 
@@ -182,6 +184,94 @@ float FxPanel::fs() const
     return juce::jlimit(12.0f, 22.0f, topH * 0.022f);
 }
 
+void FxPanel::WordmarkComponent::paint(juce::Graphics& g)
+{
+    const int panelW = getWidth();
+    const int panelH = getHeight();
+    if (panelW <= 0 || panelH <= 0)
+        return;
+
+    struct LetterColor { char ch; juce::Colour col; };
+    LetterColor letters[] = {
+        {'U', juce::Colour(0xff667eea)}, {'C', juce::Colour(0xffe91e63)},
+        {'D', juce::Colour(0xff7C4DFF)}, {'C', juce::Colour(0xffFF6F00)},
+        {'A', juce::Colour(0xff4CAF50)}, {'E', juce::Colour(0xff00BCD4)},
+        {' ', {}},
+        {'A', juce::Colour(0xff667eea)}, {'I', juce::Colour(0xffe91e63)},
+        {' ', {}},
+        {'L', juce::Colour(0xff7C4DFF)}, {'A', juce::Colour(0xffFF6F00)},
+        {'B', juce::Colour(0xff4CAF50)}
+    };
+
+    auto measureBrandWidth = [&letters](float fontSize)
+    {
+        int total = 0;
+        const int tracking = juce::roundToInt(fontSize * 0.15f);
+        bool first = true;
+
+        for (auto& lc : letters)
+        {
+            if (!first)
+                total += tracking;
+
+            char text[] = { lc.ch, 0 };
+            total += measureTextWidth(juce::String(text), fontSize);
+            first = false;
+        }
+
+        return total;
+    };
+
+    const int usableW = juce::jmax(1, panelW - 8);
+    float prefixFs = juce::jlimit(9.0f, 15.0f,
+                                  juce::jmin(static_cast<float>(panelW) / 11.0f,
+                                             static_cast<float>(panelH) * 0.20f));
+    float brandFs = juce::jlimit(12.0f, 24.0f,
+                                 juce::jmin(static_cast<float>(panelW) / 11.5f,
+                                            static_cast<float>(panelH) * 0.34f));
+
+    int brandW = measureBrandWidth(brandFs);
+    if (brandW > usableW)
+    {
+        brandFs = juce::jmax(10.0f, brandFs * static_cast<float>(usableW) / static_cast<float>(brandW));
+        brandW = measureBrandWidth(brandFs);
+    }
+
+    const int prefixH = juce::roundToInt(prefixFs * 1.35f);
+    const int brandH = juce::roundToInt(brandFs * 1.35f);
+    const int lineGap = juce::jmax(1, juce::roundToInt(static_cast<float>(panelH) * 0.06f));
+    const int totalH = prefixH + lineGap + brandH;
+    int y = juce::jmax(0, (panelH - totalH) / 2);
+
+    g.setFont(juce::FontOptions(prefixFs));
+    g.setColour(kDimmer);
+    g.drawText("T5ynth by", 0, y, panelW, prefixH, juce::Justification::centred);
+
+    y += prefixH + lineGap;
+    const int tracking = juce::roundToInt(brandFs * 0.15f);
+    int x = juce::roundToInt((static_cast<float>(panelW) - static_cast<float>(brandW)) * 0.5f);
+    x = juce::jlimit(4, juce::jmax(4, panelW - brandW - 4), x);
+
+    g.setFont(juce::FontOptions(brandFs));
+    bool first = true;
+    for (auto& lc : letters)
+    {
+        if (!first)
+            x += tracking;
+
+        char text[] = { lc.ch, 0 };
+        juce::String ch(text);
+        int cw = measureTextWidth(ch, brandFs);
+        if (lc.ch != ' ')
+        {
+            g.setColour(lc.col);
+            g.drawText(ch, x, y, cw + 1, brandH, juce::Justification::centredLeft);
+        }
+        x += cw;
+        first = false;
+    }
+}
+
 void FxPanel::paint(juce::Graphics& g)
 {
     g.fillAll(kCard);
@@ -193,50 +283,6 @@ void FxPanel::paint(juce::Graphics& g)
     // SwitchBox borders
     paintSwitchBoxBorder(g, delayTypeSwitchBounds);
     paintSwitchBoxBorder(g, reverbTypeSwitchBounds);
-
-    // ── Wordmark: "T5ynth by UCDCAE AI LAB" — always visible, scales with panel ──
-    if (reverbMixRow)
-    {
-        int spaceBelow = getHeight() - reverbMixRow->getBottom();
-        int panelW = getWidth() - 16;
-        // Size to fit panel width: "T5ynth by UCDCAE AI LAB" is ~22 chars
-        float wmFs = std::max(6.0f, std::min(static_cast<float>(panelW) / 16.0f,
-                                              static_cast<float>(spaceBelow) * 0.65f));
-        int wmH = juce::roundToInt(wmFs * 1.4f);
-        int wmY = reverbMixRow->getBottom() + (spaceBelow - wmH) / 2;
-        g.setFont(juce::FontOptions(wmFs));
-
-        // "T5ynth by " in dim gray, "UCDCAE AI LAB" per-letter colored — centred
-        juce::String prefix = "T5ynth by  ";
-        int prefixW = g.getCurrentFont().getStringWidth(prefix);
-
-        struct LetterColor { char ch; juce::Colour col; };
-        LetterColor letters[] = {
-            {'U', juce::Colour(0xff667eea)}, {'C', juce::Colour(0xffe91e63)},
-            {'D', juce::Colour(0xff7C4DFF)}, {'C', juce::Colour(0xffFF6F00)},
-            {'A', juce::Colour(0xff4CAF50)}, {'E', juce::Colour(0xff00BCD4)},
-            {' ', {}},
-            {'A', juce::Colour(0xff667eea)}, {'I', juce::Colour(0xffe91e63)},
-            {' ', {}},
-            {'L', juce::Colour(0xff7C4DFF)}, {'A', juce::Colour(0xffFF6F00)},
-            {'B', juce::Colour(0xff4CAF50)}
-        };
-        int tracking = juce::roundToInt(wmFs * 0.15f);
-
-        int startX = 8;
-
-        g.setColour(kDimmer);
-        g.drawText(prefix, startX, wmY, prefixW, wmH, juce::Justification::centredLeft);
-
-        int x = startX + prefixW;
-        for (auto& lc : letters)
-        {
-            juce::String ch(juce::CharPointer_ASCII(&lc.ch), 1);
-            int cw = g.getCurrentFont().getStringWidth(ch);
-            if (lc.ch != ' ') { g.setColour(lc.col); g.drawText(ch, x, wmY, cw + 1, wmH, juce::Justification::centredLeft); }
-            x += cw + tracking;
-        }
-    }
 }
 
 void FxPanel::resized()
@@ -249,10 +295,6 @@ void FxPanel::resized()
 
     int rowH = juce::jmin(juce::roundToInt(static_cast<float>(getHeight()) * 0.14f), 20);
     int gap = 2;
-
-    // Reserve space at bottom for wordmark
-    int wmReserve = juce::jmax(14, juce::roundToInt(static_cast<float>(getHeight()) * 0.09f));
-    area.removeFromBottom(wmReserve);
 
     // ── DELAY header ──
     delayHeader.setFont(juce::FontOptions(f * 0.85f));
@@ -323,4 +365,8 @@ void FxPanel::resized()
         algoWidthRow->setBounds(pair2[0]);
         reverbMixRow->setBounds(pair2[1]);
     }
+
+    area.removeFromTop(gap * 2);
+    wordmark.setBounds(area);
+    wordmark.setVisible(area.getHeight() >= 24);
 }

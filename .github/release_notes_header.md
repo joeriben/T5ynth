@@ -13,12 +13,14 @@
 Current macOS releases ship only `T5ynth.app`, delivered through the installer.
 
 ### Platform Scope
-This stable release currently ships **macOS only**.
+This beta release currently ships public installers for **macOS and Windows**.
 
-Windows, Linux, VST3 and AU are planned, but they are being released one by one after separate validation. They are intentionally **not** attached to this release yet.
+Linux, VST3 and AU outputs are still being released one by one after separate validation. They are intentionally **not** attached to this release yet.
 
 ### Windows
-Windows packages are not part of this stable release yet.
+1. Download **`T5ynth-Windows-Setup.exe`**
+2. Run the installer and follow the setup prompts.
+3. Launch T5ynth from the installed Start Menu shortcut or installation folder.
 
 ### Linux
 Linux packages are not part of this stable release yet.

@@ -1,0 +1,12 @@
+# T5ynth build-host PyTorch stack for NVIDIA Blackwell GPUs (sm_120).
+#
+# Install this before backend/requirements.txt when building a Linux backend
+# bundle intended for Blackwell-class hosts. This matches the working local
+# AI4ArtsEd reference stack and uses the first generally available CUDA line
+# with Blackwell support.
+
+--index-url https://download.pytorch.org/whl/cu128
+
+torch==2.10.0+cu128
+torchaudio==2.10.0+cu128
+torchvision==0.25.0+cu128

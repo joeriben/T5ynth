@@ -261,15 +261,14 @@ Licensed under the <a href="https://stability.ai/community-license-agreement">St
   <li>In Settings, click <strong>Open Model Page</strong>. Your browser opens the HuggingFace page for the model.</li>
   <li>Sign up or log in on HuggingFace (free account).</li>
   <li>Click <strong>Agree and access repository</strong> to accept the license.</li>
-  <li>Open the <strong>Files and versions</strong> tab and download exactly these three files to your usual Downloads folder:
+  <li>Open the <strong>Files and versions</strong> tab and download exactly these two files to your usual Downloads folder:
     <ul>
       <li><code>model.safetensors</code> (~1.56&nbsp;GB)</li>
       <li><code>model_config.json</code></li>
-      <li><code>LICENSE</code></li>
     </ul>
     Do <strong>not</strong> download <code>model.ckpt</code>, <code>base_model.ckpt</code>, <code>base_model.safetensors</code>, or <code>base_model_config.json</code> — those are alternative formats T5ynth does not use.
   </li>
-  <li>Back in T5ynth, click <strong>Auto-Scan</strong>. T5ynth finds the three files in your Downloads folder and copies them to the right place. You can delete the originals from Downloads afterwards.</li>
+  <li>Back in T5ynth, click <strong>Auto-Scan</strong>. T5ynth finds the two files in your Downloads folder and copies them to the right place. You can delete the originals from Downloads afterwards.</li>
 </ol>
 <p>
 If you saved the files to a folder other than Downloads, Auto-Scan opens a folder picker and asks you to point at the folder.
@@ -289,10 +288,20 @@ Licensed under the Stability AI Community License. Gated on HuggingFace. The mod
 </p>
 <ol>
   <li>In Settings, click <strong>Open Model Page</strong>, sign in on HuggingFace, and accept the license.</li>
-  <li>In a terminal, run:
-    <pre><code>huggingface-cli login    # paste your HF access token
+  <li>In a terminal, log in once:
+    <pre><code>huggingface-cli login    # paste your HF access token</code></pre>
+    Then download into the model directory T5ynth scans on your platform.
+    <p><em>macOS / Linux (bash, zsh):</em></p>
+    <pre><code># macOS
 huggingface-cli download stabilityai/stable-audio-open-1.0 \
-  --local-dir "&lt;target directory shown in Settings&gt;"</code></pre>
+  --local-dir ~/Library/T5ynth/models/stable-audio-open-1.0
+
+# Linux
+huggingface-cli download stabilityai/stable-audio-open-1.0 \
+  --local-dir ~/.local/share/T5ynth/models/stable-audio-open-1.0</code></pre>
+    <p><em>Windows 11 (PowerShell):</em></p>
+    <pre><code>huggingface-cli download stabilityai/stable-audio-open-1.0 `
+  --local-dir "$env:APPDATA\T5ynth\models\stable-audio-open-1.0"</code></pre>
   </li>
   <li>Click <strong>Auto-Scan</strong> in Settings, or use <strong>Browse…</strong> and select that folder.</li>
 </ol>
@@ -351,21 +360,26 @@ You have two text input fields. Each prompt is encoded into a <strong>768-dimens
 These embedding vectors — not the text itself — are what steers the diffusion model. T5ynth operates on them as geometric objects: moving, blending, scaling, and perturbing them before any audio is generated.
 </p>
 <ul>
-  <li><strong>Single prompt</strong> — enter text in Prompt A only. The model generates audio matching that description.</li>
-  <li><strong>Two prompts</strong> — enter text in both A and B. The <em>Alpha</em> slider navigates between them in embedding space.</li>
+  <li><strong>Two prompts</strong> — enter text in both A and B. The <em>Alpha</em> slider (labeled <strong>A ↔ B</strong>) interpolates between them in embedding space.</li>
+  <li><strong>One prompt + Echoraum</strong> — leave one field empty. The empty field becomes the <em>reflection</em> of the present prompt through the model's neutral encoding (the encoding of <code>""</code>, also used as <code>emb_neutral</code> in the Semantic Axes math): geometrically <code>2·neutral − other</code>. Alpha then traces a path from the prompt through the model-neutral midpoint to the prompt's tonal antipode — sounds the prompt actively isn't. A and B are peers; either side may be the empty one.</li>
+  <li><strong>Both empty</strong> — both embeddings collapse to the neutral encoding. The model produces its own self-portrait (pure unconditional sampling), varying with the seed.</li>
 </ul>
 
 <div class="tip">
   Prompts should describe <strong>sound qualities</strong>, not musical genres. "A warm resonant drone with metallic harmonics" works better than "ambient techno." The model has no reliable concept of genre.
 </div>
 
+<div class="tip">
+  Leaving a field empty is an <strong>active musical decision</strong>, not a fallback. If you want the same character regardless of the A ↔ B slider, type the same text in both fields — that is mathematically equivalent to a pinned single-prompt sound (since <code>0.5·A + 0.5·A = A</code> for every value of Alpha).
+</div>
+
 <h3>Generation Controls</h3>
 <table>
   <tr><th>Control</th><th>Range</th><th>What It Does</th></tr>
   <tr>
-    <td><strong>Alpha</strong></td>
+    <td><strong>Alpha (A ↔ B)</strong></td>
     <td>-2.0 … +2.0</td>
-    <td>Navigates between Prompt A (−1) and Prompt B (+1) <strong>in embedding space, not in audio</strong>. This is not a crossfade or mix of two audio signals — it is movement through a semantic space. The midpoint (0) is not "half A plus half B" in any audible sense; it is a new point in meaning-space that the model interprets independently. For example, if Prompt A is <em>"bowed cello, sustained"</em> and Prompt B is <em>"crackling fire"</em>, the midpoint will not sound like cello mixed with fire — it might produce something like a warm, textured, resonant hum that resembles neither source directly. Values beyond ±1 <em>extrapolate</em> — pushing past either pole into regions of the embedding space that no text prompt would naturally reach. The slider uses a quadratic curve for fine control near the center.</td>
+    <td>Navigates between Prompt A (−1) and Prompt B (+1) <strong>in embedding space, not in audio</strong>. This is not a crossfade or mix of two audio signals — it is movement through a semantic space. The midpoint (0) is not "half A plus half B" in any audible sense; it is a new point in meaning-space that the model interprets independently. For example, if Prompt A is <em>"bowed cello, sustained"</em> and Prompt B is <em>"crackling fire"</em>, the midpoint will not sound like cello mixed with fire — it might produce something like a warm, textured, resonant hum that resembles neither source directly. Values beyond ±1 <em>extrapolate</em> — pushing past either pole into regions of the embedding space that no text prompt would naturally reach. When one prompt field is left empty, the empty side is the Echoraum reflection of the other, so Alpha sweeps from the prompt through the model-neutral midpoint to its antipode (see <a href="#gen">the Prompts section</a>). The slider uses a quadratic curve for fine control near the center.</td>
   </tr>
   <tr>
     <td><strong>Magnitude</strong></td>
@@ -462,8 +476,9 @@ The Dimension Explorer gives you direct access to all <strong>768 individual dim
 After generating audio, T5ynth receives the 768-dimensional embedding vectors for your prompts. The DimExplorer displays these as a row of vertical bars — one per dimension, sorted by magnitude (the most significant dimensions appear on the left).
 </p>
 <ul>
-  <li><strong>With two prompts:</strong> Each bar shows the <em>difference</em> between Prompt A and Prompt B for that dimension. <span style="color:var(--green)">Green</span> bars point toward A, <span style="color:var(--accent2)">orange</span> bars toward B. The leftmost bars are the dimensions where your two prompts differ most — editing here affects the A/B contrast. The rightmost bars are where A and B are nearly identical — editing here changes what both prompts share, often producing more fundamental sonic shifts.</li>
-  <li><strong>With one prompt:</strong> Bars show the absolute activation values of the embedding.</li>
+  <li>Each bar shows the <em>difference</em> between Embedding A and Embedding B for that dimension. <span style="color:var(--green)">Green</span> bars point toward A, <span style="color:var(--accent2)">orange</span> bars toward B. The leftmost bars are the dimensions where the two embeddings differ most — editing here affects the A/B contrast. The rightmost bars are where A and B are nearly identical — editing here changes what both share, often producing more fundamental sonic shifts.</li>
+  <li>If one prompt field is empty, the absent side is the <strong>Echoraum reflection</strong> of the present one (<code>2·neutral − other</code>), not a zero vector. The orange/green bars then read as opposing in a structured way: dimensions where the prompt is most articulate are the dimensions where the echo opposes it most strongly.</li>
+  <li>If both fields are empty, A and B are both the neutral encoding, so all bars collapse — there is no A↔B contrast to display.</li>
 </ul>
 
 <h4>What You Can Do</h4>
@@ -537,17 +552,43 @@ Applies to both modes: Mono, 4, 6, 8, 12, or 16 voices. Gain auto-scales per voi
 
 <h3>Filter</h3>
 <p>
-State-variable filter (TPT topology) with four types and four slopes:
+Three filter algorithms share the same Type / Slope / Cutoff / Resonance /
+Mix / Kbd Track controls; switch between them with the <strong>Algorithm</strong>
+selector in the filter header row.
 </p>
 <table>
   <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
+  <tr><td><strong>Algorithm</strong></td><td>SVF / Ladder / Warp</td><td>See the algorithm notes below. Default <em>SVF</em> — pre-existing presets load on it, so their sound is unchanged.</td></tr>
   <tr><td><strong>Type</strong></td><td>Off / LP / HP / BP</td><td></td></tr>
-  <tr><td><strong>Slope</strong></td><td>6 / 12 / 18 / 24 dB/oct</td><td></td></tr>
+  <tr><td><strong>Slope</strong></td><td>6 / 12 / 18 / 24 dB/oct</td><td>On Ladder / Warp the slope is the ladder tap index (1–4 poles); on SVF it's the order of the SVF / one-pole cascade.</td></tr>
   <tr><td><strong>Cutoff</strong></td><td>20 Hz – 20 kHz</td><td>Exponential scaling. Primary modulation target.</td></tr>
-  <tr><td><strong>Resonance</strong></td><td>0.0 – 1.0</td><td>Maps to Q 0.5–18</td></tr>
+  <tr><td><strong>Resonance</strong></td><td>0.0 – 1.0</td><td>SVF maps to Q 0.5–18. Ladder / Warp map to feedback gain <em>k</em>; at <em>r</em>&nbsp;≈&nbsp;1 both self-oscillate.</td></tr>
   <tr><td><strong>Mix</strong></td><td>0.0 – 1.0</td><td>Equal-power dry/wet crossfade</td></tr>
   <tr><td><strong>Kbd Track</strong></td><td>0.0 – 1.0</td><td>Cutoff offset per MIDI semitone</td></tr>
+  <tr><td><strong>Drive</strong></td><td>0 – 36 dB</td><td>On SVF: pre-filter <code>tanh</code> saturation (optionally oversampled). On Ladder / Warp: input gain into the filter's own nonlinear stages — the filter itself provides the saturation character, master volume handles level.</td></tr>
+  <tr><td><strong>OS</strong></td><td>Off / 2× / 4× / 8×</td><td>Oversampling for the SVF drive <code>tanh</code>. Inactive on Ladder / Warp; their internal nonlinearities aren't oversampled in this first iteration.</td></tr>
+  <tr><td><strong>Style</strong></td><td>Tanh / SoftClip / OJD / Sin / Digital / Asym</td><td>Warp-only — picks the per-pole saturation curve. Greyed out for SVF / Ladder. See algorithm notes.</td></tr>
 </table>
+
+<div class="note">
+  <strong>Algorithm notes</strong>
+
+  <ul>
+    <li><strong>SVF</strong> — linear JUCE <code>StateVariableTPTFilter</code> + one-pole cascade. Clean, cheap on CPU, no character of its own. Keep this on low-powered hardware (similar trade-off to choosing the algorithmic reverb over the convolution reverb). Drive applies a pre-filter <code>tanh</code> + optional oversampling, same as previous T5ynth builds.</li>
+    <li><strong>Ladder</strong> — Huovilainen-style non-linear 4-pole Moog ladder with a half-sample-delay-compensated feedback path. Classic analog-flavoured growl, self-oscillating at high resonance, and the characteristic Moog cutoff-tracking compression. Drive feeds the internal <code>tanh</code> stages directly, so turning drive up produces the "pushed into the ladder" warmth rather than a pre-filter flat-clip.</li>
+    <li><strong>Warp</strong> — Surge-XT-style zero-delay-feedback 4-pole ladder with a selectable per-pole saturation curve (the <em>Style</em> control). Good for shaping large continuous timbral spaces, which is why it's the recommended target when mapping an embedding dimension to filter character. All six styles are centered at zero, so the feedback loop stays stable under modulation. Warp is the most expensive of the three (~2–3× SVF CPU).</li>
+  </ul>
+
+  <strong>Warp styles</strong> — all bounded, all with <code>sat(0) = 0</code> so the feedback loop has a clean zero equilibrium:
+  <ul>
+    <li><strong>Tanh</strong> — symmetric soft, the classic reference.</li>
+    <li><strong>SoftClip</strong> — <code>x / (1 + |x|)</code>; gentler, flatter knee than <code>tanh</code>.</li>
+    <li><strong>OJD</strong> — <code>x / √(1 + x²)</code>; slower approach to the limit than <code>tanh</code> with more odd-harmonic content for a given drive.</li>
+    <li><strong>Sin</strong> — wavefolded sine; FM-like timbre when driven hard.</li>
+    <li><strong>Digital</strong> — hard clamp to ±1; deliberately buzzy, rich in odd harmonics at any drive.</li>
+    <li><strong>Asym</strong> — <code>tanh(x + 0.25) − tanh(0.25)</code>; asymmetric response, prominent 2nd-harmonic colouring, bias-compensated so it's still centered at zero.</li>
+  </ul>
+</div>
 
 <h3>Envelopes (Env 1, Env 2, Env 3)</h3>
 <p>
@@ -701,6 +742,7 @@ A traditional step sequencer with 2–32 steps. Each step has:
   <tr><td><strong>BPM</strong></td><td>20 – 300</td><td></td></tr>
   <tr><td><strong>Division</strong></td><td>1/1, 1/2, 1/4, 1/8, 1/16</td><td>Step duration relative to a quarter note</td></tr>
   <tr><td><strong>Gate</strong></td><td>0.1 – 1.0</td><td>Fraction of step duration that the note sustains</td></tr>
+  <tr><td><strong>Shuffle</strong></td><td>0 – 75%</td><td>Pairwise swing: complete even/odd step pairs are long/short, while an unpaired final step in odd-length patterns stays straight</td></tr>
   <tr><td><strong>Glide Time</strong></td><td>10 – 500 ms</td><td>Portamento between bound steps</td></tr>
   <tr><td><strong>Octave Shift</strong></td><td>-2 … +2</td><td>Transposes all steps</td></tr>
   <tr><td><strong>Presets</strong></td><td>10 built-in patterns</td><td>Octave Bounce, Wide Leap, Off-Beat Minor, Glide Groove, Sparse Stab, Rising Arc, Scatter, Chromatic, Bass Walk, Gated Pulse</td></tr>
@@ -733,6 +775,78 @@ Press the <strong>GEN</strong> button to switch from the manual step sequencer t
 <p>
 Each Euclidean parameter (Steps, Pulses, Rotation, Mutation) has a lock toggle. When unlocked, that parameter itself drifts over time — the pattern length, density, rotation, and mutation rate all evolve. Lock what you want stable, unlock what you want to breathe.
 </p>
+
+<h3>Polyphonic Mode — Strands &amp; Pitch Field</h3>
+
+<p>
+GEN runs up to <strong>five parallel Strands</strong> (Strand&nbsp;1 is always active; Strands&nbsp;2&ndash;5 enable individually). Each strand owns its own Euclidean pattern (steps, pulses, rotation, mutation, fix flags), an octave shift, a tempo multiplier, and a textural <em>Role</em>. All strands run the same internal pipeline as Strand&nbsp;1 (Euclidean rhythm &rarr; Turing-machine degree walk &rarr; quantization), differing only in their parameters and their pitch source: Strand&nbsp;1 quantizes to the global Scale, Strands&nbsp;2&ndash;5 draw from the shared <strong>Pitch Field</strong>. Four secondary strands plus the reference voice means each of the four roles (Anchor / Line / Density / Gesture) can be assigned to its own strand alongside Strand&nbsp;1, without having to drop one. Inter-strand interaction is governed by the <strong>Coordination Mode</strong> (see below) &mdash; not by per-event harmonic checks inside each strand.
+</p>
+
+<p>
+The result is closer to a small ensemble than to a chord arpeggiator: rhythms cross-relate, registers separate, and the pitch material drifts as a whole.
+</p>
+
+<h4>Per-Strand Controls</h4>
+
+<table>
+  <tr><th>Control</th><th>Range</th><th>What It Does</th></tr>
+  <tr><td><strong>Enable</strong></td><td>on / off</td><td>Activates the strand. Strand 1 is always on; 2&ndash;5 are toggled.</td></tr>
+  <tr><td><strong>Role</strong></td><td>Anchor / Line / Density / Gesture</td><td>Textural function (see below). Not a bass/lead hierarchy &mdash; each role defines register and rhythmic behavior.</td></tr>
+  <tr><td><strong>Octave</strong></td><td>&minus;2 &hellip; +2</td><td>Register offset. Use to separate strands vertically.</td></tr>
+  <tr><td><strong>Div&times;</strong></td><td>1/4&times;, 1/2&times;, 1&times;, 2&times;, 4&times;, 1/3&times;, 3&times;</td><td>Tempo multiplier relative to global division. Five binary ratios layer nested-subdivision grids (e.g.&nbsp;3 strands at 1&times; / 2&times; / 4&times; gives a quarter-note / eighth-note / sixteenth-note stack). The two ternary ratios 1/3&times; and 3&times; are for true cross-rhythms — pair 1&times; with 3&times; for 3-against-1, or 2&times; with 3&times; for 3-against-2 (hemiola).</td></tr>
+  <tr><td><strong>Dominance</strong></td><td>0.0 &ndash; 1.0</td><td>How strongly the strand snaps to the field's center pitch on strong beats. 0 = pure Turing-machine drift; higher = more tonal anchoring.</td></tr>
+  <tr><td><strong>Steps / Pulses / Rotation / Mutation</strong></td><td>same as monophonic</td><td>Each strand has its own Euclidean DNA &mdash; including its own Fix toggles.</td></tr>
+</table>
+
+<h4>The Four Roles</h4>
+<p>
+Roles select <em>character</em> only &mdash; register, default rhythmic density, default velocity range, and default gate length. Each role still runs the identical Euclidean&nbsp;+ Turing pipeline as Strand&nbsp;1; the role does not change <em>how</em> notes are chosen, only the parametric defaults that shape the strand's character.
+</p>
+<table>
+  <tr><th>Role</th><th>Character</th><th>Typical Use</th></tr>
+  <tr><td><strong>Anchor</strong></td><td>Low-register support. The strand walks the field via its degree pattern; the optional <em>Dominance</em> control snaps the note to the field center at the top of every other cycle (a cadential return rather than a per-beat tic).</td><td>Pedal foundation</td></tr>
+  <tr><td><strong>Line</strong></td><td>Mid-register voice. Walks the field from the strand's degree pattern; no per-event harmonic check.</td><td>Melodic contour</td></tr>
+  <tr><td><strong>Density</strong></td><td>Mid-register, shorter gate. On weak steps the strand may insert a single chromatic passing tone in the direction of the next field-member landing; the strong-step note remains in the field.</td><td>Dense motion fill</td></tr>
+  <tr><td><strong>Gesture</strong></td><td>Wider register. Sparse pulses on its own Euclidean pattern.</td><td>Pointillistic accents</td></tr>
+</table>
+
+<h4>Pitch Field Controls</h4>
+<p>
+The Pitch Field is the shared pitch-class set (pc-set) that all strands draw from. It replaces classical chord/scale context with a 12-bit set that can drift, transform, or pivot over time.
+</p>
+
+<table>
+  <tr><th>Control</th><th>Options</th><th>What It Does</th></tr>
+  <tr><td><strong>Mode</strong></td><td>Static / Drift / Transform / Pivot</td><td>How the field evolves on Strand&nbsp;1's cycle boundary.</td></tr>
+  <tr><td><strong>Rate</strong></td><td>1 &ndash; 32 cycles</td><td>How often the field changes (Static = never, regardless of rate).</td></tr>
+  <tr><td><strong>Center PC</strong></td><td>derived</td><td>Follows the global <em>Scale Root</em> &mdash; the field anchor is always the chosen tonic. Anchor strands lock to it; Dominance pulls other strands toward it at cycle boundaries.</td></tr>
+  <tr><td><strong>Pivot interval</strong></td><td>derived</td><td>Chosen automatically from the Scale Type's character: <strong>P5</strong> for major-flavoured scales (Major, Mixolydian, Pentatonic, Pelog, Slendro&hellip;), <strong>m3</strong> for minor-flavoured scales (Minor, Dorian, Phrygian, Harmonic Minor, Hirajoshi, Hijaz, Persian&hellip;), <strong>Tri</strong> for symmetric or sharp-fourth scales (Whole-tone, Locrian, Lydian, Hungarian Minor). Used only when Mode = Pivot.</td></tr>
+</table>
+
+<h4>Field Modes</h4>
+<table>
+  <tr><th>Mode</th><th>Behavior</th></tr>
+  <tr><td><strong>Static</strong></td><td>Fixed pc-set. Defined by the global Scale Root + Scale Type, never changes.</td></tr>
+  <tr><td><strong>Drift</strong></td><td>Each cycle window swaps one pitch class out of the field for another. Slow, organic harmonic motion. The center pc is protected.</td></tr>
+  <tr><td><strong>Transform</strong></td><td>Applies a serial row operation (Tn = transposition, In = inversion, R = retrograde, RI = retrograde inversion) to the ordered row. Twelve-tone style transformation.</td></tr>
+  <tr><td><strong>Pivot</strong></td><td>Transposes the entire pc-set by the Pivot interval each tick. The accumulated shift cycles through equal divisions of the octave (four m3 shifts = full octave, three M3 = octave, and so on).</td></tr>
+</table>
+
+<h4>Coordination Mode</h4>
+<p>
+Strands run independently inside themselves; this control governs how (or whether) they react to each other. The default <em>Density Budget</em> is the only mode active in this build &mdash; the other three are reserved IDs that currently fall through to <em>Independent</em> behaviour.
+</p>
+<table>
+  <tr><th>Mode</th><th>Behaviour</th></tr>
+  <tr><td><strong>Independent</strong></td><td>No interaction. Strands share only the Pitch Field. Coexistence is whatever the field allows.</td></tr>
+  <tr><td><strong>Density Budget</strong> <em>(default)</em></td><td>Caps the number of simultaneously sounding strands at the configured limit (default 3). When the cap is reached and a higher-priority strand fires, the lowest-priority sounding strand is displaced. Priority is fixed: Strand&nbsp;1 (the reference) is never displaced; otherwise Anchor&nbsp;&gt;&nbsp;Line&nbsp;&gt;&nbsp;Density&nbsp;&gt;&nbsp;Gesture.</td></tr>
+  <tr><td><strong>Algebraic</strong></td><td>Reserved &mdash; future mode in which Strands&nbsp;2&ndash;4 derive their material as transformations of Strand&nbsp;1 or of the field row. Not yet implemented.</td></tr>
+  <tr><td><strong>Counterpoint</strong></td><td>Reserved &mdash; future mode in which a post-decision check resolves vertical minor-second clashes. Not yet implemented.</td></tr>
+</table>
+
+<div class="tip">
+  <strong>Workflow:</strong> Start with one strand (Anchor on C, slow Drift, low Dominance). Add Strand 2 as a Line at 2&times; with octave +1. Add Strand 3 as Density at 4&times; with Mutation high. Lock Strand 1's parameters, leave 2&ndash;4 unlocked. The result is an evolving three-voice texture that never settles &mdash; useful for ambient beds, generative practice, or as a melodic source for the diffusion model when paired with Drift/Regenerate.
+</div>
 
 <!-- ═══════════════════════════════════════════ -->
 <h2 id="arp">10. Arpeggiator</h2>
@@ -793,7 +907,7 @@ Same prompt + different seed = very different audio. If a prompt feels right but
 
 <h4>4. Alpha for morphing, not mixing</h4>
 <p>
-Alpha is not a volume crossfade. It interpolates in embedding space — the midpoint (0.0) is often <em>not</em> a blend of A and B but something new. Use Alpha to discover unexpected sounds between your two prompts. Push it past ±1.0 to extrapolate.
+Alpha is not a volume crossfade. It interpolates in embedding space — the midpoint (0.0) is often <em>not</em> a blend of A and B but something new. Use Alpha to discover unexpected sounds between your two prompts. Push it past ±1.0 to extrapolate. If you leave one prompt field empty, Alpha sweeps from your prompt through the model-neutral midpoint to its <em>antipode</em> — the Echoraum trajectory, sounds the prompt actively isn't.
 </p>
 
 <h4>5. One axis at a time</h4>
@@ -953,6 +1067,44 @@ When the Fix toggles are unlocked, the Euclidean parameters themselves drift ove
 All drift is bounded and reversible — parameters oscillate rather than running away. The combination of melodic mutation, mutation breathing, and parameter drift produces patterns that can evolve for minutes without becoming monotonous or losing coherence.
 </p>
 
+<h3>Layer 4: Polyphonic Strands</h3>
+<p>
+Up to five <strong>Strands</strong> run in parallel, each with its own Euclidean DNA, drift state, role, and tempo multiplier. Strands are not voices in a chord — they are independent agents sharing one pitch space. The polyrhythmic interplay arises naturally from the <code>Div×</code> multipliers (1/4×, 1/2×, 1×, 2×, 4× plus 1/3× and 3× for ternary cross-rhythms), which create non-coincident downbeats; cycle boundaries only realign on the lowest common multiple. Each strand runs the same internal pipeline as Strand&nbsp;1 (Euclidean rhythm + Turing degree-walk + quantization to its register); the role choice only sets default character. How strands interact (or don't) is decided by the <em>Coordination Mode</em>; see §9. With four secondary strands available, every role (Anchor, Line, Density, Gesture) can be assigned uniquely if desired.
+</p>
+<p>
+Each strand's <em>Role</em> selects a different note-picking strategy from the shared field:
+</p>
+<ul>
+  <li><strong>Anchor</strong> — low-register support. Walks the field via its degree pattern; <em>Dominance</em> probabilistically snaps the note to <code>centerPc</code> at the top of every other cycle (cadential anchor, not a per-beat tic).</li>
+  <li><strong>Line</strong> — mid-register voice. Walks the field from its degree pattern.</li>
+  <li><strong>Density</strong> — mid-register, shorter gate. On weak steps may take a single chromatic step toward the next field-member landing; the strong-step note remains a field member.</li>
+  <li><strong>Gesture</strong> — wider register. Sparse pulses on its own Euclidean pattern.</li>
+</ul>
+<p>
+The <em>Dominance</em> parameter (per strand) controls how strongly the strand returns to <code>centerPc</code> at cycle-pair boundaries. At dominance 0 the strand follows its degree walk freely; at 1.0 the cycle-start note becomes <code>centerPc</code>. There is no per-event harmonic check between strands &mdash; that responsibility is moved to the <em>Coordination Mode</em>.
+</p>
+
+<h3>Layer 5: The Pitch Field</h3>
+<p>
+All strands draw from a single shared <strong>Pitch Field</strong> — a 12-bit pitch-class set (<code>pcSet</code>) plus an ordered row used by Transform mode. The field replaces classical chord/scale context with something more flexible: an evolving collection of allowed pitch classes that can transform through several distinct algorithmic paradigms.
+</p>
+<p>
+The field evolves on Strand 1's cycle boundary at the chosen <em>Rate</em> (1–32 cycles between changes). Four modes:
+</p>
+<ul>
+  <li><strong>Static</strong> — derived from Scale Root + Scale Type, never changes. Use when you want the harmonic field stable while only rhythm and mutation evolve.</li>
+  <li><strong>Drift</strong> — each tick, one pitch class is removed and one chromatic pitch class is added (the center pc is protected from removal). Slow harmonic motion that stays close to the starting set.</li>
+  <li><strong>Transform</strong> — applies a random twelve-tone row operation each tick: transposition (T<sub>n</sub>), inversion (I<sub>n</sub>), retrograde (R), or retrograde-inversion (RI). The new <code>pcSet</code> is then derived from the transformed row's first <code>rowSize</code> members.</li>
+  <li><strong>Pivot</strong> — transposes the entire pc-set by the configured Pivot interval (m3, M3, Tritone, P5) each tick, accumulating shift over time. After enough cycles the field returns to its origin (e.g.&nbsp;four cycles at m3 = full octave).</li>
+</ul>
+<p>
+Because all strands share the same field, harmonic coherence is provided at the field level alone: a Drift swap or Transform tick changes what every strand can play. There is no per-event harmonic check between strands &mdash; that question is delegated to the <em>Coordination Mode</em> (§9), which currently caps simultaneous voices via priority displacement (DensityBudget). The listener perceives one evolving texture because the strands draw from the same evolving pitch set, not because each note is negotiated against the others.
+</p>
+
+<div class="note">
+  Roles, dominance, and field modes operate without a Bass/Lead/Pad hierarchy or chord-root tracking. The intent is to produce evolving textures independent of functional harmony. For diatonic results, set Field Mode = Static, Dominance high, and one strand to Anchor.
+</div>
+
 <!-- ═══════════════════════════════════════════ -->
 <h2 id="bg-pipeline">16. The Inference Pipeline</h2>
 
@@ -968,9 +1120,10 @@ Top-down view of every stage from text prompt to stereo output. Each outer box i
 │             EMBEDDING SPACE   (768d, JUCE → Python)             │
 │                                                                 │
 │ Prompt A  ──→  T5 Encoder  ──→  Embedding A ─┐                  │
+│   (empty A → Echoraum: 2·neutral − B)         │                 │
 │                                               │                 │
 │ Prompt B  ──→  T5 Encoder  ──→  Embedding B ─┤                  │
-│                                               ▼                 │
+│   (empty B → Echoraum: 2·neutral − A)         ▼                 │
 │                 Interpolate along alpha (A↔B)                   │
 │                               │                                 │
 │       Semantic Axes  ──→  + axis offsets                        │
@@ -1048,7 +1201,7 @@ Same pipeline from a parameter-routing perspective: which UI control feeds which
     │                                     │
     ├─ Prompt A text ──────────────────── T5 Tokenizer + Encoder ─── emb_a [1, seq, 768]
     ├─ Prompt B text ──────────────────── T5 Tokenizer + Encoder ─── emb_b [1, seq, 768]
-    │                                     │
+    │                                     │   (empty side → 2·emb_neutral − other)
     ├─ Alpha ─────────────────────────── Interpolate(emb_a, emb_b, alpha)
     │                                     │
     ├─ Dimension Offsets ─────────────── Add per-dim offsets to embedding
@@ -1183,6 +1336,49 @@ JSON parsing for configuration and preset files.
 </p>
 <p>
 Used by the native C++ T5 tokenizer.
+</p>
+
+<h3>Huovilainen Moog Ladder Filter</h3>
+<p>
+<strong>Reference:</strong> Antti Huovilainen, <em>"Non-linear digital
+implementation of the moog ladder filter"</em>, Proc. of the 7th Int.
+Conference on Digital Audio Effects (DAFx-04), Naples, 2004.<br>
+<strong>Paper:</strong>
+<a href="https://www.dafx.de/paper-archive/2004/P_061.PDF">dafx.de/paper-archive/2004/P_061.PDF</a>
+</p>
+<p>
+The <code>Ladder</code> filter algorithm (<code>src/dsp/MoogLadderFilter.h</code>)
+is an original implementation of the non-linear digital Moog ladder described
+in Huovilainen 2004 — half-sample-delay-compensated 4-pole with <code>tanh</code>
+at each stage input and in the feedback path. DSP algorithms are not
+themselves copyrightable; credit for the topology and its proper digital
+formulation belongs to Antti Huovilainen. Reference implementations that
+informed our understanding (no code copied):
+<a href="https://github.com/Chowdhury-DSP/chowdsp_utils">chowdsp_utils</a>
+(BSD-3),
+<a href="https://github.com/mtytel/vital">Vital</a> (GPL-3),
+<a href="https://github.com/surge-synthesizer/surge">Surge XT</a> (GPL-3).
+</p>
+
+<h3>Cutoff Warp Filter — design inspiration</h3>
+<p>
+<strong>Reference:</strong> Surge XT
+<code>src/common/dsp/filters/CutoffWarp.cpp</code>
+&nbsp;·&nbsp; <strong>License of reference:</strong> GNU GPLv3<br>
+<strong>URL:</strong>
+<a href="https://github.com/surge-synthesizer/surge">github.com/surge-synthesizer/surge</a>.
+</p>
+<p>
+The <code>Warp</code> filter algorithm (<code>src/dsp/CutoffWarpFilter.h</code>)
+is an original implementation inspired by the Cutoff Warp filter pioneered
+in Surge XT. The ZDF 4-pole ladder topology is a standard digital filter
+formulation and not copyrightable in itself; the specific idea of a
+style-switchable per-feedback nonlinearity as a musical character parameter
+is credited to the Surge XT project. No Surge XT source code was copied —
+our implementation is written from scratch against the published ZDF ladder
+derivation, and our saturation set (Tanh / SoftClip / OJD-like / Sin-fold /
+Digital / Asym) is a musically curated subset rather than a verbatim
+reproduction of Surge's full style list.
 </p>
 
 <h3>Python Backend Dependencies</h3>

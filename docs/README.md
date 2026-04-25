@@ -11,10 +11,15 @@ This directory contains two kinds of files: current contributor reference materi
 Files in this directory:
 
 - [`DEV_BUILD.md`](DEV_BUILD.md) — Cross-platform build setup (macOS, Linux, Windows 11).
+- [`LINUX_INSTALLATION.md`](LINUX_INSTALLATION.md) — Linux / Fedora 42 source build path for developers and build hosts.
+- [`LINUX_PACKAGING.md`](LINUX_PACKAGING.md) — Linux package-layer docs, currently Fedora RPM and Ubuntu/Debian `.deb`, using a named prebuilt isolated backend bundle.
+- [`PYTORCH_BUNDLING_NOTES.md`](PYTORCH_BUNDLING_NOTES.md) — Detailed findings from freezing and packaging the Python/Torch backend on Linux, including Blackwell-specific pitfalls.
+- [`CUDA_BUNDLE_TARGETS.md`](CUDA_BUNDLE_TARGETS.md) — Short target matrix for generic NVIDIA vs. Blackwell bundles and the future Windows installer.
 - [`MACOS_INSTALLATION.md`](MACOS_INSTALLATION.md) — End-user macOS installer and Gatekeeper override notes.
 - [`IPC_PROTOCOL.md`](IPC_PROTOCOL.md) — JUCE ↔ Python binary pipe protocol specification.
 - [`ADDING_A_MODEL.md`](ADDING_A_MODEL.md) — HOWTO for adding a new inference engine.
 - [`ADDING_A_MODULATION_TARGET.md`](ADDING_A_MODULATION_TARGET.md) — HOWTO for adding a new mod matrix destination.
+- [`INTERFACE_DESIGN_POLICY.md`](INTERFACE_DESIGN_POLICY.md) — UI text, contrast, and control-density rules for the synth interface.
 - [`PRESET_FORMAT.md`](PRESET_FORMAT.md) — `.t5p` binary preset format specification.
 - [`RELEASE_PROCESS.md`](RELEASE_PROCESS.md) — Tag-driven CI release flow.
 - [`TESTING.md`](TESTING.md) — Current testing state and conventions.
@@ -57,20 +62,21 @@ In `docs/`:
 - `portierung_09_orchestrierung.csv` — Porting tracking CSV: overall orchestration.
 - `portierung_01_useAudioLooper.ods` — Spreadsheet form of the `useAudioLooper` porting CSV.
 
-At the repo root:
-
-- [`/HANDOVER_AUDIOLDM2.md`](../HANDOVER_AUDIOLDM2.md) — AudioLDM2 integration session notes. Kept for historical context; treat as a snapshot, not current truth.
-- [`/PYINSTALLER_DIFFUSERS_GUIDE.md`](../PYINSTALLER_DIFFUSERS_GUIDE.md) — PyInstaller + Diffusers bundling issues session notes. Kept for historical context; treat as a snapshot, not current truth.
-
 ---
 
 ## I want to…
 
 - …build T5ynth locally → [`DEV_BUILD.md`](DEV_BUILD.md)
+- …install packaged T5ynth on Fedora / Ubuntu / Linux → [`LINUX_PACKAGING.md`](LINUX_PACKAGING.md)
+- …build T5ynth from source on Fedora / Linux → [`LINUX_INSTALLATION.md`](LINUX_INSTALLATION.md)
+- …build a Fedora RPM or Ubuntu/Debian `.deb` → [`LINUX_PACKAGING.md`](LINUX_PACKAGING.md)
+- …understand what actually broke while freezing the PyTorch backend → [`PYTORCH_BUNDLING_NOTES.md`](PYTORCH_BUNDLING_NOTES.md)
+- …see the short GPU/bundle target matrix for RTX 3080-class hosts and Windows → [`CUDA_BUNDLE_TARGETS.md`](CUDA_BUNDLE_TARGETS.md)
 - …install the current macOS build → [`MACOS_INSTALLATION.md`](MACOS_INSTALLATION.md)
 - …understand the code layout → [`/ARCHITECTURE.md`](../ARCHITECTURE.md)
 - …add a new diffusion model → [`ADDING_A_MODEL.md`](ADDING_A_MODEL.md)
 - …change how modulation routing works → [`ADDING_A_MODULATION_TARGET.md`](ADDING_A_MODULATION_TARGET.md)
+- …change the GUI style or add controls → [`INTERFACE_DESIGN_POLICY.md`](INTERFACE_DESIGN_POLICY.md)
 - …understand the `.t5p` format → [`PRESET_FORMAT.md`](PRESET_FORMAT.md)
 - …replace the Python inference backend → [`IPC_PROTOCOL.md`](IPC_PROTOCOL.md)
 - …cut a new release → [`RELEASE_PROCESS.md`](RELEASE_PROCESS.md)

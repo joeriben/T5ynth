@@ -17,6 +17,11 @@ static const juce::StringArray kEffectiveAxes {
     "sustained / rhythmic"
 };
 
+const juce::StringArray& AxesPanel::getAxisLabels()
+{
+    return kEffectiveAxes;
+}
+
 // Map display names → backend axis keys (cross_aesthetic_backend.py SEMANTIC_AXES)
 static juce::String axisDisplayToKey(const juce::String& display)
 {
@@ -38,7 +43,7 @@ AxesPanel::AxesPanel()
 
     noteLabel.setText("Experimental -- labels approximate, more axes = weaker effect per axis",
                       juce::dontSendNotification);
-    noteLabel.setColour(juce::Label::textColourId, kDimmer);
+    noteLabel.setColour(juce::Label::textColourId, kTextMuted);
     noteLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(noteLabel);
 
@@ -74,12 +79,12 @@ void AxesPanel::initSlot(AxisSlot& slot, const juce::StringArray& options, int a
     addAndMakeVisible(*slot.valueLabel);
 
     slot.poleLabelA = std::make_unique<juce::Label>();
-    slot.poleLabelA->setColour(juce::Label::textColourId, kDimmer);
+    slot.poleLabelA->setColour(juce::Label::textColourId, kTextMuted);
     slot.poleLabelA->setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(*slot.poleLabelA);
 
     slot.poleLabelB = std::make_unique<juce::Label>();
-    slot.poleLabelB->setColour(juce::Label::textColourId, kDimmer);
+    slot.poleLabelB->setColour(juce::Label::textColourId, kTextMuted);
     slot.poleLabelB->setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(*slot.poleLabelB);
 
@@ -182,7 +187,7 @@ void AxesPanel::layoutSlots(std::vector<AxisSlot>& slotsVec, juce::Rectangle<int
             // Single row: [dropdown ~45%] [slider] [value]
             int dropW = juce::roundToInt(row.getWidth() * 0.45f);
             slot.dropdown->setBounds(row.removeFromLeft(dropW));
-            slot.valueLabel->setFont(juce::FontOptions(f * 0.8f));
+            slot.valueLabel->setFont(juce::FontOptions(juce::jmax(kUiValueFontMin, f * 0.8f)));
             slot.valueLabel->setBounds(row.removeFromRight(valW));
             slot.slider->setBounds(row);
         }
@@ -208,8 +213,8 @@ void AxesPanel::resized()
     // Header provided by MainPanel — skip internal header allocation
 
     // Reserve space for note at bottom
-    int noteH = juce::roundToInt(f * 0.85f);
-    noteLabel.setFont(juce::FontOptions(f * 0.6f));
+    int noteH = juce::roundToInt(juce::jmax(14.0f, f * 0.95f));
+    noteLabel.setFont(juce::FontOptions(juce::jmax(kUiLabelFontMin, f * 0.68f)));
     noteLabel.setBounds(area.removeFromBottom(noteH));
 
     layoutSlots(slots, area, f * 0.75f, dotOffset);

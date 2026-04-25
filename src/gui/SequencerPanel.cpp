@@ -125,6 +125,10 @@ void SequencerPanel::StepColumn::mouseDown(const juce::MouseEvent& e)
         // Start note drag
         dragZone = 1;
         dragStartVal = static_cast<float>(step.note);
+        noteHoldPreviewActive = processor->canUseStepHoldPreview();
+        noteHoldPreviewNote = step.note;
+        if (noteHoldPreviewActive)
+            processor->beginStepHoldPreview(step.note);
     }
     else if (y < velBottom())
     {
@@ -160,6 +164,11 @@ void SequencerPanel::StepColumn::mouseDrag(const juce::MouseEvent& e)
         float deltaSemi = -deltaY / static_cast<float>(noteH) * 48.0f;
         int newNote = juce::jlimit(36, 84, juce::roundToInt(dragStartVal + deltaSemi));
         seq.setStepNote(stepIndex, newNote);
+        if (noteHoldPreviewActive && newNote != noteHoldPreviewNote)
+        {
+            processor->updateStepHoldPreview(newNote);
+            noteHoldPreviewNote = newNote;
+        }
         repaint();
     }
     else if (dragZone == 3)
@@ -174,6 +183,11 @@ void SequencerPanel::StepColumn::mouseDrag(const juce::MouseEvent& e)
 
 void SequencerPanel::StepColumn::mouseUp(const juce::MouseEvent&)
 {
+    if (processor != nullptr && noteHoldPreviewActive)
+        processor->endStepHoldPreview();
+
+    noteHoldPreviewActive = false;
+    noteHoldPreviewNote = -1;
     dragZone = -1;
 }
 
@@ -308,6 +322,13 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     gateRow->getSlider().onValueChange = [this] { gateRow->updateValue(); };
     gateRow->updateValue();
 
+    // ── Shuffle ──
+    shuffleRow = std::make_unique<SliderRow>("Shuffle", [](double v) { return juce::String(juce::roundToInt(v * 100.0)) + "%"; }, kSeqCol);
+    addAndMakeVisible(*shuffleRow);
+    shuffleA = std::make_unique<SA>(apvts, PID::seqShuffle, shuffleRow->getSlider());
+    shuffleRow->getSlider().onValueChange = [this] { shuffleRow->updateValue(); };
+    shuffleRow->updateValue();
+
     // ── Octave shift [-2][-1][0][+1][+2] ──
     juce::StringArray seqOctItems;
     for (const auto& e : SeqOctave::kEntries) seqOctItems.add(e.label);
@@ -415,6 +436,135 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     genFixRotationA = std::make_unique<BA>(apvts, PID::genFixRotation, genFixRotationBtn);
     genFixMutationA = std::make_unique<BA>(apvts, PID::genFixMutation, genFixMutationBtn);
 
+    // ── Polyphony (Phase 5): field mode + rate, 3 extra strands ──
+    {
+        juce::StringArray fieldModeItems;
+        for (const auto& e : FieldMode::kEntries) fieldModeItems.add(e.label);
+        genFieldModeBox.addItemList(fieldModeItems, 1);
+        genFieldModeBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
+        genFieldModeBox.setColour(juce::ComboBox::textColourId, kSeqCol);
+        genFieldModeBox.setColour(juce::ComboBox::outlineColourId, kBorder);
+        addAndMakeVisible(genFieldModeBox);
+        genFieldModeA = std::make_unique<CA>(apvts, PID::genFieldMode, genFieldModeBox);
+
+        genFieldRateRow = std::make_unique<SliderRow>("Field",
+            [](double v) { return juce::String(juce::roundToInt(v)) + " cyc"; },
+            kSeqCol);
+        addAndMakeVisible(*genFieldRateRow);
+        genFieldRateA = std::make_unique<SA>(apvts, PID::genFieldRate, genFieldRateRow->getSlider());
+        genFieldRateRow->getSlider().onValueChange = [this] { genFieldRateRow->updateValue(); };
+        genFieldRateRow->updateValue();
+    }
+    {
+        juce::StringArray roleItems;
+        for (const auto& e : StrandRole::kEntries) roleItems.add(e.label);
+        static const char* kEnablePIDs[kNumExtraStrands] = {
+            PID::gen2Enable, PID::gen3Enable, PID::gen4Enable, PID::gen5Enable
+        };
+        static const char* kRolePIDs[kNumExtraStrands] = {
+            PID::gen2Role, PID::gen3Role, PID::gen4Role, PID::gen5Role
+        };
+        static const char* kStrandLabels[kNumExtraStrands] = { "S2", "S3", "S4", "S5" };
+
+        for (int i = 0; i < kNumExtraStrands; ++i)
+        {
+            strandEnableBtns[i].setButtonText(kStrandLabels[i]);
+            strandEnableBtns[i].setClickingTogglesState(true);
+            strandEnableBtns[i].setColour(juce::TextButton::buttonColourId,   kSurface);
+            strandEnableBtns[i].setColour(juce::TextButton::buttonOnColourId, kSeqCol);
+            strandEnableBtns[i].setColour(juce::TextButton::textColourOffId,  kDim);
+            strandEnableBtns[i].setColour(juce::TextButton::textColourOnId,   juce::Colours::white);
+            strandEnableBtns[i].setTooltip("Enable polyphonic strand " + juce::String(i + 2));
+            addAndMakeVisible(strandEnableBtns[i]);
+            strandEnableA[i] = std::make_unique<BA>(apvts, kEnablePIDs[i], strandEnableBtns[i]);
+
+            strandRoleBoxes[i].addItemList(roleItems, 1);
+            strandRoleBoxes[i].setColour(juce::ComboBox::backgroundColourId, kSurface);
+            strandRoleBoxes[i].setColour(juce::ComboBox::textColourId, kSeqCol);
+            strandRoleBoxes[i].setColour(juce::ComboBox::outlineColourId, kBorder);
+            addAndMakeVisible(strandRoleBoxes[i]);
+            strandRoleA[i] = std::make_unique<CA>(apvts, kRolePIDs[i], strandRoleBoxes[i]);
+        }
+
+        // Second GEN row: per-strand Div× / Octave / Dominance, one cluster
+        // per strand, aligned with the [Sx][Role] cluster above.
+        static const char* kDivPIDs[kNumExtraStrands] = {
+            PID::gen2DivMult, PID::gen3DivMult, PID::gen4DivMult, PID::gen5DivMult
+        };
+        static const char* kOctPIDs[kNumExtraStrands] = {
+            PID::gen2Octave, PID::gen3Octave, PID::gen4Octave, PID::gen5Octave
+        };
+        static const char* kDomPIDs[kNumExtraStrands] = {
+            PID::gen2Dominance, PID::gen3Dominance, PID::gen4Dominance, PID::gen5Dominance
+        };
+
+        juce::StringArray divItems;
+        for (const auto& e : StrandDivMult::kEntries) divItems.add(e.label);
+
+        for (int i = 0; i < kNumExtraStrands; ++i)
+        {
+            const juce::String sName = "Strand " + juce::String(i + 2);
+
+            // Div: ComboBox is its own label (values "1/4x".."4x")
+            strandDivBoxes[i].addItemList(divItems, 1);
+            strandDivBoxes[i].setColour(juce::ComboBox::backgroundColourId, kSurface);
+            strandDivBoxes[i].setColour(juce::ComboBox::textColourId, kSeqCol);
+            strandDivBoxes[i].setColour(juce::ComboBox::outlineColourId, kBorder);
+            strandDivBoxes[i].setTooltip(sName + " tempo multiplier (creates polymeter)");
+            addAndMakeVisible(strandDivBoxes[i]);
+            strandDivA[i] = std::make_unique<CA>(apvts, kDivPIDs[i], strandDivBoxes[i]);
+
+            // Oct: hidden Slider as APVTS bridge + 5 visible toggle buttons,
+            // matching the existing Seq-Octave switch convention.
+            strandOctaveSliders[i].setRange(-2.0, 2.0, 1.0);
+            strandOctaveSliders[i].setVisible(false);
+            addChildComponent(strandOctaveSliders[i]);
+            strandOctaveA[i] = std::make_unique<SA>(apvts, kOctPIDs[i], strandOctaveSliders[i]);
+            strandOctaveSliders[i].onValueChange = [this, i] {
+                const int v = juce::roundToInt(strandOctaveSliders[i].getValue());
+                for (int b = 0; b < kStrandOctBtns; ++b)
+                    strandOctBtns[i][b].setToggleState(b - 2 == v, juce::dontSendNotification);
+            };
+            for (int b = 0; b < kStrandOctBtns; ++b)
+            {
+                strandOctBtns[i][b].setButtonText(SeqOctave::kEntries[b].label);
+                strandOctBtns[i][b].setColour(juce::TextButton::buttonColourId,   kSurface);
+                strandOctBtns[i][b].setColour(juce::TextButton::buttonOnColourId, kSeqCol);
+                strandOctBtns[i][b].setColour(juce::TextButton::textColourOffId,  kDim);
+                strandOctBtns[i][b].setColour(juce::TextButton::textColourOnId,   juce::Colours::white);
+                strandOctBtns[i][b].setClickingTogglesState(true);
+                strandOctBtns[i][b].setRadioGroupId(3001 + i); // unique per strand
+                strandOctBtns[i][b].setTooltip(sName + " octave shift");
+                strandOctBtns[i][b].onClick = [this, i, b] {
+                    strandOctaveSliders[i].setValue(static_cast<double>(b - 2));
+                };
+                addAndMakeVisible(strandOctBtns[i][b]);
+            }
+            strandOctaveSliders[i].onValueChange();   // initial toggle sync
+
+            // Dom: small "Dom" label + slider 0..1
+            strandDomLabels[i].setText("Dom", juce::dontSendNotification);
+            strandDomLabels[i].setColour(juce::Label::textColourId, kDim);
+            strandDomLabels[i].setJustificationType(juce::Justification::centredRight);
+            strandDomLabels[i].setBorderSize(juce::BorderSize<int>(0));
+            addAndMakeVisible(strandDomLabels[i]);
+
+            strandDomSliders[i].setSliderStyle(juce::Slider::LinearHorizontal);
+            strandDomSliders[i].setTextBoxStyle(juce::Slider::TextBoxRight, false, 32, 18);
+            strandDomSliders[i].setNumDecimalPlacesToDisplay(2);
+            strandDomSliders[i].setColour(juce::Slider::backgroundColourId, kSurface);
+            strandDomSliders[i].setColour(juce::Slider::trackColourId,      kSeqCol);
+            strandDomSliders[i].setColour(juce::Slider::thumbColourId,      juce::Colours::white);
+            strandDomSliders[i].setColour(juce::Slider::textBoxTextColourId,        kSeqCol);
+            strandDomSliders[i].setColour(juce::Slider::textBoxBackgroundColourId,  juce::Colours::transparentBlack);
+            strandDomSliders[i].setColour(juce::Slider::textBoxOutlineColourId,     juce::Colours::transparentBlack);
+            strandDomSliders[i].setTooltip(sName
+                + " dominance — probability of snapping to field center at the cycle downbeat (0..1)");
+            addAndMakeVisible(strandDomSliders[i]);
+            strandDomA[i] = std::make_unique<SA>(apvts, kDomPIDs[i], strandDomSliders[i]);
+        }
+    }
+
     juce::StringArray scaleRootItems;
     for (const auto& e : ScaleRoot::kEntries) scaleRootItems.add(e.label);
     genScaleRootBox.addItemList(scaleRootItems, 1);
@@ -442,7 +592,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         for (int i = 0; i < kNumModeBtns; ++i)
             arpModeBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
     };
-    static const char* modeLabels[] = {"OFF","Up","Dn","U/D","Rnd"};
+    static const char* modeLabels[] = {"ARP off","Up","Dn","U/D","Rnd"};
     for (int i = 0; i < kNumModeBtns; ++i)
     {
         arpModeBtns[i].setButtonText(modeLabels[i]);
@@ -508,6 +658,9 @@ SequencerPanel::~SequencerPanel()
     stopTimer();
 }
 
+// .t5seq is a partial preset: sequencer + arpeggiator + generative seq only.
+// Schema is the snake_case-keyed subset of exportJsonPreset()/importJsonPreset()
+// — single source of truth, no schema drift.
 void SequencerPanel::savePatternAsync()
 {
     auto chooser = std::make_shared<juce::FileChooser>("Save Sequencer Pattern", juce::File(), "*.t5seq");
@@ -518,33 +671,22 @@ void SequencerPanel::savePatternAsync()
         auto f = fc.getResult();
         if (f == juce::File()) return;
 
-        auto file = f.withFileExtension("t5seq");
-        auto& seq = processor.getStepSequencer();
-        juce::var root(new juce::DynamicObject());
-        auto* obj = root.getDynamicObject();
-        obj->setProperty("numSteps", seq.getNumSteps());
-        obj->setProperty("division", static_cast<int>(processor.getValueTreeState().getRawParameterValue(PID::seqDivision)->load()));
-        obj->setProperty("gate", static_cast<double>(processor.getValueTreeState().getRawParameterValue(PID::seqGate)->load()));
-        obj->setProperty("bpm", static_cast<double>(processor.getValueTreeState().getRawParameterValue(PID::seqBpm)->load()));
-        obj->setProperty("arpMode", static_cast<int>(processor.getValueTreeState().getRawParameterValue(PID::arpMode)->load()));
-        obj->setProperty("arpRate", static_cast<int>(processor.getValueTreeState().getRawParameterValue(PID::arpRate)->load()));
-        obj->setProperty("arpOctaves", static_cast<int>(processor.getValueTreeState().getRawParameterValue(PID::arpOctaves)->load()));
-        obj->setProperty("octave", static_cast<int>(processor.getValueTreeState().getRawParameterValue(PID::seqOctave)->load()));
+        auto fullJson = processor.exportJsonPreset();
+        auto parsed = juce::JSON::parse(fullJson);
+        auto* full = parsed.getDynamicObject();
+        if (!full) return;
 
-        juce::Array<juce::var> steps;
-        for (int i = 0; i < seq.getNumSteps(); ++i)
-        {
-            auto step = seq.getStep(i);
-            auto* s = new juce::DynamicObject();
-            s->setProperty("note", step.note);
-            s->setProperty("velocity", static_cast<double>(step.velocity));
-            s->setProperty("gate", static_cast<double>(step.gate));
-            s->setProperty("enabled", step.enabled);
-            s->setProperty("bind", step.bind);
-            steps.add(juce::var(s));
-        }
-        obj->setProperty("steps", steps);
-        file.replaceWithText(juce::JSON::toString(root));
+        juce::DynamicObject::Ptr out = new juce::DynamicObject();
+        out->setProperty("version", 1);
+        out->setProperty("kind", "t5seq");
+        out->setProperty("timestamp", juce::Time::getCurrentTime().toISO8601(true));
+
+        for (const char* key : { "sequencer", "arpeggiator", "generativeSeq" })
+            if (full->hasProperty(key))
+                out->setProperty(key, full->getProperty(key));
+
+        auto file = f.withFileExtension("t5seq");
+        file.replaceWithText(juce::JSON::toString(out.get(), true));
     });
 }
 
@@ -557,48 +699,10 @@ void SequencerPanel::loadPatternAsync()
         auto file = fc.getResult();
         if (!file.existsAsFile()) return;
 
-        auto root = juce::JSON::parse(file.loadFileAsString());
-        if (!root.isObject()) return;
-
-        auto& apvts = safeThis->processorRef.getValueTreeState();
-        auto& seq = safeThis->processorRef.getStepSequencer();
-        if (root.hasProperty("numSteps"))
-            seq.setNumSteps(static_cast<int>(root["numSteps"]));
-        if (root.hasProperty("division"))
-            apvts.getParameter(PID::seqDivision)->setValueNotifyingHost(
-                apvts.getParameter(PID::seqDivision)->convertTo0to1(static_cast<float>(static_cast<int>(root["division"]))));
-        if (root.hasProperty("gate"))
-            apvts.getParameter(PID::seqGate)->setValueNotifyingHost(
-                apvts.getParameter(PID::seqGate)->convertTo0to1(static_cast<float>(root["gate"])));
-        if (root.hasProperty("bpm"))
-            apvts.getParameter(PID::seqBpm)->setValueNotifyingHost(
-                apvts.getParameter(PID::seqBpm)->convertTo0to1(static_cast<float>(root["bpm"])));
-        if (root.hasProperty("arpMode"))
-            apvts.getParameter(PID::arpMode)->setValueNotifyingHost(
-                apvts.getParameter(PID::arpMode)->convertTo0to1(static_cast<float>(static_cast<int>(root["arpMode"]))));
-        if (root.hasProperty("arpRate"))
-            apvts.getParameter(PID::arpRate)->setValueNotifyingHost(
-                apvts.getParameter(PID::arpRate)->convertTo0to1(static_cast<float>(static_cast<int>(root["arpRate"]))));
-        if (root.hasProperty("arpOctaves"))
-            apvts.getParameter(PID::arpOctaves)->setValueNotifyingHost(
-                apvts.getParameter(PID::arpOctaves)->convertTo0to1(static_cast<float>(static_cast<int>(root["arpOctaves"]))));
-        if (root.hasProperty("octave"))
-            apvts.getParameter(PID::seqOctave)->setValueNotifyingHost(
-                apvts.getParameter(PID::seqOctave)->convertTo0to1(static_cast<float>(static_cast<int>(root["octave"]))));
-
-        auto* stepsArr = root["steps"].getArray();
-        if (stepsArr)
-        {
-            for (int i = 0; i < stepsArr->size() && i < T5ynthStepSequencer::MAX_STEPS; ++i)
-            {
-                const auto& s = (*stepsArr)[i];
-                if (s.hasProperty("note")) seq.setStepNote(i, static_cast<int>(s["note"]));
-                if (s.hasProperty("velocity")) seq.setStepVelocity(i, static_cast<float>(s["velocity"]));
-                if (s.hasProperty("gate")) seq.setStepGate(i, static_cast<float>(s["gate"]));
-                if (s.hasProperty("enabled")) seq.setStepEnabled(i, static_cast<bool>(s["enabled"]));
-                if (s.hasProperty("bind")) seq.setStepBind(i, static_cast<bool>(s["bind"]));
-            }
-        }
+        // importJsonPreset is tolerant: missing sub-objects (synth, engine, …)
+        // are skipped, so a partial .t5seq only touches sequencer / arp / gen.
+        if (!safeThis->processorRef.importJsonPreset(file.loadFileAsString()))
+            return;
 
         safeThis->syncStepCount();
         safeThis->repaint();
@@ -684,15 +788,19 @@ void SequencerPanel::timerCallback()
     bool seqRunning = processorRef.getValueTreeState()
         .getRawParameterValue(PID::seqRunning)->load() > 0.5f;
 
+    // Mode changes must update the layout even while audio is idle. Otherwise
+    // GEN-off stays visually in gen mode until PLAY wakes the timer path.
+    if (genRunning != genModeActive)
+    {
+        resized();
+        repaint();
+    }
+
     // Skip expensive updates when audio is idle and neither sequencer runs
     bool seqIdle = processorRef.audioIdle.load(std::memory_order_relaxed)
                    && !seqRunning && !genRunning;
     if (seqIdle)
         return;
-
-    // Mode change detection → relayout
-    if (genRunning != genModeActive)
-        resized();
 
     if (genRunning)
     {
@@ -892,7 +1000,8 @@ void SequencerPanel::resized()
         }
     };
 
-    const float midiFont = compactTopRow ? 10.0f : juce::jmax(9.0f, static_cast<float>(rH) * 0.6f);
+    const float midiFont = compactTopRow ? kUiValueFontMin : juce::jmax(kUiValueFontMin,
+                                                                         static_cast<float>(rH) * 0.6f);
     const int midiTextW = measureTextWidth("D#4 v127", midiFont) + 8;
     const int midiLedW = compactTopRow ? 10 : 14;
     const int midiGap = compactTopRow ? 2 : 5;
@@ -933,6 +1042,7 @@ void SequencerPanel::resized()
         slotOctave,
         slotBpm,
         slotGate,
+        slotShuffle,
         slotMidi
     };
 
@@ -945,6 +1055,10 @@ void SequencerPanel::resized()
     const int octavePrefW = kNumOctShiftBtns * (compactTopRow ? 20 : 24);
     const int octaveMinW = kNumOctShiftBtns * (compactTopRow ? 18 : 20);
     const int midiClusterW = midiTextW + midiLedW + midiGap;
+    const int gateMinW = gateRow->getMinimumWidth();
+    const int gatePrefW = gateMinW;
+    const int shuffleMinW = shuffleRow->getMinimumWidth();
+    const int shufflePrefW = shuffleMinW;
 
     std::vector<ResponsiveStripItem> items {
         { transportW, transportW, 0, false, ResponsiveStripFallback::none },
@@ -956,7 +1070,8 @@ void SequencerPanel::resized()
         { divisionPrefW, divisionMinW, 1, false, ResponsiveStripFallback::overflow },
         { octavePrefW, octaveMinW, 1, false, ResponsiveStripFallback::overflow },
         { bpmRow->getPreferredWidth(),  bpmRow->getMinimumWidth(),  0, true,  ResponsiveStripFallback::none },
-        { gateRow->getPreferredWidth(), gateRow->getMinimumWidth(), 0, true,  ResponsiveStripFallback::none },
+        { gatePrefW, gateMinW, 0, false, ResponsiveStripFallback::none },
+        { shufflePrefW, shuffleMinW, 0, false, ResponsiveStripFallback::none },
         { midiClusterW, midiClusterW, 0, false, ResponsiveStripFallback::none }
     };
 
@@ -967,6 +1082,7 @@ void SequencerPanel::resized()
     genTransportBtn.setBounds(headerLayout.bounds[slotGenTransport]);
     bpmRow->setBounds(headerLayout.bounds[slotBpm]);
     gateRow->setBounds(headerLayout.bounds[slotGate]);
+    shuffleRow->setBounds(headerLayout.bounds[slotShuffle]);
     layoutMidiCluster(headerLayout.bounds[slotMidi]);
 
     headerOverflowBtn.setVisible(headerLayout.overflowUsed);
@@ -1015,18 +1131,19 @@ void SequencerPanel::resized()
 
     // ═══ Row 4 (bottom): Arp controls ═══
     auto r4 = area.removeFromBottom(rH);
-    int modeBtnW = 32;
+    const int modeBtnW = 32;
+    const int offBtnW  = 58;   // first button reads "ARP off" — needs extra room
     for (int i = 0; i < kNumModeBtns; ++i)
     {
         int edges = 0;
         if (i > 0) edges |= juce::Button::ConnectedOnLeft;
         if (i < kNumModeBtns - 1) edges |= juce::Button::ConnectedOnRight;
         arpModeBtns[i].setConnectedEdges(edges);
-        arpModeBtns[i].setBounds(r4.removeFromLeft(modeBtnW));
+        arpModeBtns[i].setBounds(r4.removeFromLeft(i == 0 ? offBtnW : modeBtnW));
     }
     r4.removeFromLeft(g);
     arpRateBox.setBounds(r4.removeFromLeft(60));   r4.removeFromLeft(g);
-    arpOctLabel.setFont(juce::FontOptions(juce::jmax(9.0f, rH * 0.55f)));
+    arpOctLabel.setFont(juce::FontOptions(juce::jmax(kUiLabelFontMin, rH * 0.55f)));
     arpOctLabel.setBounds(r4.removeFromLeft(28));   r4.removeFromLeft(2);
     int arpOctBtnW = 22;
     for (int i = 0; i < kNumOctBtns; ++i)
@@ -1060,6 +1177,20 @@ void SequencerPanel::resized()
     genFixPulsesBtn.setVisible(genModeActive);
     genFixRotationBtn.setVisible(genModeActive);
     genFixMutationBtn.setVisible(genModeActive);
+    genFieldModeBox.setVisible(genModeActive);
+    if (genFieldRateRow) genFieldRateRow->setVisible(genModeActive);
+    for (int i = 0; i < kNumExtraStrands; ++i)
+    {
+        strandEnableBtns[i].setVisible(genModeActive);
+        strandRoleBoxes[i].setVisible(genModeActive);
+        strandDivBoxes[i].setVisible(genModeActive);
+        // strandOctaveSliders are intentionally hidden — only their bound
+        // toggle buttons (strandOctBtns) are shown.
+        for (int b = 0; b < kStrandOctBtns; ++b)
+            strandOctBtns[i][b].setVisible(genModeActive);
+        strandDomSliders[i].setVisible(genModeActive);
+        strandDomLabels[i].setVisible(genModeActive);
+    }
 
     if (genModeActive)
     {
@@ -1088,28 +1219,121 @@ void SequencerPanel::resized()
         genFixMutationBtn.setBounds(row2.removeFromLeft(fixW));
         area.removeFromTop(2);
 
-        // Row 3:  [C▾] [Min▾]     |  Range [1][2][3][4]
-        auto row3 = area.removeFromTop(genCtrlH);
-        auto r3L = row3.removeFromLeft(colW);
-        row3.removeFromLeft(colGap);
-        auto r3R = row3;
-
-        genScaleRootBox.setBounds(r3L.removeFromLeft(55));  r3L.removeFromLeft(2);
-        genScaleTypeBox.setBounds(r3L.removeFromLeft(70));
-
-        genRangeLabel.setFont(juce::FontOptions(juce::jmax(9.0f, genCtrlH * 0.55f)));
-        genRangeLabel.setBounds(r3R.removeFromLeft(42));  r3R.removeFromLeft(2);
-        int rangeBtnW = 22;
-        for (int i = 0; i < kNumRangeBtns; ++i)
+        // ── 2-column / 2-row GEN block ──
+        //   Left column (narrow):
+        //     Row L1: [C▾] [DblHarm▾] [Rng][1][2][3][4]
+        //     Row L2: [Mode▾] [Field== 12cyc]
+        //   Right column (wide): four strand modules side by side, each one
+        //     a 2-row vertical block — top row is the existing [Sx][Role▾]
+        //     pair, bottom row is [Div: combo] [Oct: lbl+slider] [Dom: lbl+slider].
+        //   Generous horizontal padding between strand modules visually
+        //   delimits each strand without a separator graphic.
         {
-            int edges = 0;
-            if (i > 0) edges |= juce::Button::ConnectedOnLeft;
-            if (i < kNumRangeBtns - 1) edges |= juce::Button::ConnectedOnRight;
-            genRangeBtns[i].setConnectedEdges(edges);
-            genRangeBtns[i].setBounds(r3R.removeFromLeft(rangeBtnW));
-        }
+            const int intraGap = 2;
+            const int colGap   = 12;
+            const int blockH   = 2 * genCtrlH + intraGap;
+            auto block = area.removeFromTop(blockH);
 
-        area.removeFromTop(g);
+            const int leftW = juce::jlimit(360, 540, block.getWidth() / 5);  // ~20%, clamped
+            auto leftCol  = block.removeFromLeft(leftW);
+            block.removeFromLeft(colGap);
+            auto rightCol = block;
+
+            // ── Left column — Row L1: Scale + Range ──
+            {
+                auto rowL1 = leftCol.removeFromTop(genCtrlH);
+                const int rootW   = 55;
+                const int scaleW  = 100;
+                const int rngLblW = 32;
+                const int rngBtnW = 22;
+                const int gapTiny = 2;
+                const int gapMid  = 8;
+                genScaleRootBox.setBounds(rowL1.removeFromLeft(rootW));  rowL1.removeFromLeft(gapTiny);
+                genScaleTypeBox.setBounds(rowL1.removeFromLeft(scaleW)); rowL1.removeFromLeft(gapMid);
+                genRangeLabel.setText("Rng", juce::dontSendNotification);
+                genRangeLabel.setFont(juce::FontOptions(juce::jmax(kUiLabelFontMin, genCtrlH * 0.55f)));
+                genRangeLabel.setBounds(rowL1.removeFromLeft(rngLblW)); rowL1.removeFromLeft(gapTiny);
+                for (int i = 0; i < kNumRangeBtns; ++i)
+                {
+                    int edges = 0;
+                    if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+                    if (i < kNumRangeBtns - 1) edges |= juce::Button::ConnectedOnRight;
+                    genRangeBtns[i].setConnectedEdges(edges);
+                    genRangeBtns[i].setBounds(rowL1.removeFromLeft(rngBtnW));
+                }
+            }
+            leftCol.removeFromTop(intraGap);
+
+            // ── Left column — Row L2: Field Mode + Field Rate ──
+            // Field Center PC and Pivot interval are no longer separate
+            // controls — they are derived from the Scale Root and Scale
+            // Type respectively (see PluginProcessor's per-block setters).
+            {
+                auto rowL2 = leftCol;   // remaining height = genCtrlH
+                const int modeW = 95;
+                const int gapSm = 4;
+                genFieldModeBox.setBounds(rowL2.removeFromLeft(modeW));
+                rowL2.removeFromLeft(gapSm);
+                if (genFieldRateRow) genFieldRateRow->setBounds(rowL2);
+            }
+
+            // ── Right column — 4 strand modules side by side ──
+            {
+                const int moduleGap = 16;
+                const int moduleW = (rightCol.getWidth() - (kNumExtraStrands - 1) * moduleGap)
+                                   / kNumExtraStrands;
+                for (int i = 0; i < kNumExtraStrands; ++i)
+                {
+                    auto module = rightCol.removeFromLeft(moduleW);
+                    if (i < kNumExtraStrands - 1) rightCol.removeFromLeft(moduleGap);
+
+                    // Top row: [Sx][Role▾]
+                    auto modTop = module.removeFromTop(genCtrlH);
+                    const int onW    = 28;
+                    const int gapInm = 2;
+                    strandEnableBtns[i].setBounds(modTop.removeFromLeft(onW));
+                    modTop.removeFromLeft(gapInm);
+                    strandRoleBoxes[i].setBounds(modTop);
+
+                    module.removeFromTop(intraGap);
+
+                    // Bottom row: [Div▾]  [-2][-1][0][+1][+2]  [Dom lbl] [Dom slider]
+                    // Div and Oct values are self-explanatory; only Dom needs
+                    // a prefix label (a bare "0.50" wouldn't say what it is).
+                    auto modBot = module;   // remaining height = genCtrlH
+                    const int divW    = 58;                 // "1/4x" max
+                    const int octBtnW = 22;
+                    const int octRowW = octBtnW * kStrandOctBtns;
+                    const int domLblW = 30;                 // "Dom"
+                    const int gapPad  = 6;                  // between control groups
+                    const int gapTiny = 2;                  // between label and its slider
+
+                    strandDivBoxes[i].setBounds(modBot.removeFromLeft(divW));
+                    modBot.removeFromLeft(gapPad);
+
+                    {
+                        auto octRow = modBot.removeFromLeft(octRowW);
+                        for (int b = 0; b < kStrandOctBtns; ++b)
+                        {
+                            int edges = 0;
+                            if (b > 0) edges |= juce::Button::ConnectedOnLeft;
+                            if (b < kStrandOctBtns - 1) edges |= juce::Button::ConnectedOnRight;
+                            strandOctBtns[i][b].setConnectedEdges(edges);
+                            strandOctBtns[i][b].setBounds(octRow.removeFromLeft(octBtnW));
+                        }
+                    }
+                    modBot.removeFromLeft(gapPad);
+
+                    // Match Rng label's smaller font so "Dom" doesn't truncate.
+                    strandDomLabels[i].setFont(juce::FontOptions(
+                        juce::jmax(kUiLabelFontMin, genCtrlH * 0.55f)));
+                    strandDomLabels[i].setBounds(modBot.removeFromLeft(domLblW));
+                    modBot.removeFromLeft(gapTiny);
+                    strandDomSliders[i].setBounds(modBot);
+                }
+            }
+            area.removeFromTop(g);
+        }
 
         // Visualization area (remaining space)
         genVisArea = area;

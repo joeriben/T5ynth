@@ -3,12 +3,30 @@
 #include <algorithm>
 
 // ── Helper: format ms (integer) ──
-static juce::String fmtMs(double v)  { return juce::String(juce::roundToInt(v)) + "ms"; }
+static juce::String fmtMs(double v)
+{
+    if (std::abs(v) < 1.0)
+        return juce::String(v, 2) + "ms";
+    if (std::abs(v) < 10.0)
+        return juce::String(v, 1) + "ms";
+    return juce::String(juce::roundToInt(v)) + "ms";
+}
 static juce::String fmtF2(double v)  { return juce::String(v, 2); }
 static juce::String fmtPct(double v) { return juce::String(juce::roundToInt(v * 100.0)) + "%"; }
+// Percent with one decimal below 10% — keeps the sub-1% range readable
+// for skewed depth knobs (where pitch LFO is musically usable) without
+// noise-precision at higher values.
+static juce::String fmtPctFine(double v)
+{
+    double p = v * 100.0;
+    return std::abs(p) < 10.0 ? juce::String(p, 1) + "%"
+                              : juce::String(juce::roundToInt(p)) + "%";
+}
 static juce::String fmtHz(double v)  { return juce::String(juce::roundToInt(v)) + " Hz"; }
+static juce::String fmtDb(double v)  { return juce::String(v, 1) + " dB"; }
 static juce::String fmtHzF1(double v){ return juce::String(v, 1) + " Hz"; }
 static juce::String fmtHzF2(double v){ return juce::String(v, 2) + " Hz"; }
+static juce::String fmtHzF3(double v){ return juce::String(v, 3) + " Hz"; }
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Envelope init
@@ -18,6 +36,8 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
                           const juce::String& sId, const juce::String& rId,
                           const juce::String& aCurveId, const juce::String& dCurveId,
                           const juce::String& rCurveId,
+                          const juce::String& aVelModeId, const juce::String& dVelModeId,
+                          const juce::String& rVelModeId,
                           const juce::String& amtId, const juce::String& velId,
                           const juce::String& loopId,
                           juce::AudioProcessorValueTreeState& apvts)
@@ -81,6 +101,38 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     setupCurveBtn(env.dCurveBtn, env.dCurveHidden, dCurveId, apvts, env.dCurveA);
     setupCurveBtn(env.rCurveBtn, env.rCurveHidden, rCurveId, apvts, env.rCurveA);
 
+    auto setupVelMode = [](SliderRow& row, juce::ComboBox& hidden,
+                           const juce::String& paramId,
+                           juce::AudioProcessorValueTreeState& vts,
+                           std::unique_ptr<CA>& attachment)
+    {
+        juce::StringArray items;
+        for (const auto& e : EnvVelTimeMode::kEntries)
+            items.add(e.label);
+        hidden.addItemList(items, 1);
+        hidden.onChange = [&row, &hidden]
+        {
+            const int index = hidden.getSelectedId() - 1;
+            SliderRow::LabelMode mode = SliderRow::LabelMode::Off;
+            if (index == EnvVelTimeMode::Positive)
+                mode = SliderRow::LabelMode::Positive;
+            else if (index == EnvVelTimeMode::Negative)
+                mode = SliderRow::LabelMode::Negative;
+            row.setLabelMode(mode);
+        };
+        row.setLabelClickHandler([&hidden]
+        {
+            const int next = (hidden.getSelectedId() % EnvVelTimeMode::kCount) + 1;
+            hidden.setSelectedId(next);
+        });
+        attachment = std::make_unique<CA>(vts, paramId, hidden);
+        hidden.onChange();
+    };
+    setupVelMode(*env.aRow, env.aVelModeHidden, aVelModeId, apvts, env.aVelModeA);
+    setupVelMode(*env.dRow, env.dVelModeHidden, dVelModeId, apvts, env.dVelModeA);
+    setupVelMode(*env.rRow, env.rVelModeHidden, rVelModeId, apvts, env.rVelModeA);
+    env.velRow->setLabelMode(SliderRow::LabelMode::Positive);
+
     // Trigger initial value display
     env.aRow->updateValue();
     env.dRow->updateValue();
@@ -122,7 +174,7 @@ void SynthPanel::initLfo(LfoSection& lfo, const juce::String& name,
     addAndMakeVisible(lfo.modeBox);
 
     lfo.rateRow  = std::make_unique<SliderRow>("Rate",  fmtHzF1, kLfoCol);
-    lfo.depthRow = std::make_unique<SliderRow>("Depth", fmtF2,   kLfoCol);
+    lfo.depthRow = std::make_unique<SliderRow>("Depth", fmtPctFine, kLfoCol);
     addAndMakeVisible(*lfo.rateRow);
     addAndMakeVisible(*lfo.depthRow);
 
@@ -158,8 +210,8 @@ void SynthPanel::initDrift(DriftSection& drift, const juce::String& name,
     drift.waveBox.addItemList(driftWaveItems, 1);
     addAndMakeVisible(drift.waveBox);
 
-    drift.rateRow  = std::make_unique<SliderRow>("Rate",  fmtHzF2, kDriftCol);
-    drift.depthRow = std::make_unique<SliderRow>("Depth", fmtF2,   kDriftCol);
+    drift.rateRow  = std::make_unique<SliderRow>("Rate",  fmtHzF3, kDriftCol);
+    drift.depthRow = std::make_unique<SliderRow>("Depth", fmtPctFine, kDriftCol);
     addAndMakeVisible(*drift.rateRow);
     addAndMakeVisible(*drift.depthRow);
 
@@ -245,9 +297,9 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         juce::StringArray tuningItems;
         for (const auto& e : TuningType::kEntries) tuningItems.add(e.label);
         tuningBox.addItemList(tuningItems, 1);
-        tuningBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
-        tuningBox.setColour(juce::ComboBox::textColourId, juce::Colours::white);
-        tuningBox.setColour(juce::ComboBox::outlineColourId, juce::Colours::transparentBlack);
+        tuningBox.setColour(juce::ComboBox::backgroundColourId, kSurface.brighter(0.04f));
+        tuningBox.setColour(juce::ComboBox::textColourId, juce::Colour(0xffd7dde9));
+        tuningBox.setColour(juce::ComboBox::outlineColourId, kBorder);
         addAndMakeVisible(tuningBox);
         tuningA = std::make_unique<CA>(apvts, PID::tuning, tuningBox);
     }
@@ -256,6 +308,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
 
     // Wire bracket handles: both engines use the same P2/P3 loop semantics.
     waveformDisplay.onLoopRegionChanged = [this](float start, float end) {
+        const juce::ScopedLock sl (processorRef.getCallbackLock());
         processorRef.getSampler().setLoopStart(start);
         processorRef.getSampler().setLoopEnd(end);
         processorRef.getSampler().setPointsLocked(true);
@@ -266,6 +319,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
 
     // P1 (start position) handle
     waveformDisplay.onStartPosChanged = [this](float pos) {
+        const juce::ScopedLock sl (processorRef.getCallbackLock());
         processorRef.getSampler().setStartPos(pos);
         processorRef.getSampler().setPointsLocked(true);
         waveformDisplay.getLockButton().setLocked(true);
@@ -281,6 +335,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
 
     // Lock button: toggles P1/P2/P3 preservation across Generate
     waveformDisplay.getLockButton().onToggled = [this](bool locked) {
+        const juce::ScopedLock sl (processorRef.getCallbackLock());
         processorRef.getSampler().setPointsLocked(locked);
     };
 
@@ -499,19 +554,32 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         wtFramesA = std::make_unique<CA>(apvts, PID::wtFrames, framesHidden);
     }
 
-    // Smooth toggle
-    smoothToggle.setClickingTogglesState(true);
-    smoothToggle.setToggleState(true, juce::dontSendNotification);
-    smoothToggle.onClick = [this] {
-        bool on = smoothToggle.getToggleState();
-        smoothToggle.setColour(juce::TextButton::buttonColourId,
-                                on ? kAccent : juce::Colours::transparentBlack);
-        smoothToggle.setColour(juce::TextButton::textColourOnId,
-                                on ? juce::Colour(0xff0e1018) : kDimmer);
+    auto setupWtToggle = [](juce::TextButton& btn) {
+        btn.setClickingTogglesState(true);
+        btn.onClick = [&btn] {
+            bool on = btn.getToggleState();
+            btn.setColour(juce::TextButton::buttonColourId,
+                          on ? kAccent : juce::Colours::transparentBlack);
+            btn.setColour(juce::TextButton::textColourOffId,
+                          on ? juce::Colour(0xff0e1018) : kDimmer);
+            btn.setColour(juce::TextButton::textColourOnId,
+                          on ? juce::Colour(0xff0e1018) : juce::Colours::white);
+        };
     };
+
+    // Smooth toggle
+    setupWtToggle(smoothToggle);
+    smoothToggle.setToggleState(true, juce::dontSendNotification);
     addAndMakeVisible(smoothToggle);
     wtSmoothA = std::make_unique<BA>(apvts, PID::wtSmooth, smoothToggle);
     smoothToggle.onClick(); // sync initial colors
+
+    // Auto-scan toggle
+    setupWtToggle(autoScanToggle);
+    autoScanToggle.setToggleState(true, juce::dontSendNotification);
+    addAndMakeVisible(autoScanToggle);
+    wtAutoScanA = std::make_unique<BA>(apvts, PID::wtAutoScan, autoScanToggle);
+    autoScanToggle.onClick(); // sync initial colors
 
     frameCountLabel.setColour(juce::Label::textColourId, kDimmer);
     frameCountLabel.setJustificationType(juce::Justification::centred);
@@ -585,48 +653,157 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         }
     }
 
-    cutoffRow    = std::make_unique<SliderRow>("Cutoff",    fmtHz,  kFilterCol);
-    resoRow      = std::make_unique<SliderRow>("Resonance", fmtF2, kFilterCol);
-    filterMixRow = std::make_unique<SliderRow>("Mix",       fmtPct, kFilterCol);
-    kbdTrackRow  = std::make_unique<SliderRow>("Kbd Track", fmtPct, kFilterCol);
-    for (auto* r : { cutoffRow.get(), resoRow.get(), filterMixRow.get(), kbdTrackRow.get() })
+    // ── Filter algorithm switchbox: SVF Ladder Warp ──
+    {
+        juce::StringArray algLabels;
+        for (const auto& e : FilterAlgorithm::kEntries) algLabels.add(e.label);
+        filterAlgHidden.addItemList(algLabels, 1);
+        filterAlgHidden.onChange = [this] {
+            int id = filterAlgHidden.getSelectedId();
+            for (int i = 0; i < kNumAlgBtns; ++i)
+                filterAlgBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
+            updateVisibility();
+        };
+        for (int i = 0; i < kNumAlgBtns; ++i)
+        {
+            filterAlgBtns[i].setButtonText(algLabels[i]);
+            filterAlgBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
+            filterAlgBtns[i].setColour(juce::TextButton::buttonOnColourId, kFilterCol);
+            filterAlgBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
+            filterAlgBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            filterAlgBtns[i].setClickingTogglesState(true);
+            filterAlgBtns[i].setRadioGroupId(3005);
+            { int edges = 0;
+              if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+              if (i < kNumAlgBtns - 1) edges |= juce::Button::ConnectedOnRight;
+              filterAlgBtns[i].setConnectedEdges(edges); }
+            filterAlgBtns[i].onClick = [this, i] { filterAlgHidden.setSelectedId(i + 1); };
+            addAndMakeVisible(filterAlgBtns[i]);
+        }
+    }
+
+    // ── Warp style combo: tanh / softclip / ojd / sin / digital / asym ──
+    {
+        juce::StringArray styleLabels;
+        for (const auto& e : FilterWarpStyle::kEntries) styleLabels.add(e.label);
+        filterWarpStyleBox.addItemList(styleLabels, 1);
+        filterWarpStyleBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
+        filterWarpStyleBox.setColour(juce::ComboBox::textColourId, juce::Colours::white);
+        filterWarpStyleBox.setColour(juce::ComboBox::outlineColourId, kFilterCol);
+        addAndMakeVisible(filterWarpStyleBox);
+
+        filterWarpStyleLabel.setFont(juce::FontOptions(fs() * 0.9f));
+        filterWarpStyleLabel.setColour(juce::Label::textColourId, kDim);
+        filterWarpStyleLabel.setJustificationType(juce::Justification::centredRight);
+        addAndMakeVisible(filterWarpStyleLabel);
+    }
+
+    // ── Filter drive oversampling switchbox: Off 2x 4x 8x ──
+    {
+        juce::StringArray osLabels;
+        for (const auto& e : FilterDriveOs::kEntries) osLabels.add(e.label);
+        filterDriveOsHidden.addItemList(osLabels, 1);
+        filterDriveOsHidden.onChange = [this] {
+            int id = filterDriveOsHidden.getSelectedId();
+            for (int i = 0; i < kNumDriveOsBtns; ++i)
+                filterDriveOsBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
+        };
+        for (int i = 0; i < kNumDriveOsBtns; ++i)
+        {
+            filterDriveOsBtns[i].setButtonText(osLabels[i]);
+            filterDriveOsBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
+            filterDriveOsBtns[i].setColour(juce::TextButton::buttonOnColourId, kFilterCol);
+            filterDriveOsBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
+            filterDriveOsBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            filterDriveOsBtns[i].setClickingTogglesState(true);
+            filterDriveOsBtns[i].setRadioGroupId(3004);
+            { int edges = 0;
+              if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+              if (i < kNumDriveOsBtns - 1) edges |= juce::Button::ConnectedOnRight;
+              filterDriveOsBtns[i].setConnectedEdges(edges); }
+            filterDriveOsBtns[i].onClick = [this, i] { filterDriveOsHidden.setSelectedId(i + 1); };
+            addAndMakeVisible(filterDriveOsBtns[i]);
+        }
+    }
+
+    cutoffRow      = std::make_unique<SliderRow>("Cutoff",    fmtHz,  kFilterCol);
+    resoRow        = std::make_unique<SliderRow>("Resonance", fmtF2,  kFilterCol);
+    filterMixRow   = std::make_unique<SliderRow>("Mix",       fmtPct, kFilterCol);
+    kbdTrackRow    = std::make_unique<SliderRow>("Kbd Track", fmtPct, kFilterCol);
+    filterDriveRow = std::make_unique<SliderRow>("Drive",     fmtDb,  kFilterCol);
+    for (auto* r : { cutoffRow.get(), resoRow.get(), filterMixRow.get(),
+                     kbdTrackRow.get(), filterDriveRow.get() })
         addAndMakeVisible(*r);
 
-    cutoffA    = std::make_unique<SA>(apvts, PID::filterCutoff,    cutoffRow->getSlider());
-    resoA      = std::make_unique<SA>(apvts, PID::filterResonance, resoRow->getSlider());
-    filterMixA = std::make_unique<SA>(apvts, PID::filterMix,       filterMixRow->getSlider());
-    kbdTrackA  = std::make_unique<SA>(apvts, PID::filterKbdTrack, kbdTrackRow->getSlider());
+    cutoffA        = std::make_unique<SA>(apvts, PID::filterCutoff,    cutoffRow->getSlider());
+    resoA          = std::make_unique<SA>(apvts, PID::filterResonance, resoRow->getSlider());
+    filterMixA     = std::make_unique<SA>(apvts, PID::filterMix,       filterMixRow->getSlider());
+    kbdTrackA      = std::make_unique<SA>(apvts, PID::filterKbdTrack,  kbdTrackRow->getSlider());
+    filterDriveA   = std::make_unique<SA>(apvts, PID::filterDrive,     filterDriveRow->getSlider());
 
-    filterTypeA  = std::make_unique<CA>(apvts, PID::filterType,  filterTypeHidden);
-    filterSlopeA = std::make_unique<CA>(apvts, PID::filterSlope, filterSlopeHidden);
+    filterTypeA      = std::make_unique<CA>(apvts, PID::filterType,      filterTypeHidden);
+    filterSlopeA     = std::make_unique<CA>(apvts, PID::filterSlope,     filterSlopeHidden);
+    filterDriveOsA   = std::make_unique<CA>(apvts, PID::filterDriveOs,   filterDriveOsHidden);
+    filterAlgA       = std::make_unique<CA>(apvts, PID::filterAlgorithm, filterAlgHidden);
+    filterWarpStyleA = std::make_unique<CA>(apvts, PID::filterWarpStyle, filterWarpStyleBox);
+
+    // Initial radio-button visual sync. Reading the APVTS choice index
+    // directly is robust against ComboBoxAttachment notification-timing
+    // quirks across JUCE versions — the attachment drives the hidden combo,
+    // but whether its onChange lambda fires on the very first paint has
+    // historically been unreliable, leaving the filter card with no active
+    // TYPE / SLOPE / ALG / OS button until the user clicks one. Direct
+    // APVTS read sidesteps that entirely.
+    auto syncRadioRow = [&apvts](const juce::String& pid,
+                                  juce::TextButton* btns, int n) {
+        const int raw = static_cast<int>(apvts.getRawParameterValue(pid)->load());
+        const int active = juce::jlimit(0, n - 1, raw);
+        for (int i = 0; i < n; ++i)
+            btns[i].setToggleState(i == active, juce::dontSendNotification);
+    };
+    syncRadioRow(PID::filterType,      filterTypeBtns,    kNumTypeBtns);
+    syncRadioRow(PID::filterSlope,     filterSlopeBtns,   kNumSlopeBtns);
+    syncRadioRow(PID::filterAlgorithm, filterAlgBtns,     kNumAlgBtns);
+    syncRadioRow(PID::filterDriveOs,   filterDriveOsBtns, kNumDriveOsBtns);
 
     cutoffRow->updateValue();
     resoRow->updateValue();
     filterMixRow->updateValue();
     kbdTrackRow->updateValue();
+    filterDriveRow->updateValue();
 
     // ── Envelopes ──
     initEnv(ampEnv,  "ENV 1", 2, PID::ampAttack,  PID::ampDecay,  PID::ampSustain,  PID::ampRelease,
             PID::ampAttackCurve, PID::ampDecayCurve, PID::ampReleaseCurve,
+            PID::ampAttackVelMode, PID::ampDecayVelMode, PID::ampReleaseVelMode,
             PID::ampAmount,  PID::ampVelSens,  PID::ampLoop,  apvts);
     initEnv(mod1Env, "ENV 2", 1, PID::mod1Attack, PID::mod1Decay, PID::mod1Sustain, PID::mod1Release,
             PID::mod1AttackCurve, PID::mod1DecayCurve, PID::mod1ReleaseCurve,
+            PID::mod1AttackVelMode, PID::mod1DecayVelMode, PID::mod1ReleaseVelMode,
             PID::mod1Amount, PID::mod1VelSens, PID::mod1Loop, apvts);
     initEnv(mod2Env, "ENV 3", 1, PID::mod2Attack, PID::mod2Decay, PID::mod2Sustain, PID::mod2Release,
             PID::mod2AttackCurve, PID::mod2DecayCurve, PID::mod2ReleaseCurve,
+            PID::mod2AttackVelMode, PID::mod2DecayVelMode, PID::mod2ReleaseVelMode,
             PID::mod2Amount, PID::mod2VelSens, PID::mod2Loop, apvts);
 
     // ── LFOs ──
     initLfo(lfo1, "LFO 1", PID::lfo1Rate, PID::lfo1Depth, PID::lfo1Wave, PID::lfo1Mode, apvts);
     initLfo(lfo2, "LFO 2", PID::lfo2Rate, PID::lfo2Depth, PID::lfo2Wave, PID::lfo2Mode, apvts);
+    initLfo(lfo3, "LFO 3", PID::lfo3Rate, PID::lfo3Depth, PID::lfo3Wave, PID::lfo3Mode, apvts);
 
     // ── Drift ──
-    initDrift(drift1, "DRIFT 1", PID::drift1Rate, PID::drift1Depth, PID::drift1Target, PID::drift1Wave, apvts);
-    initDrift(drift2, "DRIFT 2", PID::drift2Rate, PID::drift2Depth, PID::drift2Target, PID::drift2Wave, apvts);
-    initDrift(drift3, "DRIFT 3", PID::drift3Rate, PID::drift3Depth, PID::drift3Target, PID::drift3Wave, apvts);
+    initDrift(drift1, "D1", PID::drift1Rate, PID::drift1Depth, PID::drift1Target, PID::drift1Wave, apvts);
+    initDrift(drift2, "D2", PID::drift2Rate, PID::drift2Depth, PID::drift2Target, PID::drift2Wave, apvts);
+    initDrift(drift3, "D3", PID::drift3Rate, PID::drift3Depth, PID::drift3Target, PID::drift3Wave, apvts);
+
+    paintSectionHeader(lfoHeader, "LFO", kLfoCol);
+    addAndMakeVisible(lfoHeader);
+
+    paintSectionHeader(driftHeader, "DRIFT", kDriftCol);
+    addAndMakeVisible(driftHeader);
 
     // Regenerate mode switchbox
-    paintSectionHeader(regenHeader, "DRIFT + REGENERATE", kDriftCol);
+    paintSectionHeader(regenHeader, "REGENERATE", kDriftCol);
     addAndMakeVisible(regenHeader);
 
     juce::StringArray regenItems;
@@ -645,7 +822,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         regenBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
         regenBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
         regenBtns[i].setClickingTogglesState(true);
-        regenBtns[i].setRadioGroupId(3005);
+        regenBtns[i].setRadioGroupId(3006);
         regenBtns[i].onClick = [this, i] { regenHidden.setSelectedId(i + 1); };
         addAndMakeVisible(regenBtns[i]);
     }
@@ -666,6 +843,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     mod2TargetA = std::make_unique<CA>(apvts, PID::mod2Target, mod2Env.targetBox);
     lfo1TargetA = std::make_unique<CA>(apvts, PID::lfo1Target, lfo1.targetBox);
     lfo2TargetA = std::make_unique<CA>(apvts, PID::lfo2Target, lfo2.targetBox);
+    lfo3TargetA = std::make_unique<CA>(apvts, PID::lfo3Target, lfo3.targetBox);
 
     updateVisibility();
     startTimerHz(30);
@@ -744,6 +922,8 @@ void SynthPanel::timerCallback()
         if (lfo1.depthRow) lfo1.depthRow->setGhostValue(mv.lfo1Depth.load(std::memory_order_relaxed));
         if (lfo2.rateRow)  lfo2.rateRow->setGhostValue(mv.lfo2Rate.load(std::memory_order_relaxed));
         if (lfo2.depthRow) lfo2.depthRow->setGhostValue(mv.lfo2Depth.load(std::memory_order_relaxed));
+        if (lfo3.rateRow)  lfo3.rateRow->setGhostValue(mv.lfo3Rate.load(std::memory_order_relaxed));
+        if (lfo3.depthRow) lfo3.depthRow->setGhostValue(mv.lfo3Depth.load(std::memory_order_relaxed));
         if (drift1.depthRow) drift1.depthRow->setGhostValue(mv.drift1Depth.load(std::memory_order_relaxed));
         if (drift2.depthRow) drift2.depthRow->setGhostValue(mv.drift2Depth.load(std::memory_order_relaxed));
         if (drift3.depthRow) drift3.depthRow->setGhostValue(mv.drift3Depth.load(std::memory_order_relaxed));
@@ -758,6 +938,8 @@ void SynthPanel::timerCallback()
     if (lfo1.depthRow) lfo1.depthRow->tickGhost();
     if (lfo2.rateRow)  lfo2.rateRow->tickGhost();
     if (lfo2.depthRow) lfo2.depthRow->tickGhost();
+    if (lfo3.rateRow)  lfo3.rateRow->tickGhost();
+    if (lfo3.depthRow) lfo3.depthRow->tickGhost();
     if (drift1.depthRow) drift1.depthRow->tickGhost();
     if (drift2.depthRow) drift2.depthRow->tickGhost();
     if (drift3.depthRow) drift3.depthRow->tickGhost();
@@ -781,11 +963,29 @@ void SynthPanel::updateVisibility()
         filterSlopeBtns[i].setAlpha(filterAlpha);
         filterSlopeBtns[i].setEnabled(filterOn);
     }
-    for (auto* r : { cutoffRow.get(), resoRow.get(), filterMixRow.get(), kbdTrackRow.get() })
+    for (auto* r : { cutoffRow.get(), resoRow.get(), filterMixRow.get(),
+                     kbdTrackRow.get(), filterDriveRow.get() })
     {
         r->setAlpha(filterAlpha);
         r->setEnabled(filterOn);
     }
+    for (int i = 0; i < kNumDriveOsBtns; ++i)
+    {
+        filterDriveOsBtns[i].setAlpha(filterAlpha);
+        filterDriveOsBtns[i].setEnabled(filterOn);
+    }
+    for (int i = 0; i < kNumAlgBtns; ++i)
+    {
+        filterAlgBtns[i].setAlpha(filterAlpha);
+        filterAlgBtns[i].setEnabled(filterOn);
+    }
+    // Warp Style dims further (to 0.3× of the already-filter-dim) when the
+    // selected algorithm isn't Warp — style only applies to the warp ladder.
+    const bool warpActive = filterAlgHidden.getSelectedId() == (FilterAlgorithm::Warp + 1);
+    const float styleAlpha = filterAlpha * (warpActive ? 1.0f : 0.35f);
+    filterWarpStyleBox.setAlpha(styleAlpha);
+    filterWarpStyleBox.setEnabled(filterOn && warpActive);
+    filterWarpStyleLabel.setAlpha(styleAlpha);
 
     bool isWavetable = engineModeHidden.getSelectedId() == 2;
     bool isSampler = !isWavetable;
@@ -809,6 +1009,7 @@ void SynthPanel::updateVisibility()
     for (int i = 0; i < kNumFrameBtns; ++i)
         frameBtns[i].setVisible(isWavetable);
     smoothToggle.setVisible(isWavetable);
+    autoScanToggle.setVisible(isWavetable);
     frameCountLabel.setVisible(isWavetable);
 
     waveformDisplay.setRegionLabel("Loop interval");
@@ -824,10 +1025,12 @@ void SynthPanel::updateVisibility()
         bool active = env.targetBox.getSelectedId() != 1; // 1 = "---"
         float alpha = active ? 1.0f : dimAlpha;
         env.loopToggle.setAlpha(alpha);
-        env.loopToggle.setEnabled(active);
+        env.aCurveBtn.setAlpha(alpha);
+        env.dCurveBtn.setAlpha(alpha);
+        env.rCurveBtn.setAlpha(alpha);
         for (auto* r : { env.aRow.get(), env.dRow.get(), env.sRow.get(),
                          env.rRow.get(), env.amtRow.get(), env.velRow.get() })
-            if (r) { r->setAlpha(alpha); r->setEnabled(active); }
+            if (r) r->setAlpha(alpha);
     };
     setEnvDimmed(ampEnv);
     setEnvDimmed(mod1Env);
@@ -838,48 +1041,30 @@ void SynthPanel::updateVisibility()
         float alpha = active ? 1.0f : dimAlpha;
         lfo.waveBox.setAlpha(alpha);
         lfo.modeBox.setAlpha(alpha);
-        lfo.waveBox.setEnabled(active);
-        lfo.modeBox.setEnabled(active);
-        if (lfo.rateRow)  { lfo.rateRow->setAlpha(alpha);  lfo.rateRow->setEnabled(active); }
-        if (lfo.depthRow) { lfo.depthRow->setAlpha(alpha); lfo.depthRow->setEnabled(active); }
+        if (lfo.rateRow)  lfo.rateRow->setAlpha(alpha);
+        if (lfo.depthRow) lfo.depthRow->setAlpha(alpha);
     };
     setLfoDimmed(lfo1);
     setLfoDimmed(lfo2);
+    setLfoDimmed(lfo3);
 
     auto setDriftDimmed = [dimAlpha](DriftSection& drift) {
         bool active = drift.targetBox.getSelectedId() != 1; // 1 = "---"
         float alpha = active ? 1.0f : dimAlpha;
         drift.waveBox.setAlpha(alpha);
-        drift.waveBox.setEnabled(active);
-        if (drift.rateRow)  { drift.rateRow->setAlpha(alpha);  drift.rateRow->setEnabled(active); }
-        if (drift.depthRow) { drift.depthRow->setAlpha(alpha); drift.depthRow->setEnabled(active); }
+        if (drift.rateRow)  drift.rateRow->setAlpha(alpha);
+        if (drift.depthRow) drift.depthRow->setAlpha(alpha);
     };
     setDriftDimmed(drift1);
     setDriftDimmed(drift2);
     setDriftDimmed(drift3);
 
-    // Regen buttons only active when a drift target requires audio regeneration
-    // Osc targets: Alpha(2), Axis1-3(3-5), Noise(16), Magnitude(17) in ComboBox 1-based IDs
-    {
-        auto isOscTarget = [](int selId) {
-            int tgt = selId - 1; // 1-based → 0-based APVTS index
-            return (tgt >= 1 && tgt <= 4) || tgt == 15 || tgt == 16;
-        };
-        bool regenAvailable = isOscTarget(drift1.targetBox.getSelectedId())
-                           || isOscTarget(drift2.targetBox.getSelectedId());
-        float regenAlpha = regenAvailable ? 1.0f : dimAlpha;
-        for (int i = 0; i < kNumRegenBtns; ++i)
-        {
-            regenBtns[i].setAlpha(regenAlpha);
-            regenBtns[i].setEnabled(regenAvailable);
-        }
-        regenHeader.setAlpha(regenAlpha);
-        if (crossfadeRegenRow)
-        {
-            crossfadeRegenRow->setAlpha(regenAlpha);
-            crossfadeRegenRow->setEnabled(regenAvailable);
-        }
-    }
+    driftHeader.setAlpha(1.0f);
+    regenHeader.setAlpha(1.0f);
+    for (int i = 0; i < kNumRegenBtns; ++i)
+        regenBtns[i].setAlpha(1.0f);
+    if (crossfadeRegenRow)
+        crossfadeRegenRow->setAlpha(1.0f);
 }
 
 float SynthPanel::fs() const
@@ -946,47 +1131,51 @@ void SynthPanel::layoutEnv(EnvSection& env, juce::Rectangle<int>& area, float f,
 
 void SynthPanel::layoutLfo(LfoSection& lfo, juce::Rectangle<int>& area, float f, int rowH, int gap)
 {
+    // Single-row layout: [Label] [Target] [Wave] [Mode] [Rate slider] [Depth slider]
     lfo.header.setFont(juce::FontOptions(f));
-    auto hdr = area.removeFromTop(rowH);
-    int headerW = juce::roundToInt(hdr.getWidth() * 0.18f);
-    int targetW = juce::roundToInt(hdr.getWidth() * 0.22f);
-    int waveW = juce::roundToInt(hdr.getWidth() * 0.18f);
-    int modeW = juce::roundToInt(hdr.getWidth() * 0.15f);
+    auto row = area.removeFromTop(rowH);
 
-    lfo.header.setBounds(hdr.removeFromLeft(headerW));
-    lfo.targetBox.setBounds(hdr.removeFromLeft(targetW));
-    hdr.removeFromLeft(4);
-    lfo.waveBox.setBounds(hdr.removeFromLeft(waveW));
-    hdr.removeFromLeft(4);
-    lfo.modeBox.setBounds(hdr.removeFromLeft(modeW));
+    int headerW = juce::roundToInt(f * 4.0f);   // "LFO 1"
+    int targetW = juce::roundToInt(f * 7.0f);
+    int waveW   = juce::roundToInt(f * 4.5f);
+    int modeW   = juce::roundToInt(f * 4.5f);
+    int boxGap  = 4;
 
-    // Always allocate space
-    auto slRow = area.removeFromTop(rowH);
-    auto lfoBounds = layoutSliderRowPairBounds(slRow, *lfo.rateRow, *lfo.depthRow, 4);
-    lfo.rateRow->setBounds(lfoBounds[0]);
-    lfo.depthRow->setBounds(lfoBounds[1]);
+    lfo.header.setBounds(row.removeFromLeft(headerW));
+    lfo.targetBox.setBounds(row.removeFromLeft(targetW));
+    row.removeFromLeft(boxGap);
+    lfo.waveBox.setBounds(row.removeFromLeft(waveW));
+    row.removeFromLeft(boxGap);
+    lfo.modeBox.setBounds(row.removeFromLeft(modeW));
+    row.removeFromLeft(boxGap * 2);
+
+    auto bounds = layoutSliderRowPairBounds(row, *lfo.rateRow, *lfo.depthRow, boxGap);
+    lfo.rateRow->setBounds(bounds[0]);
+    lfo.depthRow->setBounds(bounds[1]);
 
     area.removeFromTop(gap);
 }
 
 void SynthPanel::layoutDrift(DriftSection& drift, juce::Rectangle<int>& area, float f, int rowH, int gap)
 {
+    // Single-row layout: [Label] [Target] [Wave] [Rate slider] [Depth slider]
     drift.header.setFont(juce::FontOptions(f));
-    auto hdr = area.removeFromTop(rowH);
-    int headerW = juce::roundToInt(hdr.getWidth() * 0.22f);
-    int targetW = juce::roundToInt(hdr.getWidth() * 0.28f);
-    int waveW = juce::roundToInt(hdr.getWidth() * 0.18f);
+    auto row = area.removeFromTop(rowH);
 
-    drift.header.setBounds(hdr.removeFromLeft(headerW));
-    drift.targetBox.setBounds(hdr.removeFromLeft(targetW));
-    hdr.removeFromLeft(4);
-    drift.waveBox.setBounds(hdr.removeFromLeft(waveW));
+    int headerW = juce::roundToInt(f * 2.5f);   // "D1"
+    int targetW = juce::roundToInt(f * 7.5f);
+    int waveW   = juce::roundToInt(f * 4.5f);
+    int boxGap  = 4;
 
-    // Always allocate space
-    auto slRow = area.removeFromTop(rowH);
-    auto driftBounds = layoutSliderRowPairBounds(slRow, *drift.rateRow, *drift.depthRow, 4);
-    drift.rateRow->setBounds(driftBounds[0]);
-    drift.depthRow->setBounds(driftBounds[1]);
+    drift.header.setBounds(row.removeFromLeft(headerW));
+    drift.targetBox.setBounds(row.removeFromLeft(targetW));
+    row.removeFromLeft(boxGap);
+    drift.waveBox.setBounds(row.removeFromLeft(waveW));
+    row.removeFromLeft(boxGap * 2);
+
+    auto bounds = layoutSliderRowPairBounds(row, *drift.rateRow, *drift.depthRow, boxGap);
+    drift.rateRow->setBounds(bounds[0]);
+    drift.depthRow->setBounds(bounds[1]);
 
     area.removeFromTop(gap);
 }
@@ -1030,6 +1219,8 @@ void SynthPanel::paint(juce::Graphics& g)
         // Filter switchbox borders
         paintSwitchBoxBorder(g, filterTypeSwitchBounds);
         paintSwitchBoxBorder(g, filterSlopeSwitchBounds);
+        paintSwitchBoxBorder(g, filterDriveOsSwitchBounds);
+        paintSwitchBoxBorder(g, filterAlgSwitchBounds);
     }
 
     // Card: Modulation (ENVs + LFOs + Drift)
@@ -1037,7 +1228,8 @@ void SynthPanel::paint(juce::Graphics& g)
         int top = modHeader.getY() - inset;
         int bot = juce::jmax(ampEnv.amtRow->getBottom(), mod1Env.amtRow->getBottom(),
                              mod2Env.amtRow->getBottom());
-        bot = juce::jmax(bot, lfo1.depthRow->getBottom(), lfo2.depthRow->getBottom());
+        bot = juce::jmax(bot, lfo1.depthRow->getBottom(), lfo2.depthRow->getBottom(),
+                         lfo3.depthRow->getBottom());
         bot = juce::jmax(bot, drift1.depthRow->getBottom(), drift2.depthRow->getBottom(),
                          drift3.depthRow->getBottom());
         paintCard(g, juce::Rectangle<int>(padX, top, getWidth() - padX * 2, bot - top + inset));
@@ -1046,14 +1238,14 @@ void SynthPanel::paint(juce::Graphics& g)
         g.setColour(kModCol.withAlpha(0.15f));
         int lineL = padX + 8;
         int lineR = getWidth() - padX - 8;
-        for (auto* hdr : { &mod1Env.header, &mod2Env.header, &lfo1.header, &lfo2.header })
+        for (auto* hdr : { &mod1Env.header, &mod2Env.header, &lfoHeader, &lfo2.header, &lfo3.header })
         {
             int y = hdr->getY() - 2;
             g.drawHorizontalLine(y, static_cast<float>(lineL), static_cast<float>(lineR));
         }
         // Drift separator + switchbox border
         g.setColour(kDriftCol.withAlpha(0.15f));
-        int driftY = regenHeader.getY() - 2;
+        int driftY = driftHeader.getY() - 2;
         g.drawHorizontalLine(driftY, static_cast<float>(lineL), static_cast<float>(lineR));
         paintSwitchBoxBorder(g, regenSwitchBounds);
     }
@@ -1167,6 +1359,7 @@ void SynthPanel::resized()
     int headerH = juce::jlimit(14, 20, juce::roundToInt(topH * 0.022f));
     float headerFs = static_cast<float>(headerH) * 0.85f;
     int headerGap = juce::jmax(3, headerH / 5);  // ~20% of header height
+
     engineHeader.setFont(juce::FontOptions(headerFs));
     engineHeader.setBounds(area.removeFromTop(headerH));
     area.removeFromTop(headerGap);
@@ -1196,14 +1389,14 @@ void SynthPanel::resized()
     // Always reserve same space for engine controls (max of sampler/WT)
     // so waveform height stays stable when switching modes
     int samplerCtrlH = rowH + gap * 2; // one controls row (sampler or wavetable)
-    int filterH = headerH + headerGap + rowH + gap + rowH * 2 + gap; // header + type row + cutoff/reso + mix/kbd
+    int filterH = headerH + headerGap + rowH + gap + rowH * 2 + gap; // header + type/slope/topology + cutoff/reso + mix/kbd
     int modH = gap * 3 + headerH + headerGap; // section gap + header
     int envH = (rowH * 4 + gap) * 3; // 3 envelopes × (header + 3 slider rows + gap)
-    int lfoH = gap + (rowH * 2 + gap) * 2; // 2 LFOs × (header + rate row + gap)
-    int driftH = gap + headerH + gap + rowH + (rowH * 2 + gap) * 3; // header + regen row + 3 drifts
-    int belowWave = samplerCtrlH + filterH + modH + envH + lfoH + driftH + gap * 5;
-    int maxWaveH = juce::roundToInt(area.getHeight() * 0.14f); // cap waveform to ~14% of panel
-    int waveH = juce::jlimit(60, maxWaveH, area.getHeight() - belowWave);
+    int lfoH = gap + headerH + headerGap + (rowH + gap) * 3;              // lfo header + 3 single-row LFOs
+    int driftH = gap + headerH + headerGap + (rowH + gap) * 3;            // drift header + 3 single-row drifts
+    int regenH = gap + headerH + headerGap + rowH;                        // regen header + row — last in the natural flow, must stay in the budget
+    int belowWave = samplerCtrlH + filterH + modH + envH + lfoH + driftH + regenH + gap * 5;
+    int waveH = juce::jmax(60, area.getHeight() - belowWave);
 
     if (scanRow->isVisible())
     {
@@ -1239,8 +1432,11 @@ void SynthPanel::resized()
         framesSwitchBounds = frameBtns[0].getBounds().getUnion(frameBtns[kNumFrameBtns - 1].getBounds());
         leftCol.removeFromLeft(juce::roundToInt(f * 0.35f));
 
-        int smoothW = juce::jmin(juce::roundToInt(f * 4.2f), leftCol.getWidth());
+        int smoothW = juce::jmin(juce::roundToInt(f * 4.0f), leftCol.getWidth());
         smoothToggle.setBounds(leftCol.removeFromLeft(smoothW));
+        leftCol.removeFromLeft(juce::roundToInt(f * 0.25f));
+        int autoW = juce::jmin(juce::roundToInt(f * 3.8f), leftCol.getWidth());
+        autoScanToggle.setBounds(leftCol.removeFromLeft(autoW));
 
         // ── Right column: [Nf] [White|Pink|Brown] Lvl[===] ──
         int frameCountW = juce::roundToInt(f * 2.8f);
@@ -1320,22 +1516,55 @@ void SynthPanel::resized()
     filterHeader.setBounds(area.removeFromTop(headerH));
     area.removeFromTop(headerGap);
 
-    // ── Filter switchboxes: [OFF LP HP BP]  [6dB 12dB 18dB 24dB] ──
+    // ── Filter header: [TYPE] [SLOPE] [ALG] [STYLE] [Drive] [OS-Switchbox] ──
     auto filterHdr = area.removeFromTop(rowH);
     {
-        int cellW = juce::roundToInt(f * 3.2f);
+        const int groupGap  = juce::roundToInt(f * 0.75f);
+        const int typeCellW = juce::roundToInt(f * 3.2f);
+        const int slopeCellW= juce::roundToInt(f * 3.2f);
+        const int algCellW  = juce::roundToInt(f * 2.2f);   // short labels (SVF, Ladder, Warp)
+        const int styleW    = juce::roundToInt(f * 7.0f);   // ~10 chars incl. arrow
+        const int osCellW   = juce::roundToInt(f * 1.5f);
+
+        auto typeArea  = filterHdr.removeFromLeft(typeCellW * kNumTypeBtns);
+        filterHdr.removeFromLeft(groupGap);
+        auto slopeArea = filterHdr.removeFromLeft(slopeCellW * kNumSlopeBtns);
+        filterHdr.removeFromLeft(groupGap);
+        auto algArea   = filterHdr.removeFromLeft(algCellW * kNumAlgBtns);
+        filterHdr.removeFromLeft(juce::roundToInt(f * 0.5f));
+        auto styleArea = filterHdr.removeFromLeft(styleW);
+        filterHdr.removeFromLeft(groupGap);
+
+        auto osArea = filterHdr.removeFromRight(osCellW * kNumDriveOsBtns);
+        filterHdr.removeFromRight(4);
+        // Whatever's between Style and OS goes to Drive — same row now, so Drive
+        // shortens to accommodate the extra switches.
+        auto driveArea = filterHdr;
+
         for (int i = 0; i < kNumTypeBtns; ++i)
-            filterTypeBtns[i].setBounds(filterHdr.removeFromLeft(cellW));
+            filterTypeBtns[i].setBounds(typeArea.removeFromLeft(typeCellW));
         filterTypeSwitchBounds = filterTypeBtns[0].getBounds()
             .getUnion(filterTypeBtns[kNumTypeBtns - 1].getBounds());
 
-        filterHdr.removeFromLeft(juce::roundToInt(f * 0.5f));
-
-        int slopeCellW = juce::roundToInt(f * 3.2f);
         for (int i = 0; i < kNumSlopeBtns; ++i)
-            filterSlopeBtns[i].setBounds(filterHdr.removeFromLeft(slopeCellW));
+            filterSlopeBtns[i].setBounds(slopeArea.removeFromLeft(slopeCellW));
         filterSlopeSwitchBounds = filterSlopeBtns[0].getBounds()
             .getUnion(filterSlopeBtns[kNumSlopeBtns - 1].getBounds());
+
+        for (int i = 0; i < kNumAlgBtns; ++i)
+            filterAlgBtns[i].setBounds(algArea.removeFromLeft(algCellW));
+        filterAlgSwitchBounds = filterAlgBtns[0].getBounds()
+            .getUnion(filterAlgBtns[kNumAlgBtns - 1].getBounds());
+
+        filterWarpStyleBox.setBounds(styleArea);
+        filterWarpStyleLabel.setBounds(-1000, -1000, 10, 10); // hidden — combo carries its own label
+
+        filterDriveRow->setBounds(driveArea);
+
+        for (int i = 0; i < kNumDriveOsBtns; ++i)
+            filterDriveOsBtns[i].setBounds(osArea.removeFromLeft(osCellW));
+        filterDriveOsSwitchBounds = filterDriveOsBtns[0].getBounds()
+            .getUnion(filterDriveOsBtns[kNumDriveOsBtns - 1].getBounds());
     }
     area.removeFromTop(gap);
 
@@ -1394,7 +1623,7 @@ void SynthPanel::resized()
                  ampEnv.aRow.get(), ampEnv.sRow.get(), ampEnv.amtRow.get(),
                  mod1Env.aRow.get(), mod1Env.sRow.get(), mod1Env.amtRow.get(),
                  mod2Env.aRow.get(), mod2Env.sRow.get(), mod2Env.amtRow.get(),
-                 lfo1.rateRow.get(), lfo2.rateRow.get(),
+                 lfo1.rateRow.get(), lfo2.rateRow.get(), lfo3.rateRow.get(),
                  drift1.rateRow.get(), drift2.rateRow.get(), drift3.rateRow.get() })
             row->setForcedLabelWidth(leftLabelWidth);
 
@@ -1402,7 +1631,7 @@ void SynthPanel::resized()
                  ampEnv.dRow.get(), ampEnv.rRow.get(), ampEnv.velRow.get(),
                  mod1Env.dRow.get(), mod1Env.rRow.get(), mod1Env.velRow.get(),
                  mod2Env.dRow.get(), mod2Env.rRow.get(), mod2Env.velRow.get(),
-                 lfo1.depthRow.get(), lfo2.depthRow.get(),
+                 lfo1.depthRow.get(), lfo2.depthRow.get(), lfo3.depthRow.get(),
                  drift1.depthRow.get(), drift2.depthRow.get(), drift3.depthRow.get() })
             row->setForcedLabelWidth(rightLabelWidth);
     }
@@ -1413,14 +1642,27 @@ void SynthPanel::resized()
 
     // ── LFOs ──
     area.removeFromTop(gap);
+    lfoHeader.setFont(juce::FontOptions(headerFs));
+    lfoHeader.setBounds(area.removeFromTop(headerH));
+    area.removeFromTop(headerGap);
     layoutLfo(lfo1, area, f, rowH, gap);
     layoutLfo(lfo2, area, f, rowH, gap);
+    layoutLfo(lfo3, area, f, rowH, gap);
 
-    // ── Drift + Regenerate (part of modulation section) ──
+    // ── Drift (part of modulation section) ──
+    area.removeFromTop(gap);
+    driftHeader.setFont(juce::FontOptions(headerFs));
+    driftHeader.setBounds(area.removeFromTop(headerH));
+    area.removeFromTop(headerGap);
+    layoutDrift(drift1, area, f, rowH, gap);
+    layoutDrift(drift2, area, f, rowH, gap);
+    layoutDrift(drift3, area, f, rowH, gap);
+
+    // ── Regenerate — sits in the natural flow directly below Drift ──
     area.removeFromTop(gap);
     regenHeader.setFont(juce::FontOptions(headerFs));
     regenHeader.setBounds(area.removeFromTop(headerH));
-    area.removeFromTop(gap);
+    area.removeFromTop(headerGap);
     {
         auto regenRow = area.removeFromTop(rowH);
         int regenCellW = juce::roundToInt(f * 3.5f);
@@ -1440,7 +1682,4 @@ void SynthPanel::resized()
         int xfadeMaxW = halfW - (regenRow.getX() - area.getX());
         crossfadeRegenRow->setBounds(regenRow.removeFromLeft(std::max(0, xfadeMaxW)));
     }
-    layoutDrift(drift1, area, f, rowH, gap);
-    layoutDrift(drift2, area, f, rowH, gap);
-    layoutDrift(drift3, area, f, rowH, gap);
 }

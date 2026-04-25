@@ -65,6 +65,7 @@ private:
     juce::ComboBox framesHidden;
     juce::Rectangle<int> framesSwitchBounds;
     juce::TextButton smoothToggle { "Smooth" };
+    juce::TextButton autoScanToggle { "AutoScan" };
     juce::Label frameCountLabel;
 
     // ── Octave shift ──
@@ -81,11 +82,11 @@ private:
     std::unique_ptr<SliderRow> noiseLevelRow;
 
     // ── Section headers ──
-    juce::Label engineHeader, filterHeader, modHeader, driftHeader;
+    juce::Label engineHeader, filterHeader, modHeader, lfoHeader, driftHeader;
 
     // ── Layout rects for paint() ──
     juce::Rectangle<int> engineSwitchBounds, loopSwitchBounds, optSwitchBounds;
-    juce::Rectangle<int> filterTypeSwitchBounds, filterSlopeSwitchBounds;
+    juce::Rectangle<int> filterTypeSwitchBounds, filterSlopeSwitchBounds, filterDriveOsSwitchBounds, filterAlgSwitchBounds;
     int engineCardBottom = 0;
 
     // ── Filter ──
@@ -97,7 +98,18 @@ private:
     static constexpr int kNumSlopeBtns = 4;
     juce::TextButton filterSlopeBtns[kNumSlopeBtns];
     juce::ComboBox filterSlopeHidden;
-    std::unique_ptr<SliderRow> cutoffRow, resoRow, filterMixRow, kbdTrackRow;
+    std::unique_ptr<SliderRow> cutoffRow, resoRow, filterMixRow, kbdTrackRow, filterDriveRow;
+    // Drive oversampling switchbox: Off 2x 4x 8x
+    static constexpr int kNumDriveOsBtns = 4;
+    juce::TextButton filterDriveOsBtns[kNumDriveOsBtns];
+    juce::ComboBox filterDriveOsHidden;
+    // Filter algorithm switchbox: SVF Ladder Warp
+    static constexpr int kNumAlgBtns = 3;
+    juce::TextButton filterAlgBtns[kNumAlgBtns];
+    juce::ComboBox filterAlgHidden;
+    // Warp style selector (only active when algorithm == Warp)
+    juce::ComboBox filterWarpStyleBox;
+    juce::Label    filterWarpStyleLabel { {}, "Style" };
 
     // ── Envelope sections ──
     struct EnvSection
@@ -113,6 +125,8 @@ private:
         CurveButton aCurveBtn, dCurveBtn, rCurveBtn;
         juce::ComboBox aCurveHidden, dCurveHidden, rCurveHidden;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> aCurveA, dCurveA, rCurveA;
+        juce::ComboBox aVelModeHidden, dVelModeHidden, rVelModeHidden;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> aVelModeA, dVelModeA, rVelModeA;
     };
     EnvSection ampEnv, mod1Env, mod2Env;
 
@@ -125,7 +139,7 @@ private:
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> rateA, depthA;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> waveA, modeA;
     };
-    LfoSection lfo1, lfo2;
+    LfoSection lfo1, lfo2, lfo3;
 
     // ── Drift ──
     struct DriftSection
@@ -156,18 +170,22 @@ private:
     std::unique_ptr<CA> octaveA;
     std::unique_ptr<CA> wtFramesA;
     std::unique_ptr<BA> wtSmoothA;
-    std::unique_ptr<CA> filterTypeA, filterSlopeA;
+    std::unique_ptr<BA> wtAutoScanA;
+    std::unique_ptr<CA> filterTypeA, filterSlopeA, filterDriveOsA, filterAlgA, filterWarpStyleA;
+    std::unique_ptr<SA> filterDriveA;
     std::unique_ptr<CA> driftRegenA;
     std::unique_ptr<SA> crossfadeRegenA;
 
     // ENV/LFO target attachments (routed in processBlock)
-    std::unique_ptr<CA> mod1TargetA, mod2TargetA, lfo1TargetA, lfo2TargetA;
+    std::unique_ptr<CA> mod1TargetA, mod2TargetA, lfo1TargetA, lfo2TargetA, lfo3TargetA;
 
     void initEnv(EnvSection& env, const juce::String& name, int defaultTarget,
                  const juce::String& aId, const juce::String& dId,
                  const juce::String& sId, const juce::String& rId,
                  const juce::String& aCurveId, const juce::String& dCurveId,
                  const juce::String& rCurveId,
+                 const juce::String& aVelModeId, const juce::String& dVelModeId,
+                 const juce::String& rVelModeId,
                  const juce::String& amtId, const juce::String& velId,
                  const juce::String& loopId,
                  juce::AudioProcessorValueTreeState& apvts);

@@ -7,12 +7,20 @@
 
 // ── Color constants (shared across all GUI files) ──────────────────────────
 static const auto kAccent  = juce::Colour(0xffe91e63);  // C — Pink (engine accent)
-static const auto kDim     = juce::Colour(0xff888888);
-static const auto kDimmer  = juce::Colour(0xff606060);
+static const auto kTextPrimary   = juce::Colour(0xffe7edf5);
+static const auto kTextSecondary = juce::Colour(0xffc2cad7);
+static const auto kTextMuted     = juce::Colour(0xff9aa6b8);
+static const auto kTextDisabled  = juce::Colour(0xff768294);
+static const auto kDim     = kTextSecondary;
+static const auto kDimmer  = kTextMuted;
 static const auto kSurface = juce::Colour(0xff1e2130);  // Slider track bg, input fields
 static const auto kCard    = juce::Colour(0xff1a1e2a);  // Card/section background
 static const auto kBg      = juce::Colour(0xff0e1018);  // Main background (dark blue-gray, not black)
 static const auto kBorder  = juce::Colour(0xff353a4a);  // Section borders (more visible)
+
+static constexpr float kUiLabelFontMin = 11.0f;
+static constexpr float kUiValueFontMin = 11.0f;
+static constexpr float kUiControlFontMin = 11.0f;
 
 // Semantic axis colors
 static const auto kAxis1   = juce::Colour(0xffe91e63);  // Pink
@@ -231,6 +239,8 @@ inline ResponsiveStripResult layoutResponsiveStrip(juce::Rectangle<int> area,
 class SliderRow : public juce::Component
 {
 public:
+    enum class LabelMode { Off, Positive, Negative };
+
     SliderRow(const juce::String& name,
               std::function<juce::String(double)> formatter,
               juce::Colour trackColor = kAccent)
@@ -238,7 +248,7 @@ public:
           trackCol(trackColor)
     {
         label.setText(name, juce::dontSendNotification);
-        label.setColour(juce::Label::textColourId, kDim);
+        label.setInterceptsMouseClicks(false, false);
         label.setJustificationType(juce::Justification::centredLeft);
         addAndMakeVisible(label);
 
@@ -252,6 +262,7 @@ public:
         value.setColour(juce::Label::textColourId, trackCol);
         value.setJustificationType(juce::Justification::centredLeft);
         addAndMakeVisible(value);
+        updateLabelAppearance();
     }
 
     juce::Slider& getSlider() { return slider; }
@@ -281,7 +292,20 @@ public:
         trackCol = c;
         slider.setColour(juce::Slider::trackColourId, c);
         value.setColour(juce::Label::textColourId, c);
+        updateLabelAppearance();
     }
+
+    void setLabelMode(LabelMode newMode)
+    {
+        if (labelMode == newMode)
+            return;
+        labelMode = newMode;
+        updateLabelAppearance();
+        repaint();
+    }
+
+    LabelMode getLabelMode() const { return labelMode; }
+    void setLabelClickHandler(std::function<void()> handler) { onLabelClick = std::move(handler); }
 
     void updateValue()
     {
@@ -315,6 +339,24 @@ public:
         return false;
     }
 
+    void paint(juce::Graphics& g) override
+    {
+        auto badge = getLabelBadgeBounds();
+        if (badge.isEmpty())
+            return;
+
+        if (labelMode == LabelMode::Positive)
+        {
+            g.setColour(trackCol);
+            g.fillRect(badge);
+        }
+        else if (labelMode == LabelMode::Negative)
+        {
+            g.setColour(trackCol);
+            g.drawRect(badge.reduced(0.5f), 1.0f);
+        }
+    }
+
     void paintOverChildren(juce::Graphics& g) override
     {
         if (std::isnan(ghostSmoothed)) return;
@@ -340,6 +382,12 @@ public:
         slider.setBounds(b);
     }
 
+    void mouseUp(const juce::MouseEvent& e) override
+    {
+        if (onLabelClick && label.getBounds().contains(e.getPosition()))
+            onLabelClick();
+    }
+
 private:
     struct SliderLayoutProfile
     {
@@ -357,6 +405,8 @@ private:
     juce::Slider slider;
     std::function<juce::String(double)> valueFormatter;
     juce::Colour trackCol;
+    LabelMode labelMode = LabelMode::Off;
+    std::function<void()> onLabelClick;
 
     // Ghost marker smoothing
     static constexpr float NaN_ = std::numeric_limits<float>::quiet_NaN();
@@ -378,11 +428,11 @@ private:
     SliderLayoutProfile getLayoutProfile(bool compact, bool applyForcedLabelWidth = true) const
     {
         const int resolvedHeight = juce::jmax(18, getHeight() > 0 ? getHeight() : 22);
-        const float maxFs = static_cast<float>(resolvedHeight) * 0.75f;
-        const float labelFs = juce::jmax(7.0f, juce::jmin(maxFs, compact ? 9.0f : 10.5f));
-        const float valueFs = juce::jmax(7.0f, juce::jmin(maxFs, compact ? 9.0f : 10.5f));
-        const int labelPadding = compact ? 6 : 10;
-        const int valuePadding = compact ? 6 : 10;
+        const float maxFs = static_cast<float>(resolvedHeight) * 0.74f;
+        const float labelFs = juce::jmax(kUiLabelFontMin, juce::jmin(maxFs, compact ? 11.0f : 12.0f));
+        const float valueFs = juce::jmax(kUiValueFontMin, juce::jmin(maxFs, compact ? 11.0f : 12.0f));
+        const int labelPadding = compact ? 8 : 12;
+        const int valuePadding = compact ? 8 : 12;
 
         SliderLayoutProfile profile;
         profile.labelFontSize = labelFs;
@@ -391,8 +441,8 @@ private:
         profile.valueWidth = currentValueText().isEmpty() ? 0 : measureTextWidth(currentValueText(), valueFs) + valuePadding;
         if (applyForcedLabelWidth && forcedLabelWidth >= 0)
             profile.labelWidth = forcedLabelWidth;
-        profile.minTrackWidth = compact ? 48 : 72;
-        profile.preferredTrackWidth = compact ? 72 : 112;
+        profile.minTrackWidth = compact ? 40 : 64;
+        profile.preferredTrackWidth = compact ? 70 : 112;
         profile.minimumWidth = profile.labelWidth + profile.valueWidth + profile.minTrackWidth;
         profile.preferredWidth = profile.labelWidth + profile.valueWidth + profile.preferredTrackWidth;
         return profile;
@@ -409,8 +459,8 @@ private:
         int overflow = profile.minimumWidth - totalWidth;
         if (overflow > 0)
         {
-            const int minLabelWidth = label.getText().isEmpty() ? 0 : 8;
-            const int minValueWidth = currentValueText().isEmpty() ? 0 : 8;
+            const int minLabelWidth = label.getText().isEmpty() ? 0 : measureTextWidth("M", profile.labelFontSize) + 2;
+            const int minValueWidth = currentValueText().isEmpty() ? 0 : measureTextWidth("00", profile.valueFontSize) + 2;
             const int labelShrink = juce::jmin(overflow / 2 + overflow % 2,
                                                juce::jmax(0, profile.labelWidth - minLabelWidth));
             profile.labelWidth -= labelShrink;
@@ -429,6 +479,43 @@ private:
         int thumbW = slider.getLookAndFeel().getSliderThumbRadius(slider) * 2;
         return static_cast<float>(sb.getX() + thumbW / 2)
              + static_cast<float>(sb.getWidth() - thumbW) * static_cast<float>(norm);
+    }
+
+    juce::Rectangle<float> getLabelBadgeBounds() const
+    {
+        auto lb = label.getBounds().toFloat();
+        if (lb.isEmpty() || label.getText().isEmpty())
+            return {};
+
+        const float fontSize = label.getFont().getHeight();
+        const float textW = static_cast<float>(measureTextWidth(label.getText(), fontSize));
+        const float insetX = 1.0f;
+        const float insetY = 1.0f;
+        const float padX = juce::jmax(2.5f, fontSize * 0.22f);
+        const float padY = juce::jmax(0.5f, fontSize * 0.10f);
+        const float badgeW = juce::jmin(lb.getWidth() - insetX, textW + padX * 2.0f);
+        const float badgeH = juce::jmin(lb.getHeight() - insetY * 2.0f, fontSize + padY * 2.0f);
+        const float badgeX = std::floor(lb.getX() + insetX);
+        const float badgeY = std::floor(lb.getY() + (lb.getHeight() - badgeH) * 0.5f);
+        return { badgeX, badgeY, std::floor(badgeW), std::floor(badgeH) };
+    }
+
+    void updateLabelAppearance()
+    {
+        juce::Colour textColour = kTextSecondary;
+        auto border = juce::BorderSize<int>(1, 5, 1, 5);
+        if (labelMode == LabelMode::Positive)
+        {
+            textColour = juce::Colours::white;
+            border = juce::BorderSize<int>(1, 3, 1, 3);
+        }
+        else if (labelMode == LabelMode::Negative)
+        {
+            textColour = kTextMuted;
+            border = juce::BorderSize<int>(1, 3, 1, 3);
+        }
+        label.setColour(juce::Label::textColourId, textColour);
+        label.setBorderSize(border);
     }
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SliderRow)

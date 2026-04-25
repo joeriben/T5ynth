@@ -3,6 +3,39 @@
 #include "../dsp/BlockParams.h"
 #include <cstring>
 
+namespace
+{
+juce::String getStoredPresetName(const juce::var& parsed, const juce::File& file)
+{
+    if (auto* root = parsed.getDynamicObject())
+    {
+        auto stored = root->getProperty("name").toString().trim();
+        if (stored.isNotEmpty())
+            return stored;
+    }
+
+    return file.getFileNameWithoutExtension();
+}
+
+juce::StringArray readTagsFromJson(const juce::var& parsed)
+{
+    juce::StringArray tags;
+    if (auto* root = parsed.getDynamicObject())
+    {
+        if (auto* arr = root->getProperty("tags").getArray())
+        {
+            for (auto& v : *arr)
+            {
+                auto t = v.toString().trim();
+                if (t.isNotEmpty())
+                    tags.addIfNotAlreadyThere(t);
+            }
+        }
+    }
+    return tags;
+}
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Save: T5YN header + JSON + raw float32 PCM
 // ═══════════════════════════════════════════════════════════════════
@@ -15,6 +48,19 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
     if (!parsed.isObject()) return false;
 
     auto* root = parsed.getDynamicObject();
+    root->setProperty("name",
+                      processor.getLastPresetName().trim().isNotEmpty()
+                          ? processor.getLastPresetName().trim()
+                          : file.getFileNameWithoutExtension());
+
+    // Tags are always written, even when empty, so clearing all tags is an
+    // explicit saved state rather than falling back to legacy inference.
+    {
+        const auto& tags = processor.getLastTags();
+        juce::Array<juce::var> tagArr;
+        for (auto& t : tags) tagArr.add(t);
+        root->setProperty("tags", tagArr);
+    }
 
     // Patch in prompts (exportJsonPreset leaves them empty)
     if (auto* synth = root->getProperty("synth").getDynamicObject())
@@ -26,6 +72,11 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
         auto genSeed = static_cast<int>(processor.getValueTreeState()
                            .getRawParameterValue(PID::genSeed)->load());
         synth->setProperty("randomSeed", genSeed == -1);
+        // Persist the most recent inference duration (ms). Older presets
+        // miss this field; readers default to 0 → display "—".
+        if (processor.getLastGenerationTimeMs() > 0.0f)
+            synth->setProperty("inferenceMs",
+                               static_cast<double>(processor.getLastGenerationTimeMs()));
     }
 
     // Semantic axes (GUI-only state, 3 slots)
@@ -132,9 +183,7 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
         if (version != kVersion)
         {
             // Unknown / future version: refuse to parse rather than silently
-            // mis-interpret the JSON/PCM layout as the current schema. This
-            // prevents lossy loads when the format is evolved in a later
-            // release. (All writers emit kVersion == 2 as of format v2.)
+            // mis-interpret the JSON/PCM layout as the current schema.
             DBG("PresetFormat: unsupported .t5p version " << (int) version
                 << " (expected " << (int) kVersion << ")");
             return result;
@@ -213,7 +262,8 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
             }
         }
 
-        result.presetName = file.getFileNameWithoutExtension();
+        result.presetName = getStoredPresetName(parsed, file);
+        result.tags = readTagsFromJson(parsed);
         result.success = true;
     }
     else
@@ -241,7 +291,8 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
                             result.randomSeed = static_cast<bool>(synth->getProperty("randomSeed"));
                     }
                 }
-                result.presetName = file.getFileNameWithoutExtension();
+                result.presetName = getStoredPresetName(parsed, file);
+                result.tags = readTagsFromJson(parsed);
                 result.success = true;
             }
         }
@@ -275,7 +326,7 @@ juce::File PresetFormat::getFactoryPresetsDirectory()
    #if JUCE_MAC
     return juce::File("/Library/Application Support/T5ynth/presets");
    #elif JUCE_LINUX
-    return juce::File("/usr/local/share/T5ynth/presets");
+    return juce::File("/usr/share/T5ynth/presets");
    #else
     // Windows: C:\ProgramData\T5ynth\presets (installed by Setup)
     return juce::File::getSpecialLocation(juce::File::commonApplicationDataDirectory)
@@ -295,23 +346,19 @@ juce::File PresetFormat::getUserPresetsDirectory()
 juce::Array<juce::File> PresetFormat::getAllPresetFiles()
 {
     juce::Array<juce::File> files;
-    juce::StringArray seen;
 
-    // Factory presets first
+    // Recursive scan so user-created subdirectories ("banks") show up in
+    // the library. Factory dir is also scanned recursively in case a future
+    // installer ships categorized subfolders.
     auto factoryDir = getFactoryPresetsDirectory();
     if (factoryDir.isDirectory())
-        for (auto& f : factoryDir.findChildFiles(juce::File::findFiles, false, "*.t5p"))
-        {
+        for (auto& f : factoryDir.findChildFiles(juce::File::findFiles, true, "*.t5p"))
             files.add(f);
-            seen.add(f.getFileNameWithoutExtension());
-        }
 
-    // User presets (skip if same name as factory)
     auto userDir = getUserPresetsDirectory();
     if (userDir.isDirectory())
-        for (auto& f : userDir.findChildFiles(juce::File::findFiles, false, "*.t5p"))
-            if (!seen.contains(f.getFileNameWithoutExtension()))
-                files.add(f);
+        for (auto& f : userDir.findChildFiles(juce::File::findFiles, true, "*.t5p"))
+            files.add(f);
 
     return files;
 }

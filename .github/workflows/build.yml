@@ -179,7 +179,6 @@ jobs:
 
   # ── Windows ─────────────────────────────────────────────────────
   windows:
-    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -201,6 +200,38 @@ jobs:
         working-directory: backend
         run: pyinstaller pipe_inference.spec --noconfirm
 
+      - name: Verify bundled backend starts
+        shell: powershell
+        working-directory: backend
+        env:
+          T5YNTH_ALLOW_NO_MODELS: "1"
+        run: |
+          $backendExe = (Resolve-Path ".\dist\pipe_inference\pipe_inference.exe").Path
+          $stdoutLog = Join-Path $env:RUNNER_TEMP "t5ynth_backend_stdout.log"
+          $stderrLog = Join-Path $env:RUNNER_TEMP "t5ynth_backend_stderr.log"
+          $proc = Start-Process $backendExe `
+            -WorkingDirectory (Get-Location).Path `
+            -RedirectStandardOutput $stdoutLog `
+            -RedirectStandardError $stderrLog `
+            -PassThru
+          Start-Sleep -Seconds 5
+          if ($proc.HasExited) {
+            $stdoutBytes = if (Test-Path $stdoutLog) { [System.IO.File]::ReadAllBytes($stdoutLog) } else { @() }
+            $stderrText = if (Test-Path $stderrLog) { Get-Content $stderrLog -Raw } else { "" }
+            $stdoutText = if ($stdoutBytes.Length -gt 0) { [System.Text.Encoding]::UTF8.GetString($stdoutBytes) } else { "" }
+            $sentReadyFrame = $stdoutBytes.Length -gt 0 -and $stdoutBytes[0] -eq 2 -and $stdoutText.Contains('"devices"')
+            $smokeTestNotice = $stderrText.Contains("smoke-test mode")
+            if ($sentReadyFrame -and $smokeTestNotice) {
+              Write-Host "Bundled backend emitted ready frame and exited after smoke-test startup."
+              exit 0
+            }
+            Write-Host "::error::Bundled backend exited early with code $($proc.ExitCode)"
+            if ($stdoutText) { Write-Host $stdoutText }
+            if ($stderrText) { Write-Host $stderrText }
+            exit 1
+          }
+          Stop-Process -Id $proc.Id -Force
+
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
@@ -214,13 +245,30 @@ jobs:
           cp -R build/T5ynth_artefacts/Release/Standalone/* dist/T5ynth/
           mkdir -p dist/T5ynth/backend
           cp -R backend/dist/pipe_inference/* dist/T5ynth/backend/
-          cp LICENSE.txt THIRD_PARTY_LICENSES.txt DO_NOT_FORGET.txt dist/T5ynth/
+          cp LICENSE.txt THIRD_PARTY_LICENSES.txt dist/T5ynth/
+
+      - name: Smoke-test Windows standalone
+        shell: powershell
+        env:
+          T5YNTH_ALLOW_NO_MODELS: "1"
+        run: |
+          $env:T5YNTH_REQUIRE_BUNDLED_BACKEND = "1"
+          $appExe = (Resolve-Path ".\dist\T5ynth\T5ynth.exe").Path
+          $proc = Start-Process $appExe `
+            -WorkingDirectory (Split-Path -Parent $appExe) `
+            -PassThru
+          Start-Sleep -Seconds 5
+          if ($proc.HasExited) {
+            Write-Host "::error::Standalone app exited early with code $($proc.ExitCode)"
+            exit 1
+          }
+          Stop-Process -Id $proc.Id -Force
 
       - name: Create archives
         shell: bash
         run: |
           mkdir -p archives
-          cp LICENSE.txt THIRD_PARTY_LICENSES.txt DO_NOT_FORGET.txt build/T5ynth_artefacts/Release/VST3/
+          cp LICENSE.txt THIRD_PARTY_LICENSES.txt build/T5ynth_artefacts/Release/VST3/
           tar -cJf archives/T5ynth-Windows-Standalone.tar.xz -C dist T5ynth
           tar -cJf archives/T5ynth-Windows-VST3.tar.xz \
             -C build/T5ynth_artefacts/Release/VST3 .
@@ -238,16 +286,29 @@ jobs:
           name: T5ynth-Windows-VST3
           path: archives/T5ynth-Windows-VST3.tar.xz
 
-      - name: Install Inno Setup
-        run: choco install innosetup -y
+      - name: Ensure Inno Setup is available
+        shell: powershell
+        run: |
+          $isccPath = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\iscc.exe"
+          if (Test-Path $isccPath) {
+            Write-Host "Using preinstalled Inno Setup at $isccPath"
+            exit 0
+          }
+          choco install innosetup -y
+          if (-not (Test-Path $isccPath)) {
+            Write-Host "::error::Inno Setup was not found after installation"
+            exit 1
+          }
 
       - name: Build Windows installer (Inno Setup)
+        shell: powershell
         run: |
           $VERSION = "${{ github.ref_name }}" -replace '^v', ''
           if (-not $VERSION) { $VERSION = "0.0.0-dev" }
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" /DAppVersion="$VERSION" `
+          $isccPath = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\iscc.exe"
+          & $isccPath /DAppVersion="$VERSION" `
                /DStandaloneDir="..\..\dist\T5ynth" `
-               /DVst3Dir="..\..\build\T5ynth_artefacts\Release\VST3" `
+               /DVST3Dir="..\..\build\T5ynth_artefacts\Release\VST3" `
                /DPresetsDir="..\..\resources\presets" `
                /O"archives" `
                installer\windows\t5ynth.iss
@@ -258,8 +319,9 @@ jobs:
           name: T5ynth-Windows-Installer
           path: archives/T5ynth-Windows-Setup.exe
 
-  # ── Linux ───────────────────────────────────────────────────────
+  # ── Linux Base Artifacts + Ubuntu DEB (Ubuntu x86_64) ──────────
   linux:
+    name: Linux Base Artifacts + Ubuntu DEB (Ubuntu x86_64)
     if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     steps:
@@ -280,7 +342,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential \
+          sudo apt-get install -y cmake build-essential patchelf \
             libasound2-dev libcurl4-openssl-dev libfreetype-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
             libxcomposite-dev libxext-dev libxrender-dev libfontconfig1-dev \
@@ -307,13 +369,13 @@ jobs:
       - name: Build
         run: cmake --build build --config Release -j$(nproc)
 
-      - name: Assemble distribution
+      - name: Assemble base distribution
         run: |
           mkdir -p dist/T5ynth
           cp build/T5ynth_artefacts/Release/Standalone/T5ynth dist/T5ynth/
           mkdir -p dist/T5ynth/backend
           cp -R backend/dist/pipe_inference/* dist/T5ynth/backend/
-          cp LICENSE.txt THIRD_PARTY_LICENSES.txt DO_NOT_FORGET.txt dist/T5ynth/
+          cp LICENSE.txt THIRD_PARTY_LICENSES.txt dist/T5ynth/
 
       - name: Verify Linux artifact architecture
         run: |
@@ -327,28 +389,52 @@ jobs:
       - name: Create archives
         run: |
           mkdir -p archives
-          cp LICENSE.txt THIRD_PARTY_LICENSES.txt DO_NOT_FORGET.txt build/T5ynth_artefacts/Release/VST3/
-          tar -cJf archives/T5ynth-Linux-x86_64-Standalone.tar.xz -C dist T5ynth
-          tar -cJf archives/T5ynth-Linux-x86_64-VST3.tar.xz \
+          cp LICENSE.txt THIRD_PARTY_LICENSES.txt build/T5ynth_artefacts/Release/VST3/
+          tar -cJf archives/T5ynth-Linux-Base-x86_64-Standalone.tar.xz -C dist T5ynth
+          tar -cJf archives/T5ynth-Linux-Base-x86_64-VST3.tar.xz \
             -C build/T5ynth_artefacts/Release/VST3 .
           ls -lh archives/
 
-      - name: Upload Standalone
-        uses: actions/upload-artifact@v4
-        with:
-          name: T5ynth-Linux-x86_64-Standalone
-          path: archives/T5ynth-Linux-x86_64-Standalone.tar.xz
+      - name: Stage Ubuntu backend bundle
+        run: |
+          installer/linux/stage_backend_bundle.sh --bundle-id ubuntu24.04-x86_64-cuda
 
-      - name: Upload VST3
+      - name: Build Ubuntu DEB
+        run: |
+          installer/linux/build_deb.sh --skip-build --build-dir build --bundle-id ubuntu24.04-x86_64-cuda
+
+      - name: Verify Ubuntu DEB
+        run: |
+          DEB="$(find archives/deb -maxdepth 1 -type f -name '*.deb' | head -n 1)"
+          test -n "$DEB"
+          file "$DEB"
+          ar t "$DEB" | tee /tmp/t5ynth-deb-members.txt
+          grep -qx 'debian-binary' /tmp/t5ynth-deb-members.txt
+          grep -qx 'control.tar.gz' /tmp/t5ynth-deb-members.txt
+          grep -qx 'data.tar.xz' /tmp/t5ynth-deb-members.txt
+
+      - name: Upload Linux Base Standalone
         uses: actions/upload-artifact@v4
         with:
-          name: T5ynth-Linux-x86_64-VST3
-          path: archives/T5ynth-Linux-x86_64-VST3.tar.xz
+          name: T5ynth-Linux-Base-x86_64-Standalone
+          path: archives/T5ynth-Linux-Base-x86_64-Standalone.tar.xz
+
+      - name: Upload Linux Base VST3
+        uses: actions/upload-artifact@v4
+        with:
+          name: T5ynth-Linux-Base-x86_64-VST3
+          path: archives/T5ynth-Linux-Base-x86_64-VST3.tar.xz
+
+      - name: Upload Ubuntu DEB
+        uses: actions/upload-artifact@v4
+        with:
+          name: T5ynth-Ubuntu-x86_64-DEB
+          path: archives/deb/*.deb
 
   # ── Release (only on tags) ──────────────────────────────────────
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [macos]
+    needs: [macos, windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -364,6 +450,7 @@ jobs:
         run: |
           mkdir -p release
           find artifacts -name '*.pkg' -exec mv {} release/ \;
+          find artifacts -name 'T5ynth-Windows-Setup.exe' -exec mv {} release/ \;
           ls -lh release/
 
       - name: Generate release notes
@@ -385,6 +472,7 @@ jobs:
           esac
           gh release create "${{ github.ref_name }}" \
             release/*.pkg \
+            release/*.exe \
             --title "T5ynth ${{ github.ref_name }}" \
             --notes-file release_notes.md \
             $PRERELEASE

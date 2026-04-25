@@ -5,7 +5,67 @@
 
 namespace
 {
-constexpr bool kSamplerDebugLogging = true;
+constexpr bool kSamplerDebugLogging = false;
+constexpr float kAlphaAnchorSnapThreshold = 0.04f;
+constexpr float kMagnitudeUnitySnapThreshold = 0.03f;
+constexpr float kDurationSecondSnapThreshold = 0.05f;
+
+float snapIfNear(float value, float target, float threshold)
+{
+    return std::abs(value - target) <= threshold ? target : value;
+}
+
+float snapToInterval(float rangeStart, float value, float interval)
+{
+    return rangeStart + interval * std::floor((value - rangeStart) / interval + 0.5f);
+}
+
+float snapGenerationAlpha(float rangeStart, float rangeEnd, float value)
+{
+    juce::ignoreUnused(rangeStart, rangeEnd);
+    value = snapIfNear(value, -1.0f, kAlphaAnchorSnapThreshold);
+    value = snapIfNear(value,  1.0f, kAlphaAnchorSnapThreshold);
+    return juce::jlimit(rangeStart, rangeEnd, value);
+}
+
+float snapGenerationMagnitude(float rangeStart, float rangeEnd, float value)
+{
+    constexpr float interval = 0.001f;
+    value = snapIfNear(value, 1.0f, kMagnitudeUnitySnapThreshold);
+    value = snapToInterval(rangeStart, value, interval);
+    return juce::jlimit(rangeStart, rangeEnd, value);
+}
+
+float snapGenerationDuration(float rangeStart, float rangeEnd, float value)
+{
+    constexpr float interval = 0.01f;
+    for (int seconds = 1; seconds <= 11; ++seconds)
+        value = snapIfNear(value, static_cast<float>(seconds), kDurationSecondSnapThreshold);
+
+    value = snapToInterval(rangeStart, value, interval);
+    return juce::jlimit(rangeStart, rangeEnd, value);
+}
+
+float convertSkew03From0To1(float rangeStart, float rangeEnd, float proportion)
+{
+    constexpr float skew = 0.3f;
+    proportion = juce::jlimit(0.0f, 1.0f, proportion);
+    if (proportion > 0.0f)
+        proportion = std::exp(std::log(proportion) / skew);
+    return rangeStart + (rangeEnd - rangeStart) * proportion;
+}
+
+float convertSkew03To0To1(float rangeStart, float rangeEnd, float value)
+{
+    constexpr float skew = 0.3f;
+    auto proportion = juce::jlimit(0.0f, 1.0f, (value - rangeStart) / (rangeEnd - rangeStart));
+    return std::pow(proportion, skew);
+}
+
+float applyNormalizedOffset(float baseValue, float modulationOffset)
+{
+    return juce::jlimit(0.0f, 1.0f, baseValue + modulationOffset);
+}
 
 void samplerProcessorDebugLog(const juce::String& message)
 {
@@ -36,6 +96,60 @@ T5ynthProcessor::~T5ynthProcessor() = default;
 bool T5ynthProcessor::launchPipeInference(const juce::File& backendDir)
 {
     return pipeInference->launch(backendDir);
+}
+
+bool T5ynthProcessor::canUseStepHoldPreview() const
+{
+    // Always available now: VoiceManager reserves the drone voice so the
+    // mouse-held step is protected from seq voice-stealing (poly) and
+    // suppresses seq noteOns on voice 0 (mono) for as long as the mouse is held.
+    return true;
+}
+
+void T5ynthProcessor::beginStepHoldPreview(int midiNote, float velocity)
+{
+    const juce::ScopedLock sl(getCallbackLock());
+
+    // Apply the same seq-wide octave shift the step sequencer adds to its
+    // emitted MIDI (see PluginProcessor.cpp:1060 + StepSequencer.cpp:208).
+    // The drone is the GUI mirror of the step's effective pitch, so it must
+    // include this shift; the per-voice oscOctave is applied later inside
+    // SynthVoice::noteOn via octaveShift_ from BlockParams.
+    const int seqOctaveIdx = static_cast<int>(parameters.getRawParameterValue(PID::seqOctave)->load());
+    const int seqOctaveSemi = (seqOctaveIdx - 2) * 12;
+    const int note = juce::jlimit(0, 127, midiNote + seqOctaveSemi);
+    const float vel = juce::jlimit(0.0f, 1.0f, velocity);
+    const bool lfo1TrigMode = static_cast<int>(parameters.getRawParameterValue(PID::lfo1Mode)->load()) == 1;
+    const bool lfo2TrigMode = static_cast<int>(parameters.getRawParameterValue(PID::lfo2Mode)->load()) == 1;
+    const bool lfo3TrigMode = static_cast<int>(parameters.getRawParameterValue(PID::lfo3Mode)->load()) == 1;
+
+    voiceManager.setDroneNote(note, vel, lfo1TrigMode, lfo2TrigMode, lfo3TrigMode);
+
+    stepHoldPreviewActive = true;
+    stepHoldPreviewNote = note;
+    lastMidiNote.store(note, std::memory_order_relaxed);
+    lastMidiVelocity.store(juce::roundToInt(vel * 127.0f), std::memory_order_relaxed);
+    lastMidiNoteOn.store(true, std::memory_order_relaxed);
+}
+
+void T5ynthProcessor::updateStepHoldPreview(int midiNote, float velocity)
+{
+    beginStepHoldPreview(midiNote, velocity);
+}
+
+void T5ynthProcessor::endStepHoldPreview()
+{
+    const juce::ScopedLock sl(getCallbackLock());
+
+    if (!stepHoldPreviewActive)
+        return;
+
+    voiceManager.clearDroneNote();
+    stepHoldPreviewActive = false;
+    stepHoldPreviewNote = -1;
+
+    if (!voiceManager.hasActiveVoices())
+        lastMidiNoteOn.store(false, std::memory_order_relaxed);
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParameterLayout()
@@ -99,6 +213,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::filterKbdTrack, 1}, "Filter Kbd Track",
         juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::filterDrive, 1}, "Filter Drive",
+        juce::NormalisableRange<float>(0.0f, 36.0f, 0.1f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::filterDriveOs, 1}, "Filter Drive OS",
+        toChoices(FilterDriveOs::kEntries), FilterDriveOs::X4));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::filterAlgorithm, 1}, "Filter Algorithm",
+        toChoices(FilterAlgorithm::kEntries), FilterAlgorithm::SVF));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::filterWarpStyle, 1}, "Filter Warp Style",
+        toChoices(FilterWarpStyle::kEntries), FilterWarpStyle::Tanh));
 
     // Delay
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -129,34 +255,44 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
 
     // Generation
     // Alpha: quadratic curve around 0 for fine control near center (±0.15 sensitive zone)
+    auto alphaRange = juce::NormalisableRange<float>(-2.0f, 2.0f,
+        [](float s, float e, float n) {
+            float c = n * 2.0f - 1.0f;
+            float curved = (c >= 0.0f ? 1.0f : -1.0f) * c * c;
+            return s + (e - s) * (curved * 0.5f + 0.5f);
+        },
+        [](float s, float e, float v) {
+            float norm = (v - s) / (e - s);
+            float c = norm * 2.0f - 1.0f;
+            float uncurved = (c >= 0.0f ? 1.0f : -1.0f) * std::sqrt(std::abs(c));
+            return uncurved * 0.5f + 0.5f;
+        },
+        snapGenerationAlpha);
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::genAlpha, 1}, "Alpha",
-        juce::NormalisableRange<float>(-2.0f, 2.0f,
-            [](float s, float e, float n) {
-                float c = n * 2.0f - 1.0f;
-                float curved = (c >= 0.0f ? 1.0f : -1.0f) * c * c;
-                return s + (e - s) * (curved * 0.5f + 0.5f);
-            },
-            [](float s, float e, float v) {
-                float norm = (v - s) / (e - s);
-                float c = norm * 2.0f - 1.0f;
-                float uncurved = (c >= 0.0f ? 1.0f : -1.0f) * std::sqrt(std::abs(c));
-                return uncurved * 0.5f + 0.5f;
-            },
-            [](float s, float e, float v) { return juce::jlimit(s, e, v); }
-        ), 0.0f));
+        alphaRange, 0.0f));
+
+    auto magnitudeRange = juce::NormalisableRange<float>(0.001f, 5.0f,
+        convertSkew03From0To1,
+        convertSkew03To0To1,
+        snapGenerationMagnitude);
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::genMagnitude, 1}, "Magnitude",
-        juce::NormalisableRange<float>(0.001f, 5.0f, 0.001f, 0.3f), 1.0f));
+        magnitudeRange, 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::genNoise, 1}, "Noise",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f, 0.3f), 0.0f));
+
+    auto durationRange = juce::NormalisableRange<float>(0.1f, 11.0f,
+        convertSkew03From0To1,
+        convertSkew03To0To1,
+        snapGenerationDuration);
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::genDuration, 1}, "Duration",
         // 11s hard cap in the UI — Stable Audio Open Small tops out at 11s
         // and T5ynth is for short sound samples, not music. SA 1.0 can do
         // more internally but the slider stays unified at 11s.
-        juce::NormalisableRange<float>(0.1f, 11.0f, 0.1f, 0.3f), 3.0f));
+        durationRange, 3.0f));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{PID::infSteps, 1}, "Steps", 1, 100, 8));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -207,7 +343,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::NormalisableRange<float>(0.01f, 30.0f, 0.01f, 0.3f), 2.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::lfo1Depth, 1}, "LFO1 Depth",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.3f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::lfo1Wave, 1}, "LFO1 Wave",
         toChoices(LfoWave::kEntries), 0));
@@ -218,10 +354,21 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::NormalisableRange<float>(0.01f, 30.0f, 0.01f, 0.3f), 0.5f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::lfo2Depth, 1}, "LFO2 Depth",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.3f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::lfo2Wave, 1}, "LFO2 Wave",
         toChoices(LfoWave::kEntries), 1));
+
+    // LFO 3 (defaults: rate=0.2, depth=0, sine)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::lfo3Rate, 1}, "LFO3 Rate",
+        juce::NormalisableRange<float>(0.01f, 30.0f, 0.01f, 0.3f), 0.2f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::lfo3Depth, 1}, "LFO3 Depth",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.3f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::lfo3Wave, 1}, "LFO3 Wave",
+        toChoices(LfoWave::kEntries), 0));
 
     // Drift LFO
     params.push_back(std::make_unique<juce::AudioParameterBool>(
@@ -237,19 +384,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.01f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift1Depth, 1}, "Drift1 Depth",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.3f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift2Rate, 1}, "Drift2 Rate",
         juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.005f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift2Depth, 1}, "Drift2 Depth",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.3f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift3Rate, 1}, "Drift3 Rate",
         juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.002f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift3Depth, 1}, "Drift3 Depth",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.3f), 0.0f));
 
     // Drift targets + waveform selection
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
@@ -311,6 +458,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::ampDecayCurve, 2},   "Amp Decay Curve",   curveChoices, 2));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::ampReleaseCurve, 2}, "Amp Release Curve", curveChoices, 4));
+    const juce::StringArray envVelTimeChoices = toChoices(EnvVelTimeMode::kEntries);
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::ampAttackVelMode, 1}, "Amp Attack Vel Mode", envVelTimeChoices, EnvVelTimeMode::Off));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::ampDecayVelMode, 1}, "Amp Decay Vel Mode", envVelTimeChoices, EnvVelTimeMode::Off));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::ampReleaseVelMode, 1}, "Amp Release Vel Mode", envVelTimeChoices, EnvVelTimeMode::Off));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::mod1AttackCurve, 2},  "Mod1 Attack Curve",  curveChoices, 2));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
@@ -318,11 +472,23 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::mod1ReleaseCurve, 2}, "Mod1 Release Curve", curveChoices, 4));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::mod1AttackVelMode, 1}, "Mod1 Attack Vel Mode", envVelTimeChoices, EnvVelTimeMode::Off));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::mod1DecayVelMode, 1}, "Mod1 Decay Vel Mode", envVelTimeChoices, EnvVelTimeMode::Off));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::mod1ReleaseVelMode, 1}, "Mod1 Release Vel Mode", envVelTimeChoices, EnvVelTimeMode::Off));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::mod2AttackCurve, 2},  "Mod2 Attack Curve",  curveChoices, 2));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::mod2DecayCurve, 2},   "Mod2 Decay Curve",   curveChoices, 2));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::mod2ReleaseCurve, 2}, "Mod2 Release Curve", curveChoices, 4));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::mod2AttackVelMode, 1}, "Mod2 Attack Vel Mode", envVelTimeChoices, EnvVelTimeMode::Off));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::mod2DecayVelMode, 1}, "Mod2 Decay Vel Mode", envVelTimeChoices, EnvVelTimeMode::Off));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::mod2ReleaseVelMode, 1}, "Mod2 Release Vel Mode", envVelTimeChoices, EnvVelTimeMode::Off));
 
     // ENV / LFO target choice lists — the single source of truth lives in
     // src/dsp/BlockParams.h (EnvTarget::kEntries / LfoTarget::kEntries). The
@@ -341,6 +507,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::lfo1Target, 1}, "LFO1 Target", lfoTargetChoices, 0));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::lfo2Target, 1}, "LFO2 Target", lfoTargetChoices, 0));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::lfo3Target, 1}, "LFO3 Target", lfoTargetChoices, 0));
 
     // LFO Mode
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
@@ -348,6 +516,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         toChoices(LfoMode::kEntries), 0));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::lfo2Mode, 1}, "LFO2 Mode",
+        toChoices(LfoMode::kEntries), 0));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::lfo3Mode, 1}, "LFO3 Mode",
         toChoices(LfoMode::kEntries), 0));
 
     // Delay damp
@@ -421,6 +592,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::seqGate, 1}, "Seq Gate",
         juce::NormalisableRange<float>(0.1f, 1.0f, 0.01f), 0.8f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::seqShuffle, 1}, "Seq Shuffle",
+        juce::NormalisableRange<float>(0.0f, 0.75f, 0.01f), 0.0f));
     // Seq octave shift: -2..+2 octaves (choice index 0..4, default 2 = no shift)
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::seqOctave, 1}, "Seq Octave",
@@ -453,6 +627,167 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::genFixRotation, 1}, "Fix Rotation", false));
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{PID::genFixMutation, 1}, "Fix Mutation", true));
+
+    // ── Polyphonic generative sequencer — shared pitch field ──
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::genFieldMode, 1}, "Field Mode",
+        toChoices(FieldMode::kEntries), FieldMode::Drift));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{PID::genFieldRate, 1}, "Field Rate", 1, 32, 8));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{PID::genFieldCenterPc, 1}, "Field Center PC", 0, 11, 0));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::genFieldPivot, 1}, "Field Pivot",
+        toChoices(FieldPivot::kEntries), FieldPivot::m3));
+
+    // ── Inter-strand coordination ──
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::genCoordinationMode, 1}, "Coordination Mode",
+        toChoices(CoordinationMode::kEntries), CoordinationMode::DensityBudget));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{PID::genCoordinationCap, 1}, "Coordination Cap", 1, 5, 3));
+
+    // ── Strand 0 — role/octave/divMult/dominance (Euclidean params share legacy gen_* IDs) ──
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::genRole, 1}, "S1 Role",
+        toChoices(StrandRole::kEntries), StrandRole::Line));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{PID::genOctave, 1}, "S1 Octave", -2, 2, 0));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::genDivMult, 1}, "S1 Div",
+        toChoices(StrandDivMult::kEntries), StrandDivMult::X));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::genDominance, 1}, "S1 Dominance",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+
+    // ── Strand 2 ──
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::gen2Enable, 1}, "S2 Enable", false));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::gen2Role, 1}, "S2 Role",
+        toChoices(StrandRole::kEntries), StrandRole::Line));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{PID::gen2Octave, 1}, "S2 Octave", -2, 2, 0));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::gen2DivMult, 1}, "S2 Div",
+        toChoices(StrandDivMult::kEntries), StrandDivMult::X));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::gen2Dominance, 1}, "S2 Dominance",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{PID::gen2Steps, 1}, "S2 Steps", 2, 32, 16));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{PID::gen2Pulses, 1}, "S2 Pulses", 1, 32, 5));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{PID::gen2Rotation, 1}, "S2 Rotation", 0, 31, 0));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::gen2Mutation, 1}, "S2 Mutation",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.20f));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::gen2FixSteps, 1}, "S2 Fix Steps", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::gen2FixPulses, 1}, "S2 Fix Pulses", false));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::gen2FixRotation, 1}, "S2 Fix Rotation", false));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::gen2FixMutation, 1}, "S2 Fix Mutation", true));
+
+    // ── Strand 3 ──
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::gen3Enable, 1}, "S3 Enable", false));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::gen3Role, 1}, "S3 Role",
+        toChoices(StrandRole::kEntries), StrandRole::Line));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{PID::gen3Octave, 1}, "S3 Octave", -2, 2, 0));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::gen3DivMult, 1}, "S3 Div",
+        toChoices(StrandDivMult::kEntries), StrandDivMult::X));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::gen3Dominance, 1}, "S3 Dominance",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{PID::gen3Steps, 1}, "S3 Steps", 2, 32, 16));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{PID::gen3Pulses, 1}, "S3 Pulses", 1, 32, 5));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{PID::gen3Rotation, 1}, "S3 Rotation", 0, 31, 0));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::gen3Mutation, 1}, "S3 Mutation",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.20f));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::gen3FixSteps, 1}, "S3 Fix Steps", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::gen3FixPulses, 1}, "S3 Fix Pulses", false));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::gen3FixRotation, 1}, "S3 Fix Rotation", false));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::gen3FixMutation, 1}, "S3 Fix Mutation", true));
+
+    // ── Strand 4 ──
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::gen4Enable, 1}, "S4 Enable", false));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::gen4Role, 1}, "S4 Role",
+        toChoices(StrandRole::kEntries), StrandRole::Line));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{PID::gen4Octave, 1}, "S4 Octave", -2, 2, 0));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::gen4DivMult, 1}, "S4 Div",
+        toChoices(StrandDivMult::kEntries), StrandDivMult::X));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::gen4Dominance, 1}, "S4 Dominance",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{PID::gen4Steps, 1}, "S4 Steps", 2, 32, 16));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{PID::gen4Pulses, 1}, "S4 Pulses", 1, 32, 5));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{PID::gen4Rotation, 1}, "S4 Rotation", 0, 31, 0));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::gen4Mutation, 1}, "S4 Mutation",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.20f));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::gen4FixSteps, 1}, "S4 Fix Steps", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::gen4FixPulses, 1}, "S4 Fix Pulses", false));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::gen4FixRotation, 1}, "S4 Fix Rotation", false));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::gen4FixMutation, 1}, "S4 Fix Mutation", true));
+
+    // ── Strand 5 ──
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::gen5Enable, 1}, "S5 Enable", false));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::gen5Role, 1}, "S5 Role",
+        toChoices(StrandRole::kEntries), StrandRole::Line));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{PID::gen5Octave, 1}, "S5 Octave", -2, 2, 0));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::gen5DivMult, 1}, "S5 Div",
+        toChoices(StrandDivMult::kEntries), StrandDivMult::X));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::gen5Dominance, 1}, "S5 Dominance",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{PID::gen5Steps, 1}, "S5 Steps", 2, 32, 16));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{PID::gen5Pulses, 1}, "S5 Pulses", 1, 32, 5));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{PID::gen5Rotation, 1}, "S5 Rotation", 0, 31, 0));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::gen5Mutation, 1}, "S5 Mutation",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.20f));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::gen5FixSteps, 1}, "S5 Fix Steps", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::gen5FixPulses, 1}, "S5 Fix Pulses", false));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::gen5FixRotation, 1}, "S5 Fix Rotation", false));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::gen5FixMutation, 1}, "S5 Fix Mutation", true));
+
     // Scale (shared between gen seq and future features)
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::scaleRoot, 1}, "Scale Root",
@@ -486,6 +821,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // Wavetable smooth (Catmull-Rom interpolation between frames)
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{PID::wtSmooth, 1}, "WT Smooth", true));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::wtAutoScan, 1}, "WT Auto Scan", true));
 
     // Master volume: purely attenuative (0dB max). DAW fader handles boost.
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -502,6 +839,7 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     voiceManager.prepare(sampleRate, samplesPerBlock);
     lfo1.prepare(sampleRate);
     lfo2.prepare(sampleRate);
+    lfo3.prepare(sampleRate);
     postFilter.prepare(sampleRate, samplesPerBlock);
     delay.prepare(sampleRate, samplesPerBlock);
     reverb.prepare(sampleRate, samplesPerBlock);
@@ -516,6 +854,7 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     arpeggiator.prepare(sampleRate, samplesPerBlock);
     lfo1Buffer.resize(static_cast<size_t>(samplesPerBlock));
     lfo2Buffer.resize(static_cast<size_t>(samplesPerBlock));
+    lfo3Buffer.resize(static_cast<size_t>(samplesPerBlock));
     reverbSendBuffer.setSize(2, samplesPerBlock);
 
     silentBlockCount = 0;
@@ -538,6 +877,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     const int numSamples = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
+    const float seqBpmParam = parameters.getRawParameterValue(PID::seqBpm)->load();
+
+    updateDriftState(numSamples, seqBpmParam);
 
     // ── Idle detection ──────────────────────────────────────────────────────
     bool seqRunning = parameters.getRawParameterValue(PID::seqRunning)->load() > 0.5f;
@@ -554,9 +896,10 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     if (silentBlockCount > tailBlocks)
     {
         audioIdle.store(true, std::memory_order_relaxed);
-        // Keep free-running LFOs phase-accurate
+        // Keep free-running modulators phase-accurate.
         lfo1.advancePhase(numSamples);
         lfo2.advancePhase(numSamples);
+        lfo3.advancePhase(numSamples);
         return;
     }
     audioIdle.store(false, std::memory_order_relaxed);
@@ -595,6 +938,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.ampAttackCurve  = static_cast<int>(parameters.getRawParameterValue(PID::ampAttackCurve)->load());
     bp.ampDecayCurve   = static_cast<int>(parameters.getRawParameterValue(PID::ampDecayCurve)->load());
     bp.ampReleaseCurve = static_cast<int>(parameters.getRawParameterValue(PID::ampReleaseCurve)->load());
+    bp.ampAttackVelMode  = static_cast<int>(parameters.getRawParameterValue(PID::ampAttackVelMode)->load());
+    bp.ampDecayVelMode   = static_cast<int>(parameters.getRawParameterValue(PID::ampDecayVelMode)->load());
+    bp.ampReleaseVelMode = static_cast<int>(parameters.getRawParameterValue(PID::ampReleaseVelMode)->load());
 
     bp.mod1Attack  = parameters.getRawParameterValue(PID::mod1Attack)->load();
     bp.mod1Decay   = parameters.getRawParameterValue(PID::mod1Decay)->load();
@@ -607,6 +953,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.mod1AttackCurve  = static_cast<int>(parameters.getRawParameterValue(PID::mod1AttackCurve)->load());
     bp.mod1DecayCurve   = static_cast<int>(parameters.getRawParameterValue(PID::mod1DecayCurve)->load());
     bp.mod1ReleaseCurve = static_cast<int>(parameters.getRawParameterValue(PID::mod1ReleaseCurve)->load());
+    bp.mod1AttackVelMode  = static_cast<int>(parameters.getRawParameterValue(PID::mod1AttackVelMode)->load());
+    bp.mod1DecayVelMode   = static_cast<int>(parameters.getRawParameterValue(PID::mod1DecayVelMode)->load());
+    bp.mod1ReleaseVelMode = static_cast<int>(parameters.getRawParameterValue(PID::mod1ReleaseVelMode)->load());
 
     bp.mod2Attack  = parameters.getRawParameterValue(PID::mod2Attack)->load();
     bp.mod2Decay   = parameters.getRawParameterValue(PID::mod2Decay)->load();
@@ -619,17 +968,31 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.mod2AttackCurve  = static_cast<int>(parameters.getRawParameterValue(PID::mod2AttackCurve)->load());
     bp.mod2DecayCurve   = static_cast<int>(parameters.getRawParameterValue(PID::mod2DecayCurve)->load());
     bp.mod2ReleaseCurve = static_cast<int>(parameters.getRawParameterValue(PID::mod2ReleaseCurve)->load());
+    bp.mod2AttackVelMode  = static_cast<int>(parameters.getRawParameterValue(PID::mod2AttackVelMode)->load());
+    bp.mod2DecayVelMode   = static_cast<int>(parameters.getRawParameterValue(PID::mod2DecayVelMode)->load());
+    bp.mod2ReleaseVelMode = static_cast<int>(parameters.getRawParameterValue(PID::mod2ReleaseVelMode)->load());
 
     // LFOs (global)
-    lfo1.setRate(parameters.getRawParameterValue(PID::lfo1Rate)->load());
-    lfo1.setDepth(parameters.getRawParameterValue(PID::lfo1Depth)->load());
+    bp.lfo1Rate = parameters.getRawParameterValue(PID::lfo1Rate)->load();
+    bp.lfo1Depth = parameters.getRawParameterValue(PID::lfo1Depth)->load();
+    lfo1.setRate(bp.lfo1Rate);
+    lfo1.setDepth(1.0f);
     lfo1.setWaveform(static_cast<int>(parameters.getRawParameterValue(PID::lfo1Wave)->load()));
     bp.lfo1Target = static_cast<int>(parameters.getRawParameterValue(PID::lfo1Target)->load());
 
-    lfo2.setRate(parameters.getRawParameterValue(PID::lfo2Rate)->load());
-    lfo2.setDepth(parameters.getRawParameterValue(PID::lfo2Depth)->load());
+    bp.lfo2Rate = parameters.getRawParameterValue(PID::lfo2Rate)->load();
+    bp.lfo2Depth = parameters.getRawParameterValue(PID::lfo2Depth)->load();
+    lfo2.setRate(bp.lfo2Rate);
+    lfo2.setDepth(1.0f);
     lfo2.setWaveform(static_cast<int>(parameters.getRawParameterValue(PID::lfo2Wave)->load()));
     bp.lfo2Target = static_cast<int>(parameters.getRawParameterValue(PID::lfo2Target)->load());
+
+    bp.lfo3Rate = parameters.getRawParameterValue(PID::lfo3Rate)->load();
+    bp.lfo3Depth = parameters.getRawParameterValue(PID::lfo3Depth)->load();
+    lfo3.setRate(bp.lfo3Rate);
+    lfo3.setDepth(1.0f);
+    lfo3.setWaveform(static_cast<int>(parameters.getRawParameterValue(PID::lfo3Wave)->load()));
+    bp.lfo3Target = static_cast<int>(parameters.getRawParameterValue(PID::lfo3Target)->load());
 
     // Filter
     // filter_type: 0=Off, 1=LP, 2=HP, 3=BP → filterEnabled from type, DSP type is 0-based
@@ -643,6 +1006,11 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.filterSlope = static_cast<int>(parameters.getRawParameterValue(PID::filterSlope)->load());
     bp.filterMix = parameters.getRawParameterValue(PID::filterMix)->load();
     bp.kbdTrack = parameters.getRawParameterValue(PID::filterKbdTrack)->load();
+    bp.filterDriveDb = parameters.getRawParameterValue(PID::filterDrive)->load();
+    bp.filterDriveOs = static_cast<int>(parameters.getRawParameterValue(PID::filterDriveOs)->load());
+    bp.filterAlgorithm = static_cast<int>(parameters.getRawParameterValue(PID::filterAlgorithm)->load());
+    bp.filterWarpStyle = static_cast<int>(parameters.getRawParameterValue(PID::filterWarpStyle)->load());
+    bp.filterDriveGain = std::pow(10.0f, bp.filterDriveDb * (1.0f / 20.0f));
 
     // Scan
     bp.baseScan = parameters.getRawParameterValue(PID::oscScan)->load();
@@ -656,6 +1024,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     // Wavetable smooth
     bp.wtSmooth = parameters.getRawParameterValue(PID::wtSmooth)->load() > 0.5f;
+    bp.wtAutoScan = parameters.getRawParameterValue(PID::wtAutoScan)->load() > 0.5f;
 
     // Engine mode — read directly from APVTS (0=Sampler, 1=Wavetable)
     int engineModeRaw = static_cast<int>(parameters.getRawParameterValue(PID::engineMode)->load());
@@ -666,37 +1035,6 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // Master volume (dB → linear)
     float masterDb = parameters.getRawParameterValue(PID::masterVol)->load();
     float masterGain = juce::Decibels::decibelsToGain(masterDb);
-
-    // Drift LFOs (block-rate)
-    driftLfo.setRegenMode(static_cast<int>(parameters.getRawParameterValue(PID::driftRegen)->load()));
-    int d1t = static_cast<int>(parameters.getRawParameterValue(PID::drift1Target)->load());
-    int d2t = static_cast<int>(parameters.getRawParameterValue(PID::drift2Target)->load());
-    int d3t = static_cast<int>(parameters.getRawParameterValue(PID::drift3Target)->load());
-    // Auto-enable drift when any target is set (target 0 = "---" = None)
-    bool driftHasTarget = (d1t != 0) || (d2t != 0) || (d3t != 0);
-    // Osc targets (Alpha, Axis1-3, Noise, Magnitude) require regeneration
-    bool hasOsc = false;
-    for (int t : {d1t, d2t, d3t})
-        if ((t >= DriftLFO::TgtAlpha && t <= DriftLFO::TgtAxis3)
-            || t == DriftLFO::TgtNoise || t == DriftLFO::TgtMagnitude) hasOsc = true;
-    driftHasOscTarget.store(hasOsc, std::memory_order_relaxed);
-    driftRegenMode.store(static_cast<int>(parameters.getRawParameterValue(PID::driftRegen)->load()),
-                         std::memory_order_relaxed);
-    bool driftManualEnable = parameters.getRawParameterValue(PID::driftEnabled)->load() > 0.5f;
-    driftLfo.setEnabled(driftHasTarget || driftManualEnable);
-    driftLfo.setLfoRate(0, parameters.getRawParameterValue(PID::drift1Rate)->load());
-    driftLfo.setLfoDepth(0, parameters.getRawParameterValue(PID::drift1Depth)->load());
-    driftLfo.setLfoTarget(0, d1t);
-    driftLfo.setLfoWaveform(0, static_cast<int>(parameters.getRawParameterValue(PID::drift1Wave)->load()));
-    driftLfo.setLfoRate(1, parameters.getRawParameterValue(PID::drift2Rate)->load());
-    driftLfo.setLfoDepth(1, parameters.getRawParameterValue(PID::drift2Depth)->load());
-    driftLfo.setLfoTarget(1, d2t);
-    driftLfo.setLfoWaveform(1, static_cast<int>(parameters.getRawParameterValue(PID::drift2Wave)->load()));
-    driftLfo.setLfoRate(2, parameters.getRawParameterValue(PID::drift3Rate)->load());
-    driftLfo.setLfoDepth(2, parameters.getRawParameterValue(PID::drift3Depth)->load());
-    driftLfo.setLfoTarget(2, d3t);
-    driftLfo.setLfoWaveform(2, static_cast<int>(parameters.getRawParameterValue(PID::drift3Wave)->load()));
-    driftLfo.tick(static_cast<double>(numSamples) / getSampleRate());
 
     // Apply drift offsets to their respective targets
     bp.driftScanOffset   = driftLfo.getOffsetForTarget(DriftLFO::TgtWtScan);
@@ -709,35 +1047,6 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.mod1Amount = juce::jlimit(0.0f, 1.0f, bp.mod1Amount + driftLfo.getOffsetForTarget(DriftLFO::TgtEnv2Amt));
     bp.mod2Amount = juce::jlimit(0.0f, 1.0f, bp.mod2Amount + driftLfo.getOffsetForTarget(DriftLFO::TgtEnv3Amt));
 
-    // Drift → Osc targets (Alpha, Axes, Noise, Magnitude) — store effective values for GUI ghost + auto-regen
-    {
-        static constexpr float NO_GHOST = std::numeric_limits<float>::quiet_NaN();
-        float alphaOff = driftLfo.getOffsetForTarget(DriftLFO::TgtAlpha);
-        float ax1Off   = driftLfo.getOffsetForTarget(DriftLFO::TgtAxis1);
-        float ax2Off   = driftLfo.getOffsetForTarget(DriftLFO::TgtAxis2);
-        float ax3Off   = driftLfo.getOffsetForTarget(DriftLFO::TgtAxis3);
-        float noiseOff = driftLfo.getOffsetForTarget(DriftLFO::TgtNoise);
-        float magOff   = driftLfo.getOffsetForTarget(DriftLFO::TgtMagnitude);
-        float baseAlpha = parameters.getRawParameterValue(PID::genAlpha)->load();
-        modulatedValues.driftAlpha.store(
-            std::abs(alphaOff) > 0.001f ? baseAlpha + alphaOff : NO_GHOST,
-            std::memory_order_relaxed);
-        modulatedValues.driftAxis1.store(
-            std::abs(ax1Off) > 0.001f ? ax1Off : NO_GHOST, std::memory_order_relaxed);
-        modulatedValues.driftAxis2.store(
-            std::abs(ax2Off) > 0.001f ? ax2Off : NO_GHOST, std::memory_order_relaxed);
-        modulatedValues.driftAxis3.store(
-            std::abs(ax3Off) > 0.001f ? ax3Off : NO_GHOST, std::memory_order_relaxed);
-        float baseNoise = parameters.getRawParameterValue(PID::genNoise)->load();
-        modulatedValues.driftNoise.store(
-            std::abs(noiseOff) > 0.001f ? baseNoise + noiseOff : NO_GHOST,
-            std::memory_order_relaxed);
-        float baseMag = parameters.getRawParameterValue(PID::genMagnitude)->load();
-        modulatedValues.driftMagnitude.store(
-            std::abs(magOff) > 0.001f ? baseMag + magOff : NO_GHOST,
-            std::memory_order_relaxed);
-    }
-
     // ── Sampler settings ─────────────────────────────────────────────────────
     int loopModeIdx = static_cast<int>(parameters.getRawParameterValue(PID::loopMode)->load());
     masterSampler.setLoopMode(static_cast<SamplePlayer::LoopMode>(loopModeIdx));
@@ -745,17 +1054,34 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     masterSampler.setNormalize(parameters.getRawParameterValue(PID::normalize)->load() > 0.5f);
     masterSampler.setLoopOptimizeLevel(static_cast<int>(parameters.getRawParameterValue(PID::loopOptimize)->load()));
 
+    // Give noteOn/noteOff access to the current envelope/modulation block state.
+    voiceManager.setBlockParams(bp);
+
     // ── Sequencer / Arpeggiator (in series: Seq → Arp → synth) ─────────────
     // (seqRunning already read above for idle detection)
     float seqBpm = parameters.getRawParameterValue(PID::seqBpm)->load();
     int seqSteps = static_cast<int>(parameters.getRawParameterValue(PID::seqSteps)->load());
+    int seqOctaveShift = static_cast<int>(parameters.getRawParameterValue(PID::seqOctave)->load()) - 2;
     float seqGate = parameters.getRawParameterValue(PID::seqGate)->load();
+    float seqShuffle = parameters.getRawParameterValue(PID::seqShuffle)->load();
     int seqPreset = static_cast<int>(parameters.getRawParameterValue(PID::seqPreset)->load());
     int arpModeRaw = static_cast<int>(parameters.getRawParameterValue(PID::arpMode)->load());
     bool arpEnabled = arpModeRaw > 0;
     int arpMode = arpModeRaw > 0 ? arpModeRaw - 1 : 0; // 0=Up,1=Down,2=UpDown,3=Random
     int arpRate = static_cast<int>(parameters.getRawParameterValue(PID::arpRate)->load());
     int arpOctaves = static_cast<int>(parameters.getRawParameterValue(PID::arpOctaves)->load());
+
+    // Arp false→true edge: the active sequencer's currently-sounding note was
+    // emitted direct-to-synth last block, and from this block on the arp will
+    // swallow all seq note-offs — so flush that single note now before the
+    // engines run. Manual keyboard notes stay untouched.
+    if (arpEnabled && !arpWasEnabled)
+    {
+        if (genModeActiveInAudio)
+            generativeSequencer.allNotesOff(midiMessages, 0);
+        else
+            stepSequencer.allNotesOff(midiMessages, 0);
+    }
 
     // Preset change detection
     if (seqPreset != lastSeqPreset)
@@ -793,13 +1119,18 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                     if (step.enabled) pulseCount++;
                 }
 
+                // Flush step-seq's currently-sounding note before the gen-seq
+                // takes over — avoids a hanging voice across the engine swap.
+                stepSequencer.allNotesOff(midiMessages, 0);
                 stepSequencer.stop();
                 generativeSequencer.setBpm(static_cast<double>(seqBpm));
                 generativeSequencer.setDivision(seqDivision);
                 generativeSequencer.setGate(seqGate);
+                generativeSequencer.setShuffle(seqShuffle);
                 generativeSequencer.setScale(
                     static_cast<int>(parameters.getRawParameterValue(PID::scaleType)->load()),
                     static_cast<int>(parameters.getRawParameterValue(PID::scaleRoot)->load()));
+                generativeSequencer.setPrimaryTransposeSemitones(seqOctaveShift * 12);
                 generativeSequencer.seedFromSteps(seedNotes, seedEnabled, seqCount);
 
                 // Update gen params to match seeded pattern
@@ -836,6 +1167,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                         }
                     }
                 }
+                // Flush every gen-seq strand's sounding note before handing
+                // back to the step-seq — avoids hanging voices across the swap.
+                generativeSequencer.allNotesOff(midiMessages, 0);
                 generativeSequencer.stop();
                 genModeActiveInAudio = false;
             }
@@ -848,6 +1182,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         generativeSequencer.setBpm(static_cast<double>(seqBpm));
         generativeSequencer.setDivision(seqDivision);
         generativeSequencer.setGate(seqGate);
+        generativeSequencer.setShuffle(seqShuffle);
+        generativeSequencer.setPrimaryTransposeSemitones(seqOctaveShift * 12);
 
         // Fix flags
         bool fxS = parameters.getRawParameterValue(PID::genFixSteps)->load() > 0.5f;
@@ -882,6 +1218,140 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         generativeSequencer.setScale(
             static_cast<int>(parameters.getRawParameterValue(PID::scaleType)->load()),
             static_cast<int>(parameters.getRawParameterValue(PID::scaleRoot)->load()));
+
+        // ── Shared pitch-field setters ──
+        generativeSequencer.setFieldMode(static_cast<int>(
+            parameters.getRawParameterValue(PID::genFieldMode)->load()));
+        generativeSequencer.setFieldChangeRate(static_cast<int>(
+            parameters.getRawParameterValue(PID::genFieldRate)->load()));
+        // Field Center PC follows Scale Root — they are conceptually the
+        // same anchor, and a separate "second tonic" dropdown was confusing.
+        const int scaleRootForField = static_cast<int>(
+            parameters.getRawParameterValue(PID::scaleRoot)->load());
+        generativeSequencer.setFieldCenterPc(scaleRootForField);
+
+        // Field Pivot interval is derived from Scale Type — its musical
+        // character chooses one of three universal pivots: P5 for major
+        // flavours, m3 for minor flavours, Tri for symmetric / sharp-fourth
+        // scales. Pivot mode then transposes the pc-set by this interval.
+        {
+            const int scaleTypeForField = static_cast<int>(
+                parameters.getRawParameterValue(PID::scaleType)->load());
+            int pivotSemitones = 7;  // P5 default
+            switch (scaleTypeForField)
+            {
+                case ScaleType::WhlT: case ScaleType::Locr:
+                case ScaleType::HunM: case ScaleType::Lyd:
+                case ScaleType::Hjz:
+                    pivotSemitones = 6; break;   // Tri
+                case ScaleType::Min:  case ScaleType::Dor:  case ScaleType::Phry:
+                case ScaleType::Harm: case ScaleType::MelM: case ScaleType::MinP:
+                case ScaleType::Blu:  case ScaleType::Hira: case ScaleType::InSn:
+                case ScaleType::Iwat: case ScaleType::Kumo: case ScaleType::Ryuk:
+                case ScaleType::DblH: case ScaleType::Todi: case ScaleType::Purv:
+                case ScaleType::Pers: case ScaleType::NeaM:
+                    pivotSemitones = 3; break;   // m3
+                default:
+                    pivotSemitones = 7; break;   // P5
+            }
+            generativeSequencer.setFieldPivotInterval(pivotSemitones);
+        }
+
+        // ── Inter-strand coordination ──
+        generativeSequencer.setCoordinationMode(static_cast<int>(
+            parameters.getRawParameterValue(PID::genCoordinationMode)->load()));
+        generativeSequencer.setCoordinationCap(static_cast<int>(
+            parameters.getRawParameterValue(PID::genCoordinationCap)->load()));
+
+        // ── Per-strand setters (0..4) ──
+        {
+            struct StrandPIDs {
+                const char* enable;
+                const char* role;
+                const char* octave;
+                const char* divMult;
+                const char* dominance;
+                const char* steps;
+                const char* pulses;
+                const char* rotation;
+                const char* mutation;
+                const char* fixSteps;
+                const char* fixPulses;
+                const char* fixRotation;
+                const char* fixMutation;
+            };
+            static const StrandPIDs kStrands[5] = {
+                { nullptr,         PID::genRole,  PID::genOctave,  PID::genDivMult,  PID::genDominance,
+                  PID::genSteps,   PID::genPulses, PID::genRotation, PID::genMutation,
+                  PID::genFixSteps, PID::genFixPulses, PID::genFixRotation, PID::genFixMutation },
+                { PID::gen2Enable, PID::gen2Role, PID::gen2Octave, PID::gen2DivMult, PID::gen2Dominance,
+                  PID::gen2Steps,  PID::gen2Pulses, PID::gen2Rotation, PID::gen2Mutation,
+                  PID::gen2FixSteps, PID::gen2FixPulses, PID::gen2FixRotation, PID::gen2FixMutation },
+                { PID::gen3Enable, PID::gen3Role, PID::gen3Octave, PID::gen3DivMult, PID::gen3Dominance,
+                  PID::gen3Steps,  PID::gen3Pulses, PID::gen3Rotation, PID::gen3Mutation,
+                  PID::gen3FixSteps, PID::gen3FixPulses, PID::gen3FixRotation, PID::gen3FixMutation },
+                { PID::gen4Enable, PID::gen4Role, PID::gen4Octave, PID::gen4DivMult, PID::gen4Dominance,
+                  PID::gen4Steps,  PID::gen4Pulses, PID::gen4Rotation, PID::gen4Mutation,
+                  PID::gen4FixSteps, PID::gen4FixPulses, PID::gen4FixRotation, PID::gen4FixMutation },
+                { PID::gen5Enable, PID::gen5Role, PID::gen5Octave, PID::gen5DivMult, PID::gen5Dominance,
+                  PID::gen5Steps,  PID::gen5Pulses, PID::gen5Rotation, PID::gen5Mutation,
+                  PID::gen5FixSteps, PID::gen5FixPulses, PID::gen5FixRotation, PID::gen5FixMutation }
+            };
+
+            for (int i = 0; i < 5; ++i)
+            {
+                const auto& ids = kStrands[i];
+
+                if (ids.enable != nullptr)
+                {
+                    const bool en = parameters.getRawParameterValue(ids.enable)->load() > 0.5f;
+                    generativeSequencer.setStrandEnabled(i, en);
+                }
+
+                generativeSequencer.setStrandRole(i, static_cast<int>(
+                    parameters.getRawParameterValue(ids.role)->load()));
+
+                if (i == 0)
+                {
+                    // Strand 0 is the legacy mono-gen voice: preserve its
+                    // original melody/rhythm and let only Seq Octave transpose it.
+                    generativeSequencer.setStrandOctave(i, 0);
+                    generativeSequencer.setStrandDivMult(i, 1.0f);
+                    generativeSequencer.setStrandDominance(i, 0.0f);
+                    continue;
+                }
+
+                generativeSequencer.setStrandOctave(i, static_cast<int>(
+                    parameters.getRawParameterValue(ids.octave)->load()));
+                {
+                    int dIdx = juce::jlimit(0, StrandDivMult::kCount - 1, static_cast<int>(
+                        parameters.getRawParameterValue(ids.divMult)->load()));
+                    generativeSequencer.setStrandDivMult(i, StrandDivMult::kFactor[dIdx]);
+                }
+                generativeSequencer.setStrandDominance(i, static_cast<float>(
+                    parameters.getRawParameterValue(ids.dominance)->load()));
+
+                const bool sFix = parameters.getRawParameterValue(ids.fixSteps   )->load() > 0.5f;
+                const bool pFix = parameters.getRawParameterValue(ids.fixPulses  )->load() > 0.5f;
+                const bool rFix = parameters.getRawParameterValue(ids.fixRotation)->load() > 0.5f;
+                const bool mFix = parameters.getRawParameterValue(ids.fixMutation)->load() > 0.5f;
+                generativeSequencer.setStrandFixSteps   (i, sFix);
+                generativeSequencer.setStrandFixPulses  (i, pFix);
+                generativeSequencer.setStrandFixRotation(i, rFix);
+                generativeSequencer.setStrandFixMutation(i, mFix);
+
+                const int gs = static_cast<int>(parameters.getRawParameterValue(ids.steps   )->load());
+                const int gp = static_cast<int>(parameters.getRawParameterValue(ids.pulses  )->load());
+                const int gr = static_cast<int>(parameters.getRawParameterValue(ids.rotation)->load());
+                generativeSequencer.setStrandSteps   (i, gs);
+                generativeSequencer.setStrandPulses  (i, gp);
+                generativeSequencer.setStrandRotation(i, gr);
+
+                const float gm = parameters.getRawParameterValue(ids.mutation)->load();
+                generativeSequencer.setStrandBaseMutation(i, gm);
+                generativeSequencer.setStrandMutation    (i, gm);
+            }
+        }
 
         if (seqRunning)
             generativeSequencer.start();
@@ -920,29 +1390,16 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         stepSequencer.setBpm(static_cast<double>(seqBpm));
         stepSequencer.setNumSteps(seqSteps);
         stepSequencer.setDivision(seqDivision);
+        stepSequencer.setShuffle(seqShuffle);
         stepSequencer.setAllGates(seqGate);
+        int seqOctaveIdx = static_cast<int>(parameters.getRawParameterValue(PID::seqOctave)->load());
+        stepSequencer.setOctaveShiftSemitones((seqOctaveIdx - 2) * 12);
 
         if (seqRunning)
             stepSequencer.start();
         else
             stepSequencer.stop();
         stepSequencer.processBlock(buffer, midiMessages);
-    }
-
-    // Octave transposition (both modes)
-    int seqOctaveIdx = static_cast<int>(parameters.getRawParameterValue(PID::seqOctave)->load());
-    int semitoneShift = (seqOctaveIdx - 2) * 12;
-    if (semitoneShift != 0 && seqRunning)
-    {
-        juce::MidiBuffer transposed;
-        for (const auto metadata : midiMessages)
-        {
-            auto msg = metadata.getMessage();
-            if (msg.isNoteOnOrOff())
-                msg.setNoteNumber(juce::jlimit(0, 127, msg.getNoteNumber() + semitoneShift));
-            transposed.addEvent(msg, metadata.samplePosition);
-        }
-        midiMessages.swapWith(transposed);
     }
 
     // Consume bar-start flag (still used for sequencer display)
@@ -958,40 +1415,72 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         arpeggiator.setBpm(static_cast<double>(seqBpm));
         arpeggiator.setRate(arpRate);
         arpeggiator.setOctaveRange(arpOctaves);
+        arpeggiator.setShuffle(seqShuffle);
         arpeggiator.setMode(static_cast<T5ynthArpeggiator::Mode>(arpMode));
 
         juce::MidiBuffer filtered;
         for (const auto metadata : midiMessages)
         {
             auto msg = metadata.getMessage();
+
+            // When a sequencer is driving, only the "lead" channel feeds the
+            // arp — otherwise the polyphonic gen-seq's secondary strands
+            // (channels 4-7) would chaotically slap the arp's base note
+            // between every step. Lead channels:
+            //   gen-seq active → channel 3 (strand 0)
+            //   step-seq active → channel 1 (normal) or 2 (bind/glide)
+            // When seq is stopped (manual keyboard play) any channel feeds
+            // the arp, preserving the historical external-input behaviour.
+            const int ch = msg.getChannel();
+            const bool isLead = !seqRunning
+                              || (genModeActiveInAudio
+                                  ? (ch == 3)
+                                  : (ch == 1 || ch == 2));
+
             if (msg.isNoteOn())
-                arpeggiator.setBaseNote(msg.getNoteNumber(), msg.getFloatVelocity());
+            {
+                if (isLead)
+                    arpeggiator.setBaseNote(msg.getNoteNumber(), msg.getFloatVelocity());
+                else
+                    filtered.addEvent(msg, metadata.samplePosition);
+            }
             else if (msg.isNoteOff())
             {
-                // When seq is running, don't kill arp on seq gate-offs —
-                // arp runs continuously, seq just updates the base note
-                if (!seqRunning)
-                    arpeggiator.stopArp();
+                if (isLead)
+                {
+                    // When seq is running, don't kill arp on seq gate-offs —
+                    // arp runs continuously, seq just updates the base note.
+                    if (!seqRunning)
+                        arpeggiator.stopArp();
+                }
+                else
+                {
+                    filtered.addEvent(msg, metadata.samplePosition);
+                }
             }
             else
+            {
                 filtered.addEvent(msg, metadata.samplePosition);
+            }
         }
         midiMessages.swapWith(filtered);
         arpeggiator.processBlock(buffer, midiMessages);
     }
     else
     {
-        // Clean up any hanging arp note before resetting
-        if (arpeggiator.getLastPlayedNote() >= 0)
-            midiMessages.addEvent(juce::MidiMessage::noteOff(1, arpeggiator.getLastPlayedNote()), 0);
+        // Arp off: flush the arp's own sounding note (if any), then drop state.
+        arpeggiator.allNotesOff(midiMessages, 0);
         arpeggiator.reset();
     }
+
+    arpWasEnabled = arpEnabled;
 
     // (barStartFlag consumed + forwarded to barBoundaryFlag above)
 
     // ── Sample-accurate MIDI + Voice rendering ──────────────────────────────
     bool lfo1TrigMode = static_cast<int>(parameters.getRawParameterValue(PID::lfo1Mode)->load()) == 1;
     bool lfo2TrigMode = static_cast<int>(parameters.getRawParameterValue(PID::lfo2Mode)->load()) == 1;
+    bool lfo3TrigMode = static_cast<int>(parameters.getRawParameterValue(PID::lfo3Mode)->load()) == 1;
 
     // Re-check: seq/arp may have generated notes
     if (voiceManager.hasActiveVoices() || !midiMessages.isEmpty())
@@ -1013,10 +1502,12 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     if (!skipSynthesis)
     {
         // ── Audio generation via VoiceManager + global LFOs ─────────────────────
-        float baseLfo1Rate = parameters.getRawParameterValue(PID::lfo1Rate)->load();
-        float baseLfo2Rate = parameters.getRawParameterValue(PID::lfo2Rate)->load();
-        float baseLfo1Depth = parameters.getRawParameterValue(PID::lfo1Depth)->load();
-        float baseLfo2Depth = parameters.getRawParameterValue(PID::lfo2Depth)->load();
+        float baseLfo1Rate = bp.lfo1Rate;
+        float baseLfo2Rate = bp.lfo2Rate;
+        float baseLfo3Rate = bp.lfo3Rate;
+        float baseLfo1Depth = bp.lfo1Depth;
+        float baseLfo2Depth = bp.lfo2Depth;
+        float baseLfo3Depth = bp.lfo3Depth;
         float baseDrift1Depth = parameters.getRawParameterValue(PID::drift1Depth)->load();
         float baseDrift2Depth = parameters.getRawParameterValue(PID::drift2Depth)->load();
         float baseDrift3Depth = parameters.getRawParameterValue(PID::drift3Depth)->load();
@@ -1034,37 +1525,48 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         if (masterOsc.hasFrames() && generatedAudioFull.getNumSamples() > 0)
         {
             syncWavetableTraversal(generatedSampleRate, generatedAudioFull.getNumSamples());
+            masterOsc.setMorphTimeMs(parameters.getRawParameterValue(PID::driftCrossfade)->load());
             voiceManager.distributeWavetableFrames(masterOsc);
         }
 
         // Pre-compute global LFO values for the block (needed by VoiceManager)
         float* lfo1Buf = lfo1Buffer.data();
         float* lfo2Buf = lfo2Buffer.data();
+        float* lfo3Buf = lfo3Buffer.data();
         for (int i = 0; i < numSamples; ++i)
         {
             float l1 = lfo1.processSample();
             float l2 = lfo2.processSample();
+            float l3 = lfo3.processSample();
 
             lfo1Buf[i] = l1;
             lfo2Buf[i] = l2;
+            lfo3Buf[i] = l3;
         }
 
-        // LFO → envelope amounts (multiplicative, clamped to 0–1)
+        // LFO → normalized amount/depth targets (additive, clamped to 0–1)
         {
             float l1End = numSamples > 0 ? lfo1Buf[numSamples - 1] : 0.0f;
             float l2End = numSamples > 0 ? lfo2Buf[numSamples - 1] : 0.0f;
-            if (bp.lfo1Target == LfoTarget::Env1Amt) bp.ampAmount  = juce::jlimit(0.0f, 1.0f, bp.ampAmount  * (1.0f + l1End));
-            if (bp.lfo1Target == LfoTarget::Env2Amt) bp.mod1Amount = juce::jlimit(0.0f, 1.0f, bp.mod1Amount * (1.0f + l1End));
-            if (bp.lfo1Target == LfoTarget::Env3Amt) bp.mod2Amount = juce::jlimit(0.0f, 1.0f, bp.mod2Amount * (1.0f + l1End));
-            if (bp.lfo1Target == LfoTarget::Drift1Depth) baseDrift1Depth = juce::jlimit(0.0f, 1.0f, baseDrift1Depth * (1.0f + l1End));
-            if (bp.lfo1Target == LfoTarget::Drift2Depth) baseDrift2Depth = juce::jlimit(0.0f, 1.0f, baseDrift2Depth * (1.0f + l1End));
-            if (bp.lfo1Target == LfoTarget::Drift3Depth) baseDrift3Depth = juce::jlimit(0.0f, 1.0f, baseDrift3Depth * (1.0f + l1End));
-            if (bp.lfo2Target == LfoTarget::Env1Amt) bp.ampAmount  = juce::jlimit(0.0f, 1.0f, bp.ampAmount  * (1.0f + l2End));
-            if (bp.lfo2Target == LfoTarget::Env2Amt) bp.mod1Amount = juce::jlimit(0.0f, 1.0f, bp.mod1Amount * (1.0f + l2End));
-            if (bp.lfo2Target == LfoTarget::Env3Amt) bp.mod2Amount = juce::jlimit(0.0f, 1.0f, bp.mod2Amount * (1.0f + l2End));
-            if (bp.lfo2Target == LfoTarget::Drift1Depth) baseDrift1Depth = juce::jlimit(0.0f, 1.0f, baseDrift1Depth * (1.0f + l2End));
-            if (bp.lfo2Target == LfoTarget::Drift2Depth) baseDrift2Depth = juce::jlimit(0.0f, 1.0f, baseDrift2Depth * (1.0f + l2End));
-            if (bp.lfo2Target == LfoTarget::Drift3Depth) baseDrift3Depth = juce::jlimit(0.0f, 1.0f, baseDrift3Depth * (1.0f + l2End));
+            float l3End = numSamples > 0 ? lfo3Buf[numSamples - 1] : 0.0f;
+            if (bp.lfo1Target == LfoTarget::Env1Amt) bp.ampAmount  = applyNormalizedOffset(bp.ampAmount,  l1End);
+            if (bp.lfo1Target == LfoTarget::Env2Amt) bp.mod1Amount = applyNormalizedOffset(bp.mod1Amount, l1End);
+            if (bp.lfo1Target == LfoTarget::Env3Amt) bp.mod2Amount = applyNormalizedOffset(bp.mod2Amount, l1End);
+            if (bp.lfo1Target == LfoTarget::Drift1Depth) baseDrift1Depth = applyNormalizedOffset(baseDrift1Depth, l1End);
+            if (bp.lfo1Target == LfoTarget::Drift2Depth) baseDrift2Depth = applyNormalizedOffset(baseDrift2Depth, l1End);
+            if (bp.lfo1Target == LfoTarget::Drift3Depth) baseDrift3Depth = applyNormalizedOffset(baseDrift3Depth, l1End);
+            if (bp.lfo2Target == LfoTarget::Env1Amt) bp.ampAmount  = applyNormalizedOffset(bp.ampAmount,  l2End);
+            if (bp.lfo2Target == LfoTarget::Env2Amt) bp.mod1Amount = applyNormalizedOffset(bp.mod1Amount, l2End);
+            if (bp.lfo2Target == LfoTarget::Env3Amt) bp.mod2Amount = applyNormalizedOffset(bp.mod2Amount, l2End);
+            if (bp.lfo2Target == LfoTarget::Drift1Depth) baseDrift1Depth = applyNormalizedOffset(baseDrift1Depth, l2End);
+            if (bp.lfo2Target == LfoTarget::Drift2Depth) baseDrift2Depth = applyNormalizedOffset(baseDrift2Depth, l2End);
+            if (bp.lfo2Target == LfoTarget::Drift3Depth) baseDrift3Depth = applyNormalizedOffset(baseDrift3Depth, l2End);
+            if (bp.lfo3Target == LfoTarget::Env1Amt) bp.ampAmount  = applyNormalizedOffset(bp.ampAmount,  l3End);
+            if (bp.lfo3Target == LfoTarget::Env2Amt) bp.mod1Amount = applyNormalizedOffset(bp.mod1Amount, l3End);
+            if (bp.lfo3Target == LfoTarget::Env3Amt) bp.mod2Amount = applyNormalizedOffset(bp.mod2Amount, l3End);
+            if (bp.lfo3Target == LfoTarget::Drift1Depth) baseDrift1Depth = applyNormalizedOffset(baseDrift1Depth, l3End);
+            if (bp.lfo3Target == LfoTarget::Drift2Depth) baseDrift2Depth = applyNormalizedOffset(baseDrift2Depth, l3End);
+            if (bp.lfo3Target == LfoTarget::Drift3Depth) baseDrift3Depth = applyNormalizedOffset(baseDrift3Depth, l3End);
 
             driftLfo.setLfoDepth(0, baseDrift1Depth);
             driftLfo.setLfoDepth(1, baseDrift2Depth);
@@ -1077,8 +1579,10 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             float p1Mod = bp.driftScanOffset;
             float l1 = numSamples > 0 ? lfo1Buf[numSamples - 1] : 0.0f;
             float l2 = numSamples > 0 ? lfo2Buf[numSamples - 1] : 0.0f;
+            float l3 = numSamples > 0 ? lfo3Buf[numSamples - 1] : 0.0f;
             if (bp.lfo1Target == LfoTarget::Scan) p1Mod += l1;
             if (bp.lfo2Target == LfoTarget::Scan) p1Mod += l2;
+            if (bp.lfo3Target == LfoTarget::Scan) p1Mod += l3;
             masterSampler.setStartPosOffset(p1Mod);
         }
         else
@@ -1102,7 +1606,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 int subLen = subEnd - renderPos;
                 if (subLen > 0)
                     voiceOut = voiceManager.renderBlock(buffer, bp,
-                        lfo1Buf + renderPos, lfo2Buf + renderPos, renderPos, subLen);
+                        lfo1Buf + renderPos, lfo2Buf + renderPos, lfo3Buf + renderPos,
+                        renderPos, subLen);
 
                 // Process all MIDI events at this sample position
                 while (midiIter != midiMessages.cend()
@@ -1113,7 +1618,12 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                     {
                         int note = msg.getNoteNumber();
                         float velocity = msg.getFloatVelocity();
-                        bool isBind = (msg.getChannel() == 2);
+                        const int channel = msg.getChannel();
+                        bool isBind = (channel == 2);
+                        const int genSourceId = (channel >= 3 && channel <= 6) ? channel - 3 : -1;
+                        const float sourcePan = genSourceId >= 0
+                                              ? genStrandPan[static_cast<size_t>(genSourceId)]
+                                              : 0.0f;
 
                         lastMidiNote.store(note, std::memory_order_relaxed);
                         lastMidiVelocity.store(juce::roundToInt(velocity * 127.0f),
@@ -1122,13 +1632,26 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
                         voiceManager.noteOn(note, velocity, isBind,
                             isBind ? 0.0f : stepSequencer.getGlideTime(),
-                            lfo1TrigMode, lfo2TrigMode);
+                            lfo1TrigMode, lfo2TrigMode, lfo3TrigMode,
+                            genSourceId, sourcePan);
                     }
                     else if (msg.isNoteOff())
                     {
-                        voiceManager.noteOff(msg.getNoteNumber());
+                        const int channel = msg.getChannel();
+                        const int genSourceId = (channel >= 3 && channel <= 6) ? channel - 3 : -1;
+                        voiceManager.noteOff(msg.getNoteNumber(), genSourceId);
                         if (!voiceManager.hasActiveVoices())
                             lastMidiNoteOn.store(false, std::memory_order_relaxed);
+                    }
+                    else if (msg.isController()
+                             && msg.getControllerNumber() == 10
+                             && msg.getChannel() >= 3
+                             && msg.getChannel() <= 6)
+                    {
+                        const int genSourceId = msg.getChannel() - 3;
+                        const float value = static_cast<float>(msg.getControllerValue()) / 127.0f;
+                        genStrandPan[static_cast<size_t>(genSourceId)] =
+                            juce::jlimit(-1.0f, 1.0f, value * 2.0f - 1.0f);
                     }
                     ++midiIter;
                 }
@@ -1141,10 +1664,24 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         // Capture last LFO values for block-rate modulation + ghost display
         float lastMod1Val = voiceOut.lastMod1Val;
         float lastMod2Val = voiceOut.lastMod2Val;
-        float lastLfo1Val = numSamples > 0 ? lfo1Buf[numSamples - 1] : 0.0f;
-        float lastLfo2Val = numSamples > 0 ? lfo2Buf[numSamples - 1] : 0.0f;
+        float effectiveLfo1Depth = baseLfo1Depth;
+        float effectiveLfo2Depth = baseLfo2Depth;
+        float effectiveLfo3Depth = baseLfo3Depth;
+        if (bp.mod1Target == EnvTarget::LFO1Depth) effectiveLfo1Depth = applyNormalizedOffset(effectiveLfo1Depth, lastMod1Val);
+        if (bp.mod2Target == EnvTarget::LFO1Depth) effectiveLfo1Depth = applyNormalizedOffset(effectiveLfo1Depth, lastMod2Val);
+        if (bp.mod1Target == EnvTarget::LFO2Depth) effectiveLfo2Depth = applyNormalizedOffset(effectiveLfo2Depth, lastMod1Val);
+        if (bp.mod2Target == EnvTarget::LFO2Depth) effectiveLfo2Depth = applyNormalizedOffset(effectiveLfo2Depth, lastMod2Val);
+        if (bp.mod1Target == EnvTarget::LFO3Depth) effectiveLfo3Depth = applyNormalizedOffset(effectiveLfo3Depth, lastMod1Val);
+        if (bp.mod2Target == EnvTarget::LFO3Depth) effectiveLfo3Depth = applyNormalizedOffset(effectiveLfo3Depth, lastMod2Val);
+        float rawLastLfo1Val = numSamples > 0 ? lfo1Buf[numSamples - 1] : 0.0f;
+        float rawLastLfo2Val = numSamples > 0 ? lfo2Buf[numSamples - 1] : 0.0f;
+        float rawLastLfo3Val = numSamples > 0 ? lfo3Buf[numSamples - 1] : 0.0f;
+        float lastLfo1Val = rawLastLfo1Val * effectiveLfo1Depth;
+        float lastLfo2Val = rawLastLfo2Val * effectiveLfo2Depth;
+        float lastLfo3Val = rawLastLfo3Val * effectiveLfo3Depth;
         lastLfo1Val_ = lastLfo1Val;
         lastLfo2Val_ = lastLfo2Val;
+        lastLfo3Val_ = lastLfo3Val;
 
         // Filter is now per-voice (in SynthVoice::renderSample)
 
@@ -1161,13 +1698,17 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
         // Env → LFO modulation
         if (bp.mod1Target == EnvTarget::LFO1Rate)   lfo1.setRate(baseLfo1Rate * (1.0f + lastMod1Val));
-        if (bp.mod1Target == EnvTarget::LFO1Depth)  lfo1.setDepth(std::max(0.0f, baseLfo1Depth + lastMod1Val * baseLfo1Depth));
+        if (bp.mod1Target == EnvTarget::LFO1Depth)  effectiveLfo1Depth = applyNormalizedOffset(effectiveLfo1Depth, lastMod1Val);
         if (bp.mod1Target == EnvTarget::LFO2Rate)   lfo2.setRate(baseLfo2Rate * (1.0f + lastMod1Val));
-        if (bp.mod1Target == EnvTarget::LFO2Depth)  lfo2.setDepth(std::max(0.0f, baseLfo2Depth + lastMod1Val * baseLfo2Depth));
+        if (bp.mod1Target == EnvTarget::LFO2Depth)  effectiveLfo2Depth = applyNormalizedOffset(effectiveLfo2Depth, lastMod1Val);
+        if (bp.mod1Target == EnvTarget::LFO3Rate)   lfo3.setRate(baseLfo3Rate * (1.0f + lastMod1Val));
+        if (bp.mod1Target == EnvTarget::LFO3Depth)  effectiveLfo3Depth = applyNormalizedOffset(effectiveLfo3Depth, lastMod1Val);
         if (bp.mod2Target == EnvTarget::LFO1Rate)   lfo1.setRate(baseLfo1Rate * (1.0f + lastMod2Val));
-        if (bp.mod2Target == EnvTarget::LFO1Depth)  lfo1.setDepth(std::max(0.0f, baseLfo1Depth + lastMod2Val * baseLfo1Depth));
+        if (bp.mod2Target == EnvTarget::LFO1Depth)  effectiveLfo1Depth = applyNormalizedOffset(effectiveLfo1Depth, lastMod2Val);
         if (bp.mod2Target == EnvTarget::LFO2Rate)   lfo2.setRate(baseLfo2Rate * (1.0f + lastMod2Val));
-        if (bp.mod2Target == EnvTarget::LFO2Depth)  lfo2.setDepth(std::max(0.0f, baseLfo2Depth + lastMod2Val * baseLfo2Depth));
+        if (bp.mod2Target == EnvTarget::LFO2Depth)  effectiveLfo2Depth = applyNormalizedOffset(effectiveLfo2Depth, lastMod2Val);
+        if (bp.mod2Target == EnvTarget::LFO3Rate)   lfo3.setRate(baseLfo3Rate * (1.0f + lastMod2Val));
+        if (bp.mod2Target == EnvTarget::LFO3Depth)  effectiveLfo3Depth = applyNormalizedOffset(effectiveLfo3Depth, lastMod2Val);
         if (bp.lfo1Target == LfoTarget::DelayTime)  modDelayTime += lastLfo1Val;
         if (bp.lfo1Target == LfoTarget::DelayFB)    modDelayFb += lastLfo1Val;
         if (bp.lfo1Target == LfoTarget::DelayMix)   modDelayMix += lastLfo1Val;
@@ -1176,18 +1717,24 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         if (bp.lfo2Target == LfoTarget::DelayFB)    modDelayFb += lastLfo2Val;
         if (bp.lfo2Target == LfoTarget::DelayMix)   modDelayMix += lastLfo2Val;
         if (bp.lfo2Target == LfoTarget::ReverbMix)  modReverbMix += lastLfo2Val;
+        if (bp.lfo3Target == LfoTarget::DelayTime)  modDelayTime += lastLfo3Val;
+        if (bp.lfo3Target == LfoTarget::DelayFB)    modDelayFb += lastLfo3Val;
+        if (bp.lfo3Target == LfoTarget::DelayMix)   modDelayMix += lastLfo3Val;
+        if (bp.lfo3Target == LfoTarget::ReverbMix)  modReverbMix += lastLfo3Val;
     }
     else
     {
         // Free-running LFOs: sample one value for ghost display, advance rest
         if (numSamples > 0)
         {
-            lastLfo1Val_ = lfo1.processSample();
-            lastLfo2Val_ = lfo2.processSample();
+            lastLfo1Val_ = lfo1.processSample() * bp.lfo1Depth;
+            lastLfo2Val_ = lfo2.processSample() * bp.lfo2Depth;
+            lastLfo3Val_ = lfo3.processSample() * bp.lfo3Depth;
             if (numSamples > 1)
             {
                 lfo1.advancePhase(numSamples - 1);
                 lfo2.advancePhase(numSamples - 1);
+                lfo3.advancePhase(numSamples - 1);
             }
         }
     }
@@ -1213,15 +1760,11 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     if (reverbEnabled)
     {
-        float baseRevMix = parameters.getRawParameterValue(PID::reverbMix)->load();
-        float revMix = juce::jlimit(0.0f, 1.0f, baseRevMix + modReverbMix);
-
         if (reverbIsAlgo)
         {
             algoReverb.setRoomSize(parameters.getRawParameterValue(PID::algoRoom)->load());
             algoReverb.setDamping(parameters.getRawParameterValue(PID::algoDamping)->load());
             algoReverb.setWidth(parameters.getRawParameterValue(PID::algoWidth)->load());
-            algoReverb.setMix(revMix);
         }
         else
         {
@@ -1246,19 +1789,19 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                     lastReverbIr = irIndex;
                 }
             }
-            reverb.setMix(revMix);
         }
+        // Reverbs always render pure wet; the outer crossfade handles dry/wet.
+        if (reverbIsAlgo) algoReverb.setMix(1.0f);
+        else              reverb.setMix(1.0f);
     }
 
-    // Parallel send-bus architecture (reference useEffects.ts):
-    //   source → dry(compensated) ──→ sum → limiter
-    //          → delaySend ─────────→ sum
-    //          → reverbSend ────────→ sum
-    // Combined peak: delay ~1.7x + reverb wet additive → up to ~2.7x before master.
-    //
-    // Delay already implements send-bus internally (dry*comp + wet*mix).
-    // When both FX are active, reverb needs the ORIGINAL source, not delay output.
-    // Helper lambda: process reverb (convolution or algo) on a buffer
+    // Reverb mix is a true crossfade: out = dry*(1-mix) + wet*mix.
+    // At mix=1.0 the dry path vanishes — industry-standard insert behaviour
+    // (FabFilter/Valhalla) and identical for both Algo and Plate. Plate IRs
+    // are normalised and read ~6 dB quieter than the JUCE algo reverb's
+    // wetLevel=1.0 output, so the convolution send is gain-compensated.
+    constexpr float kPlateWetGain = 2.0f;  // +6 dB IR-normalisation comp
+
     auto processReverb = [&](juce::AudioBuffer<float>& buf) {
         if (reverbIsAlgo)
             algoReverb.processBlock(buf);
@@ -1266,30 +1809,40 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             reverb.processBlock(buf);
     };
 
-    if (delayEnabled && reverbEnabled)
+    auto crossfadeReverbInto = [&](juce::AudioBuffer<float>& dest, float mix)
     {
-        // Save original source for reverb (pre-allocated buffer, no heap alloc)
-        for (int ch = 0; ch < numChannels; ++ch)
-            reverbSendBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
-
-        // Delay modifies buffer in-place: output = dry*comp + delayed*mix
-        delay.processBlock(buffer);
-
-        // Process reverb on original source (wet-only: set mix=1 temporarily)
-        float savedRevMix = juce::jlimit(0.0f, 1.0f,
-            parameters.getRawParameterValue(PID::reverbMix)->load() + modReverbMix);
-        if (reverbIsAlgo) { algoReverb.setMix(1.0f); } else { reverb.setMix(1.0f); }
-        processReverb(reverbSendBuffer);
-        if (reverbIsAlgo) { algoReverb.setMix(savedRevMix); } else { reverb.setMix(savedRevMix); }
-
-        // Add reverb send to output: buffer += convolved * reverbMix
+        // Algo wet rises faster than the IR plate at mid-mix because the
+        // Schroeder reverb keeps wetLevel=1.0 across the whole sweep. Curve
+        // the algo's wet contribution so it stays restrained until the upper
+        // half of the knob; dry remains linear and mix=1 still hits pure wet.
+        // Plate keeps a linear curve (its IR is the natural taper).
+        const float wetAmt = reverbIsAlgo ? (mix * mix) : mix;
+        const float dryAmt = 1.0f - mix;
         for (int ch = 0; ch < numChannels; ++ch)
         {
             const auto* rev = reverbSendBuffer.getReadPointer(ch);
-            auto* out = buffer.getWritePointer(ch);
+            auto* out = dest.getWritePointer(ch);
             for (int i = 0; i < numSamples; ++i)
-                out[i] += rev[i] * savedRevMix;
+                out[i] = out[i] * dryAmt + rev[i] * wetAmt;
         }
+    };
+
+    if (delayEnabled && reverbEnabled)
+    {
+        // Reverb sends from the original source (pre-delay) so the reverb tail
+        // doesn't echo the delay repeats; crossfade sums against post-delay dry.
+        for (int ch = 0; ch < numChannels; ++ch)
+            reverbSendBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+
+        delay.processBlock(buffer);
+
+        processReverb(reverbSendBuffer);
+        if (!reverbIsAlgo)
+            reverbSendBuffer.applyGain(kPlateWetGain);
+
+        float revMix = juce::jlimit(0.0f, 1.0f,
+            parameters.getRawParameterValue(PID::reverbMix)->load() + modReverbMix);
+        crossfadeReverbInto(buffer, revMix);
     }
     else if (delayEnabled)
     {
@@ -1297,23 +1850,16 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     }
     else if (reverbEnabled)
     {
-        // Reverb as send: dry signal stays, wet is added on top
         for (int ch = 0; ch < numChannels; ++ch)
             reverbSendBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
 
-        float revMixVal = juce::jlimit(0.0f, 1.0f,
-            parameters.getRawParameterValue(PID::reverbMix)->load() + modReverbMix);
-        if (reverbIsAlgo) { algoReverb.setMix(1.0f); } else { reverb.setMix(1.0f); }
         processReverb(reverbSendBuffer);
-        if (reverbIsAlgo) { algoReverb.setMix(revMixVal); } else { reverb.setMix(revMixVal); }
+        if (!reverbIsAlgo)
+            reverbSendBuffer.applyGain(kPlateWetGain);
 
-        for (int ch = 0; ch < numChannels; ++ch)
-        {
-            const auto* rev = reverbSendBuffer.getReadPointer(ch);
-            auto* out = buffer.getWritePointer(ch);
-            for (int i = 0; i < numSamples; ++i)
-                out[i] += rev[i] * revMixVal;
-        }
+        float revMix = juce::jlimit(0.0f, 1.0f,
+            parameters.getRawParameterValue(PID::reverbMix)->load() + modReverbMix);
+        crossfadeReverbInto(buffer, revMix);
     }
 
     // ── Update modulated values for GUI ghost indicators ────────────────────
@@ -1328,7 +1874,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
         // Filter cutoff ghost
         {
-            bool lfoModFilter = bp.lfo1Target == LfoTarget::Filter || bp.lfo2Target == LfoTarget::Filter;
+            bool lfoModFilter = bp.lfo1Target == LfoTarget::Filter || bp.lfo2Target == LfoTarget::Filter
+                                || bp.lfo3Target == LfoTarget::Filter;
             bool envModFilter = (bp.mod1Target == EnvTarget::Filter || bp.mod2Target == EnvTarget::Filter
                                  || bp.kbdTrack > 0.0f) && hasVoices;
 
@@ -1343,6 +1890,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 float hypo = bp.baseCutoff;
                 if (bp.lfo1Target == LfoTarget::Filter) hypo *= std::pow(2.0f, lastLfo1Val_ * FILTER_OCTAVES);
                 if (bp.lfo2Target == LfoTarget::Filter) hypo *= std::pow(2.0f, lastLfo2Val_ * FILTER_OCTAVES);
+                if (bp.lfo3Target == LfoTarget::Filter) hypo *= std::pow(2.0f, lastLfo3Val_ * FILTER_OCTAVES);
                 modulatedValues.filterCutoff.store(juce::jlimit(20.0f, 20000.0f, hypo), std::memory_order_relaxed);
             }
             else
@@ -1353,16 +1901,16 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
         // Scan ghost
         {
-            bool lfoModScan = bp.lfo1Target == LfoTarget::Scan || bp.lfo2Target == LfoTarget::Scan;
-            bool envModScan = (bp.mod1Target == EnvTarget::Scan || bp.mod2Target == EnvTarget::Scan
-                               || std::abs(bp.driftScanOffset) > 0.001f) && hasVoices;
+            bool lfoModScan = bp.lfo1Target == LfoTarget::Scan || bp.lfo2Target == LfoTarget::Scan
+                              || bp.lfo3Target == LfoTarget::Scan;
+            bool driftModScan = std::abs(bp.driftScanOffset) > 0.001f && hasVoices;
             bool wtTraversalActive = bp.engineIsWavetable && hasVoices;
 
             if (wtTraversalActive)
             {
                 modulatedValues.scanPosition.store(voiceOut.lastModulatedScan, std::memory_order_relaxed);
             }
-            else if (hasVoices && (lfoModScan || envModScan))
+            else if (hasVoices && (lfoModScan || driftModScan))
             {
                 modulatedValues.scanPosition.store(voiceOut.lastModulatedScan, std::memory_order_relaxed);
             }
@@ -1371,6 +1919,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 float hypo = bp.baseScan;
                 if (bp.lfo1Target == LfoTarget::Scan) hypo += lastLfo1Val_;
                 if (bp.lfo2Target == LfoTarget::Scan) hypo += lastLfo2Val_;
+                if (bp.lfo3Target == LfoTarget::Scan) hypo += lastLfo3Val_;
                 modulatedValues.scanPosition.store(juce::jlimit(0.0f, 1.0f, hypo), std::memory_order_relaxed);
             }
             else
@@ -1381,7 +1930,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
         // Noise level ghost
         {
-            bool lfoModNoise = bp.lfo1Target == LfoTarget::NoiseLevel || bp.lfo2Target == LfoTarget::NoiseLevel;
+            bool lfoModNoise = bp.lfo1Target == LfoTarget::NoiseLevel || bp.lfo2Target == LfoTarget::NoiseLevel
+                               || bp.lfo3Target == LfoTarget::NoiseLevel;
             bool envModNoise = bp.mod1Target == EnvTarget::NoiseLevel || bp.mod2Target == EnvTarget::NoiseLevel;
 
             if (hasVoices && (lfoModNoise || envModNoise))
@@ -1394,6 +1944,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 float hypo = bp.noiseLevel;
                 if (bp.lfo1Target == LfoTarget::NoiseLevel) hypo += lastLfo1Val_;
                 if (bp.lfo2Target == LfoTarget::NoiseLevel) hypo += lastLfo2Val_;
+                if (bp.lfo3Target == LfoTarget::NoiseLevel) hypo += lastLfo3Val_;
                 modulatedValues.noiseLevel.store(
                     juce::jlimit(0.0f, 1.0f, hypo), std::memory_order_relaxed);
             }
@@ -1409,12 +1960,26 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             bool lfo1RateMod  = bp.mod1Target == EnvTarget::LFO1Rate  || bp.mod2Target == EnvTarget::LFO1Rate;
             bool lfo1DepthMod = bp.mod1Target == EnvTarget::LFO1Depth || bp.mod2Target == EnvTarget::LFO1Depth;
             modulatedValues.lfo1Rate.store(lfo1RateMod ? lfo1.getRate() : NO_GHOST, std::memory_order_relaxed);
-            modulatedValues.lfo1Depth.store(lfo1DepthMod ? lfo1.getDepth() : NO_GHOST, std::memory_order_relaxed);
+            float ghostLfo1Depth = bp.lfo1Depth;
+            if (bp.mod1Target == EnvTarget::LFO1Depth) ghostLfo1Depth = applyNormalizedOffset(ghostLfo1Depth, voiceOut.lastMod1Val);
+            if (bp.mod2Target == EnvTarget::LFO1Depth) ghostLfo1Depth = applyNormalizedOffset(ghostLfo1Depth, voiceOut.lastMod2Val);
+            modulatedValues.lfo1Depth.store(lfo1DepthMod ? ghostLfo1Depth : NO_GHOST, std::memory_order_relaxed);
 
             bool lfo2RateMod  = bp.mod1Target == EnvTarget::LFO2Rate  || bp.mod2Target == EnvTarget::LFO2Rate;
             bool lfo2DepthMod = bp.mod1Target == EnvTarget::LFO2Depth || bp.mod2Target == EnvTarget::LFO2Depth;
             modulatedValues.lfo2Rate.store(lfo2RateMod ? lfo2.getRate() : NO_GHOST, std::memory_order_relaxed);
-            modulatedValues.lfo2Depth.store(lfo2DepthMod ? lfo2.getDepth() : NO_GHOST, std::memory_order_relaxed);
+            float ghostLfo2Depth = bp.lfo2Depth;
+            if (bp.mod1Target == EnvTarget::LFO2Depth) ghostLfo2Depth = applyNormalizedOffset(ghostLfo2Depth, voiceOut.lastMod1Val);
+            if (bp.mod2Target == EnvTarget::LFO2Depth) ghostLfo2Depth = applyNormalizedOffset(ghostLfo2Depth, voiceOut.lastMod2Val);
+            modulatedValues.lfo2Depth.store(lfo2DepthMod ? ghostLfo2Depth : NO_GHOST, std::memory_order_relaxed);
+
+            bool lfo3RateMod  = bp.mod1Target == EnvTarget::LFO3Rate  || bp.mod2Target == EnvTarget::LFO3Rate;
+            bool lfo3DepthMod = bp.mod1Target == EnvTarget::LFO3Depth || bp.mod2Target == EnvTarget::LFO3Depth;
+            modulatedValues.lfo3Rate.store(lfo3RateMod ? lfo3.getRate() : NO_GHOST, std::memory_order_relaxed);
+            float ghostLfo3Depth = bp.lfo3Depth;
+            if (bp.mod1Target == EnvTarget::LFO3Depth) ghostLfo3Depth = applyNormalizedOffset(ghostLfo3Depth, voiceOut.lastMod1Val);
+            if (bp.mod2Target == EnvTarget::LFO3Depth) ghostLfo3Depth = applyNormalizedOffset(ghostLfo3Depth, voiceOut.lastMod2Val);
+            modulatedValues.lfo3Depth.store(lfo3DepthMod ? ghostLfo3Depth : NO_GHOST, std::memory_order_relaxed);
         }
         else
         {
@@ -1422,6 +1987,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             modulatedValues.lfo1Depth.store(NO_GHOST, std::memory_order_relaxed);
             modulatedValues.lfo2Rate.store(NO_GHOST, std::memory_order_relaxed);
             modulatedValues.lfo2Depth.store(NO_GHOST, std::memory_order_relaxed);
+            modulatedValues.lfo3Rate.store(NO_GHOST, std::memory_order_relaxed);
+            modulatedValues.lfo3Depth.store(NO_GHOST, std::memory_order_relaxed);
         }
 
         // LFO → Drift depth ghosts
@@ -1431,14 +1998,17 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             {
                 bool lfo1Mod = bp.lfo1Target == target;
                 bool lfo2Mod = bp.lfo2Target == target;
-                if (!lfo1Mod && !lfo2Mod)
+                bool lfo3Mod = bp.lfo3Target == target;
+                if (!lfo1Mod && !lfo2Mod && !lfo3Mod)
                     return NO_GHOST;
 
                 float depth = parameters.getRawParameterValue(paramId)->load();
                 if (lfo1Mod)
-                    depth = juce::jlimit(0.0f, 1.0f, depth * (1.0f + lastLfo1Val_));
+                    depth = applyNormalizedOffset(depth, lastLfo1Val_);
                 if (lfo2Mod)
-                    depth = juce::jlimit(0.0f, 1.0f, depth * (1.0f + lastLfo2Val_));
+                    depth = applyNormalizedOffset(depth, lastLfo2Val_);
+                if (lfo3Mod)
+                    depth = applyNormalizedOffset(depth, lastLfo3Val_);
                 return depth;
             };
 
@@ -1485,11 +2055,19 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
 T5ynthProcessor::WtTraversalMapping T5ynthProcessor::makeWtTraversalMapping(int totalSamples) const
 {
-    WtTraversalMapping mapping;
-
     const float p1 = masterSampler.getStartPos();
     const float p2 = masterSampler.getLoopStart();
     const float p3 = masterSampler.getLoopEnd();
+
+    return makeWtTraversalMapping(totalSamples, p1, p2, p3);
+}
+
+T5ynthProcessor::WtTraversalMapping T5ynthProcessor::makeWtTraversalMapping(int totalSamples,
+                                                                            float p1,
+                                                                            float p2,
+                                                                            float p3) const
+{
+    WtTraversalMapping mapping;
 
     mapping.extractStart = juce::jlimit(0.0f, 1.0f, std::min(p1, p2));
     mapping.extractEnd = juce::jlimit(0.0f, 1.0f, std::max(p1, p3));
@@ -1536,15 +2114,79 @@ void T5ynthProcessor::syncWavetableTraversal(double bufferSampleRate, int totalS
 
     masterOsc.setAutoScanStartPos(mapping.startInExtract);
     masterOsc.setAutoScanLoop(mapping.loopStartInExtract, mapping.loopEndInExtract, oscLoopMode);
-    if (loopMode == SamplePlayer::LoopMode::OneShot)
-    {
-        masterOsc.setAutoScan(false);
-    }
-    else
+    if (parameters.getRawParameterValue(PID::wtAutoScan)->load() > 0.5f)
     {
         masterOsc.setAutoScan(true);
         masterOsc.setAutoScanRate(bufferSampleRate, mapping.regionSamples);
     }
+    else
+    {
+        masterOsc.setAutoScan(false);
+    }
+}
+
+void T5ynthProcessor::updateDriftState(int numSamples, float seqBpm)
+{
+    driftLfo.setRegenMode(static_cast<int>(parameters.getRawParameterValue(PID::driftRegen)->load()));
+
+    const int d1t = static_cast<int>(parameters.getRawParameterValue(PID::drift1Target)->load());
+    const int d2t = static_cast<int>(parameters.getRawParameterValue(PID::drift2Target)->load());
+    const int d3t = static_cast<int>(parameters.getRawParameterValue(PID::drift3Target)->load());
+
+    bool driftHasTarget = (d1t != 0) || (d2t != 0) || (d3t != 0);
+    bool hasOsc = false;
+    for (int t : { d1t, d2t, d3t })
+        if ((t >= DriftLFO::TgtAlpha && t <= DriftLFO::TgtAxis3)
+            || t == DriftLFO::TgtNoise || t == DriftLFO::TgtMagnitude)
+            hasOsc = true;
+
+    driftHasOscTarget.store(hasOsc, std::memory_order_relaxed);
+    driftRegenMode.store(static_cast<int>(parameters.getRawParameterValue(PID::driftRegen)->load()),
+                         std::memory_order_relaxed);
+    driftRegenBpm.store(seqBpm, std::memory_order_relaxed);
+
+    bool driftManualEnable = parameters.getRawParameterValue(PID::driftEnabled)->load() > 0.5f;
+    driftLfo.setEnabled(driftHasTarget || driftManualEnable);
+    driftLfo.setLfoRate(0, parameters.getRawParameterValue(PID::drift1Rate)->load());
+    driftLfo.setLfoDepth(0, parameters.getRawParameterValue(PID::drift1Depth)->load());
+    driftLfo.setLfoTarget(0, d1t);
+    driftLfo.setLfoWaveform(0, static_cast<int>(parameters.getRawParameterValue(PID::drift1Wave)->load()));
+    driftLfo.setLfoRate(1, parameters.getRawParameterValue(PID::drift2Rate)->load());
+    driftLfo.setLfoDepth(1, parameters.getRawParameterValue(PID::drift2Depth)->load());
+    driftLfo.setLfoTarget(1, d2t);
+    driftLfo.setLfoWaveform(1, static_cast<int>(parameters.getRawParameterValue(PID::drift2Wave)->load()));
+    driftLfo.setLfoRate(2, parameters.getRawParameterValue(PID::drift3Rate)->load());
+    driftLfo.setLfoDepth(2, parameters.getRawParameterValue(PID::drift3Depth)->load());
+    driftLfo.setLfoTarget(2, d3t);
+    driftLfo.setLfoWaveform(2, static_cast<int>(parameters.getRawParameterValue(PID::drift3Wave)->load()));
+    driftLfo.tick(static_cast<double>(numSamples) / getSampleRate());
+
+    static constexpr float NO_GHOST = std::numeric_limits<float>::quiet_NaN();
+    const float alphaOff = driftLfo.getOffsetForTarget(DriftLFO::TgtAlpha);
+    const float ax1Off   = driftLfo.getOffsetForTarget(DriftLFO::TgtAxis1);
+    const float ax2Off   = driftLfo.getOffsetForTarget(DriftLFO::TgtAxis2);
+    const float ax3Off   = driftLfo.getOffsetForTarget(DriftLFO::TgtAxis3);
+    const float noiseOff = driftLfo.getOffsetForTarget(DriftLFO::TgtNoise);
+    const float magOff   = driftLfo.getOffsetForTarget(DriftLFO::TgtMagnitude);
+    const float baseAlpha = parameters.getRawParameterValue(PID::genAlpha)->load();
+    const float baseNoise = parameters.getRawParameterValue(PID::genNoise)->load();
+    const float baseMag = parameters.getRawParameterValue(PID::genMagnitude)->load();
+
+    modulatedValues.driftAlpha.store(
+        std::abs(alphaOff) > 0.001f ? baseAlpha + alphaOff : NO_GHOST,
+        std::memory_order_relaxed);
+    modulatedValues.driftAxis1.store(
+        std::abs(ax1Off) > 0.001f ? ax1Off : NO_GHOST, std::memory_order_relaxed);
+    modulatedValues.driftAxis2.store(
+        std::abs(ax2Off) > 0.001f ? ax2Off : NO_GHOST, std::memory_order_relaxed);
+    modulatedValues.driftAxis3.store(
+        std::abs(ax3Off) > 0.001f ? ax3Off : NO_GHOST, std::memory_order_relaxed);
+    modulatedValues.driftNoise.store(
+        std::abs(noiseOff) > 0.001f ? baseNoise + noiseOff : NO_GHOST,
+        std::memory_order_relaxed);
+    modulatedValues.driftMagnitude.store(
+        std::abs(magOff) > 0.001f ? baseMag + magOff : NO_GHOST,
+        std::memory_order_relaxed);
 }
 
 bool T5ynthProcessor::isWavetableMode() const
@@ -1565,7 +2207,6 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
     // Store raw audio (unmodified) for preset embedding and re-apply on toggle
     if (&audioBuffer != &generatedAudioRaw)
         generatedAudioRaw.makeCopyOf(audioBuffer);
-    generatedSampleRate = sr;
 
     // Rumble filter — always on, removes DC/sub-bass from VAE output
     juce::AudioBuffer<float> cleanBuffer;
@@ -1578,23 +2219,28 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
         applyHfBoost(cleanBuffer, sr);
     const auto& feedBuffer = cleanBuffer;
 
-    // Keep generatedAudioFull in sync (used for waveform display + presets)
-    generatedAudioFull.makeCopyOf(feedBuffer);
-
-    const auto samplerLoopMode = masterSampler.getLoopMode();
-    const bool autoPositionPoints = !masterSampler.getPointsLocked();
+    SamplePlayer::LoopMode samplerLoopMode = SamplePlayer::LoopMode::Loop;
+    SamplePlayer::PrepareConfig samplerConfig;
+    bool autoPositionPoints = false;
+    float prevP1 = 0.0f;
+    {
+        const juce::ScopedLock sl (getCallbackLock());
+        samplerConfig = masterSampler.capturePrepareConfig();
+        samplerLoopMode = samplerConfig.loopMode;
+        autoPositionPoints = !masterSampler.getPointsLocked();
+        prevP1 = masterSampler.getStartPos();
+    }
 
     // ── Auto-position P1/P2/P3 BEFORE loadBuffer so that preparePlaybackBuffer
     //    (which runs normalization) already sees the correct region. ──────
+    float loopStartFrac = 0.0f;
+    float loopEndFrac   = 1.0f;
+    float activeStartFrac = 0.0f;
+    float activeEndFrac   = 1.0f;
+
     if (autoPositionPoints)
     {
-        float prevP1 = masterSampler.getStartPos();
-
         const int numSamples = feedBuffer.getNumSamples();
-        float activeStartFrac = 0.0f;
-        float activeEndFrac   = 1.0f;
-        float loopStartFrac   = 0.0f;
-        float loopEndFrac     = 1.0f;
 
         if (numSamples > 0)
         {
@@ -1703,100 +2349,164 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
             }
         }
 
-        masterSampler.setLoopStart(loopStartFrac);
-        masterSampler.setLoopEnd(loopEndFrac);
-
-        // P1: preserve the user's choice where possible, but clamp against the
-        // active audio region rather than the loop window.
-        if (prevP1 < activeStartFrac || prevP1 > activeEndFrac)
-            masterSampler.setStartPos(activeStartFrac);
     }
 
-    // Keep currently sounding sampler notes on their old snapshot so a
-    // regenerate only affects newly triggered notes.
-    voiceManager.freezeActiveSamplerVoices();
+    if (autoPositionPoints)
+    {
+        samplerConfig.loopStartFrac = loopStartFrac;
+        samplerConfig.loopEndFrac = loopEndFrac;
 
-    // Feed the sampler/voice chain — preparePlaybackBuffer now sees the
-    // correct P2/P3, so normalization targets the right region.
-    masterSampler.loadBuffer(feedBuffer, sr);
+        // P1: preserve the user's choice where possible, but clamp against
+        // the active audio region rather than the loop window.
+        if (prevP1 < activeStartFrac || prevP1 > activeEndFrac)
+            samplerConfig.startPosFrac = activeStartFrac;
+    }
 
-    const auto wtMapping = makeWtTraversalMapping(feedBuffer.getNumSamples());
-    float extractStart = isWavetableMode() ? wtMapping.extractStart
-                                           : masterSampler.getLoopStart();
-    float extractEnd   = isWavetableMode() ? wtMapping.extractEnd
-                                           : masterSampler.getLoopEnd();
+    const bool wavetableMode = isWavetableMode();
+    const auto wtMapping = makeWtTraversalMapping(feedBuffer.getNumSamples(),
+                                                  samplerConfig.startPosFrac,
+                                                  samplerConfig.loopStartFrac,
+                                                  samplerConfig.loopEndFrac);
+    const float extractStart = wavetableMode ? wtMapping.extractStart
+                                             : samplerConfig.loopStartFrac;
+    const float extractEnd   = wavetableMode ? wtMapping.extractEnd
+                                             : samplerConfig.loopEndFrac;
 
-    // WT frame count: 0=32, 1=64, 2=128, 3=256
     constexpr int frameCounts[] = {32, 64, 128, 256};
     int fcIdx = static_cast<int>(parameters.getRawParameterValue(PID::wtFrames)->load());
     int maxFrames = frameCounts[juce::jlimit(0, 3, fcIdx)];
 
-    if (isWavetableMode())
-    {
-        // Pitch-synchronous extraction (one frame per detected period)
-        masterOsc.extractFramesFromBuffer(feedBuffer, sr, extractStart, extractEnd, maxFrames);
-    }
-    else
-    {
-        // Contiguous extraction for sampler mode (one frame per FRAME_SIZE chunk)
-        masterOsc.extractContiguousFrames(feedBuffer, sr, extractStart, extractEnd);
-    }
-
-    syncWavetableTraversal(sr, feedBuffer.getNumSamples());
-
-    voiceManager.distributeSamplerBuffer(masterSampler);
-    voiceManager.distributeWavetableFrames(masterOsc);
-
-    samplerProcessorDebugLog("loadGeneratedAudio end masterAfter={" + masterSampler.debugStateString() + "}");
-
-    // Snapshot channel 0 for waveform display
+    auto preparedSamplerLoad = masterSampler.prepareBufferLoad(feedBuffer, sr, samplerConfig);
+    juce::AudioBuffer<float> preparedGeneratedAudio;
+    preparedGeneratedAudio.makeCopyOf(feedBuffer);
+    juce::AudioBuffer<float> preparedWaveformSnapshot;
+    const bool normDisplay = wavetableMode
+        || (parameters.getRawParameterValue(PID::normalize)->load() > 0.5f);
     if (feedBuffer.getNumChannels() > 0 && feedBuffer.getNumSamples() > 0)
     {
-        waveformSnapshot.setSize(1, feedBuffer.getNumSamples(), false, false, true);
-        waveformSnapshot.copyFrom(0, 0, feedBuffer, 0, 0, feedBuffer.getNumSamples());
+        preparedWaveformSnapshot.setSize(1, feedBuffer.getNumSamples(), false, false, true);
+        preparedWaveformSnapshot.copyFrom(0, 0, feedBuffer, 0, 0, feedBuffer.getNumSamples());
 
-        // Normalize display when wavetable mode or sampler normalize is active
-        bool normDisplay = isWavetableMode()
-            || (parameters.getRawParameterValue(PID::normalize)->load() > 0.5f);
         if (normDisplay)
         {
             float peak = 0.0f;
-            const float* d = waveformSnapshot.getReadPointer(0);
-            for (int i = 0; i < waveformSnapshot.getNumSamples(); ++i)
+            const float* d = preparedWaveformSnapshot.getReadPointer(0);
+            for (int i = 0; i < preparedWaveformSnapshot.getNumSamples(); ++i)
                 peak = std::max(peak, std::abs(d[i]));
             if (peak > 0.001f)
-                waveformSnapshot.applyGain(0.95f / peak);
+                preparedWaveformSnapshot.applyGain(0.95f / peak);
         }
-
-        newWaveformReady.store(true, std::memory_order_release);
     }
 
+    if (wavetableMode)
+        masterOsc.extractFramesFromBuffer(feedBuffer, sr, extractStart, extractEnd, maxFrames);
+    else
+        masterOsc.extractContiguousFrames(feedBuffer, sr, extractStart, extractEnd);
+
+    {
+        // Guard engine-state mutation against the realtime callback. The Linux
+        // standalone path takes this same lock around processBlock().
+        const juce::ScopedLock sl (getCallbackLock());
+
+        generatedSampleRate = sr;
+
+        // Keep generatedAudioFull in sync (used for waveform display + presets)
+        generatedAudioFull = std::move(preparedGeneratedAudio);
+
+        // Keep currently sounding sampler notes on their old snapshot so a
+        // regenerate only affects newly triggered notes.
+        voiceManager.freezeActiveSamplerVoices();
+
+        // Publish the already-prepared sampler state inside the lock so the
+        // audio thread only sees a short atomic handoff.
+        masterSampler.applyPreparedBufferLoad(std::move(preparedSamplerLoad), samplerConfig);
+
+        syncWavetableTraversal(sr, feedBuffer.getNumSamples());
+        masterOsc.setMorphTimeMs(parameters.getRawParameterValue(PID::driftCrossfade)->load());
+
+        voiceManager.distributeSamplerBuffer(masterSampler);
+        voiceManager.distributeWavetableFrames(masterOsc);
+
+        samplerProcessorDebugLog("loadGeneratedAudio end masterAfter={" + masterSampler.debugStateString() + "}");
+
+        // Snapshot channel 0 for waveform display
+        if (preparedWaveformSnapshot.getNumSamples() > 0)
+        {
+            waveformSnapshot = std::move(preparedWaveformSnapshot);
+            newWaveformReady.store(true, std::memory_order_release);
+        }
+    }
 }
 
 void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& processed)
 {
     samplerProcessorDebugLog("reloadProcessedAudio begin samples=" + juce::String(processed.getNumSamples())
                              + " masterBefore={" + masterSampler.debugStateString() + "}");
-    // Update stored audio and reload into sampler without Rumble/HF/Normalize
-    generatedAudioFull.makeCopyOf(processed);
-    voiceManager.freezeActiveSamplerVoices();
-    masterSampler.loadBuffer(processed, generatedSampleRate);
-    voiceManager.distributeSamplerBuffer(masterSampler);
-
-    samplerProcessorDebugLog("reloadProcessedAudio end masterAfter={" + masterSampler.debugStateString() + "}");
-
+    SamplePlayer::PrepareConfig samplerConfig;
+    bool wavetableMode = false;
+    {
+        const juce::ScopedLock sl (getCallbackLock());
+        samplerConfig = masterSampler.capturePrepareConfig();
+        wavetableMode = isWavetableMode();
+    }
+    auto preparedSamplerLoad = masterSampler.prepareBufferLoad(processed, generatedSampleRate, samplerConfig);
+    juce::AudioBuffer<float> preparedGeneratedAudio;
+    preparedGeneratedAudio.makeCopyOf(processed);
+    juce::AudioBuffer<float> preparedWaveformSnapshot;
     if (processed.getNumChannels() > 0 && processed.getNumSamples() > 0)
     {
-        waveformSnapshot.setSize(1, processed.getNumSamples(), false, false, true);
-        waveformSnapshot.copyFrom(0, 0, processed, 0, 0, processed.getNumSamples());
+        preparedWaveformSnapshot.setSize(1, processed.getNumSamples(), false, false, true);
+        preparedWaveformSnapshot.copyFrom(0, 0, processed, 0, 0, processed.getNumSamples());
+    }
+
+    if (preparedWaveformSnapshot.getNumSamples() > 0 && masterOsc.hasFrames())
+    {
+        const auto wtMapping = makeWtTraversalMapping(preparedWaveformSnapshot.getNumSamples(),
+                                                      samplerConfig.startPosFrac,
+                                                      samplerConfig.loopStartFrac,
+                                                      samplerConfig.loopEndFrac);
+        float start = wavetableMode ? wtMapping.extractStart : samplerConfig.loopStartFrac;
+        float end   = wavetableMode ? wtMapping.extractEnd   : samplerConfig.loopEndFrac;
+
+        constexpr int frameCounts[] = {32, 64, 128, 256};
+        int fcIdx = static_cast<int>(parameters.getRawParameterValue(PID::wtFrames)->load());
+        int maxFrames = frameCounts[juce::jlimit(0, 3, fcIdx)];
+
+        if (wavetableMode)
+            masterOsc.extractFramesFromBuffer(preparedWaveformSnapshot, generatedSampleRate, start, end, maxFrames);
+        else
+            masterOsc.extractContiguousFrames(preparedWaveformSnapshot, generatedSampleRate, start, end);
+    }
+    {
+        const juce::ScopedLock sl (getCallbackLock());
+
+        // Update stored audio and reload into sampler without Rumble/HF/Normalize
+        generatedAudioFull = std::move(preparedGeneratedAudio);
+        voiceManager.freezeActiveSamplerVoices();
+        masterSampler.applyPreparedBufferLoad(std::move(preparedSamplerLoad), samplerConfig);
+        if (preparedWaveformSnapshot.getNumSamples() > 0)
+            waveformSnapshot = std::move(preparedWaveformSnapshot);
+        voiceManager.distributeSamplerBuffer(masterSampler);
         if (masterOsc.hasFrames())
-            reextractWavetable();
-        newWaveformReady.store(true, std::memory_order_release);
+        {
+            syncWavetableTraversal(generatedSampleRate, waveformSnapshot.getNumSamples());
+            masterOsc.setMorphTimeMs(parameters.getRawParameterValue(PID::driftCrossfade)->load());
+            voiceManager.distributeWavetableFrames(masterOsc);
+        }
+
+        samplerProcessorDebugLog("reloadProcessedAudio end masterAfter={" + masterSampler.debugStateString() + "}");
+
+        if (waveformSnapshot.getNumSamples() > 0)
+        {
+            newWaveformReady.store(true, std::memory_order_release);
+        }
     }
 }
 
 void T5ynthProcessor::reextractWavetable()
 {
+    const juce::ScopedLock sl (getCallbackLock());
+
     if (waveformSnapshot.getNumSamples() > 0)
     {
         const auto wtMapping = makeWtTraversalMapping(waveformSnapshot.getNumSamples());
@@ -1815,6 +2525,7 @@ void T5ynthProcessor::reextractWavetable()
             masterOsc.extractContiguousFrames(waveformSnapshot, generatedSampleRate, start, end);
 
         syncWavetableTraversal(generatedSampleRate, waveformSnapshot.getNumSamples());
+        masterOsc.setMorphTimeMs(parameters.getRawParameterValue(PID::driftCrossfade)->load());
         voiceManager.distributeWavetableFrames(masterOsc);
     }
 }
@@ -1877,6 +2588,15 @@ static juce::String filterTypeToString(int i)           { return choiceToKey(i, 
 static int filterSlopeFromString(const juce::String& s) { return choiceFromKey(s, FilterSlope::kEntries); }
 static juce::String filterSlopeToString(int i)          { return choiceToKey(i, FilterSlope::kEntries); }
 
+static int filterDriveOsFromString(const juce::String& s) { return choiceFromKey(s, FilterDriveOs::kEntries); }
+static juce::String filterDriveOsToString(int i)          { return choiceToKey(i, FilterDriveOs::kEntries); }
+
+static int filterAlgorithmFromString(const juce::String& s) { return choiceFromKey(s, FilterAlgorithm::kEntries); }
+static juce::String filterAlgorithmToString(int i)          { return choiceToKey(i, FilterAlgorithm::kEntries); }
+
+static int filterWarpStyleFromString(const juce::String& s) { return choiceFromKey(s, FilterWarpStyle::kEntries); }
+static juce::String filterWarpStyleToString(int i)          { return choiceToKey(i, FilterWarpStyle::kEntries); }
+
 static int envTargetFromString(const juce::String& s)   { return choiceFromKey(s, EnvTarget::kEntries); }
 static juce::String envTargetToString(int i)            { return choiceToKey(i, EnvTarget::kEntries); }
 
@@ -1897,23 +2617,29 @@ static juce::String driftWaveToString(int i)            { return choiceToKey(i, 
 
 static int curveShapeFromString(const juce::String& s)  { return choiceFromKey(s, EnvCurve::kEntries); }
 static juce::String curveShapeToString(int i)           { return choiceToKey(i, EnvCurve::kEntries); }
+static int envVelTimeModeFromString(const juce::String& s) { return choiceFromKey(s, EnvVelTimeMode::kEntries); }
+static juce::String envVelTimeModeToString(int i)          { return choiceToKey(i, EnvVelTimeMode::kEntries); }
 
 // ── PID group tables for looped save/load of envelopes, LFOs, drift ──
 struct EnvPIDs {
     const char* attack; const char* decay; const char* sustain; const char* release;
     const char* amount; const char* velSens; const char* loop; const char* target;
     const char* attackCurve; const char* decayCurve; const char* releaseCurve;
+    const char* attackVelMode; const char* decayVelMode; const char* releaseVelMode;
 };
 static constexpr EnvPIDs kEnvPIDs[] = {
     { PID::ampAttack, PID::ampDecay, PID::ampSustain, PID::ampRelease,
       PID::ampAmount, PID::ampVelSens, PID::ampLoop, nullptr,
-      PID::ampAttackCurve, PID::ampDecayCurve, PID::ampReleaseCurve },
+      PID::ampAttackCurve, PID::ampDecayCurve, PID::ampReleaseCurve,
+      PID::ampAttackVelMode, PID::ampDecayVelMode, PID::ampReleaseVelMode },
     { PID::mod1Attack, PID::mod1Decay, PID::mod1Sustain, PID::mod1Release,
       PID::mod1Amount, PID::mod1VelSens, PID::mod1Loop, PID::mod1Target,
-      PID::mod1AttackCurve, PID::mod1DecayCurve, PID::mod1ReleaseCurve },
+      PID::mod1AttackCurve, PID::mod1DecayCurve, PID::mod1ReleaseCurve,
+      PID::mod1AttackVelMode, PID::mod1DecayVelMode, PID::mod1ReleaseVelMode },
     { PID::mod2Attack, PID::mod2Decay, PID::mod2Sustain, PID::mod2Release,
       PID::mod2Amount, PID::mod2VelSens, PID::mod2Loop, PID::mod2Target,
-      PID::mod2AttackCurve, PID::mod2DecayCurve, PID::mod2ReleaseCurve },
+      PID::mod2AttackCurve, PID::mod2DecayCurve, PID::mod2ReleaseCurve,
+      PID::mod2AttackVelMode, PID::mod2DecayVelMode, PID::mod2ReleaseVelMode },
 };
 
 struct LfoPIDs {
@@ -1923,6 +2649,7 @@ struct LfoPIDs {
 static constexpr LfoPIDs kLfoPIDs[] = {
     { PID::lfo1Rate, PID::lfo1Depth, PID::lfo1Wave, PID::lfo1Target, PID::lfo1Mode },
     { PID::lfo2Rate, PID::lfo2Depth, PID::lfo2Wave, PID::lfo2Target, PID::lfo2Mode },
+    { PID::lfo3Rate, PID::lfo3Depth, PID::lfo3Wave, PID::lfo3Target, PID::lfo3Mode },
 };
 
 struct DriftPIDs {
@@ -2054,13 +2781,16 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         env->setProperty("attackCurve", curveShapeToString(static_cast<int>(get(ep.attackCurve))));
         env->setProperty("decayCurve", curveShapeToString(static_cast<int>(get(ep.decayCurve))));
         env->setProperty("releaseCurve", curveShapeToString(static_cast<int>(get(ep.releaseCurve))));
+        env->setProperty("attackVelMode", envVelTimeModeToString(static_cast<int>(get(ep.attackVelMode))));
+        env->setProperty("decayVelMode", envVelTimeModeToString(static_cast<int>(get(ep.decayVelMode))));
+        env->setProperty("releaseVelMode", envVelTimeModeToString(static_cast<int>(get(ep.releaseVelMode))));
         envArr.add(env.get());
     }
     modObj->setProperty("envs", envArr);
 
-    // Modulation: 2 LFOs
+    // Modulation: 3 LFOs
     juce::Array<juce::var> lfoArr;
-    for (int i = 0; i < 2; ++i)
+    for (int i = 0; i < 3; ++i)
     {
         const auto& lp = kLfoPIDs[i];
         juce::DynamicObject::Ptr lfo = new juce::DynamicObject();
@@ -2099,6 +2829,7 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     wt->setProperty("noiseType", choiceToKey(static_cast<int>(get(PID::noiseType)), NoiseKind::kEntries));
     wt->setProperty("frames", choiceToKey(static_cast<int>(get(PID::wtFrames)), WtFrames::kEntries));
     wt->setProperty("smooth", get(PID::wtSmooth) > 0.5f);
+    wt->setProperty("autoScan", get(PID::wtAutoScan) > 0.5f);
     root->setProperty("wavetable", wt.get());
 
     // Effects
@@ -2128,6 +2859,10 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     filt->setProperty("resonance", get(PID::filterResonance));
     filt->setProperty("mix", get(PID::filterMix));
     filt->setProperty("kbdTrack", get(PID::filterKbdTrack));
+    filt->setProperty("drive", get(PID::filterDrive));
+    filt->setProperty("driveOs", filterDriveOsToString(static_cast<int>(get(PID::filterDriveOs))));
+    filt->setProperty("algorithm", filterAlgorithmToString(static_cast<int>(get(PID::filterAlgorithm))));
+    filt->setProperty("warpStyle", filterWarpStyleToString(static_cast<int>(get(PID::filterWarpStyle))));
     root->setProperty("filter", filt.get());
 
     // Sequencer
@@ -2153,6 +2888,7 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     seq->setProperty("division", choiceToKey(static_cast<int>(get(PID::seqDivision)), SeqDivision::kEntries));
     seq->setProperty("glideTime", get(PID::seqGlideTime));
     seq->setProperty("gate", get(PID::seqGate));
+    seq->setProperty("shuffle", get(PID::seqShuffle));
     seq->setProperty("scaleRoot", choiceToKey(static_cast<int>(get(PID::scaleRoot)), ScaleRoot::kEntries));
     seq->setProperty("scaleType", choiceToKey(static_cast<int>(get(PID::scaleType)), ScaleType::kEntries));
     root->setProperty("sequencer", seq.get());
@@ -2177,6 +2913,64 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     genSeq->setProperty("fixPulses",   get(PID::genFixPulses) > 0.5f);
     genSeq->setProperty("fixRotation", get(PID::genFixRotation) > 0.5f);
     genSeq->setProperty("fixMutation", get(PID::genFixMutation) > 0.5f);
+
+    // Shared pitch field
+    juce::DynamicObject::Ptr field = new juce::DynamicObject();
+    field->setProperty("mode",     choiceToKey(static_cast<int>(get(PID::genFieldMode)),  FieldMode::kEntries));
+    field->setProperty("rate",     static_cast<int>(get(PID::genFieldRate)));
+    field->setProperty("centerPc", static_cast<int>(get(PID::genFieldCenterPc)));
+    field->setProperty("pivot",    choiceToKey(static_cast<int>(get(PID::genFieldPivot)), FieldPivot::kEntries));
+    genSeq->setProperty("pitchField", field.get());
+
+    // Strand 0 extras (Euclidean params already serialised above under top-level keys)
+    juce::DynamicObject::Ptr strand0 = new juce::DynamicObject();
+    strand0->setProperty("role",      choiceToKey(static_cast<int>(get(PID::genRole)),    StrandRole::kEntries));
+    strand0->setProperty("octave",    static_cast<int>(get(PID::genOctave)));
+    strand0->setProperty("divMult",   choiceToKey(static_cast<int>(get(PID::genDivMult)), StrandDivMult::kEntries));
+    strand0->setProperty("dominance", get(PID::genDominance));
+    genSeq->setProperty("strand0", strand0.get());
+
+    // Strands 2..5 full state
+    struct StrandIds {
+        const char* enable;  const char* role;    const char* octave;  const char* divMult;
+        const char* dominance; const char* steps; const char* pulses;  const char* rotation;
+        const char* mutation; const char* fS;     const char* fP;      const char* fR;      const char* fM;
+    };
+    static const StrandIds kExtras[4] = {
+        { PID::gen2Enable, PID::gen2Role, PID::gen2Octave, PID::gen2DivMult,
+          PID::gen2Dominance, PID::gen2Steps, PID::gen2Pulses, PID::gen2Rotation,
+          PID::gen2Mutation, PID::gen2FixSteps, PID::gen2FixPulses, PID::gen2FixRotation, PID::gen2FixMutation },
+        { PID::gen3Enable, PID::gen3Role, PID::gen3Octave, PID::gen3DivMult,
+          PID::gen3Dominance, PID::gen3Steps, PID::gen3Pulses, PID::gen3Rotation,
+          PID::gen3Mutation, PID::gen3FixSteps, PID::gen3FixPulses, PID::gen3FixRotation, PID::gen3FixMutation },
+        { PID::gen4Enable, PID::gen4Role, PID::gen4Octave, PID::gen4DivMult,
+          PID::gen4Dominance, PID::gen4Steps, PID::gen4Pulses, PID::gen4Rotation,
+          PID::gen4Mutation, PID::gen4FixSteps, PID::gen4FixPulses, PID::gen4FixRotation, PID::gen4FixMutation },
+        { PID::gen5Enable, PID::gen5Role, PID::gen5Octave, PID::gen5DivMult,
+          PID::gen5Dominance, PID::gen5Steps, PID::gen5Pulses, PID::gen5Rotation,
+          PID::gen5Mutation, PID::gen5FixSteps, PID::gen5FixPulses, PID::gen5FixRotation, PID::gen5FixMutation }
+    };
+    static const char* kExtraKeys[4] = { "strand2", "strand3", "strand4", "strand5" };
+    for (int i = 0; i < 4; ++i)
+    {
+        const auto& ids = kExtras[i];
+        juce::DynamicObject::Ptr sn = new juce::DynamicObject();
+        sn->setProperty("enabled",     get(ids.enable) > 0.5f);
+        sn->setProperty("role",        choiceToKey(static_cast<int>(get(ids.role)),    StrandRole::kEntries));
+        sn->setProperty("octave",      static_cast<int>(get(ids.octave)));
+        sn->setProperty("divMult",     choiceToKey(static_cast<int>(get(ids.divMult)), StrandDivMult::kEntries));
+        sn->setProperty("dominance",   get(ids.dominance));
+        sn->setProperty("steps",       static_cast<int>(get(ids.steps)));
+        sn->setProperty("pulses",      static_cast<int>(get(ids.pulses)));
+        sn->setProperty("rotation",    static_cast<int>(get(ids.rotation)));
+        sn->setProperty("mutation",    get(ids.mutation));
+        sn->setProperty("fixSteps",    get(ids.fS) > 0.5f);
+        sn->setProperty("fixPulses",   get(ids.fP) > 0.5f);
+        sn->setProperty("fixRotation", get(ids.fR) > 0.5f);
+        sn->setProperty("fixMutation", get(ids.fM) > 0.5f);
+        genSeq->setProperty(kExtraKeys[i], sn.get());
+    }
+
     root->setProperty("generativeSeq", genSeq.get());
 
     return juce::JSON::toString(root.get(), true);
@@ -2216,21 +3010,24 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         // Restore P1/P2/P3 directly — the explicit pointsLocked flag gates
         // auto-bracketing in loadGeneratedAudio so no pending-apply dance is
         // needed. Older v3 presets without the flag default to unlocked.
-        masterSampler.setLoopStart(static_cast<float>(engine->getProperty("loopStartFrac")));
-        masterSampler.setLoopEnd(static_cast<float>(engine->getProperty("loopEndFrac")));
-        masterSampler.setStartPos(static_cast<float>(engine->getProperty("startPosFrac")));
-        // WT extraction region (fallback to P2/P3 for presets without it)
-        if (engine->hasProperty("wtExtractStart"))
         {
-            masterSampler.setWtExtractStart(static_cast<float>(engine->getProperty("wtExtractStart")));
-            masterSampler.setWtExtractEnd(static_cast<float>(engine->getProperty("wtExtractEnd")));
+            const juce::ScopedLock sl (getCallbackLock());
+            masterSampler.setLoopStart(static_cast<float>(engine->getProperty("loopStartFrac")));
+            masterSampler.setLoopEnd(static_cast<float>(engine->getProperty("loopEndFrac")));
+            masterSampler.setStartPos(static_cast<float>(engine->getProperty("startPosFrac")));
+            // WT extraction region (fallback to P2/P3 for presets without it)
+            if (engine->hasProperty("wtExtractStart"))
+            {
+                masterSampler.setWtExtractStart(static_cast<float>(engine->getProperty("wtExtractStart")));
+                masterSampler.setWtExtractEnd(static_cast<float>(engine->getProperty("wtExtractEnd")));
+            }
+            else
+            {
+                masterSampler.setWtExtractStart(masterSampler.getLoopStart());
+                masterSampler.setWtExtractEnd(masterSampler.getLoopEnd());
+            }
+            masterSampler.setPointsLocked(static_cast<bool>(engine->getProperty("pointsLocked")));
         }
-        else
-        {
-            masterSampler.setWtExtractStart(masterSampler.getLoopStart());
-            masterSampler.setWtExtractEnd(masterSampler.getLoopEnd());
-        }
-        masterSampler.setPointsLocked(static_cast<bool>(engine->getProperty("pointsLocked")));
         setParam(parameters, PID::crossfadeMs, static_cast<float>(engine->getProperty("crossfadeMs")));
         setParam(parameters, PID::normalize, static_cast<bool>(engine->getProperty(PID::normalize)) ? 1.0f : 0.0f);
         setParam(parameters, PID::loopOptimize,
@@ -2265,6 +3062,15 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 if (env->hasProperty("releaseCurve"))
                     setParam(parameters, ep.releaseCurve,
                              static_cast<float>(curveShapeFromString(env->getProperty("releaseCurve").toString())));
+                if (env->hasProperty("attackVelMode"))
+                    setParam(parameters, ep.attackVelMode,
+                             static_cast<float>(envVelTimeModeFromString(env->getProperty("attackVelMode").toString())));
+                if (env->hasProperty("decayVelMode"))
+                    setParam(parameters, ep.decayVelMode,
+                             static_cast<float>(envVelTimeModeFromString(env->getProperty("decayVelMode").toString())));
+                if (env->hasProperty("releaseVelMode"))
+                    setParam(parameters, ep.releaseVelMode,
+                             static_cast<float>(envVelTimeModeFromString(env->getProperty("releaseVelMode").toString())));
                 if (ep.target != nullptr)
                     setParam(parameters, ep.target, static_cast<float>(envTargetFromString(env->getProperty("target").toString())));
             }
@@ -2273,7 +3079,7 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         auto* lfosArr = mod->getProperty("lfos").getArray();
         if (lfosArr)
         {
-            for (int i = 0; i < std::min(2, lfosArr->size()); ++i)
+            for (int i = 0; i < std::min(3, lfosArr->size()); ++i)
             {
                 auto* lfo = (*lfosArr)[i].getDynamicObject();
                 if (!lfo) continue;
@@ -2319,6 +3125,8 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         setParam(parameters, PID::wtFrames,
                  static_cast<float>(choiceFromKey(wt->getProperty("frames").toString(), WtFrames::kEntries)));
         setParam(parameters, PID::wtSmooth, wt->getProperty("smooth") ? 1.0f : 0.0f);
+        bool autoScan = wt->hasProperty("autoScan") ? static_cast<bool>(wt->getProperty("autoScan")) : true;
+        setParam(parameters, PID::wtAutoScan, autoScan ? 1.0f : 0.0f);
     }
 
     // ── Effects ──
@@ -2356,6 +3164,23 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         setParam(parameters, PID::filterResonance, static_cast<float>(filt->getProperty("resonance")));
         setParam(parameters, PID::filterMix, static_cast<float>(filt->getProperty("mix")));
         setParam(parameters, PID::filterKbdTrack, static_cast<float>(filt->getProperty("kbdTrack")));
+        // Drive: absent in older presets -> treat as 0 dB.
+        setParam(parameters, PID::filterDrive,
+                 filt->hasProperty("drive") ? static_cast<float>(filt->getProperty("drive")) : 0.0f);
+        // Drive OS: absent in older presets -> Off (bit-identical to pre-OS build).
+        setParam(parameters, PID::filterDriveOs,
+                 filt->hasProperty("driveOs")
+                     ? static_cast<float>(filterDriveOsFromString(filt->getProperty("driveOs").toString()))
+                     : static_cast<float>(FilterDriveOs::Off));
+        // Filter algorithm: absent in pre-Ladder/Warp presets -> SVF (bit-identical).
+        setParam(parameters, PID::filterAlgorithm,
+                 filt->hasProperty("algorithm")
+                     ? static_cast<float>(filterAlgorithmFromString(filt->getProperty("algorithm").toString()))
+                     : static_cast<float>(FilterAlgorithm::SVF));
+        setParam(parameters, PID::filterWarpStyle,
+                 filt->hasProperty("warpStyle")
+                     ? static_cast<float>(filterWarpStyleFromString(filt->getProperty("warpStyle").toString()))
+                     : static_cast<float>(FilterWarpStyle::Tanh));
     }
 
     // ── Sequencer ──
@@ -2394,6 +3219,10 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                  static_cast<float>(choiceFromKey(seq->getProperty("division").toString(), SeqDivision::kEntries)));
         setParam(parameters, PID::seqGlideTime, static_cast<float>(seq->getProperty("glideTime")));
         setParam(parameters, PID::seqGate, static_cast<float>(seq->getProperty("gate")));
+        setParam(parameters, PID::seqShuffle,
+                 seq->hasProperty("shuffle")
+                     ? static_cast<float>(seq->getProperty("shuffle"))
+                     : 0.0f);
         setParam(parameters, PID::scaleRoot,
                  static_cast<float>(choiceFromKey(seq->getProperty("scaleRoot").toString(), ScaleRoot::kEntries)));
         setParam(parameters, PID::scaleType,
@@ -2424,6 +3253,71 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         setParam(parameters, PID::genFixPulses,   static_cast<bool>(gs->getProperty("fixPulses")) ? 1.0f : 0.0f);
         setParam(parameters, PID::genFixRotation, static_cast<bool>(gs->getProperty("fixRotation")) ? 1.0f : 0.0f);
         setParam(parameters, PID::genFixMutation, static_cast<bool>(gs->getProperty("fixMutation")) ? 1.0f : 0.0f);
+
+        // Shared pitch field (optional — absent in pre-polyphonic presets)
+        if (auto* pf = gs->getProperty("pitchField").getDynamicObject())
+        {
+            setParam(parameters, PID::genFieldMode,
+                     static_cast<float>(choiceFromKey(pf->getProperty("mode").toString(), FieldMode::kEntries)));
+            setParam(parameters, PID::genFieldRate, static_cast<float>(static_cast<int>(pf->getProperty("rate"))));
+            setParam(parameters, PID::genFieldCenterPc, static_cast<float>(static_cast<int>(pf->getProperty("centerPc"))));
+            setParam(parameters, PID::genFieldPivot,
+                     static_cast<float>(choiceFromKey(pf->getProperty("pivot").toString(), FieldPivot::kEntries)));
+        }
+
+        // Strand 0 extras (optional)
+        if (auto* s0 = gs->getProperty("strand0").getDynamicObject())
+        {
+            setParam(parameters, PID::genRole,
+                     static_cast<float>(choiceFromKey(s0->getProperty("role").toString(), StrandRole::kEntries)));
+            setParam(parameters, PID::genOctave, static_cast<float>(static_cast<int>(s0->getProperty("octave"))));
+            setParam(parameters, PID::genDivMult,
+                     static_cast<float>(choiceFromKey(s0->getProperty("divMult").toString(), StrandDivMult::kEntries)));
+            setParam(parameters, PID::genDominance, static_cast<float>(s0->getProperty("dominance")));
+        }
+
+        // Strands 2..5 (optional — pre-polyphonic presets and 4-strand
+        // presets simply skip the missing entries; the affected strand stays
+        // at its APVTS default).
+        struct StrandImportIds {
+            const char* enable;  const char* role;    const char* octave;  const char* divMult;
+            const char* dominance; const char* steps; const char* pulses;  const char* rotation;
+            const char* mutation; const char* fS;     const char* fP;      const char* fR;      const char* fM;
+        };
+        static const StrandImportIds kExtrasImport[4] = {
+            { PID::gen2Enable, PID::gen2Role, PID::gen2Octave, PID::gen2DivMult,
+              PID::gen2Dominance, PID::gen2Steps, PID::gen2Pulses, PID::gen2Rotation,
+              PID::gen2Mutation, PID::gen2FixSteps, PID::gen2FixPulses, PID::gen2FixRotation, PID::gen2FixMutation },
+            { PID::gen3Enable, PID::gen3Role, PID::gen3Octave, PID::gen3DivMult,
+              PID::gen3Dominance, PID::gen3Steps, PID::gen3Pulses, PID::gen3Rotation,
+              PID::gen3Mutation, PID::gen3FixSteps, PID::gen3FixPulses, PID::gen3FixRotation, PID::gen3FixMutation },
+            { PID::gen4Enable, PID::gen4Role, PID::gen4Octave, PID::gen4DivMult,
+              PID::gen4Dominance, PID::gen4Steps, PID::gen4Pulses, PID::gen4Rotation,
+              PID::gen4Mutation, PID::gen4FixSteps, PID::gen4FixPulses, PID::gen4FixRotation, PID::gen4FixMutation },
+            { PID::gen5Enable, PID::gen5Role, PID::gen5Octave, PID::gen5DivMult,
+              PID::gen5Dominance, PID::gen5Steps, PID::gen5Pulses, PID::gen5Rotation,
+              PID::gen5Mutation, PID::gen5FixSteps, PID::gen5FixPulses, PID::gen5FixRotation, PID::gen5FixMutation }
+        };
+        static const char* kExtraKeysImport[4] = { "strand2", "strand3", "strand4", "strand5" };
+        for (int i = 0; i < 4; ++i)
+        {
+            auto* sn = gs->getProperty(kExtraKeysImport[i]).getDynamicObject();
+            if (!sn) continue;
+            const auto& ids = kExtrasImport[i];
+            setParam(parameters, ids.enable,    static_cast<bool>(sn->getProperty("enabled")) ? 1.0f : 0.0f);
+            setParam(parameters, ids.role,      static_cast<float>(choiceFromKey(sn->getProperty("role").toString(), StrandRole::kEntries)));
+            setParam(parameters, ids.octave,    static_cast<float>(static_cast<int>(sn->getProperty("octave"))));
+            setParam(parameters, ids.divMult,   static_cast<float>(choiceFromKey(sn->getProperty("divMult").toString(), StrandDivMult::kEntries)));
+            setParam(parameters, ids.dominance, static_cast<float>(sn->getProperty("dominance")));
+            setParam(parameters, ids.steps,     static_cast<float>(static_cast<int>(sn->getProperty("steps"))));
+            setParam(parameters, ids.pulses,    static_cast<float>(static_cast<int>(sn->getProperty("pulses"))));
+            setParam(parameters, ids.rotation,  static_cast<float>(static_cast<int>(sn->getProperty("rotation"))));
+            setParam(parameters, ids.mutation,  static_cast<float>(sn->getProperty("mutation")));
+            setParam(parameters, ids.fS,        static_cast<bool>(sn->getProperty("fixSteps")) ? 1.0f : 0.0f);
+            setParam(parameters, ids.fP,        static_cast<bool>(sn->getProperty("fixPulses")) ? 1.0f : 0.0f);
+            setParam(parameters, ids.fR,        static_cast<bool>(sn->getProperty("fixRotation")) ? 1.0f : 0.0f);
+            setParam(parameters, ids.fM,        static_cast<bool>(sn->getProperty("fixMutation")) ? 1.0f : 0.0f);
+        }
     }
 
     return true;

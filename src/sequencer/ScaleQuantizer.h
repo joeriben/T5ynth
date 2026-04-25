@@ -2,6 +2,7 @@
 #include <array>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 /**
  * Musical scale quantizer.
@@ -116,6 +117,25 @@ static constexpr int kScaleDegrees[COUNT][13] = {
     {0,1,3,7,8,-1,-1,-1,-1,-1,-1,-1,-1},  // Pelog
     {0,2,5,7,10,-1,-1,-1,-1,-1,-1,-1,-1}, // Slendro
 };
+
+/**
+ * Root-rotated pitch-class set for a scale.
+ *
+ * Returns a 12-bit bitmask where bit n is set iff pitch class n is a
+ * member of `scale` rooted at `root` (0=C..11=B). Used by the polyphonic
+ * generative sequencer as the initial pcSet for its PitchField.
+ */
+inline std::uint16_t pcSetFromScale(Scale scale, int root)
+{
+    if (scale <= Off || scale >= COUNT) return 0x0FFFu;   // chromatic fallback
+    const std::uint16_t raw = static_cast<std::uint16_t>(kScaleMasks[scale]);
+    const int r = ((root % 12) + 12) % 12;
+    std::uint16_t rotated = 0;
+    for (int i = 0; i < 12; ++i)
+        if ((raw >> i) & 1u)
+            rotated |= static_cast<std::uint16_t>(1u << ((i + r) % 12));
+    return rotated;
+}
 
 /** Number of degrees per octave for each scale. */
 inline int degreesPerOctave(Scale scale)

@@ -598,9 +598,8 @@ the C++ client will misinterpret the stream.
 6. **AudioLDM2 has a known generation failure inside the bundle**
    ("The size of tensor a (N) must match the size of tensor b (M) at
    non-singleton dimension 1"). This is a `diffusers` / pipeline-state
-   issue, not a pipe protocol issue. See `HANDOVER_AUDIOLDM2.md` for
-   context. A replacement server can ignore this if it implements its
-   own AudioLDM2 path.
+   issue, not a pipe protocol issue. A replacement server can ignore this
+   if it implements its own AudioLDM2 path.
 
 7. **The server redirects `sys.stdout = sys.stderr` in two places** to
    protect the pipe from libraries that print to stdout

@@ -333,6 +333,84 @@ bool SettingsPage::hasAnyInstalledModel()
     return false;
 }
 
+juce::Result SettingsPage::importModelDirectoryForId(const juce::String& modelId,
+                                                     const juce::File& sourceDir,
+                                                     juce::File& activeDir,
+                                                     bool replaceExistingTarget)
+{
+    activeDir = juce::File();
+
+    if (!sourceDir.isDirectory() || !hasModelMarker(sourceDir))
+        return juce::Result::fail("This directory does not contain a valid model.");
+
+    auto targetDir = getAppSupportModelDir(modelId);
+    const auto sourcePath = sourceDir.getFullPathName();
+    const auto targetPath = targetDir.getFullPathName();
+
+    if (sourcePath == targetPath)
+    {
+        activeDir = targetDir;
+        return juce::Result::ok();
+    }
+
+    const bool targetPresent = targetDir.exists() || targetDir.isSymbolicLink();
+    if (targetPresent)
+    {
+        const auto linkedTarget = targetDir.isSymbolicLink() ? targetDir.getLinkedTarget()
+                                                             : juce::File();
+        if (hasModelMarker(targetDir)
+            && linkedTarget.getFullPathName() == sourcePath)
+        {
+            activeDir = targetDir;
+            return juce::Result::ok();
+        }
+
+        if (!replaceExistingTarget && hasModelMarker(targetDir))
+        {
+            activeDir = targetDir;
+            return juce::Result::ok();
+        }
+
+        if (!targetDir.deleteRecursively())
+            return juce::Result::fail("Could not replace the existing model slot:\n  "
+                                      + targetPath);
+    }
+
+    auto parentDir = targetDir.getParentDirectory();
+    if (!parentDir.isDirectory() && !parentDir.createDirectory())
+        return juce::Result::fail("Could not create the model directory:\n  "
+                                  + parentDir.getFullPathName());
+
+    if (!sourceDir.createSymbolicLink(targetDir, false))
+        return juce::Result::fail("Could not import the model into:\n  "
+                                  + targetPath
+                                  + "\n\nSource:\n  "
+                                  + sourcePath);
+
+    activeDir = targetDir;
+    return juce::Result::ok();
+}
+
+void SettingsPage::importDiscoveredModels()
+{
+    for (int i = 0; i < kNumKnownModels; ++i)
+    {
+        const auto& km = kKnownModels[i];
+        auto found = scanForModelById(km.id, km.hfRepo);
+        if (!found.exists())
+            continue;
+
+        juce::File activeDir;
+        auto result = importModelDirectoryForId(km.id, found, activeDir, false);
+        if (result.failed())
+        {
+            juce::Logger::writeToLog("Model auto-import skipped for "
+                                     + juce::String(km.id) + ": "
+                                     + result.getErrorMessage());
+        }
+    }
+}
+
 void SettingsPage::setModelPath(const juce::File& dir)
 {
     modelPath = dir;
@@ -359,6 +437,7 @@ void SettingsPage::browseForModel()
     juce::Component::SafePointer<SettingsPage> safeThis(this);
     fileChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
         [safeThis, modelId](const juce::FileChooser& fc) {
+            juce::ignoreUnused(modelId);
             auto* self = safeThis.getComponent();
             if (self == nullptr) return;
             auto result = fc.getResult();
@@ -369,13 +448,18 @@ void SettingsPage::browseForModel()
                     "Select a folder that contains model_index.json or model_config.json.");
                 return;
             }
-            auto appDir = SettingsPage::getAppSupportModelDir(modelId);
-            if (result != appDir) {
-                appDir.getParentDirectory().createDirectory();
-                if (appDir.exists()) appDir.deleteRecursively();
-                appDir.createSymbolicLink(result, false);
+            juce::File activeDir;
+            auto importResult = self->importModelDirectoryForId(modelId, result, activeDir, true);
+            if (importResult.failed())
+            {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::WarningIcon,
+                    "Import failed",
+                    importResult.getErrorMessage());
+                return;
             }
-            self->setModelPath(result);
+
+            self->setModelPath(activeDir);
         });
 }
 
@@ -617,8 +701,20 @@ void SettingsPage::performAutoScan()
     auto found = scanForModel();
     if (found.exists())
     {
-        setModelPath(found);
-        downloadStatusLabel.setText("Model found: " + found.getFullPathName(),
+        juce::File activeDir;
+        auto importResult = importModelDirectoryForId(selectedModelId(), found, activeDir, true);
+        if (importResult.failed())
+        {
+            updateStatus();
+            downloadStatusLabel.setText("Model import failed", juce::dontSendNotification);
+            downloadStatusLabel.setColour(juce::Label::textColourId,
+                                          juce::Colour(0xffef4444));
+            setInstructionsText(instructionsLabel, importResult.getErrorMessage());
+            return;
+        }
+
+        setModelPath(activeDir);
+        downloadStatusLabel.setText("Model imported: " + activeDir.getFullPathName(),
                                     juce::dontSendNotification);
         downloadStatusLabel.setColour(juce::Label::textColourId,
                                       juce::Colour(0xff4ade80));
@@ -626,7 +722,7 @@ void SettingsPage::performAutoScan()
     }
 
     // 2. Model-specific smart scan. Only SA Small is designed for the
-    //    "download 3 files to Downloads, click Auto-Scan" flow.
+    //    "download 2 files to Downloads, click Auto-Scan" flow.
     auto modelId = selectedModelId();
     if (modelId != "stable-audio-open-small")
     {

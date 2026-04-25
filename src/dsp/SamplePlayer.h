@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include <memory>
 #include <vector>
 #include "signalsmith-stretch.h"
 
@@ -10,7 +11,7 @@
  *   - Forward loop, one-shot, ping-pong (palindrome buffer)
  *   - Equal-power crossfade baked into buffer at loop boundary
  *   - Cross-correlation loop-point optimization
- *   - Peak normalization (0.95 target)
+ *   - Signal-aware normalization (sustained vs. transient vs. hot/silent)
  *   - Fractional loop start/end ("brackets")
  *   - MIDI transposition via Signalsmith Stretch (pitch-preserving)
  *   - 6-tap Lanczos sinc interpolation for buffer reads
@@ -22,6 +23,33 @@ public:
     enum class LoopMode { OneShot, Loop, PingPong };
     enum class PitchShiftQuality { Bypass, Efficient, Default, HighQuality };
 
+    struct PrepareConfig
+    {
+        LoopMode loopMode = LoopMode::Loop;
+        float crossfadeMs = 150.0f;
+        bool normalizeOn = false;
+        int loopOptimizeLevel = 0;
+        float startPosFrac = 0.0f;
+        float loopStartFrac = 0.0f;
+        float loopEndFrac = 1.0f;
+    };
+
+    struct PreparedPlaybackState
+    {
+        juce::AudioBuffer<float> playBuffer;
+        double bufferOriginalSR = 44100.0;
+        int playStart = 0;
+        int playEnd = 0;
+        int coldStart = 0;
+        bool audioLoaded = false;
+    };
+
+    struct PreparedBufferLoad
+    {
+        juce::AudioBuffer<float> originalBuffer;
+        PreparedPlaybackState playbackState;
+    };
+
     SamplePlayer() = default;
 
     void prepare(double sampleRate, int samplesPerBlock);
@@ -29,6 +57,17 @@ public:
 
     /** Load audio data. Calls preparePlaybackBuffer() internally. */
     void loadBuffer(const juce::AudioBuffer<float>& buffer, double bufferSampleRate);
+
+    /** Capture the settings which shape prepared playback data. */
+    PrepareConfig capturePrepareConfig() const;
+
+    /** Build immutable playback data off the audio thread. */
+    PreparedBufferLoad prepareBufferLoad(const juce::AudioBuffer<float>& buffer,
+                                         double bufferSampleRate,
+                                         const PrepareConfig& config) const;
+
+    /** Publish already-prepared playback data with matching config. */
+    void applyPreparedBufferLoad(PreparedBufferLoad prepared, const PrepareConfig& config);
 
     /** Process a block (writes into output buffer). */
     void processBlock(juce::AudioBuffer<float>& output);
@@ -138,11 +177,42 @@ public:
     void setPitchShiftQuality(PitchShiftQuality quality);
     PitchShiftQuality getPitchShiftQuality() const { return pitchQuality; }
 
+    // ─── Signal-aware normalization analysis (re-used externally for
+    //     content classification, e.g. preset auto-tagging). ───
+    enum class NormalizeMode { Bypass, PeakCap, Transient, Sustained };
+
+    struct NormalizeAnalysis
+    {
+        float durationSeconds = 0.0f;
+        float peak = 0.0f;
+        float percentilePeak = 0.0f;
+        float rms = 0.0f;
+        float activeRms = 0.0f;
+        float crestDb = 0.0f;
+        float peakToPercentileDb = 0.0f;
+        float activeRatio = 0.0f;
+    };
+
+    /** Analyze the audible region and choose a linear normalization mode. */
+    NormalizeAnalysis analyzeNormalizeRegion(const juce::AudioBuffer<float>& buf,
+                                             int regionStart,
+                                             int regionEnd,
+                                             double bufferSampleRate) const;
+    static const char* normalizeModeName(NormalizeMode mode);
+    NormalizeMode chooseNormalizeMode(const NormalizeAnalysis& analysis) const;
+
 private:
+    struct PlaybackSnapshot
+    {
+        juce::AudioBuffer<float> playBuffer;
+        double bufferOriginalSR = 44100.0;
+    };
+
     // Original (unprocessed) buffer — kept for re-preparation when settings change
     juce::AudioBuffer<float> originalBuffer;
     // Prepared (crossfaded/palindromed/normalized) playback buffer
     juce::AudioBuffer<float> playBuffer;
+    std::shared_ptr<const PlaybackSnapshot> playbackSnapshot_;
 
     double playbackSampleRate = 44100.0;
     double bufferOriginalSR   = 44100.0;
@@ -187,9 +257,8 @@ private:
     // Dirty flag — when settings change, re-prepare on next processBlock
     bool needsReprepareFlag = false;
 
-    // Shared-buffer mode: reads from external playBuffer, no ownership
+    // Shared-buffer mode: follows a published snapshot from another player.
     bool sharedMode = false;
-    const juce::AudioBuffer<float>* sharedPlayBuffer = nullptr;
 
     // ─── Pitch shifting (Signalsmith Stretch) ───
     signalsmith::stretch::SignalsmithStretch<float> stretcher;
@@ -203,6 +272,9 @@ private:
 
     /** 4-point Catmull-Rom cubic interpolation at fractional buffer position. */
     float cubicSample(double pos) const;
+
+    const juce::AudioBuffer<float>& currentPlaybackBuffer() const;
+    double currentBufferOriginalSR() const;
 
     /** Read raw samples at 1:1 speed (SR-corrected only, no transposition).
      *  Advances readPosition and handles loop wrapping. */
@@ -220,17 +292,55 @@ private:
      *  Eliminates STFT ramp-up latency so first real output sample is valid. */
     void primeStretcher();
 
-    /** Cross-correlation loop-end optimizer (channel 0). */
+    PreparedPlaybackState preparePlaybackState(const juce::AudioBuffer<float>& sourceBuffer,
+                                               double sourceSampleRate,
+                                               const PrepareConfig& config) const;
+    void applyPreparedPlaybackState(PreparedPlaybackState preparedState);
+
+    /** Cross-correlation loop-end optimizer with boundary smoothness penalty.
+     *  Returns the refined loop end (channel 0). */
     int optimizeLoopEnd(const float* data, int loopStart, int loopEnd, int bufLen, int level) const;
 
+    /** Local refinement of loopStart so the splice {data[loopEnd-1] -> data[loopStart]}
+     *  matches in amplitude AND slope. Searches a small neighborhood around the user's
+     *  loopStart. Returns refined start (channel 0). */
+    int refineLoopStart(const float* data, int loopStart, int loopEnd, int bufLen, int level) const;
+
+    /** Find the nearest local extremum (zero of first derivative) around `centre`.
+     *  Used by ping-pong to place reversal points where slope is naturally near zero,
+     *  eliminating velocity-discontinuity clicks. Returns sample index (channel 0). */
+    int snapToLocalExtremum(const float* data, int centre, int searchRadius,
+                            int boundLo, int boundHi) const;
+
     /** Apply equal-power crossfade at loop boundary. */
-    void applyLoopCrossfade(juce::AudioBuffer<float>& buf, int loopStart, int& loopEnd) const;
+    static void applyLoopCrossfade(juce::AudioBuffer<float>& buf, int loopStart, int& loopEnd,
+                                   float crossfadeMs, double bufferSampleRate);
 
-    /** Peak-normalize play region to 0.95. */
-    void normalizeBuffer(juce::AudioBuffer<float>& buf, int regionStart, int regionEnd) const;
+    /** Write boundary continuation samples into playBuffer so cubic interpolation
+     *  near loop edges sees the *correct* surrounding context, not unrelated audio
+     *  past the loop region. Mode-aware:
+     *    - Loop:     periodic continuation (wrap)
+     *    - PingPong: palindromic continuation (mirror)
+     *    - OneShot:  no-op
+     *  Writes up to kBoundaryGuardSamples on each side, clamped to buffer bounds. */
+    static void writeBoundaryGuards(juce::AudioBuffer<float>& buf,
+                                    int playStart, int playEnd, LoopMode mode);
 
-    /** Remove leading near-zero samples (< ~-60 dB) from originalBuffer. */
-    void trimLeadingSilence();
+    /** Cubic interpolation needs i1-1, i1, i1+1, i1+2 — at most 2 samples ahead and
+     *  1 behind. We use 4 on each side to absorb overshoot at high transposition
+     *  ratios (worst case ~ srRatio * transposeRatio per step). */
+    static constexpr int kBoundaryGuardSamples = 4;
+
+    float chooseNormalizeGain(const NormalizeAnalysis& analysis, NormalizeMode mode) const;
+
+    /** Apply signal-aware linear normalization to the audible play region only. */
+    void normalizeBuffer(juce::AudioBuffer<float>& buf,
+                         int regionStart,
+                         int regionEnd,
+                         double bufferSampleRate) const;
+
+    /** Remove leading near-zero samples (< ~-60 dB) from a source buffer. */
+    void trimLeadingSilence(juce::AudioBuffer<float>& buffer) const;
 
     // Per-level xcorr parameters: [0]=unused, [1]=Low, [2]=High
     static constexpr int XCORR_WINDOW[3] = { 0,  512, 2048 };

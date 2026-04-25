@@ -20,6 +20,12 @@ public:
     void resized() override;
 
 private:
+    class WordmarkComponent : public juce::Component
+    {
+    public:
+        void paint(juce::Graphics& g) override;
+    };
+
     void timerCallback() override;
     float fs() const;
     void updateVisibility();
@@ -48,6 +54,8 @@ private:
     std::unique_ptr<SA> delayTimeA, delayFbA, delayDampA, delayMixA;
     std::unique_ptr<SA> reverbMixA, algoRoomA, algoDampA, algoWidthA;
     std::unique_ptr<CA> delayTypeA, reverbTypeA;
+
+    WordmarkComponent wordmark;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FxPanel)
 };

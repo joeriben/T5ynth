@@ -6,6 +6,25 @@
 #include <thread>
 #include <cmath>
 
+namespace
+{
+constexpr float kPromptPadFactor   = 0.04f;
+constexpr float kPromptRow         = 1.4f;
+constexpr float kPromptSlider      = 1.2f;
+constexpr float kPromptMultiInput  = 3.0f;   // two-line prompt editor
+constexpr float kPromptCompactRow  = 1.15f;
+constexpr float kPromptCompactCtrl = 0.9f;
+constexpr float kPromptSeedCtrl    = 1.75f;
+constexpr float kPromptGap         = 0.28f;
+constexpr float kPromptContentUnits = 20.9f;
+
+float preferredPromptFontForWidth(int width)
+{
+    const float innerW = juce::jmax(160.0f, static_cast<float>(width) * (1.0f - 2.0f * kPromptPadFactor));
+    return juce::jlimit(11.5f, 15.5f, innerW * 0.048f);
+}
+}
+
 // Colors from GuiHelpers.h (kAccent, kDim, kDim, kSurface)
 
 // Linear crossfade between old and new audio buffers.
@@ -52,8 +71,12 @@ static void makeLabel(juce::Label& l, const juce::String& text, juce::Colour col
 PromptPanel::PromptPanel(T5ynthProcessor& processor)
     : processorRef(processor)
 {
-    makeLabel(promptALabel, "Prompt A (Basis)", kDim, juce::Justification::centredLeft, this);
-    promptAEditor.setMultiLine(false);
+    makeLabel(promptALabel, "Prompt A", kDim, juce::Justification::centredLeft, this);
+    // Two-line with word-wrap so longer prompts stay visible. With
+    // setReturnKeyStartsNewLine(false) Return still triggers generation; the
+    // wrap only kicks in when the text itself exceeds one line's width.
+    promptAEditor.setMultiLine(true, true);
+    promptAEditor.setReturnKeyStartsNewLine(false);
     promptAEditor.setText("a steady clean saw wave, c3");
     promptAEditor.onReturnKey = [this] { triggerGeneration(); };
     promptAEditor.onTextChange = [this] {
@@ -63,8 +86,9 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     promptAEditor.setBufferedToImage(true);
     addAndMakeVisible(promptAEditor);
 
-    makeLabel(promptBLabel, "Prompt B (optional, for interpolation)", kDim, juce::Justification::centredLeft, this);
-    promptBEditor.setMultiLine(false);
+    makeLabel(promptBLabel, "Prompt B", kDim, juce::Justification::centredLeft, this);
+    promptBEditor.setMultiLine(true, true);
+    promptBEditor.setReturnKeyStartsNewLine(false);
     promptBEditor.setText("glass breaking");
     promptBEditor.onTextChange = [this] {
         // Prompt edits should force the next drift regen to use a fresh snapshot.
@@ -75,9 +99,8 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 
     // Alpha
     makeSlider(alphaSlider, this);
-    makeLabel(alphaLabel, "Alpha (A <-> B)", kDim, juce::Justification::centredLeft, this);
+    makeLabel(alphaLabel, "A " + juce::String(juce::CharPointer_UTF8("\xe2\x86\x94")) + " B", kDim, juce::Justification::centredLeft, this);
     makeLabel(alphaValue, "0", kOscCol, juce::Justification::centredRight, this);
-    makeLabel(alphaHint, "Interpolation: -1.0 = A only, 1.0 = B only", kDim, juce::Justification::centredLeft, this);
     alphaSlider.onValueChange = [this] {
         float v = static_cast<float>(alphaSlider.getValue());
         if (std::abs(v) < 0.001f)
@@ -90,18 +113,18 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 
     // Magnitude
     makeSlider(magnitudeSlider, this);
-    makeLabel(magLabel, "Magnitude (Embedding Scale)", kDim, juce::Justification::centredLeft, this);
+    makeLabel(magLabel, "Magnitude", kDim, juce::Justification::centredLeft, this);
     makeLabel(magValue, "1.00", kOscCol, juce::Justification::centredRight, this);
-    makeLabel(magHint, "Embedding scale (1.0 = unchanged)", kDim, juce::Justification::centredLeft, this);
+    makeLabel(magHint, "Embedding magnitude (1.0 = unchanged)", kDim, juce::Justification::centredLeft, this);
     magnitudeSlider.onValueChange = [this] {
         magValue.setText(juce::String(magnitudeSlider.getValue(), 3), juce::dontSendNotification);
     };
 
-    // Noise
+    // Chaos
     makeSlider(noiseSlider, this);
-    makeLabel(noiseLabel, "Noise (Embedding Chaos)", kDim, juce::Justification::centredLeft, this);
+    makeLabel(noiseLabel, "Chaos", kDim, juce::Justification::centredLeft, this);
     makeLabel(noiseValue, "0.000", kOscCol, juce::Justification::centredRight, this);
-    makeLabel(noiseHint, "Gaussian noise on embedding (0 = none)", kDim, juce::Justification::centredLeft, this);
+    makeLabel(noiseHint, "Embedding chaos (0 = none)", kDim, juce::Justification::centredLeft, this);
     noiseSlider.onValueChange = [this] {
         noiseValue.setText(juce::String(noiseSlider.getValue(), 3), juce::dontSendNotification);
     };
@@ -110,19 +133,10 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     // Duration
     makeSlider(durationSlider, this);
     makeLabel(durLabel, "Duration", kDim, juce::Justification::centredLeft, this);
-    makeLabel(durValue, "3.0s", kOscCol, juce::Justification::centredRight, this);
+    makeLabel(durValue, "3.00s", kOscCol, juce::Justification::centredRight, this);
     makeLabel(durHint, "Audio length (seconds)", kDim, juce::Justification::centredLeft, this);
     durationSlider.onValueChange = [this] {
-        durValue.setText(juce::String(durationSlider.getValue(), 1) + "s", juce::dontSendNotification);
-    };
-
-    // Start Position
-    makeSlider(startSlider, this);
-    makeLabel(startLabel, "Start", kDim, juce::Justification::centredLeft, this);
-    makeLabel(startValue, "0%", kOscCol, juce::Justification::centredRight, this);
-    makeLabel(startHint, "0% = attack, higher = sustained", kDim, juce::Justification::centredLeft, this);
-    startSlider.onValueChange = [this] {
-        startValue.setText(juce::String(juce::roundToInt(startSlider.getValue() * 100.0)) + "%", juce::dontSendNotification);
+        durValue.setText(juce::String(durationSlider.getValue(), 2) + "s", juce::dontSendNotification);
     };
 
     // Steps
@@ -145,23 +159,32 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 
     // Seed (text field + random toggle)
     makeLabel(seedLabel, "Seed", kDim, juce::Justification::centredLeft, this);
-    seedEditor.setColour(juce::TextEditor::backgroundColourId, kSurface);
-    seedEditor.setColour(juce::TextEditor::textColourId, juce::Colours::white);
+    // Match the value-display style used by noiseValue / cfgValue / durValue
+    // (kOscCol on dark surface) so the current seed reads as a first-class
+    // number, not a grey decoration.
+    seedEditor.setColour(juce::TextEditor::backgroundColourId, kSurface.brighter(0.04f));
+    seedEditor.setColour(juce::TextEditor::textColourId, kOscCol);
     seedEditor.setColour(juce::TextEditor::outlineColourId, kBorder);
+    seedEditor.setColour(juce::TextEditor::focusedOutlineColourId, kOscCol);
+    seedEditor.setMultiLine(false);
+    seedEditor.setReturnKeyStartsNewLine(false);
     seedEditor.setInputRestrictions(12, "0123456789");
+    seedEditor.setIndents(3, 2);
     seedEditor.setJustification(juce::Justification::centredLeft);
     seedEditor.setText("123456789", false);
     syncSeedEditorFont(14.0f);
-    seedEditor.setBufferedToImage(true);
     addAndMakeVisible(seedEditor);
 
     seedEditor.onReturnKey = [this] { triggerGeneration(); };
-    seedEditor.onTextChange = [this] { syncSeedEditorFont(seedEditor.getFont().getHeight()); };
+    seedEditor.onTextChange = [this] {
+        syncSeedEditorFont(preferredPromptFontForWidth(getWidth()) * 1.25f);
+    };
 
     randomSeedToggle.setColour(juce::TextButton::buttonColourId, kSurface);
     randomSeedToggle.setColour(juce::TextButton::buttonOnColourId, kOscCol);
-    randomSeedToggle.setColour(juce::TextButton::textColourOffId, kDim);
+    randomSeedToggle.setColour(juce::TextButton::textColourOffId, juce::Colour(0xffe3e7f2));
     randomSeedToggle.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    randomSeedToggle.setTooltip("Random seed");
     randomSeedToggle.setClickingTogglesState(true);
     randomSeedToggle.setToggleState(false, juce::dontSendNotification);
     randomSeedToggle.onClick = [this] {
@@ -205,15 +228,6 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
                 apvts.getParameter(PID::genCfg)->setValueNotifyingHost(
                     apvts.getParameter(PID::genCfg)->convertTo0to1(defaultCfg));
 
-                // Start position only supported by SA 1.0 (seconds_start)
-                bool startSupported = !isSmall && !isAudioLDM2;
-                startSlider.setEnabled(startSupported);
-                startSlider.setAlpha(startSupported ? 1.0f : 0.3f);
-                if (!startSupported)
-                {
-                    apvts.getParameter(PID::genStart)->setValueNotifyingHost(0.0f);
-                }
-
                 // Preload model in background so first generate is instant
                 if (onStatusChanged) onStatusChanged("Loading " + model + "...", true);
                 generateButton.setEnabled(false);
@@ -251,11 +265,32 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     magA    = std::make_unique<Attachment>(apvts, PID::genMagnitude, magnitudeSlider);
     noiseA  = std::make_unique<Attachment>(apvts, PID::genNoise, noiseSlider);
     durA    = std::make_unique<Attachment>(apvts, PID::genDuration, durationSlider);
-    startA  = std::make_unique<Attachment>(apvts, PID::genStart, startSlider);
     stepsA  = std::make_unique<Attachment>(apvts, PID::infSteps, stepsSlider);
     cfgA    = std::make_unique<Attachment>(apvts, PID::genCfg, cfgSlider);
+    if (auto* startParam = apvts.getParameter(PID::genStart))
+        startParam->setValueNotifyingHost(0.0f);
 
     startTimerHz(10);  // poll for device availability + drift regen + ghost
+}
+
+int PromptPanel::getPreferredHeightForWidth(int width) const
+{
+    const float f = preferredPromptFontForWidth(width);
+    const int rowH = juce::roundToInt(f * kPromptRow);
+    const int sliderH = juce::roundToInt(f * kPromptSlider);
+    const int multiInputH = juce::roundToInt(f * kPromptMultiInput);
+    const int gap = juce::roundToInt(f * kPromptGap);
+    const int compactRowH = juce::roundToInt(f * kPromptCompactRow);
+    const int compactCtrlH = juce::roundToInt(f * kPromptCompactCtrl);
+    const int seedCtrlH = juce::roundToInt(f * kPromptSeedCtrl);
+
+    return (compactRowH + 2) + gap
+         + rowH + multiInputH + gap
+         + rowH + multiInputH + gap * 2
+         + rowH + sliderH + gap
+         + (compactRowH + compactCtrlH + gap) * 2
+         + compactRowH + seedCtrlH + gap
+         + gap + compactRowH;
 }
 
 void PromptPanel::timerCallback()
@@ -311,38 +346,17 @@ void PromptPanel::resized()
 {
     auto b = getLocalBounds();
     float w = static_cast<float>(b.getWidth());
-    int pad = juce::roundToInt(w * 0.04f);
+    int pad = juce::roundToInt(w * kPromptPadFactor);
     auto area = b.reduced(pad);
 
-    // ── Row heights in font-size units (single source of truth) ──
-    constexpr float kRow        = 1.4f;   // label row
-    constexpr float kSlider     = 1.2f;   // full slider
-    constexpr float kInput      = 1.8f;   // text editor
-    constexpr float kCompactRow = 1.2f;   // compact label row
-    constexpr float kCompactSl  = 0.9f;   // compact slider
-    constexpr float kGap        = 0.3f;   // gap
-
-    // Total content budget (f-units):
-    //   model:      kCompactRow + kGap                    = 1.5
-    //   prompt A:   kRow + kInput + kGap                  = 3.5
-    //   prompt B:   kRow + kInput + kGap*2                = 3.8
-    //   3× slider:  (kRow + kSlider + kGap) * 3           = 8.7
-    //   gap:        kGap                                  = 0.3
-    //   2× compact: (kCompactRow + kCompactSl + kGap) * 2 = 4.8
-    //   seed row:    1.65                                    = 1.65
-    //                                               Total: 24.25
-    constexpr float kContentUnits = 24.25f;
-    constexpr float kHintExtra    = 5.2f;  // 3×1.1 + 2×0.94 hint rows
-
     float f = juce::jlimit(10.0f, 20.0f,
-        (static_cast<float>(area.getHeight()) - 2.0f) / kContentUnits);
-    float fHint = f * 0.85f;
-    int rowH = juce::roundToInt(f * kRow);
-    int sliderH = juce::roundToInt(f * kSlider);
-    int hintH = juce::roundToInt(fHint * 1.3f);
-    int inputH = juce::roundToInt(f * kInput);
-    int gap = juce::roundToInt(f * kGap);
-    int compactRowH = juce::roundToInt(f * kCompactRow);
+        (static_cast<float>(area.getHeight()) - 2.0f) / kPromptContentUnits);
+    int rowH = juce::roundToInt(f * kPromptRow);
+    int sliderH = juce::roundToInt(f * kPromptSlider);
+    int gap = juce::roundToInt(f * kPromptGap);
+    int compactRowH = juce::roundToInt(f * kPromptCompactRow);
+    int compactCtrlH = juce::roundToInt(f * kPromptCompactCtrl);
+    int seedCtrlH = juce::roundToInt(f * kPromptSeedCtrl);
 
     auto setFs = [](juce::Label& l, float size) { l.setFont(juce::FontOptions(size)); };
 
@@ -357,62 +371,48 @@ void PromptPanel::resized()
         area.removeFromTop(gap);
     }
 
-    // Show hints only when the extra hint rows fit within available space
-    bool showHints = static_cast<float>(area.getHeight())
-                     > (kContentUnits + kHintExtra) * f + 2.0f;
+    magHint.setVisible(false);
+    noiseHint.setVisible(false);
+    durHint.setVisible(false);
+    stepsHint.setVisible(false);
+    cfgHint.setVisible(false);
 
-    // --- Main slider layout: [Label ... Value] \n [slider] \n [hint?] ---
-    auto layoutSlider = [&](juce::Label& label, juce::Slider& slider, juce::Label& value,
-                            juce::Label* hint, float labelSize)
+    // --- Main slider layout: [Label ... Value] \n [slider] ---
+    auto layoutSlider = [&](juce::Label& label, juce::Slider& slider, juce::Label& value)
     {
-        setFs(label, labelSize);
-        setFs(value, labelSize);
+        setFs(label, f);
+        setFs(value, f);
         auto hdr = area.removeFromTop(rowH);
         label.setBounds(hdr.removeFromLeft(hdr.getWidth() * 2 / 3));
         value.setBounds(hdr);
         slider.setBounds(area.removeFromTop(sliderH));
-        if (hint != nullptr)
-        {
-            if (showHints)
-            {
-                setFs(*hint, fHint);
-                hint->setBounds(area.removeFromTop(hintH));
-                hint->setVisible(true);
-            }
-            else
-                hint->setVisible(false);
-        }
         area.removeFromTop(gap);
     };
+
+    const int multiInputH = juce::roundToInt(f * kPromptMultiInput);
 
     // Prompt A
     setFs(promptALabel, f);
     promptALabel.setBounds(area.removeFromTop(rowH));
     promptAEditor.setFont(juce::FontOptions(f));
-    promptAEditor.setBounds(area.removeFromTop(inputH));
+    promptAEditor.setBounds(area.removeFromTop(multiInputH));
     area.removeFromTop(gap);
 
     // Prompt B
     setFs(promptBLabel, f);
     promptBLabel.setBounds(area.removeFromTop(rowH));
     promptBEditor.setFont(juce::FontOptions(f));
-    promptBEditor.setBounds(area.removeFromTop(inputH));
+    promptBEditor.setBounds(area.removeFromTop(multiInputH));
     area.removeFromTop(gap * 2);
 
-    // Alpha, Magnitude, Noise
-    layoutSlider(alphaLabel, alphaSlider, alphaValue, &alphaHint, f);
-    layoutSlider(magLabel, magnitudeSlider, magValue, &magHint, f);
-    layoutSlider(noiseLabel, noiseSlider, noiseValue, &noiseHint, f);
-
-    area.removeFromTop(gap);
+    // Alpha
+    layoutSlider(alphaLabel, alphaSlider, alphaValue);
 
     // --- Compact params: 2 columns ---
-    int compactSliderH = juce::roundToInt(f * 0.9f);
-    int compactHintH = juce::roundToInt(fHint * 1.1f);
     int colGap = juce::roundToInt(w * 0.03f);
 
-    auto layoutCompactPair = [&](juce::Label& lbl1, juce::Slider& sl1, juce::Label& val1, juce::Label* hint1,
-                                  juce::Label& lbl2, juce::Slider& sl2, juce::Label& val2, juce::Label* hint2)
+    auto layoutCompactPair = [&](juce::Label& lbl1, juce::Slider& sl1, juce::Label& val1,
+                                  juce::Label& lbl2, juce::Slider& sl2, juce::Label& val2)
     {
         int colW = (area.getWidth() - colGap) / 2;
 
@@ -428,44 +428,56 @@ void PromptPanel::resized()
         lbl2.setBounds(rightHdr.removeFromLeft(rightHdr.getWidth() * 2 / 3));
         val2.setBounds(rightHdr);
 
-        auto slRow = area.removeFromTop(compactSliderH);
+        auto slRow = area.removeFromTop(compactCtrlH);
         sl1.setBounds(slRow.removeFromLeft(colW));
         slRow.removeFromLeft(colGap);
         sl2.setBounds(slRow);
-
-        if (showHints && (hint1 != nullptr || hint2 != nullptr))
-        {
-            auto hintRow = area.removeFromTop(compactHintH);
-            if (hint1) { setFs(*hint1, fHint); hint1->setBounds(hintRow.removeFromLeft(colW)); hint1->setVisible(true); }
-            else hintRow.removeFromLeft(colW);
-            hintRow.removeFromLeft(colGap);
-            if (hint2) { setFs(*hint2, fHint); hint2->setBounds(hintRow); hint2->setVisible(true); }
-        }
-        else
-        {
-            if (hint1) hint1->setVisible(false);
-            if (hint2) hint2->setVisible(false);
-        }
         area.removeFromTop(gap);
     };
 
-    layoutCompactPair(durLabel, durationSlider, durValue, &durHint,
-                      startLabel, startSlider, startValue, &startHint);
-    layoutCompactPair(stepsLabel, stepsSlider, stepsValue, &stepsHint,
-                      cfgLabel, cfgSlider, cfgValue, &cfgHint);
-
-    // Seed row
+    auto layoutDurationSeedRow = [&]
     {
-        int seedRowH = juce::roundToInt(f * 1.65f);
-        auto seedRow = area.removeFromTop(seedRowH);
+        int colW = (area.getWidth() - colGap) / 2;
+
+        auto hdrRow = area.removeFromTop(compactRowH);
+        auto leftHdr = hdrRow.removeFromLeft(colW);
+        hdrRow.removeFromLeft(colGap);
+        auto rightHdr = hdrRow;
+
+        setFs(durLabel, f);
+        setFs(durValue, f);
+        durLabel.setBounds(leftHdr.removeFromLeft(leftHdr.getWidth() * 2 / 3));
+        durValue.setBounds(leftHdr);
         setFs(seedLabel, f);
-        int seedLabelW = juce::roundToInt(f * 2.5f);
-        seedLabel.setBounds(seedRow.removeFromLeft(seedLabelW));
-        int toggleW = juce::roundToInt(seedRow.getWidth() * 0.30f);
+        seedLabel.setBounds(rightHdr);
+
+        auto controlRow = area.removeFromTop(seedCtrlH);
+        auto durationBounds = controlRow.removeFromLeft(colW);
+        controlRow.removeFromLeft(colGap);
+
+        durationSlider.setBounds(durationBounds.withSizeKeepingCentre(durationBounds.getWidth(), compactCtrlH));
+
+        const float seedFontSize = f * 1.25f;
+        const float toggleFontSize = juce::jmin(15.0f, static_cast<float>(seedCtrlH) * 0.72f);
+        const int minToggleW = measureTextWidth(randomSeedToggle.getButtonText(), toggleFontSize)
+                             + juce::roundToInt(f * 1.2f);
+
+        auto seedRow = controlRow.reduced(0, 1);
+        int toggleW = juce::jmax(juce::roundToInt(seedRow.getWidth() * 0.32f), minToggleW);
+        toggleW = juce::jmin(toggleW, seedRow.getWidth() / 2);
+
         randomSeedToggle.setBounds(seedRow.removeFromRight(toggleW));
-        syncSeedEditorFont(f);
-        seedEditor.setBounds(seedRow.reduced(0, 1));
-    }
+        seedEditor.setBounds(seedRow);
+        syncSeedEditorFont(seedFontSize);
+
+        area.removeFromTop(gap);
+    };
+
+    layoutCompactPair(magLabel, magnitudeSlider, magValue,
+                      noiseLabel, noiseSlider, noiseValue);
+    layoutCompactPair(stepsLabel, stepsSlider, stepsValue,
+                      cfgLabel, cfgSlider, cfgValue);
+    layoutDurationSeedRow();
 
     // Info label at the bottom of the sequential layout
     area.removeFromTop(gap);
@@ -486,6 +498,8 @@ void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String
     randomSeedToggle.setToggleState(randomSeed, juce::dontSendNotification);
     syncSeedEditorDisplay(seed, true);
     syncSeedEditorEnabledState();
+    if (auto* startParam = processorRef.getValueTreeState().getParameter(PID::genStart))
+        startParam->setValueNotifyingHost(0.0f);
 
     // Select model from preset (match by model directory name)
     if (model.isNotEmpty())
@@ -609,7 +623,13 @@ void PromptPanel::syncSeedEditorEnabledState()
 
 void PromptPanel::syncSeedEditorFont(float size)
 {
-    juce::Font font { juce::FontOptions(size) };
+    float fittedSize = size;
+    const auto bounds = seedEditor.getLocalBounds();
+
+    if (!bounds.isEmpty())
+        fittedSize = juce::jmin(fittedSize, static_cast<float>(bounds.getHeight()) * 0.78f);
+
+    juce::Font font { juce::FontOptions(fittedSize) };
     seedEditor.setFont(font);
     seedEditor.applyFontToAllText(font);
 }
@@ -626,7 +646,7 @@ void PromptPanel::syncSeedEditorDisplay(int seed, bool force)
     if (force || seedEditor.getText() != seedText)
         seedEditor.setText(seedText, false);
 
-    syncSeedEditorFont(seedEditor.getFont().getHeight());
+    syncSeedEditorFont(preferredPromptFontForWidth(getWidth()) * 1.25f);
 }
 
 void PromptPanel::triggerGenerationWithOffsets(std::vector<std::pair<int, float>> offsets)
@@ -653,20 +673,18 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
                            ? apvts.getRawParameterValue(PID::genNoise)->load()
                            : noiseOverride;
     float duration = apvts.getRawParameterValue(PID::genDuration)->load();
-    float startPos = apvts.getRawParameterValue(PID::genStart)->load();
     int steps = static_cast<int>(apvts.getRawParameterValue(PID::infSteps)->load());
     float cfgScale = apvts.getRawParameterValue(PID::genCfg)->load();
     int seed = randomSeedToggle.getToggleState() ? -1 : seedEditor.getText().getIntValue();
 
     PipeInference::Request req;
     req.promptA = promptAEditor.getText().trim();
-    auto promptB = promptBEditor.getText().trim();
-    if (promptB.isNotEmpty()) req.promptB = promptB;
+    req.promptB = promptBEditor.getText().trim();
     req.alpha = alpha;
     req.magnitude = magnitude;
     req.noiseSigma = noiseSigma;
     req.durationSeconds = duration;
-    req.startPosition = startPos;
+    req.startPosition = 0.0f;
     req.steps = steps;
     req.cfgScale = cfgScale;
     req.seed = seed;
@@ -683,8 +701,6 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
 void PromptPanel::triggerGeneration()
 {
     if (generating) return;
-    auto promptA = promptAEditor.getText().trim();
-    if (promptA.isEmpty()) return;
 
     if (!processorRef.isInferenceReady())
     {
@@ -735,6 +751,7 @@ void PromptPanel::triggerGeneration()
                     self->lastGenPromptA_ = promptA;
                     self->lastGenPromptB_ = promptB;
                     self->syncSeedEditorDisplay(result.seed);
+                    processor.setLastGenerationTimeMs(result.generationTimeMs);
                     auto info = juce::String(result.generationTimeMs / 1000.0f, 1) + "s | seed "
                                 + juce::String(result.seed) + " | " + modelForLabel
                                 + " | " + deviceForLabel;
@@ -773,12 +790,11 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                                             bool /*holdForBar*/)
 {
     if (generating) return;
-    if (promptAEditor.getText().trim().isEmpty()) return;
     if (!processorRef.isPipeInferenceReady()) return;
 
     generating = true;
     generateButton.setEnabled(false);
-    if (onStatusChanged) onStatusChanged("drift regen...", true);
+    if (onStatusChanged) onStatusChanged("auto regen...", true);
 
     lastGenAlpha_ = effectiveAlpha;
     lastGenNoise_ = effectiveNoise;
@@ -824,7 +840,8 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                     self->lastGenPromptA_ = promptA;
                     self->lastGenPromptB_ = promptB;
                     self->syncSeedEditorDisplay(result.seed);
-                    auto info = juce::String(result.generationTimeMs / 1000.0f, 1) + "s | drift regen";
+                    processor.setLastGenerationTimeMs(result.generationTimeMs);
+                    auto info = juce::String(result.generationTimeMs / 1000.0f, 1) + "s | auto regen";
                     if (self->onStatusChanged) self->onStatusChanged(info, false);
 
                     if (!result.embeddingA.empty())
@@ -856,7 +873,6 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
 void PromptPanel::pollDriftRegen()
 {
     if (generating) return;
-    if (!processorRef.driftHasOscTarget.load(std::memory_order_relaxed)) return;
 
     int regenMode = processorRef.driftRegenMode.load(std::memory_order_relaxed);
     if (regenMode == 0) return; // Manual — no auto-regen
@@ -893,7 +909,7 @@ void PromptPanel::pollDriftRegen()
     }
 
     // Check if values changed enough from last generation
-    constexpr float DRIFT_THRESHOLD = 0.02f;
+    constexpr float DRIFT_THRESHOLD = 0.005f;
     bool alphaChanged = !std::isnan(effAlpha) &&
         (std::isnan(lastGenAlpha_) || std::abs(effAlpha - lastGenAlpha_) > DRIFT_THRESHOLD);
 
@@ -918,7 +934,9 @@ void PromptPanel::pollDriftRegen()
         }
     }
 
-    if (!alphaChanged && !axesChanged && !noiseChanged && !magChanged && !promptChanged) return;
+    bool randomRegen = randomSeedToggle.getToggleState();
+    if (!alphaChanged && !axesChanged && !noiseChanged && !magChanged && !promptChanged && !randomRegen)
+        return;
 
     auto& apvts = processorRef.getValueTreeState();
     float genAlpha = std::isnan(effAlpha)

@@ -46,6 +46,9 @@ namespace PID {
     static constexpr const char* ampAttackCurve   = "amp_attack_curve";
     static constexpr const char* ampDecayCurve    = "amp_decay_curve";
     static constexpr const char* ampReleaseCurve  = "amp_release_curve";
+    static constexpr const char* ampAttackVelMode = "amp_attack_vel_mode";
+    static constexpr const char* ampDecayVelMode  = "amp_decay_vel_mode";
+    static constexpr const char* ampReleaseVelMode= "amp_release_vel_mode";
     static constexpr const char* mod1Attack       = "mod1_attack";
     static constexpr const char* mod1Decay        = "mod1_decay";
     static constexpr const char* mod1Sustain      = "mod1_sustain";
@@ -57,6 +60,9 @@ namespace PID {
     static constexpr const char* mod1AttackCurve  = "mod1_attack_curve";
     static constexpr const char* mod1DecayCurve   = "mod1_decay_curve";
     static constexpr const char* mod1ReleaseCurve = "mod1_release_curve";
+    static constexpr const char* mod1AttackVelMode = "mod1_attack_vel_mode";
+    static constexpr const char* mod1DecayVelMode  = "mod1_decay_vel_mode";
+    static constexpr const char* mod1ReleaseVelMode= "mod1_release_vel_mode";
     static constexpr const char* mod2Attack       = "mod2_attack";
     static constexpr const char* mod2Decay        = "mod2_decay";
     static constexpr const char* mod2Sustain      = "mod2_sustain";
@@ -68,6 +74,9 @@ namespace PID {
     static constexpr const char* mod2AttackCurve  = "mod2_attack_curve";
     static constexpr const char* mod2DecayCurve   = "mod2_decay_curve";
     static constexpr const char* mod2ReleaseCurve = "mod2_release_curve";
+    static constexpr const char* mod2AttackVelMode = "mod2_attack_vel_mode";
+    static constexpr const char* mod2DecayVelMode  = "mod2_decay_vel_mode";
+    static constexpr const char* mod2ReleaseVelMode= "mod2_release_vel_mode";
     static constexpr const char* lfo1Rate         = "lfo1_rate";
     static constexpr const char* lfo1Depth        = "lfo1_depth";
     static constexpr const char* lfo1Wave         = "lfo1_wave";
@@ -78,6 +87,11 @@ namespace PID {
     static constexpr const char* lfo2Wave         = "lfo2_wave";
     static constexpr const char* lfo2Target       = "lfo2_target";
     static constexpr const char* lfo2Mode         = "lfo2_mode";
+    static constexpr const char* lfo3Rate         = "lfo3_rate";
+    static constexpr const char* lfo3Depth        = "lfo3_depth";
+    static constexpr const char* lfo3Wave         = "lfo3_wave";
+    static constexpr const char* lfo3Target       = "lfo3_target";
+    static constexpr const char* lfo3Mode         = "lfo3_mode";
     static constexpr const char* driftEnabled     = "drift_enabled";
     static constexpr const char* driftRegen       = "drift_regen";
     static constexpr const char* driftCrossfade   = "drift_crossfade";
@@ -100,6 +114,10 @@ namespace PID {
     static constexpr const char* filterResonance  = "filter_resonance";
     static constexpr const char* filterMix        = "filter_mix";
     static constexpr const char* filterKbdTrack   = "filter_kbd_track";
+    static constexpr const char* filterDrive      = "filter_drive";
+    static constexpr const char* filterDriveOs    = "filter_drive_os";
+    static constexpr const char* filterAlgorithm  = "filter_algorithm";
+    static constexpr const char* filterWarpStyle  = "filter_warp_style";
     static constexpr const char* delayType        = "delay_type";
     static constexpr const char* delayTime        = "delay_time";
     static constexpr const char* delayFeedback    = "delay_feedback";
@@ -129,6 +147,7 @@ namespace PID {
     static constexpr const char* noiseType        = "noise_type";
     static constexpr const char* wtFrames         = "wt_frames";
     static constexpr const char* wtSmooth         = "wt_smooth";
+    static constexpr const char* wtAutoScan       = "wt_auto_scan";
     static constexpr const char* seqMode          = "seq_mode";
     static constexpr const char* seqRunning       = "seq_running";
     static constexpr const char* seqBpm           = "seq_bpm";
@@ -136,6 +155,7 @@ namespace PID {
     static constexpr const char* seqDivision      = "seq_division";
     static constexpr const char* seqGlideTime     = "seq_glide_time";
     static constexpr const char* seqGate          = "seq_gate";
+    static constexpr const char* seqShuffle       = "seq_shuffle";
     static constexpr const char* seqOctave        = "seq_octave";
     static constexpr const char* seqPreset        = "seq_preset";
     static constexpr const char* arpMode          = "arp_mode";
@@ -153,31 +173,111 @@ namespace PID {
     static constexpr const char* genFixMutation   = "gen_fix_mutation";
     static constexpr const char* scaleRoot        = "scale_root";
     static constexpr const char* scaleType        = "scale_type";
+
+    // ── Polyphonic generative sequencer — shared pitch field ──
+    static constexpr const char* genFieldMode     = "gen_field_mode";
+    static constexpr const char* genFieldRate     = "gen_field_rate";
+    static constexpr const char* genFieldCenterPc = "gen_field_center_pc";
+    static constexpr const char* genFieldPivot    = "gen_field_pivot";
+
+    // ── Inter-strand coordination ──
+    static constexpr const char* genCoordinationMode = "gen_coordination_mode";
+    static constexpr const char* genCoordinationCap  = "gen_coordination_cap";
+
+    // Strand 0 (shares existing gen_* Euclidean/fix params — this block adds role/texture)
+    static constexpr const char* genRole          = "gen_role";
+    static constexpr const char* genOctave        = "gen_octave";
+    static constexpr const char* genDivMult       = "gen_div_mult";
+    static constexpr const char* genDominance     = "gen_dominance";
+
+    // Strand 2
+    static constexpr const char* gen2Enable       = "gen2_enable";
+    static constexpr const char* gen2Role         = "gen2_role";
+    static constexpr const char* gen2Octave       = "gen2_octave";
+    static constexpr const char* gen2DivMult      = "gen2_div_mult";
+    static constexpr const char* gen2Dominance    = "gen2_dominance";
+    static constexpr const char* gen2Steps        = "gen2_steps";
+    static constexpr const char* gen2Pulses       = "gen2_pulses";
+    static constexpr const char* gen2Rotation     = "gen2_rotation";
+    static constexpr const char* gen2Mutation     = "gen2_mutation";
+    static constexpr const char* gen2FixSteps     = "gen2_fix_steps";
+    static constexpr const char* gen2FixPulses    = "gen2_fix_pulses";
+    static constexpr const char* gen2FixRotation  = "gen2_fix_rotation";
+    static constexpr const char* gen2FixMutation  = "gen2_fix_mutation";
+
+    // Strand 3
+    static constexpr const char* gen3Enable       = "gen3_enable";
+    static constexpr const char* gen3Role         = "gen3_role";
+    static constexpr const char* gen3Octave       = "gen3_octave";
+    static constexpr const char* gen3DivMult      = "gen3_div_mult";
+    static constexpr const char* gen3Dominance    = "gen3_dominance";
+    static constexpr const char* gen3Steps        = "gen3_steps";
+    static constexpr const char* gen3Pulses       = "gen3_pulses";
+    static constexpr const char* gen3Rotation     = "gen3_rotation";
+    static constexpr const char* gen3Mutation     = "gen3_mutation";
+    static constexpr const char* gen3FixSteps     = "gen3_fix_steps";
+    static constexpr const char* gen3FixPulses    = "gen3_fix_pulses";
+    static constexpr const char* gen3FixRotation  = "gen3_fix_rotation";
+    static constexpr const char* gen3FixMutation  = "gen3_fix_mutation";
+
+    // Strand 4
+    static constexpr const char* gen4Enable       = "gen4_enable";
+    static constexpr const char* gen4Role         = "gen4_role";
+    static constexpr const char* gen4Octave       = "gen4_octave";
+    static constexpr const char* gen4DivMult      = "gen4_div_mult";
+    static constexpr const char* gen4Dominance    = "gen4_dominance";
+    static constexpr const char* gen4Steps        = "gen4_steps";
+    static constexpr const char* gen4Pulses       = "gen4_pulses";
+    static constexpr const char* gen4Rotation     = "gen4_rotation";
+    static constexpr const char* gen4Mutation     = "gen4_mutation";
+    static constexpr const char* gen4FixSteps     = "gen4_fix_steps";
+    static constexpr const char* gen4FixPulses    = "gen4_fix_pulses";
+    static constexpr const char* gen4FixRotation  = "gen4_fix_rotation";
+    static constexpr const char* gen4FixMutation  = "gen4_fix_mutation";
+
+    // Strand 5
+    static constexpr const char* gen5Enable       = "gen5_enable";
+    static constexpr const char* gen5Role         = "gen5_role";
+    static constexpr const char* gen5Octave       = "gen5_octave";
+    static constexpr const char* gen5DivMult      = "gen5_div_mult";
+    static constexpr const char* gen5Dominance    = "gen5_dominance";
+    static constexpr const char* gen5Steps        = "gen5_steps";
+    static constexpr const char* gen5Pulses       = "gen5_pulses";
+    static constexpr const char* gen5Rotation     = "gen5_rotation";
+    static constexpr const char* gen5Mutation     = "gen5_mutation";
+    static constexpr const char* gen5FixSteps     = "gen5_fix_steps";
+    static constexpr const char* gen5FixPulses    = "gen5_fix_pulses";
+    static constexpr const char* gen5FixRotation  = "gen5_fix_rotation";
+    static constexpr const char* gen5FixMutation  = "gen5_fix_mutation";
 }
 
 // ── Modulation envelope targets ──
 namespace EnvTarget {
+    // Note: "Scan" is intentionally absent — at the retrigger moment the
+    // mod envelope is always at zero (Attack just starting), so routing it
+    // to the scan position would be a silent no-op. Use LFO or Drift for
+    // scan modulation.
     enum : int {
         None = 0,
         DCA = 1,
         Filter = 2,
-        Scan = 3,
-        Pitch = 4,
-        DelayTime = 5,
-        DelayFB = 6,
-        DelayMix = 7,
-        ReverbMix = 8,
-        NoiseLevel = 9,
-        LFO1Rate = 10,
-        LFO1Depth = 11,
-        LFO2Rate = 12,
-        LFO2Depth = 13
+        Pitch = 3,
+        DelayTime = 4,
+        DelayFB = 5,
+        DelayMix = 6,
+        ReverbMix = 7,
+        NoiseLevel = 8,
+        LFO1Rate = 9,
+        LFO1Depth = 10,
+        LFO2Rate = 11,
+        LFO2Depth = 12,
+        LFO3Rate = 13,
+        LFO3Depth = 14
     };
     static constexpr ChoiceEntry kEntries[] = {
         { "none",       "---"        },
         { "dca",        "DCA"        },
         { "filter",     "Filter"     },
-        { "scan",       "Scan"       },
         { "pitch",      "Pitch"      },
         { "delay_time", "Dly Time"   },
         { "delay_fb",   "Dly FB"     },
@@ -187,10 +287,12 @@ namespace EnvTarget {
         { "lfo1_rate",  "LFO1 Rate"  },
         { "lfo1_depth", "LFO1 Depth" },
         { "lfo2_rate",  "LFO2 Rate"  },
-        { "lfo2_depth", "LFO2 Depth" }
+        { "lfo2_depth", "LFO2 Depth" },
+        { "lfo3_rate",  "LFO3 Rate"  },
+        { "lfo3_depth", "LFO3 Depth" }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(LFO2Depth + 1 == kCount,
+    static_assert(LFO3Depth + 1 == kCount,
                   "EnvTarget enum and kEntries are out of sync.");
 }
 
@@ -264,7 +366,7 @@ namespace DriftTarget {
         { "axis_1",     "Axis 1"     },
         { "axis_2",     "Axis 2"     },
         { "axis_3",     "Axis 3"     },
-        { "wt_scan",    "WT Scan"    },
+        { "wt_scan",    "Scan"       },
         { "filter",     "Filter"     },
         { "pitch",      "Pitch"      },
         { "delay_time", "Dly Time"   },
@@ -339,6 +441,54 @@ namespace FilterSlope {
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
     static_assert(Slope24 + 1 == kCount, "FilterSlope out of sync.");
+}
+
+// ── Filter drive oversampling factor ──
+namespace FilterDriveOs {
+    enum : int { Off = 0, X2 = 1, X4 = 2, X8 = 3 };
+    static constexpr ChoiceEntry kEntries[] = {
+        { "off", "Off" },
+        { "2x",  "2x"  },
+        { "4x",  "4x"  },
+        { "8x",  "8x"  }
+    };
+    static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
+    static_assert(X8 + 1 == kCount, "FilterDriveOs out of sync.");
+}
+
+// ── Filter algorithm ──
+// SVF: existing linear TPT SVF + one-pole cascade (low CPU, clean default).
+// Ladder: Huovilainen 4-pole Moog ladder with tanh saturation in each stage
+//         (warm analog growl, self-oscillating at high resonance).
+// Warp: Surge-XT-style ZDF ladder with per-pole nonlinearity, style-switchable
+//       (wide continuous character space, designed for embedding modulation).
+namespace FilterAlgorithm {
+    enum : int { SVF = 0, Ladder = 1, Warp = 2 };
+    static constexpr ChoiceEntry kEntries[] = {
+        { "svf",    "SVF"    },
+        { "ladder", "Ladder" },
+        { "warp",   "Warp"   }
+    };
+    static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
+    static_assert(Warp + 1 == kCount, "FilterAlgorithm out of sync.");
+}
+
+// ── Cutoff-Warp saturation style ──
+// Applied to the feedback path of the ZDF ladder in CutoffWarpFilter. Only
+// consumed when filterAlgorithm == Warp. Keys are stable forever — new styles
+// must be appended, never reordered.
+namespace FilterWarpStyle {
+    enum : int { Tanh = 0, SoftClip = 1, OJD = 2, Sin = 3, Digital = 4, Asym = 5 };
+    static constexpr ChoiceEntry kEntries[] = {
+        { "tanh",     "Tanh"     },
+        { "softclip", "SoftClip" },
+        { "ojd",      "OJD"      },
+        { "sin",      "Sin"      },
+        { "digital",  "Digital"  },
+        { "asym",     "Asym"     }
+    };
+    static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
+    static_assert(Asym + 1 == kCount, "FilterWarpStyle out of sync.");
 }
 
 // ── Delay type ──
@@ -432,6 +582,18 @@ namespace EnvCurve {
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
     static_assert(Exp + 1 == kCount, "EnvCurve out of sync.");
+}
+
+// ── Envelope velocity→time mode ──
+namespace EnvVelTimeMode {
+    enum : int { Off = 0, Positive = 1, Negative = 2 };
+    static constexpr ChoiceEntry kEntries[] = {
+        { "off", "Off"  },
+        { "pos", "Vel+" },
+        { "neg", "Vel-" }
+    };
+    static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
+    static_assert(Negative + 1 == kCount, "EnvVelTimeMode out of sync.");
 }
 
 // ── Drift regenerate mode (UTF-8 quarter-note glyph in labels) ──
@@ -661,6 +823,89 @@ namespace GenRange {
     static_assert(R4 + 1 == kCount, "GenRange out of sync.");
 }
 
+// ── Pitch-field evolution mode (polyphonic generative sequencer) ──
+namespace FieldMode {
+    enum : int { Static = 0, Drift = 1, Transform = 2, Pivot = 3 };
+    static constexpr ChoiceEntry kEntries[] = {
+        { "static",    "Static"    },
+        { "drift",     "Drift"     },
+        { "transform", "Transform" },
+        { "pivot",     "Pivot"     }
+    };
+    static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
+    static_assert(Pivot + 1 == kCount, "FieldMode out of sync.");
+}
+
+// ── Pitch-field pivot interval (semitones) — pc-set transposition amount ──
+namespace FieldPivot {
+    enum : int { m3 = 0, M3 = 1, TT = 2, P5 = 3 };
+    static constexpr ChoiceEntry kEntries[] = {
+        { "m3", "m3"  },
+        { "M3", "M3"  },
+        { "tt", "Tri" },
+        { "p5", "P5"  }
+    };
+    static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
+    static_assert(P5 + 1 == kCount, "FieldPivot out of sync.");
+    static constexpr int kSemitones[kCount] = { 3, 4, 6, 7 };
+}
+
+// ── Strand role (textural function — deliberately post-tonal labels) ──
+namespace StrandRole {
+    enum : int { Anchor = 0, Line = 1, Density = 2, Gesture = 3 };
+    static constexpr ChoiceEntry kEntries[] = {
+        { "anchor",  "Anchor"  },
+        { "line",    "Line"    },
+        { "density", "Density" },
+        { "gesture", "Gesture" }
+    };
+    static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
+    static_assert(Gesture + 1 == kCount, "StrandRole out of sync.");
+}
+
+// ── Inter-strand coordination strategy ──
+//
+// Voice-1 principles operate within a strand; this enum chooses how the
+// strands relate to each other. Phase 1 implements DensityBudget (default);
+// Independent is a no-op fallback; AlgebraicCoupling and ContrapuntalChecks
+// are reserved IDs that currently fall through to Independent semantics.
+namespace CoordinationMode {
+    enum : int { Independent = 0, DensityBudget = 1, AlgebraicCoupling = 2, ContrapuntalChecks = 3 };
+    static constexpr ChoiceEntry kEntries[] = {
+        { "independent",        "Independent"   },
+        { "density_budget",     "Density Budget" },
+        { "algebraic",          "Algebraic"      },
+        { "counterpoint",       "Counterpoint"   }
+    };
+    static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
+    static_assert(ContrapuntalChecks + 1 == kCount, "CoordinationMode out of sync.");
+}
+
+// ── Strand division multiplier (speed factor relative to global division) ──
+namespace StrandDivMult {
+    // T (1/3) and X3 (3) are appended at the end so preset indices for the
+    // original five binary ratios stay stable. The dropdown shows the
+    // declaration order: 1/4x, 1/2x, 1x, 2x, 4x, 1/3x, 3x.
+    enum : int { Q = 0, H = 1, X = 2, D = 3, F = 4, T = 5, X3 = 6 };
+    // Labels use plain ASCII "x" — the previous UTF-8 multiplication sign
+    // (U+00D7) failed to render correctly through JUCE's ComboBox font on
+    // Linux ("1Ã—" instead of "1×").
+    static constexpr ChoiceEntry kEntries[] = {
+        { "quarter", "1/4x" },
+        { "half",    "1/2x" },
+        { "x1",      "1x"   },
+        { "x2",      "2x"   },
+        { "x4",      "4x"   },
+        { "third",   "1/3x" },
+        { "x3",      "3x"   }
+    };
+    static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
+    static_assert(X3 + 1 == kCount, "StrandDivMult out of sync.");
+    static constexpr float kFactor[kCount] = {
+        0.25f, 0.5f, 1.0f, 2.0f, 4.0f, 1.0f / 3.0f, 3.0f
+    };
+}
+
 // ── Sequencer pattern preset ──
 namespace SeqPreset {
     enum : int {
@@ -702,6 +947,9 @@ struct BlockParams
     float ampAmount = 1.0f;
     float ampVelSens = 1.0f;  // 0=fixed, 1=full velocity
     int   ampAttackCurve = 2, ampDecayCurve = 2, ampReleaseCurve = 4; // CurveShape indices
+    int   ampAttackVelMode = EnvVelTimeMode::Off;
+    int   ampDecayVelMode = EnvVelTimeMode::Off;
+    int   ampReleaseVelMode = EnvVelTimeMode::Off;
     bool  ampLoop = false;
 
     // Mod envelope 1
@@ -710,6 +958,9 @@ struct BlockParams
     float mod1VelSens = 1.0f;
     int   mod1Target = 0; // EnvTarget::None
     int   mod1AttackCurve = 2, mod1DecayCurve = 2, mod1ReleaseCurve = 4;
+    int   mod1AttackVelMode = EnvVelTimeMode::Off;
+    int   mod1DecayVelMode = EnvVelTimeMode::Off;
+    int   mod1ReleaseVelMode = EnvVelTimeMode::Off;
     bool  mod1Loop = false;
 
     // Mod envelope 2
@@ -718,6 +969,9 @@ struct BlockParams
     float mod2VelSens = 1.0f;
     int   mod2Target = 0; // EnvTarget::None
     int   mod2AttackCurve = 2, mod2DecayCurve = 2, mod2ReleaseCurve = 4;
+    int   mod2AttackVelMode = EnvVelTimeMode::Off;
+    int   mod2DecayVelMode = EnvVelTimeMode::Off;
+    int   mod2ReleaseVelMode = EnvVelTimeMode::Off;
     bool  mod2Loop = false;
 
     // LFOs (global rates/depths for cross-mod, targets for routing)
@@ -725,6 +979,8 @@ struct BlockParams
     int   lfo1Wave = 0, lfo1Target = 0; // LfoTarget::None
     float lfo2Rate = 1.0f, lfo2Depth = 1.0f;
     int   lfo2Wave = 0, lfo2Target = 0; // LfoTarget::None
+    float lfo3Rate = 1.0f, lfo3Depth = 1.0f;
+    int   lfo3Wave = 0, lfo3Target = 0; // LfoTarget::None
 
     // Filter
     bool  filterEnabled = false;
@@ -733,6 +989,14 @@ struct BlockParams
     int   filterType = 0;  // FilterType index
     int   filterSlope = 0; // FilterSlope index
     float filterMix = 1.0f;
+    // Pre-filter drive: user-facing controls
+    float filterDriveDb = 0.0f;        // 0…36 dB, 0 = bypass
+    int   filterDriveOs = FilterDriveOs::Off;  // Oversampling around tanh
+    // Filter algorithm selection (SVF / Ladder / Warp) and Warp-specific style.
+    int   filterAlgorithm = FilterAlgorithm::SVF;
+    int   filterWarpStyle = FilterWarpStyle::Tanh;
+    // Pre-computed derived value (filled in processBlock, not by user):
+    float filterDriveGain = 1.0f;      // 10^(driveDb/20)
     float kbdTrack = 0.0f;
 
     // Scan
@@ -753,5 +1017,6 @@ struct BlockParams
     // Engine
     bool engineIsWavetable = false;
     bool wtSmooth = true; // Catmull-Rom frame interpolation
+    bool wtAutoScan = true;
 
 };

@@ -252,7 +252,14 @@ Each `SynthVoice` (`src/dsp/SynthVoice.h:17`) owns its own instance of:
 - Two per-voice `LFO`s (`perVoiceLfo1`, `perVoiceLfo2`) used only when
   the corresponding global LFO is in *Trigger* mode — in *Free* mode the
   global `T5ynthProcessor::lfo1` / `lfo2` values are used instead.
-- `T5ynthFilter` (State Variable Filter, `src/dsp/StateVariableFilter.h`).
+- Three filter algorithms, switched per voice by `BlockParams::filterAlgorithm`:
+  - `T5ynthFilter` (linear TPT State Variable Filter,
+    `src/dsp/StateVariableFilter.h`) — low-CPU default.
+  - `MoogLadderFilter` (Huovilainen non-linear 4-pole ladder with
+    half-sample-delay-compensated feedback, `src/dsp/MoogLadderFilter.h`).
+  - `CutoffWarpFilter` (Surge-XT-inspired ZDF 4-pole ladder with
+    style-switchable per-feedback saturation, `src/dsp/CutoffWarpFilter.h`).
+  Only the active model processes audio; the other two sit idle.
 
 ### Engine data distribution
 

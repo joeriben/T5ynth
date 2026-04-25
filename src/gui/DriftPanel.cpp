@@ -1,8 +1,9 @@
 #include "DriftPanel.h"
 #include "../dsp/BlockParams.h"
+#include "GuiHelpers.h"
 
 static const auto kGreen = juce::Colour(0xff4a9eff);
-static const auto kDim   = juce::Colour(0xff888888);
+static const auto kDim   = kTextSecondary;
 
 static void makeVSlider(juce::Slider& s, juce::Label& l, const juce::String& text, juce::Component* p)
 {
