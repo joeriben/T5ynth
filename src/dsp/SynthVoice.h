@@ -30,6 +30,8 @@ public:
     void noteOn(int note, float velocity, bool legato);
     void noteOff();
     void glideToNote(int note, float glideMs);
+    /** Smooth an immediate same-voice restart by fading from the last rendered sample. */
+    void beginRestartFade();
 
     // ── Per-sample rendering ──
     struct RenderResult {
@@ -115,6 +117,7 @@ private:
     bool active = false;
     bool noteHeld = false;
     float lastAmpEnvLevel = 0.0f;
+    float lastOutputSample_ = 0.0f;
     float baseFrequency = 440.0f;
     const float* tuningHz_ = nullptr;  // set by VoiceManager per-block
 
@@ -221,6 +224,12 @@ private:
     void updateSamplerPreStretchNorm(const BlockParams& p);
     bool preStretchNormStateMatches(const BlockParams& p) const;
     void applyVelocityTimedEnvelopeTimes();
+    float applyRestartFade(float sample);
+
+    float restartFadeTailSample_ = 0.0f;
+    int restartFadeSamplesLeft_ = 0;
+    int restartFadeTotalSamples_ = 1;
+    static constexpr float RESTART_FADE_MS = 3.0f;
 
     PreStretchNormState preStretchNormState_;
     float samplerPreStretchNormGain_ = 1.0f;

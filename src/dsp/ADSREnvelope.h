@@ -29,6 +29,7 @@ public:
     ADSREnvelope() = default;
 
     void prepare(double sampleRate);
+    void reset();
 
     void setAttack(float ms)      { attackMs = std::max(0.0f, ms); }
     void setDecay(float ms)       { decayMs = std::max(0.0f, ms); }

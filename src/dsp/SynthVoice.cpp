@@ -71,6 +71,9 @@ void SynthVoice::reset()
 {
     osc.reset();
     sampler.reset();
+    ampEnv.reset();
+    modEnv1.reset();
+    modEnv2.reset();
     filter.reset();
     filterLadder.reset();
     filterWarp.reset();
@@ -82,9 +85,34 @@ void SynthVoice::reset()
     noteHeld = false;
     currentNote = -1;
     lastAmpEnvLevel = 0.0f;
+    lastOutputSample_ = 0.0f;
+    restartFadeTailSample_ = 0.0f;
+    restartFadeSamplesLeft_ = 0;
+    restartFadeTotalSamples_ = 1;
     samplerPreStretchNormGain_ = 1.0f;
     samplerPreStretchNormDirty_ = true;
     preStretchNormState_ = {};
+}
+
+void SynthVoice::beginRestartFade()
+{
+    restartFadeTailSample_ = lastOutputSample_;
+    restartFadeTotalSamples_ = std::max(1,
+        static_cast<int>(RESTART_FADE_MS * 0.001f * static_cast<float>(sr)));
+    restartFadeSamplesLeft_ = restartFadeTotalSamples_;
+}
+
+float SynthVoice::applyRestartFade(float sample)
+{
+    if (restartFadeSamplesLeft_ <= 0)
+        return sample;
+
+    const int samplesDone = restartFadeTotalSamples_ - restartFadeSamplesLeft_ + 1;
+    const float t = juce::jlimit(0.0f, 1.0f,
+        static_cast<float>(samplesDone) / static_cast<float>(restartFadeTotalSamples_));
+    --restartFadeSamplesLeft_;
+
+    return restartFadeTailSample_ + (sample - restartFadeTailSample_) * t;
 }
 
 void SynthVoice::noteOn(int note, float velocity, bool legato)
@@ -565,6 +593,8 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
     }
 
     sample *= vca;
+    sample = applyRestartFade(sample);
+    lastOutputSample_ = sample;
 
     // Check if voice has finished (envelope idle after release)
     if (ampEnv.isIdle() && !noteHeld)
@@ -840,7 +870,11 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
 
         // ── Phase D: per-sample VCA ──
         for (int i = pos; i < lastI; ++i)
+        {
             output[i] *= vcaScratch[i - pos];
+            output[i] = applyRestartFade(output[i]);
+            lastOutputSample_ = output[i];
+        }
 
         if (goingIdle)
             return;

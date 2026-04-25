@@ -111,7 +111,8 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
             v.glideToNote(note, glideMs > 0.0f ? glideMs : 30.0f);
             return;
         }
-        if (v.isActive()) v.noteOff();
+        if (v.isActive())
+            v.beginRestartFade();
         if (v.getEngineMode() == SynthVoice::EngineMode::Sampler && currentSamplerMaster_ != nullptr)
         {
             v.getSampler().shareBufferFrom(*currentSamplerMaster_);
@@ -179,9 +180,8 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
     if (hasCurrentBlockParams_)
         v.configureForBlock(currentBlockParams_);
 
-    // If stealing an active voice, give it a fast release to avoid click
     if (v.isActive())
-        v.noteOff();
+        v.beginRestartFade();
 
     if (v.getEngineMode() == SynthVoice::EngineMode::Sampler && currentSamplerMaster_ != nullptr)
     {
@@ -581,7 +581,7 @@ void VoiceManager::setDroneNote(int note, float velocity, bool lfo1TrigMode, boo
         if (hasCurrentBlockParams_)
             v.configureForBlock(currentBlockParams_);
         if (v.isActive())
-            v.noteOff();
+            v.beginRestartFade();
         if (v.getEngineMode() == SynthVoice::EngineMode::Sampler && currentSamplerMaster_ != nullptr)
             v.getSampler().shareBufferFrom(*currentSamplerMaster_);
         if (v.getEngineMode() == SynthVoice::EngineMode::Wavetable && currentWavetableMaster_ != nullptr)
