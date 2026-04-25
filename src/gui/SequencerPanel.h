@@ -113,10 +113,14 @@ private:
     juce::TextButton strandEnableBtns[kNumExtraStrands];
     juce::ComboBox   strandRoleBoxes[kNumExtraStrands];
     // Per-strand differentiators on the second GEN row, vertically aligned
-    // beneath the [Sx][Role] cluster they belong to.
+    // beneath the [Sx][Role] cluster they belong to. Each control has a
+    // small prefix label so it's clear without consulting tooltips.
     juce::ComboBox   strandDivBoxes[kNumExtraStrands];
     juce::Slider     strandOctaveSliders[kNumExtraStrands];
     juce::Slider     strandDomSliders[kNumExtraStrands];
+    juce::Label      strandDivLabels[kNumExtraStrands];
+    juce::Label      strandOctLabels[kNumExtraStrands];
+    juce::Label      strandDomLabels[kNumExtraStrands];
 
 
     // Gen visualisation (painted in paint(), positioned in resized())

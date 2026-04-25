@@ -883,13 +883,16 @@ namespace CoordinationMode {
 
 // ── Strand division multiplier (speed factor relative to global division) ──
 namespace StrandDivMult {
-    enum : int { Q = 0, H = 1, X = 2, D = 3, F = 4 };  // ¼× ½× 1× 2× 4×
+    enum : int { Q = 0, H = 1, X = 2, D = 3, F = 4 };  // 1/4x, 1/2x, 1x, 2x, 4x
+    // Labels use plain ASCII "x" — the previous UTF-8 multiplication sign
+    // (U+00D7) failed to render correctly through JUCE's ComboBox font on
+    // Linux ("1Ã—" instead of "1×").
     static constexpr ChoiceEntry kEntries[] = {
-        { "quarter", "1/4\xc3\x97" },   // UTF-8 ×
-        { "half",    "1/2\xc3\x97" },
-        { "x1",      "1\xc3\x97"   },
-        { "x2",      "2\xc3\x97"   },
-        { "x4",      "4\xc3\x97"   }
+        { "quarter", "1/4x" },
+        { "half",    "1/2x" },
+        { "x1",      "1x"   },
+        { "x2",      "2x"   },
+        { "x4",      "4x"   }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
     static_assert(F + 1 == kCount, "StrandDivMult out of sync.");

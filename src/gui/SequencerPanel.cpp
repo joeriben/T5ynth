@@ -501,39 +501,51 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         juce::StringArray divItems;
         for (const auto& e : StrandDivMult::kEntries) divItems.add(e.label);
 
+        auto styleMiniLabel = [this](juce::Label& lbl, const juce::String& text)
+        {
+            lbl.setText(text, juce::dontSendNotification);
+            lbl.setColour(juce::Label::textColourId, kDim);
+            lbl.setJustificationType(juce::Justification::centredRight);
+            addAndMakeVisible(lbl);
+        };
+
+        auto styleMiniSlider = [this](juce::Slider& s, int textBoxW, const juce::String& tooltip)
+        {
+            s.setSliderStyle(juce::Slider::LinearHorizontal);
+            s.setTextBoxStyle(juce::Slider::TextBoxRight, false, textBoxW, 18);
+            s.setColour(juce::Slider::backgroundColourId, kSurface);
+            s.setColour(juce::Slider::trackColourId,      kSeqCol);
+            s.setColour(juce::Slider::thumbColourId,      juce::Colours::white);
+            s.setColour(juce::Slider::textBoxTextColourId,        kSeqCol);
+            s.setColour(juce::Slider::textBoxBackgroundColourId,  juce::Colours::transparentBlack);
+            s.setColour(juce::Slider::textBoxOutlineColourId,     juce::Colours::transparentBlack);
+            s.setTooltip(tooltip);
+            addAndMakeVisible(s);
+        };
+
         for (int i = 0; i < kNumExtraStrands; ++i)
         {
+            const juce::String sName = "Strand " + juce::String(i + 2);
+
+            styleMiniLabel(strandDivLabels[i], "Div");
             strandDivBoxes[i].addItemList(divItems, 1);
             strandDivBoxes[i].setColour(juce::ComboBox::backgroundColourId, kSurface);
             strandDivBoxes[i].setColour(juce::ComboBox::textColourId, kSeqCol);
             strandDivBoxes[i].setColour(juce::ComboBox::outlineColourId, kBorder);
-            strandDivBoxes[i].setTooltip("Strand " + juce::String(i + 2) + " tempo multiplier");
+            strandDivBoxes[i].setTooltip(sName + " tempo multiplier (creates polymeter)");
             addAndMakeVisible(strandDivBoxes[i]);
             strandDivA[i] = std::make_unique<CA>(apvts, kDivPIDs[i], strandDivBoxes[i]);
 
-            strandOctaveSliders[i].setSliderStyle(juce::Slider::LinearBar);
-            strandOctaveSliders[i].setTextBoxStyle(juce::Slider::TextBoxLeft, false, 0, 0);
+            styleMiniLabel(strandOctLabels[i], "Oct");
             strandOctaveSliders[i].setRange(-2.0, 2.0, 1.0);
-            strandOctaveSliders[i].setColour(juce::Slider::backgroundColourId, kSurface);
-            strandOctaveSliders[i].setColour(juce::Slider::trackColourId, kSeqCol);
-            strandOctaveSliders[i].setColour(juce::Slider::textBoxTextColourId, kSeqCol);
-            strandOctaveSliders[i].setColour(juce::Slider::textBoxOutlineColourId, kBorder);
-            strandOctaveSliders[i].setTextValueSuffix(" Oct");
-            strandOctaveSliders[i].setTooltip("Strand " + juce::String(i + 2) + " octave shift");
-            addAndMakeVisible(strandOctaveSliders[i]);
+            styleMiniSlider(strandOctaveSliders[i], 22,
+                sName + " octave shift (-2..+2)");
             strandOctaveA[i] = std::make_unique<SA>(apvts, kOctPIDs[i], strandOctaveSliders[i]);
 
-            strandDomSliders[i].setSliderStyle(juce::Slider::LinearBar);
-            strandDomSliders[i].setTextBoxStyle(juce::Slider::TextBoxLeft, false, 0, 0);
-            strandDomSliders[i].setColour(juce::Slider::backgroundColourId, kSurface);
-            strandDomSliders[i].setColour(juce::Slider::trackColourId, kSeqCol);
-            strandDomSliders[i].setColour(juce::Slider::textBoxTextColourId, kSeqCol);
-            strandDomSliders[i].setColour(juce::Slider::textBoxOutlineColourId, kBorder);
+            styleMiniLabel(strandDomLabels[i], "Dom");
             strandDomSliders[i].setNumDecimalPlacesToDisplay(2);
-            strandDomSliders[i].setTextValueSuffix(" Dom");
-            strandDomSliders[i].setTooltip("Strand " + juce::String(i + 2)
-                + " dominance — probability of snapping to field center on the cycle downbeat");
-            addAndMakeVisible(strandDomSliders[i]);
+            styleMiniSlider(strandDomSliders[i], 32,
+                sName + " dominance — probability of snapping to field center at the cycle downbeat (0..1)");
             strandDomA[i] = std::make_unique<SA>(apvts, kDomPIDs[i], strandDomSliders[i]);
         }
     }
@@ -1159,6 +1171,9 @@ void SequencerPanel::resized()
         strandDivBoxes[i].setVisible(genModeActive);
         strandOctaveSliders[i].setVisible(genModeActive);
         strandDomSliders[i].setVisible(genModeActive);
+        strandDivLabels[i].setVisible(genModeActive);
+        strandOctLabels[i].setVisible(genModeActive);
+        strandDomLabels[i].setVisible(genModeActive);
     }
 
     if (genModeActive)
@@ -1188,99 +1203,107 @@ void SequencerPanel::resized()
         genFixMutationBtn.setBounds(row2.removeFromLeft(fixW));
         area.removeFromTop(2);
 
-        // Merged row: [C▾] [DblHarm▾] [Rng][1][2][3][4]  [Mode▾] [Field== 12cyc]  [S2][Role▾] [S3][Role▾] [S4][Role▾] [S5][Role▾]
-        // The previous two-row split (Scale + Range on one row, Polyphony on
-        // the next) was generously spaced. Combining them saves a row in
-        // GEN mode without crowding any single control. Proportional fill:
-        // Field Rate gets 2 units, each Role 1 unit; the remaining width
-        // after the fixed-size controls is divided across (2 + N) units.
+        // ── 2-column / 2-row GEN block ──
+        //   Left column (narrow):
+        //     Row L1: [C▾] [DblHarm▾] [Rng][1][2][3][4]
+        //     Row L2: [Mode▾] [Field== 12cyc]
+        //   Right column (wide): four strand modules side by side, each one
+        //     a 2-row vertical block — top row is the existing [Sx][Role▾]
+        //     pair, bottom row is [Div: combo] [Oct: lbl+slider] [Dom: lbl+slider].
+        //   Generous horizontal padding between strand modules visually
+        //   delimits each strand without a separator graphic.
         {
-            auto rowM = area.removeFromTop(genCtrlH);
-            const int rowW    = rowM.getWidth();
-            const int rootW   = 55;   // C..B[#/b], 2 chars max
-            const int scaleW  = 100;  // longest label "Hirajoshi" / "Hung.Min"
-            const int rngLblW = 32;   // "Rng" — short form of "Range"
-            const int rngBtnW = 22;
-            const int modeW   = 95;   // "Transform" longest mode label
-            const int onW     = 28;   // strand "Sx" button width
-            const int gapTiny = 2;
-            const int gapSm   = 4;
-            const int gapMid  = 8;    // section divider
+            const int intraGap = 2;
+            const int colGap   = 12;
+            const int blockH   = 2 * genCtrlH + intraGap;
+            auto block = area.removeFromTop(blockH);
 
-            const int rangeBtnsTotal = rngBtnW * kNumRangeBtns;
-            const int fixedTotal = rootW + gapTiny + scaleW + gapMid
-                                 + rngLblW + gapTiny + rangeBtnsTotal + gapMid
-                                 + modeW + gapSm
-                                 + onW * kNumExtraStrands
-                                 + gapMid                          // before strand group
-                                 + gapTiny * kNumExtraStrands       // ON-to-Role
-                                 + gapSm   * (kNumExtraStrands - 1); // between clusters
+            const int leftW = juce::jlimit(360, 540, block.getWidth() / 5);  // ~20%, clamped
+            auto leftCol  = block.removeFromLeft(leftW);
+            block.removeFromLeft(colGap);
+            auto rightCol = block;
 
-            const int unitDiv   = 2 + kNumExtraStrands;
-            const int flexTotal = juce::jmax(unitDiv * 30, rowW - fixedTotal);
-            const int unit      = flexTotal / unitDiv;
-            const int rateW     = 2 * unit;
-            const int roleW     = unit;
-
-            // Scale + Range
-            genScaleRootBox.setBounds(rowM.removeFromLeft(rootW));  rowM.removeFromLeft(gapTiny);
-            genScaleTypeBox.setBounds(rowM.removeFromLeft(scaleW)); rowM.removeFromLeft(gapMid);
-            genRangeLabel.setText("Rng", juce::dontSendNotification);
-            genRangeLabel.setFont(juce::FontOptions(juce::jmax(kUiLabelFontMin, genCtrlH * 0.55f)));
-            genRangeLabel.setBounds(rowM.removeFromLeft(rngLblW)); rowM.removeFromLeft(gapTiny);
-            for (int i = 0; i < kNumRangeBtns; ++i)
+            // ── Left column — Row L1: Scale + Range ──
             {
-                int edges = 0;
-                if (i > 0) edges |= juce::Button::ConnectedOnLeft;
-                if (i < kNumRangeBtns - 1) edges |= juce::Button::ConnectedOnRight;
-                genRangeBtns[i].setConnectedEdges(edges);
-                genRangeBtns[i].setBounds(rowM.removeFromLeft(rngBtnW));
-            }
-            rowM.removeFromLeft(gapMid);
-
-            // Field Mode + Rate
-            genFieldModeBox.setBounds(rowM.removeFromLeft(modeW));
-            rowM.removeFromLeft(gapSm);
-            if (genFieldRateRow) genFieldRateRow->setBounds(rowM.removeFromLeft(rateW));
-            rowM.removeFromLeft(gapMid);
-
-            // Strand clusters — remember each cluster's x-extent so the
-            // per-strand-detail row beneath this one can align its columns.
-            int clusterX[kNumExtraStrands];
-            int clusterW[kNumExtraStrands];
-            for (int i = 0; i < kNumExtraStrands; ++i)
-            {
-                clusterX[i] = rowM.getX();
-                strandEnableBtns[i].setBounds(rowM.removeFromLeft(onW));
-                rowM.removeFromLeft(gapTiny);
-                if (i == kNumExtraStrands - 1)
+                auto rowL1 = leftCol.removeFromTop(genCtrlH);
+                const int rootW   = 55;
+                const int scaleW  = 100;
+                const int rngLblW = 32;
+                const int rngBtnW = 22;
+                const int gapTiny = 2;
+                const int gapMid  = 8;
+                genScaleRootBox.setBounds(rowL1.removeFromLeft(rootW));  rowL1.removeFromLeft(gapTiny);
+                genScaleTypeBox.setBounds(rowL1.removeFromLeft(scaleW)); rowL1.removeFromLeft(gapMid);
+                genRangeLabel.setText("Rng", juce::dontSendNotification);
+                genRangeLabel.setFont(juce::FontOptions(juce::jmax(kUiLabelFontMin, genCtrlH * 0.55f)));
+                genRangeLabel.setBounds(rowL1.removeFromLeft(rngLblW)); rowL1.removeFromLeft(gapTiny);
+                for (int i = 0; i < kNumRangeBtns; ++i)
                 {
-                    strandRoleBoxes[i].setBounds(rowM);
-                    clusterW[i] = (rowM.getRight()) - clusterX[i];
-                }
-                else
-                {
-                    strandRoleBoxes[i].setBounds(rowM.removeFromLeft(roleW));
-                    clusterW[i] = (onW + gapTiny + roleW);
-                    rowM.removeFromLeft(gapSm);
+                    int edges = 0;
+                    if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+                    if (i < kNumRangeBtns - 1) edges |= juce::Button::ConnectedOnRight;
+                    genRangeBtns[i].setConnectedEdges(edges);
+                    genRangeBtns[i].setBounds(rowL1.removeFromLeft(rngBtnW));
                 }
             }
-            area.removeFromTop(2);
+            leftCol.removeFromTop(intraGap);
 
-            // ── Per-strand detail row: [Div×▾] [Octave==] [Dominance===]
-            // Each cluster spans the same x-extent as its parent [Sx][Role]
-            // cluster above, so the columns line up visually.
+            // ── Left column — Row L2: Field Mode + Field Rate ──
             {
-                auto rowD = area.removeFromTop(genCtrlH);
-                const int cellGap = 2;
+                auto rowL2 = leftCol;   // remaining height = genCtrlH
+                const int modeW  = 95;
+                const int gapSm  = 4;
+                genFieldModeBox.setBounds(rowL2.removeFromLeft(modeW));
+                rowL2.removeFromLeft(gapSm);
+                if (genFieldRateRow) genFieldRateRow->setBounds(rowL2);
+            }
+
+            // ── Right column — 4 strand modules side by side ──
+            {
+                const int moduleGap = 16;
+                const int moduleW = (rightCol.getWidth() - (kNumExtraStrands - 1) * moduleGap)
+                                   / kNumExtraStrands;
                 for (int i = 0; i < kNumExtraStrands; ++i)
                 {
-                    auto cell = juce::Rectangle<int>(clusterX[i], rowD.getY(), clusterW[i], rowD.getHeight());
-                    // Three sub-cells of equal width within the cluster.
-                    const int subW = (cell.getWidth() - 2 * cellGap) / 3;
-                    strandDivBoxes[i].setBounds(cell.removeFromLeft(subW));    cell.removeFromLeft(cellGap);
-                    strandOctaveSliders[i].setBounds(cell.removeFromLeft(subW)); cell.removeFromLeft(cellGap);
-                    strandDomSliders[i].setBounds(cell);
+                    auto module = rightCol.removeFromLeft(moduleW);
+                    if (i < kNumExtraStrands - 1) rightCol.removeFromLeft(moduleGap);
+
+                    // Top row: [Sx][Role▾]
+                    auto modTop = module.removeFromTop(genCtrlH);
+                    const int onW    = 28;
+                    const int gapInm = 2;
+                    strandEnableBtns[i].setBounds(modTop.removeFromLeft(onW));
+                    modTop.removeFromLeft(gapInm);
+                    strandRoleBoxes[i].setBounds(modTop);
+
+                    module.removeFromTop(intraGap);
+
+                    // Bottom row: [Div lbl + combo]  [Oct lbl + slider]  [Dom lbl + slider]
+                    auto modBot = module;   // remaining height = genCtrlH
+                    const int lblW   = 28;
+                    const int divW   = 56;       // combo "1/4x" max
+                    const int gapPad = 6;        // between control groups
+                    const int gapInGroup = 2;    // between label and its control
+                    // Remaining for Oct + Dom sliders, split 1:2 (Dom benefits from more travel)
+                    const int remaining = modBot.getWidth()
+                                         - (lblW + gapInGroup + divW + gapPad
+                                            + lblW + gapInGroup + lblW + gapInGroup + gapPad);
+                    const int octSliderW = juce::jmax(50, remaining / 3);
+                    const int domSliderW = juce::jmax(70, remaining - octSliderW);
+
+                    strandDivLabels[i].setBounds(modBot.removeFromLeft(lblW));
+                    modBot.removeFromLeft(gapInGroup);
+                    strandDivBoxes[i].setBounds(modBot.removeFromLeft(divW));
+                    modBot.removeFromLeft(gapPad);
+
+                    strandOctLabels[i].setBounds(modBot.removeFromLeft(lblW));
+                    modBot.removeFromLeft(gapInGroup);
+                    strandOctaveSliders[i].setBounds(modBot.removeFromLeft(octSliderW));
+                    modBot.removeFromLeft(gapPad);
+
+                    strandDomLabels[i].setBounds(modBot.removeFromLeft(lblW));
+                    modBot.removeFromLeft(gapInGroup);
+                    strandDomSliders[i].setBounds(modBot);
                 }
             }
             area.removeFromTop(g);
