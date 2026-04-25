@@ -16,6 +16,10 @@
 class AxesPanel : public juce::Component
 {
 public:
+    /** Display labels for the semantic-axis dropdown — index N corresponds
+     *  to ComboBox `dropdownId == N + 1`. Slot 0 is the disabled placeholder. */
+    static const juce::StringArray& getAxisLabels();
+
     AxesPanel();
     ~AxesPanel() override = default;
 

@@ -1,6 +1,7 @@
 #include "MainPanel.h"
 #include "../PluginProcessor.h"
 #include "../dsp/BlockParams.h"
+#include "../presets/PresetTagSuggester.h"
 #include "GuiHelpers.h"
 #include "BinaryData.h"
 #include <thread>
@@ -14,6 +15,36 @@ const char* const kBundledPresetNames[] = {
     "Samba Getdown.t5p",
     "Talking about aliens.t5p",
 };
+
+#if JUCE_WINDOWS
+juce::StringArray getWindowsCompanionBackendRoots()
+{
+    juce::StringArray roots;
+    auto addRoot = [&roots](const juce::String& path)
+    {
+        auto trimmed = path.trim();
+        if (trimmed.isNotEmpty())
+            roots.addIfNotAlreadyThere(trimmed);
+    };
+
+    constexpr auto wow64 = juce::WindowsRegistry::WoW64_64bit;
+
+    addRoot(juce::WindowsRegistry::getValue("HKEY_LOCAL_MACHINE\\Software\\T5ynth\\BackendDir", {}, wow64));
+    addRoot(juce::WindowsRegistry::getValue("HKEY_CURRENT_USER\\Software\\T5ynth\\BackendDir", {}, wow64));
+
+    auto installDir = juce::WindowsRegistry::getValue("HKEY_LOCAL_MACHINE\\Software\\T5ynth\\InstallDir", {}, wow64);
+    if (installDir.isNotEmpty())
+        addRoot(juce::File(installDir).getChildFile("backend").getFullPathName());
+
+    installDir = juce::WindowsRegistry::getValue("HKEY_CURRENT_USER\\Software\\T5ynth\\InstallDir", {}, wow64);
+    if (installDir.isNotEmpty())
+        addRoot(juce::File(installDir).getChildFile("backend").getFullPathName());
+
+    addRoot("C:\\Program Files\\T5ynth\\backend");
+    addRoot("C:\\Program Files (x86)\\T5ynth\\backend");
+    return roots;
+}
+#endif
 }
 
 MainPanel::MainPanel(T5ynthProcessor& processor)
@@ -71,6 +102,111 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
 
         tryLoadInferenceModels(true);
     };
+
+    presetScrim.onClick = [this] { hidePresetManager(); };
+    presetScrim.setVisible(false);
+    addChildComponent(presetScrim);
+
+    presetManager.setVisible(false);
+    presetManager.onCloseRequested = [this] { hidePresetManager(); };
+    presetManager.onLoadRequested = [this](const juce::File& file)
+    {
+        if (loadPresetFromFile(file))
+            hidePresetManager();
+        else
+            presetManager.setStatusText("Preset load failed", true);
+    };
+    presetManager.onImportRequested = [this] { importPresetFile(); };
+    presetManager.onTagsChanged = [this](const juce::File& file,
+                                         const juce::StringArray& newTags)
+    {
+        // Tag editing is only allowed on the currently loaded preset, since
+        // a full re-save captures the live processor state (prompts, audio,
+        // axes etc.). Editing tags on a *different* preset would silently
+        // overwrite that preset with whatever is currently in the engine.
+        if (file == currentPresetFile)
+        {
+            processorRef.setLastTags(newTags);
+            if (PresetFormat::saveToFile(file, processorRef))
+            {
+                presetManager.refreshLibrary();
+                presetManager.setCurrentPreset(file, file.getFileNameWithoutExtension());
+                presetManager.setStatusText("Tags updated (preset re-saved with current state)");
+            }
+            else
+            {
+                presetManager.setStatusText("Tag save failed", true);
+            }
+        }
+        else
+        {
+            presetManager.setStatusText("Load preset first to edit its tags", true);
+        }
+    };
+    presetManager.onDeleteRequested = [this](const juce::File& file)
+    {
+        const auto shouldDelete = juce::AlertWindow::showOkCancelBox(
+            juce::AlertWindow::WarningIcon,
+            "Delete Preset",
+            "Delete " + file.getFileNameWithoutExtension() + " from the user library?",
+            "Delete",
+            "Cancel",
+            this,
+            nullptr);
+
+        if (!shouldDelete)
+            return;
+
+        if (file.deleteFile())
+        {
+            if (currentPresetFile == file)
+                currentPresetFile = juce::File();
+
+            presetManager.refreshLibrary();
+            presetManager.setCurrentPreset(currentPresetFile, getCurrentPresetDisplayName());
+            presetManager.setStatusText("Deleted " + file.getFileNameWithoutExtension());
+        }
+        else
+        {
+            presetManager.setStatusText("Preset delete failed", true);
+        }
+    };
+    addChildComponent(presetManager);
+
+    // Save-preset modal overlay (independent of the library browser).
+    saveDialogScrim.onClick = [this] { hideSaveDialog(); };
+    saveDialogScrim.setVisible(false);
+    addChildComponent(saveDialogScrim);
+
+    savePresetDialog.setVisible(false);
+    savePresetDialog.onCancel = [this] { hideSaveDialog(); };
+    savePresetDialog.onSave = [this](const juce::String& presetName,
+                                     const juce::StringArray& tags)
+    {
+        auto target = PresetFormat::getUserPresetsDirectory()
+                          .getChildFile(presetName).withFileExtension("t5p");
+        const bool targetExists = target.existsAsFile();
+        const bool savingCurrent = currentPresetFile.existsAsFile()
+                                   && currentPresetFile == target;
+
+        if (targetExists && ! savingCurrent)
+        {
+            const auto shouldReplace = juce::AlertWindow::showOkCancelBox(
+                juce::AlertWindow::WarningIcon,
+                "Save Preset",
+                "A user preset named " + target.getFileNameWithoutExtension()
+                    + " already exists. Replace it?",
+                "Save", "Cancel", this, nullptr);
+            if (! shouldReplace) return;
+        }
+
+        processorRef.setLastTags(tags);
+        if (savePresetToFile(target))
+            hideSaveDialog();
+        else
+            statusBar.setStatusText("Preset save failed");
+    };
+    addChildComponent(savePresetDialog);
 
     // Manual overlay — hosts the native WebBrowserComponent that renders
     // the shipped HTML guide. Clicking outside the panel or the close
@@ -246,6 +382,271 @@ void MainPanel::hideDimExplorer()
     repaint();
 }
 
+void MainPanel::showPresetManager()
+{
+    presetManagerVisible = true;
+    presetManager.refreshLibrary();
+    presetManager.setCurrentPreset(currentPresetFile, getCurrentPresetDisplayName());
+    presetScrim.setVisible(true);
+    presetManager.setVisible(true);
+    presetScrim.toFront(false);
+    presetManager.toFront(false);
+    resized();
+    repaint();
+}
+
+void MainPanel::hidePresetManager()
+{
+    presetManagerVisible = false;
+    presetScrim.setVisible(false);
+    presetManager.setVisible(false);
+    repaint();
+}
+
+void MainPanel::showSaveDialog()
+{
+    auto defaultName = getCurrentPresetDisplayName();
+    if (defaultName.isEmpty()) defaultName = "New Preset";
+
+    savePresetDialog.configure(defaultName, suggestTagsForCurrent());
+    saveDialogVisible = true;
+    saveDialogScrim.setVisible(true);
+    savePresetDialog.setVisible(true);
+    saveDialogScrim.toFront(false);
+    savePresetDialog.toFront(false);
+    resized();
+    repaint();
+}
+
+void MainPanel::hideSaveDialog()
+{
+    saveDialogVisible = false;
+    saveDialogScrim.setVisible(false);
+    savePresetDialog.setVisible(false);
+    repaint();
+}
+
+juce::StringArray MainPanel::suggestTagsForCurrent()
+{
+    const auto& audio = processorRef.getGeneratedAudio();
+    const double sr = processorRef.getGeneratedSampleRate();
+    std::optional<SamplePlayer::NormalizeAnalysis> analysis;
+    if (audio.getNumSamples() > 0 && sr > 0.0)
+        analysis = processorRef.getSampler().analyzeNormalizeRegion(
+            audio, 0, audio.getNumSamples(), sr);
+    return PresetTagSuggester::suggest(processorRef.getSampler(), analysis,
+                                       promptPanel.getPromptA(),
+                                       promptPanel.getPromptB());
+}
+
+juce::String MainPanel::getCurrentPresetDisplayName() const
+{
+    auto stored = processorRef.getLastPresetName().trim();
+    if (stored.isNotEmpty())
+        return stored;
+
+    if (currentPresetFile.existsAsFile())
+        return currentPresetFile.getFileNameWithoutExtension();
+
+    return {};
+}
+
+void MainPanel::syncGuiStateForPresetSave()
+{
+    processorRef.setLastPrompts(promptPanel.getPromptA(), promptPanel.getPromptB());
+    processorRef.setLastSeed(promptPanel.getSeed());
+
+    auto axStates = axesPanel.getSlotStates();
+    std::array<T5ynthProcessor::AxisSlotState, 3> procAxes;
+    for (int i = 0; i < 3; ++i)
+    {
+        procAxes[static_cast<size_t>(i)].dropdownId = axStates[static_cast<size_t>(i)].dropdownId;
+        procAxes[static_cast<size_t>(i)].value = axStates[static_cast<size_t>(i)].value;
+    }
+    processorRef.setLastAxes(procAxes);
+}
+
+void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const juce::File& sourceFile)
+{
+    promptPanel.loadPresetData(result.promptA, result.promptB,
+                               result.seed, result.randomSeed, result.device, result.model);
+
+    if (result.hasAxes)
+    {
+        std::array<AxesPanel::SlotState, 3> states;
+        for (int i = 0; i < 3; ++i)
+        {
+            states[static_cast<size_t>(i)].dropdownId = result.axes[static_cast<size_t>(i)].dropdownId;
+            states[static_cast<size_t>(i)].value = result.axes[static_cast<size_t>(i)].value;
+        }
+        axesPanel.setSlotStates(states);
+    }
+
+    if (result.hasAudio)
+    {
+        processorRef.loadGeneratedAudio(result.audio, result.sampleRate);
+        processorRef.setLastSeed(result.seed);
+        processorRef.setLastPrompts(result.promptA, result.promptB);
+    }
+
+    if (!result.embeddingA.empty())
+    {
+        processorRef.setLastEmbeddings(result.embeddingA, result.embeddingB);
+        auto& apvts = processorRef.getValueTreeState();
+        auto baseline = DimensionExplorer::estimateBaselineValues(
+            result.embeddingA, result.embeddingB,
+            apvts.getRawParameterValue(PID::genAlpha)->load(),
+            apvts.getRawParameterValue(PID::genMagnitude)->load());
+        dimensionExplorer.setEmbeddings(result.embeddingA, result.embeddingB, baseline, false);
+    }
+
+    processorRef.setLastPresetName(result.presetName);
+    processorRef.setLastTags(result.tags);
+    statusBar.setPresetName(result.presetName);
+
+    if (sourceFile.existsAsFile()
+        && sourceFile.getFileName() != "_buffer.t5p"
+        && (sourceFile.isAChildOf(PresetFormat::getUserPresetsDirectory())
+            || sourceFile.isAChildOf(PresetFormat::getFactoryPresetsDirectory())
+            || sourceFile.getParentDirectory() == PresetFormat::getUserPresetsDirectory()
+            || sourceFile.getParentDirectory() == PresetFormat::getFactoryPresetsDirectory()))
+    {
+        currentPresetFile = sourceFile;
+    }
+    else
+    {
+        currentPresetFile = juce::File();
+    }
+
+    presetManager.setCurrentPreset(currentPresetFile, result.presetName);
+}
+
+bool MainPanel::savePresetToFile(const juce::File& file)
+{
+    syncGuiStateForPresetSave();
+
+    auto target = file.withFileExtension("t5p");
+    processorRef.setLastPresetName(target.getFileNameWithoutExtension());
+
+    if (!PresetFormat::saveToFile(target, processorRef))
+    {
+        statusBar.setStatusText("Preset save failed");
+        return false;
+    }
+
+    currentPresetFile = target;
+    statusBar.setPresetName(target.getFileNameWithoutExtension());
+    statusBar.setStatusText("Saved preset: " + target.getFileName());
+    presetManager.setCurrentPreset(target, target.getFileNameWithoutExtension());
+    return true;
+}
+
+bool MainPanel::loadPresetFromFile(const juce::File& file)
+{
+    auto result = PresetFormat::loadFromFile(file, processorRef);
+    if (!result.success)
+    {
+        statusBar.setStatusText("Preset load failed");
+        return false;
+    }
+
+    applyLoadedPreset(result, file);
+    statusBar.setStatusText("Loaded preset: " + result.presetName);
+    return true;
+}
+
+void MainPanel::importPresetFile()
+{
+    auto presetsDir = PresetFormat::getPresetsDirectory();
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Import Preset", presetsDir, "*.t5p;*.json");
+
+    juce::Component::SafePointer<MainPanel> safeThis(this);
+    chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+        [safeThis, chooser](const juce::FileChooser& fc)
+        {
+            if (!safeThis)
+                return;
+
+            auto* self = safeThis.getComponent();
+            auto file = fc.getResult();
+            if (!file.existsAsFile())
+                return;
+
+            const auto previousPresetFile = self->currentPresetFile;
+            auto restoreFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                                   .getNonexistentChildFile("t5ynth_import_restore", ".t5p", false);
+            self->syncGuiStateForPresetSave();
+            const bool restoreWritten = PresetFormat::saveToFile(restoreFile, self->processorRef);
+
+            auto restorePreviousState = [&]()
+            {
+                if (!restoreWritten)
+                    return;
+
+                auto restoreResult = PresetFormat::loadFromFile(restoreFile, self->processorRef);
+                if (restoreResult.success)
+                    self->applyLoadedPreset(restoreResult, previousPresetFile);
+
+                restoreFile.deleteFile();
+            };
+
+            auto result = PresetFormat::loadFromFile(file, self->processorRef);
+            if (!result.success)
+            {
+                restorePreviousState();
+                self->presetManager.setStatusText("Preset load failed", true);
+                return;
+            }
+
+            auto importedName = juce::File::createLegalFileName(file.getFileNameWithoutExtension().trim());
+            if (importedName.isEmpty())
+                importedName = juce::File::createLegalFileName(result.presetName.trim());
+            if (importedName.isEmpty())
+                importedName = "Imported Preset";
+
+            auto target = PresetFormat::getUserPresetsDirectory()
+                              .getChildFile(importedName)
+                              .withFileExtension("t5p");
+
+            if (target.existsAsFile() && target != file)
+            {
+                const auto shouldOverwrite = juce::AlertWindow::showOkCancelBox(
+                    juce::AlertWindow::WarningIcon,
+                    "Import Preset",
+                    "A user preset named " + target.getFileNameWithoutExtension() + " already exists. Replace it?",
+                    "Import",
+                    "Cancel",
+                    self,
+                    nullptr);
+
+                if (!shouldOverwrite)
+                {
+                    restorePreviousState();
+                    self->presetManager.setStatusText("Import cancelled");
+                    return;
+                }
+            }
+
+            self->applyLoadedPreset(result, {});
+
+            if (self->savePresetToFile(target))
+            {
+                self->presetManager.refreshLibrary();
+                self->presetManager.setCurrentPreset(target, target.getFileNameWithoutExtension());
+                self->presetManager.setStatusText("Imported " + target.getFileNameWithoutExtension());
+            }
+            else
+            {
+                restorePreviousState();
+                self->presetManager.setStatusText("Preset import failed", true);
+                return;
+            }
+
+            restoreFile.deleteFile();
+        });
+}
+
 void MainPanel::mouseDown(const juce::MouseEvent& e)
 {
     // Close overlays on click outside
@@ -307,7 +708,8 @@ void MainPanel::tryLoadInferenceModels(bool forceRestart)
     //   backend/pipe_inference.py  (dev: Python script)
     //   backend/pipe_inference     (release: PyInstaller binary)
     //   backend/pipe_inference.exe (Windows release)
-    //   backend/dist/pipe_inference/pipe_inference  (local PyInstaller build)
+    //   backend/dist/pipe_inference/pipe_inference      (local PyInstaller build)
+    //   backend/dist/pipe_inference/pipe_inference.exe  (local Windows PyInstaller build)
     auto exe = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
     juce::File backendDir;
 
@@ -315,7 +717,8 @@ void MainPanel::tryLoadInferenceModels(bool forceRestart)
         return dir.getChildFile("pipe_inference.py").existsAsFile()
             || dir.getChildFile("pipe_inference").existsAsFile()
             || dir.getChildFile("pipe_inference.exe").existsAsFile()
-            || dir.getChildFile("dist/pipe_inference/pipe_inference").existsAsFile();
+            || dir.getChildFile("dist/pipe_inference/pipe_inference").existsAsFile()
+            || dir.getChildFile("dist/pipe_inference/pipe_inference.exe").existsAsFile();
     };
 
     // 1. Standalone macOS app bundle: Contents/MacOS/T5ynth → Contents/Resources/backend
@@ -371,12 +774,9 @@ void MainPanel::tryLoadInferenceModels(bool forceRestart)
             }
         }
        #elif JUCE_WINDOWS
-        // Windows: the Standalone distribution is a T5ynth/ folder with
-        // T5ynth.exe + backend/ inside. Look in the common install prefixes.
-        juce::StringArray companionRoots {
-            "C:\\Program Files\\T5ynth\\backend",
-            "C:\\Program Files (x86)\\T5ynth\\backend"
-        };
+        // Windows: prefer the installer-written registry path, then fall back
+        // to the default install prefixes.
+        auto companionRoots = getWindowsCompanionBackendRoots();
         for (const auto& p : companionRoots)
         {
             juce::File candidate (p);
@@ -475,20 +875,7 @@ MainPanel::~MainPanel()
     if (!juce::JUCEApplicationBase::isStandaloneApp())
         return;
 
-    // Sync GUI-only state into processor before saving
-    processorRef.setLastPrompts(promptPanel.getPromptA(), promptPanel.getPromptB());
-    processorRef.setLastSeed(promptPanel.getSeed());
-    {
-        auto axStates = axesPanel.getSlotStates();
-        std::array<T5ynthProcessor::AxisSlotState, 3> procAxes;
-        for (int i = 0; i < 3; ++i)
-        {
-            procAxes[static_cast<size_t>(i)].dropdownId = axStates[static_cast<size_t>(i)].dropdownId;
-            procAxes[static_cast<size_t>(i)].value      = axStates[static_cast<size_t>(i)].value;
-        }
-        processorRef.setLastAxes(procAxes);
-    }
-
+    syncGuiStateForPresetSave();
     auto bufFile = getBufferPresetFile();
     bufFile.getParentDirectory().createDirectory();
     PresetFormat::saveToFile(bufFile, processorRef);
@@ -689,7 +1076,37 @@ void MainPanel::resized()
     // Scrims cover everything
     dimScrim.setBounds(getLocalBounds());
     settingsScrim.setBounds(getLocalBounds());
+    presetScrim.setBounds(getLocalBounds());
+    saveDialogScrim.setBounds(getLocalBounds());
     manualScrim.setBounds(getLocalBounds());
+
+    if (presetManagerVisible)
+    {
+        int panelW = juce::jlimit(720, 1100, juce::roundToInt(w * 0.78f));
+        int panelH = juce::jlimit(440, 720, juce::roundToInt(h * 0.78f));
+        presetManager.setBounds((getWidth() - panelW) / 2,
+                                (getHeight() - panelH) / 2,
+                                panelW,
+                                panelH);
+    }
+    else
+    {
+        presetManager.setBounds({});
+    }
+
+    if (saveDialogVisible)
+    {
+        const int dialogW = juce::jlimit(360, 480, juce::roundToInt(w * 0.36f));
+        const int dialogH = 220;
+        savePresetDialog.setBounds((getWidth() - dialogW) / 2,
+                                   (getHeight() - dialogH) / 2,
+                                   dialogW,
+                                   dialogH);
+    }
+    else
+    {
+        savePresetDialog.setBounds({});
+    }
 
     // Manual overlay (centered). Leaves a strip at the bottom of the
     // panel for the close button; the WebBrowserComponent fills the rest.
@@ -765,39 +1182,7 @@ bool MainPanel::loadBundledPreset(const char* data, int size, const juce::String
     if (!result.success)
         return false;
 
-    promptPanel.loadPresetData(result.promptA, result.promptB,
-                               result.seed, result.randomSeed, result.device, result.model);
-
-    if (result.hasAxes)
-    {
-        std::array<AxesPanel::SlotState, 3> states;
-        for (int i = 0; i < 3; ++i)
-        {
-            states[static_cast<size_t>(i)].dropdownId = result.axes[static_cast<size_t>(i)].dropdownId;
-            states[static_cast<size_t>(i)].value = result.axes[static_cast<size_t>(i)].value;
-        }
-        axesPanel.setSlotStates(states);
-    }
-
-    if (result.hasAudio)
-    {
-        processorRef.loadGeneratedAudio(result.audio, result.sampleRate);
-        processorRef.setLastSeed(result.seed);
-        processorRef.setLastPrompts(result.promptA, result.promptB);
-    }
-
-    if (!result.embeddingA.empty())
-    {
-        processorRef.setLastEmbeddings(result.embeddingA, result.embeddingB);
-        auto& apvts = processorRef.getValueTreeState();
-        auto baseline = DimensionExplorer::estimateBaselineValues(
-            result.embeddingA, result.embeddingB,
-            apvts.getRawParameterValue(PID::genAlpha)->load(),
-            apvts.getRawParameterValue(PID::genMagnitude)->load());
-        dimensionExplorer.setEmbeddings(result.embeddingA, result.embeddingB, baseline, false);
-    }
-
-    statusBar.setPresetName(result.presetName);
+    applyLoadedPreset(result, {});
     return true;
 }
 
@@ -833,35 +1218,7 @@ void MainPanel::loadDefaultPreset()
             auto result = PresetFormat::loadFromFile(bufFile, processorRef);
             if (result.success)
             {
-                promptPanel.loadPresetData(result.promptA, result.promptB,
-                                           result.seed, result.randomSeed, result.device, result.model);
-                if (result.hasAxes)
-                {
-                    std::array<AxesPanel::SlotState, 3> states;
-                    for (int i = 0; i < 3; ++i)
-                    {
-                        states[static_cast<size_t>(i)].dropdownId = result.axes[static_cast<size_t>(i)].dropdownId;
-                        states[static_cast<size_t>(i)].value      = result.axes[static_cast<size_t>(i)].value;
-                    }
-                    axesPanel.setSlotStates(states);
-                }
-                if (result.hasAudio)
-                {
-                    processorRef.loadGeneratedAudio(result.audio, result.sampleRate);
-                    processorRef.setLastSeed(result.seed);
-                    processorRef.setLastPrompts(result.promptA, result.promptB);
-                }
-                if (!result.embeddingA.empty())
-                {
-                    processorRef.setLastEmbeddings(result.embeddingA, result.embeddingB);
-                    auto& apvts = processorRef.getValueTreeState();
-                    auto baseline = DimensionExplorer::estimateBaselineValues(
-                        result.embeddingA, result.embeddingB,
-                        apvts.getRawParameterValue(PID::genAlpha)->load(),
-                        apvts.getRawParameterValue(PID::genMagnitude)->load());
-                    dimensionExplorer.setEmbeddings(result.embeddingA, result.embeddingB, baseline, false);
-                }
-                statusBar.setPresetName(result.presetName);
+                applyLoadedPreset(result, bufFile);
                 return;
             }
         }
@@ -907,13 +1264,10 @@ void MainPanel::exportWav()
             auto file = fc.getResult();
             if (file == juce::File()) return;
 
-            // Ensure .wav extension
             if (!file.hasFileExtension("wav"))
                 file = file.withFileExtension("wav");
 
             const auto& buf = self->processorRef.getGeneratedAudio();
-            // Source SR comes from the inference backend; hard-coding 44.1 kHz
-            // pitch-shifts the export whenever the model emits a different rate.
             double sr = self->processorRef.getGeneratedSampleRate();
             if (sr <= 0.0) sr = 44100.0;
             auto outStream = file.createOutputStream();
@@ -992,102 +1346,10 @@ void MainPanel::hideManual()
 
 void MainPanel::savePreset()
 {
-    // Store current prompt state in processor before saving
-    // (PromptPanel stores them on generation, but user may have edited since)
-    processorRef.setLastPrompts(promptPanel.getPromptA(), promptPanel.getPromptB());
-    processorRef.setLastSeed(promptPanel.getSeed());
-    // Store axes state (GUI-only, not in APVTS)
-    {
-        auto axStates = axesPanel.getSlotStates();
-        std::array<T5ynthProcessor::AxisSlotState, 3> procAxes;
-        for (int i = 0; i < 3; ++i)
-        {
-            procAxes[static_cast<size_t>(i)].dropdownId = axStates[static_cast<size_t>(i)].dropdownId;
-            procAxes[static_cast<size_t>(i)].value = axStates[static_cast<size_t>(i)].value;
-        }
-        processorRef.setLastAxes(procAxes);
-    }
-
-    auto presetsDir = PresetFormat::getPresetsDirectory();
-    auto chooser = std::make_shared<juce::FileChooser>(
-        "Save Preset", presetsDir, "*.t5p");
-
-    juce::Component::SafePointer<MainPanel> safeThis(this);
-    chooser->launchAsync(juce::FileBrowserComponent::saveMode
-                         | juce::FileBrowserComponent::canSelectFiles
-                         | juce::FileBrowserComponent::warnAboutOverwriting,
-        [safeThis, chooser](const juce::FileChooser& fc)
-        {
-            if (!safeThis) return;
-            auto file = fc.getResult();
-            if (file == juce::File()) return;
-
-            if (PresetFormat::saveToFile(file, safeThis->processorRef))
-            {
-                safeThis->statusBar.setPresetName(file.getFileNameWithoutExtension());
-                safeThis->statusBar.setStatusText("Saved preset: " + file.withFileExtension("t5p").getFileName());
-            }
-            else
-            {
-                safeThis->statusBar.setStatusText("Preset save failed");
-            }
-        });
+    showSaveDialog();
 }
 
 void MainPanel::loadPreset()
 {
-    auto presetsDir = PresetFormat::getPresetsDirectory();
-    auto chooser = std::make_shared<juce::FileChooser>(
-        "Load Preset", presetsDir, "*.t5p;*.json");
-
-    juce::Component::SafePointer<MainPanel> safeThis(this);
-    chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-        [safeThis, chooser](const juce::FileChooser& fc)
-        {
-            if (!safeThis) return;
-            auto* self = safeThis.getComponent();
-            auto file = fc.getResult();
-            if (!file.existsAsFile()) return;
-
-            auto result = PresetFormat::loadFromFile(file, self->processorRef);
-            if (!result.success) return;
-
-            // Restore prompts/seed to GUI
-            self->promptPanel.loadPresetData(result.promptA, result.promptB,
-                                             result.seed, result.randomSeed, result.device, result.model);
-
-            // Restore semantic axes
-            if (result.hasAxes)
-            {
-                std::array<AxesPanel::SlotState, 3> states;
-                for (int i = 0; i < 3; ++i)
-                {
-                    states[static_cast<size_t>(i)].dropdownId = result.axes[static_cast<size_t>(i)].dropdownId;
-                    states[static_cast<size_t>(i)].value = result.axes[static_cast<size_t>(i)].value;
-                }
-                self->axesPanel.setSlotStates(states);
-            }
-
-            // Restore audio into engine (skips generation!)
-            if (result.hasAudio)
-            {
-                self->processorRef.loadGeneratedAudio(result.audio, result.sampleRate);
-                self->processorRef.setLastSeed(result.seed);
-                self->processorRef.setLastPrompts(result.promptA, result.promptB);
-            }
-
-            // Restore embeddings to DimExplorer
-            if (!result.embeddingA.empty())
-            {
-                self->processorRef.setLastEmbeddings(result.embeddingA, result.embeddingB);
-                auto& apvts = self->processorRef.getValueTreeState();
-                auto baseline = DimensionExplorer::estimateBaselineValues(
-                    result.embeddingA, result.embeddingB,
-                    apvts.getRawParameterValue(PID::genAlpha)->load(),
-                    apvts.getRawParameterValue(PID::genMagnitude)->load());
-                self->dimensionExplorer.setEmbeddings(result.embeddingA, result.embeddingB, baseline, false);
-            }
-
-            self->statusBar.setPresetName(result.presetName);
-        });
+    showPresetManager();
 }

@@ -17,6 +17,11 @@ static const juce::StringArray kEffectiveAxes {
     "sustained / rhythmic"
 };
 
+const juce::StringArray& AxesPanel::getAxisLabels()
+{
+    return kEffectiveAxes;
+}
+
 // Map display names → backend axis keys (cross_aesthetic_backend.py SEMANTIC_AXES)
 static juce::String axisDisplayToKey(const juce::String& display)
 {

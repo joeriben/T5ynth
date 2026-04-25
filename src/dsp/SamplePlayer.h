@@ -177,7 +177,8 @@ public:
     void setPitchShiftQuality(PitchShiftQuality quality);
     PitchShiftQuality getPitchShiftQuality() const { return pitchQuality; }
 
-private:
+    // ─── Signal-aware normalization analysis (re-used externally for
+    //     content classification, e.g. preset auto-tagging). ───
     enum class NormalizeMode { Bypass, PeakCap, Transient, Sustained };
 
     struct NormalizeAnalysis
@@ -192,6 +193,15 @@ private:
         float activeRatio = 0.0f;
     };
 
+    /** Analyze the audible region and choose a linear normalization mode. */
+    NormalizeAnalysis analyzeNormalizeRegion(const juce::AudioBuffer<float>& buf,
+                                             int regionStart,
+                                             int regionEnd,
+                                             double bufferSampleRate) const;
+    static const char* normalizeModeName(NormalizeMode mode);
+    NormalizeMode chooseNormalizeMode(const NormalizeAnalysis& analysis) const;
+
+private:
     struct PlaybackSnapshot
     {
         juce::AudioBuffer<float> playBuffer;
@@ -294,13 +304,6 @@ private:
     static void applyLoopCrossfade(juce::AudioBuffer<float>& buf, int loopStart, int& loopEnd,
                                    float crossfadeMs, double bufferSampleRate);
 
-    /** Analyze the audible region and choose a linear normalization mode. */
-    NormalizeAnalysis analyzeNormalizeRegion(const juce::AudioBuffer<float>& buf,
-                                             int regionStart,
-                                             int regionEnd,
-                                             double bufferSampleRate) const;
-    static const char* normalizeModeName(NormalizeMode mode);
-    NormalizeMode chooseNormalizeMode(const NormalizeAnalysis& analysis) const;
     float chooseNormalizeGain(const NormalizeAnalysis& analysis, NormalizeMode mode) const;
 
     /** Apply signal-aware linear normalization to the audible play region only. */

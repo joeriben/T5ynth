@@ -8,6 +8,8 @@
 #include "SequencerPanel.h"
 #include "StatusBar.h"
 #include "SetupWizard.h"
+#include "PresetManagerPanel.h"
+#include "SavePresetDialog.h"
 #include "../presets/PresetFormat.h"
 
 class T5ynthProcessor;
@@ -71,10 +73,21 @@ private:
     void tryLoadInferenceModels(bool forceRestart = false);
     void savePreset();
     void loadPreset();
+    void importPresetFile();
     void exportWav();
     void loadDefaultPreset();
     void loadInitPreset();
     void ensureBundledPresetsExist();
+    bool savePresetToFile(const juce::File& file);
+    bool loadPresetFromFile(const juce::File& file);
+    void applyLoadedPreset(const PresetFormat::LoadResult& result, const juce::File& sourceFile = {});
+    void syncGuiStateForPresetSave();
+    void showPresetManager();
+    void hidePresetManager();
+    void showSaveDialog();
+    void hideSaveDialog();
+    juce::String getCurrentPresetDisplayName() const;
+    juce::StringArray suggestTagsForCurrent();
     // Shared implementation used by loadDefaultPreset / loadInitPreset:
     // writes the embedded binary to a temp file and routes it through the
     // standard PresetFormat loader. Returns false on failure.
@@ -89,6 +102,17 @@ private:
     Scrim settingsScrim;
     bool settingsVisible = false;
     bool pendingInferenceReload = false;
+
+    // Preset manager overlay
+    Scrim presetScrim;
+    PresetManagerPanel presetManager;
+    bool presetManagerVisible = false;
+    juce::File currentPresetFile;
+
+    // Save-preset modal (independent of the library browser)
+    Scrim saveDialogScrim;
+    SavePresetDialog savePresetDialog;
+    bool saveDialogVisible = false;
 
     // Manual overlay — native WebView renders the shipped HTML guide
     // (resources/T5ynth_Guide.html), bundled via juce_add_binary_data.

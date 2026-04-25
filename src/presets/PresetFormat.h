@@ -49,6 +49,9 @@ public:
 
         // Embeddings (empty if not available)
         std::vector<float> embeddingA, embeddingB;
+
+        // User-assigned classification tags (empty for legacy presets)
+        juce::StringArray tags;
     };
 
     /** Save current state to a .t5p file with embedded audio. */
