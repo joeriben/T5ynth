@@ -32,13 +32,12 @@ private:
     public:
         explicit GenerateButton(const juce::String& label);
 
-        void setAnimationState(float phase, bool isGenerating, bool isAuto);
+        void setAnimationState(float phase, bool isGenerating);
         void paintButton(juce::Graphics& g, bool highlighted, bool down) override;
 
     private:
         float animationPhase = 0.0f;
         bool generating = false;
-        bool autoMode = false;
     };
 
     T5ynthProcessor& processorRef;
@@ -49,6 +48,7 @@ private:
     AxesPanel axesPanel;
     GenerateButton mainGenerateBtn { "GENERATE" };
     float glowPhase = 0.0f;
+    double glowLastTimeSec = 0.0;
     bool glowGenerating = false;
     void timerCallback() override;
 
