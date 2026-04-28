@@ -290,6 +290,7 @@ def find_models():
         if sys.platform == "darwin":
             base_dirs.insert(1, Path("/Library/Application Support/T5ynth/models"))  # system-wide (.pkg, scan-only)
         elif sys.platform == "win32":
+            base_dirs.insert(0, Path(os.environ.get("APPDATA", "")) / "T5ynth" / "models")  # per-user Windows (primary)
             base_dirs.insert(1, Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData")) / "T5ynth" / "models")  # system-wide (scan-only)
     models = {}
     for base in base_dirs:
