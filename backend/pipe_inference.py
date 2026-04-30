@@ -1103,24 +1103,76 @@ def _generate_native(pipe, request):
         else:
             combined_mask = mask_b
 
+        # ── Embedding-level manipulators ──
+        # Magnitude / Noise / Semantic Axes / Dimension Offsets all act
+        # additively or multiplicatively on a 768-D embedding tensor. To make
+        # them work uniformly across all injection modes (Linear feeds a
+        # single blend tensor into the DiT; the non-linear modes feed two
+        # tensors — early/late or A/B per block — that the per-block hooks
+        # combine), we apply the SAME shifts to every tensor that flows
+        # into the model. Because the manipulations are linear, applying
+        # them independently to A and B and then blending is equivalent to
+        # blending first and then manipulating (modulo the renorm step that
+        # only fires when |alpha| > 1, which is Linear-specific).
+        sem_axes = request.get("semantic_axes")
+
+        def native_encode(text):
+            cond = pipe.model.conditioner(
+                [_build_native_conditioning_input(pipe, text, 1.0, 0.0)],
+                device,
+            )
+            return cond["prompt"][0], None
+
+        # Noise tensor is drawn ONCE from the seed-derived PCG64 RNG and
+        # reused across every embedding path so the per-mode geometry
+        # (e.g. blends, layer mixes) keeps the Linear-mode invariant of
+        # "noise added once, not per term".
+        _noise_tensor = None
+        if noise_sigma > 0.0:
+            rng = np.random.Generator(np.random.PCG64(seed))
+            noise_np = rng.standard_normal(prompt_emb_a.shape).astype(np.float32)
+            _noise_tensor = torch.from_numpy(noise_np).to(prompt_emb_a.device) * noise_sigma
+
+        def apply_pre_offsets(emb):
+            """Magnitude + noise + semantic axes — i.e. all manipulations
+            EXCEPT DimensionExplorer offsets. Returns a new tensor; the
+            input is not mutated. Mask is NOT applied here."""
+            out = emb
+            if abs(magnitude - 1.0) > 1e-6:
+                out = out * magnitude
+            if _noise_tensor is not None:
+                out = out + _noise_tensor
+            if sem_axes:
+                out = _apply_semantic_axes(out, sem_axes, native_encode, pipe.model_name)
+            return out
+
+        def apply_dim_offsets(emb):
+            """DimensionExplorer offsets, applied in-place on a clone so the
+            caller's tensor is preserved (multiple paths may share storage
+            with the raw prompt embedding)."""
+            if not dim_offsets:
+                return emb
+            out = emb.clone()
+            _apply_dimension_offsets(out, dim_offsets)
+            return out
+
+        def apply_all(emb):
+            return apply_dim_offsets(apply_pre_offsets(emb))
+
         # ── Injection mode dispatch ──
-        # "linear"     : historical crossfade (default; byte-identical to v1.2).
+        # "linear"     : historical crossfade (default; byte-identical to v1.5).
         # "delta"      : A + alpha · (B − null), preserves A more strongly.
         # "late_step"  : early sampler steps see A only; after the transition
-        #                point the DiTWrapper.forward swap (installed below the
-        #                manipulation pipeline) injects pure B.
+        #                point the DiTWrapper.forward swap injects late_blend.
         # "layer_split": every DiT block sees a different A/B blend, sigmoid-
         #                ramped over the [split_start, split_end] B-zone.
-        #                Per-block forward_pre_hooks override block.cross_attn
-        #                context. The α slider is unused in this mode.
-        # Magnitude/noise/axes/offsets that follow act on the "manipulated"
-        # tensor as defined here. For late_step / layer_split that means they
-        # apply to the early-phase / un-hooked conditioning only — the per-block
-        # injected tensors are the bare blend. Acceptable for the first
-        # listening tests; revisit if a mode ships into the UI.
+        # "kombi1/2/3" : step phase × layer band, hard-mask layer geometry.
+        # Manipulations are applied to whichever tensor(s) actually flow
+        # into the cross-attention layer for the active mode.
         late_step_payload = None
-        layer_split_payload = None  # (proj_a, proj_b, proj_null, blocks, num_layers)
+        layer_split_payload = None  # (proj_a, proj_b, proj_null, blocks)
         kombi_payload = None        # (proj_a, proj_late, proj_null, blocks)
+        baseline_pooled = None      # set per mode for the GUI explorer feedback
         if injection_mode == "linear":
             manipulated = (0.5 - 0.5 * alpha) * prompt_emb_a + (0.5 + 0.5 * alpha) * prompt_emb_b
             if alpha < -1.0 or alpha > 1.0:
@@ -1128,34 +1180,53 @@ def _generate_native(pipe, request):
                 res_norm = manipulated.norm()
                 if res_norm > 1e-8:
                     manipulated = manipulated * (ref_norm / res_norm)
+            # Inline manipulation chain so baseline_pooled snapshots the
+            # post-axes-pre-DimExplorer state (preserves v1.5.x byte-identity
+            # AND the GUI explorer's "this is what the model sees before
+            # your dim offsets" reference contract).
+            manipulated = apply_pre_offsets(manipulated)
+            baseline = manipulated if combined_mask is None \
+                else manipulated * combined_mask.unsqueeze(-1).float()
+            baseline_pooled = baseline.squeeze(0).mean(dim=0).cpu().float().numpy()
+            manipulated = apply_dim_offsets(manipulated)
         elif injection_mode == "delta":
             manipulated = prompt_emb_a + alpha * (prompt_emb_b - null_pe)
+            manipulated = apply_pre_offsets(manipulated)
+            baseline = manipulated if combined_mask is None \
+                else manipulated * combined_mask.unsqueeze(-1).float()
+            baseline_pooled = baseline.squeeze(0).mean(dim=0).cpu().float().numpy()
+            manipulated = apply_dim_offsets(manipulated)
         elif injection_mode == "late_step":
             # Late-phase blend driven by late_phase_alpha (set by the Fine slider).
             # α=0 → 50/50 mix (subtle); α=+1 → pure B (slider's right end).
-            # The slider couples transition_at + α so the right end is effectively
-            # pure B; the global α (linear A↔B) is intentionally NOT used here.
+            # Both the early A-only path AND the late blend get the same
+            # manipulations so semantic axes / noise / magnitude / dim offsets
+            # shape both phases consistently.
             la = late_phase_alpha
             late_blend = (0.5 - 0.5 * la) * prompt_emb_a + (0.5 + 0.5 * la) * prompt_emb_b
+            manipulated = apply_all(prompt_emb_a)         # early-phase conditioning
+            late_emb_manip = apply_all(late_blend)        # late-phase conditioning
             if combined_mask is not None:
-                late_emb_zeroed = late_blend * combined_mask.unsqueeze(-1).float()
+                late_emb_zeroed = late_emb_manip * combined_mask.unsqueeze(-1).float()
             else:
-                late_emb_zeroed = late_blend
-            manipulated = prompt_emb_a  # early-phase conditioning
+                late_emb_zeroed = late_emb_manip
             late_step_payload = (late_emb_zeroed, combined_mask)
+            baseline_pooled = manipulated.squeeze(0).mean(dim=0).cpu().float().numpy()
         elif injection_mode == "layer_split":
             # Per-block context override via forward_pre_hook on each
             # block.cross_attn. Pre-project A, B, null through to_cond_embed
-            # so the hook bypasses the DiT's projection step cleanly. CFG
-            # doubling is applied at hook fire time (see install below).
-            # Mask the raw embeddings before projection so padding stays zero
-            # in projection space — same convention as the linear/late paths.
+            # so the hook bypasses the DiT's projection step cleanly.
+            # Manipulate A and B independently (with the same shifts) BEFORE
+            # projection so the per-block sigmoid blend (1−w)·A + w·B inherits
+            # magnitude / noise / axes / dim offsets uniformly.
+            emb_a_manip = apply_all(prompt_emb_a)
+            emb_b_manip = apply_all(prompt_emb_b)
             if combined_mask is not None:
-                emb_a_masked = prompt_emb_a * combined_mask.unsqueeze(-1).float()
-                emb_b_masked = prompt_emb_b * combined_mask.unsqueeze(-1).float()
+                emb_a_masked = emb_a_manip * combined_mask.unsqueeze(-1).float()
+                emb_b_masked = emb_b_manip * combined_mask.unsqueeze(-1).float()
             else:
-                emb_a_masked = prompt_emb_a
-                emb_b_masked = prompt_emb_b
+                emb_a_masked = emb_a_manip
+                emb_b_masked = emb_b_manip
             dit = pipe.model.model.model  # DiffusionTransformer
             param_dtype = next(dit.to_cond_embed.parameters()).dtype
             with torch.no_grad():
@@ -1168,23 +1239,24 @@ def _generate_native(pipe, request):
                 proj_null = torch.zeros_like(proj_a)
             blocks = dit.transformer.layers
             layer_split_payload = (proj_a, proj_b, proj_null, blocks)
-            manipulated = prompt_emb_a  # un-hooked fallback / global cond path
+            manipulated = emb_a_manip  # un-hooked fallback / global cond path
+            baseline_pooled = manipulated.squeeze(0).mean(dim=0).cpu().float().numpy()
         else:  # kombi1 / kombi2 / kombi3 — late-step × layer-split.
             # Kombi semantics: early sampler steps see pure A on every block.
-            # After the transition step, each block sees a per-layer A↔late-blend
-            # mix where the layer weight is the same sigmoid top-hat as
-            # layer_split, but over the per-Kombi hardcoded [split_start, split_end]
-            # range. The "B side" of the blend is the Fine-style late_blend
-            # (driven by late_phase_alpha), so the slider's right end is
-            # effectively pure B in the active layer band.
+            # After the transition step, each block in the per-Kombi
+            # hardcoded layer band sees the late_blend; blocks outside the
+            # band still see A (hard mask). Same manipulations applied to
+            # both the A path and the late_blend path before projection.
             la = late_phase_alpha
             late_blend = (0.5 - 0.5 * la) * prompt_emb_a + (0.5 + 0.5 * la) * prompt_emb_b
+            emb_a_manip = apply_all(prompt_emb_a)
+            late_blend_manip = apply_all(late_blend)
             if combined_mask is not None:
-                emb_a_masked = prompt_emb_a * combined_mask.unsqueeze(-1).float()
-                late_blend_masked = late_blend * combined_mask.unsqueeze(-1).float()
+                emb_a_masked = emb_a_manip * combined_mask.unsqueeze(-1).float()
+                late_blend_masked = late_blend_manip * combined_mask.unsqueeze(-1).float()
             else:
-                emb_a_masked = prompt_emb_a
-                late_blend_masked = late_blend
+                emb_a_masked = emb_a_manip
+                late_blend_masked = late_blend_manip
             dit = pipe.model.model.model
             param_dtype = next(dit.to_cond_embed.parameters()).dtype
             with torch.no_grad():
@@ -1193,41 +1265,12 @@ def _generate_native(pipe, request):
                 proj_null = torch.zeros_like(proj_a)
             blocks = dit.transformer.layers
             kombi_payload = (proj_a, proj_late, proj_null, blocks)
-            manipulated = prompt_emb_a  # un-hooked fallback / global cond path
-
-        # Magnitude scaling
-        if abs(magnitude - 1.0) > 1e-6:
-            manipulated = manipulated * magnitude
-
-        # Noise injection (numpy PCG64 for cross-platform determinism)
-        if noise_sigma > 0.0:
-            rng = np.random.Generator(np.random.PCG64(seed))
-            noise_np = rng.standard_normal(manipulated.shape).astype(np.float32)
-            noise = torch.from_numpy(noise_np).to(manipulated.device) * noise_sigma
-            manipulated = manipulated + noise
-
-        # Apply semantic axes
-        sem_axes = request.get("semantic_axes")
-        if sem_axes:
-            def native_encode(text):
-                cond = pipe.model.conditioner(
-                    [_build_native_conditioning_input(pipe, text, 1.0, 0.0)],
-                    device,
-                )
-                return cond["prompt"][0], None
-            manipulated = _apply_semantic_axes(manipulated, sem_axes, native_encode, pipe.model_name)
-
-        baseline = manipulated
-        if combined_mask is not None:
-            baseline = baseline * combined_mask.unsqueeze(-1).float()
-        baseline_pooled = baseline.squeeze(0).mean(dim=0).cpu().float().numpy()
-
-        # Dimension offsets from DimensionExplorer are always applied last.
-        _apply_dimension_offsets(manipulated, dim_offsets)
+            manipulated = emb_a_manip  # un-hooked fallback / global cond path
+            baseline_pooled = manipulated.squeeze(0).mean(dim=0).cpu().float().numpy()
 
         # Re-apply attention mask to zero out padding (native conditioner zeros
         # padding, but manipulations like noise/offsets/axes can pollute it;
-        # the DiT disables cross_attn_cond_mask so padding must stay zero)
+        # the DiT disables cross_attn_cond_mask so padding must stay zero).
         if combined_mask is not None:
             manipulated = manipulated * combined_mask.unsqueeze(-1).float()
 

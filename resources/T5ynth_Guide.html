@@ -383,8 +383,11 @@ You have two text input fields. Each prompt is encoded into a <strong>768-dimens
 <p>
 These embedding vectors — not the text itself — are what steers the diffusion model. T5ynth operates on them as geometric objects: moving, blending, scaling, and perturbing them before any audio is generated.
 </p>
+<div class="tip">
+  <strong>How A and B mix</strong> is itself a control surface. The Alpha slider's classical A↔B interpolation is the default (<em>Linear</em>) mode — but five other <a href="#injection-modes">Injection Modes</a> (Fine, Layer, Kombi 1/2/3) inject B into A at different stages of the diffusion process and at different cross-attention layers. Same prompts and seed, different audible result.
+</div>
 <ul>
-  <li><strong>Two prompts</strong> — enter text in both A and B. The <em>Alpha</em> slider (labeled <strong>A ↔ B</strong>) interpolates between them in embedding space.</li>
+  <li><strong>Two prompts</strong> — enter text in both A and B. The <em>Alpha</em> slider (labeled <strong>A ↔ B</strong>) interpolates between them in embedding space when the active <a href="#injection-modes">Injection Mode</a> is <em>Linear</em>; in other modes the slider's role shifts (see the mode-row description below).</li>
   <li><strong>One prompt + Echoraum</strong> — leave one field empty. The empty field becomes the <em>reflection</em> of the present prompt through the model's neutral encoding (the encoding of <code>""</code>, also used as <code>emb_neutral</code> in the Semantic Axes math): geometrically <code>2·neutral − other</code>. Alpha then traces a path from the prompt through the model-neutral midpoint to the prompt's tonal antipode — sounds the prompt actively isn't. A and B are peers; either side may be the empty one.</li>
   <li><strong>Both empty</strong> — both embeddings collapse to the neutral encoding. The model produces its own self-portrait (pure unconditional sampling), varying with the seed.</li>
 </ul>
@@ -1470,7 +1473,7 @@ log/preset legibility.
 
 <h3>What stays unchanged</h3>
 <ul>
-  <li><strong>Magnitude, Noise, Dimension Offsets, Semantic Axes</strong> all act on the wrapper-level conditioning before any hook fires. In Layer and Kombi modes the per-block hooks override the result at every step, so those manipulations only affect the un-hooked codepath (used internally as a fallback). In Linear and Fine they reach the DiT unchanged.</li>
+  <li><strong>Magnitude, Noise, Dimension Offsets, Semantic Axes</strong> all reach the DiT in every mode. They are applied to whichever embedding tensor(s) the active mode actually feeds into the cross-attention layer — the global blend in Linear / Delta, both the early A path and the late blend in Fine, both A and B (independently, with the same shifts) before projection in Layer, and A and the late blend before projection in Kombi 1/2/3. The same noise sample and the same axis / dim shifts are reused across paths so the per-mode geometry behaves predictably (e.g. a Linear-style A↔B blend would still receive noise <em>once</em>, not per term).</li>
   <li><strong>Drift</strong> targets the active mode's intensity axis automatically. No new drift targets are needed.</li>
   <li><strong>Determinism</strong> — the hooks are deterministic; they do not introduce additional RNG. Same seed + same prompts + same mode and slider position = identical audio across platforms.</li>
   <li><strong>Linear remains the canonical default</strong> — bit-for-bit identical to T5ynth v1.5.x. The non-linear modes are research-mode controls, layered on top.</li>

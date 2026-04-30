@@ -456,6 +456,18 @@ with the per-mode hardcoded band so drift / preset / slider state
 can never desync the geometry — the backend re-asserts the same
 band as a defense-in-depth measure.
 
+Embedding manipulations (`magnitude`, `noise_sigma`, `semantic_axes`,
+`dimension_offsets`) are wired into every mode: the backend defines
+per-request `apply_pre_offsets` (magnitude + noise + axes) and
+`apply_dim_offsets` helpers and feeds them whichever tensor(s) flow
+into the cross-attention layer for the active mode — the global
+blend in Linear/Delta, the early A path *and* the late blend in
+Fine, A and B (independently, same shifts) before projection in
+Layer, and A and the late blend before projection in Kombi 1/2/3.
+The noise tensor is drawn once from the seed-derived PCG64 RNG and
+reused across all paths so the Linear invariant "noise added once
+to the blend" carries through to the non-linear modes verbatim.
+
 ---
 
 ## 7. APVTS parameters and non-APVTS state
