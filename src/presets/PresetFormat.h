@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include <array>
+#include <limits>
 #include <vector>
 
 class T5ynthProcessor;
@@ -52,6 +53,15 @@ public:
 
         // User-assigned classification tags (empty for legacy presets)
         juce::StringArray tags;
+
+        // Research-mode injection state. Old .t5p files predating this feature
+        // leave `injectionMode` empty and the floats at NaN — the panel keeps
+        // its current values (linear / 0.75 / 4 / 16) on load instead of
+        // overwriting them. New presets always carry all four fields.
+        juce::String injectionMode;
+        float lateMixAmount = std::numeric_limits<float>::quiet_NaN();
+        float splitStart    = std::numeric_limits<float>::quiet_NaN();
+        float splitEnd      = std::numeric_limits<float>::quiet_NaN();
     };
 
     /** Save current state to a .t5p file with embedded audio. */

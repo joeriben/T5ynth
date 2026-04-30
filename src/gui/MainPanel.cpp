@@ -685,6 +685,10 @@ void MainPanel::syncGuiStateForPresetSave()
 {
     processorRef.setLastPrompts(promptPanel.getPromptA(), promptPanel.getPromptB());
     processorRef.setLastSeed(promptPanel.getSeed());
+    processorRef.setLastInjection(promptPanel.getInjectionMode(),
+                                   promptPanel.getLateMixAmount(),
+                                   promptPanel.getSplitStart(),
+                                   promptPanel.getSplitEnd());
 
     auto axStates = axesPanel.getSlotStates();
     std::array<T5ynthProcessor::AxisSlotState, 3> procAxes;
@@ -699,7 +703,11 @@ void MainPanel::syncGuiStateForPresetSave()
 void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const juce::File& sourceFile)
 {
     promptPanel.loadPresetData(result.promptA, result.promptB,
-                               result.seed, result.randomSeed, result.device, result.model);
+                               result.seed, result.randomSeed, result.device, result.model,
+                               result.injectionMode,
+                               result.lateMixAmount,
+                               result.splitStart,
+                               result.splitEnd);
 
     if (result.hasAxes)
     {

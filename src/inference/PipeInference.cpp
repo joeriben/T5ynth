@@ -774,7 +774,8 @@ PipeInference::Result PipeInference::generate(const Request& request)
     json->setProperty("injection_mode", request.injectionMode);
     json->setProperty("injection_transition_at", request.injectionTransitionAt);
     json->setProperty("late_phase_alpha", request.latePhaseAlpha);
-    json->setProperty("split_layer", request.splitLayer);
+    json->setProperty("split_start", request.splitStart);
+    json->setProperty("split_end",   request.splitEnd);
 
     // Serialize dimension offsets from DimensionExplorer
     if (!request.dimensionOffsets.empty())

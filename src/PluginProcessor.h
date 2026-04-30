@@ -80,6 +80,21 @@ public:
     void setLastSeed(int s) { lastSeed = s; }
     int getLastSeed() const { return lastSeed; }
 
+    // Research-mode injection state (GUI-only, persisted in .t5p with defaults
+    // for old files: linear / 0.75 / 4.0 / 16.0 — matches the panel defaults).
+    void setLastInjection(const juce::String& mode, float lateMixAmount,
+                          float splitStart, float splitEnd)
+    {
+        lastInjectionMode = mode;
+        lastLateMixAmount = lateMixAmount;
+        lastSplitStart = splitStart;
+        lastSplitEnd = splitEnd;
+    }
+    const juce::String& getLastInjectionMode() const { return lastInjectionMode; }
+    float getLastLateMixAmount() const { return lastLateMixAmount; }
+    float getLastSplitStart() const { return lastSplitStart; }
+    float getLastSplitEnd() const { return lastSplitEnd; }
+
     // Semantic axes state (GUI-only, 3 slots: dropdownId + value)
     struct AxisSlotState { int dropdownId = 1; float value = 0.0f; };
     void setLastAxes(const std::array<AxisSlotState, 3>& a) { lastAxes = a; }
@@ -185,6 +200,10 @@ private:
     juce::String lastPromptA, lastPromptB;
     float lastGenerationTimeMs = 0.0f;
     int lastSeed = 123456789;
+    juce::String lastInjectionMode { "linear" };
+    float lastLateMixAmount = 0.75f;
+    float lastSplitStart = 4.0f;
+    float lastSplitEnd = 16.0f;
     std::array<AxisSlotState, 3> lastAxes;
     std::vector<float> lastEmbeddingA, lastEmbeddingB;
     juce::AudioBuffer<float> generatedAudioFull;  // boosted buffer for engines + display

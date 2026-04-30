@@ -1000,11 +1000,12 @@ def _generate_native(pipe, request):
     # The plugin couples this with transition_at so the Fine slider's right
     # end produces effectively pure B (very early transition + pure-B late).
     late_phase_alpha = max(-1.0, min(1.0, float(request.get("late_phase_alpha", 0.0))))
-    # split_layer is a float so the UI can drive a continuous sigmoid ramp
-    # (e.g. split=8.5 puts the half-mark between blocks 8 and 9). Range 0..16
-    # is clamped here; the backend treats out-of-range gracefully.
-    split_layer = max(0.0, min(16.0, float(request.get("split_layer", 8.0))))
-    layer_split_smoothness = 2.0  # sigmoid scale; ±2 layers around the split
+    # Layer mode: two-thumb range slider on the plugin defines the B-zone
+    # [split_start, split_end] across the 16 DiT blocks. Per-block weight is
+    # a sigmoid product (smooth top-hat) so both edges have ±2-layer ramps.
+    split_start = max(0.0, min(16.0, float(request.get("split_start", 4.0))))
+    split_end   = max(0.0, min(16.0, float(request.get("split_end",  16.0))))
+    layer_split_smoothness = 2.0  # sigmoid scale; ±2 layers ramp at each edge
     if injection_mode not in ("linear", "delta", "late_step", "layer_split"):
         raise ValueError(
             f"Unknown injection_mode '{injection_mode}'. "
@@ -1098,7 +1099,7 @@ def _generate_native(pipe, request):
         #                point the DiTWrapper.forward swap (installed below the
         #                manipulation pipeline) injects pure B.
         # "layer_split": every DiT block sees a different A/B blend, sigmoid-
-        #                ramped around split_layer along the depth axis.
+        #                ramped over the [split_start, split_end] B-zone.
         #                Per-block forward_pre_hooks override block.cross_attn
         #                context. The α slider is unused in this mode.
         # Magnitude/noise/axes/offsets that follow act on the "manipulated"
@@ -1238,14 +1239,26 @@ def _generate_native(pipe, request):
 
     elif injection_mode == "layer_split" and layer_split_payload is not None:
         # Register a forward_pre_hook on every block.cross_attn that overrides
-        # the `context` kwarg with a per-block A↔B blend. Sigmoid ramp around
-        # split_layer with width = layer_split_smoothness.
+        # the `context` kwarg with a per-block A↔B blend. Per-layer weight is
+        # the product of two sigmoids → smooth top-hat over [split_start, split_end].
         proj_a, proj_b, proj_null, blocks = layer_split_payload
         num_layers = len(blocks)
+        # Special cases for clean limits at the slider extremes:
+        # • Both thumbs at the outer edges → full B (avoids the 0.5-edge artifact
+        #   of the sigmoid product).
+        # • Empty range (start ≥ end) → no B at all (pure A pass-through).
+        full_b = (split_start <= 0.5 and split_end >= 15.5)
+        empty  = (split_start >= split_end)
         per_block_ctx = []  # one tensor per block; CFG-doubling at hook fire time
         for i in range(num_layers):
-            # w in [0, 1]: 0 = pure A, 1 = pure B
-            w = 1.0 / (1.0 + math.exp(-(i - split_layer) / layer_split_smoothness))
+            if full_b:
+                w = 1.0
+            elif empty:
+                w = 0.0
+            else:
+                w_left  = 1.0 / (1.0 + math.exp(-(i - split_start) / layer_split_smoothness))
+                w_right = 1.0 / (1.0 + math.exp(-(split_end - i)   / layer_split_smoothness))
+                w = w_left * w_right
             blended = (1.0 - w) * proj_a + w * proj_b
             per_block_ctx.append(blended)
 

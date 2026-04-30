@@ -77,6 +77,14 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
         if (processor.getLastGenerationTimeMs() > 0.0f)
             synth->setProperty("inferenceMs",
                                static_cast<double>(processor.getLastGenerationTimeMs()));
+
+        // Research-mode injection state. Always written; readers use
+        // hasProperty() defaults so old .t5p files predating these fields
+        // load gracefully into the panel's current values.
+        synth->setProperty("injectionMode",  processor.getLastInjectionMode());
+        synth->setProperty("lateMixAmount",  static_cast<double>(processor.getLastLateMixAmount()));
+        synth->setProperty("splitStart",     static_cast<double>(processor.getLastSplitStart()));
+        synth->setProperty("splitEnd",       static_cast<double>(processor.getLastSplitEnd()));
     }
 
     // Semantic axes (GUI-only state, 3 slots)
@@ -211,6 +219,23 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
             result.model = synth->getProperty("model").toString();
             if (synth->hasProperty("randomSeed"))
                 result.randomSeed = static_cast<bool>(synth->getProperty("randomSeed"));
+
+            // Research-mode injection state. All four fields are independent —
+            // a half-populated preset (e.g. only injectionMode set) is honoured
+            // for the present field and leaves the others at NaN/empty so the
+            // panel keeps its existing values. Old .t5p without any of these
+            // fields → all four stay default → panel state is preserved.
+            if (synth->hasProperty("injectionMode"))
+                result.injectionMode = synth->getProperty("injectionMode").toString();
+            if (synth->hasProperty("lateMixAmount"))
+                result.lateMixAmount = static_cast<float>(
+                    static_cast<double>(synth->getProperty("lateMixAmount")));
+            if (synth->hasProperty("splitStart"))
+                result.splitStart = static_cast<float>(
+                    static_cast<double>(synth->getProperty("splitStart")));
+            if (synth->hasProperty("splitEnd"))
+                result.splitEnd = static_cast<float>(
+                    static_cast<double>(synth->getProperty("splitEnd")));
         }
 
         // Extract semantic axes
@@ -289,6 +314,17 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
                         result.model = synth->getProperty("model").toString();
                         if (synth->hasProperty("randomSeed"))
                             result.randomSeed = static_cast<bool>(synth->getProperty("randomSeed"));
+                        if (synth->hasProperty("injectionMode"))
+                            result.injectionMode = synth->getProperty("injectionMode").toString();
+                        if (synth->hasProperty("lateMixAmount"))
+                            result.lateMixAmount = static_cast<float>(
+                                static_cast<double>(synth->getProperty("lateMixAmount")));
+                        if (synth->hasProperty("splitStart"))
+                            result.splitStart = static_cast<float>(
+                                static_cast<double>(synth->getProperty("splitStart")));
+                        if (synth->hasProperty("splitEnd"))
+                            result.splitEnd = static_cast<float>(
+                                static_cast<double>(synth->getProperty("splitEnd")));
                     }
                 }
                 result.presetName = getStoredPresetName(parsed, file);

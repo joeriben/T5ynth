@@ -22,16 +22,29 @@ public:
     void resized() override;
     int getPreferredHeightForWidth(int width) const;
 
-    /** Load preset data that isn't in APVTS (prompts, seed, random toggle, device, model). */
+    /** Load preset data that isn't in APVTS (prompts, seed, random toggle, device, model,
+     *  research-mode injection state). The injection fields are optional — when omitted,
+     *  the panel keeps its current values, which lets callers decide per-feature whether
+     *  to push or preserve. */
     void loadPresetData(const juce::String& promptA, const juce::String& promptB,
                         int seed, bool randomSeed,
                         const juce::String& device = {},
-                        const juce::String& model = {});
+                        const juce::String& model = {},
+                        const juce::String& injectionMode = {},
+                        float lateMixAmount = std::numeric_limits<float>::quiet_NaN(),
+                        float splitStart = std::numeric_limits<float>::quiet_NaN(),
+                        float splitEnd = std::numeric_limits<float>::quiet_NaN());
 
     /** Read current prompt/seed state (for preset save). */
     juce::String getPromptA() const { return promptAEditor.getText().trim(); }
     juce::String getPromptB() const { return promptBEditor.getText().trim(); }
     int getSeed() const { return seedEditor.getText().getIntValue(); }
+
+    /** Read current injection-mode state (for preset save). */
+    juce::String getInjectionMode()  const { return injectionMode_; }
+    float        getLateMixAmount()  const { return lateMixAmount_; }
+    float        getSplitStart()     const { return splitLayerStart_; }
+    float        getSplitEnd()       const { return splitLayerEnd_; }
 
     /** Trigger generation with optional dimension offsets from DimensionExplorer. */
     void triggerGenerationWithOffsets(std::vector<std::pair<int, float>> offsets);
@@ -67,13 +80,19 @@ private:
     PipeInference::Request buildInferenceRequest(float alphaOverride = std::numeric_limits<float>::quiet_NaN(),
                                                   std::map<juce::String, float> axesOverride = {},
                                                   float noiseOverride = std::numeric_limits<float>::quiet_NaN(),
-                                                  float magnitudeOverride = std::numeric_limits<float>::quiet_NaN());
+                                                  float magnitudeOverride = std::numeric_limits<float>::quiet_NaN(),
+                                                  float lateMixOverride = std::numeric_limits<float>::quiet_NaN(),
+                                                  float splitStartOverride = std::numeric_limits<float>::quiet_NaN(),
+                                                  float splitEndOverride = std::numeric_limits<float>::quiet_NaN());
 
     /** Trigger generation from drift auto-regen. */
     void triggerDriftRegeneration(float effectiveAlpha,
                                   std::map<juce::String, float> effectiveAxes,
                                   float effectiveNoise,
                                   float effectiveMagnitude,
+                                  float effectiveLateMix,
+                                  float effectiveSplitStart,
+                                  float effectiveSplitEnd,
                                   bool holdForBar = false);
 
     /** Check if drift requires auto-regeneration (called from timerCallback). */
@@ -131,7 +150,12 @@ private:
     // The backend's `injection_transition_at` is the *early-phase fraction*;
     // we send (1 - lateMixAmount_) clamped to backend's [0.05, 0.95].
     float            lateMixAmount_         = 0.75f;      // 0.5–1.0, slider value
-    float            splitLayer_            = 8.0f;       // 0–16
+    // Layer mode: two-thumb range slider defining the B-zone [start, end]
+    // along the 16 DiT block indices. Both thumbs at extremes → full B;
+    // start == end → no B (pure A); narrow range → B injected only into
+    // a sub-band of layers (mid / early / late depending on position).
+    float            splitLayerStart_       = 4.0f;       // 0–16, low thumb
+    float            splitLayerEnd_         = 16.0f;      // 0–16, high thumb (default = top: B from layer 4 onwards)
 
     /** Reconfigure alphaSlider (range, label, value, attachment) for the active mode. */
     void applyModeToSlider();
@@ -147,6 +171,9 @@ private:
     float lastGenAlpha_ = std::numeric_limits<float>::quiet_NaN();
     float lastGenNoise_ = std::numeric_limits<float>::quiet_NaN();
     float lastGenMagnitude_ = std::numeric_limits<float>::quiet_NaN();
+    float lastGenLateMix_ = std::numeric_limits<float>::quiet_NaN();
+    float lastGenSplitStart_ = std::numeric_limits<float>::quiet_NaN();
+    float lastGenSplitEnd_ = std::numeric_limits<float>::quiet_NaN();
     std::map<juce::String, float> lastGenAxes_;
     juce::String lastGenPromptA_;
     juce::String lastGenPromptB_;
@@ -154,6 +181,12 @@ private:
     float alphaGhostValue_ = std::numeric_limits<float>::quiet_NaN();
     float magGhostValue_ = std::numeric_limits<float>::quiet_NaN();
     float noiseGhostValue_ = std::numeric_limits<float>::quiet_NaN();
+    // Mode-specific ghosts: set when alpha-LFO offset is non-zero AND the
+    // active mode targets the corresponding parameter. Painted via the same
+    // drawGhost lambda in paintOverChildren.
+    float lateMixGhostValue_    = std::numeric_limits<float>::quiet_NaN();
+    float splitStartGhostValue_ = std::numeric_limits<float>::quiet_NaN();
+    float splitEndGhostValue_   = std::numeric_limits<float>::quiet_NaN();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PromptPanel)
 };

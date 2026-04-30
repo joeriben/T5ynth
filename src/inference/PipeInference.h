@@ -68,7 +68,8 @@ public:
         juce::String injectionMode = "linear";          // "linear" | "late_step" | "layer_split"
         float        injectionTransitionAt = 0.6f;       // 0.05–0.95, only used by "late_step"
         float        latePhaseAlpha        = 0.0f;       // -1..+1, only used by "late_step": late blend α (0 = 50/50, +1 = pure B)
-        float        splitLayer            = 8.0f;       // 0–16, only used by "layer_split"
+        float        splitStart            = 4.0f;       // 0–16, only used by "layer_split": B-zone low edge
+        float        splitEnd              = 16.0f;      // 0–16, only used by "layer_split": B-zone high edge
     };
 
     struct Result

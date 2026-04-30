@@ -102,9 +102,9 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     makeLabel(alphaLabel, "A " + juce::String(juce::CharPointer_UTF8("\xe2\x86\x94")) + " B", kDim, juce::Justification::centredLeft, this);
     makeLabel(alphaValue, "0", kOscCol, juce::Justification::centredRight, this);
     alphaSlider.onValueChange = [this] {
-        float v = static_cast<float>(alphaSlider.getValue());
         if (injectionMode_ == "linear")
         {
+            float v = static_cast<float>(alphaSlider.getValue());
             if (std::abs(v) < 0.001f)
                 alphaValue.setText("0", juce::dontSendNotification);
             else if (v < 0.0f)
@@ -114,13 +114,17 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         }
         else if (injectionMode_ == "late_step")
         {
+            float v = static_cast<float>(alphaSlider.getValue());
             lateMixAmount_ = v;
             alphaValue.setText(juce::String(v, 2), juce::dontSendNotification);
         }
-        else  // layer_split
+        else  // layer_split — TwoValueHorizontal: read both thumbs
         {
-            splitLayer_ = v;
-            alphaValue.setText(juce::String(static_cast<int>(std::round(v))) + "/16",
+            splitLayerStart_ = static_cast<float>(alphaSlider.getMinValue());
+            splitLayerEnd_   = static_cast<float>(alphaSlider.getMaxValue());
+            int s = static_cast<int>(std::round(splitLayerStart_));
+            int e = static_cast<int>(std::round(splitLayerEnd_));
+            alphaValue.setText(juce::String(s) + "-" + juce::String(e) + "/16",
                                juce::dontSendNotification);
         }
     };
@@ -341,10 +345,41 @@ void PromptPanel::timerCallback()
         // Don't stop timer — continue for drift regen polling + ghost updates
     }
 
-    // Ghost indicators for drift-modulated sliders — update every tick
-    alphaGhostValue_ = processorRef.modulatedValues.driftAlpha.load(std::memory_order_relaxed);
-    magGhostValue_ = processorRef.modulatedValues.driftMagnitude.load(std::memory_order_relaxed);
-    noiseGhostValue_ = processorRef.modulatedValues.driftNoise.load(std::memory_order_relaxed);
+    // Ghost indicators for drift-modulated sliders — update every tick.
+    auto& mv0 = processorRef.modulatedValues;
+    alphaGhostValue_ = mv0.driftAlpha.load(std::memory_order_relaxed);
+    magGhostValue_   = mv0.driftMagnitude.load(std::memory_order_relaxed);
+    noiseGhostValue_ = mv0.driftNoise.load(std::memory_order_relaxed);
+    // Mode-specific ghosts for Fine/Layer: derive the alpha-LFO offset (in
+    // alpha-units) and project it onto the active mode's parameter range
+    // using the same scaling factors the regen path uses.
+    {
+        const float baseAlpha0 = processorRef.getValueTreeState()
+                                     .getRawParameterValue(PID::genAlpha)->load();
+        const float alphaOff = std::isnan(alphaGhostValue_) ? 0.0f
+                                                            : (alphaGhostValue_ - baseAlpha0);
+        if (injectionMode_ == "late_step" && std::abs(alphaOff) > 0.001f)
+        {
+            lateMixGhostValue_ = juce::jlimit(0.5f, 1.0f, lateMixAmount_ + alphaOff * 0.25f);
+            splitStartGhostValue_ = std::numeric_limits<float>::quiet_NaN();
+            splitEndGhostValue_   = std::numeric_limits<float>::quiet_NaN();
+        }
+        else if (injectionMode_ == "layer_split" && std::abs(alphaOff) > 0.001f)
+        {
+            const float width = splitLayerEnd_ - splitLayerStart_;
+            const float maxStart = std::max(0.0f, 16.0f - width);
+            float gs = juce::jlimit(0.0f, maxStart, splitLayerStart_ + alphaOff * 8.0f);
+            splitStartGhostValue_ = gs;
+            splitEndGhostValue_   = gs + width;
+            lateMixGhostValue_    = std::numeric_limits<float>::quiet_NaN();
+        }
+        else
+        {
+            lateMixGhostValue_    = std::numeric_limits<float>::quiet_NaN();
+            splitStartGhostValue_ = std::numeric_limits<float>::quiet_NaN();
+            splitEndGhostValue_   = std::numeric_limits<float>::quiet_NaN();
+        }
+    }
     repaint(alphaSlider.getBounds().expanded(4));
     repaint(magnitudeSlider.getBounds().expanded(4));
     repaint(noiseSlider.getBounds().expanded(4));
@@ -376,12 +411,20 @@ void PromptPanel::paintOverChildren(juce::Graphics& g)
         g.fillEllipse(gx - r, gy - r, r * 2.0f, r * 2.0f);
     };
 
-    // Alpha ghost only makes sense when the slider actually drives α (linear).
-    // In Fine/Layer modes the same physical slider drives a different parameter
-    // (lateMixAmount_ / splitLayer_) that has no drift modulation, so painting
-    // the αGhost there would land in a meaningless screen position.
+    // Alpha ghost only makes sense when the slider drives α (linear). In Fine
+    // and Layer the alpha-LFO offset is remapped onto the active parameter's
+    // axis (lateMix or [splitStart, splitEnd]) — those ghosts paint on the
+    // same physical slider but at the mode-specific value position.
     if (injectionMode_ == "linear")
         drawGhost(alphaSlider, alphaGhostValue_);
+    else if (injectionMode_ == "late_step")
+        drawGhost(alphaSlider, lateMixGhostValue_);
+    else if (injectionMode_ == "layer_split")
+    {
+        // Two synchronous ghosts for the range slider — one per thumb.
+        drawGhost(alphaSlider, splitStartGhostValue_);
+        drawGhost(alphaSlider, splitEndGhostValue_);
+    }
     drawGhost(magnitudeSlider, magGhostValue_);
     drawGhost(noiseSlider, noiseGhostValue_);
 }
@@ -546,7 +589,11 @@ void PromptPanel::resized()
 void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String& promptB,
                                   int seed, bool randomSeed,
                                   const juce::String& device,
-                                  const juce::String& model)
+                                  const juce::String& model,
+                                  const juce::String& injectionMode,
+                                  float lateMixAmount,
+                                  float splitStart,
+                                  float splitEnd)
 {
     juce::ignoreUnused(device);
     promptAEditor.setText(promptA, false);
@@ -558,6 +605,37 @@ void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String
     syncSeedEditorEnabledState();
     if (auto* startParam = processorRef.getValueTreeState().getParameter(PID::genStart))
         startParam->setValueNotifyingHost(0.0f);
+
+    // Apply research-mode injection state if the preset carries it. Old .t5p
+    // files predating this feature pass empty/NaN sentinels here, in which case
+    // we keep the panel's current values and skip applyModeToSlider() (the
+    // panel's mode buttons / slider stay where the user left them).
+    bool injectionDirty = false;
+    if (injectionMode.isNotEmpty())
+    {
+        injectionMode_ = injectionMode;
+        injectionDirty = true;
+        injModeLinear.setToggleState(injectionMode == "linear",      juce::dontSendNotification);
+        injModeFine  .setToggleState(injectionMode == "late_step",   juce::dontSendNotification);
+        injModeLayer .setToggleState(injectionMode == "layer_split", juce::dontSendNotification);
+    }
+    if (!std::isnan(lateMixAmount))
+    {
+        lateMixAmount_ = juce::jlimit(0.5f, 1.0f, lateMixAmount);
+        injectionDirty = true;
+    }
+    if (!std::isnan(splitStart))
+    {
+        splitLayerStart_ = juce::jlimit(0.0f, 16.0f, splitStart);
+        injectionDirty = true;
+    }
+    if (!std::isnan(splitEnd))
+    {
+        splitLayerEnd_ = juce::jlimit(0.0f, 16.0f, splitEnd);
+        injectionDirty = true;
+    }
+    if (injectionDirty)
+        applyModeToSlider();
 
     // Select model from preset (match by model directory name)
     if (model.isNotEmpty())
@@ -724,6 +802,8 @@ void PromptPanel::applyModeToSlider()
     auto& apvts = processorRef.getValueTreeState();
     if (injectionMode_ == "linear")
     {
+        // Restore single-thumb style in case we're coming from layer mode.
+        alphaSlider.setSliderStyle(juce::Slider::LinearHorizontal);
         // Set range BEFORE creating the SliderAttachment so the attachment's
         // value-push (from APVTS alpha) lands inside the proper [-1, +1] range.
         // Otherwise the previous mode's range (e.g. 0..16 for layer) clamps
@@ -739,6 +819,7 @@ void PromptPanel::applyModeToSlider()
     else if (injectionMode_ == "late_step")
     {
         alphaA.reset();  // detach from APVTS so the slider drives local state only
+        alphaSlider.setSliderStyle(juce::Slider::LinearHorizontal);
         // Slider range tuned to the audible region (listening test): below
         // ~0.5 the late-blend was inaudible. Full slider span = 0.5..1.0.
         // setRange() may clamp the current value and fire onValueChange,
@@ -749,14 +830,20 @@ void PromptPanel::applyModeToSlider()
         alphaLabel.setText("Fine: A " + juce::String(juce::CharPointer_UTF8("\xe2\x86\x92")) + " mix", juce::dontSendNotification);
         alphaSlider.setValue(saved, juce::sendNotificationSync);
     }
-    else  // layer_split
+    else  // layer_split — two-thumb range slider [b_start, b_end]
     {
         alphaA.reset();
-        const float saved = splitLayer_;
+        alphaSlider.setSliderStyle(juce::Slider::TwoValueHorizontal);
+        const float savedStart = juce::jlimit(0.0f, 16.0f, splitLayerStart_);
+        const float savedEnd   = juce::jlimit(0.0f, 16.0f, splitLayerEnd_);
         alphaSlider.setRange(0.0, 16.0, 1.0);
-        splitLayer_ = saved;
-        alphaLabel.setText("Layer: A " + juce::String(juce::CharPointer_UTF8("\xe2\x86\x92")) + " B at split", juce::dontSendNotification);
-        alphaSlider.setValue(saved, juce::sendNotificationSync);
+        splitLayerStart_ = savedStart;
+        splitLayerEnd_   = savedEnd;
+        alphaLabel.setText("Layer B-zone (low-high)", juce::dontSendNotification);
+        // Set both thumbs without firing notifications, then trigger onValueChange
+        // once at the end to populate the value display from saved state.
+        alphaSlider.setMinValue(savedStart, juce::dontSendNotification, true);
+        alphaSlider.setMaxValue(savedEnd,   juce::sendNotificationSync, true);
     }
 }
 
@@ -765,7 +852,8 @@ void PromptPanel::applyModeToSlider()
 // ──────────────────────────────────────────────────────────────────────────────
 PipeInference::Request PromptPanel::buildInferenceRequest(
     float alphaOverride, std::map<juce::String, float> axesOverride,
-    float noiseOverride, float magnitudeOverride)
+    float noiseOverride, float magnitudeOverride,
+    float lateMixOverride, float splitStartOverride, float splitEndOverride)
 {
     auto& apvts = processorRef.getValueTreeState();
     float alpha = std::isnan(alphaOverride)
@@ -781,6 +869,12 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     int steps = static_cast<int>(apvts.getRawParameterValue(PID::infSteps)->load());
     float cfgScale = apvts.getRawParameterValue(PID::genCfg)->load();
     int seed = randomSeedToggle.getToggleState() ? -1 : seedEditor.getText().getIntValue();
+
+    // Mode-specific parameter resolution: drift-driven overrides win when
+    // present, otherwise fall back to the panel's slider state.
+    const float effLateMix    = std::isnan(lateMixOverride)    ? lateMixAmount_     : lateMixOverride;
+    const float effSplitStart = std::isnan(splitStartOverride) ? splitLayerStart_   : splitStartOverride;
+    const float effSplitEnd   = std::isnan(splitEndOverride)   ? splitLayerEnd_     : splitEndOverride;
 
     PipeInference::Request req;
     req.promptA = promptAEditor.getText().trim();
@@ -804,13 +898,16 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     //   transition_at: 0.5 (halfway swap) → 0.05 (almost immediate)
     //   late_α       : 0   (50/50 mix)    → 1   (pure B)
     {
-        const float t = juce::jlimit(0.0f, 1.0f, (lateMixAmount_ - 0.5f) / 0.5f);
+        const float t = juce::jlimit(0.0f, 1.0f, (effLateMix - 0.5f) / 0.5f);
         req.injectionTransitionAt = juce::jlimit(0.05f, 0.95f, 0.5f - 0.45f * t);
         req.latePhaseAlpha        = t;  // 0 → 50/50, 1 → pure B
     }
-    // Layer slider: visual 0=A (left), 16=B (right). Backend's split_layer
-    // semantic is the inverse (split=0 → all blocks see B). Invert here.
-    req.splitLayer = juce::jlimit(0.0f, 16.0f, 16.0f - splitLayer_);
+    // Layer: two-thumb range slider directly defines the B-zone [start, end]
+    // in DiT block index space. No inversion needed — the user's mental model
+    // (low thumb = where B starts, high thumb = where B ends) maps 1:1 to the
+    // backend's b_start / b_end fields.
+    req.splitStart = juce::jlimit(0.0f, 16.0f, effSplitStart);
+    req.splitEnd   = juce::jlimit(0.0f, 16.0f, effSplitEnd);
     return req;
 }
 
@@ -906,6 +1003,9 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                                             std::map<juce::String, float> effectiveAxes,
                                             float effectiveNoise,
                                             float effectiveMagnitude,
+                                            float effectiveLateMix,
+                                            float effectiveSplitStart,
+                                            float effectiveSplitEnd,
                                             bool /*holdForBar*/)
 {
     if (generating) return;
@@ -919,8 +1019,12 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
     lastGenNoise_ = effectiveNoise;
     lastGenMagnitude_ = effectiveMagnitude;
     lastGenAxes_ = effectiveAxes;
+    lastGenLateMix_ = effectiveLateMix;
+    lastGenSplitStart_ = effectiveSplitStart;
+    lastGenSplitEnd_ = effectiveSplitEnd;
 
-    auto req = buildInferenceRequest(effectiveAlpha, effectiveAxes, effectiveNoise, effectiveMagnitude);
+    auto req = buildInferenceRequest(effectiveAlpha, effectiveAxes, effectiveNoise, effectiveMagnitude,
+                                     effectiveLateMix, effectiveSplitStart, effectiveSplitEnd);
     auto deviceForLabel = req.device.isEmpty()
         ? processorRef.getPipeInference().getDefaultDevice() : req.device;
     auto modelForLabel = req.model.isEmpty()
@@ -1029,12 +1133,61 @@ void PromptPanel::pollDriftRegen()
 
     // Check if values changed enough from last generation
     constexpr float DRIFT_THRESHOLD = 0.005f;
-    // Alpha-driven auto-regen only fires in linear mode — Fine and Layer
-    // ignore alpha at the backend level, so drift modulation of alpha would
-    // burn GPU cycles without changing the output.
-    bool alphaChanged = injectionMode_ == "linear"
-        && !std::isnan(effAlpha)
-        && (std::isnan(lastGenAlpha_) || std::abs(effAlpha - lastGenAlpha_) > DRIFT_THRESHOLD);
+
+    // Mode-specific drift mapping: the same alpha-LFO offset (in alpha-units)
+    // drives a different parameter per mode. This keeps the Drift Panel UX
+    // simple ("Alpha" target works in all modes) while ensuring drift actually
+    // moves audible parameters in Fine/Layer.
+    auto& apvts = processorRef.getValueTreeState();
+    const float baseAlphaForOff = apvts.getRawParameterValue(PID::genAlpha)->load();
+    const float alphaOff = std::isnan(effAlpha) ? 0.0f : (effAlpha - baseAlphaForOff);
+
+    float effectiveLateMix    = lateMixAmount_;
+    float effectiveSplitStart = splitLayerStart_;
+    float effectiveSplitEnd   = splitLayerEnd_;
+    if (injectionMode_ == "late_step" && std::abs(alphaOff) > 0.001f)
+    {
+        effectiveLateMix = juce::jlimit(0.5f, 1.0f, lateMixAmount_ + alphaOff * 0.25f);
+    }
+    else if (injectionMode_ == "layer_split" && std::abs(alphaOff) > 0.001f)
+    {
+        const float width = splitLayerEnd_ - splitLayerStart_;
+        const float maxStart = std::max(0.0f, 16.0f - width);
+        effectiveSplitStart = juce::jlimit(0.0f, maxStart, splitLayerStart_ + alphaOff * 8.0f);
+        effectiveSplitEnd   = effectiveSplitStart + width;
+    }
+
+    // Alpha-driven auto-regen routes to the mode's parameter:
+    // Linear → α, Fine → lateMix, Layer → splitStart (split end follows).
+    bool alphaChanged = false;
+    if (injectionMode_ == "linear")
+    {
+        alphaChanged = !std::isnan(effAlpha)
+            && (std::isnan(lastGenAlpha_) || std::abs(effAlpha - lastGenAlpha_) > DRIFT_THRESHOLD);
+    }
+    else if (injectionMode_ == "late_step")
+    {
+        alphaChanged = std::isnan(lastGenLateMix_)
+            || std::abs(effectiveLateMix - lastGenLateMix_) > DRIFT_THRESHOLD;
+        // Suppress regen on initial frame when nothing has moved yet.
+        if (std::isnan(lastGenLateMix_) && std::abs(alphaOff) < 0.001f)
+            alphaChanged = false;
+    }
+    else if (injectionMode_ == "layer_split")
+    {
+        // Detect change on EITHER thumb — drift moves both synchronously, but
+        // a manual drag of just the upper thumb changes splitEnd without
+        // touching splitStart, so we need both comparisons.
+        const bool startChanged = std::isnan(lastGenSplitStart_)
+            || std::abs(effectiveSplitStart - lastGenSplitStart_) > DRIFT_THRESHOLD;
+        const bool endChanged = std::isnan(lastGenSplitEnd_)
+            || std::abs(effectiveSplitEnd - lastGenSplitEnd_) > DRIFT_THRESHOLD;
+        alphaChanged = startChanged || endChanged;
+        // Suppress regen on the initial frame when nothing has moved yet.
+        if (std::isnan(lastGenSplitStart_) && std::isnan(lastGenSplitEnd_)
+            && std::abs(alphaOff) < 0.001f)
+            alphaChanged = false;
+    }
 
     bool noiseChanged = !std::isnan(effNoise) &&
         (std::isnan(lastGenNoise_) || std::abs(effNoise - lastGenNoise_) > DRIFT_THRESHOLD);
@@ -1061,7 +1214,6 @@ void PromptPanel::pollDriftRegen()
     if (!alphaChanged && !axesChanged && !noiseChanged && !magChanged && !promptChanged && !randomRegen)
         return;
 
-    auto& apvts = processorRef.getValueTreeState();
     float genAlpha = std::isnan(effAlpha)
         ? apvts.getRawParameterValue(PID::genAlpha)->load() : effAlpha;
     float genNoise = std::isnan(effNoise)
@@ -1070,5 +1222,6 @@ void PromptPanel::pollDriftRegen()
         ? apvts.getRawParameterValue(PID::genMagnitude)->load() : effMag;
 
     lastRegenTimeMs_ = juce::Time::getMillisecondCounterHiRes();
-    triggerDriftRegeneration(genAlpha, effAxes, genNoise, genMag, false);
+    triggerDriftRegeneration(genAlpha, effAxes, genNoise, genMag,
+                             effectiveLateMix, effectiveSplitStart, effectiveSplitEnd, false);
 }
