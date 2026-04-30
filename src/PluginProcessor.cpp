@@ -924,9 +924,28 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     const int numSamples = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
-    const float seqBpmParam = parameters.getRawParameterValue(PID::seqBpm)->load();
 
-    updateDriftState(numSamples, seqBpmParam);
+    // ── Host-transport snapshot (feeds resolveSyncBpm()) ────────────────────
+    {
+        bool playing = false;
+        if (auto* ph = getPlayHead())
+        {
+            if (auto pos = ph->getPosition())
+            {
+                if (pos->getIsPlaying())
+                {
+                    playing = true;
+                    if (auto bpm = pos->getBpm())
+                        hostBpmLastSeen.store(static_cast<float>(*bpm),
+                                              std::memory_order_relaxed);
+                }
+            }
+        }
+        hostPlayingNow.store(playing, std::memory_order_relaxed);
+    }
+    const float syncBpm = resolveSyncBpm();
+
+    updateDriftState(numSamples, syncBpm);
 
     // ── Idle detection ──────────────────────────────────────────────────────
     bool seqRunning = parameters.getRawParameterValue(PID::seqRunning)->load() > 0.5f;
@@ -1019,27 +1038,46 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.mod2DecayVelMode   = static_cast<int>(parameters.getRawParameterValue(PID::mod2DecayVelMode)->load());
     bp.mod2ReleaseVelMode = static_cast<int>(parameters.getRawParameterValue(PID::mod2ReleaseVelMode)->load());
 
-    // LFOs (global)
-    bp.lfo1Rate = parameters.getRawParameterValue(PID::lfo1Rate)->load();
-    bp.lfo1Depth = parameters.getRawParameterValue(PID::lfo1Depth)->load();
-    lfo1.setRate(bp.lfo1Rate);
-    lfo1.setDepth(1.0f);
-    lfo1.setWaveform(static_cast<int>(parameters.getRawParameterValue(PID::lfo1Wave)->load()));
-    bp.lfo1Target = static_cast<int>(parameters.getRawParameterValue(PID::lfo1Target)->load());
-
-    bp.lfo2Rate = parameters.getRawParameterValue(PID::lfo2Rate)->load();
-    bp.lfo2Depth = parameters.getRawParameterValue(PID::lfo2Depth)->load();
-    lfo2.setRate(bp.lfo2Rate);
-    lfo2.setDepth(1.0f);
-    lfo2.setWaveform(static_cast<int>(parameters.getRawParameterValue(PID::lfo2Wave)->load()));
-    bp.lfo2Target = static_cast<int>(parameters.getRawParameterValue(PID::lfo2Target)->load());
-
-    bp.lfo3Rate = parameters.getRawParameterValue(PID::lfo3Rate)->load();
-    bp.lfo3Depth = parameters.getRawParameterValue(PID::lfo3Depth)->load();
-    lfo3.setRate(bp.lfo3Rate);
-    lfo3.setDepth(1.0f);
-    lfo3.setWaveform(static_cast<int>(parameters.getRawParameterValue(PID::lfo3Wave)->load()));
-    bp.lfo3Target = static_cast<int>(parameters.getRawParameterValue(PID::lfo3Target)->load());
+    // LFOs (global) — Clock-Sync override: when ClockMode::Sync, the rate
+    // displayed on the slider is replaced by the sync-derived rate. We store
+    // the effective rate back into `bp.lfo*Rate` so downstream env→LFO-rate
+    // modulation (lines further down) scales relative to the sync rate.
+    {
+        const int   c1 = static_cast<int>(parameters.getRawParameterValue(PID::lfo1ClockMode)->load());
+        const float r1 = parameters.getRawParameterValue(PID::lfo1Rate)->load();
+        bp.lfo1Rate = (c1 == ClockMode::Off) ? r1
+            : ClockSync::computeRate(syncBpm,
+                static_cast<int>(parameters.getRawParameterValue(PID::lfo1ClockDivision)->load()));
+        bp.lfo1Depth = parameters.getRawParameterValue(PID::lfo1Depth)->load();
+        lfo1.setRate(bp.lfo1Rate);
+        lfo1.setDepth(1.0f);
+        lfo1.setWaveform(static_cast<int>(parameters.getRawParameterValue(PID::lfo1Wave)->load()));
+        bp.lfo1Target = static_cast<int>(parameters.getRawParameterValue(PID::lfo1Target)->load());
+    }
+    {
+        const int   c2 = static_cast<int>(parameters.getRawParameterValue(PID::lfo2ClockMode)->load());
+        const float r2 = parameters.getRawParameterValue(PID::lfo2Rate)->load();
+        bp.lfo2Rate = (c2 == ClockMode::Off) ? r2
+            : ClockSync::computeRate(syncBpm,
+                static_cast<int>(parameters.getRawParameterValue(PID::lfo2ClockDivision)->load()));
+        bp.lfo2Depth = parameters.getRawParameterValue(PID::lfo2Depth)->load();
+        lfo2.setRate(bp.lfo2Rate);
+        lfo2.setDepth(1.0f);
+        lfo2.setWaveform(static_cast<int>(parameters.getRawParameterValue(PID::lfo2Wave)->load()));
+        bp.lfo2Target = static_cast<int>(parameters.getRawParameterValue(PID::lfo2Target)->load());
+    }
+    {
+        const int   c3 = static_cast<int>(parameters.getRawParameterValue(PID::lfo3ClockMode)->load());
+        const float r3 = parameters.getRawParameterValue(PID::lfo3Rate)->load();
+        bp.lfo3Rate = (c3 == ClockMode::Off) ? r3
+            : ClockSync::computeRate(syncBpm,
+                static_cast<int>(parameters.getRawParameterValue(PID::lfo3ClockDivision)->load()));
+        bp.lfo3Depth = parameters.getRawParameterValue(PID::lfo3Depth)->load();
+        lfo3.setRate(bp.lfo3Rate);
+        lfo3.setDepth(1.0f);
+        lfo3.setWaveform(static_cast<int>(parameters.getRawParameterValue(PID::lfo3Wave)->load()));
+        bp.lfo3Target = static_cast<int>(parameters.getRawParameterValue(PID::lfo3Target)->load());
+    }
 
     // Filter
     // filter_type: 0=Off, 1=LP, 2=HP, 3=BP → filterEnabled from type, DSP type is 0-based
@@ -1453,8 +1491,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     if (stepSequencer.barStartFlag.exchange(false))
         barBoundaryFlag.store(true, std::memory_order_relaxed);
 
-    // Expose current BPM for drift regen cooldown (GUI reads)
-    driftRegenBpm.store(seqBpm, std::memory_order_relaxed);
+    // (driftRegenBpm is now stored in updateDriftState() with the resolved
+    // sync BPM — no duplicate write needed here.)
 
     // Stage 2: Arpeggiator (consumes seq note events, generates arpeggiated output)
     if (arpEnabled)
@@ -1795,7 +1833,11 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     if (delayEnabled)
     {
-        float baseDelayTime = parameters.getRawParameterValue(PID::delayTime)->load();
+        const int delayClock = static_cast<int>(parameters.getRawParameterValue(PID::delayClockMode)->load());
+        const float baseDelayTime = (delayClock == ClockMode::Off)
+            ? parameters.getRawParameterValue(PID::delayTime)->load()
+            : ClockSync::computeDelayMs(syncBpm,
+                static_cast<int>(parameters.getRawParameterValue(PID::delayClockDivision)->load()));
         float baseDelayFb = parameters.getRawParameterValue(PID::delayFeedback)->load();
         float baseDelayMix = parameters.getRawParameterValue(PID::delayMix)->load();
         // Apply modulation offsets to delay params
@@ -2076,8 +2118,13 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             bool dlyFbMod   = modDelayFb != 0.0f;
             bool dlyMixMod  = modDelayMix != 0.0f;
             bool revMixMod  = modReverbMix != 0.0f;
+            const int delayClockGhost = static_cast<int>(parameters.getRawParameterValue(PID::delayClockMode)->load());
+            const float delayBaseGhost = (delayClockGhost == ClockMode::Off)
+                ? parameters.getRawParameterValue(PID::delayTime)->load()
+                : ClockSync::computeDelayMs(syncBpm,
+                    static_cast<int>(parameters.getRawParameterValue(PID::delayClockDivision)->load()));
             modulatedValues.delayTime.store(dlyTimeMod && delayEnabled
-                ? juce::jlimit(1.0f, 2000.0f, parameters.getRawParameterValue(PID::delayTime)->load() * (1.0f + modDelayTime))
+                ? juce::jlimit(1.0f, 2000.0f, delayBaseGhost * (1.0f + modDelayTime))
                 : NO_GHOST, std::memory_order_relaxed);
             modulatedValues.delayFeedback.store(dlyFbMod && delayEnabled
                 ? juce::jlimit(0.0f, 0.95f, parameters.getRawParameterValue(PID::delayFeedback)->load() * (1.0f + modDelayFb))
@@ -2172,7 +2219,7 @@ void T5ynthProcessor::syncWavetableTraversal(double bufferSampleRate, int totalS
     }
 }
 
-void T5ynthProcessor::updateDriftState(int numSamples, float seqBpm)
+void T5ynthProcessor::updateDriftState(int numSamples, float syncBpm)
 {
     driftLfo.setRegenMode(static_cast<int>(parameters.getRawParameterValue(PID::driftRegen)->load()));
 
@@ -2190,19 +2237,29 @@ void T5ynthProcessor::updateDriftState(int numSamples, float seqBpm)
     driftHasOscTarget.store(hasOsc, std::memory_order_relaxed);
     driftRegenMode.store(static_cast<int>(parameters.getRawParameterValue(PID::driftRegen)->load()),
                          std::memory_order_relaxed);
-    driftRegenBpm.store(seqBpm, std::memory_order_relaxed);
+    driftRegenBpm.store(syncBpm, std::memory_order_relaxed);
 
     bool driftManualEnable = parameters.getRawParameterValue(PID::driftEnabled)->load() > 0.5f;
     driftLfo.setEnabled(driftHasTarget || driftManualEnable);
-    driftLfo.setLfoRate(0, parameters.getRawParameterValue(PID::drift1Rate)->load());
+
+    // Per-Drift sync-rate resolution — same pattern as LFO override.
+    auto driftRate = [&](const char* clockPid, const char* divPid, const char* ratePid) {
+        const int cm = static_cast<int>(parameters.getRawParameterValue(clockPid)->load());
+        if (cm == ClockMode::Off)
+            return parameters.getRawParameterValue(ratePid)->load();
+        return ClockSync::computeRate(syncBpm,
+            static_cast<int>(parameters.getRawParameterValue(divPid)->load()));
+    };
+
+    driftLfo.setLfoRate(0, driftRate(PID::drift1ClockMode, PID::drift1ClockDivision, PID::drift1Rate));
     driftLfo.setLfoDepth(0, parameters.getRawParameterValue(PID::drift1Depth)->load());
     driftLfo.setLfoTarget(0, d1t);
     driftLfo.setLfoWaveform(0, static_cast<int>(parameters.getRawParameterValue(PID::drift1Wave)->load()));
-    driftLfo.setLfoRate(1, parameters.getRawParameterValue(PID::drift2Rate)->load());
+    driftLfo.setLfoRate(1, driftRate(PID::drift2ClockMode, PID::drift2ClockDivision, PID::drift2Rate));
     driftLfo.setLfoDepth(1, parameters.getRawParameterValue(PID::drift2Depth)->load());
     driftLfo.setLfoTarget(1, d2t);
     driftLfo.setLfoWaveform(1, static_cast<int>(parameters.getRawParameterValue(PID::drift2Wave)->load()));
-    driftLfo.setLfoRate(2, parameters.getRawParameterValue(PID::drift3Rate)->load());
+    driftLfo.setLfoRate(2, driftRate(PID::drift3ClockMode, PID::drift3ClockDivision, PID::drift3Rate));
     driftLfo.setLfoDepth(2, parameters.getRawParameterValue(PID::drift3Depth)->load());
     driftLfo.setLfoTarget(2, d3t);
     driftLfo.setLfoWaveform(2, static_cast<int>(parameters.getRawParameterValue(PID::drift3Wave)->load()));
@@ -2234,6 +2291,23 @@ void T5ynthProcessor::updateDriftState(int numSamples, float seqBpm)
     modulatedValues.driftMagnitude.store(
         std::abs(magOff) > 0.001f ? baseMag + magOff : NO_GHOST,
         std::memory_order_relaxed);
+}
+
+bool T5ynthProcessor::seqRunningNow() const
+{
+    const bool stepOn = parameters.getRawParameterValue(PID::seqRunning)->load() > 0.5f;
+    const bool genOn  = parameters.getRawParameterValue(PID::genSeqRunning)->load() > 0.5f;
+    return stepOn || genOn;
+}
+
+float T5ynthProcessor::resolveSyncBpm() const
+{
+    if (hostPlayingNow.load(std::memory_order_relaxed))
+        return hostBpmLastSeen.load(std::memory_order_relaxed);
+    if (seqRunningNow())
+        return parameters.getRawParameterValue(PID::seqBpm)->load();
+    const float h = hostBpmLastSeen.load(std::memory_order_relaxed);
+    return (h > 0.0f) ? h : parameters.getRawParameterValue(PID::seqBpm)->load();
 }
 
 bool T5ynthProcessor::isWavetableMode() const

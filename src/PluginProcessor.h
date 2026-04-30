@@ -136,6 +136,15 @@ public:
     /** Re-extract wavetable frames using current bracket region. */
     void reextractWavetable();
 
+    // ── BPM-sync resolution ──
+    // `hostBpmLastSeen` freezes the last live host BPM so paused-DAW behavior
+    // keeps the previously-known tempo (rather than collapsing to default).
+    // `hostPlayingNow` distinguishes a live transport from a frozen value.
+    // Resolution priority: live host > running in-app sequencer >
+    // frozen host > seqBpm fallback.
+    bool seqRunningNow() const;
+    float resolveSyncBpm() const;
+
 private:
     struct WtTraversalMapping
     {
@@ -152,7 +161,7 @@ private:
     WtTraversalMapping makeWtTraversalMapping(int totalSamples) const;
     WtTraversalMapping makeWtTraversalMapping(int totalSamples, float p1, float p2, float p3) const;
     void syncWavetableTraversal(double bufferSampleRate, int totalSamples);
-    void updateDriftState(int numSamples, float seqBpm);
+    void updateDriftState(int numSamples, float syncBpm);
 
     // Engine (mode is stored in APVTS "engine_mode", no separate member)
 
@@ -248,6 +257,11 @@ private:
 public:
     // Audio idle state (audio thread writes, GUI reads for timer gating)
     std::atomic<bool> audioIdle { false };
+
+    // Host-transport state — written from processBlock, read from
+    // resolveSyncBpm() (which itself runs on the audio thread).
+    std::atomic<float> hostBpmLastSeen { 0.0f };
+    std::atomic<bool>  hostPlayingNow  { false };
 
     // MIDI monitor (audio thread writes, GUI reads)
     std::atomic<int> lastMidiNote { -1 };

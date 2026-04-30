@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+
 // ── Choice-parameter single-source-of-truth tables ──
 //
 // Every AudioParameterChoice in T5ynth has its canonical entry list here.
@@ -627,6 +629,26 @@ namespace ClockDivision {
                   "ClockDivision enum and kEntries out of sync.");
     static_assert(sizeof(kFactor) / sizeof(kFactor[0]) == kCount,
                   "ClockDivision kFactor and kEntries out of sync.");
+}
+
+// ── Sync-rate / sync-delay helpers ──
+// `bpm` is the resolved sync BPM (host transport, in-app sequencer, frozen
+// host, or seqBpm fallback — caller is responsible for resolution). A zero
+// or negative bpm degrades to 120 to keep the LFO/delay alive instead of
+// freezing or dividing by zero.
+namespace ClockSync {
+    inline float computeRate(float bpm, int divisionIdx)
+    {
+        if (! (bpm > 0.0f)) bpm = 120.0f;
+        const int idx = std::clamp(divisionIdx, 0, ClockDivision::kCount - 1);
+        return ClockDivision::kFactor[idx] * (bpm / 60.0f) / 4.0f;
+    }
+    inline float computeDelayMs(float bpm, int divisionIdx)
+    {
+        if (! (bpm > 0.0f)) bpm = 120.0f;
+        const int idx = std::clamp(divisionIdx, 0, ClockDivision::kCount - 1);
+        return (60000.0f / bpm) * (4.0f / ClockDivision::kFactor[idx]);
+    }
 }
 
 // ── Drift LFO waveform (label "Sq" differs from LfoWave "Square"!) ──
