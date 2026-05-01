@@ -64,8 +64,7 @@ public:
 
     enum class Mode { Browse, Save };
 
-    /** Pre-fill payload for entering Save mode. Mirrors what the former
-     *  standalone SavePresetDialog needed for name + bank + conflict UI. */
+    /** Pre-fill payload for entering Save mode (name + bank + conflict UI). */
     struct SavePrefill
     {
         juce::String           defaultName;
@@ -101,7 +100,7 @@ public:
         addAndMakeVisible(closeIconBtn);
 
         // Bottom-right Cancel button — explicit dismiss alongside the × icon
-        // and Esc, matching the SavePresetDialog convention.
+        // and the Esc keystroke.
         configureButton(cancelBtn, kSurface);
         cancelBtn.onClick = [this] { if (onCloseRequested) onCloseRequested(); };
         addAndMakeVisible(cancelBtn);

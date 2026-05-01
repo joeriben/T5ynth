@@ -332,36 +332,6 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     };
     addChildComponent(presetManager);
 
-    // Save-preset modal overlay (independent of the library browser).
-    saveDialogScrim.onClick = [this] { hideSaveDialog(); };
-    saveDialogScrim.setVisible(false);
-    addChildComponent(saveDialogScrim);
-
-    savePresetDialog.setVisible(false);
-    savePresetDialog.onCancel = [this] { hideSaveDialog(); };
-    savePresetDialog.onSave = [this](const juce::String& presetName,
-                                     const juce::StringArray& tags,
-                                     const juce::String& bank)
-    {
-        // The dialog already labels the Save button as "Replace \"NAME\""
-        // (in red) when the chosen bank+name combination would overwrite an
-        // existing file, so reaching this callback IS the user's confirmed
-        // intent — no second popup needed.
-        auto bankDir = PresetFormat::getUserPresetsDirectory();
-        if (bank.isNotEmpty())
-            bankDir = bankDir.getChildFile(bank);
-        bankDir.createDirectory();
-
-        auto target = bankDir.getChildFile(presetName).withFileExtension("t5p");
-
-        processorRef.setLastTags(tags);
-        if (savePresetToFile(target))
-            hideSaveDialog();
-        else
-            statusBar.setStatusText("Preset save failed");
-    };
-    addChildComponent(savePresetDialog);
-
     // Manual overlay — hosts the native WebBrowserComponent that renders
     // the shipped HTML guide. Clicking outside the panel or the close
     // button hides the overlay without destroying the web view, so the
@@ -561,11 +531,11 @@ void MainPanel::hidePresetManager()
     repaint();
 }
 
-void MainPanel::enterLibrarySaveMode(SaveDialogPrefill mode)
+void MainPanel::enterLibrarySaveMode(SaveNameMode mode)
 {
     auto defaultName = getCurrentPresetDisplayName();
     if (defaultName.isEmpty()) defaultName = "New Preset";
-    if (mode == SaveDialogPrefill::copySuffix && getCurrentPresetDisplayName().isNotEmpty())
+    if (mode == SaveNameMode::appendCopy && getCurrentPresetDisplayName().isNotEmpty())
         defaultName = defaultName + " copy";
 
     juce::StringArray existingBanks;
@@ -602,65 +572,6 @@ void MainPanel::enterLibrarySaveMode(SaveDialogPrefill mode)
 
     showPresetManager();
     presetManager.enterSaveMode(std::move(prefill));
-}
-
-void MainPanel::showSaveDialog(SaveDialogPrefill mode)
-{
-    auto defaultName = getCurrentPresetDisplayName();
-    if (defaultName.isEmpty()) defaultName = "New Preset";
-    if (mode == SaveDialogPrefill::copySuffix && getCurrentPresetDisplayName().isNotEmpty())
-        defaultName = defaultName + " copy";
-
-    // Snapshot existing user preset names + bank subdirs so the dialog can
-    // (a) warn about name collisions, (b) populate the Bank picker, and
-    // (c) make the Save button bank-aware (a conflict is only a real
-    // overwrite when bank+name match an existing file).
-    juce::StringArray existingNames;
-    juce::StringArray existingBanks;
-    std::set<juce::String> existingPathKeys;   // lowercased bank/name.t5p
-    auto userDir = PresetFormat::getUserPresetsDirectory();
-    if (userDir.isDirectory())
-    {
-        for (auto& f : userDir.findChildFiles(juce::File::findFiles, true, "*.t5p"))
-        {
-            existingNames.add(f.getFileNameWithoutExtension());
-            const auto rel = f.getRelativePathFrom(userDir).replace("\\", "/");
-            existingPathKeys.insert(rel.toLowerCase());
-        }
-        for (auto& d : userDir.findChildFiles(juce::File::findDirectories, false, "*"))
-            existingBanks.add(d.getFileName());
-    }
-    existingBanks.removeEmptyStrings();
-    existingBanks.removeDuplicates(true);
-    existingBanks.sortNatural();
-
-    // Pre-select the bank of the currently loaded preset, if any.
-    juce::String currentBank;
-    if (currentPresetFile.existsAsFile())
-    {
-        const auto parent = currentPresetFile.getParentDirectory();
-        if (parent != userDir && parent.isAChildOf(userDir))
-            currentBank = parent.getFileName();
-    }
-
-    savePresetDialog.configure(defaultName, suggestTagsForCurrent(),
-                               existingNames, existingBanks,
-                               std::move(existingPathKeys), currentBank);
-    saveDialogVisible = true;
-    saveDialogScrim.setVisible(true);
-    savePresetDialog.setVisible(true);
-    saveDialogScrim.toFront(false);
-    savePresetDialog.toFront(false);
-    resized();
-    repaint();
-}
-
-void MainPanel::hideSaveDialog()
-{
-    saveDialogVisible = false;
-    saveDialogScrim.setVisible(false);
-    savePresetDialog.setVisible(false);
-    repaint();
 }
 
 namespace
@@ -1377,7 +1288,6 @@ void MainPanel::resized()
     dimScrim.setBounds(getLocalBounds());
     settingsScrim.setBounds(getLocalBounds());
     presetScrim.setBounds(getLocalBounds());
-    saveDialogScrim.setBounds(getLocalBounds());
     manualScrim.setBounds(getLocalBounds());
 
     if (presetManagerVisible)
@@ -1392,20 +1302,6 @@ void MainPanel::resized()
     else
     {
         presetManager.setBounds({});
-    }
-
-    if (saveDialogVisible)
-    {
-        const int dialogW = juce::jlimit(380, 520, juce::roundToInt(w * 0.38f));
-        const int dialogH = juce::jlimit(360, 480, juce::roundToInt(h * 0.55f));
-        savePresetDialog.setBounds((getWidth() - dialogW) / 2,
-                                   (getHeight() - dialogH) / 2,
-                                   dialogW,
-                                   dialogH);
-    }
-    else
-    {
-        savePresetDialog.setBounds({});
     }
 
     // Manual overlay (centered). Leaves a strip at the bottom of the
@@ -1651,7 +1547,7 @@ void MainPanel::savePreset()
     // the user has to click the explicit red "Replace \"NAME\"" button to
     // confirm. There is no Undo in the synth, so silent overwrites of disk
     // state are not acceptable.
-    enterLibrarySaveMode(SaveDialogPrefill::sameName);
+    enterLibrarySaveMode(SaveNameMode::keepName);
 }
 
 void MainPanel::saveAsPreset()
@@ -1660,7 +1556,7 @@ void MainPanel::saveAsPreset()
     // filename by appending " copy" to the current name. Conflict
     // protection still applies if the user manually picks a name that
     // collides.
-    enterLibrarySaveMode(SaveDialogPrefill::copySuffix);
+    enterLibrarySaveMode(SaveNameMode::appendCopy);
 }
 
 void MainPanel::loadPreset()

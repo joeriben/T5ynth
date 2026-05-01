@@ -9,7 +9,6 @@
 #include "StatusBar.h"
 #include "SetupWizard.h"
 #include "PresetManagerPanel.h"
-#include "SavePresetDialog.h"
 #include "../presets/PresetFormat.h"
 
 class T5ynthProcessor;
@@ -102,10 +101,8 @@ private:
     void syncGuiStateForPresetSave();
     void showPresetManager();
     void hidePresetManager();
-    enum class SaveDialogPrefill { sameName, copySuffix };
-    void enterLibrarySaveMode(SaveDialogPrefill mode = SaveDialogPrefill::sameName);
-    void showSaveDialog(SaveDialogPrefill mode = SaveDialogPrefill::sameName);
-    void hideSaveDialog();
+    enum class SaveNameMode { keepName, appendCopy };
+    void enterLibrarySaveMode(SaveNameMode mode = SaveNameMode::keepName);
     juce::String getCurrentPresetDisplayName() const;
     juce::StringArray suggestTagsForCurrent();
     /** Re-write a .t5p file's embedded JSON `name` field without touching
@@ -134,16 +131,11 @@ private:
     bool settingsVisible = false;
     bool pendingInferenceReload = false;
 
-    // Preset manager overlay
+    // Preset manager overlay (also hosts the Save-Drawer in Save mode)
     Scrim presetScrim;
     PresetManagerPanel presetManager;
     bool presetManagerVisible = false;
     juce::File currentPresetFile;
-
-    // Save-preset modal (independent of the library browser)
-    Scrim saveDialogScrim;
-    SavePresetDialog savePresetDialog;
-    bool saveDialogVisible = false;
 
     // Manual overlay — native WebView renders the shipped HTML guide
     // (resources/T5ynth_Guide.html), bundled via juce_add_binary_data.
