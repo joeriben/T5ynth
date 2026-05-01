@@ -1884,7 +1884,7 @@ private:
         if (currentMode == Mode::Save) return;  // rename/delete suppressed in Save mode
         if (! juce::isPositiveAndBelow(row, (int) filteredIndices.size())) return;
         presetList.selectRow(row, false, true);
-        showRowContextMenu(filteredIndices[(size_t) row]);
+        showRowContextMenu(filteredIndices[(size_t) row], e.getScreenPosition());
     }
 
     void backgroundClicked(const juce::MouseEvent&) override
@@ -1892,7 +1892,7 @@ private:
         // No-op; required by ListBoxModel signature compatibility.
     }
 
-    void showRowContextMenu(int entryIndex)
+    void showRowContextMenu(int entryIndex, juce::Point<int> screenPos)
     {
         if (! juce::isPositiveAndBelow(entryIndex, (int) allEntries.size())) return;
         const auto& entry = allEntries[(size_t) entryIndex];
@@ -1901,9 +1901,14 @@ private:
 
         juce::PopupMenu menu;
         menu.addItem(1, juce::String::fromUTF8("Rename\xe2\x80\xa6"), ! isFactory);
+        menu.addSeparator();
         menu.addItem(2, "Delete",                                     ! isFactory);
 
-        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&presetList),
+        // Anchor at the cursor (1×1 px screen-area) instead of the
+        // listbox bounds; otherwise the popup snaps to the panel's
+        // bottom edge and looks broken.
+        const juce::Rectangle<int> targetArea(screenPos.x, screenPos.y, 1, 1);
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(targetArea),
             [this, file](int result)
             {
                 switch (result)
@@ -1920,9 +1925,10 @@ private:
     {
         if (key == juce::KeyPress::escapeKey)
         {
-            // In Save mode, Esc returns to Browse without closing the entire
-            // overlay — so the user can keep browsing the library afterwards.
-            if (currentMode == Mode::Save) { leaveSaveMode(); return true; }
+            // Esc always closes the entire overlay — same as the bottom
+            // Close button — regardless of mode. The user came to either
+            // load or save; cancelling means abort all the way back to
+            // the synth, not switch to a different overlay mode.
             if (onCloseRequested) onCloseRequested();
             return true;
         }
@@ -1934,7 +1940,7 @@ private:
     juce::TextEditor searchEditor;
     juce::TextButton importBtn { "Import Presets" };
     juce::TextButton closeIconBtn;     // top-right × icon
-    juce::TextButton cancelBtn { "Cancel" };
+    juce::TextButton cancelBtn { "Close" };
     juce::Label statusLabel;
     juce::ListBox presetList;
 
