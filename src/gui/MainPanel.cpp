@@ -336,6 +336,13 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
                 }
             });
     };
+    presetManager.onRevealRequested = [](const juce::File& file)
+    {
+        // JUCE's revealToUser() opens the platform file manager (Finder /
+        // Explorer / Nautilus) with the file selected — works for both
+        // user and factory presets.
+        if (file.existsAsFile()) file.revealToUser();
+    };
     presetManager.onDuplicateRequested = [this](const juce::File& file)
     {
         // Byte-for-byte copy in the same bank, with a "<name> copy"
