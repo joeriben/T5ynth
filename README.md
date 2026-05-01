@@ -24,7 +24,7 @@ reverb, and limiting.
 
 Links:
 
-- Full user guide: [`resources/T5ynth_Guide.html`](resources/T5ynth_Guide.html)
+- User guide: bundled and rendered inside the app; source HTML lives at [`resources/T5ynth_Guide.html`](resources/T5ynth_Guide.html)
 - Preset collection: [`joeriben/T5ynth-Presets`](https://github.com/joeriben/T5ynth-Presets)
 - Current beta release: [`v1.7.0-beta.1`](https://github.com/joeriben/t5ynth/releases/tag/v1.7.0-beta.1)
 
