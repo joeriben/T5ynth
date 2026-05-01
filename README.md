@@ -1,12 +1,12 @@
 # T5ynth
 
-**T5ynth resonates with meaning.**
+**Resonance with meaning.**
 
-With two short impulses, T5ynth opens up a hidden space between two poles of
-meaning before audio exists. The impulses can evoke textures, transients,
-patterns, sonic and musical fragments, field recordings, everyday noises,
-orchestral gestures, alien voices, human emotional expressions, or impossible
-hybrids.
+With two short impulses, this innovative music synthesizer opens up a hidden
+space between two poles of meaning before audio exists. Set those poles as
+textures, transients, patterns, sonic and musical fragments, field recordings,
+everyday noises, orchestral gestures, alien voices, human emotional
+expressions, or impossible hybrids.
 
 The fields labeled **Impulse A** and **Impulse B** are not two samples, two song
 requests, or two oscillators. They are two markers for the space you want to
@@ -126,10 +126,12 @@ model, after the important decisions have already happened.
 T5ynth deliberately inverts that relationship:
 
 - **Standard AI audio workflow:** human writes a request -> model hides the
-  internal search -> audio result appears.
+  internal search -> audio result appears. AI company makes money; musicians
+  lose commissions, jobs, and control.
 - **T5ynth workflow:** human marks and moves through the model's hidden sound
   space -> the model renders a playable fragment -> human plays, shapes,
-  rejects, edits, saves, and composes.
+  rejects, edits, saves, and composes. T5ynth will by no means address these
+  challenges; it only tries to show that it ain't necessarily so.
 
 This is why T5ynth can be useful even, and maybe especially, for musicians who
 are skeptical of generative AI music. It does not automate musical judgment. It
@@ -190,10 +192,14 @@ just as you can use FM without solving the equations.
 - **Magnitude** changes how strongly that state steers the diffusion model.
 - **Model-space noise** perturbs the state before audio exists.
 - **Sound-character axes** add musically useful directions such as noisy/tonal or
-  sustained/rhythmic.
+  sustained/rhythmic. Sometimes they work better, sometimes not, depending on
+  the impulses.
 - **Dimension Explorer** opens all 768 internal control dimensions directly.
+  You will mostly learn that AI-generated meaning making is a black box humans
+  do not really understand, but sometimes the results are unexpectedly
+  interesting.
 - **Injection Modes** change where B enters A inside the
-  diffusion process: Linear, Fine, Layer, Kombi 1, Kombi 2, Kombi 3.
+  diffusion process: Linear, Step-in, Layer, Combo 1, Combo 2, Combo 3.
 - **Drift** keeps the pre-audio state moving over time and can trigger new
   generations in the background.
 
@@ -203,7 +209,10 @@ Drift Modulators & Auto-Regenerate turn the pre-audio space into something
 that can evolve. Three slow Drift LFOs can target generation-level parameters
 such as Alpha, axes, Noise, and Magnitude. When Auto-Regenerate is active,
 T5ynth generates new audio in the background as the pre-audio state moves,
-then crossfades the new fragment into playback.
+then crossfades the new fragment into playback. Depending on the host machine,
+regeneration can range from roughly 0.1 seconds on an RTX 6000-class GPU to
+several seconds on a Mac M-series processor without a dedicated AI-capable
+graphics card.
 
 With v1.7, those drift cycles can be clock-synced to musical divisions, so
 long pre-audio motion can sit inside a DAW, sequencer, or standalone tempo
@@ -222,8 +231,8 @@ T5ynth can use generated audio in two ways:
 
 - **Generation:** Impulse A/B, Alpha, Magnitude, Noise, Duration, Steps, CFG,
   Seed, Start Position, HF Boost.
-- **Source controls:** Sound-character axes, 768-dimension explorer, Linear/Fine/
-  Layer/Kombi injection modes.
+- **Source controls:** Sound-character axes, 768-dimension explorer, Linear/
+  Step-in/Layer/Combo injection modes.
 - **Playback engine:** Sampler and Wavetable modes, loop optimization,
   wavetable scan, noise source.
 - **Synthesis:** 16-voice voice manager, assignable envelopes, multimode
@@ -257,6 +266,9 @@ the user guide.
 ---
 
 ## Building
+
+If you just want to install T5ynth, use the tagged GitHub Release assets:
+current public releases provide ready-made macOS and Windows installers.
 
 The old minimal snippet in this README was not enough to produce a working
 Linux build. The authoritative build guides now live here:
@@ -343,7 +355,17 @@ This means you are free to use, modify, and redistribute T5ynth, provided that d
 - **Stable Audio Open 1.0 / Stable Audio Open Small** — [Stability AI Community License](https://stability.ai/community-license-agreement). The models are not included in this repository. Users download them separately and must accept their license. Powered by Stability AI.
 - **AudioLDM2** — [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). Non-commercial use only. Not included; users download separately.
 - **JUCE Framework** — AGPLv3 (vendored in `JUCE/`)
-- See [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt) for full details.
+- **EMT 140 plate reverb impulse responses** — Greg Hopkins, Creative Commons Attribution (CC BY). Used for the Dark, Medium, and Bright convolution reverb modes.
+- **Signalsmith Stretch** — Geraint Luff / Signalsmith Audio Ltd., MIT. Used for pitch-preserving sample transposition.
+- **nlohmann/json** — Niels Lohmann, MIT. Used for configuration and preset parsing.
+- **SentencePiece** — Apache 2.0. Used for the native C++ T5 tokenizer.
+- **Python inference stack** — `diffusers`, `transformers`, PyTorch, `torchsde`, `soundfile`, and SciPy provide the model pipeline, tensor runtime, sampler support, audio I/O, and signal-processing utilities used by the backend.
+- **Huovilainen Moog ladder filter reference** — Antti Huovilainen's DAFx-04 paper is credited for the non-linear digital ladder topology implemented in T5ynth.
+- **Cutoff Warp filter inspiration** — Surge XT is credited for the musical idea of a style-switchable cutoff-warp character control. T5ynth's implementation is written from scratch; no Surge XT source code is copied.
+
+T5ynth would be much poorer without these projects, papers, impulse responses,
+and DSP references. See [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt)
+for full license details, URLs, and attribution notes.
 
 ### Citation
 

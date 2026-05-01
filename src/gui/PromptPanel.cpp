@@ -71,8 +71,8 @@ static void makeLabel(juce::Label& l, const juce::String& text, juce::Colour col
 PromptPanel::PromptPanel(T5ynthProcessor& processor)
     : processorRef(processor)
 {
-    makeLabel(promptALabel, "Prompt A", kDim, juce::Justification::centredLeft, this);
-    // Two-line with word-wrap so longer prompts stay visible. With
+    makeLabel(promptALabel, "Impulse A", kDim, juce::Justification::centredLeft, this);
+    // Two-line with word-wrap so longer impulses stay visible. With
     // setReturnKeyStartsNewLine(false) Return still triggers generation; the
     // wrap only kicks in when the text itself exceeds one line's width.
     promptAEditor.setMultiLine(true, true);
@@ -80,18 +80,18 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     promptAEditor.setText("a steady clean saw wave, c3");
     promptAEditor.onReturnKey = [this] { triggerGeneration(); };
     promptAEditor.onTextChange = [this] {
-        // Prompt edits should force the next drift regen to use a fresh snapshot.
+        // Impulse edits should force the next drift regen to use a fresh snapshot.
         lastGenPromptA_.clear();
     };
     promptAEditor.setBufferedToImage(true);
     addAndMakeVisible(promptAEditor);
 
-    makeLabel(promptBLabel, "Prompt B", kDim, juce::Justification::centredLeft, this);
+    makeLabel(promptBLabel, "Impulse B", kDim, juce::Justification::centredLeft, this);
     promptBEditor.setMultiLine(true, true);
     promptBEditor.setReturnKeyStartsNewLine(false);
     promptBEditor.setText("glass breaking");
     promptBEditor.onTextChange = [this] {
-        // Prompt edits should force the next drift regen to use a fresh snapshot.
+        // Impulse edits should force the next drift regen to use a fresh snapshot.
         lastGenPromptB_.clear();
     };
     promptBEditor.setBufferedToImage(true);
@@ -365,7 +365,7 @@ void PromptPanel::timerCallback()
     alphaGhostValue_ = mv0.driftAlpha.load(std::memory_order_relaxed);
     magGhostValue_   = mv0.driftMagnitude.load(std::memory_order_relaxed);
     noiseGhostValue_ = mv0.driftNoise.load(std::memory_order_relaxed);
-    // Mode-specific ghosts for Fine/Layer: derive the alpha-LFO offset (in
+    // Mode-specific ghosts for Step-in/Layer: derive the alpha-LFO offset (in
     // alpha-units) and project it onto the active mode's parameter range
     // using the same scaling factors the regen path uses.
     {
@@ -430,7 +430,7 @@ void PromptPanel::paintOverChildren(juce::Graphics& g)
         g.fillEllipse(gx - r, gy - r, r * 2.0f, r * 2.0f);
     };
 
-    // Alpha ghost only makes sense when the slider drives α (linear). In Fine
+    // Alpha ghost only makes sense when the slider drives α (linear). In Step-in
     // and Layer the alpha-LFO offset is remapped onto the active parameter's
     // axis (lateMix or [splitStart, splitEnd]) — those ghosts paint on the
     // same physical slider but at the mode-specific value position.
@@ -500,14 +500,14 @@ void PromptPanel::resized()
 
     const int multiInputH = juce::roundToInt(f * kPromptMultiInput);
 
-    // Prompt A
+    // Impulse A
     setFs(promptALabel, f);
     promptALabel.setBounds(area.removeFromTop(rowH));
     promptAEditor.setFont(juce::FontOptions(f));
     promptAEditor.setBounds(area.removeFromTop(multiInputH));
     area.removeFromTop(gap);
 
-    // Prompt B
+    // Impulse B
     setFs(promptBLabel, f);
     promptBLabel.setBounds(area.removeFromTop(rowH));
     promptBEditor.setFont(juce::FontOptions(f));
@@ -516,10 +516,10 @@ void PromptPanel::resized()
 
     // --- Injection-mode test row (TEMPORARY): three radio buttons left-aligned ---
     // The alphaSlider above this row repurposes itself based on the active
-    // mode (see applyModeToSlider()): Linear=A↔B, Fine=transition, Layer=split.
+    // mode (see applyModeToSlider()): Linear=A↔B, Step-in=transition, Layer=split.
     {
         auto btnRow = area.removeFromTop(compactCtrlH);
-        // 6 buttons in the radio row. "Kombi N" labels are wider than the
+        // 6 buttons in the radio row. "Combo N" labels are wider than the
         // original three, so the row claims most of the available width.
         int btnTotalW = juce::jmax(280, btnRow.getWidth() * 4 / 5);
         int btnW = btnTotalW / 6;
@@ -843,7 +843,7 @@ float PromptPanel::lateMixForMode(const juce::String& mode) const
 
 // ── Reconfigure alphaSlider for the active injection mode ────────────────────
 // Linear: APVTS-attached, range −1..+1, label "A ↔ B".
-// Fine  : detached, range 0.05..0.95, label "Fine: Step Transition".
+// Step-in: detached, range 0.05..0.95, label "Step-in: A → mix".
 // Layer : detached, range 0..16 (snap=1), label "Layer Split".
 // The alphaSlider's onValueChange dispatches on injectionMode_ to update both
 // the value formatter and (for non-linear) the local state.
@@ -881,10 +881,10 @@ void PromptPanel::applyModeToSlider()
         const float saved = juce::jlimit(0.0f, 1.0f, lateMixForMode(injectionMode_));
         alphaSlider.setRange(0.0, 1.0, 0.01);
         lateMixForMode(injectionMode_) = saved;
-        const juce::String prefix = (injectionMode_ == "kombi1") ? "Kombi 1: A "
-                                  : (injectionMode_ == "kombi2") ? "Kombi 2: A "
-                                  : (injectionMode_ == "kombi3") ? "Kombi 3: A "
-                                  :                                "Fine: A ";
+        const juce::String prefix = (injectionMode_ == "kombi1") ? "Combo 1: A "
+                                  : (injectionMode_ == "kombi2") ? "Combo 2: A "
+                                  : (injectionMode_ == "kombi3") ? "Combo 3: A "
+                                  :                                "Step-in: A ";
         alphaLabel.setText(prefix + juce::String(juce::CharPointer_UTF8("\xe2\x86\x92")) + " mix",
                            juce::dontSendNotification);
         alphaSlider.setValue(saved, juce::sendNotificationSync);
@@ -951,7 +951,7 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     req.dimensionOffsets = std::move(pendingOffsets_);
     req.semanticAxes = axesOverride.empty() ? std::move(pendingAxes_) : std::move(axesOverride);
     req.injectionMode = injectionMode_;
-    // Fine slider drives BOTH transition_at AND late-phase α together so that
+    // Step-in slider drives BOTH transition_at AND late-phase α together so that
     // slider=0.5 → minimum effect (A-dominant), slider=1.0 → pure B.
     //   t = (slider - 0.5) / 0.5  ∈ [0, 1]
     //   transition_at: 0.5 (halfway swap) → 0.05 (almost immediate)
@@ -967,10 +967,10 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     // backend's b_start / b_end fields.
     req.splitStart = juce::jlimit(0.0f, 16.0f, effSplitStart);
     req.splitEnd   = juce::jlimit(0.0f, 16.0f, effSplitEnd);
-    // Kombi modes overwrite the layer range with their per-mode hardcoded
+    // Combo modes overwrite the layer range with their per-mode hardcoded
     // band so drift / preset / slider state can never desync the geometry.
-    // Kombi 1 = "B as surface skin" (low DiT blocks);
-    // Kombi 2 = "B as gestalt filter" (high DiT blocks).
+    // Combo 1 = "B as surface skin" (low DiT blocks);
+    // Combo 2 = "B as gestalt filter" (high DiT blocks).
     if (injectionMode_ == "kombi1") { req.splitStart = 0.0f; req.splitEnd = 4.0f;  }
     if (injectionMode_ == "kombi2") { req.splitStart = 4.0f; req.splitEnd = 12.0f; }
     if (injectionMode_ == "kombi3") { req.splitStart = 6.0f; req.splitEnd = 10.0f; }
@@ -1203,7 +1203,7 @@ void PromptPanel::pollDriftRegen()
     // Mode-specific drift mapping: the same alpha-LFO offset (in alpha-units)
     // drives a different parameter per mode. This keeps the Drift Panel UX
     // simple ("Alpha" target works in all modes) while ensuring drift actually
-    // moves audible parameters in Fine/Layer.
+    // moves audible parameters in Step-in/Layer.
     auto& apvts = processorRef.getValueTreeState();
     const float baseAlphaForOff = apvts.getRawParameterValue(PID::genAlpha)->load();
     const float alphaOff = std::isnan(effAlpha) ? 0.0f : (effAlpha - baseAlphaForOff);
@@ -1228,7 +1228,7 @@ void PromptPanel::pollDriftRegen()
     }
 
     // Alpha-driven auto-regen routes to the mode's parameter:
-    // Linear → α, Fine → lateMix, Layer → splitStart (split end follows).
+    // Linear → α, Step-in → lateMix, Layer → splitStart (split end follows).
     bool alphaChanged = false;
     if (injectionMode_ == "linear")
     {

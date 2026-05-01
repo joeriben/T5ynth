@@ -168,24 +168,52 @@
     margin: 0 0.1rem;
   }
   .arrow { color: var(--accent2); }
+  .lab-wordmark {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 0.02rem;
+    margin-bottom: 1.2rem;
+    text-decoration: none;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    opacity: 0.9;
+  }
+  .lab-wordmark:hover { opacity: 1; text-decoration: none; }
+  .lab-wordmark-main {
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--accent3);
+  }
+  .lab-wordmark-sub {
+    font-size: 1.05rem;
+    font-weight: 700;
+    line-height: 1.05;
+  }
+  .lab-wordmark-ai { color: var(--accent); }
+  .lab-wordmark-lab { color: var(--accent2); }
 </style>
 </head>
 <body>
 
+<a class="lab-wordmark" href="https://github.com/joeriben/ucdcae-ai-lab" aria-label="UCDCAE AI Lab">
+  <span class="lab-wordmark-main">UCDCAE</span>
+  <span class="lab-wordmark-sub"><span class="lab-wordmark-ai">AI</span> <span class="lab-wordmark-lab">Lab</span></span>
+</a>
+
 <h1>T5ynth</h1>
 <p class="subtitle">
-  T5ynth resonates with meaning.<br>
-  Shape the hidden space before audio exists.
+  Resonance with meaning.
 </p>
 
 <!-- ═══════════════════════════════════════════ PREAMBLE -->
 <div style="background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:1.2rem 1.5rem; margin-bottom:2rem;">
 <p>
-With two short impulses, T5ynth opens up a hidden space between two poles of
-meaning before audio exists. The impulses can evoke textures, transients,
-patterns, sonic and musical fragments, field recordings, everyday noises,
-orchestral gestures, alien voices, human emotional expressions, or impossible
-hybrids.
+With two short impulses, this innovative music synthesizer opens up a hidden
+space between two poles of meaning before audio exists. Set those poles as
+textures, transients, patterns, sonic and musical fragments, field recordings,
+everyday noises, orchestral gestures, alien voices, human emotional
+expressions, or impossible hybrids.
 </p>
 <p style="margin-top:0.6rem;">
 Impulse A and Impulse B are not two samples, two song requests, or two
@@ -572,7 +600,7 @@ Three model slots are available: Stable Audio Open 1.0, Stable Audio Open Small,
 <h3 id="injection-modes">Injection Modes (research)</h3>
 <p>
 Above the Alpha slider sits a row of six small buttons —
-<strong>Linear · Fine · Layer · Kombi 1 · Kombi 2 · Kombi 3</strong>.
+<strong>Linear · Step-in · Layer · Combo 1 · Combo 2 · Combo 3</strong>.
 These select different ways Impulse&nbsp;B enters Impulse&nbsp;A inside the
 diffusion pipeline. The classical A↔B movement is one of six options — you
 can think of it as the question "where in the generation process should B
@@ -594,8 +622,8 @@ fall through to Linear behaviour.
     <td>α ∈ [−1, +1], A↔B with extrapolation past the poles.</td>
   </tr>
   <tr>
-    <td><strong>Fine</strong></td>
-    <td>Early sampler steps see Impulse A only; after a transition step the cross-attention conditioning swaps to a Fine-controlled blend of A and B. The result has the <em>broad shape</em> of A and the <em>refinement / texture</em> of B (or a controlled mix). Useful when B should colour the late detail of A without dominating its overall envelope.</td>
+    <td><strong>Step-in</strong></td>
+    <td>Early sampler steps see Impulse A only; after a transition step the cross-attention conditioning swaps to a Step-in-controlled blend of A and B. The result has the <em>broad shape</em> of A and the <em>refinement / texture</em> of B (or a controlled mix). Useful when B should colour the late detail of A without dominating its overall envelope.</td>
     <td>Intensity 0–1: 0 = barely audible late blend, 1 = early transition + pure B in the late phase.</td>
   </tr>
   <tr>
@@ -604,25 +632,25 @@ fall through to Linear behaviour.
     <td>Two-thumb range slider 0–16, defining the B-zone start and end.</td>
   </tr>
   <tr>
-    <td><strong>Kombi 1</strong></td>
+    <td><strong>Combo 1</strong></td>
     <td>Step phase × layer band, preset to <em>"B as surface skin"</em>: B injected only into the lowest 4 cross-attention layers, only in the late sampling phase. A relatively subtle variation — the bulk of the sound is still A, but the surface character is coloured by B.</td>
-    <td>Intensity 0–1, Fine-style coupled mapping.</td>
+    <td>Intensity 0–1, Step-in-style coupled mapping.</td>
   </tr>
   <tr>
-    <td><strong>Kombi 2</strong></td>
-    <td>Step phase × layer band, preset to <em>"broad mid"</em>: B injected into 8 mid-range layers (4..11) in the late phase. The most distinct of the three Kombis in empirical tests — the mid layers carry most of the diffusion's conditioning work, so a strong B presence there reshapes the result substantially.</td>
-    <td>Intensity 0–1, Fine-style coupled mapping.</td>
+    <td><strong>Combo 2</strong></td>
+    <td>Step phase × layer band, preset to <em>"broad mid"</em>: B injected into 8 mid-range layers (4..11) in the late phase. The most distinct of the three Combos in empirical tests — the mid layers carry most of the diffusion's conditioning work, so a strong B presence there reshapes the result substantially.</td>
+    <td>Intensity 0–1, Step-in-style coupled mapping.</td>
   </tr>
   <tr>
-    <td><strong>Kombi 3</strong></td>
-    <td>Step phase × layer band, preset to <em>"narrow center"</em>: B injected into 4 high-leverage center layers (6..9) in the late phase. Same width as Kombi 1 but a different vertical position, probing whether <em>where</em> in the layer stack matters as much as <em>how wide</em>.</td>
-    <td>Intensity 0–1, Fine-style coupled mapping.</td>
+    <td><strong>Combo 3</strong></td>
+    <td>Step phase × layer band, preset to <em>"narrow center"</em>: B injected into 4 high-leverage center layers (6..9) in the late phase. Same width as Combo 1 but a different vertical position, probing whether <em>where</em> in the layer stack matters as much as <em>how wide</em>.</td>
+    <td>Intensity 0–1, Step-in-style coupled mapping.</td>
   </tr>
 </table>
 
 <div class="tip">
   Drift LFOs targeting Alpha automatically modulate the active mode's
-  intensity axis: in Linear it modulates α, in Fine and the Kombis it
+  intensity axis: in Linear it modulates α, in Step-in and the Combos it
   modulates the intensity slider, in Layer it slides the band along
   its width. The drift system stays mode-aware without any extra UI.
 </div>
@@ -851,7 +879,7 @@ Diffusion inference is never real-time — a single generation takes seconds, no
 While the synth is playing, multiple drift LFOs continuously and independently shift the Alpha slider and the sound-character axes. Each LFO moves at its own rate and depth — Alpha might slowly sweep from A toward B over 30 seconds, while Axis 1 (e.g., tonal/noisy) oscillates on a different cycle, and Axis 2 (e.g., sustained/rhythmic) drifts at yet another pace. These modulations run simultaneously and asynchronously, tracing a complex, never-repeating path through the hidden sound space.
 </p>
 <p>
-When an auto regen mode is active, T5ynth monitors how far the modulated pre-audio controls have drifted from the last generated state. Once the drift exceeds a threshold, it fires a new inference request in the background. The current sound keeps playing uninterrupted. When the new generation arrives — typically a few seconds later — it is crossfaded into the playback buffer, smoothly replacing the old sound with the new one.
+When an auto regen mode is active, T5ynth monitors how far the modulated pre-audio controls have drifted from the last generated state. Once the drift exceeds a threshold, it fires a new inference request in the background. The current sound keeps playing uninterrupted. When the new generation arrives — anywhere from roughly 0.1 seconds on an RTX 6000-class GPU to several seconds on a Mac M-series processor without a dedicated AI-capable graphics card — it is crossfaded into the playback buffer, smoothly replacing the old sound with the new one.
 </p>
 <p>
 The result is a <strong>continuous stream of new generations</strong>, each one produced from a slightly different pre-audio state between and around the two impulses. The sound never loops back to exactly where it was. Every few seconds, a new variation emerges — not randomly, but along the trajectories defined by your drift LFO settings. You hear a sound that perpetually transforms: sometimes closer to A, sometimes to B, sometimes in between, colored by whichever sound-character axes are drifting, at whatever pace you have set.
@@ -1468,11 +1496,11 @@ single static A↔B blend, we manipulate the conditioning tensor
 along two orthogonal axes:
 </p>
 <ol>
-  <li><strong>Time (sampler steps)</strong> — replace the conditioning at a specific sampler step. Early steps see one tensor; late steps see another. This is the "Fine" axis.</li>
+  <li><strong>Time (sampler steps)</strong> — replace the conditioning at a specific sampler step. Early steps see one tensor; late steps see another. This is the "Step-in" axis.</li>
   <li><strong>Depth (DiT block index)</strong> — replace the conditioning per block. Different blocks see different tensors at the same time. This is the "Layer" axis.</li>
 </ol>
 <p>
-The Kombi modes combine both axes simultaneously: at a given step,
+The Combo modes combine both axes simultaneously: at a given step,
 each of the 16 blocks may see a different mix.
 </p>
 
@@ -1516,8 +1544,8 @@ removed at the end of each generation. The C++ side never sees them
     <td>—</td>
   </tr>
   <tr>
-    <td>Fine</td>
-    <td>2-phase — A only before <code>transition_step</code>, then a Fine-controlled blend</td>
+    <td>Step-in</td>
+    <td>2-phase — A only before <code>transition_step</code>, then a Step-in-controlled blend</td>
     <td>uniform — same context to all blocks</td>
     <td>step function in time</td>
   </tr>
@@ -1528,19 +1556,19 @@ removed at the end of each generation. The C++ side never sees them
     <td>soft top-hat in depth (4-layer ramps at edges)</td>
   </tr>
   <tr>
-    <td>Kombi 1/2/3</td>
+    <td>Combo 1/2/3</td>
     <td>2-phase — A only early, blend late</td>
     <td>per-block <em>hard</em> mask over the per-mode hardcoded band</td>
     <td>step function in <em>both</em> axes; hard edges in depth</td>
   </tr>
 </table>
 
-<h3>Why hard mask in Kombi but soft mask in Layer</h3>
+<h3>Why hard mask in Combo but soft mask in Layer</h3>
 <p>
 Layer mode lets the user drag a two-thumb range slider, and a
 sigmoid top-hat (soft 4-layer ramps at each edge) means small
 slider movements produce continuous changes — a gentler control
-surface for live exploration. Kombi modes, by contrast, are presets:
+surface for live exploration. Combo modes, by contrast, are presets:
 the band is fixed by the mode itself, the user only controls the
 intensity slider. There is nothing to interpolate. A hard mask
 (<code>w=1</code> inside the band, <code>0</code> outside) makes
@@ -1555,24 +1583,24 @@ moderate slider settings.
 <p>
 The cross-attention layers in the SA Open Small DiT are not
 interchangeable — they appear to perform different work at different
-depths. The current Kombi tuples (Kombi 1 = blocks 0..3, Kombi 2 =
-blocks 4..11, Kombi 3 = blocks 6..9) reflect listening-test findings:
+depths. The current Combo tuples (Combo 1 = blocks 0..3, Combo 2 =
+blocks 4..11, Combo 3 = blocks 6..9) reflect listening-test findings:
 </p>
 <ul>
   <li><strong>Surface (low blocks)</strong> — narrow effect.
     Influences the surface "skin" / texture of the output without
-    changing its overall shape much. This is the Kombi 1 band.</li>
+    changing its overall shape much. This is the Combo 1 band.</li>
   <li><strong>Mid (broad)</strong> — high conditioning leverage. The
     middle 8 blocks carry most of the diffusion's text-following
     work, so injecting B there reshapes the result substantially.
-    This is the Kombi 2 band.</li>
+    This is the Combo 2 band.</li>
   <li><strong>High (top 4)</strong> — surprisingly low leverage.
-    The original plan placed Kombi 2 at blocks 12..15 to mirror
-    Kombi 1's "skin" framing, but listening tests revealed the top
+    The original plan placed Combo 2 at blocks 12..15 to mirror
+    Combo 1's "skin" framing, but listening tests revealed the top
     blocks are dominated by refinement work and barely register
-    cross-attention overrides. Kombi 2 was moved to broad-mid.</li>
-  <li><strong>Center (narrow)</strong> — same width as Kombi 1 at a
-    different vertical position. This is Kombi 3, the
+    cross-attention overrides. Combo 2 was moved to broad-mid.</li>
+  <li><strong>Center (narrow)</strong> — same width as Combo 1 at a
+    different vertical position. This is Combo 3, the
     "where-versus-width" probe.</li>
 </ul>
 <p>
@@ -1584,7 +1612,7 @@ log/preset legibility.
 
 <h3>What stays unchanged</h3>
 <ul>
-  <li><strong>Magnitude, Noise, Dimension Offsets, Semantic Axes</strong> all reach the DiT in every mode. They are applied to whichever embedding tensor(s) the active mode actually feeds into the cross-attention layer — the global blend in Linear / Delta, both the early A path and the late blend in Fine, both A and B (independently, with the same shifts) before projection in Layer, and A and the late blend before projection in Kombi 1/2/3. The same noise sample and the same axis / dim shifts are reused across paths so the per-mode geometry behaves predictably (e.g. a Linear-style A↔B blend would still receive noise <em>once</em>, not per term).</li>
+  <li><strong>Magnitude, Noise, Dimension Offsets, Semantic Axes</strong> all reach the DiT in every mode. They are applied to whichever embedding tensor(s) the active mode actually feeds into the cross-attention layer — the global blend in Linear / Delta, both the early A path and the late blend in Step-in, both A and B (independently, with the same shifts) before projection in Layer, and A and the late blend before projection in Combo 1/2/3. The same noise sample and the same axis / dim shifts are reused across paths so the per-mode geometry behaves predictably (e.g. a Linear-style A↔B blend would still receive noise <em>once</em>, not per term).</li>
   <li><strong>Drift</strong> targets the active mode's intensity axis automatically. No new drift targets are needed.</li>
   <li><strong>Determinism</strong> — the hooks are deterministic; they do not introduce additional RNG. Same seed + same A/B text + same mode and slider position = identical audio across platforms.</li>
   <li><strong>Linear remains the canonical default</strong> — bit-for-bit identical to T5ynth v1.5.x. The non-linear modes are research-mode controls, layered on top.</li>

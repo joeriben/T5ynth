@@ -53,7 +53,7 @@ juce::StringArray getWindowsCompanionBackendRoots()
 MainPanel::GenerateButton::GenerateButton(const juce::String& label)
     : juce::TextButton(label)
 {
-    setTooltip("Generate audio from the current prompts and latent controls");
+    setTooltip("Generate audio from the current impulses and latent controls");
     setMouseCursor(juce::MouseCursor::PointingHandCursor);
 }
 

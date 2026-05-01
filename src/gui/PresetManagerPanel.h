@@ -815,8 +815,8 @@ private:
             const auto tagInputRow = area.removeFromBottom(tagInputH);
             area.removeFromBottom(6);
 
-            // Compute prompt-section heights from the actual wrapped text so
-            // there is no leftover gap between PROMPT A's body and PROMPT B's
+            // Compute impulse-section heights from the actual wrapped text so
+            // there is no leftover gap between IMPULSE A's body and IMPULSE B's
             // header. Caps prevent extreme prompts from squeezing the tags.
             // Heights are cached and only recomputed when the available width
             // changes (TextLayout::createLayout is the most expensive call in
@@ -843,9 +843,9 @@ private:
             const int needed = promptABlock + 6 + promptBBlock + (hasAxes ? 6 + axesBlockH : 0) + 8 + headerH;
             const int tagsBlockH = juce::jmax(60, area.getHeight() - needed);
 
-            paintSection(g, area.removeFromTop(promptABlock), "PROMPT A", promptA);
+            paintSection(g, area.removeFromTop(promptABlock), "IMPULSE A", promptA);
             area.removeFromTop(6);
-            paintSection(g, area.removeFromTop(promptBBlock), "PROMPT B", promptB);
+            paintSection(g, area.removeFromTop(promptBBlock), "IMPULSE B", promptB);
             if (hasAxes)
             {
                 area.removeFromTop(6);
@@ -929,7 +929,7 @@ private:
         }
 
         /** Width-aware wrapped-text height in px, computed via JUCE TextLayout.
-         *  Used to size PROMPT A/B sections to their actual content so there
+         *  Used to size IMPULSE A/B sections to their actual content so there
          *  is no stretched whitespace between them. */
         static int wrappedTextHeight(const juce::String& text, int width, float fontSize)
         {
