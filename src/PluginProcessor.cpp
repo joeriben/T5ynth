@@ -3532,6 +3532,20 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         }
     }
 
+    // Pin engine-mode to the loaded value so the audio thread's Step↔Gen
+    // transition (which copies pattern data between the two sequencers) does
+    // not fire on the next block and overwrite the freshly imported step/gen
+    // state. Without this, loading a preset while the in-memory mode differs
+    // from the preset's mode silently corrupts the just-loaded sequencer
+    // state.
+    {
+        const juce::ScopedLock sl (getCallbackLock());
+        const bool wantGen = parameters.getRawParameterValue(PID::genSeqRunning)->load() > 0.5f;
+        genModeActiveInAudio = wantGen;
+        lastGenSteps = lastGenPulses = lastGenRotation = -1;
+        lastGenMutation = -1.0f;
+    }
+
     return true;
 }
 
