@@ -103,6 +103,7 @@ private:
     void showPresetManager();
     void hidePresetManager();
     enum class SaveDialogPrefill { sameName, copySuffix };
+    void enterLibrarySaveMode(SaveDialogPrefill mode = SaveDialogPrefill::sameName);
     void showSaveDialog(SaveDialogPrefill mode = SaveDialogPrefill::sameName);
     void hideSaveDialog();
     juce::String getCurrentPresetDisplayName() const;

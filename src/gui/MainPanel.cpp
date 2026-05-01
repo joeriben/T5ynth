@@ -204,6 +204,32 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
             presetManager.setStatusText("Preset load failed", true);
     };
     presetManager.onImportRequested = [this] { importPresetFile(); };
+    presetManager.onSaveRequested = [this](const juce::String& presetName,
+                                           const juce::StringArray& tags,
+                                           const juce::String& bank)
+    {
+        // The drawer's Save button is the affirmative action — when the
+        // chosen (bank, name) collides with an existing file, the button
+        // already reads "Replace \"NAME\"" in red, so reaching this callback
+        // IS the user's confirmed intent. No second popup needed.
+        auto bankDir = PresetFormat::getUserPresetsDirectory();
+        if (bank.isNotEmpty())
+            bankDir = bankDir.getChildFile(bank);
+        bankDir.createDirectory();
+
+        auto target = bankDir.getChildFile(presetName).withFileExtension("t5p");
+
+        processorRef.setLastTags(tags);
+        if (savePresetToFile(target))
+        {
+            presetManager.leaveSaveMode();
+            hidePresetManager();
+        }
+        else
+        {
+            presetManager.setStatusText("Preset save failed", true);
+        }
+    };
     presetManager.onTagsChanged = [this](const juce::File& file,
                                          const juce::StringArray& newTags)
     {
@@ -527,9 +553,55 @@ void MainPanel::showPresetManager()
 void MainPanel::hidePresetManager()
 {
     presetManagerVisible = false;
+    // Defensive: if the panel was closed while still in Save mode (× icon,
+    // scrim click) restore Browse so the next open is in a clean state.
+    presetManager.leaveSaveMode();
     presetScrim.setVisible(false);
     presetManager.setVisible(false);
     repaint();
+}
+
+void MainPanel::enterLibrarySaveMode(SaveDialogPrefill mode)
+{
+    auto defaultName = getCurrentPresetDisplayName();
+    if (defaultName.isEmpty()) defaultName = "New Preset";
+    if (mode == SaveDialogPrefill::copySuffix && getCurrentPresetDisplayName().isNotEmpty())
+        defaultName = defaultName + " copy";
+
+    juce::StringArray existingBanks;
+    std::set<juce::String> existingPathKeys;
+    auto userDir = PresetFormat::getUserPresetsDirectory();
+    if (userDir.isDirectory())
+    {
+        for (auto& f : userDir.findChildFiles(juce::File::findFiles, true, "*.t5p"))
+        {
+            const auto rel = f.getRelativePathFrom(userDir).replace("\\", "/");
+            existingPathKeys.insert(rel.toLowerCase());
+        }
+        for (auto& d : userDir.findChildFiles(juce::File::findDirectories, false, "*"))
+            existingBanks.add(d.getFileName());
+    }
+    existingBanks.removeEmptyStrings();
+    existingBanks.removeDuplicates(true);
+    existingBanks.sortNatural();
+
+    juce::String currentBank;
+    if (currentPresetFile.existsAsFile())
+    {
+        const auto parent = currentPresetFile.getParentDirectory();
+        if (parent != userDir && parent.isAChildOf(userDir))
+            currentBank = parent.getFileName();
+    }
+
+    PresetManagerPanel::SavePrefill prefill;
+    prefill.defaultName      = defaultName;
+    prefill.suggestedTags    = suggestTagsForCurrent();
+    prefill.currentBank      = currentBank;
+    prefill.existingBanks    = existingBanks;
+    prefill.existingPathKeys = std::move(existingPathKeys);
+
+    showPresetManager();
+    presetManager.enterSaveMode(std::move(prefill));
 }
 
 void MainPanel::showSaveDialog(SaveDialogPrefill mode)
@@ -1574,19 +1646,21 @@ void MainPanel::hideManual()
 
 void MainPanel::savePreset()
 {
-    // Always open the dialog. The in-dialog conflict UI is the only path
-    // that overwrites an existing preset, and the user has to click the
-    // explicit red "Replace \"NAME\"" button to confirm. There is no Undo
-    // in the synth, so silent overwrites of disk state are not acceptable.
-    showSaveDialog(SaveDialogPrefill::sameName);
+    // Always open the Library in Save mode. The drawer's conflict-aware
+    // Save button is the only path that overwrites an existing preset, and
+    // the user has to click the explicit red "Replace \"NAME\"" button to
+    // confirm. There is no Undo in the synth, so silent overwrites of disk
+    // state are not acceptable.
+    enterLibrarySaveMode(SaveDialogPrefill::sameName);
 }
 
 void MainPanel::saveAsPreset()
 {
-    // Same dialog, but pre-fill nudges the user toward a NEW filename by
-    // appending " copy" to the current name. Conflict protection still
-    // applies if the user manually picks a name that collides.
-    showSaveDialog(SaveDialogPrefill::copySuffix);
+    // Same Library Save mode, but pre-fill nudges the user toward a NEW
+    // filename by appending " copy" to the current name. Conflict
+    // protection still applies if the user manually picks a name that
+    // collides.
+    enterLibrarySaveMode(SaveDialogPrefill::copySuffix);
 }
 
 void MainPanel::loadPreset()

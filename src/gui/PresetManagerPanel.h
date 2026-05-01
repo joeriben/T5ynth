@@ -61,6 +61,19 @@ public:
         return s;
     }
 
+    enum class Mode { Browse, Save };
+
+    /** Pre-fill payload for entering Save mode. Mirrors what the former
+     *  standalone SavePresetDialog needed for name + bank + conflict UI. */
+    struct SavePrefill
+    {
+        juce::String           defaultName;
+        juce::StringArray      suggestedTags;
+        juce::String           currentBank;
+        juce::StringArray      existingBanks;
+        std::set<juce::String> existingPathKeys;   // lowercased "bank/name.t5p"
+    };
+
     PresetManagerPanel()
     {
         titleLabel.setText("Preset Library", juce::dontSendNotification);
@@ -120,6 +133,17 @@ public:
         detail.installEscListener(this);
         addAndMakeVisible(detail);
 
+        saveDrawer.setVisible(false);
+        saveDrawer.onSaveClicked = [this]
+        {
+            if (! onSaveRequested) return;
+            const auto name = saveDrawer.getName();
+            if (name.isEmpty()) return;
+            onSaveRequested(name, saveDrawer.getTags(), saveDrawer.getBank());
+        };
+        saveDrawer.onCancelClicked = [this] { leaveSaveMode(); };
+        addChildComponent(saveDrawer);
+
         statusLabel.setColour(juce::Label::textColourId, kDim);
         statusLabel.setJustificationType(juce::Justification::centredLeft);
         statusLabel.setFont(juce::FontOptions(11.5f));
@@ -135,26 +159,45 @@ public:
     {
         auto area = getLocalBounds().reduced(12);
 
-        // Top row: title + search + Import + × close icon
+        // Top row: title + search + Import + × close icon. The Import button
+        // is hidden in Save mode (it would be a confusing distractor while
+        // committing a new name) and so it does not consume layout space.
         auto topRow = area.removeFromTop(28);
         auto titleArea = topRow.removeFromLeft(150);
         titleLabel.setBounds(titleArea.withTrimmedTop(4));
         closeIconBtn.setBounds(topRow.removeFromRight(28));
         topRow.removeFromRight(8);
-        importBtn.setBounds(topRow.removeFromRight(82));
-        topRow.removeFromRight(8);
+        if (currentMode == Mode::Browse)
+        {
+            importBtn.setBounds(topRow.removeFromRight(82));
+            topRow.removeFromRight(8);
+        }
         searchEditor.setBounds(topRow);
 
         area.removeFromTop(10);
 
-        // Bottom row: status label (stretchy left) + Cancel button (right)
-        auto footer = area.removeFromBottom(28);
-        cancelBtn.setBounds(footer.removeFromRight(96));
-        footer.removeFromRight(8);
-        statusLabel.setBounds(footer);
-        area.removeFromBottom(6);
+        // Bottom area is mode-dependent: Browse keeps the slim status/cancel
+        // footer; Save replaces it with the Save-Drawer (name/bank/tags/save).
+        if (currentMode == Mode::Save)
+        {
+            // Sized so that after the drawer's own reduced(12, 8) padding
+            // and the fixed name/warning/bank/tags/strip rows, ~40 px remain
+            // for the tag-chip flow area (good for one or two chip rows).
+            const int drawerH = 200;
+            saveDrawer.setBounds(area.removeFromBottom(drawerH));
+            area.removeFromBottom(8);
+        }
+        else
+        {
+            auto footer = area.removeFromBottom(28);
+            cancelBtn.setBounds(footer.removeFromRight(96));
+            footer.removeFromRight(8);
+            statusLabel.setBounds(footer);
+            area.removeFromBottom(6);
+        }
 
-        // Three panes
+        // Three panes — stay visible in both modes so the user can see the
+        // existing library while typing a new name.
         sidebar.setBounds(area.removeFromLeft(140));
         area.removeFromLeft(8);
         detail.setBounds(area.removeFromRight(290));
@@ -239,14 +282,54 @@ public:
                               isError ? juce::Colour(0xffff8a80) : kDim);
     }
 
-    // Callbacks — strictly browse / load / delete / tag-edit. Save flow
-    // lives in a separate StatusBar-driven dialog (SavePresetDialog).
+    Mode getMode() const { return currentMode; }
+
+    /** Enter Save mode: hides the regular footer (status + Cancel) and
+     *  shows the Save-Drawer at the bottom of the panel. The 3-pane
+     *  Sidebar / Preset-list / Detail layout stays visible above so the
+     *  user sees the existing library while typing the new name. */
+    void enterSaveMode(SavePrefill prefill)
+    {
+        currentMode = Mode::Save;
+        titleLabel.setText("Save Preset", juce::dontSendNotification);
+        importBtn.setVisible(false);
+        cancelBtn.setVisible(false);
+        statusLabel.setVisible(false);
+        saveDrawer.configure(prefill.defaultName,
+                             prefill.suggestedTags,
+                             prefill.currentBank,
+                             prefill.existingBanks,
+                             std::move(prefill.existingPathKeys));
+        saveDrawer.setVisible(true);
+        resized();
+        repaint();
+        saveDrawer.focusName();
+    }
+
+    /** Restore the regular Browse layout. Idempotent. */
+    void leaveSaveMode()
+    {
+        if (currentMode == Mode::Browse) return;
+        currentMode = Mode::Browse;
+        titleLabel.setText("Preset Library", juce::dontSendNotification);
+        importBtn.setVisible(true);
+        cancelBtn.setVisible(true);
+        statusLabel.setVisible(true);
+        saveDrawer.setVisible(false);
+        resized();
+        repaint();
+    }
+
+    // Owner-side callbacks: load / save / import / delete / rename / tags / close.
     std::function<void(const juce::File&)>                              onLoadRequested;
     std::function<void(const juce::File&)>                              onDeleteRequested;
     std::function<void(const juce::File&)>                              onRenameRequested;
     std::function<void()>                                                onImportRequested;
     std::function<void()>                                                onCloseRequested;
     std::function<void(const juce::File&, const juce::StringArray&)>    onTagsChanged;
+    std::function<void(const juce::String& name,
+                       const juce::StringArray& tags,
+                       const juce::String& bank)>                       onSaveRequested;
 
 private:
     // ─── Helpers ─────────────────────────────────────────────────────────
@@ -1080,6 +1163,332 @@ private:
     };
     Detail detail;
 
+    // ─── Save Drawer ─────────────────────────────────────────────────────
+    /** Bottom-of-panel drawer that owns the entire Save workflow when the
+     *  panel is in Save mode. Composed of name + bank + tag fields, a
+     *  conflict-aware Save button (red "Replace …" when bank+name match an
+     *  existing file), Cancel, and a "+ copy" quick-suffix helper. The
+     *  drawer is self-contained: it only emits onSaveClicked / onCancelClicked
+     *  and exposes getName/getTags/getBank for the owner to consume on save. */
+    class SaveDrawer : public juce::Component, private juce::KeyListener
+    {
+    public:
+        std::function<void()> onSaveClicked;
+        std::function<void()> onCancelClicked;
+
+        SaveDrawer()
+        {
+            configureLabel(nameLabel);
+            nameLabel.setText("Name", juce::dontSendNotification);
+            addAndMakeVisible(nameLabel);
+
+            configureEditor(nameEdit);
+            nameEdit.setEscapeAndReturnKeysConsumed(false);
+            nameEdit.addKeyListener(this);
+            nameEdit.onReturnKey  = [this] { commit(); };
+            nameEdit.onTextChange = [this] { refreshConflictUi(); };
+            addAndMakeVisible(nameEdit);
+
+            configureLabel(warningLabel);
+            warningLabel.setColour(juce::Label::textColourId, juce::Colour(0xffffaa55));
+            warningLabel.setJustificationType(juce::Justification::centredLeft);
+            addAndMakeVisible(warningLabel);
+
+            configureLabel(bankLabel);
+            bankLabel.setText("Bank", juce::dontSendNotification);
+            addAndMakeVisible(bankLabel);
+
+            bankBox.setEditableText(true);
+            bankBox.setColour(juce::ComboBox::backgroundColourId, kSurface.brighter(0.04f));
+            bankBox.setColour(juce::ComboBox::textColourId, juce::Colours::white);
+            bankBox.setColour(juce::ComboBox::outlineColourId, kBorder);
+            bankBox.setColour(juce::ComboBox::focusedOutlineColourId, kAccent);
+            bankBox.onChange = [this] { refreshConflictUi(); };
+            addAndMakeVisible(bankBox);
+
+            configureLabel(tagsLabel);
+            tagsLabel.setText("Tags", juce::dontSendNotification);
+            addAndMakeVisible(tagsLabel);
+
+            configureEditor(tagInput);
+            tagInput.setTextToShowWhenEmpty("+ tag", kDimmer);
+            tagInput.setEscapeAndReturnKeysConsumed(false);
+            tagInput.addKeyListener(this);
+            tagInput.onReturnKey = [this]
+            {
+                const auto t = tagInput.getText().trim();
+                if (t.isEmpty()) return;
+                tags.addIfNotAlreadyThere(t);
+                tagInput.setText({}, false);
+                resized();
+                repaint();
+            };
+            addAndMakeVisible(tagInput);
+
+            configureBtn(saveBtn, kAccent);
+            saveBtn.onClick = [this] { commit(); };
+            addAndMakeVisible(saveBtn);
+
+            configureBtn(cancelBtn, kSurface);
+            cancelBtn.onClick = [this] { if (onCancelClicked) onCancelClicked(); };
+            addAndMakeVisible(cancelBtn);
+
+            configureBtn(copyBtn, kSurface);
+            copyBtn.setButtonText("+ copy");
+            copyBtn.onClick = [this]
+            {
+                const auto cur = nameEdit.getText().trim();
+                if (cur.isEmpty()) return;
+                if (! cur.endsWith(" copy"))
+                    nameEdit.setText(cur + " copy", juce::sendNotificationSync);
+            };
+            addAndMakeVisible(copyBtn);
+        }
+
+        ~SaveDrawer() override
+        {
+            // Detach `this` as KeyListener from owned editors before they
+            // start their own teardown — avoids a dangling-listener window
+            // during member destruction.
+            nameEdit.removeKeyListener(this);
+            tagInput.removeKeyListener(this);
+        }
+
+        void configure(const juce::String& defaultName,
+                       const juce::StringArray& suggestedTags,
+                       const juce::String& currentBank,
+                       const juce::StringArray& existingBanks,
+                       std::set<juce::String> pathKeys)
+        {
+            nameEdit.setText(defaultName, juce::dontSendNotification);
+            tags = suggestedTags;
+            tags.trim();
+            tags.removeEmptyStrings();
+            tags.removeDuplicates(true);
+            existingPathKeys = std::move(pathKeys);
+
+            bankBox.clear(juce::dontSendNotification);
+            bankBox.addItem(kRootBankLabel(), 1);
+            int nextId = 2;
+            for (auto& b : existingBanks)
+            {
+                if (b.isEmpty() || b == kRootBankLabel()) continue;
+                bankBox.addItem(b, nextId++);
+            }
+            const auto initial = currentBank.isEmpty() ? kRootBankLabel() : currentBank;
+            bankBox.setText(initial, juce::dontSendNotification);
+
+            refreshConflictUi();
+        }
+
+        void focusName()
+        {
+            nameEdit.grabKeyboardFocus();
+            nameEdit.selectAll();
+        }
+
+        juce::String getName() const
+        {
+            return juce::File::createLegalFileName(nameEdit.getText().trim());
+        }
+        juce::StringArray getTags() const { return tags; }
+        juce::String getBank() const
+        {
+            const auto raw = bankBox.getText().trim();
+            if (raw.equalsIgnoreCase(kRootBankLabel())) return {};
+            return juce::File::createLegalPathName(raw);
+        }
+
+        void paint(juce::Graphics& g) override
+        {
+            paintCard(g, getLocalBounds());
+
+            // Tag chips fill whatever space chipArea got from resized().
+            chipRects.clear();
+            if (chipArea.isEmpty()) return;
+
+            int x = chipArea.getX();
+            int y = chipArea.getY();
+            const int rowH = 22;
+            const int gapX = 4;
+            const int gapY = 4;
+            for (int i = 0; i < tags.size(); ++i)
+            {
+                const auto& t = tags[i];
+                const int chipW = juce::Font(juce::FontOptions(11.0f)).getStringWidth(t) + 28;
+                if (x + chipW > chipArea.getRight())
+                {
+                    x = chipArea.getX();
+                    y += rowH + gapY;
+                    if (y + rowH > chipArea.getBottom()) break;
+                }
+                const juce::Rectangle<int> chip(x, y, chipW, rowH - 2);
+                g.setColour(kSurface.brighter(0.08f));
+                g.fillRoundedRectangle(chip.toFloat(), 3.0f);
+                g.setColour(kBorder);
+                g.drawRoundedRectangle(chip.toFloat(), 3.0f, 1.0f);
+                g.setColour(juce::Colours::white);
+                g.setFont(juce::FontOptions(11.0f));
+                auto labelArea = chip.reduced(7, 2);
+                labelArea.removeFromRight(14);
+                g.drawText(t, labelArea, juce::Justification::centredLeft, false);
+                const juce::Rectangle<int> closeBox(chip.getRight() - 16, chip.getY(),
+                                                    16, chip.getHeight());
+                g.setColour(kDimmer);
+                g.drawText(juce::String::fromUTF8("\xc3\x97"), closeBox,
+                           juce::Justification::centred, false);
+                chipRects.push_back({ chip, i });
+                x += chipW + gapX;
+            }
+        }
+
+        void resized() override
+        {
+            auto area = getLocalBounds().reduced(12, 8);
+
+            // Row 1: name (label + edit + + copy)
+            auto row1 = area.removeFromTop(28);
+            nameLabel.setBounds(row1.removeFromLeft(54));
+            copyBtn.setBounds(row1.removeFromRight(60));
+            row1.removeFromRight(6);
+            nameEdit.setBounds(row1);
+
+            // Inline conflict warning (consumes a fixed slot so the layout
+            // doesn't jump on the first conflicting keystroke).
+            warningLabel.setBounds(area.removeFromTop(14));
+            area.removeFromTop(2);
+
+            // Row 2: bank
+            auto row2 = area.removeFromTop(26);
+            bankLabel.setBounds(row2.removeFromLeft(54));
+            bankBox.setBounds(row2);
+            area.removeFromTop(6);
+
+            // Action strip pinned to the bottom right.
+            auto strip = area.removeFromBottom(30);
+            saveBtn.setBounds(strip.removeFromRight(140));
+            strip.removeFromRight(8);
+            cancelBtn.setBounds(strip.removeFromRight(80));
+            area.removeFromBottom(6);
+
+            // Tags row: label + new-tag input on the right; chips fill the rest.
+            auto tagsRow = area.removeFromTop(26);
+            tagsLabel.setBounds(tagsRow.removeFromLeft(54));
+            tagInput.setBounds(tagsRow.removeFromRight(120));
+            area.removeFromTop(4);
+            chipArea = area;
+        }
+
+        void mouseDown(const juce::MouseEvent& e) override
+        {
+            const auto p = e.getPosition();
+            for (const auto& cr : chipRects)
+            {
+                const juce::Rectangle<int> closeBox(cr.bounds.getRight() - 16,
+                                                    cr.bounds.getY(),
+                                                    16, cr.bounds.getHeight());
+                if (closeBox.contains(p))
+                {
+                    if (cr.index >= 0 && cr.index < tags.size())
+                    {
+                        tags.remove(cr.index);
+                        resized();
+                        repaint();
+                    }
+                    return;
+                }
+            }
+        }
+
+    private:
+        static const juce::String& kRootBankLabel()
+        {
+            static const juce::String s = "Default";
+            return s;
+        }
+
+        static void configureLabel(juce::Label& l)
+        {
+            l.setColour(juce::Label::textColourId, kDim);
+            l.setFont(juce::FontOptions(kUiLabelFontMin, juce::Font::bold));
+        }
+        static void configureEditor(juce::TextEditor& e)
+        {
+            e.setColour(juce::TextEditor::backgroundColourId, kSurface.brighter(0.04f));
+            e.setColour(juce::TextEditor::textColourId, juce::Colours::white);
+            e.setColour(juce::TextEditor::outlineColourId, kBorder);
+            e.setColour(juce::TextEditor::focusedOutlineColourId, kAccent);
+            e.setSelectAllWhenFocused(true);
+        }
+        static void configureBtn(juce::TextButton& b, juce::Colour c)
+        {
+            b.setColour(juce::TextButton::buttonColourId, c);
+            b.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+        }
+
+        void commit()
+        {
+            if (getName().isEmpty()) return;
+            if (onSaveClicked) onSaveClicked();
+        }
+
+        void refreshConflictUi()
+        {
+            const auto name = getName();
+            const auto bank = getBank();
+            const auto pathKey = makePathKey(bank, name);
+            const bool conflict = ! name.isEmpty() && existingPathKeys.count(pathKey) > 0;
+            if (conflict)
+            {
+                const auto bankLabel = bank.isEmpty() ? kRootBankLabel() : bank;
+                warningLabel.setText(juce::String::fromUTF8("\xe2\x9a\xa0  Will replace \"")
+                                     + name + "\" in bank \"" + bankLabel + "\"",
+                                     juce::dontSendNotification);
+                warningLabel.setColour(juce::Label::textColourId, juce::Colour(0xffff5050));
+                saveBtn.setButtonText("Replace \"" + name + "\"");
+                saveBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffaa3333));
+            }
+            else
+            {
+                warningLabel.setText({}, juce::dontSendNotification);
+                saveBtn.setButtonText("Save Preset");
+                saveBtn.setColour(juce::TextButton::buttonColourId, kAccent);
+            }
+        }
+
+        static juce::String makePathKey(const juce::String& bank, const juce::String& name)
+        {
+            if (name.isEmpty()) return {};
+            const auto file = name + ".t5p";
+            const auto key = bank.isEmpty() ? file : (bank + "/" + file);
+            return key.toLowerCase();
+        }
+
+        bool keyPressed(const juce::KeyPress& key, juce::Component*) override
+        {
+            if (key == juce::KeyPress::escapeKey)
+            {
+                if (onCancelClicked) onCancelClicked();
+                return true;
+            }
+            return false;
+        }
+
+        juce::Label      nameLabel, bankLabel, tagsLabel, warningLabel;
+        juce::TextEditor nameEdit, tagInput;
+        juce::ComboBox   bankBox;
+        juce::TextButton saveBtn   { "Save Preset" };
+        juce::TextButton cancelBtn { "Cancel" };
+        juce::TextButton copyBtn;
+        juce::StringArray      tags;
+        std::set<juce::String> existingPathKeys;
+
+        struct ChipRect { juce::Rectangle<int> bounds; int index; };
+        std::vector<ChipRect> chipRects;
+        juce::Rectangle<int>  chipArea;
+    };
+    SaveDrawer saveDrawer;
+
     // ─── ListBoxModel ────────────────────────────────────────────────────
     int getNumRows() override { return (int) filteredIndices.size(); }
 
@@ -1141,6 +1550,9 @@ private:
 
     void listBoxItemDoubleClicked(int row, const juce::MouseEvent&) override
     {
+        // Loading is suppressed during Save mode — the user is committing a
+        // new file, not navigating away from the current state.
+        if (currentMode == Mode::Save) return;
         if (! juce::isPositiveAndBelow(row, (int) filteredIndices.size())) return;
         if (onLoadRequested) onLoadRequested(allEntries[(size_t) filteredIndices[(size_t) row]].file);
     }
@@ -1148,6 +1560,7 @@ private:
     void listBoxItemClicked(int row, const juce::MouseEvent& e) override
     {
         if (! e.mods.isPopupMenu()) return;     // right-click only
+        if (currentMode == Mode::Save) return;  // rename/delete suppressed in Save mode
         if (! juce::isPositiveAndBelow(row, (int) filteredIndices.size())) return;
         presetList.selectRow(row, false, true);
         showRowContextMenu(filteredIndices[(size_t) row]);
@@ -1186,6 +1599,9 @@ private:
     {
         if (key == juce::KeyPress::escapeKey)
         {
+            // In Save mode, Esc returns to Browse without closing the entire
+            // overlay — so the user can keep browsing the library afterwards.
+            if (currentMode == Mode::Save) { leaveSaveMode(); return true; }
             if (onCloseRequested) onCloseRequested();
             return true;
         }
@@ -1206,6 +1622,7 @@ private:
     int selectedEntryIndex = -1;
     juce::File   currentFile;
     juce::String currentName;
+    Mode         currentMode = Mode::Browse;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PresetManagerPanel)
 };
