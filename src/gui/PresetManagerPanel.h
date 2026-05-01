@@ -108,7 +108,16 @@ public:
         setWantsKeyboardFocus(true);
         addKeyListener(this);
 
-        sidebar.onChanged = [this] { rebuildFiltered(); };
+        sidebar.onChanged = [this]
+        {
+            rebuildFiltered();
+            // In Save mode, clicking an explicit bank also targets the
+            // drawer's Save destination. Toggling a bank off ("All") leaves
+            // the drawer bank where the user last set it — the filter and
+            // the save target are decoupled in that direction.
+            if (currentMode == Mode::Save && sidebar.activeBank.isNotEmpty())
+                saveDrawer.setBank(sidebar.activeBank);
+        };
         addAndMakeVisible(sidebar);
 
         presetList.setModel(this);
@@ -142,6 +151,11 @@ public:
             onSaveRequested(name, saveDrawer.getTags(), saveDrawer.getBank());
         };
         saveDrawer.onCancelClicked = [this] { leaveSaveMode(); };
+        saveDrawer.onConflictChanged = [this]
+        {
+            computeConflictRow();
+            presetList.repaint();
+        };
         addChildComponent(saveDrawer);
 
         statusLabel.setColour(juce::Label::textColourId, kDim);
@@ -227,6 +241,10 @@ public:
         refreshSidebarVocabulary();
 
         rebuildFiltered();
+        // Keep the Save-Drawer's cached conflict row in sync if the library
+        // was rebuilt while in Save mode (the stable_sort above may have
+        // moved entries, so the cached int could now point at the wrong row).
+        if (currentMode == Mode::Save) computeConflictRow();
         setStatusText(allEntries.empty() ? "No presets found" : "");
     }
 
@@ -316,6 +334,7 @@ public:
         cancelBtn.setVisible(true);
         statusLabel.setVisible(true);
         saveDrawer.setVisible(false);
+        conflictEntryIndex = -1;
         resized();
         repaint();
     }
@@ -516,6 +535,28 @@ private:
         }
 
         return e;
+    }
+
+    /** Find which entry in `allEntries` (if any) corresponds to the path
+     *  the Save-Drawer is currently targeting for an overwrite. Result is
+     *  cached in `conflictEntryIndex` and consumed by paintListBoxItem to
+     *  paint a red overlay on that row. Called whenever the drawer fires
+     *  onConflictChanged. */
+    void computeConflictRow()
+    {
+        conflictEntryIndex = -1;
+        if (currentMode != Mode::Save) return;
+        const auto key = saveDrawer.getConflictPathKey();
+        if (key.isEmpty()) return;
+        const auto userDir = PresetFormat::getUserPresetsDirectory();
+        for (size_t i = 0; i < allEntries.size(); ++i)
+        {
+            const auto& e = allEntries[i];
+            if (e.isFactory) continue;
+            if (! e.file.isAChildOf(userDir)) continue;
+            const auto rel = e.file.getRelativePathFrom(userDir).replace("\\", "/").toLowerCase();
+            if (rel == key) { conflictEntryIndex = (int) i; return; }
+        }
     }
 
     void rebuildFiltered()
@@ -1175,6 +1216,10 @@ private:
     public:
         std::function<void()> onSaveClicked;
         std::function<void()> onCancelClicked;
+        /** Fires whenever conflict state changes (name typed, bank picked,
+         *  configure called). The owner uses this to repaint the preset
+         *  list with the would-replace row highlighted in red. */
+        std::function<void()> onConflictChanged;
 
         SaveDrawer()
         {
@@ -1297,6 +1342,26 @@ private:
             const auto raw = bankBox.getText().trim();
             if (raw.equalsIgnoreCase(kRootBankLabel())) return {};
             return juce::File::createLegalPathName(raw);
+        }
+
+        /** Returns the lowercased "bank/name.t5p" path key IFF the current
+         *  (bank, name) tuple would overwrite an existing preset. Empty
+         *  otherwise. Outer class uses this to highlight the matching list
+         *  row in red. */
+        juce::String getConflictPathKey() const
+        {
+            const auto name = getName();
+            if (name.isEmpty()) return {};
+            const auto pathKey = makePathKey(getBank(), name);
+            return existingPathKeys.count(pathKey) > 0 ? pathKey : juce::String();
+        }
+
+        /** Programmatic bank selection — used when the Sidebar gets a bank
+         *  click in Save mode. Empty string maps back to the "Default" root. */
+        void setBank(const juce::String& bank)
+        {
+            bankBox.setText(bank.isEmpty() ? kRootBankLabel() : bank,
+                            juce::sendNotificationSync);
         }
 
         void paint(juce::Graphics& g) override
@@ -1454,6 +1519,8 @@ private:
                 saveBtn.setButtonText("Save Preset");
                 saveBtn.setColour(juce::TextButton::buttonColourId, kAccent);
             }
+
+            if (onConflictChanged) onConflictChanged();
         }
 
         static juce::String makePathKey(const juce::String& bank, const juce::String& name)
@@ -1495,17 +1562,39 @@ private:
     void paintListBoxItem(int rowNumber, juce::Graphics& g, int width, int height, bool rowIsSelected) override
     {
         if (! juce::isPositiveAndBelow(rowNumber, (int) filteredIndices.size())) return;
-        const auto& e = allEntries[(size_t) filteredIndices[(size_t) rowNumber]];
+        const int entryIdx = filteredIndices[(size_t) rowNumber];
+        const auto& e = allEntries[(size_t) entryIdx];
 
-        if (rowIsSelected)
+        // In Save mode the would-replace row gets a red wash that takes
+        // visual precedence over selection blue and the current-preset
+        // edge marker — the user's attention should be on the destructive
+        // outcome, not on the bookkeeping highlights.
+        // Factory guard is belt-and-suspenders: factory presets can never be
+        // a save target, so they must never wear the red wash even if the
+        // cached `conflictEntryIndex` were ever stale.
+        const bool isConflictRow = (currentMode == Mode::Save
+                                    && entryIdx == conflictEntryIndex
+                                    && ! e.isFactory);
+
+        if (isConflictRow)
         {
-            g.setColour(kAccent.withAlpha(0.22f));
+            g.setColour(juce::Colour(0xffff5050).withAlpha(0.28f));
             g.fillRect(0, 0, width, height);
-        }
-        if (e.file == currentFile)
-        {
-            g.setColour(kSeqCol);
+            g.setColour(juce::Colour(0xffff5050));
             g.fillRect(0, 0, 3, height);
+        }
+        else
+        {
+            if (rowIsSelected)
+            {
+                g.setColour(kAccent.withAlpha(0.22f));
+                g.fillRect(0, 0, width, height);
+            }
+            if (e.file == currentFile)
+            {
+                g.setColour(kSeqCol);
+                g.fillRect(0, 0, 3, height);
+            }
         }
         g.setColour(kBorder.withAlpha(0.35f));
         g.drawLine(0.0f, (float) height - 1.0f, (float) width, (float) height - 1.0f, 0.5f);
@@ -1623,6 +1712,7 @@ private:
     juce::File   currentFile;
     juce::String currentName;
     Mode         currentMode = Mode::Browse;
+    int          conflictEntryIndex = -1;   // -1 = no would-replace target
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PresetManagerPanel)
 };
