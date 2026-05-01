@@ -2673,7 +2673,50 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(data, sizeInBytes));
     if (xml != nullptr && xml->hasTagName(parameters.state.getType()))
-        parameters.replaceState(juce::ValueTree::fromXml(*xml));
+    {
+        auto loadedTree = juce::ValueTree::fromXml(*xml);
+
+        // BPM-sync clock params (v1.7.0-beta.1). APVTS::replaceState leaves
+        // missing-from-tree params untouched, so a session saved before
+        // these existed would inherit whatever clock state was last
+        // touched in the host — making D1/L1/etc. mysteriously stick on
+        // Sync. Patch defaults straight into the loaded tree so the swap
+        // is atomic (no setValueNotifyingHost glitch between a pre-reset
+        // and the actual restore).
+        struct ClockDefault { const char* pid; int defaultIndex; };
+        const ClockDefault clockDefaults[] = {
+            { PID::lfo1ClockMode,      ClockMode::Off          },
+            { PID::lfo1ClockDivision,  ClockDivision::D1_4     },
+            { PID::lfo2ClockMode,      ClockMode::Off          },
+            { PID::lfo2ClockDivision,  ClockDivision::D1_4     },
+            { PID::lfo3ClockMode,      ClockMode::Off          },
+            { PID::lfo3ClockDivision,  ClockDivision::D1_4     },
+            { PID::drift1ClockMode,    ClockMode::Off          },
+            { PID::drift1ClockDivision,ClockDivision::D1_4     },
+            { PID::drift2ClockMode,    ClockMode::Off          },
+            { PID::drift2ClockDivision,ClockDivision::D1_4     },
+            { PID::drift3ClockMode,    ClockMode::Off          },
+            { PID::drift3ClockDivision,ClockDivision::D1_4     },
+            { PID::delayClockMode,     ClockMode::Off          },
+            { PID::delayClockDivision, ClockDivision::D1_4     },
+        };
+        auto hasParam = [&](const juce::String& pid) {
+            for (int i = 0; i < loadedTree.getNumChildren(); ++i)
+                if (loadedTree.getChild(i).getProperty("id").toString() == pid)
+                    return true;
+            return false;
+        };
+        for (const auto& cd : clockDefaults)
+        {
+            if (hasParam(cd.pid)) continue;
+            juce::ValueTree node("PARAM");
+            node.setProperty("id", cd.pid, nullptr);
+            node.setProperty("value", static_cast<float>(cd.defaultIndex), nullptr);
+            loadedTree.appendChild(node, nullptr);
+        }
+
+        parameters.replaceState(loadedTree);
+    }
 
     // Never auto-start sequencers on session restore — no acoustic surprises
     parameters.getParameter(PID::seqRunning)->setValueNotifyingHost(0.0f);
@@ -2742,6 +2785,12 @@ static juce::String driftTargetToString(int i)          { return choiceToKey(i, 
 static int driftWaveFromString(const juce::String& s)   { return choiceFromKey(s, DriftWave::kEntries); }
 static juce::String driftWaveToString(int i)            { return choiceToKey(i, DriftWave::kEntries); }
 
+static int clockModeFromString(const juce::String& s)     { return choiceFromKey(s, ClockMode::kEntries); }
+static juce::String clockModeToString(int i)              { return choiceToKey(i, ClockMode::kEntries); }
+
+static int clockDivisionFromString(const juce::String& s) { return choiceFromKey(s, ClockDivision::kEntries); }
+static juce::String clockDivisionToString(int i)          { return choiceToKey(i, ClockDivision::kEntries); }
+
 static int curveShapeFromString(const juce::String& s)  { return choiceFromKey(s, EnvCurve::kEntries); }
 static juce::String curveShapeToString(int i)           { return choiceToKey(i, EnvCurve::kEntries); }
 static int envVelTimeModeFromString(const juce::String& s) { return choiceFromKey(s, EnvVelTimeMode::kEntries); }
@@ -2772,20 +2821,28 @@ static constexpr EnvPIDs kEnvPIDs[] = {
 struct LfoPIDs {
     const char* rate; const char* depth; const char* wave;
     const char* target; const char* mode;
+    const char* clockMode; const char* clockDivision;
 };
 static constexpr LfoPIDs kLfoPIDs[] = {
-    { PID::lfo1Rate, PID::lfo1Depth, PID::lfo1Wave, PID::lfo1Target, PID::lfo1Mode },
-    { PID::lfo2Rate, PID::lfo2Depth, PID::lfo2Wave, PID::lfo2Target, PID::lfo2Mode },
-    { PID::lfo3Rate, PID::lfo3Depth, PID::lfo3Wave, PID::lfo3Target, PID::lfo3Mode },
+    { PID::lfo1Rate, PID::lfo1Depth, PID::lfo1Wave, PID::lfo1Target, PID::lfo1Mode,
+      PID::lfo1ClockMode, PID::lfo1ClockDivision },
+    { PID::lfo2Rate, PID::lfo2Depth, PID::lfo2Wave, PID::lfo2Target, PID::lfo2Mode,
+      PID::lfo2ClockMode, PID::lfo2ClockDivision },
+    { PID::lfo3Rate, PID::lfo3Depth, PID::lfo3Wave, PID::lfo3Target, PID::lfo3Mode,
+      PID::lfo3ClockMode, PID::lfo3ClockDivision },
 };
 
 struct DriftPIDs {
     const char* rate; const char* depth; const char* target; const char* wave;
+    const char* clockMode; const char* clockDivision;
 };
 static constexpr DriftPIDs kDriftPIDs[] = {
-    { PID::drift1Rate, PID::drift1Depth, PID::drift1Target, PID::drift1Wave },
-    { PID::drift2Rate, PID::drift2Depth, PID::drift2Target, PID::drift2Wave },
-    { PID::drift3Rate, PID::drift3Depth, PID::drift3Target, PID::drift3Wave },
+    { PID::drift1Rate, PID::drift1Depth, PID::drift1Target, PID::drift1Wave,
+      PID::drift1ClockMode, PID::drift1ClockDivision },
+    { PID::drift2Rate, PID::drift2Depth, PID::drift2Target, PID::drift2Wave,
+      PID::drift2ClockMode, PID::drift2ClockDivision },
+    { PID::drift3Rate, PID::drift3Depth, PID::drift3Target, PID::drift3Wave,
+      PID::drift3ClockMode, PID::drift3ClockDivision },
 };
 
 // Helper to safely set a parameter value
@@ -2926,6 +2983,8 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         lfo->setProperty("waveform", lfoWaveToString(static_cast<int>(get(lp.wave))));
         lfo->setProperty("target", lfoTargetToString(static_cast<int>(get(lp.target))));
         lfo->setProperty("mode", lfoModeToString(static_cast<int>(get(lp.mode))));
+        lfo->setProperty("clockMode", clockModeToString(static_cast<int>(get(lp.clockMode))));
+        lfo->setProperty("clockDivision", clockDivisionToString(static_cast<int>(get(lp.clockDivision))));
         lfoArr.add(lfo.get());
     }
     modObj->setProperty("lfos", lfoArr);
@@ -2941,6 +3000,8 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         d->setProperty("depth", get(dp.depth));
         d->setProperty("waveform", driftWaveToString(static_cast<int>(get(dp.wave))));
         d->setProperty("target", driftTargetToString(static_cast<int>(get(dp.target))));
+        d->setProperty("clockMode", clockModeToString(static_cast<int>(get(dp.clockMode))));
+        d->setProperty("clockDivision", clockDivisionToString(static_cast<int>(get(dp.clockDivision))));
         driftArr.add(d.get());
     }
     root->setProperty("driftLfos", driftArr);
@@ -2966,6 +3027,10 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     fx->setProperty("delayFeedback", get(PID::delayFeedback));
     fx->setProperty("delayMix", get(PID::delayMix));
     fx->setProperty("delayDamp", get(PID::delayDamp));
+    fx->setProperty("delayClockMode",
+                    clockModeToString(static_cast<int>(get(PID::delayClockMode))));
+    fx->setProperty("delayClockDivision",
+                    clockDivisionToString(static_cast<int>(get(PID::delayClockDivision))));
     fx->setProperty("reverbType", choiceToKey(static_cast<int>(get(PID::reverbType)), ReverbType::kEntries));
     fx->setProperty("reverbMix", get(PID::reverbMix));
     fx->setProperty("algoRoom", get(PID::algoRoom));
@@ -3216,6 +3281,14 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 setParam(parameters, lp.wave, static_cast<float>(lfoWaveFromString(lfo->getProperty("waveform").toString())));
                 setParam(parameters, lp.target, static_cast<float>(lfoTargetFromString(lfo->getProperty("target").toString())));
                 setParam(parameters, lp.mode, static_cast<float>(lfoModeFromString(lfo->getProperty("mode").toString())));
+                // Pre-v1.7 presets have no clock fields — default to Off / 1/4
+                // explicitly so the previous session's clock state cannot stick.
+                setParam(parameters, lp.clockMode, lfo->hasProperty("clockMode")
+                    ? static_cast<float>(clockModeFromString(lfo->getProperty("clockMode").toString()))
+                    : static_cast<float>(ClockMode::Off));
+                setParam(parameters, lp.clockDivision, lfo->hasProperty("clockDivision")
+                    ? static_cast<float>(clockDivisionFromString(lfo->getProperty("clockDivision").toString()))
+                    : static_cast<float>(ClockDivision::D1_4));
             }
         }
     }
@@ -3233,6 +3306,12 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
             setParam(parameters, dp.depth, static_cast<float>(d->getProperty("depth")));
             setParam(parameters, dp.wave, static_cast<float>(driftWaveFromString(d->getProperty("waveform").toString())));
             setParam(parameters, dp.target, static_cast<float>(driftTargetFromString(d->getProperty("target").toString())));
+            setParam(parameters, dp.clockMode, d->hasProperty("clockMode")
+                ? static_cast<float>(clockModeFromString(d->getProperty("clockMode").toString()))
+                : static_cast<float>(ClockMode::Off));
+            setParam(parameters, dp.clockDivision, d->hasProperty("clockDivision")
+                ? static_cast<float>(clockDivisionFromString(d->getProperty("clockDivision").toString()))
+                : static_cast<float>(ClockDivision::D1_4));
         }
     }
     setParam(parameters, PID::driftEnabled, static_cast<bool>(root->getProperty("driftEnabled")) ? 1.0f : 0.0f);
@@ -3265,6 +3344,12 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         setParam(parameters, PID::delayFeedback, static_cast<float>(fx->getProperty("delayFeedback")));
         setParam(parameters, PID::delayMix, static_cast<float>(fx->getProperty("delayMix")));
         setParam(parameters, PID::delayDamp, static_cast<float>(fx->getProperty("delayDamp")));
+        setParam(parameters, PID::delayClockMode, fx->hasProperty("delayClockMode")
+            ? static_cast<float>(clockModeFromString(fx->getProperty("delayClockMode").toString()))
+            : static_cast<float>(ClockMode::Off));
+        setParam(parameters, PID::delayClockDivision, fx->hasProperty("delayClockDivision")
+            ? static_cast<float>(clockDivisionFromString(fx->getProperty("delayClockDivision").toString()))
+            : static_cast<float>(ClockDivision::D1_4));
         setParam(parameters, PID::reverbType,
                  static_cast<float>(choiceFromKey(fx->getProperty("reverbType").toString(), ReverbType::kEntries)));
         setParam(parameters, PID::reverbMix, static_cast<float>(fx->getProperty("reverbMix")));

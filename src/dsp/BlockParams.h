@@ -588,24 +588,34 @@ namespace ClockMode {
 // ── BPM-sync musical divisions ─ monotonic in rate (slow → fast) so the
 //    UI renders as a coherent stepped slider. kFactor[i] = events per
 //    whole note. Triplet = 3-in-2 (×1.5 vs straight); quintuplet = 5-in-4
-//    (×1.25 vs straight).
+//    (×1.25 vs straight). Slow end (16/1 … 2/1) gives drift/LFO cycles
+//    spanning multiple bars — useful for slow harmonic motion and long
+//    auto-regen swings.
 namespace ClockDivision {
     enum : int {
-        D1_1   = 0,
-        D1_2   = 1,
-        D1_2T  = 2,
-        D1_4   = 3,
-        D1_4Q  = 4,
-        D1_4T  = 5,
-        D1_8   = 6,
-        D1_8Q  = 7,
-        D1_8T  = 8,
-        D1_16  = 9,
-        D1_16Q = 10,
-        D1_16T = 11,
-        D1_32  = 12
+        D16_1  = 0,
+        D8_1   = 1,
+        D4_1   = 2,
+        D2_1   = 3,
+        D1_1   = 4,
+        D1_2   = 5,
+        D1_2T  = 6,
+        D1_4   = 7,
+        D1_4Q  = 8,
+        D1_4T  = 9,
+        D1_8   = 10,
+        D1_8Q  = 11,
+        D1_8T  = 12,
+        D1_16  = 13,
+        D1_16Q = 14,
+        D1_16T = 15,
+        D1_32  = 16
     };
     static constexpr ChoiceEntry kEntries[] = {
+        { "16_1",  "16/1"  },
+        { "8_1",   "8/1"   },
+        { "4_1",   "4/1"   },
+        { "2_1",   "2/1"   },
         { "1_1",   "1/1"   },
         { "1_2",   "1/2"   },
         { "1_2t",  "1/2T"  },
@@ -621,6 +631,7 @@ namespace ClockDivision {
         { "1_32",  "1/32"  }
     };
     static constexpr float kFactor[] = {
+        1.0f / 16.0f, 1.0f / 8.0f, 1.0f / 4.0f, 1.0f / 2.0f,
         1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f,
         8.0f, 10.0f, 12.0f, 16.0f, 20.0f, 24.0f, 32.0f
     };
