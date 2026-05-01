@@ -48,7 +48,7 @@ via cross-links after the fact):**
   or philosophical commentary.
 - English only, to match the existing README and in-app Manual.
 - Reference concrete file paths with `path/to/file.cpp:123` format where
-  useful. Verify citations against the actual code; do not fabricate line
+  they clarify the point. Verify citations against the actual code; do not fabricate line
   numbers.
 - Be honest about gaps and non-existence — if a feature isn't implemented, a
   convention isn't established, or tests don't exist, say so directly.

@@ -6,11 +6,11 @@
 /**
  * Arpeggiator — port of useArpeggiator.ts.
  *
- * Takes a base note and expands it through chord intervals [0, 4, 7]
- * across octave range, then applies pattern ordering.
+ * Takes a base note, repeats it across the selected octave range,
+ * then applies pattern ordering.
  *
  * This is NOT a held-note arpeggiator — it receives a single base note
- * and generates a chord pattern from fixed intervals (major triad).
+ * and generates an octave pattern from that note.
  *
  * Musical rate divisions: 1/4, 1/8, 1/16, 1/32, 1/4T, 1/8T, 1/16T.
  */
@@ -52,12 +52,12 @@ public:
     int getLastPlayedNote() const { return lastPlayedNote; }
 
 private:
-    // Classic single-note arpeggio: the held base note is repeated across
+    // Classic single-note arpeggio: the incoming base note is repeated across
     // the configured octave range. The previous {0, 4, 7} chord stack
     // forced a major triad on every base note regardless of context, which
     // collided with non-tonal Pitch-Field material in the gen sequencer.
-    static constexpr int CHORD_INTERVALS[] = { 0 };
-    static constexpr int NUM_CHORD_NOTES = 1;
+    static constexpr int BASE_INTERVALS[] = { 0 };
+    static constexpr int NUM_BASE_INTERVALS = 1;
 
     Mode mode = Mode::Up;
     int rate = 2; // default 1/16

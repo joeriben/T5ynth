@@ -284,7 +284,7 @@ def write_readme(
             "",
             "Suggested listening questions:",
             "  1. Is latent morph audibly distinct from embedding morph?",
-            "  2. Does it create a useful intermediate sonic space?",
+            "  2. Does it create a compelling intermediate sonic space?",
             "  3. Does it remain recognizably anchored between A and B?",
             "  4. Would you keep it as an artistic mode rather than just a speed hack?",
             "",

@@ -163,20 +163,19 @@ Fetched at build time via CMake FetchContent for the native C++ T5 tokenizer.
 
 ---
 
-## Huovilainen Moog Ladder Filter
+## Huovilainen Ladder Filter Reference
 
 **Reference:** Antti Huovilainen, "Non-linear digital implementation of the
-               moog ladder filter", Proc. of the 7th Int. Conference on
-               Digital Audio Effects (DAFx-04), Naples, 2004.
+               ladder filter", Proc. of the 7th Int. Conference on Digital
+               Audio Effects (DAFx-04), Naples, 2004.
 **URL:** https://www.dafx.de/paper-archive/2004/P_061.PDF
 
-The `MoogLadderFilter` class (`src/dsp/MoogLadderFilter.h`) is an original
-implementation of the non-linear digital Moog ladder described in
-Huovilainen 2004 (half-sample-delay compensated 4-pole with tanh at each
-stage input and in the feedback path). Signal-processing algorithms are not
-themselves copyrightable; no source code was copied from any reference
-implementation. Credit for the topology and its proper digital formulation
-goes to Antti Huovilainen.
+The T5ynth `Ladder` filter is an original implementation of the non-linear
+digital ladder described in Huovilainen 2004 (half-sample-delay compensated
+4-pole with tanh at each stage input and in the feedback path).
+Signal-processing algorithms are not themselves copyrightable; no source
+code was copied from any reference implementation. Credit for the topology
+and its proper digital formulation goes to Antti Huovilainen.
 
 Known reference implementations whose structure informed our understanding
 (no code copied):

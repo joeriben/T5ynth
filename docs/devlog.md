@@ -29,7 +29,7 @@ so downstream env→LFO-rate modulation scales relative to the synced
 rate naturally instead of getting clobbered.
 
 The slow end of the division table (`16/1`, `8/1`, `4/1`, `2/1`)
-extends the slider to drift cycles spanning many bars — useful for
+extends the slider to drift cycles spanning many bars — suited to
 slow harmonic motion and long auto-regen swings. All references go
 through the named enum (`ClockDivision::D1_4`) or `kCount`, so GUI
 and computeRate auto-track the +4 index shift.

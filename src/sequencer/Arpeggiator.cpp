@@ -10,10 +10,10 @@ void T5ynthArpeggiator::rebuildIntervals()
 {
     intervals.clear();
 
-    // Expand chord across octave range
+    // Expand the incoming base note across the selected octave range.
     for (int oct = 0; oct < octaveRange; ++oct)
-        for (int i = 0; i < NUM_CHORD_NOTES; ++i)
-            intervals.push_back(CHORD_INTERVALS[i] + oct * 12);
+        for (int i = 0; i < NUM_BASE_INTERVALS; ++i)
+            intervals.push_back(BASE_INTERVALS[i] + oct * 12);
 
     // Apply pattern ordering
     switch (mode)

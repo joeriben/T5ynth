@@ -154,7 +154,7 @@ responsible for spot-checking it on their own machine.
 ## 7. CI smoke-test expansion — future opportunity
 
 The current macOS-only smoke test is weak. A PR that broke Linux or Windows
-at runtime but compiled cleanly would pass CI today. Useful expansions, in
+at runtime but compiled cleanly would pass CI today. Stronger expansions, in
 rough order of value:
 
 - **Linux and Windows bundle launch tests.** Analogous to the macOS step:

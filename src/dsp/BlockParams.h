@@ -589,7 +589,7 @@ namespace ClockMode {
 //    UI renders as a coherent stepped slider. kFactor[i] = events per
 //    whole note. Triplet = 3-in-2 (×1.5 vs straight); quintuplet = 5-in-4
 //    (×1.25 vs straight). Slow end (16/1 … 2/1) gives drift/LFO cycles
-//    spanning multiple bars — useful for slow harmonic motion and long
+//    spanning multiple bars — suited to slow harmonic motion and long
 //    auto-regen swings.
 namespace ClockDivision {
     enum : int {

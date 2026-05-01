@@ -194,7 +194,7 @@ dependencies require both. If Fedora does not know `webkit2gtk4.1-devel`, run
 `dnf search webkit2gtk` and install the matching 4.1 development package.
 
 The machine hard-freezes, the terminal vanishes, or the build dies without a
-useful Python traceback
+diagnostic Python traceback
 
 Treat that as a likely memory-pressure problem first, not as an application
 error. Check:

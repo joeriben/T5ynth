@@ -37,7 +37,7 @@ Frequency-band injection is probably not realistic at the text-embedding level a
 
 ### Possible UI Shape
 
-A future research UI should avoid a single global `A <-> B` slider as the only control. A more useful interface would expose a compact matrix:
+A future research UI should avoid a single global `A <-> B` slider as the only control. A stronger interface would expose a compact matrix:
 
 ```text
                early layers   mid layers   late layers   denoise steps   randomize

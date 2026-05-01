@@ -147,7 +147,7 @@ Outputs land under:
 archives/rpm/rpmbuild/RPMS/x86_64/
 ```
 
-Useful flags:
+Common flags:
 
 ```bash
 installer/linux/build_rpm.sh --skip-build
@@ -185,7 +185,7 @@ Outputs land under:
 archives/deb/
 ```
 
-Useful flags:
+Common flags:
 
 ```bash
 installer/linux/build_deb.sh --skip-build

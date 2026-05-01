@@ -29,7 +29,7 @@ Die Abgrenzung zu Ergebnis-Automation ist wichtig, aber nicht als erster Satz. D
 English:
 
 > Resonance with meaning.
-> With two short impulses, this innovative music synthesizer opens up a hidden space before audio exists.
+> With two short impulses, this innovative music synthesizer opens up a hidden space before audio comes into being.
 
 ### Kernversprechen
 
@@ -38,7 +38,7 @@ T5ynth ist ein vollwertiger Musik-Synthesizer, der mit Bedeutung resoniert. Mit 
 ### Claim-Optionen
 
 1. "Resonance with meaning."
-2. "With two short impulses, this innovative music synthesizer opens up a hidden space before audio exists."
+2. "With two short impulses, this innovative music synthesizer opens up a hidden space before audio comes into being."
 3. "Mark two poles of meaning. Shape the space before generation."
 4. "A/B mark a space, not two samples."
 5. "From hidden model space to playable synth fragment."
@@ -216,7 +216,7 @@ T5ynth does not start with a sample or a wavetable. It starts one step earlier: 
 
 Alpha, Magnitude, Noise, sound-character axes, the Dimension Explorer, Injection Modes and Drift move that space before audio exists. Only then does T5ynth render a short playable fragment. From there, the workflow becomes familiar synthesis: sampler or wavetable playback, filters, envelopes, LFOs, sequencing, delay and reverb.
 
-In v1.7.0-beta.1, LFOs, Drift LFOs and Delay can be clock-synced, making slow multi-bar movement, background regeneration and tempo-locked delay more useful in DAW, sequencer and performance workflows.
+In v1.7.0-beta.1, LFOs, Drift LFOs and Delay can be clock-synced, tying slow multi-bar movement, background regeneration and tempo-locked delay more closely to DAW, sequencer and performance workflows.
 
 ### Press pitch, English
 
@@ -270,13 +270,13 @@ The UI calls the two text fields Impulse A and Impulse B. These are not ChatGPT 
 
 T5ynth then renders a short playable fragment. From there, it becomes a familiar synth workflow: sampler or wavetable playback, filters, envelopes, LFOs, drift, sequencing, delay and reverb.
 
-New in v1.7.0-beta.1 is BPM sync for LFOs, Drift LFOs and Delay. For long drift movements and background auto-regeneration, this matters musically: the sound space keeps moving, but now it can move in useful musical divisions.
+New in v1.7.0-beta.1 is BPM sync for LFOs, Drift LFOs and Delay. For long drift movements and background auto-regeneration, this matters musically: the sound space keeps moving, but now it can move in musical divisions.
 
 Release: https://github.com/joeriben/t5ynth/releases/tag/v1.7.0-beta.1
 Repository: https://github.com/joeriben/t5ynth
 Audio/screenshots: [Press kit URL]
 
-I am especially interested in audible A/Bs: which impulse pairs and injection modes open useful musical spaces, and which ones break in interesting ways?
+I am especially interested in audible A/Bs: which impulse pairs and injection modes open musically compelling spaces, and which ones break in interesting ways?
 
 ### Social posts, English
 
@@ -292,7 +292,7 @@ I am especially interested in audible A/Bs: which impulse pairs and injection mo
 
 T5ynth v1.7.0-beta.1 is out. For me, the project is a practical thesis: generative models do not have to be result machines. They can also be treated as spaces where musical decisions happen before the result appears.
 
-T5ynth gives musicians a sound space they define themselves. Impulse A and B mark that space in the selected audio engine; if you want to, Alpha, axes, Noise, the Dimension Explorer, Injection Modes and Drift move it before audio exists. Only then does T5ynth render a playable fragment that can be shaped with synth tools.
+T5ynth gives musicians a sound space they define themselves. Impulse A and B mark that space in the selected audio engine; if you want to, Alpha, Semantic Axes, Noise, the Dimension Explorer, Injection Modes and Drift move it before audio exists. Only then does T5ynth render a playable fragment that can be shaped with synth tools.
 
 The new version adds BPM sync for LFOs, Drift LFOs and Delay. This makes movement of the pre-audio sound space rhythmically connectable to DAWs, sequencers, repetition and performance.
 

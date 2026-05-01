@@ -3,7 +3,7 @@
 **Resonance with meaning.**
 
 With two short impulses, this innovative music synthesizer opens up a hidden
-space between two poles of meaning before audio exists. Set those poles as
+space between two poles of meaning before audio comes into being. Set those poles as
 textures, transients, patterns, sonic and musical fragments, field recordings,
 everyday noises, orchestral gestures, alien voices, human emotional
 expressions, or impossible hybrids.
@@ -64,19 +64,16 @@ before audio exists. The rendered fragment is then carried further through
 sampler playback or wavetable extraction, followed by filter, envelopes, LFOs,
 sequencers, delay, reverb, limiter, and presets.
 
-The basic workflow is therefore:
+The instrument flow is therefore:
 
-1. Mark the hidden sound space with two short impulses, one in A and one in B,
-   for example "steady clean saw wave, C3" and "120 bpm syncopated transient
+1. Two short impulses, one in A and one in B, mark the hidden sound space, for
+   example "steady clean saw wave, C3" and "120 bpm syncopated transient
    pattern".
-2. If you want to, move through that space with Alpha, axes, Noise, Dimension
-   Explorer, Injection Modes, or Drift before audio exists.
-3. Click **Generate** to render one short playable fragment.
-4. Play that fragment as a **Sampler** source or turn it into a **Wavetable**.
-5. Shape it with filter, envelopes, LFOs, sequencers, delay, reverb, and
-   limiter.
-6. Use **Drift Modulators & Auto-Regenerate** when you want the pre-audio
-   space to move over time and produce new fragments in the background.
+2. Alpha, Semantic Axes, Noise, Dimension Explorer, Injection Modes, and Drift
+   move that space before audio exists.
+3. Shape the sonic flow as a **Sampler** or **Wavetable** engine, with filters,
+   envelopes, LFOs, sequencers, delay, reverb, limiter, presets, and
+   **Drift Modulators & Auto-Regenerate**.
 
 T5ynth can use **Stable Audio Open 1.0**, **Stable Audio Open Small**, or
 **AudioLDM2**. Each engine has its own learned response profile, so the same
@@ -133,7 +130,7 @@ T5ynth deliberately inverts that relationship:
   rejects, edits, saves, and composes. T5ynth will by no means address these
   challenges; it only tries to show that it ain't necessarily so.
 
-This is why T5ynth can be useful even, and maybe especially, for musicians who
+This is why T5ynth matters even, and maybe especially, for musicians who
 are skeptical of generative AI music. It does not automate musical judgment. It
 makes the hidden space before the result available for musical judgment.
 
@@ -191,7 +188,7 @@ just as you can use FM without solving the equations.
   This is not an audio crossfade; the midpoint is a new pre-audio state.
 - **Magnitude** changes how strongly that state steers the diffusion model.
 - **Model-space noise** perturbs the state before audio exists.
-- **Sound-character axes** add musically useful directions such as noisy/tonal or
+- **Sound-character axes** add musically legible directions such as noisy/tonal or
   sustained/rhythmic. Sometimes they work better, sometimes not, depending on
   the impulses.
 - **Dimension Explorer** opens all 768 internal control dimensions directly.
@@ -207,7 +204,7 @@ just as you can use FM without solving the equations.
 
 Drift Modulators & Auto-Regenerate turn the pre-audio space into something
 that can evolve. Three slow Drift LFOs can target generation-level parameters
-such as Alpha, axes, Noise, and Magnitude. When Auto-Regenerate is active,
+such as Alpha, Semantic Axes, Noise, and Magnitude. When Auto-Regenerate is active,
 T5ynth generates new audio in the background as the pre-audio state moves,
 then crossfades the new fragment into playback. Depending on the host machine,
 regeneration can range from roughly 0.1 seconds on an RTX 6000-class GPU to
@@ -330,7 +327,7 @@ Use the **Settings** panel on first launch:
 
 1. **Stable Audio Open Small** — licensed under the [Stability AI Community License](https://stability.ai/community-license-agreement). Gated on HuggingFace: install is a one-time manual step. The user downloads `model.safetensors` and `model_config.json` from HuggingFace, then T5ynth picks them up via *Auto-Scan* or *Browse...* in Settings.
 2. **AudioLDM2** — an academic latent-diffusion text-to-audio model published by CVSSP / University of Surrey and collaborators ([Liu et al., 2023](https://arxiv.org/abs/2308.05734)), released as an open research artefact for studying generalised audio, music, and speech generation from text. Ungated on HuggingFace and the only engine T5ynth can install directly. Licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) — **non-commercial only, no revenue threshold, no exceptions**. Included as an alternative sound source for non-commercial musical exploration.
-3. **Stable Audio Open 1.0** — licensed under the [Stability AI Community License](https://stability.ai/community-license-agreement). Gated on HuggingFace. The model consists of many files in nested subfolders, so the install path is `huggingface-cli` in a terminal. See the in-app instructions.
+3. **Stable Audio Open 1.0** — licensed under the [Stability AI Community License](https://stability.ai/community-license-agreement). Gated on HuggingFace. Download `model.safetensors` and `model_config.json` to your Downloads folder, then use *Auto-Scan* in Settings; T5ynth copies the files into its working model folder.
 
 Manual install locations if you prefer to place files yourself:
 
@@ -354,13 +351,13 @@ This means you are free to use, modify, and redistribute T5ynth, provided that d
 
 - **Stable Audio Open 1.0 / Stable Audio Open Small** — [Stability AI Community License](https://stability.ai/community-license-agreement). The models are not included in this repository. Users download them separately and must accept their license. Powered by Stability AI.
 - **AudioLDM2** — [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). Non-commercial use only. Not included; users download separately.
-- **JUCE Framework** — AGPLv3 (vendored in `JUCE/`)
+- **JUCE Framework** — AGPLv3 (vendored in `JUCE/`). Provides the application framework and DSP building blocks used by the SVF, delay, convolution reverb, algorithmic reverb, limiter, and oversampling paths.
 - **EMT 140 plate reverb impulse responses** — Greg Hopkins, Creative Commons Attribution (CC BY). Used for the Dark, Medium, and Bright convolution reverb modes.
 - **Signalsmith Stretch** — Geraint Luff / Signalsmith Audio Ltd., MIT. Used for pitch-preserving sample transposition.
 - **nlohmann/json** — Niels Lohmann, MIT. Used for configuration and preset parsing.
 - **SentencePiece** — Apache 2.0. Used for the native C++ T5 tokenizer.
 - **Python inference stack** — `diffusers`, `transformers`, PyTorch, `torchsde`, `soundfile`, and SciPy provide the model pipeline, tensor runtime, sampler support, audio I/O, and signal-processing utilities used by the backend.
-- **Huovilainen Moog ladder filter reference** — Antti Huovilainen's DAFx-04 paper is credited for the non-linear digital ladder topology implemented in T5ynth.
+- **Huovilainen ladder-filter reference** — Antti Huovilainen's DAFx-04 paper is credited for the non-linear digital ladder topology implemented in T5ynth.
 - **Cutoff Warp filter inspiration** — Surge XT is credited for the musical idea of a style-switchable cutoff-warp character control. T5ynth's implementation is written from scratch; no Surge XT source code is copied.
 
 T5ynth would be much poorer without these projects, papers, impulse responses,
@@ -372,7 +369,7 @@ for full license details, URLs, and attribution notes.
 If you use T5ynth in academic work:
 
 ```text
-Prof. Dr. Benjamin Jörissen / AI4ArtsEd — UCDCAE AI Lab
+Prof. Dr. Benjamin Jörissen / UNESCO Chair in Digital Culture and Arts in Education — UCDCAE AI Lab
 https://github.com/joeriben/t5ynth
 ```
 

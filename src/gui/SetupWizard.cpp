@@ -651,7 +651,7 @@ bool SettingsPage::tryNativeStabilityInstallFromFolder(
         return false;
     }
 
-    // Scenario (b)/(c): nothing useful in this folder.
+    // Scenario (b)/(c): nothing valid in this folder.
     if (reportIfMissing)
     {
         if (!wrongFound.isEmpty())
@@ -1361,8 +1361,7 @@ void SettingsPage::updateStatus()
                 "Licensed under the Stability AI Community License. Gated on "
                 "HuggingFace -- a free HuggingFace account is required once to "
                 "accept the license and download the files. No terminal required.\n\n"
-                "  Source: https://huggingface.co/" + hfRepo + "\n"
-                "  Target: " + targetPath + "\n\n"
+                "  Source: https://huggingface.co/" + hfRepo + "\n\n"
                 "INSTALL:\n"
                 "  1. Click 'Open Model Page' above. Your browser opens the\n"
                 "     HuggingFace page for this model.\n"
@@ -1379,7 +1378,7 @@ void SettingsPage::updateStatus()
                 "     they are alternative formats T5ynth does not use.\n"
                 "  6. Come back here and click 'Auto-Scan' above.\n"
                 "     T5ynth finds the files in your Downloads folder and copies\n"
-                "     them into the target directory. You can delete the originals\n"
+                "     them into its working model folder. You can delete the originals\n"
                 "     from Downloads afterwards.\n\n"
                 "If you saved them somewhere other than Downloads, Auto-Scan will "
                 "open a folder picker and ask you to point at the folder.");
@@ -1393,19 +1392,8 @@ void SettingsPage::updateStatus()
                 "accept the license. T5ynth uses only two files from this repo "
                 "(model.safetensors ~4.9 GB and model_config.json), so you don't "
                 "need to download the rest.\n\n"
-                "  Source: https://huggingface.co/" + hfRepo + "\n"
-                "  Target: " + targetPath + "\n\n"
-                "INSTALL (terminal, recommended -- one command):\n"
-                "  1. Click 'Open Model Page' above, sign in, and accept the\n"
-                "     license on the HuggingFace page.\n"
-                "  2. In a terminal:\n"
-                "       huggingface-cli login    # paste your HF access token\n"
-                "       huggingface-cli download " + hfRepo + " \\\n"
-                "         --include \"model.safetensors\" \\\n"
-                "         --include \"model_config.json\" \\\n"
-                "         --local-dir \"" + targetPath + "\"\n"
-                "  3. Click 'Auto-Scan' above.\n\n"
-                "INSTALL (browser, no terminal):\n"
+                "  Source: https://huggingface.co/" + hfRepo + "\n\n"
+                "INSTALL:\n"
                 "  1. Click 'Open Model Page' above, sign up or log in, and click\n"
                 "     'Agree and access repository' to accept the license.\n"
                 "  2. Open the 'Files and versions' tab.\n"
@@ -1416,7 +1404,9 @@ void SettingsPage::updateStatus()
                 "     Do not download model.ckpt, vae_model.ckpt, or anything\n"
                 "     inside transformer/, vae/, text_encoder/, tokenizer/,\n"
                 "     scheduler/, or projection_model/ -- T5ynth does not load them.\n"
-                "  4. Come back here and click 'Auto-Scan' above.\n\n"
+                "  4. Come back here and click 'Auto-Scan' above. T5ynth finds\n"
+                "     the files in Downloads and copies them into its working\n"
+                "     model folder.\n\n"
                 "If you saved them somewhere other than Downloads, Auto-Scan will "
                 "open a folder picker and ask you to point at the folder.");
         }
