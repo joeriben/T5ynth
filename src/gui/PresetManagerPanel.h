@@ -64,7 +64,9 @@ public:
 
     enum class Mode { Browse, Save };
 
-    /** Pre-fill payload for entering Save mode (name + bank + conflict UI). */
+    /** Pre-fill payload for entering Save mode (name + bank + conflict UI).
+     *  promptA/B feed the Save-Drawer's auto-title heuristic when no
+     *  meaningful default name is available. */
     struct SavePrefill
     {
         juce::String           defaultName;
@@ -72,6 +74,8 @@ public:
         juce::String           currentBank;
         juce::StringArray      existingBanks;
         std::set<juce::String> existingPathKeys;   // lowercased "bank/name.t5p"
+        juce::String           promptA;
+        juce::String           promptB;
     };
 
     PresetManagerPanel()
@@ -320,7 +324,10 @@ public:
                              prefill.suggestedTags,
                              prefill.currentBank,
                              prefill.existingBanks,
-                             std::move(prefill.existingPathKeys));
+                             std::move(prefill.existingPathKeys),
+                             sidebar.getTagVocabulary(),
+                             prefill.promptA,
+                             prefill.promptB);
         saveDrawer.setVisible(true);
         detail.setDragSourceEnabled(true);
         resized();
@@ -665,6 +672,8 @@ private:
             rebuildLayout();
             repaint();
         }
+
+        const std::vector<juce::String>& getTagVocabulary() const noexcept { return tagEntries; }
 
         void paint(juce::Graphics& g) override
         {
@@ -1349,14 +1358,29 @@ private:
                        const juce::StringArray& suggestedTags,
                        const juce::String& currentBank,
                        const juce::StringArray& existingBanks,
-                       std::set<juce::String> pathKeys)
+                       std::set<juce::String> pathKeys,
+                       const std::vector<juce::String>& vocabulary,
+                       const juce::String& promptAIn,
+                       const juce::String& promptBIn)
         {
-            nameEdit.setText(defaultName, juce::dontSendNotification);
-            tags = suggestedTags;
+            tagVocabulary = vocabulary;
+            promptA       = promptAIn;
+            promptB       = promptBIn;
+            tags          = suggestedTags;
             tags.trim();
             tags.removeEmptyStrings();
             tags.removeDuplicates(true);
             existingPathKeys = std::move(pathKeys);
+
+            // The auto-title heuristic only fires when the caller has no
+            // meaningful name to offer (empty, default placeholder, or the
+            // generic "New Preset" fallback from MainPanel). Real preset
+            // names — current preset on Save, "X copy" on duplicate —
+            // always win.
+            const auto resolved = isPlaceholderName(defaultName)
+                                      ? suggestTitleFromPrompts()
+                                      : defaultName;
+            nameEdit.setText(resolved, juce::dontSendNotification);
 
             bankBox.clear(juce::dontSendNotification);
             bankBox.addItem(kRootBankLabel(), 1);
@@ -1629,14 +1653,66 @@ private:
             return false;
         }
 
+        static bool isPlaceholderName(const juce::String& s) noexcept
+        {
+            const auto t = s.trim();
+            return t.isEmpty()
+                || t.equalsIgnoreCase("New Preset")
+                || t.equalsIgnoreCase("T5ynth Export")
+                || t.equalsIgnoreCase("Untitled");
+        }
+
+        /** Pulls a salient word from a free-text prompt: lowercased,
+         *  ≥3 chars, not a common stop-word. Picks the LAST candidate so
+         *  noun-phrase prompts like "warm distant thunder" yield the
+         *  head noun ("thunder") rather than the leading adjective. */
+        static juce::String pickSalientWord(const juce::String& src)
+        {
+            static const juce::StringArray stop {
+                "the","and","with","into","over","under","from","this","that",
+                "very","quite","more","less","some","any","for","you","not",
+                "but","are","was","were","has","had","its","their","them",
+                "like","just","only","also","than","then","there","what",
+                "when","while","which","who","why","how","ing"
+            };
+            auto words = juce::StringArray::fromTokens(src,
+                " \t\n\r,.;:!?\"'/\\()[]{}_<>", {});
+            for (int i = words.size(); --i >= 0; )
+            {
+                const auto w = words[i].toLowerCase().trim();
+                if (w.length() < 3 || stop.contains(w)) continue;
+                return w;
+            }
+            return {};
+        }
+
+        /** Builds a save-name suggestion from prompts A and B. Empty if
+         *  both prompts are empty or yield no salient word. */
+        juce::String suggestTitleFromPrompts() const
+        {
+            auto cap = [](juce::String s) -> juce::String
+            {
+                return s.isEmpty() ? s
+                                   : s.substring(0, 1).toUpperCase() + s.substring(1);
+            };
+            const auto a = pickSalientWord(promptA);
+            const auto b = pickSalientWord(promptB);
+            if (a.isNotEmpty() && b.isNotEmpty() && a != b) return cap(a) + "-" + cap(b);
+            if (a.isNotEmpty()) return cap(a);
+            if (b.isNotEmpty()) return cap(b);
+            return "New Preset";
+        }
+
         juce::Label      nameLabel, bankLabel, tagsLabel, warningLabel;
         juce::TextEditor nameEdit, tagInput;
         juce::ComboBox   bankBox;
         juce::TextButton saveBtn   { "Save Preset" };
         juce::TextButton cancelBtn { "Cancel" };
         juce::TextButton copyBtn;
-        juce::StringArray      tags;
-        std::set<juce::String> existingPathKeys;
+        juce::StringArray         tags;
+        std::set<juce::String>    existingPathKeys;
+        std::vector<juce::String> tagVocabulary;
+        juce::String              promptA, promptB;
 
         struct ChipRect { juce::Rectangle<int> bounds; int index; };
         std::vector<ChipRect> chipRects;

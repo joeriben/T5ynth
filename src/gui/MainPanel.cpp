@@ -571,6 +571,8 @@ void MainPanel::enterLibrarySaveMode(SaveNameMode mode)
     prefill.currentBank      = currentBank;
     prefill.existingBanks    = existingBanks;
     prefill.existingPathKeys = std::move(existingPathKeys);
+    prefill.promptA          = promptPanel.getPromptA();
+    prefill.promptB          = promptPanel.getPromptB();
 
     showPresetManager();
     presetManager.enterSaveMode(std::move(prefill));
