@@ -1,195 +1,258 @@
 # T5ynth
 
-> **For the full formatted user guide, open [`resources/T5ynth_Guide.html`](resources/T5ynth_Guide.html) in your browser.**
+**T5ynth resonates with meaning.**
 
-° ** For a beginning Preset-Collection, open [`https://github.com/joeriben/T5ynth-Presets`] (https://github.com/joeriben/T5ynth-Presets), download, and use the Import function of the preset browser.**
+With two short impulses, T5ynth opens up a hidden space between two poles of
+meaning before audio exists. The impulses can evoke textures, transients,
+patterns, sonic and musical fragments, field recordings, everyday noises,
+orchestral gestures, alien voices, human emotional expressions, or impossible
+hybrids.
 
-(note: this description has been written by the co-coding AI, Claude Opus 4.6)
+The fields labeled **Impulse A** and **Impulse B** are not two samples, two song
+requests, or two oscillators. They are two markers for the space you want to
+explore. You can pull between the markers, push the space harder or softer,
+disturb it, bend it along sound qualities, open individual dimensions, change
+where one idea enters the other, and let the space drift over time before
+audio exists.
 
+Most AI audio tools hide that space and only return an audio result. T5ynth
+turns the pre-audio space into the instrument. Generation is not a separate AI
+step after the synth; the synth reaches into the generation process itself.
+The rendered fragment is one stage in a signal path that continues through
+sampler or wavetable playback, filters, envelopes, LFOs, sequencing, delay,
+reverb, and limiting.
 
-**A text-to-sound synthesizer that navigates the T5 embedding space of a diffusion audio model.**
+Links:
 
-T5ynth is a JUCE-based synthesizer plugin (Standalone / VST3 / AU) that deliberately repurposes Stability AI's [Stable Audio Open](https://huggingface.co/stabilityai/stable-audio-open-1.0) model as an oscillator — not to generate finished music, but to produce raw sonic material for human–nonhuman artistic collaboration. Where text-to-audio models are designed to substitute creative labor (type a description, get a result), T5ynth inverts this relationship: the AI produces material, the human creates. This is not a consumer tool — it is an instrument that requires musicianship.
+- Full user guide: [`resources/T5ynth_Guide.html`](resources/T5ynth_Guide.html)
+- Preset collection: [`joeriben/T5ynth-Presets`](https://github.com/joeriben/T5ynth-Presets)
+- Current beta release: [`v1.7.0-beta.1`](https://github.com/joeriben/t5ynth/releases/tag/v1.7.0-beta.1)
 
-T5ynth is a personal side-project by Prof. Dr. Benjamin Jörissen, UNESCO Chair in Digital Culture and Arts in Education (UCDCAE), Friedrich-Alexander-Universität Erlangen-Nürnberg, and part of the [UCDCAE AI Lab Software Collection](https://github.com/joeriben/ucdcae-ai-lab).
-
-T5ynth is inspired by two research projects:
-
-- [AI for Arts Education (AI4ArtsEd)](https://kubi-meta.de/ai4artsed), conducted together with the University of Cologne and the German Research Institute for Artificial Intelligence (DFKI) Kaiserslautern
-- [ComeArts Across](https://comearts.uni-due.de/comenets/artsacross/), a research project for the development of digital cultural teacher education
-
-(both funded by the Federal Ministry for Education, Family, Senior Citizens, Women and Youth (BMBFSFJ)).
-
-T5ynth is dedicated to my dear colleague at the DFKI, musician and AI researcher Dr. Stephan Baumann, without whom AI4ArtsEd would not have come into being.
-
----
-
-## Context: Why This Exists
-
-T5ynth emerged from [AI4ArtsEd](https://kubi-meta.de/ai4artsed), a research project investigating alternative, non-standard uses of AI for educational purposes. AI4ArtsEd deliberately subverts consumerist user-subject positions and approaches AI from a critical, empowerment-oriented perspective.
-
-### The Problem with Generative Audio AI
-
-Text-to-audio models like Stable Audio are designed for a specific purpose: generating finished audio content from text prompts. Their intended use case is the substitution of creative labor — type a description, get a result. This positions the user as a consumer of AI output rather than an active creative agent.
-
-### Open Source as Strategy
-
-Stable Audio Open deserves credit: Unlike its commercial siblings which rob artists of their works, it was trained on ~486,000 Creative Commons-licensed recordings from Freesound and the Free Music Archive — not on copyrighted music. Stability AI conducted copyright verification and removed flagged content before training. This is genuinely better practice than much of the industry.
-
-### What T5ynth Does Differently
-
-T5ynth takes this openly released model and implements a non-intended use: instead of generating finished audio, it treats the model's 768-dimensional T5 text embedding space as a navigable sonic terrain. The diffusion model becomes an oscillator — a sound source that a musician shapes, filters, modulates, and sequences like any other synthesizer component.
-
-This inverts the appropriation relationship:
-
-- **Intended use:** Human types prompt → AI produces finished content → Human consumes
-- **T5ynth:** Human navigates embedding space → AI produces raw material → Human creates
-
-The generated audio is not the output — it is the starting point. It requires human musicianship, sound design, and compositional decisions to become anything. T5ynth does not make music. It makes material for making music.
+Current tagged GitHub Releases publish the macOS and Windows installers.
+Linux, VST3, and AU build outputs exist in the project/build pipeline, but are
+not the current public release assets.
 
 ---
 
-## Features
+## What T5ynth Does
 
-### The T5 Oscillator
+T5ynth is easiest to understand from its signal flow.
 
-The core of T5ynth is a new kind of oscillator that doesn't exist in any conventional synthesizer. Where traditional oscillators generate sound from mathematical waveforms (sine, saw, square) or from recorded samples, the T5 Oscillator generates sound from *meaning*.
+In a conventional synth, an oscillator produces audio immediately: sine, saw,
+square, noise, sample, wavetable. T5ynth inserts a stage before that. The
+T5ynth Oscillator is a meta-oscillator: it does not begin with one waveform or
+one sample, but opens a bounded hidden sound space inside the selected audio
+model. Within that space, many possible sounds can exist before any one of them
+is rendered. The main musical act is to explore that space and decide which
+state becomes a short audio fragment.
 
-The key operation is not prompting — it is **vector manipulation in a learned semantic space**.
+The fields labeled **Impulse A** and **Impulse B** belong to that pre-audio stage.
+They do not mean a ChatGPT conversation, a song request, or a rendered audio
+file. A and B are text impulses that mark one inner space. They do not
+produce two samples, and they are not two oscillators.
 
-Two text prompts (A and B) are each encoded by a T5 language model into 768-dimensional embedding vectors. These are not audio signals — they are points in a high-dimensional space where semantic relationships are encoded as geometric relationships. (For an introduction to embeddings, see Jay Alammar's [Illustrated Word2Vec](https://jalammar.github.io/illustrated-word2vec/).) T5ynth operates on these vectors before any audio is generated:
+The interface names for those pre-audio operations are **Alpha** for the pull
+between A and B, **Magnitude** for how strongly the space is pushed,
+**Noise** for perturbation, **sound-character axes** for broad directions,
+**Dimension Explorer** for individual dimensions, **Injection Modes** for where
+B enters A during generation, and **Drift** for movement over time. They do
+not mix audio. They move or reshape the hidden sound space before audio exists.
 
-- **Interpolation and Extrapolation** — A continuous alpha parameter navigates between embedding A and B in embedding space, not in audio. This is not a crossfade or mix of two signals — it is movement through a semantic space. The midpoint is not "half A plus half B" in any audible sense; it is a new point in meaning-space that the model interprets independently. Extrapolation beyond either pole pushes into regions of the embedding space that no text prompt would naturally reach.
-- **Magnitude Control** — The length of the embedding vector can be scaled independently of its direction, controlling how strongly the semantic content influences the diffusion process. Low magnitudes drift toward the model's prior (generic, neutral sounds); high magnitudes push toward more extreme, sometimes unstable sonic territory.
-- **Noise Injection** — This is not audio noise — it is semantic noise: random perturbation in meaning-space, a dose of chaos applied to the embedding before the model ever generates a sound. Even small values introduce subtle variation between otherwise identical generations.
-- **Semantic Axes** — 8 axes derived from pole prompt pairs (e.g., "tonal" vs. "noisy") that define musically meaningful directions in the 768d space, validated via spectral analysis (Mel-cosine distance > 0.80 at 1s). Multiple axes are interrelated — the more you stack, the less predictable each becomes. PCA-based axes were tested but collapse at short durations and are not offered.
-- **Dimension Explorer** — Direct access to all 768 individual T5 dimensions, sorted by activation magnitude. Individual dimensions can be offset before generation. What each dimension "does" sonically is largely opaque — the T5 embedding space was trained for language tasks, not audio. This is a research tool for probing the space, not a precision instrument.
-- **Injection Modes** — Six ways to combine prompt A with prompt B inside the diffusion pipeline, accessible from a six-button row in the Generation panel: *Linear* (the classical A↔B crossfade), *Fine* (early sampler steps see A only, then swap to a Fine-controlled blend), *Layer* (B injected only into a user-defined sub-range of the 16 DiT cross-attention layers), and three preset combinations *Kombi 1 / 2 / 3* (step-phase × layer-band, with hardcoded surface / broad-mid / narrow-center bands and a single intensity slider per preset). All modes share the same A↔B prompts but probe how *where in the diffusion process* B enters changes what comes out. Linear remains bit-identical to prior versions; the other modes are research-mode controls for compositional exploration.
+**Generate** renders the current state of that space into audio, but it is
+not where the instrument starts. T5ynth has already shaped the generation
+before audio exists. The rendered fragment is then carried further through
+sampler playback or wavetable extraction, followed by filter, envelopes, LFOs,
+sequencers, delay, reverb, limiter, and presets.
 
-The manipulated embedding then conditions a diffusion process (DiT transformer, BrownianTree SDE sampler) followed by VAE decoding to produce 44.1kHz stereo audio.
+The basic workflow is therefore:
 
-### Drift & Regenerate
+1. Mark the hidden sound space with two short impulses, one in A and one in B,
+   for example "steady clean saw wave, C3" and "120 bpm syncopated transient
+   pattern".
+2. If you want to, move through that space with Alpha, axes, Noise, Dimension
+   Explorer, Injection Modes, or Drift before audio exists.
+3. Click **Generate** to render one short playable fragment.
+4. Play that fragment as a **Sampler** source or turn it into a **Wavetable**.
+5. Shape it with filter, envelopes, LFOs, sequencers, delay, reverb, and
+   limiter.
+6. Use **Drift Modulators & Auto-Regenerate** when you want the pre-audio
+   space to move over time and produce new fragments in the background.
 
-**Drift & Regenerate is what makes T5ynth more than a sample player or wavetable synth.**
+T5ynth can use **Stable Audio Open 1.0**, **Stable Audio Open Small**, or
+**AudioLDM2**. Each engine has its own learned response profile, so the same
+A/B pair can open a different space depending on the selected model. The
+Stable Audio engines are strongest with English sound-oriented phrases:
+sound effects, field recordings, drum or instrument loops, ambient sounds,
+foley, and production elements. AudioLDM2 is broader in its training goal and
+can cover sound effects, speech-like material, and music, but it is
+non-commercial only and less tied to T5ynth's newer injection-mode research.
 
-Without it, you generate a sound and then shape it with conventional synth tools — the source stays fixed. With Drift & Regenerate, the sound source itself continuously evolves.
+The meaning poles do not have to be narrow "sound ideas". They can evoke sound
+sources, materials in motion, acoustic scenes, bodies, gestures, moods,
+fictional agents, or impossible combinations. A visual phrase such as "a rose
+in a vase" is not a sound by itself; "water in a glass vase, quiet room, petals
+brushed by fingers" gives the model acoustic handles. But the abstract phrase
+can still be used as a strange marker in the model's space. T5ynth is where you
+find out what that marker can become.
 
-Three slow drift LFOs (0.001–2.0 Hz) can target generation-level parameters — Alpha, the semantic axes, Noise, and Magnitude. While the synth is playing, multiple drift LFOs continuously and independently shift these parameters, tracing a complex, never-repeating path through the embedding space. When an auto regen mode is active, T5ynth monitors how far the embedding has drifted and fires new inference requests in the background. The current sound keeps playing; when the new generation arrives, it is crossfaded into the playback buffer. Beat-limited modes (max 1♩/4♩/16♩) let you cap the regeneration rate relative to the current BPM.
+About the name: **T5** is the text encoder used by the Stable Audio engines.
+It turns a phrase into control data that the audio model can use. You do not
+need to know T5 to use T5ynth. The practical point is simpler: meaning opens
+a model space before it becomes audio.
 
-The result is an asynchronous feedback loop between the modulation system and the T5 oscillator: a continuous stream of new generations, each from a slightly different position in embedding space. The oscillator is no longer a static waveform — it traces a continuous trajectory through the 768-dimensional embedding space.
+From there, T5ynth behaves much more like an instrument than like an audio
+generator website:
 
-### Engine Modes
+1. The impulses mark a hidden sound space inside the audio model.
+2. If you want to, you move through that space with Alpha, Magnitude,
+   model-space noise, sound-character axes, the Dimension Explorer, Injection
+   Modes, and Drift.
+3. The diffusion backend renders the current pre-audio state into short stereo
+   audio.
+4. The synth engine plays that fragment as a sampler source or converts it
+   into a scannable wavetable.
+5. The rest is synthesis: filter, envelopes, LFOs, drift, sequencers, delay,
+   reverb, limiter, presets.
 
-Two playback modes turn the generated audio into something a synthesizer can work with:
+The generated audio is not the final output. It is a playable fragment inside
+a larger instrument.
 
-- **Sampler Mode** — Plays back the generated audio with loop points (one-shot, loop, ping-pong) and crossfade. Pitch follows MIDI via time-stretching. Useful for longer textures where the raw character of the generation matters.
-- **Wavetable Mode** — Extracts pitch-synchronous single-cycle frames from the audio and builds a scannable wavetable. This turns any generated sound into a pitched, playable oscillator that tracks MIDI notes directly.
+## Why This Exists
 
-### Synthesizer
+Generative audio systems are often designed as black boxes: enter a request,
+receive a result, consume the output. That positions the musician outside the
+model, after the important decisions have already happened.
 
-The T5 Oscillator produces unconventional material — the signal chain that follows is a standard synth architecture so that familiar tools can shape it.
+T5ynth deliberately inverts that relationship:
 
-- **Envelopes:** 3 identical ADSR envelopes, each assignable to any modulation destination via target dropdown. There is no hard-wired amplitude envelope — to use one as a VCA, assign its target to DCA.
-- **Filter:** State-variable filter (TPT topology), LP/HP/BP, 6-24dB, with keyboard tracking and dry/wet mix
-- **LFOs:** 2 LFOs (Sine/Tri/Saw/Square, Free/Trigger mode), each with assignable target
-- **Effects:** Delay with feedback/damping, convolution reverb (EMT 140 plate impulse responses, thanks to [Greg Hopkins](https://oramics.github.io/sampled/IR/EMT140-Plate/), CC BY), algorithmic reverb, limiter
-- **Sequencer:** Step sequencer (2-32 steps) with per-step note/velocity/gate/glide, 10 built-in patterns, save/load for custom patterns
-- **Generative Sequencer:** Euclidean rhythm (Bjorklund) + Turing Machine melodic mutation + parameter drift. Self-evolving patterns with scale quantization.
-- **Arpeggiator:** Serial after sequencer (Up/Down/UpDown/Random, 1-4 octaves, musical rate divisions including triplets)
-- **Presets:** .t5p format stores parameters + generated audio + embeddings — loading a preset does not require regeneration
-- **Platforms:** macOS on Apple Silicon (MPS acceleration), Linux with NVIDIA GPU (CUDA), Windows 11 with NVIDIA GPU (CUDA), CPU fallback on all three
+- **Standard AI audio workflow:** human writes a request -> model hides the
+  internal search -> audio result appears.
+- **T5ynth workflow:** human marks and moves through the model's hidden sound
+  space -> the model renders a playable fragment -> human plays, shapes,
+  rejects, edits, saves, and composes.
 
-## Architecture
+This is why T5ynth can be useful even, and maybe especially, for musicians who
+are skeptical of generative AI music. It does not automate musical judgment. It
+makes the hidden space before the result available for musical judgment.
 
-### T5 Oscillator — Embedding to Audio Pipeline
+## Research Context
 
-```
-                        ┌─────────────────────────────────────────────┐
-                        │          EMBEDDING SPACE (768d)             │
-                        │                                             │
-  Prompt A ──→ T5 Encode ──→ Embedding A ─┐                          │
-                        │                  ├─→ Interpolation (alpha)  │
-  Prompt B ──→ T5 Encode ──→ Embedding B ─┘        │                 │
-                        │                           ▼                 │
-                        │    Semantic Axes ──→ Axis Offsets ─┐        │
-                        │    (8 navigable                    │        │
-                        │     dimensions)                    ▼        │
-                        │                        Magnitude + Noise    │
-                        │                              │              │
-                        │    Dimension Explorer ──→ Per-Dim Offsets   │
-                        │    (768 editable bars)       │              │
-                        │                              ▼              │
-                        │                     Final Embedding (768d)  │
-                        └──────────────────────────────┬──────────────┘
-                                                       │
-                        ┌──────────────────────────────┼──────────────┐
-                        │  DIFFUSION (Python Backend)  │              │
-                        │                              ▼              │
-                        │  ┌────────────────────────────────────────┐ │
-                        │  │ DiT (Diffusion Transformer)           │ │
-                        │  │ BrownianTree SDE sampler (torchsde)   │ │
-                        │  │ CFG guidance                          │ │
-                        │  └───────────────────┬────────────────────┘ │
-                        │                      ▼                      │
-                        │  ┌────────────────────────────────────────┐ │
-                        │  │ VAE Decode → 44.1kHz stereo float32   │ │
-                        │  └───────────────────┬────────────────────┘ │
-                        └──────────────────────┼──────────────────────┘
-                              Unix pipes       │
-                              (binary protocol)│
-                        ┌──────────────────────┼──────────────────────┐
-                        │  T5 OSCILLATOR       ▼        (JUCE C++)   │
-                        │                                             │
-                        │  ┌─────────────┐  ┌────────────────────┐   │
-                        │  │   SAMPLER   │  │     WAVETABLE      │   │
-                        │  │             │  │                    │   │
-                        │  │ Loop modes: │  │ YIN pitch detect   │   │
-                        │  │ one-shot    │  │ Frame extraction   │   │
-                        │  │ loop        │  │ 2048 smp/frame     │   │
-                        │  │ ping-pong   │  │ 8 mip levels (FFT) │   │
-                        │  │ crossfade   │  │ Catmull-Rom interp │   │
-                        │  │             │  │ Real-time scan     │   │
-                        │  └──────┬──────┘  └─────────┬──────────┘   │
-                        │         └────────┬──────────┘              │
-                        │                  ▼                          │
-                        └──────────────────┼──────────────────────────┘
-                                           │
-                        ┌──────────────────┼──────────────────────────┐
-                        │  SYNTHESIZER     ▼                          │
-                        │                                             │
-                        │  Voice Manager (8 voices, note stealing)    │
-                        │         │                                   │
-                        │         ▼                                   │
-                        │  ┌─────────────────────────────────────┐   │
-                        │  │ Per Voice:                          │   │
-                        │  │   3× Envelopes (assignable targets) │   │
-                        │  │   Filter (SVF: LP/HP/BP, 6-24dB)   │   │
-                        │  └────────────────┬────────────────────┘   │
-                        │                   ▼                         │
-                        │  ┌─────────────────────────────────────┐   │
-                        │  │ Global:                             │   │
-                        │  │   2× LFO (sin/tri/saw/sq)          │   │
-                        │  │   3× Drift LFO (slow modulation)   │   │
-                        │  │   Drift → Alpha/Axes → Auto-Regen  │   │
-                        │  │   Delay (feedback + damping)        │   │
-                        │  │   Reverb (EMT 140 convolution/algo) │   │
-                        │  │   Limiter                           │   │
-                        │  └────────────────┬────────────────────┘   │
-                        │                   ▼                         │
-                        │  Sequencer (step/gen) → Arpeggiator        │
-                        │                   │                         │
-                        │                   ▼                         │
-                        │              Stereo Out                     │
-                        └─────────────────────────────────────────────┘
-```
+T5ynth is a personal side project by Prof. Dr. Benjamin Jörissen, UNESCO Chair
+in Digital Culture and Arts in Education (UCDCAE),
+Friedrich-Alexander-Universität Erlangen-Nürnberg, and part of the
+[UCDCAE AI Lab Software Collection](https://github.com/joeriben/ucdcae-ai-lab).
 
-### IPC
+It is inspired by two research projects:
 
-The inference runs in a Python subprocess — the BrownianTree SDE sampler (torchsde) is essential for audio quality and not available in C++. Audio transfers to JUCE via a binary pipe protocol (stdin/stdout): JSON request in, binary header + float32 PCM + embedding stats out. No HTTP overhead, subprocess stays alive between generations.
+- [AI for Arts Education (AI4ArtsEd)](https://kubi-meta.de/ai4artsed),
+  conducted together with the University of Cologne and the German Research
+  Institute for Artificial Intelligence (DFKI) Kaiserslautern.
+- [ComeArts Across](https://comearts.uni-due.de/comenets/artsacross/), a
+  research project on digital cultural teacher education.
 
-### Preset Format (.t5p)
+Both are funded by the Federal Ministry for Education, Family, Senior Citizens,
+Women and Youth (BMBFSFJ).
 
-Presets store everything needed for instant recall: synthesis parameters (JSON), the generated audio (raw float32 PCM), and the 768d embeddings — so loading a preset does not require regeneration. The format auto-detects legacy JSON and XML presets for backwards compatibility.
+T5ynth is dedicated to my dear colleague at the DFKI, musician and AI
+researcher Dr. Stephan Baumann, without whom AI4ArtsEd would not have come
+into being.
+
+## What Is New in v1.7.0-beta.1
+
+- **BPM sync for LFOs, Drift LFOs, and Delay Time.** Each of the three LFOs,
+  three Drift LFOs, and Delay Time can switch from free rate/time to musical
+  divisions.
+- **Host/standalone clock resolution.** Sync follows the host transport when
+  available, falls back to the in-app sequencer while it runs, and otherwise
+  uses the last host BPM or the sequencer BPM field.
+- **Safer preset restore.** Old presets now restore missing clock and injection
+  defaults explicitly instead of inheriting whatever state was last active.
+- **LFO Trigger mode fix.** Per-voice LFO trigger mode now affects voice
+  rendering instead of silently behaving like free-running global LFOs.
+- **Delay mix fix.** Delay Mix is now a true dry/wet crossfade.
+
+See [`CHANGELOG.md`](CHANGELOG.md) for the full release history.
+
+## Core Concepts
+
+### The Pre-Audio Sound Space
+
+The center of T5ynth is the sound space before audio exists. Traditional
+oscillators generate sine, saw, square, noise, or sample playback. T5ynth
+starts inside the model, at the stage where meaning still shapes what sound can
+become.
+
+Behind the scenes, that space is numerical. You can ignore that while playing,
+just as you can use FM without solving the equations.
+
+- **Impulse A/B and Alpha** mark and move through the model's inner sound space.
+  This is not an audio crossfade; the midpoint is a new pre-audio state.
+- **Magnitude** changes how strongly that state steers the diffusion model.
+- **Model-space noise** perturbs the state before audio exists.
+- **Sound-character axes** add musically useful directions such as noisy/tonal or
+  sustained/rhythmic.
+- **Dimension Explorer** opens all 768 internal control dimensions directly.
+- **Injection Modes** change where B enters A inside the
+  diffusion process: Linear, Fine, Layer, Kombi 1, Kombi 2, Kombi 3.
+- **Drift** keeps the pre-audio state moving over time and can trigger new
+  generations in the background.
+
+### Drift Modulators & Auto-Regenerate
+
+Drift Modulators & Auto-Regenerate turn the pre-audio space into something
+that can evolve. Three slow Drift LFOs can target generation-level parameters
+such as Alpha, axes, Noise, and Magnitude. When Auto-Regenerate is active,
+T5ynth generates new audio in the background as the pre-audio state moves,
+then crossfades the new fragment into playback.
+
+With v1.7, those drift cycles can be clock-synced to musical divisions, so
+long pre-audio motion can sit inside a DAW, sequencer, or standalone tempo
+workflow.
+
+### Sampler and Wavetable Modes
+
+T5ynth can use generated audio in two ways:
+
+- **Sampler Mode** plays the generated fragment directly with loop modes,
+  crossfade, normalization, and pitch following through time-stretching.
+- **Wavetable Mode** extracts pitch-synchronous single-cycle frames and turns
+  the generation into a playable, scannable wavetable oscillator.
+
+## Feature Overview
+
+- **Generation:** Impulse A/B, Alpha, Magnitude, Noise, Duration, Steps, CFG,
+  Seed, Start Position, HF Boost.
+- **Source controls:** Sound-character axes, 768-dimension explorer, Linear/Fine/
+  Layer/Kombi injection modes.
+- **Playback engine:** Sampler and Wavetable modes, loop optimization,
+  wavetable scan, noise source.
+- **Synthesis:** 16-voice voice manager, assignable envelopes, multimode
+  filter algorithms, keyboard tracking, drive, modulation ghost indicators.
+- **Modulation:** 3 ADSR envelopes, 3 LFOs, 3 Drift LFOs, free or clock-synced
+  rates, free/trigger LFO mode.
+- **Sequencing:** Step sequencer, arpeggiator, polyphonic generative sequencer
+  with up to five strands and a shared pitch field.
+- **Effects:** Tempo-syncable delay, convolution and algorithmic reverb,
+  limiter.
+- **Presets:** `.t5p` files store parameters, A/B texts, generated audio, and
+  internal source data, so loading a preset does not require regeneration.
+
+## Architecture Summary
+
+T5ynth has two main parts:
+
+- A JUCE/C++ synthesizer, UI, preset, modulation, sequencing, and DSP engine.
+- A Python inference subprocess that runs the diffusion model and communicates
+  with JUCE through a binary stdin/stdout pipe protocol.
+
+The Python backend is used because the BrownianTree SDE sampler and model
+runtime are not available as equivalent C++ components. The subprocess stays
+alive between generations, so repeated generations avoid backend startup
+overhead.
+
+For code-level details, see [`ARCHITECTURE.md`](ARCHITECTURE.md),
+[`docs/IPC_PROTOCOL.md`](docs/IPC_PROTOCOL.md), and the signal-flow section in
+the user guide.
 
 ---
 
@@ -224,9 +287,8 @@ python3.11 -m venv .venv --clear
 source .venv/bin/activate
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install pyinstaller
-python -m pip install torch --index-url https://download.pytorch.org/whl/cu124   # Linux/Windows NVIDIA
-# python -m pip install -r backend/requirements-torch-blackwell.txt               # NVIDIA Blackwell build hosts
-# python -m pip install torch                                                   # macOS or CPU-only fallback
+python -m pip install torch==2.7.1 torchaudio==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu128  # Linux/Windows NVIDIA
+# python -m pip install torch==2.7.1 torchaudio==2.7.1 torchvision==0.22.1  # macOS or CPU-only fallback
 python -m pip install -r backend/requirements.txt
 
 # Bundle backend
@@ -278,7 +340,7 @@ This means you are free to use, modify, and redistribute T5ynth, provided that d
 
 ### Third-Party Components
 
-- **Stable Audio Open 1.0** — [Stability AI Community License](https://stability.ai/community-license-agreement). The model is not included in this repository. Users download it separately and must accept its license. Powered by Stability AI.
+- **Stable Audio Open 1.0 / Stable Audio Open Small** — [Stability AI Community License](https://stability.ai/community-license-agreement). The models are not included in this repository. Users download them separately and must accept their license. Powered by Stability AI.
 - **AudioLDM2** — [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). Non-commercial use only. Not included; users download separately.
 - **JUCE Framework** — AGPLv3 (vendored in `JUCE/`)
 - See [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt) for full details.
@@ -287,9 +349,12 @@ This means you are free to use, modify, and redistribute T5ynth, provided that d
 
 If you use T5ynth in academic work:
 
-```
+```text
 Prof. Dr. Benjamin Jörissen / AI4ArtsEd — UCDCAE AI Lab
 https://github.com/joeriben/t5ynth
 ```
 
----
+### Documentation Note
+
+Parts of the early project text and user manual were drafted with
+AI-assisted co-coding tools and edited by the human author.
