@@ -1,3 +1,5 @@
+**T5ynth runs on macOS, Windows and Linux.** macOS and Windows ship with installers (Standalone + VST3 plugin; macOS also Audio Unit). Linux is available via source build.
+
 ## Installation
 
 ### macOS
