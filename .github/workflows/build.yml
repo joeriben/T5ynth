@@ -146,8 +146,9 @@ jobs:
           chmod 600 "$KEY_PATH"
           echo "MACOS_NOTARY_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
 
-      # macOS releases are installer-only for now; just create the output dir
-      # before building the .pkg.
+      # The .pkg now bundles Standalone + VST3 + AU, all signed with the
+      # same Developer ID Application identity. Plugins piggy-back on the
+      # Standalone for the Python inference backend.
       - name: Prepare macOS release staging
         run: |
           mkdir -p archives
@@ -168,6 +169,8 @@ jobs:
           installer/macos/build_pkg.sh \
             --app   build/T5ynth_artefacts/Release/Standalone/T5ynth.app \
             --presets resources/presets \
+            --vst3  build/T5ynth_artefacts/Release/VST3/T5ynth.vst3 \
+            --au    build/T5ynth_artefacts/Release/AU/T5ynth.component \
             --version "${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '0.0.0-alpha.0' }}" \
             --output archives/T5ynth-macOS-Installer.pkg
 

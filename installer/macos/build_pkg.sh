@@ -4,16 +4,23 @@ set -euo pipefail
 # ── T5ynth macOS .pkg Installer Builder ──────────────────────────────
 # Usage: build_pkg.sh --app <path> --presets <dir>
 #                     --version <ver> --output <pkg>
+#                     [--vst3 <T5ynth.vst3>] [--au <T5ynth.component>]
 #                     [--sign-app-identity <identity>]
 #                     [--sign-pkg-identity <identity>]
 #                     [--notary-keychain-profile <profile>]
 #                     [--notary-apple-id <apple-id> --notary-password <password> --notary-team-id <team-id>]
 #                     [--notary-api-key-path <p8> --notary-api-key-id <id> --notary-api-issuer <issuer>]
+#
+# VST3 and AU components are optional — when omitted, the installer is
+# Standalone-only (legacy behaviour). When provided, they install to
+# /Library/Audio/Plug-Ins/{VST3,Components} and piggy-back on the
+# Standalone's bundled Python backend (see MainPanel::startBackend).
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ── Parse arguments ──────────────────────────────────────────────────
 APP="" PRESETS="" VERSION="0.3.0" OUTPUT="T5ynth-macOS-Installer.pkg"
+VST3="" AU=""
 APP_SIGN_IDENTITY="${MACOS_APP_SIGN_IDENTITY:-}"
 PKG_SIGN_IDENTITY="${MACOS_PKG_SIGN_IDENTITY:-${MACOS_INSTALLER_SIGN_IDENTITY:-}}"
 NOTARY_KEYCHAIN_PROFILE="${MACOS_NOTARY_KEYCHAIN_PROFILE:-}"
@@ -28,6 +35,8 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --app)     APP="$2";     shift 2 ;;
         --presets) PRESETS="$2";  shift 2 ;;
+        --vst3)    VST3="$2";    shift 2 ;;
+        --au)      AU="$2";      shift 2 ;;
         --version) VERSION="$2"; shift 2 ;;
         --output)  OUTPUT="$2";  shift 2 ;;
         --sign-app-identity) APP_SIGN_IDENTITY="$2"; shift 2 ;;
@@ -118,6 +127,14 @@ done
 
 [[ -d "$APP" ]] || die "app bundle not found: $APP"
 [[ -d "$PRESETS" ]] || die "presets directory not found: $PRESETS"
+if [[ -n "$VST3" ]]; then
+    [[ -d "$VST3" ]] || die "VST3 plugin not found: $VST3"
+    [[ "$(basename "$VST3")" == *.vst3 ]] || die "VST3 path must be a .vst3 bundle: $VST3"
+fi
+if [[ -n "$AU" ]]; then
+    [[ -d "$AU" ]] || die "AU plugin not found: $AU"
+    [[ "$(basename "$AU")" == *.component ]] || die "AU path must be a .component bundle: $AU"
+fi
 
 # ── Temp workspace ───────────────────────────────────────────────────
 WORK="$(mktemp -d)"
@@ -196,6 +213,62 @@ pkgbuild \
     --scripts "$SCRIPT_DIR/scripts" \
     "$WORK/support-data.pkg"
 
+# ── Stage: VST3 plugin (optional) ────────────────────────────────────
+if [[ -n "$VST3" ]]; then
+    echo "  Staging VST3 plugin..."
+    STAGE_VST3="$WORK/stage-vst3"
+    mkdir -p "$STAGE_VST3"
+    cp -R "$VST3" "$STAGE_VST3/"
+    STAGED_VST3="$STAGE_VST3/$(basename "$VST3")"
+
+    if [[ -n "$APP_SIGN_IDENTITY" ]]; then
+        echo "  Signing VST3 plugin with Developer ID..."
+        codesign \
+            --force \
+            --deep \
+            --timestamp \
+            --options runtime \
+            --sign "$APP_SIGN_IDENTITY" \
+            "$STAGED_VST3"
+        codesign --verify --deep --strict "$STAGED_VST3"
+    fi
+
+    pkgbuild \
+        --root "$STAGE_VST3" \
+        --identifier org.ai4artsed.t5ynth.vst3 \
+        --version "$PACKAGE_VERSION" \
+        --install-location "/Library/Audio/Plug-Ins/VST3" \
+        "$WORK/vst3.pkg"
+fi
+
+# ── Stage: Audio Unit plugin (optional) ──────────────────────────────
+if [[ -n "$AU" ]]; then
+    echo "  Staging AU plugin..."
+    STAGE_AU="$WORK/stage-au"
+    mkdir -p "$STAGE_AU"
+    cp -R "$AU" "$STAGE_AU/"
+    STAGED_AU="$STAGE_AU/$(basename "$AU")"
+
+    if [[ -n "$APP_SIGN_IDENTITY" ]]; then
+        echo "  Signing AU plugin with Developer ID..."
+        codesign \
+            --force \
+            --deep \
+            --timestamp \
+            --options runtime \
+            --sign "$APP_SIGN_IDENTITY" \
+            "$STAGED_AU"
+        codesign --verify --deep --strict "$STAGED_AU"
+    fi
+
+    pkgbuild \
+        --root "$STAGE_AU" \
+        --identifier org.ai4artsed.t5ynth.au \
+        --version "$PACKAGE_VERSION" \
+        --install-location "/Library/Audio/Plug-Ins/Components" \
+        "$WORK/au.pkg"
+fi
+
 # ── Copy resources for the product installer ─────────────────────────
 RESOURCES="$WORK/resources"
 mkdir -p "$RESOURCES"
@@ -206,9 +279,72 @@ fi
 # ── Build product archive ────────────────────────────────────────────
 echo "  Building product installer..."
 
-# Inject version into distribution.xml pkg-ref elements
-sed "s/version=\"0\"/version=\"${PACKAGE_VERSION}\"/g" \
-    "$SCRIPT_DIR/distribution.xml" > "$WORK/distribution.xml"
+# Generate distribution.xml dynamically so the choices-outline + pkg-ref
+# lists reflect exactly which components were staged. Standalone and
+# support-data are always present; VST3 and AU are appended only when
+# the corresponding bundles were passed in.
+DIST_XML="$WORK/distribution.xml"
+EXTRA_OUTLINE=""
+EXTRA_CHOICES=""
+EXTRA_PKG_REFS=""
+
+if [[ -n "$VST3" ]]; then
+    EXTRA_OUTLINE+="        <line choice=\"vst3\"/>"$'\n'
+    EXTRA_CHOICES+="    <choice id=\"vst3\" title=\"VST3 Plugin\"
+            description=\"T5ynth VST3 plugin (loads in any DAW that supports VST3). Requires the Standalone for the bundled inference backend.\"
+            start_selected=\"true\">
+        <pkg-ref id=\"org.ai4artsed.t5ynth.vst3\"/>
+    </choice>
+
+"
+    EXTRA_PKG_REFS+="    <pkg-ref id=\"org.ai4artsed.t5ynth.vst3\" version=\"$PACKAGE_VERSION\" onConclusion=\"none\">vst3.pkg</pkg-ref>"$'\n'
+fi
+
+if [[ -n "$AU" ]]; then
+    EXTRA_OUTLINE+="        <line choice=\"au\"/>"$'\n'
+    EXTRA_CHOICES+="    <choice id=\"au\" title=\"Audio Unit Plugin\"
+            description=\"T5ynth Audio Unit (AU) plugin (loads in Logic Pro, GarageBand, etc.). Requires the Standalone for the bundled inference backend.\"
+            start_selected=\"true\">
+        <pkg-ref id=\"org.ai4artsed.t5ynth.au\"/>
+    </choice>
+
+"
+    EXTRA_PKG_REFS+="    <pkg-ref id=\"org.ai4artsed.t5ynth.au\" version=\"$PACKAGE_VERSION\" onConclusion=\"none\">au.pkg</pkg-ref>"$'\n'
+fi
+
+cat > "$DIST_XML" <<EOF
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>T5ynth</title>
+    <license file="LICENSE.txt"/>
+    <options customize="allow" require-scripts="false" hostArchitectures="arm64,x86_64"/>
+    <domains enable_anywhere="true" enable_currentUserHome="false" enable_localSystem="true"/>
+
+    <choices-outline>
+        <line choice="standalone"/>
+        <line choice="support-data"/>
+${EXTRA_OUTLINE}    </choices-outline>
+
+    <choice id="standalone" title="T5ynth App"
+            description="The T5ynth macOS app (required)."
+            customLocation="/Applications"
+            customLocationAllowAlternateVolumes="true"
+            start_selected="true" enabled="false">
+        <pkg-ref id="org.ai4artsed.t5ynth.standalone"/>
+    </choice>
+
+    <choice id="support-data" title="Factory Presets &amp; Support Data"
+            description="Factory presets and model storage directory."
+            customLocation="/Library/Application Support/T5ynth"
+            customLocationAllowAlternateVolumes="true"
+            start_selected="true" enabled="false">
+        <pkg-ref id="org.ai4artsed.t5ynth.support-data"/>
+    </choice>
+
+${EXTRA_CHOICES}    <pkg-ref id="org.ai4artsed.t5ynth.standalone" version="$PACKAGE_VERSION" onConclusion="none">standalone.pkg</pkg-ref>
+    <pkg-ref id="org.ai4artsed.t5ynth.support-data" version="$PACKAGE_VERSION" onConclusion="none">support-data.pkg</pkg-ref>
+${EXTRA_PKG_REFS}</installer-gui-script>
+EOF
 
 mkdir -p "$(dirname "$OUTPUT")"
 UNSIGNED_PRODUCT="$WORK/T5ynth-macOS-Installer-unsigned.pkg"
