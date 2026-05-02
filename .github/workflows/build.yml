@@ -55,7 +55,12 @@ jobs:
           fi
 
       - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DT5YNTH_MACOS_STANDALONE_ONLY=ON
+        # Build all three plugin formats — Standalone, VST3 and AU — so the
+        # .pkg builder downstream can stage every component. The legacy
+        # T5YNTH_MACOS_STANDALONE_ONLY=ON flag dates back to when the
+        # installer only shipped the Standalone; v1.7.1-beta.2 onward
+        # bundles VST3 + AU as well.
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build --config Release -j$(sysctl -n hw.ncpu)
