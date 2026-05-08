@@ -2630,6 +2630,57 @@ void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& proce
     }
 }
 
+void T5ynthProcessor::setInferenceCacheCapacity(int capacity)
+{
+    static constexpr int kAllowed[] = { 0, 2, 4, 8, 16, 32, 64, 128 };
+    int sanitized = 0;
+    for (int allowed : kAllowed)
+        if (capacity == allowed)
+            sanitized = allowed;
+
+    if (sanitized == inferenceCacheCapacity)
+        return;
+
+    inferenceCacheCapacity = sanitized;
+    clearInferenceCache();
+}
+
+void T5ynthProcessor::clearInferenceCache()
+{
+    inferenceCacheEntries.clear();
+    inferenceCachePlaybackIndex = 0;
+}
+
+bool T5ynthProcessor::addInferenceCacheEntry(const juce::AudioBuffer<float>& buffer, double sampleRate)
+{
+    if (inferenceCacheCapacity <= 0
+        || static_cast<int>(inferenceCacheEntries.size()) >= inferenceCacheCapacity
+        || buffer.getNumSamples() <= 0
+        || buffer.getNumChannels() <= 0)
+        return false;
+
+    InferenceCacheEntry entry;
+    entry.audio.makeCopyOf(buffer);
+    entry.sampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
+    inferenceCacheEntries.push_back(std::move(entry));
+    if (isInferenceCacheFull())
+        inferenceCachePlaybackIndex = 0;
+    return true;
+}
+
+bool T5ynthProcessor::playNextInferenceCacheEntry()
+{
+    if (!isInferenceCacheFull())
+        return false;
+
+    const int index = juce::jlimit(0, static_cast<int>(inferenceCacheEntries.size()) - 1,
+                                   inferenceCachePlaybackIndex);
+    const auto& entry = inferenceCacheEntries[static_cast<size_t>(index)];
+    inferenceCachePlaybackIndex = (index + 1) % static_cast<int>(inferenceCacheEntries.size());
+    loadGeneratedAudio(entry.audio, entry.sampleRate);
+    return true;
+}
+
 void T5ynthProcessor::reextractWavetable()
 {
     const juce::ScopedLock sl (getCallbackLock());

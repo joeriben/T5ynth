@@ -71,13 +71,17 @@ void MainPanel::GenerateButton::paintButton(juce::Graphics& g, bool highlighted,
         return;
 
     const bool active = isEnabled() || generating;
+    auto label = getButtonText().trim().isNotEmpty() ? getButtonText().trim() : juce::String("GENERATE");
     bounds = bounds.translated(0.0f, down ? 1.0f : 0.0f);
     const auto body = bounds.reduced(2.0f);
 
     static const juce::Colour palette[] = {
-        juce::Colour(0xff667eea), juce::Colour(0xffe91e63),
-        juce::Colour(0xff7C4DFF), juce::Colour(0xffFF6F00),
-        juce::Colour(0xff4CAF50), juce::Colour(0xff00BCD4)
+        juce::Colour(0xff667eea).interpolatedWith(kBg, 0.20f),
+        juce::Colour(0xffe91e63).interpolatedWith(kBg, 0.20f),
+        juce::Colour(0xff7C4DFF).interpolatedWith(kBg, 0.20f),
+        juce::Colour(0xffFF6F00).interpolatedWith(kBg, 0.20f),
+        juce::Colour(0xff4CAF50).interpolatedWith(kBg, 0.20f),
+        juce::Colour(0xff00BCD4).interpolatedWith(kBg, 0.20f)
     };
     static constexpr int numColours = static_cast<int>(sizeof(palette) / sizeof(palette[0]));
 
@@ -128,7 +132,7 @@ void MainPanel::GenerateButton::paintButton(juce::Graphics& g, bool highlighted,
     g.setFont(font);
     g.setColour(juce::Colours::white.withAlpha(letterAlpha));
     auto textArea = body.reduced(horizontalInset, 0.0f).toNearestInt();
-    g.drawFittedText("GENERATE", textArea,
+    g.drawFittedText(label, textArea,
                      juce::Justification::centred, 1, 0.5f);
 }
 
@@ -208,7 +212,8 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     presetManager.onImportRequested = [this] { importPresetFile(); };
     presetManager.onSaveRequested = [this](const juce::String& presetName,
                                            const juce::StringArray& tags,
-                                           const juce::String& bank)
+                                           const juce::String& bank,
+                                           bool includeInferenceCache)
     {
         // The drawer's Save button is the affirmative action — when the
         // chosen (bank, name) collides with an existing file, the button
@@ -225,7 +230,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         auto target = bankDir.getChildFile(presetName + ".t5p");
 
         processorRef.setLastTags(tags);
-        if (savePresetToFile(target))
+        if (savePresetToFile(target, includeInferenceCache))
         {
             presetManager.leaveSaveMode();
             hidePresetManager();
@@ -425,6 +430,41 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     };
     addAndMakeVisible(mainGenerateBtn);
 
+    {
+        static constexpr const char* labels[kNumInfCacheButtons] = {
+            "off", "2", "4", "8", "16", "32", "64", "128"
+        };
+        static constexpr int values[kNumInfCacheButtons] = {
+            0, 2, 4, 8, 16, 32, 64, 128
+        };
+        for (int i = 0; i < kNumInfCacheButtons; ++i)
+        {
+            auto& b = infCacheButtons[i];
+            b.setButtonText(labels[i]);
+            b.setColour(juce::TextButton::buttonColourId, kSurface);
+            b.setColour(juce::TextButton::buttonOnColourId, kOscCol);
+            b.setColour(juce::TextButton::textColourOffId, kDim);
+            b.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            b.setClickingTogglesState(true);
+            b.setRadioGroupId(3017);
+            int edges = 0;
+            if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+            if (i < kNumInfCacheButtons - 1) edges |= juce::Button::ConnectedOnRight;
+            b.setConnectedEdges(edges);
+            b.onClick = [this, value = values[i]]
+            {
+                processorRef.setInferenceCacheCapacity(value);
+                syncInferenceCacheUi();
+            };
+            addAndMakeVisible(b);
+        }
+    }
+    infCacheStatus.setColour(juce::Label::textColourId, kDim);
+    infCacheStatus.setJustificationType(juce::Justification::centred);
+    infCacheStatus.setInterceptsMouseClicks(false, false);
+    addAndMakeVisible(infCacheStatus);
+    syncInferenceCacheUi();
+
     // Wire axis values callback for drift auto-regen (offsets applied per slot)
     promptPanel.getAxisValuesCallback = [this](float o1, float o2, float o3) {
         return axesPanel.getAxisValuesWithOffsets(o1, o2, o3);
@@ -433,13 +473,14 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
 
 
     // Status callback — drive Generate animation and status bar text.
-    startTimerHz(30);  // 30fps glow animation
+    startTimerHz(20);  // lightweight glow animation + UI polling
 
     promptPanel.onStatusChanged = [this](const juce::String& text, bool isGenerating) {
         glowGenerating = isGenerating;
         mainGenerateBtn.setAnimationState(glowPhase, glowGenerating);
         if (isGenerating)
         {
+            cachedInferenceLabelUntilSec = 0.0;
             mainGenerateBtn.setButtonText("GENERATE");
             mainGenerateBtn.setEnabled(false);
             dimApplyBtn.setButtonText("generating...");
@@ -447,12 +488,23 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         }
         else
         {
-            mainGenerateBtn.setButtonText("GENERATE");
+            if (text.startsWithIgnoreCase("Cached inference"))
+            {
+                mainGenerateBtn.setButtonText("CACHED INFERENCE");
+                cachedInferenceLabelUntilSec =
+                    juce::Time::getMillisecondCounterHiRes() * 0.001 + 0.85;
+            }
+            else
+            {
+                mainGenerateBtn.setButtonText("GENERATE");
+                cachedInferenceLabelUntilSec = 0.0;
+            }
             mainGenerateBtn.setEnabled(true);
             dimApplyBtn.setButtonText("Apply + Generate");
             dimApplyBtn.setEnabled(true);
         }
         statusBar.setStatusText(text);
+        syncInferenceCacheUi();
     };
 
     // Scrim (click outside DimExplorer overlay to close)
@@ -617,6 +669,7 @@ void MainPanel::enterLibrarySaveMode(SaveNameMode mode)
     prefill.existingPathKeys = std::move(existingPathKeys);
     prefill.promptA          = promptPanel.getPromptA();
     prefill.promptB          = promptPanel.getPromptB();
+    prefill.canIncludeInferenceCache = processorRef.isInferenceCacheFull();
 
     showPresetManager();
     presetManager.enterSaveMode(std::move(prefill));
@@ -835,6 +888,15 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
         processorRef.setLastPrompts(result.promptA, result.promptB);
     }
 
+    processorRef.setInferenceCacheCapacity(0);
+    if (!result.inferenceCache.empty())
+    {
+        processorRef.setInferenceCacheCapacity(static_cast<int>(result.inferenceCache.size()));
+        for (const auto& entry : result.inferenceCache)
+            processorRef.addInferenceCacheEntry(entry.audio, entry.sampleRate);
+    }
+    syncInferenceCacheUi();
+
     if (!result.embeddingA.empty())
     {
         processorRef.setLastEmbeddings(result.embeddingA, result.embeddingB);
@@ -867,14 +929,14 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
     presetManager.setCurrentPreset(currentPresetFile, result.presetName);
 }
 
-bool MainPanel::savePresetToFile(const juce::File& file)
+bool MainPanel::savePresetToFile(const juce::File& file, bool includeInferenceCache)
 {
     syncGuiStateForPresetSave();
 
     auto target = file.withFileExtension("t5p");
     processorRef.setLastPresetName(target.getFileNameWithoutExtension());
 
-    if (!PresetFormat::saveToFile(target, processorRef))
+    if (!PresetFormat::saveToFile(target, processorRef, includeInferenceCache))
     {
         statusBar.setStatusText("Preset save failed");
         return false;
@@ -1275,6 +1337,38 @@ void MainPanel::paint(juce::Graphics& g)
     }
 }
 
+void MainPanel::syncInferenceCacheUi()
+{
+    const int capacity = processorRef.getInferenceCacheCapacity();
+    const int fill = processorRef.getInferenceCacheFillCount();
+    const bool full = processorRef.isInferenceCacheFull();
+    if (capacity == lastInfCacheUiCapacity
+        && fill == lastInfCacheUiFill
+        && full == lastInfCacheUiFull)
+        return;
+
+    lastInfCacheUiCapacity = capacity;
+    lastInfCacheUiFill = fill;
+    lastInfCacheUiFull = full;
+
+    static constexpr int values[kNumInfCacheButtons] = { 0, 2, 4, 8, 16, 32, 64, 128 };
+
+    for (int i = 0; i < kNumInfCacheButtons; ++i)
+        infCacheButtons[i].setToggleState(capacity == values[i], juce::dontSendNotification);
+
+    if (capacity <= 0)
+    {
+        infCacheStatus.setText({}, juce::dontSendNotification);
+        return;
+    }
+
+    infCacheStatus.setColour(juce::Label::textColourId, full ? kOscCol : kDim);
+    infCacheStatus.setText(full
+                               ? ("InfCache full " + juce::String(fill) + "/" + juce::String(capacity))
+                               : ("InfCache " + juce::String(fill) + "/" + juce::String(capacity)),
+                           juce::dontSendNotification);
+}
+
 void MainPanel::timerCallback()
 {
     const bool isAuto = processorRef.driftRegenMode.load() != 0;
@@ -1297,7 +1391,13 @@ void MainPanel::timerCallback()
         glowPhase -= juce::MathConstants<float>::twoPi;
 
     mainGenerateBtn.setAnimationState(glowPhase, glowGenerating);
-    repaint(mainGenerateBtn.getBounds().expanded(20));
+    if (!glowGenerating && cachedInferenceLabelUntilSec > 0.0
+        && nowSec >= cachedInferenceLabelUntilSec)
+    {
+        cachedInferenceLabelUntilSec = 0.0;
+        mainGenerateBtn.setButtonText("GENERATE");
+    }
+    syncInferenceCacheUi();
 
     // Poll drift ghost offsets for AxesPanel (30Hz)
     auto& mv = processorRef.modulatedValues;
@@ -1413,15 +1513,32 @@ void MainPanel::resized()
         dimensionExplorer.setBounds(genCol.removeFromTop(dimH));
     genCol.removeFromTop(kGap);
 
-    // Generate button gets all the slack freed by the explorer cap, centered
-    // in the remaining card area so it has vertical padding above and below.
+    // Generate + InfCache controls get all slack freed by the explorer cap,
+    // centered in the remaining card area so the controls have breathing room.
     int remainH = genCol.getHeight();
-    genBtnH = juce::jmin(genBtnH, juce::jmax(44, remainH));
-    int genBtnY = genCol.getY() + juce::jmax(0, (remainH - genBtnH) / 2);
+    const int cacheRowH = juce::jlimit(18, 24, juce::roundToInt(h * 0.024f));
+    const int cacheStatusH = juce::jlimit(12, 17, juce::roundToInt(h * 0.017f));
+    const int cacheBlockH = cacheRowH + cacheStatusH + kGap;
+    genBtnH = juce::jmin(genBtnH, juce::jmax(44, remainH - cacheBlockH));
+    const int controlsH = genBtnH + kGap + cacheRowH + cacheStatusH;
+    int genBtnY = genCol.getY() + juce::jmax(0, (remainH - controlsH) / 2);
     auto genBtnArea = juce::Rectangle<int>(genCol.getX(), genBtnY, genCol.getWidth(), genBtnH);
-    int genW = juce::roundToInt(genBtnArea.getWidth() * 0.66f);
+    int genW = juce::roundToInt(static_cast<float>(genBtnArea.getWidth()) * 0.66f);
     int genX = genBtnArea.getX() + (genBtnArea.getWidth() - genW) / 2;
     mainGenerateBtn.setBounds(genX, genBtnArea.getY(), genW, genBtnArea.getHeight());
+    auto cacheRow = juce::Rectangle<int>(genCol.getX(), mainGenerateBtn.getBottom() + kGap,
+                                         genCol.getWidth(), cacheRowH).reduced(2, 0);
+    const int cellW = cacheRow.getWidth() / kNumInfCacheButtons;
+    for (int i = 0; i < kNumInfCacheButtons; ++i)
+    {
+        auto cell = (i == kNumInfCacheButtons - 1)
+            ? cacheRow
+            : cacheRow.removeFromLeft(cellW);
+        infCacheButtons[i].setBounds(cell);
+    }
+    infCacheStatus.setFont(juce::FontOptions(juce::jmax(9.5f, static_cast<float>(cacheStatusH) * 0.72f)));
+    infCacheStatus.setBounds(genCol.getX(), infCacheButtons[0].getBottom(),
+                             genCol.getWidth(), cacheStatusH);
 
     // Col 2: ENGINE
     synthPanel.setBounds(b);

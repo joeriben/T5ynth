@@ -76,6 +76,7 @@ public:
         std::set<juce::String> existingPathKeys;   // lowercased "bank/name.t5p"
         juce::String           promptA;
         juce::String           promptB;
+        bool                   canIncludeInferenceCache = false;
     };
 
     PresetManagerPanel()
@@ -152,7 +153,8 @@ public:
             if (! onSaveRequested) return;
             const auto name = saveDrawer.getName();
             if (name.isEmpty()) return;
-            onSaveRequested(name, saveDrawer.getTags(), saveDrawer.getBank());
+            onSaveRequested(name, saveDrawer.getTags(), saveDrawer.getBank(),
+                            saveDrawer.getIncludeInferenceCache());
         };
         // Cancel from the Save-Drawer dismisses the entire overlay rather
         // than dropping the user into Browse mode — the user came for a
@@ -328,7 +330,8 @@ public:
                              std::move(prefill.existingPathKeys),
                              sidebar.getTagVocabulary(),
                              prefill.promptA,
-                             prefill.promptB);
+                             prefill.promptB,
+                             prefill.canIncludeInferenceCache);
         saveDrawer.setVisible(true);
         detail.setDragSourceEnabled(true);
         resized();
@@ -363,7 +366,8 @@ public:
     std::function<void(const juce::File&, const juce::StringArray&)>    onTagsChanged;
     std::function<void(const juce::String& name,
                        const juce::StringArray& tags,
-                       const juce::String& bank)>                       onSaveRequested;
+                       const juce::String& bank,
+                       bool includeInferenceCache)>                      onSaveRequested;
 
 private:
     // ─── Helpers ─────────────────────────────────────────────────────────
@@ -1355,6 +1359,12 @@ private:
             bankBox.onChange = [this] { refreshConflictUi(); };
             addAndMakeVisible(bankBox);
 
+            includeCacheToggle.setButtonText("include Inference-Cache");
+            includeCacheToggle.setColour(juce::ToggleButton::textColourId, kDim);
+            includeCacheToggle.setColour(juce::ToggleButton::tickColourId, kOscCol);
+            includeCacheToggle.setVisible(false);
+            addAndMakeVisible(includeCacheToggle);
+
             configureLabel(tagsLabel);
             tagsLabel.setText("Tags", juce::dontSendNotification);
             addAndMakeVisible(tagsLabel);
@@ -1410,11 +1420,16 @@ private:
                        std::set<juce::String> pathKeys,
                        const std::vector<juce::String>& vocabulary,
                        const juce::String& promptAIn,
-                       const juce::String& promptBIn)
+                       const juce::String& promptBIn,
+                       bool canIncludeInferenceCacheIn)
         {
             tagVocabulary = vocabulary;
             promptA       = promptAIn;
             promptB       = promptBIn;
+            includeCacheAvailable = canIncludeInferenceCacheIn;
+            includeCacheToggle.setToggleState(false, juce::dontSendNotification);
+            includeCacheToggle.setVisible(includeCacheAvailable);
+            includeCacheToggle.setEnabled(includeCacheAvailable);
             tags          = suggestedTags;
             tags.trim();
             tags.removeEmptyStrings();
@@ -1456,6 +1471,10 @@ private:
             return juce::File::createLegalFileName(nameEdit.getText().trim());
         }
         juce::StringArray getTags() const { return tags; }
+        bool getIncludeInferenceCache() const
+        {
+            return includeCacheAvailable && includeCacheToggle.getToggleState();
+        }
         juce::String getBank() const
         {
             const auto raw = bankBox.getText().trim();
@@ -1609,6 +1628,12 @@ private:
             bankLabel.setBounds(row2.removeFromLeft(54));
             bankBox.setBounds(row2);
             area.removeFromTop(6);
+
+            if (includeCacheToggle.isVisible())
+            {
+                includeCacheToggle.setBounds(area.removeFromTop(22).withTrimmedLeft(54));
+                area.removeFromTop(4);
+            }
 
             // Action strip pinned to the bottom right.
             auto strip = area.removeFromBottom(30);
@@ -1800,6 +1825,7 @@ private:
         juce::Label      nameLabel, bankLabel, tagsLabel, warningLabel;
         juce::TextEditor nameEdit, tagInput;
         juce::ComboBox   bankBox;
+        juce::ToggleButton includeCacheToggle;
         juce::TextButton saveBtn   { "Save Preset" };
         juce::TextButton cancelBtn { "Cancel" };
         juce::TextButton copyBtn;
@@ -1807,6 +1833,7 @@ private:
         std::set<juce::String>    existingPathKeys;
         std::vector<juce::String> tagVocabulary;
         juce::String              promptA, promptB;
+        bool                      includeCacheAvailable = false;
 
         struct ChipRect { juce::Rectangle<int> bounds; int index; };
         std::vector<ChipRect> chipRects;        // active tags (× to remove)

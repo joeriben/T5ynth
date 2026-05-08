@@ -53,6 +53,23 @@ public:
     /** Reload already-processed audio into sampler (no Rumble/HF/Normalize). */
     void reloadProcessedAudio(const juce::AudioBuffer<float>& processed);
 
+    // Inference cache: raw inference audio only, no duplicate prompt/model metadata.
+    struct InferenceCacheEntry
+    {
+        juce::AudioBuffer<float> audio;
+        double sampleRate = 44100.0;
+    };
+    void setInferenceCacheCapacity(int capacity);
+    void clearInferenceCache();
+    bool addInferenceCacheEntry(const juce::AudioBuffer<float>& buffer, double sampleRate);
+    bool playNextInferenceCacheEntry();
+    bool isInferenceCacheActive() const { return inferenceCacheCapacity > 0; }
+    bool isInferenceCacheFull() const { return inferenceCacheCapacity > 0
+                                             && static_cast<int>(inferenceCacheEntries.size()) >= inferenceCacheCapacity; }
+    int getInferenceCacheCapacity() const { return inferenceCacheCapacity; }
+    int getInferenceCacheFillCount() const { return static_cast<int>(inferenceCacheEntries.size()); }
+    const std::vector<InferenceCacheEntry>& getInferenceCacheEntries() const { return inferenceCacheEntries; }
+
     // Inference (Python subprocess)
     bool isInferenceReady() const { return pipeInference->isReady(); }
     PipeInference& getPipeInference() { return *pipeInference; }
@@ -218,6 +235,9 @@ private:
     juce::AudioBuffer<float> generatedAudioFull;  // boosted buffer for engines + display
     juce::AudioBuffer<float> generatedAudioRaw;   // raw VAE output (for re-apply on toggle)
     double generatedSampleRate = 44100.0;
+    int inferenceCacheCapacity = 0;
+    int inferenceCachePlaybackIndex = 0;
+    std::vector<InferenceCacheEntry> inferenceCacheEntries;
 
     /** Two-band high shelf to compensate VAE decoder HF rolloff. */
     static void applyHfBoost(juce::AudioBuffer<float>& buffer, double sampleRate);

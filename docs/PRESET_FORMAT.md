@@ -78,13 +78,15 @@ system, no TOC, and no checksums. See
 offset  width  field
 ------  -----  -----------------------------------------------------
   0     4      Magic bytes: ASCII "T5YN" (0x54 0x35 0x59 0x4E)
-  4     4      Version, uint32 little-endian (currently 2)
+  4     4      Version, uint32 little-endian (currently 3)
   8     4      JSON payload length in bytes, uint32 little-endian
  12     N      JSON payload (UTF-8, not NUL-terminated)
- 12+N   M      Interleaved float32 PCM, rest of file (may be empty)
+ 12+N   M      Primary interleaved float32 PCM (may be empty)
+ 12+N+M K      Optional inference-cache PCM tail (only when described by JSON)
 ```
 
-Total file size = `12 + N + M` bytes. There is no trailer.
+Total file size = `12 + N + M + K` bytes. `K` is zero unless the JSON
+contains an `inferenceCache` object.
 
 ### 2.1 Magic and version
 
@@ -92,16 +94,15 @@ The magic bytes are defined at `src/presets/PresetFormat.h:63`:
 
 ```cpp
 static constexpr char kMagic[4] = { 'T', '5', 'Y', 'N' };
-static constexpr uint32_t kVersion = 2;
+static constexpr uint32_t kVersion = 3;
 ```
 
-The version is currently `2`, written via `out.writeInt(...)` at
+The version is currently `3`, written via `out.writeInt(...)` at
 `src/presets/PresetFormat.cpp:80`. In JUCE, `FileOutputStream::writeInt`
 writes a **little-endian int32**. Despite the field being typed
 `uint32_t` in the header, the writer casts it to `int` before writing.
-Readers should treat the field as little-endian 32-bit. The reader at
-line 125 has a commented-out read of this field and currently does not
-dispatch on it — see section 8.
+Readers should treat the field as little-endian 32-bit. The reader
+enforces strict equality with `kVersion` — see section 8.
 
 ### 2.2 JSON length
 
@@ -126,9 +127,10 @@ practical concern.
 ### 2.4 Chunking
 
 There is no chunk framing. Section boundaries are implicit: header
-(12 bytes), then JSON (length-prefixed), then PCM (to EOF). A reader
-must parse the JSON to discover how many audio samples to expect — the
-audio length is not repeated in the binary framing.
+(12 bytes), then JSON (length-prefixed), then primary PCM, then optional
+cache PCM. A reader must parse the JSON to discover how many primary
+audio samples to expect; if `inferenceCache` is present, its entry list
+describes the optional cache tail.
 
 ---
 
@@ -171,6 +173,7 @@ then patched at `src/presets/PresetFormat.cpp:18-66`:
 | `audio_meta`    | patch (t5p)   | `sampleRate`, `channels`, `numSamples` for the PCM tail (see 4). |
 | `embeddingA`    | patch (t5p)   | Array of floats, typically 768 entries (see 5). Omitted if not yet generated. |
 | `embeddingB`    | patch (t5p)   | As above. |
+| `inferenceCache`| patch (t5p, optional) | Metadata for an optional raw inference-cache tail appended after the primary PCM payload (see 4.4). |
 
 ### 3.2 The `synth` object
 
@@ -280,6 +283,33 @@ leaves `result.hasAudio == false` without erroring the load.
 
 A consumer must therefore always check `LoadResult::hasAudio` before
 using `LoadResult::audio`.
+
+### 4.4 Optional inference-cache tail
+
+When the Inference Cache is active, full, and the user explicitly
+enables **include Inference-Cache** in the Save drawer, the writer adds
+an `inferenceCache` JSON object and appends additional raw float32 PCM
+buffers after the primary audio payload.
+
+```json
+"inferenceCache": {
+    "capacity": 16,
+    "entries": [
+        { "sampleRate": 44100.0, "channels": 2, "numSamples": 132300 }
+    ]
+}
+```
+
+The cache stores raw inference audio only. It does not duplicate prompt,
+seed, model, device, embedding, or drift state per cache entry. Each
+entry's PCM layout is identical to the primary audio payload: interleaved
+float32 with dimensions taken from that entry's metadata. Entries are
+laid out sequentially in the same order as the `entries` array.
+
+Older T5ynth readers that do not know `inferenceCache` still load the
+preset's primary audio, because they stop reading after
+`audio_meta.numSamples * channels * sizeof(float)` and ignore any extra
+tail bytes.
 
 ---
 
@@ -394,7 +424,7 @@ human-readable axis name unless it has an out-of-band mapping.
 The loader in `PresetFormat::loadFromFile`
 (`src/presets/PresetFormat.cpp:107`) can handle three formats:
 
-1. **Binary `T5YN` container** (current, version 2)
+1. **Binary `T5YN` container** (current, version 3)
 2. **Legacy plain JSON** (`.t5p` or `.json` containing a JSON object)
 3. **Legacy XML** (`.t5p` containing a raw APVTS dump)
 
@@ -455,7 +485,7 @@ will produce `success = false` without further diagnostics.
 
 ## 8. Versioning and Migration
 
-The header contains a version field (`kVersion = 2` at
+The header contains a version field (`kVersion = 3` at
 `src/presets/PresetFormat.h:64`). The reader at
 `src/presets/PresetFormat.cpp:125` enforces a strict equality check:
 
@@ -465,11 +495,12 @@ if (version != kVersion) { /* reject, return LoadResult{success=false} */ }
 ```
 
 **No migration logic exists.** Version 1 predates the `T5YN` magic
-(it was the plain JSON / XML branches). Version 2 is the current
-binary container. A future version 3 must either (a) add a branching
-dispatch in `loadFromFile` that handles both versions, or (b) bump
-`kVersion` and accept that older loaders will reject the new file
-cleanly rather than silently mis-interpret it.
+(it was the plain JSON / XML branches). Version 2 was the previous
+binary container; version 3 is the current binary container. A future
+version 4 must either (a) add a branching dispatch in `loadFromFile`
+that handles both versions, or (b) bump `kVersion` and accept that older
+loaders will reject the new file cleanly rather than silently
+mis-interpret it.
 
 Consequences:
 
@@ -662,11 +693,11 @@ JSON describing a single root object.
 ### 11.5 `version` field is validated by strict equality
 
 The reader at `src/presets/PresetFormat.cpp:125` enforces
-`version == kVersion` (currently 2). Any other value — including
-0, 99, 0xFFFFFFFF, or a future version 3 — is rejected with
+`version == kVersion` (currently 3). Any other value — including
+0, 99, 0xFFFFFFFF, or a future version 4 — is rejected with
 `LoadResult{success = false}`. This is intentional: there is no
 migration logic, so accepting an unknown version would silently
-mis-interpret the payload under the v2 schema.
+mis-interpret the payload under the v3 schema.
 
 The flip side is that a hypothetical v1 binary writer (none exists
 in practice) would also be rejected. Version 1 was never used with

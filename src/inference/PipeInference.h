@@ -76,6 +76,7 @@ public:
     {
         bool success = false;
         juce::AudioBuffer<float> audio;
+        double sampleRate = 44100.0;
         float generationTimeMs = 0.0f;
         int seed = -1;
         juce::String errorMessage;

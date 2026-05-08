@@ -878,6 +878,7 @@ PipeInference::Result PipeInference::generate(const Request& request)
     }
 
     result.success = true;
+    result.sampleRate = header.sampleRate > 0 ? static_cast<double>(header.sampleRate) : 44100.0;
     result.seed = header.seed;
     result.generationTimeMs = header.timeMs;
 

@@ -47,10 +47,18 @@ private:
     PromptPanel promptPanel;
     AxesPanel axesPanel;
     GenerateButton mainGenerateBtn { "GENERATE" };
+    static constexpr int kNumInfCacheButtons = 8;
+    juce::TextButton infCacheButtons[kNumInfCacheButtons];
+    juce::Label infCacheStatus;
+    int lastInfCacheUiCapacity = -1;
+    int lastInfCacheUiFill = -1;
+    bool lastInfCacheUiFull = false;
     float glowPhase = 0.0f;
     double glowLastTimeSec = 0.0;
     bool glowGenerating = false;
+    double cachedInferenceLabelUntilSec = 0.0;
     void timerCallback() override;
+    void syncInferenceCacheUi();
 
     // Col 2: ENGINE + FILTER + MODULATION
     SynthPanel synthPanel;
@@ -95,7 +103,7 @@ private:
     void loadDefaultPreset();
     void loadInitPreset();
     void ensureBundledPresetsExist();
-    bool savePresetToFile(const juce::File& file);
+    bool savePresetToFile(const juce::File& file, bool includeInferenceCache = false);
     bool loadPresetFromFile(const juce::File& file);
     void applyLoadedPreset(const PresetFormat::LoadResult& result, const juce::File& sourceFile = {});
     void syncGuiStateForPresetSave();

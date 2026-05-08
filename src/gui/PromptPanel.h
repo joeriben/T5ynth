@@ -72,6 +72,7 @@ public:
 private:
     void timerCallback() override;
     void triggerGeneration();
+    bool playNextCachedInference();
     void syncSeedEditorEnabledState();
     void syncSeedEditorFont(float size);
     void syncSeedEditorDisplay(int seed, bool force = false);

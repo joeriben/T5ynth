@@ -14,7 +14,8 @@ class T5ynthProcessor;
  *   [4B] Version (uint32 LE, currently 3)
  *   [4B] JSON length (uint32 LE)
  *   [NB] JSON (params + meta + embeddings)
- *   [MB] Raw float32 interleaved stereo PCM (rest of file)
+ *   [MB] Primary raw float32 interleaved stereo PCM
+ *   [KB] Optional inference-cache PCM tail, described by JSON inferenceCache
  *
  * Format break v2 → v3: all choice-parameter JSON fields are now
  * serialized as stable snake_case keys drawn from BlockParams.h
@@ -43,6 +44,13 @@ public:
         double sampleRate = 44100.0;
         bool hasAudio = false;
 
+        struct InferenceCacheAudio
+        {
+            juce::AudioBuffer<float> audio;
+            double sampleRate = 44100.0;
+        };
+        std::vector<InferenceCacheAudio> inferenceCache;
+
         // Semantic axes (3 slots: dropdown selection + value)
         struct AxisState { int dropdownId = 1; float value = 0.0f; };
         std::array<AxisState, 3> axes;
@@ -66,7 +74,8 @@ public:
     };
 
     /** Save current state to a .t5p file with embedded audio. */
-    static bool saveToFile(const juce::File& file, T5ynthProcessor& processor);
+    static bool saveToFile(const juce::File& file, T5ynthProcessor& processor,
+                           bool includeInferenceCache = false);
 
     /** Load a preset from file. Returns full result with audio + metadata. */
     static LoadResult loadFromFile(const juce::File& file, T5ynthProcessor& processor);

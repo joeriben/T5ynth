@@ -40,7 +40,8 @@ juce::StringArray readTagsFromJson(const juce::var& parsed)
 // Save: T5YN header + JSON + raw float32 PCM
 // ═══════════════════════════════════════════════════════════════════
 
-bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor)
+bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor,
+                              bool includeInferenceCache)
 {
     // Build JSON (reuse existing export + add meta/embeddings)
     juce::String jsonBase = processor.exportJsonPreset();
@@ -124,6 +125,25 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
         root->setProperty("embeddingB", arrB);
     }
 
+    const bool writeInferenceCache = includeInferenceCache && processor.isInferenceCacheFull();
+    const auto& inferenceCacheEntries = processor.getInferenceCacheEntries();
+    if (writeInferenceCache)
+    {
+        juce::DynamicObject::Ptr cacheMeta = new juce::DynamicObject();
+        cacheMeta->setProperty("capacity", processor.getInferenceCacheCapacity());
+        juce::Array<juce::var> entries;
+        for (const auto& entry : inferenceCacheEntries)
+        {
+            juce::DynamicObject::Ptr e = new juce::DynamicObject();
+            e->setProperty("sampleRate", entry.sampleRate);
+            e->setProperty("channels", entry.audio.getNumChannels());
+            e->setProperty("numSamples", entry.audio.getNumSamples());
+            entries.add(e.get());
+        }
+        cacheMeta->setProperty("entries", entries);
+        root->setProperty("inferenceCache", cacheMeta.get());
+    }
+
     juce::String json = juce::JSON::toString(parsed, true);
     auto jsonData = json.toRawUTF8();
     uint32_t jsonLen = static_cast<uint32_t>(json.getNumBytesAsUTF8());
@@ -145,17 +165,33 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
     out.writeInt(static_cast<int>(jsonLen));
     out.write(jsonData, static_cast<size_t>(jsonLen));
 
+    auto writeInterleavedAudio = [&out](const juce::AudioBuffer<float>& buffer)
+    {
+        const int samples = buffer.getNumSamples();
+        const int channels = buffer.getNumChannels();
+        if (samples <= 0 || channels <= 0)
+            return;
+
+        // Interleave channels
+        std::vector<float> interleaved(static_cast<size_t>(samples * channels));
+        for (int s = 0; s < samples; ++s)
+        {
+            for (int c = 0; c < channels; ++c)
+                interleaved[static_cast<size_t>(s * channels + c)] = buffer.getSample(c, s);
+        }
+        out.write(interleaved.data(), interleaved.size() * sizeof(float));
+    };
+
     // Audio PCM (interleaved float32)
     if (numSamples > 0 && numChannels > 0)
     {
-        // Interleave channels
-        std::vector<float> interleaved(static_cast<size_t>(numSamples * numChannels));
-        for (int s = 0; s < numSamples; ++s)
-        {
-            for (int c = 0; c < numChannels; ++c)
-                interleaved[static_cast<size_t>(s * numChannels + c)] = audioBuf.getSample(c, s);
-        }
-        out.write(interleaved.data(), interleaved.size() * sizeof(float));
+        writeInterleavedAudio(audioBuf);
+    }
+
+    if (writeInferenceCache)
+    {
+        for (const auto& entry : inferenceCacheEntries)
+            writeInterleavedAudio(entry.audio);
     }
 
     out.flush();
@@ -267,6 +303,7 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
         }
 
         // Extract audio
+        size_t cacheOffset = 12 + static_cast<size_t>(jsonLen);
         if (auto* am = root->getProperty("audio_meta").getDynamicObject())
         {
             int numChannels = static_cast<int>(am->getProperty("channels"));
@@ -275,6 +312,8 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
 
             size_t audioOffset = 12 + static_cast<size_t>(jsonLen);
             size_t audioBytes = static_cast<size_t>(numSamples * numChannels) * sizeof(float);
+            if (numSamples > 0 && numChannels > 0)
+                cacheOffset = audioOffset + audioBytes;
 
             if (numSamples > 0 && numChannels > 0 && audioOffset + audioBytes <= size)
             {
@@ -284,6 +323,40 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
                     for (int c = 0; c < numChannels; ++c)
                         result.audio.setSample(c, s, pcm[s * numChannels + c]);
                 result.hasAudio = true;
+            }
+        }
+
+        // Optional raw inference-cache tail. Old readers ignore these bytes
+        // because the primary audio length is still governed by audio_meta.
+        if (auto* cacheMeta = root->getProperty("inferenceCache").getDynamicObject())
+        {
+            if (auto* entries = cacheMeta->getProperty("entries").getArray())
+            {
+                for (auto& ev : *entries)
+                {
+                    auto* em = ev.getDynamicObject();
+                    if (em == nullptr) { result.inferenceCache.clear(); break; }
+
+                    const int numChannels = static_cast<int>(em->getProperty("channels"));
+                    const int numSamples = static_cast<int>(em->getProperty("numSamples"));
+                    const double sr = static_cast<double>(em->getProperty("sampleRate"));
+                    const size_t audioBytes = static_cast<size_t>(numSamples * numChannels) * sizeof(float);
+                    if (numSamples <= 0 || numChannels <= 0 || cacheOffset + audioBytes > size)
+                    {
+                        result.inferenceCache.clear();
+                        break;
+                    }
+
+                    const auto* pcm = reinterpret_cast<const float*>(data + cacheOffset);
+                    LoadResult::InferenceCacheAudio cacheAudio;
+                    cacheAudio.sampleRate = sr > 0.0 ? sr : 44100.0;
+                    cacheAudio.audio.setSize(numChannels, numSamples);
+                    for (int s = 0; s < numSamples; ++s)
+                        for (int c = 0; c < numChannels; ++c)
+                            cacheAudio.audio.setSample(c, s, pcm[s * numChannels + c]);
+                    result.inferenceCache.push_back(std::move(cacheAudio));
+                    cacheOffset += audioBytes;
+                }
             }
         }
 

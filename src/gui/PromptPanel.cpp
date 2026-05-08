@@ -590,7 +590,7 @@ void PromptPanel::resized()
                              + juce::roundToInt(f * 1.2f);
 
         auto seedRow = controlRow.reduced(0, 1);
-        int toggleW = juce::jmax(juce::roundToInt(seedRow.getWidth() * 0.32f), minToggleW);
+        int toggleW = juce::jmax(juce::roundToInt(static_cast<float>(seedRow.getWidth()) * 0.32f), minToggleW);
         toggleW = juce::jmin(toggleW, seedRow.getWidth() / 2);
 
         randomSeedToggle.setBounds(seedRow.removeFromRight(toggleW));
@@ -980,9 +980,25 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
 // ──────────────────────────────────────────────────────────────────────────────
 // Manual generation (Generate button / Enter)
 // ──────────────────────────────────────────────────────────────────────────────
+bool PromptPanel::playNextCachedInference()
+{
+    if (!processorRef.playNextInferenceCacheEntry())
+        return false;
+
+    pendingOffsets_.clear();
+    if (onStatusChanged) onStatusChanged("Cached inference", false);
+    return true;
+}
+
 void PromptPanel::triggerGeneration()
 {
     if (generating) return;
+
+    if (processorRef.isInferenceCacheFull())
+    {
+        playNextCachedInference();
+        return;
+    }
 
     if (!processorRef.isInferenceReady())
     {
@@ -1013,8 +1029,8 @@ void PromptPanel::triggerGeneration()
     juce::Component::SafePointer<PromptPanel> safeThis(this);
     std::thread([safeThis, pipePtr, req, deviceForLabel, modelForLabel]()
     {
-        auto result = pipePtr->generate(req);
-        juce::MessageManager::callAsync([safeThis, result = std::move(result), req, deviceForLabel, modelForLabel]()
+        auto inferenceResult = pipePtr->generate(req);
+        juce::MessageManager::callAsync([safeThis, result = std::move(inferenceResult), req, deviceForLabel, modelForLabel]()
         {
             if (auto* self = safeThis.getComponent())
             {
@@ -1023,7 +1039,8 @@ void PromptPanel::triggerGeneration()
                 self->generateButton.setEnabled(true);
                 if (result.success)
                 {
-                    processor.loadGeneratedAudio(result.audio, 44100.0);
+                    processor.addInferenceCacheEntry(result.audio, result.sampleRate);
+                    processor.loadGeneratedAudio(result.audio, result.sampleRate);
                     processor.setLastDevice(deviceForLabel);
                     processor.setLastModel(modelForLabel);
                     processor.setLastSeed(result.seed);
@@ -1075,11 +1092,6 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                                             bool /*holdForBar*/)
 {
     if (generating) return;
-    if (!processorRef.isPipeInferenceReady()) return;
-
-    generating = true;
-    generateButton.setEnabled(false);
-    if (onStatusChanged) onStatusChanged("auto regen...", true);
 
     lastGenAlpha_ = effectiveAlpha;
     lastGenNoise_ = effectiveNoise;
@@ -1088,6 +1100,18 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
     lastGenLateMix_ = effectiveLateMix;
     lastGenSplitStart_ = effectiveSplitStart;
     lastGenSplitEnd_ = effectiveSplitEnd;
+
+    if (processorRef.isInferenceCacheFull())
+    {
+        playNextCachedInference();
+        return;
+    }
+
+    if (!processorRef.isPipeInferenceReady()) return;
+
+    generating = true;
+    generateButton.setEnabled(false);
+    if (onStatusChanged) onStatusChanged("auto regen...", true);
 
     auto req = buildInferenceRequest(effectiveAlpha, effectiveAxes, effectiveNoise, effectiveMagnitude,
                                      effectiveLateMix, effectiveSplitStart, effectiveSplitEnd);
@@ -1099,8 +1123,8 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
     juce::Component::SafePointer<PromptPanel> safeThis(this);
     std::thread([safeThis, pipePtr, req, deviceForLabel, modelForLabel]()
     {
-        auto result = pipePtr->generate(req);
-        juce::MessageManager::callAsync([safeThis, result = std::move(result), req, deviceForLabel, modelForLabel]()
+        auto inferenceResult = pipePtr->generate(req);
+        juce::MessageManager::callAsync([safeThis, result = std::move(inferenceResult), req, deviceForLabel, modelForLabel]()
         {
             if (auto* self = safeThis.getComponent())
             {
@@ -1112,14 +1136,15 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                     auto newAudio = result.audio;
                     float xfadeMs = processor.getValueTreeState()
                         .getRawParameterValue(PID::driftCrossfade)->load();
-                    int xfadeSamples = juce::roundToInt(xfadeMs * 0.001f * 44100.0f);
+                    int xfadeSamples = juce::roundToInt(xfadeMs * 0.001f * static_cast<float>(result.sampleRate));
                     if (xfadeSamples > 0)
                     {
                         const auto& oldRaw = processor.getGeneratedAudioRaw();
                         if (oldRaw.getNumSamples() > 0)
                             applyDriftCrossfade(newAudio, oldRaw, xfadeSamples);
                     }
-                    processor.loadGeneratedAudio(newAudio, 44100.0);
+                    processor.addInferenceCacheEntry(result.audio, result.sampleRate);
+                    processor.loadGeneratedAudio(newAudio, result.sampleRate);
                     auto promptA = self->promptAEditor.getText().trim();
                     auto promptB = self->promptBEditor.getText().trim();
                     processor.setLastDevice(deviceForLabel);
@@ -1166,11 +1191,16 @@ void PromptPanel::pollDriftRegen()
     int regenMode = processorRef.driftRegenMode.load(std::memory_order_relaxed);
     if (regenMode == 0) return; // Manual — no auto-regen
 
-    // Beat-based cooldown: modes 2-5 = max 1/4/8/16 beats
-    if (regenMode >= 2)
+    // Beat-based cooldown: modes 2-4 = max 1/4/16 beats. When the
+    // inference cache is full, Auto is throttled to the 1-beat cadence
+    // so cache playback cannot run at the GUI polling rate.
+    const bool fullCachePlayback = processorRef.isInferenceCacheFull();
+    if (regenMode >= 2 || (fullCachePlayback && regenMode == 1))
     {
         static constexpr int beatCounts[] = { 0, 0, 1, 4, 16 };
-        int beats = beatCounts[juce::jlimit(0, 4, regenMode)];
+        int beats = fullCachePlayback && regenMode == 1
+            ? 1
+            : beatCounts[juce::jlimit(0, 4, regenMode)];
         float bpm = processorRef.driftRegenBpm.load(std::memory_order_relaxed);
         double cooldownMs = (beats * 60000.0) / static_cast<double>(juce::jmax(1.0f, bpm));
         double now = juce::Time::getMillisecondCounterHiRes();
