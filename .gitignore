@@ -1,5 +1,6 @@
 /build/
 /build_clean/
+/build_ci_local_app/
 .cache/
 *.o
 *.so
