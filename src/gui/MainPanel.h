@@ -49,7 +49,59 @@ private:
     PromptPanel promptPanel;
     AxesPanel axesPanel;
     GenerateButton mainGenerateBtn { "GENERATE" };
+    juce::Label snapLabel, cacheLabel;
     static constexpr int kNumInfCacheButtons = 8;
+    static constexpr int kNumSnapshotButtons = 3;
+
+    struct MainSnapshot
+    {
+        bool valid = false;
+        juce::AudioBuffer<float> audio;
+        double sampleRate = 44100.0;
+        juce::ValueTree parameters;
+        juce::String promptA, promptB, device, model, injectionMode;
+        std::array<AxesPanel::SlotState, 3> axes;
+        std::vector<float> embeddingA, embeddingB;
+        std::vector<std::pair<int, float>> dimensionOffsets;
+        int seed = 0;
+        bool randomSeed = false;
+        float lateMixAmount = std::numeric_limits<float>::quiet_NaN();
+        float splitStart = std::numeric_limits<float>::quiet_NaN();
+        float splitEnd = std::numeric_limits<float>::quiet_NaN();
+        float loopStart = 0.0f;
+        float loopEnd = 1.0f;
+        float startPos = 0.0f;
+        float wtExtractStart = 0.0f;
+        float wtExtractEnd = 1.0f;
+        bool pointsLocked = false;
+    };
+
+    class SnapshotButton : public juce::TextButton,
+                           private juce::Timer
+    {
+    public:
+        SnapshotButton() = default;
+        void setSnapshotIndex(int index);
+        void setSnapshotFilled(bool filled);
+        void flashStored();
+        void paintButton(juce::Graphics& g, bool highlighted, bool down) override;
+        void mouseDown(const juce::MouseEvent& e) override;
+        void mouseUp(const juce::MouseEvent& e) override;
+        void mouseExit(const juce::MouseEvent& e) override;
+
+        std::function<void(int)> onPressStarted;
+        std::function<void(int)> onShortActivate;
+        std::function<void(int)> onLongStore;
+
+    private:
+        void timerCallback() override;
+        int snapshotIndex = 0;
+        bool snapshotFilled = false;
+        bool pressing = false;
+        bool longFired = false;
+        double pressStartMs = 0.0;
+        double flashUntilMs = 0.0;
+    };
 
     // Cache-capacity button — when selected and the cache is still filling,
     // the fill colour pulses subtly. Replaces the textual status row that
@@ -67,7 +119,13 @@ private:
         float lastPhase = 0.0f;
     };
 
+    SnapshotButton snapshotButtons[kNumSnapshotButtons];
     CacheCapButton infCacheButtons[kNumInfCacheButtons];
+    juce::Rectangle<int> snapshotSwitchBounds;
+    juce::Rectangle<int> cacheSwitchBounds;
+    std::array<MainSnapshot, 2> mainSnapshots;
+    std::array<MainSnapshot, 2> snapshotPressCaptures;
+    int activeSnapshotIndex = 0;  // 0=OFF, 1/2=session snapshot selected
     int lastInfCacheUiCapacity = -1;
     int lastInfCacheUiFill = -1;
     bool lastInfCacheUiFull = false;
@@ -86,6 +144,12 @@ private:
     void timerCallback() override;
     void syncInferenceCacheUi();
     void updateGenerateButtonsForCacheState(bool pulseCacheHit);
+    MainSnapshot captureMainSnapshot();
+    void restoreMainSnapshot(const MainSnapshot& snapshot);
+    void captureSnapshotPress(int slot);
+    void storeSnapshotFromPress(int slot);
+    void activateSnapshot(int slot);
+    void syncSnapshotUi();
 
     // Col 2: ENGINE + FILTER + MODULATION
     SynthPanel synthPanel;
@@ -130,7 +194,7 @@ private:
     void loadDefaultPreset();
     void loadInitPreset();
     void ensureBundledPresetsExist();
-    bool savePresetToFile(const juce::File& file, bool includeInferenceCache = false);
+    bool savePresetToFile(const juce::File& file, bool includeInferenceCache = true);
     bool loadPresetFromFile(const juce::File& file);
     void applyLoadedPreset(const PresetFormat::LoadResult& result, const juce::File& sourceFile = {});
     void syncGuiStateForPresetSave();

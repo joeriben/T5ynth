@@ -41,6 +41,9 @@ public:
     /** Get current dimension offsets (only non-zero entries). */
     std::vector<std::pair<int, float>> getDimensionOffsets() const;
 
+    /** Restore current dimension offsets after embeddings have been set. */
+    void setDimensionOffsets(const std::vector<std::pair<int, float>>& offsets);
+
     /** Returns true when user has made offset edits. */
     bool hasOffsets() const { return hasUserEdits_; }
 

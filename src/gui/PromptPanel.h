@@ -39,6 +39,7 @@ public:
     juce::String getPromptA() const { return promptAEditor.getText().trim(); }
     juce::String getPromptB() const { return promptBEditor.getText().trim(); }
     int getSeed() const { return seedEditor.getText().getIntValue(); }
+    bool isRandomSeed() const { return randomSeedToggle.getToggleState(); }
 
     /** Read current injection-mode state (for preset save). */
     juce::String getInjectionMode()  const { return injectionMode_; }

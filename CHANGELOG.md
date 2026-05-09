@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.8.0-beta.1 — 2026-05-10
+
+- **New: sequencer one-shot sample slots.** Each Step Sequencer step now has three compact sample slots for drum-style one-shots. Samples are copied physically from the current P1→P3 waveform region, each slot has Normal / Accent / Mute cycling, and the slots are saved inside presets together with their WAV data.
+- **New: T5 oscillator snapshots.** The Generation column now has a `SNAP OFF / 1 / 2` switchbox beside the inference cache controls. Long-clicking slot 1 or 2 stores the current main sound and T5-Osc state from the beginning of the long click; short-clicking recalls the snapshot.
+- **New: preset-persistent inference cache.** Presets now save cache capacity and already generated cache audio entries by default, then restore them on load so cached alternate generations survive the preset round-trip.
+- **UI: compact Snap / Cache row.** Snapshot and cache controls share one switchbox-style row using the same bordered button format as the Engine controls.
+
 ## v1.7.0-beta.1 — 2026-05-01
 
 - **New: BPM-sync for LFOs, Drift, and Delay.** Each of the three LFOs, three Drift LFOs, and the Delay-Time control now has a clock-icon toggle that swaps the free-rate slider for a musical division (`16/1` … `1/32`, including triplet `T` and quintuplet `Q` variants). The slow end (`16/1`, `8/1`, `4/1`, `2/1`) gives drift cycles spanning multiple bars — suited to slow harmonic motion and long auto-regen swings. Sync follows the host transport when the DAW is playing; in standalone or with the host transport stopped, the in-app sequencer (step or generative) takes over; if neither is running, the rate freezes at the last-seen host BPM and falls back to the Seq-BPM field as a last resort. The UI swaps the rate/time row for a division stepper when Sync is on.

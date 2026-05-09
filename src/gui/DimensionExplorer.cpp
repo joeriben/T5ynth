@@ -194,6 +194,42 @@ std::vector<std::pair<int, float>> DimensionExplorer::getDimensionOffsets() cons
     return offsets;
 }
 
+void DimensionExplorer::setDimensionOffsets(const std::vector<std::pair<int, float>>& offsets)
+{
+    if (bars_.empty())
+        return;
+
+    for (auto& bar : bars_)
+        bar.offset = 0.0f;
+
+    for (const auto& [dimIndex, delta] : offsets)
+        for (auto& bar : bars_)
+            if (bar.dimIndex == dimIndex)
+            {
+                bar.offset = delta;
+                break;
+            }
+
+    hasUserEdits_ = false;
+    valueScaleMax_ = kMinValueScale;
+    for (auto& bar : bars_)
+    {
+        valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.aValue)));
+        if (hasBPrompt_)
+            valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.bValue)));
+        valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.baseActualValue)));
+        valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, displayedActualValue(bar))));
+        if (std::abs(bar.offset) > 1e-8f)
+            hasUserEdits_ = true;
+    }
+    valueScaleMax_ *= kScaleHeadroom;
+
+    undoStack_.clear();
+    undoStack_.push_back(makeUndoState());
+    undoPos_ = 0;
+    repaint();
+}
+
 float DimensionExplorer::barOrientation(const Bar& bar) const
 {
     if (!hasBPrompt_)

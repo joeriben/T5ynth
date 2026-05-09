@@ -125,7 +125,7 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
         root->setProperty("embeddingB", arrB);
     }
 
-    const bool writeInferenceCache = includeInferenceCache && processor.isInferenceCacheFull();
+    const bool writeInferenceCache = includeInferenceCache && processor.getInferenceCacheCapacity() > 0;
     const auto& inferenceCacheEntries = processor.getInferenceCacheEntries();
     if (writeInferenceCache)
     {
@@ -354,12 +354,13 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
         // because the primary audio length is still governed by audio_meta.
         if (auto* cacheMeta = root->getProperty("inferenceCache").getDynamicObject())
         {
+            result.inferenceCacheCapacity = juce::jmax(0, static_cast<int>(cacheMeta->getProperty("capacity")));
             if (auto* entries = cacheMeta->getProperty("entries").getArray())
             {
                 for (auto& ev : *entries)
                 {
                     auto* em = ev.getDynamicObject();
-                    if (em == nullptr) { result.inferenceCache.clear(); break; }
+                    if (em == nullptr) { result.inferenceCache.clear(); result.inferenceCacheCapacity = 0; break; }
 
                     const int numChannels = static_cast<int>(em->getProperty("channels"));
                     const int numSamples = static_cast<int>(em->getProperty("numSamples"));
@@ -368,6 +369,7 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
                     if (numSamples <= 0 || numChannels <= 0 || cacheOffset + audioBytes > size)
                     {
                         result.inferenceCache.clear();
+                        result.inferenceCacheCapacity = 0;
                         break;
                     }
 
@@ -382,6 +384,8 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
                     cacheOffset += audioBytes;
                 }
             }
+            result.inferenceCacheCapacity = juce::jmax(result.inferenceCacheCapacity,
+                                                       static_cast<int>(result.inferenceCache.size()));
         }
 
         if (auto* seq = root->getProperty("sequencer").getDynamicObject())

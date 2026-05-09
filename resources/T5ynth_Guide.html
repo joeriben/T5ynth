@@ -564,6 +564,27 @@ T5ynth is where you find out what that marker can become.
   <strong>The instrument is built around a space of possible sound.</strong> The generation parameters above — Alpha, Semantic Axes, Noise, Magnitude — can all be modulated by the <a href="#drift">Drift &amp; Regenerate</a> system. With Drift active, these values shift continuously, and T5ynth can automatically re-generate audio as they move. The hidden space keeps evolving instead of behaving like a fixed one-shot source. See <a href="#drift">section 6</a> for details.
 </div>
 
+<h3>Snapshots and Inference Cache</h3>
+<p>
+Below the Dimension Explorer, the Generation column has a compact <strong>SNAP / CACHE</strong> row. These controls solve two different workflow problems:
+</p>
+<table>
+  <tr><th>Control</th><th>What it stores</th><th>How to use it</th></tr>
+  <tr>
+    <td><strong>SNAP OFF / 1 / 2</strong></td>
+    <td>Two temporary snapshots of the current main sound and T5 oscillator state: generated audio, prompts, seed/random state, model choice, generation parameters, Semantic Axes, Dimension Explorer offsets, engine parameters, and P1/P2/P3 including the lock state.</td>
+    <td>Short-click slot 1 or 2 to recall it. Long-click slot 1 or 2 to store a snapshot. The stored state is captured at the <em>beginning</em> of the long click, so moving controls during the long press does not change what is saved.</td>
+  </tr>
+  <tr>
+    <td><strong>CACHE OFF / 2 / 4 / 8 / 16 / 32 / 64 / 128</strong></td>
+    <td>A round-robin list of generated audio results for the current generation setup. Once filled, Generate plays through the cached results instead of running inference again.</td>
+    <td>Choose a cache size, generate until it fills, then use Generate as a fast audition button. Cache capacity and already generated cache audio are saved in <code>.t5p</code> presets and restored when the preset is loaded.</td>
+  </tr>
+</table>
+<p>
+Snapshots are session workflow slots: they let you keep a bass or lead state while you temporarily generate material for something else. Cache is preset material: it is stored with the preset, including its audio entries.
+</p>
+
 <h3>Model &amp; Device</h3>
 <p>
 Three model slots are available: Stable Audio Open 1.0, Stable Audio Open Small, and AudioLDM2 <em>(experimental, CC BY-NC-SA 4.0 — non-commercial only)</em>. The device toggle switches between GPU (MPS on Apple Silicon, CUDA on Linux or Windows 11) and CPU. GPU is typically 3× faster on Apple Silicon.
@@ -954,7 +975,22 @@ A traditional step sequencer with 2–32 steps. Each step has:
   <li><strong>Velocity</strong> — 0.0–1.0 (bar at bottom)</li>
   <li><strong>Enable</strong> — toggle the step on/off</li>
   <li><strong>Bind (Glide)</strong> — suppresses note-off, creating legato ties</li>
+  <li><strong>One-shot sample slots</strong> — three small per-step slots for drum-style sample triggers</li>
 </ul>
+
+<h4>Per-Step One-Shot Slots</h4>
+<p>
+Each step can hold up to three independent one-shot samples. Drag from the waveform area onto a slot to copy the current <strong>P1→P3</strong> region into that slot. The copied audio is a physical sample owned by the step sequencer, not a reference to the current main buffer, so later generations do not overwrite it.
+</p>
+<table>
+  <tr><th>Slot State</th><th>Meaning</th></tr>
+  <tr><td><strong>Normal</strong></td><td>Plays the copied sample at its normal one-shot level when the step fires.</td></tr>
+  <tr><td><strong>Accent</strong></td><td>Plays the copied sample accented. This is independent of the melodic step velocity, so drum hits do not follow guitar/bass velocity.</td></tr>
+  <tr><td><strong>Mute</strong></td><td>Keeps the sample assigned but silent.</td></tr>
+</table>
+<p>
+Click a one-shot slot to cycle Normal / Accent / Mute. The step's <strong>On</strong> and <strong>Bind</strong> controls do not govern the one-shot samples: a muted melodic step can still fire its samples, and glide binding only affects the melodic note. In <strong>GEN</strong> mode the one-shot slots are inactive.
+</p>
 
 <h4>Global Controls</h4>
 <table>
@@ -1104,6 +1140,8 @@ T5ynth uses <code>.t5p</code> preset files — a binary container that stores:
   <li>All parameter values (100+ parameters)</li>
   <li>Impulse text (A and B)</li>
   <li>The generated audio itself (PCM, so the preset sounds right without re-generating)</li>
+  <li>Inference cache capacity and any generated cache audio entries</li>
+  <li>Sequencer one-shot samples, including their per-step slot state</li>
   <li>Source-control vectors (768 floats each, for DimExplorer context)</li>
   <li>Seed, device, model selection</li>
 </ul>

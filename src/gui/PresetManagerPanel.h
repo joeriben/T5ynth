@@ -1359,10 +1359,11 @@ private:
             bankBox.onChange = [this] { refreshConflictUi(); };
             addAndMakeVisible(bankBox);
 
-            includeCacheToggle.setButtonText("include Inference-Cache");
+            includeCacheToggle.setButtonText("Inference-Cache saved");
             includeCacheToggle.setColour(juce::ToggleButton::textColourId, kDim);
             includeCacheToggle.setColour(juce::ToggleButton::tickColourId, kOscCol);
             includeCacheToggle.setVisible(false);
+            includeCacheToggle.setInterceptsMouseClicks(false, false);
             addAndMakeVisible(includeCacheToggle);
 
             configureLabel(tagsLabel);
@@ -1427,9 +1428,9 @@ private:
             promptA       = promptAIn;
             promptB       = promptBIn;
             includeCacheAvailable = canIncludeInferenceCacheIn;
-            includeCacheToggle.setToggleState(false, juce::dontSendNotification);
-            includeCacheToggle.setVisible(includeCacheAvailable);
-            includeCacheToggle.setEnabled(includeCacheAvailable);
+            includeCacheToggle.setToggleState(includeCacheAvailable, juce::dontSendNotification);
+            includeCacheToggle.setVisible(false);
+            includeCacheToggle.setEnabled(false);
             tags          = suggestedTags;
             tags.trim();
             tags.removeEmptyStrings();
@@ -1473,7 +1474,7 @@ private:
         juce::StringArray getTags() const { return tags; }
         bool getIncludeInferenceCache() const
         {
-            return includeCacheAvailable && includeCacheToggle.getToggleState();
+            return includeCacheAvailable;
         }
         juce::String getBank() const
         {

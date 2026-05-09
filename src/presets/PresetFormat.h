@@ -49,6 +49,7 @@ public:
             juce::AudioBuffer<float> audio;
             double sampleRate = 44100.0;
         };
+        int inferenceCacheCapacity = 0;
         std::vector<InferenceCacheAudio> inferenceCache;
 
         // Semantic axes (3 slots: dropdown selection + value)
@@ -75,7 +76,7 @@ public:
 
     /** Save current state to a .t5p file with embedded audio. */
     static bool saveToFile(const juce::File& file, T5ynthProcessor& processor,
-                           bool includeInferenceCache = false);
+                           bool includeInferenceCache = true);
 
     /** Load a preset from file. Returns full result with audio + metadata. */
     static LoadResult loadFromFile(const juce::File& file, T5ynthProcessor& processor);

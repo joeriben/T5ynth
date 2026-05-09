@@ -18,6 +18,67 @@ const char* const kBundledPresetNames[] = {
     "Talking about aliens.t5p",
 };
 
+const char* const kMainSnapshotParamIds[] = {
+    PID::genAlpha, PID::genMagnitude, PID::genNoise, PID::genDuration,
+    PID::genStart, PID::genCfg, PID::genSeed, PID::genHfBoost, PID::infSteps,
+    PID::engineMode, PID::voiceCount, PID::tuning, PID::loopMode,
+    PID::crossfadeMs, PID::normalize, PID::loopOptimize,
+    PID::oscScan, PID::oscOctave, PID::noiseLevel, PID::noiseType,
+    PID::wtFrames, PID::wtSmooth, PID::wtAutoScan,
+    PID::ampAttack, PID::ampDecay, PID::ampSustain, PID::ampRelease,
+    PID::ampAmount, PID::ampVelSens, PID::ampLoop, PID::ampTarget,
+    PID::ampAttackCurve, PID::ampDecayCurve, PID::ampReleaseCurve,
+    PID::ampAttackVelMode, PID::ampDecayVelMode, PID::ampReleaseVelMode,
+    PID::mod1Attack, PID::mod1Decay, PID::mod1Sustain, PID::mod1Release,
+    PID::mod1Amount, PID::mod1VelSens, PID::mod1Loop, PID::mod1Target,
+    PID::mod1AttackCurve, PID::mod1DecayCurve, PID::mod1ReleaseCurve,
+    PID::mod1AttackVelMode, PID::mod1DecayVelMode, PID::mod1ReleaseVelMode,
+    PID::mod2Attack, PID::mod2Decay, PID::mod2Sustain, PID::mod2Release,
+    PID::mod2Amount, PID::mod2VelSens, PID::mod2Loop, PID::mod2Target,
+    PID::mod2AttackCurve, PID::mod2DecayCurve, PID::mod2ReleaseCurve,
+    PID::mod2AttackVelMode, PID::mod2DecayVelMode, PID::mod2ReleaseVelMode,
+    PID::lfo1Rate, PID::lfo1Depth, PID::lfo1Wave, PID::lfo1Target, PID::lfo1Mode,
+    PID::lfo1ClockMode, PID::lfo1ClockDivision,
+    PID::lfo2Rate, PID::lfo2Depth, PID::lfo2Wave, PID::lfo2Target, PID::lfo2Mode,
+    PID::lfo2ClockMode, PID::lfo2ClockDivision,
+    PID::lfo3Rate, PID::lfo3Depth, PID::lfo3Wave, PID::lfo3Target, PID::lfo3Mode,
+    PID::lfo3ClockMode, PID::lfo3ClockDivision,
+    PID::driftEnabled, PID::driftRegen, PID::driftCrossfade,
+    PID::drift1Rate, PID::drift1Depth, PID::drift1Target, PID::drift1Wave,
+    PID::drift1ClockMode, PID::drift1ClockDivision,
+    PID::drift2Rate, PID::drift2Depth, PID::drift2Target, PID::drift2Wave,
+    PID::drift2ClockMode, PID::drift2ClockDivision,
+    PID::drift3Rate, PID::drift3Depth, PID::drift3Target, PID::drift3Wave,
+    PID::drift3ClockMode, PID::drift3ClockDivision,
+    PID::filterEnabled, PID::filterType, PID::filterSlope, PID::filterCutoff,
+    PID::filterResonance, PID::filterMix, PID::filterKbdTrack, PID::filterDrive,
+    PID::filterDriveOs, PID::filterAlgorithm, PID::filterWarpStyle
+};
+
+bool findParameterValue(const juce::ValueTree& state, const juce::String& id, float& value)
+{
+    for (int i = 0; i < state.getNumChildren(); ++i)
+    {
+        auto child = state.getChild(i);
+        if (child.getProperty("id").toString() == id && child.hasProperty("value"))
+        {
+            value = static_cast<float>(static_cast<double>(child.getProperty("value")));
+            return true;
+        }
+    }
+    return false;
+}
+
+void restoreParameterFromState(juce::AudioProcessorValueTreeState& apvts,
+                               const juce::ValueTree& state,
+                               const char* id)
+{
+    float value = 0.0f;
+    if (findParameterValue(state, id, value))
+        if (auto* param = apvts.getParameter(id))
+            param->setValueNotifyingHost(param->convertTo0to1(value));
+}
+
 #if JUCE_WINDOWS
 juce::StringArray getWindowsCompanionBackendRoots()
 {
@@ -173,6 +234,104 @@ void MainPanel::GenerateButton::paintButton(juce::Graphics& g, bool highlighted,
     }
 }
 
+// ─── SnapshotButton ─────────────────────────────────────────────────────────
+void MainPanel::SnapshotButton::setSnapshotIndex(int index)
+{
+    snapshotIndex = index;
+}
+
+void MainPanel::SnapshotButton::setSnapshotFilled(bool filled)
+{
+    if (snapshotFilled != filled)
+    {
+        snapshotFilled = filled;
+        repaint();
+    }
+}
+
+void MainPanel::SnapshotButton::flashStored()
+{
+    flashUntilMs = juce::Time::getMillisecondCounterHiRes() + 430.0;
+    startTimerHz(30);
+    repaint();
+}
+
+void MainPanel::SnapshotButton::paintButton(juce::Graphics& g, bool highlighted, bool down)
+{
+    auto& lf = getLookAndFeel();
+    auto base = findColour(getToggleState() ? juce::TextButton::buttonOnColourId
+                                            : juce::TextButton::buttonColourId);
+    lf.drawButtonBackground(g, *this, base, highlighted, down);
+    lf.drawButtonText(g, *this, highlighted, down);
+
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    if (flashUntilMs > now)
+    {
+        const float alpha = static_cast<float>((flashUntilMs - now) / 430.0);
+        g.setColour(juce::Colours::white.withAlpha(0.28f * juce::jlimit(0.0f, 1.0f, alpha)));
+        g.fillRect(getLocalBounds());
+    }
+
+    if (snapshotIndex > 0 && snapshotFilled)
+    {
+        auto dot = getLocalBounds().reduced(3, 0).removeFromBottom(2);
+        g.setColour((getToggleState() ? juce::Colours::white : kOscCol).withAlpha(0.85f));
+        g.fillRect(dot);
+    }
+
+    if (snapshotIndex > 0 && pressing && !longFired)
+    {
+        g.setColour(kOscCol.withAlpha(0.8f));
+        g.drawRect(getLocalBounds().reduced(1), 1);
+    }
+}
+
+void MainPanel::SnapshotButton::mouseDown(const juce::MouseEvent& e)
+{
+    pressing = true;
+    longFired = false;
+    pressStartMs = juce::Time::getMillisecondCounterHiRes();
+    if (snapshotIndex > 0 && onPressStarted)
+        onPressStarted(snapshotIndex);
+    startTimerHz(30);
+    juce::TextButton::mouseDown(e);
+    repaint();
+}
+
+void MainPanel::SnapshotButton::mouseUp(const juce::MouseEvent& e)
+{
+    const bool wasShort = pressing && !longFired;
+    pressing = false;
+    if (wasShort && onShortActivate)
+        onShortActivate(snapshotIndex);
+    if (flashUntilMs <= juce::Time::getMillisecondCounterHiRes())
+        stopTimer();
+    juce::TextButton::mouseUp(e);
+    repaint();
+}
+
+void MainPanel::SnapshotButton::mouseExit(const juce::MouseEvent& e)
+{
+    juce::TextButton::mouseExit(e);
+    repaint();
+}
+
+void MainPanel::SnapshotButton::timerCallback()
+{
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    if (pressing && !longFired && snapshotIndex > 0 && now - pressStartMs >= 650.0)
+    {
+        longFired = true;
+        if (onLongStore)
+            onLongStore(snapshotIndex);
+    }
+
+    if (!pressing && flashUntilMs <= now)
+        stopTimer();
+
+    repaint();
+}
+
 // ─── CacheCapButton ──────────────────────────────────────────────────────────
 // Replaces the dropped "inference cache N/M" status row: while the cache is
 // filling, the *selected* capacity button pulses its fill colour subtly. When
@@ -298,7 +457,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     presetManager.onSaveRequested = [this](const juce::String& presetName,
                                            const juce::StringArray& tags,
                                            const juce::String& bank,
-                                           bool includeInferenceCache)
+                                           bool /*includeInferenceCache*/)
     {
         // The drawer's Save button is the affirmative action — when the
         // chosen (bank, name) collides with an existing file, the button
@@ -315,7 +474,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         auto target = bankDir.getChildFile(presetName + ".t5p");
 
         processorRef.setLastTags(tags);
-        if (savePresetToFile(target, includeInferenceCache))
+        if (savePresetToFile(target, true))
         {
             presetManager.leaveSaveMode();
             hidePresetManager();
@@ -508,14 +667,52 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     // handles fill/border/text colours directly — no TextButton::ColourIds
     // needed.
     mainGenerateBtn.onClick = [this] {
+        activeSnapshotIndex = 0;
+        syncSnapshotUi();
         promptPanel.setSemanticAxes(axesPanel.getAxisValues());
         promptPanel.triggerGenerationWithOffsets({});
     };
     addAndMakeVisible(mainGenerateBtn);
 
+    snapLabel.setText("SNAP", juce::dontSendNotification);
+    snapLabel.setColour(juce::Label::textColourId, kDim);
+    snapLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    snapLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(snapLabel);
+
+    {
+        static constexpr const char* labels[kNumSnapshotButtons] = { "OFF", "1", "2" };
+        for (int i = 0; i < kNumSnapshotButtons; ++i)
+        {
+            auto& b = snapshotButtons[i];
+            b.setButtonText(labels[i]);
+            b.setSnapshotIndex(i);
+            b.setColour(juce::TextButton::buttonColourId, kSurface);
+            b.setColour(juce::TextButton::buttonOnColourId, kOscCol);
+            b.setColour(juce::TextButton::textColourOffId, kDim);
+            b.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            b.setTooltip(i == 0 ? "Disable snapshot recall"
+                                : "Snapshot slot " + juce::String(i));
+            int edges = 0;
+            if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+            if (i < kNumSnapshotButtons - 1) edges |= juce::Button::ConnectedOnRight;
+            b.setConnectedEdges(edges);
+            b.onPressStarted = [this](int slot) { captureSnapshotPress(slot); };
+            b.onShortActivate = [this](int slot) { activateSnapshot(slot); };
+            b.onLongStore = [this](int slot) { storeSnapshotFromPress(slot); };
+            addAndMakeVisible(b);
+        }
+    }
+
+    cacheLabel.setText("CACHE", juce::dontSendNotification);
+    cacheLabel.setColour(juce::Label::textColourId, kDim);
+    cacheLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    cacheLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(cacheLabel);
+
     {
         static constexpr const char* labels[kNumInfCacheButtons] = {
-            "cache: off", "2", "4", "8", "16", "32", "64", "128"
+            "OFF", "2", "4", "8", "16", "32", "64", "128"
         };
         static constexpr int values[kNumInfCacheButtons] = {
             0, 2, 4, 8, 16, 32, 64, 128
@@ -542,6 +739,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
             addAndMakeVisible(b);
         }
     }
+    syncSnapshotUi();
     syncInferenceCacheUi();
 
     // Wire axis values callback for drift auto-regen (offsets applied per slot)
@@ -571,6 +769,11 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         else
         {
             // Real generation status — drop any pending cache-hit display.
+            if (isGenerating && activeSnapshotIndex != 0)
+            {
+                activeSnapshotIndex = 0;
+                syncSnapshotUi();
+            }
             cacheHitActive = false;
             glowGenerating = isGenerating;
             mainGenerateBtn.setAnimationState(glowPhase, glowGenerating);
@@ -614,6 +817,8 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     dimApplyBtn.setColour(juce::TextButton::buttonColourId, kOscCol);
     dimApplyBtn.setColour(juce::TextButton::textColourOffId, kBg);
     dimApplyBtn.onClick = [this] {
+        activeSnapshotIndex = 0;
+        syncSnapshotUi();
         promptPanel.setSemanticAxes(axesPanel.getAxisValues());
         auto offsets = dimensionExplorer.getDimensionOffsets();
         promptPanel.triggerGenerationWithOffsets(std::move(offsets));
@@ -754,7 +959,7 @@ void MainPanel::enterLibrarySaveMode(SaveNameMode mode)
     prefill.existingPathKeys = std::move(existingPathKeys);
     prefill.promptA          = promptPanel.getPromptA();
     prefill.promptB          = promptPanel.getPromptB();
-    prefill.canIncludeInferenceCache = processorRef.isInferenceCacheFull();
+    prefill.canIncludeInferenceCache = processorRef.getInferenceCacheCapacity() > 0;
 
     showPresetManager();
     presetManager.enterSaveMode(std::move(prefill));
@@ -948,6 +1153,9 @@ void MainPanel::syncGuiStateForPresetSave()
 
 void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const juce::File& sourceFile)
 {
+    activeSnapshotIndex = 0;
+    syncSnapshotUi();
+
     promptPanel.loadPresetData(result.promptA, result.promptB,
                                result.seed, result.randomSeed, result.device, result.model,
                                result.injectionMode,
@@ -974,9 +1182,9 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
     }
 
     processorRef.setInferenceCacheCapacity(0);
-    if (!result.inferenceCache.empty())
+    if (result.inferenceCacheCapacity > 0)
     {
-        processorRef.setInferenceCacheCapacity(static_cast<int>(result.inferenceCache.size()));
+        processorRef.setInferenceCacheCapacity(result.inferenceCacheCapacity);
         for (const auto& entry : result.inferenceCache)
             processorRef.addInferenceCacheEntry(entry.audio, entry.sampleRate);
     }
@@ -1411,6 +1619,11 @@ void MainPanel::paint(juce::Graphics& g)
         paintCard(g, juce::Rectangle<int>(left, top, cardW, bot - top));
     }
 
+    if (!snapshotSwitchBounds.isEmpty())
+        paintSwitchBoxBorder(g, snapshotSwitchBounds);
+    if (!cacheSwitchBounds.isEmpty())
+        paintSwitchBoxBorder(g, cacheSwitchBounds);
+
     if (glowGenerating)
     {
         const float pulse = 0.5f + 0.5f * std::sin(glowPhase);
@@ -1478,6 +1691,190 @@ void MainPanel::updateGenerateButtonsForCacheState(bool pulseCacheHit)
         mainGenerateBtn.setEnabled(true);
         dimApplyBtn.setButtonText("Apply + Generate");
         dimApplyBtn.setEnabled(true);
+    }
+}
+
+MainPanel::MainSnapshot MainPanel::captureMainSnapshot()
+{
+    MainSnapshot snapshot;
+
+    const auto& rawAudio = processorRef.getGeneratedAudioRaw();
+    const auto& processedAudio = processorRef.getGeneratedAudio();
+    const auto& sourceAudio = rawAudio.getNumSamples() > 0 ? rawAudio : processedAudio;
+    if (sourceAudio.getNumChannels() <= 0 || sourceAudio.getNumSamples() <= 0)
+        return snapshot;
+
+    snapshot.audio.makeCopyOf(sourceAudio);
+    snapshot.sampleRate = processorRef.getGeneratedSampleRate();
+    if (snapshot.sampleRate <= 0.0)
+        snapshot.sampleRate = processorRef.getSampleRate() > 0.0 ? processorRef.getSampleRate() : 44100.0;
+
+    snapshot.parameters = processorRef.getValueTreeState().copyState();
+    snapshot.promptA = promptPanel.getPromptA();
+    snapshot.promptB = promptPanel.getPromptB();
+    snapshot.device = processorRef.getLastDevice();
+    snapshot.model = processorRef.getLastModel();
+    snapshot.injectionMode = promptPanel.getInjectionMode();
+    snapshot.seed = promptPanel.getSeed();
+    snapshot.randomSeed = promptPanel.isRandomSeed();
+    snapshot.lateMixAmount = promptPanel.getLateMixAmount();
+    snapshot.splitStart = promptPanel.getSplitStart();
+    snapshot.splitEnd = promptPanel.getSplitEnd();
+    snapshot.axes = axesPanel.getSlotStates();
+    snapshot.embeddingA = processorRef.getLastEmbeddingA();
+    snapshot.embeddingB = processorRef.getLastEmbeddingB();
+    snapshot.dimensionOffsets = dimensionExplorer.getDimensionOffsets();
+
+    {
+        const juce::ScopedLock sl(processorRef.getCallbackLock());
+        auto& sampler = processorRef.getSampler();
+        snapshot.loopStart = sampler.getLoopStart();
+        snapshot.loopEnd = sampler.getLoopEnd();
+        snapshot.startPos = sampler.getStartPos();
+        snapshot.wtExtractStart = sampler.getWtExtractStart();
+        snapshot.wtExtractEnd = sampler.getWtExtractEnd();
+        snapshot.pointsLocked = sampler.getPointsLocked();
+    }
+
+    snapshot.valid = true;
+    return snapshot;
+}
+
+void MainPanel::restoreMainSnapshot(const MainSnapshot& snapshot)
+{
+    if (!snapshot.valid)
+        return;
+
+    auto& apvts = processorRef.getValueTreeState();
+    for (auto* id : kMainSnapshotParamIds)
+        restoreParameterFromState(apvts, snapshot.parameters, id);
+
+    promptPanel.loadPresetData(snapshot.promptA, snapshot.promptB,
+                               snapshot.seed, snapshot.randomSeed,
+                               snapshot.device, snapshot.model,
+                               snapshot.injectionMode,
+                               snapshot.lateMixAmount,
+                               snapshot.splitStart,
+                               snapshot.splitEnd);
+    axesPanel.setSlotStates(snapshot.axes);
+    std::array<T5ynthProcessor::AxisSlotState, 3> procAxes;
+    for (int i = 0; i < 3; ++i)
+    {
+        procAxes[static_cast<size_t>(i)].dropdownId = snapshot.axes[static_cast<size_t>(i)].dropdownId;
+        procAxes[static_cast<size_t>(i)].value = snapshot.axes[static_cast<size_t>(i)].value;
+    }
+
+    processorRef.setLastDevice(snapshot.device);
+    processorRef.setLastModel(snapshot.model);
+    processorRef.setLastSeed(snapshot.seed);
+    processorRef.setLastPrompts(snapshot.promptA, snapshot.promptB);
+    processorRef.setLastInjection(snapshot.injectionMode,
+                                  snapshot.lateMixAmount,
+                                  snapshot.splitStart,
+                                  snapshot.splitEnd);
+    processorRef.setLastAxes(procAxes);
+
+    if (!snapshot.embeddingA.empty())
+    {
+        processorRef.setLastEmbeddings(snapshot.embeddingA, snapshot.embeddingB);
+        const float alpha = apvts.getRawParameterValue(PID::genAlpha)->load();
+        const float magnitude = apvts.getRawParameterValue(PID::genMagnitude)->load();
+        auto baseline = DimensionExplorer::estimateBaselineValues(snapshot.embeddingA,
+                                                                  snapshot.embeddingB,
+                                                                  alpha,
+                                                                  magnitude);
+        dimensionExplorer.setEmbeddings(snapshot.embeddingA, snapshot.embeddingB, baseline, false);
+        dimensionExplorer.setDimensionOffsets(snapshot.dimensionOffsets);
+    }
+    else
+    {
+        dimensionExplorer.clear();
+    }
+
+    auto applyMarkers = [&]()
+    {
+        const float loopStart = juce::jlimit(0.0f, 0.99f, snapshot.loopStart);
+        float loopEnd = juce::jlimit(0.01f, 1.0f, snapshot.loopEnd);
+        if (loopEnd < loopStart + 0.01f)
+            loopEnd = juce::jmin(1.0f, loopStart + 0.01f);
+
+        auto& sampler = processorRef.getSampler();
+        sampler.setPointsLocked(true);
+        sampler.setLoopEnd(1.0f);
+        sampler.setLoopStart(loopStart);
+        sampler.setLoopEnd(loopEnd);
+        sampler.setStartPos(juce::jlimit(0.0f, 1.0f, snapshot.startPos));
+        sampler.setWtExtractStart(juce::jlimit(0.0f, 1.0f, snapshot.wtExtractStart));
+        sampler.setWtExtractEnd(juce::jlimit(0.0f, 1.0f, snapshot.wtExtractEnd));
+    };
+
+    {
+        const juce::ScopedLock sl(processorRef.getCallbackLock());
+        applyMarkers();
+    }
+    processorRef.loadGeneratedAudio(snapshot.audio, snapshot.sampleRate);
+    {
+        const juce::ScopedLock sl(processorRef.getCallbackLock());
+        applyMarkers();
+        processorRef.getSampler().setPointsLocked(snapshot.pointsLocked);
+    }
+}
+
+void MainPanel::captureSnapshotPress(int slot)
+{
+    if (slot < 1 || slot > 2)
+        return;
+    snapshotPressCaptures[static_cast<size_t>(slot - 1)] = captureMainSnapshot();
+}
+
+void MainPanel::storeSnapshotFromPress(int slot)
+{
+    if (slot < 1 || slot > 2)
+        return;
+
+    auto& pending = snapshotPressCaptures[static_cast<size_t>(slot - 1)];
+    if (!pending.valid)
+    {
+        statusBar.setStatusText("No audio to snapshot");
+        return;
+    }
+
+    mainSnapshots[static_cast<size_t>(slot - 1)] = std::move(pending);
+    pending = {};
+    activeSnapshotIndex = slot;
+    syncSnapshotUi();
+    snapshotButtons[slot].flashStored();
+    statusBar.setStatusText("Snapshot " + juce::String(slot) + " saved");
+}
+
+void MainPanel::activateSnapshot(int slot)
+{
+    if (slot <= 0)
+    {
+        activeSnapshotIndex = 0;
+        syncSnapshotUi();
+        return;
+    }
+
+    if (slot > 2 || !mainSnapshots[static_cast<size_t>(slot - 1)].valid)
+    {
+        statusBar.setStatusText("Snapshot " + juce::String(slot) + " empty");
+        syncSnapshotUi();
+        return;
+    }
+
+    restoreMainSnapshot(mainSnapshots[static_cast<size_t>(slot - 1)]);
+    activeSnapshotIndex = slot;
+    syncSnapshotUi();
+    statusBar.setStatusText("Snapshot " + juce::String(slot) + " recalled");
+}
+
+void MainPanel::syncSnapshotUi()
+{
+    for (int i = 0; i < kNumSnapshotButtons; ++i)
+    {
+        snapshotButtons[i].setToggleState(activeSnapshotIndex == i, juce::dontSendNotification);
+        snapshotButtons[i].setSnapshotFilled(i > 0 && mainSnapshots[static_cast<size_t>(i - 1)].valid);
     }
 }
 
@@ -1657,7 +2054,7 @@ void MainPanel::resized()
     // as glued to the cache row — separation here marks Generate as a
     // standalone primary control, not a label for the cache row.
     int remainH = genCol.getHeight();
-    const int cacheRowH = juce::jlimit(18, 24, juce::roundToInt(h * 0.024f));
+    const int cacheRowH = juce::jlimit(16, 20, juce::roundToInt(h * 0.022f));
     const int genCacheGap = juce::jlimit(12, 28, juce::roundToInt(h * 0.020f));
     const int cacheBlockH = cacheRowH + genCacheGap;
     genBtnH = juce::jmin(genBtnH, juce::jmax(44, remainH - cacheBlockH));
@@ -1667,22 +2064,61 @@ void MainPanel::resized()
     int genW = juce::roundToInt(static_cast<float>(genBtnArea.getWidth()) * 0.66f);
     int genX = genBtnArea.getX() + (genBtnArea.getWidth() - genW) / 2;
     mainGenerateBtn.setBounds(genX, genBtnArea.getY(), genW, genBtnArea.getHeight());
-    auto cacheRow = juce::Rectangle<int>(genCol.getX(), mainGenerateBtn.getBottom() + genCacheGap,
-                                         genCol.getWidth(), cacheRowH).reduced(2, 0);
-    // First cell holds "cache: off" — much wider than the digit cells.
-    // Give it ~2× the share so the label fits without truncation, the
-    // remaining width is split evenly across the seven number cells.
-    const int totalW = cacheRow.getWidth();
-    const int firstW = juce::jlimit(56, totalW / 3, totalW * 2 / kNumInfCacheButtons);
-    const int restW = juce::jmax(1, (totalW - firstW) / (kNumInfCacheButtons - 1));
-    infCacheButtons[0].setBounds(cacheRow.removeFromLeft(firstW));
-    for (int i = 1; i < kNumInfCacheButtons; ++i)
+
+    auto snapCacheRow = juce::Rectangle<int>(genCol.getX(),
+                                             mainGenerateBtn.getBottom() + genCacheGap,
+                                             genCol.getWidth(),
+                                             cacheRowH).reduced(1, 0);
+    const float switchFs = juce::jmax(kUiLabelFontMin, static_cast<float>(cacheRowH) * 0.58f);
+    snapLabel.setFont(juce::FontOptions(switchFs));
+    cacheLabel.setFont(juce::FontOptions(switchFs));
+
+    const bool veryNarrow = snapCacheRow.getWidth() < 260;
+    const int gap = veryNarrow ? 3 : 4;
+    const int snapLabelW = veryNarrow ? 28 : juce::jlimit(28, 31, measureTextWidth("SNAP", switchFs) + 4);
+    const int cacheLabelW = veryNarrow ? 36 : juce::jlimit(36, 39, measureTextWidth("CACHE", switchFs) + 4);
+    const int snapGroupW = veryNarrow ? 54 : juce::jlimit(58, 64,
+                                                          juce::roundToInt(static_cast<float>(snapCacheRow.getWidth()) * 0.20f));
+
+    snapLabel.setBounds(snapCacheRow.removeFromLeft(snapLabelW));
+    auto snapGroup = snapCacheRow.removeFromLeft(juce::jmin(snapGroupW, snapCacheRow.getWidth()));
+    snapCacheRow.removeFromLeft(juce::jmin(gap, snapCacheRow.getWidth()));
+    cacheLabel.setBounds(snapCacheRow.removeFromLeft(juce::jmin(cacheLabelW, snapCacheRow.getWidth())));
+    snapCacheRow.removeFromLeft(juce::jmin(gap, snapCacheRow.getWidth()));
+
+    auto layoutEqualButtons = [](auto& buttons, int count, juce::Rectangle<int> area)
     {
-        auto cell = (i == kNumInfCacheButtons - 1)
-            ? cacheRow
-            : cacheRow.removeFromLeft(restW);
-        infCacheButtons[i].setBounds(cell);
+        for (int i = 0; i < count; ++i)
+        {
+            const int cellW = (i == count - 1) ? area.getWidth()
+                                               : juce::jmax(1, area.getWidth() / (count - i));
+            buttons[i].setBounds(area.removeFromLeft(cellW));
+        }
+    };
+    layoutEqualButtons(snapshotButtons, kNumSnapshotButtons, snapGroup);
+    snapshotSwitchBounds = snapshotButtons[0].getBounds();
+    for (int i = 1; i < kNumSnapshotButtons; ++i)
+        snapshotSwitchBounds = snapshotSwitchBounds.getUnion(snapshotButtons[i].getBounds());
+
+    auto cacheGroup = snapCacheRow;
+    static constexpr float cacheWeights[kNumInfCacheButtons] = {
+        1.30f, 1.00f, 1.00f, 1.00f, 1.10f, 1.10f, 1.10f, 1.30f
+    };
+    float remainingWeight = 0.0f;
+    for (float weight : cacheWeights)
+        remainingWeight += weight;
+
+    for (int i = 0; i < kNumInfCacheButtons; ++i)
+    {
+        const int cellW = (i == kNumInfCacheButtons - 1)
+            ? cacheGroup.getWidth()
+            : juce::jmax(1, juce::roundToInt(static_cast<float>(cacheGroup.getWidth()) * cacheWeights[i] / remainingWeight));
+        infCacheButtons[i].setBounds(cacheGroup.removeFromLeft(cellW));
+        remainingWeight -= cacheWeights[i];
     }
+    cacheSwitchBounds = infCacheButtons[0].getBounds();
+    for (int i = 1; i < kNumInfCacheButtons; ++i)
+        cacheSwitchBounds = cacheSwitchBounds.getUnion(infCacheButtons[i].getBounds());
 
     // Col 2: ENGINE
     synthPanel.setBounds(b);
