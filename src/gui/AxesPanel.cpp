@@ -41,12 +41,6 @@ AxesPanel::AxesPanel()
     // Header is now provided by MainPanel — hide internal one
     header.setVisible(false);
 
-    noteLabel.setText("Experimental -- labels approximate, more axes = weaker effect per axis",
-                      juce::dontSendNotification);
-    noteLabel.setColour(juce::Label::textColourId, kTextMuted);
-    noteLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(noteLabel);
-
     slots.resize(3);
     for (size_t i = 0; i < slots.size(); ++i)
         initSlot(slots[i], kEffectiveAxes, static_cast<int>(i));
@@ -211,11 +205,6 @@ void AxesPanel::resized()
     int dotOffset = juce::roundToInt(f * 0.8f);
 
     // Header provided by MainPanel — skip internal header allocation
-
-    // Reserve space for note at bottom
-    int noteH = juce::roundToInt(juce::jmax(14.0f, f * 0.95f));
-    noteLabel.setFont(juce::FontOptions(juce::jmax(kUiLabelFontMin, f * 0.68f)));
-    noteLabel.setBounds(area.removeFromBottom(noteH));
 
     layoutSlots(slots, area, f * 0.75f, dotOffset);
 }
