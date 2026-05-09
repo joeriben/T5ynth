@@ -68,12 +68,14 @@ private:
     std::unique_ptr<SliderRow> shuffleRow;
 
     // Row 3: Step grid
-    struct StepColumn : public juce::Component
+    struct StepColumn : public juce::Component,
+                        public juce::DragAndDropTarget
     {
         int stepIndex = 0;
         T5ynthProcessor* processor = nullptr;
         bool isCurrentStep = false;
-        int dragZone = -1;        // 0=dot, 1=note, 2=glide, 3=velocity
+        int dragZone = -1;        // 0=dot, 1=note, 2=bind, 3=velocity, 4=one-shot
+        int dropHoverSlot = -1;
         float dragStartVal = 0.f;
         bool noteHoldPreviewActive = false;
         int noteHoldPreviewNote = -1;
@@ -81,9 +83,18 @@ private:
         void mouseDown(const juce::MouseEvent& e) override;
         void mouseDrag(const juce::MouseEvent& e) override;
         void mouseUp(const juce::MouseEvent& e) override;
+        bool isInterestedInDragSource(const SourceDetails& details) override;
+        void itemDragMove(const SourceDetails& details) override;
+        void itemDragExit(const SourceDetails& details) override;
+        void itemDropped(const SourceDetails& details) override;
         // Zone geometry (set by paint based on bounds)
-        int noteBottom() const { return juce::roundToInt(getHeight() * 0.68f); }
-        int velBottom() const { return juce::roundToInt(getHeight() * 0.84f); }
+        int noteBottom() const { return juce::roundToInt(static_cast<float>(getHeight()) * 0.60f); }
+        int oneShotBottom() const { return juce::roundToInt(static_cast<float>(getHeight()) * 0.72f); }
+        int velBottom() const { return juce::roundToInt(static_cast<float>(getHeight()) * 0.84f); }
+        juce::Rectangle<int> oneShotArea() const;
+        juce::Rectangle<int> oneShotSlotBounds(int slot) const;
+        int oneShotSlotAt(juce::Point<int> p) const;
+        int oneShotDropSlotAt(juce::Point<int> p) const;
         // bottom 16%: [On][Bind] buttons (half height, like velocity bar)
     };
     static constexpr int MAX_COLS = 32;

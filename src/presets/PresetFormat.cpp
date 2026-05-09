@@ -144,6 +144,27 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
         root->setProperty("inferenceCache", cacheMeta.get());
     }
 
+    const auto sequencerOneShots = processor.exportSequencerOneShotSamples();
+    if (!sequencerOneShots.empty())
+    {
+        juce::Array<juce::var> entries;
+        for (const auto& slot : sequencerOneShots)
+        {
+            juce::DynamicObject::Ptr e = new juce::DynamicObject();
+            e->setProperty("step", slot.step);
+            e->setProperty("slot", slot.slot);
+            e->setProperty("mode", static_cast<int>(slot.mode));
+            e->setProperty("label", slot.label);
+            e->setProperty("sampleRate", slot.sampleRate);
+            e->setProperty("channels", slot.audio.getNumChannels());
+            e->setProperty("numSamples", slot.audio.getNumSamples());
+            entries.add(e.get());
+        }
+
+        if (auto* seq = root->getProperty("sequencer").getDynamicObject())
+            seq->setProperty("oneShotSamples", entries);
+    }
+
     juce::String json = juce::JSON::toString(parsed, true);
     auto jsonData = json.toRawUTF8();
     uint32_t jsonLen = static_cast<uint32_t>(json.getNumBytesAsUTF8());
@@ -193,6 +214,9 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
         for (const auto& entry : inferenceCacheEntries)
             writeInterleavedAudio(entry.audio);
     }
+
+    for (const auto& slot : sequencerOneShots)
+        writeInterleavedAudio(slot.audio);
 
     out.flush();
     if (!out.getStatus().wasOk())
@@ -357,6 +381,50 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
                     result.inferenceCache.push_back(std::move(cacheAudio));
                     cacheOffset += audioBytes;
                 }
+            }
+        }
+
+        if (auto* seq = root->getProperty("sequencer").getDynamicObject())
+        {
+            if (auto* entries = seq->getProperty("oneShotSamples").getArray())
+            {
+                std::vector<T5ynthProcessor::SequencerOneShotExport> slots;
+                for (auto& ev : *entries)
+                {
+                    auto* em = ev.getDynamicObject();
+                    if (em == nullptr) { slots.clear(); break; }
+
+                    const int step = static_cast<int>(em->getProperty("step"));
+                    const int slot = static_cast<int>(em->getProperty("slot"));
+                    const int mode = juce::jlimit(0, 2, static_cast<int>(em->getProperty("mode")));
+                    const int numChannels = static_cast<int>(em->getProperty("channels"));
+                    const int numSamples = static_cast<int>(em->getProperty("numSamples"));
+                    const double sr = static_cast<double>(em->getProperty("sampleRate"));
+                    const size_t audioBytes = static_cast<size_t>(numSamples * numChannels) * sizeof(float);
+                    if (numSamples <= 0 || numChannels <= 0 || cacheOffset + audioBytes > size)
+                    {
+                        slots.clear();
+                        break;
+                    }
+
+                    const auto* pcm = reinterpret_cast<const float*>(data + cacheOffset);
+                    T5ynthProcessor::SequencerOneShotExport slotAudio;
+                    slotAudio.step = step;
+                    slotAudio.slot = slot;
+                    slotAudio.mode = static_cast<T5ynthStepSequencer::OneShotMode>(mode);
+                    slotAudio.label = em->getProperty("label").toString();
+                    slotAudio.sampleRate = sr > 0.0 ? sr : 44100.0;
+                    slotAudio.audio.setSize(numChannels, numSamples);
+                    for (int s = 0; s < numSamples; ++s)
+                        for (int c = 0; c < numChannels; ++c)
+                            slotAudio.audio.setSample(c, s, pcm[s * numChannels + c]);
+
+                    slots.push_back(std::move(slotAudio));
+                    cacheOffset += audioBytes;
+                }
+
+                if (!slots.empty())
+                    processor.importSequencerOneShotSamples(slots);
             }
         }
 

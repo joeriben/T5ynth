@@ -202,6 +202,7 @@ void WaveformDisplay::resized()
 
 void WaveformDisplay::mouseDown(const juce::MouseEvent& e)
 {
+    regionDragArmed = false;
     float mx = static_cast<float>(e.getPosition().getX());
     float xS  = fracToX(loopStart);
     float xE  = fracToX(loopEnd);
@@ -224,11 +225,32 @@ void WaveformDisplay::mouseDown(const juce::MouseEvent& e)
     else if (distE <= HANDLE_RADIUS * 2.0f)
         dragging = End;
     else
+    {
         dragging = None;
+        const juce::ScopedLock lock(dataLock);
+        const auto mousePos = e.position.toFloat();
+        regionDragArmed = getWaveformArea().contains(mousePos)
+                        && !lockButton.getBounds().toFloat().expanded(2.0f).contains(mousePos)
+                        && !waveformData.empty();
+    }
 }
 
 void WaveformDisplay::mouseDrag(const juce::MouseEvent& e)
 {
+    if (regionDragArmed && e.getDistanceFromDragStart() >= 5)
+    {
+        if (auto* container = findParentComponentOfClass<juce::DragAndDropContainer>())
+        {
+            juce::DynamicObject::Ptr payload = new juce::DynamicObject();
+            payload->setProperty("kind", kSequencerOneShotDragDescription);
+            payload->setProperty("start", startPos);
+            payload->setProperty("end", loopEnd);
+            container->startDragging(juce::var(payload.get()), this);
+        }
+        regionDragArmed = false;
+        return;
+    }
+
     if (dragging == None) return;
 
     float frac = xToFrac(static_cast<float>(e.getPosition().getX()));
@@ -281,6 +303,7 @@ void WaveformDisplay::mouseUp(const juce::MouseEvent&)
 {
     const bool finishedMarkerDrag = dragging == Start || dragging == End || dragging == StartPos;
     dragging = None;
+    regionDragArmed = false;
     if (finishedMarkerDrag && onMarkerDragFinished)
         onMarkerDragFinished();
 }

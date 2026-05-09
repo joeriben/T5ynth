@@ -134,6 +134,22 @@ public:
     T5ynthStepSequencer& getStepSequencer() { return stepSequencer; }
     T5ynthGenerativeSequencer& getGenerativeSequencer() { return generativeSequencer; }
     T5ynthArpeggiator& getArpeggiator() { return arpeggiator; }
+    bool assignSequencerOneShotFromCurrentRegion(int step, int slot);
+    bool assignSequencerOneShotFromRegion(int step, int slot, float regionStart, float regionEnd);
+    bool hasSequencerOneShotSample(int step, int slot) const;
+    void clearSequencerOneShotSample(int step, int slot);
+    void clearSequencerOneShotSamples();
+    struct SequencerOneShotExport
+    {
+        int step = 0;
+        int slot = 0;
+        T5ynthStepSequencer::OneShotMode mode = T5ynthStepSequencer::OneShotMode::Normal;
+        juce::String label;
+        double sampleRate = 44100.0;
+        juce::AudioBuffer<float> audio;
+    };
+    std::vector<SequencerOneShotExport> exportSequencerOneShotSamples() const;
+    void importSequencerOneShotSamples(const std::vector<SequencerOneShotExport>& slots);
     bool canUseStepHoldPreview() const;
     void beginStepHoldPreview(int midiNote, float velocity = 0.8f);
     void updateStepHoldPreview(int midiNote, float velocity = 0.8f);
@@ -224,6 +240,43 @@ private:
     int lastGenSteps = -1, lastGenPulses = -1, lastGenRotation = -1;
     float lastGenMutation = -1.0f;
     std::array<float, 4> genStrandPan {};
+
+    struct SequencerOneShotSample
+    {
+        juce::AudioBuffer<float> audio;
+        double sampleRate = 44100.0;
+        juce::String label;
+    };
+    using SequencerOneShotSamplePtr = std::shared_ptr<const SequencerOneShotSample>;
+    static constexpr int kMaxSequencerOneShotVoices =
+        T5ynthStepSequencer::MAX_STEPS * T5ynthStepSequencer::ONE_SHOT_SLOTS;
+    std::array<std::array<SequencerOneShotSamplePtr,
+                          T5ynthStepSequencer::ONE_SHOT_SLOTS>,
+               T5ynthStepSequencer::MAX_STEPS> sequencerOneShotSamples;
+    struct PendingSequencerOneShot
+    {
+        SequencerOneShotSamplePtr sample;
+        float gain = 1.0f;
+        int sampleOffset = 0;
+    };
+    struct ActiveSequencerOneShot
+    {
+        SequencerOneShotSamplePtr sample;
+        double position = 0.0;
+        double increment = 1.0;
+        float gain = 1.0f;
+        int startOffset = 0;
+        bool active = false;
+        uint64_t age = 0;
+    };
+    std::array<PendingSequencerOneShot, kMaxSequencerOneShotVoices> pendingSequencerOneShots;
+    std::array<ActiveSequencerOneShot, kMaxSequencerOneShotVoices> activeSequencerOneShots;
+    int pendingSequencerOneShotCount = 0;
+    uint64_t sequencerOneShotAgeCounter = 0;
+    void queueSequencerOneShotTrigger(const T5ynthStepSequencer::OneShotTrigger& trigger);
+    void renderSequencerOneShots(juce::AudioBuffer<float>& buffer);
+    void stopSequencerOneShots();
+    bool hasActiveSequencerOneShots() const;
 
     // Edge-detection for arp-toggle note-off cleanup. When arp transitions
     // false→true while a sequencer is running, the seq's currently-sounding

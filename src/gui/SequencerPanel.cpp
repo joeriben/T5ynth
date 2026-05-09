@@ -1,5 +1,6 @@
 #include "SequencerPanel.h"
 #include "../PluginProcessor.h"
+#include "WaveformDisplay.h"
 
 // ─── Note name helper ──────────────────────────────────────────────
 static juce::String noteName(int n)
@@ -17,6 +18,32 @@ constexpr int kOverflowDivisionBase = 3000;
 constexpr int kOverflowOctaveBase = 4000;
 constexpr int kOverflowSavePattern = 5001;
 constexpr int kOverflowLoadPattern = 5002;
+
+bool isWaveformOneShotDrag(const juce::var& description)
+{
+    if (description.isString())
+        return description.toString() == WaveformDisplay::kSequencerOneShotDragDescription;
+
+    if (auto* obj = description.getDynamicObject())
+        return obj->getProperty("kind").toString() == WaveformDisplay::kSequencerOneShotDragDescription;
+
+    return false;
+}
+
+bool getWaveformOneShotDragRegion(const juce::var& description, float& start, float& end)
+{
+    if (auto* obj = description.getDynamicObject())
+    {
+        if (obj->getProperty("kind").toString() != WaveformDisplay::kSequencerOneShotDragDescription)
+            return false;
+
+        start = static_cast<float>(obj->getProperty("start"));
+        end = static_cast<float>(obj->getProperty("end"));
+        return true;
+    }
+
+    return false;
+}
 }
 
 // ─── IconLnF ──────────────────────────────────────────────────────
@@ -79,8 +106,59 @@ void SequencerPanel::StepColumn::paint(juce::Graphics& g)
         g.drawText(noteName(semi), noteTextR, juce::Justification::centredTop);
     }
 
-    // ── Velocity horizontal bar (55%–68%) ──
-    int vB = velBottom() - noteBottom();
+    // ── One-shot sample slots ──
+    b.removeFromTop(oneShotBottom() - noteBottom());
+    auto shotR = oneShotArea();
+    if (shotR.getHeight() > 2)
+    {
+        for (int slot = 0; slot < T5ynthStepSequencer::ONE_SHOT_SLOTS; ++slot)
+        {
+            auto r = oneShotSlotBounds(slot).reduced(1);
+            const bool hasSample = processor->hasSequencerOneShotSample(stepIndex, slot);
+            const auto mode = processor->getStepSequencer().getStepOneShotMode(stepIndex, slot);
+            const bool hover = slot == dropHoverSlot;
+
+            juce::Colour fill = kDimmer.withAlpha(0.12f);
+            juce::Colour text = kDimmer;
+            juce::String label = juce::String(slot + 1);
+
+            if (hasSample)
+            {
+                if (mode == T5ynthStepSequencer::OneShotMode::Accent)
+                {
+                    fill = kSeqCol.brighter(0.45f).withAlpha(0.68f);
+                    text = juce::Colours::white;
+                    label = "A";
+                }
+                else if (mode == T5ynthStepSequencer::OneShotMode::Mute)
+                {
+                    fill = kDimmer.withAlpha(0.18f);
+                    text = kDim;
+                    label = "M";
+                }
+                else
+                {
+                    fill = kSeqCol.withAlpha(0.44f);
+                    text = juce::Colours::white;
+                    label = "N";
+                }
+            }
+
+            if (hover)
+                fill = kSeqCol.withAlpha(hasSample ? 0.82f : 0.38f);
+
+            g.setColour(fill);
+            g.fillRect(r);
+            g.setColour(hover ? juce::Colours::white.withAlpha(0.9f) : kBorder);
+            g.drawRect(r, 1);
+            g.setColour(text);
+            g.setFont(juce::FontOptions(juce::jlimit(6.0f, 9.0f, static_cast<float>(w) * 0.18f)));
+            g.drawText(label, r, juce::Justification::centred);
+        }
+    }
+
+    // ── Velocity horizontal bar ──
+    int vB = velBottom() - oneShotBottom();
     auto velR = b.removeFromTop(vB);
     if (velR.getHeight() > 2)
     {
@@ -129,6 +207,23 @@ void SequencerPanel::StepColumn::mouseDown(const juce::MouseEvent& e)
         noteHoldPreviewNote = step.note;
         if (noteHoldPreviewActive)
             processor->beginStepHoldPreview(step.note);
+    }
+    else if (y < oneShotBottom())
+    {
+        int slot = oneShotSlotAt(e.getPosition());
+        if (slot >= 0)
+        {
+            if (e.mods.isRightButtonDown())
+            {
+                processor->clearSequencerOneShotSample(stepIndex, slot);
+            }
+            else if (processor->hasSequencerOneShotSample(stepIndex, slot))
+            {
+                seq.cycleStepOneShotMode(stepIndex, slot);
+            }
+            dragZone = 4;
+            repaint();
+        }
     }
     else if (y < velBottom())
     {
@@ -189,6 +284,93 @@ void SequencerPanel::StepColumn::mouseUp(const juce::MouseEvent&)
     noteHoldPreviewActive = false;
     noteHoldPreviewNote = -1;
     dragZone = -1;
+}
+
+juce::Rectangle<int> SequencerPanel::StepColumn::oneShotArea() const
+{
+    auto area = getLocalBounds().reduced(1);
+    area.removeFromTop(noteBottom());
+    return area.removeFromTop(oneShotBottom() - noteBottom());
+}
+
+juce::Rectangle<int> SequencerPanel::StepColumn::oneShotSlotBounds(int slot) const
+{
+    auto area = oneShotArea();
+    if (slot < 0 || slot >= T5ynthStepSequencer::ONE_SHOT_SLOTS)
+        return {};
+
+    const int left = area.getX() + (area.getWidth() * slot)
+        / T5ynthStepSequencer::ONE_SHOT_SLOTS;
+    const int right = area.getX() + (area.getWidth() * (slot + 1))
+        / T5ynthStepSequencer::ONE_SHOT_SLOTS;
+    return { left, area.getY(), right - left, area.getHeight() };
+}
+
+int SequencerPanel::StepColumn::oneShotSlotAt(juce::Point<int> p) const
+{
+    for (int slot = 0; slot < T5ynthStepSequencer::ONE_SHOT_SLOTS; ++slot)
+        if (oneShotSlotBounds(slot).contains(p))
+            return slot;
+
+    return -1;
+}
+
+int SequencerPanel::StepColumn::oneShotDropSlotAt(juce::Point<int> p) const
+{
+    const int slot = oneShotSlotAt(p);
+    if (slot >= 0)
+        return slot;
+
+    if (dropHoverSlot >= 0)
+        return dropHoverSlot;
+
+    if (!oneShotArea().contains(p))
+        return -1;
+
+    const auto area = oneShotArea();
+    const int relX = p.x - area.getX();
+    const int slotW = juce::jmax(1, area.getWidth() / T5ynthStepSequencer::ONE_SHOT_SLOTS);
+    return juce::jlimit(0, T5ynthStepSequencer::ONE_SHOT_SLOTS - 1, relX / slotW);
+}
+
+bool SequencerPanel::StepColumn::isInterestedInDragSource(const SourceDetails& details)
+{
+    return isWaveformOneShotDrag(details.description);
+}
+
+void SequencerPanel::StepColumn::itemDragMove(const SourceDetails& details)
+{
+    const int slot = oneShotSlotAt(details.localPosition);
+    if (slot != dropHoverSlot)
+    {
+        dropHoverSlot = slot;
+        repaint();
+    }
+}
+
+void SequencerPanel::StepColumn::itemDragExit(const SourceDetails&)
+{
+    if (dropHoverSlot >= 0)
+    {
+        dropHoverSlot = -1;
+        repaint();
+    }
+}
+
+void SequencerPanel::StepColumn::itemDropped(const SourceDetails& details)
+{
+    const int slot = oneShotDropSlotAt(details.localPosition);
+    dropHoverSlot = -1;
+    if (processor != nullptr && slot >= 0)
+    {
+        float start = 0.0f;
+        float end = 1.0f;
+        if (getWaveformOneShotDragRegion(details.description, start, end))
+            processor->assignSequencerOneShotFromRegion(stepIndex, slot, start, end);
+        else
+            processor->assignSequencerOneShotFromCurrentRegion(stepIndex, slot);
+    }
+    repaint();
 }
 
 // ─── SequencerPanel ────────────────────────────────────────────────
@@ -682,8 +864,28 @@ void SequencerPanel::savePatternAsync()
         out->setProperty("timestamp", juce::Time::getCurrentTime().toISO8601(true));
 
         for (const char* key : { "sequencer", "arpeggiator", "generativeSeq" })
-            if (full->hasProperty(key))
+        {
+            if (!full->hasProperty(key))
+                continue;
+
+            if (juce::String(key) == "sequencer")
+            {
+                auto seqCopy = juce::JSON::parse(juce::JSON::toString(full->getProperty(key)));
+                if (auto* seq = seqCopy.getDynamicObject())
+                {
+                    seq->removeProperty("oneShotSamples");
+                    if (auto* steps = seq->getProperty("steps").getArray())
+                        for (auto& step : *steps)
+                            if (auto* stepObj = step.getDynamicObject())
+                                stepObj->removeProperty("oneShots");
+                    out->setProperty(key, seqCopy);
+                }
+            }
+            else
+            {
                 out->setProperty(key, full->getProperty(key));
+            }
+        }
 
         auto file = f.withFileExtension("t5seq");
         file.replaceWithText(juce::JSON::toString(out.get(), true));

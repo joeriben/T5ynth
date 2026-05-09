@@ -19,12 +19,30 @@ class T5ynthStepSequencer
 {
 public:
     static constexpr int MAX_STEPS = 64;
+    static constexpr int ONE_SHOT_SLOTS = 3;
 
     /** Note division relative to quarter note */
     enum Division { Div_1_1 = 0, Div_1_2, Div_1_4, Div_1_8, Div_1_16 };
     static constexpr float DIVISION_FACTORS[] = { 4.0f, 2.0f, 1.0f, 0.5f, 0.25f };
 
     static constexpr int NUM_PRESETS = 10;
+
+    enum class OneShotMode
+    {
+        Normal = 0,
+        Accent,
+        Mute
+    };
+
+    struct OneShotTrigger
+    {
+        int stepIndex = 0;
+        int slotIndex = 0;
+        float gain = 1.0f;
+        int sampleOffset = 0;
+    };
+
+    using OneShotTriggerCallback = std::function<void(const OneShotTrigger&)>;
 
     T5ynthStepSequencer() = default;
 
@@ -42,6 +60,10 @@ public:
     void setStepEnabled(int step, bool enabled);
     void setStepGate(int step, float gate);
     void setStepBind(int step, bool bind);
+    void setStepOneShotMode(int step, int slot, OneShotMode mode);
+    void cycleStepOneShotMode(int step, int slot);
+    OneShotMode getStepOneShotMode(int step, int slot) const;
+    void setOneShotTriggerCallback(OneShotTriggerCallback callback);
 
     /** Bulk set gate for all steps. */
     void setAllGates(float gate);
@@ -93,6 +115,9 @@ public:
         float gate = 0.8f;
         bool enabled = true;
         bool bind = false;
+        std::array<OneShotMode, ONE_SHOT_SLOTS> oneShotModes {
+            OneShotMode::Normal, OneShotMode::Normal, OneShotMode::Normal
+        };
     };
 
     const Step& getStep(int idx) const { return steps[static_cast<size_t>(juce::jlimit(0, MAX_STEPS - 1, idx))]; }
@@ -111,10 +136,12 @@ private:
     int division = 3; // default 1/8 (index 3)
     float shuffle = 0.0f;
     int octaveShiftSemitones = 0;
+    OneShotTriggerCallback oneShotTriggerCallback;
     // glideTimeMs removed — now computed automatically from BPM/division
 
     double stepDurationSamples() const;
     double shuffledStepDurationSamples(int stepIdx) const;
+    void emitOneShotTriggers(int stepIdx, const Step& step, int sampleOffset);
 
     // Preset data
     struct PresetData { const char* name; const Step* steps; int count; };

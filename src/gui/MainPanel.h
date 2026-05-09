@@ -13,7 +13,9 @@
 
 class T5ynthProcessor;
 
-class MainPanel : public juce::Component, private juce::Timer
+class MainPanel : public juce::Component,
+                  public juce::DragAndDropContainer,
+                  private juce::Timer
 {
 public:
     explicit MainPanel(T5ynthProcessor& processor);

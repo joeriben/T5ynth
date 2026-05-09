@@ -107,6 +107,11 @@ T5ynthProcessor::T5ynthProcessor()
 {
     juce::File("/tmp/t5ynth_sampler_debug.log").deleteFile();
     samplerProcessorDebugLog("session start");
+    stepSequencer.setOneShotTriggerCallback(
+        [this](const T5ynthStepSequencer::OneShotTrigger& trigger)
+        {
+            queueSequencerOneShotTrigger(trigger);
+        });
     samplerReprepareThread = std::thread([this] { samplerReprepareThreadMain(); });
 }
 
@@ -929,6 +934,9 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     lfo2Buffer.resize(static_cast<size_t>(samplesPerBlock));
     lfo3Buffer.resize(static_cast<size_t>(samplesPerBlock));
     reverbSendBuffer.setSize(2, samplesPerBlock);
+    pendingSequencerOneShotCount = 0;
+    for (auto& voice : activeSequencerOneShots)
+        voice.active = false;
 
     silentBlockCount = 0;
     // Allow ~10 seconds of reverb tail before deep idle
@@ -945,6 +953,283 @@ void T5ynthProcessor::releaseResources()
         samplerReprepareSourceBuffer.setSize(0, 0);
         samplerReprepareSourceValid = false;
         ++samplerReprepareSourceVersion;
+    }
+}
+
+bool T5ynthProcessor::assignSequencerOneShotFromCurrentRegion(int step, int slot)
+{
+    float regionStart = 0.0f;
+    float regionEnd = 1.0f;
+    {
+        const juce::ScopedLock sl(getCallbackLock());
+        regionStart = masterSampler.getStartPos();
+        regionEnd = masterSampler.getLoopEnd();
+    }
+
+    return assignSequencerOneShotFromRegion(step, slot, regionStart, regionEnd);
+}
+
+bool T5ynthProcessor::assignSequencerOneShotFromRegion(int step, int slot, float regionStart, float regionEnd)
+{
+    if (step < 0 || step >= T5ynthStepSequencer::MAX_STEPS
+        || slot < 0 || slot >= T5ynthStepSequencer::ONE_SHOT_SLOTS
+        || !std::isfinite(regionStart) || !std::isfinite(regionEnd))
+        return false;
+
+    auto sample = std::make_shared<SequencerOneShotSample>();
+
+    {
+        const juce::ScopedLock sl(getCallbackLock());
+
+        const auto& source = generatedAudioFull;
+        const int sourceSamples = source.getNumSamples();
+        const int sourceChannels = source.getNumChannels();
+        if (sourceSamples <= 0 || sourceChannels <= 0)
+            return false;
+
+        const float start = juce::jlimit(0.0f, 1.0f, regionStart);
+        const float end = juce::jlimit(0.0f, 1.0f, regionEnd);
+        const float lo = std::min(start, end);
+        const float hi = std::max(start, end);
+
+        int startSample = juce::jlimit(0, sourceSamples - 1,
+            static_cast<int>(std::floor(lo * static_cast<float>(sourceSamples))));
+        int endSample = juce::jlimit(startSample + 1, sourceSamples,
+            static_cast<int>(std::ceil(hi * static_cast<float>(sourceSamples))));
+        if (endSample <= startSample)
+            endSample = juce::jmin(sourceSamples, startSample + 1);
+
+        const int length = endSample - startSample;
+        sample->audio.setSize(sourceChannels, length, false, false, true);
+        for (int ch = 0; ch < sourceChannels; ++ch)
+            sample->audio.copyFrom(ch, 0, source, ch, startSample, length);
+
+        sample->sampleRate = generatedSampleRate > 0.0 ? generatedSampleRate : getSampleRate();
+        const double startSec = static_cast<double>(startSample) / sample->sampleRate;
+        const double endSec = static_cast<double>(endSample) / sample->sampleRate;
+        sample->label = "P1-P3 "
+            + juce::String(startSec, 2) + "s-"
+            + juce::String(endSec, 2) + "s";
+    }
+
+    stepSequencer.setStepOneShotMode(step, slot, T5ynthStepSequencer::OneShotMode::Normal);
+    std::atomic_store_explicit(
+        &sequencerOneShotSamples[static_cast<size_t>(step)][static_cast<size_t>(slot)],
+        SequencerOneShotSamplePtr(std::move(sample)),
+        std::memory_order_release);
+    return true;
+}
+
+bool T5ynthProcessor::hasSequencerOneShotSample(int step, int slot) const
+{
+    if (step < 0 || step >= T5ynthStepSequencer::MAX_STEPS
+        || slot < 0 || slot >= T5ynthStepSequencer::ONE_SHOT_SLOTS)
+        return false;
+
+    return std::atomic_load_explicit(
+        &sequencerOneShotSamples[static_cast<size_t>(step)][static_cast<size_t>(slot)],
+        std::memory_order_acquire) != nullptr;
+}
+
+void T5ynthProcessor::clearSequencerOneShotSample(int step, int slot)
+{
+    if (step < 0 || step >= T5ynthStepSequencer::MAX_STEPS
+        || slot < 0 || slot >= T5ynthStepSequencer::ONE_SHOT_SLOTS)
+        return;
+
+    std::atomic_store_explicit(
+        &sequencerOneShotSamples[static_cast<size_t>(step)][static_cast<size_t>(slot)],
+        SequencerOneShotSamplePtr{},
+        std::memory_order_release);
+    stepSequencer.setStepOneShotMode(step, slot, T5ynthStepSequencer::OneShotMode::Normal);
+}
+
+void T5ynthProcessor::clearSequencerOneShotSamples()
+{
+    for (int step = 0; step < T5ynthStepSequencer::MAX_STEPS; ++step)
+        for (int slot = 0; slot < T5ynthStepSequencer::ONE_SHOT_SLOTS; ++slot)
+            clearSequencerOneShotSample(step, slot);
+}
+
+std::vector<T5ynthProcessor::SequencerOneShotExport>
+T5ynthProcessor::exportSequencerOneShotSamples() const
+{
+    std::vector<SequencerOneShotExport> out;
+
+    for (int step = 0; step < T5ynthStepSequencer::MAX_STEPS; ++step)
+    {
+        for (int slot = 0; slot < T5ynthStepSequencer::ONE_SHOT_SLOTS; ++slot)
+        {
+            auto sample = std::atomic_load_explicit(
+                &sequencerOneShotSamples[static_cast<size_t>(step)][static_cast<size_t>(slot)],
+                std::memory_order_acquire);
+            if (!sample || sample->audio.getNumSamples() <= 0)
+                continue;
+
+            SequencerOneShotExport e;
+            e.step = step;
+            e.slot = slot;
+            e.mode = stepSequencer.getStepOneShotMode(step, slot);
+            e.label = sample->label;
+            e.sampleRate = sample->sampleRate;
+            e.audio.makeCopyOf(sample->audio);
+            out.push_back(std::move(e));
+        }
+    }
+
+    return out;
+}
+
+void T5ynthProcessor::importSequencerOneShotSamples(const std::vector<SequencerOneShotExport>& slots)
+{
+    clearSequencerOneShotSamples();
+
+    for (const auto& slot : slots)
+    {
+        if (slot.step < 0 || slot.step >= T5ynthStepSequencer::MAX_STEPS
+            || slot.slot < 0 || slot.slot >= T5ynthStepSequencer::ONE_SHOT_SLOTS
+            || slot.audio.getNumSamples() <= 0 || slot.audio.getNumChannels() <= 0)
+            continue;
+
+        auto sample = std::make_shared<SequencerOneShotSample>();
+        sample->audio.makeCopyOf(slot.audio);
+        sample->sampleRate = slot.sampleRate > 0.0 ? slot.sampleRate : 44100.0;
+        sample->label = slot.label;
+
+        stepSequencer.setStepOneShotMode(slot.step, slot.slot, slot.mode);
+        std::atomic_store_explicit(
+            &sequencerOneShotSamples[static_cast<size_t>(slot.step)][static_cast<size_t>(slot.slot)],
+            SequencerOneShotSamplePtr(std::move(sample)),
+            std::memory_order_release);
+    }
+}
+
+void T5ynthProcessor::queueSequencerOneShotTrigger(const T5ynthStepSequencer::OneShotTrigger& trigger)
+{
+    if (trigger.stepIndex < 0 || trigger.stepIndex >= T5ynthStepSequencer::MAX_STEPS
+        || trigger.slotIndex < 0 || trigger.slotIndex >= T5ynthStepSequencer::ONE_SHOT_SLOTS
+        || pendingSequencerOneShotCount >= kMaxSequencerOneShotVoices)
+        return;
+
+    auto sample = std::atomic_load_explicit(
+        &sequencerOneShotSamples[static_cast<size_t>(trigger.stepIndex)]
+                                [static_cast<size_t>(trigger.slotIndex)],
+        std::memory_order_acquire);
+    if (!sample || sample->audio.getNumSamples() <= 0 || sample->audio.getNumChannels() <= 0)
+        return;
+
+    auto& pending = pendingSequencerOneShots[static_cast<size_t>(pendingSequencerOneShotCount++)];
+    pending.sample = std::move(sample);
+    pending.gain = trigger.gain;
+    pending.sampleOffset = trigger.sampleOffset;
+}
+
+bool T5ynthProcessor::hasActiveSequencerOneShots() const
+{
+    for (const auto& voice : activeSequencerOneShots)
+        if (voice.active)
+            return true;
+    return false;
+}
+
+void T5ynthProcessor::stopSequencerOneShots()
+{
+    pendingSequencerOneShotCount = 0;
+    for (auto& voice : activeSequencerOneShots)
+    {
+        voice.active = false;
+        voice.sample.reset();
+        voice.startOffset = 0;
+        voice.position = 0.0;
+    }
+}
+
+void T5ynthProcessor::renderSequencerOneShots(juce::AudioBuffer<float>& buffer)
+{
+    const int numSamples = buffer.getNumSamples();
+    const int numChannels = buffer.getNumChannels();
+    if (numSamples <= 0 || numChannels <= 0)
+        return;
+
+    auto startVoice = [this, numSamples](const PendingSequencerOneShot& pending)
+    {
+        int target = -1;
+        uint64_t oldest = std::numeric_limits<uint64_t>::max();
+
+        for (int i = 0; i < kMaxSequencerOneShotVoices; ++i)
+        {
+            const auto& voice = activeSequencerOneShots[static_cast<size_t>(i)];
+            if (!voice.active)
+            {
+                target = i;
+                break;
+            }
+            if (voice.age < oldest)
+            {
+                oldest = voice.age;
+                target = i;
+            }
+        }
+
+        if (target < 0)
+            return;
+
+        auto& voice = activeSequencerOneShots[static_cast<size_t>(target)];
+        voice.sample = pending.sample;
+        voice.position = 0.0;
+        const double hostRate = getSampleRate() > 0.0 ? getSampleRate() : 44100.0;
+        voice.increment = juce::jmax(0.0001, pending.sample->sampleRate / hostRate);
+        voice.gain = pending.gain;
+        voice.startOffset = juce::jlimit(0, juce::jmax(0, numSamples - 1), pending.sampleOffset);
+        voice.active = true;
+        voice.age = ++sequencerOneShotAgeCounter;
+    };
+
+    for (int i = 0; i < pendingSequencerOneShotCount; ++i)
+        startVoice(pendingSequencerOneShots[static_cast<size_t>(i)]);
+    pendingSequencerOneShotCount = 0;
+
+    for (auto& voice : activeSequencerOneShots)
+    {
+        if (!voice.active || !voice.sample)
+            continue;
+
+        const auto& source = voice.sample->audio;
+        const int sourceSamples = source.getNumSamples();
+        const int sourceChannels = source.getNumChannels();
+        if (sourceSamples <= 0 || sourceChannels <= 0)
+        {
+            voice.active = false;
+            continue;
+        }
+
+        const int start = juce::jlimit(0, numSamples, voice.startOffset);
+        voice.startOffset = 0;
+
+        for (int i = start; i < numSamples; ++i)
+        {
+            if (voice.position >= static_cast<double>(sourceSamples))
+            {
+                voice.active = false;
+                voice.sample.reset();
+                break;
+            }
+
+            const int idx = juce::jlimit(0, sourceSamples - 1,
+                static_cast<int>(voice.position));
+            const int idx2 = juce::jmin(idx + 1, sourceSamples - 1);
+            const float frac = static_cast<float>(voice.position - static_cast<double>(idx));
+
+            for (int outCh = 0; outCh < numChannels; ++outCh)
+            {
+                const int srcCh = sourceChannels == 1 ? 0 : juce::jmin(outCh, sourceChannels - 1);
+                const float s0 = source.getSample(srcCh, idx);
+                const float s1 = source.getSample(srcCh, idx2);
+                buffer.addSample(outCh, i, (s0 + (s1 - s0) * frac) * voice.gain);
+            }
+
+            voice.position += voice.increment;
+        }
     }
 }
 
@@ -1038,6 +1323,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 {
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
+    pendingSequencerOneShotCount = 0;
 
 
     const int numSamples = buffer.getNumSamples();
@@ -1068,6 +1354,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // ── Idle detection ──────────────────────────────────────────────────────
     bool seqRunning = parameters.getRawParameterValue(PID::seqRunning)->load() > 0.5f;
     bool hasActivity = voiceManager.hasActiveVoices()
+                       || hasActiveSequencerOneShots()
                        || !midiMessages.isEmpty()
                        || seqRunning;
 
@@ -1325,6 +1612,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 // Flush step-seq's currently-sounding note before the gen-seq
                 // takes over — avoids a hanging voice across the engine swap.
                 stepSequencer.allNotesOff(midiMessages, 0);
+                stopSequencerOneShots();
                 stepSequencer.stop();
                 generativeSequencer.setBpm(static_cast<double>(seqBpm));
                 generativeSequencer.setDivision(seqDivision);
@@ -1686,7 +1974,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     const bool lfo3TrigMode = bp.lfo3TrigMode;
 
     // Re-check: seq/arp may have generated notes
-    if (voiceManager.hasActiveVoices() || !midiMessages.isEmpty())
+    if (voiceManager.hasActiveVoices() || hasActiveSequencerOneShots() || !midiMessages.isEmpty())
         silentBlockCount = 0;
 
     bool skipSynthesis = (silentBlockCount > 0 && !voiceManager.hasActiveVoices()
@@ -1949,6 +2237,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             }
         }
     }
+
+    renderSequencerOneShots(buffer);
 
     // ── Effects (parallel send-bus: dry + delay + reverb → limiter) ───────
     int delayType = static_cast<int>(parameters.getRawParameterValue(PID::delayType)->load());
@@ -3256,6 +3546,15 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         s->setProperty("velocity", static_cast<double>(step.velocity));
         s->setProperty("gate", static_cast<double>(step.gate));
         s->setProperty("bind", step.bind);
+        juce::Array<juce::var> oneShots;
+        for (int slot = 0; slot < T5ynthStepSequencer::ONE_SHOT_SLOTS; ++slot)
+        {
+            juce::DynamicObject::Ptr shot = new juce::DynamicObject();
+            shot->setProperty("mode", static_cast<int>(step.oneShotModes[static_cast<size_t>(slot)]));
+            shot->setProperty("hasSample", hasSequencerOneShotSample(i, slot));
+            oneShots.add(shot.get());
+        }
+        s->setProperty("oneShots", oneShots);
         stepArr.add(s.get());
     }
     seq->setProperty("steps", stepArr);
@@ -3358,6 +3657,7 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
 
     auto* root = parsed.getDynamicObject();
     if (!root) return false;
+    const bool importingSequencePattern = root->getProperty("kind").toString() == "t5seq";
 
     // ── Synth params ──
     if (auto* synth = root->getProperty("synth").getDynamicObject())
@@ -3591,6 +3891,8 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         int stepCount = static_cast<int>(seq->getProperty("stepCount"));
         setParam(parameters, PID::seqSteps, static_cast<float>(stepCount));
         stepSequencer.setNumSteps(stepCount);
+        if (!importingSequencePattern)
+            clearSequencerOneShotSamples();
 
         auto* stepsArr = seq->getProperty("steps").getArray();
         if (stepsArr)
@@ -3609,6 +3911,22 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                     stepSequencer.setStepBind(i, static_cast<bool>(s->getProperty("bind")));
                 else if (s->hasProperty("glide"))  // backward compat
                     stepSequencer.setStepBind(i, static_cast<bool>(s->getProperty("glide")));
+                if (!importingSequencePattern)
+                {
+                    if (auto* oneShots = s->getProperty("oneShots").getArray())
+                    {
+                        for (int slot = 0; slot < std::min(T5ynthStepSequencer::ONE_SHOT_SLOTS, oneShots->size()); ++slot)
+                        {
+                            auto* shot = (*oneShots)[slot].getDynamicObject();
+                            if (shot == nullptr || !shot->hasProperty("mode"))
+                                continue;
+
+                            const int mode = juce::jlimit(0, 2, static_cast<int>(shot->getProperty("mode")));
+                            stepSequencer.setStepOneShotMode(i, slot,
+                                static_cast<T5ynthStepSequencer::OneShotMode>(mode));
+                        }
+                    }
+                }
             }
         }
         setParam(parameters, PID::seqOctave,

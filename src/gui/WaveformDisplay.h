@@ -34,6 +34,8 @@ public:
     WaveformDisplay();
     ~WaveformDisplay() override { stopTimer(); }
 
+    static constexpr const char* kSequencerOneShotDragDescription = "t5ynth-waveform-region";
+
     void paint(juce::Graphics& g) override;
     void resized() override;
     void mouseDown(const juce::MouseEvent& e) override;
@@ -96,6 +98,7 @@ private:
 
     enum DragTarget { None, Start, End, StartPos, Scan };
     DragTarget dragging = None;
+    bool regionDragArmed = false;
     bool scanVisible = false;
     float scanTarget   = std::numeric_limits<float>::quiet_NaN();
     float scanPos      = std::numeric_limits<float>::quiet_NaN();   // smoothed display value

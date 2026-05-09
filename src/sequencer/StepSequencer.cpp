@@ -131,6 +131,26 @@ double T5ynthStepSequencer::shuffledStepDurationSamples(int stepIdx) const
     return base * ((stepIdx & 1) == 0 ? (1.0 + amount) : (1.0 - amount));
 }
 
+void T5ynthStepSequencer::emitOneShotTriggers(int stepIdx, const Step& step, int sampleOffset)
+{
+    if (!oneShotTriggerCallback)
+        return;
+
+    for (int slot = 0; slot < ONE_SHOT_SLOTS; ++slot)
+    {
+        const auto mode = step.oneShotModes[static_cast<size_t>(slot)];
+        if (mode == OneShotMode::Mute)
+            continue;
+
+        OneShotTrigger trigger;
+        trigger.stepIndex = stepIdx;
+        trigger.slotIndex = slot;
+        trigger.gain = mode == OneShotMode::Accent ? 1.5f : 1.0f;
+        trigger.sampleOffset = sampleOffset;
+        oneShotTriggerCallback(trigger);
+    }
+}
+
 void T5ynthStepSequencer::prepare(double sr, int /*samplesPerBlock*/)
 {
     sampleRate = sr;
@@ -239,6 +259,8 @@ void T5ynthStepSequencer::processBlock(juce::AudioBuffer<float>& buffer,
             samplesUntilGateOff = -1.0;
         }
 
+        emitOneShotTriggers(stepIdx, step, eventPos);
+
         currentStep = stepIdx;
         currentStepForGui.store(currentStep, std::memory_order_relaxed);
         scheduledStep++;
@@ -307,6 +329,39 @@ void T5ynthStepSequencer::setStepBind(int step, bool bind)
         steps[static_cast<size_t>(step)].bind = bind;
 }
 
+void T5ynthStepSequencer::setStepOneShotMode(int step, int slot, OneShotMode mode)
+{
+    if (step >= 0 && step < MAX_STEPS && slot >= 0 && slot < ONE_SHOT_SLOTS)
+        steps[static_cast<size_t>(step)].oneShotModes[static_cast<size_t>(slot)] = mode;
+}
+
+void T5ynthStepSequencer::cycleStepOneShotMode(int step, int slot)
+{
+    if (step < 0 || step >= MAX_STEPS || slot < 0 || slot >= ONE_SHOT_SLOTS)
+        return;
+
+    auto& mode = steps[static_cast<size_t>(step)].oneShotModes[static_cast<size_t>(slot)];
+    switch (mode)
+    {
+        case OneShotMode::Normal: mode = OneShotMode::Accent; break;
+        case OneShotMode::Accent: mode = OneShotMode::Mute;   break;
+        case OneShotMode::Mute:   mode = OneShotMode::Normal; break;
+    }
+}
+
+T5ynthStepSequencer::OneShotMode T5ynthStepSequencer::getStepOneShotMode(int step, int slot) const
+{
+    if (step >= 0 && step < MAX_STEPS && slot >= 0 && slot < ONE_SHOT_SLOTS)
+        return steps[static_cast<size_t>(step)].oneShotModes[static_cast<size_t>(slot)];
+
+    return OneShotMode::Normal;
+}
+
+void T5ynthStepSequencer::setOneShotTriggerCallback(OneShotTriggerCallback callback)
+{
+    oneShotTriggerCallback = std::move(callback);
+}
+
 void T5ynthStepSequencer::setAllGates(float gate)
 {
     float g = juce::jlimit(0.1f, 1.0f, gate);
@@ -323,10 +378,12 @@ void T5ynthStepSequencer::loadPreset(int index)
 
     for (int i = 0; i < MAX_STEPS; ++i)
     {
+        const auto oneShotModes = steps[static_cast<size_t>(i)].oneShotModes;
         if (i < preset.count)
             steps[static_cast<size_t>(i)] = preset.steps[i];
         else
             steps[static_cast<size_t>(i)] = { 60, 0.8f, 0.8f, false, false };
+        steps[static_cast<size_t>(i)].oneShotModes = oneShotModes;
     }
 }
 
