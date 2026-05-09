@@ -1,8 +1,11 @@
 #pragma once
 #include <JuceHeader.h>
+#include <atomic>
 #include <array>
+#include <mutex>
 #include <memory>
 #include <limits>
+#include <thread>
 #include "dsp/VoiceManager.h"
 #include "dsp/LFO.h"
 #include "dsp/DriftLFO.h"
@@ -179,6 +182,10 @@ private:
     WtTraversalMapping makeWtTraversalMapping(int totalSamples, float p1, float p2, float p3) const;
     void syncWavetableTraversal(double bufferSampleRate, int totalSamples);
     void updateDriftState(int numSamples, float syncBpm);
+    void syncSamplerSettingsFromParametersLocked();
+    bool serviceSamplerReprepare();
+    void samplerReprepareThreadMain();
+    void storeSamplerReprepareSource(const juce::AudioBuffer<float>& buffer, double sampleRate);
 
     // Engine (mode is stored in APVTS "engine_mode", no separate member)
 
@@ -189,6 +196,14 @@ private:
     // Master data holders (own the audio/frame data, voices share from these)
     WavetableOscillator masterOsc;
     SamplePlayer masterSampler;
+    std::thread samplerReprepareThread;
+    std::atomic<bool> samplerReprepareThreadShouldExit { false };
+    std::atomic<bool> samplerReprepareWorkRequested { false };
+    std::mutex samplerReprepareSourceMutex;
+    juce::AudioBuffer<float> samplerReprepareSourceBuffer;
+    double samplerReprepareSourceRate = 44100.0;
+    juce::uint64 samplerReprepareSourceVersion = 0;
+    bool samplerReprepareSourceValid = false;
 
     // DSP — global (shared across voices, post-sum)
     LFO lfo1;

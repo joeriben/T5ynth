@@ -612,10 +612,6 @@ void SamplePlayer::renderPitchedBlock(float* output, int numSamples)
         return;
     }
 
-    // Re-prepare buffer if settings changed
-    if (needsReprepareFlag && !sharedMode)
-        preparePlaybackBuffer();
-
     // Determine mode before glide advancement (use current ratio)
     double effectiveRatio = transposeRatio * static_cast<double>(pitchModFactor);
     float semitones = static_cast<float>(12.0 * std::log2(std::max(effectiveRatio, 1e-6)));
@@ -935,10 +931,6 @@ void SamplePlayer::processBlock(juce::AudioBuffer<float>& output)
 {
     if (!audioLoaded || !playing || currentPlaybackBuffer().getNumSamples() == 0)
         return;
-
-    // Re-prepare if settings changed (shared-mode players skip this)
-    if (needsReprepareFlag && !sharedMode)
-        preparePlaybackBuffer();
 
     const int numOutChannels = output.getNumChannels();
     const int numOutSamples  = output.getNumSamples();

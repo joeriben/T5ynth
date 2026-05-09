@@ -254,7 +254,8 @@ private:
     bool  normalizeOn     = false;
     int   loopOptimizeLevel = 0;   // 0=Off, 1=Low, 2=High
 
-    // Dirty flag — when settings change, re-prepare on next processBlock
+    // Dirty flag — owner must prepare off the realtime thread and publish
+    // the resulting snapshot; render methods keep playing the previous state.
     bool needsReprepareFlag = false;
 
     // Shared-buffer mode: follows a published snapshot from another player.

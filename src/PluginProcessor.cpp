@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include "BinaryData.h"
 #include "dsp/Tuning.h"
+#include <chrono>
 
 namespace
 {
@@ -80,6 +81,23 @@ void samplerProcessorDebugLog(const juce::String& message)
         }
     }
 }
+
+bool samePrepareConfig(const SamplePlayer::PrepareConfig& a,
+                       const SamplePlayer::PrepareConfig& b)
+{
+    auto sameFloat = [] (float x, float y)
+    {
+        return std::abs(x - y) <= 1.0e-6f;
+    };
+
+    return a.loopMode == b.loopMode
+        && sameFloat(a.crossfadeMs, b.crossfadeMs)
+        && a.normalizeOn == b.normalizeOn
+        && a.loopOptimizeLevel == b.loopOptimizeLevel
+        && sameFloat(a.startPosFrac, b.startPosFrac)
+        && sameFloat(a.loopStartFrac, b.loopStartFrac)
+        && sameFloat(a.loopEndFrac, b.loopEndFrac);
+}
 }
 
 T5ynthProcessor::T5ynthProcessor()
@@ -89,9 +107,15 @@ T5ynthProcessor::T5ynthProcessor()
 {
     juce::File("/tmp/t5ynth_sampler_debug.log").deleteFile();
     samplerProcessorDebugLog("session start");
+    samplerReprepareThread = std::thread([this] { samplerReprepareThreadMain(); });
 }
 
-T5ynthProcessor::~T5ynthProcessor() = default;
+T5ynthProcessor::~T5ynthProcessor()
+{
+    samplerReprepareThreadShouldExit.store(true, std::memory_order_release);
+    if (samplerReprepareThread.joinable())
+        samplerReprepareThread.join();
+}
 
 bool T5ynthProcessor::launchPipeInference(const juce::File& backendDir)
 {
@@ -914,6 +938,98 @@ void T5ynthProcessor::releaseResources()
     masterOsc.reset();
     masterSampler.reset();
     voiceManager.reset();
+    {
+        std::lock_guard<std::mutex> lock(samplerReprepareSourceMutex);
+        samplerReprepareSourceBuffer.setSize(0, 0);
+        samplerReprepareSourceValid = false;
+        ++samplerReprepareSourceVersion;
+    }
+}
+
+void T5ynthProcessor::syncSamplerSettingsFromParametersLocked()
+{
+    int loopModeIdx = static_cast<int>(parameters.getRawParameterValue(PID::loopMode)->load());
+    masterSampler.setLoopMode(static_cast<SamplePlayer::LoopMode>(juce::jlimit(0, 2, loopModeIdx)));
+    masterSampler.setCrossfadeMs(parameters.getRawParameterValue(PID::crossfadeMs)->load());
+    masterSampler.setNormalize(parameters.getRawParameterValue(PID::normalize)->load() > 0.5f);
+    masterSampler.setLoopOptimizeLevel(static_cast<int>(parameters.getRawParameterValue(PID::loopOptimize)->load()));
+}
+
+void T5ynthProcessor::storeSamplerReprepareSource(const juce::AudioBuffer<float>& buffer, double sampleRate)
+{
+    std::lock_guard<std::mutex> lock(samplerReprepareSourceMutex);
+    samplerReprepareSourceBuffer.makeCopyOf(buffer);
+    samplerReprepareSourceRate = sampleRate > 0.0 ? sampleRate : 44100.0;
+    samplerReprepareSourceValid = samplerReprepareSourceBuffer.getNumSamples() > 0
+                               && samplerReprepareSourceBuffer.getNumChannels() > 0;
+    ++samplerReprepareSourceVersion;
+}
+
+bool T5ynthProcessor::serviceSamplerReprepare()
+{
+    SamplePlayer::PrepareConfig config;
+    {
+        const juce::ScopedLock sl(getCallbackLock());
+        syncSamplerSettingsFromParametersLocked();
+        if (!masterSampler.hasAudio() || !masterSampler.needsReprepare())
+            return false;
+        config = masterSampler.capturePrepareConfig();
+    }
+
+    juce::AudioBuffer<float> source;
+    double sourceRate = 44100.0;
+    juce::uint64 sourceVersion = 0;
+    {
+        std::lock_guard<std::mutex> lock(samplerReprepareSourceMutex);
+        if (!samplerReprepareSourceValid)
+            return false;
+        source.makeCopyOf(samplerReprepareSourceBuffer);
+        sourceRate = samplerReprepareSourceRate;
+        sourceVersion = samplerReprepareSourceVersion;
+    }
+
+    auto prepared = masterSampler.prepareBufferLoad(source, sourceRate, config);
+
+    {
+        std::lock_guard<std::mutex> lock(samplerReprepareSourceMutex);
+        if (!samplerReprepareSourceValid || samplerReprepareSourceVersion != sourceVersion)
+        {
+            samplerReprepareWorkRequested.store(true, std::memory_order_release);
+            return false;
+        }
+    }
+
+    {
+        const juce::ScopedLock sl(getCallbackLock());
+        syncSamplerSettingsFromParametersLocked();
+        const auto currentConfig = masterSampler.capturePrepareConfig();
+        if (!samePrepareConfig(config, currentConfig))
+        {
+            samplerReprepareWorkRequested.store(true, std::memory_order_release);
+            return false;
+        }
+
+        masterSampler.applyPreparedBufferLoad(std::move(prepared), config);
+        voiceManager.distributeSamplerBuffer(masterSampler);
+    }
+
+    return true;
+}
+
+void T5ynthProcessor::samplerReprepareThreadMain()
+{
+    while (!samplerReprepareThreadShouldExit.load(std::memory_order_acquire))
+    {
+        samplerReprepareWorkRequested.store(false, std::memory_order_release);
+        serviceSamplerReprepare();
+
+        for (int i = 0; i < 5 && !samplerReprepareThreadShouldExit.load(std::memory_order_acquire); ++i)
+        {
+            if (samplerReprepareWorkRequested.exchange(false, std::memory_order_acq_rel))
+                break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
 }
 
 void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
@@ -1137,13 +1253,6 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.ampAmount  = juce::jlimit(0.0f, 1.0f, bp.ampAmount  + driftLfo.getOffsetForTarget(DriftLFO::TgtEnv1Amt));
     bp.mod1Amount = juce::jlimit(0.0f, 1.0f, bp.mod1Amount + driftLfo.getOffsetForTarget(DriftLFO::TgtEnv2Amt));
     bp.mod2Amount = juce::jlimit(0.0f, 1.0f, bp.mod2Amount + driftLfo.getOffsetForTarget(DriftLFO::TgtEnv3Amt));
-
-    // ── Sampler settings ─────────────────────────────────────────────────────
-    int loopModeIdx = static_cast<int>(parameters.getRawParameterValue(PID::loopMode)->load());
-    masterSampler.setLoopMode(static_cast<SamplePlayer::LoopMode>(loopModeIdx));
-    masterSampler.setCrossfadeMs(parameters.getRawParameterValue(PID::crossfadeMs)->load());
-    masterSampler.setNormalize(parameters.getRawParameterValue(PID::normalize)->load() > 0.5f);
-    masterSampler.setLoopOptimizeLevel(static_cast<int>(parameters.getRawParameterValue(PID::loopOptimize)->load()));
 
     // Give noteOn/noteOff access to the current envelope/modulation block state.
     voiceManager.setBlockParams(bp);
@@ -1603,16 +1712,10 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         float baseDrift2Depth = parameters.getRawParameterValue(PID::drift2Depth)->load();
         float baseDrift3Depth = parameters.getRawParameterValue(PID::drift3Depth)->load();
 
-        // Re-prepare master sampler if settings changed, then distribute to all voices
+        // Re-prepare runs on samplerReprepareThread; the audio thread keeps
+        // using the last published snapshot and only distributes it.
         if (masterSampler.hasAudio())
-        {
-            if (masterSampler.needsReprepare())
-            {
-                samplerProcessorDebugLog("processBlock preparePlaybackBuffer master={" + masterSampler.debugStateString() + "}");
-                masterSampler.preparePlaybackBuffer();
-            }
             voiceManager.distributeSamplerBuffer(masterSampler);
-        }
         if (masterOsc.hasFrames() && generatedAudioFull.getNumSamples() > 0)
         {
             syncWavetableTraversal(generatedSampleRate, generatedAudioFull.getNumSamples());
@@ -2352,6 +2455,7 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
     float prevP1 = 0.0f;
     {
         const juce::ScopedLock sl (getCallbackLock());
+        syncSamplerSettingsFromParametersLocked();
         samplerConfig = masterSampler.capturePrepareConfig();
         samplerLoopMode = samplerConfig.loopMode;
         autoPositionPoints = !masterSampler.getPointsLocked();
@@ -2504,6 +2608,7 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
     int maxFrames = frameCounts[juce::jlimit(0, 3, fcIdx)];
 
     auto preparedSamplerLoad = masterSampler.prepareBufferLoad(feedBuffer, sr, samplerConfig);
+    storeSamplerReprepareSource(preparedSamplerLoad.originalBuffer, sr);
     juce::AudioBuffer<float> preparedGeneratedAudio;
     preparedGeneratedAudio.makeCopyOf(feedBuffer);
     juce::AudioBuffer<float> preparedWaveformSnapshot;
@@ -2573,10 +2678,12 @@ void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& proce
     bool wavetableMode = false;
     {
         const juce::ScopedLock sl (getCallbackLock());
+        syncSamplerSettingsFromParametersLocked();
         samplerConfig = masterSampler.capturePrepareConfig();
         wavetableMode = isWavetableMode();
     }
     auto preparedSamplerLoad = masterSampler.prepareBufferLoad(processed, generatedSampleRate, samplerConfig);
+    storeSamplerReprepareSource(preparedSamplerLoad.originalBuffer, generatedSampleRate);
     juce::AudioBuffer<float> preparedGeneratedAudio;
     preparedGeneratedAudio.makeCopyOf(processed);
     juce::AudioBuffer<float> preparedWaveformSnapshot;
