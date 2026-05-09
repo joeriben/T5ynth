@@ -45,6 +45,7 @@ namespace PID {
     static constexpr const char* ampAmount        = "amp_amount";
     static constexpr const char* ampVelSens       = "amp_vel_sens";
     static constexpr const char* ampLoop          = "amp_loop";
+    static constexpr const char* ampTarget        = "amp_target";
     static constexpr const char* ampAttackCurve   = "amp_attack_curve";
     static constexpr const char* ampDecayCurve    = "amp_decay_curve";
     static constexpr const char* ampReleaseCurve  = "amp_release_curve";
@@ -1061,6 +1062,7 @@ struct BlockParams
     float ampAttack = 0.0f, ampDecay = 0.0f, ampSustain = 1.0f, ampRelease = 0.0f;
     float ampAmount = 1.0f;
     float ampVelSens = 1.0f;  // 0=fixed, 1=full velocity
+    int   ampTarget = EnvTarget::DCA;
     int   ampAttackCurve = 2, ampDecayCurve = 2, ampReleaseCurve = 4; // CurveShape indices
     int   ampAttackVelMode = EnvVelTimeMode::Off;
     int   ampDecayVelMode = EnvVelTimeMode::Off;

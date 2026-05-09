@@ -382,6 +382,7 @@ VoiceManager::VoiceOutput VoiceManager::renderBlock(
     if (newestIdx >= 0)
     {
         auto& nv = voices[static_cast<size_t>(newestIdx)];
+        out.lastAmpVal = nv.getAmpEnvLevel();
         out.lastMod1Val = nv.getLastMod1Val();
         out.lastMod2Val = nv.getLastMod2Val();
         out.lastModulatedCutoff = nv.getLastModulatedCutoff();

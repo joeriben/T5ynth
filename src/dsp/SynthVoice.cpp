@@ -9,14 +9,24 @@ float applyNormalizedOffset(float baseValue, float modulationOffset)
 }
 
 float computeEffectiveLfoDepth(const BlockParams& p, int target, float baseDepth,
-                               float mod1EnvVal, float mod2EnvVal)
+                               float ampEnvVal, float mod1EnvVal, float mod2EnvVal)
 {
     float depth = baseDepth;
+    if (p.ampTarget == target)
+        depth = applyNormalizedOffset(depth, ampEnvVal);
     if (p.mod1Target == target)
         depth = applyNormalizedOffset(depth, mod1EnvVal);
     if (p.mod2Target == target)
         depth = applyNormalizedOffset(depth, mod2EnvVal);
     return depth;
+}
+
+float computeDcaGain(const BlockParams& p, float ampEnvVal, float mod1EnvVal, float mod2EnvVal)
+{
+    float vca = (p.ampTarget == EnvTarget::DCA) ? ampEnvVal : 1.0f;
+    if (p.mod1Target == EnvTarget::DCA) vca *= (1.0f + mod1EnvVal);
+    if (p.mod2Target == EnvTarget::DCA) vca *= (1.0f + mod2EnvVal);
+    return std::max(0.0f, vca);
 }
 
 float computeVelocityTimeScale(int mode, float velSens, float velocity)
@@ -254,6 +264,7 @@ bool SynthVoice::preStretchNormStateMatches(const BlockParams& p) const
         && nearlyEqual(preStretchNormState_.ampRelease, p.ampRelease)
         && nearlyEqual(preStretchNormState_.ampAmount, p.ampAmount)
         && nearlyEqual(preStretchNormState_.ampVelSens, p.ampVelSens)
+        && preStretchNormState_.ampTarget == p.ampTarget
         && preStretchNormState_.ampLoop == p.ampLoop
         && preStretchNormState_.ampAttackCurve == p.ampAttackCurve
         && preStretchNormState_.ampDecayCurve == p.ampDecayCurve
@@ -335,7 +346,9 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
     const float mod2DecayMs = computeVelocityTimedMs(p.mod2Decay, p.mod2DecayVelMode, p.mod2VelSens, currentVelocity);
     const float mod2ReleaseMs = computeVelocityTimedMs(p.mod2Release, p.mod2ReleaseVelMode, p.mod2VelSens, currentVelocity);
 
-    float analysisMs = envWindowMs(ampAttackMs, ampDecayMs, ampReleaseMs, p.ampLoop);
+    float analysisMs = (p.ampTarget == EnvTarget::DCA)
+        ? envWindowMs(ampAttackMs, ampDecayMs, ampReleaseMs, p.ampLoop)
+        : 0.0f;
     if (p.mod1Target == EnvTarget::DCA)
         analysisMs = std::max(analysisMs, envWindowMs(mod1AttackMs, mod1DecayMs, mod1ReleaseMs, p.mod1Loop));
     if (p.mod2Target == EnvTarget::DCA)
@@ -395,10 +408,7 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
         const float mod1EnvVal = mod1Ref.processSample() * p.mod1Amount;
         const float mod2EnvVal = mod2Ref.processSample() * p.mod2Amount;
 
-        float vca = ampEnvVal;
-        if (p.mod1Target == EnvTarget::DCA) vca *= (1.0f + mod1EnvVal);
-        if (p.mod2Target == EnvTarget::DCA) vca *= (1.0f + mod2EnvVal);
-        dcaCurve[static_cast<size_t>(i)] = std::max(0.0f, vca);
+        dcaCurve[static_cast<size_t>(i)] = computeDcaGain(p, ampEnvVal, mod1EnvVal, mod2EnvVal);
     }
 
     float analysisPeak = 0.0f;
@@ -424,6 +434,7 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
     preStretchNormState_.ampRelease = p.ampRelease;
     preStretchNormState_.ampAmount = p.ampAmount;
     preStretchNormState_.ampVelSens = p.ampVelSens;
+    preStretchNormState_.ampTarget = p.ampTarget;
     preStretchNormState_.ampLoop = p.ampLoop;
     preStretchNormState_.ampAttackCurve = p.ampAttackCurve;
     preStretchNormState_.ampDecayCurve = p.ampDecayCurve;
@@ -487,17 +498,18 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
 
     // Use global LFO values (freerun mode — trigger mode will be added in Phase 3)
     const float lfo1Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth,
-                                                     p.lfo1Depth, mod1EnvVal, mod2EnvVal);
+                                                     p.lfo1Depth, ampEnvVal, mod1EnvVal, mod2EnvVal);
     const float lfo2Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth,
-                                                     p.lfo2Depth, mod1EnvVal, mod2EnvVal);
+                                                     p.lfo2Depth, ampEnvVal, mod1EnvVal, mod2EnvVal);
     const float lfo3Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO3Depth,
-                                                     p.lfo3Depth, mod1EnvVal, mod2EnvVal);
+                                                     p.lfo3Depth, ampEnvVal, mod1EnvVal, mod2EnvVal);
     float lfo1Val = globalLfo1Val * lfo1Depth;
     float lfo2Val = globalLfo2Val * lfo2Depth;
     float lfo3Val = globalLfo3Val * lfo3Depth;
 
     // Pitch modulation
     float pitchMod = p.driftPitchOffset;
+    if (p.ampTarget == EnvTarget::Pitch) pitchMod += ampEnvVal;
     if (p.mod1Target == EnvTarget::Pitch) pitchMod += mod1EnvVal;
     if (p.mod2Target == EnvTarget::Pitch) pitchMod += mod2EnvVal;
     if (p.lfo1Target == LfoTarget::Pitch) pitchMod += lfo1Val;
@@ -534,6 +546,7 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
     }
 
     float noiseLevel = p.noiseLevel;
+    if (p.ampTarget == EnvTarget::NoiseLevel) noiseLevel += ampEnvVal;
     if (p.mod1Target == EnvTarget::NoiseLevel) noiseLevel += mod1EnvVal;
     if (p.mod2Target == EnvTarget::NoiseLevel) noiseLevel += mod2EnvVal;
     if (p.lfo1Target == LfoTarget::NoiseLevel) noiseLevel += lfo1Val;
@@ -544,9 +557,7 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
     lastModulatedNoiseLevel_ = noiseLevel;
 
     // DCA
-    float vca = ampEnvVal;
-    if (p.mod1Target == EnvTarget::DCA) vca *= (1.0f + mod1EnvVal);
-    if (p.mod2Target == EnvTarget::DCA) vca *= (1.0f + mod2EnvVal);
+    float vca = computeDcaGain(p, ampEnvVal, mod1EnvVal, mod2EnvVal);
 
     // Per-voice filter with envelope/LFO modulation
     if (p.filterEnabled)
@@ -560,9 +571,12 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
         // Mod envelope → filter (octave-based)
         {
             constexpr float FILTER_OCTAVES = 10.0f;
+            float rawAmp = (p.ampAmount > 0.001f) ? ampEnvVal / p.ampAmount : 0.0f;
             float rawEnv1 = (p.mod1Amount > 0.001f) ? mod1EnvVal / p.mod1Amount : 0.0f;
             float rawEnv2 = (p.mod2Amount > 0.001f) ? mod2EnvVal / p.mod2Amount : 0.0f;
 
+            if (p.ampTarget == EnvTarget::Filter)
+                cutoffMod *= std::pow(2.0f, rawAmp * p.ampAmount * FILTER_OCTAVES);
             if (p.mod1Target == EnvTarget::Filter)
                 cutoffMod *= std::pow(2.0f, rawEnv1 * p.mod1Amount * FILTER_OCTAVES);
             if (p.mod2Target == EnvTarget::Filter)
@@ -641,12 +655,13 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
         // Block-rate pitch modulation (computed at block midpoint)
         int mid = numSamples / 2;
         const float lfo1Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth,
-                                                         p.lfo1Depth, lastMod1Val_, lastMod2Val_);
+                                                         p.lfo1Depth, lastAmpEnvLevel, lastMod1Val_, lastMod2Val_);
         const float lfo2Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth,
-                                                         p.lfo2Depth, lastMod1Val_, lastMod2Val_);
+                                                         p.lfo2Depth, lastAmpEnvLevel, lastMod1Val_, lastMod2Val_);
         const float lfo3Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO3Depth,
-                                                         p.lfo3Depth, lastMod1Val_, lastMod2Val_);
+                                                         p.lfo3Depth, lastAmpEnvLevel, lastMod1Val_, lastMod2Val_);
         float pitchMod = p.driftPitchOffset;
+        if (p.ampTarget == EnvTarget::Pitch) pitchMod += lastAmpEnvLevel;
         if (p.mod1Target == EnvTarget::Pitch) pitchMod += lastMod1Val_;
         if (p.mod2Target == EnvTarget::Pitch) pitchMod += lastMod2Val_;
         if (p.lfo1Target == LfoTarget::Pitch) pitchMod += lfo1Buf[mid] * lfo1Depth;
@@ -668,11 +683,11 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
         {
             int midIdx = pos + subBlockLen / 2;
             const float lfo1Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth,
-                                                             p.lfo1Depth, lastMod1Val_, lastMod2Val_);
+                                                             p.lfo1Depth, lastAmpEnvLevel, lastMod1Val_, lastMod2Val_);
             const float lfo2Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth,
-                                                             p.lfo2Depth, lastMod1Val_, lastMod2Val_);
+                                                             p.lfo2Depth, lastAmpEnvLevel, lastMod1Val_, lastMod2Val_);
             const float lfo3Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO3Depth,
-                                                             p.lfo3Depth, lastMod1Val_, lastMod2Val_);
+                                                             p.lfo3Depth, lastAmpEnvLevel, lastMod1Val_, lastMod2Val_);
             float lfo1Mid = lfo1Buf[midIdx] * lfo1Depth;
             float lfo2Mid = lfo2Buf[midIdx] * lfo2Depth;
             float lfo3Mid = lfo3Buf[midIdx] * lfo3Depth;
@@ -683,9 +698,11 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
                 cutoffMod *= std::pow(2.0f, (static_cast<float>(currentNote) - 60.0f) / 12.0f * p.kbdTrack);
 
             constexpr float FILTER_OCTAVES = 10.0f;
+            float rawAmp = (p.ampAmount > 0.001f) ? lastAmpEnvLevel / p.ampAmount : 0.0f;
             float rawEnv1 = (p.mod1Amount > 0.001f) ? lastMod1Val_ / p.mod1Amount : 0.0f;
             float rawEnv2 = (p.mod2Amount > 0.001f) ? lastMod2Val_ / p.mod2Amount : 0.0f;
 
+            if (p.ampTarget == EnvTarget::Filter) cutoffMod *= std::pow(2.0f, rawAmp * p.ampAmount * FILTER_OCTAVES);
             if (p.mod1Target == EnvTarget::Filter) cutoffMod *= std::pow(2.0f, rawEnv1 * p.mod1Amount * FILTER_OCTAVES);
             if (p.mod2Target == EnvTarget::Filter) cutoffMod *= std::pow(2.0f, rawEnv2 * p.mod2Amount * FILTER_OCTAVES);
             if (p.lfo1Target == LfoTarget::Filter) cutoffMod *= std::pow(2.0f, lfo1Mid * FILTER_OCTAVES);
@@ -749,11 +766,11 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
             lastMod2Val_ = mod2EnvVal;
 
             const float lfo1Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth,
-                                                             p.lfo1Depth, mod1EnvVal, mod2EnvVal);
+                                                             p.lfo1Depth, ampEnvVal, mod1EnvVal, mod2EnvVal);
             const float lfo2Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth,
-                                                             p.lfo2Depth, mod1EnvVal, mod2EnvVal);
+                                                             p.lfo2Depth, ampEnvVal, mod1EnvVal, mod2EnvVal);
             const float lfo3Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO3Depth,
-                                                             p.lfo3Depth, mod1EnvVal, mod2EnvVal);
+                                                             p.lfo3Depth, ampEnvVal, mod1EnvVal, mod2EnvVal);
             float lfo1Val = lfo1Buf[i] * lfo1Depth;
             float lfo2Val = lfo2Buf[i] * lfo2Depth;
             float lfo3Val = lfo3Buf[i] * lfo3Depth;
@@ -769,6 +786,7 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
             {
                 // Wavetable: per-sample pitch modulation
                 float pitchMod = p.driftPitchOffset;
+                if (p.ampTarget == EnvTarget::Pitch) pitchMod += ampEnvVal;
                 if (p.mod1Target == EnvTarget::Pitch) pitchMod += mod1EnvVal;
                 if (p.mod2Target == EnvTarget::Pitch) pitchMod += mod2EnvVal;
                 if (p.lfo1Target == LfoTarget::Pitch) pitchMod += lfo1Val;
@@ -796,6 +814,7 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
 
             // Mix noise oscillator (goes through drive + filter + VCA with the main signal)
             float noiseLevel = p.noiseLevel;
+            if (p.ampTarget == EnvTarget::NoiseLevel) noiseLevel += ampEnvVal;
             if (p.mod1Target == EnvTarget::NoiseLevel) noiseLevel += mod1EnvVal;
             if (p.mod2Target == EnvTarget::NoiseLevel) noiseLevel += mod2EnvVal;
             if (p.lfo1Target == LfoTarget::NoiseLevel) noiseLevel += lfo1Val;
@@ -810,9 +829,7 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
             }
 
             // Cache VCA for phase D; raw audio goes to output[i] untouched.
-            float vca = ampEnvVal;
-            if (p.mod1Target == EnvTarget::DCA) vca *= (1.0f + mod1EnvVal);
-            if (p.mod2Target == EnvTarget::DCA) vca *= (1.0f + mod2EnvVal);
+            float vca = computeDcaGain(p, ampEnvVal, mod1EnvVal, mod2EnvVal);
 
             output[i] = sample;
             vcaScratch[i - pos] = vca;

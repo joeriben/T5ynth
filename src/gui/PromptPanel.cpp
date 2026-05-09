@@ -986,7 +986,7 @@ bool PromptPanel::playNextCachedInference()
         return false;
 
     pendingOffsets_.clear();
-    if (onStatusChanged) onStatusChanged("Cached inference", false);
+    if (onStatusChanged) onStatusChanged("From cache", false);
     return true;
 }
 

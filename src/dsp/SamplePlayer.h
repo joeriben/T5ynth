@@ -37,6 +37,7 @@ public:
     struct PreparedPlaybackState
     {
         juce::AudioBuffer<float> playBuffer;
+        juce::AudioBuffer<float> firstPassBuffer;
         double bufferOriginalSR = 44100.0;
         int playStart = 0;
         int playEnd = 0;
@@ -205,12 +206,15 @@ private:
     struct PlaybackSnapshot
     {
         juce::AudioBuffer<float> playBuffer;
+        juce::AudioBuffer<float> firstPassBuffer;
         double bufferOriginalSR = 44100.0;
     };
 
     // Original (unprocessed) buffer — kept for re-preparation when settings change
     juce::AudioBuffer<float> originalBuffer;
-    // Prepared (crossfaded/palindromed/normalized) playback buffer
+    // Prepared (crossfaded/palindromed/normalized) playback buffers.
+    // playBuffer is used for steady-state looping; firstPassBuffer preserves
+    // the linear source path until the first loop boundary has been crossed.
     juce::AudioBuffer<float> playBuffer;
     std::shared_ptr<const PlaybackSnapshot> playbackSnapshot_;
 
@@ -273,8 +277,11 @@ private:
 
     /** 4-point Catmull-Rom cubic interpolation at fractional buffer position. */
     float cubicSample(double pos) const;
+    float cubicSampleFrom(const juce::AudioBuffer<float>& buf, double pos) const;
+    float playbackSample(double pos, bool useFirstPassBuffer) const;
 
     const juce::AudioBuffer<float>& currentPlaybackBuffer() const;
+    const juce::AudioBuffer<float>& currentFirstPassBuffer() const;
     double currentBufferOriginalSR() const;
 
     /** Read raw samples at 1:1 speed (SR-corrected only, no transposition).
@@ -339,6 +346,10 @@ private:
                          int regionStart,
                          int regionEnd,
                          double bufferSampleRate) const;
+    void applyGainToRegion(juce::AudioBuffer<float>& buf,
+                           int regionStart,
+                           int regionEnd,
+                           float gain) const;
 
     /** Remove leading near-zero samples (< ~-60 dB) from a source buffer. */
     void trimLeadingSilence(juce::AudioBuffer<float>& buffer) const;

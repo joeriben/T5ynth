@@ -226,10 +226,6 @@ void SamplePlayer::retrigger()
     // Convert P1 fraction to sample position
     int startSample = static_cast<int>(std::floor(effectiveP1 * bufLen));
 
-    // In Loop mode, skip crossfade zone if P1 falls in it
-    if (loopMode == LoopMode::Loop && startSample >= playStart && startSample < coldStart)
-        startSample = coldStart;
-
     readPosition = static_cast<double>(juce::jlimit(0, bufLen - 1, startSample));
     playing = true;
 
@@ -333,6 +329,7 @@ SamplePlayer::PreparedPlaybackState SamplePlayer::preparePlaybackState(
     prepared.playBuffer.makeCopyOf(sourceBuffer);
 
     int actualEnd = le;
+    int firstPassNormEnd = le;
 
     if (config.loopMode == LoopMode::Loop)
     {
@@ -347,9 +344,12 @@ SamplePlayer::PreparedPlaybackState SamplePlayer::preparePlaybackState(
             ls = refineLoopStart(data, ls, actualEnd, bufLen, config.loopOptimizeLevel);
         }
 
+        prepared.firstPassBuffer.makeCopyOf(prepared.playBuffer);
+
         int preEnd = actualEnd;
         applyLoopCrossfade(prepared.playBuffer, ls, actualEnd, config.crossfadeMs, sourceSampleRate);
         int fadeSamples = preEnd - actualEnd;
+        firstPassNormEnd = preEnd;
 
         prepared.playStart = ls;
         prepared.playEnd   = actualEnd;
@@ -385,7 +385,32 @@ SamplePlayer::PreparedPlaybackState SamplePlayer::preparePlaybackState(
     {
         int p1 = static_cast<int>(std::floor(config.startPosFrac * bufLen));
         int normStart = std::min(p1, prepared.playStart);
-        normalizeBuffer(prepared.playBuffer, normStart, prepared.playEnd, sourceSampleRate);
+        const int rs = juce::jlimit(0, prepared.playBuffer.getNumSamples(), normStart);
+        const int re = juce::jlimit(rs, prepared.playBuffer.getNumSamples(), prepared.playEnd);
+        if (re > rs && prepared.playBuffer.getNumChannels() > 0)
+        {
+            const NormalizeAnalysis analysis = analyzeNormalizeRegion(prepared.playBuffer, rs, re, sourceSampleRate);
+            const NormalizeMode mode = chooseNormalizeMode(analysis);
+            const float gain = chooseNormalizeGain(analysis, mode);
+            if (std::isfinite(gain) && std::abs(gain - 1.0f) >= 1.0e-4f)
+            {
+                applyGainToRegion(prepared.playBuffer, rs, re, gain);
+
+                if (prepared.firstPassBuffer.getNumSamples() == prepared.playBuffer.getNumSamples())
+                    applyGainToRegion(prepared.firstPassBuffer, rs, firstPassNormEnd, gain);
+            }
+
+            samplerDebugLog("normalizeBuffer mode=" + juce::String(normalizeModeName(mode))
+                            + " gainDb=" + juce::String(gainToDb(gain), 2)
+                            + " peakDb=" + juce::String(gainToDb(analysis.peak), 2)
+                            + " p999Db=" + juce::String(gainToDb(analysis.percentilePeak), 2)
+                            + " rmsDb=" + juce::String(gainToDb(analysis.rms), 2)
+                            + " activeDb=" + juce::String(gainToDb(analysis.activeRms), 2)
+                            + " crestDb=" + juce::String(analysis.crestDb, 2)
+                            + " peakGapDb=" + juce::String(analysis.peakToPercentileDb, 2)
+                            + " activeRatio=" + juce::String(analysis.activeRatio, 3)
+                            + " dur=" + juce::String(analysis.durationSeconds, 3));
+        }
     }
 
     // Boundary guard samples MUST be written last so they capture the final state
@@ -401,6 +426,7 @@ void SamplePlayer::applyPreparedPlaybackState(PreparedPlaybackState preparedStat
 {
     auto snapshot = std::make_shared<PlaybackSnapshot>();
     snapshot->playBuffer = std::move(preparedState.playBuffer);
+    snapshot->firstPassBuffer = std::move(preparedState.firstPassBuffer);
     snapshot->bufferOriginalSR = preparedState.bufferOriginalSR;
     playbackSnapshot_ = std::move(snapshot);
 
@@ -429,6 +455,18 @@ const juce::AudioBuffer<float>& SamplePlayer::currentPlaybackBuffer() const
     return playBuffer;
 }
 
+const juce::AudioBuffer<float>& SamplePlayer::currentFirstPassBuffer() const
+{
+    if (playbackSnapshot_ != nullptr
+        && playbackSnapshot_->firstPassBuffer.getNumSamples() > 0
+        && playbackSnapshot_->firstPassBuffer.getNumChannels() > 0)
+    {
+        return playbackSnapshot_->firstPassBuffer;
+    }
+
+    return currentPlaybackBuffer();
+}
+
 double SamplePlayer::currentBufferOriginalSR() const
 {
     if (playbackSnapshot_ != nullptr)
@@ -438,7 +476,19 @@ double SamplePlayer::currentBufferOriginalSR() const
 
 float SamplePlayer::cubicSample(double pos) const
 {
-    const auto& buf = currentPlaybackBuffer();
+    return cubicSampleFrom(currentPlaybackBuffer(), pos);
+}
+
+float SamplePlayer::playbackSample(double pos, bool useFirstPassBuffer) const
+{
+    return cubicSampleFrom(useFirstPassBuffer ? currentFirstPassBuffer() : currentPlaybackBuffer(), pos);
+}
+
+float SamplePlayer::cubicSampleFrom(const juce::AudioBuffer<float>& buf, double pos) const
+{
+    if (buf.getNumSamples() <= 0 || buf.getNumChannels() <= 0)
+        return 0.0f;
+
     const float* data = buf.getReadPointer(0);
     const int bufLen = buf.getNumSamples();
 
@@ -562,8 +612,10 @@ float SamplePlayer::processSample()
     const double srRatio = currentBufferOriginalSR() / playbackSampleRate;
     double speedRatio = srRatio * transposeRatio;
 
-    // Read with cubic interpolation
-    float result = cubicSample(readPosition) * sourceGain_;
+    // Read with cubic interpolation. The first pass uses the linear source path
+    // so loop crossfade/optimization is only heard after the first wrap.
+    const bool useFirstPassBuffer = inFirstPass_ && loopMode == LoopMode::Loop;
+    float result = playbackSample(readPosition, useFirstPassBuffer) * sourceGain_;
 
     // Advance with 3-point logic (direction, first-pass, boundaries)
     advancePosition(std::abs(speedRatio));
@@ -588,7 +640,8 @@ void SamplePlayer::readRawSamples(float* output, int numSamples)
 
     for (int i = 0; i < numSamples; ++i)
     {
-        output[i] = cubicSample(readPosition) * sourceGain_;
+        const bool useFirstPassBuffer = inFirstPass_ && loopMode == LoopMode::Loop;
+        output[i] = playbackSample(readPosition, useFirstPassBuffer) * sourceGain_;
 
         if (!advancePosition(std::abs(srRatio)))
         {
@@ -685,9 +738,6 @@ int SamplePlayer::estimateReferenceLengthSamples() const
     int startSample = static_cast<int>(std::floor(effectiveP1 * static_cast<float>(bufLen)));
     startSample = juce::jlimit(0, bufLen - 1, startSample);
 
-    if (loopMode == LoopMode::Loop && startSample >= playStart && startSample < coldStart)
-        startSample = coldStart;
-
     const bool reversed = (effectiveP1 > loopEndFrac);
     const int loopLen = juce::jmax(1, playEnd - playStart);
     int sourceSamples = 0;
@@ -746,20 +796,14 @@ float SamplePlayer::estimatePlaybackRms(const float* gains, int numSamples, floa
     double analysisReadPosition = static_cast<double>(
         std::floor(effectiveP1 * static_cast<float>(bufLen)));
 
-    if (loopMode == LoopMode::Loop
-        && analysisReadPosition >= static_cast<double>(playStart)
-        && analysisReadPosition < static_cast<double>(coldStart))
-    {
-        analysisReadPosition = static_cast<double>(coldStart);
-    }
-
     double sumSq = 0.0;
     int renderedSamples = 0;
     float peak = 0.0f;
 
     for (int i = 0; i < numSamples; ++i)
     {
-        float sample = cubicSample(analysisReadPosition);
+        const bool useFirstPassBuffer = inFirstPass && loopMode == LoopMode::Loop;
+        float sample = playbackSample(analysisReadPosition, useFirstPassBuffer);
         float weighted = sample * gains[i];
         sumSq += static_cast<double>(weighted) * static_cast<double>(weighted);
         peak = std::max(peak, std::abs(weighted));
@@ -879,7 +923,7 @@ void SamplePlayer::primeStretcher()
     const double srRatio = currentBufferOriginalSR() / playbackSampleRate;
 
     // ── Step 1: seek() — fill STFT analysis context with pre-roll audio ──
-    // Reads audio BEFORE readPosition (coldStart) so the first STFT frames
+    // Reads audio BEFORE readPosition so the first STFT frames
     // have real left context instead of post-reset silence.
     int seekLen = stretcher.blockSamples() + stretcher.intervalSamples();
     double seekStart = readPosition - seekLen * srRatio;
@@ -894,7 +938,8 @@ void SamplePlayer::primeStretcher()
         double pos = seekStart;
         for (int i = 0; i < seekLen; ++i)
         {
-            seekBuf[static_cast<size_t>(i)] = cubicSample(pos);
+            seekBuf[static_cast<size_t>(i)] = playbackSample(
+                pos, inFirstPass_ && loopMode == LoopMode::Loop);
             pos += srRatio;
         }
         float* seekPtr = seekBuf.data();
@@ -903,8 +948,8 @@ void SamplePlayer::primeStretcher()
 
     // ── Step 2: process()+discard — pay STFT output latency ──
     // After seek, the first inputLatency() output samples correspond to
-    // pre-roll audio, not coldStart. Discard them so the next real output
-    // starts at approximately coldStart. readPosition advances intentionally.
+    // pre-roll audio, not the retrigger point. Discard them so the next real output
+    // starts at approximately readPosition. readPosition advances intentionally.
     int primeSamples = stretcher.inputLatency();
     if (primeSamples <= 0) return;
 
@@ -1373,12 +1418,7 @@ void SamplePlayer::normalizeBuffer(juce::AudioBuffer<float>& buf,
     if (!std::isfinite(gain) || std::abs(gain - 1.0f) < 1.0e-4f)
         return;
 
-    for (int ch = 0; ch < numChannels; ++ch)
-    {
-        float* data = buf.getWritePointer(ch);
-        for (int i = rs; i < re; ++i)
-            data[i] *= gain;
-    }
+    applyGainToRegion(buf, rs, re, gain);
 
     samplerDebugLog("normalizeBuffer mode=" + juce::String(normalizeModeName(mode))
                     + " gainDb=" + juce::String(gainToDb(gain), 2)
@@ -1390,6 +1430,28 @@ void SamplePlayer::normalizeBuffer(juce::AudioBuffer<float>& buf,
                     + " peakGapDb=" + juce::String(analysis.peakToPercentileDb, 2)
                     + " activeRatio=" + juce::String(analysis.activeRatio, 3)
                     + " dur=" + juce::String(analysis.durationSeconds, 3));
+}
+
+void SamplePlayer::applyGainToRegion(juce::AudioBuffer<float>& buf,
+                                     int regionStart,
+                                     int regionEnd,
+                                     float gain) const
+{
+    if (!std::isfinite(gain) || std::abs(gain - 1.0f) < 1.0e-4f)
+        return;
+
+    const int rs = juce::jlimit(0, buf.getNumSamples(), regionStart);
+    const int re = juce::jlimit(rs, buf.getNumSamples(), regionEnd);
+    const int numChannels = buf.getNumChannels();
+    if (re <= rs || numChannels <= 0)
+        return;
+
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        float* data = buf.getWritePointer(ch);
+        for (int i = rs; i < re; ++i)
+            data[i] *= gain;
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════

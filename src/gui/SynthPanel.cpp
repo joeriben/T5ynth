@@ -956,6 +956,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
 
     // Deferred APVTS attachments for target ComboBoxes
     // (must come after initialized=true so onChange → updateVisibility works)
+    ampTargetA = std::make_unique<CA>(apvts, PID::ampTarget, ampEnv.targetBox);
     mod1TargetA = std::make_unique<CA>(apvts, PID::mod1Target, mod1Env.targetBox);
     mod2TargetA = std::make_unique<CA>(apvts, PID::mod2Target, mod2Env.targetBox);
     lfo1TargetA = std::make_unique<CA>(apvts, PID::lfo1Target, lfo1.targetBox);

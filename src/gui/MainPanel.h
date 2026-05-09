@@ -48,17 +48,42 @@ private:
     AxesPanel axesPanel;
     GenerateButton mainGenerateBtn { "GENERATE" };
     static constexpr int kNumInfCacheButtons = 8;
-    juce::TextButton infCacheButtons[kNumInfCacheButtons];
-    juce::Label infCacheStatus;
+
+    // Cache-capacity button — when selected and the cache is still filling,
+    // the fill colour pulses subtly. Replaces the textual status row that
+    // previously sat below the button strip.
+    class CacheCapButton : public juce::TextButton
+    {
+    public:
+        CacheCapButton() = default;
+        void setPulsing(bool p);
+        void setPulsePhase(float phase);
+        void paintButton(juce::Graphics& g, bool highlighted, bool down) override;
+
+    private:
+        bool pulsing = false;
+        float lastPhase = 0.0f;
+    };
+
+    CacheCapButton infCacheButtons[kNumInfCacheButtons];
     int lastInfCacheUiCapacity = -1;
     int lastInfCacheUiFill = -1;
     bool lastInfCacheUiFull = false;
     float glowPhase = 0.0f;
     double glowLastTimeSec = 0.0;
     bool glowGenerating = false;
-    double cachedInferenceLabelUntilSec = 0.0;
+    // Independent phase for the cache-fill pulse — runs at a fixed rate
+    // (~2 Hz) whenever the cache is filling, decoupled from glowPhase which
+    // crawls at 0.05 Hz when idle and would make the cache-pulse invisible.
+    float cachePulsePhase = 0.0f;
+    // Cache-hit feedback: when the inference cache is full, the primary
+    // generation actions become cache playback actions and stay labelled
+    // "cache hit" until the cache is cleared/disabled.
+    bool cacheHitActive = false;
+    double cacheHitUntilSec = 0.0;
     void timerCallback() override;
     void syncInferenceCacheUi();
+    void updateGenerateButtonsForCacheState(bool pulseCacheHit);
 
     // Col 2: ENGINE + FILTER + MODULATION
     SynthPanel synthPanel;

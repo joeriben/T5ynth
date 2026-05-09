@@ -197,7 +197,7 @@ private:
     std::unique_ptr<SA> crossfadeRegenA;
 
     // ENV/LFO target attachments (routed in processBlock)
-    std::unique_ptr<CA> mod1TargetA, mod2TargetA, lfo1TargetA, lfo2TargetA, lfo3TargetA;
+    std::unique_ptr<CA> ampTargetA, mod1TargetA, mod2TargetA, lfo1TargetA, lfo2TargetA, lfo3TargetA;
 
     void initEnv(EnvSection& env, const juce::String& name, int defaultTarget,
                  const juce::String& aId, const juce::String& dId,

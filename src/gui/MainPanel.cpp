@@ -66,74 +66,159 @@ void MainPanel::GenerateButton::setAnimationState(float phase, bool isGenerating
 
 void MainPanel::GenerateButton::paintButton(juce::Graphics& g, bool highlighted, bool down)
 {
-    auto bounds = getLocalBounds().toFloat().reduced(1.0f);
+    auto bounds = getLocalBounds().toFloat();
     if (bounds.getWidth() <= 0.0f || bounds.getHeight() <= 0.0f)
         return;
 
     const bool active = isEnabled() || generating;
-    auto label = getButtonText().trim().isNotEmpty() ? getButtonText().trim() : juce::String("GENERATE");
-    bounds = bounds.translated(0.0f, down ? 1.0f : 0.0f);
-    const auto body = bounds.reduced(2.0f);
+    const auto label = getButtonText().trim().isNotEmpty() ? getButtonText().trim()
+                                                           : juce::String("GENERATE");
 
-    static const juce::Colour palette[] = {
-        juce::Colour(0xff667eea).interpolatedWith(kBg, 0.20f),
-        juce::Colour(0xffe91e63).interpolatedWith(kBg, 0.20f),
-        juce::Colour(0xff7C4DFF).interpolatedWith(kBg, 0.20f),
-        juce::Colour(0xffFF6F00).interpolatedWith(kBg, 0.20f),
-        juce::Colour(0xff4CAF50).interpolatedWith(kBg, 0.20f),
-        juce::Colour(0xff00BCD4).interpolatedWith(kBg, 0.20f)
-    };
-    static constexpr int numColours = static_cast<int>(sizeof(palette) / sizeof(palette[0]));
+    // Section-header style: same kOscCol fill as oscHeader/axesHeader/
+    // dimHeader above this button. Flat, sharp corners, no border.
+    // The button reads as the active counterpart to those headers — the
+    // primary action of the prompt/oscillator section.
+    auto fill = kOscCol;
+    if (down)            fill = fill.darker(0.10f);
+    else if (highlighted) fill = fill.brighter(0.10f);
 
+    if (generating)
     {
-        const float w = body.getWidth();
-        const float twoPi = juce::MathConstants<float>::twoPi;
-        const float rawShift = animationPhase / twoPi;
-        const float shift = rawShift - std::floor(rawShift);
-        const float cy = body.getCentreY();
-
-        juce::ColourGradient grad(palette[0],
-                                  body.getX() - shift * w, cy,
-                                  palette[0],
-                                  body.getX() + (2.0f - shift) * w, cy,
-                                  false);
-        for (int k = 1; k <= 11; ++k)
-            grad.addColour(static_cast<double>(k) / 12.0, palette[k % numColours]);
-
-        g.setGradientFill(grad);
-        g.fillRect(body);
-
-        if (! active)
-        {
-            g.setColour(kBg.withAlpha(0.45f));
-            g.fillRect(body);
-        }
-        else if (down)
-        {
-            g.setColour(kBg.withAlpha(0.12f));
-            g.fillRect(body);
-        }
-        else if (highlighted)
-        {
-            g.setColour(juce::Colours::white.withAlpha(0.06f));
-            g.fillRect(body);
-        }
-
-        g.setColour(kBg.withAlpha(0.55f));
-        g.drawRect(body, 1.0f);
+        // Pulse fades the fill toward the page background (kBg, near-black)
+        // and back. A clearly visible "thinking / working" signal that
+        // stays inside the flat design language — no sweep, no stripe.
+        const float pulse = 0.5f + 0.5f * std::sin(animationPhase);
+        fill = fill.interpolatedWith(kBg, pulse * 0.70f);
     }
 
-    const float fontSize = juce::jlimit(24.0f, 44.0f, bounds.getHeight() * 0.64f);
-    const float letterAlpha = active ? (down ? 0.88f : 1.0f) : 0.55f;
-    const float horizontalInset = juce::jlimit(24.0f, 56.0f, fontSize * 0.85f);
+    if (! active)
+        fill = fill.withAlpha(0.45f);
+
+    g.setColour(fill);
+    g.fillRect(bounds);
+
+    // Label — dark on accent, exactly like paintSectionHeader. Font size
+    // is bounded by BOTH height and width so the label can't grow out of
+    // proportion when the button is short and wide (or tall and narrow).
+    const float fromHeight = bounds.getHeight() * 0.50f;
+    const float fromWidth  = bounds.getWidth() / 11.0f;  // ~"GENERATE" + chevrons
+    const float fontSize = juce::jlimit(16.0f, 30.0f, juce::jmin(fromHeight, fromWidth));
+    const float chevronSize = fontSize * 0.50f;
+
+    // Three chevrons → "forward / run / advance" mark, clearer than one.
+    const auto chevronStr = juce::String::charToString(0x276F)
+                          + juce::String::charToString(0x276F)
+                          + juce::String::charToString(0x276F);
+
+    // Inverted button text follows the system convention used by every other
+    // active/toggled button in the L&F: TextButton::textColourOnId = kTextPrimary
+    // (near-white). Section *labels* (paintSectionHeader) use dark text on the
+    // same fill, but a button is not a label — using the header convention
+    // here was a mis-inheritance, corrected back to the button convention.
+    const auto fgText = kTextPrimary;
+    const float textAlpha = active ? (down ? 0.85f : 1.0f) : 0.55f;
 
     auto font = juce::Font(juce::FontOptions(fontSize, juce::Font::bold))
                     .withExtraKerningFactor(0.10f);
-    g.setFont(font);
-    g.setColour(juce::Colours::white.withAlpha(letterAlpha));
-    auto textArea = body.reduced(horizontalInset, 0.0f).toNearestInt();
-    g.drawFittedText(label, textArea,
-                     juce::Justification::centred, 1, 0.5f);
+    auto chevronFont = juce::Font(juce::FontOptions(chevronSize, juce::Font::bold))
+                           .withExtraKerningFactor(-0.05f);
+
+    // Measure with GlyphArrangement — Font::getStringWidthFloat ignores
+    // extraKerningFactor in this JUCE build, which previously clipped the
+    // last glyph of "GENERATE". GlyphArrangement respects all font attributes.
+    auto measureWith = [](const juce::Font& f, const juce::String& s) -> float
+    {
+        if (s.isEmpty()) return 0.0f;
+        juce::GlyphArrangement ga;
+        ga.addLineOfText(f, s, 0.0f, 0.0f);
+        return ga.getBoundingBox(0, -1, true).getWidth();
+    };
+
+    // Compose label + chevrons as a single centered unit so the chevrons
+    // sit immediately next to the word rather than pinned to the right edge.
+    const float labelW = measureWith(font, label);
+    const float chevW  = measureWith(chevronFont, chevronStr);
+    const float gap    = fontSize * 0.55f;
+    const float compositeW = labelW + gap + chevW;
+
+    const float minPad = 8.0f;
+    const float subPxPad = 2.0f;  // absorbs sub-pixel rounding from .toNearestInt()
+    const bool fits = compositeW + minPad * 2.0f <= bounds.getWidth();
+
+    if (fits)
+    {
+        const float startX = juce::jmax(minPad, bounds.getCentreX() - compositeW * 0.5f);
+        auto labelArea = juce::Rectangle<float>(startX, bounds.getY(),
+                                                 labelW + subPxPad, bounds.getHeight());
+        auto chevArea  = juce::Rectangle<float>(startX + labelW + gap, bounds.getY(),
+                                                 chevW + subPxPad, bounds.getHeight());
+
+        g.setFont(font);
+        g.setColour(fgText.withAlpha(textAlpha));
+        g.drawText(label, labelArea.toNearestInt(),
+                   juce::Justification::centredLeft, false);
+
+        g.setFont(chevronFont);
+        g.setColour(fgText.withAlpha(textAlpha * 0.75f));
+        g.drawText(chevronStr, chevArea.toNearestInt(),
+                   juce::Justification::centredLeft, false);
+    }
+    else
+    {
+        // Extremely narrow: drop chevrons, fit label only.
+        g.setFont(font);
+        g.setColour(fgText.withAlpha(textAlpha));
+        g.drawFittedText(label, bounds.reduced(minPad, 0.0f).toNearestInt(),
+                         juce::Justification::centred, 1, 0.5f);
+    }
+}
+
+// ─── CacheCapButton ──────────────────────────────────────────────────────────
+// Replaces the dropped "inference cache N/M" status row: while the cache is
+// filling, the *selected* capacity button pulses its fill colour subtly. When
+// the cache is full, pulsing stops and the button sits at solid kOscCol.
+void MainPanel::CacheCapButton::setPulsing(bool p)
+{
+    if (pulsing != p)
+    {
+        pulsing = p;
+        repaint();
+    }
+}
+
+void MainPanel::CacheCapButton::setPulsePhase(float phase)
+{
+    lastPhase = phase;
+    if (pulsing && getToggleState())
+        repaint();
+}
+
+void MainPanel::CacheCapButton::paintButton(juce::Graphics& g, bool highlighted, bool down)
+{
+    auto& lf = getLookAndFeel();
+    auto base = findColour(getToggleState() ? juce::TextButton::buttonOnColourId
+                                            : juce::TextButton::buttonColourId);
+
+    const bool isPulsing = pulsing && getToggleState();
+    float p = 0.0f;
+    if (isPulsing)
+    {
+        p = 0.5f + 0.5f * std::sin(lastPhase);
+        base = base.brighter(0.45f * p);
+    }
+
+    lf.drawButtonBackground(g, *this, base, highlighted, down);
+
+    if (isPulsing)
+    {
+        // White overlay tick adds a clearly-visible blink layer on top of
+        // the brightness pulse — without it, the brighten-only effect
+        // disappears on small buttons at typical viewing distance.
+        g.setColour(juce::Colours::white.withAlpha(0.22f * p));
+        g.fillRect(getLocalBounds());
+    }
+
+    lf.drawButtonText(g, *this, highlighted, down);
 }
 
 MainPanel::MainPanel(T5ynthProcessor& processor)
@@ -419,11 +504,9 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     masterVolA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor.getValueTreeState(), PID::masterVol, masterVolKnob);
 
-    // Main Generate button at bottom of left column
-    mainGenerateBtn.setColour(juce::TextButton::buttonColourId, kOscCol);
-    mainGenerateBtn.setColour(juce::TextButton::buttonOnColourId, kOscCol.darker(0.3f));
-    mainGenerateBtn.setColour(juce::TextButton::textColourOffId, kBg);
-    mainGenerateBtn.setColour(juce::TextButton::textColourOnId, kBg);
+    // Main Generate button at bottom of left column. Custom paintButton
+    // handles fill/border/text colours directly — no TextButton::ColourIds
+    // needed.
     mainGenerateBtn.onClick = [this] {
         promptPanel.setSemanticAxes(axesPanel.getAxisValues());
         promptPanel.triggerGenerationWithOffsets({});
@@ -432,7 +515,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
 
     {
         static constexpr const char* labels[kNumInfCacheButtons] = {
-            "off", "2", "4", "8", "16", "32", "64", "128"
+            "cache: off", "2", "4", "8", "16", "32", "64", "128"
         };
         static constexpr int values[kNumInfCacheButtons] = {
             0, 2, 4, 8, 16, 32, 64, 128
@@ -459,10 +542,6 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
             addAndMakeVisible(b);
         }
     }
-    infCacheStatus.setColour(juce::Label::textColourId, kDim);
-    infCacheStatus.setJustificationType(juce::Justification::centred);
-    infCacheStatus.setInterceptsMouseClicks(false, false);
-    addAndMakeVisible(infCacheStatus);
     syncInferenceCacheUi();
 
     // Wire axis values callback for drift auto-regen (offsets applied per slot)
@@ -476,33 +555,39 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     startTimerHz(20);  // lightweight glow animation + UI polling
 
     promptPanel.onStatusChanged = [this](const juce::String& text, bool isGenerating) {
-        glowGenerating = isGenerating;
-        mainGenerateBtn.setAnimationState(glowPhase, glowGenerating);
-        if (isGenerating)
+        const bool cacheHit = (text == "From cache");
+
+        if (cacheHit)
         {
-            cachedInferenceLabelUntilSec = 0.0;
-            mainGenerateBtn.setButtonText("GENERATE");
-            mainGenerateBtn.setEnabled(false);
-            dimApplyBtn.setButtonText("generating...");
-            dimApplyBtn.setEnabled(false);
+            // Cache-hit: keep the pulse running and keep the action labelled
+            // as cache playback while the cache remains full. Button stays
+            // enabled so the user can fire the next cache entry immediately.
+            cacheHitActive = true;
+            cacheHitUntilSec = juce::Time::getMillisecondCounterHiRes() * 0.001 + 1.5;
+            glowGenerating = true;
+            updateGenerateButtonsForCacheState(true);
+            mainGenerateBtn.setAnimationState(glowPhase, glowGenerating);
         }
         else
         {
-            if (text.startsWithIgnoreCase("Cached inference"))
+            // Real generation status — drop any pending cache-hit display.
+            cacheHitActive = false;
+            glowGenerating = isGenerating;
+            mainGenerateBtn.setAnimationState(glowPhase, glowGenerating);
+
+            if (isGenerating && !processorRef.isInferenceCacheFull())
             {
-                mainGenerateBtn.setButtonText("CACHED INFERENCE");
-                cachedInferenceLabelUntilSec =
-                    juce::Time::getMillisecondCounterHiRes() * 0.001 + 0.85;
+                mainGenerateBtn.setButtonText("GENERATE");
+                mainGenerateBtn.setEnabled(false);
+                dimApplyBtn.setButtonText("generating...");
+                dimApplyBtn.setEnabled(false);
             }
             else
             {
-                mainGenerateBtn.setButtonText("GENERATE");
-                cachedInferenceLabelUntilSec = 0.0;
+                updateGenerateButtonsForCacheState(false);
             }
-            mainGenerateBtn.setEnabled(true);
-            dimApplyBtn.setButtonText("Apply + Generate");
-            dimApplyBtn.setEnabled(true);
         }
+
         statusBar.setStatusText(text);
         syncInferenceCacheUi();
     };
@@ -1099,7 +1184,7 @@ void MainPanel::hideSettings()
 void MainPanel::tryLoadInferenceModels(bool forceRestart)
 {
     statusBar.setConnected(false);
-    statusBar.setStatusText(forceRestart ? "Refreshing inference..." : "Loading inference...");
+    statusBar.setStatusText(forceRestart ? "Refreshing model..." : "Loading model...");
     settingsPage.setBackendStarting();
 
     const auto bundledBackendMode = juce::SystemStats::getEnvironmentVariable("T5YNTH_REQUIRE_BUNDLED_BACKEND", {})
@@ -1342,6 +1427,8 @@ void MainPanel::syncInferenceCacheUi()
     const int capacity = processorRef.getInferenceCacheCapacity();
     const int fill = processorRef.getInferenceCacheFillCount();
     const bool full = processorRef.isInferenceCacheFull();
+    updateGenerateButtonsForCacheState(false);
+
     if (capacity == lastInfCacheUiCapacity
         && fill == lastInfCacheUiFill
         && full == lastInfCacheUiFull)
@@ -1353,24 +1440,62 @@ void MainPanel::syncInferenceCacheUi()
 
     static constexpr int values[kNumInfCacheButtons] = { 0, 2, 4, 8, 16, 32, 64, 128 };
 
+    // Pulse the *selected* button while the cache is filling. Once full,
+    // pulsing stops and the button sits at solid kOscCol — that solid state
+    // is the "cache full" signal, replacing the dropped status text row.
+    const bool isFilling = (capacity > 0) && (fill < capacity);
     for (int i = 0; i < kNumInfCacheButtons; ++i)
-        infCacheButtons[i].setToggleState(capacity == values[i], juce::dontSendNotification);
-
-    if (capacity <= 0)
     {
-        infCacheStatus.setText({}, juce::dontSendNotification);
+        infCacheButtons[i].setToggleState(capacity == values[i], juce::dontSendNotification);
+        infCacheButtons[i].setPulsing(isFilling);
+    }
+}
+
+void MainPanel::updateGenerateButtonsForCacheState(bool pulseCacheHit)
+{
+    const bool cachePlaybackReady = processorRef.isInferenceCacheFull();
+    if (cachePlaybackReady)
+    {
+        mainGenerateBtn.setButtonText("cache hit");
+        mainGenerateBtn.setEnabled(true);
+        dimApplyBtn.setButtonText("cache hit");
+        dimApplyBtn.setEnabled(true);
+        if (pulseCacheHit)
+            glowGenerating = true;
         return;
     }
 
-    infCacheStatus.setColour(juce::Label::textColourId, full ? kOscCol : kDim);
-    infCacheStatus.setText(full
-                               ? ("InfCache full " + juce::String(fill) + "/" + juce::String(capacity))
-                               : ("InfCache " + juce::String(fill) + "/" + juce::String(capacity)),
-                           juce::dontSendNotification);
+    if (processorRef.getInferenceCacheCapacity() == 0)
+    {
+        cacheHitActive = false;
+        if (!promptPanel.isGenerating())
+            glowGenerating = false;
+    }
+
+    if (!promptPanel.isGenerating() && !glowGenerating && !cacheHitActive)
+    {
+        mainGenerateBtn.setButtonText("GENERATE");
+        mainGenerateBtn.setEnabled(true);
+        dimApplyBtn.setButtonText("Apply + Generate");
+        dimApplyBtn.setEnabled(true);
+    }
 }
 
 void MainPanel::timerCallback()
 {
+    // Stop the temporary pulse after a cache hit, but keep the cache-hit
+    // label as long as the cache is still full.
+    if (cacheHitActive)
+    {
+        const double nowSec = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        if (nowSec >= cacheHitUntilSec)
+        {
+            cacheHitActive = false;
+            if (! promptPanel.isGenerating())
+                glowGenerating = false;
+        }
+    }
+
     const bool isAuto = processorRef.driftRegenMode.load() != 0;
     const bool isHover = mainGenerateBtn.isMouseOver(false);
     float speedHz;
@@ -1391,13 +1516,20 @@ void MainPanel::timerCallback()
         glowPhase -= juce::MathConstants<float>::twoPi;
 
     mainGenerateBtn.setAnimationState(glowPhase, glowGenerating);
-    if (!glowGenerating && cachedInferenceLabelUntilSec > 0.0
-        && nowSec >= cachedInferenceLabelUntilSec)
-    {
-        cachedInferenceLabelUntilSec = 0.0;
-        mainGenerateBtn.setButtonText("GENERATE");
-    }
+    updateGenerateButtonsForCacheState(false);
     syncInferenceCacheUi();
+
+    // Drive the cache-button pulse phase while the cache is still filling.
+    // Uses an independent 2 Hz counter (not glowPhase, which crawls at idle)
+    // so the selected button visibly blinks. Only the toggled button repaints.
+    if (lastInfCacheUiCapacity > 0 && lastInfCacheUiFill < lastInfCacheUiCapacity)
+    {
+        cachePulsePhase += 2.0f * juce::MathConstants<float>::twoPi * dt;
+        while (cachePulsePhase > juce::MathConstants<float>::twoPi)
+            cachePulsePhase -= juce::MathConstants<float>::twoPi;
+        for (auto& b : infCacheButtons)
+            b.setPulsePhase(cachePulsePhase);
+    }
 
     // Poll drift ghost offsets for AxesPanel (30Hz)
     auto& mv = processorRef.modulatedValues;
@@ -1464,13 +1596,18 @@ void MainPanel::resized()
     int kGap = juce::jlimit(3, 6, juce::roundToInt(h * 0.005f));
     constexpr int kMinDimH = 72;
     constexpr int kMinOscH = 220;
-    constexpr int kMinAxesH = 78;
-    int genBtnH = juce::jlimit(50, 112,
-                               juce::roundToInt(juce::jmax(static_cast<float>(genCol.getWidth()) * 0.22f,
-                                                           h * 0.078f)));
+    constexpr int kMinAxesH = 64;
+    // Cap at 72 px: with kMaxDimH at 87 there is enough freed vertical space
+    // that a wider cap (e.g. 112) would let the button grow into a near-square
+    // block at tall windows, breaking the horizontal section-action proportion.
+    // The freed slack is consumed by the genBtnY centering below — the button
+    // sits in a comfortable padded zone instead of inflating to fill it.
+    int genBtnH = juce::jlimit(50, 72,
+                               juce::roundToInt(juce::jmax(static_cast<float>(genCol.getWidth()) * 0.18f,
+                                                           h * 0.060f)));
 
     int oscH = juce::jmax(kMinOscH, promptPanel.getPreferredHeightForWidth(genCol.getWidth()));
-    int axesH = juce::jlimit(kMinAxesH, 128, juce::roundToInt(h * 0.12f));
+    int axesH = juce::jlimit(kMinAxesH, 108, juce::roundToInt(h * 0.10f));
     int dimBudget = genCol.getHeight() - (headerH * 3 + kGap * 3 + genBtnH + oscH + axesH);
     if (dimBudget < kMinDimH)
     {
@@ -1504,8 +1641,9 @@ void MainPanel::resized()
     // flex to fill the whole remaining column and squash the Generate button
     // visually against the bottom, making it look incidental. Generate is the
     // central action — it must be framed with breathing room, not pinned.
-    // See memory/feedback_regenerate_button_layout.md.
-    constexpr int kMaxDimH = 174;
+    // The explorer is a wave plot — 87px still reads clearly; the freed
+    // height becomes padding around the centred Generate button.
+    constexpr int kMaxDimH = 87;
     dimHeader.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.85f));
     dimHeader.setBounds(genCol.removeFromTop(headerH));
     int dimH = juce::jlimit(48, kMaxDimH, genCol.getHeight() - kGap - genBtnH);
@@ -1515,30 +1653,36 @@ void MainPanel::resized()
 
     // Generate + InfCache controls get all slack freed by the explorer cap,
     // centered in the remaining card area so the controls have breathing room.
+    // genCacheGap is intentionally larger than kGap so Generate doesn't read
+    // as glued to the cache row — separation here marks Generate as a
+    // standalone primary control, not a label for the cache row.
     int remainH = genCol.getHeight();
     const int cacheRowH = juce::jlimit(18, 24, juce::roundToInt(h * 0.024f));
-    const int cacheStatusH = juce::jlimit(12, 17, juce::roundToInt(h * 0.017f));
-    const int cacheBlockH = cacheRowH + cacheStatusH + kGap;
+    const int genCacheGap = juce::jlimit(12, 28, juce::roundToInt(h * 0.020f));
+    const int cacheBlockH = cacheRowH + genCacheGap;
     genBtnH = juce::jmin(genBtnH, juce::jmax(44, remainH - cacheBlockH));
-    const int controlsH = genBtnH + kGap + cacheRowH + cacheStatusH;
+    const int controlsH = genBtnH + genCacheGap + cacheRowH;
     int genBtnY = genCol.getY() + juce::jmax(0, (remainH - controlsH) / 2);
     auto genBtnArea = juce::Rectangle<int>(genCol.getX(), genBtnY, genCol.getWidth(), genBtnH);
     int genW = juce::roundToInt(static_cast<float>(genBtnArea.getWidth()) * 0.66f);
     int genX = genBtnArea.getX() + (genBtnArea.getWidth() - genW) / 2;
     mainGenerateBtn.setBounds(genX, genBtnArea.getY(), genW, genBtnArea.getHeight());
-    auto cacheRow = juce::Rectangle<int>(genCol.getX(), mainGenerateBtn.getBottom() + kGap,
+    auto cacheRow = juce::Rectangle<int>(genCol.getX(), mainGenerateBtn.getBottom() + genCacheGap,
                                          genCol.getWidth(), cacheRowH).reduced(2, 0);
-    const int cellW = cacheRow.getWidth() / kNumInfCacheButtons;
-    for (int i = 0; i < kNumInfCacheButtons; ++i)
+    // First cell holds "cache: off" — much wider than the digit cells.
+    // Give it ~2× the share so the label fits without truncation, the
+    // remaining width is split evenly across the seven number cells.
+    const int totalW = cacheRow.getWidth();
+    const int firstW = juce::jlimit(56, totalW / 3, totalW * 2 / kNumInfCacheButtons);
+    const int restW = juce::jmax(1, (totalW - firstW) / (kNumInfCacheButtons - 1));
+    infCacheButtons[0].setBounds(cacheRow.removeFromLeft(firstW));
+    for (int i = 1; i < kNumInfCacheButtons; ++i)
     {
         auto cell = (i == kNumInfCacheButtons - 1)
             ? cacheRow
-            : cacheRow.removeFromLeft(cellW);
+            : cacheRow.removeFromLeft(restW);
         infCacheButtons[i].setBounds(cell);
     }
-    infCacheStatus.setFont(juce::FontOptions(juce::jmax(9.5f, static_cast<float>(cacheStatusH) * 0.72f)));
-    infCacheStatus.setBounds(genCol.getX(), infCacheButtons[0].getBottom(),
-                             genCol.getWidth(), cacheStatusH);
 
     // Col 2: ENGINE
     synthPanel.setBounds(b);

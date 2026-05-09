@@ -521,6 +521,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     juce::StringArray envTargetChoices;
     for (const auto& e : EnvTarget::kEntries) envTargetChoices.add(e.label);
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::ampTarget, 1}, "Amp Target", envTargetChoices, EnvTarget::DCA));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::mod1Target, 1}, "Mod1 Target", envTargetChoices, 0));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::mod2Target, 1}, "Mod2 Target", envTargetChoices, 0));
@@ -1116,6 +1118,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.ampRelease = parameters.getRawParameterValue(PID::ampRelease)->load();
     bp.ampAmount  = parameters.getRawParameterValue(PID::ampAmount)->load();
     bp.ampVelSens = parameters.getRawParameterValue(PID::ampVelSens)->load();
+    bp.ampTarget  = static_cast<int>(parameters.getRawParameterValue(PID::ampTarget)->load());
     bp.ampLoop    = parameters.getRawParameterValue(PID::ampLoop)->load() > 0.5f;
     bp.ampAttackCurve  = static_cast<int>(parameters.getRawParameterValue(PID::ampAttackCurve)->load());
     bp.ampDecayCurve   = static_cast<int>(parameters.getRawParameterValue(PID::ampDecayCurve)->load());
@@ -1856,15 +1859,19 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         lastTriggeredNote = voiceOut.lastTriggeredNote;
 
         // Capture last LFO values for block-rate modulation + ghost display
+        float lastAmpVal = voiceOut.lastAmpVal;
         float lastMod1Val = voiceOut.lastMod1Val;
         float lastMod2Val = voiceOut.lastMod2Val;
         float effectiveLfo1Depth = baseLfo1Depth;
         float effectiveLfo2Depth = baseLfo2Depth;
         float effectiveLfo3Depth = baseLfo3Depth;
+        if (bp.ampTarget == EnvTarget::LFO1Depth) effectiveLfo1Depth = applyNormalizedOffset(effectiveLfo1Depth, lastAmpVal);
         if (bp.mod1Target == EnvTarget::LFO1Depth) effectiveLfo1Depth = applyNormalizedOffset(effectiveLfo1Depth, lastMod1Val);
         if (bp.mod2Target == EnvTarget::LFO1Depth) effectiveLfo1Depth = applyNormalizedOffset(effectiveLfo1Depth, lastMod2Val);
+        if (bp.ampTarget == EnvTarget::LFO2Depth) effectiveLfo2Depth = applyNormalizedOffset(effectiveLfo2Depth, lastAmpVal);
         if (bp.mod1Target == EnvTarget::LFO2Depth) effectiveLfo2Depth = applyNormalizedOffset(effectiveLfo2Depth, lastMod1Val);
         if (bp.mod2Target == EnvTarget::LFO2Depth) effectiveLfo2Depth = applyNormalizedOffset(effectiveLfo2Depth, lastMod2Val);
+        if (bp.ampTarget == EnvTarget::LFO3Depth) effectiveLfo3Depth = applyNormalizedOffset(effectiveLfo3Depth, lastAmpVal);
         if (bp.mod1Target == EnvTarget::LFO3Depth) effectiveLfo3Depth = applyNormalizedOffset(effectiveLfo3Depth, lastMod1Val);
         if (bp.mod2Target == EnvTarget::LFO3Depth) effectiveLfo3Depth = applyNormalizedOffset(effectiveLfo3Depth, lastMod2Val);
         float rawLastLfo1Val = numSamples > 0 ? lfo1Buf[numSamples - 1] : 0.0f;
@@ -1881,6 +1888,10 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
         // ── Accumulate block-rate modulation for delay/reverb ─────────────────
         // (Pitch modulation is handled per-sample in SynthVoice::renderSample)
+        if (bp.ampTarget == EnvTarget::DelayTime)   modDelayTime += lastAmpVal;
+        if (bp.ampTarget == EnvTarget::DelayFB)     modDelayFb += lastAmpVal;
+        if (bp.ampTarget == EnvTarget::DelayMix)    modDelayMix += lastAmpVal;
+        if (bp.ampTarget == EnvTarget::ReverbMix)   modReverbMix += lastAmpVal;
         if (bp.mod1Target == EnvTarget::DelayTime)  modDelayTime += lastMod1Val;
         if (bp.mod1Target == EnvTarget::DelayFB)    modDelayFb += lastMod1Val;
         if (bp.mod1Target == EnvTarget::DelayMix)   modDelayMix += lastMod1Val;
@@ -1891,6 +1902,12 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         if (bp.mod2Target == EnvTarget::ReverbMix)  modReverbMix += lastMod2Val;
 
         // Env → LFO modulation
+        if (bp.ampTarget == EnvTarget::LFO1Rate)    lfo1.setRate(baseLfo1Rate * (1.0f + lastAmpVal));
+        if (bp.ampTarget == EnvTarget::LFO1Depth)   effectiveLfo1Depth = applyNormalizedOffset(effectiveLfo1Depth, lastAmpVal);
+        if (bp.ampTarget == EnvTarget::LFO2Rate)    lfo2.setRate(baseLfo2Rate * (1.0f + lastAmpVal));
+        if (bp.ampTarget == EnvTarget::LFO2Depth)   effectiveLfo2Depth = applyNormalizedOffset(effectiveLfo2Depth, lastAmpVal);
+        if (bp.ampTarget == EnvTarget::LFO3Rate)    lfo3.setRate(baseLfo3Rate * (1.0f + lastAmpVal));
+        if (bp.ampTarget == EnvTarget::LFO3Depth)   effectiveLfo3Depth = applyNormalizedOffset(effectiveLfo3Depth, lastAmpVal);
         if (bp.mod1Target == EnvTarget::LFO1Rate)   lfo1.setRate(baseLfo1Rate * (1.0f + lastMod1Val));
         if (bp.mod1Target == EnvTarget::LFO1Depth)  effectiveLfo1Depth = applyNormalizedOffset(effectiveLfo1Depth, lastMod1Val);
         if (bp.mod1Target == EnvTarget::LFO2Rate)   lfo2.setRate(baseLfo2Rate * (1.0f + lastMod1Val));
@@ -2074,7 +2091,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         {
             bool lfoModFilter = bp.lfo1Target == LfoTarget::Filter || bp.lfo2Target == LfoTarget::Filter
                                 || bp.lfo3Target == LfoTarget::Filter;
-            bool envModFilter = (bp.mod1Target == EnvTarget::Filter || bp.mod2Target == EnvTarget::Filter
+            bool envModFilter = (bp.ampTarget == EnvTarget::Filter
+                                 || bp.mod1Target == EnvTarget::Filter || bp.mod2Target == EnvTarget::Filter
                                  || bp.kbdTrack > 0.0f) && hasVoices;
 
             if (hasVoices && (lfoModFilter || envModFilter))
@@ -2130,7 +2148,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         {
             bool lfoModNoise = bp.lfo1Target == LfoTarget::NoiseLevel || bp.lfo2Target == LfoTarget::NoiseLevel
                                || bp.lfo3Target == LfoTarget::NoiseLevel;
-            bool envModNoise = bp.mod1Target == EnvTarget::NoiseLevel || bp.mod2Target == EnvTarget::NoiseLevel;
+            bool envModNoise = bp.ampTarget == EnvTarget::NoiseLevel
+                            || bp.mod1Target == EnvTarget::NoiseLevel || bp.mod2Target == EnvTarget::NoiseLevel;
 
             if (hasVoices && (lfoModNoise || envModNoise))
             {
@@ -2155,26 +2174,35 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         // LFO1/2 Rate/Depth ghost (env → LFO modulation, requires active voices)
         if (!skipSynthesis)
         {
-            bool lfo1RateMod  = bp.mod1Target == EnvTarget::LFO1Rate  || bp.mod2Target == EnvTarget::LFO1Rate;
-            bool lfo1DepthMod = bp.mod1Target == EnvTarget::LFO1Depth || bp.mod2Target == EnvTarget::LFO1Depth;
+            bool lfo1RateMod  = bp.ampTarget == EnvTarget::LFO1Rate
+                              || bp.mod1Target == EnvTarget::LFO1Rate  || bp.mod2Target == EnvTarget::LFO1Rate;
+            bool lfo1DepthMod = bp.ampTarget == EnvTarget::LFO1Depth
+                              || bp.mod1Target == EnvTarget::LFO1Depth || bp.mod2Target == EnvTarget::LFO1Depth;
             modulatedValues.lfo1Rate.store(lfo1RateMod ? lfo1.getRate() : NO_GHOST, std::memory_order_relaxed);
             float ghostLfo1Depth = bp.lfo1Depth;
+            if (bp.ampTarget == EnvTarget::LFO1Depth) ghostLfo1Depth = applyNormalizedOffset(ghostLfo1Depth, voiceOut.lastAmpVal);
             if (bp.mod1Target == EnvTarget::LFO1Depth) ghostLfo1Depth = applyNormalizedOffset(ghostLfo1Depth, voiceOut.lastMod1Val);
             if (bp.mod2Target == EnvTarget::LFO1Depth) ghostLfo1Depth = applyNormalizedOffset(ghostLfo1Depth, voiceOut.lastMod2Val);
             modulatedValues.lfo1Depth.store(lfo1DepthMod ? ghostLfo1Depth : NO_GHOST, std::memory_order_relaxed);
 
-            bool lfo2RateMod  = bp.mod1Target == EnvTarget::LFO2Rate  || bp.mod2Target == EnvTarget::LFO2Rate;
-            bool lfo2DepthMod = bp.mod1Target == EnvTarget::LFO2Depth || bp.mod2Target == EnvTarget::LFO2Depth;
+            bool lfo2RateMod  = bp.ampTarget == EnvTarget::LFO2Rate
+                              || bp.mod1Target == EnvTarget::LFO2Rate  || bp.mod2Target == EnvTarget::LFO2Rate;
+            bool lfo2DepthMod = bp.ampTarget == EnvTarget::LFO2Depth
+                              || bp.mod1Target == EnvTarget::LFO2Depth || bp.mod2Target == EnvTarget::LFO2Depth;
             modulatedValues.lfo2Rate.store(lfo2RateMod ? lfo2.getRate() : NO_GHOST, std::memory_order_relaxed);
             float ghostLfo2Depth = bp.lfo2Depth;
+            if (bp.ampTarget == EnvTarget::LFO2Depth) ghostLfo2Depth = applyNormalizedOffset(ghostLfo2Depth, voiceOut.lastAmpVal);
             if (bp.mod1Target == EnvTarget::LFO2Depth) ghostLfo2Depth = applyNormalizedOffset(ghostLfo2Depth, voiceOut.lastMod1Val);
             if (bp.mod2Target == EnvTarget::LFO2Depth) ghostLfo2Depth = applyNormalizedOffset(ghostLfo2Depth, voiceOut.lastMod2Val);
             modulatedValues.lfo2Depth.store(lfo2DepthMod ? ghostLfo2Depth : NO_GHOST, std::memory_order_relaxed);
 
-            bool lfo3RateMod  = bp.mod1Target == EnvTarget::LFO3Rate  || bp.mod2Target == EnvTarget::LFO3Rate;
-            bool lfo3DepthMod = bp.mod1Target == EnvTarget::LFO3Depth || bp.mod2Target == EnvTarget::LFO3Depth;
+            bool lfo3RateMod  = bp.ampTarget == EnvTarget::LFO3Rate
+                              || bp.mod1Target == EnvTarget::LFO3Rate  || bp.mod2Target == EnvTarget::LFO3Rate;
+            bool lfo3DepthMod = bp.ampTarget == EnvTarget::LFO3Depth
+                              || bp.mod1Target == EnvTarget::LFO3Depth || bp.mod2Target == EnvTarget::LFO3Depth;
             modulatedValues.lfo3Rate.store(lfo3RateMod ? lfo3.getRate() : NO_GHOST, std::memory_order_relaxed);
             float ghostLfo3Depth = bp.lfo3Depth;
+            if (bp.ampTarget == EnvTarget::LFO3Depth) ghostLfo3Depth = applyNormalizedOffset(ghostLfo3Depth, voiceOut.lastAmpVal);
             if (bp.mod1Target == EnvTarget::LFO3Depth) ghostLfo3Depth = applyNormalizedOffset(ghostLfo3Depth, voiceOut.lastMod1Val);
             if (bp.mod2Target == EnvTarget::LFO3Depth) ghostLfo3Depth = applyNormalizedOffset(ghostLfo3Depth, voiceOut.lastMod2Val);
             modulatedValues.lfo3Depth.store(lfo3DepthMod ? ghostLfo3Depth : NO_GHOST, std::memory_order_relaxed);
@@ -2963,7 +2991,7 @@ struct EnvPIDs {
 };
 static constexpr EnvPIDs kEnvPIDs[] = {
     { PID::ampAttack, PID::ampDecay, PID::ampSustain, PID::ampRelease,
-      PID::ampAmount, PID::ampVelSens, PID::ampLoop, nullptr,
+      PID::ampAmount, PID::ampVelSens, PID::ampLoop, PID::ampTarget,
       PID::ampAttackCurve, PID::ampDecayCurve, PID::ampReleaseCurve,
       PID::ampAttackVelMode, PID::ampDecayVelMode, PID::ampReleaseVelMode },
     { PID::mod1Attack, PID::mod1Decay, PID::mod1Sustain, PID::mod1Release,
@@ -3115,10 +3143,7 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         env->setProperty("releaseMs", get(ep.release));
         env->setProperty("amount", get(ep.amount));
         env->setProperty("velSens", get(ep.velSens));
-        if (ep.target == nullptr)
-            env->setProperty("target", "dca"); // amp env is always DCA
-        else
-            env->setProperty("target", envTargetToString(static_cast<int>(get(ep.target))));
+        env->setProperty("target", envTargetToString(static_cast<int>(get(ep.target))));
         env->setProperty("loop", get(ep.loop) > 0.5f);
         env->setProperty("attackCurve", curveShapeToString(static_cast<int>(get(ep.attackCurve))));
         env->setProperty("decayCurve", curveShapeToString(static_cast<int>(get(ep.decayCurve))));
@@ -3421,8 +3446,11 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 if (env->hasProperty("releaseVelMode"))
                     setParam(parameters, ep.releaseVelMode,
                              static_cast<float>(envVelTimeModeFromString(env->getProperty("releaseVelMode").toString())));
-                if (ep.target != nullptr)
-                    setParam(parameters, ep.target, static_cast<float>(envTargetFromString(env->getProperty("target").toString())));
+                if (env->hasProperty("target"))
+                    setParam(parameters, ep.target,
+                             static_cast<float>(envTargetFromString(env->getProperty("target").toString())));
+                else if (i == 0)
+                    setParam(parameters, ep.target, static_cast<float>(EnvTarget::DCA));
             }
         }
 

@@ -179,6 +179,7 @@ private:
         float ampRelease = -1.0f;
         float ampAmount = -1.0f;
         float ampVelSens = -1.0f;
+        int ampTarget = EnvTarget::DCA;
         bool ampLoop = false;
         int ampAttackCurve = -1;
         int ampDecayCurve = -1;

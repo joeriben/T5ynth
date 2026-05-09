@@ -42,6 +42,7 @@ public:
 
     // ── Per-block rendering ──
     struct VoiceOutput {
+        float lastAmpVal = 0.0f;
         float lastMod1Val = 0.0f;
         float lastMod2Val = 0.0f;
         float lastModulatedCutoff = 20000.0f;
