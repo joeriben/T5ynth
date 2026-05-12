@@ -54,6 +54,20 @@ Training data attribution: https://info.stability.ai/attributions
 
 ---
 
+## T5 Base Text Encoder
+
+**Model:** `t5-base`
+**License:** Apache 2.0
+**URL:** https://huggingface.co/t5-base
+**Authors:** Google Research
+
+T5ynth bundles the T5 Base text encoder assets in frozen backend packages for
+native Stable Audio prompt conditioning. This is an auxiliary text encoder; it
+is not a Stable Audio generation model and does not include Stable Audio
+weights.
+
+---
+
 ## AudioLDM2
 
 **Model:** `cvssp/audioldm2`
@@ -114,8 +128,8 @@ under Creative Commons Attribution license.
 ## Python Dependencies
 
 The following Python packages are used by the inference backend
-(`backend/requirements.txt`). They are not included in this repository
-and are installed separately by the user.
+(`backend/requirements.txt`). They are bundled into packaged backend builds
+and installed into the developer environment when building from source.
 
 | Package       | License      | Purpose                              |
 |---------------|-------------|--------------------------------------|

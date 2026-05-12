@@ -351,7 +351,7 @@ text-to-audio tools:
 
 <h3>Model Download</h3>
 <p>
-T5ynth requires at least one diffusion model. Models are <strong>not bundled</strong> — they must be downloaded separately.
+T5ynth requires at least one diffusion model. Audio model weights are <strong>not bundled</strong> — they must be downloaded separately. The packaged backend includes the auxiliary T5 Base text encoder required by the native Stable Audio engines.
 </p>
 <p>
 Open the <strong>Settings</strong> panel from the status bar, pick a model from the dropdown, and read the per-model instructions shown there. The summary below tells you which model to pick.
@@ -404,7 +404,6 @@ Licensed under the <a href="https://stability.ai/community-license-agreement">St
   </li>
   <li>Back in T5ynth, click <strong>Auto-Scan</strong>. T5ynth finds the files in Downloads and copies them into its working model folder. If you saved the files somewhere other than Downloads, Auto-Scan opens a folder picker and asks you to point at that folder.</li>
 </ol>
-
 <h4>Manual install locations</h4>
 <p>
 If you prefer to place files yourself, use these directories (each model lives in its own subdirectory, e.g.&nbsp;<code>stable-audio-open-small/</code>):
@@ -571,12 +570,12 @@ Below the Dimension Explorer, the Generation column has a compact <strong>SNAP /
 <table>
   <tr><th>Control</th><th>What it stores</th><th>How to use it</th></tr>
   <tr>
-    <td><strong>SNAP OFF / 1 / 2</strong></td>
-    <td>Two temporary snapshots of the current main sound and T5 oscillator state: generated audio, prompts, seed/random state, model choice, generation parameters, Semantic Axes, Dimension Explorer offsets, engine parameters, and P1/P2/P3 including the lock state.</td>
-    <td>Short-click slot 1 or 2 to recall it. Long-click slot 1 or 2 to store a snapshot. The stored state is captured at the <em>beginning</em> of the long click, so moving controls during the long press does not change what is saved.</td>
+    <td><strong>SNAP OFF / 1 / 2 / 3 / 4</strong></td>
+    <td>Four temporary snapshots of the current main sound and T5 oscillator state: generated audio, prompts, seed/random state, model choice, generation parameters, Semantic Axes, Dimension Explorer offsets, engine parameters, and P1/P2/P3 including the lock state.</td>
+    <td>Short-click slot 1, 2, 3, or 4 to recall it. Long-click a slot to store a snapshot. The stored state is captured at the <em>beginning</em> of the long click, so moving controls during the long press does not change what is saved.</td>
   </tr>
   <tr>
-    <td><strong>CACHE OFF / 2 / 4 / 8 / 16 / 32 / 64 / 128</strong></td>
+    <td><strong>CACHE OFF / 2 / 4 / 8 / 16 / 32 / 64</strong></td>
     <td>A round-robin list of generated audio results for the current generation setup. Once filled, Generate plays through the cached results instead of running inference again.</td>
     <td>Choose a cache size, generate until it fills, then use Generate as a fast audition button. Cache capacity and already generated cache audio are saved in <code>.t5p</code> presets and restored when the preset is loaded.</td>
   </tr>
@@ -1819,7 +1818,7 @@ reproduction of Surge's full style list.
 
 <h3>Python Backend Dependencies</h3>
 <p>
-The following Python packages are used by the inference backend. They are not included in the T5ynth repository and are installed separately via <code>backend/requirements.txt</code>.
+The following Python packages are used by the inference backend. They are bundled into packaged backend builds and installed into the developer environment via <code>backend/requirements.txt</code>.
 </p>
 <table>
   <tr><th>Package</th><th>License</th><th>Purpose</th></tr>
@@ -1831,6 +1830,9 @@ The following Python packages are used by the inference backend. They are not in
   <tr><td><code>scipy</code></td><td>BSD-3</td><td>Signal processing</td></tr>
   <tr><td><code>sentencepiece</code></td><td>Apache 2.0</td><td>T5 tokenizer</td></tr>
 </table>
+<p>
+Frozen backend packages also bundle the <code>t5-base</code> text encoder assets (Apache 2.0, Google Research, <a href="https://huggingface.co/t5-base">huggingface.co/t5-base</a>) for native Stable Audio prompt conditioning. This is an auxiliary text encoder, not a Stable Audio generation model.
+</p>
 
 <hr style="margin-top:3rem; border:none; border-top:1px solid var(--border)">
 <p style="color:var(--text-dim); margin-top:1.2rem; font-size:0.85rem;">

@@ -29,6 +29,9 @@ jobs:
           pip install pyinstaller
           pip install -r backend/requirements.txt
 
+      - name: Prepare bundled T5 Base text encoder
+        run: python tools/cache_t5_base.py
+
       - name: Bundle Python backend (PyInstaller)
         working-directory: backend
         run: pyinstaller pipe_inference.spec --noconfirm
@@ -36,6 +39,10 @@ jobs:
       - name: Verify bundled binary starts
         working-directory: backend
         run: |
+          test -f dist/pipe_inference/_internal/hf_assets/t5-base/config.json
+          test -f dist/pipe_inference/_internal/hf_assets/t5-base/model.safetensors
+          test -f dist/pipe_inference/_internal/hf_assets/t5-base/tokenizer.json
+          test -f dist/pipe_inference/_internal/hf_assets/t5-base/spiece.model
           # Smoke test: binary must start and produce output (not crash on import).
           # No 'timeout' on macOS — run in background with kill fallback.
           ./dist/pipe_inference/pipe_inference < /dev/null > /tmp/be_out.log 2>&1 &
@@ -204,6 +211,9 @@ jobs:
           pip install torch==2.7.1 torchaudio==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu128
           pip install -r backend/requirements.txt
 
+      - name: Prepare bundled T5 Base text encoder
+        run: python tools/cache_t5_base.py
+
       - name: Bundle Python backend (PyInstaller)
         working-directory: backend
         run: pyinstaller pipe_inference.spec --noconfirm
@@ -214,6 +224,13 @@ jobs:
         env:
           T5YNTH_ALLOW_NO_MODELS: "1"
         run: |
+          $assetRoot = ".\dist\pipe_inference\_internal\hf_assets\t5-base"
+          foreach ($name in @("config.json", "model.safetensors", "tokenizer.json", "spiece.model")) {
+            $path = Join-Path $assetRoot $name
+            if (!(Test-Path $path)) {
+              throw "Missing bundled t5-base asset: $path"
+            }
+          }
           $backendExe = (Resolve-Path ".\dist\pipe_inference\pipe_inference.exe").Path
           $stdoutLog = Join-Path $env:RUNNER_TEMP "t5ynth_backend_stdout.log"
           $stderrLog = Join-Path $env:RUNNER_TEMP "t5ynth_backend_stderr.log"
@@ -385,9 +402,20 @@ jobs:
           pip install torch==2.7.1 torchaudio==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu128
           pip install -r backend/requirements.txt
 
+      - name: Prepare bundled T5 Base text encoder
+        run: python tools/cache_t5_base.py
+
       - name: Bundle Python backend (PyInstaller)
         working-directory: backend
         run: pyinstaller pipe_inference.spec --noconfirm
+
+      - name: Verify bundled T5 Base text encoder
+        working-directory: backend
+        run: |
+          test -f dist/pipe_inference/_internal/hf_assets/t5-base/config.json
+          test -f dist/pipe_inference/_internal/hf_assets/t5-base/model.safetensors
+          test -f dist/pipe_inference/_internal/hf_assets/t5-base/tokenizer.json
+          test -f dist/pipe_inference/_internal/hf_assets/t5-base/spiece.model
 
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release

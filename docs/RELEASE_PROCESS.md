@@ -123,25 +123,30 @@ Every job:
    `torchvision` wheel set, then `backend/requirements.txt`.
   - On Windows and Linux, that wheel set is pulled from the CUDA 12.8 wheel
      index (`https://download.pytorch.org/whl/cu128`).
-4. Runs `pyinstaller pipe_inference.spec --noconfirm` in `backend/` to
+4. Runs `python tools/cache_t5_base.py` so the frozen backend can bundle the
+   auxiliary `t5-base` text encoder required by native Stable Audio.
+5. Runs `pyinstaller pipe_inference.spec --noconfirm` in `backend/` to
    bundle the Python inference backend.
+   - CI verifies that `backend/dist/pipe_inference/_internal/hf_assets/t5-base/`
+     contains `config.json`, `model.safetensors`, `tokenizer.json`, and
+     `spiece.model` before the backend is copied into release artefacts.
    - For Linux package-layer outputs such as the Fedora RPM and Ubuntu/Debian
      `.deb`, that backend should be staged as a named release bundle and then
      consumed by the packager, rather than rebuilt on the target machine.
    - The Windows job immediately smoke-tests
      `backend/dist/pipe_inference/pipe_inference.exe` and fails if it exits
      during startup.
-5. Runs `cmake -B build -DCMAKE_BUILD_TYPE=Release`, then
+6. Runs `cmake -B build -DCMAKE_BUILD_TYPE=Release`, then
    `cmake --build build --config Release -j<ncpu>`.
-6. Assembles a distribution directory containing the built binary plus the
+7. Assembles a distribution directory containing the built binary plus the
    bundled backend under `backend/`.
    - The Windows job then smoke-tests `dist/T5ynth/T5ynth.exe` with
      `T5YNTH_REQUIRE_BUNDLED_BACKEND=1` so the packaged layout is exercised,
      not a repo fallback.
-7. Creates `.tar.xz` archives on the build machine (see §5).
-8. On the Ubuntu Linux job, stages a named backend bundle and builds an Ubuntu
+8. Creates `.tar.xz` archives on the build machine (see §5).
+9. On the Ubuntu Linux job, stages a named backend bundle and builds an Ubuntu
    `.deb` from the same app/backend layout.
-9. Uploads each archive/package with `actions/upload-artifact@v4`.
+10. Uploads each archive/package with `actions/upload-artifact@v4`.
 
 ### Linux base-build notes
 

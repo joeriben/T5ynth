@@ -1522,20 +1522,21 @@ void SynthPanel::resized()
     // Calculate height needed below: sampler/WT controls + filter + mod + LFO + drift
     // Always reserve same space for engine controls (max of sampler/WT)
     // so waveform height stays stable when switching modes
-    int samplerCtrlH = rowH + gap * 2; // one controls row (sampler or wavetable)
+    const int waveformReserveH = juce::roundToInt(WaveformDisplay::HANDLE_RADIUS * 2.0f + 4.0f);
+    int samplerCtrlH = waveformReserveH + rowH + gap * 2; // waveform handles + one controls row
     int filterH = headerH + headerGap + rowH + gap + rowH * 2 + gap; // header + type/slope/topology + cutoff/reso + mix/kbd
     int modH = gap * 3 + headerH + headerGap; // section gap + header
     int envH = (rowH * 4 + gap) * 3; // 3 envelopes × (header + 3 slider rows + gap)
     int lfoH = gap + headerH + headerGap + (rowH + gap) * 3;              // lfo header + 3 single-row LFOs
     int driftH = gap + headerH + headerGap + (rowH + gap) * 3;            // drift header + 3 single-row drifts
-    int regenH = gap + headerH + headerGap + rowH;                        // regen header + row — last in the natural flow, must stay in the budget
+    int regenH = gap + headerH;                                            // regen controls live in the header row
     int belowWave = samplerCtrlH + filterH + modH + envH + lfoH + driftH + regenH + gap * 5;
-    int waveH = juce::jmax(60, area.getHeight() - belowWave);
+    int waveH = juce::jmax(0, area.getHeight() - belowWave);
 
     if (scanRow->isVisible())
     {
         // ── Wavetable: scan dot + brackets on one line below waveform ──
-        int scanLineH = juce::roundToInt(WaveformDisplay::HANDLE_RADIUS * 2.0f + 4.0f);
+        int scanLineH = waveformReserveH;
         waveformDisplay.setBottomReserve(scanLineH);
         waveformDisplay.setScanVisible(true);
         waveformDisplay.setBounds(area.removeFromTop(waveH + scanLineH));
@@ -1588,7 +1589,7 @@ void SynthPanel::resized()
     else
     {
         // ── Sampler: waveform + bracket handles + controls row ──
-        int handleLineH = juce::roundToInt(WaveformDisplay::HANDLE_RADIUS * 2.0f + 4.0f);
+        int handleLineH = waveformReserveH;
         waveformDisplay.setBottomReserve(handleLineH);
         waveformDisplay.setScanVisible(false);
         waveformDisplay.setBounds(area.removeFromTop(waveH + handleLineH));
@@ -1796,14 +1797,15 @@ void SynthPanel::resized()
     layoutDrift(drift2, area, f, rowH, gap);
     layoutDrift(drift3, area, f, rowH, gap);
 
-    // ── Regenerate — sits in the natural flow directly below Drift ──
+    // ── Regenerate — compact header row with inline controls ──
     area.removeFromTop(gap);
     regenHeader.setFont(juce::FontOptions(headerFs));
-    regenHeader.setBounds(area.removeFromTop(headerH));
-    area.removeFromTop(headerGap);
+    auto regenHeaderRow = area.removeFromTop(headerH);
+    regenHeader.setBounds(regenHeaderRow.removeFromLeft(juce::roundToInt(f * 10.6f)));
     {
-        auto regenRow = area.removeFromTop(rowH);
-        int regenCellW = juce::roundToInt(f * 3.5f);
+        auto regenRow = regenHeaderRow.reduced(3, 2);
+
+        int regenCellW = juce::roundToInt(f * 3.1f);
         for (int i = 0; i < kNumRegenBtns; ++i)
         {
             int edges = 0;
@@ -1814,10 +1816,8 @@ void SynthPanel::resized()
         }
         regenSwitchBounds = regenBtns[0].getBounds()
             .getUnion(regenBtns[kNumRegenBtns - 1].getBounds());
-        // XFade slider in the same row, capped to left half of panel
+
         regenRow.removeFromLeft(juce::roundToInt(f * 0.5f)); // small gap
-        int halfW = area.getWidth() / 2;
-        int xfadeMaxW = halfW - (regenRow.getX() - area.getX());
-        crossfadeRegenRow->setBounds(regenRow.removeFromLeft(std::max(0, xfadeMaxW)));
+        crossfadeRegenRow->setBounds(regenRow);
     }
 }

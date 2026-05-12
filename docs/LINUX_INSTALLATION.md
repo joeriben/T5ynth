@@ -102,6 +102,7 @@ It should print startup messages and then wait for stdin. Exit with `Ctrl+D`.
 Still inside the activated venv:
 
 ```bash
+python tools/cache_t5_base.py
 cd backend
 pyinstaller pipe_inference.spec --noconfirm
 cd ..
@@ -181,6 +182,9 @@ model.safetensors
 model_config.json
 ```
 
+The bundled backend includes the auxiliary T5 Base text encoder used for
+native Stable Audio prompt conditioning.
+
 Use `Auto-Scan` or `Browse...` in the Settings panel after downloading them.
 Do not fetch `model.ckpt` or `base_model.*` files for that model; T5ynth
 ignores them.
@@ -211,7 +215,8 @@ If you see OOM killer messages, reduce parallelism (`cmake --build ... -j2` or
 `Bundled backend has incompatible binary format for this platform`
 
 You copied a backend binary built on another OS. Rebuild the backend locally on
-Linux with `pyinstaller pipe_inference.spec --noconfirm`.
+Linux with `python tools/cache_t5_base.py`, then
+`pyinstaller pipe_inference.spec --noconfirm` from `backend/`.
 
 The terminal dies or fills with Python import errors
 

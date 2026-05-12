@@ -39,7 +39,7 @@ classes:
 - over-pruned PyInstaller bundle
 - frozen `transformers` lazy exports not resolving where
   `stable_audio_tools` expects them
-- missing local auxiliary Hugging Face assets for `t5-base`
+- missing bundled auxiliary Hugging Face assets for `t5-base`
 - Blackwell host GPU running against an older bundled Torch/CUDA runtime
 
 The RPM/installer architecture is broadly correct. The remaining packaging
@@ -228,27 +228,31 @@ This is a general PyInstaller lesson:
 - if an upstream package relies on lazy package-root exports, freeze the
   concrete implementation modules and, if necessary, bind them explicitly
 
-### 4.5 Missing local Hugging Face assets for `t5-base`
+### 4.5 Missing bundled Hugging Face assets for `t5-base`
 
 `stable-audio-open-small` is not self-sufficient with only:
 
 - `model.safetensors`
 - `model_config.json`
 
-For the **native** `stable_audio_tools` path, the backend also needs local
-Transformer assets for the T5 text encoder.
+For the **native** `stable_audio_tools` path, the backend also needs
+Transformer assets for the T5 text encoder. Packaged builds must include those
+assets inside the frozen backend; a fresh user machine must not need a separate
+HuggingFace cache.
 
 The fix was:
 
 - extend model search to Linux's current app data path:
   `~/.config/share/T5ynth/models`
-- add local Hugging Face asset resolution helpers in `pipe_inference.py`
+- add bundled/local Hugging Face asset resolution helpers in `pipe_inference.py`
+- prepare the `t5-base` snapshot in CI via `tools/cache_t5_base.py`
+- include `t5-base` under `hf_assets/t5-base` in `pipe_inference.spec`
 - rewrite the native model config at load time so `t5_model_name` points to a
-  local self-contained T5 directory
+  self-contained T5 directory
 - patch `stable_audio_tools.models.conditioners.T5Conditioner` so the resolved
-  local path is accepted
+  path is accepted
 
-The local T5 directory must look like a real self-contained HF model, i.e.
+The bundled T5 directory must look like a real self-contained HF model, i.e.
 contain at least:
 
 - `config.json`

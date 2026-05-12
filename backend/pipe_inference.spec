@@ -13,6 +13,7 @@ Output:
     dist/pipe_inference/pipe_inference   — the binary to launch
 """
 
+import os
 import sys
 import importlib.util
 from pathlib import Path
@@ -140,6 +141,86 @@ if _soundfile_spec and _soundfile_spec.origin:
     _soundfile_data = Path(_soundfile_spec.origin).parent / '_soundfile_data'
     if _soundfile_data.exists():
         datas += [(str(path), '_soundfile_data') for path in _soundfile_data.iterdir() if path.is_file()]
+
+
+def _looks_like_t5_base_dir(path):
+    path = Path(path).expanduser()
+    has_config = (path / 'config.json').is_file()
+    has_weights = (path / 'model.safetensors').is_file()
+    has_tokenizer = any((path / name).is_file() for name in (
+        'tokenizer.json',
+        'spiece.model',
+    ))
+    return path if has_config and has_weights and has_tokenizer else None
+
+
+def _hf_cache_roots():
+    for key in ('HUGGINGFACE_HUB_CACHE', 'TRANSFORMERS_CACHE'):
+        value = os.environ.get(key)
+        if value:
+            yield Path(value).expanduser()
+
+    hf_home = os.environ.get('HF_HOME')
+    if hf_home:
+        yield Path(hf_home).expanduser() / 'hub'
+
+    yield Path.home() / '.cache' / 'huggingface' / 'hub'
+
+
+def _find_t5_base_dir():
+    env_dir = os.environ.get('T5YNTH_T5_BASE_DIR')
+    if env_dir:
+        found = _looks_like_t5_base_dir(env_dir)
+        if found:
+            return found
+
+    spec_dir = Path(globals().get('SPECPATH', Path.cwd())).resolve()
+    for candidate in (
+        spec_dir / 'hf_assets' / 't5-base',
+        spec_dir.parent / 'hf_assets' / 't5-base',
+    ):
+        found = _looks_like_t5_base_dir(candidate)
+        if found:
+            return found
+
+    cache_name = 'models--t5-base'
+    for root in _hf_cache_roots():
+        snapshots = root / cache_name / 'snapshots'
+        if not snapshots.is_dir():
+            continue
+        for snapshot in sorted(snapshots.iterdir(), reverse=True):
+            found = _looks_like_t5_base_dir(snapshot)
+            if found:
+                return found
+
+    raise RuntimeError(
+        'Missing t5-base text encoder assets for the frozen backend. '
+        'Run "python tools/cache_t5_base.py" before PyInstaller, or set '
+        'T5YNTH_T5_BASE_DIR to a self-contained t5-base directory.'
+    )
+
+
+def _collect_t5_base_data():
+    t5_dir = _find_t5_base_dir()
+    dest = str(Path('hf_assets') / 't5-base')
+
+    names = [
+        'config.json',
+        'model.safetensors',
+        'tokenizer.json',
+        'spiece.model',
+    ]
+    entries = []
+    for name in names:
+        source = t5_dir / name
+        if source.is_file():
+            entries.append((str(source), dest))
+
+    print(f'Bundling t5-base text encoder assets from {t5_dir}')
+    return entries
+
+
+datas += _collect_t5_base_data()
 
 # ── Package metadata ──────────────────────────────────────────────
 # transformers checks dependency versions via importlib.metadata at import time

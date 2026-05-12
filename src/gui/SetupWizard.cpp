@@ -280,6 +280,14 @@ void SettingsPage::setModelInstallBusy(bool busy, const juce::String& statusText
     }
 }
 
+static bool modelHasRequiredAuxAssets(const juce::String& id, const juce::File& modelDir)
+{
+    juce::ignoreUnused(id);
+    if (!modelDir.exists() || !hasModelMarker(modelDir))
+        return false;
+    return true;
+}
+
 // ── Scan ────────────────────────────────────────────────────────────────────
 static juce::File scanForModelById(const juce::String& id, const juce::String& hfRepo)
 {
@@ -318,8 +326,11 @@ juce::File SettingsPage::scanForModel()
 bool SettingsPage::hasAnyInstalledModel()
 {
     for (int i = 0; i < kNumKnownModels; ++i)
-        if (scanForModelById(kKnownModels[i].id, kKnownModels[i].hfRepo).exists())
+    {
+        auto found = scanForModelById(kKnownModels[i].id, kKnownModels[i].hfRepo);
+        if (modelHasRequiredAuxAssets(kKnownModels[i].id, found))
             return true;
+    }
     return false;
 }
 
@@ -404,8 +415,9 @@ void SettingsPage::importDiscoveredModels()
 void SettingsPage::setModelPath(const juce::File& dir)
 {
     modelPath = dir;
+    const bool usableModel = modelHasRequiredAuxAssets(selectedModelId(), modelPath);
 
-    if (modelPath.exists() && !backendConnected)
+    if (modelPath.exists() && usableModel && !backendConnected)
     {
         backendFailReason = {};
         backendStatusLabel.setText("Backend: Starting...", juce::dontSendNotification);
@@ -413,7 +425,7 @@ void SettingsPage::setModelPath(const juce::File& dir)
     }
 
     updateStatus();
-    if (modelPath.exists() && onModelReady)
+    if (modelPath.exists() && usableModel && onModelReady)
         onModelReady();
 }
 
@@ -606,9 +618,10 @@ bool SettingsPage::tryNativeStabilityInstallFromFolder(
                     }
 
                     self->downloadStatusLabel.setText("Model copied. Activating...",
-                                                      juce::dontSendNotification);
-                    self->downloadStatusLabel.setColour(juce::Label::textColourId,
-                                                        juce::Colour(0xff4ade80));
+                                                       juce::dontSendNotification);
+                    self->downloadStatusLabel.setColour(
+                        juce::Label::textColourId,
+                        juce::Colour(0xff4ade80));
 
                     juce::AlertWindow::showMessageBoxAsync(
                         juce::MessageBoxIconType::InfoIcon,
@@ -617,7 +630,7 @@ bool SettingsPage::tryNativeStabilityInstallFromFolder(
                             + sourceFolder.getFullPathName()
                             + "\n\nto:\n  " + targetDir.getFullPathName()
                             + "\n\nThe originals are still in your Downloads folder -- "
-                              "you can delete them now if you want."
+                              "you can delete them now."
                             + wrongNote,
                         "OK",
                         self,

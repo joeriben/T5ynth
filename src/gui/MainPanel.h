@@ -50,8 +50,9 @@ private:
     AxesPanel axesPanel;
     GenerateButton mainGenerateBtn { "GENERATE" };
     juce::Label snapLabel, cacheLabel;
-    static constexpr int kNumInfCacheButtons = 8;
-    static constexpr int kNumSnapshotButtons = 3;
+    static constexpr int kNumInfCacheButtons = 7;
+    static constexpr int kNumSnapshotSlots = 4;
+    static constexpr int kNumSnapshotButtons = kNumSnapshotSlots + 1;
 
     struct MainSnapshot
     {
@@ -123,9 +124,9 @@ private:
     CacheCapButton infCacheButtons[kNumInfCacheButtons];
     juce::Rectangle<int> snapshotSwitchBounds;
     juce::Rectangle<int> cacheSwitchBounds;
-    std::array<MainSnapshot, 2> mainSnapshots;
-    std::array<MainSnapshot, 2> snapshotPressCaptures;
-    int activeSnapshotIndex = 0;  // 0=OFF, 1/2=session snapshot selected
+    std::array<MainSnapshot, kNumSnapshotSlots> mainSnapshots;
+    std::array<MainSnapshot, kNumSnapshotSlots> snapshotPressCaptures;
+    int activeSnapshotIndex = 0;  // 0=OFF, 1..4=session snapshot selected
     int lastInfCacheUiCapacity = -1;
     int lastInfCacheUiFill = -1;
     bool lastInfCacheUiFull = false;

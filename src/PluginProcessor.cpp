@@ -3057,11 +3057,14 @@ void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& proce
 
 void T5ynthProcessor::setInferenceCacheCapacity(int capacity)
 {
-    static constexpr int kAllowed[] = { 0, 2, 4, 8, 16, 32, 64, 128 };
+    static constexpr int kAllowed[] = { 0, 2, 4, 8, 16, 32, 64 };
     int sanitized = 0;
     for (int allowed : kAllowed)
         if (capacity == allowed)
             sanitized = allowed;
+    constexpr int maxAllowed = kAllowed[sizeof(kAllowed) / sizeof(kAllowed[0]) - 1];
+    if (capacity > maxAllowed)
+        sanitized = maxAllowed;
 
     if (sanitized == inferenceCacheCapacity)
         return;

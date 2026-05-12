@@ -681,7 +681,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     addAndMakeVisible(snapLabel);
 
     {
-        static constexpr const char* labels[kNumSnapshotButtons] = { "OFF", "1", "2" };
+        static constexpr const char* labels[kNumSnapshotButtons] = { "OFF", "1", "2", "3", "4" };
         for (int i = 0; i < kNumSnapshotButtons; ++i)
         {
             auto& b = snapshotButtons[i];
@@ -712,10 +712,10 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
 
     {
         static constexpr const char* labels[kNumInfCacheButtons] = {
-            "OFF", "2", "4", "8", "16", "32", "64", "128"
+            "OFF", "2", "4", "8", "16", "32", "64"
         };
         static constexpr int values[kNumInfCacheButtons] = {
-            0, 2, 4, 8, 16, 32, 64, 128
+            0, 2, 4, 8, 16, 32, 64
         };
         for (int i = 0; i < kNumInfCacheButtons; ++i)
         {
@@ -855,12 +855,18 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     // T5ynth's canonical model slots before the backend scans them.
     settingsPage.importDiscoveredModels();
 
-    // Load native inference models
-    tryLoadInferenceModels();
-
-    // Auto-open settings if no model found for any engine
-    if (!settingsPage.hasAnyInstalledModel())
+    // Load native inference only after Settings has confirmed at least one
+    // model slot contains model files the backend can scan.
+    if (settingsPage.hasAnyInstalledModel())
+    {
+        tryLoadInferenceModels();
+    }
+    else
+    {
+        statusBar.setConnected(false);
+        statusBar.setStatusText("Model setup required");
         showSettings();
+    }
 }
 
 void MainPanel::showDimExplorer()
@@ -1535,7 +1541,7 @@ void MainPanel::tryLoadInferenceModels(bool forceRestart)
                     else
                     {
                         self->statusBar.setConnected(false);
-                        self->statusBar.setStatusText("Backend: " + errorMsg);
+                        self->statusBar.setStatusText("Backend start failed");
                         self->settingsPage.setBackendFailed(errorMsg);
                     }
                 }
@@ -1615,7 +1621,7 @@ void MainPanel::paint(juce::Graphics& g)
         int top = dimHeader.getY() - inset;
         int bot = sequencerPanel.getY() - inset;
         int left = dimHeader.getX() - inset;
-        int cardW = dimensionExplorer.getWidth() + inset * 2;
+        int cardW = juce::jmax(dimHeader.getWidth(), dimensionExplorer.getWidth()) + inset * 2;
         paintCard(g, juce::Rectangle<int>(left, top, cardW, bot - top));
     }
 
@@ -1651,7 +1657,7 @@ void MainPanel::syncInferenceCacheUi()
     lastInfCacheUiFill = fill;
     lastInfCacheUiFull = full;
 
-    static constexpr int values[kNumInfCacheButtons] = { 0, 2, 4, 8, 16, 32, 64, 128 };
+    static constexpr int values[kNumInfCacheButtons] = { 0, 2, 4, 8, 16, 32, 64 };
 
     // Pulse the *selected* button while the cache is filling. Once full,
     // pulsing stops and the button sits at solid kOscCol — that solid state
@@ -1822,14 +1828,14 @@ void MainPanel::restoreMainSnapshot(const MainSnapshot& snapshot)
 
 void MainPanel::captureSnapshotPress(int slot)
 {
-    if (slot < 1 || slot > 2)
+    if (slot < 1 || slot > kNumSnapshotSlots)
         return;
     snapshotPressCaptures[static_cast<size_t>(slot - 1)] = captureMainSnapshot();
 }
 
 void MainPanel::storeSnapshotFromPress(int slot)
 {
-    if (slot < 1 || slot > 2)
+    if (slot < 1 || slot > kNumSnapshotSlots)
         return;
 
     auto& pending = snapshotPressCaptures[static_cast<size_t>(slot - 1)];
@@ -1856,7 +1862,7 @@ void MainPanel::activateSnapshot(int slot)
         return;
     }
 
-    if (slot > 2 || !mainSnapshots[static_cast<size_t>(slot - 1)].valid)
+    if (slot > kNumSnapshotSlots || !mainSnapshots[static_cast<size_t>(slot - 1)].valid)
     {
         statusBar.setStatusText("Snapshot " + juce::String(slot) + " empty");
         syncSnapshotUi();
@@ -1991,21 +1997,23 @@ void MainPanel::resized()
 
     int headerH = juce::jlimit(14, 20, juce::roundToInt(h * 0.022f));
     int kGap = juce::jlimit(3, 6, juce::roundToInt(h * 0.005f));
-    constexpr int kMinDimH = 72;
+    constexpr int kMinDimH = 24;
+    constexpr int kMaxDimH = 48;
     constexpr int kMinOscH = 220;
     constexpr int kMinAxesH = 64;
-    // Cap at 72 px: with kMaxDimH at 87 there is enough freed vertical space
-    // that a wider cap (e.g. 112) would let the button grow into a near-square
-    // block at tall windows, breaking the horizontal section-action proportion.
-    // The freed slack is consumed by the genBtnY centering below — the button
-    // sits in a comfortable padded zone instead of inflating to fill it.
+    constexpr int kMinGenerateButtonH = 38;
+    const int cacheRowH = juce::jlimit(16, 20, juce::roundToInt(h * 0.022f));
+    const int genCacheGap = juce::jlimit(8, 18, juce::roundToInt(h * 0.014f));
+
     int genBtnH = juce::jlimit(50, 72,
                                juce::roundToInt(juce::jmax(static_cast<float>(genCol.getWidth()) * 0.18f,
                                                            h * 0.060f)));
 
     int oscH = juce::jmax(kMinOscH, promptPanel.getPreferredHeightForWidth(genCol.getWidth()));
     int axesH = juce::jlimit(kMinAxesH, 108, juce::roundToInt(h * 0.10f));
-    int dimBudget = genCol.getHeight() - (headerH * 3 + kGap * 3 + genBtnH + oscH + axesH);
+    const int reservedGenerateBlockH = kMinGenerateButtonH + genCacheGap + cacheRowH;
+    int dimBudget = genCol.getHeight() - (headerH * 3 + kGap * 3
+                                          + reservedGenerateBlockH + oscH + axesH);
     if (dimBudget < kMinDimH)
     {
         int shortage = kMinDimH - dimBudget;
@@ -2033,20 +2041,24 @@ void MainPanel::resized()
     axesPanel.setBounds(genCol.removeFromTop(axesH));
     genCol.removeFromTop(kGap);
 
-    // Card 3: DIM EXPLORER
-    // Cap the explorer's vertical footprint: at tall windows it would otherwise
-    // flex to fill the whole remaining column and squash the Generate button
-    // visually against the bottom, making it look incidental. Generate is the
-    // central action — it must be framed with breathing room, not pinned.
-    // The explorer is a wave plot — 87px still reads clearly; the freed
-    // height becomes padding around the centred Generate button.
-    constexpr int kMaxDimH = 87;
+    // Card 3: DIM EXPLORER. This mini view is residual context; it must give
+    // up space before the Generate/cache controls can collide with Sequencer.
     dimHeader.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.85f));
     dimHeader.setBounds(genCol.removeFromTop(headerH));
-    int dimH = juce::jlimit(48, kMaxDimH, genCol.getHeight() - kGap - genBtnH);
+    const int availableDimH = genCol.getHeight() - kGap - reservedGenerateBlockH;
+    int dimH = juce::jlimit(0, kMaxDimH, availableDimH);
     if (!dimExplorerVisible)
-        dimensionExplorer.setBounds(genCol.removeFromTop(dimH));
-    genCol.removeFromTop(kGap);
+    {
+        if (dimH >= kMinDimH)
+            dimensionExplorer.setBounds(genCol.removeFromTop(dimH));
+        else
+            dimensionExplorer.setBounds({});
+    }
+    else if (dimH > 0)
+    {
+        genCol.removeFromTop(dimH);
+    }
+    genCol.removeFromTop(juce::jmin(kGap, genCol.getHeight()));
 
     // Generate + InfCache controls get all slack freed by the explorer cap,
     // centered in the remaining card area so the controls have breathing room.
@@ -2054,11 +2066,13 @@ void MainPanel::resized()
     // as glued to the cache row — separation here marks Generate as a
     // standalone primary control, not a label for the cache row.
     int remainH = genCol.getHeight();
-    const int cacheRowH = juce::jlimit(16, 20, juce::roundToInt(h * 0.022f));
-    const int genCacheGap = juce::jlimit(12, 28, juce::roundToInt(h * 0.020f));
-    const int cacheBlockH = cacheRowH + genCacheGap;
-    genBtnH = juce::jmin(genBtnH, juce::jmax(44, remainH - cacheBlockH));
-    const int controlsH = genBtnH + genCacheGap + cacheRowH;
+    int effectiveGenCacheGap = genCacheGap;
+    if (remainH < kMinGenerateButtonH + effectiveGenCacheGap + cacheRowH)
+        effectiveGenCacheGap = juce::jmin(effectiveGenCacheGap, kGap);
+
+    const int availableGenButtonH = juce::jmax(0, remainH - effectiveGenCacheGap - cacheRowH);
+    genBtnH = juce::jlimit(0, genBtnH, availableGenButtonH);
+    const int controlsH = genBtnH + effectiveGenCacheGap + cacheRowH;
     int genBtnY = genCol.getY() + juce::jmax(0, (remainH - controlsH) / 2);
     auto genBtnArea = juce::Rectangle<int>(genCol.getX(), genBtnY, genCol.getWidth(), genBtnH);
     int genW = juce::roundToInt(static_cast<float>(genBtnArea.getWidth()) * 0.66f);
@@ -2066,7 +2080,7 @@ void MainPanel::resized()
     mainGenerateBtn.setBounds(genX, genBtnArea.getY(), genW, genBtnArea.getHeight());
 
     auto snapCacheRow = juce::Rectangle<int>(genCol.getX(),
-                                             mainGenerateBtn.getBottom() + genCacheGap,
+                                             mainGenerateBtn.getBottom() + effectiveGenCacheGap,
                                              genCol.getWidth(),
                                              cacheRowH).reduced(1, 0);
     const float switchFs = juce::jmax(kUiLabelFontMin, static_cast<float>(cacheRowH) * 0.58f);
@@ -2077,8 +2091,8 @@ void MainPanel::resized()
     const int gap = veryNarrow ? 3 : 4;
     const int snapLabelW = veryNarrow ? 28 : juce::jlimit(28, 31, measureTextWidth("SNAP", switchFs) + 4);
     const int cacheLabelW = veryNarrow ? 36 : juce::jlimit(36, 39, measureTextWidth("CACHE", switchFs) + 4);
-    const int snapGroupW = veryNarrow ? 54 : juce::jlimit(58, 64,
-                                                          juce::roundToInt(static_cast<float>(snapCacheRow.getWidth()) * 0.20f));
+    const int snapGroupW = veryNarrow ? 94 : juce::jlimit(108, 128,
+                                                          juce::roundToInt(static_cast<float>(snapCacheRow.getWidth()) * 0.28f));
 
     snapLabel.setBounds(snapCacheRow.removeFromLeft(snapLabelW));
     auto snapGroup = snapCacheRow.removeFromLeft(juce::jmin(snapGroupW, snapCacheRow.getWidth()));
@@ -2086,36 +2100,35 @@ void MainPanel::resized()
     cacheLabel.setBounds(snapCacheRow.removeFromLeft(juce::jmin(cacheLabelW, snapCacheRow.getWidth())));
     snapCacheRow.removeFromLeft(juce::jmin(gap, snapCacheRow.getWidth()));
 
-    auto layoutEqualButtons = [](auto& buttons, int count, juce::Rectangle<int> area)
+    auto layoutWeightedButtons = [](auto& buttons, int count, juce::Rectangle<int> area, const float* weights)
     {
+        float remainingWeight = 0.0f;
+        for (int i = 0; i < count; ++i)
+            remainingWeight += weights[i];
+
         for (int i = 0; i < count; ++i)
         {
-            const int cellW = (i == count - 1) ? area.getWidth()
-                                               : juce::jmax(1, area.getWidth() / (count - i));
+            const int cellW = (i == count - 1)
+                ? area.getWidth()
+                : juce::jmax(1, juce::roundToInt(static_cast<float>(area.getWidth()) * weights[i] / remainingWeight));
             buttons[i].setBounds(area.removeFromLeft(cellW));
+            remainingWeight -= weights[i];
         }
     };
-    layoutEqualButtons(snapshotButtons, kNumSnapshotButtons, snapGroup);
+
+    static constexpr float snapshotWeights[kNumSnapshotButtons] = {
+        1.65f, 1.00f, 1.00f, 1.00f, 1.00f
+    };
+    layoutWeightedButtons(snapshotButtons, kNumSnapshotButtons, snapGroup, snapshotWeights);
     snapshotSwitchBounds = snapshotButtons[0].getBounds();
     for (int i = 1; i < kNumSnapshotButtons; ++i)
         snapshotSwitchBounds = snapshotSwitchBounds.getUnion(snapshotButtons[i].getBounds());
 
     auto cacheGroup = snapCacheRow;
     static constexpr float cacheWeights[kNumInfCacheButtons] = {
-        1.30f, 1.00f, 1.00f, 1.00f, 1.10f, 1.10f, 1.10f, 1.30f
+        1.35f, 1.00f, 1.00f, 1.00f, 1.12f, 1.12f, 1.12f
     };
-    float remainingWeight = 0.0f;
-    for (float weight : cacheWeights)
-        remainingWeight += weight;
-
-    for (int i = 0; i < kNumInfCacheButtons; ++i)
-    {
-        const int cellW = (i == kNumInfCacheButtons - 1)
-            ? cacheGroup.getWidth()
-            : juce::jmax(1, juce::roundToInt(static_cast<float>(cacheGroup.getWidth()) * cacheWeights[i] / remainingWeight));
-        infCacheButtons[i].setBounds(cacheGroup.removeFromLeft(cellW));
-        remainingWeight -= cacheWeights[i];
-    }
+    layoutWeightedButtons(infCacheButtons, kNumInfCacheButtons, cacheGroup, cacheWeights);
     cacheSwitchBounds = infCacheButtons[0].getBounds();
     for (int i = 1; i < kNumInfCacheButtons; ++i)
         cacheSwitchBounds = cacheSwitchBounds.getUnion(infCacheButtons[i].getBounds());

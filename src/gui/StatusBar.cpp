@@ -1,6 +1,44 @@
 #include "StatusBar.h"
 #include "GuiHelpers.h"
 
+namespace
+{
+juce::String fitTextToWidth(const juce::Font& font, juce::String text, int maxWidth)
+{
+    text = text.trim();
+    if (text.isEmpty() || maxWidth <= 0)
+        return {};
+
+    if (font.getStringWidth(text) <= maxWidth)
+        return text;
+
+    constexpr const char* suffix = "...";
+    const int suffixW = font.getStringWidth(suffix);
+    if (suffixW >= maxWidth)
+        return {};
+
+    int lo = 0;
+    int hi = text.length();
+    int best = 0;
+    while (lo <= hi)
+    {
+        const int mid = (lo + hi) / 2;
+        auto candidate = text.substring(0, mid).trimEnd();
+        if (font.getStringWidth(candidate) + suffixW <= maxWidth)
+        {
+            best = mid;
+            lo = mid + 1;
+        }
+        else
+        {
+            hi = mid - 1;
+        }
+    }
+
+    return text.substring(0, best).trimEnd() + suffix;
+}
+}
+
 StatusBar::StatusBar()
 {
     for (auto* btn : { &newBtn, &saveBtn, &loadBtn, &exportBtn, &settingsBtn, &manualBtn })
@@ -42,15 +80,25 @@ void StatusBar::paint(juce::Graphics& g)
     g.fillEllipse(dotX, (h - dotSize) * 0.5f, dotSize, dotSize);
 
     float fs = juce::jlimit(10.0f, 14.0f, h * 0.55f);
-    g.setFont(juce::FontOptions(fs));
+    juce::Font font { juce::FontOptions(fs) };
+    g.setFont(font);
 
     int textX = juce::roundToInt(dotX + dotSize + 6.0f);
     int rightEdge = newBtn.getX() - 8;
+    auto statusBounds = juce::Rectangle<int>(textX, 0,
+                                             juce::jmax(0, rightEdge - textX),
+                                             getHeight());
 
     // Status text (left side)
     g.setColour(juce::Colour(0xffe3e3e3));
-    g.drawText(statusText, textX, 0, rightEdge - textX, getHeight(),
-               juce::Justification::centredLeft);
+    {
+        juce::Graphics::ScopedSaveState clip(g);
+        g.reduceClipRegion(statusBounds);
+        g.drawText(fitTextToWidth(font, statusText, statusBounds.getWidth()),
+                   statusBounds,
+                   juce::Justification::centredLeft,
+                   false);
+    }
 
     // Preset name (centered between status text and buttons). Bounds are
     // remembered so the right-click hit-test in mouseDown() lines up with
@@ -59,7 +107,7 @@ void StatusBar::paint(juce::Graphics& g)
     {
         g.setColour(kAccent);
         const int nameW = juce::jmin(rightEdge - textX,
-                                     juce::Font(juce::FontOptions(fs)).getStringWidth(presetName) + 24);
+                                     font.getStringWidth(presetName) + 24);
         const int nameX = (textX + rightEdge - nameW) / 2;
         presetNameBounds = juce::Rectangle<int>(nameX, 0, nameW, getHeight());
         g.drawText(presetName, presetNameBounds, juce::Justification::centred);

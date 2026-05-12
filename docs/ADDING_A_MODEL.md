@@ -679,8 +679,9 @@ Before opening a PR with a new engine, run this checklist in order:
     being called in your generator, or the embedding manipulation path
     is not wired in.
 11. **Bundle test** (if you edited `pipe_inference.spec`) —
-    `cd backend && pyinstaller pipe_inference.spec`, then launch
-    T5ynth against the bundled binary. The venv-only test is
+    `python tools/cache_t5_base.py`, then
+    `cd backend && pyinstaller pipe_inference.spec`. Launch T5ynth
+    against the bundled binary. The venv-only test is
     insufficient; PyInstaller bundling failures only show up here.
 
 If any step fails, do not ship. Failing to test end-to-end through the

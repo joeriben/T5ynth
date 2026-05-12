@@ -14,7 +14,7 @@ T5ynthEditor::T5ynthEditor(T5ynthProcessor& processor)
 
     setSize(1300, 867);
     setResizable(true, true);
-    setResizeLimits(1050, 700, 2400, 1600);
+    setResizeLimits(1200, 800, 2400, 1600);
     getConstrainer()->setFixedAspectRatio(3.0 / 2.0);
 
     // The peer may not exist yet in the constructor. Apply once now for the

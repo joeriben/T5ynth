@@ -20,6 +20,7 @@ import struct
 import sys
 import time
 import logging
+import copy
 from pathlib import Path
 
 
@@ -273,25 +274,31 @@ def _model_format(model_dir):
 # {name: "diffusers"|"native"} — format of each discovered model
 _model_formats = {}
 
-def find_models():
-    """Discover all model directories (diffusers or native). Returns {name: Path}."""
+def _model_search_base_dirs():
+    """Return model root directories the backend scans for installed engines."""
     import sys, os
     configured_dir = os.environ.get("T5YNTH_MODEL_DIR")
     if configured_dir:
-        base_dirs = [Path(configured_dir)]
-    else:
-        base_dirs = [
-            Path.home() / "Library" / "Application Support" / "T5ynth" / "models",  # per-user macOS (primary)
-            Path.home() / "Library" / "T5ynth" / "models",       # legacy macOS
-            Path.home() / ".config" / "share" / "T5ynth" / "models",  # Linux current app data path
-            Path.home() / ".local" / "share" / "T5ynth" / "models",  # Linux
-            Path.home() / "t5ynth" / "models",                    # legacy
-        ]
-        if sys.platform == "darwin":
-            base_dirs.insert(1, Path("/Library/Application Support/T5ynth/models"))  # system-wide (.pkg, scan-only)
-        elif sys.platform == "win32":
-            base_dirs.insert(0, Path(os.environ.get("APPDATA", "")) / "T5ynth" / "models")  # per-user Windows (primary)
-            base_dirs.insert(1, Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData")) / "T5ynth" / "models")  # system-wide (scan-only)
+        return [Path(configured_dir)]
+
+    base_dirs = [
+        Path.home() / "Library" / "Application Support" / "T5ynth" / "models",  # per-user macOS (primary)
+        Path.home() / "Library" / "T5ynth" / "models",       # legacy macOS
+        Path.home() / ".config" / "share" / "T5ynth" / "models",  # Linux current app data path
+        Path.home() / ".local" / "share" / "T5ynth" / "models",  # Linux
+        Path.home() / "t5ynth" / "models",                    # legacy
+    ]
+    if sys.platform == "darwin":
+        base_dirs.insert(1, Path("/Library/Application Support/T5ynth/models"))  # system-wide (.pkg, scan-only)
+    elif sys.platform == "win32":
+        base_dirs.insert(0, Path(os.environ.get("APPDATA", "")) / "T5ynth" / "models")  # per-user Windows (primary)
+        base_dirs.insert(1, Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData")) / "T5ynth" / "models")  # system-wide (scan-only)
+    return base_dirs
+
+
+def find_models():
+    """Discover all model directories (diffusers or native). Returns {name: Path}."""
+    base_dirs = _model_search_base_dirs()
     models = {}
     for base in base_dirs:
         if not base.is_dir():
@@ -302,6 +309,153 @@ def find_models():
                 models[child.name] = child
                 _model_formats[child.name] = fmt
     return models
+
+
+def _is_local_transformers_model_dir(path):
+    """Return True if the directory looks like a self-contained HF model."""
+    if not path.is_dir():
+        return False
+
+    has_config = (path / "config.json").is_file()
+    has_weights = (path / "model.safetensors").is_file()
+    has_tokenizer = any(
+        (path / name).is_file()
+        for name in ("tokenizer.json", "spiece.model")
+    )
+    return has_config and has_weights and has_tokenizer
+
+
+def _bundled_transformers_asset_roots():
+    """Return PyInstaller/source roots that can contain bundled HF assets."""
+    roots = []
+
+    explicit_asset_root = os.environ.get("T5YNTH_BACKEND_HF_ASSETS")
+    if explicit_asset_root:
+        roots.append(Path(explicit_asset_root))
+
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        roots.append(Path(meipass))
+
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        roots.extend([exe_dir, exe_dir / "_internal"])
+
+    module_dir = Path(__file__).resolve().parent
+    roots.extend([module_dir, module_dir / "_internal"])
+
+    seen = set()
+    for root in roots:
+        resolved = root.expanduser()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        yield resolved
+
+
+def _candidate_transformers_dirs(model_name, model_dir):
+    """Yield controlled backend asset locations for auxiliary HF transformers."""
+    del model_dir
+    short_name = model_name.rsplit("/", 1)[-1]
+    canonical_name = model_name.replace("/", "--")
+
+    seen = set()
+
+    bundled_candidates = [
+        Path("hf_assets") / short_name,
+        Path("hf_assets") / canonical_name,
+    ]
+
+    for root in _bundled_transformers_asset_roots():
+        for rel in bundled_candidates:
+            candidate = root / rel
+            resolved = candidate.expanduser()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            yield resolved
+
+
+def _resolve_local_transformers_model_dir(model_name, model_dir):
+    """Resolve a bundled backend HF asset directory for a model id like t5-base."""
+    for candidate in _candidate_transformers_dirs(model_name, model_dir):
+        if _is_local_transformers_model_dir(candidate):
+            return candidate
+    return None
+
+
+def _prepare_native_model_config(model_dir, model_config):
+    """Rewrite native model config to use bundled auxiliary HF assets only."""
+    patched = copy.deepcopy(model_config)
+    conditioning_cfg = patched.get("model", {}).get("conditioning", {})
+    configs = conditioning_cfg.get("configs", [])
+    resolved_t5_models = []
+
+    for cond in configs:
+        if cond.get("type") != "t5":
+            continue
+
+        cond_cfg = cond.setdefault("config", {})
+        model_name = cond_cfg.get("t5_model_name")
+        if not model_name:
+            continue
+
+        resolved = _resolve_local_transformers_model_dir(model_name, model_dir)
+        if resolved is None:
+            searched = [str(path) for path in _candidate_transformers_dirs(model_name, model_dir)]
+            raise RuntimeError(
+                "Native Stable Audio model files were found, but the backend package "
+                f"does not contain the required text encoder assets: '{model_name}'. "
+                "This is a packaging error for a self-contained T5ynth install. "
+                "Backend startup will not download from Hugging Face. Expected a "
+                "bundled backend asset directory with config, tokenizer, and "
+                f"model.safetensors. Searched: {searched}"
+            )
+
+        cond_cfg["t5_model_name"] = str(resolved)
+        log.info("Resolved bundled transformers asset %s -> %s", model_name, resolved)
+        resolved_t5_models.append((model_name, str(resolved)))
+
+    return patched, resolved_t5_models
+
+
+def _patch_stable_audio_tools_t5_registry(resolved_t5_models):
+    """Allow stable-audio-tools to accept resolved bundled T5 asset directories."""
+    if not resolved_t5_models:
+        return
+
+    from stable_audio_tools.models import conditioners as sat_conditioners
+
+    for original_name, resolved_path in resolved_t5_models:
+        dims = getattr(sat_conditioners.T5Conditioner, "T5_MODEL_DIMS", None)
+        models = getattr(sat_conditioners.T5Conditioner, "T5_MODELS", None)
+        if not isinstance(dims, dict) or original_name not in dims:
+            continue
+
+        if isinstance(models, tuple):
+            models = list(models)
+            sat_conditioners.T5Conditioner.T5_MODELS = models
+        if isinstance(models, list) and resolved_path not in models:
+            models.append(resolved_path)
+
+        dims[resolved_path] = dims[original_name]
+
+
+def _force_hf_offline_for_native_load():
+    """Prevent transformers/huggingface_hub from falling back to network I/O."""
+    keys = ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE")
+    previous = {key: os.environ.get(key) for key in keys}
+    for key in keys:
+        os.environ[key] = "1"
+    return previous
+
+
+def _restore_hf_env(previous):
+    for key, value in previous.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
 
 
 # ─── Lazy pipeline cache ──────────────────────────────────────────────
@@ -526,15 +680,19 @@ def _load_native_pipeline(model_dir, device):
     # Suppress any stdout output during model loading (protects IPC pipe)
     real_stdout = sys.stdout
     sys.stdout = sys.stderr
+    hf_env = _force_hf_offline_for_native_load()
     try:
         with open(config_path) as f:
-            model_config = json.load(f)
+            model_config, resolved_t5_models = _prepare_native_model_config(model_dir, json.load(f))
+
+        _patch_stable_audio_tools_t5_registry(resolved_t5_models)
 
         model = create_model_from_config(model_config)
         model.load_state_dict(load_ckpt_state_dict(str(weights_path)))
         model.eval()
         model = model.to(device)
     finally:
+        _restore_hf_env(hf_env)
         sys.stdout = real_stdout
 
     log.info(f"Native pipeline loaded on {device}.")

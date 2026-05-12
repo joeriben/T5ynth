@@ -27,6 +27,7 @@ backend/venv/
 backend/__pycache__/
 backend/build/
 backend/dist/
+backend/hf_assets/
 *.pyc
 
 # Local assembled distributions / archives

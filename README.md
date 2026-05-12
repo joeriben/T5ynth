@@ -27,7 +27,7 @@ Links:
 
 - User guide: bundled and rendered inside the app; source HTML lives at [`resources/T5ynth_Guide.html`](resources/T5ynth_Guide.html)
 - Preset collection: [`joeriben/T5ynth-Presets`](https://github.com/joeriben/T5ynth-Presets)
-- Current beta release: [`v1.7.1-beta.2`](https://github.com/joeriben/T5ynth/releases/tag/v1.7.1-beta.2)
+- Current beta release: [`v1.8.0-beta.2`](https://github.com/joeriben/T5ynth/releases/tag/v1.8.0-beta.2)
 
 Current tagged GitHub Releases publish:
 
@@ -302,6 +302,7 @@ python -m pip install torch==2.7.1 torchaudio==2.7.1 torchvision==0.22.1 --index
 python -m pip install -r backend/requirements.txt
 
 # Bundle backend
+python tools/cache_t5_base.py
 ( cd backend && pyinstaller pipe_inference.spec --noconfirm )
 
 # Configure + build
@@ -322,7 +323,7 @@ described in [docs/LINUX_PACKAGING.md](docs/LINUX_PACKAGING.md).
 
 ### Model Download
 
-T5ynth requires at least one diffusion model. Models are not bundled — they must be downloaded separately.
+T5ynth requires at least one diffusion model. Audio model weights are not bundled — they must be downloaded separately. The packaged backend includes the auxiliary T5 Base text encoder required by the native Stable Audio engines, so users do not install `t5-base` separately.
 
 Use the **Settings** panel on first launch:
 
