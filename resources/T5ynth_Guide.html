@@ -475,8 +475,9 @@ Each engine opens a different learned space. The Stable Audio engines are
 strongest with English sound-oriented phrases: sound effects, field
 recordings, drum or instrument loops, ambient sounds, foley, and production
 elements. AudioLDM2 can also cover sound effects, speech-like material, and
-music, but it is non-commercial only and behaves differently from the Stable
-Audio engines.
+music, but it is non-commercial only, behaves differently from the Stable
+Audio engines, and is kept in T5ynth mainly for exploratory use rather than
+as the primary reference engine.
 </p>
 <p>
 The impulses do not have to be narrow "sound ideas". They can evoke sound
@@ -588,6 +589,39 @@ Snapshots are session workflow slots: they let you keep a bass or lead state whi
 <p>
 Three model slots are available: Stable Audio Open 1.0, Stable Audio Open Small, and AudioLDM2 <em>(experimental, CC BY-NC-SA 4.0 — non-commercial only)</em>. The device toggle switches between GPU (MPS on Apple Silicon, CUDA on Linux or Windows 11) and CPU. GPU is typically 3× faster on Apple Silicon.
 </p>
+
+<div class="note">
+  <strong>AudioLDM2 is an exploratory alternative, not a feature-parity engine.</strong>
+  We keep it in T5ynth because it opens a different learned space and can
+  sometimes yield useful speech-like, scene-based, or hybrid material that
+  differs from the Stable Audio family. It is also ungated, which makes it a
+  usable fallback for users who do not want to fetch gated Stable Audio
+  weights through a Hugging Face account.
+</div>
+
+<table>
+  <tr><th>AudioLDM2 in T5ynth</th><th>What it means in practice</th></tr>
+  <tr>
+    <td><strong>What works</strong></td>
+    <td>Standard prompt generation, A/B movement in <em>Linear</em> mode, Semantic Axes, Dimension Explorer, Drift, snapshots, and the general short-fragment workflow.</td>
+  </tr>
+  <tr>
+    <td><strong>What does not fully work</strong></td>
+    <td>AudioLDM2 does <strong>not</strong> implement the non-linear Injection Modes. <em>Step-in</em>, <em>Layer</em>, and <em>Combo 1/2/3</em> fall back to <em>Linear</em> behaviour. AudioLDM2 also does not support the latent-only Stable Audio workflows used by the native SA path.</td>
+  </tr>
+  <tr>
+    <td><strong>Advantages</strong></td>
+    <td>Ungated download path, a broader generalized-audio character, and occasionally useful results for exploratory prompting where you want something less tied to the Stable Audio sound world.</td>
+  </tr>
+  <tr>
+    <td><strong>Disadvantages</strong></td>
+    <td>Heavier and slower than Stable Audio Open Small, non-commercial only, internally generates at 16 kHz before T5ynth resamples to 44.1 kHz, and often produces less immediate, less punchy results for the short production-oriented prompts that work well on Stable Audio Open Small.</td>
+  </tr>
+  <tr>
+    <td><strong>Why it remains in the instrument</strong></td>
+    <td>Mainly for exploratory use. If you want the strongest fit for T5ynth's core interaction design, Stable Audio Open Small is usually the better starting point. AudioLDM2 stays available as an alternate model space, not as the main benchmark for how T5ynth should sound.</td>
+  </tr>
+</table>
 
 <h3 id="injection-modes">Injection Modes (research)</h3>
 <p>
