@@ -11,7 +11,7 @@
 /**
  * Three-pane preset library overlay.
  *
- *   [ search…                         ] [Import] [Close]
+ *   [ search…              ] [Get from GitHub] [Import] [Close]
  *   ┌──────────┬─────────────────────────┬─────────────┐
  *   │ Sidebar  │ Preset list             │ Detail card │
  *   │ Bank     │  name / prompt snippet  │ prompts /   │
@@ -43,7 +43,7 @@ public:
         juce::StringArray tags;
         juce::Time modified;
         bool isFactory = false;
-        /** Bank label: "Factory" for any factory file, "Default" for user
+        /** Bank label: "Factory" for any factory file, "My Presets" for user
          *  presets at the user-dir root, or the subdir name (joined with
          *  "/" if nested) for presets in user-created subdirectories. */
         juce::String bank;
@@ -58,7 +58,7 @@ public:
     /** Display label for the user-presets-root pseudo-bank. */
     static const juce::String& kRootUserBank()
     {
-        static const juce::String s = "Default";
+        static const juce::String s = "My Presets";
         return s;
     }
 
@@ -96,6 +96,10 @@ public:
         importBtn.onClick = [this] { if (onImportRequested) onImportRequested(); };
         addAndMakeVisible(importBtn);
 
+        configureButton(githubBtn, kSurface);
+        githubBtn.onClick = [this] { if (onGetFromGithubRequested) onGetFromGithubRequested(); };
+        addAndMakeVisible(githubBtn);
+
         // Top-right × icon — replaces the wider "Close" text button
         closeIconBtn.setButtonText(juce::String::fromUTF8("\xc3\x97"));
         closeIconBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
@@ -120,8 +124,17 @@ public:
             // drawer's Save destination. Toggling a bank off ("All") leaves
             // the drawer bank where the user last set it — the filter and
             // the save target are decoupled in that direction.
-            if (currentMode == Mode::Save && sidebar.activeBank.isNotEmpty())
+            if (currentMode == Mode::Save
+                && sidebar.activeBank.isNotEmpty()
+                && ! sidebar.activeBank.equalsIgnoreCase("Factory"))
                 saveDrawer.setBank(sidebar.activeBank);
+        };
+        sidebar.onCreateBankRequested = [this]
+        {
+            if (currentMode != Mode::Save) return;
+            sidebar.activeBank.clear();
+            rebuildFiltered();
+            saveDrawer.beginNewBankEntry();
         };
         addAndMakeVisible(sidebar);
 
@@ -134,6 +147,7 @@ public:
 
         detail.onLoadRequested = [this]
         {
+            if (currentMode == Mode::Save) return;
             if (selectedEntryIndex < 0 || onLoadRequested == nullptr) return;
             onLoadRequested(allEntries[(size_t) selectedEntryIndex].file);
         };
@@ -182,9 +196,10 @@ public:
     {
         auto area = getLocalBounds().reduced(12);
 
-        // Top row: title + search + Import + × close icon. The Import button
-        // is hidden in Save mode (it would be a confusing distractor while
-        // committing a new name) and so it does not consume layout space.
+        // Top row: title + search + GitHub + Import + × close icon. The
+        // GitHub/Import buttons are hidden in Save mode (they would be
+        // confusing distractors while committing a new name) and so they do
+        // not consume layout space.
         auto topRow = area.removeFromTop(28);
         auto titleArea = topRow.removeFromLeft(150);
         titleLabel.setBounds(titleArea.withTrimmedTop(4));
@@ -193,6 +208,8 @@ public:
         if (currentMode == Mode::Browse)
         {
             importBtn.setBounds(topRow.removeFromRight(112));
+            topRow.removeFromRight(8);
+            githubBtn.setBounds(topRow.removeFromRight(128));
             topRow.removeFromRight(8);
         }
         searchEditor.setBounds(topRow);
@@ -321,8 +338,11 @@ public:
         currentMode = Mode::Save;
         titleLabel.setText("Save Preset", juce::dontSendNotification);
         importBtn.setVisible(false);
+        githubBtn.setVisible(false);
         cancelBtn.setVisible(false);
         statusLabel.setVisible(false);
+        sidebar.setSaveMode(true);
+        rebuildFiltered();
         saveDrawer.configure(prefill.defaultName,
                              prefill.suggestedTags,
                              prefill.currentBank,
@@ -333,6 +353,7 @@ public:
                              prefill.promptB,
                              prefill.canIncludeInferenceCache);
         saveDrawer.setVisible(true);
+        detail.setBrowseActionsVisible(false);
         detail.setDragSourceEnabled(true);
         resized();
         repaint();
@@ -346,9 +367,13 @@ public:
         currentMode = Mode::Browse;
         titleLabel.setText("Preset Library", juce::dontSendNotification);
         importBtn.setVisible(true);
+        githubBtn.setVisible(true);
         cancelBtn.setVisible(true);
         statusLabel.setVisible(true);
         saveDrawer.setVisible(false);
+        sidebar.setSaveMode(false);
+        rebuildFiltered();
+        detail.setBrowseActionsVisible(true);
         detail.setDragSourceEnabled(false);
         conflictEntryIndex = -1;
         resized();
@@ -362,6 +387,7 @@ public:
     std::function<void(const juce::File&)>                              onDuplicateRequested;
     std::function<void(const juce::File&)>                              onRevealRequested;
     std::function<void()>                                                onImportRequested;
+    std::function<void()>                                                onGetFromGithubRequested;
     std::function<void()>                                                onCloseRequested;
     std::function<void(const juce::File&, const juce::StringArray&)>    onTagsChanged;
     std::function<void(const juce::String& name,
@@ -454,7 +480,7 @@ private:
 
     /** Bank label derived from a preset's location on disk:
      *    factory file       → "Factory"
-     *    user dir root      → "Default"
+     *    user dir root      → "My Presets"
      *    user dir subdir(s) → joined subdirectory path, e.g. "Ambient" or
      *                         "Drones/Long".
      *  This is the ONLY place that maps disk layout to bank semantics so
@@ -651,11 +677,11 @@ private:
                 continue;
 
             // Model filter (XOR — empty active = show all)
-            if (! sidebar.activeModel.isEmpty() && e.model != sidebar.activeModel)
+            if (currentMode != Mode::Save && ! sidebar.activeModel.isEmpty() && e.model != sidebar.activeModel)
                 continue;
 
             // Tag filter (empty → all; otherwise need any-of-match)
-            if (! sidebar.selectedTags.empty())
+            if (currentMode != Mode::Save && ! sidebar.selectedTags.empty())
             {
                 bool any = false;
                 for (auto& t : e.tags)
@@ -713,8 +739,10 @@ private:
         /** Model filter — empty string means "all models" (XOR with the
          *  rows in the MODEL section; clicking the active row deselects). */
         juce::String activeModel;
+        /** Tags are exclusive by default; Shift-click adds/removes tags. */
         std::set<juce::String> selectedTags;
         std::function<void()> onChanged;
+        std::function<void()> onCreateBankRequested;
 
         void setVocabulary(std::vector<juce::String> banks,
                            std::vector<juce::String> models,
@@ -741,6 +769,18 @@ private:
 
         const std::vector<juce::String>& getTagVocabulary() const noexcept { return tagEntries; }
 
+        void setSaveMode(bool shouldBeSaveMode)
+        {
+            saveMode = shouldBeSaveMode;
+            if (saveMode)
+            {
+                activeModel.clear();
+                selectedTags.clear();
+            }
+            rebuildLayout();
+            repaint();
+        }
+
         void paint(juce::Graphics& g) override
         {
             if (items.empty())
@@ -755,6 +795,16 @@ private:
                     g.setColour(kBorder.withAlpha(0.5f));
                     g.drawLine((float) it.rect.getX(), (float) it.rect.getBottom() - 1.0f,
                                (float) it.rect.getRight(), (float) it.rect.getBottom() - 1.0f, 0.5f);
+                    if (saveMode && it.label == "BANK" && ! addBankRect.isEmpty())
+                    {
+                        g.setColour(kAccent.withAlpha(0.16f));
+                        g.fillRoundedRectangle(addBankRect.toFloat(), 3.0f);
+                        g.setColour(kAccent);
+                        g.drawRoundedRectangle(addBankRect.toFloat(), 3.0f, 1.0f);
+                        g.setColour(juce::Colours::white);
+                        g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+                        g.drawText("+", addBankRect, juce::Justification::centred, false);
+                    }
                 }
                 else
                 {
@@ -786,12 +836,18 @@ private:
         void mouseDown(const juce::MouseEvent& e) override
         {
             const auto p = e.getPosition();
+            if (saveMode && addBankRect.contains(p))
+            {
+                if (onCreateBankRequested) onCreateBankRequested();
+                return;
+            }
+
             for (const auto& it : items)
             {
                 if (it.kind == Item::Kind::Header) continue;
                 if (it.rect.contains(p))
                 {
-                    handleHit(it);
+                    handleHit(it, e.mods.isShiftDown());
                     repaint();
                     if (onChanged) onChanged();
                     return;
@@ -811,18 +867,26 @@ private:
         std::vector<juce::String> bankEntries;
         std::vector<juce::String> modelEntries;
         std::vector<juce::String> tagEntries;
+        juce::Rectangle<int> addBankRect;
+        bool saveMode = false;
 
         void rebuildLayout()
         {
             items.clear();
+            addBankRect = {};
             auto area = getLocalBounds().reduced(8);
             const int rowH = 22;
             const int headerH = 18;
             const int gap = 12;
 
-            auto pushHeader = [&](const char* label)
+            auto pushHeader = [&](const char* label, bool withAdd = false)
             {
                 auto r = area.removeFromTop(headerH);
+                if (withAdd)
+                {
+                    addBankRect = r.removeFromRight(headerH).reduced(1);
+                    r.removeFromRight(4);
+                }
                 items.push_back({ Item::Kind::Header, r, label });
                 area.removeFromTop(2);
             };
@@ -833,13 +897,13 @@ private:
                 items.push_back({ kind, r, label });
             };
 
-            pushHeader("BANK");
+            pushHeader("BANK", saveMode);
             // "All" is represented by an empty `label` so activeBank.isEmpty()
             // means "no filter".
             pushRow(Item::Kind::Bank, "");
             for (auto& b : bankEntries) pushRow(Item::Kind::Bank, b);
 
-            if (! modelEntries.empty())
+            if (! saveMode && ! modelEntries.empty())
             {
                 area.removeFromTop(gap);
                 pushHeader("MODEL");
@@ -849,7 +913,7 @@ private:
                 for (auto& m : modelEntries) pushRow(Item::Kind::Model, m);
             }
 
-            if (! tagEntries.empty())
+            if (! saveMode && ! tagEntries.empty())
             {
                 area.removeFromTop(gap);
                 pushHeader("TAGS");
@@ -869,7 +933,7 @@ private:
             return false;
         }
 
-        void handleHit(const Item& it)
+        void handleHit(const Item& it, bool additiveTagSelection)
         {
             switch (it.kind)
             {
@@ -882,7 +946,19 @@ private:
                     activeModel = (activeModel == it.label) ? juce::String() : it.label;
                     break;
                 case Item::Kind::Tag:
-                    if (selectedTags.erase(it.label) == 0) selectedTags.insert(it.label);
+                    if (additiveTagSelection)
+                    {
+                        if (selectedTags.erase(it.label) == 0)
+                            selectedTags.insert(it.label);
+                    }
+                    else
+                    {
+                        const bool wasOnlySelected = selectedTags.size() == 1
+                                                  && selectedTags.count(it.label) > 0;
+                        selectedTags.clear();
+                        if (! wasOnlySelected)
+                            selectedTags.insert(it.label);
+                    }
                     break;
             }
         }
@@ -1012,12 +1088,14 @@ private:
             area.removeFromTop(8);
 
             // Reserve bottom: action strip + tag-input row + chip area
-            const int actionStripH = 32;
-            const int tagInputH    = 24;
-            area.removeFromBottom(actionStripH);
-            area.removeFromBottom(8);
-            const auto tagInputRow = area.removeFromBottom(tagInputH);
-            area.removeFromBottom(6);
+            juce::Rectangle<int> tagInputRow;
+            if (browseActionsVisible)
+            {
+                area.removeFromBottom(32);
+                area.removeFromBottom(8);
+                tagInputRow = area.removeFromBottom(24);
+                area.removeFromBottom(6);
+            }
 
             // Compute impulse-section heights from the actual wrapped text so
             // there is no leftover gap between IMPULSE A's body and IMPULSE B's
@@ -1066,6 +1144,10 @@ private:
 
         void resized() override
         {
+            loadBtn.setVisible(browseActionsVisible);
+            tagInput.setVisible(browseActionsVisible);
+            if (! browseActionsVisible) return;
+
             const int actionStripH = 32;
             const int tagInputW    = juce::jmin(120, getLocalBounds().getWidth() / 3);
             const int tagInputH    = 24;
@@ -1091,6 +1173,15 @@ private:
          *  is the tag string. */
         void setDragSourceEnabled(bool e) { dragSourceEnabled = e; }
 
+        /** Browse-only actions are hidden while the Save drawer is open. */
+        void setBrowseActionsVisible(bool visible)
+        {
+            browseActionsVisible = visible;
+            updateButtonsEnabled();
+            resized();
+            repaint();
+        }
+
     private:
         static void configureBtn(juce::TextButton& b, juce::Colour c)
         {
@@ -1100,8 +1191,8 @@ private:
 
         void updateButtonsEnabled()
         {
-            loadBtn.setEnabled(entryValid);
-            tagInput.setEnabled(entryValid && ! locked);
+            loadBtn.setEnabled(browseActionsVisible && entryValid);
+            tagInput.setEnabled(browseActionsVisible && entryValid && ! locked);
         }
 
         /** Compact label/value row used by the META block. */
@@ -1201,7 +1292,8 @@ private:
             g.setFont(juce::FontOptions(kUiLabelFontMin, juce::Font::bold));
             g.drawText("TAGS", r.removeFromTop(14), juce::Justification::centredLeft, false);
 
-            r.removeFromBottom(24);  // input row
+            if (browseActionsVisible)
+                r.removeFromBottom(24);  // input row
             int x = r.getX();
             int y = r.getY();
             const int rowH = 22;
@@ -1304,6 +1396,7 @@ private:
 
         int  pressedChipIndex   = -1;
         bool dragSourceEnabled  = false;
+        bool browseActionsVisible = true;
 
         juce::TextButton loadBtn { "Load" };
         juce::TextEditor tagInput;
@@ -1496,11 +1589,18 @@ private:
         }
 
         /** Programmatic bank selection — used when the Sidebar gets a bank
-         *  click in Save mode. Empty string maps back to the "Default" root. */
+         *  click in Save mode. Empty string maps back to the user root. */
         void setBank(const juce::String& bank)
         {
             bankBox.setText(bank.isEmpty() ? kRootBankLabel() : bank,
                             juce::sendNotificationSync);
+        }
+
+        void beginNewBankEntry()
+        {
+            bankBox.setText({}, juce::sendNotificationSync);
+            bankBox.grabKeyboardFocus();
+            bankBox.showEditor();
         }
 
         // ── DragAndDropTarget ──
@@ -1584,7 +1684,7 @@ private:
                 auto headerRect = local.removeFromTop(14);
                 g.setColour(kDim);
                 g.setFont(juce::FontOptions(kUiLabelFontMin, juce::Font::bold));
-                g.drawText("Known tags  \xe2\x80\x94  click to add",
+                g.drawText("Known tags - click to add",
                            headerRect, juce::Justification::centredLeft, false);
                 local.removeFromTop(2);
 
@@ -1700,8 +1800,7 @@ private:
     private:
         static const juce::String& kRootBankLabel()
         {
-            static const juce::String s = "Default";
-            return s;
+            return PresetManagerPanel::kRootUserBank();
         }
 
         static void configureLabel(juce::Label& l)
@@ -2008,6 +2107,7 @@ private:
     juce::Label titleLabel;
     juce::TextEditor searchEditor;
     juce::TextButton importBtn { "Import Presets" };
+    juce::TextButton githubBtn { "Get from GitHub" };
     juce::TextButton closeIconBtn;     // top-right × icon
     juce::TextButton cancelBtn { "Close" };
     juce::Label statusLabel;

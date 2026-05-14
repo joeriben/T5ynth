@@ -461,15 +461,18 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
             presetManager.setStatusText("Preset load failed", true);
     };
     presetManager.onImportRequested = [this] { importPresetFile(); };
+    presetManager.onGetFromGithubRequested = [this]
+    {
+        const bool ok = juce::URL("https://github.com/joeriben/T5ynth-Presets")
+                            .launchInDefaultBrowser();
+        if (!ok)
+            presetManager.setStatusText("Could not open GitHub preset repository", true);
+    };
     presetManager.onSaveRequested = [this](const juce::String& presetName,
                                            const juce::StringArray& tags,
                                            const juce::String& bank,
-                                           bool /*includeInferenceCache*/)
+                                           bool includeInferenceCache)
     {
-        // The drawer's Save button is the affirmative action — when the
-        // chosen (bank, name) collides with an existing file, the button
-        // already reads "Replace \"NAME\"" in red, so reaching this callback
-        // IS the user's confirmed intent. No second popup needed.
         auto bankDir = PresetFormat::getUserPresetsDirectory();
         if (bank.isNotEmpty())
             bankDir = bankDir.getChildFile(bank);
@@ -480,16 +483,45 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         // truncated to "Pad 0.t5p" and could clobber an unrelated preset.
         auto target = bankDir.getChildFile(presetName + ".t5p");
 
-        processorRef.setLastTags(tags);
-        if (savePresetToFile(target, true))
+        juce::Component::SafePointer<MainPanel> safeThis(this);
+        auto performSave = [safeThis, target, tags, includeInferenceCache]
         {
-            presetManager.leaveSaveMode();
-            hidePresetManager();
-        }
-        else
+            if (! safeThis) return;
+            auto* self = safeThis.getComponent();
+            self->processorRef.setLastTags(tags);
+            if (self->savePresetToFile(target, includeInferenceCache))
+            {
+                self->presetManager.leaveSaveMode();
+                self->hidePresetManager();
+            }
+            else
+            {
+                self->presetManager.setStatusText("Preset save failed", true);
+            }
+        };
+
+        if (! target.existsAsFile())
         {
-            presetManager.setStatusText("Preset save failed", true);
+            performSave();
+            return;
         }
+
+        juce::AlertWindow::showAsync(
+            juce::MessageBoxOptions()
+                .withIconType(juce::MessageBoxIconType::WarningIcon)
+                .withTitle("Replace Preset")
+                .withMessage("Replace \"" + target.getFileNameWithoutExtension()
+                             + "\" in bank \""
+                             + (bank.isEmpty() ? PresetManagerPanel::kRootUserBank() : bank)
+                             + "\"?")
+                .withButton("Replace")
+                .withButton("Cancel")
+                .withParentComponent(this),
+            [performSave](int result)
+            {
+                if (result == 1)
+                    performSave();
+            });
     };
     presetManager.onTagsChanged = [this](const juce::File& file,
                                          const juce::StringArray& newTags)
