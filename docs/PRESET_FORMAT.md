@@ -577,66 +577,47 @@ steps in order:
 10. If `numSamples > 0 && numChannels > 0`, interleave and write PCM.
 11. Flush, return success.
 
-### 9.3 Bundled default preset
+### 9.3 Bundled factory presets
 
-The default preset is baked into the binary via
-`juce_add_binary_data` in `CMakeLists.txt:110-116`:
+Factory presets are baked into the binary via `juce_add_binary_data`
+in `CMakeLists.txt`:
 
 ```cmake
 juce_add_binary_data(T5ynthData SOURCES
     resources/ir/emt_140_plate_bright.wav
     resources/ir/emt_140_plate_medium.wav
     resources/ir/emt_140_plate_dark.wav
-    "resources/presets/DEMO T5-Oscillator-Drift.t5p"
+    "resources/presets/Evil Beauty.t5p"
+    "resources/presets/Samba Getdown.t5p"
+    "resources/presets/Talking about aliens.t5p"
     resources/T5ynth_Guide.html
 )
 ```
 
-The generated symbol name is
-`BinaryData::DEMO_T5OscillatorDrift_t5p` (with a paired `..._t5pSize`
-length). `MainPanel::loadDefaultPreset`
-(`src/gui/MainPanel.cpp:539-586`) writes this blob to
-`$TMPDIR/t5ynth_default.t5p`, calls
-`PresetFormat::loadFromFile`, deletes the temp file, and then restores
-prompts, axes, audio, and embeddings into the running processor.
-
-It runs once at startup, gated by
-`processorRef.getGeneratedAudio().getNumSamples() > 0`
-(`src/gui/MainPanel.cpp:542`). If the DAW has already restored a
-session (so the APVTS state has been loaded and generated audio is
-present), the default preset is **not** applied.
+`MainPanel::ensureBundledPresetsExist` copies these blobs into the user
+preset directory when they are missing. Startup itself does not load a
+factory demo preset; it keeps the APVTS defaults unless the standalone
+session buffer is restored.
 
 ---
 
-## 10. Worked Example: `DEMO T5-Oscillator-Drift.t5p`
+## 10. Worked Example: Generic `.t5p` Header
 
-The file shipped at
-`resources/presets/DEMO T5-Oscillator-Drift.t5p` is a canonical
-version-2 container. Its header (verified by hex dump) is:
+A `.t5p` container begins with a fixed 12-byte header:
 
 ```
 offset  bytes                                    decoded
 ------  ---------------------------------------  ------------------
 0x00    54 35 59 4E                              magic = "T5YN"
-0x04    02 00 00 00                              version = 2 (LE)
-0x08    A7 84 00 00                              json length = 33959
+0x04    03 00 00 00                              version = 3 (LE)
+0x08    NN NN NN NN                              JSON length (LE)
 0x0C    7B 22 76 65 72 73 69 6F 6E 22 3A ...     JSON begins: {"version":...
 ```
 
-The JSON opens with:
-
-```json
-{"version": 1, "name": "T5ynth Export", "timestamp": "2026-04-08T15:45:50.156+02:00", "synth": {"promptA": "a trombone, c3", "promptB": "ghostly voices", "alpha": -0.000735282897949, ...
-```
-
-After the JSON, the file contains the raw stereo float32 PCM for a
-3-second buffer at 44.1 kHz (`numSamples` and `channels` must be read
-from `audio_meta` to decode it). The total file size is approximately
-1.04 MB, dominated by the PCM and the two 768-float embedding arrays
-which are inflated by JSON text representation.
-
-On startup, T5ynth loads this file and the user sees prompts,
-parameters and playable audio immediately, without running inference.
+The JSON length is little-endian and determines where the optional raw
+stereo float32 PCM tail begins. If the file contains audio,
+`numSamples` and `channels` must be read from `audio_meta` before
+decoding that tail.
 
 ---
 

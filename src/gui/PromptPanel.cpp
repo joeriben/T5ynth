@@ -161,12 +161,12 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     // Mode-button onClick handlers also trigger an immediate regeneration so
     // the user can A/B modes by clicking — same UX affordance as drift /
     // slider auto-regen, but for the discrete mode dimension.
-    injModeLinear.onClick = [this] { if (injModeLinear.getToggleState()) { injectionMode_ = "linear";      applyModeToSlider(); triggerGeneration(); } };
-    injModeFine  .onClick = [this] { if (injModeFine  .getToggleState()) { injectionMode_ = "late_step";   applyModeToSlider(); triggerGeneration(); } };
-    injModeLayer .onClick = [this] { if (injModeLayer .getToggleState()) { injectionMode_ = "layer_split"; applyModeToSlider(); triggerGeneration(); } };
-    injModeKombi1.onClick = [this] { if (injModeKombi1.getToggleState()) { injectionMode_ = "kombi1";      applyModeToSlider(); triggerGeneration(); } };
-    injModeKombi2.onClick = [this] { if (injModeKombi2.getToggleState()) { injectionMode_ = "kombi2";      applyModeToSlider(); triggerGeneration(); } };
-    injModeKombi3.onClick = [this] { if (injModeKombi3.getToggleState()) { injectionMode_ = "kombi3";      applyModeToSlider(); triggerGeneration(); } };
+    injModeLinear.onClick = [this] { if (injModeLinear.getToggleState()) selectInjectionMode("linear", true); };
+    injModeFine  .onClick = [this] { if (injModeFine  .getToggleState()) selectInjectionMode("late_step", true); };
+    injModeLayer .onClick = [this] { if (injModeLayer .getToggleState()) selectInjectionMode("layer_split", true); };
+    injModeKombi1.onClick = [this] { if (injModeKombi1.getToggleState()) selectInjectionMode("kombi1", true); };
+    injModeKombi2.onClick = [this] { if (injModeKombi2.getToggleState()) selectInjectionMode("kombi2", true); };
+    injModeKombi3.onClick = [this] { if (injModeKombi3.getToggleState()) selectInjectionMode("kombi3", true); };
 
     // Magnitude
     makeSlider(magnitudeSlider, this);
@@ -277,13 +277,14 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
                 // Apply model-specific parameter defaults
                 auto& apvts = processorRef.getValueTreeState();
                 bool isSmall = model.containsIgnoreCase("small");
-                bool isAudioLDM2 = model.containsIgnoreCase("audioldm");
+                bool isAudioLDM2 = isAudioLDM2Model(model);
                 float defaultSteps = isSmall ? 8.0f : (isAudioLDM2 ? 50.0f : 20.0f);
                 float defaultCfg   = isSmall ? 1.0f : (isAudioLDM2 ? 3.5f : 7.0f);
                 apvts.getParameter(PID::infSteps)->setValueNotifyingHost(
                     apvts.getParameter(PID::infSteps)->convertTo0to1(defaultSteps));
                 apvts.getParameter(PID::genCfg)->setValueNotifyingHost(
                     apvts.getParameter(PID::genCfg)->convertTo0to1(defaultCfg));
+                syncInjectionModeAvailability();
 
                 // Preload model in background so first generate is instant
                 if (onStatusChanged) onStatusChanged("Loading " + model + "...", true);
@@ -689,6 +690,7 @@ void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String
             pendingModel_ = model;
         }
     }
+    syncInjectionModeAvailability();
 }
 
 void PromptPanel::populateDeviceChoice()
@@ -746,6 +748,7 @@ void PromptPanel::populateModelSelector()
         modelBtns[selectIdx].setToggleState(true, juce::dontSendNotification);
 
     modelsPopulated = true;
+    syncInjectionModeAvailability();
     resized();
 }
 
@@ -781,6 +784,61 @@ juce::String PromptPanel::getSelectedModel() const
         if (modelBtns[i].getToggleState() && modelSlotIds[i].isNotEmpty())
             return modelSlotIds[i];
     return {};
+}
+
+bool PromptPanel::isAudioLDM2Model(const juce::String& model) const
+{
+    return model.containsIgnoreCase("audioldm")
+        || model.containsIgnoreCase("audio-ldm");
+}
+
+bool PromptPanel::selectedModelIsAudioLDM2() const
+{
+    return isAudioLDM2Model(getSelectedModel());
+}
+
+void PromptPanel::selectInjectionMode(const juce::String& mode, bool shouldTrigger)
+{
+    injectionMode_ = selectedModelIsAudioLDM2() ? "linear" : mode;
+    injModeLinear.setToggleState(injectionMode_ == "linear",      juce::dontSendNotification);
+    injModeFine  .setToggleState(injectionMode_ == "late_step",   juce::dontSendNotification);
+    injModeLayer .setToggleState(injectionMode_ == "layer_split", juce::dontSendNotification);
+    injModeKombi1.setToggleState(injectionMode_ == "kombi1",      juce::dontSendNotification);
+    injModeKombi2.setToggleState(injectionMode_ == "kombi2",      juce::dontSendNotification);
+    injModeKombi3.setToggleState(injectionMode_ == "kombi3",      juce::dontSendNotification);
+    applyModeToSlider();
+    syncInjectionModeAvailability();
+
+    if (shouldTrigger)
+        triggerGeneration();
+}
+
+void PromptPanel::syncInjectionModeAvailability()
+{
+    const bool audioLDM2 = selectedModelIsAudioLDM2();
+    if (audioLDM2 && injectionMode_ != "linear")
+    {
+        injectionMode_ = "linear";
+        injModeLinear.setToggleState(true, juce::dontSendNotification);
+        injModeFine  .setToggleState(false, juce::dontSendNotification);
+        injModeLayer .setToggleState(false, juce::dontSendNotification);
+        injModeKombi1.setToggleState(false, juce::dontSendNotification);
+        injModeKombi2.setToggleState(false, juce::dontSendNotification);
+        injModeKombi3.setToggleState(false, juce::dontSendNotification);
+        applyModeToSlider();
+    }
+
+    const auto nonLinearAlpha = audioLDM2 ? 0.32f : 1.0f;
+    const auto nonLinearEnabled = !audioLDM2;
+    for (auto* b : { &injModeFine, &injModeLayer, &injModeKombi1, &injModeKombi2, &injModeKombi3 })
+    {
+        b->setEnabled(nonLinearEnabled);
+        b->setAlpha(nonLinearAlpha);
+        b->setTooltip(audioLDM2 ? "AudioLDM2 supports Linear mode only" : "");
+    }
+    injModeLinear.setEnabled(true);
+    injModeLinear.setAlpha(1.0f);
+    injModeLinear.setTooltip(audioLDM2 ? "AudioLDM2 supports Linear mode only" : "");
 }
 
 void PromptPanel::syncSeedEditorEnabledState()
@@ -948,9 +1006,11 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     req.seed = seed;
     req.device = defaultInferenceDevice_;
     req.model = getSelectedModel();
+    const auto requestInjectionMode = isAudioLDM2Model(req.model) ? juce::String("linear")
+                                                                  : injectionMode_;
     req.dimensionOffsets = std::move(pendingOffsets_);
     req.semanticAxes = axesOverride.empty() ? std::move(pendingAxes_) : std::move(axesOverride);
-    req.injectionMode = injectionMode_;
+    req.injectionMode = requestInjectionMode;
     // Step-in slider drives BOTH transition_at AND late-phase α together so that
     // slider=0.5 → minimum effect (A-dominant), slider=1.0 → pure B.
     //   t = (slider - 0.5) / 0.5  ∈ [0, 1]
@@ -971,9 +1031,9 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     // band so drift / preset / slider state can never desync the geometry.
     // Combo 1 = "B as surface skin" (low DiT blocks);
     // Combo 2 = "B as gestalt filter" (high DiT blocks).
-    if (injectionMode_ == "kombi1") { req.splitStart = 0.0f; req.splitEnd = 4.0f;  }
-    if (injectionMode_ == "kombi2") { req.splitStart = 4.0f; req.splitEnd = 12.0f; }
-    if (injectionMode_ == "kombi3") { req.splitStart = 6.0f; req.splitEnd = 10.0f; }
+    if (requestInjectionMode == "kombi1") { req.splitStart = 0.0f; req.splitEnd = 4.0f;  }
+    if (requestInjectionMode == "kombi2") { req.splitStart = 4.0f; req.splitEnd = 12.0f; }
+    if (requestInjectionMode == "kombi3") { req.splitStart = 6.0f; req.splitEnd = 10.0f; }
     return req;
 }
 

@@ -21,6 +21,7 @@ T5ynthEditor::T5ynthEditor(T5ynthProcessor& processor)
     // standalone case where it already does, and again when the hierarchy
     // attaches to a native peer.
     applyWindowIcon();
+    applyStandaloneWindowTitle();
 }
 
 T5ynthEditor::~T5ynthEditor() = default;
@@ -36,6 +37,7 @@ void T5ynthEditor::parentHierarchyChanged()
 {
     AudioProcessorEditor::parentHierarchyChanged();
     applyWindowIcon();
+    applyStandaloneWindowTitle();
 }
 
 void T5ynthEditor::applyWindowIcon()
@@ -49,4 +51,20 @@ void T5ynthEditor::applyWindowIcon()
             peer->setIcon(icon);
     }
    #endif
+}
+
+void T5ynthEditor::applyStandaloneWindowTitle()
+{
+    if (!juce::JUCEApplicationBase::isStandaloneApp())
+        return;
+
+    if (auto* window = findParentComponentOfClass<juce::DocumentWindow>())
+    {
+        const juce::String title = juce::String(ProjectInfo::projectName)
+                                 + " "
+                                 + ProjectInfo::versionString;
+
+        if (window->getName() != title)
+            window->setName(title);
+    }
 }

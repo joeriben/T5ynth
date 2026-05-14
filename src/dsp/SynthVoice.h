@@ -32,6 +32,8 @@ public:
     void glideToNote(int note, float glideMs);
     /** Smooth an immediate same-voice restart by fading from the last rendered sample. */
     void beginRestartFade();
+    void setAftertouch(float pressure) { aftertouch_ = juce::jlimit(0.0f, 1.0f, pressure); }
+    float getAftertouch() const { return aftertouch_; }
 
     // ── Per-sample rendering ──
     struct RenderResult {
@@ -120,6 +122,7 @@ private:
     int currentNote = -1;
     int octaveShift_ = 0;
     float currentVelocity = 0.0f;
+    float aftertouch_ = 0.0f;
     bool active = false;
     bool noteHeld = false;
     float lastAmpEnvLevel = 0.0f;

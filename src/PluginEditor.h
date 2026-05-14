@@ -17,6 +17,7 @@ public:
 
 private:
     void applyWindowIcon();
+    void applyStandaloneWindowTitle();
 
     T5ynthProcessor& processorRef;
     T5ynthLookAndFeel lookAndFeel;

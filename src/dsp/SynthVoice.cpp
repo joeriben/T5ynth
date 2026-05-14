@@ -21,6 +21,13 @@ float computeEffectiveLfoDepth(const BlockParams& p, int target, float baseDepth
     return depth;
 }
 
+float applyAftertouchTarget(const BlockParams& p, int target, float baseValue, float pressure)
+{
+    if (p.aftertouchTarget != target)
+        return baseValue;
+    return applyNormalizedOffset(baseValue, juce::jlimit(0.0f, 1.0f, pressure) * p.aftertouchAmount);
+}
+
 float computeDcaGain(const BlockParams& p, float ampEnvVal, float mod1EnvVal, float mod2EnvVal)
 {
     float vca = (p.ampTarget == EnvTarget::DCA) ? ampEnvVal : 1.0f;
@@ -97,6 +104,7 @@ void SynthVoice::reset()
     active = false;
     noteHeld = false;
     currentNote = -1;
+    aftertouch_ = 0.0f;
     lastAmpEnvLevel = 0.0f;
     lastOutputSample_ = 0.0f;
     restartFadeTailSample_ = 0.0f;
@@ -196,7 +204,8 @@ void SynthVoice::configureForBlock(const BlockParams& p)
     ampAttackVelMode_ = p.ampAttackVelMode;
     ampDecayVelMode_ = p.ampDecayVelMode;
     ampReleaseVelMode_ = p.ampReleaseVelMode;
-    ampEnv.setSustain(p.ampSustain);
+    ampEnv.setSustain(applyAftertouchTarget(p, AftertouchTarget::Env1Sustain,
+                                            p.ampSustain, aftertouch_));
     ampEnv.setLooping(p.ampLoop);
     ampEnv.setAttackCurve(static_cast<CurveShape>(p.ampAttackCurve));
     ampEnv.setDecayCurve(static_cast<CurveShape>(p.ampDecayCurve));
@@ -209,7 +218,8 @@ void SynthVoice::configureForBlock(const BlockParams& p)
     mod1AttackVelMode_ = p.mod1AttackVelMode;
     mod1DecayVelMode_ = p.mod1DecayVelMode;
     mod1ReleaseVelMode_ = p.mod1ReleaseVelMode;
-    modEnv1.setSustain(p.mod1Sustain);
+    modEnv1.setSustain(applyAftertouchTarget(p, AftertouchTarget::Env2Sustain,
+                                             p.mod1Sustain, aftertouch_));
     modEnv1.setLooping(p.mod1Loop);
     modEnv1.setAttackCurve(static_cast<CurveShape>(p.mod1AttackCurve));
     modEnv1.setDecayCurve(static_cast<CurveShape>(p.mod1DecayCurve));
@@ -222,7 +232,8 @@ void SynthVoice::configureForBlock(const BlockParams& p)
     mod2AttackVelMode_ = p.mod2AttackVelMode;
     mod2DecayVelMode_ = p.mod2DecayVelMode;
     mod2ReleaseVelMode_ = p.mod2ReleaseVelMode;
-    modEnv2.setSustain(p.mod2Sustain);
+    modEnv2.setSustain(applyAftertouchTarget(p, AftertouchTarget::Env3Sustain,
+                                             p.mod2Sustain, aftertouch_));
     modEnv2.setLooping(p.mod2Loop);
     modEnv2.setAttackCurve(static_cast<CurveShape>(p.mod2AttackCurve));
     modEnv2.setDecayCurve(static_cast<CurveShape>(p.mod2DecayCurve));
@@ -497,12 +508,15 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
     result.mod2EnvVal = mod2EnvVal;
 
     // Use global LFO values (freerun mode — trigger mode will be added in Phase 3)
-    const float lfo1Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth,
-                                                     p.lfo1Depth, ampEnvVal, mod1EnvVal, mod2EnvVal);
-    const float lfo2Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth,
-                                                     p.lfo2Depth, ampEnvVal, mod1EnvVal, mod2EnvVal);
-    const float lfo3Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO3Depth,
-                                                     p.lfo3Depth, ampEnvVal, mod1EnvVal, mod2EnvVal);
+    const float lfo1Depth = applyAftertouchTarget(p, AftertouchTarget::LFO1Depth,
+        computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth, p.lfo1Depth,
+                                 ampEnvVal, mod1EnvVal, mod2EnvVal), aftertouch_);
+    const float lfo2Depth = applyAftertouchTarget(p, AftertouchTarget::LFO2Depth,
+        computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth, p.lfo2Depth,
+                                 ampEnvVal, mod1EnvVal, mod2EnvVal), aftertouch_);
+    const float lfo3Depth = applyAftertouchTarget(p, AftertouchTarget::LFO3Depth,
+        computeEffectiveLfoDepth(p, EnvTarget::LFO3Depth, p.lfo3Depth,
+                                 ampEnvVal, mod1EnvVal, mod2EnvVal), aftertouch_);
     float lfo1Val = globalLfo1Val * lfo1Depth;
     float lfo2Val = globalLfo2Val * lfo2Depth;
     float lfo3Val = globalLfo3Val * lfo3Depth;
@@ -654,12 +668,15 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
     {
         // Block-rate pitch modulation (computed at block midpoint)
         int mid = numSamples / 2;
-        const float lfo1Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth,
-                                                         p.lfo1Depth, lastAmpEnvLevel, lastMod1Val_, lastMod2Val_);
-        const float lfo2Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth,
-                                                         p.lfo2Depth, lastAmpEnvLevel, lastMod1Val_, lastMod2Val_);
-        const float lfo3Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO3Depth,
-                                                         p.lfo3Depth, lastAmpEnvLevel, lastMod1Val_, lastMod2Val_);
+        const float lfo1Depth = applyAftertouchTarget(p, AftertouchTarget::LFO1Depth,
+            computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth, p.lfo1Depth,
+                                     lastAmpEnvLevel, lastMod1Val_, lastMod2Val_), aftertouch_);
+        const float lfo2Depth = applyAftertouchTarget(p, AftertouchTarget::LFO2Depth,
+            computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth, p.lfo2Depth,
+                                     lastAmpEnvLevel, lastMod1Val_, lastMod2Val_), aftertouch_);
+        const float lfo3Depth = applyAftertouchTarget(p, AftertouchTarget::LFO3Depth,
+            computeEffectiveLfoDepth(p, EnvTarget::LFO3Depth, p.lfo3Depth,
+                                     lastAmpEnvLevel, lastMod1Val_, lastMod2Val_), aftertouch_);
         float pitchMod = p.driftPitchOffset;
         if (p.ampTarget == EnvTarget::Pitch) pitchMod += lastAmpEnvLevel;
         if (p.mod1Target == EnvTarget::Pitch) pitchMod += lastMod1Val_;
@@ -682,12 +699,15 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
         if (p.filterEnabled)
         {
             int midIdx = pos + subBlockLen / 2;
-            const float lfo1Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth,
-                                                             p.lfo1Depth, lastAmpEnvLevel, lastMod1Val_, lastMod2Val_);
-            const float lfo2Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth,
-                                                             p.lfo2Depth, lastAmpEnvLevel, lastMod1Val_, lastMod2Val_);
-            const float lfo3Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO3Depth,
-                                                             p.lfo3Depth, lastAmpEnvLevel, lastMod1Val_, lastMod2Val_);
+            const float lfo1Depth = applyAftertouchTarget(p, AftertouchTarget::LFO1Depth,
+                computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth, p.lfo1Depth,
+                                         lastAmpEnvLevel, lastMod1Val_, lastMod2Val_), aftertouch_);
+            const float lfo2Depth = applyAftertouchTarget(p, AftertouchTarget::LFO2Depth,
+                computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth, p.lfo2Depth,
+                                         lastAmpEnvLevel, lastMod1Val_, lastMod2Val_), aftertouch_);
+            const float lfo3Depth = applyAftertouchTarget(p, AftertouchTarget::LFO3Depth,
+                computeEffectiveLfoDepth(p, EnvTarget::LFO3Depth, p.lfo3Depth,
+                                         lastAmpEnvLevel, lastMod1Val_, lastMod2Val_), aftertouch_);
             float lfo1Mid = lfo1Buf[midIdx] * lfo1Depth;
             float lfo2Mid = lfo2Buf[midIdx] * lfo2Depth;
             float lfo3Mid = lfo3Buf[midIdx] * lfo3Depth;
@@ -765,12 +785,15 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
             lastMod1Val_ = mod1EnvVal;
             lastMod2Val_ = mod2EnvVal;
 
-            const float lfo1Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth,
-                                                             p.lfo1Depth, ampEnvVal, mod1EnvVal, mod2EnvVal);
-            const float lfo2Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth,
-                                                             p.lfo2Depth, ampEnvVal, mod1EnvVal, mod2EnvVal);
-            const float lfo3Depth = computeEffectiveLfoDepth(p, EnvTarget::LFO3Depth,
-                                                             p.lfo3Depth, ampEnvVal, mod1EnvVal, mod2EnvVal);
+            const float lfo1Depth = applyAftertouchTarget(p, AftertouchTarget::LFO1Depth,
+                computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth, p.lfo1Depth,
+                                         ampEnvVal, mod1EnvVal, mod2EnvVal), aftertouch_);
+            const float lfo2Depth = applyAftertouchTarget(p, AftertouchTarget::LFO2Depth,
+                computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth, p.lfo2Depth,
+                                         ampEnvVal, mod1EnvVal, mod2EnvVal), aftertouch_);
+            const float lfo3Depth = applyAftertouchTarget(p, AftertouchTarget::LFO3Depth,
+                computeEffectiveLfoDepth(p, EnvTarget::LFO3Depth, p.lfo3Depth,
+                                         ampEnvVal, mod1EnvVal, mod2EnvVal), aftertouch_);
             float lfo1Val = lfo1Buf[i] * lfo1Depth;
             float lfo2Val = lfo2Buf[i] * lfo2Depth;
             float lfo3Val = lfo3Buf[i] * lfo3Depth;

@@ -11,12 +11,15 @@
 namespace
 {
 const char* const kBundledPresetNames[] = {
-    "DEMO T5-Oscillator-Drift.t5p",
     "Evil Beauty.t5p",
-    "INIT.t5p",
     "Samba Getdown.t5p",
     "Talking about aliens.t5p",
 };
+
+constexpr char kComputerKeyboardNoteKeys[] = { 'a', 'w', 's', 'e', 'd', 'f', 't', 'g', 'z', 'h', 'u', 'j', 'k' };
+constexpr int kComputerKeyboardBaseMidiNote = 60;
+constexpr int kComputerKeyboardMinOctaveOffset = -5;
+constexpr int kComputerKeyboardMaxOctaveOffset = 4;
 
 const char* const kMainSnapshotParamIds[] = {
     PID::genAlpha, PID::genMagnitude, PID::genNoise, PID::genDuration,
@@ -43,6 +46,7 @@ const char* const kMainSnapshotParamIds[] = {
     PID::lfo2ClockMode, PID::lfo2ClockDivision,
     PID::lfo3Rate, PID::lfo3Depth, PID::lfo3Wave, PID::lfo3Target, PID::lfo3Mode,
     PID::lfo3ClockMode, PID::lfo3ClockDivision,
+    PID::aftertouchTarget, PID::aftertouchAmount,
     PID::driftEnabled, PID::driftRegen, PID::driftCrossfade,
     PID::drift1Rate, PID::drift1Depth, PID::drift1Target, PID::drift1Wave,
     PID::drift1ClockMode, PID::drift1ClockDivision,
@@ -388,6 +392,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
       sequencerPanel(processor)
 {
     setOpaque(true);
+    computerKeyboardActiveNotes.fill(-1);
     // Allow keyboard shortcuts (⌘S) to reach the panel even when no inner
     // text editor has focus.
     setWantsKeyboardFocus(true);
@@ -421,7 +426,9 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     statusBar.onExportWav    = [this] { exportWav(); };
     statusBar.onSettings     = [this] { if (settingsVisible) hideSettings(); else showSettings(); };
     statusBar.onManual       = [this] { showManual(); };
+    statusBar.onKeyboardInputChanged = [this](bool enabled) { setComputerKeyboardEnabled(enabled); };
     statusBar.onPresetNameContextMenu = [this](juce::Point<int> p) { showPresetNameContextMenu(p); };
+    statusBar.setKeyboardInputEnabled(false);
 
     // Settings overlay (same pattern as DimExplorer)
     settingsScrim.onClick = [this] { hideSettings(); };
@@ -666,12 +673,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     // Main Generate button at bottom of left column. Custom paintButton
     // handles fill/border/text colours directly — no TextButton::ColourIds
     // needed.
-    mainGenerateBtn.onClick = [this] {
-        activeSnapshotIndex = 0;
-        syncSnapshotUi();
-        promptPanel.setSemanticAxes(axesPanel.getAxisValues());
-        promptPanel.triggerGenerationWithOffsets({});
-    };
+    mainGenerateBtn.onClick = [this] { triggerMainGeneration(); };
     addAndMakeVisible(mainGenerateBtn);
 
     snapLabel.setText("SNAP", juce::dontSendNotification);
@@ -1355,12 +1357,29 @@ void MainPanel::mouseDown(const juce::MouseEvent& e)
 
 bool MainPanel::keyPressed(const juce::KeyPress& key)
 {
+    const auto mods = key.getModifiers();
+
+    if ((mods.isCommandDown() || mods.isCtrlDown()) && key.getTextCharacter() == 'k')
+    {
+        setComputerKeyboardEnabled(!computerKeyboardEnabled);
+        return true;
+    }
+
+    if (key.getKeyCode() == juce::KeyPress::returnKey
+        && (mods.isShiftDown() || mods.isCommandDown() || mods.isCtrlDown()))
+    {
+        if (settingsVisible || manualVisible || presetManagerVisible)
+            return false;
+        triggerMainGeneration();
+        return true;
+    }
+
     // ⌘S / Ctrl+S opens the Library in Save mode. Skipped when another
     // modal overlay (settings, manual, dim explorer) is up so the
     // shortcut doesn't yank the user out of an unrelated workflow. Also
     // skipped if the Library is already in Save mode (a no-op re-entry
     // would just reset the typed name).
-    if (key.getModifiers().isCommandDown() && key.getTextCharacter() == 's')
+    if ((mods.isCommandDown() || mods.isCtrlDown()) && key.getTextCharacter() == 's')
     {
         if (settingsVisible || manualVisible || dimExplorerVisible) return false;
         if (presetManagerVisible
@@ -1368,6 +1387,53 @@ bool MainPanel::keyPressed(const juce::KeyPress& key)
             return true;   // already there; consume so nothing else fires
         savePreset();
         return true;
+    }
+
+    if (!isTextEditingFocus() && !settingsVisible && !manualVisible && !presetManagerVisible)
+    {
+        const juce_wchar c = key.getTextCharacter();
+        if (c >= '1' && c <= '4')
+        {
+            const int slot = static_cast<int>(c - '0');
+            if (mods.isShiftDown())
+            {
+                snapshotPressCaptures[static_cast<size_t>(slot - 1)] = captureMainSnapshot();
+                storeSnapshotFromPress(slot);
+            }
+            else
+            {
+                activateSnapshot(slot);
+            }
+            return true;
+        }
+
+        const juce_wchar lower = juce::CharacterFunctions::toLowerCase(c);
+        const bool plainKeyboardCommand = computerKeyboardEnabled
+                                       && !mods.isCommandDown()
+                                       && !mods.isCtrlDown()
+                                       && !mods.isAltDown();
+        if (plainKeyboardCommand && (lower == 'y' || lower == 'x'))
+        {
+            auto& keyHeld = (lower == 'y') ? computerKeyboardOctaveDownKeyDown
+                                           : computerKeyboardOctaveUpKeyDown;
+            if (!keyHeld)
+                shiftComputerKeyboardOctave(lower == 'y' ? -1 : 1);
+            keyHeld = true;
+            return true;
+        }
+
+        const int keyIndex = computerKeyboardEnabled ? computerKeyIndexFor(key) : -1;
+        if (keyIndex >= 0)
+        {
+            if (!computerKeyboardNotesDown[static_cast<size_t>(keyIndex)])
+            {
+                computerKeyboardNotesDown[static_cast<size_t>(keyIndex)] = true;
+                const int note = computerKeyboardNoteForIndex(keyIndex);
+                computerKeyboardActiveNotes[static_cast<size_t>(keyIndex)] = note;
+                processorRef.beginComputerKeyboardNote(note, 0.82f);
+            }
+            return true;
+        }
     }
     return false;
 }
@@ -1572,6 +1638,7 @@ static juce::File getBufferPresetFile()
 
 MainPanel::~MainPanel()
 {
+    releaseComputerKeyboardNotes();
     stopTimer();
 
     if (!juce::JUCEApplicationBase::isStandaloneApp())
@@ -1884,6 +1951,154 @@ void MainPanel::syncSnapshotUi()
     }
 }
 
+void MainPanel::triggerMainGeneration()
+{
+    if (!mainGenerateBtn.isEnabled())
+        return;
+
+    activeSnapshotIndex = 0;
+    syncSnapshotUi();
+    promptPanel.setSemanticAxes(axesPanel.getAxisValues());
+    promptPanel.triggerGenerationWithOffsets({});
+}
+
+void MainPanel::setComputerKeyboardEnabled(bool enabled)
+{
+    if (computerKeyboardEnabled == enabled)
+    {
+        statusBar.setKeyboardInputEnabled(enabled);
+        return;
+    }
+
+    computerKeyboardEnabled = enabled;
+    statusBar.setKeyboardInputEnabled(enabled);
+    if (!enabled)
+    {
+        releaseComputerKeyboardNotes();
+        computerKeyboardOctaveDownKeyDown = false;
+        computerKeyboardOctaveUpKeyDown = false;
+    }
+    statusBar.setStatusText(enabled ? computerKeyboardStatusText()
+                                    : "Computer keyboard off");
+}
+
+void MainPanel::shiftComputerKeyboardOctave(int delta)
+{
+    const int nextOffset = juce::jlimit(kComputerKeyboardMinOctaveOffset,
+                                       kComputerKeyboardMaxOctaveOffset,
+                                       computerKeyboardOctaveOffset + delta);
+    if (nextOffset == computerKeyboardOctaveOffset)
+    {
+        statusBar.setStatusText("Kbd octave limit: " + computerKeyboardBaseNoteName());
+        return;
+    }
+
+    releaseComputerKeyboardNotes();
+    computerKeyboardOctaveOffset = nextOffset;
+    statusBar.setStatusText("Kbd octave: " + computerKeyboardBaseNoteName());
+}
+
+bool MainPanel::isTextEditingFocus() const
+{
+    for (auto* c = juce::Component::getCurrentlyFocusedComponent(); c != nullptr; c = c->getParentComponent())
+        if (dynamic_cast<juce::TextEditor*>(c) != nullptr)
+            return true;
+    return false;
+}
+
+int MainPanel::computerKeyIndexFor(const juce::KeyPress& key) const
+{
+    const juce_wchar c = juce::CharacterFunctions::toLowerCase(key.getTextCharacter());
+    for (int i = 0; i < static_cast<int>(sizeof(kComputerKeyboardNoteKeys) / sizeof(kComputerKeyboardNoteKeys[0])); ++i)
+        if (c == kComputerKeyboardNoteKeys[i])
+            return i;
+    return -1;
+}
+
+int MainPanel::computerKeyboardNoteForIndex(int keyIndex) const
+{
+    return kComputerKeyboardBaseMidiNote + computerKeyboardOctaveOffset * 12 + keyIndex;
+}
+
+juce::String MainPanel::computerKeyboardBaseNoteName() const
+{
+    return juce::MidiMessage::getMidiNoteName(computerKeyboardNoteForIndex(0), true, true, 4);
+}
+
+juce::String MainPanel::computerKeyboardStatusText() const
+{
+    return "Kbd on: y/x oct, awsedftgzhujk from " + computerKeyboardBaseNoteName();
+}
+
+void MainPanel::pollComputerKeyboard()
+{
+    if (!computerKeyboardEnabled || isTextEditingFocus()
+        || settingsVisible || manualVisible || presetManagerVisible)
+    {
+        releaseComputerKeyboardNotes();
+        computerKeyboardOctaveDownKeyDown = false;
+        computerKeyboardOctaveUpKeyDown = false;
+        return;
+    }
+
+    const auto isCharDown = [] (char keyChar)
+    {
+        const int lower = static_cast<int>(keyChar);
+        const int upper = static_cast<int>(juce::CharacterFunctions::toUpperCase(keyChar));
+        return juce::KeyPress::isKeyCurrentlyDown(lower)
+            || juce::KeyPress::isKeyCurrentlyDown(upper);
+    };
+
+    const bool octaveDown = isCharDown('y');
+    if (octaveDown && !computerKeyboardOctaveDownKeyDown)
+        shiftComputerKeyboardOctave(-1);
+    computerKeyboardOctaveDownKeyDown = octaveDown;
+
+    const bool octaveUp = isCharDown('x');
+    if (octaveUp && !computerKeyboardOctaveUpKeyDown)
+        shiftComputerKeyboardOctave(1);
+    computerKeyboardOctaveUpKeyDown = octaveUp;
+
+    for (int i = 0; i < static_cast<int>(sizeof(kComputerKeyboardNoteKeys) / sizeof(kComputerKeyboardNoteKeys[0])); ++i)
+    {
+        const int lower = static_cast<int>(kComputerKeyboardNoteKeys[i]);
+        const int upper = static_cast<int>(juce::CharacterFunctions::toUpperCase(kComputerKeyboardNoteKeys[i]));
+        const bool down = juce::KeyPress::isKeyCurrentlyDown(lower)
+                       || juce::KeyPress::isKeyCurrentlyDown(upper);
+
+        if (down == computerKeyboardNotesDown[static_cast<size_t>(i)])
+            continue;
+
+        computerKeyboardNotesDown[static_cast<size_t>(i)] = down;
+        if (down)
+        {
+            const int note = computerKeyboardNoteForIndex(i);
+            computerKeyboardActiveNotes[static_cast<size_t>(i)] = note;
+            processorRef.beginComputerKeyboardNote(note, 0.82f);
+        }
+        else
+        {
+            const int note = computerKeyboardActiveNotes[static_cast<size_t>(i)];
+            if (note >= 0)
+                processorRef.endComputerKeyboardNote(note);
+            computerKeyboardActiveNotes[static_cast<size_t>(i)] = -1;
+        }
+    }
+}
+
+void MainPanel::releaseComputerKeyboardNotes()
+{
+    for (int i = 0; i < static_cast<int>(computerKeyboardNotesDown.size()); ++i)
+    {
+        if (!computerKeyboardNotesDown[static_cast<size_t>(i)])
+            continue;
+        computerKeyboardNotesDown[static_cast<size_t>(i)] = false;
+        const int note = computerKeyboardActiveNotes[static_cast<size_t>(i)];
+        processorRef.endComputerKeyboardNote(note >= 0 ? note : computerKeyboardNoteForIndex(i));
+        computerKeyboardActiveNotes[static_cast<size_t>(i)] = -1;
+    }
+}
+
 void MainPanel::timerCallback()
 {
     // Stop the temporary pulse after a cache hit, but keep the cache-hit
@@ -1921,6 +2136,7 @@ void MainPanel::timerCallback()
     mainGenerateBtn.setAnimationState(glowPhase, glowGenerating);
     updateGenerateButtonsForCacheState(false);
     syncInferenceCacheUi();
+    pollComputerKeyboard();
 
     // Drive the cache-button pulse phase while the cache is still filling.
     // Uses an independent 2 Hz counter (not glowPhase, which crawls at idle)
@@ -2215,26 +2431,8 @@ void MainPanel::resized()
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Default Preset
+// Default / Init state
 // ═══════════════════════════════════════════════════════════════════
-
-bool MainPanel::loadBundledPreset(const char* data, int size, const juce::String& tempName)
-{
-    // Write bundled preset binary to a temp file, then route it through
-    // the standard PresetFormat loader (which validates the magic + strict
-    // version check). Used by loadDefaultPreset / loadInitPreset.
-    auto tmpFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                       .getChildFile(tempName);
-    tmpFile.replaceWithData(data, static_cast<size_t>(size));
-
-    auto result = PresetFormat::loadFromFile(tmpFile, processorRef);
-    tmpFile.deleteFile();
-    if (!result.success)
-        return false;
-
-    applyLoadedPreset(result, {});
-    return true;
-}
 
 void MainPanel::ensureBundledPresetsExist()
 {
@@ -2274,17 +2472,41 @@ void MainPanel::loadDefaultPreset()
         }
     }
 
-    // First launch or DAW: load bundled DEMO
-    loadBundledPreset(BinaryData::DEMO_T5OscillatorDrift_t5p,
-                      BinaryData::DEMO_T5OscillatorDrift_t5pSize,
-                      "t5ynth_default.t5p");
+    // First launch or DAW: stay on APVTS defaults. The former bundled demo
+    // preset is no longer representative enough to be the startup state.
 }
 
 void MainPanel::loadInitPreset()
 {
-    loadBundledPreset(BinaryData::INIT_t5p,
-                      BinaryData::INIT_t5pSize,
-                      "t5ynth_init.t5p");
+    for (auto* param : processorRef.getParameters())
+        if (param != nullptr)
+            param->setValueNotifyingHost(param->getDefaultValue());
+
+    juce::AudioBuffer<float> emptyAudio;
+    const double sampleRate = processorRef.getSampleRate() > 0.0
+        ? processorRef.getSampleRate()
+        : 44100.0;
+    processorRef.loadGeneratedAudio(emptyAudio, sampleRate);
+    processorRef.setInferenceCacheCapacity(0);
+    processorRef.setLastPrompts({}, {});
+    processorRef.setLastPresetName({});
+    processorRef.setLastTags({});
+    processorRef.setLastEmbeddings({}, {});
+    processorRef.setLastSeed(static_cast<int>(
+        processorRef.getValueTreeState().getRawParameterValue(PID::genSeed)->load()));
+    processorRef.setLastInjection("linear", 0.75f, 4.0f, 16.0f);
+    processorRef.setLastAxes({});
+
+    promptPanel.loadPresetData({}, {}, processorRef.getLastSeed(), false,
+                               {}, {}, "linear", 0.75f, 4.0f, 16.0f);
+    axesPanel.setSlotStates({});
+    dimensionExplorer.clear();
+
+    currentPresetFile = juce::File();
+    statusBar.setPresetName({});
+    statusBar.setStatusText("Initialized");
+    presetManager.setCurrentPreset(currentPresetFile, {});
+    syncInferenceCacheUi();
 }
 
 // ═══════════════════════════════════════════════════════════════════

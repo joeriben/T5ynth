@@ -41,12 +41,15 @@ juce::String fitTextToWidth(const juce::Font& font, juce::String text, int maxWi
 
 StatusBar::StatusBar()
 {
-    for (auto* btn : { &newBtn, &saveBtn, &loadBtn, &exportBtn, &settingsBtn, &manualBtn })
+    for (auto* btn : { &newBtn, &saveBtn, &loadBtn, &exportBtn, &settingsBtn, &manualBtn, &keyboardBtn })
     {
         btn->setColour(juce::TextButton::buttonColourId, kSurface);
         btn->setColour(juce::TextButton::textColourOffId, kDim);
         addAndMakeVisible(btn);
     }
+
+    keyboardBtn.setClickingTogglesState(true);
+    keyboardBtn.setTooltip("Enable computer-keyboard note input");
 
     newBtn.onClick      = [this] { if (onNewPreset) onNewPreset(); };
     saveBtn.onClick     = [this] { if (onSavePreset) onSavePreset(); };
@@ -54,6 +57,12 @@ StatusBar::StatusBar()
     exportBtn.onClick   = [this] { if (onExportWav) onExportWav(); };
     settingsBtn.onClick = [this] { if (onSettings) onSettings(); };
     manualBtn.onClick   = [this] { if (onManual) onManual(); };
+    keyboardBtn.onClick = [this]
+    {
+        setKeyboardInputEnabled(keyboardBtn.getToggleState());
+        if (onKeyboardInputChanged)
+            onKeyboardInputChanged(keyboardBtn.getToggleState());
+    };
 }
 
 void StatusBar::mouseDown(const juce::MouseEvent& e)
@@ -84,7 +93,7 @@ void StatusBar::paint(juce::Graphics& g)
     g.setFont(font);
 
     int textX = juce::roundToInt(dotX + dotSize + 6.0f);
-    int rightEdge = newBtn.getX() - 8;
+    int rightEdge = keyboardBtn.getX() - 8;
     auto statusBounds = juce::Rectangle<int>(textX, 0,
                                              juce::jmax(0, rightEdge - textX),
                                              getHeight());
@@ -125,13 +134,14 @@ void StatusBar::resized()
     int y = 1;
     int gap = 4;
 
-    // Right to left: Manual, Settings, Export, Library, Save, Init
+    // Right to left: Manual, Settings, Export, Library, Save, Init, Kbd
     int manualW   = 60;
     int settingsW = 60;
     int exportW   = 54;
     int libraryW  = 64;
     int saveW     = 50;
     int newW      = 40;
+    int kbdW      = 42;
 
     manualBtn.setBounds(b.getRight() - manualW - gap, y, manualW, btnH);
     settingsBtn.setBounds(manualBtn.getX() - settingsW - gap, y, settingsW, btnH);
@@ -139,6 +149,7 @@ void StatusBar::resized()
     loadBtn.setBounds(exportBtn.getX() - libraryW - gap, y, libraryW, btnH);
     saveBtn.setBounds(loadBtn.getX() - saveW - gap, y, saveW, btnH);
     newBtn.setBounds(saveBtn.getX() - newW - gap, y, newW, btnH);
+    keyboardBtn.setBounds(newBtn.getX() - kbdW - gap, y, kbdW, btnH);
 }
 
 void StatusBar::setStatusText(const juce::String& text)
@@ -157,4 +168,14 @@ void StatusBar::setPresetName(const juce::String& name)
 {
     presetName = name;
     repaint();
+}
+
+void StatusBar::setKeyboardInputEnabled(bool enabled)
+{
+    keyboardBtn.setToggleState(enabled, juce::dontSendNotification);
+    keyboardBtn.setColour(juce::TextButton::buttonColourId, enabled ? kAccent : kSurface);
+    keyboardBtn.setColour(juce::TextButton::textColourOffId,
+                          enabled ? juce::Colours::white : kDim);
+    keyboardBtn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    keyboardBtn.repaint();
 }

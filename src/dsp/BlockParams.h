@@ -95,6 +95,8 @@ namespace PID {
     static constexpr const char* lfo3Wave         = "lfo3_wave";
     static constexpr const char* lfo3Target       = "lfo3_target";
     static constexpr const char* lfo3Mode         = "lfo3_mode";
+    static constexpr const char* aftertouchTarget = "aftertouch_target";
+    static constexpr const char* aftertouchAmount = "aftertouch_amount";
     static constexpr const char* driftEnabled     = "drift_enabled";
     static constexpr const char* driftRegen       = "drift_regen";
     static constexpr const char* driftCrossfade   = "drift_crossfade";
@@ -354,6 +356,31 @@ namespace LfoTarget {
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
     static_assert(Drift3Depth + 1 == kCount,
                   "LfoTarget enum and kEntries are out of sync.");
+}
+
+// ── MIDI aftertouch performance targets ──
+namespace AftertouchTarget {
+    enum : int {
+        None = 0,
+        LFO1Depth = 1,
+        LFO2Depth = 2,
+        LFO3Depth = 3,
+        Env1Sustain = 4,
+        Env2Sustain = 5,
+        Env3Sustain = 6
+    };
+    static constexpr ChoiceEntry kEntries[] = {
+        { "none",         "---"          },
+        { "lfo1_depth",   "LFO1 Depth"   },
+        { "lfo2_depth",   "LFO2 Depth"   },
+        { "lfo3_depth",   "LFO3 Depth"   },
+        { "env1_sustain", "ENV1 Sustain" },
+        { "env2_sustain", "ENV2 Sustain" },
+        { "env3_sustain", "ENV3 Sustain" }
+    };
+    static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
+    static_assert(Env3Sustain + 1 == kCount,
+                  "AftertouchTarget enum and kEntries are out of sync.");
 }
 
 // ── Drift LFO targets ──
@@ -1104,6 +1131,12 @@ struct BlockParams
     float lfo3Rate = 1.0f, lfo3Depth = 1.0f;
     int   lfo3Wave = 0, lfo3Target = 0; // LfoTarget::None
     bool  lfo3TrigMode = false;
+
+    // MIDI aftertouch (channel pressure and poly pressure are resolved per
+    // voice before rendering; amount is bipolar so pressure can open or close
+    // the target).
+    int   aftertouchTarget = AftertouchTarget::None;
+    float aftertouchAmount = 0.5f;
 
     // Filter
     bool  filterEnabled = false;

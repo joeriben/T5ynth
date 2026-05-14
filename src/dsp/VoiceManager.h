@@ -28,6 +28,10 @@ public:
                 int sourceId = -1, float pan = 0.0f);
     void noteOff(int note, int sourceId = -1);
     void allNotesOff();
+    void setSustainPedal(bool down);
+    void setChannelPressure(float pressure);
+    void setPolyPressure(int note, float pressure, int sourceId = -1);
+    void resetPerformanceControllers();
 
     // ── Drone (step-hold) handling ──
     // A drone is a user-held note (e.g. mouse-hold on a sequencer step) that
@@ -109,6 +113,10 @@ private:
     std::array<std::vector<float>, MAX_VOICES> voiceScratch;
     std::array<float, MAX_VOICES> voicePan {};
     std::array<int, MAX_VOICES> voiceSourceId {};
+    std::array<bool, MAX_VOICES> sustainedVoice {};
+    std::array<float, 128> polyPressureByNote {};
+    float channelPressure = 0.0f;
+    bool sustainPedalDown = false;
 
     // ── Voice allocation ──
     int findVoiceForNote(int note, int sourceId = -1) const;
@@ -117,5 +125,7 @@ private:
 
     void updateGainTarget();
     int getHeldVoiceCount() const;
+    void releaseSustainedVoices();
+    float pressureForNote(int note) const;
     static constexpr float GAIN_RAMP_MS = 5.0f;
 };

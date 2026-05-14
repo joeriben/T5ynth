@@ -181,6 +181,47 @@ void T5ynthProcessor::endStepHoldPreview()
         lastMidiNoteOn.store(false, std::memory_order_relaxed);
 }
 
+void T5ynthProcessor::beginComputerKeyboardNote(int midiNote, float velocity)
+{
+    const juce::ScopedLock sl(getCallbackLock());
+
+    const int note = juce::jlimit(0, 127, midiNote);
+    const float vel = juce::jlimit(0.0f, 1.0f, velocity);
+    const bool lfo1TrigMode = static_cast<int>(parameters.getRawParameterValue(PID::lfo1Mode)->load()) == 1;
+    const bool lfo2TrigMode = static_cast<int>(parameters.getRawParameterValue(PID::lfo2Mode)->load()) == 1;
+    const bool lfo3TrigMode = static_cast<int>(parameters.getRawParameterValue(PID::lfo3Mode)->load()) == 1;
+
+    static constexpr int kComputerKeyboardSourceId = 15;
+    voiceManager.noteOn(note, vel, false, 0.0f,
+                        lfo1TrigMode, lfo2TrigMode, lfo3TrigMode,
+                        kComputerKeyboardSourceId, 0.0f);
+
+    lastMidiNote.store(note, std::memory_order_relaxed);
+    lastMidiVelocity.store(juce::roundToInt(vel * 127.0f), std::memory_order_relaxed);
+    lastMidiNoteOn.store(true, std::memory_order_relaxed);
+}
+
+void T5ynthProcessor::endComputerKeyboardNote(int midiNote)
+{
+    const juce::ScopedLock sl(getCallbackLock());
+
+    static constexpr int kComputerKeyboardSourceId = 15;
+    voiceManager.noteOff(juce::jlimit(0, 127, midiNote), kComputerKeyboardSourceId);
+    if (!voiceManager.hasActiveVoices())
+        lastMidiNoteOn.store(false, std::memory_order_relaxed);
+}
+
+void T5ynthProcessor::allComputerKeyboardNotesOff()
+{
+    const juce::ScopedLock sl(getCallbackLock());
+
+    static constexpr int kComputerKeyboardSourceId = 15;
+    for (int note = 0; note < 128; ++note)
+        voiceManager.noteOff(note, kComputerKeyboardSourceId);
+    if (!voiceManager.hasActiveVoices())
+        lastMidiNoteOn.store(false, std::memory_order_relaxed);
+}
+
 juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
@@ -398,6 +439,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::lfo3Wave, 1}, "LFO3 Wave",
         toChoices(LfoWave::kEntries), 0));
+
+    // MIDI aftertouch performance routing
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::aftertouchTarget, 1}, "Aftertouch Target",
+        toChoices(AftertouchTarget::kEntries), 0));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::aftertouchAmount, 1}, "Aftertouch Amount",
+        juce::NormalisableRange<float>(-1.0f, 1.0f, 0.001f), 0.5f));
 
     // Drift LFO
     params.push_back(std::make_unique<juce::AudioParameterBool>(
@@ -1491,6 +1540,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         bp.lfo3Target = static_cast<int>(parameters.getRawParameterValue(PID::lfo3Target)->load());
     }
 
+    bp.aftertouchTarget = static_cast<int>(parameters.getRawParameterValue(PID::aftertouchTarget)->load());
+    bp.aftertouchAmount = parameters.getRawParameterValue(PID::aftertouchAmount)->load();
+
     // Filter
     // filter_type: 0=Off, 1=LP, 2=HP, 3=BP → filterEnabled from type, DSP type is 0-based
     {
@@ -2128,15 +2180,47 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                         if (!voiceManager.hasActiveVoices())
                             lastMidiNoteOn.store(false, std::memory_order_relaxed);
                     }
-                    else if (msg.isController()
-                             && msg.getControllerNumber() == 10
-                             && msg.getChannel() >= 3
-                             && msg.getChannel() <= 6)
+                    else if (msg.isAftertouch())
                     {
-                        const int genSourceId = msg.getChannel() - 3;
-                        const float value = static_cast<float>(msg.getControllerValue()) / 127.0f;
-                        genStrandPan[static_cast<size_t>(genSourceId)] =
-                            juce::jlimit(-1.0f, 1.0f, value * 2.0f - 1.0f);
+                        const int channel = msg.getChannel();
+                        const int genSourceId = (channel >= 3 && channel <= 6) ? channel - 3 : -1;
+                        const float pressure = static_cast<float>(msg.getAfterTouchValue()) / 127.0f;
+                        voiceManager.setPolyPressure(msg.getNoteNumber(), pressure, genSourceId);
+                    }
+                    else if (msg.isChannelPressure())
+                    {
+                        const float pressure = static_cast<float>(msg.getChannelPressureValue()) / 127.0f;
+                        voiceManager.setChannelPressure(pressure);
+                    }
+                    else if (msg.isAllNotesOff() || msg.isAllSoundOff())
+                    {
+                        voiceManager.allNotesOff();
+                        lastMidiNoteOn.store(false, std::memory_order_relaxed);
+                    }
+                    else if (msg.isController())
+                    {
+                        const int cc = msg.getControllerNumber();
+                        const int value7 = msg.getControllerValue();
+                        if (cc == 10 && msg.getChannel() >= 3 && msg.getChannel() <= 6)
+                        {
+                            const int genSourceId = msg.getChannel() - 3;
+                            const float value = static_cast<float>(value7) / 127.0f;
+                            genStrandPan[static_cast<size_t>(genSourceId)] =
+                                juce::jlimit(-1.0f, 1.0f, value * 2.0f - 1.0f);
+                        }
+                        else if (cc == 64)
+                        {
+                            voiceManager.setSustainPedal(value7 >= 64);
+                        }
+                        else if (cc == 120 || cc == 123)
+                        {
+                            voiceManager.allNotesOff();
+                            lastMidiNoteOn.store(false, std::memory_order_relaxed);
+                        }
+                        else if (cc == 121)
+                        {
+                            voiceManager.resetPerformanceControllers();
+                        }
                     }
                     ++midiIter;
                 }

@@ -585,6 +585,17 @@ Below the Dimension Explorer, the Generation column has a compact <strong>SNAP /
 Snapshots are session workflow slots: they let you keep a bass or lead state while you temporarily generate material for something else. Cache is preset material: it is stored with the preset, including its audio entries.
 </p>
 
+<h3>Keyboard and MIDI Performance</h3>
+<table>
+  <tr><th>Input</th><th>Action</th></tr>
+  <tr><td><strong>Shift+Return</strong> or <strong>Ctrl/Cmd+Return</strong></td><td>Trigger Generate from anywhere in the main panel.</td></tr>
+  <tr><td><strong>1 / 2 / 3 / 4</strong></td><td>Recall snapshot slots 1-4. Use <strong>Shift+1</strong> ... <strong>Shift+4</strong> to store the current state into a slot.</td></tr>
+  <tr><td><strong>Kbd</strong> in the status bar or <strong>Ctrl/Cmd+K</strong></td><td>Enable computer-keyboard note input. The chromatic row is <code>a w s e d f t g z h u j k</code>, starting at MIDI note 60. Use <strong>y</strong> / <strong>x</strong> for octave down / up. It is automatically ignored while a text field or overlay is active.</td></tr>
+  <tr><td><strong>MIDI CC64</strong></td><td>Sustain pedal. Notes released while the pedal is down keep sounding until CC64 returns below 64.</td></tr>
+  <tr><td><strong>MIDI aftertouch</strong></td><td>Both channel pressure and poly pressure are supported. Route them with the <strong>AT</strong> row in the Synth panel.</td></tr>
+  <tr><td><strong>CC120 / CC123 / CC121</strong></td><td>All Sound Off / All Notes Off / Reset Controllers.</td></tr>
+</table>
+
 <h3>Model &amp; Device</h3>
 <p>
 Three model slots are available: Stable Audio Open 1.0, Stable Audio Open Small, and AudioLDM2 <em>(experimental, CC BY-NC-SA 4.0 — non-commercial only)</em>. The device toggle switches between GPU (MPS on Apple Silicon, CUDA on Linux or Windows 11) and CPU. GPU is typically 3× faster on Apple Silicon.
@@ -607,7 +618,7 @@ Three model slots are available: Stable Audio Open 1.0, Stable Audio Open Small,
   </tr>
   <tr>
     <td><strong>What does not fully work</strong></td>
-    <td>AudioLDM2 does <strong>not</strong> implement the non-linear Injection Modes. <em>Step-in</em>, <em>Layer</em>, and <em>Combo 1/2/3</em> fall back to <em>Linear</em> behaviour. AudioLDM2 also does not support the latent-only Stable Audio workflows used by the native SA path.</td>
+    <td>AudioLDM2 does <strong>not</strong> implement the non-linear Injection Modes. When AudioLDM2 is selected, T5ynth keeps the mode row locked to <em>Linear</em>. AudioLDM2 also does not support the latent-only Stable Audio workflows used by the native SA path.</td>
   </tr>
   <tr>
     <td><strong>Advantages</strong></td>
@@ -637,8 +648,8 @@ enter?". Different answers produce audibly different sounds from the
 Clicking a mode button immediately triggers a fresh generation, and
 each mode keeps its own slider position so A/B-ing the modes by
 clicking buttons does not disturb the others. Only Stable Audio Open
-Small implements the non-linear modes; on other models the buttons
-fall through to Linear behaviour.
+Small implements the non-linear modes. With AudioLDM2 selected, T5ynth
+disables the non-linear buttons and keeps <em>Linear</em> active.
 </p>
 <table>
   <tr><th>Mode</th><th>What it does</th><th>Slider role</th></tr>
@@ -846,7 +857,7 @@ Three identical ADSR envelopes, each with a <strong>Target dropdown</strong> to 
   <tr><td><strong>Release</strong></td><td>0 – 10 000 ms</td><td></td></tr>
   <tr><td><strong>A / D / R Curve</strong></td><td>Log / SLog / Lin / SExp / Exp</td><td>Per-stage slope shape. Each of the three stages (Attack, Decay, Release) has its own 5-position selector, so an envelope can e.g. be linear on the way up but exponential on release. Minimum ramp 3&nbsp;ms on every stage. Defaults: A = Lin, D = Lin, R = Exp. See the <em>Curve shapes</em> note below the table.</td></tr>
   <tr><td><strong>Amount</strong></td><td>0.0 – 1.0</td><td>Output scaling</td></tr>
-  <tr><td><strong>Vel Sens</strong></td><td>0.0 – 1.0</td><td>0 = fixed level, 1 = full velocity response. Aftertouch sensitivity <em>(planned)</em>.</td></tr>
+  <tr><td><strong>Vel Sens</strong></td><td>0.0 – 1.0</td><td>0 = fixed level, 1 = full velocity response. Aftertouch is handled by the global <strong>AT</strong> routing row below the LFOs.</td></tr>
   <tr><td><strong>Loop</strong></td><td>on / off</td><td>Re-triggers attack when sustain is reached</td></tr>
   <tr><td><strong>Target</strong></td><td>Dropdown</td><td>DCA, Filter, Pitch, Dly Time/FB/Mix, Rev Mix, Noise Lvl, LFO1/2/3 Rate, LFO1/2/3 Depth</td></tr>
 </table>
@@ -872,6 +883,17 @@ Three identical ADSR envelopes, each with a <strong>Target dropdown</strong> to 
   <tr><td><strong>Waveform</strong></td><td>Sine / Tri / Saw / Square</td><td></td></tr>
   <tr><td><strong>Mode</strong></td><td>Free / Trigger</td><td>Free runs continuously; Trigger resets on note-on (per-voice phase)</td></tr>
   <tr><td><strong>Target</strong></td><td>Dropdown</td><td>Filter, Scan, Pitch, Dly Time/FB/Mix, Rev Mix, Noise Lvl, ENV1–3 Amt, Drift1/2/3 Depth</td></tr>
+</table>
+
+<h3>MIDI Aftertouch (AT)</h3>
+<p>
+The compact <strong>AT</strong> row routes MIDI channel pressure or polyphonic aftertouch to one performance destination at a time. Poly pressure follows the individual note where the controller provides it; channel pressure applies to all active voices.
+</p>
+<table>
+  <tr><th>Target</th><th>Result</th></tr>
+  <tr><td><strong>LFO1 Depth / LFO2 Depth / LFO3 Depth</strong></td><td>Pressure raises or lowers the selected LFO depth by the AT Amount.</td></tr>
+  <tr><td><strong>ENV1 Sustain / ENV2 Sustain / ENV3 Sustain</strong></td><td>Pressure raises or lowers the selected envelope sustain level by the AT Amount.</td></tr>
+  <tr><td><strong>Amount</strong></td><td>Bipolar depth from -1.0 to +1.0. Negative values invert the pressure response.</td></tr>
 </table>
 
 <div class="note">
@@ -1010,6 +1032,9 @@ A traditional step sequencer with 2–32 steps. Each step has:
   <li><strong>Bind (Glide)</strong> — suppresses note-off, creating legato ties</li>
   <li><strong>One-shot sample slots</strong> — three small per-step slots for drum-style sample triggers</li>
 </ul>
+<p>
+Drag a step's note lane to set its pitch silently. Hold <strong>Shift</strong> while clicking or dragging the note lane to audition the step as a held preview note.
+</p>
 
 <h4>Per-Step One-Shot Slots</h4>
 <p>

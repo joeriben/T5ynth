@@ -176,6 +176,10 @@ private:
 
     /** Reconfigure alphaSlider (range, label, value, attachment) for the active mode. */
     void applyModeToSlider();
+    bool isAudioLDM2Model(const juce::String& model) const;
+    bool selectedModelIsAudioLDM2() const;
+    void selectInjectionMode(const juce::String& mode, bool trigger);
+    void syncInjectionModeAvailability();
 
     bool generating = false;
     std::vector<std::pair<int, float>> pendingOffsets_;  // for DimensionExplorer

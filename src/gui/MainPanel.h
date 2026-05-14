@@ -142,6 +142,12 @@ private:
     // "cache hit" until the cache is cleared/disabled.
     bool cacheHitActive = false;
     double cacheHitUntilSec = 0.0;
+    bool computerKeyboardEnabled = false;
+    int computerKeyboardOctaveOffset = 0;
+    bool computerKeyboardOctaveDownKeyDown = false;
+    bool computerKeyboardOctaveUpKeyDown = false;
+    std::array<bool, 13> computerKeyboardNotesDown {};
+    std::array<int, 13> computerKeyboardActiveNotes {};
     void timerCallback() override;
     void syncInferenceCacheUi();
     void updateGenerateButtonsForCacheState(bool pulseCacheHit);
@@ -151,6 +157,16 @@ private:
     void storeSnapshotFromPress(int slot);
     void activateSnapshot(int slot);
     void syncSnapshotUi();
+    void triggerMainGeneration();
+    void setComputerKeyboardEnabled(bool enabled);
+    void shiftComputerKeyboardOctave(int delta);
+    void pollComputerKeyboard();
+    void releaseComputerKeyboardNotes();
+    bool isTextEditingFocus() const;
+    int computerKeyIndexFor(const juce::KeyPress& key) const;
+    int computerKeyboardNoteForIndex(int keyIndex) const;
+    juce::String computerKeyboardBaseNoteName() const;
+    juce::String computerKeyboardStatusText() const;
 
     // Col 2: ENGINE + FILTER + MODULATION
     SynthPanel synthPanel;
@@ -216,10 +232,6 @@ private:
      *  ANY preset in the library without first loading it (a full re-save
      *  would otherwise overwrite the file with the engine's current state). */
     static bool patchPresetTagsField(const juce::File& file, const juce::StringArray& newTags);
-    // Shared implementation used by loadDefaultPreset / loadInitPreset:
-    // writes the embedded binary to a temp file and routes it through the
-    // standard PresetFormat loader. Returns false on failure.
-    bool loadBundledPreset(const char* data, int size, const juce::String& tempName);
     void showSettings();
     void hideSettings();
     void showManual();

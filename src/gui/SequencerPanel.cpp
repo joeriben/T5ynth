@@ -203,7 +203,7 @@ void SequencerPanel::StepColumn::mouseDown(const juce::MouseEvent& e)
         // Start note drag
         dragZone = 1;
         dragStartVal = static_cast<float>(step.note);
-        noteHoldPreviewActive = processor->canUseStepHoldPreview();
+        noteHoldPreviewActive = e.mods.isShiftDown() && processor->canUseStepHoldPreview();
         noteHoldPreviewNote = step.note;
         if (noteHoldPreviewActive)
             processor->beginStepHoldPreview(step.note);

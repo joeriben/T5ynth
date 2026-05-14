@@ -902,6 +902,23 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
             PID::lfo3Rate, PID::lfo3Depth, PID::lfo3Wave, PID::lfo3Mode,
             PID::lfo3ClockMode, PID::lfo3ClockDivision, apvts);
 
+    // ── MIDI aftertouch ──
+    aftertouchLabel.setColour(juce::Label::textColourId, kLfoCol);
+    aftertouchLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(aftertouchLabel);
+    {
+        juce::StringArray atItems;
+        for (const auto& e : AftertouchTarget::kEntries) atItems.add(e.label);
+        aftertouchTargetBox.addItemList(atItems, 1);
+        aftertouchTargetBox.onChange = [this] { updateVisibility(); resized(); };
+        addAndMakeVisible(aftertouchTargetBox);
+        aftertouchAmountRow = std::make_unique<SliderRow>("Amt", fmtF2, kLfoCol);
+        addAndMakeVisible(*aftertouchAmountRow);
+        aftertouchTargetA = std::make_unique<CA>(apvts, PID::aftertouchTarget, aftertouchTargetBox);
+        aftertouchAmountA = std::make_unique<SA>(apvts, PID::aftertouchAmount, aftertouchAmountRow->getSlider());
+        aftertouchAmountRow->updateValue();
+    }
+
     // ── Drift ──
     initDrift(drift1, "D1",
               PID::drift1Rate, PID::drift1Depth, PID::drift1Target, PID::drift1Wave,
@@ -1139,7 +1156,7 @@ void SynthPanel::updateVisibility()
         crossfadeRow->setEnabled(!isOneshot);
     }
 
-    auto setEnvDimmed = [dimAlpha](EnvSection& env) {
+    auto setEnvDimmed = [](EnvSection& env) {
         bool active = env.targetBox.getSelectedId() != 1; // 1 = "---"
         float alpha = active ? 1.0f : dimAlpha;
         env.loopToggle.setAlpha(alpha);
@@ -1154,7 +1171,7 @@ void SynthPanel::updateVisibility()
     setEnvDimmed(mod1Env);
     setEnvDimmed(mod2Env);
 
-    auto setLfoDimmed = [dimAlpha](LfoSection& lfo) {
+    auto setLfoDimmed = [](LfoSection& lfo) {
         bool active = lfo.targetBox.getSelectedId() != 1; // 1 = "---"
         float alpha = active ? 1.0f : dimAlpha;
         lfo.waveBox.setAlpha(alpha);
@@ -1168,7 +1185,14 @@ void SynthPanel::updateVisibility()
     setLfoDimmed(lfo2);
     setLfoDimmed(lfo3);
 
-    auto setDriftDimmed = [dimAlpha](DriftSection& drift) {
+    {
+        const bool active = aftertouchTargetBox.getSelectedId() > 1;
+        const float alpha = active ? 1.0f : dimAlpha;
+        aftertouchLabel.setAlpha(alpha);
+        aftertouchAmountRow->setAlpha(alpha);
+    }
+
+    auto setDriftDimmed = [](DriftSection& drift) {
         bool active = drift.targetBox.getSelectedId() != 1; // 1 = "---"
         float alpha = active ? 1.0f : dimAlpha;
         drift.waveBox.setAlpha(alpha);
@@ -1199,7 +1223,7 @@ float SynthPanel::fs() const
     float available = h - 2.0f * padY;
     float waveform = h * 0.08f;
     float remaining = available - waveform;
-    float maxF = remaining / 56.0f;
+    float maxF = remaining / 57.5f;
     return juce::jlimit(9.0f, 20.0f, maxF);
 }
 
@@ -1285,6 +1309,23 @@ void SynthPanel::layoutLfo(LfoSection& lfo, juce::Rectangle<int>& area, float f,
     area.removeFromTop(gap);
 }
 
+void SynthPanel::layoutAftertouch(juce::Rectangle<int>& area, float f, int rowH, int gap)
+{
+    aftertouchLabel.setFont(juce::FontOptions(f));
+    auto row = area.removeFromTop(rowH);
+
+    const int headerW = juce::roundToInt(f * 2.5f);
+    const int targetW = juce::roundToInt(f * 8.5f);
+    const int boxGap = 4;
+
+    aftertouchLabel.setBounds(row.removeFromLeft(headerW));
+    aftertouchTargetBox.setBounds(row.removeFromLeft(targetW));
+    row.removeFromLeft(boxGap * 2);
+    aftertouchAmountRow->setBounds(row);
+
+    area.removeFromTop(gap);
+}
+
 void SynthPanel::layoutDrift(DriftSection& drift, juce::Rectangle<int>& area, float f, int rowH, int gap)
 {
     // Single-row layout:
@@ -1364,6 +1405,7 @@ void SynthPanel::paint(juce::Graphics& g)
                              mod2Env.amtRow->getBottom());
         bot = juce::jmax(bot, lfo1.depthRow->getBottom(), lfo2.depthRow->getBottom(),
                          lfo3.depthRow->getBottom());
+        bot = juce::jmax(bot, aftertouchAmountRow->getBottom());
         bot = juce::jmax(bot, drift1.depthRow->getBottom(), drift2.depthRow->getBottom(),
                          drift3.depthRow->getBottom());
         paintCard(g, juce::Rectangle<int>(padX, top, getWidth() - padX * 2, bot - top + inset));
@@ -1528,9 +1570,10 @@ void SynthPanel::resized()
     int modH = gap * 3 + headerH + headerGap; // section gap + header
     int envH = (rowH * 4 + gap) * 3; // 3 envelopes × (header + 3 slider rows + gap)
     int lfoH = gap + headerH + headerGap + (rowH + gap) * 3;              // lfo header + 3 single-row LFOs
+    int aftertouchH = rowH + gap;                                         // MIDI aftertouch row
     int driftH = gap + headerH + headerGap + (rowH + gap) * 3;            // drift header + 3 single-row drifts
     int regenH = gap + headerH;                                            // regen controls live in the header row
-    int belowWave = samplerCtrlH + filterH + modH + envH + lfoH + driftH + regenH + gap * 5;
+    int belowWave = samplerCtrlH + filterH + modH + envH + lfoH + aftertouchH + driftH + regenH + gap * 5;
     int waveH = juce::jmax(0, area.getHeight() - belowWave);
 
     if (scanRow->isVisible())
@@ -1744,6 +1787,7 @@ void SynthPanel::resized()
             modulationForcedLabelWidthFor(*ampEnv.amtRow, modColumnWidth),
             modulationForcedLabelWidthFor(*lfo1.rateRow, modColumnWidth),
             modulationForcedLabelWidthFor(*lfo1.divisionRow, modColumnWidth),
+            modulationForcedLabelWidthFor(*aftertouchAmountRow, modColumnWidth),
             modulationForcedLabelWidthFor(*drift1.rateRow, modColumnWidth),
             modulationForcedLabelWidthFor(*drift1.divisionRow, modColumnWidth)
         });
@@ -1762,6 +1806,7 @@ void SynthPanel::resized()
                  mod2Env.aRow.get(), mod2Env.sRow.get(), mod2Env.amtRow.get(),
                  lfo1.rateRow.get(), lfo2.rateRow.get(), lfo3.rateRow.get(),
                  lfo1.divisionRow.get(), lfo2.divisionRow.get(), lfo3.divisionRow.get(),
+                 aftertouchAmountRow.get(),
                  drift1.rateRow.get(), drift2.rateRow.get(), drift3.rateRow.get(),
                  drift1.divisionRow.get(), drift2.divisionRow.get(), drift3.divisionRow.get() })
             row->setForcedLabelWidth(leftLabelWidth);
@@ -1787,6 +1832,7 @@ void SynthPanel::resized()
     layoutLfo(lfo1, area, f, rowH, gap);
     layoutLfo(lfo2, area, f, rowH, gap);
     layoutLfo(lfo3, area, f, rowH, gap);
+    layoutAftertouch(area, f, rowH, gap);
 
     // ── Drift (part of modulation section) ──
     area.removeFromTop(gap);

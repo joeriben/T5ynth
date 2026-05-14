@@ -47,6 +47,10 @@ void VoiceManager::prepare(double sampleRate, int samplesPerBlock)
         scratch.resize(static_cast<size_t>(samplesPerBlock));
     voicePan.fill(0.0f);
     voiceSourceId.fill(-1);
+    sustainedVoice.fill(false);
+    polyPressureByNote.fill(0.0f);
+    channelPressure = 0.0f;
+    sustainPedalDown = false;
     currentGain = 1.0f;
     targetGain = 1.0f;
     gainRampSamplesLeft = 0;
@@ -67,6 +71,10 @@ void VoiceManager::reset()
     droneNote = -1;
     voicePan.fill(0.0f);
     voiceSourceId.fill(-1);
+    sustainedVoice.fill(false);
+    polyPressureByNote.fill(0.0f);
+    channelPressure = 0.0f;
+    sustainPedalDown = false;
 }
 
 void VoiceManager::setBlockParams(const BlockParams& bp)
@@ -101,6 +109,8 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
         {
             voiceSourceId[0] = sourceId;
             voicePan[0] = pan;
+            sustainedVoice[0] = false;
+            v.setAftertouch(pressureForNote(note));
             // Glide pitch without retriggering envelopes
             // (If voice is releasing, re-hold it so it stays alive during glide)
             if (v.isReleasing())
@@ -113,6 +123,8 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
         }
         if (v.isActive())
             v.beginRestartFade();
+        sustainedVoice[0] = false;
+        v.setAftertouch(pressureForNote(note));
         if (v.getEngineMode() == SynthVoice::EngineMode::Sampler && currentSamplerMaster_ != nullptr)
         {
             v.getSampler().shareBufferFrom(*currentSamplerMaster_);
@@ -182,6 +194,8 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
 
     if (v.isActive())
         v.beginRestartFade();
+    sustainedVoice[static_cast<size_t>(idx)] = false;
+    v.setAftertouch(pressureForNote(note));
 
     if (v.getEngineMode() == SynthVoice::EngineMode::Sampler && currentSamplerMaster_ != nullptr)
     {
@@ -238,7 +252,13 @@ void VoiceManager::noteOff(int note, int sourceId)
         {
             if (hasCurrentBlockParams_)
                 v.configureForBlock(currentBlockParams_);
+            if (sustainPedalDown && sourceId < 0)
+            {
+                sustainedVoice[static_cast<size_t>(i)] = true;
+                continue;
+            }
             v.noteOff();
+            sustainedVoice[static_cast<size_t>(i)] = false;
         }
     }
     // Update gain: held voice count decreased (releasing voices don't count).
@@ -255,6 +275,55 @@ void VoiceManager::allNotesOff()
     // Panic also ends a drone hold (DAW reset / host-driven silence).
     droneVoiceIndex = -1;
     droneNote = -1;
+    sustainedVoice.fill(false);
+    resetPerformanceControllers();
+}
+
+void VoiceManager::setSustainPedal(bool down)
+{
+    if (sustainPedalDown == down)
+        return;
+
+    sustainPedalDown = down;
+    if (!sustainPedalDown)
+        releaseSustainedVoices();
+}
+
+void VoiceManager::setChannelPressure(float pressure)
+{
+    channelPressure = juce::jlimit(0.0f, 1.0f, pressure);
+    for (auto& v : voices)
+        if (v.isActive())
+            v.setAftertouch(pressureForNote(v.getCurrentNote()));
+}
+
+void VoiceManager::setPolyPressure(int note, float pressure, int sourceId)
+{
+    note = juce::jlimit(0, 127, note);
+    sourceId = sourceId >= 0 ? juce::jlimit(0, 15, sourceId) : -1;
+    polyPressureByNote[static_cast<size_t>(note)] = juce::jlimit(0.0f, 1.0f, pressure);
+
+    for (int i = 0; i < MAX_VOICES; ++i)
+    {
+        auto& v = voices[static_cast<size_t>(i)];
+        const bool sourceMatches = sourceId < 0
+                                || voiceSourceId[static_cast<size_t>(i)] == sourceId;
+        if (v.isActive() && v.getCurrentNote() == note && sourceMatches)
+            v.setAftertouch(pressureForNote(note));
+    }
+}
+
+void VoiceManager::resetPerformanceControllers()
+{
+    if (sustainPedalDown)
+        releaseSustainedVoices();
+    sustainPedalDown = false;
+    sustainedVoice.fill(false);
+    channelPressure = 0.0f;
+    polyPressureByNote.fill(0.0f);
+    for (auto& v : voices)
+        if (v.isActive())
+            v.setAftertouch(0.0f);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -317,6 +386,7 @@ VoiceManager::VoiceOutput VoiceManager::renderBlock(
         {
             voiceSourceId[static_cast<size_t>(vi)] = -1;
             voicePan[static_cast<size_t>(vi)] = 0.0f;
+            sustainedVoice[static_cast<size_t>(vi)] = false;
             anyBecameInactive = true;
         }
 
@@ -342,7 +412,8 @@ VoiceManager::VoiceOutput VoiceManager::renderBlock(
             const float sample = voiceScratch[static_cast<size_t>(vi)][static_cast<size_t>(i)];
             monoSum += sample;
 
-            if (voiceSourceId[static_cast<size_t>(vi)] < 0)
+            if (voiceSourceId[static_cast<size_t>(vi)] < 0
+                || voiceSourceId[static_cast<size_t>(vi)] > 3)
             {
                 leftSum += sample;
                 rightSum += sample;
@@ -550,6 +621,28 @@ int VoiceManager::getHeldVoiceCount() const
     return count;
 }
 
+void VoiceManager::releaseSustainedVoices()
+{
+    for (int i = 0; i < MAX_VOICES; ++i)
+    {
+        auto& v = voices[static_cast<size_t>(i)];
+        if (sustainedVoice[static_cast<size_t>(i)] && v.isActive() && !v.isReleasing())
+        {
+            if (hasCurrentBlockParams_)
+                v.configureForBlock(currentBlockParams_);
+            v.noteOff();
+        }
+        sustainedVoice[static_cast<size_t>(i)] = false;
+    }
+    updateGainTarget();
+}
+
+float VoiceManager::pressureForNote(int note) const
+{
+    note = juce::jlimit(0, 127, note);
+    return juce::jmax(channelPressure, polyPressureByNote[static_cast<size_t>(note)]);
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Drone (step-hold) handling
 // ═══════════════════════════════════════════════════════════════════
@@ -583,6 +676,8 @@ void VoiceManager::setDroneNote(int note, float velocity, bool lfo1TrigMode, boo
             v.configureForBlock(currentBlockParams_);
         if (v.isActive())
             v.beginRestartFade();
+        sustainedVoice[static_cast<size_t>(idx)] = false;
+        v.setAftertouch(pressureForNote(note));
         if (v.getEngineMode() == SynthVoice::EngineMode::Sampler && currentSamplerMaster_ != nullptr)
             v.getSampler().shareBufferFrom(*currentSamplerMaster_);
         if (v.getEngineMode() == SynthVoice::EngineMode::Wavetable && currentWavetableMaster_ != nullptr)
@@ -611,6 +706,7 @@ void VoiceManager::setDroneNote(int note, float velocity, bool lfo1TrigMode, boo
         v.setTuningTable(tuningHz_);
         if (hasCurrentBlockParams_)
             v.configureForBlock(currentBlockParams_);
+        v.setAftertouch(pressureForNote(note));
         v.glideToNote(note, 15.0f);  // short glide keeps mouse-drag scrubs click-free
     }
 

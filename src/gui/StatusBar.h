@@ -24,6 +24,8 @@ public:
     std::function<void()> onExportWav;
     std::function<void()> onSettings;
     std::function<void()> onManual;
+    std::function<void(bool)> onKeyboardInputChanged;
+    void setKeyboardInputEnabled(bool enabled);
     /** Right-clicking the displayed preset name opens this menu — kept as
      *  a callback so MainPanel can populate it with rename/delete/etc. */
     std::function<void(juce::Point<int> screenPos)> onPresetNameContextMenu;
@@ -42,6 +44,7 @@ private:
     juce::TextButton exportBtn { "Export" };
     juce::TextButton settingsBtn { "Settings" };
     juce::TextButton manualBtn { "Manual" };
+    juce::TextButton keyboardBtn { "Kbd" };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StatusBar)
 };

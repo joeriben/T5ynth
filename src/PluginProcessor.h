@@ -154,6 +154,9 @@ public:
     void beginStepHoldPreview(int midiNote, float velocity = 0.8f);
     void updateStepHoldPreview(int midiNote, float velocity = 0.8f);
     void endStepHoldPreview();
+    void beginComputerKeyboardNote(int midiNote, float velocity = 0.8f);
+    void endComputerKeyboardNote(int midiNote);
+    void allComputerKeyboardNotesOff();
 
     // Waveform display data
     bool hasNewWaveform() const { return newWaveformReady.load(std::memory_order_acquire); }
