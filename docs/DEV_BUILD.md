@@ -395,9 +395,9 @@ Windows (PowerShell):
 .\build_clean\T5ynth_artefacts\Release\Standalone\T5ynth.exe
 ```
 
-On first launch with no model installed, T5ynth opens to a state where
-generation will fail. Click the *Settings* button in the status bar to walk
-through the per-model install flow described in
+On first launch with no model installed, T5ynth opens in its clean Init
+state; generation will fail until a model is installed. Click the *Settings*
+button in the status bar to walk through the per-model install flow described in
 `docs/handover_distribution_session.md` and the in-app *About* dialog.
 
 ---

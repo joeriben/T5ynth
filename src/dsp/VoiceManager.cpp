@@ -24,6 +24,7 @@ const char* engineModeName(SynthVoice::EngineMode mode)
     {
         case SynthVoice::EngineMode::Sampler:   return "Sampler";
         case SynthVoice::EngineMode::Wavetable: return "Wavetable";
+        case SynthVoice::EngineMode::Freeze:    return "Freeze";
     }
     return "?";
 }
@@ -45,12 +46,23 @@ void VoiceManager::prepare(double sampleRate, int samplesPerBlock)
         v.prepare(sampleRate, samplesPerBlock);
     for (auto& scratch : voiceScratch)
         scratch.resize(static_cast<size_t>(samplesPerBlock));
+    for (auto& scratch : voiceScratchRight)
+        scratch.resize(static_cast<size_t>(samplesPerBlock));
     voicePan.fill(0.0f);
     voiceSourceId.fill(-1);
     sustainedVoice.fill(false);
+    sostenutoVoice.fill(false);
+    sostenutoReleasedVoice.fill(false);
     polyPressureByNote.fill(0.0f);
     channelPressure = 0.0f;
+    modWheelPressure = 0.0f;
+    breathPressure = 0.0f;
+    expressionGain = 1.0f;
+    channelVolumeGain = 1.0f;
+    pitchBendSemitones = 0.0f;
     sustainPedalDown = false;
+    sostenutoPedalDown = false;
+    softPedalDown = false;
     currentGain = 1.0f;
     targetGain = 1.0f;
     gainRampSamplesLeft = 0;
@@ -66,15 +78,25 @@ void VoiceManager::reset()
     gainRampSamplesLeft = 0;
     currentSamplerMaster_ = nullptr;
     currentWavetableMaster_ = nullptr;
+    currentFreezeMaster_ = nullptr;
     hasCurrentBlockParams_ = false;
     droneVoiceIndex = -1;
     droneNote = -1;
     voicePan.fill(0.0f);
     voiceSourceId.fill(-1);
     sustainedVoice.fill(false);
+    sostenutoVoice.fill(false);
+    sostenutoReleasedVoice.fill(false);
     polyPressureByNote.fill(0.0f);
     channelPressure = 0.0f;
+    modWheelPressure = 0.0f;
+    breathPressure = 0.0f;
+    expressionGain = 1.0f;
+    channelVolumeGain = 1.0f;
+    pitchBendSemitones = 0.0f;
     sustainPedalDown = false;
+    sostenutoPedalDown = false;
+    softPedalDown = false;
 }
 
 void VoiceManager::setBlockParams(const BlockParams& bp)
@@ -103,13 +125,15 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
         auto& v = voices[0];
         v.setTuningTable(tuningHz_);
         if (hasCurrentBlockParams_)
-            v.configureForBlock(currentBlockParams_);
+            v.configureForBlock(applyPerformanceControllers(currentBlockParams_));
         bool legato = v.isActive() && !v.isReleasing();
         if (legato || (isBind && v.isActive()))
         {
             voiceSourceId[0] = sourceId;
             voicePan[0] = pan;
             sustainedVoice[0] = false;
+            sostenutoVoice[0] = false;
+            sostenutoReleasedVoice[0] = false;
             v.setAftertouch(pressureForNote(note));
             // Glide pitch without retriggering envelopes
             // (If voice is releasing, re-hold it so it stays alive during glide)
@@ -124,6 +148,8 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
         if (v.isActive())
             v.beginRestartFade();
         sustainedVoice[0] = false;
+        sostenutoVoice[0] = false;
+        sostenutoReleasedVoice[0] = false;
         v.setAftertouch(pressureForNote(note));
         if (v.getEngineMode() == SynthVoice::EngineMode::Sampler && currentSamplerMaster_ != nullptr)
         {
@@ -133,6 +159,8 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
         }
         if (v.getEngineMode() == SynthVoice::EngineMode::Wavetable && currentWavetableMaster_ != nullptr)
             v.getOsc().shareFramesFrom(*currentWavetableMaster_);
+        if (v.getEngineMode() == SynthVoice::EngineMode::Freeze && currentFreezeMaster_ != nullptr)
+            v.getFreezeEngine().shareBufferFrom(*currentFreezeMaster_);
         v.noteOn(note, velocity, false);
         voiceSourceId[0] = sourceId;
         voicePan[0] = pan;
@@ -190,11 +218,13 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
     auto& v = voices[static_cast<size_t>(idx)];
     v.setTuningTable(tuningHz_);
     if (hasCurrentBlockParams_)
-        v.configureForBlock(currentBlockParams_);
+        v.configureForBlock(applyPerformanceControllers(currentBlockParams_));
 
     if (v.isActive())
         v.beginRestartFade();
     sustainedVoice[static_cast<size_t>(idx)] = false;
+    sostenutoVoice[static_cast<size_t>(idx)] = false;
+    sostenutoReleasedVoice[static_cast<size_t>(idx)] = false;
     v.setAftertouch(pressureForNote(note));
 
     if (v.getEngineMode() == SynthVoice::EngineMode::Sampler && currentSamplerMaster_ != nullptr)
@@ -206,6 +236,8 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
     }
     if (v.getEngineMode() == SynthVoice::EngineMode::Wavetable && currentWavetableMaster_ != nullptr)
         v.getOsc().shareFramesFrom(*currentWavetableMaster_);
+    if (v.getEngineMode() == SynthVoice::EngineMode::Freeze && currentFreezeMaster_ != nullptr)
+        v.getFreezeEngine().shareBufferFrom(*currentFreezeMaster_);
     v.noteOn(note, velocity, false);
     voiceSourceId[static_cast<size_t>(idx)] = sourceId;
     voicePan[static_cast<size_t>(idx)] = pan;
@@ -251,14 +283,24 @@ void VoiceManager::noteOff(int note, int sourceId)
         if (v.isActive() && !v.isReleasing() && v.getCurrentNote() == note && sourceMatches)
         {
             if (hasCurrentBlockParams_)
-                v.configureForBlock(currentBlockParams_);
-            if (sustainPedalDown && sourceId < 0)
+                v.configureForBlock(applyPerformanceControllers(currentBlockParams_));
+            const bool heldBySostenuto = sourceId < 0
+                                      && sostenutoPedalDown
+                                      && sostenutoVoice[static_cast<size_t>(i)];
+            if (heldBySostenuto)
+                sostenutoReleasedVoice[static_cast<size_t>(i)] = true;
+
+            if (sourceId < 0 && sustainPedalDown)
             {
                 sustainedVoice[static_cast<size_t>(i)] = true;
                 continue;
             }
+            if (heldBySostenuto)
+                continue;
             v.noteOff();
             sustainedVoice[static_cast<size_t>(i)] = false;
+            sostenutoVoice[static_cast<size_t>(i)] = false;
+            sostenutoReleasedVoice[static_cast<size_t>(i)] = false;
         }
     }
     // Update gain: held voice count decreased (releasing voices don't count).
@@ -276,6 +318,8 @@ void VoiceManager::allNotesOff()
     droneVoiceIndex = -1;
     droneNote = -1;
     sustainedVoice.fill(false);
+    sostenutoVoice.fill(false);
+    sostenutoReleasedVoice.fill(false);
     resetPerformanceControllers();
 }
 
@@ -289,12 +333,64 @@ void VoiceManager::setSustainPedal(bool down)
         releaseSustainedVoices();
 }
 
+void VoiceManager::setSostenutoPedal(bool down)
+{
+    if (sostenutoPedalDown == down)
+        return;
+
+    sostenutoPedalDown = down;
+    if (sostenutoPedalDown)
+    {
+        for (int i = 0; i < MAX_VOICES; ++i)
+        {
+            auto& v = voices[static_cast<size_t>(i)];
+            const bool manualVoice = voiceSourceId[static_cast<size_t>(i)] < 0;
+            sostenutoVoice[static_cast<size_t>(i)] = manualVoice && v.isActive() && !v.isReleasing();
+            sostenutoReleasedVoice[static_cast<size_t>(i)] = false;
+        }
+    }
+    else
+    {
+        releaseSostenutoVoices();
+    }
+}
+
+void VoiceManager::setSoftPedal(bool down)
+{
+    softPedalDown = down;
+}
+
+void VoiceManager::setPitchBendSemitones(float semitones)
+{
+    pitchBendSemitones = juce::jlimit(-24.0f, 24.0f, semitones);
+}
+
+void VoiceManager::setModWheel(float value)
+{
+    modWheelPressure = juce::jlimit(0.0f, 1.0f, value);
+    refreshPerformancePressure();
+}
+
+void VoiceManager::setBreathController(float value)
+{
+    breathPressure = juce::jlimit(0.0f, 1.0f, value);
+    refreshPerformancePressure();
+}
+
+void VoiceManager::setExpression(float value)
+{
+    expressionGain = juce::jlimit(0.0f, 1.0f, value);
+}
+
+void VoiceManager::setChannelVolume(float value)
+{
+    channelVolumeGain = juce::jlimit(0.0f, 1.0f, value);
+}
+
 void VoiceManager::setChannelPressure(float pressure)
 {
     channelPressure = juce::jlimit(0.0f, 1.0f, pressure);
-    for (auto& v : voices)
-        if (v.isActive())
-            v.setAftertouch(pressureForNote(v.getCurrentNote()));
+    refreshPerformancePressure();
 }
 
 void VoiceManager::setPolyPressure(int note, float pressure, int sourceId)
@@ -317,9 +413,20 @@ void VoiceManager::resetPerformanceControllers()
 {
     if (sustainPedalDown)
         releaseSustainedVoices();
+    if (sostenutoPedalDown)
+        releaseSostenutoVoices();
     sustainPedalDown = false;
+    sostenutoPedalDown = false;
+    softPedalDown = false;
     sustainedVoice.fill(false);
+    sostenutoVoice.fill(false);
+    sostenutoReleasedVoice.fill(false);
     channelPressure = 0.0f;
+    modWheelPressure = 0.0f;
+    breathPressure = 0.0f;
+    expressionGain = 1.0f;
+    channelVolumeGain = 1.0f;
+    pitchBendSemitones = 0.0f;
     polyPressureByNote.fill(0.0f);
     for (auto& v : voices)
         if (v.isActive())
@@ -347,11 +454,12 @@ VoiceManager::VoiceOutput VoiceManager::renderBlock(
     const int numChannels = buffer.getNumChannels();
 
     // Pass tuning table and configure all active voices once per block
+    const BlockParams performanceParams = applyPerformanceControllers(bp);
     for (auto& v : voices)
     {
         v.setTuningTable(tuningHz_);
         if (v.isActive())
-            v.configureForBlock(bp);
+            v.configureForBlock(performanceParams);
     }
 
     // Track which voice was triggered most recently (for pitch mod / DCF)
@@ -380,13 +488,16 @@ VoiceManager::VoiceOutput VoiceManager::renderBlock(
 
         // Use sub-block renderBlock for active voices
         float* scratch = voiceScratch[static_cast<size_t>(vi)].data();
-        v.renderBlock(scratch, bp, lfo1Buf, lfo2Buf, lfo3Buf, numSamples);
+        float* scratchRight = voiceScratchRight[static_cast<size_t>(vi)].data();
+        v.renderBlock(scratch, scratchRight, performanceParams, lfo1Buf, lfo2Buf, lfo3Buf, numSamples);
 
         if (!v.isActive())
         {
             voiceSourceId[static_cast<size_t>(vi)] = -1;
             voicePan[static_cast<size_t>(vi)] = 0.0f;
             sustainedVoice[static_cast<size_t>(vi)] = false;
+            sostenutoVoice[static_cast<size_t>(vi)] = false;
+            sostenutoReleasedVoice[static_cast<size_t>(vi)] = false;
             anyBecameInactive = true;
         }
 
@@ -409,28 +520,31 @@ VoiceManager::VoiceOutput VoiceManager::renderBlock(
         for (int a = 0; a < activeCount; ++a)
         {
             const int vi = activeIndices[a];
-            const float sample = voiceScratch[static_cast<size_t>(vi)][static_cast<size_t>(i)];
-            monoSum += sample;
+            const float sampleLeft = voiceScratch[static_cast<size_t>(vi)][static_cast<size_t>(i)];
+            const float sampleRight = voiceScratchRight[static_cast<size_t>(vi)][static_cast<size_t>(i)];
+            const float sampleMono = 0.5f * (sampleLeft + sampleRight);
+            monoSum += sampleMono;
 
             if (voiceSourceId[static_cast<size_t>(vi)] < 0
                 || voiceSourceId[static_cast<size_t>(vi)] > 3)
             {
-                leftSum += sample;
-                rightSum += sample;
+                leftSum += sampleLeft;
+                rightSum += sampleRight;
             }
             else
             {
                 float leftGain = 1.0f;
                 float rightGain = 1.0f;
                 equalPowerPan(voicePan[static_cast<size_t>(vi)], leftGain, rightGain);
-                leftSum  += sample * leftGain;
-                rightSum += sample * rightGain;
+                leftSum  += sampleMono * leftGain;
+                rightSum += sampleMono * rightGain;
             }
         }
 
-        monoSum *= currentGain;
-        leftSum *= currentGain;
-        rightSum *= currentGain;
+        const float outputGain = currentGain * performanceOutputGain();
+        monoSum *= outputGain;
+        leftSum *= outputGain;
+        rightSum *= outputGain;
 
         if (numChannels <= 1)
         {
@@ -517,6 +631,20 @@ void VoiceManager::distributeWavetableFrames(const WavetableOscillator& masterOs
             v.getOsc().morphToFramesFrom(masterOsc);
         else
             v.getOsc().shareFramesFrom(masterOsc);
+    }
+}
+
+void VoiceManager::distributeFreezeBuffer(const FreezeTextureEngine& masterFreeze)
+{
+    currentFreezeMaster_ = &masterFreeze;
+    for (auto& v : voices)
+    {
+        if (v.isActive()
+            && v.getEngineMode() == SynthVoice::EngineMode::Freeze
+            && v.getFreezeEngine().hasAudio())
+            continue;
+
+        v.getFreezeEngine().shareBufferFrom(masterFreeze);
     }
 }
 
@@ -629,18 +757,64 @@ void VoiceManager::releaseSustainedVoices()
         if (sustainedVoice[static_cast<size_t>(i)] && v.isActive() && !v.isReleasing())
         {
             if (hasCurrentBlockParams_)
-                v.configureForBlock(currentBlockParams_);
-            v.noteOff();
+                v.configureForBlock(applyPerformanceControllers(currentBlockParams_));
+            if (sostenutoPedalDown && sostenutoVoice[static_cast<size_t>(i)])
+                sostenutoReleasedVoice[static_cast<size_t>(i)] = true;
+            else
+                v.noteOff();
         }
         sustainedVoice[static_cast<size_t>(i)] = false;
     }
     updateGainTarget();
 }
 
+void VoiceManager::releaseSostenutoVoices()
+{
+    for (int i = 0; i < MAX_VOICES; ++i)
+    {
+        auto& v = voices[static_cast<size_t>(i)];
+        if (sostenutoVoice[static_cast<size_t>(i)]
+            && sostenutoReleasedVoice[static_cast<size_t>(i)]
+            && v.isActive()
+            && !v.isReleasing())
+        {
+            if (hasCurrentBlockParams_)
+                v.configureForBlock(applyPerformanceControllers(currentBlockParams_));
+            v.noteOff();
+        }
+        sostenutoVoice[static_cast<size_t>(i)] = false;
+        sostenutoReleasedVoice[static_cast<size_t>(i)] = false;
+    }
+    updateGainTarget();
+}
+
+void VoiceManager::refreshPerformancePressure()
+{
+    for (auto& v : voices)
+        if (v.isActive())
+            v.setAftertouch(pressureForNote(v.getCurrentNote()));
+}
+
 float VoiceManager::pressureForNote(int note) const
 {
     note = juce::jlimit(0, 127, note);
-    return juce::jmax(channelPressure, polyPressureByNote[static_cast<size_t>(note)]);
+    return juce::jmax(juce::jmax(channelPressure, modWheelPressure),
+                      juce::jmax(breathPressure, polyPressureByNote[static_cast<size_t>(note)]));
+}
+
+float VoiceManager::performanceOutputGain() const
+{
+    const float softGain = softPedalDown ? 0.65f : 1.0f;
+    return juce::jlimit(0.0f, 1.0f, channelVolumeGain * expressionGain * softGain);
+}
+
+BlockParams VoiceManager::applyPerformanceControllers(const BlockParams& bp) const
+{
+    auto out = bp;
+    out.performancePitchRatio = std::pow(2.0f, pitchBendSemitones / 12.0f);
+    if (softPedalDown)
+        out.baseCutoff *= 0.72f;
+    return out;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -673,15 +847,19 @@ void VoiceManager::setDroneNote(int note, float velocity, bool lfo1TrigMode, boo
         auto& v = voices[static_cast<size_t>(idx)];
         v.setTuningTable(tuningHz_);
         if (hasCurrentBlockParams_)
-            v.configureForBlock(currentBlockParams_);
+            v.configureForBlock(applyPerformanceControllers(currentBlockParams_));
         if (v.isActive())
             v.beginRestartFade();
         sustainedVoice[static_cast<size_t>(idx)] = false;
+        sostenutoVoice[static_cast<size_t>(idx)] = false;
+        sostenutoReleasedVoice[static_cast<size_t>(idx)] = false;
         v.setAftertouch(pressureForNote(note));
         if (v.getEngineMode() == SynthVoice::EngineMode::Sampler && currentSamplerMaster_ != nullptr)
             v.getSampler().shareBufferFrom(*currentSamplerMaster_);
         if (v.getEngineMode() == SynthVoice::EngineMode::Wavetable && currentWavetableMaster_ != nullptr)
             v.getOsc().shareFramesFrom(*currentWavetableMaster_);
+        if (v.getEngineMode() == SynthVoice::EngineMode::Freeze && currentFreezeMaster_ != nullptr)
+            v.getFreezeEngine().shareBufferFrom(*currentFreezeMaster_);
 
         v.noteOn(note, velocity, false);
         voiceSourceId[static_cast<size_t>(idx)] = -1;
@@ -705,7 +883,7 @@ void VoiceManager::setDroneNote(int note, float velocity, bool lfo1TrigMode, boo
         auto& v = voices[static_cast<size_t>(droneVoiceIndex)];
         v.setTuningTable(tuningHz_);
         if (hasCurrentBlockParams_)
-            v.configureForBlock(currentBlockParams_);
+            v.configureForBlock(applyPerformanceControllers(currentBlockParams_));
         v.setAftertouch(pressureForNote(note));
         v.glideToNote(note, 15.0f);  // short glide keeps mouse-drag scrubs click-free
     }

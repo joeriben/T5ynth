@@ -29,6 +29,13 @@ public:
     void noteOff(int note, int sourceId = -1);
     void allNotesOff();
     void setSustainPedal(bool down);
+    void setSostenutoPedal(bool down);
+    void setSoftPedal(bool down);
+    void setPitchBendSemitones(float semitones);
+    void setModWheel(float value);
+    void setBreathController(float value);
+    void setExpression(float value);
+    void setChannelVolume(float value);
     void setChannelPressure(float pressure);
     void setPolyPressure(int note, float pressure, int sourceId = -1);
     void resetPerformanceControllers();
@@ -68,6 +75,7 @@ public:
     void freezeActiveSamplerVoices();
     void distributeSamplerBuffer(const SamplePlayer& master);
     void distributeWavetableFrames(const WavetableOscillator& masterOsc);
+    void distributeFreezeBuffer(const FreezeTextureEngine& masterFreeze);
 
     // ── Query ──
     int getActiveVoiceCount() const;
@@ -102,6 +110,7 @@ private:
     const float* tuningHz_ = nullptr;
     const SamplePlayer* currentSamplerMaster_ = nullptr;
     const WavetableOscillator* currentWavetableMaster_ = nullptr;
+    const FreezeTextureEngine* currentFreezeMaster_ = nullptr;
     BlockParams currentBlockParams_;
     bool hasCurrentBlockParams_ = false;
 
@@ -111,12 +120,22 @@ private:
 
     // Pre-allocated per-voice scratch buffers
     std::array<std::vector<float>, MAX_VOICES> voiceScratch;
+    std::array<std::vector<float>, MAX_VOICES> voiceScratchRight;
     std::array<float, MAX_VOICES> voicePan {};
     std::array<int, MAX_VOICES> voiceSourceId {};
     std::array<bool, MAX_VOICES> sustainedVoice {};
+    std::array<bool, MAX_VOICES> sostenutoVoice {};
+    std::array<bool, MAX_VOICES> sostenutoReleasedVoice {};
     std::array<float, 128> polyPressureByNote {};
     float channelPressure = 0.0f;
+    float modWheelPressure = 0.0f;
+    float breathPressure = 0.0f;
+    float expressionGain = 1.0f;
+    float channelVolumeGain = 1.0f;
+    float pitchBendSemitones = 0.0f;
     bool sustainPedalDown = false;
+    bool sostenutoPedalDown = false;
+    bool softPedalDown = false;
 
     // ── Voice allocation ──
     int findVoiceForNote(int note, int sourceId = -1) const;
@@ -126,6 +145,10 @@ private:
     void updateGainTarget();
     int getHeldVoiceCount() const;
     void releaseSustainedVoices();
+    void releaseSostenutoVoices();
+    void refreshPerformancePressure();
     float pressureForNote(int note) const;
+    float performanceOutputGain() const;
+    BlockParams applyPerformanceControllers(const BlockParams& bp) const;
     static constexpr float GAIN_RAMP_MS = 5.0f;
 };

@@ -1,6 +1,7 @@
 #pragma once
 #include "WavetableOscillator.h"
 #include "SamplePlayer.h"
+#include "FreezeTextureEngine.h"
 #include "ADSREnvelope.h"
 #include "LFO.h"
 #include "StateVariableFilter.h"
@@ -51,8 +52,8 @@ public:
     RenderResult renderSample(const BlockParams& p, float globalLfo1Val, float globalLfo2Val, float globalLfo3Val);
 
     /** Block-based rendering with sub-block filter coefficient updates.
-     *  Writes numSamples mono samples into output. */
-    void renderBlock(float* output, const BlockParams& p,
+     *  Writes numSamples into output; outputRight receives Freeze stereo when provided. */
+    void renderBlock(float* output, float* outputRight, const BlockParams& p,
                      const float* lfo1Buf, const float* lfo2Buf, const float* lfo3Buf, int numSamples);
 
     static constexpr int SUB_BLOCK_SIZE = 32;
@@ -74,13 +75,14 @@ public:
     void setTuningTable(const float* table) { tuningHz_ = table; }
 
     // ── Engine mode ──
-    enum class EngineMode { Sampler, Wavetable };
+    enum class EngineMode { Sampler, Wavetable, Freeze };
     void setEngineMode(EngineMode mode) { engineMode = mode; }
     EngineMode getEngineMode() const { return engineMode; }
 
     // ── Access to sub-components ──
     WavetableOscillator& getOsc() { return osc; }
     SamplePlayer& getSampler() { return sampler; }
+    FreezeTextureEngine& getFreezeEngine() { return freezeEngine; }
     ADSREnvelope& getAmpEnvelope() { return ampEnv; }
     ADSREnvelope& getModEnvelope1() { return modEnv1; }
     ADSREnvelope& getModEnvelope2() { return modEnv2; }
@@ -95,6 +97,7 @@ public:
 private:
     WavetableOscillator osc;
     SamplePlayer sampler;
+    FreezeTextureEngine freezeEngine;
     ADSREnvelope ampEnv;
     ADSREnvelope modEnv1;
     ADSREnvelope modEnv2;

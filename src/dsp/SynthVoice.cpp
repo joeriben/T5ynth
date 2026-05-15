@@ -61,6 +61,7 @@ void SynthVoice::prepare(double sampleRate, int samplesPerBlock)
     samplerBlockBuf_.resize(static_cast<size_t>(samplesPerBlock));
     osc.prepare(sampleRate, samplesPerBlock);
     sampler.prepare(sampleRate, samplesPerBlock);
+    freezeEngine.prepare(sampleRate, samplesPerBlock);
     noise.prepare(sampleRate);
     ampEnv.prepare(sampleRate);
     modEnv1.prepare(sampleRate);
@@ -91,6 +92,7 @@ void SynthVoice::reset()
 {
     osc.reset();
     sampler.reset();
+    freezeEngine.reset();
     ampEnv.reset();
     modEnv1.reset();
     modEnv2.reset();
@@ -167,6 +169,13 @@ void SynthVoice::noteOn(int note, float velocity, bool legato)
                      / static_cast<double>(tunedHz(60));
         sampler.setTransposeRatio(ratio);
     }
+    else if (engineMode == EngineMode::Freeze)
+    {
+        double ratio = static_cast<double>(tunedHz(shiftedNote))
+                     / static_cast<double>(tunedHz(60));
+        freezeEngine.setTransposeRatio(ratio);
+        freezeEngine.retrigger();
+    }
 }
 
 void SynthVoice::noteOff()
@@ -187,6 +196,12 @@ void SynthVoice::glideToNote(int note, float glideMs)
         double ratio = static_cast<double>(tunedHz(shiftedNote))
                      / static_cast<double>(tunedHz(60));
         sampler.glideToRatio(ratio, glideMs);
+    }
+    else if (engineMode == EngineMode::Freeze)
+    {
+        double ratio = static_cast<double>(tunedHz(shiftedNote))
+                     / static_cast<double>(tunedHz(60));
+        freezeEngine.glideToRatio(ratio, glideMs);
     }
     else
     {
@@ -534,7 +549,7 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
     if (p.engineIsWavetable && osc.hasFrames() && !osc.isGliding())
     {
         baseFrequency = tunedHz(currentNote + octaveShift_ * 12);
-        osc.setFrequency(baseFrequency * (1.0f + pitchMod));
+        osc.setFrequency(baseFrequency * p.performancePitchRatio * (1.0f + pitchMod));
     }
 
     // Generate audio sample
@@ -554,7 +569,24 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
         result.modulatedScan = osc.getCurrentScanPosition();
         lastModulatedScan_ = result.modulatedScan;
     }
-    else if (!p.engineIsWavetable && sampler.hasAudio())
+    else if (p.engineIsFreeze && freezeEngine.hasAudio())
+    {
+        freezeEngine.setTextureMode(p.freezeTexture);
+        freezeEngine.setStereoWidth(p.freezeStereo);
+        freezeEngine.setPitchModulation(p.performancePitchRatio
+            * juce::jlimit(0.0625f, 16.0f, 1.0f + pitchMod));
+
+        float scanMod = p.baseScan + p.driftScanOffset;
+        if (p.lfo1Target == LfoTarget::Scan) scanMod += lfo1Val;
+        if (p.lfo2Target == LfoTarget::Scan) scanMod += lfo2Val;
+        if (p.lfo3Target == LfoTarget::Scan) scanMod += lfo3Val;
+        freezeEngine.setPosition(juce::jlimit(0.0f, 1.0f, scanMod));
+
+        sample = freezeEngine.processSample();
+        result.modulatedScan = freezeEngine.getCurrentPosition();
+        lastModulatedScan_ = result.modulatedScan;
+    }
+    else if (!p.engineIsWavetable && !p.engineIsFreeze && sampler.hasAudio())
     {
         sample = sampler.processSample();
     }
@@ -635,12 +667,14 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
     return result;
 }
 
-void SynthVoice::renderBlock(float* output, const BlockParams& p,
+void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParams& p,
                               const float* lfo1Buf, const float* lfo2Buf, const float* lfo3Buf, int numSamples)
 {
     if (!active)
     {
         std::memset(output, 0, sizeof(float) * static_cast<size_t>(numSamples));
+        if (outputRight != nullptr)
+            std::memset(outputRight, 0, sizeof(float) * static_cast<size_t>(numSamples));
         return;
     }
 
@@ -661,7 +695,13 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
     if (p.lfo3TrigMode) { fillPerVoice(perVoiceLfo3, perVoiceLfoBuf3_, p.lfo3Rate, p.lfo3Wave); lfo3Buf = perVoiceLfoBuf3_.data(); }
 
     bool samplerMode = (engineMode == EngineMode::Sampler) && sampler.hasAudio();
-    bool oscReady = !samplerMode && osc.hasFrames();
+    bool freezeMode = (engineMode == EngineMode::Freeze) && freezeEngine.hasAudio();
+    bool oscReady = (engineMode == EngineMode::Wavetable) && osc.hasFrames();
+    if (freezeMode)
+    {
+        freezeEngine.setTextureMode(p.freezeTexture);
+        freezeEngine.setStereoWidth(p.freezeStereo);
+    }
 
     // ── Sampler mode: pre-render pitch-shifted block via Signalsmith Stretch ──
     if (samplerMode)
@@ -684,7 +724,7 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
         if (p.lfo1Target == LfoTarget::Pitch) pitchMod += lfo1Buf[mid] * lfo1Depth;
         if (p.lfo2Target == LfoTarget::Pitch) pitchMod += lfo2Buf[mid] * lfo2Depth;
         if (p.lfo3Target == LfoTarget::Pitch) pitchMod += lfo3Buf[mid] * lfo3Depth;
-        sampler.setPitchModulation(1.0f + pitchMod);
+        sampler.setPitchModulation(p.performancePitchRatio * (1.0f + pitchMod));
 
         sampler.renderPitchedBlock(samplerBlockBuf_.data(), numSamples);
     }
@@ -774,6 +814,7 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
         // drive can be wrapped in oversampling without pulling the filter or
         // VCA up to the oversampled rate.
         float vcaScratch[SUB_BLOCK_SIZE] {};
+        float freezeSideScratch[SUB_BLOCK_SIZE] {};
         int lastI = subBlockEnd;      // exclusive end of the filled range
         bool goingIdle = false;
         for (int i = pos; i < subBlockEnd; ++i)
@@ -805,6 +846,31 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
                 // Sampler: read from pre-rendered pitch-shifted block
                 sample = samplerBlockBuf_[static_cast<size_t>(i)];
             }
+            else if (freezeMode)
+            {
+                float pitchMod = p.driftPitchOffset;
+                if (p.ampTarget == EnvTarget::Pitch) pitchMod += ampEnvVal;
+                if (p.mod1Target == EnvTarget::Pitch) pitchMod += mod1EnvVal;
+                if (p.mod2Target == EnvTarget::Pitch) pitchMod += mod2EnvVal;
+                if (p.lfo1Target == LfoTarget::Pitch) pitchMod += lfo1Val;
+                if (p.lfo2Target == LfoTarget::Pitch) pitchMod += lfo2Val;
+                if (p.lfo3Target == LfoTarget::Pitch) pitchMod += lfo3Val;
+                freezeEngine.setPitchModulation(p.performancePitchRatio
+                    * juce::jlimit(0.0625f, 16.0f, 1.0f + pitchMod));
+
+                float scanMod = p.baseScan + p.driftScanOffset;
+                if (p.lfo1Target == LfoTarget::Scan) scanMod += lfo1Val;
+                if (p.lfo2Target == LfoTarget::Scan) scanMod += lfo2Val;
+                if (p.lfo3Target == LfoTarget::Scan) scanMod += lfo3Val;
+                freezeEngine.setPosition(juce::jlimit(0.0f, 1.0f, scanMod));
+
+                float freezeLeft = 0.0f;
+                float freezeRight = 0.0f;
+                freezeEngine.processSampleStereo(freezeLeft, freezeRight);
+                sample = 0.5f * (freezeLeft + freezeRight);
+                freezeSideScratch[i - pos] = 0.5f * (freezeLeft - freezeRight);
+                lastModulatedScan_ = freezeEngine.getCurrentPosition();
+            }
             else if (oscReady)
             {
                 // Wavetable: per-sample pitch modulation
@@ -819,7 +885,7 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
                 if (!osc.isGliding())
                 {
                     baseFrequency = tunedHz(currentNote + octaveShift_ * 12);
-                    osc.setFrequency(baseFrequency * (1.0f + pitchMod));
+                    osc.setFrequency(baseFrequency * p.performancePitchRatio * (1.0f + pitchMod));
                 }
 
                 float scanBase = p.wtAutoScan ? 0.0f : p.baseScan;
@@ -862,7 +928,11 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
                 active = false;
                 lastI = i + 1;
                 for (int j = lastI; j < numSamples; ++j)
+                {
                     output[j] = 0.0f;
+                    if (outputRight != nullptr)
+                        outputRight[j] = 0.0f;
+                }
                 goingIdle = true;
                 break;
             }
@@ -930,9 +1000,20 @@ void SynthVoice::renderBlock(float* output, const BlockParams& p,
         // ── Phase D: per-sample VCA ──
         for (int i = pos; i < lastI; ++i)
         {
-            output[i] *= vcaScratch[i - pos];
-            output[i] = applyRestartFade(output[i]);
-            lastOutputSample_ = output[i];
+            const float vca = vcaScratch[i - pos];
+            const float mid = applyRestartFade(output[i] * vca);
+            lastOutputSample_ = mid;
+
+            if (outputRight != nullptr)
+            {
+                const float side = freezeSideScratch[i - pos] * vca;
+                output[i] = mid + side;
+                outputRight[i] = mid - side;
+            }
+            else
+            {
+                output[i] = mid;
+            }
         }
 
         if (goingIdle)

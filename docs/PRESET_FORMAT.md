@@ -20,9 +20,9 @@ single self-contained preset:
 
 1. **Parameter state** — everything needed to restore the synth DSP
    (envelopes, LFOs, drift, filter, FX, sequencer, arpeggiator,
-   generative sequencer, wavetable/noise, engine mode, loop points).
+   generative sequencer, wavetable/freeze/noise, engine mode, loop points).
 2. **Generated audio** — the raw 44.1 kHz stereo float32 buffer that
-   feeds the sampler / wavetable oscillator. Saving the audio means
+   feeds the sampler, wavetable oscillator, or freeze engine. Saving the audio means
    loading the preset does **not** require re-running text-to-audio
    inference, which is expensive and non-deterministic across devices
    (CPU vs. MPS vs. CUDA).
@@ -163,7 +163,8 @@ then patched at `src/presets/PresetFormat.cpp:18-66`:
 | `driftEnabled`  | export        | Bool. |
 | `driftCrossfade`| export        | Float. |
 | `regenMode`     | export        | `"manual"` / `"auto"` / `"max_1beat"` / `"max_4beats"` / `"max_16beats"`. |
-| `wavetable`     | export        | `scan`, `octaveShift`, `noiseLevel`, `noiseType`, `frames`, `smooth`. |
+| `wavetable`     | export        | `scan`, `octaveShift`, `noiseLevel`, `noiseType`, `frames`, `smooth`, `autoScan`. `scan` also acts as Freeze position when `engine.mode` is `"freeze"`. |
+| `freeze`        | export        | `texture` (`"hold"`, `"silk"`, `"air"`, `"cloud"`) and `stereo` (0.0–1.0 width). |
 | `effects`       | export        | Delay, reverb, limiter. |
 | `filter`        | export        | `enabled`, `type`, `slope`, `cutoff` (normalised 0..1), `resonance`, `mix`, `kbdTrack`. |
 | `sequencer`     | export        | Step sequencer state including scale, steps array, division, glide, gate. |
@@ -579,25 +580,29 @@ steps in order:
 
 ### 9.3 Bundled factory presets
 
-Factory presets are baked into the binary via `juce_add_binary_data`
-in `CMakeLists.txt`:
+Factory presets are stored as `.t5p` files in `resources/presets/`. `CMakeLists.txt`
+globs that folder and bakes the current collection into the binary via
+`juce_add_binary_data`:
 
 ```cmake
+file(GLOB T5YNTH_FACTORY_PRESETS CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/resources/presets/*.t5p"
+)
+
 juce_add_binary_data(T5ynthData SOURCES
     resources/ir/emt_140_plate_bright.wav
     resources/ir/emt_140_plate_medium.wav
     resources/ir/emt_140_plate_dark.wav
-    "resources/presets/Evil Beauty.t5p"
-    "resources/presets/Samba Getdown.t5p"
-    "resources/presets/Talking about aliens.t5p"
+    ${T5YNTH_FACTORY_PRESETS}
     resources/T5ynth_Guide.html
 )
 ```
 
-`MainPanel::ensureBundledPresetsExist` copies these blobs into the user
-preset directory when they are missing. Startup itself does not load a
-factory demo preset; it keeps the APVTS defaults unless the standalone
-session buffer is restored.
+`MainPanel::ensureBundledPresetsExist` walks `BinaryData::namedResourceList`,
+filters `.t5p` original filenames, and copies those blobs into the user preset
+directory when they are missing. Startup itself does not load a factory demo
+preset; if no standalone session buffer is restored, it uses the same clean Init
+state as the status-bar `Init` action.
 
 ---
 

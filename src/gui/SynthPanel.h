@@ -33,6 +33,7 @@ private:
     // ── Engine mode ──
     juce::TextButton samplerBtn { "Sampler" };
     juce::TextButton wavetableBtn { "Wavetable" };
+    juce::TextButton freezeBtn { "Freeze" };
     juce::ComboBox engineModeHidden;
     WaveformDisplay waveformDisplay;
 
@@ -67,6 +68,13 @@ private:
     juce::TextButton smoothToggle { "Smooth" };
     juce::TextButton autoScanToggle { "AutoScan" };
     juce::Label frameCountLabel;
+
+    // ── Freeze controls row ──
+    static constexpr int kNumFreezeTextureBtns = 4;
+    juce::TextButton freezeTextureBtns[kNumFreezeTextureBtns];
+    juce::ComboBox freezeTextureHidden;
+    juce::Rectangle<int> freezeTextureSwitchBounds;
+    std::unique_ptr<SliderRow> freezeStereoRow;
 
     // ── Octave shift ──
     static constexpr int kNumOctBtns = 5;
@@ -198,6 +206,8 @@ private:
     std::unique_ptr<CA> wtFramesA;
     std::unique_ptr<BA> wtSmoothA;
     std::unique_ptr<BA> wtAutoScanA;
+    std::unique_ptr<CA> freezeTextureA;
+    std::unique_ptr<SA> freezeStereoA;
     std::unique_ptr<CA> filterTypeA, filterSlopeA, filterDriveOsA, filterAlgA, filterWarpStyleA;
     std::unique_ptr<SA> filterDriveA;
     std::unique_ptr<CA> driftRegenA;

@@ -349,23 +349,31 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     };
     styleBtn(samplerBtn, true);
     styleBtn(wavetableBtn, false);
+    styleBtn(freezeBtn, false);
     samplerBtn.setConnectedEdges(juce::Button::ConnectedOnRight);
-    wavetableBtn.setConnectedEdges(juce::Button::ConnectedOnLeft);
+    wavetableBtn.setConnectedEdges(juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
+    freezeBtn.setConnectedEdges(juce::Button::ConnectedOnLeft);
     addAndMakeVisible(samplerBtn);
     addAndMakeVisible(wavetableBtn);
+    addAndMakeVisible(freezeBtn);
 
     juce::StringArray engineModeItems;
     for (const auto& e : EngineMode::kEntries) engineModeItems.add(e.label);
     engineModeHidden.addItemList(engineModeItems, 1);
     engineModeHidden.onChange = [this] {
-        bool isSampler = engineModeHidden.getSelectedId() == 1;
+        const int id = engineModeHidden.getSelectedId();
+        bool isSampler = id == 1;
+        bool isWavetable = id == 2;
+        bool isFreeze = id == 3;
         samplerBtn.setToggleState(isSampler, juce::dontSendNotification);
-        wavetableBtn.setToggleState(!isSampler, juce::dontSendNotification);
+        wavetableBtn.setToggleState(isWavetable, juce::dontSendNotification);
+        freezeBtn.setToggleState(isFreeze, juce::dontSendNotification);
         updateVisibility();
         resized();
     };
     samplerBtn.onClick = [this] { engineModeHidden.setSelectedId(1); };
     wavetableBtn.onClick = [this] { engineModeHidden.setSelectedId(2); };
+    freezeBtn.onClick = [this] { engineModeHidden.setSelectedId(3); };
     engineModeA = std::make_unique<CA>(apvts, PID::engineMode, engineModeHidden);
 
     // ── Voice count switchbox ──
@@ -424,12 +432,17 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
 
     // P1 (start position) handle
     waveformDisplay.onStartPosChanged = [this](float pos) {
-        const juce::ScopedLock sl (processorRef.getCallbackLock());
-        processorRef.getSampler().setStartPos(pos);
-        processorRef.getSampler().setPointsLocked(true);
-        waveformDisplay.getLockButton().setLocked(true);
-        if (processorRef.isWavetableMode())
-            pendingWtReextract_ = true;
+        const bool freezeMode = processorRef.isFreezeMode();
+        {
+            const juce::ScopedLock sl (processorRef.getCallbackLock());
+            processorRef.getSampler().setStartPos(pos);
+            processorRef.getSampler().setPointsLocked(true);
+            waveformDisplay.getLockButton().setLocked(true);
+            if (!freezeMode && processorRef.isWavetableMode())
+                pendingWtReextract_ = true;
+        }
+        if (freezeMode)
+            scanRow->getSlider().setValue(static_cast<double>(pos), juce::sendNotificationSync);
     };
 
     waveformDisplay.onMarkerDragFinished = [this]() {
@@ -690,6 +703,40 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     frameCountLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(frameCountLabel);
 
+    // ── Freeze controls: curated texture macro + independent stereo width ──
+    {
+        juce::StringArray textureLabels;
+        for (const auto& e : FreezeTexture::kEntries)
+            textureLabels.add(e.label);
+        freezeTextureHidden.addItemList(textureLabels, 1);
+        freezeTextureHidden.onChange = [this] {
+            const int id = freezeTextureHidden.getSelectedId();
+            for (int i = 0; i < kNumFreezeTextureBtns; ++i)
+            {
+                const bool sel = (i + 1 == id);
+                freezeTextureBtns[i].setToggleState(sel, juce::dontSendNotification);
+                freezeTextureBtns[i].setColour(juce::TextButton::buttonColourId,
+                                                sel ? kAccent : juce::Colours::transparentBlack);
+                freezeTextureBtns[i].setColour(juce::TextButton::textColourOffId,
+                                                sel ? juce::Colour(0xff0e1018) : kDimmer);
+            }
+        };
+        for (int i = 0; i < kNumFreezeTextureBtns; ++i)
+        {
+            freezeTextureBtns[i].setButtonText(textureLabels[i]);
+            freezeTextureBtns[i].setClickingTogglesState(false);
+            freezeTextureBtns[i].onClick = [this, i] { freezeTextureHidden.setSelectedId(i + 1); };
+            addAndMakeVisible(freezeTextureBtns[i]);
+        }
+        freezeTextureA = std::make_unique<CA>(apvts, PID::freezeTexture, freezeTextureHidden);
+        freezeTextureHidden.onChange();
+    }
+
+    freezeStereoRow = std::make_unique<SliderRow>("Stereo", fmtPct);
+    addAndMakeVisible(*freezeStereoRow);
+    freezeStereoA = std::make_unique<SA>(apvts, PID::freezeStereo, freezeStereoRow->getSlider());
+    freezeStereoRow->updateValue();
+
     // ── Section headers — inverted (colored bg, dark text) ──
     auto makeHeader = [this](juce::Label& lbl, const juce::String& text, juce::Colour col) {
         lbl.setText(" " + text, juce::dontSendNotification);
@@ -870,6 +917,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     syncRadioRow(PID::filterSlope,     filterSlopeBtns,   kNumSlopeBtns);
     syncRadioRow(PID::filterAlgorithm, filterAlgBtns,     kNumAlgBtns);
     syncRadioRow(PID::filterDriveOs,   filterDriveOsBtns, kNumDriveOsBtns);
+    syncRadioRow(PID::freezeTexture,   freezeTextureBtns, kNumFreezeTextureBtns);
 
     cutoffRow->updateValue();
     resoRow->updateValue();
@@ -1122,13 +1170,15 @@ void SynthPanel::updateVisibility()
     filterWarpStyleBox.setEnabled(filterOn && warpActive);
     filterWarpStyleLabel.setAlpha(styleAlpha);
 
-    bool isWavetable = engineModeHidden.getSelectedId() == 2;
-    bool isSampler = !isWavetable;
+    const int engineId = engineModeHidden.getSelectedId();
+    bool isWavetable = engineId == 2;
+    bool isFreeze = engineId == 3;
+    bool isSampler = !isWavetable && !isFreeze;
 
     // Shared playback traversal controls
-    oneshotBtn.setVisible(true);
-    loopModeBtn.setVisible(true);
-    pingpongBtn.setVisible(true);
+    oneshotBtn.setVisible(!isFreeze);
+    loopModeBtn.setVisible(!isFreeze);
+    pingpongBtn.setVisible(!isFreeze);
 
     // Sampler-only controls
     crossfadeRow->setVisible(isSampler);
@@ -1136,18 +1186,22 @@ void SynthPanel::updateVisibility()
     normalizeToggle.setVisible(isSampler);
     hfBoostBtn.setVisible(isSampler);
     for (int i = 0; i < kNumOctBtns; ++i)
-        octBtns[i].setVisible(isSampler);
+        octBtns[i].setVisible(isSampler || isFreeze);
 
-    // Wavetable-only controls
-    scanRow->setVisible(isWavetable);
-    scanHint.setVisible(isWavetable);
+    // Scan controls drive Wavetable frame position or Freeze hold position.
+    scanRow->setVisible(isWavetable || isFreeze);
+    scanHint.setVisible(false);
     for (int i = 0; i < kNumFrameBtns; ++i)
         frameBtns[i].setVisible(isWavetable);
     smoothToggle.setVisible(isWavetable);
     autoScanToggle.setVisible(isWavetable);
     frameCountLabel.setVisible(isWavetable);
+    for (int i = 0; i < kNumFreezeTextureBtns; ++i)
+        freezeTextureBtns[i].setVisible(isFreeze);
+    freezeStereoRow->setVisible(isFreeze);
 
-    waveformDisplay.setRegionLabel("Loop interval");
+    waveformDisplay.setRegionLabel(isWavetable ? "Extraction region"
+                                                : (isFreeze ? "Freeze position" : "Loop interval"));
 
     if (isSampler)
     {
@@ -1379,6 +1433,8 @@ void SynthPanel::paint(juce::Graphics& g)
             paintSwitchBoxBorder(g, loopSwitchBounds);
         if (frameBtns[0].isVisible())
             paintSwitchBoxBorder(g, framesSwitchBounds);
+        if (freezeTextureBtns[0].isVisible())
+            paintSwitchBoxBorder(g, freezeTextureSwitchBounds);
         if (octBtns[0].isVisible())
             paintSwitchBoxBorder(g, octaveSwitchBounds);
         if (noiseBtns[0].isVisible())
@@ -1543,10 +1599,11 @@ void SynthPanel::resized()
     // ── Engine mode + Voice count: compact switchboxes ──
     auto modeRow = area.removeFromTop(rowH);
     {
-        int cellW = juce::roundToInt(f * 5.0f);
+        int cellW = juce::roundToInt(f * 4.4f);
         samplerBtn.setBounds(modeRow.removeFromLeft(cellW));
         wavetableBtn.setBounds(modeRow.removeFromLeft(cellW));
-        engineSwitchBounds = samplerBtn.getBounds().getUnion(wavetableBtn.getBounds());
+        freezeBtn.setBounds(modeRow.removeFromLeft(cellW));
+        engineSwitchBounds = samplerBtn.getBounds().getUnion(freezeBtn.getBounds());
 
         modeRow.removeFromLeft(juce::roundToInt(f * 1.5f)); // gap
         int vcW = juce::roundToInt(f * 2.8f);
@@ -1564,8 +1621,13 @@ void SynthPanel::resized()
     // Calculate height needed below: sampler/WT controls + filter + mod + LFO + drift
     // Always reserve same space for engine controls (max of sampler/WT)
     // so waveform height stays stable when switching modes
+    const int engineId = engineModeHidden.getSelectedId();
+    const bool isWavetable = engineId == 2;
+    const bool isFreeze = engineId == 3;
     const int waveformReserveH = juce::roundToInt(WaveformDisplay::HANDLE_RADIUS * 2.0f + 4.0f);
     int samplerCtrlH = waveformReserveH + rowH + gap * 2; // waveform handles + one controls row
+    if (isFreeze)
+        samplerCtrlH += rowH + gap;
     int filterH = headerH + headerGap + rowH + gap + rowH * 2 + gap; // header + type/slope/topology + cutoff/reso + mix/kbd
     int modH = gap * 3 + headerH + headerGap; // section gap + header
     int envH = (rowH * 4 + gap) * 3; // 3 envelopes × (header + 3 slider rows + gap)
@@ -1576,9 +1638,9 @@ void SynthPanel::resized()
     int belowWave = samplerCtrlH + filterH + modH + envH + lfoH + aftertouchH + driftH + regenH + gap * 5;
     int waveH = juce::jmax(0, area.getHeight() - belowWave);
 
-    if (scanRow->isVisible())
+    if (isWavetable || isFreeze)
     {
-        // ── Wavetable: scan dot + brackets on one line below waveform ──
+        // ── Scan-driven engines: dot + brackets on one line below waveform ──
         int scanLineH = waveformReserveH;
         waveformDisplay.setBottomReserve(scanLineH);
         waveformDisplay.setScanVisible(true);
@@ -1589,6 +1651,40 @@ void SynthPanel::resized()
         scanHint.setVisible(false);
 
         area.removeFromTop(gap);
+
+        if (isFreeze)
+        {
+            // ── Freeze: position dot + curated texture controls ──
+            auto textureRow = area.removeFromTop(rowH);
+            const int tCellW = juce::roundToInt(f * 4.4f);
+            for (int i = 0; i < kNumFreezeTextureBtns; ++i)
+                freezeTextureBtns[i].setBounds(textureRow.removeFromLeft(tCellW));
+            freezeTextureSwitchBounds = freezeTextureBtns[0].getBounds()
+                .getUnion(freezeTextureBtns[kNumFreezeTextureBtns - 1].getBounds());
+            textureRow.removeFromLeft(juce::roundToInt(f * 1.2f));
+            freezeStereoRow->setBounds(textureRow);
+            area.removeFromTop(gap);
+
+            auto freezeRow = area.removeFromTop(rowH);
+
+            int oCellW = juce::roundToInt(f * 2.5f);
+            for (int i = 0; i < kNumOctBtns; ++i)
+                octBtns[i].setBounds(freezeRow.removeFromLeft(oCellW));
+            octaveSwitchBounds = octBtns[0].getBounds().getUnion(octBtns[kNumOctBtns - 1].getBounds());
+            freezeRow.removeFromLeft(juce::roundToInt(f * 1.5f));
+
+            int nCellW = juce::roundToInt(f * 4.0f);
+            for (int i = 0; i < kNumNoiseBtns; ++i)
+                noiseBtns[i].setBounds(freezeRow.removeFromLeft(nCellW));
+            noiseSwitchBounds = noiseBtns[0].getBounds().getUnion(noiseBtns[kNumNoiseBtns - 1].getBounds());
+            noiseLevelRow->setBounds(freezeRow);
+
+            frameCountLabel.setBounds(-1000, -1000, 10, 10);
+            area.removeFromTop(gap);
+            engineCardBottom = juce::jmax(freezeStereoRow->getBottom(), noiseLevelRow->getBottom());
+        }
+        else
+        {
 
         // [→][↻][⇄] [32|64|128|256] [Smooth] | [Nf] [White|Pink|Brown] Lvl[===]
         auto wtRow = area.removeFromTop(rowH);
@@ -1628,6 +1724,7 @@ void SynthPanel::resized()
 
         area.removeFromTop(gap);
         engineCardBottom = juce::jmax(smoothToggle.getBottom(), noiseLevelRow->getBottom());
+        }
     }
     else
     {

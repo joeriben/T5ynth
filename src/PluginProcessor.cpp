@@ -378,6 +378,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::engineMode, 1}, "Engine Mode",
         toChoices(EngineMode::kEntries), 0));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::freezeTexture, 1}, "Freeze Texture",
+        toChoices(FreezeTexture::kEntries), FreezeTexture::Silk));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::freezeStereo, 1}, "Freeze Stereo",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.25f));
 
     // Mod Envelope 1 (A=0, D=2500ms, S=10%, R=4000ms, Amt=100%)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -963,6 +969,7 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     masterOsc.prepare(sampleRate, samplesPerBlock);
     masterSampler.prepare(sampleRate, samplesPerBlock);
+    masterFreeze.prepare(sampleRate, samplesPerBlock);
     voiceManager.prepare(sampleRate, samplesPerBlock);
     lfo1.prepare(sampleRate);
     lfo2.prepare(sampleRate);
@@ -996,6 +1003,7 @@ void T5ynthProcessor::releaseResources()
 {
     masterOsc.reset();
     masterSampler.reset();
+    masterFreeze.reset();
     voiceManager.reset();
     {
         std::lock_guard<std::mutex> lock(samplerReprepareSourceMutex);
@@ -1574,12 +1582,32 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // Wavetable smooth
     bp.wtSmooth = parameters.getRawParameterValue(PID::wtSmooth)->load() > 0.5f;
     bp.wtAutoScan = parameters.getRawParameterValue(PID::wtAutoScan)->load() > 0.5f;
+    bp.freezeTexture = juce::jlimit(static_cast<int>(FreezeTexture::Hold),
+                                    static_cast<int>(FreezeTexture::Cloud),
+                                    static_cast<int>(parameters.getRawParameterValue(PID::freezeTexture)->load()));
+    bp.freezeStereo = juce::jlimit(0.0f, 1.0f,
+                                   parameters.getRawParameterValue(PID::freezeStereo)->load());
 
-    // Engine mode — read directly from APVTS (0=Sampler, 1=Wavetable)
+    // Engine mode — read directly from APVTS (0=Sampler, 1=Wavetable, 2=Freeze)
     int engineModeRaw = static_cast<int>(parameters.getRawParameterValue(PID::engineMode)->load());
-    bp.engineIsWavetable = (engineModeRaw == 1);
-    voiceManager.setEngineMode(bp.engineIsWavetable ? SynthVoice::EngineMode::Wavetable
-                                                     : SynthVoice::EngineMode::Sampler);
+    bp.engineMode = juce::jlimit(static_cast<int>(EngineMode::Sampler),
+                                 static_cast<int>(EngineMode::Freeze),
+                                 engineModeRaw);
+    bp.engineIsWavetable = (bp.engineMode == EngineMode::Wavetable);
+    bp.engineIsFreeze = (bp.engineMode == EngineMode::Freeze);
+    switch (bp.engineMode)
+    {
+        case EngineMode::Wavetable:
+            voiceManager.setEngineMode(SynthVoice::EngineMode::Wavetable);
+            break;
+        case EngineMode::Freeze:
+            voiceManager.setEngineMode(SynthVoice::EngineMode::Freeze);
+            break;
+        case EngineMode::Sampler:
+        default:
+            voiceManager.setEngineMode(SynthVoice::EngineMode::Sampler);
+            break;
+    }
 
     // Master volume (dB → linear)
     float masterDb = parameters.getRawParameterValue(PID::masterVol)->load();
@@ -2059,6 +2087,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         // using the last published snapshot and only distributes it.
         if (masterSampler.hasAudio())
             voiceManager.distributeSamplerBuffer(masterSampler);
+        if (masterFreeze.hasAudio())
+            voiceManager.distributeFreezeBuffer(masterFreeze);
         if (masterOsc.hasFrames() && generatedAudioFull.getNumSamples() > 0)
         {
             syncWavetableTraversal(generatedSampleRate, generatedAudioFull.getNumSamples());
@@ -2110,8 +2140,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             driftLfo.setLfoDepth(2, baseDrift3Depth);
         }
 
-        // Scan → P1 modulation offset (Sampler mode: retrigger uses it)
-        if (!bp.engineIsWavetable)
+        // Scan → P1 modulation offset (Sampler mode only: retrigger uses it).
+        // Freeze reads Scan directly inside the voice as its held position.
+        if (bp.engineMode == EngineMode::Sampler)
         {
             float p1Mod = bp.driftScanOffset;
             float l1 = numSamples > 0 ? lfo1Buf[numSamples - 1] : 0.0f;
@@ -2192,6 +2223,13 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                         const float pressure = static_cast<float>(msg.getChannelPressureValue()) / 127.0f;
                         voiceManager.setChannelPressure(pressure);
                     }
+                    else if (msg.isPitchWheel())
+                    {
+                        static constexpr float kPitchBendRangeSemitones = 2.0f;
+                        const float centered = (static_cast<float>(msg.getPitchWheelValue()) - 8192.0f) / 8192.0f;
+                        voiceManager.setPitchBendSemitones(
+                            juce::jlimit(-1.0f, 1.0f, centered) * kPitchBendRangeSemitones);
+                    }
                     else if (msg.isAllNotesOff() || msg.isAllSoundOff())
                     {
                         voiceManager.allNotesOff();
@@ -2211,6 +2249,30 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                         else if (cc == 64)
                         {
                             voiceManager.setSustainPedal(value7 >= 64);
+                        }
+                        else if (cc == 1)
+                        {
+                            voiceManager.setModWheel(static_cast<float>(value7) / 127.0f);
+                        }
+                        else if (cc == 2)
+                        {
+                            voiceManager.setBreathController(static_cast<float>(value7) / 127.0f);
+                        }
+                        else if (cc == 7)
+                        {
+                            voiceManager.setChannelVolume(static_cast<float>(value7) / 127.0f);
+                        }
+                        else if (cc == 11)
+                        {
+                            voiceManager.setExpression(static_cast<float>(value7) / 127.0f);
+                        }
+                        else if (cc == 66)
+                        {
+                            voiceManager.setSostenutoPedal(value7 >= 64);
+                        }
+                        else if (cc == 67)
+                        {
+                            voiceManager.setSoftPedal(value7 >= 64);
                         }
                         else if (cc == 120 || cc == 123)
                         {
@@ -2494,9 +2556,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             bool lfoModScan = bp.lfo1Target == LfoTarget::Scan || bp.lfo2Target == LfoTarget::Scan
                               || bp.lfo3Target == LfoTarget::Scan;
             bool driftModScan = std::abs(bp.driftScanOffset) > 0.001f && hasVoices;
-            bool wtTraversalActive = bp.engineIsWavetable && hasVoices;
+            bool scanDrivenEngineActive = (bp.engineIsWavetable || bp.engineIsFreeze) && hasVoices;
 
-            if (wtTraversalActive)
+            if (scanDrivenEngineActive)
             {
                 modulatedValues.scanPosition.store(voiceOut.lastModulatedScan, std::memory_order_relaxed);
             }
@@ -2823,12 +2885,17 @@ float T5ynthProcessor::resolveSyncBpm() const
 
 bool T5ynthProcessor::isWavetableMode() const
 {
-    return static_cast<int>(parameters.getRawParameterValue(PID::engineMode)->load()) == 1;
+    return static_cast<int>(parameters.getRawParameterValue(PID::engineMode)->load()) == EngineMode::Wavetable;
+}
+
+bool T5ynthProcessor::isFreezeMode() const
+{
+    return static_cast<int>(parameters.getRawParameterValue(PID::engineMode)->load()) == EngineMode::Freeze;
 }
 
 bool T5ynthProcessor::isSamplerMode() const
 {
-    return !isWavetableMode();
+    return static_cast<int>(parameters.getRawParameterValue(PID::engineMode)->load()) == EngineMode::Sampler;
 }
 
 void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBuffer, double sr)
@@ -3036,6 +3103,7 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
         masterOsc.extractFramesFromBuffer(feedBuffer, sr, extractStart, extractEnd, maxFrames);
     else
         masterOsc.extractContiguousFrames(feedBuffer, sr, extractStart, extractEnd);
+    masterFreeze.loadBuffer(feedBuffer, sr);
 
     {
         // Guard engine-state mutation against the realtime callback. The Linux
@@ -3060,6 +3128,7 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
 
         voiceManager.distributeSamplerBuffer(masterSampler);
         voiceManager.distributeWavetableFrames(masterOsc);
+        voiceManager.distributeFreezeBuffer(masterFreeze);
 
         samplerProcessorDebugLog("loadGeneratedAudio end masterAfter={" + masterSampler.debugStateString() + "}");
 
@@ -3113,6 +3182,7 @@ void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& proce
         else
             masterOsc.extractContiguousFrames(preparedWaveformSnapshot, generatedSampleRate, start, end);
     }
+    masterFreeze.loadBuffer(processed, generatedSampleRate);
     {
         const juce::ScopedLock sl (getCallbackLock());
 
@@ -3129,6 +3199,7 @@ void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& proce
             masterOsc.setMorphTimeMs(parameters.getRawParameterValue(PID::driftCrossfade)->load());
             voiceManager.distributeWavetableFrames(masterOsc);
         }
+        voiceManager.distributeFreezeBuffer(masterFreeze);
 
         samplerProcessorDebugLog("reloadProcessedAudio end masterAfter={" + masterSampler.debugStateString() + "}");
 
@@ -3580,6 +3651,13 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     wt->setProperty("autoScan", get(PID::wtAutoScan) > 0.5f);
     root->setProperty("wavetable", wt.get());
 
+    // Freeze
+    juce::DynamicObject::Ptr freeze = new juce::DynamicObject();
+    freeze->setProperty("texture", choiceToKey(static_cast<int>(get(PID::freezeTexture)),
+                                               FreezeTexture::kEntries));
+    freeze->setProperty("stereo", get(PID::freezeStereo));
+    root->setProperty("freeze", freeze.get());
+
     // Effects
     juce::DynamicObject::Ptr fx = new juce::DynamicObject();
     fx->setProperty("delayType", choiceToKey(static_cast<int>(get(PID::delayType)), DelayType::kEntries));
@@ -3906,6 +3984,13 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         setParam(parameters, PID::wtSmooth, wt->getProperty("smooth") ? 1.0f : 0.0f);
         bool autoScan = wt->hasProperty("autoScan") ? static_cast<bool>(wt->getProperty("autoScan")) : true;
         setParam(parameters, PID::wtAutoScan, autoScan ? 1.0f : 0.0f);
+    }
+    if (auto* freeze = root->getProperty("freeze").getDynamicObject())
+    {
+        setParam(parameters, PID::freezeTexture,
+                 static_cast<float>(choiceFromKey(freeze->getProperty("texture").toString(),
+                                                  FreezeTexture::kEntries)));
+        setParam(parameters, PID::freezeStereo, static_cast<float>(freeze->getProperty("stereo")));
     }
 
     // ── Effects ──

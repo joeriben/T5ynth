@@ -47,8 +47,9 @@ public:
 
     juce::AudioProcessorValueTreeState& getValueTreeState() { return parameters; }
 
-    // Engine mode (read from APVTS "engine_mode": 0=Sampler, 1=Wavetable)
+    // Engine mode (read from APVTS "engine_mode": 0=Sampler, 1=Wavetable, 2=Freeze)
     bool isWavetableMode() const;
+    bool isFreezeMode() const;
     bool isSamplerMode() const;
 
     // Load generated audio into the engine
@@ -215,6 +216,7 @@ private:
     // Master data holders (own the audio/frame data, voices share from these)
     WavetableOscillator masterOsc;
     SamplePlayer masterSampler;
+    FreezeTextureEngine masterFreeze;
     std::thread samplerReprepareThread;
     std::atomic<bool> samplerReprepareThreadShouldExit { false };
     std::atomic<bool> samplerReprepareWorkRequested { false };

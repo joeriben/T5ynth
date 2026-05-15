@@ -10,12 +10,6 @@
 
 namespace
 {
-const char* const kBundledPresetNames[] = {
-    "Evil Beauty.t5p",
-    "Samba Getdown.t5p",
-    "Talking about aliens.t5p",
-};
-
 constexpr char kComputerKeyboardNoteKeys[] = { 'a', 'w', 's', 'e', 'd', 'f', 't', 'g', 'z', 'h', 'u', 'j', 'k' };
 constexpr int kComputerKeyboardBaseMidiNote = 60;
 constexpr int kComputerKeyboardMinOctaveOffset = -5;
@@ -2470,10 +2464,19 @@ void MainPanel::ensureBundledPresetsExist()
 {
     auto userDir = PresetFormat::getUserPresetsDirectory();
 
-    for (auto* presetName : kBundledPresetNames)
+    for (int i = 0; i < BinaryData::namedResourceListSize; ++i)
     {
+        auto* resourceName = BinaryData::namedResourceList[i];
+        auto* originalName = BinaryData::originalFilenames[i];
+        if (resourceName == nullptr || originalName == nullptr)
+            continue;
+
+        const juce::String presetName = juce::String::fromUTF8(originalName);
+        if (!presetName.endsWithIgnoreCase(".t5p"))
+            continue;
+
         int size = 0;
-        auto* data = BinaryData::getNamedResource(presetName, size);
+        auto* data = BinaryData::getNamedResource(resourceName, size);
         if (data == nullptr || size <= 0)
             continue;
 
@@ -2504,8 +2507,8 @@ void MainPanel::loadDefaultPreset()
         }
     }
 
-    // First launch or DAW: stay on APVTS defaults. The former bundled demo
-    // preset is no longer representative enough to be the startup state.
+    // First launch or DAW: use the same clean state as the Init button.
+    loadInitPreset();
 }
 
 void MainPanel::loadInitPreset()

@@ -153,6 +153,8 @@ namespace PID {
     static constexpr const char* wtFrames         = "wt_frames";
     static constexpr const char* wtSmooth         = "wt_smooth";
     static constexpr const char* wtAutoScan       = "wt_auto_scan";
+    static constexpr const char* freezeTexture    = "freeze_texture";
+    static constexpr const char* freezeStereo     = "freeze_stereo";
     static constexpr const char* seqMode          = "seq_mode";
     static constexpr const char* seqRunning       = "seq_running";
     static constexpr const char* seqBpm           = "seq_bpm";
@@ -430,13 +432,30 @@ namespace DriftTarget {
 
 // ── Engine mode ──
 namespace EngineMode {
-    enum : int { Sampler = 0, Wavetable = 1 };
+    enum : int { Sampler = 0, Wavetable = 1, Freeze = 2 };
     static constexpr ChoiceEntry kEntries[] = {
         { "sampler",   "Sampler"   },
-        { "wavetable", "Wavetable" }
+        { "wavetable", "Wavetable" },
+        { "freeze",    "Freeze"    }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(Wavetable + 1 == kCount, "EngineMode out of sync.");
+    static_assert(Freeze + 1 == kCount, "EngineMode out of sync.");
+}
+
+// ── Freeze texture macro ──
+// These are curated internal combinations of grain length, density, motion,
+// and blur. Freeze intentionally exposes musical texture classes instead of
+// a full chaos-prone granular parameter bank.
+namespace FreezeTexture {
+    enum : int { Hold = 0, Silk = 1, Air = 2, Cloud = 3 };
+    static constexpr ChoiceEntry kEntries[] = {
+        { "hold",  "Hold"  },
+        { "silk",  "Silk"  },
+        { "air",   "Air"   },
+        { "cloud", "Cloud" }
+    };
+    static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
+    static_assert(Cloud + 1 == kCount, "FreezeTexture out of sync.");
 }
 
 // ── Sample loop mode ──
@@ -1162,6 +1181,7 @@ struct BlockParams
     // Drift offsets for filter and pitch (applied per-voice in SynthVoice)
     float driftFilterOffset = 0.0f;  // multiplicative: cutoff *= (1 + offset * FILTER_DEPTH)
     float driftPitchOffset = 0.0f;   // additive: pitchMod += offset
+    float performancePitchRatio = 1.0f; // MIDI pitch bend, applied as a frequency multiplier
 
     // Noise oscillator
     float noiseLevel = 0.0f;      // 0-1 mix level
@@ -1171,7 +1191,11 @@ struct BlockParams
     int octaveShift = 0;
 
     // Engine
+    int engineMode = EngineMode::Sampler;
     bool engineIsWavetable = false;
+    bool engineIsFreeze = false;
+    int freezeTexture = FreezeTexture::Silk;
+    float freezeStereo = 0.25f;
     bool wtSmooth = true; // Catmull-Rom frame interpolation
     bool wtAutoScan = true;
 
