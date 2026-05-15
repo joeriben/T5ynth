@@ -33,7 +33,7 @@ private:
     // ── Engine mode ──
     juce::TextButton samplerBtn { "Sampler" };
     juce::TextButton wavetableBtn { "Wavetable" };
-    juce::TextButton freezeBtn { "Freeze" };
+    juce::TextButton freezeBtn { "Granular" };
     juce::ComboBox engineModeHidden;
     WaveformDisplay waveformDisplay;
 
@@ -69,7 +69,7 @@ private:
     juce::TextButton autoScanToggle { "AutoScan" };
     juce::Label frameCountLabel;
 
-    // ── Freeze controls row ──
+    // ── Granular controls row ──
     static constexpr int kNumFreezeTextureBtns = 4;
     juce::TextButton freezeTextureBtns[kNumFreezeTextureBtns];
     juce::ComboBox freezeTextureHidden;
@@ -82,7 +82,7 @@ private:
     juce::ComboBox octaveHidden;
     juce::Rectangle<int> octaveSwitchBounds;
 
-    // ── Noise (shared: both Sampler + Wavetable) ──
+    // ── Noise (shared by all engine modes) ──
     static constexpr int kNumNoiseBtns = 3;
     juce::TextButton noiseBtns[kNumNoiseBtns];
     juce::ComboBox noiseTypeHidden;

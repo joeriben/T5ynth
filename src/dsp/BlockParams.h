@@ -276,10 +276,8 @@ namespace PID {
 
 // ── Modulation envelope targets ──
 namespace EnvTarget {
-    // Note: "Scan" is intentionally absent — at the retrigger moment the
-    // mod envelope is always at zero (Attack just starting), so routing it
-    // to the scan position would be a silent no-op. Use LFO or Drift for
-    // scan modulation.
+    // Scan is appended to preserve the numeric meaning of existing saved
+    // target indices while making envelopes available as a Scan source.
     enum : int {
         None = 0,
         DCA = 1,
@@ -295,7 +293,8 @@ namespace EnvTarget {
         LFO2Rate = 11,
         LFO2Depth = 12,
         LFO3Rate = 13,
-        LFO3Depth = 14
+        LFO3Depth = 14,
+        Scan = 15
     };
     static constexpr ChoiceEntry kEntries[] = {
         { "none",       "---"        },
@@ -312,10 +311,11 @@ namespace EnvTarget {
         { "lfo2_rate",  "LFO2 Rate"  },
         { "lfo2_depth", "LFO2 Depth" },
         { "lfo3_rate",  "LFO3 Rate"  },
-        { "lfo3_depth", "LFO3 Depth" }
+        { "lfo3_depth", "LFO3 Depth" },
+        { "scan",       "Scan"       }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(LFO3Depth + 1 == kCount,
+    static_assert(Scan + 1 == kCount,
                   "EnvTarget enum and kEntries are out of sync.");
 }
 
@@ -436,15 +436,15 @@ namespace EngineMode {
     static constexpr ChoiceEntry kEntries[] = {
         { "sampler",   "Sampler"   },
         { "wavetable", "Wavetable" },
-        { "freeze",    "Freeze"    }
+        { "freeze",    "Granular"  }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
     static_assert(Freeze + 1 == kCount, "EngineMode out of sync.");
 }
 
-// ── Freeze texture macro ──
+// ── Granular texture macro ──
 // These are curated internal combinations of grain length, density, motion,
-// and blur. Freeze intentionally exposes musical texture classes instead of
+// and blur. Granular intentionally exposes musical texture classes instead of
 // a full chaos-prone granular parameter bank.
 namespace FreezeTexture {
     enum : int { Hold = 0, Silk = 1, Air = 2, Cloud = 3 };

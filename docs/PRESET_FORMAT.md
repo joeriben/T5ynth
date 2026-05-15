@@ -163,8 +163,8 @@ then patched at `src/presets/PresetFormat.cpp:18-66`:
 | `driftEnabled`  | export        | Bool. |
 | `driftCrossfade`| export        | Float. |
 | `regenMode`     | export        | `"manual"` / `"auto"` / `"max_1beat"` / `"max_4beats"` / `"max_16beats"`. |
-| `wavetable`     | export        | `scan`, `octaveShift`, `noiseLevel`, `noiseType`, `frames`, `smooth`, `autoScan`. `scan` also acts as Freeze position when `engine.mode` is `"freeze"`. |
-| `freeze`        | export        | `texture` (`"hold"`, `"silk"`, `"air"`, `"cloud"`) and `stereo` (0.0–1.0 width). |
+| `wavetable`     | export        | `scan`, `octaveShift`, `noiseLevel`, `noiseType`, `frames`, `smooth`, `autoScan`. `scan` also acts as Granular position when `engine.mode` is `"freeze"` for preset compatibility. |
+| `freeze`        | export        | Granular texture state: `texture` (`"hold"`, `"silk"`, `"air"`, `"cloud"`) and `stereo` (0.0–1.0 width). Key name remains `freeze` for compatibility. |
 | `effects`       | export        | Delay, reverb, limiter. |
 | `filter`        | export        | `enabled`, `type`, `slope`, `cutoff` (normalised 0..1), `resonance`, `mix`, `kbdTrack`. |
 | `sequencer`     | export        | Step sequencer state including scale, steps array, division, glide, gate. |

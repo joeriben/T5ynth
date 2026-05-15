@@ -379,10 +379,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::engineMode, 1}, "Engine Mode",
         toChoices(EngineMode::kEntries), 0));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::freezeTexture, 1}, "Freeze Texture",
+        juce::ParameterID{PID::freezeTexture, 1}, "Granular Texture",
         toChoices(FreezeTexture::kEntries), FreezeTexture::Silk));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::freezeStereo, 1}, "Freeze Stereo",
+        juce::ParameterID{PID::freezeStereo, 1}, "Granular Stereo",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.25f));
 
     // Mod Envelope 1 (A=0, D=2500ms, S=10%, R=4000ms, Amt=100%)
@@ -1588,7 +1588,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.freezeStereo = juce::jlimit(0.0f, 1.0f,
                                    parameters.getRawParameterValue(PID::freezeStereo)->load());
 
-    // Engine mode — read directly from APVTS (0=Sampler, 1=Wavetable, 2=Freeze)
+    // Engine mode — read directly from APVTS (0=Sampler, 1=Wavetable, 2=Granular)
     int engineModeRaw = static_cast<int>(parameters.getRawParameterValue(PID::engineMode)->load());
     bp.engineMode = juce::jlimit(static_cast<int>(EngineMode::Sampler),
                                  static_cast<int>(EngineMode::Freeze),
@@ -2141,7 +2141,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         }
 
         // Scan → P1 modulation offset (Sampler mode only: retrigger uses it).
-        // Freeze reads Scan directly inside the voice as its held position.
+        // Granular reads Scan directly inside the voice as its held position.
         if (bp.engineMode == EngineMode::Sampler)
         {
             float p1Mod = bp.driftScanOffset;
@@ -2555,6 +2555,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         {
             bool lfoModScan = bp.lfo1Target == LfoTarget::Scan || bp.lfo2Target == LfoTarget::Scan
                               || bp.lfo3Target == LfoTarget::Scan;
+            bool envModScan = bp.ampTarget == EnvTarget::Scan
+                           || bp.mod1Target == EnvTarget::Scan || bp.mod2Target == EnvTarget::Scan;
             bool driftModScan = std::abs(bp.driftScanOffset) > 0.001f && hasVoices;
             bool scanDrivenEngineActive = (bp.engineIsWavetable || bp.engineIsFreeze) && hasVoices;
 
@@ -2562,7 +2564,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             {
                 modulatedValues.scanPosition.store(voiceOut.lastModulatedScan, std::memory_order_relaxed);
             }
-            else if (hasVoices && (lfoModScan || driftModScan))
+            else if (hasVoices && (lfoModScan || envModScan || driftModScan))
             {
                 modulatedValues.scanPosition.store(voiceOut.lastModulatedScan, std::memory_order_relaxed);
             }
@@ -3651,7 +3653,7 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     wt->setProperty("autoScan", get(PID::wtAutoScan) > 0.5f);
     root->setProperty("wavetable", wt.get());
 
-    // Freeze
+    // Granular
     juce::DynamicObject::Ptr freeze = new juce::DynamicObject();
     freeze->setProperty("texture", choiceToKey(static_cast<int>(get(PID::freezeTexture)),
                                                FreezeTexture::kEntries));

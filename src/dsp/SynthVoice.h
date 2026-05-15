@@ -52,7 +52,7 @@ public:
     RenderResult renderSample(const BlockParams& p, float globalLfo1Val, float globalLfo2Val, float globalLfo3Val);
 
     /** Block-based rendering with sub-block filter coefficient updates.
-     *  Writes numSamples into output; outputRight receives Freeze stereo when provided. */
+     *  Writes numSamples into output; outputRight receives Granular stereo when provided. */
     void renderBlock(float* output, float* outputRight, const BlockParams& p,
                      const float* lfo1Buf, const float* lfo2Buf, const float* lfo3Buf, int numSamples);
 

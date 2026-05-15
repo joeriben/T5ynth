@@ -48,9 +48,9 @@ source classes do **not** share a single enum. They share the *concept* of
 Declared in `src/PluginProcessor.cpp:294-304`:
 
 ```
-0="---"  1=DCA  2=Filter  3=Scan  4=Pitch  5=Dly Time
-6=Dly FB 7=Dly Mix 8=Rev Mix 9=LFO1 Rate 10=LFO1 Depth
-11=LFO2 Rate 12=LFO2 Depth
+0="---"  1=DCA  2=Filter  3=Pitch  4=Dly Time  5=Dly FB
+6=Dly Mix 7=Rev Mix 8=Noise Lvl 9=LFO1 Rate 10=LFO1 Depth
+11=LFO2 Rate 12=LFO2 Depth 13=LFO3 Rate 14=LFO3 Depth 15=Scan
 ```
 
 Mirrored as compile-time constants in `src/dsp/BlockParams.h:5-21`

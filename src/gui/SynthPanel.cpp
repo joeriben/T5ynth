@@ -703,7 +703,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     frameCountLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(frameCountLabel);
 
-    // ── Freeze controls: curated texture macro + independent stereo width ──
+    // ── Granular controls: curated texture macro + independent stereo width ──
     {
         juce::StringArray textureLabels;
         for (const auto& e : FreezeTexture::kEntries)
@@ -1188,7 +1188,7 @@ void SynthPanel::updateVisibility()
     for (int i = 0; i < kNumOctBtns; ++i)
         octBtns[i].setVisible(isSampler || isFreeze);
 
-    // Scan controls drive Wavetable frame position or Freeze hold position.
+    // Scan controls drive Wavetable frame position or Granular hold position.
     scanRow->setVisible(isWavetable || isFreeze);
     scanHint.setVisible(false);
     for (int i = 0; i < kNumFrameBtns; ++i)
@@ -1201,7 +1201,7 @@ void SynthPanel::updateVisibility()
     freezeStereoRow->setVisible(isFreeze);
 
     waveformDisplay.setRegionLabel(isWavetable ? "Extraction region"
-                                                : (isFreeze ? "Freeze position" : "Loop interval"));
+                                                : (isFreeze ? "Granular position" : "Loop interval"));
 
     if (isSampler)
     {
@@ -1599,7 +1599,7 @@ void SynthPanel::resized()
     // ── Engine mode + Voice count: compact switchboxes ──
     auto modeRow = area.removeFromTop(rowH);
     {
-        int cellW = juce::roundToInt(f * 4.4f);
+        int cellW = juce::roundToInt(f * 5.0f);
         samplerBtn.setBounds(modeRow.removeFromLeft(cellW));
         wavetableBtn.setBounds(modeRow.removeFromLeft(cellW));
         freezeBtn.setBounds(modeRow.removeFromLeft(cellW));
@@ -1626,8 +1626,6 @@ void SynthPanel::resized()
     const bool isFreeze = engineId == 3;
     const int waveformReserveH = juce::roundToInt(WaveformDisplay::HANDLE_RADIUS * 2.0f + 4.0f);
     int samplerCtrlH = waveformReserveH + rowH + gap * 2; // waveform handles + one controls row
-    if (isFreeze)
-        samplerCtrlH += rowH + gap;
     int filterH = headerH + headerGap + rowH + gap + rowH * 2 + gap; // header + type/slope/topology + cutoff/reso + mix/kbd
     int modH = gap * 3 + headerH + headerGap; // section gap + header
     int envH = (rowH * 4 + gap) * 3; // 3 envelopes × (header + 3 slider rows + gap)
@@ -1637,6 +1635,22 @@ void SynthPanel::resized()
     int regenH = gap + headerH;                                            // regen controls live in the header row
     int belowWave = samplerCtrlH + filterH + modH + envH + lfoH + aftertouchH + driftH + regenH + gap * 5;
     int waveH = juce::jmax(0, area.getHeight() - belowWave);
+
+    auto layoutNoiseStrip = [&](juce::Rectangle<int>& row)
+    {
+        const int desiredCellW = juce::roundToInt(f * 4.0f);
+        const int minLevelW = juce::roundToInt(f * 7.0f);
+        const int desiredStripW = desiredCellW * kNumNoiseBtns + minLevelW;
+        const int stripW = juce::jmin(desiredStripW, row.getWidth());
+        auto noiseArea = row.removeFromRight(stripW);
+        row.removeFromRight(juce::roundToInt(f * 0.8f));
+
+        const int nCellW = juce::jmax(1, juce::jmin(desiredCellW, noiseArea.getWidth() / kNumNoiseBtns));
+        for (int i = 0; i < kNumNoiseBtns; ++i)
+            noiseBtns[i].setBounds(noiseArea.removeFromLeft(nCellW));
+        noiseSwitchBounds = noiseBtns[0].getBounds().getUnion(noiseBtns[kNumNoiseBtns - 1].getBounds());
+        noiseLevelRow->setBounds(noiseArea);
+    };
 
     if (isWavetable || isFreeze)
     {
@@ -1654,30 +1668,24 @@ void SynthPanel::resized()
 
         if (isFreeze)
         {
-            // ── Freeze: position dot + curated texture controls ──
-            auto textureRow = area.removeFromTop(rowH);
-            const int tCellW = juce::roundToInt(f * 4.4f);
+            // ── Granular: position dot + texture + stereo + octave + fixed noise strip ──
+            auto granularRow = area.removeFromTop(rowH);
+            layoutNoiseStrip(granularRow);
+
+            const int oCellW = juce::roundToInt(f * 2.5f);
+            auto octaveArea = granularRow.removeFromRight(oCellW * kNumOctBtns);
+            granularRow.removeFromRight(juce::roundToInt(f * 0.8f));
+            for (int i = 0; i < kNumOctBtns; ++i)
+                octBtns[i].setBounds(octaveArea.removeFromLeft(oCellW));
+            octaveSwitchBounds = octBtns[0].getBounds().getUnion(octBtns[kNumOctBtns - 1].getBounds());
+
+            const int tCellW = juce::roundToInt(f * 3.8f);
             for (int i = 0; i < kNumFreezeTextureBtns; ++i)
-                freezeTextureBtns[i].setBounds(textureRow.removeFromLeft(tCellW));
+                freezeTextureBtns[i].setBounds(granularRow.removeFromLeft(tCellW));
             freezeTextureSwitchBounds = freezeTextureBtns[0].getBounds()
                 .getUnion(freezeTextureBtns[kNumFreezeTextureBtns - 1].getBounds());
-            textureRow.removeFromLeft(juce::roundToInt(f * 1.2f));
-            freezeStereoRow->setBounds(textureRow);
-            area.removeFromTop(gap);
-
-            auto freezeRow = area.removeFromTop(rowH);
-
-            int oCellW = juce::roundToInt(f * 2.5f);
-            for (int i = 0; i < kNumOctBtns; ++i)
-                octBtns[i].setBounds(freezeRow.removeFromLeft(oCellW));
-            octaveSwitchBounds = octBtns[0].getBounds().getUnion(octBtns[kNumOctBtns - 1].getBounds());
-            freezeRow.removeFromLeft(juce::roundToInt(f * 1.5f));
-
-            int nCellW = juce::roundToInt(f * 4.0f);
-            for (int i = 0; i < kNumNoiseBtns; ++i)
-                noiseBtns[i].setBounds(freezeRow.removeFromLeft(nCellW));
-            noiseSwitchBounds = noiseBtns[0].getBounds().getUnion(noiseBtns[kNumNoiseBtns - 1].getBounds());
-            noiseLevelRow->setBounds(freezeRow);
+            granularRow.removeFromLeft(juce::roundToInt(f * 0.8f));
+            freezeStereoRow->setBounds(granularRow);
 
             frameCountLabel.setBounds(-1000, -1000, 10, 10);
             area.removeFromTop(gap);
@@ -1685,45 +1693,37 @@ void SynthPanel::resized()
         }
         else
         {
+            // [→][↻][⇄] [Nf] [32|64|128|256] [Smooth] [Auto] | [White|Pink|Brown] Lvl[===]
+            auto wtRow = area.removeFromTop(rowH);
+            layoutNoiseStrip(wtRow);
+            auto leftCol = wtRow;
 
-        // [→][↻][⇄] [32|64|128|256] [Smooth] | [Nf] [White|Pink|Brown] Lvl[===]
-        auto wtRow = area.removeFromTop(rowH);
-        int leftW = juce::roundToInt(wtRow.getWidth() * 0.62f);
-        auto leftCol = wtRow.removeFromLeft(leftW);
-        wtRow.removeFromLeft(4); // column gap
+            // ── Left column: loop icons + frame switchbox + smooth ──
+            int iconW = juce::roundToInt(f * 2.6f);
+            oneshotBtn.setBounds(leftCol.removeFromLeft(iconW));
+            loopModeBtn.setBounds(leftCol.removeFromLeft(iconW));
+            pingpongBtn.setBounds(leftCol.removeFromLeft(iconW));
+            loopSwitchBounds = oneshotBtn.getBounds().getUnion(pingpongBtn.getBounds());
+            leftCol.removeFromLeft(juce::roundToInt(f * 0.35f));
 
-        // ── Left column: loop icons + frame switchbox + smooth ──
-        int iconW = juce::roundToInt(f * 2.6f);
-        oneshotBtn.setBounds(leftCol.removeFromLeft(iconW));
-        loopModeBtn.setBounds(leftCol.removeFromLeft(iconW));
-        pingpongBtn.setBounds(leftCol.removeFromLeft(iconW));
-        loopSwitchBounds = oneshotBtn.getBounds().getUnion(pingpongBtn.getBounds());
-        leftCol.removeFromLeft(juce::roundToInt(f * 0.35f));
+            int frameCountW = juce::roundToInt(f * 2.6f);
+            frameCountLabel.setBounds(leftCol.removeFromLeft(frameCountW));
+            leftCol.removeFromLeft(juce::roundToInt(f * 0.35f));
 
-        int cellW = juce::roundToInt(f * 2.6f);
-        for (int i = 0; i < kNumFrameBtns; ++i)
-            frameBtns[i].setBounds(leftCol.removeFromLeft(cellW));
-        framesSwitchBounds = frameBtns[0].getBounds().getUnion(frameBtns[kNumFrameBtns - 1].getBounds());
-        leftCol.removeFromLeft(juce::roundToInt(f * 0.35f));
+            int cellW = juce::roundToInt(f * 2.6f);
+            for (int i = 0; i < kNumFrameBtns; ++i)
+                frameBtns[i].setBounds(leftCol.removeFromLeft(cellW));
+            framesSwitchBounds = frameBtns[0].getBounds().getUnion(frameBtns[kNumFrameBtns - 1].getBounds());
+            leftCol.removeFromLeft(juce::roundToInt(f * 0.35f));
 
-        int smoothW = juce::jmin(juce::roundToInt(f * 4.0f), leftCol.getWidth());
-        smoothToggle.setBounds(leftCol.removeFromLeft(smoothW));
-        leftCol.removeFromLeft(juce::roundToInt(f * 0.25f));
-        int autoW = juce::jmin(juce::roundToInt(f * 3.8f), leftCol.getWidth());
-        autoScanToggle.setBounds(leftCol.removeFromLeft(autoW));
+            int smoothW = juce::jmin(juce::roundToInt(f * 4.0f), leftCol.getWidth());
+            smoothToggle.setBounds(leftCol.removeFromLeft(smoothW));
+            leftCol.removeFromLeft(juce::roundToInt(f * 0.25f));
+            int autoW = juce::jmin(juce::roundToInt(f * 3.8f), leftCol.getWidth());
+            autoScanToggle.setBounds(leftCol.removeFromLeft(autoW));
 
-        // ── Right column: [Nf] [White|Pink|Brown] Lvl[===] ──
-        int frameCountW = juce::roundToInt(f * 2.8f);
-        frameCountLabel.setBounds(wtRow.removeFromLeft(frameCountW));
-        wtRow.removeFromLeft(juce::roundToInt(f * 0.45f));
-        int nCellW = juce::roundToInt(f * 4.0f);
-        for (int i = 0; i < kNumNoiseBtns; ++i)
-            noiseBtns[i].setBounds(wtRow.removeFromLeft(nCellW));
-        noiseSwitchBounds = noiseBtns[0].getBounds().getUnion(noiseBtns[kNumNoiseBtns - 1].getBounds());
-        noiseLevelRow->setBounds(wtRow);
-
-        area.removeFromTop(gap);
-        engineCardBottom = juce::jmax(smoothToggle.getBottom(), noiseLevelRow->getBottom());
+            area.removeFromTop(gap);
+            engineCardBottom = juce::jmax(smoothToggle.getBottom(), noiseLevelRow->getBottom());
         }
     }
     else
@@ -1735,12 +1735,19 @@ void SynthPanel::resized()
         waveformDisplay.setBounds(area.removeFromTop(waveH + handleLineH));
         area.removeFromTop(gap);  // spacing to controls
 
-        // [→][↻][⇄] [Opt] Xfade[========] [Norm] | [White|Pink|Brown] Lvl[===]
+        // [→][↻][⇄] [Opt] Xfade[========] [HF][Norm] [-2|-1|0|+1|+2] | [White|Pink|Brown] Lvl[===]
         auto loopRow = area.removeFromTop(rowH);
-        int colW = (loopRow.getWidth() - 4) / 2;
+        layoutNoiseStrip(loopRow);
 
-        // ── Left column: loop icons + Opt + Xfade + Norm ──
-        auto leftCol = loopRow.removeFromLeft(colW);
+        // ── Left column: loop icons + Opt + Xfade + HF/Norm + Octave ──
+        auto leftCol = loopRow;
+        const int oCellW = juce::roundToInt(f * 2.5f);
+        auto octaveArea = leftCol.removeFromRight(oCellW * kNumOctBtns);
+        leftCol.removeFromRight(juce::roundToInt(f * 0.8f));
+        for (int i = 0; i < kNumOctBtns; ++i)
+            octBtns[i].setBounds(octaveArea.removeFromLeft(oCellW));
+        octaveSwitchBounds = octBtns[0].getBounds().getUnion(octBtns[kNumOctBtns - 1].getBounds());
+
         int iconW = juce::roundToInt(f * 2.8f);
         oneshotBtn.setBounds(leftCol.removeFromLeft(iconW));
         loopModeBtn.setBounds(leftCol.removeFromLeft(iconW));
@@ -1763,23 +1770,8 @@ void SynthPanel::resized()
         // Xfade gets remaining space
         crossfadeRow->setBounds(leftCol);
 
-        loopRow.removeFromLeft(4); // column gap
-
-        // ── Right column: [-2|-1|0|+1|+2] [White|Pink|Brown] Lvl[===] ──
-        int oCellW = juce::roundToInt(f * 2.5f);
-        for (int i = 0; i < kNumOctBtns; ++i)
-            octBtns[i].setBounds(loopRow.removeFromLeft(oCellW));
-        octaveSwitchBounds = octBtns[0].getBounds().getUnion(octBtns[kNumOctBtns - 1].getBounds());
-        loopRow.removeFromLeft(juce::roundToInt(f * 1.5f));
-
-        int nCellW = juce::roundToInt(f * 4.0f);
-        for (int i = 0; i < kNumNoiseBtns; ++i)
-            noiseBtns[i].setBounds(loopRow.removeFromLeft(nCellW));
-        noiseSwitchBounds = noiseBtns[0].getBounds().getUnion(noiseBtns[kNumNoiseBtns - 1].getBounds());
-        noiseLevelRow->setBounds(loopRow);
-
         area.removeFromTop(gap);
-        engineCardBottom = oneshotBtn.getBottom();
+        engineCardBottom = juce::jmax(oneshotBtn.getBottom(), noiseLevelRow->getBottom());
 
         // Hide wavetable-only controls in sampler mode
         frameCountLabel.setBounds(-1000, -1000, 10, 10);

@@ -47,7 +47,7 @@ public:
 
     juce::AudioProcessorValueTreeState& getValueTreeState() { return parameters; }
 
-    // Engine mode (read from APVTS "engine_mode": 0=Sampler, 1=Wavetable, 2=Freeze)
+    // Engine mode (read from APVTS "engine_mode": 0=Sampler, 1=Wavetable, 2=Granular)
     bool isWavetableMode() const;
     bool isFreezeMode() const;
     bool isSamplerMode() const;

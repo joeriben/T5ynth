@@ -229,7 +229,7 @@ Most AI audio tools hide that space and only return an audio result. T5ynth
 turns this space of possible sound into the instrument. Generation is not a
 separate AI step after the synth; the synth reaches into the generation process
 itself. The rendered fragment is one stage in a signal path that continues through
-sampler, wavetable, or freeze playback, filters, envelopes, LFOs, sequencing, delay,
+sampler, wavetable, or granular playback, filters, envelopes, LFOs, sequencing, delay,
 and reverb.
 </p>
 <p style="margin-top:0.6rem;">
@@ -264,7 +264,7 @@ without whom AI4ArtsEd would not have come into being.
     <li class="sub"><a href="#gen">1. The Generation Section (Pre-Audio Space)</a></li>
     <li class="sub"><a href="#axes">2. Sound-Character Axes</a></li>
     <li class="sub"><a href="#dimex">3. Dimension Explorer</a></li>
-    <li class="sub"><a href="#engine">4. Engine Modes: Sampler, Wavetable &amp; Freeze</a></li>
+    <li class="sub"><a href="#engine">4. Engine Modes: Sampler, Wavetable &amp; Granular</a></li>
     <li class="sub"><a href="#synth">5. Classic Synth Elements</a></li>
     <li class="sub"><a href="#drift">6. Drift &amp; Regenerate</a></li>
     <li class="sub"><a href="#fx">7. Effects</a></li>
@@ -333,7 +333,7 @@ text-to-audio tools:
 <ol>
   <li>Two short impulses mark the hidden space.</li>
   <li>Alpha, Semantic Axes, Noise, Dimension Explorer, Injection Modes, and Drift move that space of possibilities.</li>
-  <li>Shape the sonic flow as a Sampler, Wavetable, or Freeze engine, with filters, envelopes, LFOs, sequencers, delay, reverb, presets, and Drift Modulators &amp; Auto-Regenerate.</li>
+  <li>Shape the sonic flow as a Sampler, Wavetable, or Granular engine, with filters, envelopes, LFOs, sequencers, delay, reverb, presets, and Drift Modulators &amp; Auto-Regenerate.</li>
 </ol>
 
 <div class="tip">
@@ -341,7 +341,7 @@ text-to-audio tools:
   expanded collection lives at
   <a href="https://github.com/joeriben/T5ynth-Presets">https://github.com/joeriben/T5ynth-Presets</a>.
   A preset is a complete instrument state: impulses, generated audio,
-  Sampler, Wavetable, or Freeze mode, modulation, effects, tags, and stored settings.
+  Sampler, Wavetable, or Granular mode, modulation, effects, tags, and stored settings.
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -755,7 +755,7 @@ This is the most granular level of control T5ynth offers. It bypasses language e
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
-<h2 id="engine">4. Engine Modes: Sampler, Wavetable &amp; Freeze</h2>
+<h2 id="engine">4. Engine Modes: Sampler, Wavetable &amp; Granular</h2>
 
 <p>T5ynth can play back generated audio in three modes:</p>
 
@@ -778,18 +778,18 @@ Extracts pitch-synchronous frames from the audio to build a scannable wavetable.
   <li><strong>Scan</strong> (0.0–1.0) — Selects the current frame position in the wavetable. Can be modulated by LFOs, envelopes, or drift.</li>
 </ul>
 
-<h4>Freeze Mode</h4>
+<h4>Granular Mode</h4>
 <p>
 Holds a small, smooth region of the generated audio and makes it playable as a sustained texture. It stays close to the source sample rather than spraying random grains. <em>Scan</em> selects the held position and can move slowly through modulation.
 </p>
 <ul>
   <li><strong>Texture</strong> — Hold, Silk, Air, or Cloud. These are fixed musical profiles for grain length, overlap, motion, and blur.</li>
-  <li><strong>Stereo</strong> — Width control for subtle per-grain left/right offset and balance. At 0% Freeze stays centered.</li>
+  <li><strong>Stereo</strong> — Width control for subtle per-grain left/right offset and balance. At 0% Granular stays centered.</li>
 </ul>
 
 <h4>Noise Generator</h4>
 <p>
-Alongside the sampler/wavetable/freeze source each voice has an independent noise generator that is summed into the voice signal before the filter. It follows the voice's amplitude envelope and note-off just like the main source, so notes including a noise component decay cleanly.
+Alongside the sampler/wavetable/granular source each voice has an independent noise generator that is summed into the voice signal before the filter. It follows the voice's amplitude envelope and note-off just like the main source, so notes including a noise component decay cleanly.
 </p>
 <table>
   <tr><th>Parameter</th><th>Range</th><th>Notes</th></tr>
@@ -799,7 +799,7 @@ Alongside the sampler/wavetable/freeze source each voice has an independent nois
 
 <h4>Generated Audio Processing</h4>
 <p>
-Before the generated audio reaches the sampler/wavetable/freeze source, two filters and one optional gain stage are applied to the raw VAE output:
+Before the generated audio reaches the sampler/wavetable/granular source, two filters and one optional gain stage are applied to the raw VAE output:
 </p>
 <ul>
   <li><strong>Rumble filter</strong> — always on, 2nd-order Butterworth high-pass at 25&nbsp;Hz. Removes the DC offset and sub-bass rumble the VAE decoder tends to add. Not user-switchable; this is a baseline cleanup step.</li>
@@ -872,7 +872,7 @@ Three identical ADSR envelopes, each with a <strong>Target dropdown</strong> to 
   <tr><td><strong>Amount</strong></td><td>0.0 – 1.0</td><td>Output scaling</td></tr>
   <tr><td><strong>Vel Sens</strong></td><td>0.0 – 1.0</td><td>0 = fixed level, 1 = full velocity response. Aftertouch is handled by the global <strong>AT</strong> routing row below the LFOs.</td></tr>
   <tr><td><strong>Loop</strong></td><td>on / off</td><td>Re-triggers attack when sustain is reached</td></tr>
-  <tr><td><strong>Target</strong></td><td>Dropdown</td><td>DCA, Filter, Pitch, Dly Time/FB/Mix, Rev Mix, Noise Lvl, LFO1/2/3 Rate, LFO1/2/3 Depth</td></tr>
+  <tr><td><strong>Target</strong></td><td>Dropdown</td><td>DCA, Filter, Pitch, Dly Time/FB/Mix, Rev Mix, Noise Lvl, LFO1/2/3 Rate, LFO1/2/3 Depth, Scan</td></tr>
 </table>
 
 <div class="note">
@@ -1254,11 +1254,11 @@ Alpha is not a volume crossfade. It moves through the model's hidden sound space
 Sound-character axes are most effective used individually. Stacking three axes at extreme values dilutes each one. Start with one axis and learn its response before adding a second.
 </p>
 
-<h4>6. Sampler, Wavetable, and Freeze as different pitch behaviours</h4>
+<h4>6. Sampler, Wavetable, and Granular as different pitch behaviours</h4>
 <p>
 Sampler mode follows MIDI with pitch-preserving transposition and keeps the
 generated fragment's full temporal character. Wavetable mode extracts
-pitch-synchronous frames for a more oscillator-like pitch response. Freeze mode
+pitch-synchronous frames for a more oscillator-like pitch response. Granular mode
 holds a local moment as a smooth sustain texture. Choose by sound and motion,
 not because only one of them can play pitch.
 </p>
@@ -1574,7 +1574,7 @@ Modes enter the path; the detailed mode mechanics follow in the next section.
     │                                     │
     │◄──── Pipe (binary) ────────────── PCM float32 + embeddings [768] × 2
     │
- Load into Engine (Sampler, Wavetable, or Freeze)
+ Load into Engine (Sampler, Wavetable, or Granular)
     │
  Per-Voice DSP: Envelope → Filter → Modulation
     │

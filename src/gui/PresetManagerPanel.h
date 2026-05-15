@@ -36,7 +36,7 @@ public:
         juce::File   file;
         juce::String name;
         juce::String model;        // shortened display name (SA Open 1.0, …)
-        juce::String engineMode;   // "Sampler" / "Wavetable" / "Freeze"
+        juce::String engineMode;   // "Sampler" / "Wavetable" / "Granular"
         juce::String seqMode;      // "Off" / "Step" / "Gen" / "Step + Gen"
         juce::String promptA;
         juce::String promptB;
@@ -589,7 +589,7 @@ private:
         {
             const auto m = eng->getProperty("mode").toString();
             if (m == "wavetable")    e.engineMode = "Wavetable";
-            else if (m == "freeze")  e.engineMode = "Freeze";
+            else if (m == "freeze")  e.engineMode = "Granular";
             else if (m == "sampler") e.engineMode = "Sampler";
             else if (m.isNotEmpty()) e.engineMode = m;
         }

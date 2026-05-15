@@ -559,6 +559,9 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
     {
         float scanBase = p.wtAutoScan ? 0.0f : p.baseScan;
         float scanMod = scanBase + p.driftScanOffset;
+        if (p.ampTarget == EnvTarget::Scan) scanMod += ampEnvVal;
+        if (p.mod1Target == EnvTarget::Scan) scanMod += mod1EnvVal;
+        if (p.mod2Target == EnvTarget::Scan) scanMod += mod2EnvVal;
         if (p.lfo1Target == LfoTarget::Scan) scanMod += lfo1Val;
         if (p.lfo2Target == LfoTarget::Scan) scanMod += lfo2Val;
         if (p.lfo3Target == LfoTarget::Scan) scanMod += lfo3Val;
@@ -577,6 +580,9 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
             * juce::jlimit(0.0625f, 16.0f, 1.0f + pitchMod));
 
         float scanMod = p.baseScan + p.driftScanOffset;
+        if (p.ampTarget == EnvTarget::Scan) scanMod += ampEnvVal;
+        if (p.mod1Target == EnvTarget::Scan) scanMod += mod1EnvVal;
+        if (p.mod2Target == EnvTarget::Scan) scanMod += mod2EnvVal;
         if (p.lfo1Target == LfoTarget::Scan) scanMod += lfo1Val;
         if (p.lfo2Target == LfoTarget::Scan) scanMod += lfo2Val;
         if (p.lfo3Target == LfoTarget::Scan) scanMod += lfo3Val;
@@ -859,6 +865,9 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                     * juce::jlimit(0.0625f, 16.0f, 1.0f + pitchMod));
 
                 float scanMod = p.baseScan + p.driftScanOffset;
+                if (p.ampTarget == EnvTarget::Scan) scanMod += ampEnvVal;
+                if (p.mod1Target == EnvTarget::Scan) scanMod += mod1EnvVal;
+                if (p.mod2Target == EnvTarget::Scan) scanMod += mod2EnvVal;
                 if (p.lfo1Target == LfoTarget::Scan) scanMod += lfo1Val;
                 if (p.lfo2Target == LfoTarget::Scan) scanMod += lfo2Val;
                 if (p.lfo3Target == LfoTarget::Scan) scanMod += lfo3Val;
@@ -890,6 +899,9 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
 
                 float scanBase = p.wtAutoScan ? 0.0f : p.baseScan;
                 float scanMod = scanBase + p.driftScanOffset;
+                if (p.ampTarget == EnvTarget::Scan) scanMod += ampEnvVal;
+                if (p.mod1Target == EnvTarget::Scan) scanMod += mod1EnvVal;
+                if (p.mod2Target == EnvTarget::Scan) scanMod += mod2EnvVal;
                 if (p.lfo1Target == LfoTarget::Scan) scanMod += lfo1Val;
                 if (p.lfo2Target == LfoTarget::Scan) scanMod += lfo2Val;
                 if (p.lfo3Target == LfoTarget::Scan) scanMod += lfo3Val;

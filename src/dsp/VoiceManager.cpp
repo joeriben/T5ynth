@@ -24,7 +24,7 @@ const char* engineModeName(SynthVoice::EngineMode mode)
     {
         case SynthVoice::EngineMode::Sampler:   return "Sampler";
         case SynthVoice::EngineMode::Wavetable: return "Wavetable";
-        case SynthVoice::EngineMode::Freeze:    return "Freeze";
+        case SynthVoice::EngineMode::Freeze:    return "Granular";
     }
     return "?";
 }
