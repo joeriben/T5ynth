@@ -201,6 +201,11 @@ public:
                                              double bufferSampleRate) const;
     static const char* normalizeModeName(NormalizeMode mode);
     NormalizeMode chooseNormalizeMode(const NormalizeAnalysis& analysis) const;
+    /** Apply the sampler's signal-aware normalization to an external buffer region. */
+    void normalizeBuffer(juce::AudioBuffer<float>& buf,
+                         int regionStart,
+                         int regionEnd,
+                         double bufferSampleRate) const;
 
 private:
     struct PlaybackSnapshot
@@ -341,11 +346,6 @@ private:
 
     float chooseNormalizeGain(const NormalizeAnalysis& analysis, NormalizeMode mode) const;
 
-    /** Apply signal-aware linear normalization to the audible play region only. */
-    void normalizeBuffer(juce::AudioBuffer<float>& buf,
-                         int regionStart,
-                         int regionEnd,
-                         double bufferSampleRate) const;
     void applyGainToRegion(juce::AudioBuffer<float>& buf,
                            int regionStart,
                            int regionEnd,

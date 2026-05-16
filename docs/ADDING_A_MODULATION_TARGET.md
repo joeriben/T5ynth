@@ -48,9 +48,10 @@ source classes do **not** share a single enum. They share the *concept* of
 Declared in `src/PluginProcessor.cpp:294-304`:
 
 ```
-0="---"  1=DCA  2=Filter  3=Pitch  4=Dly Time  5=Dly FB
-6=Dly Mix 7=Rev Mix 8=Noise Lvl 9=LFO1 Rate 10=LFO1 Depth
-11=LFO2 Rate 12=LFO2 Depth 13=LFO3 Rate 14=LFO3 Depth 15=Scan
+0="---"  1=DCA  2=Filter  3=Scan  4=Pitch  5=Dly Time
+6=Dly FB 7=Dly Mix 8=Rev Mix 9=Noise Lvl 10=LFO1 Rate
+11=LFO1 Depth 12=LFO2 Rate 13=LFO2 Depth 14=LFO3 Rate
+15=LFO3 Depth
 ```
 
 Mirrored as compile-time constants in `src/dsp/BlockParams.h:5-21`
@@ -76,7 +77,8 @@ Mirrored again in `src/gui/SynthPanel.cpp:99-100`.
 
 Note that this list is a **subset** of the envelope list (no DCA, no LFO
 self-modulation) and the indices therefore do **not** line up with
-`EnvTarget`. `EnvTarget::Filter == 2` but `LfoTarget::Filter == 1`.
+`EnvTarget`. The shared visible order is aligned: Filter, Scan, Pitch, Delay,
+Reverb, Noise.
 
 ### 2.3 Drift LFO targets (`drift1_target`, `drift2_target`, `drift3_target`)
 

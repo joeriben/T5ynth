@@ -98,6 +98,57 @@ bool samePrepareConfig(const SamplePlayer::PrepareConfig& a,
         && sameFloat(a.loopStartFrac, b.loopStartFrac)
         && sameFloat(a.loopEndFrac, b.loopEndFrac);
 }
+
+juce::AudioBuffer<float> makeFreezeLoadBuffer(const juce::AudioBuffer<float>& source,
+                                              double sourceRate,
+                                              bool normalizeOn,
+                                              float normalizeStartFrac,
+                                              float normalizeEndFrac,
+                                              const SamplePlayer& normalizer)
+{
+    juce::AudioBuffer<float> buffer;
+    const int numSamples = source.getNumSamples();
+    const int numChannels = source.getNumChannels();
+    if (numSamples > 0 && numChannels > 0)
+    {
+        // Freeze renders from a mono snapshot, so normalize the exact folded
+        // signal it will play instead of normalizing stereo and losing level
+        // later through (L+R)/channels.
+        buffer.setSize(1, numSamples, false, false, true);
+        buffer.clear();
+
+        const float invChannels = 1.0f / static_cast<float>(numChannels);
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            const float* src = source.getReadPointer(ch);
+            float* dst = buffer.getWritePointer(0);
+            for (int i = 0; i < numSamples; ++i)
+                dst[i] += src[i] * invChannels;
+        }
+    }
+
+    if (!normalizeOn || buffer.getNumSamples() <= 0 || buffer.getNumChannels() <= 0)
+        return buffer;
+
+    const int freezeSamples = buffer.getNumSamples();
+    float startFrac = juce::jlimit(0.0f, 1.0f, normalizeStartFrac);
+    float endFrac = juce::jlimit(0.0f, 1.0f, normalizeEndFrac);
+    if (endFrac < startFrac)
+        std::swap(startFrac, endFrac);
+
+    int normStart = juce::roundToInt(startFrac * static_cast<float>(freezeSamples));
+    int normEnd = juce::roundToInt(endFrac * static_cast<float>(freezeSamples));
+    normStart = juce::jlimit(0, freezeSamples, normStart);
+    normEnd = juce::jlimit(normStart, freezeSamples, normEnd);
+    if (normEnd <= normStart)
+    {
+        normStart = 0;
+        normEnd = freezeSamples;
+    }
+
+    normalizer.normalizeBuffer(buffer, normStart, normEnd, sourceRate);
+    return buffer;
+}
 }
 
 T5ynthProcessor::T5ynthProcessor()
@@ -1299,11 +1350,16 @@ void T5ynthProcessor::syncSamplerSettingsFromParametersLocked()
     masterSampler.setLoopOptimizeLevel(static_cast<int>(parameters.getRawParameterValue(PID::loopOptimize)->load()));
 }
 
-void T5ynthProcessor::storeSamplerReprepareSource(const juce::AudioBuffer<float>& buffer, double sampleRate)
+void T5ynthProcessor::storeSamplerReprepareSource(const juce::AudioBuffer<float>& buffer,
+                                                  double sampleRate,
+                                                  float normalizeStartFrac,
+                                                  float normalizeEndFrac)
 {
     std::lock_guard<std::mutex> lock(samplerReprepareSourceMutex);
     samplerReprepareSourceBuffer.makeCopyOf(buffer);
     samplerReprepareSourceRate = sampleRate > 0.0 ? sampleRate : 44100.0;
+    samplerReprepareNormalizeStartFrac = juce::jlimit(0.0f, 1.0f, normalizeStartFrac);
+    samplerReprepareNormalizeEndFrac = juce::jlimit(0.0f, 1.0f, normalizeEndFrac);
     samplerReprepareSourceValid = samplerReprepareSourceBuffer.getNumSamples() > 0
                                && samplerReprepareSourceBuffer.getNumChannels() > 0;
     ++samplerReprepareSourceVersion;
@@ -1323,6 +1379,8 @@ bool T5ynthProcessor::serviceSamplerReprepare()
     juce::AudioBuffer<float> source;
     double sourceRate = 44100.0;
     juce::uint64 sourceVersion = 0;
+    float normalizeStartFrac = 0.0f;
+    float normalizeEndFrac = 1.0f;
     {
         std::lock_guard<std::mutex> lock(samplerReprepareSourceMutex);
         if (!samplerReprepareSourceValid)
@@ -1330,9 +1388,17 @@ bool T5ynthProcessor::serviceSamplerReprepare()
         source.makeCopyOf(samplerReprepareSourceBuffer);
         sourceRate = samplerReprepareSourceRate;
         sourceVersion = samplerReprepareSourceVersion;
+        normalizeStartFrac = samplerReprepareNormalizeStartFrac;
+        normalizeEndFrac = samplerReprepareNormalizeEndFrac;
     }
 
     auto prepared = masterSampler.prepareBufferLoad(source, sourceRate, config);
+    auto preparedFreezeBuffer = makeFreezeLoadBuffer(source,
+                                                     sourceRate,
+                                                     config.normalizeOn,
+                                                     normalizeStartFrac,
+                                                     normalizeEndFrac,
+                                                     masterSampler);
 
     {
         std::lock_guard<std::mutex> lock(samplerReprepareSourceMutex);
@@ -1354,7 +1420,9 @@ bool T5ynthProcessor::serviceSamplerReprepare()
         }
 
         masterSampler.applyPreparedBufferLoad(std::move(prepared), config);
+        masterFreeze.loadBuffer(preparedFreezeBuffer, sourceRate);
         voiceManager.distributeSamplerBuffer(masterSampler);
+        voiceManager.distributeFreezeBuffer(masterFreeze);
     }
 
     return true;
@@ -3079,7 +3147,13 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
     int maxFrames = frameCounts[juce::jlimit(0, 3, fcIdx)];
 
     auto preparedSamplerLoad = masterSampler.prepareBufferLoad(feedBuffer, sr, samplerConfig);
-    storeSamplerReprepareSource(preparedSamplerLoad.originalBuffer, sr);
+    storeSamplerReprepareSource(preparedSamplerLoad.originalBuffer, sr, activeStartFrac, activeEndFrac);
+    auto preparedFreezeBuffer = makeFreezeLoadBuffer(feedBuffer,
+                                                     sr,
+                                                     samplerConfig.normalizeOn,
+                                                     activeStartFrac,
+                                                     activeEndFrac,
+                                                     masterSampler);
     juce::AudioBuffer<float> preparedGeneratedAudio;
     preparedGeneratedAudio.makeCopyOf(feedBuffer);
     juce::AudioBuffer<float> preparedWaveformSnapshot;
@@ -3105,7 +3179,7 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
         masterOsc.extractFramesFromBuffer(feedBuffer, sr, extractStart, extractEnd, maxFrames);
     else
         masterOsc.extractContiguousFrames(feedBuffer, sr, extractStart, extractEnd);
-    masterFreeze.loadBuffer(feedBuffer, sr);
+    masterFreeze.loadBuffer(preparedFreezeBuffer, sr);
 
     {
         // Guard engine-state mutation against the realtime callback. The Linux
@@ -3184,7 +3258,13 @@ void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& proce
         else
             masterOsc.extractContiguousFrames(preparedWaveformSnapshot, generatedSampleRate, start, end);
     }
-    masterFreeze.loadBuffer(processed, generatedSampleRate);
+    auto preparedFreezeBuffer = makeFreezeLoadBuffer(processed,
+                                                     generatedSampleRate,
+                                                     samplerConfig.normalizeOn,
+                                                     0.0f,
+                                                     1.0f,
+                                                     masterSampler);
+    masterFreeze.loadBuffer(preparedFreezeBuffer, generatedSampleRate);
     {
         const juce::ScopedLock sl (getCallbackLock());
 

@@ -276,30 +276,31 @@ namespace PID {
 
 // ── Modulation envelope targets ──
 namespace EnvTarget {
-    // Scan is appended to preserve the numeric meaning of existing saved
-    // target indices while making envelopes available as a Scan source.
+    // Keep the shared target order aligned with LfoTarget: Filter, Scan,
+    // Pitch, Delay, Reverb, Noise. Env-only targets stay in their own blocks.
     enum : int {
         None = 0,
         DCA = 1,
         Filter = 2,
-        Pitch = 3,
-        DelayTime = 4,
-        DelayFB = 5,
-        DelayMix = 6,
-        ReverbMix = 7,
-        NoiseLevel = 8,
-        LFO1Rate = 9,
-        LFO1Depth = 10,
-        LFO2Rate = 11,
-        LFO2Depth = 12,
-        LFO3Rate = 13,
-        LFO3Depth = 14,
-        Scan = 15
+        Scan = 3,
+        Pitch = 4,
+        DelayTime = 5,
+        DelayFB = 6,
+        DelayMix = 7,
+        ReverbMix = 8,
+        NoiseLevel = 9,
+        LFO1Rate = 10,
+        LFO1Depth = 11,
+        LFO2Rate = 12,
+        LFO2Depth = 13,
+        LFO3Rate = 14,
+        LFO3Depth = 15
     };
     static constexpr ChoiceEntry kEntries[] = {
         { "none",       "---"        },
         { "dca",        "DCA"        },
         { "filter",     "Filter"     },
+        { "scan",       "Scan"       },
         { "pitch",      "Pitch"      },
         { "delay_time", "Dly Time"   },
         { "delay_fb",   "Dly FB"     },
@@ -311,11 +312,10 @@ namespace EnvTarget {
         { "lfo2_rate",  "LFO2 Rate"  },
         { "lfo2_depth", "LFO2 Depth" },
         { "lfo3_rate",  "LFO3 Rate"  },
-        { "lfo3_depth", "LFO3 Depth" },
-        { "scan",       "Scan"       }
+        { "lfo3_depth", "LFO3 Depth" }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(Scan + 1 == kCount,
+    static_assert(LFO3Depth + 1 == kCount,
                   "EnvTarget enum and kEntries are out of sync.");
 }
 

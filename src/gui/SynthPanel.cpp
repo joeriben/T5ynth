@@ -508,7 +508,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     crossfadeRow->updateValue();
 
     // Normalize toggle
-    normalizeToggle.setConnectedEdges(juce::Button::ConnectedOnRight);
+    normalizeToggle.setConnectedEdges(juce::Button::ConnectedOnLeft);
     normalizeToggle.setColour(juce::TextButton::buttonColourId, kSurface);
     normalizeToggle.setColour(juce::TextButton::buttonOnColourId, kAccent);
     normalizeToggle.setColour(juce::TextButton::textColourOffId, kDim);
@@ -1183,8 +1183,10 @@ void SynthPanel::updateVisibility()
     // Sampler-only controls
     crossfadeRow->setVisible(isSampler);
     loopOptimizeBtn.setVisible(isSampler);
-    normalizeToggle.setVisible(isSampler);
-    hfBoostBtn.setVisible(isSampler);
+    normalizeToggle.setVisible(isSampler || isFreeze);
+    hfBoostBtn.setVisible(true);
+    hfBoostBtn.setConnectedEdges(isWavetable ? 0 : juce::Button::ConnectedOnRight);
+    normalizeToggle.setConnectedEdges(juce::Button::ConnectedOnLeft);
     for (int i = 0; i < kNumOctBtns; ++i)
         octBtns[i].setVisible(isSampler || isFreeze);
 
@@ -1639,7 +1641,7 @@ void SynthPanel::resized()
     auto layoutNoiseStrip = [&](juce::Rectangle<int>& row)
     {
         const int desiredCellW = juce::roundToInt(f * 4.0f);
-        const int minLevelW = juce::roundToInt(f * 7.0f);
+        const int minLevelW = juce::roundToInt(f * 11.5f);
         const int desiredStripW = desiredCellW * kNumNoiseBtns + minLevelW;
         const int stripW = juce::jmin(desiredStripW, row.getWidth());
         auto noiseArea = row.removeFromRight(stripW);
@@ -1668,7 +1670,7 @@ void SynthPanel::resized()
 
         if (isFreeze)
         {
-            // ── Granular: position dot + texture + stereo + octave + fixed noise strip ──
+            // ── Granular: position dot + texture + stereo + HF/Norm + octave + fixed noise strip ──
             auto granularRow = area.removeFromTop(rowH);
             layoutNoiseStrip(granularRow);
 
@@ -1678,6 +1680,12 @@ void SynthPanel::resized()
             for (int i = 0; i < kNumOctBtns; ++i)
                 octBtns[i].setBounds(octaveArea.removeFromLeft(oCellW));
             octaveSwitchBounds = octBtns[0].getBounds().getUnion(octBtns[kNumOctBtns - 1].getBounds());
+
+            const int normW = juce::roundToInt(f * 4.0f);
+            const int hfW = juce::roundToInt(f * 2.8f);
+            normalizeToggle.setBounds(granularRow.removeFromRight(normW));
+            hfBoostBtn.setBounds(granularRow.removeFromRight(hfW));
+            granularRow.removeFromRight(juce::roundToInt(f * 0.8f));
 
             const int tCellW = juce::roundToInt(f * 3.8f);
             for (int i = 0; i < kNumFreezeTextureBtns; ++i)
@@ -1693,7 +1701,7 @@ void SynthPanel::resized()
         }
         else
         {
-            // [→][↻][⇄] [Nf] [32|64|128|256] [Smooth] [Auto] | [White|Pink|Brown] Lvl[===]
+            // [→][↻][⇄] [Nf] [32|64|128|256] [Smooth] [Auto] [HF] | [White|Pink|Brown] Lvl[===]
             auto wtRow = area.removeFromTop(rowH);
             layoutNoiseStrip(wtRow);
             auto leftCol = wtRow;
@@ -1721,6 +1729,9 @@ void SynthPanel::resized()
             leftCol.removeFromLeft(juce::roundToInt(f * 0.25f));
             int autoW = juce::jmin(juce::roundToInt(f * 3.8f), leftCol.getWidth());
             autoScanToggle.setBounds(leftCol.removeFromLeft(autoW));
+            leftCol.removeFromLeft(juce::roundToInt(f * 0.35f));
+            int hfW = juce::jmin(juce::roundToInt(f * 2.8f), leftCol.getWidth());
+            hfBoostBtn.setBounds(leftCol.removeFromLeft(hfW));
 
             area.removeFromTop(gap);
             engineCardBottom = juce::jmax(smoothToggle.getBottom(), noiseLevelRow->getBottom());
@@ -1767,7 +1778,6 @@ void SynthPanel::resized()
         hfBoostBtn.setBounds(leftCol.removeFromRight(hfW));
         leftCol.removeFromRight(2);
 
-        // Xfade gets remaining space
         crossfadeRow->setBounds(leftCol);
 
         area.removeFromTop(gap);

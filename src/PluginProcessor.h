@@ -205,7 +205,10 @@ private:
     void syncSamplerSettingsFromParametersLocked();
     bool serviceSamplerReprepare();
     void samplerReprepareThreadMain();
-    void storeSamplerReprepareSource(const juce::AudioBuffer<float>& buffer, double sampleRate);
+    void storeSamplerReprepareSource(const juce::AudioBuffer<float>& buffer,
+                                     double sampleRate,
+                                     float normalizeStartFrac = 0.0f,
+                                     float normalizeEndFrac = 1.0f);
 
     // Engine (mode is stored in APVTS "engine_mode", no separate member)
 
@@ -224,6 +227,8 @@ private:
     juce::AudioBuffer<float> samplerReprepareSourceBuffer;
     double samplerReprepareSourceRate = 44100.0;
     juce::uint64 samplerReprepareSourceVersion = 0;
+    float samplerReprepareNormalizeStartFrac = 0.0f;
+    float samplerReprepareNormalizeEndFrac = 1.0f;
     bool samplerReprepareSourceValid = false;
 
     // DSP — global (shared across voices, post-sum)
