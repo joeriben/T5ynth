@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.9.0-beta.1 — 2026-05-16
+
+- **New: Granular engine.** Adds a third engine beside Sampler and Wavetable. Granular reuses loaded/generated sample material but renders through its own texture engine with pitch-independent grain timing, conservative texture macros, stereo spread, and sample-near defaults.
+- **UI: Granular integration.** Engine selection now exposes Sampler / Wavetable / Granular, with the Granular controls aligned to the existing one-line engine menu style.
+- **Fix: Granular normalisation and modulation targets.** Granular `Norm` now normalises the mono freeze input that the engine actually renders from, and Env/LFO target order is aligned around Filter / Scan / Pitch / Delay / Reverb / Noise.
+- **UI: compact startup layout.** LFO, Drift, and Regenerate controls now size their menu/button cells from actual label text so the default window width does not crush Scan/Magnitude/max controls.
+
 ## v1.8.0-beta.1 — 2026-05-10
 
 - **New: sequencer one-shot sample slots.** Each Step Sequencer step now has three compact sample slots for drum-style one-shots. Samples are copied physically from the current P1→P3 waveform region, each slot has Normal / Accent / Mute cycling, and the slots are saved inside presets together with their WAV data.

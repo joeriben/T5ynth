@@ -1291,6 +1291,24 @@ static int modulationForcedLabelWidthFor(SliderRow& row, int rowWidth, int curve
     return width;
 }
 
+template <size_t N>
+static int choiceBoxWidthFor(const ChoiceEntry (&entries)[N], float f, int fallbackWidth)
+{
+    const float fontSize = juce::jmax(kUiControlFontMin, juce::jmin(f, 13.0f));
+    int maxTextWidth = 0;
+    for (const auto& e : entries)
+        maxTextWidth = juce::jmax(maxTextWidth,
+                                  measureTextWidth(juce::String(juce::CharPointer_UTF8(e.label)), fontSize));
+
+    return juce::jmax(fallbackWidth, maxTextWidth + juce::roundToInt(fontSize * 2.8f));
+}
+
+static int buttonTextWidthFor(const juce::String& text, float f, int fallbackWidth)
+{
+    const float fontSize = juce::jmax(kUiControlFontMin, juce::jmin(f, 13.0f));
+    return juce::jmax(fallbackWidth, measureTextWidth(text, fontSize) + juce::roundToInt(fontSize * 1.8f));
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Layout helpers
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1341,8 +1359,8 @@ void SynthPanel::layoutLfo(LfoSection& lfo, juce::Rectangle<int>& area, float f,
     auto row = area.removeFromTop(rowH);
 
     int headerW = juce::roundToInt(f * 4.0f);   // "LFO 1"
-    int targetW = juce::roundToInt(f * 7.0f);
-    int waveW   = juce::roundToInt(f * 4.5f);
+    int targetW = choiceBoxWidthFor(LfoTarget::kEntries, f, juce::roundToInt(f * 7.0f));
+    int waveW   = choiceBoxWidthFor(LfoWave::kEntries,   f, juce::roundToInt(f * 4.5f));
     int modeW   = juce::roundToInt(f * 2.0f);   // 1-char F/T cycling button
     int clockW  = juce::roundToInt(f * 2.0f);   // 1-icon clock button
     int boxGap  = 4;
@@ -1371,7 +1389,7 @@ void SynthPanel::layoutAftertouch(juce::Rectangle<int>& area, float f, int rowH,
     auto row = area.removeFromTop(rowH);
 
     const int headerW = juce::roundToInt(f * 2.5f);
-    const int targetW = juce::roundToInt(f * 8.5f);
+    const int targetW = choiceBoxWidthFor(AftertouchTarget::kEntries, f, juce::roundToInt(f * 8.5f));
     const int boxGap = 4;
 
     aftertouchLabel.setBounds(row.removeFromLeft(headerW));
@@ -1390,8 +1408,8 @@ void SynthPanel::layoutDrift(DriftSection& drift, juce::Rectangle<int>& area, fl
     auto row = area.removeFromTop(rowH);
 
     int headerW = juce::roundToInt(f * 2.5f);   // "D1"
-    int targetW = juce::roundToInt(f * 7.5f);
-    int waveW   = juce::roundToInt(f * 4.5f);
+    int targetW = choiceBoxWidthFor(DriftTarget::kEntries, f, juce::roundToInt(f * 7.5f));
+    int waveW   = choiceBoxWidthFor(DriftWave::kEntries,   f, juce::roundToInt(f * 4.5f));
     int clockW  = juce::roundToInt(f * 2.0f);
     int boxGap  = 4;
 
@@ -1950,14 +1968,17 @@ void SynthPanel::resized()
     {
         auto regenRow = regenHeaderRow.reduced(3, 2);
 
-        int regenCellW = juce::roundToInt(f * 3.1f);
         for (int i = 0; i < kNumRegenBtns; ++i)
         {
             int edges = 0;
             if (i > 0) edges |= juce::Button::ConnectedOnLeft;
             if (i < kNumRegenBtns - 1) edges |= juce::Button::ConnectedOnRight;
             regenBtns[i].setConnectedEdges(edges);
-            regenBtns[i].setBounds(regenRow.removeFromLeft(regenCellW));
+
+            const int fallbackW = i < 2 ? juce::roundToInt(f * 3.5f)
+                                        : juce::roundToInt(f * 4.4f);
+            regenBtns[i].setBounds(regenRow.removeFromLeft(
+                buttonTextWidthFor(regenBtns[i].getButtonText(), f, fallbackW)));
         }
         regenSwitchBounds = regenBtns[0].getBounds()
             .getUnion(regenBtns[kNumRegenBtns - 1].getBounds());
