@@ -263,7 +263,7 @@ private:
     void layoutLfo(LfoSection& lfo, juce::Rectangle<int>& area, float f, int rowH, int gap);
     void layoutAftertouch(juce::Rectangle<int>& area, float f, int rowH, int gap);
     void layoutDrift(DriftSection& drift, juce::Rectangle<int>& area, float f, int rowH, int gap);
-    void layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> modHeaderRow, int modToggleW, float f, int rowH, int gap, int headerH, float headerFs);
+    void layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> modHeaderRow, float f, int rowH, int gap, int headerH, float headerFs);
     void layoutFilterEasy(juce::Rectangle<int> area, float f, int rowH, int gap);
     void layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float f, int rowH, int gap);
     void layoutLfoEasy(LfoSection& lfo, juce::Rectangle<int> area, float f, int rowH, int gap);

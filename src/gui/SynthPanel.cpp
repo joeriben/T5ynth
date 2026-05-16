@@ -2211,7 +2211,7 @@ void SynthPanel::layoutGenerateEasy(juce::Rectangle<int> area, float f, int rowH
     }
 }
 
-void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> modHeaderRow, int modToggleW, float f, int rowH, int gap, int headerH, float headerFs)
+void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> modHeaderRow, float f, int rowH, int gap, int headerH, float headerFs)
 {
     juce::ignoreUnused(headerH);
 
@@ -2325,8 +2325,6 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
         filterHeader.setBounds(modHeaderRow.removeFromLeft(stackW));
         modHeaderRow.removeFromLeft(colGap);
         modHeader.setBounds(modHeaderRow);
-        modModeToggle.setBounds(modHeaderRow.removeFromRight(modToggleW).reduced(2, 2));
-        modModeToggle.toFront(false);
 
         const int blockH = area.getHeight();
         auto block = area.removeFromTop(blockH);
@@ -2358,8 +2356,6 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
         filterHeader.setBounds(modHeaderRow.removeFromLeft(juce::jmin(filterChipW, modHeaderRow.getWidth())));
         modHeaderRow.removeFromLeft(juce::jmax(gap, 4));
         modHeader.setBounds(modHeaderRow);
-        modModeToggle.setBounds(modHeaderRow.removeFromRight(modToggleW).reduced(2, 2));
-        modModeToggle.toFront(false);
     }
 
     const int totalGap = blockGap * 4;
@@ -2683,8 +2679,16 @@ void SynthPanel::resized()
     float headerFs = static_cast<float>(headerH) * 0.85f;
     int headerGap = juce::jmax(3, headerH / 5);  // ~20% of header height
 
+    // The Easy/Adv toggle lives in the Engine title because it controls the
+    // whole synth panel (filter, envelopes, LFOs, drift, generate, …), not
+    // just the modulation section.
+    const int modToggleW = juce::jlimit(58, 78,
+        measureTextWidth(modModeToggle.getButtonText(), juce::jmax(kUiControlFontMin, headerFs * 0.72f)) + 16);
     engineHeader.setFont(juce::FontOptions(headerFs));
-    engineHeader.setBounds(area.removeFromTop(headerH));
+    auto engineHeaderRow = area.removeFromTop(headerH);
+    modModeToggle.setBounds(engineHeaderRow.removeFromRight(modToggleW).reduced(2, 2));
+    modModeToggle.toFront(false);
+    engineHeader.setBounds(engineHeaderRow);
     area.removeFromTop(headerGap);
 
     // ── Engine mode + Voice count: compact switchboxes ──
@@ -2984,22 +2988,18 @@ void SynthPanel::resized()
     modHeader.setColour(juce::Label::backgroundColourId, kModCol.withAlpha(0.7f));
     modHeader.setFont(juce::FontOptions(headerFs));
     auto modHeaderBounds = area.removeFromTop(headerH);
-    const int modToggleW = juce::jlimit(58, 78,
-        measureTextWidth(modModeToggle.getButtonText(), juce::jmax(kUiControlFontMin, headerFs * 0.72f)) + 16);
 
     if (modEasyMode)
     {
         // Easy mode: layoutModEasy splits the header row between FILTER chip and CONTROLS bar.
         area.removeFromTop(headerGap);
         area.removeFromBottom(juce::jmax(headerH, juce::roundToInt(f * 1.0f)));
-        layoutModEasy(area, modHeaderBounds, modToggleW, f, rowH, gap, headerH, headerFs);
+        layoutModEasy(area, modHeaderBounds, f, rowH, gap, headerH, headerFs);
         modCardBottom = area.getY();
         return;
     }
 
     modHeader.setBounds(modHeaderBounds);
-    modModeToggle.setBounds(modHeaderBounds.removeFromRight(modToggleW).reduced(2, 2));
-    modModeToggle.toFront(false);
     area.removeFromTop(headerGap);
 
     envTabSwitchBounds = {};
