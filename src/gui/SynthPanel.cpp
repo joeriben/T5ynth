@@ -1131,6 +1131,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         for (int i = 0; i < kNumRegenBtns; ++i)
             regenBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
     };
+    addAndMakeVisible(regenHidden);
     for (int i = 0; i < kNumRegenBtns; ++i)
     {
         regenBtns[i].setButtonText(regenItems[i]);
@@ -1494,11 +1495,12 @@ void SynthPanel::updateVisibility()
     setDriftControlsVisible(drift2, activeDriftTab == 1, modEasyMode);
     setDriftControlsVisible(drift3, activeDriftTab == 2, modEasyMode);
     driftHeader.setVisible(!modEasyMode);
-    regenHeader.setVisible(!modEasyMode);
+    regenHeader.setVisible(true);
     for (int i = 0; i < kNumRegenBtns; ++i)
         regenBtns[i].setVisible(!modEasyMode);
+    regenHidden.setVisible(modEasyMode);
     if (crossfadeRegenRow)
-        crossfadeRegenRow->setVisible(!modEasyMode);
+        crossfadeRegenRow->setVisible(true);
 
     syncModTabButtons();
     updateModModeToggleVisual();
@@ -2175,6 +2177,40 @@ void SynthPanel::layoutDriftEasy(DriftSection& drift, juce::Rectangle<int> area,
     drift.depthRow->setBounds(amtCell);
 }
 
+void SynthPanel::layoutGenerateEasy(juce::Rectangle<int> area, float f, int rowH, int gap)
+{
+    const int rowGap = juce::jmax(gap, 6);
+    const float chipFontSize = juce::jmax(kUiControlFontMin,
+                                          juce::jmin(13.0f, static_cast<float>(rowH) * 0.58f));
+
+    // Header chip "GENERATE" — drift-orange (subordinated to drift).
+    auto headerRow = area.removeFromTop(juce::jmin(rowH, area.getHeight()));
+    const int headerW = juce::jmax(72, measureTextWidth("GENERATE", chipFontSize) + 18);
+    regenHeader.setText(" GENERATE", juce::dontSendNotification);
+    regenHeader.setFont(juce::FontOptions(chipFontSize, juce::Font::bold));
+    regenHeader.setJustificationType(juce::Justification::centred);
+    regenHeader.setColour(juce::Label::textColourId, juce::Colour(0xff0e1018));
+    regenHeader.setColour(juce::Label::backgroundColourId, kDriftCol);
+    regenHeader.setBounds(headerRow.removeFromLeft(juce::jmin(headerW, headerRow.getWidth())));
+    area.removeFromTop(rowGap);
+
+    // Mode dropdown — single ComboBox replaces the 5-way button strip in easy mode.
+    auto comboRow = area.removeFromTop(juce::jmin(rowH, area.getHeight()));
+    regenHidden.setBounds(comboRow);
+    area.removeFromTop(rowGap);
+    regenSwitchBounds = {};
+
+    // Vertical XFade slider fills the remaining column height.
+    if (crossfadeRegenRow)
+    {
+        crossfadeRegenRow->clearForcedLabelWidth();
+        crossfadeRegenRow->clearForcedValueWidth();
+        crossfadeRegenRow->setVerticalMode(true);
+        crossfadeRegenRow->getLabel().setText("XFade", juce::dontSendNotification);
+        crossfadeRegenRow->setBounds(area);
+    }
+}
+
 void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> modHeaderRow, int modToggleW, float f, int rowH, int gap, int headerH, float headerFs)
 {
     juce::ignoreUnused(headerH);
@@ -2278,10 +2314,14 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
                                          juce::jmax(1, blockW),
                                          juce::roundToInt(static_cast<float>(previousLfoW) * 0.60f));
 
+        // 5 columns: filter | env | lfo | drift | generate. Generate is the narrowest
+        // (subordinated to drift) — give it ~55% of a stack column.
         const int stackW = juce::jmin(easyModStackWidth,
-                                      juce::jmax(1, (blockW - envW - colGap * 3) / 3));
+                                      juce::jmax(1, (blockW - envW - colGap * 4) * 100 / 355));
+        const int generateW = juce::jmax(juce::roundToInt(f * 7.0f),
+                                         juce::roundToInt(static_cast<float>(stackW) * 0.55f));
 
-        // Split header row: FILTER chip over filter column, CONTROLS bar over Env+LFO+Drift.
+        // Split header row: FILTER chip over filter column, CONTROLS bar over Env+LFO+Drift+Generate.
         filterHeader.setBounds(modHeaderRow.removeFromLeft(stackW));
         modHeaderRow.removeFromLeft(colGap);
         modHeader.setBounds(modHeaderRow);
@@ -2296,7 +2336,9 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
         block.removeFromLeft(colGap);
         auto lfoArea = block.removeFromLeft(stackW);
         block.removeFromLeft(colGap);
-        auto driftArea = block.removeFromLeft(juce::jmin(stackW, block.getWidth()));
+        auto driftArea = block.removeFromLeft(stackW);
+        block.removeFromLeft(colGap);
+        auto generateArea = block.removeFromLeft(juce::jmin(generateW, block.getWidth()));
 
         filterEasyBlockBounds = filterArea;
         layoutFilterEasy(filterArea.reduced(contentInset, contentInset), f, rowH, gap);
@@ -2304,6 +2346,9 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
                     [&](juce::Rectangle<int> content) { layoutEnvEasy(*env, content, f, rowH, gap); });
         layoutLfoStack(lfoArea);
         layoutDriftStack(driftArea);
+
+        generateEasyBlockBounds = generateArea;
+        layoutGenerateEasy(generateArea.reduced(contentInset, contentInset), f, rowH, gap);
         return;
     }
 
@@ -2317,12 +2362,13 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
         modModeToggle.toFront(false);
     }
 
-    const int totalGap = blockGap * 3;
+    const int totalGap = blockGap * 4;
     const int usableH = juce::jmax(0, area.getHeight() - totalGap);
-    const int filterH = usableH * 8 / 39;
-    const int envH = usableH * 7 / 39;
-    const int lfoH = usableH * 12 / 39;
-    const int driftH = usableH - filterH - envH - lfoH;
+    const int filterH = usableH * 8 / 44;
+    const int envH = usableH * 7 / 44;
+    const int lfoH = usableH * 12 / 44;
+    const int generateH = usableH * 5 / 44;
+    const int driftH = usableH - filterH - envH - lfoH - generateH;
 
     auto filterArea = area.removeFromTop(filterH);
     filterEasyBlockBounds = filterArea;
@@ -2340,6 +2386,11 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
 
     auto driftArea = area.removeFromTop(driftH);
     layoutDriftStack(driftArea);
+    area.removeFromTop(blockGap);
+
+    auto generateArea = area.removeFromTop(generateH);
+    generateEasyBlockBounds = generateArea;
+    layoutGenerateEasy(generateArea.reduced(contentInset, contentInset), f, rowH, gap);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -2396,6 +2447,7 @@ void SynthPanel::paint(juce::Graphics& g)
         {
             bot = juce::jmax(filterEasyBlockBounds.getBottom(), envEasyBlockBounds.getBottom(),
                              lfoEasyBlockBounds.getBottom(), driftEasyBlockBounds.getBottom());
+            bot = juce::jmax(bot, generateEasyBlockBounds.getBottom());
             bot = juce::jmax(bot, modCardBottom);
         }
         else
@@ -2432,6 +2484,7 @@ void SynthPanel::paint(juce::Graphics& g)
             paintEasyBlock(envEasyBlockBounds, kModCol);
             paintEasyBlock(lfoEasyBlockBounds, kLfoCol);
             paintEasyBlock(driftEasyBlockBounds, kDriftCol);
+            paintEasyBlock(generateEasyBlockBounds, kDriftCol);
 
             for (const auto& moduleBounds : lfoEasyModuleBounds)
             {
@@ -2458,6 +2511,7 @@ void SynthPanel::paint(juce::Graphics& g)
             paintSwitchBoxBorder(g, filterAlgSwitchBounds);
             paintSwitchBoxBorder(g, filterSlopeSwitchBounds);
             paintSwitchBoxBorder(g, envTabSwitchBounds);
+            paintSwitchBoxBorder(g, regenSwitchBounds);
             return;
         }
 
@@ -2953,6 +3007,7 @@ void SynthPanel::resized()
     envEasyBlockBounds = {};
     lfoEasyBlockBounds = {};
     driftEasyBlockBounds = {};
+    generateEasyBlockBounds = {};
     for (auto& b : lfoEasyModuleBounds)
         b = {};
     for (auto& b : driftEasyModuleBounds)
@@ -3035,7 +3090,10 @@ void SynthPanel::resized()
 
     // ── Regenerate — compact header row with inline controls ──
     area.removeFromTop(gap);
+    regenHeader.setText(" REGENERATE", juce::dontSendNotification);
     regenHeader.setFont(juce::FontOptions(headerFs));
+    regenHeader.setColour(juce::Label::backgroundColourId, kDriftCol.withAlpha(0.7f));
+    regenHeader.setJustificationType(juce::Justification::centredLeft);
     auto regenHeaderRow = area.removeFromTop(headerH);
     regenHeader.setBounds(regenHeaderRow.removeFromLeft(juce::roundToInt(f * 10.6f)));
     {
@@ -3057,6 +3115,7 @@ void SynthPanel::resized()
             .getUnion(regenBtns[kNumRegenBtns - 1].getBounds());
 
         regenRow.removeFromLeft(juce::roundToInt(f * 0.5f)); // small gap
+        crossfadeRegenRow->setVerticalMode(false);
         crossfadeRegenRow->setBounds(regenRow);
     }
     modCardBottom = juce::jmax(regenHeader.getBottom(), crossfadeRegenRow->getBottom());

@@ -102,7 +102,7 @@ private:
     int engineCardBottom = 0;
     int modCardBottom = 0;
     juce::Rectangle<int> envTabSwitchBounds, lfoTabSwitchBounds, driftTabSwitchBounds;
-    juce::Rectangle<int> filterEasyBlockBounds, envEasyBlockBounds, lfoEasyBlockBounds, driftEasyBlockBounds;
+    juce::Rectangle<int> filterEasyBlockBounds, envEasyBlockBounds, lfoEasyBlockBounds, driftEasyBlockBounds, generateEasyBlockBounds;
     std::array<juce::Rectangle<int>, 3> lfoEasyModuleBounds;
     std::array<juce::Rectangle<int>, 3> driftEasyModuleBounds;
 
@@ -268,6 +268,7 @@ private:
     void layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float f, int rowH, int gap);
     void layoutLfoEasy(LfoSection& lfo, juce::Rectangle<int> area, float f, int rowH, int gap);
     void layoutDriftEasy(DriftSection& drift, juce::Rectangle<int> area, float f, int rowH, int gap);
+    void layoutGenerateEasy(juce::Rectangle<int> area, float f, int rowH, int gap);
 
     void setModEasyMode(bool easy, bool persist);
     bool loadModEasyModeSetting() const;

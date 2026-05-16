@@ -70,6 +70,8 @@ inline void paintCard(juce::Graphics& g, juce::Rectangle<int> bounds)
 /** Paint a border around a switchbox button group (sharp corners). */
 inline void paintSwitchBoxBorder(juce::Graphics& g, juce::Rectangle<int> bounds)
 {
+    if (bounds.isEmpty())
+        return;
     g.setColour(kBorder);
     g.drawRect(bounds, 1);
 }
