@@ -1628,7 +1628,7 @@ bool SynthPanel::hasModHiddenActiveState() const
 
     if (comboId(filterTypeHidden, FilterType::Lowpass + 1) != FilterType::Lowpass + 1)
         return true;
-    if (comboId(filterDriveOsHidden, FilterDriveOs::X4 + 1) != FilterDriveOs::X4 + 1)
+    if (comboId(filterDriveOsHidden, FilterDriveOs::X2 + 1) != FilterDriveOs::X2 + 1)
         return true;
     if (comboId(filterAlgHidden, FilterAlgorithm::SVF + 1) == FilterAlgorithm::Warp + 1
         && comboId(filterWarpStyleBox, FilterWarpStyle::SoftClip + 1) != FilterWarpStyle::SoftClip + 1)

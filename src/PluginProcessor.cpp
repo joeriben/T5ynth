@@ -339,7 +339,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::NormalisableRange<float>(0.0f, 36.0f, 0.1f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::filterDriveOs, 1}, "Filter Drive OS",
-        toChoices(FilterDriveOs::kEntries), FilterDriveOs::X4));
+        toChoices(FilterDriveOs::kEntries), FilterDriveOs::X2));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::filterAlgorithm, 1}, "Filter Algorithm",
         toChoices(FilterAlgorithm::kEntries), FilterAlgorithm::SVF));
@@ -4130,11 +4130,11 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         // Drive: absent in older presets -> treat as 0 dB.
         setParam(parameters, PID::filterDrive,
                  filt->hasProperty("drive") ? static_cast<float>(filt->getProperty("drive")) : 0.0f);
-        // Drive OS: absent in older presets -> current default 4x.
+        // Drive OS: absent in older presets -> current default 2x.
         setParam(parameters, PID::filterDriveOs,
                  filt->hasProperty("driveOs")
                      ? static_cast<float>(filterDriveOsFromString(filt->getProperty("driveOs").toString()))
-                     : static_cast<float>(FilterDriveOs::X4));
+                     : static_cast<float>(FilterDriveOs::X2));
         // Filter algorithm: absent in pre-Ladder/Warp presets -> SVF (bit-identical).
         setParam(parameters, PID::filterAlgorithm,
                  filt->hasProperty("algorithm")

@@ -1170,7 +1170,7 @@ struct BlockParams
     float filterMix = 1.0f;
     // Pre-filter drive: user-facing controls
     float filterDriveDb = 0.0f;        // 0…36 dB, 0 = bypass
-    int   filterDriveOs = FilterDriveOs::X4;  // Oversampling around tanh
+    int   filterDriveOs = FilterDriveOs::X2;  // Oversampling around tanh
     // Filter algorithm selection (SVF / Ladder / Warp) and Warp-specific style.
     int   filterAlgorithm = FilterAlgorithm::SVF;
     int   filterWarpStyle = FilterWarpStyle::Tanh;
