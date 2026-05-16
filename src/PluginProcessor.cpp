@@ -2598,8 +2598,10 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             bool envModFilter = (bp.ampTarget == EnvTarget::Filter
                                  || bp.mod1Target == EnvTarget::Filter || bp.mod2Target == EnvTarget::Filter
                                  || bp.kbdTrack > 0.0f) && hasVoices;
+            bool aftertouchModFilter = bp.filterEnabled
+                                    && bp.aftertouchTarget == AftertouchTarget::Cutoff && hasVoices;
 
-            if (hasVoices && (lfoModFilter || envModFilter))
+            if (hasVoices && (lfoModFilter || envModFilter || aftertouchModFilter))
             {
                 modulatedValues.filterCutoff.store(voiceOut.lastModulatedCutoff, std::memory_order_relaxed);
             }
@@ -2617,6 +2619,15 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             {
                 modulatedValues.filterCutoff.store(NO_GHOST, std::memory_order_relaxed);
             }
+        }
+
+        // Filter resonance ghost
+        {
+            const bool aftertouchModResonance = bp.filterEnabled
+                                             && bp.aftertouchTarget == AftertouchTarget::Resonance && hasVoices;
+            modulatedValues.filterResonance.store(aftertouchModResonance
+                ? voiceOut.lastModulatedResonance
+                : NO_GHOST, std::memory_order_relaxed);
         }
 
         // Scan ghost

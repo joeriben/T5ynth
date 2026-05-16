@@ -42,6 +42,7 @@ public:
         float mod1EnvVal;    // last mod1 envelope value (for block-rate targets)
         float mod2EnvVal;    // last mod2 envelope value
         float modulatedCutoff = 20000.0f;
+        float modulatedResonance = 0.0f;
         float modulatedScan = 0.0f;
         float modulatedNoiseLevel = 0.0f;
     };
@@ -62,6 +63,7 @@ public:
     float getLastMod1Val() const { return lastMod1Val_; }
     float getLastMod2Val() const { return lastMod2Val_; }
     float getLastModulatedCutoff() const { return lastModulatedCutoff_; }
+    float getLastModulatedResonance() const { return lastModulatedResonance_; }
     float getLastModulatedScan() const { return lastModulatedScan_; }
     float getLastModulatedNoiseLevel() const { return lastModulatedNoiseLevel_; }
 
@@ -170,6 +172,7 @@ private:
     float lastMod1Val_ = 0.0f;
     float lastMod2Val_ = 0.0f;
     float lastModulatedCutoff_ = 20000.0f;
+    float lastModulatedResonance_ = 0.0f;
     float lastModulatedScan_ = 0.0f;
     float lastModulatedNoiseLevel_ = 0.0f;
 

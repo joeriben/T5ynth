@@ -571,6 +571,7 @@ VoiceManager::VoiceOutput VoiceManager::renderBlock(
         out.lastMod1Val = nv.getLastMod1Val();
         out.lastMod2Val = nv.getLastMod2Val();
         out.lastModulatedCutoff = nv.getLastModulatedCutoff();
+        out.lastModulatedResonance = nv.getLastModulatedResonance();
         out.lastModulatedScan = nv.getLastModulatedScan();
         out.lastModulatedNoiseLevel = nv.getLastModulatedNoiseLevel();
         out.lastTriggeredNote = nv.getCurrentNote();

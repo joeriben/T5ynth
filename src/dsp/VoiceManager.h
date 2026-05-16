@@ -57,6 +57,7 @@ public:
         float lastMod1Val = 0.0f;
         float lastMod2Val = 0.0f;
         float lastModulatedCutoff = 20000.0f;
+        float lastModulatedResonance = 0.0f;
         float lastModulatedScan = 0.0f;
         float lastModulatedNoiseLevel = 0.0f;
         int   lastTriggeredNote = -1; // for pitch modulation

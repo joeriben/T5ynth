@@ -1100,6 +1100,7 @@ void SynthPanel::timerCallback()
     {
         auto& mv = processorRef.modulatedValues;
         cutoffRow->setGhostValue(mv.filterCutoff.load(std::memory_order_relaxed));
+        resoRow->setGhostValue(mv.filterResonance.load(std::memory_order_relaxed));
         noiseLevelRow->setGhostValue(mv.noiseLevel.load(std::memory_order_relaxed));
         if (lfo1.rateRow)  lfo1.rateRow->setGhostValue(mv.lfo1Rate.load(std::memory_order_relaxed));
         if (lfo1.depthRow) lfo1.depthRow->setGhostValue(mv.lfo1Depth.load(std::memory_order_relaxed));
@@ -1116,6 +1117,7 @@ void SynthPanel::timerCallback()
 
     // Advance ghost smoothing (runs every frame at 30 Hz)
     cutoffRow->tickGhost();
+    resoRow->tickGhost();
     noiseLevelRow->tickGhost();
     if (lfo1.rateRow)  lfo1.rateRow->tickGhost();
     if (lfo1.depthRow) lfo1.depthRow->tickGhost();

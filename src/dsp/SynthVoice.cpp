@@ -3,6 +3,8 @@
 
 namespace
 {
+constexpr float kFilterModOctaves = 10.0f;
+
 float applyNormalizedOffset(float baseValue, float modulationOffset)
 {
     return juce::jlimit(0.0f, 1.0f, baseValue + modulationOffset);
@@ -23,9 +25,19 @@ float computeEffectiveLfoDepth(const BlockParams& p, int target, float baseDepth
 
 float applyAftertouchTarget(const BlockParams& p, int target, float baseValue, float pressure)
 {
-    if (p.aftertouchTarget != target)
-        return baseValue;
-    return applyNormalizedOffset(baseValue, juce::jlimit(0.0f, 1.0f, pressure) * p.aftertouchAmount);
+    const float offset = (p.aftertouchTarget == target)
+        ? juce::jlimit(0.0f, 1.0f, pressure) * p.aftertouchAmount
+        : 0.0f;
+    return applyNormalizedOffset(baseValue, offset);
+}
+
+float applyAftertouchCutoffTarget(const BlockParams& p, float cutoffHz, float pressure)
+{
+    if (p.aftertouchTarget != AftertouchTarget::Cutoff)
+        return cutoffHz;
+
+    const float offset = juce::jlimit(0.0f, 1.0f, pressure) * p.aftertouchAmount;
+    return cutoffHz * std::pow(2.0f, offset * kFilterModOctaves);
 }
 
 float computeDcaGain(const BlockParams& p, float ampEnvVal, float mod1EnvVal, float mod2EnvVal)
@@ -108,6 +120,12 @@ void SynthVoice::reset()
     currentNote = -1;
     aftertouch_ = 0.0f;
     lastAmpEnvLevel = 0.0f;
+    lastMod1Val_ = 0.0f;
+    lastMod2Val_ = 0.0f;
+    lastModulatedCutoff_ = 20000.0f;
+    lastModulatedResonance_ = 0.0f;
+    lastModulatedScan_ = 0.0f;
+    lastModulatedNoiseLevel_ = 0.0f;
     lastOutputSample_ = 0.0f;
     restartFadeTailSample_ = 0.0f;
     restartFadeSamplesLeft_ = 0;
@@ -642,13 +660,20 @@ SynthVoice::RenderResult SynthVoice::renderSample(const BlockParams& p, float gl
             // Drift → filter
             if (p.driftFilterOffset != 0.0f)
                 cutoffMod *= std::pow(2.0f, p.driftFilterOffset * FILTER_OCTAVES);
+
+            cutoffMod = applyAftertouchCutoffTarget(p, cutoffMod, aftertouch_);
         }
 
         cutoffMod = juce::jlimit(20.0f, 20000.0f, cutoffMod);
+        const float resonanceMod = applyAftertouchTarget(
+            p, AftertouchTarget::Resonance, p.baseReso, aftertouch_);
         result.modulatedCutoff = cutoffMod;
+        result.modulatedResonance = resonanceMod;
+        lastModulatedCutoff_ = cutoffMod;
+        lastModulatedResonance_ = resonanceMod;
 
         filter.setCutoff(cutoffMod);
-        filter.setResonance(p.baseReso);
+        filter.setResonance(resonanceMod);
         filter.setType(p.filterType);
         filter.setSlope(p.filterSlope);
         filter.setMix(p.filterMix);
@@ -776,9 +801,13 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             if (p.lfo3Target == LfoTarget::Filter) cutoffMod *= std::pow(2.0f, lfo3Mid * FILTER_OCTAVES);
             if (p.driftFilterOffset != 0.0f)
                 cutoffMod *= std::pow(2.0f, p.driftFilterOffset * FILTER_OCTAVES);
+            cutoffMod = applyAftertouchCutoffTarget(p, cutoffMod, aftertouch_);
 
             cutoffMod = juce::jlimit(20.0f, 20000.0f, cutoffMod);
+            const float resonanceMod = applyAftertouchTarget(
+                p, AftertouchTarget::Resonance, p.baseReso, aftertouch_);
             lastModulatedCutoff_ = cutoffMod;
+            lastModulatedResonance_ = resonanceMod;
 
             // Configure only the active filter model — the inactive ones sit
             // idle, so touching them would just waste cycles on coefficient
@@ -787,14 +816,14 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             {
                 case FilterAlgorithm::SVF:
                     filter.setCutoff(cutoffMod);
-                    filter.setResonance(p.baseReso);
+                    filter.setResonance(resonanceMod);
                     filter.setType(p.filterType);
                     filter.setSlope(p.filterSlope);
                     filter.setMix(p.filterMix);
                     break;
                 case FilterAlgorithm::Ladder:
                     filterLadder.setCutoff(cutoffMod);
-                    filterLadder.setResonance(p.baseReso);
+                    filterLadder.setResonance(resonanceMod);
                     filterLadder.setType(p.filterType);
                     filterLadder.setSlope(p.filterSlope);
                     filterLadder.setMix(p.filterMix);
@@ -805,7 +834,7 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                     break;
                 case FilterAlgorithm::Warp:
                     filterWarp.setCutoff(cutoffMod);
-                    filterWarp.setResonance(p.baseReso);
+                    filterWarp.setResonance(resonanceMod);
                     filterWarp.setType(p.filterType);
                     filterWarp.setSlope(p.filterSlope);
                     filterWarp.setMix(p.filterMix);
