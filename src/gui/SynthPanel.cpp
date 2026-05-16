@@ -1953,14 +1953,14 @@ void SynthPanel::layoutFilterEasy(juce::Rectangle<int> area, float f, int rowH, 
                                          juce::jmin(13.0f, static_cast<float>(rowH) * 0.58f));
 
     auto headerRow = area.removeFromTop(rowH);
-    const int headerW = juce::jmax(64, measureTextWidth("FILTER", topFontSize) + 18);
+    const int headerW = juce::jmax(54, measureTextWidth("FILTER", topFontSize) + 18);
     filterHeader.setText(" FILTER", juce::dontSendNotification);
     filterHeader.setFont(juce::FontOptions(topFontSize, juce::Font::bold));
     filterHeader.setJustificationType(juce::Justification::centredLeft);
     filterHeader.setColour(juce::Label::textColourId, juce::Colour(0xff0e1018));
     filterHeader.setColour(juce::Label::backgroundColourId, kFilterCol);
     filterHeader.setBounds(headerRow.removeFromLeft(juce::jmin(headerW, headerRow.getWidth())));
-    area.removeFromTop(rowGap);
+    headerRow.removeFromLeft(juce::jmax(gap, 4));
 
     auto layoutButtons = [](auto& buttons, int count, juce::Rectangle<int> row,
                             juce::Rectangle<int>& switchBounds)
@@ -1978,7 +1978,7 @@ void SynthPanel::layoutFilterEasy(juce::Rectangle<int> area, float f, int rowH, 
     filterAlgBtns[FilterAlgorithm::SVF].setButtonText("SVF");
     filterAlgBtns[FilterAlgorithm::Ladder].setButtonText("Ladder");
     filterAlgBtns[FilterAlgorithm::Warp].setButtonText("Softclip");
-    layoutButtons(filterAlgBtns, kNumAlgBtns, area.removeFromTop(rowH), filterAlgSwitchBounds);
+    layoutButtons(filterAlgBtns, kNumAlgBtns, headerRow, filterAlgSwitchBounds);
     filterTypeSwitchBounds = {};
     area.removeFromTop(rowGap);
     layoutButtons(filterSlopeBtns, kNumSlopeBtns, area.removeFromTop(rowH), filterSlopeSwitchBounds);
@@ -2912,8 +2912,13 @@ void SynthPanel::resized()
     int sectionGap = gap * 3;
 
     // ── MODULATION section header ──
+    // In Easy-Mode wird der Masterheader unterdrückt — jeder Block trägt seinen eigenen
+    // Chip-Header (FILTER / Env-Tabs / LFO / DRIFT). Die Header-Zeile bleibt als unsichtbare
+    // Trägerzeile für den Easy/Advanced-Toggle erhalten.
     area.removeFromTop(sectionGap);
-    modHeader.setText(modEasyMode ? " CONTROLS" : " ENVELOPES", juce::dontSendNotification);
+    modHeader.setText(modEasyMode ? "" : " ENVELOPES", juce::dontSendNotification);
+    modHeader.setColour(juce::Label::backgroundColourId,
+                        modEasyMode ? juce::Colours::transparentBlack : kModCol.withAlpha(0.7f));
     modHeader.setFont(juce::FontOptions(headerFs));
     auto modHeaderBounds = area.removeFromTop(headerH);
     modHeader.setBounds(modHeaderBounds);
