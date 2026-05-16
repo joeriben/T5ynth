@@ -970,7 +970,18 @@ void MainPanel::saveOscEasyModeSetting() const
     auto file = getUiSettingsFile();
     file.getParentDirectory().createDirectory();
 
-    auto root = juce::DynamicObject::Ptr(new juce::DynamicObject());
+    juce::var parsed;
+    juce::DynamicObject::Ptr root;
+    if (file.existsAsFile())
+    {
+        parsed = juce::JSON::parse(file.loadFileAsString());
+        if (auto* obj = parsed.getDynamicObject())
+            root = obj;
+    }
+
+    if (root == nullptr)
+        root = juce::DynamicObject::Ptr(new juce::DynamicObject());
+
     root->setProperty(kOscEasyModeKey, oscEasyMode);
     file.replaceWithText(juce::JSON::toString(juce::var(root.get()), true));
 }

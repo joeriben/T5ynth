@@ -1,6 +1,20 @@
 #include "SynthPanel.h"
 #include "../PluginProcessor.h"
 #include <algorithm>
+#include <cmath>
+
+namespace
+{
+constexpr const char* kUiSettingsFileName = "ui_settings.json";
+constexpr const char* kModEasyModeKey = "modEasyMode";
+
+juce::File getUiSettingsFile()
+{
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("T5ynth")
+        .getChildFile(kUiSettingsFileName);
+}
+}
 
 // ── Helper: format ms (integer) ──
 static juce::String fmtMs(double v)
@@ -59,12 +73,12 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     env.loopToggle.setColour(juce::ToggleButton::tickColourId, kAccent);
     addAndMakeVisible(env.loopToggle);
 
-    env.aRow   = std::make_unique<SliderRow>("A",   fmtMs, kEnvCol);
-    env.dRow   = std::make_unique<SliderRow>("D",   fmtMs, kEnvCol);
-    env.sRow   = std::make_unique<SliderRow>("S",   fmtF2, kEnvCol);
-    env.rRow   = std::make_unique<SliderRow>("R",   fmtMs, kEnvCol);
+    env.aRow   = std::make_unique<SliderRow>("Att", fmtMs, kEnvCol);
+    env.dRow   = std::make_unique<SliderRow>("Dec", fmtMs, kEnvCol);
+    env.sRow   = std::make_unique<SliderRow>("Sus", fmtF2, kEnvCol);
+    env.rRow   = std::make_unique<SliderRow>("Rel", fmtMs, kEnvCol);
     env.amtRow = std::make_unique<SliderRow>("Amt", fmtF2, kEnvCol);
-    env.velRow = std::make_unique<SliderRow>("Vel", fmtF2, kEnvCol);
+    env.velRow = std::make_unique<SliderRow>("Vel Sens", fmtF2, kEnvCol);
 
     for (auto* row : { env.aRow.get(), env.dRow.get(), env.sRow.get(),
                        env.rRow.get(), env.amtRow.get(), env.velRow.get() })
@@ -168,6 +182,18 @@ void SynthPanel::initLfo(LfoSection& lfo, const juce::String& name,
     for (const auto& e : LfoWave::kEntries) lfoWaveItems.add(e.label);
     lfo.waveBox.addItemList(lfoWaveItems, 1);
     addAndMakeVisible(lfo.waveBox);
+    for (int i = 0; i < kNumWaveBtns; ++i)
+    {
+        auto& btn = lfo.waveBtns[static_cast<size_t>(i)];
+        btn.setButtonText(lfoWaveItems[i]);
+        btn.setColour(juce::TextButton::buttonColourId, kSurface);
+        btn.setColour(juce::TextButton::buttonOnColourId, kLfoCol);
+        btn.setColour(juce::TextButton::textColourOffId, kDim);
+        btn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        btn.setClickingTogglesState(false);
+        btn.onClick = [&lfo, i] { lfo.waveBox.setSelectedId(i + 1); };
+        addAndMakeVisible(btn);
+    }
 
     // Free/Trig: hidden ComboBox holds the APVTS state; visible TextButton
     // cycles between F and T on click. Replaces the old inline "Free⌄"
@@ -175,6 +201,19 @@ void SynthPanel::initLfo(LfoSection& lfo, const juce::String& name,
     juce::StringArray lfoModeItems;
     for (const auto& e : LfoMode::kEntries) lfoModeItems.add(e.label);
     lfo.modeHidden.addItemList(lfoModeItems, 1);
+    const juce::StringArray lfoModeBtnLabels { "Free", "Trig" };
+    for (int i = 0; i < kNumLfoModeBtns; ++i)
+    {
+        auto& btn = lfo.modeBtns[static_cast<size_t>(i)];
+        btn.setButtonText(lfoModeBtnLabels[i]);
+        btn.setColour(juce::TextButton::buttonColourId, kSurface);
+        btn.setColour(juce::TextButton::buttonOnColourId, kLfoCol);
+        btn.setColour(juce::TextButton::textColourOffId, kDim);
+        btn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        btn.setClickingTogglesState(false);
+        btn.onClick = [&lfo, i] { lfo.modeHidden.setSelectedId(i + 1); };
+        addAndMakeVisible(btn);
+    }
     lfo.modeBtn.setColour(juce::TextButton::buttonColourId, kSurface);
     lfo.modeBtn.setColour(juce::TextButton::textColourOffId, kDim);
     lfo.modeBtn.setClickingTogglesState(false);
@@ -184,7 +223,17 @@ void SynthPanel::initLfo(LfoSection& lfo, const juce::String& name,
     };
     lfo.modeHidden.onChange = [&lfo] {
         const bool trig = lfo.modeHidden.getSelectedId() == 2;
-        lfo.modeBtn.setButtonText(trig ? "T" : "F");
+        const bool wide = lfo.modeBtn.getWidth() >= 56;
+        lfo.modeBtn.setButtonText(wide ? (trig ? "Trigger" : "Free")
+                                       : (trig ? "T" : "F"));
+        for (int i = 0; i < kNumLfoModeBtns; ++i)
+        {
+            auto& btn = lfo.modeBtns[static_cast<size_t>(i)];
+            const bool active = lfo.modeHidden.getSelectedId() == i + 1;
+            btn.setToggleState(active, juce::dontSendNotification);
+            btn.setColour(juce::TextButton::buttonColourId, active ? kLfoCol : kSurface);
+            btn.setColour(juce::TextButton::textColourOffId, active ? juce::Colours::white : kDim);
+        }
     };
     addAndMakeVisible(lfo.modeBtn);
 
@@ -194,6 +243,7 @@ void SynthPanel::initLfo(LfoSection& lfo, const juce::String& name,
     juce::StringArray clockItems;
     for (const auto& e : ClockMode::kEntries) clockItems.add(e.label);
     lfo.clockModeHidden.addItemList(clockItems, 1);
+    lfo.clockBtn.setButtonText("MIDI SYNC");
     lfo.clockBtn.setLookAndFeel(&lfoClockLnf);
     lfo.clockBtn.setClickingTogglesState(false);
     lfo.clockBtn.onClick = [&lfo] {
@@ -231,6 +281,18 @@ void SynthPanel::initLfo(LfoSection& lfo, const juce::String& name,
     lfo.divisionA  = std::make_unique<SA>(apvts, divisionId,  lfo.divisionRow->getSlider());
     lfo.clockModeA = std::make_unique<CA>(apvts, clockModeId, lfo.clockModeHidden);
 
+    lfo.waveBox.onChange = [&lfo] {
+        const int selected = lfo.waveBox.getSelectedId();
+        for (int i = 0; i < kNumWaveBtns; ++i)
+        {
+            auto& btn = lfo.waveBtns[static_cast<size_t>(i)];
+            const bool active = selected == i + 1;
+            btn.setToggleState(active, juce::dontSendNotification);
+            btn.setColour(juce::TextButton::buttonColourId, active ? kLfoCol : kSurface);
+            btn.setColour(juce::TextButton::textColourOffId, active ? juce::Colours::white : kDim);
+        }
+    };
+
     // The CA was attached above; its initial setSelectedId fired before
     // this lambda existed, so we set the lambda now and invoke it
     // explicitly below to sync the visible state.
@@ -244,6 +306,7 @@ void SynthPanel::initLfo(LfoSection& lfo, const juce::String& name,
     // Sync initial state from the loaded APVTS values.
     lfo.modeHidden.onChange();
     lfo.clockModeHidden.onChange();
+    lfo.waveBox.onChange();
 
     lfo.rateRow->updateValue();
     lfo.depthRow->updateValue();
@@ -273,12 +336,25 @@ void SynthPanel::initDrift(DriftSection& drift, const juce::String& name,
     for (const auto& e : DriftWave::kEntries) driftWaveItems.add(e.label);
     drift.waveBox.addItemList(driftWaveItems, 1);
     addAndMakeVisible(drift.waveBox);
+    for (int i = 0; i < kNumWaveBtns; ++i)
+    {
+        auto& btn = drift.waveBtns[static_cast<size_t>(i)];
+        btn.setButtonText(driftWaveItems[i]);
+        btn.setColour(juce::TextButton::buttonColourId, kSurface);
+        btn.setColour(juce::TextButton::buttonOnColourId, kDriftCol);
+        btn.setColour(juce::TextButton::textColourOffId, kDim);
+        btn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        btn.setClickingTogglesState(false);
+        btn.onClick = [&drift, i] { drift.waveBox.setSelectedId(i + 1); };
+        addAndMakeVisible(btn);
+    }
 
     // BPM-sync clock — same pattern as LFO; Drift has no Free/Trig so no
     // mode button.
     juce::StringArray clockItems;
     for (const auto& e : ClockMode::kEntries) clockItems.add(e.label);
     drift.clockModeHidden.addItemList(clockItems, 1);
+    drift.clockBtn.setButtonText("MIDI SYNC");
     drift.clockBtn.setLookAndFeel(&driftClockLnf);
     drift.clockBtn.setClickingTogglesState(false);
     drift.clockBtn.onClick = [&drift] {
@@ -315,6 +391,18 @@ void SynthPanel::initDrift(DriftSection& drift, const juce::String& name,
     drift.divisionA  = std::make_unique<SA>(apvts, divisionId,  drift.divisionRow->getSlider());
     drift.clockModeA = std::make_unique<CA>(apvts, clockModeId, drift.clockModeHidden);
 
+    drift.waveBox.onChange = [&drift] {
+        const int selected = drift.waveBox.getSelectedId();
+        for (int i = 0; i < kNumWaveBtns; ++i)
+        {
+            auto& btn = drift.waveBtns[static_cast<size_t>(i)];
+            const bool active = selected == i + 1;
+            btn.setToggleState(active, juce::dontSendNotification);
+            btn.setColour(juce::TextButton::buttonColourId, active ? kDriftCol : kSurface);
+            btn.setColour(juce::TextButton::textColourOffId, active ? juce::Colours::white : kDim);
+        }
+    };
+
     drift.clockModeHidden.onChange = [&drift] {
         const bool sync = drift.clockModeHidden.getSelectedId() == 2;
         drift.clockBtn.setToggleState(sync, juce::dontSendNotification);
@@ -323,6 +411,7 @@ void SynthPanel::initDrift(DriftSection& drift, const juce::String& name,
         if (drift.divisionRow) drift.divisionRow->setVisible(sync);
     };
     drift.clockModeHidden.onChange();
+    drift.waveBox.onChange();
 
     drift.rateRow->updateValue();
     drift.depthRow->updateValue();
@@ -747,7 +836,49 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     };
     makeHeader(engineHeader, "ENGINE", kAccent);
     makeHeader(filterHeader, "FILTER", kFilterCol);
-    makeHeader(modHeader, "MODULATION", kModCol);
+    makeHeader(modHeader, "ENVELOPES", kModCol);
+
+    modModeToggle.setColour(juce::TextButton::buttonColourId, kSurface.darker(0.45f));
+    modModeToggle.setColour(juce::TextButton::buttonOnColourId, kSurface.darker(0.45f));
+    modModeToggle.setColour(juce::TextButton::textColourOffId, kModCol);
+    modModeToggle.setColour(juce::TextButton::textColourOnId, kModCol);
+    modModeToggle.setTooltip("Switch modulation interface mode");
+    modModeToggle.onClick = [this] { setModEasyMode(!modEasyMode, true); };
+    addAndMakeVisible(modModeToggle);
+
+    auto setupModTabs = [this](std::array<juce::TextButton, kNumModTabs>& tabs,
+                               const char* const* labels,
+                               int radioGroup)
+    {
+        for (int i = 0; i < kNumModTabs; ++i)
+        {
+            auto& btn = tabs[static_cast<size_t>(i)];
+            btn.setButtonText(labels[i]);
+            btn.setColour(juce::TextButton::buttonColourId, kSurface);
+            btn.setColour(juce::TextButton::buttonOnColourId, kModCol);
+            btn.setColour(juce::TextButton::textColourOffId, kDim);
+            btn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            btn.setClickingTogglesState(true);
+            btn.setRadioGroupId(radioGroup);
+            btn.onClick = [this, i, radioGroup]
+            {
+                if (radioGroup == 4001)      activeEnvTab = i;
+                else if (radioGroup == 4002) activeLfoTab = i;
+                else                         activeDriftTab = i;
+                syncModTabButtons();
+                updateVisibility();
+                resized();
+                repaint();
+            };
+            addAndMakeVisible(btn);
+        }
+    };
+    const char* const envTabLabels[] = { "ENV1", "ENV2", "ENV3" };
+    const char* const lfoTabLabels[] = { "LFO 1", "LFO 2", "LFO 3" };
+    const char* const driftTabLabels[] = { "Drift 1", "Drift 2", "Drift 3" };
+    setupModTabs(envTabBtns, envTabLabels, 4001);
+    setupModTabs(lfoTabBtns, lfoTabLabels, 4002);
+    setupModTabs(driftTabBtns, driftTabLabels, 4003);
 
     // ── Filter type switchbox: OFF LP HP BP ──
     {
@@ -1028,6 +1159,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     lfo2TargetA = std::make_unique<CA>(apvts, PID::lfo2Target, lfo2.targetBox);
     lfo3TargetA = std::make_unique<CA>(apvts, PID::lfo3Target, lfo3.targetBox);
 
+    setModEasyMode(loadModEasyModeSetting(), false);
     updateVisibility();
     startTimerHz(30);
 }
@@ -1129,6 +1261,11 @@ void SynthPanel::timerCallback()
     if (drift2.depthRow) drift2.depthRow->tickGhost();
     if (drift3.depthRow) drift3.depthRow->tickGhost();
     waveformDisplay.tickScan();
+
+    modModePulsePhase += 0.33f * juce::MathConstants<float>::twoPi / 30.0f;
+    while (modModePulsePhase > juce::MathConstants<float>::twoPi)
+        modModePulsePhase -= juce::MathConstants<float>::twoPi;
+    updateModModeToggleVisual();
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1269,6 +1406,259 @@ void SynthPanel::updateVisibility()
         regenBtns[i].setAlpha(1.0f);
     if (crossfadeRegenRow)
         crossfadeRegenRow->setAlpha(1.0f);
+
+    modModeToggle.setVisible(true);
+    for (auto& btn : envTabBtns)   btn.setVisible(modEasyMode);
+    for (auto& btn : lfoTabBtns)   btn.setVisible(modEasyMode);
+    for (auto& btn : driftTabBtns) btn.setVisible(modEasyMode);
+
+    auto setEnvControlsVisible = [](EnvSection& env, bool selected, bool easy)
+    {
+        env.header.setVisible(!easy);
+        env.targetBox.setVisible(!easy || selected);
+        env.loopToggle.setVisible(!easy);
+        env.aCurveBtn.setVisible(!easy);
+        env.dCurveBtn.setVisible(!easy);
+        env.rCurveBtn.setVisible(!easy);
+        for (auto* r : { env.aRow.get(), env.dRow.get(), env.sRow.get(),
+                         env.rRow.get(), env.amtRow.get(), env.velRow.get() })
+            if (r) r->setVisible(!easy || selected);
+    };
+    setEnvControlsVisible(ampEnv,  activeEnvTab == 0, modEasyMode);
+    setEnvControlsVisible(mod1Env, activeEnvTab == 1, modEasyMode);
+    setEnvControlsVisible(mod2Env, activeEnvTab == 2, modEasyMode);
+
+    auto setLfoControlsVisible = [](LfoSection& lfo, bool selected, bool easy)
+    {
+        const bool visible = !easy || selected;
+        const bool sync = lfo.clockModeHidden.getSelectedId() == 2;
+        lfo.header.setVisible(!easy);
+        lfo.targetBox.setVisible(visible);
+        lfo.waveBox.setVisible(visible);
+        for (auto& btn : lfo.waveBtns)
+            btn.setVisible(false);
+        lfo.modeBtn.setVisible(visible && !easy);
+        for (auto& btn : lfo.modeBtns)
+            btn.setVisible(visible && easy);
+        lfo.clockBtn.setVisible(visible);
+        if (lfo.rateRow)     lfo.rateRow->setVisible(visible && !sync);
+        if (lfo.divisionRow) lfo.divisionRow->setVisible(visible && sync);
+        if (lfo.depthRow)    lfo.depthRow->setVisible(visible);
+    };
+    setLfoControlsVisible(lfo1, activeLfoTab == 0, modEasyMode);
+    setLfoControlsVisible(lfo2, activeLfoTab == 1, modEasyMode);
+    setLfoControlsVisible(lfo3, activeLfoTab == 2, modEasyMode);
+    lfoHeader.setVisible(!modEasyMode);
+
+    aftertouchLabel.setVisible(!modEasyMode);
+    aftertouchTargetBox.setVisible(!modEasyMode);
+    if (aftertouchAmountRow)
+        aftertouchAmountRow->setVisible(!modEasyMode);
+
+    auto setDriftControlsVisible = [](DriftSection& drift, bool selected, bool easy)
+    {
+        const bool visible = !easy || selected;
+        const bool sync = drift.clockModeHidden.getSelectedId() == 2;
+        drift.header.setVisible(!easy);
+        drift.targetBox.setVisible(visible);
+        drift.waveBox.setVisible(visible);
+        for (auto& btn : drift.waveBtns)
+            btn.setVisible(false);
+        drift.clockBtn.setVisible(visible);
+        if (drift.rateRow)     drift.rateRow->setVisible(visible && !sync);
+        if (drift.divisionRow) drift.divisionRow->setVisible(visible && sync);
+        if (drift.depthRow)    drift.depthRow->setVisible(visible);
+    };
+    setDriftControlsVisible(drift1, activeDriftTab == 0, modEasyMode);
+    setDriftControlsVisible(drift2, activeDriftTab == 1, modEasyMode);
+    setDriftControlsVisible(drift3, activeDriftTab == 2, modEasyMode);
+    driftHeader.setVisible(!modEasyMode);
+    regenHeader.setVisible(!modEasyMode);
+    for (int i = 0; i < kNumRegenBtns; ++i)
+        regenBtns[i].setVisible(!modEasyMode);
+    if (crossfadeRegenRow)
+        crossfadeRegenRow->setVisible(!modEasyMode);
+
+    syncModTabButtons();
+    updateModModeToggleVisual();
+}
+
+bool SynthPanel::loadModEasyModeSetting() const
+{
+    auto file = getUiSettingsFile();
+    if (!file.existsAsFile())
+        return true;
+
+    auto parsed = juce::JSON::parse(file.loadFileAsString());
+    if (auto* obj = parsed.getDynamicObject())
+    {
+        juce::ignoreUnused(obj);
+        return static_cast<bool>(parsed.getProperty(kModEasyModeKey, true));
+    }
+
+    return true;
+}
+
+void SynthPanel::saveModEasyModeSetting() const
+{
+    auto file = getUiSettingsFile();
+    file.getParentDirectory().createDirectory();
+
+    juce::var parsed;
+    juce::DynamicObject::Ptr root;
+    if (file.existsAsFile())
+    {
+        parsed = juce::JSON::parse(file.loadFileAsString());
+        if (auto* obj = parsed.getDynamicObject())
+            root = obj;
+    }
+
+    if (root == nullptr)
+        root = juce::DynamicObject::Ptr(new juce::DynamicObject());
+
+    root->setProperty(kModEasyModeKey, modEasyMode);
+    file.replaceWithText(juce::JSON::toString(juce::var(root.get()), true));
+}
+
+void SynthPanel::setModEasyMode(bool easy, bool persist)
+{
+    modEasyMode = easy;
+    if (modEasyMode)
+        selectFirstActiveModTabs();
+
+    modModeToggle.setButtonText(modEasyMode ? "> adv." : "> easy");
+    syncModTabButtons();
+    updateVisibility();
+
+    if (persist)
+        saveModEasyModeSetting();
+
+    resized();
+    repaint();
+}
+
+void SynthPanel::selectFirstActiveModTabs()
+{
+    auto pickEnv = [](const EnvSection& a, const EnvSection& b, const EnvSection& c)
+    {
+        if (a.targetBox.getSelectedId() > 1) return 0;
+        if (b.targetBox.getSelectedId() > 1) return 1;
+        if (c.targetBox.getSelectedId() > 1) return 2;
+        return 0;
+    };
+    auto pickLfo = [](const LfoSection& a, const LfoSection& b, const LfoSection& c)
+    {
+        if (a.targetBox.getSelectedId() > 1) return 0;
+        if (b.targetBox.getSelectedId() > 1) return 1;
+        if (c.targetBox.getSelectedId() > 1) return 2;
+        return 0;
+    };
+    auto pickDrift = [](const DriftSection& a, const DriftSection& b, const DriftSection& c)
+    {
+        if (a.targetBox.getSelectedId() > 1) return 0;
+        if (b.targetBox.getSelectedId() > 1) return 1;
+        if (c.targetBox.getSelectedId() > 1) return 2;
+        return 0;
+    };
+
+    activeEnvTab = pickEnv(ampEnv, mod1Env, mod2Env);
+    activeLfoTab = pickLfo(lfo1, lfo2, lfo3);
+    activeDriftTab = pickDrift(drift1, drift2, drift3);
+}
+
+bool SynthPanel::hasModHiddenActiveState() const
+{
+    if (!modEasyMode)
+        return false;
+
+    auto comboId = [](const juce::ComboBox& box, int fallback)
+    {
+        const int id = box.getSelectedId();
+        return id > 0 ? id : fallback;
+    };
+
+    auto envAdvancedHidden = [&](const EnvSection& env)
+    {
+        return env.loopToggle.getToggleState()
+            || comboId(env.aCurveHidden, 3) != 3
+            || comboId(env.dCurveHidden, 3) != 3
+            || comboId(env.rCurveHidden, 5) != 5
+            || comboId(env.aVelModeHidden, 1) != 1
+            || comboId(env.dVelModeHidden, 1) != 1
+            || comboId(env.rVelModeHidden, 1) != 1;
+    };
+
+    const EnvSection* envs[] = { &ampEnv, &mod1Env, &mod2Env };
+    for (int i = 0; i < 3; ++i)
+    {
+        const bool active = envs[i]->targetBox.getSelectedId() > 1;
+        if (i != activeEnvTab && (active || envAdvancedHidden(*envs[i])))
+            return true;
+        if (i == activeEnvTab && envAdvancedHidden(*envs[i]))
+            return true;
+    }
+
+    const LfoSection* lfos[] = { &lfo1, &lfo2, &lfo3 };
+    for (int i = 0; i < 3; ++i)
+        if (i != activeLfoTab && lfos[i]->targetBox.getSelectedId() > 1)
+            return true;
+
+    const DriftSection* drifts[] = { &drift1, &drift2, &drift3 };
+    for (int i = 0; i < 3; ++i)
+        if (i != activeDriftTab && drifts[i]->targetBox.getSelectedId() > 1)
+            return true;
+
+    if (aftertouchTargetBox.getSelectedId() > 1)
+        return true;
+
+    return regenHidden.getSelectedId() > 1;
+}
+
+void SynthPanel::updateModModeToggleVisual()
+{
+    const bool pulse = hasModHiddenActiveState();
+    auto fill = kSurface.darker(0.45f);
+    auto text = kModCol;
+
+    if (modEasyMode && pulse)
+    {
+        const float p = 0.5f + 0.5f * std::sin(modModePulsePhase);
+        fill = fill.interpolatedWith(kModCol, 0.10f + 0.18f * p);
+        text = kTextPrimary;
+    }
+
+    modModeToggle.setColour(juce::TextButton::buttonColourId, fill);
+    modModeToggle.setColour(juce::TextButton::buttonOnColourId, fill);
+    modModeToggle.setColour(juce::TextButton::textColourOffId, text);
+    modModeToggle.setColour(juce::TextButton::textColourOnId, text);
+    modModeToggle.repaint();
+}
+
+void SynthPanel::syncModTabButtons()
+{
+    auto syncGroup = [](std::array<juce::TextButton, kNumModTabs>& tabs,
+                        int activeIndex,
+                        juce::Colour accent)
+    {
+        for (int i = 0; i < kNumModTabs; ++i)
+        {
+            auto& btn = tabs[static_cast<size_t>(i)];
+            const bool active = i == activeIndex;
+            int edges = 0;
+            if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+            if (i < kNumModTabs - 1) edges |= juce::Button::ConnectedOnRight;
+            btn.setConnectedEdges(edges);
+            btn.setToggleState(active, juce::dontSendNotification);
+            btn.setColour(juce::TextButton::buttonColourId, active ? accent : kSurface);
+            btn.setColour(juce::TextButton::buttonOnColourId, accent);
+            btn.setColour(juce::TextButton::textColourOffId, active ? juce::Colours::white : kDim);
+            btn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        }
+    };
+
+    syncGroup(envTabBtns, activeEnvTab, kModCol);
+    syncGroup(lfoTabBtns, activeLfoTab, kLfoCol);
+    syncGroup(driftTabBtns, activeDriftTab, kDriftCol);
 }
 
 float SynthPanel::fs() const
@@ -1316,6 +1706,10 @@ static int buttonTextWidthFor(const juce::String& text, float f, int fallbackWid
 // ──────────────────────────────────────────────────────────────────────────────
 void SynthPanel::layoutEnv(EnvSection& env, juce::Rectangle<int>& area, float f, int rowH, int gap)
 {
+    for (auto* r : { env.aRow.get(), env.dRow.get(), env.sRow.get(),
+                     env.rRow.get(), env.amtRow.get(), env.velRow.get() })
+        if (r) r->setVerticalMode(false);
+
     env.header.setFont(juce::FontOptions(f));
     auto hdr = area.removeFromTop(rowH);
     int headerW = juce::roundToInt(hdr.getWidth() * 0.18f);
@@ -1353,6 +1747,12 @@ void SynthPanel::layoutEnv(EnvSection& env, juce::Rectangle<int>& area, float f,
 
 void SynthPanel::layoutLfo(LfoSection& lfo, juce::Rectangle<int>& area, float f, int rowH, int gap)
 {
+    if (lfo.rateRow)     lfo.rateRow->setVerticalMode(false);
+    if (lfo.depthRow)    lfo.depthRow->setVerticalMode(false);
+    if (lfo.divisionRow) lfo.divisionRow->setVerticalMode(false);
+    if (lfo.rateRow)     lfo.rateRow->setForcedValueWidth(56);
+    if (lfo.divisionRow) lfo.divisionRow->setForcedValueWidth(56);
+
     // Single-row layout:
     //   [Label] [Target] [Wave] [F/T] [⏱] [Rate|Division slider] [Depth]
     // F/T and Clock are smaller than the old "Free⌄" ComboBox they share
@@ -1373,6 +1773,8 @@ void SynthPanel::layoutLfo(LfoSection& lfo, juce::Rectangle<int>& area, float f,
     lfo.waveBox.setBounds(row.removeFromLeft(waveW));
     row.removeFromLeft(boxGap);
     lfo.modeBtn.setBounds(row.removeFromLeft(modeW));
+    lfo.modeHidden.onChange();
+    lfo.modeSwitchBounds = {};
     row.removeFromLeft(boxGap);
     lfo.clockBtn.setBounds(row.removeFromLeft(clockW));
     row.removeFromLeft(boxGap * 2);
@@ -1404,6 +1806,13 @@ void SynthPanel::layoutAftertouch(juce::Rectangle<int>& area, float f, int rowH,
 
 void SynthPanel::layoutDrift(DriftSection& drift, juce::Rectangle<int>& area, float f, int rowH, int gap)
 {
+    if (drift.rateRow)     drift.rateRow->setVerticalMode(false);
+    if (drift.depthRow)    drift.depthRow->setVerticalMode(false);
+    if (drift.divisionRow) drift.divisionRow->setVerticalMode(false);
+    if (drift.rateRow)     drift.rateRow->setForcedValueWidth(64);
+    if (drift.divisionRow) drift.divisionRow->setForcedValueWidth(64);
+    drift.waveSwitchBounds = {};
+
     // Single-row layout:
     //   [Label] [Target] [Wave] [⏱] [Rate|Division slider] [Depth]
     drift.header.setFont(juce::FontOptions(f));
@@ -1429,6 +1838,267 @@ void SynthPanel::layoutDrift(DriftSection& drift, juce::Rectangle<int>& area, fl
     if (drift.divisionRow) drift.divisionRow->setBounds(bounds[0]);
 
     area.removeFromTop(gap);
+}
+
+static void layoutModTabStrip(std::array<juce::TextButton, 3>& tabs,
+                               juce::Rectangle<int> area,
+                               juce::Rectangle<int>& switchBounds)
+{
+    const int count = static_cast<int>(tabs.size());
+    const int cellW = area.getWidth() / count;
+    switchBounds = {};
+    for (int i = 0; i < count; ++i)
+    {
+        auto cell = (i == count - 1)
+            ? area
+            : area.removeFromLeft(cellW);
+        tabs[static_cast<size_t>(i)].setBounds(cell);
+        switchBounds = switchBounds.isEmpty() ? cell : switchBounds.getUnion(cell);
+    }
+}
+
+template <size_t N>
+static void layoutSegmentedButtons(std::array<juce::TextButton, N>& buttons,
+                                   juce::Rectangle<int> area,
+                                   juce::Rectangle<int>& switchBounds,
+                                   bool vertical)
+{
+    const int count = static_cast<int>(buttons.size());
+    const int cellSize = vertical ? area.getHeight() / count
+                                  : area.getWidth() / count;
+    switchBounds = {};
+
+    for (int i = 0; i < count; ++i)
+    {
+        auto cell = (i == count - 1)
+            ? area
+            : (vertical ? area.removeFromTop(cellSize)
+                        : area.removeFromLeft(cellSize));
+        auto& btn = buttons[static_cast<size_t>(i)];
+        int edges = 0;
+        if (vertical)
+        {
+            if (i > 0) edges |= juce::Button::ConnectedOnTop;
+            if (i < count - 1) edges |= juce::Button::ConnectedOnBottom;
+        }
+        else
+        {
+            if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+            if (i < count - 1) edges |= juce::Button::ConnectedOnRight;
+        }
+
+        btn.setConnectedEdges(edges);
+        btn.setBounds(cell);
+        switchBounds = switchBounds.isEmpty() ? cell : switchBounds.getUnion(cell);
+    }
+}
+
+void SynthPanel::layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float f, int rowH, int gap)
+{
+    juce::ignoreUnused(f);
+
+    for (auto* r : { env.aRow.get(), env.dRow.get(), env.sRow.get(),
+                     env.rRow.get(), env.amtRow.get(), env.velRow.get() })
+        if (r)
+        {
+            r->clearForcedLabelWidth();
+            r->clearForcedValueWidth();
+        }
+
+    auto targetRow = area.removeFromTop(rowH);
+    env.targetBox.setBounds(targetRow);
+    area.removeFromTop(gap);
+
+    const int bottomRowsH = rowH * 2 + gap;
+    const int faderH = juce::jmax(rowH * 4, area.getHeight() - bottomRowsH);
+    auto faders = area.removeFromTop(juce::jmin(faderH, area.getHeight()));
+    constexpr int cellGap = 5;
+    const int cellW = juce::jmax(1, (faders.getWidth() - cellGap * 3) / 4);
+
+    SliderRow* verticalRows[] = { env.aRow.get(), env.dRow.get(), env.sRow.get(), env.rRow.get() };
+    for (int i = 0; i < 4; ++i)
+    {
+        auto cell = (i == 3) ? faders : faders.removeFromLeft(cellW);
+        if (i < 3)
+            faders.removeFromLeft(cellGap);
+        verticalRows[i]->setVerticalMode(true);
+        verticalRows[i]->setBounds(cell);
+    }
+
+    area.removeFromTop(gap);
+    env.amtRow->setVerticalMode(false);
+    env.velRow->setVerticalMode(false);
+    env.amtRow->setBounds(area.removeFromTop(rowH));
+    area.removeFromTop(gap);
+    env.velRow->setBounds(area.removeFromTop(rowH));
+}
+
+void SynthPanel::layoutLfoEasy(LfoSection& lfo, juce::Rectangle<int> area, float f, int rowH, int gap)
+{
+    for (auto* r : { lfo.rateRow.get(), lfo.depthRow.get(), lfo.divisionRow.get() })
+        if (r)
+        {
+            r->clearForcedLabelWidth();
+            r->setVerticalMode(false);
+        }
+
+    auto body = area.removeFromTop(juce::jmin(area.getHeight(),
+                                              rowH * 2 + juce::jmax(gap, 6)));
+    const int bodyGap = juce::jmax(12, juce::roundToInt(f * 0.9f));
+    const int leftW = juce::jlimit(juce::roundToInt(f * 12.0f),
+                                   juce::roundToInt(f * 17.5f),
+                                   juce::roundToInt(static_cast<float>(body.getWidth()) * 0.38f));
+    auto matrix = body.removeFromLeft(leftW);
+    body.removeFromLeft(bodyGap);
+    auto sliders = body;
+
+    auto targetRow = matrix.removeFromTop(rowH);
+    lfo.targetBox.setBounds(targetRow);
+    matrix.removeFromTop(juce::jmax(gap, 6));
+
+    auto switchRow = matrix.removeFromTop(rowH);
+    const int waveW = juce::jmin(choiceBoxWidthFor(LfoWave::kEntries, f, juce::roundToInt(f * 6.0f)),
+                                 juce::jmax(1, switchRow.getWidth() / 2));
+    lfo.waveBox.setBounds(switchRow.removeFromLeft(waveW));
+    switchRow.removeFromLeft(juce::jmax(gap, 6));
+    lfo.clockBtn.setBounds(switchRow);
+    matrix.removeFromTop(juce::jmax(gap, 6));
+
+    auto modeRow = matrix.removeFromTop(rowH);
+    layoutSegmentedButtons(lfo.modeBtns, modeRow, lfo.modeSwitchBounds, false);
+    lfo.modeHidden.onChange();
+    lfo.waveSwitchBounds = {};
+
+    lfo.rateRow->setForcedValueWidth(64);
+    lfo.divisionRow->setForcedValueWidth(64);
+    lfo.depthRow->setForcedValueWidth(52);
+
+    auto rateRow = sliders.removeFromTop(rowH);
+    lfo.rateRow->setBounds(rateRow);
+    lfo.divisionRow->setBounds(rateRow);
+    sliders.removeFromTop(juce::jmax(gap, 6));
+
+    lfo.depthRow->setBounds(sliders.removeFromTop(rowH));
+}
+
+void SynthPanel::layoutDriftEasy(DriftSection& drift, juce::Rectangle<int> area, float f, int rowH, int gap)
+{
+    for (auto* r : { drift.rateRow.get(), drift.depthRow.get(), drift.divisionRow.get() })
+        if (r)
+        {
+            r->clearForcedLabelWidth();
+            r->setVerticalMode(false);
+        }
+
+    auto body = area.removeFromTop(juce::jmin(area.getHeight(),
+                                              rowH * 3 + juce::jmax(gap, 6) * 2));
+    const int bodyGap = juce::jmax(12, juce::roundToInt(f * 0.9f));
+    const int leftW = juce::jlimit(juce::roundToInt(f * 12.0f),
+                                   juce::roundToInt(f * 17.5f),
+                                   juce::roundToInt(static_cast<float>(body.getWidth()) * 0.38f));
+    auto matrix = body.removeFromLeft(leftW);
+    body.removeFromLeft(bodyGap);
+    auto sliders = body;
+
+    auto targetRow = matrix.removeFromTop(rowH);
+    drift.targetBox.setBounds(targetRow);
+    matrix.removeFromTop(juce::jmax(gap, 6));
+
+    auto switchRow = matrix.removeFromTop(rowH);
+    const int waveW = juce::jmin(choiceBoxWidthFor(DriftWave::kEntries, f, juce::roundToInt(f * 6.0f)),
+                                 juce::jmax(1, switchRow.getWidth() / 2));
+    drift.waveBox.setBounds(switchRow.removeFromLeft(waveW));
+    switchRow.removeFromLeft(juce::jmax(gap, 6));
+    drift.clockBtn.setBounds(switchRow);
+    drift.waveSwitchBounds = {};
+
+    drift.rateRow->setForcedValueWidth(72);
+    drift.divisionRow->setForcedValueWidth(72);
+    drift.depthRow->setForcedValueWidth(52);
+
+    auto rateRow = sliders.removeFromTop(rowH);
+    drift.rateRow->setBounds(rateRow);
+    drift.divisionRow->setBounds(rateRow);
+    sliders.removeFromTop(juce::jmax(gap, 6));
+
+    drift.depthRow->setBounds(sliders.removeFromTop(rowH));
+}
+
+void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, int gap, int headerH, float headerFs)
+{
+    juce::ignoreUnused(headerH, headerFs);
+
+    auto* env = activeEnvTab == 1 ? &mod1Env : (activeEnvTab == 2 ? &mod2Env : &ampEnv);
+    auto* lfo = activeLfoTab == 1 ? &lfo2 : (activeLfoTab == 2 ? &lfo3 : &lfo1);
+    auto* drift = activeDriftTab == 1 ? &drift2 : (activeDriftTab == 2 ? &drift3 : &drift1);
+
+    const int tabH = rowH;
+    const int blockGap = juce::jmax(7, juce::roundToInt(f * 0.65f));
+    const bool columns = area.getWidth() >= juce::roundToInt(f * 46.0f);
+    const int contentInset = juce::jmax(4, juce::roundToInt(f * 0.35f));
+
+    auto layoutBlock = [&](std::array<juce::TextButton, kNumModTabs>& tabs,
+                           juce::Rectangle<int>& tabBounds,
+                           juce::Rectangle<int>& blockBounds,
+                           juce::Rectangle<int> block,
+                           auto&& layoutContent)
+    {
+        blockBounds = block;
+        auto tabRow = block.removeFromTop(tabH);
+        layoutModTabStrip(tabs, tabRow, tabBounds);
+        block.removeFromTop(juce::jmax(gap * 2, 8));
+        layoutContent(block.reduced(contentInset, 0));
+    };
+
+    if (columns)
+    {
+        const int blockH = area.getHeight();
+        auto block = area.removeFromTop(blockH);
+        const int colGap = juce::jmax(22, juce::roundToInt(f * 1.7f));
+        const int envW = juce::jlimit(juce::roundToInt(f * 16.0f),
+                                      juce::roundToInt(f * 24.0f),
+                                      juce::roundToInt(static_cast<float>(block.getWidth()) * 0.31f));
+        auto envArea = block.removeFromLeft(envW);
+        block.removeFromLeft(colGap);
+        auto rightStack = block;
+        const int stackGap = juce::jmax(14, juce::roundToInt(f * 1.1f));
+        const int lfoCompactH = tabH + juce::jmax(gap * 2, 8)
+                               + rowH * 3 + juce::jmax(gap, 6) * 2;
+        const int driftCompactH = tabH + juce::jmax(gap * 2, 8)
+                                 + rowH * 2 + juce::jmax(gap, 6);
+        const int lfoH = juce::jmin(lfoCompactH, rightStack.getHeight());
+        auto lfoArea = rightStack.removeFromTop(lfoH);
+        rightStack.removeFromTop(stackGap);
+        auto driftArea = rightStack.removeFromTop(juce::jmin(driftCompactH, rightStack.getHeight()));
+
+        layoutBlock(envTabBtns, envTabSwitchBounds, envEasyBlockBounds, envArea,
+                    [&](juce::Rectangle<int> content) { layoutEnvEasy(*env, content, f, rowH, gap); });
+        layoutBlock(lfoTabBtns, lfoTabSwitchBounds, lfoEasyBlockBounds, lfoArea,
+                    [&](juce::Rectangle<int> content) { layoutLfoEasy(*lfo, content, f, rowH, gap); });
+        layoutBlock(driftTabBtns, driftTabSwitchBounds, driftEasyBlockBounds, driftArea,
+                    [&](juce::Rectangle<int> content) { layoutDriftEasy(*drift, content, f, rowH, gap); });
+        return;
+    }
+
+    const int totalGap = blockGap * 2;
+    const int usableH = juce::jmax(0, area.getHeight() - totalGap);
+    const int envH = usableH * 9 / 23;
+    const int lfoH = usableH * 7 / 23;
+    const int driftH = usableH - envH - lfoH;
+
+    auto envArea = area.removeFromTop(envH);
+    layoutBlock(envTabBtns, envTabSwitchBounds, envEasyBlockBounds, envArea,
+                [&](juce::Rectangle<int> content) { layoutEnvEasy(*env, content, f, rowH, gap); });
+    area.removeFromTop(blockGap);
+
+    auto lfoArea = area.removeFromTop(lfoH);
+    layoutBlock(lfoTabBtns, lfoTabSwitchBounds, lfoEasyBlockBounds, lfoArea,
+                [&](juce::Rectangle<int> content) { layoutLfoEasy(*lfo, content, f, rowH, gap); });
+    area.removeFromTop(blockGap);
+
+    auto driftArea = area.removeFromTop(driftH);
+    layoutBlock(driftTabBtns, driftTabSwitchBounds, driftEasyBlockBounds, driftArea,
+                [&](juce::Rectangle<int> content) { layoutDriftEasy(*drift, content, f, rowH, gap); });
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1479,14 +2149,63 @@ void SynthPanel::paint(juce::Graphics& g)
     // Card: Modulation (ENVs + LFOs + Drift)
     {
         int top = modHeader.getY() - inset;
-        int bot = juce::jmax(ampEnv.amtRow->getBottom(), mod1Env.amtRow->getBottom(),
+        int bot = 0;
+        if (modEasyMode)
+        {
+            auto* env = activeEnvTab == 1 ? &mod1Env : (activeEnvTab == 2 ? &mod2Env : &ampEnv);
+            auto* lfo = activeLfoTab == 1 ? &lfo2 : (activeLfoTab == 2 ? &lfo3 : &lfo1);
+            auto* drift = activeDriftTab == 1 ? &drift2 : (activeDriftTab == 2 ? &drift3 : &drift1);
+            bot = juce::jmax(env->velRow->getBottom(), envTabSwitchBounds.getBottom());
+            bot = juce::jmax(bot, lfo->depthRow->getBottom());
+            bot = juce::jmax(bot, lfoTabSwitchBounds.getBottom());
+            bot = juce::jmax(bot, drift->depthRow->getBottom());
+            bot = juce::jmax(bot, driftTabSwitchBounds.getBottom());
+            bot = juce::jmax(bot, modCardBottom);
+        }
+        else
+        {
+            bot = juce::jmax(ampEnv.amtRow->getBottom(), mod1Env.amtRow->getBottom(),
                              mod2Env.amtRow->getBottom());
-        bot = juce::jmax(bot, lfo1.depthRow->getBottom(), lfo2.depthRow->getBottom(),
-                         lfo3.depthRow->getBottom());
-        bot = juce::jmax(bot, aftertouchAmountRow->getBottom());
-        bot = juce::jmax(bot, drift1.depthRow->getBottom(), drift2.depthRow->getBottom(),
-                         drift3.depthRow->getBottom());
+            bot = juce::jmax(bot, lfo1.depthRow->getBottom(), lfo2.depthRow->getBottom(),
+                             lfo3.depthRow->getBottom());
+            bot = juce::jmax(bot, aftertouchAmountRow->getBottom());
+            bot = juce::jmax(bot, drift1.depthRow->getBottom(), drift2.depthRow->getBottom(),
+                             drift3.depthRow->getBottom());
+            bot = juce::jmax(bot, modCardBottom);
+        }
         paintCard(g, juce::Rectangle<int>(padX, top, getWidth() - padX * 2, bot - top + inset));
+
+        if (modEasyMode)
+        {
+            auto paintEasyBlock = [&](juce::Rectangle<int> bounds, juce::Colour accent)
+            {
+                if (bounds.isEmpty())
+                    return;
+
+                g.setColour(kSurface.withAlpha(0.62f));
+                g.fillRect(bounds);
+                g.setColour(juce::Colour(0xaa05070d));
+                g.drawRect(bounds.expanded(1, 1), 1);
+                g.setColour(kBorder.withAlpha(0.82f));
+                g.drawRect(bounds, 1);
+                g.setColour(accent.withAlpha(0.32f));
+                g.fillRect(bounds.withWidth(2));
+            };
+
+            paintEasyBlock(envEasyBlockBounds, kModCol);
+            paintEasyBlock(lfoEasyBlockBounds, kLfoCol);
+            paintEasyBlock(driftEasyBlockBounds, kDriftCol);
+
+            paintSwitchBoxBorder(g, envTabSwitchBounds);
+            paintSwitchBoxBorder(g, lfoTabSwitchBounds);
+            paintSwitchBoxBorder(g, driftTabSwitchBounds);
+            auto* lfo = activeLfoTab == 1 ? &lfo2 : (activeLfoTab == 2 ? &lfo3 : &lfo1);
+            auto* drift = activeDriftTab == 1 ? &drift2 : (activeDriftTab == 2 ? &drift3 : &drift1);
+            paintSwitchBoxBorder(g, lfo->waveSwitchBounds);
+            paintSwitchBoxBorder(g, lfo->modeSwitchBounds);
+            paintSwitchBoxBorder(g, drift->waveSwitchBounds);
+            return;
+        }
 
         // Subtle separator lines between sub-sections
         g.setColour(kModCol.withAlpha(0.15f));
@@ -1510,6 +2229,55 @@ void SynthPanel::paint(juce::Graphics& g)
 // ──────────────────────────────────────────────────────────────────────────────
 void SynthPanel::paintOverChildren(juce::Graphics& g)
 {
+    auto drawSegmentGroup = [&](juce::Rectangle<int> bounds, int count, bool vertical)
+    {
+        if (bounds.isEmpty())
+            return;
+
+        const auto outer = bounds.expanded(1, 1);
+        g.setColour(juce::Colour(0xee05070d));
+        g.drawRect(outer, 1);
+        g.setColour(kBorder.brighter(0.35f));
+        g.drawRect(bounds, 1);
+
+        g.setColour(juce::Colour(0xdd05070d));
+        for (int i = 1; i < count; ++i)
+        {
+            if (vertical)
+            {
+                const int y = bounds.getY() + (bounds.getHeight() * i) / count;
+                g.drawHorizontalLine(y, static_cast<float>(bounds.getX()),
+                                     static_cast<float>(bounds.getRight()));
+            }
+            else
+            {
+                const int x = bounds.getX() + (bounds.getWidth() * i) / count;
+                g.drawVerticalLine(x, static_cast<float>(bounds.getY()),
+                                   static_cast<float>(bounds.getBottom()));
+            }
+        }
+
+        if (!vertical)
+        {
+            g.setColour(kBorder.brighter(0.55f));
+            g.drawHorizontalLine(bounds.getBottom(), static_cast<float>(bounds.getX()),
+                                 static_cast<float>(bounds.getRight()));
+        }
+    };
+
+    if (modEasyMode)
+    {
+        drawSegmentGroup(envTabSwitchBounds, kNumModTabs, false);
+        drawSegmentGroup(lfoTabSwitchBounds, kNumModTabs, false);
+        drawSegmentGroup(driftTabSwitchBounds, kNumModTabs, false);
+
+        auto* lfo = activeLfoTab == 1 ? &lfo2 : (activeLfoTab == 2 ? &lfo3 : &lfo1);
+        auto* drift = activeDriftTab == 1 ? &drift2 : (activeDriftTab == 2 ? &drift3 : &drift1);
+        drawSegmentGroup(lfo->waveSwitchBounds, kNumWaveBtns, false);
+        drawSegmentGroup(lfo->modeSwitchBounds, kNumLfoModeBtns, false);
+        drawSegmentGroup(drift->waveSwitchBounds, kNumWaveBtns, false);
+    }
+
     if (!oneshotBtn.isVisible()) return;
 
     auto iconCol = [](const juce::TextButton& btn) {
@@ -1655,7 +2423,10 @@ void SynthPanel::resized()
     int aftertouchH = rowH + gap;                                         // MIDI aftertouch row
     int driftH = gap + headerH + headerGap + (rowH + gap) * 3;            // drift header + 3 single-row drifts
     int regenH = gap + headerH;                                            // regen controls live in the header row
-    int belowWave = samplerCtrlH + filterH + modH + envH + lfoH + aftertouchH + driftH + regenH + gap * 5;
+    const int advancedModBodyH = envH + lfoH + aftertouchH + driftH + regenH + gap * 5;
+    // Keep Easy in the same vertical slot as Advanced so the engine waveform,
+    // filter and footer sections don't jump when switching interface modes.
+    int belowWave = samplerCtrlH + filterH + modH + advancedModBodyH;
     int waveH = juce::jmax(0, area.getHeight() - belowWave);
 
     auto layoutNoiseStrip = [&](juce::Rectangle<int>& row)
@@ -1884,8 +2655,27 @@ void SynthPanel::resized()
     // ── MODULATION section header ──
     area.removeFromTop(sectionGap);
     modHeader.setFont(juce::FontOptions(headerFs));
-    modHeader.setBounds(area.removeFromTop(headerH));
+    auto modHeaderBounds = area.removeFromTop(headerH);
+    modHeader.setBounds(modHeaderBounds);
+    const int modToggleW = juce::jlimit(58, 78,
+        measureTextWidth(modModeToggle.getButtonText(), juce::jmax(kUiControlFontMin, headerFs * 0.72f)) + 16);
+    modModeToggle.setBounds(modHeaderBounds.removeFromRight(modToggleW).reduced(2, 2));
+    modModeToggle.toFront(false);
     area.removeFromTop(headerGap);
+
+    if (modEasyMode)
+    {
+        layoutModEasy(area, f, rowH, gap, headerH, headerFs);
+        modCardBottom = area.getY();
+        return;
+    }
+
+    envTabSwitchBounds = {};
+    lfoTabSwitchBounds = {};
+    driftTabSwitchBounds = {};
+    envEasyBlockBounds = {};
+    lfoEasyBlockBounds = {};
+    driftEasyBlockBounds = {};
 
     // ── Envelopes ──
     {
@@ -1988,4 +2778,5 @@ void SynthPanel::resized()
         regenRow.removeFromLeft(juce::roundToInt(f * 0.5f)); // small gap
         crossfadeRegenRow->setBounds(regenRow);
     }
+    modCardBottom = juce::jmax(regenHeader.getBottom(), crossfadeRegenRow->getBottom());
 }

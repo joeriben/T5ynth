@@ -233,8 +233,8 @@ inline ResponsiveStripResult layoutResponsiveStrip(juce::Rectangle<int> area,
 }
 
 /**
- * Compact horizontal slider row:  Label [===slider===] Value+Unit
- * ~22px tall, used everywhere instead of rotary knobs.
+ * Compact parameter control. Defaults to a horizontal row, but can be laid out
+ * as a vertical fader in Easy views without changing the APVTS attachment.
  */
 class SliderRow : public juce::Component
 {
@@ -298,6 +298,22 @@ public:
         slider.setColour(juce::Slider::trackColourId, c);
         value.setColour(juce::Label::textColourId, c);
         updateLabelAppearance();
+    }
+
+    void setVerticalMode(bool shouldUseVertical)
+    {
+        if (verticalMode == shouldUseVertical)
+            return;
+
+        verticalMode = shouldUseVertical;
+        slider.setSliderStyle(verticalMode ? juce::Slider::LinearVertical
+                                           : juce::Slider::LinearHorizontal);
+        label.setJustificationType(verticalMode ? juce::Justification::centred
+                                                : juce::Justification::centredLeft);
+        value.setJustificationType(verticalMode ? juce::Justification::centred
+                                                : juce::Justification::centredLeft);
+        resized();
+        repaint();
     }
 
     void setLabelMode(LabelMode newMode)
@@ -367,9 +383,25 @@ public:
         if (std::isnan(ghostSmoothed)) return;
 
         auto sb = slider.getBounds();
-        float gx = ghostToPixelX(ghostSmoothed);
+        float gx = static_cast<float>(sb.getCentreX());
         float gy = static_cast<float>(sb.getCentreY());
-        float r = static_cast<float>(sb.getHeight()) * 0.28f;
+        float r = static_cast<float>(juce::jmin(sb.getWidth(), sb.getHeight())) * 0.28f;
+
+        if (verticalMode)
+        {
+            double norm = slider.valueToProportionOfLength(static_cast<double>(ghostSmoothed));
+            norm = juce::jlimit(0.0, 1.0, norm);
+            const int thumb = slider.getLookAndFeel().getSliderThumbRadius(slider) * 2;
+            const int trackY = sb.getY() + thumb / 2;
+            const int trackH = sb.getHeight() - thumb;
+            gy = static_cast<float>(trackY + trackH)
+               - static_cast<float>(trackH) * static_cast<float>(norm);
+        }
+        else
+        {
+            gx = ghostToPixelX(ghostSmoothed);
+            r = static_cast<float>(sb.getHeight()) * 0.28f;
+        }
 
         g.setColour(juce::Colour(0xccff9800)); // orange ghost
         g.fillEllipse(gx - r, gy - r, r * 2.0f, r * 2.0f);
@@ -378,6 +410,22 @@ public:
     void resized() override
     {
         auto b = getLocalBounds();
+        if (verticalMode)
+        {
+            const int labelH = juce::jlimit(13, 20, juce::roundToInt(static_cast<float>(b.getHeight()) * 0.16f));
+            const int valueH = juce::jlimit(13, 20, juce::roundToInt(static_cast<float>(b.getHeight()) * 0.16f));
+            const float labelFs = juce::jlimit(kUiLabelFontMin, 12.0f,
+                                               static_cast<float>(labelH) * 0.76f);
+            const float valueFs = juce::jlimit(kUiValueFontMin, 12.0f,
+                                               static_cast<float>(valueH) * 0.76f);
+            label.setFont(juce::FontOptions(labelFs));
+            value.setFont(juce::FontOptions(valueFs));
+            label.setBounds(b.removeFromTop(labelH));
+            value.setBounds(b.removeFromBottom(valueH));
+            slider.setBounds(b.reduced(3, 1));
+            return;
+        }
+
         const auto layout = chooseLayout(b.getWidth(), b.getHeight());
         label.setFont(juce::FontOptions(layout.labelFontSize));
         value.setFont(juce::FontOptions(layout.valueFontSize));
@@ -411,6 +459,7 @@ private:
     std::function<juce::String(double)> valueFormatter;
     juce::Colour trackCol;
     LabelMode labelMode = LabelMode::Off;
+    bool verticalMode = false;
     std::function<void()> onLabelClick;
 
     // Ghost marker smoothing
@@ -711,6 +760,18 @@ public:
         auto bounds = b.getLocalBounds().toFloat().reduced(3.0f);
         const bool on = b.getToggleState();
         g.setColour(on ? juce::Colours::white : (over ? syncFill : kDim));
+        if (bounds.getWidth() >= 64.0f && b.getButtonText().isNotEmpty())
+        {
+            auto iconBounds = bounds.removeFromLeft(bounds.getHeight());
+            g.strokePath(icon, juce::PathStrokeType(1.35f),
+                         icon.getTransformToScaleToFit(iconBounds.reduced(1.0f), true));
+
+            g.setFont(juce::FontOptions(juce::jmax(kUiControlFontMin, bounds.getHeight() * 0.48f),
+                                        juce::Font::bold));
+            g.drawText(b.getButtonText(), bounds, juce::Justification::centred);
+            return;
+        }
+
         g.strokePath(icon, juce::PathStrokeType(1.4f),
                      icon.getTransformToScaleToFit(bounds, true));
     }

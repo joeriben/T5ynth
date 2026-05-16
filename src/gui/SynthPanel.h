@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include <array>
 #include "WaveformDisplay.h"
 #include "GuiHelpers.h"
 
@@ -91,11 +92,17 @@ private:
 
     // ── Section headers ──
     juce::Label engineHeader, filterHeader, modHeader, lfoHeader, driftHeader;
+    juce::TextButton modModeToggle { "> adv." };
+    bool modEasyMode = true;
+    float modModePulsePhase = 0.0f;
 
     // ── Layout rects for paint() ──
     juce::Rectangle<int> engineSwitchBounds, loopSwitchBounds, optSwitchBounds;
     juce::Rectangle<int> filterTypeSwitchBounds, filterSlopeSwitchBounds, filterDriveOsSwitchBounds, filterAlgSwitchBounds;
     int engineCardBottom = 0;
+    int modCardBottom = 0;
+    juce::Rectangle<int> envTabSwitchBounds, lfoTabSwitchBounds, driftTabSwitchBounds;
+    juce::Rectangle<int> envEasyBlockBounds, lfoEasyBlockBounds, driftEasyBlockBounds;
 
     // ── Filter ──
     // Type switchbox: OFF LP HP BP (drives filter_type APVTS via hidden ComboBox)
@@ -137,6 +144,13 @@ private:
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> aVelModeA, dVelModeA, rVelModeA;
     };
     EnvSection ampEnv, mod1Env, mod2Env;
+    static constexpr int kNumModTabs = 3;
+    static constexpr int kNumWaveBtns = 5;
+    static constexpr int kNumLfoModeBtns = 2;
+    std::array<juce::TextButton, kNumModTabs> envTabBtns, lfoTabBtns, driftTabBtns;
+    int activeEnvTab = 0;
+    int activeLfoTab = 0;
+    int activeDriftTab = 0;
 
     // ── Clock-button LnFs (shared across the section's clock buttons) ──
     //   Declared BEFORE LfoSection/DriftSection so destruction order is
@@ -153,8 +167,12 @@ private:
     {
         juce::Label header;
         juce::ComboBox targetBox, waveBox;
+        std::array<juce::TextButton, kNumWaveBtns> waveBtns;
+        juce::Rectangle<int> waveSwitchBounds;
         juce::ComboBox modeHidden, clockModeHidden;
         juce::TextButton modeBtn, clockBtn;
+        std::array<juce::TextButton, kNumLfoModeBtns> modeBtns;
+        juce::Rectangle<int> modeSwitchBounds;
         std::unique_ptr<SliderRow> rateRow, depthRow, divisionRow;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
             rateA, depthA, divisionA;
@@ -177,6 +195,8 @@ private:
     {
         juce::Label header;
         juce::ComboBox targetBox, waveBox;
+        std::array<juce::TextButton, kNumWaveBtns> waveBtns;
+        juce::Rectangle<int> waveSwitchBounds;
         juce::ComboBox clockModeHidden;
         juce::TextButton clockBtn;
         std::unique_ptr<SliderRow> rateRow, depthRow, divisionRow;
@@ -241,6 +261,18 @@ private:
     void layoutLfo(LfoSection& lfo, juce::Rectangle<int>& area, float f, int rowH, int gap);
     void layoutAftertouch(juce::Rectangle<int>& area, float f, int rowH, int gap);
     void layoutDrift(DriftSection& drift, juce::Rectangle<int>& area, float f, int rowH, int gap);
+    void layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, int gap, int headerH, float headerFs);
+    void layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float f, int rowH, int gap);
+    void layoutLfoEasy(LfoSection& lfo, juce::Rectangle<int> area, float f, int rowH, int gap);
+    void layoutDriftEasy(DriftSection& drift, juce::Rectangle<int> area, float f, int rowH, int gap);
+
+    void setModEasyMode(bool easy, bool persist);
+    bool loadModEasyModeSetting() const;
+    void saveModEasyModeSetting() const;
+    bool hasModHiddenActiveState() const;
+    void updateModModeToggleVisual();
+    void syncModTabButtons();
+    void selectFirstActiveModTabs();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SynthPanel)
 };
