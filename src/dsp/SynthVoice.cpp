@@ -87,14 +87,18 @@ void SynthVoice::prepare(double sampleRate, int samplesPerBlock)
     filter.prepare(sampleRate, samplesPerBlock);
     filterLadder.prepare(sampleRate, samplesPerBlock);
     filterWarp.prepare(sampleRate, samplesPerBlock);
+    filterR.prepare(sampleRate, samplesPerBlock);
+    filterLadderR.prepare(sampleRate, samplesPerBlock);
+    filterWarpR.prepare(sampleRate, samplesPerBlock);
 
     // Build + init the three oversamplers around the pre-filter tanh drive.
-    // Init size is SUB_BLOCK_SIZE because renderBlock drives the OS in sub-block
-    // chunks — internal buffers are sized for maxBlockSize × factor samples.
+    // 2 channels (L+R) for stereo drive — same OS instance handles both with
+    // channel-aligned internal state. Init size is SUB_BLOCK_SIZE because
+    // renderBlock drives the OS in sub-block chunks.
     using Os = juce::dsp::Oversampling<float>;
-    driveOs2x_ = std::make_unique<Os>(1, 1, Os::filterHalfBandPolyphaseIIR, true, false);
-    driveOs4x_ = std::make_unique<Os>(1, 2, Os::filterHalfBandPolyphaseIIR, true, false);
-    driveOs8x_ = std::make_unique<Os>(1, 3, Os::filterHalfBandPolyphaseIIR, true, false);
+    driveOs2x_ = std::make_unique<Os>(2, 1, Os::filterHalfBandPolyphaseIIR, true, false);
+    driveOs4x_ = std::make_unique<Os>(2, 2, Os::filterHalfBandPolyphaseIIR, true, false);
+    driveOs8x_ = std::make_unique<Os>(2, 3, Os::filterHalfBandPolyphaseIIR, true, false);
     driveOs2x_->initProcessing(static_cast<size_t>(SUB_BLOCK_SIZE));
     driveOs4x_->initProcessing(static_cast<size_t>(SUB_BLOCK_SIZE));
     driveOs8x_->initProcessing(static_cast<size_t>(SUB_BLOCK_SIZE));
@@ -111,6 +115,9 @@ void SynthVoice::reset()
     filter.reset();
     filterLadder.reset();
     filterWarp.reset();
+    filterR.reset();
+    filterLadderR.reset();
+    filterWarpR.reset();
     noise.reset();
     if (driveOs2x_) driveOs2x_->reset();
     if (driveOs4x_) driveOs4x_->reset();
@@ -127,7 +134,9 @@ void SynthVoice::reset()
     lastModulatedScan_ = 0.0f;
     lastModulatedNoiseLevel_ = 0.0f;
     lastOutputSample_ = 0.0f;
+    lastOutputSampleR_ = 0.0f;
     restartFadeTailSample_ = 0.0f;
+    restartFadeTailSampleR_ = 0.0f;
     restartFadeSamplesLeft_ = 0;
     restartFadeTotalSamples_ = 1;
     samplerPreStretchNormGain_ = 1.0f;
@@ -137,7 +146,8 @@ void SynthVoice::reset()
 
 void SynthVoice::beginRestartFade()
 {
-    restartFadeTailSample_ = lastOutputSample_;
+    restartFadeTailSample_  = lastOutputSample_;
+    restartFadeTailSampleR_ = lastOutputSampleR_;
     restartFadeTotalSamples_ = std::max(1,
         static_cast<int>(RESTART_FADE_MS * 0.001f * static_cast<float>(sr)));
     restartFadeSamplesLeft_ = restartFadeTotalSamples_;
@@ -154,6 +164,20 @@ float SynthVoice::applyRestartFade(float sample)
     --restartFadeSamplesLeft_;
 
     return restartFadeTailSample_ + (sample - restartFadeTailSample_) * t;
+}
+
+void SynthVoice::applyRestartFadeStereo(float& L, float& R)
+{
+    if (restartFadeSamplesLeft_ <= 0)
+        return;
+
+    const int samplesDone = restartFadeTotalSamples_ - restartFadeSamplesLeft_ + 1;
+    const float t = juce::jlimit(0.0f, 1.0f,
+        static_cast<float>(samplesDone) / static_cast<float>(restartFadeTotalSamples_));
+    --restartFadeSamplesLeft_;
+
+    L = restartFadeTailSample_  + (L - restartFadeTailSample_)  * t;
+    R = restartFadeTailSampleR_ + (R - restartFadeTailSampleR_) * t;
 }
 
 void SynthVoice::noteOn(int note, float velocity, bool legato)
@@ -811,7 +835,9 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
 
             // Configure only the active filter model — the inactive ones sit
             // idle, so touching them would just waste cycles on coefficient
-            // updates that no one hears.
+            // updates that no one hears. Mirror the same coefficients to the
+            // right-channel instance so L and R filter identically (same
+            // cutoff/reso/type/slope), with separate internal state.
             switch (p.filterAlgorithm)
             {
                 case FilterAlgorithm::SVF:
@@ -820,6 +846,11 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                     filter.setType(p.filterType);
                     filter.setSlope(p.filterSlope);
                     filter.setMix(p.filterMix);
+                    filterR.setCutoff(cutoffMod);
+                    filterR.setResonance(resonanceMod);
+                    filterR.setType(p.filterType);
+                    filterR.setSlope(p.filterSlope);
+                    filterR.setMix(p.filterMix);
                     break;
                 case FilterAlgorithm::Ladder:
                     filterLadder.setCutoff(cutoffMod);
@@ -831,6 +862,12 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                     // linear for Ladder), so the character comes from the
                     // filter saturating, not from a shortcut pre-filter tanh.
                     filterLadder.setInputDrive(p.filterDriveGain);
+                    filterLadderR.setCutoff(cutoffMod);
+                    filterLadderR.setResonance(resonanceMod);
+                    filterLadderR.setType(p.filterType);
+                    filterLadderR.setSlope(p.filterSlope);
+                    filterLadderR.setMix(p.filterMix);
+                    filterLadderR.setInputDrive(p.filterDriveGain);
                     break;
                 case FilterAlgorithm::Warp:
                     filterWarp.setCutoff(cutoffMod);
@@ -840,6 +877,13 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                     filterWarp.setMix(p.filterMix);
                     filterWarp.setStyle(p.filterWarpStyle);
                     filterWarp.setInputDrive(p.filterDriveGain);
+                    filterWarpR.setCutoff(cutoffMod);
+                    filterWarpR.setResonance(resonanceMod);
+                    filterWarpR.setType(p.filterType);
+                    filterWarpR.setSlope(p.filterSlope);
+                    filterWarpR.setMix(p.filterMix);
+                    filterWarpR.setStyle(p.filterWarpStyle);
+                    filterWarpR.setInputDrive(p.filterDriveGain);
                     break;
             }
         }
@@ -849,7 +893,7 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
         // drive can be wrapped in oversampling without pulling the filter or
         // VCA up to the oversampled rate.
         float vcaScratch[SUB_BLOCK_SIZE] {};
-        float freezeSideScratch[SUB_BLOCK_SIZE] {};
+        float outputRBuf[SUB_BLOCK_SIZE] {};   // right-channel scratch parallel to output[pos..]
         int lastI = subBlockEnd;      // exclusive end of the filled range
         bool goingIdle = false;
         for (int i = pos; i < subBlockEnd; ++i)
@@ -875,11 +919,13 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             float lfo3Val = lfo3Buf[i] * lfo3Depth;
 
             float sample = 0.0f;
+            float sampleR = 0.0f;
 
             if (samplerMode)
             {
-                // Sampler: read from pre-rendered pitch-shifted block
+                // Sampler: read from pre-rendered pitch-shifted block (mono → duplicate to R)
                 sample = samplerBlockBuf_[static_cast<size_t>(i)];
+                sampleR = sample;
             }
             else if (freezeMode)
             {
@@ -905,8 +951,8 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                 float freezeLeft = 0.0f;
                 float freezeRight = 0.0f;
                 freezeEngine.processSampleStereo(freezeLeft, freezeRight);
-                sample = 0.5f * (freezeLeft + freezeRight);
-                freezeSideScratch[i - pos] = 0.5f * (freezeLeft - freezeRight);
+                sample = freezeLeft;
+                sampleR = freezeRight;
                 lastModulatedScan_ = freezeEngine.getCurrentPosition();
             }
             else if (oscReady)
@@ -939,6 +985,7 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                 osc.setInterpolation(p.wtSmooth);
 
                 sample = osc.processSample();
+                sampleR = sample;
                 lastModulatedScan_ = osc.getCurrentScanPosition();
             }
 
@@ -955,13 +1002,16 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             if (noiseLevel > 0.001f)
             {
                 noise.setType(static_cast<NoiseType>(p.noiseType));
-                sample += noise.processSample() * noiseLevel;
+                const float n = noise.processSample() * noiseLevel;
+                sample  += n;
+                sampleR += n;
             }
 
-            // Cache VCA for phase D; raw audio goes to output[i] untouched.
+            // Cache VCA for phase D; raw audio goes to output[i] / outputRBuf untouched.
             float vca = computeDcaGain(p, ampEnvVal, mod1EnvVal, mod2EnvVal);
 
             output[i] = sample;
+            outputRBuf[i - pos] = sampleR;
             vcaScratch[i - pos] = vca;
 
             if (ampEnv.isIdle() && !noteHeld)
@@ -997,7 +1047,10 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             if (p.filterDriveOs == FilterDriveOs::Off)
             {
                 for (int i = pos; i < lastI; ++i)
+                {
                     output[i] = std::tanh(output[i] * driveGain);
+                    outputRBuf[i - pos] = std::tanh(outputRBuf[i - pos] * driveGain);
+                }
             }
             else
             {
@@ -1005,55 +1058,75 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                          : (p.filterDriveOs == FilterDriveOs::X4) ? driveOs4x_.get()
                          :                                           driveOs8x_.get();
 
-                float* chPtr = output + pos;
-                float* const channels[1] = { chPtr };
-                juce::dsp::AudioBlock<float> block(channels, 1, static_cast<size_t>(driveLen));
+                float* chPtrL = output + pos;
+                float* chPtrR = outputRBuf;
+                float* const channels[2] = { chPtrL, chPtrR };
+                juce::dsp::AudioBlock<float> block(channels, 2, static_cast<size_t>(driveLen));
                 juce::dsp::AudioBlock<const float> constBlock(block);
                 auto upBlock = os->processSamplesUp(constBlock);
-                auto* upData = upBlock.getChannelPointer(0);
                 const size_t upN = upBlock.getNumSamples();
-                for (size_t i = 0; i < upN; ++i)
-                    upData[i] = std::tanh(upData[i] * driveGain);
+                for (size_t ch = 0; ch < 2; ++ch)
+                {
+                    auto* upData = upBlock.getChannelPointer(ch);
+                    for (size_t i = 0; i < upN; ++i)
+                        upData[i] = std::tanh(upData[i] * driveGain);
+                }
                 os->processSamplesDown(block);
             }
         }
 
         // ── Phase C: per-sample filter (algorithm dispatch per sub-block) ──
+        // True stereo: L through left filter, R through right filter, identical
+        // coefficients (mirrored at sub-block setup), separate state.
         if (p.filterEnabled)
         {
             switch (p.filterAlgorithm)
             {
                 case FilterAlgorithm::SVF:
                     for (int i = pos; i < lastI; ++i)
-                        output[i] = filter.processSample(output[i]);
+                    {
+                        output[i]            = filter.processSample(output[i]);
+                        outputRBuf[i - pos]  = filterR.processSample(outputRBuf[i - pos]);
+                    }
                     break;
                 case FilterAlgorithm::Ladder:
                     for (int i = pos; i < lastI; ++i)
-                        output[i] = filterLadder.processSample(output[i]);
+                    {
+                        output[i]            = filterLadder.processSample(output[i]);
+                        outputRBuf[i - pos]  = filterLadderR.processSample(outputRBuf[i - pos]);
+                    }
                     break;
                 case FilterAlgorithm::Warp:
                     for (int i = pos; i < lastI; ++i)
-                        output[i] = filterWarp.processSample(output[i]);
+                    {
+                        output[i]            = filterWarp.processSample(output[i]);
+                        outputRBuf[i - pos]  = filterWarpR.processSample(outputRBuf[i - pos]);
+                    }
                     break;
             }
         }
 
-        // ── Phase D: per-sample VCA ──
+        // ── Phase D: per-sample VCA + write ──
+        // True stereo write: each channel carries its independently-filtered
+        // signal. Restart fade applies the same time-ramp `t` to both channels
+        // (decrements the counter once per sample-pair).
         for (int i = pos; i < lastI; ++i)
         {
             const float vca = vcaScratch[i - pos];
-            const float mid = applyRestartFade(output[i] * vca);
-            lastOutputSample_ = mid;
+            float L = output[i] * vca;
+            float R = outputRBuf[i - pos] * vca;
+            applyRestartFadeStereo(L, R);
+            lastOutputSample_  = L;
+            lastOutputSampleR_ = R;
 
             if (outputRight != nullptr)
             {
-                const float side = freezeSideScratch[i - pos] * vca;
-                output[i] = mid + side;
-                outputRight[i] = mid - side;
+                output[i]      = L;
+                outputRight[i] = R;
             }
             else
             {
-                output[i] = mid;
+                output[i] = 0.5f * (L + R);
             }
         }
 

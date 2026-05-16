@@ -112,11 +112,17 @@ private:
     std::vector<float> perVoiceLfoBuf1_;
     std::vector<float> perVoiceLfoBuf2_;
     std::vector<float> perVoiceLfoBuf3_;
+    // Stereo filter pairs — L processes output[], R processes outputRBuf[].
+    // Same coefficients (mirrored at setCutoff/setReso/etc.), separate state.
     T5ynthFilter       filter;       // linear TPT SVF (low-CPU default)
     MoogLadderFilter   filterLadder; // Huovilainen nonlinear ladder
     CutoffWarpFilter   filterWarp;   // Surge-XT-style ZDF ladder + style
-    // Drive oversamplers (polyphase IIR half-band). Three instances, prepared in
-    // prepare(); renderBlock() picks the one matching bp.filterDriveOs.
+    T5ynthFilter       filterR;
+    MoogLadderFilter   filterLadderR;
+    CutoffWarpFilter   filterWarpR;
+    // Drive oversamplers (polyphase IIR half-band), 2-channel for stereo drive.
+    // Three instances, prepared in prepare(); renderBlock() picks the one
+    // matching bp.filterDriveOs.
     std::unique_ptr<juce::dsp::Oversampling<float>> driveOs2x_;  // numStages=1, 2x
     std::unique_ptr<juce::dsp::Oversampling<float>> driveOs4x_;  // numStages=2, 4x
     std::unique_ptr<juce::dsp::Oversampling<float>> driveOs8x_;  // numStages=3, 8x
@@ -131,7 +137,8 @@ private:
     bool active = false;
     bool noteHeld = false;
     float lastAmpEnvLevel = 0.0f;
-    float lastOutputSample_ = 0.0f;
+    float lastOutputSample_ = 0.0f;   // L tail at retrigger time
+    float lastOutputSampleR_ = 0.0f;  // R tail at retrigger time
     float baseFrequency = 440.0f;
     const float* tuningHz_ = nullptr;  // set by VoiceManager per-block
 
@@ -241,8 +248,10 @@ private:
     bool preStretchNormStateMatches(const BlockParams& p) const;
     void applyVelocityTimedEnvelopeTimes();
     float applyRestartFade(float sample);
+    void applyRestartFadeStereo(float& L, float& R);
 
     float restartFadeTailSample_ = 0.0f;
+    float restartFadeTailSampleR_ = 0.0f;
     int restartFadeSamplesLeft_ = 0;
     int restartFadeTotalSamples_ = 1;
     static constexpr float RESTART_FADE_MS = 3.0f;
