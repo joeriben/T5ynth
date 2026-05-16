@@ -354,7 +354,7 @@ void SynthPanel::initDrift(DriftSection& drift, const juce::String& name,
     juce::StringArray clockItems;
     for (const auto& e : ClockMode::kEntries) clockItems.add(e.label);
     drift.clockModeHidden.addItemList(clockItems, 1);
-    drift.clockBtn.setButtonText("MIDI SYNC");
+    drift.clockBtn.setButtonText("SYNC");
     drift.clockBtn.setLookAndFeel(&driftClockLnf);
     drift.clockBtn.setClickingTogglesState(false);
     drift.clockBtn.onClick = [&drift] {
@@ -1392,6 +1392,8 @@ void SynthPanel::updateVisibility()
     auto setDriftDimmed = [](DriftSection& drift) {
         bool active = drift.targetBox.getSelectedId() != 1; // 1 = "---"
         float alpha = active ? 1.0f : dimAlpha;
+        drift.header.setAlpha(1.0f);
+        drift.targetBox.setAlpha(alpha);
         drift.waveBox.setAlpha(alpha);
         drift.clockBtn.setAlpha(alpha);
         if (drift.rateRow)     drift.rateRow->setAlpha(alpha);
@@ -1412,7 +1414,7 @@ void SynthPanel::updateVisibility()
     modModeToggle.setVisible(true);
     for (auto& btn : envTabBtns)   btn.setVisible(modEasyMode);
     for (auto& btn : lfoTabBtns)   btn.setVisible(false);
-    for (auto& btn : driftTabBtns) btn.setVisible(modEasyMode);
+    for (auto& btn : driftTabBtns) btn.setVisible(false);
 
     auto setEnvControlsVisible = [](EnvSection& env, bool selected, bool easy)
     {
@@ -1460,9 +1462,10 @@ void SynthPanel::updateVisibility()
 
     auto setDriftControlsVisible = [](DriftSection& drift, bool selected, bool easy)
     {
-        const bool visible = !easy || selected;
+        juce::ignoreUnused(selected, easy);
+        const bool visible = true;
         const bool sync = drift.clockModeHidden.getSelectedId() == 2;
-        drift.header.setVisible(!easy);
+        drift.header.setVisible(true);
         drift.targetBox.setVisible(visible);
         drift.waveBox.setVisible(visible);
         for (auto& btn : drift.waveBtns)
@@ -1604,11 +1607,6 @@ bool SynthPanel::hasModHiddenActiveState() const
     const LfoSection* lfos[] = { &lfo1, &lfo2, &lfo3 };
     for (const auto* lfo : lfos)
         if (comboId(lfo->modeHidden, 1) != 1)
-            return true;
-
-    const DriftSection* drifts[] = { &drift1, &drift2, &drift3 };
-    for (int i = 0; i < 3; ++i)
-        if (i != activeDriftTab && drifts[i]->targetBox.getSelectedId() > 1)
             return true;
 
     if (aftertouchTargetBox.getSelectedId() > 1)
@@ -1818,6 +1816,14 @@ void SynthPanel::layoutDrift(DriftSection& drift, juce::Rectangle<int>& area, fl
     if (drift.rateRow)     drift.rateRow->setVerticalMode(false);
     if (drift.depthRow)    drift.depthRow->setVerticalMode(false);
     if (drift.divisionRow) drift.divisionRow->setVerticalMode(false);
+    if (drift.rateRow)     drift.rateRow->getLabel().setText("Rate", juce::dontSendNotification);
+    if (drift.depthRow)    drift.depthRow->getLabel().setText("Depth", juce::dontSendNotification);
+    if (drift.divisionRow) drift.divisionRow->getLabel().setText("Rate", juce::dontSendNotification);
+    drift.header.setText(&drift == &drift2 ? "D2" : (&drift == &drift3 ? "D3" : "D1"),
+                         juce::dontSendNotification);
+    drift.header.setColour(juce::Label::textColourId, kDriftCol);
+    drift.header.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    drift.header.setJustificationType(juce::Justification::centredLeft);
     if (drift.rateRow)     drift.rateRow->setForcedValueWidth(64);
     if (drift.divisionRow) drift.divisionRow->setForcedValueWidth(64);
     drift.waveSwitchBounds = {};
@@ -1972,18 +1978,19 @@ void SynthPanel::layoutLfoEasy(LfoSection& lfo, juce::Rectangle<int> area, float
     auto top = area.removeFromTop(rowH);
     const int targetW = choiceBoxWidthFor(LfoTarget::kEntries, f, juce::roundToInt(f * 8.4f));
     const int waveW = choiceBoxWidthFor(LfoWave::kEntries, f, juce::roundToInt(f * 4.8f));
-    const int syncW = buttonTextWidthFor("SYNC", f, juce::roundToInt(f * 4.1f));
+    const int syncW = rowH;
 
     const std::vector<ResponsiveStripItem> rowItems {
         { targetW, juce::roundToInt(f * 5.4f), 0, true, ResponsiveStripFallback::none },
         { waveW,   juce::roundToInt(f * 3.7f), 0, false, ResponsiveStripFallback::none },
-        { syncW,   juce::roundToInt(f * 3.5f), 0, false, ResponsiveStripFallback::none }
+        { syncW,   rowH, 0, false, ResponsiveStripFallback::none }
     };
     auto rowLayout = layoutResponsiveStrip(top, rowItems, controlGap);
 
     lfo.targetBox.setBounds(rowLayout.bounds[0]);
     lfo.waveBox.setBounds(rowLayout.bounds[1]);
-    lfo.clockBtn.setBounds(rowLayout.bounds[2]);
+    const int syncNudge = juce::jmax(2, juce::roundToInt(f * 0.18f));
+    lfo.clockBtn.setBounds(rowLayout.bounds[2].translated(-syncNudge, 0));
     lfo.waveSwitchBounds = {};
     lfo.modeSwitchBounds = {};
     lfo.modeHidden.onChange();
@@ -2008,41 +2015,59 @@ void SynthPanel::layoutDriftEasy(DriftSection& drift, juce::Rectangle<int> area,
         if (r)
         {
             r->clearForcedLabelWidth();
-            r->setVerticalMode(false);
+            r->clearForcedValueWidth();
+            r->setKnobMode(true);
         }
 
-    auto body = area.removeFromTop(juce::jmin(area.getHeight(),
-                                              rowH * 3 + juce::jmax(gap, 6) * 2));
-    const int bodyGap = juce::jmax(12, juce::roundToInt(f * 0.9f));
-    const int leftW = juce::jlimit(juce::roundToInt(f * 12.0f),
-                                   juce::roundToInt(f * 17.5f),
-                                   juce::roundToInt(static_cast<float>(body.getWidth()) * 0.38f));
-    auto matrix = body.removeFromLeft(leftW);
-    body.removeFromLeft(bodyGap);
-    auto sliders = body;
+    drift.rateRow->getLabel().setText("Rate", juce::dontSendNotification);
+    drift.divisionRow->getLabel().setText("Rate", juce::dontSendNotification);
+    drift.depthRow->getLabel().setText("Amt", juce::dontSendNotification);
 
-    auto targetRow = matrix.removeFromTop(rowH);
-    drift.targetBox.setBounds(targetRow);
-    matrix.removeFromTop(juce::jmax(gap, 6));
+    const int rowGap = juce::jmax(gap, 6);
+    const int controlGap = juce::jmax(7, juce::roundToInt(f * 0.55f));
+    const float topFontSize = juce::jmax(kUiControlFontMin, juce::jmin(13.0f, static_cast<float>(rowH) * 0.58f));
 
-    auto switchRow = matrix.removeFromTop(rowH);
-    const int waveW = juce::jmin(choiceBoxWidthFor(DriftWave::kEntries, f, juce::roundToInt(f * 6.0f)),
-                                 juce::jmax(1, switchRow.getWidth() / 2));
-    drift.waveBox.setBounds(switchRow.removeFromLeft(waveW));
-    switchRow.removeFromLeft(juce::jmax(gap, 6));
-    drift.clockBtn.setBounds(switchRow);
+    const juce::String title = &drift == &drift2 ? "DRIFT 2" : (&drift == &drift3 ? "DRIFT 3" : "DRIFT 1");
+    auto headerRow = area.removeFromTop(rowH);
+    const int headerW = juce::jmax(68, measureTextWidth(title, topFontSize) + 18);
+    drift.header.setText(title, juce::dontSendNotification);
+    drift.header.setFont(juce::FontOptions(topFontSize, juce::Font::bold));
+    drift.header.setJustificationType(juce::Justification::centred);
+    drift.header.setColour(juce::Label::textColourId, juce::Colour(0xff0e1018));
+    drift.header.setColour(juce::Label::backgroundColourId, kDriftCol);
+    drift.header.setBounds(headerRow.removeFromLeft(juce::jmin(headerW, headerRow.getWidth())));
+    area.removeFromTop(rowGap);
+
+    auto top = area.removeFromTop(rowH);
+    const int targetW = choiceBoxWidthFor(DriftTarget::kEntries, f, juce::roundToInt(f * 8.4f));
+    const int waveW = choiceBoxWidthFor(DriftWave::kEntries, f, juce::roundToInt(f * 4.8f));
+    const int syncW = rowH;
+
+    const std::vector<ResponsiveStripItem> rowItems {
+        { targetW, juce::roundToInt(f * 5.4f), 0, true, ResponsiveStripFallback::none },
+        { waveW,   juce::roundToInt(f * 3.7f), 0, false, ResponsiveStripFallback::none },
+        { syncW,   rowH, 0, false, ResponsiveStripFallback::none }
+    };
+    auto rowLayout = layoutResponsiveStrip(top, rowItems, controlGap);
+
+    drift.targetBox.setBounds(rowLayout.bounds[0]);
+    drift.waveBox.setBounds(rowLayout.bounds[1]);
+    const int syncNudge = juce::jmax(2, juce::roundToInt(f * 0.18f));
+    drift.clockBtn.setBounds(rowLayout.bounds[2].translated(-syncNudge, 0));
     drift.waveSwitchBounds = {};
 
-    drift.rateRow->setForcedValueWidth(72);
-    drift.divisionRow->setForcedValueWidth(72);
-    drift.depthRow->setForcedValueWidth(52);
+    area.removeFromTop(rowGap);
 
-    auto rateRow = sliders.removeFromTop(rowH);
-    drift.rateRow->setBounds(rateRow);
-    drift.divisionRow->setBounds(rateRow);
-    sliders.removeFromTop(juce::jmax(gap, 6));
+    auto knobs = area;
+    const int knobGap = juce::jmax(12, juce::roundToInt(f * 0.95f));
+    const int cellW = juce::jmax(1, (knobs.getWidth() - knobGap) / 2);
+    auto rateCell = knobs.removeFromLeft(cellW);
+    knobs.removeFromLeft(knobGap);
+    auto amtCell = knobs;
 
-    drift.depthRow->setBounds(sliders.removeFromTop(rowH));
+    drift.rateRow->setBounds(rateCell);
+    drift.divisionRow->setBounds(rateCell);
+    drift.depthRow->setBounds(amtCell);
 }
 
 void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, int gap, int headerH, float headerFs)
@@ -2050,12 +2075,12 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, in
     juce::ignoreUnused(headerH, headerFs);
 
     auto* env = activeEnvTab == 1 ? &mod1Env : (activeEnvTab == 2 ? &mod2Env : &ampEnv);
-    auto* drift = activeDriftTab == 1 ? &drift2 : (activeDriftTab == 2 ? &drift3 : &drift1);
 
     const int tabH = rowH;
     const int blockGap = juce::jmax(7, juce::roundToInt(f * 0.65f));
     const bool columns = area.getWidth() >= juce::roundToInt(f * 46.0f);
     const int contentInset = juce::jmax(4, juce::roundToInt(f * 0.35f));
+    int easyModStackWidth = 0;
 
     auto layoutBlock = [&](std::array<juce::TextButton, kNumModTabs>& tabs,
                            juce::Rectangle<int>& tabBounds,
@@ -2072,10 +2097,8 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, in
 
     auto layoutLfoStack = [&](juce::Rectangle<int> block)
     {
-        if (columns && block.getWidth() >= juce::roundToInt(f * 30.0f))
-            block.setWidth(juce::jlimit(juce::roundToInt(f * 23.0f),
-                                        juce::roundToInt(f * 34.0f),
-                                        block.getWidth() / 2));
+        if (columns && easyModStackWidth > 0)
+            block.setWidth(juce::jmin(block.getWidth(), easyModStackWidth));
 
         lfoEasyBlockBounds = block;
         lfoTabSwitchBounds = {};
@@ -2099,6 +2122,30 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, in
         }
     };
 
+    auto layoutDriftStack = [&](juce::Rectangle<int> block)
+    {
+        driftEasyBlockBounds = block;
+        driftTabSwitchBounds = {};
+
+        auto content = block.reduced(contentInset, contentInset);
+        const int moduleGap = juce::jmax(9, juce::roundToInt(f * 0.72f));
+        const int availableH = juce::jmax(0, content.getHeight() - moduleGap * 2);
+        const int moduleH = juce::jmax(rowH * 3, availableH / 3);
+        DriftSection* drifts[] = { &drift1, &drift2, &drift3 };
+
+        for (int i = 0; i < 3; ++i)
+        {
+            auto module = (i == 2)
+                ? content
+                : content.removeFromTop(juce::jmin(moduleH, content.getHeight()));
+            driftEasyModuleBounds[static_cast<size_t>(i)] = module;
+            layoutDriftEasy(*drifts[i], module, f, rowH, gap);
+
+            if (i < 2)
+                content.removeFromTop(moduleGap);
+        }
+    };
+
     if (columns)
     {
         const int blockH = area.getHeight();
@@ -2107,27 +2154,37 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, in
         const int envW = juce::jlimit(juce::roundToInt(f * 16.0f),
                                       juce::roundToInt(f * 24.0f),
                                       juce::roundToInt(static_cast<float>(block.getWidth()) * 0.28f));
-        const int driftW = juce::jlimit(juce::roundToInt(f * 15.0f),
-                                        juce::roundToInt(f * 24.0f),
-                                        juce::roundToInt(static_cast<float>(block.getWidth()) * 0.24f));
         auto envArea = block.removeFromLeft(envW);
         block.removeFromLeft(colGap);
-        auto driftArea = block.removeFromRight(driftW);
+
+        const int previousDriftW = juce::jlimit(juce::roundToInt(f * 23.0f),
+                                                juce::roundToInt(f * 34.0f),
+                                                juce::roundToInt(static_cast<float>(block.getWidth()) * 0.28f));
+        const int previousLfoAreaW = juce::jmax(0, block.getWidth() - previousDriftW - colGap);
+        const int previousLfoW = previousLfoAreaW >= juce::roundToInt(f * 30.0f)
+            ? juce::jlimit(juce::roundToInt(f * 23.0f),
+                           juce::roundToInt(f * 34.0f),
+                           previousLfoAreaW / 2)
+            : previousLfoAreaW;
+        easyModStackWidth = juce::jlimit(juce::roundToInt(f * 14.0f),
+                                         juce::jmax(1, block.getWidth()),
+                                         juce::roundToInt(static_cast<float>(previousLfoW) * 0.60f));
+
+        auto driftArea = block.removeFromRight(easyModStackWidth);
         block.removeFromRight(colGap);
         auto lfoArea = block;
 
         layoutBlock(envTabBtns, envTabSwitchBounds, envEasyBlockBounds, envArea,
                     [&](juce::Rectangle<int> content) { layoutEnvEasy(*env, content, f, rowH, gap); });
         layoutLfoStack(lfoArea);
-        layoutBlock(driftTabBtns, driftTabSwitchBounds, driftEasyBlockBounds, driftArea,
-                    [&](juce::Rectangle<int> content) { layoutDriftEasy(*drift, content, f, rowH, gap); });
+        layoutDriftStack(driftArea);
         return;
     }
 
     const int totalGap = blockGap * 2;
     const int usableH = juce::jmax(0, area.getHeight() - totalGap);
-    const int envH = usableH * 8 / 23;
-    const int lfoH = usableH * 10 / 23;
+    const int envH = usableH * 7 / 31;
+    const int lfoH = usableH * 12 / 31;
     const int driftH = usableH - envH - lfoH;
 
     auto envArea = area.removeFromTop(envH);
@@ -2140,8 +2197,7 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, in
     area.removeFromTop(blockGap);
 
     auto driftArea = area.removeFromTop(driftH);
-    layoutBlock(driftTabBtns, driftTabSwitchBounds, driftEasyBlockBounds, driftArea,
-                [&](juce::Rectangle<int> content) { layoutDriftEasy(*drift, content, f, rowH, gap); });
+    layoutDriftStack(driftArea);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -2244,10 +2300,18 @@ void SynthPanel::paint(juce::Graphics& g)
                 g.drawRect(moduleBounds, 1);
             }
 
+            for (const auto& moduleBounds : driftEasyModuleBounds)
+            {
+                if (moduleBounds.isEmpty())
+                    continue;
+
+                g.setColour(kCard.withAlpha(0.42f));
+                g.fillRect(moduleBounds);
+                g.setColour(kBorder.withAlpha(0.72f));
+                g.drawRect(moduleBounds, 1);
+            }
+
             paintSwitchBoxBorder(g, envTabSwitchBounds);
-            paintSwitchBoxBorder(g, driftTabSwitchBounds);
-            auto* drift = activeDriftTab == 1 ? &drift2 : (activeDriftTab == 2 ? &drift3 : &drift1);
-            paintSwitchBoxBorder(g, drift->waveSwitchBounds);
             return;
         }
 
@@ -2312,10 +2376,6 @@ void SynthPanel::paintOverChildren(juce::Graphics& g)
     if (modEasyMode)
     {
         drawSegmentGroup(envTabSwitchBounds, kNumModTabs, false);
-        drawSegmentGroup(driftTabSwitchBounds, kNumModTabs, false);
-
-        auto* drift = activeDriftTab == 1 ? &drift2 : (activeDriftTab == 2 ? &drift3 : &drift1);
-        drawSegmentGroup(drift->waveSwitchBounds, kNumWaveBtns, false);
     }
 
     if (!oneshotBtn.isVisible()) return;
@@ -2717,6 +2777,8 @@ void SynthPanel::resized()
     lfoEasyBlockBounds = {};
     driftEasyBlockBounds = {};
     for (auto& b : lfoEasyModuleBounds)
+        b = {};
+    for (auto& b : driftEasyModuleBounds)
         b = {};
 
     // ── Envelopes ──

@@ -104,6 +104,7 @@ private:
     juce::Rectangle<int> envTabSwitchBounds, lfoTabSwitchBounds, driftTabSwitchBounds;
     juce::Rectangle<int> envEasyBlockBounds, lfoEasyBlockBounds, driftEasyBlockBounds;
     std::array<juce::Rectangle<int>, 3> lfoEasyModuleBounds;
+    std::array<juce::Rectangle<int>, 3> driftEasyModuleBounds;
 
     // ── Filter ──
     // Type switchbox: OFF LP HP BP (drives filter_type APVTS via hidden ComboBox)

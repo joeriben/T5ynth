@@ -179,6 +179,46 @@ juce::Font T5ynthLookAndFeel::getTextButtonFont(juce::TextButton&, int buttonHei
     return juce::Font(juce::FontOptions(size));
 }
 
+void T5ynthLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, bool isButtonDown,
+                                     int buttonX, int buttonY, int buttonW, int buttonH,
+                                     juce::ComboBox& box)
+{
+    juce::ignoreUnused(buttonX, buttonY, buttonW, buttonH);
+
+    auto bounds = juce::Rectangle<int>(0, 0, width, height).toFloat();
+    auto bg = box.findColour(juce::ComboBox::backgroundColourId);
+
+    if (isButtonDown)
+        bg = bg.brighter(0.06f);
+
+    g.setColour(bg);
+    g.fillRect(bounds);
+
+    auto outline = box.findColour(juce::ComboBox::outlineColourId);
+    g.setColour(outline);
+    g.drawRect(bounds, 1.0f);
+
+    if (box.hasKeyboardFocus(false))
+    {
+        g.setColour(outline.brighter(0.28f));
+        g.drawRect(bounds.reduced(1.0f), 1.0f);
+    }
+
+    const float side = juce::jlimit(4.0f, 5.5f, static_cast<float>(height) * 0.22f);
+    const float x = bounds.getRight() - side - 3.0f;
+    const float y = bounds.getCentreY() - side * 0.5f;
+    auto markerColour = box.findColour(juce::ComboBox::textColourId)
+                            .withAlpha(box.isEnabled() ? 0.72f : 0.28f);
+
+    g.setColour(markerColour);
+    g.drawRect(juce::Rectangle<float>(x, y, side, side), 1.15f);
+
+    const float dot = juce::jmax(1.25f, side * 0.26f);
+    g.fillEllipse(x + side * 0.5f - dot * 0.5f,
+                  y + side * 0.5f - dot * 0.5f,
+                  dot, dot);
+}
+
 juce::Font T5ynthLookAndFeel::getComboBoxFont(juce::ComboBox& box)
 {
     return juce::Font(juce::FontOptions(juce::jmax(kUiControlFontMin, static_cast<float>(box.getHeight()) * 0.58f)));
@@ -186,7 +226,9 @@ juce::Font T5ynthLookAndFeel::getComboBoxFont(juce::ComboBox& box)
 
 void T5ynthLookAndFeel::positionComboBoxText(juce::ComboBox& box, juce::Label& label)
 {
-    label.setBounds(8, 1, box.getWidth() - 26, box.getHeight() - 2);
+    constexpr int leftInset = 6;
+    const int rightInset = juce::jlimit(10, 13, juce::roundToInt(static_cast<float>(box.getHeight()) * 0.50f));
+    label.setBounds(leftInset, 1, juce::jmax(0, box.getWidth() - leftInset - rightInset), box.getHeight() - 2);
     label.setFont(getComboBoxFont(box));
     label.setColour(juce::Label::textColourId, box.findColour(juce::ComboBox::textColourId));
     label.setJustificationType(box.getJustificationType());

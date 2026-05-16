@@ -27,6 +27,9 @@ public:
                           float rotaryStartAngle,
                           float rotaryEndAngle,
                           juce::Slider& slider) override;
+    void drawComboBox(juce::Graphics& g, int width, int height, bool isButtonDown,
+                      int buttonX, int buttonY, int buttonW, int buttonH,
+                      juce::ComboBox& box) override;
     juce::Font getTextButtonFont(juce::TextButton& button, int buttonHeight) override;
     juce::Font getComboBoxFont(juce::ComboBox& box) override;
     void positionComboBoxText(juce::ComboBox& box, juce::Label& label) override;
