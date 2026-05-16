@@ -115,6 +115,64 @@ void T5ynthLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& 
                juce::Justification::centredLeft);
 }
 
+void T5ynthLookAndFeel::drawRotarySlider(juce::Graphics& g,
+                                         int x, int y, int width, int height,
+                                         float sliderPosProportional,
+                                         float rotaryStartAngle,
+                                         float rotaryEndAngle,
+                                         juce::Slider& slider)
+{
+    auto bounds = juce::Rectangle<float>(static_cast<float>(x),
+                                         static_cast<float>(y),
+                                         static_cast<float>(width),
+                                         static_cast<float>(height)).reduced(2.0f);
+    const float diameter = juce::jmin(bounds.getWidth(), bounds.getHeight());
+    auto knob = juce::Rectangle<float>(diameter, diameter).withCentre(bounds.getCentre());
+    const float radius = diameter * 0.5f;
+    const float arcRadius = radius * 0.82f;
+    const float stroke = juce::jlimit(2.0f, 4.5f, radius * 0.11f);
+    const float displayStartAngle = juce::MathConstants<float>::pi * 1.2f;
+    const float displayEndAngle = juce::MathConstants<float>::pi * 2.8f;
+    const float displayAngle = displayStartAngle + sliderPosProportional * (displayEndAngle - displayStartAngle);
+    const float indicatorAngle = rotaryStartAngle + sliderPosProportional * (rotaryEndAngle - rotaryStartAngle);
+
+    auto accent = slider.findColour(juce::Slider::trackColourId);
+    auto bg = slider.findColour(juce::Slider::backgroundColourId);
+    auto thumb = slider.findColour(juce::Slider::thumbColourId);
+
+    g.setColour(kSurface.darker(0.36f));
+    g.fillEllipse(knob);
+    g.setColour(kBorder.withAlpha(0.72f));
+    g.drawEllipse(knob.reduced(stroke * 0.35f), 1.0f);
+
+    juce::Path baseArc;
+    baseArc.addCentredArc(knob.getCentreX(), knob.getCentreY(),
+                          arcRadius, arcRadius, 0.0f,
+                          displayStartAngle, displayEndAngle, true);
+    g.setColour(bg.withAlpha(0.95f));
+    g.strokePath(baseArc, juce::PathStrokeType(stroke,
+                                               juce::PathStrokeType::curved,
+                                               juce::PathStrokeType::rounded));
+
+    juce::Path valueArc;
+    valueArc.addCentredArc(knob.getCentreX(), knob.getCentreY(),
+                           arcRadius, arcRadius, 0.0f,
+                           displayStartAngle, displayAngle, true);
+    g.setColour(accent);
+    g.strokePath(valueArc, juce::PathStrokeType(stroke,
+                                                juce::PathStrokeType::curved,
+                                                juce::PathStrokeType::rounded));
+
+    const float pointerLen = radius * 0.45f;
+    const float pointerStart = radius * 0.12f;
+    juce::Point<float> centre = knob.getCentre();
+    auto p1 = centre + juce::Point<float>(std::cos(indicatorAngle), std::sin(indicatorAngle)) * pointerStart;
+    auto p2 = centre + juce::Point<float>(std::cos(indicatorAngle), std::sin(indicatorAngle)) * pointerLen;
+
+    g.setColour(thumb);
+    g.drawLine(juce::Line<float>(p1, p2), juce::jmax(2.0f, stroke * 0.72f));
+}
+
 juce::Font T5ynthLookAndFeel::getTextButtonFont(juce::TextButton&, int buttonHeight)
 {
     const float size = juce::jlimit(kUiControlFontMin, 13.5f, static_cast<float>(buttonHeight) * 0.58f);

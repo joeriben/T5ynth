@@ -243,7 +243,7 @@ void SynthPanel::initLfo(LfoSection& lfo, const juce::String& name,
     juce::StringArray clockItems;
     for (const auto& e : ClockMode::kEntries) clockItems.add(e.label);
     lfo.clockModeHidden.addItemList(clockItems, 1);
-    lfo.clockBtn.setButtonText("MIDI SYNC");
+    lfo.clockBtn.setButtonText("SYNC");
     lfo.clockBtn.setLookAndFeel(&lfoClockLnf);
     lfo.clockBtn.setClickingTogglesState(false);
     lfo.clockBtn.onClick = [&lfo] {
@@ -1369,6 +1369,8 @@ void SynthPanel::updateVisibility()
     auto setLfoDimmed = [](LfoSection& lfo) {
         bool active = lfo.targetBox.getSelectedId() != 1; // 1 = "---"
         float alpha = active ? 1.0f : dimAlpha;
+        lfo.header.setAlpha(1.0f);
+        lfo.targetBox.setAlpha(alpha);
         lfo.waveBox.setAlpha(alpha);
         lfo.modeBtn.setAlpha(alpha);
         lfo.clockBtn.setAlpha(alpha);
@@ -1409,7 +1411,7 @@ void SynthPanel::updateVisibility()
 
     modModeToggle.setVisible(true);
     for (auto& btn : envTabBtns)   btn.setVisible(modEasyMode);
-    for (auto& btn : lfoTabBtns)   btn.setVisible(modEasyMode);
+    for (auto& btn : lfoTabBtns)   btn.setVisible(false);
     for (auto& btn : driftTabBtns) btn.setVisible(modEasyMode);
 
     auto setEnvControlsVisible = [](EnvSection& env, bool selected, bool easy)
@@ -1430,16 +1432,17 @@ void SynthPanel::updateVisibility()
 
     auto setLfoControlsVisible = [](LfoSection& lfo, bool selected, bool easy)
     {
-        const bool visible = !easy || selected;
+        juce::ignoreUnused(selected);
+        const bool visible = true;
         const bool sync = lfo.clockModeHidden.getSelectedId() == 2;
-        lfo.header.setVisible(!easy);
+        lfo.header.setVisible(true);
         lfo.targetBox.setVisible(visible);
         lfo.waveBox.setVisible(visible);
         for (auto& btn : lfo.waveBtns)
             btn.setVisible(false);
         lfo.modeBtn.setVisible(visible && !easy);
         for (auto& btn : lfo.modeBtns)
-            btn.setVisible(visible && easy);
+            btn.setVisible(false);
         lfo.clockBtn.setVisible(visible);
         if (lfo.rateRow)     lfo.rateRow->setVisible(visible && !sync);
         if (lfo.divisionRow) lfo.divisionRow->setVisible(visible && sync);
@@ -1599,8 +1602,8 @@ bool SynthPanel::hasModHiddenActiveState() const
     }
 
     const LfoSection* lfos[] = { &lfo1, &lfo2, &lfo3 };
-    for (int i = 0; i < 3; ++i)
-        if (i != activeLfoTab && lfos[i]->targetBox.getSelectedId() > 1)
+    for (const auto* lfo : lfos)
+        if (comboId(lfo->modeHidden, 1) != 1)
             return true;
 
     const DriftSection* drifts[] = { &drift1, &drift2, &drift3 };
@@ -1750,6 +1753,12 @@ void SynthPanel::layoutLfo(LfoSection& lfo, juce::Rectangle<int>& area, float f,
     if (lfo.rateRow)     lfo.rateRow->setVerticalMode(false);
     if (lfo.depthRow)    lfo.depthRow->setVerticalMode(false);
     if (lfo.divisionRow) lfo.divisionRow->setVerticalMode(false);
+    if (lfo.rateRow)     lfo.rateRow->getLabel().setText("Rate", juce::dontSendNotification);
+    if (lfo.depthRow)    lfo.depthRow->getLabel().setText("Depth", juce::dontSendNotification);
+    if (lfo.divisionRow) lfo.divisionRow->getLabel().setText("Rate", juce::dontSendNotification);
+    lfo.header.setColour(juce::Label::textColourId, kLfoCol);
+    lfo.header.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    lfo.header.setJustificationType(juce::Justification::centredLeft);
     if (lfo.rateRow)     lfo.rateRow->setForcedValueWidth(56);
     if (lfo.divisionRow) lfo.divisionRow->setForcedValueWidth(56);
 
@@ -1939,46 +1948,58 @@ void SynthPanel::layoutLfoEasy(LfoSection& lfo, juce::Rectangle<int> area, float
         if (r)
         {
             r->clearForcedLabelWidth();
-            r->setVerticalMode(false);
+            r->clearForcedValueWidth();
+            r->setKnobMode(true);
         }
 
-    auto body = area.removeFromTop(juce::jmin(area.getHeight(),
-                                              rowH * 2 + juce::jmax(gap, 6)));
-    const int bodyGap = juce::jmax(12, juce::roundToInt(f * 0.9f));
-    const int leftW = juce::jlimit(juce::roundToInt(f * 12.0f),
-                                   juce::roundToInt(f * 17.5f),
-                                   juce::roundToInt(static_cast<float>(body.getWidth()) * 0.38f));
-    auto matrix = body.removeFromLeft(leftW);
-    body.removeFromLeft(bodyGap);
-    auto sliders = body;
+    lfo.rateRow->getLabel().setText("Rate", juce::dontSendNotification);
+    lfo.divisionRow->getLabel().setText("Rate", juce::dontSendNotification);
+    lfo.depthRow->getLabel().setText("Amt", juce::dontSendNotification);
 
-    auto targetRow = matrix.removeFromTop(rowH);
-    lfo.targetBox.setBounds(targetRow);
-    matrix.removeFromTop(juce::jmax(gap, 6));
+    const int rowGap = juce::jmax(gap, 6);
+    const int controlGap = juce::jmax(7, juce::roundToInt(f * 0.55f));
+    const float topFontSize = juce::jmax(kUiControlFontMin, juce::jmin(13.0f, static_cast<float>(rowH) * 0.58f));
 
-    auto switchRow = matrix.removeFromTop(rowH);
-    const int waveW = juce::jmin(choiceBoxWidthFor(LfoWave::kEntries, f, juce::roundToInt(f * 6.0f)),
-                                 juce::jmax(1, switchRow.getWidth() / 2));
-    lfo.waveBox.setBounds(switchRow.removeFromLeft(waveW));
-    switchRow.removeFromLeft(juce::jmax(gap, 6));
-    lfo.clockBtn.setBounds(switchRow);
-    matrix.removeFromTop(juce::jmax(gap, 6));
+    auto headerRow = area.removeFromTop(rowH);
+    const int headerW = juce::jmax(54, measureTextWidth(lfo.header.getText(), topFontSize) + 18);
+    lfo.header.setFont(juce::FontOptions(topFontSize, juce::Font::bold));
+    lfo.header.setJustificationType(juce::Justification::centred);
+    lfo.header.setColour(juce::Label::textColourId, juce::Colour(0xff0e1018));
+    lfo.header.setColour(juce::Label::backgroundColourId, kLfoCol);
+    lfo.header.setBounds(headerRow.removeFromLeft(juce::jmin(headerW, headerRow.getWidth())));
+    area.removeFromTop(rowGap);
 
-    auto modeRow = matrix.removeFromTop(rowH);
-    layoutSegmentedButtons(lfo.modeBtns, modeRow, lfo.modeSwitchBounds, false);
-    lfo.modeHidden.onChange();
+    auto top = area.removeFromTop(rowH);
+    const int targetW = choiceBoxWidthFor(LfoTarget::kEntries, f, juce::roundToInt(f * 8.4f));
+    const int waveW = choiceBoxWidthFor(LfoWave::kEntries, f, juce::roundToInt(f * 4.8f));
+    const int syncW = buttonTextWidthFor("SYNC", f, juce::roundToInt(f * 4.1f));
+
+    const std::vector<ResponsiveStripItem> rowItems {
+        { targetW, juce::roundToInt(f * 5.4f), 0, true, ResponsiveStripFallback::none },
+        { waveW,   juce::roundToInt(f * 3.7f), 0, false, ResponsiveStripFallback::none },
+        { syncW,   juce::roundToInt(f * 3.5f), 0, false, ResponsiveStripFallback::none }
+    };
+    auto rowLayout = layoutResponsiveStrip(top, rowItems, controlGap);
+
+    lfo.targetBox.setBounds(rowLayout.bounds[0]);
+    lfo.waveBox.setBounds(rowLayout.bounds[1]);
+    lfo.clockBtn.setBounds(rowLayout.bounds[2]);
     lfo.waveSwitchBounds = {};
+    lfo.modeSwitchBounds = {};
+    lfo.modeHidden.onChange();
 
-    lfo.rateRow->setForcedValueWidth(64);
-    lfo.divisionRow->setForcedValueWidth(64);
-    lfo.depthRow->setForcedValueWidth(52);
+    area.removeFromTop(rowGap);
 
-    auto rateRow = sliders.removeFromTop(rowH);
-    lfo.rateRow->setBounds(rateRow);
-    lfo.divisionRow->setBounds(rateRow);
-    sliders.removeFromTop(juce::jmax(gap, 6));
+    auto knobs = area;
+    const int knobGap = juce::jmax(12, juce::roundToInt(f * 0.95f));
+    const int cellW = juce::jmax(1, (knobs.getWidth() - knobGap) / 2);
+    auto rateCell = knobs.removeFromLeft(cellW);
+    knobs.removeFromLeft(knobGap);
+    auto amtCell = knobs;
 
-    lfo.depthRow->setBounds(sliders.removeFromTop(rowH));
+    lfo.rateRow->setBounds(rateCell);
+    lfo.divisionRow->setBounds(rateCell);
+    lfo.depthRow->setBounds(amtCell);
 }
 
 void SynthPanel::layoutDriftEasy(DriftSection& drift, juce::Rectangle<int> area, float f, int rowH, int gap)
@@ -2029,7 +2050,6 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, in
     juce::ignoreUnused(headerH, headerFs);
 
     auto* env = activeEnvTab == 1 ? &mod1Env : (activeEnvTab == 2 ? &mod2Env : &ampEnv);
-    auto* lfo = activeLfoTab == 1 ? &lfo2 : (activeLfoTab == 2 ? &lfo3 : &lfo1);
     auto* drift = activeDriftTab == 1 ? &drift2 : (activeDriftTab == 2 ? &drift3 : &drift1);
 
     const int tabH = rowH;
@@ -2050,6 +2070,35 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, in
         layoutContent(block.reduced(contentInset, 0));
     };
 
+    auto layoutLfoStack = [&](juce::Rectangle<int> block)
+    {
+        if (columns && block.getWidth() >= juce::roundToInt(f * 30.0f))
+            block.setWidth(juce::jlimit(juce::roundToInt(f * 23.0f),
+                                        juce::roundToInt(f * 34.0f),
+                                        block.getWidth() / 2));
+
+        lfoEasyBlockBounds = block;
+        lfoTabSwitchBounds = {};
+
+        auto content = block.reduced(contentInset, contentInset);
+        const int moduleGap = juce::jmax(9, juce::roundToInt(f * 0.72f));
+        const int availableH = juce::jmax(0, content.getHeight() - moduleGap * 2);
+        const int moduleH = juce::jmax(rowH * 3, availableH / 3);
+        LfoSection* lfos[] = { &lfo1, &lfo2, &lfo3 };
+
+        for (int i = 0; i < 3; ++i)
+        {
+            auto module = (i == 2)
+                ? content
+                : content.removeFromTop(juce::jmin(moduleH, content.getHeight()));
+            lfoEasyModuleBounds[static_cast<size_t>(i)] = module;
+            layoutLfoEasy(*lfos[i], module, f, rowH, gap);
+
+            if (i < 2)
+                content.removeFromTop(moduleGap);
+        }
+    };
+
     if (columns)
     {
         const int blockH = area.getHeight();
@@ -2057,24 +2106,19 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, in
         const int colGap = juce::jmax(22, juce::roundToInt(f * 1.7f));
         const int envW = juce::jlimit(juce::roundToInt(f * 16.0f),
                                       juce::roundToInt(f * 24.0f),
-                                      juce::roundToInt(static_cast<float>(block.getWidth()) * 0.31f));
+                                      juce::roundToInt(static_cast<float>(block.getWidth()) * 0.28f));
+        const int driftW = juce::jlimit(juce::roundToInt(f * 15.0f),
+                                        juce::roundToInt(f * 24.0f),
+                                        juce::roundToInt(static_cast<float>(block.getWidth()) * 0.24f));
         auto envArea = block.removeFromLeft(envW);
         block.removeFromLeft(colGap);
-        auto rightStack = block;
-        const int stackGap = juce::jmax(14, juce::roundToInt(f * 1.1f));
-        const int lfoCompactH = tabH + juce::jmax(gap * 2, 8)
-                               + rowH * 3 + juce::jmax(gap, 6) * 2;
-        const int driftCompactH = tabH + juce::jmax(gap * 2, 8)
-                                 + rowH * 2 + juce::jmax(gap, 6);
-        const int lfoH = juce::jmin(lfoCompactH, rightStack.getHeight());
-        auto lfoArea = rightStack.removeFromTop(lfoH);
-        rightStack.removeFromTop(stackGap);
-        auto driftArea = rightStack.removeFromTop(juce::jmin(driftCompactH, rightStack.getHeight()));
+        auto driftArea = block.removeFromRight(driftW);
+        block.removeFromRight(colGap);
+        auto lfoArea = block;
 
         layoutBlock(envTabBtns, envTabSwitchBounds, envEasyBlockBounds, envArea,
                     [&](juce::Rectangle<int> content) { layoutEnvEasy(*env, content, f, rowH, gap); });
-        layoutBlock(lfoTabBtns, lfoTabSwitchBounds, lfoEasyBlockBounds, lfoArea,
-                    [&](juce::Rectangle<int> content) { layoutLfoEasy(*lfo, content, f, rowH, gap); });
+        layoutLfoStack(lfoArea);
         layoutBlock(driftTabBtns, driftTabSwitchBounds, driftEasyBlockBounds, driftArea,
                     [&](juce::Rectangle<int> content) { layoutDriftEasy(*drift, content, f, rowH, gap); });
         return;
@@ -2082,8 +2126,8 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, in
 
     const int totalGap = blockGap * 2;
     const int usableH = juce::jmax(0, area.getHeight() - totalGap);
-    const int envH = usableH * 9 / 23;
-    const int lfoH = usableH * 7 / 23;
+    const int envH = usableH * 8 / 23;
+    const int lfoH = usableH * 10 / 23;
     const int driftH = usableH - envH - lfoH;
 
     auto envArea = area.removeFromTop(envH);
@@ -2092,8 +2136,7 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, in
     area.removeFromTop(blockGap);
 
     auto lfoArea = area.removeFromTop(lfoH);
-    layoutBlock(lfoTabBtns, lfoTabSwitchBounds, lfoEasyBlockBounds, lfoArea,
-                [&](juce::Rectangle<int> content) { layoutLfoEasy(*lfo, content, f, rowH, gap); });
+    layoutLfoStack(lfoArea);
     area.removeFromTop(blockGap);
 
     auto driftArea = area.removeFromTop(driftH);
@@ -2152,14 +2195,8 @@ void SynthPanel::paint(juce::Graphics& g)
         int bot = 0;
         if (modEasyMode)
         {
-            auto* env = activeEnvTab == 1 ? &mod1Env : (activeEnvTab == 2 ? &mod2Env : &ampEnv);
-            auto* lfo = activeLfoTab == 1 ? &lfo2 : (activeLfoTab == 2 ? &lfo3 : &lfo1);
-            auto* drift = activeDriftTab == 1 ? &drift2 : (activeDriftTab == 2 ? &drift3 : &drift1);
-            bot = juce::jmax(env->velRow->getBottom(), envTabSwitchBounds.getBottom());
-            bot = juce::jmax(bot, lfo->depthRow->getBottom());
-            bot = juce::jmax(bot, lfoTabSwitchBounds.getBottom());
-            bot = juce::jmax(bot, drift->depthRow->getBottom());
-            bot = juce::jmax(bot, driftTabSwitchBounds.getBottom());
+            bot = juce::jmax(envEasyBlockBounds.getBottom(), lfoEasyBlockBounds.getBottom(),
+                             driftEasyBlockBounds.getBottom());
             bot = juce::jmax(bot, modCardBottom);
         }
         else
@@ -2196,13 +2233,20 @@ void SynthPanel::paint(juce::Graphics& g)
             paintEasyBlock(lfoEasyBlockBounds, kLfoCol);
             paintEasyBlock(driftEasyBlockBounds, kDriftCol);
 
+            for (const auto& moduleBounds : lfoEasyModuleBounds)
+            {
+                if (moduleBounds.isEmpty())
+                    continue;
+
+                g.setColour(kCard.withAlpha(0.42f));
+                g.fillRect(moduleBounds);
+                g.setColour(kBorder.withAlpha(0.72f));
+                g.drawRect(moduleBounds, 1);
+            }
+
             paintSwitchBoxBorder(g, envTabSwitchBounds);
-            paintSwitchBoxBorder(g, lfoTabSwitchBounds);
             paintSwitchBoxBorder(g, driftTabSwitchBounds);
-            auto* lfo = activeLfoTab == 1 ? &lfo2 : (activeLfoTab == 2 ? &lfo3 : &lfo1);
             auto* drift = activeDriftTab == 1 ? &drift2 : (activeDriftTab == 2 ? &drift3 : &drift1);
-            paintSwitchBoxBorder(g, lfo->waveSwitchBounds);
-            paintSwitchBoxBorder(g, lfo->modeSwitchBounds);
             paintSwitchBoxBorder(g, drift->waveSwitchBounds);
             return;
         }
@@ -2268,13 +2312,9 @@ void SynthPanel::paintOverChildren(juce::Graphics& g)
     if (modEasyMode)
     {
         drawSegmentGroup(envTabSwitchBounds, kNumModTabs, false);
-        drawSegmentGroup(lfoTabSwitchBounds, kNumModTabs, false);
         drawSegmentGroup(driftTabSwitchBounds, kNumModTabs, false);
 
-        auto* lfo = activeLfoTab == 1 ? &lfo2 : (activeLfoTab == 2 ? &lfo3 : &lfo1);
         auto* drift = activeDriftTab == 1 ? &drift2 : (activeDriftTab == 2 ? &drift3 : &drift1);
-        drawSegmentGroup(lfo->waveSwitchBounds, kNumWaveBtns, false);
-        drawSegmentGroup(lfo->modeSwitchBounds, kNumLfoModeBtns, false);
         drawSegmentGroup(drift->waveSwitchBounds, kNumWaveBtns, false);
     }
 
@@ -2676,6 +2716,8 @@ void SynthPanel::resized()
     envEasyBlockBounds = {};
     lfoEasyBlockBounds = {};
     driftEasyBlockBounds = {};
+    for (auto& b : lfoEasyModuleBounds)
+        b = {};
 
     // ── Envelopes ──
     {

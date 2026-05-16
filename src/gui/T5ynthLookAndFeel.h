@@ -21,6 +21,12 @@ public:
     void drawToggleButton(juce::Graphics& g, juce::ToggleButton& btn,
                           bool shouldDrawButtonAsHighlighted,
                           bool shouldDrawButtonAsDown) override;
+    void drawRotarySlider(juce::Graphics& g,
+                          int x, int y, int width, int height,
+                          float sliderPosProportional,
+                          float rotaryStartAngle,
+                          float rotaryEndAngle,
+                          juce::Slider& slider) override;
     juce::Font getTextButtonFont(juce::TextButton& button, int buttonHeight) override;
     juce::Font getComboBoxFont(juce::ComboBox& box) override;
     void positionComboBoxText(juce::ComboBox& box, juce::Label& label) override;

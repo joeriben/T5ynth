@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include <array>
+#include <cmath>
 #include <functional>
 #include <limits>
 #include <vector>
@@ -240,6 +241,9 @@ class SliderRow : public juce::Component
 {
 public:
     enum class LabelMode { Off, Positive, Negative };
+    enum class ControlMode { Horizontal, Vertical, Knob };
+    static constexpr float kKnobStartAngle = juce::MathConstants<float>::pi * 2.0f / 3.0f;
+    static constexpr float kKnobEndAngle   = juce::MathConstants<float>::pi * 7.0f / 3.0f;
 
     SliderRow(const juce::String& name,
               std::function<juce::String(double)> formatter,
@@ -302,16 +306,35 @@ public:
 
     void setVerticalMode(bool shouldUseVertical)
     {
-        if (verticalMode == shouldUseVertical)
+        setControlMode(shouldUseVertical ? ControlMode::Vertical : ControlMode::Horizontal);
+    }
+
+    void setKnobMode(bool shouldUseKnob)
+    {
+        setControlMode(shouldUseKnob ? ControlMode::Knob : ControlMode::Horizontal);
+    }
+
+    void setControlMode(ControlMode newMode)
+    {
+        if (controlMode == newMode)
             return;
 
-        verticalMode = shouldUseVertical;
-        slider.setSliderStyle(verticalMode ? juce::Slider::LinearVertical
-                                           : juce::Slider::LinearHorizontal);
-        label.setJustificationType(verticalMode ? juce::Justification::centred
-                                                : juce::Justification::centredLeft);
-        value.setJustificationType(verticalMode ? juce::Justification::centred
-                                                : juce::Justification::centredLeft);
+        controlMode = newMode;
+        if (controlMode == ControlMode::Vertical)
+            slider.setSliderStyle(juce::Slider::LinearVertical);
+        else if (controlMode == ControlMode::Knob)
+        {
+            slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+            slider.setRotaryParameters(kKnobStartAngle, kKnobEndAngle, true);
+        }
+        else
+            slider.setSliderStyle(juce::Slider::LinearHorizontal);
+
+        const bool centred = controlMode != ControlMode::Horizontal;
+        label.setJustificationType(centred ? juce::Justification::centred
+                                           : juce::Justification::centredLeft);
+        value.setJustificationType(centred ? juce::Justification::centred
+                                           : juce::Justification::centredLeft);
         resized();
         repaint();
     }
@@ -387,7 +410,7 @@ public:
         float gy = static_cast<float>(sb.getCentreY());
         float r = static_cast<float>(juce::jmin(sb.getWidth(), sb.getHeight())) * 0.28f;
 
-        if (verticalMode)
+        if (controlMode == ControlMode::Vertical)
         {
             double norm = slider.valueToProportionOfLength(static_cast<double>(ghostSmoothed));
             norm = juce::jlimit(0.0, 1.0, norm);
@@ -396,6 +419,22 @@ public:
             const int trackH = sb.getHeight() - thumb;
             gy = static_cast<float>(trackY + trackH)
                - static_cast<float>(trackH) * static_cast<float>(norm);
+        }
+        else if (controlMode == ControlMode::Knob)
+        {
+            auto kb = sb.toFloat().reduced(2.0f);
+            const float diameter = juce::jmin(kb.getWidth(), kb.getHeight());
+            kb = juce::Rectangle<float>(diameter, diameter).withCentre(kb.getCentre());
+
+            double norm = slider.valueToProportionOfLength(static_cast<double>(ghostSmoothed));
+            norm = juce::jlimit(0.0, 1.0, norm);
+            const float start = kKnobStartAngle;
+            const float end = kKnobEndAngle;
+            const float angle = start + (end - start) * static_cast<float>(norm);
+            const float radius = diameter * 0.36f;
+            gx = kb.getCentreX() + std::cos(angle) * radius;
+            gy = kb.getCentreY() + std::sin(angle) * radius;
+            r = juce::jmax(2.5f, diameter * 0.055f);
         }
         else
         {
@@ -410,7 +449,7 @@ public:
     void resized() override
     {
         auto b = getLocalBounds();
-        if (verticalMode)
+        if (controlMode == ControlMode::Vertical)
         {
             const int labelH = juce::jlimit(13, 20, juce::roundToInt(static_cast<float>(b.getHeight()) * 0.16f));
             const int valueH = juce::jlimit(13, 20, juce::roundToInt(static_cast<float>(b.getHeight()) * 0.16f));
@@ -423,6 +462,25 @@ public:
             label.setBounds(b.removeFromTop(labelH));
             value.setBounds(b.removeFromBottom(valueH));
             slider.setBounds(b.reduced(3, 1));
+            return;
+        }
+
+        if (controlMode == ControlMode::Knob)
+        {
+            const int labelH = juce::jlimit(13, 22, juce::roundToInt(static_cast<float>(b.getHeight()) * 0.18f));
+            const int valueH = juce::jlimit(13, 22, juce::roundToInt(static_cast<float>(b.getHeight()) * 0.18f));
+            const float labelFs = juce::jlimit(kUiLabelFontMin, 13.0f,
+                                               static_cast<float>(labelH) * 0.76f);
+            const float valueFs = juce::jlimit(kUiValueFontMin, 13.0f,
+                                               static_cast<float>(valueH) * 0.76f);
+            label.setFont(juce::FontOptions(labelFs));
+            value.setFont(juce::FontOptions(valueFs));
+            label.setBounds(b.removeFromTop(labelH));
+            value.setBounds(b.removeFromBottom(valueH));
+
+            auto knobArea = b.reduced(1, 2);
+            const int size = juce::jmax(1, juce::jmin(knobArea.getWidth(), knobArea.getHeight()));
+            slider.setBounds(juce::Rectangle<int>(size, size).withCentre(knobArea.getCentre()));
             return;
         }
 
@@ -459,7 +517,7 @@ private:
     std::function<juce::String(double)> valueFormatter;
     juce::Colour trackCol;
     LabelMode labelMode = LabelMode::Off;
-    bool verticalMode = false;
+    ControlMode controlMode = ControlMode::Horizontal;
     std::function<void()> onLabelClick;
 
     // Ghost marker smoothing
@@ -760,6 +818,17 @@ public:
         auto bounds = b.getLocalBounds().toFloat().reduced(3.0f);
         const bool on = b.getToggleState();
         g.setColour(on ? juce::Colours::white : (over ? syncFill : kDim));
+        if (b.getButtonText() == "SYNC")
+        {
+            const float fs = juce::jmax(kUiControlFontMin, bounds.getHeight() * 0.50f);
+            if (bounds.getWidth() >= static_cast<float>(measureTextWidth("SYNC", fs) + 8))
+            {
+                g.setFont(juce::FontOptions(fs, juce::Font::bold));
+                g.drawText(b.getButtonText(), bounds, juce::Justification::centred);
+                return;
+            }
+        }
+
         if (bounds.getWidth() >= 64.0f && b.getButtonText().isNotEmpty())
         {
             auto iconBounds = bounds.removeFromLeft(bounds.getHeight());
