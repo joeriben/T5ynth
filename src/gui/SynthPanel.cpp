@@ -960,7 +960,11 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
               if (i > 0) edges |= juce::Button::ConnectedOnLeft;
               if (i < kNumAlgBtns - 1) edges |= juce::Button::ConnectedOnRight;
               filterAlgBtns[i].setConnectedEdges(edges); }
-            filterAlgBtns[i].onClick = [this, i] { filterAlgHidden.setSelectedId(i + 1); };
+            filterAlgBtns[i].onClick = [this, i] {
+                if (modEasyMode && i == FilterAlgorithm::Warp)
+                    filterWarpStyleBox.setSelectedId(FilterWarpStyle::SoftClip + 1);
+                filterAlgHidden.setSelectedId(i + 1);
+            };
             addAndMakeVisible(filterAlgBtns[i]);
         }
     }
@@ -1308,6 +1312,17 @@ void SynthPanel::updateVisibility()
     filterWarpStyleBox.setAlpha(styleAlpha);
     filterWarpStyleBox.setEnabled(filterOn && warpActive);
     filterWarpStyleLabel.setAlpha(styleAlpha);
+    filterHeader.setVisible(true);
+    for (int i = 0; i < kNumTypeBtns; ++i)
+        filterTypeBtns[i].setVisible(!modEasyMode);
+    for (int i = 0; i < kNumSlopeBtns; ++i)
+        filterSlopeBtns[i].setVisible(true);
+    for (int i = 0; i < kNumAlgBtns; ++i)
+        filterAlgBtns[i].setVisible(true);
+    filterWarpStyleBox.setVisible(!modEasyMode);
+    filterWarpStyleLabel.setVisible(false);
+    for (int i = 0; i < kNumDriveOsBtns; ++i)
+        filterDriveOsBtns[i].setVisible(!modEasyMode);
 
     const int engineId = engineModeHidden.getSelectedId();
     bool isWavetable = engineId == 2;
@@ -1609,6 +1624,14 @@ bool SynthPanel::hasModHiddenActiveState() const
         if (comboId(lfo->modeHidden, 1) != 1)
             return true;
 
+    if (comboId(filterTypeHidden, FilterType::Lowpass + 1) != FilterType::Lowpass + 1)
+        return true;
+    if (comboId(filterDriveOsHidden, FilterDriveOs::X4 + 1) != FilterDriveOs::X4 + 1)
+        return true;
+    if (comboId(filterAlgHidden, FilterAlgorithm::SVF + 1) == FilterAlgorithm::Warp + 1
+        && comboId(filterWarpStyleBox, FilterWarpStyle::SoftClip + 1) != FilterWarpStyle::SoftClip + 1)
+        return true;
+
     if (aftertouchTargetBox.getSelectedId() > 1)
         return true;
 
@@ -1908,6 +1931,100 @@ static void layoutSegmentedButtons(std::array<juce::TextButton, N>& buttons,
     }
 }
 
+void SynthPanel::layoutFilterEasy(juce::Rectangle<int> area, float f, int rowH, int gap)
+{
+    for (auto* r : { cutoffRow.get(), resoRow.get(), filterDriveRow.get(),
+                     kbdTrackRow.get(), filterMixRow.get() })
+        if (r)
+        {
+            r->clearForcedLabelWidth();
+            r->clearForcedValueWidth();
+            r->setKnobMode(true);
+        }
+
+    cutoffRow->getLabel().setText("Cutoff", juce::dontSendNotification);
+    resoRow->getLabel().setText("Reso", juce::dontSendNotification);
+    filterDriveRow->getLabel().setText("Drive", juce::dontSendNotification);
+    kbdTrackRow->getLabel().setText("Kbd", juce::dontSendNotification);
+    filterMixRow->getLabel().setText("Mix", juce::dontSendNotification);
+
+    const int rowGap = juce::jmax(gap, 6);
+    const float topFontSize = juce::jmax(kUiControlFontMin,
+                                         juce::jmin(13.0f, static_cast<float>(rowH) * 0.58f));
+
+    auto headerRow = area.removeFromTop(rowH);
+    const int headerW = juce::jmax(64, measureTextWidth("FILTER", topFontSize) + 18);
+    filterHeader.setText(" FILTER", juce::dontSendNotification);
+    filterHeader.setFont(juce::FontOptions(topFontSize, juce::Font::bold));
+    filterHeader.setJustificationType(juce::Justification::centredLeft);
+    filterHeader.setColour(juce::Label::textColourId, juce::Colour(0xff0e1018));
+    filterHeader.setColour(juce::Label::backgroundColourId, kFilterCol);
+    filterHeader.setBounds(headerRow.removeFromLeft(juce::jmin(headerW, headerRow.getWidth())));
+    area.removeFromTop(rowGap);
+
+    auto layoutButtons = [](auto& buttons, int count, juce::Rectangle<int> row,
+                            juce::Rectangle<int>& switchBounds)
+    {
+        const int cellW = row.getWidth() / count;
+        switchBounds = {};
+        for (int i = 0; i < count; ++i)
+        {
+            auto cell = (i == count - 1) ? row : row.removeFromLeft(cellW);
+            buttons[i].setBounds(cell);
+            switchBounds = switchBounds.isEmpty() ? cell : switchBounds.getUnion(cell);
+        }
+    };
+
+    filterAlgBtns[FilterAlgorithm::SVF].setButtonText("SVF");
+    filterAlgBtns[FilterAlgorithm::Ladder].setButtonText("Ladder");
+    filterAlgBtns[FilterAlgorithm::Warp].setButtonText("Softclip");
+    layoutButtons(filterAlgBtns, kNumAlgBtns, area.removeFromTop(rowH), filterAlgSwitchBounds);
+    filterTypeSwitchBounds = {};
+    area.removeFromTop(rowGap);
+    layoutButtons(filterSlopeBtns, kNumSlopeBtns, area.removeFromTop(rowH), filterSlopeSwitchBounds);
+    filterDriveOsSwitchBounds = {};
+    area.removeFromTop(rowGap);
+
+    auto knobArea = area;
+    const int knobGap = juce::jmax(8, juce::roundToInt(f * 0.65f));
+    const int desiredSmallH = juce::jmax(rowH * 4, juce::roundToInt(f * 6.6f));
+    const int minCutoffH = juce::jmax(rowH * 6, juce::roundToInt(f * 9.5f));
+    const int maxCutoffH = juce::roundToInt(static_cast<float>(desiredSmallH) * 2.0f);
+    const int availableH = knobArea.getHeight();
+    int cutoffH = juce::jlimit(minCutoffH,
+                               juce::jmax(minCutoffH, maxCutoffH),
+                               availableH - desiredSmallH * 2 - knobGap * 2);
+    if (cutoffH < minCutoffH || availableH - cutoffH - knobGap * 2 < desiredSmallH * 2)
+        cutoffH = juce::jmin(maxCutoffH,
+                             juce::jmax(minCutoffH, availableH - desiredSmallH * 2 - knobGap * 2));
+
+    const int remainingRowsH = juce::jmax(0, availableH - cutoffH - knobGap * 2);
+    const int row1H = remainingRowsH / 2;
+    const int row2H = remainingRowsH - row1H;
+
+    auto cutoffArea = knobArea.removeFromTop(juce::jmin(cutoffH, knobArea.getHeight()));
+    const int cutoffW = juce::jmin(cutoffArea.getWidth(),
+                                   juce::jmax(rowH * 5, juce::roundToInt(static_cast<float>(cutoffArea.getWidth()) * 0.72f)));
+    cutoffRow->setBounds(juce::Rectangle<int>(cutoffW, cutoffArea.getHeight()).withCentre(cutoffArea.getCentre()));
+
+    knobArea.removeFromTop(knobGap);
+    auto row1 = knobArea.removeFromTop(row1H);
+    knobArea.removeFromTop(knobGap);
+    auto row2 = knobArea.removeFromTop(juce::jmin(row2H, knobArea.getHeight()));
+
+    auto placePair = [&](SliderRow& left, SliderRow& right, juce::Rectangle<int> row)
+    {
+        const int cellW = juce::jmax(1, (row.getWidth() - knobGap) / 2);
+        auto leftCell = row.removeFromLeft(cellW);
+        row.removeFromLeft(knobGap);
+        left.setBounds(leftCell);
+        right.setBounds(row);
+    };
+
+    placePair(*resoRow, *filterDriveRow, row1);
+    placePair(*kbdTrackRow, *filterMixRow, row2);
+}
+
 void SynthPanel::layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float f, int rowH, int gap)
 {
     juce::ignoreUnused(f);
@@ -2154,8 +2271,6 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, in
         const int envW = juce::jlimit(juce::roundToInt(f * 16.0f),
                                       juce::roundToInt(f * 24.0f),
                                       juce::roundToInt(static_cast<float>(block.getWidth()) * 0.28f));
-        auto envArea = block.removeFromLeft(envW);
-        block.removeFromLeft(colGap);
 
         const int previousDriftW = juce::jlimit(juce::roundToInt(f * 23.0f),
                                                 juce::roundToInt(f * 34.0f),
@@ -2170,10 +2285,19 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, in
                                          juce::jmax(1, block.getWidth()),
                                          juce::roundToInt(static_cast<float>(previousLfoW) * 0.60f));
 
-        auto driftArea = block.removeFromRight(easyModStackWidth);
-        block.removeFromRight(colGap);
-        auto lfoArea = block;
+        const int stackW = juce::jmin(easyModStackWidth,
+                                      juce::jmax(1, (block.getWidth() - envW - colGap * 3) / 3));
 
+        auto filterArea = block.removeFromLeft(stackW);
+        block.removeFromLeft(colGap);
+        auto envArea = block.removeFromLeft(envW);
+        block.removeFromLeft(colGap);
+        auto lfoArea = block.removeFromLeft(stackW);
+        block.removeFromLeft(colGap);
+        auto driftArea = block.removeFromLeft(juce::jmin(stackW, block.getWidth()));
+
+        filterEasyBlockBounds = filterArea;
+        layoutFilterEasy(filterArea.reduced(contentInset, contentInset), f, rowH, gap);
         layoutBlock(envTabBtns, envTabSwitchBounds, envEasyBlockBounds, envArea,
                     [&](juce::Rectangle<int> content) { layoutEnvEasy(*env, content, f, rowH, gap); });
         layoutLfoStack(lfoArea);
@@ -2181,11 +2305,17 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, in
         return;
     }
 
-    const int totalGap = blockGap * 2;
+    const int totalGap = blockGap * 3;
     const int usableH = juce::jmax(0, area.getHeight() - totalGap);
-    const int envH = usableH * 7 / 31;
-    const int lfoH = usableH * 12 / 31;
-    const int driftH = usableH - envH - lfoH;
+    const int filterH = usableH * 8 / 39;
+    const int envH = usableH * 7 / 39;
+    const int lfoH = usableH * 12 / 39;
+    const int driftH = usableH - filterH - envH - lfoH;
+
+    auto filterArea = area.removeFromTop(filterH);
+    filterEasyBlockBounds = filterArea;
+    layoutFilterEasy(filterArea.reduced(contentInset, contentInset), f, rowH, gap);
+    area.removeFromTop(blockGap);
 
     auto envArea = area.removeFromTop(envH);
     layoutBlock(envTabBtns, envTabSwitchBounds, envEasyBlockBounds, envArea,
@@ -2232,7 +2362,8 @@ void SynthPanel::paint(juce::Graphics& g)
             paintSwitchBoxBorder(g, noiseSwitchBounds);
     }
 
-    // Card: Filter section
+    // Card: Filter section (Advanced only; Easy embeds Filter in the common top block)
+    if (!modEasyMode)
     {
         int top = filterHeader.getY() - inset;
         int bot = kbdTrackRow->getBottom();
@@ -2251,8 +2382,8 @@ void SynthPanel::paint(juce::Graphics& g)
         int bot = 0;
         if (modEasyMode)
         {
-            bot = juce::jmax(envEasyBlockBounds.getBottom(), lfoEasyBlockBounds.getBottom(),
-                             driftEasyBlockBounds.getBottom());
+            bot = juce::jmax(filterEasyBlockBounds.getBottom(), envEasyBlockBounds.getBottom(),
+                             lfoEasyBlockBounds.getBottom(), driftEasyBlockBounds.getBottom());
             bot = juce::jmax(bot, modCardBottom);
         }
         else
@@ -2285,6 +2416,7 @@ void SynthPanel::paint(juce::Graphics& g)
                 g.fillRect(bounds.withWidth(2));
             };
 
+            paintEasyBlock(filterEasyBlockBounds, kFilterCol);
             paintEasyBlock(envEasyBlockBounds, kModCol);
             paintEasyBlock(lfoEasyBlockBounds, kLfoCol);
             paintEasyBlock(driftEasyBlockBounds, kDriftCol);
@@ -2311,6 +2443,8 @@ void SynthPanel::paint(juce::Graphics& g)
                 g.drawRect(moduleBounds, 1);
             }
 
+            paintSwitchBoxBorder(g, filterAlgSwitchBounds);
+            paintSwitchBoxBorder(g, filterSlopeSwitchBounds);
             paintSwitchBoxBorder(g, envTabSwitchBounds);
             return;
         }
@@ -2516,7 +2650,7 @@ void SynthPanel::resized()
     const bool isFreeze = engineId == 3;
     const int waveformReserveH = juce::roundToInt(WaveformDisplay::HANDLE_RADIUS * 2.0f + 4.0f);
     int samplerCtrlH = waveformReserveH + rowH + gap * 2; // waveform handles + one controls row
-    int filterH = headerH + headerGap + rowH + gap + rowH * 2 + gap; // header + type/slope/topology + cutoff/reso + mix/kbd
+    int filterH = headerH + headerGap + rowH + gap + rowH * 2 + gap; // advanced filter height, folded into Easy block
     int modH = gap * 3 + headerH + headerGap; // section gap + header
     int envH = (rowH * 4 + gap) * 3; // 3 envelopes × (header + 3 slider rows + gap)
     int lfoH = gap + headerH + headerGap + (rowH + gap) * 3;              // lfo header + 3 single-row LFOs
@@ -2679,81 +2813,107 @@ void SynthPanel::resized()
     }
     area.removeFromTop(gap * 2);
 
-    // ── FILTER section header ──
-    filterHeader.setFont(juce::FontOptions(headerFs));
-    filterHeader.setBounds(area.removeFromTop(headerH));
-    area.removeFromTop(headerGap);
-
-    // ── Filter header: [TYPE] [SLOPE] [ALG] [STYLE] [Drive] [OS-Switchbox] ──
-    auto filterHdr = area.removeFromTop(rowH);
+    if (!modEasyMode)
     {
-        const int groupGap  = juce::roundToInt(f * 0.75f);
-        const int typeCellW = juce::roundToInt(f * 3.2f);
-        const int slopeCellW= juce::roundToInt(f * 3.2f);
-        const int algCellW  = juce::roundToInt(f * 2.2f);   // short labels (SVF, Ladder, Warp)
-        const int styleW    = juce::roundToInt(f * 7.0f);   // ~10 chars incl. arrow
-        const int osCellW   = juce::roundToInt(f * 1.5f);
+        for (auto* r : { cutoffRow.get(), resoRow.get(), filterMixRow.get(),
+                         kbdTrackRow.get(), filterDriveRow.get() })
+            if (r)
+            {
+                r->clearForcedLabelWidth();
+                r->clearForcedValueWidth();
+                r->setKnobMode(false);
+            }
 
-        auto typeArea  = filterHdr.removeFromLeft(typeCellW * kNumTypeBtns);
-        filterHdr.removeFromLeft(groupGap);
-        auto slopeArea = filterHdr.removeFromLeft(slopeCellW * kNumSlopeBtns);
-        filterHdr.removeFromLeft(groupGap);
-        auto algArea   = filterHdr.removeFromLeft(algCellW * kNumAlgBtns);
-        filterHdr.removeFromLeft(juce::roundToInt(f * 0.5f));
-        auto styleArea = filterHdr.removeFromLeft(styleW);
-        filterHdr.removeFromLeft(groupGap);
+        cutoffRow->getLabel().setText("Cutoff", juce::dontSendNotification);
+        resoRow->getLabel().setText("Resonance", juce::dontSendNotification);
+        filterDriveRow->getLabel().setText("Drive", juce::dontSendNotification);
+        kbdTrackRow->getLabel().setText("Kbd Track", juce::dontSendNotification);
+        filterMixRow->getLabel().setText("Mix", juce::dontSendNotification);
+        filterAlgBtns[FilterAlgorithm::SVF].setButtonText("SVF");
+        filterAlgBtns[FilterAlgorithm::Ladder].setButtonText("Ladder");
+        filterAlgBtns[FilterAlgorithm::Warp].setButtonText("Warp");
 
-        auto osArea = filterHdr.removeFromRight(osCellW * kNumDriveOsBtns);
-        filterHdr.removeFromRight(4);
-        // Whatever's between Style and OS goes to Drive — same row now, so Drive
-        // shortens to accommodate the extra switches.
-        auto driveArea = filterHdr;
+        // ── FILTER section header ──
+        filterHeader.setText(" FILTER", juce::dontSendNotification);
+        filterHeader.setFont(juce::FontOptions(headerFs));
+        filterHeader.setColour(juce::Label::textColourId, juce::Colour(0xff0e1018));
+        filterHeader.setColour(juce::Label::backgroundColourId, kFilterCol.withAlpha(0.7f));
+        filterHeader.setJustificationType(juce::Justification::centredLeft);
+        filterHeader.setBounds(area.removeFromTop(headerH));
+        area.removeFromTop(headerGap);
 
-        for (int i = 0; i < kNumTypeBtns; ++i)
-            filterTypeBtns[i].setBounds(typeArea.removeFromLeft(typeCellW));
-        filterTypeSwitchBounds = filterTypeBtns[0].getBounds()
-            .getUnion(filterTypeBtns[kNumTypeBtns - 1].getBounds());
+        // ── Filter header: [TYPE] [SLOPE] [ALG] [STYLE] [Drive] [OS-Switchbox] ──
+        auto filterHdr = area.removeFromTop(rowH);
+        {
+            const int groupGap  = juce::roundToInt(f * 0.75f);
+            const int typeCellW = juce::roundToInt(f * 3.2f);
+            const int slopeCellW= juce::roundToInt(f * 3.2f);
+            const int algCellW  = juce::roundToInt(f * 2.2f);   // short labels (SVF, Ladder, Warp)
+            const int styleW    = juce::roundToInt(f * 7.0f);   // ~10 chars incl. arrow
+            const int osCellW   = juce::roundToInt(f * 1.5f);
 
-        for (int i = 0; i < kNumSlopeBtns; ++i)
-            filterSlopeBtns[i].setBounds(slopeArea.removeFromLeft(slopeCellW));
-        filterSlopeSwitchBounds = filterSlopeBtns[0].getBounds()
-            .getUnion(filterSlopeBtns[kNumSlopeBtns - 1].getBounds());
+            auto typeArea  = filterHdr.removeFromLeft(typeCellW * kNumTypeBtns);
+            filterHdr.removeFromLeft(groupGap);
+            auto slopeArea = filterHdr.removeFromLeft(slopeCellW * kNumSlopeBtns);
+            filterHdr.removeFromLeft(groupGap);
+            auto algArea   = filterHdr.removeFromLeft(algCellW * kNumAlgBtns);
+            filterHdr.removeFromLeft(juce::roundToInt(f * 0.5f));
+            auto styleArea = filterHdr.removeFromLeft(styleW);
+            filterHdr.removeFromLeft(groupGap);
 
-        for (int i = 0; i < kNumAlgBtns; ++i)
-            filterAlgBtns[i].setBounds(algArea.removeFromLeft(algCellW));
-        filterAlgSwitchBounds = filterAlgBtns[0].getBounds()
-            .getUnion(filterAlgBtns[kNumAlgBtns - 1].getBounds());
+            auto osArea = filterHdr.removeFromRight(osCellW * kNumDriveOsBtns);
+            filterHdr.removeFromRight(4);
+            // Whatever's between Style and OS goes to Drive — same row now, so Drive
+            // shortens to accommodate the extra switches.
+            auto driveArea = filterHdr;
 
-        filterWarpStyleBox.setBounds(styleArea);
-        filterWarpStyleLabel.setBounds(-1000, -1000, 10, 10); // hidden — combo carries its own label
+            for (int i = 0; i < kNumTypeBtns; ++i)
+                filterTypeBtns[i].setBounds(typeArea.removeFromLeft(typeCellW));
+            filterTypeSwitchBounds = filterTypeBtns[0].getBounds()
+                .getUnion(filterTypeBtns[kNumTypeBtns - 1].getBounds());
 
-        filterDriveRow->setBounds(driveArea);
+            for (int i = 0; i < kNumSlopeBtns; ++i)
+                filterSlopeBtns[i].setBounds(slopeArea.removeFromLeft(slopeCellW));
+            filterSlopeSwitchBounds = filterSlopeBtns[0].getBounds()
+                .getUnion(filterSlopeBtns[kNumSlopeBtns - 1].getBounds());
 
-        for (int i = 0; i < kNumDriveOsBtns; ++i)
-            filterDriveOsBtns[i].setBounds(osArea.removeFromLeft(osCellW));
-        filterDriveOsSwitchBounds = filterDriveOsBtns[0].getBounds()
-            .getUnion(filterDriveOsBtns[kNumDriveOsBtns - 1].getBounds());
-    }
-    area.removeFromTop(gap);
+            for (int i = 0; i < kNumAlgBtns; ++i)
+                filterAlgBtns[i].setBounds(algArea.removeFromLeft(algCellW));
+            filterAlgSwitchBounds = filterAlgBtns[0].getBounds()
+                .getUnion(filterAlgBtns[kNumAlgBtns - 1].getBounds());
 
-    {
-        // Always allocate — dimmed when filter off
-        auto row1 = area.removeFromTop(rowH);
-        auto filterBounds1 = layoutSliderRowPairBounds(row1, *cutoffRow, *resoRow, 4);
-        cutoffRow->setBounds(filterBounds1[0]);
-        resoRow->setBounds(filterBounds1[1]);
+            filterWarpStyleBox.setBounds(styleArea);
+            filterWarpStyleLabel.setBounds(-1000, -1000, 10, 10); // hidden — combo carries its own label
 
-        auto row2 = area.removeFromTop(rowH);
-        auto filterBounds2 = layoutSliderRowPairBounds(row2, *filterMixRow, *kbdTrackRow, 4);
-        filterMixRow->setBounds(filterBounds2[0]);
-        kbdTrackRow->setBounds(filterBounds2[1]);
+            filterDriveRow->setBounds(driveArea);
+
+            for (int i = 0; i < kNumDriveOsBtns; ++i)
+                filterDriveOsBtns[i].setBounds(osArea.removeFromLeft(osCellW));
+            filterDriveOsSwitchBounds = filterDriveOsBtns[0].getBounds()
+                .getUnion(filterDriveOsBtns[kNumDriveOsBtns - 1].getBounds());
+        }
         area.removeFromTop(gap);
+
+        {
+            // Always allocate — dimmed when filter off
+            auto row1 = area.removeFromTop(rowH);
+            auto filterBounds1 = layoutSliderRowPairBounds(row1, *cutoffRow, *resoRow, 4);
+            cutoffRow->setBounds(filterBounds1[0]);
+            resoRow->setBounds(filterBounds1[1]);
+
+            auto row2 = area.removeFromTop(rowH);
+            auto filterBounds2 = layoutSliderRowPairBounds(row2, *filterMixRow, *kbdTrackRow, 4);
+            filterMixRow->setBounds(filterBounds2[0]);
+            kbdTrackRow->setBounds(filterBounds2[1]);
+            area.removeFromTop(gap);
+        }
     }
 
     int sectionGap = gap * 3;
 
     // ── MODULATION section header ──
     area.removeFromTop(sectionGap);
+    modHeader.setText(modEasyMode ? " CONTROLS" : " ENVELOPES", juce::dontSendNotification);
     modHeader.setFont(juce::FontOptions(headerFs));
     auto modHeaderBounds = area.removeFromTop(headerH);
     modHeader.setBounds(modHeaderBounds);
@@ -2773,6 +2933,7 @@ void SynthPanel::resized()
     envTabSwitchBounds = {};
     lfoTabSwitchBounds = {};
     driftTabSwitchBounds = {};
+    filterEasyBlockBounds = {};
     envEasyBlockBounds = {};
     lfoEasyBlockBounds = {};
     driftEasyBlockBounds = {};

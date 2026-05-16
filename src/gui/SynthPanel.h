@@ -102,7 +102,7 @@ private:
     int engineCardBottom = 0;
     int modCardBottom = 0;
     juce::Rectangle<int> envTabSwitchBounds, lfoTabSwitchBounds, driftTabSwitchBounds;
-    juce::Rectangle<int> envEasyBlockBounds, lfoEasyBlockBounds, driftEasyBlockBounds;
+    juce::Rectangle<int> filterEasyBlockBounds, envEasyBlockBounds, lfoEasyBlockBounds, driftEasyBlockBounds;
     std::array<juce::Rectangle<int>, 3> lfoEasyModuleBounds;
     std::array<juce::Rectangle<int>, 3> driftEasyModuleBounds;
 
@@ -264,6 +264,7 @@ private:
     void layoutAftertouch(juce::Rectangle<int>& area, float f, int rowH, int gap);
     void layoutDrift(DriftSection& drift, juce::Rectangle<int>& area, float f, int rowH, int gap);
     void layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, int gap, int headerH, float headerFs);
+    void layoutFilterEasy(juce::Rectangle<int> area, float f, int rowH, int gap);
     void layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float f, int rowH, int gap);
     void layoutLfoEasy(LfoSection& lfo, juce::Rectangle<int> area, float f, int rowH, int gap);
     void layoutDriftEasy(DriftSection& drift, juce::Rectangle<int> area, float f, int rowH, int gap);
