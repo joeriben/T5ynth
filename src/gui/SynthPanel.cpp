@@ -2675,10 +2675,11 @@ void SynthPanel::resized()
     int rowH = juce::roundToInt(f * 1.4f);
     int gap = juce::roundToInt(f * 0.25f);
 
-    // ── Section header — derived from window height to match left column ──
-    float topH = getTopLevelComponent()
-                     ? static_cast<float>(getTopLevelComponent()->getHeight()) : 800.0f;
-    int headerH = juce::jlimit(14, 20, juce::roundToInt(topH * 0.022f));
+    // ── Section header — derived from the panel's own height so it is stable
+    // across resizes (getTopLevelComponent() returns null on the very first
+    // resize, which previously caused a one-time layout shift after the first
+    // user interaction).
+    int headerH = juce::jlimit(14, 20, juce::roundToInt(h * 0.030f));
     float headerFs = static_cast<float>(headerH) * 0.85f;
     int headerGap = juce::jmax(3, headerH / 5);  // ~20% of header height
 
@@ -2990,6 +2991,7 @@ void SynthPanel::resized()
     {
         // Easy mode: layoutModEasy splits the header row between FILTER chip and CONTROLS bar.
         area.removeFromTop(headerGap);
+        area.removeFromBottom(juce::jmax(headerH, juce::roundToInt(f * 1.0f)));
         layoutModEasy(area, modHeaderBounds, modToggleW, f, rowH, gap, headerH, headerFs);
         modCardBottom = area.getY();
         return;
