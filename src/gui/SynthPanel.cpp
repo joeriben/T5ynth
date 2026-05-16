@@ -1949,18 +1949,6 @@ void SynthPanel::layoutFilterEasy(juce::Rectangle<int> area, float f, int rowH, 
     filterMixRow->getLabel().setText("Mix", juce::dontSendNotification);
 
     const int rowGap = juce::jmax(gap, 6);
-    const float topFontSize = juce::jmax(kUiControlFontMin,
-                                         juce::jmin(13.0f, static_cast<float>(rowH) * 0.58f));
-
-    auto headerRow = area.removeFromTop(rowH);
-    const int headerW = juce::jmax(54, measureTextWidth("FILTER", topFontSize) + 18);
-    filterHeader.setText(" FILTER", juce::dontSendNotification);
-    filterHeader.setFont(juce::FontOptions(topFontSize, juce::Font::bold));
-    filterHeader.setJustificationType(juce::Justification::centredLeft);
-    filterHeader.setColour(juce::Label::textColourId, juce::Colour(0xff0e1018));
-    filterHeader.setColour(juce::Label::backgroundColourId, kFilterCol);
-    filterHeader.setBounds(headerRow.removeFromLeft(juce::jmin(headerW, headerRow.getWidth())));
-    headerRow.removeFromLeft(juce::jmax(gap, 4));
 
     auto layoutButtons = [](auto& buttons, int count, juce::Rectangle<int> row,
                             juce::Rectangle<int>& switchBounds)
@@ -1978,7 +1966,7 @@ void SynthPanel::layoutFilterEasy(juce::Rectangle<int> area, float f, int rowH, 
     filterAlgBtns[FilterAlgorithm::SVF].setButtonText("SVF");
     filterAlgBtns[FilterAlgorithm::Ladder].setButtonText("Ladder");
     filterAlgBtns[FilterAlgorithm::Warp].setButtonText("Softclip");
-    layoutButtons(filterAlgBtns, kNumAlgBtns, headerRow, filterAlgSwitchBounds);
+    layoutButtons(filterAlgBtns, kNumAlgBtns, area.removeFromTop(rowH), filterAlgSwitchBounds);
     filterTypeSwitchBounds = {};
     area.removeFromTop(rowGap);
     layoutButtons(filterSlopeBtns, kNumSlopeBtns, area.removeFromTop(rowH), filterSlopeSwitchBounds);
@@ -2187,9 +2175,9 @@ void SynthPanel::layoutDriftEasy(DriftSection& drift, juce::Rectangle<int> area,
     drift.depthRow->setBounds(amtCell);
 }
 
-void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, int gap, int headerH, float headerFs)
+void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> modHeaderRow, int modToggleW, float f, int rowH, int gap, int headerH, float headerFs)
 {
-    juce::ignoreUnused(headerH, headerFs);
+    juce::ignoreUnused(headerH);
 
     auto* env = activeEnvTab == 1 ? &mod1Env : (activeEnvTab == 2 ? &mod2Env : &ampEnv);
 
@@ -2198,6 +2186,12 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, in
     const bool columns = area.getWidth() >= juce::roundToInt(f * 46.0f);
     const int contentInset = juce::jmax(4, juce::roundToInt(f * 0.35f));
     int easyModStackWidth = 0;
+
+    filterHeader.setText(" FILTER", juce::dontSendNotification);
+    filterHeader.setFont(juce::FontOptions(headerFs));
+    filterHeader.setColour(juce::Label::textColourId, juce::Colour(0xff0e1018));
+    filterHeader.setColour(juce::Label::backgroundColourId, kFilterCol.withAlpha(0.7f));
+    filterHeader.setJustificationType(juce::Justification::centredLeft);
 
     auto layoutBlock = [&](std::array<juce::TextButton, kNumModTabs>& tabs,
                            juce::Rectangle<int>& tabBounds,
@@ -2265,29 +2259,37 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, in
 
     if (columns)
     {
-        const int blockH = area.getHeight();
-        auto block = area.removeFromTop(blockH);
+        const int blockW = area.getWidth();
         const int colGap = juce::jmax(22, juce::roundToInt(f * 1.7f));
         const int envW = juce::jlimit(juce::roundToInt(f * 16.0f),
                                       juce::roundToInt(f * 24.0f),
-                                      juce::roundToInt(static_cast<float>(block.getWidth()) * 0.28f));
+                                      juce::roundToInt(static_cast<float>(blockW) * 0.28f));
 
         const int previousDriftW = juce::jlimit(juce::roundToInt(f * 23.0f),
                                                 juce::roundToInt(f * 34.0f),
-                                                juce::roundToInt(static_cast<float>(block.getWidth()) * 0.28f));
-        const int previousLfoAreaW = juce::jmax(0, block.getWidth() - previousDriftW - colGap);
+                                                juce::roundToInt(static_cast<float>(blockW) * 0.28f));
+        const int previousLfoAreaW = juce::jmax(0, blockW - previousDriftW - colGap);
         const int previousLfoW = previousLfoAreaW >= juce::roundToInt(f * 30.0f)
             ? juce::jlimit(juce::roundToInt(f * 23.0f),
                            juce::roundToInt(f * 34.0f),
                            previousLfoAreaW / 2)
             : previousLfoAreaW;
         easyModStackWidth = juce::jlimit(juce::roundToInt(f * 14.0f),
-                                         juce::jmax(1, block.getWidth()),
+                                         juce::jmax(1, blockW),
                                          juce::roundToInt(static_cast<float>(previousLfoW) * 0.60f));
 
         const int stackW = juce::jmin(easyModStackWidth,
-                                      juce::jmax(1, (block.getWidth() - envW - colGap * 3) / 3));
+                                      juce::jmax(1, (blockW - envW - colGap * 3) / 3));
 
+        // Split header row: FILTER chip over filter column, CONTROLS bar over Env+LFO+Drift.
+        filterHeader.setBounds(modHeaderRow.removeFromLeft(stackW));
+        modHeaderRow.removeFromLeft(colGap);
+        modHeader.setBounds(modHeaderRow);
+        modModeToggle.setBounds(modHeaderRow.removeFromRight(modToggleW).reduced(2, 2));
+        modModeToggle.toFront(false);
+
+        const int blockH = area.getHeight();
+        auto block = area.removeFromTop(blockH);
         auto filterArea = block.removeFromLeft(stackW);
         block.removeFromLeft(colGap);
         auto envArea = block.removeFromLeft(envW);
@@ -2303,6 +2305,16 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, float f, int rowH, in
         layoutLfoStack(lfoArea);
         layoutDriftStack(driftArea);
         return;
+    }
+
+    // Stack layout: small FILTER chip on left of header, CONTROLS bar takes the rest.
+    {
+        const int filterChipW = juce::jmax(54, measureTextWidth("FILTER", headerFs) + 18);
+        filterHeader.setBounds(modHeaderRow.removeFromLeft(juce::jmin(filterChipW, modHeaderRow.getWidth())));
+        modHeaderRow.removeFromLeft(juce::jmax(gap, 4));
+        modHeader.setBounds(modHeaderRow);
+        modModeToggle.setBounds(modHeaderRow.removeFromRight(modToggleW).reduced(2, 2));
+        modModeToggle.toFront(false);
     }
 
     const int totalGap = blockGap * 3;
@@ -2912,28 +2924,27 @@ void SynthPanel::resized()
     int sectionGap = gap * 3;
 
     // ── MODULATION section header ──
-    // In Easy-Mode wird der Masterheader unterdrückt — jeder Block trägt seinen eigenen
-    // Chip-Header (FILTER / Env-Tabs / LFO / DRIFT). Die Header-Zeile bleibt als unsichtbare
-    // Trägerzeile für den Easy/Advanced-Toggle erhalten.
     area.removeFromTop(sectionGap);
-    modHeader.setText(modEasyMode ? "" : " ENVELOPES", juce::dontSendNotification);
-    modHeader.setColour(juce::Label::backgroundColourId,
-                        modEasyMode ? juce::Colours::transparentBlack : kModCol.withAlpha(0.7f));
+    modHeader.setText(modEasyMode ? " CONTROLS" : " ENVELOPES", juce::dontSendNotification);
+    modHeader.setColour(juce::Label::backgroundColourId, kModCol.withAlpha(0.7f));
     modHeader.setFont(juce::FontOptions(headerFs));
     auto modHeaderBounds = area.removeFromTop(headerH);
-    modHeader.setBounds(modHeaderBounds);
     const int modToggleW = juce::jlimit(58, 78,
         measureTextWidth(modModeToggle.getButtonText(), juce::jmax(kUiControlFontMin, headerFs * 0.72f)) + 16);
-    modModeToggle.setBounds(modHeaderBounds.removeFromRight(modToggleW).reduced(2, 2));
-    modModeToggle.toFront(false);
-    area.removeFromTop(headerGap);
 
     if (modEasyMode)
     {
-        layoutModEasy(area, f, rowH, gap, headerH, headerFs);
+        // Easy mode: layoutModEasy splits the header row between FILTER chip and CONTROLS bar.
+        area.removeFromTop(headerGap);
+        layoutModEasy(area, modHeaderBounds, modToggleW, f, rowH, gap, headerH, headerFs);
         modCardBottom = area.getY();
         return;
     }
+
+    modHeader.setBounds(modHeaderBounds);
+    modModeToggle.setBounds(modHeaderBounds.removeFromRight(modToggleW).reduced(2, 2));
+    modModeToggle.toFront(false);
+    area.removeFromTop(headerGap);
 
     envTabSwitchBounds = {};
     lfoTabSwitchBounds = {};
