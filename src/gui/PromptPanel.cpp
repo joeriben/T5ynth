@@ -17,6 +17,8 @@ constexpr float kPromptCompactCtrl = 0.9f;
 constexpr float kPromptSeedCtrl    = 1.75f;
 constexpr float kPromptGap         = 0.28f;
 constexpr float kPromptContentUnits = 22.08f;  // bumped by 1.18 for temporary mode-buttons row (0.9 + 0.28)
+constexpr float kPromptEasyContentUnits = 17.18f;
+constexpr int kBaseSeed = 123456789;
 
 float preferredPromptFontForWidth(int width)
 {
@@ -214,8 +216,8 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         cfgValue.setText(juce::String(cfgSlider.getValue(), 1), juce::dontSendNotification);
     };
 
-    // Seed (text field + random toggle)
-    makeLabel(seedLabel, "Seed", kDim, juce::Justification::centredLeft, this);
+    // Variation (text field + random toggle)
+    makeLabel(seedLabel, "Variation", kDim, juce::Justification::centredLeft, this);
     // Match the value-display style used by noiseValue / cfgValue / durValue
     // (kOscCol on dark surface) so the current seed reads as a first-class
     // number, not a grey decoration.
@@ -235,20 +237,49 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     seedEditor.onReturnKey = [this] { triggerGeneration(); };
     seedEditor.onTextChange = [this] {
         syncSeedEditorFont(preferredPromptFontForWidth(getWidth()) * 1.25f);
+        syncSeedModeFromCurrentState();
     };
 
     randomSeedToggle.setColour(juce::TextButton::buttonColourId, kSurface);
     randomSeedToggle.setColour(juce::TextButton::buttonOnColourId, kOscCol);
     randomSeedToggle.setColour(juce::TextButton::textColourOffId, juce::Colour(0xffe3e7f2));
     randomSeedToggle.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
-    randomSeedToggle.setTooltip("Random seed");
+    randomSeedToggle.setTooltip("Automatic variation");
     randomSeedToggle.setClickingTogglesState(true);
     randomSeedToggle.setToggleState(false, juce::dontSendNotification);
     randomSeedToggle.onClick = [this] {
         syncSeedEditorEnabledState();
+        syncSeedModeFromCurrentState();
     };
     addAndMakeVisible(randomSeedToggle);
     syncSeedEditorEnabledState();
+
+    {
+        static constexpr const char* labels[kNumSeedModeBtns] = { "none", "last", "auto" };
+        for (int i = 0; i < kNumSeedModeBtns; ++i)
+        {
+            auto& b = seedModeBtns[i];
+            b.setButtonText(labels[i]);
+            b.setColour(juce::TextButton::buttonColourId, kSurface);
+            b.setColour(juce::TextButton::buttonOnColourId, kOscCol);
+            b.setColour(juce::TextButton::textColourOffId, kDim);
+            b.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            b.setClickingTogglesState(true);
+            b.setRadioGroupId(2038);
+            int edges = 0;
+            if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+            if (i < kNumSeedModeBtns - 1) edges |= juce::Button::ConnectedOnRight;
+            b.setConnectedEdges(edges);
+            b.onClick = [this, i]
+            {
+                if (!seedModeBtns[i].getToggleState())
+                    return;
+                setSeedMode(static_cast<SeedMode>(i), true);
+            };
+            addAndMakeVisible(b);
+        }
+        syncSeedModeButtons();
+    }
 
     // Model selector — fixed 3 slots, always visible (disabled = gray until model found)
     {
@@ -342,6 +373,16 @@ int PromptPanel::getPreferredHeightForWidth(int width) const
     const int compactCtrlH = juce::roundToInt(f * kPromptCompactCtrl);
     const int seedCtrlH = juce::roundToInt(f * kPromptSeedCtrl);
 
+    if (easyMode_)
+    {
+        return rowH + multiInputH + gap
+             + rowH + multiInputH + gap * 2
+             + compactCtrlH + gap
+             + rowH + sliderH + gap
+             + compactRowH + seedCtrlH + gap
+             + gap + compactRowH;
+    }
+
     return (compactRowH + 2) + gap
          + rowH + multiInputH + gap
          + rowH + multiInputH + gap * 2
@@ -410,8 +451,10 @@ void PromptPanel::timerCallback()
 
 void PromptPanel::paint(juce::Graphics& g)
 {
-    // Model switchbox border (always 3 fixed slots)
-    paintSwitchBoxBorder(g, modelSwitchBounds);
+    if (!easyMode_ && !modelSwitchBounds.isEmpty())
+        paintSwitchBoxBorder(g, modelSwitchBounds);
+    if (easyMode_ && !seedModeSwitchBounds.isEmpty())
+        paintSwitchBoxBorder(g, seedModeSwitchBounds);
 }
 
 void PromptPanel::paintOverChildren(juce::Graphics& g)
@@ -448,8 +491,11 @@ void PromptPanel::paintOverChildren(juce::Graphics& g)
         drawGhost(alphaSlider, splitStartGhostValue_);
         drawGhost(alphaSlider, splitEndGhostValue_);
     }
-    drawGhost(magnitudeSlider, magGhostValue_);
-    drawGhost(noiseSlider, noiseGhostValue_);
+    if (!easyMode_)
+    {
+        drawGhost(magnitudeSlider, magGhostValue_);
+        drawGhost(noiseSlider, noiseGhostValue_);
+    }
 }
 
 void PromptPanel::resized()
@@ -460,7 +506,8 @@ void PromptPanel::resized()
     auto area = b.reduced(pad);
 
     float f = juce::jlimit(10.0f, 20.0f,
-        (static_cast<float>(area.getHeight()) - 2.0f) / kPromptContentUnits);
+        (static_cast<float>(area.getHeight()) - 2.0f)
+            / (easyMode_ ? kPromptEasyContentUnits : kPromptContentUnits));
     int rowH = juce::roundToInt(f * kPromptRow);
     int sliderH = juce::roundToInt(f * kPromptSlider);
     int gap = juce::roundToInt(f * kPromptGap);
@@ -470,7 +517,26 @@ void PromptPanel::resized()
 
     auto setFs = [](juce::Label& l, float size) { l.setFont(juce::FontOptions(size)); };
 
+    const bool easy = easyMode_;
+    for (int i = 0; i < kNumModelSlots; ++i)
+        modelBtns[i].setVisible(!easy);
+    modelSwitchBounds = {};
+
+    for (auto* c : { &magLabel, &magValue, &noiseLabel, &noiseValue,
+                     &stepsLabel, &stepsValue, &cfgLabel, &cfgValue })
+        c->setVisible(!easy);
+    magnitudeSlider.setVisible(!easy);
+    noiseSlider.setVisible(!easy);
+    stepsSlider.setVisible(!easy);
+    cfgSlider.setVisible(!easy);
+    seedEditor.setVisible(!easy);
+    randomSeedToggle.setVisible(!easy);
+    for (auto& bSeed : seedModeBtns)
+        bSeed.setVisible(easy);
+    seedModeSwitchBounds = {};
+
     // ── Model selector switchbox at top (compact, fixed 3 slots) ──
+    if (!easy)
     {
         auto modelRow = area.removeFromTop(compactRowH + 2);
         int cellW = juce::roundToInt(f * 5.5f);
@@ -601,11 +667,56 @@ void PromptPanel::resized()
         area.removeFromTop(gap);
     };
 
-    layoutCompactPair(magLabel, magnitudeSlider, magValue,
-                      noiseLabel, noiseSlider, noiseValue);
-    layoutCompactPair(stepsLabel, stepsSlider, stepsValue,
-                      cfgLabel, cfgSlider, cfgValue);
-    layoutDurationSeedRow();
+    auto layoutEasyDurationSeedRow = [&]
+    {
+        int colW = (area.getWidth() - colGap) / 2;
+
+        auto hdrRow = area.removeFromTop(compactRowH);
+        auto leftHdr = hdrRow.removeFromLeft(colW);
+        hdrRow.removeFromLeft(colGap);
+        auto rightHdr = hdrRow;
+
+        setFs(durLabel, f);
+        setFs(durValue, f);
+        durLabel.setBounds(leftHdr.removeFromLeft(leftHdr.getWidth() * 2 / 3));
+        durValue.setBounds(leftHdr);
+        setFs(seedLabel, f);
+        seedLabel.setBounds(rightHdr);
+
+        auto controlRow = area.removeFromTop(seedCtrlH);
+        auto durationBounds = controlRow.removeFromLeft(colW);
+        controlRow.removeFromLeft(colGap);
+
+        durationSlider.setBounds(durationBounds.withSizeKeepingCentre(durationBounds.getWidth(), compactCtrlH));
+
+        auto seedRow = controlRow.reduced(0, 1);
+        for (int i = 0; i < kNumSeedModeBtns; ++i)
+        {
+            const int cellWSeed = (i == kNumSeedModeBtns - 1)
+                ? seedRow.getWidth()
+                : juce::jmax(1, seedRow.getWidth() / (kNumSeedModeBtns - i));
+            seedModeBtns[i].setBounds(seedRow.removeFromLeft(cellWSeed));
+        }
+
+        seedModeSwitchBounds = seedModeBtns[0].getBounds();
+        for (int i = 1; i < kNumSeedModeBtns; ++i)
+            seedModeSwitchBounds = seedModeSwitchBounds.getUnion(seedModeBtns[i].getBounds());
+
+        area.removeFromTop(gap);
+    };
+
+    if (easy)
+    {
+        layoutEasyDurationSeedRow();
+    }
+    else
+    {
+        layoutCompactPair(magLabel, magnitudeSlider, magValue,
+                          noiseLabel, noiseSlider, noiseValue);
+        layoutCompactPair(stepsLabel, stepsSlider, stepsValue,
+                          cfgLabel, cfgSlider, cfgValue);
+        layoutDurationSeedRow();
+    }
 
     // Info label at the bottom of the sequential layout
     area.removeFromTop(gap);
@@ -630,6 +741,7 @@ void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String
     randomSeedToggle.setToggleState(randomSeed, juce::dontSendNotification);
     syncSeedEditorDisplay(seed, true);
     syncSeedEditorEnabledState();
+    syncSeedModeFromCurrentState();
     if (auto* startParam = processorRef.getValueTreeState().getParameter(PID::genStart))
         startParam->setValueNotifyingHost(0.0f);
 
@@ -778,6 +890,53 @@ void PromptPanel::refreshInferenceChoices()
     populateModelSelector();
 }
 
+void PromptPanel::setEasyMode(bool easy)
+{
+    if (easyMode_ == easy)
+        return;
+
+    easyMode_ = easy;
+    if (easyMode_)
+        syncSeedModeFromCurrentState();
+
+    resized();
+    repaint();
+}
+
+bool PromptPanel::hasHiddenActiveState() const
+{
+    if (!easyMode_)
+        return false;
+
+    auto& apvts = processorRef.getValueTreeState();
+    auto differs = [](float value, float neutral, float epsilon)
+    {
+        return std::abs(value - neutral) > epsilon;
+    };
+
+    if (auto* v = apvts.getRawParameterValue(PID::genMagnitude))
+        if (differs(v->load(), 1.0f, 0.001f))
+            return true;
+
+    if (auto* v = apvts.getRawParameterValue(PID::genNoise))
+        if (differs(v->load(), 0.0f, 0.001f))
+            return true;
+
+    if (auto* v = apvts.getRawParameterValue(PID::infSteps))
+        if (static_cast<int>(std::round(v->load())) != 8)
+            return true;
+
+    if (auto* v = apvts.getRawParameterValue(PID::genCfg))
+        if (differs(v->load(), 1.0f, 0.001f))
+            return true;
+
+    const auto selectedModel = getSelectedModel();
+    if (selectedModel.isNotEmpty() && !selectedModel.containsIgnoreCase("small"))
+        return true;
+
+    return false;
+}
+
 juce::String PromptPanel::getSelectedModel() const
 {
     for (int i = 0; i < kNumModelSlots; ++i)
@@ -795,6 +954,58 @@ bool PromptPanel::isAudioLDM2Model(const juce::String& model) const
 bool PromptPanel::selectedModelIsAudioLDM2() const
 {
     return isAudioLDM2Model(getSelectedModel());
+}
+
+void PromptPanel::setSeedMode(SeedMode mode, bool applyState)
+{
+    seedMode_ = mode;
+
+    if (applyState)
+    {
+        if (mode == SeedMode::base)
+        {
+            randomSeedToggle.setToggleState(false, juce::dontSendNotification);
+            syncSeedEditorDisplay(kBaseSeed, true);
+        }
+        else if (mode == SeedMode::steady)
+        {
+            randomSeedToggle.setToggleState(false, juce::dontSendNotification);
+            if (seedEditor.getText().trim().isEmpty() || seedEditor.getText().getIntValue() <= 0)
+            {
+                const int lastSeed = processorRef.getLastSeed() > 0 ? processorRef.getLastSeed()
+                                                                    : kBaseSeed;
+                syncSeedEditorDisplay(lastSeed, true);
+            }
+        }
+        else
+        {
+            randomSeedToggle.setToggleState(true, juce::dontSendNotification);
+        }
+
+        syncSeedEditorEnabledState();
+    }
+
+    seedMode_ = mode;
+    syncSeedModeButtons();
+}
+
+void PromptPanel::syncSeedModeFromCurrentState()
+{
+    if (randomSeedToggle.getToggleState())
+        seedMode_ = SeedMode::autoRandom;
+    else if (seedEditor.getText().getIntValue() == kBaseSeed)
+        seedMode_ = SeedMode::base;
+    else
+        seedMode_ = SeedMode::steady;
+
+    syncSeedModeButtons();
+}
+
+void PromptPanel::syncSeedModeButtons()
+{
+    for (int i = 0; i < kNumSeedModeBtns; ++i)
+        seedModeBtns[i].setToggleState(static_cast<int>(seedMode_) == i,
+                                       juce::dontSendNotification);
 }
 
 void PromptPanel::selectInjectionMode(const juce::String& mode, bool shouldTrigger)

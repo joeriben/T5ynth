@@ -21,6 +21,9 @@ public:
     void paint(juce::Graphics& g) override;
     void resized() override;
     int getPreferredHeightForWidth(int width) const;
+    void setEasyMode(bool easy);
+    bool isEasyMode() const { return easyMode_; }
+    bool hasHiddenActiveState() const;
 
     /** Load preset data that isn't in APVTS (prompts, seed, random toggle, device, model,
      *  research-mode injection state). The injection fields are optional — when omitted,
@@ -120,6 +123,14 @@ private:
     juce::Label seedLabel;
     juce::TextEditor seedEditor;
     juce::TextButton randomSeedToggle { "Rnd" };
+    static constexpr int kNumSeedModeBtns = 3;
+    juce::TextButton seedModeBtns[kNumSeedModeBtns];
+    juce::Rectangle<int> seedModeSwitchBounds;
+    enum class SeedMode { base = 0, steady = 1, autoRandom = 2 };
+    SeedMode seedMode_ = SeedMode::base;
+    void setSeedMode(SeedMode mode, bool applyState);
+    void syncSeedModeFromCurrentState();
+    void syncSeedModeButtons();
 
     // Model selector (fixed 3-slot switchbox: SA Open 1.0 | SA Small | AudioLDM2)
     static constexpr int kNumModelSlots = 3;
@@ -187,6 +198,7 @@ private:
 
     using Attachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     std::unique_ptr<Attachment> alphaA, magA, noiseA, durA, stepsA, cfgA;
+    bool easyMode_ = false;
 
     // Auto-regen state
     float lastGenAlpha_ = std::numeric_limits<float>::quiet_NaN();

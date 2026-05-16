@@ -46,6 +46,7 @@ private:
 
     // Col 1: GENERATION — three cards with headers
     juce::Label oscHeader, axesHeader, dimHeader, axesNote, poweredByLabel;
+    juce::TextButton oscModeToggle { "> adv." };
     PromptPanel promptPanel;
     AxesPanel axesPanel;
     GenerateButton mainGenerateBtn { "GENERATE" };
@@ -137,6 +138,8 @@ private:
     // (~2 Hz) whenever the cache is filling, decoupled from glowPhase which
     // crawls at 0.05 Hz when idle and would make the cache-pulse invisible.
     float cachePulsePhase = 0.0f;
+    bool oscEasyMode = true;
+    float oscModePulsePhase = 0.0f;
     // Cache-hit feedback: when the inference cache is full, the primary
     // generation actions become cache playback actions and stay labelled
     // "cache hit" until the cache is cleared/disabled.
@@ -151,6 +154,11 @@ private:
     void timerCallback() override;
     void syncInferenceCacheUi();
     void updateGenerateButtonsForCacheState(bool pulseCacheHit);
+    void setOscEasyMode(bool easy, bool persist);
+    bool loadOscEasyModeSetting() const;
+    void saveOscEasyModeSetting() const;
+    bool hasOscHiddenActiveState() const;
+    void updateOscModeToggleVisual();
     MainSnapshot captureMainSnapshot();
     void restoreMainSnapshot(const MainSnapshot& snapshot);
     void captureSnapshotPress(int slot);

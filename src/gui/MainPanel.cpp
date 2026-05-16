@@ -14,6 +14,8 @@ constexpr char kComputerKeyboardNoteKeys[] = { 'a', 'w', 's', 'e', 'd', 'f', 't'
 constexpr int kComputerKeyboardBaseMidiNote = 60;
 constexpr int kComputerKeyboardMinOctaveOffset = -5;
 constexpr int kComputerKeyboardMaxOctaveOffset = 4;
+constexpr const char* kUiSettingsFileName = "ui_settings.json";
+constexpr const char* kOscEasyModeKey = "oscEasyMode";
 
 const char* const kMainSnapshotParamIds[] = {
     PID::genAlpha, PID::genMagnitude, PID::genNoise, PID::genDuration,
@@ -75,6 +77,13 @@ void restoreParameterFromState(juce::AudioProcessorValueTreeState& apvts,
     if (findParameterValue(state, id, value))
         if (auto* param = apvts.getParameter(id))
             param->setValueNotifyingHost(param->convertTo0to1(value));
+}
+
+juce::File getUiSettingsFile()
+{
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("T5ynth")
+        .getChildFile(kUiSettingsFileName);
 }
 
 #if JUCE_WINDOWS
@@ -404,8 +413,17 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     poweredByLabel.setText("Powered by Stability AI", juce::dontSendNotification);
     poweredByLabel.setColour(juce::Label::textColourId, kBg.withAlpha(0.7f));
     poweredByLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    poweredByLabel.setJustificationType(juce::Justification::centredRight);
+    poweredByLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(poweredByLabel);
+
+    oscModeToggle.setColour(juce::TextButton::buttonColourId, kSurface.darker(0.35f));
+    oscModeToggle.setColour(juce::TextButton::buttonOnColourId, kSurface.darker(0.35f));
+    oscModeToggle.setColour(juce::TextButton::textColourOffId, kOscCol);
+    oscModeToggle.setColour(juce::TextButton::textColourOnId, kOscCol);
+    oscModeToggle.setTooltip("Switch T5 OSC interface mode");
+    oscModeToggle.onClick = [this] { setOscEasyMode(!oscEasyMode, true); };
+    addAndMakeVisible(oscModeToggle);
+
     paintSectionHeader(axesHeader, "SEMANTIC AXES", kOscCol);
     addAndMakeVisible(axesHeader);
     paintSectionHeader(dimHeader, "LATENT DIMENSION EXPLORER", kOscCol);
@@ -873,6 +891,8 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     dimResetBtn.setVisible(false);
     addChildComponent(dimResetBtn);
 
+    setOscEasyMode(loadOscEasyModeSetting(), false);
+
     // Ensure bundled presets exist in user presets directory
     ensureBundledPresetsExist();
 
@@ -927,6 +947,79 @@ void MainPanel::hideDimExplorer()
     dimResetBtn.setVisible(false);
     resized();  // repositions DimExplorer back to mini-view
     repaint();
+}
+
+bool MainPanel::loadOscEasyModeSetting() const
+{
+    auto file = getUiSettingsFile();
+    if (!file.existsAsFile())
+        return true;
+
+    auto parsed = juce::JSON::parse(file.loadFileAsString());
+    if (auto* obj = parsed.getDynamicObject())
+    {
+        juce::ignoreUnused(obj);
+        return static_cast<bool>(parsed.getProperty(kOscEasyModeKey, true));
+    }
+
+    return true;
+}
+
+void MainPanel::saveOscEasyModeSetting() const
+{
+    auto file = getUiSettingsFile();
+    file.getParentDirectory().createDirectory();
+
+    auto root = juce::DynamicObject::Ptr(new juce::DynamicObject());
+    root->setProperty(kOscEasyModeKey, oscEasyMode);
+    file.replaceWithText(juce::JSON::toString(juce::var(root.get()), true));
+}
+
+void MainPanel::setOscEasyMode(bool easy, bool persist)
+{
+    oscEasyMode = easy;
+    if (oscEasyMode && dimExplorerVisible)
+        hideDimExplorer();
+
+    promptPanel.setEasyMode(oscEasyMode);
+    dimHeader.setVisible(!oscEasyMode);
+    dimensionExplorer.setVisible(!oscEasyMode);
+    oscModeToggle.setButtonText(oscEasyMode ? "> adv." : "> easy");
+    updateOscModeToggleVisual();
+
+    if (persist)
+        saveOscEasyModeSetting();
+
+    resized();
+    repaint();
+}
+
+bool MainPanel::hasOscHiddenActiveState() const
+{
+    if (!oscEasyMode)
+        return false;
+
+    return promptPanel.hasHiddenActiveState() || dimensionExplorer.hasOffsets();
+}
+
+void MainPanel::updateOscModeToggleVisual()
+{
+    const bool pulse = hasOscHiddenActiveState();
+    auto fill = kSurface.darker(0.45f);
+    auto text = kOscCol;
+
+    if (oscEasyMode && pulse)
+    {
+        const float p = 0.5f + 0.5f * std::sin(oscModePulsePhase);
+        fill = fill.interpolatedWith(kOscCol, 0.10f + 0.18f * p);
+        text = kTextPrimary;
+    }
+
+    oscModeToggle.setColour(juce::TextButton::buttonColourId, fill);
+    oscModeToggle.setColour(juce::TextButton::buttonOnColourId, fill);
+    oscModeToggle.setColour(juce::TextButton::textColourOffId, text);
+    oscModeToggle.setColour(juce::TextButton::textColourOnId, text);
+    oscModeToggle.repaint();
 }
 
 void MainPanel::showPresetManager()
@@ -1711,11 +1804,12 @@ void MainPanel::paint(juce::Graphics& g)
     // Card 3: DIM EXPLORER + Generate button
     if (!dimExplorerVisible)
     {
-        int top = dimHeader.getY() - inset;
+        int top = (oscEasyMode ? axesPanel.getBottom() + inset : dimHeader.getY() - inset);
         int bot = sequencerPanel.getY() - inset;
-        int left = dimHeader.getX() - inset;
-        int cardW = juce::jmax(dimHeader.getWidth(), dimensionExplorer.getWidth()) + inset * 2;
-        paintCard(g, juce::Rectangle<int>(left, top, cardW, bot - top));
+        int left = promptPanel.getX() - inset;
+        int cardW = promptPanel.getWidth() + inset * 2;
+        if (bot > top)
+            paintCard(g, juce::Rectangle<int>(left, top, cardW, bot - top));
     }
 
     if (!snapshotSwitchBounds.isEmpty())
@@ -2159,6 +2253,11 @@ void MainPanel::timerCallback()
     while (glowPhase > juce::MathConstants<float>::twoPi)
         glowPhase -= juce::MathConstants<float>::twoPi;
 
+    oscModePulsePhase += 0.33f * juce::MathConstants<float>::twoPi * dt;
+    while (oscModePulsePhase > juce::MathConstants<float>::twoPi)
+        oscModePulsePhase -= juce::MathConstants<float>::twoPi;
+    updateOscModeToggleVisual();
+
     mainGenerateBtn.setAnimationState(glowPhase, glowGenerating);
     updateGenerateButtonsForCacheState(false);
     syncInferenceCacheUi();
@@ -2245,7 +2344,7 @@ void MainPanel::resized()
     constexpr int kMinAxesH = 64;
     constexpr int kMinGenerateButtonH = 38;
     const int cacheRowH = juce::jlimit(16, 20, juce::roundToInt(h * 0.022f));
-    const int genCacheGap = juce::jlimit(8, 18, juce::roundToInt(h * 0.014f));
+    const int genCacheGap = juce::jlimit(14, 28, juce::roundToInt(h * 0.024f));
 
     int genBtnH = juce::jlimit(50, 72,
                                juce::roundToInt(juce::jmax(static_cast<float>(genCol.getWidth()) * 0.18f,
@@ -2254,11 +2353,13 @@ void MainPanel::resized()
     int oscH = juce::jmax(kMinOscH, promptPanel.getPreferredHeightForWidth(genCol.getWidth()));
     int axesH = juce::jlimit(kMinAxesH, 108, juce::roundToInt(h * 0.10f));
     const int reservedGenerateBlockH = kMinGenerateButtonH + genCacheGap + cacheRowH;
-    int dimBudget = genCol.getHeight() - (headerH * 3 + kGap * 3
+    const int headerCount = oscEasyMode ? 2 : 3;
+    const int minDimBudget = oscEasyMode ? 0 : kMinDimH;
+    int dimBudget = genCol.getHeight() - (headerH * headerCount + kGap * headerCount
                                           + reservedGenerateBlockH + oscH + axesH);
-    if (dimBudget < kMinDimH)
+    if (dimBudget < minDimBudget)
     {
-        int shortage = kMinDimH - dimBudget;
+        int shortage = minDimBudget - dimBudget;
         int trimAxes = juce::jmin(shortage, juce::jmax(0, axesH - kMinAxesH));
         axesH -= trimAxes;
         shortage -= trimAxes;
@@ -2269,11 +2370,19 @@ void MainPanel::resized()
 
     // Card 1: OSCILLATOR
     oscHeader.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.85f));
-    oscHeader.setBounds(genCol.removeFromTop(headerH));
-    // "Powered by Stability AI" overlays right side of header
+    auto oscHeaderBounds = genCol.removeFromTop(headerH);
+    oscHeader.setBounds(oscHeaderBounds);
+    const float oscHeaderFs = static_cast<float>(headerH) * 0.85f;
+    const int toggleW = juce::jlimit(58, 78,
+        measureTextWidth(oscModeToggle.getButtonText(), juce::jmax(kUiControlFontMin, oscHeaderFs * 0.72f)) + 16);
+    oscModeToggle.setBounds(oscHeaderBounds.removeFromRight(toggleW).reduced(2, 2));
+    const int titleW = measureTextWidth(" T5 OSCILLATOR", oscHeaderFs) + 8;
+    auto poweredBounds = oscHeader.getBounds();
+    poweredBounds.removeFromLeft(juce::jmin(titleW, poweredBounds.getWidth()));
+    poweredBounds.removeFromRight(toggleW + 4);
     poweredByLabel.setFont(juce::FontOptions(juce::jmax(kUiLabelFontMin,
                                                         static_cast<float>(headerH) * 0.6f)));
-    poweredByLabel.setBounds(oscHeader.getBounds());
+    poweredByLabel.setBounds(poweredBounds);
     promptPanel.setBounds(genCol.removeFromTop(oscH));
     genCol.removeFromTop(kGap);
 
@@ -2283,24 +2392,32 @@ void MainPanel::resized()
     axesPanel.setBounds(genCol.removeFromTop(axesH));
     genCol.removeFromTop(kGap);
 
-    // Card 3: DIM EXPLORER. This mini view is residual context; it must give
-    // up space before the Generate/cache controls can collide with Sequencer.
-    dimHeader.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.85f));
-    dimHeader.setBounds(genCol.removeFromTop(headerH));
-    const int availableDimH = genCol.getHeight() - kGap - reservedGenerateBlockH;
-    int dimH = juce::jlimit(0, kMaxDimH, availableDimH);
-    if (!dimExplorerVisible)
+    if (oscEasyMode)
     {
-        if (dimH >= kMinDimH)
-            dimensionExplorer.setBounds(genCol.removeFromTop(dimH));
-        else
-            dimensionExplorer.setBounds({});
+        dimHeader.setBounds({});
+        dimensionExplorer.setBounds({});
     }
-    else if (dimH > 0)
+    else
     {
-        genCol.removeFromTop(dimH);
+        // Card 3: DIM EXPLORER. This mini view is residual context; it must give
+        // up space before the Generate/cache controls can collide with Sequencer.
+        dimHeader.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.85f));
+        dimHeader.setBounds(genCol.removeFromTop(headerH));
+        const int availableDimH = genCol.getHeight() - kGap - reservedGenerateBlockH;
+        int dimH = juce::jlimit(0, kMaxDimH, availableDimH);
+        if (!dimExplorerVisible)
+        {
+            if (dimH >= kMinDimH)
+                dimensionExplorer.setBounds(genCol.removeFromTop(dimH));
+            else
+                dimensionExplorer.setBounds({});
+        }
+        else if (dimH > 0)
+        {
+            genCol.removeFromTop(dimH);
+        }
+        genCol.removeFromTop(juce::jmin(kGap, genCol.getHeight()));
     }
-    genCol.removeFromTop(juce::jmin(kGap, genCol.getHeight()));
 
     // Generate + InfCache controls get all slack freed by the explorer cap,
     // centered in the remaining card area so the controls have breathing room.
