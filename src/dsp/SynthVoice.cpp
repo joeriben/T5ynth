@@ -1076,45 +1076,76 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
         }
 
         // ── Phase C: per-sample filter (algorithm dispatch per sub-block) ──
-        // True stereo: L through left filter, R through right filter, identical
-        // coefficients (mirrored at sub-block setup), separate state.
+        // Stereo when the source is stereo (freeze): L through left filter,
+        // R through right filter, identical coefficients (mirrored at sub-block
+        // setup), separate state.
+        // Mono sources (sampler / wavetable) skip the right filter entirely —
+        // that's the second-most-expensive piece of the voice. We then sync the
+        // right filter state to the left so a switch into a stereo source
+        // (freeze going active) inherits a sensible state instead of starting
+        // cold. Phase D mirrors output[i] into the right channel.
         if (p.filterEnabled)
         {
-            switch (p.filterAlgorithm)
+            if (freezeMode)
             {
-                case FilterAlgorithm::SVF:
-                    for (int i = pos; i < lastI; ++i)
-                    {
-                        output[i]            = filter.processSample(output[i]);
-                        outputRBuf[i - pos]  = filterR.processSample(outputRBuf[i - pos]);
-                    }
-                    break;
-                case FilterAlgorithm::Ladder:
-                    for (int i = pos; i < lastI; ++i)
-                    {
-                        output[i]            = filterLadder.processSample(output[i]);
-                        outputRBuf[i - pos]  = filterLadderR.processSample(outputRBuf[i - pos]);
-                    }
-                    break;
-                case FilterAlgorithm::Warp:
-                    for (int i = pos; i < lastI; ++i)
-                    {
-                        output[i]            = filterWarp.processSample(output[i]);
-                        outputRBuf[i - pos]  = filterWarpR.processSample(outputRBuf[i - pos]);
-                    }
-                    break;
+                switch (p.filterAlgorithm)
+                {
+                    case FilterAlgorithm::SVF:
+                        for (int i = pos; i < lastI; ++i)
+                        {
+                            output[i]            = filter.processSample(output[i]);
+                            outputRBuf[i - pos]  = filterR.processSample(outputRBuf[i - pos]);
+                        }
+                        break;
+                    case FilterAlgorithm::Ladder:
+                        for (int i = pos; i < lastI; ++i)
+                        {
+                            output[i]            = filterLadder.processSample(output[i]);
+                            outputRBuf[i - pos]  = filterLadderR.processSample(outputRBuf[i - pos]);
+                        }
+                        break;
+                    case FilterAlgorithm::Warp:
+                        for (int i = pos; i < lastI; ++i)
+                        {
+                            output[i]            = filterWarp.processSample(output[i]);
+                            outputRBuf[i - pos]  = filterWarpR.processSample(outputRBuf[i - pos]);
+                        }
+                        break;
+                }
+            }
+            else
+            {
+                switch (p.filterAlgorithm)
+                {
+                    case FilterAlgorithm::SVF:
+                        for (int i = pos; i < lastI; ++i)
+                            output[i] = filter.processSample(output[i]);
+                        filterR = filter;
+                        break;
+                    case FilterAlgorithm::Ladder:
+                        for (int i = pos; i < lastI; ++i)
+                            output[i] = filterLadder.processSample(output[i]);
+                        filterLadderR = filterLadder;
+                        break;
+                    case FilterAlgorithm::Warp:
+                        for (int i = pos; i < lastI; ++i)
+                            output[i] = filterWarp.processSample(output[i]);
+                        filterWarpR = filterWarp;
+                        break;
+                }
             }
         }
 
         // ── Phase D: per-sample VCA + write ──
-        // True stereo write: each channel carries its independently-filtered
-        // signal. Restart fade applies the same time-ramp `t` to both channels
+        // Stereo source (freeze): each channel carries its independently-filtered
+        // signal. Mono source: R is just a copy of L — Phase C only filtered the
+        // left side. Restart fade applies the same time-ramp `t` to both channels
         // (decrements the counter once per sample-pair).
         for (int i = pos; i < lastI; ++i)
         {
             const float vca = vcaScratch[i - pos];
             float L = output[i] * vca;
-            float R = outputRBuf[i - pos] * vca;
+            float R = freezeMode ? outputRBuf[i - pos] * vca : L;
             applyRestartFadeStereo(L, R);
             lastOutputSample_  = L;
             lastOutputSampleR_ = R;
