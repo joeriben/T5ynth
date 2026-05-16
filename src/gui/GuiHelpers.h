@@ -625,7 +625,14 @@ private:
         const float padY = juce::jmax(0.5f, fontSize * 0.10f);
         const float badgeW = juce::jmin(lb.getWidth() - insetX, textW + padX * 2.0f);
         const float badgeH = juce::jmin(lb.getHeight() - insetY * 2.0f, fontSize + padY * 2.0f);
-        const float badgeX = std::floor(lb.getX() + insetX);
+        const auto justification = label.getJustificationType();
+        float badgeX;
+        if (justification.testFlags(juce::Justification::horizontallyCentred))
+            badgeX = std::floor(lb.getCentreX() - badgeW * 0.5f);
+        else if (justification.testFlags(juce::Justification::right))
+            badgeX = std::floor(lb.getRight() - insetX - badgeW);
+        else
+            badgeX = std::floor(lb.getX() + insetX);
         const float badgeY = std::floor(lb.getY() + (lb.getHeight() - badgeH) * 0.5f);
         return { badgeX, badgeY, std::floor(badgeW), std::floor(badgeH) };
     }
