@@ -4130,11 +4130,11 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         // Drive: absent in older presets -> treat as 0 dB.
         setParam(parameters, PID::filterDrive,
                  filt->hasProperty("drive") ? static_cast<float>(filt->getProperty("drive")) : 0.0f);
-        // Drive OS: absent in older presets -> Off (bit-identical to pre-OS build).
+        // Drive OS: absent in older presets -> current default 4x.
         setParam(parameters, PID::filterDriveOs,
                  filt->hasProperty("driveOs")
                      ? static_cast<float>(filterDriveOsFromString(filt->getProperty("driveOs").toString()))
-                     : static_cast<float>(FilterDriveOs::Off));
+                     : static_cast<float>(FilterDriveOs::X4));
         // Filter algorithm: absent in pre-Ladder/Warp presets -> SVF (bit-identical).
         setParam(parameters, PID::filterAlgorithm,
                  filt->hasProperty("algorithm")
