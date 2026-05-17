@@ -44,6 +44,9 @@ private:
     std::unique_ptr<SliderRow> bpmRow;
     juce::Label midiMonitor;
     juce::Rectangle<float> midiLedBounds;
+    // LED state tracked on the message thread so the 10 Hz timer only repaints
+    // the LED region when the on/off bit flips, instead of every tick.
+    bool midiLedDisplayedOn = false;
     juce::TextButton headerOverflowBtn { "..." };
 
     // Octave shift [-2][-1][0][+1][+2]

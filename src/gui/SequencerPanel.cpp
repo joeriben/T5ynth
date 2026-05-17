@@ -1047,7 +1047,15 @@ void SequencerPanel::timerCallback()
                       : (noteName(note) + " off");
         midiMonitor.setText(txt, juce::dontSendNotification);
         midiMonitor.setColour(juce::Label::textColourId, on ? juce::Colour(0xff4ade80) : kDim);
-        repaint(); // repaint for MIDI LED
+    }
+
+    // LED reflects lastMidiNoteOn alone — kept outside the note-number guard so
+    // a reset of lastMidiNote can't strand the LED in its previous colour.
+    if (on != midiLedDisplayedOn)
+    {
+        midiLedDisplayedOn = on;
+        if (!midiLedBounds.isEmpty())
+            repaint(midiLedBounds.getSmallestIntegerContainer());
     }
 
     // Sync step count if changed externally (step seq mode)
