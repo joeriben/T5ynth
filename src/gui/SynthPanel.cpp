@@ -1646,6 +1646,17 @@ void SynthPanel::updateModModeToggleVisual()
     if (!pulse && !modModePulseActive_)
         return;
 
+    // Skip the animation when audio is idle — the pulse provides no useful
+    // feedback while silent, and every setColour() cascades into a deferred
+    // AppKit repaint (CFRunLoopWakeUp → CA::Transaction commit). The pulse
+    // transition still applies its terminal colours once when the active
+    // state flips, so the toggle reflects its semantic state correctly.
+    if (pulse == modModePulseActive_
+        && processorRef.audioIdle.load(std::memory_order_relaxed))
+    {
+        return;
+    }
+
     auto fill = kSurface.darker(0.45f);
     auto text = kModCol;
 
