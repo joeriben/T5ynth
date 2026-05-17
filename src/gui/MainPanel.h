@@ -140,6 +140,7 @@ private:
     float cachePulsePhase = 0.0f;
     bool oscEasyMode = true;
     float oscModePulsePhase = 0.0f;
+    bool oscModePulseActive_ = false;
     // Cache-hit feedback: when the inference cache is full, the primary
     // generation actions become cache playback actions and stay labelled
     // "cache hit" until the cache is cleared/disabled.

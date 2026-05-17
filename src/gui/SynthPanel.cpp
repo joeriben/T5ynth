@@ -1643,6 +1643,9 @@ bool SynthPanel::hasModHiddenActiveState() const
 void SynthPanel::updateModModeToggleVisual()
 {
     const bool pulse = hasModHiddenActiveState();
+    if (!pulse && !modModePulseActive_)
+        return;
+
     auto fill = kSurface.darker(0.45f);
     auto text = kModCol;
 
@@ -1658,6 +1661,8 @@ void SynthPanel::updateModModeToggleVisual()
     modModeToggle.setColour(juce::TextButton::textColourOffId, text);
     modModeToggle.setColour(juce::TextButton::textColourOnId, text);
     modModeToggle.repaint();
+
+    modModePulseActive_ = pulse;
 }
 
 void SynthPanel::syncModTabButtons()

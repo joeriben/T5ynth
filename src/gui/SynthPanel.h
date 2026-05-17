@@ -95,6 +95,7 @@ private:
     juce::TextButton modModeToggle { "> adv." };
     bool modEasyMode = true;
     float modModePulsePhase = 0.0f;
+    bool modModePulseActive_ = false;
 
     // ── Layout rects for paint() ──
     juce::Rectangle<int> engineSwitchBounds, loopSwitchBounds, optSwitchBounds;

@@ -416,8 +416,8 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     poweredByLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(poweredByLabel);
 
-    oscModeToggle.setColour(juce::TextButton::buttonColourId, kSurface.darker(0.35f));
-    oscModeToggle.setColour(juce::TextButton::buttonOnColourId, kSurface.darker(0.35f));
+    oscModeToggle.setColour(juce::TextButton::buttonColourId, kSurface.darker(0.45f));
+    oscModeToggle.setColour(juce::TextButton::buttonOnColourId, kSurface.darker(0.45f));
     oscModeToggle.setColour(juce::TextButton::textColourOffId, kOscCol);
     oscModeToggle.setColour(juce::TextButton::textColourOnId, kOscCol);
     oscModeToggle.setTooltip("Switch T5 OSC interface mode");
@@ -1016,6 +1016,9 @@ bool MainPanel::hasOscHiddenActiveState() const
 void MainPanel::updateOscModeToggleVisual()
 {
     const bool pulse = hasOscHiddenActiveState();
+    if (!pulse && !oscModePulseActive_)
+        return;
+
     auto fill = kSurface.darker(0.45f);
     auto text = kOscCol;
 
@@ -1031,6 +1034,8 @@ void MainPanel::updateOscModeToggleVisual()
     oscModeToggle.setColour(juce::TextButton::textColourOffId, text);
     oscModeToggle.setColour(juce::TextButton::textColourOnId, text);
     oscModeToggle.repaint();
+
+    oscModePulseActive_ = pulse;
 }
 
 void MainPanel::showPresetManager()
