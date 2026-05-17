@@ -96,6 +96,11 @@ private:
     bool modEasyMode = true;
     float modModePulsePhase = 0.0f;
     bool modModePulseActive_ = false;
+    // Caches the last 8-bit ARGB applied to modModeToggle. setColour() always
+    // triggers an internal repaint; without this guard the pulse cascades 5
+    // repaints per 30 Hz tick even when the resulting Colour has not changed.
+    juce::Colour lastAppliedModFill_, lastAppliedModText_;
+    bool lastAppliedModColoursValid_ = false;
 
     // ── Layout rects for paint() ──
     juce::Rectangle<int> engineSwitchBounds, loopSwitchBounds, optSwitchBounds;

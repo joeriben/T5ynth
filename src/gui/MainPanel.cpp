@@ -1053,6 +1053,21 @@ void MainPanel::updateOscModeToggleVisual()
         text = kTextPrimary;
     }
 
+    // setColour() always triggers an internal repaint of the button. The pulse
+    // phase advances ~6° per 20 Hz tick and the resulting 8-bit ARGB is often
+    // identical to the previous frame at this quantization; without this guard
+    // the toggle button repaints ~20×/s in idle.
+    if (lastAppliedOscColoursValid_
+        && lastAppliedOscFill_ == fill
+        && lastAppliedOscText_ == text)
+    {
+        oscModePulseActive_ = pulse;
+        return;
+    }
+    lastAppliedOscFill_ = fill;
+    lastAppliedOscText_ = text;
+    lastAppliedOscColoursValid_ = true;
+
     oscModeToggle.setColour(juce::TextButton::buttonColourId, fill);
     oscModeToggle.setColour(juce::TextButton::buttonOnColourId, fill);
     oscModeToggle.setColour(juce::TextButton::textColourOffId, text);

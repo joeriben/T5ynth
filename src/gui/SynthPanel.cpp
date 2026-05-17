@@ -1656,6 +1656,21 @@ void SynthPanel::updateModModeToggleVisual()
         text = kTextPrimary;
     }
 
+    // setColour() always triggers an internal repaint of the button. The pulse
+    // phase advances ~4° per 30 Hz tick and the resulting 8-bit ARGB is often
+    // identical to the previous frame at this quantization; without this guard
+    // the toggle button repaints ~30×/s in idle.
+    if (lastAppliedModColoursValid_
+        && lastAppliedModFill_ == fill
+        && lastAppliedModText_ == text)
+    {
+        modModePulseActive_ = pulse;
+        return;
+    }
+    lastAppliedModFill_ = fill;
+    lastAppliedModText_ = text;
+    lastAppliedModColoursValid_ = true;
+
     modModeToggle.setColour(juce::TextButton::buttonColourId, fill);
     modModeToggle.setColour(juce::TextButton::buttonOnColourId, fill);
     modModeToggle.setColour(juce::TextButton::textColourOffId, text);

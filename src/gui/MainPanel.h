@@ -142,6 +142,11 @@ private:
     bool oscEasyMode = true;
     float oscModePulsePhase = 0.0f;
     bool oscModePulseActive_ = false;
+    // Caches the last 8-bit ARGB applied to oscModeToggle so the pulse path
+    // can skip the setColour cascade (each call triggers internalRepaint)
+    // when the resulting Colour is unchanged at this quantization.
+    juce::Colour lastAppliedOscFill_, lastAppliedOscText_;
+    bool lastAppliedOscColoursValid_ = false;
     // Cache-hit feedback: when the inference cache is full, the primary
     // generation actions become cache playback actions and stay labelled
     // "cache hit" until the cache is cleared/disabled.
