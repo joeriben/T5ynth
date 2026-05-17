@@ -1477,10 +1477,19 @@ void PromptPanel::pollDriftRegen()
     int regenMode = processorRef.driftRegenMode.load(std::memory_order_relaxed);
     if (regenMode == 0) return; // Manual — no auto-regen
 
+    // Idle-CPU guard: cache replay runs the full loadGeneratedAudio path
+    // (rumble/HF/normalize + WT frame extraction) per cycle, and at idle no
+    // voice picks up the new buffer — pure wasted work. Real-inference
+    // generation (cache-fill path) is allowed to continue so the cache can
+    // still pre-fill while the user is not playing.
+    const bool fullCachePlayback = processorRef.isInferenceCacheFull();
+    if (fullCachePlayback
+        && processorRef.audioIdle.load(std::memory_order_relaxed))
+        return;
+
     // Beat-based cooldown: modes 2-4 = max 1/4/16 beats. When the
     // inference cache is full, Auto is throttled to the 1-beat cadence
     // so cache playback cannot run at the GUI polling rate.
-    const bool fullCachePlayback = processorRef.isInferenceCacheFull();
     if (regenMode >= 2 || (fullCachePlayback && regenMode == 1))
     {
         static constexpr int beatCounts[] = { 0, 0, 1, 4, 16 };
