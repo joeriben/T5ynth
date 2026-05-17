@@ -1549,7 +1549,8 @@ void SynthPanel::setModEasyMode(bool easy, bool persist)
     if (modEasyMode)
         selectFirstActiveModTabs();
 
-    modModeToggle.setButtonText(modEasyMode ? "> adv." : "> easy");
+    modModeToggle.setButtonText(modEasyMode ? juce::String::fromUTF8("\xc2\xbb adv.")
+                                            : juce::String::fromUTF8("\xc2\xbb easy"));
     syncModTabButtons();
     updateVisibility();
 
@@ -2717,9 +2718,13 @@ void SynthPanel::resized()
         measureTextWidth(modModeToggle.getButtonText(), juce::jmax(kUiControlFontMin, headerFs * 0.72f)) + 16);
     engineHeader.setFont(juce::FontOptions(headerFs));
     auto engineHeaderRow = area.removeFromTop(headerH);
+    // Header takes the FULL row so its pink fill frames the toggle button on
+    // all sides (matches T5 OSC header behavior). The toggle is then drawn
+    // on top with a 2 px reduction → the header colour shows through as a
+    // border around the dark button surface.
+    engineHeader.setBounds(engineHeaderRow);
     modModeToggle.setBounds(engineHeaderRow.removeFromRight(modToggleW).reduced(2, 2));
     modModeToggle.toFront(false);
-    engineHeader.setBounds(engineHeaderRow);
     area.removeFromTop(headerGap);
 
     // ── Engine mode + Voice count: compact switchboxes ──

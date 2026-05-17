@@ -47,7 +47,7 @@ private:
 
     // Col 1: GENERATION — three cards with headers
     juce::Label oscHeader, axesHeader, dimHeader, axesNote, poweredByLabel;
-    juce::TextButton oscModeToggle { "> adv." };
+    juce::TextButton oscModeToggle { juce::String::fromUTF8("\xc2\xbb adv.") };
     PromptPanel promptPanel;
     AxesPanel axesPanel;
     GenerateButton mainGenerateBtn { "GENERATE" };

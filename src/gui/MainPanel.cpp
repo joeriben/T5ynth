@@ -1019,7 +1019,8 @@ void MainPanel::setOscEasyMode(bool easy, bool persist)
     promptPanel.setEasyMode(oscEasyMode);
     dimHeader.setVisible(!oscEasyMode);
     dimensionExplorer.setVisible(!oscEasyMode);
-    oscModeToggle.setButtonText(oscEasyMode ? "> adv." : "> easy");
+    oscModeToggle.setButtonText(oscEasyMode ? juce::String::fromUTF8("\xc2\xbb adv.")
+                                            : juce::String::fromUTF8("\xc2\xbb easy"));
     updateOscModeToggleVisual();
 
     if (persist)

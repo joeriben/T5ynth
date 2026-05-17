@@ -92,7 +92,7 @@ private:
 
     // ── Section headers ──
     juce::Label engineHeader, filterHeader, modHeader, lfoHeader, driftHeader;
-    juce::TextButton modModeToggle { "> adv." };
+    juce::TextButton modModeToggle { juce::String::fromUTF8("\xc2\xbb adv.") };
     bool modEasyMode = true;
     float modModePulsePhase = 0.0f;
     bool modModePulseActive_ = false;
