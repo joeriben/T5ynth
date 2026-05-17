@@ -288,7 +288,15 @@ void PresetUpdater::start(ProgressCallback onProgress, FinishCallback onFinish)
                            "Downloading " + entry.name
                            + " (" + juce::String(i + 1) + "/" + juce::String(total) + ")");
 
-            const juce::URL fileUrl(manifest.baseUrl + entry.path);
+            // URL-encode each path segment separately. juce::URL::addEscapeChars
+            // with isParameter=false would otherwise escape '/' to %2F, breaking
+            // any future subdir layout. Most preset filenames contain spaces,
+            // which raw.githubusercontent.com rejects without %20.
+            juce::StringArray segments;
+            segments.addTokens(entry.path, "/", {});
+            for (auto& seg : segments)
+                seg = juce::URL::addEscapeChars(seg, false);
+            const juce::URL fileUrl(manifest.baseUrl + segments.joinIntoString("/"));
             juce::String dlErr;
             const bool wasNew = ! exists;
             if (downloadOne(fileUrl, target, entry.size, state, dlErr))
