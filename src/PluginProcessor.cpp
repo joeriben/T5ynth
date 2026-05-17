@@ -4,9 +4,10 @@
 #include "dsp/Tuning.h"
 #include <chrono>
 
+#define SAMPLER_PROCESSOR_DEBUG_LOG 0
+
 namespace
 {
-constexpr bool kSamplerDebugLogging = false;
 constexpr float kAlphaAnchorSnapThreshold = 0.04f;
 constexpr float kMagnitudeUnitySnapThreshold = 0.03f;
 constexpr float kDurationSecondSnapThreshold = 0.05f;
@@ -68,19 +69,22 @@ float applyNormalizedOffset(float baseValue, float modulationOffset)
     return juce::jlimit(0.0f, 1.0f, baseValue + modulationOffset);
 }
 
+#if SAMPLER_PROCESSOR_DEBUG_LOG
 void samplerProcessorDebugLog(const juce::String& message)
 {
-    if constexpr (kSamplerDebugLogging)
+    juce::Logger::writeToLog("[SamplerDebug] " + message);
+    juce::FileOutputStream out(juce::File("/tmp/t5ynth_sampler_debug.log"));
+    if (out.openedOk())
     {
-        juce::Logger::writeToLog("[SamplerDebug] " + message);
-        juce::FileOutputStream out(juce::File("/tmp/t5ynth_sampler_debug.log"));
-        if (out.openedOk())
-        {
-            out << "[SamplerDebug] " << message << juce::newLine;
-            out.flush();
-        }
+        out << "[SamplerDebug] " << message << juce::newLine;
+        out.flush();
     }
 }
+#else
+// When debug logging is disabled, replace the call with a no-op so the
+// expensive string-concat arguments are never evaluated (audio thread safety).
+#define samplerProcessorDebugLog(...) ((void)0)
+#endif
 
 bool samePrepareConfig(const SamplePlayer::PrepareConfig& a,
                        const SamplePlayer::PrepareConfig& b)

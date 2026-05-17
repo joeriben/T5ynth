@@ -4,9 +4,10 @@
 #include <cstring>
 #include <limits>
 
+#define SAMPLER_DEBUG_LOG 0
+
 namespace
 {
-constexpr bool kSamplerDebugLogging = false;
 constexpr float kNormalizeCeilingDb = -1.0f;
 constexpr float kSustainedTargetDb = -18.0f;
 constexpr float kTransientPercentileTargetDb = -10.0f;
@@ -19,6 +20,7 @@ constexpr float kTransientActiveRatio = 0.35f;
 constexpr float kTransientCrestDb = 18.0f;
 constexpr float kTransientPeakGapDb = 8.0f;
 
+#if SAMPLER_DEBUG_LOG
 juce::String samplerPtrTag(const void* ptr)
 {
     return "0x" + juce::String::toHexString(static_cast<juce::int64>(reinterpret_cast<std::uintptr_t>(ptr)));
@@ -26,17 +28,22 @@ juce::String samplerPtrTag(const void* ptr)
 
 void samplerDebugLog(const juce::String& message)
 {
-    if constexpr (kSamplerDebugLogging)
+    juce::Logger::writeToLog("[SamplerDebug] " + message);
+    juce::FileOutputStream out(juce::File("/tmp/t5ynth_sampler_debug.log"));
+    if (out.openedOk())
     {
-        juce::Logger::writeToLog("[SamplerDebug] " + message);
-        juce::FileOutputStream out(juce::File("/tmp/t5ynth_sampler_debug.log"));
-        if (out.openedOk())
-        {
-            out << "[SamplerDebug] " << message << juce::newLine;
-            out.flush();
-        }
+        out << "[SamplerDebug] " << message << juce::newLine;
+        out.flush();
     }
 }
+#else
+// When debug logging is disabled, replace the call with a no-op so the
+// expensive string-concat arguments (juce::String + samplerPtrTag +
+// debugStateString) are never evaluated. The previous `if constexpr` lived
+// inside the function body — too late: the caller had already built the
+// final juce::String via heap allocations on the audio thread.
+#define samplerDebugLog(...) ((void)0)
+#endif
 
 const char* loopModeName(SamplePlayer::LoopMode mode)
 {
