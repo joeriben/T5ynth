@@ -404,46 +404,61 @@ void PromptPanel::timerCallback()
 
     // Ghost indicators for drift-modulated sliders — update every tick.
     auto& mv0 = processorRef.modulatedValues;
-    alphaGhostValue_ = mv0.driftAlpha.load(std::memory_order_relaxed);
-    magGhostValue_   = mv0.driftMagnitude.load(std::memory_order_relaxed);
-    noiseGhostValue_ = mv0.driftNoise.load(std::memory_order_relaxed);
+    const float newAlpha = mv0.driftAlpha.load(std::memory_order_relaxed);
+    const float newMag   = mv0.driftMagnitude.load(std::memory_order_relaxed);
+    const float newNoise = mv0.driftNoise.load(std::memory_order_relaxed);
     // Mode-specific ghosts for Step-in/Layer: derive the alpha-LFO offset (in
     // alpha-units) and project it onto the active mode's parameter range
     // using the same scaling factors the regen path uses.
+    float newLateMix    = std::numeric_limits<float>::quiet_NaN();
+    float newSplitStart = std::numeric_limits<float>::quiet_NaN();
+    float newSplitEnd   = std::numeric_limits<float>::quiet_NaN();
     {
         const float baseAlpha0 = processorRef.getValueTreeState()
                                      .getRawParameterValue(PID::genAlpha)->load();
-        const float alphaOff = std::isnan(alphaGhostValue_) ? 0.0f
-                                                            : (alphaGhostValue_ - baseAlpha0);
+        const float alphaOff = std::isnan(newAlpha) ? 0.0f
+                                                    : (newAlpha - baseAlpha0);
         const bool fineLike = (injectionMode_ == "late_step"
                             || injectionMode_ == "kombi1"
                             || injectionMode_ == "kombi2"
                             || injectionMode_ == "kombi3");
         if (fineLike && std::abs(alphaOff) > 0.001f)
         {
-            lateMixGhostValue_ = juce::jlimit(0.0f, 1.0f, lateMixForMode(injectionMode_) + alphaOff * 0.25f);
-            splitStartGhostValue_ = std::numeric_limits<float>::quiet_NaN();
-            splitEndGhostValue_   = std::numeric_limits<float>::quiet_NaN();
+            newLateMix = juce::jlimit(0.0f, 1.0f, lateMixForMode(injectionMode_) + alphaOff * 0.25f);
         }
         else if (injectionMode_ == "layer_split" && std::abs(alphaOff) > 0.001f)
         {
             const float width = splitLayerEnd_ - splitLayerStart_;
             const float maxStart = std::max(0.0f, 16.0f - width);
             float gs = juce::jlimit(0.0f, maxStart, splitLayerStart_ + alphaOff * 8.0f);
-            splitStartGhostValue_ = gs;
-            splitEndGhostValue_   = gs + width;
-            lateMixGhostValue_    = std::numeric_limits<float>::quiet_NaN();
-        }
-        else
-        {
-            lateMixGhostValue_    = std::numeric_limits<float>::quiet_NaN();
-            splitStartGhostValue_ = std::numeric_limits<float>::quiet_NaN();
-            splitEndGhostValue_   = std::numeric_limits<float>::quiet_NaN();
+            newSplitStart = gs;
+            newSplitEnd   = gs + width;
         }
     }
-    repaint(alphaSlider.getBounds().expanded(4));
-    repaint(magnitudeSlider.getBounds().expanded(4));
-    repaint(noiseSlider.getBounds().expanded(4));
+
+    auto same = [](float a, float b) {
+        return (std::isnan(a) && std::isnan(b)) || a == b;
+    };
+    const bool alphaGroupChanged = !same(alphaGhostValue_,    newAlpha)
+                                || !same(lateMixGhostValue_,  newLateMix)
+                                || !same(splitStartGhostValue_, newSplitStart)
+                                || !same(splitEndGhostValue_, newSplitEnd);
+    const bool magChanged   = !same(magGhostValue_,   newMag);
+    const bool noiseChanged = !same(noiseGhostValue_, newNoise);
+
+    alphaGhostValue_      = newAlpha;
+    magGhostValue_        = newMag;
+    noiseGhostValue_      = newNoise;
+    lateMixGhostValue_    = newLateMix;
+    splitStartGhostValue_ = newSplitStart;
+    splitEndGhostValue_   = newSplitEnd;
+
+    if (alphaGroupChanged)
+        repaint(alphaSlider.getBounds().expanded(4));
+    if (magChanged)
+        repaint(magnitudeSlider.getBounds().expanded(4));
+    if (noiseChanged)
+        repaint(noiseSlider.getBounds().expanded(4));
 
     // Auto-regen polling
     pollDriftRegen();
