@@ -82,8 +82,9 @@ void AxesPanel::initSlot(AxisSlot& slot, const juce::StringArray& options, int a
     slot.poleLabelB->setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(*slot.poleLabelB);
 
-    slot.slider->onValueChange = [&slot] {
+    slot.slider->onValueChange = [this, &slot] {
         slot.valueLabel->setText(juce::String(slot.slider->getValue(), 2), juce::dontSendNotification);
+        repaint();
     };
 
     slot.dropdown->onChange = [this, &slot] {
@@ -112,6 +113,11 @@ float AxesPanel::fs() const
 
 void AxesPanel::setGhostOffsets(float o1, float o2, float o3)
 {
+    auto same = [](float a, float b) {
+        return (std::isnan(a) && std::isnan(b)) || a == b;
+    };
+    if (same(ghostOffsets_[0], o1) && same(ghostOffsets_[1], o2) && same(ghostOffsets_[2], o3))
+        return;
     ghostOffsets_[0] = o1;
     ghostOffsets_[1] = o2;
     ghostOffsets_[2] = o3;
