@@ -156,6 +156,7 @@ T5ynthProcessor::T5ynthProcessor()
                      .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       parameters(*this, nullptr, "T5ynth", createParameterLayout())
 {
+    paramCache.init(parameters);
     juce::File("/tmp/t5ynth_sampler_debug.log").deleteFile();
     samplerProcessorDebugLog("session start");
     stepSequencer.setOneShotTriggerCallback(
@@ -195,13 +196,13 @@ void T5ynthProcessor::beginStepHoldPreview(int midiNote, float velocity)
     // The drone is the GUI mirror of the step's effective pitch, so it must
     // include this shift; the per-voice oscOctave is applied later inside
     // SynthVoice::noteOn via octaveShift_ from BlockParams.
-    const int seqOctaveIdx = static_cast<int>(parameters.getRawParameterValue(PID::seqOctave)->load());
+    const int seqOctaveIdx = static_cast<int>(paramCache.seqOctave->load());
     const int seqOctaveSemi = (seqOctaveIdx - 2) * 12;
     const int note = juce::jlimit(0, 127, midiNote + seqOctaveSemi);
     const float vel = juce::jlimit(0.0f, 1.0f, velocity);
-    const bool lfo1TrigMode = static_cast<int>(parameters.getRawParameterValue(PID::lfo1Mode)->load()) == 1;
-    const bool lfo2TrigMode = static_cast<int>(parameters.getRawParameterValue(PID::lfo2Mode)->load()) == 1;
-    const bool lfo3TrigMode = static_cast<int>(parameters.getRawParameterValue(PID::lfo3Mode)->load()) == 1;
+    const bool lfo1TrigMode = static_cast<int>(paramCache.lfo1Mode->load()) == 1;
+    const bool lfo2TrigMode = static_cast<int>(paramCache.lfo2Mode->load()) == 1;
+    const bool lfo3TrigMode = static_cast<int>(paramCache.lfo3Mode->load()) == 1;
 
     voiceManager.setDroneNote(note, vel, lfo1TrigMode, lfo2TrigMode, lfo3TrigMode);
 
@@ -238,9 +239,9 @@ void T5ynthProcessor::beginComputerKeyboardNote(int midiNote, float velocity)
 
     const int note = juce::jlimit(0, 127, midiNote);
     const float vel = juce::jlimit(0.0f, 1.0f, velocity);
-    const bool lfo1TrigMode = static_cast<int>(parameters.getRawParameterValue(PID::lfo1Mode)->load()) == 1;
-    const bool lfo2TrigMode = static_cast<int>(parameters.getRawParameterValue(PID::lfo2Mode)->load()) == 1;
-    const bool lfo3TrigMode = static_cast<int>(parameters.getRawParameterValue(PID::lfo3Mode)->load()) == 1;
+    const bool lfo1TrigMode = static_cast<int>(paramCache.lfo1Mode->load()) == 1;
+    const bool lfo2TrigMode = static_cast<int>(paramCache.lfo2Mode->load()) == 1;
+    const bool lfo3TrigMode = static_cast<int>(paramCache.lfo3Mode->load()) == 1;
 
     static constexpr int kComputerKeyboardSourceId = 15;
     voiceManager.noteOn(note, vel, false, 0.0f,
@@ -1343,11 +1344,11 @@ void T5ynthProcessor::renderSequencerOneShots(juce::AudioBuffer<float>& buffer)
 
 void T5ynthProcessor::syncSamplerSettingsFromParametersLocked()
 {
-    int loopModeIdx = static_cast<int>(parameters.getRawParameterValue(PID::loopMode)->load());
+    int loopModeIdx = static_cast<int>(paramCache.loopMode->load());
     masterSampler.setLoopMode(static_cast<SamplePlayer::LoopMode>(juce::jlimit(0, 2, loopModeIdx)));
-    masterSampler.setCrossfadeMs(parameters.getRawParameterValue(PID::crossfadeMs)->load());
-    masterSampler.setNormalize(parameters.getRawParameterValue(PID::normalize)->load() > 0.5f);
-    masterSampler.setLoopOptimizeLevel(static_cast<int>(parameters.getRawParameterValue(PID::loopOptimize)->load()));
+    masterSampler.setCrossfadeMs(paramCache.crossfadeMs->load());
+    masterSampler.setNormalize(paramCache.normalize->load() > 0.5f);
+    masterSampler.setLoopOptimizeLevel(static_cast<int>(paramCache.loopOptimize->load()));
 }
 
 void T5ynthProcessor::storeSamplerReprepareSource(const juce::AudioBuffer<float>& buffer,
@@ -1477,7 +1478,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     updateDriftState(numSamples, syncBpm);
 
     // ── Idle detection ──────────────────────────────────────────────────────
-    bool seqRunning = parameters.getRawParameterValue(PID::seqRunning)->load() > 0.5f;
+    bool seqRunning = paramCache.seqRunning->load() > 0.5f;
     bool hasActivity = voiceManager.hasActiveVoices()
                        || hasActiveSequencerOneShots()
                        || !midiMessages.isEmpty()
@@ -1509,14 +1510,14 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // ── Voice count ──────────────────────────────────────────────────────────
     {
         static constexpr int voiceCounts[] = { 1, 4, 6, 8, 12, 16 };
-        int vcIdx = static_cast<int>(parameters.getRawParameterValue(PID::voiceCount)->load());
+        int vcIdx = static_cast<int>(paramCache.voiceCount->load());
         voiceManager.setVoiceLimit(voiceCounts[juce::jlimit(0, 5, vcIdx)]);
     }
 
     // ── Tuning table ──────────────────────────────────────────────────────────
     {
-        int tuningIdx = static_cast<int>(parameters.getRawParameterValue(PID::tuning)->load());
-        int scaleRoot = static_cast<int>(parameters.getRawParameterValue(PID::scaleRoot)->load());
+        int tuningIdx = static_cast<int>(paramCache.tuning->load());
+        int scaleRoot = static_cast<int>(paramCache.scaleRoot->load());
         auto tt = static_cast<Tuning::Type>(juce::jlimit(0, (int)Tuning::COUNT - 1, tuningIdx));
         Tuning::buildTable(tuningTable, tt, scaleRoot);
         voiceManager.setTuningTable(tuningTable);
@@ -1524,140 +1525,140 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     // ── Read all parameters into BlockParams ──────────────────────────────────
     BlockParams bp;
-    bp.ampAttack  = parameters.getRawParameterValue(PID::ampAttack)->load();
-    bp.ampDecay   = parameters.getRawParameterValue(PID::ampDecay)->load();
-    bp.ampSustain = parameters.getRawParameterValue(PID::ampSustain)->load();
-    bp.ampRelease = parameters.getRawParameterValue(PID::ampRelease)->load();
-    bp.ampAmount  = parameters.getRawParameterValue(PID::ampAmount)->load();
-    bp.ampVelSens = parameters.getRawParameterValue(PID::ampVelSens)->load();
-    bp.ampTarget  = static_cast<int>(parameters.getRawParameterValue(PID::ampTarget)->load());
-    bp.ampLoop    = parameters.getRawParameterValue(PID::ampLoop)->load() > 0.5f;
-    bp.ampAttackCurve  = static_cast<int>(parameters.getRawParameterValue(PID::ampAttackCurve)->load());
-    bp.ampDecayCurve   = static_cast<int>(parameters.getRawParameterValue(PID::ampDecayCurve)->load());
-    bp.ampReleaseCurve = static_cast<int>(parameters.getRawParameterValue(PID::ampReleaseCurve)->load());
-    bp.ampAttackVelMode  = static_cast<int>(parameters.getRawParameterValue(PID::ampAttackVelMode)->load());
-    bp.ampDecayVelMode   = static_cast<int>(parameters.getRawParameterValue(PID::ampDecayVelMode)->load());
-    bp.ampReleaseVelMode = static_cast<int>(parameters.getRawParameterValue(PID::ampReleaseVelMode)->load());
+    bp.ampAttack  = paramCache.ampAttack->load();
+    bp.ampDecay   = paramCache.ampDecay->load();
+    bp.ampSustain = paramCache.ampSustain->load();
+    bp.ampRelease = paramCache.ampRelease->load();
+    bp.ampAmount  = paramCache.ampAmount->load();
+    bp.ampVelSens = paramCache.ampVelSens->load();
+    bp.ampTarget  = static_cast<int>(paramCache.ampTarget->load());
+    bp.ampLoop    = paramCache.ampLoop->load() > 0.5f;
+    bp.ampAttackCurve  = static_cast<int>(paramCache.ampAttackCurve->load());
+    bp.ampDecayCurve   = static_cast<int>(paramCache.ampDecayCurve->load());
+    bp.ampReleaseCurve = static_cast<int>(paramCache.ampReleaseCurve->load());
+    bp.ampAttackVelMode  = static_cast<int>(paramCache.ampAttackVelMode->load());
+    bp.ampDecayVelMode   = static_cast<int>(paramCache.ampDecayVelMode->load());
+    bp.ampReleaseVelMode = static_cast<int>(paramCache.ampReleaseVelMode->load());
 
-    bp.mod1Attack  = parameters.getRawParameterValue(PID::mod1Attack)->load();
-    bp.mod1Decay   = parameters.getRawParameterValue(PID::mod1Decay)->load();
-    bp.mod1Sustain = parameters.getRawParameterValue(PID::mod1Sustain)->load();
-    bp.mod1Release = parameters.getRawParameterValue(PID::mod1Release)->load();
-    bp.mod1Amount  = parameters.getRawParameterValue(PID::mod1Amount)->load();
-    bp.mod1VelSens = parameters.getRawParameterValue(PID::mod1VelSens)->load();
-    bp.mod1Target  = static_cast<int>(parameters.getRawParameterValue(PID::mod1Target)->load());
-    bp.mod1Loop    = parameters.getRawParameterValue(PID::mod1Loop)->load() > 0.5f;
-    bp.mod1AttackCurve  = static_cast<int>(parameters.getRawParameterValue(PID::mod1AttackCurve)->load());
-    bp.mod1DecayCurve   = static_cast<int>(parameters.getRawParameterValue(PID::mod1DecayCurve)->load());
-    bp.mod1ReleaseCurve = static_cast<int>(parameters.getRawParameterValue(PID::mod1ReleaseCurve)->load());
-    bp.mod1AttackVelMode  = static_cast<int>(parameters.getRawParameterValue(PID::mod1AttackVelMode)->load());
-    bp.mod1DecayVelMode   = static_cast<int>(parameters.getRawParameterValue(PID::mod1DecayVelMode)->load());
-    bp.mod1ReleaseVelMode = static_cast<int>(parameters.getRawParameterValue(PID::mod1ReleaseVelMode)->load());
+    bp.mod1Attack  = paramCache.mod1Attack->load();
+    bp.mod1Decay   = paramCache.mod1Decay->load();
+    bp.mod1Sustain = paramCache.mod1Sustain->load();
+    bp.mod1Release = paramCache.mod1Release->load();
+    bp.mod1Amount  = paramCache.mod1Amount->load();
+    bp.mod1VelSens = paramCache.mod1VelSens->load();
+    bp.mod1Target  = static_cast<int>(paramCache.mod1Target->load());
+    bp.mod1Loop    = paramCache.mod1Loop->load() > 0.5f;
+    bp.mod1AttackCurve  = static_cast<int>(paramCache.mod1AttackCurve->load());
+    bp.mod1DecayCurve   = static_cast<int>(paramCache.mod1DecayCurve->load());
+    bp.mod1ReleaseCurve = static_cast<int>(paramCache.mod1ReleaseCurve->load());
+    bp.mod1AttackVelMode  = static_cast<int>(paramCache.mod1AttackVelMode->load());
+    bp.mod1DecayVelMode   = static_cast<int>(paramCache.mod1DecayVelMode->load());
+    bp.mod1ReleaseVelMode = static_cast<int>(paramCache.mod1ReleaseVelMode->load());
 
-    bp.mod2Attack  = parameters.getRawParameterValue(PID::mod2Attack)->load();
-    bp.mod2Decay   = parameters.getRawParameterValue(PID::mod2Decay)->load();
-    bp.mod2Sustain = parameters.getRawParameterValue(PID::mod2Sustain)->load();
-    bp.mod2Release = parameters.getRawParameterValue(PID::mod2Release)->load();
-    bp.mod2Amount  = parameters.getRawParameterValue(PID::mod2Amount)->load();
-    bp.mod2VelSens = parameters.getRawParameterValue(PID::mod2VelSens)->load();
-    bp.mod2Target  = static_cast<int>(parameters.getRawParameterValue(PID::mod2Target)->load());
-    bp.mod2Loop    = parameters.getRawParameterValue(PID::mod2Loop)->load() > 0.5f;
-    bp.mod2AttackCurve  = static_cast<int>(parameters.getRawParameterValue(PID::mod2AttackCurve)->load());
-    bp.mod2DecayCurve   = static_cast<int>(parameters.getRawParameterValue(PID::mod2DecayCurve)->load());
-    bp.mod2ReleaseCurve = static_cast<int>(parameters.getRawParameterValue(PID::mod2ReleaseCurve)->load());
-    bp.mod2AttackVelMode  = static_cast<int>(parameters.getRawParameterValue(PID::mod2AttackVelMode)->load());
-    bp.mod2DecayVelMode   = static_cast<int>(parameters.getRawParameterValue(PID::mod2DecayVelMode)->load());
-    bp.mod2ReleaseVelMode = static_cast<int>(parameters.getRawParameterValue(PID::mod2ReleaseVelMode)->load());
+    bp.mod2Attack  = paramCache.mod2Attack->load();
+    bp.mod2Decay   = paramCache.mod2Decay->load();
+    bp.mod2Sustain = paramCache.mod2Sustain->load();
+    bp.mod2Release = paramCache.mod2Release->load();
+    bp.mod2Amount  = paramCache.mod2Amount->load();
+    bp.mod2VelSens = paramCache.mod2VelSens->load();
+    bp.mod2Target  = static_cast<int>(paramCache.mod2Target->load());
+    bp.mod2Loop    = paramCache.mod2Loop->load() > 0.5f;
+    bp.mod2AttackCurve  = static_cast<int>(paramCache.mod2AttackCurve->load());
+    bp.mod2DecayCurve   = static_cast<int>(paramCache.mod2DecayCurve->load());
+    bp.mod2ReleaseCurve = static_cast<int>(paramCache.mod2ReleaseCurve->load());
+    bp.mod2AttackVelMode  = static_cast<int>(paramCache.mod2AttackVelMode->load());
+    bp.mod2DecayVelMode   = static_cast<int>(paramCache.mod2DecayVelMode->load());
+    bp.mod2ReleaseVelMode = static_cast<int>(paramCache.mod2ReleaseVelMode->load());
 
     // LFOs (global) — Clock-Sync override: when ClockMode::Sync, the rate
     // displayed on the slider is replaced by the sync-derived rate. We store
     // the effective rate back into `bp.lfo*Rate` so downstream env→LFO-rate
     // modulation (lines further down) scales relative to the sync rate.
     {
-        const int   c1 = static_cast<int>(parameters.getRawParameterValue(PID::lfo1ClockMode)->load());
-        const float r1 = parameters.getRawParameterValue(PID::lfo1Rate)->load();
+        const int   c1 = static_cast<int>(paramCache.lfo1ClockMode->load());
+        const float r1 = paramCache.lfo1Rate->load();
         bp.lfo1Rate = (c1 == ClockMode::Off) ? r1
             : ClockSync::computeRate(syncBpm,
-                static_cast<int>(parameters.getRawParameterValue(PID::lfo1ClockDivision)->load()));
-        bp.lfo1Depth = parameters.getRawParameterValue(PID::lfo1Depth)->load();
-        bp.lfo1Wave = static_cast<int>(parameters.getRawParameterValue(PID::lfo1Wave)->load());
-        bp.lfo1TrigMode = static_cast<int>(parameters.getRawParameterValue(PID::lfo1Mode)->load()) == LfoMode::Trigger;
+                static_cast<int>(paramCache.lfo1ClockDivision->load()));
+        bp.lfo1Depth = paramCache.lfo1Depth->load();
+        bp.lfo1Wave = static_cast<int>(paramCache.lfo1Wave->load());
+        bp.lfo1TrigMode = static_cast<int>(paramCache.lfo1Mode->load()) == LfoMode::Trigger;
         lfo1.setRate(bp.lfo1Rate);
         lfo1.setDepth(1.0f);
         lfo1.setWaveform(bp.lfo1Wave);
-        bp.lfo1Target = static_cast<int>(parameters.getRawParameterValue(PID::lfo1Target)->load());
+        bp.lfo1Target = static_cast<int>(paramCache.lfo1Target->load());
     }
     {
-        const int   c2 = static_cast<int>(parameters.getRawParameterValue(PID::lfo2ClockMode)->load());
-        const float r2 = parameters.getRawParameterValue(PID::lfo2Rate)->load();
+        const int   c2 = static_cast<int>(paramCache.lfo2ClockMode->load());
+        const float r2 = paramCache.lfo2Rate->load();
         bp.lfo2Rate = (c2 == ClockMode::Off) ? r2
             : ClockSync::computeRate(syncBpm,
-                static_cast<int>(parameters.getRawParameterValue(PID::lfo2ClockDivision)->load()));
-        bp.lfo2Depth = parameters.getRawParameterValue(PID::lfo2Depth)->load();
-        bp.lfo2Wave = static_cast<int>(parameters.getRawParameterValue(PID::lfo2Wave)->load());
-        bp.lfo2TrigMode = static_cast<int>(parameters.getRawParameterValue(PID::lfo2Mode)->load()) == LfoMode::Trigger;
+                static_cast<int>(paramCache.lfo2ClockDivision->load()));
+        bp.lfo2Depth = paramCache.lfo2Depth->load();
+        bp.lfo2Wave = static_cast<int>(paramCache.lfo2Wave->load());
+        bp.lfo2TrigMode = static_cast<int>(paramCache.lfo2Mode->load()) == LfoMode::Trigger;
         lfo2.setRate(bp.lfo2Rate);
         lfo2.setDepth(1.0f);
         lfo2.setWaveform(bp.lfo2Wave);
-        bp.lfo2Target = static_cast<int>(parameters.getRawParameterValue(PID::lfo2Target)->load());
+        bp.lfo2Target = static_cast<int>(paramCache.lfo2Target->load());
     }
     {
-        const int   c3 = static_cast<int>(parameters.getRawParameterValue(PID::lfo3ClockMode)->load());
-        const float r3 = parameters.getRawParameterValue(PID::lfo3Rate)->load();
+        const int   c3 = static_cast<int>(paramCache.lfo3ClockMode->load());
+        const float r3 = paramCache.lfo3Rate->load();
         bp.lfo3Rate = (c3 == ClockMode::Off) ? r3
             : ClockSync::computeRate(syncBpm,
-                static_cast<int>(parameters.getRawParameterValue(PID::lfo3ClockDivision)->load()));
-        bp.lfo3Depth = parameters.getRawParameterValue(PID::lfo3Depth)->load();
-        bp.lfo3Wave = static_cast<int>(parameters.getRawParameterValue(PID::lfo3Wave)->load());
-        bp.lfo3TrigMode = static_cast<int>(parameters.getRawParameterValue(PID::lfo3Mode)->load()) == LfoMode::Trigger;
+                static_cast<int>(paramCache.lfo3ClockDivision->load()));
+        bp.lfo3Depth = paramCache.lfo3Depth->load();
+        bp.lfo3Wave = static_cast<int>(paramCache.lfo3Wave->load());
+        bp.lfo3TrigMode = static_cast<int>(paramCache.lfo3Mode->load()) == LfoMode::Trigger;
         lfo3.setRate(bp.lfo3Rate);
         lfo3.setDepth(1.0f);
         lfo3.setWaveform(bp.lfo3Wave);
-        bp.lfo3Target = static_cast<int>(parameters.getRawParameterValue(PID::lfo3Target)->load());
+        bp.lfo3Target = static_cast<int>(paramCache.lfo3Target->load());
     }
 
-    bp.aftertouchTarget = static_cast<int>(parameters.getRawParameterValue(PID::aftertouchTarget)->load());
-    bp.aftertouchAmount = parameters.getRawParameterValue(PID::aftertouchAmount)->load();
+    bp.aftertouchTarget = static_cast<int>(paramCache.aftertouchTarget->load());
+    bp.aftertouchAmount = paramCache.aftertouchAmount->load();
 
     // Filter
     // filter_type: 0=Off, 1=LP, 2=HP, 3=BP → filterEnabled from type, DSP type is 0-based
     {
-        int ft = static_cast<int>(parameters.getRawParameterValue(PID::filterType)->load());
+        int ft = static_cast<int>(paramCache.filterType->load());
         bp.filterEnabled = (ft > 0);
         bp.filterType = ft > 0 ? ft - 1 : 0;  // 0=LP, 1=HP, 2=BP for DSP
     }
-    bp.baseCutoff = parameters.getRawParameterValue(PID::filterCutoff)->load();
-    bp.baseReso = parameters.getRawParameterValue(PID::filterResonance)->load();
-    bp.filterSlope = static_cast<int>(parameters.getRawParameterValue(PID::filterSlope)->load());
-    bp.filterMix = parameters.getRawParameterValue(PID::filterMix)->load();
-    bp.kbdTrack = parameters.getRawParameterValue(PID::filterKbdTrack)->load();
-    bp.filterDriveDb = parameters.getRawParameterValue(PID::filterDrive)->load();
-    bp.filterDriveOs = static_cast<int>(parameters.getRawParameterValue(PID::filterDriveOs)->load());
-    bp.filterAlgorithm = static_cast<int>(parameters.getRawParameterValue(PID::filterAlgorithm)->load());
-    bp.filterWarpStyle = static_cast<int>(parameters.getRawParameterValue(PID::filterWarpStyle)->load());
+    bp.baseCutoff = paramCache.filterCutoff->load();
+    bp.baseReso = paramCache.filterResonance->load();
+    bp.filterSlope = static_cast<int>(paramCache.filterSlope->load());
+    bp.filterMix = paramCache.filterMix->load();
+    bp.kbdTrack = paramCache.filterKbdTrack->load();
+    bp.filterDriveDb = paramCache.filterDrive->load();
+    bp.filterDriveOs = static_cast<int>(paramCache.filterDriveOs->load());
+    bp.filterAlgorithm = static_cast<int>(paramCache.filterAlgorithm->load());
+    bp.filterWarpStyle = static_cast<int>(paramCache.filterWarpStyle->load());
     bp.filterDriveGain = std::pow(10.0f, bp.filterDriveDb * (1.0f / 20.0f));
 
     // Scan
-    bp.baseScan = parameters.getRawParameterValue(PID::oscScan)->load();
+    bp.baseScan = paramCache.oscScan->load();
 
     // Octave shift (APVTS choice 0-4, maps to -2..+2)
-    bp.octaveShift = static_cast<int>(parameters.getRawParameterValue(PID::oscOctave)->load()) - 2;
+    bp.octaveShift = static_cast<int>(paramCache.oscOctave->load()) - 2;
 
     // Noise oscillator
-    bp.noiseLevel = parameters.getRawParameterValue(PID::noiseLevel)->load();
-    bp.noiseType = static_cast<int>(parameters.getRawParameterValue(PID::noiseType)->load());
+    bp.noiseLevel = paramCache.noiseLevel->load();
+    bp.noiseType = static_cast<int>(paramCache.noiseType->load());
 
     // Wavetable smooth
-    bp.wtSmooth = parameters.getRawParameterValue(PID::wtSmooth)->load() > 0.5f;
-    bp.wtAutoScan = parameters.getRawParameterValue(PID::wtAutoScan)->load() > 0.5f;
+    bp.wtSmooth = paramCache.wtSmooth->load() > 0.5f;
+    bp.wtAutoScan = paramCache.wtAutoScan->load() > 0.5f;
     bp.freezeTexture = juce::jlimit(static_cast<int>(FreezeTexture::Hold),
                                     static_cast<int>(FreezeTexture::Cloud),
-                                    static_cast<int>(parameters.getRawParameterValue(PID::freezeTexture)->load()));
+                                    static_cast<int>(paramCache.freezeTexture->load()));
     bp.freezeStereo = juce::jlimit(0.0f, 1.0f,
-                                   parameters.getRawParameterValue(PID::freezeStereo)->load());
+                                   paramCache.freezeStereo->load());
 
     // Engine mode — read directly from APVTS (0=Sampler, 1=Wavetable, 2=Granular)
-    int engineModeRaw = static_cast<int>(parameters.getRawParameterValue(PID::engineMode)->load());
+    int engineModeRaw = static_cast<int>(paramCache.engineMode->load());
     bp.engineMode = juce::jlimit(static_cast<int>(EngineMode::Sampler),
                                  static_cast<int>(EngineMode::Freeze),
                                  engineModeRaw);
@@ -1678,7 +1679,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     }
 
     // Master volume (dB → linear)
-    float masterDb = parameters.getRawParameterValue(PID::masterVol)->load();
+    float masterDb = paramCache.masterVol->load();
     float masterGain = juce::Decibels::decibelsToGain(masterDb);
 
     // Apply drift offsets to their respective targets
@@ -1697,17 +1698,17 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     // ── Sequencer / Arpeggiator (in series: Seq → Arp → synth) ─────────────
     // (seqRunning already read above for idle detection)
-    float seqBpm = parameters.getRawParameterValue(PID::seqBpm)->load();
-    int seqSteps = static_cast<int>(parameters.getRawParameterValue(PID::seqSteps)->load());
-    int seqOctaveShift = static_cast<int>(parameters.getRawParameterValue(PID::seqOctave)->load()) - 2;
-    float seqGate = parameters.getRawParameterValue(PID::seqGate)->load();
-    float seqShuffle = parameters.getRawParameterValue(PID::seqShuffle)->load();
-    int seqPreset = static_cast<int>(parameters.getRawParameterValue(PID::seqPreset)->load());
-    int arpModeRaw = static_cast<int>(parameters.getRawParameterValue(PID::arpMode)->load());
+    float seqBpm = paramCache.seqBpm->load();
+    int seqSteps = static_cast<int>(paramCache.seqSteps->load());
+    int seqOctaveShift = static_cast<int>(paramCache.seqOctave->load()) - 2;
+    float seqGate = paramCache.seqGate->load();
+    float seqShuffle = paramCache.seqShuffle->load();
+    int seqPreset = static_cast<int>(paramCache.seqPreset->load());
+    int arpModeRaw = static_cast<int>(paramCache.arpMode->load());
     bool arpEnabled = arpModeRaw > 0;
     int arpMode = arpModeRaw > 0 ? arpModeRaw - 1 : 0; // 0=Up,1=Down,2=UpDown,3=Random
-    int arpRate = static_cast<int>(parameters.getRawParameterValue(PID::arpRate)->load());
-    int arpOctaves = static_cast<int>(parameters.getRawParameterValue(PID::arpOctaves)->load());
+    int arpRate = static_cast<int>(paramCache.arpRate->load());
+    int arpOctaves = static_cast<int>(paramCache.arpOctaves->load());
 
     // Arp false→true edge: the active sequencer's currently-sounding note was
     // emitted direct-to-synth last block, and from this block on the arp will
@@ -1729,8 +1730,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     }
 
     // GEN mode toggle — PLAY is master transport, GEN switches engine
-    bool genModeWanted = parameters.getRawParameterValue(PID::genSeqRunning)->load() > 0.5f;
-    int seqDivision = static_cast<int>(parameters.getRawParameterValue(PID::seqDivision)->load());
+    bool genModeWanted = paramCache.genSeqRunning->load() > 0.5f;
+    int seqDivision = static_cast<int>(paramCache.seqDivision->load());
 
     // Detect mode switch: apply at step 0 boundary
     if (genModeWanted != genModeActiveInAudio)
@@ -1767,8 +1768,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 generativeSequencer.setGate(seqGate);
                 generativeSequencer.setShuffle(seqShuffle);
                 generativeSequencer.setScale(
-                    static_cast<int>(parameters.getRawParameterValue(PID::scaleType)->load()),
-                    static_cast<int>(parameters.getRawParameterValue(PID::scaleRoot)->load()));
+                    static_cast<int>(paramCache.scaleType->load()),
+                    static_cast<int>(paramCache.scaleRoot->load()));
                 generativeSequencer.setPrimaryTransposeSemitones(seqOctaveShift * 12);
                 generativeSequencer.seedFromSteps(seedNotes, seedEnabled, seqCount);
 
@@ -1825,10 +1826,10 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         generativeSequencer.setPrimaryTransposeSemitones(seqOctaveShift * 12);
 
         // Fix flags
-        bool fxS = parameters.getRawParameterValue(PID::genFixSteps)->load() > 0.5f;
-        bool fxP = parameters.getRawParameterValue(PID::genFixPulses)->load() > 0.5f;
-        bool fxR = parameters.getRawParameterValue(PID::genFixRotation)->load() > 0.5f;
-        bool fxM = parameters.getRawParameterValue(PID::genFixMutation)->load() > 0.5f;
+        bool fxS = paramCache.genFixSteps->load() > 0.5f;
+        bool fxP = paramCache.genFixPulses->load() > 0.5f;
+        bool fxR = paramCache.genFixRotation->load() > 0.5f;
+        bool fxM = paramCache.genFixMutation->load() > 0.5f;
         generativeSequencer.setFixSteps(fxS);
         generativeSequencer.setFixPulses(fxP);
         generativeSequencer.setFixRotation(fxR);
@@ -1837,9 +1838,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         // Steps/Pulses/Rotation: if FIXED, overwrite every block.
         // If UNFIXED, only overwrite when user changes the slider.
         {
-            int gs = static_cast<int>(parameters.getRawParameterValue(PID::genSteps)->load());
-            int gp = static_cast<int>(parameters.getRawParameterValue(PID::genPulses)->load());
-            int gr = static_cast<int>(parameters.getRawParameterValue(PID::genRotation)->load());
+            int gs = static_cast<int>(paramCache.genSteps->load());
+            int gp = static_cast<int>(paramCache.genPulses->load());
+            int gr = static_cast<int>(paramCache.genRotation->load());
 
             if (fxS || gs != lastGenSteps)    { generativeSequencer.setSteps(gs);    lastGenSteps = gs; }
             if (fxP || gp != lastGenPulses)   { generativeSequencer.setPulses(gp);   lastGenPulses = gp; }
@@ -1848,25 +1849,25 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
         // Mutation: always update base; only overwrite effective rate if fixed or user changed slider
         {
-            float gm = parameters.getRawParameterValue(PID::genMutation)->load();
+            float gm = paramCache.genMutation->load();
             generativeSequencer.setBaseMutation(gm);
             if (fxM || gm != lastGenMutation) { generativeSequencer.setMutation(gm); lastGenMutation = gm; }
         }
 
-        generativeSequencer.setRange(static_cast<int>(parameters.getRawParameterValue(PID::genRange)->load()) + 1);
+        generativeSequencer.setRange(static_cast<int>(paramCache.genRange->load()) + 1);
         generativeSequencer.setScale(
-            static_cast<int>(parameters.getRawParameterValue(PID::scaleType)->load()),
-            static_cast<int>(parameters.getRawParameterValue(PID::scaleRoot)->load()));
+            static_cast<int>(paramCache.scaleType->load()),
+            static_cast<int>(paramCache.scaleRoot->load()));
 
         // ── Shared pitch-field setters ──
         generativeSequencer.setFieldMode(static_cast<int>(
-            parameters.getRawParameterValue(PID::genFieldMode)->load()));
+            paramCache.genFieldMode->load()));
         generativeSequencer.setFieldChangeRate(static_cast<int>(
-            parameters.getRawParameterValue(PID::genFieldRate)->load()));
+            paramCache.genFieldRate->load()));
         // Field Center PC follows Scale Root — they are conceptually the
         // same anchor, and a separate "second tonic" dropdown was confusing.
         const int scaleRootForField = static_cast<int>(
-            parameters.getRawParameterValue(PID::scaleRoot)->load());
+            paramCache.scaleRoot->load());
         generativeSequencer.setFieldCenterPc(scaleRootForField);
 
         // Field Pivot interval is derived from Scale Type — its musical
@@ -1875,7 +1876,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         // scales. Pivot mode then transposes the pc-set by this interval.
         {
             const int scaleTypeForField = static_cast<int>(
-                parameters.getRawParameterValue(PID::scaleType)->load());
+                paramCache.scaleType->load());
             int pivotSemitones = 7;  // P5 default
             switch (scaleTypeForField)
             {
@@ -1898,9 +1899,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
         // ── Inter-strand coordination ──
         generativeSequencer.setCoordinationMode(static_cast<int>(
-            parameters.getRawParameterValue(PID::genCoordinationMode)->load()));
+            paramCache.genCoordinationMode->load()));
         generativeSequencer.setCoordinationCap(static_cast<int>(
-            parameters.getRawParameterValue(PID::genCoordinationCap)->load()));
+            paramCache.genCoordinationCap->load()));
 
         // ── Per-strand setters (0..4) ──
         {
@@ -2031,7 +2032,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         stepSequencer.setDivision(seqDivision);
         stepSequencer.setShuffle(seqShuffle);
         stepSequencer.setAllGates(seqGate);
-        int seqOctaveIdx = static_cast<int>(parameters.getRawParameterValue(PID::seqOctave)->load());
+        int seqOctaveIdx = static_cast<int>(paramCache.seqOctave->load());
         stepSequencer.setOctaveShiftSemitones((seqOctaveIdx - 2) * 12);
 
         if (seqRunning)
@@ -2147,9 +2148,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         float baseLfo1Depth = bp.lfo1Depth;
         float baseLfo2Depth = bp.lfo2Depth;
         float baseLfo3Depth = bp.lfo3Depth;
-        float baseDrift1Depth = parameters.getRawParameterValue(PID::drift1Depth)->load();
-        float baseDrift2Depth = parameters.getRawParameterValue(PID::drift2Depth)->load();
-        float baseDrift3Depth = parameters.getRawParameterValue(PID::drift3Depth)->load();
+        float baseDrift1Depth = paramCache.drift1Depth->load();
+        float baseDrift2Depth = paramCache.drift2Depth->load();
+        float baseDrift3Depth = paramCache.drift3Depth->load();
 
         // Re-prepare runs on samplerReprepareThread; the audio thread keeps
         // using the last published snapshot and only distributes it.
@@ -2160,7 +2161,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         if (masterOsc.hasFrames() && generatedAudioFull.getNumSamples() > 0)
         {
             syncWavetableTraversal(generatedSampleRate, generatedAudioFull.getNumSamples());
-            masterOsc.setMorphTimeMs(parameters.getRawParameterValue(PID::driftCrossfade)->load());
+            masterOsc.setMorphTimeMs(paramCache.driftCrossfade->load());
             voiceManager.distributeWavetableFrames(masterOsc);
         }
 
@@ -2455,35 +2456,35 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     renderSequencerOneShots(buffer);
 
     // ── Effects (parallel send-bus: dry + delay + reverb → limiter) ───────
-    int delayType = static_cast<int>(parameters.getRawParameterValue(PID::delayType)->load());
+    int delayType = static_cast<int>(paramCache.delayType->load());
     bool delayEnabled = delayType > 0;
-    int reverbType = static_cast<int>(parameters.getRawParameterValue(PID::reverbType)->load());
+    int reverbType = static_cast<int>(paramCache.reverbType->load());
     bool reverbEnabled = reverbType > 0;
     bool reverbIsAlgo = reverbType == 4;
 
     if (delayEnabled)
     {
-        const int delayClock = static_cast<int>(parameters.getRawParameterValue(PID::delayClockMode)->load());
+        const int delayClock = static_cast<int>(paramCache.delayClockMode->load());
         const float baseDelayTime = (delayClock == ClockMode::Off)
-            ? parameters.getRawParameterValue(PID::delayTime)->load()
+            ? paramCache.delayTime->load()
             : ClockSync::computeDelayMs(syncBpm,
-                static_cast<int>(parameters.getRawParameterValue(PID::delayClockDivision)->load()));
-        float baseDelayFb = parameters.getRawParameterValue(PID::delayFeedback)->load();
-        float baseDelayMix = parameters.getRawParameterValue(PID::delayMix)->load();
+                static_cast<int>(paramCache.delayClockDivision->load()));
+        float baseDelayFb = paramCache.delayFeedback->load();
+        float baseDelayMix = paramCache.delayMix->load();
         // Apply modulation offsets to delay params
         delay.setTime(juce::jlimit(1.0f, 5000.0f, baseDelayTime * (1.0f + modDelayTime)));
         delay.setFeedback(juce::jlimit(0.0f, 0.95f, baseDelayFb + modDelayFb));
         delay.setMix(juce::jlimit(0.0f, 1.0f, baseDelayMix + modDelayMix));
-        delay.setDamp(parameters.getRawParameterValue(PID::delayDamp)->load());
+        delay.setDamp(paramCache.delayDamp->load());
     }
 
     if (reverbEnabled)
     {
         if (reverbIsAlgo)
         {
-            algoReverb.setRoomSize(parameters.getRawParameterValue(PID::algoRoom)->load());
-            algoReverb.setDamping(parameters.getRawParameterValue(PID::algoDamping)->load());
-            algoReverb.setWidth(parameters.getRawParameterValue(PID::algoWidth)->load());
+            algoReverb.setRoomSize(paramCache.algoRoom->load());
+            algoReverb.setDamping(paramCache.algoDamping->load());
+            algoReverb.setWidth(paramCache.algoWidth->load());
         }
         else
         {
@@ -2560,7 +2561,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             reverbSendBuffer.applyGain(kPlateWetGain);
 
         float revMix = juce::jlimit(0.0f, 1.0f,
-            parameters.getRawParameterValue(PID::reverbMix)->load() + modReverbMix);
+            paramCache.reverbMix->load() + modReverbMix);
         crossfadeReverbInto(buffer, revMix);
     }
     else if (delayEnabled)
@@ -2577,7 +2578,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             reverbSendBuffer.applyGain(kPlateWetGain);
 
         float revMix = juce::jlimit(0.0f, 1.0f,
-            parameters.getRawParameterValue(PID::reverbMix)->load() + modReverbMix);
+            paramCache.reverbMix->load() + modReverbMix);
         crossfadeReverbInto(buffer, revMix);
     }
 
@@ -2772,22 +2773,22 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             bool dlyFbMod   = modDelayFb != 0.0f;
             bool dlyMixMod  = modDelayMix != 0.0f;
             bool revMixMod  = modReverbMix != 0.0f;
-            const int delayClockGhost = static_cast<int>(parameters.getRawParameterValue(PID::delayClockMode)->load());
+            const int delayClockGhost = static_cast<int>(paramCache.delayClockMode->load());
             const float delayBaseGhost = (delayClockGhost == ClockMode::Off)
-                ? parameters.getRawParameterValue(PID::delayTime)->load()
+                ? paramCache.delayTime->load()
                 : ClockSync::computeDelayMs(syncBpm,
-                    static_cast<int>(parameters.getRawParameterValue(PID::delayClockDivision)->load()));
+                    static_cast<int>(paramCache.delayClockDivision->load()));
             modulatedValues.delayTime.store(dlyTimeMod && delayEnabled
                 ? juce::jlimit(1.0f, 2000.0f, delayBaseGhost * (1.0f + modDelayTime))
                 : NO_GHOST, std::memory_order_relaxed);
             modulatedValues.delayFeedback.store(dlyFbMod && delayEnabled
-                ? juce::jlimit(0.0f, 0.95f, parameters.getRawParameterValue(PID::delayFeedback)->load() * (1.0f + modDelayFb))
+                ? juce::jlimit(0.0f, 0.95f, paramCache.delayFeedback->load() * (1.0f + modDelayFb))
                 : NO_GHOST, std::memory_order_relaxed);
             modulatedValues.delayMix.store(dlyMixMod && delayEnabled
-                ? juce::jlimit(0.0f, 1.0f, parameters.getRawParameterValue(PID::delayMix)->load() + modDelayMix)
+                ? juce::jlimit(0.0f, 1.0f, paramCache.delayMix->load() + modDelayMix)
                 : NO_GHOST, std::memory_order_relaxed);
             modulatedValues.reverbMix.store(revMixMod && reverbEnabled
-                ? juce::jlimit(0.0f, 1.0f, parameters.getRawParameterValue(PID::reverbMix)->load() + modReverbMix)
+                ? juce::jlimit(0.0f, 1.0f, paramCache.reverbMix->load() + modReverbMix)
                 : NO_GHOST, std::memory_order_relaxed);
         }
     }
@@ -2796,8 +2797,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     buffer.applyGain(masterGain);
 
     // ── Limiter (always on, internal safety) ────────────────────────────────
-    limiter.setThreshold(parameters.getRawParameterValue(PID::limiterThresh)->load());
-    limiter.setRelease(parameters.getRawParameterValue(PID::limiterRelease)->load());
+    limiter.setThreshold(paramCache.limiterThresh->load());
+    limiter.setRelease(paramCache.limiterRelease->load());
     limiter.processBlock(buffer);
 }
 
@@ -2862,7 +2863,7 @@ void T5ynthProcessor::syncWavetableTraversal(double bufferSampleRate, int totalS
 
     masterOsc.setAutoScanStartPos(mapping.startInExtract);
     masterOsc.setAutoScanLoop(mapping.loopStartInExtract, mapping.loopEndInExtract, oscLoopMode);
-    if (parameters.getRawParameterValue(PID::wtAutoScan)->load() > 0.5f)
+    if (paramCache.wtAutoScan->load() > 0.5f)
     {
         masterOsc.setAutoScan(true);
         masterOsc.setAutoScanRate(bufferSampleRate, mapping.regionSamples);
@@ -2875,11 +2876,11 @@ void T5ynthProcessor::syncWavetableTraversal(double bufferSampleRate, int totalS
 
 void T5ynthProcessor::updateDriftState(int numSamples, float syncBpm)
 {
-    driftLfo.setRegenMode(static_cast<int>(parameters.getRawParameterValue(PID::driftRegen)->load()));
+    driftLfo.setRegenMode(static_cast<int>(paramCache.driftRegen->load()));
 
-    const int d1t = static_cast<int>(parameters.getRawParameterValue(PID::drift1Target)->load());
-    const int d2t = static_cast<int>(parameters.getRawParameterValue(PID::drift2Target)->load());
-    const int d3t = static_cast<int>(parameters.getRawParameterValue(PID::drift3Target)->load());
+    const int d1t = static_cast<int>(paramCache.drift1Target->load());
+    const int d2t = static_cast<int>(paramCache.drift2Target->load());
+    const int d3t = static_cast<int>(paramCache.drift3Target->load());
 
     bool driftHasTarget = (d1t != 0) || (d2t != 0) || (d3t != 0);
     bool hasOsc = false;
@@ -2889,11 +2890,11 @@ void T5ynthProcessor::updateDriftState(int numSamples, float syncBpm)
             hasOsc = true;
 
     driftHasOscTarget.store(hasOsc, std::memory_order_relaxed);
-    driftRegenMode.store(static_cast<int>(parameters.getRawParameterValue(PID::driftRegen)->load()),
+    driftRegenMode.store(static_cast<int>(paramCache.driftRegen->load()),
                          std::memory_order_relaxed);
     driftRegenBpm.store(syncBpm, std::memory_order_relaxed);
 
-    bool driftManualEnable = parameters.getRawParameterValue(PID::driftEnabled)->load() > 0.5f;
+    bool driftManualEnable = paramCache.driftEnabled->load() > 0.5f;
     driftLfo.setEnabled(driftHasTarget || driftManualEnable);
 
     // Per-Drift sync-rate resolution — same pattern as LFO override.
@@ -2906,17 +2907,17 @@ void T5ynthProcessor::updateDriftState(int numSamples, float syncBpm)
     };
 
     driftLfo.setLfoRate(0, driftRate(PID::drift1ClockMode, PID::drift1ClockDivision, PID::drift1Rate));
-    driftLfo.setLfoDepth(0, parameters.getRawParameterValue(PID::drift1Depth)->load());
+    driftLfo.setLfoDepth(0, paramCache.drift1Depth->load());
     driftLfo.setLfoTarget(0, d1t);
-    driftLfo.setLfoWaveform(0, static_cast<int>(parameters.getRawParameterValue(PID::drift1Wave)->load()));
+    driftLfo.setLfoWaveform(0, static_cast<int>(paramCache.drift1Wave->load()));
     driftLfo.setLfoRate(1, driftRate(PID::drift2ClockMode, PID::drift2ClockDivision, PID::drift2Rate));
-    driftLfo.setLfoDepth(1, parameters.getRawParameterValue(PID::drift2Depth)->load());
+    driftLfo.setLfoDepth(1, paramCache.drift2Depth->load());
     driftLfo.setLfoTarget(1, d2t);
-    driftLfo.setLfoWaveform(1, static_cast<int>(parameters.getRawParameterValue(PID::drift2Wave)->load()));
+    driftLfo.setLfoWaveform(1, static_cast<int>(paramCache.drift2Wave->load()));
     driftLfo.setLfoRate(2, driftRate(PID::drift3ClockMode, PID::drift3ClockDivision, PID::drift3Rate));
-    driftLfo.setLfoDepth(2, parameters.getRawParameterValue(PID::drift3Depth)->load());
+    driftLfo.setLfoDepth(2, paramCache.drift3Depth->load());
     driftLfo.setLfoTarget(2, d3t);
-    driftLfo.setLfoWaveform(2, static_cast<int>(parameters.getRawParameterValue(PID::drift3Wave)->load()));
+    driftLfo.setLfoWaveform(2, static_cast<int>(paramCache.drift3Wave->load()));
     driftLfo.tick(static_cast<double>(numSamples) / getSampleRate());
 
     static constexpr float NO_GHOST = std::numeric_limits<float>::quiet_NaN();
@@ -2926,9 +2927,9 @@ void T5ynthProcessor::updateDriftState(int numSamples, float syncBpm)
     const float ax3Off   = driftLfo.getOffsetForTarget(DriftLFO::TgtAxis3);
     const float noiseOff = driftLfo.getOffsetForTarget(DriftLFO::TgtNoise);
     const float magOff   = driftLfo.getOffsetForTarget(DriftLFO::TgtMagnitude);
-    const float baseAlpha = parameters.getRawParameterValue(PID::genAlpha)->load();
-    const float baseNoise = parameters.getRawParameterValue(PID::genNoise)->load();
-    const float baseMag = parameters.getRawParameterValue(PID::genMagnitude)->load();
+    const float baseAlpha = paramCache.genAlpha->load();
+    const float baseNoise = paramCache.genNoise->load();
+    const float baseMag = paramCache.genMagnitude->load();
 
     modulatedValues.driftAlpha.store(
         std::abs(alphaOff) > 0.001f ? baseAlpha + alphaOff : NO_GHOST,
@@ -2949,8 +2950,8 @@ void T5ynthProcessor::updateDriftState(int numSamples, float syncBpm)
 
 bool T5ynthProcessor::seqRunningNow() const
 {
-    const bool stepOn = parameters.getRawParameterValue(PID::seqRunning)->load() > 0.5f;
-    const bool genOn  = parameters.getRawParameterValue(PID::genSeqRunning)->load() > 0.5f;
+    const bool stepOn = paramCache.seqRunning->load() > 0.5f;
+    const bool genOn  = paramCache.genSeqRunning->load() > 0.5f;
     return stepOn || genOn;
 }
 
@@ -2959,24 +2960,24 @@ float T5ynthProcessor::resolveSyncBpm() const
     if (hostPlayingNow.load(std::memory_order_relaxed))
         return hostBpmLastSeen.load(std::memory_order_relaxed);
     if (seqRunningNow())
-        return parameters.getRawParameterValue(PID::seqBpm)->load();
+        return paramCache.seqBpm->load();
     const float h = hostBpmLastSeen.load(std::memory_order_relaxed);
-    return (h > 0.0f) ? h : parameters.getRawParameterValue(PID::seqBpm)->load();
+    return (h > 0.0f) ? h : paramCache.seqBpm->load();
 }
 
 bool T5ynthProcessor::isWavetableMode() const
 {
-    return static_cast<int>(parameters.getRawParameterValue(PID::engineMode)->load()) == EngineMode::Wavetable;
+    return static_cast<int>(paramCache.engineMode->load()) == EngineMode::Wavetable;
 }
 
 bool T5ynthProcessor::isFreezeMode() const
 {
-    return static_cast<int>(parameters.getRawParameterValue(PID::engineMode)->load()) == EngineMode::Freeze;
+    return static_cast<int>(paramCache.engineMode->load()) == EngineMode::Freeze;
 }
 
 bool T5ynthProcessor::isSamplerMode() const
 {
-    return static_cast<int>(parameters.getRawParameterValue(PID::engineMode)->load()) == EngineMode::Sampler;
+    return static_cast<int>(paramCache.engineMode->load()) == EngineMode::Sampler;
 }
 
 void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBuffer, double sr)
@@ -2994,7 +2995,7 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
     applyRumbleFilter(cleanBuffer, sr);
 
     // Conditionally apply HF boost to compensate VAE decoder rolloff
-    bool hfOn = parameters.getRawParameterValue(PID::genHfBoost)->load() > 0.5f;
+    bool hfOn = paramCache.genHfBoost->load() > 0.5f;
     if (hfOn)
         applyHfBoost(cleanBuffer, sr);
     const auto& feedBuffer = cleanBuffer;
@@ -3154,7 +3155,7 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
                                              : samplerConfig.loopEndFrac;
 
     constexpr int frameCounts[] = {32, 64, 128, 256};
-    int fcIdx = static_cast<int>(parameters.getRawParameterValue(PID::wtFrames)->load());
+    int fcIdx = static_cast<int>(paramCache.wtFrames->load());
     int maxFrames = frameCounts[juce::jlimit(0, 3, fcIdx)];
 
     auto preparedSamplerLoad = masterSampler.prepareBufferLoad(feedBuffer, sr, samplerConfig);
@@ -3169,7 +3170,7 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
     preparedGeneratedAudio.makeCopyOf(feedBuffer);
     juce::AudioBuffer<float> preparedWaveformSnapshot;
     const bool normDisplay = wavetableMode
-        || (parameters.getRawParameterValue(PID::normalize)->load() > 0.5f);
+        || (paramCache.normalize->load() > 0.5f);
     if (feedBuffer.getNumChannels() > 0 && feedBuffer.getNumSamples() > 0)
     {
         preparedWaveformSnapshot.setSize(1, feedBuffer.getNumSamples(), false, false, true);
@@ -3211,7 +3212,7 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
         masterSampler.applyPreparedBufferLoad(std::move(preparedSamplerLoad), samplerConfig);
 
         syncWavetableTraversal(sr, feedBuffer.getNumSamples());
-        masterOsc.setMorphTimeMs(parameters.getRawParameterValue(PID::driftCrossfade)->load());
+        masterOsc.setMorphTimeMs(paramCache.driftCrossfade->load());
 
         voiceManager.distributeSamplerBuffer(masterSampler);
         voiceManager.distributeWavetableFrames(masterOsc);
@@ -3261,7 +3262,7 @@ void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& proce
         float end   = wavetableMode ? wtMapping.extractEnd   : samplerConfig.loopEndFrac;
 
         constexpr int frameCounts[] = {32, 64, 128, 256};
-        int fcIdx = static_cast<int>(parameters.getRawParameterValue(PID::wtFrames)->load());
+        int fcIdx = static_cast<int>(paramCache.wtFrames->load());
         int maxFrames = frameCounts[juce::jlimit(0, 3, fcIdx)];
 
         if (wavetableMode)
@@ -3289,7 +3290,7 @@ void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& proce
         if (masterOsc.hasFrames())
         {
             syncWavetableTraversal(generatedSampleRate, waveformSnapshot.getNumSamples());
-            masterOsc.setMorphTimeMs(parameters.getRawParameterValue(PID::driftCrossfade)->load());
+            masterOsc.setMorphTimeMs(paramCache.driftCrossfade->load());
             voiceManager.distributeWavetableFrames(masterOsc);
         }
         voiceManager.distributeFreezeBuffer(masterFreeze);
@@ -3370,7 +3371,7 @@ void T5ynthProcessor::reextractWavetable()
                                         : masterSampler.getLoopEnd();
 
         constexpr int frameCounts[] = {32, 64, 128, 256};
-        int fcIdx = static_cast<int>(parameters.getRawParameterValue(PID::wtFrames)->load());
+        int fcIdx = static_cast<int>(paramCache.wtFrames->load());
         int maxFrames = frameCounts[juce::jlimit(0, 3, fcIdx)];
 
         if (isWavetableMode())
@@ -3379,7 +3380,7 @@ void T5ynthProcessor::reextractWavetable()
             masterOsc.extractContiguousFrames(waveformSnapshot, generatedSampleRate, start, end);
 
         syncWavetableTraversal(generatedSampleRate, waveformSnapshot.getNumSamples());
-        masterOsc.setMorphTimeMs(parameters.getRawParameterValue(PID::driftCrossfade)->load());
+        masterOsc.setMorphTimeMs(paramCache.driftCrossfade->load());
         voiceManager.distributeWavetableFrames(masterOsc);
     }
 }
@@ -4309,7 +4310,7 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
     // state.
     {
         const juce::ScopedLock sl (getCallbackLock());
-        const bool wantGen = parameters.getRawParameterValue(PID::genSeqRunning)->load() > 0.5f;
+        const bool wantGen = paramCache.genSeqRunning->load() > 0.5f;
         genModeActiveInAudio = wantGen;
         lastGenSteps = lastGenPulses = lastGenRotation = -1;
         lastGenMutation = -1.0f;

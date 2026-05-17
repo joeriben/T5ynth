@@ -7,6 +7,7 @@
 #include <limits>
 #include <thread>
 #include "dsp/VoiceManager.h"
+#include "dsp/ParamCache.h"
 #include "dsp/LFO.h"
 #include "dsp/DriftLFO.h"
 #include "dsp/DelayLine.h"
@@ -197,6 +198,7 @@ private:
     };
 
     juce::AudioProcessorValueTreeState parameters;
+    ParamCache paramCache;
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     WtTraversalMapping makeWtTraversalMapping(int totalSamples) const;
     WtTraversalMapping makeWtTraversalMapping(int totalSamples, float p1, float p2, float p3) const;
