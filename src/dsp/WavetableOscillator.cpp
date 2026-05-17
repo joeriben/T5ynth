@@ -1,5 +1,6 @@
 #include "WavetableOscillator.h"
 #include <algorithm>
+#include <limits>
 
 void WavetableOscillator::prepare(double sr, int /*samplesPerBlock*/)
 {
@@ -8,6 +9,8 @@ void WavetableOscillator::prepare(double sr, int /*samplesPerBlock*/)
     smoothedScan = 0.0f;
     // ~5ms time constant for scan smoothing
     scanSmoothCoeff = 1.0f - std::exp(-1.0f / static_cast<float>(sr * 0.005));
+    // Invalidate mip-level cache: it depends on sampleRate via invBaseFreq.
+    lastMipFreq_ = std::numeric_limits<float>::quiet_NaN();
 }
 
 void WavetableOscillator::reset()
@@ -87,6 +90,9 @@ void WavetableOscillator::adoptMipData(const MipDataPtr& mipData)
     morphAlpha_ = 1.0f;
     morphIncrement_ = 0.0f;
     morphActive_ = false;
+    // Mip-level cache key only includes frequency; numLevels is currently always 8 across banks,
+    // but invalidate defensively in case a future bank emits a different level count.
+    lastMipFreq_ = std::numeric_limits<float>::quiet_NaN();
 }
 
 void WavetableOscillator::beginMorphToMipData(const MipDataPtr& mipData)
@@ -807,14 +813,26 @@ float WavetableOscillator::processSample()
 
     // Smooth scan position
     smoothedScan += (scanTarget - smoothedScan) * scanSmoothCoeff;
-    float output = readMipSample(*activeMorphMipData_, phase, smoothedScan, targetFrequency,
-                                 sampleRate, doInterpolate);
+
+    // Recompute mip-level selector only when frequency changes. Outside glide and modulation
+    // bursts this is constant for very long runs, so the log2/ceil cost is amortised to ~0.
+    if (targetFrequency != lastMipFreq_)
+    {
+        const float invBaseFreq = FRAME_SIZE / static_cast<float>(sampleRate);
+        const float rawLevel = std::log2(juce::jmax(1.0e-6f, targetFrequency * invBaseFreq));
+        cachedMipRawCeil_ = static_cast<int>(std::ceil(rawLevel));
+        lastMipFreq_ = targetFrequency;
+    }
+
+    const int activeMip = juce::jlimit(0, activeMorphMipData_->numLevels - 1, cachedMipRawCeil_);
+    float output = readMipSample(*activeMorphMipData_, activeMip, phase, smoothedScan, doInterpolate);
 
     if (morphActive_ && targetMorphMipData_ != nullptr && targetMorphMipData_->numFrames > 0)
     {
         const float alpha = juce::jlimit(0.0f, 1.0f, morphAlpha_);
-        const float targetSample = readMipSample(*targetMorphMipData_, phase, smoothedScan,
-                                                 targetFrequency, sampleRate, doInterpolate);
+        const int targetMip = juce::jlimit(0, targetMorphMipData_->numLevels - 1, cachedMipRawCeil_);
+        const float targetSample = readMipSample(*targetMorphMipData_, targetMip, phase,
+                                                 smoothedScan, doInterpolate);
         const float dryGain = std::cos(alpha * juce::MathConstants<float>::halfPi);
         const float wetGain = std::sin(alpha * juce::MathConstants<float>::halfPi);
         output = output * dryGain + targetSample * wetGain;
@@ -832,16 +850,12 @@ float WavetableOscillator::processSample()
     return output;
 }
 
-float WavetableOscillator::readMipSample(const MipData& mipData, double phase, float scanPosition,
-                                         float frequency, double sampleRate, bool interpolate)
+float WavetableOscillator::readMipSample(const MipData& mipData, int mipLevel, double phase,
+                                         float scanPosition, bool interpolate)
 {
     if (mipData.numFrames <= 0 || mipData.numLevels <= 0)
         return 0.0f;
 
-    const float invBaseFreq = FRAME_SIZE / static_cast<float>(sampleRate);
-    const float rawLevel = std::log2(juce::jmax(1.0e-6f, frequency * invBaseFreq));
-    const int mipLevel = juce::jlimit(0, mipData.numLevels - 1,
-                                      static_cast<int>(std::ceil(rawLevel)));
     const auto& frames = mipData.frames[static_cast<size_t>(mipLevel)];
     const int nf = mipData.numFrames;
 

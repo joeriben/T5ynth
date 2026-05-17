@@ -4,6 +4,7 @@
 #include <vector>
 #include <cmath>
 #include <atomic>
+#include <limits>
 
 /**
  * Mip-mapped wavetable oscillator.
@@ -181,8 +182,14 @@ private:
     void syncSharedConfigFrom(const WavetableOscillator& source);
     void adoptMipData(const MipDataPtr& mipData);
     void beginMorphToMipData(const MipDataPtr& mipData);
-    static float readMipSample(const MipData& mipData, double phase, float scanPosition,
-                               float frequency, double sampleRate, bool interpolate);
+    static float readMipSample(const MipData& mipData, int mipLevel, double phase,
+                               float scanPosition, bool interpolate);
+
+    // Cached mip-level selector. log2/ceil only recomputed when targetFrequency changes.
+    // NaN sentinel: any comparison with NaN is false in IEEE-754, so the first sample after
+    // construction or prepare() always triggers a cache miss and recomputes from current state.
+    float lastMipFreq_ = std::numeric_limits<float>::quiet_NaN();
+    int   cachedMipRawCeil_ = 0;
 
     // FFT helpers for mip-level generation
     static void fft(std::vector<double>& re, std::vector<double>& im);
