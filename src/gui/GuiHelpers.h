@@ -387,6 +387,9 @@ public:
 
     void paint(juce::Graphics& g) override
     {
+        if (labelMode == LabelMode::Off)
+            return;
+
         auto badge = getLabelBadgeBounds();
         if (badge.isEmpty())
             return;
@@ -531,6 +534,15 @@ private:
     int forcedLabelWidth = -1;
     int forcedValueWidth = -1;
 
+    // getLabelBadgeBounds() result cache. See the function for why these inputs
+    // are sufficient. Message-thread-only access — paint() is the sole caller.
+    mutable bool badgeCacheValid_ = false;
+    mutable juce::Rectangle<float> cachedBadgeBounds_;
+    mutable juce::Rectangle<int> cachedBadgeLabelBounds_;
+    mutable juce::String cachedBadgeText_;
+    mutable float cachedBadgeFontSize_ = 0.0f;
+    mutable int cachedBadgeJustFlags_ = 0;
+
     juce::String currentValueText() const
     {
         if (!value.getText().isEmpty())
@@ -613,28 +625,58 @@ private:
 
     juce::Rectangle<float> getLabelBadgeBounds() const
     {
-        auto lb = label.getBounds().toFloat();
-        if (lb.isEmpty() || label.getText().isEmpty())
-            return {};
-
+        // Cache invalidation key: badge bounds depend only on label's bounds, text,
+        // font height, and justification. None of these change during a paint cycle,
+        // and most of the time they don't change between frames either — so the
+        // measureTextWidth() call (Font + GlyphArrangement construction → HarfBuzz/
+        // CoreText resolve, profile-hot under modulation-driven repaints) only runs
+        // on actual input changes.
+        const auto labelBoundsInt = label.getBounds();
+        const auto& text = label.getText();
         const float fontSize = label.getFont().getHeight();
-        const float textW = static_cast<float>(measureTextWidth(label.getText(), fontSize));
-        const float insetX = 1.0f;
-        const float insetY = 1.0f;
-        const float padX = juce::jmax(2.5f, fontSize * 0.22f);
-        const float padY = juce::jmax(0.5f, fontSize * 0.10f);
-        const float badgeW = juce::jmin(lb.getWidth() - insetX, textW + padX * 2.0f);
-        const float badgeH = juce::jmin(lb.getHeight() - insetY * 2.0f, fontSize + padY * 2.0f);
-        const auto justification = label.getJustificationType();
-        float badgeX;
-        if (justification.testFlags(juce::Justification::horizontallyCentred))
-            badgeX = std::floor(lb.getCentreX() - badgeW * 0.5f);
-        else if (justification.testFlags(juce::Justification::right))
-            badgeX = std::floor(lb.getRight() - insetX - badgeW);
-        else
-            badgeX = std::floor(lb.getX() + insetX);
-        const float badgeY = std::floor(lb.getY() + (lb.getHeight() - badgeH) * 0.5f);
-        return { badgeX, badgeY, std::floor(badgeW), std::floor(badgeH) };
+        const int justFlags = label.getJustificationType().getFlags();
+
+        if (badgeCacheValid_
+            && cachedBadgeLabelBounds_ == labelBoundsInt
+            && cachedBadgeFontSize_ == fontSize
+            && cachedBadgeJustFlags_ == justFlags
+            && cachedBadgeText_ == text)
+        {
+            return cachedBadgeBounds_;
+        }
+
+        auto compute = [&]() -> juce::Rectangle<float>
+        {
+            auto lb = labelBoundsInt.toFloat();
+            if (lb.isEmpty() || text.isEmpty())
+                return {};
+
+            const float textW = static_cast<float>(measureTextWidth(text, fontSize));
+            const float insetX = 1.0f;
+            const float insetY = 1.0f;
+            const float padX = juce::jmax(2.5f, fontSize * 0.22f);
+            const float padY = juce::jmax(0.5f, fontSize * 0.10f);
+            const float badgeW = juce::jmin(lb.getWidth() - insetX, textW + padX * 2.0f);
+            const float badgeH = juce::jmin(lb.getHeight() - insetY * 2.0f, fontSize + padY * 2.0f);
+            const auto justification = label.getJustificationType();
+            float badgeX;
+            if (justification.testFlags(juce::Justification::horizontallyCentred))
+                badgeX = std::floor(lb.getCentreX() - badgeW * 0.5f);
+            else if (justification.testFlags(juce::Justification::right))
+                badgeX = std::floor(lb.getRight() - insetX - badgeW);
+            else
+                badgeX = std::floor(lb.getX() + insetX);
+            const float badgeY = std::floor(lb.getY() + (lb.getHeight() - badgeH) * 0.5f);
+            return { badgeX, badgeY, std::floor(badgeW), std::floor(badgeH) };
+        };
+
+        cachedBadgeBounds_ = compute();
+        cachedBadgeLabelBounds_ = labelBoundsInt;
+        cachedBadgeText_ = text;
+        cachedBadgeFontSize_ = fontSize;
+        cachedBadgeJustFlags_ = justFlags;
+        badgeCacheValid_ = true;
+        return cachedBadgeBounds_;
     }
 
     void updateLabelAppearance()
