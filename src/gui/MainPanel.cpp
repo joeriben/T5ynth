@@ -127,6 +127,8 @@ MainPanel::GenerateButton::GenerateButton(const juce::String& label)
 
 void MainPanel::GenerateButton::setAnimationState(float phase, bool isGenerating)
 {
+    if (!isGenerating && !generating)
+        return;
     animationPhase = phase;
     generating = isGenerating;
     repaint();
