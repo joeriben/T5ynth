@@ -147,6 +147,7 @@ target_sources(T5ynth PRIVATE
 
     # Presets
     src/presets/PresetFormat.cpp
+    src/presets/PresetUpdater.cpp
 )
 
 target_include_directories(T5ynth PRIVATE
@@ -174,6 +175,7 @@ target_link_libraries(T5ynth
     PRIVATE
         T5ynthData
         juce::juce_audio_utils
+        juce::juce_cryptography
         juce::juce_dsp
         juce::juce_gui_extra
         $<$<BOOL:${CURL_FOUND}>:CURL::libcurl>

@@ -10,6 +10,7 @@
 #include "SetupWizard.h"
 #include "PresetManagerPanel.h"
 #include "../presets/PresetFormat.h"
+#include "../presets/PresetUpdater.h"
 
 class T5ynthProcessor;
 
@@ -216,6 +217,9 @@ private:
     void deleteCurrentPreset();
     void showPresetNameContextMenu(juce::Point<int> screenPos);
     void importPresetFile();
+    void finishPresetUpdate(bool success,
+                            PresetUpdater::Stats stats,
+                            juce::String error);
     void exportWav();
     void loadDefaultPreset();
     void loadInitPreset();
@@ -257,6 +261,7 @@ private:
     PresetManagerPanel presetManager;
     bool presetManagerVisible = false;
     juce::File currentPresetFile;
+    PresetUpdater presetUpdater;
 
     // Manual overlay — native WebView renders the shipped HTML guide
     // (resources/T5ynth_Guide.html), bundled via juce_add_binary_data.

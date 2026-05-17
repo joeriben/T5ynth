@@ -477,19 +477,40 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     presetManager.onImportRequested = [this] { importPresetFile(); };
     presetManager.onGetFromGithubRequested = [this]
     {
-        const bool ok = juce::URL("https://github.com/joeriben/T5ynth-Presets")
-                            .launchInDefaultBrowser();
-        if (!ok)
-            presetManager.setStatusText("Could not open GitHub preset repository", true);
+        if (presetUpdater.isRunning())
+            return;
+
+        presetManager.setUpdaterBusy(true, "Contacting GitHub...");
+
+        juce::Component::SafePointer<MainPanel> safeThis(this);
+        presetUpdater.start(
+            [safeThis](double, juce::String message)
+            {
+                if (auto* self = safeThis.getComponent())
+                    self->presetManager.setUpdaterBusy(true, message);
+            },
+            [safeThis](bool success, PresetUpdater::Stats stats, juce::String error)
+            {
+                if (auto* self = safeThis.getComponent())
+                    self->finishPresetUpdate(success, stats, error);
+            });
     };
     presetManager.onSaveRequested = [this](const juce::String& presetName,
                                            const juce::StringArray& tags,
                                            const juce::String& bank,
                                            bool includeInferenceCache)
     {
+        // Belt-and-suspenders: even though enterLibrarySaveMode strips the
+        // UCDCAE AI Lab bank from the picker, redirect any save that would
+        // land there to the user root. The bank is the property of
+        // PresetUpdater and any local file in it gets overwritten on next
+        // refresh.
+        const auto effectiveBank = (bank == PresetFormat::getReadOnlyBankName())
+                                       ? juce::String()
+                                       : bank;
         auto bankDir = PresetFormat::getUserPresetsDirectory();
-        if (bank.isNotEmpty())
-            bankDir = bankDir.getChildFile(bank);
+        if (effectiveBank.isNotEmpty())
+            bankDir = bankDir.getChildFile(effectiveBank);
         bankDir.createDirectory();
 
         // String-concat (not withFileExtension) — withFileExtension strips
@@ -526,7 +547,8 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
                 .withTitle("Replace Preset")
                 .withMessage("Replace \"" + target.getFileNameWithoutExtension()
                              + "\" in bank \""
-                             + (bank.isEmpty() ? PresetManagerPanel::kRootUserBank() : bank)
+                             + (effectiveBank.isEmpty() ? PresetManagerPanel::kRootUserBank()
+                                                        : effectiveBank)
                              + "\"?")
                 .withButton("Replace")
                 .withButton("Cancel")
@@ -1082,7 +1104,13 @@ void MainPanel::enterLibrarySaveMode(SaveNameMode mode)
             existingPathKeys.insert(rel.toLowerCase());
         }
         for (auto& d : userDir.findChildFiles(juce::File::findDirectories, false, "*"))
+        {
+            // The UCDCAE AI Lab bank is the read-only GitHub-synced mirror —
+            // never offer it as a save destination. PresetUpdater would
+            // overwrite anything saved here on the next refresh anyway.
+            if (d.getFileName() == PresetFormat::getReadOnlyBankName()) continue;
             existingBanks.add(d.getFileName());
+        }
     }
     existingBanks.removeEmptyStrings();
     existingBanks.removeDuplicates(true);
@@ -1399,6 +1427,36 @@ bool MainPanel::loadPresetFromFile(const juce::File& file)
     applyLoadedPreset(result, file);
     statusBar.setStatusText("Loaded preset: " + result.presetName);
     return true;
+}
+
+void MainPanel::finishPresetUpdate(bool success,
+                                   PresetUpdater::Stats stats,
+                                   juce::String error)
+{
+    presetManager.setUpdaterBusy(false);
+
+    if (! success)
+    {
+        const auto msg = error.isNotEmpty() ? error
+                                            : juce::String("Library update failed.");
+        presetManager.setStatusText(msg, true);
+        return;
+    }
+
+    // Refresh after a successful run so the new bank entries show up
+    // immediately. Even when nothing changed we still rescan — cheap, and
+    // protects against rare race conditions where the user deleted a file
+    // between the diff and the prune pass.
+    presetManager.refreshLibrary();
+
+    juce::String summary;
+    summary << "Library up to date — "
+            << stats.added     << " added, "
+            << stats.updated   << " updated, "
+            << stats.unchanged << " unchanged";
+    if (stats.removed > 0) summary << ", " << stats.removed << " removed";
+    if (stats.failed  > 0) summary << ", " << stats.failed  << " failed";
+    presetManager.setStatusText(summary, stats.failed > 0);
 }
 
 void MainPanel::importPresetFile()
@@ -2597,7 +2655,15 @@ void MainPanel::resized()
 
 void MainPanel::ensureBundledPresetsExist()
 {
-    auto userDir = PresetFormat::getUserPresetsDirectory();
+    // Offline-fallback distribution: extract the bundled .t5p resources
+    // into the read-only "UCDCAE AI Lab" bank so a fresh install ships with
+    // a usable library even before the user hits "Update Library". The
+    // subsequent online update via PresetUpdater overwrites these on a
+    // SHA mismatch, so the bundled snapshot only ever ages backwards
+    // relative to GitHub — never forwards.
+    auto bankDir = PresetFormat::getUserPresetsDirectory()
+                       .getChildFile(PresetFormat::getReadOnlyBankName());
+    bankDir.createDirectory();
 
     for (int i = 0; i < BinaryData::namedResourceListSize; ++i)
     {
@@ -2615,7 +2681,7 @@ void MainPanel::ensureBundledPresetsExist()
         if (data == nullptr || size <= 0)
             continue;
 
-        auto target = userDir.getChildFile(presetName);
+        auto target = bankDir.getChildFile(presetName);
         if (!target.existsAsFile())
             target.replaceWithData(data, static_cast<size_t>(size));
     }

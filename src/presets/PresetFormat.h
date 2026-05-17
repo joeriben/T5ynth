@@ -96,6 +96,17 @@ public:
     /** All .t5p files from factory + user directories (factory first). */
     static juce::Array<juce::File> getAllPresetFiles();
 
+    /** Name of the GitHub-synced, read-only bank that lives under the user
+     *  presets dir. Anything inside this subdirectory is treated as
+     *  immutable by the UI — edits get redirected to the writable user
+     *  bank, and the contents are refreshed by PresetUpdater. */
+    static juce::String getReadOnlyBankName();
+
+    /** True if `file` lives in the read-only GitHub-synced bank. Used by
+     *  PresetManagerPanel to gate destructive actions and by the save flow
+     *  to redirect overwrites into the user bank. */
+    static bool isInReadOnlyBank(const juce::File& file);
+
 private:
     static constexpr char kMagic[4] = { 'T', '5', 'Y', 'N' };
     static constexpr uint32_t kVersion = 3;

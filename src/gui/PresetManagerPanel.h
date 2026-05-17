@@ -43,6 +43,10 @@ public:
         juce::StringArray tags;
         juce::Time modified;
         bool isFactory = false;
+        /** True for any preset the user is not allowed to overwrite — covers
+         *  both legacy factory presets and the GitHub-synced UCDCAE AI Lab
+         *  bank. Save / rename / delete / tag-edit are gated on this. */
+        bool isReadOnly = false;
         /** Bank label: "Factory" for any factory file, "My Presets" for user
          *  presets at the user-dir root, or the subdir name (joined with
          *  "/" if nested) for presets in user-created subdirectories. */
@@ -155,7 +159,7 @@ public:
         {
             if (selectedEntryIndex < 0 || onTagsChanged == nullptr) return;
             const auto& e = allEntries[(size_t) selectedEntryIndex];
-            if (e.isFactory) return;
+            if (e.isReadOnly) return;
             onTagsChanged(e.file, newTags);
         };
         detail.installEscListener(this);
@@ -260,8 +264,8 @@ public:
         std::stable_sort(allEntries.begin(), allEntries.end(),
             [](const Entry& a, const Entry& b)
             {
-                if (a.isFactory != b.isFactory) return a.isFactory && ! b.isFactory;
-                if (a.bank != b.bank)           return a.bank.compareIgnoreCase(b.bank) < 0;
+                if (a.isReadOnly != b.isReadOnly) return a.isReadOnly && ! b.isReadOnly;
+                if (a.bank != b.bank)             return a.bank.compareIgnoreCase(b.bank) < 0;
                 return a.name.compareIgnoreCase(b.name) < 0;
             });
 
@@ -325,6 +329,19 @@ public:
         statusLabel.setText(s, juce::dontSendNotification);
         statusLabel.setColour(juce::Label::textColourId,
                               isError ? juce::Colour(0xffff8a80) : kDim);
+    }
+
+    /** Disable the Update / Import buttons while a background sync is in
+     *  progress and surface the latest message in the status line. Caller
+     *  (MainPanel + PresetUpdater) is responsible for clearing the busy
+     *  state once the sync finishes. */
+    void setUpdaterBusy(bool busy, const juce::String& message = {})
+    {
+        updaterBusy = busy;
+        githubBtn.setEnabled(! busy);
+        importBtn.setEnabled(! busy);
+        if (message.isNotEmpty())
+            setStatusText(message);
     }
 
     Mode getMode() const { return currentMode; }
@@ -550,6 +567,7 @@ private:
         e.name = file.getFileNameWithoutExtension();
         e.modified = file.getLastModificationTime();
         e.isFactory = isFactory;
+        e.isReadOnly = isFactory || PresetFormat::isInReadOnlyBank(file);
         e.bank = computeBankLabel(file, isFactory);
 
         // Read header — only the JSON section, not the audio PCM
@@ -657,7 +675,7 @@ private:
         for (size_t i = 0; i < allEntries.size(); ++i)
         {
             const auto& e = allEntries[i];
-            if (e.isFactory) continue;
+            if (e.isReadOnly) continue;
             if (! e.file.isAChildOf(userDir)) continue;
             const auto rel = e.file.getRelativePathFrom(userDir).replace("\\", "/").toLowerCase();
             if (rel == key) { conflictEntryIndex = (int) i; return; }
@@ -1039,7 +1057,7 @@ private:
             engineMode  = e.engineMode;
             seqMode     = e.seqMode;
             tags = e.tags;
-            locked = e.isFactory;  // factory tags are read-only
+            locked = e.isReadOnly;  // factory + UCDCAE AI Lab tags are read-only
             cachedPromptW = -1;    // force recompute on next paint
             updateButtonsEnabled();
             resized();
@@ -1958,12 +1976,12 @@ private:
         // visual precedence over selection blue and the current-preset
         // edge marker — the user's attention should be on the destructive
         // outcome, not on the bookkeeping highlights.
-        // Factory guard is belt-and-suspenders: factory presets can never be
-        // a save target, so they must never wear the red wash even if the
-        // cached `conflictEntryIndex` were ever stale.
+        // Read-only guard is belt-and-suspenders: factory and UCDCAE AI Lab
+        // presets can never be a save target, so they must never wear the red
+        // wash even if the cached `conflictEntryIndex` were ever stale.
         const bool isConflictRow = (currentMode == Mode::Save
                                     && entryIdx == conflictEntryIndex
-                                    && ! e.isFactory);
+                                    && ! e.isReadOnly);
 
         if (isConflictRow)
         {
@@ -2054,11 +2072,19 @@ private:
         if (! juce::isPositiveAndBelow(entryIndex, (int) allEntries.size())) return;
         const auto& entry = allEntries[(size_t) entryIndex];
         const auto file = entry.file;
-        const bool isFactory = entry.isFactory;
+        // Rename / Duplicate are semantically destructive against the
+        // GitHub-synced bank (the next sync would re-create the original
+        // under its canonical name, leaving an orphaned rename behind), so
+        // they're gated on isReadOnly. Delete is only gated on isFactory —
+        // a UCDCAE preset CAN be deleted (next update simply re-pulls it),
+        // which is the documented escape hatch when the user wants a clean
+        // library.
+        const bool isReadOnly = entry.isReadOnly;
+        const bool isFactory  = entry.isFactory;
 
         juce::PopupMenu menu;
-        menu.addItem(1, juce::String::fromUTF8("Rename\xe2\x80\xa6"), ! isFactory);
-        menu.addItem(3, "Duplicate",                                  ! isFactory);
+        menu.addItem(1, juce::String::fromUTF8("Rename\xe2\x80\xa6"), ! isReadOnly);
+        menu.addItem(3, "Duplicate",                                  ! isReadOnly);
         // "Show in Finder" is non-destructive and works for factory presets
         // too, so the user can locate the on-disk source of a bundled preset.
        #if JUCE_MAC
@@ -2108,7 +2134,7 @@ private:
     juce::Label titleLabel;
     juce::TextEditor searchEditor;
     juce::TextButton importBtn { "Import Presets" };
-    juce::TextButton githubBtn { "Get from GitHub" };
+    juce::TextButton githubBtn { "Update Library" };
     juce::TextButton closeIconBtn;     // top-right × icon
     juce::TextButton cancelBtn { "Close" };
     juce::Label statusLabel;
@@ -2121,6 +2147,7 @@ private:
     juce::String currentName;
     Mode         currentMode = Mode::Browse;
     int          conflictEntryIndex = -1;   // -1 = no would-replace target
+    bool         updaterBusy = false;       // true → Update button suppressed
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PresetManagerPanel)
 };

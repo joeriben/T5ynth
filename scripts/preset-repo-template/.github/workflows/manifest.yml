@@ -1,0 +1,43 @@
+name: Generate manifest.json
+
+# Trigger on any change inside presets/ (new file, edited file, removed
+# file). manifest.json sits at the repo root, so the workflow's own commit
+# does NOT re-trigger itself — preventing a loop without needing [skip ci].
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'presets/**'
+      - 'scripts/generate_manifest.py'
+      - '.github/workflows/manifest.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Generate manifest.json
+        run: python scripts/generate_manifest.py
+
+      - name: Commit manifest if changed
+        run: |
+          if [ -n "$(git status --porcelain manifest.json)" ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add manifest.json
+            git commit -m "chore: regenerate manifest.json"
+            git push
+          else
+            echo "manifest.json unchanged"
+          fi

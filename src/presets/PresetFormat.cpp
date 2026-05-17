@@ -524,6 +524,17 @@ juce::File PresetFormat::getUserPresetsDirectory()
     return dir;
 }
 
+juce::String PresetFormat::getReadOnlyBankName()
+{
+    return "UCDCAE AI Lab";
+}
+
+bool PresetFormat::isInReadOnlyBank(const juce::File& file)
+{
+    const auto bankDir = getUserPresetsDirectory().getChildFile(getReadOnlyBankName());
+    return file.isAChildOf(bankDir);
+}
+
 juce::Array<juce::File> PresetFormat::getAllPresetFiles()
 {
     juce::Array<juce::File> files;
