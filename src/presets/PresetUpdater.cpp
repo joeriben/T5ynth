@@ -91,8 +91,10 @@ bool PresetUpdater::fetchManifest(ParsedManifest& out, juce::String& error)
     out.baseUrl = root->getProperty("base_url").toString();
     if (out.baseUrl.isEmpty())
     {
-        // Default: derive from the manifest URL (sibling files in the repo)
-        out.baseUrl = "https://raw.githubusercontent.com/joeriben/T5ynth-Presets/main/presets/";
+        // Default: sibling files in the repo (.t5p at the repo root, same
+        // dir as manifest.json). The manifest itself usually specifies
+        // base_url explicitly — this is a safety net.
+        out.baseUrl = "https://raw.githubusercontent.com/joeriben/T5ynth-Presets/main/";
     }
     if (! out.baseUrl.endsWithChar('/'))
         out.baseUrl += "/";

@@ -1,13 +1,13 @@
 name: Generate manifest.json
 
-# Trigger on any change inside presets/ (new file, edited file, removed
-# file). manifest.json sits at the repo root, so the workflow's own commit
-# does NOT re-trigger itself — preventing a loop without needing [skip ci].
+# Trigger on any change to a .t5p file at the repo root (new, edited,
+# removed). The workflow's own commit only touches manifest.json, which is
+# NOT in the paths filter — preventing a loop without needing [skip ci].
 on:
   push:
     branches: [main]
     paths:
-      - 'presets/**'
+      - '*.t5p'
       - 'scripts/generate_manifest.py'
       - '.github/workflows/manifest.yml'
   workflow_dispatch:

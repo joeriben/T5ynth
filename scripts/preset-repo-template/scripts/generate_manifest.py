@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Generate manifest.json for the T5ynth-Presets repository.
 
-Scans every .t5p under presets/, extracts the stored preset name from each
-file's JSON header, computes the SHA256, and writes a manifest.json the
-T5ynth plugin can fetch and diff against the user's local copy.
+Scans every .t5p at the repo root, extracts the stored preset name from
+each file's JSON header, computes the SHA256, and writes a manifest.json
+the T5ynth plugin can fetch and diff against the user's local copy.
 
 .t5p binary layout (version 3):
   [4B]  magic  "T5YN"
@@ -25,11 +25,11 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PRESETS_DIR = REPO_ROOT / "presets"
+PRESETS_DIR = REPO_ROOT  # .t5p files live at the repo root
 MANIFEST_PATH = REPO_ROOT / "manifest.json"
 
 BASE_URL = (
-    "https://raw.githubusercontent.com/joeriben/T5ynth-Presets/main/presets/"
+    "https://raw.githubusercontent.com/joeriben/T5ynth-Presets/main/"
 )
 SCHEMA_VERSION = 1
 MAGIC = b"T5YN"
