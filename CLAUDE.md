@@ -32,6 +32,10 @@ Read `ARCHITECTURE.md` for the full code-level walkthrough. Key facts:
 4. NEVER allocate memory, lock a mutex, or do file I/O on the audio thread.
 5. After copying files into an app bundle, re-sign: `codesign --force --deep --sign -`.
 
+## Performance (BLOCKING — read `docs/PERFORMANCE_GUIDE.md` before adding GUI/DSP code)
+
+Idle CPU regressions are the #1 historical class of bug in this project. Before adding a timer callback, a `setColour()`, a `repaint()`, an APVTS lookup in `processBlock`, or any per-sample work: consult the anti-pattern catalogue and the audioIdle gate in `docs/PERFORMANCE_GUIDE.md`. Profile with `sample(1)` (methodology in §4 of the guide) when in doubt.
+
 ## Key Constraints
 
 - The Python backend exists because Stable Audio requires `torchsde`'s BrownianTree SDE sampler — no C++ equivalent exists. Do not attempt C++ inference.
@@ -57,4 +61,5 @@ Read `ARCHITECTURE.md` for the full code-level walkthrough. Key facts:
 - `docs/ADDING_A_MODULATION_TARGET.md` — how to add a mod target
 - `docs/PRESET_FORMAT.md` — .t5p binary format spec
 - `docs/RELEASE_PROCESS.md` — release checklist and CI workflow
+- `docs/PERFORMANCE_GUIDE.md` — anti-pattern catalogue, audioIdle gate, profiling methodology, pre-commit checklist
 - `docs/devlog.md` — development history and design decisions
