@@ -351,9 +351,9 @@ namespace LfoTarget {
         { "env1_amt",   "ENV1 Amt"  },
         { "env2_amt",   "ENV2 Amt"  },
         { "env3_amt",   "ENV3 Amt"  },
-        { "drift1_depth","Drift1 Dpt" },
-        { "drift2_depth","Drift2 Dpt" },
-        { "drift3_depth","Drift3 Dpt" }
+        { "drift1_depth","Drift1 Amt" },
+        { "drift2_depth","Drift2 Amt" },
+        { "drift3_depth","Drift3 Amt" }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
     static_assert(Drift3Depth + 1 == kCount,
