@@ -923,6 +923,19 @@ void SamplePlayer::prepareStretcher()
             break;
     }
     stretcherPrepared = (pitchQuality != PitchShiftQuality::Bypass);
+
+    // Size the prime-time scratch buffers off the audio thread (prepareStretcher
+    // runs from prepare()/setPitchShiftQuality, never from renderPitchedBlock).
+    // primeStretcher() now uses these in place of per-call std::vector allocs.
+    if (stretcherPrepared)
+    {
+        const auto seekCap   = static_cast<size_t>(
+            std::max(0, stretcher.blockSamples() + stretcher.intervalSamples()));
+        const auto primeCap  = static_cast<size_t>(std::max(0, stretcher.inputLatency()));
+        if (primeSeekBuf.size()    < seekCap)  primeSeekBuf.resize(seekCap);
+        if (primeInputBuf.size()   < primeCap) primeInputBuf.resize(primeCap);
+        if (primeDiscardBuf.size() < primeCap) primeDiscardBuf.resize(primeCap);
+    }
 }
 
 void SamplePlayer::primeStretcher()
@@ -941,16 +954,22 @@ void SamplePlayer::primeStretcher()
     }
     if (seekLen > 0)
     {
-        std::vector<float> seekBuf(static_cast<size_t>(seekLen));
-        double pos = seekStart;
-        for (int i = 0; i < seekLen; ++i)
+        // Capacity is sized in prepareStretcher() from the same stretcher
+        // instance; mismatch means prepare() never ran. Assert in debug, bail
+        // in release rather than alloc on the audio thread.
+        jassert (static_cast<size_t>(seekLen) <= primeSeekBuf.size());
+        if (static_cast<size_t>(seekLen) <= primeSeekBuf.size())
         {
-            seekBuf[static_cast<size_t>(i)] = playbackSample(
-                pos, inFirstPass_ && loopMode == LoopMode::Loop);
-            pos += srRatio;
+            double pos = seekStart;
+            for (int i = 0; i < seekLen; ++i)
+            {
+                primeSeekBuf[static_cast<size_t>(i)] = playbackSample(
+                    pos, inFirstPass_ && loopMode == LoopMode::Loop);
+                pos += srRatio;
+            }
+            float* seekPtr = primeSeekBuf.data();
+            stretcher.seek(&seekPtr, seekLen, 1.0);
         }
-        float* seekPtr = seekBuf.data();
-        stretcher.seek(&seekPtr, seekLen, 1.0);
     }
 
     // ── Step 2: process()+discard — pay STFT output latency ──
@@ -959,14 +978,16 @@ void SamplePlayer::primeStretcher()
     // starts at approximately readPosition. readPosition advances intentionally.
     int primeSamples = stretcher.inputLatency();
     if (primeSamples <= 0) return;
+    jassert (static_cast<size_t>(primeSamples) <= primeInputBuf.size()
+             && static_cast<size_t>(primeSamples) <= primeDiscardBuf.size());
+    if (static_cast<size_t>(primeSamples) > primeInputBuf.size()
+        || static_cast<size_t>(primeSamples) > primeDiscardBuf.size())
+        return; // safety: bail rather than allocate on the audio thread
 
-    std::vector<float> primeBuf(static_cast<size_t>(primeSamples));
-    std::vector<float> discardBuf(static_cast<size_t>(primeSamples));
+    readRawSamples(primeInputBuf.data(), primeSamples);
 
-    readRawSamples(primeBuf.data(), primeSamples);
-
-    float* inPtr = primeBuf.data();
-    float* outPtr = discardBuf.data();
+    float* inPtr = primeInputBuf.data();
+    float* outPtr = primeDiscardBuf.data();
     stretcher.process(&inPtr, primeSamples, &outPtr, primeSamples);
 }
 

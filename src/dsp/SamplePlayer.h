@@ -276,6 +276,12 @@ private:
     bool stretcherPrepared = false;
     bool stretcherNeedsPriming = false;
     std::vector<float> rawReadBuf;
+    // Pre-sized scratch buffers for primeStretcher() — keeps voice retriggers
+    // off the heap. Sized in prepareStretcher() from the stretcher's reported
+    // block/interval/input-latency. Capacity only grows; never shrinks.
+    std::vector<float> primeSeekBuf;
+    std::vector<float> primeInputBuf;
+    std::vector<float> primeDiscardBuf;
     int maxBlockSize = 512;
 
     // ─── Catmull-Rom cubic interpolation (fast, high quality) ───
