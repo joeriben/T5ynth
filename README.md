@@ -241,6 +241,13 @@ T5ynth can use generated audio in two ways:
   with up to five strands and a shared pitch field.
 - **Effects:** Tempo-syncable delay, convolution and algorithmic reverb,
   limiter.
+- **Live performance:** Four **Snapshot** slots bound to keys
+  <kbd>1</kbd> / <kbd>2</kbd> / <kbd>3</kbd> / <kbd>4</kbd> switch the entire
+  oscillator state (audio, prompts, axes, dimensions, engine parameters)
+  in one keypress — useful for live keyboard play and for swapping one-shot
+  voices during step-sequencer playback. An optional **Inference Cache**
+  (2–64 slots) turns Generate into a zero-latency round-robin audition of
+  earlier results; cache contents travel with the preset.
 - **Presets:** `.t5p` files store parameters, A/B texts, generated audio, and
   internal source data, so loading a preset does not require regeneration.
 

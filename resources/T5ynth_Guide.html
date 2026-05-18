@@ -564,6 +564,53 @@ T5ynth is where you find out what that marker can become.
   <strong>The instrument is built around a space of possible sound.</strong> The generation parameters above — Alpha, Semantic Axes, Noise, Magnitude — can all be modulated by the <a href="#drift">Drift &amp; Regenerate</a> system. With Drift active, these values shift continuously, and T5ynth can automatically re-generate audio as they move. The hidden space keeps evolving instead of behaving like a fixed one-shot source. See <a href="#drift">section 6</a> for details.
 </div>
 
+<h3>Easy vs. Advanced View</h3>
+<p>
+The Generation column header carries a small <strong>» adv.</strong> /
+<strong>» easy</strong> toggle. Easy view is the default on first launch
+and keeps the column focused on the controls that matter for most
+musical work; Advanced view exposes the full parameter surface. The
+toggle only affects the Generation column — Synth, FX, and Sequencer
+sections are unchanged.
+</p>
+<p>
+<strong>What Easy view hides:</strong>
+</p>
+<ul>
+  <li><strong>Model selector row</strong> — Easy view pins the engine to
+    Stable Audio Open Small (the fastest engine and T5ynth's main
+    benchmark). Advanced view shows all three slots: Stable Audio Open
+    1.0, Stable Audio Open Small, and AudioLDM2.</li>
+  <li><strong>Magnitude</strong> — how strongly the impulses steer the
+    diffusion model (default 1.0).</li>
+  <li><strong>Noise</strong> — model-internal perturbation (default 0.0).</li>
+  <li><strong>Steps</strong> — diffusion sampling steps (default 8 for SA Open
+    Small). Lower is faster but less defined; higher is slower but more
+    refined.</li>
+  <li><strong>CFG</strong> — classifier-free guidance strength (default 1.0).</li>
+  <li><strong>Seed editor</strong> — the numeric seed field and the
+    <em>Random</em> toggle are replaced in Easy view by a compact
+    seed-mode quick-switch (fixed / random) at the same position.</li>
+  <li><strong>Dimension Explorer</strong> — the entire third card with
+    the 768-dimension offset panel is hidden in Easy view. Drift, Auto-
+    Regenerate, Alpha, Semantic Axes, Injection Modes, Snapshots, and the
+    Inference Cache remain visible in both views.</li>
+</ul>
+<p>
+<strong>What Easy view keeps:</strong> Prompts A and B, Injection Modes,
+Alpha, Semantic Axes, Duration, the Snap / Cache row, Generate, and the
+status bar — everything required for the core A/B exploration workflow.
+</p>
+<p>
+<strong>Hidden-state pulse.</strong> If you switch from Advanced back to
+Easy while one of the hidden controls is at a non-default value — for
+example, Magnitude pushed to 1.4, Steps raised to 16, or a non-Small
+model selected — the <strong>» adv.</strong> button starts pulsing
+gently. This is a reminder that the rendered sound is still being shaped
+by something Easy view cannot show. Returning to Advanced and either
+resetting the control or accepting its value stops the pulse.
+</p>
+
 <h3>Snapshots and Inference Cache</h3>
 <p>
 Below the Dimension Explorer, the Generation column has a compact <strong>SNAP / CACHE</strong> row. These controls solve two different workflow problems:
@@ -585,11 +632,44 @@ Below the Dimension Explorer, the Generation column has a compact <strong>SNAP /
 Snapshots are session workflow slots: they let you keep a bass or lead state while you temporarily generate material for something else. Cache is preset material: it is stored with the preset, including its audio entries.
 </p>
 
+<p>
+<strong>Snapshots as a performance instrument.</strong> The four snapshot slots
+are bound to the number keys <strong>1 / 2 / 3 / 4</strong>, so once you have
+stored a snapshot in each (long-click or <strong>Shift+1 ... Shift+4</strong>),
+you have a four-button live setup: hit a number key to switch the entire
+oscillator state — sound material, prompts, axes, dimension offsets, engine
+parameters — without leaving the keyboard. This is the intended way to play
+T5ynth as a multi-character instrument during a take. Two typical workflows:
+</p>
+<ul>
+  <li><strong>Live keyboard play:</strong> store four different oscillator
+    states and switch between them in real time while the computer keyboard
+    or an external MIDI controller drives notes. Each slot carries its full
+    sound space — different prompts, axes, dimensions, engine settings — so
+    the switch is a complete instrument change, not a parameter morph.</li>
+  <li><strong>One-shot voices for the Step Sequencer:</strong> store a
+    different short sound in each slot and use 1 / 2 / 3 / 4 as manual
+    voice changers during sequencer playback. Snapshot recalls are
+    instantaneous (no inference), so they sit cleanly inside a running
+    pattern.</li>
+</ul>
+
+<p>
+<strong>Cache as a fast audition / variation engine.</strong> Building a
+cache turns Generate into a zero-latency playback control: once full, each
+press of Generate (or <strong>Shift+Return</strong>) advances to the next
+cached audio entry in round-robin order. That pairs well with the Step
+Sequencer too — if Auto-Regenerate is off and a cache is full, repeated
+generation events cycle through the stored variations instead of running
+the diffusion model. The cache also outlives the session: capacity and
+audio entries travel with the preset.
+</p>
+
 <h3>Keyboard and MIDI Performance</h3>
 <table>
   <tr><th>Input</th><th>Action</th></tr>
   <tr><td><strong>Shift+Return</strong> or <strong>Ctrl/Cmd+Return</strong></td><td>Trigger Generate from anywhere in the main panel.</td></tr>
-  <tr><td><strong>1 / 2 / 3 / 4</strong></td><td>Recall snapshot slots 1-4. Use <strong>Shift+1</strong> ... <strong>Shift+4</strong> to store the current state into a slot.</td></tr>
+  <tr><td><strong>1 / 2 / 3 / 4</strong></td><td>Recall snapshot slots 1-4 — the primary live-play control for switching between stored oscillator states without leaving the keyboard. Use <strong>Shift+1</strong> ... <strong>Shift+4</strong> to store the current state into a slot.</td></tr>
   <tr><td><strong>Kbd</strong> in the status bar or <strong>Ctrl/Cmd+K</strong></td><td>Enable computer-keyboard note input. The chromatic row is <code>a w s e d f t g z h u j k</code>, starting at MIDI note 60. Use <strong>y</strong> / <strong>x</strong> for octave down / up. It is automatically ignored while a text field or overlay is active.</td></tr>
   <tr><td><strong>MIDI Pitch Bend</strong></td><td>Global pitch bend, fixed range ±2 semitones.</td></tr>
   <tr><td><strong>CC1 / CC2</strong></td><td>Mod Wheel and Breath feed the same performance-pressure route as aftertouch, using the <strong>AT</strong> target and amount.</td></tr>
