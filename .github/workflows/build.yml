@@ -67,10 +67,23 @@ jobs:
         # T5YNTH_MACOS_STANDALONE_ONLY=ON flag dates back to when the
         # installer only shipped the Standalone; v1.7.1-beta.2 onward
         # bundles VST3 + AU as well.
+        env:
+          T5YNTH_VERSION: ${{ github.ref_name }}
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build --config Release -j$(sysctl -n hw.ncpu)
+
+      - name: Verify Standalone version matches tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          EXPECTED=$(echo "${{ github.ref_name }}" | sed -E 's/^v//; s/-.*$//')
+          ACTUAL=$(defaults read "$(pwd)/build/T5ynth_artefacts/Release/Standalone/T5ynth.app/Contents/Info" CFBundleShortVersionString)
+          if [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "::error::Standalone version mismatch: tag=$EXPECTED, binary=$ACTUAL"
+            exit 1
+          fi
+          echo "Version match: $ACTUAL"
 
       - name: Assemble app bundle
         run: |
@@ -258,10 +271,27 @@ jobs:
           Stop-Process -Id $proc.Id -Force
 
       - name: Configure CMake
+        env:
+          T5YNTH_VERSION: ${{ github.ref_name }}
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build --config Release -j $env:NUMBER_OF_PROCESSORS
+
+      - name: Verify VST3 version matches tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $expected = "${{ github.ref_name }}" -replace '^v','' -replace '-.*$',''
+          $infoPath = ".\build\T5ynth_artefacts\Release\VST3\T5ynth.vst3\Contents\Resources\moduleinfo.json"
+          $content = Get-Content $infoPath -Raw
+          $pattern = '"Version":\s*"' + [regex]::Escape($expected) + '"'
+          if ($content -notmatch $pattern) {
+            Write-Host "::error::VST3 version mismatch. Expected '$expected'. moduleinfo.json:"
+            Write-Host $content
+            exit 1
+          }
+          Write-Host "Version match: $expected"
 
       - name: Assemble distribution
         shell: bash
@@ -418,6 +448,8 @@ jobs:
           test -f dist/pipe_inference/_internal/hf_assets/t5-base/spiece.model
 
       - name: Configure CMake
+        env:
+          T5YNTH_VERSION: ${{ github.ref_name }}
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build

@@ -1,5 +1,18 @@
 cmake_minimum_required(VERSION 3.22)
-project(T5ynth VERSION 1.9.0)
+
+# Version is derived from T5YNTH_VERSION env (CI passes github.ref_name); dev builds get 0.0.0.
+if(DEFINED ENV{T5YNTH_VERSION})
+    set(_T5YNTH_VERSION "$ENV{T5YNTH_VERSION}")
+else()
+    set(_T5YNTH_VERSION "0.0.0")
+endif()
+string(REGEX REPLACE "^v" "" _T5YNTH_VERSION "${_T5YNTH_VERSION}")
+string(REGEX REPLACE "-.*$" "" _T5YNTH_VERSION "${_T5YNTH_VERSION}")
+if(NOT _T5YNTH_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    set(_T5YNTH_VERSION "0.0.0")
+endif()
+
+project(T5ynth VERSION ${_T5YNTH_VERSION})
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
