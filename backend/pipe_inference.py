@@ -125,6 +125,14 @@ log = logging.getLogger("pipe_inference")
 MAX_DIMENSION_OFFSET = 4.0
 BLACKWELL_MIN_CUDA = (12, 8)
 
+# Embedding-noise sigma is scaled down before being added to the conditioning
+# tensor. The raw 0..1 slider value pushes the embedding off-manifold very
+# quickly — at slider=0.1 the perceptual change is already extreme — so we
+# halve the effective sigma to give the slider a usable resolution. The
+# displayed/logged value still reflects what the user set; only the applied
+# magnitude is reduced.
+NOISE_SIGMA_SCALE = 0.5
+
 
 def _sanitize_dimension_offsets(raw_offsets):
     """Validate and clamp sparse per-dimension offsets from the UI."""
@@ -1074,7 +1082,7 @@ def _generate_audioldm2(wrapper, request):
         if noise_sigma > 0.0:
             rng = np.random.Generator(np.random.PCG64(seed))
             noise_np = rng.standard_normal(manipulated_pe.shape).astype(np.float32)
-            noise = torch.from_numpy(noise_np).to(manipulated_pe.device) * noise_sigma
+            noise = torch.from_numpy(noise_np).to(manipulated_pe.device) * (noise_sigma * NOISE_SIGMA_SCALE)
             manipulated_pe = manipulated_pe + noise
 
         # Semantic axes
@@ -1294,7 +1302,7 @@ def _generate_native(pipe, request):
         if noise_sigma > 0.0:
             rng = np.random.Generator(np.random.PCG64(seed))
             noise_np = rng.standard_normal(prompt_emb_a.shape).astype(np.float32)
-            _noise_tensor = torch.from_numpy(noise_np).to(prompt_emb_a.device) * noise_sigma
+            _noise_tensor = torch.from_numpy(noise_np).to(prompt_emb_a.device) * (noise_sigma * NOISE_SIGMA_SCALE)
 
         def apply_pre_offsets(emb):
             """Magnitude + noise + semantic axes — i.e. all manipulations
@@ -1766,7 +1774,7 @@ def generate(pipe, request):
         if noise_sigma > 0.0:
             rng = np.random.Generator(np.random.PCG64(seed))
             noise_np = rng.standard_normal(manipulated.shape).astype(np.float32)
-            noise = torch.from_numpy(noise_np).to(manipulated.device) * noise_sigma
+            noise = torch.from_numpy(noise_np).to(manipulated.device) * (noise_sigma * NOISE_SIGMA_SCALE)
             manipulated = manipulated + noise
 
         # Apply semantic axes
