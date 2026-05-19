@@ -1,10 +1,21 @@
 cmake_minimum_required(VERSION 3.22)
 
-# Version is derived from T5YNTH_VERSION env (CI passes github.ref_name); dev builds get 0.0.0.
+# Version is derived from T5YNTH_VERSION env (CI passes github.ref_name); dev
+# builds fall back to `git describe` so the title bar shows a real version
+# instead of 0.0.0.
 if(DEFINED ENV{T5YNTH_VERSION})
     set(_T5YNTH_VERSION "$ENV{T5YNTH_VERSION}")
 else()
-    set(_T5YNTH_VERSION "0.0.0")
+    execute_process(
+        COMMAND git describe --tags --abbrev=0
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE _T5YNTH_VERSION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(NOT _T5YNTH_VERSION)
+        set(_T5YNTH_VERSION "0.0.0")
+    endif()
 endif()
 string(REGEX REPLACE "^v" "" _T5YNTH_VERSION "${_T5YNTH_VERSION}")
 string(REGEX REPLACE "-.*$" "" _T5YNTH_VERSION "${_T5YNTH_VERSION}")
