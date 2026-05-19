@@ -20,7 +20,7 @@ public:
      *  to ComboBox `dropdownId == N + 1`. Slot 0 is the disabled placeholder. */
     static const juce::StringArray& getAxisLabels();
 
-    AxesPanel();
+    AxesPanel(juce::AudioProcessorValueTreeState& apvts);
     ~AxesPanel() override = default;
 
     void paint(juce::Graphics& g) override;
@@ -54,6 +54,16 @@ private:
 
     juce::Label header;
     std::vector<AxisSlot> slots;  // 3
+
+    // Master attenuation that scales every axis delta before it is sent to
+    // the backend. Non-trained vector directions can push the embedding off
+    // the manifold and produce harsh output; this knob lets the user dial
+    // the effect back without losing the per-axis balance.
+    juce::Label  amountLabel;
+    juce::Slider amountSlider;
+    juce::Label  amountValue;
+    using Attachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+    std::unique_ptr<Attachment> amountAttachment;
 
     void initSlot(AxisSlot& slot, const juce::StringArray& options, int axisIndex);
     void layoutSlots(std::vector<AxisSlot>& slots, juce::Rectangle<int>& area, float f, int dotOffset);

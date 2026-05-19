@@ -1236,6 +1236,7 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
                                                                   : injectionMode_;
     req.dimensionOffsets = std::move(pendingOffsets_);
     req.semanticAxes = axesOverride.empty() ? std::move(pendingAxes_) : std::move(axesOverride);
+    req.axesAmount = apvts.getRawParameterValue(PID::genAxesAmount)->load();
     req.injectionMode = requestInjectionMode;
     // Step-in slider drives BOTH transition_at AND late-phase α together so that
     // slider=0.5 → minimum effect (A-dominant), slider=1.0 → pure B.

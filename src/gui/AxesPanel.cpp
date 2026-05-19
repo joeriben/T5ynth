@@ -1,5 +1,6 @@
 #include "AxesPanel.h"
 #include "GuiHelpers.h"
+#include "../dsp/BlockParams.h"
 
 static const juce::Colour kAxisColors[] = { kAxis1, kAxis2, kAxis3 };
 
@@ -36,7 +37,7 @@ static juce::String axisDisplayToKey(const juce::String& display)
     return {};
 }
 
-AxesPanel::AxesPanel()
+AxesPanel::AxesPanel(juce::AudioProcessorValueTreeState& apvts)
 {
     // Header is now provided by MainPanel — hide internal one
     header.setVisible(false);
@@ -44,6 +45,29 @@ AxesPanel::AxesPanel()
     slots.resize(3);
     for (size_t i = 0; i < slots.size(); ++i)
         initSlot(slots[i], kEffectiveAxes, static_cast<int>(i));
+
+    // Master amount: scales all axis deltas before they reach the backend.
+    amountLabel.setText("Amt", juce::dontSendNotification);
+    amountLabel.setColour(juce::Label::textColourId, kTextMuted);
+    amountLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(amountLabel);
+
+    amountSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    amountSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+    amountSlider.setColour(juce::Slider::trackColourId, kOscCol);
+    amountSlider.setColour(juce::Slider::backgroundColourId, kSurface);
+    addAndMakeVisible(amountSlider);
+
+    amountValue.setColour(juce::Label::textColourId, kOscCol);
+    amountValue.setJustificationType(juce::Justification::centredRight);
+    addAndMakeVisible(amountValue);
+
+    amountSlider.onValueChange = [this] {
+        amountValue.setText(juce::String(amountSlider.getValue(), 2), juce::dontSendNotification);
+    };
+
+    amountAttachment = std::make_unique<Attachment>(apvts, PID::genAxesAmount, amountSlider);
+    amountValue.setText(juce::String(amountSlider.getValue(), 2), juce::dontSendNotification);
 }
 
 void AxesPanel::initSlot(AxisSlot& slot, const juce::StringArray& options, int axisIndex)
@@ -213,6 +237,21 @@ void AxesPanel::resized()
     // Header provided by MainPanel — skip internal header allocation
 
     layoutSlots(slots, area, f * 0.75f, dotOffset);
+
+    // Amount row: short label, slider, value — same column geometry as
+    // the axis rows so everything lines up under the 3 slot rows.
+    float fa = f * 0.75f;
+    int rowH = juce::roundToInt(fa * 1.4f);
+    int valW = juce::roundToInt(fa * 3.0f);
+    int labelW = juce::roundToInt(fa * 3.0f);
+    auto row = area.removeFromTop(rowH);
+    if (dotOffset > 0)
+        row.removeFromLeft(dotOffset);
+    amountLabel.setFont(juce::FontOptions(juce::jmax(kUiLabelFontMin, fa * 0.8f)));
+    amountLabel.setBounds(row.removeFromLeft(labelW));
+    amountValue.setFont(juce::FontOptions(juce::jmax(kUiValueFontMin, fa * 0.8f)));
+    amountValue.setBounds(row.removeFromRight(valW));
+    amountSlider.setBounds(row);
 }
 
 std::map<juce::String, float> AxesPanel::getAxisValues() const

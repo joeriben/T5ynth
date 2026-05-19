@@ -392,6 +392,7 @@ void MainPanel::CacheCapButton::paintButton(juce::Graphics& g, bool highlighted,
 MainPanel::MainPanel(T5ynthProcessor& processor)
     : processorRef(processor),
       promptPanel(processor),
+      axesPanel(processor.getValueTreeState()),
       synthPanel(processor),
       fxPanel(processor.getValueTreeState(), processor),
       sequencerPanel(processor)
@@ -2444,7 +2445,7 @@ void MainPanel::resized()
     constexpr int kMinDimH = 24;
     constexpr int kMaxDimH = 48;
     constexpr int kMinOscH = 220;
-    constexpr int kMinAxesH = 64;
+    constexpr int kMinAxesH = 84;
     constexpr int kMinGenerateButtonH = 38;
     const int cacheRowH = juce::jlimit(16, 20, juce::roundToInt(h * 0.022f));
     const int genCacheGap = juce::jlimit(22, 36, juce::roundToInt(h * 0.032f));
@@ -2454,7 +2455,7 @@ void MainPanel::resized()
                                                            h * 0.060f)));
 
     int oscH = juce::jmax(kMinOscH, promptPanel.getPreferredHeightForWidth(genCol.getWidth()));
-    int axesH = juce::jlimit(kMinAxesH, 108, juce::roundToInt(h * 0.10f));
+    int axesH = juce::jlimit(kMinAxesH, 144, juce::roundToInt(h * 0.133f));
     const int reservedGenerateBlockH = kMinGenerateButtonH + genCacheGap + cacheRowH;
     const int headerCount = oscEasyMode ? 2 : 3;
     const int minDimBudget = oscEasyMode ? 0 : kMinDimH;

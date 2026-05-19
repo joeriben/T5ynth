@@ -408,6 +408,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::genNoise, 1}, "Noise",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f, 0.3f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::genAxesAmount, 1}, "Axes Amount",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 1.0f));
 
     auto durationRange = juce::NormalisableRange<float>(0.1f, 11.0f,
         convertSkew03From0To1,
@@ -3652,6 +3655,7 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     synth->setProperty("alpha", get(PID::genAlpha));
     synth->setProperty("magnitude", get(PID::genMagnitude));
     synth->setProperty("noise", get(PID::genNoise));
+    synth->setProperty("axesAmount", get(PID::genAxesAmount));
     synth->setProperty("duration", get(PID::genDuration));
     synth->setProperty("startPosition", get(PID::genStart));
     synth->setProperty("steps", static_cast<int>(get(PID::infSteps)));
@@ -3928,6 +3932,8 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         setParam(parameters, PID::genAlpha, static_cast<float>(synth->getProperty("alpha")));
         setParam(parameters, PID::genMagnitude, static_cast<float>(synth->getProperty("magnitude")));
         setParam(parameters, PID::genNoise, static_cast<float>(synth->getProperty("noise")));
+        if (synth->hasProperty("axesAmount"))
+            setParam(parameters, PID::genAxesAmount, static_cast<float>(synth->getProperty("axesAmount")));
         setParam(parameters, PID::genDuration, static_cast<float>(synth->getProperty("duration")));
         setParam(parameters, PID::genStart, static_cast<float>(synth->getProperty("startPosition")));
         setParam(parameters, PID::infSteps, static_cast<float>(static_cast<int>(synth->getProperty("steps"))));

@@ -856,16 +856,19 @@ SEMANTIC_AXIS_POLES = {
 _axis_emb_cache = {}  # {(axis_key, model_name): (dir_tensor, neutral_emb)}
 
 
-def _apply_semantic_axes(manipulated, axes_dict, encode_fn, model_name):
+def _apply_semantic_axes(manipulated, axes_dict, encode_fn, model_name, amount=1.0):
     """Apply semantic axis deltas to embedding tensor [1, seq, 768].
 
     axes_dict: {"music_noise": 0.5, "tonal_noisy": -0.3, ...}
     encode_fn: function(text) → (emb[1,seq,768], mask[1,seq])
+    amount: master scaler in [0, 1] — attenuates every delta uniformly so
+            the user can dial down the off-manifold push that produces
+            harsh output without losing the per-axis balance.
 
     For each axis, computes direction = pole_emb - neutral_emb,
-    then adds direction * value to the manipulated embedding.
+    then adds direction * value * amount to the manipulated embedding.
     """
-    if not axes_dict:
+    if not axes_dict or amount <= 0.0:
         return manipulated
 
     # Encode neutral once (cached per model)
@@ -904,7 +907,7 @@ def _apply_semantic_axes(manipulated, axes_dict, encode_fn, model_name):
         if direction.shape[1] != manipulated.shape[1]:
             direction = direction.mean(dim=1, keepdim=True)
 
-        manipulated = manipulated + direction * abs(value)
+        manipulated = manipulated + direction * (abs(value) * amount)
 
     return manipulated
 
@@ -1085,7 +1088,8 @@ def _generate_audioldm2(wrapper, request):
                 )
                 return pe, m
             manipulated_pe = _apply_semantic_axes(
-                manipulated_pe, sem_axes, audioldm2_encode, "audioldm2"
+                manipulated_pe, sem_axes, audioldm2_encode, "audioldm2",
+                amount=float(request.get("axes_amount", 1.0)),
             )
 
         # Dimension offsets from DimensionExplorer are always applied last.
@@ -1273,6 +1277,7 @@ def _generate_native(pipe, request):
         # blending first and then manipulating (modulo the renorm step that
         # only fires when |alpha| > 1, which is Linear-specific).
         sem_axes = request.get("semantic_axes")
+        axes_amount = float(request.get("axes_amount", 1.0))
 
         def native_encode(text):
             cond = pipe.model.conditioner(
@@ -1301,7 +1306,8 @@ def _generate_native(pipe, request):
             if _noise_tensor is not None:
                 out = out + _noise_tensor
             if sem_axes:
-                out = _apply_semantic_axes(out, sem_axes, native_encode, pipe.model_name)
+                out = _apply_semantic_axes(out, sem_axes, native_encode, pipe.model_name,
+                                           amount=axes_amount)
             return out
 
         def apply_dim_offsets(emb):
@@ -1766,7 +1772,8 @@ def generate(pipe, request):
         # Apply semantic axes
         sem_axes = request.get("semantic_axes")
         if sem_axes:
-            manipulated = _apply_semantic_axes(manipulated, sem_axes, encode_text, "diffusers")
+            manipulated = _apply_semantic_axes(manipulated, sem_axes, encode_text, "diffusers",
+                                               amount=float(request.get("axes_amount", 1.0)))
 
         baseline_pooled = _mean_pool(manipulated, combined_mask)
 

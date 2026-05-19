@@ -62,6 +62,7 @@ public:
         juce::String model;        // model ID (e.g. "stable-audio-open-1.0"), or empty for default
         std::vector<std::pair<int, float>> dimensionOffsets;  // DimensionExplorer offsets
         std::map<juce::String, float> semanticAxes;           // SemanticAxes key→value
+        float axesAmount = 1.0f;                              // Master scaler for all semantic-axis deltas
 
         // Research-mode injection (A↔B mixing): "linear" reproduces v1.2 byte-identically.
         // Non-linear modes are only implemented on the native SA Open path.

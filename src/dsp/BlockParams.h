@@ -138,6 +138,7 @@ namespace PID {
     static constexpr const char* genAlpha         = "gen_alpha";
     static constexpr const char* genMagnitude     = "gen_magnitude";
     static constexpr const char* genNoise         = "gen_noise";
+    static constexpr const char* genAxesAmount    = "gen_axes_amount";
     static constexpr const char* genDuration      = "gen_duration";
     static constexpr const char* genStart         = "gen_start";
     static constexpr const char* genCfg           = "gen_cfg";

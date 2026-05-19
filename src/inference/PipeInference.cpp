@@ -798,6 +798,7 @@ PipeInference::Result PipeInference::generate(const Request& request)
         for (auto& [key, val] : request.semanticAxes)
             axesObj->setProperty(key, val);
         json->setProperty("semantic_axes", juce::var(axesObj.get()));
+        json->setProperty("axes_amount", request.axesAmount);
     }
 
     auto jsonStr = juce::JSON::toString(juce::var(json.get()), true);
