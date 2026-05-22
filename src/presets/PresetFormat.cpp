@@ -139,7 +139,8 @@ bool readAudioPayload(juce::AudioBuffer<float>& outBuffer,
 // ═══════════════════════════════════════════════════════════════════
 
 bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor,
-                              bool includeInferenceCache)
+                              bool includeInferenceCache,
+                              const std::vector<SnapshotState>* snapshots)
 {
     // Build JSON (reuse existing export + add meta/embeddings)
     juce::String jsonBase = processor.exportJsonPreset();
@@ -271,6 +272,82 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
             seq->setProperty("oneShotSamples", entries);
     }
 
+    // Per-slot snapshots. Only valid slots with non-empty audio are persisted
+    // — empty slots are simply omitted, mirroring the cache/one-shots policy
+    // so the JSON ↔ payload positional mapping stays in lockstep.
+    if (snapshots != nullptr && !snapshots->empty())
+    {
+        juce::Array<juce::var> snapsArr;
+        for (const auto& snap : *snapshots)
+        {
+            if (!snap.valid) continue;
+            if (snap.audio.getNumSamples() <= 0 || snap.audio.getNumChannels() <= 0) continue;
+
+            juce::DynamicObject::Ptr s = new juce::DynamicObject();
+            s->setProperty("slot", snap.slot);
+            s->setProperty("promptA", snap.promptA);
+            s->setProperty("promptB", snap.promptB);
+            s->setProperty("device", snap.device);
+            s->setProperty("model", snap.model);
+            s->setProperty("injectionMode", snap.injectionMode);
+            s->setProperty("seed", snap.seed);
+            s->setProperty("randomSeed", snap.randomSeed);
+            s->setProperty("lateMixAmount", static_cast<double>(snap.lateMixAmount));
+            s->setProperty("splitStart",    static_cast<double>(snap.splitStart));
+            s->setProperty("splitEnd",      static_cast<double>(snap.splitEnd));
+
+            juce::Array<juce::var> axesArr;
+            for (const auto& ax : snap.axes)
+            {
+                juce::DynamicObject::Ptr a = new juce::DynamicObject();
+                a->setProperty("dropdownId", ax.dropdownId);
+                a->setProperty("value", static_cast<double>(ax.value));
+                axesArr.add(a.get());
+            }
+            s->setProperty("axes", axesArr);
+
+            if (!snap.embeddingA.empty())
+            {
+                juce::Array<juce::var> snapEmbA, snapEmbB;
+                for (float v : snap.embeddingA) snapEmbA.add(static_cast<double>(v));
+                for (float v : snap.embeddingB) snapEmbB.add(static_cast<double>(v));
+                s->setProperty("embeddingA", snapEmbA);
+                s->setProperty("embeddingB", snapEmbB);
+            }
+
+            if (!snap.dimensionOffsets.empty())
+            {
+                juce::Array<juce::var> dimArr;
+                for (const auto& d : snap.dimensionOffsets)
+                {
+                    juce::DynamicObject::Ptr e = new juce::DynamicObject();
+                    e->setProperty("dim", d.first);
+                    e->setProperty("offset", static_cast<double>(d.second));
+                    dimArr.add(e.get());
+                }
+                s->setProperty("dimensionOffsets", dimArr);
+            }
+
+            if (snap.parametersXml.isNotEmpty())
+                s->setProperty("parametersXml", snap.parametersXml);
+
+            s->setProperty("loopStart",      static_cast<double>(snap.loopStart));
+            s->setProperty("loopEnd",        static_cast<double>(snap.loopEnd));
+            s->setProperty("startPos",       static_cast<double>(snap.startPos));
+            s->setProperty("wtExtractStart", static_cast<double>(snap.wtExtractStart));
+            s->setProperty("wtExtractEnd",   static_cast<double>(snap.wtExtractEnd));
+            s->setProperty("pointsLocked",   snap.pointsLocked);
+
+            s->setProperty("sampleRate", snap.sampleRate);
+            s->setProperty("channels",   snap.audio.getNumChannels());
+            s->setProperty("numSamples", snap.audio.getNumSamples());
+
+            snapsArr.add(s.get());
+        }
+        if (!snapsArr.isEmpty())
+            root->setProperty("snapshots", snapsArr);
+    }
+
     juce::String json = juce::JSON::toString(parsed, true);
     auto jsonData = json.toRawUTF8();
     uint32_t jsonLen = static_cast<uint32_t>(json.getNumBytesAsUTF8());
@@ -320,6 +397,13 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
 
     for (const auto& slot : sequencerOneShots)
         writeCompressedAudio(slot.audio, slot.sampleRate);
+
+    if (snapshots != nullptr)
+        for (const auto& snap : *snapshots)
+        {
+            if (!snap.valid) continue;
+            writeCompressedAudio(snap.audio, snap.sampleRate);
+        }
 
     if (!audioWriteOk) return false;
 
@@ -530,6 +614,112 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
 
                 if (!slots.empty())
                     processor.importSequencerOneShotSamples(slots);
+            }
+        }
+
+        // Per-slot snapshots. One length-prefixed FLAC blob per JSON entry,
+        // in the same fixed cursor order. Snapshots are append-safe — old
+        // v4 files without a "snapshots" key skip this block entirely.
+        if (auto* snapsArr = root->getProperty("snapshots").getArray())
+        {
+            for (auto& sv : *snapsArr)
+            {
+                auto* sm = sv.getDynamicObject();
+                if (sm == nullptr) { result.snapshots.clear(); break; }
+
+                const int numChannels = static_cast<int>(sm->getProperty("channels"));
+                const int numSamples  = static_cast<int>(sm->getProperty("numSamples"));
+                const double sr       = static_cast<double>(sm->getProperty("sampleRate"));
+                if (numSamples <= 0 || numChannels <= 0)
+                {
+                    result.snapshots.clear();
+                    break;
+                }
+
+                SnapshotState snap;
+                snap.slot           = static_cast<int>(sm->getProperty("slot"));
+                snap.promptA        = sm->getProperty("promptA").toString();
+                snap.promptB        = sm->getProperty("promptB").toString();
+                snap.device         = sm->getProperty("device").toString();
+                snap.model          = sm->getProperty("model").toString();
+                snap.injectionMode  = sm->hasProperty("injectionMode")
+                                          ? sm->getProperty("injectionMode").toString()
+                                          : juce::String("linear");
+                snap.seed           = static_cast<int>(sm->getProperty("seed"));
+                snap.randomSeed     = static_cast<bool>(sm->getProperty("randomSeed"));
+                if (sm->hasProperty("lateMixAmount"))
+                    snap.lateMixAmount = static_cast<float>(
+                        static_cast<double>(sm->getProperty("lateMixAmount")));
+                if (sm->hasProperty("splitStart"))
+                    snap.splitStart = static_cast<float>(
+                        static_cast<double>(sm->getProperty("splitStart")));
+                if (sm->hasProperty("splitEnd"))
+                    snap.splitEnd = static_cast<float>(
+                        static_cast<double>(sm->getProperty("splitEnd")));
+
+                if (auto* axesArr = sm->getProperty("axes").getArray())
+                {
+                    for (int i = 0; i < std::min(axesArr->size(), 3); ++i)
+                    {
+                        if (auto* ax = (*axesArr)[i].getDynamicObject())
+                        {
+                            snap.axes[static_cast<size_t>(i)].dropdownId =
+                                static_cast<int>(ax->getProperty("dropdownId"));
+                            snap.axes[static_cast<size_t>(i)].value =
+                                static_cast<float>(ax->getProperty("value"));
+                        }
+                    }
+                }
+
+                if (auto* embA = sm->getProperty("embeddingA").getArray())
+                {
+                    snap.embeddingA.reserve(static_cast<size_t>(embA->size()));
+                    for (auto& v : *embA)
+                        snap.embeddingA.push_back(static_cast<float>(v));
+                }
+                if (auto* embB = sm->getProperty("embeddingB").getArray())
+                {
+                    snap.embeddingB.reserve(static_cast<size_t>(embB->size()));
+                    for (auto& v : *embB)
+                        snap.embeddingB.push_back(static_cast<float>(v));
+                }
+
+                if (auto* dimArr = sm->getProperty("dimensionOffsets").getArray())
+                {
+                    for (auto& dv : *dimArr)
+                    {
+                        if (auto* dm = dv.getDynamicObject())
+                        {
+                            const int dim = static_cast<int>(dm->getProperty("dim"));
+                            const float off = static_cast<float>(
+                                static_cast<double>(dm->getProperty("offset")));
+                            snap.dimensionOffsets.emplace_back(dim, off);
+                        }
+                    }
+                }
+
+                snap.parametersXml = sm->getProperty("parametersXml").toString();
+
+                snap.loopStart      = static_cast<float>(static_cast<double>(sm->getProperty("loopStart")));
+                snap.loopEnd        = sm->hasProperty("loopEnd")
+                                          ? static_cast<float>(static_cast<double>(sm->getProperty("loopEnd")))
+                                          : 1.0f;
+                snap.startPos       = static_cast<float>(static_cast<double>(sm->getProperty("startPos")));
+                snap.wtExtractStart = static_cast<float>(static_cast<double>(sm->getProperty("wtExtractStart")));
+                snap.wtExtractEnd   = sm->hasProperty("wtExtractEnd")
+                                          ? static_cast<float>(static_cast<double>(sm->getProperty("wtExtractEnd")))
+                                          : 1.0f;
+                snap.pointsLocked   = static_cast<bool>(sm->getProperty("pointsLocked"));
+
+                snap.sampleRate = sr > 0.0 ? sr : 44100.0;
+                if (!readAudioPayload(snap.audio, bytes, size, cursor, version,
+                                      numChannels, numSamples))
+                {
+                    result.snapshots.clear();
+                    break;
+                }
+                snap.valid = true;
+                result.snapshots.push_back(std::move(snap));
             }
         }
 

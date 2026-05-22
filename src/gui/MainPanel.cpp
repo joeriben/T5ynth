@@ -1340,7 +1340,7 @@ void MainPanel::syncGuiStateForPresetSave()
 void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const juce::File& sourceFile)
 {
     activeSnapshotIndex = 0;
-    syncSnapshotUi();
+    applySnapshotsFromLoad(result.snapshots);
 
     promptPanel.loadPresetData(result.promptA, result.promptB,
                                result.seed, result.randomSeed, result.device, result.model,
@@ -1412,7 +1412,9 @@ bool MainPanel::savePresetToFile(const juce::File& file, bool includeInferenceCa
     auto target = file.withFileExtension("t5p");
     processorRef.setLastPresetName(target.getFileNameWithoutExtension());
 
-    if (!PresetFormat::saveToFile(target, processorRef, includeInferenceCache))
+    const auto snaps = buildSnapshotsForSave();
+    if (!PresetFormat::saveToFile(target, processorRef, includeInferenceCache,
+                                   snaps.empty() ? nullptr : &snaps))
     {
         statusBar.setStatusText("Preset save failed");
         return false;
@@ -1851,7 +1853,9 @@ MainPanel::~MainPanel()
     syncGuiStateForPresetSave();
     auto bufFile = getBufferPresetFile();
     bufFile.getParentDirectory().createDirectory();
-    PresetFormat::saveToFile(bufFile, processorRef);
+    const auto snaps = buildSnapshotsForSave();
+    PresetFormat::saveToFile(bufFile, processorRef, true,
+                             snaps.empty() ? nullptr : &snaps);
 }
 
 void MainPanel::paint(juce::Graphics& g)
@@ -2096,6 +2100,116 @@ void MainPanel::restoreMainSnapshot(const MainSnapshot& snapshot)
         applyMarkers();
         processorRef.getSampler().setPointsLocked(snapshot.pointsLocked);
     }
+}
+
+std::vector<PresetFormat::SnapshotState> MainPanel::buildSnapshotsForSave() const
+{
+    std::vector<PresetFormat::SnapshotState> out;
+    out.reserve(kNumSnapshotSlots);
+    for (int i = 0; i < kNumSnapshotSlots; ++i)
+    {
+        const auto& src = mainSnapshots[static_cast<size_t>(i)];
+        if (!src.valid) continue;
+        if (src.audio.getNumSamples() <= 0 || src.audio.getNumChannels() <= 0) continue;
+
+        PresetFormat::SnapshotState dst;
+        dst.slot           = i;
+        dst.valid          = true;
+        dst.audio.makeCopyOf(src.audio);
+        dst.sampleRate     = src.sampleRate;
+        dst.promptA        = src.promptA;
+        dst.promptB        = src.promptB;
+        dst.device         = src.device;
+        dst.model          = src.model;
+        dst.injectionMode  = src.injectionMode;
+        dst.seed           = src.seed;
+        dst.randomSeed     = src.randomSeed;
+        dst.lateMixAmount  = std::isnan(src.lateMixAmount) ? 0.75f : src.lateMixAmount;
+        dst.splitStart     = std::isnan(src.splitStart)    ? 4.0f  : src.splitStart;
+        dst.splitEnd       = std::isnan(src.splitEnd)      ? 16.0f : src.splitEnd;
+
+        for (int a = 0; a < 3; ++a)
+        {
+            dst.axes[static_cast<size_t>(a)].dropdownId =
+                src.axes[static_cast<size_t>(a)].dropdownId;
+            dst.axes[static_cast<size_t>(a)].value =
+                src.axes[static_cast<size_t>(a)].value;
+        }
+
+        dst.embeddingA       = src.embeddingA;
+        dst.embeddingB       = src.embeddingB;
+        dst.dimensionOffsets = src.dimensionOffsets;
+
+        if (src.parameters.isValid())
+            dst.parametersXml = src.parameters.toXmlString();
+
+        dst.loopStart      = src.loopStart;
+        dst.loopEnd        = src.loopEnd;
+        dst.startPos       = src.startPos;
+        dst.wtExtractStart = src.wtExtractStart;
+        dst.wtExtractEnd   = src.wtExtractEnd;
+        dst.pointsLocked   = src.pointsLocked;
+
+        out.push_back(std::move(dst));
+    }
+    return out;
+}
+
+void MainPanel::applySnapshotsFromLoad(const std::vector<PresetFormat::SnapshotState>& snapshots)
+{
+    // Clear all session snapshots first; only the slots present in the
+    // preset are populated. Slot index from JSON is authoritative; values
+    // outside [0, kNumSnapshotSlots) are ignored defensively.
+    for (auto& s : mainSnapshots) s = {};
+
+    for (const auto& src : snapshots)
+    {
+        if (!src.valid) continue;
+        if (src.slot < 0 || src.slot >= kNumSnapshotSlots) continue;
+
+        MainSnapshot dst;
+        dst.valid       = true;
+        dst.audio.makeCopyOf(src.audio);
+        dst.sampleRate  = src.sampleRate;
+        dst.promptA     = src.promptA;
+        dst.promptB     = src.promptB;
+        dst.device      = src.device;
+        dst.model       = src.model;
+        dst.injectionMode = src.injectionMode;
+        dst.seed        = src.seed;
+        dst.randomSeed  = src.randomSeed;
+        dst.lateMixAmount = src.lateMixAmount;
+        dst.splitStart  = src.splitStart;
+        dst.splitEnd    = src.splitEnd;
+
+        for (int a = 0; a < 3; ++a)
+        {
+            dst.axes[static_cast<size_t>(a)].dropdownId =
+                src.axes[static_cast<size_t>(a)].dropdownId;
+            dst.axes[static_cast<size_t>(a)].value =
+                src.axes[static_cast<size_t>(a)].value;
+        }
+
+        dst.embeddingA       = src.embeddingA;
+        dst.embeddingB       = src.embeddingB;
+        dst.dimensionOffsets = src.dimensionOffsets;
+
+        if (src.parametersXml.isNotEmpty())
+        {
+            if (auto xml = juce::parseXML(src.parametersXml))
+                dst.parameters = juce::ValueTree::fromXml(*xml);
+        }
+
+        dst.loopStart      = src.loopStart;
+        dst.loopEnd        = src.loopEnd;
+        dst.startPos       = src.startPos;
+        dst.wtExtractStart = src.wtExtractStart;
+        dst.wtExtractEnd   = src.wtExtractEnd;
+        dst.pointsLocked   = src.pointsLocked;
+
+        mainSnapshots[static_cast<size_t>(src.slot)] = std::move(dst);
+    }
+    syncSnapshotUi();
 }
 
 void MainPanel::captureSnapshotPress(int slot)

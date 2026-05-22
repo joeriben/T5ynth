@@ -15,7 +15,8 @@ class T5ynthProcessor;
  *   [4B]  JSON length (uint32 LE)
  *   [NB]  JSON (params + meta + embeddings + snapshots)
  *   [VAR] Sequence of length-prefixed FLAC blobs, in JSON-declared order:
- *           primary audio · inferenceCache entries · sequencer one-shots.
+ *           primary audio · inferenceCache entries · sequencer one-shots ·
+ *           snapshot audio (one blob per JSON snapshot entry).
  *           Each blob is [4B uint32 LE byteLen][N FLAC bytes]. 24-bit
  *           lossless FLAC; the FLAC stream's STREAMINFO carries sampleRate,
  *           channels and sampleCount — JSON metadata mirrors them so the
@@ -34,6 +35,48 @@ class PresetFormat
 {
 public:
     PresetFormat() = default;
+
+    // Semantic axes: 3 slots (dropdown selection + slider value).
+    struct AxisState { int dropdownId = 1; float value = 0.0f; };
+
+    /** Per-snapshot state restored when the user activates a slot. Mirrors
+     *  MainPanel::MainSnapshot but lives here so PresetFormat can persist it
+     *  without depending on the GUI. Audio is serialised as a length-prefixed
+     *  FLAC blob in the payload tail; all other fields ride in the JSON
+     *  `snapshots` array. */
+    struct SnapshotState
+    {
+        int slot = 0;          // 0-based slot index (UI shows 1..4)
+        bool valid = false;
+
+        juce::AudioBuffer<float> audio;
+        double sampleRate = 44100.0;
+
+        juce::String promptA, promptB;
+        juce::String device, model;
+        juce::String injectionMode { "linear" };
+        int seed = 0;
+        bool randomSeed = false;
+        float lateMixAmount = 0.75f;
+        float splitStart    = 4.0f;
+        float splitEnd      = 16.0f;
+
+        std::array<AxisState, 3> axes;
+        std::vector<float> embeddingA, embeddingB;
+        std::vector<std::pair<int, float>> dimensionOffsets;
+
+        // APVTS ValueTree serialised as XML — restored by MainPanel using
+        // its kMainSnapshotParamIds whitelist.
+        juce::String parametersXml;
+
+        // Sampler markers — replicate MainSnapshot's layout point capture.
+        float loopStart = 0.0f;
+        float loopEnd = 1.0f;
+        float startPos = 0.0f;
+        float wtExtractStart = 0.0f;
+        float wtExtractEnd = 1.0f;
+        bool pointsLocked = false;
+    };
 
     /** Result of loading a preset (audio + embeddings are optional). */
     struct LoadResult
@@ -59,8 +102,6 @@ public:
         int inferenceCacheCapacity = 0;
         std::vector<InferenceCacheAudio> inferenceCache;
 
-        // Semantic axes (3 slots: dropdown selection + value)
-        struct AxisState { int dropdownId = 1; float value = 0.0f; };
         std::array<AxisState, 3> axes;
         bool hasAxes = false;
 
@@ -69,6 +110,10 @@ public:
 
         // User-assigned classification tags (empty for legacy presets)
         juce::StringArray tags;
+
+        // Persisted per-slot snapshots (empty when the preset has no
+        // snapshot section, e.g. all v3 and pre-snapshot v4 files).
+        std::vector<SnapshotState> snapshots;
 
         // Research-mode injection state. Old .t5p files predating this feature
         // get the canonical pre-injection defaults — linear / 0.75 / 4 / 16 —
@@ -83,7 +128,8 @@ public:
 
     /** Save current state to a .t5p file with embedded audio. */
     static bool saveToFile(const juce::File& file, T5ynthProcessor& processor,
-                           bool includeInferenceCache = true);
+                           bool includeInferenceCache = true,
+                           const std::vector<SnapshotState>* snapshots = nullptr);
 
     /** Load a preset from file. Returns full result with audio + metadata. */
     static LoadResult loadFromFile(const juce::File& file, T5ynthProcessor& processor);

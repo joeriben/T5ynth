@@ -172,6 +172,10 @@ private:
     void storeSnapshotFromPress(int slot);
     void activateSnapshot(int slot);
     void syncSnapshotUi();
+    // Marshals mainSnapshots → preset format for persistence, and the
+    // reverse direction when applying a loaded preset.
+    std::vector<PresetFormat::SnapshotState> buildSnapshotsForSave() const;
+    void applySnapshotsFromLoad(const std::vector<PresetFormat::SnapshotState>& snapshots);
     void triggerMainGeneration();
     void setComputerKeyboardEnabled(bool enabled);
     void shiftComputerKeyboardOctave(int delta);
