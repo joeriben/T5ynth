@@ -1,6 +1,7 @@
 #include "MainPanel.h"
 #include "../PluginProcessor.h"
 #include "../dsp/BlockParams.h"
+#include "../presets/TagVocabulary.h"
 #include "GuiHelpers.h"
 #include "BinaryData.h"
 #include <cmath>
@@ -1083,6 +1084,14 @@ void MainPanel::updateOscModeToggleVisual()
 void MainPanel::showPresetManager()
 {
     presetManagerVisible = true;
+    // Push the canonical tag taxonomy before refreshing the library so the
+    // Detail-cloud merge sees both the curated set and the user-seen tags
+    // in a single applyTagVocabulary() call inside refreshLibrary(). The
+    // "generative" tag only ships when the generative sequencer is
+    // currently running — see TagVocabulary.h for the rationale.
+    const bool genSeqActive = processorRef.getValueTreeState()
+                                  .getRawParameterValue(PID::genSeqRunning)->load() > 0.5f;
+    presetManager.setTagVocabularyCanonical(TagVocabulary::getCanonical(genSeqActive));
     presetManager.refreshLibrary();
     presetManager.setCurrentPreset(currentPresetFile, getCurrentPresetDisplayName());
     presetScrim.setVisible(true);

@@ -7,6 +7,7 @@
 #include "GuiHelpers.h"
 #include "AxesPanel.h"
 #include "../presets/PresetFormat.h"
+#include "../presets/TagVocabulary.h"
 
 /**
  * Three-pane preset library overlay.
@@ -334,6 +335,17 @@ public:
 
     Mode getMode() const { return currentMode; }
 
+    /** Owner-side push of the curated tag taxonomy. The panel merges this
+     *  with the sidebar-derived user-tag set and propagates the union to
+     *  Detail (browse-mode cloud) and SaveDrawer (save-mode cloud). Safe
+     *  to call repeatedly; the conditional "generative" entry tracks the
+     *  GenSeq parameter state at the call-site. */
+    void setTagVocabularyCanonical(const juce::StringArray& canonical)
+    {
+        canonicalTagVocabulary = canonical;
+        applyTagVocabulary();
+    }
+
     /** Enter Save mode: hides the regular footer (status + Cancel) and
      *  shows the Save-Drawer at the bottom of the panel. The 3-pane
      *  Sidebar / Preset-list / Detail layout stays visible above so the
@@ -348,12 +360,18 @@ public:
         statusLabel.setVisible(false);
         sidebar.setSaveMode(true);
         rebuildFiltered();
+        // Cloud vocab = canonical taxonomy ∪ already-saved user tags. Falls
+        // back to the sidebar set if MainPanel hasn't pushed a canonical
+        // taxonomy yet (e.g. unit-test embedding of the panel).
+        const auto& vocab = mergedTagVocabulary.empty()
+                                ? sidebar.getTagVocabulary()
+                                : mergedTagVocabulary;
         saveDrawer.configure(prefill.defaultName,
                              prefill.suggestedTags,
                              prefill.currentBank,
                              prefill.existingBanks,
                              std::move(prefill.existingPathKeys),
-                             sidebar.getTagVocabulary(),
+                             vocab,
                              prefill.promptA,
                              prefill.promptB,
                              prefill.canIncludeInferenceCache);
@@ -541,6 +559,34 @@ private:
         sidebar.setVocabulary({ banks.begin(),  banks.end()  },
                               { models.begin(), models.end() },
                               { tags.begin(),   tags.end()   });
+        // The cloud taxonomy is the union of MainPanel's canonical set and
+        // whatever user-tags the library currently contains — refresh both
+        // whenever either input changes.
+        applyTagVocabulary();
+    }
+
+    /** Build `canonical ∪ sidebar-user-tags` and push to Detail. The result
+     *  is also cached so enterSaveMode() can pass an identical vector to
+     *  the SaveDrawer (both clouds must display the same set). */
+    void applyTagVocabulary()
+    {
+        const auto& userTags = sidebar.getTagVocabulary();
+        juce::StringArray userArr;
+        for (auto& s : userTags) userArr.add(s);
+        std::vector<juce::String> merged;
+        merged.reserve((size_t) (canonicalTagVocabulary.size() + userArr.size()));
+        std::set<juce::String> seen;
+        auto push = [&](const juce::String& s)
+        {
+            const auto key = s.trim().toLowerCase();
+            if (key.isEmpty() || seen.count(key)) return;
+            seen.insert(key);
+            merged.push_back(s.trim());
+        };
+        for (auto& c : canonicalTagVocabulary) push(c);
+        for (auto& u : userArr)                push(u);
+        mergedTagVocabulary = merged;
+        detail.setTagVocabulary(merged);
     }
 
     Entry parseEntry(const juce::File& file)
@@ -987,12 +1033,21 @@ private:
             {
                 const auto t = tagInput.getText().trim();
                 if (t.isEmpty()) return;
-                tags.addIfNotAlreadyThere(t);
+                // Case-insensitive add matches the cloud-click and drag-drop
+                // paths — without this "Ambient" and "ambient" could coexist
+                // in the same preset.
+                tags.addIfNotAlreadyThere(t, true);
                 tagInput.setText({}, false);
                 if (onTagsCommitted) onTagsCommitted(tags);
                 resized();
                 repaint();
             };
+            // Autocomplete: typing in the field filters the "Known tags" cloud
+            // to entries whose prefix matches. Cheap full repaint — the cloud
+            // is at most ~50 chips and we already repaint on every chip
+            // change. Doing it here keeps the cloud and input field visually
+            // linked without a separate popup component.
+            tagInput.onTextChange = [this] { repaint(); };
             addAndMakeVisible(tagInput);
         }
 
@@ -1001,6 +1056,16 @@ private:
         void installEscListener(juce::KeyListener* l)
         {
             tagInput.addKeyListener(l);
+        }
+
+        /** Curated + user-seen tag set rendered as a click-to-add cloud
+         *  below the active chips. Empty vector hides the cloud entirely.
+         *  See PresetManagerPanel::applyTagVocabulary() for the merge. */
+        void setTagVocabulary(std::vector<juce::String> v)
+        {
+            tagVocabulary = std::move(v);
+            resized();
+            repaint();
         }
 
         void clear()
@@ -1131,9 +1196,31 @@ private:
             }
             area.removeFromTop(8);
 
-            // TAGS section — header + chips fill remainder.
+            // TAGS section — header + active chips + optional "Known tags"
+            // cloud (canonical + user-seen). The cloud is omitted when no
+            // vocabulary is set, when the available height is too tight,
+            // OR when browse actions are hidden (Save mode): in Save mode
+            // the user is composing a NEW preset in the SaveDrawer below
+            // and any tag-cloud in Detail would silently mutate a
+            // previously-saved file via onTagsCommitted → onTagsChanged →
+            // patchPresetTagsField. SaveDrawer carries its own cloud for
+            // the actual save target.
             auto tagsRect = area.removeFromTop(juce::jmax(headerH + 4, area.getHeight()));
+            juce::Rectangle<int> cloudRect;
+            if (browseActionsVisible
+                && ! tagVocabulary.empty()
+                && tagsRect.getHeight() > 80)
+            {
+                const int cloudH = juce::jlimit(40, 100, tagsRect.getHeight() / 2);
+                cloudRect = tagsRect.removeFromBottom(cloudH);
+                tagsRect.removeFromBottom(4);
+            }
+            cloudArea = cloudRect;
             paintTagChips(g, tagsRect);
+            if (! cloudArea.isEmpty())
+                paintTagCloud(g, cloudArea);
+            else
+                cloudChipRects.clear();
 
             juce::ignoreUnused(tagInputRow, tagsBlockH);
         }
@@ -1312,6 +1399,45 @@ private:
             }
         }
 
+        /** Renders the "Known tags - click to add" suggestion cloud below the
+         *  active set. Mirrors SaveDrawer's pattern: outline-only chips, same
+         *  primitive, filtered by tagInput's prefix when the user is typing.
+         *  Already-selected tags are dropped so the cloud only offers new
+         *  additions (idempotent with the click-to-add path). */
+        void paintTagCloud(juce::Graphics& g, juce::Rectangle<int> r)
+        {
+            cloudChipRects.clear();
+            auto headerRect = r.removeFromTop(14);
+            g.setColour(kDim);
+            g.setFont(juce::FontOptions(kUiLabelFontMin, juce::Font::bold));
+            g.drawText("Known tags - click to add",
+                       headerRect, juce::Justification::centredLeft, false);
+            r.removeFromTop(2);
+
+            const auto filter = tagInput.getText().trim();
+            const int rowH = 22;
+            const int gapX = 4;
+            const int gapY = 4;
+            int cx = r.getX();
+            int cy = r.getY();
+            for (size_t vi = 0; vi < tagVocabulary.size(); ++vi)
+            {
+                const auto& t = tagVocabulary[vi];
+                if (t.isEmpty() || tags.contains(t, true)) continue;
+                if (filter.isNotEmpty() && ! t.startsWithIgnoreCase(filter)) continue;
+                const int chipW = juce::Font(juce::FontOptions(11.0f)).getStringWidth(t) + 14;
+                if (cx + chipW > r.getRight())
+                {
+                    cx = r.getX();
+                    cy += rowH + gapY;
+                    if (cy + rowH > r.getBottom()) break;
+                }
+                const auto chip = paintTagChip(g, cx, cy, t, ChipKind::Suggestion);
+                cloudChipRects.push_back({ chip, (int) vi });
+                cx += chipW + gapX;
+            }
+        }
+
         void mouseDown(const juce::MouseEvent& e) override
         {
             pressedChipIndex = -1;
@@ -1344,6 +1470,34 @@ private:
                     pressedChipIndex = -1;   // × overrides drag intent
                     return;
                 }
+            }
+
+            // Vocabulary-cloud click: add the suggested tag (case-insensitive,
+            // idempotent). After adding, clear the autocomplete filter so the
+            // cloud immediately shows the next pickable tag rather than
+            // leaving the user with an empty cloud + stale prefix.
+            //
+            // Gated on browseActionsVisible: in Save mode, Detail's cloud is
+            // not painted (see paint()) so cloudChipRects is empty — but a
+            // belt-and-braces guard here keeps any future code path from
+            // accidentally mutating the wrong preset's on-disk tags.
+            if (! browseActionsVisible) return;
+            for (const auto& cc : cloudChipRects)
+            {
+                if (! cc.bounds.contains(p)) continue;
+                // Out-of-range = stale rect from a previous paint frame;
+                // skip rather than abort so a later valid rect still wins.
+                if (cc.index < 0 || cc.index >= (int) tagVocabulary.size()) continue;
+                const auto& tag = tagVocabulary[(size_t) cc.index];
+                if (tag.isNotEmpty())
+                {
+                    tags.addIfNotAlreadyThere(tag, true);
+                    tagInput.setText({}, false);
+                    if (onTagsCommitted) onTagsCommitted(tags);
+                    resized();
+                    repaint();
+                }
+                return;
             }
         }
 
@@ -1381,7 +1535,10 @@ private:
         int cachedPromptHeightB = 14;
 
         struct ChipRect { juce::Rectangle<int> bounds; int index; };
-        std::vector<ChipRect> chipRects;
+        std::vector<ChipRect> chipRects;        // active tags (× to remove)
+        std::vector<ChipRect> cloudChipRects;   // vocabulary suggestions (click to add)
+        juce::Rectangle<int>  cloudArea;
+        std::vector<juce::String> tagVocabulary;
 
         int  pressedChipIndex   = -1;
         bool dragSourceEnabled  = false;
@@ -1460,11 +1617,17 @@ private:
             {
                 const auto t = tagInput.getText().trim();
                 if (t.isEmpty()) return;
-                tags.addIfNotAlreadyThere(t);
+                // Case-insensitive add matches the cloud-click and drag-drop
+                // paths — keeps "Ambient" and "ambient" from coexisting.
+                tags.addIfNotAlreadyThere(t, true);
                 tagInput.setText({}, false);
                 resized();
                 repaint();
             };
+            // Autocomplete: typing filters the suggestion cloud by prefix —
+            // see paint() for the actual prefix-match. Cheap full repaint
+            // (the cloud is small) is the simplest correctness story.
+            tagInput.onTextChange = [this] { repaint(); };
             addAndMakeVisible(tagInput);
 
             configureBtn(saveBtn, kAccent);
@@ -1677,12 +1840,15 @@ private:
                            headerRect, juce::Justification::centredLeft, false);
                 local.removeFromTop(2);
 
+                // Prefix filter — see tagInput.onTextChange.
+                const auto filter = tagInput.getText().trim();
                 int cx = local.getX();
                 int cy = local.getY();
                 for (size_t vi = 0; vi < tagVocabulary.size(); ++vi)
                 {
                     const auto& t = tagVocabulary[vi];
                     if (t.isEmpty() || tags.contains(t, true)) continue;
+                    if (filter.isNotEmpty() && ! t.startsWithIgnoreCase(filter)) continue;
                     const int chipW = juce::Font(juce::FontOptions(11.0f)).getStringWidth(t) + 14;
                     if (cx + chipW > local.getRight())
                     {
@@ -1770,15 +1936,20 @@ private:
             }
 
             // Vocabulary-cloud click: add the suggested tag (idempotent
-            // case-insensitive — same path as drag-and-drop drop).
+            // case-insensitive — same path as drag-and-drop drop). The
+            // input is cleared so the autocomplete filter resets and the
+            // user sees the remaining suggestions on the next pick.
             for (const auto& cc : cloudChipRects)
             {
                 if (! cc.bounds.contains(p)) continue;
-                if (cc.index < 0 || cc.index >= (int) tagVocabulary.size()) return;
+                // Out-of-range = stale rect from a previous paint frame;
+                // skip rather than abort so a later valid rect still wins.
+                if (cc.index < 0 || cc.index >= (int) tagVocabulary.size()) continue;
                 const auto& tag = tagVocabulary[(size_t) cc.index];
                 if (tag.isNotEmpty())
                 {
                     tags.addIfNotAlreadyThere(tag, true);
+                    tagInput.setText({}, false);
                     resized();
                     repaint();
                 }
@@ -2103,6 +2274,12 @@ private:
     Mode         currentMode = Mode::Browse;
     int          conflictEntryIndex = -1;   // -1 = no would-replace target
     bool         updaterBusy = false;       // true → Update button suppressed
+
+    // Canonical tag taxonomy injected by MainPanel via
+    // setTagVocabularyCanonical(). Merged with sidebar-seen user tags into
+    // the cloud rendered by Detail + SaveDrawer.
+    juce::StringArray         canonicalTagVocabulary;
+    std::vector<juce::String> mergedTagVocabulary;   // canonical ∪ user-tags
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PresetManagerPanel)
 };
