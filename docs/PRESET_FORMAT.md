@@ -15,21 +15,30 @@ determined from reading the code, this is called out explicitly.
 
 ## 1. Overview
 
-A `.t5p` file is a binary container that bundles three things into a
+A `.t5p` file is a binary container that bundles five things into a
 single self-contained preset:
 
 1. **Parameter state** — everything needed to restore the synth DSP
    (envelopes, LFOs, drift, filter, FX, sequencer, arpeggiator,
    generative sequencer, wavetable/freeze/noise, engine mode, loop points).
-2. **Generated audio** — the raw 44.1 kHz stereo float32 buffer that
-   feeds the sampler, wavetable oscillator, or freeze engine. Saving the audio means
-   loading the preset does **not** require re-running text-to-audio
-   inference, which is expensive and non-deterministic across devices
-   (CPU vs. MPS vs. CUDA).
+2. **Generated audio** — the 44.1 kHz stereo buffer that feeds the
+   sampler, wavetable oscillator, or freeze engine. From format v4
+   onwards the audio is stored as 24-bit lossless FLAC; v3 stored it
+   as raw float32. Saving the audio means loading the preset does
+   **not** require re-running text-to-audio inference, which is
+   expensive and non-deterministic across devices (CPU vs. MPS vs. CUDA).
 3. **T5 text embeddings** — two 768-float vectors (prompt A and prompt
    B, averaged over sequence length). These populate the Dimension
    Explorer UI on load so the user can continue editing in embedding
    space without re-tokenising.
+4. **Inference cache** (optional) — up to 16 previously-generated audio
+   buffers per preset so the user can compare variations without
+   re-running inference. Each entry is one FLAC blob.
+5. **Session snapshots** (optional) — up to 4 fully-captured GUI states
+   bound to keys 1/2/3/4. Each snapshot includes its own audio buffer
+   (FLAC), APVTS state (XML), prompts, axes, embeddings, dimension
+   offsets and sampler markers — enough to restore the synth to that
+   exact moment.
 
 In addition, the container stores three pieces of **GUI-only state**
 that are not part of the JUCE `AudioProcessorValueTreeState` (APVTS)
@@ -53,7 +62,8 @@ persistence only. It is unsuitable as a user-facing preset because:
 The `.t5p` container wraps the JSON export produced by
 `T5ynthProcessor::exportJsonPreset()`
 (`src/PluginProcessor.cpp:1749`), patches in the GUI-only fields, and
-appends the raw audio as interleaved float32 PCM.
+appends the audio as length-prefixed FLAC blobs (v4) or, in older
+files still on disk, as raw interleaved float32 PCM (v3).
 
 ### 1.2 Non-goals
 
@@ -70,50 +80,62 @@ appends the raw audio as interleaved float32 PCM.
 ## 2. Container Structure
 
 The binary layout is fixed and sequential — there is no tagged-chunk
-system, no TOC, and no checksums. See
-`src/presets/PresetFormat.cpp:78-97` for the writer and
-`:119-198` for the reader.
+system, no TOC, and no checksums. See `src/presets/PresetFormat.cpp`
+for the writer (in `saveToFile`) and reader (in `loadFromFile`).
 
 ```
-offset  width  field
-------  -----  -----------------------------------------------------
-  0     4      Magic bytes: ASCII "T5YN" (0x54 0x35 0x59 0x4E)
-  4     4      Version, uint32 little-endian (currently 3)
-  8     4      JSON payload length in bytes, uint32 little-endian
- 12     N      JSON payload (UTF-8, not NUL-terminated)
- 12+N   M      Primary interleaved float32 PCM (may be empty)
- 12+N+M K      Optional inference-cache PCM tail (only when described by JSON)
+offset    width  field
+------    -----  -----------------------------------------------------
+  0       4      Magic bytes: ASCII "T5YN" (0x54 0x35 0x59 0x4E)
+  4       4      Version, uint32 little-endian (currently 4)
+  8       4      JSON payload length in bytes, uint32 little-endian
+ 12       N      JSON payload (UTF-8, not NUL-terminated)
+ 12+N     ...    Sequence of length-prefixed FLAC blobs, in fixed order:
+                   1. Primary audio (one blob, if numSamples > 0)
+                   2. Inference-cache entries (one blob per entries[i])
+                   3. Sequencer one-shots (one blob per oneShotSamples[i])
+                   4. Snapshot audio (one blob per snapshots[i])
+                 Each blob is [uint32 LE byteLen][N FLAC bytes].
 ```
 
-Total file size = `12 + N + M + K` bytes. `K` is zero unless the JSON
-contains an `inferenceCache` object.
+A FLAC blob carries its own `STREAMINFO` (sampleRate, channels,
+sampleCount); the JSON metadata mirrors those values so a library
+browser can describe a preset without decoding the audio.
+
+**v3 fallback.** In format v3 the audio payloads are raw float32
+interleaved PCM, not FLAC. There is no length prefix — the byte count
+of each payload is derived from the JSON metadata
+(`numSamples * channels * sizeof(float)`). The loader dispatches on
+the version field; writes always emit v4.
 
 ### 2.1 Magic and version
 
-The magic bytes are defined at `src/presets/PresetFormat.h:63`:
+The magic bytes are defined in `src/presets/PresetFormat.h`:
 
 ```cpp
 static constexpr char kMagic[4] = { 'T', '5', 'Y', 'N' };
-static constexpr uint32_t kVersion = 3;
+static constexpr uint32_t kVersion = 4;
+static constexpr uint32_t kMinLoadableVersion = 3;
 ```
 
-The version is currently `3`, written via `out.writeInt(...)` at
-`src/presets/PresetFormat.cpp:80`. In JUCE, `FileOutputStream::writeInt`
-writes a **little-endian int32**. Despite the field being typed
-`uint32_t` in the header, the writer casts it to `int` before writing.
-Readers should treat the field as little-endian 32-bit. The reader
-enforces strict equality with `kVersion` — see section 8.
+The version is currently `4`, written via `out.writeInt(...)`. In JUCE,
+`FileOutputStream::writeInt` writes a **little-endian int32**. Despite
+the field being typed `uint32_t` in the header, the writer casts it to
+`int` before writing. Readers should treat the field as little-endian
+32-bit. The reader accepts any version in
+`[kMinLoadableVersion, kVersion]` and rejects anything outside that
+range — see section 9.
 
 ### 2.2 JSON length
 
-Written at `src/presets/PresetFormat.cpp:83` and read at `:126`:
+Written and read as a little-endian uint32 at offset 8:
 
 ```cpp
 uint32_t jsonLen = *reinterpret_cast<const uint32_t*>(bytes + 8);
 ```
 
-Little-endian, unsigned. The reader bails out if `12 + jsonLen > size`
-(line 128), so a truncated file will fail cleanly.
+The reader bails out if `12 + jsonLen > size`, so a truncated file
+will fail cleanly.
 
 ### 2.3 Endianness
 
@@ -126,11 +148,24 @@ practical concern.
 
 ### 2.4 Chunking
 
-There is no chunk framing. Section boundaries are implicit: header
-(12 bytes), then JSON (length-prefixed), then primary PCM, then optional
-cache PCM. A reader must parse the JSON to discover how many primary
-audio samples to expect; if `inferenceCache` is present, its entry list
-describes the optional cache tail.
+In v4 there is one explicit length prefix per audio payload (4 bytes,
+little-endian uint32), but no overall TOC. Section boundaries
+otherwise follow the JSON: the reader walks a single cursor through
+the payload tail and consumes one length-prefixed FLAC blob for each
+JSON entry it expects to find, in the fixed order
+
+```
+primary audio → inferenceCache.entries[] →
+sequencer.oneShotSamples[] → snapshots[]
+```
+
+If an expected JSON entry has `numSamples == 0` it is treated as
+corrupt: the loader clears the corresponding section and stops parsing
+further entries in it. The writer never emits such entries (they are
+filtered out alongside their payload write).
+
+In v3 there are no length prefixes; payload byte counts are derived
+from JSON metadata only, and snapshots are absent.
 
 ---
 
@@ -174,7 +209,8 @@ then patched at `src/presets/PresetFormat.cpp:18-66`:
 | `audio_meta`    | patch (t5p)   | `sampleRate`, `channels`, `numSamples` for the PCM tail (see 4). |
 | `embeddingA`    | patch (t5p)   | Array of floats, typically 768 entries (see 5). Omitted if not yet generated. |
 | `embeddingB`    | patch (t5p)   | As above. |
-| `inferenceCache`| patch (t5p, optional) | Metadata for an optional raw inference-cache tail appended after the primary PCM payload (see 4.4). |
+| `inferenceCache`| patch (t5p, optional) | Metadata for an optional inference-cache tail; one FLAC blob per entry appears after the primary audio (see 4.4). |
+| `snapshots`     | patch (t5p, optional) | Array of per-slot snapshot state; each entry corresponds to one FLAC blob in the payload tail (see 7). |
 
 ### 3.2 The `synth` object
 
@@ -200,11 +236,12 @@ fields:
 
 The `promptA`/`promptB` fields are intentionally blank in the raw
 `exportJsonPreset()` output because prompts are GUI-only state and not
-APVTS parameters. The `.t5p` save path overwrites them at
-`PresetFormat.cpp:21-22`. When exporting a plain `.json` file via
-`PresetPanel::exportPreset` (`src/gui/PresetPanel.cpp:78`), no such
-patch happens, so `.json` exports lose the prompt text. This is by
-design for the JSON export path (see section 7.2).
+APVTS parameters. The `.t5p` save path overwrites them in
+`PresetFormat::saveToFile`. A plain `.json` dump of
+`exportJsonPreset()` (used by the sequencer's parameters-only export
+in `src/gui/SequencerPanel.cpp`) does not run that patch, so such
+files lose the prompt text — this is by design for the JSON export
+path (see section 8.2).
 
 ### 3.3 What is not saved
 
@@ -227,40 +264,31 @@ preset:
 
 ## 4. Audio Payload
 
-After the JSON, the remainder of the file is raw interleaved PCM.
+In format v4 each audio payload (primary audio, cache entries,
+one-shots, snapshots) is a length-prefixed FLAC blob:
 
-### 4.1 Sample format
+```
+[uint32 LE byteLen][N FLAC bytes]
+```
 
-- **Sample type:** IEEE-754 float32, native (little-endian on all
-  supported hosts).
-- **Channel layout:** interleaved. For stereo, the order is L, R, L,
-  R, ... See the writer at `src/presets/PresetFormat.cpp:91-95`:
+FLAC carries `sampleRate`, `channels` and `sampleCount` itself in the
+`STREAMINFO` block, so each blob is self-describing on decode; the
+JSON metadata mirrors those values for fast library-UI inspection.
+Compression is 24-bit lossless (the JUCE `FlacAudioFormat` writer is
+called with `bitsPerSample = 24` and quality level 5).
 
-  ```cpp
-  for (int s = 0; s < numSamples; ++s)
-      for (int c = 0; c < numChannels; ++c)
-          interleaved[s * numChannels + c] = audioBuf.getSample(c, s);
-  ```
+### 4.1 v3 fallback
 
-  The reader mirrors this at `src/presets/PresetFormat.cpp:193-195`.
-
-- **Channel count:** not hard-coded. Read from `audio_meta.channels`.
-  In practice, `generatedAudioFull` is always stereo (2 channels), but
-  a third-party reader must honour the `channels` field.
-
-- **Sample rate:** not hard-coded. Read from `audio_meta.sampleRate`.
-  T5ynth currently generates at 44.1 kHz
-  (`T5ynthProcessor::getGeneratedSampleRate()` at
-  `src/PluginProcessor.h:88`, backed by `generatedSampleRate` which
-  defaults to 44100.0 at `:155`).
-
-- **Sample count:** read from `audio_meta.numSamples`. Total PCM byte
-  count is `numSamples * numChannels * sizeof(float)`.
+In format v3 the audio payloads are raw IEEE-754 float32, interleaved
+(L, R, L, R, ...) with no length prefix. Each payload's byte count is
+derived from JSON metadata: `numSamples * numChannels * sizeof(float)`.
+The current loader dispatches on the version field and selects the
+appropriate decoder per payload; v3 files therefore continue to load
+on a v4-aware build.
 
 ### 4.2 Audio metadata block
 
-The `audio_meta` JSON object is written at
-`src/presets/PresetFormat.cpp:50-54`:
+The `audio_meta` JSON object describes the **primary** audio:
 
 ```json
 "audio_meta": {
@@ -271,26 +299,28 @@ The `audio_meta` JSON object is written at
 ```
 
 `sampleRate` is a JSON number (double), `channels` and `numSamples`
-are integers.
+are integers. For v4 these fields duplicate what is already in the
+FLAC blob's `STREAMINFO`; they are kept for library-UI use and so a
+reader can refuse to decode a preset whose channel/sample shape it
+does not expect.
 
 ### 4.3 Absent audio
 
 If the user saves a preset before any generation has happened,
-`numSamples` is `0` and no bytes are written past the JSON. The reader
-gates audio extraction on `numSamples > 0 && numChannels > 0 &&
-audioOffset + audioBytes <= size` at
-`src/presets/PresetFormat.cpp:189`, so missing or truncated audio
-leaves `result.hasAudio == false` without erroring the load.
+`numSamples` is `0` and no audio blob is appended. The reader gates
+audio extraction on `numSamples > 0 && numChannels > 0`, so missing or
+truncated audio leaves `result.hasAudio == false` without erroring the
+load.
 
 A consumer must therefore always check `LoadResult::hasAudio` before
 using `LoadResult::audio`.
 
 ### 4.4 Optional inference-cache tail
 
-When the Inference Cache is active, full, and the user explicitly
-enables **include Inference-Cache** in the Save drawer, the writer adds
-an `inferenceCache` JSON object and appends additional raw float32 PCM
-buffers after the primary audio payload.
+When the Inference Cache is active and the user chose to **include
+Inference-Cache** in the Save drawer, the writer adds an
+`inferenceCache` JSON object and appends one length-prefixed FLAC blob
+per entry, in the same order as `entries`:
 
 ```json
 "inferenceCache": {
@@ -301,16 +331,10 @@ buffers after the primary audio payload.
 }
 ```
 
-The cache stores raw inference audio only. It does not duplicate prompt,
-seed, model, device, embedding, or drift state per cache entry. Each
-entry's PCM layout is identical to the primary audio payload: interleaved
-float32 with dimensions taken from that entry's metadata. Entries are
-laid out sequentially in the same order as the `entries` array.
-
-Older T5ynth readers that do not know `inferenceCache` still load the
-preset's primary audio, because they stop reading after
-`audio_meta.numSamples * channels * sizeof(float)` and ignore any extra
-tail bytes.
+The cache stores raw inference audio only. It does not duplicate
+prompt, seed, model, device, embedding or drift state per cache
+entry. Each entry's blob format is identical to the primary audio
+blob.
 
 ---
 
@@ -420,16 +444,109 @@ human-readable axis name unless it has an out-of-band mapping.
 
 ---
 
-## 7. Legacy Format Detection
+## 7. Per-slot Snapshots
+
+T5ynth's GUI maintains up to four **session snapshots** bound to keys
+1/2/3/4 on the user's keyboard. Each captures a full restore-state for
+the synth — audio buffer, full APVTS, prompts, axes, embeddings, and
+the sampler's loop / start / wavetable-extract markers.
+
+Snapshots were session-only until format v4; the `snapshots` JSON key
+plus the trailing FLAC blobs preserve them across saves.
+
+### 7.1 Schema
+
+Written as a JSON array under the top-level `snapshots` key. Only
+slots whose audio is non-empty are emitted; empty slots are dropped
+from both the JSON array and the payload tail so the JSON ↔ blob
+mapping stays in lockstep.
+
+```json
+"snapshots": [
+    {
+        "slot": 0,
+        "promptA": "...",
+        "promptB": "...",
+        "device": "MPS",
+        "model": "stable_audio_open_small",
+        "injectionMode": "linear",
+        "seed": 123456,
+        "randomSeed": false,
+        "lateMixAmount": 0.75,
+        "splitStart": 4.0,
+        "splitEnd": 16.0,
+        "axes": [
+            { "dropdownId": 1, "value": 0.0 },
+            { "dropdownId": 2, "value": 0.0 },
+            { "dropdownId": 3, "value": 0.0 }
+        ],
+        "embeddingA": [ /* optional, 768 floats */ ],
+        "embeddingB": [ /* optional, 768 floats */ ],
+        "dimensionOffsets": [
+            { "dim": 12, "offset": 0.41 }
+        ],
+        "parametersXml": "<...APVTS XML...>",
+        "loopStart": 0.0,
+        "loopEnd": 1.0,
+        "startPos": 0.0,
+        "wtExtractStart": 0.0,
+        "wtExtractEnd": 1.0,
+        "pointsLocked": false,
+        "sampleRate": 44100.0,
+        "channels": 2,
+        "numSamples": 132300
+    }
+]
+```
+
+### 7.2 Slot numbering
+
+`slot` is the 0-based slot index — the GUI displays it as 1..4. The
+reader ignores any entry with `slot` outside `[0, 4)`. Slots are
+addressable; the reader does not infer slot from array position.
+
+### 7.3 APVTS state (`parametersXml`)
+
+Each snapshot carries an XML serialisation of the relevant subset of
+APVTS state. `MainPanel::buildSnapshotsForSave` produces the XML via
+`juce::ValueTree::toXmlString()` on a `copyState()` taken at capture
+time. On load, `MainPanel::applySnapshotsFromLoad` parses it with
+`juce::parseXML(...)` + `juce::ValueTree::fromXml(...)` and restores
+only the whitelisted parameter IDs in `kMainSnapshotParamIds` in
+`src/gui/MainPanel.cpp` (envelopes, LFOs, drift, filter, engine mode,
+modulation, wavetable, generation parameters — but **not** preset
+metadata or sequencer running state).
+
+Third-party tools that wish to inspect the snapshot params should
+treat `parametersXml` as opaque JUCE XML and feed it back into a JUCE
+runtime; the schema is the same as APVTS' own serialisation.
+
+### 7.4 Audio blob
+
+The audio for each snapshot is one length-prefixed FLAC blob in the
+payload tail, **after** the sequencer one-shots, in the same order as
+the JSON `snapshots` array. Decoding is identical to the primary audio
+blob (see section 4).
+
+### 7.5 Backwards compatibility
+
+The `snapshots` key is optional. v3 files and v4 files written before
+this feature simply omit it; the loader populates
+`LoadResult::snapshots` as an empty vector and the GUI's four snapshot
+slots stay clear.
+
+---
+
+## 8. Legacy Format Detection
 
 The loader in `PresetFormat::loadFromFile`
 (`src/presets/PresetFormat.cpp:107`) can handle three formats:
 
-1. **Binary `T5YN` container** (current, version 3)
+1. **Binary `T5YN` container** (current; versions 3 and 4 are both loadable, v4 is the writer default)
 2. **Legacy plain JSON** (`.t5p` or `.json` containing a JSON object)
 3. **Legacy XML** (`.t5p` containing a raw APVTS dump)
 
-### 7.1 Detection logic
+### 8.1 Detection logic
 
 ```cpp
 bool isBinary = (size >= 12 && std::memcmp(data, kMagic, 4) == 0);
@@ -449,27 +566,24 @@ There is no other fallback. A corrupt file that begins with neither
 `T5YN`, `{`, nor `<` will produce a `LoadResult` with `success =
 false` and all other fields default-initialised.
 
-### 7.2 Legacy JSON (and `.json` export)
+### 8.2 Legacy JSON
 
 The JSON branch calls `processor.importJsonPreset(fileText)` directly
 and then extracts prompts/seed/device/model from the
-`synth` object for the UI (`src/presets/PresetFormat.cpp:211-230`).
+`synth` object for the UI.
 
-**Separate flow — `.json` export/import via Preset Panel:** the
-"Export Preset" button at `src/gui/PresetPanel.cpp:78` writes the
-raw output of `exportJsonPreset()` to a `.json` file. Because the
-prompt-patch step only happens in `PresetFormat::saveToFile`, a
-`.json` export has empty `promptA`/`promptB`, no embeddings, no audio,
-no `semanticAxes` key, and no `audio_meta` key. It is a
-parameter-only snapshot. The "Import Preset" button at
-`src/gui/PresetPanel.cpp:35` consumes the same format and is not part
-of the `.t5p` flow.
+Legacy `.json` files (raw output of `exportJsonPreset()`, no `T5YN`
+magic) round-trip the APVTS parameters but not the GUI-only state:
+prompts, axes, embeddings, audio and snapshots are all absent. The
+`.t5p` loader treats them as a lossy subset of the current format and
+silently degrades the UI fields the JSON cannot describe (e.g. no
+audio buffer is restored). The sequencer also has its own
+parameters-only `.json` export/import path that re-uses
+`exportJsonPreset` / `importJsonPreset` under the hood — see
+`src/gui/SequencerPanel.cpp` — but that flow is independent of the
+`.t5p` container and is not handled by `PresetFormat::loadFromFile`.
 
-The effect is: `.json` files are a lossy subset of `.t5p` and are
-treated as "legacy JSON" by the `.t5p` loader. They round-trip
-parameters but not prompts, audio, axes, or embeddings.
-
-### 7.3 Legacy XML
+### 8.3 Legacy XML
 
 The XML branch at `src/presets/PresetFormat.cpp:233-245` parses the
 file as an XML document and reconstructs a `ValueTree` via
@@ -484,56 +598,75 @@ will produce `success = false` without further diagnostics.
 
 ---
 
-## 8. Versioning and Migration
+## 9. Versioning and Migration
 
-The header contains a version field (`kVersion = 3` at
-`src/presets/PresetFormat.h:64`). The reader at
-`src/presets/PresetFormat.cpp:125` enforces a strict equality check:
+The header contains a version field. The current writer constants are
+in `src/presets/PresetFormat.h`:
 
 ```cpp
-uint32_t version = *reinterpret_cast<const uint32_t*>(bytes + 4);
-if (version != kVersion) { /* reject, return LoadResult{success=false} */ }
+static constexpr uint32_t kVersion = 4;          // emitted by writers
+static constexpr uint32_t kMinLoadableVersion = 3; // accepted by readers
 ```
 
-**No migration logic exists.** Version 1 predates the `T5YN` magic
-(it was the plain JSON / XML branches). Version 2 was the previous
-binary container; version 3 is the current binary container. A future
-version 4 must either (a) add a branching dispatch in `loadFromFile`
-that handles both versions, or (b) bump `kVersion` and accept that older
-loaders will reject the new file cleanly rather than silently
-mis-interpret it.
+The reader accepts any version in the closed range
+`[kMinLoadableVersion, kVersion]` and rejects anything outside it:
+
+```cpp
+if (version < kMinLoadableVersion || version > kVersion) { /* reject */ }
+```
+
+For each accepted version the audio-payload decoder dispatches on the
+version field: v3 reads raw float32 interleaved PCM with byte counts
+derived from JSON metadata; v4 reads length-prefixed FLAC blobs. JSON
+schema differences are tolerated by treating unknown keys as
+"missing" — the snapshot block, for example, is simply absent in v3
+files and is parsed only when present.
+
+**No format migration step is performed on load.** The writer always
+emits the latest version; no v3 file is ever rewritten as v4
+automatically. If a user opens an old v3 preset and re-saves, the
+re-saved file will be v4 with FLAC payloads, but until that explicit
+re-save happens the v3 file is read in place each time.
 
 Consequences:
 
-- Any breaking change to the JSON schema or the PCM layout should bump
-  `kVersion`. Older T5ynth builds will then report load failure instead
-  of silently dropping unknown fields.
-- A preset written with an unknown version number (including 0, 99, or
-  0xFFFFFFFF) is rejected up front — the loader returns
-  `LoadResult{success = false}` and, in debug builds, prints the
-  offending version via `DBG`.
-- Third-party writers must write `version = 2` to produce files that
-  the current loader will accept.
+- A preset written with a version number outside the accepted range
+  (including 0, 99, 0xFFFFFFFF or a hypothetical v5) is rejected up
+  front — the loader returns `LoadResult{success = false}` and, in
+  debug builds, prints the offending version via `DBG`.
+- Any breaking change to the JSON schema or the payload layout that
+  cannot be represented as a backwards-compatible extension should
+  bump `kVersion`. If older builds must continue to load the new
+  files, `kMinLoadableVersion` stays where it is and the loader gains
+  another dispatch arm; otherwise `kMinLoadableVersion` is also
+  bumped to cut the older readers off cleanly.
+- Third-party writers should write `version = 4` to produce files that
+  the current loader will accept and that other v4-aware tools will
+  read with full fidelity (including FLAC audio and snapshots).
+  Writing `version = 3` is permitted by the loader but loses FLAC
+  compression and the snapshot block.
 
 ---
 
-## 9. Entry Points
+## 10. Entry Points
 
-| API                                    | File / Line                                  |
-| -------------------------------------- | -------------------------------------------- |
-| `PresetFormat::saveToFile`             | `src/presets/PresetFormat.cpp:9`             |
-| `PresetFormat::loadFromFile`           | `src/presets/PresetFormat.cpp:107`           |
-| `PresetFormat::LoadResult` (struct)    | `src/presets/PresetFormat.h:26`              |
-| `PresetFormat::getPresetsDirectory()`  | `src/presets/PresetFormat.cpp:252`           |
-| `T5ynthProcessor::exportJsonPreset()`  | `src/PluginProcessor.cpp:1749`               |
-| `T5ynthProcessor::importJsonPreset()`  | `src/PluginProcessor.cpp:1965`               |
-| `MainPanel::savePreset()`              | `src/gui/MainPanel.cpp:678`                  |
-| `MainPanel::loadPreset()`              | `src/gui/MainPanel.cpp:711`                  |
-| `MainPanel::loadDefaultPreset()`       | `src/gui/MainPanel.cpp:539`                  |
-| `PresetPanel::exportPreset()` (JSON)   | `src/gui/PresetPanel.cpp:78`                 |
-| `PresetPanel::importPreset()` (JSON)   | `src/gui/PresetPanel.cpp:35`                 |
+| API                                     | File                                |
+| --------------------------------------- | ----------------------------------- |
+| `PresetFormat::saveToFile`              | `src/presets/PresetFormat.cpp`      |
+| `PresetFormat::loadFromFile`            | `src/presets/PresetFormat.cpp`      |
+| `PresetFormat::LoadResult` (struct)     | `src/presets/PresetFormat.h`        |
+| `PresetFormat::SnapshotState` (struct)  | `src/presets/PresetFormat.h`        |
+| `PresetFormat::getPresetsDirectory()`   | `src/presets/PresetFormat.cpp`      |
+| `T5ynthProcessor::exportJsonPreset()`   | `src/PluginProcessor.cpp`           |
+| `T5ynthProcessor::importJsonPreset()`   | `src/PluginProcessor.cpp`           |
+| `MainPanel::savePreset()`               | `src/gui/MainPanel.cpp`             |
+| `MainPanel::loadPreset()`               | `src/gui/MainPanel.cpp`             |
+| `MainPanel::importPresetFile()`         | `src/gui/MainPanel.cpp`             |
+| `MainPanel::loadDefaultPreset()`        | `src/gui/MainPanel.cpp`             |
+| `MainPanel::buildSnapshotsForSave()`    | `src/gui/MainPanel.cpp`             |
+| `MainPanel::applySnapshotsFromLoad()`   | `src/gui/MainPanel.cpp`             |
 
-### 9.1 `LoadResult` contract
+### 10.1 `LoadResult` contract
 
 ```cpp
 struct LoadResult {
@@ -549,36 +682,58 @@ struct LoadResult {
     double sampleRate = 44100.0;
     bool hasAudio = false;
 
-    struct AxisState { int dropdownId = 1; float value = 0.0f; };
+    int inferenceCacheCapacity = 0;
+    std::vector<InferenceCacheAudio> inferenceCache;
+
     std::array<AxisState, 3> axes;
     bool hasAxes = false;
 
     std::vector<float> embeddingA, embeddingB;
+    juce::StringArray tags;
+    std::vector<SnapshotState> snapshots;
+
+    juce::String injectionMode { "linear" };
+    float lateMixAmount = 0.75f;
+    float splitStart    = 4.0f;
+    float splitEnd      = 16.0f;
 };
 ```
-(`src/presets/PresetFormat.h:26-48`)
+(`src/presets/PresetFormat.h` — see the `LoadResult` declaration)
 
 The consumer is expected to check `success`, then `hasAudio` and
-`hasAxes`, and test `embeddingA.empty()` before using the embeddings.
+`hasAxes`, test `embeddingA.empty()` before using the embeddings, and
+inspect `snapshots` / `inferenceCache` only when those vectors are
+non-empty.
 
-### 9.2 `saveToFile` ordering
+### 10.2 `saveToFile` ordering
 
-`saveToFile` at `src/presets/PresetFormat.cpp:9-101` performs these
-steps in order:
+`saveToFile` in `src/presets/PresetFormat.cpp` performs these steps in
+order:
 
 1. Call `exportJsonPreset()` to get the base parameter JSON.
 2. Parse it back to a `DynamicObject`.
 3. Patch prompts, seed, device, model, randomSeed into `synth`.
 4. Add the `semanticAxes` array.
-5. Add the `audio_meta` object.
+5. Add the `audio_meta` object for the primary audio buffer.
 6. Optionally add `embeddingA` / `embeddingB` arrays.
-7. Re-serialise to a string, compute byte length.
-8. Write header: magic, version, JSON length.
-9. Write JSON bytes.
-10. If `numSamples > 0 && numChannels > 0`, interleave and write PCM.
-11. Flush, return success.
+7. Optionally add the `inferenceCache` metadata object (capacity +
+   per-entry sampleRate/channels/numSamples) — empty entries are
+   skipped on both the JSON and payload side to keep the two in
+   lockstep.
+8. Optionally add the `snapshots` array — one entry per non-empty
+   slot, with prompts, axes, embeddings, dimension offsets, APVTS
+   `parametersXml`, sampler markers and audio metadata.
+9. Re-serialise to a string, compute byte length.
+10. Write header: magic, version (`kVersion = 4`), JSON length.
+11. Write JSON bytes.
+12. For each audio payload in fixed order — primary, then inference
+    cache, then sequencer one-shots, then snapshots — encode the
+    buffer with `juce::FlacAudioFormat` (24-bit, quality 5), write a
+    little-endian uint32 byte length, then write the FLAC bytes.
+13. Flush via `TemporaryFile::overwriteTargetFileWithTemporary`, return
+    success.
 
-### 9.3 Bundled presets
+### 10.3 Bundled presets
 
 Bundled presets are stored as `.t5p` files in `resources/presets/`. `CMakeLists.txt`
 globs that folder and bakes the current collection into the binary via
@@ -609,7 +764,7 @@ same clean Init state as the status-bar `Init` action.
 
 ---
 
-## 10. Worked Example: Generic `.t5p` Header
+## 11. Worked Example: Generic `.t5p` Header
 
 A `.t5p` container begins with a fixed 12-byte header:
 
@@ -617,21 +772,25 @@ A `.t5p` container begins with a fixed 12-byte header:
 offset  bytes                                    decoded
 ------  ---------------------------------------  ------------------
 0x00    54 35 59 4E                              magic = "T5YN"
-0x04    03 00 00 00                              version = 3 (LE)
+0x04    04 00 00 00                              version = 4 (LE) — writer default
 0x08    NN NN NN NN                              JSON length (LE)
 0x0C    7B 22 76 65 72 73 69 6F 6E 22 3A ...     JSON begins: {"version":...
 ```
 
-The JSON length is little-endian and determines where the optional raw
-stereo float32 PCM tail begins. If the file contains audio,
-`numSamples` and `channels` must be read from `audio_meta` before
-decoding that tail.
+The JSON length is little-endian and determines where the audio
+payload tail begins. In v4 the tail is a sequence of length-prefixed
+FLAC blobs in fixed order (primary audio → inference-cache entries →
+sequencer one-shots → snapshots); each blob is
+`[uint32 LE byteLen][N FLAC bytes]` and is self-describing once
+decoded. In v3 (also accepted on read) the version byte reads
+`03 00 00 00` and the tail is raw interleaved float32 PCM whose byte
+counts are derived from JSON metadata only.
 
 ---
 
-## 11. Known Limitations
+## 12. Known Limitations
 
-### 11.1 Embedding averaging is lossy
+### 12.1 Embedding averaging is lossy
 
 `embeddingA` and `embeddingB` store the sequence-averaged T5 encoder
 output. The per-token sequence is not preserved. A third-party tool
@@ -639,7 +798,7 @@ cannot, for example, recompute cross-attention weights or re-tokenise.
 For T5ynth's own generation pipeline this is not a problem because
 only the averaged vector is consumed downstream.
 
-### 11.2 Model identifier is opaque and non-portable
+### 12.2 Model identifier is opaque and non-portable
 
 The `synth.model` string is the model directory / identifier as seen
 by the running T5ynth installation (e.g. a Stable Audio Open variant
@@ -664,36 +823,42 @@ model selector will show whatever was previously active. This is
 graceful to the point of being silent; a third-party tool that wants
 to warn on missing models must do its own check.
 
-### 11.3 No checksum or integrity check
+### 12.3 No checksum or integrity check
 
-The format has no CRC, no SHA, and no magic trailer. A corrupted PCM
-tail will simply produce distorted audio on load (as long as the file
-size still matches `audio_meta.numSamples * channels * 4`). A
-corrupted JSON will be caught by `juce::JSON::parse` returning a
-non-object and the loader returning an empty `LoadResult`.
+The format has no CRC, no SHA, and no magic trailer. In v4 a corrupted
+FLAC blob will most likely fail to decode and the corresponding audio
+slot will load empty (the per-payload length prefix lets the loader
+skip past the damage and continue with later payloads). In v3 a
+corrupted raw-float32 PCM tail simply produces distorted audio on
+load, as long as the file size still matches
+`audio_meta.numSamples * channels * 4`. A corrupted JSON in either
+version is caught by `juce::JSON::parse` returning a non-object, and
+the loader returns an empty `LoadResult`.
 
-### 11.4 Dependency on JUCE's JSON pretty-printer
+### 12.4 Dependency on JUCE's JSON pretty-printer
 
 The writer uses `juce::JSON::toString(parsed, /*pretty=*/true)`. A
 third-party reader must not assume a specific whitespace layout —
 only that the bytes between offset 12 and 12+jsonLen are valid UTF-8
 JSON describing a single root object.
 
-### 11.5 `version` field is validated by strict equality
+### 12.5 `version` field is validated by a closed range
 
-The reader at `src/presets/PresetFormat.cpp:125` enforces
-`version == kVersion` (currently 3). Any other value — including
-0, 99, 0xFFFFFFFF, or a future version 4 — is rejected with
-`LoadResult{success = false}`. This is intentional: there is no
-migration logic, so accepting an unknown version would silently
-mis-interpret the payload under the v3 schema.
+The reader accepts any version in `[kMinLoadableVersion, kVersion]`
+(currently `[3, 4]`). Anything outside that range — 0, 99,
+0xFFFFFFFF, or a hypothetical v5 — is rejected with
+`LoadResult{success = false}`. This is intentional: payload decoders
+only exist for the in-range versions, so accepting an unknown version
+would silently mis-interpret the tail under the wrong schema.
 
-The flip side is that a hypothetical v1 binary writer (none exists
-in practice) would also be rejected. Version 1 was never used with
-the `T5YN` magic — it referred to the pre-binary JSON/XML fallback
-branches handled in the non-`isBinary` code path.
+Version 1 and version 2 fall outside the range and are rejected. v1
+was never used with the `T5YN` magic — it referred to the pre-binary
+JSON/XML fallback branches handled in the non-`isBinary` code path
+(see section 8). v2 binary writers no longer exist in practice; the
+one-off Python migration tool referenced in `PresetFormat.h` was used
+to lift the bundled DEMO preset to v3.
 
-### 11.6 Asymmetric handling of `sequencer.enabled`
+### 12.6 Asymmetric handling of `sequencer.enabled`
 
 The exporter writes `sequencer.enabled` into the JSON, but the
 importer at `src/PluginProcessor.cpp:2207-2209` deliberately does not
