@@ -1,4 +1,4 @@
-# T5ynth-Presets — *UCDCAE AI Lab* read-only preset bank
+# T5ynth-Presets — *UCDCAE AI Lab* preset bank
 
 This repository holds the **UCDCAE AI Lab** preset collection for
 [T5ynth](https://github.com/joeriben/T5ynth) — a JUCE/C++ synthesizer that
@@ -10,16 +10,15 @@ engine parameters, generated audio, and (optionally) an inference cache.
 
 You do **not** need to clone this repo. Open T5ynth, go to the preset
 panel, and press **Update Library** under the *UCDCAE AI Lab* bank. The
-plugin reads `manifest.json` from this repo, downloads any new or changed
-`.t5p` files via `raw.githubusercontent.com`, and deletes local files the
-maintainer has removed upstream. The bank lives in the user-writable
-preset directory, so updates never need elevated privileges.
+plugin reads `manifest.json` from this repo and downloads any new or changed
+`.t5p` files via `raw.githubusercontent.com`. The bank lives in the
+user-writable preset directory, so updates never need elevated privileges.
 
-The *UCDCAE AI Lab* bank is **read-only inside the plugin**: rename,
-duplicate, and tag-edit are disabled to keep the local copy in sync with
-upstream. Save your own variations into the User bank instead. You may
-still delete an upstream preset locally if you do not like it — the next
-update will simply re-pull it.
+The *UCDCAE AI Lab* bank is fully editable — rename, duplicate, tag-edit,
+and delete all work. If you overwrite or remove a bundled preset, the next
+**Update Library** run will simply re-pull it from upstream. The updater
+never prunes local files: anything you've added stays put even if it isn't
+in the manifest.
 
 ## Layout
 

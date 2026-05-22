@@ -75,7 +75,6 @@ The current Linux package-layer outputs install:
 /opt/T5ynth/backend/*
 /usr/bin/t5ynth
 /usr/bin/t5ynth-preflight
-/usr/share/T5ynth/presets/*.t5p
 /usr/share/applications/t5ynth.desktop
 /usr/share/icons/hicolor/1024x1024/apps/t5ynth.png
 /usr/share/licenses/t5ynth/{LICENSE.txt,THIRD_PARTY_LICENSES.txt}
@@ -83,9 +82,9 @@ The current Linux package-layer outputs install:
 
 The wrapper at `/usr/bin/t5ynth` simply launches `/opt/T5ynth/T5ynth`.
 The app keeps its expected sibling-backend layout, so no runtime path rewrite
-is needed. Linux packages also install the factory `.t5p` presets under
-`/usr/share/T5ynth/presets`, while the app mirrors bundled presets into the
-user preset directory on first launch for easier browsing/editing.
+is needed. Bundled presets are baked into the binary via `juce_add_binary_data`
+and seeded into the user preset directory on first launch, so Linux packages
+no longer ship a separate system-wide preset tree.
 
 ## 4. What must exist before packaging
 

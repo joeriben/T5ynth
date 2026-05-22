@@ -1,5 +1,66 @@
 # T5ynth Development Log
 
+## 2026-05-22 — Bank Collapse: Drop Factory + Read-Only
+
+Three banks ("Factory", "My Presets", "UCDCAE AI Lab") with near-identical
+contents collapsed to a single user-writable library. The driving principle:
+*user sind mündig* — no read-only gating, no save-redirects, no orphan-prune
+that silently deletes user files. Three commits, one concern each.
+
+### Code (`ce23261b`)
+
+- `PresetFormat::getFactoryPresetsDirectory()` and `isInReadOnlyBank()` are
+  deleted. `getReadOnlyBankName()` renamed to `getBundledBankName()` — same
+  return value (`"UCDCAE AI Lab"`), purely descriptive now. `getAllPresetFiles()`
+  scans the user directory recursively only.
+- `PresetManagerPanel::Entry` drops `isFactory` and `isReadOnly`. All
+  Rename / Duplicate / Delete / tag-edit code paths are unconditional. The
+  `ChipKind::ActiveLocked` chip variant is removed; only `ActiveRemovable`
+  remains. The Save flow no longer redirects writes to the user bank when
+  the source preset lives under the bundled bank.
+- `MainPanel::renameCurrentPreset` / `deleteCurrentPreset` no longer guard on
+  "is this a factory preset" — the previous "Cannot rename a factory preset"
+  status message is gone.
+- `PresetUpdater` no longer prunes orphans. The old behavior deleted any
+  local `.t5p` under the UCDCAE bank that was missing from upstream
+  `manifest.json`. With the bank now writable that loop would silently
+  destroy user-saved files; it's replaced with an explanatory comment. The
+  `Stats::removed` field is dropped. The trade-off is explicit: users who
+  delete a bundled preset locally will get it back on the next *Update
+  Library*; nothing the user added ever gets removed.
+- Conflict-row "Replace" wiring now also fires for UCDCAE entries because
+  `existingPathKeys` covers the bundled bank via recursive `findChildFiles`.
+  This is intended new behavior: overwrite a bundled preset just like any
+  other.
+
+### Installers (`d4f9a5dd`)
+
+The system-wide preset tree (`/Library/Application Support/T5ynth/presets/`,
+`C:\ProgramData\T5ynth\presets\`, `/usr/share/T5ynth/presets/`) is no longer
+shipped by any installer. All three platforms rely on the existing
+`juce_add_binary_data` glob + `MainPanel::ensureBundledPresetsExist` seeding
+into the user directory on first launch — that path has been live since the
+"Factory / User Preset Split" entry below, so removing the system-wide tree
+is a clean simplification. macOS `distribution.xml` choice renamed
+"Factory Presets & Support Data" → "Support Data". Windows `.iss` drops the
+`[Dirs]` section and the `PresetsDir` define. Linux `.deb` / `.rpm` drop the
+`/usr/share/T5ynth/presets` install lines. The `--presets` argument is gone
+from `build_pkg.sh` and from `.github/workflows/build.yml`.
+
+### Docs
+
+This entry, plus `docs/PRESET_FORMAT.md` §9.3 (now "Bundled presets"),
+`docs/LINUX_PACKAGING.md` (install layout no longer lists
+`/usr/share/T5ynth/presets`), `ARCHITECTURE.md` (directory comment),
+`scripts/preset-repo-template/README.md` (no more "read-only inside the
+plugin" caveat — also explicit that the updater never deletes user files).
+The CMake variable `T5YNTH_FACTORY_PRESETS` is intentionally left as-is to
+keep this commit focused on docs; the glob still does exactly what it did.
+
+The historical entries below (especially "Factory / User Preset Split",
+2026-04-11) describe the *prior* design; they remain accurate as a record
+of how we got here.
+
 ## 2026-05-01 — BPM-sync + Free/Trig + Delay crossfade (v1.7.0-beta.1)
 
 Shipped four-day continuation of session 17: the BPM-sync UI from the

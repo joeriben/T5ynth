@@ -37,7 +37,7 @@ t5ynth/
 ├── JUCE/                       # Vendored JUCE framework, see §9
 ├── resources/
 │   ├── ir/                     # Convolution reverb impulse responses (.wav)
-│   ├── presets/                # Factory .t5p presets
+│   ├── presets/                # Bundled .t5p presets (seeded into the UCDCAE AI Lab bank on first launch)
 │   ├── logos/                  # App icon, about-dialog logos
 │   └── T5ynth_Guide.html       # HTML user manual (rendered by WebBrowserComponent)
 ├── docs/                       # Developer documentation (you are here's siblings)

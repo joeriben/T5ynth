@@ -578,11 +578,12 @@ steps in order:
 10. If `numSamples > 0 && numChannels > 0`, interleave and write PCM.
 11. Flush, return success.
 
-### 9.3 Bundled factory presets
+### 9.3 Bundled presets
 
-Factory presets are stored as `.t5p` files in `resources/presets/`. `CMakeLists.txt`
+Bundled presets are stored as `.t5p` files in `resources/presets/`. `CMakeLists.txt`
 globs that folder and bakes the current collection into the binary via
-`juce_add_binary_data`:
+`juce_add_binary_data` (the CMake variable is still named `T5YNTH_FACTORY_PRESETS`
+for historical reasons):
 
 ```cmake
 file(GLOB T5YNTH_FACTORY_PRESETS CONFIGURE_DEPENDS
@@ -599,10 +600,12 @@ juce_add_binary_data(T5ynthData SOURCES
 ```
 
 `MainPanel::ensureBundledPresetsExist` walks `BinaryData::namedResourceList`,
-filters `.t5p` original filenames, and copies those blobs into the user preset
-directory when they are missing. Startup itself does not load a factory demo
-preset; if no standalone session buffer is restored, it uses the same clean Init
-state as the status-bar `Init` action.
+filters `.t5p` original filenames, and copies those blobs into the
+`UCDCAE AI Lab` subdirectory of the user preset directory when they are missing.
+The bank name comes from `PresetFormat::getBundledBankName()`. Once seeded, those
+files are fully user-editable — there is no read-only tier. Startup itself does
+not load a demo preset; if no standalone session buffer is restored, it uses the
+same clean Init state as the status-bar `Init` action.
 
 ---
 
