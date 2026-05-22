@@ -1,7 +1,6 @@
 #include "MainPanel.h"
 #include "../PluginProcessor.h"
 #include "../dsp/BlockParams.h"
-#include "../presets/PresetTagSuggester.h"
 #include "GuiHelpers.h"
 #include "BinaryData.h"
 #include <cmath>
@@ -1139,7 +1138,13 @@ void MainPanel::enterLibrarySaveMode(SaveNameMode mode)
 
     PresetManagerPanel::SavePrefill prefill;
     prefill.defaultName      = defaultName;
-    prefill.suggestedTags    = suggestTagsForCurrent();
+    // Prefill = the *existing* tag set of the currently loaded preset.
+    // We deliberately do NOT run any audio/prompt-content heuristic here —
+    // the old auto-suggester injected "hot" into almost everything (because
+    // PeakCap-mode dominates Stable-Audio output) and silently overwrote
+    // hand-curated tags on every overwrite-save. `processor.getLastTags()`
+    // tracks the loaded preset's tags and stays empty after Init.
+    prefill.suggestedTags    = processorRef.getLastTags();
     prefill.currentBank      = currentBank;
     prefill.existingBanks    = existingBanks;
     prefill.existingPathKeys = std::move(existingPathKeys);
@@ -1291,19 +1296,6 @@ bool MainPanel::patchPresetTagsField(const juce::File& file, const juce::StringA
         for (auto& t : newTags) arr.add(t);
         root.setProperty("tags", arr);
     });
-}
-
-juce::StringArray MainPanel::suggestTagsForCurrent()
-{
-    const auto& audio = processorRef.getGeneratedAudio();
-    const double sr = processorRef.getGeneratedSampleRate();
-    std::optional<SamplePlayer::NormalizeAnalysis> analysis;
-    if (audio.getNumSamples() > 0 && sr > 0.0)
-        analysis = processorRef.getSampler().analyzeNormalizeRegion(
-            audio, 0, audio.getNumSamples(), sr);
-    return PresetTagSuggester::suggest(processorRef.getSampler(), analysis,
-                                       promptPanel.getPromptA(),
-                                       promptPanel.getPromptB());
 }
 
 juce::String MainPanel::getCurrentPresetDisplayName() const

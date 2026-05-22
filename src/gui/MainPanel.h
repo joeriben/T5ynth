@@ -242,7 +242,6 @@ private:
     enum class SaveNameMode { keepName, appendCopy };
     void enterLibrarySaveMode(SaveNameMode mode = SaveNameMode::keepName);
     juce::String getCurrentPresetDisplayName() const;
-    juce::StringArray suggestTagsForCurrent();
     /** Re-write a .t5p file's embedded JSON `name` field without touching
      *  any other field or the audio PCM. Used by the rename flow so the
      *  metadata stored inside the file stays consistent with the new
