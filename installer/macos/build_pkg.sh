@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ── T5ynth macOS .pkg Installer Builder ──────────────────────────────
-# Usage: build_pkg.sh --app <path> --presets <dir>
+# Usage: build_pkg.sh --app <path>
 #                     --version <ver> --output <pkg>
 #                     [--vst3 <T5ynth.vst3>] [--au <T5ynth.component>]
 #                     [--sign-app-identity <identity>]
@@ -19,7 +19,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ── Parse arguments ──────────────────────────────────────────────────
-APP="" PRESETS="" VERSION="0.3.0" OUTPUT="T5ynth-macOS-Installer.pkg"
+APP="" VERSION="0.3.0" OUTPUT="T5ynth-macOS-Installer.pkg"
 VST3="" AU=""
 APP_SIGN_IDENTITY="${MACOS_APP_SIGN_IDENTITY:-}"
 PKG_SIGN_IDENTITY="${MACOS_PKG_SIGN_IDENTITY:-${MACOS_INSTALLER_SIGN_IDENTITY:-}}"
@@ -34,7 +34,6 @@ NOTARY_API_ISSUER="${MACOS_NOTARY_API_ISSUER:-}"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --app)     APP="$2";     shift 2 ;;
-        --presets) PRESETS="$2";  shift 2 ;;
         --vst3)    VST3="$2";    shift 2 ;;
         --au)      AU="$2";      shift 2 ;;
         --version) VERSION="$2"; shift 2 ;;
@@ -118,15 +117,12 @@ else
     exit 1
 fi
 
-for var in APP PRESETS; do
-    if [[ -z "${!var}" ]]; then
-        echo "Error: --$(echo $var | tr '[:upper:]' '[:lower:]') is required"
-        exit 1
-    fi
-done
+if [[ -z "$APP" ]]; then
+    echo "Error: --app is required"
+    exit 1
+fi
 
 [[ -d "$APP" ]] || die "app bundle not found: $APP"
-[[ -d "$PRESETS" ]] || die "presets directory not found: $PRESETS"
 if [[ -n "$VST3" ]]; then
     [[ -d "$VST3" ]] || die "VST3 plugin not found: $VST3"
     [[ "$(basename "$VST3")" == *.vst3 ]] || die "VST3 path must be a .vst3 bundle: $VST3"
@@ -178,17 +174,15 @@ pkgbuild \
     --scripts "$SCRIPT_DIR/scripts-standalone" \
     "$WORK/standalone.pkg"
 
-# ── Stage: Support data (factory presets + empty models dir) ─────────
+# ── Stage: Support data (empty models dir + docs + license) ─────────
+# Presets are no longer shipped via the installer — the bundled .t5p files
+# are embedded into the binary (juce_add_binary_data) and seeded into the
+# user-writable "UCDCAE AI Lab" bank on first launch. The Update Library
+# button keeps that bank in sync with GitHub.
 echo "  Staging support data..."
 STAGE_SUPPORT="$WORK/stage-support"
-mkdir -p "$STAGE_SUPPORT/presets"
 mkdir -p "$STAGE_SUPPORT/models"
 mkdir -p "$STAGE_SUPPORT/docs"
-
-# Copy factory presets
-if [[ -d "$PRESETS" ]]; then
-    cp "$PRESETS"/*.t5p "$STAGE_SUPPORT/presets/" 2>/dev/null || true
-fi
 
 # Copy license
 if [[ -f "$SCRIPT_DIR/../../LICENSE.txt" ]]; then
@@ -333,8 +327,8 @@ ${EXTRA_OUTLINE}    </choices-outline>
         <pkg-ref id="org.ai4artsed.t5ynth.standalone"/>
     </choice>
 
-    <choice id="support-data" title="Factory Presets &amp; Support Data"
-            description="Factory presets and model storage directory."
+    <choice id="support-data" title="Support Data"
+            description="Model storage directory and bundled documentation."
             customLocation="/Library/Application Support/T5ynth"
             customLocationAllowAlternateVolumes="true"
             start_selected="true" enabled="false">

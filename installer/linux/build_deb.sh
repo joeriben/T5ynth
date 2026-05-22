@@ -152,7 +152,6 @@ mkdir -p \
     "$payload_tree/usr/bin" \
     "$payload_tree/usr/share/applications" \
     "$payload_tree/usr/share/icons/hicolor/1024x1024/apps" \
-    "$payload_tree/usr/share/T5ynth/presets" \
     "$payload_tree/usr/share/licenses/t5ynth" \
     "$control_tree" \
     "$deb_root"
@@ -164,7 +163,6 @@ install -m 0644 "$bundle_manifest" "$payload_tree/opt/T5ynth/backend/bundle.env"
 
 install -m 0644 LICENSE.txt "$payload_tree/usr/share/licenses/t5ynth/LICENSE.txt"
 install -m 0644 THIRD_PARTY_LICENSES.txt "$payload_tree/usr/share/licenses/t5ynth/THIRD_PARTY_LICENSES.txt"
-install -m 0644 resources/presets/*.t5p "$payload_tree/usr/share/T5ynth/presets/"
 install -m 0644 resources/logos/t5ynth_icon.png \
     "$payload_tree/usr/share/icons/hicolor/1024x1024/apps/t5ynth.png"
 install -m 0755 installer/linux/t5ynth-wrapper.sh "$payload_tree/usr/bin/t5ynth"

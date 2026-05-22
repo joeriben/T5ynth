@@ -10,9 +10,6 @@
 #ifndef VST3Dir
   #define VST3Dir "..\..\build\T5ynth_artefacts\Release\VST3"
 #endif
-#ifndef PresetsDir
-  #define PresetsDir "..\..\resources\presets"
-#endif
 
 [Setup]
 AppName=T5ynth
@@ -43,11 +40,6 @@ Name: "custom"; Description: "Custom"; Flags: iscustom
 Name: "standalone"; Description: "T5ynth Standalone App"; Types: full standalone custom; Flags: fixed
 Name: "vst3"; Description: "VST3 Plugin"; Types: full custom
 
-[Dirs]
-; System-wide factory presets are installed here. Model downloads stay per-user
-; and are created on demand by the app under %APPDATA%.
-Name: "{commonappdata}\T5ynth\presets"; Permissions: users-readexec
-
 [Registry]
 Root: HKLM; Subkey: "Software\T5ynth"; ValueType: string; ValueName: "InstallDir"; ValueData: "{app}"; Components: standalone; Flags: uninsdeletevalue uninsdeletekeyifempty
 Root: HKLM; Subkey: "Software\T5ynth"; ValueType: string; ValueName: "BackendDir"; ValueData: "{app}\backend"; Components: standalone; Flags: uninsdeletevalue uninsdeletekeyifempty
@@ -58,9 +50,6 @@ Source: "{#StandaloneDir}\*"; DestDir: "{app}"; Components: standalone; Flags: i
 
 ; VST3 plugin
 Source: "{#VST3Dir}\T5ynth.vst3\*"; DestDir: "{commoncf}\VST3\T5ynth.vst3"; Components: vst3; Flags: ignoreversion recursesubdirs
-
-; Factory presets
-Source: "{#PresetsDir}\*.t5p"; DestDir: "{commonappdata}\T5ynth\presets"; Flags: ignoreversion
 
 ; License
 Source: "..\..\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion

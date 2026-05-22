@@ -21,11 +21,6 @@ mkdir -p "$APP_SUPPORT/models"
 chgrp staff "$APP_SUPPORT/models"
 chmod 775 "$APP_SUPPORT/models"
 
-# Ensure presets directory exists with correct permissions
-mkdir -p "$APP_SUPPORT/presets"
-chgrp staff "$APP_SUPPORT/presets"
-chmod 755 "$APP_SUPPORT/presets"
-
 # Remove quarantine from installed items
 xattr -cr "$APP_BUNDLE" 2>/dev/null || true
 
