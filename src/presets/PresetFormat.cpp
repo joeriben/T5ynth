@@ -232,6 +232,11 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
         juce::Array<juce::var> entries;
         for (const auto& entry : inferenceCacheEntries)
         {
+            // Skip empty buffers in lockstep with writeCompressedAudio below —
+            // otherwise the JSON entry would have no corresponding payload
+            // and the read cursor would desync.
+            if (entry.audio.getNumSamples() <= 0 || entry.audio.getNumChannels() <= 0)
+                continue;
             juce::DynamicObject::Ptr e = new juce::DynamicObject();
             e->setProperty("sampleRate", entry.sampleRate);
             e->setProperty("channels", entry.audio.getNumChannels());
@@ -248,6 +253,9 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
         juce::Array<juce::var> entries;
         for (const auto& slot : sequencerOneShots)
         {
+            // Skip empty buffers in lockstep with writeCompressedAudio below.
+            if (slot.audio.getNumSamples() <= 0 || slot.audio.getNumChannels() <= 0)
+                continue;
             juce::DynamicObject::Ptr e = new juce::DynamicObject();
             e->setProperty("step", slot.step);
             e->setProperty("slot", slot.slot);
@@ -284,37 +292,36 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
     out.writeInt(static_cast<int>(jsonLen));
     out.write(jsonData, static_cast<size_t>(jsonLen));
 
-    auto writeInterleavedAudio = [&out](const juce::AudioBuffer<float>& buffer)
+    // Each audio payload is encoded as 24-bit FLAC into a memory blob and
+    // written as [uint32 LE byteLen][FLAC bytes]. FLAC carries channels /
+    // sampleRate / sampleCount itself; JSON metadata mirrors them for UI.
+    bool audioWriteOk = true;
+    auto writeCompressedAudio = [&out, &audioWriteOk](const juce::AudioBuffer<float>& buffer,
+                                                      double sampleRate)
     {
-        const int samples = buffer.getNumSamples();
-        const int channels = buffer.getNumChannels();
-        if (samples <= 0 || channels <= 0)
-            return;
+        if (buffer.getNumSamples() <= 0 || buffer.getNumChannels() <= 0) return;
 
-        // Interleave channels
-        std::vector<float> interleaved(static_cast<size_t>(samples * channels));
-        for (int s = 0; s < samples; ++s)
+        juce::MemoryBlock flacBlob;
+        if (!encodeAudioToFlac(flacBlob, buffer, sampleRate))
         {
-            for (int c = 0; c < channels; ++c)
-                interleaved[static_cast<size_t>(s * channels + c)] = buffer.getSample(c, s);
+            audioWriteOk = false;
+            return;
         }
-        out.write(interleaved.data(), interleaved.size() * sizeof(float));
+        out.writeInt(static_cast<int>(flacBlob.getSize()));
+        out.write(flacBlob.getData(), flacBlob.getSize());
     };
 
-    // Audio PCM (interleaved float32)
     if (numSamples > 0 && numChannels > 0)
-    {
-        writeInterleavedAudio(audioBuf);
-    }
+        writeCompressedAudio(audioBuf, processor.getGeneratedSampleRate());
 
     if (writeInferenceCache)
-    {
         for (const auto& entry : inferenceCacheEntries)
-            writeInterleavedAudio(entry.audio);
-    }
+            writeCompressedAudio(entry.audio, entry.sampleRate);
 
     for (const auto& slot : sequencerOneShots)
-        writeInterleavedAudio(slot.audio);
+        writeCompressedAudio(slot.audio, slot.sampleRate);
+
+    if (!audioWriteOk) return false;
 
     out.flush();
     if (!out.getStatus().wasOk())
@@ -324,7 +331,7 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Load: auto-detect format (T5YN binary / JSON / XML)
+// Load: auto-detect format (T5YN binary v3/v4 / legacy JSON / legacy XML)
 // ═══════════════════════════════════════════════════════════════════
 
 PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5ynthProcessor& processor)
@@ -343,15 +350,16 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
 
     if (isBinary)
     {
-        // ── New binary format ──
+        // ── Binary format (v3 raw-PCM or v4 FLAC) ──
         auto* bytes = reinterpret_cast<const uint8_t*>(data);
         uint32_t version = *reinterpret_cast<const uint32_t*>(bytes + 4);
-        if (version != kVersion)
+        if (version < kMinLoadableVersion || version > kVersion)
         {
             // Unknown / future version: refuse to parse rather than silently
-            // mis-interpret the JSON/PCM layout as the current schema.
+            // mis-interpret the binary tail under the wrong schema.
             DBG("PresetFormat: unsupported .t5p version " << (int) version
-                << " (expected " << (int) kVersion << ")");
+                << " (loader accepts " << (int) kMinLoadableVersion
+                << "…" << (int) kVersion << ")");
             return result;
         }
         uint32_t jsonLen = *reinterpret_cast<const uint32_t*>(bytes + 8);
@@ -424,32 +432,28 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
             for (auto& v : *embBArr) result.embeddingB.push_back(static_cast<float>(v));
         }
 
-        // Extract audio
-        size_t cacheOffset = 12 + static_cast<size_t>(jsonLen);
+        // Extract audio payloads. The same offset cursor walks through
+        // primary audio, then cache entries, then one-shots — in that fixed
+        // order. readAudioPayload picks the right decoder based on version
+        // (v3 = raw float32 with implicit length from JSON metadata,
+        //  v4 = uint32-LE byteLen prefix + self-describing FLAC blob).
+        size_t cursor = 12 + static_cast<size_t>(jsonLen);
         if (auto* am = root->getProperty("audio_meta").getDynamicObject())
         {
             int numChannels = static_cast<int>(am->getProperty("channels"));
             int numSamples = static_cast<int>(am->getProperty("numSamples"));
             result.sampleRate = static_cast<double>(am->getProperty("sampleRate"));
 
-            size_t audioOffset = 12 + static_cast<size_t>(jsonLen);
-            size_t audioBytes = static_cast<size_t>(numSamples * numChannels) * sizeof(float);
             if (numSamples > 0 && numChannels > 0)
-                cacheOffset = audioOffset + audioBytes;
-
-            if (numSamples > 0 && numChannels > 0 && audioOffset + audioBytes <= size)
             {
-                const auto* pcm = reinterpret_cast<const float*>(data + audioOffset);
-                result.audio.setSize(numChannels, numSamples);
-                for (int s = 0; s < numSamples; ++s)
-                    for (int c = 0; c < numChannels; ++c)
-                        result.audio.setSample(c, s, pcm[s * numChannels + c]);
-                result.hasAudio = true;
+                if (readAudioPayload(result.audio, bytes, size, cursor, version,
+                                     numChannels, numSamples))
+                    result.hasAudio = true;
             }
         }
 
-        // Optional raw inference-cache tail. Old readers ignore these bytes
-        // because the primary audio length is still governed by audio_meta.
+        // Optional inference-cache tail. Each entry is one length-prefixed
+        // FLAC blob in v4 (or one raw-PCM run in v3).
         if (auto* cacheMeta = root->getProperty("inferenceCache").getDynamicObject())
         {
             result.inferenceCacheCapacity = juce::jmax(0, static_cast<int>(cacheMeta->getProperty("capacity")));
@@ -463,23 +467,23 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
                     const int numChannels = static_cast<int>(em->getProperty("channels"));
                     const int numSamples = static_cast<int>(em->getProperty("numSamples"));
                     const double sr = static_cast<double>(em->getProperty("sampleRate"));
-                    const size_t audioBytes = static_cast<size_t>(numSamples * numChannels) * sizeof(float);
-                    if (numSamples <= 0 || numChannels <= 0 || cacheOffset + audioBytes > size)
+                    if (numSamples <= 0 || numChannels <= 0)
                     {
                         result.inferenceCache.clear();
                         result.inferenceCacheCapacity = 0;
                         break;
                     }
 
-                    const auto* pcm = reinterpret_cast<const float*>(data + cacheOffset);
                     LoadResult::InferenceCacheAudio cacheAudio;
                     cacheAudio.sampleRate = sr > 0.0 ? sr : 44100.0;
-                    cacheAudio.audio.setSize(numChannels, numSamples);
-                    for (int s = 0; s < numSamples; ++s)
-                        for (int c = 0; c < numChannels; ++c)
-                            cacheAudio.audio.setSample(c, s, pcm[s * numChannels + c]);
+                    if (!readAudioPayload(cacheAudio.audio, bytes, size, cursor, version,
+                                          numChannels, numSamples))
+                    {
+                        result.inferenceCache.clear();
+                        result.inferenceCacheCapacity = 0;
+                        break;
+                    }
                     result.inferenceCache.push_back(std::move(cacheAudio));
-                    cacheOffset += audioBytes;
                 }
             }
             result.inferenceCacheCapacity = juce::jmax(result.inferenceCacheCapacity,
@@ -502,27 +506,26 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
                     const int numChannels = static_cast<int>(em->getProperty("channels"));
                     const int numSamples = static_cast<int>(em->getProperty("numSamples"));
                     const double sr = static_cast<double>(em->getProperty("sampleRate"));
-                    const size_t audioBytes = static_cast<size_t>(numSamples * numChannels) * sizeof(float);
-                    if (numSamples <= 0 || numChannels <= 0 || cacheOffset + audioBytes > size)
+                    if (numSamples <= 0 || numChannels <= 0)
                     {
                         slots.clear();
                         break;
                     }
 
-                    const auto* pcm = reinterpret_cast<const float*>(data + cacheOffset);
                     T5ynthProcessor::SequencerOneShotExport slotAudio;
                     slotAudio.step = step;
                     slotAudio.slot = slot;
                     slotAudio.mode = static_cast<T5ynthStepSequencer::OneShotMode>(mode);
                     slotAudio.label = em->getProperty("label").toString();
                     slotAudio.sampleRate = sr > 0.0 ? sr : 44100.0;
-                    slotAudio.audio.setSize(numChannels, numSamples);
-                    for (int s = 0; s < numSamples; ++s)
-                        for (int c = 0; c < numChannels; ++c)
-                            slotAudio.audio.setSample(c, s, pcm[s * numChannels + c]);
+                    if (!readAudioPayload(slotAudio.audio, bytes, size, cursor, version,
+                                          numChannels, numSamples))
+                    {
+                        slots.clear();
+                        break;
+                    }
 
                     slots.push_back(std::move(slotAudio));
-                    cacheOffset += audioBytes;
                 }
 
                 if (!slots.empty())
