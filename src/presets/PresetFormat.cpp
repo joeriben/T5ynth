@@ -2,6 +2,7 @@
 #include "../PluginProcessor.h"
 #include "../dsp/BlockParams.h"
 #include <cstring>
+#include <memory>
 
 namespace
 {
@@ -34,10 +35,107 @@ juce::StringArray readTagsFromJson(const juce::var& parsed)
     }
     return tags;
 }
+
+// ── FLAC compression helpers (v4 audio payloads) ─────────────────────
+// Encode an AudioBuffer<float> to a self-contained 24-bit FLAC blob in
+// memory. FLAC's STREAMINFO carries sampleRate / channels / sampleCount,
+// so the blob is self-describing on decode; JSON metadata still mirrors
+// them so the library UI can describe a preset without decoding.
+
+bool encodeAudioToFlac(juce::MemoryBlock& outBlob,
+                       const juce::AudioBuffer<float>& buffer,
+                       double sampleRate)
+{
+    outBlob.reset();
+    const int numChannels = buffer.getNumChannels();
+    const int numSamples = buffer.getNumSamples();
+    if (numChannels <= 0 || numSamples <= 0) return false;
+
+    auto stream = std::make_unique<juce::MemoryOutputStream>(outBlob, false);
+
+    juce::FlacAudioFormat fmt;
+    std::unique_ptr<juce::AudioFormatWriter> writer(
+        fmt.createWriterFor(stream.get(),
+                            sampleRate > 0.0 ? sampleRate : 44100.0,
+                            static_cast<unsigned int>(numChannels),
+                            24,
+                            {},
+                            5));
+    if (writer == nullptr) return false;
+    // createWriterFor took ownership of the raw pointer on success.
+    stream.release();
+
+    if (!writer->writeFromAudioSampleBuffer(buffer, 0, numSamples))
+        return false;
+
+    // Destruct the writer to flush FLAC trailer and delete the stream.
+    writer.reset();
+    return outBlob.getSize() > 0;
+}
+
+bool decodeAudioFromFlac(juce::AudioBuffer<float>& outBuffer,
+                         const void* flacBytes,
+                         size_t flacByteLen)
+{
+    if (flacBytes == nullptr || flacByteLen == 0) return false;
+
+    auto stream = std::make_unique<juce::MemoryInputStream>(flacBytes, flacByteLen, false);
+
+    juce::FlacAudioFormat fmt;
+    std::unique_ptr<juce::AudioFormatReader> reader(
+        fmt.createReaderFor(stream.get(), false));
+    if (reader == nullptr) return false;
+    stream.release();  // reader owns the stream now
+
+    const int numChannels = static_cast<int>(reader->numChannels);
+    const int numSamples  = static_cast<int>(reader->lengthInSamples);
+    if (numChannels <= 0 || numSamples <= 0) return false;
+
+    outBuffer.setSize(numChannels, numSamples);
+    return reader->read(&outBuffer, 0, numSamples, 0, true, true);
+}
+
+// Reads the next audio payload from a binary container at `offset`. For
+// v3 the byte length is implicit (rawSamples * channels * sizeof(float));
+// for v4 a uint32 LE length prefix precedes a self-contained FLAC blob.
+// Advances `offset` past the payload on success. Returns false if the
+// payload is malformed or runs past `size`.
+bool readAudioPayload(juce::AudioBuffer<float>& outBuffer,
+                      const uint8_t* data, size_t size, size_t& offset,
+                      uint32_t version,
+                      int expectedChannels, int expectedSamples)
+{
+    if (version == 3)
+    {
+        if (expectedChannels <= 0 || expectedSamples <= 0) return false;
+        const size_t audioBytes = static_cast<size_t>(expectedSamples * expectedChannels)
+                                  * sizeof(float);
+        if (offset + audioBytes > size) return false;
+
+        const auto* pcm = reinterpret_cast<const float*>(data + offset);
+        outBuffer.setSize(expectedChannels, expectedSamples);
+        for (int s = 0; s < expectedSamples; ++s)
+            for (int c = 0; c < expectedChannels; ++c)
+                outBuffer.setSample(c, s, pcm[s * expectedChannels + c]);
+        offset += audioBytes;
+        return true;
+    }
+
+    // v4: length-prefixed FLAC blob
+    if (offset + 4 > size) return false;
+    uint32_t byteLen = 0;
+    std::memcpy(&byteLen, data + offset, 4);
+    offset += 4;
+    if (offset + byteLen > size) return false;
+
+    const bool ok = decodeAudioFromFlac(outBuffer, data + offset, byteLen);
+    offset += byteLen;
+    return ok;
+}
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Save: T5YN header + JSON + raw float32 PCM
+// Save: T5YN header + JSON + length-prefixed FLAC audio blobs (v4)
 // ═══════════════════════════════════════════════════════════════════
 
 bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor,
@@ -502,19 +600,6 @@ juce::File PresetFormat::getPresetsDirectory()
     return getUserPresetsDirectory();
 }
 
-juce::File PresetFormat::getFactoryPresetsDirectory()
-{
-   #if JUCE_MAC
-    return juce::File("/Library/Application Support/T5ynth/presets");
-   #elif JUCE_LINUX
-    return juce::File("/usr/share/T5ynth/presets");
-   #else
-    // Windows: C:\ProgramData\T5ynth\presets (installed by Setup)
-    return juce::File::getSpecialLocation(juce::File::commonApplicationDataDirectory)
-        .getChildFile("T5ynth").getChildFile("presets");
-   #endif
-}
-
 juce::File PresetFormat::getUserPresetsDirectory()
 {
     auto dir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
@@ -524,15 +609,9 @@ juce::File PresetFormat::getUserPresetsDirectory()
     return dir;
 }
 
-juce::String PresetFormat::getReadOnlyBankName()
+juce::String PresetFormat::getBundledBankName()
 {
     return "UCDCAE AI Lab";
-}
-
-bool PresetFormat::isInReadOnlyBank(const juce::File& file)
-{
-    const auto bankDir = getUserPresetsDirectory().getChildFile(getReadOnlyBankName());
-    return file.isAChildOf(bankDir);
 }
 
 juce::Array<juce::File> PresetFormat::getAllPresetFiles()
@@ -540,13 +619,7 @@ juce::Array<juce::File> PresetFormat::getAllPresetFiles()
     juce::Array<juce::File> files;
 
     // Recursive scan so user-created subdirectories ("banks") show up in
-    // the library. Factory dir is also scanned recursively in case a future
-    // installer ships categorized subfolders.
-    auto factoryDir = getFactoryPresetsDirectory();
-    if (factoryDir.isDirectory())
-        for (auto& f : factoryDir.findChildFiles(juce::File::findFiles, true, "*.t5p"))
-            files.add(f);
-
+    // the library.
     auto userDir = getUserPresetsDirectory();
     if (userDir.isDirectory())
         for (auto& f : userDir.findChildFiles(juce::File::findFiles, true, "*.t5p"))

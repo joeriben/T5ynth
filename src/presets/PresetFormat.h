@@ -9,18 +9,25 @@ class T5ynthProcessor;
 /**
  * Preset serialization and deserialization.
  *
- * Format v3 (.t5p): Binary container with embedded audio.
- *   [4B] Magic "T5YN"
- *   [4B] Version (uint32 LE, currently 3)
- *   [4B] JSON length (uint32 LE)
- *   [NB] JSON (params + meta + embeddings)
- *   [MB] Primary raw float32 interleaved stereo PCM
- *   [KB] Optional inference-cache PCM tail, described by JSON inferenceCache
+ * Format v4 (.t5p): Binary container with FLAC-compressed audio payloads.
+ *   [4B]  Magic "T5YN"
+ *   [4B]  Version (uint32 LE, currently 4)
+ *   [4B]  JSON length (uint32 LE)
+ *   [NB]  JSON (params + meta + embeddings + snapshots)
+ *   [VAR] Sequence of length-prefixed FLAC blobs, in JSON-declared order:
+ *           primary audio · inferenceCache entries · sequencer one-shots.
+ *           Each blob is [4B uint32 LE byteLen][N FLAC bytes]. 24-bit
+ *           lossless FLAC; the FLAC stream's STREAMINFO carries sampleRate,
+ *           channels and sampleCount — JSON metadata mirrors them so the
+ *           library UI can describe a preset without decoding the audio.
  *
- * Format break v2 → v3: all choice-parameter JSON fields are now
- * serialized as stable snake_case keys drawn from BlockParams.h
- * kEntries tables (the `.key` column). Old v2/v1 presets are rejected
- * by the strict version check in PresetFormat.cpp — migrate via the
+ * Format break v3 → v4: audio is FLAC instead of raw float32 PCM. v3
+ * presets remain loadable (the reader dispatches on the version field
+ * and falls back to the raw-PCM path); writes always emit v4.
+ *
+ * Format break v2 → v3: all choice-parameter JSON fields are serialised
+ * as stable snake_case keys from BlockParams.h kEntries (the `.key`
+ * column). v2 and v1 presets are rejected outright — migrate via the
  * one-off Python tool used for the bundled DEMO preset.
  */
 class PresetFormat
@@ -87,29 +94,24 @@ public:
     /** Get default preset directory (creates if needed). Alias for getUserPresetsDirectory(). */
     static juce::File getPresetsDirectory();
 
-    /** System-wide factory presets (read-only, installed by .pkg). */
-    static juce::File getFactoryPresetsDirectory();
-
     /** Per-user presets directory (writable, creates if needed). */
     static juce::File getUserPresetsDirectory();
 
-    /** All .t5p files from factory + user directories (factory first). */
+    /** All .t5p files under the user presets directory (recursive). */
     static juce::Array<juce::File> getAllPresetFiles();
 
-    /** Name of the GitHub-synced, read-only bank that lives under the user
-     *  presets dir. Anything inside this subdirectory is treated as
-     *  immutable by the UI — edits get redirected to the writable user
-     *  bank, and the contents are refreshed by PresetUpdater. */
-    static juce::String getReadOnlyBankName();
-
-    /** True if `file` lives in the read-only GitHub-synced bank. Used by
-     *  PresetManagerPanel to gate destructive actions and by the save flow
-     *  to redirect overwrites into the user bank. */
-    static bool isInReadOnlyBank(const juce::File& file);
+    /** Name of the GitHub-synced bank ("UCDCAE AI Lab") under the user
+     *  presets dir. Used to seed the offline preset bundle and as the
+     *  PresetUpdater download target — the bank itself is fully editable
+     *  like any other, this is just a well-known directory name. */
+    static juce::String getBundledBankName();
 
 private:
     static constexpr char kMagic[4] = { 'T', '5', 'Y', 'N' };
-    static constexpr uint32_t kVersion = 3;
+    static constexpr uint32_t kVersion = 4;
+    // v3 = raw float32 PCM payloads. v4 = length-prefixed FLAC blobs.
+    // Both are accepted on read; writes always emit kVersion.
+    static constexpr uint32_t kMinLoadableVersion = 3;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PresetFormat)
 };

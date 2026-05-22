@@ -42,14 +42,9 @@ public:
         juce::String promptB;
         juce::StringArray tags;
         juce::Time modified;
-        bool isFactory = false;
-        /** True for any preset the user is not allowed to overwrite — covers
-         *  both legacy factory presets and the GitHub-synced UCDCAE AI Lab
-         *  bank. Save / rename / delete / tag-edit are gated on this. */
-        bool isReadOnly = false;
-        /** Bank label: "Factory" for any factory file, "My Presets" for user
-         *  presets at the user-dir root, or the subdir name (joined with
-         *  "/" if nested) for presets in user-created subdirectories. */
+        /** Bank label: "My Presets" for files at the user-dir root, or the
+         *  subdir name (joined with "/" if nested) for presets in user-created
+         *  subdirectories like the GitHub-synced "UCDCAE AI Lab" bank. */
         juce::String bank;
         bool hasAxes = false;
         std::array<std::pair<juce::String, float>, 3> axes;
@@ -129,8 +124,7 @@ public:
             // the drawer bank where the user last set it — the filter and
             // the save target are decoupled in that direction.
             if (currentMode == Mode::Save
-                && sidebar.activeBank.isNotEmpty()
-                && ! sidebar.activeBank.equalsIgnoreCase("Factory"))
+                && sidebar.activeBank.isNotEmpty())
                 saveDrawer.setBank(sidebar.activeBank);
         };
         sidebar.onCreateBankRequested = [this]
@@ -159,7 +153,6 @@ public:
         {
             if (selectedEntryIndex < 0 || onTagsChanged == nullptr) return;
             const auto& e = allEntries[(size_t) selectedEntryIndex];
-            if (e.isReadOnly) return;
             onTagsChanged(e.file, newTags);
         };
         detail.installEscListener(this);
@@ -254,18 +247,13 @@ public:
     {
         allEntries.clear();
 
-        auto factoryDir = PresetFormat::getFactoryPresetsDirectory();
         for (auto& f : PresetFormat::getAllPresetFiles())
-        {
-            const bool fac = (f.getParentDirectory() == factoryDir) || f.isAChildOf(factoryDir);
-            allEntries.push_back(parseEntry(f, fac));
-        }
+            allEntries.push_back(parseEntry(f));
 
         std::stable_sort(allEntries.begin(), allEntries.end(),
             [](const Entry& a, const Entry& b)
             {
-                if (a.isReadOnly != b.isReadOnly) return a.isReadOnly && ! b.isReadOnly;
-                if (a.bank != b.bank)             return a.bank.compareIgnoreCase(b.bank) < 0;
+                if (a.bank != b.bank) return a.bank.compareIgnoreCase(b.bank) < 0;
                 return a.name.compareIgnoreCase(b.name) < 0;
             });
 
@@ -419,8 +407,7 @@ private:
      *  Save-Drawer active set, and Save-Drawer suggestion cloud. */
     enum class ChipKind
     {
-        ActiveRemovable,   // Save-Drawer active set: filled, with × hitbox
-        ActiveLocked,      // Detail-card on a factory preset: filled, no ×
+        ActiveRemovable,   // Detail-card + Save-Drawer active set: filled, with × hitbox
         Suggestion         // Save-Drawer cloud: outline-only, click to add
     };
 
@@ -436,9 +423,7 @@ private:
     {
         const int rowH = 22;
         const int chipH = rowH - 2;
-        const int paddingX = (kind == ChipKind::ActiveRemovable) ? 28
-                            : (kind == ChipKind::ActiveLocked)   ? 14
-                                                                 : 14;
+        const int paddingX = (kind == ChipKind::ActiveRemovable) ? 28 : 14;
         const int chipW = juce::Font(juce::FontOptions(11.0f)).getStringWidth(label) + paddingX;
         const juce::Rectangle<int> chip(x, y, chipW, chipH);
 
@@ -496,16 +481,14 @@ private:
     }
 
     /** Bank label derived from a preset's location on disk:
-     *    factory file       → "Factory"
      *    user dir root      → "My Presets"
      *    user dir subdir(s) → joined subdirectory path, e.g. "Ambient" or
-     *                         "Drones/Long".
+     *                         "Drones/Long" or "UCDCAE AI Lab".
      *  This is the ONLY place that maps disk layout to bank semantics so
      *  the same logic can be reused by Save (where target dir is derived
      *  from a chosen bank name). */
-    static juce::String computeBankLabel(const juce::File& file, bool isFactory)
+    static juce::String computeBankLabel(const juce::File& file)
     {
-        if (isFactory) return "Factory";
         const auto userRoot = PresetFormat::getUserPresetsDirectory();
         auto parent = file.getParentDirectory();
         if (parent == userRoot) return kRootUserBank();
@@ -560,15 +543,13 @@ private:
                               { tags.begin(),   tags.end()   });
     }
 
-    Entry parseEntry(const juce::File& file, bool isFactory)
+    Entry parseEntry(const juce::File& file)
     {
         Entry e;
         e.file = file;
         e.name = file.getFileNameWithoutExtension();
         e.modified = file.getLastModificationTime();
-        e.isFactory = isFactory;
-        e.isReadOnly = isFactory || PresetFormat::isInReadOnlyBank(file);
-        e.bank = computeBankLabel(file, isFactory);
+        e.bank = computeBankLabel(file);
 
         // Read header — only the JSON section, not the audio PCM
         juce::FileInputStream in(file);
@@ -675,7 +656,6 @@ private:
         for (size_t i = 0; i < allEntries.size(); ++i)
         {
             const auto& e = allEntries[i];
-            if (e.isReadOnly) continue;
             if (! e.file.isAChildOf(userDir)) continue;
             const auto rel = e.file.getRelativePathFrom(userDir).replace("\\", "/").toLowerCase();
             if (rel == key) { conflictEntryIndex = (int) i; return; }
@@ -1007,7 +987,6 @@ private:
             {
                 const auto t = tagInput.getText().trim();
                 if (t.isEmpty()) return;
-                if (locked) { tagInput.setText({}, false); return; }
                 tags.addIfNotAlreadyThere(t);
                 tagInput.setText({}, false);
                 if (onTagsCommitted) onTagsCommitted(tags);
@@ -1033,7 +1012,6 @@ private:
             hasAxes = false;
             sampleRate = 0.0; numChannels = 0; numSamples = 0;
             tags.clear();
-            locked = false;
             updateButtonsEnabled();
             resized();
             repaint();
@@ -1043,7 +1021,7 @@ private:
         {
             entryValid = true;
             name = e.name;
-            bank = e.bank.isNotEmpty() ? e.bank : (e.isFactory ? "Factory" : "User");
+            bank = e.bank;
             modified = e.modified;
             promptA = e.promptA;
             promptB = e.promptB;
@@ -1057,7 +1035,6 @@ private:
             engineMode  = e.engineMode;
             seqMode     = e.seqMode;
             tags = e.tags;
-            locked = e.isReadOnly;  // factory + UCDCAE AI Lab tags are read-only
             cachedPromptW = -1;    // force recompute on next paint
             updateButtonsEnabled();
             resized();
@@ -1211,7 +1188,7 @@ private:
         void updateButtonsEnabled()
         {
             loadBtn.setEnabled(browseActionsVisible && entryValid);
-            tagInput.setEnabled(browseActionsVisible && entryValid && ! locked);
+            tagInput.setEnabled(browseActionsVisible && entryValid);
         }
 
         /** Compact label/value row used by the META block. */
@@ -1318,20 +1295,18 @@ private:
             const int rowH = 22;
             const int gapX = 4;
             const int gapY = 4;
-            const auto kind = locked ? ChipKind::ActiveLocked : ChipKind::ActiveRemovable;
 
             for (int i = 0; i < tags.size(); ++i)
             {
                 const auto& t = tags[i];
-                const int paddingX = locked ? 14 : 28;
-                const int chipW = juce::Font(juce::FontOptions(11.0f)).getStringWidth(t) + paddingX;
+                const int chipW = juce::Font(juce::FontOptions(11.0f)).getStringWidth(t) + 28;
                 if (x + chipW > r.getRight())
                 {
                     x = r.getX();
                     y += rowH + gapY;
                     if (y + rowH > r.getBottom()) break;
                 }
-                const auto chip = paintTagChip(g, x, y, t, kind);
+                const auto chip = paintTagChip(g, x, y, t, ChipKind::ActiveRemovable);
                 chipRects.push_back({ chip, i });
                 x += chipW + gapX;
             }
@@ -1352,11 +1327,7 @@ private:
                     if (cr.bounds.contains(p)) { pressedChipIndex = cr.index; break; }
             }
 
-            if (locked) return;
-
-            // The × hitbox (right ~16 px of each chip) removes the tag —
-            // user-edited tags only, factory-locked presets fall through
-            // because of the `locked` early-return above.
+            // The × hitbox (right ~16 px of each chip) removes the tag.
             for (const auto& cr : chipRects)
             {
                 const auto closeBox = juce::Rectangle<int>(
@@ -1392,7 +1363,6 @@ private:
 
         bool entryValid = false;
         bool hasAxes = false;
-        bool locked = false;
         juce::String name, bank, promptA, promptB;
         juce::String model, engineMode, seqMode;
         juce::Time modified;
@@ -1976,12 +1946,8 @@ private:
         // visual precedence over selection blue and the current-preset
         // edge marker — the user's attention should be on the destructive
         // outcome, not on the bookkeeping highlights.
-        // Read-only guard is belt-and-suspenders: factory and UCDCAE AI Lab
-        // presets can never be a save target, so they must never wear the red
-        // wash even if the cached `conflictEntryIndex` were ever stale.
         const bool isConflictRow = (currentMode == Mode::Save
-                                    && entryIdx == conflictEntryIndex
-                                    && ! e.isReadOnly);
+                                    && entryIdx == conflictEntryIndex);
 
         if (isConflictRow)
         {
@@ -2072,21 +2038,10 @@ private:
         if (! juce::isPositiveAndBelow(entryIndex, (int) allEntries.size())) return;
         const auto& entry = allEntries[(size_t) entryIndex];
         const auto file = entry.file;
-        // Rename / Duplicate are semantically destructive against the
-        // GitHub-synced bank (the next sync would re-create the original
-        // under its canonical name, leaving an orphaned rename behind), so
-        // they're gated on isReadOnly. Delete is only gated on isFactory —
-        // a UCDCAE preset CAN be deleted (next update simply re-pulls it),
-        // which is the documented escape hatch when the user wants a clean
-        // library.
-        const bool isReadOnly = entry.isReadOnly;
-        const bool isFactory  = entry.isFactory;
 
         juce::PopupMenu menu;
-        menu.addItem(1, juce::String::fromUTF8("Rename\xe2\x80\xa6"), ! isReadOnly);
-        menu.addItem(3, "Duplicate",                                  ! isReadOnly);
-        // "Show in Finder" is non-destructive and works for factory presets
-        // too, so the user can locate the on-disk source of a bundled preset.
+        menu.addItem(1, juce::String::fromUTF8("Rename\xe2\x80\xa6"), true);
+        menu.addItem(3, "Duplicate",                                  true);
        #if JUCE_MAC
         menu.addItem(4, "Show in Finder", true);
        #elif JUCE_WINDOWS
@@ -2095,7 +2050,7 @@ private:
         menu.addItem(4, "Show in File Manager", true);
        #endif
         menu.addSeparator();
-        menu.addItem(2, "Delete",                                     ! isFactory);
+        menu.addItem(2, "Delete",                                     true);
 
         // Anchor at the cursor (1×1 px screen-area) instead of the
         // listbox bounds; otherwise the popup snaps to the panel's

@@ -245,16 +245,11 @@ void PresetUpdater::start(ProgressCallback onProgress, FinishCallback onFinish)
         Stats stats;
         const auto total = static_cast<int>(manifest.entries.size());
 
-        // Names that appear in the manifest — used at the end to prune
-        // orphaned local files (presets the maintainer removed upstream).
-        std::set<juce::String> manifestPaths;
-
         for (int i = 0; i < total; ++i)
         {
             if (state->cancel.load()) { finish(false, stats, "Cancelled"); return; }
 
             const auto& entry = manifest.entries[static_cast<size_t>(i)];
-            manifestPaths.insert(entry.path);
 
             const auto target = bankDir.getChildFile(entry.path);
             const bool exists = target.existsAsFile();
@@ -312,19 +307,10 @@ void PresetUpdater::start(ProgressCallback onProgress, FinishCallback onFinish)
             }
         }
 
-        // Prune orphans: any .t5p in the bank dir that isn't in the manifest.
-        // This keeps the bank consistent with upstream when presets are
-        // renamed or retired. Subdirectories are left alone (a user
-        // shouldn't be putting files here anyway — the bank is read-only
-        // from the UI side — but just in case).
-        for (auto& f : bankDir.findChildFiles(juce::File::findFiles, false, "*.t5p"))
-        {
-            if (manifestPaths.find(f.getFileName()) == manifestPaths.end())
-            {
-                if (f.deleteFile())
-                    stats.removed++;
-            }
-        }
+        // Intentionally NO orphan-prune: files present locally but missing
+        // from the manifest stay in place. The bank is user-editable like any
+        // other, so silently deleting "their" files on every sync would
+        // violate the no-data-loss contract.
 
         reportProgress(1.0, "Done");
         finish(true, stats, {});

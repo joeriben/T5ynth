@@ -501,17 +501,9 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
                                            const juce::String& bank,
                                            bool includeInferenceCache)
     {
-        // Belt-and-suspenders: even though enterLibrarySaveMode strips the
-        // UCDCAE AI Lab bank from the picker, redirect any save that would
-        // land there to the user root. The bank is the property of
-        // PresetUpdater and any local file in it gets overwritten on next
-        // refresh.
-        const auto effectiveBank = (bank == PresetFormat::getReadOnlyBankName())
-                                       ? juce::String()
-                                       : bank;
         auto bankDir = PresetFormat::getUserPresetsDirectory();
-        if (effectiveBank.isNotEmpty())
-            bankDir = bankDir.getChildFile(effectiveBank);
+        if (bank.isNotEmpty())
+            bankDir = bankDir.getChildFile(bank);
         bankDir.createDirectory();
 
         // String-concat (not withFileExtension) — withFileExtension strips
@@ -548,8 +540,8 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
                 .withTitle("Replace Preset")
                 .withMessage("Replace \"" + target.getFileNameWithoutExtension()
                              + "\" in bank \""
-                             + (effectiveBank.isEmpty() ? PresetManagerPanel::kRootUserBank()
-                                                        : effectiveBank)
+                             + (bank.isEmpty() ? PresetManagerPanel::kRootUserBank()
+                                                : bank)
                              + "\"?")
                 .withButton("Replace")
                 .withButton("Cancel")
@@ -664,8 +656,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     presetManager.onRevealRequested = [](const juce::File& file)
     {
         // JUCE's revealToUser() opens the platform file manager (Finder /
-        // Explorer / Nautilus) with the file selected — works for both
-        // user and factory presets.
+        // Explorer / Nautilus) with the file selected.
         if (file.existsAsFile()) file.revealToUser();
     };
     presetManager.onDuplicateRequested = [this](const juce::File& file)
@@ -1132,13 +1123,7 @@ void MainPanel::enterLibrarySaveMode(SaveNameMode mode)
             existingPathKeys.insert(rel.toLowerCase());
         }
         for (auto& d : userDir.findChildFiles(juce::File::findDirectories, false, "*"))
-        {
-            // The UCDCAE AI Lab bank is the read-only GitHub-synced mirror —
-            // never offer it as a save destination. PresetUpdater would
-            // overwrite anything saved here on the next refresh anyway.
-            if (d.getFileName() == PresetFormat::getReadOnlyBankName()) continue;
             existingBanks.add(d.getFileName());
-        }
     }
     existingBanks.removeEmptyStrings();
     existingBanks.removeDuplicates(true);
@@ -1408,10 +1393,7 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
 
     if (sourceFile.existsAsFile()
         && sourceFile.getFileName() != "_buffer.t5p"
-        && (sourceFile.isAChildOf(PresetFormat::getUserPresetsDirectory())
-            || sourceFile.isAChildOf(PresetFormat::getFactoryPresetsDirectory())
-            || sourceFile.getParentDirectory() == PresetFormat::getUserPresetsDirectory()
-            || sourceFile.getParentDirectory() == PresetFormat::getFactoryPresetsDirectory()))
+        && sourceFile.isAChildOf(PresetFormat::getUserPresetsDirectory()))
     {
         currentPresetFile = sourceFile;
     }
@@ -1482,7 +1464,6 @@ void MainPanel::finishPresetUpdate(bool success,
             << stats.added     << " added, "
             << stats.updated   << " updated, "
             << stats.unchanged << " unchanged";
-    if (stats.removed > 0) summary << ", " << stats.removed << " removed";
     if (stats.failed  > 0) summary << ", " << stats.failed  << " failed";
     presetManager.setStatusText(summary, stats.failed > 0);
 }
@@ -2684,13 +2665,13 @@ void MainPanel::resized()
 void MainPanel::ensureBundledPresetsExist()
 {
     // Offline-fallback distribution: extract the bundled .t5p resources
-    // into the read-only "UCDCAE AI Lab" bank so a fresh install ships with
-    // a usable library even before the user hits "Update Library". The
-    // subsequent online update via PresetUpdater overwrites these on a
-    // SHA mismatch, so the bundled snapshot only ever ages backwards
-    // relative to GitHub — never forwards.
+    // into the "UCDCAE AI Lab" bank so a fresh install ships with a usable
+    // library even before the user hits "Update Library". The subsequent
+    // online update via PresetUpdater overwrites these on a SHA mismatch,
+    // so the bundled snapshot only ever ages backwards relative to GitHub
+    // — never forwards.
     auto bankDir = PresetFormat::getUserPresetsDirectory()
-                       .getChildFile(PresetFormat::getReadOnlyBankName());
+                       .getChildFile(PresetFormat::getBundledBankName());
     bankDir.createDirectory();
 
     for (int i = 0; i < BinaryData::namedResourceListSize; ++i)
@@ -2940,35 +2921,23 @@ void MainPanel::loadPreset()
 void MainPanel::renameCurrentPreset()
 {
     if (! currentPresetFile.existsAsFile()) return;
-    if (! currentPresetFile.isAChildOf(PresetFormat::getUserPresetsDirectory()))
-    {
-        statusBar.setStatusText("Cannot rename a factory preset");
-        return;
-    }
     if (presetManager.onRenameRequested) presetManager.onRenameRequested(currentPresetFile);
 }
 
 void MainPanel::deleteCurrentPreset()
 {
     if (! currentPresetFile.existsAsFile()) return;
-    if (! currentPresetFile.isAChildOf(PresetFormat::getUserPresetsDirectory()))
-    {
-        statusBar.setStatusText("Cannot delete a factory preset");
-        return;
-    }
     if (presetManager.onDeleteRequested) presetManager.onDeleteRequested(currentPresetFile);
 }
 
 void MainPanel::showPresetNameContextMenu(juce::Point<int>)
 {
     juce::PopupMenu menu;
-    const bool haveUserPreset = currentPresetFile.existsAsFile()
-        && currentPresetFile.isAChildOf(PresetFormat::getUserPresetsDirectory());
-    menu.addItem(1, juce::String::fromUTF8("Rename\xe2\x80\xa6"), haveUserPreset);
-    menu.addItem(2, "Delete",                                     haveUserPreset);
+    const bool havePreset = currentPresetFile.existsAsFile();
+    menu.addItem(1, juce::String::fromUTF8("Rename\xe2\x80\xa6"), havePreset);
+    menu.addItem(2, "Delete",                                     havePreset);
     menu.addSeparator();
-    menu.addItem(3, "Reveal in file manager",
-                 currentPresetFile.existsAsFile());
+    menu.addItem(3, "Reveal in file manager",                     havePreset);
 
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&statusBar),
         [this](int result)

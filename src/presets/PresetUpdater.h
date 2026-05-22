@@ -6,22 +6,24 @@
 #include <vector>
 
 /**
- * Pulls the read-only "UCDCAE AI Lab" preset bank from the public GitHub
- * mirror (joeriben/T5ynth-Presets). Workflow:
+ * Pulls the "UCDCAE AI Lab" preset bank from the public GitHub mirror
+ * (joeriben/T5ynth-Presets). Workflow:
  *
  *   1. Fetch `manifest.json` listing every distributed .t5p with size + SHA256
  *   2. Diff against the local bank — already present and hash-matched → skip
  *   3. Download new / changed entries via raw.githubusercontent.com (no API
  *      rate-limit; the only API call is the manifest itself, served as raw)
- *   4. Optionally prune local files that disappeared from the manifest
+ *
+ * Files present locally but missing from the manifest are left in place — the
+ * user is free to keep them, rename them, or delete them via the library
+ * panel; nothing in this code path silently destroys user-visible state.
  *
  * All HTTP runs on a detached background thread; progress is exposed via an
  * atomic counter and consumed by an owning juce::Timer. UI-thread callbacks
  * marshal results back through juce::MessageManager::callAsync.
  *
- * The bank lives in the user-writable presets dir, NOT in the system factory
- * dir, so updates never need elevated privileges. PresetManagerPanel treats
- * the directory as read-only via path inspection (see PresetFormat).
+ * The bank lives in the user-writable presets dir, so updates never need
+ * elevated privileges.
  */
 class PresetUpdater
 {
@@ -35,7 +37,6 @@ public:
         int updated   = 0;
         int unchanged = 0;
         int failed    = 0;
-        int removed   = 0;
     };
 
     using ProgressCallback = std::function<void(double progress, juce::String message)>;
@@ -54,7 +55,7 @@ public:
         return activeState_ && activeState_->running.load();
     }
 
-    /** Disk location of the read-only bank, e.g.
+    /** Disk location of the bank, e.g.
      *  ~/Library/Application Support/T5ynth/presets/UCDCAE AI Lab/.
      *  Always returns a valid juce::File even if the dir does not exist yet. */
     static juce::File getBankDirectory();
