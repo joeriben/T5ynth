@@ -560,6 +560,44 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         // just the loaded one. If this IS the loaded preset, also keep the
         // processor's lastTags in sync so a subsequent Save Preset doesn't
         // resurrect the old tag list.
+        //
+        // EXCEPTION — github-bank files: the UCDCAE bank is owned by the
+        // upstream manifest, so editing it in place would just be undone on
+        // the next "Update Library" sync. Fork to <userRoot>/<name>
+        // (mine).t5p instead, apply the new tags there, and select the
+        // fork in the library list so the user can keep editing it. The
+        // upstream file is left untouched.
+        if (isGithubBankFile(file))
+        {
+            const auto fork = forkPresetForUserEdit(file, newTags);
+            if (! fork.existsAsFile())
+            {
+                presetManager.setStatusText("Tag save failed", true);
+                return;
+            }
+            const bool wasLoaded = (file == currentPresetFile);
+            if (wasLoaded)
+            {
+                currentPresetFile = fork;
+                processorRef.setLastTags(newTags);
+                processorRef.setLastPresetName(fork.getFileNameWithoutExtension());
+            }
+            presetManager.refreshLibrary();
+            // Keep the "currently loaded" marker on whatever is actually
+            // loaded — but ALWAYS jump the list selection to the fork so
+            // the user can see where their edit went. Without this jump,
+            // editing tags on an unrelated UCDCAE preset would leave the
+            // list selection on the loaded preset (which has nothing to
+            // do with the edit), and the freshly-written fork would sit
+            // unselected somewhere in the user-root.
+            presetManager.setCurrentPreset(currentPresetFile, getCurrentPresetDisplayName());
+            presetManager.selectFileInList(fork);
+            presetManager.setStatusText(wasLoaded
+                                           ? "Forked to " + fork.getFileNameWithoutExtension()
+                                           : "Tags saved to " + fork.getFileNameWithoutExtension());
+            return;
+        }
+
         if (! patchPresetTagsField(file, newTags))
         {
             presetManager.setStatusText("Tag save failed", true);
@@ -1145,6 +1183,23 @@ void MainPanel::enterLibrarySaveMode(SaveNameMode mode)
             currentBank = parent.getFileName();
     }
 
+    // Phase-4 rule: saving from a UCDCAE-bank source forks to My Presets
+    // with a mandatory "(mine)" rename. The user can still override both
+    // fields in the drawer — this only picks the default. Without the
+    // rename, a Save would either overwrite the github file (which the
+    // next library sync would undo) or silently land beside it with the
+    // same name, creating exactly the duplication the user wants to
+    // avoid.
+    if (currentBank.equalsIgnoreCase(PresetUpdater::getBankName()))
+    {
+        currentBank.clear();
+        const auto lc = defaultName.toLowerCase();
+        if (! lc.contains("(mine")
+            && ! lc.endsWith(" copy")
+            && ! lc.endsWith("copy"))
+            defaultName = defaultName + " (mine)";
+    }
+
     PresetManagerPanel::SavePrefill prefill;
     prefill.defaultName      = defaultName;
     // Prefill = the *existing* tag set of the currently loaded preset.
@@ -1305,6 +1360,61 @@ bool MainPanel::patchPresetTagsField(const juce::File& file, const juce::StringA
         for (auto& t : newTags) arr.add(t);
         root.setProperty("tags", arr);
     });
+}
+
+bool MainPanel::isGithubBankFile(const juce::File& file)
+{
+    if (! file.existsAsFile()) return false;
+    const auto bankDir = PresetFormat::getUserPresetsDirectory()
+                            .getChildFile(PresetUpdater::getBankName());
+    return file.isAChildOf(bankDir);
+}
+
+juce::File MainPanel::forkPresetForUserEdit(const juce::File& source,
+                                            const juce::StringArray& newTags)
+{
+    if (! source.existsAsFile()) return {};
+
+    // The fork's filename is always "<source> (mine).t5p" — the rename is
+    // mandatory per the user's directive ("MUSS umbenennen") and there is
+    // no collision-suffix ladder ("(mine 2)", "(mine 3)", …). If a fork
+    // already exists from a previous edit of the same upstream preset, we
+    // surgically update its `tags` array in place rather than creating a
+    // second fork; the user explicitly accepts destructive overwrite to
+    // avoid the duplication that the (mine 2)/(mine 3)/… ladder would
+    // produce on every successive edit.
+    const auto userRoot = PresetFormat::getUserPresetsDirectory();
+    if (! userRoot.isDirectory()) userRoot.createDirectory();
+    const auto baseName = source.getFileNameWithoutExtension();
+    const auto newName  = baseName + " (mine)";
+    juce::File target   = userRoot.getChildFile(newName + ".t5p");
+
+    if (target.existsAsFile())
+    {
+        // Existing fork — refresh just the tag list. PCM / prompts / axes
+        // stay as the user last saved them.
+        if (! patchPresetTagsField(target, newTags)) return {};
+        return target;
+    }
+
+    // First-time fork: byte-copy upstream, then patch both `name` (to
+    // match the new filename) and `tags` in a single JSON rewrite. A
+    // failed patch leaves a half-renamed copy on disk; delete it so the
+    // library doesn't show a leaky orphan.
+    if (! source.copyFileTo(target)) return {};
+    const bool patched = patchPresetJson(target, [&](juce::DynamicObject& root)
+    {
+        root.setProperty("name", newName);
+        juce::Array<juce::var> arr;
+        for (auto& t : newTags) arr.add(t);
+        root.setProperty("tags", arr);
+    });
+    if (! patched)
+    {
+        target.deleteFile();
+        return {};
+    }
+    return target;
 }
 
 juce::String MainPanel::getCurrentPresetDisplayName() const

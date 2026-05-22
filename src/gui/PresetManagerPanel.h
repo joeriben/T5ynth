@@ -313,6 +313,24 @@ public:
         // No match: leave previous selection
     }
 
+    /** Select a row in the preset list by file, WITHOUT updating
+     *  currentFile/currentName (the "currently loaded" badge). Used by
+     *  the Phase-4 fork flow so the user sees their fresh fork in the
+     *  list while the loaded-preset indicator stays on whatever they
+     *  actually have loaded in the synth. */
+    void selectFileInList(const juce::File& file)
+    {
+        for (size_t i = 0; i < filteredIndices.size(); ++i)
+        {
+            const auto& e = allEntries[(size_t) filteredIndices[i]];
+            if (e.file == file)
+            {
+                presetList.selectRow((int) i, false, true);
+                return;
+            }
+        }
+    }
+
     void setStatusText(const juce::String& s, bool isError = false)
     {
         statusLabel.setText(s, juce::dontSendNotification);

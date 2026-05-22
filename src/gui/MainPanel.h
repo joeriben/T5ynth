@@ -253,6 +253,21 @@ private:
      *  ANY preset in the library without first loading it (a full re-save
      *  would otherwise overwrite the file with the engine's current state). */
     static bool patchPresetTagsField(const juce::File& file, const juce::StringArray& newTags);
+
+    /** Phase-4 fork: copy `source` into the user-presets root with a
+     *  "(mine)" suffix and apply the supplied tag list to the copy. Used
+     *  when the user edits a preset that lives in the GitHub-synced
+     *  UCDCAE bank — the original is left untouched so PresetUpdater can
+     *  keep refreshing it without clobbering the user's hand-edits. The
+     *  copy's JSON `name` field is updated to match the new filename so
+     *  the embedded metadata stays consistent. Returns the new file on
+     *  success, or {} on failure. */
+    static juce::File forkPresetForUserEdit(const juce::File& source,
+                                            const juce::StringArray& newTags);
+
+    /** True if `file` is inside the UCDCAE-AI-Lab github-synced bank
+     *  (lives under <userPresetsRoot>/<PresetUpdater::getBankName()>/). */
+    static bool isGithubBankFile(const juce::File& file);
     void showSettings();
     void hideSettings();
     void showManual();
