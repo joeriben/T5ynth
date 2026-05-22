@@ -794,7 +794,8 @@ private:
     }
 
     // ─── Sidebar pane ────────────────────────────────────────────────────
-    class Sidebar : public juce::Component
+    class Sidebar : public juce::Component,
+                    private juce::Timer
     {
     public:
         /** Bank filter — empty string means "all banks". */
@@ -806,6 +807,10 @@ private:
         std::set<juce::String> selectedTags;
         std::function<void()> onChanged;
         std::function<void()> onCreateBankRequested;
+
+        /** BLOCKING per CLAUDE.md: every juce::Timer subclass must
+         *  stopTimer() in its destructor before any member is destroyed. */
+        ~Sidebar() override { stopTimer(); }
 
         void setVocabulary(std::vector<juce::String> banks,
                            std::vector<juce::String> models,
@@ -898,6 +903,15 @@ private:
 
         void mouseDown(const juce::MouseEvent& e) override
         {
+            // Reset any leftover long-press state — guards against an
+            // orphaned timer if the previous gesture ended outside the
+            // component (mouseUp without mouseExit→mouseUp).
+            stopTimer();
+            pressedItemKind  = Item::Kind::Header;
+            pressedItemLabel.clear();
+            pressedAdditive  = e.mods.isShiftDown();
+            longPressFired   = false;
+
             const auto p = e.getPosition();
             if (saveMode && addBankRect.contains(p))
             {
@@ -908,17 +922,113 @@ private:
             for (const auto& it : items)
             {
                 if (it.kind == Item::Kind::Header) continue;
-                if (it.rect.contains(p))
+                if (! it.rect.contains(p)) continue;
+
+                // Tag rows in library/browse mode get the long-press-for-drag
+                // treatment: the filter action is deferred to mouseUp so that
+                // a long press (~`longPressMs`) can arm a DragAndDrop session
+                // without also toggling the filter on release. Bank/Model rows
+                // keep their immediate-on-mouseDown response — they don't drag
+                // and deferring would just feel sluggish.
+                if (it.kind == Item::Kind::Tag && ! saveMode)
                 {
-                    handleHit(it, e.mods.isShiftDown());
-                    repaint();
-                    if (onChanged) onChanged();
+                    pressedItemKind  = it.kind;
+                    pressedItemLabel = it.label;
+                    startTimer(longPressMs);
                     return;
                 }
+
+                handleHit(it, e.mods.isShiftDown());
+                repaint();
+                if (onChanged) onChanged();
+                return;
             }
         }
 
+        void mouseDrag(const juce::MouseEvent& e) override
+        {
+            if (pressedItemKind != Item::Kind::Tag) return;
+            if (pressedItemLabel.isEmpty())       return;
+            // Mouse-slop threshold — small wiggles shouldn't cancel a
+            // pending long-press OR start a drag.
+            if (e.getDistanceFromDragStart() < 4) return;
+
+            if (! longPressFired)
+            {
+                // The user moved before the long-press timer fired —
+                // treat as a cancelled gesture: no filter toggle, no drag.
+                // Prevents accidental filter changes from twitchy clicks.
+                stopTimer();
+                pressedItemLabel.clear();
+                return;
+            }
+
+            if (auto* container = findParentComponentOfClass<juce::DragAndDropContainer>())
+            {
+                // Render a chip-sized preview rather than letting JUCE auto-
+                // snapshot the entire Sidebar (which would float a giant
+                // ~150px-wide ghost of the whole row column). Suggestion
+                // style = outline-only, matching how the same tag looks in
+                // Detail's "Known tags" cloud — visual continuity for
+                // "this is a tag I'm dragging".
+                const int chipW = juce::Font(juce::FontOptions(11.0f))
+                                      .getStringWidth(pressedItemLabel) + 14;
+                const int chipH = 20;
+                juce::Image dragImg(juce::Image::ARGB, chipW + 2, chipH + 2, true);
+                {
+                    juce::Graphics dg(dragImg);
+                    PresetManagerPanel::paintTagChip(
+                        dg, 1, 1, pressedItemLabel, ChipKind::Suggestion);
+                }
+                container->startDragging(juce::var(pressedItemLabel),
+                                         this,
+                                         juce::ScaledImage(dragImg));
+                // Consumed — further mouseDrag firings during this gesture
+                // are harmless since the JUCE drag session owns the cursor
+                // until release.
+                pressedItemLabel.clear();
+                longPressFired = false;
+            }
+        }
+
+        void mouseUp(const juce::MouseEvent&) override
+        {
+            stopTimer();
+            if (pressedItemKind != Item::Kind::Tag || pressedItemLabel.isEmpty())
+            {
+                pressedItemLabel.clear();
+                longPressFired = false;
+                return;
+            }
+
+            // Reaching mouseUp with the press-label still set means no drag
+            // session was actually started — startDragging() clears the label
+            // inline, and the twitchy-click bail in mouseDrag clears it too.
+            // So treat any surviving mouseUp as a click and fire the deferred
+            // filter toggle. This includes the "user long-pressed but never
+            // moved" case: rather than swallowing the gesture silently (which
+            // surprised testers — they expected the filter to still apply
+            // after a slow click), we fall through to the same toggle the
+            // short-click path uses.
+            for (const auto& it : items)
+            {
+                if (it.kind == Item::Kind::Tag && it.label == pressedItemLabel)
+                {
+                    handleHit(it, pressedAdditive);
+                    repaint();
+                    if (onChanged) onChanged();
+                    break;
+                }
+            }
+
+            pressedItemLabel.clear();
+            longPressFired = false;
+        }
+
     private:
+        // Declared up here (rather than alongside the other layout state)
+        // because `pressedItemKind` below depends on `Item::Kind` — the
+        // long-press members must follow this type.
         struct Item
         {
             enum class Kind { Header, Bank, Model, Tag };
@@ -926,6 +1036,31 @@ private:
             juce::Rectangle<int> rect;
             juce::String label;     // for Bank / Model / Tag this IS the value
         };
+
+        void timerCallback() override
+        {
+            stopTimer();
+            longPressFired = true;
+            // No visual flash for the armed state — the drag session itself
+            // gives immediate feedback as soon as the user starts moving.
+            // Adding a highlight here would also re-enter paint() and
+            // require tracking which row is armed; not worth the surface.
+        }
+
+        // Long-press threshold. ~350 ms is a comfortable middle ground:
+        // long enough that fast filter-clicks don't accidentally arm a
+        // drag, short enough that "press and grab" still feels direct.
+        static constexpr int longPressMs = 350;
+
+        // Long-press / drag state — populated on mouseDown, consumed on
+        // mouseDrag / mouseUp / timerCallback. None of these need to
+        // survive a destructor (stopTimer() in dtor cancels any pending
+        // callback first, so the members are safe to be destroyed after).
+        Item::Kind   pressedItemKind = Item::Kind::Header;
+        juce::String pressedItemLabel;
+        bool         pressedAdditive = false;
+        bool         longPressFired  = false;
+
         std::vector<Item> items;
         std::vector<juce::String> bankEntries;
         std::vector<juce::String> modelEntries;
@@ -1029,7 +1164,8 @@ private:
     Sidebar sidebar;
 
     // ─── Detail pane ─────────────────────────────────────────────────────
-    class Detail : public juce::Component
+    class Detail : public juce::Component,
+                   public juce::DragAndDropTarget
     {
     public:
         std::function<void()> onLoadRequested;
@@ -1127,6 +1263,20 @@ private:
         void paint(juce::Graphics& g) override
         {
             paintCard(g, getLocalBounds());
+
+            // Tag-drop hover overlay — accent-tinted border around the whole
+            // card, mirroring SaveDrawer's chip-area highlight idiom so the
+            // two drop targets read as the same affordance family. Drawn
+            // before content so the chip / text layers paint on top.
+            if (dropHover && entryValid)
+            {
+                auto r = getLocalBounds().toFloat().reduced(1.5f);
+                g.setColour(kAccent.withAlpha(0.10f));
+                g.fillRoundedRectangle(r, 4.0f);
+                g.setColour(kAccent.withAlpha(0.55f));
+                g.drawRoundedRectangle(r, 4.0f, 1.5f);
+            }
+
             if (! entryValid)
             {
                 g.setColour(kDim);
@@ -1280,6 +1430,53 @@ private:
             browseActionsVisible = visible;
             updateButtonsEnabled();
             resized();
+            repaint();
+        }
+
+        // ── DragAndDropTarget ──
+        // Accepts tag drops from the Sidebar's TAGS rows (long-press → drag,
+        // see Sidebar::mouseDown/mouseDrag). The drop adds the tag to the
+        // currently-displayed preset's set and fires onTagsCommitted so the
+        // owner can persist it to disk (matches the tagInput / cloud-click
+        // paths — single mutation funnel, case-insensitive dedup).
+        //
+        // Gated on `browseActionsVisible && entryValid`:
+        //   * Save mode: this card shows the preset that will be REPLACED,
+        //     not the save target — silently rewriting its on-disk tags via
+        //     onTagsCommitted would be a destructive surprise. SaveDrawer
+        //     carries its own drop target for the save composition.
+        //   * No preset selected: no `tags` to mutate.
+        bool isInterestedInDragSource(const SourceDetails& d) override
+        {
+            return browseActionsVisible
+                && entryValid
+                && d.description.isString()
+                && d.description.toString().trim().isNotEmpty();
+        }
+
+        void itemDragEnter(const SourceDetails&) override
+        {
+            dropHover = true;
+            repaint();
+        }
+
+        void itemDragExit(const SourceDetails&) override
+        {
+            dropHover = false;
+            repaint();
+        }
+
+        void itemDropped(const SourceDetails& d) override
+        {
+            dropHover = false;
+            if (! browseActionsVisible || ! entryValid) { repaint(); return; }
+            const auto tag = d.description.toString().trim();
+            if (tag.isNotEmpty())
+            {
+                tags.addIfNotAlreadyThere(tag, true);
+                if (onTagsCommitted) onTagsCommitted(tags);
+                resized();
+            }
             repaint();
         }
 
@@ -1561,6 +1758,11 @@ private:
         int  pressedChipIndex   = -1;
         bool dragSourceEnabled  = false;
         bool browseActionsVisible = true;
+        // Tag-drop-from-sidebar hover state — see DragAndDropTarget
+        // overrides above. Painted as a subtle accent border around
+        // the whole card so the user sees that THIS preset is the drop
+        // recipient regardless of where the cursor sits inside it.
+        bool dropHover           = false;
 
         juce::TextButton loadBtn { "Load" };
         juce::TextEditor tagInput;
