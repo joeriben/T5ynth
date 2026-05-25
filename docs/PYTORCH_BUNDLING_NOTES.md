@@ -245,8 +245,12 @@ The fix was:
 - extend model search to Linux's current app data path:
   `~/.config/share/T5ynth/models`
 - add bundled/local Hugging Face asset resolution helpers in `pipe_inference.py`
-- prepare the `t5-base` snapshot in CI via `tools/cache_t5_base.py`
+- prepare the `t5-base` snapshot in CI via `tools/cache_t5_base.py` (removed
+  2026-05; t5-base is now user-installed via T5ynth's Settings page rather
+  than bundled — see `project_asset_acquisition` memory and SetupWizard's
+  `kKnownModels` catalog)
 - include `t5-base` under `hf_assets/t5-base` in `pipe_inference.spec`
+  (removed 2026-05; the spec no longer bundles auxiliary HF encoders)
 - rewrite the native model config at load time so `t5_model_name` points to a
   self-contained T5 directory
 - patch `stable_audio_tools.models.conditioners.T5Conditioner` so the resolved

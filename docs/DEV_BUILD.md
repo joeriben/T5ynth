@@ -263,11 +263,10 @@ broken — fix that before proceeding to PyInstaller.
 
 The PyInstaller spec lives at `backend/pipe_inference.spec`. Run it from
 inside the `backend/` directory so the relative paths in the spec resolve.
-Prepare the auxiliary T5 Base text encoder first; packaged backend builds must
-contain it for native Stable Audio to work on fresh machines.
+t5-base (the text encoder for native Stable Audio Open Small) is no longer
+bundled — the user installs it via T5ynth's Settings page after first launch.
 
 ```bash
-python tools/cache_t5_base.py
 cd backend
 pyinstaller pipe_inference.spec --noconfirm
 ```

@@ -102,7 +102,6 @@ It should print startup messages and then wait for stdin. Exit with `Ctrl+D`.
 Still inside the activated venv:
 
 ```bash
-python tools/cache_t5_base.py
 cd backend
 pyinstaller pipe_inference.spec --noconfirm
 cd ..
@@ -215,8 +214,7 @@ If you see OOM killer messages, reduce parallelism (`cmake --build ... -j2` or
 `Bundled backend has incompatible binary format for this platform`
 
 You copied a backend binary built on another OS. Rebuild the backend locally on
-Linux with `python tools/cache_t5_base.py`, then
-`pyinstaller pipe_inference.spec --noconfirm` from `backend/`.
+Linux with `pyinstaller pipe_inference.spec --noconfirm` from `backend/`.
 
 The terminal dies or fills with Python import errors
 
