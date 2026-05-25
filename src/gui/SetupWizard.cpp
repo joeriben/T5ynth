@@ -125,23 +125,36 @@ static const GhAsset kT5BaseGhFiles[] = {
 };
 
 // Minimal file set T5ynth actually loads from google/t5gemma-b-b-ul2.
-// Matches the t5-base pattern (config + tokenizer + tokenizer-class + weights)
-// rather than the entire HF repo. Used by Auto-Scan when the user manually
-// fetched the model from HuggingFace into ~/Downloads. The user-facing
-// instructions in updateStatus() must stay in sync with this list.
+// Used by Auto-Scan when the user manually fetched the model from
+// HuggingFace into ~/Downloads. The user-facing instructions in
+// updateStatus() must stay in sync with this list.
 //
 // What's NOT here, and why:
 //   * .gitattributes / README.md — git metadata + docs, irrelevant.
-//   * tokenizer.model — SentencePiece source, only used by the slow
-//     tokenizer; redundant once tokenizer.json (fast) is present.
-//   * special_tokens_map.json — Gemma's special tokens are encoded
-//     directly in tokenizer.json, the map is duplicate metadata.
+//   * tokenizer.model — SentencePiece source, only the slow tokenizer
+//     reads it. Verified against transformers v4.45.0
+//     GemmaTokenizerFast.__init__: vocab_file defaults to None and is
+//     only consumed by can_save_slow_tokenizer(); the fast path loads
+//     entirely from tokenizer.json.
 //   * generation_config.json — defaults for model.generate(); T5ynth
-//     calls the encoder forward only, never generation.
+//     calls AutoModel.encoder forward only, never generation.
+//
+// What IS here even though it MIGHT be redundant — and why:
+//   * special_tokens_map.json — GemmaTokenizerFast hardcodes the
+//     standard Gemma special tokens ("<bos>", "<eos>", "<pad>",
+//     "<unk>") as __init__ defaults, and tokenizer.json carries the
+//     full added_tokens list. So FOR STANDARD GEMMA the map is
+//     duplicate metadata. But T5Gemma's file is gated on HF (couldn't
+//     verify content) and PreTrainedTokenizerFast.from_pretrained
+//     overrides the class defaults from this file if present. A
+//     missing map with custom mappings would silently produce wrong
+//     conditioner input — at 636 bytes the safer call is to include
+//     it.
 static const char* kT5GemmaRequiredFiles[] = {
     "config.json",
     "tokenizer.json",
     "tokenizer_config.json",
+    "special_tokens_map.json",
     "model.safetensors",
 };
 static constexpr int kNumT5GemmaRequiredFiles =
@@ -1933,16 +1946,17 @@ void SettingsPage::updateStatus()
                 "  3. Click 'Agree and access repository' to accept the Gemma\n"
                 "     Terms of Use.\n"
                 "  4. On the same page, click the 'Files and versions' tab.\n"
-                "  5. Download exactly these four files to your usual Downloads\n"
+                "  5. Download exactly these five files to your usual Downloads\n"
                 "     folder (one click each on the filename, then the download\n"
                 "     icon on the right):\n"
                 "        config.json\n"
-                "        tokenizer.json           (~34 MB)\n"
+                "        tokenizer.json            (~34 MB)\n"
                 "        tokenizer_config.json\n"
-                "        model.safetensors        (~1.2 GB)\n"
+                "        special_tokens_map.json\n"
+                "        model.safetensors         (~1.2 GB)\n"
                 "     The other files in the repo (tokenizer.model, README,\n"
-                "     generation_config.json, special_tokens_map.json) are not\n"
-                "     needed -- T5ynth uses only the fast tokenizer path.\n"
+                "     generation_config.json) are not needed -- T5ynth uses only\n"
+                "     the fast-tokenizer path and the encoder forward.\n"
                 "  6. Come back here and click 'Auto-Scan' above.\n"
                 "     T5ynth finds the files in your Downloads folder and copies\n"
                 "     them into its working model folder. You can delete the\n"
