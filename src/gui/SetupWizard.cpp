@@ -111,6 +111,19 @@ static bool shouldDownloadHfFile(const juce::String& remotePath,
     return false;
 }
 
+// GitHub-release-mirrored asset descriptor. Used by downloadGhReleaseInThread.
+struct GhAsset { const char* name; int64_t expectedSize; };
+
+// Files mirrored at the assets/t5-base-v1 GitHub release tag. Sizes match
+// google-t5/t5-base on HuggingFace; used for progress display and the
+// "skip if already downloaded" heuristic.
+static const GhAsset kT5BaseGhFiles[] = {
+    { "config.json",            1208 },
+    { "tokenizer.json",      1389353 },
+    { "spiece.model",         791656 },
+    { "model.safetensors", 891646390 },
+};
+
 // Known models — extend this list to add new engines.
 // downloadable: if false, show manual instructions only (no Download button).
 //   Both Stable Audio models are gated on HuggingFace and T5ynth never prompts
@@ -126,6 +139,8 @@ struct KnownModel {
     const char* licenseNotice;// Shown in confirmation dialog before download
     bool        downloadable; // false = manual-only (no in-app download)
     bool        isGenerationEngine; // false = auxiliary asset (e.g. text encoder)
+    const GhAsset* ghFiles;   // file list for ghRelease download (nullptr if no mirror)
+    int         ghFileCount;
 };
 static const KnownModel kKnownModels[] = {
     { "stable-audio-open-1.0",   "Stable Audio Open 1.0",     "stabilityai/stable-audio-open-1.0", nullptr,
@@ -135,7 +150,8 @@ static const KnownModel kKnownModels[] = {
       "- Commercial use under $1M annual revenue: free (register at stability.ai)\n"
       "- Commercial use over $1M: enterprise license required\n\n"
       "T5ynth does not provide the model weights. By downloading, you accept\n"
-      "the license terms and take responsibility for compliance.", false, true },
+      "the license terms and take responsibility for compliance.", false, true,
+      nullptr, 0 },
     { "stable-audio-open-small", "Stable Audio Open Small", "stabilityai/stable-audio-open-small",
       nullptr,
       "https://stability.ai/community-license-agreement",
@@ -144,20 +160,24 @@ static const KnownModel kKnownModels[] = {
       "- Commercial use under $1M annual revenue: free (register at stability.ai)\n"
       "- Commercial use over $1M: enterprise license required\n\n"
       "T5ynth does not provide the model weights. By downloading, you accept\n"
-      "the license terms and take responsibility for compliance.", false, true },
+      "the license terms and take responsibility for compliance.", false, true,
+      nullptr, 0 },
     { "audioldm2",               "AudioLDM2",                  "cvssp/audioldm2", nullptr,
       "https://creativecommons.org/licenses/by-nc-sa/4.0/",
       "This model is licensed under CC BY-NC-SA 4.0.\n\n"
       "- Non-commercial use only (no revenue threshold, no exceptions)\n"
       "- Commercial use is NOT permitted under this license\n\n"
       "T5ynth does not provide the model weights. By downloading, you accept\n"
-      "the license terms and take responsibility for compliance.", true, true },
+      "the license terms and take responsibility for compliance.", true, true,
+      nullptr, 0 },
     { "t5-base",                 "T5-Base text encoder",       "t5-base", nullptr,
       "https://www.apache.org/licenses/LICENSE-2.0",
       "T5-base is licensed under Apache License 2.0 (open, no restrictions).\n\n"
       "Required by Stable Audio Open Small as the text encoder. T5ynth does\n"
       "not provide the weights. By downloading you accept the Apache 2.0\n"
-      "license.", true, false },
+      "license.", true, false,
+      kT5BaseGhFiles,
+      static_cast<int>(sizeof(kT5BaseGhFiles) / sizeof(kT5BaseGhFiles[0])) },
 };
 static constexpr int kNumKnownModels = sizeof(kKnownModels) / sizeof(kKnownModels[0]);
 
@@ -222,6 +242,22 @@ bool SettingsPage::selectedIsGenerationEngine()
     if (idx >= 0 && idx < kNumKnownModels)
         return kKnownModels[idx].isGenerationEngine;
     return true;  // default-safe for unknown indices
+}
+
+const void* SettingsPage::selectedGhFiles()
+{
+    int idx = modelChooser.getSelectedItemIndex();
+    if (idx >= 0 && idx < kNumKnownModels)
+        return static_cast<const void*>(kKnownModels[idx].ghFiles);
+    return nullptr;
+}
+
+int SettingsPage::selectedGhFileCount()
+{
+    int idx = modelChooser.getSelectedItemIndex();
+    if (idx >= 0 && idx < kNumKnownModels)
+        return kKnownModels[idx].ghFileCount;
+    return 0;
 }
 
 SettingsPage::SettingsPage()
@@ -976,16 +1012,20 @@ void SettingsPage::downloadGhReleaseInThread()
     auto modelId = selectedModelId();
     auto targetDir = getAppSupportModelDir(modelId);
 
-    // Files needed for native-format model inference
-    struct GhFile { const char* name; int64_t expectedSize; };
-    static const GhFile kFiles[] = {
-        { "model.safetensors", 1677000000 },
-        { "model_config.json", 6000 },
-    };
-    static constexpr int kNumFiles = sizeof(kFiles) / sizeof(kFiles[0]);
+    const auto* ghFiles = static_cast<const GhAsset*>(selectedGhFiles());
+    int ghFileCount = selectedGhFileCount();
+
+    if (ghFiles == nullptr || ghFileCount <= 0)
+    {
+        // Catalog row has ghRelease set but no ghFiles list — programmer error.
+        onDownloadFinished(false,
+            "Internal error: model is configured for GitHub-release download "
+            "but has no file list defined in the SetupWizard catalog.");
+        return;
+    }
 
     int64_t total = 0;
-    for (auto& f : kFiles) total += f.expectedSize;
+    for (int i = 0; i < ghFileCount; ++i) total += ghFiles[i].expectedSize;
     totalBytes = total;
     downloadedBytes = 0;
     downloadCounter_ = std::make_shared<std::atomic<int64_t>>(0);
@@ -995,16 +1035,17 @@ void SettingsPage::downloadGhReleaseInThread()
     juce::Component::SafePointer<SettingsPage> safeThis(this);
     auto progressCounter = downloadCounter_;
     auto cancelFlag = downloadCancelFlag_;
-    std::thread([safeThis, progressCounter, cancelFlag, ghBase, targetDir]()
+    std::thread([safeThis, progressCounter, cancelFlag, ghBase, targetDir,
+                 ghFiles, ghFileCount]()
     {
         int64_t bytesCompleted = 0;
 
-        for (int i = 0; i < kNumFiles; ++i)
+        for (int i = 0; i < ghFileCount; ++i)
         {
             if (cancelFlag && cancelFlag->load())
                 return;
 
-            auto& gf = kFiles[i];
+            auto& gf = ghFiles[i];
             auto fileName = juce::String(gf.name);
             auto targetFile = targetDir.getChildFile(fileName);
 
@@ -1017,10 +1058,10 @@ void SettingsPage::downloadGhReleaseInThread()
             }
 
             auto fileNum = i + 1;
-            juce::MessageManager::callAsync([safeThis, fileName, fileNum]() {
+            juce::MessageManager::callAsync([safeThis, fileName, fileNum, ghFileCount]() {
                 if (auto* self = safeThis.getComponent())
                     self->downloadStatusLabel.setText("Downloading: " + fileName + " ("
-                        + juce::String(fileNum) + "/" + juce::String(kNumFiles) + ")",
+                        + juce::String(fileNum) + "/" + juce::String(ghFileCount) + ")",
                         juce::dontSendNotification);
             });
 

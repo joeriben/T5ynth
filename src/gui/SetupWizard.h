@@ -78,6 +78,10 @@ private:
     juce::String selectedGhRelease();
     bool selectedDownloadable();
     bool selectedIsGenerationEngine();
+    // GhAsset list returned as opaque pointer to avoid header pollution;
+    // implementation in SetupWizard.cpp pulls from the kKnownModels catalog.
+    const void* selectedGhFiles();
+    int         selectedGhFileCount();
 
     juce::File modelPath;
 
