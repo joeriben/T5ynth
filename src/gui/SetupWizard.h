@@ -67,6 +67,20 @@ private:
                                              const juce::String& modelDisplayName,
                                              bool reportIfMissing);
 
+    // Variant for flat-transformers encoders (e.g. T5Gemma). Same install
+    // mechanics as the Stability path — required-files check, scenario
+    // reporting, copy-then-verify — but the file list is parameterised and
+    // there is no "wrong files" heuristic (HF's Files tab for these repos
+    // doesn't surface misleading alternatives the way Stability's does).
+    // requiredFiles must point to a const char* array of length numFiles;
+    // file names are matched verbatim in the source folder root.
+    bool tryFlatEncoderInstallFromFolder(const juce::File& sourceFolder,
+                                         const juce::String& modelId,
+                                         const juce::String& modelDisplayName,
+                                         const char* const* requiredFiles,
+                                         int numFiles,
+                                         bool reportIfMissing);
+
     void downloadAllFilesInThread();
     void downloadGhReleaseInThread();
     void onDownloadFinished(bool success, const juce::String& error);

@@ -124,6 +124,29 @@ static const GhAsset kT5BaseGhFiles[] = {
     { "model.safetensors", 891646390 },
 };
 
+// Minimal file set T5ynth actually loads from google/t5gemma-b-b-ul2.
+// Matches the t5-base pattern (config + tokenizer + tokenizer-class + weights)
+// rather than the entire HF repo. Used by Auto-Scan when the user manually
+// fetched the model from HuggingFace into ~/Downloads. The user-facing
+// instructions in updateStatus() must stay in sync with this list.
+//
+// What's NOT here, and why:
+//   * .gitattributes / README.md — git metadata + docs, irrelevant.
+//   * tokenizer.model — SentencePiece source, only used by the slow
+//     tokenizer; redundant once tokenizer.json (fast) is present.
+//   * special_tokens_map.json — Gemma's special tokens are encoded
+//     directly in tokenizer.json, the map is duplicate metadata.
+//   * generation_config.json — defaults for model.generate(); T5ynth
+//     calls the encoder forward only, never generation.
+static const char* kT5GemmaRequiredFiles[] = {
+    "config.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "model.safetensors",
+};
+static constexpr int kNumT5GemmaRequiredFiles =
+    sizeof(kT5GemmaRequiredFiles) / sizeof(kT5GemmaRequiredFiles[0]);
+
 // Known models — extend this list to add new engines.
 // downloadable: if false, show manual instructions only (no Download button).
 //   Both Stable Audio models are gated on HuggingFace and T5ynth never prompts
@@ -789,6 +812,178 @@ bool SettingsPage::tryNativeStabilityInstallFromFolder(
     return false;
 }
 
+bool SettingsPage::tryFlatEncoderInstallFromFolder(
+    const juce::File& sourceFolder,
+    const juce::String& modelId,
+    const juce::String& modelDisplayName,
+    const char* const* requiredFiles,
+    int numFiles,
+    bool reportIfMissing)
+{
+    // Sibling of tryNativeStabilityInstallFromFolder for flat-transformers
+    // encoders (T5Gemma). Same install mechanics — required-files check,
+    // scenario reporting, copy-then-verify — but no "wrong files"
+    // heuristic: HF's Files tab for these repos doesn't surface
+    // misleading alternatives the way Stability's two-checkpoint repos do.
+    if (!sourceFolder.isDirectory())
+    {
+        if (reportIfMissing)
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::MessageBoxIconType::WarningIcon,
+                "Folder not found",
+                "T5ynth could not read the folder:\n  " + sourceFolder.getFullPathName());
+        return false;
+    }
+
+    juce::Array<juce::File> foundRequired;
+    juce::StringArray missingNames;
+    for (int i = 0; i < numFiles; ++i)
+    {
+        auto candidate = sourceFolder.getChildFile(requiredFiles[i]);
+        if (candidate.existsAsFile())
+            foundRequired.add(candidate);
+        else
+            missingNames.add(requiredFiles[i]);
+    }
+
+    // All present → copy to the target app-support dir.
+    if (missingNames.isEmpty())
+    {
+        auto targetDir = getAppSupportModelDir(modelId);
+        setModelInstallBusy(true,
+            "Copying " + modelDisplayName + " into T5ynth. This can take a moment...");
+
+        juce::Component::SafePointer<SettingsPage> safeThis(this);
+        std::vector<juce::File> requiredVec;
+        requiredVec.reserve(static_cast<size_t>(foundRequired.size()));
+        for (auto& f : foundRequired)
+            requiredVec.push_back(f);
+
+        std::thread([safeThis, sourceFolder, targetDir, requiredVec, modelDisplayName]()
+        {
+            juce::String errorTitle;
+            juce::String errorBody;
+
+            if (!targetDir.createDirectory())
+            {
+                errorTitle = "Could not create model folder";
+                errorBody = "T5ynth could not create:\n  " + targetDir.getFullPathName()
+                          + "\n\nCheck folder permissions and try again.";
+            }
+            else
+            {
+                juce::StringArray copyErrors;
+                for (const auto& f : requiredVec)
+                {
+                    auto dest = targetDir.getChildFile(f.getFileName());
+                    if (dest.existsAsFile()) dest.deleteFile();
+                    if (!f.copyFileTo(dest))
+                        copyErrors.add(f.getFileName());
+                }
+
+                if (!copyErrors.isEmpty())
+                {
+                    errorTitle = "Copy failed";
+                    errorBody = "Found all required files, but copying failed for:\n  "
+                              + copyErrors.joinIntoString(", ")
+                              + "\n\nCheck disk space and folder permissions in:\n  "
+                              + targetDir.getFullPathName();
+                }
+                else if (!hasModelMarker(targetDir))
+                {
+                    // hasModelMarker checks config.json + tokenizer.json/spiece.model
+                    // + safetensors size. A failure here means the safetensors
+                    // either didn't copy or is truncated.
+                    errorTitle = "Files copied, but look incomplete";
+                    errorBody = "Files were copied to:\n  " + targetDir.getFullPathName()
+                              + "\n\nBut the model weights look too small. The download "
+                                "may have been interrupted. Re-download model.safetensors "
+                                "from HuggingFace and try Auto-Scan again.";
+                }
+            }
+
+            juce::MessageManager::callAsync(
+                [safeThis, sourceFolder, targetDir, errorTitle, errorBody, modelDisplayName]()
+                {
+                    auto* self = safeThis.getComponent();
+                    if (self == nullptr) return;
+
+                    self->setModelInstallBusy(false);
+
+                    if (errorTitle.isNotEmpty())
+                    {
+                        self->downloadStatusLabel.setText("Model install failed",
+                                                          juce::dontSendNotification);
+                        self->downloadStatusLabel.setColour(juce::Label::textColourId,
+                                                            juce::Colour(0xffef4444));
+                        juce::AlertWindow::showMessageBoxAsync(
+                            juce::MessageBoxIconType::WarningIcon,
+                            errorTitle,
+                            errorBody);
+                        return;
+                    }
+
+                    self->downloadStatusLabel.setText("Model copied. Activating...",
+                                                       juce::dontSendNotification);
+                    self->downloadStatusLabel.setColour(juce::Label::textColourId,
+                                                        juce::Colour(0xff4ade80));
+
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::InfoIcon,
+                        modelDisplayName + " -- Installed",
+                        "T5ynth copied the model files from:\n  "
+                            + sourceFolder.getFullPathName()
+                            + "\n\nto:\n  " + targetDir.getFullPathName()
+                            + "\n\nThe originals are still in your Downloads folder -- "
+                              "you can delete them now.",
+                        "OK",
+                        self,
+                        juce::ModalCallbackFunction::create(
+                            [safeThis, targetDir](int)
+                            {
+                                if (auto* page = safeThis.getComponent())
+                                    page->setModelPath(targetDir);
+                            }));
+                });
+        }).detach();
+        return true;
+    }
+
+    // Some present, some missing — name the missing ones explicitly.
+    if (!foundRequired.isEmpty() && reportIfMissing)
+    {
+        juce::String foundList;
+        for (auto& f : foundRequired)
+            foundList += "  [OK] " + f.getFileName() + "\n";
+
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::InfoIcon,
+            "Download incomplete",
+            "Found in:\n  " + sourceFolder.getFullPathName() + "\n\n"
+                + foundList + "\nStill missing:\n  [X] "
+                + missingNames.joinIntoString("\n  [X] ")
+                + "\n\nPlease download the missing files from the model page "
+                  "(click 'Open Model Page' above) and click 'Auto-Scan' again.");
+        return false;
+    }
+
+    // Nothing in this folder.
+    if (reportIfMissing)
+    {
+        juce::String fileList;
+        for (int i = 0; i < numFiles; ++i)
+            fileList += juce::String("  * ") + requiredFiles[i] + "\n";
+
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::InfoIcon,
+            "No model files found",
+            "This folder does not contain the files T5ynth needs:\n"
+                + fileList
+                + "\nClick 'Open Model Page' above to fetch them from HuggingFace.");
+    }
+    return false;
+}
+
 void SettingsPage::performAutoScan()
 {
     if (modelInstallBusy_.load())
@@ -818,13 +1013,21 @@ void SettingsPage::performAutoScan()
         return;
     }
 
-    // 2. Model-specific smart scan for native Stability models.
+    // 2. Model-specific smart scan. Two manual-install categories:
+    //    - Native Stability (2-file diffusion model checkpoint + config)
+    //    - Flat-transformers encoder (T5Gemma: config + tokenizer + weights)
+    // The first uses tryNativeStabilityInstallFromFolder with its hardcoded
+    // 2-file list and "wrong files" detection; the second uses
+    // tryFlatEncoderInstallFromFolder with a per-model file list.
     auto modelId = selectedModelId();
     const bool isNativeStabilityModel =
         modelId == "stable-audio-open-small"
         || modelId == "stable-audio-open-1.0"
         || modelId == "stable-audio-3-small";
-    if (!isNativeStabilityModel)
+    const bool isFlatEncoderModel =
+        modelId == "t5gemma-b-b-ul2";
+
+    if (!isNativeStabilityModel && !isFlatEncoderModel)
     {
         updateStatus();
         downloadStatusLabel.setText(
@@ -837,28 +1040,54 @@ void SettingsPage::performAutoScan()
     juce::String modelDisplayName;
     if      (modelId == "stable-audio-open-1.0")  modelDisplayName = "Stable Audio Open 1.0";
     else if (modelId == "stable-audio-open-small") modelDisplayName = "Stable Audio Open Small";
-    else                                            modelDisplayName = "Stable Audio 3 Small";
+    else if (modelId == "stable-audio-3-small")    modelDisplayName = "Stable Audio 3 Small";
+    else                                            modelDisplayName = "T5Gemma text encoder";
+
+    // Pick the right required-files list and install helper for the category.
+    // A small lambda keeps the rest of the function category-agnostic so the
+    // Downloads-then-picker fallback stays a single code path.
+    const char* const* requiredFiles = nullptr;
+    int                numRequiredFiles = 0;
+    if (isNativeStabilityModel)
+    {
+        requiredFiles    = kNativeStabilityRequired;
+        numRequiredFiles = kNumNativeStabilityRequired;
+    }
+    else
+    {
+        requiredFiles    = kT5GemmaRequiredFiles;
+        numRequiredFiles = kNumT5GemmaRequiredFiles;
+    }
+
+    auto tryInstall = [this, isNativeStabilityModel, modelId, modelDisplayName,
+                       requiredFiles, numRequiredFiles]
+                      (const juce::File& folder, bool reportIfMissing)
+    {
+        if (isNativeStabilityModel)
+            return tryNativeStabilityInstallFromFolder(
+                folder, modelId, modelDisplayName, reportIfMissing);
+        return tryFlatEncoderInstallFromFolder(
+            folder, modelId, modelDisplayName,
+            requiredFiles, numRequiredFiles, reportIfMissing);
+    };
 
     // 3. Look in the system Downloads folder first.
     auto downloads = getDownloadsFolder();
-    if (tryNativeStabilityInstallFromFolder(
-            downloads, modelId, modelDisplayName, /*reportIfMissing*/ false))
+    if (tryInstall(downloads, /*reportIfMissing*/ false))
         return;  // success path already showed a dialog
 
     // Re-run the check to see *why* Downloads didn't work (missing / wrong /
     // nothing), so we can decide whether to nag or to open the picker.
-    // We re-use the same helper with reportIfMissing=false to classify.
     int foundInDownloads = 0;
-    for (int i = 0; i < kNumNativeStabilityRequired; ++i)
-        if (downloads.getChildFile(kNativeStabilityRequired[i]).existsAsFile())
+    for (int i = 0; i < numRequiredFiles; ++i)
+        if (downloads.getChildFile(requiredFiles[i]).existsAsFile())
             ++foundInDownloads;
 
     // Scenario (a): some files present in Downloads — tell the user which
     // are still missing instead of opening a picker.
     if (foundInDownloads > 0)
     {
-        tryNativeStabilityInstallFromFolder(
-            downloads, modelId, modelDisplayName, /*reportIfMissing*/ true);
+        tryInstall(downloads, /*reportIfMissing*/ true);
         return;
     }
 
@@ -871,10 +1100,15 @@ void SettingsPage::performAutoScan()
             : juce::File::getSpecialLocation(juce::File::userHomeDirectory),
         "");
     juce::Component::SafePointer<SettingsPage> safeThis(this);
+    // The category flag + file-list pointer are captured by value; the file
+    // list itself lives in static storage (kT5GemmaRequiredFiles /
+    // kNativeStabilityRequired) so the pointers stay valid for the lifetime
+    // of the async wait.
     fileChooser->launchAsync(
         juce::FileBrowserComponent::openMode
             | juce::FileBrowserComponent::canSelectDirectories,
-        [safeThis, downloads, modelId, modelDisplayName](const juce::FileChooser& fc)
+        [safeThis, downloads, isNativeStabilityModel, modelId, modelDisplayName,
+         requiredFiles, numRequiredFiles](const juce::FileChooser& fc)
         {
             juce::ignoreUnused(downloads);
             auto* self = safeThis.getComponent();
@@ -890,8 +1124,13 @@ void SettingsPage::performAutoScan()
                                                     juce::Colour(0xffef4444));
                 return;
             }
-            self->tryNativeStabilityInstallFromFolder(
-                folder, modelId, modelDisplayName, /*reportIfMissing*/ true);
+            if (isNativeStabilityModel)
+                self->tryNativeStabilityInstallFromFolder(
+                    folder, modelId, modelDisplayName, /*reportIfMissing*/ true);
+            else
+                self->tryFlatEncoderInstallFromFolder(
+                    folder, modelId, modelDisplayName,
+                    requiredFiles, numRequiredFiles, /*reportIfMissing*/ true);
         });
 }
 
@@ -1684,27 +1923,32 @@ void SettingsPage::updateStatus()
                 "T5GEMMA TEXT ENCODER (Stable Audio 3)\n"
                 "Licensed under the Gemma Terms of Use. Gated on HuggingFace --\n"
                 "a free HuggingFace account is required once to accept the terms.\n"
-                "T5Gemma is the text encoder for Stable Audio 3 Small.\n\n"
-                "  Source: https://huggingface.co/" + hfRepo + "\n"
-                "  Target: " + targetPath + "\n\n"
-                "T5Gemma is shipped as a flat HuggingFace repository (config +\n"
-                "tokenizer files + model weights), so Auto-Scan from Downloads is\n"
-                "not used. Two install paths:\n\n"
-                "TERMINAL (recommended -- one command):\n"
-                "  1. Click 'Open Model Page' above, sign up or log in, and click\n"
-                "     'Agree and access repository' to accept the Gemma terms.\n"
-                "  2. In a terminal, run:\n"
-                "       huggingface-cli login\n"
-                "       huggingface-cli download " + hfRepo + " \\\n"
-                "         --local-dir \"" + targetPath + "\"\n"
-                "  3. Come back here and click 'Auto-Scan' above. T5ynth picks up\n"
-                "     the freshly installed encoder.\n\n"
-                "NO-TERMINAL FALLBACK:\n"
-                "  1. Accept the Gemma terms on the model page (step 1 above).\n"
-                "  2. Click 'Files and versions' on HuggingFace and download the\n"
-                "     entire repo as a folder (any HF-supported method).\n"
-                "  3. Click 'Browse...' above and point at that folder. T5ynth\n"
-                "     imports it as a symlink into its working location.");
+                "T5Gemma is the text encoder for Stable Audio 3 Small. No terminal\n"
+                "required.\n\n"
+                "  Source: https://huggingface.co/" + hfRepo + "\n\n"
+                "INSTALL:\n"
+                "  1. Click 'Open Model Page' above. Your browser opens the\n"
+                "     HuggingFace page for this model.\n"
+                "  2. On that page, sign up or log in (top-right corner).\n"
+                "  3. Click 'Agree and access repository' to accept the Gemma\n"
+                "     Terms of Use.\n"
+                "  4. On the same page, click the 'Files and versions' tab.\n"
+                "  5. Download exactly these four files to your usual Downloads\n"
+                "     folder (one click each on the filename, then the download\n"
+                "     icon on the right):\n"
+                "        config.json\n"
+                "        tokenizer.json           (~34 MB)\n"
+                "        tokenizer_config.json\n"
+                "        model.safetensors        (~1.2 GB)\n"
+                "     The other files in the repo (tokenizer.model, README,\n"
+                "     generation_config.json, special_tokens_map.json) are not\n"
+                "     needed -- T5ynth uses only the fast tokenizer path.\n"
+                "  6. Come back here and click 'Auto-Scan' above.\n"
+                "     T5ynth finds the files in your Downloads folder and copies\n"
+                "     them into its working model folder. You can delete the\n"
+                "     originals from Downloads afterwards.\n\n"
+                "If you saved them somewhere other than Downloads, Auto-Scan will "
+                "open a folder picker and ask you to point at the folder.");
         } else if (id == "t5-base") {
             setInstructionsText(
                 instructionsLabel,
