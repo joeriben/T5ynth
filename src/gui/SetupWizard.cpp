@@ -16,6 +16,17 @@ static bool hasModelMarker(const juce::File& dir)
     bool hasMetadata = false;
     for (auto& marker : kModelMarkers)
         if (dir.getChildFile(marker).existsAsFile()) { hasMetadata = true; break; }
+
+    // Auxiliary transformer-encoder layout (e.g. t5-base required by SA Open
+    // Small): root-level config.json with a tokenizer file. Audio-model dirs
+    // contain config.json only inside sub-dirs like text_encoder/, so they
+    // are not matched here.
+    if (!hasMetadata
+        && dir.getChildFile("config.json").existsAsFile()
+        && (dir.getChildFile("tokenizer.json").existsAsFile()
+            || dir.getChildFile("spiece.model").existsAsFile()))
+        hasMetadata = true;
+
     if (!hasMetadata) return false;
 
     // Sum safetensors only. Checkpoint/pickle formats are not accepted.
@@ -53,11 +64,22 @@ static bool isEssentialDiffusersFile(const juce::String& remotePath)
 {
     auto path = remotePath.replaceCharacter('\\', '/');
 
-    // Root metadata plus the standard config/tokenizer files expected by
-    // diffusers/transformers component loaders.
+    // Root metadata for diffusers pipelines.
     if (path == "model_index.json")
         return true;
 
+    // Root-level config/tokenizer files for flat transformers repos (t5-base).
+    if (path == "config.json"
+        || path == "tokenizer.json"
+        || path == "tokenizer_config.json"
+        || path == "special_tokens_map.json"
+        || path == "spiece.model"
+        || path == "merges.txt"
+        || path == "vocab.json"
+        || path == "generation_config.json")
+        return true;
+
+    // Same files in sub-component dirs (diffusers/transformers loaders).
     if (path.endsWith("/config.json")
         || path.endsWith("/scheduler_config.json")
         || path.endsWith("/preprocessor_config.json")
@@ -103,6 +125,7 @@ struct KnownModel {
     const char* licenseUrl;   // URL to full license text
     const char* licenseNotice;// Shown in confirmation dialog before download
     bool        downloadable; // false = manual-only (no in-app download)
+    bool        isGenerationEngine; // false = auxiliary asset (e.g. text encoder)
 };
 static const KnownModel kKnownModels[] = {
     { "stable-audio-open-1.0",   "Stable Audio Open 1.0",     "stabilityai/stable-audio-open-1.0", nullptr,
@@ -112,7 +135,7 @@ static const KnownModel kKnownModels[] = {
       "- Commercial use under $1M annual revenue: free (register at stability.ai)\n"
       "- Commercial use over $1M: enterprise license required\n\n"
       "T5ynth does not provide the model weights. By downloading, you accept\n"
-      "the license terms and take responsibility for compliance.", false },
+      "the license terms and take responsibility for compliance.", false, true },
     { "stable-audio-open-small", "Stable Audio Open Small", "stabilityai/stable-audio-open-small",
       nullptr,
       "https://stability.ai/community-license-agreement",
@@ -121,14 +144,20 @@ static const KnownModel kKnownModels[] = {
       "- Commercial use under $1M annual revenue: free (register at stability.ai)\n"
       "- Commercial use over $1M: enterprise license required\n\n"
       "T5ynth does not provide the model weights. By downloading, you accept\n"
-      "the license terms and take responsibility for compliance.", false },
+      "the license terms and take responsibility for compliance.", false, true },
     { "audioldm2",               "AudioLDM2",                  "cvssp/audioldm2", nullptr,
       "https://creativecommons.org/licenses/by-nc-sa/4.0/",
       "This model is licensed under CC BY-NC-SA 4.0.\n\n"
       "- Non-commercial use only (no revenue threshold, no exceptions)\n"
       "- Commercial use is NOT permitted under this license\n\n"
       "T5ynth does not provide the model weights. By downloading, you accept\n"
-      "the license terms and take responsibility for compliance.", true },
+      "the license terms and take responsibility for compliance.", true, true },
+    { "t5-base",                 "T5-Base text encoder",       "t5-base", nullptr,
+      "https://www.apache.org/licenses/LICENSE-2.0",
+      "T5-base is licensed under Apache License 2.0 (open, no restrictions).\n\n"
+      "Required by Stable Audio Open Small as the text encoder. T5ynth does\n"
+      "not provide the weights. By downloading you accept the Apache 2.0\n"
+      "license.", true, false },
 };
 static constexpr int kNumKnownModels = sizeof(kKnownModels) / sizeof(kKnownModels[0]);
 
@@ -185,6 +214,14 @@ bool SettingsPage::selectedDownloadable()
     if (idx >= 0 && idx < kNumKnownModels)
         return kKnownModels[idx].downloadable;
     return false;
+}
+
+bool SettingsPage::selectedIsGenerationEngine()
+{
+    int idx = modelChooser.getSelectedItemIndex();
+    if (idx >= 0 && idx < kNumKnownModels)
+        return kKnownModels[idx].isGenerationEngine;
+    return true;  // default-safe for unknown indices
 }
 
 SettingsPage::SettingsPage()
@@ -327,6 +364,8 @@ bool SettingsPage::hasAnyInstalledModel()
 {
     for (int i = 0; i < kNumKnownModels; ++i)
     {
+        if (!kKnownModels[i].isGenerationEngine)
+            continue;  // auxiliary assets alone (e.g. t5-base) do not count
         auto found = scanForModelById(kKnownModels[i].id, kKnownModels[i].hfRepo);
         if (modelHasRequiredAuxAssets(kKnownModels[i].id, found))
             return true;
@@ -1322,11 +1361,14 @@ void SettingsPage::updateStatus()
     downloadButton.setVisible(downloadable);
 
     if (modelPath.exists() && hasModelMarker(modelPath)) {
+        const bool isEngine = selectedIsGenerationEngine();
         modelPathLabel.setText(modelPath.getFullPathName(), juce::dontSendNotification);
         if (backendConnected) {
             modelStatusLabel.setText(id + ": Installed", juce::dontSendNotification);
             modelStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xff4ade80));
-            setInstructionsText(instructionsLabel, "Ready to generate audio.");
+            setInstructionsText(instructionsLabel,
+                isEngine ? "Ready to generate audio."
+                         : "Text encoder installed.");
         } else if (backendFailReason.isNotEmpty()) {
             modelStatusLabel.setText(id + ": Files found, not active", juce::dontSendNotification);
             modelStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xfffbbf24));  // amber
@@ -1341,7 +1383,9 @@ void SettingsPage::updateStatus()
         } else {
             modelStatusLabel.setText(id + ": Installed", juce::dontSendNotification);
             modelStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xff4ade80));
-            setInstructionsText(instructionsLabel, "Model files found. Starting backend...");
+            setInstructionsText(instructionsLabel,
+                isEngine ? "Model files found. Starting backend..."
+                         : "Text encoder installed.");
         }
     } else {
         modelStatusLabel.setText(id + ": Not installed", juce::dontSendNotification);

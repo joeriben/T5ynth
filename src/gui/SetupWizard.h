@@ -77,6 +77,7 @@ private:
     juce::String selectedHfRepo();
     juce::String selectedGhRelease();
     bool selectedDownloadable();
+    bool selectedIsGenerationEngine();
 
     juce::File modelPath;
 
