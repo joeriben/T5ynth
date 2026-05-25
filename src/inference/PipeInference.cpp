@@ -595,10 +595,11 @@ bool PipeInference::launch(const juce::File& backendDir)
     // stale entries from the previous launch into the new one. The atomic
     // ready_ flag flips true only on full success, but the public getters
     // still observe these members regardless — clearing here keeps them
-    // honest. Pre-existing fields (availableDevices_, availableModels_)
-    // used .add() without clear and could silently duplicate across
-    // restarts; fixing that is out of scope for this commit (see spawn
-    // task list) but the same hazard for modelMetadata_ is closed below.
+    // honest.
+    availableDevices_.clear();
+    availableModels_.clear();
+    defaultDevice_.clear();
+    defaultModel_.clear();
     modelMetadata_.clear();
 
     // Read device info JSON (uint16 length + JSON bytes)
