@@ -362,12 +362,32 @@ def _bundled_transformers_asset_roots():
 
 
 def _candidate_transformers_dirs(model_name, model_dir):
-    """Yield controlled backend asset locations for auxiliary HF transformers."""
-    del model_dir
+    """Yield asset locations for auxiliary HF transformer encoders (e.g. t5-base).
+
+    Searches user-installed roots first (peer to the audio-model directories,
+    covering both the active and legacy T5ynth model roots so a conditioner
+    installed in any of them is found regardless of where the audio model
+    lives), then bundled asset locations as a fallback for development builds
+    where backend/hf_assets/ is still present.
+    """
     short_name = model_name.rsplit("/", 1)[-1]
     canonical_name = model_name.replace("/", "--")
 
     seen = set()
+
+    user_roots = []
+    if model_dir is not None:
+        user_roots.append(Path(model_dir).expanduser().parent)
+    for base in _model_search_base_dirs():
+        user_roots.append(Path(base).expanduser())
+
+    for root in user_roots:
+        for rel in (short_name, canonical_name):
+            candidate = (root / rel).expanduser()
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            yield candidate
 
     bundled_candidates = [
         Path("hf_assets") / short_name,
@@ -376,16 +396,18 @@ def _candidate_transformers_dirs(model_name, model_dir):
 
     for root in _bundled_transformers_asset_roots():
         for rel in bundled_candidates:
-            candidate = root / rel
-            resolved = candidate.expanduser()
-            if resolved in seen:
+            candidate = (root / rel).expanduser()
+            if candidate in seen:
                 continue
-            seen.add(resolved)
-            yield resolved
+            seen.add(candidate)
+            yield candidate
 
 
 def _resolve_local_transformers_model_dir(model_name, model_dir):
-    """Resolve a bundled backend HF asset directory for a model id like t5-base."""
+    """Resolve a local HF asset directory for a model id like t5-base.
+
+    Prefers user-installed assets (via SetupWizard) over bundled ones.
+    """
     for candidate in _candidate_transformers_dirs(model_name, model_dir):
         if _is_local_transformers_model_dir(candidate):
             return candidate
@@ -393,7 +415,7 @@ def _resolve_local_transformers_model_dir(model_name, model_dir):
 
 
 def _prepare_native_model_config(model_dir, model_config):
-    """Rewrite native model config to use bundled auxiliary HF assets only."""
+    """Rewrite native model config to point at local auxiliary HF assets."""
     patched = copy.deepcopy(model_config)
     conditioning_cfg = patched.get("model", {}).get("conditioning", {})
     configs = conditioning_cfg.get("configs", [])
@@ -411,17 +433,17 @@ def _prepare_native_model_config(model_dir, model_config):
         resolved = _resolve_local_transformers_model_dir(model_name, model_dir)
         if resolved is None:
             searched = [str(path) for path in _candidate_transformers_dirs(model_name, model_dir)]
+            expected = str((Path(model_dir).expanduser().parent / model_name.rsplit("/", 1)[-1]))
             raise RuntimeError(
-                "Native Stable Audio model files were found, but the backend package "
-                f"does not contain the required text encoder assets: '{model_name}'. "
-                "This is a packaging error for a self-contained T5ynth install. "
-                "Backend startup will not download from Hugging Face. Expected a "
-                "bundled backend asset directory with config, tokenizer, and "
-                f"model.safetensors. Searched: {searched}"
+                "Native Stable Audio model files were found, but the required "
+                f"text encoder is not installed: '{model_name}'. Place a "
+                f"self-contained directory at '{expected}' (e.g. via "
+                f"'huggingface-cli download {model_name} --local-dir {expected}'). "
+                f"Searched: {searched}"
             )
 
         cond_cfg["t5_model_name"] = str(resolved)
-        log.info("Resolved bundled transformers asset %s -> %s", model_name, resolved)
+        log.info("Resolved transformers asset %s -> %s", model_name, resolved)
         resolved_t5_models.append((model_name, str(resolved)))
 
     return patched, resolved_t5_models
