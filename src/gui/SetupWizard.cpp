@@ -1705,6 +1705,25 @@ void SettingsPage::updateStatus()
                 "     entire repo as a folder (any HF-supported method).\n"
                 "  3. Click 'Browse...' above and point at that folder. T5ynth\n"
                 "     imports it as a symlink into its working location.");
+        } else if (id == "t5-base") {
+            setInstructionsText(
+                instructionsLabel,
+                "T5-BASE TEXT ENCODER (Stable Audio Open Small)\n"
+                "The original T5 encoder published by Google Research "
+                "(Raffel et al., 2020). Stable Audio Open Small uses it to "
+                "turn the text prompt into the conditioning embedding the "
+                "diffusion model consumes. Ungated and openly licensed under "
+                "Apache-2.0 -- no HuggingFace account, no terms to accept. "
+                "Click 'Download' above and wait for the download to finish; "
+                "T5ynth fetches the GitHub release mirror by default and "
+                "transparently falls back to HuggingFace if the mirror is "
+                "unreachable. Both paths work without an account.\n\n"
+                "  Source: https://huggingface.co/" + hfRepo + "\n"
+                "  Target: " + targetPath + "\n\n"
+                "Footprint: ~890 MB single safetensors plus tokenizer and "
+                "config (config.json, tokenizer.json, spiece.model).\n\n"
+                "License: Apache-2.0 -- unrestricted use, commercial or "
+                "otherwise.");
         } else {
             // SA 1.0 (and any future gated Stability model)
             setInstructionsText(
