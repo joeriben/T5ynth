@@ -130,10 +130,79 @@ public:
         };
         sidebar.onCreateBankRequested = [this]
         {
-            if (currentMode != Mode::Save) return;
-            sidebar.activeBank.clear();
-            rebuildFiltered();
-            saveDrawer.beginNewBankEntry();
+            // Bank creation is a standalone disk action — not "the prelude
+            // to a Save". Earlier this handler put focus into the
+            // SaveDrawer's bank field and only materialised the directory
+            // when the user committed a save, which entangled the two
+            // concerns: a same-named save would then bounce off the
+            // cross-bank uniqueness gate and the user would see nothing
+            // happen and no folder created. Now: prompt for a name, mkdir
+            // immediately, drop a `.t5ynth-bank` marker so the empty bank
+            // is visible in the sidebar before any preset lives in it,
+            // and only THEN — if Save mode is open — make the new bank
+            // the current save target.
+            auto* aw = new juce::AlertWindow(
+                "New Bank",
+                "Bank name (a folder under your presets directory):",
+                juce::MessageBoxIconType::NoIcon);
+            aw->addTextEditor("name", "", {});
+            aw->addButton("Create", 1, juce::KeyPress(juce::KeyPress::returnKey));
+            aw->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+            juce::Component::SafePointer<PresetManagerPanel> safeThis(this);
+            aw->enterModalState(true,
+                juce::ModalCallbackFunction::create(
+                    [safeThis, aw](int result)
+                    {
+                        std::unique_ptr<juce::AlertWindow> owner(aw);
+                        if (safeThis == nullptr || result != 1) return;
+                        auto* self = safeThis.getComponent();
+
+                        const auto name = owner->getTextEditorContents("name").trim();
+                        if (name.isEmpty()) return;
+                        // Reject names that would collide with the
+                        // root-pseudo-bank label, contain path
+                        // separators, or look like a hidden directory.
+                        if (name.startsWithChar('.')
+                            || name.containsAnyOf("/\\")
+                            || name.equalsIgnoreCase(PresetManagerPanel::kRootUserBank()))
+                        {
+                            juce::AlertWindow::showAsync(
+                                juce::MessageBoxOptions()
+                                    .withIconType(juce::MessageBoxIconType::WarningIcon)
+                                    .withTitle("Invalid Bank Name")
+                                    .withMessage("Bank names cannot start with '.', "
+                                                 "contain '/' or '\\', or use the "
+                                                 "reserved label \""
+                                                 + PresetManagerPanel::kRootUserBank()
+                                                 + "\".")
+                                    .withButton("OK")
+                                    .withParentComponent(self),
+                                nullptr);
+                            return;
+                        }
+
+                        auto dir = PresetFormat::getUserPresetsDirectory()
+                                       .getChildFile(name);
+                        if (! dir.createDirectory().wasOk())
+                        {
+                            self->setStatusText("Could not create bank \""
+                                                + name + "\"", true);
+                            return;
+                        }
+                        // Marker file: lets refreshSidebarVocabulary
+                        // surface an empty bank distinctly from sparse-
+                        // checkout dirs like `scripts/` (no marker → not
+                        // a bank). Idempotent: a re-created marker on an
+                        // existing bank is harmless.
+                        dir.getChildFile(".t5ynth-bank").create();
+
+                        self->refreshLibrary();
+                        self->sidebar.activeBank = name;
+                        self->rebuildFiltered();
+                        if (self->currentMode == Mode::Save)
+                            self->saveDrawer.setBank(name);
+                        self->repaint();
+                    }));
         };
         addAndMakeVisible(sidebar);
 
@@ -224,7 +293,15 @@ public:
             // it gets ~70 px (good for two rows of suggestion chips).
             const int drawerH = 280;
             saveDrawer.setBounds(area.removeFromBottom(drawerH));
-            area.removeFromBottom(8);
+            area.removeFromBottom(6);
+            // Save-mode status row: a thin strip below the panel chrome
+            // (above the drawer) where the cross-bank uniqueness gate
+            // and other setStatusText(..., true) calls become visible.
+            // Without this, the label would render into zero-sized
+            // bounds and the user wouldn't see the error message that
+            // explains why their save was blocked.
+            statusLabel.setBounds(area.removeFromBottom(22));
+            area.removeFromBottom(4);
         }
         else
         {
@@ -375,7 +452,13 @@ public:
         importBtn.setVisible(false);
         githubBtn.setVisible(false);
         cancelBtn.setVisible(false);
-        statusLabel.setVisible(false);
+        // Keep statusLabel visible in Save mode so cross-bank uniqueness
+        // failures (or any other setStatusText(..., true) call from the
+        // owner) actually surface — the AlertWindow popup is easy to miss
+        // when focus is on the SaveDrawer text field. Clear any stale
+        // text first so the user sees fresh status only.
+        setStatusText({});
+        statusLabel.setVisible(true);
         sidebar.setSaveMode(true);
         rebuildFiltered();
         // Cloud vocab = canonical taxonomy ∪ already-saved user tags. Falls
@@ -574,6 +657,25 @@ private:
             if (e.model.isNotEmpty()) models.insert(e.model);
             for (auto& t : e.tags)    tags.insert(t);
         }
+
+        // Also surface EMPTY banks created via the "+" button. A directory
+        // counts as a bank iff it carries the `.t5ynth-bank` marker that
+        // we drop in onCreateBankRequested. This filter is essential
+        // because the user-presets root can contain non-bank dirs from
+        // the public mirror's sparse-checkout (`scripts/`, `.github/`,
+        // `.git/`); we don't want those to masquerade as banks. Banks
+        // that already hold .t5p files are picked up above regardless of
+        // marker presence.
+        const auto userRoot = PresetFormat::getUserPresetsDirectory();
+        for (auto& d : userRoot.findChildFiles(juce::File::findDirectories, false, "*"))
+        {
+            const auto name = d.getFileName();
+            if (name.startsWithChar('.')) continue;          // .git / .github / hidden
+            if (banks.count(name) > 0)    continue;          // already discovered via .t5p
+            if (d.getChildFile(".t5ynth-bank").existsAsFile())
+                banks.insert(name);
+        }
+
         sidebar.setVocabulary({ banks.begin(),  banks.end()  },
                               { models.begin(), models.end() },
                               { tags.begin(),   tags.end()   });
@@ -863,7 +965,10 @@ private:
                     g.setColour(kBorder.withAlpha(0.5f));
                     g.drawLine((float) it.rect.getX(), (float) it.rect.getBottom() - 1.0f,
                                (float) it.rect.getRight(), (float) it.rect.getBottom() - 1.0f, 0.5f);
-                    if (saveMode && it.label == "BANK" && ! addBankRect.isEmpty())
+                    // "+" next to BANK is now a standalone disk action
+                    // (create empty bank), no longer gated on Save mode —
+                    // the user can organise banks any time.
+                    if (it.label == "BANK" && ! addBankRect.isEmpty())
                     {
                         g.setColour(kAccent.withAlpha(0.16f));
                         g.fillRoundedRectangle(addBankRect.toFloat(), 3.0f);
@@ -913,7 +1018,7 @@ private:
             longPressFired   = false;
 
             const auto p = e.getPosition();
-            if (saveMode && addBankRect.contains(p))
+            if (addBankRect.contains(p))
             {
                 if (onCreateBankRequested) onCreateBankRequested();
                 return;
@@ -1095,7 +1200,7 @@ private:
                 items.push_back({ kind, r, label });
             };
 
-            pushHeader("BANK", saveMode);
+            pushHeader("BANK", /*withAdd*/ true);
             // "All" is represented by an empty `label` so activeBank.isEmpty()
             // means "no filter".
             pushRow(Item::Kind::Bank, "");
