@@ -501,7 +501,8 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
                                            const juce::String& bank,
                                            bool includeInferenceCache)
     {
-        auto bankDir = PresetFormat::getUserPresetsDirectory();
+        const auto userDir = PresetFormat::getUserPresetsDirectory();
+        auto bankDir = userDir;
         if (bank.isNotEmpty())
             bankDir = bankDir.getChildFile(bank);
         bankDir.createDirectory();
@@ -509,7 +510,62 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         // String-concat (not withFileExtension) — withFileExtension strips
         // at the last dot, so a user-typed name like "Pad 0.5" would be
         // truncated to "Pad 0.t5p" and could clobber an unrelated preset.
-        auto target = bankDir.getChildFile(presetName + ".t5p");
+        const auto fileName = presetName + ".t5p";
+        auto target = bankDir.getChildFile(fileName);
+
+        // Cross-bank uniqueness gate: a preset name must be unique across
+        // every bank. Without this, "Pad" could exist in both My Presets
+        // and "UCDCAE AI Lab" — different files, identical labels in the
+        // library list — which is the duplication users hit before the
+        // fork-on-edit rule landed. Same-bank replace is still allowed
+        // (handled by the dialog below); only sibling-bank collisions are
+        // blocked here.
+        juce::File collidingFile;
+        juce::String collidingBank;
+        if (bank.isNotEmpty())
+        {
+            auto rootCandidate = userDir.getChildFile(fileName);
+            if (rootCandidate.existsAsFile())
+            {
+                collidingFile = rootCandidate;
+                collidingBank = PresetManagerPanel::kRootUserBank();
+            }
+        }
+        if (! collidingFile.existsAsFile())
+        {
+            for (auto& d : userDir.findChildFiles(juce::File::findDirectories, false, "*"))
+            {
+                if (d.getFileName().equalsIgnoreCase(bank))
+                    continue;
+                auto cand = d.getChildFile(fileName);
+                if (cand.existsAsFile())
+                {
+                    collidingFile = cand;
+                    collidingBank = d.getFileName();
+                    break;
+                }
+            }
+        }
+        if (collidingFile.existsAsFile())
+        {
+            const auto displayBank = bank.isEmpty() ? PresetManagerPanel::kRootUserBank() : bank;
+            juce::AlertWindow::showAsync(
+                juce::MessageBoxOptions()
+                    .withIconType(juce::MessageBoxIconType::WarningIcon)
+                    .withTitle("Name Already In Use")
+                    .withMessage("A preset named \"" + presetName
+                                 + "\" already exists in bank \"" + collidingBank
+                                 + "\".\n\nPick a different name, or delete \""
+                                 + presetName + "\" from \"" + collidingBank
+                                 + "\" first. Two banks cannot share the same preset name.")
+                    .withButton("OK")
+                    .withParentComponent(this),
+                nullptr);
+            presetManager.setStatusText("\"" + presetName + "\" already exists in \""
+                                            + collidingBank + "\" — pick another name",
+                                        true);
+            return;
+        }
 
         juce::Component::SafePointer<MainPanel> safeThis(this);
         auto performSave = [safeThis, target, tags, includeInferenceCache]
