@@ -1,0 +1,154 @@
+name: Mirror t5-base from HuggingFace to GitHub Release
+
+# One-time (and re-runnable) mirror of google-t5/t5-base into a dedicated
+# release tag, so T5ynth's in-app downloader can fetch the text encoder from
+# the GitHub CDN instead of HuggingFace (which is consistently slow for
+# European educators).
+#
+# Trigger manually from the Actions tab. Default pins the current HF main
+# revision at run time; pass an explicit commit hash to mirror a different
+# snapshot.
+#
+# The release tag `assets/t5-base-v1` is intentionally decoupled from plugin
+# version tags (vX.Y.Z-beta.N) so plugin releases and conditioner releases
+# are managed independently. Marked --latest=false so it doesn't displace
+# the current plugin release on the repo home page.
+
+on:
+  workflow_dispatch:
+    inputs:
+      hf_revision:
+        description: "HF revision to mirror (commit hash; blank = current main)"
+        required: false
+        default: ""
+      release_tag:
+        description: "GitHub release tag to create/update"
+        required: false
+        default: "assets/t5-base-v1"
+
+permissions:
+  contents: write  # required by gh release create/upload
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install huggingface_hub
+        run: pip install --upgrade huggingface_hub
+
+      - name: Download t5-base from HuggingFace
+        env:
+          HF_REVISION: ${{ inputs.hf_revision }}
+        run: |
+          python <<'PY'
+          import os
+          from huggingface_hub import snapshot_download
+
+          revision = os.environ.get("HF_REVISION") or "main"
+          local = snapshot_download(
+              repo_id="google-t5/t5-base",
+              revision=revision,
+              local_dir="t5-base",
+              allow_patterns=[
+                  "config.json",
+                  "tokenizer.json",
+                  "spiece.model",
+                  "model.safetensors",
+              ],
+          )
+          print(f"Downloaded snapshot to {local}")
+          PY
+
+      - name: Verify file presence and compute SHA256
+        run: |
+          set -e
+          cd t5-base
+          for f in config.json tokenizer.json spiece.model model.safetensors; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Missing expected file: $f"
+              exit 1
+            fi
+          done
+          sha256sum config.json tokenizer.json spiece.model model.safetensors \
+            > ../checksums.txt
+          cat ../checksums.txt
+
+      - name: Resolve effective HF revision
+        id: rev
+        env:
+          HF_REVISION: ${{ inputs.hf_revision }}
+        run: |
+          python <<'PY' >> "$GITHUB_OUTPUT"
+          import os
+          from huggingface_hub import HfApi
+          revision = os.environ.get("HF_REVISION") or "main"
+          info = HfApi().repo_info("google-t5/t5-base", revision=revision)
+          print(f"sha={info.sha}")
+          PY
+
+      - name: Build release notes
+        env:
+          HF_SHA: ${{ steps.rev.outputs.sha }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          {
+            echo "One-time mirror of \`google-t5/t5-base\` (Apache License 2.0)"
+            echo "hosted on the T5ynth release CDN to bypass HuggingFace"
+            echo "download throttling."
+            echo ""
+            echo "**Source**: https://huggingface.co/google-t5/t5-base"
+            echo "**Pinned HF revision**: \`$HF_SHA\`"
+            echo "**License**: Apache 2.0 — https://www.apache.org/licenses/LICENSE-2.0"
+            echo ""
+            echo "## File checksums (SHA-256)"
+            echo ""
+            echo '```'
+            cat checksums.txt
+            echo '```'
+            echo ""
+            echo "## Consumer"
+            echo ""
+            echo "T5ynth's SetupWizard fetches these four files into"
+            echo "\`<T5ynth models dir>/t5-base/\` when the user installs the"
+            echo "\"T5-Base text encoder\" entry from the in-plugin Settings page."
+          } > release-notes.md
+          cat release-notes.md
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -e
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --title "T5-Base text encoder (mirror)" \
+              --notes-file release-notes.md \
+              --latest=false \
+              --target main
+          else
+            # Re-run path: refresh notes only. The latest=false flag is
+            # already set from the original create; gh release edit's --latest
+            # handling is flaky across gh CLI versions, so don't re-assert.
+            gh release edit "$RELEASE_TAG" \
+              --notes-file release-notes.md
+          fi
+
+      - name: Upload assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            t5-base/config.json \
+            t5-base/tokenizer.json \
+            t5-base/spiece.model \
+            t5-base/model.safetensors \
+            checksums.txt \
+            --clobber
