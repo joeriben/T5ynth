@@ -232,7 +232,6 @@ private:
     void exportWav();
     void loadDefaultPreset();
     void loadInitPreset();
-    void ensureBundledPresetsExist();
     bool savePresetToFile(const juce::File& file, bool includeInferenceCache = true);
     bool loadPresetFromFile(const juce::File& file);
     void applyLoadedPreset(const PresetFormat::LoadResult& result, const juce::File& sourceFile = {});

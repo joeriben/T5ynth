@@ -1003,8 +1003,26 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
 
     setOscEasyMode(loadOscEasyModeSetting(), false);
 
-    // Ensure bundled presets exist in user presets directory
-    ensureBundledPresetsExist();
+    // First-launch empty-library hint: surface the situation immediately
+    // rather than letting the user sit in front of an empty preset
+    // browser wondering what happened. Presets are no longer bundled into
+    // the binary — they live in <userPresetsDir>/UCDCAE AI Lab/ and are
+    // fetched from the public GitHub mirror on demand via the Preset
+    // Manager's "Update Library" button.
+    if (PresetFormat::getAllPresetFiles().isEmpty())
+    {
+        juce::AlertWindow::showAsync(
+            juce::MessageBoxOptions()
+                .withIconType(juce::MessageBoxIconType::InfoIcon)
+                .withTitle("No Presets Found")
+                .withMessage("Your preset library is empty.\n\n"
+                             "Open the Preset Manager and click "
+                             "\"Update Library\" to download the "
+                             "UCDCAE AI Lab bank from GitHub.")
+                .withButton("OK")
+                .withParentComponent(this),
+            nullptr);
+    }
 
     // Load default preset (if no audio loaded yet)
     loadDefaultPreset();
@@ -2942,40 +2960,6 @@ void MainPanel::resized()
 // ═══════════════════════════════════════════════════════════════════
 // Default / Init state
 // ═══════════════════════════════════════════════════════════════════
-
-void MainPanel::ensureBundledPresetsExist()
-{
-    // Offline-fallback distribution: extract the bundled .t5p resources
-    // into the "UCDCAE AI Lab" bank so a fresh install ships with a usable
-    // library even before the user hits "Update Library". The subsequent
-    // online update via PresetUpdater overwrites these on a SHA mismatch,
-    // so the bundled snapshot only ever ages backwards relative to GitHub
-    // — never forwards.
-    auto bankDir = PresetFormat::getUserPresetsDirectory()
-                       .getChildFile(PresetFormat::getBundledBankName());
-    bankDir.createDirectory();
-
-    for (int i = 0; i < BinaryData::namedResourceListSize; ++i)
-    {
-        auto* resourceName = BinaryData::namedResourceList[i];
-        auto* originalName = BinaryData::originalFilenames[i];
-        if (resourceName == nullptr || originalName == nullptr)
-            continue;
-
-        const juce::String presetName = juce::String::fromUTF8(originalName);
-        if (!presetName.endsWithIgnoreCase(".t5p"))
-            continue;
-
-        int size = 0;
-        auto* data = BinaryData::getNamedResource(resourceName, size);
-        if (data == nullptr || size <= 0)
-            continue;
-
-        auto target = bankDir.getChildFile(presetName);
-        if (!target.existsAsFile())
-            target.replaceWithData(data, static_cast<size_t>(size));
-    }
-}
 
 void MainPanel::loadDefaultPreset()
 {

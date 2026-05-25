@@ -802,11 +802,6 @@ juce::File PresetFormat::getUserPresetsDirectory()
     return dir;
 }
 
-juce::String PresetFormat::getBundledBankName()
-{
-    return "UCDCAE AI Lab";
-}
-
 juce::Array<juce::File> PresetFormat::getAllPresetFiles()
 {
     juce::Array<juce::File> files;

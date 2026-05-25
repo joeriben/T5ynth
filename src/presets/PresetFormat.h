@@ -146,12 +146,6 @@ public:
     /** All .t5p files under the user presets directory (recursive). */
     static juce::Array<juce::File> getAllPresetFiles();
 
-    /** Name of the GitHub-synced bank ("UCDCAE AI Lab") under the user
-     *  presets dir. Used to seed the offline preset bundle and as the
-     *  PresetUpdater download target — the bank itself is fully editable
-     *  like any other, this is just a well-known directory name. */
-    static juce::String getBundledBankName();
-
 private:
     static constexpr char kMagic[4] = { 'T', '5', 'Y', 'N' };
     static constexpr uint32_t kVersion = 4;
