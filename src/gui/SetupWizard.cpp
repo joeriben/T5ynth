@@ -178,6 +178,25 @@ static const KnownModel kKnownModels[] = {
       "license.", true, false,
       kT5BaseGhFiles,
       static_cast<int>(sizeof(kT5BaseGhFiles) / sizeof(kT5BaseGhFiles[0])) },
+    { "t5gemma-b-b-ul2",         "T5Gemma text encoder (SA3)", "google/t5gemma-b-b-ul2", nullptr,
+      "https://ai.google.dev/gemma/terms",
+      "T5Gemma is licensed under the Gemma Terms of Use.\n\n"
+      "- Use is restricted by Google's Prohibited Use Policy -- review the\n"
+      "  full terms before downloading.\n"
+      "- A free HuggingFace account is required to accept the terms.\n\n"
+      "Required by Stable Audio 3 Small as the text encoder. T5ynth does not\n"
+      "provide the weights. By accessing the model you accept the Gemma\n"
+      "Terms of Use and take responsibility for compliance.", false, false,
+      nullptr, 0 },
+    { "stable-audio-3-small",    "Stable Audio 3 Small",       "stabilityai/stable-audio-3-small", nullptr,
+      "https://stability.ai/community-license-agreement",
+      "This model is licensed under the Stability AI Community License.\n\n"
+      "- Non-commercial use: free\n"
+      "- Commercial use under $1M annual revenue: free (register at stability.ai)\n"
+      "- Commercial use over $1M: enterprise license required\n\n"
+      "T5ynth does not provide the model weights. By downloading, you accept\n"
+      "the license terms and take responsibility for compliance.", false, true,
+      nullptr, 0 },
 };
 static constexpr int kNumKnownModels = sizeof(kKnownModels) / sizeof(kKnownModels[0]);
 
@@ -802,7 +821,9 @@ void SettingsPage::performAutoScan()
     // 2. Model-specific smart scan for native Stability models.
     auto modelId = selectedModelId();
     const bool isNativeStabilityModel =
-        modelId == "stable-audio-open-small" || modelId == "stable-audio-open-1.0";
+        modelId == "stable-audio-open-small"
+        || modelId == "stable-audio-open-1.0"
+        || modelId == "stable-audio-3-small";
     if (!isNativeStabilityModel)
     {
         updateStatus();
@@ -813,9 +834,10 @@ void SettingsPage::performAutoScan()
                                       juce::Colour(0xffef4444));
         return;
     }
-    const auto modelDisplayName = modelId == "stable-audio-open-1.0"
-        ? juce::String("Stable Audio Open 1.0")
-        : juce::String("Stable Audio Open Small");
+    juce::String modelDisplayName;
+    if      (modelId == "stable-audio-open-1.0")  modelDisplayName = "Stable Audio Open 1.0";
+    else if (modelId == "stable-audio-open-small") modelDisplayName = "Stable Audio Open Small";
+    else                                            modelDisplayName = "Stable Audio 3 Small";
 
     // 3. Look in the system Downloads folder first.
     auto downloads = getDownloadsFolder();
@@ -1631,6 +1653,58 @@ void SettingsPage::updateStatus()
                 "     from Downloads afterwards.\n\n"
                 "If you saved them somewhere other than Downloads, Auto-Scan will "
                 "open a folder picker and ask you to point at the folder.");
+        } else if (id == "stable-audio-3-small") {
+            setInstructionsText(
+                instructionsLabel,
+                "STABLE AUDIO 3 SMALL\n"
+                "Licensed under the Stability AI Community License. Gated on "
+                "HuggingFace -- a free HuggingFace account is required once to "
+                "accept the license. T5ynth uses only two files from this repo "
+                "(model.safetensors and model_config.json).\n\n"
+                "  Source: https://huggingface.co/" + hfRepo + "\n\n"
+                "Stable Audio 3 Small requires the T5Gemma text encoder. Install\n"
+                "T5Gemma first (select it in the dropdown above) -- without that\n"
+                "encoder the backend cannot load SA3.\n\n"
+                "INSTALL:\n"
+                "  1. Click 'Open Model Page' above, sign up or log in, and click\n"
+                "     'Agree and access repository' to accept the license.\n"
+                "  2. Open the 'Files and versions' tab.\n"
+                "  3. Download exactly these two files to your usual Downloads\n"
+                "     folder:\n"
+                "        model.safetensors\n"
+                "        model_config.json\n"
+                "  4. Come back here and click 'Auto-Scan' above. T5ynth finds\n"
+                "     the files in Downloads and copies them into its working\n"
+                "     model folder.\n\n"
+                "If you saved them somewhere other than Downloads, Auto-Scan will "
+                "open a folder picker and ask you to point at the folder.");
+        } else if (id == "t5gemma-b-b-ul2") {
+            setInstructionsText(
+                instructionsLabel,
+                "T5GEMMA TEXT ENCODER (Stable Audio 3)\n"
+                "Licensed under the Gemma Terms of Use. Gated on HuggingFace --\n"
+                "a free HuggingFace account is required once to accept the terms.\n"
+                "T5Gemma is the text encoder for Stable Audio 3 Small.\n\n"
+                "  Source: https://huggingface.co/" + hfRepo + "\n"
+                "  Target: " + targetPath + "\n\n"
+                "T5Gemma is shipped as a flat HuggingFace repository (config +\n"
+                "tokenizer files + model weights), so Auto-Scan from Downloads is\n"
+                "not used. Two install paths:\n\n"
+                "TERMINAL (recommended -- one command):\n"
+                "  1. Click 'Open Model Page' above, sign up or log in, and click\n"
+                "     'Agree and access repository' to accept the Gemma terms.\n"
+                "  2. In a terminal, run:\n"
+                "       huggingface-cli login\n"
+                "       huggingface-cli download " + hfRepo + " \\\n"
+                "         --local-dir \"" + targetPath + "\"\n"
+                "  3. Come back here and click 'Auto-Scan' above. T5ynth picks up\n"
+                "     the freshly installed encoder.\n\n"
+                "NO-TERMINAL FALLBACK:\n"
+                "  1. Accept the Gemma terms on the model page (step 1 above).\n"
+                "  2. Click 'Files and versions' on HuggingFace and download the\n"
+                "     entire repo as a folder (any HF-supported method).\n"
+                "  3. Click 'Browse...' above and point at that folder. T5ynth\n"
+                "     imports it as a symlink into its working location.");
         } else {
             // SA 1.0 (and any future gated Stability model)
             setInstructionsText(
