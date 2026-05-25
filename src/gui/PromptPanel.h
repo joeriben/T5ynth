@@ -132,15 +132,27 @@ private:
     void syncSeedModeFromCurrentState();
     void syncSeedModeButtons();
 
-    // Model selector (fixed 3-slot switchbox: SA Open 1.0 | SA Small | AudioLDM2)
-    static constexpr int kNumModelSlots = 3;
+    // Model selector (fixed 4-slot switchbox: SA Open 1.0 | SA Small | AudioLDM2 | SA3 Small)
+    static constexpr int kNumModelSlots = 4;
     juce::TextButton modelBtns[kNumModelSlots];
     juce::String modelSlotIds[kNumModelSlots];  // resolved model directory name per slot
     juce::Rectangle<int> modelSwitchBounds;
     bool modelsPopulated = false;
     juce::String pendingModel_;  // deferred model selection until models are populated
+    // Deferred split values: when a preset arrives before the backend has
+    // reported its model list, we cache the preset's splitStart/splitEnd
+    // here and clamp them against ditBlocks_ once populateModelSelector
+    // has run refreshDitBlocksForCurrentModel for the resolved model. NaN
+    // means "no pending value" so the panel falls back to current state.
+    float pendingSplitStart_ = std::numeric_limits<float>::quiet_NaN();
+    float pendingSplitEnd_   = std::numeric_limits<float>::quiet_NaN();
     void populateModelSelector();
     juce::String getSelectedModel() const;
+    /** Pull the active model's DiT block count from the backend's handshake
+     *  metadata into ditBlocks_, then clamp/expand the layer-split slider
+     *  accordingly. Called after model selection changes and after the
+     *  backend's ready frame arrives. */
+    void refreshDitBlocksForCurrentModel();
 
     // Device selection is backend-controlled: GPU/Metal when available, else CPU.
     juce::String defaultInferenceDevice_;
@@ -179,11 +191,15 @@ private:
     float&       lateMixForMode(const juce::String& mode);
     float        lateMixForMode(const juce::String& mode) const;
     // Layer mode: two-thumb range slider defining the B-zone [start, end]
-    // along the 16 DiT block indices. Both thumbs at extremes → full B;
+    // along the DiT block indices. Both thumbs at extremes → full B;
     // start == end → no B (pure A); narrow range → B injected only into
     // a sub-band of layers (mid / early / late depending on position).
-    float            splitLayerStart_       = 4.0f;       // 0–16, low thumb
-    float            splitLayerEnd_         = 16.0f;      // 0–16, high thumb (default = top: B from layer 4 onwards)
+    // Range is 0..ditBlocks_; ditBlocks_ is refreshed from backend metadata
+    // (SAO Small = 16, SA3 Small may differ) — refreshDitBlocksForCurrentModel
+    // updates the slider on model change.
+    float            splitLayerStart_       = 4.0f;       // 0–ditBlocks_, low thumb
+    float            splitLayerEnd_         = 16.0f;      // 0–ditBlocks_, high thumb (default = top: B from layer 4 onwards)
+    int              ditBlocks_             = 16;         // per-model count; updated on model change
 
     /** Reconfigure alphaSlider (range, label, value, attachment) for the active mode. */
     void applyModeToSlider();

@@ -129,7 +129,10 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
             splitLayerEnd_   = static_cast<float>(alphaSlider.getMaxValue());
             int s = static_cast<int>(std::round(splitLayerStart_));
             int e = static_cast<int>(std::round(splitLayerEnd_));
-            alphaValue.setText(juce::String(s) + "-" + juce::String(e) + "/16",
+            // Denominator is the active model's DiT depth — was hardcoded "/16"
+            // (SAO Small assumption) and confused the readout on SA3 Small.
+            alphaValue.setText(juce::String(s) + "-" + juce::String(e)
+                                   + "/" + juce::String(ditBlocks_),
                                juce::dontSendNotification);
         }
     };
@@ -283,7 +286,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 
     // Model selector — fixed 3 slots, always visible (disabled = gray until model found)
     {
-        const char* slotLabels[kNumModelSlots] = { "SA Open 1.0", "SA Small", "AudioLDM2" };
+        const char* slotLabels[kNumModelSlots] = { "SA Open 1.0", "SA Small", "AudioLDM2", "SA3 Small" };
         for (int i = 0; i < kNumModelSlots; ++i)
         {
             modelBtns[i].setButtonText(slotLabels[i]);
@@ -316,6 +319,10 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
                 apvts.getParameter(PID::genCfg)->setValueNotifyingHost(
                     apvts.getParameter(PID::genCfg)->convertTo0to1(defaultCfg));
                 syncInjectionModeAvailability();
+                // The active model can have a different DiT depth (SA3 vs SAO
+                // Small): clamp the layer slider range before the user has a
+                // chance to drag past the new ceiling.
+                refreshDitBlocksForCurrentModel();
 
                 // Preload model in background so first generate is instant
                 if (onStatusChanged) onStatusChanged("Loading " + model + "...", true);
@@ -428,9 +435,14 @@ void PromptPanel::timerCallback()
         }
         else if (injectionMode_ == "layer_split" && std::abs(alphaOff) > 0.001f)
         {
+            const float blocksF = static_cast<float>(ditBlocks_);
             const float width = splitLayerEnd_ - splitLayerStart_;
-            const float maxStart = std::max(0.0f, 16.0f - width);
-            float gs = juce::jlimit(0.0f, maxStart, splitLayerStart_ + alphaOff * 8.0f);
+            const float maxStart = std::max(0.0f, blocksF - width);
+            // Drift travels half the block range per unit of alphaOff. SAO
+            // Small (16 blocks) keeps the historical 8-block sweep; SA3
+            // scales proportionally.
+            const float sweepScale = blocksF * 0.5f;
+            float gs = juce::jlimit(0.0f, maxStart, splitLayerStart_ + alphaOff * sweepScale);
             newSplitStart = gs;
             newSplitEnd   = gs + width;
         }
@@ -785,20 +797,16 @@ void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String
         lateMixForMode(slotMode) = juce::jlimit(0.0f, 1.0f, lateMixAmount);
         injectionDirty = true;
     }
-    if (!std::isnan(splitStart))
-    {
-        splitLayerStart_ = juce::jlimit(0.0f, 16.0f, splitStart);
-        injectionDirty = true;
-    }
-    if (!std::isnan(splitEnd))
-    {
-        splitLayerEnd_ = juce::jlimit(0.0f, 16.0f, splitEnd);
-        injectionDirty = true;
-    }
-    if (injectionDirty)
-        applyModeToSlider();
 
-    // Select model from preset (match by model directory name)
+    // Select the preset's model BEFORE clamping split values. Without this
+    // step the clamp would use the previously selected model's ditBlocks_,
+    // potentially truncating a preset whose SA3-sized splitEnd is valid
+    // under SA3 but clipped to SAO Small's 16-block ceiling. modelBtns'
+    // setToggleState is called with dontSendNotification so the onClick
+    // lambda doesn't preload the model from a preset load — we just need
+    // the UI state. refreshDitBlocksForCurrentModel then pulls the right
+    // depth out of the backend's handshake metadata.
+    bool deferredModel = false;
     if (model.isNotEmpty())
     {
         if (modelsPopulated)
@@ -811,12 +819,43 @@ void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String
                     break;
                 }
             }
+            refreshDitBlocksForCurrentModel();
         }
         else
         {
             pendingModel_ = model;
+            deferredModel = true;
         }
     }
+
+    // Preset block-count may differ from the currently active model's
+    // (e.g. saved under SA3 then recalled under SAO Small). Clamp to the
+    // active model's ditBlocks_ ceiling so the slider stays in range.
+    // When the model selection is deferred (backend not ready yet) we
+    // stash the raw values so populateModelSelector can replay them once
+    // ditBlocks_ reflects the preset's intended model.
+    if (deferredModel)
+    {
+        if (!std::isnan(splitStart)) pendingSplitStart_ = splitStart;
+        if (!std::isnan(splitEnd))   pendingSplitEnd_   = splitEnd;
+    }
+    else
+    {
+        const float blocksF = static_cast<float>(ditBlocks_);
+        if (!std::isnan(splitStart))
+        {
+            splitLayerStart_ = juce::jlimit(0.0f, blocksF, splitStart);
+            injectionDirty = true;
+        }
+        if (!std::isnan(splitEnd))
+        {
+            splitLayerEnd_ = juce::jlimit(0.0f, blocksF, splitEnd);
+            injectionDirty = true;
+        }
+    }
+    if (injectionDirty)
+        applyModeToSlider();
+
     syncInjectionModeAvailability();
 }
 
@@ -846,8 +885,11 @@ void PromptPanel::populateModelSelector()
     int firstAvail = -1;
     for (auto& m : models)
     {
+        // Order matters: SA3 names contain "small", so the SA3 check has to
+        // fire first to claim slot 3 instead of being swept into slot 1.
         int slot = -1;
-        if (m.containsIgnoreCase("small"))                   slot = 1;  // check "small" first
+        if (m.containsIgnoreCase("stable-audio-3"))          slot = 3;
+        else if (m.containsIgnoreCase("small"))              slot = 1;  // SAO Small
         else if (m.containsIgnoreCase("stable-audio-open"))  slot = 0;
         else if (m.containsIgnoreCase("audioldm") ||
                  m.containsIgnoreCase("audio-ldm"))          slot = 2;
@@ -876,7 +918,57 @@ void PromptPanel::populateModelSelector()
 
     modelsPopulated = true;
     syncInjectionModeAvailability();
+    refreshDitBlocksForCurrentModel();
+
+    // Replay deferred preset splits now that ditBlocks_ reflects the real
+    // model. loadPresetData stashed these when the backend wasn't ready yet
+    // and the clamp ceiling was still the previous model's value.
+    const bool hasPendingStart = !std::isnan(pendingSplitStart_);
+    const bool hasPendingEnd   = !std::isnan(pendingSplitEnd_);
+    if (hasPendingStart || hasPendingEnd)
+    {
+        const float blocksF = static_cast<float>(ditBlocks_);
+        if (hasPendingStart)
+            splitLayerStart_ = juce::jlimit(0.0f, blocksF, pendingSplitStart_);
+        if (hasPendingEnd)
+            splitLayerEnd_   = juce::jlimit(0.0f, blocksF, pendingSplitEnd_);
+        pendingSplitStart_ = std::numeric_limits<float>::quiet_NaN();
+        pendingSplitEnd_   = std::numeric_limits<float>::quiet_NaN();
+        if (injectionMode_ == "layer_split")
+            applyModeToSlider();
+    }
+
     resized();
+}
+
+void PromptPanel::refreshDitBlocksForCurrentModel()
+{
+    const auto model = getSelectedModel();
+    if (model.isEmpty())
+    {
+        ditBlocks_ = 16;
+        return;
+    }
+
+    const auto meta = processorRef.getPipeInference().getModelMetadata(model);
+    // Defensive clamp: a backend reporting absurd block counts (negative,
+    // zero, hundreds) would either invert the slider range or stretch it
+    // beyond anything the kombi geometry tolerates. 64 is well above the
+    // largest SA3 variant and gives us headroom for future architectures.
+    const int blocks = juce::jlimit(1, 64, meta.ditBlocks);
+    ditBlocks_ = blocks;
+
+    // Re-clamp the panel's own state so any saved value beyond the new
+    // ceiling (e.g. preset switched from SA3 back to SAO) snaps inside.
+    const float maxF = static_cast<float>(blocks);
+    splitLayerStart_ = juce::jlimit(0.0f, maxF, splitLayerStart_);
+    splitLayerEnd_   = juce::jlimit(0.0f, maxF, splitLayerEnd_);
+
+    // The alphaSlider's range is set inside applyModeToSlider; only re-run
+    // it when layer_split is the active mode, otherwise we'd overwrite the
+    // current mode's slider settings.
+    if (injectionMode_ == "layer_split")
+        applyModeToSlider();
 }
 
 void PromptPanel::refreshInferenceChoices()
@@ -1177,9 +1269,10 @@ void PromptPanel::applyModeToSlider()
     {
         alphaA.reset();
         alphaSlider.setSliderStyle(juce::Slider::TwoValueHorizontal);
-        const float savedStart = juce::jlimit(0.0f, 16.0f, splitLayerStart_);
-        const float savedEnd   = juce::jlimit(0.0f, 16.0f, splitLayerEnd_);
-        alphaSlider.setRange(0.0, 16.0, 1.0);
+        const float blocksF = static_cast<float>(ditBlocks_);
+        const float savedStart = juce::jlimit(0.0f, blocksF, splitLayerStart_);
+        const float savedEnd   = juce::jlimit(0.0f, blocksF, splitLayerEnd_);
+        alphaSlider.setRange(0.0, static_cast<double>(blocksF), 1.0);
         splitLayerStart_ = savedStart;
         splitLayerEnd_   = savedEnd;
         alphaLabel.setText("Layer B-zone (low-high)", juce::dontSendNotification);
@@ -1252,12 +1345,22 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     // in DiT block index space. No inversion needed — the user's mental model
     // (low thumb = where B starts, high thumb = where B ends) maps 1:1 to the
     // backend's b_start / b_end fields.
-    req.splitStart = juce::jlimit(0.0f, 16.0f, effSplitStart);
-    req.splitEnd   = juce::jlimit(0.0f, 16.0f, effSplitEnd);
+    const float blocksF = static_cast<float>(ditBlocks_);
+    req.splitStart = juce::jlimit(0.0f, blocksF, effSplitStart);
+    req.splitEnd   = juce::jlimit(0.0f, blocksF, effSplitEnd);
     // Combo modes overwrite the layer range with their per-mode hardcoded
     // band so drift / preset / slider state can never desync the geometry.
     // Combo 1 = "B as surface skin" (low DiT blocks);
     // Combo 2 = "B as gestalt filter" (high DiT blocks).
+    //
+    // NOTE: The 0/4/12/16 values were tuned for SAO Small's 16-block DiT.
+    // On SA3 Small (block count may differ — currently read from backend
+    // metadata into ditBlocks_) these bands fall on different relative
+    // depths; the perceptual mapping needs empirical re-validation. The
+    // backend re-asserts the same hardcoded values, so changing one side
+    // alone won't take effect — both this block AND _generate_native in
+    // backend/pipe_inference.py have to move together. Tracked under
+    // project §3.4 ("Injection-Modi auf T5Gemma re-validieren").
     if (requestInjectionMode == "kombi1") { req.splitStart = 0.0f; req.splitEnd = 4.0f;  }
     if (requestInjectionMode == "kombi2") { req.splitStart = 4.0f; req.splitEnd = 12.0f; }
     if (requestInjectionMode == "kombi3") { req.splitStart = 6.0f; req.splitEnd = 10.0f; }
@@ -1547,9 +1650,13 @@ void PromptPanel::pollDriftRegen()
     }
     else if (injectionMode_ == "layer_split" && std::abs(alphaOff) > 0.001f)
     {
+        const float driftBlocksF = static_cast<float>(ditBlocks_);
         const float width = splitLayerEnd_ - splitLayerStart_;
-        const float maxStart = std::max(0.0f, 16.0f - width);
-        effectiveSplitStart = juce::jlimit(0.0f, maxStart, splitLayerStart_ + alphaOff * 8.0f);
+        const float maxStart = std::max(0.0f, driftBlocksF - width);
+        // Drift sweeps half the block range per unit of alphaOff (8 blocks
+        // for SAO Small's 16-deep DiT, scaled for SA3-sized models).
+        const float sweepScale = driftBlocksF * 0.5f;
+        effectiveSplitStart = juce::jlimit(0.0f, maxStart, splitLayerStart_ + alphaOff * sweepScale);
         effectiveSplitEnd   = effectiveSplitStart + width;
     }
 
