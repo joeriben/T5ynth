@@ -1049,25 +1049,45 @@ void SettingsPage::downloadGhReleaseInThread()
             auto fileName = juce::String(gf.name);
             auto targetFile = targetDir.getChildFile(fileName);
 
-            // Skip if already exists with reasonable size
-            if (targetFile.existsAsFile() && targetFile.getSize() > gf.expectedSize * 9 / 10)
+            // Resume-aware existing-file check:
+            //   == expectedSize      → already complete, skip
+            //   > expectedSize       → not our file (different version) — start fresh
+            //   in (0, expectedSize) → partial — request HTTP Range and append
+            //   == 0                 → fresh download
+            int64_t existingBytes = targetFile.existsAsFile() ? targetFile.getSize() : 0;
+            if (existingBytes == gf.expectedSize)
             {
                 bytesCompleted += gf.expectedSize;
                 if (progressCounter) progressCounter->store(bytesCompleted);
                 continue;
             }
+            if (existingBytes > gf.expectedSize)
+            {
+                targetFile.deleteFile();
+                existingBytes = 0;
+            }
+            const bool tryResume = (existingBytes > 0);
 
             auto fileNum = i + 1;
-            juce::MessageManager::callAsync([safeThis, fileName, fileNum, ghFileCount]() {
+            juce::String statusText = (tryResume ? juce::String("Resuming: ")
+                                                 : juce::String("Downloading: "))
+                + fileName + " (" + juce::String(fileNum) + "/"
+                + juce::String(ghFileCount) + ")";
+            juce::MessageManager::callAsync([safeThis, statusText]() {
                 if (auto* self = safeThis.getComponent())
-                    self->downloadStatusLabel.setText("Downloading: " + fileName + " ("
-                        + juce::String(fileNum) + "/" + juce::String(ghFileCount) + ")",
-                        juce::dontSendNotification);
+                    self->downloadStatusLabel.setText(statusText, juce::dontSendNotification);
             });
 
             juce::URL fileUrl(ghBase + "/" + fileName);
+            juce::String extraHeaders;
+            if (tryResume)
+                extraHeaders = "Range: bytes=" + juce::String(existingBytes) + "-";
+
+            int statusCode = 0;
             auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                            .withConnectionTimeoutMs(30000);
+                            .withConnectionTimeoutMs(30000)
+                            .withExtraHeaders(extraHeaders)
+                            .withStatusCode(&statusCode);
             auto stream = fileUrl.createInputStream(opts);
 
             if (!stream)
@@ -1080,7 +1100,40 @@ void SettingsPage::downloadGhReleaseInThread()
                 return;
             }
 
-            targetFile.deleteFile();
+            // 416 Range Not Satisfiable: the file on the server is smaller
+            // than our partial copy (mirror re-uploaded with different size,
+            // e.g.). Clear the partial so the next click starts fresh —
+            // otherwise we'd send the same Range again and re-trigger 416.
+            if (statusCode == 416 && tryResume)
+            {
+                targetFile.deleteFile();
+                juce::MessageManager::callAsync([safeThis, fileName]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->onDownloadFinished(false,
+                            "The file on the server changed since your previous "
+                            "download attempt: " + fileName + "\n\n"
+                            "Your partial download has been cleared. Click "
+                            "Download again to start fresh.");
+                });
+                return;
+            }
+
+            if (statusCode >= 400)
+            {
+                juce::MessageManager::callAsync([safeThis, fileName, statusCode]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->onDownloadFinished(false, "Server returned HTTP "
+                            + juce::String(statusCode) + " for: " + fileName);
+                });
+                return;
+            }
+
+            // 206 Partial Content → append. 200 OK with tryResume → server
+            // ignored Range, restart from byte 0.
+            const bool appendMode = tryResume && statusCode == 206;
+            if (!appendMode)
+                targetFile.deleteFile();
+
             auto outStream = targetFile.createOutputStream();
             if (!outStream)
             {
@@ -1090,7 +1143,11 @@ void SettingsPage::downloadGhReleaseInThread()
                 });
                 return;
             }
+            // FileOutputStream's constructor seeks to end-of-file when the
+            // file already exists, so the write cursor is already correct
+            // for appendMode == true.
 
+            const int64_t initialBytes = appendMode ? existingBytes : 0;
             char buffer[65536];
             int64_t written = 0;
             while (true)
@@ -1101,11 +1158,36 @@ void SettingsPage::downloadGhReleaseInThread()
                 if (bytesRead <= 0) break;
                 outStream->write(buffer, static_cast<size_t>(bytesRead));
                 written += bytesRead;
-                if (progressCounter) progressCounter->store(bytesCompleted + written);
+                if (progressCounter) progressCounter->store(bytesCompleted + initialBytes + written);
             }
             outStream.reset();
 
-            bytesCompleted += juce::jmax(written, gf.expectedSize);
+            // Skip the truncation check if cancellation interrupted the read.
+            if (cancelFlag && cancelFlag->load())
+                return;
+
+            // Network dropped mid-stream. Keep the partial file so the next
+            // click resumes from where it stopped — don't delete it.
+            const int64_t finalBytes = targetFile.getSize();
+            if (finalBytes < gf.expectedSize)
+            {
+                auto expectedStr = (gf.expectedSize < 1024 * 1024)
+                    ? juce::String(gf.expectedSize) + " bytes"
+                    : juce::String(gf.expectedSize / (1024 * 1024)) + " MB";
+                auto gotStr = (finalBytes < 1024 * 1024)
+                    ? juce::String(finalBytes) + " bytes"
+                    : juce::String(finalBytes / (1024 * 1024)) + " MB";
+                juce::MessageManager::callAsync([safeThis, fileName, expectedStr, gotStr]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->onDownloadFinished(false,
+                            "Download was interrupted for " + fileName + ":\n"
+                            "Expected " + expectedStr + ", received " + gotStr + ".\n\n"
+                            "Click Download again to resume from where it stopped.");
+                });
+                return;
+            }
+
+            bytesCompleted += gf.expectedSize;
             if (progressCounter) progressCounter->store(bytesCompleted);
         }
 
@@ -1163,30 +1245,55 @@ void SettingsPage::downloadAllFilesInThread()
             auto targetFile = targetDir.getChildFile(df.remotePath);
             targetFile.getParentDirectory().createDirectory();
 
-            // Skip already downloaded files (correct size)
-            if (targetFile.existsAsFile() && !isLfsPointer(targetFile)
-                && (df.size == 0 || targetFile.getSize() >= df.size * 9 / 10))
+            // Resume-aware existing-file check:
+            //   == df.size           → already complete, skip
+            //   > df.size            → different version — start fresh
+            //   in (0, df.size)      → partial — request HTTP Range and append
+            //   == 0 OR LFS pointer  → fresh download
+            //   df.size == 0         → HF didn't report a size; can't reason
+            //                          about resume — always restart and skip
+            //                          end-of-loop truncation check.
+            int64_t existingBytes = 0;
+            if (targetFile.existsAsFile() && !isLfsPointer(targetFile))
+                existingBytes = targetFile.getSize();
+
+            if (df.size > 0 && existingBytes == df.size)
             {
                 bytesCompleted += df.size;
                 if (progressCounter) progressCounter->store(bytesCompleted);
                 continue;
             }
+            if (df.size > 0 && existingBytes > df.size)
+            {
+                targetFile.deleteFile();
+                existingBytes = 0;
+            }
+            const bool tryResume = (df.size > 0 && existingBytes > 0);
 
             // Update status on UI thread
             auto fileName = df.remotePath;
             auto fileNum = i + 1;
             auto fileCount = files.size();
-            juce::MessageManager::callAsync([safeThis, fileName, fileNum, fileCount]() {
+            juce::String statusText = (tryResume ? juce::String("Resuming: ")
+                                                 : juce::String("Downloading: "))
+                + fileName + " (" + juce::String(fileNum) + "/"
+                + juce::String((int) fileCount) + ")";
+            juce::MessageManager::callAsync([safeThis, statusText]() {
                 if (auto* self = safeThis.getComponent())
-                    self->downloadStatusLabel.setText("Downloading: " + fileName + " ("
-                        + juce::String(fileNum) + "/" + juce::String(fileCount) + ")",
-                        juce::dontSendNotification);
+                    self->downloadStatusLabel.setText(statusText, juce::dontSendNotification);
             });
 
             // Download via createInputStream — follows HF's LFS redirects
             juce::URL fileUrl("https://huggingface.co/" + hfRepo + "/resolve/main/" + fileName);
+            juce::String extraHeaders;
+            if (tryResume)
+                extraHeaders = "Range: bytes=" + juce::String(existingBytes) + "-";
+
+            int statusCode = 0;
             auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                            .withConnectionTimeoutMs(30000);
+                            .withConnectionTimeoutMs(30000)
+                            .withExtraHeaders(extraHeaders)
+                            .withStatusCode(&statusCode);
             auto stream = fileUrl.createInputStream(opts);
 
             if (!stream)
@@ -1201,8 +1308,40 @@ void SettingsPage::downloadAllFilesInThread()
                 return;
             }
 
-            // Write to file in chunks
-            targetFile.deleteFile();
+            // 416 Range Not Satisfiable: partial-file size exceeds the file
+            // on HF (e.g. the model was reuploaded). Clear partial so the
+            // next click starts fresh.
+            if (statusCode == 416 && tryResume)
+            {
+                targetFile.deleteFile();
+                juce::MessageManager::callAsync([safeThis, fileName, hfRepo]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->onDownloadFinished(false,
+                            "The file on HuggingFace (" + hfRepo + ") changed "
+                            "since your previous download attempt: " + fileName
+                            + "\n\nYour partial download has been cleared. "
+                            "Click Download again to start fresh.");
+                });
+                return;
+            }
+
+            if (statusCode >= 400)
+            {
+                juce::MessageManager::callAsync([safeThis, fileName, statusCode, hfRepo]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->onDownloadFinished(false, "HuggingFace returned HTTP "
+                            + juce::String(statusCode) + " for " + fileName
+                            + " (" + hfRepo + ")");
+                });
+                return;
+            }
+
+            // 206 → server honored Range → append.
+            // 200 with tryResume → server ignored Range, full file incoming.
+            const bool appendMode = tryResume && statusCode == 206;
+            if (!appendMode)
+                targetFile.deleteFile();
+
             auto outStream = targetFile.createOutputStream();
             if (!outStream)
             {
@@ -1212,7 +1351,10 @@ void SettingsPage::downloadAllFilesInThread()
                 });
                 return;
             }
+            // FileOutputStream auto-seeks to end on existing files; no
+            // explicit positioning needed for appendMode.
 
+            const int64_t initialBytes = appendMode ? existingBytes : 0;
             char buffer[65536];
             int64_t written = 0;
             while (!(cancelFlag && cancelFlag->load()))
@@ -1221,15 +1363,18 @@ void SettingsPage::downloadAllFilesInThread()
                 if (bytesRead <= 0) break;
                 outStream->write(buffer, static_cast<size_t>(bytesRead));
                 written += bytesRead;
-                if (progressCounter) progressCounter->store(bytesCompleted + written);
+                if (progressCounter) progressCounter->store(bytesCompleted + initialBytes + written);
             }
             outStream.reset();
 
             if (cancelFlag && cancelFlag->load())
                 return;
 
-            // Check for server error responses (HTML/JSON error instead of data)
-            if (written > 0 && written < 100000 && df.size > 100000)
+            // Check for server error responses (HTML/JSON error instead of
+            // data). Only relevant in non-append mode: a 206 Partial Content
+            // body is required to be the raw bytes from the requested range,
+            // so a small `written` while resuming is just a tail-end chunk.
+            if (!appendMode && written > 0 && written < 100000 && df.size > 100000)
             {
                 auto content = targetFile.loadFileAsString().trim();
                 juce::String serverMsg;
@@ -1258,27 +1403,33 @@ void SettingsPage::downloadAllFilesInThread()
                 }
             }
 
-            // Validate: large files should not be tiny
-            if (df.size > 100000 && written < df.size / 2)
+            // Truncation check against HF-API-reported size. Read the bytes
+            // actually on disk (not the in-memory `written` counter) so a
+            // failed write (e.g. disk-full) is detected — outStream->write
+            // returns success-as-void and the byte counter advances even when
+            // the OS rejected the data.
+            const int64_t finalBytes = targetFile.getSize();
+            if (df.size > 0 && finalBytes < df.size)
             {
-                targetFile.deleteFile();
                 auto expected = df.size;
-                auto expectedStr = juce::String(expected / (1024 * 1024)) + " MB";
-                auto gotStr = (written < 1024 * 1024)
-                    ? juce::String(written / 1024) + " KB"
-                    : juce::String(written / (1024 * 1024)) + " MB";
+                auto expectedStr = (expected < 1024 * 1024)
+                    ? juce::String(expected / 1024) + " KB"
+                    : juce::String(expected / (1024 * 1024)) + " MB";
+                auto gotStr = (finalBytes < 1024 * 1024)
+                    ? juce::String(finalBytes / 1024) + " KB"
+                    : juce::String(finalBytes / (1024 * 1024)) + " MB";
                 juce::MessageManager::callAsync([safeThis, fileName, expectedStr, gotStr, hfRepo]() {
                     if (auto* self = safeThis.getComponent())
                         self->onDownloadFinished(false,
                             "Transfer ended early for " + fileName + " (" + hfRepo + ")\n"
                             "Expected " + expectedStr + ", received " + gotStr + ".\n\n"
-                            "Retry the download, or use Browse... to point at an "
-                            "existing copy of the model.");
+                            "Click Download again to resume from where it stopped, "
+                            "or use Browse... to point at an existing copy of the model.");
                 });
                 return;
             }
 
-            bytesCompleted += juce::jmax(written, df.size);
+            bytesCompleted += (df.size > 0 ? df.size : finalBytes);
             if (progressCounter) progressCounter->store(bytesCompleted);
         }
 
