@@ -602,61 +602,95 @@ bool PipeInference::launch(const juce::File& backendDir)
     defaultModel_.clear();
     modelMetadata_.clear();
 
-    // Read device info JSON (uint16 length + JSON bytes)
+    // Read device info JSON (uint16 length + JSON bytes). Every step here is a
+    // hard requirement for ready_ — a backend that sends \x02 but stalls or
+    // sends a malformed payload must NOT flip the plugin to "ready" with empty
+    // metadata, because the UI would then read default ditBlocks / sampler
+    // settings for every model with no cue that the handshake was truncated.
     uint16_t infoLen = 0;
-    if (readExact(&infoLen, 2, 5000) && infoLen > 0)
+    if (!readExact(&infoLen, 2, 5000))
     {
-        std::vector<char> infoBuf(infoLen + 1, 0);
-        if (readExact(infoBuf.data(), infoLen, 5000))
+        lastError_ = "Backend ready signal received but device/model JSON length did not arrive";
+        juce::Logger::writeToLog("PipeInference: " + lastError_);
+        shutdown();
+        launching_ = false;
+        return false;
+    }
+
+    if (infoLen == 0)
+    {
+        lastError_ = "Backend ready signal received but device/model JSON was empty";
+        juce::Logger::writeToLog("PipeInference: " + lastError_);
+        shutdown();
+        launching_ = false;
+        return false;
+    }
+
+    std::vector<char> infoBuf(infoLen + 1, 0);
+    if (!readExact(infoBuf.data(), infoLen, 5000))
+    {
+        lastError_ = "Backend ready signal received but device/model JSON did not arrive";
+        juce::Logger::writeToLog("PipeInference: " + lastError_);
+        shutdown();
+        launching_ = false;
+        return false;
+    }
+
+    auto infoJson = juce::JSON::parse(juce::String::fromUTF8(infoBuf.data(), infoLen));
+    if (!infoJson.isObject())
+    {
+        lastError_ = "Backend ready signal received but device/model JSON failed to parse";
+        juce::Logger::writeToLog("PipeInference: " + lastError_);
+        shutdown();
+        launching_ = false;
+        return false;
+    }
+
+    if (auto* arr = infoJson.getProperty("devices", {}).getArray())
+    {
+        for (auto& d : *arr)
+            availableDevices_.add(d.toString());
+    }
+    defaultDevice_ = infoJson.getProperty("default", "cpu").toString();
+
+    if (auto* arr = infoJson.getProperty("models", {}).getArray())
+    {
+        for (auto& m : *arr)
+            availableModels_.add(m.toString());
+    }
+    defaultModel_ = infoJson.getProperty("default_model", "").toString();
+
+    if (auto* metaObj = infoJson.getProperty("model_metadata", {}).getDynamicObject())
+    {
+        for (auto& prop : metaObj->getProperties())
         {
-            auto infoJson = juce::JSON::parse(juce::String::fromUTF8(infoBuf.data(), infoLen));
-            if (auto* arr = infoJson.getProperty("devices", {}).getArray())
+            ModelMetadata md;
+            if (auto* inner = prop.value.getDynamicObject())
             {
-                for (auto& d : *arr)
-                    availableDevices_.add(d.toString());
-            }
-            defaultDevice_ = infoJson.getProperty("default", "cpu").toString();
-
-            if (auto* arr = infoJson.getProperty("models", {}).getArray())
-            {
-                for (auto& m : *arr)
-                    availableModels_.add(m.toString());
-            }
-            defaultModel_ = infoJson.getProperty("default_model", "").toString();
-
-            if (auto* metaObj = infoJson.getProperty("model_metadata", {}).getDynamicObject())
-            {
-                for (auto& prop : metaObj->getProperties())
+                const auto blocksVar = inner->getProperty("dit_blocks");
+                if (blocksVar.isInt() || blocksVar.isDouble())
                 {
-                    ModelMetadata md;
-                    if (auto* inner = prop.value.getDynamicObject())
-                    {
-                        const auto blocksVar = inner->getProperty("dit_blocks");
-                        if (blocksVar.isInt() || blocksVar.isDouble())
-                        {
-                            const int parsed = static_cast<int>(blocksVar);
-                            if (parsed > 0)
-                                md.ditBlocks = parsed;
-                        }
-                        const auto samplerVar = inner->getProperty("sampler_type");
-                        if (samplerVar.isString())
-                        {
-                            const auto str = samplerVar.toString();
-                            if (str.isNotEmpty())
-                                md.samplerType = str;
-                        }
-                    }
-                    modelMetadata_[prop.name.toString()] = md;
+                    const int parsed = static_cast<int>(blocksVar);
+                    if (parsed > 0)
+                        md.ditBlocks = parsed;
+                }
+                const auto samplerVar = inner->getProperty("sampler_type");
+                if (samplerVar.isString())
+                {
+                    const auto str = samplerVar.toString();
+                    if (str.isNotEmpty())
+                        md.samplerType = str;
                 }
             }
-
-            juce::Logger::writeToLog("PipeInference: devices=" + availableDevices_.joinIntoString(",")
-                                      + " default=" + defaultDevice_
-                                      + " models=" + availableModels_.joinIntoString(",")
-                                      + " default_model=" + defaultModel_
-                                      + " metadata_entries=" + juce::String((int) modelMetadata_.size()));
+            modelMetadata_[prop.name.toString()] = md;
         }
     }
+
+    juce::Logger::writeToLog("PipeInference: devices=" + availableDevices_.joinIntoString(",")
+                              + " default=" + defaultDevice_
+                              + " models=" + availableModels_.joinIntoString(",")
+                              + " default_model=" + defaultModel_
+                              + " metadata_entries=" + juce::String((int) modelMetadata_.size()));
 
     ready_ = true;
     launching_ = false;
