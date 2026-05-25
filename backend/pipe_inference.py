@@ -450,7 +450,16 @@ def _prepare_native_model_config(model_dir, model_config):
 
 
 def _patch_stable_audio_tools_t5_registry(resolved_t5_models):
-    """Allow stable-audio-tools to accept resolved bundled T5 asset directories."""
+    """Allow stable-audio-tools to accept resolved bundled T5 asset directories.
+
+    Two cases:
+    * Path was resolved from a name already in T5_MODEL_DIMS (e.g. t5-base) →
+      copy the dim entry across so the assert in T5Conditioner.__init__ passes.
+    * Path points at a directory we've not seen before (T5Gemma) → read the
+      hidden_size out of config.json and register it. The T5Conditioner
+      patch installed by _patch_stable_audio_tools_for_t5gemma uses the same
+      registry, so the dim has to be in place before construction.
+    """
     if not resolved_t5_models:
         return
 
@@ -459,7 +468,7 @@ def _patch_stable_audio_tools_t5_registry(resolved_t5_models):
     for original_name, resolved_path in resolved_t5_models:
         dims = getattr(sat_conditioners.T5Conditioner, "T5_MODEL_DIMS", None)
         models = getattr(sat_conditioners.T5Conditioner, "T5_MODELS", None)
-        if not isinstance(dims, dict) or original_name not in dims:
+        if not isinstance(dims, dict):
             continue
 
         if isinstance(models, tuple):
@@ -467,8 +476,199 @@ def _patch_stable_audio_tools_t5_registry(resolved_t5_models):
             sat_conditioners.T5Conditioner.T5_MODELS = models
         if isinstance(models, list) and resolved_path not in models:
             models.append(resolved_path)
+        if isinstance(models, list) and original_name not in models:
+            models.append(original_name)
 
-        dims[resolved_path] = dims[original_name]
+        if original_name in dims:
+            dims[resolved_path] = dims[original_name]
+            continue
+
+        # Unknown name (e.g. T5Gemma) — look up hidden_size from config.json.
+        embed_dim = _read_text_encoder_hidden_size(Path(resolved_path))
+        if embed_dim is None:
+            log.warning(
+                "Could not resolve hidden_size for text encoder at %s; "
+                "T5Conditioner construction will likely fail.",
+                resolved_path,
+            )
+            continue
+        dims[resolved_path] = embed_dim
+        dims[original_name] = embed_dim
+
+
+def _read_text_encoder_hidden_size(model_dir):
+    """Read the embedding dim of a flat-transformers encoder from its config.json."""
+    cfg_path = Path(model_dir) / "config.json"
+    if not cfg_path.is_file():
+        return None
+    try:
+        with open(cfg_path) as f:
+            cfg = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        log.warning("Could not parse %s: %s", cfg_path, exc)
+        return None
+    # T5 family uses d_model; T5Gemma and most modern HF encoders use hidden_size.
+    for key in ("hidden_size", "d_model"):
+        value = cfg.get(key)
+        if isinstance(value, int) and value > 0:
+            return value
+    return None
+
+
+def _model_type_of_text_encoder(model_dir):
+    """Return the config.json model_type field (lowercased) or ''."""
+    cfg_path = Path(model_dir) / "config.json"
+    if not cfg_path.is_file():
+        return ""
+    try:
+        with open(cfg_path) as f:
+            cfg = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return ""
+    return str(cfg.get("model_type", "")).lower()
+
+
+def _patch_stable_audio_tools_for_t5gemma():
+    """Teach stable-audio-tools' T5Conditioner how to load T5Gemma encoders.
+
+    The stock T5Conditioner constructs ``T5EncoderModel.from_pretrained(name)``
+    which only handles original T5 architecture. T5Gemma ships under a
+    different transformers class (``T5GemmaForConditionalGeneration`` /
+    ``T5GemmaModel``) and is reached via ``AutoModel``. We monkey-patch
+    ``T5Conditioner.__init__`` so it inspects the resolved directory's
+    ``config.json`` and dispatches to ``AutoModel`` when ``model_type``
+    looks like Gemma; otherwise the original code path runs unchanged.
+
+    Idempotent — second and later calls are no-ops.
+    """
+    from stable_audio_tools.models import conditioners as sat_conditioners
+
+    if getattr(sat_conditioners.T5Conditioner, "_t5ynth_t5gemma_patched", False):
+        return
+
+    original_init = sat_conditioners.T5Conditioner.__init__
+
+    def patched_init(self, output_dim, t5_model_name="t5-base", max_length=128,
+                     enable_grad=False, project_out=False):
+        model_type = _model_type_of_text_encoder(t5_model_name)
+        is_t5gemma = "gemma" in model_type
+        if not is_t5gemma:
+            original_init(
+                self,
+                output_dim,
+                t5_model_name=t5_model_name,
+                max_length=max_length,
+                enable_grad=enable_grad,
+                project_out=project_out,
+            )
+            return
+
+        # T5Gemma branch — mirror T5Conditioner's structure but with AutoModel.
+        import warnings
+        from transformers import AutoTokenizer, AutoModel
+
+        embed_dim = _read_text_encoder_hidden_size(t5_model_name)
+        if embed_dim is None:
+            raise RuntimeError(
+                f"Could not determine hidden_size for T5Gemma encoder at {t5_model_name}"
+            )
+
+        # Use Conditioner base init directly. T5Conditioner.__init__ calls
+        # super().__init__(self.T5_MODEL_DIMS[name], ...); we bypass the
+        # registry lookup here and pass embed_dim straight through.
+        sat_conditioners.Conditioner.__init__(self, embed_dim, output_dim,
+                                              project_out=project_out)
+        self.max_length = max_length
+        self.enable_grad = enable_grad
+
+        previous_level = logging.root.manager.disable
+        logging.disable(logging.ERROR)
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                self.tokenizer = AutoTokenizer.from_pretrained(t5_model_name)
+                full = AutoModel.from_pretrained(
+                    t5_model_name, torch_dtype=torch.float16
+                ).train(enable_grad).requires_grad_(enable_grad)
+        finally:
+            logging.disable(previous_level)
+
+        # T5Gemma exposes the encoder under different attribute paths depending
+        # on the transformers class. Cover the common locations defensively.
+        if hasattr(full, "encoder") and full.encoder is not None:
+            inner_model = full.encoder
+        elif hasattr(full, "model") and hasattr(full.model, "encoder"):
+            inner_model = full.model.encoder
+        else:
+            inner_model = full
+
+        if self.enable_grad:
+            self.model = inner_model
+        else:
+            self.__dict__["model"] = inner_model
+
+    sat_conditioners.T5Conditioner.__init__ = patched_init
+    sat_conditioners.T5Conditioner._t5ynth_t5gemma_patched = True
+    log.info("Patched T5Conditioner to recognise T5Gemma encoders")
+
+
+def _install_pingpong_sampler():
+    """Add a 'pingpong' branch to stable-audio-tools' sampler dispatch.
+
+    SA3 Small ships with ``sampler_type='pingpong'``. The version of
+    stable-audio-tools shipped with T5ynth predates pingpong support, so we
+    register a no-op placeholder that raises a clear NotImplementedError if
+    the sampler is actually requested. Plumbing for the field is in place;
+    the algorithm itself will be filled in once SA3 model weights are
+    available for validation. Until then, SA3 generation will surface a
+    descriptive error rather than silently falling back.
+
+    Both ``sample_k`` and ``sample_rf`` are wrapped — the diffusion_objective
+    field decides which one ``generate_diffusion_cond`` actually invokes, and
+    SA3 uses rectified-flow models which route through ``sample_rf``. The
+    rectified-flow code path drops sampler_type before calling, so the
+    pingpong assertion needs to live at a higher level too; we additionally
+    guard in ``_generate_native`` before the call.
+    """
+    from stable_audio_tools.inference import sampling as sat_sampling
+
+    if not getattr(sat_sampling.sample_k, "_t5ynth_pingpong_patched", False):
+        original_sample_k = sat_sampling.sample_k
+
+        def patched_sample_k(*args, sampler_type="dpmpp-2m-sde", **kwargs):
+            if sampler_type != "pingpong":
+                return original_sample_k(*args, sampler_type=sampler_type, **kwargs)
+            raise NotImplementedError(_PINGPONG_NOT_IMPLEMENTED_MSG)
+
+        patched_sample_k._t5ynth_pingpong_patched = True
+        sat_sampling.sample_k = patched_sample_k
+
+    if not getattr(sat_sampling.sample_rf, "_t5ynth_pingpong_patched", False):
+        # generate_diffusion_cond explicitly deletes sampler_type before
+        # calling sample_rf, so we can't intercept the request here via the
+        # kwarg path. Instead we wrap sample_rf to consult a thread-local
+        # flag set by _generate_native immediately before the call.
+        original_sample_rf = sat_sampling.sample_rf
+
+        def patched_sample_rf(*args, **kwargs):
+            if _PINGPONG_FLAG.get("active"):
+                raise NotImplementedError(_PINGPONG_NOT_IMPLEMENTED_MSG)
+            return original_sample_rf(*args, **kwargs)
+
+        patched_sample_rf._t5ynth_pingpong_patched = True
+        sat_sampling.sample_rf = patched_sample_rf
+
+    log.info("Patched sample_k and sample_rf to dispatch on sampler_type='pingpong'")
+
+
+_PINGPONG_FLAG = {"active": False}
+
+_PINGPONG_NOT_IMPLEMENTED_MSG = (
+    "Stable Audio 3 Small requests sampler_type='pingpong', which is not "
+    "implemented in the bundled stable-audio-tools build. Plug in a pingpong "
+    "implementation in pipe_inference.py:_install_pingpong_sampler or upgrade "
+    "stable-audio-tools to a version that ships pingpong."
+)
 
 
 def _force_hf_offline_for_native_load():
@@ -625,6 +825,15 @@ class NativePipeline:
         self.model_name = model_name
         self.sample_size = model_config["sample_size"]
         self.sample_rate = model_config["sample_rate"]
+        # Per-model sampler dispatch. SAO uses dpmpp-2m-sde by default; SA3
+        # ships with pingpong. The plugin sends an injection_mode but never
+        # an explicit sampler_type — the backend decides based on the model's
+        # own config so different engines coexist on the same APVTS.
+        self.sampler_type = _resolve_sampler_type(model_config, model_name)
+        # Number of DiT blocks. layer_split / kombi injection modes need this
+        # for slider clamping on the plugin side; it varies per architecture
+        # (SAO Small = 16; SA3 Small reads from the loaded model).
+        self.dit_blocks = _resolve_dit_block_count(model, model_config)
         # Extract T5 encoder reference for embedding access
         self._t5_conditioner = None
         for key, cond in model.conditioner.conditioners.items():
@@ -639,6 +848,95 @@ class NativePipeline:
     @property
     def text_encoder(self):
         return self._t5_conditioner.model if self._t5_conditioner else None
+
+
+def _resolve_sampler_type(model_config, model_name):
+    """Pick a sampler_type for native generation.
+
+    Looks at model_config.json's diffusion sub-section first
+    (model.diffusion.sampler_type / model.diffusion.sampling.sampler_type),
+    then falls back to a per-model-name heuristic, then to the
+    stable-audio-tools default 'dpmpp-2m-sde'.
+    """
+    diffusion = model_config.get("model", {}).get("diffusion", {}) if isinstance(model_config, dict) else {}
+    for path in (("sampler_type",), ("sampling", "sampler_type")):
+        node = diffusion
+        for key in path:
+            node = node.get(key, None) if isinstance(node, dict) else None
+            if node is None:
+                break
+        if isinstance(node, str) and node:
+            return node
+
+    # Heuristic fallback by model name — covers cases where the config doesn't
+    # record sampler_type explicitly but the model identity is well-known.
+    if model_name == "stable-audio-3-small":
+        return "pingpong"
+    return "dpmpp-2m-sde"
+
+
+def _dit_block_count_from_config(model_config):
+    """Best-effort DiT block count read from model_config.json alone.
+
+    Used by main() during the ready handshake before any model is loaded.
+    Falls back to 16 (SAO Small's count) for unknown configs so the plugin
+    UI clamps stay sensible on legacy models.
+    """
+    if not isinstance(model_config, dict):
+        return 16
+    diffusion = model_config.get("model", {}).get("diffusion", {})
+    config = diffusion.get("config", {}) if isinstance(diffusion, dict) else {}
+    for key in ("depth", "num_layers", "n_layers", "blocks"):
+        value = config.get(key)
+        if isinstance(value, int) and value > 0:
+            return value
+    return 16
+
+
+def _resolve_dit_block_count(model, model_config):
+    """Read DiT block (layer) count for the loaded native model.
+
+    Best source is the inner transformer's layer module list (queried after
+    the model object is built). Falls back to the config-only reader for
+    architectures whose transformer attribute path differs.
+    """
+    try:
+        layers = model.model.model.transformer.layers
+        count = len(layers)
+        if count > 0:
+            return count
+    except AttributeError:
+        pass
+    return _dit_block_count_from_config(model_config)
+
+
+def _collect_static_model_metadata(models):
+    """Read per-model static metadata without loading the models themselves.
+
+    Returns a dict keyed by model name with at least 'dit_blocks' and
+    'sampler_type' for each native model. Models with no readable
+    model_config.json (diffusers/audioldm2) are skipped — the plugin treats
+    a missing entry as 'use defaults'.
+    """
+    metadata = {}
+    for name, path in models.items():
+        fmt = _model_formats.get(name)
+        if fmt != "native":
+            continue
+        cfg_path = Path(path) / "model_config.json"
+        if not cfg_path.is_file():
+            continue
+        try:
+            with open(cfg_path) as f:
+                cfg = json.load(f)
+        except (OSError, json.JSONDecodeError) as exc:
+            log.warning("Could not parse %s: %s", cfg_path, exc)
+            continue
+        metadata[name] = {
+            "dit_blocks": _dit_block_count_from_config(cfg),
+            "sampler_type": _resolve_sampler_type(cfg, name),
+        }
+    return metadata
 
 
 class AudioLDM2Wrapper:
@@ -715,7 +1013,14 @@ def _load_native_pipeline(model_dir, device):
         with open(config_path) as f:
             model_config, resolved_t5_models = _prepare_native_model_config(model_dir, json.load(f))
 
+        # Order matters: the T5Gemma patch overrides T5Conditioner.__init__
+        # but reads from the registry the t5_registry patch populates, so the
+        # registry patch has to land first. The pingpong patch is independent
+        # but installed here so all stable-audio-tools modifications live in
+        # one well-known place.
         _patch_stable_audio_tools_t5_registry(resolved_t5_models)
+        _patch_stable_audio_tools_for_t5gemma()
+        _install_pingpong_sampler()
 
         model = create_model_from_config(model_config)
         model.load_state_dict(load_ckpt_state_dict(str(weights_path)))
@@ -1660,6 +1965,15 @@ def _generate_native(pipe, request):
     # corrupt the binary IPC pipe to JUCE. Redirect stdout → stderr temporarily.
     real_stdout = sys.stdout
     sys.stdout = sys.stderr
+    # sampler_type is per-model: SAO defaults to dpmpp-2m-sde (the historical
+    # Brownian-tree path); SA3 ships with pingpong. The NativePipeline wrapper
+    # resolves this at load time from model_config.json or the model-name
+    # fallback. generate_diffusion_cond forwards sampler_type to sample_k for
+    # v-objective models but DROPS it before calling sample_rf for
+    # rectified-flow models — so the sample_k patch alone can't catch
+    # SA3-style pingpong requests. The thread-local flag below routes the
+    # pingpong assertion through sample_rf too.
+    _PINGPONG_FLAG["active"] = (pipe.sampler_type == "pingpong")
     try:
         output = generate_diffusion_cond(
             pipe.model,
@@ -1669,8 +1983,10 @@ def _generate_native(pipe, request):
             sample_size=pipe.sample_size,
             device=device,
             seed=seed,
+            sampler_type=pipe.sampler_type,
         )
     finally:
+        _PINGPONG_FLAG["active"] = False
         sys.stdout = real_stdout
         if restore_forward is not None:
             restore_forward()
@@ -1867,14 +2183,23 @@ def generate(pipe, request):
 
 # ─── Protocol ───────────────────────────────────────────────────────
 
-def send_ready(devices, default_device, models, default_model):
-    """Signal ready to JUCE with device and model info."""
-    info = json.dumps({
+def send_ready(devices, default_device, models, default_model, model_metadata=None):
+    """Signal ready to JUCE with device, model and per-model metadata.
+
+    The optional ``model_metadata`` dict carries per-model static info that
+    the plugin uses for UI clamping (DiT block count, default sampler type,
+    etc.). Older plugin builds simply ignore the field, so adding it is
+    backwards-compatible on the wire.
+    """
+    payload = {
         "devices": devices,
         "default": default_device,
         "models": list(models.keys()),
         "default_model": default_model,
-    }).encode("utf-8")
+    }
+    if model_metadata:
+        payload["model_metadata"] = model_metadata
+    info = json.dumps(payload).encode("utf-8")
     sys.stdout.buffer.write(b'\x02')
     sys.stdout.buffer.write(struct.pack('<H', len(info)))
     sys.stdout.buffer.write(info)
@@ -1943,9 +2268,16 @@ def main():
             send_error(f"Pipeline load failed: {e}")
             return
 
-        send_ready(devices, default_device, _available_models, default_model)
+        # Per-model metadata for the plugin's UI clamps (DiT block count,
+        # sampler dispatch). Read straight from model_config.json so models
+        # that haven't been loaded yet still show correct slider ranges.
+        model_metadata = _collect_static_model_metadata(_available_models)
+        send_ready(devices, default_device, _available_models, default_model,
+                   model_metadata=model_metadata)
         log.info(f"Ready. Models: {list(_available_models.keys())}, default: {default_model}, "
                  f"devices: {devices}, default device: {default_device}")
+        if model_metadata:
+            log.info(f"Model metadata: {model_metadata}")
         if startup_failures:
             log.warning(f"Skipped unusable startup models: {startup_failures}")
 

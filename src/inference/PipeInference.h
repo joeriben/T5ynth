@@ -46,6 +46,26 @@ public:
     const juce::StringArray& getAvailableModels() const { return availableModels_; }
     const juce::String& getDefaultModel() const { return defaultModel_; }
 
+    /** Per-model static metadata reported by Python at startup.
+     *
+     *  Currently surfaces:
+     *  - ditBlocks: number of DiT blocks in the diffusion transformer.
+     *               UI sliders (layer_split / kombi modes) clamp to this.
+     *  - samplerType: native-path sampler the backend will dispatch on for
+     *               this model. Informational on the plugin side (the
+     *               plugin does not pass this through generate()).
+     *
+     *  Missing entries get default-constructed ModelMetadata (16 blocks,
+     *  dpmpp-2m-sde) so the plugin behaves like older builds when an
+     *  older backend doesn't supply the field.
+     */
+    struct ModelMetadata
+    {
+        int ditBlocks = 16;
+        juce::String samplerType = "dpmpp-2m-sde";
+    };
+    ModelMetadata getModelMetadata(const juce::String& modelName) const;
+
     struct Request
     {
         juce::String promptA;
@@ -118,6 +138,7 @@ private:
     juce::String defaultDevice_;
     juce::StringArray availableModels_;
     juce::String defaultModel_;
+    std::map<juce::String, ModelMetadata> modelMetadata_;
     juce::File backendDir_;   // remembered for auto-restart
     juce::String lastError_;  // human-readable error from last failed launch
 

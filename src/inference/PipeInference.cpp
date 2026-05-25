@@ -590,6 +590,17 @@ bool PipeInference::launch(const juce::File& backendDir)
         return false;
     }
 
+    // Reset all per-launch state ahead of parsing so a restart that succeeds
+    // in starting Python but fails to deliver a valid info JSON can't carry
+    // stale entries from the previous launch into the new one. The atomic
+    // ready_ flag flips true only on full success, but the public getters
+    // still observe these members regardless — clearing here keeps them
+    // honest. Pre-existing fields (availableDevices_, availableModels_)
+    // used .add() without clear and could silently duplicate across
+    // restarts; fixing that is out of scope for this commit (see spawn
+    // task list) but the same hazard for modelMetadata_ is closed below.
+    modelMetadata_.clear();
+
     // Read device info JSON (uint16 length + JSON bytes)
     uint16_t infoLen = 0;
     if (readExact(&infoLen, 2, 5000) && infoLen > 0)
@@ -612,10 +623,37 @@ bool PipeInference::launch(const juce::File& backendDir)
             }
             defaultModel_ = infoJson.getProperty("default_model", "").toString();
 
+            if (auto* metaObj = infoJson.getProperty("model_metadata", {}).getDynamicObject())
+            {
+                for (auto& prop : metaObj->getProperties())
+                {
+                    ModelMetadata md;
+                    if (auto* inner = prop.value.getDynamicObject())
+                    {
+                        const auto blocksVar = inner->getProperty("dit_blocks");
+                        if (blocksVar.isInt() || blocksVar.isDouble())
+                        {
+                            const int parsed = static_cast<int>(blocksVar);
+                            if (parsed > 0)
+                                md.ditBlocks = parsed;
+                        }
+                        const auto samplerVar = inner->getProperty("sampler_type");
+                        if (samplerVar.isString())
+                        {
+                            const auto str = samplerVar.toString();
+                            if (str.isNotEmpty())
+                                md.samplerType = str;
+                        }
+                    }
+                    modelMetadata_[prop.name.toString()] = md;
+                }
+            }
+
             juce::Logger::writeToLog("PipeInference: devices=" + availableDevices_.joinIntoString(",")
                                       + " default=" + defaultDevice_
                                       + " models=" + availableModels_.joinIntoString(",")
-                                      + " default_model=" + defaultModel_);
+                                      + " default_model=" + defaultModel_
+                                      + " metadata_entries=" + juce::String((int) modelMetadata_.size()));
         }
     }
 
@@ -896,6 +934,15 @@ PipeInference::Result PipeInference::generate(const Request& request)
     }
 
     return result;
+}
+
+PipeInference::ModelMetadata PipeInference::getModelMetadata(const juce::String& modelName) const
+{
+    const std::lock_guard<std::recursive_mutex> lock(stateMutex_);
+    auto it = modelMetadata_.find(modelName);
+    if (it == modelMetadata_.end())
+        return {};
+    return it->second;
 }
 
 bool PipeInference::preload(const juce::String& model, const juce::String& device)
