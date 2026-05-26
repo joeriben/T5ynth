@@ -685,7 +685,96 @@ static juce::File getDownloadsFolder()
                .getChildFile("Downloads");
 }
 
-bool SettingsPage::tryNativeStabilityInstallFromFolder(
+// Find the file in sourceFolder that should serve as `canonicalName`.
+// Browsers append disambiguation suffixes when the user downloads a file
+// whose name already exists in the folder: Chrome/Edge use "name (1).ext",
+// Firefox/Safari use "name-2.ext", etc. A literal lookup for
+// "model.safetensors" therefore misses the SFX checkpoint the user just
+// downloaded if a Music checkpoint with the same canonical name is still
+// sitting in the folder from an earlier install — the user ends up
+// installing the OLD file under the NEW model id.
+//
+// Strategy: search siblings matching <base>*<ext>, pick the newest by
+// last-modified time. That's the one the user most recently downloaded,
+// which is the one they meant to install for the currently-selected model
+// in the wizard.
+//
+// Returns an invalid File when no candidate exists.
+static juce::File pickNewestCandidate(const juce::File& sourceFolder,
+                                      const juce::String& canonicalName)
+{
+    const auto dot  = canonicalName.lastIndexOfChar('.');
+    const auto base = (dot > 0) ? canonicalName.substring(0, dot) : canonicalName;
+    const auto ext  = (dot > 0) ? canonicalName.substring(dot)    : juce::String();
+
+    juce::Array<juce::File> matches;
+    sourceFolder.findChildFiles(matches,
+                                juce::File::findFiles,
+                                /*searchRecursively*/ false,
+                                base + "*" + ext);
+    if (matches.isEmpty())
+        return {};
+
+    juce::File best = matches[0];
+    juce::Time bestTime = best.getLastModificationTime();
+    for (int i = 1; i < matches.size(); ++i)
+    {
+        const auto t = matches[i].getLastModificationTime();
+        if (t > bestTime)
+        {
+            best = matches[i];
+            bestTime = t;
+        }
+    }
+    return best;
+}
+
+// Walk the standard install roots and look for any *other* model directory
+// that already holds a same-sized file under `canonicalName`. Used as a
+// last-line check before completing an install: if the user dropped a
+// browser-renamed file that turns out to be a byte-for-byte duplicate of
+// what they already have under a different model id, the install is
+// almost certainly a mistake (they downloaded the wrong variant).
+//
+// Returns the offending model id, or an empty string when no collision.
+// Size-based fingerprint is cheap (no file I/O for content) and effective
+// — Stable Audio variants differ by hundreds of MB across music vs sfx
+// vs medium, and identical sizes across variants are vanishingly rare.
+static juce::String findSameSizeInstalledModel(const juce::String& selfModelId,
+                                                const juce::String& canonicalName,
+                                                int64_t fileSize)
+{
+    if (fileSize <= 0)
+        return {};
+
+    auto home = juce::File::getSpecialLocation(juce::File::userHomeDirectory);
+    juce::Array<juce::File> roots;
+   #if JUCE_MAC
+    roots.add(juce::File("/Library/Application Support/T5ynth/models"));
+   #endif
+    roots.add(juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                  .getChildFile("T5ynth/models"));
+    roots.add(home.getChildFile("Library/T5ynth/models"));
+    roots.add(home.getChildFile("t5ynth/models"));
+
+    for (auto& root : roots)
+    {
+        if (!root.isDirectory())
+            continue;
+        for (auto& sub : root.findChildFiles(juce::File::findDirectories, false))
+        {
+            const auto otherId = sub.getFileName();
+            if (otherId == selfModelId)
+                continue;
+            auto candidate = sub.getChildFile(canonicalName);
+            if (candidate.existsAsFile() && candidate.getSize() == fileSize)
+                return otherId;
+        }
+    }
+    return {};
+}
+
+SettingsPage::InstallOutcome SettingsPage::tryNativeStabilityInstallFromFolder(
     const juce::File& sourceFolder,
     const juce::String& modelId,
     const juce::String& modelDisplayName,
@@ -694,23 +783,34 @@ bool SettingsPage::tryNativeStabilityInstallFromFolder(
     if (!sourceFolder.isDirectory())
     {
         if (reportIfMissing)
+        {
             juce::AlertWindow::showMessageBoxAsync(
                 juce::MessageBoxIconType::WarningIcon,
                 "Folder not found",
                 "T5ynth could not read the folder:\n  " + sourceFolder.getFullPathName());
-        return false;
+            return InstallOutcome::AbortedWithDialog;
+        }
+        return InstallOutcome::NotInstalled;
     }
 
-    // Look at the contents.
-    juce::Array<juce::File> foundRequired;
+    // Look at the contents. `pickNewestCandidate` matches both the exact
+    // canonical name and any browser-rename variants (Music + SFX safetensors
+    // both arrive as "model.safetensors" from HF; the second download lands as
+    // "model-2.safetensors" / "model (1).safetensors" / etc.). The newest one
+    // wins so installing for the SFX dropdown picks up the SFX checkpoint the
+    // user just downloaded, not the older Music file that's still sitting in
+    // ~/Downloads.
+    struct Staged { juce::File source; juce::String destName; };
+    std::vector<Staged> staged;
     juce::StringArray missingNames;
     for (int i = 0; i < kNumNativeStabilityRequired; ++i)
     {
-        auto candidate = sourceFolder.getChildFile(kNativeStabilityRequired[i]);
+        const juce::String canonical = kNativeStabilityRequired[i];
+        auto candidate = pickNewestCandidate(sourceFolder, canonical);
         if (candidate.existsAsFile())
-            foundRequired.add(candidate);
+            staged.push_back({ candidate, canonical });
         else
-            missingNames.add(kNativeStabilityRequired[i]);
+            missingNames.add(canonical);
     }
 
     juce::StringArray wrongFound;
@@ -730,17 +830,46 @@ bool SettingsPage::tryNativeStabilityInstallFromFolder(
     // Scenario (d): both required files present — copy and done.
     if (missingNames.isEmpty())
     {
+        // Same-size duplicate guard: if the to-be-installed safetensors is
+        // byte-identical in size to one already installed under a DIFFERENT
+        // model id, the user probably picked the wrong file in Downloads
+        // (e.g. installed SFX while ~/Downloads still held the old Music
+        // checkpoint). Surface a confirmation rather than silently writing
+        // the same checkpoint into both directories.
+        juce::String duplicateOf;
+        for (const auto& sf : staged)
+        {
+            if (!sf.destName.endsWithIgnoreCase(".safetensors"))
+                continue;
+            duplicateOf = findSameSizeInstalledModel(modelId, sf.destName, sf.source.getSize());
+            if (duplicateOf.isNotEmpty())
+                break;
+        }
+
+        if (duplicateOf.isNotEmpty())
+        {
+            const auto sourceName = staged.front().source.getFileName();
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::MessageBoxIconType::WarningIcon,
+                "Duplicate of " + duplicateOf + "?",
+                "T5ynth picked the file:\n  " + sourceName
+                + "\n\nfrom your Downloads folder for " + modelDisplayName
+                + ", but its size matches the file already installed for '"
+                + duplicateOf + "'. The two checkpoints are most likely the "
+                  "SAME variant. If you meant to install a different one, "
+                  "re-download it from the model page (the browser saves the "
+                  "second copy as model-2.safetensors / model (1).safetensors), "
+                  "then click Auto-Scan again. Install aborted.");
+            return InstallOutcome::AbortedWithDialog;
+        }
+
         auto targetDir = getAppSupportModelDir(modelId);
         setModelInstallBusy(true,
             "Copying " + modelDisplayName + " into T5ynth. This can take a moment...");
 
         juce::Component::SafePointer<SettingsPage> safeThis(this);
-        std::vector<juce::File> requiredFiles;
-        requiredFiles.reserve(static_cast<size_t>(foundRequired.size()));
-        for (auto& f : foundRequired)
-            requiredFiles.push_back(f);
 
-        std::thread([safeThis, sourceFolder, targetDir, requiredFiles, wrongNote, modelDisplayName]()
+        std::thread([safeThis, sourceFolder, targetDir, staged, wrongNote, modelDisplayName]()
         {
             juce::String errorTitle;
             juce::String errorBody;
@@ -754,12 +883,15 @@ bool SettingsPage::tryNativeStabilityInstallFromFolder(
             else
             {
                 juce::StringArray copyErrors;
-                for (const auto& f : requiredFiles)
+                for (const auto& sf : staged)
                 {
-                    auto dest = targetDir.getChildFile(f.getFileName());
+                    // Copy under the CANONICAL name even if the source on
+                    // disk is "model-2.safetensors" — the backend loads by
+                    // canonical name, not by whatever the browser saved.
+                    auto dest = targetDir.getChildFile(sf.destName);
                     if (dest.existsAsFile()) dest.deleteFile();
-                    if (!f.copyFileTo(dest))
-                        copyErrors.add(f.getFileName());
+                    if (!sf.source.copyFileTo(dest))
+                        copyErrors.add(sf.source.getFileName());
                 }
 
                 if (!copyErrors.isEmpty())
@@ -826,15 +958,15 @@ bool SettingsPage::tryNativeStabilityInstallFromFolder(
                             }));
                 });
         }).detach();
-        return true;
+        return InstallOutcome::Installed;
     }
 
     // Scenario (a): some but not all required files present.
-    if (!foundRequired.isEmpty() && reportIfMissing)
+    if (!staged.empty() && reportIfMissing)
     {
         juce::String foundList;
-        for (auto& f : foundRequired)
-            foundList += "  [OK] " + f.getFileName() + "\n";
+        for (const auto& sf : staged)
+            foundList += "  [OK] " + sf.source.getFileName() + "\n";
 
         juce::AlertWindow::showMessageBoxAsync(
             juce::MessageBoxIconType::InfoIcon,
@@ -845,7 +977,7 @@ bool SettingsPage::tryNativeStabilityInstallFromFolder(
                 + "\n\nPlease download the missing files from the model page "
                   "(click 'Open Model Page' above) and click 'Auto-Scan' again."
                 + wrongNote);
-        return false;
+        return InstallOutcome::AbortedWithDialog;
     }
 
     // Scenario (b)/(c): nothing valid in this folder.
@@ -875,11 +1007,12 @@ bool SettingsPage::tryNativeStabilityInstallFromFolder(
                 "  * model_config.json\n\n"
                 "Click 'Open Model Page' above to fetch them from HuggingFace.");
         }
+        return InstallOutcome::AbortedWithDialog;
     }
-    return false;
+    return InstallOutcome::NotInstalled;
 }
 
-bool SettingsPage::tryFlatEncoderInstallFromFolder(
+SettingsPage::InstallOutcome SettingsPage::tryFlatEncoderInstallFromFolder(
     const juce::File& sourceFolder,
     const juce::String& modelId,
     const juce::String& modelDisplayName,
@@ -895,11 +1028,14 @@ bool SettingsPage::tryFlatEncoderInstallFromFolder(
     if (!sourceFolder.isDirectory())
     {
         if (reportIfMissing)
+        {
             juce::AlertWindow::showMessageBoxAsync(
                 juce::MessageBoxIconType::WarningIcon,
                 "Folder not found",
                 "T5ynth could not read the folder:\n  " + sourceFolder.getFullPathName());
-        return false;
+            return InstallOutcome::AbortedWithDialog;
+        }
+        return InstallOutcome::NotInstalled;
     }
 
     juce::Array<juce::File> foundRequired;
@@ -1013,7 +1149,7 @@ bool SettingsPage::tryFlatEncoderInstallFromFolder(
                             }));
                 });
         }).detach();
-        return true;
+        return InstallOutcome::Installed;
     }
 
     // Some present, some missing — name the missing ones explicitly.
@@ -1031,7 +1167,7 @@ bool SettingsPage::tryFlatEncoderInstallFromFolder(
                 + missingNames.joinIntoString("\n  [X] ")
                 + "\n\nPlease download the missing files from the model page "
                   "(click 'Open Model Page' above) and click 'Auto-Scan' again.");
-        return false;
+        return InstallOutcome::AbortedWithDialog;
     }
 
     // Nothing in this folder.
@@ -1047,8 +1183,9 @@ bool SettingsPage::tryFlatEncoderInstallFromFolder(
             "This folder does not contain the files T5ynth needs:\n"
                 + fileList
                 + "\nClick 'Open Model Page' above to fetch them from HuggingFace.");
+        return InstallOutcome::AbortedWithDialog;
     }
-    return false;
+    return InstallOutcome::NotInstalled;
 }
 
 // ── git-clone install path ───────────────────────────────────────────────────
@@ -1449,14 +1586,20 @@ void SettingsPage::performAutoScan()
 
     // 3. Look in the system Downloads folder first.
     auto downloads = getDownloadsFolder();
-    if (tryInstall(downloads, /*reportIfMissing*/ false))
-        return;  // success path already showed a dialog
+    auto outcome = tryInstall(downloads, /*reportIfMissing*/ false);
+    if (outcome == InstallOutcome::Installed
+        || outcome == InstallOutcome::AbortedWithDialog)
+        return;  // dialog (success OR duplicate-guard) already shown
 
     // Re-run the check to see *why* Downloads didn't work (missing / wrong /
     // nothing), so we can decide whether to nag or to open the picker.
+    // Use the same browser-rename-aware lookup as the install path so a
+    // user-renamed file (model-2.safetensors, model (1).safetensors) counts
+    // as "present" here too — otherwise the picker would pop up for a folder
+    // the file IS in, just under a slightly different name.
     int foundInDownloads = 0;
     for (int i = 0; i < numRequiredFiles; ++i)
-        if (downloads.getChildFile(requiredFiles[i]).existsAsFile())
+        if (pickNewestCandidate(downloads, requiredFiles[i]).existsAsFile())
             ++foundInDownloads;
 
     // Scenario (a): some files present in Downloads — tell the user which

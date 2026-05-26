@@ -73,15 +73,26 @@ private:
     GitPreflightResult gitPreflight();
     void cloneHfRepoInThread();
 
+    // Tri-state result from the install helpers. The Auto-Scan dispatcher
+    // needs to distinguish "tried something silently and nothing was there"
+    // (let the next fallback try) from "we already surfaced a dialog to the
+    // user, do NOT chain into the next fallback".
+    //  - Installed:         success path completed; success dialog shown.
+    //  - AbortedWithDialog: refused to install (e.g. duplicate of an
+    //                       already-installed model); error/warning dialog
+    //                       shown. Caller must NOT chain further fallbacks.
+    //  - NotInstalled:      nothing actionable in this source; caller may
+    //                       try the next fallback (e.g. folder picker).
+    enum class InstallOutcome { Installed, AbortedWithDialog, NotInstalled };
+
     // Try to install a native Stability model from the given source folder: checks for
     // the required files, reports missing / wrong / success, then copies to
     // the target app-support dir on success. Used for both the Downloads
     // folder (primary path) and any folder chosen via the picker fallback.
-    // Returns true if the install completed.
-    bool tryNativeStabilityInstallFromFolder(const juce::File& sourceFolder,
-                                             const juce::String& modelId,
-                                             const juce::String& modelDisplayName,
-                                             bool reportIfMissing);
+    InstallOutcome tryNativeStabilityInstallFromFolder(const juce::File& sourceFolder,
+                                                       const juce::String& modelId,
+                                                       const juce::String& modelDisplayName,
+                                                       bool reportIfMissing);
 
     // Variant for flat-transformers encoders (e.g. T5Gemma). Same install
     // mechanics as the Stability path — required-files check, scenario
@@ -90,12 +101,12 @@ private:
     // doesn't surface misleading alternatives the way Stability's does).
     // requiredFiles must point to a const char* array of length numFiles;
     // file names are matched verbatim in the source folder root.
-    bool tryFlatEncoderInstallFromFolder(const juce::File& sourceFolder,
-                                         const juce::String& modelId,
-                                         const juce::String& modelDisplayName,
-                                         const char* const* requiredFiles,
-                                         int numFiles,
-                                         bool reportIfMissing);
+    InstallOutcome tryFlatEncoderInstallFromFolder(const juce::File& sourceFolder,
+                                                   const juce::String& modelId,
+                                                   const juce::String& modelDisplayName,
+                                                   const char* const* requiredFiles,
+                                                   int numFiles,
+                                                   bool reportIfMissing);
 
     void downloadAllFilesInThread();
     void downloadGhReleaseInThread();
