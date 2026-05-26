@@ -358,6 +358,7 @@ public:
         {
             if (filteredIndices[row] == updatedIndex)
             {
+                juce::ScopedValueSetter<bool> sv(programmaticSelection, true);
                 presetList.selectRow((int) row, false, true);
                 detail.setEntry(allEntries[(size_t) updatedIndex]);
                 presetList.repaint();
@@ -383,6 +384,7 @@ public:
             const auto& e = allEntries[(size_t) filteredIndices[i]];
             if (e.file == file)
             {
+                juce::ScopedValueSetter<bool> sv(programmaticSelection, true);
                 presetList.selectRow((int) i, false, true);
                 return;
             }
@@ -402,6 +404,7 @@ public:
             const auto& e = allEntries[(size_t) filteredIndices[i]];
             if (e.file == file)
             {
+                juce::ScopedValueSetter<bool> sv(programmaticSelection, true);
                 presetList.selectRow((int) i, false, true);
                 return;
             }
@@ -869,6 +872,19 @@ private:
             filteredIndices.push_back((int) i);
         }
 
+        // All auto-select paths below are programmatic: filter rebuilds,
+        // currentPreset restoration and the row-0 fallback are not user
+        // gestures, so they must not retarget the SaveDrawer in Save
+        // mode. The ScopedValueSetter guards selectedRowsChanged.
+        //
+        // Hoisted ABOVE updateContent() because updateContent() can
+        // itself fire selectedRowsChanged synchronously if the row count
+        // shrinks and the ListBox clamps the selection. Today the ListBox
+        // is single-selection so a clamp yields -1 and selectedRowsChanged
+        // early-returns -- but if anyone ever enables multi-selection,
+        // an unguarded clamp here would silently clobber the typed Save
+        // name. Cheap insurance.
+        juce::ScopedValueSetter<bool> sv(programmaticSelection, true);
         presetList.updateContent();
 
         // Try to keep current selection visible
@@ -2077,6 +2093,17 @@ private:
                             juce::sendNotificationSync);
         }
 
+        /** Programmatic name override — used when the preset-list selection
+         *  changes during Save mode so clicking a row targets that file
+         *  for overwrite instead of silently overwriting whatever name the
+         *  user originally typed. sendNotificationSync triggers
+         *  nameEdit.onTextChange → refreshConflictUi() so the warning row
+         *  picks up the new (name, bank) tuple immediately. */
+        void setName(const juce::String& name)
+        {
+            nameEdit.setText(name, juce::sendNotificationSync);
+        }
+
         void beginNewBankEntry()
         {
             bankBox.setText({}, juce::sendNotificationSync);
@@ -2507,7 +2534,28 @@ private:
             return;
         }
         selectedEntryIndex = filteredIndices[(size_t) lastRowSelected];
-        detail.setEntry(allEntries[(size_t) selectedEntryIndex]);
+        const auto& entry = allEntries[(size_t) selectedEntryIndex];
+        detail.setEntry(entry);
+
+        // Save-mode retarget: when the user picks a different row -- via
+        // mouse click OR keyboard arrows -- they're saying "save under
+        // THIS name (overwriting that file)". Push the entry's name and
+        // bank into the SaveDrawer so a subsequent Save commits to the
+        // visible target. The cross-bank gate and the Replace-confirm
+        // dialog still apply at commit time.
+        //
+        // Skipped when the selection change was triggered programmatically
+        // (search-box typing, sidebar filter clicks, bank creation,
+        // currentPreset restoration -- see the `programmaticSelection`
+        // guard at each presetList.selectRow callsite). Without that
+        // guard, those auto-selects would clobber the typed Save name.
+        if (currentMode == Mode::Save && ! programmaticSelection)
+        {
+            const auto bank = (entry.bank == kRootUserBank()) ? juce::String()
+                                                              : entry.bank;
+            saveDrawer.setBank(bank);
+            saveDrawer.setName(entry.name);
+        }
     }
 
     void listBoxItemDoubleClicked(int row, const juce::MouseEvent&) override
@@ -2603,6 +2651,14 @@ private:
     Mode         currentMode = Mode::Browse;
     int          conflictEntryIndex = -1;   // -1 = no would-replace target
     bool         updaterBusy = false;       // true → Update button suppressed
+    // Set true around programmatic presetList.selectRow() calls so the
+    // selectedRowsChanged callback can distinguish "user picked this row"
+    // (mouse click OR keyboard arrow) from "we just auto-restored the
+    // previous selection after a rebuild". The save-mode retarget logic
+    // only fires on the user-initiated path -- otherwise typing in the
+    // search box or clicking a sidebar filter (which auto-selects row 0)
+    // would silently clobber the typed Save name.
+    bool         programmaticSelection = false;
 
     // Canonical tag taxonomy injected by MainPanel via
     // setTagVocabularyCanonical(). Merged with sidebar-seen user tags into
