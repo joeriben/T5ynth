@@ -132,8 +132,8 @@ private:
     void syncSeedModeFromCurrentState();
     void syncSeedModeButtons();
 
-    // Model selector (fixed 4-slot switchbox: SA Open 1.0 | SA Small | AudioLDM2 | SA3 Small)
-    static constexpr int kNumModelSlots = 4;
+    // Model selector (fixed 5-slot switchbox: SA Open 1.0 | SA Small | AudioLDM2 | SA3 Music | SA3 SFX)
+    static constexpr int kNumModelSlots = 5;
     juce::TextButton modelBtns[kNumModelSlots];
     juce::String modelSlotIds[kNumModelSlots];  // resolved model directory name per slot
     juce::Rectangle<int> modelSwitchBounds;

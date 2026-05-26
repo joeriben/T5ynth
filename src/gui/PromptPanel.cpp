@@ -284,15 +284,12 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         syncSeedModeButtons();
     }
 
-    // Model selector — fixed 4 slots, always visible (disabled = gray until model found).
-    // Slot 3 is "SA3 Small": the SA3 small line ships as two task-specific
-    // checkpoints (music + sfx) sharing the same architecture. Both are
-    // catalogued for SetupWizard install; slot 3 hosts whichever variant
-    // the backend reports (only one at a time — last enumerated wins if
-    // both are installed). The label stays generic so it's accurate either
-    // way; the user knows which variant they installed.
+    // Model selector — fixed 5 slots, always visible (disabled = gray until model found).
+    // The SA3 small line ships as two task-specific checkpoints (music + sfx)
+    // sharing architecture and encoder. They get their own slots so the user
+    // can A/B between them in a single session without uninstalling either.
     {
-        const char* slotLabels[kNumModelSlots] = { "SA Open 1.0", "SA Small", "AudioLDM2", "SA3 Small" };
+        const char* slotLabels[kNumModelSlots] = { "SA Open 1.0", "SA Small", "AudioLDM2", "SA3 Music", "SA3 SFX" };
         for (int i = 0; i < kNumModelSlots; ++i)
         {
             modelBtns[i].setButtonText(slotLabels[i]);
@@ -568,13 +565,22 @@ void PromptPanel::resized()
         bSeed.setVisible(easy);
     seedModeSwitchBounds = {};
 
-    // ── Model selector switchbox at top (compact, fixed 3 slots) ──
+    // ── Model selector switchbox at top (compact, fixed 5 slots) ──
     if (!easy)
     {
         auto modelRow = area.removeFromTop(compactRowH + 2);
-        int cellW = juce::roundToInt(f * 5.5f);
+        // Distribute remaining row width across remaining slots so the row
+        // always fills to the right edge regardless of slot count. Earlier
+        // we used a fixed f*5.5f per cell, which clipped the rightmost
+        // button on narrow panels once we went from 4 slots to 5. The same
+        // pattern is used for seedModeBtns above.
         for (int i = 0; i < kNumModelSlots; ++i)
+        {
+            const int cellW = (i == kNumModelSlots - 1)
+                ? modelRow.getWidth()
+                : juce::jmax(1, modelRow.getWidth() / (kNumModelSlots - i));
             modelBtns[i].setBounds(modelRow.removeFromLeft(cellW));
+        }
         modelSwitchBounds = modelBtns[0].getBounds()
             .getUnion(modelBtns[kNumModelSlots - 1].getBounds());
         area.removeFromTop(gap);
@@ -884,17 +890,23 @@ void PromptPanel::populateModelSelector()
     auto& models = pipeInf.getAvailableModels();
 
     // Match available models to fixed slots by pattern
-    // Slot 0: SA Open 1.0, Slot 1: SA Small, Slot 2: AudioLDM2
+    // Slot 0: SA Open 1.0, Slot 1: SA Small, Slot 2: AudioLDM2,
+    // Slot 3: SA3 Music, Slot 4: SA3 SFX
     for (int i = 0; i < kNumModelSlots; ++i)
         modelSlotIds[i] = {};
 
     int firstAvail = -1;
     for (auto& m : models)
     {
-        // Order matters: SA3 names contain "small", so the SA3 check has to
-        // fire first to claim slot 3 instead of being swept into slot 1.
+        // Order matters:
+        //  - SFX has to fire before the generic SA3 check so "*-sfx" doesn't
+        //    get swept into the music slot.
+        //  - SA3 names contain "small", so SA3 checks fire before the SAO
+        //    Small fallback to keep them off slot 1.
         int slot = -1;
-        if (m.containsIgnoreCase("stable-audio-3"))          slot = 3;
+        if (m.containsIgnoreCase("stable-audio-3") &&
+            m.containsIgnoreCase("sfx"))                     slot = 4;
+        else if (m.containsIgnoreCase("stable-audio-3"))     slot = 3;
         else if (m.containsIgnoreCase("small"))              slot = 1;  // SAO Small
         else if (m.containsIgnoreCase("stable-audio-open"))  slot = 0;
         else if (m.containsIgnoreCase("audioldm") ||
