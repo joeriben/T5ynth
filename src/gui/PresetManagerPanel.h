@@ -36,7 +36,7 @@ public:
     {
         juce::File   file;
         juce::String name;
-        juce::String model;        // shortened display name (SA Open 1.0, …)
+        juce::String model;        // shortened display name (SA1 Open, SA3 Music, …)
         juce::String engineMode;   // "Sampler" / "Wavetable" / "Granular"
         juce::String seqMode;      // "Off" / "Step" / "Gen" / "Step + Gen"
         juce::String promptA;
@@ -617,12 +617,16 @@ private:
 
     /** Map full HuggingFace model IDs to short labels used in the GUI
      *  (matches PromptPanel's switchbox labels). Unknown IDs come back
-     *  unchanged so future models still display, just longer. */
+     *  unchanged so future models still display, just longer.
+     *
+     *  Order is significant: "stable-audio-open-small" must precede
+     *  "stable-audio-open" because the latter prefix matches the former. */
     static juce::String shortenModelName(const juce::String& full)
     {
         const auto lc = full.toLowerCase();
-        if (lc.contains("stable-audio-open-small")) return "SA Small";
-        if (lc.contains("stable-audio-open"))       return "SA Open 1.0";
+        if (lc.contains("stable-audio-3"))          return "SA3 Music";
+        if (lc.contains("stable-audio-open-small")) return "SA1 Small";
+        if (lc.contains("stable-audio-open"))       return "SA1 Open";
         if (lc.contains("audioldm"))                return "AudioLDM2";
         return full;
     }
