@@ -102,6 +102,14 @@ public:
     void setLastSeed(int s) { lastSeed = s; }
     int getLastSeed() const { return lastSeed; }
 
+    // Whether the user's seed UI is in "auto" / random mode. PromptPanel keeps
+    // this in sync with its `randomSeedToggle` (Adv) and the "auto" button of
+    // the Easy three-state switchbox. Preset save persists this bool so the
+    // Easy-mode "auto" selection survives a round-trip — the APVTS PID::genSeed
+    // param is not driven by the UI, so we can't infer the auto state from it.
+    void setLastRandomSeed(bool r) { lastRandomSeed = r; }
+    bool getLastRandomSeed() const { return lastRandomSeed; }
+
     // Research-mode injection state (GUI-only, persisted in .t5p with defaults
     // for old files: linear / 0.75 / 4.0 / 16.0 — matches the panel defaults).
     void setLastInjection(const juce::String& mode, float lateMixAmount,
@@ -306,6 +314,7 @@ private:
     juce::String lastPromptA, lastPromptB;
     float lastGenerationTimeMs = 0.0f;
     int lastSeed = 123456789;
+    bool lastRandomSeed = false;
     juce::String lastInjectionMode { "linear" };
     float lastLateMixAmount = 0.75f;
     float lastSplitStart = 4.0f;

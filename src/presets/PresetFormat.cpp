@@ -169,9 +169,11 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
         synth->setProperty("promptB", processor.getLastPromptB());
         synth->setProperty("seed", processor.getLastSeed());
         synth->setProperty("model", processor.getLastModel());
-        auto genSeed = static_cast<int>(processor.getValueTreeState()
-                           .getRawParameterValue(PID::genSeed)->load());
-        synth->setProperty("randomSeed", genSeed == -1);
+        // The Easy/Adv seed-mode UI does not write back to PID::genSeed, so we
+        // can't infer "auto" from the APVTS value. The processor caches the
+        // user's auto/random choice in lastRandomSeed (kept in sync by
+        // PromptPanel on every toggle / Easy-mode button click / preset load).
+        synth->setProperty("randomSeed", processor.getLastRandomSeed());
         // Persist the most recent inference duration (ms). Older presets
         // miss this field; readers default to 0 → display "—".
         if (processor.getLastGenerationTimeMs() > 0.0f)
