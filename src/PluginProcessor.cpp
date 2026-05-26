@@ -1482,6 +1482,28 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     }
     const float syncBpm = resolveSyncBpm();
 
+    // ── Phase-align sync LFO/Drift on seq start ─────────────────────────────
+    // When the transport (PID::seqRunning) transitions stop→start, reset the
+    // phase of every sync-mode LFO/Drift to 0 so the first cycle lands on
+    // beat 1. Without this, the LFO/Drift rate is correct but the cycle
+    // boundary drifts arbitrarily relative to the seq's beats. Note:
+    // PID::genSeqRunning is a STEP↔GEN mode toggle, not transport, so it
+    // must NOT trigger the reset — both engines' .start() is gated on
+    // seqRunning alone (see lines around 2023/2065).
+    {
+        const bool seqRunningNow = paramCache.seqRunning->load() > 0.5f;
+        if (seqRunningNow && !lastSeqRunning)
+        {
+            if (static_cast<int>(paramCache.lfo1ClockMode->load()) != ClockMode::Off) lfo1.reset();
+            if (static_cast<int>(paramCache.lfo2ClockMode->load()) != ClockMode::Off) lfo2.reset();
+            if (static_cast<int>(paramCache.lfo3ClockMode->load()) != ClockMode::Off) lfo3.reset();
+            if (static_cast<int>(paramCache.drift1ClockMode->load()) != ClockMode::Off) driftLfo.resetLfoPhase(0);
+            if (static_cast<int>(paramCache.drift2ClockMode->load()) != ClockMode::Off) driftLfo.resetLfoPhase(1);
+            if (static_cast<int>(paramCache.drift3ClockMode->load()) != ClockMode::Off) driftLfo.resetLfoPhase(2);
+        }
+        lastSeqRunning = seqRunningNow;
+    }
+
     updateDriftState(numSamples, syncBpm);
 
     // ── Idle detection ──────────────────────────────────────────────────────

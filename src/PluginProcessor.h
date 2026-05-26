@@ -359,6 +359,13 @@ private:
     int silentBlockCount = 0;
     int tailBlocks = 860;  // recalculated in prepareToPlay (~10s of reverb tail)
 
+    // Tracks the previous-block transport state (PID::seqRunning) so the
+    // processBlock can phase-align sync-mode LFO/Drift to beat 1 on a
+    // stop→start transition. PID::genSeqRunning is a mode toggle (STEP vs
+    // GEN engine), not transport — both engines' .start() is gated on
+    // seqRunning alone. Audio thread only — not atomic.
+    bool lastSeqRunning = false;
+
     // Pre-allocated buffer for parallel reverb send (avoids heap alloc in processBlock)
     juce::AudioBuffer<float> reverbSendBuffer;
 

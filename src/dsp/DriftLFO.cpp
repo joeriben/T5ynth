@@ -136,6 +136,17 @@ void DriftLFO::setLfoTarget(int lfoIndex, int target)
     }
 }
 
+void DriftLFO::resetLfoPhase(int lfoIndex)
+{
+    if (lfoIndex >= 0 && lfoIndex < NUM_LFOS)
+    {
+        auto& lfo = lfos[static_cast<size_t>(lfoIndex)];
+        lfo.phase = 0.0;
+        if (lfo.waveform == Random)
+            lfo.heldValue = nextRandom(lfo);
+    }
+}
+
 void DriftLFO::setLfoWaveform(int lfoIndex, int waveform)
 {
     if (lfoIndex >= 0 && lfoIndex < NUM_LFOS)

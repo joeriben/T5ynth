@@ -63,6 +63,10 @@ public:
     void setLfoTarget(int lfoIndex, int target);
     void setLfoWaveform(int lfoIndex, int waveform);
 
+    /** Reset phase of a single internal LFO. Used to phase-align a sync-mode
+     *  Drift LFO to the sequencer's beat 1 on a stop→start transition. */
+    void resetLfoPhase(int lfoIndex);
+
     /** Enable/disable the entire drift system. */
     void setEnabled(bool enabled) { active = enabled; }
     bool isEnabled() const { return active; }
