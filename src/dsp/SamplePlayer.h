@@ -70,6 +70,16 @@ public:
     /** Publish already-prepared playback data with matching config. */
     void applyPreparedBufferLoad(PreparedBufferLoad prepared, const PrepareConfig& config);
 
+    /** Remove leading near-silence (sustained < ~-50 dB) from a source buffer.
+     *  Idempotent — running on already-trimmed audio leaves it unchanged.
+     *  Exposed so callers that compute start/loop fractions can pre-trim
+     *  first, ensuring the fractions stay aligned with the buffer that
+     *  prepareBufferLoad will later process. */
+    void trimLeadingSilencePublic(juce::AudioBuffer<float>& buffer) const
+    {
+        trimLeadingSilence(buffer);
+    }
+
     /** Process a block (writes into output buffer). */
     void processBlock(juce::AudioBuffer<float>& output);
 

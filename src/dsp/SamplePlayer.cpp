@@ -1492,35 +1492,56 @@ void SamplePlayer::trimLeadingSilence(juce::AudioBuffer<float>& buffer) const
     const int numCh      = buffer.getNumChannels();
     if (numSamples == 0 || numCh == 0) return;
 
-    // Threshold: ~-60 dB — anything below is acoustically inaudible
-    constexpr float threshold = 0.001f;
+    // Sustained windowed-RMS detection. A single-sample threshold ("first
+    // non-zero") trips on isolated noise spikes and low-level DC drift —
+    // common in VAE/decoder output — so the trim point would land in the
+    // inaudible lead-in. We require ≥3 consecutive short RMS windows above
+    // a conservative -50 dB absolute floor before we call it "audio".
+    constexpr float threshold        = 0.00316f; // -50 dB absolute
+    constexpr int   windowSamples    = 64;       // ~1.5 ms @ 44.1 kHz
+    constexpr int   minSustainedWindows = 3;
 
-    // Find first sample above threshold (across all channels)
+    const int numWindows = numSamples / windowSamples;
+    if (numWindows < minSustainedWindows) return;
+
     int firstActive = 0;
-    for (int i = 0; i < numSamples; ++i)
+    int run = 0;
+    bool found = false;
+    for (int w = 0; w < numWindows; ++w)
     {
-        bool active = false;
+        const int base = w * windowSamples;
+        double sumSq = 0.0;
         for (int ch = 0; ch < numCh; ++ch)
         {
-            if (std::abs(buffer.getReadPointer(ch)[i]) > threshold)
+            const float* p = buffer.getReadPointer(ch) + base;
+            for (int i = 0; i < windowSamples; ++i)
             {
-                active = true;
+                double s = static_cast<double>(p[i]);
+                sumSq += s * s;
+            }
+        }
+        const float rms = std::sqrt(static_cast<float>(sumSq
+                                    / static_cast<double>(windowSamples * numCh)));
+        if (rms > threshold)
+        {
+            ++run;
+            if (run >= minSustainedWindows)
+            {
+                firstActive = (w - minSustainedWindows + 1) * windowSamples;
+                found = true;
                 break;
             }
         }
-        if (active)
+        else
         {
-            firstActive = i;
-            break;
+            run = 0;
         }
-        // If we reach the end, everything is silent — keep as-is
-        if (i == numSamples - 1) return;
     }
 
-    if (firstActive == 0) return; // nothing to trim
+    if (!found || firstActive == 0) return; // nothing to trim
 
     // Truncate: copy from firstActive onward into a new buffer
-    int newLen = numSamples - firstActive;
+    const int newLen = numSamples - firstActive;
     juce::AudioBuffer<float> trimmed(numCh, newLen);
     for (int ch = 0; ch < numCh; ++ch)
         trimmed.copyFrom(ch, 0, buffer, ch, firstActive, newLen);

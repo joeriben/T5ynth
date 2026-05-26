@@ -3005,6 +3005,15 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
     bool hfOn = paramCache.genHfBoost->load() > 0.5f;
     if (hfOn)
         applyHfBoost(cleanBuffer, sr);
+
+    // Pre-trim leading silence BEFORE computing activeStartFrac/activeEndFrac.
+    // prepareBufferLoad() also trims internally; doing it here makes the trim
+    // idempotent and ensures the fractions we compute below align with the
+    // buffer the sampler ultimately plays. Without this the new sustained-RMS
+    // trim would shift the buffer after we'd already measured an audible-start
+    // fraction, landing P1 past the real attack.
+    masterSampler.trimLeadingSilencePublic(cleanBuffer);
+
     const auto& feedBuffer = cleanBuffer;
 
     SamplePlayer::LoopMode samplerLoopMode = SamplePlayer::LoopMode::Loop;
@@ -3035,48 +3044,72 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
         {
             const float* data = feedBuffer.getReadPointer(0);
 
-            // Find global peak for relative threshold (-48 dB from peak).
-            // -48 dB is ~0.004× peak — catches the perceptual silence floor
-            // while tolerating low-level reverb tails that VAE decoders
-            // commonly produce. Fixed-absolute thresholds fail on quiet
-            // generations; pure psychoacoustic thresholds (-96 dB) are too
-            // sensitive for machine-generated audio with low-level artefacts.
-            float globalPeak = 0.0f;
-            for (int i = 0; i < numSamples; ++i)
-                globalPeak = std::max(globalPeak, std::abs(data[i]));
-
-            const float threshold = globalPeak * 0.004f; // -48 dB from peak
-            const int windowSize = 256;
+            // Sustained windowed-RMS detection. The previous peak-per-window
+            // algorithm tripped on isolated noise samples — VAE/decoder
+            // artefacts in the -45..-55 dB band would anchor the start point
+            // long before the actual content began. We now require ≥3
+            // consecutive ~10 ms windows of meaningful RMS energy.
+            const int windowSize = juce::jmax(64, static_cast<int>(std::round(sr * 0.010)));
+            const int numWindows = numSamples / windowSize;
+            constexpr int minSustainedWindows = 3;
 
             int firstActive = 0;
-            int lastActive = numSamples;
+            int lastActive  = numSamples;
 
-            for (int pos = 0; pos + windowSize <= numSamples; pos += windowSize)
+            if (numWindows >= minSustainedWindows)
             {
-                float peak = 0.0f;
-                for (int i = 0; i < windowSize; ++i)
-                    peak = std::max(peak, std::abs(data[pos + i]));
-                if (peak > threshold)
+                std::vector<float> windowRms(static_cast<size_t>(numWindows), 0.0f);
+                float globalPeakRms = 0.0f;
+                for (int w = 0; w < numWindows; ++w)
                 {
-                    firstActive = pos;
-                    break;
+                    const float* base = data + w * windowSize;
+                    double sumSq = 0.0;
+                    for (int i = 0; i < windowSize; ++i)
+                    {
+                        double s = static_cast<double>(base[i]);
+                        sumSq += s * s;
+                    }
+                    float rms = std::sqrt(static_cast<float>(sumSq / windowSize));
+                    windowRms[static_cast<size_t>(w)] = rms;
+                    globalPeakRms = std::max(globalPeakRms, rms);
+                }
+
+                // -35 dB from peak RMS captures musically present content while
+                // rejecting low-level decoder hiss; floor at -50 dB absolute so
+                // genuinely quiet generations don't collapse to threshold 0.
+                const float relThreshold = globalPeakRms * 0.01778f; // -35 dB
+                constexpr float absFloor = 0.00316f;                 // -50 dB
+                const float threshold = std::max(relThreshold, absFloor);
+
+                int run = 0;
+                int firstRunStart = -1;
+                int lastRunEnd    = -1;
+                for (int w = 0; w < numWindows; ++w)
+                {
+                    if (windowRms[static_cast<size_t>(w)] > threshold)
+                    {
+                        ++run;
+                        if (run >= minSustainedWindows)
+                        {
+                            if (firstRunStart < 0)
+                                firstRunStart = w - minSustainedWindows + 1;
+                            lastRunEnd = w + 1;
+                        }
+                    }
+                    else
+                    {
+                        run = 0;
+                    }
+                }
+
+                if (firstRunStart >= 0)
+                {
+                    firstActive = firstRunStart * windowSize;
+                    lastActive  = juce::jmin(lastRunEnd * windowSize, numSamples);
                 }
             }
 
-            for (int pos = numSamples - windowSize; pos >= 0; pos -= windowSize)
-            {
-                float peak = 0.0f;
-                int len = juce::jmin(windowSize, numSamples - pos);
-                for (int i = 0; i < len; ++i)
-                    peak = std::max(peak, std::abs(data[pos + i]));
-                if (peak > threshold)
-                {
-                    lastActive = juce::jmin(pos + windowSize, numSamples);
-                    break;
-                }
-            }
-
-            // Small margin (one window each side)
+            // Small margin (one window each side) — preserves natural attack/release
             firstActive = juce::jmax(0, firstActive - windowSize);
             lastActive  = juce::jmin(numSamples, lastActive + windowSize);
 
