@@ -311,12 +311,30 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
                 auto model = modelSlotIds[i];
                 if (model.isEmpty() || generating) return;
 
-                // Apply model-specific parameter defaults
+                // Apply model-specific parameter defaults.
+                //  - SA3 Small (music + sfx): 8 steps, CFG 1.0 — verified from
+                //    each variant's own model_config.json (training.demo.demo_steps
+                //    = 8, demo_cfg_scales = [1]) and both HF model cards' sample
+                //    code (generate_diffusion_cond_inpaint(..., steps=8,
+                //    cfg_scale=1.0, sampler_type="pingpong")). May 2026 sources.
+                //    Match by SA3 prefix so future variants ("medium", future
+                //    fine-tunes) land here automatically rather than falling
+                //    through to the SAO 1.0 branch.
+                //  - SAO Small: 8 steps, CFG 1.0 — same numbers, separate cause
+                //    (SAO Small's own model card recommends these).
+                //  - AudioLDM2: 50 / 3.5.
+                //  - SAO 1.0 and anything else: 20 / 7.0 (historical Brownian-
+                //    tree path defaults).
                 auto& apvts = processorRef.getValueTreeState();
-                bool isSmall = model.containsIgnoreCase("small");
-                bool isAudioLDM2 = isAudioLDM2Model(model);
-                float defaultSteps = isSmall ? 8.0f : (isAudioLDM2 ? 50.0f : 20.0f);
-                float defaultCfg   = isSmall ? 1.0f : (isAudioLDM2 ? 3.5f : 7.0f);
+                const bool isSA3       = model.containsIgnoreCase("stable-audio-3");
+                const bool isSAOSmall  = !isSA3 && model.containsIgnoreCase("small");
+                const bool isAudioLDM2 = isAudioLDM2Model(model);
+                const float defaultSteps = (isSA3 || isSAOSmall)
+                                              ? 8.0f
+                                              : (isAudioLDM2 ? 50.0f : 20.0f);
+                const float defaultCfg   = (isSA3 || isSAOSmall)
+                                              ? 1.0f
+                                              : (isAudioLDM2 ? 3.5f : 7.0f);
                 apvts.getParameter(PID::infSteps)->setValueNotifyingHost(
                     apvts.getParameter(PID::infSteps)->convertTo0to1(defaultSteps));
                 apvts.getParameter(PID::genCfg)->setValueNotifyingHost(
@@ -1056,8 +1074,19 @@ bool PromptPanel::hasHiddenActiveState() const
             return true;
 
     const auto selectedModel = getSelectedModel();
-    if (selectedModel.isNotEmpty() && !selectedModel.containsIgnoreCase("small"))
-        return true;
+    if (selectedModel.isNotEmpty())
+    {
+        // The hardcoded thresholds above (steps==8, cfg==1.0) match the
+        // SA3 / SAO-Small default branch in the model-click handler. Any
+        // other model family (SAO 1.0, AudioLDM2) has different defaults,
+        // so the params shown in easy mode no longer reflect what the
+        // backend will use — flag as hidden state. Same model-class test
+        // as the default-application site so the two stay in lockstep.
+        const bool isSA3      = selectedModel.containsIgnoreCase("stable-audio-3");
+        const bool isSAOSmall = !isSA3 && selectedModel.containsIgnoreCase("small");
+        if (!isSA3 && !isSAOSmall)
+            return true;
+    }
 
     return false;
 }
