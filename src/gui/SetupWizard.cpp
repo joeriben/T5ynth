@@ -177,6 +177,16 @@ struct KnownModel {
     bool        isGenerationEngine; // false = auxiliary asset (e.g. text encoder)
     const GhAsset* ghFiles;   // file list for ghRelease download (nullptr if no mirror)
     int         ghFileCount;
+    // True when T5ynth offers an in-app `git clone` of the HF repo. Used
+    // for gated models where the user-facing pattern of "download these
+    // files into Downloads" breaks down because filenames collide across
+    // repos (T5Gemma: config.json/tokenizer.json/model.safetensors share
+    // names with t5-base and the SAO checkpoints — browser auto-renames
+    // produce chaos). git clone puts each repo in a named directory and
+    // the user's existing HF auth (huggingface-cli login / credential
+    // helper) handles the gate. T5ynth itself never touches the HF token
+    // — git does, exactly as in any other clone the user runs.
+    bool        gitCloneable;
 };
 static const KnownModel kKnownModels[] = {
     { "stable-audio-open-1.0",   "Stable Audio Open 1.0",     "stabilityai/stable-audio-open-1.0", nullptr,
@@ -187,7 +197,7 @@ static const KnownModel kKnownModels[] = {
       "- Commercial use over $1M: enterprise license required\n\n"
       "T5ynth does not provide the model weights. By downloading, you accept\n"
       "the license terms and take responsibility for compliance.", false, true,
-      nullptr, 0 },
+      nullptr, 0, /*gitCloneable*/ false },
     { "stable-audio-open-small", "Stable Audio Open Small", "stabilityai/stable-audio-open-small",
       nullptr,
       "https://stability.ai/community-license-agreement",
@@ -197,7 +207,7 @@ static const KnownModel kKnownModels[] = {
       "- Commercial use over $1M: enterprise license required\n\n"
       "T5ynth does not provide the model weights. By downloading, you accept\n"
       "the license terms and take responsibility for compliance.", false, true,
-      nullptr, 0 },
+      nullptr, 0, /*gitCloneable*/ false },
     { "audioldm2",               "AudioLDM2",                  "cvssp/audioldm2", nullptr,
       "https://creativecommons.org/licenses/by-nc-sa/4.0/",
       "This model is licensed under CC BY-NC-SA 4.0.\n\n"
@@ -205,7 +215,7 @@ static const KnownModel kKnownModels[] = {
       "- Commercial use is NOT permitted under this license\n\n"
       "T5ynth does not provide the model weights. By downloading, you accept\n"
       "the license terms and take responsibility for compliance.", true, true,
-      nullptr, 0 },
+      nullptr, 0, /*gitCloneable*/ false },
     { "t5-base",                 "T5-Base text encoder",       "t5-base", nullptr,
       "https://www.apache.org/licenses/LICENSE-2.0",
       "T5-base is licensed under Apache License 2.0 (open, no restrictions).\n\n"
@@ -213,7 +223,8 @@ static const KnownModel kKnownModels[] = {
       "not provide the weights. By downloading you accept the Apache 2.0\n"
       "license.", true, false,
       kT5BaseGhFiles,
-      static_cast<int>(sizeof(kT5BaseGhFiles) / sizeof(kT5BaseGhFiles[0])) },
+      static_cast<int>(sizeof(kT5BaseGhFiles) / sizeof(kT5BaseGhFiles[0])),
+      /*gitCloneable*/ false },
     { "t5gemma-b-b-ul2",         "T5Gemma text encoder (SA3)", "google/t5gemma-b-b-ul2", nullptr,
       "https://ai.google.dev/gemma/terms",
       "T5Gemma is licensed under the Gemma Terms of Use.\n\n"
@@ -223,7 +234,7 @@ static const KnownModel kKnownModels[] = {
       "Required by Stable Audio 3 Small Music as the text encoder. T5ynth\n"
       "does not provide the weights. By accessing the model you accept the\n"
       "Gemma Terms of Use and take responsibility for compliance.", false, false,
-      nullptr, 0 },
+      nullptr, 0, /*gitCloneable*/ true },
     // The HF repo "stabilityai/stable-audio-3-small" does NOT exist — the
     // SA3 Small line is two task-specialised checkpoints (music + sfx)
     // built from the same architecture. T5ynth ships the music variant
@@ -238,7 +249,7 @@ static const KnownModel kKnownModels[] = {
       "- Commercial use over $1M: enterprise license required\n\n"
       "T5ynth does not provide the model weights. By downloading, you accept\n"
       "the license terms and take responsibility for compliance.", false, true,
-      nullptr, 0 },
+      nullptr, 0, /*gitCloneable*/ false },
 };
 static constexpr int kNumKnownModels = sizeof(kKnownModels) / sizeof(kKnownModels[0]);
 
@@ -303,6 +314,22 @@ bool SettingsPage::selectedIsGenerationEngine()
     if (idx >= 0 && idx < kNumKnownModels)
         return kKnownModels[idx].isGenerationEngine;
     return true;  // default-safe for unknown indices
+}
+
+bool SettingsPage::selectedGitCloneable()
+{
+    int idx = modelChooser.getSelectedItemIndex();
+    if (idx >= 0 && idx < kNumKnownModels)
+        return kKnownModels[idx].gitCloneable;
+    return false;
+}
+
+juce::String SettingsPage::selectedModelDisplay()
+{
+    int idx = modelChooser.getSelectedItemIndex();
+    if (idx >= 0 && idx < kNumKnownModels)
+        return kKnownModels[idx].displayName;
+    return {};
 }
 
 const void* SettingsPage::selectedGhFiles()
@@ -390,6 +417,14 @@ SettingsPage::SettingsPage()
     downloadButton.onClick = [this] { startDownload(); };
     addAndMakeVisible(downloadButton);
 
+    // Same colour family as downloadButton — both are "install action"
+    // buttons that perform a long network operation. Visibility toggles
+    // per-model in updateStatus() based on selectedGitCloneable().
+    gitCloneButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff2d6a4f));
+    gitCloneButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    gitCloneButton.onClick = [this] { cloneHfRepoInThread(); };
+    addAndMakeVisible(gitCloneButton);
+
     auto found = scanForModel();
     if (found.exists()) modelPath = found;
     updateStatus();
@@ -405,6 +440,7 @@ void SettingsPage::setModelInstallBusy(bool busy, const juce::String& statusText
     browseButton.setEnabled(!busy && !downloading.load());
     openPageButton.setEnabled(!busy);
     downloadButton.setEnabled(!busy && !downloading.load());
+    gitCloneButton.setEnabled(!busy && !downloading.load());
 
     if (statusText.isNotEmpty())
     {
@@ -1003,6 +1039,313 @@ bool SettingsPage::tryFlatEncoderInstallFromFolder(
     return false;
 }
 
+// ── git-clone install path ───────────────────────────────────────────────────
+// For gated models with generic filenames (T5Gemma's config.json /
+// tokenizer.json / model.safetensors collide with t5-base and SAO when
+// dropped into the same Downloads folder), we shell out to git instead.
+// The clone lands in a named subdirectory inside T5ynth's app-support
+// model dir; the user's existing HF auth (huggingface-cli login or git
+// credential helper) handles the gate without T5ynth ever seeing a token.
+//
+// git-lfs is required: HF stores weights via LFS, and `git clone` only
+// smudges (downloads) the real bytes when git-lfs is installed. Without
+// it the safetensors file is a ~132-byte pointer, which hasModelMarker's
+// kMinWeightBytes threshold catches and surfaces as an error.
+
+static juce::String platformGitInstallHint()
+{
+   #if JUCE_MAC
+    return "Install Apple's Command Line Tools (run `xcode-select --install` "
+           "in a terminal) or Git for macOS from https://git-scm.com/download/mac.";
+   #elif JUCE_WINDOWS
+    return "Install Git for Windows from https://git-scm.com/download/win. "
+           "The default installer bundles git-lfs too.";
+   #else
+    return "Install git from your distribution's package manager "
+           "(e.g. `sudo apt install git`).";
+   #endif
+}
+
+static juce::String platformLfsInstallHint()
+{
+   #if JUCE_MAC
+    return "Install git-lfs with `brew install git-lfs` (Homebrew) or from "
+           "https://git-lfs.com. After installing, run `git lfs install` once "
+           "to register the smudge filter.";
+   #elif JUCE_WINDOWS
+    return "git-lfs ships with Git for Windows. Reinstall the latest Git for "
+           "Windows from https://git-scm.com/download/win and the LFS filter "
+           "comes with it. After installing, run `git lfs install` once.";
+   #else
+    return "Install git-lfs from your distribution's package manager "
+           "(e.g. `sudo apt install git-lfs`), then run `git lfs install` "
+           "once to register the smudge filter.";
+   #endif
+}
+
+SettingsPage::GitPreflightResult SettingsPage::gitPreflight()
+{
+    // Only cache the positive result: a negative result is a state the
+    // user is likely to remediate ("install git-lfs and click again"),
+    // and caching it would make the dialog's "click again" advice lie.
+    // Re-running `git --version` + `git lfs version` is ~50 ms total —
+    // cheap enough to do on every retry click.
+    if (gitPreflightCached_.has_value() && gitPreflightCached_->ok)
+        return *gitPreflightCached_;
+
+    GitPreflightResult result;
+
+    // ChildProcess::start returns false if the executable can't be found
+    // in PATH; we treat that as the same failure as a non-zero exit.
+    // 5 s is generous for `git --version`.
+    auto runWithTimeout = [](const juce::StringArray& args, int timeoutMs) -> int
+    {
+        juce::ChildProcess proc;
+        if (!proc.start(args, juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr))
+            return -1;
+        if (!proc.waitForProcessToFinish(timeoutMs))
+        {
+            proc.kill();
+            return -1;
+        }
+        return static_cast<int>(proc.getExitCode());
+    };
+
+    if (runWithTimeout({"git", "--version"}, 5000) != 0)
+    {
+        // Do NOT cache: user might install git and retry.
+        return { false, "git", platformGitInstallHint() };
+    }
+
+    // `git lfs version` exits non-zero when the LFS filter isn't
+    // installed; `git lfs` alone prints help with exit 0 even without
+    // LFS, so `lfs version` is the reliable presence check.
+    if (runWithTimeout({"git", "lfs", "version"}, 5000) != 0)
+    {
+        // Do NOT cache: user might install git-lfs and retry.
+        return { false, "git-lfs", platformLfsInstallHint() };
+    }
+
+    result.ok = true;
+    gitPreflightCached_ = result;
+    return result;
+}
+
+void SettingsPage::cloneHfRepoInThread()
+{
+    if (modelInstallBusy_.load())
+        return;
+
+    auto pf = gitPreflight();
+    if (!pf.ok)
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::WarningIcon,
+            pf.missingTool + " not found",
+            "T5ynth needs `" + pf.missingTool + "` on the PATH to clone this "
+            "model from HuggingFace, but the preflight check failed.\n\n"
+            + pf.installHint
+            + "\n\nAfter installing, click 'Clone via git' again.");
+        return;
+    }
+
+    auto modelId       = selectedModelId();
+    auto hfRepo        = selectedHfRepo();
+    auto modelDisplay  = selectedModelDisplay();
+    auto targetDir     = getAppSupportModelDir(modelId);
+
+    // Clone into a sibling tempdir, then atomic-rename to targetDir on
+    // success. This way a failed clone never leaves a half-populated
+    // model dir that hasModelMarker would have to puzzle over, and a
+    // user re-clicking the button gets a clean retry.
+    auto cloningParent = targetDir.getParentDirectory();
+    auto tempDir       = cloningParent.getChildFile(targetDir.getFileName() + ".cloning");
+
+    setModelInstallBusy(true,
+        "Cloning " + modelDisplay + " from HuggingFace via git...\n"
+        "This downloads ~1.2 GB and can take a few minutes.");
+
+    juce::Component::SafePointer<SettingsPage> safeThis(this);
+    std::thread([safeThis, hfRepo, tempDir, targetDir, modelDisplay]()
+    {
+        juce::String errorTitle;
+        juce::String errorBody;
+
+        // Make sure no stale .cloning dir survives from a previous attempt.
+        tempDir.deleteRecursively();
+        if (!tempDir.getParentDirectory().createDirectory())
+        {
+            errorTitle = "Could not prepare clone directory";
+            errorBody  = "T5ynth could not create:\n  "
+                       + tempDir.getParentDirectory().getFullPathName()
+                       + "\n\nCheck folder permissions and try again.";
+        }
+        else
+        {
+            // GIT_TERMINAL_PROMPT=0 — without this, a missing credential
+            // helper triggers an interactive prompt on the controlling
+            // terminal, which a GUI app does not have, and the process
+            // hangs forever. Setting the env var to 0 converts the prompt
+            // into an immediate non-zero exit.
+            //
+            // On POSIX we use the `env` command to set it for the child
+            // only. On Windows `env.exe` ships inside Git for Windows'
+            // usr/bin but is NOT on PATH after a default install — so the
+            // env wrapper itself wouldn't be found. Instead on Windows we
+            // skip the wrapper and rely on Git Credential Manager (the
+            // default helper) to pop its own GUI dialog if auth is
+            // missing — exactly what a GUI app wants.
+            //
+            // --depth 1 keeps the clone shallow (no commit history). For
+            // model repos this trims tens of MB of pack data the user
+            // doesn't need; the LFS payload is unaffected.
+            //
+            // --filter=blob:none would be even leaner but breaks the LFS
+            // smudge filter on some git versions — keep it off.
+            const juce::String url = "https://huggingface.co/" + hfRepo;
+            juce::ChildProcess proc;
+           #if JUCE_WINDOWS
+            const juce::StringArray args {
+                "git", "clone", "--depth", "1",
+                url, tempDir.getFullPathName()
+            };
+           #else
+            const juce::StringArray args {
+                "env", "GIT_TERMINAL_PROMPT=0",
+                "git", "clone", "--depth", "1",
+                url, tempDir.getFullPathName()
+            };
+           #endif
+
+            if (!proc.start(args, juce::ChildProcess::wantStdOut
+                                  | juce::ChildProcess::wantStdErr))
+            {
+                errorTitle = "Could not start git";
+                errorBody  = "T5ynth could not launch git. The preflight check "
+                             "passed but spawning the process failed.";
+            }
+            else if (!proc.waitForProcessToFinish(10 * 60 * 1000))  // 10 min cap
+            {
+                proc.kill();
+                errorTitle = "Clone timed out";
+                errorBody  = "git clone did not finish within 10 minutes. The "
+                             "connection may be unusably slow, or git-lfs is "
+                             "stuck on a large blob.\n\nRetry with a better "
+                             "connection.";
+            }
+            else if (proc.getExitCode() != 0)
+            {
+                // git writes both progress (stdout) and errors (stderr)
+                // — we asked for both, so readAllProcessOutput is the
+                // merged stream. Show the user the LAST few lines (where
+                // the actual error usually lives, after the progress
+                // spinner) directly in the dialog rather than pointing at
+                // a log file that doesn't contain git's output.
+                const auto fullOut = proc.readAllProcessOutput().trim();
+                juce::StringArray lines;
+                lines.addLines(fullOut);
+                while (lines.size() > 0 && lines[0].trim().isEmpty())
+                    lines.remove(0);
+                while (lines.size() > 0 && lines[lines.size() - 1].trim().isEmpty())
+                    lines.remove(lines.size() - 1);
+                const int tailCount = juce::jmin(lines.size(), 8);
+                juce::String tail;
+                for (int i = lines.size() - tailCount; i < lines.size(); ++i)
+                    tail += "  " + lines[i] + "\n";
+                if (tail.isEmpty())
+                    tail = "  (no output captured)\n";
+
+                errorTitle = "git clone failed";
+                errorBody  = "git exited with status " + juce::String(proc.getExitCode())
+                           + ".\n\nLast lines of git output:\n" + tail
+                           + "\nCommon causes:\n"
+                             "  - Not logged in: run `huggingface-cli login` once.\n"
+                             "  - License not accepted: click 'Open Model Page'\n"
+                             "    above and click 'Agree and access repository'.\n"
+                             "  - git-lfs not registered: run `git lfs install`.\n"
+                             "  - Network failure mid-clone: retry.";
+                juce::Logger::writeToLog("git clone failed: " + fullOut);
+                tempDir.deleteRecursively();
+            }
+            else if (!hasModelMarker(tempDir))
+            {
+                // Clone returned success but the safetensors weights are too
+                // small — almost always means git-lfs didn't smudge the
+                // pointer files. The preflight check covers the install
+                // case; this branch catches "lfs installed but not
+                // registered for this user" (the `git lfs install` step
+                // some installers skip).
+                errorTitle = "Clone finished but weights are missing";
+                errorBody  = "git completed without error, but the model.safetensors "
+                             "file is too small to be the real weights. This usually "
+                             "means git-lfs is installed but not registered for your "
+                             "user account.\n\nFix with one terminal command:\n"
+                             "  git lfs install\n\n"
+                             "Then click 'Clone via git' again.";
+                tempDir.deleteRecursively();
+            }
+            else
+            {
+                // Atomic-ish replace: rename the .cloning sibling onto the
+                // final path. juce::File::moveFileTo handles both creation
+                // and overwrite on POSIX; on Windows the target must not
+                // exist, so we delete first.
+                if (targetDir.exists())
+                    targetDir.deleteRecursively();
+                if (!tempDir.moveFileTo(targetDir))
+                {
+                    errorTitle = "Could not move clone into place";
+                    errorBody  = "Clone succeeded into:\n  " + tempDir.getFullPathName()
+                               + "\n\nBut renaming to the final location failed:\n  "
+                               + targetDir.getFullPathName()
+                               + "\n\nMove the clone manually with Finder/Explorer.";
+                }
+            }
+        }
+
+        juce::MessageManager::callAsync(
+            [safeThis, targetDir, modelDisplay, errorTitle, errorBody]()
+            {
+                auto* self = safeThis.getComponent();
+                if (self == nullptr) return;
+
+                self->setModelInstallBusy(false);
+
+                if (errorTitle.isNotEmpty())
+                {
+                    self->downloadStatusLabel.setText("git clone failed",
+                                                      juce::dontSendNotification);
+                    self->downloadStatusLabel.setColour(juce::Label::textColourId,
+                                                        juce::Colour(0xffef4444));
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::WarningIcon,
+                        errorTitle, errorBody);
+                    return;
+                }
+
+                self->downloadStatusLabel.setText("Cloned. Activating...",
+                                                   juce::dontSendNotification);
+                self->downloadStatusLabel.setColour(juce::Label::textColourId,
+                                                    juce::Colour(0xff4ade80));
+
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::InfoIcon,
+                    modelDisplay + " -- Installed",
+                    "T5ynth cloned the model into:\n  "
+                        + targetDir.getFullPathName()
+                        + "\n\nReady to use.",
+                    "OK",
+                    self,
+                    juce::ModalCallbackFunction::create(
+                        [safeThis, targetDir](int)
+                        {
+                            if (auto* page = safeThis.getComponent())
+                                page->setModelPath(targetDir);
+                        }));
+            });
+    }).detach();
+}
+
 void SettingsPage::performAutoScan()
 {
     if (modelInstallBusy_.load())
@@ -1190,6 +1533,7 @@ void SettingsPage::startDownload()
 
     downloading = true;
     downloadButton.setEnabled(false);
+    gitCloneButton.setEnabled(false);
     scanButton.setEnabled(false);
     browseButton.setEnabled(false);
     downloadStatusLabel.setColour(juce::Label::textColourId, kAccent);
@@ -1738,6 +2082,7 @@ void SettingsPage::onDownloadFinished(bool success, const juce::String& error)
     downloadCounter_.reset();
     downloadCancelFlag_.reset();
     downloadButton.setEnabled(true);
+    gitCloneButton.setEnabled(true);
     scanButton.setEnabled(true);
     browseButton.setEnabled(true);
     if (success) {
@@ -1828,9 +2173,14 @@ void SettingsPage::updateStatus()
     auto hfRepo = selectedHfRepo();
     auto targetDir = getAppSupportModelDir(id);
     bool downloadable = selectedDownloadable();
+    bool gitCloneable = selectedGitCloneable();
 
     // Download button is only shown for models T5ynth can fetch itself.
+    // git-clone button is shown only when the model is gated AND has
+    // generic filenames that make the file-list Auto-Scan unsafe
+    // (T5Gemma); the two buttons are mutually exclusive in practice.
     downloadButton.setVisible(downloadable);
+    gitCloneButton.setVisible(gitCloneable);
 
     if (modelPath.exists() && hasModelMarker(modelPath)) {
         const bool isEngine = selectedIsGenerationEngine();
@@ -1942,33 +2292,31 @@ void SettingsPage::updateStatus()
                 "T5GEMMA TEXT ENCODER (Stable Audio 3)\n"
                 "Licensed under the Gemma Terms of Use. Gated on HuggingFace --\n"
                 "a free HuggingFace account is required once to accept the terms.\n"
-                "T5Gemma is the text encoder for Stable Audio 3 Small. No terminal\n"
-                "required.\n\n"
-                "  Source: https://huggingface.co/" + hfRepo + "\n\n"
-                "INSTALL:\n"
-                "  1. Click 'Open Model Page' above. Your browser opens the\n"
-                "     HuggingFace page for this model.\n"
-                "  2. On that page, sign up or log in (top-right corner).\n"
-                "  3. Click 'Agree and access repository' to accept the Gemma\n"
+                "T5Gemma is the text encoder for Stable Audio 3 Small Music.\n\n"
+                "  Source: https://huggingface.co/" + hfRepo + "\n"
+                "  Target: " + targetPath + "\n\n"
+                "INSTALL (Clone via git):\n"
+                "  T5Gemma's filenames (config.json, tokenizer.json,\n"
+                "  model.safetensors) collide with other models when downloaded\n"
+                "  individually, so T5ynth uses `git clone` instead. The clone\n"
+                "  lands in its own named directory with all files intact.\n\n"
+                "  1. Click 'Open Model Page' above, sign up or log in, and\n"
+                "     click 'Agree and access repository' to accept the Gemma\n"
                 "     Terms of Use.\n"
-                "  4. On the same page, click the 'Files and versions' tab.\n"
-                "  5. Download exactly these five files to your usual Downloads\n"
-                "     folder (one click each on the filename, then the download\n"
-                "     icon on the right):\n"
-                "        config.json\n"
-                "        tokenizer.json            (~34 MB)\n"
-                "        tokenizer_config.json\n"
-                "        special_tokens_map.json\n"
-                "        model.safetensors         (~1.2 GB)\n"
-                "     The other files in the repo (tokenizer.model, README,\n"
-                "     generation_config.json) are not needed -- T5ynth uses only\n"
-                "     the fast-tokenizer path and the encoder forward.\n"
-                "  6. Come back here and click 'Auto-Scan' above.\n"
-                "     T5ynth finds the files in your Downloads folder and copies\n"
-                "     them into its working model folder. You can delete the\n"
-                "     originals from Downloads afterwards.\n\n"
-                "If you saved them somewhere other than Downloads, Auto-Scan will "
-                "open a folder picker and ask you to point at the folder.");
+                "  2. If you haven't yet, run once in any terminal:\n"
+                "        huggingface-cli login\n"
+                "     paste the access token from your HuggingFace settings page,\n"
+                "     and answer 'Y' to add it to git credentials. T5ynth itself\n"
+                "     never sees this token -- git fetches it from your system\n"
+                "     credential store when cloning.\n"
+                "  3. Click 'Clone via git' above. T5ynth runs `git clone`\n"
+                "     under the hood, downloads ~1.2 GB, and verifies the\n"
+                "     weights are real before activating the model.\n\n"
+                "Requirements: `git` and `git-lfs` on the PATH. T5ynth checks\n"
+                "both before starting the clone and points you at install\n"
+                "instructions if either is missing.\n\n"
+                "Already have a clone elsewhere? Click 'Browse...' and point at\n"
+                "the folder -- T5ynth imports it as a symlink without re-downloading.");
         } else if (id == "t5-base") {
             setInstructionsText(
                 instructionsLabel,
@@ -2057,10 +2405,15 @@ void SettingsPage::resized()
     openPageButton.setBounds(btnRow.removeFromLeft(130));
     area.removeFromTop(gap * 2);
 
-    // Download button — only visible for models T5ynth can fetch itself.
+    // Install action button — at most one of download / git-clone is
+    // visible at a time (downloadable / gitCloneable are mutually
+    // exclusive per-model). They share the same row so the layout
+    // stays stable across model selection changes.
     auto dlRow = area.removeFromTop(26);
     if (downloadButton.isVisible())
         downloadButton.setBounds(dlRow.removeFromLeft(220));
+    else if (gitCloneButton.isVisible())
+        gitCloneButton.setBounds(dlRow.removeFromLeft(220));
     area.removeFromTop(gap);
 
     // Download progress
