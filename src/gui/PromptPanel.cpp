@@ -17,7 +17,9 @@ constexpr float kPromptCompactCtrl = 0.9f;
 constexpr float kPromptSeedCtrl    = 1.75f;
 constexpr float kPromptGap         = 0.28f;
 constexpr float kPromptContentUnits = 22.08f;  // bumped by 1.18 for temporary mode-buttons row (0.9 + 0.28)
-constexpr float kPromptEasyContentUnits = 17.18f;
+// Easy budget includes the model selector row (compactRow + gap ≈ 1.43 units)
+// since the selector is now visible in easy mode too.
+constexpr float kPromptEasyContentUnits = 18.61f;
 constexpr int kBaseSeed = 123456789;
 
 float preferredPromptFontForWidth(int width)
@@ -285,11 +287,12 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     }
 
     // Model selector — fixed 5 slots, always visible (disabled = gray until model found).
-    // The SA3 small line ships as two task-specific checkpoints (music + sfx)
-    // sharing architecture and encoder. They get their own slots so the user
+    // Order: SA3 first (newest, default), then SA1 family, then AudioLDM2. The
+    // SA3 small line ships as two task-specific checkpoints (music + sfx)
+    // sharing architecture and encoder; both get their own slots so the user
     // can A/B between them in a single session without uninstalling either.
     {
-        const char* slotLabels[kNumModelSlots] = { "SA Open 1.0", "SA Small", "AudioLDM2", "SA3 Music", "SA3 SFX" };
+        const char* slotLabels[kNumModelSlots] = { "SA3 Music", "SA3 SFX", "SA1 Open", "SA1 Small", "AudioLDM2" };
         for (int i = 0; i < kNumModelSlots; ++i)
         {
             modelBtns[i].setButtonText(slotLabels[i]);
@@ -381,7 +384,8 @@ int PromptPanel::getPreferredHeightForWidth(int width) const
 
     if (easyMode_)
     {
-        return rowH + multiInputH + gap
+        return (compactRowH + 2) + gap                  // model selector row
+             + rowH + multiInputH + gap
              + rowH + multiInputH + gap * 2
              + compactCtrlH + gap
              + rowH + sliderH + gap
@@ -544,8 +548,11 @@ void PromptPanel::resized()
     auto setFs = [](juce::Label& l, float size) { l.setFont(juce::FontOptions(size)); };
 
     const bool easy = easyMode_;
+    // Model selector stays visible in BOTH modes — the engine choice changes
+    // character enough that hiding it in easy mode left the user with no way
+    // to switch on the fly.
     for (int i = 0; i < kNumModelSlots; ++i)
-        modelBtns[i].setVisible(!easy);
+        modelBtns[i].setVisible(true);
     modelSwitchBounds = {};
 
     for (auto* c : { &magLabel, &magValue, &noiseLabel, &noiseValue,
@@ -562,7 +569,7 @@ void PromptPanel::resized()
     seedModeSwitchBounds = {};
 
     // ── Model selector switchbox at top (compact, fixed 5 slots) ──
-    if (!easy)
+    // Laid out in both modes; visibility is unconditionally true above.
     {
         auto modelRow = area.removeFromTop(compactRowH + 2);
         // Distribute remaining row width across remaining slots so the row
@@ -886,38 +893,40 @@ void PromptPanel::populateModelSelector()
     auto& models = pipeInf.getAvailableModels();
 
     // Match available models to fixed slots by pattern
-    // Slot 0: SA Open 1.0, Slot 1: SA Small, Slot 2: AudioLDM2,
-    // Slot 3: SA3 Music, Slot 4: SA3 SFX
+    // Slot 0: SA3 Music, Slot 1: SA3 SFX, Slot 2: SA1 Open,
+    // Slot 3: SA1 Small, Slot 4: AudioLDM2
     for (int i = 0; i < kNumModelSlots; ++i)
         modelSlotIds[i] = {};
 
-    int firstAvail = -1;
     for (auto& m : models)
     {
         // Order matters:
         //  - SFX has to fire before the generic SA3 check so "*-sfx" doesn't
         //    get swept into the music slot.
-        //  - SA3 names contain "small", so SA3 checks fire before the SAO
-        //    Small fallback to keep them off slot 1.
+        //  - SA3 names contain "small", so SA3 checks fire before the SA1
+        //    Small fallback to keep them off slot 3.
         int slot = -1;
         if (m.containsIgnoreCase("stable-audio-3") &&
-            m.containsIgnoreCase("sfx"))                     slot = 4;
-        else if (m.containsIgnoreCase("stable-audio-3"))     slot = 3;
-        else if (m.containsIgnoreCase("small"))              slot = 1;  // SAO Small
-        else if (m.containsIgnoreCase("stable-audio-open"))  slot = 0;
+            m.containsIgnoreCase("sfx"))                     slot = 1;
+        else if (m.containsIgnoreCase("stable-audio-3"))     slot = 0;
+        else if (m.containsIgnoreCase("small"))              slot = 3;  // SA1 Small
+        else if (m.containsIgnoreCase("stable-audio-open"))  slot = 2;  // SA1 Open 1.0
         else if (m.containsIgnoreCase("audioldm") ||
-                 m.containsIgnoreCase("audio-ldm"))          slot = 2;
+                 m.containsIgnoreCase("audio-ldm"))          slot = 4;
 
         if (slot >= 0 && slot < kNumModelSlots)
         {
             modelSlotIds[slot] = m;
             modelBtns[slot].setEnabled(true);
             modelBtns[slot].setAlpha(1.0f);
-            if (firstAvail < 0) firstAvail = slot;
         }
     }
 
-    // Select model: pending preset model > SA Small (slot 1) > first available
+    // Select model: pending preset model > leftmost installed slot in display
+    // order. The new layout puts SA3 Music at slot 0, so the "leftmost
+    // installed" rule naturally prefers SA3 Music when present (matching the
+    // user-named ordering "SA3 first") and falls through to SA3 SFX, SA1
+    // Open, SA1 Small, AudioLDM2 in turn when earlier slots are empty.
     int selectIdx = -1;
     if (pendingModel_.isNotEmpty())
     {
@@ -926,7 +935,10 @@ void PromptPanel::populateModelSelector()
         pendingModel_ = {};
     }
     if (selectIdx < 0)
-        selectIdx = modelSlotIds[1].isNotEmpty() ? 1 : firstAvail;
+    {
+        for (int i = 0; i < kNumModelSlots; ++i)
+            if (modelSlotIds[i].isNotEmpty()) { selectIdx = i; break; }
+    }
     if (selectIdx >= 0)
         modelBtns[selectIdx].setToggleState(true, juce::dontSendNotification);
 
@@ -1266,9 +1278,9 @@ float PromptPanel::lateMixForMode(const juce::String& mode) const
 }
 
 // ── Reconfigure alphaSlider for the active injection mode ────────────────────
-// Linear: APVTS-attached, range −1..+1, label "A ↔ B".
-// Step-in: detached, range 0.05..0.95, label "Step-in: A → mix".
-// Layer : detached, range 0..16 (snap=1), label "Layer Split".
+// Linear: APVTS-attached, range −2..+2 (quadratic skew near zero), label "A ↔ B".
+// Step-in: detached, range 0..1, label "Step-in / Combo: A → mix".
+// Layer : detached, range 0..ditBlocks (snap=1), label "Layer Split".
 // The alphaSlider's onValueChange dispatches on injectionMode_ to update both
 // the value formatter and (for non-linear) the local state.
 void PromptPanel::applyModeToSlider()
@@ -1278,11 +1290,20 @@ void PromptPanel::applyModeToSlider()
     {
         // Restore single-thumb style in case we're coming from layer mode.
         alphaSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-        // Set range BEFORE creating the SliderAttachment so the attachment's
-        // value-push (from APVTS alpha) lands inside the proper [-1, +1] range.
-        // Otherwise the previous mode's range (e.g. 0..16 for layer) clamps
-        // APVTS alpha at construction time and we'd lose the stored value.
-        alphaSlider.setRange(-1.0, 1.0, 0.001);
+        // Range is owned by the SliderAttachment — JUCE 8's
+        // SliderParameterAttachment ctor calls slider.setNormalisableRange()
+        // with the APVTS parameter's NormalisableRange. For genAlpha that is
+        // [-2, +2] with a quadratic skew for fine control near zero.
+        //
+        // This used to call setRange(-1, 1, 0.001) defensively. That
+        // hardcoded the wrong endpoints AND dropped the parameter skew. On
+        // initial enter-linear the `if (alphaA == nullptr)` guard below
+        // skipped Attachment recreation, so the bogus range stuck. Mode-
+        // toggling reset alphaA, which on re-enter recreated the
+        // Attachment and silently restored the correct range — surfacing
+        // the bug as "scale is -1..1 on first open, becomes -2..2 after
+        // toggling modes". The defensive call is gone; the Attachment is
+        // now the single source of truth for both range and skew.
         if (alphaA == nullptr)
             alphaA = std::make_unique<Attachment>(apvts, PID::genAlpha, alphaSlider);
         alphaLabel.setText("A " + juce::String(juce::CharPointer_UTF8("\xe2\x86\x94")) + " B",
