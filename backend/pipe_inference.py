@@ -612,64 +612,34 @@ def _patch_stable_audio_tools_for_t5gemma():
     log.info("Patched T5Conditioner to recognise T5Gemma encoders")
 
 
-def _install_pingpong_sampler():
-    """Add a 'pingpong' branch to stable-audio-tools' sampler dispatch.
+def _native_pingpong_supported():
+    """Return True iff the bundled stable-audio-tools sample_rf has pingpong.
 
-    The Stable Audio 3 family (small-music / small-sfx / medium /
-    optimized) all ship with ``sampler_type='pingpong'`` per their HF
-    model cards (8 steps, cfg 1.0). The version of stable-audio-tools
-    shipped with T5ynth predates pingpong support, so we register a no-op
-    placeholder that raises a clear NotImplementedError if the sampler is
-    actually requested. Plumbing for the field is in place; the algorithm
-    itself will be filled in once SA3 model weights are available for
-    validation. Until then, SA3 generation will surface a descriptive
-    error rather than silently falling back.
+    The SA3 family ships with ``sampler_type='pingpong'`` per its HF model
+    cards. Newer stable-audio-tools builds (>= the version vendored with
+    T5ynth) implement pingpong natively in ``sample_rf``; older builds
+    don't. Inspecting ``sample_rf.__code__.co_consts`` works whether the
+    module was loaded from .py source or a PyInstaller .pyc.
 
-    Both ``sample_k`` and ``sample_rf`` are wrapped — the diffusion_objective
-    field decides which one ``generate_diffusion_cond`` actually invokes, and
-    SA3 uses rectified-flow models which route through ``sample_rf``. The
-    rectified-flow code path drops sampler_type before calling, so the
-    pingpong assertion needs to live at a higher level too; we additionally
-    guard in ``_generate_native`` before the call.
+    Used by ``_generate_native`` to raise a precise error when an SA3
+    model is loaded against an older library — without that check the
+    failure surfaces as ``'NoneType' object has no attribute 'to'`` from
+    inside ``generate_diffusion_cond``, which is the same opaque symptom
+    we'd get from any other unrecognised sampler_type.
     """
-    from stable_audio_tools.inference import sampling as sat_sampling
-
-    if not getattr(sat_sampling.sample_k, "_t5ynth_pingpong_patched", False):
-        original_sample_k = sat_sampling.sample_k
-
-        def patched_sample_k(*args, sampler_type="dpmpp-2m-sde", **kwargs):
-            if sampler_type != "pingpong":
-                return original_sample_k(*args, sampler_type=sampler_type, **kwargs)
-            raise NotImplementedError(_PINGPONG_NOT_IMPLEMENTED_MSG)
-
-        patched_sample_k._t5ynth_pingpong_patched = True
-        sat_sampling.sample_k = patched_sample_k
-
-    if not getattr(sat_sampling.sample_rf, "_t5ynth_pingpong_patched", False):
-        # generate_diffusion_cond explicitly deletes sampler_type before
-        # calling sample_rf, so we can't intercept the request here via the
-        # kwarg path. Instead we wrap sample_rf to consult a thread-local
-        # flag set by _generate_native immediately before the call.
-        original_sample_rf = sat_sampling.sample_rf
-
-        def patched_sample_rf(*args, **kwargs):
-            if _PINGPONG_FLAG.get("active"):
-                raise NotImplementedError(_PINGPONG_NOT_IMPLEMENTED_MSG)
-            return original_sample_rf(*args, **kwargs)
-
-        patched_sample_rf._t5ynth_pingpong_patched = True
-        sat_sampling.sample_rf = patched_sample_rf
-
-    log.info("Patched sample_k and sample_rf to dispatch on sampler_type='pingpong'")
+    try:
+        from stable_audio_tools.inference import sampling as sat_sampling
+        return "pingpong" in sat_sampling.sample_rf.__code__.co_consts
+    except Exception:
+        return False
 
 
-_PINGPONG_FLAG = {"active": False}
-
-_PINGPONG_NOT_IMPLEMENTED_MSG = (
-    "Stable Audio 3 requests sampler_type='pingpong', which is not "
-    "implemented in the bundled stable-audio-tools build. Plug in a pingpong "
-    "implementation in pipe_inference.py:_install_pingpong_sampler or upgrade "
-    "stable-audio-tools to a version that ships pingpong."
+_UNSUPPORTED_SAMPLER_MSG = (
+    "Model {model!r} requested sampler_type={sampler!r}, which the bundled "
+    "stable-audio-tools build does not recognise. Without a matching branch "
+    "in sample_rf / sample_k, generate_diffusion_cond silently returns None "
+    "and trips an opaque AttributeError downstream. Upgrade stable-audio-tools "
+    "or remove the sampler_type override for this model."
 )
 
 
@@ -853,12 +823,23 @@ class NativePipeline:
 
 
 def _resolve_sampler_type(model_config, model_name):
-    """Pick a sampler_type for native generation.
+    """Pick a sampler_type for native generation, or None to defer to the library.
 
     Looks at model_config.json's diffusion sub-section first
     (model.diffusion.sampler_type / model.diffusion.sampling.sampler_type),
-    then falls back to a per-model-name heuristic, then to the
-    stable-audio-tools default 'dpmpp-2m-sde'.
+    then falls back to a per-model-name heuristic. Returns None when the
+    config is silent AND the name isn't a known special case — in that case
+    ``_generate_native`` omits the kwarg entirely and lets stable-audio-tools
+    pick its own default per the model's diffusion_objective (sample_k for
+    "v", sample_rf for "rf_denoiser" / "rectified_flow").
+
+    Why None instead of a hard-coded fallback: SAO 1.0 and SAO Small both
+    declare diffusion_objective="rf_denoiser" → their config routes through
+    sample_rf, whose whitelist is {'euler', 'rk4', 'dpmpp', 'pingpong'}. The
+    historical fallback 'dpmpp-2m-sde' belongs to sample_k and is not in
+    sample_rf's whitelist; injecting it as a kwarg causes sample_rf to fall
+    through its branches and silently return None, surfacing as a
+    NoneType.to() AttributeError far downstream.
     """
     diffusion = model_config.get("model", {}).get("diffusion", {}) if isinstance(model_config, dict) else {}
     for path in (("sampler_type",), ("sampling", "sampler_type")):
@@ -879,7 +860,7 @@ def _resolve_sampler_type(model_config, model_name):
     # "stable-audio-3-medium" install lands on pingpong too.
     if model_name.startswith("stable-audio-3"):
         return "pingpong"
-    return "dpmpp-2m-sde"
+    return None
 
 
 def _dit_block_count_from_config(model_config):
@@ -1022,12 +1003,14 @@ def _load_native_pipeline(model_dir, device):
 
         # Order matters: the T5Gemma patch overrides T5Conditioner.__init__
         # but reads from the registry the t5_registry patch populates, so the
-        # registry patch has to land first. The pingpong patch is independent
-        # but installed here so all stable-audio-tools modifications live in
-        # one well-known place.
+        # registry patch has to land first. Pingpong is no longer monkey-
+        # patched — the bundled stable-audio-tools build implements
+        # sampler_type='pingpong' natively in sample_rf, so an earlier wrapper
+        # that raised NotImplementedError was actively preventing SA3 from
+        # reaching the real pingpong path. Support is verified at request
+        # time in _generate_native via _native_pingpong_supported().
         _patch_stable_audio_tools_t5_registry(resolved_t5_models)
         _patch_stable_audio_tools_for_t5gemma()
-        _install_pingpong_sampler()
 
         model = create_model_from_config(model_config)
         model.load_state_dict(load_ckpt_state_dict(str(weights_path)))
@@ -1972,15 +1955,22 @@ def _generate_native(pipe, request):
     # corrupt the binary IPC pipe to JUCE. Redirect stdout → stderr temporarily.
     real_stdout = sys.stdout
     sys.stdout = sys.stderr
-    # sampler_type is per-model: SAO defaults to dpmpp-2m-sde (the historical
-    # Brownian-tree path); SA3 ships with pingpong. The NativePipeline wrapper
-    # resolves this at load time from model_config.json or the model-name
-    # fallback. generate_diffusion_cond forwards sampler_type to sample_k for
-    # v-objective models but DROPS it before calling sample_rf for
-    # rectified-flow models — so the sample_k patch alone can't catch
-    # SA3-style pingpong requests. The thread-local flag below routes the
-    # pingpong assertion through sample_rf too.
-    _PINGPONG_FLAG["active"] = (pipe.sampler_type == "pingpong")
+    # sampler_type is per-model and only passed when the model requests one
+    # explicitly (currently only SA3 → "pingpong"). For models where
+    # _resolve_sampler_type returned None (SAO 1.0, SAO Small, anything else
+    # without a config sampler_type field), we omit the kwarg so
+    # stable-audio-tools uses its own default per the model's
+    # diffusion_objective: sample_k's default for v-objective models, or
+    # sample_rf's default ('euler') for rf_denoiser / rectified_flow models.
+    # Forcing a value here is dangerous because sample_rf's whitelist is a
+    # short {'euler','rk4','dpmpp','pingpong'}; anything else makes it
+    # silently return None and surfaces as NoneType.to() far downstream.
+    generate_kwargs = {}
+    if pipe.sampler_type:
+        if pipe.sampler_type == "pingpong" and not _native_pingpong_supported():
+            raise RuntimeError(_UNSUPPORTED_SAMPLER_MSG.format(
+                model=pipe.model_name, sampler=pipe.sampler_type))
+        generate_kwargs["sampler_type"] = pipe.sampler_type
     try:
         output = generate_diffusion_cond(
             pipe.model,
@@ -1990,10 +1980,9 @@ def _generate_native(pipe, request):
             sample_size=pipe.sample_size,
             device=device,
             seed=seed,
-            sampler_type=pipe.sampler_type,
+            **generate_kwargs,
         )
     finally:
-        _PINGPONG_FLAG["active"] = False
         sys.stdout = real_stdout
         if restore_forward is not None:
             restore_forward()
