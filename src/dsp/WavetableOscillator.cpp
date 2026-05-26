@@ -740,6 +740,10 @@ float WavetableOscillator::processSample()
         glideFreqSamplesLeft--;
         if (glideFreqSamplesLeft == 0)
             targetFrequency = glideFreqTarget;
+        // Glide ramp bypasses setFrequency; clamp here to keep targetFrequency
+        // non-negative and NaN-free. !(x >= 0) is true for negatives AND NaN.
+        if (!(targetFrequency >= 0.0f))
+            targetFrequency = 0.0f;
     }
 
     float scanTarget = scanControl_;
@@ -842,9 +846,13 @@ float WavetableOscillator::processSample()
             adoptMipData(targetMorphMipData_);
     }
 
-    // Advance phase
+    // Advance phase. Symmetric wrap via floor handles both positive overshoot
+    // and (in case of any unforeseen negative drift) negative phase without an
+    // audible click. NaN guard: any non-finite phase reseeds to 0.
     phase += targetFrequency * FRAME_SIZE / sampleRate;
-    if (phase >= FRAME_SIZE)
+    if (!std::isfinite(phase))
+        phase = 0.0;
+    else
         phase -= FRAME_SIZE * std::floor(phase / FRAME_SIZE);
 
     return output;
@@ -861,7 +869,11 @@ float WavetableOscillator::readMipSample(const MipData& mipData, int mipLevel, d
 
     const float framePos = juce::jlimit(0.0f, 1.0f, scanPosition) * static_cast<float>(nf - 1);
     const int frameA = static_cast<int>(std::floor(framePos));
-    const int idx0 = static_cast<int>(std::floor(phase)) % FRAME_SIZE;
+    // Defensive: signed-safe modulo so a pathological negative or NaN phase from any
+    // upstream path can never index frame[] with a negative-cast-to-size_t value.
+    int idxRaw = static_cast<int>(std::floor(phase)) % FRAME_SIZE;
+    if (idxRaw < 0) idxRaw += FRAME_SIZE;
+    const int idx0 = idxRaw;
     const int idx1 = (idx0 + 1) % FRAME_SIZE;
     const float phaseFrac = static_cast<float>(phase - std::floor(phase));
 

@@ -45,7 +45,13 @@ public:
                                  int maxFrames = 256);
 
     /** Set playback frequency in Hz. Cancels any active glide. */
-    void setFrequency(float hz) { targetFrequency = hz; glideFreqSamplesLeft = 0; }
+    void setFrequency(float hz)
+    {
+        // NaN-safe non-negative clamp: !(hz >= 0) is true for negatives AND NaN.
+        // Negative or NaN frequency would drive phase out of bounds in readMipSample.
+        targetFrequency = (!(hz >= 0.0f)) ? 0.0f : hz;
+        glideFreqSamplesLeft = 0;
+    }
     float getFrequency() const { return targetFrequency; }
 
     /** True if a frequency glide is in progress. */
