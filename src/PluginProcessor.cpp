@@ -1482,6 +1482,16 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     }
     const float syncBpm = resolveSyncBpm();
 
+    // ── MIDI Panic (StatusBar button) ────────────────────────────────────
+    // GUI sets the flag from any thread; we consume it once here on the
+    // audio thread. Mirrors the CC120/123 path below — release all voices,
+    // clear sustain/sostenuto/drone, reset performance controllers.
+    if (midiPanicRequested.exchange(false, std::memory_order_acq_rel))
+    {
+        voiceManager.allNotesOff();
+        lastMidiNoteOn.store(false, std::memory_order_relaxed);
+    }
+
     // ── Phase-align sync LFO/Drift on seq start ─────────────────────────────
     // When the transport (PID::seqRunning) transitions stop→start, reset the
     // phase of every sync-mode LFO/Drift to 0 so the first cycle lands on

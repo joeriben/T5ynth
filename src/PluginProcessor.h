@@ -53,6 +53,11 @@ public:
     bool isFreezeMode() const;
     bool isSamplerMode() const;
 
+    /** GUI-thread entry point for the StatusBar "Panic" button. Sets a flag
+     *  that the audio thread consumes at the start of the next processBlock,
+     *  matching the CC120/123 (All Notes/Sound Off) behaviour. */
+    void requestMidiPanic() { midiPanicRequested.store(true, std::memory_order_release); }
+
     // Load generated audio into the engine
     void loadGeneratedAudio(const juce::AudioBuffer<float>& buffer, double sampleRate);
     /** Reload already-processed audio into sampler (no Rumble/HF/Normalize). */
@@ -378,6 +383,10 @@ public:
     // resolveSyncBpm() (which itself runs on the audio thread).
     std::atomic<float> hostBpmLastSeen { 0.0f };
     std::atomic<bool>  hostPlayingNow  { false };
+
+    // MIDI panic flag — set by requestMidiPanic() on the GUI thread,
+    // consumed/cleared in processBlock on the audio thread.
+    std::atomic<bool>  midiPanicRequested { false };
 
     // MIDI monitor (audio thread writes, GUI reads)
     std::atomic<int> lastMidiNote { -1 };

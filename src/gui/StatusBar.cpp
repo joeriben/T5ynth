@@ -41,7 +41,7 @@ juce::String fitTextToWidth(const juce::Font& font, juce::String text, int maxWi
 
 StatusBar::StatusBar()
 {
-    for (auto* btn : { &newBtn, &saveBtn, &loadBtn, &exportBtn, &settingsBtn, &manualBtn, &keyboardBtn })
+    for (auto* btn : { &newBtn, &saveBtn, &loadBtn, &exportBtn, &settingsBtn, &manualBtn, &panicBtn, &keyboardBtn })
     {
         btn->setColour(juce::TextButton::buttonColourId, kSurface);
         btn->setColour(juce::TextButton::textColourOffId, kDim);
@@ -51,12 +51,19 @@ StatusBar::StatusBar()
     keyboardBtn.setClickingTogglesState(true);
     keyboardBtn.setTooltip("Enable computer-keyboard note input");
 
+    // Red text so the destructive action is visible. Same red as the
+    // disconnect-state dot (kept inline rather than promoted to a palette
+    // entry — Panic is the only red surface in the bar).
+    panicBtn.setColour(juce::TextButton::textColourOffId, juce::Colour(0xffef4444));
+    panicBtn.setTooltip("MIDI Panic — release all hanging voices");
+
     newBtn.onClick      = [this] { if (onNewPreset) onNewPreset(); };
     saveBtn.onClick     = [this] { if (onSavePreset) onSavePreset(); };
     loadBtn.onClick     = [this] { if (onLoadPreset) onLoadPreset(); };
     exportBtn.onClick   = [this] { if (onExportWav) onExportWav(); };
     settingsBtn.onClick = [this] { if (onSettings) onSettings(); };
     manualBtn.onClick   = [this] { if (onManual) onManual(); };
+    panicBtn.onClick    = [this] { if (onMidiPanic) onMidiPanic(); };
     keyboardBtn.onClick = [this]
     {
         setKeyboardInputEnabled(keyboardBtn.getToggleState());
@@ -93,7 +100,9 @@ void StatusBar::paint(juce::Graphics& g)
     g.setFont(font);
 
     int textX = juce::roundToInt(dotX + dotSize + 6.0f);
-    int rightEdge = keyboardBtn.getX() - 8;
+    // Status text + preset name share the space left of the leftmost button.
+    // Panic now sits left of Kbd, so it defines the right edge.
+    int rightEdge = panicBtn.getX() - 8;
     auto statusBounds = juce::Rectangle<int>(textX, 0,
                                              juce::jmax(0, rightEdge - textX),
                                              getHeight());
@@ -134,7 +143,7 @@ void StatusBar::resized()
     int y = 1;
     int gap = 4;
 
-    // Right to left: Manual, Settings, Export, Library, Save, Init, Kbd
+    // Right to left: Manual, Settings, Export, Library, Save, Init, Kbd, Panic
     int manualW   = 60;
     int settingsW = 60;
     int exportW   = 54;
@@ -142,6 +151,7 @@ void StatusBar::resized()
     int saveW     = 50;
     int newW      = 40;
     int kbdW      = 42;
+    int panicW    = 50;
 
     manualBtn.setBounds(b.getRight() - manualW - gap, y, manualW, btnH);
     settingsBtn.setBounds(manualBtn.getX() - settingsW - gap, y, settingsW, btnH);
@@ -150,6 +160,7 @@ void StatusBar::resized()
     saveBtn.setBounds(loadBtn.getX() - saveW - gap, y, saveW, btnH);
     newBtn.setBounds(saveBtn.getX() - newW - gap, y, newW, btnH);
     keyboardBtn.setBounds(newBtn.getX() - kbdW - gap, y, kbdW, btnH);
+    panicBtn.setBounds(keyboardBtn.getX() - panicW - gap, y, panicW, btnH);
 }
 
 void StatusBar::setStatusText(const juce::String& text)

@@ -26,6 +26,9 @@ public:
     std::function<void()> onManual;
     std::function<void(bool)> onKeyboardInputChanged;
     void setKeyboardInputEnabled(bool enabled);
+    /** Fired when the user clicks the red "Panic" button — host should flush
+     *  all hanging voices/notes. Momentary; no toggle state. */
+    std::function<void()> onMidiPanic;
     /** Right-clicking the displayed preset name opens this menu — kept as
      *  a callback so MainPanel can populate it with rename/delete/etc. */
     std::function<void(juce::Point<int> screenPos)> onPresetNameContextMenu;
@@ -44,6 +47,7 @@ private:
     juce::TextButton exportBtn { "Export" };
     juce::TextButton settingsBtn { "Settings" };
     juce::TextButton manualBtn { "Manual" };
+    juce::TextButton panicBtn { "Panic" };
     juce::TextButton keyboardBtn { "Kbd" };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StatusBar)

@@ -441,6 +441,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     statusBar.onExportWav    = [this] { exportWav(); };
     statusBar.onSettings     = [this] { if (settingsVisible) hideSettings(); else showSettings(); };
     statusBar.onManual       = [this] { showManual(); };
+    statusBar.onMidiPanic    = [this] { processorRef.requestMidiPanic(); };
     statusBar.onKeyboardInputChanged = [this](bool enabled) { setComputerKeyboardEnabled(enabled); };
     statusBar.onPresetNameContextMenu = [this](juce::Point<int> p) { showPresetNameContextMenu(p); };
     statusBar.setKeyboardInputEnabled(false);
