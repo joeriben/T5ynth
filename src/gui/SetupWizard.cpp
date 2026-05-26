@@ -231,16 +231,15 @@ static const KnownModel kKnownModels[] = {
       "- Use is restricted by Google's Prohibited Use Policy -- review the\n"
       "  full terms before downloading.\n"
       "- A free HuggingFace account is required to accept the terms.\n\n"
-      "Required by Stable Audio 3 Small Music as the text encoder. T5ynth\n"
-      "does not provide the weights. By accessing the model you accept the\n"
-      "Gemma Terms of Use and take responsibility for compliance.", false, false,
+      "Required by Stable Audio 3 Small (Music and SFX share the same text\n"
+      "encoder). T5ynth does not provide the weights. By accessing the model\n"
+      "you accept the Gemma Terms of Use and take responsibility for\n"
+      "compliance.", false, false,
       nullptr, 0, /*gitCloneable*/ true },
     // The HF repo "stabilityai/stable-audio-3-small" does NOT exist — the
-    // SA3 Small line is two task-specialised checkpoints (music + sfx)
-    // built from the same architecture. T5ynth ships the music variant
-    // only; the sfx variant defaults to 7-second outputs which doesn't fit
-    // the synth's preset / modulation paradigm. Source: HF org listing
-    // for stabilityai/, May 2026.
+    // SA3 Small line is two task-specialised checkpoints (music + sfx) built
+    // from the same architecture. Both are catalogued; the user picks one
+    // to install. Source: HF org listing for stabilityai/, May 2026.
     { "stable-audio-3-small-music", "Stable Audio 3 Small Music", "stabilityai/stable-audio-3-small-music", nullptr,
       "https://stability.ai/community-license-agreement",
       "This model is licensed under the Stability AI Community License.\n\n"
@@ -249,6 +248,19 @@ static const KnownModel kKnownModels[] = {
       "- Commercial use over $1M: enterprise license required\n\n"
       "T5ynth does not provide the model weights. By downloading, you accept\n"
       "the license terms and take responsibility for compliance.", false, true,
+      nullptr, 0, /*gitCloneable*/ false },
+    { "stable-audio-3-small-sfx", "Stable Audio 3 Small SFX", "stabilityai/stable-audio-3-small-sfx", nullptr,
+      "https://stability.ai/community-license-agreement",
+      "This model is licensed under the Stability AI Community License.\n\n"
+      "- Non-commercial use: free\n"
+      "- Commercial use under $1M annual revenue: free (register at stability.ai)\n"
+      "- Commercial use over $1M: enterprise license required\n\n"
+      "T5ynth does not provide the model weights. By downloading, you accept\n"
+      "the license terms and take responsibility for compliance.\n\n"
+      "Companion to SA3 Small Music — same architecture, trained for sound\n"
+      "effects rather than musical content. Native default duration is\n"
+      "shorter than the synth's 11s cap; outputs are clamped to whatever\n"
+      "the model produces.", false, true,
       nullptr, 0, /*gitCloneable*/ false },
 };
 static constexpr int kNumKnownModels = sizeof(kKnownModels) / sizeof(kKnownModels[0]);
@@ -1385,7 +1397,8 @@ void SettingsPage::performAutoScan()
     const bool isNativeStabilityModel =
         modelId == "stable-audio-open-small"
         || modelId == "stable-audio-open-1.0"
-        || modelId == "stable-audio-3-small-music";
+        || modelId == "stable-audio-3-small-music"
+        || modelId == "stable-audio-3-small-sfx";
     const bool isFlatEncoderModel =
         modelId == "t5gemma-b-b-ul2";
 
@@ -1403,6 +1416,7 @@ void SettingsPage::performAutoScan()
     if      (modelId == "stable-audio-open-1.0")     modelDisplayName = "Stable Audio Open 1.0";
     else if (modelId == "stable-audio-open-small")    modelDisplayName = "Stable Audio Open Small";
     else if (modelId == "stable-audio-3-small-music") modelDisplayName = "Stable Audio 3 Small Music";
+    else if (modelId == "stable-audio-3-small-sfx")   modelDisplayName = "Stable Audio 3 Small SFX";
     else                                              modelDisplayName = "T5Gemma text encoder";
 
     // Pick the right required-files list and install helper for the category.
@@ -2261,18 +2275,27 @@ void SettingsPage::updateStatus()
                 "     from Downloads afterwards.\n\n"
                 "If you saved them somewhere other than Downloads, Auto-Scan will "
                 "open a folder picker and ask you to point at the folder.");
-        } else if (id == "stable-audio-3-small-music") {
+        } else if (id == "stable-audio-3-small-music" || id == "stable-audio-3-small-sfx") {
+            const juce::String variantTitle =
+                (id == "stable-audio-3-small-music") ? "STABLE AUDIO 3 SMALL MUSIC"
+                                                     : "STABLE AUDIO 3 SMALL SFX";
+            const juce::String variantBlurb =
+                (id == "stable-audio-3-small-music")
+                    ? "Trained for musical content."
+                    : "Trained for sound effects (companion to SA3 Small Music; "
+                      "same architecture, different fine-tune).";
             setInstructionsText(
                 instructionsLabel,
-                "STABLE AUDIO 3 SMALL MUSIC\n"
+                variantTitle + "\n"
+                + variantBlurb + "\n\n"
                 "Licensed under the Stability AI Community License. Gated on "
                 "HuggingFace -- a free HuggingFace account is required once to "
                 "accept the license. T5ynth uses only two files from this repo "
                 "(model.safetensors and model_config.json).\n\n"
                 "  Source: https://huggingface.co/" + hfRepo + "\n\n"
-                "SA3 Small Music requires the T5Gemma text encoder. Install\n"
-                "T5Gemma first (select it in the dropdown above) -- without that\n"
-                "encoder the backend cannot load SA3.\n\n"
+                "SA3 Small requires the T5Gemma text encoder. Install T5Gemma\n"
+                "first (select it in the dropdown above) -- without that encoder\n"
+                "the backend cannot load SA3.\n\n"
                 "INSTALL:\n"
                 "  1. Click 'Open Model Page' above, sign up or log in, and click\n"
                 "     'Agree and access repository' to accept the license.\n"
@@ -2292,7 +2315,8 @@ void SettingsPage::updateStatus()
                 "T5GEMMA TEXT ENCODER (Stable Audio 3)\n"
                 "Licensed under the Gemma Terms of Use. Gated on HuggingFace --\n"
                 "a free HuggingFace account is required once to accept the terms.\n"
-                "T5Gemma is the text encoder for Stable Audio 3 Small Music.\n\n"
+                "T5Gemma is the shared text encoder for both SA3 Small Music\n"
+                "and SA3 Small SFX.\n\n"
                 "  Source: https://huggingface.co/" + hfRepo + "\n"
                 "  Target: " + targetPath + "\n\n"
                 "INSTALL (Clone via git):\n"

@@ -285,11 +285,14 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     }
 
     // Model selector — fixed 4 slots, always visible (disabled = gray until model found).
-    // "SA3 Music" rather than "SA3 Small": the SA3 small line ships as two
-    // task-specific checkpoints (music + sfx) and T5ynth catalogs the music
-    // one only; the label disambiguates which.
+    // Slot 3 is "SA3 Small": the SA3 small line ships as two task-specific
+    // checkpoints (music + sfx) sharing the same architecture. Both are
+    // catalogued for SetupWizard install; slot 3 hosts whichever variant
+    // the backend reports (only one at a time — last enumerated wins if
+    // both are installed). The label stays generic so it's accurate either
+    // way; the user knows which variant they installed.
     {
-        const char* slotLabels[kNumModelSlots] = { "SA Open 1.0", "SA Small", "AudioLDM2", "SA3 Music" };
+        const char* slotLabels[kNumModelSlots] = { "SA Open 1.0", "SA Small", "AudioLDM2", "SA3 Small" };
         for (int i = 0; i < kNumModelSlots; ++i)
         {
             modelBtns[i].setButtonText(slotLabels[i]);
