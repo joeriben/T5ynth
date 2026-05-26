@@ -220,11 +220,17 @@ static const KnownModel kKnownModels[] = {
       "- Use is restricted by Google's Prohibited Use Policy -- review the\n"
       "  full terms before downloading.\n"
       "- A free HuggingFace account is required to accept the terms.\n\n"
-      "Required by Stable Audio 3 Small as the text encoder. T5ynth does not\n"
-      "provide the weights. By accessing the model you accept the Gemma\n"
-      "Terms of Use and take responsibility for compliance.", false, false,
+      "Required by Stable Audio 3 Small Music as the text encoder. T5ynth\n"
+      "does not provide the weights. By accessing the model you accept the\n"
+      "Gemma Terms of Use and take responsibility for compliance.", false, false,
       nullptr, 0 },
-    { "stable-audio-3-small",    "Stable Audio 3 Small",       "stabilityai/stable-audio-3-small", nullptr,
+    // The HF repo "stabilityai/stable-audio-3-small" does NOT exist — the
+    // SA3 Small line is two task-specialised checkpoints (music + sfx)
+    // built from the same architecture. T5ynth ships the music variant
+    // only; the sfx variant defaults to 7-second outputs which doesn't fit
+    // the synth's preset / modulation paradigm. Source: HF org listing
+    // for stabilityai/, May 2026.
+    { "stable-audio-3-small-music", "Stable Audio 3 Small Music", "stabilityai/stable-audio-3-small-music", nullptr,
       "https://stability.ai/community-license-agreement",
       "This model is licensed under the Stability AI Community License.\n\n"
       "- Non-commercial use: free\n"
@@ -1036,7 +1042,7 @@ void SettingsPage::performAutoScan()
     const bool isNativeStabilityModel =
         modelId == "stable-audio-open-small"
         || modelId == "stable-audio-open-1.0"
-        || modelId == "stable-audio-3-small";
+        || modelId == "stable-audio-3-small-music";
     const bool isFlatEncoderModel =
         modelId == "t5gemma-b-b-ul2";
 
@@ -1051,10 +1057,10 @@ void SettingsPage::performAutoScan()
         return;
     }
     juce::String modelDisplayName;
-    if      (modelId == "stable-audio-open-1.0")  modelDisplayName = "Stable Audio Open 1.0";
-    else if (modelId == "stable-audio-open-small") modelDisplayName = "Stable Audio Open Small";
-    else if (modelId == "stable-audio-3-small")    modelDisplayName = "Stable Audio 3 Small";
-    else                                            modelDisplayName = "T5Gemma text encoder";
+    if      (modelId == "stable-audio-open-1.0")     modelDisplayName = "Stable Audio Open 1.0";
+    else if (modelId == "stable-audio-open-small")    modelDisplayName = "Stable Audio Open Small";
+    else if (modelId == "stable-audio-3-small-music") modelDisplayName = "Stable Audio 3 Small Music";
+    else                                              modelDisplayName = "T5Gemma text encoder";
 
     // Pick the right required-files list and install helper for the category.
     // A small lambda keeps the rest of the function category-agnostic so the
@@ -1905,16 +1911,16 @@ void SettingsPage::updateStatus()
                 "     from Downloads afterwards.\n\n"
                 "If you saved them somewhere other than Downloads, Auto-Scan will "
                 "open a folder picker and ask you to point at the folder.");
-        } else if (id == "stable-audio-3-small") {
+        } else if (id == "stable-audio-3-small-music") {
             setInstructionsText(
                 instructionsLabel,
-                "STABLE AUDIO 3 SMALL\n"
+                "STABLE AUDIO 3 SMALL MUSIC\n"
                 "Licensed under the Stability AI Community License. Gated on "
                 "HuggingFace -- a free HuggingFace account is required once to "
                 "accept the license. T5ynth uses only two files from this repo "
                 "(model.safetensors and model_config.json).\n\n"
                 "  Source: https://huggingface.co/" + hfRepo + "\n\n"
-                "Stable Audio 3 Small requires the T5Gemma text encoder. Install\n"
+                "SA3 Small Music requires the T5Gemma text encoder. Install\n"
                 "T5Gemma first (select it in the dropdown above) -- without that\n"
                 "encoder the backend cannot load SA3.\n\n"
                 "INSTALL:\n"

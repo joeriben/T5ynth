@@ -615,13 +615,15 @@ def _patch_stable_audio_tools_for_t5gemma():
 def _install_pingpong_sampler():
     """Add a 'pingpong' branch to stable-audio-tools' sampler dispatch.
 
-    SA3 Small ships with ``sampler_type='pingpong'``. The version of
-    stable-audio-tools shipped with T5ynth predates pingpong support, so we
-    register a no-op placeholder that raises a clear NotImplementedError if
-    the sampler is actually requested. Plumbing for the field is in place;
-    the algorithm itself will be filled in once SA3 model weights are
-    available for validation. Until then, SA3 generation will surface a
-    descriptive error rather than silently falling back.
+    The Stable Audio 3 family (small-music / small-sfx / medium /
+    optimized) all ship with ``sampler_type='pingpong'`` per their HF
+    model cards (8 steps, cfg 1.0). The version of stable-audio-tools
+    shipped with T5ynth predates pingpong support, so we register a no-op
+    placeholder that raises a clear NotImplementedError if the sampler is
+    actually requested. Plumbing for the field is in place; the algorithm
+    itself will be filled in once SA3 model weights are available for
+    validation. Until then, SA3 generation will surface a descriptive
+    error rather than silently falling back.
 
     Both ``sample_k`` and ``sample_rf`` are wrapped — the diffusion_objective
     field decides which one ``generate_diffusion_cond`` actually invokes, and
@@ -664,7 +666,7 @@ def _install_pingpong_sampler():
 _PINGPONG_FLAG = {"active": False}
 
 _PINGPONG_NOT_IMPLEMENTED_MSG = (
-    "Stable Audio 3 Small requests sampler_type='pingpong', which is not "
+    "Stable Audio 3 requests sampler_type='pingpong', which is not "
     "implemented in the bundled stable-audio-tools build. Plug in a pingpong "
     "implementation in pipe_inference.py:_install_pingpong_sampler or upgrade "
     "stable-audio-tools to a version that ships pingpong."
@@ -870,7 +872,12 @@ def _resolve_sampler_type(model_config, model_name):
 
     # Heuristic fallback by model name — covers cases where the config doesn't
     # record sampler_type explicitly but the model identity is well-known.
-    if model_name == "stable-audio-3-small":
+    # Stability published SA3 small as two task-specific checkpoints
+    # (stable-audio-3-small-music / stable-audio-3-small-sfx). Both share
+    # architecture and both target sampler_type="pingpong" per the SA3
+    # model cards (8 steps, cfg 1.0). The match is a prefix so a future
+    # "stable-audio-3-medium" install lands on pingpong too.
+    if model_name.startswith("stable-audio-3"):
         return "pingpong"
     return "dpmpp-2m-sde"
 

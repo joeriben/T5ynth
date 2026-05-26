@@ -284,9 +284,12 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         syncSeedModeButtons();
     }
 
-    // Model selector — fixed 3 slots, always visible (disabled = gray until model found)
+    // Model selector — fixed 4 slots, always visible (disabled = gray until model found).
+    // "SA3 Music" rather than "SA3 Small": the SA3 small line ships as two
+    // task-specific checkpoints (music + sfx) and T5ynth catalogs the music
+    // one only; the label disambiguates which.
     {
-        const char* slotLabels[kNumModelSlots] = { "SA Open 1.0", "SA Small", "AudioLDM2", "SA3 Small" };
+        const char* slotLabels[kNumModelSlots] = { "SA Open 1.0", "SA Small", "AudioLDM2", "SA3 Music" };
         for (int i = 0; i < kNumModelSlots; ++i)
         {
             modelBtns[i].setButtonText(slotLabels[i]);
