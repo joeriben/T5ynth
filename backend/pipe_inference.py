@@ -452,13 +452,12 @@ def _prepare_native_model_config(model_dir, model_config):
 def _patch_stable_audio_tools_t5_registry(resolved_t5_models):
     """Allow stable-audio-tools to accept resolved bundled T5 asset directories.
 
-    Two cases:
-    * Path was resolved from a name already in T5_MODEL_DIMS (e.g. t5-base) →
-      copy the dim entry across so the assert in T5Conditioner.__init__ passes.
-    * Path points at a directory we've not seen before (T5Gemma) → read the
-      hidden_size out of config.json and register it. The T5Conditioner
-      patch installed by _patch_stable_audio_tools_for_t5gemma uses the same
-      registry, so the dim has to be in place before construction.
+    The patched native model config rewrites ``t5_model_name`` from the
+    repo-style name (e.g. ``t5-base``) to the absolute path of the bundled
+    asset. T5Conditioner.__init__ then asserts the resolved path is present
+    in its T5_MODEL_DIMS / T5_MODELS registries — neither of which knows
+    about local paths out of the box. We copy the registry entry for the
+    original name to the resolved path so the assert passes.
     """
     if not resolved_t5_models:
         return
@@ -481,135 +480,6 @@ def _patch_stable_audio_tools_t5_registry(resolved_t5_models):
 
         if original_name in dims:
             dims[resolved_path] = dims[original_name]
-            continue
-
-        # Unknown name (e.g. T5Gemma) — look up hidden_size from config.json.
-        embed_dim = _read_text_encoder_hidden_size(Path(resolved_path))
-        if embed_dim is None:
-            log.warning(
-                "Could not resolve hidden_size for text encoder at %s; "
-                "T5Conditioner construction will likely fail.",
-                resolved_path,
-            )
-            continue
-        dims[resolved_path] = embed_dim
-        dims[original_name] = embed_dim
-
-
-def _read_text_encoder_hidden_size(model_dir):
-    """Read the embedding dim of a flat-transformers encoder from its config.json."""
-    cfg_path = Path(model_dir) / "config.json"
-    if not cfg_path.is_file():
-        return None
-    try:
-        with open(cfg_path) as f:
-            cfg = json.load(f)
-    except (OSError, json.JSONDecodeError) as exc:
-        log.warning("Could not parse %s: %s", cfg_path, exc)
-        return None
-    # T5 family uses d_model; T5Gemma and most modern HF encoders use hidden_size.
-    for key in ("hidden_size", "d_model"):
-        value = cfg.get(key)
-        if isinstance(value, int) and value > 0:
-            return value
-    return None
-
-
-def _model_type_of_text_encoder(model_dir):
-    """Return the config.json model_type field (lowercased) or ''."""
-    cfg_path = Path(model_dir) / "config.json"
-    if not cfg_path.is_file():
-        return ""
-    try:
-        with open(cfg_path) as f:
-            cfg = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return ""
-    return str(cfg.get("model_type", "")).lower()
-
-
-def _patch_stable_audio_tools_for_t5gemma():
-    """Teach stable-audio-tools' T5Conditioner how to load T5Gemma encoders.
-
-    The stock T5Conditioner constructs ``T5EncoderModel.from_pretrained(name)``
-    which only handles original T5 architecture. T5Gemma ships under a
-    different transformers class (``T5GemmaForConditionalGeneration`` /
-    ``T5GemmaModel``) and is reached via ``AutoModel``. We monkey-patch
-    ``T5Conditioner.__init__`` so it inspects the resolved directory's
-    ``config.json`` and dispatches to ``AutoModel`` when ``model_type``
-    looks like Gemma; otherwise the original code path runs unchanged.
-
-    Idempotent — second and later calls are no-ops.
-    """
-    from stable_audio_tools.models import conditioners as sat_conditioners
-
-    if getattr(sat_conditioners.T5Conditioner, "_t5ynth_t5gemma_patched", False):
-        return
-
-    original_init = sat_conditioners.T5Conditioner.__init__
-
-    def patched_init(self, output_dim, t5_model_name="t5-base", max_length=128,
-                     enable_grad=False, project_out=False):
-        model_type = _model_type_of_text_encoder(t5_model_name)
-        is_t5gemma = "gemma" in model_type
-        if not is_t5gemma:
-            original_init(
-                self,
-                output_dim,
-                t5_model_name=t5_model_name,
-                max_length=max_length,
-                enable_grad=enable_grad,
-                project_out=project_out,
-            )
-            return
-
-        # T5Gemma branch — mirror T5Conditioner's structure but with AutoModel.
-        import warnings
-        from transformers import AutoTokenizer, AutoModel
-
-        embed_dim = _read_text_encoder_hidden_size(t5_model_name)
-        if embed_dim is None:
-            raise RuntimeError(
-                f"Could not determine hidden_size for T5Gemma encoder at {t5_model_name}"
-            )
-
-        # Use Conditioner base init directly. T5Conditioner.__init__ calls
-        # super().__init__(self.T5_MODEL_DIMS[name], ...); we bypass the
-        # registry lookup here and pass embed_dim straight through.
-        sat_conditioners.Conditioner.__init__(self, embed_dim, output_dim,
-                                              project_out=project_out)
-        self.max_length = max_length
-        self.enable_grad = enable_grad
-
-        previous_level = logging.root.manager.disable
-        logging.disable(logging.ERROR)
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                self.tokenizer = AutoTokenizer.from_pretrained(t5_model_name)
-                full = AutoModel.from_pretrained(
-                    t5_model_name, torch_dtype=torch.float16
-                ).train(enable_grad).requires_grad_(enable_grad)
-        finally:
-            logging.disable(previous_level)
-
-        # T5Gemma exposes the encoder under different attribute paths depending
-        # on the transformers class. Cover the common locations defensively.
-        if hasattr(full, "encoder") and full.encoder is not None:
-            inner_model = full.encoder
-        elif hasattr(full, "model") and hasattr(full.model, "encoder"):
-            inner_model = full.model.encoder
-        else:
-            inner_model = full
-
-        if self.enable_grad:
-            self.model = inner_model
-        else:
-            self.__dict__["model"] = inner_model
-
-    sat_conditioners.T5Conditioner.__init__ = patched_init
-    sat_conditioners.T5Conditioner._t5ynth_t5gemma_patched = True
-    log.info("Patched T5Conditioner to recognise T5Gemma encoders")
 
 
 def _native_pingpong_supported():
@@ -1001,16 +871,17 @@ def _load_native_pipeline(model_dir, device):
         with open(config_path) as f:
             model_config, resolved_t5_models = _prepare_native_model_config(model_dir, json.load(f))
 
-        # Order matters: the T5Gemma patch overrides T5Conditioner.__init__
-        # but reads from the registry the t5_registry patch populates, so the
-        # registry patch has to land first. Pingpong is no longer monkey-
-        # patched — the bundled stable-audio-tools build implements
-        # sampler_type='pingpong' natively in sample_rf, so an earlier wrapper
-        # that raised NotImplementedError was actively preventing SA3 from
-        # reaching the real pingpong path. Support is verified at request
-        # time in _generate_native via _native_pingpong_supported().
+        # The T5 registry patch teaches stable-audio-tools that the bundled
+        # t5-base directory satisfies T5Conditioner's assertion on
+        # T5_MODELS/T5_MODEL_DIMS. T5Gemma support (a second monkey-patch that
+        # dispatched gated SA3 SFX through transformers.AutoModel) was removed
+        # along with the SFX slot — it had no remaining caller.
+        # Pingpong is NOT monkey-patched: the bundled stable-audio-tools build
+        # implements sampler_type='pingpong' natively in sample_rf, and an
+        # earlier wrapper that raised NotImplementedError actively prevented
+        # SA3 from reaching the real pingpong path. Support is verified at
+        # request time in _generate_native via _native_pingpong_supported().
         _patch_stable_audio_tools_t5_registry(resolved_t5_models)
-        _patch_stable_audio_tools_for_t5gemma()
 
         model = create_model_from_config(model_config)
         model.load_state_dict(load_ckpt_state_dict(str(weights_path)))

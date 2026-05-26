@@ -255,6 +255,9 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     randomSeedToggle.onClick = [this] {
         syncSeedEditorEnabledState();
         syncSeedModeFromCurrentState();
+        // Cache the auto/random choice on the processor so preset save can
+        // persist it — APVTS PID::genSeed isn't driven from this UI.
+        processorRef.setLastRandomSeed(randomSeedToggle.getToggleState());
     };
     addAndMakeVisible(randomSeedToggle);
     syncSeedEditorEnabledState();
@@ -286,13 +289,13 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         syncSeedModeButtons();
     }
 
-    // Model selector — fixed 5 slots, always visible (disabled = gray until model found).
-    // Order: SA3 first (newest, default), then SA1 family, then AudioLDM2. The
-    // SA3 small line ships as two task-specific checkpoints (music + sfx)
-    // sharing architecture and encoder; both get their own slots so the user
-    // can A/B between them in a single session without uninstalling either.
+    // Model selector — fixed 4 slots, always visible (disabled = gray until model found).
+    // Order: SA3 first (newest, default), then SA1 family, then AudioLDM2.
+    // The SA3 SFX variant is deferred (inpaint architecture + t5gemma encoder
+    // not yet supported by the native pipeline); only the Music checkpoint
+    // gets a slot.
     {
-        const char* slotLabels[kNumModelSlots] = { "SA3 Music", "SA3 SFX", "SA1 Open", "SA1 Small", "AudioLDM2" };
+        const char* slotLabels[kNumModelSlots] = { "SA3 Music", "SA1 Open", "SA1 Small", "AudioLDM2" };
         for (int i = 0; i < kNumModelSlots; ++i)
         {
             modelBtns[i].setButtonText(slotLabels[i]);
@@ -784,6 +787,9 @@ void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String
     syncSeedEditorDisplay(seed, true);
     syncSeedEditorEnabledState();
     syncSeedModeFromCurrentState();
+    // Keep the cached auto-state aligned with what we just restored, so a
+    // subsequent Save (without re-touching the UI) round-trips correctly.
+    processorRef.setLastRandomSeed(randomSeed);
     if (auto* startParam = processorRef.getValueTreeState().getParameter(PID::genStart))
         startParam->setValueNotifyingHost(0.0f);
 
@@ -893,26 +899,28 @@ void PromptPanel::populateModelSelector()
     auto& models = pipeInf.getAvailableModels();
 
     // Match available models to fixed slots by pattern
-    // Slot 0: SA3 Music, Slot 1: SA3 SFX, Slot 2: SA1 Open,
-    // Slot 3: SA1 Small, Slot 4: AudioLDM2
+    // Slot 0: SA3 Music, Slot 1: SA1 Open, Slot 2: SA1 Small, Slot 3: AudioLDM2
     for (int i = 0; i < kNumModelSlots; ++i)
         modelSlotIds[i] = {};
 
     for (auto& m : models)
     {
-        // Order matters:
-        //  - SFX has to fire before the generic SA3 check so "*-sfx" doesn't
-        //    get swept into the music slot.
-        //  - SA3 names contain "small", so SA3 checks fire before the SA1
-        //    Small fallback to keep them off slot 3.
+        // Skip any leftover SA3 SFX install up front — SFX is deferred until
+        // the native pipeline learns diffusion_cond_inpaint + t5gemma. Without
+        // this skip, "stable-audio-3-small-sfx" would pass through the "small"
+        // fallback below and silently take over the SA1 Small slot — which is
+        // exactly the misroute removing the slot was meant to prevent.
+        if (m.containsIgnoreCase("sfx"))
+            continue;
+
+        // Order matters: SA3 names contain "small", so the SA3 check fires
+        // before the SA1 Small fallback to keep SA3 Music off slot 2.
         int slot = -1;
-        if (m.containsIgnoreCase("stable-audio-3") &&
-            m.containsIgnoreCase("sfx"))                     slot = 1;
-        else if (m.containsIgnoreCase("stable-audio-3"))     slot = 0;
-        else if (m.containsIgnoreCase("small"))              slot = 3;  // SA1 Small
-        else if (m.containsIgnoreCase("stable-audio-open"))  slot = 2;  // SA1 Open 1.0
+        if (m.containsIgnoreCase("stable-audio-3"))          slot = 0;  // SA3 Music
+        else if (m.containsIgnoreCase("small"))              slot = 2;  // SA1 Small
+        else if (m.containsIgnoreCase("stable-audio-open"))  slot = 1;  // SA1 Open 1.0
         else if (m.containsIgnoreCase("audioldm") ||
-                 m.containsIgnoreCase("audio-ldm"))          slot = 4;
+                 m.containsIgnoreCase("audio-ldm"))          slot = 3;
 
         if (slot >= 0 && slot < kNumModelSlots)
         {
@@ -923,10 +931,9 @@ void PromptPanel::populateModelSelector()
     }
 
     // Select model: pending preset model > leftmost installed slot in display
-    // order. The new layout puts SA3 Music at slot 0, so the "leftmost
-    // installed" rule naturally prefers SA3 Music when present (matching the
-    // user-named ordering "SA3 first") and falls through to SA3 SFX, SA1
-    // Open, SA1 Small, AudioLDM2 in turn when earlier slots are empty.
+    // order. SA3 Music sits at slot 0, so "leftmost installed" naturally
+    // prefers SA3 when present and falls through SA1 Open → SA1 Small →
+    // AudioLDM2 in turn when earlier slots are empty.
     int selectIdx = -1;
     if (pendingModel_.isNotEmpty())
     {
@@ -1095,13 +1102,13 @@ bool PromptPanel::isAudioLDM2Model(const juce::String& model) const
 // handler (which writes these into APVTS on model switch) and for
 // hasHiddenActiveState (which compares against them to decide whether
 // easy mode's params have been user-modified).
-//  - SA3 Small (music + sfx): 8 steps, CFG 1.0 — verified from each
-//    variant's own model_config.json (training.demo.demo_steps = 8,
-//    demo_cfg_scales = [1]) and both HF model cards' sample code
-//    (generate_diffusion_cond_inpaint(..., steps=8, cfg_scale=1.0,
-//    sampler_type="pingpong")). May 2026 sources. Match by SA3 prefix
-//    so future variants ("medium", future fine-tunes) land here
-//    automatically rather than falling through to the SAO 1.0 branch.
+//  - SA3 Small Music: 8 steps, CFG 1.0 — verified from the model's own
+//    model_config.json (training.demo.demo_steps = 8, demo_cfg_scales = [1])
+//    and the HF model card's sample code (generate_diffusion_cond(...,
+//    steps=8, cfg_scale=1.0, sampler_type="pingpong")). May 2026 sources.
+//    Matched by SA3 prefix so future variants ("medium", future fine-tunes)
+//    land here automatically rather than falling through to the SAO 1.0
+//    branch.
 //  - SAO Small: 8 steps, CFG 1.0 — same numbers, separate cause
 //    (SAO Small's own model card recommends these).
 //  - AudioLDM2: 50 / 3.5.
@@ -1154,6 +1161,9 @@ void PromptPanel::setSeedMode(SeedMode mode, bool applyState)
 
     seedMode_ = mode;
     syncSeedModeButtons();
+    // Mirror the Easy-mode choice on the processor so PresetFormat::save sees
+    // the current auto/random intent even when the user hasn't generated yet.
+    processorRef.setLastRandomSeed(mode == SeedMode::autoRandom);
 }
 
 void PromptPanel::syncSeedModeFromCurrentState()
@@ -1423,13 +1433,12 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     // Combo 2 = "B as gestalt filter" (high DiT blocks).
     //
     // NOTE: The 0/4/12/16 values were tuned for SAO Small's 16-block DiT.
-    // On SA3 Small (block count may differ — currently read from backend
-    // metadata into ditBlocks_) these bands fall on different relative
-    // depths; the perceptual mapping needs empirical re-validation. The
-    // backend re-asserts the same hardcoded values, so changing one side
-    // alone won't take effect — both this block AND _generate_native in
-    // backend/pipe_inference.py have to move together. Tracked under
-    // project §3.4 ("Injection-Modi auf T5Gemma re-validieren").
+    // On SA3 Small Music (block count may differ — currently read from
+    // backend metadata into ditBlocks_) these bands fall on different
+    // relative depths; the perceptual mapping needs empirical re-validation
+    // per model. The backend re-asserts the same hardcoded values, so
+    // changing one side alone won't take effect — both this block AND
+    // _generate_native in backend/pipe_inference.py have to move together.
     if (requestInjectionMode == "kombi1") { req.splitStart = 0.0f; req.splitEnd = 4.0f;  }
     if (requestInjectionMode == "kombi2") { req.splitStart = 4.0f; req.splitEnd = 12.0f; }
     if (requestInjectionMode == "kombi3") { req.splitStart = 6.0f; req.splitEnd = 10.0f; }
