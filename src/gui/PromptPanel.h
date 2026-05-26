@@ -132,7 +132,10 @@ private:
     void syncSeedModeFromCurrentState();
     void syncSeedModeButtons();
 
-    // Model selector (fixed 5-slot switchbox: SA Open 1.0 | SA Small | AudioLDM2 | SA3 Music | SA3 SFX)
+    // Model selector (fixed 5-slot switchbox: SA3 Music | SA3 SFX | SA1 Open | SA1 Small | AudioLDM2).
+    // Visible in both compact and easy modes — the model choice is central
+    // enough to the synth's behavior that hiding it in easy mode left the
+    // user without a way to switch engines on the fly.
     static constexpr int kNumModelSlots = 5;
     juce::TextButton modelBtns[kNumModelSlots];
     juce::String modelSlotIds[kNumModelSlots];  // resolved model directory name per slot

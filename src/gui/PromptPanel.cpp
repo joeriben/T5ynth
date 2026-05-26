@@ -481,7 +481,7 @@ void PromptPanel::timerCallback()
 
 void PromptPanel::paint(juce::Graphics& g)
 {
-    if (!easyMode_ && !modelSwitchBounds.isEmpty())
+    if (!modelSwitchBounds.isEmpty())
         paintSwitchBoxBorder(g, modelSwitchBounds);
     if (easyMode_ && !seedModeSwitchBounds.isEmpty())
         paintSwitchBoxBorder(g, seedModeSwitchBounds);
