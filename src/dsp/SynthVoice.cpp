@@ -752,6 +752,15 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
     bool samplerMode = (engineMode == EngineMode::Sampler) && sampler.hasAudio();
     bool freezeMode = (engineMode == EngineMode::Freeze) && freezeEngine.hasAudio();
     bool oscReady = (engineMode == EngineMode::Wavetable) && osc.hasFrames();
+
+    // Hoist: setInterpolation is a pure setter; tunedHz is block-constant.
+    float blockBaseFreqWavetable = 0.0f;
+    if (oscReady)
+    {
+        osc.setInterpolation(p.wtSmooth);
+        blockBaseFreqWavetable = tunedHz(currentNote + octaveShift_ * 12);
+    }
+
     if (freezeMode)
     {
         freezeEngine.setTextureMode(p.freezeTexture);
@@ -968,7 +977,7 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
 
                 if (!osc.isGliding())
                 {
-                    baseFrequency = tunedHz(currentNote + octaveShift_ * 12);
+                    baseFrequency = blockBaseFreqWavetable;
                     osc.setFrequency(baseFrequency * p.performancePitchRatio * (1.0f + pitchMod));
                 }
 
@@ -982,7 +991,6 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                 if (p.lfo3Target == LfoTarget::Scan) scanMod += lfo3Val;
                 const float clampedScan = juce::jlimit(0.0f, 1.0f, scanMod);
                 osc.setScanPosition(clampedScan);
-                osc.setInterpolation(p.wtSmooth);
 
                 sample = osc.processSample();
                 sampleR = sample;
