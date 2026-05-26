@@ -3701,6 +3701,14 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     // Engine
     juce::DynamicObject::Ptr engine = new juce::DynamicObject();
     engine->setProperty("mode", choiceToKey(static_cast<int>(get(PID::engineMode)), EngineMode::kEntries));
+    // voiceCount and tuning are part of the engine config (polyphony + the
+    // tuning table the VoiceManager applies). Both are in
+    // MainPanel::kMainSnapshotParamIds so per-snapshot save round-trips
+    // them, but they used to be omitted from the main preset JSON --
+    // saving a preset with "12 voices / Maqam" would silently reset to
+    // the APVTS defaults (8 voices / 12-TET) on reload.
+    engine->setProperty("voiceCount", choiceToKey(static_cast<int>(get(PID::voiceCount)), VoiceCount::kEntries));
+    engine->setProperty("tuning",     choiceToKey(static_cast<int>(get(PID::tuning)),     TuningType::kEntries));
     engine->setProperty("loopMode", choiceToKey(static_cast<int>(get(PID::loopMode)), LoopMode::kEntries));
     engine->setProperty("loopStartFrac", static_cast<double>(masterSampler.getLoopStart()));
     engine->setProperty("loopEndFrac", static_cast<double>(masterSampler.getLoopEnd()));
@@ -3981,6 +3989,15 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
     {
         setParam(parameters, PID::engineMode,
                  static_cast<float>(choiceFromKey(engine->getProperty("mode").toString(), EngineMode::kEntries)));
+        // Old .t5p files predate voiceCount / tuning being saved; guard
+        // with hasProperty so they keep loading with their previous
+        // (now-default) polyphony and tuning instead of being rejected.
+        if (engine->hasProperty("voiceCount"))
+            setParam(parameters, PID::voiceCount,
+                     static_cast<float>(choiceFromKey(engine->getProperty("voiceCount").toString(), VoiceCount::kEntries)));
+        if (engine->hasProperty("tuning"))
+            setParam(parameters, PID::tuning,
+                     static_cast<float>(choiceFromKey(engine->getProperty("tuning").toString(), TuningType::kEntries)));
         setParam(parameters, PID::loopMode,
                  static_cast<float>(choiceFromKey(engine->getProperty("loopMode").toString(), LoopMode::kEntries)));
 
