@@ -3762,6 +3762,18 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         lfoArr.add(lfo.get());
     }
     modObj->setProperty("lfos", lfoArr);
+
+    // MIDI aftertouch routing. Both params are in
+    // MainPanel::kMainSnapshotParamIds so per-snapshot save persisted
+    // them, but they were absent from the main preset JSON -- saving a
+    // preset that routed aftertouch to (e.g.) Cutoff at 80% reset to
+    // None/50% on reload. Same root cause and same fix shape as the
+    // voiceCount / tuning case.
+    juce::DynamicObject::Ptr aftertouch = new juce::DynamicObject();
+    aftertouch->setProperty("target", choiceToKey(static_cast<int>(get(PID::aftertouchTarget)), AftertouchTarget::kEntries));
+    aftertouch->setProperty("amount", get(PID::aftertouchAmount));
+    modObj->setProperty("aftertouch", aftertouch.get());
+
     root->setProperty("modulation", modObj.get());
 
     // Drift LFOs
@@ -4095,6 +4107,19 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                     ? static_cast<float>(clockDivisionFromString(lfo->getProperty("clockDivision").toString()))
                     : static_cast<float>(ClockDivision::D1_4));
             }
+        }
+
+        // MIDI aftertouch routing. Gated with hasProperty so .t5p files
+        // written before this commit keep loading with their previous
+        // (now-default) None / 0.5 routing instead of being rejected.
+        if (auto* at = mod->getProperty("aftertouch").getDynamicObject())
+        {
+            if (at->hasProperty("target"))
+                setParam(parameters, PID::aftertouchTarget,
+                         static_cast<float>(choiceFromKey(at->getProperty("target").toString(), AftertouchTarget::kEntries)));
+            if (at->hasProperty("amount"))
+                setParam(parameters, PID::aftertouchAmount,
+                         static_cast<float>(at->getProperty("amount")));
         }
     }
 
