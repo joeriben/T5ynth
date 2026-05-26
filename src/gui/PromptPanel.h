@@ -205,6 +205,14 @@ private:
     void applyModeToSlider();
     bool isAudioLDM2Model(const juce::String& model) const;
     bool selectedModelIsAudioLDM2() const;
+    /** Per-model defaults for the steps/CFG params. The model-click handler
+     *  applies these on model switch, and hasHiddenActiveState() compares
+     *  against them to decide whether easy mode's params reflect a
+     *  user-modified state. Keeping the mapping in one place ensures the
+     *  two stay in lockstep — drift would mean the dirty indicator
+     *  contradicts the values the backend actually receives. */
+    struct DefaultParams { float steps; float cfg; };
+    DefaultParams defaultParamsFor(const juce::String& model) const;
     void selectInjectionMode(const juce::String& mode, bool trigger);
     void syncInjectionModeAvailability();
 
