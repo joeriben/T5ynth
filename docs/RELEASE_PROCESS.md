@@ -351,6 +351,29 @@ it every time before pushing a release tag — no exceptions.
 3. **Default preset loads, generation runs, audio comes out.** Hit
    Generate once with a default prompt and confirm audio.
 
+3a. **Per-model smoke-test (MANDATORY when a model was added or its
+   loading path changed since the previous tag).** Run
+   `backend/pipe_inference.py` end-to-end against the actual model files
+   the user will download for each affected model. Confirm a successful
+   generation. The §7.3 default-preset check covers only the single model
+   the default preset uses — newly added models with different
+   dependency requirements (e.g. a newer `stable-audio-tools` kwarg
+   surface) will pass §7.3 and still crash for the user. This step
+   exists because of the v2.1.0-beta.0 incident where SA3 Small Music
+   required `stable-audio-tools>=0.0.20`'s `local_add_cond_dim` kwarg
+   while `backend/requirements.txt` was unpinned and CI resolved to
+   `0.0.19`.
+
+3b. **Dependency pin audit (MANDATORY when `backend/requirements.txt`
+   changed or a new model was added).** Verify the pin (or absence of
+   pin) in `requirements.txt` resolves to a version that supports every
+   affected model. Minimum checks:
+   - `pip index versions <pkg>` to see what versions exist;
+   - read the model config's expected kwargs and confirm the target
+     version's source defines them;
+   - if the pin is `>=X.Y.Z`, exercise that version locally before
+     tagging.
+
 4. **Cross-platform CI audit when `CMakeLists.txt` changed.** If the
    commit range touches any of:
 
