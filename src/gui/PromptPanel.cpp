@@ -1519,6 +1519,11 @@ void PromptPanel::triggerGeneration()
                     self->lastGenPromptB_ = promptB;
                     self->syncSeedEditorDisplay(result.seed);
                     processor.setLastGenerationTimeMs(result.generationTimeMs);
+                    // A successful manual generate proves the backend is
+                    // healthy — clear any stale failure stamp left by a
+                    // previous drift auto-regen so the next auto-tick
+                    // isn't throttled for up to 2s after recovery.
+                    self->lastRegenFailureMs_ = 0.0;
                     auto info = juce::String(result.generationTimeMs / 1000.0f, 1) + "s | seed "
                                 + juce::String(result.seed) + " | " + modelForLabel
                                 + " | " + deviceForLabel;
@@ -1623,6 +1628,9 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                     self->lastGenPromptB_ = promptB;
                     self->syncSeedEditorDisplay(result.seed);
                     processor.setLastGenerationTimeMs(result.generationTimeMs);
+                    // Healthy generation — clear the failure throttle so the
+                    // next drift change can fire immediately again.
+                    self->lastRegenFailureMs_ = 0.0;
                     auto info = juce::String(result.generationTimeMs / 1000.0f, 1) + "s | auto regen";
                     if (self->onStatusChanged) self->onStatusChanged(info, false);
 
@@ -1642,6 +1650,12 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                 }
                 else
                 {
+                    // Drift auto-regen failure — stamp the failure clock so
+                    // pollDriftRegen throttles the next attempt. Without this
+                    // the 10 Hz timer would re-trigger generation on every
+                    // tick after `generating` flips back to false, oscillating
+                    // the status label between "auto regen..." and the error.
+                    self->lastRegenFailureMs_ = juce::Time::getMillisecondCounterHiRes();
                     if (self->onStatusChanged) self->onStatusChanged(result.errorMessage, false);
                 }
             }
@@ -1658,6 +1672,17 @@ void PromptPanel::pollDriftRegen()
 
     int regenMode = processorRef.driftRegenMode.load(std::memory_order_relaxed);
     if (regenMode == 0) return; // Manual — no auto-regen
+
+    // Failure throttle: when the previous drift-driven regen failed (e.g.
+    // the backend rejected the selected model), wait ~2s before retrying so
+    // the 10 Hz timer can't spin and oscillate the status label.
+    if (lastRegenFailureMs_ > 0.0)
+    {
+        constexpr double FAILURE_COOLDOWN_MS = 2000.0;
+        const double nowMs = juce::Time::getMillisecondCounterHiRes();
+        if ((nowMs - lastRegenFailureMs_) < FAILURE_COOLDOWN_MS)
+            return;
+    }
 
     // Idle-CPU guard: cache replay runs the full loadGeneratedAudio path
     // (rumble/HF/normalize + WT frame extraction) per cycle, and at idle no

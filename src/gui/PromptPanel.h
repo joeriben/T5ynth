@@ -245,6 +245,12 @@ private:
     juce::String lastGenPromptA_;
     juce::String lastGenPromptB_;
     double lastRegenTimeMs_ = 0.0; // for beat-based cooldown
+    // Failure throttle: when a drift-driven auto-regen fails, gate further
+    // attempts for a couple of seconds so a persistently broken backend
+    // (e.g. a model the bundled pipeline can't load) doesn't get hammered
+    // by the 10 Hz timer and oscillate the status label between
+    // "auto regen..." and the error message.
+    double lastRegenFailureMs_ = 0.0;
     float alphaGhostValue_ = std::numeric_limits<float>::quiet_NaN();
     float magGhostValue_ = std::numeric_limits<float>::quiet_NaN();
     float noiseGhostValue_ = std::numeric_limits<float>::quiet_NaN();
