@@ -3,7 +3,7 @@ transformers>=4.30.0,<5
 safetensors
 accelerate
 requests
-stable-audio-tools
+stable-audio-tools>=0.0.20
 soundfile==0.13.1
 numpy==1.23.5
 scipy
