@@ -52,6 +52,21 @@ Idle CPU regressions are the #1 historical class of bug in this project. Before 
 - Never modify preset files (.t5p) or binary resources without explicit permission.
 - Never add UI elements not requested.
 
+## Release (BLOCKING — applies to every `v*` tag)
+
+Before `git push origin v*` runs, EVERY step of `docs/RELEASE_PROCESS.md` §7 must have been executed AND the evidence pasted into the conversation. No exceptions, no "I already know it works".
+
+In addition to §7 as written:
+
+- **Per-model smoke-test.** For every model added or whose loading path changed in the commit range since the previous tag: run `backend/pipe_inference.py` end-to-end against the actual model files the user will download, confirm a successful generation. The default-preset check in §7 step 3 does NOT cover new models.
+- **Dependency pin audit.** If `backend/requirements.txt` changed, OR if a new model was added that requires a specific `stable-audio-tools` / `diffusers` / `transformers` feature: verify the pin (or absence of pin) in `requirements.txt` resolves to a version that supports the model. `pip index versions <pkg>` + reading the model config's expected kwargs is the minimum check.
+- **Never force-push to a release tag** unless §11 Option A applies (no published release exists). Always prefer a new patch tag.
+
+Diagnostic discipline when a release crashes in user hands:
+
+- Read primary sources before hypothesizing. `gh run view <id> --log | grep <package>` is the first command, not the last.
+- Do not present unverified hypotheses as causes. If you have not reproduced the bug or located the failure in source, say "hypothesis, unverified".
+
 ## Documentation
 
 - `ARCHITECTURE.md` — complete code walkthrough (directory layout, lifecycle, GUI hierarchy, voice chain, modulation routing, IPC, APVTS, binary resources)
