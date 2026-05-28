@@ -162,8 +162,12 @@ datas += copy_metadata('numpy')
 datas += copy_metadata('torchsde')
 datas += copy_metadata('accelerate')
 datas += copy_metadata('diffusers')
-datas += copy_metadata('descript-audio-codec')
-datas += copy_metadata('descript-audiotools')
+# descript-audio-codec / descript-audiotools were transitive deps of
+# stable-audio-tools <= 0.0.19. In 0.0.20 they moved to
+# extras_require['train'] and are no longer installed for inference.
+# stable_audio_tools 0.0.20 runtime does not import them (only a comment
+# reference in training/losses/semantic.py), so their copy_metadata()
+# calls were removed.
 datas += copy_metadata('torchaudio')
 datas += copy_metadata('torchvision')
 
