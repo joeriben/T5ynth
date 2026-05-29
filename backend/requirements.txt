@@ -4,6 +4,18 @@ safetensors
 accelerate
 requests
 stable-audio-tools>=0.0.20
+# pytorch-lightning + torchmetrics are NOT in stable-audio-tools 0.0.20's
+# top-level requires (they moved to extras_require['train']), but the
+# inference path still imports them transitively:
+#   pipe_inference -> create_model_from_config -> DiT
+#   DiT (models/dit.py) -> from .lora import …
+#   lora/__init__.py -> from .callbacks import …
+#   callbacks.py -> import pytorch_lightning as pl
+# Without these pins the DiT import fails with ModuleNotFoundError on
+# load of any DiT-based model (SA3 Small Music, SA Open). Versions
+# track stable-audio-tools 0.0.20 extras_require['train'].
+pytorch-lightning==2.5.5
+torchmetrics==0.11.4
 soundfile==0.13.1
 numpy==1.23.5
 scipy
