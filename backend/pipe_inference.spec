@@ -117,6 +117,19 @@ hidden += [
 # torch backends
 hidden += ['torch.backends.mps', 'torch.backends.cuda', 'torch.backends.cudnn']
 
+# pytorch_lightning + transitives: stable-audio-tools 0.0.20 imports
+# pytorch_lightning at module-load time via
+# models/dit.py -> models/lora/__init__.py -> lora/callbacks.py
+# (`import pytorch_lightning as pl`). callbacks.py declares classes that
+# subclass `pl.callbacks.ModelCheckpoint` and `pl.Callback` at import time,
+# so PyInstaller must bundle the full submodule tree, not just the top-level
+# package. lightning_fabric, lightning_utilities and torchmetrics are
+# transitive deps that pl 2.5.5 imports during its own __init__.
+hidden += collect_submodules('pytorch_lightning')
+hidden += collect_submodules('lightning_fabric')
+hidden += collect_submodules('lightning_utilities')
+hidden += collect_submodules('torchmetrics')
+
 # ── Data files ──────────────────────────────────────────────────────
 # Some packages bundle config/JSON files that must be included.
 
@@ -135,6 +148,14 @@ if _dac_spec and _dac_spec.submodule_search_locations:
         (str(path), str(Path('dac') / path.relative_to(_dac_root).parent))
         for path in _dac_root.rglob('*.py')
     ]
+
+# pytorch_lightning and lightning_fabric both read a `version.info`
+# data file from their own package root at import time. Without an
+# explicit collect_data_files include, PyInstaller drops it and the
+# bundle crashes with FileNotFoundError before the SAT lora chain
+# can even complete.
+datas += collect_data_files('pytorch_lightning', includes=['version.info'])
+datas += collect_data_files('lightning_fabric', includes=['version.info'])
 
 _soundfile_spec = importlib.util.find_spec('soundfile')
 if _soundfile_spec and _soundfile_spec.origin:
@@ -170,6 +191,13 @@ datas += copy_metadata('diffusers')
 # calls were removed.
 datas += copy_metadata('torchaudio')
 datas += copy_metadata('torchvision')
+# pytorch_lightning and friends inspect their own dist-info at runtime via
+# importlib.metadata.version(...) for compatibility checks. lightning_utilities
+# also does runtime version comparisons against pl + torchmetrics.
+datas += copy_metadata('pytorch_lightning')
+datas += copy_metadata('lightning_fabric')
+datas += copy_metadata('lightning_utilities')
+datas += copy_metadata('torchmetrics')
 
 # ── Native extension binaries ─────────────────────────────────────────
 # PyInstaller's default hooks can miss these package-local dynamic libraries.
