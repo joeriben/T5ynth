@@ -684,8 +684,18 @@ def _mock_optional_deps():
         soundfile.SoundFile = _UnavailableSoundFile
         sys.modules['soundfile'] = soundfile
 
+    # pytorch_lightning is intentionally NOT mocked: stable-audio-tools 0.0.20
+    # moved it from a top-level requirement into extras_require['train'], but
+    # the inference path still imports it transitively at module-load time via
+    # models/dit.py -> models/lora/__init__.py -> lora/callbacks.py
+    # (`import pytorch_lightning as pl`). callbacks.py then declares classes
+    # that subclass `pl.callbacks.ModelCheckpoint` and `pl.Callback` at import
+    # time, so a `types.ModuleType('pytorch_lightning')` placeholder raises
+    # `AttributeError: module 'pytorch_lightning' has no attribute 'callbacks'`.
+    # We pin pytorch-lightning + torchmetrics in backend/requirements.txt and
+    # rely on the real package.
     mocks = ['skimage', 'skimage.transform', 'encodec', 'laion_clap',
-             'pedalboard', 'pedalboard.io', 'pytorch_lightning', 'wandb',
+             'pedalboard', 'pedalboard.io', 'wandb',
              'v_diffusion_pytorch', 'gradio', 'jsonmerge', 'clean_fid', 'kornia']
     for name in mocks:
         if name not in sys.modules:
