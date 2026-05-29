@@ -194,8 +194,11 @@ datas += copy_metadata('torchvision')
 # pytorch_lightning and friends inspect their own dist-info at runtime via
 # importlib.metadata.version(...) for compatibility checks. lightning_utilities
 # also does runtime version comparisons against pl + torchmetrics.
+# Note: lightning_fabric ships AS A SUB-PACKAGE inside pytorch_lightning's
+# distribution — it has no standalone dist-info, so copy_metadata() would
+# raise PackageNotFoundError. Its code + version.info are covered by
+# collect_submodules / collect_data_files above.
 datas += copy_metadata('pytorch_lightning')
-datas += copy_metadata('lightning_fabric')
 datas += copy_metadata('lightning_utilities')
 datas += copy_metadata('torchmetrics')
 
