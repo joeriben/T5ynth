@@ -447,6 +447,29 @@ def _prepare_native_model_config(model_dir, model_config):
         log.info("Resolved transformers asset %s -> %s", model_name, resolved)
         resolved_t5_models.append((model_name, str(resolved)))
 
+    # SA3 family: the t5gemma text encoder ships as a subfolder INSIDE the
+    # model dir (e.g. <model_dir>/t5gemma-b-b-ul2/). Rewrite the conditioner to
+    # load it locally+offline via model_path instead of pulling repo_id over the
+    # network. T5GemmaConditioner.load_from = model_path or repo_id or model_name,
+    # so model_path wins; no T5 registry patch is needed for t5gemma.
+    for cond in configs:
+        if cond.get("type") != "t5gemma":
+            continue
+        cond_cfg = cond.setdefault("config", {})
+        subfolder = cond_cfg.get("subfolder") or "t5gemma-b-b-ul2"
+        encoder_dir = Path(model_dir) / subfolder
+        if not (encoder_dir / "model.safetensors").is_file():
+            raise RuntimeError(
+                "Native Stable Audio 3 model files were found, but the t5gemma "
+                f"text encoder subfolder is missing or incomplete: '{encoder_dir}'. "
+                f"Install the '{subfolder}' files from the model's HF repo into the "
+                "model directory."
+            )
+        cond_cfg.pop("repo_id", None)
+        cond_cfg["model_path"] = str(Path(model_dir))
+        cond_cfg["subfolder"] = subfolder
+        log.info("Resolved t5gemma encoder -> %s", encoder_dir)
+
     return patched, resolved_t5_models
 
 
@@ -522,6 +545,47 @@ _UNSUPPORTED_SAMPLER_MSG = (
     "and trips an opaque AttributeError downstream. Upgrade stable-audio-tools "
     "or remove the sampler_type override for this model."
 )
+
+
+def _patch_apg_for_mps():
+    """git-main stable-audio-tools applies APG (Adaptive Projected Guidance) in
+    the DiT forward for ALL diffusion_cond(_inpaint) models, and ``apg_project``
+    casts its working tensors to float64 — which the MPS backend cannot do
+    ("Cannot convert a MPS Tensor to float64"). Replace ``apg_project`` with a
+    version that works in float32 on MPS (math identical; guidance precision loss
+    is negligible for audio) and keeps float64 on CPU/CUDA so those paths are
+    bit-unchanged. Idempotent and a no-op on builds without ``apg_project``
+    (e.g. the legacy 0.0.19 pin), so it is safe to call on every native load.
+    """
+    try:
+        import torch
+        from stable_audio_tools.models.dit import DiffusionTransformer
+    except Exception:
+        return
+    if getattr(DiffusionTransformer, "_t5ynth_apg_mps_patched", False):
+        return
+    if not hasattr(DiffusionTransformer, "apg_project"):
+        return
+
+    def apg_project(self, v0, v1, padding_mask=None):
+        dtype = v0.dtype
+        work = torch.float32 if v0.device.type == "mps" else torch.float64
+        v0, v1 = v0.to(work), v1.to(work)
+        if padding_mask is not None:
+            mask = padding_mask.unsqueeze(1).to(work)
+            v0m, v1m = v0 * mask, v1 * mask
+            v1u = v1m / v1m.norm(dim=[-1, -2], keepdim=True).clamp(min=1e-8)
+            v0_parallel = (v0m * v1u).sum(dim=[-1, -2], keepdim=True) * v1u
+            v0_orthogonal = (v0 - (v0 * v1u).sum(dim=[-1, -2], keepdim=True) * v1u) * mask
+        else:
+            v1 = torch.nn.functional.normalize(v1, dim=[-1, -2])
+            v0_parallel = (v0 * v1).sum(dim=[-1, -2], keepdim=True) * v1
+            v0_orthogonal = v0 - v0_parallel
+        return v0_parallel.to(dtype), v0_orthogonal.to(dtype)
+
+    DiffusionTransformer.apg_project = apg_project
+    DiffusionTransformer._t5ynth_apg_mps_patched = True
+    log.info("Patched DiT.apg_project for MPS (float32).")
 
 
 def _force_hf_offline_for_native_load():
@@ -656,17 +720,19 @@ def _mock_optional_deps():
         soundfile.SoundFile = _UnavailableSoundFile
         sys.modules['soundfile'] = soundfile
 
-    # pytorch_lightning is mocked: with the pinned stable-audio-tools 0.0.19,
-    # the inference path (create_model_from_config -> DiT -> ContinuousTransformer)
-    # never imports pytorch_lightning — 0.0.19 has no models/lora subpackage, so
-    # the lora/callbacks.py chain that pulls in `import pytorch_lightning as pl`
-    # (introduced in 0.0.20) does not exist. Mocking keeps the heavy training
-    # dependency out of the frozen bundle. (Note: 0.0.20 WOULD require the real
-    # package — that whole cascade is why T5ynth stays on 0.0.19; see
-    # backend/requirements.txt.)
+    # pytorch_lightning and v_diffusion_pytorch are NOT mocked: the git-main
+    # stable-audio-tools build imports `pytorch_lightning as pl` (and uses
+    # pl.callbacks) via models/lora/callbacks.py on the DiT import path, and
+    # v_diffusion_pytorch is a real runtime dependency. Both are installed in
+    # the unified stack (see backend/requirements.txt) — mocking them here would
+    # shadow the real packages with stubs and break model construction
+    # ("module 'pytorch_lightning' has no attribute 'callbacks'"). The remaining
+    # entries are genuine training-only deps that are absent from the inference
+    # bundle and never touched on the generate path, so stubbing them keeps the
+    # import light without functional loss.
     mocks = ['skimage', 'skimage.transform', 'encodec', 'laion_clap',
-             'pedalboard', 'pedalboard.io', 'pytorch_lightning', 'wandb',
-             'v_diffusion_pytorch', 'gradio', 'jsonmerge', 'clean_fid', 'kornia']
+             'pedalboard', 'pedalboard.io', 'wandb',
+             'gradio', 'jsonmerge', 'clean_fid', 'kornia']
     for name in mocks:
         if name not in sys.modules:
             m = types.ModuleType(name)
@@ -902,6 +968,7 @@ def _load_native_pipeline(model_dir, device):
         # pingpong path. Support is verified at request time in _generate_native
         # via _native_pingpong_supported().
         _patch_stable_audio_tools_t5_registry(resolved_t5_models)
+        _patch_apg_for_mps()
 
         model = create_model_from_config(model_config)
         model.load_state_dict(load_ckpt_state_dict(str(weights_path)))
@@ -1379,10 +1446,13 @@ def _generate_native(pipe, request):
     # end produces effectively pure B (very early transition + pure-B late).
     late_phase_alpha = max(-1.0, min(1.0, float(request.get("late_phase_alpha", 0.0))))
     # Layer mode: two-thumb range slider on the plugin defines the B-zone
-    # [split_start, split_end] across the 16 DiT blocks. Per-block weight is
-    # a sigmoid product (smooth top-hat) so both edges have ±2-layer ramps.
-    split_start = max(0.0, min(16.0, float(request.get("split_start", 4.0))))
-    split_end   = max(0.0, min(16.0, float(request.get("split_end",  16.0))))
+    # [split_start, split_end] across the DiT blocks. Per-block weight is a
+    # sigmoid product (smooth top-hat) so both edges have ±2-layer ramps.
+    # Clamp to the model's actual block count (SAO=16, SA3=20) — a literal 16
+    # would pin the top blocks of a deeper DiT to pure-A regardless of slider.
+    n_blocks = float(getattr(pipe, "dit_blocks", 16) or 16)
+    split_start = max(0.0, min(n_blocks, float(request.get("split_start", 4.0))))
+    split_end   = max(0.0, min(n_blocks, float(request.get("split_end",  n_blocks))))
     layer_split_smoothness = 2.0  # sigmoid scale; ±2 layers ramp at each edge
     if injection_mode not in ("linear", "delta", "late_step", "layer_split",
                               "kombi1", "kombi2", "kombi3"):
@@ -1862,17 +1932,54 @@ def _generate_native(pipe, request):
             raise RuntimeError(_UNSUPPORTED_SAMPLER_MSG.format(
                 model=pipe.model_name, sampler=pipe.sampler_type))
         generate_kwargs["sampler_type"] = pipe.sampler_type
+    # SA3 (model_type "diffusion_cond_inpaint") generates through
+    # generate_diffusion_cond_inpaint; SAO and friends use generate_diffusion_cond.
+    # Both accept the same (conditioning_tensors, sample_size, sampler_type, seed,
+    # device, steps, cfg_scale) interface, so the pre-computed cond_a and all the
+    # embedding manipulation above are shared — only the entry point differs.
+    model_type = pipe.model_config.get("model_type", "") if isinstance(pipe.model_config, dict) else ""
+    # SAO models keep their short trained sample_size (~12s) and truncate to the
+    # requested duration. SA3's trained sample_size is ~120s, so generating it in
+    # full for a few-second request would waste minutes of compute — derive the
+    # sample_size from the requested duration for the inpaint family (its rotary
+    # DiT handles variable lengths; verified generating at sr*duration).
+    if model_type == "diffusion_cond_inpaint":
+        # The latent VAE floors audio_sample_size // downsampling_ratio, so a raw
+        # ceil(duration*sr) that is not a whole number of latent frames yields
+        # FEWER samples than requested (at 44.1k a 4.000s request floored to
+        # 176128 = 3.994s) and the truncation below never fires. Round the
+        # generation length UP to a whole latent frame so
+        # the model produces >= the request; the truncation then trims to exact.
+        ds = int(getattr(getattr(pipe.model, "pretransform", None),
+                         "downsampling_ratio", 1) or 1)
+        target = max(int(math.ceil(duration * sr)), 1)
+        gen_sample_size = ((target + ds - 1) // ds) * ds
+    else:
+        gen_sample_size = pipe.sample_size
     try:
-        output = generate_diffusion_cond(
-            pipe.model,
-            steps=effective_steps,
-            cfg_scale=cfg_scale,
-            conditioning_tensors=cond_a,
-            sample_size=pipe.sample_size,
-            device=device,
-            seed=seed,
-            **generate_kwargs,
-        )
+        if model_type == "diffusion_cond_inpaint":
+            from stable_audio_tools.inference.generation import generate_diffusion_cond_inpaint
+            output = generate_diffusion_cond_inpaint(
+                pipe.model,
+                steps=effective_steps,
+                cfg_scale=cfg_scale,
+                conditioning_tensors=cond_a,
+                sample_size=gen_sample_size,
+                device=device,
+                seed=seed,
+                **generate_kwargs,
+            )
+        else:
+            output = generate_diffusion_cond(
+                pipe.model,
+                steps=effective_steps,
+                cfg_scale=cfg_scale,
+                conditioning_tensors=cond_a,
+                sample_size=gen_sample_size,
+                device=device,
+                seed=seed,
+                **generate_kwargs,
+            )
     finally:
         sys.stdout = real_stdout
         if restore_forward is not None:
@@ -1883,6 +1990,15 @@ def _generate_native(pipe, request):
     requested_samples = int(math.ceil(duration * sr))
     if audio_np.shape[-1] > requested_samples:
         audio_np = audio_np[..., :requested_samples]
+
+    # SA3 (diffusion_cond_inpaint) outputs hot — raw peak runs ~10x unity — so
+    # peak-normalise to unit amplitude per the stable-audio-tools convention,
+    # otherwise the plugin hard-clips. SAO's native output is left untouched to
+    # preserve its historical levels (it sits near unity already).
+    if model_type == "diffusion_cond_inpaint":
+        out_peak = float(np.max(np.abs(audio_np))) if audio_np.size else 0.0
+        if out_peak > 0.0:
+            audio_np = audio_np / out_peak
 
     rms = float(np.sqrt(np.mean(audio_np ** 2)))
     peak = float(np.max(np.abs(audio_np)))

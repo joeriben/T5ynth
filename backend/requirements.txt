@@ -1,21 +1,32 @@
+# T5ynth unified inference backend dependencies (ONE backend, git-main stack).
+# A single interpreter serves both the diffusers models (Stable Audio Open 1.0,
+# AudioLDM2) and the stable-audio-tools NATIVE models (SAO Small AND Stable
+# Audio 3 Small Music). SA3 needs t5gemma (transformers >=4.53) plus the
+# git-main stable-audio-tools (T5GemmaConditioner, diffusion_cond_inpaint,
+# native sample_flow_pingpong, APG). transformers stays <5 so diffusers and
+# audioldm2 keep working. Validated end-to-end (handshake + SA3 + SAO Small
+# generation, determinism, peak normalisation) on exactly this set.
 diffusers>=0.24.0
-transformers>=4.30.0,<5
+transformers>=4.53,<5
 safetensors
 accelerate
 requests
-# Pinned to 0.0.19 deliberately. SA3 Small Music is a standard
-# diffusion_cond model: it loads on 0.0.19 and its pingpong sampler is
-# implemented in 0.0.19's inference/sampling.py (both sample_rf and
-# sample_flow_pingpong). 0.0.20 is NOT required for any model T5ynth
-# ships. 0.0.20 additionally moved pytorch_lightning into
-# extras_require['train'] and dropped the sample_rf API, which forced a
-# Python 3.10 pin plus a pl-bundling cascade for zero functional gain.
-# Staying on 0.0.19 keeps pytorch_lightning mockable and the bundle lean.
-stable-audio-tools==0.0.19
+# git main: the previously-pinned 0.0.19 cannot load SA3 at all (it has neither
+# the t5gemma conditioner nor diffusion_cond_inpaint). git-main additionally
+# requires the REAL pytorch_lightning — its DiT import path pulls
+# models/lora/callbacks.py -> `import pytorch_lightning as pl` and uses
+# pl.callbacks — so pipe_inference.py no longer mocks it and it is listed here.
+stable-audio-tools @ git+https://github.com/Stability-AI/stable-audio-tools.git
+pytorch-lightning
 soundfile==0.13.1
-numpy==1.23.5
+# numpy <2 so the PyWavelets==1.4.1 that stable-audio-tools hard-pins (numpy-1
+# ABI) imports cleanly. numpy>=2 would need PyWavelets>=1.6, conflicting with
+# sat's pin and forcing a post-install override; numpy 1.26 satisfies torch
+# 2.7.1, scipy, transformers and diffusers, so the install resolves in one pass.
+numpy>=1.23,<2
 scipy
 torchsde
+einops
 # Keep native extension wheels ABI-aligned with the torch version installed by
 # the platform-specific build step.
 torchaudio==2.7.1
