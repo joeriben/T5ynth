@@ -3,19 +3,17 @@ transformers>=4.30.0,<5
 safetensors
 accelerate
 requests
-stable-audio-tools>=0.0.20
-# pytorch-lightning + torchmetrics are NOT in stable-audio-tools 0.0.20's
-# top-level requires (they moved to extras_require['train']), but the
-# inference path still imports them transitively:
-#   pipe_inference -> create_model_from_config -> DiT
-#   DiT (models/dit.py) -> from .lora import …
-#   lora/__init__.py -> from .callbacks import …
-#   callbacks.py -> import pytorch_lightning as pl
-# Without these pins the DiT import fails with ModuleNotFoundError on
-# load of any DiT-based model (SA3 Small Music, SA Open). Versions
-# track stable-audio-tools 0.0.20 extras_require['train'].
-pytorch-lightning==2.5.5
-torchmetrics==0.11.4
+# Pinned to 0.0.19 deliberately. SA3 Small Music is a standard
+# diffusion_cond model: it loads on 0.0.19 and its pingpong sampler is
+# implemented in 0.0.19's inference/sampling.py (both sample_rf and
+# sample_flow_pingpong). 0.0.20 is NOT required for any model T5ynth
+# ships — it was only needed by the deferred SA3 SFX inpaint variant
+# (diffusion_cond_inpaint + local_add_cond_dim), which is hidden from
+# discovery. 0.0.20 additionally moved pytorch_lightning into
+# extras_require['train'] and dropped the sample_rf API, which forced a
+# Python 3.10 pin plus a pl-bundling cascade for zero functional gain.
+# Staying on 0.0.19 keeps pytorch_lightning mockable and the bundle lean.
+stable-audio-tools==0.0.19
 soundfile==0.13.1
 numpy==1.23.5
 scipy

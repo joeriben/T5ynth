@@ -522,30 +522,29 @@ def _patch_stable_audio_tools_t5_registry(resolved_t5_models):
 
 
 def _native_pingpong_supported():
-    """Return True iff the bundled stable-audio-tools sample_rf has pingpong.
+    """Return True iff the bundled stable-audio-tools can run pingpong.
 
     The SA3 family ships with ``sampler_type='pingpong'`` per its HF model
-    cards. Newer stable-audio-tools builds (>= the version vendored with
-    T5ynth) implement pingpong natively in ``sample_rf``; older builds
-    don't. Inspecting ``sample_rf.__code__.co_consts`` works whether the
-    module was loaded from .py source or a PyInstaller .pyc.
+    cards. The pinned build (``stable-audio-tools==0.0.19``) implements it
+    via a dedicated ``sample_flow_pingpong`` function in
+    ``inference/sampling.py`` (and also keeps the legacy ``sample_rf``
+    dispatch whose whitelist includes 'pingpong').
 
     Used by ``_generate_native`` to raise a precise error when an SA3
-    model is loaded against an older library — without that check the
-    failure surfaces as ``'NoneType' object has no attribute 'to'`` from
-    inside ``generate_diffusion_cond``, which is the same opaque symptom
-    we'd get from any other unrecognised sampler_type.
+    model is loaded against a library that lacks pingpong — without that
+    check the failure surfaces as ``'NoneType' object has no attribute
+    'to'`` from inside ``generate_diffusion_cond``, the same opaque
+    symptom any other unrecognised sampler_type would give.
     """
     try:
         from stable_audio_tools.inference import sampling as sat_sampling
-        # stable-audio-tools 0.0.20 (the pinned build) exposes a dedicated
-        # ``sample_flow_pingpong`` function and routes sampler_type="pingpong"
-        # to it from generate_diffusion_cond's rf_denoiser dispatch. The
-        # ``sample_rf`` symbol this check originally probed does NOT exist in
-        # 0.0.20 — relying on it raised AttributeError, fell through to the
-        # except branch, and wrongly reported pingpong as unsupported, which
-        # blocked all SA3 Music generation. Prefer the 0.0.20 symbol, then
-        # fall back to the legacy sample_rf whitelist probe for older builds.
+        # Prefer the dedicated ``sample_flow_pingpong`` function (present in
+        # 0.0.19 and 0.0.20). Fall back to the legacy ``sample_rf`` whitelist
+        # probe. NB: 0.0.20 removed ``sample_rf`` entirely and only exposes
+        # ``sample_flow_pingpong`` — probing ``sample_rf`` alone (as an
+        # earlier version of this function did) raised AttributeError there
+        # and wrongly reported pingpong unsupported, blocking SA3 generation.
+        # The hasattr check is robust across both library versions.
         if hasattr(sat_sampling, "sample_flow_pingpong"):
             return True
         sample_rf = getattr(sat_sampling, "sample_rf", None)
@@ -695,18 +694,16 @@ def _mock_optional_deps():
         soundfile.SoundFile = _UnavailableSoundFile
         sys.modules['soundfile'] = soundfile
 
-    # pytorch_lightning is intentionally NOT mocked: stable-audio-tools 0.0.20
-    # moved it from a top-level requirement into extras_require['train'], but
-    # the inference path still imports it transitively at module-load time via
-    # models/dit.py -> models/lora/__init__.py -> lora/callbacks.py
-    # (`import pytorch_lightning as pl`). callbacks.py then declares classes
-    # that subclass `pl.callbacks.ModelCheckpoint` and `pl.Callback` at import
-    # time, so a `types.ModuleType('pytorch_lightning')` placeholder raises
-    # `AttributeError: module 'pytorch_lightning' has no attribute 'callbacks'`.
-    # We pin pytorch-lightning + torchmetrics in backend/requirements.txt and
-    # rely on the real package.
+    # pytorch_lightning is mocked: with the pinned stable-audio-tools 0.0.19,
+    # the inference path (create_model_from_config -> DiT -> ContinuousTransformer)
+    # never imports pytorch_lightning — 0.0.19 has no models/lora subpackage, so
+    # the lora/callbacks.py chain that pulls in `import pytorch_lightning as pl`
+    # (introduced in 0.0.20) does not exist. Mocking keeps the heavy training
+    # dependency out of the frozen bundle. (Note: 0.0.20 WOULD require the real
+    # package — that whole cascade is why T5ynth stays on 0.0.19; see
+    # backend/requirements.txt.)
     mocks = ['skimage', 'skimage.transform', 'encodec', 'laion_clap',
-             'pedalboard', 'pedalboard.io', 'wandb',
+             'pedalboard', 'pedalboard.io', 'pytorch_lightning', 'wandb',
              'v_diffusion_pytorch', 'gradio', 'jsonmerge', 'clean_fid', 'kornia']
     for name in mocks:
         if name not in sys.modules:
@@ -950,11 +947,12 @@ def _load_native_pipeline(model_dir, device):
         # T5_MODELS/T5_MODEL_DIMS. T5Gemma support (a second monkey-patch that
         # dispatched gated SA3 SFX through transformers.AutoModel) was removed
         # along with the SFX slot — it had no remaining caller.
-        # Pingpong is NOT monkey-patched: the bundled stable-audio-tools build
-        # implements sampler_type='pingpong' natively in sample_rf, and an
-        # earlier wrapper that raised NotImplementedError actively prevented
-        # SA3 from reaching the real pingpong path. Support is verified at
-        # request time in _generate_native via _native_pingpong_supported().
+        # Pingpong is NOT monkey-patched: the pinned stable-audio-tools 0.0.19
+        # build implements sampler_type='pingpong' natively (sample_flow_pingpong
+        # plus the sample_rf dispatch), and an earlier wrapper that raised
+        # NotImplementedError actively prevented SA3 from reaching the real
+        # pingpong path. Support is verified at request time in _generate_native
+        # via _native_pingpong_supported().
         _patch_stable_audio_tools_t5_registry(resolved_t5_models)
 
         model = create_model_from_config(model_config)
