@@ -178,9 +178,7 @@ static const KnownModel kKnownModels[] = {
       "license.", true, false,
       kT5BaseGhFiles,
       static_cast<int>(sizeof(kT5BaseGhFiles) / sizeof(kT5BaseGhFiles[0])) },
-    // SA3 Small Music — the SFX variant is deferred until the native
-    // pipeline learns diffusion_cond_inpaint + t5gemma subfolder encoders;
-    // T5Gemma itself is therefore no longer a catalogued model.
+    // SA3 Small Music — the current SA3-generation music checkpoint.
     { "stable-audio-3-small-music", "Stable Audio 3 Small Music", "stabilityai/stable-audio-3-small-music", nullptr,
       "https://stability.ai/community-license-agreement",
       "This model is licensed under the Stability AI Community License.\n\n"
@@ -600,8 +598,8 @@ static juce::File getDownloadsFolder()
 // Browsers append disambiguation suffixes when the user downloads a file
 // whose name already exists in the folder: Chrome/Edge use "name (1).ext",
 // Firefox/Safari use "name-2.ext", etc. A literal lookup for
-// "model.safetensors" therefore misses the SFX checkpoint the user just
-// downloaded if a Music checkpoint with the same canonical name is still
+// "model.safetensors" therefore misses the checkpoint the user just
+// downloaded if a different checkpoint with the same canonical name is still
 // sitting in the folder from an earlier install — the user ends up
 // installing the OLD file under the NEW model id.
 //
@@ -649,8 +647,8 @@ static juce::File pickNewestCandidate(const juce::File& sourceFolder,
 //
 // Returns the offending model id, or an empty string when no collision.
 // Size-based fingerprint is cheap (no file I/O for content) and effective
-// — Stable Audio variants differ by hundreds of MB across music vs sfx
-// vs medium, and identical sizes across variants are vanishingly rare.
+// — Stable Audio checkpoints differ by hundreds of MB across model
+// variants, and identical sizes across variants are vanishingly rare.
 static juce::String findSameSizeInstalledModel(const juce::String& selfModelId,
                                                 const juce::String& canonicalName,
                                                 int64_t fileSize)
@@ -705,12 +703,11 @@ SettingsPage::InstallOutcome SettingsPage::tryNativeStabilityInstallFromFolder(
     }
 
     // Look at the contents. `pickNewestCandidate` matches both the exact
-    // canonical name and any browser-rename variants (Music + SFX safetensors
+    // canonical name and any browser-rename variants (different checkpoints
     // both arrive as "model.safetensors" from HF; the second download lands as
     // "model-2.safetensors" / "model (1).safetensors" / etc.). The newest one
-    // wins so installing for the SFX dropdown picks up the SFX checkpoint the
-    // user just downloaded, not the older Music file that's still sitting in
-    // ~/Downloads.
+    // wins so installing picks up the checkpoint the user just downloaded, not
+    // an older file with the same name still sitting in ~/Downloads.
     struct Staged { juce::File source; juce::String destName; };
     std::vector<Staged> staged;
     juce::StringArray missingNames;
@@ -744,9 +741,9 @@ SettingsPage::InstallOutcome SettingsPage::tryNativeStabilityInstallFromFolder(
         // Same-size duplicate guard: if the to-be-installed safetensors is
         // byte-identical in size to one already installed under a DIFFERENT
         // model id, the user probably picked the wrong file in Downloads
-        // (e.g. installed SFX while ~/Downloads still held the old Music
-        // checkpoint). Surface a confirmation rather than silently writing
-        // the same checkpoint into both directories.
+        // (e.g. installed one checkpoint while ~/Downloads still held a
+        // different model's file). Surface a confirmation rather than silently
+        // writing the same checkpoint into both directories.
         juce::String duplicateOf;
         for (const auto& sf : staged)
         {
@@ -925,11 +922,10 @@ SettingsPage::InstallOutcome SettingsPage::tryNativeStabilityInstallFromFolder(
 
 
 // ── git-clone install path (removed) ────────────────────────────────────────
-// The git-clone helper was added for T5Gemma (filename collisions across
-// HF repos made the "drop into Downloads" pattern unreliable). T5Gemma is
-// deferred along with SA3 SFX, so the helper has no remaining caller and
-// has been removed. The git/git-lfs preflight, platform install hints,
-// and the threaded clone driver all left with it.
+// An earlier git-clone helper (added to work around filename collisions
+// across HF repos that made the "drop into Downloads" pattern unreliable)
+// has no remaining caller and has been removed. The git/git-lfs preflight,
+// platform install hints, and the threaded clone driver all left with it.
 
 
 void SettingsPage::performAutoScan()
@@ -964,9 +960,7 @@ void SettingsPage::performAutoScan()
     // 2. Native-Stability smart scan: the only remaining manual-install
     //    category. SAO 1.0, SAO Small, SA3 Small Music all ship a 2-file
     //    checkpoint (model.safetensors + model_config.json) the user pulls
-    //    from HF's Files tab into ~/Downloads. T5Gemma + SA3 SFX were the
-    //    flat-encoder / inpaint cases this dispatcher also handled; both
-    //    are deferred.
+    //    from HF's Files tab into ~/Downloads.
     auto modelId = selectedModelId();
     const bool isNativeStabilityModel =
         modelId == "stable-audio-open-small"
@@ -1815,9 +1809,7 @@ void SettingsPage::updateStatus()
                 instructionsLabel,
                 "STABLE AUDIO 3 SMALL MUSIC\n"
                 "The current SA3 generation small-format checkpoint, tuned for\n"
-                "musical content (the SFX variant is an inpaint architecture\n"
-                "with a different text encoder and is not yet wired into the\n"
-                "T5ynth native pipeline -- deferred for now).\n\n"
+                "musical content.\n\n"
                 "Licensed under the Stability AI Community License. Gated on\n"
                 "HuggingFace -- a free HuggingFace account is required once to\n"
                 "accept the license. T5ynth uses only two files from this repo\n"

@@ -263,12 +263,10 @@ def _validate_cuda_runtime_or_raise():
 def _model_format(model_dir):
     """Detect model format. Returns 'diffusers', 'audioldm2', 'native', or None.
 
-    Returns None for unsupported architectures (e.g. diffusion_cond_inpaint),
-    which makes those leftover directories invisible to the rest of the
-    backend and to the UI's model selector. The SA3 Small SFX install ships
-    with `model_type: diffusion_cond_inpaint` and a `local_add_cond_dim`
-    field that the bundled stable-audio-tools build's TransformerBlock does
-    not accept — letting it slip through `find_models()` lets it slip into
+    Returns None for native architectures the bundled stable-audio-tools
+    build cannot construct (see ``_is_unsupported_native_config``), which
+    keeps those directories invisible to the rest of the backend and to the
+    UI's model selector instead of letting them slip into
     `_load_native_pipeline()` and crash the model load with a confusing
     keyword-argument error.
     """
@@ -298,10 +296,9 @@ def _model_format(model_dir):
 def _is_unsupported_native_config(config_path):
     """Return True for native model configs the bundled pipeline cannot run.
 
-    Currently flags ``diffusion_cond_inpaint`` (SA3 Small SFX), which the
-    bundled stable-audio-tools build's TransformerBlock cannot construct
-    (missing ``local_add_cond_dim`` kwarg). Logged as a warning so the user
-    can see why a downloaded model is silently hidden.
+    Flags ``diffusion_cond_inpaint``, whose ``local_add_cond_dim`` field the
+    bundled stable-audio-tools build's TransformerBlock cannot construct.
+    Logged as a warning so the user can see why a downloaded model is hidden.
     """
     try:
         with open(config_path) as f:
@@ -312,8 +309,8 @@ def _is_unsupported_native_config(config_path):
     model_type = cfg.get("model_type")
     if model_type == "diffusion_cond_inpaint":
         log.warning(
-            "Hiding %s — model_type=%r is not supported by the bundled "
-            "stable-audio-tools (SA3 SFX/inpaint architecture is deferred).",
+            "Hiding %s — model_type=%r (local_add_cond_dim) is not "
+            "supported by the bundled stable-audio-tools build.",
             config_path.parent.name, model_type)
         return True
     return False
@@ -780,11 +777,9 @@ def _resolve_sampler_type(model_config, model_name):
 
     # Heuristic fallback by model name — covers cases where the config doesn't
     # record sampler_type explicitly but the model identity is well-known.
-    # Stability published SA3 small as two task-specific checkpoints
-    # (stable-audio-3-small-music / stable-audio-3-small-sfx). Both share
-    # architecture and both target sampler_type="pingpong" per the SA3
-    # model cards (8 steps, cfg 1.0). The match is a prefix so a future
-    # "stable-audio-3-medium" install lands on pingpong too.
+    # Stability's SA3 small music checkpoint targets sampler_type="pingpong"
+    # per the SA3 model card (8 steps, cfg 1.0). The match is a prefix so a
+    # future "stable-audio-3-medium" install lands on pingpong too.
     if model_name.startswith("stable-audio-3"):
         return "pingpong"
     return None
@@ -936,17 +931,17 @@ def _load_native_pipeline(model_dir, device):
         if raw_config.get("model_type") == "diffusion_cond_inpaint":
             raise RuntimeError(
                 f"Model {model_dir.name} uses model_type='diffusion_cond_inpaint' "
-                "(SA3 SFX / inpaint architecture). The bundled stable-audio-tools "
-                "build does not support this — SA3 SFX is deferred. Please choose "
-                "a different model (e.g. SA3 Music or SA Open).")
+                "(local_add_cond_dim), which the bundled stable-audio-tools build "
+                "does not support. Please choose a different model "
+                "(e.g. SA3 Music or SA Open).")
 
         model_config, resolved_t5_models = _prepare_native_model_config(model_dir, raw_config)
 
         # The T5 registry patch teaches stable-audio-tools that the bundled
         # t5-base directory satisfies T5Conditioner's assertion on
-        # T5_MODELS/T5_MODEL_DIMS. T5Gemma support (a second monkey-patch that
-        # dispatched gated SA3 SFX through transformers.AutoModel) was removed
-        # along with the SFX slot — it had no remaining caller.
+        # T5_MODELS/T5_MODEL_DIMS. (An earlier second monkey-patch that
+        # dispatched gated checkpoints through transformers.AutoModel was
+        # removed — it had no remaining caller.)
         # Pingpong is NOT monkey-patched: the pinned stable-audio-tools 0.0.19
         # build implements sampler_type='pingpong' natively (sample_flow_pingpong
         # plus the sample_rf dispatch), and an earlier wrapper that raised

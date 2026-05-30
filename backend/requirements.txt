@@ -7,9 +7,7 @@ requests
 # diffusion_cond model: it loads on 0.0.19 and its pingpong sampler is
 # implemented in 0.0.19's inference/sampling.py (both sample_rf and
 # sample_flow_pingpong). 0.0.20 is NOT required for any model T5ynth
-# ships — it was only needed by the deferred SA3 SFX inpaint variant
-# (diffusion_cond_inpaint + local_add_cond_dim), which is hidden from
-# discovery. 0.0.20 additionally moved pytorch_lightning into
+# ships. 0.0.20 additionally moved pytorch_lightning into
 # extras_require['train'] and dropped the sample_rf API, which forced a
 # Python 3.10 pin plus a pl-bundling cascade for zero functional gain.
 # Staying on 0.0.19 keeps pytorch_lightning mockable and the bundle lean.

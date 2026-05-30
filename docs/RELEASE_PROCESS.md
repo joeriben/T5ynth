@@ -366,9 +366,9 @@ it every time before pushing a release tag — no exceptions.
    This step exists because of the v2.1.0-beta incidents around SA3 Small
    Music. The failures were almost entirely self-inflicted and only the
    frozen-binary generate test would have caught them:
-   - The original crash was the *deferred SFX* variant
-     (`diffusion_cond_inpaint` + `local_add_cond_dim`) being loaded at
-     startup on 0.0.19; the real fix was hiding it from discovery.
+   - The original crash was a `diffusion_cond_inpaint` variant
+     (`local_add_cond_dim`) being loaded at startup on 0.0.19; the real
+     fix was hiding that architecture from discovery.
    - SA3 Music itself is a plain `diffusion_cond` model with NO
      `local_add_cond_dim`; it loads and generates fine on the pinned
      `stable-audio-tools==0.0.19` (its pingpong sampler lives in 0.0.19's

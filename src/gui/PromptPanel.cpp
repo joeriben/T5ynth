@@ -291,9 +291,6 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 
     // Model selector — fixed 4 slots, always visible (disabled = gray until model found).
     // Order: SA3 first (newest, default), then SA1 family, then AudioLDM2.
-    // The SA3 SFX variant is deferred (inpaint architecture + t5gemma encoder
-    // not yet supported by the native pipeline); only the Music checkpoint
-    // gets a slot.
     {
         const char* slotLabels[kNumModelSlots] = { "SA3 Music", "SA1 Open", "SA1 Small", "AudioLDM2" };
         for (int i = 0; i < kNumModelSlots; ++i)
@@ -905,14 +902,6 @@ void PromptPanel::populateModelSelector()
 
     for (auto& m : models)
     {
-        // Skip any leftover SA3 SFX install up front — SFX is deferred until
-        // the native pipeline learns diffusion_cond_inpaint + t5gemma. Without
-        // this skip, "stable-audio-3-small-sfx" would pass through the "small"
-        // fallback below and silently take over the SA1 Small slot — which is
-        // exactly the misroute removing the slot was meant to prevent.
-        if (m.containsIgnoreCase("sfx"))
-            continue;
-
         // Order matters: SA3 names contain "small", so the SA3 check fires
         // before the SA1 Small fallback to keep SA3 Music off slot 2.
         int slot = -1;

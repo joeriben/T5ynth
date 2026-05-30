@@ -136,13 +136,6 @@ private:
     // Visible in both compact and easy modes — the model choice is central
     // enough to the synth's behavior that hiding it in easy mode left the
     // user without a way to switch engines on the fly.
-    //
-    // SA3 Small SFX and T5Gemma support are deferred: SFX uses a
-    // diffusion_cond_inpaint architecture with a t5gemma subfolder encoder
-    // that the current native pipeline does not load. Wiring that path is a
-    // bigger lift than this project wants to absorb right now — kept the
-    // music checkpoint, dropped both the SFX slot and the dedicated T5Gemma
-    // model entry.
     static constexpr int kNumModelSlots = 4;
     juce::TextButton modelBtns[kNumModelSlots];
     juce::String modelSlotIds[kNumModelSlots];  // resolved model directory name per slot
