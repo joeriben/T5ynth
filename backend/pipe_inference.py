@@ -538,7 +538,18 @@ def _native_pingpong_supported():
     """
     try:
         from stable_audio_tools.inference import sampling as sat_sampling
-        return "pingpong" in sat_sampling.sample_rf.__code__.co_consts
+        # stable-audio-tools 0.0.20 (the pinned build) exposes a dedicated
+        # ``sample_flow_pingpong`` function and routes sampler_type="pingpong"
+        # to it from generate_diffusion_cond's rf_denoiser dispatch. The
+        # ``sample_rf`` symbol this check originally probed does NOT exist in
+        # 0.0.20 — relying on it raised AttributeError, fell through to the
+        # except branch, and wrongly reported pingpong as unsupported, which
+        # blocked all SA3 Music generation. Prefer the 0.0.20 symbol, then
+        # fall back to the legacy sample_rf whitelist probe for older builds.
+        if hasattr(sat_sampling, "sample_flow_pingpong"):
+            return True
+        sample_rf = getattr(sat_sampling, "sample_rf", None)
+        return sample_rf is not None and "pingpong" in sample_rf.__code__.co_consts
     except Exception:
         return False
 
