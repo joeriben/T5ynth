@@ -1461,15 +1461,20 @@ def _generate_native(pipe, request):
             "Expected one of: linear, delta, late_step, layer_split, kombi1, kombi2, kombi3."
         )
 
-    # Kombi 1/2/3: late-step blend × layer-split, with hardcoded layer range.
-    # Frontend sends the same range; backend re-asserts it as a safety net so
-    # the per-mode geometry can't drift via stale presets or drift overrides.
+    # Kombi 1/2/3: late-step blend × layer-split. The bands are FRACTIONS of the
+    # model's DiT depth so the geometry stays proportional across models (SAO=16,
+    # SA3=20): kombi1 = lower quarter, kombi2 = broad mid (quarter→three-quarter),
+    # kombi3 = narrow centre. On a 16-block DiT these reduce to the historical
+    # 0-4 / 4-12 / 6-10. The frontend computes the identical fractions of
+    # ditBlocks_ and sends them; the backend re-asserts here as a safety net so
+    # stale presets or drift overrides can't desync the geometry. Both sides MUST
+    # move together (see PromptPanel::buildInferenceRequest).
     if injection_mode == "kombi1":
-        split_start, split_end = 0.0, 4.0   # surface (low layers)
+        split_start, split_end = 0.0, 0.25 * n_blocks            # surface (low layers)
     elif injection_mode == "kombi2":
-        split_start, split_end = 4.0, 12.0  # broad mid
+        split_start, split_end = 0.25 * n_blocks, 0.75 * n_blocks  # broad mid
     elif injection_mode == "kombi3":
-        split_start, split_end = 6.0, 10.0  # narrow center
+        split_start, split_end = 0.375 * n_blocks, 0.625 * n_blocks  # narrow centre
 
     if seed < 0:
         import random
@@ -1777,7 +1782,7 @@ def _generate_native(pipe, request):
         # • Both thumbs at the outer edges → full B (avoids the 0.5-edge artifact
         #   of the sigmoid product).
         # • Empty range (start ≥ end) → no B at all (pure A pass-through).
-        full_b = (split_start <= 0.5 and split_end >= 15.5)
+        full_b = (split_start <= 0.5 and split_end >= num_layers - 0.5)
         empty  = (split_start >= split_end)
         per_block_ctx = []  # one tensor per block; CFG-doubling at hook fire time
         for i in range(num_layers):

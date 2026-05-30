@@ -1416,21 +1416,19 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     const float blocksF = static_cast<float>(ditBlocks_);
     req.splitStart = juce::jlimit(0.0f, blocksF, effSplitStart);
     req.splitEnd   = juce::jlimit(0.0f, blocksF, effSplitEnd);
-    // Combo modes overwrite the layer range with their per-mode hardcoded
-    // band so drift / preset / slider state can never desync the geometry.
+    // Combo modes overwrite the layer range with their per-mode band so drift /
+    // preset / slider state can never desync the geometry.
     // Combo 1 = "B as surface skin" (low DiT blocks);
-    // Combo 2 = "B as gestalt filter" (high DiT blocks).
+    // Combo 2 = "B as gestalt filter" (broad mid).
     //
-    // NOTE: The 0/4/12/16 values were tuned for SAO Small's 16-block DiT.
-    // On SA3 Small Music (block count may differ — currently read from
-    // backend metadata into ditBlocks_) these bands fall on different
-    // relative depths; the perceptual mapping needs empirical re-validation
-    // per model. The backend re-asserts the same hardcoded values, so
-    // changing one side alone won't take effect — both this block AND
-    // _generate_native in backend/pipe_inference.py have to move together.
-    if (requestInjectionMode == "kombi1") { req.splitStart = 0.0f; req.splitEnd = 4.0f;  }
-    if (requestInjectionMode == "kombi2") { req.splitStart = 4.0f; req.splitEnd = 12.0f; }
-    if (requestInjectionMode == "kombi3") { req.splitStart = 6.0f; req.splitEnd = 10.0f; }
+    // The bands are FRACTIONS of the active model's DiT depth (blocksF =
+    // ditBlocks_), so they map to the same relative depths on any model
+    // (SAO Small=16 → historical 0-4 / 4-12 / 6-10; SA3=20 → 0-5 / 5-15 /
+    // 7.5-12.5). The backend (_generate_native) re-asserts the identical
+    // fractions, so both sides stay in lock-step automatically.
+    if (requestInjectionMode == "kombi1") { req.splitStart = 0.0f;            req.splitEnd = 0.25f  * blocksF; }
+    if (requestInjectionMode == "kombi2") { req.splitStart = 0.25f  * blocksF; req.splitEnd = 0.75f  * blocksF; }
+    if (requestInjectionMode == "kombi3") { req.splitStart = 0.375f * blocksF; req.splitEnd = 0.625f * blocksF; }
     return req;
 }
 

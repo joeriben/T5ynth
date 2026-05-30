@@ -89,8 +89,8 @@ public:
         juce::String injectionMode = "linear";          // "linear" | "late_step" | "layer_split" | "kombi1"/"kombi2"/"kombi3"
         float        injectionTransitionAt = 0.6f;       // 0.05–0.95, used by "late_step" and the Kombi modes
         float        latePhaseAlpha        = 0.0f;       // -1..+1, used by "late_step" and the Kombi modes: late blend α (0 = 50/50, +1 = pure B)
-        float        splitStart            = 4.0f;       // 0–16, used by "layer_split"; Kombi modes send the per-mode hardcoded value (backend re-asserts)
-        float        splitEnd              = 16.0f;      // 0–16, used by "layer_split"; Kombi modes send the per-mode hardcoded value (backend re-asserts)
+        float        splitStart            = 4.0f;       // 0–ditBlocks, used by "layer_split"; Kombi modes send a per-mode fraction of the DiT depth (backend re-asserts)
+        float        splitEnd              = 16.0f;      // 0–ditBlocks, used by "layer_split"; Kombi modes send a per-mode fraction of the DiT depth (backend re-asserts)
     };
 
     struct Result
