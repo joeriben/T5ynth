@@ -833,16 +833,28 @@ SettingsPage::InstallOutcome SettingsPage::tryNativeStabilityInstallFromFolder(
         {
             juce::String errorTitle;
             juce::String errorBody;
-            juce::String verifyNote;
 
             // Live identity check: pull the model's CURRENT published
             // model.safetensors size from HuggingFace and refuse if the staged
-            // file is a different model. Fetched live every time — a hardcoded
-            // size would go stale on a silent re-upload and then reject the
-            // CORRECT file. If HF is unreachable we cannot verify positively;
-            // the same-size duplicate guard (already run) is the offline net.
+            // file is a different model — or if HF can't be reached to confirm
+            // which model it is. Fetched live every time: a hardcoded size would
+            // go stale on a silent re-upload and then reject the CORRECT file.
             const int64_t publishedSize = fetchPublishedSafetensorsSizeFromHf(hfRepo);
-            if (publishedSize > 0)
+            if (publishedSize <= 0)
+            {
+                // The weights themselves come from HuggingFace, so a user with a
+                // file to install necessarily had HF access — a failed tree fetch
+                // is a transient glitch, not a real offline state. Refuse rather
+                // than copy in a checkpoint we could not identify.
+                errorTitle = "Could not verify " + modelDisplayName;
+                errorBody =
+                    "T5ynth could not reach HuggingFace to confirm which model "
+                    "this file is.\n\nYou downloaded the model from HuggingFace, "
+                    "so this is almost certainly a temporary network problem. "
+                    "Check your connection and click Auto-Scan again.\n\n"
+                    "Install aborted -- nothing was changed.";
+            }
+            else
             {
                 for (const auto& sf : staged)
                 {
@@ -867,12 +879,6 @@ SettingsPage::InstallOutcome SettingsPage::tryNativeStabilityInstallFromFolder(
                         break;
                     }
                 }
-            }
-            else
-            {
-                verifyNote = "\n\nNote: could not verify against HuggingFace "
-                             "(offline or API error) -- installed without a live "
-                             "size check.";
             }
 
             if (errorTitle.isEmpty() && !targetDir.createDirectory())
@@ -914,7 +920,7 @@ SettingsPage::InstallOutcome SettingsPage::tryNativeStabilityInstallFromFolder(
             }
 
             juce::MessageManager::callAsync(
-                [safeThis, sourceFolder, targetDir, wrongNote, verifyNote, errorTitle, errorBody, modelDisplayName]()
+                [safeThis, sourceFolder, targetDir, wrongNote, errorTitle, errorBody, modelDisplayName]()
                 {
                     auto* self = safeThis.getComponent();
                     if (self == nullptr) return;
@@ -948,7 +954,7 @@ SettingsPage::InstallOutcome SettingsPage::tryNativeStabilityInstallFromFolder(
                             + "\n\nto:\n  " + targetDir.getFullPathName()
                             + "\n\nThe originals are still in your Downloads folder -- "
                               "you can delete them now."
-                            + wrongNote + verifyNote,
+                            + wrongNote,
                         "OK",
                         self,
                         juce::ModalCallbackFunction::create(
