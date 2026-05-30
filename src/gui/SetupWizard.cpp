@@ -141,6 +141,7 @@ struct KnownModel {
     bool        isGenerationEngine; // false = auxiliary asset (e.g. text encoder)
     const GhAsset* ghFiles;   // file list for ghRelease download (nullptr if no mirror)
     int         ghFileCount;
+    int64_t     expectedSafetensorsSize; // root model.safetensors byte size (HF tree API); 0 = not size-gated
 };
 static const KnownModel kKnownModels[] = {
     { "stable-audio-open-1.0",   "Stable Audio Open 1.0",     "stabilityai/stable-audio-open-1.0", nullptr,
@@ -151,7 +152,7 @@ static const KnownModel kKnownModels[] = {
       "- Commercial use over $1M: enterprise license required\n\n"
       "T5ynth does not provide the model weights. By downloading, you accept\n"
       "the license terms and take responsibility for compliance.", false, true,
-      nullptr, 0 },
+      nullptr, 0, 4853889016 },
     { "stable-audio-open-small", "Stable Audio Open Small", "stabilityai/stable-audio-open-small",
       nullptr,
       "https://stability.ai/community-license-agreement",
@@ -161,7 +162,7 @@ static const KnownModel kKnownModels[] = {
       "- Commercial use over $1M: enterprise license required\n\n"
       "T5ynth does not provide the model weights. By downloading, you accept\n"
       "the license terms and take responsibility for compliance.", false, true,
-      nullptr, 0 },
+      nullptr, 0, 1676829212 },
     { "audioldm2",               "AudioLDM2",                  "cvssp/audioldm2", nullptr,
       "https://creativecommons.org/licenses/by-nc-sa/4.0/",
       "This model is licensed under CC BY-NC-SA 4.0.\n\n"
@@ -169,7 +170,7 @@ static const KnownModel kKnownModels[] = {
       "- Commercial use is NOT permitted under this license\n\n"
       "T5ynth does not provide the model weights. By downloading, you accept\n"
       "the license terms and take responsibility for compliance.", true, true,
-      nullptr, 0 },
+      nullptr, 0, 0 },
     { "t5-base",                 "T5-Base text encoder",       "t5-base", nullptr,
       "https://www.apache.org/licenses/LICENSE-2.0",
       "T5-base is licensed under Apache License 2.0 (open, no restrictions).\n\n"
@@ -177,7 +178,7 @@ static const KnownModel kKnownModels[] = {
       "not provide the weights. By downloading you accept the Apache 2.0\n"
       "license.", true, false,
       kT5BaseGhFiles,
-      static_cast<int>(sizeof(kT5BaseGhFiles) / sizeof(kT5BaseGhFiles[0])) },
+      static_cast<int>(sizeof(kT5BaseGhFiles) / sizeof(kT5BaseGhFiles[0])), 0 },
     // SA3 Small Music — the current SA3-generation music checkpoint.
     { "stable-audio-3-small-music", "Stable Audio 3 Small Music", "stabilityai/stable-audio-3-small-music", nullptr,
       "https://stability.ai/community-license-agreement",
@@ -187,9 +188,26 @@ static const KnownModel kKnownModels[] = {
       "- Commercial use over $1M: enterprise license required\n\n"
       "T5ynth does not provide the model weights. By downloading, you accept\n"
       "the license terms and take responsibility for compliance.", false, true,
-      nullptr, 0 },
+      nullptr, 0, 2270384940 },
 };
 static constexpr int kNumKnownModels = sizeof(kKnownModels) / sizeof(kKnownModels[0]);
+
+// Authoritative root model.safetensors byte size per model, read from the public
+// HuggingFace tree API (GET /api/models/<repo>/tree/main?recursive=true returns
+// HTTP 200 even for the gated Stability repos) on 2026-05-30. A checkpoint's
+// byte size is a strong model fingerprint — the three Stable Audio variants
+// differ by hundreds of MB (open-small 1,676,829,212 · open-1.0 4,853,889,016 ·
+// 3-small-music 2,270,384,940). Auto-Scan matches Downloads files by NAME only,
+// so without this gate a stale checkpoint from a DIFFERENT model still sitting
+// in ~/Downloads gets copied into the selected slot under the canonical name.
+// Returns 0 when the model is not size-gated (multi-file diffusers / encoder).
+static int64_t expectedSafetensorsSizeForId(const juce::String& modelId)
+{
+    for (int i = 0; i < kNumKnownModels; ++i)
+        if (modelId == kKnownModels[i].id)
+            return kKnownModels[i].expectedSafetensorsSize;
+    return 0;
+}
 
 juce::File SettingsPage::getAppSupportModelDir()
 {
@@ -738,6 +756,42 @@ SettingsPage::InstallOutcome SettingsPage::tryNativeStabilityInstallFromFolder(
     // Scenario (d): both required files present — copy and done.
     if (missingNames.isEmpty())
     {
+        // Identity gate: the picked model.safetensors MUST match the byte size
+        // the selected model publishes on HuggingFace. Auto-Scan matches files
+        // by NAME only, so a stale checkpoint from a DIFFERENT model still
+        // sitting in ~/Downloads would otherwise be copied into THIS slot under
+        // the canonical name (the mechanism by which three byte-identical copies
+        // of one model ended up installed under three different model ids).
+        // A size mismatch means it is a different model — refuse outright before
+        // creating the target folder or touching any file.
+        const int64_t expectedSize = expectedSafetensorsSizeForId(modelId);
+        if (expectedSize > 0)
+        {
+            for (const auto& sf : staged)
+            {
+                if (!sf.destName.endsWithIgnoreCase(".safetensors"))
+                    continue;
+                const int64_t actualSize = sf.source.getSize();
+                if (actualSize != expectedSize)
+                {
+                    auto toMB = [](int64_t b) {
+                        return juce::String(static_cast<double>(b) / (1024.0 * 1024.0), 1) + " MB";
+                    };
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::WarningIcon,
+                        "Wrong model for " + modelDisplayName,
+                        "Auto-Scan picked this file from your Downloads folder:\n  "
+                        + sf.source.getFileName() + "  (" + toMB(actualSize) + ")\n\n"
+                        "but " + modelDisplayName + " expects a model.safetensors of "
+                        + toMB(expectedSize) + ". That is a DIFFERENT model.\n\n"
+                        "Open the " + modelDisplayName + " model page (button above), "
+                        "download its model.safetensors, then click Auto-Scan again.\n\n"
+                        "Install aborted -- nothing was changed.");
+                    return InstallOutcome::AbortedWithDialog;
+                }
+            }
+        }
+
         // Same-size duplicate guard: if the to-be-installed safetensors is
         // byte-identical in size to one already installed under a DIFFERENT
         // model id, the user probably picked the wrong file in Downloads
