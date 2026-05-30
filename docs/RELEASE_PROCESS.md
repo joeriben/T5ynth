@@ -352,17 +352,31 @@ it every time before pushing a release tag — no exceptions.
    Generate once with a default prompt and confirm audio.
 
 3a. **Per-model smoke-test (MANDATORY when a model was added or its
-   loading path changed since the previous tag).** Run
-   `backend/pipe_inference.py` end-to-end against the actual model files
-   the user will download for each affected model. Confirm a successful
-   generation. The §7.3 default-preset check covers only the single model
-   the default preset uses — newly added models with different
-   dependency requirements (e.g. a newer `stable-audio-tools` kwarg
-   surface) will pass §7.3 and still crash for the user. This step
-   exists because of the v2.1.0-beta.0 incident where SA3 Small Music
-   required `stable-audio-tools>=0.0.20`'s `local_add_cond_dim` kwarg
-   while `backend/requirements.txt` was unpinned and CI resolved to
-   `0.0.19`.
+   loading path changed since the previous tag).** Build the PyInstaller
+   bundle and run the FROZEN binary
+   (`backend/dist/pipe_inference/pipe_inference`) end-to-end against the
+   actual model files the user will download — not just
+   `pipe_inference.py` in a dev venv. Send a real `generate` request for
+   each affected model and confirm a non-silent audio frame on stdout
+   (e.g. `Generated (native) ... RMS=…`). The CI smoke-test runs with
+   `T5YNTH_ALLOW_NO_MODELS=1` and NEVER loads a model, so a green CI
+   proves nothing about whether a new model generates. The §7.3
+   default-preset check covers only the model the default preset uses.
+
+   This step exists because of the v2.1.0-beta incidents around SA3 Small
+   Music. The failures were almost entirely self-inflicted and only the
+   frozen-binary generate test would have caught them:
+   - The original crash was the *deferred SFX* variant
+     (`diffusion_cond_inpaint` + `local_add_cond_dim`) being loaded at
+     startup on 0.0.19; the real fix was hiding it from discovery.
+   - SA3 Music itself is a plain `diffusion_cond` model with NO
+     `local_add_cond_dim`; it loads and generates fine on the pinned
+     `stable-audio-tools==0.0.19` (its pingpong sampler lives in 0.0.19's
+     `inference/sampling.py`).
+   - An unnecessary bump to 0.0.20 then broke generation (`sample_rf`
+     removed → pingpong detector false-negative) and import
+     (`pytorch_lightning` moved to extras) — none of which CI caught,
+     because CI never loads a model.
 
 3b. **Dependency pin audit (MANDATORY when `backend/requirements.txt`
    changed or a new model was added).** Verify the pin (or absence of
