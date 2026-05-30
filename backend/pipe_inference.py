@@ -261,15 +261,7 @@ def _validate_cuda_runtime_or_raise():
 # ─── Model loading ──────────────────────────────────────────────────
 
 def _model_format(model_dir):
-    """Detect model format. Returns 'diffusers', 'audioldm2', 'native', or None.
-
-    Returns None for native architectures the bundled stable-audio-tools
-    build cannot construct (see ``_is_unsupported_native_config``), which
-    keeps those directories invisible to the rest of the backend and to the
-    UI's model selector instead of letting them slip into
-    `_load_native_pipeline()` and crash the model load with a confusing
-    keyword-argument error.
-    """
+    """Detect model format. Returns 'diffusers', 'audioldm2', 'native', or None."""
     native_weights = (model_dir / "model.safetensors").is_file()
     config_path = model_dir / "model_config.json"
     model_index = model_dir / "model_index.json"
@@ -282,38 +274,11 @@ def _model_format(model_dir):
         except (json.JSONDecodeError, OSError):
             pass
         if native_weights and config_path.is_file():
-            if _is_unsupported_native_config(config_path):
-                return None
             return "native"
         return "diffusers"
     if native_weights and config_path.is_file():
-        if _is_unsupported_native_config(config_path):
-            return None
         return "native"
     return None
-
-
-def _is_unsupported_native_config(config_path):
-    """Return True for native model configs the bundled pipeline cannot run.
-
-    Flags ``diffusion_cond_inpaint``, whose ``local_add_cond_dim`` field the
-    bundled stable-audio-tools build's TransformerBlock cannot construct.
-    Logged as a warning so the user can see why a downloaded model is hidden.
-    """
-    try:
-        with open(config_path) as f:
-            cfg = json.load(f)
-    except (json.JSONDecodeError, OSError) as exc:
-        log.warning("Could not read %s: %s", config_path, exc)
-        return False
-    model_type = cfg.get("model_type")
-    if model_type == "diffusion_cond_inpaint":
-        log.warning(
-            "Hiding %s — model_type=%r (local_add_cond_dim) is not "
-            "supported by the bundled stable-audio-tools build.",
-            config_path.parent.name, model_type)
-        return True
-    return False
 
 # {name: "diffusers"|"native"} — format of each discovered model
 _model_formats = {}
@@ -922,18 +887,6 @@ def _load_native_pipeline(model_dir, device):
     try:
         with open(config_path) as f:
             raw_config = json.load(f)
-
-        # Defense in depth: even if a leftover inpaint install slips past
-        # find_models (e.g. T5YNTH_MODEL_DIR override or scan-only system
-        # path), refuse here with a clear message so the user sees what
-        # actually happened rather than the bundled TransformerBlock
-        # blowing up on the model_config's `local_add_cond_dim` kwarg.
-        if raw_config.get("model_type") == "diffusion_cond_inpaint":
-            raise RuntimeError(
-                f"Model {model_dir.name} uses model_type='diffusion_cond_inpaint' "
-                "(local_add_cond_dim), which the bundled stable-audio-tools build "
-                "does not support. Please choose a different model "
-                "(e.g. SA3 Music or SA Open).")
 
         model_config, resolved_t5_models = _prepare_native_model_config(model_dir, raw_config)
 
