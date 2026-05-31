@@ -42,18 +42,29 @@ small metadata Comfy-Org omits is supplied by T5ynth itself.
 - Backend t5gemma path dir-validates only `model.safetensors` (`pipe_inference.py:461`); tokenizer
   files are not dir-validated → **no backend change** beyond the protobuf dep.
 
-### Still to verify (BLOCKING, CLAUDE.md §7)
-- The Comfy-Org **checkpoint** (DiT weights) generates correct audio through the real pipe
-  (music + sfx). Same byte size as Stability's (`2270384940`) but repacked (different oid) — run a
-  real generation, do not trust the size match.
+### Verification gate (CLAUDE.md §7) — PASSED 2026-06-01
+Both Comfy-Org checkpoints generate correct audio through the REAL pipe (subprocess IPC, no
+direct import), using a dir assembled exactly as the installer produces it (extracted
+`tokenizer.model`, NO `tokenizer.json`, bundled configs):
+- **Music:** `TrackType: Music, VocalType: Instrumental, …`, RMS 0.1627, peak 1.0, shape
+  (2, 132300), audible. PASS.
+- **SFX:** separate 2.27 GB Comfy-Org checkpoint + the SAME shared t5gemma + the SAME bundled
+  `model_config.json` → `TrackType: SFX, …`, RMS 0.1129, audible. PASS — confirms the shared-config
+  design (modality derived from the dir NAME) holds for both variants.
 
 ### Stage plan
 - **Stage 1 (done, `ea6ec736`):** dormant `ReassemblyAsset` engine.
-- **Stage 2 (next):** `protobuf<3.21` in requirements; bundle the 5 configs (BinaryData); C++
-  spiece_model extractor + config writer; SA3 catalog activation (2-weight asset arrays,
-  `downloadable=true`, Comfy-Org `hfRepo`, Gemma+SA license notice); UI → download style; drop SA3
-  from the Auto-Scan manual list; license docs into the install dir. Land after the §7 generation
-  test so main never activates an unverified weights source.
+- **Stage 2 (done):** `protobuf<3.21` pinned (`cfb4859f`); 5 configs bundled (BinaryData); C++
+  `extractSpieceModel` + `finalizeSa3Reassembly` (writes configs + carves `tokenizer.model`; the
+  completeness marker `model_config.json` is written LAST so a partial finalize can never
+  masquerade as installed — caught by an adversarial review); SA3 catalog activated
+  (`downloadable=true`, Comfy-Org asset arrays **pinned to revision `a02cbcd…`**, `hfRepo` kept as
+  `stabilityai/*` ONLY so the Auto-Scan fallback can verify a hand-downloaded copy, `licenseNotice`
+  covers SA Community **and** Gemma); status text → download style; Auto-Scan deliberately RETAINED
+  for SA3 (user requirement); `MODEL_LICENSES.txt` written into the install dir (attribution +
+  verbatim Gemma redistribution notice + both canonical full-license URLs). **Open:** whether to
+  also bundle the FULL verbatim Gemma Terms / Prohibited Use Policy / SA Community License into the
+  folder — pending user sign-off before any release/push.
 
 ---
 

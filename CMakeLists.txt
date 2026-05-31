@@ -187,6 +187,18 @@ juce_add_binary_data(T5ynthData SOURCES
     resources/ir/emt_140_plate_dark.wav
     resources/logos/t5ynth_icon.png
     resources/T5ynth_Guide.html
+    # SA3 metadata that the ungated Comfy-Org weight repos omit (~60 KB of JSON,
+    # no model weights). Written into the model dir at install time by the
+    # reassembly finalize step so SA3 can install login-free. model_config.json
+    # is the Stability SA3 config (shared by music+sfx — modality comes from the
+    # dir name, not the config); the four sa3_t5gemma_* files are the Gemma
+    # tokenizer/encoder configs. The 34 MB tokenizer.json is NOT bundled — the
+    # SentencePiece model is extracted from the downloaded t5gemma weights.
+    resources/sa3_configs/sa3_model_config.json
+    resources/sa3_configs/sa3_t5gemma_config.json
+    resources/sa3_configs/sa3_t5gemma_generation_config.json
+    resources/sa3_configs/sa3_t5gemma_tokenizer_config.json
+    resources/sa3_configs/sa3_t5gemma_special_tokens_map.json
 )
 
 target_link_libraries(T5ynth

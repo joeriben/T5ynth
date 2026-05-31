@@ -1,6 +1,8 @@
 #include "SetupWizard.h"
 #include "GuiHelpers.h"
+#include "BinaryData.h"
 #include <nlohmann/json.hpp>
+#include <cstring>
 #include <set>
 #include <thread>
 
@@ -134,6 +136,31 @@ static const GhAsset kT5BaseGhFiles[] = {
     { "model.safetensors", 891646390 },
 };
 
+// Comfy-Org ungated SA3 weights, PINNED to a fixed commit so a silent re-upload
+// can never change what users get vs. what was verified (gated=False at this
+// revision). Repacked from Stability's gated originals — same architecture, a
+// different byte layout, so these are the Comfy-Org sizes (each confirmed by a
+// real end-to-end generation), NOT the stabilityai sizes. The t5gemma encoder is
+// shared by music+sfx. Everything the repo omits (model_config.json + the t5gemma
+// configs + the SentencePiece tokenizer) is supplied at install time by
+// finalizeSa3Reassembly (bundled BinaryData + the tokenizer carved from the
+// weights) — so SA3 installs with no HuggingFace account, token, or Gemma approval.
+#define T5YNTH_COMFY_SA3 \
+    "https://huggingface.co/Comfy-Org/stable-audio-3/resolve/a02cbcdcd07426b0150557d0145bc894795823af"
+static const ReassemblyAsset kSa3MusicAssets[] = {
+    { T5YNTH_COMFY_SA3 "/checkpoints/stable_audio_3_small_music.safetensors",
+      "model.safetensors", 2270384940 },
+    { T5YNTH_COMFY_SA3 "/text_encoders/t5gemma_b_b_ul2.safetensors",
+      "t5gemma-b-b-ul2/model.safetensors", 1187264003 },
+};
+static const ReassemblyAsset kSa3SfxAssets[] = {
+    { T5YNTH_COMFY_SA3 "/checkpoints/stable_audio_3_small_sfx.safetensors",
+      "model.safetensors", 2270384940 },
+    { T5YNTH_COMFY_SA3 "/text_encoders/t5gemma_b_b_ul2.safetensors",
+      "t5gemma-b-b-ul2/model.safetensors", 1187264003 },
+};
+#undef T5YNTH_COMFY_SA3
+
 // Known models — extend this list to add new engines.
 // downloadable: if false, show manual instructions only (no Download button).
 //   Both Stable Audio models are gated on HuggingFace and T5ynth never prompts
@@ -199,16 +226,23 @@ static const KnownModel kKnownModels[] = {
       "license.", true, false,
       kT5BaseGhFiles,
       static_cast<int>(sizeof(kT5BaseGhFiles) / sizeof(kT5BaseGhFiles[0])) },
-    // SA3 Small Music — the current SA3-generation music checkpoint.
+    // SA3 Small Music — the current SA3-generation music checkpoint. Installs
+    // login-free from the ungated Comfy-Org mirror (kSa3MusicAssets); the gated
+    // hfRepo is kept ONLY so the Auto-Scan fallback can still verify a
+    // hand-downloaded Stability copy against the live HuggingFace manifest.
     { "stable-audio-3-small-music", "Stable Audio 3 Small Music", "stabilityai/stable-audio-3-small-music", nullptr,
       "https://stability.ai/community-license-agreement",
-      "This model is licensed under the Stability AI Community License.\n\n"
-      "- Non-commercial use: free\n"
-      "- Commercial use under $1M annual revenue: free (register at stability.ai)\n"
-      "- Commercial use over $1M: enterprise license required\n\n"
-      "T5ynth does not provide the model weights. By downloading, you accept\n"
-      "the license terms and take responsibility for compliance.", false, true,
-      nullptr, 0, "t5gemma-b-b-ul2" },
+      "Stable Audio 3 Small Music bundles two separately licensed components:\n\n"
+      "1) The audio model -- Stability AI Community License:\n"
+      "   - Non-commercial use: free\n"
+      "   - Commercial use under $1M annual revenue: free (register at stability.ai)\n"
+      "   - Commercial use over $1M: enterprise license required\n\n"
+      "2) The t5gemma text encoder -- Google Gemma Terms of Use and the Gemma\n"
+      "   Prohibited Use Policy (ai.google.dev/gemma/terms).\n\n"
+      "T5ynth does not provide the weights; they download from the ungated\n"
+      "Comfy-Org repository. By downloading you accept BOTH licenses and take\n"
+      "responsibility for compliance. Copies are written into the model folder.", true, true,
+      nullptr, 0, "t5gemma-b-b-ul2", kSa3MusicAssets, 2 },
     // SA3 Small SFX — the SA3-generation sound-effects checkpoint. Same
     // architecture and t5gemma-b-b-ul2 encoder as SA3 Small Music; the backend
     // swaps the modality prefix to "TrackType: SFX, " by model name, and the
@@ -216,13 +250,17 @@ static const KnownModel kKnownModels[] = {
     // so this variant inherits all of it.
     { "stable-audio-3-small-sfx", "Stable Audio 3 Small SFX", "stabilityai/stable-audio-3-small-sfx", nullptr,
       "https://stability.ai/community-license-agreement",
-      "This model is licensed under the Stability AI Community License.\n\n"
-      "- Non-commercial use: free\n"
-      "- Commercial use under $1M annual revenue: free (register at stability.ai)\n"
-      "- Commercial use over $1M: enterprise license required\n\n"
-      "T5ynth does not provide the model weights. By downloading, you accept\n"
-      "the license terms and take responsibility for compliance.", false, true,
-      nullptr, 0, "t5gemma-b-b-ul2" },
+      "Stable Audio 3 Small SFX bundles two separately licensed components:\n\n"
+      "1) The audio model -- Stability AI Community License:\n"
+      "   - Non-commercial use: free\n"
+      "   - Commercial use under $1M annual revenue: free (register at stability.ai)\n"
+      "   - Commercial use over $1M: enterprise license required\n\n"
+      "2) The t5gemma text encoder -- Google Gemma Terms of Use and the Gemma\n"
+      "   Prohibited Use Policy (ai.google.dev/gemma/terms).\n\n"
+      "T5ynth does not provide the weights; they download from the ungated\n"
+      "Comfy-Org repository. By downloading you accept BOTH licenses and take\n"
+      "responsibility for compliance. Copies are written into the model folder.", true, true,
+      nullptr, 0, "t5gemma-b-b-ul2", kSa3SfxAssets, 2 },
 };
 static constexpr int kNumKnownModels = sizeof(kKnownModels) / sizeof(kKnownModels[0]);
 
@@ -1507,10 +1545,258 @@ void SettingsPage::downloadGhReleaseInThread()
 // Resume / Range / 416 / truncation handling mirrors downloadGhReleaseInThread;
 // the structural difference is the per-asset source-URL + target-path decoupling
 // (with parent-dir creation for the t5gemma-b-b-ul2/ subfolder).
+// ── SA3 reassembly finalize ───────────────────────────────────────────────────
+// The ungated Comfy-Org weight repos ship ONLY weights (the SA3 checkpoint and the
+// single-file t5gemma encoder). The small metadata the stable-audio-tools loader
+// needs is supplied here, at install time, so SA3 installs with no HuggingFace
+// account: the ~60 KB JSON configs are bundled in the app (BinaryData) and the
+// SentencePiece tokenizer is carved out of the t5gemma weights themselves. All of
+// this is file I/O — it runs on the download thread, never the message thread.
+
+// Write a bundled blob to a target file, creating parent dirs. replaceWithData
+// writes via a temp + rename, so a crash can't leave a half-written config.
+static bool writeBundledFile(const juce::File& target, const char* data, int size,
+                             juce::String& err)
+{
+    target.getParentDirectory().createDirectory();
+    if (! target.replaceWithData(data, (size_t) size))
+    {
+        err = "Cannot write bundled config:\n  " + target.getFullPathName();
+        return false;
+    }
+    return true;
+}
+
+// Carve the embedded SentencePiece model (the `spiece_model` tensor — raw .model
+// bytes, dtype U8) out of a Comfy-Org-style single-file t5gemma safetensors and
+// write it to outTokenizerModel. safetensors layout is
+// [u64 LE headerLen][JSON header][tensor data]; a tensor's bytes live at
+// data_offsets RELATIVE to the data section, so absolute = 8 + headerLen + start.
+static bool extractSpieceModel(const juce::File& safetensors,
+                               const juce::File& outTokenizerModel,
+                               juce::String& err)
+{
+    juce::FileInputStream in(safetensors);
+    if (! in.openedOk())
+    {
+        err = "Cannot open the t5gemma weights to extract the tokenizer:\n  "
+            + safetensors.getFullPathName();
+        return false;
+    }
+
+    char lenBuf[8] = {};
+    if (in.read(lenBuf, 8) != 8)
+    {
+        err = "t5gemma weights are truncated (no safetensors header length).";
+        return false;
+    }
+    // littleEndianInt64 returns uint64; treat it as signed so a corrupt high-bit
+    // value reads as negative and is rejected by the <= 0 guard below.
+    const juce::int64 headerLen = (juce::int64) juce::ByteOrder::littleEndianInt64(lenBuf);
+    if (headerLen <= 0 || headerLen > 64ll * 1024 * 1024
+        || (8 + headerLen) > safetensors.getSize())
+    {
+        err = "t5gemma weights have an invalid safetensors header (length "
+            + juce::String(headerLen) + ").";
+        return false;
+    }
+
+    juce::MemoryBlock headerBytes;
+    if ((juce::int64) in.readIntoMemoryBlock(headerBytes, (ssize_t) headerLen) != headerLen)
+    {
+        err = "Could not read the safetensors header from the t5gemma weights.";
+        return false;
+    }
+
+    juce::int64 start = -1, end = -1;
+    try
+    {
+        auto header = nlohmann::json::parse(
+            std::string(static_cast<const char*>(headerBytes.getData()), headerBytes.getSize()));
+        if (! header.contains("spiece_model"))
+        {
+            err = "The downloaded t5gemma weights contain no embedded tokenizer "
+                  "(`spiece_model` tensor missing). The file may be the wrong "
+                  "encoder or an incomplete download.";
+            return false;
+        }
+        auto offs = header["spiece_model"].at("data_offsets");
+        if (! offs.is_array() || offs.size() != 2)
+        {
+            err = "The `spiece_model` tensor has malformed data_offsets.";
+            return false;
+        }
+        start = offs[0].get<juce::int64>();
+        end   = offs[1].get<juce::int64>();
+    }
+    catch (const std::exception& e)
+    {
+        err = juce::String("Could not parse the t5gemma safetensors header: ") + e.what();
+        return false;
+    }
+
+    if (start < 0 || end <= start)
+    {
+        err = "The `spiece_model` tensor has an invalid byte range.";
+        return false;
+    }
+    const juce::int64 absStart = 8 + headerLen + start;
+    const juce::int64 length   = end - start;
+    if (absStart + length > safetensors.getSize())
+    {
+        err = "The `spiece_model` tensor extends past the end of the t5gemma "
+              "weights — the download is incomplete.";
+        return false;
+    }
+    if (! in.setPosition(absStart) || in.getPosition() != absStart)
+    {
+        err = "Could not seek to the tokenizer bytes in the t5gemma weights.";
+        return false;
+    }
+    juce::MemoryBlock spiece;
+    if ((juce::int64) in.readIntoMemoryBlock(spiece, (ssize_t) length) != length)
+    {
+        err = "Short read while extracting the tokenizer from the t5gemma weights.";
+        return false;
+    }
+    if (! outTokenizerModel.replaceWithData(spiece.getData(), spiece.getSize()))
+    {
+        err = "Cannot write the extracted tokenizer to:\n  "
+            + outTokenizerModel.getFullPathName();
+        return false;
+    }
+    return true;
+}
+
+// Write the bundled configs + extract the tokenizer into a freshly reassembled SA3
+// model dir. encoderSub is the text-encoder subfolder (e.g. "t5gemma-b-b-ul2").
+// In-folder license documentation written next to every reassembled SA3 model.
+// SA3 bundles two separately licensed third-party components (Stability's audio
+// model + Google's Gemma text encoder); this records both, carries the verbatim
+// Gemma redistribution notice required by the Gemma Terms, and points to both
+// canonical full-license texts. T5ynth orchestrates the download but neither owns
+// nor relicenses the weights. (`a02cbcd…` is the pinned Comfy-Org revision.)
+static const char* const kSa3LicenseNotice =
+R"NOTICE(T5ynth -- Stable Audio 3 model components and their licenses
+==============================================================
+
+This folder holds a Stable Audio 3 Small model (Music or SFX) assembled by
+T5ynth. It is made of two SEPARATELY LICENSED third-party components. T5ynth
+neither owns nor relicenses either of them -- it only orchestrated the download
+and wrote the configuration files. You are responsible for complying with BOTH
+licenses below.
+
+--------------------------------------------------------------------------------
+1. Audio model  --  model.safetensors, model_config.json
+--------------------------------------------------------------------------------
+   (C) Stability AI. Stability AI Community License Agreement.
+   Full text: https://stability.ai/community-license-agreement
+
+   Summary (NOT a substitute for the full text):
+     - Free for non-commercial use.
+     - Free for commercial use by individuals/organisations with annual revenue
+       under US $1,000,000 (registration at stability.ai required).
+     - Organisations at or above US $1,000,000 annual revenue require a separate
+       Stability AI Enterprise License.
+
+--------------------------------------------------------------------------------
+2. Text encoder  --  t5gemma-b-b-ul2/
+--------------------------------------------------------------------------------
+   Built from Google's Gemma (T5Gemma).
+
+   Gemma is provided under and subject to the Gemma Terms of Use found at
+   ai.google.dev/gemma/terms
+
+   Gemma Terms of Use:           https://ai.google.dev/gemma/terms
+   Gemma Prohibited Use Policy:  https://ai.google.dev/gemma/prohibited_use_policy
+
+   Your use of this text encoder is subject to the Gemma Terms of Use and the
+   Gemma Prohibited Use Policy. Google LLC is the provider of Gemma; Google is
+   not affiliated with and does not endorse T5ynth.
+
+--------------------------------------------------------------------------------
+Provenance
+--------------------------------------------------------------------------------
+The model weights were downloaded by you, with no account or token, from the
+ungated Comfy-Org repository:
+  https://huggingface.co/Comfy-Org/stable-audio-3
+  (pinned revision a02cbcdcd07426b0150557d0145bc894795823af)
+
+Before downloading you accepted both licenses above in T5ynth's download dialog.
+T5ynth itself is free software under the GNU GPL v3; that license covers T5ynth's
+own source code, NOT these third-party model weights.
+
+UCDCAE AI Lab.
+)NOTICE";
+
+static bool finalizeSa3Reassembly(const juce::File& targetDir,
+                                  const juce::String& encoderSub,
+                                  juce::String& err)
+{
+    // License documentation for the two third-party components (written first; it
+    // is not a completeness marker, so its ordering vs. model_config.json is free).
+    if (! writeBundledFile(targetDir.getChildFile("MODEL_LICENSES.txt"),
+                           kSa3LicenseNotice, (int) std::strlen(kSa3LicenseNotice), err))
+        return false;
+
+    // ORDER MATTERS: model_config.json is the install-completeness marker
+    // (hasModelMarker keys on it, and modelHasRequiredAuxAssets does NOT check the
+    // carved tokenizer.model). So write it LAST — only after every encoder config
+    // AND the tokenizer carve have succeeded. If any earlier step fails, the marker
+    // is absent and the dir correctly reads "Not installed" instead of masquerading
+    // as ready-but-unloadable; a re-click re-runs this idempotently. (We can't just
+    // add tokenizer.model to the completeness check: the manual Auto-Scan install
+    // ships tokenizer.json instead, and requiring tokenizer.model would reject it.)
+    const auto encDir = targetDir.getChildFile(encoderSub);
+
+    // The four Gemma encoder/tokenizer configs.
+    if (! writeBundledFile(encDir.getChildFile("config.json"),
+                           BinaryData::sa3_t5gemma_config_json,
+                           BinaryData::sa3_t5gemma_config_jsonSize, err))
+        return false;
+    if (! writeBundledFile(encDir.getChildFile("generation_config.json"),
+                           BinaryData::sa3_t5gemma_generation_config_json,
+                           BinaryData::sa3_t5gemma_generation_config_jsonSize, err))
+        return false;
+    if (! writeBundledFile(encDir.getChildFile("tokenizer_config.json"),
+                           BinaryData::sa3_t5gemma_tokenizer_config_json,
+                           BinaryData::sa3_t5gemma_tokenizer_config_jsonSize, err))
+        return false;
+    if (! writeBundledFile(encDir.getChildFile("special_tokens_map.json"),
+                           BinaryData::sa3_t5gemma_special_tokens_map_json,
+                           BinaryData::sa3_t5gemma_special_tokens_map_jsonSize, err))
+        return false;
+
+    // tokenizer.model — carved out of the downloaded t5gemma weights (no 34 MB
+    // tokenizer.json needed; AutoTokenizer rebuilds the fast tokenizer from this).
+    const auto encWeights = encDir.getChildFile("model.safetensors");
+    if (! encWeights.existsAsFile())
+    {
+        err = "t5gemma weights missing after download:\n  " + encWeights.getFullPathName();
+        return false;
+    }
+    if (! extractSpieceModel(encWeights, encDir.getChildFile("tokenizer.model"), err))
+        return false;
+
+    // model_config.json LAST — the Stability SA3 config (shared by music+sfx; the
+    // backend derives the TrackType modality from the dir NAME, not this file).
+    // Its presence is what flips the dir to "Installed", so it goes last.
+    return writeBundledFile(targetDir.getChildFile("model_config.json"),
+                            BinaryData::sa3_model_config_json,
+                            BinaryData::sa3_model_config_jsonSize, err);
+}
+
 void SettingsPage::downloadReassemblyInThread()
 {
     auto modelId = selectedModelId();
     auto targetDir = getAppSupportModelDir(modelId);
+
+    // SA3-style reassembly carries bundled metadata + a tokenizer to extract:
+    // any reassembly model that declares a text-encoder subfolder runs the
+    // finalize step once the weights land. A plain reassembly (no encoder
+    // subfolder) skips it.
+    const auto encoderSub = encoderSubfolderForModelId(modelId);
+    const bool needsMetadata = encoderSub.isNotEmpty();
 
     const auto* assets = static_cast<const ReassemblyAsset*>(selectedAssets());
     int assetCount = selectedAssetCount();
@@ -1535,7 +1821,8 @@ void SettingsPage::downloadReassemblyInThread()
     juce::Component::SafePointer<SettingsPage> safeThis(this);
     auto progressCounter = downloadCounter_;
     auto cancelFlag = downloadCancelFlag_;
-    std::thread([safeThis, progressCounter, cancelFlag, targetDir, assets, assetCount]()
+    std::thread([safeThis, progressCounter, cancelFlag, targetDir, assets, assetCount,
+                 encoderSub, needsMetadata]()
     {
         int64_t bytesCompleted = 0;
 
@@ -1692,6 +1979,23 @@ void SettingsPage::downloadReassemblyInThread()
 
             bytesCompleted += a.expectedSize;
             if (progressCounter) progressCounter->store(bytesCompleted);
+        }
+
+        // Post-reassembly finalize: write the bundled metadata the ungated weight
+        // repos omit and carve the tokenizer out of the t5gemma weights. Only the
+        // SA3-style reassembly (a model that declares a text-encoder subfolder)
+        // needs this; a plain reassembly skips it.
+        if (needsMetadata)
+        {
+            juce::String ferr;
+            if (! finalizeSa3Reassembly(targetDir, encoderSub, ferr))
+            {
+                juce::MessageManager::callAsync([safeThis, ferr]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->onDownloadFinished(false, ferr);
+                });
+                return;
+            }
         }
 
         juce::MessageManager::callAsync([safeThis]() {
@@ -2143,31 +2447,21 @@ void SettingsPage::updateStatus()
                 juce::String(sfx
                     ? "STABLE AUDIO 3 SMALL SFX\n"
                       "The current SA3-generation small-format checkpoint, tuned for\n"
-                      "sound-effects content. It ships its own t5gemma text encoder, so\n"
-                      "there are more files than the older Stable Audio models.\n\n"
+                      "sound-effects content. Ships its own t5gemma text encoder.\n\n"
                     : "STABLE AUDIO 3 SMALL MUSIC\n"
                       "The current SA3-generation small-format checkpoint, tuned for\n"
-                      "musical content. It ships its own t5gemma text encoder, so there\n"
-                      "are more files than the older Stable Audio models.\n\n")
-                + "Licensed under the Stability AI Community License. Gated on\n"
-                "HuggingFace -- a free HuggingFace account is required once to\n"
-                "accept the license.\n\n"
-                "  Source: https://huggingface.co/" + hfRepo + "\n\n"
-                "INSTALL:\n"
-                "  1. Click 'Open Model Page' above, sign up or log in, and click\n"
-                "     'Agree and access repository' to accept the license.\n"
-                "  2. Open the 'Files and versions' tab and download to your usual\n"
-                "     Downloads folder:\n"
-                "       * model.safetensors and model_config.json (top level)\n"
-                "       * every file inside the t5gemma-b-b-ul2 folder -- open it\n"
-                "         on the page; the config, the .safetensors and the\n"
-                "         tokenizer files together are the text encoder\n"
-                "  3. Come back here and click 'Auto-Scan'. T5ynth checks each file\n"
-                "     against HuggingFace, rebuilds the t5gemma-b-b-ul2 folder for\n"
-                "     you, and lists anything still missing.\n\n"
-                "You do NOT need to recreate the folder yourself -- just get the\n"
-                "files into Downloads. Auto-Scan also opens a folder picker if you\n"
-                "saved them somewhere else.");
+                      "musical content. Ships its own t5gemma text encoder.\n\n")
+                + "Click 'Download' above and wait for it to finish -- no HuggingFace\n"
+                "account or token needed. T5ynth fetches the ungated weights directly\n"
+                "(~2.3 GB checkpoint + ~1.2 GB encoder), then writes the encoder config\n"
+                "and rebuilds the tokenizer locally.\n\n"
+                "  Target: " + targetPath + "\n\n"
+                "Already have the files from Stability by hand? Click 'Auto-Scan'\n"
+                "instead -- T5ynth imports them from your Downloads folder.\n\n"
+                "LICENSE: Stability AI Community License (the audio model) AND the\n"
+                "Google Gemma Terms of Use + Prohibited Use Policy (the t5gemma text\n"
+                "encoder). Both license texts are written into the model folder; by\n"
+                "downloading you accept both.");
         } else if (id == "t5-base") {
             setInstructionsText(
                 instructionsLabel,
