@@ -1,9 +1,63 @@
 # SA3 Ungated Install — Implementation Plan
 
-Status: **approved, in implementation** (2026-05-31). Goal: login-free installation
+Status: **in implementation** (updated 2026-06-01). Goal: login-free installation
 of Stable Audio 3 (Small Music + Small SFX) — no HuggingFace account, no token, no
-Gemma manual-approval — by sourcing the weights from the **ungated Comfy-Org mirror**
+Gemma manual-approval — by sourcing the weights from the **ungated Comfy-Org repo**
 instead of the gated `stabilityai/*` repo.
+
+## Update 2026-06-01 — self-contained, NO mirror (supersedes the mirror plan below)
+
+The metadata-mirror approach in the older sections below is **superseded**. Decision:
+Comfy-Org is the *only* download source and **nothing** goes on a T5ynt-owned repo. The
+small metadata Comfy-Org omits is supplied by T5ynth itself.
+
+- **Weights → Comfy-Org** (unchanged): `checkpoints/stable_audio_3_small_{music,sfx}.safetensors`
+  → `model.safetensors`; `text_encoders/t5gemma_b_b_ul2.safetensors` → `t5gemma-b-b-ul2/model.safetensors`.
+  Fetched by the Stage-1 reassembly engine (`downloadReassemblyInThread`, commit `ea6ec736`).
+  Comfy-Org sizes: music/sfx `2270384940`; t5gemma `1187264003`.
+- **~60 KB configs → bundled in the app** (BinaryData), written into the model dir at install:
+  `model_config.json` (shared by music+sfx — the backend derives `TrackType` from the dir NAME,
+  not the config: `_native_modality_prefix`, `pipe_inference.py:1017-1021`) plus the four t5gemma
+  configs (`config.json`, `generation_config.json`, `tokenizer_config.json`, `special_tokens_map.json`).
+- **Tokenizer → extracted from Comfy-Org's own t5gemma weights.** The SentencePiece model ships
+  INSIDE `t5gemma_b_b_ul2.safetensors` as a `spiece_model` tensor (dtype U8, 4 241 003 bytes,
+  data_offsets `[1182981120, 1187222123]`, abs file bytes `[1183023000, 1187264003)` = ends at EOF).
+  The installer extracts those bytes → `t5gemma-b-b-ul2/tokenizer.model`. No 34 MB `tokenizer.json`.
+- **Backend dep:** add `protobuf<3.21` (3.20.3) to `backend/requirements.txt`. The conditioner
+  calls `AutoTokenizer.from_pretrained` with default `use_fast=True` (`conditioners.py:587`); with
+  only `tokenizer.model` present it converts slow→fast via `GemmaConverter`, which needs protobuf.
+  protobuf ≥4 breaks `sentencepiece` 0.1.99's bundled `*_pb2` → pin `<3.21`.
+- **Licensing (120% mandate):** the only Gemma/Stability *weight/tokenizer* bytes on disk come from
+  what the user downloads from Comfy-Org under the in-app-accepted license (the tokenizer is carved
+  out of those weights — never bundled or hosted by us). Bundled configs are tiny JSON. Ship the
+  Gemma Terms + Prohibited Use Policy + SA Community License into the install dir + an app `NOTICE`;
+  in-app license acceptance stays mandatory and is extended to cover Gemma.
+
+### Verified 2026-06-01
+- Comfy-Org tree = weights only (no config/tokenizer files): HF tree API.
+- `spiece_model` tensor present + extractable: safetensors header peek (4 241 003 B, ends at EOF).
+- Extracted `tokenizer.model` (no `tokenizer.json`) → `AutoTokenizer.from_pretrained` default
+  (`use_fast=True`, protobuf 3.20.3) → `GemmaTokenizerFast` with **token IDs byte-identical** to the
+  shipped `tokenizer.json` on every test prompt incl. `TrackType: SFX/Music` and empty string.
+- Backend t5gemma path dir-validates only `model.safetensors` (`pipe_inference.py:461`); tokenizer
+  files are not dir-validated → **no backend change** beyond the protobuf dep.
+
+### Still to verify (BLOCKING, CLAUDE.md §7)
+- The Comfy-Org **checkpoint** (DiT weights) generates correct audio through the real pipe
+  (music + sfx). Same byte size as Stability's (`2270384940`) but repacked (different oid) — run a
+  real generation, do not trust the size match.
+
+### Stage plan
+- **Stage 1 (done, `ea6ec736`):** dormant `ReassemblyAsset` engine.
+- **Stage 2 (next):** `protobuf<3.21` in requirements; bundle the 5 configs (BinaryData); C++
+  spiece_model extractor + config writer; SA3 catalog activation (2-weight asset arrays,
+  `downloadable=true`, Comfy-Org `hfRepo`, Gemma+SA license notice); UI → download style; drop SA3
+  from the Auto-Scan manual list; license docs into the install dir. Land after the §7 generation
+  test so main never activates an unverified weights source.
+
+---
+
+_Historical (superseded mirror approach) below._
 
 ## Why this is possible (verified, not speculative)
 
