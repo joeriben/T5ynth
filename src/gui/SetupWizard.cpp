@@ -141,6 +141,11 @@ struct KnownModel {
     bool        isGenerationEngine; // false = auxiliary asset (e.g. text encoder)
     const GhAsset* ghFiles;   // file list for ghRelease download (nullptr if no mirror)
     int         ghFileCount;
+    // In-repo text-encoder subfolder that must be installed alongside the root
+    // weights (e.g. "t5gemma-b-b-ul2" for SA3 Small Music). The default member
+    // initializer lets the entries below omit it = self-contained model (and
+    // keeps the aggregate warning-clean).
+    const char* encoderSubfolder = nullptr;
 };
 static const KnownModel kKnownModels[] = {
     { "stable-audio-open-1.0",   "Stable Audio Open 1.0",     "stabilityai/stable-audio-open-1.0", nullptr,
@@ -187,58 +192,89 @@ static const KnownModel kKnownModels[] = {
       "- Commercial use over $1M: enterprise license required\n\n"
       "T5ynth does not provide the model weights. By downloading, you accept\n"
       "the license terms and take responsibility for compliance.", false, true,
-      nullptr, 0 },
+      nullptr, 0, "t5gemma-b-b-ul2" },
 };
 static constexpr int kNumKnownModels = sizeof(kKnownModels) / sizeof(kKnownModels[0]);
 
-// Look up a model's HuggingFace repo by id (mirrors selectedHfRepo() but works
-// off an explicit id rather than the combo-box selection).
-static juce::String hfRepoForModelId(const juce::String& modelId)
+// Look up a model's in-repo text-encoder subfolder by id (empty when the model
+// is self-contained — i.e. has no encoderSubfolder in the catalog).
+static juce::String encoderSubfolderForModelId(const juce::String& modelId)
 {
     for (int i = 0; i < kNumKnownModels; ++i)
         if (modelId == kKnownModels[i].id)
-            return juce::String(kKnownModels[i].hfRepo);
+            return juce::String(kKnownModels[i].encoderSubfolder != nullptr
+                                    ? kKnownModels[i].encoderSubfolder : "");
     return {};
 }
 
-// Pull the LIVE published byte size of the repo's ROOT model.safetensors from
-// HuggingFace's public tree API (GET /api/models/<repo>/tree/main?recursive=true
-// returns HTTP 200 with each file's size even for the gated Stability repos).
-// Returns -1 when the size can't be determined (offline, API error, or no root
-// model.safetensors). Deliberately fetched live, never hardcoded: a baked-in
-// size goes stale on a silent re-upload and would then reject the CORRECT file.
-// Blocking network call — run it off the message thread.
-static int64_t fetchPublishedSafetensorsSizeFromHf(const juce::String& hfRepo)
+// True for repo files T5ynth never needs to install: VCS / doc / licence /
+// preview files that sit next to the real weights and configs.
+static bool isRepoDocFile(const juce::String& basename)
 {
+    const auto n = basename.toLowerCase();
+    return n == ".gitattributes"
+        || n == "notice"
+        || n.startsWith("license")
+        || n.endsWith(".md")
+        || n.endsWith(".png")
+        || n.endsWith(".jpg")
+        || n.endsWith(".jpeg");
+}
+
+// Pull the LIVE manifest of a gated native Stability model from HuggingFace's
+// public tree API (GET /api/models/<repo>/tree/main?recursive=true returns HTTP
+// 200 with each file's path+size even for the gated Stability repos — while the
+// file BYTES require auth, so T5ynth can VERIFY but the user must FETCH). The
+// manifest is: root model.safetensors + model_config.json, plus — when the model
+// declares a text-encoder subfolder — every engine file under it (docs excluded).
+// Sizes are the CURRENT published sizes, never hardcoded, so a silent re-upload
+// can't make a baked-in size reject the correct file. Returns an empty vector on
+// any failure (offline / API error) so callers fail closed.
+// Blocking network call — run it off the message thread.
+static std::vector<ManifestEntry> fetchModelManifest(const juce::String& hfRepo,
+                                                     const juce::String& encoderSubfolder)
+{
+    std::vector<ManifestEntry> manifest;
     if (hfRepo.isEmpty())
-        return -1;
+        return manifest;
     juce::URL apiUrl("https://huggingface.co/api/models/" + hfRepo
                      + "/tree/main?recursive=true");
     auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                     .withConnectionTimeoutMs(15000);
     auto stream = apiUrl.createInputStream(opts);
     if (!stream)
-        return -1;
+        return manifest;
     const auto response = stream->readEntireStreamAsString();
+    const juce::String subPrefix = encoderSubfolder.isNotEmpty()
+        ? encoderSubfolder + "/" : juce::String();
     try
     {
         auto json = nlohmann::json::parse(response.toStdString());
         if (json.is_object() && json.contains("error"))
-            return -1;
+            return {};
         for (auto& item : json)
         {
             if (item.value("type", std::string()) != "file")
                 continue;
-            // ROOT model.safetensors only — not text_encoder/model.safetensors.
-            if (item.value("path", std::string()) == "model.safetensors")
-                return item.value("size", (int64_t) -1);
+            const juce::String path =
+                juce::String(item.value("path", std::string())).replaceCharacter('\\', '/');
+            const int64_t size = item.value("size", (int64_t) -1);
+            if (size < 0)
+                continue;
+
+            const bool isRoot = (path == "model.safetensors" || path == "model_config.json");
+            const bool isEncoder = subPrefix.isNotEmpty()
+                && path.startsWith(subPrefix)
+                && !isRepoDocFile(path.fromLastOccurrenceOf("/", false, false));
+            if (isRoot || isEncoder)
+                manifest.push_back({ path, (juce::int64) size });
         }
     }
     catch (const std::exception&)
     {
-        return -1;
+        return {};
     }
-    return -1;
+    return manifest;
 }
 
 juce::File SettingsPage::getAppSupportModelDir()
@@ -423,9 +459,21 @@ void SettingsPage::setModelInstallBusy(bool busy, const juce::String& statusText
 
 static bool modelHasRequiredAuxAssets(const juce::String& id, const juce::File& modelDir)
 {
-    juce::ignoreUnused(id);
     if (!modelDir.exists() || !hasModelMarker(modelDir))
         return false;
+    // Models that ship an in-repo text encoder (SA3 -> t5gemma-b-b-ul2) are only
+    // usable once that subfolder is present too. hasModelMarker passes on the
+    // root weights alone, so check the encoder's own weights + config explicitly
+    // -- otherwise the wizard flags SA3 "installed" while the backend refuses to
+    // load (missing t5gemma encoder).
+    const auto sub = encoderSubfolderForModelId(id);
+    if (sub.isNotEmpty())
+    {
+        auto encDir = modelDir.getChildFile(sub);
+        if (!encDir.getChildFile("model.safetensors").existsAsFile()
+            || !encDir.getChildFile("config.json").existsAsFile())
+            return false;
+    }
     return true;
 }
 
@@ -609,31 +657,12 @@ void SettingsPage::browseForModel()
 }
 
 // ── Smart Auto-Scan ─────────────────────────────────────────────────────────
-// For native Stability models the user follows a manual-download walkthrough
-// (fetch 2 files from HuggingFace to the system Downloads folder). Auto-Scan
-// then hides all path details: it looks there for the files and copies them to
-// the correct app-support location, or guides the user if something is missing.
-
-// Files T5ynth cares about for a native Stability install.
-static const char* kNativeStabilityRequired[] = {
-    "model.safetensors",
-    "model_config.json",
-};
-static constexpr int kNumNativeStabilityRequired =
-    sizeof(kNativeStabilityRequired) / sizeof(kNativeStabilityRequired[0]);
-
-// Files the user may have fetched by mistake alongside the correct ones.
-// When we see these in the source folder, we call them out by name so the
-// user can delete them. None of them are needed by T5ynth.
-static const char* kNativeStabilityWrongFiles[] = {
-    "model.ckpt",
-    "vae_model.ckpt",
-    "base_model.ckpt",
-    "base_model.safetensors",
-    "base_model_config.json",
-};
-static constexpr int kNumNativeStabilityWrongFiles =
-    sizeof(kNativeStabilityWrongFiles) / sizeof(kNativeStabilityWrongFiles[0]);
+// For gated native Stability models the user manually fetches the repo files
+// from HuggingFace to ~/Downloads. Auto-Scan pulls the live manifest, matches
+// every required file in the Downloads folder (the two equally-named
+// model.safetensors disambiguated by size), reconstructs the t5gemma subfolder,
+// and copies the lot into the app-support model dir -- or shows exactly which
+// files are still missing / wrong-size.
 
 static juce::File getDownloadsFolder()
 {
@@ -644,48 +673,22 @@ static juce::File getDownloadsFolder()
                .getChildFile("Downloads");
 }
 
-// Find the file in sourceFolder that should serve as `canonicalName`.
-// Browsers append disambiguation suffixes when the user downloads a file
-// whose name already exists in the folder: Chrome/Edge use "name (1).ext",
-// Firefox/Safari use "name-2.ext", etc. A literal lookup for
-// "model.safetensors" therefore misses the checkpoint the user just
-// downloaded if a different checkpoint with the same canonical name is still
-// sitting in the folder from an earlier install — the user ends up
-// installing the OLD file under the NEW model id.
-//
-// Strategy: search siblings matching <base>*<ext>, pick the newest by
-// last-modified time. That's the one the user most recently downloaded,
-// which is the one they meant to install for the currently-selected model
-// in the wizard.
-//
-// Returns an invalid File when no candidate exists.
-static juce::File pickNewestCandidate(const juce::File& sourceFolder,
-                                      const juce::String& canonicalName)
+// Gather the files in sourceFolder that could be `canonicalName`, tolerating the
+// disambiguation suffixes browsers add when the name already exists in the folder
+// (Chrome/Edge "name (1).ext", Firefox/Safari "name-2.ext"): every sibling
+// matching <stem>*<ext>. The caller picks among them — by manifest size first
+// (the two equally-named model.safetensors differ by ~1 GB), then by recency.
+// Empty array when nothing matches.
+static juce::Array<juce::File> findRenameCandidates(const juce::File& sourceFolder,
+                                                    const juce::String& canonicalName)
 {
     const auto dot  = canonicalName.lastIndexOfChar('.');
-    const auto base = (dot > 0) ? canonicalName.substring(0, dot) : canonicalName;
+    const auto stem = (dot > 0) ? canonicalName.substring(0, dot) : canonicalName;
     const auto ext  = (dot > 0) ? canonicalName.substring(dot)    : juce::String();
-
     juce::Array<juce::File> matches;
-    sourceFolder.findChildFiles(matches,
-                                juce::File::findFiles,
-                                /*searchRecursively*/ false,
-                                base + "*" + ext);
-    if (matches.isEmpty())
-        return {};
-
-    juce::File best = matches[0];
-    juce::Time bestTime = best.getLastModificationTime();
-    for (int i = 1; i < matches.size(); ++i)
-    {
-        const auto t = matches[i].getLastModificationTime();
-        if (t > bestTime)
-        {
-            best = matches[i];
-            bestTime = t;
-        }
-    }
-    return best;
+    sourceFolder.findChildFiles(matches, juce::File::findFiles,
+                                /*searchRecursively*/ false, stem + "*" + ext);
+    return matches;
 }
 
 // Walk the standard install roots and look for any *other* model directory
@@ -733,12 +736,32 @@ static juce::String findSameSizeInstalledModel(const juce::String& selfModelId,
     return {};
 }
 
-SettingsPage::InstallOutcome SettingsPage::tryNativeStabilityInstallFromFolder(
+// How many of a manifest's files are present (any size) in `folder` — used only
+// to decide between "report what's missing" and "open a folder picker".
+static int countManifestFilesPresent(const juce::File& folder,
+                                     const std::vector<ManifestEntry>& manifest)
+{
+    int n = 0;
+    for (const auto& e : manifest)
+    {
+        const auto base = e.relPath.fromLastOccurrenceOf("/", false, false);
+        if (!findRenameCandidates(folder, base).isEmpty()
+            || folder.getChildFile(e.relPath).existsAsFile())
+            ++n;
+    }
+    return n;
+}
+
+SettingsPage::InstallOutcome SettingsPage::installFromManifestFolder(
     const juce::File& sourceFolder,
     const juce::String& modelId,
     const juce::String& modelDisplayName,
+    const std::vector<ManifestEntry>& manifest,
     bool reportIfMissing)
 {
+    if (manifest.empty())
+        return InstallOutcome::NotInstalled;  // offline: caller already reported
+
     if (!sourceFolder.isDirectory())
     {
         if (reportIfMissing)
@@ -752,271 +775,188 @@ SettingsPage::InstallOutcome SettingsPage::tryNativeStabilityInstallFromFolder(
         return InstallOutcome::NotInstalled;
     }
 
-    // Look at the contents. `pickNewestCandidate` matches both the exact
-    // canonical name and any browser-rename variants (different checkpoints
-    // both arrive as "model.safetensors" from HF; the second download lands as
-    // "model-2.safetensors" / "model (1).safetensors" / etc.). The newest one
-    // wins so installing picks up the checkpoint the user just downloaded, not
-    // an older file with the same name still sitting in ~/Downloads.
-    struct Staged { juce::File source; juce::String destName; };
+    auto toMB = [](juce::int64 b) {
+        return juce::String(static_cast<double>(b) / (1024.0 * 1024.0), 1) + " MB";
+    };
+
+    // Match every manifest entry to a file in the folder. Candidates are gathered
+    // by canonical basename (browser-rename tolerant); the right one is the
+    // candidate whose size equals the manifest size — this is what tells the two
+    // equally-named model.safetensors (root ~2.27 GB vs t5gemma ~1.18 GB) apart.
+    // A basename match of the WRONG size is reported as wrong-size (truncated /
+    // wrong model), distinct from missing entirely.
+    struct Staged { juce::File source; juce::String relPath; };
     std::vector<Staged> staged;
-    juce::StringArray missingNames;
-    for (int i = 0; i < kNumNativeStabilityRequired; ++i)
+    juce::StringArray missing;    // manifest paths with no candidate at all
+    juce::StringArray wrongSize;  // present, but no candidate of the right size
+
+    for (const auto& e : manifest)
     {
-        const juce::String canonical = kNativeStabilityRequired[i];
-        auto candidate = pickNewestCandidate(sourceFolder, canonical);
-        if (candidate.existsAsFile())
-            staged.push_back({ candidate, canonical });
-        else
-            missingNames.add(canonical);
+        const auto base = e.relPath.fromLastOccurrenceOf("/", false, false);
+        auto cands = findRenameCandidates(sourceFolder, base);
+        auto exact = sourceFolder.getChildFile(e.relPath);  // structured-clone case
+        if (exact.existsAsFile())
+            cands.addIfNotAlreadyThere(exact);
+
+        if (cands.isEmpty()) { missing.add(e.relPath); continue; }
+
+        juce::File sized;
+        juce::Time sizedTime;
+        for (auto& c : cands)
+            if (c.getSize() == e.size)
+            {
+                const auto t = c.getLastModificationTime();
+                if (!sized.exists() || t > sizedTime) { sized = c; sizedTime = t; }
+            }
+        if (sized.exists()) staged.push_back({ sized, e.relPath });
+        else                wrongSize.add(e.relPath);
     }
 
-    juce::StringArray wrongFound;
-    for (int i = 0; i < kNumNativeStabilityWrongFiles; ++i)
-    {
-        auto candidate = sourceFolder.getChildFile(kNativeStabilityWrongFiles[i]);
-        if (candidate.existsAsFile())
-            wrongFound.add(kNativeStabilityWrongFiles[i]);
-    }
+    const bool complete = (missing.isEmpty() && wrongSize.isEmpty()
+                           && staged.size() == manifest.size());
 
-    const juce::String wrongNote = wrongFound.isEmpty()
-        ? juce::String()
-        : juce::String("\n\nNote: these files in the same folder are NOT needed "
-                       "by T5ynth and can be deleted to save space:\n  ")
-              + wrongFound.joinIntoString("\n  ");
-
-    // Scenario (d): both required files present — copy and done.
-    if (missingNames.isEmpty())
+    // Per-file checklist for the panel (and the dialog) — minimal status lines.
+    auto buildChecklist = [&]() -> juce::String
     {
-        // Same-size duplicate guard: if the to-be-installed safetensors is
-        // byte-identical in size to one already installed under a DIFFERENT
-        // model id, the user probably picked the wrong file in Downloads
-        // (e.g. installed one checkpoint while ~/Downloads still held a
-        // different model's file). Surface a confirmation rather than silently
-        // writing the same checkpoint into both directories.
-        juce::String duplicateOf;
-        for (const auto& sf : staged)
+        std::set<std::string> ok, bad;
+        for (const auto& st : staged)   ok.insert(st.relPath.toStdString());
+        for (const auto& w  : wrongSize) bad.insert(w.toStdString());
+        juce::String s;
+        s << modelDisplayName << " -- " << (int) staged.size() << " of "
+          << (int) manifest.size() << " files ready\n\n";
+        for (const auto& e : manifest)
         {
-            if (!sf.destName.endsWithIgnoreCase(".safetensors"))
-                continue;
-            duplicateOf = findSameSizeInstalledModel(modelId, sf.destName, sf.source.getSize());
-            if (duplicateOf.isNotEmpty())
-                break;
+            const char* mark = ok.count(e.relPath.toStdString())  ? "[OK]"
+                             : bad.count(e.relPath.toStdString()) ? "[!!]"
+                                                                   : "[  ]";
+            s << "  " << mark << " " << e.relPath << "  (" << toMB(e.size) << ")\n";
         }
+        if (!complete)
+            s << "\n[  ] = still missing    [!!] = wrong size (re-download)\n\n"
+                 "Download the marked files from the model page (button above) into "
+                 "your Downloads folder, then click Auto-Scan again. The t5gemma "
+                 "files live inside the t5gemma-b-b-ul2 folder on the model page.";
+        return s;
+    };
 
-        if (duplicateOf.isNotEmpty())
-        {
-            const auto sourceName = staged.front().source.getFileName();
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::MessageBoxIconType::WarningIcon,
-                "Duplicate of " + duplicateOf + "?",
-                "T5ynth picked the file:\n  " + sourceName
-                + "\n\nfrom your Downloads folder for " + modelDisplayName
-                + ", but its size matches the file already installed for '"
-                + duplicateOf + "'. The two checkpoints are most likely the "
-                  "SAME variant. If you meant to install a different one, "
-                  "re-download it from the model page (the browser saves the "
-                  "second copy as model-2.safetensors / model (1).safetensors), "
-                  "then click Auto-Scan again. Install aborted.");
-            return InstallOutcome::AbortedWithDialog;
-        }
-
-        auto targetDir = getAppSupportModelDir(modelId);
-        setModelInstallBusy(true,
-            "Verifying " + modelDisplayName + " against HuggingFace, then copying. "
-            "This can take a moment...");
-
-        juce::Component::SafePointer<SettingsPage> safeThis(this);
-        const juce::String hfRepo = hfRepoForModelId(modelId);
-
-        std::thread([safeThis, sourceFolder, targetDir, staged, wrongNote, modelDisplayName, hfRepo]()
-        {
-            juce::String errorTitle;
-            juce::String errorBody;
-
-            // Live identity check: pull the model's CURRENT published
-            // model.safetensors size from HuggingFace and refuse if the staged
-            // file is a different model — or if HF can't be reached to confirm
-            // which model it is. Fetched live every time: a hardcoded size would
-            // go stale on a silent re-upload and then reject the CORRECT file.
-            const int64_t publishedSize = fetchPublishedSafetensorsSizeFromHf(hfRepo);
-            if (publishedSize <= 0)
-            {
-                // The weights themselves come from HuggingFace, so a user with a
-                // file to install necessarily had HF access — a failed tree fetch
-                // is a transient glitch, not a real offline state. Refuse rather
-                // than copy in a checkpoint we could not identify.
-                errorTitle = "Could not verify " + modelDisplayName;
-                errorBody =
-                    "T5ynth could not reach HuggingFace to confirm which model "
-                    "this file is.\n\nYou downloaded the model from HuggingFace, "
-                    "so this is almost certainly a temporary network problem. "
-                    "Check your connection and click Auto-Scan again.\n\n"
-                    "Install aborted -- nothing was changed.";
-            }
-            else
-            {
-                for (const auto& sf : staged)
-                {
-                    if (!sf.destName.endsWithIgnoreCase(".safetensors"))
-                        continue;
-                    const int64_t actualSize = sf.source.getSize();
-                    if (actualSize != publishedSize)
-                    {
-                        auto toMB = [](int64_t b) {
-                            return juce::String(static_cast<double>(b) / (1024.0 * 1024.0), 1) + " MB";
-                        };
-                        errorTitle = "Wrong model for " + modelDisplayName;
-                        errorBody =
-                            "Auto-Scan picked this file from your Downloads folder:\n  "
-                            + sf.source.getFileName() + "  (" + toMB(actualSize) + ")\n\n"
-                            "but " + modelDisplayName + " currently publishes a "
-                            "model.safetensors of " + toMB(publishedSize)
-                            + " on HuggingFace. That is a DIFFERENT model.\n\n"
-                            "Open the " + modelDisplayName + " model page (button above), "
-                            "download its model.safetensors, then click Auto-Scan again.\n\n"
-                            "Install aborted -- nothing was changed.";
-                        break;
-                    }
-                }
-            }
-
-            if (errorTitle.isEmpty() && !targetDir.createDirectory())
-            {
-                errorTitle = "Could not create model folder";
-                errorBody = "T5ynth could not create:\n  " + targetDir.getFullPathName()
-                          + "\n\nCheck folder permissions and try again.";
-            }
-            else if (errorTitle.isEmpty())
-            {
-                juce::StringArray copyErrors;
-                for (const auto& sf : staged)
-                {
-                    // Copy under the CANONICAL name even if the source on
-                    // disk is "model-2.safetensors" — the backend loads by
-                    // canonical name, not by whatever the browser saved.
-                    auto dest = targetDir.getChildFile(sf.destName);
-                    if (dest.existsAsFile()) dest.deleteFile();
-                    if (!sf.source.copyFileTo(dest))
-                        copyErrors.add(sf.source.getFileName());
-                }
-
-                if (!copyErrors.isEmpty())
-                {
-                    errorTitle = "Copy failed";
-                    errorBody = "Found all required files, but copying failed for:\n  "
-                              + copyErrors.joinIntoString(", ")
-                              + "\n\nCheck disk space and folder permissions in:\n  "
-                              + targetDir.getFullPathName();
-                }
-                else if (!hasModelMarker(targetDir))
-                {
-                    errorTitle = "Files copied, but look incomplete";
-                    errorBody = "Files were copied to:\n  " + targetDir.getFullPathName()
-                              + "\n\nBut the model weights look too small. The download may "
-                                "have been interrupted. Re-download model.safetensors from "
-                                "HuggingFace (click 'Open Model Page' above) and try again.";
-                }
-            }
-
-            juce::MessageManager::callAsync(
-                [safeThis, sourceFolder, targetDir, wrongNote, errorTitle, errorBody, modelDisplayName]()
-                {
-                    auto* self = safeThis.getComponent();
-                    if (self == nullptr) return;
-
-                    self->setModelInstallBusy(false);
-
-                    if (errorTitle.isNotEmpty())
-                    {
-                        self->downloadStatusLabel.setText("Model install failed",
-                                                          juce::dontSendNotification);
-                        self->downloadStatusLabel.setColour(juce::Label::textColourId,
-                                                            juce::Colour(0xffef4444));
-                        juce::AlertWindow::showMessageBoxAsync(
-                            juce::MessageBoxIconType::WarningIcon,
-                            errorTitle,
-                            errorBody);
-                        return;
-                    }
-
-                    self->downloadStatusLabel.setText("Model copied. Activating...",
-                                                       juce::dontSendNotification);
-                    self->downloadStatusLabel.setColour(
-                        juce::Label::textColourId,
-                        juce::Colour(0xff4ade80));
-
-                    juce::AlertWindow::showMessageBoxAsync(
-                        juce::MessageBoxIconType::InfoIcon,
-                        modelDisplayName + " -- Installed",
-                        "T5ynth copied the model files from:\n  "
-                            + sourceFolder.getFullPathName()
-                            + "\n\nto:\n  " + targetDir.getFullPathName()
-                            + "\n\nThe originals are still in your Downloads folder -- "
-                              "you can delete them now."
-                            + wrongNote,
-                        "OK",
-                        self,
-                        juce::ModalCallbackFunction::create(
-                            [safeThis, targetDir](int)
-                            {
-                                if (auto* page = safeThis.getComponent())
-                                    page->setModelPath(targetDir);
-                            }));
-                });
-        }).detach();
-        return InstallOutcome::Installed;
-    }
-
-    // Scenario (a): some but not all required files present.
-    if (!staged.empty() && reportIfMissing)
+    if (!complete)
     {
-        juce::String foundList;
-        for (const auto& sf : staged)
-            foundList += "  [OK] " + sf.source.getFileName() + "\n";
-
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::MessageBoxIconType::InfoIcon,
-            "Download incomplete",
-            "Found in:\n  " + sourceFolder.getFullPathName() + "\n\n"
-                + foundList + "\nStill missing:\n  [X] "
-                + missingNames.joinIntoString("\n  [X] ")
-                + "\n\nPlease download the missing files from the model page "
-                  "(click 'Open Model Page' above) and click 'Auto-Scan' again."
-                + wrongNote);
-        return InstallOutcome::AbortedWithDialog;
-    }
-
-    // Scenario (b)/(c): nothing valid in this folder.
-    if (reportIfMissing)
-    {
-        if (!wrongFound.isEmpty())
-        {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::MessageBoxIconType::WarningIcon,
-                "Wrong files in folder",
-                "This folder contains files that LOOK related to the model, "
-                "but T5ynth does not need them:\n  "
-                    + wrongFound.joinIntoString("\n  ")
-                    + "\n\nThe files T5ynth actually needs are:\n"
-                      "  * model.safetensors (NOT model.ckpt, NOT base_model.*)\n"
-                      "  * model_config.json\n\n"
-                      "Click 'Open Model Page' above, go to 'Files and versions', "
-                      "and download exactly those two files.");
-        }
-        else
+        setInstructionsText(instructionsLabel, buildChecklist());
+        if (reportIfMissing)
         {
             juce::AlertWindow::showMessageBoxAsync(
                 juce::MessageBoxIconType::InfoIcon,
-                "No model files found",
-                "This folder does not contain the two files T5ynth needs:\n"
-                "  * model.safetensors\n"
-                "  * model_config.json\n\n"
-                "Click 'Open Model Page' above to fetch them from HuggingFace.");
+                modelDisplayName + " -- files still needed",
+                "Looked in:\n  " + sourceFolder.getFullPathName() + "\n\n" + buildChecklist());
+            return InstallOutcome::AbortedWithDialog;
         }
-        return InstallOutcome::AbortedWithDialog;
+        return InstallOutcome::NotInstalled;
     }
-    return InstallOutcome::NotInstalled;
+
+    // Complete. Same-size duplicate guard on the ROOT weights: if the main
+    // model.safetensors is byte-for-byte the size of one already installed under
+    // a DIFFERENT model id, the user likely picked the wrong file — confirm
+    // rather than write the same checkpoint into two slots.
+    for (const auto& st : staged)
+    {
+        if (st.relPath != "model.safetensors")
+            continue;
+        const auto dup = findSameSizeInstalledModel(modelId, "model.safetensors", st.source.getSize());
+        if (dup.isNotEmpty())
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::MessageBoxIconType::WarningIcon,
+                "Duplicate of " + dup + "?",
+                "The model.safetensors picked for " + modelDisplayName
+                + " is the same size as the one already installed for '" + dup
+                + "'. They are almost certainly the SAME checkpoint. If you meant a "
+                  "different model, re-download its model.safetensors and click "
+                  "Auto-Scan again. Install aborted.");
+            return InstallOutcome::AbortedWithDialog;
+        }
+    }
+
+    auto targetDir = getAppSupportModelDir(modelId);
+    setModelInstallBusy(true, "Copying " + modelDisplayName + " ("
+                        + juce::String((int) staged.size()) + " files)...");
+
+    juce::Component::SafePointer<SettingsPage> safeThis(this);
+    std::vector<Staged> toCopy = staged;
+
+    std::thread([safeThis, sourceFolder, targetDir, toCopy, modelDisplayName]()
+    {
+        juce::String errorTitle, errorBody;
+
+        if (!targetDir.createDirectory())
+        {
+            errorTitle = "Could not create model folder";
+            errorBody = "T5ynth could not create:\n  " + targetDir.getFullPathName()
+                      + "\n\nCheck folder permissions and try again.";
+        }
+        else
+        {
+            juce::StringArray copyErrors;
+            for (const auto& st : toCopy)
+            {
+                // Copy to the CANONICAL relative path (subfolders included), even
+                // if the source on disk was "model (1).safetensors": the backend
+                // loads by canonical path, not by whatever the browser saved.
+                auto dest = targetDir.getChildFile(st.relPath);
+                dest.getParentDirectory().createDirectory();
+                if (dest.existsAsFile()) dest.deleteFile();
+                if (!st.source.copyFileTo(dest))
+                    copyErrors.add(st.relPath);
+            }
+            if (!copyErrors.isEmpty())
+            {
+                errorTitle = "Copy failed";
+                errorBody = "Copying failed for:\n  " + copyErrors.joinIntoString("\n  ")
+                          + "\n\nCheck disk space and folder permissions in:\n  "
+                          + targetDir.getFullPathName();
+            }
+        }
+
+        juce::MessageManager::callAsync(
+            [safeThis, sourceFolder, targetDir, errorTitle, errorBody, modelDisplayName]()
+            {
+                auto* self = safeThis.getComponent();
+                if (self == nullptr) return;
+                self->setModelInstallBusy(false);
+
+                if (errorTitle.isNotEmpty())
+                {
+                    self->downloadStatusLabel.setText("Model install failed",
+                                                      juce::dontSendNotification);
+                    self->downloadStatusLabel.setColour(juce::Label::textColourId,
+                                                        juce::Colour(0xffef4444));
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::WarningIcon, errorTitle, errorBody);
+                    return;
+                }
+
+                self->downloadStatusLabel.setText("Model copied. Activating...",
+                                                  juce::dontSendNotification);
+                self->downloadStatusLabel.setColour(juce::Label::textColourId,
+                                                    juce::Colour(0xff4ade80));
+
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::InfoIcon,
+                    modelDisplayName + " -- Installed",
+                    "T5ynth copied the model files from:\n  " + sourceFolder.getFullPathName()
+                        + "\n\nto:\n  " + targetDir.getFullPathName()
+                        + "\n\nThe originals are still in your Downloads folder -- "
+                          "you can delete them now.",
+                    "OK",
+                    self,
+                    juce::ModalCallbackFunction::create(
+                        [safeThis, targetDir](int)
+                        {
+                            if (auto* page = safeThis.getComponent())
+                                page->setModelPath(targetDir);
+                        }));
+            });
+    }).detach();
+    return InstallOutcome::Installed;
 }
 
 
@@ -1032,9 +972,13 @@ void SettingsPage::performAutoScan()
     if (modelInstallBusy_.load())
         return;
 
-    // 1. Already installed anywhere we recognise?
+    // 1. Already FULLY installed anywhere we recognise? Require the encoder
+    //    subfolder too (modelHasRequiredAuxAssets), not just the root weights —
+    //    otherwise an encoder-less SA3 dir would short-circuit here and report
+    //    "imported" while the backend refuses to load. An incomplete dir falls
+    //    through to the manifest checklist below, which lists what's missing.
     auto found = scanForModel();
-    if (found.exists())
+    if (found.exists() && modelHasRequiredAuxAssets(selectedModelId(), found))
     {
         juce::File activeDir;
         auto importResult = importModelDirectoryForId(selectedModelId(), found, activeDir, true);
@@ -1057,9 +1001,9 @@ void SettingsPage::performAutoScan()
     }
 
     // 2. Native-Stability smart scan: the only remaining manual-install
-    //    category. SAO 1.0, SAO Small, SA3 Small Music all ship a 2-file
-    //    checkpoint (model.safetensors + model_config.json) the user pulls
-    //    from HF's Files tab into ~/Downloads.
+    //    category. SAO 1.0 / SAO Small are a 2-file checkpoint; SA3 Small Music
+    //    additionally ships the t5gemma-b-b-ul2 text-encoder subfolder. All are
+    //    driven by the live HF manifest the user pulls into ~/Downloads.
     auto modelId = selectedModelId();
     const bool isNativeStabilityModel =
         modelId == "stable-audio-open-small"
@@ -1076,73 +1020,86 @@ void SettingsPage::performAutoScan()
                                       juce::Colour(0xffef4444));
         return;
     }
-    juce::String modelDisplayName;
-    if      (modelId == "stable-audio-open-1.0")     modelDisplayName = "Stable Audio Open 1.0";
-    else if (modelId == "stable-audio-open-small")    modelDisplayName = "Stable Audio Open Small";
-    else                                              modelDisplayName = "Stable Audio 3 Small Music";
+    const auto modelDisplayName = selectedModelDisplay();
+    const auto hfRepo           = selectedHfRepo();
+    const auto encoderSub       = encoderSubfolderForModelId(modelId);
 
-    const char* const* requiredFiles    = kNativeStabilityRequired;
-    const int          numRequiredFiles = kNumNativeStabilityRequired;
-
-    // 3. Look in the system Downloads folder first.
-    auto downloads = getDownloadsFolder();
-    auto outcome = tryNativeStabilityInstallFromFolder(
-        downloads, modelId, modelDisplayName, /*reportIfMissing*/ false);
-    if (outcome == InstallOutcome::Installed
-        || outcome == InstallOutcome::AbortedWithDialog)
-        return;  // dialog (success OR duplicate-guard) already shown
-
-    // Re-run the check to see *why* Downloads didn't work (missing / wrong /
-    // nothing), so we can decide whether to nag or to open the picker.
-    // Use the same browser-rename-aware lookup as the install path so a
-    // user-renamed file (model-2.safetensors, model (1).safetensors) counts
-    // as "present" here too — otherwise the picker would pop up for a folder
-    // the file IS in, just under a slightly different name.
-    int foundInDownloads = 0;
-    for (int i = 0; i < numRequiredFiles; ++i)
-        if (pickNewestCandidate(downloads, requiredFiles[i]).existsAsFile())
-            ++foundInDownloads;
-
-    // Scenario (a): some files present in Downloads — tell the user which
-    // are still missing instead of opening a picker.
-    if (foundInDownloads > 0)
-    {
-        tryNativeStabilityInstallFromFolder(
-            downloads, modelId, modelDisplayName, /*reportIfMissing*/ true);
-        return;
-    }
-
-    // Scenario (b)/(c): nothing correct in Downloads. Offer a folder picker,
-    // pre-opened at the Downloads folder.
-    fileChooser = std::make_unique<juce::FileChooser>(
-        "Where did you save the model files?",
-        downloads.isDirectory()
-            ? downloads
-            : juce::File::getSpecialLocation(juce::File::userHomeDirectory),
-        "");
+    // 3. Pull the live manifest off the message thread, then match it against the
+    //    Downloads folder (with a picker fallback). The manifest is fetched ONCE
+    //    and threaded through both attempts.
+    setModelInstallBusy(true, "Fetching the file list from HuggingFace...");
     juce::Component::SafePointer<SettingsPage> safeThis(this);
-    fileChooser->launchAsync(
-        juce::FileBrowserComponent::openMode
-            | juce::FileBrowserComponent::canSelectDirectories,
-        [safeThis, downloads, modelId, modelDisplayName](const juce::FileChooser& fc)
+    std::thread([safeThis, hfRepo, encoderSub, modelId, modelDisplayName]()
+    {
+        auto manifest = fetchModelManifest(hfRepo, encoderSub);
+        juce::MessageManager::callAsync([safeThis, manifest, modelId, modelDisplayName]()
         {
-            juce::ignoreUnused(downloads);
             auto* self = safeThis.getComponent();
             if (self == nullptr) return;
-            auto folder = fc.getResult();
-            if (folder == juce::File())
+            self->setModelInstallBusy(false);
+
+            if (manifest.empty())
             {
-                // Cancelled — leave a trail so the user knows nothing happened.
-                self->downloadStatusLabel.setText(
-                    "Auto-Scan cancelled. Follow the instructions below.",
-                    juce::dontSendNotification);
+                self->downloadStatusLabel.setText("Could not reach HuggingFace",
+                                                  juce::dontSendNotification);
                 self->downloadStatusLabel.setColour(juce::Label::textColourId,
                                                     juce::Colour(0xffef4444));
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::WarningIcon,
+                    "Could not fetch the file list",
+                    "T5ynth could not reach HuggingFace to look up which files "
+                    + modelDisplayName + " needs.\n\nYou download the model from "
+                    "HuggingFace, so this is almost certainly a temporary network "
+                    "problem. Check your connection and click Auto-Scan again.");
                 return;
             }
-            self->tryNativeStabilityInstallFromFolder(
-                folder, modelId, modelDisplayName, /*reportIfMissing*/ true);
+
+            // Primary: the system Downloads folder.
+            auto downloads = getDownloadsFolder();
+            auto outcome = self->installFromManifestFolder(
+                downloads, modelId, modelDisplayName, manifest, /*reportIfMissing*/ false);
+            if (outcome == InstallOutcome::Installed
+                || outcome == InstallOutcome::AbortedWithDialog)
+                return;  // copying, or a dialog (duplicate guard) already shown
+
+            // Some files already in Downloads → report exactly what's still
+            // missing rather than popping a picker over a half-done download.
+            if (countManifestFilesPresent(downloads, manifest) > 0)
+            {
+                self->installFromManifestFolder(
+                    downloads, modelId, modelDisplayName, manifest, /*reportIfMissing*/ true);
+                return;
+            }
+
+            // Nothing in Downloads → offer a folder picker (saved elsewhere?).
+            self->fileChooser = std::make_unique<juce::FileChooser>(
+                "Where did you save the model files?",
+                downloads.isDirectory()
+                    ? downloads
+                    : juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+                "");
+            self->fileChooser->launchAsync(
+                juce::FileBrowserComponent::openMode
+                    | juce::FileBrowserComponent::canSelectDirectories,
+                [safeThis, modelId, modelDisplayName, manifest](const juce::FileChooser& fc)
+                {
+                    auto* s2 = safeThis.getComponent();
+                    if (s2 == nullptr) return;
+                    auto folder = fc.getResult();
+                    if (folder == juce::File())
+                    {
+                        s2->downloadStatusLabel.setText(
+                            "Auto-Scan cancelled. Follow the checklist below.",
+                            juce::dontSendNotification);
+                        s2->downloadStatusLabel.setColour(juce::Label::textColourId,
+                                                          juce::Colour(0xffef4444));
+                        return;
+                    }
+                    s2->installFromManifestFolder(
+                        folder, modelId, modelDisplayName, manifest, /*reportIfMissing*/ true);
+                });
         });
+    }).detach();
 }
 
 // ── Download ────────────────────────────────────────────────────────────────
@@ -1824,7 +1781,9 @@ void SettingsPage::updateStatus()
     // Download button is only shown for models T5ynth can fetch itself.
     downloadButton.setVisible(downloadable);
 
-    if (modelPath.exists() && hasModelMarker(modelPath)) {
+    // "Installed" requires the model to be COMPLETE — for SA3 that includes the
+    // t5gemma encoder subfolder, not just the root weights hasModelMarker sees.
+    if (modelPath.exists() && modelHasRequiredAuxAssets(id, modelPath)) {
         const bool isEngine = selectedIsGenerationEngine();
         modelPathLabel.setText(modelPath.getFullPathName(), juce::dontSendNotification);
         if (backendConnected) {
@@ -1907,26 +1866,28 @@ void SettingsPage::updateStatus()
             setInstructionsText(
                 instructionsLabel,
                 "STABLE AUDIO 3 SMALL MUSIC\n"
-                "The current SA3 generation small-format checkpoint, tuned for\n"
-                "musical content.\n\n"
+                "The current SA3-generation small-format checkpoint, tuned for\n"
+                "musical content. It ships its own t5gemma text encoder, so there\n"
+                "are more files than the older Stable Audio models.\n\n"
                 "Licensed under the Stability AI Community License. Gated on\n"
                 "HuggingFace -- a free HuggingFace account is required once to\n"
-                "accept the license. T5ynth uses only two files from this repo\n"
-                "(model.safetensors and model_config.json).\n\n"
+                "accept the license.\n\n"
                 "  Source: https://huggingface.co/" + hfRepo + "\n\n"
                 "INSTALL:\n"
                 "  1. Click 'Open Model Page' above, sign up or log in, and click\n"
                 "     'Agree and access repository' to accept the license.\n"
-                "  2. Open the 'Files and versions' tab.\n"
-                "  3. Download exactly these two files to your usual Downloads\n"
-                "     folder:\n"
-                "        model.safetensors\n"
-                "        model_config.json\n"
-                "  4. Come back here and click 'Auto-Scan' above. T5ynth finds\n"
-                "     the files in Downloads and copies them into its working\n"
-                "     model folder.\n\n"
-                "If you saved them somewhere other than Downloads, Auto-Scan will "
-                "open a folder picker and ask you to point at the folder.");
+                "  2. Open the 'Files and versions' tab and download to your usual\n"
+                "     Downloads folder:\n"
+                "       * model.safetensors and model_config.json (top level)\n"
+                "       * every file inside the t5gemma-b-b-ul2 folder -- open it\n"
+                "         on the page; the config, the .safetensors and the\n"
+                "         tokenizer files together are the text encoder\n"
+                "  3. Come back here and click 'Auto-Scan'. T5ynth checks each file\n"
+                "     against HuggingFace, rebuilds the t5gemma-b-b-ul2 folder for\n"
+                "     you, and lists anything still missing.\n\n"
+                "You do NOT need to recreate the folder yourself -- just get the\n"
+                "files into Downloads. Auto-Scan also opens a folder picker if you\n"
+                "saved them somewhere else.");
         } else if (id == "t5-base") {
             setInstructionsText(
                 instructionsLabel,

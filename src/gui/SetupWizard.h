@@ -1,6 +1,14 @@
 #pragma once
 #include <JuceHeader.h>
 #include <atomic>
+#include <vector>
+
+// One required file of a model, with its CURRENT published byte size from
+// HuggingFace's tree API. A model's "manifest" is the vector of these — the
+// authoritative packing list (root weights/config plus, for SA3, every engine
+// file in the t5gemma text-encoder subfolder). relPath is the canonical path
+// inside the installed model dir (may contain a "subfolder/" prefix).
+struct ManifestEntry { juce::String relPath; juce::int64 size = 0; };
 
 /**
  * Model settings panel.
@@ -69,14 +77,19 @@ private:
     //                       try the next fallback (e.g. folder picker).
     enum class InstallOutcome { Installed, AbortedWithDialog, NotInstalled };
 
-    // Try to install a native Stability model from the given source folder: checks for
-    // the required files, reports missing / wrong / success, then copies to
-    // the target app-support dir on success. Used for both the Downloads
-    // folder (primary path) and any folder chosen via the picker fallback.
-    InstallOutcome tryNativeStabilityInstallFromFolder(const juce::File& sourceFolder,
-                                                       const juce::String& modelId,
-                                                       const juce::String& modelDisplayName,
-                                                       bool reportIfMissing);
+    // Install a gated native Stability model from the given source folder by
+    // matching every entry of its live HF manifest to a file in the folder
+    // (canonical name + browser-rename tolerance; the two equally-named
+    // model.safetensors are told apart by their manifest sizes). Reports
+    // missing / wrong-size / success, reconstructs the t5gemma subfolder, then
+    // copies into the target app-support dir on success. Used for both the
+    // Downloads folder (primary) and any folder chosen via the picker fallback.
+    // The manifest is fetched ONCE up front and threaded through both attempts.
+    InstallOutcome installFromManifestFolder(const juce::File& sourceFolder,
+                                             const juce::String& modelId,
+                                             const juce::String& modelDisplayName,
+                                             const std::vector<ManifestEntry>& manifest,
+                                             bool reportIfMissing);
 
     void downloadAllFilesInThread();
     void downloadGhReleaseInThread();
