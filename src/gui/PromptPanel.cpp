@@ -1399,6 +1399,19 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     req.semanticAxes = axesOverride.empty() ? std::move(pendingAxes_) : std::move(axesOverride);
     req.axesAmount = apvts.getRawParameterValue(PID::genAxesAmount)->load();
     req.injectionMode = requestInjectionMode;
+    // Single-prompt promptability guard (linear mode, slider-driven α only).
+    // The linear blend (0.5−0.5α)·A + (0.5+0.5α)·B places a lone prompt at α=∓1
+    // and the null / unconditional output at the α=0 slider centre — so typing
+    // one prompt and leaving the slider untouched would render null, not the
+    // prompt (on SA3 that null is a buzz). When exactly one field is filled, pin
+    // α to that prompt's pure end. Symmetric: A-only and B-only are equal
+    // partners (the A/B-equality design). Two-prompt blends stay untouched, and
+    // delta / step / layer modes — which don't collapse at α=0 — are excluded.
+    // Skipped when α is explicitly overridden (drift / explorer alpha sweep), so
+    // intentional exploration through the null point still works.
+    if (requestInjectionMode == "linear" && std::isnan(alphaOverride)
+        && req.promptA.isEmpty() != req.promptB.isEmpty())
+        req.alpha = req.promptB.isEmpty() ? -1.0f : 1.0f;  // B empty → pure A; A empty → pure B
     // Step-in slider drives BOTH transition_at AND late-phase α together so that
     // slider=0.5 → minimum effect (A-dominant), slider=1.0 → pure B.
     //   t = (slider - 0.5) / 0.5  ∈ [0, 1]
@@ -1807,14 +1820,21 @@ void PromptPanel::pollDriftRegen()
     if (!alphaChanged && !axesChanged && !noiseChanged && !magChanged && !promptChanged && !randomRegen)
         return;
 
-    float genAlpha = std::isnan(effAlpha)
-        ? apvts.getRawParameterValue(PID::genAlpha)->load() : effAlpha;
+    // genNoise/genMag are pre-resolved to their slider values; alpha is
+    // intentionally NOT — pass the drift sentinel (NaN when alpha is not being
+    // modulated) straight through. buildInferenceRequest resolves NaN→slider
+    // identically (see its top), so the rendered alpha is unchanged; preserving
+    // the sentinel is what lets its single-prompt guard tell the plain slider
+    // default apart from a genuine alpha sweep. Pre-resolving here (the old bug)
+    // handed the guard a concrete 0.0 on every non-alpha drift regen — including
+    // the promptChanged tick fired the instant a lone prompt is typed — so the
+    // guard silently skipped and the linear blend collapsed to null.
     float genNoise = std::isnan(effNoise)
         ? apvts.getRawParameterValue(PID::genNoise)->load() : effNoise;
     float genMag = std::isnan(effMag)
         ? apvts.getRawParameterValue(PID::genMagnitude)->load() : effMag;
 
     lastRegenTimeMs_ = juce::Time::getMillisecondCounterHiRes();
-    triggerDriftRegeneration(genAlpha, effAxes, genNoise, genMag,
+    triggerDriftRegeneration(effAlpha, effAxes, genNoise, genMag,
                              effectiveLateMix, effectiveSplitStart, effectiveSplitEnd, false);
 }
