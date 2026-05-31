@@ -627,7 +627,7 @@ private:
     static juce::String shortenModelName(const juce::String& full)
     {
         const auto lc = full.toLowerCase();
-        if (lc.contains("stable-audio-3"))          return "SA3 Music";
+        if (lc.contains("stable-audio-3"))          return lc.contains("sfx") ? "SA3 SFX" : "SA3 Music";
         if (lc.contains("stable-audio-open-small")) return "SA1 Small";
         if (lc.contains("stable-audio-open"))       return "SA1 Open";
         if (lc.contains("audioldm"))                return "AudioLDM2";

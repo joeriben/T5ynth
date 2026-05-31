@@ -141,7 +141,7 @@ private:
     // Visible in both compact and easy modes — the model choice is central
     // enough to the synth's behavior that hiding it in easy mode left the
     // user without a way to switch engines on the fly.
-    static constexpr int kNumModelSlots = 4;
+    static constexpr int kNumModelSlots = 5;
     juce::TextButton modelBtns[kNumModelSlots];
     juce::String modelSlotIds[kNumModelSlots];  // resolved model directory name per slot
     juce::Rectangle<int> modelSwitchBounds;

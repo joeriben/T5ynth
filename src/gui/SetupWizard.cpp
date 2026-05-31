@@ -193,6 +193,20 @@ static const KnownModel kKnownModels[] = {
       "T5ynth does not provide the model weights. By downloading, you accept\n"
       "the license terms and take responsibility for compliance.", false, true,
       nullptr, 0, "t5gemma-b-b-ul2" },
+    // SA3 Small SFX — the SA3-generation sound-effects checkpoint. Same
+    // architecture and t5gemma-b-b-ul2 encoder as SA3 Small Music; the backend
+    // swaps the modality prefix to "TrackType: SFX, " by model name, and the
+    // SA3 prompt/axes/dim-explorer gating keys on the "stable-audio-3" prefix,
+    // so this variant inherits all of it.
+    { "stable-audio-3-small-sfx", "Stable Audio 3 Small SFX", "stabilityai/stable-audio-3-small-sfx", nullptr,
+      "https://stability.ai/community-license-agreement",
+      "This model is licensed under the Stability AI Community License.\n\n"
+      "- Non-commercial use: free\n"
+      "- Commercial use under $1M annual revenue: free (register at stability.ai)\n"
+      "- Commercial use over $1M: enterprise license required\n\n"
+      "T5ynth does not provide the model weights. By downloading, you accept\n"
+      "the license terms and take responsibility for compliance.", false, true,
+      nullptr, 0, "t5gemma-b-b-ul2" },
 };
 static constexpr int kNumKnownModels = sizeof(kKnownModels) / sizeof(kKnownModels[0]);
 
@@ -1008,7 +1022,8 @@ void SettingsPage::performAutoScan()
     const bool isNativeStabilityModel =
         modelId == "stable-audio-open-small"
         || modelId == "stable-audio-open-1.0"
-        || modelId == "stable-audio-3-small-music";
+        || modelId == "stable-audio-3-small-music"
+        || modelId == "stable-audio-3-small-sfx";
 
     if (!isNativeStabilityModel)
     {
@@ -1862,14 +1877,20 @@ void SettingsPage::updateStatus()
                 "     from Downloads afterwards.\n\n"
                 "If you saved them somewhere other than Downloads, Auto-Scan will "
                 "open a folder picker and ask you to point at the folder.");
-        } else if (id == "stable-audio-3-small-music") {
+        } else if (id == "stable-audio-3-small-music" || id == "stable-audio-3-small-sfx") {
+            const bool sfx = (id == "stable-audio-3-small-sfx");
             setInstructionsText(
                 instructionsLabel,
-                "STABLE AUDIO 3 SMALL MUSIC\n"
-                "The current SA3-generation small-format checkpoint, tuned for\n"
-                "musical content. It ships its own t5gemma text encoder, so there\n"
-                "are more files than the older Stable Audio models.\n\n"
-                "Licensed under the Stability AI Community License. Gated on\n"
+                juce::String(sfx
+                    ? "STABLE AUDIO 3 SMALL SFX\n"
+                      "The current SA3-generation small-format checkpoint, tuned for\n"
+                      "sound-effects content. It ships its own t5gemma text encoder, so\n"
+                      "there are more files than the older Stable Audio models.\n\n"
+                    : "STABLE AUDIO 3 SMALL MUSIC\n"
+                      "The current SA3-generation small-format checkpoint, tuned for\n"
+                      "musical content. It ships its own t5gemma text encoder, so there\n"
+                      "are more files than the older Stable Audio models.\n\n")
+                + "Licensed under the Stability AI Community License. Gated on\n"
                 "HuggingFace -- a free HuggingFace account is required once to\n"
                 "accept the license.\n\n"
                 "  Source: https://huggingface.co/" + hfRepo + "\n\n"

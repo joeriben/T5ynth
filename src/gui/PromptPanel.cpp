@@ -292,7 +292,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     // Model selector — fixed 4 slots, always visible (disabled = gray until model found).
     // Order: SA3 first (newest, default), then SA1 family, then AudioLDM2.
     {
-        const char* slotLabels[kNumModelSlots] = { "SA3 Music", "SA1 Open", "SA1 Small", "AudioLDM2" };
+        const char* slotLabels[kNumModelSlots] = { "SA3 Music", "SA3 SFX", "SA1 Open", "SA1 Small", "AudioLDM2" };
         for (int i = 0; i < kNumModelSlots; ++i)
         {
             modelBtns[i].setButtonText(slotLabels[i]);
@@ -896,20 +896,21 @@ void PromptPanel::populateModelSelector()
     auto& models = pipeInf.getAvailableModels();
 
     // Match available models to fixed slots by pattern
-    // Slot 0: SA3 Music, Slot 1: SA1 Open, Slot 2: SA1 Small, Slot 3: AudioLDM2
+    // Slot 0: SA3 Music, 1: SA3 SFX, 2: SA1 Open, 3: SA1 Small, 4: AudioLDM2
     for (int i = 0; i < kNumModelSlots; ++i)
         modelSlotIds[i] = {};
 
     for (auto& m : models)
     {
         // Order matters: SA3 names contain "small", so the SA3 check fires
-        // before the SA1 Small fallback to keep SA3 Music off slot 2.
+        // before the SA1 Small fallback. Within SA3 the "sfx" sub-check splits
+        // Music (slot 0) from SFX (slot 1) — both carry "stable-audio-3".
         int slot = -1;
-        if (m.containsIgnoreCase("stable-audio-3"))          slot = 0;  // SA3 Music
-        else if (m.containsIgnoreCase("small"))              slot = 2;  // SA1 Small
-        else if (m.containsIgnoreCase("stable-audio-open"))  slot = 1;  // SA1 Open 1.0
+        if (m.containsIgnoreCase("stable-audio-3"))          slot = m.containsIgnoreCase("sfx") ? 1 : 0;  // SA3 SFX : Music
+        else if (m.containsIgnoreCase("small"))              slot = 3;  // SA1 Small
+        else if (m.containsIgnoreCase("stable-audio-open"))  slot = 2;  // SA1 Open 1.0
         else if (m.containsIgnoreCase("audioldm") ||
-                 m.containsIgnoreCase("audio-ldm"))          slot = 3;
+                 m.containsIgnoreCase("audio-ldm"))          slot = 4;  // AudioLDM2
 
         if (slot >= 0 && slot < kNumModelSlots)
         {
