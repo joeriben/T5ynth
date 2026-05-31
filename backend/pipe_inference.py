@@ -2296,11 +2296,24 @@ def main():
         try:
             request = json.loads(line)
 
-            # Route to correct model + device
-            model = request.get("model", default_model)
+            # Route to correct model + device.
+            # An explicitly requested model that is not installed MUST fail loud.
+            # Silently falling back to default_model masks a missing/mis-installed
+            # model: the user selects e.g. SA3, its files are absent, and they
+            # unknowingly hear the default model run with the requested model's
+            # sampling params — which sounds like the selected model is broken.
+            requested_model = request.get("model")
             device = request.get("device", default_device)
-            if model not in _available_models:
+            if requested_model is None:
                 model = default_model
+            elif requested_model in _available_models:
+                model = requested_model
+            else:
+                raise ValueError(
+                    f"Model '{requested_model}' is not installed "
+                    f"(available: {sorted(_available_models)}). "
+                    f"Re-run model setup to install it."
+                )
             if device == "auto" or device not in devices:
                 device = default_device
 
