@@ -52,6 +52,19 @@ t5gemma-b-b-ul2/{config.json, generation_config.json,
 LICENSE.md, LICENSE_GEMMA.md, NOTICE                →  <dir>/...   (license docs)
 ```
 
+## SA3 music vs sfx (verified by LFS sha256)
+
+The two SA3 variants share **byte-identical weights** on the stabilityai originals:
+`model.safetensors` AND the t5gemma encoder have the SAME LFS sha256 across music and sfx.
+The only difference is `model_config.json` (the `TrackType: SFX` prompt prefix + training-only
+flags). Comfy-Org re-packs them as two separate files with different sha256 (pure repacking —
+also differs from the stabilityai sha; the `ed9cf1b6...` that read as "music" elsewhere is
+Comfy-Org's *sfx* hash). So per-variant we fetch the matching Comfy-Org checkpoint + the
+matching `model_config.json`; the t5gemma encoder is shared.
+
+The size-based duplicate-guard (`installFromManifestFolder:874-888`) therefore mis-fires for
+music vs sfx (identical 2.27 GB size). **Being fixed in a parallel session — out of scope here.**
+
 ## Steps
 
 1. **Catalog** — `kKnownModels` (`SetupWizard.cpp:187` / `:201`). Both SA3 entries:
