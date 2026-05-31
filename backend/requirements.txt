@@ -27,6 +27,16 @@ numpy>=1.23,<2
 scipy
 torchsde
 einops
+# protobuf <3.21 — needed ONLY on the path where a t5gemma tokenizer is loaded from
+# a bare SentencePiece `tokenizer.model` with no `tokenizer.json` (the ungated SA3
+# install): AutoTokenizer.from_pretrained (default use_fast=True) builds a
+# GemmaTokenizerFast via the slow->fast SentencePiece converter, which imports
+# sentencepiece 0.1.99's bundled *_pb2. Those generated descriptors are incompatible
+# with protobuf >=4 ("Descriptors cannot be created directly"), so the converter only
+# runs under protobuf 3.20.x. Harmless for the diffusers/SAO paths (they ship a
+# tokenizer.json and never invoke the converter). Validated alongside a full SA3
+# music generation (RMS 0.16, identical token IDs to the shipped tokenizer.json).
+protobuf<3.21
 # Keep native extension wheels ABI-aligned with the torch version installed by
 # the platform-specific build step.
 torchaudio==2.7.1
