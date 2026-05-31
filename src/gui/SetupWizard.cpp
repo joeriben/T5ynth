@@ -114,6 +114,16 @@ static bool shouldDownloadHfFile(const juce::String& remotePath,
 // GitHub-release-mirrored asset descriptor. Used by downloadGhReleaseInThread.
 struct GhAsset { const char* name; int64_t expectedSize; };
 
+// One file of a "reassembly" install: an ABSOLUTE source URL (e.g. the Comfy-Org
+// ungated weights, or the T5ynt metadata mirror), the canonical path it lands at
+// inside the installed model dir (the source path need NOT equal the target path),
+// and its published byte size (progress + resume-skip). This is what lets SA3
+// install login-free: heavy weights stream from Comfy-Org under their repacked
+// names (checkpoints/..., text_encoders/...) into model.safetensors /
+// t5gemma-b-b-ul2/model.safetensors, while the small metadata Comfy-Org omits is
+// pulled from a T5ynt-owned mirror. Consumed by downloadReassemblyInThread.
+struct ReassemblyAsset { const char* sourceUrl; const char* localPath; int64_t expectedSize; };
+
 // Files mirrored at the assets/t5-base-v1 GitHub release tag. Sizes match
 // google-t5/t5-base on HuggingFace; used for progress display and the
 // "skip if already downloaded" heuristic.
@@ -146,6 +156,12 @@ struct KnownModel {
     // initializer lets the entries below omit it = self-contained model (and
     // keeps the aggregate warning-clean).
     const char* encoderSubfolder = nullptr;
+    // Reassembly install: a fixed list of {absolute source URL, canonical local
+    // path, size} fetched directly (no HF account) and reassembled into the model
+    // dir. When set, startDownload routes to downloadReassemblyInThread and the
+    // single-repo HF/GH paths are bypassed. nullptr = model does not reassemble.
+    const ReassemblyAsset* assets = nullptr;
+    int assetCount = 0;
 };
 static const KnownModel kKnownModels[] = {
     { "stable-audio-open-1.0",   "Stable Audio Open 1.0",     "stabilityai/stable-audio-open-1.0", nullptr,
@@ -375,6 +391,22 @@ int SettingsPage::selectedGhFileCount()
     int idx = modelChooser.getSelectedItemIndex();
     if (idx >= 0 && idx < kNumKnownModels)
         return kKnownModels[idx].ghFileCount;
+    return 0;
+}
+
+const void* SettingsPage::selectedAssets()
+{
+    int idx = modelChooser.getSelectedItemIndex();
+    if (idx >= 0 && idx < kNumKnownModels)
+        return static_cast<const void*>(kKnownModels[idx].assets);
+    return nullptr;
+}
+
+int SettingsPage::selectedAssetCount()
+{
+    int idx = modelChooser.getSelectedItemIndex();
+    if (idx >= 0 && idx < kNumKnownModels)
+        return kKnownModels[idx].assetCount;
     return 0;
 }
 
@@ -1175,6 +1207,17 @@ void SettingsPage::startDownload()
 
     auto modelId = selectedModelId();
 
+    // Reassembly install (SA3): every asset has its OWN source URL + target path,
+    // possibly across two sources (Comfy-Org ungated weights + the T5ynt metadata
+    // mirror). Checked before the single-repo GH/HF paths it supersedes.
+    if (selectedAssets() != nullptr && selectedAssetCount() > 0) {
+        downloadStatusLabel.setText("Downloading model files...", juce::dontSendNotification);
+        auto targetDir = getAppSupportModelDir(modelId);
+        targetDir.createDirectory();
+        downloadReassemblyInThread();
+        return;
+    }
+
     // GitHub Releases: fixed file list, no API call needed
     if (ghRelease.isNotEmpty()) {
         downloadStatusLabel.setText("Downloading from GitHub...", juce::dontSendNotification);
@@ -1445,6 +1488,209 @@ void SettingsPage::downloadGhReleaseInThread()
             }
 
             bytesCompleted += gf.expectedSize;
+            if (progressCounter) progressCounter->store(bytesCompleted);
+        }
+
+        juce::MessageManager::callAsync([safeThis]() {
+            if (auto* self = safeThis.getComponent())
+                self->onDownloadFinished(true, {});
+        });
+    }).detach();
+}
+
+// Reassembly install path: fetch a fixed list of assets, each from its OWN
+// absolute source URL, into its OWN canonical path inside the model dir (source
+// path need NOT equal target path). This is how SA3 installs login-free — the
+// ungated heavy weights come from the Comfy-Org mirror under their repacked
+// names and land as model.safetensors / t5gemma-b-b-ul2/model.safetensors, while
+// the small metadata Comfy-Org omits comes from the T5ynt metadata mirror.
+// Resume / Range / 416 / truncation handling mirrors downloadGhReleaseInThread;
+// the structural difference is the per-asset source-URL + target-path decoupling
+// (with parent-dir creation for the t5gemma-b-b-ul2/ subfolder).
+void SettingsPage::downloadReassemblyInThread()
+{
+    auto modelId = selectedModelId();
+    auto targetDir = getAppSupportModelDir(modelId);
+
+    const auto* assets = static_cast<const ReassemblyAsset*>(selectedAssets());
+    int assetCount = selectedAssetCount();
+
+    if (assets == nullptr || assetCount <= 0)
+    {
+        // Catalog row routed here but defined no asset list — programmer error.
+        onDownloadFinished(false,
+            "Internal error: model is configured for reassembly download but has "
+            "no asset list defined in the SetupWizard catalog.");
+        return;
+    }
+
+    int64_t total = 0;
+    for (int i = 0; i < assetCount; ++i) total += assets[i].expectedSize;
+    totalBytes = total;
+    downloadedBytes = 0;
+    downloadCounter_ = std::make_shared<std::atomic<int64_t>>(0);
+    downloadCancelFlag_ = std::make_shared<std::atomic<bool>>(false);
+    startTimer(250);
+
+    juce::Component::SafePointer<SettingsPage> safeThis(this);
+    auto progressCounter = downloadCounter_;
+    auto cancelFlag = downloadCancelFlag_;
+    std::thread([safeThis, progressCounter, cancelFlag, targetDir, assets, assetCount]()
+    {
+        int64_t bytesCompleted = 0;
+
+        for (int i = 0; i < assetCount; ++i)
+        {
+            if (cancelFlag && cancelFlag->load())
+                return;
+
+            auto& a = assets[i];
+            const auto sourceUrl = juce::String(a.sourceUrl);
+            const auto localPath = juce::String(a.localPath);
+            auto targetFile = targetDir.getChildFile(localPath);
+            targetFile.getParentDirectory().createDirectory();
+            const auto displayName = localPath.fromLastOccurrenceOf("/", false, false);
+
+            // Resume-aware existing-file check (ignore stale LFS pointers):
+            //   == expectedSize      → already complete, skip
+            //   > expectedSize       → not our file — start fresh
+            //   in (0, expectedSize) → partial — request HTTP Range and append
+            int64_t existingBytes = 0;
+            if (targetFile.existsAsFile() && !isLfsPointer(targetFile))
+                existingBytes = targetFile.getSize();
+
+            if (existingBytes == a.expectedSize)
+            {
+                bytesCompleted += a.expectedSize;
+                if (progressCounter) progressCounter->store(bytesCompleted);
+                continue;
+            }
+            if (existingBytes > a.expectedSize)
+            {
+                targetFile.deleteFile();
+                existingBytes = 0;
+            }
+            const bool tryResume = (existingBytes > 0);
+
+            auto fileNum = i + 1;
+            juce::String statusText = (tryResume ? juce::String("Resuming: ")
+                                                 : juce::String("Downloading: "))
+                + displayName + " (" + juce::String(fileNum) + "/"
+                + juce::String(assetCount) + ")";
+            juce::MessageManager::callAsync([safeThis, statusText]() {
+                if (auto* self = safeThis.getComponent())
+                    self->downloadStatusLabel.setText(statusText, juce::dontSendNotification);
+            });
+
+            // createInputStream follows redirects, so HF LFS (Comfy-Org weights)
+            // and direct GitHub-release assets both resolve transparently.
+            juce::URL fileUrl(sourceUrl);
+            juce::String extraHeaders;
+            if (tryResume)
+                extraHeaders = "Range: bytes=" + juce::String(existingBytes) + "-";
+
+            int statusCode = 0;
+            auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                            .withConnectionTimeoutMs(30000)
+                            .withExtraHeaders(extraHeaders)
+                            .withStatusCode(&statusCode);
+            auto stream = fileUrl.createInputStream(opts);
+
+            if (!stream)
+            {
+                juce::MessageManager::callAsync([safeThis, displayName]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->onDownloadFinished(false, "Connection failed for: " + displayName
+                            + "\n\nCheck your internet connection.");
+                });
+                return;
+            }
+
+            // 416 Range Not Satisfiable: the server file is smaller than our
+            // partial (source re-uploaded). Clear the partial so the next click
+            // starts fresh instead of re-sending the same unsatisfiable Range.
+            if (statusCode == 416 && tryResume)
+            {
+                targetFile.deleteFile();
+                juce::MessageManager::callAsync([safeThis, displayName]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->onDownloadFinished(false,
+                            "The file on the server changed since your previous "
+                            "download attempt: " + displayName + "\n\n"
+                            "Your partial download has been cleared. Click "
+                            "Download again to start fresh.");
+                });
+                return;
+            }
+
+            if (statusCode >= 400)
+            {
+                juce::MessageManager::callAsync([safeThis, displayName, statusCode]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->onDownloadFinished(false, "Server returned HTTP "
+                            + juce::String(statusCode) + " for: " + displayName);
+                });
+                return;
+            }
+
+            // 206 Partial Content → append. 200 OK with tryResume → server
+            // ignored Range, restart from byte 0.
+            const bool appendMode = tryResume && statusCode == 206;
+            if (!appendMode)
+                targetFile.deleteFile();
+
+            auto outStream = targetFile.createOutputStream();
+            if (!outStream)
+            {
+                juce::MessageManager::callAsync([safeThis, displayName]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->onDownloadFinished(false, "Cannot write: " + displayName);
+                });
+                return;
+            }
+            // FileOutputStream seeks to end-of-file for existing files, so the
+            // write cursor is already correct for appendMode == true.
+
+            const int64_t initialBytes = appendMode ? existingBytes : 0;
+            char buffer[65536];
+            int64_t written = 0;
+            while (true)
+            {
+                if (cancelFlag && cancelFlag->load())
+                    return;
+                auto bytesRead = stream->read(buffer, sizeof(buffer));
+                if (bytesRead <= 0) break;
+                outStream->write(buffer, static_cast<size_t>(bytesRead));
+                written += bytesRead;
+                if (progressCounter) progressCounter->store(bytesCompleted + initialBytes + written);
+            }
+            outStream.reset();
+
+            if (cancelFlag && cancelFlag->load())
+                return;
+
+            // Network dropped mid-stream. Keep the partial so the next click
+            // resumes from where it stopped — don't delete it.
+            const int64_t finalBytes = targetFile.getSize();
+            if (finalBytes < a.expectedSize)
+            {
+                auto toStr = [](int64_t b) {
+                    return (b < 1024 * 1024) ? juce::String(b) + " bytes"
+                                             : juce::String(b / (1024 * 1024)) + " MB";
+                };
+                auto expectedStr = toStr(a.expectedSize);
+                auto gotStr = toStr(finalBytes);
+                juce::MessageManager::callAsync([safeThis, displayName, expectedStr, gotStr]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->onDownloadFinished(false,
+                            "Download was interrupted for " + displayName + ":\n"
+                            "Expected " + expectedStr + ", received " + gotStr + ".\n\n"
+                            "Click Download again to resume from where it stopped.");
+                });
+                return;
+            }
+
+            bytesCompleted += a.expectedSize;
             if (progressCounter) progressCounter->store(bytesCompleted);
         }
 

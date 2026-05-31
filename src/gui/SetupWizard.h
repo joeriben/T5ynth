@@ -93,6 +93,7 @@ private:
 
     void downloadAllFilesInThread();
     void downloadGhReleaseInThread();
+    void downloadReassemblyInThread();
     void onDownloadFinished(bool success, const juce::String& error);
     static bool isLfsPointer(const juce::File& file);
     void cleanupBadFiles(const juce::File& dir);
@@ -107,6 +108,9 @@ private:
     // implementation in SetupWizard.cpp pulls from the kKnownModels catalog.
     const void* selectedGhFiles();
     int         selectedGhFileCount();
+    // ReassemblyAsset list (SA3 multi-source install), opaque for the same reason.
+    const void* selectedAssets();
+    int         selectedAssetCount();
 
     juce::File modelPath;
 
