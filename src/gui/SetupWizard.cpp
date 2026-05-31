@@ -876,18 +876,31 @@ SettingsPage::InstallOutcome SettingsPage::installFromManifestFolder(
         if (st.relPath != "model.safetensors")
             continue;
         const auto dup = findSameSizeInstalledModel(modelId, "model.safetensors", st.source.getSize());
-        if (dup.isNotEmpty())
-        {
-            juce::AlertWindow::showMessageBoxAsync(
-                juce::MessageBoxIconType::WarningIcon,
-                "Duplicate of " + dup + "?",
-                "The model.safetensors picked for " + modelDisplayName
-                + " is the same size as the one already installed for '" + dup
-                + "'. They are almost certainly the SAME checkpoint. If you meant a "
-                  "different model, re-download its model.safetensors and click "
-                  "Auto-Scan again. Install aborted.");
-            return InstallOutcome::AbortedWithDialog;
-        }
+        if (dup.isEmpty())
+            continue;
+
+        // Stable Audio 3 Small *Music* and *SFX* legitimately ship the IDENTICAL
+        // model.safetensors — verified byte-for-byte against HuggingFace: the two
+        // repos carry the same LFS sha256 for both the DiT weights AND the t5gemma
+        // encoder. The variants differ ONLY in model_config.json (the "TrackType:"
+        // prompt prefix). A size/content collision between two SA3 variants is thus
+        // the EXPECTED case, not a wrong-file mistake — install normally and reuse
+        // the shared weights. The guard below still protects every other model family
+        // (where identical sizes across variants really are vanishingly rare).
+        const bool bothSA3 = modelId.startsWithIgnoreCase("stable-audio-3")
+                          && dup.startsWithIgnoreCase("stable-audio-3");
+        if (bothSA3)
+            continue;
+
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::WarningIcon,
+            "Duplicate of " + dup + "?",
+            "The model.safetensors picked for " + modelDisplayName
+            + " is the same size as the one already installed for '" + dup
+            + "'. They are almost certainly the SAME checkpoint. If you meant a "
+              "different model, re-download its model.safetensors and click "
+              "Auto-Scan again. Install aborted.");
+        return InstallOutcome::AbortedWithDialog;
     }
 
     auto targetDir = getAppSupportModelDir(modelId);
