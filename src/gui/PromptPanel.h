@@ -68,6 +68,11 @@ public:
     /** Callback to read AxesPanel values with per-slot drift offsets (wired by MainPanel). */
     std::function<std::map<juce::String, float>(float, float, float)> getAxisValuesCallback;
 
+    /** Fired whenever the selected model may have changed (model click, preset
+     *  load, backend availability). MainPanel uses it to grey out the AxesPanel
+     *  for SA3, whose semantic axes are deactivated pending recalculation. */
+    std::function<void()> onModelChanged;
+
     /** Paint ghost overlay for alpha slider (drift modulation indicator). */
     void paintOverChildren(juce::Graphics& g) override;
 
@@ -208,6 +213,15 @@ private:
     void applyModeToSlider();
     bool isAudioLDM2Model(const juce::String& model) const;
     bool selectedModelIsAudioLDM2() const;
+    bool isSA3Model(const juce::String& model) const;
+
+public:
+    /** True when the active model is SA3 (Stable Audio 3 Small Music). Public
+     *  so MainPanel can gate the AxesPanel — SA3's semantic axes are disabled
+     *  pending recalculation for its t5gemma conditioner. */
+    bool selectedModelIsSA3() const;
+
+private:
     /** Per-model defaults for the steps/CFG params. The model-click handler
      *  applies these on model switch, and hasHiddenActiveState() compares
      *  against them to decide whether easy mode's params reflect a

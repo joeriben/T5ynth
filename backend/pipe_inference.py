@@ -1619,6 +1619,18 @@ def _generate_native(pipe, request):
         sem_axes = request.get("semantic_axes")
         axes_amount = float(request.get("axes_amount", 1.0))
 
+        # Semantic axes are disabled for SA3. The axis directions were derived
+        # from aggregate prompt→embedding patterns on the SAO/T5 conditioner and
+        # do not transfer to SA3's t5gemma: its learned padding displaces the
+        # neutral "zero line", so the per-axis direction = encode(pole) − neutral
+        # comes out unbalanced (one pole coherent, the other off-manifold) and
+        # ~10× under-scaled. Until they are recomputed for SA3 this is a backend
+        # safety net mirroring the GUI grey-out — ignore axes here regardless of
+        # what the request carries (e.g. a preset saved under SAO). SAO and
+        # AudioLDM2 keep their working axes untouched.
+        if sem_axes and (getattr(pipe, "model_name", "") or "").lower().startswith("stable-audio-3"):
+            sem_axes = None
+
         def native_encode(text):
             cond = pipe.model.conditioner(
                 [_build_native_conditioning_input(pipe, text, 1.0, 0.0)],

@@ -1119,6 +1119,19 @@ bool PromptPanel::selectedModelIsAudioLDM2() const
     return isAudioLDM2Model(getSelectedModel());
 }
 
+bool PromptPanel::isSA3Model(const juce::String& model) const
+{
+    // Matches the populateModelSelector slotting and defaultParamsFor logic so
+    // present and future SA3 variants ("small-music", "medium", fine-tunes)
+    // are all recognised by the shared "stable-audio-3" prefix.
+    return model.containsIgnoreCase("stable-audio-3");
+}
+
+bool PromptPanel::selectedModelIsSA3() const
+{
+    return isSA3Model(getSelectedModel());
+}
+
 void PromptPanel::setSeedMode(SeedMode mode, bool applyState)
 {
     seedMode_ = mode;
@@ -1216,6 +1229,14 @@ void PromptPanel::syncInjectionModeAvailability()
     injModeLinear.setEnabled(true);
     injModeLinear.setAlpha(1.0f);
     injModeLinear.setTooltip(audioLDM2 ? "AudioLDM2 supports Linear mode only" : "");
+
+    // Every model-change path (button click, preset load, backend availability)
+    // funnels through here — the same chokepoint that already gates injection
+    // mode by model. Notify MainPanel so it can grey out the AxesPanel for SA3,
+    // whose semantic axes are disabled pending recalculation. Cheap, idempotent,
+    // and user-driven (never on the audio/timer hot path).
+    if (onModelChanged)
+        onModelChanged();
 }
 
 void PromptPanel::syncSeedEditorEnabledState()
@@ -1398,6 +1419,12 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     req.dimensionOffsets = std::move(pendingOffsets_);
     req.semanticAxes = axesOverride.empty() ? std::move(pendingAxes_) : std::move(axesOverride);
     req.axesAmount = apvts.getRawParameterValue(PID::genAxesAmount)->load();
+    // Semantic axes are disabled for SA3 (the AxesPanel is greyed out for it).
+    // Clear them here regardless of source so a value left in the AxesPanel
+    // slots — e.g. from a preset saved under SAO and recalled under SA3 — is
+    // never sent. The backend ignores axes for SA3 too, as a safety net.
+    if (isSA3Model(req.model))
+        req.semanticAxes.clear();
     req.injectionMode = requestInjectionMode;
     // Single-prompt promptability guard (linear mode, slider-driven α only).
     // The linear blend (0.5−0.5α)·A + (0.5+0.5α)·B places a lone prompt at α=∓1

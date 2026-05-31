@@ -904,6 +904,22 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         return axesPanel.getAxisValuesWithOffsets(o1, o2, o3);
     };
 
+    // Grey out the Semantic Axes card for SA3 — its axes are disabled pending
+    // recalculation for the t5gemma conditioner (PromptPanel also withholds them
+    // from the request and the backend ignores them). Guarded so we only repaint
+    // on an actual state flip, not on every model/injection-mode notification.
+    promptPanel.onModelChanged = [this]() {
+        const bool enabled = !promptPanel.selectedModelIsSA3();
+        if (axesPanel.isEnabled() != enabled)
+        {
+            axesPanel.setEnabled(enabled);
+            axesPanel.setAlpha(enabled ? 1.0f : 0.4f);
+            axesHeader.setEnabled(enabled);
+            axesHeader.setAlpha(enabled ? 1.0f : 0.4f);
+        }
+    };
+    promptPanel.onModelChanged();  // set initial state (no-op until a model is selected)
+
 
 
     // Status callback — drive Generate animation and status bar text.
