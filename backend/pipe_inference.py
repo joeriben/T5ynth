@@ -1004,6 +1004,24 @@ def _build_native_conditioning_input(pipe, prompt, duration, start_pos=0.0):
     return payload
 
 
+def _native_modality_prefix(pipe):
+    """Modality prefix prepended to SA3 prompts (Stable Audio 3 paper §5.1).
+
+    The SA3 family is trained with a leading "TrackType: ..." field and the
+    authors recommend all users prepend it at inference: it significantly
+    improves generation quality (without it the model has no signal for which
+    domain to render and conditioning is weak). Music checkpoints use the music
+    prefix; an "sfx" checkpoint would use the SFX one. Empty for non-SA3 models
+    (SAO, AudioLDM2), which were trained without it.
+    """
+    name = (getattr(pipe, "model_name", "") or "").lower()
+    if name.startswith("stable-audio-3"):
+        if "sfx" in name:
+            return "TrackType: SFX, "
+        return "TrackType: Music, VocalType: Instrumental, "
+    return ""
+
+
 def load_default_model(model_name, devices):
     """Load the default model on the first working device. Returns that device."""
     failures = []
@@ -1425,6 +1443,15 @@ def _generate_native(pipe, request):
 
     prompt_a = request.get("prompt_a", "")
     prompt_b = request.get("prompt_b", "")
+    # SA3 modality prefix (paper §5.1). Prepend to NON-EMPTY prompts only, so an
+    # empty field still encodes as the true "" Spiegel-Punkt (null) reference and
+    # the a_present/b_present logic below is unaffected. Empty for non-SA3 models.
+    _modality_prefix = _native_modality_prefix(pipe)
+    if _modality_prefix:
+        if prompt_a:
+            prompt_a = _modality_prefix + prompt_a
+        if prompt_b:
+            prompt_b = _modality_prefix + prompt_b
     alpha = request.get("alpha", 0.0)
     magnitude = request.get("magnitude", 1.0)
     noise_sigma = request.get("noise_sigma", 0.0)
@@ -1556,6 +1583,28 @@ def _generate_native(pipe, request):
         else:
             combined_mask = mask_b
 
+        # Auto-detect a LEARNED (non-zero) padding embedding. SA3's t5gemma
+        # conditioner emits a non-zero embedding at padded positions that the
+        # DiT cross-attends to (it disables the cond mask — paper §2.2); zeroing
+        # it feeds out-of-distribution conditioning and collapses the latent to
+        # a ~10.76 Hz buzz. SAO's T5 conditioner emits true zeros there, so
+        # masking is a safe no-op that also scrubs manipulation pollution.
+        # Inspect the raw (pre-manipulation) embedding at masked positions.
+        _learned_padding = False
+        if combined_mask is not None:
+            _pad_pos = ~combined_mask.bool()  # True at padded positions
+            if bool(_pad_pos.any()):
+                _learned_padding = prompt_emb_a[_pad_pos].abs().mean().item() > 1e-4
+
+        def _mask_pad(emb):
+            """Zero padded positions to scrub manipulation pollution — UNLESS the
+            conditioner uses a learned (non-zero) padding embedding the DiT
+            depends on, in which case masking would be destructive (no-op).
+            Also a no-op when there is no mask."""
+            if combined_mask is None or _learned_padding:
+                return emb
+            return emb * combined_mask.unsqueeze(-1).float()
+
         # ── Embedding-level manipulators ──
         # Magnitude / Noise / Semantic Axes / Dimension Offsets all act
         # additively or multiplicatively on a 768-D embedding tensor. To make
@@ -1640,15 +1689,13 @@ def _generate_native(pipe, request):
             # AND the GUI explorer's "this is what the model sees before
             # your dim offsets" reference contract).
             manipulated = apply_pre_offsets(manipulated)
-            baseline = manipulated if combined_mask is None \
-                else manipulated * combined_mask.unsqueeze(-1).float()
+            baseline = _mask_pad(manipulated)
             baseline_pooled = baseline.squeeze(0).mean(dim=0).cpu().float().numpy()
             manipulated = apply_dim_offsets(manipulated)
         elif injection_mode == "delta":
             manipulated = prompt_emb_a + alpha * (prompt_emb_b - null_pe)
             manipulated = apply_pre_offsets(manipulated)
-            baseline = manipulated if combined_mask is None \
-                else manipulated * combined_mask.unsqueeze(-1).float()
+            baseline = _mask_pad(manipulated)
             baseline_pooled = baseline.squeeze(0).mean(dim=0).cpu().float().numpy()
             manipulated = apply_dim_offsets(manipulated)
         elif injection_mode == "late_step":
@@ -1661,10 +1708,7 @@ def _generate_native(pipe, request):
             late_blend = (0.5 - 0.5 * la) * prompt_emb_a + (0.5 + 0.5 * la) * prompt_emb_b
             manipulated = apply_all(prompt_emb_a)         # early-phase conditioning
             late_emb_manip = apply_all(late_blend)        # late-phase conditioning
-            if combined_mask is not None:
-                late_emb_zeroed = late_emb_manip * combined_mask.unsqueeze(-1).float()
-            else:
-                late_emb_zeroed = late_emb_manip
+            late_emb_zeroed = _mask_pad(late_emb_manip)
             late_step_payload = (late_emb_zeroed, combined_mask)
             baseline_pooled = manipulated.squeeze(0).mean(dim=0).cpu().float().numpy()
         elif injection_mode == "layer_split":
@@ -1676,12 +1720,8 @@ def _generate_native(pipe, request):
             # magnitude / noise / axes / dim offsets uniformly.
             emb_a_manip = apply_all(prompt_emb_a)
             emb_b_manip = apply_all(prompt_emb_b)
-            if combined_mask is not None:
-                emb_a_masked = emb_a_manip * combined_mask.unsqueeze(-1).float()
-                emb_b_masked = emb_b_manip * combined_mask.unsqueeze(-1).float()
-            else:
-                emb_a_masked = emb_a_manip
-                emb_b_masked = emb_b_manip
+            emb_a_masked = _mask_pad(emb_a_manip)
+            emb_b_masked = _mask_pad(emb_b_manip)
             dit = pipe.model.model.model  # DiffusionTransformer
             param_dtype = next(dit.to_cond_embed.parameters()).dtype
             with torch.no_grad():
@@ -1706,12 +1746,8 @@ def _generate_native(pipe, request):
             late_blend = (0.5 - 0.5 * la) * prompt_emb_a + (0.5 + 0.5 * la) * prompt_emb_b
             emb_a_manip = apply_all(prompt_emb_a)
             late_blend_manip = apply_all(late_blend)
-            if combined_mask is not None:
-                emb_a_masked = emb_a_manip * combined_mask.unsqueeze(-1).float()
-                late_blend_masked = late_blend_manip * combined_mask.unsqueeze(-1).float()
-            else:
-                emb_a_masked = emb_a_manip
-                late_blend_masked = late_blend_manip
+            emb_a_masked = _mask_pad(emb_a_manip)
+            late_blend_masked = _mask_pad(late_blend_manip)
             dit = pipe.model.model.model
             param_dtype = next(dit.to_cond_embed.parameters()).dtype
             with torch.no_grad():
@@ -1723,11 +1759,12 @@ def _generate_native(pipe, request):
             manipulated = emb_a_manip  # un-hooked fallback / global cond path
             baseline_pooled = manipulated.squeeze(0).mean(dim=0).cpu().float().numpy()
 
-        # Re-apply attention mask to zero out padding (native conditioner zeros
-        # padding, but manipulations like noise/offsets/axes can pollute it;
-        # the DiT disables cross_attn_cond_mask so padding must stay zero).
-        if combined_mask is not None:
-            manipulated = manipulated * combined_mask.unsqueeze(-1).float()
+        # Scrub manipulation pollution from padded positions. For conditioners
+        # with TRUE-ZERO padding (SAO's T5) this restores padding to zero; for
+        # LEARNED padding (SA3's t5gemma, which the DiT cross-attends to since it
+        # disables the cond mask — paper §2.2) _mask_pad is a no-op so the learned
+        # embedding survives. Auto-detected above via _learned_padding.
+        manipulated = _mask_pad(manipulated)
 
         # Replace prompt embedding in conditioning tensors
         cond_a["prompt"] = [manipulated, combined_mask]
