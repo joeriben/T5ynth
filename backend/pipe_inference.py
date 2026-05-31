@@ -1461,6 +1461,14 @@ def _generate_native(pipe, request):
     cfg_scale = request.get("cfg_scale", 4.0)
     seed = request.get("seed", -1)
     dim_offsets = _sanitize_dimension_offsets(request.get("dimension_offsets"))
+    # Dimension Explorer is disabled for SA3 (see the GUI grey-out). Pushing
+    # t5gemma's live embedding dims doesn't morph semantically — measured, it
+    # only drives the output off-manifold toward noise/brightness, which the
+    # noise slider already covers. Ignore offsets here regardless of source
+    # (e.g. a preset saved under SAO), a safety net mirroring the request-side
+    # clear. The offsets-count log line below then correctly reports none.
+    if dim_offsets and (getattr(pipe, "model_name", "") or "").lower().startswith("stable-audio-3"):
+        dim_offsets = None
     injection_mode = request.get("injection_mode", "linear")
     injection_transition_at = max(
         0.05, min(0.95, float(request.get("injection_transition_at", 0.6)))

@@ -904,10 +904,13 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         return axesPanel.getAxisValuesWithOffsets(o1, o2, o3);
     };
 
-    // Grey out the Semantic Axes card for SA3 — its axes are disabled pending
-    // recalculation for the t5gemma conditioner (PromptPanel also withholds them
-    // from the request and the backend ignores them). Guarded so we only repaint
-    // on an actual state flip, not on every model/injection-mode notification.
+    // Grey out the Semantic Axes AND Dimension Explorer cards for SA3 — neither
+    // embedding-space manipulator transfers to the t5gemma conditioner (the axes
+    // lose their zero-line reference; pushing live dims only drives the output
+    // off-manifold toward noise, which the noise slider already covers).
+    // PromptPanel also withholds both from the request and the backend ignores
+    // them. Guarded so we only repaint on an actual state flip, not on every
+    // model/injection-mode notification.
     promptPanel.onModelChanged = [this]() {
         const bool enabled = !promptPanel.selectedModelIsSA3();
         if (axesPanel.isEnabled() != enabled)
@@ -916,6 +919,17 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
             axesPanel.setAlpha(enabled ? 1.0f : 0.4f);
             axesHeader.setEnabled(enabled);
             axesHeader.setAlpha(enabled ? 1.0f : 0.4f);
+
+            // Dimension Explorer: close the overlay first (if open) so we don't
+            // leave a greyed-but-open card, then disable+dim the mini-view and
+            // its header. A disabled mini-view ignores clicks, so the overlay
+            // can't be reopened under SA3.
+            if (!enabled && dimExplorerVisible)
+                hideDimExplorer();
+            dimensionExplorer.setEnabled(enabled);
+            dimensionExplorer.setAlpha(enabled ? 1.0f : 0.4f);
+            dimHeader.setEnabled(enabled);
+            dimHeader.setAlpha(enabled ? 1.0f : 0.4f);
         }
     };
     promptPanel.onModelChanged();  // set initial state (no-op until a model is selected)

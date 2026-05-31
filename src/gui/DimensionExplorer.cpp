@@ -518,6 +518,15 @@ void DimensionExplorer::resized()
 
 void DimensionExplorer::mouseDown(const juce::MouseEvent& e)
 {
+    // Hand-rolled mouse handling must self-gate on enabled state. Unlike a
+    // juce::Slider, a disabled custom Component still RECEIVES mouseDown — JUCE
+    // hit-testing consults visibility + hitTest() but not isEnabled(). Without
+    // this guard, MainPanel's setEnabled(false) grey-out (e.g. deactivating the
+    // explorer for SA3) would only dim the panel while a click still opened the
+    // overlay and let the user edit offsets.
+    if (! isEnabled())
+        return;
+
     // Mini-view: any click opens overlay, no bar interaction
     if (!overlayMode_)
     {
@@ -588,6 +597,9 @@ void DimensionExplorer::mouseUp(const juce::MouseEvent&)
 
 void DimensionExplorer::mouseMove(const juce::MouseEvent& e)
 {
+    if (! isEnabled())
+        return;  // no hover highlight / repaint on a disabled (greyed) panel
+
     int idx = barAtX(static_cast<float>(e.x));
     if (idx != hoveredBar_)
     {

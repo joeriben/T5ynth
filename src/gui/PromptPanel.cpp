@@ -1419,12 +1419,15 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     req.dimensionOffsets = std::move(pendingOffsets_);
     req.semanticAxes = axesOverride.empty() ? std::move(pendingAxes_) : std::move(axesOverride);
     req.axesAmount = apvts.getRawParameterValue(PID::genAxesAmount)->load();
-    // Semantic axes are disabled for SA3 (the AxesPanel is greyed out for it).
-    // Clear them here regardless of source so a value left in the AxesPanel
-    // slots — e.g. from a preset saved under SAO and recalled under SA3 — is
-    // never sent. The backend ignores axes for SA3 too, as a safety net.
+    // Semantic axes AND the dimension explorer are disabled for SA3 (both panels
+    // are greyed out for it). Clear them here regardless of source so values left
+    // in the panels — e.g. from a preset saved under SAO and recalled under SA3 —
+    // are never sent. The backend ignores both for SA3 too, as a safety net.
     if (isSA3Model(req.model))
+    {
         req.semanticAxes.clear();
+        req.dimensionOffsets.clear();
+    }
     req.injectionMode = requestInjectionMode;
     // Single-prompt promptability guard (linear mode, slider-driven α only).
     // The linear blend (0.5−0.5α)·A + (0.5+0.5α)·B places a lone prompt at α=∓1
