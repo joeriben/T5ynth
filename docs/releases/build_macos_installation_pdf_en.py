@@ -185,33 +185,17 @@ def build_pdf():
         ),
     ]
 
-    ldm2_shots = [
-        (
-            "Appendix A1: Select AudioLDM2",
-            "In the Model Manager, choose AudioLDM2. Like every other engine, T5ynth downloads this model directly from HuggingFace.",
-            downloads / "Bildschirmfoto 2026-04-18 um 10.35.05.png",
-        ),
-        (
-            "Appendix A2: Confirm the license",
-            "Before downloading, T5ynth shows the AudioLDM2 license terms. Click “Accept & Download” to continue.",
-            downloads / "Bildschirmfoto 2026-04-18 um 10.35.13.png",
-        ),
-        (
-            "Appendix A3: Download in progress",
-            "While the download is running, T5ynth shows the current file name and progress.",
-            downloads / "Bildschirmfoto 2026-04-18 um 10.35.21.png",
-        ),
-        (
-            "Appendix A4: Backend starts",
-            "After the download, the model is activated automatically and T5ynth briefly shows “Backend: Starting...”.",
-            downloads / "Bildschirmfoto 2026-04-18 um 10.36.12.png",
-        ),
-        (
-            "Appendix A5: AudioLDM2 is ready",
-            "Once “Installed” and “Backend: Connected” appear, AudioLDM2 is ready to use.",
-            downloads / "Bildschirmfoto 2026-04-18 um 10.36.19.png",
-        ),
-    ]
+    model_manager_shot = (
+        "The Model Manager: download models in the app",
+        "All models are downloaded directly in the app: Settings > Model Manager. "
+        "Each row shows an engine with its name, the required text encoder (installed "
+        "automatically with it), a status text and a light on the right – green means fully "
+        "installed. To install, select the engine, accept the license with “Accept & "
+        "Download” and wait for the progress bar; the light then turns green, and “Backend: "
+        "Connected” at the bottom means it is ready to use. This screenshot shows the target "
+        "state with all five engines installed.",
+        downloads / "Bildschirmfoto 2026-06-01 um 23.05.37.png",
+    )
 
     c = canvas.Canvas(str(out), pagesize=A4)
     c.setTitle("T5ynth macOS Installation")
@@ -248,6 +232,8 @@ def build_pdf():
 
     for title, caption, path in shots:
         draw_image_page(c, title, caption, path)
+
+    draw_image_page(c, *model_manager_shot)
 
     draw_text_page(
         c,
@@ -298,8 +284,20 @@ def build_pdf():
         note="Stable Audio Open Small is the fastest model and already converges at around 8 steps; higher step counts bring no benefit here. CFG should stay at 1.",
     )
 
-    for title, caption, path in ldm2_shots:
-        draw_image_page(c, title, caption, path)
+    draw_text_page(
+        c,
+        "Appendix A: Loading AudioLDM2",
+        [
+            "AudioLDM2 is an academic latent-diffusion text-to-audio model (CVSSP / University of Surrey, Liu et al. 2023) for general audio, music and speech synthesis. It is self-contained and needs no separate text encoder.",
+            "Before downloading, T5ynth shows the license, which must be accepted. The model then downloads ungated directly from HuggingFace – no account and no token.",
+        ],
+        bullets=[
+            "Select “AudioLDM2” in the Model Manager.",
+            "Accept the license with “Accept & Download”; the download starts.",
+            "Status switches to “Installed”, then “Backend: Connected”.",
+        ],
+        note="License: CC BY-NC-SA 4.0 – non-commercial use only, no revenue threshold, no exceptions. The recommended default model remains Stable Audio 3 (Appendix C).",
+    )
 
     c.save()
     return out
