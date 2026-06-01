@@ -2,11 +2,15 @@
 
 // ─── Preset patterns (exact port from useStepSequencer.ts) ─────────────────
 
-static constexpr T5ynthStepSequencer::Step mkStep(int semi, float vel, float gate, bool active = true, bool bind = false)
+using BindMode = T5ynthStepSequencer::BindMode;
+
+static constexpr T5ynthStepSequencer::Step mkStep(int semi, float vel, float gate,
+                                                  bool active = true,
+                                                  BindMode mode = BindMode::Off)
 {
-    return { 60 + semi, vel, gate, active, bind };
+    return { 60 + semi, vel, gate, active, mode };
 }
-static constexpr T5ynthStepSequencer::Step REST = { 60, 0.0f, 0.0f, false, false };
+static constexpr T5ynthStepSequencer::Step REST = { 60, 0.0f, 0.0f, false, BindMode::Off };
 
 // clang-format off
 
@@ -35,12 +39,12 @@ static constexpr T5ynthStepSequencer::Step P_OFFBEAT_MINOR[] = {
     REST, mkStep(12,0.90f,0.4f), REST, mkStep(8,0.80f,0.4f),
 };
 
-// 4. Glide Groove — stepwise motion with bind/glide between connected notes
+// 4. Glide Groove — stepwise motion with glide between connected notes
 static constexpr T5ynthStepSequencer::Step P_GLIDE_GROOVE[] = {
-    mkStep(0,0.85f,0.8f), mkStep(2,0.70f,0.8f,true,true),  mkStep(3,0.70f,0.8f,true,true), mkStep(7,0.90f,0.6f),
-    mkStep(5,0.70f,0.8f,true,true), mkStep(3,0.80f,0.6f),  mkStep(0,0.70f,0.8f,true,true), mkStep(2,0.70f,0.8f,true,true),
-    mkStep(3,0.85f,0.8f), mkStep(5,0.70f,0.8f,true,true),  mkStep(7,0.70f,0.8f,true,true), mkStep(8,0.90f,0.6f),
-    mkStep(10,0.75f,0.8f,true,true), mkStep(8,0.70f,0.8f,true,true), mkStep(7,0.80f,0.6f), mkStep(5,0.70f,0.8f,true,true),
+    mkStep(0,0.85f,0.8f), mkStep(2,0.70f,0.8f,true,BindMode::Glide),  mkStep(3,0.70f,0.8f,true,BindMode::Glide), mkStep(7,0.90f,0.6f),
+    mkStep(5,0.70f,0.8f,true,BindMode::Glide), mkStep(3,0.80f,0.6f),  mkStep(0,0.70f,0.8f,true,BindMode::Glide), mkStep(2,0.70f,0.8f,true,BindMode::Glide),
+    mkStep(3,0.85f,0.8f), mkStep(5,0.70f,0.8f,true,BindMode::Glide),  mkStep(7,0.70f,0.8f,true,BindMode::Glide), mkStep(8,0.90f,0.6f),
+    mkStep(10,0.75f,0.8f,true,BindMode::Glide), mkStep(8,0.70f,0.8f,true,BindMode::Glide), mkStep(7,0.80f,0.6f), mkStep(5,0.70f,0.8f,true,BindMode::Glide),
 };
 
 // 5. Sparse Stab — 4 notes in 16 steps, short gates (staccato stabs)
@@ -229,9 +233,10 @@ void T5ynthStepSequencer::processBlock(juce::AudioBuffer<float>& buffer,
 
         auto& step = steps[static_cast<size_t>(stepIdx)];
 
-        // Note-off for previous — but SKIP if this step is a glide
-        // (glide needs the previous voice alive to slide its pitch)
-        if (lastPlayedNote >= 0 && !step.bind)
+        // Note-off for previous — but SKIP if this step binds/glides
+        // (it needs the previous voice alive to slide its pitch)
+        const bool stepBound = step.bindMode != BindMode::Off;
+        if (lastPlayedNote >= 0 && !stepBound)
         {
             midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), eventPos);
             lastPlayedNote = -1;
@@ -242,17 +247,21 @@ void T5ynthStepSequencer::processBlock(juce::AudioBuffer<float>& buffer,
         {
             int midiNote = juce::jlimit(0, 127, step.note + octaveShiftSemitones);
             int vel = juce::jlimit(1, 127, juce::roundToInt(step.velocity * 127.0f));
-            int channel = step.bind ? 2 : 1;
+            // Channel encodes the bind-mode for the processor's voice dispatch:
+            // Glide → kGlideChannel (ramped), Bind → kBindChannel (instant), else normal.
+            int channel = step.bindMode == BindMode::Glide ? kGlideChannel
+                        : step.bindMode == BindMode::Bind  ? kBindChannel
+                                                           : kNormalChannel;
             midi.addEvent(juce::MidiMessage::noteOn(channel, midiNote,
                           static_cast<juce::uint8>(vel)), eventPos);
             lastPlayedNote = midiNote;
 
-            // If the NEXT step has bind, hold this note for the full step
+            // If the NEXT step binds/glides, hold this note for the full step
             // (no early gate-off, so the voice stays alive for the pitch change)
             int nextIdx = (scheduledStep + 1) % numSteps;
-            bool nextIsBind = steps[static_cast<size_t>(nextIdx)].bind
-                           && steps[static_cast<size_t>(nextIdx)].enabled;
-            samplesUntilGateOff = nextIsBind ? -1.0 : step.gate * stepDur;
+            bool nextIsBound = steps[static_cast<size_t>(nextIdx)].bindMode != BindMode::Off
+                            && steps[static_cast<size_t>(nextIdx)].enabled;
+            samplesUntilGateOff = nextIsBound ? -1.0 : step.gate * stepDur;
         }
         else
         {
@@ -323,10 +332,22 @@ void T5ynthStepSequencer::setStepGate(int step, float gate)
         steps[static_cast<size_t>(step)].gate = juce::jlimit(0.1f, 1.0f, gate);
 }
 
-void T5ynthStepSequencer::setStepBind(int step, bool bind)
+void T5ynthStepSequencer::setStepBindMode(int step, BindMode mode)
 {
     if (step >= 0 && step < MAX_STEPS)
-        steps[static_cast<size_t>(step)].bind = bind;
+        steps[static_cast<size_t>(step)].bindMode = mode;
+}
+
+void T5ynthStepSequencer::cycleStepBindMode(int step)
+{
+    if (step >= 0 && step < MAX_STEPS)
+    {
+        auto& m = steps[static_cast<size_t>(step)].bindMode;
+        // Off → Bind → Glide → Off
+        m = m == BindMode::Off  ? BindMode::Bind
+          : m == BindMode::Bind ? BindMode::Glide
+                                : BindMode::Off;
+    }
 }
 
 void T5ynthStepSequencer::setStepOneShotMode(int step, int slot, OneShotMode mode)
@@ -382,7 +403,7 @@ void T5ynthStepSequencer::loadPreset(int index)
         if (i < preset.count)
             steps[static_cast<size_t>(i)] = preset.steps[i];
         else
-            steps[static_cast<size_t>(i)] = { 60, 0.8f, 0.8f, false, false };
+            steps[static_cast<size_t>(i)] = { 60, 0.8f, 0.8f, false, BindMode::Off };
         steps[static_cast<size_t>(i)].oneShotModes = oneShotModes;
     }
 
@@ -394,5 +415,5 @@ void T5ynthStepSequencer::loadPreset(int index)
 void T5ynthStepSequencer::resetGrid()
 {
     for (auto& s : steps)
-        s = { 60, 0.8f, 0.8f, true, false };
+        s = { 60, 0.8f, 0.8f, true, BindMode::Off };
 }

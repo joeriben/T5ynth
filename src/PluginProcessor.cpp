@@ -2150,14 +2150,16 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             // (channels 4-7) would chaotically slap the arp's base note
             // between every step. Lead channels:
             //   gen-seq active → channel 3 (strand 0)
-            //   step-seq active → channel 1 (normal) or 2 (bind/glide)
+            //   step-seq active → channel 1 (normal), 2 (bind) or 8 (glide)
             // When seq is stopped (manual keyboard play) any channel feeds
             // the arp, preserving the historical external-input behaviour.
             const int ch = msg.getChannel();
             const bool isLead = !seqRunning
                               || (genModeActiveInAudio
                                   ? (ch == 3)
-                                  : (ch == 1 || ch == 2));
+                                  : (ch == T5ynthStepSequencer::kNormalChannel
+                                  || ch == T5ynthStepSequencer::kBindChannel
+                                  || ch == T5ynthStepSequencer::kGlideChannel));
 
             if (msg.isNoteOn())
             {
@@ -2338,7 +2340,11 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                         int note = msg.getNoteNumber();
                         float velocity = msg.getFloatVelocity();
                         const int channel = msg.getChannel();
-                        bool isBind = (channel == 2);
+                        // Step-seq bind-mode channels: kBindChannel = instant pitch
+                        // change, kGlideChannel = ramped. Both take the no-retrigger
+                        // glide path; they differ only in the glide time below.
+                        const bool isBind = (channel == T5ynthStepSequencer::kBindChannel
+                                          || channel == T5ynthStepSequencer::kGlideChannel);
                         const int genSourceId = (channel >= 3 && channel <= 6) ? channel - 3 : -1;
                         const float sourcePan = genSourceId >= 0
                                               ? genStrandPan[static_cast<size_t>(genSourceId)]
@@ -2349,8 +2355,11 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                                                std::memory_order_relaxed);
                         lastMidiNoteOn.store(true, std::memory_order_relaxed);
 
+                        // Bind = instant (glideMs 0); Glide + everything else =
+                        // getGlideTime() (the non-bind value still feeds mono legato).
                         voiceManager.noteOn(note, velocity, isBind,
-                            isBind ? 0.0f : stepSequencer.getGlideTime(),
+                            channel == T5ynthStepSequencer::kBindChannel
+                                ? 0.0f : stepSequencer.getGlideTime(),
                             lfo1TrigMode, lfo2TrigMode, lfo3TrigMode,
                             genSourceId, sourcePan);
                     }
@@ -3940,7 +3949,10 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         s->setProperty("semitone", step.note - 60); // MIDI → semitone offset from C3
         s->setProperty("velocity", static_cast<double>(step.velocity));
         s->setProperty("gate", static_cast<double>(step.gate));
-        s->setProperty("bind", step.bind);
+        // bindMode is authoritative (0=off,1=bind,2=glide); keep the legacy "bind"
+        // bool so older builds still load these presets as instant binds.
+        s->setProperty("bindMode", static_cast<int>(step.bindMode));
+        s->setProperty("bind", step.bindMode != T5ynthStepSequencer::BindMode::Off);
         juce::Array<juce::var> oneShots;
         for (int slot = 0; slot < T5ynthStepSequencer::ONE_SHOT_SLOTS; ++slot)
         {
@@ -4340,10 +4352,15 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 stepSequencer.setStepEnabled(i, static_cast<bool>(s->getProperty("active")));
                 if (s->hasProperty("gate"))
                     stepSequencer.setStepGate(i, static_cast<float>(s->getProperty("gate")));
-                if (s->hasProperty("bind"))
-                    stepSequencer.setStepBind(i, static_cast<bool>(s->getProperty("bind")));
-                else if (s->hasProperty("glide"))  // backward compat
-                    stepSequencer.setStepBind(i, static_cast<bool>(s->getProperty("glide")));
+                if (s->hasProperty("bindMode"))
+                    stepSequencer.setStepBindMode(i, static_cast<T5ynthStepSequencer::BindMode>(
+                        juce::jlimit(0, 2, static_cast<int>(s->getProperty("bindMode")))));
+                else if (s->hasProperty("bind"))
+                    stepSequencer.setStepBindMode(i, static_cast<bool>(s->getProperty("bind"))
+                        ? T5ynthStepSequencer::BindMode::Bind : T5ynthStepSequencer::BindMode::Off);
+                else if (s->hasProperty("glide"))  // ancient pre-rename presets meant a ramped glide
+                    stepSequencer.setStepBindMode(i, static_cast<bool>(s->getProperty("glide"))
+                        ? T5ynthStepSequencer::BindMode::Glide : T5ynthStepSequencer::BindMode::Off);
                 if (!importingSequencePattern)
                 {
                     if (auto* oneShots = s->getProperty("oneShots").getArray())

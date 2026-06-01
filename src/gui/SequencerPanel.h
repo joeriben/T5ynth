@@ -87,7 +87,7 @@ private:
         int stepIndex = 0;
         T5ynthProcessor* processor = nullptr;
         bool isCurrentStep = false;
-        int dragZone = -1;        // 0=dot, 1=note, 2=bind, 3=velocity, 4=one-shot
+        int dragZone = -1;        // 0=dot, 1=note, 2=bind/glide, 3=velocity, 4=one-shot
         int dropHoverSlot = -1;
         float dragStartVal = 0.f;
         bool noteHoldPreviewActive = false;
@@ -108,7 +108,7 @@ private:
         juce::Rectangle<int> oneShotSlotBounds(int slot) const;
         int oneShotSlotAt(juce::Point<int> p) const;
         int oneShotDropSlotAt(juce::Point<int> p) const;
-        // bottom 16%: [On][Bind] buttons (half height, like velocity bar)
+        // bottom 16%: [On][Bind/Glide] buttons (half height, like velocity bar)
     };
     static constexpr int MAX_COLS = 32;
     std::array<std::unique_ptr<StepColumn>, MAX_COLS> stepCols;

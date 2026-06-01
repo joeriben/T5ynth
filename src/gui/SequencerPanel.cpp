@@ -183,12 +183,16 @@ void SequencerPanel::StepColumn::paint(juce::Graphics& g)
     g.setFont(juce::FontOptions(btnFs));
     g.drawText("On", onR, juce::Justification::centred);
 
-    // Bind button
-    g.setColour(step.bind ? kSeqCol.withAlpha(0.30f) : kDimmer.withAlpha(0.15f));
+    // Bind button — 3-state cycle: Off → Bind → Glide → Off.
+    // Glide reads brighter than Bind so the ramped variant is distinguishable.
+    const bool isGlide = step.bindMode == T5ynthStepSequencer::BindMode::Glide;
+    const bool bound   = step.bindMode != T5ynthStepSequencer::BindMode::Off;
+    g.setColour(bound ? kSeqCol.withAlpha(isGlide ? 0.55f : 0.30f)
+                      : kDimmer.withAlpha(0.15f));
     g.fillRect(glR.reduced(1));
-    g.setColour(step.bind ? juce::Colours::white : kDimmer);
+    g.setColour(bound ? juce::Colours::white : kDimmer);
     g.setFont(juce::FontOptions(btnFs));
-    g.drawText("Bind", glR, juce::Justification::centred);
+    g.drawText(isGlide ? "Glide" : "Bind", glR, juce::Justification::centred);
 }
 
 void SequencerPanel::StepColumn::mouseDown(const juce::MouseEvent& e)
@@ -235,11 +239,11 @@ void SequencerPanel::StepColumn::mouseDown(const juce::MouseEvent& e)
     }
     else
     {
-        // Bottom buttons: left half = On, right half = Bind
+        // Bottom buttons: left half = On, right half = Bind/Glide (3-state cycle)
         if (e.getPosition().getX() < getWidth() / 2)
             seq.setStepEnabled(stepIndex, !step.enabled);
         else
-            seq.setStepBind(stepIndex, !step.bind);
+            seq.cycleStepBindMode(stepIndex);
         dragZone = 2;
     }
     repaint();

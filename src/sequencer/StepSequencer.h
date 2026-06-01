@@ -8,10 +8,12 @@
  * Step sequencer — port of useStepSequencer.ts.
  *
  * Features:
- * - Per-step: note (MIDI), velocity (0-1), gate (0.1-1), bind (bool), enabled
+ * - Per-step: note (MIDI), velocity (0-1), gate (0.1-1), bind-mode (3-state), enabled
  * - 5 note divisions: 1/1, 1/2, 1/4, 1/8, 1/16
  * - Gate controls note duration as fraction of step duration
- * - Bind flag: pitch change without note retrigger (preceding noteOff suppressed)
+ * - Bind-mode: Off (normal retrigger) → Bind (instant pitch change, no
+ *   retrigger) → Glide (ramped pitch change over getGlideTime(), no retrigger).
+ *   Both Bind and Glide suppress the preceding noteOff.
  * - 10 preset patterns from reference
  * - Bar-start callback (atomic flag) for drift regen sync
  */
@@ -33,6 +35,21 @@ public:
         Accent,
         Mute
     };
+
+    /** Per-step bind behaviour. Cycle order in the UI: Off → Bind → Glide. */
+    enum class BindMode
+    {
+        Off = 0,   ///< Normal step: retrigger, no pitch carry-over.
+        Bind,      ///< No retrigger, instant pitch change (glideMs = 0).
+        Glide      ///< No retrigger, pitch ramps over getGlideTime().
+    };
+
+    /** MIDI channels this sequencer emits on, decoded by the processor's voice
+     *  dispatch. Gen-seq strands occupy channels 3-7 (3 + strand index), so the
+     *  glide channel sits at 8 to stay clear of them. */
+    static constexpr int kNormalChannel = 1; ///< BindMode::Off
+    static constexpr int kBindChannel   = 2; ///< BindMode::Bind  (glideMs = 0)
+    static constexpr int kGlideChannel  = 8; ///< BindMode::Glide (glideMs = getGlideTime())
 
     struct OneShotTrigger
     {
@@ -59,7 +76,9 @@ public:
     void setStepVelocity(int step, float velocity);
     void setStepEnabled(int step, bool enabled);
     void setStepGate(int step, float gate);
-    void setStepBind(int step, bool bind);
+    void setStepBindMode(int step, BindMode mode);
+    void cycleStepBindMode(int step);
+    BindMode getStepBindMode(int step) const { return getStep(step).bindMode; }
     void setStepOneShotMode(int step, int slot, OneShotMode mode);
     void cycleStepOneShotMode(int step, int slot);
     OneShotMode getStepOneShotMode(int step, int slot) const;
@@ -118,7 +137,7 @@ public:
         float velocity = 0.8f;
         float gate = 0.8f;
         bool enabled = true;
-        bool bind = false;
+        BindMode bindMode = BindMode::Off;
         std::array<OneShotMode, ONE_SHOT_SLOTS> oneShotModes {
             OneShotMode::Normal, OneShotMode::Normal, OneShotMode::Normal
         };
