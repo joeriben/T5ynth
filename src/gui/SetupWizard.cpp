@@ -161,12 +161,30 @@ static const ReassemblyAsset kSa3SfxAssets[] = {
 };
 #undef T5YNTH_COMFY_SA3
 
+// Comfy-Org ungated Stable Audio Open 1.0 weights ("_repackaged"), PINNED to a
+// fixed commit so a silent re-upload can never change what users get vs. what was
+// verified (gated=False at this revision; anonymous fetch = 200 OK; the
+// safetensors header carries native stable-audio-tools namespaces
+// conditioner.conditioners.* / model.model.* / pretransform.model.*, i.e. the
+// format T5ynth's loader expects). The repo ships ONLY the checkpoint, so the
+// canonical model_config.json (verified byte-identical across three independent
+// ungated mirrors) is supplied at install by finalizeSaoOpen10Reassembly from
+// bundled BinaryData. SAO 1.0 conditions on t5-base (Apache, ungated) — there is
+// no in-dir text-encoder subfolder, so this reassembly carries no tokenizer carve.
+#define T5YNTH_COMFY_SAO10 \
+    "https://huggingface.co/Comfy-Org/stable-audio-open-1.0_repackaged/resolve/a12a5d8f364768d908d417610a9e7f6ab8a6b5ac"
+static const ReassemblyAsset kSaoOpen10Assets[] = {
+    { T5YNTH_COMFY_SAO10 "/stable-audio-open-1.0.safetensors",
+      "model.safetensors", 4853889016 },
+};
+#undef T5YNTH_COMFY_SAO10
+
 // Known models — extend this list to add new engines.
 // downloadable: if false, show manual instructions only (no Download button).
-//   Both Stable Audio models are gated on HuggingFace and T5ynth never prompts
-//   for tokens, so users manually fetch the two root files and Auto-Scan or
-//   Browse... imports them. AudioLDM2 is the only ungated model and
-//   the only one T5ynth downloads directly.
+//   Stable Audio Open 1.0 and SA3 install login-free via the reassembly path from
+//   the ungated Comfy-Org mirrors. Stable Audio Open Small has no ungated mirror,
+//   so it stays gated-manual: users fetch the two root files and Auto-Scan or
+//   Browse... imports them. AudioLDM2 is ungated and downloads directly from HF.
 struct KnownModel {
     const char* id;
     const char* displayName;
@@ -191,15 +209,19 @@ struct KnownModel {
     int assetCount = 0;
 };
 static const KnownModel kKnownModels[] = {
+    // Installs login-free from the ungated Comfy-Org mirror (kSaoOpen10Assets);
+    // the gated hfRepo is kept ONLY so the Auto-Scan fallback can verify a
+    // hand-downloaded Stability copy against the live HuggingFace manifest.
     { "stable-audio-open-1.0",   "Stable Audio Open 1.0",     "stabilityai/stable-audio-open-1.0", nullptr,
       "https://stability.ai/community-license-agreement",
       "This model is licensed under the Stability AI Community License.\n\n"
       "- Non-commercial use: free\n"
       "- Commercial use under $1M annual revenue: free (register at stability.ai)\n"
       "- Commercial use over $1M: enterprise license required\n\n"
-      "T5ynth does not provide the model weights. By downloading, you accept\n"
-      "the license terms and take responsibility for compliance.", false, true,
-      nullptr, 0 },
+      "T5ynth does not provide the weights; they download from the ungated\n"
+      "Comfy-Org repository. By downloading you accept the license terms and take\n"
+      "responsibility for compliance. A copy is written into the model folder.", true, true,
+      nullptr, 0, nullptr, kSaoOpen10Assets, 1 },
     { "stable-audio-open-small", "Stable Audio Open Small", "stabilityai/stable-audio-open-small",
       nullptr,
       "https://stability.ai/community-license-agreement",
@@ -221,9 +243,9 @@ static const KnownModel kKnownModels[] = {
     { "t5-base",                 "T5-Base text encoder",       "t5-base", nullptr,
       "https://www.apache.org/licenses/LICENSE-2.0",
       "T5-base is licensed under Apache License 2.0 (open, no restrictions).\n\n"
-      "Required by Stable Audio Open Small as the text encoder. T5ynth does\n"
-      "not provide the weights. By downloading you accept the Apache 2.0\n"
-      "license.", true, false,
+      "Required by the Stable Audio Open engines (1.0 and Small) as the text\n"
+      "encoder. T5ynth does not provide the weights. By downloading you accept\n"
+      "the Apache 2.0 license.", true, false,
       kT5BaseGhFiles,
       static_cast<int>(sizeof(kT5BaseGhFiles) / sizeof(kT5BaseGhFiles[0])) },
     // SA3 Small Music — the current SA3-generation music checkpoint. Installs
@@ -1947,6 +1969,76 @@ static bool finalizeSa3Reassembly(const juce::File& targetDir,
                             BinaryData::sa3_model_config_jsonSize, err);
 }
 
+// ── Stable Audio Open 1.0 reassembly finalize ──────────────────────────────────
+// The ungated Comfy-Org "_repackaged" repo ships ONLY the checkpoint. SAO 1.0's
+// loader also needs model_config.json (the canonical Stability config, bundled in
+// the app). There is no in-dir text encoder to assemble -- SAO 1.0 conditions on
+// t5-base, which the backend supplies separately -- so this writes just the SA
+// Community License copy + model_config.json (last, the completeness marker). All
+// file I/O, on the download thread.
+static const char* const kSaoOpen10LicenseNotice =
+R"NOTICE(T5ynth -- Stable Audio Open 1.0 model and its license
+=========================================================
+
+Powered by Stability AI.
+
+This folder holds Stable Audio Open 1.0, assembled by T5ynth. T5ynth neither owns
+nor relicenses the weights -- it only orchestrated the download and wrote the
+configuration file. You are responsible for complying with the license below; the
+FULL license text is in this folder.
+
+--------------------------------------------------------------------------------
+Audio model  --  model.safetensors, model_config.json
+--------------------------------------------------------------------------------
+   This Stability AI Model is licensed under the Stability AI Community License,
+   Copyright (C) Stability AI Ltd. All Rights Reserved.
+
+   Full text:  STABILITY_AI_COMMUNITY_LICENSE.txt (in this folder), or
+               https://stability.ai/community-license-agreement
+   Summary (NOT a substitute for the full text):
+     - Free for non-commercial use.
+     - Free for commercial use by individuals/organisations with annual revenue
+       under US $1,000,000 (registration at stability.ai required).
+     - Organisations at or above US $1,000,000 annual revenue require a separate
+       Stability AI Enterprise License.
+
+--------------------------------------------------------------------------------
+Provenance
+--------------------------------------------------------------------------------
+The model weights were downloaded by you, with no account or token, from the
+ungated Comfy-Org repository:
+  https://huggingface.co/Comfy-Org/stable-audio-open-1.0_repackaged
+  (pinned revision a12a5d8f364768d908d417610a9e7f6ab8a6b5ac)
+
+Before downloading you accepted the license above in T5ynth's download dialog.
+T5ynth itself is free software under the GNU GPL v3; that license covers T5ynth's
+own source code, NOT these third-party model weights.
+
+UCDCAE AI Lab.
+)NOTICE";
+
+static bool finalizeSaoOpen10Reassembly(const juce::File& targetDir, juce::String& err)
+{
+    // License documentation (not a completeness marker, so order vs. the config is
+    // free) + the verbatim Stability AI Community License that Agreement IV(a)(i)
+    // requires distributing with the materials.
+    if (! writeBundledFile(targetDir.getChildFile("MODEL_LICENSES.txt"),
+                           kSaoOpen10LicenseNotice,
+                           (int) std::strlen(kSaoOpen10LicenseNotice), err))
+        return false;
+    if (! writeBundledFile(targetDir.getChildFile("STABILITY_AI_COMMUNITY_LICENSE.txt"),
+                           BinaryData::STABILITY_AI_COMMUNITY_LICENSE_txt,
+                           BinaryData::STABILITY_AI_COMMUNITY_LICENSE_txtSize, err))
+        return false;
+
+    // model_config.json LAST -- its presence is the install-completeness marker
+    // (hasModelMarker keys on it), so write it only after the license writes
+    // succeeded; a re-click then re-runs this idempotently.
+    return writeBundledFile(targetDir.getChildFile("model_config.json"),
+                            BinaryData::sao_open_1_0_model_config_json,
+                            BinaryData::sao_open_1_0_model_config_jsonSize, err);
+}
+
 void SettingsPage::downloadReassemblyInThread()
 {
     auto modelId = selectedModelId();
@@ -2217,13 +2309,17 @@ void SettingsPage::downloadReassemblyInThread()
         }
 
         // Post-reassembly finalize: write the bundled metadata the ungated weight
-        // repos omit and carve the tokenizer out of the t5gemma weights. Only the
-        // SA3-style reassembly (a model that declares a text-encoder subfolder)
-        // needs this; a plain reassembly skips it.
-        if (needsMetadata)
+        // repos omit. SA3-style reassembly (a model that declares a text-encoder
+        // subfolder) writes the t5gemma configs + carves the tokenizer; Stable
+        // Audio Open 1.0 writes only its model_config.json + the SA Community
+        // license; a plain reassembly with neither skips finalize entirely.
         {
             juce::String ferr;
-            if (! finalizeSa3Reassembly(targetDir, encoderSub, ferr))
+            const bool finalizeOk =
+                  needsMetadata                        ? finalizeSa3Reassembly(targetDir, encoderSub, ferr)
+                : (modelId == "stable-audio-open-1.0") ? finalizeSaoOpen10Reassembly(targetDir, ferr)
+                :                                        true;
+            if (! finalizeOk)
             {
                 juce::MessageManager::callAsync([safeThis, ferr]() {
                     if (auto* self = safeThis.getComponent())
@@ -2628,9 +2724,10 @@ void SettingsPage::updateStatus()
         modelStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xffef4444));
         modelPathLabel.setText("", juce::dontSendNotification);
 
-        // Per-model honest instructions. AudioLDM2 is the only model T5ynth
-        // can fetch itself; the two Stability models are gated on HF and use
-        // a two-file manual install.
+        // Per-model honest instructions. SA3 and Stable Audio Open 1.0 install
+        // login-free from the ungated Comfy-Org mirrors; AudioLDM2 downloads
+        // direct from HF; only Stable Audio Open Small stays a gated two-file
+        // manual install (no ungated mirror exists).
         auto targetPath = targetDir.getFullPathName();
 
         if (id == "audioldm2") {
@@ -2640,8 +2737,8 @@ void SettingsPage::updateStatus()
                 "Academic latent-diffusion text-to-audio model published by CVSSP / "
                 "University of Surrey and collaborators (Liu et al., 2023), released "
                 "as an open research artefact for studying generalised audio, music "
-                "and speech generation from text. Ungated on HuggingFace and the only "
-                "engine T5ynth can install directly. Click 'Download from HuggingFace' "
+                "and speech generation from text. Ungated on HuggingFace; T5ynth "
+                "downloads it directly. Click 'Download from HuggingFace' "
                 "above and wait for the download to finish.\n\n"
                 "  Source: https://huggingface.co/" + hfRepo + "\n"
                 "  Target: " + targetPath + "\n\n"
@@ -2701,9 +2798,9 @@ void SettingsPage::updateStatus()
         } else if (id == "t5-base") {
             setInstructionsText(
                 instructionsLabel,
-                "T5-BASE TEXT ENCODER (Stable Audio Open Small)\n"
+                "T5-BASE TEXT ENCODER (Stable Audio Open 1.0 and Small)\n"
                 "The original T5 encoder published by Google Research "
-                "(Raffel et al., 2020). Stable Audio Open Small uses it to "
+                "(Raffel et al., 2020). The Stable Audio Open engines use it to "
                 "turn the text prompt into the conditioning embedding the "
                 "diffusion model consumes. Ungated and openly licensed under "
                 "Apache-2.0 -- no HuggingFace account, no terms to accept. "
@@ -2717,33 +2814,32 @@ void SettingsPage::updateStatus()
                 "config (config.json, tokenizer.json, spiece.model).\n\n"
                 "License: Apache-2.0 -- unrestricted use, commercial or "
                 "otherwise.");
-        } else {
-            // SA 1.0 (and any future gated Stability model)
+        } else if (id == "stable-audio-open-1.0") {
             setInstructionsText(
                 instructionsLabel,
                 "STABLE AUDIO OPEN 1.0\n"
-                "Licensed under the Stability AI Community License. Gated on "
-                "HuggingFace -- a free HuggingFace account is required once to "
-                "accept the license. T5ynth uses only two files from this repo "
-                "(model.safetensors ~4.9 GB and model_config.json), so you don't "
-                "need to download the rest.\n\n"
-                "  Source: https://huggingface.co/" + hfRepo + "\n\n"
-                "INSTALL:\n"
-                "  1. Click 'Open Model Page' above, sign up or log in, and click\n"
-                "     'Agree and access repository' to accept the license.\n"
-                "  2. Open the 'Files and versions' tab.\n"
-                "  3. Download exactly these two files to your usual Downloads\n"
-                "     folder:\n"
-                "        model.safetensors  (~4.9 GB)\n"
-                "        model_config.json\n"
-                "     Do not download model.ckpt, vae_model.ckpt, or anything\n"
-                "     inside transformer/, vae/, text_encoder/, tokenizer/,\n"
-                "     scheduler/, or projection_model/ -- T5ynth does not load them.\n"
-                "  4. Come back here and click 'Auto-Scan' above. T5ynth finds\n"
-                "     the files in Downloads and copies them into its working\n"
-                "     model folder.\n\n"
-                "If you saved them somewhere other than Downloads, Auto-Scan will "
-                "open a folder picker and ask you to point at the folder.");
+                "The original full-size Stable Audio Open checkpoint.\n\n"
+                "Click 'Download' above and wait for it to finish -- no HuggingFace\n"
+                "account or token needed. T5ynth fetches the ungated weights directly\n"
+                "(~4.85 GB checkpoint), then writes the model config locally.\n\n"
+                "  Target: " + targetPath + "\n\n"
+                "Already have the files from Stability by hand? Click 'Auto-Scan'\n"
+                "instead -- T5ynth imports model.safetensors + model_config.json from\n"
+                "your Downloads folder.\n\n"
+                "ALSO REQUIRED: the 'T5-Base text encoder' (this model's prompt\n"
+                "encoder). If it is not installed yet, pick 'T5-Base text encoder'\n"
+                "from the model list above and click 'Download' -- it is ungated\n"
+                "(Apache-2.0), no account needed.\n\n"
+                "LICENSE: Stability AI Community License. The full license text is\n"
+                "written into the model folder; by downloading you accept it.");
+        } else {
+            // Any future gated Stability model with no in-app download.
+            setInstructionsText(
+                instructionsLabel,
+                "This model is gated on HuggingFace. Use 'Open Model Page' above to\n"
+                "accept its license, download model.safetensors + model_config.json,\n"
+                "then click 'Auto-Scan' to import them.\n\n"
+                "  Source: https://huggingface.co/" + hfRepo);
         }
     }
 }

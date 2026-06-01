@@ -199,6 +199,13 @@ juce_add_binary_data(T5ynthData SOURCES
     resources/sa3_configs/sa3_t5gemma_generation_config.json
     resources/sa3_configs/sa3_t5gemma_tokenizer_config.json
     resources/sa3_configs/sa3_t5gemma_special_tokens_map.json
+    # Stable Audio Open 1.0 metadata omitted by the ungated Comfy-Org repackaged
+    # repo (which ships only the checkpoint). model_config.json is the canonical
+    # Stability SAO 1.0 config (verified byte-identical across three independent
+    # ungated mirrors); written into the model dir at install by the SAO reassembly
+    # finalize step so SAO 1.0 can install login-free. No separate text encoder is
+    # bundled here — SAO 1.0 conditions on t5-base, already available ungated.
+    resources/sao_configs/sao_open_1_0_model_config.json
     # Verbatim third-party license texts written into each SA3 install dir. The
     # Stability AI Community License IV(a)(i) requires distributing a copy of the
     # Agreement; the Gemma Terms + Prohibited Use Policy are the encoder's terms.
