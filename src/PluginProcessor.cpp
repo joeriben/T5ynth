@@ -3573,6 +3573,14 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
     // Never auto-start sequencers on session restore — no acoustic surprises
     parameters.getParameter(PID::seqRunning)->setValueNotifyingHost(0.0f);
     parameters.getParameter(PID::genSeqRunning)->setValueNotifyingHost(0.0f);
+
+    // Treat the restored seqPreset as not-yet-applied so the next processBlock
+    // reloads its canned pattern (the step pattern isn't part of the saved
+    // state), while the apply block's prevSeqPreset==-1 guard suppresses the
+    // step-count push — the restored seqSteps is its own saved param and must
+    // survive. Resetting to -1 (rather than leaving a stale value) also covers
+    // hosts that reuse a live instance across project loads.
+    lastSeqPreset.store(-1, std::memory_order_relaxed);
 }
 
 // ═══════════════════════════════════════════════════════════════════
