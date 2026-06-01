@@ -178,40 +178,17 @@ def build_pdf():
         ),
         (
             "Step 10: Installation complete",
-            "Once this dialog appears, T5ynth.app is correctly installed in /Applications.",
+            "Once this dialog appears, T5ynth.app is correctly installed in /Applications. "
+            "Then launch T5ynth and download a model in the Model Manager — every engine "
+            "installs directly in the app (see the appendices).",
             downloads / "Bildschirmfoto 2026-04-18 um 10.15.04.png",
-        ),
-        (
-            "Step 11: Open T5ynth and check the model state",
-            "In the Model Manager, Stable Audio Open Small is initially still not installed.",
-            downloads / "Bildschirmfoto 2026-04-18 um 10.33.56.png",
-        ),
-        (
-            "Step 12: Allow access to Downloads",
-            "If Auto-Scan should look for the model files in Downloads, allow access to that folder.",
-            downloads / "Bildschirmfoto 2026-04-18 um 10.34.10.png",
-        ),
-        (
-            "Step 13: Import the model files",
-            "T5ynth copies the model files from Downloads into its internal model directory.",
-            downloads / "Bildschirmfoto 2026-04-18 um 10.34.16.png",
-        ),
-        (
-            "Step 14: Backend starts",
-            "After the copy step, T5ynth briefly shows the transition state “Backend: Starting...”.",
-            downloads / "Bildschirmfoto 2026-04-18 um 10.34.26.png",
-        ),
-        (
-            "Step 15: Model is ready",
-            "Once “Installed” and “Backend: Connected” appear, T5ynth is ready to use.",
-            downloads / "Bildschirmfoto 2026-04-18 um 10.34.39.png",
         ),
     ]
 
     ldm2_shots = [
         (
             "Appendix A1: Select AudioLDM2",
-            "In the Model Manager, choose AudioLDM2. Unlike Stable Audio Open Small, T5ynth can download this model directly from HuggingFace.",
+            "In the Model Manager, choose AudioLDM2. Like every other engine, T5ynth downloads this model directly from HuggingFace.",
             downloads / "Bildschirmfoto 2026-04-18 um 10.35.05.png",
         ),
         (
@@ -248,7 +225,7 @@ def build_pdf():
         "Short guide for the current unsigned macOS build with the usual Gatekeeper override step.",
         "The screenshots show the real installation flow on a Mac with a German user interface.",
         "Unfortunately I only had German screenshots available for this documentation pass, but the sequence is identical on English-language systems.",
-        "Tip: the recommended default model, Stable Audio 3, downloads directly in-app – see Appendix C. Steps 11–15 instead show the manual installation of Stable Audio Open Small.",
+        "Tip: every model loads directly in the app, with no HuggingFace account and no token – see the appendices. The recommended default model is Stable Audio 3 (Appendix C).",
     ]:
         y = draw_wrapped(c, paragraph, MARGIN, y, size=13, leading=17)
         y -= 10
@@ -301,7 +278,24 @@ def build_pdf():
             "Status switches to “Installed”, then “Backend: Connected”.",
             "Already have the files from Stability by hand? Use “Auto-Scan” instead.",
         ],
-        note="Like Stable Audio Open Small, Stable Audio Open 1.0 also needs the separate “T5-Base text encoder” (ungated, Apache-2.0) – install it from the Model Manager too, or the backend will not load. Stable Audio Open 1.0 is also much larger than Small; for first tests on a new Mac, Stable Audio 3 or Stable Audio Open Small is usually the quicker starting point.",
+        note="Stable Audio Open 1.0 needs the “T5-Base text encoder” (ungated, Apache-2.0). T5ynth installs it automatically together with the model – no extra step. Stable Audio Open 1.0 is also much larger than Small; for first tests on a new Mac, Stable Audio 3 or Stable Audio Open Small is usually the quicker starting point.",
+    )
+
+    draw_text_page(
+        c,
+        "Appendix D: Loading Stable Audio Open Small",
+        [
+            "Stable Audio Open Small is the compact, fastest Stable Audio Open checkpoint. It installs directly inside T5ynth, like Stable Audio 3 and Stable Audio Open 1.0 – no HuggingFace account and no manual download required any more.",
+            "Before downloading, T5ynth shows the Stability AI Community License, which must be accepted. The ~1.68 GB checkpoint then downloads without a HuggingFace account or token – from an ungated mirror that redistributes the official weights unmodified – and a copy of the license is written into the model folder.",
+        ],
+        bullets=[
+            "Select “Stable Audio Open Small” in the Model Manager.",
+            "Accept the license with “Accept & Download”; the download starts.",
+            "The required “T5-Base text encoder” (ungated, Apache-2.0) is installed automatically in the same step.",
+            "Status switches to “Installed”, then “Backend: Connected”.",
+            "Already have the files from Stability by hand? Use “Auto-Scan” instead.",
+        ],
+        note="Stable Audio Open Small is the fastest model and already converges at around 8 steps; higher step counts bring no benefit here. CFG should stay at 1.",
     )
 
     for title, caption, path in ldm2_shots:
