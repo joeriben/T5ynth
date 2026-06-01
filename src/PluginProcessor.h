@@ -58,6 +58,12 @@ public:
      *  matching the CC120/123 (All Notes/Sound Off) behaviour. */
     void requestMidiPanic() { midiPanicRequested.store(true, std::memory_order_release); }
 
+    /** Builds the Duration parameter's NormalisableRange (skew + whole-second
+        snapping) for a given maximum in seconds. Shared by createParameterLayout
+        (registers the parameter at the global 120s max) and PromptPanel, which
+        re-scopes the slider per model: 11s for SAO/AudioLDM2, 120s for SA3. */
+    static juce::NormalisableRange<float> makeDurationRange(float maxSeconds);
+
     // Load generated audio into the engine
     void loadGeneratedAudio(const juce::AudioBuffer<float>& buffer, double sampleRate);
     /** Reload already-processed audio into sampler (no Rumble/HF/Normalize). */

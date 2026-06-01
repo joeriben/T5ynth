@@ -162,6 +162,11 @@ private:
      *  backend's ready frame arrives. */
     void refreshDitBlocksForCurrentModel();
 
+    /** Re-scope the Duration slider for the active model: 120s for SA3 (music-
+     *  scale / deconstructed samples), 11s otherwise. Clamps the parameter into
+     *  the new ceiling. Called wherever refreshDitBlocksForCurrentModel runs. */
+    void applyDurationRangeForCurrentModel();
+
     // Device selection is backend-controlled: GPU/Metal when available, else CPU.
     juce::String defaultInferenceDevice_;
     bool devicesPopulated = false;

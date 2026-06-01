@@ -368,6 +368,11 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     if (auto* startParam = apvts.getParameter(PID::genStart))
         startParam->setValueNotifyingHost(0.0f);
 
+    // The durA attachment just set the slider to the parameter's full 0.1–120s
+    // range; scope it to the short-sound default until a model is selected
+    // (populateModelSelector → refreshDitBlocksForCurrentModel re-applies it).
+    applyDurationRangeForCurrentModel();
+
     startTimerHz(10);  // poll for device availability + drift regen + ghost
 }
 
@@ -985,8 +990,73 @@ void PromptPanel::populateModelSelector()
     resized();
 }
 
+// juce::Slider works in double; the APVTS parameter range is float. Mirror the
+// exact float→double bridge SliderParameterAttachment uses (forwarding
+// convert/snapToLegalValue through the float range, copying interval/skew) so
+// the slider keeps the same skew + whole-second detents the parameter defines.
+static juce::NormalisableRange<double> toDoubleRange(juce::NormalisableRange<float> r)
+{
+    auto from = [r] (double s, double e, double v) mutable
+                { r.start = (float) s; r.end = (float) e; return (double) r.convertFrom0to1 ((float) v); };
+    auto to   = [r] (double s, double e, double v) mutable
+                { r.start = (float) s; r.end = (float) e; return (double) r.convertTo0to1 ((float) v); };
+    auto snap = [r] (double s, double e, double v) mutable
+                { r.start = (float) s; r.end = (float) e; return (double) r.snapToLegalValue ((float) v); };
+
+    juce::NormalisableRange<double> d { (double) r.start, (double) r.end,
+                                        std::move (from), std::move (to), std::move (snap) };
+    d.interval      = r.interval;
+    d.skew          = r.skew;
+    d.symmetricSkew = r.symmetricSkew;
+    return d;
+}
+
+void PromptPanel::applyDurationRangeForCurrentModel()
+{
+    auto& apvts = processorRef.getValueTreeState();
+
+    // SA3 generates variable-length, music-scale audio (rotary DiT, ~120s
+    // trained); every other engine stays at T5ynth's 11s short-sound ceiling.
+    const float maxSec = selectedModelIsSA3() ? 120.0f : 11.0f;
+
+    // Narrow/widen the slider's range. The APVTS parameter already spans the
+    // global 120s max, so this is safe against the SliderParameterAttachment
+    // range-ownership rule documented in applyModeToSlider — we only ever shrink
+    // the slider inside the parameter's range, never beyond it. setNormalisableRange
+    // re-clamps the thumb with dontSendNotification (juce_Slider.cpp updateRange),
+    // so it never writes back to the parameter on its own.
+    durationSlider.setNormalisableRange(toDoubleRange(T5ynthProcessor::makeDurationRange(maxSec)));
+
+    // Model selection is UI state from the backend handshake, not an APVTS
+    // parameter — at editor-construction / DAW state-restore time no model is
+    // known yet and maxSec defaults to 11. Clamping the parameter here would
+    // permanently downgrade a state-restored SA3 duration (e.g. 80s → 11s)
+    // before SA3 is ever selected. So only re-clamp once the model is known;
+    // the value survives in the parameter and the thumb resyncs when
+    // populateModelSelector selects SA3 and calls us again with maxSec = 120.
+    if (getSelectedModel().isEmpty())
+        return;
+
+    // Re-clamp into the new ceiling. Read the *parameter* (source of truth), not
+    // the slider: on preset restore the slider may still be clamped under the
+    // previous, narrower range, and using its stale value would overwrite a
+    // freshly-restored long duration. sendNotificationSync re-syncs the thumb,
+    // refreshes the "Ns" readout, and writes the clamped value back via durA.
+    if (auto* p = apvts.getParameter(PID::genDuration))
+    {
+        const float cur     = p->convertFrom0to1(p->getValue());
+        const float clamped = juce::jlimit(0.1f, maxSec, cur);
+        durationSlider.setValue(clamped, juce::sendNotificationSync);
+    }
+}
+
 void PromptPanel::refreshDitBlocksForCurrentModel()
 {
+    // The active model also governs the Duration ceiling (SA3 → 120s, else
+    // 11s). Kept in lock-step with the DiT/layer re-scope below so every model
+    // change re-scopes both sliders from a single call site.
+    applyDurationRangeForCurrentModel();
+
     const auto model = getSelectedModel();
     if (model.isEmpty())
     {

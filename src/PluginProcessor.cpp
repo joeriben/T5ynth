@@ -41,7 +41,12 @@ float snapGenerationMagnitude(float rangeStart, float rangeEnd, float value)
 float snapGenerationDuration(float rangeStart, float rangeEnd, float value)
 {
     constexpr float interval = 0.01f;
-    for (int seconds = 1; seconds <= 11; ++seconds)
+    // Whole-second detents across the whole range. For the default 11s slider
+    // this is the historical 1..11; for the SA3 120s slider the detents simply
+    // extend so round music lengths (30s, 60s, 90s) snap cleanly too. ceil()
+    // keeps the 11.0 endpoint behaving exactly as before.
+    const int maxSecond = static_cast<int>(std::ceil(rangeEnd));
+    for (int seconds = 1; seconds <= maxSecond; ++seconds)
         value = snapIfNear(value, static_cast<float>(seconds), kDurationSecondSnapThreshold);
 
     value = snapToInterval(rangeStart, value, interval);
@@ -278,6 +283,19 @@ void T5ynthProcessor::allComputerKeyboardNotesOff()
         lastMidiNoteOn.store(false, std::memory_order_relaxed);
 }
 
+juce::NormalisableRange<float> T5ynthProcessor::makeDurationRange(float maxSeconds)
+{
+    // Single source for the Duration range's skew + snapping. The APVTS
+    // parameter is registered once at the global maximum (120s) so it can hold
+    // any model's duration; PromptPanel narrows the *slider* per model (11s
+    // default, 120s for SA3) via setNormalisableRange using this same factory,
+    // so the slider feel and the snapping never drift from the parameter.
+    return juce::NormalisableRange<float>(0.1f, maxSeconds,
+        convertSkew03From0To1,
+        convertSkew03To0To1,
+        snapGenerationDuration);
+}
+
 juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
@@ -412,16 +430,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::genAxesAmount, 1}, "Axes Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 1.0f));
 
-    auto durationRange = juce::NormalisableRange<float>(0.1f, 11.0f,
-        convertSkew03From0To1,
-        convertSkew03To0To1,
-        snapGenerationDuration);
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::genDuration, 1}, "Duration",
-        // 11s hard cap in the UI — Stable Audio Open Small tops out at 11s
-        // and T5ynth is for short sound samples, not music. SA 1.0 can do
-        // more internally but the slider stays unified at 11s.
-        durationRange, 3.0f));
+        // The parameter spans the global maximum (120s). The *slider* ceiling is
+        // model-dependent (PromptPanel::applyDurationRangeForCurrentModel): 11s
+        // for SAO/AudioLDM2 — T5ynth's short-sound default — and 120s for SA3,
+        // whose rotary-DiT generates variable-length, music-scale audio for
+        // embedded/deconstructed samples. The slider can't exceed its model's
+        // real ceiling; the parameter just has to be able to hold 120s.
+        makeDurationRange(120.0f), 3.0f));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{PID::infSteps, 1}, "Steps", 1, 100, 8));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
