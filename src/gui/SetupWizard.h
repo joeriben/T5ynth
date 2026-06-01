@@ -53,6 +53,10 @@ private:
     void browseForModel();
     void startDownload();
     void updateStatus();
+    // Recompute every engine row's installed-light / status / action button from
+    // the on-disk scan. Cheap and idempotent: each ModelRow caches its visual
+    // state and only repaints on an actual change (idle-CPU safe).
+    void refreshAllRows();
     void timerCallback() override;
     void setModelInstallBusy(bool busy, const juce::String& statusText = {});
     juce::Result importModelDirectoryForId(const juce::String& modelId,
@@ -117,12 +121,46 @@ private:
 
     juce::File modelPath;
 
+    // One row of the Model Manager: a generation engine's name + a one-line
+    // "what encoder ships with it" sublabel, a status string, a single
+    // contextual action button, and a right-edge "installed" light. Secondary
+    // actions (open page / browse / reveal) live on a right-click menu so the
+    // visible row stays Ableton-clean. The text encoders (t5-base, t5gemma)
+    // never get a row of their own — they install with their engine.
+    class ModelRow : public juce::Component
+    {
+    public:
+        enum class Action { Download, GetFiles, Installed };
+
+        ModelRow(juce::String id, juce::String displayName, juce::String sublabel);
+        void resized() override;
+        void paint(juce::Graphics& g) override;
+        void mouseDown(const juce::MouseEvent& e) override;
+
+        // Update visual state; repaints only when something actually changed.
+        void setState(bool installed, const juce::String& statusText,
+                      Action action, bool actionEnabled);
+
+        const juce::String& modelId() const { return modelId_; }
+
+        std::function<void(juce::String)> onAction;     // primary action button
+        std::function<void(juce::String)> onOpenPage;   // right-click menu
+        std::function<void(juce::String)> onBrowse;     // right-click menu
+        std::function<void(juce::String)> onReveal;     // right-click menu (installed)
+
+    private:
+        juce::String modelId_, displayName_, sublabel_, statusText_;
+        bool installed_ = false;
+        Action action_ = Action::Download;
+        juce::TextButton actionBtn_;
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ModelRow)
+    };
+
     // UI elements
     juce::Label titleLabel;
-    juce::Label modelStatusLabel;
-    juce::Label modelPathLabel;
-    juce::Label backendStatusLabel;
-    juce::TextEditor instructionsLabel;
+    juce::Label backendStatusLabel;        // separate footer line (backend state)
+    juce::TextEditor instructionsLabel;    // shared detail strip: focused-model
+                                           // info, manual-install steps, errors
     juce::Label downloadStatusLabel;
     bool backendConnected = false;
     juce::String backendFailReason;
@@ -130,11 +168,12 @@ private:
     double downloadProgress = 0.0;
     juce::ProgressBar progressBar { downloadProgress };
 
-    juce::ComboBox modelChooser;
-    juce::TextButton scanButton         { "Auto-Scan" };
-    juce::TextButton browseButton       { "Browse..." };
-    juce::TextButton openPageButton     { "Open Model Page" };
-    juce::TextButton downloadButton     { "Download from HuggingFace" };
+    // The five generation-engine rows (built in the constructor) plus the
+    // family-header rects painted above each family's first row. Declared AFTER
+    // the shared members so they (and their child buttons) destruct first.
+    std::vector<std::unique_ptr<ModelRow>> rows_;
+    struct FamilyHeader { juce::String text; juce::Rectangle<int> bounds; };
+    std::vector<FamilyHeader> familyHeaders_;
 
     std::unique_ptr<juce::FileChooser> fileChooser;
 
@@ -149,8 +188,8 @@ private:
     std::atomic<bool> modelInstallBusy_ { false };
     bool licenseAccepted_ = false;
     // The model an in-flight action targets — the single source selectedXxx()
-    // reads (decoupled from any UI widget). Bridged from modelChooser today; set
-    // from a per-model row click once the chooser is gone (Commit 4).
+    // reads (decoupled from any UI widget). Set from a ModelRow's button/menu
+    // callback the moment an action starts; defaults to the first row.
     juce::String activeOpModelId_;
     std::shared_ptr<std::atomic<int64_t>> downloadCounter_;
     std::shared_ptr<std::atomic<bool>> downloadCancelFlag_;

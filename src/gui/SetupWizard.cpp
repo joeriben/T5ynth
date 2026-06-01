@@ -464,39 +464,146 @@ int SettingsPage::selectedAssetCount()
     return kKnownModels[catalogIndexForId(activeOpModelId_)].assetCount;
 }
 
+// Forward decls: the by-id scan + completeness gate are defined further down, but
+// the row callbacks below (constructor) and refreshAllRows() call them earlier.
+static juce::File scanForModelById(const juce::String& id, const juce::String& hfRepo);
+static bool modelHasRequiredAuxAssets(const juce::String& id, const juce::File& modelDir);
+
+// The five generation engines shown in the Model Manager, in PromptPanel family
+// order (SA3 first, then SAO, then AudioLDM2). familyHeader is non-null only on
+// the first row of each family; it draws a thin small-caps group label above the
+// row. sublabel makes the otherwise-invisible encoder dependency honest. The two
+// text encoders (t5-base, t5gemma) deliberately have NO row — they auto-install
+// with their engine, so the interface looks identical for both families.
+struct RowSpec { const char* id; const char* sublabel; const char* familyHeader; };
+static const RowSpec kRowSpecs[] = {
+    { "stable-audio-3-small-music", "t5gemma encoder included",       "STABLE AUDIO 3" },
+    { "stable-audio-3-small-sfx",   "t5gemma encoder included",       nullptr },
+    { "stable-audio-open-1.0",      "T5-Base encoder auto-installed", "STABLE AUDIO OPEN" },
+    { "stable-audio-open-small",    "gated · T5-Base auto-installed", nullptr },
+    { "audioldm2",                  "self-contained",                 "AUDIOLDM2" },
+};
+static constexpr int kNumRowSpecs = static_cast<int>(sizeof(kRowSpecs) / sizeof(kRowSpecs[0]));
+
+// ── ModelRow ──────────────────────────────────────────────────────────────────
+SettingsPage::ModelRow::ModelRow(juce::String id, juce::String displayName, juce::String sublabel)
+    : modelId_(std::move(id)), displayName_(std::move(displayName)), sublabel_(std::move(sublabel))
+{
+    actionBtn_.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff2d6a4f));
+    actionBtn_.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    actionBtn_.onClick = [this] { if (onAction) onAction(modelId_); };
+    addAndMakeVisible(actionBtn_);
+}
+
+void SettingsPage::ModelRow::resized()
+{
+    auto r = getLocalBounds().reduced(6, 4);
+    r.removeFromRight(16);  // installed-light column (painted)
+    r.removeFromRight(6);
+    actionBtn_.setBounds(r.removeFromRight(100).reduced(0, 3));
+}
+
+void SettingsPage::ModelRow::setState(bool installed, const juce::String& statusText,
+                                      Action action, bool actionEnabled)
+{
+    const char* label = action == Action::Download ? "Download"
+                      : action == Action::GetFiles ? "Get files..."
+                                                    : nullptr;  // Installed -> no button
+
+    const bool sameVisual = (installed == installed_)
+                            && (statusText == statusText_)
+                            && (action == action_);
+    // Button enabled-state is cheap and has no repaint side-effect, so apply it
+    // unconditionally; only the painted state (light/status/label) gates repaint.
+    actionBtn_.setEnabled(actionEnabled);
+
+    if (sameVisual)
+        return;
+
+    installed_  = installed;
+    statusText_ = statusText;
+    action_     = action;
+
+    if (label != nullptr)
+    {
+        actionBtn_.setButtonText(label);
+        actionBtn_.setVisible(true);
+    }
+    else
+    {
+        actionBtn_.setVisible(false);
+    }
+    repaint();
+}
+
+void SettingsPage::ModelRow::paint(juce::Graphics& g)
+{
+    auto b = getLocalBounds();
+
+    // Thin bottom separator (flat, Ableton-like — no boxes around rows).
+    g.setColour(kBorder.withAlpha(0.45f));
+    g.drawHorizontalLine(b.getBottom() - 1, (float) b.getX() + 6.0f, (float) b.getRight() - 6.0f);
+
+    auto r = b.reduced(6, 4);
+
+    // Installed light (far right): green when fully installed, dim grey otherwise.
+    auto lightCol = r.removeFromRight(16);
+    {
+        const float d = 9.0f;
+        const float cx = (float) lightCol.getCentreX() - d * 0.5f;
+        const float cy = (float) lightCol.getCentreY() - d * 0.5f;
+        g.setColour(installed_ ? kSeqCol : kBorder.brighter(0.2f));
+        g.fillEllipse(cx, cy, d, d);
+    }
+    r.removeFromRight(6);
+    r.removeFromRight(100);  // action-button column (drawn by the child button)
+    r.removeFromRight(8);
+
+    // Status text, right-aligned in the gap before the button column.
+    auto statusArea = r.removeFromRight(juce::jmin(120, r.getWidth() / 2));
+    g.setColour(installed_ ? kSeqCol : kDimmer);
+    g.setFont(juce::FontOptions(11.0f));
+    g.drawText(statusText_, statusArea, juce::Justification::centredRight, true);
+
+    // Name (bold) over a muted encoder sublabel.
+    auto top = r.removeFromTop(r.getHeight() / 2 + 1);
+    g.setColour(kTextPrimary);
+    g.setFont(juce::FontOptions(13.0f).withStyle("Bold"));
+    g.drawText(displayName_, top, juce::Justification::bottomLeft, true);
+    g.setColour(kDimmer);
+    g.setFont(juce::FontOptions(10.5f));
+    g.drawText(sublabel_, r, juce::Justification::topLeft, true);
+}
+
+void SettingsPage::ModelRow::mouseDown(const juce::MouseEvent& e)
+{
+    if (!e.mods.isPopupMenu())
+        return;
+
+    juce::PopupMenu m;
+    m.addItem(1, "Open model page");
+    m.addItem(2, "Browse for files...");
+    if (installed_)
+        m.addItem(3, "Reveal in file browser");
+
+    juce::Component::SafePointer<ModelRow> safe(this);
+    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
+        [safe](int result)
+        {
+            auto* self = safe.getComponent();
+            if (self == nullptr) return;
+            if (result == 1 && self->onOpenPage) self->onOpenPage(self->modelId_);
+            else if (result == 2 && self->onBrowse) self->onBrowse(self->modelId_);
+            else if (result == 3 && self->onReveal) self->onReveal(self->modelId_);
+        });
+}
+
 SettingsPage::SettingsPage()
 {
     titleLabel.setText("Model Manager", juce::dontSendNotification);
     titleLabel.setColour(juce::Label::textColourId, kAccent);
     titleLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(titleLabel);
-
-    // Model chooser — select which model to manage/download
-    modelChooser.setColour(juce::ComboBox::backgroundColourId, kSurface);
-    modelChooser.setColour(juce::ComboBox::textColourId, kAccent);
-    modelChooser.setColour(juce::ComboBox::outlineColourId, kBorder);
-    for (int i = 0; i < kNumKnownModels; ++i)
-        modelChooser.addItem(kKnownModels[i].displayName, i + 1);
-    // Default to Stable Audio Open Small.
-    // Index in kKnownModels is 1, so ComboBox id (1-based) is 2.
-    modelChooser.setSelectedId(2, juce::dontSendNotification);
-    // The chooser drives activeOpModelId_, the single "which model does an action
-    // target" source the selectedXxx() accessors read. (Commit 4 removes the
-    // chooser and sets activeOpModelId_ from a per-model row click instead.)
-    activeOpModelId_ = kKnownModels[1].id;
-    modelChooser.onChange = [this] {
-        int idx = modelChooser.getSelectedItemIndex();
-        activeOpModelId_ = kKnownModels[(idx >= 0 && idx < kNumKnownModels) ? idx : 0].id;
-        updateStatus();
-        resized();
-    };
-    addAndMakeVisible(modelChooser);
-
-    modelStatusLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    addAndMakeVisible(modelStatusLabel);
-
-    modelPathLabel.setColour(juce::Label::textColourId, kDim);
-    addAndMakeVisible(modelPathLabel);
 
     backendStatusLabel.setColour(juce::Label::textColourId, kDim);
     backendStatusLabel.setText("Backend: Starting...", juce::dontSendNotification);
@@ -519,28 +626,43 @@ SettingsPage::SettingsPage()
     progressBar.setColour(juce::ProgressBar::backgroundColourId, kSurface);
     addChildComponent(progressBar);  // hidden until download starts
 
-    scanButton.setColour(juce::TextButton::buttonColourId, kSurface);
-    scanButton.setColour(juce::TextButton::textColourOffId, kAccent);
-    scanButton.onClick = [this] { performAutoScan(); };
-    addAndMakeVisible(scanButton);
+    // Build the five fixed engine rows + remember each family's header text.
+    // activeOpModelId_ tracks which row's action is in flight (the single source
+    // selectedXxx() reads); it is set the moment a row button or menu fires.
+    activeOpModelId_ = kRowSpecs[0].id;
+    for (int i = 0; i < kNumRowSpecs; ++i)
+    {
+        const auto& spec = kRowSpecs[i];
+        const auto& km = kKnownModels[catalogIndexForId(spec.id)];
+        auto row = std::make_unique<ModelRow>(spec.id, km.displayName, spec.sublabel);
 
-    browseButton.setColour(juce::TextButton::buttonColourId, kSurface);
-    browseButton.setColour(juce::TextButton::textColourOffId, kAccent);
-    browseButton.onClick = [this] { browseForModel(); };
-    addAndMakeVisible(browseButton);
+        row->onAction = [this](juce::String id) {
+            activeOpModelId_ = id;
+            // Downloadable engines fetch in-app; gated ones (SAO Small) run the
+            // manifest-driven manual import (Downloads scan + folder picker).
+            if (kKnownModels[catalogIndexForId(id)].downloadable)
+                startDownload();
+            else
+                performAutoScan();
+        };
+        row->onOpenPage = [this](juce::String id) {
+            activeOpModelId_ = id;
+            juce::URL("https://huggingface.co/" + selectedHfRepo()).launchInDefaultBrowser();
+        };
+        row->onBrowse = [this](juce::String id) {
+            activeOpModelId_ = id;
+            browseForModel();
+        };
+        row->onReveal = [](juce::String id) {
+            const auto& m = kKnownModels[catalogIndexForId(id)];
+            auto dir = scanForModelById(id, m.hfRepo);
+            if (dir.exists()) dir.revealToUser();
+        };
 
-    openPageButton.setColour(juce::TextButton::buttonColourId, kSurface);
-    openPageButton.setColour(juce::TextButton::textColourOffId, kAccent);
-    openPageButton.onClick = [this] {
-        auto repo = selectedHfRepo();
-        juce::URL("https://huggingface.co/" + repo).launchInDefaultBrowser();
-    };
-    addAndMakeVisible(openPageButton);
-
-    downloadButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff2d6a4f));
-    downloadButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
-    downloadButton.onClick = [this] { startDownload(); };
-    addAndMakeVisible(downloadButton);
+        addAndMakeVisible(*row);
+        rows_.push_back(std::move(row));
+    }
+    // familyHeaders_ (text + rect) is rebuilt in resized() and consumed by paint().
 
     auto found = scanForModel();
     if (found.exists()) modelPath = found;
@@ -552,11 +674,7 @@ SettingsPage::SettingsPage()
 void SettingsPage::setModelInstallBusy(bool busy, const juce::String& statusText)
 {
     modelInstallBusy_.store(busy);
-    modelChooser.setEnabled(!busy);
-    scanButton.setEnabled(!busy && !downloading.load());
-    browseButton.setEnabled(!busy && !downloading.load());
-    openPageButton.setEnabled(!busy);
-    downloadButton.setEnabled(!busy && !downloading.load());
+    refreshAllRows();  // each row's action button enables iff !busy && !downloading
 
     if (statusText.isNotEmpty())
     {
@@ -1402,12 +1520,11 @@ void SettingsPage::startDownload()
     auto ghRelease = selectedGhRelease();
 
     downloading = true;
-    downloadButton.setEnabled(false);
-    scanButton.setEnabled(false);
-    browseButton.setEnabled(false);
+    refreshAllRows();  // downloading == true now -> all row action buttons disable
     downloadStatusLabel.setColour(juce::Label::textColourId, kAccent);
     progressBar.setVisible(true);
     downloadProgress = 0.0;
+    resized();  // lay out the now-visible progress bar (setVisible does not re-layout)
 
     auto modelId = selectedModelId();
 
@@ -2436,9 +2553,8 @@ void SettingsPage::startT5BaseChainDownload()
     downloadProgress = 0.0;
     downloadStatusLabel.setText("Downloading text encoder...", juce::dontSendNotification);
     downloadStatusLabel.setColour(juce::Label::textColourId, kAccent);
-    downloadButton.setEnabled(false);
-    scanButton.setEnabled(false);
-    browseButton.setEnabled(false);
+    refreshAllRows();  // downloading == true now -> all row action buttons disable
+    resized();         // lay out the now-visible progress strip
     downloadCounter_ = std::make_shared<std::atomic<int64_t>>(0);
     downloadCancelFlag_ = std::make_shared<std::atomic<bool>>(false);
     startTimer(250);
@@ -2726,9 +2842,7 @@ void SettingsPage::onDownloadFinished(bool success, const juce::String& error)
         downloadCancelFlag_->store(true);
     downloadCounter_.reset();
     downloadCancelFlag_.reset();
-    downloadButton.setEnabled(true);
-    scanButton.setEnabled(true);
-    browseButton.setEnabled(true);
+    refreshAllRows();  // downloading == false now -> re-enable row action buttons
     if (success) {
         downloadProgress = 1.0;
         progressBar.setVisible(false);
@@ -2758,6 +2872,7 @@ void SettingsPage::onDownloadFinished(bool success, const juce::String& error)
         setInstructionsText(instructionsLabel, error);
         progressBar.setVisible(false);
     }
+    resized();  // progress strip hidden again -> reclaim its space for the detail strip
 }
 
 void SettingsPage::setBackendConnected(bool connected)
@@ -2804,233 +2919,193 @@ void SettingsPage::setBackendFailed(const juce::String& reason)
     updateStatus();
 }
 
+void SettingsPage::refreshAllRows()
+{
+    // One action runs at a time, so a download/manual-import in flight disables
+    // EVERY row's action button (the shared progress strip shows what's running).
+    const bool busy = downloading.load() || modelInstallBusy_.load();
+
+    for (auto& row : rows_)
+    {
+        const auto id = row->modelId();
+        const auto& km = kKnownModels[catalogIndexForId(id)];
+        auto dir = scanForModelById(id, km.hfRepo);
+        const bool installed = dir.exists() && modelHasRequiredAuxAssets(id, dir);
+
+        ModelRow::Action action;
+        juce::String status;
+        if (installed)
+        {
+            action = ModelRow::Action::Installed;
+            status = "Installed";
+        }
+        else if (downloading.load() && id == activeOpModelId_)
+        {
+            // The row whose download is in flight: keep its (disabled) button so
+            // the column stays aligned, but say what's happening.
+            action = km.downloadable ? ModelRow::Action::Download : ModelRow::Action::GetFiles;
+            status = "Downloading...";
+        }
+        else if (km.downloadable)
+        {
+            action = ModelRow::Action::Download;
+            status = "Not installed";
+        }
+        else
+        {
+            action = ModelRow::Action::GetFiles;   // gated manual import (SAO Small)
+            status = "Gated";
+        }
+
+        row->setState(installed, status, action, !busy);
+    }
+}
+
 void SettingsPage::updateStatus()
 {
-    // Re-scan for the currently selected model
+    // Keep modelPath pointing at the focused model's dir — the backend-activation
+    // glue (setModelPath / setBackendConnected) reads it.
     auto found = scanForModel();
-    if (found.exists())
-        modelPath = found;
-    else
-        modelPath = juce::File();
+    modelPath = found.exists() ? found : juce::File();
 
-    auto id = selectedModelId();
-    auto hfRepo = selectedHfRepo();
-    auto targetDir = getAppSupportModelDir(id);
-    bool downloadable = selectedDownloadable();
+    refreshAllRows();
 
-    // Download button is only shown for models T5ynth can fetch itself.
-    downloadButton.setVisible(downloadable);
+    // The shared detail strip describes the FOCUSED model (activeOpModelId_). The
+    // row's button + sublabel + light carry the primary affordance; this strip
+    // adds the one detail a row can't: a short blurb / license when not installed,
+    // or the backend error when installed-but-not-active.
+    const auto id        = selectedModelId();
+    const auto hfRepo    = selectedHfRepo();
+    const auto display   = selectedModelDisplay();
+    const auto targetPath = getAppSupportModelDir(id).getFullPathName();
+    auto dir = scanForModelById(id, hfRepo);
+    const bool installed = dir.exists() && modelHasRequiredAuxAssets(id, dir);
 
-    // "Installed" requires the model to be COMPLETE — for SA3 that includes the
-    // t5gemma encoder subfolder, not just the root weights hasModelMarker sees.
-    if (modelPath.exists() && modelHasRequiredAuxAssets(id, modelPath)) {
-        const bool isEngine = selectedIsGenerationEngine();
-        modelPathLabel.setText(modelPath.getFullPathName(), juce::dontSendNotification);
-        if (backendConnected) {
-            modelStatusLabel.setText(id + ": Installed", juce::dontSendNotification);
-            modelStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xff4ade80));
+    if (installed)
+    {
+        if (backendConnected)
             setInstructionsText(instructionsLabel,
-                isEngine ? "Ready to generate audio."
-                         : "Text encoder installed.");
-        } else if (backendFailReason.isNotEmpty()) {
-            modelStatusLabel.setText(id + ": Files found, not active", juce::dontSendNotification);
-            modelStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xfffbbf24));  // amber
-            setInstructionsText(
-                instructionsLabel,
-                "Model files were found, but backend startup failed while validating or loading a model.\n\n"
-                "Model path:\n  " + modelPath.getFullPathName() + "\n\n"
+                display + " is installed and active. Ready to generate.");
+        else if (backendFailReason.isNotEmpty())
+            setInstructionsText(instructionsLabel,
+                display + ": files found, but the backend failed while loading.\n\n"
+                "Path:\n  " + dir.getFullPathName() + "\n\n"
                 "Backend error:\n  " + backendFailReason + "\n\n"
-                "This usually means the model download is incomplete, incompatible, or the app bundle "
-                "could not load one of its own libraries.\n\n"
-                "Backend log:\n  " + backendStderrLogPath());
-        } else {
-            modelStatusLabel.setText(id + ": Installed", juce::dontSendNotification);
-            modelStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xff4ade80));
+                "Log:\n  " + backendStderrLogPath());
+        else
             setInstructionsText(instructionsLabel,
-                isEngine ? "Model files found. Starting backend..."
-                         : "Text encoder installed.");
-        }
-    } else {
-        modelStatusLabel.setText(id + ": Not installed", juce::dontSendNotification);
-        modelStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xffef4444));
-        modelPathLabel.setText("", juce::dontSendNotification);
-
-        // Per-model honest instructions. SA3 and Stable Audio Open 1.0 install
-        // login-free from the ungated Comfy-Org mirrors; AudioLDM2 downloads
-        // direct from HF; only Stable Audio Open Small stays a gated two-file
-        // manual install (no ungated mirror exists).
-        auto targetPath = targetDir.getFullPathName();
-
-        if (id == "audioldm2") {
-            setInstructionsText(
-                instructionsLabel,
-                "AUDIOLDM2\n"
-                "Academic latent-diffusion text-to-audio model published by CVSSP / "
-                "University of Surrey and collaborators (Liu et al., 2023), released "
-                "as an open research artefact for studying generalised audio, music "
-                "and speech generation from text. Ungated on HuggingFace; T5ynth "
-                "downloads it directly. Click 'Download from HuggingFace' "
-                "above and wait for the download to finish.\n\n"
-                "  Source: https://huggingface.co/" + hfRepo + "\n"
-                "  Target: " + targetPath + "\n\n"
-                "License: CC BY-NC-SA 4.0 -- non-commercial use only, no revenue "
-                "threshold, no exceptions.");
-        } else if (id == "stable-audio-open-small") {
-            setInstructionsText(
-                instructionsLabel,
-                "STABLE AUDIO OPEN SMALL\n"
-                "Licensed under the Stability AI Community License. Gated on "
-                "HuggingFace -- a free HuggingFace account is required once to "
-                "accept the license and download the files. No terminal required.\n\n"
-                "  Source: https://huggingface.co/" + hfRepo + "\n\n"
-                "INSTALL:\n"
-                "  1. Click 'Open Model Page' above. Your browser opens the\n"
-                "     HuggingFace page for this model.\n"
-                "  2. On that page, sign up or log in (top-right corner).\n"
-                "  3. Click 'Agree and access repository' to accept the license.\n"
-                "  4. On the same page, click the 'Files and versions' tab.\n"
-                "  5. Download exactly these two files to your usual Downloads\n"
-                "     folder (one click each on the filename, then the download\n"
-                "     icon on the right):\n"
-                "        model.safetensors\n"
-                "        model_config.json\n"
-                "     Do not download model.ckpt, base_model.ckpt,\n"
-                "     base_model.safetensors, or base_model_config.json --\n"
-                "     they are alternative formats T5ynth does not use.\n"
-                "  6. Come back here and click 'Auto-Scan' above.\n"
-                "     T5ynth finds the files in your Downloads folder and copies\n"
-                "     them into its working model folder. You can delete the originals\n"
-                "     from Downloads afterwards.\n\n"
-                "If you saved them somewhere other than Downloads, Auto-Scan will "
-                "open a folder picker and ask you to point at the folder.");
-        } else if (id == "stable-audio-3-small-music" || id == "stable-audio-3-small-sfx") {
-            const bool sfx = (id == "stable-audio-3-small-sfx");
-            setInstructionsText(
-                instructionsLabel,
-                juce::String(sfx
-                    ? "STABLE AUDIO 3 SMALL SFX\n"
-                      "The current SA3-generation small-format checkpoint, tuned for\n"
-                      "sound-effects content. Ships its own t5gemma text encoder.\n\n"
-                    : "STABLE AUDIO 3 SMALL MUSIC\n"
-                      "The current SA3-generation small-format checkpoint, tuned for\n"
-                      "musical content. Ships its own t5gemma text encoder.\n\n")
-                + "Click 'Download' above and wait for it to finish -- no HuggingFace\n"
-                "account or token needed. T5ynth fetches the ungated weights directly\n"
-                "(~2.3 GB checkpoint + ~1.2 GB encoder; the encoder is reused, not\n"
-                "re-downloaded, if you already installed the other SA3 variant), then\n"
-                "writes the encoder config and rebuilds the tokenizer locally.\n\n"
-                "  Target: " + targetPath + "\n\n"
-                "Already have the files from Stability by hand? Click 'Auto-Scan'\n"
-                "instead -- T5ynth imports them from your Downloads folder.\n\n"
-                "LICENSE: Stability AI Community License (the audio model) AND the\n"
-                "Google Gemma Terms of Use + Prohibited Use Policy (the t5gemma text\n"
-                "encoder). Both license texts are written into the model folder; by\n"
-                "downloading you accept both.");
-        } else if (id == "t5-base") {
-            setInstructionsText(
-                instructionsLabel,
-                "T5-BASE TEXT ENCODER (Stable Audio Open 1.0 and Small)\n"
-                "The original T5 encoder published by Google Research "
-                "(Raffel et al., 2020). The Stable Audio Open engines use it to "
-                "turn the text prompt into the conditioning embedding the "
-                "diffusion model consumes. Ungated and openly licensed under "
-                "Apache-2.0 -- no HuggingFace account, no terms to accept. "
-                "Click 'Download' above and wait for the download to finish; "
-                "T5ynth fetches the GitHub release mirror by default and "
-                "transparently falls back to HuggingFace if the mirror is "
-                "unreachable. Both paths work without an account.\n\n"
-                "  Source: https://huggingface.co/" + hfRepo + "\n"
-                "  Target: " + targetPath + "\n\n"
-                "Footprint: ~890 MB single safetensors plus tokenizer and "
-                "config (config.json, tokenizer.json, spiece.model).\n\n"
-                "License: Apache-2.0 -- unrestricted use, commercial or "
-                "otherwise.");
-        } else if (id == "stable-audio-open-1.0") {
-            setInstructionsText(
-                instructionsLabel,
-                "STABLE AUDIO OPEN 1.0\n"
-                "The original full-size Stable Audio Open checkpoint.\n\n"
-                "Click 'Download' above and wait for it to finish -- no HuggingFace\n"
-                "account or token needed. T5ynth fetches the ungated weights directly\n"
-                "(~4.85 GB checkpoint), then writes the model config locally.\n\n"
-                "  Target: " + targetPath + "\n\n"
-                "Already have the files from Stability by hand? Click 'Auto-Scan'\n"
-                "instead -- T5ynth imports model.safetensors + model_config.json from\n"
-                "your Downloads folder.\n\n"
-                "ALSO REQUIRED: the 'T5-Base text encoder' (this model's prompt\n"
-                "encoder). If it is not installed yet, pick 'T5-Base text encoder'\n"
-                "from the model list above and click 'Download' -- it is ungated\n"
-                "(Apache-2.0), no account needed.\n\n"
-                "LICENSE: Stability AI Community License. The full license text is\n"
-                "written into the model folder; by downloading you accept it.");
-        } else {
-            // Any future gated Stability model with no in-app download.
-            setInstructionsText(
-                instructionsLabel,
-                "This model is gated on HuggingFace. Use 'Open Model Page' above to\n"
-                "accept its license, download model.safetensors + model_config.json,\n"
-                "then click 'Auto-Scan' to import them.\n\n"
-                "  Source: https://huggingface.co/" + hfRepo);
-        }
+                display + " is installed. Starting backend...");
+        return;
     }
+
+    // Not installed: one compact, honest paragraph for the focused model.
+    if (id == "audioldm2")
+        setInstructionsText(instructionsLabel,
+            "AudioLDM2 -- academic latent-diffusion text-to-audio model (CVSSP / "
+            "University of Surrey, Liu et al. 2023). Ungated: click Download. "
+            "License: CC BY-NC-SA 4.0 (non-commercial only, no exceptions).\n"
+            "  Target: " + targetPath);
+    else if (id == "stable-audio-open-small")
+        setInstructionsText(instructionsLabel,
+            "Stable Audio Open Small -- gated on HuggingFace (no ungated mirror). "
+            "Click 'Get files...' to fetch the file list, then follow it: right-click "
+            "the row > Open model page, accept the license, download model.safetensors "
+            "+ model_config.json to your Downloads folder, and run Get files... again "
+            "to import them. The T5-Base encoder is fetched automatically afterwards.\n"
+            "  Target: " + targetPath);
+    else if (id == "stable-audio-3-small-music" || id == "stable-audio-3-small-sfx")
+        setInstructionsText(instructionsLabel,
+            display + " -- current SA3 small-format checkpoint with its own t5gemma "
+            "text encoder (installed with it, reused across both SA3 variants). Click "
+            "Download; no HuggingFace account needed. License: Stability AI Community "
+            "License + Google Gemma Terms (both written into the model folder).\n"
+            "  Target: " + targetPath);
+    else if (id == "stable-audio-open-1.0")
+        setInstructionsText(instructionsLabel,
+            "Stable Audio Open 1.0 -- the original full-size checkpoint. Click "
+            "Download; no HuggingFace account needed. The required T5-Base encoder "
+            "(Apache-2.0) installs automatically with it. License: Stability AI "
+            "Community License (written into the model folder).\n"
+            "  Target: " + targetPath);
+    else
+        setInstructionsText(instructionsLabel,
+            "This model is gated on HuggingFace. Right-click the row > Open model page "
+            "to accept its license, download its files, then run Get files... to "
+            "import them.\n  Source: https://huggingface.co/" + hfRepo);
 }
 
 void SettingsPage::paint(juce::Graphics& g)
 {
     g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
+
+    // Thin Ableton-like family group labels above each family's first row.
+    g.setFont(juce::FontOptions(10.0f).withStyle("Bold"));
+    for (auto& h : familyHeaders_)
+    {
+        g.setColour(kDimmer);
+        g.drawText(h.text, h.bounds.reduced(2, 0), juce::Justification::bottomLeft, false);
+        g.setColour(kBorder);
+        g.drawHorizontalLine(h.bounds.getBottom() - 1,
+                             (float) h.bounds.getX(),
+                             (float) h.bounds.getRight());
+    }
 }
 
 void SettingsPage::resized()
 {
-    auto area = getLocalBounds().reduced(8, 4);
-    int rowH = 24;
-    int gap = 4;
+    auto area = getLocalBounds().reduced(8, 6);
 
+    // Title (top).
     titleLabel.setFont(juce::FontOptions(15.0f).withStyle("Bold"));
-    auto titleRow = area.removeFromTop(rowH);
-    titleLabel.setBounds(titleRow.removeFromLeft(titleRow.getWidth() / 3));
-    modelChooser.setBounds(titleRow);
-    area.removeFromTop(gap);
+    titleLabel.setBounds(area.removeFromTop(24));
+    area.removeFromTop(6);
 
-    modelStatusLabel.setFont(juce::FontOptions(13.0f));
-    modelStatusLabel.setBounds(area.removeFromTop(rowH));
+    // Backend footer (very bottom) — separate from the per-row install lights.
+    backendStatusLabel.setFont(juce::FontOptions(12.0f));
+    backendStatusLabel.setBounds(area.removeFromBottom(20));
+    area.removeFromBottom(4);
 
-    modelPathLabel.setFont(juce::FontOptions(11.0f));
-    modelPathLabel.setBounds(area.removeFromTop(18));
-    area.removeFromTop(gap);
-
-    backendStatusLabel.setFont(juce::FontOptions(13.0f));
-    backendStatusLabel.setBounds(area.removeFromTop(rowH));
-    area.removeFromTop(gap);
-
-    // Buttons: Auto-Scan | Browse… | Open Model Page
-    auto btnRow = area.removeFromTop(26);
-    int btnW = 90;
-    scanButton.setBounds(btnRow.removeFromLeft(btnW));
-    btnRow.removeFromLeft(6);
-    browseButton.setBounds(btnRow.removeFromLeft(btnW));
-    btnRow.removeFromLeft(6);
-    openPageButton.setBounds(btnRow.removeFromLeft(130));
-    area.removeFromTop(gap * 2);
-
-    // Install action button — only the in-app HF downloader uses this row.
-    auto dlRow = area.removeFromTop(26);
-    if (downloadButton.isVisible())
-        downloadButton.setBounds(dlRow.removeFromLeft(220));
-    area.removeFromTop(gap);
-
-    // Download progress
-    auto progressRow = area.removeFromTop(20);
-    if (progressBar.isVisible()) {
+    // Status / progress strip — ALWAYS reserved. downloadStatusLabel carries
+    // messages on idle paths too ("Download complete...", "Model active.",
+    // "Activation failed: ...", "Model imported: ...") that are set WITHOUT a
+    // following resized(), so the label must always have real bounds or those
+    // messages vanish. The progress bar shares the strip's right third only while
+    // a download runs (startDownload/startT5BaseChainDownload call resized() to
+    // make it appear; onDownloadFinished to hide it).
+    auto progressRow = area.removeFromBottom(18);
+    if (progressBar.isVisible())
+    {
         progressBar.setBounds(progressRow.removeFromRight(progressRow.getWidth() / 3));
-        progressRow.removeFromRight(4);
+        progressRow.removeFromRight(6);
     }
     downloadStatusLabel.setFont(juce::FontOptions(11.0f));
     downloadStatusLabel.setBounds(progressRow);
-    area.removeFromTop(gap);
+    area.removeFromBottom(4);
 
-    // Instructions (selectable/copyable text)
-    instructionsLabel.setFont(juce::FontOptions(13.0f));
-    instructionsLabel.setBounds(area);
+    // Middle band = family headers + five engine rows + a shared detail strip.
+    familyHeaders_.clear();
+    const int headerH = 13;
+    const int detailMin = 40;        // detail strip floor; grows on larger panels
+    int numHeaders = 0;
+    for (int i = 0; i < kNumRowSpecs; ++i)
+        if (kRowSpecs[i].familyHeader != nullptr) ++numHeaders;
+
+    const int rowH = juce::jlimit(28, 44,
+        (area.getHeight() - numHeaders * headerH - detailMin)
+            / juce::jmax(1, kNumRowSpecs));
+
+    for (int i = 0; i < kNumRowSpecs && i < (int) rows_.size(); ++i)
+    {
+        if (kRowSpecs[i].familyHeader != nullptr)
+        {
+            auto hr = area.removeFromTop(headerH);
+            familyHeaders_.push_back({ juce::String(kRowSpecs[i].familyHeader), hr });
+        }
+        rows_[(size_t) i]->setBounds(area.removeFromTop(rowH));
+    }
+
+    area.removeFromTop(6);
+    instructionsLabel.setFont(juce::FontOptions(11.5f));
+    instructionsLabel.setBounds(area);   // leftover height (may scroll)
     instructionsLabel.setCaretPosition(0);
 }
