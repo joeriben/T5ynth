@@ -401,84 +401,67 @@ juce::File SettingsPage::getAppSupportModelDir(const juce::String& modelId)
    #endif
 }
 
+// Index into kKnownModels for the model an action currently targets. Driven by
+// activeOpModelId_ (set when an action starts — currently bridged from the model
+// chooser, in Commit 4 from a per-model row click); falls back to entry 0. This
+// is the single source the selectedXxx() accessors read, so no UI widget is on
+// the path between "which model" and the download/scan/status logic.
+static int catalogIndexForId(const juce::String& id)
+{
+    for (int i = 0; i < kNumKnownModels; ++i)
+        if (id == kKnownModels[i].id) return i;
+    return 0;
+}
+
 juce::String SettingsPage::selectedModelId()
 {
-    int idx = modelChooser.getSelectedItemIndex();
-    if (idx >= 0 && idx < kNumKnownModels)
-        return kKnownModels[idx].id;
-    return kKnownModels[0].id;
+    return kKnownModels[catalogIndexForId(activeOpModelId_)].id;
 }
 
 juce::String SettingsPage::selectedHfRepo()
 {
-    int idx = modelChooser.getSelectedItemIndex();
-    if (idx >= 0 && idx < kNumKnownModels)
-        return kKnownModels[idx].hfRepo;
-    return kKnownModels[0].hfRepo;
+    return kKnownModels[catalogIndexForId(activeOpModelId_)].hfRepo;
 }
 
 juce::String SettingsPage::selectedGhRelease()
 {
-    int idx = modelChooser.getSelectedItemIndex();
-    if (idx >= 0 && idx < kNumKnownModels && kKnownModels[idx].ghRelease != nullptr)
-        return kKnownModels[idx].ghRelease;
-    return {};
+    const auto& km = kKnownModels[catalogIndexForId(activeOpModelId_)];
+    return km.ghRelease != nullptr ? juce::String(km.ghRelease) : juce::String();
 }
 
 bool SettingsPage::selectedDownloadable()
 {
-    int idx = modelChooser.getSelectedItemIndex();
-    if (idx >= 0 && idx < kNumKnownModels)
-        return kKnownModels[idx].downloadable;
-    return false;
+    return kKnownModels[catalogIndexForId(activeOpModelId_)].downloadable;
 }
 
 bool SettingsPage::selectedIsGenerationEngine()
 {
-    int idx = modelChooser.getSelectedItemIndex();
-    if (idx >= 0 && idx < kNumKnownModels)
-        return kKnownModels[idx].isGenerationEngine;
-    return true;  // default-safe for unknown indices
+    return kKnownModels[catalogIndexForId(activeOpModelId_)].isGenerationEngine;
 }
 
 juce::String SettingsPage::selectedModelDisplay()
 {
-    int idx = modelChooser.getSelectedItemIndex();
-    if (idx >= 0 && idx < kNumKnownModels)
-        return kKnownModels[idx].displayName;
-    return {};
+    return kKnownModels[catalogIndexForId(activeOpModelId_)].displayName;
 }
 
 const void* SettingsPage::selectedGhFiles()
 {
-    int idx = modelChooser.getSelectedItemIndex();
-    if (idx >= 0 && idx < kNumKnownModels)
-        return static_cast<const void*>(kKnownModels[idx].ghFiles);
-    return nullptr;
+    return static_cast<const void*>(kKnownModels[catalogIndexForId(activeOpModelId_)].ghFiles);
 }
 
 int SettingsPage::selectedGhFileCount()
 {
-    int idx = modelChooser.getSelectedItemIndex();
-    if (idx >= 0 && idx < kNumKnownModels)
-        return kKnownModels[idx].ghFileCount;
-    return 0;
+    return kKnownModels[catalogIndexForId(activeOpModelId_)].ghFileCount;
 }
 
 const void* SettingsPage::selectedAssets()
 {
-    int idx = modelChooser.getSelectedItemIndex();
-    if (idx >= 0 && idx < kNumKnownModels)
-        return static_cast<const void*>(kKnownModels[idx].assets);
-    return nullptr;
+    return static_cast<const void*>(kKnownModels[catalogIndexForId(activeOpModelId_)].assets);
 }
 
 int SettingsPage::selectedAssetCount()
 {
-    int idx = modelChooser.getSelectedItemIndex();
-    if (idx >= 0 && idx < kNumKnownModels)
-        return kKnownModels[idx].assetCount;
-    return 0;
+    return kKnownModels[catalogIndexForId(activeOpModelId_)].assetCount;
 }
 
 SettingsPage::SettingsPage()
@@ -497,7 +480,16 @@ SettingsPage::SettingsPage()
     // Default to Stable Audio Open Small.
     // Index in kKnownModels is 1, so ComboBox id (1-based) is 2.
     modelChooser.setSelectedId(2, juce::dontSendNotification);
-    modelChooser.onChange = [this] { updateStatus(); resized(); };
+    // The chooser drives activeOpModelId_, the single "which model does an action
+    // target" source the selectedXxx() accessors read. (Commit 4 removes the
+    // chooser and sets activeOpModelId_ from a per-model row click instead.)
+    activeOpModelId_ = kKnownModels[1].id;
+    modelChooser.onChange = [this] {
+        int idx = modelChooser.getSelectedItemIndex();
+        activeOpModelId_ = kKnownModels[(idx >= 0 && idx < kNumKnownModels) ? idx : 0].id;
+        updateStatus();
+        resized();
+    };
     addAndMakeVisible(modelChooser);
 
     modelStatusLabel.setColour(juce::Label::textColourId, juce::Colours::white);
@@ -1382,7 +1374,7 @@ void SettingsPage::startDownload()
         return;
 
     // Show license confirmation dialog before any download
-    int idx = modelChooser.getSelectedItemIndex();
+    int idx = catalogIndexForId(activeOpModelId_);
     if (idx >= 0 && idx < kNumKnownModels && kKnownModels[idx].licenseNotice != nullptr
         && !licenseAccepted_)
     {

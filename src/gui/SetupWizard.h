@@ -148,6 +148,10 @@ private:
     std::atomic<bool> downloading { false };
     std::atomic<bool> modelInstallBusy_ { false };
     bool licenseAccepted_ = false;
+    // The model an in-flight action targets — the single source selectedXxx()
+    // reads (decoupled from any UI widget). Bridged from modelChooser today; set
+    // from a per-model row click once the chooser is gone (Commit 4).
+    juce::String activeOpModelId_;
     std::shared_ptr<std::atomic<int64_t>> downloadCounter_;
     std::shared_ptr<std::atomic<bool>> downloadCancelFlag_;
 
