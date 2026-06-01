@@ -337,9 +337,10 @@ text-to-audio tools:
 </ol>
 
 <div class="tip">
-  <strong>Preset starting points:</strong> T5ynth ships with presets, and an
-  expanded collection lives at
-  <a href="https://github.com/joeriben/T5ynth-Presets">https://github.com/joeriben/T5ynth-Presets</a>.
+  <strong>Preset starting points:</strong> the curated <em>UCDCAE AI Lab</em>
+  preset bank is downloaded on demand inside the Preset Manager &mdash; click
+  <strong>Update Library</strong> to fetch and refresh it from
+  <a href="https://github.com/joeriben/T5ynth-Presets">github.com/joeriben/T5ynth-Presets</a>.
   A preset is a complete instrument state: impulses, generated audio,
   Sampler, Wavetable, or Granular mode, modulation, effects, tags, and stored settings.
 </div>
@@ -359,52 +360,39 @@ Open the <strong>Settings</strong> panel from the status bar, pick a model from 
 
 <h4>Stable Audio 3 Small Music &amp; Small SFX</h4>
 <p>
-<strong>New in v2.1.0 (2026-06-01).</strong>
-Stable Audio 3 is Stability AI's current small-format generative family and T5ynth's default engine slot. Two specialised checkpoints are wired into the native pipeline: <strong>SA3 Small Music</strong> (instrumental music) and <strong>SA3 Small SFX</strong> (sound effects). They share one architecture and one text encoder; the backend only swaps the target modality between them.
+Stable Audio 3 (SA3) is Stability AI's current small-format generative family, added in T5ynth&nbsp;2.1.0. Two checkpoints are available: <strong>Small Music</strong> for instrumental music and <strong>Small SFX</strong> for sound effects. They share one architecture and one text encoder and differ only in the target modality. SA3 Small Music is T5ynth's default model.
 </p>
 <p>
-<strong>Under the hood:</strong> a latent diffusion transformer (DiT, 20 blocks, ~459M parameters) running on a semantic-acoustic autoencoder (SAME) latent at 44.1&nbsp;kHz stereo. Text is read by the <strong>t5gemma</strong> encoder (<code>google/t5gemma-b-b-ul2</code>, 768-dimensional). Generation uses the <code>pingpong</code> sampler at 8&nbsp;steps with CFG&nbsp;1.0 &mdash; Stability's recommended settings, applied automatically when an SA3 model is selected. SA3 needs no classifier-free guidance; the guidance is baked into the model during training, which is part of why it is fast.
+SA3 is a latent diffusion transformer with a t5gemma text encoder (<code>google/t5gemma-b-b-ul2</code>), 44.1&nbsp;kHz stereo. T5ynth selects the model's published inference settings automatically: <code>pingpong</code> sampler, 8&nbsp;steps, CFG&nbsp;1.0.
 </p>
 <p>
-<strong>Login-free install.</strong> Unlike the Stable Audio Open models, SA3 needs <em>no HuggingFace account and no token</em>. In Settings, select <strong>Stable Audio 3 Small Music</strong> (or <strong>Small SFX</strong>), confirm the license dialog, and click <strong>Download</strong>. T5ynth fetches the weights from the openly accessible Comfy-Org repository (~2.3&nbsp;GB checkpoint plus a ~1.2&nbsp;GB t5gemma encoder that both variants share) and writes the license copies into the model folder. <em>Auto-Scan</em> stays available as a fallback if you have hand-downloaded the files from Stability's gated repository.
+<strong>Install.</strong> Select <strong>Stable Audio 3 Small Music</strong> or <strong>Small SFX</strong> in Settings and click <strong>Download</strong>. T5ynth first shows a license dialog; you must accept both the <a href="https://stability.ai/community-license-agreement">Stability AI Community License</a> (the audio model) and the <a href="https://ai.google.dev/gemma/terms">Google Gemma Terms of Use</a> with the Gemma Prohibited Use Policy (the t5gemma text encoder). The download then runs without a HuggingFace account or token, and the full license texts are written into the model folder. If you already downloaded the files from Stability by hand, use <strong>Auto-Scan</strong> instead.
 </p>
 <p>
-<strong>Two licenses apply</strong>, and the dialog requires both: the audio model is under the <a href="https://stability.ai/community-license-agreement">Stability AI Community License</a> (free for non-commercial use, and for commercial use under $1M annual revenue), and the t5gemma encoder is under the <a href="https://ai.google.dev/gemma/terms">Google Gemma Terms of Use</a> and the Gemma Prohibited Use Policy.
+<strong>Prompting.</strong> The t5gemma encoder reads up to 256&nbsp;tokens per impulse. T5ynth prepends the model's required modality prefix (<code>TrackType: Music, VocalType: Instrumental,</code> or <code>TrackType: SFX,</code>) automatically. SA3 was trained on comma-joined, field-tagged metadata (for example <em>Instruments: …, Moods: …</em>), so structured <em>Field: value</em> prompts fit its training distribution; plain descriptions also work.
 </p>
 <p>
-<strong>What each variant is good at:</strong>
-Small Music renders short musical fragments &mdash; explicit tempo and key
-(&ldquo;<em>drum break, 174 BPM</em>&rdquo;,
-&ldquo;<em>a short piano riff in C&nbsp;minor</em>&rdquo;,
-&ldquo;<em>synth pluck arp with reverb and delay, 128 BPM</em>&rdquo;),
-percussive hits
-(&ldquo;<em>tight snare drum</em>&rdquo;), plucks, pads, and
-sound-design textures
-(&ldquo;<em>glitchy bass design</em>&rdquo;).
-Small SFX targets non-musical sound effects and foley &mdash; impacts, textures,
-environmental and mechanical sounds. The two are genuinely specialised models
-(trained on a music subset vs. a sound-effects subset), not one model with a
-label.
+<strong>Duration.</strong> SA3 generates variable-length audio; with an SA3 model selected the Duration slider reaches 120&nbsp;s. For the other engines it caps at 11&nbsp;s.
+</p>
+
+<h4>Stable Audio Open 1.0</h4>
+<p>
+Licensed under the <a href="https://stability.ai/community-license-agreement">Stability AI Community License</a>. Gated on HuggingFace &mdash; a free HuggingFace account is required once to accept the license. T5ynth uses only two files from this repository (<code>model.safetensors</code> ~4.9&nbsp;GB and <code>model_config.json</code>); the other files in the repo are alternative formats and metadata that T5ynth does not load.
 </p>
 <p>
-<strong>Prompt budget &amp; format:</strong> the t5gemma encoder reads up to
-<strong>256 tokens</strong> per impulse (roughly 150&ndash;200 English words)
-&mdash; far more headroom than the Stable Audio Open engines. T5ynth
-automatically prepends SA3's mandatory modality prefix
-(&ldquo;<em>TrackType: Music, VocalType: Instrumental,</em>&rdquo; for Music,
-&ldquo;<em>TrackType: SFX,</em>&rdquo; for SFX) to every non-empty prompt, so you
-never type it yourself. SA3 was trained on comma-joined, field-tagged metadata,
-so structured prompts such as &ldquo;<em>Genre: ambient, Instruments: synth pad,
-Moods: warm, calm</em>&rdquo; land squarely in its training distribution; plain
-natural-language descriptions work too. Either way, name acoustic qualities
-rather than genres.
+<strong>Install:</strong>
 </p>
-<p>
-<strong>Output length:</strong> SA3 can natively generate up to two minutes, but
-T5ynth clamps the result to a short fragment (&le;&nbsp;11&nbsp;s) &mdash;
-consistent with its quasi-realtime, short-sound design &mdash; regardless of
-slider position.
-</p>
+<ol>
+  <li>In Settings, click <strong>Open Model Page</strong>. Sign up or log in on HuggingFace, and click <strong>Agree and access repository</strong> to accept the license.</li>
+  <li>Open the <strong>Files and versions</strong> tab and download exactly these two files to your usual Downloads folder:
+    <ul>
+      <li><code>model.safetensors</code> (~4.9&nbsp;GB)</li>
+      <li><code>model_config.json</code></li>
+    </ul>
+    Do <strong>not</strong> download <code>model.ckpt</code>, <code>vae_model.ckpt</code>, or anything inside <code>transformer/</code>, <code>vae/</code>, <code>text_encoder/</code>, <code>tokenizer/</code>, <code>scheduler/</code>, or <code>projection_model/</code> &mdash; T5ynth does not load them.
+  </li>
+  <li>Back in T5ynth, click <strong>Auto-Scan</strong>. T5ynth finds the files in Downloads and copies them into its working model folder. If you saved the files somewhere other than Downloads, Auto-Scan opens a folder picker and asks you to point at that folder.</li>
+</ol>
 
 <h4>Stable Audio Open Small</h4>
 <p>
@@ -429,30 +417,11 @@ If you saved the files to a folder other than Downloads, Auto-Scan opens a folde
 
 <h4>AudioLDM2</h4>
 <p>
-AudioLDM2 is an academic latent-diffusion text-to-audio model published by the Centre for Vision, Speech and Signal Processing (CVSSP) at the University of Surrey together with collaborators; see the paper <a href="https://arxiv.org/abs/2308.05734">"AudioLDM&nbsp;2: Learning Holistic Audio Generation with Self-supervised Pretraining" (Liu et al., 2023)</a>. It was released as an open research artefact to study generalised audio, music, and speech generation from text, not as a commercial product. It is ungated on HuggingFace and the only engine T5ynth can install for you directly &mdash; in Settings, select AudioLDM2 and click <strong>Download from HuggingFace</strong>.
+AudioLDM2 is an academic latent-diffusion text-to-audio model published by the Centre for Vision, Speech and Signal Processing (CVSSP) at the University of Surrey together with collaborators; see the paper <a href="https://arxiv.org/abs/2308.05734">"AudioLDM&nbsp;2: Learning Holistic Audio Generation with Self-supervised Pretraining" (Liu et al., 2023)</a>. It was released as an open research artefact to study generalised audio, music, and speech generation from text, not as a commercial product. It is ungated on HuggingFace and T5ynth can download it directly &mdash; in Settings, select AudioLDM2 and click <strong>Download from HuggingFace</strong>.
 </p>
 <p>
-Model: <a href="https://huggingface.co/cvssp/audioldm2">cvssp/audioldm2</a>. License: <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> &mdash; <strong>non-commercial use only, no revenue threshold, no exceptions</strong>. T5ynth includes AudioLDM2 as an alternative sound source for non-commercial musical exploration, particularly for users who do not want to create a HuggingFace account.
+Model: <a href="https://huggingface.co/cvssp/audioldm2">cvssp/audioldm2</a>. License: <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> &mdash; <strong>non-commercial use only, no revenue threshold, no exceptions</strong>. T5ynth includes AudioLDM2 as an alternative sound source for non-commercial musical exploration.
 </p>
-
-<h4>Stable Audio Open 1.0</h4>
-<p>
-Licensed under the <a href="https://stability.ai/community-license-agreement">Stability AI Community License</a>. Gated on HuggingFace &mdash; a free HuggingFace account is required once to accept the license. T5ynth uses only two files from this repository (<code>model.safetensors</code> ~4.9&nbsp;GB and <code>model_config.json</code>); the other files in the repo are alternative formats and metadata that T5ynth does not load.
-</p>
-<p>
-<strong>Install:</strong>
-</p>
-<ol>
-  <li>In Settings, click <strong>Open Model Page</strong>. Sign up or log in on HuggingFace, and click <strong>Agree and access repository</strong> to accept the license.</li>
-  <li>Open the <strong>Files and versions</strong> tab and download exactly these two files to your usual Downloads folder:
-    <ul>
-      <li><code>model.safetensors</code> (~4.9&nbsp;GB)</li>
-      <li><code>model_config.json</code></li>
-    </ul>
-    Do <strong>not</strong> download <code>model.ckpt</code>, <code>vae_model.ckpt</code>, or anything inside <code>transformer/</code>, <code>vae/</code>, <code>text_encoder/</code>, <code>tokenizer/</code>, <code>scheduler/</code>, or <code>projection_model/</code> &mdash; T5ynth does not load them.
-  </li>
-  <li>Back in T5ynth, click <strong>Auto-Scan</strong>. T5ynth finds the files in Downloads and copies them into its working model folder. If you saved the files somewhere other than Downloads, Auto-Scan opens a folder picker and asks you to point at that folder.</li>
-</ol>
 <h4>Manual install locations</h4>
 <p>
 If you prefer to place files yourself, use these directories (each model lives in its own subdirectory, e.g.&nbsp;<code>stable-audio-open-small/</code>):
@@ -523,10 +492,9 @@ T5ynth can use Stable Audio 3 Small Music, Stable Audio 3 Small SFX, Stable
 Audio Open 1.0, Stable Audio Open Small, or AudioLDM2. Each engine opens a
 different learned space. The Stable Audio engines are strongest with English
 sound-oriented phrases: sound effects, field recordings, drum or instrument
-loops, ambient sounds, foley, and production elements. The SA3 engines are the
-newest and read up to ~256 tokens per impulse through their t5gemma encoder
-(far more headroom than the Stable Audio Open engines, which use T5-Base);
-T5ynth auto-prepends SA3's required modality prefix, so you never type it.
+loops, ambient sounds, foley, and production elements. The SA3 engines read up
+to 256 tokens per impulse through their t5gemma encoder, and T5ynth prepends
+SA3's required modality prefix automatically.
 AudioLDM2 can also cover sound effects, speech-like material, and music, but it
 is non-commercial only, behaves differently from the Stable Audio engines, and
 is kept in T5ynth mainly for exploratory use rather than as the primary
@@ -578,8 +546,8 @@ T5ynth is where you find out what that marker can become.
   </tr>
   <tr>
     <td><strong>Duration</strong></td>
-    <td>0.1 … 11 s</td>
-    <td>Length of generated audio. T5ynth targets short playable fragments, so the slider is capped at 11&nbsp;s — the maximum output length of Stable Audio Open Small. Short values (0.5–3&nbsp;s) work well for loops and wavetable sources. Longer values create evolving textures.</td>
+    <td>0.1 … 11 s (120 s with SA3)</td>
+    <td>Length of generated audio. T5ynth targets short playable fragments, so the slider caps at 11&nbsp;s for the Stable Audio Open and AudioLDM2 engines; with an SA3 model selected it extends to 120&nbsp;s. Short values (0.5–3&nbsp;s) work well for loops and wavetable sources. Longer values create evolving textures.</td>
   </tr>
   <tr>
     <td><strong>Steps</strong></td>
@@ -836,6 +804,10 @@ disables the non-linear buttons and keeps <em>Linear</em> active.
 Below the A/B area, three dropdown slots let you apply <strong>sound-character axes</strong> — continuous sliders between two conceptual poles. Each axis nudges the current possible-sound space. In the UI and technical background these are also called semantic axes; musically, treat them as broad tone-character directions, not as precise EQ controls.
 </p>
 
+<div class="note">
+  <strong>Available for Stable Audio Open 1.0, Stable Audio Open Small, and AudioLDM2 only.</strong> The sound-character axes are precomputed directions in those engines' text-embedding space. They are disabled when an SA3 model is selected, because SA3's t5gemma encoder has a different embedding geometry.
+</div>
+
 <table>
   <tr><th>Axis</th><th>Left Pole (−1)</th><th>Right Pole (+1)</th></tr>
   <tr><td>noise / music</td><td><span class="pole-label">noise</span></td><td><span class="pole-label">music</span></td></tr>
@@ -862,6 +834,10 @@ Each slider runs from −1.0 to +1.0. Multiple axes are interrelated — the mor
 <p>
 The Dimension Explorer gives you direct access to all <strong>768 internal control dimensions</strong> that steer the model. While the A/B text fields and sound-character axes are readable handles, the DimExplorer lets you see and manipulate the raw numbers.
 </p>
+
+<div class="note">
+  <strong>Available for Stable Audio Open 1.0, Stable Audio Open Small, and AudioLDM2 only.</strong> Like the sound-character axes, the Dimension Explorer operates on those engines' text-embedding vectors and is disabled when an SA3 model is selected.
+</div>
 
 <h4>What You See</h4>
 <p>
@@ -1098,6 +1074,10 @@ Meanwhile, the conventional synth chain (filter, envelopes, LFOs, effects, seque
 <p>
 The Drift section provides three slow LFOs (0.001–2.0 Hz) designed for organic, evolving textures. Unlike the main LFOs, drift can target <strong>generation-level parameters</strong> — Alpha, the three sound-character axes, Noise, and Magnitude. This is what makes drift unique: it doesn't just modulate how the sound is played back, it modulates <em>what sound is generated</em>.
 </p>
+
+<div class="note">
+  With an SA3 model selected, the sound-character axes are unavailable, so drift targets only Alpha, Noise, and Magnitude.
+</div>
 
 <h4>Drift LFOs (3×)</h4>
 <table>
@@ -1351,8 +1331,9 @@ T5ynth uses <code>.t5p</code> preset files — a binary container that stores:
 </ul>
 <p>
 Use <strong>Import Presets</strong> in the Library to copy one or more <code>.t5p</code>
-files into your user library. <strong>Get from GitHub</strong> opens the expanded
-collection at <a href="https://github.com/joeriben/T5ynth-Presets">T5ynth-Presets</a>.
+files into your user library. <strong>Update Library</strong> downloads and
+refreshes the curated <em>UCDCAE AI Lab</em> bank in place from
+<a href="https://github.com/joeriben/T5ynth-Presets">T5ynth-Presets</a> &mdash; no manual download.
 </p>
 
 <!-- ═══════════════════════════════════════════ -->
