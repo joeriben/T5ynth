@@ -118,7 +118,8 @@ Important distinction:
 Every job:
 
 1. Checks out the repo (`submodules: true`).
-2. Installs system dependencies and Python 3.11.
+2. Installs system dependencies and Python 3.10 (git-main stable-audio-tools
+   pins `python_requires <3.11`, so 3.11 cannot install the backend stack).
 3. Installs `pyinstaller` plus a matching `torch` / `torchaudio` /
    `torchvision` wheel set, then `backend/requirements.txt`.
   - On Windows and Linux, that wheel set is pulled from the CUDA 12.8 wheel

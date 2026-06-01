@@ -57,8 +57,11 @@ The following are required on every platform regardless of host OS.
 - **CMake** >= 3.22
 - **C++20 toolchain** (Apple Clang on macOS, GCC >= 11 on Linux, MSVC 19.3x
   on Windows)
-- **Python 3.10 or 3.11.** CI uses 3.11; that is the recommended version.
-  3.12+ is currently untested.
+- **Python 3.10** for the inference backend. git-main `stable-audio-tools`
+  pins `python_requires '>=3.10,<3.11'`, so the PyInstaller backend builds
+  **only** on 3.10 — both CI and the dev `.venv` use 3.10. On 3.11+, `pip
+  install` of the native stack fails outright. (The JUCE/C++ build itself does
+  not depend on the Python version; this constraint is purely the backend's.)
 - **Git.** The `JUCE/` directory in this repository is **vendored**, not a
   submodule. Do **not** run `git submodule update --init` against it; it has
   no effect on JUCE and may obscure local edits in other future submodules.
@@ -142,7 +145,7 @@ Fedora 42 reference:
 ```bash
 sudo dnf install -y \
   cmake gcc-c++ make git pkgconf-pkg-config \
-  python3.11 python3.11-devel python3-pip \
+  python3.10 python3.10-devel python3-pip \
   alsa-lib-devel libcurl-devel freetype-devel \
   libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel \
   libXcomposite-devel libXext-devel libXrender-devel fontconfig-devel \
@@ -165,7 +168,7 @@ on Ubuntu before reporting bugs.
 - **WebView2 runtime** — pre-installed on Windows 11. JUCE uses it for
   `JUCE_WEB_BROWSER=1`. No action required on Win11; on Win10 install the
   Evergreen runtime from Microsoft.
-- **Python 3.11 from python.org.** Do **not** use the Microsoft Store
+- **Python 3.10 from python.org.** Do **not** use the Microsoft Store
   Python build: PyInstaller has long-standing issues with the sandboxed
   Store install (path resolution, module discovery). Tick *Add Python to
   PATH* in the installer.

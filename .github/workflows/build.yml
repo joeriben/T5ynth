@@ -22,7 +22,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          # git-main stable-audio-tools pins python_requires '>=3.10,<3.11', so
+          # the backend MUST build on Python 3.10. 3.11 makes `pip install
+          # stable-audio-tools` fail before PyInstaller runs (verified: every
+          # platform errored "requires a different Python: 3.11.x not in
+          # '<3.11,>=3.10'"). 3.10 also matches the locally-validated dev env.
+          python-version: '3.10'
 
       - name: Install Python dependencies
         run: |
@@ -210,7 +215,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          # git-main stable-audio-tools pins python_requires '>=3.10,<3.11', so
+          # the backend MUST build on Python 3.10. 3.11 makes `pip install
+          # stable-audio-tools` fail before PyInstaller runs (verified: every
+          # platform errored "requires a different Python: 3.11.x not in
+          # '<3.11,>=3.10'"). 3.10 also matches the locally-validated dev env.
+          python-version: '3.10'
 
       - name: Install Python dependencies
         run: |
@@ -407,7 +417,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          # git-main stable-audio-tools pins python_requires '>=3.10,<3.11', so
+          # the backend MUST build on Python 3.10. 3.11 makes `pip install
+          # stable-audio-tools` fail before PyInstaller runs (verified: every
+          # platform errored "requires a different Python: 3.11.x not in
+          # '<3.11,>=3.10'"). 3.10 also matches the locally-validated dev env.
+          python-version: '3.10'
 
       - name: Install Python dependencies
         run: |
