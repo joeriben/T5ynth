@@ -1407,6 +1407,10 @@ Presets include the generated audio, so you never lose a good generation. Export
 T5ynth's semantic axes are directions in the 768-dimensional embedding space of the T5 text encoder. Here's how they are constructed:
 </p>
 
+<div class="note">
+  This applies to the Stable Audio Open 1.0, Stable Audio Open Small, and AudioLDM2 engines, which condition on the T5 text encoder. The semantic axes are disabled when an SA3 model is selected, because SA3's t5gemma encoder has a different embedding geometry.
+</div>
+
 <h4>Step 1: Define Poles</h4>
 <p>
 Each axis is defined by two single-word anchors representing opposing concepts — for example, <code>"noise"</code> and <code>"music"</code>. These are not arbitrary labels; they were selected through systematic testing of which word-pairs produce the most audibly distinct results.
@@ -1449,6 +1453,10 @@ Not all conceptual oppositions produce audible differences. The 8 axes included 
 <p>
 The DimExplorer (see <a href="#dimex">section 3</a> for basic usage) operates on the <strong>mean-pooled</strong> T5 encoder output — the 768-dimensional vector obtained by averaging across the token sequence dimension, weighted by the attention mask. This is the same representation the diffusion model uses for conditioning.
 </p>
+
+<div class="note">
+  Like the semantic axes, the DimExplorer operates on the T5 encoder output and is available for the Stable Audio Open 1.0, Stable Audio Open Small, and AudioLDM2 engines only; it is disabled when an SA3 model is selected.
+</div>
 
 <h4>Why Sorted by Magnitude?</h4>
 <p>
