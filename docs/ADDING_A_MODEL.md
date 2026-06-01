@@ -255,6 +255,48 @@ Never add multiprocessing-using packages to `runtime_hook.py`, and always
 test the bundled binary end-to-end through the JUCE app, not only the
 Python source in a venv.
 
+### 2.8 SA3 prompt conditioning — modality prefix, learned padding, prompt format
+
+Stable Audio 3 (the `stable-audio-3-small-{music,sfx}` engines) conditions
+differently from the SAO / AudioLDM2 paths in three ways a contributor must
+preserve. All three are non-obvious and have already caused one user-visible
+regression (the "nuschelnde Stimme" buzz, fixed in `79a5f6ac`).
+
+1. **Modality prefix (mandatory).** The SA3 paper (§5.1) requires every prompt
+   to begin with a modality field — `TrackType: Music, VocalType: Instrumental,`
+   for music, `TrackType: SFX,` for sound effects — and reports it
+   "significantly improves generation quality." `_native_modality_prefix()`
+   (`backend/pipe_inference.py:1007`) derives the prefix from the model **dir
+   name**, not the config (music and sfx share one `model_config.json`), and it
+   is prepended to **non-empty** prompts only (`:1446`) so an empty field still
+   encodes as the true `""` null / Spiegel-Punkt reference and the A/B-present
+   logic is unaffected. Users never type the prefix.
+
+2. **Learned padding — do NOT mask it.** SA3's t5gemma encoder
+   (`google/t5gemma-b-b-ul2`, `padding_mode: "learned"`) emits a *non-zero
+   learned* embedding at padded positions, and the DiT cross-attends to it
+   unconditionally (paper §2.2). The backend auto-detects this and makes
+   `_mask_pad()` a no-op for SA3 (learned-padding handling around
+   `backend/pipe_inference.py:1594`). Zeroing those positions — correct for
+   SAO's true-zero T5 padding — feeds SA3 out-of-distribution conditioning that
+   collapses the latent to a ~10.76 Hz buzz (the same mumble for every prompt).
+   If you touch the conditioning / mask path, keep SAO byte-identical and leave
+   SA3's learned padding alone.
+
+3. **Prompt format (optional, training-aligned).** SA3 was trained on
+   comma-joined, field-tagged metadata — e.g. `Instruments: Guitar, Drums,
+   Moods: Uplifting` — with the field identifier present only ~50% of the time
+   and lowercasing applied ~50% of the time (paper §3.5). So structured
+   `Field: value` prompts (Genre / Instruments / Moods / BPM) sit squarely in
+   the training distribution, but plain natural-language captions also work
+   (that is the §5.1 evaluation setup, where small-music scores well). This is a
+   prompt-authoring convention, **not** a code requirement: the modality prefix
+   already composes correctly in front of a structured prompt. The t5gemma
+   budget is **256 tokens** (`sa3_model_config.json` `max_length: 256`), far
+   larger than SAO's T5-Base window — long, structured prompts are fine. Surface
+   the convention in the manuals; do not silently restructure user prompts in
+   the backend.
+
 ---
 
 ## 3. C++ side — Model Manager UI and install flow
