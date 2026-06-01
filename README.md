@@ -77,14 +77,18 @@ The instrument flow is therefore:
    envelopes, LFOs, sequencers, delay, reverb, limiter, presets, and
    **Drift Modulators & Auto-Regenerate**.
 
-T5ynth can use **Stable Audio Open 1.0**, **Stable Audio Open Small**, or
-**AudioLDM2**. Each engine has its own learned response profile, so the same
-A/B pair can open a different space depending on the selected model. The
-Stable Audio engines are strongest with English sound-oriented phrases:
-sound effects, field recordings, drum or instrument loops, ambient sounds,
-foley, and production elements. AudioLDM2 is broader in its training goal and
-can cover sound effects, speech-like material, and music, but it is
-non-commercial only and less tied to T5ynth's newer injection-mode research.
+T5ynth can use **Stable Audio 3 Small Music**, **Stable Audio 3 Small SFX**,
+**Stable Audio Open 1.0**, **Stable Audio Open Small**, or **AudioLDM2**. Each
+engine has its own learned response profile, so the same A/B pair can open a
+different space depending on the selected model. The Stable Audio engines are
+strongest with English sound-oriented phrases: sound effects, field recordings,
+drum or instrument loops, ambient sounds, foley, and production elements. The
+**Stable Audio 3** engines are the newest (default since v2.1.0): a fast
+diffusion transformer with a t5gemma text encoder, installed login-free with no
+HuggingFace account — Small Music for instrumental music, Small SFX for sound
+effects. AudioLDM2 is broader in its training goal and can cover sound effects,
+speech-like material, and music, but it is non-commercial only and less tied to
+T5ynth's newer injection-mode research.
 
 The meaning poles do not have to be narrow "sound ideas". They can evoke sound
 sources, materials in motion, acoustic scenes, bodies, gestures, moods,
@@ -329,13 +333,14 @@ described in [docs/LINUX_PACKAGING.md](docs/LINUX_PACKAGING.md).
 
 ### Model Download
 
-T5ynth requires at least one diffusion model. Audio model weights are not bundled — they must be downloaded separately. The packaged backend includes the auxiliary T5 Base text encoder required by the native Stable Audio engines, so users do not install `t5-base` separately.
+T5ynth requires at least one diffusion model. Audio model weights are not bundled — they must be downloaded separately. The packaged backend includes the auxiliary T5 Base text encoder required by the Stable Audio Open engines; Stable Audio 3 uses its own t5gemma encoder, fetched at install.
 
 Use the **Settings** panel on first launch:
 
-1. **Stable Audio Open Small** — licensed under the [Stability AI Community License](https://stability.ai/community-license-agreement). Gated on HuggingFace: install is a one-time manual step. The user downloads `model.safetensors` and `model_config.json` from HuggingFace, then T5ynth picks them up via *Auto-Scan* or *Browse...* in Settings.
-2. **AudioLDM2** — an academic latent-diffusion text-to-audio model published by CVSSP / University of Surrey and collaborators ([Liu et al., 2023](https://arxiv.org/abs/2308.05734)), released as an open research artefact for studying generalised audio, music, and speech generation from text. Ungated on HuggingFace and the only engine T5ynth can install directly. Licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) — **non-commercial only, no revenue threshold, no exceptions**. Included as an alternative sound source for non-commercial musical exploration.
-3. **Stable Audio Open 1.0** — licensed under the [Stability AI Community License](https://stability.ai/community-license-agreement). Gated on HuggingFace. Download `model.safetensors` and `model_config.json` to your Downloads folder, then use *Auto-Scan* in Settings; T5ynth copies the files into its working model folder.
+1. **Stable Audio 3 Small Music / Small SFX** *(new in v2.1.0, recommended default)* — Stability AI's current small-format engines: a fast diffusion transformer (DiT) with a t5gemma text encoder, tuned for instrumental music (Music) and sound effects (SFX). Installs **login-free** — no HuggingFace account or token. Select the model, accept the license dialog, and click *Download*; T5ynth fetches the weights (~2.3 GB checkpoint + a shared ~1.2 GB t5gemma encoder) from the openly accessible Comfy-Org repository and writes the license copies into the model folder. Two licenses apply and both must be accepted: the [Stability AI Community License](https://stability.ai/community-license-agreement) (audio model) and the [Google Gemma Terms of Use](https://ai.google.dev/gemma/terms) (t5gemma encoder).
+2. **AudioLDM2** — an academic latent-diffusion text-to-audio model published by CVSSP / University of Surrey and collaborators ([Liu et al., 2023](https://arxiv.org/abs/2308.05734)), released as an open research artefact for studying generalised audio, music, and speech generation from text. Ungated on HuggingFace and installable directly in-app. Licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) — **non-commercial only, no revenue threshold, no exceptions**. Included as an alternative sound source for non-commercial musical exploration.
+3. **Stable Audio Open Small** — licensed under the [Stability AI Community License](https://stability.ai/community-license-agreement). Gated on HuggingFace: install is a one-time manual step. Download `model.safetensors` and `model_config.json` from HuggingFace, then T5ynth picks them up via *Auto-Scan* or *Browse...* in Settings.
+4. **Stable Audio Open 1.0** — licensed under the [Stability AI Community License](https://stability.ai/community-license-agreement). Gated on HuggingFace. Download `model.safetensors` and `model_config.json` to your Downloads folder, then use *Auto-Scan* in Settings; T5ynth copies the files into its working model folder.
 
 Manual install locations if you prefer to place files yourself:
 
@@ -357,6 +362,7 @@ This means you are free to use, modify, and redistribute T5ynth, provided that d
 
 ### Third-Party Components
 
+- **Stable Audio 3 Small Music / Small SFX** — audio model under the [Stability AI Community License](https://stability.ai/community-license-agreement); t5gemma text encoder under the [Google Gemma Terms of Use](https://ai.google.dev/gemma/terms) and the Gemma Prohibited Use Policy. Weights are not included in this repository; they download login-free from the ungated Comfy-Org repository, both licenses are accepted in-app, and copies are written into the model folder. Powered by Stability AI.
 - **Stable Audio Open 1.0 / Stable Audio Open Small** — [Stability AI Community License](https://stability.ai/community-license-agreement). The models are not included in this repository. Users download them separately and must accept their license. Powered by Stability AI.
 - **AudioLDM2** — [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). Non-commercial use only. Not included; users download separately.
 - **JUCE Framework** — AGPLv3 (vendored in `JUCE/`). Provides the application framework and DSP building blocks used by the SVF, delay, convolution reverb, algorithmic reverb, limiter, and oversampling paths.
