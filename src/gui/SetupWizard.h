@@ -94,6 +94,9 @@ private:
     void downloadAllFilesInThread();
     void downloadGhReleaseInThread();
     void downloadReassemblyInThread();
+    // Stand-alone t5-base fetch for the manual SAO import paths (no reassembly
+    // thread to piggyback on); the in-app SAO download chains t5-base inline.
+    void startT5BaseChainDownload();
     void onDownloadFinished(bool success, const juce::String& error);
     static bool isLfsPointer(const juce::File& file);
     void cleanupBadFiles(const juce::File& dir);

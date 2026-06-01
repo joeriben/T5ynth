@@ -126,15 +126,22 @@ struct GhAsset { const char* name; int64_t expectedSize; };
 // pulled from a T5ynt-owned mirror. Consumed by downloadReassemblyInThread.
 struct ReassemblyAsset { const char* sourceUrl; const char* localPath; int64_t expectedSize; };
 
-// Files mirrored at the assets/t5-base-v1 GitHub release tag. Sizes match
-// google-t5/t5-base on HuggingFace; used for progress display and the
-// "skip if already downloaded" heuristic.
+// The t5-base text encoder files, fetched ungated from google-t5/t5-base on
+// HuggingFace (Apache-2.0). google-t5/t5-base is a frozen legacy model, so these
+// four files + sizes are fixed (each verified byte-for-byte against HF) and drive
+// the resume / skip / safetensors-integrity checks in downloadFileSet. This is
+// the set the Stable Audio Open engines auto-chain (they condition on t5-base).
 static const GhAsset kT5BaseGhFiles[] = {
     { "config.json",            1208 },
     { "tokenizer.json",      1389353 },
     { "spiece.model",         791656 },
     { "model.safetensors", 891646390 },
 };
+static constexpr int kT5BaseGhFileCount =
+    static_cast<int>(sizeof(kT5BaseGhFiles) / sizeof(kT5BaseGhFiles[0]));
+// Resolve base for the t5-base files above. "t5-base" is HF's canonical redirect
+// to google-t5/t5-base; the resolve URL works ungated with no account or token.
+static const char* const kT5BaseHfBase = "https://huggingface.co/t5-base/resolve/main";
 
 // Comfy-Org ungated SA3 weights, PINNED to a fixed commit so a silent re-upload
 // can never change what users get vs. what was verified (gated=False at this
@@ -220,7 +227,9 @@ static const KnownModel kKnownModels[] = {
       "- Commercial use over $1M: enterprise license required\n\n"
       "T5ynth does not provide the weights; they download from the ungated\n"
       "Comfy-Org repository. By downloading you accept the license terms and take\n"
-      "responsibility for compliance. A copy is written into the model folder.", true, true,
+      "responsibility for compliance. A copy is written into the model folder.\n\n"
+      "This engine also installs the T5-Base text encoder (Apache-2.0,\n"
+      "unrestricted), which it requires.", true, true,
       nullptr, 0, nullptr, kSaoOpen10Assets, 1 },
     { "stable-audio-open-small", "Stable Audio Open Small", "stabilityai/stable-audio-open-small",
       nullptr,
@@ -230,7 +239,9 @@ static const KnownModel kKnownModels[] = {
       "- Commercial use under $1M annual revenue: free (register at stability.ai)\n"
       "- Commercial use over $1M: enterprise license required\n\n"
       "T5ynth does not provide the model weights. By downloading, you accept\n"
-      "the license terms and take responsibility for compliance.", false, true,
+      "the license terms and take responsibility for compliance.\n\n"
+      "This engine also installs the T5-Base text encoder (Apache-2.0,\n"
+      "unrestricted), which it requires.", false, true,
       nullptr, 0 },
     { "audioldm2",               "AudioLDM2",                  "cvssp/audioldm2", nullptr,
       "https://creativecommons.org/licenses/by-nc-sa/4.0/",
@@ -631,6 +642,16 @@ static juce::File scanForModelById(const juce::String& id, const juce::String& h
     return {};
 }
 
+// True once a COMPLETE t5-base text encoder is installed anywhere the scan looks.
+// Uses the SAME probe as the SAO "Installed" gate in modelHasRequiredAuxAssets, so
+// the green light and the "do we still need to fetch t5-base?" decision always
+// agree. The Stable Audio Open engines auto-chain this when it is missing.
+static bool t5BaseInstalled()
+{
+    auto d = scanForModelById("t5-base", "t5-base");
+    return d.exists() && hasModelMarker(d);
+}
+
 juce::File SettingsPage::scanForModel()
 {
     return scanForModelById(selectedModelId(), selectedHfRepo());
@@ -730,7 +751,8 @@ void SettingsPage::importDiscoveredModels()
 void SettingsPage::setModelPath(const juce::File& dir)
 {
     modelPath = dir;
-    const bool usableModel = modelHasRequiredAuxAssets(selectedModelId(), modelPath);
+    const auto id = selectedModelId();
+    const bool usableModel = modelHasRequiredAuxAssets(id, modelPath);
 
     if (modelPath.exists() && usableModel && !backendConnected)
     {
@@ -742,6 +764,19 @@ void SettingsPage::setModelPath(const juce::File& dir)
     updateStatus();
     if (modelPath.exists() && usableModel && onModelReady)
         onModelReady();
+
+    // A Stable Audio Open engine imported manually (Auto-Scan / Browse) is present
+    // but not yet usable because its peer t5-base encoder is missing. The in-app SAO
+    // download chains t5-base on its own thread, so this fires only for manual
+    // imports. Fetch it now; onDownloadFinished then re-enters setModelPath, which
+    // fires onModelReady once t5-base has landed. The !usableModel + !t5BaseInstalled
+    // guard makes the re-entry a no-op, so it can never loop.
+    if (! usableModel && ! downloading.load()
+        && (id == "stable-audio-open-1.0" || id == "stable-audio-open-small")
+        && modelPath.exists() && hasModelMarker(modelPath) && ! t5BaseInstalled())
+    {
+        startT5BaseChainDownload();
+    }
 }
 
 void SettingsPage::browseForModel()
@@ -1483,6 +1518,186 @@ void SettingsPage::startDownload()
     }).detach();
 }
 
+// Downloads a fixed file set from <baseUrl>/<name> into targetDir, with resume
+// (HTTP Range), 416 recovery, mid-stream-truncation detection, and a safetensors
+// self-consistency gate — the engine shared by the GitHub-release path and the
+// Stable Audio Open t5-base auto-chain. Runs on the CALLING (background) thread.
+//   counter            : progress sink; stored value = baseBytesCompleted + bytes done here
+//   baseBytesCompleted : bytes already finished by an earlier phase (combined progress)
+//   phaseNoun          : optional label inserted into the status line (e.g. "text encoder")
+//   setStatus          : posts a status string to the UI (caller marshals to the message thread)
+// Returns true once every file is present at its expectedSize. On failure sets
+// errMsg and returns false. On cancellation (cancelFlag set) returns false with
+// errMsg empty — the caller checks cancelFlag and stays silent.
+static bool downloadFileSet(const juce::String& baseUrl,
+                            const GhAsset* files, int fileCount,
+                            const juce::File& targetDir,
+                            const std::shared_ptr<std::atomic<int64_t>>& counter,
+                            const std::shared_ptr<std::atomic<bool>>& cancelFlag,
+                            int64_t baseBytesCompleted,
+                            const juce::String& phaseNoun,
+                            const std::function<void(const juce::String&)>& setStatus,
+                            juce::String& errMsg)
+{
+    int64_t bytesCompleted = 0;
+
+    for (int i = 0; i < fileCount; ++i)
+    {
+        if (cancelFlag && cancelFlag->load())
+            return false;
+
+        auto& gf = files[i];
+        auto fileName = juce::String(gf.name);
+        auto targetFile = targetDir.getChildFile(fileName);
+
+        // Resume-aware existing-file check:
+        //   == expectedSize      → already complete, skip
+        //   > expectedSize       → not our file (different version) — start fresh
+        //   in (0, expectedSize) → partial — request HTTP Range and append
+        //   == 0                 → fresh download
+        int64_t existingBytes = targetFile.existsAsFile() ? targetFile.getSize() : 0;
+
+        // Integrity gate for safetensors assets: trust the existing bytes for
+        // skip/resume ONLY if their own safetensors header declares a file of
+        // exactly expectedSize. A foreign checkpoint left at this path or a
+        // previously resume-corrupted hybrid declares a DIFFERENT total — resuming
+        // onto it appends our tail to their head and silently produces a wrong file
+        // that still reaches expectedSize. Drop any such file and download fresh
+        // from byte 0; this also self-heals an already-corrupt install.
+        if (existingBytes > 0 && targetFile.hasFileExtension("safetensors")
+            && safetensorsDeclaredTotal(targetFile) != gf.expectedSize)
+        {
+            targetFile.deleteFile();
+            existingBytes = 0;
+        }
+
+        if (existingBytes == gf.expectedSize)
+        {
+            bytesCompleted += gf.expectedSize;
+            if (counter) counter->store(baseBytesCompleted + bytesCompleted);
+            continue;
+        }
+        if (existingBytes > gf.expectedSize)
+        {
+            targetFile.deleteFile();
+            existingBytes = 0;
+        }
+        const bool tryResume = (existingBytes > 0);
+
+        juce::String prefix = tryResume ? "Resuming" : "Downloading";
+        if (phaseNoun.isNotEmpty()) prefix += " " + phaseNoun;
+        if (setStatus)
+            setStatus(prefix + ": " + fileName + " (" + juce::String(i + 1) + "/"
+                      + juce::String(fileCount) + ")");
+
+        juce::URL fileUrl(baseUrl + "/" + fileName);
+        juce::String extraHeaders;
+        if (tryResume)
+            extraHeaders = "Range: bytes=" + juce::String(existingBytes) + "-";
+
+        int statusCode = 0;
+        auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                        .withConnectionTimeoutMs(30000)
+                        .withExtraHeaders(extraHeaders)
+                        .withStatusCode(&statusCode);
+        auto stream = fileUrl.createInputStream(opts);
+
+        if (!stream)
+        {
+            errMsg = "Connection failed for: " + fileName + "\n\nCheck your internet connection.";
+            return false;
+        }
+
+        // 416 Range Not Satisfiable: the server file is smaller than our partial
+        // (mirror re-uploaded). Clear the partial so the next click starts fresh
+        // instead of re-sending the same unsatisfiable Range.
+        if (statusCode == 416 && tryResume)
+        {
+            targetFile.deleteFile();
+            errMsg = "The file on the server changed since your previous "
+                     "download attempt: " + fileName + "\n\n"
+                     "Your partial download has been cleared. Click "
+                     "Download again to start fresh.";
+            return false;
+        }
+
+        if (statusCode >= 400)
+        {
+            errMsg = "Server returned HTTP " + juce::String(statusCode) + " for: " + fileName;
+            return false;
+        }
+
+        // 206 Partial Content → append. 200 OK with tryResume → server ignored
+        // Range, restart from byte 0.
+        const bool appendMode = tryResume && statusCode == 206;
+        if (!appendMode)
+            targetFile.deleteFile();
+
+        auto outStream = targetFile.createOutputStream();
+        if (!outStream)
+        {
+            errMsg = "Cannot write: " + fileName;
+            return false;
+        }
+        // FileOutputStream seeks to end-of-file for existing files, so the write
+        // cursor is already correct for appendMode == true.
+
+        const int64_t initialBytes = appendMode ? existingBytes : 0;
+        char buffer[65536];
+        int64_t written = 0;
+        while (true)
+        {
+            if (cancelFlag && cancelFlag->load())
+                return false;
+            auto bytesRead = stream->read(buffer, sizeof(buffer));
+            if (bytesRead <= 0) break;
+            outStream->write(buffer, static_cast<size_t>(bytesRead));
+            written += bytesRead;
+            if (counter) counter->store(baseBytesCompleted + bytesCompleted + initialBytes + written);
+        }
+        outStream.reset();
+
+        // Skip the truncation check if cancellation interrupted the read.
+        if (cancelFlag && cancelFlag->load())
+            return false;
+
+        // Network dropped mid-stream. Keep the partial so the next click resumes
+        // from where it stopped — don't delete it.
+        const int64_t finalBytes = targetFile.getSize();
+        if (finalBytes < gf.expectedSize)
+        {
+            auto toStr = [](int64_t b) {
+                return (b < 1024 * 1024) ? juce::String(b) + " bytes"
+                                         : juce::String(b / (1024 * 1024)) + " MB";
+            };
+            errMsg = "Download was interrupted for " + fileName + ":\n"
+                     "Expected " + toStr(gf.expectedSize) + ", received " + toStr(finalBytes) + ".\n\n"
+                     "Click Download again to resume from where it stopped.";
+            return false;
+        }
+
+        // All bytes present (>= expectedSize). Verify a safetensors asset is
+        // internally consistent — its own header must declare exactly its own
+        // size. A resume-glued hybrid or otherwise corrupt result declares a
+        // different total ("file not fully covered" at load). Delete it so the
+        // next click re-downloads cleanly instead of skipping a same-size-but-
+        // broken file. Non-safetensors assets keep size-only behavior.
+        if (targetFile.hasFileExtension("safetensors")
+            && safetensorsDeclaredTotal(targetFile) != targetFile.getSize())
+        {
+            targetFile.deleteFile();
+            errMsg = "The downloaded file was corrupt and has been removed: "
+                     + fileName + "\n\nClick Download again to fetch it cleanly.";
+            return false;
+        }
+
+        bytesCompleted += gf.expectedSize;
+        if (counter) counter->store(baseBytesCompleted + bytesCompleted);
+    }
+
+    return true;
+}
+
 void SettingsPage::downloadGhReleaseInThread()
 {
     auto ghBase = selectedGhRelease();
@@ -1515,201 +1730,20 @@ void SettingsPage::downloadGhReleaseInThread()
     std::thread([safeThis, progressCounter, cancelFlag, ghBase, targetDir,
                  ghFiles, ghFileCount]()
     {
-        int64_t bytesCompleted = 0;
-
-        for (int i = 0; i < ghFileCount; ++i)
-        {
-            if (cancelFlag && cancelFlag->load())
-                return;
-
-            auto& gf = ghFiles[i];
-            auto fileName = juce::String(gf.name);
-            auto targetFile = targetDir.getChildFile(fileName);
-
-            // Resume-aware existing-file check:
-            //   == expectedSize      → already complete, skip
-            //   > expectedSize       → not our file (different version) — start fresh
-            //   in (0, expectedSize) → partial — request HTTP Range and append
-            //   == 0                 → fresh download
-            int64_t existingBytes = targetFile.existsAsFile() ? targetFile.getSize() : 0;
-
-            // Integrity gate for safetensors assets: trust the existing bytes for
-            // skip/resume ONLY if their own safetensors header declares a file of
-            // exactly expectedSize. A foreign checkpoint left at this path (e.g. a
-            // different model's model.safetensors) or a previously resume-corrupted
-            // hybrid declares a DIFFERENT total — resuming onto it appends our tail
-            // to their head and silently produces a wrong file that still reaches
-            // expectedSize (the "incomplete metadata, file not fully covered" load
-            // failure). Drop any such file and download fresh from byte 0. This also
-            // self-heals an already-corrupt install on the next Download click.
-            // Mirrors the same gate in downloadReassemblyInThread.
-            if (existingBytes > 0 && targetFile.hasFileExtension("safetensors")
-                && safetensorsDeclaredTotal(targetFile) != gf.expectedSize)
-            {
-                targetFile.deleteFile();
-                existingBytes = 0;
-            }
-
-            if (existingBytes == gf.expectedSize)
-            {
-                bytesCompleted += gf.expectedSize;
-                if (progressCounter) progressCounter->store(bytesCompleted);
-                continue;
-            }
-            if (existingBytes > gf.expectedSize)
-            {
-                targetFile.deleteFile();
-                existingBytes = 0;
-            }
-            const bool tryResume = (existingBytes > 0);
-
-            auto fileNum = i + 1;
-            juce::String statusText = (tryResume ? juce::String("Resuming: ")
-                                                 : juce::String("Downloading: "))
-                + fileName + " (" + juce::String(fileNum) + "/"
-                + juce::String(ghFileCount) + ")";
-            juce::MessageManager::callAsync([safeThis, statusText]() {
+        auto setStatus = [safeThis](const juce::String& s) {
+            juce::MessageManager::callAsync([safeThis, s]() {
                 if (auto* self = safeThis.getComponent())
-                    self->downloadStatusLabel.setText(statusText, juce::dontSendNotification);
+                    self->downloadStatusLabel.setText(s, juce::dontSendNotification);
             });
-
-            juce::URL fileUrl(ghBase + "/" + fileName);
-            juce::String extraHeaders;
-            if (tryResume)
-                extraHeaders = "Range: bytes=" + juce::String(existingBytes) + "-";
-
-            int statusCode = 0;
-            auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                            .withConnectionTimeoutMs(30000)
-                            .withExtraHeaders(extraHeaders)
-                            .withStatusCode(&statusCode);
-            auto stream = fileUrl.createInputStream(opts);
-
-            if (!stream)
-            {
-                juce::MessageManager::callAsync([safeThis, fileName]() {
-                    if (auto* self = safeThis.getComponent())
-                        self->onDownloadFinished(false, "Connection failed for: " + fileName
-                            + "\n\nCheck your internet connection.");
-                });
-                return;
-            }
-
-            // 416 Range Not Satisfiable: the file on the server is smaller
-            // than our partial copy (mirror re-uploaded with different size,
-            // e.g.). Clear the partial so the next click starts fresh —
-            // otherwise we'd send the same Range again and re-trigger 416.
-            if (statusCode == 416 && tryResume)
-            {
-                targetFile.deleteFile();
-                juce::MessageManager::callAsync([safeThis, fileName]() {
-                    if (auto* self = safeThis.getComponent())
-                        self->onDownloadFinished(false,
-                            "The file on the server changed since your previous "
-                            "download attempt: " + fileName + "\n\n"
-                            "Your partial download has been cleared. Click "
-                            "Download again to start fresh.");
-                });
-                return;
-            }
-
-            if (statusCode >= 400)
-            {
-                juce::MessageManager::callAsync([safeThis, fileName, statusCode]() {
-                    if (auto* self = safeThis.getComponent())
-                        self->onDownloadFinished(false, "Server returned HTTP "
-                            + juce::String(statusCode) + " for: " + fileName);
-                });
-                return;
-            }
-
-            // 206 Partial Content → append. 200 OK with tryResume → server
-            // ignored Range, restart from byte 0.
-            const bool appendMode = tryResume && statusCode == 206;
-            if (!appendMode)
-                targetFile.deleteFile();
-
-            auto outStream = targetFile.createOutputStream();
-            if (!outStream)
-            {
-                juce::MessageManager::callAsync([safeThis, fileName]() {
-                    if (auto* self = safeThis.getComponent())
-                        self->onDownloadFinished(false, "Cannot write: " + fileName);
-                });
-                return;
-            }
-            // FileOutputStream's constructor seeks to end-of-file when the
-            // file already exists, so the write cursor is already correct
-            // for appendMode == true.
-
-            const int64_t initialBytes = appendMode ? existingBytes : 0;
-            char buffer[65536];
-            int64_t written = 0;
-            while (true)
-            {
-                if (cancelFlag && cancelFlag->load())
-                    return;
-                auto bytesRead = stream->read(buffer, sizeof(buffer));
-                if (bytesRead <= 0) break;
-                outStream->write(buffer, static_cast<size_t>(bytesRead));
-                written += bytesRead;
-                if (progressCounter) progressCounter->store(bytesCompleted + initialBytes + written);
-            }
-            outStream.reset();
-
-            // Skip the truncation check if cancellation interrupted the read.
-            if (cancelFlag && cancelFlag->load())
-                return;
-
-            // Network dropped mid-stream. Keep the partial file so the next
-            // click resumes from where it stopped — don't delete it.
-            const int64_t finalBytes = targetFile.getSize();
-            if (finalBytes < gf.expectedSize)
-            {
-                auto expectedStr = (gf.expectedSize < 1024 * 1024)
-                    ? juce::String(gf.expectedSize) + " bytes"
-                    : juce::String(gf.expectedSize / (1024 * 1024)) + " MB";
-                auto gotStr = (finalBytes < 1024 * 1024)
-                    ? juce::String(finalBytes) + " bytes"
-                    : juce::String(finalBytes / (1024 * 1024)) + " MB";
-                juce::MessageManager::callAsync([safeThis, fileName, expectedStr, gotStr]() {
-                    if (auto* self = safeThis.getComponent())
-                        self->onDownloadFinished(false,
-                            "Download was interrupted for " + fileName + ":\n"
-                            "Expected " + expectedStr + ", received " + gotStr + ".\n\n"
-                            "Click Download again to resume from where it stopped.");
-                });
-                return;
-            }
-
-            // All bytes are present (>= expectedSize). Verify a safetensors asset is
-            // internally consistent — its own header must declare exactly its own
-            // size. A resume-glued hybrid (our tail appended onto a foreign head) or
-            // otherwise corrupt result declares a different total ("file not fully
-            // covered" at load). Delete it so the next click re-downloads cleanly
-            // instead of skipping a same-size-but-broken file. Mirrors the same
-            // check in downloadReassemblyInThread. Non-safetensors GH assets
-            // (config.json, tokenizer.json, spiece.model) keep size-only behavior.
-            if (targetFile.hasFileExtension("safetensors")
-                && safetensorsDeclaredTotal(targetFile) != targetFile.getSize())
-            {
-                targetFile.deleteFile();
-                juce::MessageManager::callAsync([safeThis, fileName]() {
-                    if (auto* self = safeThis.getComponent())
-                        self->onDownloadFinished(false,
-                            "The downloaded file was corrupt and has been removed: "
-                            + fileName + "\n\nClick Download again to fetch it cleanly.");
-                });
-                return;
-            }
-
-            bytesCompleted += gf.expectedSize;
-            if (progressCounter) progressCounter->store(bytesCompleted);
-        }
-
-        juce::MessageManager::callAsync([safeThis]() {
+        };
+        juce::String err;
+        const bool ok = downloadFileSet(ghBase, ghFiles, ghFileCount, targetDir,
+                                        progressCounter, cancelFlag, 0, {}, setStatus, err);
+        if (cancelFlag && cancelFlag->load())
+            return;
+        juce::MessageManager::callAsync([safeThis, ok, err]() {
             if (auto* self = safeThis.getComponent())
-                self->onDownloadFinished(true, {});
+                self->onDownloadFinished(ok, err);
         });
     }).detach();
 }
@@ -2083,6 +2117,14 @@ void SettingsPage::downloadReassemblyInThread()
 
     int64_t total = 0;
     for (int i = 0; i < assetCount; ++i) total += assets[i].expectedSize;
+    // Stable Audio Open engines also need the t5-base text encoder in a peer dir.
+    // When it is missing, fetch it in the SAME download (one combined progress bar):
+    // add its bytes to the total here and append a t5-base phase to the thread below.
+    const bool chainT5Base = (modelId == "stable-audio-open-1.0"
+                              || modelId == "stable-audio-open-small")
+                             && ! t5BaseInstalled();
+    if (chainT5Base)
+        for (int i = 0; i < kT5BaseGhFileCount; ++i) total += kT5BaseGhFiles[i].expectedSize;
     totalBytes = total;
     downloadedBytes = 0;
     downloadCounter_ = std::make_shared<std::atomic<int64_t>>(0);
@@ -2093,7 +2135,7 @@ void SettingsPage::downloadReassemblyInThread()
     auto progressCounter = downloadCounter_;
     auto cancelFlag = downloadCancelFlag_;
     std::thread([safeThis, progressCounter, cancelFlag, targetDir, assets, assetCount,
-                 encoderSub, needsMetadata, modelId]()
+                 encoderSub, needsMetadata, modelId, chainT5Base]()
     {
         int64_t bytesCompleted = 0;
 
@@ -2347,9 +2389,88 @@ void SettingsPage::downloadReassemblyInThread()
             }
         }
 
+        // Stable Audio Open second phase: fetch the peer t5-base encoder on this
+        // same thread. Progress continues from the SAO bytes already done
+        // (bytesCompleted), so the one progress bar spans both phases.
+        if (chainT5Base)
+        {
+            auto t5Dir = SettingsPage::getAppSupportModelDir("t5-base");
+            t5Dir.createDirectory();
+            auto setStatus = [safeThis](const juce::String& s) {
+                juce::MessageManager::callAsync([safeThis, s]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->downloadStatusLabel.setText(s, juce::dontSendNotification);
+                });
+            };
+            juce::String t5err;
+            const bool t5ok = downloadFileSet(kT5BaseHfBase, kT5BaseGhFiles, kT5BaseGhFileCount,
+                                              t5Dir, progressCounter, cancelFlag,
+                                              bytesCompleted, "text encoder", setStatus, t5err);
+            if (cancelFlag && cancelFlag->load())
+                return;
+            if (! t5ok)
+            {
+                juce::MessageManager::callAsync([safeThis, t5err]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->onDownloadFinished(false, t5err);
+                });
+                return;
+            }
+        }
+
         juce::MessageManager::callAsync([safeThis]() {
             if (auto* self = safeThis.getComponent())
                 self->onDownloadFinished(true, {});
+        });
+    }).detach();
+}
+
+// Stand-alone t5-base fetch used by the MANUAL Stable Audio Open import paths
+// (Auto-Scan / Browse), where there is no reassembly thread to piggyback on. Sets
+// up the shared download UI/progress and reuses downloadFileSet + onDownloadFinished
+// — onDownloadFinished re-scans for the (already-installed) SAO model and re-enters
+// setModelPath, which now finds t5-base present and fires onModelReady.
+void SettingsPage::startT5BaseChainDownload()
+{
+    auto t5Dir = getAppSupportModelDir("t5-base");
+    t5Dir.createDirectory();
+
+    int64_t total = 0;
+    for (int i = 0; i < kT5BaseGhFileCount; ++i) total += kT5BaseGhFiles[i].expectedSize;
+    totalBytes = total;
+    downloadedBytes = 0;
+    downloading = true;
+    progressBar.setVisible(true);
+    downloadProgress = 0.0;
+    downloadStatusLabel.setText("Downloading text encoder...", juce::dontSendNotification);
+    downloadStatusLabel.setColour(juce::Label::textColourId, kAccent);
+    downloadButton.setEnabled(false);
+    scanButton.setEnabled(false);
+    browseButton.setEnabled(false);
+    downloadCounter_ = std::make_shared<std::atomic<int64_t>>(0);
+    downloadCancelFlag_ = std::make_shared<std::atomic<bool>>(false);
+    startTimer(250);
+
+    juce::Component::SafePointer<SettingsPage> safeThis(this);
+    auto progressCounter = downloadCounter_;
+    auto cancelFlag = downloadCancelFlag_;
+    std::thread([safeThis, progressCounter, cancelFlag, t5Dir]()
+    {
+        auto setStatus = [safeThis](const juce::String& s) {
+            juce::MessageManager::callAsync([safeThis, s]() {
+                if (auto* self = safeThis.getComponent())
+                    self->downloadStatusLabel.setText(s, juce::dontSendNotification);
+            });
+        };
+        juce::String err;
+        const bool ok = downloadFileSet(kT5BaseHfBase, kT5BaseGhFiles, kT5BaseGhFileCount,
+                                        t5Dir, progressCounter, cancelFlag, 0,
+                                        "text encoder", setStatus, err);
+        if (cancelFlag && cancelFlag->load())
+            return;
+        juce::MessageManager::callAsync([safeThis, ok, err]() {
+            if (auto* self = safeThis.getComponent())
+                self->onDownloadFinished(ok, err);
         });
     }).detach();
 }
