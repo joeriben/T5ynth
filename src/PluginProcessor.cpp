@@ -1793,17 +1793,23 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         stepSequencer.loadPreset(seqPreset);
         lastSeqPreset.store(seqPreset, std::memory_order_relaxed);
 
-        // Adopt the preset's length into the seqSteps param — but ONLY on a
-        // genuine runtime dropdown change, not the first apply after
-        // construction/state-restore (prevSeqPreset == -1). getStateInformation
+        // Adopt the preset's length into the seqSteps param on a genuine preset
+        // application — fresh-startup default OR a runtime dropdown change — but
+        // NOT on the first apply after a DAW state-restore. getStateInformation
         // persists seqPreset and seqSteps independently, so a restored session
-        // can legitimately hold a hand-set step count (e.g. 24) with the default
-        // preset; forcing the preset's 16 there would silently destroy the saved
-        // count on every reload. On a real change we do want the preset length:
-        // push it into the param so it sticks (the non-GEN branch re-asserts
-        // setNumSteps(seqSteps) every block and the GUI reads this param, not the
-        // sequencer), updating the local copy so this block already uses it.
-        if (prevSeqPreset >= 0)
+        // can legitimately hold a hand-set step count (e.g. 24); forcing the
+        // preset's natural length there would silently destroy the saved count on
+        // every reload. setStateInformation sets seqStateRestored, which we
+        // consume exactly once here: true → restore, skip the push (and clear the
+        // flag so the *next* genuine change pushes again); false → fresh start or
+        // runtime change, adopt the preset length. (The earlier prevSeqPreset>=0
+        // test conflated fresh-startup with restore — both land at -1 — which was
+        // harmless while every preset was 16 = the seqSteps default, but a 32-step
+        // preset must push its length at startup or it'd be truncated back to 16.)
+        // The push sticks because the non-GEN branch re-asserts setNumSteps(
+        // seqSteps) every block and the GUI reads this param, not the sequencer;
+        // we update the local copy so this block already uses it.
+        if (! seqStateRestored.exchange(false, std::memory_order_relaxed))
         {
             seqSteps = stepSequencer.getNumSteps();
             if (auto* par = parameters.getParameter(PID::seqSteps))
@@ -3576,11 +3582,15 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
 
     // Treat the restored seqPreset as not-yet-applied so the next processBlock
     // reloads its canned pattern (the step pattern isn't part of the saved
-    // state), while the apply block's prevSeqPreset==-1 guard suppresses the
-    // step-count push — the restored seqSteps is its own saved param and must
-    // survive. Resetting to -1 (rather than leaving a stale value) also covers
-    // hosts that reuse a live instance across project loads.
+    // state). seqStateRestored tells that apply to SUPPRESS the step-count push
+    // this one time — the restored seqSteps is its own saved param and must
+    // survive, even though the reload makes seqPreset look freshly changed.
+    // (Without the flag the apply can't tell a restore from a fresh launch, and
+    // a 32-step preset would clobber a hand-set count on every project load.)
+    // Resetting lastSeqPreset to -1 (rather than leaving a stale value) also
+    // covers hosts that reuse a live instance across project loads.
     lastSeqPreset.store(-1, std::memory_order_relaxed);
+    seqStateRestored.store(true, std::memory_order_relaxed);
 }
 
 // ═══════════════════════════════════════════════════════════════════

@@ -364,6 +364,10 @@ private:
     // pattern so a stale mismatch can't reload the canned preset over it.
     int lastReverbIr = -1;
     std::atomic<int> lastSeqPreset { -1 };
+    // Set by setStateInformation, consumed once by the next processBlock preset
+    // apply: distinguishes a DAW state-restore (preserve the saved seqSteps)
+    // from a fresh launch or runtime dropdown change (adopt the preset's length).
+    std::atomic<bool> seqStateRestored { false };
 
     // Temporary preview note from step-grid mouse-hold editing.
     bool stepHoldPreviewActive = false;
