@@ -292,17 +292,16 @@ def build_pdf():
         c,
         "Appendix B: Loading Stable Audio Open 1.0",
         [
-            "Stable Audio Open 1.0 is available in T5ynth as an additional model path, but it is not currently downloaded directly inside the app.",
-            "The recommended workflow is the same manual HuggingFace flow as for Stable Audio Open Small, but with the repository “stabilityai/stable-audio-open-1.0”.",
+            "Stable Audio Open 1.0 is the original full-size Stable Audio Open checkpoint. It installs directly inside T5ynth, like Stable Audio 3.",
+            "Before downloading, T5ynth shows the Stability AI Community License, which must be accepted. The ~4.85 GB checkpoint then downloads without a HuggingFace account or token, and a copy of the license is written into the model folder.",
         ],
         bullets=[
             "Select “Stable Audio Open 1.0” in the Model Manager.",
-            "Use “Open Model Page” to open the HuggingFace repository page.",
-            "Accept the license there and download the required model files.",
-            "Place the files in a local folder and then let T5ynth find them via “Browse...” or “Auto-Scan”.",
-            "Once T5ynth sees the model, the status should switch to “Installed” and then to “Backend: Connected”.",
+            "Accept the license with “Accept & Download”; the download starts.",
+            "Status switches to “Installed”, then “Backend: Connected”.",
+            "Already have the files from Stability by hand? Use “Auto-Scan” instead.",
         ],
-        note="Stable Audio Open 1.0 is much larger than Stable Audio Open Small. For first tests on a new Mac, Stable Audio Open Small is usually the more practical starting point.",
+        note="Like Stable Audio Open Small, Stable Audio Open 1.0 also needs the separate “T5-Base text encoder” (ungated, Apache-2.0) – install it from the Model Manager too, or the backend will not load. Stable Audio Open 1.0 is also much larger than Small; for first tests on a new Mac, Stable Audio 3 or Stable Audio Open Small is usually the quicker starting point.",
     )
 
     for title, caption, path in ldm2_shots:

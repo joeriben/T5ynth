@@ -352,7 +352,7 @@ text-to-audio tools:
 
 <h3>Model Download</h3>
 <p>
-T5ynth requires at least one diffusion model. Audio model weights are <strong>not bundled</strong> — they must be downloaded separately. The packaged backend includes the auxiliary T5 Base text encoder required by the Stable Audio Open engines (Stable Audio 3 uses its own t5gemma encoder, fetched at install).
+T5ynth requires at least one diffusion model. Audio model weights are <strong>not bundled</strong> — they must be downloaded separately. The Stable Audio Open engines (1.0 and Small) also need the auxiliary <strong>T5-Base</strong> text encoder, a separate one-time download in Settings (ungated, Apache-2.0); Stable Audio 3 instead uses its own t5gemma encoder, fetched at install.
 </p>
 <p>
 Open the <strong>Settings</strong> panel from the status bar, pick a model from the dropdown, and read the per-model instructions shown there. The summary below tells you which model to pick.
@@ -377,22 +377,11 @@ SA3 is a latent diffusion transformer with a t5gemma text encoder (<code>google/
 
 <h4>Stable Audio Open 1.0</h4>
 <p>
-Licensed under the <a href="https://stability.ai/community-license-agreement">Stability AI Community License</a>. Gated on HuggingFace &mdash; a free HuggingFace account is required once to accept the license. T5ynth uses only two files from this repository (<code>model.safetensors</code> ~4.9&nbsp;GB and <code>model_config.json</code>); the other files in the repo are alternative formats and metadata that T5ynth does not load.
+Stable Audio Open 1.0 is the original full-size Stable Audio Open checkpoint, licensed under the <a href="https://stability.ai/community-license-agreement">Stability AI Community License</a>. Like Stable Audio Open Small, it also needs the auxiliary <strong>T5-Base</strong> text encoder — a separate one-time download in Settings (ungated, Apache-2.0).
 </p>
 <p>
-<strong>Install:</strong>
+<strong>Install.</strong> Select <strong>Stable Audio Open 1.0</strong> in Settings and click <strong>Download</strong>. T5ynth first shows the license dialog; accept it to continue. The ~4.85&nbsp;GB checkpoint then downloads without a HuggingFace account or token, and a copy of the license is written into the model folder. If you already downloaded the files from Stability by hand (<code>model.safetensors</code> and <code>model_config.json</code>), use <strong>Auto-Scan</strong> instead.
 </p>
-<ol>
-  <li>In Settings, click <strong>Open Model Page</strong>. Sign up or log in on HuggingFace, and click <strong>Agree and access repository</strong> to accept the license.</li>
-  <li>Open the <strong>Files and versions</strong> tab and download exactly these two files to your usual Downloads folder:
-    <ul>
-      <li><code>model.safetensors</code> (~4.9&nbsp;GB)</li>
-      <li><code>model_config.json</code></li>
-    </ul>
-    Do <strong>not</strong> download <code>model.ckpt</code>, <code>vae_model.ckpt</code>, or anything inside <code>transformer/</code>, <code>vae/</code>, <code>text_encoder/</code>, <code>tokenizer/</code>, <code>scheduler/</code>, or <code>projection_model/</code> &mdash; T5ynth does not load them.
-  </li>
-  <li>Back in T5ynth, click <strong>Auto-Scan</strong>. T5ynth finds the files in Downloads and copies them into its working model folder. If you saved the files somewhere other than Downloads, Auto-Scan opens a folder picker and asks you to point at that folder.</li>
-</ol>
 
 <h4>Stable Audio Open Small</h4>
 <p>

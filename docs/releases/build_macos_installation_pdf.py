@@ -294,17 +294,16 @@ def build_pdf():
         c,
         "Anhang B: Stable Audio Open 1.0 laden",
         [
-            "Stable Audio Open 1.0 ist in T5ynth als zusätzlicher Modellpfad vorhanden, wird aber derzeit nicht direkt in der App heruntergeladen.",
-            "Der empfohlene Weg ist derselbe manuelle HuggingFace-Ablauf wie bei Stable Audio Open Small, nur mit dem Repository „stabilityai/stable-audio-open-1.0“.",
+            "Stable Audio Open 1.0 ist der ursprüngliche Stable-Audio-Open-Checkpoint in voller Größe. Er installiert sich direkt in T5ynth, wie Stable Audio 3.",
+            "Vor dem Download zeigt T5ynth die Stability AI Community License, die bestätigt werden muss. Der ~4,85 GB große Checkpoint wird anschließend ohne HuggingFace-Konto und ohne Token geladen, und eine Kopie der Lizenz wird in den Modellordner geschrieben.",
         ],
         bullets=[
             "Im Model Manager „Stable Audio Open 1.0“ auswählen.",
-            "Mit „Open Model Page“ die HuggingFace-Seite öffnen.",
-            "Dort die Lizenz akzeptieren und die Modell-Dateien aus dem Repository laden.",
-            "Die Dateien in einen lokalen Ordner bringen und anschließend in T5ynth per „Browse…“ oder „Auto-Scan“ erfassen.",
-            "Sobald T5ynth das Modell findet, sollte der Status auf „Installed“ und danach auf „Backend: Connected“ wechseln.",
+            "Mit „Accept & Download“ die Lizenz bestätigen; der Download startet.",
+            "Status wechselt auf „Installed“, danach „Backend: Connected“.",
+            "Dateien schon von Stability von Hand geladen? Stattdessen „Auto-Scan“ nutzen.",
         ],
-        note="Stable Audio Open 1.0 ist deutlich größer als Stable Audio Open Small. Für erste Tests auf einem neuen Mac ist deshalb meist Stable Audio Open Small der sinnvollere Einstieg.",
+        note="Wie Stable Audio Open Small benötigt auch Stable Audio Open 1.0 den separaten „T5-Base text encoder“ (ungated, Apache-2.0) – diesen ebenfalls im Model Manager installieren, sonst startet das Backend nicht. Stable Audio Open 1.0 ist zudem deutlich größer als Small; für erste Tests auf einem neuen Mac sind deshalb meist Stable Audio 3 oder Stable Audio Open Small der schnellere Einstieg.",
     )
 
     for title, caption, path in ldm2_shots:
