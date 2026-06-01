@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
 """Generate manifest.json for the T5ynth-Presets repository.
 
-Scans every .t5p at the repo root, extracts the stored preset name from
-each file's JSON header, computes the SHA256, and writes a manifest.json
-the T5ynth plugin can fetch and diff against the user's local copy.
+Scans every .t5p under "UCDCAE AI Lab/", extracts the stored preset
+name from each file's JSON header, computes the SHA256, and writes a
+manifest.json the T5ynth plugin can fetch and diff against the user's
+local copy.
+
+The base_url already includes the "UCDCAE AI Lab/" segment, so each
+manifest entry's `path` is just the file's basename. PresetUpdater
+writes downloads to <userDir>/UCDCAE AI Lab/<basename>, matching the
+plugin's bank directory exactly — no double-nesting, no parallel copy
+at the userDir root (which historically caused the "same preset shows
+in two banks" chaos).
 
 .t5p binary layout (version 3):
   [4B]  magic  "T5YN"
@@ -25,11 +33,15 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PRESETS_DIR = REPO_ROOT  # .t5p files live at the repo root
+BANK_DIRNAME = "UCDCAE AI Lab"
+PRESETS_DIR = REPO_ROOT / BANK_DIRNAME
 MANIFEST_PATH = REPO_ROOT / "manifest.json"
 
+# Trailing slash + URL-encoded space so PresetUpdater's `base_url + path`
+# resolves to the correct raw.githubusercontent.com URL.
 BASE_URL = (
     "https://raw.githubusercontent.com/joeriben/T5ynth-Presets/main/"
+    "UCDCAE%20AI%20Lab/"
 )
 SCHEMA_VERSION = 1
 MAGIC = b"T5YN"

@@ -1,13 +1,13 @@
 name: Generate manifest.json
 
-# Trigger on any change to a .t5p file at the repo root (new, edited,
+# Trigger on any change to a .t5p file under "UCDCAE AI Lab/" (new, edited,
 # removed). The workflow's own commit only touches manifest.json, which is
 # NOT in the paths filter — preventing a loop without needing [skip ci].
 on:
   push:
     branches: [main]
     paths:
-      - '*.t5p'
+      - 'UCDCAE AI Lab/*.t5p'
       - 'scripts/generate_manifest.py'
       - '.github/workflows/manifest.yml'
   workflow_dispatch:
