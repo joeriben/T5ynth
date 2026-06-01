@@ -249,6 +249,7 @@ def build_pdf():
         "Kurzanleitung für die aktuelle unsignierte macOS-Build mit dem üblichen Gatekeeper-Override.",
         "Die Screenshots zeigen den echten Installationsablauf auf einem Mac mit deutscher Systemoberfläche.",
         "Wichtig: Der zusätzliche Sicherheitsschritt ist nur einmalig nötig. Danach läuft die normale Installation über das .pkg.",
+        "Tipp: Das empfohlene Standard-Modell Stable Audio 3 installiert sich login-frei, ohne HuggingFace-Konto – siehe Anhang C. Die Schritte 11–15 zeigen alternativ die manuelle Installation von Stable Audio Open Small.",
     ]:
         y = draw_wrapped(c, paragraph, MARGIN, y, size=13, leading=17)
         y -= 10
@@ -272,6 +273,22 @@ def build_pdf():
 
     for title, caption, path in shots:
         draw_image_page(c, title, caption, path)
+
+    draw_text_page(
+        c,
+        "Anhang C: Stable Audio 3 laden (empfohlen, login-frei)",
+        [
+            "Stable Audio 3 ist das aktuelle Standard-Modell von T5ynth (Version 2.1.0) und installiert sich login-frei – ohne HuggingFace-Konto und ohne Token. Es gibt zwei Varianten: Small Music für Instrumentalmusik und Small SFX für Soundeffekte; beide nutzen dieselbe Architektur und denselben t5gemma-Text-Encoder.",
+            "Anders als Stable Audio Open lädt T5ynth die Gewichte direkt aus dem offen zugänglichen Comfy-Org-Repository. Vor dem Download zeigt T5ynth zwei Lizenzen an, die beide bestätigt werden müssen: die Stability AI Community License für das Audio-Modell und die Google Gemma Terms of Use samt Prohibited Use Policy für den t5gemma-Encoder.",
+        ],
+        bullets=[
+            "Im Model Manager „Stable Audio 3 Small Music“ oder „Small SFX“ auswählen.",
+            "Mit „Accept & Download“ beide Lizenzen bestätigen; der Download startet.",
+            "Lädt ca. 2,3 GB Modell + ca. 1,2 GB t5gemma-Encoder (von beiden geteilt).",
+            "Status wechselt auf „Installed“, danach „Backend: Connected“.",
+        ],
+        note="Stable Audio 3 liest bis zu 256 Tokens pro Prompt. T5ynth stellt jedem Prompt automatisch das Modality-Präfix „TrackType: Music, …“ (bzw. „TrackType: SFX, …“) voran – das gibst du nicht selbst ein. Strukturierte Prompts wie „Genre: ambient, Instruments: synth pad, Moods: warm“ treffen die Trainingsverteilung von SA3 besonders gut; freie Beschreibungen funktionieren ebenso.",
+    )
 
     draw_text_page(
         c,

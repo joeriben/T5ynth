@@ -248,6 +248,7 @@ def build_pdf():
         "Short guide for the current unsigned macOS build with the usual Gatekeeper override step.",
         "The screenshots show the real installation flow on a Mac with a German user interface.",
         "Unfortunately I only had German screenshots available for this documentation pass, but the sequence is identical on English-language systems.",
+        "Tip: the recommended default model, Stable Audio 3, installs login-free with no HuggingFace account – see Appendix C. Steps 11–15 instead show the manual installation of Stable Audio Open Small.",
     ]:
         y = draw_wrapped(c, paragraph, MARGIN, y, size=13, leading=17)
         y -= 10
@@ -270,6 +271,22 @@ def build_pdf():
 
     for title, caption, path in shots:
         draw_image_page(c, title, caption, path)
+
+    draw_text_page(
+        c,
+        "Appendix C: Loading Stable Audio 3 (recommended, login-free)",
+        [
+            "Stable Audio 3 is T5ynth's current default model (version 2.1.0) and installs login-free – with no HuggingFace account and no token. There are two variants: Small Music for instrumental music and Small SFX for sound effects; both share one architecture and one t5gemma text encoder.",
+            "Unlike Stable Audio Open, T5ynth fetches the weights directly from the openly accessible Comfy-Org repository. Before downloading, T5ynth shows two licenses that both must be accepted: the Stability AI Community License for the audio model and the Google Gemma Terms of Use plus Prohibited Use Policy for the t5gemma encoder.",
+        ],
+        bullets=[
+            "Select “Stable Audio 3 Small Music” or “Small SFX” in the Model Manager.",
+            "Accept both licenses with “Accept & Download”; the download starts.",
+            "Fetches ~2.3 GB model + ~1.2 GB t5gemma encoder (shared by both).",
+            "Status switches to “Installed”, then “Backend: Connected”.",
+        ],
+        note="Stable Audio 3 reads up to 256 tokens per prompt. T5ynth automatically prepends the modality prefix “TrackType: Music, …” (or “TrackType: SFX, …”) to every prompt – you do not type it yourself. Structured prompts such as “Genre: ambient, Instruments: synth pad, Moods: warm” match SA3's training distribution especially well; plain descriptions work too.",
+    )
 
     draw_text_page(
         c,
