@@ -467,6 +467,30 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     presetScrim.setVisible(false);
     addChildComponent(presetScrim);
 
+    // ── Sequence-pattern library overlay ────────────────────────────────
+    // Pure view: Load/Save need the processor, so they route through the
+    // SequencerPanel; Delete/Rename are file ops the panel does itself.
+    seqLibraryScrim.onClick = [this] { hideSequenceLibrary(); };
+    seqLibraryScrim.setVisible(false);
+    addChildComponent(seqLibraryScrim);
+
+    seqLibrary.setVisible(false);
+    seqLibrary.onCloseRequested = [this] { hideSequenceLibrary(); };
+    seqLibrary.onLoadRequested = [this](const juce::File& file)
+    {
+        return sequencerPanel.loadPatternFrom(file);
+    };
+    seqLibrary.onSaveRequested = [this](const juce::File& file)
+    {
+        return sequencerPanel.writePatternTo(file);
+    };
+    addChildComponent(seqLibrary);
+
+    sequencerPanel.onOpenPatternLibrary = [this](bool focusSave)
+    {
+        showSequenceLibrary(focusSave);
+    };
+
     presetManager.setVisible(false);
     presetManager.onCloseRequested = [this] { hidePresetManager(); };
     presetManager.onLoadRequested = [this](const juce::File& file)
@@ -1256,6 +1280,26 @@ void MainPanel::hidePresetManager()
     repaint();
 }
 
+void MainPanel::showSequenceLibrary(bool focusSave)
+{
+    seqLibraryVisible = true;
+    seqLibraryScrim.setVisible(true);
+    seqLibrary.setVisible(true);
+    seqLibraryScrim.toFront(false);
+    seqLibrary.toFront(false);
+    resized();                            // place the panel at its centered bounds
+    seqLibrary.prepareForShow(focusSave); // rescan + focus, now visible + sized
+    repaint();
+}
+
+void MainPanel::hideSequenceLibrary()
+{
+    seqLibraryVisible = false;
+    seqLibraryScrim.setVisible(false);
+    seqLibrary.setVisible(false);
+    repaint();
+}
+
 void MainPanel::enterLibrarySaveMode(SaveNameMode mode)
 {
     auto defaultName = getCurrentPresetDisplayName();
@@ -1790,7 +1834,7 @@ bool MainPanel::keyPressed(const juce::KeyPress& key)
     if (key.getKeyCode() == juce::KeyPress::returnKey
         && (mods.isShiftDown() || mods.isCommandDown() || mods.isCtrlDown()))
     {
-        if (settingsVisible || manualVisible || presetManagerVisible)
+        if (settingsVisible || manualVisible || presetManagerVisible || seqLibraryVisible)
             return false;
         triggerMainGeneration();
         return true;
@@ -1803,7 +1847,7 @@ bool MainPanel::keyPressed(const juce::KeyPress& key)
     // would just reset the typed name).
     if ((mods.isCommandDown() || mods.isCtrlDown()) && key.getTextCharacter() == 's')
     {
-        if (settingsVisible || manualVisible || dimExplorerVisible) return false;
+        if (settingsVisible || manualVisible || dimExplorerVisible || seqLibraryVisible) return false;
         if (presetManagerVisible
             && presetManager.getMode() == PresetManagerPanel::Mode::Save)
             return true;   // already there; consume so nothing else fires
@@ -1811,7 +1855,8 @@ bool MainPanel::keyPressed(const juce::KeyPress& key)
         return true;
     }
 
-    if (!isTextEditingFocus() && !settingsVisible && !manualVisible && !presetManagerVisible)
+    if (!isTextEditingFocus() && !settingsVisible && !manualVisible && !presetManagerVisible
+        && !seqLibraryVisible)
     {
         const juce_wchar c = key.getTextCharacter();
         if (c >= '1' && c <= '4')
@@ -2568,7 +2613,7 @@ juce::String MainPanel::computerKeyboardStatusText() const
 void MainPanel::pollComputerKeyboard()
 {
     if (!computerKeyboardEnabled || isTextEditingFocus()
-        || settingsVisible || manualVisible || presetManagerVisible)
+        || settingsVisible || manualVisible || presetManagerVisible || seqLibraryVisible)
     {
         releaseComputerKeyboardNotes();
         computerKeyboardOctaveDownKeyDown = false;
@@ -2917,6 +2962,7 @@ void MainPanel::resized()
     settingsScrim.setBounds(getLocalBounds());
     presetScrim.setBounds(getLocalBounds());
     manualScrim.setBounds(getLocalBounds());
+    seqLibraryScrim.setBounds(getLocalBounds());
 
     if (presetManagerVisible)
     {
@@ -2930,6 +2976,20 @@ void MainPanel::resized()
     else
     {
         presetManager.setBounds({});
+    }
+
+    if (seqLibraryVisible)
+    {
+        int panelW = juce::jlimit(420, 560, juce::roundToInt(w * 0.40f));
+        int panelH = juce::jlimit(360, 520, juce::roundToInt(h * 0.62f));
+        seqLibrary.setBounds((getWidth() - panelW) / 2,
+                             (getHeight() - panelH) / 2,
+                             panelW,
+                             panelH);
+    }
+    else
+    {
+        seqLibrary.setBounds({});
     }
 
     // Manual overlay (centered). Leaves a strip at the bottom of the

@@ -23,11 +23,21 @@ public:
     void paint(juce::Graphics& g) override;
     void resized() override;
 
+    /** Opens the pattern Library overlay (hosted by MainPanel). The bool
+     *  asks the library to focus its name field for an immediate save. */
+    std::function<void(bool /*focusSave*/)> onOpenPatternLibrary;
+
+    /** Write the current sequencer/arp/gen state to `file` as a partial
+     *  .t5seq preset. Returns true on success. Used by SequenceLibraryPanel. */
+    bool writePatternTo(const juce::File& file);
+
+    /** Load a .t5seq partial preset and refresh the grid. Returns true on
+     *  success (false if the file is missing or the import fails). */
+    bool loadPatternFrom(const juce::File& file);
+
 private:
     void timerCallback() override;
     void syncStepCount();
-    void savePatternAsync();
-    void loadPatternAsync();
     void showHeaderOverflowMenu();
 
     T5ynthProcessor& processorRef;

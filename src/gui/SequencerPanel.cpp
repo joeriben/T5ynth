@@ -1,6 +1,5 @@
 #include "SequencerPanel.h"
 #include "../PluginProcessor.h"
-#include "../presets/PresetFormat.h"
 #include "WaveformDisplay.h"
 
 // ─── Note name helper ──────────────────────────────────────────────
@@ -495,8 +494,8 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     seqLoadBtn.setLookAndFeel(&loadLnf);
     seqSaveBtn.setTooltip("Save pattern");
     seqLoadBtn.setTooltip("Load pattern");
-    seqSaveBtn.onClick = [this] { savePatternAsync(); };
-    seqLoadBtn.onClick = [this] { loadPatternAsync(); };
+    seqSaveBtn.onClick = [this] { if (onOpenPatternLibrary) onOpenPatternLibrary(true); };
+    seqLoadBtn.onClick = [this] { if (onOpenPatternLibrary) onOpenPatternLibrary(false); };
 
     // ── Gate ──
     gateRow = std::make_unique<SliderRow>("Gate", [](double v) { return juce::String(juce::roundToInt(v*100)) + "%"; }, kSeqCol);
@@ -844,90 +843,60 @@ SequencerPanel::~SequencerPanel()
 // .t5seq is a partial preset: sequencer + arpeggiator + generative seq only.
 // Schema is the snake_case-keyed subset of exportJsonPreset()/importJsonPreset()
 // — single source of truth, no schema drift.
-void SequencerPanel::savePatternAsync()
+bool SequencerPanel::writePatternTo(const juce::File& file)
 {
-    // Open in (and create) the dedicated sequences folder with a suggested
-    // name, so the save dialog lands somewhere predictable instead of the
-    // panel's last-remembered state (e.g. a Spotlight "This Mac" search).
-    auto dir = PresetFormat::getUserSequencesDirectory();
-    auto chooser = std::make_shared<juce::FileChooser>(
-        "Save Sequencer Pattern", dir.getChildFile("Pattern.t5seq"), "*.t5seq");
-    juce::Component::SafePointer<SequencerPanel> safeThis(this);
-    chooser->launchAsync(juce::FileBrowserComponent::saveMode, [safeThis, chooser](const juce::FileChooser& fc) {
-        if (!safeThis) return;
-        auto& processor = safeThis->processorRef;
-        auto f = fc.getResult();
-        if (f == juce::File()) return;
+    auto fullJson = processorRef.exportJsonPreset();
+    auto parsed = juce::JSON::parse(fullJson);
+    auto* full = parsed.getDynamicObject();
+    if (!full) return false;
 
-        auto fullJson = processor.exportJsonPreset();
-        auto parsed = juce::JSON::parse(fullJson);
-        auto* full = parsed.getDynamicObject();
-        if (!full) return;
+    juce::DynamicObject::Ptr out = new juce::DynamicObject();
+    out->setProperty("version", 1);
+    out->setProperty("kind", "t5seq");
+    out->setProperty("timestamp", juce::Time::getCurrentTime().toISO8601(true));
 
-        juce::DynamicObject::Ptr out = new juce::DynamicObject();
-        out->setProperty("version", 1);
-        out->setProperty("kind", "t5seq");
-        out->setProperty("timestamp", juce::Time::getCurrentTime().toISO8601(true));
+    for (const char* key : { "sequencer", "arpeggiator", "generativeSeq" })
+    {
+        if (!full->hasProperty(key))
+            continue;
 
-        for (const char* key : { "sequencer", "arpeggiator", "generativeSeq" })
+        if (juce::String(key) == "sequencer")
         {
-            if (!full->hasProperty(key))
-                continue;
-
-            if (juce::String(key) == "sequencer")
+            auto seqCopy = juce::JSON::parse(juce::JSON::toString(full->getProperty(key)));
+            if (auto* seq = seqCopy.getDynamicObject())
             {
-                auto seqCopy = juce::JSON::parse(juce::JSON::toString(full->getProperty(key)));
-                if (auto* seq = seqCopy.getDynamicObject())
-                {
-                    seq->removeProperty("oneShotSamples");
-                    if (auto* steps = seq->getProperty("steps").getArray())
-                        for (auto& step : *steps)
-                            if (auto* stepObj = step.getDynamicObject())
-                                stepObj->removeProperty("oneShots");
-                    out->setProperty(key, seqCopy);
-                }
-            }
-            else
-            {
-                out->setProperty(key, full->getProperty(key));
+                seq->removeProperty("oneShotSamples");
+                if (auto* steps = seq->getProperty("steps").getArray())
+                    for (auto& step : *steps)
+                        if (auto* stepObj = step.getDynamicObject())
+                            stepObj->removeProperty("oneShots");
+                out->setProperty(key, seqCopy);
             }
         }
+        else
+        {
+            out->setProperty(key, full->getProperty(key));
+        }
+    }
 
-        // String-concat (not withFileExtension) — the user-typed pattern
-        // name may contain dots (e.g. "My Beat 0.5"); withFileExtension
-        // strips at the last dot, truncating it to "My Beat 0.t5seq" and
-        // could clobber an unrelated file. The native macOS save panel
-        // usually appends ".t5seq" itself, so only add it when absent.
-        auto file = f;
-        if (!file.hasFileExtension("t5seq"))
-            file = file.getParentDirectory().getChildFile(file.getFileName() + ".t5seq");
-        file.replaceWithText(juce::JSON::toString(out.get(), true));
-    });
+    return file.replaceWithText(juce::JSON::toString(out.get(), true));
 }
 
-void SequencerPanel::loadPatternAsync()
+bool SequencerPanel::loadPatternFrom(const juce::File& file)
 {
-    // canSelectFiles is mandatory: without it JUCE sets NSOpenPanel
-    // canChooseFiles=NO and every .t5seq is greyed out / unclickable. The
-    // sequences folder is the start dir so saved patterns round-trip here.
-    auto chooser = std::make_shared<juce::FileChooser>(
-        "Load Sequencer Pattern", PresetFormat::getUserSequencesDirectory(), "*.t5seq");
-    juce::Component::SafePointer<SequencerPanel> safeThis(this);
-    chooser->launchAsync(juce::FileBrowserComponent::openMode
-                       | juce::FileBrowserComponent::canSelectFiles,
-                         [safeThis, chooser](const juce::FileChooser& fc) {
-        if (!safeThis) return;
-        auto file = fc.getResult();
-        if (!file.existsAsFile()) return;
+    if (!file.existsAsFile())
+        return false;
 
-        // importJsonPreset is tolerant: missing sub-objects (synth, engine, …)
-        // are skipped, so a partial .t5seq only touches sequencer / arp / gen.
-        if (!safeThis->processorRef.importJsonPreset(file.loadFileAsString()))
-            return;
+    // importJsonPreset is tolerant: missing sub-objects (synth, engine, …)
+    // are skipped, so a partial .t5seq only touches sequencer / arp / gen.
+    if (!processorRef.importJsonPreset(file.loadFileAsString()))
+        return false;
 
-        safeThis->syncStepCount();
-        safeThis->repaint();
-    });
+    // The 10 Hz timer skips syncStepCount() while idle, so the grid would
+    // otherwise keep the old step count until PLAY — refresh it explicitly.
+    syncStepCount();
+    repaint();
+    return true;
 }
 
 void SequencerPanel::showHeaderOverflowMenu()
@@ -967,8 +936,8 @@ void SequencerPanel::showHeaderOverflowMenu()
                        [safeThis](int result) {
         if (!safeThis || result == 0) return;
 
-        if (result == kOverflowSavePattern) { safeThis->savePatternAsync(); return; }
-        if (result == kOverflowLoadPattern) { safeThis->loadPatternAsync(); return; }
+        if (result == kOverflowSavePattern) { if (safeThis->onOpenPatternLibrary) safeThis->onOpenPatternLibrary(true);  return; }
+        if (result == kOverflowLoadPattern) { if (safeThis->onOpenPatternLibrary) safeThis->onOpenPatternLibrary(false); return; }
         if (result >= kOverflowPresetBase && result < kOverflowStepBase)
         {
             safeThis->presetBox.setSelectedId(result - kOverflowPresetBase, juce::sendNotificationSync);

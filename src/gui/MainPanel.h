@@ -9,6 +9,7 @@
 #include "StatusBar.h"
 #include "SetupWizard.h"
 #include "PresetManagerPanel.h"
+#include "SequenceLibraryPanel.h"
 #include "../presets/PresetFormat.h"
 #include "../presets/PresetUpdater.h"
 
@@ -238,6 +239,8 @@ private:
     void syncGuiStateForPresetSave();
     void showPresetManager();
     void hidePresetManager();
+    void showSequenceLibrary(bool focusSave = false);
+    void hideSequenceLibrary();
     enum class SaveNameMode { keepName, appendCopy };
     void enterLibrarySaveMode(SaveNameMode mode = SaveNameMode::keepName);
     juce::String getCurrentPresetDisplayName() const;
@@ -284,6 +287,12 @@ private:
     bool presetManagerVisible = false;
     juce::File currentPresetFile;
     PresetUpdater presetUpdater;
+
+    // Sequence-pattern (.t5seq) library overlay — compact, hosted exactly
+    // like the preset manager (centered panel over a dimmed scrim).
+    Scrim seqLibraryScrim;
+    SequenceLibraryPanel seqLibrary;
+    bool seqLibraryVisible = false;
 
     // Manual overlay — native WebView renders the shipped HTML guide
     // (resources/T5ynth_Guide.html), bundled via juce_add_binary_data.
