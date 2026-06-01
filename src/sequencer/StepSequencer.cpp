@@ -296,10 +296,22 @@ void T5ynthStepSequencer::processBlock(juce::AudioBuffer<float>& buffer,
 
         auto& step = steps[static_cast<size_t>(stepIdx)];
 
-        // Note-off for previous — but SKIP if this step binds/glides
-        // (it needs the previous voice alive to slide its pitch)
-        const bool stepBound = step.bindMode != BindMode::Off;
-        if (lastPlayedNote >= 0 && !stepBound)
+        // Bind/Glide is owned by the SOURCE step and ties it into the FOLLOWING
+        // note (TB-303 "slide" convention): a slide flag on step N means N's
+        // voice carries into N+1 with no retrigger. So whether THIS note-on
+        // continues the live voice is driven by the PREVIOUS step's flag — if the
+        // previous step slid, keep its voice alive and continue it here instead
+        // of retriggering. (scheduledStep increments monotonically and is never
+        // reset on loop, so prevIdx also resolves a slide on the last step into
+        // the first step of the next loop; scheduledStep == 0 has no predecessor.)
+        const int prevIdx = (scheduledStep - 1 + numSteps) % numSteps;
+        const bool prevSlid = scheduledStep > 0
+                           && steps[static_cast<size_t>(prevIdx)].enabled
+                           && steps[static_cast<size_t>(prevIdx)].bindMode != BindMode::Off;
+
+        // Note-off for the previous note — but SKIP it if the previous step slid
+        // (its voice must stay alive so this note can continue/ramp it).
+        if (lastPlayedNote >= 0 && !prevSlid)
         {
             midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), eventPos);
             lastPlayedNote = -1;
@@ -310,21 +322,27 @@ void T5ynthStepSequencer::processBlock(juce::AudioBuffer<float>& buffer,
         {
             int midiNote = juce::jlimit(0, 127, step.note + octaveShiftSemitones);
             int vel = juce::jlimit(1, 127, juce::roundToInt(step.velocity * 127.0f));
-            // Channel encodes the bind-mode for the processor's voice dispatch:
-            // Glide → kGlideChannel (ramped), Bind → kBindChannel (instant), else normal.
-            int channel = step.bindMode == BindMode::Glide ? kGlideChannel
-                        : step.bindMode == BindMode::Bind  ? kBindChannel
-                                                           : kNormalChannel;
+            // Channel encodes the INCOMING transition for the processor's voice
+            // dispatch: if the previous step slid, continue its voice — Glide →
+            // kGlideChannel (ramped), Bind → kBindChannel (instant); otherwise a
+            // fresh note on kNormalChannel.
+            const BindMode incoming = prevSlid ? steps[static_cast<size_t>(prevIdx)].bindMode
+                                               : BindMode::Off;
+            int channel = incoming == BindMode::Glide ? kGlideChannel
+                        : incoming == BindMode::Bind  ? kBindChannel
+                                                      : kNormalChannel;
             midi.addEvent(juce::MidiMessage::noteOn(channel, midiNote,
                           static_cast<juce::uint8>(vel)), eventPos);
             lastPlayedNote = midiNote;
 
-            // If the NEXT step binds/glides, hold this note for the full step
-            // (no early gate-off, so the voice stays alive for the pitch change)
-            int nextIdx = (scheduledStep + 1) % numSteps;
-            bool nextIsBound = steps[static_cast<size_t>(nextIdx)].bindMode != BindMode::Off
-                            && steps[static_cast<size_t>(nextIdx)].enabled;
-            samplesUntilGateOff = nextIsBound ? -1.0 : step.gate * stepDur;
+            // If THIS step slides into an enabled next step, hold the note for
+            // the full step (no early gate-off) so the voice stays alive to be
+            // continued/ramped by that next note. A slide into a rest has no
+            // target, so it gates off normally.
+            const int nextIdx = (scheduledStep + 1) % numSteps;
+            const bool slidesToNext = step.bindMode != BindMode::Off
+                                   && steps[static_cast<size_t>(nextIdx)].enabled;
+            samplesUntilGateOff = slidesToNext ? -1.0 : step.gate * stepDur;
         }
         else
         {

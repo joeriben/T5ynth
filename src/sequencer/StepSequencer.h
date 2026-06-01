@@ -13,7 +13,10 @@
  * - Gate controls note duration as fraction of step duration
  * - Bind-mode: Off (normal retrigger) → Bind (instant pitch change, no
  *   retrigger) → Glide (ramped pitch change over getGlideTime(), no retrigger).
- *   Both Bind and Glide suppress the preceding noteOff.
+ *   A Bind/Glide flag is owned by its SOURCE step and ties it into the FOLLOWING
+ *   note (TB-303 "slide"): the flagged step is held (no gate-off) and the next
+ *   note continues the same voice — instant (Bind) or ramped (Glide) — instead
+ *   of retriggering.
  * - 10 preset patterns from reference
  * - Bar-start callback (atomic flag) for drift regen sync
  */
