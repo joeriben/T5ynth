@@ -775,6 +775,23 @@ static juce::Array<juce::File> findRenameCandidates(const juce::File& sourceFold
     return matches;
 }
 
+// The standard T5ynth model install roots, in scan-priority order. Shared by the
+// duplicate-detection and cross-variant reuse checks so the two never drift apart
+// (a root added here is honoured by both).
+static juce::Array<juce::File> standardModelRoots()
+{
+    auto home = juce::File::getSpecialLocation(juce::File::userHomeDirectory);
+    juce::Array<juce::File> roots;
+   #if JUCE_MAC
+    roots.add(juce::File("/Library/Application Support/T5ynth/models"));
+   #endif
+    roots.add(juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                  .getChildFile("T5ynth/models"));
+    roots.add(home.getChildFile("Library/T5ynth/models"));
+    roots.add(home.getChildFile("t5ynth/models"));
+    return roots;
+}
+
 // Walk the standard install roots and look for any *other* model directory
 // that already holds a same-sized file under `canonicalName`. Used as a
 // last-line check before completing an install: if the user dropped a
@@ -793,17 +810,7 @@ static juce::String findSameSizeInstalledModel(const juce::String& selfModelId,
     if (fileSize <= 0)
         return {};
 
-    auto home = juce::File::getSpecialLocation(juce::File::userHomeDirectory);
-    juce::Array<juce::File> roots;
-   #if JUCE_MAC
-    roots.add(juce::File("/Library/Application Support/T5ynth/models"));
-   #endif
-    roots.add(juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                  .getChildFile("T5ynth/models"));
-    roots.add(home.getChildFile("Library/T5ynth/models"));
-    roots.add(home.getChildFile("t5ynth/models"));
-
-    for (auto& root : roots)
+    for (auto& root : standardModelRoots())
     {
         if (!root.isDirectory())
             continue;
@@ -815,6 +822,37 @@ static juce::String findSameSizeInstalledModel(const juce::String& selfModelId,
             auto candidate = sub.getChildFile(canonicalName);
             if (candidate.existsAsFile() && candidate.getSize() == fileSize)
                 return otherId;
+        }
+    }
+    return {};
+}
+
+// Find an identical, already-downloaded copy of `relPath` (same canonical
+// sub-path, same published size) in a DIFFERENT model dir, so installing a
+// second model that shares a byte-identical component can copy it locally
+// instead of re-downloading. The t5gemma encoder is byte-identical across SA3
+// Small Music/SFX (only the root checkpoint differs), so callers scope this to
+// the shared encoder subfolder. Size equality against the catalog's multi-GB
+// expectedSize is the same fingerprint findSameSizeInstalledModel trusts, and it
+// also rules out any tiny LFS-pointer stand-in. Empty File when nothing matches.
+static juce::File findReusableSiblingAsset(const juce::String& selfModelId,
+                                           const juce::String& relPath,
+                                           int64_t expectedSize)
+{
+    if (expectedSize <= 0)
+        return {};
+
+    for (auto& root : standardModelRoots())
+    {
+        if (!root.isDirectory())
+            continue;
+        for (auto& sub : root.findChildFiles(juce::File::findDirectories, false))
+        {
+            if (sub.getFileName() == selfModelId)
+                continue;
+            auto candidate = sub.getChildFile(relPath);
+            if (candidate.existsAsFile() && candidate.getSize() == expectedSize)
+                return candidate;
         }
     }
     return {};
@@ -949,14 +987,19 @@ SettingsPage::InstallOutcome SettingsPage::installFromManifestFolder(
         if (dup.isEmpty())
             continue;
 
-        // Stable Audio 3 Small *Music* and *SFX* legitimately ship the IDENTICAL
-        // model.safetensors — verified byte-for-byte against HuggingFace: the two
-        // repos carry the same LFS sha256 for both the DiT weights AND the t5gemma
-        // encoder. The variants differ ONLY in model_config.json (the "TrackType:"
-        // prompt prefix). A size/content collision between two SA3 variants is thus
-        // the EXPECTED case, not a wrong-file mistake — install normally and reuse
-        // the shared weights. The guard below still protects every other model family
-        // (where identical sizes across variants really are vanishingly rare).
+        // Stable Audio 3 Small *Music* and *SFX* share the SAME architecture and the
+        // EXACT same checkpoint byte size (2,270,384,940 B) but carry DIFFERENT
+        // weights — verified by hashing the Comfy-Org weights: the data sections
+        // differ and 440 of 685 tensors diverge (separate fine-tunes, NOT the same
+        // file). Because this guard fingerprints by SIZE ALONE, two SA3 variants
+        // collide as a false positive, so skip it for the SA3 family — a matching
+        // size between SA3 variants is EXPECTED, not a wrong-file mistake. (Size
+        // alone cannot tell the two SA3 checkpoints apart at all; catching a genuine
+        // wrong-SA3-file pick would need a content hash, out of scope here.) The one
+        // component that IS byte-identical across the variants is the t5gemma encoder,
+        // which the reassembly installer copies locally instead of re-downloading.
+        // The guard below still protects every other model family (where identical
+        // sizes across variants really are vanishingly rare).
         const bool bothSA3 = modelId.startsWithIgnoreCase("stable-audio-3")
                           && dup.startsWithIgnoreCase("stable-audio-3");
         if (bothSA3)
@@ -1845,7 +1888,7 @@ void SettingsPage::downloadReassemblyInThread()
     auto progressCounter = downloadCounter_;
     auto cancelFlag = downloadCancelFlag_;
     std::thread([safeThis, progressCounter, cancelFlag, targetDir, assets, assetCount,
-                 encoderSub, needsMetadata]()
+                 encoderSub, needsMetadata, modelId]()
     {
         int64_t bytesCompleted = 0;
 
@@ -1880,6 +1923,41 @@ void SettingsPage::downloadReassemblyInThread()
                 targetFile.deleteFile();
                 existingBytes = 0;
             }
+
+            // Cross-variant reuse: the t5gemma encoder is byte-identical across
+            // SA3 variants but lives in a per-modelId dir, so a freshly-installed
+            // second variant would otherwise re-download ~1.18 GB of encoder. If
+            // another already-installed model holds this exact file, copy it
+            // locally instead. Scoped to the encoder subfolder — NEVER the root
+            // checkpoint, which genuinely differs per variant (music != sfx).
+            if (encoderSub.isNotEmpty() && localPath.startsWith(encoderSub + "/"))
+            {
+                auto reuse = findReusableSiblingAsset(modelId, localPath, a.expectedSize);
+                if (reuse.existsAsFile() && reuse != targetFile)
+                {
+                    const auto reuseText = "Reusing encoder from a previous install: "
+                        + displayName + " (" + juce::String(i + 1) + "/"
+                        + juce::String(assetCount) + ")";
+                    juce::MessageManager::callAsync([safeThis, reuseText]() {
+                        if (auto* self = safeThis.getComponent())
+                            self->downloadStatusLabel.setText(reuseText, juce::dontSendNotification);
+                    });
+                    if (reuse.copyFileTo(targetFile) && targetFile.getSize() == a.expectedSize)
+                    {
+                        bytesCompleted += a.expectedSize;
+                        if (progressCounter) progressCounter->store(bytesCompleted);
+                        continue;
+                    }
+                    // Copy failed or produced a wrong-size file — discard the
+                    // partial and fall through to a normal network download.
+                    // Reset existingBytes too: the target is gone, so the resume
+                    // path below must NOT send a Range against a deleted file
+                    // (mirrors the over-size branch above).
+                    targetFile.deleteFile();
+                    existingBytes = 0;
+                }
+            }
+
             const bool tryResume = (existingBytes > 0);
 
             auto fileNum = i + 1;
@@ -2476,8 +2554,9 @@ void SettingsPage::updateStatus()
                       "musical content. Ships its own t5gemma text encoder.\n\n")
                 + "Click 'Download' above and wait for it to finish -- no HuggingFace\n"
                 "account or token needed. T5ynth fetches the ungated weights directly\n"
-                "(~2.3 GB checkpoint + ~1.2 GB encoder), then writes the encoder config\n"
-                "and rebuilds the tokenizer locally.\n\n"
+                "(~2.3 GB checkpoint + ~1.2 GB encoder; the encoder is reused, not\n"
+                "re-downloaded, if you already installed the other SA3 variant), then\n"
+                "writes the encoder config and rebuilds the tokenizer locally.\n\n"
                 "  Target: " + targetPath + "\n\n"
                 "Already have the files from Stability by hand? Click 'Auto-Scan'\n"
                 "instead -- T5ynth imports them from your Downloads folder.\n\n"
