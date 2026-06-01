@@ -563,6 +563,11 @@ void SettingsPage::setModelInstallBusy(bool busy, const juce::String& statusText
     }
 }
 
+// scanForModelById is defined just below; forward-declared so the SAO t5-base
+// peer check (an aux dependency that lives in a SIBLING model dir, not an
+// in-repo subfolder) can reuse the same scan logic without reordering the file.
+static juce::File scanForModelById(const juce::String& id, const juce::String& hfRepo);
+
 static bool modelHasRequiredAuxAssets(const juce::String& id, const juce::File& modelDir)
 {
     if (!modelDir.exists() || !hasModelMarker(modelDir))
@@ -580,6 +585,19 @@ static bool modelHasRequiredAuxAssets(const juce::String& id, const juce::File& 
             || !encDir.getChildFile("config.json").existsAsFile())
             return false;
     }
+
+    // Stable Audio Open 1.0 / Small additionally require the t5-base text encoder,
+    // which lives in a PEER model directory (not an in-repo subfolder). The backend
+    // raises a RuntimeError at load time if t5-base is missing (pipe_inference.py),
+    // so an SAO checkpoint is only truly "installed" once t5-base is present too.
+    // (No recursion: id "t5-base" never reaches this branch.)
+    if (id == "stable-audio-open-1.0" || id == "stable-audio-open-small")
+    {
+        auto t5 = scanForModelById("t5-base", "t5-base");
+        if (!t5.exists() || !hasModelMarker(t5))
+            return false;
+    }
+
     return true;
 }
 
