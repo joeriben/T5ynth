@@ -16,7 +16,13 @@ requests
 # requires the REAL pytorch_lightning — its DiT import path pulls
 # models/lora/callbacks.py -> `import pytorch_lightning as pl` and uses
 # pl.callbacks — so pipe_inference.py no longer mocks it and it is listed here.
-stable-audio-tools @ git+https://github.com/Stability-AI/stable-audio-tools.git
+# Pinned to the exact main commit validated end-to-end (SA3 Music/SFX + SAO Small
+# + SAO 1.0 generation, incl. the frozen-binary §7.3a smoke test). An unpinned
+# `git+...git` lets every CI build pull a moving main HEAD with no guarantee the
+# T5GemmaConditioner / diffusion_cond_inpaint / pingpong API still matches what
+# the models were validated against. Bump deliberately and re-run the per-model
+# smoke test when adopting a newer main.
+stable-audio-tools @ git+https://github.com/Stability-AI/stable-audio-tools.git@3241adba4fc2a85cf5b29d9eb68d42f40a28e820
 pytorch-lightning
 soundfile==0.13.1
 # numpy <2 so the PyWavelets==1.4.1 that stable-audio-tools hard-pins (numpy-1
