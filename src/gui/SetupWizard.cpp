@@ -1680,18 +1680,22 @@ static const char* const kSa3LicenseNotice =
 R"NOTICE(T5ynth -- Stable Audio 3 model components and their licenses
 ==============================================================
 
+Powered by Stability AI.
+
 This folder holds a Stable Audio 3 Small model (Music or SFX) assembled by
 T5ynth. It is made of two SEPARATELY LICENSED third-party components. T5ynth
 neither owns nor relicenses either of them -- it only orchestrated the download
 and wrote the configuration files. You are responsible for complying with BOTH
-licenses below.
+licenses below; the FULL license texts are in this folder.
 
 --------------------------------------------------------------------------------
 1. Audio model  --  model.safetensors, model_config.json
 --------------------------------------------------------------------------------
-   (C) Stability AI. Stability AI Community License Agreement.
-   Full text: https://stability.ai/community-license-agreement
+   This Stability AI Model is licensed under the Stability AI Community License,
+   Copyright (C) Stability AI Ltd. All Rights Reserved.
 
+   Full text:  STABILITY_AI_COMMUNITY_LICENSE.txt (in this folder), or
+               https://stability.ai/community-license-agreement
    Summary (NOT a substitute for the full text):
      - Free for non-commercial use.
      - Free for commercial use by individuals/organisations with annual revenue
@@ -1707,8 +1711,10 @@ licenses below.
    Gemma is provided under and subject to the Gemma Terms of Use found at
    ai.google.dev/gemma/terms
 
-   Gemma Terms of Use:           https://ai.google.dev/gemma/terms
-   Gemma Prohibited Use Policy:  https://ai.google.dev/gemma/prohibited_use_policy
+   Full texts: GEMMA_TERMS_OF_USE.txt and GEMMA_PROHIBITED_USE_POLICY.txt
+               (in this folder), or
+               https://ai.google.dev/gemma/terms
+               https://ai.google.dev/gemma/prohibited_use_policy
 
    Your use of this text encoder is subject to the Gemma Terms of Use and the
    Gemma Prohibited Use Policy. Google LLC is the provider of Gemma; Google is
@@ -1737,6 +1743,23 @@ static bool finalizeSa3Reassembly(const juce::File& targetDir,
     // is not a completeness marker, so its ordering vs. model_config.json is free).
     if (! writeBundledFile(targetDir.getChildFile("MODEL_LICENSES.txt"),
                            kSa3LicenseNotice, (int) std::strlen(kSa3LicenseNotice), err))
+        return false;
+
+    // The full verbatim third-party license texts. The Stability AI Community
+    // License IV(a)(i) requires distributing a copy of the Agreement to any
+    // recipient of a product that uses the materials; the Gemma Terms + Prohibited
+    // Use Policy are the t5gemma encoder's governing terms.
+    if (! writeBundledFile(targetDir.getChildFile("STABILITY_AI_COMMUNITY_LICENSE.txt"),
+                           BinaryData::STABILITY_AI_COMMUNITY_LICENSE_txt,
+                           BinaryData::STABILITY_AI_COMMUNITY_LICENSE_txtSize, err))
+        return false;
+    if (! writeBundledFile(targetDir.getChildFile("GEMMA_TERMS_OF_USE.txt"),
+                           BinaryData::GEMMA_TERMS_OF_USE_txt,
+                           BinaryData::GEMMA_TERMS_OF_USE_txtSize, err))
+        return false;
+    if (! writeBundledFile(targetDir.getChildFile("GEMMA_PROHIBITED_USE_POLICY.txt"),
+                           BinaryData::GEMMA_PROHIBITED_USE_POLICY_txt,
+                           BinaryData::GEMMA_PROHIBITED_USE_POLICY_txtSize, err))
         return false;
 
     // ORDER MATTERS: model_config.json is the install-completeness marker

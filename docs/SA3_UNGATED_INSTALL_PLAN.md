@@ -64,16 +64,24 @@ direct import), using a dir assembled exactly as the installer produces it (extr
   for SA3 (user requirement); `MODEL_LICENSES.txt` written into the install dir (attribution +
   verbatim Gemma redistribution notice + both canonical full-license URLs).
 
-### License posture (determined — no full-text bundling required)
-T5ynth distributes only functional configuration files (architecture/tokenizer JSON) — **no model
-weights, no `tokenizer.json`, no Gemma/Stability weights or Model Derivative**. The weights are
-downloaded by the user from Comfy-Org under the SA Community + Gemma licenses they accept in T5ynth's
-in-app dialog; the SentencePiece tokenizer is carved on the user's machine from that download. The
-Gemma/SA "give recipients a copy of the Terms" distribution obligations attach to redistributing the
-**weights/Model**, which we never do. Sufficient + correct handling: (1) the mandatory in-app
-accept-both-licenses dialog gating the download, and (2) `MODEL_LICENSES.txt` in each install dir
-(attribution + the verbatim mandatory Gemma notice + canonical full-license URLs). Bundling the full
-verbatim third-party license texts is therefore NOT required.
+### License posture (full verbatim texts bundled)
+T5ynth ships a product that *uses* the Stability + Gemma materials and bundles the SA3/t5gemma config
+JSONs. The Stability AI Community License **IV(a)** requires anyone distributing "a product or service
+that uses any portion of" the materials to (i) provide recipients a **copy of the Agreement**, (ii)
+retain the attribution notice in a "Notice" file, and (iii) prominently display **"Powered by Stability
+AI"**. So T5ynth bundles the FULL verbatim license texts (BinaryData) and `finalizeSa3Reassembly`
+writes them into each install dir:
+- `STABILITY_AI_COMMUNITY_LICENSE.txt` — deterministically extracted from stability.ai (July 5 2024).
+- `GEMMA_TERMS_OF_USE.txt` + `GEMMA_PROHIBITED_USE_POLICY.txt` — deterministically extracted from
+  ai.google.dev (Terms current, last modified Apr 1 2026; the Appendix lists T5Gemma as covered).
+- `MODEL_LICENSES.txt` — the Notice/index: carries "Powered by Stability AI", the exact SA attribution
+  line, the verbatim mandatory Gemma notice, and points to the three full texts.
+Each bundled text has a provenance header (source URL + retrieval date) and defers to the canonical URL.
+The in-app accept-both-licenses dialog stays mandatory. (Sourcing note: WebFetch REFUSED to reproduce
+the Gemma Terms and paraphrased the Policy, so the texts were extracted deterministically from the raw
+HTML with stdlib `html.parser`, not a paraphrasing model. An earlier draft shipped only a notice+URLs
+and argued "no full text needed" — self-contradictory, since the notice file is itself bundled license
+text; corrected to ship the actual copies.)
 
 ---
 

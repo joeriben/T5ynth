@@ -199,6 +199,12 @@ juce_add_binary_data(T5ynthData SOURCES
     resources/sa3_configs/sa3_t5gemma_generation_config.json
     resources/sa3_configs/sa3_t5gemma_tokenizer_config.json
     resources/sa3_configs/sa3_t5gemma_special_tokens_map.json
+    # Verbatim third-party license texts written into each SA3 install dir. The
+    # Stability AI Community License IV(a)(i) requires distributing a copy of the
+    # Agreement; the Gemma Terms + Prohibited Use Policy are the encoder's terms.
+    resources/sa3_configs/licenses/STABILITY_AI_COMMUNITY_LICENSE.txt
+    resources/sa3_configs/licenses/GEMMA_TERMS_OF_USE.txt
+    resources/sa3_configs/licenses/GEMMA_PROHIBITED_USE_POLICY.txt
 )
 
 target_link_libraries(T5ynth
