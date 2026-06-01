@@ -62,9 +62,18 @@ direct import), using a dir assembled exactly as the installer produces it (extr
   `stabilityai/*` ONLY so the Auto-Scan fallback can verify a hand-downloaded copy, `licenseNotice`
   covers SA Community **and** Gemma); status text → download style; Auto-Scan deliberately RETAINED
   for SA3 (user requirement); `MODEL_LICENSES.txt` written into the install dir (attribution +
-  verbatim Gemma redistribution notice + both canonical full-license URLs). **Open:** whether to
-  also bundle the FULL verbatim Gemma Terms / Prohibited Use Policy / SA Community License into the
-  folder — pending user sign-off before any release/push.
+  verbatim Gemma redistribution notice + both canonical full-license URLs).
+
+### License posture (determined — no full-text bundling required)
+T5ynth distributes only functional configuration files (architecture/tokenizer JSON) — **no model
+weights, no `tokenizer.json`, no Gemma/Stability weights or Model Derivative**. The weights are
+downloaded by the user from Comfy-Org under the SA Community + Gemma licenses they accept in T5ynth's
+in-app dialog; the SentencePiece tokenizer is carved on the user's machine from that download. The
+Gemma/SA "give recipients a copy of the Terms" distribution obligations attach to redistributing the
+**weights/Model**, which we never do. Sufficient + correct handling: (1) the mandatory in-app
+accept-both-licenses dialog gating the download, and (2) `MODEL_LICENSES.txt` in each install dir
+(attribution + the verbatim mandatory Gemma notice + canonical full-license URLs). Bundling the full
+verbatim third-party license texts is therefore NOT required.
 
 ---
 
