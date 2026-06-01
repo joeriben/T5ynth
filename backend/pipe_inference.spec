@@ -162,12 +162,17 @@ datas += copy_metadata('numpy')
 datas += copy_metadata('torchsde')
 datas += copy_metadata('accelerate')
 datas += copy_metadata('diffusers')
-# descript-audio-codec / descript-audiotools are transitive deps of
-# stable-audio-tools 0.0.19 (the pinned build) and ARE installed for
-# inference. Their dist-info must be bundled or importlib.metadata lookups
-# fail in the frozen binary.
-datas += copy_metadata('descript-audio-codec')
-datas += copy_metadata('descript-audiotools')
+# descript-audio-codec / descript-audiotools were transitive deps of the OLD
+# stable-audio-tools 0.0.19 pin and were copy_metadata()'d here. The current
+# backend/requirements.txt installs git-main stable-audio-tools, which demotes
+# both to `train`-extra deps — so the inference environment (and CI, which
+# installs only requirements.txt) no longer has them. copy_metadata() on a
+# missing distribution raises PackageNotFoundError and ABORTS the whole
+# PyInstaller build, so these two calls were removed. No shipped model (SAO
+# Small, SA3, SAO 1.0, AudioLDM2) imports dac/audiotools at runtime (verified
+# end-to-end), so nothing needs their metadata bundled. The collect_* calls for
+# dac/audiotools/clip/open_clip above are now no-ops (warn + return [] when the
+# package is absent) and stay only as harmless guards.
 datas += copy_metadata('torchaudio')
 datas += copy_metadata('torchvision')
 
