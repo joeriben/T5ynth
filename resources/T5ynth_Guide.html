@@ -351,64 +351,59 @@ text-to-audio tools:
 
 <h3>Model Download</h3>
 <p>
-T5ynth requires at least one diffusion model. Audio model weights are <strong>not bundled</strong> — they must be downloaded separately. The packaged backend includes the auxiliary T5 Base text encoder required by the native Stable Audio engines.
+T5ynth requires at least one diffusion model. Audio model weights are <strong>not bundled</strong> — they must be downloaded separately. The packaged backend includes the auxiliary T5 Base text encoder required by the Stable Audio Open engines (Stable Audio 3 uses its own t5gemma encoder, fetched at install).
 </p>
 <p>
 Open the <strong>Settings</strong> panel from the status bar, pick a model from the dropdown, and read the per-model instructions shown there. The summary below tells you which model to pick.
 </p>
 
-<h4>Stable Audio 3 Small Music</h4>
+<h4>Stable Audio 3 Small Music &amp; Small SFX</h4>
 <p>
-The current Stable Audio 3 small-format generative checkpoint, tuned for musical content. Architectures evolved between SA1 (Stable Audio Open) and SA3; T5ynth treats SA3 Small Music as the default slot. The companion SA3 Small SFX variant uses a different (<code>diffusion_cond_inpaint</code>) architecture with a different text encoder and is <em>not</em> wired into the current native pipeline &mdash; deferred for a future release.
+<strong>New in v2.1.0 (2026-06-01).</strong>
+Stable Audio 3 is Stability AI's current small-format generative family and T5ynth's default engine slot. Two specialised checkpoints are wired into the native pipeline: <strong>SA3 Small Music</strong> (instrumental music) and <strong>SA3 Small SFX</strong> (sound effects). They share one architecture and one text encoder; the backend only swaps the target modality between them.
 </p>
 <p>
-Licensed under the <a href="https://stability.ai/community-license-agreement">Stability AI Community License</a>. Gated on HuggingFace &mdash; a free HuggingFace account is required once to accept the license and download the files. T5ynth uses two files from this repository: <code>model.safetensors</code> (~1.68&nbsp;GB) and <code>model_config.json</code>. The rest of the repo is metadata T5ynth does not load.
+<strong>Under the hood:</strong> a latent diffusion transformer (DiT, 20 blocks, ~459M parameters) running on a semantic-acoustic autoencoder (SAME) latent at 44.1&nbsp;kHz stereo. Text is read by the <strong>t5gemma</strong> encoder (<code>google/t5gemma-b-b-ul2</code>, 768-dimensional). Generation uses the <code>pingpong</code> sampler at 8&nbsp;steps with CFG&nbsp;1.0 &mdash; Stability's recommended settings, applied automatically when an SA3 model is selected. SA3 needs no classifier-free guidance; the guidance is baked into the model during training, which is part of why it is fast.
 </p>
-<ol>
-  <li>In Settings, click <strong>Open Model Page</strong>. Your browser opens the HuggingFace page for the model.</li>
-  <li>Sign up or log in on HuggingFace (free account).</li>
-  <li>Click <strong>Agree and access repository</strong> to accept the license.</li>
-  <li>Open the <strong>Files and versions</strong> tab and download exactly these two files to your usual Downloads folder:
-    <ul>
-      <li><code>model.safetensors</code> (~1.68&nbsp;GB)</li>
-      <li><code>model_config.json</code></li>
-    </ul>
-    Ignore the <code>t5gemma-b-b-ul2/</code> subfolder &mdash; that ships only with the SFX variant and is not used here.
-  </li>
-  <li>Back in T5ynth, click <strong>Auto-Scan</strong>. T5ynth copies the two files into its working model folder. You can delete the originals from Downloads afterwards.</li>
-</ol>
 <p>
-<strong>What this model is good at, from its own training-time demo prompts:</strong>
-musical fragments with explicit tempo and key
-(&ldquo;<em>drum breaks 174 BPM</em>&rdquo;,
-&ldquo;<em>a short, beautiful piano riff in C&nbsp;minor</em>&rdquo;,
+<strong>Login-free install.</strong> Unlike the Stable Audio Open models, SA3 needs <em>no HuggingFace account and no token</em>. In Settings, select <strong>Stable Audio 3 Small Music</strong> (or <strong>Small SFX</strong>), confirm the license dialog, and click <strong>Download</strong>. T5ynth fetches the weights from the openly accessible Comfy-Org repository (~2.3&nbsp;GB checkpoint plus a ~1.2&nbsp;GB t5gemma encoder that both variants share) and writes the license copies into the model folder. <em>Auto-Scan</em> stays available as a fallback if you have hand-downloaded the files from Stability's gated repository.
+</p>
+<p>
+<strong>Two licenses apply</strong>, and the dialog requires both: the audio model is under the <a href="https://stability.ai/community-license-agreement">Stability AI Community License</a> (free for non-commercial use, and for commercial use under $1M annual revenue), and the t5gemma encoder is under the <a href="https://ai.google.dev/gemma/terms">Google Gemma Terms of Use</a> and the Gemma Prohibited Use Policy.
+</p>
+<p>
+<strong>What each variant is good at:</strong>
+Small Music renders short musical fragments &mdash; explicit tempo and key
+(&ldquo;<em>drum break, 174 BPM</em>&rdquo;,
+&ldquo;<em>a short piano riff in C&nbsp;minor</em>&rdquo;,
 &ldquo;<em>synth pluck arp with reverb and delay, 128 BPM</em>&rdquo;),
-percussive single hits
-(&ldquo;<em>tight snare drum</em>&rdquo;),
+percussive hits
+(&ldquo;<em>tight snare drum</em>&rdquo;), plucks, pads, and
 sound-design textures
-(&ldquo;<em>glitchy bass design</em>&rdquo;),
-field recordings
-(&ldquo;<em>a dog barking next to a waterfall</em>&rdquo;,
-&ldquo;<em>birds singing in the forest</em>&rdquo;),
-and ambient speech
-(&ldquo;<em>people talking in a crowded cafe</em>&rdquo;).
-The training distribution is broad &mdash; the &ldquo;Music&rdquo; name is mostly
-how Stability distinguishes it from SFX, not a hard genre lock.
+(&ldquo;<em>glitchy bass design</em>&rdquo;).
+Small SFX targets non-musical sound effects and foley &mdash; impacts, textures,
+environmental and mechanical sounds. The two are genuinely specialised models
+(trained on a music subset vs. a sound-effects subset), not one model with a
+label.
 </p>
 <p>
-<strong>Prompt budget:</strong> the text encoder (T5-Base) tokenises only the
-first 64 tokens, roughly 10&ndash;15 English words. Prompts that follow the
-demo style &mdash; short noun phrase, optional adjective for character,
-optional BPM or key &mdash; land inside that window. Long sentences or
-multi-clause prompts get silently truncated at the encoder.
+<strong>Prompt budget &amp; format:</strong> the t5gemma encoder reads up to
+<strong>256 tokens</strong> per impulse (roughly 150&ndash;200 English words)
+&mdash; far more headroom than the Stable Audio Open engines. T5ynth
+automatically prepends SA3's mandatory modality prefix
+(&ldquo;<em>TrackType: Music, VocalType: Instrumental,</em>&rdquo; for Music,
+&ldquo;<em>TrackType: SFX,</em>&rdquo; for SFX) to every non-empty prompt, so you
+never type it yourself. SA3 was trained on comma-joined, field-tagged metadata,
+so structured prompts such as &ldquo;<em>Genre: ambient, Instruments: synth pad,
+Moods: warm, calm</em>&rdquo; land squarely in its training distribution; plain
+natural-language descriptions work too. Either way, name acoustic qualities
+rather than genres.
 </p>
 <p>
-<strong>Generation parameters</strong> are auto-set when SA3 Music is selected:
-8 inference steps, CFG&nbsp;1.0, <code>pingpong</code> sampler. These are
-Stability's recommended values (see the model card and <code>training.demo</code>
-in <code>model_config.json</code>). Native output length is 11&nbsp;s at
-44.1&nbsp;kHz stereo &mdash; T5ynth clamps to this regardless of slider
-position.
+<strong>Output length:</strong> SA3 can natively generate up to two minutes, but
+T5ynth clamps the result to a short fragment (&le;&nbsp;11&nbsp;s) &mdash;
+consistent with its quasi-realtime, short-sound design &mdash; regardless of
+slider position.
 </p>
 
 <h4>Stable Audio Open Small</h4>
@@ -524,16 +519,18 @@ is not audio; it is the model's way of deciding what kind of sound can become.
 T5ynth changes that internal state so different fragments can become audible.
 </p>
 <p>
-T5ynth can use Stable Audio 3 Small Music, Stable Audio Open 1.0, Stable
-Audio Open Small, or AudioLDM2. Each engine opens a different learned space.
-The Stable Audio engines are strongest with English sound-oriented phrases:
-sound effects, field recordings, drum or instrument loops, ambient sounds,
-foley, and production elements. SA3 Music is the newest of the four and
-expects short, concrete prompts (its T5-Base encoder reads only ~10&ndash;15
-words per impulse). AudioLDM2 can also cover sound effects, speech-like
-material, and music, but it is non-commercial only, behaves differently from
-the Stable Audio engines, and is kept in T5ynth mainly for exploratory use
-rather than as the primary reference engine.
+T5ynth can use Stable Audio 3 Small Music, Stable Audio 3 Small SFX, Stable
+Audio Open 1.0, Stable Audio Open Small, or AudioLDM2. Each engine opens a
+different learned space. The Stable Audio engines are strongest with English
+sound-oriented phrases: sound effects, field recordings, drum or instrument
+loops, ambient sounds, foley, and production elements. The SA3 engines are the
+newest and read up to ~256 tokens per impulse through their t5gemma encoder
+(far more headroom than the Stable Audio Open engines, which use T5-Base);
+T5ynth auto-prepends SA3's required modality prefix, so you never type it.
+AudioLDM2 can also cover sound effects, speech-like material, and music, but it
+is non-commercial only, behaves differently from the Stable Audio engines, and
+is kept in T5ynth mainly for exploratory use rather than as the primary
+reference engine.
 </p>
 <p>
 The impulses do not have to be narrow "sound ideas". They can evoke sound
@@ -2042,7 +2039,7 @@ The following Python packages are used by the inference backend. They are bundle
   <tr><td><code>sentencepiece</code></td><td>Apache 2.0</td><td>T5 tokenizer</td></tr>
 </table>
 <p>
-Frozen backend packages also bundle the <code>t5-base</code> text encoder assets (Apache 2.0, Google Research, <a href="https://huggingface.co/t5-base">huggingface.co/t5-base</a>) for native Stable Audio prompt conditioning. This is an auxiliary text encoder, not a Stable Audio generation model.
+Frozen backend packages also bundle the <code>t5-base</code> text encoder assets (Apache 2.0, Google Research, <a href="https://huggingface.co/t5-base">huggingface.co/t5-base</a>) for Stable Audio Open prompt conditioning (the Stable Audio 3 engines use a separate t5gemma encoder). This is an auxiliary text encoder, not a Stable Audio generation model.
 </p>
 
 <hr style="margin-top:3rem; border:none; border-top:1px solid var(--border)">
