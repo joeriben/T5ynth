@@ -214,6 +214,9 @@ private:
     bool isAudioLDM2Model(const juce::String& model) const;
     bool selectedModelIsAudioLDM2() const;
     bool isSA3Model(const juce::String& model) const;
+    /** Resolve a stored/preset model id to an installed switchbox slot: exact
+     *  id match, then family fallback (patternSlotFor); -1 if none installed. */
+    int  slotForModel(const juce::String& model) const;
 
 public:
     /** True when the active model is SA3 (Stable Audio 3 Small Music). Public

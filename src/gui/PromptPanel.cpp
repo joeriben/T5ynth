@@ -829,14 +829,12 @@ void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String
     {
         if (modelsPopulated)
         {
-            for (int i = 0; i < kNumModelSlots; ++i)
-            {
-                if (modelSlotIds[i] == model)
-                {
-                    modelBtns[i].setToggleState(true, juce::dontSendNotification);
-                    break;
-                }
-            }
+            // Exact installed id first, then family fallback so a legacy preset
+            // id (pre-split "stable-audio-3-small") still selects its SA3 slot
+            // instead of silently leaving the previously active model selected.
+            const int s = slotForModel(model);
+            if (s >= 0)
+                modelBtns[s].setToggleState(true, juce::dontSendNotification);
             refreshDitBlocksForCurrentModel();
         }
         else
@@ -890,6 +888,39 @@ void PromptPanel::populateDeviceChoice()
     devicesPopulated = true;
 }
 
+// Map a model id to its fixed switchbox slot by family pattern, independent of
+// whether that slot is installed. Slot 0 SA3 Music, 1 SA3 SFX, 2 SA1 Open,
+// 3 SA1 Small, 4 AudioLDM2; -1 if no family matches.
+//
+// Order matters: SA3 names contain "small", so the SA3 check must fire before
+// the SA1 Small fallback; within SA3 the "sfx" sub-check splits Music (0) from
+// SFX (1) — both carry "stable-audio-3". This is the single source of truth for
+// the mapping; populateModelSelector and slotForModel both defer to it.
+static int patternSlotFor(const juce::String& m)
+{
+    if (m.containsIgnoreCase("stable-audio-3"))     return m.containsIgnoreCase("sfx") ? 1 : 0;
+    if (m.containsIgnoreCase("small"))              return 3;  // SA1 Small
+    if (m.containsIgnoreCase("stable-audio-open"))  return 2;  // SA1 Open 1.0
+    if (m.containsIgnoreCase("audioldm")
+        || m.containsIgnoreCase("audio-ldm"))       return 4;  // AudioLDM2
+    return -1;
+}
+
+// Resolve a stored/preset model id to an INSTALLED slot: exact installed-id
+// match first, then a family fallback (patternSlotFor) so a legacy preset id —
+// e.g. the pre-split "stable-audio-3-small" — still selects its family's slot
+// when that model is installed. -1 when nothing suitable is installed.
+int PromptPanel::slotForModel(const juce::String& model) const
+{
+    if (model.isEmpty())
+        return -1;
+    for (int i = 0; i < kNumModelSlots; ++i)
+        if (modelSlotIds[i] == model)
+            return i;
+    const int s = patternSlotFor(model);
+    return (s >= 0 && s < kNumModelSlots && modelSlotIds[s].isNotEmpty()) ? s : -1;
+}
+
 void PromptPanel::populateModelSelector()
 {
     auto& pipeInf = processorRef.getPipeInference();
@@ -902,16 +933,7 @@ void PromptPanel::populateModelSelector()
 
     for (auto& m : models)
     {
-        // Order matters: SA3 names contain "small", so the SA3 check fires
-        // before the SA1 Small fallback. Within SA3 the "sfx" sub-check splits
-        // Music (slot 0) from SFX (slot 1) — both carry "stable-audio-3".
-        int slot = -1;
-        if (m.containsIgnoreCase("stable-audio-3"))          slot = m.containsIgnoreCase("sfx") ? 1 : 0;  // SA3 SFX : Music
-        else if (m.containsIgnoreCase("small"))              slot = 3;  // SA1 Small
-        else if (m.containsIgnoreCase("stable-audio-open"))  slot = 2;  // SA1 Open 1.0
-        else if (m.containsIgnoreCase("audioldm") ||
-                 m.containsIgnoreCase("audio-ldm"))          slot = 4;  // AudioLDM2
-
+        const int slot = patternSlotFor(m);
         if (slot >= 0 && slot < kNumModelSlots)
         {
             modelSlotIds[slot] = m;
@@ -927,8 +949,7 @@ void PromptPanel::populateModelSelector()
     int selectIdx = -1;
     if (pendingModel_.isNotEmpty())
     {
-        for (int i = 0; i < kNumModelSlots; ++i)
-            if (modelSlotIds[i] == pendingModel_) { selectIdx = i; break; }
+        selectIdx = slotForModel(pendingModel_);   // exact id, then family fallback
         pendingModel_ = {};
     }
     if (selectIdx < 0)
