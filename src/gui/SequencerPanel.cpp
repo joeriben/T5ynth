@@ -893,7 +893,14 @@ void SequencerPanel::savePatternAsync()
             }
         }
 
-        auto file = f.withFileExtension("t5seq");
+        // String-concat (not withFileExtension) — the user-typed pattern
+        // name may contain dots (e.g. "My Beat 0.5"); withFileExtension
+        // strips at the last dot, truncating it to "My Beat 0.t5seq" and
+        // could clobber an unrelated file. The native macOS save panel
+        // usually appends ".t5seq" itself, so only add it when absent.
+        auto file = f;
+        if (!file.hasFileExtension("t5seq"))
+            file = file.getParentDirectory().getChildFile(file.getFileName() + ".t5seq");
         file.replaceWithText(juce::JSON::toString(out.get(), true));
     });
 }
