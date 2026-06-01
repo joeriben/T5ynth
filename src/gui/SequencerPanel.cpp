@@ -986,6 +986,21 @@ void SequencerPanel::timerCallback()
         repaint();
     }
 
+    // A preset load rewrites the pattern on the audio thread — possibly while
+    // stopped (the audio block wakes one cycle for it). Refresh the grid once
+    // when it happens, BEFORE the idle early-return below, or a preset picked
+    // while stopped would never appear.
+    int presetGen = processorRef.getStepSequencer().presetAppliedGen.load(std::memory_order_relaxed);
+    if (presetGen != lastPresetGen)
+    {
+        lastPresetGen = presetGen;
+        if (!genRunning)
+        {
+            syncStepCount();   // step count + column visibility follow the preset
+            repaint();         // redraw the new note pattern
+        }
+    }
+
     // Skip expensive updates when audio is idle and neither sequencer runs
     bool seqIdle = processorRef.audioIdle.load(std::memory_order_relaxed)
                    && !seqRunning && !genRunning;

@@ -385,6 +385,10 @@ void T5ynthStepSequencer::loadPreset(int index)
             steps[static_cast<size_t>(i)] = { 60, 0.8f, 0.8f, false, false };
         steps[static_cast<size_t>(i)].oneShotModes = oneShotModes;
     }
+
+    // Signal the GUI (which polls this) that the pattern changed, so the grid
+    // refreshes even when the preset was applied while playback was stopped.
+    presetAppliedGen.fetch_add(1, std::memory_order_relaxed);
 }
 
 void T5ynthStepSequencer::resetGrid()

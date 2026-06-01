@@ -185,6 +185,7 @@ private:
     std::unique_ptr<SA> strandDomA[kNumExtraStrands];
 
     int currentStep = -1;
+    int lastPresetGen = 0;   // mirrors StepSequencer::presetAppliedGen for grid refresh
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SequencerPanel)
 };

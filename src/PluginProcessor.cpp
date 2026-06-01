@@ -1535,10 +1535,18 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     // ── Idle detection ──────────────────────────────────────────────────────
     bool seqRunning = paramCache.seqRunning->load() > 0.5f;
+    // A pending sequencer-preset change must keep the block awake for one cycle
+    // so the apply further below runs even while stopped — otherwise picking a
+    // preset in the dropdown does nothing until playback starts. Cheap (one
+    // atomic load + compare) and self-clearing: once applied, lastSeqPreset
+    // matches and the block idles again on the next cycle.
+    bool seqPresetPending =
+        static_cast<int>(paramCache.seqPreset->load()) != lastSeqPreset.load(std::memory_order_relaxed);
     bool hasActivity = voiceManager.hasActiveVoices()
                        || hasActiveSequencerOneShots()
                        || !midiMessages.isEmpty()
-                       || seqRunning;
+                       || seqRunning
+                       || seqPresetPending;
 
     if (hasActivity)
         silentBlockCount = 0;

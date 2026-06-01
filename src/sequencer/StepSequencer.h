@@ -105,6 +105,10 @@ public:
     /** Atomic step position for GUI polling. */
     std::atomic<int> currentStepForGui { -1 };
 
+    /** Bumped on every loadPreset() so the GUI can detect a preset load — even
+     *  while the audio path is idle — and refresh the step grid. */
+    std::atomic<int> presetAppliedGen { 0 };
+
     /** Atomic flag: set to true when bar boundary crossed (step wraps to 0). */
     std::atomic<bool> barStartFlag { false };
 
