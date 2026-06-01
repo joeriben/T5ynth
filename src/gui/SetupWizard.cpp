@@ -1492,6 +1492,24 @@ void SettingsPage::downloadGhReleaseInThread()
             //   in (0, expectedSize) → partial — request HTTP Range and append
             //   == 0                 → fresh download
             int64_t existingBytes = targetFile.existsAsFile() ? targetFile.getSize() : 0;
+
+            // Integrity gate for safetensors assets: trust the existing bytes for
+            // skip/resume ONLY if their own safetensors header declares a file of
+            // exactly expectedSize. A foreign checkpoint left at this path (e.g. a
+            // different model's model.safetensors) or a previously resume-corrupted
+            // hybrid declares a DIFFERENT total — resuming onto it appends our tail
+            // to their head and silently produces a wrong file that still reaches
+            // expectedSize (the "incomplete metadata, file not fully covered" load
+            // failure). Drop any such file and download fresh from byte 0. This also
+            // self-heals an already-corrupt install on the next Download click.
+            // Mirrors the same gate in downloadReassemblyInThread.
+            if (existingBytes > 0 && targetFile.hasFileExtension("safetensors")
+                && safetensorsDeclaredTotal(targetFile) != gf.expectedSize)
+            {
+                targetFile.deleteFile();
+                existingBytes = 0;
+            }
+
             if (existingBytes == gf.expectedSize)
             {
                 bytesCompleted += gf.expectedSize;
@@ -1620,6 +1638,27 @@ void SettingsPage::downloadGhReleaseInThread()
                             "Download was interrupted for " + fileName + ":\n"
                             "Expected " + expectedStr + ", received " + gotStr + ".\n\n"
                             "Click Download again to resume from where it stopped.");
+                });
+                return;
+            }
+
+            // All bytes are present (>= expectedSize). Verify a safetensors asset is
+            // internally consistent — its own header must declare exactly its own
+            // size. A resume-glued hybrid (our tail appended onto a foreign head) or
+            // otherwise corrupt result declares a different total ("file not fully
+            // covered" at load). Delete it so the next click re-downloads cleanly
+            // instead of skipping a same-size-but-broken file. Mirrors the same
+            // check in downloadReassemblyInThread. Non-safetensors GH assets
+            // (config.json, tokenizer.json, spiece.model) keep size-only behavior.
+            if (targetFile.hasFileExtension("safetensors")
+                && safetensorsDeclaredTotal(targetFile) != targetFile.getSize())
+            {
+                targetFile.deleteFile();
+                juce::MessageManager::callAsync([safeThis, fileName]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->onDownloadFinished(false,
+                            "The downloaded file was corrupt and has been removed: "
+                            + fileName + "\n\nClick Download again to fetch it cleanly.");
                 });
                 return;
             }
