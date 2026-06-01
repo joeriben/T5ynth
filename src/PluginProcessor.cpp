@@ -1779,10 +1779,10 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     }
 
     // Preset change detection
-    if (seqPreset != lastSeqPreset)
+    if (seqPreset != lastSeqPreset.load(std::memory_order_relaxed))
     {
         stepSequencer.loadPreset(seqPreset);
-        lastSeqPreset = seqPreset;
+        lastSeqPreset.store(seqPreset, std::memory_order_relaxed);
     }
 
     // GEN mode toggle — PLAY is master transport, GEN switches engine
@@ -4284,6 +4284,13 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
     // ── Sequencer ──
     if (auto* seq = root->getProperty("sequencer").getDynamicObject())
     {
+        // We're about to write a custom step pattern straight into the
+        // sequencer. Sync lastSeqPreset to the live dropdown value first, so the
+        // audio-thread preset-apply (see processBlock) sees no pending change and
+        // won't reload the canned preset over the pattern we just imported.
+        lastSeqPreset.store(static_cast<int>(parameters.getRawParameterValue(PID::seqPreset)->load()),
+                            std::memory_order_relaxed);
+
         // Preserve current seq_running state — don't stop playback on preset load
         // bool seqEnabled = seq->getProperty("enabled");
         // setParam(parameters, PID::seqRunning, seqEnabled ? 1.0f : 0.0f);

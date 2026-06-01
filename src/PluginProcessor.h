@@ -358,9 +358,12 @@ private:
     juce::AudioBuffer<float> waveformSnapshot;
     std::atomic<bool> newWaveformReady { false };
 
-    // Track loaded reverb IR / seq preset to avoid reloading every block
+    // Track loaded reverb IR / seq preset to avoid reloading every block.
+    // lastSeqPreset is atomic: the audio thread applies preset changes, while
+    // importJsonPreset (message thread) syncs it after restoring a custom step
+    // pattern so a stale mismatch can't reload the canned preset over it.
     int lastReverbIr = -1;
-    int lastSeqPreset = -1;
+    std::atomic<int> lastSeqPreset { -1 };
 
     // Temporary preview note from step-grid mouse-hold editing.
     bool stepHoldPreviewActive = false;
