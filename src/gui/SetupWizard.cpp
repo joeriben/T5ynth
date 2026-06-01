@@ -858,6 +858,62 @@ static juce::File findReusableSiblingAsset(const juce::String& selfModelId,
     return {};
 }
 
+// Parse a safetensors header and return the total file size it declares:
+// 8 (the u64 LE length prefix) + headerLen + max(tensor data_offsets.end).
+// Returns -1 if the file is too short to hold its declared header or the header
+// is not parseable JSON. Two uses in the reassembly installer:
+//   • before resuming, tell a genuine partial/complete of the TARGET (declared
+//     == expectedSize) apart from a FOREIGN file left at the path (e.g. a Stable
+//     Audio Open model.safetensors, declared 1676829212) — resuming onto a
+//     foreign file appends our tail to their head and silently yields a wrong
+//     file that still hits expectedSize ("file not fully covered" on load);
+//   • after a download, confirm the file is internally consistent
+//     (declared == its own byte size) rather than a resume-glued hybrid.
+static juce::int64 safetensorsDeclaredTotal(const juce::File& file)
+{
+    juce::FileInputStream in(file);
+    if (! in.openedOk())
+        return -1;
+
+    char lenBuf[8] = {};
+    if (in.read(lenBuf, 8) != 8)
+        return -1;
+    const juce::int64 headerLen = (juce::int64) juce::ByteOrder::littleEndianInt64(lenBuf);
+    if (headerLen <= 0 || headerLen > 100ll * 1024 * 1024
+        || (8 + headerLen) > file.getSize())
+        return -1;
+
+    juce::MemoryBlock headerBytes;
+    if ((juce::int64) in.readIntoMemoryBlock(headerBytes, (ssize_t) headerLen) != headerLen)
+        return -1;
+    try
+    {
+        auto header = nlohmann::json::parse(
+            std::string(static_cast<const char*>(headerBytes.getData()), headerBytes.getSize()));
+        juce::int64 maxEnd = 0;
+        for (auto it = header.begin(); it != header.end(); ++it)
+        {
+            if (it.key() == "__metadata__")
+                continue;
+            const auto& v = it.value();
+            if (! v.contains("data_offsets"))
+                continue;
+            const auto& off = v["data_offsets"];
+            if (off.is_array() && off.size() == 2)
+            {
+                const juce::int64 end = off[1].get<juce::int64>();
+                if (end > maxEnd)
+                    maxEnd = end;
+            }
+        }
+        return 8 + headerLen + maxEnd;
+    }
+    catch (const std::exception&)
+    {
+        return -1;
+    }
+}
+
 // How many of a manifest's files are present (any size) in `folder` — used only
 // to decide between "report what's missing" and "open a folder picker".
 static int countManifestFilesPresent(const juce::File& folder,
@@ -1912,6 +1968,22 @@ void SettingsPage::downloadReassemblyInThread()
             if (targetFile.existsAsFile() && !isLfsPointer(targetFile))
                 existingBytes = targetFile.getSize();
 
+            // Integrity gate for safetensors assets: trust the existing bytes for
+            // skip/resume ONLY if their own safetensors header declares a file of
+            // exactly expectedSize. A foreign checkpoint left at this path (e.g. a
+            // Stable Audio Open model.safetensors) or a previously resume-corrupted
+            // hybrid declares a DIFFERENT total — resuming onto it appends our tail
+            // to their head and silently produces a wrong file that still reaches
+            // expectedSize (the "incomplete metadata, file not fully covered" load
+            // failure). Drop any such file and download fresh from byte 0. This also
+            // self-heals an already-corrupt install on the next Download click.
+            if (existingBytes > 0 && targetFile.hasFileExtension("safetensors")
+                && safetensorsDeclaredTotal(targetFile) != a.expectedSize)
+            {
+                targetFile.deleteFile();
+                existingBytes = 0;
+            }
+
             if (existingBytes == a.expectedSize)
             {
                 bytesCompleted += a.expectedSize;
@@ -1942,7 +2014,11 @@ void SettingsPage::downloadReassemblyInThread()
                         if (auto* self = safeThis.getComponent())
                             self->downloadStatusLabel.setText(reuseText, juce::dontSendNotification);
                     });
-                    if (reuse.copyFileTo(targetFile) && targetFile.getSize() == a.expectedSize)
+                    const bool copyOk = reuse.copyFileTo(targetFile)
+                        && targetFile.getSize() == a.expectedSize
+                        && (! targetFile.hasFileExtension("safetensors")
+                            || safetensorsDeclaredTotal(targetFile) == a.expectedSize);
+                    if (copyOk)
                     {
                         bytesCompleted += a.expectedSize;
                         if (progressCounter) progressCounter->store(bytesCompleted);
@@ -2074,6 +2150,25 @@ void SettingsPage::downloadReassemblyInThread()
                             "Download was interrupted for " + displayName + ":\n"
                             "Expected " + expectedStr + ", received " + gotStr + ".\n\n"
                             "Click Download again to resume from where it stopped.");
+                });
+                return;
+            }
+
+            // All bytes are present (>= expectedSize). Verify a safetensors asset is
+            // internally consistent — its own header must declare exactly its own
+            // size. A resume-glued hybrid or otherwise corrupt result declares a
+            // smaller total ("file not fully covered" at load). Delete it so the
+            // next click re-downloads cleanly instead of skipping a same-size-but-
+            // broken file.
+            if (targetFile.hasFileExtension("safetensors")
+                && safetensorsDeclaredTotal(targetFile) != targetFile.getSize())
+            {
+                targetFile.deleteFile();
+                juce::MessageManager::callAsync([safeThis, displayName]() {
+                    if (auto* self = safeThis.getComponent())
+                        self->onDownloadFinished(false,
+                            "The downloaded file was corrupt and has been removed: "
+                            + displayName + "\n\nClick Download again to fetch it cleanly.");
                 });
                 return;
             }
