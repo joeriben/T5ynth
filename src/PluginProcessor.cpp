@@ -1787,10 +1787,28 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     }
 
     // Preset change detection
-    if (seqPreset != lastSeqPreset.load(std::memory_order_relaxed))
+    const int prevSeqPreset = lastSeqPreset.load(std::memory_order_relaxed);
+    if (seqPreset != prevSeqPreset)
     {
         stepSequencer.loadPreset(seqPreset);
         lastSeqPreset.store(seqPreset, std::memory_order_relaxed);
+
+        // Adopt the preset's length into the seqSteps param — but ONLY on a
+        // genuine runtime dropdown change, not the first apply after
+        // construction/state-restore (prevSeqPreset == -1). getStateInformation
+        // persists seqPreset and seqSteps independently, so a restored session
+        // can legitimately hold a hand-set step count (e.g. 24) with the default
+        // preset; forcing the preset's 16 there would silently destroy the saved
+        // count on every reload. On a real change we do want the preset length:
+        // push it into the param so it sticks (the non-GEN branch re-asserts
+        // setNumSteps(seqSteps) every block and the GUI reads this param, not the
+        // sequencer), updating the local copy so this block already uses it.
+        if (prevSeqPreset >= 0)
+        {
+            seqSteps = stepSequencer.getNumSteps();
+            if (auto* par = parameters.getParameter(PID::seqSteps))
+                par->setValueNotifyingHost(par->convertTo0to1(static_cast<float>(seqSteps)));
+        }
     }
 
     // GEN mode toggle — PLAY is master transport, GEN switches engine
