@@ -143,6 +143,9 @@ public:
     /** Per-user presets directory (writable, creates if needed). */
     static juce::File getUserPresetsDirectory();
 
+    /** Per-user sequencer-pattern (.t5seq) directory (writable, creates if needed). */
+    static juce::File getUserSequencesDirectory();
+
     /** All .t5p files under the user presets directory (recursive). */
     static juce::Array<juce::File> getAllPresetFiles();
 

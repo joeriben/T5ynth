@@ -804,6 +804,15 @@ juce::File PresetFormat::getUserPresetsDirectory()
     return dir;
 }
 
+juce::File PresetFormat::getUserSequencesDirectory()
+{
+    auto dir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("T5ynth")
+        .getChildFile("sequences");
+    dir.createDirectory();
+    return dir;
+}
+
 juce::Array<juce::File> PresetFormat::getAllPresetFiles()
 {
     juce::Array<juce::File> files;

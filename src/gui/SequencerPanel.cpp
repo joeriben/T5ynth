@@ -1,5 +1,6 @@
 #include "SequencerPanel.h"
 #include "../PluginProcessor.h"
+#include "../presets/PresetFormat.h"
 #include "WaveformDisplay.h"
 
 // ─── Note name helper ──────────────────────────────────────────────
@@ -845,7 +846,12 @@ SequencerPanel::~SequencerPanel()
 // — single source of truth, no schema drift.
 void SequencerPanel::savePatternAsync()
 {
-    auto chooser = std::make_shared<juce::FileChooser>("Save Sequencer Pattern", juce::File(), "*.t5seq");
+    // Open in (and create) the dedicated sequences folder with a suggested
+    // name, so the save dialog lands somewhere predictable instead of the
+    // panel's last-remembered state (e.g. a Spotlight "This Mac" search).
+    auto dir = PresetFormat::getUserSequencesDirectory();
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Save Sequencer Pattern", dir.getChildFile("Pattern.t5seq"), "*.t5seq");
     juce::Component::SafePointer<SequencerPanel> safeThis(this);
     chooser->launchAsync(juce::FileBrowserComponent::saveMode, [safeThis, chooser](const juce::FileChooser& fc) {
         if (!safeThis) return;
@@ -894,9 +900,15 @@ void SequencerPanel::savePatternAsync()
 
 void SequencerPanel::loadPatternAsync()
 {
-    auto chooser = std::make_shared<juce::FileChooser>("Load Sequencer Pattern", juce::File(), "*.t5seq");
+    // canSelectFiles is mandatory: without it JUCE sets NSOpenPanel
+    // canChooseFiles=NO and every .t5seq is greyed out / unclickable. The
+    // sequences folder is the start dir so saved patterns round-trip here.
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Load Sequencer Pattern", PresetFormat::getUserSequencesDirectory(), "*.t5seq");
     juce::Component::SafePointer<SequencerPanel> safeThis(this);
-    chooser->launchAsync(juce::FileBrowserComponent::openMode, [safeThis, chooser](const juce::FileChooser& fc) {
+    chooser->launchAsync(juce::FileBrowserComponent::openMode
+                       | juce::FileBrowserComponent::canSelectFiles,
+                         [safeThis, chooser](const juce::FileChooser& fc) {
         if (!safeThis) return;
         auto file = fc.getResult();
         if (!file.existsAsFile()) return;
