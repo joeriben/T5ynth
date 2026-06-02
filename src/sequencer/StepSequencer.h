@@ -98,11 +98,13 @@ public:
     void setShuffle(float amount) { shuffle = juce::jlimit(0.0f, 0.75f, amount); }
     void setOctaveShiftSemitones(int semitones) { octaveShiftSemitones = semitones; }
 
-    /** Auto glide time: 50% of step duration (ms), clamped to 10-500. */
+    /** Auto glide time: 25% of step duration (ms), clamped to 10-200. A short
+        leading portamento that reaches the target pitch well before the step
+        ends — gliding across half the step (the old 50%) read as sluggish. */
     float getGlideTime() const
     {
         double stepMs = (60.0 / bpm) * static_cast<double>(DIVISION_FACTORS[division]) * 1000.0;
-        return juce::jlimit(10.0f, 500.0f, static_cast<float>(stepMs * 0.5));
+        return juce::jlimit(10.0f, 200.0f, static_cast<float>(stepMs * 0.25));
     }
 
     /** Load a preset pattern by index (0-9). */
