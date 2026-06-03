@@ -362,6 +362,11 @@ namespace LfoTarget {
 }
 
 // ── MIDI aftertouch performance targets ──
+// All aftertouch targets are applied per-voice (poly): each voice modulates
+// from its own resolved pressure (max of channel pressure, poly key pressure,
+// mod wheel, breath — see VoiceManager::pressureForNote), so per-note poly
+// aftertouch and channel-wide pressure both drive the target. Scan is the
+// granular/wavetable read position — expressive under key pressure.
 namespace AftertouchTarget {
     enum : int {
         None = 0,
@@ -372,7 +377,8 @@ namespace AftertouchTarget {
         Env2Sustain = 5,
         Env3Sustain = 6,
         Cutoff = 7,
-        Resonance = 8
+        Resonance = 8,
+        Scan = 9
     };
     static constexpr ChoiceEntry kEntries[] = {
         { "none",         "---"          },
@@ -383,10 +389,11 @@ namespace AftertouchTarget {
         { "env2_sustain", "ENV2 Sustain" },
         { "env3_sustain", "ENV3 Sustain" },
         { "cutoff",       "Cutoff"       },
-        { "resonance",    "Resonance"    }
+        { "resonance",    "Resonance"    },
+        { "scan",         "Scan"         }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(Resonance + 1 == kCount,
+    static_assert(Scan + 1 == kCount,
                   "AftertouchTarget enum and kEntries are out of sync.");
 }
 

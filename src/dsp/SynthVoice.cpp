@@ -769,6 +769,7 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                 if (p.lfo1Target == LfoTarget::Scan) scanMod += lfo1Val;
                 if (p.lfo2Target == LfoTarget::Scan) scanMod += lfo2Val;
                 if (p.lfo3Target == LfoTarget::Scan) scanMod += lfo3Val;
+                scanMod = applyAftertouchTarget(p, AftertouchTarget::Scan, scanMod, aftertouch_);
                 freezeEngine.setPosition(juce::jlimit(0.0f, 1.0f, scanMod));
 
                 float freezeLeft = 0.0f;
@@ -803,6 +804,7 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                 if (p.lfo1Target == LfoTarget::Scan) scanMod += lfo1Val;
                 if (p.lfo2Target == LfoTarget::Scan) scanMod += lfo2Val;
                 if (p.lfo3Target == LfoTarget::Scan) scanMod += lfo3Val;
+                scanMod = applyAftertouchTarget(p, AftertouchTarget::Scan, scanMod, aftertouch_);
                 const float clampedScan = juce::jlimit(0.0f, 1.0f, scanMod);
                 osc.setScanPosition(clampedScan);
 
