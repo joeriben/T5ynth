@@ -160,6 +160,10 @@ public:
     bool hasSequencerOneShotSample(int step, int slot) const;
     void clearSequencerOneShotSample(int step, int slot);
     void clearSequencerOneShotSamples();
+    /** Copy a captured one-shot (audio + mode) from one slot to another.
+     *  Shares the immutable sample buffer by pointer — no deep audio copy.
+     *  No-op if the source is empty or src == dst. Message-thread only. */
+    bool copySequencerOneShotSample(int srcStep, int srcSlot, int dstStep, int dstSlot);
     struct SequencerOneShotExport
     {
         int step = 0;

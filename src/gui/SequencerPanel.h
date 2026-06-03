@@ -89,6 +89,8 @@ private:
         bool isCurrentStep = false;
         int dragZone = -1;        // 0=dot, 1=note, 2=bind/glide, 3=velocity, 4=one-shot
         int dropHoverSlot = -1;
+        int oneShotPressSlot = -1;       // slot pressed in the one-shot zone (cycle on click / copy-drag source)
+        bool oneShotDragStarted = false; // a copy-drag began this gesture → suppress click-cycle on mouseUp
         float dragStartVal = 0.f;
         bool noteHoldPreviewActive = false;
         int noteHoldPreviewNote = -1;

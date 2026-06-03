@@ -44,6 +44,33 @@ bool getWaveformOneShotDragRegion(const juce::var& description, float& start, fl
 
     return false;
 }
+
+// Drag kind for copying an already-captured one-shot from one slot to another
+// (distinct from the waveform-region drag above). Carries the source step/slot.
+constexpr const char* kOneShotCopyDragKind = "t5ynth-oneshot-copy";
+
+bool isOneShotCopyDrag(const juce::var& description)
+{
+    if (auto* obj = description.getDynamicObject())
+        return obj->getProperty("kind").toString() == kOneShotCopyDragKind;
+
+    return false;
+}
+
+bool getOneShotCopyDragSource(const juce::var& description, int& srcStep, int& srcSlot)
+{
+    if (auto* obj = description.getDynamicObject())
+    {
+        if (obj->getProperty("kind").toString() != kOneShotCopyDragKind)
+            return false;
+
+        srcStep = static_cast<int>(obj->getProperty("srcStep"));
+        srcSlot = static_cast<int>(obj->getProperty("srcSlot"));
+        return true;
+    }
+
+    return false;
+}
 }
 
 // ─── IconLnF ──────────────────────────────────────────────────────
@@ -217,13 +244,18 @@ void SequencerPanel::StepColumn::mouseDown(const juce::MouseEvent& e)
         int slot = oneShotSlotAt(e.getPosition());
         if (slot >= 0)
         {
+            oneShotPressSlot = -1;
+            oneShotDragStarted = false;
             if (e.mods.isRightButtonDown())
             {
                 processor->clearSequencerOneShotSample(stepIndex, slot);
             }
-            else if (processor->hasSequencerOneShotSample(stepIndex, slot))
+            else
             {
-                seq.cycleStepOneShotMode(stepIndex, slot);
+                // Defer the mode-cycle to mouseUp: a press-and-drag on a filled
+                // slot starts a copy drag (the captured sample is often no longer
+                // shown in the wave display), while a plain click still cycles.
+                oneShotPressSlot = slot;
             }
             dragZone = 4;
             repaint();
@@ -278,6 +310,21 @@ void SequencerPanel::StepColumn::mouseDrag(const juce::MouseEvent& e)
         seq.setStepVelocity(stepIndex, juce::jlimit(0.0f, 1.0f, vel));
         repaint();
     }
+    else if (dragZone == 4 && !oneShotDragStarted && oneShotPressSlot >= 0
+             && e.getDistanceFromDragStart() >= 5
+             && processor->hasSequencerOneShotSample(stepIndex, oneShotPressSlot))
+    {
+        // Start a copy drag of the captured one-shot to another slot.
+        if (auto* container = findParentComponentOfClass<juce::DragAndDropContainer>())
+        {
+            juce::DynamicObject::Ptr payload = new juce::DynamicObject();
+            payload->setProperty("kind", kOneShotCopyDragKind);
+            payload->setProperty("srcStep", stepIndex);
+            payload->setProperty("srcSlot", oneShotPressSlot);
+            container->startDragging(juce::var(payload.get()), this);
+        }
+        oneShotDragStarted = true;
+    }
 }
 
 void SequencerPanel::StepColumn::mouseUp(const juce::MouseEvent&)
@@ -285,6 +332,18 @@ void SequencerPanel::StepColumn::mouseUp(const juce::MouseEvent&)
     if (processor != nullptr && noteHoldPreviewActive)
         processor->endStepHoldPreview();
 
+    // One-shot slot: a plain click (no copy-drag) cycles the slot's playback
+    // mode — the behavior that used to fire on mouseDown.
+    if (dragZone == 4 && !oneShotDragStarted && oneShotPressSlot >= 0
+        && processor != nullptr
+        && processor->hasSequencerOneShotSample(stepIndex, oneShotPressSlot))
+    {
+        processor->getStepSequencer().cycleStepOneShotMode(stepIndex, oneShotPressSlot);
+        repaint();
+    }
+
+    oneShotPressSlot = -1;
+    oneShotDragStarted = false;
     noteHoldPreviewActive = false;
     noteHoldPreviewNote = -1;
     dragZone = -1;
@@ -339,7 +398,8 @@ int SequencerPanel::StepColumn::oneShotDropSlotAt(juce::Point<int> p) const
 
 bool SequencerPanel::StepColumn::isInterestedInDragSource(const SourceDetails& details)
 {
-    return isWaveformOneShotDrag(details.description);
+    return isWaveformOneShotDrag(details.description)
+        || isOneShotCopyDrag(details.description);
 }
 
 void SequencerPanel::StepColumn::itemDragMove(const SourceDetails& details)
@@ -367,12 +427,22 @@ void SequencerPanel::StepColumn::itemDropped(const SourceDetails& details)
     dropHoverSlot = -1;
     if (processor != nullptr && slot >= 0)
     {
-        float start = 0.0f;
-        float end = 1.0f;
-        if (getWaveformOneShotDragRegion(details.description, start, end))
-            processor->assignSequencerOneShotFromRegion(stepIndex, slot, start, end);
+        int srcStep = 0;
+        int srcSlot = 0;
+        if (getOneShotCopyDragSource(details.description, srcStep, srcSlot))
+        {
+            // Copy an existing captured one-shot from another slot.
+            processor->copySequencerOneShotSample(srcStep, srcSlot, stepIndex, slot);
+        }
         else
-            processor->assignSequencerOneShotFromCurrentRegion(stepIndex, slot);
+        {
+            float start = 0.0f;
+            float end = 1.0f;
+            if (getWaveformOneShotDragRegion(details.description, start, end))
+                processor->assignSequencerOneShotFromRegion(stepIndex, slot, start, end);
+            else
+                processor->assignSequencerOneShotFromCurrentRegion(stepIndex, slot);
+        }
     }
     repaint();
 }

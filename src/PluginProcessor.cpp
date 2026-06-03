@@ -1184,6 +1184,39 @@ void T5ynthProcessor::clearSequencerOneShotSamples()
             clearSequencerOneShotSample(step, slot);
 }
 
+bool T5ynthProcessor::copySequencerOneShotSample(int srcStep, int srcSlot, int dstStep, int dstSlot)
+{
+    if (srcStep < 0 || srcStep >= T5ynthStepSequencer::MAX_STEPS
+        || srcSlot < 0 || srcSlot >= T5ynthStepSequencer::ONE_SHOT_SLOTS
+        || dstStep < 0 || dstStep >= T5ynthStepSequencer::MAX_STEPS
+        || dstSlot < 0 || dstSlot >= T5ynthStepSequencer::ONE_SHOT_SLOTS)
+        return false;
+
+    if (srcStep == dstStep && srcSlot == dstSlot)
+        return false;
+
+    auto sample = std::atomic_load_explicit(
+        &sequencerOneShotSamples[static_cast<size_t>(srcStep)][static_cast<size_t>(srcSlot)],
+        std::memory_order_acquire);
+    if (!sample || sample->audio.getNumSamples() <= 0)
+        return false;
+
+    // Duplicate the source slot's playback mode so the copy behaves identically.
+    stepSequencer.setStepOneShotMode(dstStep, dstSlot,
+        stepSequencer.getStepOneShotMode(srcStep, srcSlot));
+
+    // Share the immutable sample by pointer — no deep audio copy. The audio
+    // thread only atomic-loads these pointers and reads the const buffer, so
+    // two slots aliasing one sample is the same lock-free sharing model used
+    // for master→voice engine data. The previous dst pointer (if any) is
+    // released here on the message thread by atomic_store.
+    std::atomic_store_explicit(
+        &sequencerOneShotSamples[static_cast<size_t>(dstStep)][static_cast<size_t>(dstSlot)],
+        sample,
+        std::memory_order_release);
+    return true;
+}
+
 std::vector<T5ynthProcessor::SequencerOneShotExport>
 T5ynthProcessor::exportSequencerOneShotSamples() const
 {
