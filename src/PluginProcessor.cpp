@@ -1447,7 +1447,9 @@ bool T5ynthProcessor::serviceSamplerReprepare()
         masterSampler.applyPreparedBufferLoad(std::move(prepared), config);
         masterFreeze.loadBuffer(preparedFreezeBuffer, sourceRate);
         voiceManager.distributeSamplerBuffer(masterSampler);
-        voiceManager.distributeFreezeBuffer(masterFreeze);
+        // Sampler re-prepare (config change, not a new inference) → keep held
+        // granular voices on their current buffer (no live morph).
+        voiceManager.distributeFreezeBuffer(masterFreeze, 0.0f, false);
     }
 
     return true;
@@ -2247,7 +2249,10 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         if (masterSampler.hasAudio())
             voiceManager.distributeSamplerBuffer(masterSampler);
         if (masterFreeze.hasAudio())
-            voiceManager.distributeFreezeBuffer(masterFreeze);
+            // Audio-thread per-block redistribution → allowMorph MUST be false
+            // (morphToBufferFrom may free a retired snapshot off-thread). The
+            // generation guard makes this a no-op when the buffer is unchanged.
+            voiceManager.distributeFreezeBuffer(masterFreeze, 0.0f, false);
         if (masterOsc.hasFrames() && generatedAudioFull.getNumSamples() > 0)
         {
             syncWavetableTraversal(generatedSampleRate, generatedAudioFull.getNumSamples());
@@ -3355,7 +3360,10 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
 
         voiceManager.distributeSamplerBuffer(masterSampler);
         voiceManager.distributeWavetableFrames(masterOsc);
-        voiceManager.distributeFreezeBuffer(masterFreeze);
+        // New inference → held granular voices crossfade-adopt it live (near
+        // real-time), mirroring distributeWavetableFrames above. Off the audio
+        // thread (under getCallbackLock), so morphToBufferFrom is RT-safe here.
+        voiceManager.distributeFreezeBuffer(masterFreeze, paramCache.driftCrossfade->load(), true);
 
         samplerProcessorDebugLog("loadGeneratedAudio end masterAfter={" + masterSampler.debugStateString() + "}");
 
@@ -3432,7 +3440,10 @@ void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& proce
             masterOsc.setMorphTimeMs(paramCache.driftCrossfade->load());
             voiceManager.distributeWavetableFrames(masterOsc);
         }
-        voiceManager.distributeFreezeBuffer(masterFreeze);
+        // Reprocessed audio (e.g. Rumble/HF/Normalize changed) → held granular
+        // voices crossfade-adopt it live, like Wavetable above. Off the audio
+        // thread (under getCallbackLock), so morphToBufferFrom is RT-safe here.
+        voiceManager.distributeFreezeBuffer(masterFreeze, paramCache.driftCrossfade->load(), true);
 
         samplerProcessorDebugLog("reloadProcessedAudio end masterAfter={" + masterSampler.debugStateString() + "}");
 

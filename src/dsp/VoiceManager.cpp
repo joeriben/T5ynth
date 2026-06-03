@@ -635,15 +635,26 @@ void VoiceManager::distributeWavetableFrames(const WavetableOscillator& masterOs
     }
 }
 
-void VoiceManager::distributeFreezeBuffer(const FreezeTextureEngine& masterFreeze)
+void VoiceManager::distributeFreezeBuffer(const FreezeTextureEngine& masterFreeze, float morphMs, bool allowMorph)
 {
     currentFreezeMaster_ = &masterFreeze;
     for (auto& v : voices)
     {
-        if (v.isActive()
+        const bool heldGranular = v.isActive()
             && v.getEngineMode() == SynthVoice::EngineMode::Freeze
-            && v.getFreezeEngine().hasAudio())
+            && v.getFreezeEngine().hasAudio();
+
+        if (heldGranular)
+        {
+            // Held granular voice. allowMorph (off-audio-thread sites only) →
+            // crossfade-adopt the new buffer live; otherwise keep the old buffer
+            // until note-off (legacy behaviour, and the only RT-safe option on the
+            // audio thread). Either way, never shareBufferFrom — that hard-swaps
+            // mid-grain and clicks.
+            if (allowMorph)
+                v.getFreezeEngine().morphToBufferFrom(masterFreeze, morphMs);
             continue;
+        }
 
         v.getFreezeEngine().shareBufferFrom(masterFreeze);
     }

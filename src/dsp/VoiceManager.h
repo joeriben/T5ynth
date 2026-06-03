@@ -76,7 +76,12 @@ public:
     void freezeActiveSamplerVoices();
     void distributeSamplerBuffer(const SamplePlayer& master);
     void distributeWavetableFrames(const WavetableOscillator& masterOsc);
-    void distributeFreezeBuffer(const FreezeTextureEngine& masterFreeze);
+    // allowMorph=true lets a HELD granular voice crossfade-adopt the new buffer
+    // (morphToBufferFrom, morphMs = Drift Crossfade) instead of clinging to the
+    // old one. MUST be false at audio-thread call sites — morphToBufferFrom may
+    // release a retired snapshot off-thread and must never run on the audio
+    // thread. false reproduces the legacy "keep old buffer on held voices".
+    void distributeFreezeBuffer(const FreezeTextureEngine& masterFreeze, float morphMs, bool allowMorph);
 
     // ── Query ──
     int getActiveVoiceCount() const;
