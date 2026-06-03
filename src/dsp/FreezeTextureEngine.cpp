@@ -32,8 +32,17 @@ void FreezeTextureEngine::prepare(double sampleRate, int samplesPerBlock)
 
 void FreezeTextureEngine::reset()
 {
+    // reset() runs on the message thread (prepareToPlay), so releasing the
+    // retained morph snapshot here is safe even if it is the last reference.
     publishSnapshot(nullptr);
-    resetGrains();
+    publishMorphFromSnapshot(nullptr);
+    retiredPublished_.reset();
+    retiredMorphFrom_.reset();
+    resetCloud(cloud_);
+    resetCloud(morphCloud_);
+    morphActive_.store(false, std::memory_order_relaxed);
+    morphAlpha_ = 1.0f;
+    morphIncrement_ = 0.0f;
     transposeRatio_ = 1.0;
     glideTargetRatio_ = 1.0;
     glideRatioIncr_ = 0.0;
@@ -75,7 +84,99 @@ void FreezeTextureEngine::shareBufferFrom(const FreezeTextureEngine& master)
     textureLengthMs_ = master.textureLengthMs_;
     textureMode_ = master.textureMode_;
     stereoWidth_ = master.stereoWidth_;
-    resetGrains();
+    resetCloud(cloud_);
+    resetCloud(morphCloud_);
+    // Adopt the buffer cleanly — no crossfade. morphFromSnapshot_ is left
+    // intact (shareBufferFrom may run on the audio thread via the per-block
+    // redistribution; releasing a snapshot there could free on the audio
+    // thread). It is released off-thread on the next morphToBufferFrom/reset.
+    morphActive_.store(false, std::memory_order_relaxed);
+}
+
+void FreezeTextureEngine::morphToBufferFrom(const FreezeTextureEngine& master, float morphMs)
+{
+    // Deferred, OFF-AUDIO-THREAD release of the snapshots retired by the PREVIOUS
+    // morph (see the retire-bin note in the header). Any audio-thread per-sample
+    // local that briefly aliased these is long gone, so freeing here is safe and
+    // keeps every snapshot free off the audio thread.
+    retiredPublished_.reset();
+    retiredMorphFrom_.reset();
+
+    auto newSnap = master.loadPublishedSnapshot();
+    if (newSnap == nullptr)
+        return;  // master has no audio; leave this voice's current buffer untouched
+
+    // Adopt master's texture configuration (matches shareBufferFrom).
+    textureLengthMs_ = master.textureLengthMs_;
+    textureMode_ = master.textureMode_;
+    stereoWidth_ = master.stereoWidth_;
+
+    auto curSnap = loadPublishedSnapshot();
+
+    // Same buffer we already play (or are already morphing to) → no-op. Keeps
+    // the per-block redistribution cheap and never restarts an in-flight morph
+    // (mirrors WavetableOscillator's generation guards).
+    if (curSnap != nullptr && curSnap->generation == newSnap->generation)
+    {
+        publishSnapshot(newSnap);  // same object; harmless
+        return;
+    }
+
+    // Past this point we overwrite publishedSnapshot_ and/or morphFromSnapshot_ on
+    // a voice the audio thread is actively rendering. Park BOTH current snapshots
+    // in the message-thread-only retire bin so an audio-thread per-sample local
+    // (processSampleStereo's `snapshot`/`oldSnap`) can never be the last reference
+    // — i.e. the std::vector<float> is never freed on the audio thread. Released at
+    // the top of the next morphToBufferFrom. (curSnap may be null on a first buffer;
+    // parking a null is harmless.)
+    retiredPublished_ = curSnap;
+    retiredMorphFrom_ = loadMorphFromSnapshot();
+
+    // Genuine new buffer. Instant adopt when there is nothing to fade from or
+    // no crossfade was requested.
+    if (curSnap == nullptr || morphMs <= 0.0f)
+    {
+        publishSnapshot(newSnap);
+        resetCloud(cloud_);
+        resetCloud(morphCloud_);
+        publishMorphFromSnapshot(nullptr);
+        morphActive_.store(false, std::memory_order_relaxed);
+        return;
+    }
+
+    // Crossfade. Run two grain clouds and ramp an equal-power mix; at alpha=1 the
+    // old gain is exactly 0, so the old cloud stops without a click. Choosing the
+    // fade-FROM source ("promote the dominant side", mirrors WavetableOscillator):
+    //   • First morph, or the primary cloud is the louder side (alpha >= 0.5):
+    //     hand the in-flight primary grains to the morph cloud — they keep reading
+    //     the old (now retained) snapshot — and start the primary fresh on the new.
+    //   • Already morphing AND the old cloud is still louder (alpha < 0.5): keep
+    //     the old cloud and its retained snapshot as the fade-from, discard the
+    //     quieter in-flight primary, and start the new snapshot in the primary.
+    // This bounds a re-morph discontinuity to the quieter side instead of dropping
+    // the loud one. morphFromSnapshot_ is released only off the audio thread (this
+    // method runs on the message/reprepare thread via the allowMorph gate).
+    const bool alreadyMorphing = morphActive_.load(std::memory_order_relaxed);
+    if (alreadyMorphing && morphAlpha_ < 0.5f)
+    {
+        // Old cloud dominant — keep morphCloud_ + morphFromSnapshot_ as-is.
+        resetCloud(cloud_);
+        publishSnapshot(newSnap);
+    }
+    else
+    {
+        morphCloud_ = cloud_;          // value copy of POD cloud — thread-safe
+        resetCloud(cloud_);
+        publishMorphFromSnapshot(curSnap);
+        publishSnapshot(newSnap);
+    }
+    morphAlpha_ = 0.0f;
+    const int morphSamples = std::max(1, static_cast<int>(std::round(
+        static_cast<double>(morphMs) * 0.001 * playbackSampleRate_)));
+    morphIncrement_ = 1.0f / static_cast<float>(morphSamples);
+    // Release-store LAST: publishes the whole setup above to the audio thread's
+    // acquire-load gate in processSampleStereo.
+    morphActive_.store(true, std::memory_order_release);
 }
 
 bool FreezeTextureEngine::hasAudio() const
@@ -86,7 +187,12 @@ bool FreezeTextureEngine::hasAudio() const
 
 void FreezeTextureEngine::retrigger()
 {
-    resetGrains();
+    resetCloud(cloud_);
+    resetCloud(morphCloud_);
+    // retrigger() runs on the audio thread (noteOn), so it must not release a
+    // snapshot. Just stop any in-flight morph; morphFromSnapshot_ is released
+    // off-thread on the next morphToBufferFrom/reset.
+    morphActive_.store(false, std::memory_order_relaxed);
     smoothedPosition_ = targetPosition_;
     currentPosition_ = targetPosition_;
 }
@@ -168,22 +274,108 @@ void FreezeTextureEngine::processSampleStereo(float& left, float& right)
         transposeRatio_ * static_cast<double>(pitchModFactor_));
 
     const int grainDurationSamples = getGrainDurationSamples();
-    if (spawnSamplesUntilNext_ <= 0)
+
+    // Primary cloud → the new/current buffer. Identical to the historical
+    // single-cloud path when no morph is running.
+    float newLeft = 0.0f;
+    float newRight = 0.0f;
+    renderCloud(cloud_, *snapshot, effectiveRatio, grainDurationSamples, newLeft, newRight);
+
+    // Acquire-load the gate FIRST: pairs with the release-store in
+    // morphToBufferFrom so the morph setup (morphCloud_, morphFromSnapshot_,
+    // morphAlpha_, morphIncrement_) is visible here on the first morph.
+    if (! morphActive_.load(std::memory_order_acquire))
     {
-        spawnGrain(*snapshot, effectiveRatio);
-        spawnSamplesUntilNext_ += getNextHopSamples(grainDurationSamples);
+        left = newLeft;
+        right = newRight;
+        return;
     }
-    --spawnSamplesUntilNext_;
+
+    // Crossfade window: also spray the retained old buffer and equal-power mix.
+    // All of this is gated on morphActive_, so steady state costs nothing.
+    auto oldSnap = loadMorphFromSnapshot();
+    if (oldSnap != nullptr && oldSnap->samples.size() >= 8)
+    {
+        float oldLeft = 0.0f;
+        float oldRight = 0.0f;
+        renderCloud(morphCloud_, *oldSnap, effectiveRatio, grainDurationSamples, oldLeft, oldRight);
+
+        const float g = juce::jlimit(0.0f, 1.0f, morphAlpha_);
+        const float newGain = std::sin(g * juce::MathConstants<float>::halfPi);
+        const float oldGain = std::cos(g * juce::MathConstants<float>::halfPi);
+        left  = newLeft  * newGain + oldLeft  * oldGain;
+        right = newRight * newGain + oldRight * oldGain;
+    }
+    else
+    {
+        left = newLeft;
+        right = newRight;
+    }
+
+    morphAlpha_ += morphIncrement_;
+    if (morphAlpha_ >= 1.0f)
+    {
+        morphAlpha_ = 1.0f;
+        // Audio-thread store; no data is published through this transition (we
+        // only stop reading morphCloud_), so relaxed suffices.
+        morphActive_.store(false, std::memory_order_relaxed);
+        // morphFromSnapshot_ intentionally retained (we are on the audio
+        // thread); released off-thread on the next morphToBufferFrom/reset.
+    }
+}
+
+FreezeTextureEngine::SnapshotPtr FreezeTextureEngine::loadPublishedSnapshot() const
+{
+    return std::atomic_load_explicit(&publishedSnapshot_, std::memory_order_acquire);
+}
+
+void FreezeTextureEngine::publishSnapshot(SnapshotPtr snapshot)
+{
+    std::atomic_store_explicit(&publishedSnapshot_, snapshot, std::memory_order_release);
+}
+
+FreezeTextureEngine::SnapshotPtr FreezeTextureEngine::loadMorphFromSnapshot() const
+{
+    return std::atomic_load_explicit(&morphFromSnapshot_, std::memory_order_acquire);
+}
+
+void FreezeTextureEngine::publishMorphFromSnapshot(SnapshotPtr snapshot)
+{
+    std::atomic_store_explicit(&morphFromSnapshot_, snapshot, std::memory_order_release);
+}
+
+void FreezeTextureEngine::resetCloud(GrainCloud& cloud)
+{
+    for (auto& grain : cloud.grains)
+        grain = {};
+    cloud.spawnSamplesUntilNext = 0;
+    cloud.nextGrainSlot = 0;
+    cloud.spawnIndex = 0;
+}
+
+void FreezeTextureEngine::renderCloud(GrainCloud& cloud,
+                                      const Snapshot& snapshot,
+                                      double effectiveRatio,
+                                      int grainDurationSamples,
+                                      float& left,
+                                      float& right)
+{
+    if (cloud.spawnSamplesUntilNext <= 0)
+    {
+        spawnGrain(cloud, snapshot, effectiveRatio);
+        cloud.spawnSamplesUntilNext += getNextHopSamples(cloud, grainDurationSamples);
+    }
+    --cloud.spawnSamplesUntilNext;
 
     float sum = 0.0f;
     float sumRight = 0.0f;
     float weightSum = 0.0f;
-    for (auto& grain : grains_)
+    for (auto& grain : cloud.grains)
     {
         float weight = 0.0f;
         float grainLeft = 0.0f;
         float grainRight = 0.0f;
-        processGrain(grain, *snapshot, grainLeft, grainRight, weight);
+        processGrain(grain, snapshot, grainLeft, grainRight, weight);
         sum += grainLeft;
         sumRight += grainRight;
         weightSum += weight;
@@ -200,25 +392,6 @@ void FreezeTextureEngine::processSampleStereo(float& left, float& right)
     right = sumRight / weightSum;
 }
 
-FreezeTextureEngine::SnapshotPtr FreezeTextureEngine::loadPublishedSnapshot() const
-{
-    return std::atomic_load_explicit(&publishedSnapshot_, std::memory_order_acquire);
-}
-
-void FreezeTextureEngine::publishSnapshot(SnapshotPtr snapshot)
-{
-    std::atomic_store_explicit(&publishedSnapshot_, snapshot, std::memory_order_release);
-}
-
-void FreezeTextureEngine::resetGrains()
-{
-    for (auto& grain : grains_)
-        grain = {};
-    spawnSamplesUntilNext_ = 0;
-    nextGrainSlot_ = 0;
-    spawnIndex_ = 0;
-}
-
 FreezeTextureEngine::TextureConfig FreezeTextureEngine::getTextureConfig() const
 {
     switch (textureMode_)
@@ -231,13 +404,13 @@ FreezeTextureEngine::TextureConfig FreezeTextureEngine::getTextureConfig() const
     }
 }
 
-void FreezeTextureEngine::spawnGrain(const Snapshot& snapshot, double effectiveRatio)
+void FreezeTextureEngine::spawnGrain(GrainCloud& cloud, const Snapshot& snapshot, double effectiveRatio)
 {
-    auto& grain = grains_[static_cast<size_t>(nextGrainSlot_)];
-    nextGrainSlot_ = (nextGrainSlot_ + 1) % kMaxGrains;
+    auto& grain = cloud.grains[static_cast<size_t>(cloud.nextGrainSlot)];
+    cloud.nextGrainSlot = (cloud.nextGrainSlot + 1) % kMaxGrains;
 
     const auto config = getTextureConfig();
-    const int index = spawnIndex_++;
+    const int index = cloud.spawnIndex++;
     const int sampleCount = static_cast<int>(snapshot.samples.size());
     const double sourceRate = snapshot.sampleRate > 0.0 ? snapshot.sampleRate : 44100.0;
     const double durationJitter = 0.04 + 0.12 * static_cast<double>(config.blur);
@@ -343,11 +516,11 @@ int FreezeTextureEngine::getGrainDurationSamples() const
     return std::max(8, requested);
 }
 
-int FreezeTextureEngine::getNextHopSamples(int grainDurationSamples) const
+int FreezeTextureEngine::getNextHopSamples(const GrainCloud& cloud, int grainDurationSamples) const
 {
     const auto config = getTextureConfig();
     const int baseHop = std::max(1, grainDurationSamples / std::max(1, config.overlap));
     const double jitterDepth = 0.04 + 0.14 * static_cast<double>(config.blur);
-    const double jitter = 1.0 + deterministicBipolar(spawnIndex_, 0x632be59bu) * jitterDepth;
+    const double jitter = 1.0 + deterministicBipolar(cloud.spawnIndex, 0x632be59bu) * jitterDepth;
     return std::max(1, static_cast<int>(std::round(static_cast<double>(baseHop) * jitter)));
 }
