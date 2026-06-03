@@ -379,7 +379,7 @@ private:
                            int regionEnd,
                            float gain) const;
 
-    /** Remove leading near-zero samples (< ~-60 dB) from a source buffer. */
+    /** Remove leading near-silence (sustained < ~-50 dB) from a source buffer. */
     void trimLeadingSilence(juce::AudioBuffer<float>& buffer) const;
 
     /** Remove a sustained near-silent TAIL (< ~-50 dB) from a source buffer. */
