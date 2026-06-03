@@ -1277,6 +1277,15 @@ void T5ynthProcessor::queueSequencerOneShotTrigger(const T5ynthStepSequencer::On
         || pendingSequencerOneShotCount >= kMaxSequencerOneShotVoices)
         return;
 
+    auto& pending = pendingSequencerOneShots[static_cast<size_t>(pendingSequencerOneShotCount)];
+    // `pending` is normally cleared at consume (startVoice), but a 0-sample block
+    // (renderSequencerOneShots early-out) can leave a stale ref here. Retire it to the
+    // bin before reusing the slot — and BEFORE loading `sample` below, so a ring-full
+    // drop never strands a freshly-loaded shared_ptr local to release on the audio
+    // thread. (A null pending is a no-op that returns true, so this falls through.)
+    if (! retireOneShotSampleToBin(pending.sample))
+        return;
+
     auto sample = std::atomic_load_explicit(
         &sequencerOneShotSamples[static_cast<size_t>(trigger.stepIndex)]
                                 [static_cast<size_t>(trigger.slotIndex)],
@@ -1284,10 +1293,10 @@ void T5ynthProcessor::queueSequencerOneShotTrigger(const T5ynthStepSequencer::On
     if (!sample || sample->audio.getNumSamples() <= 0 || sample->audio.getNumChannels() <= 0)
         return;
 
-    auto& pending = pendingSequencerOneShots[static_cast<size_t>(pendingSequencerOneShotCount++)];
-    pending.sample = std::move(sample);
+    pending.sample = std::move(sample);  // assign over null
     pending.gain = trigger.gain;
     pending.sampleOffset = trigger.sampleOffset;
+    ++pendingSequencerOneShotCount;
 }
 
 bool T5ynthProcessor::hasActiveSequencerOneShots() const
@@ -1298,13 +1307,53 @@ bool T5ynthProcessor::hasActiveSequencerOneShots() const
     return false;
 }
 
+bool T5ynthProcessor::retireOneShotSampleToBin(SequencerOneShotSamplePtr& ptr) noexcept
+{
+    // Audio thread. Hand a one-shot sample ref to the worker thread for release by
+    // MOVING it into the SPSC ring — a move never changes the refcount, so it can
+    // never trigger the held juce::AudioBuffer's free on the audio thread
+    // (CLAUDE.md #4). A null ptr is a no-op. Returns false only when the ring is
+    // full, leaving ptr untouched (still holding its ref) so the caller keeps it
+    // in place rather than freeing it here.
+    if (ptr == nullptr)
+        return true;
+
+    const int head = oneShotRetireHead.load(std::memory_order_relaxed);  // producer owns head
+    const int next = (head + 1) & kOneShotRetireMask;
+    // acquire pairs with the consumer's tail release-store: it guarantees the
+    // consumer has already reset (nulled) slot `head` before we are allowed to
+    // reuse it, so the move-assign below writes into a null slot and never
+    // releases a ref on the audio thread.
+    if (next == oneShotRetireTail.load(std::memory_order_acquire))
+        return false;  // ring full — leave ptr in place (safe; retired on a later pass)
+
+    oneShotRetireBin[static_cast<size_t>(head)] = std::move(ptr);
+    oneShotRetireHead.store(next, std::memory_order_release);  // publishes the moved-in ptr
+    return true;
+}
+
+void T5ynthProcessor::drainSequencerOneShotRetireBin() noexcept
+{
+    // Worker thread (samplerReprepareThreadMain). Releases the one-shot samples
+    // the audio thread retired — the actual juce::AudioBuffer frees happen here,
+    // off the audio thread. Single consumer: only this thread writes the tail.
+    const int head = oneShotRetireHead.load(std::memory_order_acquire);  // see producer's moves
+    int tail = oneShotRetireTail.load(std::memory_order_relaxed);        // consumer owns tail
+    while (tail != head)
+    {
+        oneShotRetireBin[static_cast<size_t>(tail)].reset();
+        tail = (tail + 1) & kOneShotRetireMask;
+    }
+    oneShotRetireTail.store(tail, std::memory_order_release);  // publishes the resets (slots now null)
+}
+
 void T5ynthProcessor::stopSequencerOneShots()
 {
     pendingSequencerOneShotCount = 0;
     for (auto& voice : activeSequencerOneShots)
     {
         voice.active = false;
-        voice.sample.reset();
+        retireOneShotSampleToBin(voice.sample);  // off-thread release (never reset() on the audio thread)
         voice.startOffset = 0;
         voice.position = 0.0;
     }
@@ -1317,7 +1366,7 @@ void T5ynthProcessor::renderSequencerOneShots(juce::AudioBuffer<float>& buffer)
     if (numSamples <= 0 || numChannels <= 0)
         return;
 
-    auto startVoice = [this, numSamples](const PendingSequencerOneShot& pending)
+    auto startVoice = [this, numSamples](PendingSequencerOneShot& pending)
     {
         int target = -1;
         uint64_t oldest = std::numeric_limits<uint64_t>::max();
@@ -1341,7 +1390,17 @@ void T5ynthProcessor::renderSequencerOneShots(juce::AudioBuffer<float>& buffer)
             return;
 
         auto& voice = activeSequencerOneShots[static_cast<size_t>(target)];
-        voice.sample = pending.sample;
+
+        // The chosen slot may still hold a ref: a stolen still-playing voice, or a
+        // leftover from prepareToPlay / a previous bin-full retire. Releasing it by
+        // overwriting voice.sample would free on the audio thread, so hand it to the
+        // retire bin first. If the ring is full we must not overwrite a live ref —
+        // drop this trigger instead (a missed one-shot is a glitch, never a crash).
+        // A free voice holds null, so this is a no-op in the common case.
+        if (! retireOneShotSampleToBin(voice.sample))
+            return;
+
+        voice.sample = pending.sample;  // assign over null (copy ⇒ refcount ≥ 2)
         voice.position = 0.0;
         const double hostRate = getSampleRate() > 0.0 ? getSampleRate() : 44100.0;
         voice.increment = juce::jmax(0.0001, pending.sample->sampleRate / hostRate);
@@ -1349,6 +1408,11 @@ void T5ynthProcessor::renderSequencerOneShots(juce::AudioBuffer<float>& buffer)
         voice.startOffset = juce::jlimit(0, juce::jmax(0, numSamples - 1), pending.sampleOffset);
         voice.active = true;
         voice.age = ++sequencerOneShotAgeCounter;
+
+        // The voice now owns a copy, so this drop can never be the last reference —
+        // safe to release on the audio thread. Keeping `pending` null means the next
+        // block's overwrite in queueSequencerOneShotTrigger also never frees here.
+        pending.sample.reset();
     };
 
     for (int i = 0; i < pendingSequencerOneShotCount; ++i)
@@ -1377,7 +1441,7 @@ void T5ynthProcessor::renderSequencerOneShots(juce::AudioBuffer<float>& buffer)
             if (voice.position >= static_cast<double>(sourceSamples))
             {
                 voice.active = false;
-                voice.sample.reset();
+                retireOneShotSampleToBin(voice.sample);  // off-thread release (never reset() on the audio thread)
                 break;
             }
 
@@ -1494,6 +1558,7 @@ void T5ynthProcessor::samplerReprepareThreadMain()
     {
         samplerReprepareWorkRequested.store(false, std::memory_order_release);
         serviceSamplerReprepare();
+        drainSequencerOneShotRetireBin();  // release one-shot samples the audio thread retired (off-thread)
 
         for (int i = 0; i < 5 && !samplerReprepareThreadShouldExit.load(std::memory_order_acquire); ++i)
         {

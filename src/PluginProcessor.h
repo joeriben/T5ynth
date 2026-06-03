@@ -313,6 +313,34 @@ private:
     void stopSequencerOneShots();
     bool hasActiveSequencerOneShots() const;
 
+    // ── One-shot sample retirement (deferred off-audio-thread release) ──────
+    // CLAUDE.md JUCE-safety #4: a shared_ptr refcount reaching 0 frees the held
+    // juce::AudioBuffer, and that free must never run on the audio thread. The
+    // array store side (assign/clear/copy/import) already releases on the message
+    // thread via std::atomic_store. But the audio thread also drops one-shot refs
+    // whenever a voice ends, is stolen/reused, or is stopped; if the user cleared
+    // or overwrote that slot meanwhile, the still-sounding voice can hold the LAST
+    // ref, so a plain reset()/assignment there would free on the audio thread.
+    //
+    // Instead the audio thread MOVES the ref into this lock-free SPSC ring — a
+    // move never touches the refcount, allocates, or frees — and the always-on
+    // samplerReprepare worker thread drains it, performing the real release off
+    // the audio thread. Same retire-bin idea as FreezeTextureEngine's
+    // retiredPublished_/retiredMorphFrom_, generalised to a ring because a voice
+    // ending is an audio→worker hand-off rather than a message-thread-local park.
+    //
+    // Sole producer: the audio thread (writes head). Sole consumer: the worker
+    // thread (writes tail). Capacity comfortably exceeds the 192 maximum live
+    // voices; on the (practically unreachable) full ring the producer leaves the
+    // ref in place — still held, never freed — to be retired on a later pass.
+    static constexpr int kOneShotRetireCapacity = 512;  // power of two, > kMaxSequencerOneShotVoices (192)
+    static constexpr int kOneShotRetireMask = kOneShotRetireCapacity - 1;
+    std::array<SequencerOneShotSamplePtr, kOneShotRetireCapacity> oneShotRetireBin;
+    std::atomic<int> oneShotRetireHead { 0 };  // audio thread (producer) only
+    std::atomic<int> oneShotRetireTail { 0 };  // worker thread (consumer) only
+    bool retireOneShotSampleToBin(SequencerOneShotSamplePtr& ptr) noexcept;  // audio thread
+    void drainSequencerOneShotRetireBin() noexcept;                          // worker thread
+
     // Edge-detection for arp-toggle note-off cleanup. When arp transitions
     // false→true while a sequencer is running, the seq's currently-sounding
     // note must be flushed before arp's filter starts swallowing noteOffs.
