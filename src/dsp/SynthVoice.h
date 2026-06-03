@@ -36,21 +36,9 @@ public:
     void setAftertouch(float pressure) { aftertouch_ = juce::jlimit(0.0f, 1.0f, pressure); }
     float getAftertouch() const { return aftertouch_; }
 
-    // ── Per-sample rendering ──
-    struct RenderResult {
-        float sample;        // mono output (post-VCA, post-filter)
-        float mod1EnvVal;    // last mod1 envelope value (for block-rate targets)
-        float mod2EnvVal;    // last mod2 envelope value
-        float modulatedCutoff = 20000.0f;
-        float modulatedResonance = 0.0f;
-        float modulatedScan = 0.0f;
-        float modulatedNoiseLevel = 0.0f;
-    };
-
-    /** Configure envelopes from block params. Call once per block before renderSample loop. */
+    // ── Per-block setup ──
+    /** Configure envelopes from block params. Call once per block before the renderBlock loop. */
     void configureForBlock(const BlockParams& p);
-
-    RenderResult renderSample(const BlockParams& p, float globalLfo1Val, float globalLfo2Val, float globalLfo3Val);
 
     /** Block-based rendering with sub-block filter coefficient updates.
      *  Writes numSamples into output; outputRight receives Granular stereo when provided. */
@@ -247,7 +235,6 @@ private:
     void updateSamplerPreStretchNorm(const BlockParams& p);
     bool preStretchNormStateMatches(const BlockParams& p) const;
     void applyVelocityTimedEnvelopeTimes();
-    float applyRestartFade(float sample);
     void applyRestartFadeStereo(float& L, float& R);
 
     float restartFadeTailSample_ = 0.0f;

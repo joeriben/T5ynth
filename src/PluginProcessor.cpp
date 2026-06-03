@@ -2489,10 +2489,10 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         lastLfo2Val_ = lastLfo2Val;
         lastLfo3Val_ = lastLfo3Val;
 
-        // Filter is now per-voice (in SynthVoice::renderSample)
+        // Filter is now per-voice (in SynthVoice::renderBlock)
 
         // ── Accumulate block-rate modulation for delay/reverb ─────────────────
-        // (Pitch modulation is handled per-sample in SynthVoice::renderSample)
+        // (Pitch modulation is handled per-sample in SynthVoice::renderBlock)
         if (bp.ampTarget == EnvTarget::DelayTime)   modDelayTime += lastAmpVal;
         if (bp.ampTarget == EnvTarget::DelayFB)     modDelayFb += lastAmpVal;
         if (bp.ampTarget == EnvTarget::DelayMix)    modDelayMix += lastAmpVal;

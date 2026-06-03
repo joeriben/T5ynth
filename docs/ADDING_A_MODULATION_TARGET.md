@@ -113,18 +113,16 @@ locations, each with its own calling convention.
 
 ### 3.1 Per-sample, per-voice (envelopes + LFOs, audio-rate targets)
 
-`src/dsp/SynthVoice.cpp:125-233` (`renderSample`) and
-`src/dsp/SynthVoice.cpp:235-383` (`renderBlock`). Both contain explicit
+`src/dsp/SynthVoice.cpp:539-989` (`renderBlock`) contains explicit
 `if (p.mod1Target == EnvTarget::X) …` chains for:
 
-- Pitch: `SynthVoice.cpp:144-149`, `:322-328`
-- Scan (wavetable): `SynthVoice.cpp:164-172`, `:337-343`
-- DCA (VCA): `SynthVoice.cpp:182-184`, `:357-361`
-- Filter cutoff: `SynthVoice.cpp:196-214`, `:280-289`
+- Pitch: `SynthVoice.cpp:599-604` (block-rate), `:756-761` / `:785-790` (per-sample)
+- Scan: `SynthVoice.cpp:766-771` (wavetable), `:800-805` (freeze)
+- DCA (VCA): `SynthVoice.cpp:43-47` (`computeDcaGain`), applied at `:833`
+- Filter cutoff: `SynthVoice.cpp:643-648`
 
-`renderBlock` is the production path; `renderSample` is kept around for a
-legacy/unit-test call site. **Update both** when you add a new audio-rate
-envelope or LFO target.
+`renderBlock` is the only per-voice render path. **Update it** when you add a
+new audio-rate envelope or LFO target.
 
 Drift offsets for filter, pitch, and scan are pre-computed in
 `PluginProcessor::processBlock` and passed in as block-rate scalars
@@ -325,9 +323,8 @@ source class.
 
 4. **DSP dispatch.** Decide where the modulation is applied:
    - Per-voice audio-rate: add `if (p.mod1Target == EnvTarget::MyNewTarget)
-     …` to the appropriate block in `src/dsp/SynthVoice.cpp:235-383`
-     (`renderBlock`). Update `renderSample` as well if the target makes
-     sense there. You likely also need a new field on `BlockParams` for
+     …` to the appropriate block in `src/dsp/SynthVoice.cpp:539-989`
+     (`renderBlock`). You likely also need a new field on `BlockParams` for
      the base value and a new `bp.xxx = parameters.getRawParameterValue(...)`
      read in `PluginProcessor.cpp` around line 547.
    - Block-rate FX or LFO cross-mod: add to
@@ -417,8 +414,6 @@ but you should know about them because they shape what "it works" means.
   modulated parameters publish to `ModulatedValues` but nothing reads
   them. Your new target may look correctly ghosted in one place and
   completely silent in another.
-- **`renderSample` and `renderBlock` both exist** and both need updating
-  for any per-voice audio-rate change. `renderBlock` is the live path.
 - **Three drift target declarations.** Drift 1/2 are declared together at
   `PluginProcessor.cpp:223-227`, Drift 3 is tacked on separately at
   `:236-238` with the same list — easy to update one and miss the other.
