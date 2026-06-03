@@ -169,12 +169,21 @@ void WaveformDisplay::paint(juce::Graphics& g)
                    HANDLE_RADIUS * 2.0f, HANDLE_RADIUS * 2.0f), juce::Justification::centred);
     }
 
-    // ── Scan position indicator (live playback, small dot) ──
-    if (scanVisible)
+    // ── Scan position indicator (live playback playhead) ──
+    // Full-height vertical line in a paler pink than the saturated accent
+    // (kAccent) used by the loop brackets, so a scan position being driven —
+    // e.g. an envelope/LFO routed to Scan sweeping the granular read point to
+    // the buffer end — is unmistakable as it runs. NaN-guarded: scanPos is NaN
+    // until the first live update. Repaint gating stays in tickScan(), so a
+    // static scan position triggers no repaints (idle-safe).
+    if (scanVisible && ! std::isnan(scanPos))
     {
-        float scanX = area.getX() + scanPos * area.getWidth();
-        g.setColour(kAccent.withAlpha(0.5f));
-        g.fillEllipse(scanX - 2.5f, lineY - 2.5f, 5.0f, 5.0f);
+        const float scanX = area.getX() + scanPos * area.getWidth();
+        const juce::Colour playhead (0xffffafcd); // pale pink (user choice); white = fallback
+        g.setColour(playhead.withAlpha(0.85f));
+        g.drawLine(scanX, area.getY(), scanX, area.getBottom(), 1.5f);
+        g.setColour(playhead);
+        g.fillEllipse(scanX - 3.0f, lineY - 3.0f, 6.0f, 6.0f);
     }
 }
 
