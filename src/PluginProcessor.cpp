@@ -3104,6 +3104,15 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
     // fraction, landing P1 past the real attack.
     masterSampler.trimLeadingSilencePublic(cleanBuffer);
 
+    // Symmetric trailing trim: diffusion models emit the full requested duration
+    // even when the sound is short, leaving a dead near-silent tail. The granular
+    // engine (scan 0..1 across the whole buffer, no playhead) otherwise parks in
+    // that pure-zero field, and the waveform/playhead show a flat tail. Drop it
+    // here — before the active-region fractions below are computed — so sampler,
+    // wavetable, freeze and the display all end at real content. No-op when the
+    // content already runs to the end.
+    masterSampler.trimTrailingSilencePublic(cleanBuffer);
+
     const auto& feedBuffer = cleanBuffer;
 
     SamplePlayer::LoopMode samplerLoopMode = SamplePlayer::LoopMode::Loop;

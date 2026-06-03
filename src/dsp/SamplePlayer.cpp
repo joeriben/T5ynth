@@ -1548,3 +1548,68 @@ void SamplePlayer::trimLeadingSilence(juce::AudioBuffer<float>& buffer) const
 
     buffer = std::move(trimmed);
 }
+
+void SamplePlayer::trimTrailingSilence(juce::AudioBuffer<float>& buffer) const
+{
+    const int numSamples = buffer.getNumSamples();
+    const int numCh      = buffer.getNumChannels();
+    if (numSamples == 0 || numCh == 0) return;
+
+    // Symmetric counterpart to trimLeadingSilence(): drop a sustained near-
+    // silent TAIL so engines that traverse the whole buffer end at real content.
+    // The granular/freeze engine maps scan 0..1 across the entire sample and has
+    // no internal playhead, so a dead post-content field (the diffusion models
+    // generate the requested duration even when the sound itself is short, e.g.
+    // ~1 s of bell + ~10 s of near-silence at an 11 s request) parks the read
+    // point in pure silence — and the waveform/playhead show a flat tail. Same
+    // windowed-RMS / -50 dB floor / 3-window sustain test as the leading trim,
+    // scanned for the LAST qualifying run. A ~46 ms margin past that run is kept
+    // to preserve natural decay/release and keep the cut below -50 dB (no click).
+    // Idempotent, and a no-op when content already runs to the end.
+    constexpr float threshold           = 0.00316f; // -50 dB absolute (matches leading trim)
+    constexpr int   windowSamples       = 64;       // ~1.5 ms @ 44.1 kHz
+    constexpr int   minSustainedWindows = 3;
+    constexpr int   marginWindows       = 32;        // ~46 ms tail kept past last active run
+
+    const int numWindows = numSamples / windowSamples;
+    if (numWindows < minSustainedWindows) return;
+
+    int lastRunEnd = -1;   // exclusive window index of the end of the last sustained run
+    int run = 0;
+    for (int w = 0; w < numWindows; ++w)
+    {
+        const int base = w * windowSamples;
+        double sumSq = 0.0;
+        for (int ch = 0; ch < numCh; ++ch)
+        {
+            const float* p = buffer.getReadPointer(ch) + base;
+            for (int i = 0; i < windowSamples; ++i)
+            {
+                double s = static_cast<double>(p[i]);
+                sumSq += s * s;
+            }
+        }
+        const float rms = std::sqrt(static_cast<float>(sumSq
+                                    / static_cast<double>(windowSamples * numCh)));
+        if (rms > threshold)
+        {
+            ++run;
+            if (run >= minSustainedWindows)
+                lastRunEnd = w + 1;
+        }
+        else
+        {
+            run = 0;
+        }
+    }
+
+    if (lastRunEnd < 0) return; // no sustained content — leave a genuinely quiet buffer alone
+
+    int newLen = (lastRunEnd + marginWindows) * windowSamples;
+    newLen = juce::jmin(numSamples, newLen);
+    if (newLen >= numSamples) return; // content runs to (near) the end — nothing to trim
+
+    // Truncate in place; not on the audio thread (load path), so realloc is fine.
+    buffer.setSize(numCh, newLen, /*keepExistingContent*/ true,
+                   /*clearExtraSpace*/ false, /*avoidReallocating*/ true);
+}

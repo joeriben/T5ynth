@@ -80,6 +80,18 @@ public:
         trimLeadingSilence(buffer);
     }
 
+    /** Remove a sustained near-silent TAIL (< ~-50 dB) from a source buffer.
+     *  Symmetric counterpart to trimLeadingSilencePublic(): drops the dead
+     *  post-content field that the granular/freeze engine (scan 0..1 across the
+     *  whole buffer) would otherwise park in, and that the waveform display
+     *  would show as flat tail. Idempotent; a generation whose content runs to
+     *  the end is left unchanged. Call after the leading trim so the fractions
+     *  computed downstream align with the buffer the engines ultimately play. */
+    void trimTrailingSilencePublic(juce::AudioBuffer<float>& buffer) const
+    {
+        trimTrailingSilence(buffer);
+    }
+
     /** Process a block (writes into output buffer). */
     void processBlock(juce::AudioBuffer<float>& output);
 
@@ -369,6 +381,9 @@ private:
 
     /** Remove leading near-zero samples (< ~-60 dB) from a source buffer. */
     void trimLeadingSilence(juce::AudioBuffer<float>& buffer) const;
+
+    /** Remove a sustained near-silent TAIL (< ~-50 dB) from a source buffer. */
+    void trimTrailingSilence(juce::AudioBuffer<float>& buffer) const;
 
     // Per-level xcorr parameters: [0]=unused, [1]=Low, [2]=High
     static constexpr int XCORR_WINDOW[3] = { 0,  512, 2048 };
