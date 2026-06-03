@@ -132,20 +132,18 @@ static constexpr T5ynthStepSequencer::Step P_CHROMATIC[] = {
     mkStep(4,0.74f,0.5f),  mkStep(3,0.72f,0.5f),  mkStep(2,0.72f,0.5f),  mkStep(1,0.70f,0.5f),
 };
 
-// 9. Bass Walk — walking bass, low register. 32: the 2nd half is the exact
-//    retrograde (mirror) of the 1st — the walk reverses note-for-note and
-//    descends back to the low root, so the whole bar is a there-and-back arch.
-//    Pivots on the shared apex (steps 15/16 both -1) and lands root-to-root at
-//    the loop (step 31 -12 → step 0 -12).
+// 9. Bass Walk — walking bass, low register. 32: the 16-step walk played twice
+//    (2nd half is an exact copy of the 1st) — a straight repeat suits a bass
+//    line better than a mirror or development.
 static constexpr T5ynthStepSequencer::Step P_BASS_WALK[] = {
     mkStep(-12,0.90f,0.5f), mkStep(-8,0.75f,0.5f),  mkStep(-5,0.80f,0.5f),  mkStep(-3,0.70f,0.5f),
     mkStep(-2,0.75f,0.5f),  mkStep(-5,0.80f,0.5f),  mkStep(-8,0.75f,0.5f),  mkStep(-10,0.70f,0.5f),
     mkStep(-12,0.90f,0.5f), mkStep(-10,0.75f,0.5f), mkStep(-8,0.80f,0.5f),  mkStep(-7,0.75f,0.5f),
     mkStep(-5,0.85f,0.5f),  mkStep(-3,0.75f,0.5f),  mkStep(-2,0.80f,0.5f),  mkStep(-1,0.70f,0.5f),
-    mkStep(-1,0.88f,0.5f),  mkStep(-2,0.74f,0.5f),  mkStep(-3,0.80f,0.5f),  mkStep(-5,0.72f,0.5f),
-    mkStep(-7,0.85f,0.5f),  mkStep(-8,0.75f,0.5f),  mkStep(-10,0.80f,0.5f), mkStep(-12,0.72f,0.5f),
-    mkStep(-10,0.88f,0.5f), mkStep(-8,0.75f,0.5f),  mkStep(-5,0.80f,0.5f),  mkStep(-2,0.72f,0.5f),
-    mkStep(-3,0.85f,0.5f),  mkStep(-5,0.75f,0.5f),  mkStep(-8,0.80f,0.5f),  mkStep(-12,0.74f,0.5f),
+    mkStep(-12,0.90f,0.5f), mkStep(-8,0.75f,0.5f),  mkStep(-5,0.80f,0.5f),  mkStep(-3,0.70f,0.5f),
+    mkStep(-2,0.75f,0.5f),  mkStep(-5,0.80f,0.5f),  mkStep(-8,0.75f,0.5f),  mkStep(-10,0.70f,0.5f),
+    mkStep(-12,0.90f,0.5f), mkStep(-10,0.75f,0.5f), mkStep(-8,0.80f,0.5f),  mkStep(-7,0.75f,0.5f),
+    mkStep(-5,0.85f,0.5f),  mkStep(-3,0.75f,0.5f),  mkStep(-2,0.80f,0.5f),  mkStep(-1,0.70f,0.5f),
 };
 
 // 10. Gated Pulse — single repeated pitch, rhythmic velocity gating (Euclidean
