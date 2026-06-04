@@ -604,6 +604,41 @@ void PromptPanel::paintOverChildren(juce::Graphics& g)
         drawGhost(magnitudeSlider, magGhostValue_);
         drawGhost(noiseSlider, noiseGhostValue_);
     }
+
+    // Tiny A / 0 / B anchor scale at the slider's left edge, aligned to the snap
+    // positions (−1 / 0 / +1). A minimal orientation aid replacing the removed
+    // numeric readout; in the impulse identity colours (A periwinkle, centre
+    // neutral, B gold). Linear mode only — other modes give the slider different
+    // semantics. Same value→pixel mapping as the ghost so the marks sit exactly
+    // where the thumb detents.
+    if (injectionMode_ == "linear")
+    {
+        const auto sb = alphaSlider.getBounds();
+        const int   thumbW  = alphaSlider.getLookAndFeel().getSliderThumbRadius(alphaSlider) * 2;
+        const float trackY  = static_cast<float>(sb.getY() + thumbW / 2);
+        const float trackH  = static_cast<float>(sb.getHeight() - thumbW);
+        const float thumbDia = static_cast<float>(thumbW) * 0.5f;  // actual drawn thumb Ø
+        const int   labelW  = juce::jmax(7, juce::roundToInt(
+                                  static_cast<float>(sb.getCentreX() - sb.getX()) - thumbDia * 0.5f - 1.0f));
+        const float fontH   = juce::jlimit(8.0f, 11.0f, trackH * 0.07f);
+        g.setFont(juce::FontOptions(fontH));
+
+        struct Anchor { float v; const char* t; juce::Colour c; };
+        const Anchor anchors[] = {
+            { -1.0f, "A", kImpulseAText },
+            {  0.0f, "0", kTextMuted    },
+            {  1.0f, "B", kImpulseB     },
+        };
+        for (const auto& a : anchors)
+        {
+            const double norm = juce::jlimit(0.0, 1.0,
+                alphaSlider.valueToProportionOfLength(static_cast<double>(a.v)));
+            const int y = juce::roundToInt(trackY + trackH * static_cast<float>(1.0 - norm) - fontH * 0.5f);
+            g.setColour(a.c);
+            g.drawText(juce::String(a.t), sb.getX(), y, labelW, juce::roundToInt(fontH),
+                       juce::Justification::centred, false);
+        }
+    }
 }
 
 void PromptPanel::resized()
