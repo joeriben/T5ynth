@@ -1290,7 +1290,13 @@ void T5ynthProcessor::queueSequencerOneShotTrigger(const T5ynthStepSequencer::On
         &sequencerOneShotSamples[static_cast<size_t>(trigger.stepIndex)]
                                 [static_cast<size_t>(trigger.slotIndex)],
         std::memory_order_acquire);
-    if (!sample || sample->audio.getNumSamples() <= 0 || sample->audio.getNumChannels() <= 0)
+    // Test only for null here. A non-null one-shot is guaranteed non-empty by the
+    // store side (assign/copy/import all reject 0-sample / 0-channel buffers), so a
+    // getNumSamples()/getNumChannels() test would be dead code — and taking this
+    // early return with a *non-null* `sample` would destruct the last reference on
+    // the audio thread (CLAUDE.md #4). Returning only on null destructs a null and
+    // never frees; renderSequencerOneShots still guards empties defensively.
+    if (! sample)
         return;
 
     pending.sample = std::move(sample);  // assign over null
