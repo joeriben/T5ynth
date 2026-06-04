@@ -219,7 +219,9 @@ All fields below are from `PipeInference::generate()` serialization
 | `seed`             | integer                   | —            | no       | `-1` → random                       | `-1` means server picks `random.randint(0, 2**31 - 1)`. The chosen seed is echoed in the response header.                                      |
 | `device`           | string                    | —            | no       | `default_device` from handshake    | One of `"mps"`, `"cuda"`, `"cpu"`, or `"auto"`. Unknown/unreachable values fall through to `default_device`.                                    |
 | `model`            | string                    | —            | no       | `default_model` from handshake     | Model directory name. Unknown values fall through to `default_model`.                                                                          |
-| `mode`             | string                    | —            | no       | `"generate"`                       | One of `"generate"`, `"preload"`, `"interpolate"`, `"decode_cached"`. The latter two are latent-cache operations; see §3.3.                     |
+| `mode`             | string                    | —            | no       | `"generate"`                       | One of `"generate"`, `"preload"`, `"interpolate"`, `"decode_cached"`, `"translate"`. The middle two are latent-cache operations and `"translate"` is an optional prompt-translation pre-step; see §3.3.                     |
+| `model_path`       | string                    | —            | mode=translate | (absent) → auto-discover     | Absolute path to the optional translation-model directory. If absent, the server resolves `$T5YNTH_TRANSLATION_MODEL`, then `<model root>/translation/<dir>`. Ignored by all other modes. |
+| `text`             | string                    | —            | mode=translate | falls back to `prompt_a`     | Source text to translate. The server reads `prompt_a` first, then `text`. Ignored by all other modes. |
 | `dimension_offsets`| array of `[int, number]`  | unitless     | no       | (absent) → no-op                   | DimensionExplorer offsets. Each pair is `[dim_index, delta]`. Applied as `manipulated[:, :, idx] += delta` (`pipe_inference.py:815-819`). `dim_index` out of range is silently ignored. This is a **sparse** list, not a 768-element dense array. |
 | `semantic_axes`    | object `{string → number}`| unitless     | no       | (absent) → no-op                   | Per-axis deltas. Keys MUST match the server's `SEMANTIC_AXIS_POLES` dict (`pipe_inference.py:380-389`): `music_noise`, `acoustic_electronic`, `improvised_composed`, `refined_raw`, `solo_ensemble`, `sacred_secular`, `tonal_noisy`, `rhythmic_sustained`. Unknown keys are silently dropped. `abs(value) < 0.001` is skipped. |
 | `latent_a`         | string                    | —            | mode=interpolate | —                            | Name of a previously cached latent (SA Open only).                                                                                             |
@@ -256,6 +258,17 @@ valid.
 - **`"decode_cached"`** (`backend/pipe_inference.py:994-997`): VAE-decodes
   a single cached latent. SA Open only.
 
+- **`"translate"`** (`backend/pipe_inference.py`, intercepted at the top of
+  the request loop): translates `prompt_a` (or `text`) to English using an
+  optional, separately-installed small instruct LLM, and responds with a
+  **text frame** (`\x03`, see §4.5) — NOT an audio frame. It is handled
+  **before** audio-model routing, so it never requires (and never hard-fails
+  on) an audio model being installed. Decoding is greedy
+  (`do_sample=False, num_beams=1`) so it is deterministic on a given device.
+  The translation is intended as an ephemeral pre-step: the client keeps the
+  user's original-language text and conditions generation on the returned
+  English. An empty source yields an empty text frame with no model load.
+
 `interpolate` and `decode_cached` are not currently called from the JUCE
 client based on a grep of `src/` — their wire format is defined server-side
 only.
@@ -271,6 +284,7 @@ Each response starts with a single **status byte**:
 | `\x00`   | Error (see §4.3)                  |
 | `\x01`   | Audio (see §4.1)                  |
 | `\x02`   | Ready (only once, during handshake — never sent in response to a request) |
+| `\x03`   | Text result (only in response to a `"translate"` request — see §4.5) |
 
 Any other value causes the client to abort the current request with
 `"Unexpected response: <n>"` (`src/inference/PipeInference.cpp:514-518`).
@@ -403,6 +417,24 @@ Full Python tracebacks on failure are printed via
 `traceback.print_exc(file=sys.stderr)` (`pipe_inference.py:1005-1006`).
 Stderr is the only place to see them — the in-band error frame carries
 only `str(e)`.
+
+### 4.5 Text result frame (`\x03`)
+
+Sent **only** in response to a `"translate"` request (§3.3). Layout mirrors
+the error frame but with a distinct success status byte:
+
+```
+\x03 <uint32 LE length> <UTF-8 message bytes>
+```
+
+Written by `send_text()`. A client that issued the `translate` request reads
+the `uint32` length and then that many UTF-8 bytes as the English
+translation (which may be empty: length `0`, zero bytes). Because `\x03` is
+only emitted in reply to a `translate` request — which the current JUCE
+client does not yet send — older clients never observe this byte, so adding
+it is backwards-compatible on the wire. A client that issues `translate`
+MUST handle `\x03` (success) and `\x00` (error, e.g. translation model not
+installed) for the same request.
 
 ---
 

@@ -326,7 +326,20 @@ def _is_local_transformers_model_dir(path):
         return False
 
     has_config = (path / "config.json").is_file()
-    has_weights = (path / "model.safetensors").is_file()
+    # Accept both single-file and SHARDED checkpoints. Instruct models above
+    # ~1 GB (e.g. the optional translation LLM, or larger SA3 encoders) ship
+    # as `model.safetensors.index.json` + `model-0000N-of-...` shards and have
+    # no single `model.safetensors`. Widening only ever accepts more dirs, so
+    # existing single-file models (t5-base, t5gemma-b-b) still qualify.
+    has_weights = any(
+        (path / name).is_file()
+        for name in (
+            "model.safetensors",
+            "model.safetensors.index.json",
+            "pytorch_model.bin",
+            "pytorch_model.bin.index.json",
+        )
+    )
     has_tokenizer = any(
         (path / name).is_file()
         for name in ("tokenizer.json", "spiece.model")
@@ -632,6 +645,117 @@ def available_devices():
         devices.append("cuda")
     devices.append("cpu")
     return devices
+
+
+# ─── Optional prompt translation (lazy, deterministic) ────────────────
+#
+# An opt-in, user-downloaded small instruct LLM translates non-English
+# prompts to English before conditioning. The audio models (SAO/SA3) are
+# trained on English captions, so non-English prompts underperform. The
+# translation is a pure, EPHEMERAL pre-step: the JUCE client keeps the
+# user's ORIGINAL text in the prompt fields and never persists the English
+# (so recursive prompt editing stays in the user's own language). It is
+# invoked once per prompt edit and cached client-side.
+#
+# Greedy decoding (num_beams=1, do_sample=False) for determinism within a
+# device — the same source text yields the same English on a given backend.
+
+TRANSLATION_SYSTEM_PROMPT = (
+    "You are a translation engine for short text-to-audio generation prompts. "
+    "Translate the user's text into English. "
+    "Output ONLY the English translation: no quotes, no notes, no explanation, no preamble. "
+    "Preserve musical instrument names, genre names and proper nouns. "
+    "If the text is already English, return it unchanged."
+)
+
+_translator_cache = {}  # {(model_dir_str, device): (tokenizer, model)}
+
+
+def _resolve_translation_model_dir(request):
+    """Locate the optional prompt-translation model directory, or None.
+
+    Precedence:
+      1. request["model_path"]           — explicit absolute path from the client
+      2. $T5YNTH_TRANSLATION_MODEL       — override (dev/testing)
+      3. <model root>/translation/<dir>  — auto-discovered installed translator
+    """
+    explicit = request.get("model_path") or os.environ.get("T5YNTH_TRANSLATION_MODEL")
+    if explicit:
+        candidate = Path(explicit).expanduser()
+        return candidate if _is_local_transformers_model_dir(candidate) else None
+
+    for base in _model_search_base_dirs():
+        translation_dir = base / "translation"
+        if not translation_dir.is_dir():
+            continue
+        for child in sorted(translation_dir.iterdir()):
+            if _is_local_transformers_model_dir(child):
+                return child
+    return None
+
+
+def _get_translator(model_dir, device):
+    """Lazily load + cache the translation tokenizer/model for (dir, device)."""
+    key = (str(model_dir), device)
+    cached = _translator_cache.get(key)
+    if cached is not None:
+        return cached
+
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    log.info(f"Loading prompt translator from {model_dir} on {device}...")
+    real_stdout = sys.stdout
+    sys.stdout = sys.stderr  # protect the IPC pipe from any library stdout
+    hf_env = _force_hf_offline_for_native_load()
+    try:
+        dtype = torch.float32 if device == "cpu" else torch.bfloat16
+        tokenizer = AutoTokenizer.from_pretrained(str(model_dir), local_files_only=True)
+        model = AutoModelForCausalLM.from_pretrained(
+            str(model_dir), torch_dtype=dtype, local_files_only=True
+        )
+        model = model.to(device).eval()
+    finally:
+        _restore_hf_env(hf_env)
+        sys.stdout = real_stdout
+
+    _translator_cache[key] = (tokenizer, model)
+    log.info(f"Prompt translator ready on {device}.")
+    return tokenizer, model
+
+
+def translate_prompt(text, model_dir, device, max_new_tokens=96):
+    """Translate one short prompt to English. Empty in → empty out."""
+    text = (text or "").strip()
+    if not text:
+        return ""
+
+    tokenizer, model = _get_translator(model_dir, device)
+    messages = [
+        {"role": "system", "content": TRANSLATION_SYSTEM_PROMPT},
+        {"role": "user", "content": text},
+    ]
+    input_ids = tokenizer.apply_chat_template(
+        messages, add_generation_prompt=True, return_tensors="pt"
+    ).to(device)
+    attention_mask = torch.ones_like(input_ids)
+
+    real_stdout = sys.stdout
+    sys.stdout = sys.stderr  # protect the IPC pipe during generate()
+    try:
+        with torch.no_grad():
+            generated = model.generate(
+                input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                num_beams=1,
+                pad_token_id=tokenizer.eos_token_id,
+            )
+    finally:
+        sys.stdout = real_stdout
+
+    new_tokens = generated[0, input_ids.shape[1]:]
+    return tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
 
 def _patch_scheduler(pipe):
@@ -2306,6 +2430,22 @@ def send_error(message):
     sys.stdout.buffer.flush()
 
 
+def send_text(message):
+    """Send text response: \x03 + uint32 length + UTF-8 message.
+
+    Used by the optional ``translate`` mode. Mirrors the error-frame layout
+    but with a distinct success status byte, so a client that issued a
+    translate request distinguishes a translation result (\x03) from an
+    error (\x00). Old clients never issue ``translate`` and so never receive
+    a \x03 frame — adding it is backwards-compatible on the wire.
+    """
+    msg_bytes = (message or "").encode('utf-8')
+    sys.stdout.buffer.write(b'\x03')
+    sys.stdout.buffer.write(struct.pack('<I', len(msg_bytes)))
+    sys.stdout.buffer.write(msg_bytes)
+    sys.stdout.buffer.flush()
+
+
 # ─── Main loop ──────────────────────────────────────────────────────
 
 def main():
@@ -2352,6 +2492,23 @@ def main():
             continue
         try:
             request = json.loads(line)
+
+            # Optional prompt translation runs BEFORE audio-model routing: it
+            # uses its own separately-installed model, so it must neither
+            # require nor hard-fail on an audio model being present/installed.
+            if request.get("mode") == "translate":
+                t_device = request.get("device", default_device)
+                if t_device == "auto" or t_device not in devices:
+                    t_device = default_device
+                translation_dir = _resolve_translation_model_dir(request)
+                if translation_dir is None:
+                    raise ValueError(
+                        "Translation model is not installed "
+                        "(expected under <model root>/translation/, or pass model_path)."
+                    )
+                source_text = request.get("prompt_a") or request.get("text") or ""
+                send_text(translate_prompt(source_text, translation_dir, t_device))
+                continue
 
             # Route to correct model + device.
             # An explicitly requested model that is not installed MUST fail loud.
