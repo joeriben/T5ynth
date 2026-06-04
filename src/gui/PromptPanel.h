@@ -113,7 +113,7 @@ private:
 
     // Prompts — colour-coded editors (purple A / yellow B) replace the old text labels
     juce::TextEditor promptAEditor, promptBEditor;
-    juce::TextButton translateToggle { "EN" };  // session-only: translate prompts → English before conditioning
+    UnionJackButton translateToggle;  // session-only: translate prompts → English before conditioning
 
     // Embedding controls.  alphaLnF is declared BEFORE alphaSlider so the slider
     // (a later member) is destroyed first — the LnF must outlive its only user.
@@ -149,6 +149,10 @@ private:
     juce::TextButton modelBtns[kNumModelSlots];
     juce::String modelSlotIds[kNumModelSlots];  // resolved model directory name per slot
     juce::Rectangle<int> modelSwitchBounds;
+    // Delineation guides painted in paint(): a recessed band framing the mode
+    // bar, and a divider line separating the impulse/blend group from the params.
+    juce::Rectangle<int> modeBandBounds;
+    int paramsDividerY = -1;
     bool modelsPopulated = false;
     juce::String pendingModel_;  // deferred model selection until models are populated
     // Deferred split values: when a preset arrives before the backend has

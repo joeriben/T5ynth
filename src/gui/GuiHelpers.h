@@ -1021,3 +1021,74 @@ public:
         }
     }
 };
+
+/**
+ * A toggle button drawn as a small Union Jack — replaces the "EN" text on the
+ * prompt-translation toggle. Full saturation + a white ring when ON (translate
+ * active); dimmed when OFF. A simplified-but-recognisable rendering (the red
+ * saltire is centred on the white rather than counterchanged, which reads fine
+ * at icon size). Toggle/click behaviour is the standard juce::Button machinery.
+ */
+class UnionJackButton : public juce::Button
+{
+public:
+    UnionJackButton() : juce::Button("EN") {}
+
+    void paintButton(juce::Graphics& g, bool shouldDrawButtonAsHighlighted,
+                     bool shouldDrawButtonAsDown) override
+    {
+        auto r = getLocalBounds().toFloat().reduced(1.0f);
+        if (r.isEmpty()) return;
+        const float corner = 2.0f;
+        const float a = getToggleState() ? 1.0f : 0.40f;  // dim when translation off
+
+        juce::Graphics::ScopedSaveState save(g);
+        juce::Path clip;
+        clip.addRoundedRectangle(r, corner);
+        g.reduceClipRegion(clip);
+
+        const auto blue  = juce::Colour(0xff012169).withMultipliedAlpha(a);
+        const auto white = juce::Colour(0xffffffff).withMultipliedAlpha(a);
+        const auto red   = juce::Colour(0xffC8102E).withMultipliedAlpha(a);
+
+        g.setColour(blue);
+        g.fillRect(r);
+
+        const float w = r.getWidth(), h = r.getHeight();
+        const float dW = juce::jmax(2.0f, h * 0.24f);  // white saltire thickness
+        const float dR = juce::jmax(1.0f, dW * 0.45f); // red saltire thickness
+
+        // Diagonal saltires (corner to corner).
+        const juce::Line<float> diag1(r.getTopLeft(), r.getBottomRight());
+        const juce::Line<float> diag2(r.getTopRight(), r.getBottomLeft());
+        g.setColour(white);
+        g.drawLine(diag1, dW);
+        g.drawLine(diag2, dW);
+        g.setColour(red);
+        g.drawLine(diag1, dR);
+        g.drawLine(diag2, dR);
+
+        // Upright St George cross over the saltires.
+        const float cW = juce::jmax(3.0f, h * 0.36f);  // white cross arm width
+        const float cR = juce::jmax(2.0f, cW * 0.5f);  // red cross arm width
+        g.setColour(white);
+        g.fillRect(juce::Rectangle<float>(r.getCentreX() - cW * 0.5f, r.getY(), cW, h));
+        g.fillRect(juce::Rectangle<float>(r.getX(), r.getCentreY() - cW * 0.5f, w, cW));
+        g.setColour(red);
+        g.fillRect(juce::Rectangle<float>(r.getCentreX() - cR * 0.5f, r.getY(), cR, h));
+        g.fillRect(juce::Rectangle<float>(r.getX(), r.getCentreY() - cR * 0.5f, w, cR));
+
+        // State ring: solid white when active, faint on hover.
+        if (getToggleState())
+        {
+            g.setColour(juce::Colours::white.withAlpha(0.9f));
+            g.drawRoundedRectangle(r, corner, 1.2f);
+        }
+        else if (shouldDrawButtonAsHighlighted)
+        {
+            g.setColour(juce::Colours::white.withAlpha(0.45f));
+            g.drawRoundedRectangle(r, corner, 1.0f);
+        }
+        juce::ignoreUnused(shouldDrawButtonAsDown);
+    }
+};

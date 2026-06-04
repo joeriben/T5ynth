@@ -14,17 +14,21 @@ constexpr float kPromptCompactRow  = 1.15f;
 constexpr float kPromptCompactCtrl = 0.9f;
 constexpr float kPromptSeedCtrl    = 1.75f;
 constexpr float kPromptGap         = 0.28f;
-// The prompting area is now an A↔B block: [A editor / mode-bar / B editor] in a
-// left column with a full-height vertical blend slider in a right column. The
-// blend slider replaces the old horizontal alpha slider + its label/value rows,
-// and the per-prompt text labels are gone (colour-coded editors instead).
+// Delineation spacing (clear visual separation between function blocks):
+constexpr float kPromptModeBar     = 1.3f;   // mode-bar height (a real control band, not a strip)
+constexpr float kPromptInnerGap    = 0.6f;   // breathing room around the mode bar, inside the A↔B block
+constexpr float kPromptModelGap    = 0.6f;   // below the model selector
+constexpr float kPromptGroupGap    = 1.0f;   // around the divider between the A↔B block and the params
+// The prompting area is an A↔B block: [A editor / mode-bar / B editor] in a left
+// column with a full-height vertical blend slider on the right. The block is
+// framed by breathing room and a recessed band behind the mode bar; a divider
+// separates it from the generation params below.
 // Both ContentUnits MUST equal the unit sum in getPreferredHeightForWidth so that
 // resized()'s f = (height-2)/ContentUnits resolves back to the preferred font.
-// (abBlock = 2·3.7 + 2·gap + compactCtrl = 8.86 units.)
-constexpr float kPromptContentUnits = 19.84f;
-// Easy budget keeps the model selector row (compactRow + gap ≈ 1.43 units) but
-// drops the advanced param rows (Mag/Noise, Steps/CFG).
-constexpr float kPromptEasyContentUnits = 15.18f;
+// (abBlock = 2·multiInput + 2·innerGap + modeBar = 7.4 + 1.2 + 1.3 = 9.9 units.)
+constexpr float kPromptContentUnits = 21.92f;
+// Easy budget keeps the model selector row but drops the advanced param rows.
+constexpr float kPromptEasyContentUnits = 17.26f;
 constexpr int kBaseSeed = 123456789;
 
 float preferredPromptFontForWidth(int width)
@@ -87,7 +91,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     // wrap only kicks in when the text itself exceeds one line's width.
     promptAEditor.setMultiLine(true, true);
     promptAEditor.setReturnKeyStartsNewLine(false);
-    promptAEditor.setColour(juce::TextEditor::backgroundColourId, kCard);
+    promptAEditor.setColour(juce::TextEditor::backgroundColourId, kSurface.brighter(0.08f));
     promptAEditor.setColour(juce::TextEditor::textColourId, kImpulseAText);
     promptAEditor.setColour(juce::TextEditor::outlineColourId, kBorder);
     promptAEditor.setColour(juce::TextEditor::focusedOutlineColourId, kImpulseA);
@@ -104,7 +108,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     // Impulse B — yellow identity (complementary contrast to A).
     promptBEditor.setMultiLine(true, true);
     promptBEditor.setReturnKeyStartsNewLine(false);
-    promptBEditor.setColour(juce::TextEditor::backgroundColourId, kCard);
+    promptBEditor.setColour(juce::TextEditor::backgroundColourId, kSurface.brighter(0.08f));
     promptBEditor.setColour(juce::TextEditor::textColourId, kImpulseB);
     promptBEditor.setColour(juce::TextEditor::outlineColourId, kBorder);
     promptBEditor.setColour(juce::TextEditor::focusedOutlineColourId, kImpulseB);
@@ -286,13 +290,10 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     addAndMakeVisible(randomSeedToggle);
     syncSeedEditorEnabledState();
 
-    // EN translate toggle (session-only): when on, prompts are translated to
+    // Translate toggle (session-only): when on, prompts are translated to
     // English on the generation background thread before conditioning. The
     // editors keep the user's original text; the English is never persisted.
-    translateToggle.setColour(juce::TextButton::buttonColourId, kSurface);
-    translateToggle.setColour(juce::TextButton::buttonOnColourId, kOscCol);
-    translateToggle.setColour(juce::TextButton::textColourOffId, juce::Colour(0xffe3e7f2));
-    translateToggle.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    // Rendered as a Union Jack (UnionJackButton self-colours by toggle state).
     translateToggle.setTooltip("Translate prompts to English before generating (your original text is kept)");
     translateToggle.setClickingTogglesState(true);
     translateToggle.setToggleState(false, juce::dontSendNotification);
@@ -417,24 +418,29 @@ int PromptPanel::getPreferredHeightForWidth(int width) const
     const float f = preferredPromptFontForWidth(width);
     const int multiInputH = juce::roundToInt(f * kPromptMultiInput);
     const int gap = juce::roundToInt(f * kPromptGap);
+    const int modelGap = juce::roundToInt(f * kPromptModelGap);
+    const int innerGap = juce::roundToInt(f * kPromptInnerGap);
+    const int groupGap = juce::roundToInt(f * kPromptGroupGap);
+    const int modeBarH = juce::roundToInt(f * kPromptModeBar);
     const int compactRowH = juce::roundToInt(f * kPromptCompactRow);
     const int compactCtrlH = juce::roundToInt(f * kPromptCompactCtrl);
     const int seedCtrlH = juce::roundToInt(f * kPromptSeedCtrl);
 
-    // A↔B block: A editor / mode-bar / B editor (the right-hand vertical slider
-    // overlays this same height, so it adds nothing to the vertical budget).
-    const int abBlockH = multiInputH + gap + compactCtrlH + gap + multiInputH;
+    // A↔B block: A editor / mode-bar / B editor with breathing room around the
+    // mode bar (the right-hand vertical slider overlays this same height, so it
+    // adds nothing to the vertical budget).
+    const int abBlockH = multiInputH + innerGap + modeBarH + innerGap + multiInputH;
 
     if (easyMode_)
     {
-        return (compactRowH + 2) + gap                  // model selector row
-             + abBlockH + gap                           // A↔B block
+        return (compactRowH + 2) + modelGap             // model selector row
+             + abBlockH + groupGap                      // A↔B block + divider
              + compactRowH + seedCtrlH + gap            // Duration / Seed
              + gap + compactRowH;                       // info label
     }
 
-    return (compactRowH + 2) + gap                      // model selector row
-         + abBlockH + gap                               // A↔B block
+    return (compactRowH + 2) + modelGap                 // model selector row
+         + abBlockH + groupGap                          // A↔B block + divider
          + (compactRowH + compactCtrlH + gap) * 2       // Mag/Noise + Steps/CFG
          + compactRowH + seedCtrlH + gap                // Duration / Seed
          + gap + compactRowH;                           // info label
@@ -518,6 +524,25 @@ void PromptPanel::timerCallback()
 
 void PromptPanel::paint(juce::Graphics& g)
 {
+    // Recessed band framing the mode bar (drawn before children, so the mode
+    // buttons + flag paint on top): marks the blend-mode selector as a control.
+    if (!modeBandBounds.isEmpty())
+    {
+        g.setColour(kBg);
+        g.fillRoundedRectangle(modeBandBounds.toFloat(), 4.0f);
+        g.setColour(kBorder);
+        g.drawRoundedRectangle(modeBandBounds.toFloat(), 4.0f, 1.0f);
+    }
+
+    // Divider separating the A↔B block from the generation params below.
+    if (paramsDividerY >= 0)
+    {
+        const int pad = juce::roundToInt(static_cast<float>(getWidth()) * kPromptPadFactor);
+        g.setColour(kBorder);
+        g.drawHorizontalLine(paramsDividerY, static_cast<float>(pad),
+                             static_cast<float>(getWidth() - pad));
+    }
+
     if (!modelSwitchBounds.isEmpty())
         paintSwitchBoxBorder(g, modelSwitchBounds);
     if (easyMode_ && !seedModeSwitchBounds.isEmpty())
@@ -593,6 +618,10 @@ void PromptPanel::resized()
         (static_cast<float>(area.getHeight()) - 2.0f)
             / (easyMode_ ? kPromptEasyContentUnits : kPromptContentUnits));
     int gap = juce::roundToInt(f * kPromptGap);
+    int modelGap = juce::roundToInt(f * kPromptModelGap);
+    int innerGap = juce::roundToInt(f * kPromptInnerGap);
+    int groupGap = juce::roundToInt(f * kPromptGroupGap);
+    int modeBarH = juce::roundToInt(f * kPromptModeBar);
     int compactRowH = juce::roundToInt(f * kPromptCompactRow);
     int compactCtrlH = juce::roundToInt(f * kPromptCompactCtrl);
     int seedCtrlH = juce::roundToInt(f * kPromptSeedCtrl);
@@ -638,7 +667,7 @@ void PromptPanel::resized()
         }
         modelSwitchBounds = modelBtns[0].getBounds()
             .getUnion(modelBtns[kNumModelSlots - 1].getBounds());
-        area.removeFromTop(gap);
+        area.removeFromTop(modelGap);
     }
 
     magHint.setVisible(false);
@@ -650,18 +679,18 @@ void PromptPanel::resized()
     const int multiInputH = juce::roundToInt(f * kPromptMultiInput);
 
     // ── A↔B block ──────────────────────────────────────────────────────────
-    // Left column stacks [A editor / mode-bar (+EN) / B editor]; the right
-    // column is a slim full-height vertical blend slider whose A(top)→B(bottom)
-    // gradient makes the relationship self-evident. The old per-prompt text
-    // labels and the horizontal alpha slider+label rows are gone.
+    // Left column stacks [A editor / mode band / B editor] with breathing room
+    // around the mode band so it reads as a deliberate control — the operator
+    // that turns A into B — not a strip squeezed between the two inputs. The
+    // right column is a slim full-height vertical blend slider whose A(top)→
+    // B(bottom) gradient makes the relationship self-evident.
     {
-        const int blockH = multiInputH + gap + compactCtrlH + gap + multiInputH;
+        const int blockH = multiInputH + innerGap + modeBarH + innerGap + multiInputH;
         auto block = area.removeFromTop(blockH);
 
         // Right column: vertical A↔B slider, spanning the full block height so
         // its top edge meets A and its bottom edge meets B. The track+thumb are
-        // now slim (see AlphaSliderLnF), so a narrow column suffices and the
-        // editors keep more width.
+        // slim (see AlphaSliderLnF), so a narrow column suffices.
         const int sliderColW = juce::jmax(30, juce::roundToInt(f * 1.9f));
         alphaSlider.setBounds(block.removeFromRight(sliderColW));
         block.removeFromRight(gap);
@@ -673,19 +702,21 @@ void PromptPanel::resized()
         // Left column, top: Impulse A editor (purple).
         promptAEditor.setFont(juce::FontOptions(editorFont));
         promptAEditor.setBounds(block.removeFromTop(multiInputH));
-        block.removeFromTop(gap);
+        block.removeFromTop(innerGap);
 
-        // Left column, middle: mode-bar left-aligned, EN translate toggle at the
-        // right end of the same row.
+        // Left column, middle: the mode band. paint() fills modeBandBounds as a
+        // recessed well; the segmented mode buttons + Union-Jack translate toggle
+        // sit inside it with a small inset so they don't touch the band border.
         {
-            auto modeRow = block.removeFromTop(compactCtrlH);
-            const float enFont = juce::jmin(15.0f, static_cast<float>(compactCtrlH) * 0.82f);
-            int enW = juce::jmax(juce::roundToInt(f * 2.4f),
-                                 measureTextWidth(translateToggle.getButtonText(), enFont)
-                                     + juce::roundToInt(f * 1.2f));
-            enW = juce::jmin(enW, modeRow.getWidth() / 3);
+            auto band = block.removeFromTop(modeBarH);
+            modeBandBounds = band;
+            auto modeRow = band.reduced(juce::jmax(2, juce::roundToInt(f * 0.18f)));
+
+            // Union-Jack translate toggle at the right end (flag aspect ~1.6:1).
+            const int enW = juce::jmin(modeRow.getWidth() / 3,
+                                       juce::roundToInt(static_cast<float>(modeRow.getHeight()) * 1.6f));
             translateToggle.setBounds(modeRow.removeFromRight(enW));
-            modeRow.removeFromRight(gap);
+            modeRow.removeFromRight(juce::jmax(3, gap));
 
             // Six connected radio buttons fill the remaining width; the last
             // claims the integer-division remainder so the row ends flush.
@@ -697,13 +728,18 @@ void PromptPanel::resized()
             injModeKombi2.setBounds(modeRow.removeFromLeft(btnW));
             injModeKombi3.setBounds(modeRow);
         }
-        block.removeFromTop(gap);
+        block.removeFromTop(innerGap);
 
         // Left column, bottom: Impulse B editor (yellow).
         promptBEditor.setFont(juce::FontOptions(editorFont));
         promptBEditor.setBounds(block.removeFromTop(multiInputH));
     }
-    area.removeFromTop(gap);
+
+    // Divider between the A↔B block and the generation params: a clear visual
+    // break (the params used to butt straight up against the input box).
+    area.removeFromTop(groupGap / 2);
+    paramsDividerY = area.getY();
+    area.removeFromTop(groupGap - groupGap / 2);
 
     // --- Compact params: 2 columns ---
     int colGap = juce::roundToInt(w * 0.03f);
