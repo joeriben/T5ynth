@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <functional>
@@ -138,6 +139,9 @@ struct ResponsiveStripItem
 {
     int preferredWidth = 0;
     int minimumWidth = 0;
+    // For items with fallback == overflow: the priority tier governs drop order.
+    // Higher tiers are dropped to the overflow menu FIRST; the lowest positive
+    // tier survives longest. Tier 0 items never overflow.
     int priorityTier = 0;
     bool flexible = false;
     ResponsiveStripFallback fallback = ResponsiveStripFallback::none;
@@ -163,9 +167,12 @@ inline ResponsiveStripResult layoutResponsiveStrip(juce::Rectangle<int> area,
         bool isOverflow = false;
     };
 
-    auto buildPlacedItems = [&](bool useOverflow) {
+    // Drop every overflow candidate whose tier is >= dropThreshold into the
+    // overflow menu; keep the rest in the strip. A dropThreshold above all tiers
+    // drops nothing; lowering it sheds tiers one band at a time, highest first.
+    auto buildPlacedItems = [&](int dropThreshold) {
         std::vector<PlacedItem> placed;
-        placed.reserve(items.size() + (useOverflow ? 1 : 0));
+        placed.reserve(items.size() + 1);
 
         bool insertedOverflow = false;
         for (size_t i = 0; i < items.size(); ++i)
@@ -174,7 +181,7 @@ inline ResponsiveStripResult layoutResponsiveStrip(juce::Rectangle<int> area,
             const bool isOverflowCandidate = item.fallback == ResponsiveStripFallback::overflow
                                              && item.priorityTier > 0;
 
-            if (useOverflow && isOverflowCandidate)
+            if (isOverflowCandidate && item.priorityTier >= dropThreshold)
             {
                 if (!insertedOverflow)
                 {
@@ -200,18 +207,39 @@ inline ResponsiveStripResult layoutResponsiveStrip(juce::Rectangle<int> area,
         return total;
     };
 
-    auto allItems = buildPlacedItems(false);
-    auto overflowItems = buildPlacedItems(true);
+    // Distinct droppable tiers, sorted high → low (the order they are shed in).
+    std::vector<int> tiers;
+    for (const auto& item : items)
+        if (item.fallback == ResponsiveStripFallback::overflow && item.priorityTier > 0
+            && std::find(tiers.begin(), tiers.end(), item.priorityTier) == tiers.end())
+            tiers.push_back(item.priorityTier);
+    std::sort(tiers.begin(), tiers.end(), std::greater<int>());
 
-    const bool canFitAll = requiredWidthFor(allItems, false) <= area.getWidth();
-    const bool canUseOverflow = requiredWidthFor(overflowItems, false) <= area.getWidth();
-    const bool useOverflow = !canFitAll && canUseOverflow && overflowItems.size() < allItems.size();
+    // A threshold above every tier keeps the whole strip; lowering it sheds the
+    // highest tier first. Pick the highest threshold (fewest items dropped) that
+    // still fits at minimum widths. If even shedding everything won't fit, fall
+    // back to shedding everything droppable as a best effort.
+    const int dropNothing = std::numeric_limits<int>::max();
+    int chosenThreshold = dropNothing;
+    if (requiredWidthFor(buildPlacedItems(dropNothing), false) > area.getWidth())
+    {
+        chosenThreshold = tiers.empty() ? dropNothing : tiers.back();
+        for (int t : tiers)
+        {
+            if (requiredWidthFor(buildPlacedItems(t), false) <= area.getWidth())
+            {
+                chosenThreshold = t;
+                break;
+            }
+        }
+    }
 
-    auto placed = useOverflow ? overflowItems : allItems;
+    auto placed = buildPlacedItems(chosenThreshold);
 
     ResponsiveStripResult result;
     result.bounds.resize(items.size());
-    result.overflowUsed = useOverflow;
+    result.overflowUsed = std::any_of(placed.begin(), placed.end(),
+                                      [](const PlacedItem& p) { return p.isOverflow; });
 
     if (placed.empty())
         return result;

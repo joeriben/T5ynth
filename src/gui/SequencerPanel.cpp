@@ -18,6 +18,8 @@ constexpr int kOverflowDivisionBase = 3000;
 constexpr int kOverflowOctaveBase = 4000;
 constexpr int kOverflowSavePattern = 5001;
 constexpr int kOverflowLoadPattern = 5002;
+constexpr int kOverflowShuffleBase = 6000;             // + percent value (0/25/50/75)
+constexpr int kOverflowShuffleValues[] = { 0, 25, 50, 75 };
 
 bool isWaveformOneShotDrag(const juce::var& description)
 {
@@ -1001,6 +1003,17 @@ void SequencerPanel::showHeaderOverflowMenu()
                            octShiftHidden.getSelectedId() == i + 1);
     menu.addSubMenu("Octave", octaveMenu);
 
+    juce::PopupMenu shuffleMenu;
+    const int currentShufflePct = juce::roundToInt(shuffleRow->getSlider().getValue() * 100.0);
+    for (size_t i = 0; i < std::size(kOverflowShuffleValues); ++i)
+    {
+        const int pct = kOverflowShuffleValues[i];
+        shuffleMenu.addItem(kOverflowShuffleBase + static_cast<int>(i),
+                            pct == 0 ? juce::String("Off") : juce::String(pct) + "%",
+                            true, currentShufflePct == pct);
+    }
+    menu.addSubMenu("Shuffle", shuffleMenu);
+
     menu.addSeparator();
     menu.addItem(kOverflowSavePattern, "Save Pattern...");
     menu.addItem(kOverflowLoadPattern, "Load Pattern...");
@@ -1028,7 +1041,16 @@ void SequencerPanel::showHeaderOverflowMenu()
             return;
         }
         if (result >= kOverflowOctaveBase && result < kOverflowSavePattern)
+        {
             safeThis->octShiftHidden.setSelectedId(result - kOverflowOctaveBase, juce::sendNotificationSync);
+            return;
+        }
+        if (result >= kOverflowShuffleBase
+            && result < kOverflowShuffleBase + static_cast<int>(std::size(kOverflowShuffleValues)))
+        {
+            const int pct = kOverflowShuffleValues[result - kOverflowShuffleBase];
+            safeThis->shuffleRow->getSlider().setValue(pct / 100.0, juce::sendNotificationSync);
+        }
     });
 }
 
@@ -1347,19 +1369,22 @@ void SequencerPanel::resized()
     const int shuffleMinW = shuffleRow->getMinimumWidth();
     const int shufflePrefW = shuffleMinW;
 
+    // Overflow drop order (highest tier sheds first; the note divisions, tier 1,
+    // survive longest). Shuffle is the most expendable, then preset/save/load,
+    // then octave, then steps; BPM/Gate/MIDI and transport never drop.
     std::vector<ResponsiveStripItem> items {
-        { transportW, transportW, 0, false, ResponsiveStripFallback::none },
-        { transportW, transportW, 0, false, ResponsiveStripFallback::none },
-        { compactTierWidth, 72, 1, false, ResponsiveStripFallback::overflow },
-        { iconW, iconW, 1, false, ResponsiveStripFallback::overflow },
-        { iconW, iconW, 1, false, ResponsiveStripFallback::overflow },
-        { compactStepWidth, 38, 1, false, ResponsiveStripFallback::overflow },
-        { divisionPrefW, divisionMinW, 1, false, ResponsiveStripFallback::overflow },
-        { octavePrefW, octaveMinW, 1, false, ResponsiveStripFallback::overflow },
-        { bpmRow->getPreferredWidth(),  bpmRow->getMinimumWidth(),  0, true,  ResponsiveStripFallback::none },
-        { gatePrefW, gateMinW, 0, false, ResponsiveStripFallback::none },
-        { shufflePrefW, shuffleMinW, 0, false, ResponsiveStripFallback::none },
-        { midiClusterW, midiClusterW, 0, false, ResponsiveStripFallback::none }
+        { transportW, transportW, 0, false, ResponsiveStripFallback::none },        // PLAY
+        { transportW, transportW, 0, false, ResponsiveStripFallback::none },        // GEN
+        { compactTierWidth, 72, 4, false, ResponsiveStripFallback::overflow },      // Preset
+        { iconW, iconW, 4, false, ResponsiveStripFallback::overflow },              // Save
+        { iconW, iconW, 4, false, ResponsiveStripFallback::overflow },              // Load
+        { compactStepWidth, 38, 2, false, ResponsiveStripFallback::overflow },      // Steps
+        { divisionPrefW, divisionMinW, 1, false, ResponsiveStripFallback::overflow },// Division (kept longest)
+        { octavePrefW, octaveMinW, 3, false, ResponsiveStripFallback::overflow },   // Octave
+        { bpmRow->getPreferredWidth(),  bpmRow->getMinimumWidth(),  0, true,  ResponsiveStripFallback::none }, // BPM
+        { gatePrefW, gateMinW, 0, false, ResponsiveStripFallback::none },           // Gate
+        { shufflePrefW, shuffleMinW, 5, false, ResponsiveStripFallback::overflow }, // Shuffle (sheds first)
+        { midiClusterW, midiClusterW, 0, false, ResponsiveStripFallback::none }     // MIDI
     };
 
     auto headerLayout = layoutResponsiveStrip(r1, items, g, compactTopRow ? 24 : 28);
@@ -1369,6 +1394,7 @@ void SequencerPanel::resized()
     genTransportBtn.setBounds(headerLayout.bounds[slotGenTransport]);
     bpmRow->setBounds(headerLayout.bounds[slotBpm]);
     gateRow->setBounds(headerLayout.bounds[slotGate]);
+    shuffleRow->setVisible(hasBounds(headerLayout.bounds[slotShuffle]));
     shuffleRow->setBounds(headerLayout.bounds[slotShuffle]);
     layoutMidiCluster(headerLayout.bounds[slotMidi]);
 
