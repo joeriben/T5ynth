@@ -350,8 +350,18 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
             {
                 if (!modelBtns[i].getToggleState()) return;
                 auto model = modelSlotIds[i];
-                if (model.isEmpty() || generating) return;
+                if (model.isEmpty()) return;
 
+                // Selecting a model has two distinct kinds of consequence, and
+                // they must NOT share a guard. The JUCE radio toggle that picked
+                // this button has already fired (it is ungated), so the cheap,
+                // purely-local consequences — default steps/cfg and the SA3 gate
+                // + injection-mode availability — must apply unconditionally too,
+                // or the UI desyncs from the selection (e.g. the Semantic Axes /
+                // Dimension Explorer cards stay dimmed after an SA3 -> non-SA3
+                // switch while drift auto-regen keeps `generating` true).
+                // Anything that reaches into the inference backend is deferred
+                // while generating (the guard below).
                 auto& apvts = processorRef.getValueTreeState();
                 const auto defaults = defaultParamsFor(model);
                 apvts.getParameter(PID::infSteps)->setValueNotifyingHost(
@@ -359,6 +369,17 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
                 apvts.getParameter(PID::genCfg)->setValueNotifyingHost(
                     apvts.getParameter(PID::genCfg)->convertTo0to1(defaults.cfg));
                 syncInjectionModeAvailability();
+
+                // Everything below reaches into the inference backend, so it is
+                // deferred while a generation is in flight. refreshDitBlocks-
+                // ForCurrentModel() calls getModelMetadata(), which contends on
+                // the same PipeInference mutex that generate() holds for the
+                // entire blocking IPC round-trip — calling it mid-render would
+                // freeze the message thread. The preload likewise drives the IPC
+                // pipe. The next generation loads the selected model on demand;
+                // the DiT/duration ranges re-scope on the next idle model touch.
+                if (generating) return;
+
                 // The active model can have a different DiT depth (SA3 vs SAO
                 // Small): clamp the layer slider range before the user has a
                 // chance to drag past the new ceiling.
