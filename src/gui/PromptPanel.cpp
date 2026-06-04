@@ -9,7 +9,7 @@
 namespace
 {
 constexpr float kPromptPadFactor   = 0.04f;
-constexpr float kPromptMultiInput  = 3.0f;   // two-line prompt editor
+constexpr float kPromptMultiInput  = 3.7f;   // two-line prompt editor (roomy box)
 constexpr float kPromptCompactRow  = 1.15f;
 constexpr float kPromptCompactCtrl = 0.9f;
 constexpr float kPromptSeedCtrl    = 1.75f;
@@ -20,16 +20,17 @@ constexpr float kPromptGap         = 0.28f;
 // and the per-prompt text labels are gone (colour-coded editors instead).
 // Both ContentUnits MUST equal the unit sum in getPreferredHeightForWidth so that
 // resized()'s f = (height-2)/ContentUnits resolves back to the preferred font.
-constexpr float kPromptContentUnits = 18.44f;
+// (abBlock = 2·3.7 + 2·gap + compactCtrl = 8.86 units.)
+constexpr float kPromptContentUnits = 19.84f;
 // Easy budget keeps the model selector row (compactRow + gap ≈ 1.43 units) but
 // drops the advanced param rows (Mag/Noise, Steps/CFG).
-constexpr float kPromptEasyContentUnits = 13.78f;
+constexpr float kPromptEasyContentUnits = 15.18f;
 constexpr int kBaseSeed = 123456789;
 
 float preferredPromptFontForWidth(int width)
 {
     const float innerW = juce::jmax(160.0f, static_cast<float>(width) * (1.0f - 2.0f * kPromptPadFactor));
-    return juce::jlimit(11.5f, 15.5f, innerW * 0.048f);
+    return juce::jlimit(12.5f, 17.0f, innerW * 0.05f);
 }
 }
 
@@ -535,12 +536,15 @@ void PromptPanel::paintOverChildren(juce::Graphics& g)
         if (slider.isVertical())
         {
             // alphaSlider: proportion→pixel matches JUCE's own thumb mapping
-            // (top = high proportion). norm already carries the A-top flip.
+            // (top = high proportion; region inset by thumbW/2 each end — see
+            // LookAndFeel_V2::getSliderLayout). norm already carries the A-top flip.
             const float trackY = static_cast<float>(sb.getY() + thumbW / 2);
             const float trackH = static_cast<float>(sb.getHeight() - thumbW);
             gx = static_cast<float>(sb.getCentreX());
             gy = trackY + trackH * static_cast<float>(1.0 - norm);
-            r  = juce::jmin(static_cast<float>(sb.getWidth()) * 0.34f, 11.0f);
+            // thumbW = getSliderThumbRadius*2 ≈ 2× the drawn thumb diameter, so
+            // 0.22× lands the ghost just under that diameter.
+            r  = static_cast<float>(thumbW) * 0.22f;
         }
         else
         {
@@ -655,13 +659,19 @@ void PromptPanel::resized()
         auto block = area.removeFromTop(blockH);
 
         // Right column: vertical A↔B slider, spanning the full block height so
-        // its top edge meets A and its bottom edge meets B.
-        const int sliderColW = juce::jmax(36, juce::roundToInt(f * 2.8f));
+        // its top edge meets A and its bottom edge meets B. The track+thumb are
+        // now slim (see AlphaSliderLnF), so a narrow column suffices and the
+        // editors keep more width.
+        const int sliderColW = juce::jmax(30, juce::roundToInt(f * 1.9f));
         alphaSlider.setBounds(block.removeFromRight(sliderColW));
         block.removeFromRight(gap);
 
+        // Impulse text is the primary input, so the editors carry a slightly
+        // larger font than the surrounding chrome.
+        const float editorFont = f * 1.1f;
+
         // Left column, top: Impulse A editor (purple).
-        promptAEditor.setFont(juce::FontOptions(f));
+        promptAEditor.setFont(juce::FontOptions(editorFont));
         promptAEditor.setBounds(block.removeFromTop(multiInputH));
         block.removeFromTop(gap);
 
@@ -690,7 +700,7 @@ void PromptPanel::resized()
         block.removeFromTop(gap);
 
         // Left column, bottom: Impulse B editor (yellow).
-        promptBEditor.setFont(juce::FontOptions(f));
+        promptBEditor.setFont(juce::FontOptions(editorFont));
         promptBEditor.setBounds(block.removeFromTop(multiInputH));
     }
     area.removeFromTop(gap);

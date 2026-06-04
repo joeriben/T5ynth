@@ -54,12 +54,13 @@ static const auto kFxCol     = juce::Colour(0xff00BCD4);  // E — Cyan (effects
 // colorblind-safe pair (verified WCAG/ΔE2000/CVD). A reuses the osc periwinkle =
 // "the original" purple. The A *editor text* uses a lifted periwinkle for body-
 // text legibility (≈6.4:1 on kCard) while saturated #667eea stays the accent/
-// gradient; the gradient pivots through a near-white neutral so the complementary
-// pair never muddies to olive at the midpoint.
+// gradient; the gradient pivots through a dark neutral grey so the complementary
+// pair never muddies to olive at the midpoint (a desaturated pivot avoids olive
+// without the bright white centre reading as the dominant colour).
 static const auto kImpulseA     = kOscCol;                   // periwinkle #667eea (identity / gradient / bars)
 static const auto kImpulseAText = juce::Colour(0xff8A9BF7);  // lifted periwinkle for the A prompt text
 static const auto kImpulseB     = juce::Colour(0xffffeb3b);  // yellow (complementary)
-static const auto kImpulseMid   = juce::Colour(0xffE8EAF2);  // near-white gradient pivot
+static const auto kImpulseMid   = juce::Colour(0xff3D4250);  // dark neutral-grey gradient pivot
 
 /** Linear per-channel interpolation between two colours (t = 0→a, 1→b). */
 inline juce::Colour lerpColour(juce::Colour a, juce::Colour b, float t)
@@ -73,7 +74,7 @@ inline juce::Colour lerpColour(juce::Colour a, juce::Colour b, float t)
 }
 
 /** A↔B blend colour for normalized position t (0 = A, 1 = B), pivoting through a
- *  near-white neutral so the complementary purple↔yellow pair never muddies to
+ *  dark neutral grey so the complementary purple↔yellow pair never muddies to
  *  olive. Used by the A↔B slider track gradient and its position-coloured thumb. */
 inline juce::Colour abBlendColour(float t)
 {
@@ -980,27 +981,33 @@ public:
         }
 
         auto area = juce::Rectangle<int>(x, y, width, height).toFloat();
-        const float trackW = juce::jmin(area.getWidth(), 10.0f);
-        auto track = area.withSizeKeepingCentre(trackW, area.getHeight());
+        // Match the default LookAndFeel_V4 linear-slider weight so this slider
+        // doesn't read as disproportionately fat next to the others: a thin
+        // track and a thumb sized by getSliderThumbRadius (the same value JUCE
+        // uses as the region inset, so the ghost in PromptPanel stays aligned).
+        const float trackW = juce::jmin(6.0f, area.getWidth() * 0.25f);
+        const float cx = area.getCentreX();
 
-        // Vertical A(top) → B(bottom) gradient with a near-white midpoint pivot.
-        juce::ColourGradient grad(kImpulseA, track.getCentreX(), track.getY(),
-                                  kImpulseB, track.getCentreX(), track.getBottom(), false);
+        // Vertical A(top) → B(bottom) gradient with a dark neutral-grey pivot.
+        juce::ColourGradient grad(kImpulseA, cx, area.getY(),
+                                  kImpulseB, cx, area.getBottom(), false);
         grad.addColour(0.5, kImpulseMid);
+        juce::Path track;
+        track.startNewSubPath(cx, area.getBottom());
+        track.lineTo(cx, area.getY());
         g.setGradientFill(grad);
-        g.fillRoundedRectangle(track, trackW * 0.5f);
-        g.setColour(kBorder);
-        g.drawRoundedRectangle(track, trackW * 0.5f, 1.0f);
+        g.strokePath(track, { trackW, juce::PathStrokeType::curved, juce::PathStrokeType::rounded });
 
+        const float thumbDia = (float) getSliderThumbRadius(slider);
         auto thumbAt = [&](float posY)
         {
-            const float r = juce::jmax(5.0f, trackW * 0.95f);
             const float t = juce::jlimit(0.0f, 1.0f,
                                          (posY - area.getY()) / juce::jmax(1.0f, area.getHeight()));
+            auto r = juce::Rectangle<float>(thumbDia, thumbDia).withCentre({ cx, posY });
             g.setColour(abBlendColour(t));
-            g.fillEllipse(track.getCentreX() - r, posY - r, r * 2.0f, r * 2.0f);
+            g.fillEllipse(r);
             g.setColour(juce::Colours::white.withAlpha(0.9f));
-            g.drawEllipse(track.getCentreX() - r, posY - r, r * 2.0f, r * 2.0f, 1.2f);
+            g.drawEllipse(r, 1.2f);
         };
 
         if (twoValue)
@@ -1012,6 +1019,5 @@ public:
         {
             thumbAt(sliderPos);
         }
-        juce::ignoreUnused(slider);
     }
 };
