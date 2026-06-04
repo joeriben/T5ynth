@@ -1060,12 +1060,26 @@ public:
  * (e.g. translation in flight); a white ring while pressed and a faint ring on
  * hover for affordance. A simplified-but-recognisable rendering (the red saltire
  * is centred on the white rather than counterchanged, which reads fine at icon
- * size). Click behaviour is the standard juce::Button machinery.
+ * size). Click behaviour is the standard juce::Button machinery. While a
+ * translation is in flight the flag pulses (setPulsing(true)) so the user sees
+ * that something is happening; the pulse timer runs only during translation.
  */
-class UnionJackButton : public juce::Button
+class UnionJackButton : public juce::Button,
+                        private juce::Timer
 {
 public:
     UnionJackButton() : juce::Button("EN") {}
+    ~UnionJackButton() override { stopTimer(); }  // JUCE: stop timer before teardown
+
+    /** Breathe the flag while a translation runs. Timer is active only while on. */
+    void setPulsing(bool shouldPulse)
+    {
+        if (shouldPulse == pulsing_) return;
+        pulsing_ = shouldPulse;
+        if (pulsing_) { pulsePhase_ = 0.0f; startTimerHz(30); }
+        else            stopTimer();
+        repaint();
+    }
 
     void paintButton(juce::Graphics& g, bool shouldDrawButtonAsHighlighted,
                      bool shouldDrawButtonAsDown) override
@@ -1073,7 +1087,9 @@ public:
         auto r = getLocalBounds().toFloat().reduced(1.0f);
         if (r.isEmpty()) return;
         const float corner = 2.0f;
-        const float a = isEnabled() ? 1.0f : 0.40f;  // dim while disabled (translating)
+        float a = isEnabled() ? 1.0f : 0.40f;  // dim while disabled
+        if (pulsing_)  // breathe between dim and full while translating
+            a = 0.40f + 0.60f * (0.5f + 0.5f * std::sin(pulsePhase_));
 
         juce::Graphics::ScopedSaveState save(g);
         juce::Path clip;
@@ -1123,4 +1139,16 @@ public:
             g.drawRoundedRectangle(r, corner, 1.0f);
         }
     }
+
+private:
+    void timerCallback() override
+    {
+        pulsePhase_ += 0.25f;  // ~0.84 s period at 30 Hz
+        if (pulsePhase_ > juce::MathConstants<float>::twoPi)
+            pulsePhase_ -= juce::MathConstants<float>::twoPi;
+        repaint();
+    }
+
+    bool  pulsing_    = false;
+    float pulsePhase_ = 0.0f;
 };

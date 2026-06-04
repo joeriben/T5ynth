@@ -1741,7 +1741,7 @@ void PromptPanel::translatePromptsInPlace()
     const juce::String device = defaultInferenceDevice_;
 
     translatingPrompts_ = true;
-    translateToggle.setEnabled(false);
+    translateToggle.setPulsing(true);  // flag breathes while the translation runs
     generateButton.setEnabled(false);
     if (onStatusChanged) onStatusChanged("translating...", true);
 
@@ -1758,7 +1758,7 @@ void PromptPanel::translatePromptsInPlace()
             auto* self = safeThis.getComponent();
             if (self == nullptr) return;
             self->translatingPrompts_ = false;
-            self->translateToggle.setEnabled(true);
+            self->translateToggle.setPulsing(false);
             self->generateButton.setEnabled(true);
 
             juce::String err;
