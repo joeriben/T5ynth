@@ -971,6 +971,114 @@ PipeInference::Result PipeInference::generate(const Request& request)
     return result;
 }
 
+PipeInference::TranslateResult PipeInference::translate(const juce::String& text,
+                                                        const juce::String& device,
+                                                        const juce::String& modelPath)
+{
+    const std::lock_guard<std::recursive_mutex> lock(stateMutex_);
+    TranslateResult result;
+
+    // Empty input → empty translation; no subprocess round-trip.
+    if (text.trim().isEmpty())
+    {
+        result.success = true;
+        return result;
+    }
+
+    // Auto-restart if the subprocess died (mirrors generate()).
+    if (ready_ && !isChildAlive())
+    {
+        juce::Logger::writeToLog("PipeInference: subprocess died, restarting...");
+        if (!tryRestart())
+        {
+            result.errorMessage = "Inference crashed — restart failed";
+            return result;
+        }
+        juce::Logger::writeToLog("PipeInference: restarted successfully");
+    }
+
+    if (!ready_ || !isConnected())
+    {
+        result.errorMessage = "Inference not ready";
+        return result;
+    }
+
+    auto json = juce::DynamicObject::Ptr(new juce::DynamicObject());
+    json->setProperty("mode", "translate");
+    json->setProperty("prompt_a", text);
+    if (device.isNotEmpty())
+        json->setProperty("device", device);
+    if (modelPath.isNotEmpty())
+        json->setProperty("model_path", modelPath);
+
+    auto jsonStr = juce::JSON::toString(juce::var(json.get()), true);
+    jsonStr = jsonStr.removeCharacters("\n\r") + "\n";
+
+    if (!writeExact(jsonStr.toRawUTF8(), static_cast<int>(jsonStr.getNumBytesAsUTF8())))
+    {
+        if (tryRestart())
+            result.errorMessage = "Inference restarted — try again";
+        else
+            result.errorMessage = "Inference crashed — restart failed";
+        return result;
+    }
+
+    // The first translate lazily loads the translation model (several
+    // seconds), so allow a generous status-byte timeout like generate().
+    char status = 0;
+    if (!readExact(&status, 1, 180000))
+    {
+        if (!isChildAlive())
+        {
+            juce::Logger::writeToLog("PipeInference: subprocess died during translate");
+            tryRestart();
+            result.errorMessage = "Inference crashed — restarted, try again";
+        }
+        else
+            result.errorMessage = "Timeout waiting for translation";
+        return result;
+    }
+
+    if (status == '\x03')   // text result
+    {
+        juce::uint32 msgLen = 0;
+        if (!readExact(&msgLen, 4))
+        {
+            result.errorMessage = "Failed to read translation length";
+            return result;
+        }
+        if (msgLen > 0)
+        {
+            std::vector<char> msg(msgLen + 1, 0);
+            if (!readExact(msg.data(), static_cast<int>(msgLen)))
+            {
+                result.errorMessage = "Failed to read translation text";
+                return result;
+            }
+            result.text = juce::String::fromUTF8(msg.data(), static_cast<int>(msgLen));
+        }
+        result.success = true;
+        return result;
+    }
+
+    if (status == '\x00')   // error
+    {
+        juce::uint32 msgLen = 0;
+        if (readExact(&msgLen, 4))
+        {
+            std::vector<char> msg(msgLen + 1, 0);
+            readExact(msg.data(), static_cast<int>(msgLen));
+            result.errorMessage = juce::String::fromUTF8(msg.data(), static_cast<int>(msgLen));
+        }
+        else
+            result.errorMessage = "Unknown error";
+        return result;
+    }
+
+    result.errorMessage = "Unexpected response: " + juce::String((int)status);
+    return result;
+}
+
 PipeInference::ModelMetadata PipeInference::getModelMetadata(const juce::String& modelName) const
 {
     const std::lock_guard<std::recursive_mutex> lock(stateMutex_);

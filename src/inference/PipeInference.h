@@ -106,9 +106,28 @@ public:
         std::vector<float> embeddingBaseline; // final conditioning before DimensionExplorer offsets
     };
 
+    struct TranslateResult
+    {
+        bool success = false;
+        juce::String text;          // English translation (empty for empty input)
+        juce::String errorMessage;  // set when success == false
+    };
+
     /** Blocking generation — call from background thread.
      *  Auto-restarts Python if subprocess died. */
     Result generate(const Request& request);
+
+    /** Blocking prompt translation to English via the optional, separately
+     *  installed translation model — call from a background thread.
+     *  Auto-restarts Python if the subprocess died. `device` may be empty
+     *  (backend default). `modelPath` may be empty, in which case the backend
+     *  auto-discovers an installed translation model. Empty input returns
+     *  success with empty text and no subprocess round-trip. Returns
+     *  success == false (errorMessage set) when no translation model is
+     *  installed. */
+    TranslateResult translate(const juce::String& text,
+                              const juce::String& device,
+                              const juce::String& modelPath = {});
 
     /** Preload a model+device combo so first generate is fast.
      *  Blocking — call from background thread. Returns true on success. */
