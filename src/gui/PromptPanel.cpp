@@ -505,7 +505,7 @@ void PromptPanel::paintOverChildren(juce::Graphics& g)
         float gx = static_cast<float>(trackX) + static_cast<float>(trackW) * static_cast<float>(norm);
         float gy = static_cast<float>(sb.getCentreY());
         float r = static_cast<float>(sb.getHeight()) * 0.28f;
-        g.setColour(juce::Colour(0xccff9800)); // orange ghost
+        g.setColour(kModPreview); // live modulation-value preview
         g.fillEllipse(gx - r, gy - r, r * 2.0f, r * 2.0f);
     };
 

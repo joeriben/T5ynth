@@ -4,9 +4,9 @@
 #include <cmath>
 
 // Colors for the bar display
-static const auto kBarA     = juce::Colour(0xff4caf50);  // Green (A-side)
-static const auto kBarB     = juce::Colour(0xffff9800);  // Orange (B-side)
-static const auto kBarEdit  = juce::Colour(0xff4a9eff);  // Blue (user-edited offset)
+static const auto kBarA     = kSideA;  // toward A — shared, adversarially-verified token
+static const auto kBarB     = kSideB;  // toward B
+static const auto kBarEdit  = kEdit;   // user-edited offset (override)
 static const auto kBarBg    = juce::Colour(0xff0e0e0e);
 static const auto kZeroLine = juce::Colour(0xff2a2a2a);
 static constexpr float kMinValueScale = 0.1f;
@@ -429,7 +429,7 @@ void DimensionExplorer::paint(juce::Graphics& g)
             g.drawHorizontalLine(juce::roundToInt(bY), x, x + w);
         }
 
-        // Color: edited (blue), toward A (green), toward B (orange)
+        // Color: edited (kEdit/override), toward A (kSideA), toward B (kSideB)
         juce::Colour col;
         if (std::abs(bar.offset) > 1e-8f)
             col = kBarEdit;

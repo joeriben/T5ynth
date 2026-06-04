@@ -180,7 +180,7 @@ void AxesPanel::paint(juce::Graphics& g)
             float gy = static_cast<float>(sb.getCentreY());
             float gr = static_cast<float>(sb.getHeight()) * 0.28f;
 
-            g.setColour(juce::Colour(0xccff9800)); // orange ghost
+            g.setColour(kModPreview); // live modulation-value preview
             g.fillEllipse(gx - gr, gy - gr, gr * 2.0f, gr * 2.0f);
         }
     }
