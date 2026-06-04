@@ -262,6 +262,18 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     addAndMakeVisible(randomSeedToggle);
     syncSeedEditorEnabledState();
 
+    // EN translate toggle (session-only): when on, prompts are translated to
+    // English on the generation background thread before conditioning. The
+    // editors keep the user's original text; the English is never persisted.
+    translateToggle.setColour(juce::TextButton::buttonColourId, kSurface);
+    translateToggle.setColour(juce::TextButton::buttonOnColourId, kOscCol);
+    translateToggle.setColour(juce::TextButton::textColourOffId, juce::Colour(0xffe3e7f2));
+    translateToggle.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    translateToggle.setTooltip("Translate prompts to English before generating (your original text is kept)");
+    translateToggle.setClickingTogglesState(true);
+    translateToggle.setToggleState(false, juce::dontSendNotification);
+    addAndMakeVisible(translateToggle);
+
     {
         static constexpr const char* labels[kNumSeedModeBtns] = { "none", "last", "auto" };
         for (int i = 0; i < kNumSeedModeBtns; ++i)
@@ -614,9 +626,18 @@ void PromptPanel::resized()
 
     const int multiInputH = juce::roundToInt(f * kPromptMultiInput);
 
-    // Impulse A
+    // Impulse A — the label row shares its right edge with the EN translate toggle
     setFs(promptALabel, f);
-    promptALabel.setBounds(area.removeFromTop(rowH));
+    {
+        auto labelRow = area.removeFromTop(rowH);
+        const float enFont = juce::jmin(15.0f, static_cast<float>(rowH) * 0.82f);
+        int enW = juce::jmax(juce::roundToInt(f * 2.4f),
+                             measureTextWidth(translateToggle.getButtonText(), enFont)
+                                 + juce::roundToInt(f * 1.4f));
+        enW = juce::jmin(enW, labelRow.getWidth() / 2);
+        translateToggle.setBounds(labelRow.removeFromRight(enW));
+        promptALabel.setBounds(labelRow);
+    }
     promptAEditor.setFont(juce::FontOptions(f));
     promptAEditor.setBounds(area.removeFromTop(multiInputH));
     area.removeFromTop(gap);
@@ -1580,6 +1601,61 @@ bool PromptPanel::playNextCachedInference()
     return true;
 }
 
+namespace
+{
+    // Snapshot of the EN-toggle + translation cache, captured on the message
+    // thread at generation-spawn time and consumed on the background thread.
+    struct PromptXlateSnapshot
+    {
+        bool enabled = false;
+        juce::String modelPath;       // empty → backend auto-discovers the model
+        juce::String cachedSrcA, cachedEnA;
+        juce::String cachedSrcB, cachedEnB;
+    };
+
+    // Runs on the generation background thread. When enabled, replaces
+    // req.promptA / req.promptB with their English translation, reusing the
+    // cached English when the source text is unchanged (so drift regens cost
+    // nothing). outEnA/outEnB carry the English to cache back on the message
+    // thread; they are left empty when translation was skipped, the source was
+    // empty, or translation failed — in which case the ORIGINAL is kept for
+    // conditioning and NOT cached, so a transient failure is retried next time.
+    // outSrcA/outSrcB carry the originals that produced outEnA/outEnB.
+    void applyPromptTranslation(PipeInference* pipe,
+                                const PromptXlateSnapshot& snap,
+                                PipeInference::Request& req,
+                                juce::String& outSrcA, juce::String& outEnA,
+                                juce::String& outSrcB, juce::String& outEnB)
+    {
+        outSrcA = req.promptA; outSrcB = req.promptB;
+        outEnA.clear();        outEnB.clear();
+        if (!snap.enabled || pipe == nullptr)
+            return;
+
+        auto resolve = [&](const juce::String& src, const juce::String& cachedSrc,
+                           const juce::String& cachedEn, juce::String& outEn) -> juce::String
+        {
+            if (src.trim().isEmpty())
+                return src;
+            if (src == cachedSrc && cachedEn.isNotEmpty())   // cache hit (e.g. drift regen)
+            {
+                outEn = cachedEn;
+                return cachedEn;
+            }
+            auto tr = pipe->translate(src, req.device, snap.modelPath);
+            if (tr.success && tr.text.isNotEmpty())
+            {
+                outEn = tr.text;
+                return tr.text;
+            }
+            return src;   // failure / model not installed → keep original, don't cache
+        };
+
+        req.promptA = resolve(req.promptA, snap.cachedSrcA, snap.cachedEnA, outEnA);
+        req.promptB = resolve(req.promptB, snap.cachedSrcB, snap.cachedEnB, outEnB);
+    }
+}
+
 void PromptPanel::triggerGeneration()
 {
     if (generating) return;
@@ -1616,11 +1692,16 @@ void PromptPanel::triggerGeneration()
     auto deviceForLabel = req.device.isEmpty() ? pipeInf.getDefaultDevice() : req.device;
     auto modelForLabel = req.model.isEmpty() ? pipeInf.getDefaultModel() : req.model;
     auto pipePtr = processorRef.getPipeInferencePtr();
+    PromptXlateSnapshot xlate { translateToggle.getToggleState(), {},
+                                lastXlatedSrcA_, lastXlatedEnA_,
+                                lastXlatedSrcB_, lastXlatedEnB_ };
     juce::Component::SafePointer<PromptPanel> safeThis(this);
-    std::thread([safeThis, pipePtr, req, deviceForLabel, modelForLabel]()
+    std::thread([safeThis, pipePtr, req, deviceForLabel, modelForLabel, xlate]() mutable
     {
+        juce::String xSrcA, xEnA, xSrcB, xEnB;
+        applyPromptTranslation(pipePtr.get(), xlate, req, xSrcA, xEnA, xSrcB, xEnB);
         auto inferenceResult = pipePtr->generate(req);
-        juce::MessageManager::callAsync([safeThis, result = std::move(inferenceResult), req, deviceForLabel, modelForLabel]()
+        juce::MessageManager::callAsync([safeThis, result = std::move(inferenceResult), req, deviceForLabel, modelForLabel, xSrcA, xEnA, xSrcB, xEnB]()
         {
             if (auto* self = safeThis.getComponent())
             {
@@ -1639,6 +1720,10 @@ void PromptPanel::triggerGeneration()
                     processor.setLastPrompts(promptA, promptB);
                     self->lastGenPromptA_ = promptA;
                     self->lastGenPromptB_ = promptB;
+                    // Refresh the translation cache — only when a real English
+                    // result exists; failures keep the original and re-try next time.
+                    if (xEnA.isNotEmpty()) { self->lastXlatedSrcA_ = xSrcA; self->lastXlatedEnA_ = xEnA; }
+                    if (xEnB.isNotEmpty()) { self->lastXlatedSrcB_ = xSrcB; self->lastXlatedEnB_ = xEnB; }
                     self->syncSeedEditorDisplay(result.seed);
                     processor.setLastGenerationTimeMs(result.generationTimeMs);
                     // A successful manual generate proves the backend is
@@ -1715,11 +1800,16 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
     auto modelForLabel = req.model.isEmpty()
         ? processorRef.getPipeInference().getDefaultModel() : req.model;
     auto pipePtr = processorRef.getPipeInferencePtr();
+    PromptXlateSnapshot xlate { translateToggle.getToggleState(), {},
+                                lastXlatedSrcA_, lastXlatedEnA_,
+                                lastXlatedSrcB_, lastXlatedEnB_ };
     juce::Component::SafePointer<PromptPanel> safeThis(this);
-    std::thread([safeThis, pipePtr, req, deviceForLabel, modelForLabel]()
+    std::thread([safeThis, pipePtr, req, deviceForLabel, modelForLabel, xlate]() mutable
     {
+        juce::String xSrcA, xEnA, xSrcB, xEnB;
+        applyPromptTranslation(pipePtr.get(), xlate, req, xSrcA, xEnA, xSrcB, xEnB);
         auto inferenceResult = pipePtr->generate(req);
-        juce::MessageManager::callAsync([safeThis, result = std::move(inferenceResult), req, deviceForLabel, modelForLabel]()
+        juce::MessageManager::callAsync([safeThis, result = std::move(inferenceResult), req, deviceForLabel, modelForLabel, xSrcA, xEnA, xSrcB, xEnB]()
         {
             if (auto* self = safeThis.getComponent())
             {
@@ -1748,6 +1838,10 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                     processor.setLastPrompts(promptA, promptB);
                     self->lastGenPromptA_ = promptA;
                     self->lastGenPromptB_ = promptB;
+                    // Refresh the translation cache — only when a real English
+                    // result exists; failures keep the original and re-try next time.
+                    if (xEnA.isNotEmpty()) { self->lastXlatedSrcA_ = xSrcA; self->lastXlatedEnA_ = xEnA; }
+                    if (xEnB.isNotEmpty()) { self->lastXlatedSrcB_ = xSrcB; self->lastXlatedEnB_ = xEnB; }
                     self->syncSeedEditorDisplay(result.seed);
                     processor.setLastGenerationTimeMs(result.generationTimeMs);
                     // Healthy generation — clear the failure throttle so the
