@@ -59,7 +59,7 @@ static const auto kFxCol     = juce::Colour(0xff00BCD4);  // E — Cyan (effects
 // without the bright white centre reading as the dominant colour).
 static const auto kImpulseA     = kOscCol;                   // periwinkle #667eea (identity / gradient / bars)
 static const auto kImpulseAText = juce::Colour(0xff8A9BF7);  // lifted periwinkle for the A prompt text
-static const auto kImpulseB     = juce::Colour(0xffffeb3b);  // yellow (complementary)
+static const auto kImpulseB     = juce::Colour(0xffFFD23F);  // warm gold (complementary; less green than neon yellow)
 static const auto kImpulseMid   = juce::Colour(0xff3D4250);  // dark neutral-grey gradient pivot
 
 /** Linear per-channel interpolation between two colours (t = 0→a, 1→b). */
