@@ -452,7 +452,11 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
 
         if (12 + jsonLen > size) return result;
 
-        juce::String json(data + 12, static_cast<size_t>(jsonLen));
+        // Decode the JSON blob as UTF-8 explicitly. juce::String(const char*, size_t)
+        // interprets bytes via CharPointer_ASCII (each byte → a codepoint, i.e. Latin-1),
+        // which mangles multi-byte UTF-8: "ü" (C3 BC) became "Ã¼" on every reload.
+        // The write side already emits UTF-8 (json.toRawUTF8 / getNumBytesAsUTF8).
+        juce::String json = juce::String::fromUTF8(data + 12, static_cast<int>(jsonLen));
         if (!processor.importJsonPreset(json)) return result;
 
         // Parse JSON for metadata
