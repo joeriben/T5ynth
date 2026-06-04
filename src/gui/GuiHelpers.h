@@ -1054,15 +1054,14 @@ public:
 };
 
 /**
- * A momentary action button drawn as a small Union Jack — replaces the "EN"
- * text on the prompt-translation control. Clicking it translates the prompt
- * text to English in place. Full saturation when enabled, dimmed while disabled
- * (e.g. translation in flight); a white ring while pressed and a faint ring on
- * hover for affordance. A simplified-but-recognisable rendering (the red saltire
- * is centred on the white rather than counterchanged, which reads fine at icon
- * size). Click behaviour is the standard juce::Button machinery. While a
- * translation is in flight the flag pulses (setPulsing(true)) so the user sees
- * that something is happening; the pulse timer runs only during translation.
+ * A momentary action button drawn as a small Union Jack — replaces the "EN" text
+ * on the prompt-translation control. Clicking it translates the prompts to English
+ * in place. Full saturation when enabled, dimmed when disabled; a white ring while
+ * pressed and a faint ring on hover for affordance. A simplified-but-recognisable
+ * rendering (the red saltire is centred on the white rather than counterchanged,
+ * which reads fine at icon size). While a translation is actually running the flag
+ * pulses (setPulsing(true)) so the user sees it work; the pulse timer runs only
+ * during translation.
  */
 class UnionJackButton : public juce::Button,
                         private juce::Timer
@@ -1087,7 +1086,7 @@ public:
         auto r = getLocalBounds().toFloat().reduced(1.0f);
         if (r.isEmpty()) return;
         const float corner = 2.0f;
-        float a = isEnabled() ? 1.0f : 0.40f;  // dim while disabled
+        float a = isEnabled() ? 1.0f : 0.40f;  // full when enabled, dim when disabled
         if (pulsing_)  // breathe between dim and full while translating
             a = 0.40f + 0.60f * (0.5f + 0.5f * std::sin(pulsePhase_));
 

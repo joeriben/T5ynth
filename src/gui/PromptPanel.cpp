@@ -290,11 +290,13 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     addAndMakeVisible(randomSeedToggle);
     syncSeedEditorEnabledState();
 
-    // Union-Jack translate: a momentary action button. Clicking it translates
-    // the A/B prompt editors to English in place (destructive — it replaces the
-    // text in the boxes). The blocking translate runs on a background thread.
-    translateToggle.setTooltip("Translate the prompts to English (replaces the text in the boxes)");
-    translateToggle.setClickingTogglesState(false);
+    // Union-Jack translate: a MOMENTARY action. Clicking it rewrites the A/B
+    // prompts to English in place. Because the single IPC pipe is shared with
+    // auto-regen, the click pauses auto-regen for the duration of the translation
+    // (freeing the pipe); auto-regen resumes automatically, with its unchanged bar
+    // setting, once the translation finishes. The flag pulses while it runs.
+    translateToggle.setTooltip("Translate prompts to English in place "
+                               "(auto-regen pauses during translation, then resumes)");
     translateToggle.onClick = [this] { translatePromptsInPlace(); };
     addAndMakeVisible(translateToggle);
 
@@ -1718,68 +1720,71 @@ bool PromptPanel::playNextCachedInference()
     return true;
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Manual prompt translation (Union-Jack flag)
+// ──────────────────────────────────────────────────────────────────────────────
+// Clicking the flag rewrites the A/B prompts to English IN PLACE. The single IPC
+// pipe is shared with auto-regen, so the click DISABLES auto-regen for the whole
+// translation by raising translatingPrompts_ (which gates both pollDriftRegen and
+// triggerGeneration). The translation runs on a background thread that serialises
+// behind any in-flight generation via PipeInference's recursive mutex; when it
+// completes, lowering the flag REACTIVATES auto-regen — automatically with its
+// unchanged bar setting, and only if it was on. The flag pulses while the
+// translation actually runs.
 void PromptPanel::translatePromptsInPlace()
 {
-    // Mutually exclusive with generation: one Python subprocess, one IPC pipe.
-    if (generating || translatingPrompts_) return;
+    if (translatingPrompts_) return;  // already translating
 
-    if (!processorRef.isInferenceReady())
+    if (!processorRef.isPipeInferenceReady())
     {
         if (onStatusChanged) onStatusChanged("Backend not connected", false);
         return;
     }
 
-    const juce::String srcA = promptAEditor.getText();
-    const juce::String srcB = promptBEditor.getText();
-    const bool hasA = srcA.trim().isNotEmpty();
-    const bool hasB = srcB.trim().isNotEmpty();
-    if (!hasA && !hasB) return;  // nothing to translate
+    const auto srcA = promptAEditor.getText();
+    const auto srcB = promptBEditor.getText();
+    if (srcA.trim().isEmpty() && srcB.trim().isEmpty())
+        return;  // nothing to translate
 
-    // Mirror the generation device (read the member directly — buildInferenceRequest()
-    // would move-out pendingOffsets_/pendingAxes_ as a side effect). Empty device →
-    // backend default; empty modelPath → backend auto-discovers the translation model.
-    const juce::String device = defaultInferenceDevice_;
-
-    translatingPrompts_ = true;
-    translateToggle.setPulsing(true);  // flag breathes while the translation runs
-    generateButton.setEnabled(false);
+    // Suppress auto-regen for the whole translation via translatingPrompts_ (the
+    // pollDriftRegen + triggerGeneration guards). This frees the shared IPC pipe
+    // so the background translate can run, and auto-regen resumes automatically —
+    // with its unchanged bar setting — the instant this flag clears. Deliberately
+    // NOT done by writing PID::driftRegen: that param lives on the processor and
+    // would be left stuck OFF (and could be saved into a preset) if the editor
+    // were closed mid-translation, since the async restore would be skipped.
+    translatingPrompts_ = true;   // blocks pollDriftRegen + manual gen until done
+    translateToggle.setPulsing(true);
     if (onStatusChanged) onStatusChanged("translating...", true);
 
     auto pipePtr = processorRef.getPipeInferencePtr();
+    const auto device = defaultInferenceDevice_;
     juce::Component::SafePointer<PromptPanel> safeThis(this);
-    std::thread([safeThis, pipePtr, srcA, srcB, hasA, hasB, device]() mutable
+    std::thread([safeThis, pipePtr, srcA, srcB, device]() mutable
     {
-        PipeInference::TranslateResult ra, rb;
-        if (hasA) ra = pipePtr->translate(srcA, device);
-        if (hasB) rb = pipePtr->translate(srcB, device);
-
-        juce::MessageManager::callAsync([safeThis, hasA, hasB, ra, rb]()
+        juce::String errMsg;
+        auto translateOne = [&](const juce::String& s) -> juce::String
         {
-            auto* self = safeThis.getComponent();
-            if (self == nullptr) return;
-            self->translatingPrompts_ = false;
-            self->translateToggle.setPulsing(false);
-            self->generateButton.setEnabled(true);
+            if (s.trim().isEmpty() || pipePtr == nullptr) return s;
+            auto tr = pipePtr->translate(s, device, {});  // blocks behind any in-flight generate()
+            if (tr.success && tr.text.isNotEmpty()) return tr.text;
+            if (!tr.success && errMsg.isEmpty()) errMsg = tr.errorMessage;
+            return s;  // failure → keep the original text
+        };
+        const juce::String enA = translateOne(srcA);
+        const juce::String enB = translateOne(srcB);
 
-            juce::String err;
-            if (hasA)
+        juce::MessageManager::callAsync([safeThis, enA, enB, srcA, srcB, errMsg]
+        {
+            if (auto* self = safeThis.getComponent())
             {
-                if (ra.success && ra.text.isNotEmpty())
-                    self->promptAEditor.setText(ra.text, true);
-                else if (!ra.success && ra.errorMessage.isNotEmpty())
-                    err = ra.errorMessage;
+                if (enA != srcA) self->promptAEditor.setText(enA, juce::sendNotification);
+                if (enB != srcB) self->promptBEditor.setText(enB, juce::sendNotification);
+                self->translateToggle.setPulsing(false);
+                self->translatingPrompts_ = false;  // auto-regen resumes here (param untouched)
+                if (self->onStatusChanged)
+                    self->onStatusChanged(errMsg.isNotEmpty() ? errMsg : juce::String("translated"), false);
             }
-            if (hasB)
-            {
-                if (rb.success && rb.text.isNotEmpty())
-                    self->promptBEditor.setText(rb.text, true);
-                else if (!rb.success && rb.errorMessage.isNotEmpty() && err.isEmpty())
-                    err = rb.errorMessage;
-            }
-
-            if (self->onStatusChanged)
-                self->onStatusChanged(err.isNotEmpty() ? err
-                                                       : juce::String("translated to English"), false);
         });
     }).detach();
 }

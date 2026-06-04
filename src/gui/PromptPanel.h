@@ -82,8 +82,9 @@ public:
 private:
     void timerCallback() override;
     void triggerGeneration();
-    /** Destructively translate the A/B prompt editors to English in place
-     *  (Union-Jack click). Blocking translate runs on a background thread. */
+    // Manual Union-Jack action: translate the A/B prompts to English IN PLACE.
+    // Pauses auto-regen for the duration (frees the shared IPC pipe); it resumes
+    // automatically, with its unchanged bar setting, when the translation finishes.
     void translatePromptsInPlace();
     bool playNextCachedInference();
     void syncSeedEditorEnabledState();
