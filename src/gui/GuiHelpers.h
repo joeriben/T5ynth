@@ -959,6 +959,28 @@ public:
     {
         return 1.0 - juce::Slider::valueToProportionOfLength(value);
     }
+
+    // Detents for the A1/B1 anchors (±1), snapped in PROPORTION (on-screen)
+    // space rather than value space. The genAlpha range's quadratic skew is
+    // steep at ±1, so a value-space snap there spans well under a pixel and is
+    // effectively unhittable — whereas at the centre the skew is flat and the
+    // value-space 0-snap has a wide, reliable catch. Snapping by screen distance
+    // gives a uniform detent at A1/B1, which matters now that the numeric readout
+    // is hidden. Only in linear mode (range ≈ [-2,2]); other injection modes use
+    // a [0,N] range and must not anchor-snap. Drag only — typed/automation values
+    // keep their value-space legalisation (snapGenerationAlpha).
+    double snapValue(double attemptedValue, DragMode dragMode) override
+    {
+        if (dragMode != notDragging && getMinimum() < -0.5)
+        {
+            constexpr double kAnchorPropSnap = 0.04;  // ~4% of track each side
+            const double p = valueToProportionOfLength(attemptedValue);
+            for (const double anchor : { -1.0, 1.0 })
+                if (std::abs(p - valueToProportionOfLength(anchor)) < kAnchorPropSnap)
+                    return anchor;
+        }
+        return juce::Slider::snapValue(attemptedValue, dragMode);
+    }
 };
 
 /**
