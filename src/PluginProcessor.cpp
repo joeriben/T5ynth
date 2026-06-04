@@ -9,6 +9,11 @@
 namespace
 {
 constexpr float kAlphaAnchorSnapThreshold = 0.04f;
+// Centre/linear detent. Deliberately smaller than the ±1 anchor threshold: the
+// alpha range's quadratic skew is flattest at 0, so a given value-window maps to
+// a much wider pixel-window there. 0.02 gives a clearly findable "linear" detent
+// without eating the fine-control band the skew exists to provide.
+constexpr float kAlphaLinearSnapThreshold = 0.02f;
 constexpr float kMagnitudeUnitySnapThreshold = 0.03f;
 constexpr float kDurationSecondSnapThreshold = 0.05f;
 
@@ -25,8 +30,9 @@ float snapToInterval(float rangeStart, float value, float interval)
 float snapGenerationAlpha(float rangeStart, float rangeEnd, float value)
 {
     juce::ignoreUnused(rangeStart, rangeEnd);
-    value = snapIfNear(value, -1.0f, kAlphaAnchorSnapThreshold);
-    value = snapIfNear(value,  1.0f, kAlphaAnchorSnapThreshold);
+    value = snapIfNear(value,  0.0f, kAlphaLinearSnapThreshold);  // linear (50/50) centre
+    value = snapIfNear(value, -1.0f, kAlphaAnchorSnapThreshold);  // A1 anchor
+    value = snapIfNear(value,  1.0f, kAlphaAnchorSnapThreshold);  // B1 anchor
     return juce::jlimit(rangeStart, rangeEnd, value);
 }
 
