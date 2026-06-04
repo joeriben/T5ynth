@@ -49,6 +49,39 @@ static const auto kOscCol    = juce::Colour(0xff667eea);  // U — Periwinkle (p
 static const auto kSeqCol    = juce::Colour(0xff4CAF50);  // A — Green (sequencer)
 static const auto kFxCol     = juce::Colour(0xff00BCD4);  // E — Cyan (effects)
 
+// Impulse A/B identity — shared by the prompt fields, the A↔B slider gradient,
+// and the Dimension Explorer bars. Periwinkle (A) / yellow (B): a complementary,
+// colorblind-safe pair (verified WCAG/ΔE2000/CVD). A reuses the osc periwinkle =
+// "the original" purple. The A *editor text* uses a lifted periwinkle for body-
+// text legibility (≈6.4:1 on kCard) while saturated #667eea stays the accent/
+// gradient; the gradient pivots through a near-white neutral so the complementary
+// pair never muddies to olive at the midpoint.
+static const auto kImpulseA     = kOscCol;                   // periwinkle #667eea (identity / gradient / bars)
+static const auto kImpulseAText = juce::Colour(0xff8A9BF7);  // lifted periwinkle for the A prompt text
+static const auto kImpulseB     = juce::Colour(0xffffeb3b);  // yellow (complementary)
+static const auto kImpulseMid   = juce::Colour(0xffE8EAF2);  // near-white gradient pivot
+
+/** Linear per-channel interpolation between two colours (t = 0→a, 1→b). */
+inline juce::Colour lerpColour(juce::Colour a, juce::Colour b, float t)
+{
+    t = juce::jlimit(0.0f, 1.0f, t);
+    return juce::Colour::fromFloatRGBA(
+        a.getFloatRed()   + (b.getFloatRed()   - a.getFloatRed())   * t,
+        a.getFloatGreen() + (b.getFloatGreen() - a.getFloatGreen()) * t,
+        a.getFloatBlue()  + (b.getFloatBlue()  - a.getFloatBlue())  * t,
+        a.getFloatAlpha() + (b.getFloatAlpha() - a.getFloatAlpha()) * t);
+}
+
+/** A↔B blend colour for normalized position t (0 = A, 1 = B), pivoting through a
+ *  near-white neutral so the complementary purple↔yellow pair never muddies to
+ *  olive. Used by the A↔B slider track gradient and its position-coloured thumb. */
+inline juce::Colour abBlendColour(float t)
+{
+    t = juce::jlimit(0.0f, 1.0f, t);
+    return t < 0.5f ? lerpColour(kImpulseA, kImpulseMid, t * 2.0f)
+                    : lerpColour(kImpulseMid, kImpulseB, (t - 0.5f) * 2.0f);
+}
+
 /** Configure a label as an inverted section header bar (colored bg, dark text). */
 inline void paintSectionHeader(juce::Label& lbl, const juce::String& text, juce::Colour col)
 {
@@ -894,5 +927,91 @@ public:
 
         g.strokePath(icon, juce::PathStrokeType(1.4f),
                      icon.getTransformToScaleToFit(bounds, true));
+    }
+};
+
+/**
+ * Vertical slider whose value axis is flipped so the MINIMUM sits at the top.
+ *
+ * Used for the A↔B blend slider: genAlpha runs −2 (toward A) … +2 (toward B), and
+ * we want A at the top to align with the Impulse A field above it. Overriding both
+ * proportion↔value conversions inverts display AND drag consistently, preserves the
+ * parameter skew (delegates to the base impl), and stays transparent to
+ * juce::SliderAttachment — which maps value↔parameter and never sees the flip.
+ */
+class FlippedVerticalSlider : public juce::Slider
+{
+public:
+    double proportionOfLengthToValue(double proportion) override
+    {
+        return juce::Slider::proportionOfLengthToValue(1.0 - proportion);
+    }
+    double valueToProportionOfLength(double value) override
+    {
+        return 1.0 - juce::Slider::valueToProportionOfLength(value);
+    }
+};
+
+/**
+ * Look-and-feel for the A↔B blend slider: a vertical A→B colour-gradient track
+ * (A periwinkle at top, B yellow at bottom, pivoting through a near-white neutral)
+ * with a round thumb whose fill tracks its position via abBlendColour(). Handles
+ * both single-thumb (linear / step-in / combo modes) and TwoValueVertical (layer
+ * mode). The drift ghost is drawn separately by PromptPanel::paintOverChildren.
+ *
+ * Owner must declare this LnF BEFORE the slider that uses it (so the slider is
+ * destroyed first) and must NEVER call setLookAndFeel(nullptr) — normal JUCE
+ * component teardown is sufficient (see JUCE safety rules).
+ */
+class AlphaSliderLnF : public juce::LookAndFeel_V4
+{
+public:
+    void drawLinearSlider(juce::Graphics& g, int x, int y, int width, int height,
+                          float sliderPos, float minSliderPos, float maxSliderPos,
+                          juce::Slider::SliderStyle style, juce::Slider& slider) override
+    {
+        const bool twoValue = (style == juce::Slider::TwoValueVertical);
+        const bool vertical = twoValue || style == juce::Slider::LinearVertical;
+        if (! vertical)
+        {
+            juce::LookAndFeel_V4::drawLinearSlider(g, x, y, width, height, sliderPos,
+                                                   minSliderPos, maxSliderPos, style, slider);
+            return;
+        }
+
+        auto area = juce::Rectangle<int>(x, y, width, height).toFloat();
+        const float trackW = juce::jmin(area.getWidth(), 10.0f);
+        auto track = area.withSizeKeepingCentre(trackW, area.getHeight());
+
+        // Vertical A(top) → B(bottom) gradient with a near-white midpoint pivot.
+        juce::ColourGradient grad(kImpulseA, track.getCentreX(), track.getY(),
+                                  kImpulseB, track.getCentreX(), track.getBottom(), false);
+        grad.addColour(0.5, kImpulseMid);
+        g.setGradientFill(grad);
+        g.fillRoundedRectangle(track, trackW * 0.5f);
+        g.setColour(kBorder);
+        g.drawRoundedRectangle(track, trackW * 0.5f, 1.0f);
+
+        auto thumbAt = [&](float posY)
+        {
+            const float r = juce::jmax(5.0f, trackW * 0.95f);
+            const float t = juce::jlimit(0.0f, 1.0f,
+                                         (posY - area.getY()) / juce::jmax(1.0f, area.getHeight()));
+            g.setColour(abBlendColour(t));
+            g.fillEllipse(track.getCentreX() - r, posY - r, r * 2.0f, r * 2.0f);
+            g.setColour(juce::Colours::white.withAlpha(0.9f));
+            g.drawEllipse(track.getCentreX() - r, posY - r, r * 2.0f, r * 2.0f, 1.2f);
+        };
+
+        if (twoValue)
+        {
+            thumbAt(minSliderPos);
+            thumbAt(maxSliderPos);
+        }
+        else
+        {
+            thumbAt(sliderPos);
+        }
+        juce::ignoreUnused(slider);
     }
 };

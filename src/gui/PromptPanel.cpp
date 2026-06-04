@@ -9,17 +9,21 @@
 namespace
 {
 constexpr float kPromptPadFactor   = 0.04f;
-constexpr float kPromptRow         = 1.4f;
-constexpr float kPromptSlider      = 1.2f;
 constexpr float kPromptMultiInput  = 3.0f;   // two-line prompt editor
 constexpr float kPromptCompactRow  = 1.15f;
 constexpr float kPromptCompactCtrl = 0.9f;
 constexpr float kPromptSeedCtrl    = 1.75f;
 constexpr float kPromptGap         = 0.28f;
-constexpr float kPromptContentUnits = 22.08f;  // bumped by 1.18 for temporary mode-buttons row (0.9 + 0.28)
-// Easy budget includes the model selector row (compactRow + gap ≈ 1.43 units)
-// since the selector is now visible in easy mode too.
-constexpr float kPromptEasyContentUnits = 18.61f;
+// The prompting area is now an A↔B block: [A editor / mode-bar / B editor] in a
+// left column with a full-height vertical blend slider in a right column. The
+// blend slider replaces the old horizontal alpha slider + its label/value rows,
+// and the per-prompt text labels are gone (colour-coded editors instead).
+// Both ContentUnits MUST equal the unit sum in getPreferredHeightForWidth so that
+// resized()'s f = (height-2)/ContentUnits resolves back to the preferred font.
+constexpr float kPromptContentUnits = 18.44f;
+// Easy budget keeps the model selector row (compactRow + gap ≈ 1.43 units) but
+// drops the advanced param rows (Mag/Noise, Steps/CFG).
+constexpr float kPromptEasyContentUnits = 13.78f;
 constexpr int kBaseSeed = 123456789;
 
 float preferredPromptFontForWidth(int width)
@@ -75,13 +79,19 @@ static void makeLabel(juce::Label& l, const juce::String& text, juce::Colour col
 PromptPanel::PromptPanel(T5ynthProcessor& processor)
     : processorRef(processor)
 {
-    makeLabel(promptALabel, "Impulse A", kDim, juce::Justification::centredLeft, this);
+    // Impulse A — periwinkle identity. The old "Impulse A" label is gone; the
+    // editor's text colour plus an empty-state placeholder now carry the role.
     // Two-line with word-wrap so longer impulses stay visible. With
     // setReturnKeyStartsNewLine(false) Return still triggers generation; the
     // wrap only kicks in when the text itself exceeds one line's width.
     promptAEditor.setMultiLine(true, true);
     promptAEditor.setReturnKeyStartsNewLine(false);
-    promptAEditor.setText("a steady clean saw wave, c3");
+    promptAEditor.setColour(juce::TextEditor::backgroundColourId, kCard);
+    promptAEditor.setColour(juce::TextEditor::textColourId, kImpulseAText);
+    promptAEditor.setColour(juce::TextEditor::outlineColourId, kBorder);
+    promptAEditor.setColour(juce::TextEditor::focusedOutlineColourId, kImpulseA);
+    promptAEditor.setColour(juce::TextEditor::highlightColourId, kImpulseA.withAlpha(0.30f));
+    promptAEditor.setTextToShowWhenEmpty("Insert Impulse A here", kImpulseAText.withAlpha(0.45f));
     promptAEditor.onReturnKey = [this] { triggerGeneration(); };
     promptAEditor.onTextChange = [this] {
         // Impulse edits should force the next drift regen to use a fresh snapshot.
@@ -90,10 +100,15 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     promptAEditor.setBufferedToImage(true);
     addAndMakeVisible(promptAEditor);
 
-    makeLabel(promptBLabel, "Impulse B", kDim, juce::Justification::centredLeft, this);
+    // Impulse B — yellow identity (complementary contrast to A).
     promptBEditor.setMultiLine(true, true);
     promptBEditor.setReturnKeyStartsNewLine(false);
-    promptBEditor.setText("glass breaking");
+    promptBEditor.setColour(juce::TextEditor::backgroundColourId, kCard);
+    promptBEditor.setColour(juce::TextEditor::textColourId, kImpulseB);
+    promptBEditor.setColour(juce::TextEditor::outlineColourId, kBorder);
+    promptBEditor.setColour(juce::TextEditor::focusedOutlineColourId, kImpulseB);
+    promptBEditor.setColour(juce::TextEditor::highlightColourId, kImpulseB.withAlpha(0.30f));
+    promptBEditor.setTextToShowWhenEmpty("Insert Impulse B here", kImpulseB.withAlpha(0.45f));
     promptBEditor.onTextChange = [this] {
         // Impulse edits should force the next drift regen to use a fresh snapshot.
         lastGenPromptB_.clear();
@@ -101,10 +116,18 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     promptBEditor.setBufferedToImage(true);
     addAndMakeVisible(promptBEditor);
 
-    // Alpha
-    makeSlider(alphaSlider, this);
+    // A↔B blend — vertical slider with an A→B gradient track and a position-
+    // coloured thumb (custom LnF). Replaces the old horizontal alpha slider; the
+    // gradient is self-describing, so alphaLabel/alphaValue stay hidden but are
+    // still updated by onValueChange (they feed no layout).
+    alphaSlider.setSliderStyle(juce::Slider::LinearVertical);
+    alphaSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+    alphaSlider.setLookAndFeel(&alphaLnF);
+    addAndMakeVisible(alphaSlider);
     makeLabel(alphaLabel, "A " + juce::String(juce::CharPointer_UTF8("\xe2\x86\x94")) + " B", kDim, juce::Justification::centredLeft, this);
     makeLabel(alphaValue, "0", kOscCol, juce::Justification::centredRight, this);
+    alphaLabel.setVisible(false);
+    alphaValue.setVisible(false);
     alphaSlider.onValueChange = [this] {
         if (injectionMode_ == "linear")
         {
@@ -125,7 +148,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
             lateMixForMode(injectionMode_) = v;
             alphaValue.setText(juce::String(v, 2), juce::dontSendNotification);
         }
-        else  // layer_split — TwoValueHorizontal: read both thumbs
+        else  // layer_split — TwoValueVertical: read both thumbs
         {
             splitLayerStart_ = static_cast<float>(alphaSlider.getMinValue());
             splitLayerEnd_   = static_cast<float>(alphaSlider.getMaxValue());
@@ -391,33 +414,29 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 int PromptPanel::getPreferredHeightForWidth(int width) const
 {
     const float f = preferredPromptFontForWidth(width);
-    const int rowH = juce::roundToInt(f * kPromptRow);
-    const int sliderH = juce::roundToInt(f * kPromptSlider);
     const int multiInputH = juce::roundToInt(f * kPromptMultiInput);
     const int gap = juce::roundToInt(f * kPromptGap);
     const int compactRowH = juce::roundToInt(f * kPromptCompactRow);
     const int compactCtrlH = juce::roundToInt(f * kPromptCompactCtrl);
     const int seedCtrlH = juce::roundToInt(f * kPromptSeedCtrl);
 
+    // A↔B block: A editor / mode-bar / B editor (the right-hand vertical slider
+    // overlays this same height, so it adds nothing to the vertical budget).
+    const int abBlockH = multiInputH + gap + compactCtrlH + gap + multiInputH;
+
     if (easyMode_)
     {
         return (compactRowH + 2) + gap                  // model selector row
-             + rowH + multiInputH + gap
-             + rowH + multiInputH + gap * 2
-             + compactCtrlH + gap
-             + rowH + sliderH + gap
-             + compactRowH + seedCtrlH + gap
-             + gap + compactRowH;
+             + abBlockH + gap                           // A↔B block
+             + compactRowH + seedCtrlH + gap            // Duration / Seed
+             + gap + compactRowH;                       // info label
     }
 
-    return (compactRowH + 2) + gap
-         + rowH + multiInputH + gap
-         + rowH + multiInputH + gap * 2
-         + (compactCtrlH + gap)                       // TEMPORARY injection-mode buttons row
-         + rowH + sliderH + gap
-         + (compactRowH + compactCtrlH + gap) * 2
-         + compactRowH + seedCtrlH + gap
-         + gap + compactRowH;
+    return (compactRowH + 2) + gap                      // model selector row
+         + abBlockH + gap                               // A↔B block
+         + (compactRowH + compactCtrlH + gap) * 2       // Mag/Noise + Steps/CFG
+         + compactRowH + seedCtrlH + gap                // Duration / Seed
+         + gap + compactRowH;                           // info label
 }
 
 void PromptPanel::timerCallback()
@@ -511,13 +530,27 @@ void PromptPanel::paintOverChildren(juce::Graphics& g)
         auto sb = slider.getBounds();
         double norm = slider.valueToProportionOfLength(static_cast<double>(ghostVal));
         norm = juce::jlimit(0.0, 1.0, norm);
-        int thumbW = slider.getLookAndFeel().getSliderThumbRadius(slider) * 2;
-        int trackX = sb.getX() + thumbW / 2;
-        int trackW = sb.getWidth() - thumbW;
-        float gx = static_cast<float>(trackX) + static_cast<float>(trackW) * static_cast<float>(norm);
-        float gy = static_cast<float>(sb.getCentreY());
-        float r = static_cast<float>(sb.getHeight()) * 0.28f;
-        g.setColour(juce::Colour(0xccff9800)); // orange ghost
+        const int thumbW = slider.getLookAndFeel().getSliderThumbRadius(slider) * 2;
+        float gx, gy, r;
+        if (slider.isVertical())
+        {
+            // alphaSlider: proportion→pixel matches JUCE's own thumb mapping
+            // (top = high proportion). norm already carries the A-top flip.
+            const float trackY = static_cast<float>(sb.getY() + thumbW / 2);
+            const float trackH = static_cast<float>(sb.getHeight() - thumbW);
+            gx = static_cast<float>(sb.getCentreX());
+            gy = trackY + trackH * static_cast<float>(1.0 - norm);
+            r  = juce::jmin(static_cast<float>(sb.getWidth()) * 0.34f, 11.0f);
+        }
+        else
+        {
+            const int trackX = sb.getX() + thumbW / 2;
+            const int trackW = sb.getWidth() - thumbW;
+            gx = static_cast<float>(trackX) + static_cast<float>(trackW) * static_cast<float>(norm);
+            gy = static_cast<float>(sb.getCentreY());
+            r  = static_cast<float>(sb.getHeight()) * 0.28f;
+        }
+        g.setColour(kModCol.withAlpha(0.8f)); // ghost stays in the Mod-section colour
         g.fillEllipse(gx - r, gy - r, r * 2.0f, r * 2.0f);
     };
 
@@ -555,8 +588,6 @@ void PromptPanel::resized()
     float f = juce::jlimit(10.0f, 20.0f,
         (static_cast<float>(area.getHeight()) - 2.0f)
             / (easyMode_ ? kPromptEasyContentUnits : kPromptContentUnits));
-    int rowH = juce::roundToInt(f * kPromptRow);
-    int sliderH = juce::roundToInt(f * kPromptSlider);
     int gap = juce::roundToInt(f * kPromptGap);
     int compactRowH = juce::roundToInt(f * kPromptCompactRow);
     int compactCtrlH = juce::roundToInt(f * kPromptCompactCtrl);
@@ -612,63 +643,57 @@ void PromptPanel::resized()
     stepsHint.setVisible(false);
     cfgHint.setVisible(false);
 
-    // --- Main slider layout: [Label ... Value] \n [slider] ---
-    auto layoutSlider = [&](juce::Label& label, juce::Slider& slider, juce::Label& value)
-    {
-        setFs(label, f);
-        setFs(value, f);
-        auto hdr = area.removeFromTop(rowH);
-        label.setBounds(hdr.removeFromLeft(hdr.getWidth() * 2 / 3));
-        value.setBounds(hdr);
-        slider.setBounds(area.removeFromTop(sliderH));
-        area.removeFromTop(gap);
-    };
-
     const int multiInputH = juce::roundToInt(f * kPromptMultiInput);
 
-    // Impulse A — the label row shares its right edge with the EN translate toggle
-    setFs(promptALabel, f);
+    // ── A↔B block ──────────────────────────────────────────────────────────
+    // Left column stacks [A editor / mode-bar (+EN) / B editor]; the right
+    // column is a slim full-height vertical blend slider whose A(top)→B(bottom)
+    // gradient makes the relationship self-evident. The old per-prompt text
+    // labels and the horizontal alpha slider+label rows are gone.
     {
-        auto labelRow = area.removeFromTop(rowH);
-        const float enFont = juce::jmin(15.0f, static_cast<float>(rowH) * 0.82f);
-        int enW = juce::jmax(juce::roundToInt(f * 2.4f),
-                             measureTextWidth(translateToggle.getButtonText(), enFont)
-                                 + juce::roundToInt(f * 1.4f));
-        enW = juce::jmin(enW, labelRow.getWidth() / 2);
-        translateToggle.setBounds(labelRow.removeFromRight(enW));
-        promptALabel.setBounds(labelRow);
+        const int blockH = multiInputH + gap + compactCtrlH + gap + multiInputH;
+        auto block = area.removeFromTop(blockH);
+
+        // Right column: vertical A↔B slider, spanning the full block height so
+        // its top edge meets A and its bottom edge meets B.
+        const int sliderColW = juce::jmax(36, juce::roundToInt(f * 2.8f));
+        alphaSlider.setBounds(block.removeFromRight(sliderColW));
+        block.removeFromRight(gap);
+
+        // Left column, top: Impulse A editor (purple).
+        promptAEditor.setFont(juce::FontOptions(f));
+        promptAEditor.setBounds(block.removeFromTop(multiInputH));
+        block.removeFromTop(gap);
+
+        // Left column, middle: mode-bar left-aligned, EN translate toggle at the
+        // right end of the same row.
+        {
+            auto modeRow = block.removeFromTop(compactCtrlH);
+            const float enFont = juce::jmin(15.0f, static_cast<float>(compactCtrlH) * 0.82f);
+            int enW = juce::jmax(juce::roundToInt(f * 2.4f),
+                                 measureTextWidth(translateToggle.getButtonText(), enFont)
+                                     + juce::roundToInt(f * 1.2f));
+            enW = juce::jmin(enW, modeRow.getWidth() / 3);
+            translateToggle.setBounds(modeRow.removeFromRight(enW));
+            modeRow.removeFromRight(gap);
+
+            // Six connected radio buttons fill the remaining width; the last
+            // claims the integer-division remainder so the row ends flush.
+            int btnW = juce::jmax(1, modeRow.getWidth() / 6);
+            injModeLinear.setBounds(modeRow.removeFromLeft(btnW));
+            injModeFine  .setBounds(modeRow.removeFromLeft(btnW));
+            injModeLayer .setBounds(modeRow.removeFromLeft(btnW));
+            injModeKombi1.setBounds(modeRow.removeFromLeft(btnW));
+            injModeKombi2.setBounds(modeRow.removeFromLeft(btnW));
+            injModeKombi3.setBounds(modeRow);
+        }
+        block.removeFromTop(gap);
+
+        // Left column, bottom: Impulse B editor (yellow).
+        promptBEditor.setFont(juce::FontOptions(f));
+        promptBEditor.setBounds(block.removeFromTop(multiInputH));
     }
-    promptAEditor.setFont(juce::FontOptions(f));
-    promptAEditor.setBounds(area.removeFromTop(multiInputH));
     area.removeFromTop(gap);
-
-    // Impulse B
-    setFs(promptBLabel, f);
-    promptBLabel.setBounds(area.removeFromTop(rowH));
-    promptBEditor.setFont(juce::FontOptions(f));
-    promptBEditor.setBounds(area.removeFromTop(multiInputH));
-    area.removeFromTop(gap * 2);
-
-    // --- Injection-mode test row (TEMPORARY): three radio buttons left-aligned ---
-    // The alphaSlider above this row repurposes itself based on the active
-    // mode (see applyModeToSlider()): Linear=A↔B, Step-in=transition, Layer=split.
-    {
-        auto btnRow = area.removeFromTop(compactCtrlH);
-        // 6 buttons in the radio row. "Combo N" labels are wider than the
-        // original three, so the row claims most of the available width.
-        int btnTotalW = juce::jmax(280, btnRow.getWidth() * 4 / 5);
-        int btnW = btnTotalW / 6;
-        injModeLinear.setBounds(btnRow.removeFromLeft(btnW));
-        injModeFine  .setBounds(btnRow.removeFromLeft(btnW));
-        injModeLayer .setBounds(btnRow.removeFromLeft(btnW));
-        injModeKombi1.setBounds(btnRow.removeFromLeft(btnW));
-        injModeKombi2.setBounds(btnRow.removeFromLeft(btnW));
-        injModeKombi3.setBounds(btnRow.removeFromLeft(btnW));
-        area.removeFromTop(gap);
-    }
-
-    // Alpha (dynamic: meaning depends on current injection mode)
-    layoutSlider(alphaLabel, alphaSlider, alphaValue);
 
     // --- Compact params: 2 columns ---
     int colGap = juce::roundToInt(w * 0.03f);
@@ -1422,7 +1447,7 @@ void PromptPanel::applyModeToSlider()
     if (injectionMode_ == "linear")
     {
         // Restore single-thumb style in case we're coming from layer mode.
-        alphaSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+        alphaSlider.setSliderStyle(juce::Slider::LinearVertical);
         // Range is owned by the SliderAttachment — JUCE 8's
         // SliderParameterAttachment ctor calls slider.setNormalisableRange()
         // with the APVTS parameter's NormalisableRange. For genAlpha that is
@@ -1450,7 +1475,7 @@ void PromptPanel::applyModeToSlider()
           || injectionMode_ == "kombi3")
     {
         alphaA.reset();  // detach from APVTS so the slider drives local state only
-        alphaSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+        alphaSlider.setSliderStyle(juce::Slider::LinearVertical);
         // Slider is the intensity 0..1: 0 = minimum perceptible effect, 1 =
         // maximum. Internal mapping (in buildInferenceRequest) shifts this
         // onto the audible region of injection_transition_at / late_phase_alpha.
@@ -1470,7 +1495,7 @@ void PromptPanel::applyModeToSlider()
     else  // layer_split — two-thumb range slider [b_start, b_end]
     {
         alphaA.reset();
-        alphaSlider.setSliderStyle(juce::Slider::TwoValueHorizontal);
+        alphaSlider.setSliderStyle(juce::Slider::TwoValueVertical);
         const float blocksF = static_cast<float>(ditBlocks_);
         const float savedStart = juce::jlimit(0.0f, blocksF, splitLayerStart_);
         const float savedEnd   = juce::jlimit(0.0f, blocksF, splitLayerEnd_);

@@ -6,6 +6,7 @@
 #include <map>
 #include <limits>
 #include "../inference/PipeInference.h"
+#include "GuiHelpers.h"  // FlippedVerticalSlider, AlphaSliderLnF, impulse colours
 
 class T5ynthProcessor;
 
@@ -110,14 +111,16 @@ private:
 
     T5ynthProcessor& processorRef;
 
-    // Prompts
-    juce::Label promptALabel, promptBLabel;
+    // Prompts — colour-coded editors (purple A / yellow B) replace the old text labels
     juce::TextEditor promptAEditor, promptBEditor;
     juce::TextButton translateToggle { "EN" };  // session-only: translate prompts → English before conditioning
 
-    // Embedding controls (linear sliders)
-    juce::Slider alphaSlider, magnitudeSlider, noiseSlider;
-    juce::Label alphaLabel, alphaValue;
+    // Embedding controls.  alphaLnF is declared BEFORE alphaSlider so the slider
+    // (a later member) is destroyed first — the LnF must outlive its only user.
+    AlphaSliderLnF alphaLnF;             // A→B gradient track + position-coloured thumb
+    FlippedVerticalSlider alphaSlider;   // vertical A↔B blend, A at top
+    juce::Slider magnitudeSlider, noiseSlider;
+    juce::Label alphaLabel, alphaValue;  // retained for callbacks but hidden (gradient is self-describing)
     juce::Label magLabel, magValue, magHint;
     juce::Label noiseLabel, noiseValue, noiseHint;
 

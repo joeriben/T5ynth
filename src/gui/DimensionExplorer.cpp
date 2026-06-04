@@ -3,10 +3,12 @@
 #include <algorithm>
 #include <cmath>
 
-// Colors for the bar display
-static const auto kBarA     = juce::Colour(0xff4caf50);  // Green (A-side)
-static const auto kBarB     = juce::Colour(0xffff9800);  // Orange (B-side)
-static const auto kBarEdit  = juce::Colour(0xff4a9eff);  // Blue (user-edited offset)
+// Colors for the bar display — A/B share the prompt-panel impulse identity
+// (periwinkle A / yellow B). The edit marker is cyan: the former blue (#4a9eff)
+// was only ΔE2000≈13 from the new periwinkle A and confusable beside it.
+static const auto kBarA     = kImpulseA;                 // Periwinkle (A-side)
+static const auto kBarB     = kImpulseB;                 // Yellow (B-side)
+static const auto kBarEdit  = juce::Colour(0xff26C6DA);  // Cyan (user-edited offset)
 static const auto kBarBg    = juce::Colour(0xff0e0e0e);
 static const auto kZeroLine = juce::Colour(0xff2a2a2a);
 static constexpr float kMinValueScale = 0.1f;
