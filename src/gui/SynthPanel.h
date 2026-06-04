@@ -130,6 +130,10 @@ private:
     static constexpr int kNumAlgBtns = 3;
     juce::TextButton filterAlgBtns[kNumAlgBtns];
     juce::ComboBox filterAlgHidden;
+    // Easy-mode-only OFF segment, sits left of the algorithm switchbox so the
+    // filter can be bypassed even though the type switchbox (OFF LP HP BP) is
+    // hidden in Easy. Drives filterTypeHidden → FilterType::Off.
+    juce::TextButton filterEasyOffBtn { "OFF" };
     // Warp style selector (only active when algorithm == Warp)
     juce::ComboBox filterWarpStyleBox;
     juce::Label    filterWarpStyleLabel { {}, "Style" };

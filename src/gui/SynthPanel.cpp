@@ -961,12 +961,34 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
               if (i < kNumAlgBtns - 1) edges |= juce::Button::ConnectedOnRight;
               filterAlgBtns[i].setConnectedEdges(edges); }
             filterAlgBtns[i].onClick = [this, i] {
-                if (modEasyMode && i == FilterAlgorithm::Warp)
-                    filterWarpStyleBox.setSelectedId(FilterWarpStyle::SoftClip + 1);
+                if (modEasyMode)
+                {
+                    if (i == FilterAlgorithm::Warp)
+                        filterWarpStyleBox.setSelectedId(FilterWarpStyle::SoftClip + 1);
+                    // OFF + algorithm buttons form one 4-way switch in Easy:
+                    // picking an algorithm while bypassed re-enables the filter.
+                    if (filterTypeHidden.getSelectedId() == FilterType::Off + 1)
+                        filterTypeHidden.setSelectedId(FilterType::Lowpass + 1);
+                }
                 filterAlgHidden.setSelectedId(i + 1);
             };
             addAndMakeVisible(filterAlgBtns[i]);
         }
+    }
+
+    // ── Easy-mode filter OFF segment (sits left of the algorithm switchbox) ──
+    {
+        filterEasyOffBtn.setColour(juce::TextButton::buttonColourId,   kSurface);
+        filterEasyOffBtn.setColour(juce::TextButton::buttonOnColourId, kFilterCol);
+        filterEasyOffBtn.setColour(juce::TextButton::textColourOffId,  kDim);
+        filterEasyOffBtn.setColour(juce::TextButton::textColourOnId,   juce::Colours::white);
+        filterEasyOffBtn.setConnectedEdges(juce::Button::ConnectedOnRight);
+        // Toggle state is driven from updateVisibility (reflects filter bypass),
+        // not from clicks — so re-clicking OFF while already off can't desync it.
+        filterEasyOffBtn.onClick = [this] {
+            filterTypeHidden.setSelectedId(FilterType::Off + 1);
+        };
+        addAndMakeVisible(filterEasyOffBtn);
     }
 
     // ── Warp style combo: tanh / softclip / ojd / sin / digital / asym ──
@@ -1303,8 +1325,26 @@ void SynthPanel::updateVisibility()
     }
     for (int i = 0; i < kNumAlgBtns; ++i)
     {
-        filterAlgBtns[i].setAlpha(filterAlpha);
-        filterAlgBtns[i].setEnabled(filterOn);
+        if (modEasyMode)
+        {
+            // In Easy the algorithm buttons join the OFF segment as one 4-way
+            // switch: always live (so any segment can re-enable the filter), and
+            // highlighted only while the filter is on and this algorithm is picked.
+            filterAlgBtns[i].setAlpha(1.0f);
+            filterAlgBtns[i].setEnabled(true);
+            filterAlgBtns[i].setToggleState(filterOn && filterAlgHidden.getSelectedId() == i + 1,
+                                            juce::dontSendNotification);
+        }
+        else
+        {
+            filterAlgBtns[i].setAlpha(filterAlpha);
+            filterAlgBtns[i].setEnabled(filterOn);
+            // Re-assert the radio invariant: the Easy branch above can leave all
+            // three toggles off (filter bypassed), so without this the Advanced
+            // switchbox would show no algorithm lit after an Easy→Advanced switch.
+            filterAlgBtns[i].setToggleState(filterAlgHidden.getSelectedId() == i + 1,
+                                            juce::dontSendNotification);
+        }
     }
     // Warp Style dims further (to 0.3× of the already-filter-dim) when the
     // selected algorithm isn't Warp — style only applies to the warp ladder.
@@ -1324,6 +1364,15 @@ void SynthPanel::updateVisibility()
     filterWarpStyleLabel.setVisible(false);
     for (int i = 0; i < kNumDriveOsBtns; ++i)
         filterDriveOsBtns[i].setVisible(!modEasyMode);
+
+    // Easy-mode OFF segment: visible only in Easy, highlighted while bypassed.
+    // SVF picks up a left edge where it abuts OFF; restore its lone right edge
+    // in Advanced (where the OFF segment is gone).
+    filterEasyOffBtn.setVisible(modEasyMode);
+    filterEasyOffBtn.setToggleState(modEasyMode && !filterOn, juce::dontSendNotification);
+    filterAlgBtns[FilterAlgorithm::SVF].setConnectedEdges(
+        modEasyMode ? (juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight)
+                    : juce::Button::ConnectedOnRight);
 
     const int engineId = engineModeHidden.getSelectedId();
     bool isWavetable = engineId == 2;
@@ -1627,7 +1676,9 @@ bool SynthPanel::hasModHiddenActiveState() const
         if (comboId(lfo->modeHidden, 1) != 1)
             return true;
 
-    if (comboId(filterTypeHidden, FilterType::Lowpass + 1) != FilterType::Lowpass + 1)
+    // Easy exposes OFF (via the filter OFF segment) and LP; only HP/BP are
+    // hidden advanced filter state worth pulsing the » adv. toggle for.
+    if (comboId(filterTypeHidden, FilterType::Lowpass + 1) > FilterType::Lowpass + 1)
         return true;
     if (comboId(filterDriveOsHidden, FilterDriveOs::X2 + 1) != FilterDriveOs::X2 + 1)
         return true;
@@ -2000,7 +2051,14 @@ void SynthPanel::layoutFilterEasy(juce::Rectangle<int> area, float f, int rowH, 
     filterAlgBtns[FilterAlgorithm::SVF].setButtonText("SVF");
     filterAlgBtns[FilterAlgorithm::Ladder].setButtonText("Ladder");
     filterAlgBtns[FilterAlgorithm::Warp].setButtonText("Softclip");
-    layoutButtons(filterAlgBtns, kNumAlgBtns, area.removeFromTop(rowH), filterAlgSwitchBounds);
+    {
+        // One 4-way switch: OFF | SVF | Ladder | Softclip, equal cells.
+        auto algRow = area.removeFromTop(rowH);
+        const int offCellW = algRow.getWidth() / (kNumAlgBtns + 1);
+        filterEasyOffBtn.setBounds(algRow.removeFromLeft(offCellW));
+        layoutButtons(filterAlgBtns, kNumAlgBtns, algRow, filterAlgSwitchBounds);
+        filterAlgSwitchBounds = filterAlgSwitchBounds.getUnion(filterEasyOffBtn.getBounds());
+    }
     filterTypeSwitchBounds = {};
     area.removeFromTop(rowGap);
     layoutButtons(filterSlopeBtns, kNumSlopeBtns, area.removeFromTop(rowH), filterSlopeSwitchBounds);
