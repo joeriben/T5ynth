@@ -49,30 +49,6 @@ static const auto kOscCol    = juce::Colour(0xff667eea);  // U — Periwinkle (p
 static const auto kSeqCol    = juce::Colour(0xff4CAF50);  // A — Green (sequencer)
 static const auto kFxCol     = juce::Colour(0xff00BCD4);  // E — Cyan (effects)
 
-// ── A/B + state tokens (adversarially verified: ΔE2000 / WCAG / CVD-sim) ─────
-// The DimensionExplorer is a diverging chart (toward-A up / toward-B down).
-// The previous local colours collided with live palette entries in NORMAL
-// vision: A=#4caf50 == kSeqCol (ΔE 0), B=#ff9800 == the ghost/mod orange
-// (ΔE 0), edit=#4a9eff ≈ kAxis2 blue (ΔE 4). These replacements clear ΔE2000
-// ≥ 15 against every live palette colour, are luminance-balanced
-// (|Δ relLum| ≈ 0.02, so A and B carry equal visual weight — the A=B-equal-
-// partners principle), and stay separable under deuteranopia / protanopia /
-// tritanopia (worst-case A↔B ΔE ≈ 24; kEdit↔A/B ≈ 21/25). CAVEAT: the A pole
-// lives in the green/teal band — the red-green confusion axis — so under CVD
-// the hue cue weakens (ΔE ≈ 5-7 vs the green family). The up/down bar geometry
-// is therefore the PRIMARY A/B channel by design; hue only reinforces it.
-static const auto kSideA = juce::Colour(0xff35b698);  // toward prompt A (sea-teal)
-static const auto kSideB = juce::Colour(0xffea6cef);  // toward prompt B (magenta)
-static const auto kEdit  = juce::Colour(0xffe7edf5);  // user-edited / override (== kTextPrimary)
-
-// Live modulation-value preview ("ghost"): a single named token replacing an
-// unnamed 0xccff9800 that was repeated across SliderRow / AxesPanel / PromptPanel.
-// Kept orange on purpose — it belongs to the warm modulation family
-// (kModCol / kDriftCol), and its old clash with the B-side dissolves now that
-// B is magenta. NOTE: contrast is low (≈1.3) where the dot overlaps amber/green
-// slider tracks; a luminance-contrasting ring is a separate paint-level fix.
-static const auto kModPreview = juce::Colour(0xccff9800);
-
 /** Configure a label as an inverted section header bar (colored bg, dark text). */
 inline void paintSectionHeader(juce::Label& lbl, const juce::String& text, juce::Colour col)
 {
@@ -471,7 +447,7 @@ public:
             r = static_cast<float>(sb.getHeight()) * 0.28f;
         }
 
-        g.setColour(kModPreview); // live modulation-value preview
+        g.setColour(juce::Colour(0xccff9800)); // orange ghost
         g.fillEllipse(gx - r, gy - r, r * 2.0f, r * 2.0f);
     }
 

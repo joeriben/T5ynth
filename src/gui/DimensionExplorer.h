@@ -4,13 +4,11 @@
 #include <functional>
 
 /**
- * Diverging latent-dimension chart (a "latent EQ") for embedding exploration.
+ * 768-channel mixing console for embedding dimension exploration.
  *
- * 768 vertical bars sorted by |A-B difference| (most significant left), drawn
- * from a zero line: up = toward prompt A (kSideA), down = toward prompt B
- * (kSideB); edited bars switch to the override colour (kEdit). Draggable bars
- * set per-dimension offsets. Auto-switches: A-B diff when prompt B present,
- * absolute when single prompt.
+ * Shows vertical bars sorted by |A-B difference| (most significant left).
+ * Green = A-side, orange = B-side. Draggable bars set per-dimension offsets.
+ * Auto-switches: A-B diff when prompt B present, absolute when single prompt.
  */
 class DimensionExplorer : public juce::Component
 {
