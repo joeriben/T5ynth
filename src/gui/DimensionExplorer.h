@@ -101,8 +101,9 @@ private:
 
     void rebuildBars(const std::vector<float>& baselineValues, bool preserveOffsets);
     int barAtX(float x) const;
-    float valueToY(float value) const;
-    float yToValue(float y) const;
+    float valueToY(float value, float scaleMax) const;
+    float yToValue(float y, float scaleMax) const;
+    float currentDisplayMax() const;
     float barOrientation(const Bar& bar) const;
     float barMidpoint(const Bar& bar) const;
     float orientedValue(const Bar& bar, float actualValue) const;

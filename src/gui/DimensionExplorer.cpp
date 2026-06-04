@@ -347,22 +347,45 @@ int DimensionExplorer::barAtX(float x) const
     return juce::jlimit(0, static_cast<int>(bars_.size()) - 1, idx);
 }
 
-float DimensionExplorer::valueToY(float value) const
+float DimensionExplorer::currentDisplayMax() const
 {
-    float centreY = barArea_.getCentreY();
-    float halfH = barArea_.getHeight() * 0.45f;
-    float clampedValue = juce::jlimit(-valueScaleMax_, valueScaleMax_, value);
-    return centreY - (clampedValue / valueScaleMax_) * halfH;
+    // Largest |oriented value| actually on screen right now — A/B reference lines,
+    // baseline, and the live edited finals. Unlike valueScaleMax_ (which bakes in
+    // editing headroom and stays frozen during a drag), this tracks the current
+    // offsets, so the mini-view always fits the real extent to 100% and can never
+    // clip a freshly dragged bar.
+    float maxAbs = kMinValueScale;
+    for (const auto& bar : bars_)
+    {
+        maxAbs = std::max(maxAbs, std::abs(orientedValue(bar, bar.aValue)));
+        if (hasBPrompt_)
+            maxAbs = std::max(maxAbs, std::abs(orientedValue(bar, bar.bValue)));
+        maxAbs = std::max(maxAbs, std::abs(orientedValue(bar, bar.baseActualValue)));
+        maxAbs = std::max(maxAbs, std::abs(orientedValue(bar, displayedActualValue(bar))));
+    }
+    return maxAbs;
 }
 
-float DimensionExplorer::yToValue(float y) const
+float DimensionExplorer::valueToY(float value, float scaleMax) const
 {
     float centreY = barArea_.getCentreY();
-    float halfH = barArea_.getHeight() * 0.45f;
+    // Mini-view is non-editable: the caller passes currentDisplayMax() and we use the
+    // full half-height, so the largest change reaches 100%. The editable overlay gets
+    // valueScaleMax_ (with headroom) + a smaller margin so bars can be dragged higher.
+    const float halfH = barArea_.getHeight() * (overlayMode_ ? 0.45f : 0.5f);
+    float clampedValue = juce::jlimit(-scaleMax, scaleMax, value);
+    return centreY - (clampedValue / scaleMax) * halfH;
+}
+
+float DimensionExplorer::yToValue(float y, float scaleMax) const
+{
+    float centreY = barArea_.getCentreY();
+    // Inverse of valueToY for the same mode/scale (drag is overlay-only).
+    const float halfH = barArea_.getHeight() * (overlayMode_ ? 0.45f : 0.5f);
     if (halfH < 1.0f) return 0.0f;
 
     float clampedY = juce::jlimit(barArea_.getY(), barArea_.getBottom(), y);
-    return -(clampedY - centreY) / halfH * valueScaleMax_;
+    return -(clampedY - centreY) / halfH * scaleMax;
 }
 
 // ── Paint ───────────────────────────────────────────────────────
@@ -410,6 +433,10 @@ void DimensionExplorer::paint(juce::Graphics& g)
     float barW = barArea_.getWidth() / static_cast<float>(numBars);
     float gapFrac = (barW > 3.0f) ? 0.15f : 0.0f;
 
+    // Overlay holds a stable, headroom-padded scale so dragged bars don't rescale the
+    // view mid-gesture; the non-editable mini-view fits the live extent to 100%.
+    const float scaleMax = overlayMode_ ? valueScaleMax_ : currentDisplayMax();
+
     for (int i = 0; i < numBars; ++i)
     {
         auto& bar = bars_[static_cast<size_t>(i)];
@@ -417,12 +444,12 @@ void DimensionExplorer::paint(juce::Graphics& g)
         float w = barW * (1.0f - gapFrac);
         const float finalActual = displayedActualValue(bar);
         const float finalOriented = orientedValue(bar, finalActual);
-        float topY = valueToY(finalOriented);
+        float topY = valueToY(finalOriented, scaleMax);
 
         if (hasBPrompt_)
         {
-            const float aY = valueToY(orientedValue(bar, bar.aValue));
-            const float bY = valueToY(orientedValue(bar, bar.bValue));
+            const float aY = valueToY(orientedValue(bar, bar.aValue), scaleMax);
+            const float bY = valueToY(orientedValue(bar, bar.bValue), scaleMax);
             g.setColour(kBarA.withAlpha(0.25f));
             g.drawHorizontalLine(juce::roundToInt(aY), x, x + w);
             g.setColour(kBarB.withAlpha(0.25f));
@@ -547,7 +574,7 @@ void DimensionExplorer::mouseDrag(const juce::MouseEvent& e)
 {
     if (dragBar_ < 0 || dragBar_ >= static_cast<int>(bars_.size())) return;
 
-    float newOrientedValue = yToValue(static_cast<float>(e.y));
+    float newOrientedValue = yToValue(static_cast<float>(e.y), valueScaleMax_);
     const bool paintMode = e.mods.isShiftDown();
     int targetBar = paintMode ? barAtX(static_cast<float>(e.x)) : dragBar_;
     if (targetBar < 0)
