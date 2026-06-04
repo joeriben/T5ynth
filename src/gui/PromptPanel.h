@@ -271,11 +271,6 @@ private:
     std::map<juce::String, float> lastGenAxes_;
     juce::String lastGenPromptA_;
     juce::String lastGenPromptB_;
-    // Prompt-translation cache (message-thread only, source-keyed so it
-    // self-invalidates on edit and is reused across drift regens): the last
-    // original text we translated and its English result, per A/B.
-    juce::String lastXlatedSrcA_, lastXlatedEnA_;
-    juce::String lastXlatedSrcB_, lastXlatedEnB_;
     double lastRegenTimeMs_ = 0.0; // for beat-based cooldown
     // Failure throttle: when a drift-driven auto-regen fails, gate further
     // attempts for a couple of seconds so a persistently broken backend
