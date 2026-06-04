@@ -47,7 +47,7 @@ AxesPanel::AxesPanel(juce::AudioProcessorValueTreeState& apvts)
         initSlot(slots[i], kEffectiveAxes, static_cast<int>(i));
 
     // Master amount: scales all axis deltas before they reach the backend.
-    amountLabel.setText("Amt", juce::dontSendNotification);
+    amountLabel.setText("Amount", juce::dontSendNotification);
     amountLabel.setColour(juce::Label::textColourId, kTextMuted);
     amountLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(amountLabel);
