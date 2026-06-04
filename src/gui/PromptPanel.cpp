@@ -844,6 +844,19 @@ void PromptPanel::resized()
         area.removeFromTop(gap);
     };
 
+    // Center the generation-param block in the free space below the divider
+    // instead of letting it hang off the prompt block. The info label stays
+    // pinned to the bottom. At the panel's preferred (minimum) height the slack
+    // is zero, so this lays out identically to before; any extra height is split
+    // evenly above and below the param block.
+    auto infoArea = area.removeFromBottom(gap + compactRowH);
+    {
+        const int paramsH = easy
+            ? (compactRowH + seedCtrlH + gap)
+            : ((compactRowH + compactCtrlH + gap) * 2 + compactRowH + seedCtrlH + gap);
+        area.removeFromTop(juce::jmax(0, area.getHeight() - paramsH) / 2);
+    }
+
     if (easy)
     {
         layoutEasyDurationSeedRow();
@@ -857,10 +870,9 @@ void PromptPanel::resized()
         layoutDurationSeedRow();
     }
 
-    // Info label at the bottom of the sequential layout
-    area.removeFromTop(gap);
+    // Info label pinned at the bottom of the panel
     setFs(infoLabel, f);
-    infoLabel.setBounds(area.removeFromTop(compactRowH));
+    infoLabel.setBounds(infoArea.removeFromBottom(compactRowH));
 }
 
 void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String& promptB,
