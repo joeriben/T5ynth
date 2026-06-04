@@ -321,6 +321,26 @@ static const KnownModel kKnownModels[] = {
       "Comfy-Org repository. By downloading you accept BOTH licenses and take\n"
       "responsibility for compliance. Copies are written into the model folder.", true, true,
       nullptr, 0, "t5gemma-b-b-ul2", kSa3SfxAssets, 2 },
+    // Optional prompt-translation LLM (NOT a generation engine). When enabled in
+    // PromptPanel, it translates an international prompt to English in the
+    // background before the audio model conditions on it (Stable Audio models are
+    // trained on English captions); the user's typed text is never changed.
+    // isGenerationEngine=false routes it through the plain HF tree-API download
+    // and keeps it out of the engine rows AND the backend-activation glue
+    // (onDownloadFinished). It installs to <model root>/translation/
+    // qwen2.5-1.5b-instruct, exactly where the backend auto-discovers it.
+    // Ungated, Apache-2.0, no HuggingFace account.
+    { "translation/qwen2.5-1.5b-instruct", "Prompt translation (Qwen2.5-1.5B)",
+      "Qwen/Qwen2.5-1.5B-Instruct", nullptr,
+      "https://www.apache.org/licenses/LICENSE-2.0",
+      "Qwen2.5-1.5B-Instruct is licensed under Apache License 2.0 (open, no "
+      "restrictions).\n\n"
+      "Optional helper: when you enable the EN toggle next to the prompt, it "
+      "translates your prompt to English in the background before the audio model "
+      "sees it. Your typed text is never changed. T5ynth does not provide the "
+      "weights; they download from HuggingFace (ungated, no account). By "
+      "downloading you accept the Apache 2.0 license.", true, false,
+      nullptr, 0 },
 };
 static constexpr int kNumKnownModels = sizeof(kKnownModels) / sizeof(kKnownModels[0]);
 
@@ -691,9 +711,36 @@ SettingsPage::SettingsPage()
     }
     // familyHeaders_ (text + rect) is rebuilt in resized() and consumed by paint().
 
+    // Optional prompt-translation section (separate area below the engine rows).
+    // Its model is auxiliary, so it has no ModelRow and never activates as an
+    // engine — clicking Download just sets activeOpModelId_ and runs the normal
+    // download path (which onDownloadFinished routes around the engine glue).
+    translationSectionLabel.setText("PROMPT TRANSLATION", juce::dontSendNotification);
+    translationSectionLabel.setColour(juce::Label::textColourId, kDimmer);
+    translationSectionLabel.setFont(juce::FontOptions(10.0f).withStyle("Bold"));
+    addAndMakeVisible(translationSectionLabel);
+
+    translationDescLabel.setText(
+        "Optional: translate prompts to English before generating; your typed "
+        "text stays unchanged. Toggle per prompt with the EN button.",
+        juce::dontSendNotification);
+    translationDescLabel.setColour(juce::Label::textColourId, kDim);
+    translationDescLabel.setFont(juce::FontOptions(11.0f));
+    translationDescLabel.setJustificationType(juce::Justification::topLeft);
+    translationDescLabel.setMinimumHorizontalScale(1.0f);  // wrap, don't shrink
+    addAndMakeVisible(translationDescLabel);
+
+    translationBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff2d6a4f));
+    translationBtn.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    translationBtn.onClick = [this] {
+        activeOpModelId_ = "translation/qwen2.5-1.5b-instruct";
+        startDownload();
+    };
+    addAndMakeVisible(translationBtn);
+
     auto found = scanForModel();
     if (found.exists()) modelPath = found;
-    updateStatus();
+    updateStatus();  // calls refreshAllRows() -> refreshTranslationRow()
 
     setSize(500, 480);
 }
@@ -2928,6 +2975,15 @@ void SettingsPage::onDownloadFinished(bool success, const juce::String& error)
     downloadCounter_.reset();
     downloadCancelFlag_.reset();
     refreshAllRows();  // downloading == false now -> re-enable row action buttons
+
+    // Capture whether this finished download targeted an AUXILIARY model (the
+    // optional translation LLM) before any branch below reads activeOpModelId_.
+    // Auxiliary models are never activated as an engine; we must restore engine
+    // focus afterward on BOTH success AND failure, so the engine-centric
+    // updateStatus() (called from later backend callbacks) never mistakes the
+    // aux model for a gated engine.
+    const bool activeWasAuxiliary = !selectedIsGenerationEngine();
+
     if (success) {
         downloadProgress = 1.0;
         progressBar.setVisible(false);
@@ -2946,10 +3002,22 @@ void SettingsPage::onDownloadFinished(bool success, const juce::String& error)
             }
         }
 
-        downloadStatusLabel.setText("Download complete. Starting backend...", juce::dontSendNotification);
-        downloadStatusLabel.setColour(juce::Label::textColourId, kDim);
-        auto found = scanForModel();
-        if (found.exists()) setModelPath(found);
+        if (selectedIsGenerationEngine())
+        {
+            downloadStatusLabel.setText("Download complete. Starting backend...", juce::dontSendNotification);
+            downloadStatusLabel.setColour(juce::Label::textColourId, kDim);
+            auto found = scanForModel();
+            if (found.exists()) setModelPath(found);
+        }
+        else
+        {
+            // Auxiliary model (the optional translation LLM): it has landed on
+            // disk where the backend auto-discovers it; it must NOT be activated
+            // as a generation engine (no setModelPath / backend restart). The
+            // engine-focus restore happens below, after the success/failure split.
+            downloadStatusLabel.setText(selectedModelDisplay() + " installed.", juce::dontSendNotification);
+            downloadStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xff4ade80));
+        }
     } else {
         downloadStatusLabel.setText("Download failed", juce::dontSendNotification);
         downloadStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xffef4444));
@@ -2957,6 +3025,13 @@ void SettingsPage::onDownloadFinished(bool success, const juce::String& error)
         setInstructionsText(instructionsLabel, error);
         progressBar.setVisible(false);
     }
+
+    // Restore engine focus after an auxiliary download (success OR failure), so
+    // the engine-centric detail strip / status logic doesn't describe the aux
+    // model (e.g. as a "gated" engine) on the next updateStatus().
+    if (activeWasAuxiliary)
+        activeOpModelId_ = kRowSpecs[0].id;
+
     resized();  // progress strip hidden again -> reclaim its space for the detail strip
 }
 
@@ -3044,6 +3119,36 @@ void SettingsPage::refreshAllRows()
 
         row->setState(installed, status, action, !busy);
     }
+
+    refreshTranslationRow();
+}
+
+bool SettingsPage::translationModelInstalled() const
+{
+    auto dir = getAppSupportModelDir("translation/qwen2.5-1.5b-instruct");
+    if (!dir.isDirectory())
+        return false;
+    // Mirror the backend's _is_local_transformers_model_dir gate: a config, a
+    // tokenizer, and weights (single or sharded). Qwen-1.5B ships a single
+    // model.safetensors; the index check future-proofs larger sharded models.
+    const bool hasConfig    = dir.getChildFile("config.json").existsAsFile();
+    const bool hasTokenizer = dir.getChildFile("tokenizer.json").existsAsFile();
+    const bool hasWeights   = dir.getChildFile("model.safetensors").existsAsFile()
+                           || dir.getChildFile("model.safetensors.index.json").existsAsFile();
+    return hasConfig && hasTokenizer && hasWeights;
+}
+
+void SettingsPage::refreshTranslationRow()
+{
+    const bool busy      = downloading.load() || modelInstallBusy_.load();
+    const bool installed = translationModelInstalled();
+    const bool active    = downloading.load()
+                        && activeOpModelId_ == "translation/qwen2.5-1.5b-instruct";
+    // setButtonText / setEnabled self-guard against no-op changes (no idle repaint).
+    translationBtn.setButtonText(installed ? "Installed"
+                                 : active   ? "Downloading"
+                                            : "Download");
+    translationBtn.setEnabled(!busy && !installed);
 }
 
 void SettingsPage::updateStatus()
@@ -3170,12 +3275,20 @@ void SettingsPage::resized()
     familyHeaders_.clear();
     const int headerH = 13;
     const int detailMin = 40;        // detail strip floor; grows on larger panels
+    // The optional translation section below the rows has a fixed vertical cost
+    // (top gap + small-caps header + a content row tall enough for the wrapped
+    // description). Reserve it in the row budget so the engine rows shrink to fit
+    // instead of pushing the section down INTO (and hiding) the detail strip.
+    // The host sizes this page from 300–500 px tall (MainPanel), so the rows MUST
+    // give up this space rather than overrun it.
+    const int transRowH  = 44;
+    const int transBandH = 8 + headerH + transRowH;
     int numHeaders = 0;
     for (int i = 0; i < kNumRowSpecs; ++i)
         if (kRowSpecs[i].familyHeader != nullptr) ++numHeaders;
 
     const int rowH = juce::jlimit(28, 44,
-        (area.getHeight() - numHeaders * headerH - detailMin)
+        (area.getHeight() - numHeaders * headerH - detailMin - transBandH)
             / juce::jmax(1, kNumRowSpecs));
 
     for (int i = 0; i < kNumRowSpecs && i < (int) rows_.size(); ++i)
@@ -3187,6 +3300,16 @@ void SettingsPage::resized()
         }
         rows_[(size_t) i]->setBounds(area.removeFromTop(rowH));
     }
+
+    // Optional prompt-translation section: a small-caps header + a wrapping
+    // description with a Download/Installed button on its right, between the
+    // engine rows and the shared detail strip.
+    area.removeFromTop(8);
+    translationSectionLabel.setBounds(area.removeFromTop(headerH));
+    auto transRow = area.removeFromTop(transRowH);
+    translationBtn.setBounds(transRow.removeFromRight(100).withSizeKeepingCentre(100, 26));
+    transRow.removeFromRight(8);
+    translationDescLabel.setBounds(transRow);
 
     area.removeFromTop(6);
     instructionsLabel.setFont(juce::FontOptions(11.5f));

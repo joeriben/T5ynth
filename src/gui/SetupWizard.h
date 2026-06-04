@@ -57,6 +57,13 @@ private:
     // the on-disk scan. Cheap and idempotent: each ModelRow caches its visual
     // state and only repaints on an actual change (idle-CPU safe).
     void refreshAllRows();
+    // Refresh the optional translation-model section's button text + enabled
+    // state from the on-disk install check. Called at the end of refreshAllRows().
+    void refreshTranslationRow();
+    // True iff the optional prompt-translation LLM is fully installed on disk
+    // (config.json + tokenizer.json + model weights — mirrors the backend's
+    // _is_local_transformers_model_dir gate).
+    bool translationModelInstalled() const;
     void timerCallback() override;
     void setModelInstallBusy(bool busy, const juce::String& statusText = {});
     juce::Result importModelDirectoryForId(const juce::String& modelId,
@@ -174,6 +181,16 @@ private:
     std::vector<std::unique_ptr<ModelRow>> rows_;
     struct FamilyHeader { juce::String text; juce::Rectangle<int> bounds; };
     std::vector<FamilyHeader> familyHeaders_;
+
+    // Optional prompt-translation section — a separate area below the engine
+    // rows (NOT a ModelRow). The model is an auxiliary asset, so it never
+    // activates as a generation engine; this section only downloads it onto disk
+    // where the backend auto-discovers it. Declared late (with the other leaf
+    // widgets) so translationBtn destructs before the shared members it doesn't
+    // depend on; its onClick only fires on user interaction, never at teardown.
+    juce::Label translationSectionLabel;
+    juce::Label translationDescLabel;
+    juce::TextButton translationBtn { "Download" };
 
     std::unique_ptr<juce::FileChooser> fileChooser;
 
