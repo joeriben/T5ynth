@@ -40,6 +40,16 @@ hidden += ['transformers.models.auto.modeling_auto']
 hidden += ['transformers.models.auto.tokenization_auto']
 hidden += ['transformers.utils.quantization_config']
 
+# Qwen2 = the optional prompt-translation model. AutoModelForCausalLM /
+# AutoTokenizer resolve transformers.models.qwen2.* dynamically BY NAME from
+# config.json/tokenizer_config.json, so PyInstaller's static analysis never sees
+# them. translate_prompt() also calls tokenizer.apply_chat_template(), which
+# renders a Jinja2 template; transformers gates that behind is_jinja_available()
+# (an importlib.metadata check), so jinja2's MODULE and its dist-info METADATA
+# (added below) must both ship or translation raises at runtime.
+hidden += collect_submodules('transformers.models.qwen2')
+hidden += collect_submodules('jinja2')
+
 # stable_audio_tools: keep the runtime inference/model-loading modules only.
 # The package also contains training/UI/data code that drags large optional
 # stacks into the frozen backend if we collect everything.
@@ -162,6 +172,9 @@ datas += copy_metadata('numpy')
 datas += copy_metadata('torchsde')
 datas += copy_metadata('accelerate')
 datas += copy_metadata('diffusers')
+# jinja2 metadata so transformers' is_jinja_available() detects it and
+# tokenizer.apply_chat_template() works in the frozen prompt translator.
+datas += copy_metadata('jinja2')
 # descript-audio-codec / descript-audiotools were transitive deps of the OLD
 # stable-audio-tools 0.0.19 pin and were copy_metadata()'d here. The current
 # backend/requirements.txt installs git-main stable-audio-tools, which demotes
