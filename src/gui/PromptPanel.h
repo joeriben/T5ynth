@@ -82,6 +82,9 @@ public:
 private:
     void timerCallback() override;
     void triggerGeneration();
+    /** Destructively translate the A/B prompt editors to English in place
+     *  (Union-Jack click). Blocking translate runs on a background thread. */
+    void translatePromptsInPlace();
     bool playNextCachedInference();
     void syncSeedEditorEnabledState();
     void syncSeedEditorFont(float size);
@@ -250,6 +253,7 @@ private:
     void syncInjectionModeAvailability();
 
     bool generating = false;
+    bool translatingPrompts_ = false;  // Union-Jack translate in flight (blocks IPC overlap)
     std::vector<std::pair<int, float>> pendingOffsets_;  // for DimensionExplorer
     std::map<juce::String, float> pendingAxes_;          // for SemanticAxes
 

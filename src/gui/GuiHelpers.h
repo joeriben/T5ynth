@@ -1023,11 +1023,13 @@ public:
 };
 
 /**
- * A toggle button drawn as a small Union Jack — replaces the "EN" text on the
- * prompt-translation toggle. Full saturation + a white ring when ON (translate
- * active); dimmed when OFF. A simplified-but-recognisable rendering (the red
- * saltire is centred on the white rather than counterchanged, which reads fine
- * at icon size). Toggle/click behaviour is the standard juce::Button machinery.
+ * A momentary action button drawn as a small Union Jack — replaces the "EN"
+ * text on the prompt-translation control. Clicking it translates the prompt
+ * text to English in place. Full saturation when enabled, dimmed while disabled
+ * (e.g. translation in flight); a white ring while pressed and a faint ring on
+ * hover for affordance. A simplified-but-recognisable rendering (the red saltire
+ * is centred on the white rather than counterchanged, which reads fine at icon
+ * size). Click behaviour is the standard juce::Button machinery.
  */
 class UnionJackButton : public juce::Button
 {
@@ -1040,7 +1042,7 @@ public:
         auto r = getLocalBounds().toFloat().reduced(1.0f);
         if (r.isEmpty()) return;
         const float corner = 2.0f;
-        const float a = getToggleState() ? 1.0f : 0.40f;  // dim when translation off
+        const float a = isEnabled() ? 1.0f : 0.40f;  // dim while disabled (translating)
 
         juce::Graphics::ScopedSaveState save(g);
         juce::Path clip;
@@ -1078,8 +1080,8 @@ public:
         g.fillRect(juce::Rectangle<float>(r.getCentreX() - cR * 0.5f, r.getY(), cR, h));
         g.fillRect(juce::Rectangle<float>(r.getX(), r.getCentreY() - cR * 0.5f, w, cR));
 
-        // State ring: solid white when active, faint on hover.
-        if (getToggleState())
+        // Affordance ring: solid white while pressed, faint on hover.
+        if (shouldDrawButtonAsDown)
         {
             g.setColour(juce::Colours::white.withAlpha(0.9f));
             g.drawRoundedRectangle(r, corner, 1.2f);
@@ -1089,6 +1091,5 @@ public:
             g.setColour(juce::Colours::white.withAlpha(0.45f));
             g.drawRoundedRectangle(r, corner, 1.0f);
         }
-        juce::ignoreUnused(shouldDrawButtonAsDown);
     }
 };

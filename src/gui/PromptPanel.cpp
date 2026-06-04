@@ -290,13 +290,12 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     addAndMakeVisible(randomSeedToggle);
     syncSeedEditorEnabledState();
 
-    // Translate toggle (session-only): when on, prompts are translated to
-    // English on the generation background thread before conditioning. The
-    // editors keep the user's original text; the English is never persisted.
-    // Rendered as a Union Jack (UnionJackButton self-colours by toggle state).
-    translateToggle.setTooltip("Translate prompts to English before generating (your original text is kept)");
-    translateToggle.setClickingTogglesState(true);
-    translateToggle.setToggleState(false, juce::dontSendNotification);
+    // Union-Jack translate: a momentary action button. Clicking it translates
+    // the A/B prompt editors to English in place (destructive — it replaces the
+    // text in the boxes). The blocking translate runs on a background thread.
+    translateToggle.setTooltip("Translate the prompts to English (replaces the text in the boxes)");
+    translateToggle.setClickingTogglesState(false);
+    translateToggle.onClick = [this] { translatePromptsInPlace(); };
     addAndMakeVisible(translateToggle);
 
     {
@@ -1739,9 +1738,75 @@ namespace
     }
 }
 
+void PromptPanel::translatePromptsInPlace()
+{
+    // Mutually exclusive with generation: one Python subprocess, one IPC pipe.
+    if (generating || translatingPrompts_) return;
+
+    if (!processorRef.isInferenceReady())
+    {
+        if (onStatusChanged) onStatusChanged("Backend not connected", false);
+        return;
+    }
+
+    const juce::String srcA = promptAEditor.getText();
+    const juce::String srcB = promptBEditor.getText();
+    const bool hasA = srcA.trim().isNotEmpty();
+    const bool hasB = srcB.trim().isNotEmpty();
+    if (!hasA && !hasB) return;  // nothing to translate
+
+    // Mirror the generation device (read the member directly — buildInferenceRequest()
+    // would move-out pendingOffsets_/pendingAxes_ as a side effect). Empty device →
+    // backend default; empty modelPath → backend auto-discovers the translation model.
+    const juce::String device = defaultInferenceDevice_;
+
+    translatingPrompts_ = true;
+    translateToggle.setEnabled(false);
+    generateButton.setEnabled(false);
+    if (onStatusChanged) onStatusChanged("translating...", true);
+
+    auto pipePtr = processorRef.getPipeInferencePtr();
+    juce::Component::SafePointer<PromptPanel> safeThis(this);
+    std::thread([safeThis, pipePtr, srcA, srcB, hasA, hasB, device]() mutable
+    {
+        PipeInference::TranslateResult ra, rb;
+        if (hasA) ra = pipePtr->translate(srcA, device);
+        if (hasB) rb = pipePtr->translate(srcB, device);
+
+        juce::MessageManager::callAsync([safeThis, hasA, hasB, ra, rb]()
+        {
+            auto* self = safeThis.getComponent();
+            if (self == nullptr) return;
+            self->translatingPrompts_ = false;
+            self->translateToggle.setEnabled(true);
+            self->generateButton.setEnabled(true);
+
+            juce::String err;
+            if (hasA)
+            {
+                if (ra.success && ra.text.isNotEmpty())
+                    self->promptAEditor.setText(ra.text, true);
+                else if (!ra.success && ra.errorMessage.isNotEmpty())
+                    err = ra.errorMessage;
+            }
+            if (hasB)
+            {
+                if (rb.success && rb.text.isNotEmpty())
+                    self->promptBEditor.setText(rb.text, true);
+                else if (!rb.success && rb.errorMessage.isNotEmpty() && err.isEmpty())
+                    err = rb.errorMessage;
+            }
+
+            if (self->onStatusChanged)
+                self->onStatusChanged(err.isNotEmpty() ? err
+                                                       : juce::String("translated to English"), false);
+        });
+    }).detach();
+}
+
 void PromptPanel::triggerGeneration()
 {
-    if (generating) return;
+    if (generating || translatingPrompts_) return;
 
     if (processorRef.isInferenceCacheFull())
     {
@@ -1854,7 +1919,7 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                                             float effectiveSplitEnd,
                                             bool /*holdForBar*/)
 {
-    if (generating) return;
+    if (generating || translatingPrompts_) return;
 
     lastGenAlpha_ = effectiveAlpha;
     lastGenNoise_ = effectiveNoise;
@@ -1967,7 +2032,7 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
 // ──────────────────────────────────────────────────────────────────────────────
 void PromptPanel::pollDriftRegen()
 {
-    if (generating) return;
+    if (generating || translatingPrompts_) return;
 
     int regenMode = processorRef.driftRegenMode.load(std::memory_order_relaxed);
     if (regenMode == 0) return; // Manual — no auto-regen
