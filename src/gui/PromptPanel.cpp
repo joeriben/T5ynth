@@ -370,6 +370,17 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
                     apvts.getParameter(PID::genCfg)->convertTo0to1(defaults.cfg));
                 syncInjectionModeAvailability();
 
+                // The Duration ceiling (SA3 -> 120s, else 11s) is pure UI: it
+                // reads the selected-model toggle and re-scopes the slider range
+                // without touching the inference backend, so it must apply
+                // unconditionally too. Otherwise switching to SA3 while drift
+                // auto-regen holds `generating` true leaves the slider stuck at
+                // the 11s ceiling. (The DiT-depth re-scope below DOES call
+                // getModelMetadata() on the PipeInference mutex and stays
+                // deferred under the guard; this duration call is a no-op repeat
+                // when refreshDitBlocksForCurrentModel() runs below.)
+                applyDurationRangeForCurrentModel();
+
                 // Everything below reaches into the inference backend, so it is
                 // deferred while a generation is in flight. refreshDitBlocks-
                 // ForCurrentModel() calls getModelMetadata(), which contends on
