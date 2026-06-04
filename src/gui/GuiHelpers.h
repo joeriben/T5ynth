@@ -61,6 +61,11 @@ static const auto kImpulseA     = kOscCol;                   // periwinkle #667e
 static const auto kImpulseAText = juce::Colour(0xff8A9BF7);  // lifted periwinkle for the A prompt text
 static const auto kImpulseB     = juce::Colour(0xffFFD23F);  // warm gold (complementary; less green than neon yellow)
 static const auto kImpulseMid   = juce::Colour(0xff3D4250);  // dark neutral-grey gradient pivot
+// Warm amber waypoint in the grey→gold (B) half of the blend. A straight RGB
+// lerp from the cool grey pivot to the gold passes through a dark desaturated
+// yellow that reads as olive/green; routing through this dark amber keeps the
+// transition warm (brown→gold) so the slider's lower half matches the gold text.
+static const auto kImpulseBWarm = juce::Colour(0xffA66A22);  // dark amber (B-half waypoint)
 
 /** Linear per-channel interpolation between two colours (t = 0→a, 1→b). */
 inline juce::Colour lerpColour(juce::Colour a, juce::Colour b, float t)
@@ -79,8 +84,11 @@ inline juce::Colour lerpColour(juce::Colour a, juce::Colour b, float t)
 inline juce::Colour abBlendColour(float t)
 {
     t = juce::jlimit(0.0f, 1.0f, t);
-    return t < 0.5f ? lerpColour(kImpulseA, kImpulseMid, t * 2.0f)
-                    : lerpColour(kImpulseMid, kImpulseB, (t - 0.5f) * 2.0f);
+    // A→grey for the lower half; grey→amber→gold for the upper half so the
+    // warm side never passes through olive (see kImpulseBWarm).
+    if (t < 0.5f)  return lerpColour(kImpulseA, kImpulseMid, t * 2.0f);
+    if (t < 0.75f) return lerpColour(kImpulseMid, kImpulseBWarm, (t - 0.5f) * 4.0f);
+    return lerpColour(kImpulseBWarm, kImpulseB, (t - 0.75f) * 4.0f);
 }
 
 /** Configure a label as an inverted section header bar (colored bg, dark text). */
@@ -992,6 +1000,7 @@ public:
         juce::ColourGradient grad(kImpulseA, cx, area.getY(),
                                   kImpulseB, cx, area.getBottom(), false);
         grad.addColour(0.5, kImpulseMid);
+        grad.addColour(0.75, kImpulseBWarm);  // warm the grey→gold half off the olive path
         juce::Path track;
         track.startNewSubPath(cx, area.getBottom());
         track.lineTo(cx, area.getY());
