@@ -21,6 +21,8 @@ import sys
 import time
 import logging
 import copy
+import gc
+from collections import OrderedDict
 from pathlib import Path
 
 
@@ -618,21 +620,198 @@ def _restore_hf_env(previous):
             os.environ[key] = value
 
 
-# ─── Lazy pipeline cache ──────────────────────────────────────────────
-_available_models = {}   # {name: Path}  — set in main()
-_loaded_pipelines = {}   # {(model, device): pipeline}
+# ─── Memory-budgeted pipeline cache (per device-pool LRU) ─────────────
+#
+# Pipelines are cached by (model, device) and reused across requests, but the
+# cache is BOUNDED, not unbounded: before loading a new pipeline, the least-
+# recently-used pipelines sharing the same memory pool are evicted (and their
+# device memory reclaimed) until the incoming model is predicted to fit a
+# budget. Without this, switching models keeps every model ever touched
+# resident at once — fatal on unified-memory Macs (MPS + CPU share one
+# 8-16 GB pool) where two fp32 models exceed RAM and the backend gets OOM-killed.
+#
+# Pools are device-aware because VRAM and host RAM are SEPARATE on discrete
+# GPUs: a CUDA pipeline occupies that GPU's VRAM, not system RAM, so it is
+# weighed against — and only ever evicts — other residents of the same VRAM
+# pool (live figure from torch.cuda.mem_get_info). On Apple Silicon, MPS and
+# CPU share one unified "system" pool sized from total physical RAM.
+_available_models = {}              # {name: Path}  — set in main()
+_loaded_pipelines = OrderedDict()   # {(model, device): pipeline}, LRU oldest-first
+_pipeline_bytes = {}                # {(model, device): resident bytes (measured/estimated)}
+
+
+def _env_float(name, default):
+    try:
+        value = float(os.environ.get(name, ""))
+        return value if value > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+# Fraction of total system RAM the unified/system pool may hold. Conservative:
+# the host DAW, the JUCE plugin and the OS draw from the same RAM.
+_SYSTEM_MEM_FRACTION = _env_float("T5YNTH_MEM_FRACTION", 0.70)
+# Multiplier on an incoming model's on-disk weight size to cover runtime
+# scratch (activations, latents, sampler state) not present on disk.
+_MEM_HEADROOM = 1.15
+_WEIGHT_SUFFIXES = (".safetensors", ".bin", ".ckpt", ".pt", ".pth")
+# When a model's on-disk size can't be read, assume it is large so the pool is
+# evicted conservatively rather than a model loaded blindly on top of residents.
+_DEFAULT_UNKNOWN_BYTES = 8 * 1024 ** 3
+
+
+def _total_system_ram():
+    """Total physical RAM in bytes, or 0 if undeterminable (→ single-resident)."""
+    try:
+        return os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+    except (ValueError, OSError, AttributeError):
+        pass
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            class _MS(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_uint32), ("dwMemoryLoad", ctypes.c_uint32),
+                            ("ullTotalPhys", ctypes.c_uint64), ("ullAvailPhys", ctypes.c_uint64),
+                            ("ullTotalPageFile", ctypes.c_uint64), ("ullAvailPageFile", ctypes.c_uint64),
+                            ("ullTotalVirtual", ctypes.c_uint64), ("ullAvailVirtual", ctypes.c_uint64),
+                            ("ullAvailExtendedVirtual", ctypes.c_uint64)]
+
+            status = _MS()
+            status.dwLength = ctypes.sizeof(_MS)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status))
+            return int(status.ullTotalPhys)
+        except Exception:
+            pass
+    return 0
+
+
+def _device_pool(device):
+    """Memory pool a device draws from. Discrete-GPU VRAM is its own pool;
+    MPS shares the unified 'system' pool with the CPU."""
+    if isinstance(device, str) and device.startswith("cuda"):
+        return device if ":" in device else "cuda:0"
+    return "system"
+
+
+def _estimate_model_bytes(model_dir):
+    """A-priori resident size: total bytes of weight files under model_dir."""
+    total = 0
+    try:
+        for path in Path(model_dir).rglob("*"):
+            if path.suffix.lower() in _WEIGHT_SUFFIXES and path.is_file():
+                total += path.stat().st_size
+    except OSError:
+        pass
+    return total
+
+
+def _incoming_bytes(model_dir):
+    """Pre-load size estimate, never 0 (a 0 would disable the budget check)."""
+    return _estimate_model_bytes(model_dir) or _DEFAULT_UNKNOWN_BYTES
+
+
+def _system_pool_used():
+    """Bytes held by the unified/system pool. Uses the LARGER of (a) the sum of
+    the cache's own tracked pipeline sizes — which drops deterministically as we
+    evict, so the eviction loop always makes progress — and (b) the live Metal-
+    driver figure, a ground-truth floor that also catches scratch, fragmentation
+    and the resident translator that the tracked sum omits. The driver figure is
+    only meaningful after empty_cache (it otherwise counts retained-but-free
+    blocks), which _make_room calls before every measurement."""
+    tracked = sum(b for k, b in _pipeline_bytes.items()
+                  if k in _loaded_pipelines and _device_pool(k[1]) == "system")
+    if torch.backends.mps.is_available():
+        return max(tracked, torch.mps.driver_allocated_memory())
+    return tracked
+
+
+def _can_fit(pool, need):
+    """True if `need` bytes can be loaded into `pool` within budget."""
+    want = need * _MEM_HEADROOM
+    if pool.startswith("cuda"):
+        try:
+            index = int(pool.split(":")[1])
+            free, _total = torch.cuda.mem_get_info(index)
+        except Exception:
+            return True  # cannot introspect VRAM → do not block the load
+        return free >= want
+    budget = _total_system_ram() * _SYSTEM_MEM_FRACTION
+    if budget <= 0:
+        return False  # unknown RAM → force eviction of all other residents
+    return _system_pool_used() + want <= budget
+
+
+def _reclaim(device):
+    """Return freed device memory to the allocator after dropping references."""
+    gc.collect()
+    if isinstance(device, str) and device.startswith("cuda") and torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    elif device == "mps" and torch.backends.mps.is_available():
+        torch.mps.empty_cache()
+        torch.mps.synchronize()
+
+
+def _evict_translators(pool):
+    """Drop cached prompt translators in `pool` — last resort before giving up
+    on freeing space for an audio model."""
+    for tkey in list(_translator_cache.keys()):
+        if _device_pool(tkey[1]) == pool:
+            _translator_cache.pop(tkey, None)
+            log.info(f"Evicting prompt translator on {tkey[1]} to free {pool} memory")
+            _reclaim(tkey[1])
+
+
+def _make_room(pool, device, need):
+    """Evict least-recently-used residents of `pool` until `need` bytes fit, or
+    nothing more in the pool can be evicted (then the caller loads anyway — a
+    single model on an otherwise-empty pool is the best that can be done)."""
+    _reclaim(device)  # drop retained-but-free blocks so the first reading is live
+    while not _can_fit(pool, need):
+        victim = next((k for k in _loaded_pipelines if _device_pool(k[1]) == pool), None)
+        if victim is None:
+            break
+        pipe = _loaded_pipelines.pop(victim)
+        _pipeline_bytes.pop(victim, None)
+        log.info(f"Evicting {victim[0]} on {victim[1]} to free {pool} memory "
+                 f"(need ~{need / 1e9:.1f} GB)")
+        del pipe
+        _reclaim(victim[1])
+    if not _can_fit(pool, need):
+        _evict_translators(pool)  # last resort: the translator shares this pool too
 
 
 def get_pipeline(model_name, device):
-    """Get or lazily load a pipeline for model+device."""
+    """Get or lazily load a pipeline for model+device. New loads first evict
+    LRU pipelines in the same memory pool so resident models stay in budget."""
     key = (model_name, device)
-    if key not in _loaded_pipelines:
-        if model_name not in _available_models:
-            raise ValueError(f"Unknown model: {model_name} (have: {list(_available_models.keys())})")
-        model_dir = _available_models[model_name]
-        log.info(f"Lazy-loading {model_name} on {device}...")
-        _loaded_pipelines[key] = load_pipeline(model_dir, device)
-    return _loaded_pipelines[key]
+    cached = _loaded_pipelines.get(key)
+    if cached is not None:
+        _loaded_pipelines.move_to_end(key)  # mark most-recently-used
+        return cached
+
+    if model_name not in _available_models:
+        raise ValueError(f"Unknown model: {model_name} (have: {list(_available_models.keys())})")
+    model_dir = _available_models[model_name]
+
+    need = _incoming_bytes(model_dir)
+    _make_room(_device_pool(device), device, need)
+
+    log.info(f"Lazy-loading {model_name} on {device}...")
+    on_mps = device == "mps" and torch.backends.mps.is_available()
+    used_before = torch.mps.driver_allocated_memory() if on_mps else 0
+    pipe = load_pipeline(model_dir, device)
+    if on_mps:
+        # Reclaim load scratch before measuring so the tracked size is the
+        # model's live footprint, not transient buffers empty_cache would free.
+        gc.collect()
+        torch.mps.empty_cache()
+        torch.mps.synchronize()
+        _pipeline_bytes[key] = max(torch.mps.driver_allocated_memory() - used_before, need)
+    else:
+        _pipeline_bytes[key] = need
+    _loaded_pipelines[key] = pipe  # inserted last = most-recently-used
+    return pipe
 
 
 def available_devices():
@@ -700,6 +879,10 @@ def _get_translator(model_dir, device):
     cached = _translator_cache.get(key)
     if cached is not None:
         return cached
+
+    # The translator draws from the same pool as the audio models; free space
+    # for it the same budgeted way (a later audio load may re-evict it).
+    _make_room(_device_pool(device), device, _incoming_bytes(model_dir))
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
