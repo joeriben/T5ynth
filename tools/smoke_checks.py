@@ -136,31 +136,52 @@ def check_init_startup_state() -> None:
     )
 
 
-def check_bundled_preset_collection() -> None:
-    preset_files = sorted((ROOT / "resources/presets").glob("*.t5p"))
-    require(len(preset_files) >= 30, "bundled preset collection should include the expanded preset set")
+def check_presets_not_bundled() -> None:
+    """Factory presets are no longer compiled into the binary.
 
+    Commit 4e970b77 ("build(presets): stop bundling factory presets into the
+    binary", shipped in v2.2.0-beta.0) dropped the ~120 MB offline bundle:
+    ``resources/presets/*.t5p``, the ``T5YNTH_FACTORY_PRESETS`` glob in
+    ``juce_add_binary_data``, and MainPanel's ``ensureBundledPresetsExist()``
+    launch-time extraction (which kept resurrecting stale preset versions).
+    Distribution moved to the on-demand public mirror
+    (joeriben/T5ynth-Presets), fetched via the Preset Manager's "Update
+    Library" button. This check guards that inversion so a refactor can't
+    silently re-bundle the collection — the predecessor check asserted the
+    opposite and has been failing on every clean checkout since the de-bundle.
+    """
+    # No .t5p bundle source may live in the tree any more.
+    preset_files = sorted((ROOT / "resources/presets").glob("*.t5p"))
+    require(
+        not preset_files,
+        f"factory presets must not be bundled; found {len(preset_files)} .t5p under resources/presets",
+    )
+
+    # CMake must not compile presets into BinaryData.
     cmake = read("CMakeLists.txt")
+    for token in ("T5YNTH_FACTORY_PRESETS", "resources/presets"):
+        require(token not in cmake, f"CMakeLists.txt must not bundle presets (found '{token}')")
+
+    # The on-demand replacement path must stay wired: an "Update Library" fetch
+    # control in the Preset Manager, plus a first-launch hint when the library
+    # is empty so users aren't left staring at an empty browser.
+    preset_manager = read("src/gui/PresetManagerPanel.h")
     contains_all(
-        cmake,
-        [
-            "T5YNTH_FACTORY_PRESETS",
-            "CONFIGURE_DEPENDS",
-            "${T5YNTH_FACTORY_PRESETS}",
-        ],
-        "CMake bundled preset glob",
+        preset_manager,
+        ['"Update Library"'],
+        "Preset Manager Update Library fetch button",
     )
 
     main = read("src/gui/MainPanel.cpp")
     contains_all(
         main,
         [
-            "BinaryData::namedResourceListSize",
-            "BinaryData::originalFilenames",
-            "BinaryData::getNamedResource(resourceName, size)",
-            'endsWithIgnoreCase(".t5p")',
+            "PresetFormat::getAllPresetFiles().isEmpty()",
+            "No Presets Found",
+            "Update Library",
+            "PresetUpdater",
         ],
-        "BinaryData preset mirroring",
+        "MainPanel empty-library hint and on-demand updater",
     )
 
 
@@ -176,7 +197,7 @@ def check_guide_mentions_controls() -> None:
             "AudioLDM2 is selected",
             "Shift</strong> while clicking or dragging",
             "Import Presets",
-            "Get from GitHub",
+            "Update Library",
         ],
         "guide coverage",
     )
@@ -189,7 +210,7 @@ def main() -> int:
         check_step_preview_requires_shift,
         check_computer_keyboard_note_off,
         check_init_startup_state,
-        check_bundled_preset_collection,
+        check_presets_not_bundled,
         check_guide_mentions_controls,
     ]
 
