@@ -50,15 +50,25 @@ public:
     static juce::File getAppSupportModelDir(const juce::String& modelId);
 
 private:
+    class ModelRow;   // defined below; forward-declared for activeRow()'s return type
+
     void browseForModel();
     void startDownload();
+    // The two halves of the Download action. scanDownloadsThenDownload() is the
+    // silent ~/Downloads pre-scan native-Stability models run first (import the
+    // exact files if the user already hand-fetched them; otherwise fall through);
+    // startRepoDownload() is the actual repo/mirror fetch — also the direct path
+    // for every other model and the target the pre-scan falls through to.
+    void scanDownloadsThenDownload();
+    void startRepoDownload();
     void updateStatus();
     // Recompute every engine row's installed-light / status / action button from
     // the on-disk scan. Cheap and idempotent: each ModelRow caches its visual
     // state and only repaints on an actual change (idle-CPU safe).
     void refreshAllRows();
-    // Refresh the optional translation-model section's button text + enabled
-    // state from the on-disk install check. Called at the end of refreshAllRows().
+    // Refresh the optional translation-model ROW (installed light / status /
+    // button, or download mode if its download is active) from the on-disk
+    // install check. Called at the end of refreshAllRows().
     void refreshTranslationRow();
     // True iff the optional prompt-translation LLM is fully installed on disk
     // (config.json + tokenizer.json + model weights — mirrors the backend's
@@ -109,6 +119,13 @@ private:
     // thread to piggyback on); the in-app SAO download chains t5-base inline.
     void startT5BaseChainDownload();
     void onDownloadFinished(bool success, const juce::String& error);
+    // Abort the in-flight download from the active row's Cancel button: signal the
+    // worker thread, stop the timer, and restore the rows (partial files are kept
+    // on disk so the next Download resumes). The thread exits silently.
+    void cancelDownload();
+    // The row whose download is in flight (matched by activeOpModelId_), across
+    // both the engine rows and the translation row. nullptr if none matches.
+    ModelRow* activeRow();
     static bool isLfsPointer(const juce::File& file);
     void cleanupBadFiles(const juce::File& dir);
 
@@ -145,20 +162,41 @@ private:
         void mouseDown(const juce::MouseEvent& e) override;
 
         // Update visual state; repaints only when something actually changed.
+        // Also exits download mode (restores the action button) if it was active.
         void setState(bool installed, const juce::String& statusText,
                       Action action, bool actionEnabled);
+
+        // Put the row into active-download mode: the action button turns into a
+        // Cancel button (fires onCancel) and paint() draws an inline progress
+        // meter along the row's foot in place of the separator. Idempotent.
+        void enterDownloadingState();
+        // Update the inline meter + live readout (e.g. "0.5/2.3 GB  ·  14 MB/s")
+        // while in download mode. Repaints only when the quantized fill or the
+        // readout text actually changes (idle-CPU safe even at 4 Hz).
+        void setDownloadProgress(double fraction, const juce::String& detail);
 
         const juce::String& modelId() const { return modelId_; }
 
         std::function<void(juce::String)> onAction;     // primary action button
+        std::function<void(juce::String)> onCancel;     // Cancel button (download mode)
         std::function<void(juce::String)> onOpenPage;   // right-click menu
         std::function<void(juce::String)> onBrowse;     // right-click menu
         std::function<void(juce::String)> onReveal;     // right-click menu (installed)
 
     private:
+        // Style the single action button as either the green primary action or
+        // the neutral Cancel affordance shown while this row is downloading.
+        void applyActionButtonStyle(bool downloadingStyle);
+
         juce::String modelId_, displayName_, sublabel_, statusText_;
         bool installed_ = false;
         Action action_ = Action::Download;
+        // Active-download overlay state (independent of the idle installed/status
+        // fields above so a finished/cancelled download cleanly restores them).
+        bool downloading_ = false;
+        double progress_ = 0.0;       // 0..1 fill fraction
+        int progressPermille_ = -1;   // last painted fill, in 0.1% steps (repaint gate)
+        juce::String detail_;         // live readout shown in the status slot
         juce::TextButton actionBtn_;
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ModelRow)
     };
@@ -168,12 +206,9 @@ private:
     juce::Label backendStatusLabel;        // separate footer line (backend state)
     juce::TextEditor instructionsLabel;    // shared detail strip: focused-model
                                            // info, manual-install steps, errors
-    juce::Label downloadStatusLabel;
+    juce::Label downloadStatusLabel;       // phase / terminal status line (footer)
     bool backendConnected = false;
     juce::String backendFailReason;
-
-    double downloadProgress = 0.0;
-    juce::ProgressBar progressBar { downloadProgress };
 
     // The five generation-engine rows (built in the constructor) plus the
     // family-header rects painted above each family's first row. Declared AFTER
@@ -182,15 +217,13 @@ private:
     struct FamilyHeader { juce::String text; juce::Rectangle<int> bounds; };
     std::vector<FamilyHeader> familyHeaders_;
 
-    // Optional prompt-translation section — a separate area below the engine
-    // rows (NOT a ModelRow). The model is an auxiliary asset, so it never
-    // activates as a generation engine; this section only downloads it onto disk
-    // where the backend auto-discovers it. Declared late (with the other leaf
-    // widgets) so translationBtn destructs before the shared members it doesn't
-    // depend on; its onClick only fires on user interaction, never at teardown.
-    juce::Label translationSectionLabel;
-    juce::Label translationDescLabel;
-    juce::TextButton translationBtn { "Download" };
+    // Optional prompt-translation row — visually identical to the engine rows
+    // (its own "PROMPT TRANSLATION" family header is drawn in paint()), but the
+    // model is an auxiliary asset: it never activates as a generation engine, so
+    // its installed-check uses translationModelInstalled() and onDownloadFinished
+    // routes around the engine-activation glue. Kept out of rows_ so the
+    // engine-row loop stays purely about generation engines.
+    std::unique_ptr<ModelRow> translationRow_;
 
     std::unique_ptr<juce::FileChooser> fileChooser;
 
@@ -208,8 +241,20 @@ private:
     // reads (decoupled from any UI widget). Set from a ModelRow's button/menu
     // callback the moment an action starts; defaults to the first row.
     juce::String activeOpModelId_;
+    // The model whose DOWNLOAD is in flight, captured at start. Distinct from
+    // activeOpModelId_ (which the right-click menu can re-point at another row to
+    // re-describe it in the detail strip): the inline progress meter must keep
+    // tracking the row that is actually downloading, never the focused one.
+    juce::String downloadModelId_;
     std::shared_ptr<std::atomic<int64_t>> downloadCounter_;
     std::shared_ptr<std::atomic<bool>> downloadCancelFlag_;
+
+    // Download-speed estimate for the active row's live readout, sampled in
+    // timerCallback (EMA-smoothed). lastTickMs_ == 0 marks "no baseline yet" so
+    // the first tick after a (re)start seeds without emitting a bogus spike.
+    int64_t lastTickBytes_ = 0;
+    double  lastTickMs_ = 0.0;
+    double  speedBytesPerSec_ = 0.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SettingsPage)
 };

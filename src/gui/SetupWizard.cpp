@@ -536,10 +536,25 @@ static constexpr int kNumRowSpecs = static_cast<int>(sizeof(kRowSpecs) / sizeof(
 SettingsPage::ModelRow::ModelRow(juce::String id, juce::String displayName, juce::String sublabel)
     : modelId_(std::move(id)), displayName_(std::move(displayName)), sublabel_(std::move(sublabel))
 {
-    actionBtn_.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff2d6a4f));
-    actionBtn_.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
-    actionBtn_.onClick = [this] { if (onAction) onAction(modelId_); };
+    applyActionButtonStyle(false);
+    // The single button is the primary action when idle and the Cancel button
+    // while this row's download is in flight; route by the current mode.
+    actionBtn_.onClick = [this] {
+        if (downloading_) { if (onCancel) onCancel(modelId_); }
+        else              { if (onAction) onAction(modelId_); }
+    };
     addAndMakeVisible(actionBtn_);
+}
+
+void SettingsPage::ModelRow::applyActionButtonStyle(bool downloadingStyle)
+{
+    // Green = the primary "Download" / "Get files" action. Neutral grey kBorder =
+    // the "Cancel" affordance while downloading — clearly not the go-action, and
+    // built from existing palette tokens (no ad-hoc hex). Text stays light.
+    actionBtn_.setColour(juce::TextButton::buttonColourId,
+                         downloadingStyle ? kBorder : juce::Colour(0xff2d6a4f));
+    actionBtn_.setColour(juce::TextButton::textColourOffId,
+                         downloadingStyle ? kTextPrimary : juce::Colours::white);
 }
 
 void SettingsPage::ModelRow::resized()
@@ -557,7 +572,11 @@ void SettingsPage::ModelRow::setState(bool installed, const juce::String& status
                       : action == Action::GetFiles ? "Get files..."
                                                     : nullptr;  // Installed -> no button
 
-    const bool sameVisual = (installed == installed_)
+    // Leaving download mode always needs a visual reset (button text/colour +
+    // dropping the meter), so it bypasses the same-visual short-circuit below.
+    const bool exitingDownload = downloading_;
+    const bool sameVisual = !exitingDownload
+                            && (installed == installed_)
                             && (statusText == statusText_)
                             && (action == action_);
     // Button enabled-state is cheap and has no repaint side-effect, so apply it
@@ -566,6 +585,15 @@ void SettingsPage::ModelRow::setState(bool installed, const juce::String& status
 
     if (sameVisual)
         return;
+
+    if (exitingDownload)
+    {
+        downloading_      = false;
+        progress_         = 0.0;
+        progressPermille_ = -1;
+        detail_.clear();
+        applyActionButtonStyle(false);   // restore the green primary styling
+    }
 
     installed_  = installed;
     statusText_ = statusText;
@@ -583,13 +611,60 @@ void SettingsPage::ModelRow::setState(bool installed, const juce::String& status
     repaint();
 }
 
+void SettingsPage::ModelRow::enterDownloadingState()
+{
+    if (downloading_)
+        return;                          // idempotent — refreshAllRows may re-call
+    downloading_      = true;
+    progress_         = 0.0;
+    progressPermille_ = -1;
+    detail_           = "Starting...";
+    applyActionButtonStyle(true);
+    actionBtn_.setButtonText("Cancel");
+    actionBtn_.setVisible(true);
+    actionBtn_.setEnabled(true);         // Cancel stays clickable while "busy"
+    repaint();
+}
+
+void SettingsPage::ModelRow::setDownloadProgress(double fraction, const juce::String& detail)
+{
+    if (!downloading_)
+        enterDownloadingState();         // defensive: timer may fire before refresh
+
+    const double f        = juce::jlimit(0.0, 1.0, fraction);
+    const int    permille = juce::roundToInt(f * 1000.0);  // 0.1% repaint quantum
+
+    bool changed = false;
+    if (permille != progressPermille_) { progressPermille_ = permille; progress_ = f; changed = true; }
+    if (detail != detail_)             { detail_ = detail;                            changed = true; }
+    if (changed)
+        repaint();
+}
+
 void SettingsPage::ModelRow::paint(juce::Graphics& g)
 {
     auto b = getLocalBounds();
 
-    // Thin bottom separator (flat, Ableton-like — no boxes around rows).
-    g.setColour(kBorder.withAlpha(0.45f));
-    g.drawHorizontalLine(b.getBottom() - 1, (float) b.getX() + 6.0f, (float) b.getRight() - 6.0f);
+    // Foot of the row: an inline progress meter while downloading (this row's own
+    // primary progress indicator), otherwise the thin Ableton-like separator.
+    {
+        const float x0 = (float) b.getX() + 6.0f;
+        const float x1 = (float) b.getRight() - 6.0f;
+        if (downloading_)
+        {
+            const float h = 3.0f;
+            const float y = (float) b.getBottom() - h - 1.0f;
+            g.setColour(kBorder.withAlpha(0.6f));
+            g.fillRect(x0, y, x1 - x0, h);
+            g.setColour(kAccent);
+            g.fillRect(x0, y, (x1 - x0) * (float) progress_, h);
+        }
+        else
+        {
+            g.setColour(kBorder.withAlpha(0.45f));
+            g.drawHorizontalLine(b.getBottom() - 1, x0, x1);
+        }
+    }
 
     auto r = b.reduced(6, 4);
 
@@ -606,11 +681,16 @@ void SettingsPage::ModelRow::paint(juce::Graphics& g)
     r.removeFromRight(100);  // action-button column (drawn by the child button)
     r.removeFromRight(8);
 
-    // Status text, right-aligned in the gap before the button column.
-    auto statusArea = r.removeFromRight(juce::jmin(120, r.getWidth() / 2));
-    g.setColour(installed_ ? kSeqCol : kDimmer);
-    g.setFont(juce::FontOptions(11.0f));
-    g.drawText(statusText_, statusArea, juce::Justification::centredRight, true);
+    // Status text (idle) or the live download readout (e.g. "0.5/2.3 GB · 14
+    // MB/s"), right-aligned before the button column. The readout needs more
+    // room than a short idle status, so its slot is wider.
+    const int statusW = downloading_ ? juce::jmin(190, r.getWidth() * 2 / 3)
+                                     : juce::jmin(120, r.getWidth() / 2);
+    auto statusArea = r.removeFromRight(statusW);
+    g.setColour(downloading_ ? kAccent : (installed_ ? kSeqCol : kDimmer));
+    g.setFont(juce::FontOptions(downloading_ ? 10.5f : 11.0f));
+    g.drawText(downloading_ ? detail_ : statusText_, statusArea,
+               juce::Justification::centredRight, true);
 
     // Name (bold) over a muted encoder sublabel.
     auto top = r.removeFromTop(r.getHeight() / 2 + 1);
@@ -669,10 +749,6 @@ SettingsPage::SettingsPage()
     downloadStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
     addAndMakeVisible(downloadStatusLabel);
 
-    progressBar.setColour(juce::ProgressBar::foregroundColourId, kAccent);
-    progressBar.setColour(juce::ProgressBar::backgroundColourId, kSurface);
-    addChildComponent(progressBar);  // hidden until download starts
-
     // Build the five fixed engine rows + remember each family's header text.
     // activeOpModelId_ tracks which row's action is in flight (the single source
     // selectedXxx() reads); it is set the moment a row button or menu fires.
@@ -705,38 +781,40 @@ SettingsPage::SettingsPage()
             auto dir = scanForModelById(id, m.hfRepo);
             if (dir.exists()) dir.revealToUser();
         };
+        row->onCancel = [this](juce::String) { cancelDownload(); };
 
         addAndMakeVisible(*row);
         rows_.push_back(std::move(row));
     }
     // familyHeaders_ (text + rect) is rebuilt in resized() and consumed by paint().
 
-    // Optional prompt-translation section (separate area below the engine rows).
-    // Its model is auxiliary, so it has no ModelRow and never activates as an
-    // engine — clicking Download just sets activeOpModelId_ and runs the normal
-    // download path (which onDownloadFinished routes around the engine glue).
-    translationSectionLabel.setText("PROMPT TRANSLATION", juce::dontSendNotification);
-    translationSectionLabel.setColour(juce::Label::textColourId, kDimmer);
-    translationSectionLabel.setFont(juce::FontOptions(10.0f).withStyle("Bold"));
-    addAndMakeVisible(translationSectionLabel);
-
-    translationDescLabel.setText(
-        "Optional: translate prompts to English before generating; your typed "
-        "text stays unchanged. Toggle per prompt with the EN button.",
-        juce::dontSendNotification);
-    translationDescLabel.setColour(juce::Label::textColourId, kDim);
-    translationDescLabel.setFont(juce::FontOptions(11.0f));
-    translationDescLabel.setJustificationType(juce::Justification::topLeft);
-    translationDescLabel.setMinimumHorizontalScale(1.0f);  // wrap, don't shrink
-    addAndMakeVisible(translationDescLabel);
-
-    translationBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff2d6a4f));
-    translationBtn.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
-    translationBtn.onClick = [this] {
-        activeOpModelId_ = "translation/qwen2.5-1.5b-instruct";
-        startDownload();
-    };
-    addAndMakeVisible(translationBtn);
+    // Optional prompt-translation row — same ModelRow widget as the engines (its
+    // "PROMPT TRANSLATION" family header is painted in paint()), but the model is
+    // auxiliary: clicking Download sets activeOpModelId_ and runs the normal
+    // download path, which onDownloadFinished routes around the engine glue. The
+    // longer explanation lives in the detail strip (updateStatus), exactly like
+    // the engines describe themselves there. No onBrowse — there is nothing to
+    // import by hand for this ungated auto-discovered helper.
+    {
+        const auto& tm = kKnownModels[catalogIndexForId("translation/qwen2.5-1.5b-instruct")];
+        translationRow_ = std::make_unique<ModelRow>("translation/qwen2.5-1.5b-instruct",
+                                                     tm.displayName,
+                                                     "translates prompts to English");
+        translationRow_->onAction = [this](juce::String id) {
+            activeOpModelId_ = id;
+            startDownload();
+        };
+        translationRow_->onCancel = [this](juce::String) { cancelDownload(); };
+        translationRow_->onOpenPage = [this](juce::String id) {
+            activeOpModelId_ = id;
+            juce::URL("https://huggingface.co/" + selectedHfRepo()).launchInDefaultBrowser();
+        };
+        translationRow_->onReveal = [](juce::String) {
+            auto dir = getAppSupportModelDir("translation/qwen2.5-1.5b-instruct");
+            if (dir.exists()) dir.revealToUser();
+        };
+        addAndMakeVisible(*translationRow_);
+    }
 
     auto found = scanForModel();
     if (found.exists()) modelPath = found;
@@ -965,6 +1043,11 @@ void SettingsPage::setModelPath(const juce::File& dir)
 
 void SettingsPage::browseForModel()
 {
+    // One operation at a time: a manual browse-import must not race an in-flight
+    // download or the silent Downloads pre-scan/import (both leave activeOpModelId_
+    // / modelPath / the busy flags in a state a concurrent import would corrupt).
+    if (modelInstallBusy_.load() || downloading.load())
+        return;
     fileChooser = std::make_unique<juce::FileChooser>(
         "Select model directory",
         modelPath.exists() ? modelPath : juce::File::getSpecialLocation(juce::File::userHomeDirectory),
@@ -1189,6 +1272,57 @@ static int countManifestFilesPresent(const juce::File& folder,
     return n;
 }
 
+// The native-Stability models whose files a user might have fetched by hand from
+// the model page into ~/Downloads (root model.safetensors [+ model_config.json]
+// [+ a t5gemma encoder subfolder]). For these — and only these — "Download" looks
+// in the Downloads folder first: diffusers (audioldm2) and the auxiliary encoders
+// have no single-checkpoint layout a user would hand-download, and fetchModelManifest
+// only describes the native-Stability layout anyway.
+static bool isNativeStabilityModel(const juce::String& modelId)
+{
+    return modelId == "stable-audio-open-1.0"
+        || modelId == "stable-audio-open-small"
+        || modelId == "stable-audio-3-small-music"
+        || modelId == "stable-audio-3-small-sfx";
+}
+
+// Cheap, network-free gate in front of the silent Downloads pre-scan: is there any
+// .safetensors in ~/Downloads at all? If not there is nothing to match, so the
+// Download action skips the manifest fetch entirely and starts the repo download
+// immediately — the common (empty-Downloads) case stays instant and truly silent.
+static bool downloadsHasModelCandidate()
+{
+    auto dl = getDownloadsFolder();
+    return dl.isDirectory()
+        && ! dl.findChildFiles(juce::File::findFiles, /*recursive*/ false, "*.safetensors").isEmpty();
+}
+
+// Side-effect-free completeness check: does `folder` already hold an exact match
+// (canonical name, browser-rename tolerant, EXACT manifest byte size) for EVERY
+// manifest entry? Mirrors installFromManifestFolder's staging WITHOUT touching any
+// UI, so the Download flow can decide "import locally vs. fetch from the repo"
+// silently — no checklist, no dialog, no picker — when the files aren't all there.
+static bool manifestCompleteInFolder(const juce::File& folder,
+                                     const std::vector<ManifestEntry>& manifest)
+{
+    if (manifest.empty() || ! folder.isDirectory())
+        return false;
+    for (const auto& e : manifest)
+    {
+        const auto base = e.relPath.fromLastOccurrenceOf("/", false, false);
+        auto cands = findRenameCandidates(folder, base);
+        auto exact = folder.getChildFile(e.relPath);   // structured-clone case
+        if (exact.existsAsFile())
+            cands.addIfNotAlreadyThere(exact);
+        bool sizeMatch = false;
+        for (auto& c : cands)
+            if (c.getSize() == e.size) { sizeMatch = true; break; }
+        if (! sizeMatch)
+            return false;
+    }
+    return true;
+}
+
 SettingsPage::InstallOutcome SettingsPage::installFromManifestFolder(
     const juce::File& sourceFolder,
     const juce::String& modelId,
@@ -1278,15 +1412,18 @@ SettingsPage::InstallOutcome SettingsPage::installFromManifestFolder(
 
     if (!complete)
     {
-        setInstructionsText(instructionsLabel, buildChecklist());
         if (reportIfMissing)
         {
+            setInstructionsText(instructionsLabel, buildChecklist());
             juce::AlertWindow::showMessageBoxAsync(
                 juce::MessageBoxIconType::InfoIcon,
                 modelDisplayName + " -- files still needed",
                 "Looked in:\n  " + sourceFolder.getFullPathName() + "\n\n" + buildChecklist());
             return InstallOutcome::AbortedWithDialog;
         }
+        // Silent caller (the Download pre-scan): leave the detail strip untouched
+        // so a fall-through to the repo download shows no stale "files needed"
+        // checklist. The caller decides what to do with NotInstalled.
         return InstallOutcome::NotInstalled;
     }
 
@@ -1460,13 +1597,7 @@ void SettingsPage::performAutoScan()
     //    additionally ships the t5gemma-b-b-ul2 text-encoder subfolder. All are
     //    driven by the live HF manifest the user pulls into ~/Downloads.
     auto modelId = selectedModelId();
-    const bool isNativeStabilityModel =
-        modelId == "stable-audio-open-small"
-        || modelId == "stable-audio-open-1.0"
-        || modelId == "stable-audio-3-small-music"
-        || modelId == "stable-audio-3-small-sfx";
-
-    if (!isNativeStabilityModel)
+    if (! isNativeStabilityModel(modelId))   // shared with the Download pre-scan
     {
         updateStatus();
         downloadStatusLabel.setText(
@@ -1591,14 +1722,81 @@ void SettingsPage::startDownload()
     }
     licenseAccepted_ = false;  // reset for next time
 
+    const auto modelId = selectedModelId();
+    // Native Stability models look in the Downloads folder FIRST: if the user has
+    // already hand-fetched the exact files (name + size) from the model page,
+    // import them and skip the multi-GB repo download. Silent by design — anything
+    // missing just falls through to the normal download, no dialog or picker. The
+    // cheap downloadsHasModelCandidate() gate keeps the empty-Downloads case
+    // instant (no manifest network call when there's obviously nothing to match).
+    if (isNativeStabilityModel(modelId) && downloadsHasModelCandidate())
+    {
+        scanDownloadsThenDownload();
+        return;
+    }
+
+    startRepoDownload();
+}
+
+void SettingsPage::scanDownloadsThenDownload()
+{
+    const auto modelId     = selectedModelId();
+    const auto hfRepo      = selectedHfRepo();
+    const auto encoderSub  = encoderSubfolderForModelId(modelId);
+    const auto displayName = selectedModelDisplay();
+
+    // The manifest fetch is a small tree-API call (not the weights), off the
+    // message thread. Buttons disable + a phase line shows while it runs.
+    setModelInstallBusy(true, "Checking your Downloads folder...");
+    juce::Component::SafePointer<SettingsPage> safeThis(this);
+    std::thread([safeThis, hfRepo, encoderSub, modelId, displayName]()
+    {
+        auto manifest = fetchModelManifest(hfRepo, encoderSub);
+        juce::MessageManager::callAsync([safeThis, manifest, modelId, displayName]()
+        {
+            auto* self = safeThis.getComponent();
+            if (self == nullptr) return;
+            self->setModelInstallBusy(false);
+            // Re-pin focus to the model whose Download was clicked: a right-click
+            // on another row during the check could have moved activeOpModelId_,
+            // and both branches below read it (installFromManifestFolder ->
+            // setModelPath, and startRepoDownload's selectedXxx()).
+            self->activeOpModelId_ = modelId;
+
+            auto downloads = getDownloadsFolder();
+            if (! manifest.empty() && manifestCompleteInFolder(downloads, manifest))
+            {
+                // Exact match already in Downloads → import locally; no network.
+                // installFromManifestFolder copies + activates (and setModelPath
+                // chains t5-base for the SAO engines just like a Browse import).
+                const auto outcome = self->installFromManifestFolder(
+                    downloads, modelId, displayName, manifest, /*reportIfMissing*/ false);
+                if (outcome == InstallOutcome::Installed
+                    || outcome == InstallOutcome::AbortedWithDialog)
+                    return;  // importing, or the duplicate-guard dialog was shown
+                // NotInstalled here means a file changed under us between the
+                // completeness check and the copy — fall through and fetch fresh.
+            }
+            // Not (fully) in Downloads → silent fall-through to the repo download.
+            self->startRepoDownload();
+        });
+    }).detach();
+}
+
+void SettingsPage::startRepoDownload()
+{
     auto ghRelease = selectedGhRelease();
 
     downloading = true;
-    refreshAllRows();  // downloading == true now -> all row action buttons disable
-    downloadStatusLabel.setColour(juce::Label::textColourId, kAccent);
-    progressBar.setVisible(true);
-    downloadProgress = 0.0;
-    resized();  // lay out the now-visible progress bar (setVisible does not re-layout)
+    downloadModelId_ = activeOpModelId_;   // pin the meter's target for this transfer
+    // Seed the speed sampler (lastTickMs_ == 0 => first timer tick only baselines).
+    lastTickBytes_ = 0;
+    lastTickMs_ = 0.0;
+    speedBytesPerSec_ = 0.0;
+    // The active row now carries the prominent progress meter; the footer line
+    // keeps only neutral phase text ("Fetching file list...", etc.), not pink.
+    refreshAllRows();  // downloading == true -> active row enters download mode, others disable
+    downloadStatusLabel.setColour(juce::Label::textColourId, kDim);
 
     auto modelId = selectedModelId();
 
@@ -2681,12 +2879,13 @@ void SettingsPage::startT5BaseChainDownload()
     totalBytes = total;
     downloadedBytes = 0;
     downloading = true;
-    progressBar.setVisible(true);
-    downloadProgress = 0.0;
+    downloadModelId_ = activeOpModelId_;   // the SAO engine being installed owns the meter
+    lastTickBytes_ = 0;
+    lastTickMs_ = 0.0;
+    speedBytesPerSec_ = 0.0;
     downloadStatusLabel.setText("Downloading text encoder...", juce::dontSendNotification);
-    downloadStatusLabel.setColour(juce::Label::textColourId, kAccent);
-    refreshAllRows();  // downloading == true now -> all row action buttons disable
-    resized();         // lay out the now-visible progress strip
+    downloadStatusLabel.setColour(juce::Label::textColourId, kDim);
+    refreshAllRows();  // downloading == true -> active (SAO) row enters download mode
     downloadCounter_ = std::make_shared<std::atomic<int64_t>>(0);
     downloadCancelFlag_ = std::make_shared<std::atomic<bool>>(false);
     startTimer(250);
@@ -2957,13 +3156,93 @@ void SettingsPage::downloadAllFilesInThread()
     }).detach();
 }
 
+// "done/total" sharing the larger unit (e.g. "0.5/2.3 GB" or "412/891 MB") for
+// the active row's live readout — compact enough for the row's status slot.
+static juce::String formatBytePair(int64_t done, int64_t total)
+{
+    const double tMb = (double) total / (1024.0 * 1024.0);
+    if (tMb < 1024.0)
+        return juce::String((double) done / (1024.0 * 1024.0), 0) + "/"
+             + juce::String(tMb, 0) + " MB";
+    return juce::String((double) done / (1024.0 * 1024.0 * 1024.0), 1) + "/"
+         + juce::String(tMb / 1024.0, 1) + " GB";
+}
+
+static juce::String formatSpeed(double bytesPerSec)
+{
+    const double mbs = bytesPerSec / (1024.0 * 1024.0);
+    if (mbs >= 1.0) return juce::String(mbs, 1) + " MB/s";
+    return juce::String(bytesPerSec / 1024.0, 0) + " KB/s";
+}
+
+SettingsPage::ModelRow* SettingsPage::activeRow()
+{
+    // Matches downloadModelId_ (the pinned transfer target), NOT activeOpModelId_:
+    // the right-click menu can re-point UI focus mid-download, but the meter must
+    // stay on the row that is actually downloading.
+    for (auto& r : rows_)
+        if (r->modelId() == downloadModelId_)
+            return r.get();
+    if (translationRow_ && translationRow_->modelId() == downloadModelId_)
+        return translationRow_.get();
+    return nullptr;
+}
+
 void SettingsPage::timerCallback()
 {
     if (!downloading) { stopTimer(); return; }
-    if (downloadCounter_)
-        downloadedBytes.store(downloadCounter_->load());
-    if (totalBytes > 0)
-        downloadProgress = static_cast<double>(downloadedBytes.load()) / static_cast<double>(totalBytes);
+
+    const int64_t total = totalBytes;
+    const int64_t done  = downloadCounter_ ? downloadCounter_->load() : downloadedBytes.load();
+    downloadedBytes.store(done);
+
+    // Speed: EMA of the per-tick byte delta. The first tick after a (re)start
+    // (lastTickMs_ == 0) only baselines, and an implausible jump — a skipped or
+    // locally-reused multi-GB file lands in a single tick — is dropped so the
+    // readout stays an honest transfer rate.
+    const double nowMs = juce::Time::getMillisecondCounterHiRes();
+    if (lastTickMs_ > 0.0)
+    {
+        const double dtSec = (nowMs - lastTickMs_) / 1000.0;
+        if (dtSec > 0.0)
+        {
+            const double inst = (double) (done - lastTickBytes_) / dtSec;  // bytes/s
+            if (inst >= 0.0 && inst < 1.5e9)
+                speedBytesPerSec_ = (speedBytesPerSec_ <= 0.0)
+                                  ? inst
+                                  : 0.6 * speedBytesPerSec_ + 0.4 * inst;
+        }
+    }
+    lastTickMs_    = nowMs;
+    lastTickBytes_ = done;
+
+    const double frac = total > 0
+        ? juce::jlimit(0.0, 1.0, (double) done / (double) total) : 0.0;
+
+    juce::String detail = (total > 0) ? formatBytePair(done, total)
+                                      : juce::String(done / (1024 * 1024)) + " MB";
+    if (speedBytesPerSec_ > 0.0)
+        detail += juce::String(juce::CharPointer_UTF8("  \xc2\xb7  ")) + formatSpeed(speedBytesPerSec_);
+
+    if (auto* row = activeRow())
+        row->setDownloadProgress(frac, detail);
+}
+
+void SettingsPage::cancelDownload()
+{
+    if (!downloading)
+        return;
+    if (downloadCancelFlag_)
+        downloadCancelFlag_->store(true);   // worker exits at its next chunk check
+    stopTimer();
+    downloading = false;
+    // Drop the shared handles; the detached worker holds its own copies and
+    // returns silently. Partial files stay on disk so the next Download resumes.
+    downloadCounter_.reset();
+    downloadCancelFlag_.reset();
+    updateStatus();   // refreshAllRows() (active row exits download mode) + detail strip
+    downloadStatusLabel.setText("Download cancelled.", juce::dontSendNotification);
+    downloadStatusLabel.setColour(juce::Label::textColourId, kDim);
 }
 
 void SettingsPage::onDownloadFinished(bool success, const juce::String& error)
@@ -2985,9 +3264,6 @@ void SettingsPage::onDownloadFinished(bool success, const juce::String& error)
     const bool activeWasAuxiliary = !selectedIsGenerationEngine();
 
     if (success) {
-        downloadProgress = 1.0;
-        progressBar.setVisible(false);
-
         // AudioLDM2 ships with GPT2Model in model_index.json but transformers >=4.45
         // removed GenerationMixin from PreTrainedModel — patch to GPT2LMHeadModel
         auto modelId = selectedModelId();
@@ -3023,7 +3299,6 @@ void SettingsPage::onDownloadFinished(bool success, const juce::String& error)
         downloadStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xffef4444));
         // Show full error in the multi-line instructions area
         setInstructionsText(instructionsLabel, error);
-        progressBar.setVisible(false);
     }
 
     // Restore engine focus after an auxiliary download (success OR failure), so
@@ -3047,7 +3322,6 @@ void SettingsPage::setBackendConnected(bool connected)
     {
         downloadStatusLabel.setText("Model active.", juce::dontSendNotification);
         downloadStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xff4ade80));
-        progressBar.setVisible(false);
     }
     updateStatus();
 }
@@ -3072,7 +3346,6 @@ void SettingsPage::setBackendFailed(const juce::String& reason)
     backendFailReason = reason;
     backendStatusLabel.setText("Backend: Start failed", juce::dontSendNotification);
     backendStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xffef4444));
-    progressBar.setVisible(false);
     downloadStatusLabel.setText("Activation failed: " + firstErrorLine(reason),
                                 juce::dontSendNotification);
     downloadStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xffef4444));
@@ -3088,6 +3361,16 @@ void SettingsPage::refreshAllRows()
     for (auto& row : rows_)
     {
         const auto id = row->modelId();
+
+        // The row whose download is in flight owns its own visuals (inline meter
+        // + Cancel button), driven by the timer — leave it in download mode. Keyed
+        // on downloadModelId_ so a mid-download focus change can't move it.
+        if (downloading.load() && id == downloadModelId_)
+        {
+            row->enterDownloadingState();
+            continue;
+        }
+
         const auto& km = kKnownModels[catalogIndexForId(id)];
         auto dir = scanForModelById(id, km.hfRepo);
         const bool installed = dir.exists() && modelHasRequiredAuxAssets(id, dir);
@@ -3098,13 +3381,6 @@ void SettingsPage::refreshAllRows()
         {
             action = ModelRow::Action::Installed;
             status = "Installed";
-        }
-        else if (downloading.load() && id == activeOpModelId_)
-        {
-            // The row whose download is in flight: keep its (disabled) button so
-            // the column stays aligned, but say what's happening.
-            action = km.downloadable ? ModelRow::Action::Download : ModelRow::Action::GetFiles;
-            status = "Downloading...";
         }
         else if (km.downloadable)
         {
@@ -3140,15 +3416,24 @@ bool SettingsPage::translationModelInstalled() const
 
 void SettingsPage::refreshTranslationRow()
 {
+    if (translationRow_ == nullptr)
+        return;
     const bool busy      = downloading.load() || modelInstallBusy_.load();
     const bool installed = translationModelInstalled();
-    const bool active    = downloading.load()
-                        && activeOpModelId_ == "translation/qwen2.5-1.5b-instruct";
-    // setButtonText / setEnabled self-guard against no-op changes (no idle repaint).
-    translationBtn.setButtonText(installed ? "Installed"
-                                 : active   ? "Downloading"
-                                            : "Download");
-    translationBtn.setEnabled(!busy && !installed);
+
+    // Mirror the engine rows: the active download owns its own visuals (inline
+    // meter + Cancel); otherwise show the idle Installed / Download state. The
+    // auxiliary model is always "downloadable", so it never shows a Gated state.
+    if (downloading.load() && downloadModelId_ == "translation/qwen2.5-1.5b-instruct")
+    {
+        translationRow_->enterDownloadingState();
+        return;
+    }
+    translationRow_->setState(installed,
+                              installed ? "Installed" : "Not installed",
+                              installed ? ModelRow::Action::Installed
+                                        : ModelRow::Action::Download,
+                              !busy);
 }
 
 void SettingsPage::updateStatus()
@@ -3168,6 +3453,26 @@ void SettingsPage::updateStatus()
     const auto hfRepo    = selectedHfRepo();
     const auto display   = selectedModelDisplay();
     const auto targetPath = getAppSupportModelDir(id).getFullPathName();
+
+    // The optional translation helper is auxiliary (not a generation engine): it
+    // has its own install gate and never activates a backend, so describe it on
+    // its own terms rather than running the engine installed/active logic below.
+    if (id == "translation/qwen2.5-1.5b-instruct")
+    {
+        if (translationModelInstalled())
+            setInstructionsText(instructionsLabel,
+                display + " is installed. Enable it per prompt with the EN button "
+                "next to the prompt; your typed text is never changed.");
+        else
+            setInstructionsText(instructionsLabel,
+                "Optional helper -- translates your prompt to English in the "
+                "background before the audio model sees it (Stable Audio models are "
+                "trained on English captions); your typed text is never changed. "
+                "Toggle it per prompt with the EN button. Ungated, Apache-2.0, no "
+                "HuggingFace account.\n  Target: " + targetPath);
+        return;
+    }
+
     auto dir = scanForModelById(id, hfRepo);
     const bool installed = dir.exists() && modelHasRequiredAuxAssets(id, dir);
 
@@ -3254,35 +3559,26 @@ void SettingsPage::resized()
     backendStatusLabel.setBounds(area.removeFromBottom(20));
     area.removeFromBottom(4);
 
-    // Status / progress strip — ALWAYS reserved. downloadStatusLabel carries
-    // messages on idle paths too ("Download complete...", "Model active.",
-    // "Activation failed: ...", "Model imported: ...") that are set WITHOUT a
-    // following resized(), so the label must always have real bounds or those
-    // messages vanish. The progress bar shares the strip's right third only while
-    // a download runs (startDownload/startT5BaseChainDownload call resized() to
-    // make it appear; onDownloadFinished to hide it).
-    auto progressRow = area.removeFromBottom(18);
-    if (progressBar.isVisible())
-    {
-        progressBar.setBounds(progressRow.removeFromRight(progressRow.getWidth() / 3));
-        progressRow.removeFromRight(6);
-    }
+    // Status strip — ALWAYS reserved. downloadStatusLabel carries phase and
+    // terminal messages ("Fetching file list...", "Download complete...", "Model
+    // active.", "Activation failed: ...", "Download cancelled.") that are set
+    // WITHOUT a following resized(), so the label must always have real bounds or
+    // those messages vanish. Live download PROGRESS lives in the active row's
+    // inline meter, not here.
     downloadStatusLabel.setFont(juce::FontOptions(11.0f));
-    downloadStatusLabel.setBounds(progressRow);
+    downloadStatusLabel.setBounds(area.removeFromBottom(18));
     area.removeFromBottom(4);
 
     // Middle band = family headers + five engine rows + a shared detail strip.
     familyHeaders_.clear();
     const int headerH = 13;
     const int detailMin = 40;        // detail strip floor; grows on larger panels
-    // The optional translation section below the rows has a fixed vertical cost
-    // (top gap + small-caps header + a content row tall enough for the wrapped
-    // description). Reserve it in the row budget so the engine rows shrink to fit
-    // instead of pushing the section down INTO (and hiding) the detail strip.
-    // The host sizes this page from 300–500 px tall (MainPanel), so the rows MUST
-    // give up this space rather than overrun it.
-    const int transRowH  = 44;
-    const int transBandH = 8 + headerH + transRowH;
+    // The optional translation row below the engines has a fixed vertical cost
+    // (top gap + its "PROMPT TRANSLATION" header + one engine-height row). Reserve
+    // it in the row budget so the engine rows shrink to fit instead of pushing the
+    // row down INTO (and hiding) the detail strip. The host sizes this page from
+    // 300–500 px tall (MainPanel), so the rows MUST give up this space.
+    const int transBandH = 8 + headerH + 44;   // 44 = max engine rowH (upper bound)
     int numHeaders = 0;
     for (int i = 0; i < kNumRowSpecs; ++i)
         if (kRowSpecs[i].familyHeader != nullptr) ++numHeaders;
@@ -3301,15 +3597,16 @@ void SettingsPage::resized()
         rows_[(size_t) i]->setBounds(area.removeFromTop(rowH));
     }
 
-    // Optional prompt-translation section: a small-caps header + a wrapping
-    // description with a Download/Installed button on its right, between the
+    // Optional prompt-translation row: its own "PROMPT TRANSLATION" family header
+    // (painted like the engine headers) + one engine-height ModelRow, between the
     // engine rows and the shared detail strip.
     area.removeFromTop(8);
-    translationSectionLabel.setBounds(area.removeFromTop(headerH));
-    auto transRow = area.removeFromTop(transRowH);
-    translationBtn.setBounds(transRow.removeFromRight(100).withSizeKeepingCentre(100, 26));
-    transRow.removeFromRight(8);
-    translationDescLabel.setBounds(transRow);
+    {
+        auto hr = area.removeFromTop(headerH);
+        familyHeaders_.push_back({ "PROMPT TRANSLATION", hr });
+    }
+    if (translationRow_ != nullptr)
+        translationRow_->setBounds(area.removeFromTop(rowH));
 
     area.removeFromTop(6);
     instructionsLabel.setFont(juce::FontOptions(11.5f));
