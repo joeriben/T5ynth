@@ -14,6 +14,11 @@
  * Written from scratch against the standard ZDF-ladder derivation and Surge's
  * documented saturation curves — no code copied.
  *
+ * Feedback resolution: like MoogLadderFilter, the resonance loop is solved
+ * within the sample — u = (x − kEff·S)/(1 + kEff·G), kEff = k·kStyleScale — so
+ * there is no unit-delay over-resonance at high cutoff. (Earlier revisions used
+ * a delayed y4 + half-sample input averaging; both are gone.)
+ *
  * Each one-pole stage is a TPT (topology-preserving transform) integrator:
  *   v = (x − s) × g / (1 + g)
  *   y = v + s
@@ -61,7 +66,6 @@ public:
     {
         s1 = s2 = s3 = s4 = 0.0f;
         y1 = y2 = y3 = y4 = 0.0f;
-        xPrev = 0.0f;
     }
 
     void setCutoff(float hz)
@@ -100,23 +104,32 @@ public:
         if (currentMix < 0.001f)
             return input;
 
-        // Pre-filter gain + half-sample input-delay compensation. Even though
-        // this ZDF formulation doesn't *need* the half-sample trick for
-        // stability (it's already zero-delay), averaging input with its previous
-        // value notably reduces the numerical discontinuity at high resonance
-        // when the feedback signal crosses through the style saturation.
-        const float hot    = input * inDrive;
-        const float halfIn = 0.5f * (hot + xPrev);
-        xPrev = hot;
+        // Pre-filter gain. The ZDF reformulation resolves the resonance loop
+        // within the sample (below), so the old half-sample input averaging is
+        // gone — there is no unit delay left to compensate.
+        const float hot = input * inDrive;
 
-        // Feedback is linear on y4, style-scaled so resonance "strength" is
-        // consistent across saturation curves (see kStyleScale). Wrapping the
-        // feedback tap in a sat(·) would cap loop gain at k·1 and throttle
-        // the resonant peak — character and stability instead come from the
-        // per-stage style saturation on each stage's input, where bounding
-        // the internal state keeps the ZDF loop well-behaved.
-        const float fb = k * kStyleScale * y4;
-        y1 = tptStep(s1, sat(halfIn - fb, currentStyle));
+        // ── Zero-delay feedback resolution ──
+        // Close the resonance loop within this sample from the current TPT
+        // states, exactly as in MoogLadderFilter: G = G1⁴, S = Σ G1^(4-i)·z_i
+        // with z_i = (1−G1)·s_i, and u = (hot − kEff·S)/(1 + kEff·G). The
+        // feedback gain is kEff = k·kStyleScale so resonance "strength" stays
+        // consistent across saturation curves. No delayed y4 ⇒ no cutoff-
+        // dependent over-resonance: the previous delayed-feedback structure
+        // spiked toward self-oscillation at high cutoff even for moderate r.
+        // Character + bounding still come from the per-style sat() in the
+        // forward pass.
+        const float kEff = k * kStyleScale;
+        const float G1 = gFrac;
+        const float z1 = (1.0f - G1) * s1;
+        const float z2 = (1.0f - G1) * s2;
+        const float z3 = (1.0f - G1) * s3;
+        const float z4 = (1.0f - G1) * s4;
+        const float G  = G1 * G1 * G1 * G1;
+        const float S  = (G1 * G1 * G1) * z1 + (G1 * G1) * z2 + G1 * z3 + z4;
+        const float u  = (hot - kEff * S) / (1.0f + kEff * G);  // denom ≥ 1 ⇒ stable
+
+        y1 = tptStep(s1, sat(u,  currentStyle));
         y2 = tptStep(s2, sat(y1, currentStyle));
         y3 = tptStep(s3, sat(y2, currentStyle));
         y4 = tptStep(s4, sat(y3, currentStyle));
@@ -129,11 +142,11 @@ public:
         s3 += antiDenormal;  s3 -= antiDenormal;
         s4 += antiDenormal;  s4 -= antiDenormal;
 
-        // Tap gain offsets the cos(ω/2) attenuation of the half-sample input
-        // averaging so the Warp sits at roughly the same level as the SVF on
-        // broadband material.
-        constexpr float kTapComp = 1.20f;
-        const float wet = tapOutput(hot) * kTapComp;
+        // Flat output makeup for level parity with the SVF and the Ladder
+        // (matches MoogLadderFilter's kOutComp). Flat ⇒ peak/passband ratio
+        // unchanged; purely a loudness match.
+        constexpr float kOutComp = 1.20f;
+        const float wet = tapOutput(hot) * kOutComp;
 
         if (currentMix > 0.999f)
             return wet;
@@ -177,23 +190,30 @@ private:
         }
     }
 
-    // Per-style resonance scaling. The effective loop gain at the resonance
-    // frequency is proportional to the product of four sat'(·) values at the
-    // stages' operating points plus the feedback coefficient. Styles whose
+    // Per-style resonance scaling: evens out perceived "resonance strength"
+    // across saturation curves so every style reaches edge-of-self-oscillation
+    // at r ≈ 0.95 (matching Tanh) and stays tame at low r. Styles whose
     // derivative near zero is higher (Sin = π/2) reach self-oscillation at a
-    // lower nominal k than styles whose derivative rolls off fast (SoftClip).
-    // These multipliers were tuned by ear so r = 1 gives a clear ring / edge-
-    // of-self-oscillation on every style and r ≈ 0.25 stays tame on Sin.
+    // lower nominal k; styles whose derivative rolls off fast saturate earlier.
+    //
+    // RECALIBRATED for the zero-delay-feedback loop. The old values were tuned
+    // for the previous delayed-feedback structure, whose loop gain was lower;
+    // the true-ZDF loop is more effective, so the old scales self-oscillated far
+    // too early (measured onsets: SoftClip r=0.71, OJD 0.86, Sin 0.24, Asym
+    // never). These values were set by bisecting each style's measured self-
+    // oscillation onset to r ≈ 0.93 (slightly below 1 so it still rings at
+    // nominal level, where saturation raises the effective threshold). Final
+    // fine-tuning is by ear against the acceptance matrix.
     static float resonanceScaleForStyle(int style)
     {
         switch (style)
         {
-            case 0: return 1.00f;  // Tanh — reference
-            case 1: return 1.35f;  // SoftClip — slope drops fastest, needs more k
-            case 2: return 1.10f;  // OJD — slightly softer than Tanh
-            case 3: return 0.65f;  // Sin — slope π/2 at zero, ring is naturally strong
-            case 4: return 1.00f;  // Digital — linear up to ±1, same as Tanh there
-            case 5: return 1.00f;  // Asym — behaves like Tanh near zero after bias
+            case 0: return 1.00f;  // Tanh — reference (onset r≈0.95)
+            case 1: return 1.04f;  // SoftClip
+            case 2: return 1.02f;  // OJD
+            case 3: return 0.17f;  // Sin — π/2 slope at zero rings hardest, needs least k
+            case 4: return 1.02f;  // Digital
+            case 5: return 1.31f;  // Asym — bias lowers effective gain, needs most k
         }
         return 1.0f;
     }
@@ -260,7 +280,6 @@ private:
 
     float s1 = 0.0f, s2 = 0.0f, s3 = 0.0f, s4 = 0.0f;
     float y1 = 0.0f, y2 = 0.0f, y3 = 0.0f, y4 = 0.0f;
-    float xPrev = 0.0f;
 
     float g     = 0.0f;
     float gFrac = 0.0f;
