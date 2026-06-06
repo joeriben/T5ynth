@@ -149,9 +149,15 @@ public:
         s3 += antiDenormal;  s3 -= antiDenormal;
         s4 += antiDenormal;  s4 -= antiDenormal;
 
-        // No tap compensation: the old 1.20× makeup offset the half-sample
-        // input-averaging FIR, which this ZDF formulation no longer uses.
-        const float wet = tapOutput(hot);
+        // Flat output makeup for level parity with the SVF and the prior
+        // (delayed-feedback) Ladder. The ZDF reformulation dropped the half-
+        // sample averaging, so its old 1.20× tap-comp purpose (offsetting the
+        // cos(ω/2) FIR loss) is gone — but the measured deep-passband level now
+        // sits ~1.5 dB below the previous Ladder, which users A/B against. This
+        // makeup is a *flat* gain: it scales peak and passband equally, so the
+        // resonance prominence is unchanged — purely a loudness match.
+        constexpr float kOutComp = 1.20f;
+        const float wet = tapOutput(hot) * kOutComp;
 
         if (currentMix > 0.999f)
             return wet;
