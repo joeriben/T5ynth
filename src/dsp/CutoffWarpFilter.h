@@ -89,6 +89,7 @@ public:
     {
         currentStyle = juce::jlimit(0, 5, style);
         kStyleScale  = resonanceScaleForStyle(currentStyle);
+        kStyleLevel  = levelCompForStyle(currentStyle);
     }
 
     // Input gain feeds the ZDF loop's style-selected saturations. No output
@@ -146,7 +147,7 @@ public:
         // (matches MoogLadderFilter's kOutComp). Flat ⇒ peak/passband ratio
         // unchanged; purely a loudness match.
         constexpr float kOutComp = 1.20f;
-        const float wet = tapOutput(hot) * kOutComp;
+        const float wet = tapOutput(hot) * kOutComp * kStyleLevel;
 
         if (currentMix > 0.999f)
             return wet;
@@ -218,6 +219,37 @@ private:
         return 1.0f;
     }
 
+    // Per-style output loudness makeup, applied as a FLAT gain on the wet tap
+    // (on top of kOutComp). Without it, switching styles jumps the level hard:
+    // each saturation curve has a different small-/medium-signal throughput, so
+    // at the same input two styles differ by up to ~18 dB (Sin's π/2 slope rings
+    // +12.7 dB above Tanh; SoftClip's soft knee sits −5.1 dB below it).
+    //
+    // Values are Tanh/style measured at the cleanest reference — resonance 0,
+    // no drive, nominal input (0.25) — via the offline RMS harness. That comp is
+    // exactly constant across cutoff (verified 1–8 kHz), so a flat scalar is the
+    // right tool. It is NOT constant across drive or self-oscillation: a flat
+    // gain cannot also equalise the *large-signal* output of nonlinear curves
+    // (a hard clip is genuinely louder than a soft fold when slammed; a strong
+    // limit cycle is louder than a weak one). Those residual differences are the
+    // saturators' intrinsic drive/self-osc character and are left intact —
+    // equalising them would need a drive-dependent gain that flattens the very
+    // thing that distinguishes the styles when pushed. This makeup removes the
+    // gross baseline jump; it does not (and should not) null the drive character.
+    static float levelCompForStyle(int style)
+    {
+        switch (style)
+        {
+            case 0: return 1.000f; // Tanh — reference
+            case 1: return 1.797f; // SoftClip — +5.1 dB (soft knee → quiet)
+            case 2: return 1.076f; // OJD — +0.6 dB
+            case 3: return 0.233f; // Sin — −12.7 dB (π/2 slope → loud)
+            case 4: return 0.990f; // Digital — ≈0 dB
+            case 5: return 1.270f; // Asym — +2.1 dB
+        }
+        return 1.0f;
+    }
+
     // Thermal-voltage scale for the Tanh style's saturation. Vt = 0.5 reduces
     // `satStage` to plain tanh; raising Vt widens the per-stage ceiling to
     // ±2·Vt and therefore the allowed swing of the feedback tap, which is
@@ -285,6 +317,7 @@ private:
     float gFrac = 0.0f;
     float k     = 0.0f;
     float kStyleScale = 1.0f;
+    float kStyleLevel = 1.0f;   // per-style flat output makeup (levelCompForStyle)
     float inDrive = 1.0f;
     float lastCutoff = 20000.0f;
     float lastReso   = 0.0f;
