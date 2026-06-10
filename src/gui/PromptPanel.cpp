@@ -1805,7 +1805,7 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
             //
             // VALIDATED empirically by the 20-iteration feedback-loop sweep
             // (tools/test_resynth_loop.py; full writeup in
-            // tools/resynth_loop_out/CALIBRATION_FINDINGS.md). On
+            // tools/RESYNTH_CALIBRATION_FINDINGS.md). On
             // stable-audio-3-small-music the loop CONVERGES at every sigma:
             //   - Full (sigma 0.05): max self-resynthesis. The output morphs into
             //     a related-but-distinct member of the prompt family and settles
