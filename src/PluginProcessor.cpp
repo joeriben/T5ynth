@@ -437,7 +437,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // feeds the last raw generation back as the denoise seed so each render evolves
     // from the previous one, and 1 = full effect (output follows the fed-back
     // source most strongly). buildInferenceRequest maps the amount onto SA3's
-    // MEASURED useful init_noise band (0.30..0.05); 0 sends no init_audio at all.
+    // MEASURED useful init_noise band (0.48..0.05); 0 sends no init_audio at all.
     // Default off so normal SA3 generation is unchanged until you opt in.
     // 0.05 grid (21 steps): the five named anchors (0 / .25 / .5 / .75 / 1) still
     // land exactly on the grid so the word readout maps one-to-one to a click-stop

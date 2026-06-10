@@ -1801,11 +1801,14 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
             req.initAudioSampleRate = processorRef.getGeneratedSampleRate();
             // Amount (0->1) maps to backend init_noise_level across SA3's MEASURED
             // useful band: Full (1.0) -> 0.05 (corr-to-source ~0.59, source
-            // dominates), down to ~0.30 (corr ~0.12, faint) as amount -> 0. Both
-            // ends stay live — never a pure echo (init_noise 0.0) and never the
-            // dead >=0.5 zone where SA3 ignores the source. Calibrated on
+            // dominates), up to ~0.48 (corr ~0.04, source barely present) at the
+            // low end so a NEW prompt clearly comes through. The old 0.30 cap
+            // (corr ~0.13) was perceptually NOT faint — it locked the fed-back
+            // sound in even at the 5% minimum, so a prompt change stayed inaudible
+            // until Off (user ear-report). The low end now sits just under the
+            // >=0.5 dead zone (source ignored); Full is unchanged. Calibrated on
             // stable-audio-3-small-music; another engine would want its own band.
-            req.initNoiseLevel = 0.30f - 0.25f * resynthAmount;
+            req.initNoiseLevel = 0.50f - 0.45f * resynthAmount;
         }
     }
     return req;
