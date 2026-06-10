@@ -951,21 +951,24 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     resynthA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor.getValueTreeState(), PID::resynthAmount, resynthSlider);
 
-    // Word readout, not a number: the slider snaps to 5 detents (0/.25/.5/.75/1)
-    // and the box names the stop you are on (Off / Subtle / Medium / Strong / Full),
-    // aligned with the init_noise mapping in buildInferenceRequest so "Full" really
-    // is the strongest source carry-over — and it lives only at the rightmost detent
-    // (1.0), never at an 80% in-between. Buckets are centred on the detents.
+    // Word readout on the five named anchors (0/.25/.5/.75/1 → Off / Subtle /
+    // Medium / Strong / Full), a percentage in between. The anchors line up with
+    // the init_noise mapping in buildInferenceRequest so "Full" really is the
+    // strongest source carry-over — and it shows only at the rightmost anchor
+    // (1.0), never at an 80% in-between. Off-anchor values (the 0.05 grid lets you
+    // dial them) read as a percent so a between-anchor setting stays legible.
     // IMPORTANT: SliderAttachment's constructor OVERWRITES these two functions, so
     // they must be assigned AFTER the attachment is created — then updateText()
     // refreshes the box from the restored value. (Setting them before the
     // attachment silently reverts the box to the parameter's 3-decimal number.)
     resynthSlider.textFromValueFunction = [](double v) {
-        if (v < 0.125) return juce::String("Off");      // 0.0
-        if (v < 0.375) return juce::String("Subtle");   // 0.25
-        if (v < 0.625) return juce::String("Medium");   // 0.50
-        if (v < 0.875) return juce::String("Strong");   // 0.75
-        return juce::String("Full");                    // 1.0 only
+        auto onAnchor = [v](double a) { return std::abs(v - a) < 0.02; };
+        if (onAnchor(0.0))  return juce::String("Off");
+        if (onAnchor(0.25)) return juce::String("Subtle");
+        if (onAnchor(0.50)) return juce::String("Medium");
+        if (onAnchor(0.75)) return juce::String("Strong");
+        if (onAnchor(1.0))  return juce::String("Full");
+        return juce::String(juce::roundToInt(v * 100.0)) + "%";
     };
     resynthSlider.valueFromTextFunction = [](const juce::String& t) {
         auto s = t.trim().toLowerCase();
@@ -974,7 +977,9 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         if (s == "medium") return 0.50;
         if (s == "strong") return 0.75;
         if (s == "full")   return 1.0;
-        return t.getDoubleValue();
+        // Accept "35%" as well as a bare number.
+        return s.endsWith("%") ? s.dropLastCharacters(1).getDoubleValue() / 100.0
+                               : t.getDoubleValue();
     };
     resynthSlider.updateText();
 

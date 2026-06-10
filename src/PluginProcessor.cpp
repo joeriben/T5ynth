@@ -439,13 +439,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // source most strongly). buildInferenceRequest maps the amount onto SA3's
     // MEASURED useful init_noise band (0.30..0.05); 0 sends no init_audio at all.
     // Default off so normal SA3 generation is unchanged until you opt in.
-    // 5 detents (0 / .25 / .5 / .75 / 1) so the word readout maps one-to-one to a
-    // click-stop and "Full" is unambiguously the rightmost stop — never an 80%
-    // in-between. Drift modulates resynth through an override path, not this param,
-    // so the stepped base does not coarsen drift's continuous sweep.
+    // 0.05 grid (21 steps): the five named anchors (0 / .25 / .5 / .75 / 1) still
+    // land exactly on the grid so the word readout maps one-to-one to a click-stop
+    // and "Full" is unambiguously the rightmost stop, but four intermediate steps
+    // between each anchor let you dial in a value the words don't name (the readout
+    // shows a percentage off-anchor). Drift modulates resynth through an override
+    // path, not this param, so the stepped base does not coarsen drift's sweep.
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::resynthAmount, 1}, "Resynth",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.25f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.05f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::genAxesAmount, 1}, "Axes Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 1.0f));
