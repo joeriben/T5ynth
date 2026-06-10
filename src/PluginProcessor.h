@@ -467,6 +467,7 @@ public:
         std::atomic<float> drift3Depth { NONE };
         std::atomic<float> driftNoise { NONE };
         std::atomic<float> driftMagnitude { NONE };
+        std::atomic<float> driftResynth { NONE };
     };
     ModulatedValues modulatedValues;
 

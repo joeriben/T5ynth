@@ -38,6 +38,7 @@ public:
         TgtEnv1Amt,    // 14
         TgtEnv2Amt,    // 15
         TgtEnv3Amt,    // 16
+        TgtResynth,    // 17
         NumTargets
     };
 

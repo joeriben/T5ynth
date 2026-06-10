@@ -98,7 +98,8 @@ private:
                                                   float magnitudeOverride = std::numeric_limits<float>::quiet_NaN(),
                                                   float lateMixOverride = std::numeric_limits<float>::quiet_NaN(),
                                                   float splitStartOverride = std::numeric_limits<float>::quiet_NaN(),
-                                                  float splitEndOverride = std::numeric_limits<float>::quiet_NaN());
+                                                  float splitEndOverride = std::numeric_limits<float>::quiet_NaN(),
+                                                  float resynthOverride = std::numeric_limits<float>::quiet_NaN());
 
     /** Trigger generation from drift auto-regen. */
     void triggerDriftRegeneration(float effectiveAlpha,
@@ -108,6 +109,7 @@ private:
                                   float effectiveLateMix,
                                   float effectiveSplitStart,
                                   float effectiveSplitEnd,
+                                  float effectiveResynth = std::numeric_limits<float>::quiet_NaN(),
                                   bool holdForBar = false);
 
     /** Check if drift requires auto-regeneration (called from timerCallback). */
@@ -269,6 +271,7 @@ private:
     float lastGenLateMix_ = std::numeric_limits<float>::quiet_NaN();
     float lastGenSplitStart_ = std::numeric_limits<float>::quiet_NaN();
     float lastGenSplitEnd_ = std::numeric_limits<float>::quiet_NaN();
+    float lastGenResynth_ = std::numeric_limits<float>::quiet_NaN();
     std::map<juce::String, float> lastGenAxes_;
     juce::String lastGenPromptA_;
     juce::String lastGenPromptB_;

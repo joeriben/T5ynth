@@ -54,6 +54,7 @@ float DriftLFO::halfRangeForTarget(int target)
         case TgtEnv3Amt:   return 0.5f;   // ENV3 amount: ±50%
         case TgtNoise:     return 0.5f;   // noise sigma: ±0.5 (range 0–1)
         case TgtMagnitude: return 1.0f;   // magnitude: ±1.0 (range 0.001–5)
+        case TgtResynth:   return 0.5f;   // resynth amount: ±0.5 (range 0–1)
         default:           return 0.0f;   // None
     }
 }

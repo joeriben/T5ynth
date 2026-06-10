@@ -3112,7 +3112,8 @@ void T5ynthProcessor::updateDriftState(int numSamples, float syncBpm)
     bool hasOsc = false;
     for (int t : { d1t, d2t, d3t })
         if ((t >= DriftLFO::TgtAlpha && t <= DriftLFO::TgtAxis3)
-            || t == DriftLFO::TgtNoise || t == DriftLFO::TgtMagnitude)
+            || t == DriftLFO::TgtNoise || t == DriftLFO::TgtMagnitude
+            || t == DriftLFO::TgtResynth)
             hasOsc = true;
 
     driftHasOscTarget.store(hasOsc, std::memory_order_relaxed);
@@ -3153,9 +3154,11 @@ void T5ynthProcessor::updateDriftState(int numSamples, float syncBpm)
     const float ax3Off   = driftLfo.getOffsetForTarget(DriftLFO::TgtAxis3);
     const float noiseOff = driftLfo.getOffsetForTarget(DriftLFO::TgtNoise);
     const float magOff   = driftLfo.getOffsetForTarget(DriftLFO::TgtMagnitude);
+    const float resynthOff = driftLfo.getOffsetForTarget(DriftLFO::TgtResynth);
     const float baseAlpha = paramCache.genAlpha->load();
     const float baseNoise = paramCache.genNoise->load();
     const float baseMag = paramCache.genMagnitude->load();
+    const float baseResynth = paramCache.resynthAmount->load();
 
     modulatedValues.driftAlpha.store(
         std::abs(alphaOff) > 0.001f ? baseAlpha + alphaOff : NO_GHOST,
@@ -3171,6 +3174,10 @@ void T5ynthProcessor::updateDriftState(int numSamples, float syncBpm)
         std::memory_order_relaxed);
     modulatedValues.driftMagnitude.store(
         std::abs(magOff) > 0.001f ? baseMag + magOff : NO_GHOST,
+        std::memory_order_relaxed);
+    modulatedValues.driftResynth.store(
+        std::abs(resynthOff) > 0.001f ? juce::jlimit(0.0f, 1.0f, baseResynth + resynthOff)
+                                      : NO_GHOST,
         std::memory_order_relaxed);
 }
 

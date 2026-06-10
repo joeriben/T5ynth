@@ -78,7 +78,8 @@
     X(gen5FixRotation)     X(gen5FixMutation)     X(lfo1ClockMode)     X(lfo1ClockDivision) \
     X(lfo2ClockMode)     X(lfo2ClockDivision)     X(lfo3ClockMode)     X(lfo3ClockDivision) \
     X(drift1ClockMode)     X(drift1ClockDivision)     X(drift2ClockMode)     X(drift2ClockDivision) \
-    X(drift3ClockMode)     X(drift3ClockDivision)     X(delayClockMode)     X(delayClockDivision)
+    X(drift3ClockMode)     X(drift3ClockDivision)     X(delayClockMode)     X(delayClockDivision) \
+    X(resynthAmount)
 
 struct ParamCache
 {

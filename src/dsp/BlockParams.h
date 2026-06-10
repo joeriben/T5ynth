@@ -417,7 +417,8 @@ namespace DriftTarget {
         ReverbMix = 13,
         Env1Amt = 14,
         Env2Amt = 15,
-        Env3Amt = 16
+        Env3Amt = 16,
+        Resynth = 17
     };
     static constexpr ChoiceEntry kEntries[] = {
         { "none",       "---"        },
@@ -436,10 +437,11 @@ namespace DriftTarget {
         { "reverb_mix", "Rev Mix"    },
         { "env1_amt",   "ENV1 Amt"   },
         { "env2_amt",   "ENV2 Amt"   },
-        { "env3_amt",   "ENV3 Amt"   }
+        { "env3_amt",   "ENV3 Amt"   },
+        { "resynth",    "Resynth"    }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(Env3Amt + 1 == kCount,
+    static_assert(Resynth + 1 == kCount,
                   "DriftTarget enum and kEntries are out of sync.");
 }
 

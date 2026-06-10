@@ -1642,7 +1642,8 @@ void PromptPanel::applyModeToSlider()
 PipeInference::Request PromptPanel::buildInferenceRequest(
     float alphaOverride, std::map<juce::String, float> axesOverride,
     float noiseOverride, float magnitudeOverride,
-    float lateMixOverride, float splitStartOverride, float splitEndOverride)
+    float lateMixOverride, float splitStartOverride, float splitEndOverride,
+    float resynthOverride)
 {
     auto& apvts = processorRef.getValueTreeState();
     float alpha = std::isnan(alphaOverride)
@@ -1745,8 +1746,12 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     // when a prior buffer actually exists; the very first generation of a session
     // has none and stays text-only. Read on the message thread, same as
     // loadGeneratedAudio writes it.
+    // Drift can modulate resynth: when it does, pollDriftRegen passes the effective
+    // (base+offset) value as resynthOverride so the loop denoises from the drifted
+    // amount rather than the static slider. NaN override → plain slider read.
     const float resynthAmount = juce::jlimit(0.0f, 1.0f,
-        apvts.getRawParameterValue(PID::resynthAmount)->load());
+        std::isnan(resynthOverride) ? apvts.getRawParameterValue(PID::resynthAmount)->load()
+                                    : resynthOverride);
     if (resynthAmount > 0.01f && isSA3Model(req.model))
     {
         const auto& rawBuf = processorRef.getGeneratedAudioRaw();
@@ -1952,6 +1957,7 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                                             float effectiveLateMix,
                                             float effectiveSplitStart,
                                             float effectiveSplitEnd,
+                                            float effectiveResynth,
                                             bool /*holdForBar*/)
 {
     if (generating || translatingPrompts_) return;
@@ -1963,6 +1969,7 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
     lastGenLateMix_ = effectiveLateMix;
     lastGenSplitStart_ = effectiveSplitStart;
     lastGenSplitEnd_ = effectiveSplitEnd;
+    lastGenResynth_ = effectiveResynth;
 
     if (processorRef.isInferenceCacheFull())
     {
@@ -1977,7 +1984,8 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
     if (onStatusChanged) onStatusChanged("auto regen...", true);
 
     auto req = buildInferenceRequest(effectiveAlpha, effectiveAxes, effectiveNoise, effectiveMagnitude,
-                                     effectiveLateMix, effectiveSplitStart, effectiveSplitEnd);
+                                     effectiveLateMix, effectiveSplitStart, effectiveSplitEnd,
+                                     effectiveResynth);
     auto deviceForLabel = req.device.isEmpty()
         ? processorRef.getPipeInference().getDefaultDevice() : req.device;
     auto modelForLabel = req.model.isEmpty()
@@ -2108,6 +2116,14 @@ void PromptPanel::pollDriftRegen()
     float dAxis3 = mv.driftAxis3.load(std::memory_order_relaxed);
     float effNoise = mv.driftNoise.load(std::memory_order_relaxed);
     float effMag   = mv.driftMagnitude.load(std::memory_order_relaxed);
+    // Resynth contributes to auto-regen like a generation slider: when drift is
+    // sweeping it, use the drifted (base+offset) value; otherwise fall back to the
+    // live slider so a manual Resynth move re-renders just like an alpha move (this
+    // path only runs when an auto mode is engaged — see the regenMode gate above).
+    float driftResynthVal = mv.driftResynth.load(std::memory_order_relaxed);
+    float effResynth = std::isnan(driftResynthVal)
+        ? processorRef.getValueTreeState().getRawParameterValue(PID::resynthAmount)->load()
+        : driftResynthVal;
 
     // Build effective axes: AxesPanel base values + per-slot drift offsets
     std::map<juce::String, float> effAxes;
@@ -2191,6 +2207,22 @@ void PromptPanel::pollDriftRegen()
     bool magChanged = !std::isnan(effMag) &&
         (std::isnan(lastGenMagnitude_) || std::abs(effMag - lastGenMagnitude_) > DRIFT_THRESHOLD);
 
+    // Resynth as a regen driver (drift sweep or a manual slider move): a change
+    // above threshold re-renders, and triggerDriftRegeneration feeds the amount back
+    // as init_audio. Mirror buildInferenceRequest's gate EXACTLY (selectedModelIsSA3
+    // + amount > 0.01) — init_audio only attaches on SA3, so firing on a non-SA3
+    // model (or in the off-deadband) would spin pointless, byte-identical text-only
+    // generations. The match keeps the trigger and the attachment in lock-step.
+    const bool resynthActive = selectedModelIsSA3();
+    bool resynthChanged = resynthActive && effResynth > 0.01f &&
+        (std::isnan(lastGenResynth_) || std::abs(effResynth - lastGenResynth_) > DRIFT_THRESHOLD);
+    // Keep the tracker current even on the no-fire excursions (off-deadband below,
+    // or a non-SA3 model) so a later move back into the active band still reads as a
+    // change. Without this, dragging Resynth down to Off and back to the same value
+    // would leave lastGenResynth_ stale at the old amount and silently miss the regen.
+    if (!resynthActive || effResynth <= 0.01f)
+        lastGenResynth_ = effResynth;
+
     auto promptA = promptAEditor.getText().trim();
     auto promptB = promptBEditor.getText().trim();
     bool promptChanged = (promptA != lastGenPromptA_) || (promptB != lastGenPromptB_);
@@ -2207,7 +2239,8 @@ void PromptPanel::pollDriftRegen()
     }
 
     bool randomRegen = randomSeedToggle.getToggleState();
-    if (!alphaChanged && !axesChanged && !noiseChanged && !magChanged && !promptChanged && !randomRegen)
+    if (!alphaChanged && !axesChanged && !noiseChanged && !magChanged && !promptChanged
+        && !resynthChanged && !randomRegen)
         return;
 
     // genNoise/genMag are pre-resolved to their slider values; alpha is
@@ -2226,5 +2259,6 @@ void PromptPanel::pollDriftRegen()
 
     lastRegenTimeMs_ = juce::Time::getMillisecondCounterHiRes();
     triggerDriftRegeneration(effAlpha, effAxes, genNoise, genMag,
-                             effectiveLateMix, effectiveSplitStart, effectiveSplitEnd, false);
+                             effectiveLateMix, effectiveSplitStart, effectiveSplitEnd,
+                             effResynth, false);
 }
