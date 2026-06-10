@@ -91,6 +91,14 @@ public:
         float        latePhaseAlpha        = 0.0f;       // -1..+1, used by "late_step" and the Kombi modes: late blend α (0 = 50/50, +1 = pure B)
         float        splitStart            = 4.0f;       // 0–ditBlocks, used by "layer_split"; Kombi modes send a per-mode fraction of the DiT depth (backend re-asserts)
         float        splitEnd              = 16.0f;      // 0–ditBlocks, used by "layer_split"; Kombi modes send a per-mode fraction of the DiT depth (backend re-asserts)
+
+        // Resynth / init_audio (i2i): when initAudio holds samples the backend
+        // denoises from it (encoded into the VAE latent) instead of pure noise,
+        // while the text conditioning above still applies. Empty initAudio → the
+        // field is omitted from the wire request → plain text-only generation.
+        juce::AudioBuffer<float> initAudio;              // planar; empty = no resynth
+        double       initAudioSampleRate   = 0.0;        // sample rate of initAudio
+        float        initNoiseLevel        = 1.0f;       // 1.0 = full re-gen, lower = closer to input
     };
 
     struct Result

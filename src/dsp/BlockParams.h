@@ -144,6 +144,8 @@ namespace PID {
     static constexpr const char* genCfg           = "gen_cfg";
     static constexpr const char* genSeed          = "gen_seed";
     static constexpr const char* genHfBoost       = "gen_hf_boost";
+    static constexpr const char* genInitNoise     = "gen_init_noise";   // Resynth denoise amount (init_noise_level)
+    static constexpr const char* resynthEnabled   = "resynth_enabled";  // Resynth (init_audio / i2i) on/off
     static constexpr const char* infSteps         = "inf_steps";
     static constexpr const char* loopMode         = "loop_mode";
     static constexpr const char* crossfadeMs      = "crossfade_ms";

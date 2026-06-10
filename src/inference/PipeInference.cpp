@@ -874,6 +874,26 @@ PipeInference::Result PipeInference::generate(const Request& request)
         json->setProperty("axes_amount", request.axesAmount);
     }
 
+    // Resynth / init_audio (i2i): only emitted when a source buffer is present.
+    // Wire format matches the backend's _decode_init_audio_request: raw float32
+    // little-endian PCM, base64, planar (channel-major — all of channel 0, then
+    // channel 1). Absent → backend takes the plain text-only path.
+    if (request.initAudio.getNumSamples() > 0 && request.initAudio.getNumChannels() > 0)
+    {
+        const int ch = request.initAudio.getNumChannels();
+        const int n  = request.initAudio.getNumSamples();
+        std::vector<float> planar (static_cast<size_t>(ch) * static_cast<size_t>(n));
+        for (int c = 0; c < ch; ++c)
+            std::memcpy(planar.data() + static_cast<size_t>(c) * static_cast<size_t>(n),
+                        request.initAudio.getReadPointer(c),
+                        static_cast<size_t>(n) * sizeof(float));
+        json->setProperty("init_audio_b64",
+                          juce::Base64::toBase64(planar.data(), planar.size() * sizeof(float)));
+        json->setProperty("init_audio_sr", static_cast<int>(request.initAudioSampleRate + 0.5));
+        json->setProperty("init_audio_channels", ch);
+        json->setProperty("init_noise_level", request.initNoiseLevel);
+    }
+
     auto jsonStr = juce::JSON::toString(juce::var(json.get()), true);
     jsonStr = jsonStr.removeCharacters("\n\r") + "\n";
 

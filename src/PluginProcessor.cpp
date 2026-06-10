@@ -432,6 +432,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::genNoise, 1}, "Noise",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f, 0.3f), 0.0f));
+    // Resynth (init_audio / i2i): denoise amount fed to the backend as
+    // init_noise_level. 1.0 = full re-generation (input ignored), lower stays
+    // closer to the source. Default 0.6 so enabling Resynth is audibly a blend,
+    // not a no-op. Paired with the resynth_enabled toggle below.
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::genInitNoise, 1}, "Init Noise",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.6f));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{PID::resynthEnabled, 1}, "Resynth", false));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::genAxesAmount, 1}, "Axes Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 1.0f));

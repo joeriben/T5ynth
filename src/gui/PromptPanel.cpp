@@ -1736,6 +1736,25 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     if (requestInjectionMode == "kombi1") { req.splitStart = 0.0f;            req.splitEnd = 0.25f  * blocksF; }
     if (requestInjectionMode == "kombi2") { req.splitStart = 0.25f  * blocksF; req.splitEnd = 0.75f  * blocksF; }
     if (requestInjectionMode == "kombi3") { req.splitStart = 0.375f * blocksF; req.splitEnd = 0.625f * blocksF; }
+
+    // Resynth (init_audio / i2i): when enabled, feed the LAST raw generation back
+    // as the denoise seed so the next render evolves from it instead of from pure
+    // noise. SA3-gated to match the UI element (and so a stale resynth_enabled
+    // recalled under SAO/AudioLDM2 — whose diffusers path can't take init_audio —
+    // never leaks a buffer). Only attaches when a prior buffer actually exists;
+    // the very first generation of a session has none and stays text-only.
+    // Read on the message thread, same as loadGeneratedAudio writes it — no race.
+    if (apvts.getRawParameterValue(PID::resynthEnabled)->load() > 0.5f
+        && isSA3Model(req.model))
+    {
+        const auto& rawBuf = processorRef.getGeneratedAudioRaw();
+        if (rawBuf.getNumSamples() > 0 && rawBuf.getNumChannels() > 0)
+        {
+            req.initAudio.makeCopyOf(rawBuf);
+            req.initAudioSampleRate = processorRef.getGeneratedSampleRate();
+            req.initNoiseLevel = apvts.getRawParameterValue(PID::genInitNoise)->load();
+        }
+    }
     return req;
 }
 
