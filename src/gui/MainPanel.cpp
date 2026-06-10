@@ -2251,6 +2251,34 @@ void MainPanel::paint(juce::Graphics& g)
     }
 }
 
+void MainPanel::paintOverChildren(juce::Graphics& g)
+{
+    // Faint Mod-colour dot showing where Drift (target = Resynth) is pushing the
+    // slider — the MainPanel counterpart to the alpha/mag/noise ghosts in
+    // PromptPanel. Only when driftResynth is a real value AND the slider is live
+    // (SA3 selected): a non-SA3 model can still have Drift→Resynth armed, but the
+    // disabled slider must not sprout an orphan ghost.
+    if (std::isnan(resynthGhostValue_) || ! resynthSlider.isEnabled())
+        return;
+
+    // The slider carries a text box on the right (TextBoxRight, 46px); the drawn
+    // track is the bounds minus that box. Map value→pixel within the track with
+    // the same thumb-inset math the horizontal ghosts use in PromptPanel.
+    const auto  full   = resynthSlider.getBounds();
+    const auto  track  = full.withTrimmedRight(resynthSlider.getTextBoxWidth());
+    const int   thumbW = resynthSlider.getLookAndFeel().getSliderThumbRadius(resynthSlider) * 2;
+    const double norm  = juce::jlimit(0.0, 1.0,
+        resynthSlider.valueToProportionOfLength(static_cast<double>(resynthGhostValue_)));
+
+    const float gx = static_cast<float>(track.getX() + thumbW / 2)
+                   + static_cast<float>(track.getWidth() - thumbW) * static_cast<float>(norm);
+    const float gy = static_cast<float>(track.getCentreY());
+    const float r  = static_cast<float>(track.getHeight()) * 0.28f;
+
+    g.setColour(kModCol.withAlpha(0.8f)); // ghost stays in the Mod-section colour
+    g.fillEllipse(gx - r, gy - r, r * 2.0f, r * 2.0f);
+}
+
 void MainPanel::syncInferenceCacheUi()
 {
     const int capacity = processorRef.getInferenceCacheCapacity();
@@ -2814,6 +2842,27 @@ void MainPanel::timerCallback()
         mv.driftAxis1.load(std::memory_order_relaxed),
         mv.driftAxis2.load(std::memory_order_relaxed),
         mv.driftAxis3.load(std::memory_order_relaxed));
+
+    // Resynth-slider drift ghost: repaint only the slider region, and only when
+    // the modulated value actually changes. driftResynth is NaN whenever Drift is
+    // not targeting Resynth, so at idle this never repaints (NaN==NaN short-circuit
+    // below treats both-NaN as unchanged).
+    {
+        const float newResynthGhost = mv.driftResynth.load(std::memory_order_relaxed);
+        const bool wasNan = std::isnan(resynthGhostValue_);
+        const bool isNan  = std::isnan(newResynthGhost);
+        if (wasNan != isNan || (!isNan && newResynthGhost != resynthGhostValue_))
+        {
+            resynthGhostValue_ = newResynthGhost;
+            // Skip the repaint while the slider is disabled (non-SA3 model with
+            // Drift→Resynth armed): paintOverChildren would draw nothing anyway.
+            // The value keeps tracking, and re-enabling on the SA3 switch repaints
+            // the slider region itself — which re-runs paintOverChildren — so the
+            // ghost still appears the moment it becomes valid.
+            if (resynthSlider.isEnabled())
+                repaint(resynthSlider.getBounds().expanded(0, 3));
+        }
+    }
 
     if (pendingInferenceReload && !promptPanel.isGenerating())
     {

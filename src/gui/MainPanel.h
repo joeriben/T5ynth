@@ -24,6 +24,7 @@ public:
     ~MainPanel() override;
 
     void paint(juce::Graphics& g) override;
+    void paintOverChildren(juce::Graphics& g) override;
     void resized() override;
     void mouseDown(const juce::MouseEvent& e) override;
     bool keyPressed(const juce::KeyPress& key) override;
@@ -139,6 +140,11 @@ private:
     juce::Label resynthLabel;
     juce::Slider resynthSlider;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> resynthA;
+    // Drift ghost for the resynth slider: where Drift (target = Resynth) is
+    // currently pushing the value, painted as a faint Mod-colour dot over the
+    // track. NaN = no drift on this target → nothing painted (and no repaint, so
+    // zero idle cost). Polled from modulatedValues.driftResynth in timerCallback.
+    float resynthGhostValue_ = std::numeric_limits<float>::quiet_NaN();
     int lastInfCacheUiCapacity = -1;
     int lastInfCacheUiFill = -1;
     bool lastInfCacheUiFull = false;
