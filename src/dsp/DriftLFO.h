@@ -68,6 +68,11 @@ public:
      *  Drift LFO to the sequencer's beat 1 on a stop→start transition. */
     void resetLfoPhase(int lfoIndex);
 
+    /** Arm/disarm a single internal LFO for beat-sync start. While armed it
+     *  holds at phase 0 and contributes zero offset; releasing lets its cycle
+     *  begin from phase 0 on the sequencer's downbeat. */
+    void setLfoArmed(int lfoIndex, bool armed);
+
     /** Enable/disable the entire drift system. */
     void setEnabled(bool enabled) { active = enabled; }
     bool isEnabled() const { return active; }
@@ -86,6 +91,7 @@ private:
         int waveform = Sine;
         float heldValue = 0.0f; // latched value for Random waveform
         uint64_t rngState = 0xA1B2C3D4E5F60789ULL;
+        bool armed = false;     // held silent at phase 0 until released on the downbeat
     };
 
     std::array<InternalLFO, NUM_LFOS> lfos {{

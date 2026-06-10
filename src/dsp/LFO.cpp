@@ -25,6 +25,10 @@ void LFO::reset()
 
 float LFO::processSample()
 {
+    // Armed for beat-sync: hold at phase 0, emit nothing until released.
+    if (armed)
+        return 0.0f;
+
     float output = 0.0f;
 
     switch (waveform)
@@ -66,6 +70,9 @@ float LFO::processSample()
 
 void LFO::advancePhase(int numSamples)
 {
+    if (armed)
+        return;  // held at phase 0 until released on the downbeat
+
     double advance = static_cast<double>(rate) / sr * numSamples;
     phase += advance;
     phase -= std::floor(phase);  // wrap to [0, 1)

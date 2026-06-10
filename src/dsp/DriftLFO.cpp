@@ -78,6 +78,9 @@ void DriftLFO::tick(double dt)
         if (lfo.target == 0 || lfo.depth == 0.0f) // target 0 = None
             continue;
 
+        if (lfo.armed)   // beat-sync hold: stay at phase 0 until released
+            continue;
+
         lfo.phase += static_cast<double>(lfo.rate) * dt;
 
         // Wrap phase to prevent precision loss
@@ -100,6 +103,9 @@ float DriftLFO::getOffsetForTarget(int target) const
 
     for (const auto& lfo : lfos)
     {
+        if (lfo.armed)   // armed for beat-sync → contributes nothing yet
+            continue;
+
         if (lfo.target == target && lfo.depth != 0.0f)
         {
             float value = waveformValue(lfo);
@@ -145,6 +151,17 @@ void DriftLFO::resetLfoPhase(int lfoIndex)
         lfo.phase = 0.0;
         if (lfo.waveform == Random)
             lfo.heldValue = nextRandom(lfo);
+    }
+}
+
+void DriftLFO::setLfoArmed(int lfoIndex, bool armed)
+{
+    if (lfoIndex >= 0 && lfoIndex < NUM_LFOS)
+    {
+        auto& lfo = lfos[static_cast<size_t>(lfoIndex)];
+        lfo.armed = armed;
+        if (armed)
+            lfo.phase = 0.0;
     }
 }
 

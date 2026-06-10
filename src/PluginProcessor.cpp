@@ -1637,26 +1637,67 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         lastMidiNoteOn.store(false, std::memory_order_relaxed);
     }
 
-    // ── Phase-align sync LFO/Drift on seq start ─────────────────────────────
-    // When the transport (PID::seqRunning) transitions stop→start, reset the
-    // phase of every sync-mode LFO/Drift to 0 so the first cycle lands on
-    // beat 1. Without this, the LFO/Drift rate is correct but the cycle
-    // boundary drifts arbitrarily relative to the seq's beats. Note:
-    // PID::genSeqRunning is a STEP↔GEN mode toggle, not transport, so it
-    // must NOT trigger the reset — both engines' .start() is gated on
-    // seqRunning alone (see lines around 2023/2065).
+    // ── Sync LFO/Drift phase alignment to the sequencer downbeat ────────────
+    // A Drift/LFO switched to Sync should START its cycle on the beat (the
+    // sequencer's "1"), not wherever the toggle happened to land.
+    //   • Transport stop→start: the start instant IS step 0 (the downbeat) →
+    //     align phase to 0 immediately, as before.
+    //   • Switched Off→Sync WHILE the step sequencer already leads the clock:
+    //     snapping now would lock the cycle between beats. Instead ARM the
+    //     modulator — held silent at phase 0 (see LFO::setArmed /
+    //     DriftLFO::setLfoArmed) — and release it on the next bar downbeat
+    //     (where barStartFlag is consumed, below) so its first cycle starts on
+    //     the "1". ("ggf. kurz warten bis der Beat kommt.")
+    // Scope: only while the STEP seq is the lead (not GEN mode, host not
+    // playing) — that is the only transport exposing a bar signal to align to;
+    // GEN-engine and host-led playback keep the old immediate behaviour.
+    // PID::genSeqRunning is a STEP↔GEN toggle, not transport.
     {
-        const bool seqRunningNow = paramCache.seqRunning->load() > 0.5f;
-        if (seqRunningNow && !lastSeqRunning)
+        const bool seqRunNow      = paramCache.seqRunning->load() > 0.5f;
+        const bool transportStart = seqRunNow && !lastSeqRunning;
+        const bool stepLeads      = seqRunNow && !genModeActiveInAudio
+                                    && !hostPlayingNow.load(std::memory_order_relaxed);
+
+        const int lc[3] = { static_cast<int>(paramCache.lfo1ClockMode->load()),
+                            static_cast<int>(paramCache.lfo2ClockMode->load()),
+                            static_cast<int>(paramCache.lfo3ClockMode->load()) };
+        const int dc[3] = { static_cast<int>(paramCache.drift1ClockMode->load()),
+                            static_cast<int>(paramCache.drift2ClockMode->load()),
+                            static_cast<int>(paramCache.drift3ClockMode->load()) };
+        LFO* const lfoPtr[3] = { &lfo1, &lfo2, &lfo3 };
+
+        for (int i = 0; i < 3; ++i)
         {
-            if (static_cast<int>(paramCache.lfo1ClockMode->load()) != ClockMode::Off) lfo1.reset();
-            if (static_cast<int>(paramCache.lfo2ClockMode->load()) != ClockMode::Off) lfo2.reset();
-            if (static_cast<int>(paramCache.lfo3ClockMode->load()) != ClockMode::Off) lfo3.reset();
-            if (static_cast<int>(paramCache.drift1ClockMode->load()) != ClockMode::Off) driftLfo.resetLfoPhase(0);
-            if (static_cast<int>(paramCache.drift2ClockMode->load()) != ClockMode::Off) driftLfo.resetLfoPhase(1);
-            if (static_cast<int>(paramCache.drift3ClockMode->load()) != ClockMode::Off) driftLfo.resetLfoPhase(2);
+            if (transportStart)
+            {
+                // Start coincides with the downbeat → align now, clear any arm.
+                lfoSyncArmed[i]   = false;
+                driftSyncArmed[i] = false;
+                lfoPtr[i]->setArmed(false);
+                driftLfo.setLfoArmed(i, false);
+                if (lc[i] != ClockMode::Off) lfoPtr[i]->reset();
+                if (dc[i] != ClockMode::Off) driftLfo.resetLfoPhase(i);
+            }
+            else
+            {
+                // Arm on a mid-run Off→Sync edge (only while the step seq leads).
+                if (stepLeads && lc[i] != ClockMode::Off && lastLfoClockMode[i] == ClockMode::Off)
+                    lfoSyncArmed[i] = true;
+                if (stepLeads && dc[i] != ClockMode::Off && lastDriftClockMode[i] == ClockMode::Off)
+                    driftSyncArmed[i] = true;
+
+                // Cancel a pending arm if Sync was switched off or the lead was lost.
+                if (lc[i] == ClockMode::Off || !stepLeads) lfoSyncArmed[i]   = false;
+                if (dc[i] == ClockMode::Off || !stepLeads) driftSyncArmed[i] = false;
+
+                lfoPtr[i]->setArmed(lfoSyncArmed[i]);
+                driftLfo.setLfoArmed(i, driftSyncArmed[i]);
+            }
+
+            lastLfoClockMode[i]   = lc[i];
+            lastDriftClockMode[i] = dc[i];
         }
-        lastSeqRunning = seqRunningNow;
+        lastSeqRunning = seqRunNow;
     }
 
     updateDriftState(numSamples, syncBpm);
@@ -2258,9 +2299,22 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         stepSequencer.processBlock(buffer, midiMessages);
     }
 
-    // Consume bar-start flag (still used for sequencer display)
+    // Consume bar-start flag (sequencer display + sync-arm release)
     if (stepSequencer.barStartFlag.exchange(false))
+    {
         barBoundaryFlag.store(true, std::memory_order_relaxed);
+
+        // Release any sync-armed Drift/LFO on the downbeat: they have been held
+        // silent at phase 0 since the Off→Sync switch, so from here their cycle
+        // runs locked to the "1". (Released here, right after the step seq sets
+        // barStartFlag for the bar it just crossed.)
+        LFO* const lfoPtr[3] = { &lfo1, &lfo2, &lfo3 };
+        for (int i = 0; i < 3; ++i)
+        {
+            if (lfoSyncArmed[i])   { lfoSyncArmed[i]   = false; lfoPtr[i]->setArmed(false); }
+            if (driftSyncArmed[i]) { driftSyncArmed[i] = false; driftLfo.setLfoArmed(i, false); }
+        }
+    }
 
     // (driftRegenBpm is now stored in updateDriftState() with the resolved
     // sync BPM — no duplicate write needed here.)

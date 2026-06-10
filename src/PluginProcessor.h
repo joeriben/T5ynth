@@ -416,6 +416,17 @@ private:
     // seqRunning alone. Audio thread only — not atomic.
     bool lastSeqRunning = false;
 
+    // Per-modulator sync phase-alignment ("arm to the downbeat"). When a
+    // Drift/LFO is switched Off→Sync while the STEP sequencer leads the clock,
+    // snapping its phase immediately lands the cycle between beats; instead we
+    // ARM it (hold it silent at phase 0) and release it on the next bar
+    // downbeat so its first cycle starts on the "1". Index 0..2 = lfo1..3 /
+    // drift 0..2. Audio thread only — not atomic.
+    int  lastLfoClockMode[3]   { 0, 0, 0 };   // ClockMode::Off
+    int  lastDriftClockMode[3] { 0, 0, 0 };
+    bool lfoSyncArmed[3]       { false, false, false };
+    bool driftSyncArmed[3]     { false, false, false };
+
     // Pre-allocated buffer for parallel reverb send (avoids heap alloc in processBlock)
     juce::AudioBuffer<float> reverbSendBuffer;
 

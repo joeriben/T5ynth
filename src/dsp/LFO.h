@@ -31,6 +31,13 @@ public:
     /** Set output depth/amount (multiplier). */
     void setDepth(float d) { depth = d; }
 
+    /** Arm/disarm beat-sync start. While armed the LFO holds at phase 0 and
+     *  outputs zero (no advance, no modulation); releasing lets its cycle
+     *  begin from phase 0 — used to defer a sync-mode start to the
+     *  sequencer's downbeat. */
+    void setArmed(bool a) { armed = a; if (a) phase = 0.0; }
+    bool isArmed() const { return armed; }
+
     float getRate() const { return rate; }
     float getDepth() const { return depth; }
     int getWaveform() const { return waveform; }
@@ -41,6 +48,7 @@ private:
     float rate = 1.0f;
     int waveform = 0;
     float depth = 1.0f;
+    bool armed = false;  // held silent at phase 0 until released on the downbeat
 
     // Sample-and-hold state (latched at each phase wrap)
     float heldValue_ = 0.0f;
