@@ -271,7 +271,6 @@ private:
     float lastGenLateMix_ = std::numeric_limits<float>::quiet_NaN();
     float lastGenSplitStart_ = std::numeric_limits<float>::quiet_NaN();
     float lastGenSplitEnd_ = std::numeric_limits<float>::quiet_NaN();
-    float lastGenResynth_ = std::numeric_limits<float>::quiet_NaN();
     std::map<juce::String, float> lastGenAxes_;
     juce::String lastGenPromptA_;
     juce::String lastGenPromptB_;

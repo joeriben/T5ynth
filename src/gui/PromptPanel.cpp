@@ -1969,7 +1969,6 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
     lastGenLateMix_ = effectiveLateMix;
     lastGenSplitStart_ = effectiveSplitStart;
     lastGenSplitEnd_ = effectiveSplitEnd;
-    lastGenResynth_ = effectiveResynth;
 
     if (processorRef.isInferenceCacheFull())
     {
@@ -2116,10 +2115,9 @@ void PromptPanel::pollDriftRegen()
     float dAxis3 = mv.driftAxis3.load(std::memory_order_relaxed);
     float effNoise = mv.driftNoise.load(std::memory_order_relaxed);
     float effMag   = mv.driftMagnitude.load(std::memory_order_relaxed);
-    // Resynth contributes to auto-regen like a generation slider: when drift is
-    // sweeping it, use the drifted (base+offset) value; otherwise fall back to the
-    // live slider so a manual Resynth move re-renders just like an alpha move (this
-    // path only runs when an auto mode is engaged — see the regenMode gate above).
+    // Effective Resynth amount: the drifted (base+offset) value when a Drift slot
+    // sweeps it, otherwise the live slider. Drives the standing feedback-loop trigger
+    // below AND is passed through as the init_audio amount to buildInferenceRequest.
     float driftResynthVal = mv.driftResynth.load(std::memory_order_relaxed);
     float effResynth = std::isnan(driftResynthVal)
         ? processorRef.getValueTreeState().getRawParameterValue(PID::resynthAmount)->load()
@@ -2207,21 +2205,15 @@ void PromptPanel::pollDriftRegen()
     bool magChanged = !std::isnan(effMag) &&
         (std::isnan(lastGenMagnitude_) || std::abs(effMag - lastGenMagnitude_) > DRIFT_THRESHOLD);
 
-    // Resynth as a regen driver (drift sweep or a manual slider move): a change
-    // above threshold re-renders, and triggerDriftRegeneration feeds the amount back
-    // as init_audio. Mirror buildInferenceRequest's gate EXACTLY (selectedModelIsSA3
-    // + amount > 0.01) — init_audio only attaches on SA3, so firing on a non-SA3
-    // model (or in the off-deadband) would spin pointless, byte-identical text-only
-    // generations. The match keeps the trigger and the attachment in lock-step.
-    const bool resynthActive = selectedModelIsSA3();
-    bool resynthChanged = resynthActive && effResynth > 0.01f &&
-        (std::isnan(lastGenResynth_) || std::abs(effResynth - lastGenResynth_) > DRIFT_THRESHOLD);
-    // Keep the tracker current even on the no-fire excursions (off-deadband below,
-    // or a non-SA3 model) so a later move back into the active band still reads as a
-    // change. Without this, dragging Resynth down to Off and back to the same value
-    // would leave lastGenResynth_ stale at the old amount and silently miss the regen.
-    if (!resynthActive || effResynth <= 0.01f)
-        lastGenResynth_ = effResynth;
+    // Resynth feedback loop — a STANDING trigger, not change-detection: while Resynth
+    // is active (amount > 0) and a non-Manual regen mode is engaged, keep regenerating
+    // at the selected cadence (auto / 1-bar / 4-bar, throttled by the beat cooldown
+    // above and the `generating` guard at the top). Each cycle re-feeds the last
+    // output as init_audio (buildInferenceRequest reads getGeneratedAudioRaw), so the
+    // sound evolves on its own with no slider movement — same shape as random-seed
+    // regen. SA3-gated to match buildInferenceRequest's attach gate: init_audio only
+    // attaches on SA3, so looping elsewhere would spin identical text-only renders.
+    const bool resynthLoop = selectedModelIsSA3() && effResynth > 0.01f;
 
     auto promptA = promptAEditor.getText().trim();
     auto promptB = promptBEditor.getText().trim();
@@ -2240,7 +2232,7 @@ void PromptPanel::pollDriftRegen()
 
     bool randomRegen = randomSeedToggle.getToggleState();
     if (!alphaChanged && !axesChanged && !noiseChanged && !magChanged && !promptChanged
-        && !resynthChanged && !randomRegen)
+        && !resynthLoop && !randomRegen)
         return;
 
     // genNoise/genMag are pre-resolved to their slider values; alpha is
