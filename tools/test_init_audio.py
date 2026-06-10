@@ -48,7 +48,11 @@ NOISE_LEVELS = [0.2, 0.4, 0.6, 0.8, 1.0]
 STEPS = 8
 CFG_SCALE = 4.0
 DURATION_S = 3.0
-PREFERRED_MODEL = "stable-audio-open-small"
+# Default SAO (generate_diffusion_cond). Pass a model id as argv[1] to test
+# another engine — e.g. "stable-audio-3-small-music" exercises SA3's
+# generate_diffusion_cond_inpaint path (init_audio with no inpaint mask), which
+# is the path the SA3-gated Resynth UI actually uses.
+PREFERRED_MODEL = sys.argv[1] if len(sys.argv) > 1 else "stable-audio-open-small"
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BACKEND_SCRIPT = REPO_ROOT / "backend" / "pipe_inference.py"

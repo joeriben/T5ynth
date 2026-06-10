@@ -2413,12 +2413,24 @@ def _generate_native(pipe, request):
         # ceil(duration*sr) that is not a whole number of latent frames yields
         # FEWER samples than requested (at 44.1k a 4.000s request floored to
         # 176128 = 3.994s) and the truncation below never fires. Round the
-        # generation length UP to a whole latent frame so
-        # the model produces >= the request; the truncation then trims to exact.
+        # generation length UP so the model produces >= the request; the
+        # truncation below then trims to exact.
         ds = int(getattr(getattr(pipe.model, "pretransform", None),
                          "downsampling_ratio", 1) or 1)
+        # Resynth (init_audio) needs an EVEN latent block count. Measured: SA3's
+        # VAE encoder rounds the latent length UP to the next even number
+        # (encode of 32 blocks -> 32, 33 -> 34, 34 -> 34), but the library's
+        # generate_diffusion_cond_inpaint sizes its noise latent as a plain
+        # floor(audio_sample_size // ds). An ODD block count therefore makes the
+        # encoded init_audio latent one frame longer than the noise latent, and
+        # sample_diffusion's `init_data*(1-sigma)+noise*sigma` blend crashes on the
+        # size mismatch. Aligning the resynth path up to an even block count
+        # (2*ds) keeps both latents even and equal. Plain generation has no
+        # init_data to blend, so it keeps its historical whole-block (ds) size and
+        # existing seeds render identically.
+        align = (2 * ds) if init_audio_tuple is not None else ds
         target = max(int(math.ceil(duration * sr)), 1)
-        gen_sample_size = ((target + ds - 1) // ds) * ds
+        gen_sample_size = ((target + align - 1) // align) * align
     else:
         gen_sample_size = pipe.sample_size
     try:
