@@ -13,6 +13,7 @@ Noise generation is patched to use numpy PCG64 for cross-platform determinism
 (same seed → same audio on CPU, CUDA, ARM, x86).
 """
 
+import base64
 import json
 import math
 import os
@@ -1737,6 +1738,80 @@ def _generate_audioldm2(wrapper, request):
     return audio_np, wrapper.target_sample_rate, seed, elapsed, None
 
 
+def _decode_init_audio_request(request, default_sr):
+    """Decode an optional init_audio payload from a generate request (i2i / resynthesis).
+
+    Transport (IPC, MVP): raw float32 little-endian PCM, base64-encoded in the
+    JSON field ``init_audio_b64``, planar (channel-major) when multi-channel.
+    Companion fields describe it:
+      init_audio_sr        int   — sample rate of the supplied audio (Hz)
+      init_audio_channels  int   — channel count (default 1)
+      init_noise_level     float — denoise strength passed straight through to
+                                   stable-audio-tools. 1.0 = full re-generation
+                                   (least preservation of the input); lower stays
+                                   closer to the input. Default 1.0.
+
+    soundfile I/O is disabled inside the inference subprocess, so audio MUST
+    arrive as raw samples like this — never as a file path.
+
+    Returns ``(init_audio_tuple, init_noise_level)`` where ``init_audio_tuple`` is
+    either ``None`` (no payload, or an unusable one → caller does plain text-only
+    generation) or ``(in_sr, tensor)`` ready for
+    ``generate_diffusion_cond[_inpaint]``; that library's ``prepare_audio`` then
+    resamples, pad/crops and channel-matches it to the model. Never raises — a
+    malformed payload logs a warning and degrades to text-only generation, so a
+    bad init_audio can never take down a generation.
+    """
+    try:
+        init_noise_level = float(request.get("init_noise_level", 1.0))
+    except (TypeError, ValueError):
+        init_noise_level = 1.0  # honour the never-raise contract at the IPC boundary
+    b64 = request.get("init_audio_b64")
+    if not b64:
+        return None, init_noise_level
+    try:
+        raw = base64.b64decode(b64)
+        samples = np.frombuffer(raw, dtype="<f4")
+        if samples.size == 0:
+            return None, init_noise_level
+        channels = max(1, int(request.get("init_audio_channels", 1)))
+        in_sr = int(request.get("init_audio_sr", default_sr))
+        if in_sr <= 0:
+            in_sr = int(default_sr)
+        # np.frombuffer returns a read-only view over the decoded bytes; copy to a
+        # writable, contiguous float32 array up front so torch.from_numpy below
+        # never aliases a non-writable buffer (which it warns about and forbids
+        # writing to). astype(copy=True) always copies, even when dtype matches.
+        samples = samples.astype(np.float32, copy=True)
+        # A single NaN/Inf would flow through the VAE encode and poison the whole
+        # diffusion output (and SA3's peak-normalise divides by it → all-NaN
+        # audio). Honour the graceful-degradation contract: drop to text-only.
+        if not np.all(np.isfinite(samples)):
+            log.warning("init_audio contains non-finite samples; "
+                        "falling back to text-only generation")
+            return None, init_noise_level
+        if channels > 1:
+            frames = samples.size // channels
+            if frames == 0:
+                return None, init_noise_level
+            samples = samples[: frames * channels].reshape(channels, frames)
+        else:
+            # prepare_audio runs PadCrop ("n, s = signal.shape") BEFORE it adds a
+            # batch dim, so a 1-D [frames] tensor unpacks to 1 value and raises —
+            # a crash that lands OUTSIDE this helper's try/except. Always hand the
+            # library a 2-D [channels, frames] tensor (here [1, frames]); it then
+            # PadCrops, batches and channel-matches it to the model.
+            samples = samples.reshape(1, samples.size)
+        tensor = torch.from_numpy(samples)
+        return (in_sr, tensor), init_noise_level
+    except Exception as exc:
+        log.warning(
+            "init_audio decode failed (%s); falling back to text-only generation",
+            exc,
+        )
+        return None, init_noise_level
+
+
 def _generate_native(pipe, request):
     """Generate audio using native stable-audio-tools pipeline (e.g. small model).
 
@@ -2296,6 +2371,27 @@ def _generate_native(pipe, request):
     # short {'euler','rk4','dpmpp','pingpong'}; anything else makes it
     # silently return None and surfaces as NoneType.to() far downstream.
     generate_kwargs = {}
+    # i2i / resynthesis (optional): init_audio drives generation from an existing
+    # waveform — stable-audio-tools encodes it into the VAE latent and denoises
+    # from there instead of from pure noise, while the embedding manipulation
+    # above still conditions the text side (two orthogonal channels). Both native
+    # entry points take the same init_audio=(sr, tensor) + init_noise_level kwargs
+    # (SAO generate_diffusion_cond; SA3 generate_diffusion_cond_inpaint, where an
+    # init_audio with no inpaint_mask is a plain all-zero-mask variation). When no
+    # payload is present nothing is added, so the historical text-only path is
+    # byte-for-byte unchanged.
+    init_audio_tuple, init_noise_level = _decode_init_audio_request(request, sr)
+    if init_audio_tuple is not None:
+        generate_kwargs["init_audio"] = init_audio_tuple
+        generate_kwargs["init_noise_level"] = init_noise_level
+        _ia_sr, _ia_tensor = init_audio_tuple
+        log.info(
+            "init_audio: %d ch x %d frames @ %d Hz, init_noise_level=%.3f",
+            _ia_tensor.shape[0] if _ia_tensor.dim() > 1 else 1,
+            _ia_tensor.shape[-1],
+            _ia_sr,
+            init_noise_level,
+        )
     if pipe.sampler_type:
         if pipe.sampler_type == "pingpong" and not _native_pingpong_supported():
             raise RuntimeError(_UNSUPPORTED_SAMPLER_MSG.format(

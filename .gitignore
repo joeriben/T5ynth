@@ -48,3 +48,6 @@ exported_models/
 # Ad-hoc compiled diagnostics
 tools/test_delay_damp
 tools/test_inference
+
+# Listening-test render output
+tools/init_audio_test_output/
