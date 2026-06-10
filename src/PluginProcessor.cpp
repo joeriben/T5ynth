@@ -432,15 +432,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::genNoise, 1}, "Noise",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f, 0.3f), 0.0f));
-    // Resynth (init_audio / i2i): denoise amount fed to the backend as
-    // init_noise_level. 1.0 = full re-generation (input ignored), lower stays
-    // closer to the source. Default 0.6 so enabling Resynth is audibly a blend,
-    // not a no-op. Paired with the resynth_enabled toggle below.
+    // Resynth (init_audio / i2i): a single Off->Full amount, no separate toggle —
+    // the slider's minimum IS off. 0 = ordinary text-only generation; turning up
+    // feeds the last raw generation back as the denoise seed so each render evolves
+    // from the previous one, and 1 = full effect (output follows the fed-back
+    // source most strongly). buildInferenceRequest maps the amount onto SA3's
+    // MEASURED useful init_noise band (0.30..0.05); 0 sends no init_audio at all.
+    // Default off so normal SA3 generation is unchanged until you opt in.
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::genInitNoise, 1}, "Init Noise",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.6f));
-    params.push_back(std::make_unique<juce::AudioParameterBool>(
-        juce::ParameterID{PID::resynthEnabled, 1}, "Resynth", false));
+        juce::ParameterID{PID::resynthAmount, 1}, "Resynth",
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::genAxesAmount, 1}, "Axes Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 1.0f));
@@ -3930,6 +3931,7 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     synth->setProperty("magnitude", get(PID::genMagnitude));
     synth->setProperty("noise", get(PID::genNoise));
     synth->setProperty("axesAmount", get(PID::genAxesAmount));
+    synth->setProperty("resynth", get(PID::resynthAmount));
     synth->setProperty("duration", get(PID::genDuration));
     synth->setProperty("startPosition", get(PID::genStart));
     synth->setProperty("steps", static_cast<int>(get(PID::infSteps)));
@@ -4231,6 +4233,10 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         setParam(parameters, PID::genNoise, static_cast<float>(synth->getProperty("noise")));
         if (synth->hasProperty("axesAmount"))
             setParam(parameters, PID::genAxesAmount, static_cast<float>(synth->getProperty("axesAmount")));
+        // resynth default is 0 (off), so an unconditional read is correct: a preset
+        // saved before Resynth existed lacks the property -> var() -> 0.0f -> the
+        // Resynth slider resets to off on load, as a preset's full state should.
+        setParam(parameters, PID::resynthAmount, static_cast<float>(synth->getProperty("resynth")));
         setParam(parameters, PID::genDuration, static_cast<float>(synth->getProperty("duration")));
         setParam(parameters, PID::genStart, static_cast<float>(synth->getProperty("startPosition")));
         setParam(parameters, PID::infSteps, static_cast<float>(static_cast<int>(synth->getProperty("steps"))));

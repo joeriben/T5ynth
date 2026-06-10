@@ -130,6 +130,15 @@ private:
     std::array<MainSnapshot, kNumSnapshotSlots> mainSnapshots;
     std::array<MainSnapshot, kNumSnapshotSlots> snapshotPressCaptures;
     int activeSnapshotIndex = 0;  // 0=OFF, 1..4=session snapshot selected
+
+    // Resynth (init_audio / i2i): one SA3-gated Off->Full slider under the snap/
+    // cache row. Left = off (text-only), right = full (next render follows the
+    // fed-back source most strongly). No separate toggle; a word readout (Off..
+    // Full) replaces the meaningless 0-1 number so "full" is a visible position.
+    // Attachment declared AFTER its target component (reverse-destruction order).
+    juce::Label resynthLabel;
+    juce::Slider resynthSlider;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> resynthA;
     int lastInfCacheUiCapacity = -1;
     int lastInfCacheUiFill = -1;
     bool lastInfCacheUiFull = false;

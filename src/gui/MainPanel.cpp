@@ -18,7 +18,7 @@ constexpr const char* kUiSettingsFileName = "ui_settings.json";
 constexpr const char* kOscEasyModeKey = "oscEasyMode";
 
 const char* const kMainSnapshotParamIds[] = {
-    PID::genAlpha, PID::genMagnitude, PID::genNoise, PID::genDuration,
+    PID::genAlpha, PID::genMagnitude, PID::genNoise, PID::resynthAmount, PID::genDuration,
     PID::genStart, PID::genCfg, PID::genSeed, PID::genHfBoost, PID::infSteps,
     PID::engineMode, PID::voiceCount, PID::tuning, PID::loopMode,
     PID::crossfadeMs, PID::normalize, PID::loopOptimize,
@@ -923,6 +923,60 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     syncSnapshotUi();
     syncInferenceCacheUi();
 
+    // Resynth (init_audio / i2i) — one Off->Full slider under the snap/cache row,
+    // enabled only for SA3 (gated in onModelChanged below). Left = off (text-only);
+    // dragging right feeds the last raw generation back as the denoise seed so each
+    // render evolves from the previous one, up to Full at the right. A word readout
+    // (Off..Full) replaces the 0-1 number, so "full" is a visible end position you
+    // navigate to rather than a value to guess.
+    resynthLabel.setText("Resynth", juce::dontSendNotification);
+    resynthLabel.setColour(juce::Label::textColourId, kDim);
+    resynthLabel.setJustificationType(juce::Justification::centredLeft);
+    resynthLabel.setInterceptsMouseClicks(false, false);
+    resynthLabel.setTooltip("Resynth (SA3): feed the last generation back as the "
+                            "seed so each render evolves from the previous one.");
+    addAndMakeVisible(resynthLabel);
+
+    resynthSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    resynthSlider.setColour(juce::Slider::trackColourId, kOscCol);
+    resynthSlider.setColour(juce::Slider::backgroundColourId, kSurface);
+    resynthSlider.setColour(juce::Slider::textBoxTextColourId, kDim);
+    resynthSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    resynthSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 46, 14);
+    resynthSlider.setTooltip("Resynth (SA3): Off = normal generation. Drag right to "
+                             "feed the last render back as the seed — further right "
+                             "= the next render follows your fed-back sound more.");
+    addAndMakeVisible(resynthSlider);
+
+    resynthA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        processor.getValueTreeState(), PID::resynthAmount, resynthSlider);
+
+    // Word readout, not a number: the slider is continuous but the box just says
+    // where you are (Off / Subtle / Medium / Strong / Full), aligned with the
+    // init_noise mapping in buildInferenceRequest so "Full" really is the strongest
+    // source carry-over. The <0.01 floor matches that mapping's off gate.
+    // IMPORTANT: SliderAttachment's constructor OVERWRITES these two functions, so
+    // they must be assigned AFTER the attachment is created — then updateText()
+    // refreshes the box from the restored value. (Setting them before the
+    // attachment silently reverts the box to the parameter's 3-decimal number.)
+    resynthSlider.textFromValueFunction = [](double v) {
+        if (v < 0.01) return juce::String("Off");
+        if (v < 0.30) return juce::String("Subtle");
+        if (v < 0.55) return juce::String("Medium");
+        if (v < 0.80) return juce::String("Strong");
+        return juce::String("Full");
+    };
+    resynthSlider.valueFromTextFunction = [](const juce::String& t) {
+        auto s = t.trim().toLowerCase();
+        if (s == "off")    return 0.0;
+        if (s == "subtle") return 0.20;
+        if (s == "medium") return 0.45;
+        if (s == "strong") return 0.70;
+        if (s == "full")   return 1.0;
+        return t.getDoubleValue();
+    };
+    resynthSlider.updateText();
+
     // Wire axis values callback for drift auto-regen (offsets applied per slot)
     promptPanel.getAxisValuesCallback = [this](float o1, float o2, float o3) {
         return axesPanel.getAxisValuesWithOffsets(o1, o2, o3);
@@ -954,6 +1008,19 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
             dimensionExplorer.setAlpha(enabled ? 1.0f : 0.4f);
             dimHeader.setEnabled(enabled);
             dimHeader.setAlpha(enabled ? 1.0f : 0.4f);
+        }
+
+        // Resynth is the INVERSE gate: enabled only for SA3, the inpaint engine
+        // whose init_audio path it drives (SAO is backend-capable too, but the
+        // element is scoped to SA3; AudioLDM2's diffusers path can't take it).
+        // Separate guard — its enabled state is the opposite of the cards above.
+        const bool resynthOk = promptPanel.selectedModelIsSA3();
+        if (resynthSlider.isEnabled() != resynthOk)
+        {
+            resynthSlider.setEnabled(resynthOk);
+            resynthSlider.setAlpha(resynthOk ? 1.0f : 0.4f);
+            resynthLabel.setEnabled(resynthOk);
+            resynthLabel.setAlpha(resynthOk ? 1.0f : 0.4f);
         }
     };
     promptPanel.onModelChanged();  // set initial state (no-op until a model is selected)
@@ -2804,6 +2871,7 @@ void MainPanel::resized()
     constexpr int kMinAxesH = 84;
     constexpr int kMinGenerateButtonH = 38;
     const int cacheRowH = juce::jlimit(16, 20, juce::roundToInt(h * 0.022f));
+    const int resynthRowH = juce::jlimit(16, 22, juce::roundToInt(h * 0.024f));
     const int genCacheGap = juce::jlimit(22, 36, juce::roundToInt(h * 0.032f));
 
     int genBtnH = juce::jlimit(50, 72,
@@ -2812,7 +2880,7 @@ void MainPanel::resized()
 
     int oscH = juce::jmax(kMinOscH, promptPanel.getPreferredHeightForWidth(genCol.getWidth()));
     int axesH = juce::jlimit(kMinAxesH, 144, juce::roundToInt(h * 0.133f));
-    const int reservedGenerateBlockH = kMinGenerateButtonH + genCacheGap + cacheRowH;
+    const int reservedGenerateBlockH = kMinGenerateButtonH + genCacheGap + cacheRowH + kGap + resynthRowH;
     const int headerCount = oscEasyMode ? 2 : 3;
     const int minDimBudget = oscEasyMode ? 0 : kMinDimH;
     int dimBudget = genCol.getHeight() - (headerH * headerCount + kGap * headerCount
@@ -2886,12 +2954,16 @@ void MainPanel::resized()
     // standalone primary control, not a label for the cache row.
     int remainH = genCol.getHeight();
     int effectiveGenCacheGap = genCacheGap;
-    if (remainH < kMinGenerateButtonH + effectiveGenCacheGap + cacheRowH)
+    if (remainH < kMinGenerateButtonH + effectiveGenCacheGap + cacheRowH + kGap + resynthRowH)
         effectiveGenCacheGap = juce::jmin(effectiveGenCacheGap, kGap);
 
-    const int availableGenButtonH = juce::jmax(0, remainH - effectiveGenCacheGap - cacheRowH);
+    // The resynth row sits below the snap/cache row, so it is part of the centered
+    // control block: reserve its height (+ a gap) here so the Generate button
+    // doesn't claim it and the row stays inside genCol instead of colliding with
+    // the sequencer below.
+    const int availableGenButtonH = juce::jmax(0, remainH - effectiveGenCacheGap - cacheRowH - kGap - resynthRowH);
     genBtnH = juce::jlimit(0, genBtnH, availableGenButtonH);
-    const int controlsH = genBtnH + effectiveGenCacheGap + cacheRowH;
+    const int controlsH = genBtnH + effectiveGenCacheGap + cacheRowH + kGap + resynthRowH;
     int genBtnY = genCol.getY() + juce::jmax(0, (remainH - controlsH) / 2);
     auto genBtnArea = juce::Rectangle<int>(genCol.getX(), genBtnY, genCol.getWidth(), genBtnH);
     int genW = juce::roundToInt(static_cast<float>(genBtnArea.getWidth()) * 0.66f);
@@ -2951,6 +3023,20 @@ void MainPanel::resized()
     cacheSwitchBounds = infCacheButtons[0].getBounds();
     for (int i = 1; i < kNumInfCacheButtons; ++i)
         cacheSwitchBounds = cacheSwitchBounds.getUnion(infCacheButtons[i].getBounds());
+
+    // Resynth row directly beneath the snap/cache row: [Resynth label][slider].
+    // Its Y is derived the same way as snapCacheRow (from the Generate button's
+    // bottom) so it tracks the centered control block exactly. Reserved above.
+    auto resynthRow = juce::Rectangle<int>(
+        genCol.getX(),
+        mainGenerateBtn.getBottom() + effectiveGenCacheGap + cacheRowH + kGap,
+        genCol.getWidth(),
+        resynthRowH).reduced(1, 0);
+    const int resynthLabelW = juce::jlimit(54, 78,
+        juce::roundToInt(static_cast<float>(resynthRow.getWidth()) * 0.30f));
+    resynthLabel.setBounds(resynthRow.removeFromLeft(juce::jmin(resynthLabelW, resynthRow.getWidth())));
+    resynthRow.removeFromLeft(juce::jmin(gap, resynthRow.getWidth()));
+    resynthSlider.setBounds(resynthRow);
 
     // Col 2: ENGINE
     synthPanel.setBounds(b);

@@ -1737,22 +1737,30 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     if (requestInjectionMode == "kombi2") { req.splitStart = 0.25f  * blocksF; req.splitEnd = 0.75f  * blocksF; }
     if (requestInjectionMode == "kombi3") { req.splitStart = 0.375f * blocksF; req.splitEnd = 0.625f * blocksF; }
 
-    // Resynth (init_audio / i2i): when enabled, feed the LAST raw generation back
-    // as the denoise seed so the next render evolves from it instead of from pure
-    // noise. SA3-gated to match the UI element (and so a stale resynth_enabled
-    // recalled under SAO/AudioLDM2 — whose diffusers path can't take init_audio —
-    // never leaks a buffer). Only attaches when a prior buffer actually exists;
-    // the very first generation of a session has none and stays text-only.
-    // Read on the message thread, same as loadGeneratedAudio writes it — no race.
-    if (apvts.getRawParameterValue(PID::resynthEnabled)->load() > 0.5f
-        && isSA3Model(req.model))
+    // Resynth (init_audio / i2i): a single Off->Full amount. 0 (Off) = text-only;
+    // turning up feeds the LAST raw generation back as the denoise seed so the next
+    // render evolves from it instead of from pure noise. SA3-gated to match the UI
+    // element (and so a stale non-zero recalled under SAO/AudioLDM2 — whose
+    // diffusers path can't take init_audio — never leaks a buffer). Only attaches
+    // when a prior buffer actually exists; the very first generation of a session
+    // has none and stays text-only. Read on the message thread, same as
+    // loadGeneratedAudio writes it.
+    const float resynthAmount = juce::jlimit(0.0f, 1.0f,
+        apvts.getRawParameterValue(PID::resynthAmount)->load());
+    if (resynthAmount > 0.01f && isSA3Model(req.model))
     {
         const auto& rawBuf = processorRef.getGeneratedAudioRaw();
         if (rawBuf.getNumSamples() > 0 && rawBuf.getNumChannels() > 0)
         {
             req.initAudio.makeCopyOf(rawBuf);
             req.initAudioSampleRate = processorRef.getGeneratedSampleRate();
-            req.initNoiseLevel = apvts.getRawParameterValue(PID::genInitNoise)->load();
+            // Amount (0->1) maps to backend init_noise_level across SA3's MEASURED
+            // useful band: Full (1.0) -> 0.05 (corr-to-source ~0.59, source
+            // dominates), down to ~0.30 (corr ~0.12, faint) as amount -> 0. Both
+            // ends stay live — never a pure echo (init_noise 0.0) and never the
+            // dead >=0.5 zone where SA3 ignores the source. Calibrated on
+            // stable-audio-3-small-music; another engine would want its own band.
+            req.initNoiseLevel = 0.30f - 0.25f * resynthAmount;
         }
     }
     return req;
