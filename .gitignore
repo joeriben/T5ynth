@@ -51,3 +51,4 @@ tools/test_inference
 
 # Listening-test render output
 tools/init_audio_test_output/
+tools/resynth_loop_out/

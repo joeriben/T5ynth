@@ -1800,14 +1800,25 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
             req.initAudio.makeCopyOf(rawBuf);
             req.initAudioSampleRate = processorRef.getGeneratedSampleRate();
             // Amount (0->1) maps to backend init_noise_level across SA3's MEASURED
-            // useful band: Full (1.0) -> 0.05 (corr-to-source ~0.59, source
-            // dominates), up to ~0.48 (corr ~0.04, source barely present) at the
-            // low end so a NEW prompt clearly comes through. The old 0.30 cap
-            // (corr ~0.13) was perceptually NOT faint — it locked the fed-back
-            // sound in even at the 5% minimum, so a prompt change stayed inaudible
-            // until Off (user ear-report). The low end now sits just under the
-            // >=0.5 dead zone (source ignored); Full is unchanged. Calibrated on
-            // stable-audio-3-small-music; another engine would want its own band.
+            // useful band: Full (1.0) -> 0.05, low end -> ~0.48 (just under the
+            // >=0.5 dead zone where init_audio is ignored entirely).
+            //
+            // VALIDATED empirically by the 20-iteration feedback-loop sweep
+            // (tools/test_resynth_loop.py; full writeup in
+            // tools/resynth_loop_out/CALIBRATION_FINDINGS.md). On
+            // stable-audio-3-small-music the loop CONVERGES at every sigma:
+            //   - Full (sigma 0.05): max self-resynthesis. The output morphs into
+            //     a related-but-distinct member of the prompt family and settles
+            //     (timbre_corr-to-original 0.37). Coherent, the strongest evolve.
+            //   - 5% floor (sigma ~0.48): a CHANGED prompt washes the carried sound
+            //     out by ~iter 6 (<<20) — this is what fixed the old "5% holds for
+            //     x bars" complaint (the prior 0.30 cap never washed out in 20).
+            // The evolution response saturates below sigma ~0.12 and vanishes above
+            // sigma ~0.40, so SA3 offers only ~3 resolvable evolution levels; LINEAR
+            // spends them on the top three detents (where it matters) and leaves the
+            // bottom two as a harmless wash-out plateau. A curve only moves that
+            // redundancy onto the useful end — strictly worse. Hence: keep linear.
+            // Another engine would want its own band re-measured the same way.
             req.initNoiseLevel = 0.50f - 0.45f * resynthAmount;
         }
     }
