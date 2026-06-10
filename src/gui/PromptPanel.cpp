@@ -63,6 +63,46 @@ static void applyDriftCrossfade(juce::AudioBuffer<float>& newBuf,
     }
 }
 
+// ── Resynth-loop anti-convergence ──────────────────────────────────────────
+// A feedback loop that re-feeds its own output as init_audio tends to collapse
+// onto a fixed point: each render resembles the last more and more until it
+// stops evolving. We detect that by the delta between consecutive loop outputs
+// and, when it falls below a threshold, push the effective resynth amount down
+// (which raises init_noise — more fresh diffusion = the perturbation that breaks
+// the attractor), relaxing back toward the user's setting once it evolves again.
+constexpr float kConvergenceDeltaThreshold = 0.04f;  // delta below this = "too convergent" (corr > 0.96)
+constexpr float kConvergenceAttackGain     = 1.5f;   // how fast reduction builds while converged
+constexpr float kConvergenceReleaseGain    = 0.5f;   // slower release → hysteresis, avoids re-collapse
+constexpr float kMaxConvergenceReduction   = 0.8f;   // integral windup clamp
+constexpr float kResynthLoopFloor          = 0.05f;  // keep effective resynth > attach gate (0.01)
+
+// Zero-lag cosine similarity between two buffers (mono-summed, compared over
+// their shared length), returned as a delta in [0,1]: 0 = identical, 1 =
+// unrelated. A new buffer collapsed to silence reads as delta 0 (silence is
+// itself a degenerate attractor to escape); a silent/empty reference reads as
+// delta 1 (nothing to compare against, so don't engage the controller).
+static float computeBufferDelta(const juce::AudioBuffer<float>& reference,
+                                const juce::AudioBuffer<float>& fresh)
+{
+    const int n  = juce::jmin(reference.getNumSamples(), fresh.getNumSamples());
+    if (n <= 0) return 1.0f;
+    const int cr = reference.getNumChannels();
+    const int cf = fresh.getNumChannels();
+    double dot = 0.0, eRef = 0.0, eFresh = 0.0;
+    for (int i = 0; i < n; ++i)
+    {
+        double sr = 0.0, sf = 0.0;
+        for (int ch = 0; ch < cr; ++ch) sr += reference.getSample(ch, i);
+        for (int ch = 0; ch < cf; ++ch) sf += fresh.getSample(ch, i);
+        dot += sr * sf; eRef += sr * sr; eFresh += sf * sf;
+    }
+    constexpr double kEps = 1e-12;
+    if (eFresh < kEps) return 0.0f;  // collapsed to silence → force escape
+    if (eRef   < kEps) return 1.0f;  // no usable reference
+    const double corr = dot / std::sqrt(eRef * eFresh);
+    return static_cast<float>(juce::jlimit(0.0, 1.0, 1.0 - corr));
+}
+
 static void makeSlider(juce::Slider& s, juce::Component* p)
 {
     s.setSliderStyle(juce::Slider::LinearHorizontal);
@@ -2004,15 +2044,36 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                 if (result.success)
                 {
                     auto newAudio = result.audio;
+
+                    // The previous loop output (output N-1) lives in the processor
+                    // until loadGeneratedAudio overwrites it below; capture it once
+                    // for both the anti-convergence delta and the boundary
+                    // crossfade. (Valid only until that load — used before it.)
+                    const auto& oldRaw = processor.getGeneratedAudioRaw();
+
+                    // Anti-convergence: on a resynth-loop round (init_audio was
+                    // attached) measure how much this render differs from the
+                    // previous one — using the PRISTINE result, before the
+                    // crossfade blends their boundary and inflates similarity —
+                    // and steer convergenceReduction_ so a stalling loop gets more
+                    // init_noise back. loopDelta < 0 marks a non-loop round (no
+                    // readout, no controller change).
+                    float loopDelta = -1.0f;
+                    if (req.initAudio.getNumSamples() > 0 && oldRaw.getNumSamples() > 0)
+                    {
+                        loopDelta = computeBufferDelta(oldRaw, result.audio);
+                        const float err  = kConvergenceDeltaThreshold - loopDelta;
+                        const float gain = (err > 0.0f) ? kConvergenceAttackGain
+                                                        : kConvergenceReleaseGain;
+                        self->convergenceReduction_ = juce::jlimit(0.0f, kMaxConvergenceReduction,
+                            self->convergenceReduction_ + gain * err);
+                    }
+
                     float xfadeMs = processor.getValueTreeState()
                         .getRawParameterValue(PID::driftCrossfade)->load();
                     int xfadeSamples = juce::roundToInt(xfadeMs * 0.001f * static_cast<float>(result.sampleRate));
-                    if (xfadeSamples > 0)
-                    {
-                        const auto& oldRaw = processor.getGeneratedAudioRaw();
-                        if (oldRaw.getNumSamples() > 0)
-                            applyDriftCrossfade(newAudio, oldRaw, xfadeSamples);
-                    }
+                    if (xfadeSamples > 0 && oldRaw.getNumSamples() > 0)
+                        applyDriftCrossfade(newAudio, oldRaw, xfadeSamples);
                     processor.addInferenceCacheEntry(result.audio, result.sampleRate);
                     processor.loadGeneratedAudio(newAudio, result.sampleRate);
                     auto promptA = self->promptAEditor.getText().trim();
@@ -2029,6 +2090,15 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                     // next drift change can fire immediately again.
                     self->lastRegenFailureMs_ = 0.0;
                     auto info = juce::String(result.generationTimeMs / 1000.0f, 1) + "s | auto regen";
+                    if (loopDelta >= 0.0f)
+                    {
+                        // Show the consecutive-output delta (Δ) so the loop's
+                        // evolution is visible, and flag when anti-convergence is
+                        // actively pushing extra init_noise in to keep it moving.
+                        info += juce::String::fromUTF8(" | \xCE\x94") + juce::String(loopDelta, 2);
+                        if (self->convergenceReduction_ > 0.001f)
+                            info += " +noise";
+                    }
                     if (self->onStatusChanged) self->onStatusChanged(info, false);
 
                     if (!result.embeddingA.empty())
@@ -2068,7 +2138,11 @@ void PromptPanel::pollDriftRegen()
     if (generating || translatingPrompts_) return;
 
     int regenMode = processorRef.driftRegenMode.load(std::memory_order_relaxed);
-    if (regenMode == 0) return; // Manual — no auto-regen
+    if (regenMode == 0)
+    {
+        convergenceReduction_ = 0.0f; // loop not running → reset the controller
+        return;                       // Manual — no auto-regen
+    }
 
     // Failure throttle: when the previous drift-driven regen failed (e.g.
     // the backend rejected the selected model), wait ~2s before retrying so
@@ -2214,6 +2288,8 @@ void PromptPanel::pollDriftRegen()
     // regen. SA3-gated to match buildInferenceRequest's attach gate: init_audio only
     // attaches on SA3, so looping elsewhere would spin identical text-only renders.
     const bool resynthLoop = selectedModelIsSA3() && effResynth > 0.01f;
+    if (!resynthLoop)
+        convergenceReduction_ = 0.0f; // controller only meaningful while the loop runs
 
     auto promptA = promptAEditor.getText().trim();
     auto promptB = promptBEditor.getText().trim();
@@ -2249,8 +2325,24 @@ void PromptPanel::pollDriftRegen()
     float genMag = std::isnan(effMag)
         ? apvts.getRawParameterValue(PID::genMagnitude)->load() : effMag;
 
+    // Apply the anti-convergence reduction to the loop's effective resynth: the
+    // controller raises it when consecutive outputs stop differing, lowering the
+    // amount here (→ higher init_noise). Floored above the attach gate so the
+    // loop keeps feeding back rather than dropping to plain text-only renders.
+    float loopResynth = effResynth;
+    if (resynthLoop)
+    {
+        // Anti-windup: cap the integral at what can actually move loopResynth
+        // (effResynth down to the floor). Beyond that it is dead reduction that
+        // only lags the relax-back once the loop starts evolving again.
+        const float reach = juce::jmax(0.0f, effResynth - kResynthLoopFloor);
+        convergenceReduction_ = juce::jmin(convergenceReduction_,
+                                           juce::jmin(kMaxConvergenceReduction, reach));
+        loopResynth = juce::jlimit(kResynthLoopFloor, 1.0f, effResynth - convergenceReduction_);
+    }
+
     lastRegenTimeMs_ = juce::Time::getMillisecondCounterHiRes();
     triggerDriftRegeneration(effAlpha, effAxes, genNoise, genMag,
                              effectiveLateMix, effectiveSplitStart, effectiveSplitEnd,
-                             effResynth, false);
+                             loopResynth, false);
 }

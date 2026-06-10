@@ -275,6 +275,12 @@ private:
     juce::String lastGenPromptA_;
     juce::String lastGenPromptB_;
     double lastRegenTimeMs_ = 0.0; // for beat-based cooldown
+    // Resynth-loop anti-convergence: an adaptive amount subtracted from the
+    // loop's effective resynth when consecutive outputs stop differing, raising
+    // init_noise to break the loop out of a fixed-point. 0 = no reduction (the
+    // loop follows the user's setting). Message-thread only (pollDriftRegen +
+    // the generation-complete callback both run there), so no atomic needed.
+    float convergenceReduction_ = 0.0f;
     // Failure throttle: when a drift-driven auto-regen fails, gate further
     // attempts for a couple of seconds so a persistently broken backend
     // (e.g. a model the bundled pipeline can't load) doesn't get hammered
