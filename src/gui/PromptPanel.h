@@ -281,6 +281,11 @@ private:
     // loop follows the user's setting). Message-thread only (pollDriftRegen +
     // the generation-complete callback both run there), so no atomic needed.
     float convergenceReduction_ = 0.0f;
+    // Whether the round just triggered actually had its resynth lowered by the
+    // controller (loopResynth < effResynth). Set in pollDriftRegen at trigger
+    // time, read by the generation-complete callback to flag "+noise" — true only
+    // when the reduction has effect, so near the floor (no headroom) it stays off.
+    bool antiConvergenceActive_ = false;
     // Failure throttle: when a drift-driven auto-regen fails, gate further
     // attempts for a couple of seconds so a persistently broken backend
     // (e.g. a model the bundled pipeline can't load) doesn't get hammered

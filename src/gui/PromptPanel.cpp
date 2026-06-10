@@ -2093,10 +2093,13 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                     if (loopDelta >= 0.0f)
                     {
                         // Show the consecutive-output delta (Δ) so the loop's
-                        // evolution is visible, and flag when anti-convergence is
-                        // actively pushing extra init_noise in to keep it moving.
+                        // evolution is visible, and flag +noise only when this
+                        // round's amount was ACTUALLY reduced (loopResynth <
+                        // effResynth). Near the floor the integral can be positive
+                        // yet have no effect — gating on the raw reduction would
+                        // flash +noise where nothing is added.
                         info += juce::String::fromUTF8(" | \xCE\x94") + juce::String(loopDelta, 2);
-                        if (self->convergenceReduction_ > 0.001f)
+                        if (self->antiConvergenceActive_)
                             info += " +noise";
                     }
                     if (self->onStatusChanged) self->onStatusChanged(info, false);
@@ -2140,8 +2143,9 @@ void PromptPanel::pollDriftRegen()
     int regenMode = processorRef.driftRegenMode.load(std::memory_order_relaxed);
     if (regenMode == 0)
     {
-        convergenceReduction_ = 0.0f; // loop not running → reset the controller
-        return;                       // Manual — no auto-regen
+        convergenceReduction_ = 0.0f;   // loop not running → reset the controller
+        antiConvergenceActive_ = false; // and its status flag
+        return;                         // Manual — no auto-regen
     }
 
     // Failure throttle: when the previous drift-driven regen failed (e.g.
@@ -2340,6 +2344,10 @@ void PromptPanel::pollDriftRegen()
                                            juce::jmin(kMaxConvergenceReduction, reach));
         loopResynth = juce::jlimit(kResynthLoopFloor, 1.0f, effResynth - convergenceReduction_);
     }
+    // The controller only counts as "active" when it actually lowered the amount.
+    // At/near the floor reach is 0, so loopResynth == effResynth and this is false
+    // — the "+noise" status flag then won't fire where the reduction has no effect.
+    antiConvergenceActive_ = resynthLoop && (loopResynth < effResynth - 0.001f);
 
     lastRegenTimeMs_ = juce::Time::getMillisecondCounterHiRes();
     triggerDriftRegeneration(effAlpha, effAxes, genNoise, genMag,
