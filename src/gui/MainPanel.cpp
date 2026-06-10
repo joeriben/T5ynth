@@ -951,27 +951,28 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     resynthA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor.getValueTreeState(), PID::resynthAmount, resynthSlider);
 
-    // Word readout, not a number: the slider is continuous but the box just says
-    // where you are (Off / Subtle / Medium / Strong / Full), aligned with the
-    // init_noise mapping in buildInferenceRequest so "Full" really is the strongest
-    // source carry-over. The <0.01 floor matches that mapping's off gate.
+    // Word readout, not a number: the slider snaps to 5 detents (0/.25/.5/.75/1)
+    // and the box names the stop you are on (Off / Subtle / Medium / Strong / Full),
+    // aligned with the init_noise mapping in buildInferenceRequest so "Full" really
+    // is the strongest source carry-over — and it lives only at the rightmost detent
+    // (1.0), never at an 80% in-between. Buckets are centred on the detents.
     // IMPORTANT: SliderAttachment's constructor OVERWRITES these two functions, so
     // they must be assigned AFTER the attachment is created — then updateText()
     // refreshes the box from the restored value. (Setting them before the
     // attachment silently reverts the box to the parameter's 3-decimal number.)
     resynthSlider.textFromValueFunction = [](double v) {
-        if (v < 0.01) return juce::String("Off");
-        if (v < 0.30) return juce::String("Subtle");
-        if (v < 0.55) return juce::String("Medium");
-        if (v < 0.80) return juce::String("Strong");
-        return juce::String("Full");
+        if (v < 0.125) return juce::String("Off");      // 0.0
+        if (v < 0.375) return juce::String("Subtle");   // 0.25
+        if (v < 0.625) return juce::String("Medium");   // 0.50
+        if (v < 0.875) return juce::String("Strong");   // 0.75
+        return juce::String("Full");                    // 1.0 only
     };
     resynthSlider.valueFromTextFunction = [](const juce::String& t) {
         auto s = t.trim().toLowerCase();
         if (s == "off")    return 0.0;
-        if (s == "subtle") return 0.20;
-        if (s == "medium") return 0.45;
-        if (s == "strong") return 0.70;
+        if (s == "subtle") return 0.25;
+        if (s == "medium") return 0.50;
+        if (s == "strong") return 0.75;
         if (s == "full")   return 1.0;
         return t.getDoubleValue();
     };
