@@ -286,6 +286,13 @@ private:
     // time, read by the generation-complete callback to flag "+noise" — true only
     // when the reduction has effect, so near the floor (no headroom) it stays off.
     bool antiConvergenceActive_ = false;
+    // Resynth-loop release edge-detector: the previous loop regen's "a parameter
+    // moved" state. The release (detach init so a changed prompt renders clean) is
+    // edge-triggered on the false→true transition — so a continuous drift, which
+    // holds the change flag true every tick, releases ONCE at onset and then locks
+    // and evolves, instead of detaching every tick and disabling the loop. Reset
+    // when the loop is not running. Message-thread only (pollDriftRegen).
+    bool prevLoopParamsChanged_ = false;
     // Failure throttle: when a drift-driven auto-regen fails, gate further
     // attempts for a couple of seconds so a persistently broken backend
     // (e.g. a model the bundled pipeline can't load) doesn't get hammered

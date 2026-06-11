@@ -2307,7 +2307,10 @@ void PromptPanel::pollDriftRegen()
     // attaches on SA3, so looping elsewhere would spin identical text-only renders.
     const bool resynthLoop = selectedModelIsSA3() && effResynth > 0.01f;
     if (!resynthLoop)
-        convergenceReduction_ = 0.0f; // controller only meaningful while the loop runs
+    {
+        convergenceReduction_ = 0.0f;     // controller only meaningful while the loop runs
+        prevLoopParamsChanged_ = false;   // re-arm the release edge-detector for next time
+    }
 
     auto promptA = promptAEditor.getText().trim();
     auto promptB = promptBEditor.getText().trim();
@@ -2343,12 +2346,44 @@ void PromptPanel::pollDriftRegen()
     float genMag = std::isnan(effMag)
         ? apvts.getRawParameterValue(PID::genMagnitude)->load() : effMag;
 
-    // Apply the anti-convergence reduction to the loop's effective resynth: the
-    // controller raises it when consecutive outputs stop differing, lowering the
-    // amount here (→ higher init_noise). Floored above the attach gate so the
-    // loop keeps feeding back rather than dropping to plain text-only renders.
+    // Resynth-loop control — two regimes, gated on whether a t5osc PARAMETER moved
+    // (NOT on the WAV-delta alone: a low delta is ambiguous — a genuine freeze OR a
+    // clean settle on new content — so the parameter-change flag is the
+    // discriminator):
+    //
+    //   • a parameter change EDGE → RELEASE: detach init (loopResynth → 0, below the
+    //     attach gate) so the new content renders clean FROM THE PROMPT instead of
+    //     being anchored to the carried-over wave. The re-lock is automatic: the
+    //     next tick falls through to the anti-convergence branch and init re-attaches
+    //     at the set level — now AGREEING with the new content, so it holds.
+    //   • otherwise → LOCK / autonomous: the anti-convergence controller. A falling
+    //     consecutive-output delta then genuinely means a freeze, so push resynth
+    //     down (more init_noise) to break it; relax back as it evolves.
+    //
+    // EDGE-triggered, not level: paramsChanged is "moved since the last loop regen",
+    // which a CONTINUOUS drift (sine/triangle — the default waveforms) holds true
+    // every tick. Releasing on the level would detach every tick and silently
+    // disable the feedback loop (its headline "evolve with drift" use). Firing only
+    // on the false→true edge makes a square/discrete change release once per flip,
+    // and a continuous drift release once at onset and then lock-and-evolve.
+    //
+    // Empirically validated for the discrete switch (tools/test_ab_resynth.py): with
+    // init attached at ANY sigma a switched-in prompt only reaches a half-bright mush
+    // attractor (cen×B ≈ 0.06–0.44); detach-then-relock lands it clean (cen×B 1.0 on
+    // the switch) and HOLDS it (≥1.0) at every Resynth level — tighter the higher the
+    // level, since the carried wave then matches the prompt. The delta block in the
+    // gen-complete callback is already init-gated, so a release round (no init) skips
+    // the anti-convergence integral on its own — no change needed there.
+    const bool paramsChanged = alphaChanged || axesChanged || noiseChanged
+                            || magChanged || promptChanged;
+    const bool releaseEdge = resynthLoop && paramsChanged && !prevLoopParamsChanged_;
     float loopResynth = effResynth;
-    if (resynthLoop)
+    if (releaseEdge)
+    {
+        loopResynth = 0.0f;            // RELEASE: detach this round → render clean
+        convergenceReduction_ = 0.0f; // clear any stale reduction before the re-lock
+    }
+    else if (resynthLoop)
     {
         // Anti-windup: cap the integral at what can actually move loopResynth
         // (effResynth down to the floor). Beyond that it is dead reduction that
@@ -2358,10 +2393,12 @@ void PromptPanel::pollDriftRegen()
                                            juce::jmin(kMaxConvergenceReduction, reach));
         loopResynth = juce::jlimit(kResynthLoopFloor, 1.0f, effResynth - convergenceReduction_);
     }
-    // The controller only counts as "active" when it actually lowered the amount.
-    // At/near the floor reach is 0, so loopResynth == effResynth and this is false
-    // — the "+noise" status flag then won't fire where the reduction has no effect.
-    antiConvergenceActive_ = resynthLoop && (loopResynth < effResynth - 0.001f);
+    if (resynthLoop)
+        prevLoopParamsChanged_ = paramsChanged;  // arm the edge test for the next regen
+    // "+noise" status flag: only when the autonomous controller actually lowered the
+    // amount — never on a release round (that is a detach, not a noise bump).
+    antiConvergenceActive_ = !releaseEdge && resynthLoop
+                          && (loopResynth < effResynth - 0.001f);
 
     lastRegenTimeMs_ = juce::Time::getMillisecondCounterHiRes();
     triggerDriftRegeneration(effAlpha, effAxes, genNoise, genMag,
