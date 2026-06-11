@@ -439,12 +439,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // source most strongly). buildInferenceRequest maps the amount onto SA3's
     // MEASURED useful init_noise band (0.48..0.05); 0 sends no init_audio at all.
     // Default off so normal SA3 generation is unchanged until you opt in.
-    // 0.05 grid (21 steps): the five named anchors (0 / .25 / .5 / .75 / 1) still
-    // land exactly on the grid so the word readout maps one-to-one to a click-stop
-    // and "Full" is unambiguously the rightmost stop, but four intermediate steps
-    // between each anchor let you dial in a value the words don't name (the readout
-    // shows a percentage off-anchor). Drift modulates resynth through an override
-    // path, not this param, so the stepped base does not coarsen drift's sweep.
+    // 0.05 grid (21 steps): the six named anchors (0 / .05 / .25 / .5 / .75 / 1 →
+    // Off / Min / Subtle / Medium / Strong / Full) all land exactly on the grid so
+    // the word readout maps one-to-one to a click-stop and "Full" is unambiguously
+    // the rightmost stop; "Min" is the smallest active step (one grid notch above
+    // Off). The 0.05 steps in between let you dial a value the words don't name (the
+    // readout shows a percentage off-anchor). Drift modulates resynth through an
+    // override path, not this param, so the stepped base does not coarsen drift's sweep.
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::resynthAmount, 1}, "Resynth",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.05f), 0.0f));
