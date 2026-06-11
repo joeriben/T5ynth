@@ -109,3 +109,61 @@ Artifacts (audio + per-iteration JSON) live under `tools/resynth_loop_out/` —
 gitignored (164 MB of WAVs); regenerate with the harness. Each of `cross_fixed/`,
 `cross_rand/`, `same_fixed/`, `same_rand/` holds `original_A.wav`,
 `destination_B.wav`, `sigma*_iter*.wav`, `manifest.json`, `summary.json`.
+
+## 4. A/B prompt-switch fairness — the init anchor, and the release fix
+
+Harness: `tools/test_ab_resynth.py` (same IPC path). Entrench prompt A (`warm
+analog bass drone`, centroid 199 Hz) for 4 rounds at a given Resynth level, then
+switch the prompt to B (`bright glittering metallic chimes`, centroid 7095 Hz)
+for 10 rounds. Metric **cen×B** = output centroid ÷ B's; ≈1.0 means the output is
+as bright as a clean chimes generation. `@switch` = the first post-switch round;
+`hold` = mean cen×B over the second half of the re-lock.
+
+This is the user's complaint, made measurable: *with A entrenched, does a
+switched-in B get a chance at the smallest setting?* The two modes:
+
+- **static** — keep `init_audio` attached through the switch (today's behaviour).
+- **release** — on the switch, run ONE detached round (no init → pure-prompt B),
+  then re-attach at the set level and continue.
+
+| seed | level | mode | σ | cen×B @switch | cen×B hold | finB |
+|---|---|---|---|---|---|---|
+| fixed | Min | static | 0.48 | 0.06 | 0.44 | +0.25 |
+| fixed | Min | **release** | 0.48 | **1.00** | **1.37** | +0.37 |
+| fixed | Mid | static | 0.28 | 0.04 | 0.06 | −0.02 |
+| fixed | Mid | **release** | 0.28 | **1.00** | **1.04** | **+0.60** |
+| rand | Min | static | 0.48 | 0.04 | 1.32 | +0.37 |
+| rand | Min | **release** | 0.48 | **1.42** | 1.64 | +0.11 |
+| rand | Mid | static | 0.28 | 0.04 | 0.06 | −0.02 |
+| rand | Mid | **release** | 0.28 | **1.21** | 1.49 | +0.16 |
+
+**Static never lets B in.** The switch round is dark in every static cell
+(cen×B 0.04–0.06): the carried-over wave anchors the denoise and the prompt
+change barely registers. At the stronger anchor (Mid, σ 0.28) B is fully
+suppressed even after 10 rounds (hold 0.06, finB ≈ 0). The one static cell that
+brightens (rand Min, hold 1.32) gets there by random-seed drift, not by B
+asserting — its switch round is still dark (0.04) and finB only +0.37. This is
+the mush attractor, and it is structural: the init's low-frequency content is a
+hard floor the prompt cannot push through.
+
+**Release delivers a clean switch at every level and holds it.** One detached
+round renders B clean (cen×B@switch 1.00–1.42; fixed lands on 1.0, rand
+overshoots bright), and the re-lock *holds* B because the carried wave is now
+clean-B — it agrees with the prompt (bright anchors bright) instead of fighting
+it. cen×B hold ≥ 1.04 in every release cell.
+
+**It generalises across Resynth levels — and a stronger level holds B tighter.**
+fixed Mid release is the tightest cell (finB +0.60, hold 1.04, least overshoot):
+once the anchor agrees with the prompt, the stronger re-lock pins B *better*, not
+worse. This is why the controller fires at every Resynth value, not only at the
+floor — Resynth becomes the lock-strength of the *settled* wave.
+
+fixed re-locks near 1.0; rand overshoots brighter (1.49–1.64) and keeps drifting
+— that is the pre-existing brightening attractor of §"Two quality findings" (1),
+orthogonal to the release and left as-is.
+
+**Mechanism shipped:** `pollDriftRegen` detaches init for one round on the
+false→true edge of "a t5osc conditioning parameter changed since the last loop
+regen", then re-locks at the set level. Edge-triggered so a continuous drift
+(sine/triangle) releases once at onset then locks-and-evolves, rather than
+detaching every tick. See the controller comment in `src/gui/PromptPanel.cpp`.
