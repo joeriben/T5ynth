@@ -400,6 +400,12 @@ namespace AftertouchTarget {
 
 // ── Drift LFO targets ──
 namespace DriftTarget {
+    // Generation-side ("T5Osc") targets — alpha, noise, magnitude, the three
+    // semantic axes, and resynth — are grouped first; the synth DSP targets
+    // (scan, filter, … envelopes) follow. Resynth sits with the generation
+    // group (right after Axis3) because it drives a re-inference, not in-process
+    // DSP. kEntries order must mirror this; .t5p presets key off the string id,
+    // so the order is free to change without breaking presets.
     enum : int {
         None = 0,
         Alpha = 1,
@@ -408,17 +414,17 @@ namespace DriftTarget {
         Axis1 = 4,
         Axis2 = 5,
         Axis3 = 6,
-        WtScan = 7,
-        Filter = 8,
-        Pitch = 9,
-        DelayTime = 10,
-        DelayFB = 11,
-        DelayMix = 12,
-        ReverbMix = 13,
-        Env1Amt = 14,
-        Env2Amt = 15,
-        Env3Amt = 16,
-        Resynth = 17
+        Resynth = 7,
+        WtScan = 8,
+        Filter = 9,
+        Pitch = 10,
+        DelayTime = 11,
+        DelayFB = 12,
+        DelayMix = 13,
+        ReverbMix = 14,
+        Env1Amt = 15,
+        Env2Amt = 16,
+        Env3Amt = 17
     };
     static constexpr ChoiceEntry kEntries[] = {
         { "none",       "---"        },
@@ -428,6 +434,7 @@ namespace DriftTarget {
         { "axis_1",     "Axis 1"     },
         { "axis_2",     "Axis 2"     },
         { "axis_3",     "Axis 3"     },
+        { "resynth",    "Resynth"    },
         { "wt_scan",    "Scan"       },
         { "filter",     "Filter"     },
         { "pitch",      "Pitch"      },
@@ -437,11 +444,10 @@ namespace DriftTarget {
         { "reverb_mix", "Rev Mix"    },
         { "env1_amt",   "ENV1 Amt"   },
         { "env2_amt",   "ENV2 Amt"   },
-        { "env3_amt",   "ENV3 Amt"   },
-        { "resynth",    "Resynth"    }
+        { "env3_amt",   "ENV3 Amt"   }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(Resynth + 1 == kCount,
+    static_assert(Env3Amt + 1 == kCount,
                   "DriftTarget enum and kEntries are out of sync.");
 }
 

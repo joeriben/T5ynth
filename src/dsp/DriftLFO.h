@@ -28,17 +28,17 @@ public:
         TgtAxis1,      // 4
         TgtAxis2,      // 5
         TgtAxis3,      // 6
-        TgtWtScan,     // 7
-        TgtFilter,     // 8
-        TgtPitch,      // 9
-        TgtDelayTime,  // 10
-        TgtDelayFb,    // 11
-        TgtDelayMix,   // 12
-        TgtReverbMix,  // 13
-        TgtEnv1Amt,    // 14
-        TgtEnv2Amt,    // 15
-        TgtEnv3Amt,    // 16
-        TgtResynth,    // 17
+        TgtResynth,    // 7  (generation-side: grouped with the axes, drives re-inference)
+        TgtWtScan,     // 8
+        TgtFilter,     // 9
+        TgtPitch,      // 10
+        TgtDelayTime,  // 11
+        TgtDelayFb,    // 12
+        TgtDelayMix,   // 13
+        TgtReverbMix,  // 14
+        TgtEnv1Amt,    // 15
+        TgtEnv2Amt,    // 16
+        TgtEnv3Amt,    // 17
         NumTargets
     };
 
