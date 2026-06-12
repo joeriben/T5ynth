@@ -34,7 +34,7 @@ builds on `juce::File::userApplicationDataDirectory`, which resolves to
 |---|---|---|
 | `UCDCAE AI Lab/*.t5p` | yes | the published bank — the repo's payload |
 | `*.t5p` at the root | no | personal presets / not-yet-published candidates |
-| `* (mine).t5p` at the root | no | personal variant of a published preset; the suffix keeps its display name distinct from the bank version |
+| `* (mine).t5p` at the root | no | **pending update** to the same-named bank preset — apply + publish, do NOT treat as private (see below) |
 | `manifest.json`, `README.md`, `LICENSE` | yes, **not checked out** | excluded by sparse-checkout (see below) |
 
 The checkout uses `git sparse-checkout` with patterns `*.t5p`, `*.t5seq`,
@@ -42,6 +42,26 @@ The checkout uses `git sparse-checkout` with patterns `*.t5p`, `*.t5seq`,
 `LICENSE`) is tracked upstream but not materialized in the live directory,
 so the app's folder holds only sound files. This is why git reports
 "partial checkout (92%)"; it is configuration, not damage.
+
+## "(mine)" forks — maintainer-machine semantics
+
+On end-user installations, saving or tag-editing a preset that lives in
+the UCDCAE bank forks it to `<name> (mine).t5p` at the root — correct
+there, because the bank copy would be clobbered back to upstream by the
+next **Update Library** run. On the maintainer checkout that same rule
+only produced stale duplicates of pending updates, so it is disabled in
+code: when the presets dir contains `.git`
+(`PresetFormat::userPresetsDirIsGitCheckout()`), bank saves prefill the
+original name + bank and overwrite directly (via the normal Replace
+confirmation), and tag edits patch the bank file in place. Publishing is
+then the usual explicit-path add + commit + push.
+
+Any `* (mine).t5p` still sitting at the root is therefore un-applied
+backlog from before that change: overwrite the same-named bank file with
+the fork's bytes (patching the JSON `name` field back to the suffix-less
+name), archive the fork outside `presets/` (never delete), publish.
+(Done 2026-06-12 for Echoes of a Laughing Kalimba Gran, frenzy dream,
+Evil Beauty → preset-repo commit cdaf5bc.)
 
 ## Publishing, step by step
 
@@ -80,6 +100,9 @@ Users who already downloaded it keep their copy (no pruning by design).
   normal clones only.
 - **Never force-push.** `.t5p` is binary — diverged histories on the same
   file cannot be merged, only chosen between.
+- **Don't use Update Library on this machine.** `git pull` is the sync
+  here; the updater would revert any unpublished local bank edit back to
+  upstream (sha256 mismatch → re-download).
 - Plugin saves are atomic (`TemporaryFile::overwriteTargetFileWithTemporary`,
   see `docs/PRESET_FORMAT.md`), so a commit cannot capture a half-written
   file even while the app is running.

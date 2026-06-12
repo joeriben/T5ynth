@@ -1,5 +1,20 @@
 # T5ynth Development Log
 
+## 2026-06-12 — Maintainer machine: bank saves overwrite directly (no "(mine)" fork)
+
+"(mine)" semantics clarified by the maintainer: on the mother machine those
+files were always *pending updates* to the same-named bank presets — the
+Phase-4 fork-on-save rule (and the tag-edit fork) just kept duplicating
+them into stale parallel versions, the source of the "half edited, half
+reset" preset confusion. New `PresetFormat::userPresetsDirIsGitCheckout()`
+(.git as direct child of the user presets dir) now disables both forks on
+the maintainer checkout only: Save prefills the original name + bank and
+overwrites via the normal Replace flow; tag edits patch in place; git
+carries the change upstream. End-user installations are unchanged. The
+"(mine)" backlog was applied and published the same day (Echoes of a
+Laughing Kalimba Gran, frenzy dream, Evil Beauty → preset repo `cdaf5bc`);
+`docs/PRESET_LIBRARY_MAINTENANCE.md` re-states the semantics.
+
 ## 2026-06-12 — Preset publishing workflow documented; path docs corrected
 
 The "mother machine" arrangement was undocumented: on the maintainer Mac,
