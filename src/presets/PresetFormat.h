@@ -143,6 +143,15 @@ public:
     /** Per-user presets directory (writable, creates if needed). */
     static juce::File getUserPresetsDirectory();
 
+    /** True when the user presets directory is itself a git checkout —
+     *  i.e. this is the maintainer ("mother") machine that publishes the
+     *  UCDCAE AI Lab bank. On that machine, saves/tag-edits of bank
+     *  presets overwrite the originals directly instead of forking to
+     *  "<name> (mine)" (per maintainer directive, 2026-06-12); git is the
+     *  safety net there. All other installations keep the fork behavior.
+     *  See docs/PRESET_LIBRARY_MAINTENANCE.md. */
+    static bool userPresetsDirIsGitCheckout();
+
     /** Per-user sequencer-pattern (.t5seq) directory (writable, creates if needed). */
     static juce::File getUserSequencesDirectory();
 

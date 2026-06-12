@@ -648,7 +648,12 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         // (mine).t5p instead, apply the new tags there, and select the
         // fork in the library list so the user can keep editing it. The
         // upstream file is left untouched.
-        if (isGithubBankFile(file))
+        //
+        // On the maintainer machine (presets dir is the git checkout that
+        // publishes the bank) the fork would be a stale duplicate of a
+        // pending update — there, bank files take the in-place patch like
+        // any other preset and git carries the change upstream.
+        if (isGithubBankFile(file) && ! PresetFormat::userPresetsDirIsGitCheckout())
         {
             const auto fork = forkPresetForUserEdit(file, newTags);
             if (! fork.existsAsFile())
@@ -1416,7 +1421,14 @@ void MainPanel::enterLibrarySaveMode(SaveNameMode mode)
     // next library sync would undo) or silently land beside it with the
     // same name, creating exactly the duplication the user wants to
     // avoid.
-    if (currentBank.equalsIgnoreCase(PresetUpdater::getBankName()))
+    //
+    // EXCEPTION — maintainer machine (presets dir IS the git checkout of
+    // the public bank): there the local edit is the next upstream, so the
+    // prefill keeps the original name + bank and Save overwrites the bank
+    // file directly. "(mine)" forks on that machine only created stale
+    // duplicates of pending updates.
+    if (currentBank.equalsIgnoreCase(PresetUpdater::getBankName())
+        && ! PresetFormat::userPresetsDirIsGitCheckout())
     {
         currentBank.clear();
         const auto lc = defaultName.toLowerCase();

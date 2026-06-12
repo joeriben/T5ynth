@@ -808,6 +808,15 @@ juce::File PresetFormat::getUserPresetsDirectory()
     return dir;
 }
 
+bool PresetFormat::userPresetsDirIsGitCheckout()
+{
+    // .git is a directory in a normal clone and a file in a linked
+    // worktree — exists() covers both. Only called from explicit user
+    // actions on the message thread, so the stat-per-call is fine and
+    // stays correct if the checkout appears while the app is running.
+    return getUserPresetsDirectory().getChildFile(".git").exists();
+}
+
 juce::File PresetFormat::getUserSequencesDirectory()
 {
     auto dir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
