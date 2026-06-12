@@ -1,5 +1,24 @@
 # T5ynth Development Log
 
+## 2026-06-12 — Preset publishing workflow documented; path docs corrected
+
+The "mother machine" arrangement was undocumented: on the maintainer Mac,
+`~/Library/T5ynth/presets/` is simultaneously the plugin's live preset
+directory and a git checkout of joeriben/T5ynth-Presets (sparse-checkout
+materializes only `*.t5p` + `scripts` + `.github`, keeping manifest.json /
+README / LICENSE virtual). Saving into "UCDCAE AI Lab/" overwrites the
+tracked file; publishing = explicit-path `git add` + commit + push, CI
+regenerates the manifest. Root-level and "(mine)"-suffixed presets are
+personal and stay untracked. Written up in
+`docs/PRESET_LIBRARY_MAINTENANCE.md` (indexed in CLAUDE.md).
+
+Path corrections in the same pass: `getUserPresetsDirectory()` derives
+from JUCE `userApplicationDataDirectory`, which is `~/Library` on macOS —
+not `~/Library/Application Support`. Fixed in `PresetUpdater.h`'s
+docstring and the 2026-04-11 entry below; `MACOS_INSTALLATION.md` also
+still listed the system-wide presets dir that installers stopped creating
+on 2026-05-22.
+
 ## 2026-05-22 — Bank Collapse: Drop Factory + Read-Only
 
 Three banks ("Factory", "My Presets", "UCDCAE AI Lab") with near-identical

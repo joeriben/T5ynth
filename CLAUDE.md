@@ -75,6 +75,7 @@ Diagnostic discipline when a release crashes in user hands:
 - `docs/ADDING_A_MODEL.md` — how to add a new inference backend
 - `docs/ADDING_A_MODULATION_TARGET.md` — how to add a mod target
 - `docs/PRESET_FORMAT.md` — .t5p binary format spec
+- `docs/PRESET_LIBRARY_MAINTENANCE.md` — publishing the "UCDCAE AI Lab" bank (the live preset dir on the maintainer Mac IS the git checkout; staging rules, "(mine)" policy, manifest CI)
 - `docs/RELEASE_PROCESS.md` — release checklist and CI workflow
 - `docs/PERFORMANCE_GUIDE.md` — anti-pattern catalogue, audioIdle gate, profiling methodology, pre-commit checklist
 - `docs/devlog.md` — development history and design decisions
