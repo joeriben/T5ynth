@@ -735,32 +735,21 @@ order:
 
 ### 10.3 Bundled presets
 
-Bundled presets are stored as `.t5p` files in `resources/presets/`. `CMakeLists.txt`
-globs that folder and bakes the current collection into the binary via
-`juce_add_binary_data` (the CMake variable is still named `T5YNTH_FACTORY_PRESETS`
-for historical reasons):
+There are none anymore. Since `4e970b77` ("stop bundling factory presets
+into the binary") no `.t5p` is baked into the binary — `juce_add_binary_data`
+carries only the IRs, the icon, the manual, and SA3 metadata JSON. The
+"UCDCAE AI Lab" bank is distributed exclusively through the public preset
+repo and fetched on demand via the Preset Manager's **Update Library**
+button (`PresetUpdater`: manifest diff + raw.githubusercontent.com
+download) into the `UCDCAE AI Lab` subdirectory of the user preset
+directory. A first launch with an empty library shows a "No Presets
+Found" dialog pointing at that button (`MainPanel.cpp`, first-launch
+hint). Downloaded files are fully user-editable — there is no read-only
+tier. Startup itself does not load a demo preset; if no standalone
+session buffer is restored, it uses the same clean Init state as the
+status-bar `Init` action.
 
-```cmake
-file(GLOB T5YNTH_FACTORY_PRESETS CONFIGURE_DEPENDS
-    "${CMAKE_SOURCE_DIR}/resources/presets/*.t5p"
-)
-
-juce_add_binary_data(T5ynthData SOURCES
-    resources/ir/emt_140_plate_bright.wav
-    resources/ir/emt_140_plate_medium.wav
-    resources/ir/emt_140_plate_dark.wav
-    ${T5YNTH_FACTORY_PRESETS}
-    resources/T5ynth_Guide.html
-)
-```
-
-`MainPanel::ensureBundledPresetsExist` walks `BinaryData::namedResourceList`,
-filters `.t5p` original filenames, and copies those blobs into the
-`UCDCAE AI Lab` subdirectory of the user preset directory when they are missing.
-The bank name comes from `PresetFormat::getBundledBankName()`. Once seeded, those
-files are fully user-editable — there is no read-only tier. Startup itself does
-not load a demo preset; if no standalone session buffer is restored, it uses the
-same clean Init state as the status-bar `Init` action.
+How the bank itself is published: `docs/PRESET_LIBRARY_MAINTENANCE.md`.
 
 ---
 

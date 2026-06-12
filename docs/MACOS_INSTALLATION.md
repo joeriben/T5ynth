@@ -5,9 +5,10 @@ creates a shared support folder under:
 
 - `/Library/Application Support/T5ynth/models`
 
-Presets are not installed system-wide (dropped 2026-05-22): the bundled
-"UCDCAE AI Lab" bank is seeded into the per-user preset directory
-`~/Library/T5ynth/presets/` on first launch.
+Presets are not installed by the .pkg at all: the "UCDCAE AI Lab" bank is
+downloaded on demand — open the Preset Manager and click "Update Library"
+(a first launch with an empty library shows a dialog pointing there). The
+bank lands in the per-user preset directory `~/Library/T5ynth/presets/`.
 
 The installer itself works. The only extra step on many Macs is the usual
 Gatekeeper confirmation, because current public builds are not yet
