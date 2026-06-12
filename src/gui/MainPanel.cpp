@@ -1440,13 +1440,15 @@ void MainPanel::enterLibrarySaveMode(SaveNameMode mode)
 
     PresetManagerPanel::SavePrefill prefill;
     prefill.defaultName      = defaultName;
-    // Prefill = the *existing* tag set of the currently loaded preset.
-    // We deliberately do NOT run any audio/prompt-content heuristic here —
-    // the old auto-suggester injected "hot" into almost everything (because
-    // PeakCap-mode dominates Stable-Audio output) and silently overwrote
-    // hand-curated tags on every overwrite-save. `processor.getLastTags()`
-    // tracks the loaded preset's tags and stays empty after Init.
-    prefill.suggestedTags    = processorRef.getLastTags();
+    // Tags are deliberately NOT prefilled from processor.getLastTags():
+    // that copied the previously LOADED preset's tags into every save
+    // regardless of target, so unrelated presets inherited stale tags
+    // ('perc' on filter sweeps, …). The SaveDrawer's chips now follow the
+    // save target instead (PresetManagerPanel::refreshSaveDrawerAutoTags):
+    // overwriting an existing preset mirrors that file's on-disk tags, a
+    // fresh name starts untagged. No audio/prompt-content heuristic either
+    // — the pre-Phase-1 auto-suggester injected "hot" into almost
+    // everything and silently overwrote hand-curated tags.
     prefill.currentBank      = currentBank;
     prefill.existingBanks    = existingBanks;
     prefill.existingPathKeys = std::move(existingPathKeys);

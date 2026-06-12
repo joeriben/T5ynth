@@ -66,11 +66,15 @@ public:
 
     /** Pre-fill payload for entering Save mode (name + bank + conflict UI).
      *  promptA/B feed the Save-Drawer's auto-title heuristic when no
-     *  meaningful default name is available. */
+     *  meaningful default name is available.
+     *
+     *  Note there is deliberately NO tag prefill: the drawer's chips
+     *  follow the save TARGET (refreshSaveDrawerAutoTags) — overwriting
+     *  an existing preset mirrors that file's on-disk tags, a fresh name
+     *  starts untagged. */
     struct SavePrefill
     {
         juce::String           defaultName;
-        juce::StringArray      suggestedTags;
         juce::String           currentBank;
         juce::StringArray      existingBanks;
         std::set<juce::String> existingPathKeys;   // lowercased "bank/name.t5p"
@@ -244,6 +248,7 @@ public:
         saveDrawer.onConflictChanged = [this]
         {
             computeConflictRow();
+            refreshSaveDrawerAutoTags();
             presetList.repaint();
         };
         addChildComponent(saveDrawer);
@@ -355,7 +360,11 @@ public:
         // Keep the Save-Drawer's cached conflict row in sync if the library
         // was rebuilt while in Save mode (the stable_sort above may have
         // moved entries, so the cached int could now point at the wrong row).
-        if (currentMode == Mode::Save) computeConflictRow();
+        if (currentMode == Mode::Save)
+        {
+            computeConflictRow();
+            refreshSaveDrawerAutoTags();
+        }
         setStatusText(allEntries.empty() ? "No presets found" : "");
     }
 
@@ -474,14 +483,16 @@ public:
         statusLabel.setVisible(true);
         sidebar.setSaveMode(true);
         rebuildFiltered();
-        // Cloud vocab = canonical taxonomy ∪ already-saved user tags. Falls
-        // back to the sidebar set if MainPanel hasn't pushed a canonical
-        // taxonomy yet (e.g. unit-test embedding of the panel).
+        // Cloud vocab = user/library tags first, canonical taxonomy after.
+        // Falls back to the sidebar set if MainPanel hasn't pushed a
+        // canonical taxonomy yet (e.g. unit-test embedding of the panel).
         const auto& vocab = mergedTagVocabulary.empty()
                                 ? sidebar.getTagVocabulary()
                                 : mergedTagVocabulary;
+        // configure() ends in refreshConflictUi() → onConflictChanged →
+        // computeConflictRow() + refreshSaveDrawerAutoTags(), so the tag
+        // chips are auto-filled from the initial save target right here.
         saveDrawer.configure(prefill.defaultName,
-                             prefill.suggestedTags,
                              prefill.currentBank,
                              prefill.existingBanks,
                              std::move(prefill.existingPathKeys),
@@ -868,6 +879,30 @@ private:
             const auto rel = e.file.getRelativePathFrom(userDir).replace("\\", "/").toLowerCase();
             if (rel == key) { conflictEntryIndex = (int) i; return; }
         }
+    }
+
+    /** Auto-fill the SaveDrawer's tag chips from the save target. When the
+     *  current (name, bank) tuple would overwrite an existing preset, the
+     *  chips mirror THAT file's on-disk tags so an overwrite-save keeps its
+     *  curation; a fresh name starts with no tags at all.
+     *
+     *  This replaces the old lastTags prefill, which copied the previously
+     *  LOADED preset's tags into every save regardless of target — whole
+     *  families of unrelated presets ended up sharing one inherited tag
+     *  ('perc' on filter sweeps, 'ambient' on everything saved after an
+     *  ambient patch, …).
+     *
+     *  Runs on every conflict-state change (name keystrokes, bank picks,
+     *  save-mode row retargets). SaveDrawer::setTagsAuto() ignores the
+     *  call once the user has hand-edited the chip set, so manual curation
+     *  survives subsequent retargeting. */
+    void refreshSaveDrawerAutoTags()
+    {
+        if (currentMode != Mode::Save) return;
+        saveDrawer.setTagsAuto(
+            juce::isPositiveAndBelow(conflictEntryIndex, (int) allEntries.size())
+                ? allEntries[(size_t) conflictEntryIndex].tags
+                : juce::StringArray());
     }
 
     void rebuildFiltered()
@@ -2004,6 +2039,7 @@ private:
                 // Case-insensitive add matches the cloud-click and drag-drop
                 // paths — keeps "Ambient" and "ambient" from coexisting.
                 tags.addIfNotAlreadyThere(t, true);
+                tagsTouched = true;
                 tagInput.setText({}, false);
                 resized();
                 repaint();
@@ -2044,7 +2080,6 @@ private:
         }
 
         void configure(const juce::String& defaultName,
-                       const juce::StringArray& suggestedTags,
                        const juce::String& currentBank,
                        const juce::StringArray& existingBanks,
                        std::set<juce::String> pathKeys,
@@ -2060,10 +2095,12 @@ private:
             includeCacheToggle.setToggleState(includeCacheAvailable, juce::dontSendNotification);
             includeCacheToggle.setVisible(false);
             includeCacheToggle.setEnabled(false);
-            tags          = suggestedTags;
-            tags.trim();
-            tags.removeEmptyStrings();
-            tags.removeDuplicates(true);
+            // Chips start empty and untouched; the owner pushes the save
+            // target's tags via setTagsAuto() as soon as the conflict
+            // state is computed (see refreshConflictUi() at the end of
+            // this function).
+            tags.clear();
+            tagsTouched   = false;
             existingPathKeys = std::move(pathKeys);
 
             // The auto-title heuristic only fires when the caller has no
@@ -2143,6 +2180,22 @@ private:
             nameEdit.setText(name, juce::sendNotificationSync);
         }
 
+        /** Owner-side auto-fill of the chip set from the would-be-
+         *  overwritten file's on-disk tags (empty when the target is a
+         *  new file). Ignored once the user has hand-edited the chips in
+         *  this Save session — manual curation outlives target changes. */
+        void setTagsAuto(juce::StringArray newTags)
+        {
+            if (tagsTouched) return;
+            newTags.trim();
+            newTags.removeEmptyStrings();
+            newTags.removeDuplicates(true);
+            if (newTags == tags) return;
+            tags = std::move(newTags);
+            resized();
+            repaint();
+        }
+
         void beginNewBankEntry()
         {
             bankBox.setText({}, juce::sendNotificationSync);
@@ -2173,10 +2226,11 @@ private:
             dropHover = false;
             const auto tag = d.description.toString().trim();
             // Case-insensitive uniqueness matches the invariant that
-            // configure() establishes via `removeDuplicates(true)`.
+            // setTagsAuto() establishes via `removeDuplicates(true)`.
             if (tag.isNotEmpty())
             {
                 tags.addIfNotAlreadyThere(tag, true);
+                tagsTouched = true;
                 resized();
             }
             repaint();
@@ -2323,6 +2377,7 @@ private:
                     if (cr.index >= 0 && cr.index < tags.size())
                     {
                         tags.remove(cr.index);
+                        tagsTouched = true;
                         resized();
                         repaint();
                     }
@@ -2344,6 +2399,7 @@ private:
                 if (tag.isNotEmpty())
                 {
                     tags.addIfNotAlreadyThere(tag, true);
+                    tagsTouched = true;
                     tagInput.setText({}, false);
                     resized();
                     repaint();
@@ -2485,6 +2541,10 @@ private:
         juce::TextButton cancelBtn { "Cancel" };
         juce::TextButton copyBtn;
         juce::StringArray         tags;
+        // True once the user has manually added/removed a chip in this
+        // Save session — from then on setTagsAuto() is a no-op so target
+        // retargeting (name edits, row clicks) can't clobber hand edits.
+        bool                      tagsTouched = false;
         std::set<juce::String>    existingPathKeys;
         std::vector<juce::String> tagVocabulary;
         juce::String              promptA, promptB;
