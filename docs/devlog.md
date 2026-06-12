@@ -462,7 +462,7 @@ Built with `pkgbuild`/`productbuild`. Four component packages: Standalone (requi
 
 ### Factory / User Preset Split
 - Factory presets: `/Library/Application Support/T5ynth/presets/` (macOS), `C:\ProgramData\T5ynth\presets\` (Win) — installed by the installer, read-only for users.
-- User presets: `~/Library/Application Support/T5ynth/presets/` (macOS), `%APPDATA%\T5ynth\presets\` (Win) — writable, created on demand.
+- User presets: `~/Library/T5ynth/presets/` (macOS), `%APPDATA%\T5ynth\presets\` (Win) — writable, created on demand. *(Corrected 2026-06-12: this entry originally claimed `~/Library/Application Support/…` — JUCE's `userApplicationDataDirectory` actually resolves to `~/Library` on macOS.)*
 - `PresetFormat::getFactoryPresetsDirectory()` / `getUserPresetsDirectory()` / `getAllPresetFiles()` added.
 
 ### Design Decision: Models Are Per-User

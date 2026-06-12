@@ -55,9 +55,10 @@ public:
         return activeState_ && activeState_->running.load();
     }
 
-    /** Disk location of the bank, e.g.
-     *  ~/Library/Application Support/T5ynth/presets/UCDCAE AI Lab/.
-     *  Always returns a valid juce::File even if the dir does not exist yet. */
+    /** Disk location of the bank — on macOS ~/Library/T5ynth/presets/UCDCAE AI Lab/
+     *  (JUCE's userApplicationDataDirectory is ~/Library, NOT
+     *  ~/Library/Application Support). Always returns a valid juce::File even
+     *  if the dir does not exist yet. */
     static juce::File getBankDirectory();
 
     /** Display name shown in the sidebar and on the update button. */

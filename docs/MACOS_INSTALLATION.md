@@ -1,10 +1,13 @@
 # macOS Installation
 
 `T5ynth-macOS-Installer.pkg` installs `T5ynth.app` into `/Applications` and
-creates shared support folders under:
+creates a shared support folder under:
 
-- `/Library/Application Support/T5ynth/presets`
 - `/Library/Application Support/T5ynth/models`
+
+Presets are not installed system-wide (dropped 2026-05-22): the bundled
+"UCDCAE AI Lab" bank is seeded into the per-user preset directory
+`~/Library/T5ynth/presets/` on first launch.
 
 The installer itself works. The only extra step on many Macs is the usual
 Gatekeeper confirmation, because current public builds are not yet
