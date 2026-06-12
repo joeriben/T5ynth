@@ -722,16 +722,21 @@ private:
         applyTagVocabulary();
     }
 
-    /** Build `canonical ∪ sidebar-user-tags` and push to Detail. The result
+    /** Build `sidebar-user-tags ∪ canonical` and push to Detail. The result
      *  is also cached so enterSaveMode() can pass an identical vector to
-     *  the SaveDrawer (both clouds must display the same set). */
+     *  the SaveDrawer (both clouds must display the same set).
+     *
+     *  ORDER MATTERS: the clouds clip after a few rows (silent break in
+     *  paintTagCloud), so whatever comes first is all the user ever sees.
+     *  Tags that are actually in use in the library — the exact set the
+     *  sidebar's TAGS section shows, in the same alphabetical order — go
+     *  first so the cloud is always consistent with the sidebar; the
+     *  canonical starter taxonomy only fills the remaining space. */
     void applyTagVocabulary()
     {
         const auto& userTags = sidebar.getTagVocabulary();
-        juce::StringArray userArr;
-        for (auto& s : userTags) userArr.add(s);
         std::vector<juce::String> merged;
-        merged.reserve((size_t) (canonicalTagVocabulary.size() + userArr.size()));
+        merged.reserve(userTags.size() + (size_t) canonicalTagVocabulary.size());
         std::set<juce::String> seen;
         auto push = [&](const juce::String& s)
         {
@@ -740,8 +745,8 @@ private:
             seen.insert(key);
             merged.push_back(s.trim());
         };
+        for (auto& u : userTags)               push(u);
         for (auto& c : canonicalTagVocabulary) push(c);
-        for (auto& u : userArr)                push(u);
         mergedTagVocabulary = merged;
         detail.setTagVocabulary(merged);
     }

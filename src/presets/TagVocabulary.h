@@ -1,7 +1,5 @@
 #pragma once
 #include <JuceHeader.h>
-#include <set>
-#include <vector>
 
 /** Curated tag taxonomy surfaced in the Preset-Manager's "Known tags" cloud
  *  (Detail card + Save drawer) and used as the autocomplete vocabulary in
@@ -13,16 +11,18 @@
  *     RMS analysis. That heuristic was removed entirely in Phase 1.
  *   - Tags are SUGGESTIONS, not classifications. The user adds them by hand;
  *     nothing else writes tags.
- *   - The cloud renders `canonical ∪ user-seen-tags`. The canonical set is
- *     the starter pack — once the library is mature the user-tags will
- *     dominate, but new users see a meaningful set on day one.
+ *   - The cloud renders `user-seen-tags ∪ canonical`, USER TAGS FIRST: the
+ *     clouds clip after a few rows, so the tags actually in use in the
+ *     library (= the sidebar's TAGS list) must render before the canonical
+ *     starter pack or the two lists visibly disagree. The merge lives in
+ *     PresetManagerPanel::applyTagVocabulary().
  *   - "generative" only appears when the generative sequencer is currently
  *     running, since that's the only context where the tag is meaningful
  *     (sequenced motion that varies between plays).
  *
  *  Vocabulary lives in this header (not a translation unit) because it is
- *  pure data referenced from two unrelated call-sites — header-only avoids
- *  another compile target without introducing globals.
+ *  pure data — header-only avoids another compile target without
+ *  introducing globals.
  */
 namespace TagVocabulary
 {
@@ -49,29 +49,5 @@ namespace TagVocabulary
         };
         if (genSeqActive) v.add("generative");
         return v;
-    }
-
-    /** Returns `canonical ∪ userTags` as a flat vector, preserving the
-     *  canonical order then appending any user tags not already present
-     *  (case-insensitive dedup). Empty entries are dropped. */
-    inline std::vector<juce::String> merge(bool genSeqActive,
-                                           const juce::StringArray& userTags)
-    {
-        const auto canonical = getCanonical(genSeqActive);
-        std::vector<juce::String> out;
-        out.reserve((size_t) (canonical.size() + userTags.size()));
-        std::set<juce::String> seen;
-
-        auto push = [&](const juce::String& s)
-        {
-            const auto key = s.trim().toLowerCase();
-            if (key.isEmpty() || seen.count(key)) return;
-            seen.insert(key);
-            out.push_back(s.trim());
-        };
-
-        for (auto& c : canonical) push(c);
-        for (auto& u : userTags)  push(u);
-        return out;
     }
 }
