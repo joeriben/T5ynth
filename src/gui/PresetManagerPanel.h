@@ -323,6 +323,16 @@ public:
 
     void refreshLibrary()
     {
+        // selectedEntryIndex points into allEntries, which is about to be
+        // rebuilt and re-sorted — remember the FILE and re-resolve the
+        // index afterwards. Without this, the restore path in
+        // rebuildFiltered() would re-select whatever entry happens to sit
+        // at the stale index after the sort.
+        const juce::File prevSelectedFile =
+            juce::isPositiveAndBelow(selectedEntryIndex, (int) allEntries.size())
+                ? allEntries[(size_t) selectedEntryIndex].file
+                : juce::File();
+
         allEntries.clear();
 
         for (auto& f : PresetFormat::getAllPresetFiles())
@@ -334,6 +344,10 @@ public:
                 if (a.bank != b.bank) return a.bank.compareIgnoreCase(b.bank) < 0;
                 return a.name.compareIgnoreCase(b.name) < 0;
             });
+
+        selectedEntryIndex = prevSelectedFile.getFullPathName().isNotEmpty()
+                                 ? findEntryIndexForFile(prevSelectedFile)
+                                 : -1;
 
         refreshSidebarVocabulary();
 
@@ -358,9 +372,7 @@ public:
         {
             if (filteredIndices[row] == updatedIndex)
             {
-                juce::ScopedValueSetter<bool> sv(programmaticSelection, true);
-                presetList.selectRow((int) row, false, true);
-                detail.setEntry(allEntries[(size_t) updatedIndex]);
+                selectRowAndSyncDetail((int) row);
                 presetList.repaint();
                 return;
             }
@@ -384,8 +396,7 @@ public:
             const auto& e = allEntries[(size_t) filteredIndices[i]];
             if (e.file == file)
             {
-                juce::ScopedValueSetter<bool> sv(programmaticSelection, true);
-                presetList.selectRow((int) i, false, true);
+                selectRowAndSyncDetail((int) i);
                 return;
             }
         }
@@ -404,8 +415,7 @@ public:
             const auto& e = allEntries[(size_t) filteredIndices[i]];
             if (e.file == file)
             {
-                juce::ScopedValueSetter<bool> sv(programmaticSelection, true);
-                presetList.selectRow((int) i, false, true);
+                selectRowAndSyncDetail((int) i);
                 return;
             }
         }
@@ -652,6 +662,26 @@ private:
         return -1;
     }
 
+    /** Programmatic row selection + explicit Detail-card sync.
+     *
+     *  JUCE's ListBox::selectRow() only fires selectedRowsChanged when the
+     *  selected row NUMBER actually changes (selectRowInternal early-outs
+     *  on an already-selected row). After a refilter the same row number
+     *  frequently maps to a DIFFERENT entry — e.g. row 0 stays selected
+     *  while a sidebar tag click swaps the list contents — and the Detail
+     *  card would silently keep showing the previous preset. Every
+     *  programmatic selection therefore goes through this helper, which
+     *  pushes the entry into the Detail card unconditionally instead of
+     *  relying on the callback. */
+    void selectRowAndSyncDetail(int row)
+    {
+        if (! juce::isPositiveAndBelow(row, (int) filteredIndices.size())) return;
+        juce::ScopedValueSetter<bool> sv(programmaticSelection, true);
+        presetList.selectRow(row, false, true);
+        selectedEntryIndex = filteredIndices[(size_t) row];
+        detail.setEntry(allEntries[(size_t) selectedEntryIndex]);
+    }
+
     void refreshSidebarVocabulary()
     {
         // Sidebar vocabulary — banks come from actual disk layout, models and
@@ -887,27 +917,31 @@ private:
         juce::ScopedValueSetter<bool> sv(programmaticSelection, true);
         presetList.updateContent();
 
-        // Try to keep current selection visible
-        for (size_t i = 0; i < filteredIndices.size(); ++i)
-        {
-            const auto& e = allEntries[(size_t) filteredIndices[i]];
-            if (e.file == currentFile)
-            {
-                presetList.selectRow((int) i, false, true);
-                return;
-            }
-        }
+        // Restore priority: the entry the user explicitly selected wins
+        // over the currently-loaded preset — a sidebar/search refilter
+        // must not yank the selection (and the Detail card) away from
+        // what the user is looking at just because the loaded preset is
+        // also visible somewhere in the new list.
         if (selectedEntryIndex >= 0)
         {
             for (size_t i = 0; i < filteredIndices.size(); ++i)
                 if (filteredIndices[i] == selectedEntryIndex)
                 {
-                    presetList.selectRow((int) i, false, true);
+                    selectRowAndSyncDetail((int) i);
                     return;
                 }
         }
+        for (size_t i = 0; i < filteredIndices.size(); ++i)
+        {
+            const auto& e = allEntries[(size_t) filteredIndices[i]];
+            if (e.file == currentFile)
+            {
+                selectRowAndSyncDetail((int) i);
+                return;
+            }
+        }
         if (! filteredIndices.empty())
-            presetList.selectRow(0, false, true);
+            selectRowAndSyncDetail(0);
         else
         {
             selectedEntryIndex = -1;
