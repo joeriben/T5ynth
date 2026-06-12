@@ -93,7 +93,12 @@ Users who already downloaded it keep their copy (no pruning by design).
   routinely: every push triggers a CI manifest commit, and pushes can
   originate outside this checkout. (2026-06-12 case: 8 presets showed as
   locally "modified" that were in fact the already-published June-1
-  model-id fix — the checkout was simply 3 commits behind.)
+  model-id fix — the checkout was simply 3 commits behind.) The same
+  applies *between consecutive pushes in one session*: the manifest
+  commit lands ~1 min after every push, so the next push is rejected as
+  non-fast-forward — run `git pull --rebase` immediately before every
+  push, and never pipe push output through `tail`/`grep` filters that
+  can swallow the rejection (also bitten 2026-06-12).
 - **Never hand-edit or locally regenerate `manifest.json` here.** CI owns
   it; under sparse-checkout the file is not even materialized. The
   "manual generation" section in the repo template README applies to
