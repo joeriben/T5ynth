@@ -119,6 +119,17 @@ generator website:
 The generated audio is not the final output. It is a playable fragment inside
 a larger instrument.
 
+This is also where T5ynth parts company with tools that let you pick a style
+and shape it from there. Such a tool gives you parameters around a single
+chosen result — how strictly the style is followed, how much it varies, which
+elements play — but the result itself stays whatever the model would produce.
+T5ynth's controls act on the **embeddings** instead: Alpha moves through the
+relation between the two poles, an empty field reflects an impulse back as an
+echo chamber, the sound-character axes shift along directions in that space,
+and the Dimension Explorer re-weights its individual coordinates. You work on
+the model's representation directly — combining, reflecting, re-weighting —
+which is how you reach points a single prompt would never land on.
+
 ## Why This Exists
 
 Generative audio systems are often designed as black boxes: enter a request,
