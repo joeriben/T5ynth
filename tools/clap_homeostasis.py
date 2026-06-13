@@ -9,9 +9,19 @@ high sigma washes out toward the prompt (stays near). Here we close a control lo
 
     sensor    = CLAP audio-embedding cosine of the current output to an anchor
     actuator  = init_noise_level (sigma) of the next generation
-    law       = proportional: sigma = clip(BASE + Kp * (setpoint - cos), 0.05, 0.5)
+    law       = proportional by default (Ki=0); optionally PI with an EMA-filtered
+                measurement and anti-windup (opt-in via --ki/--ema):
+                  filt  = EMA(cos)
+                  err   = setpoint - filt
+                  sigma = clip(BASE + Kp*err + Ki*integral, 0.05, 0.5)
                 (cos below setpoint = drifted too far -> raise sigma -> pull back;
-                 cos above setpoint = too near        -> lower sigma -> let it drift)
+                 cos above setpoint = too near        -> lower sigma -> let it drift.)
+                The integral is OFF by default. The drift is ASYMMETRIC -- sigma brakes
+                the drift but barely reverses it (a loop that drifted to cos~0.84 then
+                railed sigma=0.5 stays ~0.80, while constant sigma=0.5 from the anchor
+                holds 0.92). So an integral winds up against the unrecoverable downward
+                overshoot and rails. Pure P -- approach the setpoint from above and stop
+                -- is the right controller for this plant. (Empirics in REPORT.md.)
 
 The demonstration: a CONTROLLED loop holds cos at a setpoint INSIDE the loop's
 reachable band, where the UNCONTROLLED fixed-sigma loops drift to the band edges
@@ -123,6 +133,13 @@ def main() -> int:
                          "(empirical reachable band ~[0.835,0.922] for the default anchor)")
     ap.add_argument("--kp", type=float, default=2.5,
                     help="proportional gain (narrow authority band -> high gain)")
+    ap.add_argument("--ki", type=float, default=0.0,
+                    help="integral gain. EXPERIMENTAL: default 0 (pure P). The drift is "
+                         "asymmetric (sigma brakes but barely reverses), so an integral "
+                         "winds up and overshoots past the setpoint unrecoverably. See REPORT.md.")
+    ap.add_argument("--ema", type=float, default=1.0,
+                    help="measurement filter weight on the new sample; 1.0 = no filtering "
+                         "(default). <1 averages out seed noise but adds lag on this slow plant.")
     ap.add_argument("--base-sigma", type=float, default=0.25)
     ap.add_argument("--seedmode", default="fixed", choices=["fixed", "rand"],
                     help="fixed = deterministic loop (strong attractor, narrow band); "
@@ -167,10 +184,29 @@ def main() -> int:
         write_wav(out_dir / "anchor.wav", anchor_audio, sr)
         log(f"Anchor generated (sr={sr}). setpoint cos*={args.setpoint}")
 
-        SP, KP, BASE = args.setpoint, args.kp, args.base_sigma
+        SP, KP, KI, BASE, EMA = args.setpoint, args.kp, args.ki, args.base_sigma, args.ema
 
+        # PI controller on an EMA-filtered measurement, with conditional-integration
+        # anti-windup. State (filtered cos, integral) persists across the controlled
+        # loop's iterations. The filter averages out per-iteration seed noise (the
+        # random-seed regime); the integral removes the steady-state offset pure P
+        # leaves; the integral is committed only when sigma is off the rails.
+        cstate = {"filt": 1.0, "integ": 0.0}
         def controller(cos_cur, it):
-            return BASE + KP * (SP - cos_cur)   # cos<SP -> raise sigma (pull back)
+            cstate["filt"] = EMA * cos_cur + (1.0 - EMA) * cstate["filt"]
+            err = SP - cstate["filt"]                  # cos<SP -> err>0 -> raise sigma
+            integ_try = cstate["integ"] + err
+            sigma = BASE + KP * err + KI * integ_try
+            # clamping anti-windup: freeze the integral ONLY when the update would
+            # deepen saturation; still allow it when it is recovering toward the
+            # in-band region (else a wound integral stays pinned, sticking sigma on
+            # the rail). err and the integral increment share a sign.
+            deepens = (sigma > SIGMA_HI and err > 0) or (sigma < SIGMA_LO and err < 0)
+            if not deepens:
+                cstate["integ"] = integ_try
+            else:
+                sigma = BASE + KP * err + KI * cstate["integ"]
+            return sigma
 
         sm = args.seedmode
         log(f"\n== CONTROLLED (sigma adapts to hold setpoint) [seed={sm}] ==")
@@ -194,8 +230,8 @@ def main() -> int:
         err_ctrl, err_lo, err_hi = settle(ctrl), settle(unc_lo), settle(unc_hi)
 
         result = {
-            "setpoint": SP, "kp": KP, "base_sigma": BASE, "iters": args.iters,
-            "seedmode": sm, "sample_rate": sr,
+            "setpoint": SP, "kp": KP, "ki": KI, "ema": EMA, "base_sigma": BASE,
+            "iters": args.iters, "seedmode": sm, "sample_rate": sr,
             "controlled": ctrl, "uncontrolled_lo": unc_lo, "uncontrolled_hi": unc_hi,
             "settling_error": {"controlled": err_ctrl, "unc_0.05": err_lo, "unc_0.50": err_hi},
         }
@@ -203,7 +239,8 @@ def main() -> int:
 
         # --- console summary --------------------------------------------
         log("\n" + "=" * 64)
-        log(f"HOMEOSTASIS  setpoint cos*={SP}  seed={sm}  (lower |err| = holds setpoint better)")
+        log(f"HOMEOSTASIS (PI: Kp={KP} Ki={KI} ema={EMA})  setpoint cos*={SP}  seed={sm}  "
+            "(lower |err| = holds setpoint better)")
         log(f"{'iter':>4} {'ctrl_sig':>9} {'ctrl_cos':>9} {'unc05_cos':>10} {'unc50_cos':>10}")
         for k in range(args.iters):
             log(f"{k+1:>4} {ctrl[k]['sigma']:>9.3f} {ctrl[k]['cos']:>+9.3f} "

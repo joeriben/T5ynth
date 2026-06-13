@@ -1,6 +1,8 @@
 {
   "setpoint": 0.88,
   "kp": 2.5,
+  "ki": 0.0,
+  "ema": 1.0,
   "base_sigma": 0.25,
   "iters": 12,
   "seedmode": "fixed",

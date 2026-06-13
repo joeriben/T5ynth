@@ -74,16 +74,48 @@ measured drift, and corrects: when cos overshot below setpoint (it08–09, 0.849
 0.833) sigma ramped up and cos recovered (it10, 0.853). Settling |cos − 0.88| over
 the last 4: **controlled 0.036 < unc0.05 0.043, unc0.50 0.043** → holds the setpoint
 **better than both fixed-sigma loops**. Visible steady-state offset (~0.85 vs 0.88) is
-the expected residue of pure proportional control; an integral term would remove it.
+the expected residue of pure proportional control. An integral term does **not** safely
+remove it here — see the PI experiment below; the drift is asymmetric, so the integral
+overshoots. Default is therefore pure P.
 
-### Random seed — regulation insufficient on this horizon
+### Random seed — verdict flips between runs (noise-confounded)
 
-Settling |cos − 0.88|: controlled 0.054, unc0.05 0.047, unc0.50 0.062 → **not better.**
-With sigma's authority swamped by seed noise, the controller keeps sigma low (cos
-hovered above setpoint, 0.90–0.97, almost throughout) and never gets the loop down to
-0.88 within 12 iters. **Caveat:** the three loops drew *independent* random seeds, so
-the precise error ranking is within run-to-run noise — but the qualitative result
-(baselines tangle, sigma can't separate them) is robust across the trajectory.
+Each loop draws *independent* seeds, so the single-run ranking is unstable:
+- Run A: controlled 0.054, unc0.05 0.047, unc0.50 0.062 → *not* better (unc0.05 luckily drifted toward the setpoint).
+- Run B: controlled 0.034, unc0.05 0.086, unc0.50 0.044 → better (unc0.05 stayed pinned high).
+
+The controller is the more *consistent* one — it actively walks cos toward the setpoint
+either way — but with sigma's authority swamped by seed noise, a single run cannot
+settle the ranking; you would need to average over seeds. Qualitatively robust across
+both runs: the baselines tangle and sigma cannot cleanly separate them.
+
+## PI experiment — why the integral hurts (the drift is asymmetric)
+
+To remove the P offset (fixed) and beat the seed noise (rand), I added an integral term
++ EMA measurement filter + anti-windup (`--ki 1.0 --ema 0.6`, 16 iters). It made both
+regimes **worse**: fixed settling 0.066 (vs P 0.036), rand 0.028 (tied the noisy
+baseline). The default is therefore pure P (`--ki 0`); PI stays an opt-in knob.
+
+The reason is a real plant property. Compare the same actuator value (sigma=0.50)
+reached two ways in the fixed regime:
+
+| how sigma=0.50 was reached | cos |
+|---|---:|
+| constant from iter 1 (`unc_hi`, never drifted) | 0.922 |
+| after drifting down first, then railed (PI ctrl it13–16) | 0.78–0.85 |
+
+Same sigma, ~0.12 lower cos — the only difference is **history**. Once the sound has
+drifted, max sigma only *partially* pulls it back (the drifted init_audio is ~half the
+signal and holds it there); it does not recover to where constant-high sigma sits, nor
+climb back over the following iterations. **Sigma brakes the drift but barely reverses
+it — the loop drifts more easily than it returns.** An integral assumes accumulated
+error is correctable in both directions; here downward overshoot past the setpoint is
+unrecoverable, so the integral winds up and rails (sigma → 0.50, cos stuck ~0.80, below
+target). Pure proportional — approach the setpoint from above and *stop* — is the right
+controller for an irreversible plant.
+
+(Aesthetic corollary: the machine's self-listening has a *direction* — its drift is not
+time-symmetric. A small, concrete instance of the loop's pull toward its own attractor.)
 
 ## Findings
 
@@ -97,15 +129,22 @@ the precise error ranking is within run-to-run noise — but the qualitative res
    fine-stabilisation within a basin, not wide transport.
 3. **Regime matters.** Random seeding (the plugin's Automatic-variation mode) does
    *not* loosen the attractor — incoherent noise delays drift and **swamps sigma's
-   authority** over a short horizon, so simple P-control on cos-to-anchor does not
-   reliably regulate there.
+   authority** over a short horizon, so the single-run P-control verdict flips between
+   runs (average over seeds to settle it).
+4. **The drift is asymmetric / irreversible.** Sigma brakes the drift but barely
+   reverses it (same sigma=0.5 holds cos 0.92 from the anchor but only ~0.80 from a
+   drifted state). So an **integral overshoots and is the wrong tool**; pure P, which
+   approaches from above and stops, is correct. The machine's self-listening has a
+   direction.
 
 ## Limitations / next steps
 
-- Pure P-control leaves steady-state offset → add an **integral** term (PI) with
-  anti-windup for the narrow, slow plant.
-- Random-seed regime needs **measurement filtering** (average cos over a window) and/or
-  a **longer horizon** so the systematic drift clears the seed-noise floor before the
-  actuator acts; the single-run comparison should be **averaged over seeds**.
+- Pure P leaves a small steady-state offset (~0.85 vs 0.88). Living with it is correct
+  here — an integral overshoots the asymmetric plant (see PI experiment). A *one-sided*
+  brake (only act when over the setpoint) or gain-scheduling would tighten it safely.
+- Random-seed regime: average the comparison **over seeds**, and/or use a **longer
+  horizon** so systematic drift clears the seed-noise floor. Measurement filtering helps
+  the decision but adds lag (bad for the asymmetric plant, where a late brake overshoots).
 - This is a Python PoC on the resynth harness. Plugin wiring (CLAP listener → existing
-  auto-regen/drift machinery) is the separate, larger build.
+  auto-regen/drift machinery) is the separate, larger build — and the asymmetry says the
+  homeostat should be designed as a *drift brake*, not a setpoint servo.
