@@ -13,7 +13,18 @@ Audio → CLAP-Audio-Embedding → nächste Tags aus einem Vokabular
 
 Wichtig: **CLAP beschreibt nicht, CLAP rankt.** Es hat keinen Sprach-Decoder; es projiziert Audio und Text in denselben Vektorraum und misst Ähnlichkeit. „Beschreiben" heißt hier immer *gegen eine Kandidatenliste ranken* (Zero-Shot-Klassifikation), kein freies Captioning. Freies Captioning gäbe es nur mit einem Audio-LLM (Qwen2-Audio, SALMONN, LTU) — ressourcenlastiger Plan B, der zugleich das Ohr *und* den Interpreten ersetzt.
 
-Die Machbarkeitsprobe für die CLAP-Seite liegt in `tools/clap_probe.py` (music-getuntes `laion/larger_clap_music`, drei Kandidatenvokabulare, Trennbarkeits- und Drift-Metriken).
+Die Machbarkeitsprobe für die CLAP-Seite liegt in `tools/clap_probe.py` (`laion/clap-htsat-unfused`, drei Kandidatenvokabulare, Trennbarkeits- und Drift-Metriken, plus ein Sinus/Rausch-Selbstcheck, der defekte Modelle laut abfängt).
+
+## Probe-Befund (2026-06-13)
+
+Erster Lauf gegen die echten Resynth-Outputs (`tools/clap_probe_out/REPORT.md`):
+
+- **CLAP hört Synth-Texturen — ja.** Drei *unabhängig* erstellte Vokabulare (gemined MusicCaps, AudioSet-Ontologie, handgemachte naive-Liste) konvergieren pro Klang auf denselben semantischen Cluster (z. B. `original.wav` → aggressive/shouting/screaming bei allen dreien; ein Bass-Sample → bass/heavy/punchy). Diese Cross-Vokabular-Konvergenz ist starkes Indiz, dass CLAP echte perzeptuelle Qualität liest, nicht Rauschen. top1-Cosinus 0.47–0.52 (gesund). **Go-Signal für die Modi, die ein funktionierendes Ohr brauchen (Homöostase, Assoziation).**
+- **Trennbarkeit ≠ Größe — empirisch bestätigt.** Redundanz: audioset (632 Labels) **0.156** < musiccaps (200) 0.247 < naive (112) **0.291**. Die kleinste Liste ist die redundanteste (die absichtlichen Synonym-Cluster), die größte die am besten gespreizte. Bestätigt die „prune-to-spread statt mehr-Labels"-Empfehlung.
+- **Register-Befund:** audioset gibt die *entschiedensten*, aber *quellen*-gerahmten Tags („Speech synthesizer", „Hi-hat", grotesk auch „Donkey, ass" für einen aggressiven Synth); naive die *timbre/affekt*-gerahmten, aber redundanten („digital, robotic, punchy, fat"); musiccaps mischt Brauchbares mit affektivem Füllwort-Müll („engaging, addictive, youthful"). → Das ideale Loop-Vokabular ist ein *kuratiertes Timbre/Affekt-Register (naive-Stil), getrimmt auf Trennbarkeit (audioset-Stil)* — genau die Synonym-Collapse-/Max-Spread-Empfehlung.
+- **Geschenk für den Kritik-Modus:** dass CLAP einen abstrakten Synth-Drone auf „Children shouting"/„Donkey, ass" abbildet, *zeigt* unmittelbar die Quellen-/Kulturtaxonomie, die CLAP der unbekannten Textur aufzwingt — der bias-tragende Charakter wird hier sichtbar. Nicht Störung, sondern genau das Material des Kritik-Modus.
+- **Drift (Q3):** CLAP-Audio-Embeddings spreizen stark (Cosinus zum Anker 0.11–0.90) → das Ohr unterscheidet die Varianten klar. ABER *nicht monoton* in „sigma": `sigma0.050_iter20` driftet weit (0.111), `sigma0.500_iter10` bleibt nah (0.904) — Iterationszahl × Sigma, und der Resynth bewegt sich nicht monoton im CLAP-Raum. Eine saubere Monoton-Demonstration bräuchte einen kontrollierten Einzelfamilien-Sweep (Vorbehalt: `anchor_family.wav` ist evtl. ein anderer Basisklang).
+- **Gotcha dauerhaft dokumentiert:** `laion/larger_clap_music` (music-getunt) ist im HF-Port **textseitig defekt** (Pooler-Kollaps, Cross-Modal-Ausrichtung ~0.01) — Audio-Turm gesund. `assert_model_sane()` fängt diese Bug-Klasse jetzt laut ab. Default daher `clap-htsat-unfused` (generisch, aber korrekt). Music-Tuning-Rückgewinnung = Folgeschritt über nativen `laion_clap`-Loader.
 
 ## Die eine Achse, die alles ordnet
 
