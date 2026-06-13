@@ -37,6 +37,12 @@ Erster Lauf gegen die echten Resynth-Outputs (`tools/clap_probe_out/REPORT.md`):
 - **Niedriges σ driftet am stärksten** (σ0.05 → 0.11) — konsistent mit der spektralen finA (low σ = starke Evolution).
 - **Hohes σ: CLAP WIDERSPRICHT der spektralen Metrik.** finA sagt Wash-out bleibt *nah* (0.94 bei σ0.48); CLAP sagt es driftet *weit* (σ0.475 iter20 = 0.16), oft über eine *späte Bifurkation* (σ0.50 hält bis iter10 bei 0.90, fällt dann auf 0.30). Befund: **CLAP-Wahrnehmungsdistanz ≠ spektrale timbre_corr — komplementär, nicht redundant.** Für einen *semantischen* Loop ist CLAP das relevante Signal (wahrgenommener Charakter, nicht Spektralhülle). Vorbehalt: die Spät-Bifurkationen bei hohem σ könnten teils Loop-Dynamik (Metastabilität), teils Sampling sein — nicht überinterpretieren.
 
+**C. Music-getuntes CLAP getestet (Schritt 3).** `laion/larger_clap_music` ist defekt (s. o.), ABER `laion/larger_clap_music_and_speech` (gleiche „larger"-Linie) **besteht das Sanity-Gate** (sine 0.44/0.20, noise 0.13/0.39) — **kein nativer `laion_clap`-Loader nötig.** Fairer Vergleich (`tools/clap_followup_music_out/`) gegen unfused:
+- **Trennbarkeit: unfused gewinnt.** Kuratiert-gepruned 0.212 (unfused) vs. 0.306 (music) — das Music-Modell ist anisotroper (text-text 0.59 vs. 0.20), Cosinus stärker gestaucht.
+- **Timbre-Treue auf musikalischen Texturen: music gewinnt.** Für `original.wav` (Findings: „warm analog bass drone", Centroid **199 Hz** = dunkel) sagt music **warm/bowed/dull/breathy/consonant** — konsistent mit dem tiefen Centroid; unfused sagt **violent/aggressive/rough** — eine Fehlcharakterisierung. Music-Tuning liest *musikalischen* Charakter treuer.
+- **Drift: beide verfolgen** (ähnlich).
+→ **Echter Trade-off, modusabhängig** (wie CLAP-vs-LLM): für den **Regelungs-/Homöostase-Loop** (entschiedenes, separiertes Steuersignal) unfused; für **kritisch-ästhetische Charakterisierung** (treues Hören musikalischen Charakters) `music_and_speech`. Default bleibt unfused (Trennbarkeit + kanonisch); `music_and_speech` ist die validierte music-getunte Alternative. Der native `laion_clap`-Loader ist damit **nicht nötig**.
+
 ## Die eine Achse, die alles ordnet
 
 Die im Folgenden gesammelten Modi sind keine Varianten *einer* Operation. Sie spannen **affirmativ → dekonstruktiv** auf — und das ist fast deckungsgleich mit der technischen Achse **Ranking → Generierung**, also **Regelung → Autorschaft**. Daher ist „CLAP vs. LLM" keine einmalige Entscheidung; der **Modus wählt den Motor**.

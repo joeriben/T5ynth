@@ -35,8 +35,10 @@ Uses CLAP via HF transformers (no `laion_clap` pip package needed). Default is
 music-tuned `laion/larger_clap_music` HF port is BROKEN — its text pooler
 collapses (all texts map to one direction, cross-modal alignment absent), so it
 silently produces garbage rankings; `assert_model_sane()` below catches that
-class of bug. Recovering the music-tuned weights would need the native
-`laion_clap` loader (follow-up). Pure read-only: writes only under --out.
+class of bug. Its sibling `laion/larger_clap_music_and_speech`, however, is
+INTACT (passes the gate) — a working music-tuned option via HF, no native
+`laion_clap` loader needed. It trades better musical-timbre fidelity for worse
+vocabulary separability (more anisotropic). Pure read-only: writes only under --out.
 
 Usage
 -----
