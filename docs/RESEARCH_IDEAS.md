@@ -56,3 +56,7 @@ Injection Mode    = add / replace / delta / gated / stochastic
 ```
 
 The research question is whether these controls create audible, repeatable differences that are more interesting than ordinary prompt interpolation, without turning the UI into an opaque technical lab panel.
+
+## Semantic Self-Listening Loop (CLAP / Audio-LLM)
+
+A loop where the synth's audio output is *described back into words* (CLAP zero-shot ranking against a tag vocabulary, or an audio-LLM), and those words steer the next generation — distinct from the `init_audio` *signal* loop. The aesthetic design space (five modes from affirmative/homeostatic to deconstructive/abductive, the `ranking → generation` ≡ `CLAP → LLM` axis, "CLAP is the ear, the LLM is the interpreter"), the technical ancestry (corpus-based concatenative synthesis), and a full annotated bibliography (cybernetic sound art, decolonial sound studies, abduction/design theory) live in **`docs/SEMANTIC_LOOP_AESTHETICS.md`**. Feasibility probe: `tools/clap_probe.py`.
