@@ -26,6 +26,17 @@ Erster Lauf gegen die echten Resynth-Outputs (`tools/clap_probe_out/REPORT.md`):
 - **Drift (Q3):** CLAP-Audio-Embeddings spreizen stark (Cosinus zum Anker 0.11–0.90) → das Ohr unterscheidet die Varianten klar. ABER *nicht monoton* in „sigma": `sigma0.050_iter20` driftet weit (0.111), `sigma0.500_iter10` bleibt nah (0.904) — Iterationszahl × Sigma, und der Resynth bewegt sich nicht monoton im CLAP-Raum. Eine saubere Monoton-Demonstration bräuchte einen kontrollierten Einzelfamilien-Sweep (Vorbehalt: `anchor_family.wav` ist evtl. ein anderer Basisklang).
 - **Gotcha dauerhaft dokumentiert:** `laion/larger_clap_music` (music-getunt) ist im HF-Port **textseitig defekt** (Pooler-Kollaps, Cross-Modal-Ausrichtung ~0.01) — Audio-Turm gesund. `assert_model_sane()` fängt diese Bug-Klasse jetzt laut ab. Default daher `clap-htsat-unfused` (generisch, aber korrekt). Music-Tuning-Rückgewinnung = Folgeschritt über nativen `laion_clap`-Loader.
 
+## Folge-Analysen (2026-06-13): kuratiertes Vokabular + kontrollierter Drift-Sweep
+
+`tools/clap_followup.py` (Output `tools/clap_followup_out/REPORT.md`):
+
+**A. Kuratiertes Timbre-Vokabular, auf Trennbarkeit gepruned.** 146 handkuratierte Timbre/Affekt-Begriffe → max-min/k-center-Pruning auf 64 maximal gespreizte. Redundanz **0.284 → 0.212** — im *richtigen* Register (Timbre/Affekt) und besser separiert als naive (0.291) oder musiccaps (0.247), nahe an audioset (0.156, das aber quellen-gerahmt ist). Das Pruning hält je Synonym-Cluster einen Vertreter (von bright/brilliant/airy/piercing/shrill bleibt nur „dull"/„dark"). Re-Ranking gibt saubere Timbre-Tags ohne Quellen-Attribution oder Affekt-Füllwörter (original → violent/aggressive/anxious/rough; ein Bass-Sample → punchy/explosive/fat/distorted). **→ Das vom Probe-Befund anvisierte „ideale Loop-Vokabular", jetzt gebaut.**
+
+**B. Kontrollierter Drift-Sweep (8 σ × 6 Iter, alle Resynths *desselben* Originals).**
+- **Innerhalb jedes σ: glatte monotone Abnahme** des Cosinus zum Original über die Iterationen (σ0.05: 0.94→0.77→0.52→0.16→0.13→0.11). **CLAP verfolgt die kumulative Loop-Drift treu — Q3 positiv aufgelöst** (der frühere „nicht-monoton"-Eindruck kam von gemischten Klängen, nicht von einem CLAP-Defizit).
+- **Niedriges σ driftet am stärksten** (σ0.05 → 0.11) — konsistent mit der spektralen finA (low σ = starke Evolution).
+- **Hohes σ: CLAP WIDERSPRICHT der spektralen Metrik.** finA sagt Wash-out bleibt *nah* (0.94 bei σ0.48); CLAP sagt es driftet *weit* (σ0.475 iter20 = 0.16), oft über eine *späte Bifurkation* (σ0.50 hält bis iter10 bei 0.90, fällt dann auf 0.30). Befund: **CLAP-Wahrnehmungsdistanz ≠ spektrale timbre_corr — komplementär, nicht redundant.** Für einen *semantischen* Loop ist CLAP das relevante Signal (wahrgenommener Charakter, nicht Spektralhülle). Vorbehalt: die Spät-Bifurkationen bei hohem σ könnten teils Loop-Dynamik (Metastabilität), teils Sampling sein — nicht überinterpretieren.
+
 ## Die eine Achse, die alles ordnet
 
 Die im Folgenden gesammelten Modi sind keine Varianten *einer* Operation. Sie spannen **affirmativ → dekonstruktiv** auf — und das ist fast deckungsgleich mit der technischen Achse **Ranking → Generierung**, also **Regelung → Autorschaft**. Daher ist „CLAP vs. LLM" keine einmalige Entscheidung; der **Modus wählt den Motor**.
