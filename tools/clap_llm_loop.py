@@ -31,6 +31,18 @@ different interpreter stance:
               "expose, don't correct"): re-describe the sound from a different
               listening tradition than the machine's. Available, not run by default.
 
+Deconstructive lenses (further --modes / --stance-* stances):
+  transcribe  #1 radically machine-convergent: the next prompt is composed LITERALLY
+              from the machine's OWN measurements — a multi-level analysis of CLAP
+              timbre words PLUS signal-level spectral descriptors (spectral_words),
+              no scene, no poetry. Run as voll → both poles become the machine
+              self-portrait and the loop settles on a fixed point of its own ears.
+  opposite    #2 abductive-contrarian: leap to the CONTRARY scene (invert the mood).
+  entkitscher #3 strip kitsch/sentimentality/cliché; keep the subject austere.
+  verniedlicher #4 cutify: smaller, gentler, toy-like, twee.
+  planetarizer  #5 de-center the West-biased ear: name the sound from a SPECIFIC
+              non-Western tradition on its own ground (sharper than critique).
+
 Three COUPLING topologies (--couple) set how far the machine displaces the human
 input — one axis, from "anchor held" to "anchor broken":
 
@@ -66,6 +78,8 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np  # spectral (DSP) half of the multi-level analysis for 'transcribe'
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_init_audio import PipeClient, encode_init_audio, write_wav  # noqa: E402
 import clap_probe as cp  # noqa: E402
@@ -100,7 +114,7 @@ def _mode_variation(header_a, header_b, target):
         "Reply with ONLY the new prompt - no quotes, no label, no explanation."
     )
 
-    def build(tags, prev_b, recent):
+    def build(tags, prev_b, recent, spectral=""):
         return sysp, f'Current Prompt B: "{prev_b}"\nHeard now: {tags}'
 
     return build
@@ -117,7 +131,7 @@ def _mode_abduction(header_a, header_b, target):
         "plausible. Reply with ONLY the prompt - no quotes, no label, no explanation."
     )
 
-    def build(tags, prev_b, recent):
+    def build(tags, prev_b, recent, spectral=""):
         tried = ("\nAlready tried (do not reuse): " + " / ".join(recent)) if recent else ""
         return sysp, f"Heard: {tags}{tried}"
 
@@ -133,7 +147,7 @@ def _mode_develop(header_a, header_b, target):
         "Reply with ONLY the prompt - no quotes, no label, no explanation."
     )
 
-    def build(tags, prev_b, recent):
+    def build(tags, prev_b, recent, spectral=""):
         return sysp, f"Heard now: {tags}\nNext step:"
 
     return build
@@ -149,8 +163,132 @@ def _mode_critique(header_a, header_b, target):
         "Reply with ONLY the prompt - no quotes, no label, no explanation."
     )
 
-    def build(tags, prev_b, recent):
+    def build(tags, prev_b, recent, spectral=""):
         return sysp, f"Machine heard: {tags}"
+
+    return build
+
+
+# ── multi-level (machine-only) analysis for the 'transcribe' stance ──────────
+def spectral_words(audio, sr):
+    """Signal-level (DSP) half of the multi-level hearing analysis: BARE physical
+    descriptors of the waveform, computed not learned — the complement to CLAP's
+    learned-semantic timbre words. DC-removed (>40 Hz), consistent with the loop's
+    centroid convention. Returns e.g. 'warm, full-bodied, tonal'."""
+    x = np.asarray(audio, dtype=np.float64)
+    if x.ndim > 1:
+        x = x.mean(axis=0)
+    x = x - x.mean()
+    n = x.shape[0]
+    if n < 256 or not np.any(x):
+        return "silent"
+    mag = np.abs(np.fft.rfft(x * np.hanning(n)))
+    freqs = np.fft.rfftfreq(n, 1.0 / float(sr))
+    keep = freqs >= 40.0
+    mag, freqs = mag[keep], freqs[keep]
+    total = float(mag.sum())
+    if total <= 0.0:
+        return "silent"
+    centroid = float((freqs * mag).sum() / total)
+    eps = 1e-12
+    flat = float(np.exp(np.log(mag + eps).mean()) / (mag.mean() + eps))  # tonal↔noisy
+    low = float(mag[freqs < 250.0].sum() / total)                        # thin↔bass-heavy
+    bright = ("dark" if centroid < 500 else "warm" if centroid < 1500
+              else "bright" if centroid < 3500 else "brilliant")
+    texture = ("tonal" if flat < 0.10 else "textured" if flat < 0.30 else "noisy")
+    body = ("thin" if low < 0.10 else "full-bodied" if low < 0.45 else "bass-heavy")
+    return f"{bright}, {body}, {texture}"
+
+
+# ── the deconstructive lenses (variant stances, machine-only or rewrite) ─────
+def _mode_transcribe(header_a, header_b, target):
+    """#1 the radically machine-analysis-convergent series: the prompt is composed
+    LITERALLY from the machine's own measurements (CLAP timbre + DSP spectral), no
+    scene/poetry. Run as voll → both poles become the machine self-portrait and the
+    loop settles on a fixed point of the machine's own listening categories."""
+    sysp = (
+        "You are a machine transcription engine for a text-to-audio synthesizer. You "
+        "receive ONLY machine measurements of the latest sound: the timbre words a "
+        "neural ear matched, and signal-level spectral descriptors. Compose them "
+        "LITERALLY into ONE short generation prompt (3 to 8 words) describing those "
+        "measured qualities as a sound. Add NO scene, NO story, NO metaphor, NO place "
+        "and NO human imagery — only the measured sonic attributes. "
+        "Reply with ONLY the prompt - no quotes, no label, no explanation."
+    )
+
+    def build(tags, prev_b, recent, spectral=""):
+        spec = f"\nSpectral: {spectral}" if spectral else ""
+        return sysp, f"Neural ear: {tags}{spec}"
+
+    return build
+
+
+def _mode_opposite(header_a, header_b, target):
+    """#2 abductive-contrarian: leap to the CONTRARY scene (invert mood/scale/energy)."""
+    sysp = (
+        "You are a contrarian interpreter for a text-to-audio synthesizer. You are "
+        "given the timbre words a machine ear heard, and the scenes already tried. Name "
+        "a concrete real-world scene that is the OPPOSITE or CONTRARY of what the sound "
+        "suggests — invert its mood, scale, energy or setting — as ONE short generation "
+        "prompt (3 to 8 words). Each turn pick an opposite CLEARLY DIFFERENT from those "
+        "already tried. Reply with ONLY the prompt - no quotes, no label, no explanation."
+    )
+
+    def build(tags, prev_b, recent, spectral=""):
+        tried = ("\nAlready tried (do not reuse): " + " / ".join(recent)) if recent else ""
+        return sysp, f"Heard: {tags}{tried}"
+
+    return build
+
+
+def _mode_entkitscher(header_a, header_b, target):
+    """#3 de-kitscher: strip sentimentality/cliché/sweetness, keep the subject austere."""
+    sysp = (
+        "You are the de-kitsch filter of a text-to-audio synthesizer. You are given the "
+        "current prompt and the timbres a machine ear heard. Rewrite the prompt to "
+        "remove ALL kitsch, sentimentality, cliché, sweetness and decorative prettiness "
+        "— keep the same subject but render it austere, plain, unsentimental, even "
+        "harsh. ONE short prompt (3 to 8 words). "
+        "Reply with ONLY the prompt - no quotes, no label, no explanation."
+    )
+
+    def build(tags, prev_b, recent, spectral=""):
+        return sysp, f'Current prompt: "{prev_b}"\nHeard: {tags}'
+
+    return build
+
+
+def _mode_verniedlicher(header_a, header_b, target):
+    """#4 cutifier: make the sound smaller, cuter, gentler, toy-like, twee."""
+    sysp = (
+        "You are the cutifier of a text-to-audio synthesizer. You are given the current "
+        "prompt and the timbres a machine ear heard. Rewrite it to make the sound "
+        "smaller, cuter, gentler, more toy-like and twee — diminutive and adorable, "
+        "keeping the same subject. ONE short prompt (3 to 8 words). "
+        "Reply with ONLY the prompt - no quotes, no label, no explanation."
+    )
+
+    def build(tags, prev_b, recent, spectral=""):
+        return sysp, f'Current prompt: "{prev_b}"\nHeard: {tags}'
+
+    return build
+
+
+def _mode_planetarizer(header_a, header_b, target):
+    """#5 de-center the West-biased ear: re-name the sound from a specific non-Western
+    listening tradition on its own ground (sharper than 'critique')."""
+    sysp = (
+        "You are a de-centering interpreter for a text-to-audio synthesizer whose "
+        "machine ear was trained mostly on Western audio. You are given the timbres it "
+        "heard. Re-name the sound from a SPECIFIC non-Western listening tradition, "
+        "instrument or sonic cosmology — not translating into Western terms but naming "
+        "it on its own ground. ONE short prompt (3 to 10 words). Avoid traditions "
+        "already tried. Reply with ONLY the prompt - no quotes, no label, no explanation."
+    )
+
+    def build(tags, prev_b, recent, spectral=""):
+        tried = ("\nAlready named (do not reuse): " + " / ".join(recent)) if recent else ""
+        return sysp, f"Machine heard: {tags}{tried}"
 
     return build
 
@@ -160,6 +298,11 @@ MODES = {
     "abduction": _mode_abduction,
     "develop": _mode_develop,
     "critique": _mode_critique,
+    "transcribe": _mode_transcribe,
+    "opposite": _mode_opposite,
+    "entkitscher": _mode_entkitscher,
+    "verniedlicher": _mode_verniedlicher,
+    "planetarizer": _mode_planetarizer,
 }
 
 
@@ -279,16 +422,18 @@ def run_llm_loop(client, base, ear, proc, device, vocab_emb, vocab_labels, *,
         cos_anchor = float(emb @ anchor_emb)
         write_wav(exp_dir / f"iter{it:02d}.wav", audio, sr)
         tags = ", ".join(l for l, _ in labels)
+        spec = spectral_words(audio, sr)  # DSP (signal) level of the multi-level analysis
 
         next_a = next_b = None
         if it < iters:  # no need to interpret after the last render
             # the chain interprets its OWN last link (glieder[-1]), NOT the applied
-            # (possibly concat) prompt — "die Iterationen untereinander".
-            sysp_b, usr_b = build_b(tags, b_glieder[-1], b_glieder[-3:])
+            # (possibly concat) prompt — "die Iterationen untereinander". spec is the
+            # 4th arg; only the 'transcribe' stance reads it, the others ignore it.
+            sysp_b, usr_b = build_b(tags, b_glieder[-1], b_glieder[-3:], spec)
             next_b = _clean_prompt(interpret(client, sysp_b, usr_b, max_new, llm_device)) \
                 or b_glieder[-1]
             if dual:
-                sysp_a, usr_a = build_a(tags, a_glieder[-1], a_glieder[-3:])
+                sysp_a, usr_a = build_a(tags, a_glieder[-1], a_glieder[-3:], spec)
                 next_a = _clean_prompt(interpret(client, sysp_a, usr_a, max_new, llm_device)) \
                     or a_glieder[-1]
 
@@ -297,12 +442,14 @@ def run_llm_loop(client, base, ear, proc, device, vocab_emb, vocab_labels, *,
             "prompt_a": prompt_a, "prompt_b": prompt_b,
             "alpha": round(float(alpha), 4),
             "init_noise": (None if it == 1 else init_noise),
-            "heard": labels, "llm_next_a": next_a, "llm_next_b": next_b,
+            "heard": labels, "spectral": spec,
+            "llm_next_a": next_a, "llm_next_b": next_b,
             "cos_to_anchor": round(cos_anchor, 4),
         })
         msg = (f"  [{name}] it{it:02d} " + (f"A='{prompt_a[:22]}' " if dual else "")
                + f"B='{prompt_b[:26]}' -> "
-               + ", ".join(f"{l}({s:.2f})" for l, s in labels) + f"  cos0={cos_anchor:+.3f}")
+               + ", ".join(f"{l}({s:.2f})" for l, s in labels)
+               + f" |{spec}|  cos0={cos_anchor:+.3f}")
         if next_b:
             msg += f"  ⇒B'='{next_b[:26]}'"
         if dual and next_a:
