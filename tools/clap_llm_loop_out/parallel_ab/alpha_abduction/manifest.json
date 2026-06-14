@@ -1,0 +1,289 @@
+{
+  "name": "alpha_abduction",
+  "coupling": "alpha",
+  "stance_a": null,
+  "stance_b": "abduction",
+  "preset": "Creamy-Dreamy SA3",
+  "model": "stable-audio-3-small-music",
+  "duration_s": 11.0,
+  "steps": 8,
+  "cfg": 1.0,
+  "seed": 2128708858,
+  "magnitude": 1.0,
+  "noise_sigma": 0.0,
+  "injection_mode": "linear",
+  "init_noise": 0.9,
+  "topk": 5,
+  "max_new_tokens": 64,
+  "header_a": "creamy cream, birds chirping",
+  "header_b": "dreamy dream",
+  "alpha0": 0.005229949951172,
+  "target": "a deep slow underwater bell",
+  "llm": "qwen2.5-1.5b-instruct",
+  "iters": [
+    {
+      "iter": 1,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream",
+      "alpha": 0.0052,
+      "init_noise": null,
+      "heard": [
+        [
+          "dreamy",
+          0.4829721450805664
+        ],
+        [
+          "mellow",
+          0.4428775906562805
+        ],
+        [
+          "crystalline",
+          0.4066529870033264
+        ],
+        [
+          "glittering",
+          0.3662697374820709
+        ],
+        [
+          "delicate",
+          0.36586785316467285
+        ]
+      ],
+      "llm_next_a": null,
+      "llm_next_b": "Astronomical telescope observing distant galaxies",
+      "cos_to_anchor": 1.0
+    },
+    {
+      "iter": 2,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Astronomical telescope observing distant galaxies",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "resonant",
+          0.4849209785461426
+        ],
+        [
+          "crystalline",
+          0.4388449788093567
+        ],
+        [
+          "gaseous",
+          0.37305837869644165
+        ],
+        [
+          "ethereal",
+          0.34824836254119873
+        ],
+        [
+          "clinical",
+          0.34423190355300903
+        ]
+      ],
+      "llm_next_a": null,
+      "llm_next_b": "A hospital operating room during surgery",
+      "cos_to_anchor": 0.4616
+    },
+    {
+      "iter": 3,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A hospital operating room during surgery",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.424956738948822
+        ],
+        [
+          "dreamy",
+          0.3100779354572296
+        ],
+        [
+          "velvety",
+          0.2633635401725769
+        ],
+        [
+          "ethereal",
+          0.25876760482788086
+        ],
+        [
+          "gloomy",
+          0.24055799841880798
+        ]
+      ],
+      "llm_next_a": null,
+      "llm_next_b": "A haunted Victorian mansion at night, eerie and misty",
+      "cos_to_anchor": 0.5772
+    },
+    {
+      "iter": 4,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A haunted Victorian mansion at night, eerie and misty",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.5010423064231873
+        ],
+        [
+          "dreamy",
+          0.3636738359928131
+        ],
+        [
+          "cold",
+          0.3191899061203003
+        ],
+        [
+          "gloomy",
+          0.31672489643096924
+        ],
+        [
+          "smooth",
+          0.300803542137146
+        ]
+      ],
+      "llm_next_a": null,
+      "llm_next_b": "A quiet, dimly lit subway tunnel on a rainy evening",
+      "cos_to_anchor": 0.745
+    },
+    {
+      "iter": 5,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A quiet, dimly lit subway tunnel on a rainy evening",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.4290229082107544
+        ],
+        [
+          "cozy",
+          0.3308345377445221
+        ],
+        [
+          "delicate",
+          0.29968780279159546
+        ],
+        [
+          "gloomy",
+          0.29519492387771606
+        ],
+        [
+          "dreamy",
+          0.29444581270217896
+        ]
+      ],
+      "llm_next_a": null,
+      "llm_next_b": "A serene, moonlit forest clearing under a full moon, filled with whispering trees and distant streams.",
+      "cos_to_anchor": 0.693
+    },
+    {
+      "iter": 6,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A serene, moonlit forest clearing under a full moon, filled with whispering trees and distant streams.",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.44773656129837036
+        ],
+        [
+          "gloomy",
+          0.30364689230918884
+        ],
+        [
+          "dreamy",
+          0.24676287174224854
+        ],
+        [
+          "glittering",
+          0.24042460322380066
+        ],
+        [
+          "delicate",
+          0.23164790868759155
+        ]
+      ],
+      "llm_next_a": null,
+      "llm_next_b": "A vintage jazz club during a snowstorm, warm lights flickering and patrons huddled together, creating a cozy yet melancholic atmosphere.",
+      "cos_to_anchor": 0.7185
+    },
+    {
+      "iter": 7,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A vintage jazz club during a snowstorm, warm lights flickering and patrons huddled together, creating a cozy yet melancholic atmosphere.",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.4802568852901459
+        ],
+        [
+          "dreamy",
+          0.35680338740348816
+        ],
+        [
+          "gloomy",
+          0.32893258333206177
+        ],
+        [
+          "delicate",
+          0.2958906292915344
+        ],
+        [
+          "brilliant",
+          0.2912801504135132
+        ]
+      ],
+      "llm_next_a": null,
+      "llm_next_b": "A tranquil, mist-covered mountain lake at sunset, reflecting golden hues while birdsong fills the air, creating a harmonious yet eerie",
+      "cos_to_anchor": 0.7078
+    },
+    {
+      "iter": 8,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A tranquil, mist-covered mountain lake at sunset, reflecting golden hues while birdsong fills the air, creating a harmonious yet eerie",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.4434446096420288
+        ],
+        [
+          "gloomy",
+          0.2795830965042114
+        ],
+        [
+          "dreamy",
+          0.27285292744636536
+        ],
+        [
+          "cozy",
+          0.2506600618362427
+        ],
+        [
+          "smooth",
+          0.24946072697639465
+        ]
+      ],
+      "llm_next_a": null,
+      "llm_next_b": null,
+      "cos_to_anchor": 0.5742
+    }
+  ]
+}

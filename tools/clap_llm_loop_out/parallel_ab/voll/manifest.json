@@ -1,0 +1,289 @@
+{
+  "name": "voll",
+  "coupling": "voll",
+  "stance_a": "variation",
+  "stance_b": "abduction",
+  "preset": "Creamy-Dreamy SA3",
+  "model": "stable-audio-3-small-music",
+  "duration_s": 11.0,
+  "steps": 8,
+  "cfg": 1.0,
+  "seed": 2128708858,
+  "magnitude": 1.0,
+  "noise_sigma": 0.0,
+  "injection_mode": "linear",
+  "init_noise": 0.9,
+  "topk": 5,
+  "max_new_tokens": 64,
+  "header_a": "creamy cream, birds chirping",
+  "header_b": "dreamy dream",
+  "alpha0": 0.005229949951172,
+  "target": "a deep slow underwater bell",
+  "llm": "qwen2.5-1.5b-instruct",
+  "iters": [
+    {
+      "iter": 1,
+      "coupling": "voll",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream",
+      "alpha": 0.0052,
+      "init_noise": null,
+      "heard": [
+        [
+          "dreamy",
+          0.4685625433921814
+        ],
+        [
+          "mellow",
+          0.3876202404499054
+        ],
+        [
+          "crystalline",
+          0.3733549118041992
+        ],
+        [
+          "glittering",
+          0.3611679673194885
+        ],
+        [
+          "delicate",
+          0.3366955816745758
+        ]
+      ],
+      "llm_next_a": "moonlit dewdrops, whispers rustling leaves",
+      "llm_next_b": "Astronomical telescope observing distant galaxies",
+      "cos_to_anchor": 1.0
+    },
+    {
+      "iter": 2,
+      "coupling": "voll",
+      "prompt_a": "moonlit dewdrops, whispers rustling leaves",
+      "prompt_b": "Astronomical telescope observing distant galaxies",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "crystalline",
+          0.4755946397781372
+        ],
+        [
+          "dreamy",
+          0.4504849314689636
+        ],
+        [
+          "glassy",
+          0.39061272144317627
+        ],
+        [
+          "evolving",
+          0.38529831171035767
+        ],
+        [
+          "resonant",
+          0.3765353858470917
+        ]
+      ],
+      "llm_next_a": "shimmering mist, distant echoes",
+      "llm_next_b": "Astronaut floating outside Earth's atmosphere, listening to cosmic sounds through helmet microphone",
+      "cos_to_anchor": 0.5065
+    },
+    {
+      "iter": 3,
+      "coupling": "voll",
+      "prompt_a": "shimmering mist, distant echoes",
+      "prompt_b": "Astronaut floating outside Earth's atmosphere, listening to cosmic sounds through helmet microphone",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "crystalline",
+          0.49929186701774597
+        ],
+        [
+          "resonant",
+          0.4423244595527649
+        ],
+        [
+          "dreamy",
+          0.39526379108428955
+        ],
+        [
+          "synthetic",
+          0.35296544432640076
+        ],
+        [
+          "gaseous",
+          0.3394218385219574
+        ]
+      ],
+      "llm_next_a": "whispering fog, faint melodies",
+      "llm_next_b": "Astronaut descending into a deep ocean trench, listening to eerie, high-frequency hissing noises from the pressure and darkness",
+      "cos_to_anchor": 0.4259
+    },
+    {
+      "iter": 4,
+      "coupling": "voll",
+      "prompt_a": "whispering fog, faint melodies",
+      "prompt_b": "Astronaut descending into a deep ocean trench, listening to eerie, high-frequency hissing noises from the pressure and darkness",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "swirling",
+          0.4827128052711487
+        ],
+        [
+          "evolving",
+          0.3921557068824768
+        ],
+        [
+          "resonant",
+          0.36309871077537537
+        ],
+        [
+          "earthy",
+          0.3574233651161194
+        ],
+        [
+          "wobbling",
+          0.3418799936771393
+        ]
+      ],
+      "llm_next_a": "moisture mist, distant drums",
+      "llm_next_b": "Astronaut ascending through a volcanic rift on another planet, experiencing intense seismic activity and crackling, low-frequency rumblings",
+      "cos_to_anchor": 0.3349
+    },
+    {
+      "iter": 5,
+      "coupling": "voll",
+      "prompt_a": "moisture mist, distant drums",
+      "prompt_b": "Astronaut ascending through a volcanic rift on another planet, experiencing intense seismic activity and crackling, low-frequency rumblings",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "synthetic",
+          0.4376213252544403
+        ],
+        [
+          "massive",
+          0.42248398065567017
+        ],
+        [
+          "earthy",
+          0.4075039029121399
+        ],
+        [
+          "swirling",
+          0.37975049018859863
+        ],
+        [
+          "abrasive",
+          0.374446839094162
+        ]
+      ],
+      "llm_next_a": "ancient fog, echoing cymbals",
+      "llm_next_b": "Astronaut descending into a vast underground cavern system on Mars, where ancient microbial life forms emit ethereal, pulsating tones",
+      "cos_to_anchor": 0.2199
+    },
+    {
+      "iter": 6,
+      "coupling": "voll",
+      "prompt_a": "ancient fog, echoing cymbals",
+      "prompt_b": "Astronaut descending into a vast underground cavern system on Mars, where ancient microbial life forms emit ethereal, pulsating tones",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "evolving",
+          0.43121689558029175
+        ],
+        [
+          "swirling",
+          0.42789384722709656
+        ],
+        [
+          "earthy",
+          0.39983659982681274
+        ],
+        [
+          "massive",
+          0.3876258432865143
+        ],
+        [
+          "resonant",
+          0.38635867834091187
+        ]
+      ],
+      "llm_next_a": "ancient mist, shifting drums",
+      "llm_next_b": "Astronaut floating weightlessly within a colossal, glowing nebulae cluster, surrounded by shimmering gas clouds and distant star systems",
+      "cos_to_anchor": 0.3413
+    },
+    {
+      "iter": 7,
+      "coupling": "voll",
+      "prompt_a": "ancient mist, shifting drums",
+      "prompt_b": "Astronaut floating weightlessly within a colossal, glowing nebulae cluster, surrounded by shimmering gas clouds and distant star systems",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "resonant",
+          0.4161854684352875
+        ],
+        [
+          "gaseous",
+          0.4040221869945526
+        ],
+        [
+          "shadowy",
+          0.40093666315078735
+        ],
+        [
+          "huge",
+          0.3916037976741791
+        ],
+        [
+          "abrasive",
+          0.39119797945022583
+        ]
+      ],
+      "llm_next_a": "ancient fog, pulsing cymbals",
+      "llm_next_b": "Astronaut drifting silently among towering, translucent ice crystals in Saturn's rings, under the constant pressure of cosmic radiation and",
+      "cos_to_anchor": 0.3647
+    },
+    {
+      "iter": 8,
+      "coupling": "voll",
+      "prompt_a": "ancient fog, pulsing cymbals",
+      "prompt_b": "Astronaut drifting silently among towering, translucent ice crystals in Saturn's rings, under the constant pressure of cosmic radiation and",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "synthetic",
+          0.40219584107398987
+        ],
+        [
+          "crystalline",
+          0.35742300748825073
+        ],
+        [
+          "resonant",
+          0.3466070890426636
+        ],
+        [
+          "granular",
+          0.3139594495296478
+        ],
+        [
+          "swirling",
+          0.3130408525466919
+        ]
+      ],
+      "llm_next_a": null,
+      "llm_next_b": null,
+      "cos_to_anchor": 0.2536
+    }
+  ]
+}
