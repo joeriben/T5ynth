@@ -1,0 +1,289 @@
+{
+  "name": "alpha_variation",
+  "coupling": "alpha",
+  "stance_a": null,
+  "stance_b": "variation",
+  "preset": "Creamy-Dreamy SA3",
+  "model": "stable-audio-3-small-music",
+  "duration_s": 11.0,
+  "steps": 8,
+  "cfg": 1.0,
+  "seed": 2128708858,
+  "magnitude": 1.0,
+  "noise_sigma": 0.0,
+  "injection_mode": "linear",
+  "init_noise": 0.9,
+  "topk": 5,
+  "max_new_tokens": 64,
+  "header_a": "creamy cream, birds chirping",
+  "header_b": "dreamy dream",
+  "alpha0": 0.005229949951172,
+  "target": "a deep slow underwater bell",
+  "llm": "qwen2.5-1.5b-instruct",
+  "iters": [
+    {
+      "iter": 1,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream",
+      "alpha": 0.0052,
+      "init_noise": null,
+      "heard": [
+        [
+          "dreamy",
+          0.48092231154441833
+        ],
+        [
+          "mellow",
+          0.4274892210960388
+        ],
+        [
+          "crystalline",
+          0.4201405346393585
+        ],
+        [
+          "delicate",
+          0.37063437700271606
+        ],
+        [
+          "glittering",
+          0.36473551392555237
+        ]
+      ],
+      "llm_next_a": null,
+      "llm_next_b": "glittering dreams",
+      "cos_to_anchor": 1.0
+    },
+    {
+      "iter": 2,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "glittering dreams",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "gaseous",
+          0.3560050427913666
+        ],
+        [
+          "delicate",
+          0.3410710096359253
+        ],
+        [
+          "tinny",
+          0.31414541602134705
+        ],
+        [
+          "dreamy",
+          0.30350059270858765
+        ],
+        [
+          "velvety",
+          0.30317422747612
+        ]
+      ],
+      "llm_next_a": null,
+      "llm_next_b": "shimmering hues",
+      "cos_to_anchor": 0.7133
+    },
+    {
+      "iter": 3,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "shimmering hues",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "gaseous",
+          0.41683363914489746
+        ],
+        [
+          "clinical",
+          0.37133365869522095
+        ],
+        [
+          "synthetic",
+          0.33618080615997314
+        ],
+        [
+          "saturated",
+          0.3093319535255432
+        ],
+        [
+          "granular",
+          0.28164079785346985
+        ]
+      ],
+      "llm_next_a": null,
+      "llm_next_b": "ethereal mist",
+      "cos_to_anchor": 0.454
+    },
+    {
+      "iter": 4,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "ethereal mist",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.39032065868377686
+        ],
+        [
+          "velvety",
+          0.3283143639564514
+        ],
+        [
+          "steely",
+          0.31244176626205444
+        ],
+        [
+          "dreamy",
+          0.30128467082977295
+        ],
+        [
+          "organic",
+          0.28016650676727295
+        ]
+      ],
+      "llm_next_a": null,
+      "llm_next_b": "moonlit forest",
+      "cos_to_anchor": 0.6415
+    },
+    {
+      "iter": 5,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "moonlit forest",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.4668494760990143
+        ],
+        [
+          "resonant",
+          0.36052602529525757
+        ],
+        [
+          "dreamy",
+          0.3515889048576355
+        ],
+        [
+          "delicate",
+          0.3368145823478699
+        ],
+        [
+          "brilliant",
+          0.3294340670108795
+        ]
+      ],
+      "llm_next_a": null,
+      "llm_next_b": "starlit meadow",
+      "cos_to_anchor": 0.6842
+    },
+    {
+      "iter": 6,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "starlit meadow",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.4844511151313782
+        ],
+        [
+          "gloomy",
+          0.37293773889541626
+        ],
+        [
+          "delicate",
+          0.35812318325042725
+        ],
+        [
+          "dreamy",
+          0.3420777916908264
+        ],
+        [
+          "brilliant",
+          0.3349205255508423
+        ]
+      ],
+      "llm_next_a": null,
+      "llm_next_b": "moonstruck forest",
+      "cos_to_anchor": 0.6873
+    },
+    {
+      "iter": 7,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "moonstruck forest",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.4504958391189575
+        ],
+        [
+          "dreamy",
+          0.3496336042881012
+        ],
+        [
+          "gloomy",
+          0.3271228075027466
+        ],
+        [
+          "brilliant",
+          0.31919825077056885
+        ],
+        [
+          "glittering",
+          0.3133462071418762
+        ]
+      ],
+      "llm_next_a": null,
+      "llm_next_b": "shimmering mist",
+      "cos_to_anchor": 0.6626
+    },
+    {
+      "iter": 8,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "shimmering mist",
+      "alpha": 0.0052,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.4319065809249878
+        ],
+        [
+          "delicate",
+          0.38349616527557373
+        ],
+        [
+          "granular",
+          0.37908145785331726
+        ],
+        [
+          "dreamy",
+          0.3783390522003174
+        ],
+        [
+          "gloomy",
+          0.3696749210357666
+        ]
+      ],
+      "llm_next_a": null,
+      "llm_next_b": null,
+      "cos_to_anchor": 0.722
+    }
+  ]
+}

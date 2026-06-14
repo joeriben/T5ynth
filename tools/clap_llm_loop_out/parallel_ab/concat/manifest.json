@@ -2,7 +2,7 @@
   "name": "concat",
   "coupling": "concat",
   "stance_a": "variation",
-  "stance_b": "abduction",
+  "stance_b": "variation",
   "preset": "Creamy-Dreamy SA3",
   "model": "stable-audio-3-small-music",
   "duration_s": 11.0,
@@ -31,259 +31,259 @@
       "heard": [
         [
           "dreamy",
-          0.49647611379623413
+          0.48523205518722534
         ],
         [
           "mellow",
-          0.4351346492767334
+          0.42959660291671753
         ],
         [
           "crystalline",
-          0.3888418674468994
+          0.4068167507648468
         ],
         [
-          "glittering",
-          0.3692348301410675
+          "cold",
+          0.3528042733669281
         ],
         [
           "delicate",
-          0.35031723976135254
+          0.3398008346557617
         ]
       ],
-      "llm_next_a": "moonlit dewdrops, whispers rustling leaves",
-      "llm_next_b": "Astronomical telescope observing distant galaxies",
+      "llm_next_a": "moonlit dewdrops, whispers rustling",
+      "llm_next_b": "moonlit melody",
       "cos_to_anchor": 1.0
     },
     {
       "iter": 2,
       "coupling": "concat",
-      "prompt_a": "creamy cream, birds chirping, moonlit dewdrops, whispers rustling leaves",
-      "prompt_b": "dreamy dream, Astronomical telescope observing distant galaxies",
+      "prompt_a": "creamy cream, birds chirping, moonlit dewdrops, whispers rustling",
+      "prompt_b": "dreamy dream, moonlit melody",
       "alpha": 0.0052,
       "init_noise": 0.9,
       "heard": [
         [
           "mellow",
-          0.4680898189544678
-        ],
-        [
-          "ethereal",
-          0.43419453501701355
+          0.5376986265182495
         ],
         [
           "dreamy",
-          0.4257785379886627
+          0.484101802110672
         ],
         [
-          "resonant",
-          0.39001455903053284
+          "gloomy",
+          0.4004419445991516
         ],
         [
-          "crystalline",
-          0.38103947043418884
+          "delicate",
+          0.3829997777938843
+        ],
+        [
+          "brilliant",
+          0.3732321858406067
         ]
       ],
-      "llm_next_a": "moonlight serenade, whispering mist, starry night, gentle breeze, enchanted forest",
-      "llm_next_b": "Astronaut floating in zero gravity outside a spaceship",
-      "cos_to_anchor": 0.6074
+      "llm_next_a": "starlit shadows, secrets whispering",
+      "llm_next_b": "starlight serenade",
+      "cos_to_anchor": 0.8286
     },
     {
       "iter": 3,
       "coupling": "concat",
-      "prompt_a": "creamy cream, birds chirping, moonlit dewdrops, whispers rustling leaves, moonlight serenade, whispering mist, starry night, gentle breeze, enchanted forest",
-      "prompt_b": "dreamy dream, Astronomical telescope observing distant galaxies, Astronaut floating in zero gravity outside a spaceship",
+      "prompt_a": "creamy cream, birds chirping, starlit shadows, secrets whispering",
+      "prompt_b": "dreamy dream, starlight serenade",
       "alpha": 0.0052,
       "init_noise": 0.9,
       "heard": [
         [
           "dreamy",
-          0.45181015133857727
-        ],
-        [
-          "mellow",
-          0.44976216554641724
+          0.46359121799468994
         ],
         [
           "crystalline",
-          0.4423454701900482
+          0.45065897703170776
+        ],
+        [
+          "mellow",
+          0.4011791944503784
         ],
         [
           "resonant",
-          0.39639517664909363
+          0.39406734704971313
         ],
         [
-          "ethereal",
-          0.393960177898407
+          "glassy",
+          0.3675134778022766
         ]
       ],
-      "llm_next_a": "moonstruck silken streams, whispered shadows, gossamer light, ethereal glow, mystic melody, shimmering mist, celestial dance, tranquil air",
-      "llm_next_b": "Ancient crystal chimes ringing softly in a forgotten temple courtyard",
-      "cos_to_anchor": 0.6323
+      "llm_next_a": "moonlit whispers, echoes fading",
+      "llm_next_b": "moonlit melody",
+      "cos_to_anchor": 0.7238
     },
     {
       "iter": 4,
       "coupling": "concat",
-      "prompt_a": "creamy cream, birds chirping, moonlit dewdrops, whispers rustling leaves, moonlight serenade, whispering mist, starry night, gentle breeze, enchanted forest, moonstruck silken streams, whispered shadows, gossamer light, ethereal glow, mystic melody, shimmering mist, celestial dance, tranquil air",
-      "prompt_b": "dreamy dream, Astronomical telescope observing distant galaxies, Astronaut floating in zero gravity outside a spaceship, Ancient crystal chimes ringing softly in a forgotten temple courtyard",
+      "prompt_a": "creamy cream, birds chirping, moonlit whispers, echoes fading",
+      "prompt_b": "dreamy dream, moonlit melody",
       "alpha": 0.0052,
       "init_noise": 0.9,
       "heard": [
         [
           "mellow",
-          0.5444040298461914
+          0.49670809507369995
         ],
         [
           "dreamy",
-          0.4491458237171173
+          0.38369691371917725
         ],
         [
           "gloomy",
-          0.4140457510948181
-        ],
-        [
-          "brilliant",
-          0.3704836368560791
+          0.37397968769073486
         ],
         [
           "delicate",
-          0.35505691170692444
+          0.3478972911834717
+        ],
+        [
+          "ethereal",
+          0.3203888237476349
         ]
       ],
-      "llm_next_a": "muted, somber, radiant, vibrant, intricate",
-      "llm_next_b": "A child playing quietly on a beach at sunset",
-      "cos_to_anchor": 0.8339
+      "llm_next_a": "whispers through mist, shadows dancing",
+      "llm_next_b": "whispering shadows",
+      "cos_to_anchor": 0.8079
     },
     {
       "iter": 5,
       "coupling": "concat",
-      "prompt_a": "creamy cream, birds chirping, moonlit dewdrops, whispers rustling leaves, moonlight serenade, whispering mist, starry night, gentle breeze, enchanted forest, moonstruck silken streams, whispered shadows, gossamer light, ethereal glow, mystic melody, shimmering mist, celestial dance, tranquil air, muted, somber, radiant, vibrant, intricate",
-      "prompt_b": "dreamy dream, Astronomical telescope observing distant galaxies, Astronaut floating in zero gravity outside a spaceship, Ancient crystal chimes ringing softly in a forgotten temple courtyard, A child playing quietly on a beach at sunset",
+      "prompt_a": "creamy cream, birds chirping, whispers through mist, shadows dancing",
+      "prompt_b": "dreamy dream, whispering shadows",
       "alpha": 0.0052,
       "init_noise": 0.9,
       "heard": [
         [
-          "mellow",
-          0.4725237488746643
-        ],
-        [
           "dreamy",
-          0.46845415234565735
+          0.4644611179828644
         ],
         [
-          "glassy",
-          0.3945557177066803
+          "mellow",
+          0.4209485948085785
+        ],
+        [
+          "ethereal",
+          0.38118231296539307
+        ],
+        [
+          "granular",
+          0.3730597198009491
         ],
         [
           "crystalline",
-          0.3839801847934723
-        ],
-        [
-          "delicate",
-          0.36892855167388916
+          0.34923654794692993
         ]
       ],
-      "llm_next_a": "mystical, ethereal, shimmering, serene, glowing",
-      "llm_next_b": "A violinist performing a solo recital in a dimly lit, empty concert hall",
-      "cos_to_anchor": 0.7543
+      "llm_next_a": "moonlit paths, whispers soft",
+      "llm_next_b": "moonlit whispers",
+      "cos_to_anchor": 0.7644
     },
     {
       "iter": 6,
       "coupling": "concat",
-      "prompt_a": "creamy cream, birds chirping, moonlit dewdrops, whispers rustling leaves, moonlight serenade, whispering mist, starry night, gentle breeze, enchanted forest, moonstruck silken streams, whispered shadows, gossamer light, ethereal glow, mystic melody, shimmering mist, celestial dance, tranquil air, muted, somber, radiant, vibrant, intricate, mystical, ethereal, shimmering, serene, glowing",
-      "prompt_b": "dreamy dream, Astronomical telescope observing distant galaxies, Astronaut floating in zero gravity outside a spaceship, Ancient crystal chimes ringing softly in a forgotten temple courtyard, A child playing quietly on a beach at sunset, A violinist performing a solo recital in a dimly lit, empty concert hall",
+      "prompt_a": "creamy cream, birds chirping, moonlit paths, whispers soft",
+      "prompt_b": "dreamy dream, moonlit whispers",
       "alpha": 0.0052,
       "init_noise": 0.9,
       "heard": [
         [
-          "dreamy",
-          0.44362133741378784
+          "mellow",
+          0.42961493134498596
         ],
         [
-          "mellow",
-          0.42759597301483154
+          "dreamy",
+          0.3838191628456116
         ],
         [
           "gloomy",
-          0.3536689281463623
+          0.31680968403816223
         ],
         [
           "ethereal",
-          0.3370562791824341
+          0.290954053401947
         ],
         [
-          "sparkly",
-          0.30042722821235657
+          "round",
+          0.28690049052238464
         ]
       ],
-      "llm_next_a": "dreamy twilight, melancholic hues, sparkling stars, eerie silence, ethereal whispers",
-      "llm_next_b": "A ghostly apparition dancing silently through misty forest paths",
-      "cos_to_anchor": 0.7727
+      "llm_next_a": "whispers through misty woods",
+      "llm_next_b": "whispers through misty woods",
+      "cos_to_anchor": 0.7672
     },
     {
       "iter": 7,
       "coupling": "concat",
-      "prompt_a": "creamy cream, birds chirping, moonlit dewdrops, whispers rustling leaves, moonlight serenade, whispering mist, starry night, gentle breeze, enchanted forest, moonstruck silken streams, whispered shadows, gossamer light, ethereal glow, mystic melody, shimmering mist, celestial dance, tranquil air, muted, somber, radiant, vibrant, intricate, mystical, ethereal, shimmering, serene, glowing, dreamy twilight, melancholic hues, sparkling stars, eerie silence, ethereal whispers",
-      "prompt_b": "dreamy dream, Astronomical telescope observing distant galaxies, Astronaut floating in zero gravity outside a spaceship, Ancient crystal chimes ringing softly in a forgotten temple courtyard, A child playing quietly on a beach at sunset, A violinist performing a solo recital in a dimly lit, empty concert hall, A ghostly apparition dancing silently through misty forest paths",
+      "prompt_a": "creamy cream, birds chirping, whispers through misty woods",
+      "prompt_b": "dreamy dream, whispers through misty woods",
       "alpha": 0.0052,
       "init_noise": 0.9,
       "heard": [
         [
           "mellow",
-          0.39493703842163086
+          0.3941320776939392
         ],
         [
           "dreamy",
-          0.325126588344574
+          0.3707142472267151
         ],
         [
-          "gloomy",
-          0.32216307520866394
+          "delicate",
+          0.2990029454231262
         ],
         [
-          "crystalline",
-          0.3108392059803009
+          "glittering",
+          0.2647378146648407
         ],
         [
-          "glassy",
-          0.3061160147190094
+          "saturated",
+          0.2637082636356354
         ]
       ],
-      "llm_next_a": "mellow, dreamy, gloomy, crystalline, glassy, spectral",
-      "llm_next_b": "A haunted library filled with ancient books and dusty shelves",
-      "cos_to_anchor": 0.7352
+      "llm_next_a": "moonlit river flowing softly",
+      "llm_next_b": "moonlit river flowing softly",
+      "cos_to_anchor": 0.8479
     },
     {
       "iter": 8,
       "coupling": "concat",
-      "prompt_a": "creamy cream, birds chirping, moonlit dewdrops, whispers rustling leaves, moonlight serenade, whispering mist, starry night, gentle breeze, enchanted forest, moonstruck silken streams, whispered shadows, gossamer light, ethereal glow, mystic melody, shimmering mist, celestial dance, tranquil air, muted, somber, radiant, vibrant, intricate, mystical, ethereal, shimmering, serene, glowing, dreamy twilight, melancholic hues, sparkling stars, eerie silence, ethereal whispers, mellow, dreamy, gloomy, crystalline, glassy, spectral",
-      "prompt_b": "dreamy dream, Astronomical telescope observing distant galaxies, Astronaut floating in zero gravity outside a spaceship, Ancient crystal chimes ringing softly in a forgotten temple courtyard, A child playing quietly on a beach at sunset, A violinist performing a solo recital in a dimly lit, empty concert hall, A ghostly apparition dancing silently through misty forest paths, A haunted library filled with ancient books and dusty shelves",
+      "prompt_a": "creamy cream, birds chirping, moonlit river flowing softly",
+      "prompt_b": "dreamy dream, moonlit river flowing softly",
       "alpha": 0.0052,
       "init_noise": 0.9,
       "heard": [
         [
-          "dreamy",
-          0.3892013728618622
-        ],
-        [
           "mellow",
-          0.3858288526535034
+          0.4583017826080322
         ],
         [
-          "crystalline",
-          0.35851359367370605
+          "dreamy",
+          0.3461146354675293
         ],
         [
-          "glassy",
-          0.3362877368927002
+          "gloomy",
+          0.3416314125061035
         ],
         [
-          "shadowy",
-          0.30987370014190674
+          "delicate",
+          0.29609882831573486
+        ],
+        [
+          "glittering",
+          0.2830047607421875
         ]
       ],
       "llm_next_a": null,
       "llm_next_b": null,
-      "cos_to_anchor": 0.7339
+      "cos_to_anchor": 0.8026
     }
   ]
 }

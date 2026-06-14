@@ -2,7 +2,7 @@
   "name": "voll",
   "coupling": "voll",
   "stance_a": "variation",
-  "stance_b": "abduction",
+  "stance_b": "variation",
   "preset": "Creamy-Dreamy SA3",
   "model": "stable-audio-3-small-music",
   "duration_s": 11.0,
@@ -31,259 +31,259 @@
       "heard": [
         [
           "dreamy",
-          0.4685625433921814
+          0.45491844415664673
         ],
         [
           "mellow",
-          0.3876202404499054
+          0.38722339272499084
         ],
         [
           "crystalline",
-          0.3733549118041992
-        ],
-        [
-          "glittering",
-          0.3611679673194885
+          0.3675670027732849
         ],
         [
           "delicate",
-          0.3366955816745758
+          0.35223743319511414
+        ],
+        [
+          "glittering",
+          0.3486092686653137
         ]
       ],
-      "llm_next_a": "moonlit dewdrops, whispers rustling leaves",
-      "llm_next_b": "Astronomical telescope observing distant galaxies",
+      "llm_next_a": "moonlit dewdrops, whispers rustling",
+      "llm_next_b": "glittering dreams",
       "cos_to_anchor": 1.0
     },
     {
       "iter": 2,
       "coupling": "voll",
-      "prompt_a": "moonlit dewdrops, whispers rustling leaves",
-      "prompt_b": "Astronomical telescope observing distant galaxies",
+      "prompt_a": "moonlit dewdrops, whispers rustling",
+      "prompt_b": "glittering dreams",
       "alpha": 0.0052,
       "init_noise": 0.9,
       "heard": [
         [
-          "crystalline",
-          0.4755946397781372
+          "mellow",
+          0.4878661334514618
         ],
         [
           "dreamy",
-          0.4504849314689636
+          0.39190417528152466
         ],
         [
-          "glassy",
-          0.39061272144317627
+          "gloomy",
+          0.36381056904792786
         ],
         [
-          "evolving",
-          0.38529831171035767
+          "brilliant",
+          0.3295283317565918
         ],
         [
-          "resonant",
-          0.3765353858470917
+          "delicate",
+          0.29679280519485474
         ]
       ],
-      "llm_next_a": "shimmering mist, distant echoes",
-      "llm_next_b": "Astronaut floating outside Earth's atmosphere, listening to cosmic sounds through helmet microphone",
-      "cos_to_anchor": 0.5065
+      "llm_next_a": "starlit shadows, secrets whispering",
+      "llm_next_b": "shimmering visions",
+      "cos_to_anchor": 0.7407
     },
     {
       "iter": 3,
       "coupling": "voll",
-      "prompt_a": "shimmering mist, distant echoes",
-      "prompt_b": "Astronaut floating outside Earth's atmosphere, listening to cosmic sounds through helmet microphone",
+      "prompt_a": "starlit shadows, secrets whispering",
+      "prompt_b": "shimmering visions",
       "alpha": 0.0052,
       "init_noise": 0.9,
       "heard": [
         [
-          "crystalline",
-          0.49929186701774597
-        ],
-        [
-          "resonant",
-          0.4423244595527649
-        ],
-        [
           "dreamy",
-          0.39526379108428955
+          0.46486830711364746
         ],
         [
-          "synthetic",
-          0.35296544432640076
+          "mellow",
+          0.4149013161659241
         ],
         [
-          "gaseous",
-          0.3394218385219574
+          "ethereal",
+          0.38138604164123535
+        ],
+        [
+          "crystalline",
+          0.36760133504867554
+        ],
+        [
+          "sparkly",
+          0.31771573424339294
         ]
       ],
-      "llm_next_a": "whispering fog, faint melodies",
-      "llm_next_b": "Astronaut descending into a deep ocean trench, listening to eerie, high-frequency hissing noises from the pressure and darkness",
-      "cos_to_anchor": 0.4259
+      "llm_next_a": "moonlit paths, whispers fading",
+      "llm_next_b": "twinkling stars",
+      "cos_to_anchor": 0.6834
     },
     {
       "iter": 4,
       "coupling": "voll",
-      "prompt_a": "whispering fog, faint melodies",
-      "prompt_b": "Astronaut descending into a deep ocean trench, listening to eerie, high-frequency hissing noises from the pressure and darkness",
+      "prompt_a": "moonlit paths, whispers fading",
+      "prompt_b": "twinkling stars",
       "alpha": 0.0052,
       "init_noise": 0.9,
       "heard": [
         [
-          "swirling",
-          0.4827128052711487
+          "mellow",
+          0.4742898941040039
         ],
         [
-          "evolving",
-          0.3921557068824768
+          "gloomy",
+          0.3235740065574646
         ],
         [
-          "resonant",
-          0.36309871077537537
+          "delicate",
+          0.3121910095214844
         ],
         [
-          "earthy",
-          0.3574233651161194
+          "dreamy",
+          0.30453625321388245
         ],
         [
-          "wobbling",
-          0.3418799936771393
+          "glittering",
+          0.27774399518966675
         ]
       ],
-      "llm_next_a": "moisture mist, distant drums",
-      "llm_next_b": "Astronaut ascending through a volcanic rift on another planet, experiencing intense seismic activity and crackling, low-frequency rumblings",
-      "cos_to_anchor": 0.3349
+      "llm_next_a": "shadows dancing, secrets whispered",
+      "llm_next_b": "moonlit whispers",
+      "cos_to_anchor": 0.7801
     },
     {
       "iter": 5,
       "coupling": "voll",
-      "prompt_a": "moisture mist, distant drums",
-      "prompt_b": "Astronaut ascending through a volcanic rift on another planet, experiencing intense seismic activity and crackling, low-frequency rumblings",
+      "prompt_a": "shadows dancing, secrets whispered",
+      "prompt_b": "moonlit whispers",
       "alpha": 0.0052,
       "init_noise": 0.9,
       "heard": [
         [
-          "synthetic",
-          0.4376213252544403
+          "mellow",
+          0.47892051935195923
         ],
         [
-          "massive",
-          0.42248398065567017
+          "cozy",
+          0.2883304953575134
         ],
         [
-          "earthy",
-          0.4075039029121399
+          "gloomy",
+          0.2707124352455139
         ],
         [
-          "swirling",
-          0.37975049018859863
+          "pristine",
+          0.2703529894351959
         ],
         [
-          "abrasive",
-          0.374446839094162
+          "cold",
+          0.26786571741104126
         ]
       ],
-      "llm_next_a": "ancient fog, echoing cymbals",
-      "llm_next_b": "Astronaut descending into a vast underground cavern system on Mars, where ancient microbial life forms emit ethereal, pulsating tones",
-      "cos_to_anchor": 0.2199
+      "llm_next_a": "moonlit paths, whispers rustling",
+      "llm_next_b": "whispering shadows",
+      "cos_to_anchor": 0.6941
     },
     {
       "iter": 6,
       "coupling": "voll",
-      "prompt_a": "ancient fog, echoing cymbals",
-      "prompt_b": "Astronaut descending into a vast underground cavern system on Mars, where ancient microbial life forms emit ethereal, pulsating tones",
+      "prompt_a": "moonlit paths, whispers rustling",
+      "prompt_b": "whispering shadows",
       "alpha": 0.0052,
       "init_noise": 0.9,
       "heard": [
         [
-          "evolving",
-          0.43121689558029175
+          "mellow",
+          0.4648796617984772
         ],
         [
-          "swirling",
-          0.42789384722709656
+          "delicate",
+          0.3368631601333618
         ],
         [
-          "earthy",
-          0.39983659982681274
+          "gloomy",
+          0.32045885920524597
         ],
         [
-          "massive",
-          0.3876258432865143
+          "dreamy",
+          0.31241530179977417
         ],
         [
-          "resonant",
-          0.38635867834091187
+          "saturated",
+          0.3089998960494995
         ]
       ],
-      "llm_next_a": "ancient mist, shifting drums",
-      "llm_next_b": "Astronaut floating weightlessly within a colossal, glowing nebulae cluster, surrounded by shimmering gas clouds and distant star systems",
-      "cos_to_anchor": 0.3413
+      "llm_next_a": "whispers sighing, moonlight dancing",
+      "llm_next_b": "moonlit whispers",
+      "cos_to_anchor": 0.7947
     },
     {
       "iter": 7,
       "coupling": "voll",
-      "prompt_a": "ancient mist, shifting drums",
-      "prompt_b": "Astronaut floating weightlessly within a colossal, glowing nebulae cluster, surrounded by shimmering gas clouds and distant star systems",
+      "prompt_a": "whispers sighing, moonlight dancing",
+      "prompt_b": "moonlit whispers",
       "alpha": 0.0052,
       "init_noise": 0.9,
       "heard": [
         [
           "resonant",
-          0.4161854684352875
+          0.4992997348308563
+        ],
+        [
+          "crystalline",
+          0.443762868642807
         ],
         [
           "gaseous",
-          0.4040221869945526
+          0.3650052547454834
         ],
         [
-          "shadowy",
-          0.40093666315078735
+          "saturated",
+          0.34375008940696716
         ],
         [
-          "huge",
-          0.3916037976741791
-        ],
-        [
-          "abrasive",
-          0.39119797945022583
+          "delicate",
+          0.3433183431625366
         ]
       ],
-      "llm_next_a": "ancient fog, pulsing cymbals",
-      "llm_next_b": "Astronaut drifting silently among towering, translucent ice crystals in Saturn's rings, under the constant pressure of cosmic radiation and",
-      "cos_to_anchor": 0.3647
+      "llm_next_a": "veils shimmering, ethereal breaths",
+      "llm_next_b": "etheric sighs",
+      "cos_to_anchor": 0.3877
     },
     {
       "iter": 8,
       "coupling": "voll",
-      "prompt_a": "ancient fog, pulsing cymbals",
-      "prompt_b": "Astronaut drifting silently among towering, translucent ice crystals in Saturn's rings, under the constant pressure of cosmic radiation and",
+      "prompt_a": "veils shimmering, ethereal breaths",
+      "prompt_b": "etheric sighs",
       "alpha": 0.0052,
       "init_noise": 0.9,
       "heard": [
         [
-          "synthetic",
-          0.40219584107398987
+          "mellow",
+          0.4877644181251526
+        ],
+        [
+          "dreamy",
+          0.4774661958217621
         ],
         [
           "crystalline",
-          0.35742300748825073
+          0.43809354305267334
         ],
         [
-          "resonant",
-          0.3466070890426636
+          "ethereal",
+          0.43598461151123047
         ],
         [
-          "granular",
-          0.3139594495296478
-        ],
-        [
-          "swirling",
-          0.3130408525466919
+          "gloomy",
+          0.3747812807559967
         ]
       ],
       "llm_next_a": null,
       "llm_next_b": null,
-      "cos_to_anchor": 0.2536
+      "cos_to_anchor": 0.701
     }
   ]
 }

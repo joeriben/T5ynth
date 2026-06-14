@@ -36,9 +36,10 @@ input — one axis, from "anchor held" to "anchor broken":
 
   alpha   A is the fixed human anchor; only B is rewritten (replace). α sets B's
           authority over the blend. (the status quo)
-  concat  BOTH poles: the human original is KEPT and each round's interpretation is
-          APPENDED (machine layers onto the human input — the anchor dilutes but is
-          never erased). "concat, abgeschwächt".
+  concat  BOTH poles: the human original stays as the first impulse and ONLY the latest
+          interpretation is appended (original + last, never the whole chain — short
+          prompt, SA1.0-safe). The chain runs on its own last link; the original is
+          re-prepended at generation time. The original damps the drift, not erases it.
   voll    BOTH poles REPLACED by two interpreter stances (--stance-a × --stance-b):
           the human input is broken; α now blends two machine self-readings — a
           machine-internal A/B collision, echoing the preset A/B collisions.
@@ -162,9 +163,17 @@ MODES = {
 }
 
 
-def _clean_prompt(s: str, max_chars: int = 140) -> str:
-    """Small instruct models leak quotes/labels/extra lines; keep the first real
-    line as a bare phrase."""
+# function words a mid-sentence max_new_tokens cut tends to leave dangling
+# ("...cosmic radiation and") — strip them so the prompt ends on a content word.
+_TRAIL_FW = {"and", "or", "of", "the", "a", "an", "with", "in", "on", "to", "from",
+             "under", "through", "into", "at", "by", "for", "as", "but", "that", "while"}
+
+
+def _clean_prompt(s: str, max_chars: int = 120, max_words: int = 12) -> str:
+    """Small instruct models leak quotes/labels/extra lines AND overrun the requested
+    3-8 words (often cut mid-sentence by max_new_tokens). Keep the first real line,
+    strip wrappers, then cap to a short bare phrase — SA1.0/T5-base truncates long
+    prompts, so the loop must stay terse."""
     s = (s or "").strip()
     first = ""
     for line in s.splitlines():
@@ -184,38 +193,34 @@ def _clean_prompt(s: str, max_chars: int = 140) -> str:
     # strip wrapping quotes (straight or curly, incl. mismatched open/close pairs)
     s = s.strip().strip("\"'“”‘’").strip()
     if len(s) > max_chars:
-        s = s[:max_chars].rsplit(" ", 1)[0].strip()
-    return s
+        s = s[:max_chars].rsplit(" ", 1)[0]
+    words = s.split()
+    if len(words) > max_words:
+        words = words[:max_words]
+    while words and words[-1].strip(",;:.").lower() in _TRAIL_FW:
+        words.pop()
+    return " ".join(words).strip(" ,;:")
 
-
-# t5gemma (SA3 text encoder) budgets ~256 tokens PER pole. 140 words ≈ ~200 tokens
-# leaves margin for the "TrackType: Music, ..." modality prefix — generous enough
-# that an 8-iter run never trims; the guard exists for long runs.
-CONCAT_MAX_WORDS = 140
 
 COUPLE_NOTES = {
     "alpha": "A is the fixed human anchor; only B is rewritten (replace). α sets B's "
              "authority over the blend.",
-    "concat": "BOTH poles: the human original is KEPT and each round's interpretation "
-              "is APPENDED — the machine layers onto the human input, the anchor "
-              "dilutes but is never erased.",
+    "concat": "BOTH poles: the human original stays as the first impulse and ONLY the "
+              "latest interpretation is appended (original + last, never the whole chain) "
+              "— short prompt; the original damps the drift without erasing it.",
     "voll": "BOTH poles REPLACED by two interpreter stances — the human input is "
             "broken; α blends two machine self-readings (machine-internal A/B collision).",
 }
 
 
-def _concat(glieder, max_words: int = CONCAT_MAX_WORDS) -> str:
-    """Join prompt parts comma-separated for the concat coupling. ``glieder[0]`` is
-    the human original (the anchor — NEVER dropped); the rest are machine
-    interpretations appended over iterations. If the whole would exceed the
-    t5gemma word budget, drop the OLDEST machine glieder first so the original
-    always survives (no silent tail-truncation by the tokenizer)."""
-    if not glieder:
-        return ""
-    original, machine = glieder[0], list(glieder[1:])
-    while machine and len((original + " " + " ".join(machine)).split()) > max_words:
-        machine.pop(0)
-    return ", ".join([original, *machine]) if machine else original
+def _concat2(original: str, last: str) -> str:
+    """concat coupling generation prompt: the human original (the first impulse) stays
+    and ONLY the latest interpretation is appended — never the accumulated chain. Keeps
+    the prompt SHORT (SA1.0/T5-base truncates long prompts). The interpretation chain
+    runs on its own last link (prev=glieder[-1]); the original is re-prepended only
+    here, at generation time."""
+    last = (last or "").strip()
+    return f"{original}, {last}" if last and last != original else original
 
 
 def generate(client, base, prompt_a, prompt_b, alpha, seed, prev_audio, sr, init_noise):
@@ -277,11 +282,13 @@ def run_llm_loop(client, base, ear, proc, device, vocab_emb, vocab_labels, *,
 
         next_a = next_b = None
         if it < iters:  # no need to interpret after the last render
-            sysp_b, usr_b = build_b(tags, prompt_b, b_glieder[-3:])
+            # the chain interprets its OWN last link (glieder[-1]), NOT the applied
+            # (possibly concat) prompt — "die Iterationen untereinander".
+            sysp_b, usr_b = build_b(tags, b_glieder[-1], b_glieder[-3:])
             next_b = _clean_prompt(interpret(client, sysp_b, usr_b, max_new, llm_device)) \
                 or b_glieder[-1]
             if dual:
-                sysp_a, usr_a = build_a(tags, prompt_a, a_glieder[-3:])
+                sysp_a, usr_a = build_a(tags, a_glieder[-1], a_glieder[-3:])
                 next_a = _clean_prompt(interpret(client, sysp_a, usr_a, max_new, llm_device)) \
                     or a_glieder[-1]
 
@@ -302,13 +309,15 @@ def run_llm_loop(client, base, ear, proc, device, vocab_emb, vocab_labels, *,
             msg += f" A'='{next_a[:22]}'"
         log(msg)
 
-        # apply the interpretation(s) for the NEXT iteration, per coupling
+        # apply the interpretation(s) for the NEXT iteration, per coupling.
+        # concat: original (glieder[0]) + ONLY the latest interpretation; the chain is
+        # tracked in *_glieder, but the prompt is always exactly two parts.
         if next_b is not None:
             b_glieder.append(next_b)
-            prompt_b = _concat(b_glieder) if coupling == "concat" else next_b
+            prompt_b = _concat2(b_glieder[0], next_b) if coupling == "concat" else next_b
         if dual and next_a is not None:
             a_glieder.append(next_a)
-            prompt_a = _concat(a_glieder) if coupling == "concat" else next_a
+            prompt_a = _concat2(a_glieder[0], next_a) if coupling == "concat" else next_a
         prev_audio = audio
     return rows
 
@@ -383,8 +392,8 @@ def main() -> int:
                     choices=["alpha", "concat", "voll"],
                     help="coupling topology — how far the machine displaces the human "
                          "input. alpha: A fixed, only B rewritten (status quo, uses "
-                         "--modes for the B stance[s]). concat: both poles kept + each "
-                         "interpretation appended (machine layers on, anchor survives). "
+                         "--modes for the B stance[s]). concat: both poles kept + only the "
+                         "latest interpretation appended (original + last, short prompt). "
                          "voll: both poles replaced by --stance-a × --stance-b (human "
                          "input broken, machine-internal A/B collision). Pass several to "
                          "compare side by side.")
