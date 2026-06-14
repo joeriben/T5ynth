@@ -907,15 +907,20 @@ def _get_translator(model_dir, device):
     return tokenizer, model
 
 
-def translate_prompt(text, model_dir, device, max_new_tokens=96):
-    """Translate one short prompt to English. Empty in → empty out."""
+def run_instruct(text, model_dir, device, system_prompt, max_new_tokens=96):
+    """Run the instruct LLM (the translator's Qwen) with an ARBITRARY system
+    prompt on one short user text. Empty in → empty out. Greedy decoding for
+    determinism within a device. This is the general form of ``translate_prompt``:
+    the model is a general instruction-follower, so the same loaded weights serve
+    translation AND other prompt transforms (variation, abduction, ...) — the only
+    difference is the system prompt. Reuses the same lazy/cached loader."""
     text = (text or "").strip()
     if not text:
         return ""
 
     tokenizer, model = _get_translator(model_dir, device)
     messages = [
-        {"role": "system", "content": TRANSLATION_SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": text},
     ]
     input_ids = tokenizer.apply_chat_template(
@@ -940,6 +945,11 @@ def translate_prompt(text, model_dir, device, max_new_tokens=96):
 
     new_tokens = generated[0, input_ids.shape[1]:]
     return tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+
+
+def translate_prompt(text, model_dir, device, max_new_tokens=96):
+    """Translate one short prompt to English. Empty in → empty out."""
+    return run_instruct(text, model_dir, device, TRANSLATION_SYSTEM_PROMPT, max_new_tokens)
 
 
 def _patch_scheduler(pipe):
@@ -2799,6 +2809,28 @@ def main():
                     )
                 source_text = request.get("prompt_a") or request.get("text") or ""
                 send_text(translate_prompt(source_text, translation_dir, t_device))
+                continue
+
+            # Optional prompt INTERPRETATION: same instruct LLM as ``translate``,
+            # but the caller supplies the system prompt — so the model can do more
+            # than translate (vary, abduct a scene, contextualise, ...). Used by the
+            # CLAP→LLM semantic-loop tooling ("CLAP is the ear, the LLM is the
+            # interpreter"); like translate, it must not require an audio model.
+            if request.get("mode") == "interpret":
+                t_device = request.get("device", default_device)
+                if t_device == "auto" or t_device not in devices:
+                    t_device = default_device
+                translation_dir = _resolve_translation_model_dir(request)
+                if translation_dir is None:
+                    raise ValueError(
+                        "Instruct/translation model is not installed "
+                        "(expected under <model root>/translation/, or pass model_path)."
+                    )
+                system_prompt = request.get("system_prompt") or TRANSLATION_SYSTEM_PROMPT
+                source_text = request.get("prompt_a") or request.get("text") or ""
+                max_new = int(request.get("max_new_tokens", 96))
+                send_text(run_instruct(source_text, translation_dir, t_device,
+                                       system_prompt, max_new))
                 continue
 
             # Route to correct model + device.

@@ -269,6 +269,17 @@ valid.
   user's original-language text and conditions generation on the returned
   English. An empty source yields an empty text frame with no model load.
 
+- **`"interpret"`** (`backend/pipe_inference.py`, intercepted at the top of
+  the request loop, right after `translate`): the SAME instruct LLM as
+  `translate`, but the caller supplies the `system_prompt`, so the model can do
+  more than translate — vary a prompt, abduct a scene from heard timbres,
+  contextualise, etc. ("CLAP is the ear, the LLM is the interpreter"). Reads
+  `prompt_a` (or `text`) as the user turn, optional `system_prompt` (defaults to
+  the translation prompt) and optional `max_new_tokens` (default 96); responds
+  with a **text frame** (`\x03`). Same pre-routing, greedy/deterministic decoding
+  and no-audio-model guarantee as `translate`. Used by the CLAP→LLM semantic-loop
+  tooling (`tools/clap_llm_loop.py`); not yet wired into the JUCE client.
+
 `interpolate` and `decode_cached` are not currently called from the JUCE
 client based on a grep of `src/` — their wire format is defined server-side
 only.
@@ -284,7 +295,7 @@ Each response starts with a single **status byte**:
 | `\x00`   | Error (see §4.3)                  |
 | `\x01`   | Audio (see §4.1)                  |
 | `\x02`   | Ready (only once, during handshake — never sent in response to a request) |
-| `\x03`   | Text result (only in response to a `"translate"` request — see §4.5) |
+| `\x03`   | Text result (in response to a `"translate"` or `"interpret"` request — see §4.5) |
 
 Any other value causes the client to abort the current request with
 `"Unexpected response: <n>"` (`src/inference/PipeInference.cpp:514-518`).
