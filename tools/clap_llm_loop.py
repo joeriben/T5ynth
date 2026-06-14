@@ -87,7 +87,7 @@ def _mode_variation(header_a, header_b, target):
         "Reply with ONLY the new prompt - no quotes, no label, no explanation."
     )
 
-    def build(tags, prev_b):
+    def build(tags, prev_b, recent):
         return sysp, f'Current Prompt B: "{prev_b}"\nHeard now: {tags}'
 
     return build
@@ -96,15 +96,17 @@ def _mode_variation(header_a, header_b, target):
 def _mode_abduction(header_a, header_b, target):
     sysp = (
         "You are the interpreter of a text-to-audio synthesizer. You are given the bare "
-        "timbre words a machine ear heard in a sound. Make an abductive leap: name a "
-        "concrete, unexpected real-world scene or source that could plausibly PRODUCE "
-        "such a sound, and phrase it as ONE short generation prompt (3 to 8 words). Be "
-        "surprising but physically plausible. "
-        "Reply with ONLY the prompt - no quotes, no label, no explanation."
+        "timbre words a machine ear heard in a sound, plus the scenes already tried. Make "
+        "an abductive leap: name a concrete, unexpected real-world scene or source that "
+        "could plausibly PRODUCE such a sound, phrased as ONE short generation prompt "
+        "(3 to 8 words). Each turn, leap to a scene CLEARLY DIFFERENT from the ones already "
+        "tried - never repeat or lightly reword them. Be surprising but physically "
+        "plausible. Reply with ONLY the prompt - no quotes, no label, no explanation."
     )
 
-    def build(tags, prev_b):
-        return sysp, f"Heard: {tags}"
+    def build(tags, prev_b, recent):
+        tried = ("\nAlready tried (do not reuse): " + " / ".join(recent)) if recent else ""
+        return sysp, f"Heard: {tags}{tried}"
 
     return build
 
@@ -118,7 +120,7 @@ def _mode_develop(header_a, header_b, target):
         "Reply with ONLY the prompt - no quotes, no label, no explanation."
     )
 
-    def build(tags, prev_b):
+    def build(tags, prev_b, recent):
         return sysp, f"Heard now: {tags}\nNext step:"
 
     return build
@@ -134,7 +136,7 @@ def _mode_critique(header_a, header_b, target):
         "Reply with ONLY the prompt - no quotes, no label, no explanation."
     )
 
-    def build(tags, prev_b):
+    def build(tags, prev_b, recent):
         return sysp, f"Machine heard: {tags}"
 
     return build
@@ -210,10 +212,12 @@ def run_llm_loop(client, base, ear, proc, device, vocab_emb, vocab_labels, *,
     exp_dir.mkdir(parents=True, exist_ok=True)
     prompt_a, prompt_b, alpha = header_a, header_b, alpha0   # iter1 = pure collision
     prev_audio, sr, anchor_emb = None, None, None
+    b_history = []   # Prompt B used so far → anti-stasis memory (abduction "don't reuse")
     rows = []
     for it in range(1, iters + 1):
         audio, sr = generate(client, base, prompt_a, prompt_b, alpha, seed,
                              prev_audio, sr, init_noise)
+        b_history.append(prompt_b)
         labels, emb = analyze(ear, proc, audio, sr, device, vocab_emb, vocab_labels, topk)
         if anchor_emb is None:
             anchor_emb = emb
@@ -223,7 +227,8 @@ def run_llm_loop(client, base, ear, proc, device, vocab_emb, vocab_labels, *,
 
         next_b = None
         if it < iters:  # no need to interpret after the last render
-            sysp, usr = mode_build(tags, prompt_b)
+            recent = b_history[-3:]   # scenes used so far (incl. current) → anti-stasis
+            sysp, usr = mode_build(tags, prompt_b, recent)
             raw = interpret(client, sysp, usr, max_new, llm_device)
             next_b = _clean_prompt(raw) or prompt_b  # fall back to current B if blank
 

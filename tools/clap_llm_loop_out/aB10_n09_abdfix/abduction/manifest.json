@@ -1,0 +1,270 @@
+{
+  "name": "abduction",
+  "preset": "Creamy-Dreamy SA3",
+  "model": "stable-audio-3-small-music",
+  "duration_s": 11.0,
+  "steps": 8,
+  "cfg": 1.0,
+  "seed": 2128708858,
+  "magnitude": 1.0,
+  "noise_sigma": 0.0,
+  "injection_mode": "linear",
+  "init_noise": 0.9,
+  "topk": 5,
+  "max_new_tokens": 64,
+  "header_a": "creamy cream, birds chirping",
+  "header_b": "dreamy dream",
+  "alpha0": 1.0,
+  "target": "a deep slow underwater bell",
+  "llm": "qwen2.5-1.5b-instruct",
+  "iters": [
+    {
+      "iter": 1,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream",
+      "alpha": 1.0,
+      "init_noise": null,
+      "heard": [
+        [
+          "dreamy",
+          0.42107442021369934
+        ],
+        [
+          "mellow",
+          0.3928316831588745
+        ],
+        [
+          "crystalline",
+          0.38108882308006287
+        ],
+        [
+          "delicate",
+          0.3642950654029846
+        ],
+        [
+          "sparkly",
+          0.34075623750686646
+        ]
+      ],
+      "llm_next_b": "Astronomical telescope observing distant galaxies",
+      "cos_to_anchor": 1.0
+    },
+    {
+      "iter": 2,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Astronomical telescope observing distant galaxies",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "resonant",
+          0.4571611285209656
+        ],
+        [
+          "crystalline",
+          0.4521649479866028
+        ],
+        [
+          "dreamy",
+          0.4244391620159149
+        ],
+        [
+          "mellow",
+          0.4182423949241638
+        ],
+        [
+          "delicate",
+          0.39305293560028076
+        ]
+      ],
+      "llm_next_b": "Astronaut floating silently in zero gravity outside a space station",
+      "cos_to_anchor": 0.6396
+    },
+    {
+      "iter": 3,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Astronaut floating silently in zero gravity outside a space station",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "resonant",
+          0.3596036434173584
+        ],
+        [
+          "abrasive",
+          0.337983101606369
+        ],
+        [
+          "tinny",
+          0.33228063583374023
+        ],
+        [
+          "gaseous",
+          0.3212320804595947
+        ],
+        [
+          "velvety",
+          0.3129230737686157
+        ]
+      ],
+      "llm_next_b": "A haunted house with ancient, decayed furniture emitting eerie, crackling sounds",
+      "cos_to_anchor": 0.4012
+    },
+    {
+      "iter": 4,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A haunted house with ancient, decayed furniture emitting eerie, crackling sounds",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "woody",
+          0.4979313611984253
+        ],
+        [
+          "thick",
+          0.3413788676261902
+        ],
+        [
+          "reedy",
+          0.3051656186580658
+        ],
+        [
+          "artificial",
+          0.29951268434524536
+        ],
+        [
+          "evolving",
+          0.2990235984325409
+        ]
+      ],
+      "llm_next_b": "A group of elderly musicians practicing their instruments in a dilapidated church hall, where old violins and guitars emit haunting,",
+      "cos_to_anchor": 0.3686
+    },
+    {
+      "iter": 5,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A group of elderly musicians practicing their instruments in a dilapidated church hall, where old violins and guitars emit haunting,",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "dreamy",
+          0.3793007433414459
+        ],
+        [
+          "mellow",
+          0.32827576994895935
+        ],
+        [
+          "pristine",
+          0.32287243008613586
+        ],
+        [
+          "cold",
+          0.3140375018119812
+        ],
+        [
+          "resonant",
+          0.3034653067588806
+        ]
+      ],
+      "llm_next_b": "A child playing peacefully on a beach at sunset, surrounded by warm, golden sand and gentle waves.",
+      "cos_to_anchor": 0.6248
+    },
+    {
+      "iter": 6,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A child playing peacefully on a beach at sunset, surrounded by warm, golden sand and gentle waves.",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "tinny",
+          0.3103470802307129
+        ],
+        [
+          "clangy",
+          0.305317759513855
+        ],
+        [
+          "murky",
+          0.280901163816452
+        ],
+        [
+          "percussive",
+          0.27051153779029846
+        ],
+        [
+          "metallic",
+          0.2693275213241577
+        ]
+      ],
+      "llm_next_b": "A metal factory during a thunderstorm, where heavy machinery crashes against steel walls, creating a chaotic, rumbling noise under dark",
+      "cos_to_anchor": 0.3835
+    },
+    {
+      "iter": 7,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A metal factory during a thunderstorm, where heavy machinery crashes against steel walls, creating a chaotic, rumbling noise under dark",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "thick",
+          0.39774757623672485
+        ],
+        [
+          "massive",
+          0.3564845025539398
+        ],
+        [
+          "swirling",
+          0.3538553714752197
+        ],
+        [
+          "tinny",
+          0.3502315878868103
+        ],
+        [
+          "cinematic",
+          0.3241129517555237
+        ]
+      ],
+      "llm_next_b": "A swarm of angry bees buzzing around a deserted suburban house at dusk, emitting a high-pitched, metallic hum.",
+      "cos_to_anchor": 0.1233
+    },
+    {
+      "iter": 8,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A swarm of angry bees buzzing around a deserted suburban house at dusk, emitting a high-pitched, metallic hum.",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "reedy",
+          0.3682563900947571
+        ],
+        [
+          "gaseous",
+          0.35893672704696655
+        ],
+        [
+          "abrasive",
+          0.3443607985973358
+        ],
+        [
+          "shadowy",
+          0.3307662010192871
+        ],
+        [
+          "velvety",
+          0.30864977836608887
+        ]
+      ],
+      "llm_next_b": null,
+      "cos_to_anchor": 0.1861
+    }
+  ]
+}
