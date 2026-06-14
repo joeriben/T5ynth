@@ -56,3 +56,6 @@ tools/resynth_loop_out/
 # CLAP homeostasis: keep REPORT.md + results_*.json, drop the WAV renders
 tools/clap_homeostasis_out/*.wav
 tools/clap_homeostasis_out/results.json
+# CLAP semantic loop: keep REPORT.md + per-experiment manifest.json, drop WAVs + run log
+tools/clap_semantic_loop_out/*/*.wav
+tools/clap_semantic_loop_out_run.log

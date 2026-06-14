@@ -1,0 +1,234 @@
+{
+  "name": "run2_onlyB_null",
+  "vocab_size": 112,
+  "cfg": 6.0,
+  "init_noise": 0.5,
+  "model": "stable-audio-3-small-music",
+  "steps": 8,
+  "duration_s": 3.0,
+  "seed_base": 7000,
+  "topk": 3,
+  "seed_prompt": "warm analog bass drone",
+  "iters": [
+    {
+      "iter": 1,
+      "prompt_a": "warm analog bass drone",
+      "prompt_b": "",
+      "alpha": -1.0,
+      "init_noise": null,
+      "heard": [
+        [
+          "artificial",
+          0.4098626971244812
+        ],
+        [
+          "metallic",
+          0.3900178074836731
+        ],
+        [
+          "digital",
+          0.37242791056632996
+        ]
+      ],
+      "cos_to_anchor": 1.0
+    },
+    {
+      "iter": 2,
+      "prompt_a": "",
+      "prompt_b": "artificial, metallic, digital",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "artificial",
+          0.44738537073135376
+        ],
+        [
+          "heavy",
+          0.37960487604141235
+        ],
+        [
+          "robotic",
+          0.3543602228164673
+        ]
+      ],
+      "cos_to_anchor": 0.6337
+    },
+    {
+      "iter": 3,
+      "prompt_a": "",
+      "prompt_b": "artificial, heavy, robotic",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "artificial",
+          0.49162787199020386
+        ],
+        [
+          "heavy",
+          0.4547942876815796
+        ],
+        [
+          "robotic",
+          0.3959764540195465
+        ]
+      ],
+      "cos_to_anchor": 0.4044
+    },
+    {
+      "iter": 4,
+      "prompt_a": "",
+      "prompt_b": "artificial, heavy, robotic",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "artificial",
+          0.510798990726471
+        ],
+        [
+          "heavy",
+          0.4450864791870117
+        ],
+        [
+          "robotic",
+          0.4079520106315613
+        ]
+      ],
+      "cos_to_anchor": 0.4065
+    },
+    {
+      "iter": 5,
+      "prompt_a": "",
+      "prompt_b": "artificial, heavy, robotic",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "robotic",
+          0.4828185737133026
+        ],
+        [
+          "artificial",
+          0.4605966806411743
+        ],
+        [
+          "synthetic",
+          0.39465323090553284
+        ]
+      ],
+      "cos_to_anchor": 0.371
+    },
+    {
+      "iter": 6,
+      "prompt_a": "",
+      "prompt_b": "robotic, artificial, synthetic",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "artificial",
+          0.411104291677475
+        ],
+        [
+          "thick",
+          0.38489967584609985
+        ],
+        [
+          "cinematic",
+          0.3745979070663452
+        ]
+      ],
+      "cos_to_anchor": 0.3601
+    },
+    {
+      "iter": 7,
+      "prompt_a": "",
+      "prompt_b": "artificial, thick, cinematic",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "thick",
+          0.41449064016342163
+        ],
+        [
+          "heavy",
+          0.32780420780181885
+        ],
+        [
+          "distorted",
+          0.3155902922153473
+        ]
+      ],
+      "cos_to_anchor": 0.3178
+    },
+    {
+      "iter": 8,
+      "prompt_a": "",
+      "prompt_b": "thick, heavy, distorted",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "thick",
+          0.35614731907844543
+        ],
+        [
+          "dark",
+          0.2763128876686096
+        ],
+        [
+          "dirty",
+          0.2760601043701172
+        ]
+      ],
+      "cos_to_anchor": 0.2295
+    },
+    {
+      "iter": 9,
+      "prompt_a": "",
+      "prompt_b": "thick, dark, dirty",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "robotic",
+          0.5127520561218262
+        ],
+        [
+          "artificial",
+          0.49599891901016235
+        ],
+        [
+          "cinematic",
+          0.42043980956077576
+        ]
+      ],
+      "cos_to_anchor": 0.4896
+    },
+    {
+      "iter": 10,
+      "prompt_a": "",
+      "prompt_b": "robotic, artificial, cinematic",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "distorted",
+          0.38480812311172485
+        ],
+        [
+          "cinematic",
+          0.3212181031703949
+        ],
+        [
+          "heavy",
+          0.3163810968399048
+        ]
+      ],
+      "cos_to_anchor": 0.2018
+    }
+  ]
+}

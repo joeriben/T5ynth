@@ -1,0 +1,234 @@
+{
+  "name": "run1_both",
+  "vocab_size": 112,
+  "cfg": 6.0,
+  "init_noise": 0.5,
+  "model": "stable-audio-3-small-music",
+  "steps": 8,
+  "duration_s": 3.0,
+  "seed_base": 7000,
+  "topk": 3,
+  "seed_prompt": "warm analog bass drone",
+  "iters": [
+    {
+      "iter": 1,
+      "prompt_a": "warm analog bass drone",
+      "prompt_b": "",
+      "alpha": -1.0,
+      "init_noise": null,
+      "heard": [
+        [
+          "artificial",
+          0.4098626971244812
+        ],
+        [
+          "metallic",
+          0.3900178074836731
+        ],
+        [
+          "digital",
+          0.37242791056632996
+        ]
+      ],
+      "cos_to_anchor": 1.0
+    },
+    {
+      "iter": 2,
+      "prompt_a": "artificial, metallic, digital",
+      "prompt_b": "artificial, metallic, digital",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "robotic",
+          0.47687649726867676
+        ],
+        [
+          "metallic",
+          0.45765602588653564
+        ],
+        [
+          "artificial",
+          0.44388192892074585
+        ]
+      ],
+      "cos_to_anchor": 0.6401
+    },
+    {
+      "iter": 3,
+      "prompt_a": "robotic, metallic, artificial",
+      "prompt_b": "robotic, metallic, artificial",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "robotic",
+          0.48463255167007446
+        ],
+        [
+          "glitchy",
+          0.4798784852027893
+        ],
+        [
+          "artificial",
+          0.45799189805984497
+        ]
+      ],
+      "cos_to_anchor": 0.597
+    },
+    {
+      "iter": 4,
+      "prompt_a": "robotic, glitchy, artificial",
+      "prompt_b": "robotic, glitchy, artificial",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "glitchy",
+          0.540600597858429
+        ],
+        [
+          "abrasive",
+          0.4372304081916809
+        ],
+        [
+          "raspy",
+          0.4207857847213745
+        ]
+      ],
+      "cos_to_anchor": 0.4074
+    },
+    {
+      "iter": 5,
+      "prompt_a": "glitchy, abrasive, raspy",
+      "prompt_b": "glitchy, abrasive, raspy",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "glitchy",
+          0.5111801624298096
+        ],
+        [
+          "artificial",
+          0.42018160223960876
+        ],
+        [
+          "robotic",
+          0.3862555921077728
+        ]
+      ],
+      "cos_to_anchor": 0.4642
+    },
+    {
+      "iter": 6,
+      "prompt_a": "glitchy, artificial, robotic",
+      "prompt_b": "glitchy, artificial, robotic",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "glitchy",
+          0.5981041789054871
+        ],
+        [
+          "gritty",
+          0.43644219636917114
+        ],
+        [
+          "abrasive",
+          0.3962440490722656
+        ]
+      ],
+      "cos_to_anchor": 0.3731
+    },
+    {
+      "iter": 7,
+      "prompt_a": "glitchy, gritty, abrasive",
+      "prompt_b": "glitchy, gritty, abrasive",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "glitchy",
+          0.5430439710617065
+        ],
+        [
+          "abrasive",
+          0.45834416151046753
+        ],
+        [
+          "scratchy",
+          0.44175148010253906
+        ]
+      ],
+      "cos_to_anchor": 0.2351
+    },
+    {
+      "iter": 8,
+      "prompt_a": "glitchy, abrasive, scratchy",
+      "prompt_b": "glitchy, abrasive, scratchy",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "glitchy",
+          0.4590744376182556
+        ],
+        [
+          "scratchy",
+          0.42971187829971313
+        ],
+        [
+          "abrasive",
+          0.3833669424057007
+        ]
+      ],
+      "cos_to_anchor": 0.2548
+    },
+    {
+      "iter": 9,
+      "prompt_a": "glitchy, scratchy, abrasive",
+      "prompt_b": "glitchy, scratchy, abrasive",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "glitchy",
+          0.4527616798877716
+        ],
+        [
+          "abrasive",
+          0.36355212330818176
+        ],
+        [
+          "gritty",
+          0.34725990891456604
+        ]
+      ],
+      "cos_to_anchor": 0.3663
+    },
+    {
+      "iter": 10,
+      "prompt_a": "glitchy, abrasive, gritty",
+      "prompt_b": "glitchy, abrasive, gritty",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "glitchy",
+          0.5356744527816772
+        ],
+        [
+          "raspy",
+          0.4712129831314087
+        ],
+        [
+          "distorted",
+          0.46689680218696594
+        ]
+      ],
+      "cos_to_anchor": 0.3393
+    }
+  ]
+}

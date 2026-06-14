@@ -1,0 +1,234 @@
+{
+  "name": "e5_audioset",
+  "vocab_size": 632,
+  "cfg": 6.0,
+  "init_noise": 0.5,
+  "model": "stable-audio-3-small-music",
+  "steps": 8,
+  "duration_s": 3.0,
+  "seed_base": 7000,
+  "topk": 3,
+  "seed_prompt": "warm analog bass drone",
+  "iters": [
+    {
+      "iter": 1,
+      "prompt_a": "warm analog bass drone",
+      "prompt_b": "",
+      "alpha": -1.0,
+      "init_noise": null,
+      "heard": [
+        [
+          "Dub",
+          0.4764343202114105
+        ],
+        [
+          "Dubstep",
+          0.46387824416160583
+        ],
+        [
+          "Air horn, truck horn",
+          0.44940659403800964
+        ]
+      ],
+      "cos_to_anchor": 1.0
+    },
+    {
+      "iter": 2,
+      "prompt_a": "Dub, Dubstep, Air horn truck horn",
+      "prompt_b": "Dub, Dubstep, Air horn truck horn",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "Air horn, truck horn",
+          0.34353625774383545
+        ],
+        [
+          "Reversing beeps",
+          0.33937209844589233
+        ],
+        [
+          "Breaking",
+          0.3230424225330353
+        ]
+      ],
+      "cos_to_anchor": 0.5897
+    },
+    {
+      "iter": 3,
+      "prompt_a": "Air horn truck horn, Reversing beeps, Breaking",
+      "prompt_b": "Air horn truck horn, Reversing beeps, Breaking",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "Air horn, truck horn",
+          0.6659716963768005
+        ],
+        [
+          "Vehicle horn, car horn, honking",
+          0.6604139804840088
+        ],
+        [
+          "Train horn",
+          0.36951225996017456
+        ]
+      ],
+      "cos_to_anchor": 0.4536
+    },
+    {
+      "iter": 4,
+      "prompt_a": "Air horn truck horn, Vehicle horn car horn honking, Train horn",
+      "prompt_b": "Air horn truck horn, Vehicle horn car horn honking, Train horn",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "Air horn, truck horn",
+          0.6092299222946167
+        ],
+        [
+          "Vehicle horn, car horn, honking",
+          0.6012256741523743
+        ],
+        [
+          "Honk",
+          0.510061502456665
+        ]
+      ],
+      "cos_to_anchor": 0.3783
+    },
+    {
+      "iter": 5,
+      "prompt_a": "Air horn truck horn, Vehicle horn car horn honking, Honk",
+      "prompt_b": "Air horn truck horn, Vehicle horn car horn honking, Honk",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "Air horn, truck horn",
+          0.5249783992767334
+        ],
+        [
+          "Honk",
+          0.4800211787223816
+        ],
+        [
+          "Vehicle horn, car horn, honking",
+          0.4320521652698517
+        ]
+      ],
+      "cos_to_anchor": 0.4464
+    },
+    {
+      "iter": 6,
+      "prompt_a": "Air horn truck horn, Honk, Vehicle horn car horn honking",
+      "prompt_b": "Air horn truck horn, Honk, Vehicle horn car horn honking",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "Air horn, truck horn",
+          0.5286566019058228
+        ],
+        [
+          "Train whistle",
+          0.5205584168434143
+        ],
+        [
+          "Train horn",
+          0.47875696420669556
+        ]
+      ],
+      "cos_to_anchor": 0.4035
+    },
+    {
+      "iter": 7,
+      "prompt_a": "Air horn truck horn, Train whistle, Train horn",
+      "prompt_b": "Air horn truck horn, Train whistle, Train horn",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "Air horn, truck horn",
+          0.5641813278198242
+        ],
+        [
+          "Vehicle horn, car horn, honking",
+          0.5495349168777466
+        ],
+        [
+          "Train horn",
+          0.45305368304252625
+        ]
+      ],
+      "cos_to_anchor": 0.3807
+    },
+    {
+      "iter": 8,
+      "prompt_a": "Air horn truck horn, Vehicle horn car horn honking, Train horn",
+      "prompt_b": "Air horn truck horn, Vehicle horn car horn honking, Train horn",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "Train whistle",
+          0.5231207609176636
+        ],
+        [
+          "Air horn, truck horn",
+          0.5219312310218811
+        ],
+        [
+          "Train horn",
+          0.4865373373031616
+        ]
+      ],
+      "cos_to_anchor": 0.3675
+    },
+    {
+      "iter": 9,
+      "prompt_a": "Train whistle, Air horn truck horn, Train horn",
+      "prompt_b": "Train whistle, Air horn truck horn, Train horn",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "Train whistle",
+          0.5338342785835266
+        ],
+        [
+          "Train horn",
+          0.5021411180496216
+        ],
+        [
+          "Air horn, truck horn",
+          0.4941588044166565
+        ]
+      ],
+      "cos_to_anchor": 0.3627
+    },
+    {
+      "iter": 10,
+      "prompt_a": "Train whistle, Train horn, Air horn truck horn",
+      "prompt_b": "Train whistle, Train horn, Air horn truck horn",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "Train whistle",
+          0.5049113035202026
+        ],
+        [
+          "Air horn, truck horn",
+          0.48893821239471436
+        ],
+        [
+          "Train horn",
+          0.46524107456207275
+        ]
+      ],
+      "cos_to_anchor": 0.3786
+    }
+  ]
+}
