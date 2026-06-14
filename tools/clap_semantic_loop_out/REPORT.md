@@ -1,20 +1,37 @@
-# Closed semantic loop — the machine's hearing as a generative force
+# Das kybernetische Moment als Lenkung — ein Saatklang, sechs Rückkopplungs-Politiken
 
-Each iteration: SA3 generates, CLAP re-describes the output against a vocabulary, those words drive the next prompts (audio also carries via init_audio, init_noise=0.5). Generation params are taken VERBATIM from the preset (no hard-coded duration/seed):
+Der Loop schließt sich semantisch: SA3 generiert → CLAP beschreibt den Output gegen ein Vokabular zurück → diese Worte steuern den nächsten Prompt; das Audio trägt zusätzlich über `init_audio` (init_noise=0.5) mit. **Die Frage ist nicht „wo sitzt der Bias", sondern „auf welche Weise lässt sich der Rückkopplungs-Moment verwenden".** Bias-Aufdeckung ist nur *eine* von mehreren Verwendungen (s. e5/e4) — und die reduktivste. Die anderen — affirmative Selbst-Variation, die Prompt-B-Variationsmaschine, adversarielles Gegen-Steuern, ästhetische Abduktion — sind die eigentliche Bandbreite.
 
-- preset: **Creamy-Dreamy SA3**, model `stable-audio-3-small-music`
+**Was geliefert wird, sind Klänge zum Hören.** Die `cos→Anker`-Zahl ist ein *Drift-Diagnostikum* (wie weit hat sich der Klang von der reinen Preset-Identität entfernt), nicht das Urteil — das Urteil fällt am Ohr. WAVs liegen unter jedem Experiment-Verzeichnis.
+
+Generationsparameter VERBATIM aus dem Preset (kein hartcodiertes duration/seed):
+
+- Preset: **Creamy-Dreamy SA3**, Modell `stable-audio-3-small-music`
 - duration **11.0s**, 8 steps, CFG 1.0, magnitude 1.0, noise_sigma 0.0, injection `linear`
-- **seed 2128708858 held FIXED across iterations** (preset randomSeed=off) so only the words + init_audio drive drift, not seed noise
+- **seed 2128708858 über alle Iterationen FIX** (Preset randomSeed=off) → nur Worte + init_audio treiben den Drift, nicht Seed-Rauschen
 
-**Seed collision (identity, fixed every iteration): A=`creamy cream, birds chirping` × B=`dreamy dream` at α=+0.005.** Except where noted, the machine's previous hearing is APPENDED to each pole (`pole, qualities`); the seed identity leads, the re-hearing modulates. Iter 1 is the pure preset render (the drift anchor). WAVs under each experiment dir are for listening.
+**Saat-Kollision (Identität, jede Iteration fix): A=`creamy cream, birds chirping` × B=`dreamy dream` bei α=+0.005.** Wo nicht anders vermerkt, wird die vorige Maschinen-Hörung an jeden Pol ANGEHÄNGT (`pole, qualities`); die Saat-Identität führt, die Re-Hörung moduliert. Iter 1 ist der reine Preset-Render (der Drift-Anker).
 
-## run1_both
+## Die sechs Verwendungen im Überblick
 
-*Collision-anchored affirmative loop: qualities appended to BOTH poles, α=ALPHA0. Does the collision survive its own re-hearing?*
+| # | Verzeichnis | Verwendung | Politik | cos→Anker (it10) |
+|---|---|---|---|---:|
+| 1 | run1_both | **Affirmative Selbst-Variation** (Proto-Homöostase) | Tags → BEIDE Pole, α=ALPHA0 | +0.782 |
+| 2 | run2_onlyB_null | **Kontrolle / nackter Signal-Loop** | nur B, α=0 → Null-Kollaps | +0.898 |
+| 3 | e6_driftB | **Variationsmaschine Prompt B** | A fix = Anker, nur B driftet | +0.925 |
+| 4 | e3_counter | **Adversarielles Gegen-Steuern** | Antonym des TOP-Readings → beide Pole | +0.717 |
+| 5 | e5_audioset | **Vokabular als Lenkrad** (Menü-Wahl ist *auch* ein kritischer Akt — eine Dimension) | quell-gerahmtes AudioSet-Menü | +0.889 |
+| 6 | e4_two_ears | **Ästhetische Abduktion** (zwei Ohren bringen Worte ein, die nicht im Saatklang stehen) | unfused→A, music→B | +0.864 |
 
-vocab size: 112
+**Quer-Befund:** ein Saatklang, sechs Rückkopplungs-Politiken, sechs Ziele — aber alle Ziele bleiben in der **sanften dreamy/mellow/crystalline-Familie** (cos 0.72–0.93). Es gibt keinen metallischen Attraktor; der dramatische Unterschied früherer Läufe war ein **Dauer-Artefakt** (3s vs. die echten 11s), nicht „die Maschine". Das kybernetische Moment ist **Lenkung, nicht Effekt**: was man zurückspeist, entscheidet das Ziel.
 
-CLAP cosine to iter-1 anchor (the preset render): +1.000 → +0.782 (drift +0.218).
+---
+
+## run1_both — Affirmative Selbst-Variation
+
+*Qualities an BEIDE Pole angehängt, α=ALPHA0. Überlebt die Kollision ihre eigene Re-Hörung? → Ja, mild: sie variiert um sich selbst, ohne wegzulaufen.*
+
+vocab size: 112 · CLAP cosine zu iter-1 Anker: +1.000 → +0.782 (Drift +0.218).
 
 | iter | qualities appended | machine hears (top-k) | cos→anchor |
 |---:|---|---|---:|
@@ -29,13 +46,11 @@ CLAP cosine to iter-1 anchor (the preset render): +1.000 → +0.782 (drift +0.21
 | 9 | mellow, dreamy, delicate | mellow (0.39), dreamy (0.38), delicate (0.30) | +0.830 |
 | 10 | mellow, dreamy, delicate | mellow (0.45), dreamy (0.36), gloomy (0.31) | +0.782 |
 
-## run2_onlyB_null
+## run2_onlyB_null — Kontrolle / nackter Signal-Loop
 
-*Only B = pole-B + qualities, α=0 → the blend cancels to **null**, and the A pole is dropped. The bare init_audio signal loop. The control: the gap to run1 is what the words do.*
+*Nur B = Pol-B + qualities, α=0 → der Blend hebt sich zu **null** auf, der A-Pol fällt weg. Der bloße init_audio-Signal-Loop. Die Kontrolle: die Lücke zu run1 ist, was die Worte tun.*
 
-vocab size: 112
-
-CLAP cosine to iter-1 anchor (the preset render): +1.000 → +0.898 (drift +0.102).
+vocab size: 112 · CLAP cosine zu iter-1 Anker: +1.000 → +0.898 (Drift +0.102).
 
 | iter | qualities appended | machine hears (top-k) | cos→anchor |
 |---:|---|---|---:|
@@ -50,13 +65,13 @@ CLAP cosine to iter-1 anchor (the preset render): +1.000 → +0.898 (drift +0.10
 | 9 | dreamy, crystalline, delicat (→null) | dreamy (0.48), crystalline (0.47), delicate (0.42) | +0.886 |
 | 10 | dreamy, crystalline, delicat (→null) | crystalline (0.50), dreamy (0.50), glassy (0.44) | +0.898 |
 
-## e6_driftB
+> Lesart: run2 driftet sogar *weniger* als run1 — der reine Signal-Loop hält die Identität fester, die Worte (run1) schieben aktiv. Das ist der Beleg „die Worte tun Arbeit", neutral formuliert.
 
-*ASYMMETRIC: pole A held pure, only pole B drifts under the machine's hearing. Collision = stable anchor vs ear-driven drift.*
+## e6_driftB — Variationsmaschine Prompt B
 
-vocab size: 112
+*ASYMMETRISCH: Pol A bleibt rein (menschlicher Anker), nur Pol B driftet unter der Maschinen-Hörung. Kollision = stabiler Anker vs. ohr-getriebene Variation. **Dies ist der Lauf-Beleg für das vom User bestätigte UI-Feature: Prompt B = semantische Variationsmaschine.***
 
-CLAP cosine to iter-1 anchor (the preset render): +1.000 → +0.925 (drift +0.075).
+vocab size: 112 · CLAP cosine zu iter-1 Anker: +1.000 → +0.925 (Drift +0.075).
 
 | iter | qualities appended | machine hears (top-k) | cos→anchor |
 |---:|---|---|---:|
@@ -71,13 +86,11 @@ CLAP cosine to iter-1 anchor (the preset render): +1.000 → +0.925 (drift +0.07
 | 9 | dreamy, mellow, crystalline | dreamy (0.52), mellow (0.45), delicate (0.42) | +0.871 |
 | 10 | dreamy, mellow, delicate | dreamy (0.45), mellow (0.43), crystalline (0.40) | +0.925 |
 
-## e3_counter
+## e3_counter — Adversarielles Gegen-Steuern
 
-*ADVERSARIAL. Read the machine's TOP-k, append the ANTONYM of each to BOTH poles (α=ALPHA0). 'qualities fed' = antonyms we steer WITH; 'machine hears' = what it reads anyway. Escape vs recapture gap.*
+*ADVERSARIELL (die vom /goal verlangte Richtung). Lies die TOP-k der Maschine, hänge das ANTONYM jeder Lesart an BEIDE Pole (α=ALPHA0). 'qualities fed' = Antonyme, mit denen wir gegensteuern; 'machine hears' = was sie trotzdem liest. Befund: die weiche Identität WIDERSTEHT der Härte — weiches init_audio lässt sich vom Wort „screaming" nicht überschreiben; man kann gegen das Ohr argumentieren, aber nicht „gewinnen".*
 
-vocab size: 112
-
-CLAP cosine to iter-1 anchor (the preset render): +1.000 → +0.717 (drift +0.283).
+vocab size: 112 · CLAP cosine zu iter-1 Anker: +1.000 → +0.717 (Drift +0.283 — der weiteste der symmetrischen Läufe).
 
 | iter | qualities appended | machine hears (top-k) | cos→anchor |
 |---:|---|---|---:|
@@ -92,13 +105,11 @@ CLAP cosine to iter-1 anchor (the preset render): +1.000 → +0.717 (drift +0.28
 | 9 | screaming, percussive | mellow (0.42), dreamy (0.28), velvety (0.27) | +0.701 |
 | 10 | screaming, percussive, humming | mellow (0.35), dreamy (0.27), velvety (0.22) | +0.717 |
 
-## e5_audioset
+## e5_audioset — Vokabular als Lenkrad
 
-*Collision-anchored, but the SOURCE-FRAMED AudioSet menu. The menu is the politics — compare to run1's timbre menu.*
+*Kollisions-verankert, aber das QUELL-GERAHMTE AudioSet-Menü statt des Timbre-Menüs. Das Menü ist eine Stellschraube — und seine Wahl ist auch ein kritischer Akt (eine Dimension von mehreren). Hier KEINE Gewalt: die Ontologie hat für einen warmen Pad passende sanfte Kategorien (Electronic organ/Lullaby/Mellotron). Die frühere „Train horn/Donkey"-Politik war das 3s-Artefakt.*
 
-vocab size: 632
-
-CLAP cosine to iter-1 anchor (the preset render): +1.000 → +0.889 (drift +0.111).
+vocab size: 632 · CLAP cosine zu iter-1 Anker: +1.000 → +0.889 (Drift +0.111).
 
 | iter | qualities appended | machine hears (top-k) | cos→anchor |
 |---:|---|---|---:|
@@ -113,13 +124,11 @@ CLAP cosine to iter-1 anchor (the preset render): +1.000 → +0.889 (drift +0.11
 | 9 | Electronic organ, Organ, Musical i | Electronic organ (0.50), Organ (0.47), Musical instrument (0.45) | +0.889 |
 | 10 | Electronic organ, Organ, Musical i | Electronic organ (0.50), Musical instrument (0.48), Organ (0.48) | +0.889 |
 
-## e4_two_ears
+## e4_two_ears — Ästhetische Abduktion
 
-*Two ears that disagree, each appended to a different pole. Two western ears split the collision between them.*
+*Zwei Ohren, jedes an einen anderen Pol gehängt (unfused→A, music→B). Nicht „zwei westliche Ohren = der Bias" (das war Slop) — sondern: die music-CLAP bringt Worte ins Spiel, die im Saatklang gar nicht stehen (brassy, warm, evolving). Die Maschine SCHLÄGT einen ästhetischen Rahmen VOR, den der Mensch nicht geschrieben hat = Abduktion. Dass die zwei Ohren denselben Klang verschieden hören, ist der Stoff dafür.*
 
-vocab size: 112
-
-CLAP cosine to iter-1 anchor (the preset render): +1.000 → +0.864 (drift +0.136).
+vocab size: 112 · CLAP cosine zu iter-1 Anker: +1.000 → +0.864 (Drift +0.136).
 
 | iter | A / B (pole + each ear's tag) | unfused hears | music hears | cos→anchor |
 |---:|---|---|---|---:|
@@ -133,3 +142,11 @@ CLAP cosine to iter-1 anchor (the preset render): +1.000 → +0.864 (drift +0.13
 | 8 | creamy cream, birds chirping / dreamy dream, delicate | dreamy, mellow, crystalline | brassy, delicate, earthy | +0.891 |
 | 9 | creamy cream, birds chirping / dreamy dream, brassy | crystalline, dreamy, mellow | brassy, delicate, warm | +0.946 |
 | 10 | creamy cream, birds chirping / dreamy dream, brassy | dreamy, mellow, gloomy | brassy, brilliant, crystalline | +0.864 |
+
+---
+
+## Vorbehalt & nächster Schritt
+
+- Gemessen ist der **CLAP-Raum + die Worte**, nicht der Klang. Den sonischen Wert entscheidet die User-Audition der WAVs.
+- `init_noise`/CFG = Arbeitspunkt (höheres CFG = Worte lenken stärker; niedrigeres init_noise = das Signal trägt mehr).
+- **Offene Richtung:** bisher wird die CLAP-Hörung als *roher Tag-Append* zurückgespeist (CLAP allein). Die Modi *Variation / Kritik / Abduktion / Entwicklungskette* brauchen einen **Interpreten** zwischen Ohr und nächstem Prompt — wofür das im Plugin bereits vorhandene Übersetzungs-LLM (kann mehr als übersetzen) in Frage kommt: „CLAP = Ohr, LLM = Interpret".
