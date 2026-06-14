@@ -1,33 +1,40 @@
 {
   "name": "run2_onlyB_null",
   "vocab_size": 112,
+  "preset": "Creamy-Dreamy SA3",
   "cfg": 1.0,
   "init_noise": 0.5,
   "model": "stable-audio-3-small-music",
   "steps": 8,
-  "duration_s": 3.0,
-  "seed_base": 7000,
+  "duration_s": 11.0,
+  "seed": 2128708858,
+  "magnitude": 1.0,
+  "noise_sigma": 0.0,
+  "injection_mode": "linear",
   "topk": 3,
-  "seed_prompt": "warm analog bass drone",
+  "header_a": "creamy cream, birds chirping",
+  "header_b": "dreamy dream",
+  "alpha0": 0.005229949951172,
   "iters": [
     {
       "iter": 1,
-      "prompt_a": "warm analog bass drone",
-      "prompt_b": "",
-      "alpha": -1.0,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream",
+      "alpha": 0.0052,
+      "quals": null,
       "init_noise": null,
       "heard": [
         [
-          "brassy",
-          0.33546018600463867
+          "dreamy",
+          0.49756744503974915
         ],
         [
-          "dark",
-          0.20906531810760498
+          "mellow",
+          0.4283333718776703
         ],
         [
-          "heavy",
-          0.19512271881103516
+          "crystalline",
+          0.39849814772605896
         ]
       ],
       "cos_to_anchor": 1.0
@@ -35,200 +42,209 @@
     {
       "iter": 2,
       "prompt_a": "",
-      "prompt_b": "brassy, dark, heavy",
+      "prompt_b": "dreamy dream, dreamy, mellow, crystalline",
       "alpha": 0.0,
+      "quals": "dreamy, mellow, crystalline",
       "init_noise": 0.5,
       "heard": [
         [
-          "distorted",
-          0.17729726433753967
+          "dreamy",
+          0.5391638875007629
         ],
         [
-          "brassy",
-          0.17053738236427307
+          "glassy",
+          0.4226394295692444
         ],
         [
-          "heavy",
-          0.1542002558708191
+          "crystalline",
+          0.4172685444355011
         ]
       ],
-      "cos_to_anchor": 0.8743
+      "cos_to_anchor": 0.9213
     },
     {
       "iter": 3,
       "prompt_a": "",
-      "prompt_b": "distorted, brassy, heavy",
+      "prompt_b": "dreamy dream, dreamy, glassy, crystalline",
       "alpha": 0.0,
+      "quals": "dreamy, glassy, crystalline",
       "init_noise": 0.5,
       "heard": [
         [
-          "distorted",
-          0.18243220448493958
+          "dreamy",
+          0.5227305889129639
         ],
         [
-          "brassy",
-          0.18224075436592102
+          "crystalline",
+          0.42529812455177307
         ],
         [
-          "heavy",
-          0.17087259888648987
+          "glassy",
+          0.4193236827850342
         ]
       ],
-      "cos_to_anchor": 0.8557
+      "cos_to_anchor": 0.9136
     },
     {
       "iter": 4,
       "prompt_a": "",
-      "prompt_b": "distorted, brassy, heavy",
+      "prompt_b": "dreamy dream, dreamy, crystalline, glassy",
       "alpha": 0.0,
+      "quals": "dreamy, crystalline, glassy",
       "init_noise": 0.5,
       "heard": [
         [
-          "cinematic",
-          0.22407925128936768
+          "dreamy",
+          0.5177797079086304
         ],
         [
-          "heavy",
-          0.21983613073825836
+          "crystalline",
+          0.4704349637031555
         ],
         [
-          "digital",
-          0.20015636086463928
+          "glassy",
+          0.4618363380432129
         ]
       ],
-      "cos_to_anchor": 0.7761
+      "cos_to_anchor": 0.8983
     },
     {
       "iter": 5,
       "prompt_a": "",
-      "prompt_b": "cinematic, heavy, digital",
+      "prompt_b": "dreamy dream, dreamy, crystalline, glassy",
       "alpha": 0.0,
+      "quals": "dreamy, crystalline, glassy",
       "init_noise": 0.5,
       "heard": [
         [
-          "cinematic",
-          0.19764047861099243
+          "dreamy",
+          0.5033726692199707
         ],
         [
-          "heavy",
-          0.18497368693351746
+          "crystalline",
+          0.47679680585861206
         ],
         [
-          "thick",
-          0.17339912056922913
+          "glassy",
+          0.4589802920818329
         ]
       ],
-      "cos_to_anchor": 0.786
+      "cos_to_anchor": 0.9136
     },
     {
       "iter": 6,
       "prompt_a": "",
-      "prompt_b": "cinematic, heavy, thick",
+      "prompt_b": "dreamy dream, dreamy, crystalline, glassy",
       "alpha": 0.0,
+      "quals": "dreamy, crystalline, glassy",
       "init_noise": 0.5,
       "heard": [
         [
-          "cinematic",
-          0.17946121096611023
+          "dreamy",
+          0.4862622916698456
         ],
         [
-          "heavy",
-          0.16646406054496765
+          "glassy",
+          0.4622468948364258
         ],
         [
-          "thick",
-          0.16297173500061035
+          "crystalline",
+          0.4604923129081726
         ]
       ],
-      "cos_to_anchor": 0.7446
+      "cos_to_anchor": 0.8658
     },
     {
       "iter": 7,
       "prompt_a": "",
-      "prompt_b": "cinematic, heavy, thick",
+      "prompt_b": "dreamy dream, dreamy, glassy, crystalline",
       "alpha": 0.0,
+      "quals": "dreamy, glassy, crystalline",
       "init_noise": 0.5,
       "heard": [
         [
-          "cinematic",
-          0.19391638040542603
+          "dreamy",
+          0.5080218315124512
         ],
         [
-          "digital",
-          0.18219855427742004
+          "crystalline",
+          0.4775749444961548
         ],
         [
-          "heavy",
-          0.17154158651828766
+          "delicate",
+          0.46592533588409424
         ]
       ],
-      "cos_to_anchor": 0.6449
+      "cos_to_anchor": 0.8822
     },
     {
       "iter": 8,
       "prompt_a": "",
-      "prompt_b": "cinematic, digital, heavy",
+      "prompt_b": "dreamy dream, dreamy, crystalline, delicate",
       "alpha": 0.0,
+      "quals": "dreamy, crystalline, delicate",
       "init_noise": 0.5,
       "heard": [
         [
-          "digital",
-          0.20856580138206482
+          "dreamy",
+          0.46313250064849854
         ],
         [
-          "robotic",
-          0.191680446267128
+          "crystalline",
+          0.45433199405670166
         ],
         [
-          "heavy",
-          0.18496379256248474
+          "delicate",
+          0.4395020604133606
         ]
       ],
-      "cos_to_anchor": 0.6669
+      "cos_to_anchor": 0.8684
     },
     {
       "iter": 9,
       "prompt_a": "",
-      "prompt_b": "digital, robotic, heavy",
+      "prompt_b": "dreamy dream, dreamy, crystalline, delicate",
       "alpha": 0.0,
+      "quals": "dreamy, crystalline, delicate",
       "init_noise": 0.5,
       "heard": [
         [
-          "robotic",
-          0.20000162720680237
+          "dreamy",
+          0.4762835204601288
         ],
         [
-          "cinematic",
-          0.19060228765010834
+          "crystalline",
+          0.47449028491973877
         ],
         [
-          "digital",
-          0.1898869276046753
+          "delicate",
+          0.41546159982681274
         ]
       ],
-      "cos_to_anchor": 0.7335
+      "cos_to_anchor": 0.8856
     },
     {
       "iter": 10,
       "prompt_a": "",
-      "prompt_b": "robotic, cinematic, digital",
+      "prompt_b": "dreamy dream, dreamy, crystalline, delicate",
       "alpha": 0.0,
+      "quals": "dreamy, crystalline, delicate",
       "init_noise": 0.5,
       "heard": [
         [
-          "cinematic",
-          0.19124513864517212
+          "crystalline",
+          0.5040321350097656
         ],
         [
-          "robotic",
-          0.17784425616264343
+          "dreamy",
+          0.4970643222332001
         ],
         [
-          "digital",
-          0.17499752342700958
+          "glassy",
+          0.4407358765602112
         ]
       ],
-      "cos_to_anchor": 0.7266
+      "cos_to_anchor": 0.8978
     }
   ]
 }

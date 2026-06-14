@@ -1,0 +1,250 @@
+{
+  "name": "e6_driftB",
+  "vocab_size": 112,
+  "preset": "Creamy-Dreamy SA3",
+  "cfg": 1.0,
+  "init_noise": 0.5,
+  "model": "stable-audio-3-small-music",
+  "steps": 8,
+  "duration_s": 11.0,
+  "seed": 2128708858,
+  "magnitude": 1.0,
+  "noise_sigma": 0.0,
+  "injection_mode": "linear",
+  "topk": 3,
+  "header_a": "creamy cream, birds chirping",
+  "header_b": "dreamy dream",
+  "alpha0": 0.005229949951172,
+  "iters": [
+    {
+      "iter": 1,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream",
+      "alpha": 0.0052,
+      "quals": null,
+      "init_noise": null,
+      "heard": [
+        [
+          "dreamy",
+          0.44551995396614075
+        ],
+        [
+          "mellow",
+          0.4045253396034241
+        ],
+        [
+          "glittering",
+          0.3610419034957886
+        ]
+      ],
+      "cos_to_anchor": 1.0
+    },
+    {
+      "iter": 2,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream, dreamy, mellow, glittering",
+      "alpha": 0.0052,
+      "quals": "dreamy, mellow, glittering",
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.49430277943611145
+        ],
+        [
+          "mellow",
+          0.4369305968284607
+        ],
+        [
+          "crystalline",
+          0.3886185884475708
+        ]
+      ],
+      "cos_to_anchor": 0.9298
+    },
+    {
+      "iter": 3,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream, dreamy, mellow, crystalline",
+      "alpha": 0.0052,
+      "quals": "dreamy, mellow, crystalline",
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.48702186346054077
+        ],
+        [
+          "mellow",
+          0.4516487419605255
+        ],
+        [
+          "glittering",
+          0.38797247409820557
+        ]
+      ],
+      "cos_to_anchor": 0.8601
+    },
+    {
+      "iter": 4,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream, dreamy, mellow, glittering",
+      "alpha": 0.0052,
+      "quals": "dreamy, mellow, glittering",
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.5072522759437561
+        ],
+        [
+          "mellow",
+          0.4575536549091339
+        ],
+        [
+          "glassy",
+          0.4554373025894165
+        ]
+      ],
+      "cos_to_anchor": 0.8651
+    },
+    {
+      "iter": 5,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream, dreamy, mellow, glassy",
+      "alpha": 0.0052,
+      "quals": "dreamy, mellow, glassy",
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.5434584617614746
+        ],
+        [
+          "crystalline",
+          0.46198248863220215
+        ],
+        [
+          "mellow",
+          0.45384272933006287
+        ]
+      ],
+      "cos_to_anchor": 0.8737
+    },
+    {
+      "iter": 6,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream, dreamy, crystalline, mellow",
+      "alpha": 0.0052,
+      "quals": "dreamy, crystalline, mellow",
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.5134434700012207
+        ],
+        [
+          "mellow",
+          0.4623907506465912
+        ],
+        [
+          "crystalline",
+          0.43660634756088257
+        ]
+      ],
+      "cos_to_anchor": 0.8971
+    },
+    {
+      "iter": 7,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream, dreamy, mellow, crystalline",
+      "alpha": 0.0052,
+      "quals": "dreamy, mellow, crystalline",
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.4643694758415222
+        ],
+        [
+          "glassy",
+          0.4236356019973755
+        ],
+        [
+          "crystalline",
+          0.4228506088256836
+        ]
+      ],
+      "cos_to_anchor": 0.9104
+    },
+    {
+      "iter": 8,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream, dreamy, glassy, crystalline",
+      "alpha": 0.0052,
+      "quals": "dreamy, glassy, crystalline",
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.5108789801597595
+        ],
+        [
+          "mellow",
+          0.4580060839653015
+        ],
+        [
+          "crystalline",
+          0.4482421278953552
+        ]
+      ],
+      "cos_to_anchor": 0.8844
+    },
+    {
+      "iter": 9,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream, dreamy, mellow, crystalline",
+      "alpha": 0.0052,
+      "quals": "dreamy, mellow, crystalline",
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.5207440257072449
+        ],
+        [
+          "mellow",
+          0.44966286420822144
+        ],
+        [
+          "delicate",
+          0.417191743850708
+        ]
+      ],
+      "cos_to_anchor": 0.8711
+    },
+    {
+      "iter": 10,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream, dreamy, mellow, delicate",
+      "alpha": 0.0052,
+      "quals": "dreamy, mellow, delicate",
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.44999274611473083
+        ],
+        [
+          "mellow",
+          0.4323650896549225
+        ],
+        [
+          "crystalline",
+          0.3981691002845764
+        ]
+      ],
+      "cos_to_anchor": 0.9249
+    }
+  ]
+}

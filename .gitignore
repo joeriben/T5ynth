@@ -59,3 +59,6 @@ tools/clap_homeostasis_out/results.json
 # CLAP semantic loop: keep REPORT.md + per-experiment manifest.json, drop WAVs + run log
 tools/clap_semantic_loop_out/*/*.wav
 tools/clap_semantic_loop_out_run.log
+tools/clap_semantic_loop_scout.log
+# scratch dirs written by verification agents
+tools/_bugcheck_out*/

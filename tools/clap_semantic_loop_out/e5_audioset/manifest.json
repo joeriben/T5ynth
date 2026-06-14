@@ -1,234 +1,250 @@
 {
   "name": "e5_audioset",
   "vocab_size": 632,
+  "preset": "Creamy-Dreamy SA3",
   "cfg": 1.0,
   "init_noise": 0.5,
   "model": "stable-audio-3-small-music",
   "steps": 8,
-  "duration_s": 3.0,
-  "seed_base": 7000,
+  "duration_s": 11.0,
+  "seed": 2128708858,
+  "magnitude": 1.0,
+  "noise_sigma": 0.0,
+  "injection_mode": "linear",
   "topk": 3,
-  "seed_prompt": "warm analog bass drone",
+  "header_a": "creamy cream, birds chirping",
+  "header_b": "dreamy dream",
+  "alpha0": 0.005229949951172,
   "iters": [
     {
       "iter": 1,
-      "prompt_a": "warm analog bass drone",
-      "prompt_b": "",
-      "alpha": -1.0,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream",
+      "alpha": 0.0052,
+      "quals": null,
       "init_noise": null,
       "heard": [
         [
-          "Air horn, truck horn",
-          0.45569896697998047
+          "Electronic organ",
+          0.47545531392097473
         ],
         [
-          "Dub",
-          0.4400409460067749
+          "Lullaby",
+          0.47330379486083984
         ],
         [
-          "Reggae",
-          0.4262653887271881
+          "Mellotron",
+          0.4544358551502228
         ]
       ],
       "cos_to_anchor": 1.0
     },
     {
       "iter": 2,
-      "prompt_a": "Air horn truck horn, Dub, Reggae",
-      "prompt_b": "Air horn truck horn, Dub, Reggae",
-      "alpha": 0.0,
+      "prompt_a": "creamy cream, birds chirping, Electronic organ, Lullaby, Mellotron",
+      "prompt_b": "dreamy dream, Electronic organ, Lullaby, Mellotron",
+      "alpha": 0.0052,
+      "quals": "Electronic organ, Lullaby, Mellotron",
       "init_noise": 0.5,
       "heard": [
         [
-          "Air horn, truck horn",
-          0.4763841927051544
+          "Electronic organ",
+          0.4197668731212616
         ],
         [
-          "Train horn",
-          0.4370402991771698
+          "Lullaby",
+          0.3939838409423828
         ],
         [
-          "Dub",
-          0.39402538537979126
+          "Mellotron",
+          0.37518537044525146
         ]
       ],
-      "cos_to_anchor": 0.7113
+      "cos_to_anchor": 0.9411
     },
     {
       "iter": 3,
-      "prompt_a": "Air horn truck horn, Train horn, Dub",
-      "prompt_b": "Air horn truck horn, Train horn, Dub",
-      "alpha": 0.0,
+      "prompt_a": "creamy cream, birds chirping, Electronic organ, Lullaby, Mellotron",
+      "prompt_b": "dreamy dream, Electronic organ, Lullaby, Mellotron",
+      "alpha": 0.0052,
+      "quals": "Electronic organ, Lullaby, Mellotron",
       "init_noise": 0.5,
       "heard": [
         [
-          "Train whistle",
-          0.5982831120491028
+          "Mellotron",
+          0.4520112872123718
         ],
         [
-          "Train horn",
-          0.582794725894928
+          "Lullaby",
+          0.445188969373703
         ],
         [
-          "Train",
-          0.4749055504798889
+          "Musical instrument",
+          0.4405241012573242
         ]
       ],
-      "cos_to_anchor": 0.4761
+      "cos_to_anchor": 0.933
     },
     {
       "iter": 4,
-      "prompt_a": "Train whistle, Train horn, Train",
-      "prompt_b": "Train whistle, Train horn, Train",
-      "alpha": 0.0,
+      "prompt_a": "creamy cream, birds chirping, Mellotron, Lullaby, Musical instrument",
+      "prompt_b": "dreamy dream, Mellotron, Lullaby, Musical instrument",
+      "alpha": 0.0052,
+      "quals": "Mellotron, Lullaby, Musical instrument",
       "init_noise": 0.5,
       "heard": [
         [
-          "Train whistle",
-          0.5633299946784973
+          "Electronic organ",
+          0.5132678747177124
         ],
         [
-          "Train horn",
-          0.5621621608734131
+          "Musical instrument",
+          0.5049500465393066
         ],
         [
-          "Rail transport",
-          0.4420504570007324
+          "Mellotron",
+          0.46606606245040894
         ]
       ],
-      "cos_to_anchor": 0.4487
+      "cos_to_anchor": 0.881
     },
     {
       "iter": 5,
-      "prompt_a": "Train whistle, Train horn, Rail transport",
-      "prompt_b": "Train whistle, Train horn, Rail transport",
-      "alpha": 0.0,
+      "prompt_a": "creamy cream, birds chirping, Electronic organ, Musical instrument, Mellotron",
+      "prompt_b": "dreamy dream, Electronic organ, Musical instrument, Mellotron",
+      "alpha": 0.0052,
+      "quals": "Electronic organ, Musical instrument, Mellotron",
       "init_noise": 0.5,
       "heard": [
         [
-          "Train horn",
-          0.5471024513244629
+          "Lullaby",
+          0.521800696849823
         ],
         [
-          "Train whistle",
-          0.5223827958106995
+          "Musical instrument",
+          0.48662954568862915
         ],
         [
-          "Steam whistle",
-          0.46553507447242737
+          "Electronic organ",
+          0.47428789734840393
         ]
       ],
-      "cos_to_anchor": 0.2382
+      "cos_to_anchor": 0.94
     },
     {
       "iter": 6,
-      "prompt_a": "Train horn, Train whistle, Steam whistle",
-      "prompt_b": "Train horn, Train whistle, Steam whistle",
-      "alpha": 0.0,
+      "prompt_a": "creamy cream, birds chirping, Lullaby, Musical instrument, Electronic organ",
+      "prompt_b": "dreamy dream, Lullaby, Musical instrument, Electronic organ",
+      "alpha": 0.0052,
+      "quals": "Lullaby, Musical instrument, Electronic organ",
       "init_noise": 0.5,
       "heard": [
         [
-          "Train horn",
-          0.4621245265007019
+          "Musical instrument",
+          0.5011885762214661
         ],
         [
-          "Tire squeal",
-          0.42508816719055176
+          "Electronic organ",
+          0.46888142824172974
         ],
         [
-          "Wail, moan",
-          0.41174665093421936
+          "Organ",
+          0.4445403814315796
         ]
       ],
-      "cos_to_anchor": 0.2538
+      "cos_to_anchor": 0.907
     },
     {
       "iter": 7,
-      "prompt_a": "Train horn, Tire squeal, Wail moan",
-      "prompt_b": "Train horn, Tire squeal, Wail moan",
-      "alpha": 0.0,
+      "prompt_a": "creamy cream, birds chirping, Musical instrument, Electronic organ, Organ",
+      "prompt_b": "dreamy dream, Musical instrument, Electronic organ, Organ",
+      "alpha": 0.0052,
+      "quals": "Musical instrument, Electronic organ, Organ",
       "init_noise": 0.5,
       "heard": [
         [
-          "Train horn",
-          0.5237873792648315
+          "Electronic organ",
+          0.49536770582199097
         ],
         [
-          "Rail transport",
-          0.4581257104873657
+          "Organ",
+          0.4840194284915924
         ],
         [
-          "Train whistle",
-          0.44121289253234863
+          "Musical instrument",
+          0.4579947590827942
         ]
       ],
-      "cos_to_anchor": 0.2469
+      "cos_to_anchor": 0.8996
     },
     {
       "iter": 8,
-      "prompt_a": "Train horn, Rail transport, Train whistle",
-      "prompt_b": "Train horn, Rail transport, Train whistle",
-      "alpha": 0.0,
+      "prompt_a": "creamy cream, birds chirping, Electronic organ, Organ, Musical instrument",
+      "prompt_b": "dreamy dream, Electronic organ, Organ, Musical instrument",
+      "alpha": 0.0052,
+      "quals": "Electronic organ, Organ, Musical instrument",
       "init_noise": 0.5,
       "heard": [
         [
-          "Wail, moan",
-          0.4571308493614197
+          "Electronic organ",
+          0.5223630666732788
         ],
         [
-          "Tire squeal",
-          0.45485466718673706
+          "Organ",
+          0.5169917941093445
         ],
         [
-          "Train horn",
-          0.4397398829460144
+          "Musical instrument",
+          0.46662843227386475
         ]
       ],
-      "cos_to_anchor": 0.2406
+      "cos_to_anchor": 0.8639
     },
     {
       "iter": 9,
-      "prompt_a": "Wail moan, Tire squeal, Train horn",
-      "prompt_b": "Wail moan, Tire squeal, Train horn",
-      "alpha": 0.0,
+      "prompt_a": "creamy cream, birds chirping, Electronic organ, Organ, Musical instrument",
+      "prompt_b": "dreamy dream, Electronic organ, Organ, Musical instrument",
+      "alpha": 0.0052,
+      "quals": "Electronic organ, Organ, Musical instrument",
       "init_noise": 0.5,
       "heard": [
         [
-          "Train horn",
-          0.5043637752532959
+          "Electronic organ",
+          0.4995478391647339
         ],
         [
-          "Tire squeal",
-          0.4664294123649597
+          "Organ",
+          0.4668613076210022
         ],
         [
-          "Train whistle",
-          0.43998244404792786
+          "Musical instrument",
+          0.4498775899410248
         ]
       ],
-      "cos_to_anchor": 0.2588
+      "cos_to_anchor": 0.889
     },
     {
       "iter": 10,
-      "prompt_a": "Train horn, Tire squeal, Train whistle",
-      "prompt_b": "Train horn, Tire squeal, Train whistle",
-      "alpha": 0.0,
+      "prompt_a": "creamy cream, birds chirping, Electronic organ, Organ, Musical instrument",
+      "prompt_b": "dreamy dream, Electronic organ, Organ, Musical instrument",
+      "alpha": 0.0052,
+      "quals": "Electronic organ, Organ, Musical instrument",
       "init_noise": 0.5,
       "heard": [
         [
-          "Train horn",
-          0.5126670002937317
+          "Electronic organ",
+          0.4988698661327362
         ],
         [
-          "Train whistle",
-          0.4397065043449402
+          "Musical instrument",
+          0.47831064462661743
         ],
         [
-          "Rail transport",
-          0.4332816004753113
+          "Organ",
+          0.4775277376174927
         ]
       ],
-      "cos_to_anchor": 0.2927
+      "cos_to_anchor": 0.8893
     }
   ]
 }

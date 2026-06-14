@@ -1,234 +1,294 @@
 {
   "name": "e3_counter",
   "vocab_size": 112,
+  "preset": "Creamy-Dreamy SA3",
   "cfg": 1.0,
   "init_noise": 0.5,
   "model": "stable-audio-3-small-music",
   "steps": 8,
-  "duration_s": 3.0,
-  "seed_base": 7000,
+  "duration_s": 11.0,
+  "seed": 2128708858,
+  "magnitude": 1.0,
+  "noise_sigma": 0.0,
+  "injection_mode": "linear",
   "topk": 3,
-  "seed_prompt": "warm analog bass drone",
+  "header_a": "creamy cream, birds chirping",
+  "header_b": "dreamy dream",
+  "alpha0": 0.005229949951172,
   "iters": [
     {
       "iter": 1,
-      "prompt_a": "warm analog bass drone",
-      "prompt_b": "",
-      "alpha": -1.0,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream",
+      "alpha": 0.0052,
+      "quals": null,
       "init_noise": null,
       "heard": [
         [
-          "clangy",
-          -0.1767020970582962
+          "dreamy",
+          0.45984044671058655
         ],
         [
-          "swirling",
-          -0.16135326027870178
+          "mellow",
+          0.3798282742500305
         ],
         [
-          "piercing",
-          -0.1595902144908905
+          "crystalline",
+          0.3766036033630371
         ]
+      ],
+      "counter_fed_next": [
+        "percussive",
+        "screaming"
       ],
       "cos_to_anchor": 1.0
     },
     {
       "iter": 2,
-      "prompt_a": "clangy, swirling, piercing",
-      "prompt_b": "clangy, swirling, piercing",
-      "alpha": 0.0,
+      "prompt_a": "creamy cream, birds chirping, percussive, screaming",
+      "prompt_b": "dreamy dream, percussive, screaming",
+      "alpha": 0.0052,
+      "quals": "percussive, screaming",
       "init_noise": 0.5,
       "heard": [
         [
-          "soft",
-          -0.16796758770942688
+          "dreamy",
+          0.4585713744163513
         ],
         [
-          "smooth",
-          -0.10773470997810364
+          "crystalline",
+          0.4032178223133087
         ],
         [
-          "acoustic",
-          -0.0829949602484703
+          "glittering",
+          0.377197802066803
         ]
       ],
-      "cos_to_anchor": 0.4767
+      "counter_fed_next": [
+        "percussive",
+        "robotic"
+      ],
+      "cos_to_anchor": 0.9399
     },
     {
       "iter": 3,
-      "prompt_a": "soft, smooth, acoustic",
-      "prompt_b": "soft, smooth, acoustic",
-      "alpha": 0.0,
+      "prompt_a": "creamy cream, birds chirping, percussive, robotic",
+      "prompt_b": "dreamy dream, percussive, robotic",
+      "alpha": 0.0052,
+      "quals": "percussive, robotic",
       "init_noise": 0.5,
       "heard": [
         [
-          "pulsing",
-          -0.1682681441307068
+          "mellow",
+          0.43025290966033936
         ],
         [
-          "screaming",
-          -0.15644197165966034
+          "dreamy",
+          0.4153060019016266
         ],
         [
-          "nasal",
-          -0.15143820643424988
+          "crystalline",
+          0.3588215708732605
         ]
       ],
-      "cos_to_anchor": 0.5033
+      "counter_fed_next": [
+        "screaming",
+        "percussive"
+      ],
+      "cos_to_anchor": 0.8989
     },
     {
       "iter": 4,
-      "prompt_a": "pulsing, screaming, nasal",
-      "prompt_b": "pulsing, screaming, nasal",
-      "alpha": 0.0,
+      "prompt_a": "creamy cream, birds chirping, screaming, percussive",
+      "prompt_b": "dreamy dream, screaming, percussive",
+      "alpha": 0.0052,
+      "quals": "screaming, percussive",
       "init_noise": 0.5,
       "heard": [
         [
-          "droning",
-          -0.2490374743938446
+          "dreamy",
+          0.4764062464237213
         ],
         [
-          "soft",
-          -0.2470850646495819
+          "mellow",
+          0.4636555314064026
         ],
         [
-          "pulsing",
-          -0.24258869886398315
+          "gloomy",
+          0.4195818305015564
         ]
       ],
-      "cos_to_anchor": 0.4
+      "counter_fed_next": [
+        "percussive",
+        "screaming"
+      ],
+      "cos_to_anchor": 0.8953
     },
     {
       "iter": 5,
-      "prompt_a": "droning, soft, pulsing",
-      "prompt_b": "droning, soft, pulsing",
-      "alpha": 0.0,
+      "prompt_a": "creamy cream, birds chirping, percussive, screaming",
+      "prompt_b": "dreamy dream, percussive, screaming",
+      "alpha": 0.0052,
+      "quals": "percussive, screaming",
       "init_noise": 0.5,
       "heard": [
         [
-          "nasal",
-          -0.19922438263893127
+          "mellow",
+          0.4271233379840851
         ],
         [
-          "atmospheric",
-          -0.18810681998729706
+          "dreamy",
+          0.41441529989242554
         ],
         [
-          "soft",
-          -0.16316121816635132
+          "crystalline",
+          0.36665207147598267
         ]
       ],
-      "cos_to_anchor": 0.3589
+      "counter_fed_next": [
+        "screaming",
+        "percussive"
+      ],
+      "cos_to_anchor": 0.8929
     },
     {
       "iter": 6,
-      "prompt_a": "nasal, atmospheric, soft",
-      "prompt_b": "nasal, atmospheric, soft",
-      "alpha": 0.0,
+      "prompt_a": "creamy cream, birds chirping, screaming, percussive",
+      "prompt_b": "dreamy dream, screaming, percussive",
+      "alpha": 0.0052,
+      "quals": "screaming, percussive",
       "init_noise": 0.5,
       "heard": [
         [
-          "swirling",
-          -0.11642900109291077
+          "mellow",
+          0.49593791365623474
         ],
         [
-          "nasal",
-          -0.09502847492694855
+          "dreamy",
+          0.4220566749572754
         ],
         [
-          "scratchy",
-          -0.09385474026203156
+          "delicate",
+          0.37786179780960083
         ]
       ],
-      "cos_to_anchor": 0.5742
+      "counter_fed_next": [
+        "screaming",
+        "percussive",
+        "punchy"
+      ],
+      "cos_to_anchor": 0.8659
     },
     {
       "iter": 7,
-      "prompt_a": "swirling, nasal, scratchy",
-      "prompt_b": "swirling, nasal, scratchy",
-      "alpha": 0.0,
+      "prompt_a": "creamy cream, birds chirping, screaming, percussive, punchy",
+      "prompt_b": "dreamy dream, screaming, percussive, punchy",
+      "alpha": 0.0052,
+      "quals": "screaming, percussive, punchy",
       "init_noise": 0.5,
       "heard": [
         [
-          "soft",
-          -0.1460835188627243
+          "mellow",
+          0.4860876202583313
         ],
         [
-          "humming",
-          -0.11847638338804245
+          "dreamy",
+          0.3582249879837036
         ],
         [
-          "nasal",
-          -0.10141991078853607
+          "delicate",
+          0.3513790965080261
         ]
       ],
-      "cos_to_anchor": 0.364
+      "counter_fed_next": [
+        "screaming",
+        "percussive",
+        "punchy"
+      ],
+      "cos_to_anchor": 0.7454
     },
     {
       "iter": 8,
-      "prompt_a": "soft, humming, nasal",
-      "prompt_b": "soft, humming, nasal",
-      "alpha": 0.0,
+      "prompt_a": "creamy cream, birds chirping, screaming, percussive, punchy",
+      "prompt_b": "dreamy dream, screaming, percussive, punchy",
+      "alpha": 0.0052,
+      "quals": "screaming, percussive, punchy",
       "init_noise": 0.5,
       "heard": [
         [
-          "soft",
-          -0.20874637365341187
+          "mellow",
+          0.45570284128189087
         ],
         [
-          "throbbing",
-          -0.2083044946193695
+          "gloomy",
+          0.2917267978191376
         ],
         [
-          "droning",
-          -0.20779281854629517
+          "dreamy",
+          0.29071104526519775
         ]
       ],
-      "cos_to_anchor": 0.3055
+      "counter_fed_next": [
+        "screaming",
+        "percussive"
+      ],
+      "cos_to_anchor": 0.6929
     },
     {
       "iter": 9,
-      "prompt_a": "soft, throbbing, droning",
-      "prompt_b": "soft, throbbing, droning",
-      "alpha": 0.0,
+      "prompt_a": "creamy cream, birds chirping, screaming, percussive",
+      "prompt_b": "dreamy dream, screaming, percussive",
+      "alpha": 0.0052,
+      "quals": "screaming, percussive",
       "init_noise": 0.5,
       "heard": [
         [
-          "soft",
-          -0.18058982491493225
+          "mellow",
+          0.4232516288757324
         ],
         [
-          "atmospheric",
-          -0.16360589861869812
+          "dreamy",
+          0.2813027501106262
         ],
         [
-          "pulsing",
-          -0.1354900300502777
+          "velvety",
+          0.270545095205307
         ]
       ],
-      "cos_to_anchor": 0.4345
+      "counter_fed_next": [
+        "screaming",
+        "percussive",
+        "humming"
+      ],
+      "cos_to_anchor": 0.7006
     },
     {
       "iter": 10,
-      "prompt_a": "soft, atmospheric, pulsing",
-      "prompt_b": "soft, atmospheric, pulsing",
-      "alpha": 0.0,
+      "prompt_a": "creamy cream, birds chirping, screaming, percussive, humming",
+      "prompt_b": "dreamy dream, screaming, percussive, humming",
+      "alpha": 0.0052,
+      "quals": "screaming, percussive, humming",
       "init_noise": 0.5,
       "heard": [
         [
-          "soft",
-          -0.18135058879852295
+          "mellow",
+          0.35417795181274414
         ],
         [
-          "atmospheric",
-          -0.17145715653896332
+          "dreamy",
+          0.27352726459503174
         ],
         [
-          "pulsing",
-          -0.13593393564224243
+          "velvety",
+          0.22061477601528168
         ]
       ],
-      "cos_to_anchor": 0.3257
+      "counter_fed_next": [
+        "screaming",
+        "percussive",
+        "humming"
+      ],
+      "cos_to_anchor": 0.7173
     }
   ]
 }

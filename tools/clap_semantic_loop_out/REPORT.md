@@ -1,110 +1,135 @@
 # Closed semantic loop — the machine's hearing as a generative force
 
-Each iteration: SA3 generates, CLAP re-describes the output against a vocabulary, those words become the next prompt (audio also carries via init_audio, init_noise=0.5). CFG=1.0, 3.0s, 8 steps, per-iter seed=7000+iter. Seed prompt: `warm analog bass drone`.
+Each iteration: SA3 generates, CLAP re-describes the output against a vocabulary, those words drive the next prompts (audio also carries via init_audio, init_noise=0.5). Generation params are taken VERBATIM from the preset (no hard-coded duration/seed):
 
-The **word trajectory** is the artifact — read it as the machine talking itself somewhere. WAVs under each experiment dir are for listening.
+- preset: **Creamy-Dreamy SA3**, model `stable-audio-3-small-music`
+- duration **11.0s**, 8 steps, CFG 1.0, magnitude 1.0, noise_sigma 0.0, injection `linear`
+- **seed 2128708858 held FIXED across iterations** (preset randomSeed=off) so only the words + init_audio drive drift, not seed noise
+
+**Seed collision (identity, fixed every iteration): A=`creamy cream, birds chirping` × B=`dreamy dream` at α=+0.005.** Except where noted, the machine's previous hearing is APPENDED to each pole (`pole, qualities`); the seed identity leads, the re-hearing modulates. Iter 1 is the pure preset render (the drift anchor). WAVs under each experiment dir are for listening.
 
 ## run1_both
 
-*Affirmative loop, tags → both prompts (α=0). Does the loop amplify the first mishearing into a basin?*
+*Collision-anchored affirmative loop: qualities appended to BOTH poles, α=ALPHA0. Does the collision survive its own re-hearing?*
 
 vocab size: 112
 
-CLAP cosine to iter-1 anchor: +1.000 → +0.618 (drift +0.382).
+CLAP cosine to iter-1 anchor (the preset render): +1.000 → +0.782 (drift +0.218).
 
-| iter | prompt fed in | machine hears (top-k) | cos→anchor |
+| iter | qualities appended | machine hears (top-k) | cos→anchor |
 |---:|---|---|---:|
-| 1 | warm analog bass drone | brassy (0.34), dark (0.21), heavy (0.20) | +1.000 |
-| 2 | brassy, dark, heavy | brassy (0.37), artificial (0.28), huge (0.27) | +0.787 |
-| 3 | brassy, artificial, huge | brassy (0.36), artificial (0.35), brilliant (0.30) | +0.543 |
-| 4 | brassy, artificial, brilliant | brassy (0.36), artificial (0.34), brilliant (0.31) | +0.512 |
-| 5 | brassy, artificial, brilliant | brassy (0.33), artificial (0.32), brilliant (0.26) | +0.645 |
-| 6 | brassy, artificial, brilliant | brassy (0.37), artificial (0.33), brilliant (0.29) | +0.634 |
-| 7 | brassy, artificial, brilliant | brassy (0.37), artificial (0.30), huge (0.28) | +0.625 |
-| 8 | brassy, artificial, huge | brassy (0.39), artificial (0.39), brilliant (0.34) | +0.544 |
-| 9 | brassy, artificial, brilliant | brassy (0.33), artificial (0.32), brilliant (0.27) | +0.607 |
-| 10 | brassy, artificial, brilliant | brassy (0.38), artificial (0.33), steely (0.30) | +0.618 |
+| 1 | — (pure preset render) | dreamy (0.48), mellow (0.44), crystalline (0.44) | +1.000 |
+| 2 | dreamy, mellow, crystalline | dreamy (0.44), crystalline (0.39), mellow (0.39) | +0.931 |
+| 3 | dreamy, crystalline, mellow | dreamy (0.50), mellow (0.49), delicate (0.39) | +0.929 |
+| 4 | dreamy, mellow, delicate | mellow (0.46), dreamy (0.45), glittering (0.40) | +0.900 |
+| 5 | mellow, dreamy, glittering | dreamy (0.53), mellow (0.49), delicate (0.42) | +0.877 |
+| 6 | dreamy, mellow, delicate | dreamy (0.51), mellow (0.46), crystalline (0.37) | +0.877 |
+| 7 | dreamy, mellow, crystalline | mellow (0.47), dreamy (0.46), delicate (0.39) | +0.922 |
+| 8 | mellow, dreamy, delicate | mellow (0.48), dreamy (0.43), delicate (0.40) | +0.914 |
+| 9 | mellow, dreamy, delicate | mellow (0.39), dreamy (0.38), delicate (0.30) | +0.830 |
+| 10 | mellow, dreamy, delicate | mellow (0.45), dreamy (0.36), gloomy (0.31) | +0.782 |
 
 ## run2_onlyB_null
 
-*Only B = tags, α=0 → the blend cancels to **null** (`0.5·(2null−B)+0.5·B`). The semantic drive is removed; what remains is the signal (init_audio) loop alone. The control: if this differs from run1, the *words* are doing work.*
+*Only B = pole-B + qualities, α=0 → the blend cancels to **null**, and the A pole is dropped. The bare init_audio signal loop. The control: the gap to run1 is what the words do.*
 
 vocab size: 112
 
-CLAP cosine to iter-1 anchor: +1.000 → +0.727 (drift +0.273).
+CLAP cosine to iter-1 anchor (the preset render): +1.000 → +0.898 (drift +0.102).
 
-| iter | prompt fed in | machine hears (top-k) | cos→anchor |
+| iter | qualities appended | machine hears (top-k) | cos→anchor |
 |---:|---|---|---:|
-| 1 | warm analog bass drone | brassy (0.34), dark (0.21), heavy (0.20) | +1.000 |
-| 2 | ∅ / brassy, dark, heavy (→null) | distorted (0.18), brassy (0.17), heavy (0.15) | +0.874 |
-| 3 | ∅ / distorted, brassy, heavy (→null) | distorted (0.18), brassy (0.18), heavy (0.17) | +0.856 |
-| 4 | ∅ / distorted, brassy, heavy (→null) | cinematic (0.22), heavy (0.22), digital (0.20) | +0.776 |
-| 5 | ∅ / cinematic, heavy, digital (→null) | cinematic (0.20), heavy (0.18), thick (0.17) | +0.786 |
-| 6 | ∅ / cinematic, heavy, thick (→null) | cinematic (0.18), heavy (0.17), thick (0.16) | +0.745 |
-| 7 | ∅ / cinematic, heavy, thick (→null) | cinematic (0.19), digital (0.18), heavy (0.17) | +0.645 |
-| 8 | ∅ / cinematic, digital, heavy (→null) | digital (0.21), robotic (0.19), heavy (0.18) | +0.667 |
-| 9 | ∅ / digital, robotic, heavy (→null) | robotic (0.20), cinematic (0.19), digital (0.19) | +0.734 |
-| 10 | ∅ / robotic, cinematic, digital (→null) | cinematic (0.19), robotic (0.18), digital (0.17) | +0.727 |
+| 1 | — (pure preset render) | dreamy (0.50), mellow (0.43), crystalline (0.40) | +1.000 |
+| 2 | dreamy, mellow, crystalline (→null) | dreamy (0.54), glassy (0.42), crystalline (0.42) | +0.921 |
+| 3 | dreamy, glassy, crystalline (→null) | dreamy (0.52), crystalline (0.43), glassy (0.42) | +0.914 |
+| 4 | dreamy, crystalline, glassy (→null) | dreamy (0.52), crystalline (0.47), glassy (0.46) | +0.898 |
+| 5 | dreamy, crystalline, glassy (→null) | dreamy (0.50), crystalline (0.48), glassy (0.46) | +0.914 |
+| 6 | dreamy, crystalline, glassy (→null) | dreamy (0.49), glassy (0.46), crystalline (0.46) | +0.866 |
+| 7 | dreamy, glassy, crystalline (→null) | dreamy (0.51), crystalline (0.48), delicate (0.47) | +0.882 |
+| 8 | dreamy, crystalline, delicat (→null) | dreamy (0.46), crystalline (0.45), delicate (0.44) | +0.868 |
+| 9 | dreamy, crystalline, delicat (→null) | dreamy (0.48), crystalline (0.47), delicate (0.42) | +0.886 |
+| 10 | dreamy, crystalline, delicat (→null) | crystalline (0.50), dreamy (0.50), glassy (0.44) | +0.898 |
+
+## e6_driftB
+
+*ASYMMETRIC: pole A held pure, only pole B drifts under the machine's hearing. Collision = stable anchor vs ear-driven drift.*
+
+vocab size: 112
+
+CLAP cosine to iter-1 anchor (the preset render): +1.000 → +0.925 (drift +0.075).
+
+| iter | qualities appended | machine hears (top-k) | cos→anchor |
+|---:|---|---|---:|
+| 1 | — (pure preset render) | dreamy (0.45), mellow (0.40), glittering (0.36) | +1.000 |
+| 2 | dreamy, mellow, glittering | dreamy (0.49), mellow (0.44), crystalline (0.39) | +0.930 |
+| 3 | dreamy, mellow, crystalline | dreamy (0.49), mellow (0.45), glittering (0.39) | +0.860 |
+| 4 | dreamy, mellow, glittering | dreamy (0.51), mellow (0.46), glassy (0.46) | +0.865 |
+| 5 | dreamy, mellow, glassy | dreamy (0.54), crystalline (0.46), mellow (0.45) | +0.874 |
+| 6 | dreamy, crystalline, mellow | dreamy (0.51), mellow (0.46), crystalline (0.44) | +0.897 |
+| 7 | dreamy, mellow, crystalline | dreamy (0.46), glassy (0.42), crystalline (0.42) | +0.910 |
+| 8 | dreamy, glassy, crystalline | dreamy (0.51), mellow (0.46), crystalline (0.45) | +0.884 |
+| 9 | dreamy, mellow, crystalline | dreamy (0.52), mellow (0.45), delicate (0.42) | +0.871 |
+| 10 | dreamy, mellow, delicate | dreamy (0.45), mellow (0.43), crystalline (0.40) | +0.925 |
 
 ## e3_counter
 
-*ADVERSARIAL. Feed the tags the audio is FARTHEST from (bottom-k) → steer toward what the ear hears least. Escape the basin, or does the biased ear drag it back? (verhandelbar?)*
+*ADVERSARIAL. Read the machine's TOP-k, append the ANTONYM of each to BOTH poles (α=ALPHA0). 'qualities fed' = antonyms we steer WITH; 'machine hears' = what it reads anyway. Escape vs recapture gap.*
 
 vocab size: 112
 
-CLAP cosine to iter-1 anchor: +1.000 → +0.326 (drift +0.674).
+CLAP cosine to iter-1 anchor (the preset render): +1.000 → +0.717 (drift +0.283).
 
-| iter | prompt fed in | machine hears (top-k) | cos→anchor |
+| iter | qualities appended | machine hears (top-k) | cos→anchor |
 |---:|---|---|---:|
-| 1 | warm analog bass drone | clangy (-0.18), swirling (-0.16), piercing (-0.16) | +1.000 |
-| 2 | clangy, swirling, piercing | soft (-0.17), smooth (-0.11), acoustic (-0.08) | +0.477 |
-| 3 | soft, smooth, acoustic | pulsing (-0.17), screaming (-0.16), nasal (-0.15) | +0.503 |
-| 4 | pulsing, screaming, nasal | droning (-0.25), soft (-0.25), pulsing (-0.24) | +0.400 |
-| 5 | droning, soft, pulsing | nasal (-0.20), atmospheric (-0.19), soft (-0.16) | +0.359 |
-| 6 | nasal, atmospheric, soft | swirling (-0.12), nasal (-0.10), scratchy (-0.09) | +0.574 |
-| 7 | swirling, nasal, scratchy | soft (-0.15), humming (-0.12), nasal (-0.10) | +0.364 |
-| 8 | soft, humming, nasal | soft (-0.21), throbbing (-0.21), droning (-0.21) | +0.305 |
-| 9 | soft, throbbing, droning | soft (-0.18), atmospheric (-0.16), pulsing (-0.14) | +0.434 |
-| 10 | soft, atmospheric, pulsing | soft (-0.18), atmospheric (-0.17), pulsing (-0.14) | +0.326 |
+| 1 | — (pure preset render) | dreamy (0.46), mellow (0.38), crystalline (0.38) | +1.000 |
+| 2 | percussive, screaming | dreamy (0.46), crystalline (0.40), glittering (0.38) | +0.940 |
+| 3 | percussive, robotic | mellow (0.43), dreamy (0.42), crystalline (0.36) | +0.899 |
+| 4 | screaming, percussive | dreamy (0.48), mellow (0.46), gloomy (0.42) | +0.895 |
+| 5 | percussive, screaming | mellow (0.43), dreamy (0.41), crystalline (0.37) | +0.893 |
+| 6 | screaming, percussive | mellow (0.50), dreamy (0.42), delicate (0.38) | +0.866 |
+| 7 | screaming, percussive, punchy | mellow (0.49), dreamy (0.36), delicate (0.35) | +0.745 |
+| 8 | screaming, percussive, punchy | mellow (0.46), gloomy (0.29), dreamy (0.29) | +0.693 |
+| 9 | screaming, percussive | mellow (0.42), dreamy (0.28), velvety (0.27) | +0.701 |
+| 10 | screaming, percussive, humming | mellow (0.35), dreamy (0.27), velvety (0.22) | +0.717 |
 
 ## e5_audioset
 
-*Same affirmative loop, but the SOURCE-FRAMED AudioSet menu (events: 'Donkey', 'Children shouting'). The menu is the politics — compare the trajectory to run1's timbre menu.*
+*Collision-anchored, but the SOURCE-FRAMED AudioSet menu. The menu is the politics — compare to run1's timbre menu.*
 
 vocab size: 632
 
-CLAP cosine to iter-1 anchor: +1.000 → +0.293 (drift +0.707).
+CLAP cosine to iter-1 anchor (the preset render): +1.000 → +0.889 (drift +0.111).
 
-| iter | prompt fed in | machine hears (top-k) | cos→anchor |
+| iter | qualities appended | machine hears (top-k) | cos→anchor |
 |---:|---|---|---:|
-| 1 | warm analog bass drone | Air horn, truck horn (0.46), Dub (0.44), Reggae (0.43) | +1.000 |
-| 2 | Air horn truck horn, Dub, Reggae | Air horn, truck horn (0.48), Train horn (0.44), Dub (0.39) | +0.711 |
-| 3 | Air horn truck horn, Train horn, D | Train whistle (0.60), Train horn (0.58), Train (0.47) | +0.476 |
-| 4 | Train whistle, Train horn, Train | Train whistle (0.56), Train horn (0.56), Rail transport (0.44) | +0.449 |
-| 5 | Train whistle, Train horn, Rail tr | Train horn (0.55), Train whistle (0.52), Steam whistle (0.47) | +0.238 |
-| 6 | Train horn, Train whistle, Steam w | Train horn (0.46), Tire squeal (0.43), Wail, moan (0.41) | +0.254 |
-| 7 | Train horn, Tire squeal, Wail moan | Train horn (0.52), Rail transport (0.46), Train whistle (0.44) | +0.247 |
-| 8 | Train horn, Rail transport, Train  | Wail, moan (0.46), Tire squeal (0.45), Train horn (0.44) | +0.241 |
-| 9 | Wail moan, Tire squeal, Train horn | Train horn (0.50), Tire squeal (0.47), Train whistle (0.44) | +0.259 |
-| 10 | Train horn, Tire squeal, Train whi | Train horn (0.51), Train whistle (0.44), Rail transport (0.43) | +0.293 |
+| 1 | — (pure preset render) | Electronic organ (0.48), Lullaby (0.47), Mellotron (0.45) | +1.000 |
+| 2 | Electronic organ, Lullaby, Mellotr | Electronic organ (0.42), Lullaby (0.39), Mellotron (0.38) | +0.941 |
+| 3 | Electronic organ, Lullaby, Mellotr | Mellotron (0.45), Lullaby (0.45), Musical instrument (0.44) | +0.933 |
+| 4 | Mellotron, Lullaby, Musical instru | Electronic organ (0.51), Musical instrument (0.50), Mellotron (0.47) | +0.881 |
+| 5 | Electronic organ, Musical instrume | Lullaby (0.52), Musical instrument (0.49), Electronic organ (0.47) | +0.940 |
+| 6 | Lullaby, Musical instrument, Elect | Musical instrument (0.50), Electronic organ (0.47), Organ (0.44) | +0.907 |
+| 7 | Musical instrument, Electronic org | Electronic organ (0.50), Organ (0.48), Musical instrument (0.46) | +0.900 |
+| 8 | Electronic organ, Organ, Musical i | Electronic organ (0.52), Organ (0.52), Musical instrument (0.47) | +0.864 |
+| 9 | Electronic organ, Organ, Musical i | Electronic organ (0.50), Organ (0.47), Musical instrument (0.45) | +0.889 |
+| 10 | Electronic organ, Organ, Musical i | Electronic organ (0.50), Musical instrument (0.48), Organ (0.48) | +0.889 |
 
 ## e4_two_ears
 
-*Two ears that disagree (unfused→A, music→B, α=0). The synth lives in the contradiction between two western ears.*
+*Two ears that disagree, each appended to a different pole. Two western ears split the collision between them.*
 
 vocab size: 112
 
-CLAP cosine to iter-1 anchor: +1.000 → +0.526 (drift +0.474).
+CLAP cosine to iter-1 anchor (the preset render): +1.000 → +0.864 (drift +0.136).
 
-| iter | prompt (A / B) | unfused hears | music hears | cos→anchor |
+| iter | A / B (pole + each ear's tag) | unfused hears | music hears | cos→anchor |
 |---:|---|---|---|---:|
-| 1 | warm analog bass drone / ∅ | brassy, dark, heavy | brassy, cinematic, tinny | +1.000 |
-| 2 | brassy / brassy | brassy, abrasive, artificial | brassy, cinematic, tinny | +0.811 |
-| 3 | brassy / brassy | brassy, abrasive, huge | brassy, cinematic, sterile | +0.712 |
-| 4 | brassy / brassy | clear, brassy, brilliant | woody, cinematic, sterile | +0.505 |
-| 5 | clear / woody | brassy, clear, mellow | sterile, clean, brilliant | +0.659 |
-| 6 | brassy / sterile | brassy, round, brilliant | brilliant, sterile, woody | +0.559 |
-| 7 | brassy / brilliant | brassy, artificial, brilliant | brassy, brilliant, raspy | +0.578 |
-| 8 | brassy / brassy | brassy, artificial, brilliant | brassy, raspy, brilliant | +0.584 |
-| 9 | brassy / brassy | brassy, artificial, brilliant | brassy, shimmering, sterile | +0.528 |
-| 10 | brassy / brassy | brassy, artificial, brilliant | brassy, sterile, brilliant | +0.526 |
+| 1 | creamy cream, birds chirping / dreamy dream | dreamy, mellow, crystalline | brassy, brilliant, crystalline | +1.000 |
+| 2 | creamy cream, birds chirping / dreamy dream, brassy | dreamy, crystalline, glassy | warm, brassy, brilliant | +0.938 |
+| 3 | creamy cream, birds chirping / dreamy dream, warm | dreamy, mellow, crystalline | warm, brassy, evolving | +0.901 |
+| 4 | creamy cream, birds chirping / dreamy dream, warm | dreamy, glassy, mellow | delicate, warm, hollow | +0.920 |
+| 5 | creamy cream, birds chirping / dreamy dream, delicate | dreamy, mellow, crystalline | brassy, delicate, warm | +0.907 |
+| 6 | creamy cream, birds chirping / dreamy dream, brassy | dreamy, crystalline, mellow | brassy, delicate, warm | +0.838 |
+| 7 | creamy cream, birds chirping / dreamy dream, brassy | dreamy, mellow, crystalline | delicate, brassy, warm | +0.916 |
+| 8 | creamy cream, birds chirping / dreamy dream, delicate | dreamy, mellow, crystalline | brassy, delicate, earthy | +0.891 |
+| 9 | creamy cream, birds chirping / dreamy dream, brassy | crystalline, dreamy, mellow | brassy, delicate, warm | +0.946 |
+| 10 | creamy cream, birds chirping / dreamy dream, brassy | dreamy, mellow, gloomy | brassy, brilliant, crystalline | +0.864 |
