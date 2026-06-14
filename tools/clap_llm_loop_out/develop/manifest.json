@@ -1,0 +1,270 @@
+{
+  "name": "develop",
+  "preset": "Creamy-Dreamy SA3",
+  "model": "stable-audio-3-small-music",
+  "duration_s": 11.0,
+  "steps": 8,
+  "cfg": 1.0,
+  "seed": 2128708858,
+  "magnitude": 1.0,
+  "noise_sigma": 0.0,
+  "injection_mode": "linear",
+  "init_noise": 0.5,
+  "topk": 5,
+  "max_new_tokens": 64,
+  "header_a": "creamy cream, birds chirping",
+  "header_b": "dreamy dream",
+  "alpha0": 0.005229949951172,
+  "target": "a deep slow underwater bell",
+  "llm": "qwen2.5-1.5b-instruct",
+  "iters": [
+    {
+      "iter": 1,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream",
+      "alpha": 0.0052,
+      "init_noise": null,
+      "heard": [
+        [
+          "dreamy",
+          0.4996500611305237
+        ],
+        [
+          "mellow",
+          0.4366258382797241
+        ],
+        [
+          "crystalline",
+          0.4224119484424591
+        ],
+        [
+          "delicate",
+          0.3783825635910034
+        ],
+        [
+          "cold",
+          0.36607110500335693
+        ]
+      ],
+      "llm_next_b": "Echoes of distant whispers, soft and soothing",
+      "cos_to_anchor": 1.0
+    },
+    {
+      "iter": 2,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Echoes of distant whispers, soft and soothing",
+      "alpha": 0.0052,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.402794748544693
+        ],
+        [
+          "mellow",
+          0.3758953809738159
+        ],
+        [
+          "delicate",
+          0.32304972410202026
+        ],
+        [
+          "crystalline",
+          0.31989115476608276
+        ],
+        [
+          "cold",
+          0.3097537159919739
+        ]
+      ],
+      "llm_next_b": "Echoes of distant whispers, soft and soothing",
+      "cos_to_anchor": 0.8725
+    },
+    {
+      "iter": 3,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Echoes of distant whispers, soft and soothing",
+      "alpha": 0.0052,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.4019576907157898
+        ],
+        [
+          "mellow",
+          0.3903261721134186
+        ],
+        [
+          "delicate",
+          0.31428390741348267
+        ],
+        [
+          "crystalline",
+          0.28918299078941345
+        ],
+        [
+          "cold",
+          0.2876952290534973
+        ]
+      ],
+      "llm_next_b": "Echoes of distant whispers, soft and soothing",
+      "cos_to_anchor": 0.8151
+    },
+    {
+      "iter": 4,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Echoes of distant whispers, soft and soothing",
+      "alpha": 0.0052,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "mellow",
+          0.3673632740974426
+        ],
+        [
+          "dreamy",
+          0.32612839341163635
+        ],
+        [
+          "delicate",
+          0.2603273391723633
+        ],
+        [
+          "glittering",
+          0.2319931834936142
+        ],
+        [
+          "feathery",
+          0.2233588695526123
+        ]
+      ],
+      "llm_next_b": "Soft, resonant hum undercurrent",
+      "cos_to_anchor": 0.711
+    },
+    {
+      "iter": 5,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Soft, resonant hum undercurrent",
+      "alpha": 0.0052,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "mellow",
+          0.4550834894180298
+        ],
+        [
+          "dreamy",
+          0.42251870036125183
+        ],
+        [
+          "delicate",
+          0.3190838694572449
+        ],
+        [
+          "crystalline",
+          0.3061009645462036
+        ],
+        [
+          "gloomy",
+          0.30461257696151733
+        ]
+      ],
+      "llm_next_b": "Glimmering, ethereal, shimmering, serene",
+      "cos_to_anchor": 0.8069
+    },
+    {
+      "iter": 6,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Glimmering, ethereal, shimmering, serene",
+      "alpha": 0.0052,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "mellow",
+          0.43983834981918335
+        ],
+        [
+          "dreamy",
+          0.3446391224861145
+        ],
+        [
+          "delicate",
+          0.2897738218307495
+        ],
+        [
+          "velvety",
+          0.2707877457141876
+        ],
+        [
+          "glittering",
+          0.26087141036987305
+        ]
+      ],
+      "llm_next_b": "Echoes of distant whispers resonate.",
+      "cos_to_anchor": 0.7511
+    },
+    {
+      "iter": 7,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Echoes of distant whispers resonate.",
+      "alpha": 0.0052,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "mellow",
+          0.40914949774742126
+        ],
+        [
+          "dreamy",
+          0.34918755292892456
+        ],
+        [
+          "delicate",
+          0.3019561171531677
+        ],
+        [
+          "pristine",
+          0.2966380715370178
+        ],
+        [
+          "resonant",
+          0.2920246124267578
+        ]
+      ],
+      "llm_next_b": "Subtle tremolo adds depth",
+      "cos_to_anchor": 0.6982
+    },
+    {
+      "iter": 8,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Subtle tremolo adds depth",
+      "alpha": 0.0052,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "mellow",
+          0.3502126932144165
+        ],
+        [
+          "dreamy",
+          0.319213330745697
+        ],
+        [
+          "resonant",
+          0.27444392442703247
+        ],
+        [
+          "delicate",
+          0.2644839882850647
+        ],
+        [
+          "velvety",
+          0.26433253288269043
+        ]
+      ],
+      "llm_next_b": null,
+      "cos_to_anchor": 0.6624
+    }
+  ]
+}

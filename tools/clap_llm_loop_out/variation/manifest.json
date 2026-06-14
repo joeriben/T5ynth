@@ -1,0 +1,270 @@
+{
+  "name": "variation",
+  "preset": "Creamy-Dreamy SA3",
+  "model": "stable-audio-3-small-music",
+  "duration_s": 11.0,
+  "steps": 8,
+  "cfg": 1.0,
+  "seed": 2128708858,
+  "magnitude": 1.0,
+  "noise_sigma": 0.0,
+  "injection_mode": "linear",
+  "init_noise": 0.5,
+  "topk": 5,
+  "max_new_tokens": 64,
+  "header_a": "creamy cream, birds chirping",
+  "header_b": "dreamy dream",
+  "alpha0": 0.005229949951172,
+  "target": "a deep slow underwater bell",
+  "llm": "qwen2.5-1.5b-instruct",
+  "iters": [
+    {
+      "iter": 1,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream",
+      "alpha": 0.0052,
+      "init_noise": null,
+      "heard": [
+        [
+          "dreamy",
+          0.48748719692230225
+        ],
+        [
+          "mellow",
+          0.4397675096988678
+        ],
+        [
+          "crystalline",
+          0.42955976724624634
+        ],
+        [
+          "delicate",
+          0.3939686715602875
+        ],
+        [
+          "cold",
+          0.35485947132110596
+        ]
+      ],
+      "llm_next_b": "moonlit moon",
+      "cos_to_anchor": 1.0
+    },
+    {
+      "iter": 2,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "moonlit moon",
+      "alpha": 0.0052,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.4372060000896454
+        ],
+        [
+          "mellow",
+          0.38876956701278687
+        ],
+        [
+          "delicate",
+          0.3677016496658325
+        ],
+        [
+          "crystalline",
+          0.338320791721344
+        ],
+        [
+          "glittering",
+          0.3300020694732666
+        ]
+      ],
+      "llm_next_b": "silver shimmer",
+      "cos_to_anchor": 0.8836
+    },
+    {
+      "iter": 3,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "silver shimmer",
+      "alpha": 0.0052,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.474668025970459
+        ],
+        [
+          "mellow",
+          0.46512579917907715
+        ],
+        [
+          "glittering",
+          0.3754894435405731
+        ],
+        [
+          "gloomy",
+          0.37108293175697327
+        ],
+        [
+          "delicate",
+          0.3506833016872406
+        ]
+      ],
+      "llm_next_b": "moonlit mist",
+      "cos_to_anchor": 0.8585
+    },
+    {
+      "iter": 4,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "moonlit mist",
+      "alpha": 0.0052,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.49578550457954407
+        ],
+        [
+          "crystalline",
+          0.4560742974281311
+        ],
+        [
+          "glassy",
+          0.4350585639476776
+        ],
+        [
+          "sparkly",
+          0.38310983777046204
+        ],
+        [
+          "mellow",
+          0.3748495876789093
+        ]
+      ],
+      "llm_next_b": "shimmering dewdrops",
+      "cos_to_anchor": 0.9106
+    },
+    {
+      "iter": 5,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "shimmering dewdrops",
+      "alpha": 0.0052,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "crystalline",
+          0.4615241289138794
+        ],
+        [
+          "dreamy",
+          0.4529702663421631
+        ],
+        [
+          "mellow",
+          0.40868043899536133
+        ],
+        [
+          "glassy",
+          0.40248069167137146
+        ],
+        [
+          "delicate",
+          0.38236162066459656
+        ]
+      ],
+      "llm_next_b": "twinkling moonbeams",
+      "cos_to_anchor": 0.9177
+    },
+    {
+      "iter": 6,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "twinkling moonbeams",
+      "alpha": 0.0052,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.47329118847846985
+        ],
+        [
+          "mellow",
+          0.3923681080341339
+        ],
+        [
+          "crystalline",
+          0.3900220990180969
+        ],
+        [
+          "delicate",
+          0.3771677017211914
+        ],
+        [
+          "glassy",
+          0.33689743280410767
+        ]
+      ],
+      "llm_next_b": "moonlit dewdrops",
+      "cos_to_anchor": 0.9061
+    },
+    {
+      "iter": 7,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "moonlit dewdrops",
+      "alpha": 0.0052,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.4673630893230438
+        ],
+        [
+          "crystalline",
+          0.44750893115997314
+        ],
+        [
+          "glassy",
+          0.3841750919818878
+        ],
+        [
+          "mellow",
+          0.3823103904724121
+        ],
+        [
+          "delicate",
+          0.3717247247695923
+        ]
+      ],
+      "llm_next_b": "starlit mist",
+      "cos_to_anchor": 0.9046
+    },
+    {
+      "iter": 8,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "starlit mist",
+      "alpha": 0.0052,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.44748371839523315
+        ],
+        [
+          "crystalline",
+          0.4289274215698242
+        ],
+        [
+          "mellow",
+          0.40605980157852173
+        ],
+        [
+          "glassy",
+          0.3800763487815857
+        ],
+        [
+          "delicate",
+          0.3737035393714905
+        ]
+      ],
+      "llm_next_b": null,
+      "cos_to_anchor": 0.8984
+    }
+  ]
+}

@@ -140,6 +140,23 @@ class PipeClient:
 
         return {"audio": audio, "sample_rate": sr, "seed": seed, "elapsed_ms": elapsed_ms}
 
+    def request_text(self, payload: dict) -> str:
+        """Send a request and read a TEXT frame (\\x03 + uint32 length + UTF-8),
+        as emitted by the backend's ``translate`` / ``interpret`` modes. Mirrors
+        request() but for the text-result status byte instead of audio (\\x01)."""
+        data = (json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8")
+        self.stdin.write(data)
+        self.stdin.flush()
+
+        head = self._read_exact(1)
+        if head == b"\x00":
+            n = struct.unpack("<I", self._read_exact(4))[0]
+            raise PipeProtocolError(self._read_exact(n).decode("utf-8", "replace"))
+        if head != b"\x03":
+            raise PipeProtocolError(f"Unexpected text response byte: {head!r}")
+        n = struct.unpack("<I", self._read_exact(4))[0]
+        return self._read_exact(n).decode("utf-8", "replace")
+
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
