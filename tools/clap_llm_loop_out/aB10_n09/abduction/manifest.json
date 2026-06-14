@@ -1,0 +1,270 @@
+{
+  "name": "abduction",
+  "preset": "Creamy-Dreamy SA3",
+  "model": "stable-audio-3-small-music",
+  "duration_s": 11.0,
+  "steps": 8,
+  "cfg": 1.0,
+  "seed": 2128708858,
+  "magnitude": 1.0,
+  "noise_sigma": 0.0,
+  "injection_mode": "linear",
+  "init_noise": 0.9,
+  "topk": 5,
+  "max_new_tokens": 64,
+  "header_a": "creamy cream, birds chirping",
+  "header_b": "dreamy dream",
+  "alpha0": 1.0,
+  "target": "a deep slow underwater bell",
+  "llm": "qwen2.5-1.5b-instruct",
+  "iters": [
+    {
+      "iter": 1,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream",
+      "alpha": 1.0,
+      "init_noise": null,
+      "heard": [
+        [
+          "dreamy",
+          0.4663303792476654
+        ],
+        [
+          "crystalline",
+          0.4405406713485718
+        ],
+        [
+          "delicate",
+          0.41323381662368774
+        ],
+        [
+          "mellow",
+          0.39208924770355225
+        ],
+        [
+          "glassy",
+          0.3796389698982239
+        ]
+      ],
+      "llm_next_b": "A whispering waterfall at dawn through misty pine forests.",
+      "cos_to_anchor": 1.0
+    },
+    {
+      "iter": 2,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A whispering waterfall at dawn through misty pine forests.",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "crystalline",
+          0.5045108199119568
+        ],
+        [
+          "dreamy",
+          0.4437108635902405
+        ],
+        [
+          "glassy",
+          0.4220946133136749
+        ],
+        [
+          "resonant",
+          0.3875765800476074
+        ],
+        [
+          "delicate",
+          0.33824998140335083
+        ]
+      ],
+      "llm_next_b": "A whispering waterfall at dawn through misty pine forests.",
+      "cos_to_anchor": 0.7175
+    },
+    {
+      "iter": 3,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A whispering waterfall at dawn through misty pine forests.",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "dreamy",
+          0.40770047903060913
+        ],
+        [
+          "crystalline",
+          0.40658605098724365
+        ],
+        [
+          "mellow",
+          0.3642091155052185
+        ],
+        [
+          "glassy",
+          0.3487050533294678
+        ],
+        [
+          "delicate",
+          0.32798999547958374
+        ]
+      ],
+      "llm_next_b": "A whispering waterfall at dawn through misty pine forests.",
+      "cos_to_anchor": 0.7852
+    },
+    {
+      "iter": 4,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A whispering waterfall at dawn through misty pine forests.",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "crystalline",
+          0.39864957332611084
+        ],
+        [
+          "dreamy",
+          0.3954564332962036
+        ],
+        [
+          "mellow",
+          0.3940407335758209
+        ],
+        [
+          "glassy",
+          0.3691762685775757
+        ],
+        [
+          "delicate",
+          0.33744025230407715
+        ]
+      ],
+      "llm_next_b": "A whispering waterfall at dawn through misty pine forests.",
+      "cos_to_anchor": 0.7981
+    },
+    {
+      "iter": 5,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A whispering waterfall at dawn through misty pine forests.",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "dreamy",
+          0.46927887201309204
+        ],
+        [
+          "crystalline",
+          0.4387185573577881
+        ],
+        [
+          "glassy",
+          0.397580087184906
+        ],
+        [
+          "mellow",
+          0.3913900554180145
+        ],
+        [
+          "delicate",
+          0.3503749370574951
+        ]
+      ],
+      "llm_next_b": "A whispering waterfall at dawn through misty pine forests.",
+      "cos_to_anchor": 0.7648
+    },
+    {
+      "iter": 6,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A whispering waterfall at dawn through misty pine forests.",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "crystalline",
+          0.441119909286499
+        ],
+        [
+          "dreamy",
+          0.40009427070617676
+        ],
+        [
+          "mellow",
+          0.3755177855491638
+        ],
+        [
+          "glassy",
+          0.3730941414833069
+        ],
+        [
+          "delicate",
+          0.34265244007110596
+        ]
+      ],
+      "llm_next_b": "A whispering waterfall at dawn through misty pine forests.",
+      "cos_to_anchor": 0.8134
+    },
+    {
+      "iter": 7,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A whispering waterfall at dawn through misty pine forests.",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "crystalline",
+          0.48545676469802856
+        ],
+        [
+          "glassy",
+          0.42830103635787964
+        ],
+        [
+          "dreamy",
+          0.40983888506889343
+        ],
+        [
+          "mellow",
+          0.3832702934741974
+        ],
+        [
+          "delicate",
+          0.3494402766227722
+        ]
+      ],
+      "llm_next_b": "A vintage phonograph playing wax records in a cozy attic.",
+      "cos_to_anchor": 0.7876
+    },
+    {
+      "iter": 8,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A vintage phonograph playing wax records in a cozy attic.",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "cozy",
+          0.2537572383880615
+        ],
+        [
+          "woody",
+          0.2534877061843872
+        ],
+        [
+          "delicate",
+          0.25214195251464844
+        ],
+        [
+          "percussive",
+          0.24864767491817474
+        ],
+        [
+          "tinny",
+          0.2426522672176361
+        ]
+      ],
+      "llm_next_b": null,
+      "cos_to_anchor": 0.3032
+    }
+  ]
+}

@@ -1,0 +1,270 @@
+{
+  "name": "variation",
+  "preset": "Creamy-Dreamy SA3",
+  "model": "stable-audio-3-small-music",
+  "duration_s": 11.0,
+  "steps": 8,
+  "cfg": 1.0,
+  "seed": 2128708858,
+  "magnitude": 1.0,
+  "noise_sigma": 0.0,
+  "injection_mode": "linear",
+  "init_noise": 0.9,
+  "topk": 5,
+  "max_new_tokens": 64,
+  "header_a": "creamy cream, birds chirping",
+  "header_b": "dreamy dream",
+  "alpha0": 1.0,
+  "target": "a deep slow underwater bell",
+  "llm": "qwen2.5-1.5b-instruct",
+  "iters": [
+    {
+      "iter": 1,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream",
+      "alpha": 1.0,
+      "init_noise": null,
+      "heard": [
+        [
+          "dreamy",
+          0.440657377243042
+        ],
+        [
+          "crystalline",
+          0.3702138364315033
+        ],
+        [
+          "delicate",
+          0.35090041160583496
+        ],
+        [
+          "sparkly",
+          0.3411664366722107
+        ],
+        [
+          "mellow",
+          0.3409694731235504
+        ]
+      ],
+      "llm_next_b": "shimmering stars",
+      "cos_to_anchor": 1.0
+    },
+    {
+      "iter": 2,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "shimmering stars",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.48218485713005066
+        ],
+        [
+          "dreamy",
+          0.46907806396484375
+        ],
+        [
+          "ethereal",
+          0.39721107482910156
+        ],
+        [
+          "crystalline",
+          0.3894859254360199
+        ],
+        [
+          "gloomy",
+          0.36871981620788574
+        ]
+      ],
+      "llm_next_b": "moonlit mist",
+      "cos_to_anchor": 0.6814
+    },
+    {
+      "iter": 3,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "moonlit mist",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.505000650882721
+        ],
+        [
+          "gloomy",
+          0.343696653842926
+        ],
+        [
+          "dreamy",
+          0.3182780146598816
+        ],
+        [
+          "delicate",
+          0.30908727645874023
+        ],
+        [
+          "glittering",
+          0.282831609249115
+        ]
+      ],
+      "llm_next_b": "whispering shadows",
+      "cos_to_anchor": 0.6728
+    },
+    {
+      "iter": 4,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "whispering shadows",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "dreamy",
+          0.5156540870666504
+        ],
+        [
+          "mellow",
+          0.4565495550632477
+        ],
+        [
+          "crystalline",
+          0.43173748254776
+        ],
+        [
+          "glassy",
+          0.40095093846321106
+        ],
+        [
+          "resonant",
+          0.3673219084739685
+        ]
+      ],
+      "llm_next_b": "moonlit whispers",
+      "cos_to_anchor": 0.6056
+    },
+    {
+      "iter": 5,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "moonlit whispers",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.4998069405555725
+        ],
+        [
+          "dreamy",
+          0.44255685806274414
+        ],
+        [
+          "gloomy",
+          0.3471059203147888
+        ],
+        [
+          "delicate",
+          0.34504806995391846
+        ],
+        [
+          "cold",
+          0.3420707583427429
+        ]
+      ],
+      "llm_next_b": "whispers through mist",
+      "cos_to_anchor": 0.7285
+    },
+    {
+      "iter": 6,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "whispers through mist",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "crystalline",
+          0.36992135643959045
+        ],
+        [
+          "dreamy",
+          0.35616153478622437
+        ],
+        [
+          "ethereal",
+          0.35480594635009766
+        ],
+        [
+          "shadowy",
+          0.34012454748153687
+        ],
+        [
+          "granular",
+          0.2874896228313446
+        ]
+      ],
+      "llm_next_b": "moonlit paths under moonlight",
+      "cos_to_anchor": 0.65
+    },
+    {
+      "iter": 7,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "moonlit paths under moonlight",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.4242890477180481
+        ],
+        [
+          "dreamy",
+          0.3104668855667114
+        ],
+        [
+          "gloomy",
+          0.2758101224899292
+        ],
+        [
+          "clear",
+          0.2564893960952759
+        ],
+        [
+          "bell-like",
+          0.24816709756851196
+        ]
+      ],
+      "llm_next_b": "whispering fog along ancient trails",
+      "cos_to_anchor": 0.6282
+    },
+    {
+      "iter": 8,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "whispering fog along ancient trails",
+      "alpha": 1.0,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "dreamy",
+          0.5206323862075806
+        ],
+        [
+          "resonant",
+          0.46559450030326843
+        ],
+        [
+          "crystalline",
+          0.44232046604156494
+        ],
+        [
+          "mellow",
+          0.43158096075057983
+        ],
+        [
+          "gaseous",
+          0.4145367741584778
+        ]
+      ],
+      "llm_next_b": null,
+      "cos_to_anchor": 0.5858
+    }
+  ]
+}

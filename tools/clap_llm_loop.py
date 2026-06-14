@@ -308,8 +308,12 @@ def main() -> int:
     ap.add_argument("--iters", type=int, default=8)
     ap.add_argument("--topk", type=int, default=5, help="CLAP tags handed to the LLM")
     ap.add_argument("--max-new", type=int, default=64, help="LLM max new tokens per prompt")
-    ap.add_argument("--init-noise", type=float, default=0.5,
-                    help="init_audio noise level (0=full carry, 1=text-only)")
+    ap.add_argument("--init-noise", type=float, default=0.9,
+                    help="init_audio noise level (0=full carry, 1=text-only). Default 0.9: "
+                         "measured (tools/diag_promptbite.py) that at 0.5 the carry DOMINATES "
+                         "and suppresses the prompt — every iteration/mode collapses onto the "
+                         "shared iter-1, so the interpreter is inaudible. 0.9 lets the words "
+                         "drive (signal-continuity vs promptability is the tradeoff this dials).")
     ap.add_argument("--alpha", type=float, default=None,
                     help="override the preset blend toward the interpreter pole B: "
                          "+1=pure B, +0.8≈0.9·B+0.1·A, 0=50/50, -1=pure A. The preset's "
