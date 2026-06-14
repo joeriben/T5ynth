@@ -1,7 +1,7 @@
 {
   "name": "run1_both",
   "vocab_size": 112,
-  "cfg": 6.0,
+  "cfg": 1.0,
   "init_noise": 0.5,
   "model": "stable-audio-3-small-music",
   "steps": 8,
@@ -18,217 +18,217 @@
       "init_noise": null,
       "heard": [
         [
-          "artificial",
-          0.4098626971244812
+          "brassy",
+          0.33546018600463867
         ],
         [
-          "metallic",
-          0.3900178074836731
+          "dark",
+          0.20906531810760498
         ],
         [
-          "digital",
-          0.37242791056632996
+          "heavy",
+          0.19512271881103516
         ]
       ],
       "cos_to_anchor": 1.0
     },
     {
       "iter": 2,
-      "prompt_a": "artificial, metallic, digital",
-      "prompt_b": "artificial, metallic, digital",
+      "prompt_a": "brassy, dark, heavy",
+      "prompt_b": "brassy, dark, heavy",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard": [
         [
-          "robotic",
-          0.47687649726867676
-        ],
-        [
-          "metallic",
-          0.45765602588653564
+          "brassy",
+          0.3705292344093323
         ],
         [
           "artificial",
-          0.44388192892074585
+          0.2768603265285492
+        ],
+        [
+          "huge",
+          0.2748045027256012
         ]
       ],
-      "cos_to_anchor": 0.6401
+      "cos_to_anchor": 0.7871
     },
     {
       "iter": 3,
-      "prompt_a": "robotic, metallic, artificial",
-      "prompt_b": "robotic, metallic, artificial",
+      "prompt_a": "brassy, artificial, huge",
+      "prompt_b": "brassy, artificial, huge",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard": [
         [
-          "robotic",
-          0.48463255167007446
-        ],
-        [
-          "glitchy",
-          0.4798784852027893
+          "brassy",
+          0.3555714190006256
         ],
         [
           "artificial",
-          0.45799189805984497
+          0.3474784791469574
+        ],
+        [
+          "brilliant",
+          0.3015620708465576
         ]
       ],
-      "cos_to_anchor": 0.597
+      "cos_to_anchor": 0.543
     },
     {
       "iter": 4,
-      "prompt_a": "robotic, glitchy, artificial",
-      "prompt_b": "robotic, glitchy, artificial",
+      "prompt_a": "brassy, artificial, brilliant",
+      "prompt_b": "brassy, artificial, brilliant",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard": [
         [
-          "glitchy",
-          0.540600597858429
-        ],
-        [
-          "abrasive",
-          0.4372304081916809
-        ],
-        [
-          "raspy",
-          0.4207857847213745
-        ]
-      ],
-      "cos_to_anchor": 0.4074
-    },
-    {
-      "iter": 5,
-      "prompt_a": "glitchy, abrasive, raspy",
-      "prompt_b": "glitchy, abrasive, raspy",
-      "alpha": 0.0,
-      "init_noise": 0.5,
-      "heard": [
-        [
-          "glitchy",
-          0.5111801624298096
+          "brassy",
+          0.36370980739593506
         ],
         [
           "artificial",
-          0.42018160223960876
+          0.33756205439567566
         ],
         [
-          "robotic",
-          0.3862555921077728
+          "brilliant",
+          0.307810515165329
         ]
       ],
-      "cos_to_anchor": 0.4642
+      "cos_to_anchor": 0.5125
+    },
+    {
+      "iter": 5,
+      "prompt_a": "brassy, artificial, brilliant",
+      "prompt_b": "brassy, artificial, brilliant",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "brassy",
+          0.33349335193634033
+        ],
+        [
+          "artificial",
+          0.31777799129486084
+        ],
+        [
+          "brilliant",
+          0.2593609690666199
+        ]
+      ],
+      "cos_to_anchor": 0.645
     },
     {
       "iter": 6,
-      "prompt_a": "glitchy, artificial, robotic",
-      "prompt_b": "glitchy, artificial, robotic",
+      "prompt_a": "brassy, artificial, brilliant",
+      "prompt_b": "brassy, artificial, brilliant",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard": [
         [
-          "glitchy",
-          0.5981041789054871
+          "brassy",
+          0.3710845708847046
         ],
         [
-          "gritty",
-          0.43644219636917114
+          "artificial",
+          0.33116239309310913
         ],
         [
-          "abrasive",
-          0.3962440490722656
+          "brilliant",
+          0.29411259293556213
         ]
       ],
-      "cos_to_anchor": 0.3731
+      "cos_to_anchor": 0.6344
     },
     {
       "iter": 7,
-      "prompt_a": "glitchy, gritty, abrasive",
-      "prompt_b": "glitchy, gritty, abrasive",
+      "prompt_a": "brassy, artificial, brilliant",
+      "prompt_b": "brassy, artificial, brilliant",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard": [
         [
-          "glitchy",
-          0.5430439710617065
+          "brassy",
+          0.37153518199920654
         ],
         [
-          "abrasive",
-          0.45834416151046753
+          "artificial",
+          0.29599499702453613
         ],
         [
-          "scratchy",
-          0.44175148010253906
+          "huge",
+          0.2807994484901428
         ]
       ],
-      "cos_to_anchor": 0.2351
+      "cos_to_anchor": 0.6253
     },
     {
       "iter": 8,
-      "prompt_a": "glitchy, abrasive, scratchy",
-      "prompt_b": "glitchy, abrasive, scratchy",
+      "prompt_a": "brassy, artificial, huge",
+      "prompt_b": "brassy, artificial, huge",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard": [
         [
-          "glitchy",
-          0.4590744376182556
+          "brassy",
+          0.3925631642341614
         ],
         [
-          "scratchy",
-          0.42971187829971313
+          "artificial",
+          0.3913062810897827
         ],
         [
-          "abrasive",
-          0.3833669424057007
+          "brilliant",
+          0.33665257692337036
         ]
       ],
-      "cos_to_anchor": 0.2548
+      "cos_to_anchor": 0.5439
     },
     {
       "iter": 9,
-      "prompt_a": "glitchy, scratchy, abrasive",
-      "prompt_b": "glitchy, scratchy, abrasive",
+      "prompt_a": "brassy, artificial, brilliant",
+      "prompt_b": "brassy, artificial, brilliant",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard": [
         [
-          "glitchy",
-          0.4527616798877716
+          "brassy",
+          0.33364608883857727
         ],
         [
-          "abrasive",
-          0.36355212330818176
+          "artificial",
+          0.3167876601219177
         ],
         [
-          "gritty",
-          0.34725990891456604
+          "brilliant",
+          0.2676050066947937
         ]
       ],
-      "cos_to_anchor": 0.3663
+      "cos_to_anchor": 0.6072
     },
     {
       "iter": 10,
-      "prompt_a": "glitchy, abrasive, gritty",
-      "prompt_b": "glitchy, abrasive, gritty",
+      "prompt_a": "brassy, artificial, brilliant",
+      "prompt_b": "brassy, artificial, brilliant",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard": [
         [
-          "glitchy",
-          0.5356744527816772
+          "brassy",
+          0.38009241223335266
         ],
         [
-          "raspy",
-          0.4712129831314087
+          "artificial",
+          0.33263009786605835
         ],
         [
-          "distorted",
-          0.46689680218696594
+          "steely",
+          0.299865186214447
         ]
       ],
-      "cos_to_anchor": 0.3393
+      "cos_to_anchor": 0.6184
     }
   ]
 }

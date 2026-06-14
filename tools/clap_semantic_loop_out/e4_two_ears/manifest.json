@@ -1,7 +1,7 @@
 {
   "name": "e4_two_ears",
   "vocab_size": 112,
-  "cfg": 6.0,
+  "cfg": 1.0,
   "init_noise": 0.5,
   "model": "stable-audio-3-small-music",
   "steps": 8,
@@ -18,357 +18,357 @@
       "init_noise": null,
       "heard_unfused": [
         [
-          "artificial",
-          0.4098626971244812
+          "brassy",
+          0.33546018600463867
         ],
         [
-          "metallic",
-          0.3900178074836731
+          "dark",
+          0.20906531810760498
         ],
         [
-          "digital",
-          0.37242791056632996
+          "heavy",
+          0.19512271881103516
         ]
       ],
       "heard_music": [
         [
-          "synthetic",
-          0.4390498995780945
+          "brassy",
+          0.5318498015403748
         ],
         [
-          "digital",
-          0.42748212814331055
+          "cinematic",
+          0.35833102464675903
         ],
         [
-          "harsh",
-          0.4129543900489807
+          "tinny",
+          0.3414955139160156
         ]
       ],
       "cos_to_anchor": 1.0
     },
     {
       "iter": 2,
-      "prompt_a": "artificial",
-      "prompt_b": "synthetic",
+      "prompt_a": "brassy",
+      "prompt_b": "brassy",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard_unfused": [
         [
-          "clear",
-          0.3659132719039917
+          "brassy",
+          0.37514498829841614
         ],
         [
-          "lush",
-          0.3416633605957031
+          "abrasive",
+          0.32130560278892517
         ],
         [
-          "icy",
-          0.2869220972061157
+          "artificial",
+          0.3041316866874695
         ]
       ],
       "heard_music": [
         [
-          "saturated",
-          0.48746752738952637
+          "brassy",
+          0.5090099573135376
         ],
         [
-          "muddy",
-          0.4705800712108612
+          "cinematic",
+          0.4198637902736664
         ],
         [
-          "chrome",
-          0.4681592285633087
+          "tinny",
+          0.2999122142791748
         ]
       ],
-      "cos_to_anchor": 0.6162
+      "cos_to_anchor": 0.8114
     },
     {
       "iter": 3,
-      "prompt_a": "clear",
-      "prompt_b": "saturated",
+      "prompt_a": "brassy",
+      "prompt_b": "brassy",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard_unfused": [
         [
-          "lush",
-          0.29971352219581604
+          "brassy",
+          0.43222928047180176
         ],
         [
-          "cold",
-          0.2969306409358978
+          "abrasive",
+          0.3300071954727173
         ],
         [
-          "gloomy",
-          0.2846936583518982
+          "huge",
+          0.3211112916469574
         ]
       ],
       "heard_music": [
         [
-          "saturated",
-          0.47736772894859314
+          "brassy",
+          0.4751228988170624
         ],
         [
-          "boomy",
-          0.4471989870071411
+          "cinematic",
+          0.4467296302318573
         ],
         [
-          "airy",
-          0.4414796233177185
+          "sterile",
+          0.3321595788002014
         ]
       ],
-      "cos_to_anchor": 0.5338
+      "cos_to_anchor": 0.7115
     },
     {
       "iter": 4,
-      "prompt_a": "lush",
-      "prompt_b": "saturated",
+      "prompt_a": "brassy",
+      "prompt_b": "brassy",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard_unfused": [
         [
-          "gloomy",
-          0.3440132141113281
-        ],
-        [
           "clear",
-          0.31706440448760986
-        ],
-        [
-          "digital",
-          0.3063433766365051
-        ]
-      ],
-      "heard_music": [
-        [
-          "digital",
-          0.41545796394348145
+          0.30228057503700256
         ],
         [
           "brassy",
-          0.40817296504974365
+          0.29244089126586914
         ],
         [
-          "raspy",
-          0.380847692489624
+          "brilliant",
+          0.27292031049728394
         ]
       ],
-      "cos_to_anchor": 0.6345
+      "heard_music": [
+        [
+          "woody",
+          0.41030269861221313
+        ],
+        [
+          "cinematic",
+          0.40237563848495483
+        ],
+        [
+          "sterile",
+          0.3959508538246155
+        ]
+      ],
+      "cos_to_anchor": 0.5054
     },
     {
       "iter": 5,
-      "prompt_a": "gloomy",
-      "prompt_b": "digital",
+      "prompt_a": "clear",
+      "prompt_b": "woody",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard_unfused": [
         [
+          "brassy",
+          0.2547449469566345
+        ],
+        [
           "clear",
-          0.3487558960914612
+          0.2536941170692444
         ],
         [
-          "lush",
-          0.3227260708808899
-        ],
-        [
-          "icy",
-          0.30936068296432495
+          "mellow",
+          0.24061685800552368
         ]
       ],
       "heard_music": [
         [
-          "glittering",
-          0.4548642933368683
-        ],
-        [
-          "warm",
-          0.4547625482082367
+          "sterile",
+          0.35195598006248474
         ],
         [
           "clean",
-          0.42256104946136475
+          0.3517839312553406
+        ],
+        [
+          "brilliant",
+          0.33840489387512207
         ]
       ],
-      "cos_to_anchor": 0.5577
+      "cos_to_anchor": 0.6588
     },
     {
       "iter": 6,
-      "prompt_a": "clear",
-      "prompt_b": "glittering",
+      "prompt_a": "brassy",
+      "prompt_b": "sterile",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard_unfused": [
         [
-          "clear",
-          0.39868342876434326
+          "brassy",
+          0.34772050380706787
         ],
         [
-          "mellow",
-          0.38733237981796265
+          "round",
+          0.30988889932632446
         ],
         [
-          "gloomy",
-          0.37865328788757324
+          "brilliant",
+          0.3007263243198395
         ]
       ],
       "heard_music": [
         [
-          "warm",
-          0.43371397256851196
+          "brilliant",
+          0.3733143210411072
         ],
         [
-          "clean",
-          0.4291978180408478
+          "sterile",
+          0.3550035059452057
         ],
         [
-          "glittering",
-          0.3974074423313141
+          "woody",
+          0.34909963607788086
         ]
       ],
-      "cos_to_anchor": 0.3674
+      "cos_to_anchor": 0.559
     },
     {
       "iter": 7,
-      "prompt_a": "clear",
-      "prompt_b": "warm",
+      "prompt_a": "brassy",
+      "prompt_b": "brilliant",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard_unfused": [
         [
-          "acoustic",
-          0.40256279706954956
+          "brassy",
+          0.37763693928718567
         ],
         [
-          "clear",
-          0.32172977924346924
+          "artificial",
+          0.3370841145515442
         ],
         [
-          "mellow",
-          0.2999255657196045
+          "brilliant",
+          0.30374038219451904
         ]
       ],
       "heard_music": [
         [
-          "acoustic",
-          0.5064948797225952
+          "brassy",
+          0.34594476222991943
         ],
         [
-          "mellow",
-          0.3871786296367645
+          "brilliant",
+          0.3218933045864105
         ],
         [
-          "glittering",
-          0.37386682629585266
+          "raspy",
+          0.3164416551589966
         ]
       ],
-      "cos_to_anchor": 0.474
+      "cos_to_anchor": 0.5784
     },
     {
       "iter": 8,
-      "prompt_a": "acoustic",
-      "prompt_b": "acoustic",
+      "prompt_a": "brassy",
+      "prompt_b": "brassy",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard_unfused": [
         [
-          "acoustic",
-          0.34835004806518555
+          "brassy",
+          0.36834368109703064
         ],
         [
-          "clear",
-          0.3338016867637634
+          "artificial",
+          0.343383252620697
         ],
         [
-          "mellow",
-          0.3277374505996704
+          "brilliant",
+          0.2825249433517456
         ]
       ],
       "heard_music": [
         [
-          "acoustic",
-          0.49189093708992004
+          "brassy",
+          0.3899052143096924
         ],
         [
-          "glittering",
-          0.4012863337993622
+          "raspy",
+          0.3309125304222107
         ],
         [
-          "warm",
-          0.3620801568031311
+          "brilliant",
+          0.3120049834251404
         ]
       ],
-      "cos_to_anchor": 0.4171
+      "cos_to_anchor": 0.5836
     },
     {
       "iter": 9,
-      "prompt_a": "acoustic",
-      "prompt_b": "acoustic",
+      "prompt_a": "brassy",
+      "prompt_b": "brassy",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard_unfused": [
         [
-          "acoustic",
-          0.33560553193092346
+          "brassy",
+          0.3380931615829468
         ],
         [
-          "clear",
-          0.334770143032074
+          "artificial",
+          0.3236624598503113
         ],
         [
-          "mellow",
-          0.31218791007995605
+          "brilliant",
+          0.30281758308410645
         ]
       ],
       "heard_music": [
         [
-          "acoustic",
-          0.4592222571372986
+          "brassy",
+          0.3589971363544464
         ],
         [
-          "glittering",
-          0.37374380230903625
+          "shimmering",
+          0.3386911153793335
         ],
         [
-          "warm",
-          0.3630821108818054
+          "sterile",
+          0.3281458616256714
         ]
       ],
-      "cos_to_anchor": 0.4627
+      "cos_to_anchor": 0.5285
     },
     {
       "iter": 10,
-      "prompt_a": "acoustic",
-      "prompt_b": "acoustic",
+      "prompt_a": "brassy",
+      "prompt_b": "brassy",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard_unfused": [
         [
-          "acoustic",
-          0.3251968026161194
+          "brassy",
+          0.3592069149017334
         ],
         [
-          "clear",
-          0.30826523900032043
+          "artificial",
+          0.3503003418445587
         ],
         [
-          "mellow",
-          0.29555168747901917
+          "brilliant",
+          0.2928957939147949
         ]
       ],
       "heard_music": [
         [
-          "acoustic",
-          0.49420812726020813
+          "brassy",
+          0.372080534696579
         ],
         [
-          "glittering",
-          0.3994613289833069
+          "sterile",
+          0.3449426293373108
         ],
         [
-          "mellow",
-          0.3963291049003601
+          "brilliant",
+          0.3410208821296692
         ]
       ],
-      "cos_to_anchor": 0.4641
+      "cos_to_anchor": 0.5257
     }
   ]
 }

@@ -1,7 +1,7 @@
 {
   "name": "e3_counter",
   "vocab_size": 112,
-  "cfg": 6.0,
+  "cfg": 1.0,
   "init_noise": 0.5,
   "model": "stable-audio-3-small-music",
   "steps": 8,
@@ -18,217 +18,217 @@
       "init_noise": null,
       "heard": [
         [
-          "nasal",
-          -0.13041453063488007
+          "clangy",
+          -0.1767020970582962
         ],
         [
-          "soft",
-          -0.113106869161129
+          "swirling",
+          -0.16135326027870178
         ],
         [
-          "undulating",
-          -0.1108010858297348
+          "piercing",
+          -0.1595902144908905
         ]
       ],
       "cos_to_anchor": 1.0
     },
     {
       "iter": 2,
-      "prompt_a": "nasal, soft, undulating",
-      "prompt_b": "nasal, soft, undulating",
-      "alpha": 0.0,
-      "init_noise": 0.5,
-      "heard": [
-        [
-          "screaming",
-          -0.1282116025686264
-        ],
-        [
-          "nasal",
-          -0.10858609527349472
-        ],
-        [
-          "humming",
-          -0.056115567684173584
-        ]
-      ],
-      "cos_to_anchor": 0.6425
-    },
-    {
-      "iter": 3,
-      "prompt_a": "screaming, nasal, humming",
-      "prompt_b": "screaming, nasal, humming",
-      "alpha": 0.0,
-      "init_noise": 0.5,
-      "heard": [
-        [
-          "atmospheric",
-          -0.2297365814447403
-        ],
-        [
-          "soft",
-          -0.22126296162605286
-        ],
-        [
-          "ambient",
-          -0.17532199621200562
-        ]
-      ],
-      "cos_to_anchor": 0.178
-    },
-    {
-      "iter": 4,
-      "prompt_a": "atmospheric, soft, ambient",
-      "prompt_b": "atmospheric, soft, ambient",
+      "prompt_a": "clangy, swirling, piercing",
+      "prompt_b": "clangy, swirling, piercing",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard": [
         [
           "soft",
-          -0.25955143570899963
-        ],
-        [
-          "humming",
-          -0.1865140199661255
-        ],
-        [
-          "atmospheric",
-          -0.15902242064476013
-        ]
-      ],
-      "cos_to_anchor": 0.4293
-    },
-    {
-      "iter": 5,
-      "prompt_a": "soft, humming, atmospheric",
-      "prompt_b": "soft, humming, atmospheric",
-      "alpha": 0.0,
-      "init_noise": 0.5,
-      "heard": [
-        [
-          "soft",
-          -0.20240020751953125
-        ],
-        [
-          "nasal",
-          -0.19482474029064178
-        ],
-        [
-          "throbbing",
-          -0.16405801475048065
-        ]
-      ],
-      "cos_to_anchor": 0.6488
-    },
-    {
-      "iter": 6,
-      "prompt_a": "soft, nasal, throbbing",
-      "prompt_b": "soft, nasal, throbbing",
-      "alpha": 0.0,
-      "init_noise": 0.5,
-      "heard": [
-        [
-          "sharp",
-          -0.2072392851114273
-        ],
-        [
-          "gentle",
-          -0.1916791796684265
-        ],
-        [
-          "soft",
-          -0.16727638244628906
-        ]
-      ],
-      "cos_to_anchor": 0.3768
-    },
-    {
-      "iter": 7,
-      "prompt_a": "sharp, gentle, soft",
-      "prompt_b": "sharp, gentle, soft",
-      "alpha": 0.0,
-      "init_noise": 0.5,
-      "heard": [
-        [
-          "atmospheric",
-          -0.1727263629436493
-        ],
-        [
-          "humming",
-          -0.13749167323112488
-        ],
-        [
-          "nasal",
-          -0.12918904423713684
-        ]
-      ],
-      "cos_to_anchor": 0.4634
-    },
-    {
-      "iter": 8,
-      "prompt_a": "atmospheric, humming, nasal",
-      "prompt_b": "atmospheric, humming, nasal",
-      "alpha": 0.0,
-      "init_noise": 0.5,
-      "heard": [
-        [
-          "gentle",
-          -0.2736780643463135
-        ],
-        [
-          "wobbling",
-          -0.26444005966186523
-        ],
-        [
-          "sharp",
-          -0.2322836071252823
-        ]
-      ],
-      "cos_to_anchor": 0.327
-    },
-    {
-      "iter": 9,
-      "prompt_a": "gentle, wobbling, sharp",
-      "prompt_b": "gentle, wobbling, sharp",
-      "alpha": 0.0,
-      "init_noise": 0.5,
-      "heard": [
-        [
-          "soft",
-          -0.3500775992870331
+          -0.16796758770942688
         ],
         [
           "smooth",
-          -0.32911181449890137
+          -0.10773470997810364
         ],
         [
-          "dim",
-          -0.18533608317375183
+          "acoustic",
+          -0.0829949602484703
         ]
       ],
-      "cos_to_anchor": 0.4371
+      "cos_to_anchor": 0.4767
     },
     {
-      "iter": 10,
-      "prompt_a": "soft, smooth, dim",
-      "prompt_b": "soft, smooth, dim",
+      "iter": 3,
+      "prompt_a": "soft, smooth, acoustic",
+      "prompt_b": "soft, smooth, acoustic",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "pulsing",
+          -0.1682681441307068
+        ],
+        [
+          "screaming",
+          -0.15644197165966034
+        ],
+        [
+          "nasal",
+          -0.15143820643424988
+        ]
+      ],
+      "cos_to_anchor": 0.5033
+    },
+    {
+      "iter": 4,
+      "prompt_a": "pulsing, screaming, nasal",
+      "prompt_b": "pulsing, screaming, nasal",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "droning",
+          -0.2490374743938446
+        ],
+        [
+          "soft",
+          -0.2470850646495819
+        ],
+        [
+          "pulsing",
+          -0.24258869886398315
+        ]
+      ],
+      "cos_to_anchor": 0.4
+    },
+    {
+      "iter": 5,
+      "prompt_a": "droning, soft, pulsing",
+      "prompt_b": "droning, soft, pulsing",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "nasal",
+          -0.19922438263893127
+        ],
+        [
+          "atmospheric",
+          -0.18810681998729706
+        ],
+        [
+          "soft",
+          -0.16316121816635132
+        ]
+      ],
+      "cos_to_anchor": 0.3589
+    },
+    {
+      "iter": 6,
+      "prompt_a": "nasal, atmospheric, soft",
+      "prompt_b": "nasal, atmospheric, soft",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "swirling",
+          -0.11642900109291077
+        ],
+        [
+          "nasal",
+          -0.09502847492694855
+        ],
+        [
+          "scratchy",
+          -0.09385474026203156
+        ]
+      ],
+      "cos_to_anchor": 0.5742
+    },
+    {
+      "iter": 7,
+      "prompt_a": "swirling, nasal, scratchy",
+      "prompt_b": "swirling, nasal, scratchy",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard": [
         [
           "soft",
-          -0.2699517011642456
+          -0.1460835188627243
+        ],
+        [
+          "humming",
+          -0.11847638338804245
         ],
         [
           "nasal",
-          -0.19901204109191895
+          -0.10141991078853607
+        ]
+      ],
+      "cos_to_anchor": 0.364
+    },
+    {
+      "iter": 8,
+      "prompt_a": "soft, humming, nasal",
+      "prompt_b": "soft, humming, nasal",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "soft",
+          -0.20874637365341187
         ],
         [
           "throbbing",
-          -0.18037523329257965
+          -0.2083044946193695
+        ],
+        [
+          "droning",
+          -0.20779281854629517
         ]
       ],
-      "cos_to_anchor": 0.6695
+      "cos_to_anchor": 0.3055
+    },
+    {
+      "iter": 9,
+      "prompt_a": "soft, throbbing, droning",
+      "prompt_b": "soft, throbbing, droning",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "soft",
+          -0.18058982491493225
+        ],
+        [
+          "atmospheric",
+          -0.16360589861869812
+        ],
+        [
+          "pulsing",
+          -0.1354900300502777
+        ]
+      ],
+      "cos_to_anchor": 0.4345
+    },
+    {
+      "iter": 10,
+      "prompt_a": "soft, atmospheric, pulsing",
+      "prompt_b": "soft, atmospheric, pulsing",
+      "alpha": 0.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "soft",
+          -0.18135058879852295
+        ],
+        [
+          "atmospheric",
+          -0.17145715653896332
+        ],
+        [
+          "pulsing",
+          -0.13593393564224243
+        ]
+      ],
+      "cos_to_anchor": 0.3257
     }
   ]
 }

@@ -1,7 +1,7 @@
 {
   "name": "e5_audioset",
   "vocab_size": 632,
-  "cfg": 6.0,
+  "cfg": 1.0,
   "init_noise": 0.5,
   "model": "stable-audio-3-small-music",
   "steps": 8,
@@ -18,217 +18,217 @@
       "init_noise": null,
       "heard": [
         [
-          "Dub",
-          0.4764343202114105
-        ],
-        [
-          "Dubstep",
-          0.46387824416160583
-        ],
-        [
           "Air horn, truck horn",
-          0.44940659403800964
+          0.45569896697998047
+        ],
+        [
+          "Dub",
+          0.4400409460067749
+        ],
+        [
+          "Reggae",
+          0.4262653887271881
         ]
       ],
       "cos_to_anchor": 1.0
     },
     {
       "iter": 2,
-      "prompt_a": "Dub, Dubstep, Air horn truck horn",
-      "prompt_b": "Dub, Dubstep, Air horn truck horn",
+      "prompt_a": "Air horn truck horn, Dub, Reggae",
+      "prompt_b": "Air horn truck horn, Dub, Reggae",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard": [
         [
           "Air horn, truck horn",
-          0.34353625774383545
+          0.4763841927051544
         ],
         [
-          "Reversing beeps",
-          0.33937209844589233
+          "Train horn",
+          0.4370402991771698
         ],
         [
-          "Breaking",
-          0.3230424225330353
+          "Dub",
+          0.39402538537979126
         ]
       ],
-      "cos_to_anchor": 0.5897
+      "cos_to_anchor": 0.7113
     },
     {
       "iter": 3,
-      "prompt_a": "Air horn truck horn, Reversing beeps, Breaking",
-      "prompt_b": "Air horn truck horn, Reversing beeps, Breaking",
+      "prompt_a": "Air horn truck horn, Train horn, Dub",
+      "prompt_b": "Air horn truck horn, Train horn, Dub",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard": [
         [
-          "Air horn, truck horn",
-          0.6659716963768005
-        ],
-        [
-          "Vehicle horn, car horn, honking",
-          0.6604139804840088
+          "Train whistle",
+          0.5982831120491028
         ],
         [
           "Train horn",
-          0.36951225996017456
+          0.582794725894928
+        ],
+        [
+          "Train",
+          0.4749055504798889
         ]
       ],
-      "cos_to_anchor": 0.4536
+      "cos_to_anchor": 0.4761
     },
     {
       "iter": 4,
-      "prompt_a": "Air horn truck horn, Vehicle horn car horn honking, Train horn",
-      "prompt_b": "Air horn truck horn, Vehicle horn car horn honking, Train horn",
+      "prompt_a": "Train whistle, Train horn, Train",
+      "prompt_b": "Train whistle, Train horn, Train",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard": [
         [
-          "Air horn, truck horn",
-          0.6092299222946167
+          "Train whistle",
+          0.5633299946784973
         ],
         [
-          "Vehicle horn, car horn, honking",
-          0.6012256741523743
+          "Train horn",
+          0.5621621608734131
         ],
         [
-          "Honk",
-          0.510061502456665
+          "Rail transport",
+          0.4420504570007324
         ]
       ],
-      "cos_to_anchor": 0.3783
+      "cos_to_anchor": 0.4487
     },
     {
       "iter": 5,
-      "prompt_a": "Air horn truck horn, Vehicle horn car horn honking, Honk",
-      "prompt_b": "Air horn truck horn, Vehicle horn car horn honking, Honk",
+      "prompt_a": "Train whistle, Train horn, Rail transport",
+      "prompt_b": "Train whistle, Train horn, Rail transport",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard": [
         [
-          "Air horn, truck horn",
-          0.5249783992767334
+          "Train horn",
+          0.5471024513244629
         ],
         [
-          "Honk",
-          0.4800211787223816
+          "Train whistle",
+          0.5223827958106995
         ],
         [
-          "Vehicle horn, car horn, honking",
-          0.4320521652698517
+          "Steam whistle",
+          0.46553507447242737
         ]
       ],
-      "cos_to_anchor": 0.4464
+      "cos_to_anchor": 0.2382
     },
     {
       "iter": 6,
-      "prompt_a": "Air horn truck horn, Honk, Vehicle horn car horn honking",
-      "prompt_b": "Air horn truck horn, Honk, Vehicle horn car horn honking",
+      "prompt_a": "Train horn, Train whistle, Steam whistle",
+      "prompt_b": "Train horn, Train whistle, Steam whistle",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard": [
         [
-          "Air horn, truck horn",
-          0.5286566019058228
-        ],
-        [
-          "Train whistle",
-          0.5205584168434143
-        ],
-        [
           "Train horn",
-          0.47875696420669556
+          0.4621245265007019
+        ],
+        [
+          "Tire squeal",
+          0.42508816719055176
+        ],
+        [
+          "Wail, moan",
+          0.41174665093421936
         ]
       ],
-      "cos_to_anchor": 0.4035
+      "cos_to_anchor": 0.2538
     },
     {
       "iter": 7,
-      "prompt_a": "Air horn truck horn, Train whistle, Train horn",
-      "prompt_b": "Air horn truck horn, Train whistle, Train horn",
+      "prompt_a": "Train horn, Tire squeal, Wail moan",
+      "prompt_b": "Train horn, Tire squeal, Wail moan",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard": [
         [
-          "Air horn, truck horn",
-          0.5641813278198242
-        ],
-        [
-          "Vehicle horn, car horn, honking",
-          0.5495349168777466
-        ],
-        [
           "Train horn",
-          0.45305368304252625
+          0.5237873792648315
+        ],
+        [
+          "Rail transport",
+          0.4581257104873657
+        ],
+        [
+          "Train whistle",
+          0.44121289253234863
         ]
       ],
-      "cos_to_anchor": 0.3807
+      "cos_to_anchor": 0.2469
     },
     {
       "iter": 8,
-      "prompt_a": "Air horn truck horn, Vehicle horn car horn honking, Train horn",
-      "prompt_b": "Air horn truck horn, Vehicle horn car horn honking, Train horn",
+      "prompt_a": "Train horn, Rail transport, Train whistle",
+      "prompt_b": "Train horn, Rail transport, Train whistle",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard": [
         [
-          "Train whistle",
-          0.5231207609176636
+          "Wail, moan",
+          0.4571308493614197
         ],
         [
-          "Air horn, truck horn",
-          0.5219312310218811
+          "Tire squeal",
+          0.45485466718673706
         ],
         [
           "Train horn",
-          0.4865373373031616
+          0.4397398829460144
         ]
       ],
-      "cos_to_anchor": 0.3675
+      "cos_to_anchor": 0.2406
     },
     {
       "iter": 9,
-      "prompt_a": "Train whistle, Air horn truck horn, Train horn",
-      "prompt_b": "Train whistle, Air horn truck horn, Train horn",
+      "prompt_a": "Wail moan, Tire squeal, Train horn",
+      "prompt_b": "Wail moan, Tire squeal, Train horn",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard": [
         [
-          "Train whistle",
-          0.5338342785835266
-        ],
-        [
           "Train horn",
-          0.5021411180496216
+          0.5043637752532959
         ],
         [
-          "Air horn, truck horn",
-          0.4941588044166565
+          "Tire squeal",
+          0.4664294123649597
+        ],
+        [
+          "Train whistle",
+          0.43998244404792786
         ]
       ],
-      "cos_to_anchor": 0.3627
+      "cos_to_anchor": 0.2588
     },
     {
       "iter": 10,
-      "prompt_a": "Train whistle, Train horn, Air horn truck horn",
-      "prompt_b": "Train whistle, Train horn, Air horn truck horn",
+      "prompt_a": "Train horn, Tire squeal, Train whistle",
+      "prompt_b": "Train horn, Tire squeal, Train whistle",
       "alpha": 0.0,
       "init_noise": 0.5,
       "heard": [
         [
-          "Train whistle",
-          0.5049113035202026
-        ],
-        [
-          "Air horn, truck horn",
-          0.48893821239471436
-        ],
-        [
           "Train horn",
-          0.46524107456207275
+          0.5126670002937317
+        ],
+        [
+          "Train whistle",
+          0.4397065043449402
+        ],
+        [
+          "Rail transport",
+          0.4332816004753113
         ]
       ],
-      "cos_to_anchor": 0.3786
+      "cos_to_anchor": 0.2927
     }
   ]
 }

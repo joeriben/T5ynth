@@ -262,8 +262,10 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--iters", type=int, default=10)
     ap.add_argument("--topk", type=int, default=3)
-    ap.add_argument("--cfg", type=float, default=6.0,
-                    help="CFG: high enough that the evolving PROMPT actually steers")
+    ap.add_argument("--cfg", type=float, default=1.0,
+                    help="CFG. SA3 Small Music is TUNED for CFG=1.0 (pingpong sampler, "
+                         "per its model card + the plugin's per-model default + the "
+                         "homeostasis harness); higher over-guides and saturates. Keep 1.0 for SA3.")
     ap.add_argument("--init-noise", type=float, default=0.5,
                     help="init_audio noise level (0=full carry, 1=text-only); 0.5 = both matter")
     ap.add_argument("--device", default="cpu", choices=["cpu", "mps", "cuda"])
