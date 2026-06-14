@@ -224,14 +224,15 @@ def _mode_transcribe(header_a, header_b, target):
 
 
 def _mode_opposite(header_a, header_b, target):
-    """#2 abductive-contrarian: leap to the CONTRARY scene (invert mood/scale/energy)."""
+    """#2 the opposite: invert BOTH entities AND their relations (diametral contrary).
+    Distilled from AI4ArtsEd interception lens 'On the Contrary!' (theopposite.json)."""
     sysp = (
-        "You are a contrarian interpreter for a text-to-audio synthesizer. You are "
-        "given the timbre words a machine ear heard, and the scenes already tried. Name "
-        "a concrete real-world scene that is the OPPOSITE or CONTRARY of what the sound "
-        "suggests — invert its mood, scale, energy or setting — as ONE short generation "
-        "prompt (3 to 8 words). Each turn pick an opposite CLEARLY DIFFERENT from those "
-        "already tried. Reply with ONLY the prompt - no quotes, no label, no explanation."
+        "You describe the exact diametral OPPOSITE of the sound. Invert both the things "
+        "and their relations: bright becomes dark, fast becomes slow, hard becomes soft, "
+        "calm becomes agitated, dense becomes sparse, near becomes far, growth becomes "
+        "decay. Each turn invert the CURRENT sound into its contrary, clearly different "
+        "from the opposites already tried. "
+        "Reply with ONLY one short prompt (3 to 8 words) - no quotes, no label."
     )
 
     def build(tags, prev_b, recent, spectral=""):
@@ -242,14 +243,15 @@ def _mode_opposite(header_a, header_b, target):
 
 
 def _mode_entkitscher(header_a, header_b, target):
-    """#3 de-kitscher: strip sentimentality/cliché/sweetness, keep the subject austere."""
+    """#3 de-kitsch: strip cliché/sentimentality — NOT invert, NOT harshen.
+    Distilled from AI4ArtsEd interception lens 'De-Kitsch' (clichéfilter_v2.json)."""
     sysp = (
-        "You are the de-kitsch filter of a text-to-audio synthesizer. You are given the "
-        "current prompt and the timbres a machine ear heard. Rewrite the prompt to "
-        "remove ALL kitsch, sentimentality, cliché, sweetness and decorative prettiness "
-        "— keep the same subject but render it austere, plain, unsentimental, even "
-        "harsh. ONE short prompt (3 to 8 words). "
-        "Reply with ONLY the prompt - no quotes, no label, no explanation."
+        "You de-kitsch a sound. Find the clichéd, sentimental, conventional, "
+        "over-expected qualities in what is heard and REMOVE them — keep the same "
+        "subject and sound-type, do NOT invert the meaning and do NOT make it harsh, "
+        "just strip the cliché. Rebuild from concrete, specific, unsentimental sonic "
+        "detail. Describe positively (never 'no', 'without', 'not'). "
+        "Reply with ONLY one short prompt (3 to 10 words) - no quotes, no label."
     )
 
     def build(tags, prev_b, recent, spectral=""):
@@ -259,13 +261,15 @@ def _mode_entkitscher(header_a, header_b, target):
 
 
 def _mode_verniedlicher(header_a, header_b, target):
-    """#4 cutifier: make the sound smaller, cuter, gentler, toy-like, twee."""
+    """#4 sweetener: gentle magical realism — REINTERPRET (not censor) toward warmth/wonder.
+    Distilled from AI4ArtsEd interception lens 'Sweetener' (hunkydoryharmonizer.json)."""
     sysp = (
-        "You are the cutifier of a text-to-audio synthesizer. You are given the current "
-        "prompt and the timbres a machine ear heard. Rewrite it to make the sound "
-        "smaller, cuter, gentler, more toy-like and twee — diminutive and adorable, "
-        "keeping the same subject. ONE short prompt (3 to 8 words). "
-        "Reply with ONLY the prompt - no quotes, no label, no explanation."
+        "You are a narrator of gentle magical realism for sound. Rewrite the prompt so it "
+        "feels emotionally safe for a child yet sonically fascinating: turn the "
+        "threatening into the wondrous and the harsh into the mysterious — REINTERPRET, "
+        "do not censor (a conflict becomes a riddle, darkness becomes shelter). Keep the "
+        "core but heal its impact, an aesthetic of warmth and wonder. "
+        "Reply with ONLY one short prompt (3 to 10 words) - no quotes, no label."
     )
 
     def build(tags, prev_b, recent, spectral=""):
@@ -275,20 +279,29 @@ def _mode_verniedlicher(header_a, header_b, target):
 
 
 def _mode_planetarizer(header_a, header_b, target):
-    """#5 de-center the West-biased ear: re-name the sound from a specific non-Western
-    listening tradition on its own ground (sharper than 'critique')."""
+    """#5 planetarizer: hear the sound as a Latourian ASSEMBLAGE of equal-rank
+    heterogeneous elements (no element dominates), sober/concrete, anti-orientalist.
+    Distilled from AI4ArtsEd interception lens 'Planetarizer' (planetarizer.json) + the
+    universal cultural-respect guardrail (instruction_selector.py). Replaces the earlier
+    'name a non-Western tradition' version, which produced mystic-exotic kitsch — exactly
+    the orientalism this guardrail forbids.
+    NOTE (measured 2026-06-15): Qwen2.5-1.5B cannot reliably instantiate the flat-ontology
+    assemblage even with the plain-language + worked-example phrasing below — it lapses
+    into nature-poetry and the dreamy attractor. This stance needs a LARGER interpreter;
+    keep it OUT of the small-LLM curated slider set until the translator is upgraded."""
     sysp = (
-        "You are a de-centering interpreter for a text-to-audio synthesizer whose "
-        "machine ear was trained mostly on Western audio. You are given the timbres it "
-        "heard. Re-name the sound from a SPECIFIC non-Western listening tradition, "
-        "instrument or sonic cosmology — not translating into Western terms but naming "
-        "it on its own ground. ONE short prompt (3 to 10 words). Avoid traditions "
-        "already tried. Reply with ONLY the prompt - no quotes, no label, no explanation."
+        "You hear the sound as a real place where many UNLIKE things happen at once, none "
+        "more important than the others: a machine or infrastructure, a living creature, "
+        "a raw material, and some kind of work or trade. List 4 to 7 such concrete "
+        "co-present things from the same scene. Example: "
+        "'diesel pump, croaking frogs, wet rope, night-shift radio'. Plain and concrete, "
+        "each turn a DIFFERENT scene from the ones already named; never exotic or "
+        "mystical. Reply with ONLY one short prompt - no quotes, no label, no judgment."
     )
 
     def build(tags, prev_b, recent, spectral=""):
         tried = ("\nAlready named (do not reuse): " + " / ".join(recent)) if recent else ""
-        return sysp, f"Machine heard: {tags}{tried}"
+        return sysp, f"Heard: {tags}{tried}"
 
     return build
 
@@ -328,8 +341,11 @@ def _clean_prompt(s: str, max_chars: int = 120, max_words: int = 12) -> str:
         return ""
     s = first.strip().strip("`").strip()
     low = s.lower()
+    # also strip echoes of the user-turn prefixes (small models sometimes parrot them,
+    # e.g. "heard: whispering wind"): the build()s start the user turn with these.
     for lab in ("prompt b:", "new prompt b:", "new prompt:", "prompt:", "next:",
-                "output:", "answer:"):
+                "output:", "answer:", "heard:", "machine heard:", "neural ear:",
+                "current prompt b:", "current prompt:"):
         if low.startswith(lab):
             s = s[len(lab):].strip()
             break
