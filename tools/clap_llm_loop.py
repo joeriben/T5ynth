@@ -310,6 +310,11 @@ def main() -> int:
     ap.add_argument("--max-new", type=int, default=64, help="LLM max new tokens per prompt")
     ap.add_argument("--init-noise", type=float, default=0.5,
                     help="init_audio noise level (0=full carry, 1=text-only)")
+    ap.add_argument("--alpha", type=float, default=None,
+                    help="override the preset blend toward the interpreter pole B: "
+                         "+1=pure B, +0.8≈0.9·B+0.1·A, 0=50/50, -1=pure A. The preset's "
+                         "near-0 alpha lets the fixed A anchor dominate; push toward B to "
+                         "hear what the LLM actually does.")
     ap.add_argument("--device", default="cpu", choices=["cpu", "mps", "cuda"],
                     help="device for CLAP (generation uses the backend default)")
     ap.add_argument("--llm-device", default="cpu", choices=["cpu", "mps", "cuda"],
@@ -328,6 +333,9 @@ def main() -> int:
     model, dur, steps, cfg, seed = p["model"], p["duration"], p["steps"], p["cfg"], p["seed"]
     magnitude, noise_sigma, injection = p["magnitude"], p["noise_sigma"], p["injection_mode"]
     preset_name = p["name"]
+    if args.alpha is not None:
+        alpha0 = args.alpha   # push the blend toward B so the interpreter pole drives the sound
+        log(f"alpha override: blend α={alpha0:+.3f} (preset was {p['alpha0']:+.3f})")
     if "stable-audio-3" not in model:
         log(f"ERROR: preset model '{model}' is not SA3 — the loop needs init_audio (SA3 only).")
         return 1

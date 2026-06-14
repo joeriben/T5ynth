@@ -1,0 +1,270 @@
+{
+  "name": "abduction",
+  "preset": "Creamy-Dreamy SA3",
+  "model": "stable-audio-3-small-music",
+  "duration_s": 11.0,
+  "steps": 8,
+  "cfg": 1.0,
+  "seed": 2128708858,
+  "magnitude": 1.0,
+  "noise_sigma": 0.0,
+  "injection_mode": "linear",
+  "init_noise": 0.5,
+  "topk": 5,
+  "max_new_tokens": 64,
+  "header_a": "creamy cream, birds chirping",
+  "header_b": "dreamy dream",
+  "alpha0": 1.0,
+  "target": "a deep slow underwater bell",
+  "llm": "qwen2.5-1.5b-instruct",
+  "iters": [
+    {
+      "iter": 1,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream",
+      "alpha": 1.0,
+      "init_noise": null,
+      "heard": [
+        [
+          "dreamy",
+          0.4891016185283661
+        ],
+        [
+          "crystalline",
+          0.4253937005996704
+        ],
+        [
+          "sparkly",
+          0.3973095715045929
+        ],
+        [
+          "mellow",
+          0.3833259046077728
+        ],
+        [
+          "delicate",
+          0.3766413629055023
+        ]
+      ],
+      "llm_next_b": "A child's breath on frost-covered windowpane at dawn.",
+      "cos_to_anchor": 1.0
+    },
+    {
+      "iter": 2,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A child's breath on frost-covered windowpane at dawn.",
+      "alpha": 1.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.5215535163879395
+        ],
+        [
+          "crystalline",
+          0.4411664605140686
+        ],
+        [
+          "mellow",
+          0.41711050271987915
+        ],
+        [
+          "glassy",
+          0.4118892252445221
+        ],
+        [
+          "shadowy",
+          0.38918933272361755
+        ]
+      ],
+      "llm_next_b": "A haunted library at midnight during a full moon.",
+      "cos_to_anchor": 0.9199
+    },
+    {
+      "iter": 3,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A haunted library at midnight during a full moon.",
+      "alpha": 1.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "mellow",
+          0.4493662118911743
+        ],
+        [
+          "dreamy",
+          0.4298613965511322
+        ],
+        [
+          "glittering",
+          0.3435380160808563
+        ],
+        [
+          "gloomy",
+          0.33255088329315186
+        ],
+        [
+          "delicate",
+          0.30710887908935547
+        ]
+      ],
+      "llm_next_b": "A vintage disco ball reflecting moonlight through misty windows at dusk.",
+      "cos_to_anchor": 0.8264
+    },
+    {
+      "iter": 4,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A vintage disco ball reflecting moonlight through misty windows at dusk.",
+      "alpha": 1.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.46204647421836853
+        ],
+        [
+          "mellow",
+          0.42806166410446167
+        ],
+        [
+          "glassy",
+          0.36935561895370483
+        ],
+        [
+          "delicate",
+          0.3639487326145172
+        ],
+        [
+          "glittering",
+          0.3594971299171448
+        ]
+      ],
+      "llm_next_b": "A child's bedroom at sunset",
+      "cos_to_anchor": 0.8352
+    },
+    {
+      "iter": 5,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A child's bedroom at sunset",
+      "alpha": 1.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.4789179563522339
+        ],
+        [
+          "mellow",
+          0.4167293906211853
+        ],
+        [
+          "glittering",
+          0.37865301966667175
+        ],
+        [
+          "sparkly",
+          0.35713499784469604
+        ],
+        [
+          "crystalline",
+          0.3505438566207886
+        ]
+      ],
+      "llm_next_b": "A child's bedroom at sunset, filled with fairy lights and soft moonlight.",
+      "cos_to_anchor": 0.8556
+    },
+    {
+      "iter": 6,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A child's bedroom at sunset, filled with fairy lights and soft moonlight.",
+      "alpha": 1.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "mellow",
+          0.4692392349243164
+        ],
+        [
+          "dreamy",
+          0.4351726770401001
+        ],
+        [
+          "glittering",
+          0.35943907499313354
+        ],
+        [
+          "gloomy",
+          0.34130266308784485
+        ],
+        [
+          "delicate",
+          0.3219497501850128
+        ]
+      ],
+      "llm_next_b": "A vintage disco ball reflecting moonlight through misty windows at dusk.",
+      "cos_to_anchor": 0.7885
+    },
+    {
+      "iter": 7,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A vintage disco ball reflecting moonlight through misty windows at dusk.",
+      "alpha": 1.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "mellow",
+          0.48009300231933594
+        ],
+        [
+          "dreamy",
+          0.42315202951431274
+        ],
+        [
+          "cold",
+          0.34547773003578186
+        ],
+        [
+          "delicate",
+          0.33937644958496094
+        ],
+        [
+          "crystalline",
+          0.33619436621665955
+        ]
+      ],
+      "llm_next_b": "A winter's night in a cozy, frost-covered cabin",
+      "cos_to_anchor": 0.7701
+    },
+    {
+      "iter": 8,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A winter's night in a cozy, frost-covered cabin",
+      "alpha": 1.0,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "mellow",
+          0.44728440046310425
+        ],
+        [
+          "dreamy",
+          0.38476455211639404
+        ],
+        [
+          "delicate",
+          0.3476066291332245
+        ],
+        [
+          "gloomy",
+          0.3161649703979492
+        ],
+        [
+          "glittering",
+          0.3110849857330322
+        ]
+      ],
+      "llm_next_b": null,
+      "cos_to_anchor": 0.6695
+    }
+  ]
+}

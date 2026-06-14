@@ -1,0 +1,270 @@
+{
+  "name": "abduction",
+  "preset": "Creamy-Dreamy SA3",
+  "model": "stable-audio-3-small-music",
+  "duration_s": 11.0,
+  "steps": 8,
+  "cfg": 1.0,
+  "seed": 2128708858,
+  "magnitude": 1.0,
+  "noise_sigma": 0.0,
+  "injection_mode": "linear",
+  "init_noise": 0.5,
+  "topk": 5,
+  "max_new_tokens": 64,
+  "header_a": "creamy cream, birds chirping",
+  "header_b": "dreamy dream",
+  "alpha0": 0.8,
+  "target": "a deep slow underwater bell",
+  "llm": "qwen2.5-1.5b-instruct",
+  "iters": [
+    {
+      "iter": 1,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream",
+      "alpha": 0.8,
+      "init_noise": null,
+      "heard": [
+        [
+          "dreamy",
+          0.5030055046081543
+        ],
+        [
+          "crystalline",
+          0.4254680573940277
+        ],
+        [
+          "mellow",
+          0.4199385941028595
+        ],
+        [
+          "delicate",
+          0.41477665305137634
+        ],
+        [
+          "gloomy",
+          0.4082099199295044
+        ]
+      ],
+      "llm_next_b": "A haunted lighthouse at dusk",
+      "cos_to_anchor": 1.0
+    },
+    {
+      "iter": 2,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A haunted lighthouse at dusk",
+      "alpha": 0.8,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.4815922975540161
+        ],
+        [
+          "crystalline",
+          0.3936001658439636
+        ],
+        [
+          "glassy",
+          0.3891600966453552
+        ],
+        [
+          "sparkly",
+          0.3725510239601135
+        ],
+        [
+          "gloomy",
+          0.367351233959198
+        ]
+      ],
+      "llm_next_b": "A haunted antique store at midnight",
+      "cos_to_anchor": 0.8972
+    },
+    {
+      "iter": 3,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A haunted antique store at midnight",
+      "alpha": 0.8,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "mellow",
+          0.42799943685531616
+        ],
+        [
+          "dreamy",
+          0.4207666516304016
+        ],
+        [
+          "crystalline",
+          0.41076406836509705
+        ],
+        [
+          "glittering",
+          0.4098847508430481
+        ],
+        [
+          "glassy",
+          0.3966052830219269
+        ]
+      ],
+      "llm_next_b": "A distant waterfall at night cascading through crystal-clear ice tunnels.",
+      "cos_to_anchor": 0.8984
+    },
+    {
+      "iter": 4,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A distant waterfall at night cascading through crystal-clear ice tunnels.",
+      "alpha": 0.8,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "dreamy",
+          0.4793171286582947
+        ],
+        [
+          "crystalline",
+          0.4253733456134796
+        ],
+        [
+          "mellow",
+          0.41085749864578247
+        ],
+        [
+          "glassy",
+          0.40314656496047974
+        ],
+        [
+          "delicate",
+          0.37771064043045044
+        ]
+      ],
+      "llm_next_b": "A whispering waterfall at dawn through misty pine forests.",
+      "cos_to_anchor": 0.8897
+    },
+    {
+      "iter": 5,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A whispering waterfall at dawn through misty pine forests.",
+      "alpha": 0.8,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "mellow",
+          0.46329590678215027
+        ],
+        [
+          "dreamy",
+          0.42577871680259705
+        ],
+        [
+          "delicate",
+          0.39943617582321167
+        ],
+        [
+          "velvety",
+          0.363413542509079
+        ],
+        [
+          "crystalline",
+          0.355049729347229
+        ]
+      ],
+      "llm_next_b": "A whispering waterfall at dawn's misty edge.",
+      "cos_to_anchor": 0.8779
+    },
+    {
+      "iter": 6,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A whispering waterfall at dawn's misty edge.",
+      "alpha": 0.8,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "mellow",
+          0.4721803665161133
+        ],
+        [
+          "dreamy",
+          0.44989877939224243
+        ],
+        [
+          "crystalline",
+          0.3653187155723572
+        ],
+        [
+          "delicate",
+          0.34793978929519653
+        ],
+        [
+          "glassy",
+          0.3394871652126312
+        ]
+      ],
+      "llm_next_b": "A whispering waterfall at dawn through misty pine forests.",
+      "cos_to_anchor": 0.7895
+    },
+    {
+      "iter": 7,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A whispering waterfall at dawn through misty pine forests.",
+      "alpha": 0.8,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "mellow",
+          0.44425904750823975
+        ],
+        [
+          "dreamy",
+          0.4174025058746338
+        ],
+        [
+          "delicate",
+          0.32490819692611694
+        ],
+        [
+          "cold",
+          0.3229627013206482
+        ],
+        [
+          "crystalline",
+          0.3191641569137573
+        ]
+      ],
+      "llm_next_b": "A winter's night in a remote mountain cabin",
+      "cos_to_anchor": 0.7796
+    },
+    {
+      "iter": 8,
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "A winter's night in a remote mountain cabin",
+      "alpha": 0.8,
+      "init_noise": 0.5,
+      "heard": [
+        [
+          "mellow",
+          0.4016244411468506
+        ],
+        [
+          "dreamy",
+          0.34457606077194214
+        ],
+        [
+          "delicate",
+          0.29791468381881714
+        ],
+        [
+          "cold",
+          0.28905779123306274
+        ],
+        [
+          "resonant",
+          0.2826439142227173
+        ]
+      ],
+      "llm_next_b": null,
+      "cos_to_anchor": 0.6478
+    }
+  ]
+}

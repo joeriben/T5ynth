@@ -61,7 +61,8 @@ tools/clap_semantic_loop_out/*/*.wav
 tools/clap_semantic_loop_out_run.log
 tools/clap_semantic_loop_scout.log
 # CLAP+LLM loop: keep REPORT.md + per-mode manifest.json, drop WAVs + run log
-tools/clap_llm_loop_out/*/*.wav
+# (** so alpha-tagged sub-runs like clap_llm_loop_out/aB10/<mode>/*.wav are covered too)
+tools/clap_llm_loop_out/**/*.wav
 tools/clap_llm_loop_out_run.log
 # scratch dirs written by verification agents
 tools/_bugcheck_out*/
