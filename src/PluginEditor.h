@@ -22,6 +22,11 @@ private:
     T5ynthProcessor& processorRef;
     T5ynthLookAndFeel lookAndFeel;
     MainPanel mainPanel;
+    // Displays the setTooltip(...) text of any hovered component (Re-Prompt glyphs,
+    // coupling buttons, and the previously-dormant tooltips across the UI). 700 ms
+    // hover delay. JUCE's standard mouse-position poll timer — a cheap idle cost
+    // (a position compare, no repaint when nothing is hovered).
+    juce::TooltipWindow tooltipWindow { this, 700 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(T5ynthEditor)
 };

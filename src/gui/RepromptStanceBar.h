@@ -15,10 +15,9 @@
 //   3 verniedlicher (damped settling) · 4 variation (bounded cluster) ·
 //   5 abduktion (divergent walk) · 6 opposite (limit cycle).
 //
-// Idle-cheap by design: it repaints ONLY when the parameter changes (the
-// attachment callback) or on a click/drag — never on a timer. Disabled state is
-// shown via Component::setAlpha by the SA3 gate in MainPanel; mouse input is
-// ignored while disabled.
+// Idle-cheap by design: it repaints ONLY when the parameter changes (the attachment
+// callback) or on a click/drag — never on a timer. (Re-Prompt is engine-agnostic, so
+// the bar is not model-gated; setFromMouse still guards on isEnabled() defensively.)
 class RepromptStanceBar : public juce::Component,
                           public juce::SettableTooltipClient
 {
@@ -42,6 +41,10 @@ public:
             });
         attachment_->sendInitialUpdate();   // adopt the restored value
     }
+
+    // Per-glyph hover tooltips (index → text); the TooltipWindow shows the one under
+    // the mouse (see mouseMove). Empty → fall back to the single component tooltip.
+    void setPositionTooltips (juce::StringArray tips) { positionTips_ = std::move (tips); }
 
     void paint (juce::Graphics& g) override
     {
@@ -75,6 +78,14 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override { setFromMouse (e); }
     void mouseDrag (const juce::MouseEvent& e) override { setFromMouse (e); }
+
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        if (positionTips_.isEmpty()) return;
+        const int idx = indexForX ((float) e.position.x);
+        if (juce::isPositiveAndBelow (idx, positionTips_.size()))
+            setTooltip (positionTips_[idx]);   // cheap: stores a String, no repaint
+    }
 
 private:
     struct Geom { float R, marginX, step, cy; };
@@ -247,6 +258,7 @@ private:
 
     int numPositions_ = 7;
     int currentIndex_ = 0;
+    juce::StringArray positionTips_;
     std::unique_ptr<juce::ParameterAttachment> attachment_;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RepromptStanceBar)

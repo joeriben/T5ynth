@@ -1006,18 +1006,26 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     if (auto* stanceParam = processor.getValueTreeState().getParameter(PID::repromptStance))
         repromptStanceBar.attachTo(*stanceParam, RepromptStance::kCount);
     repromptStanceBar.setTooltip(
-        "Re-Prompt stance (SA3): after each render the machine listens to its own "
-        "output and rewrites the prompt(s) before the next one. Left to right by "
-        "movement type: off, transcribe (fixed point), de-kitsch, sweeten, "
-        "variation, abduction, opposite.");
+        "Re-Prompt stance: after each render the machine listens to its own output "
+        "and rewrites the prompt(s) before the next one. Hover a glyph for its "
+        "movement type.");
+    repromptStanceBar.setPositionTooltips({
+        "Off - Re-Prompt loop disabled.",
+        "Transcribe (fixed point): the machine re-describes what it hears; the prompt stays put.",
+        "De-Kitsch (inward spiral): strips cliche, converging on a plainer core.",
+        "Sweeten (damped settling): softens toward a gentler, cuter reading.",
+        "Variation (bounded cluster): small variations around the current theme.",
+        "Abduction (wandering): leaps to new scenes, drifting far from the source.",
+        "Opposite (limit cycle): oscillates between opposing readings."
+    });
     addAndMakeVisible(repromptStanceBar);
 
     // Coupling switchbox: visible radio buttons + a hidden ComboBox carrying the
     // ChoiceParameter attachment (so the buttons stay a pure view of the param).
-    const char* couplingUi[kNumCouplingBtns] = { "alpha", "AB add", "AB replace" };
+    const char* couplingUi[kNumCouplingBtns] = { "B only", "AB add", "AB replace" };
     const char* couplingTip[kNumCouplingBtns] = {
-        "alpha: one interpret run rewrites B only; A stays the human anchor (the "
-        "alpha slider sets the mix).",
+        "B only: one interpret run rewrites prompt B; A stays the human anchor (the "
+        "alpha slider sets the A/B mix).",
         "AB add: two runs (A & B); each pole = its own original prompt + its latest "
         "interpretation.",
         "AB replace: two runs (A & B); each pole fully replaced by its stance "
@@ -1097,14 +1105,11 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
             resynthSlider.setAlpha(resynthOk ? 1.0f : 0.4f);
             resynthLabel.setEnabled(resynthOk);
             resynthLabel.setAlpha(resynthOk ? 1.0f : 0.4f);
-
-            // Re-Prompt shares the SA3 gate (its loop only runs under SA3): flip the
-            // label, the glyph bar and the coupling buttons in lockstep with Resynth.
-            const float a = resynthOk ? 1.0f : 0.4f;
-            repromptLabel.setEnabled(resynthOk);     repromptLabel.setAlpha(a);
-            repromptStanceBar.setEnabled(resynthOk); repromptStanceBar.setAlpha(a);
-            for (auto& b : repromptCouplingBtns) { b.setEnabled(resynthOk); b.setAlpha(a); }
         }
+        // Re-Prompt is intentionally NOT gated to SA3: the semantic word loop runs on
+        // any engine (it listens to the output and rewrites the prompt; the SA3-only
+        // init_audio carry is optional, layered on top). The controls stay enabled for
+        // all models — nothing to flip here.
     };
     promptPanel.onModelChanged();  // set initial state (no-op until a model is selected)
 
@@ -3199,8 +3204,8 @@ void MainPanel::resized()
                                                        static_cast<float>(resynthRowH) * 0.72f)));
     repromptLabel.setBounds(repromptRow.removeFromLeft(juce::jmin(resynthLabelW, repromptRow.getWidth())));
     repromptRow.removeFromLeft(juce::jmin(gap, repromptRow.getWidth()));
-    const int couplingW = juce::jlimit(88, 120,
-        juce::roundToInt(static_cast<float>(genCol.getWidth()) * 0.30f));
+    const int couplingW = juce::jlimit(68, 92,
+        juce::roundToInt(static_cast<float>(genCol.getWidth()) * 0.22f));
     auto couplingCol = repromptRow.removeFromRight(juce::jmin(couplingW, repromptRow.getWidth()));
     repromptRow.removeFromRight(juce::jmin(gap, repromptRow.getWidth()));
     repromptStanceBar.setBounds(repromptRow);

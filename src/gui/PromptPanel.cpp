@@ -2347,6 +2347,19 @@ void PromptPanel::pollDriftRegen()
         prevLoopParamsChanged_ = false;   // re-arm the release edge-detector for next time
     }
 
+    // Re-Prompt word loop — a STANDING trigger too: when a stance is engaged but the
+    // SA3 init_audio carry is NOT already clocking the loop (resynthLoop covers SA3 +
+    // Resynth>0), provide the trigger ourselves so Auto-Regen keeps re-rendering the
+    // rewritten prompts. Covers non-SA3 entirely AND SA3-with-Resynth-off. Needed
+    // because runSemanticLoopStep deliberately suppresses promptChanged (to protect
+    // the SA3 release edge), so without a standing trigger the loop would advance only
+    // once. The SA3-only resynth control machinery below stays gated on resynthLoop —
+    // a pure word loop renders clean from the prompt (no init_audio attaches off-SA3
+    // or at amount 0, per buildInferenceRequest's gate), so loopResynth stays inert.
+    const bool stanceActive = static_cast<int>(
+        apvts.getRawParameterValue(PID::repromptStance)->load()) != RepromptStance::Off;
+    const bool repromptLoop = stanceActive && ! resynthLoop;
+
     auto promptA = promptAEditor.getText().trim();
     auto promptB = promptBEditor.getText().trim();
     bool promptChanged = (promptA != lastGenPromptA_) || (promptB != lastGenPromptB_);
@@ -2364,7 +2377,7 @@ void PromptPanel::pollDriftRegen()
 
     bool randomRegen = randomSeedToggle.getToggleState();
     if (!alphaChanged && !axesChanged && !noiseChanged && !magChanged && !promptChanged
-        && !resynthLoop && !randomRegen)
+        && !resynthLoop && !repromptLoop && !randomRegen)
         return;
 
     // genNoise/genMag are pre-resolved to their slider values; alpha is
@@ -2447,13 +2460,14 @@ void PromptPanel::pollDriftRegen()
 // One iteration body of clap_llm_loop.py run_llm_loop, minus its own generate():
 // here generation is owned by triggerGeneration / triggerDriftRegeneration, so this
 // step runs the analyze+interpret+apply for the JUST-rendered audio and writes the
-// next prompt(s) into the editor(s). The next generation (manual Generate, or the
-// Auto-Regen standing trigger that keeps firing while Resynth is on) renders them —
-// with init_noise forced to ~0.9 by buildInferenceRequest so the rewritten words
-// dominate the carried-over wave. Called from BOTH generation-complete callbacks.
+// next prompt(s) into the editor(s). The next generation renders them — manual
+// Generate, or the Auto-Regen standing trigger (resynthLoop on SA3 + Resynth,
+// repromptLoop otherwise). On SA3 with Resynth the init_audio carry is forced to
+// init_noise ~0.9 so the rewritten words dominate it; off-SA3 (or Resynth off) it is
+// a pure word loop that re-renders fresh from the prompt. From BOTH gen-complete cbs.
 void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
 {
-    // (1) Off / not-SA3 early-outs FIRST (cheap), like pollDriftRegen's regenMode==0.
+    // (1) Off early-out FIRST (cheap), like pollDriftRegen's regenMode==0.
     auto& apvts = processorRef.getValueTreeState();
     const int stanceIdx = static_cast<int>(apvts.getRawParameterValue(PID::repromptStance)->load());
     if (stanceIdx == RepromptStance::Off)
@@ -2461,10 +2475,12 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
         loopEngaged_ = false;   // loop disabled → re-arm the original-capture edge
         return;
     }
-    // (2) Gate: the loop needs SA3's init_audio carry (same gate as the Resynth UI).
-    if (!selectedModelIsSA3())
-        return;
-    // (3) Re-entrancy guard: a fast Auto-Regen cadence must not stack steps, and a
+    // NO model gate: Re-Prompt is engine-agnostic — it listens to the just-rendered
+    // output (any model) and rewrites the prompt(s) for the next render. Only the
+    // OPTIONAL init_audio signal carry (Resynth) is SA3-only, layered on top by
+    // buildInferenceRequest when present; non-SA3 simply runs the pure word loop
+    // (fresh render from the rewritten prompt each step).
+    // (2) Re-entrancy guard: a fast Auto-Regen cadence must not stack steps, and a
     //     manual Generate mid-step must not contend on the single IPC pipe.
     if (loopStepInFlight_ || generating || translatingPrompts_)
         return;
