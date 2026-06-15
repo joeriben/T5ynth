@@ -50,6 +50,14 @@ hidden += ['transformers.utils.quantization_config']
 hidden += collect_submodules('transformers.models.qwen2')
 hidden += collect_submodules('jinja2')
 
+# CLAP = the machine-listening "ear" for the semantic-loop ``analyze`` mode.
+# ClapModel / ClapProcessor are imported lazily in pipe_inference.analyze_audio
+# and the processor's feature extractor is resolved BY NAME, so PyInstaller's
+# static analysis never sees the submodules unless collected here. CLAP weights
+# (laion/clap-htsat-unfused) are NOT bundled — they download to the HF cache at
+# first use, like the optional translation model.
+hidden += collect_submodules('transformers.models.clap')
+
 # stable_audio_tools: keep the runtime inference/model-loading modules only.
 # The package also contains training/UI/data code that drags large optional
 # stacks into the frozen backend if we collect everything.

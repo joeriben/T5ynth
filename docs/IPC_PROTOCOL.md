@@ -219,7 +219,7 @@ All fields below are from `PipeInference::generate()` serialization
 | `seed`             | integer                   | —            | no       | `-1` → random                       | `-1` means server picks `random.randint(0, 2**31 - 1)`. The chosen seed is echoed in the response header.                                      |
 | `device`           | string                    | —            | no       | `default_device` from handshake    | One of `"mps"`, `"cuda"`, `"cpu"`, or `"auto"`. Unknown/unreachable values fall through to `default_device`.                                    |
 | `model`            | string                    | —            | no       | `default_model` from handshake     | Model directory name. Unknown values fall through to `default_model`.                                                                          |
-| `mode`             | string                    | —            | no       | `"generate"`                       | One of `"generate"`, `"preload"`, `"interpolate"`, `"decode_cached"`, `"translate"`. The middle two are latent-cache operations and `"translate"` is an optional prompt-translation pre-step; see §3.3.                     |
+| `mode`             | string                    | —            | no       | `"generate"`                       | One of `"generate"`, `"preload"`, `"interpolate"`, `"decode_cached"`, `"translate"`, `"interpret"`, `"analyze"`. The middle two are latent-cache operations; `"translate"`/`"interpret"` are optional LLM pre-steps and `"analyze"` is the CLAP machine-listening op; see §3.3.                     |
 | `model_path`       | string                    | —            | mode=translate | (absent) → auto-discover     | Absolute path to the optional translation-model directory. If absent, the server resolves `$T5YNTH_TRANSLATION_MODEL`, then `<model root>/translation/<dir>`. Ignored by all other modes. |
 | `text`             | string                    | —            | mode=translate | falls back to `prompt_a`     | Source text to translate. The server reads `prompt_a` first, then `text`. Ignored by all other modes. |
 | `dimension_offsets`| array of `[int, number]`  | unitless     | no       | (absent) → no-op                   | DimensionExplorer offsets. Each pair is `[dim_index, delta]`. Applied as `manipulated[:, :, idx] += delta` (`pipe_inference.py:815-819`). `dim_index` out of range is silently ignored. This is a **sparse** list, not a 768-element dense array. |
@@ -278,7 +278,23 @@ valid.
   the translation prompt) and optional `max_new_tokens` (default 96); responds
   with a **text frame** (`\x03`). Same pre-routing, greedy/deterministic decoding
   and no-audio-model guarantee as `translate`. Used by the CLAP→LLM semantic-loop
-  tooling (`tools/clap_llm_loop.py`); not yet wired into the JUCE client.
+  tooling (`tools/clap_llm_loop.py`) and wired into the JUCE client as
+  `PipeInference::interpret()`.
+
+- **`"analyze"`** (`backend/pipe_inference.py`, intercepted at the top of the
+  request loop, right after `interpret`): the CLAP machine-listening "ear" of the
+  semantic loop. Decodes the audio carried on the init_audio wire keys
+  (`init_audio_b64` / `init_audio_sr` / `init_audio_channels` — the SAME planar
+  float32 LE base64 the resynth path uses), mono-mixes + resamples to 48 kHz, and
+  ranks it zero-shot against a fixed timbre vocabulary with CLAP
+  (`laion/clap-htsat-unfused`), plus a computed DSP `spectral_words` descriptor.
+  Reads optional `topk` (default 5). Responds with a **text frame** (`\x03`)
+  carrying JSON `{"tags": "...", "spectral": "...", "model": "..."}`. CLAP is
+  forced onto the CPU so it never evicts (or is evicted by) the mps audio model,
+  while still sharing the budgeted memory pool via `_make_room`. Same pre-routing
+  and no-audio-model guarantee as `translate`/`interpret`. CLAP weights are not
+  bundled — they download to the HF cache on first use. Wired into the JUCE client
+  as `PipeInference::analyze()`.
 
 `interpolate` and `decode_cached` are not currently called from the JUCE
 client based on a grep of `src/` — their wire format is defined server-side
@@ -295,7 +311,7 @@ Each response starts with a single **status byte**:
 | `\x00`   | Error (see §4.3)                  |
 | `\x01`   | Audio (see §4.1)                  |
 | `\x02`   | Ready (only once, during handshake — never sent in response to a request) |
-| `\x03`   | Text result (in response to a `"translate"` or `"interpret"` request — see §4.5) |
+| `\x03`   | Text result (in response to a `"translate"`, `"interpret"`, or `"analyze"` request — see §4.5) |
 
 Any other value causes the client to abort the current request with
 `"Unexpected response: <n>"` (`src/inference/PipeInference.cpp:514-518`).
@@ -431,7 +447,7 @@ only `str(e)`.
 
 ### 4.5 Text result frame (`\x03`)
 
-Sent **only** in response to a `"translate"` request (§3.3). Layout mirrors
+Sent in response to a `"translate"`, `"interpret"`, or `"analyze"` request (§3.3). Layout mirrors
 the error frame but with a distinct success status byte:
 
 ```

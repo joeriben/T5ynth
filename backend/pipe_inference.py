@@ -952,6 +952,254 @@ def translate_prompt(text, model_dir, device, max_new_tokens=96):
     return run_instruct(text, model_dir, device, TRANSLATION_SYSTEM_PROMPT, max_new_tokens)
 
 
+# ─── CLAP "ear": machine-listening analysis (the ``analyze`` mode) ─────
+#
+# CLAP cannot caption (no language decoder); it RANKS audio against a candidate
+# text vocabulary in a shared embedding space. The ``analyze`` op returns the
+# top-k nearest tags plus signal-level (DSP) spectral descriptors — the learned-
+# semantic + measured-physical halves of "what the machine hears". It is the ear
+# half of the CLAP→LLM semantic loop ("CLAP is the ear, the LLM is the
+# interpreter"); the LLM half is the ``interpret`` op above.
+#
+# All of this is COPIED from the read-only tooling (tools/clap_probe.py,
+# tools/clap_llm_loop.py) on purpose: the backend must stay self-contained for
+# PyInstaller — it cannot import from tools/.
+#
+# CLAP is forced onto the CPU regardless of the generation device: it then never
+# allocates Metal-driver memory, so the mps reclaim path can't evict it and it
+# can't evict the (mps) audio model — neither starves the other. It still
+# participates in the budgeted pool the LRU cache uses via _make_room/_reclaim.
+
+CLAP_MODEL_ID = "laion/clap-htsat-unfused"  # canonical, separable checkpoint (clap_probe)
+CLAP_SR = 48_000
+# Resident footprint estimate for the budget check (htsat-unfused ≈ 0.6 GB). Used
+# as the _make_room `need` so an incoming audio model can evict to fit; honest but
+# small, so CLAP does not force-evict real models the way _DEFAULT_UNKNOWN_BYTES
+# (8 GB) would.
+_CLAP_BYTES = 700 * 1024 ** 2
+
+# The naive timbre strawman (grouped by perceptual axis with deliberate near-
+# synonym clusters). Copied verbatim from tools/clap_probe.py NAIVE_VOCAB.
+CLAP_NAIVE_VOCAB = [
+    # brightness
+    "bright", "brilliant", "sparkly", "shimmering", "glittering", "glassy",
+    "crystalline", "shiny",
+    # darkness
+    "dark", "murky", "muddy", "gloomy", "dull", "shadowy", "dim",
+    # warmth
+    "warm", "cozy", "round", "mellow", "smooth", "velvety", "lush",
+    # cold
+    "cold", "icy", "sterile", "clinical", "brittle",
+    # metallic
+    "metallic", "tinny", "clangy", "brassy", "steely", "bell-like", "chrome",
+    # harsh
+    "harsh", "abrasive", "gritty", "rough", "coarse", "raspy", "scratchy",
+    "sharp",
+    # soft
+    "soft", "gentle", "airy", "breathy", "feathery", "delicate",
+    # aggressive
+    "aggressive", "punchy", "biting", "cutting", "piercing", "screaming",
+    # thick
+    "thick", "fat", "heavy", "dense", "massive", "huge", "boomy",
+    # thin
+    "thin", "weak", "hollow", "reedy", "nasal",
+    # organic
+    "organic", "woody", "earthy", "natural", "acoustic",
+    # digital
+    "digital", "synthetic", "artificial", "plasticky", "robotic",
+    # noisy
+    "noisy", "fuzzy", "distorted", "dirty", "saturated", "crunchy",
+    # clean
+    "clean", "pure", "pristine", "clear", "transparent",
+    # moody
+    "dreamy", "ethereal", "haunting", "eerie", "mysterious", "ambient",
+    "atmospheric", "cinematic",
+    # motion
+    "pulsing", "throbbing", "wobbling", "undulating", "evolving", "swirling",
+    "morphing",
+    # texture extras
+    "granular", "glitchy", "watery", "liquid", "gaseous", "percussive",
+    "resonant", "droning", "buzzing", "humming",
+]
+
+_clap_cache = {}        # {(model_id, device): (model, processor)}
+_clap_vocab_cache = {}  # {(model_id, device): (vocab_emb [N,D] cpu tensor, labels)}
+
+
+@torch.no_grad()
+def _clap_embed_texts(model, processor, texts, device, batch=64):
+    """Normalized CLAP text embeddings. Copied from tools/clap_probe.py:embed_texts."""
+    chunks = []
+    for i in range(0, len(texts), batch):
+        inputs = processor(text=texts[i: i + batch], return_tensors="pt", padding=True)
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+        chunks.append(model.get_text_features(**inputs).cpu())
+    emb = torch.cat(chunks, 0)
+    return torch.nn.functional.normalize(emb, dim=-1)
+
+
+@torch.no_grad()
+def _clap_embed_audios(model, processor, audios, device):
+    """Normalized CLAP audio embeddings of a list of 48k mono float32 arrays.
+    Copied from tools/clap_probe.py:embed_audios."""
+    inputs = processor(audio=audios, sampling_rate=CLAP_SR, return_tensors="pt", padding=True)
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+    emb = model.get_audio_features(**inputs).cpu()
+    return torch.nn.functional.normalize(emb, dim=-1)
+
+
+@torch.no_grad()
+def _clap_assert_sane(model, processor, device):
+    """Fail LOUD if CLAP's towers are degenerate / cross-modally misaligned.
+
+    A working CLAP ranks a sine-tone caption higher on sine audio than on noise
+    (and vice versa) and does not map all texts to one point. Copied from
+    tools/clap_probe.py:assert_model_sane, BUT converted to raise a normal
+    RuntimeError (the tool raised SystemExit, which would kill the subprocess) so
+    the request loop catches it and returns a standard \\x00 error frame."""
+    sr = CLAP_SR
+    t = np.arange(sr * 3) / sr
+    sine = (0.5 * np.sin(2 * np.pi * 440 * t)).astype("float32")
+    rng = np.random.default_rng(0)
+    noise = (0.1 * rng.standard_normal(sr * 3)).astype("float32")
+    ae = _clap_embed_audios(model, processor, [sine, noise], device)
+    te = _clap_embed_texts(
+        model, processor,
+        ["a steady pure sine wave tone", "harsh white noise static hiss"],
+        device,
+    )
+    sim = te @ ae.T  # rows: [sine-text, noise-text]; cols: [SINE, NOISE]
+    tt = (te @ te.T)[0, 1].item()
+    sine_ok = (sim[0, 0] - sim[0, 1]).item() > 0.1
+    noise_ok = (sim[1, 1] - sim[1, 0]).item() > 0.1
+    if not (sine_ok and noise_ok and tt < 0.95):
+        raise RuntimeError(
+            "CLAP failed the sine-vs-noise sanity check — its text/audio towers "
+            "are misaligned or degenerate. "
+            f"sine-text·[sine,noise]=[{sim[0,0]:.3f},{sim[0,1]:.3f}] "
+            f"noise-text·[sine,noise]=[{sim[1,0]:.3f},{sim[1,1]:.3f}] "
+            f"text-text={tt:.3f} (degenerate if ~1.0). "
+            "Expected the default laion/clap-htsat-unfused, which passes."
+        )
+    log.info(
+        f"CLAP sanity OK (sine {sim[0,0]:.2f}/{sim[0,1]:.2f}, "
+        f"noise {sim[1,0]:.2f}/{sim[1,1]:.2f}, text-text {tt:.2f})"
+    )
+
+
+def _get_clap(device):
+    """Lazily load + cache CLAP (ClapModel/ClapProcessor) and its normalized vocab
+    text-embeddings for (model_id, device). Mirrors _get_translator: shares the
+    budgeted memory pool via _make_room, protects the IPC pipe from library stdout,
+    and runs the sanity gate once at load. Unlike the translator, CLAP weights live
+    in the HF cache (not a local model dir), so the first call DOWNLOADS them — no
+    HF_HUB_OFFLINE guard here."""
+    key = (CLAP_MODEL_ID, device)
+    cached = _clap_cache.get(key)
+    if cached is not None:
+        model, processor = cached
+        vocab_emb, labels = _clap_vocab_cache[key]
+        return model, processor, vocab_emb, labels
+
+    # CLAP draws from the same pool as the audio models; free space the same
+    # budgeted way (a later audio load may re-evict residents to fit its own).
+    _make_room(_device_pool(device), device, _CLAP_BYTES)
+
+    from transformers import ClapModel, ClapProcessor
+
+    log.info(f"Loading CLAP {CLAP_MODEL_ID} on {device}...")
+    real_stdout = sys.stdout
+    sys.stdout = sys.stderr  # protect the IPC pipe from any library stdout
+    try:
+        model = ClapModel.from_pretrained(CLAP_MODEL_ID).to(device).eval()
+        processor = ClapProcessor.from_pretrained(CLAP_MODEL_ID)
+        _clap_assert_sane(model, processor, device)
+        # Pre-compute + cache the normalized vocab text-embeddings ONCE per
+        # (model, device) — re-embedding the ~150-tag vocab every request is waste.
+        labels = list(dict.fromkeys(CLAP_NAIVE_VOCAB))
+        vocab_emb = _clap_embed_texts(model, processor, labels, device)
+    finally:
+        sys.stdout = real_stdout
+
+    _clap_cache[key] = (model, processor)
+    _clap_vocab_cache[key] = (vocab_emb, labels)
+    log.info(f"CLAP ready on {device} ({len(labels)} vocab tags).")
+    return model, processor, vocab_emb, labels
+
+
+def spectral_words(audio, sr):
+    """Signal-level (DSP) half of the multi-level hearing analysis: BARE physical
+    descriptors of the waveform, computed not learned — the complement to CLAP's
+    learned-semantic timbre words. DC-removed (>40 Hz). Returns e.g.
+    'warm, full-bodied, tonal'. Copied verbatim from tools/clap_llm_loop.py."""
+    x = np.asarray(audio, dtype=np.float64)
+    if x.ndim > 1:
+        x = x.mean(axis=0)
+    x = x - x.mean()
+    n = x.shape[0]
+    if n < 256 or not np.any(x):
+        return "silent"
+    mag = np.abs(np.fft.rfft(x * np.hanning(n)))
+    freqs = np.fft.rfftfreq(n, 1.0 / float(sr))
+    keep = freqs >= 40.0
+    mag, freqs = mag[keep], freqs[keep]
+    total = float(mag.sum())
+    if total <= 0.0:
+        return "silent"
+    centroid = float((freqs * mag).sum() / total)
+    eps = 1e-12
+    flat = float(np.exp(np.log(mag + eps).mean()) / (mag.mean() + eps))  # tonal↔noisy
+    low = float(mag[freqs < 250.0].sum() / total)                        # thin↔bass-heavy
+    bright = ("dark" if centroid < 500 else "warm" if centroid < 1500
+              else "bright" if centroid < 3500 else "brilliant")
+    texture = ("tonal" if flat < 0.10 else "textured" if flat < 0.30 else "noisy")
+    body = ("thin" if low < 0.10 else "full-bodied" if low < 0.45 else "bass-heavy")
+    return f"{bright}, {body}, {texture}"
+
+
+def analyze_audio(request):
+    """The ``analyze`` op: decode init_audio → CLAP top-k tags + DSP spectral words.
+
+    Returns a JSON string ``{"tags": "...", "spectral": "...", "model": "..."}``
+    for a \\x03 text frame. CLAP is forced onto the CPU (see _get_clap). Decode
+    reuses the EXACT init_audio wire keys as the generate path
+    (_decode_init_audio_request): base64 planar float32 LE in ``init_audio_b64``,
+    with ``init_audio_sr`` / ``init_audio_channels``."""
+    # Reuse the generate path's tolerant init_audio decode (never raises; a bad
+    # payload degrades to None). default_sr is only the fallback when the request
+    # omits init_audio_sr.
+    init_audio_tuple, _init_noise = _decode_init_audio_request(request, CLAP_SR)
+    if init_audio_tuple is None:
+        raise ValueError("analyze requires init_audio (init_audio_b64 + init_audio_sr)")
+    in_sr, tensor = init_audio_tuple          # tensor: [channels, frames] float32
+
+    audio_cs = tensor.cpu().numpy()           # [channels, frames]
+    mono = audio_cs.mean(axis=0).astype("float32")
+
+    topk = max(1, int(request.get("topk", 5)))
+
+    # CLAP forced to CPU regardless of the generation device.
+    model, processor, vocab_emb, labels = _get_clap("cpu")
+
+    # Resample to CLAP's 48k for the embedding (spectral_words runs on the
+    # native-rate signal — it normalizes by its own sample rate).
+    mono_48k = mono
+    if in_sr != CLAP_SR:
+        import torchaudio
+        mono_48k = torchaudio.functional.resample(
+            torch.from_numpy(mono), in_sr, CLAP_SR
+        ).numpy()
+
+    with torch.no_grad():
+        emb = _clap_embed_audios(model, processor, [mono_48k], "cpu")[0]
+        sims = emb @ vocab_emb.T               # [N]
+        order = torch.argsort(sims, descending=True)[:topk]
+    tags = ", ".join(labels[int(i)] for i in order)
+
+    spectral = spectral_words(audio_cs, in_sr)
+    return json.dumps({"tags": tags, "spectral": spectral, "model": CLAP_MODEL_ID})
+
+
 def _patch_scheduler(pipe):
     """Patch scheduler to skip BrownianTree noise at last step (sigma→0 crash)."""
     if not hasattr(pipe.scheduler.step, '__func__'):
@@ -2831,6 +3079,17 @@ def main():
                 max_new = int(request.get("max_new_tokens", 96))
                 send_text(run_instruct(source_text, translation_dir, t_device,
                                        system_prompt, max_new))
+                continue
+
+            # CLAP machine-listening analysis: decode init_audio → top-k CLAP tags
+            # + DSP spectral words, returned in ONE \x03 text frame as JSON. Like
+            # translate/interpret it is dispatched BEFORE audio-model routing — it
+            # has NO audio-model dependency (CLAP is its own CPU-pinned model). It
+            # is the ear half of the CLAP→LLM semantic loop (interpret = the LLM
+            # half). Errors (bad/absent audio, CLAP sanity failure) propagate to the
+            # standard \x00 error frame via the outer try/except.
+            if request.get("mode") == "analyze":
+                send_text(analyze_audio(request))
                 continue
 
             # Route to correct model + device.

@@ -1099,6 +1099,239 @@ PipeInference::TranslateResult PipeInference::translate(const juce::String& text
     return result;
 }
 
+PipeInference::InterpretResult PipeInference::interpret(const juce::String& systemPrompt,
+                                                        const juce::String& userText,
+                                                        int maxNewTokens,
+                                                        const juce::String& device,
+                                                        const juce::String& modelPath)
+{
+    const std::lock_guard<std::recursive_mutex> lock(stateMutex_);
+    InterpretResult result;
+
+    // Empty input → empty interpretation; no subprocess round-trip.
+    if (userText.trim().isEmpty())
+    {
+        result.success = true;
+        return result;
+    }
+
+    // Auto-restart if the subprocess died (mirrors translate()).
+    if (ready_ && !isChildAlive())
+    {
+        juce::Logger::writeToLog("PipeInference: subprocess died, restarting...");
+        if (!tryRestart())
+        {
+            result.errorMessage = "Inference crashed — restart failed";
+            return result;
+        }
+        juce::Logger::writeToLog("PipeInference: restarted successfully");
+    }
+
+    if (!ready_ || !isConnected())
+    {
+        result.errorMessage = "Inference not ready";
+        return result;
+    }
+
+    auto json = juce::DynamicObject::Ptr(new juce::DynamicObject());
+    json->setProperty("mode", "interpret");
+    json->setProperty("system_prompt", systemPrompt);
+    json->setProperty("prompt_a", userText);
+    json->setProperty("max_new_tokens", maxNewTokens);
+    if (device.isNotEmpty())
+        json->setProperty("device", device);
+    if (modelPath.isNotEmpty())
+        json->setProperty("model_path", modelPath);
+
+    auto jsonStr = juce::JSON::toString(juce::var(json.get()), true);
+    jsonStr = jsonStr.removeCharacters("\n\r") + "\n";
+
+    if (!writeExact(jsonStr.toRawUTF8(), static_cast<int>(jsonStr.getNumBytesAsUTF8())))
+    {
+        if (tryRestart())
+            result.errorMessage = "Inference restarted — try again";
+        else
+            result.errorMessage = "Inference crashed — restart failed";
+        return result;
+    }
+
+    // First interpret lazily loads the instruct model (several seconds).
+    char status = 0;
+    if (!readExact(&status, 1, 180000))
+    {
+        if (!isChildAlive())
+        {
+            juce::Logger::writeToLog("PipeInference: subprocess died during interpret");
+            tryRestart();
+            result.errorMessage = "Inference crashed — restarted, try again";
+        }
+        else
+            result.errorMessage = "Timeout waiting for interpretation";
+        return result;
+    }
+
+    if (status == '\x03')   // text result
+    {
+        juce::uint32 msgLen = 0;
+        if (!readExact(&msgLen, 4))
+        {
+            result.errorMessage = "Failed to read interpretation length";
+            return result;
+        }
+        if (msgLen > 0)
+        {
+            std::vector<char> msg(msgLen + 1, 0);
+            if (!readExact(msg.data(), static_cast<int>(msgLen)))
+            {
+                result.errorMessage = "Failed to read interpretation text";
+                return result;
+            }
+            result.text = juce::String::fromUTF8(msg.data(), static_cast<int>(msgLen));
+        }
+        result.success = true;
+        return result;
+    }
+
+    if (status == '\x00')   // error
+    {
+        juce::uint32 msgLen = 0;
+        if (readExact(&msgLen, 4))
+        {
+            std::vector<char> msg(msgLen + 1, 0);
+            readExact(msg.data(), static_cast<int>(msgLen));
+            result.errorMessage = juce::String::fromUTF8(msg.data(), static_cast<int>(msgLen));
+        }
+        else
+            result.errorMessage = "Unknown error";
+        return result;
+    }
+
+    result.errorMessage = "Unexpected response: " + juce::String((int)status);
+    return result;
+}
+
+PipeInference::AnalyzeResult PipeInference::analyze(const juce::AudioBuffer<float>& audio,
+                                                    double sampleRate,
+                                                    int topk,
+                                                    const juce::String& device)
+{
+    const std::lock_guard<std::recursive_mutex> lock(stateMutex_);
+    AnalyzeResult result;
+
+    const int ch = audio.getNumChannels();
+    const int n  = audio.getNumSamples();
+    if (ch <= 0 || n <= 0)
+    {
+        result.errorMessage = "analyze: empty audio buffer";
+        return result;
+    }
+
+    // Auto-restart if the subprocess died (mirrors translate()).
+    if (ready_ && !isChildAlive())
+    {
+        juce::Logger::writeToLog("PipeInference: subprocess died, restarting...");
+        if (!tryRestart())
+        {
+            result.errorMessage = "Inference crashed — restart failed";
+            return result;
+        }
+        juce::Logger::writeToLog("PipeInference: restarted successfully");
+    }
+
+    if (!ready_ || !isConnected())
+    {
+        result.errorMessage = "Inference not ready";
+        return result;
+    }
+
+    auto json = juce::DynamicObject::Ptr(new juce::DynamicObject());
+    json->setProperty("mode", "analyze");
+
+    // Audio travels on the init_audio wire keys (identical to generate()'s resynth
+    // path / the backend's _decode_init_audio_request): raw float32 little-endian
+    // PCM, base64, planar (channel-major).
+    std::vector<float> planar (static_cast<size_t>(ch) * static_cast<size_t>(n));
+    for (int c = 0; c < ch; ++c)
+        std::memcpy(planar.data() + static_cast<size_t>(c) * static_cast<size_t>(n),
+                    audio.getReadPointer(c),
+                    static_cast<size_t>(n) * sizeof(float));
+    json->setProperty("init_audio_b64",
+                      juce::Base64::toBase64(planar.data(), planar.size() * sizeof(float)));
+    json->setProperty("init_audio_sr", static_cast<int>(sampleRate + 0.5));
+    json->setProperty("init_audio_channels", ch);
+    json->setProperty("topk", topk);
+    if (device.isNotEmpty())
+        json->setProperty("device", device);
+
+    auto jsonStr = juce::JSON::toString(juce::var(json.get()), true);
+    jsonStr = jsonStr.removeCharacters("\n\r") + "\n";
+
+    if (!writeExact(jsonStr.toRawUTF8(), static_cast<int>(jsonStr.getNumBytesAsUTF8())))
+    {
+        if (tryRestart())
+            result.errorMessage = "Inference restarted — try again";
+        else
+            result.errorMessage = "Inference crashed — restart failed";
+        return result;
+    }
+
+    // First analyze lazily loads CLAP (several seconds; downloads on first ever use).
+    char status = 0;
+    if (!readExact(&status, 1, 180000))
+    {
+        if (!isChildAlive())
+        {
+            juce::Logger::writeToLog("PipeInference: subprocess died during analyze");
+            tryRestart();
+            result.errorMessage = "Inference crashed — restarted, try again";
+        }
+        else
+            result.errorMessage = "Timeout waiting for analysis";
+        return result;
+    }
+
+    if (status == '\x03')   // text (JSON) result
+    {
+        juce::uint32 msgLen = 0;
+        if (!readExact(&msgLen, 4))
+        {
+            result.errorMessage = "Failed to read analysis length";
+            return result;
+        }
+        if (msgLen > 0)
+        {
+            std::vector<char> msg(msgLen + 1, 0);
+            if (!readExact(msg.data(), static_cast<int>(msgLen)))
+            {
+                result.errorMessage = "Failed to read analysis text";
+                return result;
+            }
+            auto parsed = juce::JSON::parse(juce::String::fromUTF8(msg.data(), static_cast<int>(msgLen)));
+            result.tags     = parsed.getProperty("tags", juce::var("")).toString();
+            result.spectral = parsed.getProperty("spectral", juce::var("")).toString();
+        }
+        result.success = true;
+        return result;
+    }
+
+    if (status == '\x00')   // error
+    {
+        juce::uint32 msgLen = 0;
+        if (readExact(&msgLen, 4))
+        {
+            std::vector<char> msg(msgLen + 1, 0);
+            readExact(msg.data(), static_cast<int>(msgLen));
+            result.errorMessage = juce::String::fromUTF8(msg.data(), static_cast<int>(msgLen));
+        }
+        else
+            result.errorMessage = "Unknown error";
+        return result;
+    }
+
+    result.errorMessage = "Unexpected response: " + juce::String((int)status);
+    return result;
+}
+
 PipeInference::ModelMetadata PipeInference::getModelMetadata(const juce::String& modelName) const
 {
     const std::lock_guard<std::recursive_mutex> lock(stateMutex_);

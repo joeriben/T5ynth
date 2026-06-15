@@ -121,6 +121,21 @@ public:
         juce::String errorMessage;  // set when success == false
     };
 
+    struct InterpretResult
+    {
+        bool success = false;
+        juce::String text;          // the interpreted prompt (empty for empty input)
+        juce::String errorMessage;  // set when success == false
+    };
+
+    struct AnalyzeResult
+    {
+        bool success = false;
+        juce::String tags;          // CLAP top-k timbre tags, comma-joined
+        juce::String spectral;      // DSP spectral words, e.g. "warm, full-bodied, tonal"
+        juce::String errorMessage;  // set when success == false
+    };
+
     /** Blocking generation — call from background thread.
      *  Auto-restarts Python if subprocess died. */
     Result generate(const Request& request);
@@ -136,6 +151,27 @@ public:
     TranslateResult translate(const juce::String& text,
                               const juce::String& device,
                               const juce::String& modelPath = {});
+
+    /** Blocking prompt INTERPRETATION via the same instruct model as translate(),
+     *  but the caller supplies the system prompt (the loop "stance") — call from a
+     *  background thread. `device`/`modelPath` may be empty (backend defaults).
+     *  Empty input returns success with empty text and no round-trip. Returns
+     *  success == false (errorMessage set) when no instruct model is installed.
+     *  This is the LLM half of the CLAP→LLM semantic loop. */
+    InterpretResult interpret(const juce::String& systemPrompt,
+                              const juce::String& userText,
+                              int maxNewTokens,
+                              const juce::String& device,
+                              const juce::String& modelPath = {});
+
+    /** Blocking CLAP machine-listening analysis of an audio buffer → top-k timbre
+     *  tags + DSP spectral words — call from a background thread. The audio is sent
+     *  on the init_audio wire keys (planar float32, base64); CLAP runs CPU-pinned
+     *  in the backend. This is the ear half of the CLAP→LLM semantic loop. */
+    AnalyzeResult analyze(const juce::AudioBuffer<float>& audio,
+                          double sampleRate,
+                          int topk,
+                          const juce::String& device);
 
     /** Preload a model+device combo so first generate is fast.
      *  Blocking — call from background thread. Returns true on success. */
