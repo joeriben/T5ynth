@@ -4014,6 +4014,13 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     synth->setProperty("noise", get(PID::genNoise));
     synth->setProperty("axesAmount", get(PID::genAxesAmount));
     synth->setProperty("resynth", get(PID::resynthAmount));
+    // Re-Prompt (semantic loop): stance + coupling, saved as KEY strings so the
+    // enum order can change without breaking presets. A preset saved before
+    // Re-Prompt existed lacks both -> choiceFromKey("") -> 0 -> stance Off on load.
+    synth->setProperty("repromptStance",
+                       choiceToKey(static_cast<int>(get(PID::repromptStance)), RepromptStance::kEntries));
+    synth->setProperty("repromptCoupling",
+                       choiceToKey(static_cast<int>(get(PID::repromptCoupling)), RepromptCoupling::kEntries));
     synth->setProperty("duration", get(PID::genDuration));
     synth->setProperty("startPosition", get(PID::genStart));
     synth->setProperty("steps", static_cast<int>(get(PID::infSteps)));
@@ -4319,6 +4326,14 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         // saved before Resynth existed lacks the property -> var() -> 0.0f -> the
         // Resynth slider resets to off on load, as a preset's full state should.
         setParam(parameters, PID::resynthAmount, static_cast<float>(synth->getProperty("resynth")));
+        // Re-Prompt stance/coupling: unconditional read like resynth — a preset
+        // without these (any older .t5p) -> var() -> "" -> choiceFromKey -> 0 ->
+        // stance Off, so a loaded preset has Re-Prompt DEACTIVATED unless it
+        // explicitly carries an active stance.
+        setParam(parameters, PID::repromptStance, static_cast<float>(
+                     choiceFromKey(synth->getProperty("repromptStance").toString(), RepromptStance::kEntries)));
+        setParam(parameters, PID::repromptCoupling, static_cast<float>(
+                     choiceFromKey(synth->getProperty("repromptCoupling").toString(), RepromptCoupling::kEntries)));
         setParam(parameters, PID::genDuration, static_cast<float>(synth->getProperty("duration")));
         setParam(parameters, PID::genStart, static_cast<float>(synth->getProperty("startPosition")));
         setParam(parameters, PID::infSteps, static_cast<float>(static_cast<int>(synth->getProperty("steps"))));

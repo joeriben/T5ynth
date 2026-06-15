@@ -1021,6 +1021,13 @@ void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String
     promptBEditor.setText(promptB, false);
     lastGenPromptA_.clear();
     lastGenPromptB_.clear();
+    // Re-Prompt loop runtime is per-session, NOT preset state. Reset the engage
+    // gate so (a) the deactivation-restore can't overwrite the just-loaded prompts
+    // with the OLD session's captured originals, and (b) the loop re-captures the
+    // NEW prompts when it next engages. Stance/coupling themselves are APVTS params
+    // the processor restores separately (Off for presets predating Re-Prompt).
+    loopEngaged_ = false;
+    loopOriginalsValid_ = false;
     randomSeedToggle.setToggleState(randomSeed, juce::dontSendNotification);
     syncSeedEditorDisplay(seed, true);
     syncSeedEditorEnabledState();
