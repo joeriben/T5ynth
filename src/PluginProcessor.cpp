@@ -3802,6 +3802,14 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
     parameters.getParameter(PID::seqRunning)->setValueNotifyingHost(0.0f);
     parameters.getParameter(PID::genSeqRunning)->setValueNotifyingHost(0.0f);
 
+    // Same rule for the Re-Prompt loop: a non-Off stance is a self-running
+    // generation driver (pollDriftRegen's repromptLoop standing trigger fires
+    // even in Manual mode), the moral equivalent of seqRunning=1 — restoring it
+    // active would spontaneously render AND clobber the just-loaded prompts. Force
+    // it Off on every restore; the user re-engages it deliberately. (The coupling
+    // is a passive mode and is left untouched.)
+    parameters.getParameter(PID::repromptStance)->setValueNotifyingHost(0.0f);
+
     // Treat the restored seqPreset as not-yet-applied so the next processBlock
     // reloads its canned pattern (the step pattern isn't part of the saved
     // state). seqStateRestored tells that apply to SUPPRESS the step-count push
@@ -4326,12 +4334,17 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         // saved before Resynth existed lacks the property -> var() -> 0.0f -> the
         // Resynth slider resets to off on load, as a preset's full state should.
         setParam(parameters, PID::resynthAmount, static_cast<float>(synth->getProperty("resynth")));
-        // Re-Prompt stance/coupling: unconditional read like resynth — a preset
-        // without these (any older .t5p) -> var() -> "" -> choiceFromKey -> 0 ->
-        // stance Off, so a loaded preset has Re-Prompt DEACTIVATED unless it
-        // explicitly carries an active stance.
-        setParam(parameters, PID::repromptStance, static_cast<float>(
-                     choiceFromKey(synth->getProperty("repromptStance").toString(), RepromptStance::kEntries)));
+        // Re-Prompt: restore the COUPLING (a passive A/B mode) but force the STANCE
+        // Off on load, regardless of what the preset saved. A non-Off stance is a
+        // self-running generation loop (pollDriftRegen's repromptLoop standing
+        // trigger fires even in Manual mode) — restoring it active would clobber the
+        // just-loaded prompts and start rendering with no user gesture. Same anti-
+        // acoustic-surprise rule the sequencers follow on restore (see
+        // setStateInformation). Forcing Off here also clears any active stance left
+        // over from the CURRENT session when a preset is loaded over it. The user
+        // re-engages a stance deliberately after load; an older .t5p without the
+        // coupling key -> var() -> "" -> choiceFromKey -> 0 -> "alpha" (B-only).
+        setParam(parameters, PID::repromptStance, static_cast<float>(RepromptStance::Off));
         setParam(parameters, PID::repromptCoupling, static_cast<float>(
                      choiceFromKey(synth->getProperty("repromptCoupling").toString(), RepromptCoupling::kEntries)));
         setParam(parameters, PID::genDuration, static_cast<float>(synth->getProperty("duration")));
