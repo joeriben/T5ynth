@@ -93,3 +93,42 @@ namespace RepromptStances
      *  core → the bare tokens. */
     juce::String reattachMusicSuffix (const juce::String& core, const juce::String& suffix);
 }
+
+// ── Structured musical parse ─────────────────────────────────────────────────
+// Phase 1 of "T5ynth understands its prompts": turn the trailing pitch/tempo run
+// (the same tokens RepromptStances::trailingMusicSuffix preserves) into STRUCTURED
+// data — pitch classes, octaves, MIDI numbers, tempo — so later consumers (the
+// sequencer's BPM, scaleRoot, note seeding) can use it. Purely additive: the
+// preservation path is unchanged; this just exposes what the tokens MEAN.
+//
+// Source-of-truth note: parse the USER's appended tokens (intentional control),
+// NOT the LLM's prose (hallucination-prone, and "the machine's musical reading"
+// is a bias to SURFACE, not to obey). juce_core-only, like the rest of this file.
+namespace Music
+{
+    struct Note
+    {
+        int pitchClass = 0;   // 0=C, 1=C#/Db … 11=B (accidentals resolved, mod 12)
+        int octave     = 0;   // scientific-pitch octave as written (the digits after the note)
+        int midiNote   = 0;   // MIDI number, SPN convention: A4→69, C4(middle C)→60, i.e. (octave+1)*12+pc.
+                              // (If T5ynth adopts C3=60 elsewhere, that's a fixed +12 the consumer applies.)
+        juce::String text;    // the token VERBATIM as the user wrote it ("C#3", "db5")
+    };
+
+    struct Spec
+    {
+        juce::String core;        // the prompt minus its trailing musical run (== stripMusicSuffix), trimmed
+        juce::String verbatim;    // the trailing run VERBATIM (== trailingMusicSuffix); empty when none
+        juce::Array<Note> notes;  // parsed pitch tokens, in source order
+        bool  hasBpm = false;
+        float bpm     = 0.0f;     // parsed tempo (if several bpm tokens, the LAST wins)
+        juce::String bpmText;     // the bpm token VERBATIM ("120bpm", "90 bpm")
+
+        bool hasMusic() const { return verbatim.isNotEmpty(); }
+    };
+
+    /** Parse a prompt's trailing musical run into a Spec. Spec::core/verbatim mirror
+     *  RepromptStances::stripMusicSuffix/trailingMusicSuffix exactly (so the existing
+     *  preservation behaviour is unchanged); notes/bpm add the structured reading. */
+    Spec parse (const juce::String& prompt);
+}

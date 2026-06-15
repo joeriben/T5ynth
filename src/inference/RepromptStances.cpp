@@ -344,3 +344,57 @@ juce::String reattachMusicSuffix (const juce::String& core, const juce::String& 
 }
 
 } // namespace RepromptStances
+
+// ── Structured musical parse (Phase 1) ───────────────────────────────────────
+namespace Music
+{
+    Spec parse (const juce::String& prompt)
+    {
+        Spec spec;
+        spec.verbatim = RepromptStances::trailingMusicSuffix (prompt);
+        spec.core     = RepromptStances::stripMusicSuffix (prompt);
+        if (spec.verbatim.isEmpty())
+            return spec;   // no trailing tokens → core mirrors the (trimmed) prompt, no notes/bpm
+
+        // Token grammar: group 1 = tempo number | groups 2/3/4 = note letter / accidental
+        // / octave. Iterated over the verbatim run; sregex_iterator skips the separators.
+        static const std::regex tokRe (
+            R"(([0-9]{1,3}(?:\.[0-9]+)?)[ \t]*bpm|([a-g])(##|#|bb|b)?(-1|10|[0-9]))",
+            std::regex::icase);
+        static const int basePc[7] = { 9, 11, 0, 2, 4, 5, 7 };   // a,b,c,d,e,f,g → pitch class
+
+        const std::string run = spec.verbatim.toStdString();
+        for (auto it = std::sregex_iterator (run.begin(), run.end(), tokRe);
+             it != std::sregex_iterator(); ++it)
+        {
+            const std::smatch& m = *it;
+            // juce::String::getFloat/IntValue parse '.'-decimal locale-INDEPENDENTLY;
+            // std::strtof/atoi would misread "128.5" in a comma-decimal locale (de_DE).
+            if (m[1].matched)                       // tempo (last bpm token wins)
+            {
+                spec.hasBpm  = true;
+                spec.bpm     = juce::String (m[1].str().c_str()).getFloatValue();
+                spec.bpmText = juce::String (juce::CharPointer_UTF8 (m[0].str().c_str()));
+            }
+            else if (m[2].matched)                  // pitch note
+            {
+                Note n;
+                n.text = juce::String (juce::CharPointer_UTF8 (m[0].str().c_str()));
+                char letter = m[2].str()[0];
+                if (letter >= 'A' && letter <= 'G') letter = (char) (letter + 32);   // ASCII lower, locale-free
+                int pc = basePc[letter - 'a'];
+                if (m[3].matched)
+                    for (char ch : m[3].str())      // each accidental shifts a semitone
+                    {
+                        if      (ch == '#')                ++pc;
+                        else if (ch == 'b' || ch == 'B')   --pc;
+                    }
+                n.pitchClass = ((pc % 12) + 12) % 12;
+                n.octave     = juce::String (m[4].str().c_str()).getIntValue();
+                n.midiNote   = (n.octave + 1) * 12 + n.pitchClass;   // SPN: A4→69
+                spec.notes.add (n);
+            }
+        }
+        return spec;
+    }
+} // namespace Music

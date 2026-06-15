@@ -18,6 +18,8 @@
 
 #include "../src/inference/RepromptStances.h"
 #include <cstdio>
+#include <cmath>
+#include <clocale>
 
 static int g_fail = 0;
 
@@ -42,6 +44,12 @@ static void checkTrue (const char* what, bool cond)
 int main()
 {
     using namespace RepromptStances;
+
+    // Best-effort: run under a comma-decimal locale so the bpm parse is proven
+    // locale-independent (a regression to std::strtof/atoi would misread "128.5"
+    // → 128 here). No-op if the locale isn't installed (then C locale stays).
+    if (std::setlocale (LC_NUMERIC, "de_DE.UTF-8") || std::setlocale (LC_NUMERIC, "de_DE"))
+        std::printf ("(comma-decimal LC_NUMERIC active)\n");
 
     std::printf ("cleanPrompt:\n");
     check ("label strip",   cleanPrompt ("heard: whispering wind in the pines"),
@@ -91,6 +99,40 @@ int main()
     // token-only pole composed shape: must NOT leak a leading comma.
     check ("token-only pole shape", reattachMusicSuffix ("glassy bell", trailingMusicSuffix ("120bpm")),
                                     "glassy bell, 120bpm");
+
+    // Phase 1 structured parse: the trailing run → notes (pc/octave/MIDI) + tempo.
+    std::printf ("music parse:\n");
+    {
+        auto s = Music::parse ("warm analog pad, c3, 120bpm");
+        check     ("parse core",       s.core, "warm analog pad");
+        check     ("parse verbatim",   s.verbatim, ", c3, 120bpm");
+        checkTrue ("parse c3 pc=0",    s.notes.size() == 1 && s.notes[0].pitchClass == 0);
+        checkTrue ("parse c3 oct=3",   s.notes.size() == 1 && s.notes[0].octave == 3);
+        checkTrue ("parse c3 midi=48", s.notes.size() == 1 && s.notes[0].midiNote == 48);
+        checkTrue ("parse bpm=120",    s.hasBpm && std::abs (s.bpm - 120.0f) < 0.01f);
+    }
+    {
+        auto s = Music::parse ("bell C#3 Db5");
+        checkTrue ("parse 2 notes",    s.notes.size() == 2);
+        checkTrue ("enharmonic C#==Db",
+                   s.notes.size() == 2 && s.notes[0].pitchClass == 1 && s.notes[1].pitchClass == 1);
+        checkTrue ("octaves 3 & 5",
+                   s.notes.size() == 2 && s.notes[0].octave == 3 && s.notes[1].octave == 5);
+        checkTrue ("no bpm",           ! s.hasBpm);
+    }
+    {
+        auto s = Music::parse ("a4");
+        checkTrue ("A4 midi=69",       s.notes.size() == 1 && s.notes[0].midiNote == 69);  // A440 anchor
+    }
+    {
+        auto s = Music::parse ("128.5 bpm");
+        checkTrue ("decimal bpm",      s.hasBpm && std::abs (s.bpm - 128.5f) < 0.01f);
+        checkTrue ("bpm-only no notes", s.notes.isEmpty());
+    }
+    {
+        auto s = Music::parse ("techno beat");
+        checkTrue ("no music",         ! s.hasMusic() && s.notes.isEmpty());
+    }
 
     std::printf ("system prompts non-empty:\n");
     const char* keys[] = { "transcribe", "entkitscher", "verniedlicher",
