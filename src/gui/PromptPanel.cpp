@@ -592,6 +592,29 @@ void PromptPanel::timerCallback()
     if (noiseChanged)
         repaint(noiseSlider.getBounds().expanded(4));
 
+    // Re-Prompt deactivation → restore the human originals. Edge-detected here (not in
+    // pollDriftRegen, which returns early once the loop is Off) so it fires the instant
+    // the stance is set back to Off, independent of the regen mode. dontSendNotification:
+    // we resync the lastGen* trackers + setLastPrompts ourselves, exactly like the loop's
+    // own apply tail, so no spurious promptChanged regen is provoked.
+    {
+        const int curStance = static_cast<int>(processorRef.getValueTreeState()
+            .getRawParameterValue(PID::repromptStance)->load());
+        if (curStance == RepromptStance::Off
+            && prevStanceForRestore_ != RepromptStance::Off
+            && loopOriginalsValid_)
+        {
+            promptAEditor.setText(loopOriginalA_, juce::dontSendNotification);
+            promptBEditor.setText(loopOriginalB_, juce::dontSendNotification);
+            lastGenPromptA_ = loopOriginalA_;
+            lastGenPromptB_ = loopOriginalB_;
+            processorRef.setLastPrompts(loopOriginalA_, loopOriginalB_);
+            loopOriginalsValid_ = false;
+            loopEngaged_ = false;   // re-arm the original-capture edge for the next run
+        }
+        prevStanceForRestore_ = curStance;
+    }
+
     // Auto-regen polling
     pollDriftRegen();
 }
@@ -2049,7 +2072,14 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
     lastGenSplitStart_ = effectiveSplitStart;
     lastGenSplitEnd_ = effectiveSplitEnd;
 
-    if (processorRef.isInferenceCacheFull())
+    // Cache replay short-circuits real generation — but the Re-Prompt loop must render
+    // fresh audio each step (it listens to the output to rewrite the prompt). So when a
+    // stance is active, the auto-regen step bypasses the cache and generates for real.
+    // (Manual Generate keeps replaying the cache — only the self-running loop needs to
+    // override it.)
+    const bool stanceActiveForCache = static_cast<int>(processorRef.getValueTreeState()
+        .getRawParameterValue(PID::repromptStance)->load()) != RepromptStance::Off;
+    if (processorRef.isInferenceCacheFull() && !stanceActiveForCache)
     {
         playNextCachedInference();
         return;
@@ -2189,12 +2219,22 @@ void PromptPanel::pollDriftRegen()
     // its callAsync tail; the next tick then proceeds with the rewritten prompts.
     if (generating || translatingPrompts_ || loopStepInFlight_) return;
 
+    // An active Re-Prompt stance is itself a self-running loop driver (faithful to the
+    // clap_llm_loop reference, where running the loop IS the generation): it engages
+    // auto-regen even in Manual mode. Without this, selecting a stance does nothing
+    // until the user separately enables Auto-Regen — exactly the "stance set but
+    // autogenerate never triggers Re-Prompt" report. The repromptLoop standing trigger
+    // below carries each step; setting the stance back to Off stops it and restores the
+    // originals (timerCallback). Read once here; reused for the trigger + cache bypass.
+    const bool stanceActive = static_cast<int>(processorRef.getValueTreeState()
+        .getRawParameterValue(PID::repromptStance)->load()) != RepromptStance::Off;
+
     int regenMode = processorRef.driftRegenMode.load(std::memory_order_relaxed);
-    if (regenMode == 0)
+    if (regenMode == 0 && !stanceActive)
     {
         convergenceReduction_ = 0.0f;   // loop not running → reset the controller
         antiConvergenceActive_ = false; // and its status flag
-        return;                         // Manual — no auto-regen
+        return;                         // Manual — no auto-regen (and no stance loop)
     }
 
     // Failure throttle: when the previous drift-driven regen failed (e.g.
@@ -2215,7 +2255,8 @@ void PromptPanel::pollDriftRegen()
     // still pre-fill while the user is not playing.
     const bool fullCachePlayback = processorRef.isInferenceCacheFull();
     if (fullCachePlayback
-        && processorRef.audioIdle.load(std::memory_order_relaxed))
+        && processorRef.audioIdle.load(std::memory_order_relaxed)
+        && !stanceActive)   // Re-Prompt must keep rendering fresh audio to listen to
         return;
 
     // Beat-based cooldown: modes 2-4 = max 1/4/16 beats. When the
@@ -2356,9 +2397,7 @@ void PromptPanel::pollDriftRegen()
     // once. The SA3-only resynth control machinery below stays gated on resynthLoop —
     // a pure word loop renders clean from the prompt (no init_audio attaches off-SA3
     // or at amount 0, per buildInferenceRequest's gate), so loopResynth stays inert.
-    const bool stanceActive = static_cast<int>(
-        apvts.getRawParameterValue(PID::repromptStance)->load()) != RepromptStance::Off;
-    const bool repromptLoop = stanceActive && ! resynthLoop;
+    const bool repromptLoop = stanceActive && ! resynthLoop;   // stanceActive: see top
 
     auto promptA = promptAEditor.getText().trim();
     auto promptB = promptBEditor.getText().trim();
@@ -2473,6 +2512,11 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
     if (stanceIdx == RepromptStance::Off)
     {
         loopEngaged_ = false;   // loop disabled → re-arm the original-capture edge
+        // INVARIANT: do NOT touch loopOriginalsValid_ / prevStanceForRestore_ here —
+        // they are timer-owned and must survive this clear so the deactivation-restore
+        // still fires on the next tick even if a gen-complete callback observes Off
+        // before timerCallback does. Writing them here would let machine text leak into
+        // the next engage capture.
         return;
     }
     // NO model gate: Re-Prompt is engine-agnostic — it listens to the just-rendered
@@ -2510,6 +2554,7 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
         loopRecentA_.clearQuick(); loopRecentA_.add(loopOriginalA_);
         loopRecentB_.clearQuick(); loopRecentB_.add(loopOriginalB_);
         loopEngaged_ = true;
+        loopOriginalsValid_ = true;   // arm the stance→Off restore (timerCallback)
     }
 
     loopStepInFlight_ = true;
@@ -2571,6 +2616,23 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
         {
             auto* self = safeThis.getComponent();
             if (self == nullptr) return;   // panel gone — nothing to write; guard auto-clears with the object
+
+            // Bail (without applying) if the loop was deactivated while this step was
+            // interpreting — do NOT clobber the human originals the deactivation-restore
+            // (timerCallback) put back with this now-stale rewrite. Two signals:
+            //   • stance reads Off — the plain deactivate, tail running before the restore.
+            //   • !loopEngaged_ — a restore already ran (it clears loopEngaged_, and a
+            //     re-activation does NOT set it back; only the next capture does). This
+            //     covers the Off→on ABA flicker that a bare stance==Off check would miss,
+            //     which would otherwise apply the stale rewrite AND poison the next
+            //     capture's "originals" with machine text.
+            if (! self->loopEngaged_
+                || static_cast<int>(self->processorRef.getValueTreeState()
+                       .getRawParameterValue(PID::repromptStance)->load()) == RepromptStance::Off)
+            {
+                self->loopStepInFlight_ = false;
+                return;
+            }
 
             // Apply the coupling onto the editor(s). dontSendNotification so neither
             // onTextChange nor pollDriftRegen's promptChanged path re-fires (we update

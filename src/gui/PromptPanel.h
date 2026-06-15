@@ -300,6 +300,13 @@ private:
     juce::String loopOriginalA_, loopOriginalB_;  // glieder[0] (the human impulse, kept by concat)
     juce::String loopLastA_, loopLastB_;          // glieder[-1] (the chain's own last link)
     juce::StringArray loopRecentA_, loopRecentB_; // glieder[-3:] anti-stasis memory (last 3 links)
+    // Deactivation restore: when a stance→Off transition is seen (timerCallback edge
+    // detect), the human originals captured at engage are put back into the editors.
+    // loopOriginalsValid_ gates it: true only once a step has captured originals AND
+    // machine-modified the editors; cleared after the restore (and never set if the
+    // loop never ran, so toggling a stance on/off with no render in between is a no-op).
+    bool loopOriginalsValid_ = false;
+    int  prevStanceForRestore_ = 0;               // RepromptStance::Off — last seen stance index
     // Resynth-loop anti-convergence: an adaptive amount subtracted from the
     // loop's effective resynth when consecutive outputs stop differing, raising
     // init_noise to break the loop out of a fixed-point. 0 = no reduction (the
