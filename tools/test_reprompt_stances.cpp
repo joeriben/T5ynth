@@ -1,4 +1,4 @@
-// Standalone parity test for src/inference/LoopStances.{h,cpp}: proves the C++
+// Standalone parity test for src/inference/RepromptStances.{h,cpp}: proves the C++
 // port of clap_llm_loop.py's _clean_prompt / _concat2 / per-stance builders +
 // system prompts matches the verified Python algorithm.
 //
@@ -13,10 +13,10 @@
 //     -framework Carbon -framework AppKit -framework IOKit \
 //     JUCE/modules/juce_core/juce_core.mm \
 //     JUCE/modules/juce_core/juce_core_CompilationTime.cpp \
-//     src/inference/LoopStances.cpp tools/test_loop_stances.cpp \
-//     -o tools/test_loop_stances && tools/test_loop_stances
+//     src/inference/RepromptStances.cpp tools/test_reprompt_stances.cpp \
+//     -o tools/test_reprompt_stances && tools/test_reprompt_stances
 
-#include "../src/inference/LoopStances.h"
+#include "../src/inference/RepromptStances.h"
 #include <cstdio>
 
 static int g_fail = 0;
@@ -41,7 +41,7 @@ static void checkTrue (const char* what, bool cond)
 
 int main()
 {
-    using namespace LoopStances;
+    using namespace RepromptStances;
 
     std::printf ("cleanPrompt:\n");
     check ("label strip",   cleanPrompt ("heard: whispering wind in the pines"),

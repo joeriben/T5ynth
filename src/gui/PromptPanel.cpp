@@ -3,7 +3,7 @@
 #include "GuiHelpers.h"
 #include "../PluginProcessor.h"
 #include "../dsp/BlockParams.h"
-#include "../inference/LoopStances.h"
+#include "../inference/RepromptStances.h"
 #include <thread>
 #include <cmath>
 
@@ -1834,9 +1834,9 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
             // to that band whenever a stance is engaged — this needs no extra slider
             // (it rides on the existing Resynth attach gate above). Read on the
             // message thread, same as every other param here.
-            const int loopStance = static_cast<int>(
-                apvts.getRawParameterValue(PID::loopStance)->load());
-            if (loopStance != LoopStance::Off)
+            const int repromptStance = static_cast<int>(
+                apvts.getRawParameterValue(PID::repromptStance)->load());
+            if (repromptStance != RepromptStance::Off)
                 req.initNoiseLevel = 0.9f;
         }
     }
@@ -2455,8 +2455,8 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
 {
     // (1) Off / not-SA3 early-outs FIRST (cheap), like pollDriftRegen's regenMode==0.
     auto& apvts = processorRef.getValueTreeState();
-    const int stanceIdx = static_cast<int>(apvts.getRawParameterValue(PID::loopStance)->load());
-    if (stanceIdx == LoopStance::Off)
+    const int stanceIdx = static_cast<int>(apvts.getRawParameterValue(PID::repromptStance)->load());
+    if (stanceIdx == RepromptStance::Off)
     {
         loopEngaged_ = false;   // loop disabled → re-arm the original-capture edge
         return;
@@ -2471,14 +2471,14 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
     if (result.audio.getNumSamples() <= 0 || result.audio.getNumChannels() <= 0)
         return;   // nothing to listen to
 
-    const int couplingIdx = static_cast<int>(apvts.getRawParameterValue(PID::loopCoupling)->load());
-    const bool dual = (couplingIdx == LoopCoupling::AbAdd || couplingIdx == LoopCoupling::AbReplace);
-    const bool concat = (couplingIdx == LoopCoupling::AbAdd);
+    const int couplingIdx = static_cast<int>(apvts.getRawParameterValue(PID::repromptCoupling)->load());
+    const bool dual = (couplingIdx == RepromptCoupling::AbAdd || couplingIdx == RepromptCoupling::AbReplace);
+    const bool concat = (couplingIdx == RepromptCoupling::AbAdd);
 
-    // Resolve the stance KEY (BlockParams.h LoopStance::kEntries[i].key == the
-    // clap_llm_loop MODES id LoopStances expects). Guard the index defensively.
-    const int sIdx = juce::jlimit(0, LoopStance::kCount - 1, stanceIdx);
-    const juce::String stanceKey = LoopStance::kEntries[sIdx].key;
+    // Resolve the stance KEY (BlockParams.h RepromptStance::kEntries[i].key == the
+    // clap_llm_loop MODES id RepromptStances expects). Guard the index defensively.
+    const int sIdx = juce::jlimit(0, RepromptStance::kCount - 1, stanceIdx);
+    const juce::String stanceKey = RepromptStance::kEntries[sIdx].key;
 
     // (5 + run_llm_loop glieder init) Capture the human originals on the false→true
     // engage edge: a_glieder=[header_a], b_glieder=[header_b]. The "header" is the
@@ -2531,15 +2531,15 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
         // One interpret PER DRIVEN POLE — never copy one run into both poles.
         // next = cleanPrompt(interpret(stanceSysp, userTurn)) OR the chain's last
         // link on empty (run_llm_loop's `or *_glieder[-1]`).
-        const juce::String sysp = LoopStances::stanceSystemPrompt(stanceKey);
+        const juce::String sysp = RepromptStances::stanceSystemPrompt(stanceKey);
         auto interpretPole = [&](const juce::String& prev, const juce::StringArray& recent,
                                  const juce::String& fallback) -> juce::String
         {
             const juce::String userTurn =
-                LoopStances::buildStanceUserTurn(stanceKey, tags, prev, recent, spectral);
+                RepromptStances::buildStanceUserTurn(stanceKey, tags, prev, recent, spectral);
             auto r = pipePtr->interpret(sysp, userTurn, 64, device);
             const juce::String cleaned =
-                r.success ? LoopStances::cleanPrompt(r.text) : juce::String();
+                r.success ? RepromptStances::cleanPrompt(r.text) : juce::String();
             return cleaned.isNotEmpty() ? cleaned : fallback;
         };
 
@@ -2561,7 +2561,7 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
             // the lastGen* trackers + setLastPrompts ourselves below).
             // B pole (always driven):
             self->loopLastB_ = nextB;                                   // glieder[-1]
-            const juce::String appliedB = concat ? LoopStances::concat2(origB, nextB) : nextB;
+            const juce::String appliedB = concat ? RepromptStances::concat2(origB, nextB) : nextB;
             self->promptBEditor.setText(appliedB, juce::dontSendNotification);
             self->loopRecentB_.add(nextB);                             // push into recent…
             while (self->loopRecentB_.size() > 3) self->loopRecentB_.remove(0);  // …keep last 3
@@ -2571,7 +2571,7 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
             if (dual)
             {
                 self->loopLastA_ = nextA;
-                appliedA = concat ? LoopStances::concat2(origA, nextA) : nextA;
+                appliedA = concat ? RepromptStances::concat2(origA, nextA) : nextA;
                 self->promptAEditor.setText(appliedA, juce::dontSendNotification);
                 self->loopRecentA_.add(nextA);
                 while (self->loopRecentA_.size() > 3) self->loopRecentA_.remove(0);

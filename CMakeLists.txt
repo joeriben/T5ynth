@@ -155,7 +155,7 @@ target_sources(T5ynth PRIVATE
 
     # Inference (Python pipe IPC)
     src/inference/PipeInference.cpp
-    src/inference/LoopStances.cpp
+    src/inference/RepromptStances.cpp
 
     # GUI
     src/gui/MainPanel.cpp

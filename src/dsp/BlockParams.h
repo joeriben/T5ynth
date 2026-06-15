@@ -148,8 +148,8 @@ namespace PID {
     // ── Semantic self-listening loop (CLAP ear → LLM interpreter → next prompt) ──
     // Both are read message-thread-only at generation time (PromptPanel), NOT in
     // processBlock — they have no audio-thread consumer.
-    static constexpr const char* loopStance       = "loop_stance";      // interpreter stance (Off disables the loop)
-    static constexpr const char* loopCoupling     = "loop_coupling";    // how far the machine displaces the human input
+    static constexpr const char* repromptStance       = "reprompt_stance";      // interpreter stance (Off disables the loop)
+    static constexpr const char* repromptCoupling     = "reprompt_coupling";    // how far the machine displaces the human input
     static constexpr const char* infSteps         = "inf_steps";
     static constexpr const char* loopMode         = "loop_mode";
     static constexpr const char* crossfadeMs      = "crossfade_ms";
@@ -794,13 +794,13 @@ namespace DriftRegen {
 // ── Semantic-loop interpreter stance ──
 // The curated SIX deconstructive stances of the CLAP→LLM self-listening loop
 // (tools/clap_llm_loop.py MODES), in movement-type order. The `.key` column IS
-// the stance id consumed by inference/LoopStances (stanceSystemPrompt /
+// the stance id consumed by inference/RepromptStances (stanceSystemPrompt /
 // buildStanceUserTurn) — it must match the keys in clap_llm_loop's MODES dict.
 // The `.label` is a Phase-C placeholder (the custom slider will paint formal
 // symbols); for now it doubles as the host generic-editor display string.
 // Off (index 0) disables the loop entirely (the cheap early-out in
 // PromptPanel::runSemanticLoopStep).
-namespace LoopStance {
+namespace RepromptStance {
     enum : int {
         Off = 0, Transcribe = 1, Entkitscher = 2, Verniedlicher = 3,
         Variation = 4, Abduktion = 5, Opposite = 6
@@ -815,7 +815,7 @@ namespace LoopStance {
         { "opposite",      "Opposite"      }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(Opposite + 1 == kCount, "LoopStance out of sync.");
+    static_assert(Opposite + 1 == kCount, "RepromptStance out of sync.");
 }
 
 // ── Semantic-loop coupling topology ──
@@ -825,7 +825,7 @@ namespace LoopStance {
 // ab_replace = both poles fully replaced by the same stance with per-pole inputs.
 // The `.key` matches the tool's coupling names (alpha / concat / voll) so a
 // future preset round-trip lines up with the verified algorithm.
-namespace LoopCoupling {
+namespace RepromptCoupling {
     enum : int { Alpha = 0, AbAdd = 1, AbReplace = 2 };
     static constexpr ChoiceEntry kEntries[] = {
         { "alpha",  "A→B"      },   // = clap_llm_loop "alpha"
@@ -833,7 +833,7 @@ namespace LoopCoupling {
         { "voll",   "A+B repl" }    // = clap_llm_loop "voll"
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(AbReplace + 1 == kCount, "LoopCoupling out of sync.");
+    static_assert(AbReplace + 1 == kCount, "RepromptCoupling out of sync.");
 }
 
 // ── Voice count ──

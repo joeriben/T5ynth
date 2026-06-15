@@ -1,7 +1,7 @@
 #pragma once
 // juce_core ONLY (juce::String / juce::StringArray) — this module is deliberately
 // free of juce_graphics/juce_audio_* and of PipeInference, so it stays
-// unit-testable in isolation (tools/test_loop_stances.cpp) and keeps the backend
+// unit-testable in isolation (tools/test_reprompt_stances.cpp) and keeps the backend
 // `interpret` op generic. Including the full <JuceHeader.h> aggregate here would
 // drag in the graphics/audio modules this logic does not use.
 #include <juce_core/juce_core.h>
@@ -19,13 +19,13 @@
  * keeps the backend `interpret` op generic (the stance lives here, not in the
  * subprocess) and makes this logic unit-testable in isolation.
  *
- * Stance keys mirror BlockParams.h LoopStance::kEntries[i].key, which in turn
+ * Stance keys mirror BlockParams.h RepromptStance::kEntries[i].key, which in turn
  * mirror the keys of clap_llm_loop.py's MODES dict. The SIX shipped stances are:
  *   transcribe, entkitscher, verniedlicher, variation, abduction, opposite.
  * (planetarizer/develop/critique from the tool are intentionally NOT ported —
  * too complex for the local Qwen2.5-1.5B interpreter; see clap_llm_loop notes.)
  */
-namespace LoopStances
+namespace RepromptStances
 {
     /** The system prompt (the "stance") for a given stance key, VERBATIM from
      *  clap_llm_loop.py MODES[key]. Empty for an unknown key or "off". */

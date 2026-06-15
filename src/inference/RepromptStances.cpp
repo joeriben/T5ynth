@@ -1,4 +1,4 @@
-#include "LoopStances.h"
+#include "RepromptStances.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Faithful C++ port of the curated subset of tools/clap_llm_loop.py.
@@ -8,7 +8,7 @@
 // interpolate the changing per-turn state, the C++ does the same string build.
 // ─────────────────────────────────────────────────────────────────────────────
 
-namespace LoopStances
+namespace RepromptStances
 {
 
 // ── the six interpreter stances: system prompt (the stance) ──────────────────
@@ -264,4 +264,4 @@ juce::String concat2 (const juce::String& original, const juce::String& last)
     return original;
 }
 
-} // namespace LoopStances
+} // namespace RepromptStances

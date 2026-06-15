@@ -457,11 +457,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // lookup there would be a pure idle-CPU regression). Both default to index 0
     // (stance Off → loop disabled; coupling alpha → A anchor / B rewritten).
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::loopStance, 1}, "Loop Stance",
-        toChoices(LoopStance::kEntries), 0));
+        juce::ParameterID{PID::repromptStance, 1}, "Re-Prompt Stance",
+        toChoices(RepromptStance::kEntries), 0));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::loopCoupling, 1}, "Loop Coupling",
-        toChoices(LoopCoupling::kEntries), 0));
+        juce::ParameterID{PID::repromptCoupling, 1}, "Re-Prompt Coupling",
+        toChoices(RepromptCoupling::kEntries), 0));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::genAxesAmount, 1}, "Axes Amount",
