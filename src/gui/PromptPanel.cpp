@@ -684,6 +684,7 @@ void PromptPanel::timerCallback()
             lastGenPromptA_ = loopOriginalA_;
             lastGenPromptB_ = loopOriginalB_;
             processorRef.setLastPrompts(loopOriginalA_, loopOriginalB_);
+            processorRef.clearLoopSeedPrompts();   // editors now hold the seed again
             loopOriginalsValid_ = false;
             loopEngaged_ = false;   // re-arm the original-capture edge for the next run
         }
@@ -1137,6 +1138,7 @@ void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String
     // the processor restores separately (Off for presets predating Re-Prompt).
     loopEngaged_ = false;
     loopOriginalsValid_ = false;
+    processorRef.clearLoopSeedPrompts();   // the OLD session's seed must not leak into this preset's save
     randomSeedToggle.setToggleState(randomSeed, juce::dontSendNotification);
     syncSeedEditorDisplay(seed, true);
     syncSeedEditorEnabledState();
@@ -2692,6 +2694,10 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
         loopRecentB_.clearQuick(); loopRecentB_.add(coreB0);
         loopEngaged_ = true;
         loopOriginalsValid_ = true;   // arm the stance→Off restore (timerCallback)
+        // Register the human seed so a preset saved mid-loop stores it, not the
+        // machine's transient rewrites (mirrors loopOriginalsValid_; cleared on
+        // the stance→Off restore and on preset load).
+        processorRef.setLoopSeedPrompts(loopOriginalA_, loopOriginalB_);
         loopAltWriteA_ = false;       // each new session starts by writing B (the primary pole)
     }
 

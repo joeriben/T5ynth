@@ -162,11 +162,16 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
         root->setProperty("tags", tagArr);
     }
 
-    // Patch in prompts (exportJsonPreset leaves them empty)
+    // Patch in prompts (exportJsonPreset leaves them empty). When a Re-Prompt
+    // loop is engaged, lastPromptA/B hold the machine's transient mid-loop
+    // rewrite — save the HUMAN seed instead so a reloaded preset reproduces the
+    // user's starting point, not a random in-flight prompt. (The stance/coupling
+    // themselves are saved by exportJsonPreset and forced Off on load.)
     if (auto* synth = root->getProperty("synth").getDynamicObject())
     {
-        synth->setProperty("promptA", processor.getLastPromptA());
-        synth->setProperty("promptB", processor.getLastPromptB());
+        const bool loop = processor.hasLoopSeedPrompts();
+        synth->setProperty("promptA", loop ? processor.getLoopSeedPromptA() : processor.getLastPromptA());
+        synth->setProperty("promptB", loop ? processor.getLoopSeedPromptB() : processor.getLastPromptB());
         synth->setProperty("seed", processor.getLastSeed());
         synth->setProperty("model", processor.getLastModel());
         // The Easy/Adv seed-mode UI does not write back to PID::genSeed, so we

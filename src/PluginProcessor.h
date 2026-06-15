@@ -103,6 +103,19 @@ public:
     void setLastPrompts(const juce::String& a, const juce::String& b) { lastPromptA = a; lastPromptB = b; }
     const juce::String& getLastPromptA() const { return lastPromptA; }
     const juce::String& getLastPromptB() const { return lastPromptB; }
+
+    // Re-Prompt loop seed: while a stance is self-running, the editors (and so
+    // lastPromptA/B) hold the machine's transient mid-loop rewrites. A saved
+    // preset must store the HUMAN seed, not a random in-flight prompt — so the
+    // loop registers its captured originals here on engage and clears them on
+    // disengage; PresetFormat::saveToFile prefers them while valid. Mirrors
+    // PromptPanel::loopOriginalsValid_ exactly.
+    void setLoopSeedPrompts(const juce::String& a, const juce::String& b)
+        { loopSeedPromptA = a; loopSeedPromptB = b; loopSeedValid = true; }
+    void clearLoopSeedPrompts() { loopSeedPromptA.clear(); loopSeedPromptB.clear(); loopSeedValid = false; }
+    bool hasLoopSeedPrompts() const { return loopSeedValid; }
+    const juce::String& getLoopSeedPromptA() const { return loopSeedPromptA; }
+    const juce::String& getLoopSeedPromptB() const { return loopSeedPromptB; }
     void setLastPresetName(const juce::String& name) { lastPresetName = name; }
     const juce::String& getLastPresetName() const { return lastPresetName; }
     void setLastTags(const juce::StringArray& tags) { lastTags = tags; }
@@ -355,6 +368,8 @@ private:
     juce::String lastPresetName;
     juce::StringArray lastTags;
     juce::String lastPromptA, lastPromptB;
+    juce::String loopSeedPromptA, loopSeedPromptB;   // human seed during an active Re-Prompt loop
+    bool loopSeedValid = false;
     float lastGenerationTimeMs = 0.0f;
     int lastSeed = 123456789;
     bool lastRandomSeed = false;
