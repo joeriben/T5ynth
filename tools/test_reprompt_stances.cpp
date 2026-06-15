@@ -133,6 +133,15 @@ int main()
         auto s = Music::parse ("techno beat");
         checkTrue ("no music",         ! s.hasMusic() && s.notes.isEmpty());
     }
+    {
+        // A/B kept separate: A carries only a note, B only a tempo.
+        auto ab = Music::parseAB ("warm pad c3", "deep bass 90bpm");
+        checkTrue ("AB a-note c3",
+                   ab.a.notes.size() == 1 && ab.a.notes[0].pitchClass == 0 && ab.a.notes[0].octave == 3);
+        checkTrue ("AB a no bpm",   ! ab.a.hasBpm);
+        checkTrue ("AB b bpm=90",   ab.b.hasBpm && std::abs (ab.b.bpm - 90.0f) < 0.01f);
+        checkTrue ("AB b no notes", ab.b.notes.isEmpty());
+    }
 
     std::printf ("system prompts non-empty:\n");
     const char* keys[] = { "transcribe", "entkitscher", "verniedlicher",

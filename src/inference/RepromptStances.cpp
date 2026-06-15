@@ -397,4 +397,9 @@ namespace Music
         }
         return spec;
     }
+
+    ABSpec parseAB (const juce::String& promptA, const juce::String& promptB)
+    {
+        return { parse (promptA), parse (promptB) };   // independent — no cross-pole merge
+    }
 } // namespace Music

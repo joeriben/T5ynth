@@ -131,4 +131,12 @@ namespace Music
      *  RepromptStances::stripMusicSuffix/trailingMusicSuffix exactly (so the existing
      *  preservation behaviour is unchanged); notes/bpm add the structured reading. */
     Spec parse (const juce::String& prompt);
+
+    /** The A/B pair's musical understanding, kept SEPARATE per pole — A and B are
+     *  equal partners and may carry their own pitch/tempo (A "c3", B "g2, 90bpm").
+     *  The single handle a Phase-2 consumer passes around; reconciling two poles
+     *  onto the single seqBpm/scaleRoot is a deliberate later decision, NOT baked
+     *  in here (the data stays un-merged). */
+    struct ABSpec { Spec a, b; };
+    ABSpec parseAB (const juce::String& promptA, const juce::String& promptB);
 }
