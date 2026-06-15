@@ -20,6 +20,7 @@ constexpr float kPromptModeBar     = 1.3f;   // mode-bar height (a real control 
 constexpr float kPromptInnerGap    = 0.6f;   // breathing room around the mode bar, inside the A↔B block
 constexpr float kPromptModelGap    = 0.6f;   // below the model selector
 constexpr float kPromptGroupGap    = 1.0f;   // around the divider between the A↔B block and the params
+constexpr float kPromptReprompt    = 2.6f;   // Re-Prompt row (stance glyph bar + 3 stacked coupling buttons), under the prompts
 // The prompting area is an A↔B block: [A editor / mode-bar / B editor] in a left
 // column with a full-height vertical blend slider on the right. The block is
 // framed by breathing room and a recessed band behind the mode bar; a divider
@@ -27,9 +28,11 @@ constexpr float kPromptGroupGap    = 1.0f;   // around the divider between the A
 // Both ContentUnits MUST equal the unit sum in getPreferredHeightForWidth so that
 // resized()'s f = (height-2)/ContentUnits resolves back to the preferred font.
 // (abBlock = 2·multiInput + 2·innerGap + modeBar = 7.4 + 1.2 + 1.3 = 9.9 units.)
-constexpr float kPromptContentUnits = 21.92f;
+// The Re-Prompt row + its top gap (innerGap + kPromptReprompt = 0.6 + 2.6 = 3.2)
+// sits between the A↔B block and the divider and is in BOTH budgets below.
+constexpr float kPromptContentUnits = 25.12f;
 // Easy budget keeps the model selector row but drops the advanced param rows.
-constexpr float kPromptEasyContentUnits = 17.26f;
+constexpr float kPromptEasyContentUnits = 20.46f;
 constexpr int kBaseSeed = 123456789;
 
 float preferredPromptFontForWidth(int width)
@@ -484,6 +487,75 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     // (populateModelSelector → refreshDitBlocksForCurrentModel re-applies it).
     applyDurationRangeForCurrentModel();
 
+    // ── Re-Prompt controls (semantic self-listening loop) ──
+    // Placed under the prompts (laid out in resized()), co-located with the loop
+    // logic this panel owns. The stance bar paints the movement-type glyphs and
+    // binds itself to repromptStance; the vertical switchbox mirrors the model
+    // switchbox pattern (hidden combo + radio buttons) and binds to repromptCoupling.
+    // Re-Prompt is engine-agnostic (NOT SA3-gated): the word loop runs on any model.
+    repromptLabel.setText("Re-Prompt", juce::dontSendNotification);
+    repromptLabel.setColour(juce::Label::textColourId, kDim);
+    repromptLabel.setJustificationType(juce::Justification::centredLeft);
+    repromptLabel.setInterceptsMouseClicks(false, false);
+    addAndMakeVisible(repromptLabel);
+
+    if (auto* stanceParam = apvts.getParameter(PID::repromptStance))
+        repromptStanceBar.attachTo(*stanceParam, RepromptStance::kCount);
+    repromptStanceBar.setTooltip(
+        "Re-Prompt stance: after each render the machine listens to its own output "
+        "and rewrites the prompt(s) before the next one. Hover a glyph for its "
+        "movement type.");
+    repromptStanceBar.setPositionTooltips({
+        "Off - Re-Prompt loop disabled.",
+        "Transcribe (fixed point): the machine re-describes what it hears; the prompt stays put.",
+        "De-Kitsch (inward spiral): strips cliche, converging on a plainer core.",
+        "Sweeten (damped settling): softens toward a gentler, cuter reading.",
+        "Variation (bounded cluster): small variations around the current theme.",
+        "Abduction (wandering): leaps to new scenes, drifting far from the source.",
+        "Opposite (limit cycle): oscillates between opposing readings."
+    });
+    addAndMakeVisible(repromptStanceBar);
+
+    // Coupling switchbox: visible radio buttons + a hidden ComboBox carrying the
+    // ChoiceParameter attachment (so the buttons stay a pure view of the param).
+    const char* couplingUi[kNumCouplingBtns] = { "B only", "AB add", "AB replace" };
+    const char* couplingTip[kNumCouplingBtns] = {
+        "B only: one interpret run rewrites prompt B; A stays the human anchor (the "
+        "alpha slider sets the A/B mix).",
+        "AB add: two runs (A & B); each pole = its own original prompt + its latest "
+        "interpretation.",
+        "AB replace: two runs (A & B); each pole fully replaced by its stance "
+        "interpretation."
+    };
+    juce::StringArray couplingItems;
+    for (const auto& e : RepromptCoupling::kEntries)
+        couplingItems.add(juce::String(juce::CharPointer_UTF8(e.label)));
+    repromptCouplingHidden.addItemList(couplingItems, 1);
+    repromptCouplingHidden.onChange = [this] {
+        const int id = repromptCouplingHidden.getSelectedId();
+        for (int i = 0; i < kNumCouplingBtns; ++i)
+            repromptCouplingBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
+    };
+    addChildComponent(repromptCouplingHidden);   // hidden: only its value/attachment is used
+    for (int i = 0; i < kNumCouplingBtns; ++i)
+    {
+        auto& bb = repromptCouplingBtns[i];
+        bb.setButtonText(couplingUi[i]);
+        bb.setColour(juce::TextButton::buttonColourId, kSurface);
+        bb.setColour(juce::TextButton::buttonOnColourId, kDriftCol);
+        bb.setColour(juce::TextButton::textColourOffId, kDim);
+        bb.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        bb.setClickingTogglesState(true);
+        bb.setRadioGroupId(1006);   // unique repo-wide (1004 = model switchbox, 1005 = old MainPanel coupling)
+        bb.setTooltip(couplingTip[i]);
+        bb.onClick = [this, i] { repromptCouplingHidden.setSelectedId(i + 1); };
+        addAndMakeVisible(bb);
+    }
+    // The attachment's sendInitialUpdate() fires onChange (sendNotificationSync),
+    // syncing the button toggles to the restored value — no manual sync needed.
+    repromptCouplingA = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        apvts, PID::repromptCoupling, repromptCouplingHidden);
+
     startTimerHz(10);  // poll for device availability + drift regen + ghost
 }
 
@@ -499,6 +571,7 @@ int PromptPanel::getPreferredHeightForWidth(int width) const
     const int compactRowH = juce::roundToInt(f * kPromptCompactRow);
     const int compactCtrlH = juce::roundToInt(f * kPromptCompactCtrl);
     const int seedCtrlH = juce::roundToInt(f * kPromptSeedCtrl);
+    const int repromptRowH = juce::roundToInt(f * kPromptReprompt);
 
     // A↔B block: A editor / mode-bar / B editor with breathing room around the
     // mode bar (the right-hand vertical slider overlays this same height, so it
@@ -508,13 +581,15 @@ int PromptPanel::getPreferredHeightForWidth(int width) const
     if (easyMode_)
     {
         return (compactRowH + 2) + modelGap             // model selector row
-             + abBlockH + groupGap                      // A↔B block + divider
+             + abBlockH + innerGap + repromptRowH       // A↔B block + Re-Prompt row
+             + groupGap                                 // divider
              + compactRowH + seedCtrlH + gap            // Duration / Seed
              + gap + compactRowH;                       // info label
     }
 
     return (compactRowH + 2) + modelGap                 // model selector row
-         + abBlockH + groupGap                          // A↔B block + divider
+         + abBlockH + innerGap + repromptRowH           // A↔B block + Re-Prompt row
+         + groupGap                                     // divider
          + (compactRowH + compactCtrlH + gap) * 2       // Mag/Noise + Steps/CFG
          + compactRowH + seedCtrlH + gap                // Duration / Seed
          + gap + compactRowH;                           // info label
@@ -757,6 +832,7 @@ void PromptPanel::resized()
     int compactRowH = juce::roundToInt(f * kPromptCompactRow);
     int compactCtrlH = juce::roundToInt(f * kPromptCompactCtrl);
     int seedCtrlH = juce::roundToInt(f * kPromptSeedCtrl);
+    int repromptRowH = juce::roundToInt(f * kPromptReprompt);
 
     auto setFs = [](juce::Label& l, float size) { l.setFont(juce::FontOptions(size)); };
 
@@ -867,7 +943,40 @@ void PromptPanel::resized()
         promptBEditor.setBounds(block.removeFromTop(multiInputH));
     }
 
-    // Divider between the A↔B block and the generation params: a clear visual
+    // ── Re-Prompt row ────────────────────────────────────────────────────────
+    // Directly under the prompts, above the params divider:
+    //   [label] [stance glyph bar] [vertical 3-way coupling switchbox].
+    // The coupling buttons are kept compact (short row → small auto-font from the
+    // LookAndFeel, plus tight 1 px inter-button gaps) per the layout request.
+    area.removeFromTop(innerGap);
+    {
+        auto rr = area.removeFromTop(repromptRowH);
+
+        repromptLabel.setFont(juce::FontOptions(juce::jmax(10.0f, f * 0.82f)));
+        const int rpLabelW = juce::jlimit(46, 86, juce::roundToInt(rr.getWidth() * 0.26f));
+        repromptLabel.setBounds(rr.removeFromLeft(juce::jmin(rpLabelW, rr.getWidth())));
+        rr.removeFromLeft(juce::jmin(gap, rr.getWidth()));
+
+        // Coupling switchbox on the right (3 stacked radio buttons).
+        const int couplingW = juce::jlimit(58, 96, juce::roundToInt(rr.getWidth() * 0.30f));
+        auto couplingCol = rr.removeFromRight(juce::jmin(couplingW, rr.getWidth()));
+        rr.removeFromRight(juce::jmin(gap, rr.getWidth()));
+
+        // Stance glyph bar fills the middle.
+        repromptStanceBar.setBounds(rr);
+
+        const int segGap = 1;
+        const int segH = juce::jmax(9,
+            (couplingCol.getHeight() - segGap * (kNumCouplingBtns - 1)) / kNumCouplingBtns);
+        for (int i = 0; i < kNumCouplingBtns; ++i)
+        {
+            repromptCouplingBtns[i].setBounds(couplingCol.removeFromTop(juce::jmin(segH, couplingCol.getHeight())));
+            if (i < kNumCouplingBtns - 1)
+                couplingCol.removeFromTop(juce::jmin(segGap, couplingCol.getHeight()));
+        }
+    }
+
+    // Divider between the Re-Prompt row and the generation params: a clear visual
     // break (the params used to butt straight up against the input box).
     area.removeFromTop(groupGap / 2);
     paramsDividerY = area.getY();

@@ -6,7 +6,9 @@
 #include <map>
 #include <limits>
 #include "../inference/PipeInference.h"
+#include "../dsp/BlockParams.h"   // RepromptCoupling (Re-Prompt coupling enum)
 #include "GuiHelpers.h"  // FlippedVerticalSlider, AlphaSliderLnF, impulse colours
+#include "RepromptStanceBar.h"    // Re-Prompt stance "symbol slider"
 
 class T5ynthProcessor;
 
@@ -350,6 +352,22 @@ private:
     float lateMixGhostValue_    = std::numeric_limits<float>::quiet_NaN();
     float splitStartGhostValue_ = std::numeric_limits<float>::quiet_NaN();
     float splitEndGhostValue_   = std::numeric_limits<float>::quiet_NaN();
+
+    // ── Re-Prompt controls (semantic self-listening loop) ──
+    // Sit directly under the prompts (above the params divider), co-located with
+    // the loop logic this panel already owns (runSemanticLoopStep / pollDriftRegen).
+    // A custom glyph "symbol slider" picks the interpreter STANCE (off + 6 movement
+    // stances) and binds itself to repromptStance internally; a compact vertical
+    // 3-way switchbox picks the COUPLING (B only / AB add / AB replace). Both are
+    // message-thread-only meta-controls (read in pollDriftRegen, not in processBlock).
+    // repromptCouplingA (the ComboBoxAttachment) is declared AFTER its hidden combo
+    // so it tears down first (reverse-destruction order).
+    juce::Label repromptLabel;
+    RepromptStanceBar repromptStanceBar;
+    static constexpr int kNumCouplingBtns = RepromptCoupling::kCount;
+    juce::TextButton repromptCouplingBtns[kNumCouplingBtns];
+    juce::ComboBox repromptCouplingHidden;   // hidden; drives the visible radio buttons
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> repromptCouplingA;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PromptPanel)
 };
