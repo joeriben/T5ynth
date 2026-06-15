@@ -433,7 +433,7 @@ namespace DriftTarget {
     };
     static constexpr ChoiceEntry kEntries[] = {
         { "none",       "---"        },
-        { "alpha",      "Alpha"      },
+        { "alpha",      "A↔B"        },
         { "noise",      "Emb. Noise" },
         { "magnitude",  "Magnitude"  },
         { "axis_1",     "Axis 1"     },
