@@ -297,9 +297,13 @@ private:
     // the generation-complete callbacks, and runSemanticLoopStep's callAsync tail).
     bool loopStepInFlight_ = false;   // re-entrancy guard (like `generating`)
     bool loopEngaged_ = false;        // false→true edge = capture the human originals
-    juce::String loopOriginalA_, loopOriginalB_;  // glieder[0] (the human impulse, kept by concat)
-    juce::String loopLastA_, loopLastB_;          // glieder[-1] (the chain's own last link)
-    juce::StringArray loopRecentA_, loopRecentB_; // glieder[-3:] anti-stasis memory (last 3 links)
+    juce::String loopOriginalA_, loopOriginalB_;  // glieder[0] (the human impulse, kept by concat) — FULL, incl. musical suffix (for restore)
+    juce::String loopLastA_, loopLastB_;          // glieder[-1] (the chain's own last link) — CORE only (no musical suffix)
+    juce::StringArray loopRecentA_, loopRecentB_; // glieder[-3:] anti-stasis memory (last 3 links) — CORE only
+    // User-appended pitch/tempo control tokens (c3, 120bpm), split off the originals at
+    // engage and re-appended on every editor write so the loop's LLM rewrites never
+    // touch them. Empty when the originals carried none. (RepromptStances::*MusicSuffix.)
+    juce::String loopSuffixA_, loopSuffixB_;
     // Deactivation restore: when a stance→Off transition is seen (timerCallback edge
     // detect), the human originals captured at engage are put back into the editors.
     // loopOriginalsValid_ gates it: true only once a step has captured originals AND

@@ -1,4 +1,6 @@
 #include "RepromptStances.h"
+#include <regex>
+#include <string>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Faithful C++ port of the curated subset of tools/clap_llm_loop.py.
@@ -262,6 +264,83 @@ juce::String concat2 (const juce::String& original, const juce::String& last)
     if (l.isNotEmpty() && l != original)
         return original + ", " + l;
     return original;
+}
+
+// ── trailing musical-token preservation (pitch + tempo) ──────────────────────
+// User-appended scientific-pitch notes (c3, C#4, Db5…) and tempo markers
+// (120bpm, 90 bpm) are GENERATION control tokens, not description: Stable Audio
+// conditions tempo on "…bpm", a trailing note pins register. Every LLM rewrite —
+// all loop stances AND the in-place translation — would otherwise paraphrase or
+// drop them. So we split a trailing RUN of such tokens off the end, rewrite only
+// the descriptive core, and re-append the run verbatim.
+//
+// The match is pure-ASCII (ASCII accidentals #/b only; \s/[,;] separators), so a
+// byte-offset cut lands on a UTF-8 boundary even when the core holds multi-byte
+// characters. Trailing-only via the $ anchor; regex_search's leftmost match from
+// the earliest separator that reaches $ yields the MAXIMAL trailing run.
+namespace {
+    const std::regex& trailingMusicRe()
+    {
+        // One token: tempo (1–3 digits, optional decimals, optional space, "bpm")
+        // OR scientific-pitch note (A–G, optional #/##/b/bb, octave -1|10|0–9).
+        static const std::string tok =
+            R"((?:[0-9]{1,3}(?:\.[0-9]+)?[ \t]*bpm|[a-g](?:##|#|bb|b)?(?:-1|10|[0-9])))";
+        // (start | separator) token  (separator token)*  trailing-space  END
+        static const std::regex re (
+            R"((?:^|[\s,;])[ \t]*)" + tok + R"((?:[\s,;]+)" + tok + R"()*\s*$)",
+            std::regex::icase | std::regex::optimize);
+        return re;
+    }
+}
+
+juce::String trailingMusicSuffix (const juce::String& prompt)
+{
+    const std::string s = prompt.toStdString();
+    std::smatch m;
+    if (std::regex_search (s, m, trailingMusicRe()))
+    {
+        const std::string run = m.str (0);   // the trailing run, verbatim (incl. leading separator)
+        return juce::String (juce::CharPointer_UTF8 (run.c_str()));
+    }
+    return {};
+}
+
+juce::String stripMusicSuffix (const juce::String& prompt)
+{
+    const std::string s = prompt.toStdString();
+    std::smatch m;
+    if (std::regex_search (s, m, trailingMusicRe()))
+    {
+        const std::string core = s.substr (0, (size_t) m.position (0));   // ASCII cut → UTF-8-safe
+        return juce::String (juce::CharPointer_UTF8 (core.c_str())).trim();
+    }
+    return prompt.trim();
+}
+
+juce::String reattachMusicSuffix (const juce::String& core, const juce::String& suffix)
+{
+    juce::String c = core.trim();
+    while (c.isNotEmpty())   // drop trailing separators so the ", " junction can't double up
+    {
+        const auto ch = c.getLastCharacter();
+        if (ch == ',' || ch == ';')
+            c = c.dropLastCharacters (1).trim();
+        else
+            break;
+    }
+    juce::String suf = suffix;
+    while (suf.isNotEmpty())   // drop leading separators; we re-add a canonical ", " junction
+    {
+        const auto ch = suf[0];
+        if (ch == ',' || ch == ';' || ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r')
+            suf = suf.substring (1);
+        else
+            break;
+    }
+    suf = suf.trim();
+    if (suf.isEmpty()) return c;
+    if (c.isEmpty())   return suf;
+    return c + ", " + suf;
 }
 
 } // namespace RepromptStances

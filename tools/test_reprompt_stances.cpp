@@ -71,6 +71,27 @@ int main()
     check ("concat2 dup",   concat2 ("rain", "rain"), "rain");
     check ("concat2 empty", concat2 ("rain", ""), "rain");
 
+    // Trailing pitch/tempo preservation (NEW C++ helpers, not ported from Python):
+    // keep user-appended c3 / 120bpm anchors verbatim through every LLM rewrite.
+    std::printf ("music suffix:\n");
+    check ("suf note+bpm",   trailingMusicSuffix ("warm analog pad, c3, 120bpm"), ", c3, 120bpm");
+    check ("suf bpm space",  trailingMusicSuffix ("deep bass 90 bpm"), " 90 bpm");
+    check ("suf accidental", trailingMusicSuffix ("bell Db5"), " Db5");
+    checkTrue ("suf none mid",   trailingMusicSuffix ("warm c3 pad").isEmpty());    // not trailing
+    checkTrue ("suf none word",  trailingMusicSuffix ("drum and bass").isEmpty());  // false-pos guard
+    checkTrue ("suf none num",   trailingMusicSuffix ("house 124").isEmpty());      // bare number, no bpm
+    checkTrue ("suf none no-oct", trailingMusicSuffix ("warm pad b").isEmpty());    // bare note, no octave
+    check ("core",           stripMusicSuffix ("warm analog pad, c3, 120bpm"), "warm analog pad");
+    check ("core none",      stripMusicSuffix ("techno beat"), "techno beat");
+    checkTrue ("core token-only empty", stripMusicSuffix ("120bpm").isEmpty());     // pole was only a token
+    check ("reattach",            reattachMusicSuffix ("glassy bell", ", c3, 120bpm"), "glassy bell, c3, 120bpm");
+    check ("reattach empty suf",  reattachMusicSuffix ("glassy bell", ""), "glassy bell");
+    check ("reattach empty core", reattachMusicSuffix ("", "120bpm"), "120bpm");
+    check ("reattach no dbl comma", reattachMusicSuffix ("warm pad,", ", c3"), "warm pad, c3");
+    // token-only pole composed shape: must NOT leak a leading comma.
+    check ("token-only pole shape", reattachMusicSuffix ("glassy bell", trailingMusicSuffix ("120bpm")),
+                                    "glassy bell, 120bpm");
+
     std::printf ("system prompts non-empty:\n");
     const char* keys[] = { "transcribe", "entkitscher", "verniedlicher",
                            "variation", "abduction", "opposite" };

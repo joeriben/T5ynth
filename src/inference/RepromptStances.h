@@ -64,4 +64,32 @@ namespace RepromptStances
      *  latest interpretation — never the accumulated chain (keeps the prompt
      *  short; the chain itself runs on its own last link elsewhere). */
     juce::String concat2 (const juce::String& original, const juce::String& last);
+
+    /** Split a trailing RUN of musical CONTROL tokens off the end of a prompt so
+     *  LLM rewrites (every loop stance + the in-place translation) leave the
+     *  user's appended pitch/tempo anchors UNCHANGED. Two token kinds, case-
+     *  insensitive:
+     *    • scientific-pitch notes — A–G, optional ASCII accidental (#, ##, b, bb),
+     *      octave -1 | 0–10  (c3, C#4, Db5, A0)
+     *    • tempo — 1–3 digits (optional decimals), optional space, "bpm"
+     *      (120bpm, 90 bpm, 128.5 BPM)
+     *  Stable Audio conditions tempo on "…bpm" and a trailing note pins register,
+     *  so these must survive verbatim. Trailing-only by design: a note/tempo word
+     *  INSIDE the description is left for the rewrite. ASCII accidentals only (the
+     *  unicode ♯/♭ are deliberately not matched, keeping the match pure-ASCII so
+     *  the byte cut is UTF-8-safe).
+     *  @return the matched trailing run VERBATIM (incl. its leading separator),
+     *          or empty if the prompt has no trailing musical tokens. */
+    juce::String trailingMusicSuffix (const juce::String& prompt);
+
+    /** The descriptive CORE: the prompt with its trailingMusicSuffix() removed,
+     *  trimmed. Feed this to the LLM (translate / stance interpret) so it never
+     *  sees — and cannot mangle — the control tokens. */
+    juce::String stripMusicSuffix (const juce::String& prompt);
+
+    /** Re-attach a suffix from trailingMusicSuffix() to a rewritten core,
+     *  normalising ONLY the core↔suffix junction to ", " (token spelling and
+     *  inter-token separators are preserved). Empty suffix → core.trim(); empty
+     *  core → the bare tokens. */
+    juce::String reattachMusicSuffix (const juce::String& core, const juce::String& suffix);
 }

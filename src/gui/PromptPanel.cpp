@@ -1925,8 +1925,15 @@ void PromptPanel::translatePromptsInPlace()
         auto translateOne = [&](const juce::String& s) -> juce::String
         {
             if (s.trim().isEmpty() || pipePtr == nullptr) return s;
-            auto tr = pipePtr->translate(s, device, {});  // blocks behind any in-flight generate()
-            if (tr.success && tr.text.isNotEmpty()) return tr.text;
+            // Keep trailing pitch/tempo tokens (c3, 120bpm) verbatim: translate only
+            // the descriptive core, then re-append the suffix.
+            const juce::String suffix = RepromptStances::trailingMusicSuffix(s);
+            const juce::String core   = RepromptStances::stripMusicSuffix(s);
+            if (core.isEmpty()) return s;  // nothing but tokens → leave verbatim
+            auto tr = pipePtr->translate(core, device, {});  // blocks behind any in-flight generate()
+            if (tr.success && tr.text.isNotEmpty())
+                return suffix.isEmpty() ? tr.text
+                                        : RepromptStances::reattachMusicSuffix(tr.text, suffix);
             if (!tr.success && errMsg.isEmpty()) errMsg = tr.errorMessage;
             return s;  // failure → keep the original text
         };
@@ -2554,12 +2561,19 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
     // glieder[-3:], which on iter 1 is just [original]).
     if (!loopEngaged_)
     {
-        loopOriginalA_ = promptAEditor.getText().trim();
+        loopOriginalA_ = promptAEditor.getText().trim();   // FULL (with any musical suffix) — the restore puts this back verbatim
         loopOriginalB_ = promptBEditor.getText().trim();
-        loopLastA_ = loopOriginalA_;
-        loopLastB_ = loopOriginalB_;
-        loopRecentA_.clearQuick(); loopRecentA_.add(loopOriginalA_);
-        loopRecentB_.clearQuick(); loopRecentB_.add(loopOriginalB_);
+        // Hold the user's trailing pitch/tempo tokens (c3, 120bpm) aside, run the
+        // whole chain on the descriptive CORE, re-append on every editor write — so
+        // no stance ever paraphrases or drops them. Empty when none were appended.
+        loopSuffixA_ = RepromptStances::trailingMusicSuffix(loopOriginalA_);
+        loopSuffixB_ = RepromptStances::trailingMusicSuffix(loopOriginalB_);
+        const juce::String coreA0 = RepromptStances::stripMusicSuffix(loopOriginalA_);
+        const juce::String coreB0 = RepromptStances::stripMusicSuffix(loopOriginalB_);
+        loopLastA_ = coreA0;
+        loopLastB_ = coreB0;
+        loopRecentA_.clearQuick(); loopRecentA_.add(coreA0);
+        loopRecentB_.clearQuick(); loopRecentB_.add(coreB0);
         loopEngaged_ = true;
         loopOriginalsValid_ = true;   // arm the stance→Off restore (timerCallback)
         loopAltWriteA_ = false;       // each new session starts by writing B (the primary pole)
@@ -2573,7 +2587,10 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
     // OWN last link + that pole's last-3 memory — NOT the applied/concat editor text).
     const juce::String prevA = loopLastA_, prevB = loopLastB_;
     juce::StringArray recentA = loopRecentA_, recentB = loopRecentB_;
-    const juce::String origA = loopOriginalA_, origB = loopOriginalB_;
+    // CORE bases for concat2 (the musical suffix is re-appended at the editor write,
+    // so it stays trailing instead of landing mid-string inside the concat).
+    const juce::String origA = RepromptStances::stripMusicSuffix(loopOriginalA_);
+    const juce::String origB = RepromptStances::stripMusicSuffix(loopOriginalB_);
 
     auto pipePtr = processorRef.getPipeInferencePtr();
     const juce::String device = defaultInferenceDevice_;
@@ -2653,17 +2670,21 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
             // nextB carries the transcription (transcribe is pole-independent).
             if (altReplace)
             {
+                // loopLast_/recent_ keep the CORE (nextB); only the editor gets the
+                // pole's preserved pitch/tempo suffix re-appended.
                 if (altWriteA)
                 {
                     self->loopLastA_ = nextB;
-                    self->promptAEditor.setText(nextB, juce::dontSendNotification);
+                    self->promptAEditor.setText(RepromptStances::reattachMusicSuffix(nextB, self->loopSuffixA_),
+                                                juce::dontSendNotification);
                     self->loopRecentA_.add(nextB);
                     while (self->loopRecentA_.size() > 3) self->loopRecentA_.remove(0);
                 }
                 else
                 {
                     self->loopLastB_ = nextB;
-                    self->promptBEditor.setText(nextB, juce::dontSendNotification);
+                    self->promptBEditor.setText(RepromptStances::reattachMusicSuffix(nextB, self->loopSuffixB_),
+                                                juce::dontSendNotification);
                     self->loopRecentB_.add(nextB);
                     while (self->loopRecentB_.size() > 3) self->loopRecentB_.remove(0);
                 }
@@ -2678,19 +2699,29 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
             // Apply the coupling onto the editor(s). dontSendNotification so neither
             // onTextChange nor pollDriftRegen's promptChanged path re-fires (we update
             // the lastGen* trackers + setLastPrompts ourselves below).
-            // B pole (always driven):
-            self->loopLastB_ = nextB;                                   // glieder[-1]
-            const juce::String appliedB = concat ? RepromptStances::concat2(origB, nextB) : nextB;
+            // B pole (always driven). loopLast_/recent_ keep the CORE; the editor
+            // (and the lastGen* trackers below) carry the re-appended musical suffix.
+            self->loopLastB_ = nextB;                                   // glieder[-1] (CORE)
+            // concat2 only when there's a real core to prepend — a pole that was nothing
+            // but a musical token has an EMPTY core (origB==""), and concat2("",x) would
+            // emit a leading ", "; fall back to the bare new link so the suffix re-append
+            // yields "x, 120bpm" not ", x, 120bpm".
+            const juce::String appliedB = RepromptStances::reattachMusicSuffix(
+                (concat && origB.isNotEmpty()) ? RepromptStances::concat2(origB, nextB) : nextB,
+                self->loopSuffixB_);
             self->promptBEditor.setText(appliedB, juce::dontSendNotification);
             self->loopRecentB_.add(nextB);                             // push into recent…
             while (self->loopRecentB_.size() > 3) self->loopRecentB_.remove(0);  // …keep last 3
 
-            // A pole: driven only in dual couplings; in alpha it stays the human anchor.
+            // A pole: driven only in dual couplings; in alpha it stays the human anchor
+            // (untouched → its suffix is inherently preserved).
             juce::String appliedA = self->promptAEditor.getText().trim();
             if (dual)
             {
-                self->loopLastA_ = nextA;
-                appliedA = concat ? RepromptStances::concat2(origA, nextA) : nextA;
+                self->loopLastA_ = nextA;                               // CORE
+                appliedA = RepromptStances::reattachMusicSuffix(
+                    (concat && origA.isNotEmpty()) ? RepromptStances::concat2(origA, nextA) : nextA,
+                    self->loopSuffixA_);
                 self->promptAEditor.setText(appliedA, juce::dontSendNotification);
                 self->loopRecentA_.add(nextA);
                 while (self->loopRecentA_.size() > 3) self->loopRecentA_.remove(0);
