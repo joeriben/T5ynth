@@ -961,7 +961,10 @@ void PromptPanel::resized()
         // Coupling switchbox on the right (3 stacked radio buttons).
         const int couplingW = juce::jlimit(58, 96, juce::roundToInt(rr.getWidth() * 0.30f));
         auto couplingCol = rr.removeFromRight(juce::jmin(couplingW, rr.getWidth()));
-        rr.removeFromRight(juce::jmin(gap, rr.getWidth()));
+        // Clearer separation between the stance bar ("…opposite") and the
+        // coupling field (per layout request) — wider than the base gap.
+        const int couplingGap = juce::jmax(gap * 2, juce::roundToInt(f * 0.9f));
+        rr.removeFromRight(juce::jmin(couplingGap, rr.getWidth()));
 
         // Stance glyph bar fills the middle.
         repromptStanceBar.setBounds(rr);
