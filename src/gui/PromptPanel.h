@@ -115,6 +115,18 @@ private:
     /** Check if drift requires auto-regeneration (called from timerCallback). */
     void pollDriftRegen();
 
+    /** One step of the CLAP→LLM semantic self-listening loop, mirroring one
+     *  iteration body of clap_llm_loop.py run_llm_loop (minus its own generate()).
+     *  Called from BOTH generation-complete callbacks (manual + Auto-Regen) on the
+     *  message thread with the just-rendered result. It spawns a background thread
+     *  that analyzes the audio (CLAP ear) and interprets the tags into the next
+     *  prompt(s) per the active stance + coupling, then writes them back into the
+     *  editor(s) on the message thread WITHOUT re-triggering onTextChange. The NEXT
+     *  generation (manual Generate or the Auto-Regen standing trigger) renders the
+     *  rewritten prompts. No-op (cheap early-out) unless a stance is active AND the
+     *  model is SA3. */
+    void runSemanticLoopStep(const PipeInference::Result& result);
+
     T5ynthProcessor& processorRef;
 
     // Prompts — colour-coded editors (purple A / yellow B) replace the old text labels
@@ -275,6 +287,19 @@ private:
     juce::String lastGenPromptA_;
     juce::String lastGenPromptB_;
     double lastRegenTimeMs_ = 0.0; // for beat-based cooldown
+
+    // ── Semantic self-listening loop state (message-thread only) ──
+    // Mirrors clap_llm_loop.py run_llm_loop's per-pole *_glieder chain + anti-stasis
+    // `recent`. The chain interprets its OWN last link (glieder[-1]), which under the
+    // ab_add (concat) coupling is NOT what the editor holds (editor = original + ","
+    // + last), so the last link and the human original are tracked here separately
+    // from the editor text. All touched only on the message thread (pollDriftRegen,
+    // the generation-complete callbacks, and runSemanticLoopStep's callAsync tail).
+    bool loopStepInFlight_ = false;   // re-entrancy guard (like `generating`)
+    bool loopEngaged_ = false;        // false→true edge = capture the human originals
+    juce::String loopOriginalA_, loopOriginalB_;  // glieder[0] (the human impulse, kept by concat)
+    juce::String loopLastA_, loopLastB_;          // glieder[-1] (the chain's own last link)
+    juce::StringArray loopRecentA_, loopRecentB_; // glieder[-3:] anti-stasis memory (last 3 links)
     // Resynth-loop anti-convergence: an adaptive amount subtracted from the
     // loop's effective resynth when consecutive outputs stop differing, raising
     // init_noise to break the loop out of a fixed-point. 0 = no reduction (the

@@ -3,6 +3,7 @@
 #include "GuiHelpers.h"
 #include "../PluginProcessor.h"
 #include "../dsp/BlockParams.h"
+#include "../inference/LoopStances.h"
 #include <thread>
 #include <cmath>
 
@@ -1820,6 +1821,23 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
             // redundancy onto the useful end — strictly worse. Hence: keep linear.
             // Another engine would want its own band re-measured the same way.
             req.initNoiseLevel = 0.50f - 0.45f * resynthAmount;
+
+            // ── Semantic-loop word-dominance override ──
+            // When a loop stance is active the rewritten PROMPT must drive the next
+            // render, not the carried-over wave. The Resynth slider's measured band
+            // tops out at init_noise 0.05 (Full) and never exceeds 0.50 — and at
+            // <=0.5 the init_audio carry DROWNS the rewritten prompt, so every loop
+            // iteration re-renders the same carry centroid (the fixed point the tool
+            // already had to fix). clap_llm_loop.py runs at init_noise 0.9
+            // (validated: commit 9feb21ef / tools/diag_promptbite.py) so the words
+            // win while the signal still carries. Override the slider-derived value
+            // to that band whenever a stance is engaged — this needs no extra slider
+            // (it rides on the existing Resynth attach gate above). Read on the
+            // message thread, same as every other param here.
+            const int loopStance = static_cast<int>(
+                apvts.getRawParameterValue(PID::loopStance)->load());
+            if (loopStance != LoopStance::Off)
+                req.initNoiseLevel = 0.9f;
         }
     }
     return req;
@@ -1909,7 +1927,10 @@ void PromptPanel::translatePromptsInPlace()
 
 void PromptPanel::triggerGeneration()
 {
-    if (generating || translatingPrompts_) return;
+    // loopStepInFlight_ too: a semantic-loop step's analyze+interpret holds the
+    // single IPC pipe on a background thread (with `generating` already false), so a
+    // manual Generate must wait or it would contend on the pipe.
+    if (generating || translatingPrompts_ || loopStepInFlight_) return;
 
     if (processorRef.isInferenceCacheFull())
     {
@@ -1991,6 +2012,10 @@ void PromptPanel::triggerGeneration()
                         if (self->onEmbeddingsReady)
                             self->onEmbeddingsReady(result.embeddingA, result.embeddingB, baseline);
                     }
+
+                    // Semantic loop: listen to this render and rewrite the prompt(s)
+                    // for the next generation (no-op unless a stance is active + SA3).
+                    self->runSemanticLoopStep(result);
                 }
                 else
                 {
@@ -2014,7 +2039,7 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                                             float effectiveResynth,
                                             bool /*holdForBar*/)
 {
-    if (generating || translatingPrompts_) return;
+    if (generating || translatingPrompts_ || loopStepInFlight_) return;
 
     lastGenAlpha_ = effectiveAlpha;
     lastGenNoise_ = effectiveNoise;
@@ -2131,6 +2156,12 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                         if (self->onEmbeddingsReady)
                             self->onEmbeddingsReady(result.embeddingA, result.embeddingB, baseline);
                     }
+
+                    // Semantic loop: listen to this Auto-Regen render and rewrite the
+                    // prompt(s) for the next tick (no-op unless a stance is active +
+                    // SA3). Uses the PRISTINE result.audio (what CLAP should hear),
+                    // not the boundary-crossfaded newAudio that was loaded for playback.
+                    self->runSemanticLoopStep(result);
                 }
                 else
                 {
@@ -2152,7 +2183,11 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
 // ──────────────────────────────────────────────────────────────────────────────
 void PromptPanel::pollDriftRegen()
 {
-    if (generating || translatingPrompts_) return;
+    // loopStepInFlight_ too: while a semantic-loop step is analyzing+interpreting on
+    // a background thread (`generating` is already false), Auto-Regen must not fire a
+    // new generate() — both share the single IPC pipe. The step clears the flag on
+    // its callAsync tail; the next tick then proceeds with the rewritten prompts.
+    if (generating || translatingPrompts_ || loopStepInFlight_) return;
 
     int regenMode = processorRef.driftRegenMode.load(std::memory_order_relaxed);
     if (regenMode == 0)
@@ -2404,4 +2439,152 @@ void PromptPanel::pollDriftRegen()
     triggerDriftRegeneration(effAlpha, effAxes, genNoise, genMag,
                              effectiveLateMix, effectiveSplitStart, effectiveSplitEnd,
                              loopResynth, false);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Semantic self-listening loop step (CLAP ear → LLM interpreter → next prompt)
+// ──────────────────────────────────────────────────────────────────────────────
+// One iteration body of clap_llm_loop.py run_llm_loop, minus its own generate():
+// here generation is owned by triggerGeneration / triggerDriftRegeneration, so this
+// step runs the analyze+interpret+apply for the JUST-rendered audio and writes the
+// next prompt(s) into the editor(s). The next generation (manual Generate, or the
+// Auto-Regen standing trigger that keeps firing while Resynth is on) renders them —
+// with init_noise forced to ~0.9 by buildInferenceRequest so the rewritten words
+// dominate the carried-over wave. Called from BOTH generation-complete callbacks.
+void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
+{
+    // (1) Off / not-SA3 early-outs FIRST (cheap), like pollDriftRegen's regenMode==0.
+    auto& apvts = processorRef.getValueTreeState();
+    const int stanceIdx = static_cast<int>(apvts.getRawParameterValue(PID::loopStance)->load());
+    if (stanceIdx == LoopStance::Off)
+    {
+        loopEngaged_ = false;   // loop disabled → re-arm the original-capture edge
+        return;
+    }
+    // (2) Gate: the loop needs SA3's init_audio carry (same gate as the Resynth UI).
+    if (!selectedModelIsSA3())
+        return;
+    // (3) Re-entrancy guard: a fast Auto-Regen cadence must not stack steps, and a
+    //     manual Generate mid-step must not contend on the single IPC pipe.
+    if (loopStepInFlight_ || generating || translatingPrompts_)
+        return;
+    if (result.audio.getNumSamples() <= 0 || result.audio.getNumChannels() <= 0)
+        return;   // nothing to listen to
+
+    const int couplingIdx = static_cast<int>(apvts.getRawParameterValue(PID::loopCoupling)->load());
+    const bool dual = (couplingIdx == LoopCoupling::AbAdd || couplingIdx == LoopCoupling::AbReplace);
+    const bool concat = (couplingIdx == LoopCoupling::AbAdd);
+
+    // Resolve the stance KEY (BlockParams.h LoopStance::kEntries[i].key == the
+    // clap_llm_loop MODES id LoopStances expects). Guard the index defensively.
+    const int sIdx = juce::jlimit(0, LoopStance::kCount - 1, stanceIdx);
+    const juce::String stanceKey = LoopStance::kEntries[sIdx].key;
+
+    // (5 + run_llm_loop glieder init) Capture the human originals on the false→true
+    // engage edge: a_glieder=[header_a], b_glieder=[header_b]. The "header" is the
+    // text the user has in the editors when the loop first engages; subsequent links
+    // are machine-written. Seed last-link + recent from the original (recent =
+    // glieder[-3:], which on iter 1 is just [original]).
+    if (!loopEngaged_)
+    {
+        loopOriginalA_ = promptAEditor.getText().trim();
+        loopOriginalB_ = promptBEditor.getText().trim();
+        loopLastA_ = loopOriginalA_;
+        loopLastB_ = loopOriginalB_;
+        loopRecentA_.clearQuick(); loopRecentA_.add(loopOriginalA_);
+        loopRecentB_.clearQuick(); loopRecentB_.add(loopOriginalB_);
+        loopEngaged_ = true;
+    }
+
+    loopStepInFlight_ = true;
+
+    // Snapshot the per-pole interpret inputs for the background thread (the chain's
+    // OWN last link + that pole's last-3 memory — NOT the applied/concat editor text).
+    const juce::String prevA = loopLastA_, prevB = loopLastB_;
+    juce::StringArray recentA = loopRecentA_, recentB = loopRecentB_;
+    const juce::String origA = loopOriginalA_, origB = loopOriginalB_;
+
+    auto pipePtr = processorRef.getPipeInferencePtr();
+    const juce::String device = defaultInferenceDevice_;
+    // The just-rendered audio (CLAP listens to THIS, the source of the next prompt).
+    juce::AudioBuffer<float> audioCopy;
+    audioCopy.makeCopyOf(result.audio);
+    const double sr = result.sampleRate;
+
+    juce::Component::SafePointer<PromptPanel> safeThis(this);
+    std::thread([safeThis, pipePtr, device, audioCopy = std::move(audioCopy), sr,
+                 stanceKey, dual, concat, prevA, prevB, recentA, recentB, origA, origB]() mutable
+    {
+        if (pipePtr == nullptr) {
+            juce::MessageManager::callAsync([safeThis] {
+                if (auto* s = safeThis.getComponent()) s->loopStepInFlight_ = false; });
+            return;
+        }
+
+        // CLAP ear: top-5 timbre tags + DSP spectral words (topk=5, default device).
+        // Serialises behind any in-flight generate() via PipeInference's recursive
+        // mutex (the loopStepInFlight_/generating guards cover the whole span).
+        const auto an = pipePtr->analyze(audioCopy, sr, 5, {});
+        const juce::String tags = an.success ? an.tags : juce::String();
+        const juce::String spectral = an.success ? an.spectral : juce::String();
+
+        // One interpret PER DRIVEN POLE — never copy one run into both poles.
+        // next = cleanPrompt(interpret(stanceSysp, userTurn)) OR the chain's last
+        // link on empty (run_llm_loop's `or *_glieder[-1]`).
+        const juce::String sysp = LoopStances::stanceSystemPrompt(stanceKey);
+        auto interpretPole = [&](const juce::String& prev, const juce::StringArray& recent,
+                                 const juce::String& fallback) -> juce::String
+        {
+            const juce::String userTurn =
+                LoopStances::buildStanceUserTurn(stanceKey, tags, prev, recent, spectral);
+            auto r = pipePtr->interpret(sysp, userTurn, 64, device);
+            const juce::String cleaned =
+                r.success ? LoopStances::cleanPrompt(r.text) : juce::String();
+            return cleaned.isNotEmpty() ? cleaned : fallback;
+        };
+
+        // alpha → B only (build_a is None); dual (concat/voll) → A and B, each with
+        // its OWN prev/recent but the SAME stance.
+        const juce::String nextB = interpretPole(prevB, recentB, prevB);
+        juce::String nextA;
+        if (dual)
+            nextA = interpretPole(prevA, recentA, prevA);
+
+        juce::MessageManager::callAsync(
+            [safeThis, dual, concat, nextA, nextB, origA, origB]
+        {
+            auto* self = safeThis.getComponent();
+            if (self == nullptr) return;   // panel gone — nothing to write; guard auto-clears with the object
+
+            // Apply the coupling onto the editor(s). dontSendNotification so neither
+            // onTextChange nor pollDriftRegen's promptChanged path re-fires (we update
+            // the lastGen* trackers + setLastPrompts ourselves below).
+            // B pole (always driven):
+            self->loopLastB_ = nextB;                                   // glieder[-1]
+            const juce::String appliedB = concat ? LoopStances::concat2(origB, nextB) : nextB;
+            self->promptBEditor.setText(appliedB, juce::dontSendNotification);
+            self->loopRecentB_.add(nextB);                             // push into recent…
+            while (self->loopRecentB_.size() > 3) self->loopRecentB_.remove(0);  // …keep last 3
+
+            // A pole: driven only in dual couplings; in alpha it stays the human anchor.
+            juce::String appliedA = self->promptAEditor.getText().trim();
+            if (dual)
+            {
+                self->loopLastA_ = nextA;
+                appliedA = concat ? LoopStances::concat2(origA, nextA) : nextA;
+                self->promptAEditor.setText(appliedA, juce::dontSendNotification);
+                self->loopRecentA_.add(nextA);
+                while (self->loopRecentA_.size() > 3) self->loopRecentA_.remove(0);
+            }
+
+            // Tell the rest of the machinery these are the current prompts, so the
+            // next Auto-Regen tick sees NO spurious prompt change (which would trip
+            // the resynth-loop release edge and detach the init carry).
+            self->lastGenPromptA_ = appliedA;
+            self->lastGenPromptB_ = appliedB;
+            self->processorRef.setLastPrompts(appliedA, appliedB);
+
+            self->loopStepInFlight_ = false;
+        });
+    }).detach();
 }
