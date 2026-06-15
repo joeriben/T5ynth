@@ -145,6 +145,11 @@ namespace PID {
     static constexpr const char* genSeed          = "gen_seed";
     static constexpr const char* genHfBoost       = "gen_hf_boost";
     static constexpr const char* resynthAmount    = "resynth_amount";   // Resynth (init_audio / i2i): 0=off .. 1=full
+    // ── Semantic self-listening loop (CLAP ear → LLM interpreter → next prompt) ──
+    // Both are read message-thread-only at generation time (PromptPanel), NOT in
+    // processBlock — they have no audio-thread consumer.
+    static constexpr const char* loopStance       = "loop_stance";      // interpreter stance (Off disables the loop)
+    static constexpr const char* loopCoupling     = "loop_coupling";    // how far the machine displaces the human input
     static constexpr const char* infSteps         = "inf_steps";
     static constexpr const char* loopMode         = "loop_mode";
     static constexpr const char* crossfadeMs      = "crossfade_ms";
@@ -784,6 +789,51 @@ namespace DriftRegen {
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
     static_assert(Max16 + 1 == kCount, "DriftRegen out of sync.");
+}
+
+// ── Semantic-loop interpreter stance ──
+// The curated SIX deconstructive stances of the CLAP→LLM self-listening loop
+// (tools/clap_llm_loop.py MODES), in movement-type order. The `.key` column IS
+// the stance id consumed by inference/LoopStances (stanceSystemPrompt /
+// buildStanceUserTurn) — it must match the keys in clap_llm_loop's MODES dict.
+// The `.label` is a Phase-C placeholder (the custom slider will paint formal
+// symbols); for now it doubles as the host generic-editor display string.
+// Off (index 0) disables the loop entirely (the cheap early-out in
+// PromptPanel::runSemanticLoopStep).
+namespace LoopStance {
+    enum : int {
+        Off = 0, Transcribe = 1, Entkitscher = 2, Verniedlicher = 3,
+        Variation = 4, Abduktion = 5, Opposite = 6
+    };
+    static constexpr ChoiceEntry kEntries[] = {
+        { "off",           "Off"           },
+        { "transcribe",    "Transcribe"    },
+        { "entkitscher",   "De-Kitsch"     },
+        { "verniedlicher", "Sweeten"       },
+        { "variation",     "Variation"     },
+        { "abduction",     "Abduction"     },
+        { "opposite",      "Opposite"      }
+    };
+    static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
+    static_assert(Opposite + 1 == kCount, "LoopStance out of sync.");
+}
+
+// ── Semantic-loop coupling topology ──
+// One axis: how far the machine displaces the human input (clap_llm_loop's
+// --couple). alpha = A fixed anchor, only B rewritten; ab_add = both poles, each
+// = its own original + ", " + its latest interpretation (the _concat2 pattern);
+// ab_replace = both poles fully replaced by the same stance with per-pole inputs.
+// The `.key` matches the tool's coupling names (alpha / concat / voll) so a
+// future preset round-trip lines up with the verified algorithm.
+namespace LoopCoupling {
+    enum : int { Alpha = 0, AbAdd = 1, AbReplace = 2 };
+    static constexpr ChoiceEntry kEntries[] = {
+        { "alpha",  "A→B"      },   // = clap_llm_loop "alpha"
+        { "concat", "A+B add"  },   // = clap_llm_loop "concat"
+        { "voll",   "A+B repl" }    // = clap_llm_loop "voll"
+    };
+    static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
+    static_assert(AbReplace + 1 == kCount, "LoopCoupling out of sync.");
 }
 
 // ── Voice count ──

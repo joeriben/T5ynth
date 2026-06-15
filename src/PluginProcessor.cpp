@@ -449,6 +449,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::resynthAmount, 1}, "Resynth",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.05f), 0.0f));
+
+    // Semantic self-listening loop (CLAP ear → LLM interpreter → next prompt).
+    // Read message-thread-only at generation time (PromptPanel::runSemanticLoopStep
+    // + buildInferenceRequest's init_noise override) — deliberately NOT in
+    // ParamCache / BlockParams / processBlock (no audio-thread consumer; an APVTS
+    // lookup there would be a pure idle-CPU regression). Both default to index 0
+    // (stance Off → loop disabled; coupling alpha → A anchor / B rewritten).
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::loopStance, 1}, "Loop Stance",
+        toChoices(LoopStance::kEntries), 0));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::loopCoupling, 1}, "Loop Coupling",
+        toChoices(LoopCoupling::kEntries), 0));
+
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::genAxesAmount, 1}, "Axes Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 1.0f));
