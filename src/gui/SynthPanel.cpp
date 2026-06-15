@@ -1145,6 +1145,14 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     paintSectionHeader(regenHeader, "REGENERATE", kDriftCol);
     addAndMakeVisible(regenHeader);
 
+    // "iterate every" caption above the easy-view vertical switchbox. Visibility
+    // is owned by layoutGenerateEasy (shown only when the column is tall enough
+    // for the switchbox; the compact dropdown is used otherwise).
+    regenIterateLabel.setText("iterate every", juce::dontSendNotification);
+    regenIterateLabel.setColour(juce::Label::textColourId, kDim);
+    regenIterateLabel.setJustificationType(juce::Justification::centredLeft);
+    addChildComponent(regenIterateLabel);
+
     juce::StringArray regenItems;
     for (const auto& e : DriftRegen::kEntries) regenItems.add(juce::String(juce::CharPointer_UTF8(e.label)));
     regenHidden.addItemList(regenItems, 1);
@@ -1545,9 +1553,21 @@ void SynthPanel::updateVisibility()
     setDriftControlsVisible(drift3, activeDriftTab == 2, modEasyMode);
     driftHeader.setVisible(!modEasyMode);
     regenHeader.setVisible(true);
-    for (int i = 0; i < kNumRegenBtns; ++i)
-        regenBtns[i].setVisible(!modEasyMode);
-    regenHidden.setVisible(modEasyMode);
+    regenIterateLabel.setVisible(false);   // layoutGenerateEasy shows it for the switchbox
+    if (modEasyMode)
+    {
+        // Default to the compact dropdown; layoutGenerateEasy upgrades to the
+        // vertical "iterate every" switchbox when the column is tall enough.
+        for (int i = 0; i < kNumRegenBtns; ++i)
+            regenBtns[i].setVisible(false);
+        regenHidden.setVisible(true);
+    }
+    else
+    {
+        for (int i = 0; i < kNumRegenBtns; ++i)
+            regenBtns[i].setVisible(true);
+        regenHidden.setVisible(false);
+    }
     if (crossfadeRegenRow)
         crossfadeRegenRow->setVisible(true);
 
@@ -2284,11 +2304,53 @@ void SynthPanel::layoutGenerateEasy(juce::Rectangle<int> area, float f, int rowH
     regenHeader.setBounds(headerRow.removeFromLeft(juce::jmin(headerW, headerRow.getWidth())));
     area.removeFromTop(rowGap);
 
-    // Mode dropdown — single ComboBox replaces the 5-way button strip in easy mode.
-    auto comboRow = area.removeFromTop(juce::jmin(rowH, area.getHeight()));
-    regenHidden.setBounds(comboRow);
-    area.removeFromTop(rowGap);
-    regenSwitchBounds = {};
+    // "iterate every" caption + vertical 7-way switchbox replaces the dropdown
+    // when the column is tall enough; otherwise fall back to the compact dropdown.
+    const int segGap   = 1;
+    const int labelH   = juce::jmax(12, juce::roundToInt(rowH * 0.72f));
+    const int btnH     = juce::jmax(11, juce::roundToInt(rowH * 0.66f));
+    const int switchH  = btnH * kNumRegenBtns + segGap * (kNumRegenBtns - 1);
+    const int xfadeMin = juce::roundToInt(rowH * 2.2f);   // keep the slider usable
+    const bool useSwitch = area.getHeight() >= labelH + rowGap + switchH + rowGap + xfadeMin;
+
+    if (useSwitch)
+    {
+        regenHidden.setVisible(false);
+        regenIterateLabel.setVisible(true);
+        regenIterateLabel.setFont(juce::FontOptions(juce::jmax(kUiControlFontMin,
+                                  juce::jmin(12.0f, static_cast<float>(labelH) * 0.80f))));
+        regenIterateLabel.setBounds(area.removeFromTop(labelH));
+        area.removeFromTop(juce::jmax(2, rowGap / 2));
+
+        auto switchCol = area.removeFromTop(juce::jmin(switchH, area.getHeight()));
+        const int segH = juce::jmax(1,
+            (switchCol.getHeight() - segGap * (kNumRegenBtns - 1)) / kNumRegenBtns);
+        for (int i = 0; i < kNumRegenBtns; ++i)
+        {
+            int edges = 0;
+            if (i > 0)                 edges |= juce::Button::ConnectedOnTop;
+            if (i < kNumRegenBtns - 1) edges |= juce::Button::ConnectedOnBottom;
+            regenBtns[i].setConnectedEdges(edges);
+            regenBtns[i].setVisible(true);
+            regenBtns[i].setBounds(switchCol.removeFromTop(juce::jmin(segH, switchCol.getHeight())));
+            if (i < kNumRegenBtns - 1)
+                switchCol.removeFromTop(juce::jmin(segGap, switchCol.getHeight()));
+        }
+        regenSwitchBounds = regenBtns[0].getBounds()
+            .getUnion(regenBtns[kNumRegenBtns - 1].getBounds());
+        area.removeFromTop(rowGap);
+    }
+    else
+    {
+        regenIterateLabel.setVisible(false);
+        for (int i = 0; i < kNumRegenBtns; ++i)
+            regenBtns[i].setVisible(false);
+        regenHidden.setVisible(true);
+        auto comboRow = area.removeFromTop(juce::jmin(rowH, area.getHeight()));
+        regenHidden.setBounds(comboRow);
+        area.removeFromTop(rowGap);
+        regenSwitchBounds = {};
+    }
 
     // Vertical XFade slider fills the remaining column height.
     if (crossfadeRegenRow)

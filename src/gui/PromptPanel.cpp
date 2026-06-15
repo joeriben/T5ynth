@@ -2387,15 +2387,16 @@ void PromptPanel::pollDriftRegen()
         && !stanceActive)   // Re-Prompt must keep rendering fresh audio to listen to
         return;
 
-    // Beat-based cooldown: modes 2-4 = max 1/4/16 beats. When the
-    // inference cache is full, Auto is throttled to the 1-beat cadence
-    // so cache playback cannot run at the GUI polling rate.
+    // Bar-based cooldown: modes 2-6 = iterate every 1/2/4/8/16 bars (1 bar = 4
+    // beats, expressed in beats below so the BPM→ms math is unchanged). When the
+    // inference cache is full, ASAP (mode 1) is throttled to a 1-beat floor so
+    // cache playback cannot run at the GUI polling rate.
     if (regenMode >= 2 || (fullCachePlayback && regenMode == 1))
     {
-        static constexpr int beatCounts[] = { 0, 0, 1, 4, 16 };
+        static constexpr int beatCounts[] = { 0, 0, 4, 8, 16, 32, 64 }; // man,asap,1/2/4/8/16 bar
         int beats = fullCachePlayback && regenMode == 1
             ? 1
-            : beatCounts[juce::jlimit(0, 4, regenMode)];
+            : beatCounts[juce::jlimit(0, 6, regenMode)];
         float bpm = processorRef.driftRegenBpm.load(std::memory_order_relaxed);
         double cooldownMs = (beats * 60000.0) / static_cast<double>(juce::jmax(1.0f, bpm));
         double now = juce::Time::getMillisecondCounterHiRes();

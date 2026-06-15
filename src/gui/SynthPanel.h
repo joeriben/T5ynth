@@ -218,9 +218,10 @@ private:
             targetA, waveA, clockModeA;
     };
     DriftSection drift1, drift2, drift3;
-    // Regenerate mode switchbox: Manual / Auto / max 1♩ / max 4♩ / max 16♩
+    // Regenerate "iterate every" switchbox: man / asap / 1 / 2 / 4 / 8 / 16 bar
     juce::Label regenHeader;
-    static constexpr int kNumRegenBtns = 5;
+    juce::Label regenIterateLabel;   // "iterate every" — easy-view vertical switchbox caption
+    static constexpr int kNumRegenBtns = 7;
     juce::TextButton regenBtns[kNumRegenBtns];
     juce::ComboBox regenHidden;
     juce::Rectangle<int> regenSwitchBounds;
