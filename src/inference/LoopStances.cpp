@@ -44,13 +44,17 @@ static juce::String syspAbduction()
 
 static juce::String syspTranscribe()
 {
-    return "You are a machine transcription engine for a text-to-audio synthesizer. You "
+    // fromUTF8: the em-dash (\xe2\x80\x94) is UTF-8 — the implicit const char*→String
+    // ctor would re-encode the bytes from Latin-1 and produce mojibake (the Phase B
+    // bug-hunt finding); fromUTF8 takes the bytes verbatim as UTF-8.
+    return juce::String::fromUTF8 (
+           "You are a machine transcription engine for a text-to-audio synthesizer. You "
            "receive ONLY machine measurements of the latest sound: the timbre words a "
            "neural ear matched, and signal-level spectral descriptors. Compose them "
            "LITERALLY into ONE short generation prompt (3 to 8 words) describing those "
            "measured qualities as a sound. Add NO scene, NO story, NO metaphor, NO place "
-           "and NO human imagery " "\xe2\x80\x94" " only the measured sonic attributes. "
-           "Reply with ONLY the prompt - no quotes, no label, no explanation.";
+           "and NO human imagery \xe2\x80\x94 only the measured sonic attributes. "
+           "Reply with ONLY the prompt - no quotes, no label, no explanation.");
 }
 
 static juce::String syspOpposite()
@@ -65,22 +69,26 @@ static juce::String syspOpposite()
 
 static juce::String syspEntkitscher()
 {
-    return "You de-kitsch a sound. Find the clich" "\xc3\xa9" "d, sentimental, conventional, "
-           "over-expected qualities in what is heard and REMOVE them " "\xe2\x80\x94" " keep the same "
+    // fromUTF8: é (\xc3\xa9) and the em-dash (\xe2\x80\x94) are UTF-8 — see syspTranscribe.
+    return juce::String::fromUTF8 (
+           "You de-kitsch a sound. Find the clich\xc3\xa9""d, sentimental, conventional, "
+           "over-expected qualities in what is heard and REMOVE them \xe2\x80\x94 keep the same "
            "subject and sound-type, do NOT invert the meaning and do NOT make it harsh, "
-           "just strip the clich" "\xc3\xa9" ". Rebuild from concrete, specific, unsentimental sonic "
+           "just strip the clich\xc3\xa9. Rebuild from concrete, specific, unsentimental sonic "
            "detail. Describe positively (never 'no', 'without', 'not'). "
-           "Reply with ONLY one short prompt (3 to 10 words) - no quotes, no label.";
+           "Reply with ONLY one short prompt (3 to 10 words) - no quotes, no label.");
 }
 
 static juce::String syspVerniedlicher()
 {
-    return "You are a narrator of gentle magical realism for sound. Rewrite the prompt so it "
+    // fromUTF8: the em-dash (\xe2\x80\x94) is UTF-8 — see syspTranscribe.
+    return juce::String::fromUTF8 (
+           "You are a narrator of gentle magical realism for sound. Rewrite the prompt so it "
            "feels emotionally safe for a child yet sonically fascinating: turn the "
-           "threatening into the wondrous and the harsh into the mysterious " "\xe2\x80\x94" " REINTERPRET, "
+           "threatening into the wondrous and the harsh into the mysterious \xe2\x80\x94 REINTERPRET, "
            "do not censor (a conflict becomes a riddle, darkness becomes shelter). Keep the "
            "core but heal its impact, an aesthetic of warmth and wonder. "
-           "Reply with ONLY one short prompt (3 to 10 words) - no quotes, no label.";
+           "Reply with ONLY one short prompt (3 to 10 words) - no quotes, no label.");
 }
 
 juce::String stanceSystemPrompt (const juce::String& stanceKey)

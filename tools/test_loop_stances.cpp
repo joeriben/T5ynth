@@ -79,6 +79,19 @@ int main()
     checkTrue ("off → empty sysp", stanceSystemPrompt ("off").isEmpty());
     checkTrue ("planetarizer not shipped", stanceSystemPrompt ("planetarizer").isEmpty());
 
+    // UTF-8 fidelity: the non-ASCII chars must round-trip as proper UTF-8 (NOT the
+    // double-encoded mojibake the implicit const char*→String ctor would produce).
+    // The em-dash U+2014 and é U+00E9 are the only non-ASCII in these prompts.
+    const juce::String emdash = juce::String::fromUTF8 ("\xe2\x80\x94");
+    const juce::String eacute = juce::String::fromUTF8 ("\xc3\xa9");
+    checkTrue ("transcribe has real em-dash",  stanceSystemPrompt ("transcribe").contains (emdash));
+    checkTrue ("verniedlicher has em-dash",    stanceSystemPrompt ("verniedlicher").contains (emdash));
+    checkTrue ("entkitscher has em-dash",      stanceSystemPrompt ("entkitscher").contains (emdash));
+    checkTrue ("entkitscher has real é",       stanceSystemPrompt ("entkitscher").contains (eacute));
+    // mojibake guard: the double-encoded em-dash starts with \xc3\xa2 (Ã¢) — must be absent.
+    checkTrue ("no mojibake em-dash",
+               ! stanceSystemPrompt ("transcribe").contains (juce::String::fromUTF8 ("\xc3\xa2\xc2\x80\xc2\x94")));
+
     std::printf ("user turns:\n");
     juce::StringArray recent { "old scene a", "old scene b" };
     check ("abduction turn",
