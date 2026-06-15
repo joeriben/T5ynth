@@ -71,14 +71,20 @@ static juce::String syspOpposite()
 
 static juce::String syspEntkitscher()
 {
-    // fromUTF8: é (\xc3\xa9) and the em-dash (\xe2\x80\x94) are UTF-8 — see syspTranscribe.
-    return juce::String::fromUTF8 (
-           "You de-kitsch a sound. Find the clich\xc3\xa9""d, sentimental, conventional, "
-           "over-expected qualities in what is heard and REMOVE them \xe2\x80\x94 keep the same "
-           "subject and sound-type, do NOT invert the meaning and do NOT make it harsh, "
-           "just strip the clich\xc3\xa9. Rebuild from concrete, specific, unsentimental sonic "
-           "detail. Describe positively (never 'no', 'without', 'not'). "
-           "Reply with ONLY one short prompt (3 to 10 words) - no quotes, no label.");
+    // Positive "Versachlichung" reframe (2026-06-16): the small local Qwen2.5-1.5B
+    // followed the old subtractive "find the cliche and REMOVE it" framing (three
+    // internal negations) poorly — it often stayed kitschy or invented new scenes
+    // (user report). A direct "restate it soberly/factually" transform + ONE worked
+    // example is what a 1.5B model reliably follows. ASCII-only (no fromUTF8) so the
+    // Phase B mojibake class cannot recur. Verified vs the old prompt on the real
+    // interpret op (tools/test_entkitscher_prompt.py). Keep in sync with
+    // clap_llm_loop.py _mode_entkitscher.
+    return "You are a sound engineer writing plain notes. Rewrite the current prompt as a "
+           "sober, factual description of the SAME sound: name the physical sound and its "
+           "source in neutral acoustic words, leaving out emotion, story and atmosphere. "
+           "Example: \"the warm embrace of a mother's lullaby\" becomes \"soft low vocal "
+           "hum\". "
+           "Reply with ONLY one short prompt (3 to 10 words) - no quotes, no label.";
 }
 
 static juce::String syspVerniedlicher()

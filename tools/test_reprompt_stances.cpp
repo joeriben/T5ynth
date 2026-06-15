@@ -153,13 +153,14 @@ int main()
 
     // UTF-8 fidelity: the non-ASCII chars must round-trip as proper UTF-8 (NOT the
     // double-encoded mojibake the implicit const char*→String ctor would produce).
-    // The em-dash U+2014 and é U+00E9 are the only non-ASCII in these prompts.
+    // The em-dash U+2014 is the only non-ASCII left, in transcribe + verniedlicher.
+    // entkitscher was reframed (Versachlichung) to an ASCII-only prompt on purpose,
+    // so it must NOT use fromUTF8 and carries no em-dash/é.
     const juce::String emdash = juce::String::fromUTF8 ("\xe2\x80\x94");
-    const juce::String eacute = juce::String::fromUTF8 ("\xc3\xa9");
     checkTrue ("transcribe has real em-dash",  stanceSystemPrompt ("transcribe").contains (emdash));
     checkTrue ("verniedlicher has em-dash",    stanceSystemPrompt ("verniedlicher").contains (emdash));
-    checkTrue ("entkitscher has em-dash",      stanceSystemPrompt ("entkitscher").contains (emdash));
-    checkTrue ("entkitscher has real é",       stanceSystemPrompt ("entkitscher").contains (eacute));
+    checkTrue ("entkitscher ascii (no em-dash)", ! stanceSystemPrompt ("entkitscher").contains (emdash));
+    checkTrue ("entkitscher worked example",    stanceSystemPrompt ("entkitscher").contains ("soft low vocal hum"));
     // mojibake guard: the double-encoded em-dash starts with \xc3\xa2 (Ã¢) — must be absent.
     checkTrue ("no mojibake em-dash",
                ! stanceSystemPrompt ("transcribe").contains (juce::String::fromUTF8 ("\xc3\xa2\xc2\x80\xc2\x94")));

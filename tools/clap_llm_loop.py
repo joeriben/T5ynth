@@ -38,7 +38,8 @@ Deconstructive lenses (further --modes / --stance-* stances):
               no scene, no poetry. Run as voll → both poles become the machine
               self-portrait and the loop settles on a fixed point of its own ears.
   opposite    #2 abductive-contrarian: leap to the CONTRARY scene (invert the mood).
-  entkitscher #3 strip kitsch/sentimentality/cliché; keep the subject austere.
+  entkitscher #3 Versachlichung: sober, factual restatement — name the physical
+              sound/source in neutral acoustic words; drop emotion/story/scene.
   verniedlicher #4 cutify: smaller, gentler, toy-like, twee.
   planetarizer  #5 de-center the West-biased ear: name the sound from a SPECIFIC
               non-Western tradition on its own ground (sharper than critique).
@@ -243,14 +244,17 @@ def _mode_opposite(header_a, header_b, target):
 
 
 def _mode_entkitscher(header_a, header_b, target):
-    """#3 de-kitsch: strip cliché/sentimentality — NOT invert, NOT harshen.
-    Distilled from AI4ArtsEd interception lens 'De-Kitsch' (clichéfilter_v2.json)."""
+    """#3 Versachlichung / sober restatement: re-describe the SAME sound in plain,
+    factual, technical terms — sentiment/scene stripped, the real source kept.
+    Positive reframe of the old subtractive 'de-kitsch' (clichéfilter_v2.json); the
+    small local Qwen2.5-1.5B followed the subtractive version poorly, so this is a
+    direct 'restate soberly' transform + one worked example. Keep in sync with
+    RepromptStances.cpp syspEntkitscher (verified: tools/test_entkitscher_prompt.py)."""
     sysp = (
-        "You de-kitsch a sound. Find the clichéd, sentimental, conventional, "
-        "over-expected qualities in what is heard and REMOVE them — keep the same "
-        "subject and sound-type, do NOT invert the meaning and do NOT make it harsh, "
-        "just strip the cliché. Rebuild from concrete, specific, unsentimental sonic "
-        "detail. Describe positively (never 'no', 'without', 'not'). "
+        "You are a sound engineer writing plain notes. Rewrite the current prompt as a "
+        "sober, factual description of the SAME sound: name the physical sound and its "
+        "source in neutral acoustic words, leaving out emotion, story and atmosphere. "
+        'Example: "the warm embrace of a mother\'s lullaby" becomes "soft low vocal hum". '
         "Reply with ONLY one short prompt (3 to 10 words) - no quotes, no label."
     )
 

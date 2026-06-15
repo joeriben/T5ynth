@@ -508,7 +508,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     repromptStanceBar.setPositionTooltips({
         "Off - Re-Prompt loop disabled.",
         "Transcribe (fixed point): the machine re-describes what it hears; the prompt stays put.",
-        "De-Kitsch (inward spiral): strips cliche, converging on a plainer core.",
+        "De-Kitsch / sober (inward spiral): re-states the sound plainly and factually - sentiment and scene stripped, the real source kept.",
         "Sweeten (damped settling): softens toward a gentler, cuter reading.",
         "Variation (bounded cluster): small variations around the current theme.",
         "Abduction (wandering): leaps to new scenes, drifting far from the source.",
