@@ -13,7 +13,7 @@
 // Glyph index → stance MUST mirror BlockParams.h RepromptStance order:
 //   0 off · 1 transcribe (fixed point) · 2 entkitscher (inward spiral) ·
 //   3 verniedlicher (damped settling) · 4 variation (bounded cluster) ·
-//   5 abduktion (divergent walk) · 6 opposite (limit cycle).
+//   5 abduktion (divergent walk) · 6 opposite (two opposed poles, drawn as <->).
 //
 // Idle-cheap by design: it repaints ONLY when the parameter changes (the attachment
 // callback) or on a click/drag — never on a timer. (Re-Prompt is engine-agnostic, so
@@ -242,14 +242,15 @@ private:
                            std::atan2 (pts[6][1] - pts[5][1], pts[6][0] - pts[5][0]), R * 0.26f);
                 break;
             }
-            case 6: // opposite — limit cycle (orbit between two poles)
+            case 6: // opposite — two opposed readings: a clear <-> double arrow.
+                    // (The former limit-cycle ellipse with tiny tangential arrowheads
+                    // read as a plain ellipse at this render size — user feedback.)
             {
-                const float rx = R * 0.90f, ry = R * 0.56f;
-                g.drawEllipse (cx - rx, cy - ry, 2.0f * rx, 2.0f * ry, sw);
-                fillDot (g, cx - rx, cy, R * 0.13f);
-                fillDot (g, cx + rx, cy, R * 0.13f);
-                arrowHead (g, cx, cy - ry, 0.0f, R * 0.24f);                                   // top → right
-                arrowHead (g, cx, cy + ry, juce::MathConstants<float>::pi, R * 0.24f);         // bottom → left
+                const float hw = R * 0.92f;     // shaft half-width (tip-to-tip span)
+                const float hs = R * 0.46f;     // arrowhead size — large enough to read
+                g.drawLine (cx - hw, cy, cx + hw, cy, sw);
+                arrowHead (g, cx - hw, cy, juce::MathConstants<float>::pi, hs);   // points left
+                arrowHead (g, cx + hw, cy, 0.0f, hs);                            // points right
                 break;
             }
             default: break;
