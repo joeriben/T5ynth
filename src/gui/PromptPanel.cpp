@@ -2507,12 +2507,12 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
     auto pipePtr = processorRef.getPipeInferencePtr();
     const juce::String device = defaultInferenceDevice_;
     // The just-rendered audio (CLAP listens to THIS, the source of the next prompt).
-    juce::AudioBuffer<float> audioCopy;
-    audioCopy.makeCopyOf(result.audio);
+    juce::AudioBuffer<float> audioForClap;
+    audioForClap.makeCopyOf(result.audio);
     const double sr = result.sampleRate;
 
     juce::Component::SafePointer<PromptPanel> safeThis(this);
-    std::thread([safeThis, pipePtr, device, audioCopy = std::move(audioCopy), sr,
+    std::thread([safeThis, pipePtr, device, audioCopy = std::move(audioForClap), sr,
                  stanceKey, dual, concat, prevA, prevB, recentA, recentB, origA, origB]() mutable
     {
         if (pipePtr == nullptr) {
