@@ -992,6 +992,67 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     };
     resynthSlider.updateText();
 
+    // Re-Prompt (semantic self-listening loop) — sits directly under the Resynth
+    // row, SA3-gated alongside it (gated in onModelChanged below). The stance bar
+    // paints the seven movement-type glyphs and binds itself to repromptStance; the
+    // vertical switchbox mirrors the REGENERATE pattern (hidden combo + radio
+    // buttons) and binds to repromptCoupling.
+    repromptLabel.setText("Re-Prompt", juce::dontSendNotification);
+    repromptLabel.setColour(juce::Label::textColourId, kDim);
+    repromptLabel.setJustificationType(juce::Justification::centredLeft);
+    repromptLabel.setInterceptsMouseClicks(false, false);
+    addAndMakeVisible(repromptLabel);
+
+    if (auto* stanceParam = processor.getValueTreeState().getParameter(PID::repromptStance))
+        repromptStanceBar.attachTo(*stanceParam, RepromptStance::kCount);
+    repromptStanceBar.setTooltip(
+        "Re-Prompt stance (SA3): after each render the machine listens to its own "
+        "output and rewrites the prompt(s) before the next one. Left to right by "
+        "movement type: off, transcribe (fixed point), de-kitsch, sweeten, "
+        "variation, abduction, opposite.");
+    addAndMakeVisible(repromptStanceBar);
+
+    // Coupling switchbox: visible radio buttons + a hidden ComboBox carrying the
+    // ChoiceParameter attachment (so the buttons stay a pure view of the param).
+    const char* couplingUi[kNumCouplingBtns] = { "alpha", "AB add", "AB replace" };
+    const char* couplingTip[kNumCouplingBtns] = {
+        "alpha: one interpret run rewrites B only; A stays the human anchor (the "
+        "alpha slider sets the mix).",
+        "AB add: two runs (A & B); each pole = its own original prompt + its latest "
+        "interpretation.",
+        "AB replace: two runs (A & B); each pole fully replaced by its stance "
+        "interpretation."
+    };
+    juce::StringArray couplingItems;
+    for (const auto& e : RepromptCoupling::kEntries)
+        couplingItems.add(juce::String(juce::CharPointer_UTF8(e.label)));
+    repromptCouplingHidden.addItemList(couplingItems, 1);
+    repromptCouplingHidden.onChange = [this] {
+        const int id = repromptCouplingHidden.getSelectedId();
+        for (int i = 0; i < kNumCouplingBtns; ++i)
+            repromptCouplingBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
+    };
+    addChildComponent(repromptCouplingHidden);   // hidden: only its value/attachment is used
+    for (int i = 0; i < kNumCouplingBtns; ++i)
+    {
+        auto& b = repromptCouplingBtns[i];
+        b.setButtonText(couplingUi[i]);
+        b.setColour(juce::TextButton::buttonColourId, kSurface);
+        b.setColour(juce::TextButton::buttonOnColourId, kDriftCol);
+        b.setColour(juce::TextButton::textColourOffId, kDim);
+        b.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        b.setClickingTogglesState(true);
+        b.setRadioGroupId(1005);   // unique repo-wide (1004 = PromptPanel model switchbox)
+        b.setTooltip(couplingTip[i]);
+        b.onClick = [this, i] { repromptCouplingHidden.setSelectedId(i + 1); };
+        addAndMakeVisible(b);
+    }
+    // The attachment's sendInitialUpdate() sets the hidden combo with
+    // sendNotificationSync, which fires onChange and syncs the button toggles to the
+    // restored value — no manual sync needed (same as the REGENERATE switchbox).
+    repromptCouplingA = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        processor.getValueTreeState(), PID::repromptCoupling, repromptCouplingHidden);
+
     // Wire axis values callback for drift auto-regen (offsets applied per slot)
     promptPanel.getAxisValuesCallback = [this](float o1, float o2, float o3) {
         return axesPanel.getAxisValuesWithOffsets(o1, o2, o3);
@@ -1036,6 +1097,13 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
             resynthSlider.setAlpha(resynthOk ? 1.0f : 0.4f);
             resynthLabel.setEnabled(resynthOk);
             resynthLabel.setAlpha(resynthOk ? 1.0f : 0.4f);
+
+            // Re-Prompt shares the SA3 gate (its loop only runs under SA3): flip the
+            // label, the glyph bar and the coupling buttons in lockstep with Resynth.
+            const float a = resynthOk ? 1.0f : 0.4f;
+            repromptLabel.setEnabled(resynthOk);     repromptLabel.setAlpha(a);
+            repromptStanceBar.setEnabled(resynthOk); repromptStanceBar.setAlpha(a);
+            for (auto& b : repromptCouplingBtns) { b.setEnabled(resynthOk); b.setAlpha(a); }
         }
     };
     promptPanel.onModelChanged();  // set initial state (no-op until a model is selected)
@@ -2945,6 +3013,10 @@ void MainPanel::resized()
     constexpr int kMinGenerateButtonH = 38;
     const int cacheRowH = juce::jlimit(16, 20, juce::roundToInt(h * 0.022f));
     const int resynthRowH = juce::jlimit(16, 22, juce::roundToInt(h * 0.024f));
+    // Re-Prompt control row (glyph bar + vertical 3-way coupling switchbox); taller
+    // than the Resynth row so the phase-portrait glyphs and the stacked buttons stay
+    // legible. Reserved in the generate-block budget exactly like resynthRowH.
+    const int repromptCtrlH = juce::jlimit(40, 54, juce::roundToInt(h * 0.060f));
     const int genCacheGap = juce::jlimit(22, 36, juce::roundToInt(h * 0.032f));
 
     int genBtnH = juce::jlimit(50, 72,
@@ -2953,7 +3025,8 @@ void MainPanel::resized()
 
     int oscH = juce::jmax(kMinOscH, promptPanel.getPreferredHeightForWidth(genCol.getWidth()));
     int axesH = juce::jlimit(kMinAxesH, 144, juce::roundToInt(h * 0.133f));
-    const int reservedGenerateBlockH = kMinGenerateButtonH + genCacheGap + cacheRowH + kGap + resynthRowH;
+    const int reservedGenerateBlockH = kMinGenerateButtonH + genCacheGap + cacheRowH + kGap + resynthRowH
+                                       + kGap + repromptCtrlH;
     const int headerCount = oscEasyMode ? 2 : 3;
     const int minDimBudget = oscEasyMode ? 0 : kMinDimH;
     int dimBudget = genCol.getHeight() - (headerH * headerCount + kGap * headerCount
@@ -3027,16 +3100,19 @@ void MainPanel::resized()
     // standalone primary control, not a label for the cache row.
     int remainH = genCol.getHeight();
     int effectiveGenCacheGap = genCacheGap;
-    if (remainH < kMinGenerateButtonH + effectiveGenCacheGap + cacheRowH + kGap + resynthRowH)
+    if (remainH < kMinGenerateButtonH + effectiveGenCacheGap + cacheRowH + kGap + resynthRowH
+                  + kGap + repromptCtrlH)
         effectiveGenCacheGap = juce::jmin(effectiveGenCacheGap, kGap);
 
     // The resynth row sits below the snap/cache row, so it is part of the centered
     // control block: reserve its height (+ a gap) here so the Generate button
     // doesn't claim it and the row stays inside genCol instead of colliding with
     // the sequencer below.
-    const int availableGenButtonH = juce::jmax(0, remainH - effectiveGenCacheGap - cacheRowH - kGap - resynthRowH);
+    const int availableGenButtonH = juce::jmax(0, remainH - effectiveGenCacheGap - cacheRowH - kGap - resynthRowH
+                                                  - kGap - repromptCtrlH);
     genBtnH = juce::jlimit(0, genBtnH, availableGenButtonH);
-    const int controlsH = genBtnH + effectiveGenCacheGap + cacheRowH + kGap + resynthRowH;
+    const int controlsH = genBtnH + effectiveGenCacheGap + cacheRowH + kGap + resynthRowH
+                          + kGap + repromptCtrlH;
     int genBtnY = genCol.getY() + juce::jmax(0, (remainH - controlsH) / 2);
     auto genBtnArea = juce::Rectangle<int>(genCol.getX(), genBtnY, genCol.getWidth(), genBtnH);
     int genW = juce::roundToInt(static_cast<float>(genBtnArea.getWidth()) * 0.66f);
@@ -3110,6 +3186,33 @@ void MainPanel::resized()
     resynthLabel.setBounds(resynthRow.removeFromLeft(juce::jmin(resynthLabelW, resynthRow.getWidth())));
     resynthRow.removeFromLeft(juce::jmin(gap, resynthRow.getWidth()));
     resynthSlider.setBounds(resynthRow);
+
+    // Re-Prompt block directly beneath the Resynth row: [label][stance glyph bar]
+    // [vertical coupling switchbox]. Reserved in the generate-block math above so it
+    // tracks the centered control block instead of colliding with the sequencer.
+    auto repromptRow = juce::Rectangle<int>(
+        genCol.getX(),
+        resynthSlider.getBottom() + kGap,
+        genCol.getWidth(),
+        repromptCtrlH).reduced(1, 0);
+    repromptLabel.setFont(juce::FontOptions(juce::jmax(kUiLabelFontMin,
+                                                       static_cast<float>(resynthRowH) * 0.72f)));
+    repromptLabel.setBounds(repromptRow.removeFromLeft(juce::jmin(resynthLabelW, repromptRow.getWidth())));
+    repromptRow.removeFromLeft(juce::jmin(gap, repromptRow.getWidth()));
+    const int couplingW = juce::jlimit(88, 120,
+        juce::roundToInt(static_cast<float>(genCol.getWidth()) * 0.30f));
+    auto couplingCol = repromptRow.removeFromRight(juce::jmin(couplingW, repromptRow.getWidth()));
+    repromptRow.removeFromRight(juce::jmin(gap, repromptRow.getWidth()));
+    repromptStanceBar.setBounds(repromptRow);
+    const int segGap = 1;
+    const int segH = juce::jmax(11,
+        (couplingCol.getHeight() - segGap * (kNumCouplingBtns - 1)) / kNumCouplingBtns);
+    for (int i = 0; i < kNumCouplingBtns; ++i)
+    {
+        repromptCouplingBtns[i].setBounds(couplingCol.removeFromTop(juce::jmin(segH, couplingCol.getHeight())));
+        if (i < kNumCouplingBtns - 1)
+            couplingCol.removeFromTop(juce::jmin(segGap, couplingCol.getHeight()));
+    }
 
     // Col 2: ENGINE
     synthPanel.setBounds(b);

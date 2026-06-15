@@ -10,6 +10,8 @@
 #include "SetupWizard.h"
 #include "PresetManagerPanel.h"
 #include "SequenceLibraryPanel.h"
+#include "RepromptStanceBar.h"
+#include "../dsp/BlockParams.h"
 #include "../presets/PresetFormat.h"
 #include "../presets/PresetUpdater.h"
 
@@ -145,6 +147,20 @@ private:
     // track. NaN = no drift on this target → nothing painted (and no repaint, so
     // zero idle cost). Polled from modulatedValues.driftResynth in timerCallback.
     float resynthGhostValue_ = std::numeric_limits<float>::quiet_NaN();
+
+    // Re-Prompt (semantic self-listening loop), SA3-gated next to Resynth. A custom
+    // glyph "symbol slider" picks the interpreter STANCE (off + 6 movement-type
+    // stances); a vertical 3-way switchbox picks the COUPLING (alpha / AB add /
+    // AB replace). Both are message-thread-only meta-controls (not in processBlock).
+    // The stance bar owns its own ParameterAttachment internally; the coupling
+    // ComboBoxAttachment is declared AFTER its hidden combo (reverse-destruction).
+    juce::Label repromptLabel;
+    RepromptStanceBar repromptStanceBar;
+    static constexpr int kNumCouplingBtns = RepromptCoupling::kCount;
+    juce::TextButton repromptCouplingBtns[kNumCouplingBtns];
+    juce::ComboBox repromptCouplingHidden;   // hidden; drives the visible radio buttons
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> repromptCouplingA;
+
     int lastInfCacheUiCapacity = -1;
     int lastInfCacheUiFill = -1;
     bool lastInfCacheUiFull = false;
