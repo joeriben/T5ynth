@@ -307,6 +307,12 @@ private:
     // loop never ran, so toggling a stance on/off with no render in between is a no-op).
     bool loopOriginalsValid_ = false;
     int  prevStanceForRestore_ = 0;               // RepromptStance::Off — last seen stance index
+    // transcribe + AB-replace anti-collapse: transcribe reads only the shared machine
+    // tags, so writing BOTH poles each step makes A==B (collapses the blend → alpha/
+    // alpha-drift has nothing to interpolate). Instead write ONE pole per step,
+    // alternating, so A and B stay distinct transcriptions of consecutive renders.
+    // false = this step writes B, true = writes A; flips after each applied step.
+    bool loopAltWriteA_ = false;
     // Resynth-loop anti-convergence: an adaptive amount subtracted from the
     // loop's effective resynth when consecutive outputs stop differing, raising
     // init_noise to break the loop out of a fixed-point. 0 = no reduction (the

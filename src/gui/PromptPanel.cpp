@@ -2540,6 +2540,13 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
     const int sIdx = juce::jlimit(0, RepromptStance::kCount - 1, stanceIdx);
     const juce::String stanceKey = RepromptStance::kEntries[sIdx].key;
 
+    // transcribe collapses A==B under AB-replace (it reads only the shared machine tags),
+    // which leaves alpha/alpha-drift nothing to interpolate. In that one case, write a
+    // single pole per step (alternating) so A and B stay distinct consecutive snapshots.
+    // Other stances read per-pole memory and stay distinct; AB-add keeps the originals.
+    const bool altReplace = (stanceKey == "transcribe")
+                         && (couplingIdx == RepromptCoupling::AbReplace);
+
     // (5 + run_llm_loop glieder init) Capture the human originals on the false→true
     // engage edge: a_glieder=[header_a], b_glieder=[header_b]. The "header" is the
     // text the user has in the editors when the loop first engages; subsequent links
@@ -2555,7 +2562,10 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
         loopRecentB_.clearQuick(); loopRecentB_.add(loopOriginalB_);
         loopEngaged_ = true;
         loopOriginalsValid_ = true;   // arm the stance→Off restore (timerCallback)
+        loopAltWriteA_ = false;       // each new session starts by writing B (the primary pole)
     }
+
+    const bool altWriteA = altReplace && loopAltWriteA_;   // which pole this alt step writes
 
     loopStepInFlight_ = true;
 
@@ -2574,7 +2584,8 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
 
     juce::Component::SafePointer<PromptPanel> safeThis(this);
     std::thread([safeThis, pipePtr, device, audioCopy = std::move(audioForClap), sr,
-                 stanceKey, dual, concat, prevA, prevB, recentA, recentB, origA, origB]() mutable
+                 stanceKey, dual, concat, altReplace, altWriteA,
+                 prevA, prevB, recentA, recentB, origA, origB]() mutable
     {
         if (pipePtr == nullptr) {
             juce::MessageManager::callAsync([safeThis] {
@@ -2605,14 +2616,16 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
         };
 
         // alpha → B only (build_a is None); dual (concat/voll) → A and B, each with
-        // its OWN prev/recent but the SAME stance.
+        // its OWN prev/recent but the SAME stance. nextB always holds this step's
+        // result (B's inputs); for altReplace it is routed to whichever pole this step
+        // targets (transcribe is pole-independent), so the second run is skipped.
         const juce::String nextB = interpretPole(prevB, recentB, prevB);
         juce::String nextA;
-        if (dual)
+        if (dual && !altReplace)
             nextA = interpretPole(prevA, recentA, prevA);
 
         juce::MessageManager::callAsync(
-            [safeThis, dual, concat, nextA, nextB, origA, origB]
+            [safeThis, dual, concat, altReplace, altWriteA, nextA, nextB, origA, origB]
         {
             auto* self = safeThis.getComponent();
             if (self == nullptr) return;   // panel gone — nothing to write; guard auto-clears with the object
@@ -2630,6 +2643,34 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
                 || static_cast<int>(self->processorRef.getValueTreeState()
                        .getRawParameterValue(PID::repromptStance)->load()) == RepromptStance::Off)
             {
+                self->loopStepInFlight_ = false;
+                return;
+            }
+
+            // transcribe + AB-replace: write ONE pole this step (alternating), leaving
+            // the other untouched, so A and B stay distinct snapshots of consecutive
+            // renders — an A/B axis for alpha-drift instead of an instant A==B collapse.
+            // nextB carries the transcription (transcribe is pole-independent).
+            if (altReplace)
+            {
+                if (altWriteA)
+                {
+                    self->loopLastA_ = nextB;
+                    self->promptAEditor.setText(nextB, juce::dontSendNotification);
+                    self->loopRecentA_.add(nextB);
+                    while (self->loopRecentA_.size() > 3) self->loopRecentA_.remove(0);
+                }
+                else
+                {
+                    self->loopLastB_ = nextB;
+                    self->promptBEditor.setText(nextB, juce::dontSendNotification);
+                    self->loopRecentB_.add(nextB);
+                    while (self->loopRecentB_.size() > 3) self->loopRecentB_.remove(0);
+                }
+                self->loopAltWriteA_ = ! altWriteA;   // alternate the target for next step
+                self->lastGenPromptA_ = self->promptAEditor.getText().trim();
+                self->lastGenPromptB_ = self->promptBEditor.getText().trim();
+                self->processorRef.setLastPrompts(self->lastGenPromptA_, self->lastGenPromptB_);
                 self->loopStepInFlight_ = false;
                 return;
             }
