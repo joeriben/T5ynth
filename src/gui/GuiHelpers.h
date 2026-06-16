@@ -24,6 +24,44 @@ static constexpr float kUiLabelFontMin = 11.0f;
 static constexpr float kUiValueFontMin = 11.0f;
 static constexpr float kUiControlFontMin = 11.0f;
 
+// ── Type scale ─────────────────────────────────────────────────────────────
+// Named typographic roles derived from ONE responsive base size (the `f` unit
+// each panel already computes in resized()). A panel asks for a role instead of
+// hand-tuning each label's point size, so captions / values / titles stay in
+// step across the whole UI. Only the base flexes with panel height; the ratios
+// are fixed. This is the systemic replacement for the per-label font fiddling
+// that let the prompt captions drift out of sync.
+enum class TextRole
+{
+    ModuleTitle,  // accent header-strip caption inside a ModuleBox
+    Caption,      // a control's label (e.g. "Duration")
+    Value,        // numeric read-out (e.g. "3.00s")
+    Hint          // secondary / helper text
+};
+
+inline float uiFontSize(TextRole role, float base)
+{
+    switch (role)
+    {
+        case TextRole::ModuleTitle: return juce::jmax(kUiLabelFontMin, base * 0.92f);
+        case TextRole::Caption:     return juce::jmax(kUiLabelFontMin, base);
+        case TextRole::Value:       return juce::jmax(kUiValueFontMin, base);
+        case TextRole::Hint:        return juce::jmax(10.0f,           base * 0.82f);
+    }
+    return base;
+}
+
+inline juce::Font uiFont(TextRole role, float base, bool bold = false)
+{
+    return juce::Font(juce::FontOptions(uiFontSize(role, base),
+                                        bold ? juce::Font::bold : juce::Font::plain));
+}
+
+inline void setUiFont(juce::Label& l, TextRole role, float base, bool bold = false)
+{
+    l.setFont(uiFont(role, base, bold));
+}
+
 // Semantic axis colors
 static const auto kAxis1   = juce::Colour(0xffe91e63);  // Pink
 static const auto kAxis2   = juce::Colour(0xff2196f3);  // Blue
@@ -128,6 +166,212 @@ inline int measureTextWidth(const juce::String& text, float fontSize)
     glyphs.addLineOfText(juce::Font(juce::FontOptions(fontSize)), text, 0.0f, 0.0f);
     return juce::roundToInt(std::ceil(glyphs.getBoundingBox(0, -1, true).getWidth()));
 }
+
+// ── Icon registry ──────────────────────────────────────────────────────────
+// Central line-art icon set. Each glyph is a juce::Path in a 0..24 viewBox,
+// built once and cached (same spirit as CurveButton's cached SVG Drawables),
+// then stroked at any size/colour via getTransformToScaleToFit (the
+// ClockButtonLnF pattern). Line-art + tint-on-draw lets one glyph serve both as
+// a dark mark on an accent strip and as a coloured mark on a card. Extend by
+// adding an enumerator (before numIcons) and a case in buildIconPath().
+enum class Icon
+{
+    Clock,    // duration
+    Shuffle,  // variation (category) / seed: auto
+    Ban,      // seed: none — fixed base seed, no variation
+    Lock,     // seed: last — reuse the previous seed
+    numIcons
+};
+
+namespace icon_detail
+{
+    inline juce::Path buildIconPath(Icon id)
+    {
+        juce::Path p;
+        constexpr float halfPi = juce::MathConstants<float>::halfPi;
+        switch (id)
+        {
+            case Icon::Clock:
+                p.addEllipse(2.5f, 2.5f, 19.0f, 19.0f);
+                p.startNewSubPath(12.0f, 12.0f); p.lineTo(12.0f, 6.5f);    // minute hand (up)
+                p.startNewSubPath(12.0f, 12.0f); p.lineTo(16.0f, 13.5f);   // hour hand (~4 o'clock)
+                break;
+
+            case Icon::Shuffle:
+                // two arrows entering from the left, crossing, exiting right
+                p.startNewSubPath(3.0f, 6.5f);  p.lineTo(8.0f, 6.5f);  p.lineTo(16.0f, 17.5f); p.lineTo(20.5f, 17.5f);
+                p.startNewSubPath(17.5f, 14.5f); p.lineTo(20.5f, 17.5f); p.lineTo(17.5f, 20.5f); // head →↘
+                p.startNewSubPath(3.0f, 17.5f); p.lineTo(8.0f, 17.5f); p.lineTo(16.0f, 6.5f);  p.lineTo(20.5f, 6.5f);
+                p.startNewSubPath(17.5f, 3.5f);  p.lineTo(20.5f, 6.5f);  p.lineTo(17.5f, 9.5f);  // head →↗
+                break;
+
+            case Icon::Ban:
+                p.addEllipse(3.0f, 3.0f, 18.0f, 18.0f);
+                p.startNewSubPath(6.2f, 6.2f); p.lineTo(17.8f, 17.8f);     // diagonal slash
+                break;
+
+            case Icon::Lock:
+                p.addRoundedRectangle(6.0f, 11.0f, 12.0f, 9.0f, 1.5f);     // body
+                p.addCentredArc(12.0f, 11.0f, 3.6f, 4.2f, 0.0f,           // shackle (upper semicircle)
+                                -halfPi, halfPi, true);
+                break;
+
+            case Icon::numIcons:
+            default:
+                break;
+        }
+        return p;
+    }
+
+    inline const juce::Path& iconPath(Icon id)
+    {
+        static std::array<juce::Path, static_cast<size_t>(Icon::numIcons)> cache;
+        static std::array<bool,       static_cast<size_t>(Icon::numIcons)> built {};
+        const auto i = static_cast<size_t>(
+            juce::jlimit(0, static_cast<int>(Icon::numIcons) - 1, static_cast<int>(id)));
+        if (!built[i]) { cache[i] = buildIconPath(static_cast<Icon>(i)); built[i] = true; }
+        return cache[i];
+    }
+}
+
+/** Stroke a registry icon centred within `area`, tinted `colour`. */
+inline void drawIcon(juce::Graphics& g, Icon id, juce::Rectangle<float> area,
+                     juce::Colour colour, float strokeWidth = 1.6f)
+{
+    const auto& path = icon_detail::iconPath(id);
+    if (path.isEmpty() || area.isEmpty())
+        return;
+    g.setColour(colour);
+    g.strokePath(path, juce::PathStrokeType(strokeWidth,
+                                            juce::PathStrokeType::curved,
+                                            juce::PathStrokeType::rounded),
+                 path.getTransformToScaleToFit(area, true));
+}
+
+/**
+ * Self-contained parameter module: a card with an accent header strip
+ * (icon + title) above a content area the owner fills with controls. This is
+ * the mid-level template the panels were missing — instead of hand-placing a
+ * floating label + control + value (which drifts), a panel drops a ModuleBox,
+ * configures it once, and lays its controls inside getContentBounds().
+ *
+ * Decorative only: it intercepts no mouse events and must sit BEHIND the
+ * controls it frames — call toBack() after adding it. Header colours match
+ * paintSectionHeader (dark glyph/text on accent.withAlpha(0.7)).
+ */
+class ModuleBox : public juce::Component
+{
+public:
+    ModuleBox() { setInterceptsMouseClicks(false, false); }
+
+    void configure(const juce::String& title, juce::Colour accent, Icon icon)
+    {
+        title_  = title;
+        accent_ = accent;
+        icon_   = icon;
+        repaint();
+    }
+
+    /** Base font unit (the panel's responsive `f`); drives the title size. */
+    void setBaseFont(float f)       { baseFont_   = f; }
+    void setHeaderHeight(int h)     { headerH_    = juce::jmax(0, h); }
+    void setContentPadding(int p)   { contentPad_ = juce::jmax(0, p); }
+    int  getHeaderHeight() const    { return headerH_; }
+
+    /** Region the owner places controls into (below the header, inset by pad). */
+    juce::Rectangle<int> getContentBounds() const
+    {
+        auto b = getLocalBounds();
+        b.removeFromTop(headerH_);
+        return b.reduced(contentPad_);
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        auto b = getLocalBounds();
+        paintCard(g, b);
+
+        auto header = b.removeFromTop(headerH_);
+        g.setColour(accent_.withAlpha(0.7f));
+        g.fillRect(header);
+
+        const auto darkInk = juce::Colour(0xff0e1018);
+        auto inner = header.reduced(headerPadX_, 0);
+        if (icon_ != Icon::numIcons && header.getHeight() > 0)
+        {
+            auto iconCell = inner.removeFromLeft(header.getHeight());
+            drawIcon(g, icon_, iconCell.toFloat().reduced(static_cast<float>(iconInset_)),
+                     darkInk, 1.6f);
+            inner.removeFromLeft(juce::jmax(2, headerPadX_ / 2));
+        }
+        g.setColour(darkInk);
+        g.setFont(uiFont(TextRole::ModuleTitle, baseFont_, true));
+        g.drawText(title_, inner, juce::Justification::centredLeft, false);
+    }
+
+private:
+    juce::String title_;
+    juce::Colour accent_ { kOscCol };
+    Icon  icon_       { Icon::numIcons };
+    float baseFont_   { 13.0f };
+    int   headerH_    { 18 };
+    int   headerPadX_ { 6 };
+    int   iconInset_  { 3 };
+    int   contentPad_ { 5 };
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ModuleBox)
+};
+
+/**
+ * LookAndFeel for a compact icon button group (sharp-rect, on/off states).
+ * Draws the registry Icon read from the button's "iconId" property; falls back
+ * to the button text when no icon is set. Use for radio-style switchboxes where
+ * a glyph reads faster than a word (e.g. the Variation none/last/auto selector).
+ * Owners MUST declare the LnF instance BEFORE the buttons that use it (so it is
+ * destroyed AFTER them) and must NEVER call setLookAndFeel(nullptr) — JUCE's
+ * normal Component teardown is enough. (Same contract as ClockButtonLnF.)
+ */
+class IconButtonLnF : public juce::LookAndFeel_V4
+{
+public:
+    juce::Colour onColour  { kOscCol };
+    juce::Colour offColour { kSurface };
+
+    void drawButtonBackground(juce::Graphics& g, juce::Button& b,
+                              const juce::Colour&, bool over, bool down) override
+    {
+        const bool on = b.getToggleState();
+        auto base = on ? onColour : offColour;
+        if (down)      base = base.darker(0.15f);
+        else if (over) base = base.brighter(0.10f);
+        g.setColour(base);
+        g.fillRect(b.getLocalBounds());
+        g.setColour(kBorder);
+        g.drawRect(b.getLocalBounds(), 1);
+    }
+
+    void drawButtonText(juce::Graphics& g, juce::TextButton& b,
+                        bool over, bool /*down*/) override
+    {
+        const bool on = b.getToggleState();
+        const auto col = on ? juce::Colours::white
+                            : (over ? onColour.brighter(0.2f) : kDim);
+        auto area = b.getLocalBounds().toFloat().reduced(3.0f);
+
+        const int iconId = static_cast<int>(b.getProperties().getWithDefault("iconId", -1));
+        if (iconId >= 0 && iconId < static_cast<int>(Icon::numIcons))
+        {
+            const float s = juce::jmin(area.getWidth(), area.getHeight());
+            auto iconArea = area.withSizeKeepingCentre(s, s).reduced(s * 0.16f);
+            drawIcon(g, static_cast<Icon>(iconId), iconArea, col, 1.7f);
+            return;
+        }
+
+        g.setColour(col);
+        g.setFont(juce::FontOptions(juce::jmax(kUiControlFontMin, area.getHeight() * 0.5f)));
+        g.drawText(b.getButtonText(), area, juce::Justification::centred);
+    }
+};
 
 enum class ResponsiveStripFallback
 {

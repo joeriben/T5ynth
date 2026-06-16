@@ -346,10 +346,22 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 
     {
         static constexpr const char* labels[kNumSeedModeBtns] = { "none", "last", "auto" };
+        // Icon + tooltip per seed mode: none → Ban (fixed base seed),
+        // last → Lock (reuse previous seed), auto → Shuffle (new random seed).
+        // The text is kept as the accessible name; the LnF draws the glyph.
+        static constexpr Icon seedIcons[kNumSeedModeBtns] = { Icon::Ban, Icon::Lock, Icon::Shuffle };
+        static constexpr const char* seedTips[kNumSeedModeBtns] = {
+            "none: fixed base seed (no variation)",
+            "last: reuse the previous seed",
+            "auto: new random seed each generation"
+        };
         for (int i = 0; i < kNumSeedModeBtns; ++i)
         {
             auto& b = seedModeBtns[i];
             b.setButtonText(labels[i]);
+            b.setLookAndFeel(&seedBtnLnF);
+            b.getProperties().set("iconId", static_cast<int>(seedIcons[i]));
+            b.setTooltip(seedTips[i]);
             b.setColour(juce::TextButton::buttonColourId, kSurface);
             b.setColour(juce::TextButton::buttonOnColourId, kOscCol);
             b.setColour(juce::TextButton::textColourOffId, kDim);
@@ -369,6 +381,16 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
             addAndMakeVisible(b);
         }
         syncSeedModeButtons();
+
+        // Easy-view module frames for Duration + Variation (decorative card +
+        // accent header strip with icon). Added last + sent to back so the
+        // sliders / icon buttons paint on top.
+        durModuleBox.configure("DURATION",  kOscCol, Icon::Clock);
+        varModuleBox.configure("VARIATION", kOscCol, Icon::Shuffle);
+        addAndMakeVisible(durModuleBox);
+        addAndMakeVisible(varModuleBox);
+        durModuleBox.toBack();
+        varModuleBox.toBack();
     }
 
     // Model selector — fixed 4 slots, always visible (disabled = gray until model found).
@@ -882,6 +904,12 @@ void PromptPanel::resized()
     randomSeedToggle.setVisible(!easy);
     for (auto& bSeed : seedModeBtns)
         bSeed.setVisible(easy);
+    // Floating Duration/Variation captions belong to the advanced view; the easy
+    // view shows them as ModuleBox header strips instead.
+    durLabel.setVisible(!easy);
+    seedLabel.setVisible(!easy);
+    durModuleBox.setVisible(easy);
+    varModuleBox.setVisible(easy);
     seedModeSwitchBounds = {};
 
     // ── Model selector switchbox at top (compact, fixed 5 slots) ──
@@ -1085,39 +1113,57 @@ void PromptPanel::resized()
 
     auto layoutEasyDurationSeedRow = [&]
     {
-        int colW = (area.getWidth() - colGap) / 2;
+        const int colW = (area.getWidth() - colGap) / 2;
+        // Box = header strip + content; total equals the old (header row +
+        // control row) so the surrounding centring math is unchanged.
+        const int boxH = compactRowH + seedCtrlH;
 
-        auto hdrRow = area.removeFromTop(compactRowH);
-        auto leftHdr = hdrRow.removeFromLeft(colW);
-        hdrRow.removeFromLeft(colGap);
-        auto rightHdr = hdrRow;
+        auto blockRow = area.removeFromTop(boxH);
+        auto leftBox  = blockRow.removeFromLeft(colW);
+        blockRow.removeFromLeft(colGap);
+        auto rightBox = blockRow;
 
-        setFs(durLabel, f);
-        setFs(durValue, f);
-        durLabel.setBounds(leftHdr.removeFromLeft(leftHdr.getWidth() * 2 / 3));
-        durValue.setBounds(leftHdr);
-        setFs(seedLabel, f);
-        seedLabel.setBounds(rightHdr);
-
-        auto controlRow = area.removeFromTop(seedCtrlH);
-        auto durationBounds = controlRow.removeFromLeft(colW);
-        controlRow.removeFromLeft(colGap);
-
-        durationSlider.setBounds(durationBounds.withSizeKeepingCentre(durationBounds.getWidth(), compactCtrlH));
-
-        auto seedRow = controlRow.reduced(0, 1);
-        for (int i = 0; i < kNumSeedModeBtns; ++i)
+        const int contentPad = juce::jmax(3, juce::roundToInt(f * 0.3f));
+        for (auto* mb : { &durModuleBox, &varModuleBox })
         {
-            const int cellWSeed = (i == kNumSeedModeBtns - 1)
-                ? seedRow.getWidth()
-                : juce::jmax(1, seedRow.getWidth() / (kNumSeedModeBtns - i));
-            seedModeBtns[i].setBounds(seedRow.removeFromLeft(cellWSeed));
+            mb->setBaseFont(f);
+            mb->setHeaderHeight(compactRowH);
+            mb->setContentPadding(contentPad);
+        }
+        durModuleBox.setBounds(leftBox);
+        varModuleBox.setBounds(rightBox);
+
+        // Duration content: slider (left, flexible) + value read-out (right).
+        {
+            auto content = durModuleBox.getContentBounds();
+            const int sliderH = juce::jmax(0, juce::jmin(compactCtrlH, content.getHeight()));
+            // Clamp the value column to [lo, half-content]; guard lo<=hi so a very
+            // narrow panel can't invert the jlimit bounds (jassert / garbage width).
+            const int valLo = juce::roundToInt(f * 2.4f);
+            const int valHi = juce::jmax(valLo, content.getWidth() / 2);
+            const int valW  = juce::jlimit(valLo, valHi,
+                                           measureTextWidth("00.00s", uiFontSize(TextRole::Value, f)) + 6);
+            auto valArea = content.removeFromRight(valW);
+            content.removeFromRight(juce::jmax(2, juce::roundToInt(f * 0.3f)));
+            setUiFont(durValue, TextRole::Value, f);
+            durValue.setBounds(valArea.withSizeKeepingCentre(valArea.getWidth(), sliderH));
+            durationSlider.setBounds(content.withSizeKeepingCentre(content.getWidth(), sliderH));
         }
 
-        seedModeSwitchBounds = seedModeBtns[0].getBounds();
-        for (int i = 1; i < kNumSeedModeBtns; ++i)
-            seedModeSwitchBounds = seedModeSwitchBounds.getUnion(seedModeBtns[i].getBounds());
+        // Variation content: the none/last/auto icon buttons fill the card.
+        {
+            auto seedRow = varModuleBox.getContentBounds();
+            for (int i = 0; i < kNumSeedModeBtns; ++i)
+            {
+                const int cellWSeed = (i == kNumSeedModeBtns - 1)
+                    ? seedRow.getWidth()
+                    : juce::jmax(1, seedRow.getWidth() / (kNumSeedModeBtns - i));
+                seedModeBtns[i].setBounds(seedRow.removeFromLeft(cellWSeed));
+            }
+        }
 
+        // The ModuleBox card frames the switchbox now — skip the group border.
+        seedModeSwitchBounds = {};
         area.removeFromTop(gap);
     };
 

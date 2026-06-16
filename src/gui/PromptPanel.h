@@ -150,9 +150,14 @@ private:
     juce::Label stepsLabel, stepsValue, stepsHint;
     juce::Label cfgLabel, cfgValue, cfgHint;
     juce::Label seedLabel;
+    // Easy-view "module" frames for the Duration + Variation parameters (card +
+    // accent header strip with icon). Decorative; sit behind their controls.
+    ModuleBox durModuleBox, varModuleBox;
     juce::TextEditor seedEditor;
     juce::TextButton randomSeedToggle { "Rnd" };
     static constexpr int kNumSeedModeBtns = 3;
+    // Declared BEFORE seedModeBtns so it outlives them (LnF destruction order).
+    IconButtonLnF seedBtnLnF;
     juce::TextButton seedModeBtns[kNumSeedModeBtns];
     juce::Rectangle<int> seedModeSwitchBounds;
     enum class SeedMode { base = 0, steady = 1, autoRandom = 2 };
