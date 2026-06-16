@@ -944,7 +944,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
 
     resynthSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     resynthSlider.setColour(juce::Slider::trackColourId, kOscCol);
-    resynthSlider.setColour(juce::Slider::backgroundColourId, kSurface);
+    resynthSlider.setColour(juce::Slider::backgroundColourId, kBorder);   // visible rail (kSurface was too dark on kBg)
     resynthSlider.setColour(juce::Slider::textBoxTextColourId, kDim);
     resynthSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
     resynthSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 46, 14);

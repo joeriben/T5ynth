@@ -112,7 +112,7 @@ static void makeSlider(juce::Slider& s, juce::Component* p)
     s.setSliderStyle(juce::Slider::LinearHorizontal);
     s.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
     s.setColour(juce::Slider::trackColourId, kOscCol);
-    s.setColour(juce::Slider::backgroundColourId, kSurface);
+    s.setColour(juce::Slider::backgroundColourId, kBorder);   // visible rail (kSurface was too dark on kBg)
     p->addAndMakeVisible(s);
 }
 

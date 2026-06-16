@@ -173,6 +173,58 @@ void T5ynthLookAndFeel::drawRotarySlider(juce::Graphics& g,
     g.drawLine(juce::Line<float>(p1, p2), juce::jmax(2.0f, stroke * 0.72f));
 }
 
+void T5ynthLookAndFeel::drawLinearSlider(juce::Graphics& g,
+                                         int x, int y, int width, int height,
+                                         float sliderPos, float minSliderPos, float maxSliderPos,
+                                         juce::Slider::SliderStyle style,
+                                         juce::Slider& slider)
+{
+    // Bar / two- / three-value sliders keep JUCE's default rendering. (The A<->B
+    // blend slider installs its own LookAndFeel, so it never reaches here.)
+    if (slider.isBar() || slider.isTwoValue() || slider.isThreeValue())
+    {
+        juce::LookAndFeel_V4::drawLinearSlider(g, x, y, width, height,
+                                               sliderPos, minSliderPos, maxSliderPos,
+                                               style, slider);
+        return;
+    }
+
+    const bool horizontal = slider.isHorizontal();
+    // Matches JUCE V4 (0.25 of the short side, capped at 6 px) but adds a 4 px
+    // floor so short rows — the prompt-column Duration/Resynth sliders — never
+    // collapse to a near-invisible hairline. Tall rows are pixel-identical.
+    const float trackWidth = juce::jlimit(4.0f, 6.0f,
+        (horizontal ? static_cast<float>(height) : static_cast<float>(width)) * 0.25f);
+
+    juce::Point<float> startPoint(
+        horizontal ? static_cast<float>(x) : static_cast<float>(x) + static_cast<float>(width) * 0.5f,
+        horizontal ? static_cast<float>(y) + static_cast<float>(height) * 0.5f : static_cast<float>(y + height));
+    juce::Point<float> endPoint(
+        horizontal ? static_cast<float>(x + width) : startPoint.x,
+        horizontal ? startPoint.y : static_cast<float>(y));
+
+    juce::Path backgroundTrack;
+    backgroundTrack.startNewSubPath(startPoint);
+    backgroundTrack.lineTo(endPoint);
+    g.setColour(slider.findColour(juce::Slider::backgroundColourId));
+    g.strokePath(backgroundTrack,
+                 { trackWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded });
+
+    juce::Point<float> thumbPoint(horizontal ? sliderPos : startPoint.x,
+                                  horizontal ? startPoint.y : sliderPos);
+
+    juce::Path valueTrack;
+    valueTrack.startNewSubPath(startPoint);
+    valueTrack.lineTo(thumbPoint);
+    g.setColour(slider.findColour(juce::Slider::trackColourId));
+    g.strokePath(valueTrack,
+                 { trackWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded });
+
+    const float thumbDiameter = static_cast<float>(getSliderThumbRadius(slider));
+    g.setColour(slider.findColour(juce::Slider::thumbColourId));
+    g.fillEllipse(juce::Rectangle<float>(thumbDiameter, thumbDiameter).withCentre(thumbPoint));
+}
+
 juce::Font T5ynthLookAndFeel::getTextButtonFont(juce::TextButton&, int buttonHeight)
 {
     const float size = juce::jlimit(kUiControlFontMin, 13.5f, static_cast<float>(buttonHeight) * 0.58f);
