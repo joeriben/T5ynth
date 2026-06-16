@@ -218,9 +218,9 @@ private:
             targetA, waveA, clockModeA;
     };
     DriftSection drift1, drift2, drift3;
-    // Regenerate "iterate every" switchbox: man / asap / 1 / 2 / 4 / 8 / 16 bar
+    // Regenerate "repeat every" switchbox: manual / a.s.a.p. / 1 / 2 / 4 / 8 / 16 bars
     juce::Label regenHeader;
-    juce::Label regenIterateLabel;   // "iterate every" — easy-view vertical switchbox caption
+    juce::Label regenIterateLabel;   // "repeat every" — easy-view vertical switchbox caption
     static constexpr int kNumRegenBtns = 7;
     juce::TextButton regenBtns[kNumRegenBtns];
     juce::ComboBox regenHidden;

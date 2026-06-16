@@ -780,19 +780,19 @@ namespace EnvVelTimeMode {
 // ── Drift regenerate mode (UTF-8 quarter-note glyph in labels) ──
 namespace DriftRegen {
     enum : int { Manual = 0, Auto = 1, Bar1 = 2, Bar2 = 3, Bar4 = 4, Bar8 = 5, Bar16 = 6 };
-    // "iterate every": man / asap / N bars (1 bar = 4 beats; the actual cooldown
-    // lives in PromptPanel::pollDriftRegen). ASCII labels only (no mojibake risk).
-    // Keys "manual"/"auto" are kept stable for preset compatibility; the OLD
+    // "repeat every": manual / a.s.a.p. / N bars (1 bar = 4 beats; the actual
+    // cooldown lives in PromptPanel::pollDriftRegen). ASCII labels only (no mojibake
+    // risk). Keys "manual"/"auto" are kept stable for preset compatibility; the OLD
     // beat-based keys (max_1beat/…) are absent now, so a preset that saved one
     // falls back to Manual on load (choiceFromKey → 0) — a safe default.
     static constexpr ChoiceEntry kEntries[] = {
-        { "manual", "man"   },
-        { "auto",   "asap"  },
-        { "bar_1",  "1bar"  },
-        { "bar_2",  "2bar"  },
-        { "bar_4",  "4bar"  },
-        { "bar_8",  "8bar"  },
-        { "bar_16", "16bar" }
+        { "manual", "manual"   },
+        { "auto",   "a.s.a.p." },
+        { "bar_1",  "1 bar"    },
+        { "bar_2",  "2 bars"   },
+        { "bar_4",  "4 bars"   },
+        { "bar_8",  "8 bars"   },
+        { "bar_16", "16 bars"  }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
     static_assert(Bar16 + 1 == kCount, "DriftRegen out of sync.");

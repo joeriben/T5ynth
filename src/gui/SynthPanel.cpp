@@ -1145,10 +1145,10 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     paintSectionHeader(regenHeader, "REGENERATE", kDriftCol);
     addAndMakeVisible(regenHeader);
 
-    // "iterate every" caption above the easy-view vertical switchbox. Visibility
+    // "repeat every" caption above the easy-view vertical switchbox. Visibility
     // is owned by layoutGenerateEasy (shown only when the column is tall enough
     // for the switchbox; the compact dropdown is used otherwise).
-    regenIterateLabel.setText("iterate every", juce::dontSendNotification);
+    regenIterateLabel.setText("repeat every", juce::dontSendNotification);
     regenIterateLabel.setColour(juce::Label::textColourId, kDim);
     regenIterateLabel.setJustificationType(juce::Justification::centredLeft);
     addChildComponent(regenIterateLabel);
@@ -1557,7 +1557,7 @@ void SynthPanel::updateVisibility()
     if (modEasyMode)
     {
         // Default to the compact dropdown; layoutGenerateEasy upgrades to the
-        // vertical "iterate every" switchbox when the column is tall enough.
+        // vertical "repeat every" switchbox when the column is tall enough.
         for (int i = 0; i < kNumRegenBtns; ++i)
             regenBtns[i].setVisible(false);
         regenHidden.setVisible(true);
@@ -2304,7 +2304,7 @@ void SynthPanel::layoutGenerateEasy(juce::Rectangle<int> area, float f, int rowH
     regenHeader.setBounds(headerRow.removeFromLeft(juce::jmin(headerW, headerRow.getWidth())));
     area.removeFromTop(rowGap);
 
-    // "iterate every" caption + vertical 7-way switchbox replaces the dropdown
+    // "repeat every" caption + vertical 7-way switchbox replaces the dropdown
     // when the column is tall enough; otherwise fall back to the compact dropdown.
     const int segGap   = 1;
     const int labelH   = juce::jmax(12, juce::roundToInt(rowH * 0.72f));
