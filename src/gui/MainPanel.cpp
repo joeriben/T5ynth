@@ -3062,8 +3062,8 @@ void MainPanel::resized()
                                              genCol.getWidth(),
                                              cacheRowH).reduced(1, 0);
     const float switchFs = juce::jmax(kUiLabelFontMin, static_cast<float>(cacheRowH) * 0.58f);
-    snapLabel.setFont(juce::FontOptions(switchFs));
-    cacheLabel.setFont(juce::FontOptions(switchFs));
+    setUiFont(snapLabel, TextRole::Caption, switchFs);   // type scale, not a one-off font
+    setUiFont(cacheLabel, TextRole::Caption, switchFs);
 
     const bool veryNarrow = snapCacheRow.getWidth() < 260;
     const int gap = veryNarrow ? 3 : 4;

@@ -8,7 +8,8 @@
 
 /**
  * 3 semantic axis slots — each choosable from the 8 most effective axes
- * for short (1-3s) audio samples. Color-coded with pink/blue/green dots.
+ * for short (1-3s) audio samples. Each active axis tints its slider track +
+ * value (pink/blue/green) so multiple active axes stay distinguishable.
  *
  * Validated via spectral analysis: these 8 axes show Mel-distance > 0.70
  * at 1s duration. PCA axes collapse at short durations and are not offered.
@@ -66,7 +67,7 @@ private:
     std::unique_ptr<Attachment> amountAttachment;
 
     void initSlot(AxisSlot& slot, const juce::StringArray& options, int axisIndex);
-    void layoutSlots(std::vector<AxisSlot>& slots, juce::Rectangle<int>& area, float f, int dotOffset);
+    void layoutSlots(std::vector<AxisSlot>& slots, juce::Rectangle<int>& area, float f);
 
     static constexpr float NO_GHOST = std::numeric_limits<float>::quiet_NaN();
     float ghostOffsets_[3] = { NO_GHOST, NO_GHOST, NO_GHOST };

@@ -48,14 +48,14 @@ AxesPanel::AxesPanel(juce::AudioProcessorValueTreeState& apvts)
 
     // Master amount: scales all axis deltas before they reach the backend.
     amountLabel.setText("Amount", juce::dontSendNotification);
-    amountLabel.setColour(juce::Label::textColourId, kTextMuted);
+    amountLabel.setColour(juce::Label::textColourId, kDim);   // match the other captions
     amountLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(amountLabel);
 
     amountSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     amountSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
     amountSlider.setColour(juce::Slider::trackColourId, kOscCol);
-    amountSlider.setColour(juce::Slider::backgroundColourId, kSurface);
+    amountSlider.setColour(juce::Slider::backgroundColourId, kBorder);   // visible rail (kSurface too dark on kBg)
     addAndMakeVisible(amountSlider);
 
     amountValue.setColour(juce::Label::textColourId, kOscCol);
@@ -88,7 +88,7 @@ void AxesPanel::initSlot(AxisSlot& slot, const juce::StringArray& options, int a
     slot.slider->setRange(-1.0, 1.0, 0.002);
     slot.slider->setValue(0.0, juce::dontSendNotification);
     slot.slider->setColour(juce::Slider::trackColourId, sliderColor);
-    slot.slider->setColour(juce::Slider::backgroundColourId, kSurface);
+    slot.slider->setColour(juce::Slider::backgroundColourId, kBorder);   // visible rail (matches the other sliders)
     addAndMakeVisible(*slot.slider);
 
     slot.valueLabel = std::make_unique<juce::Label>("", "0.00");
@@ -150,20 +150,12 @@ void AxesPanel::setGhostOffsets(float o1, float o2, float o3)
 
 void AxesPanel::paint(juce::Graphics& g)
 {
-    // Background + card painted by MainPanel
-
-    float f = fs();
-    int dotSize = juce::roundToInt(f * 0.55f);
+    // Background + card painted by MainPanel. Axis dots removed: the slot colour
+    // is carried by the slider track + value, and the dropdown names the axis.
 
     for (size_t i = 0; i < slots.size(); ++i)
     {
         auto& slot = slots[i];
-        auto dropBounds = slot.dropdown->getBounds();
-        int dotX = dropBounds.getX() - dotSize - 4;
-        int dotY = dropBounds.getCentreY() - dotSize / 2;
-        g.setColour(kAxisColors[i]);
-        g.fillEllipse(static_cast<float>(dotX), static_cast<float>(dotY),
-                       static_cast<float>(dotSize), static_cast<float>(dotSize));
 
         // Ghost circle for drift-modulated axis value
         if (i < 3 && !std::isnan(ghostOffsets_[i]) && slot.slider && slot.slider->isVisible())
@@ -186,7 +178,7 @@ void AxesPanel::paint(juce::Graphics& g)
     }
 }
 
-void AxesPanel::layoutSlots(std::vector<AxisSlot>& slotsVec, juce::Rectangle<int>& area, float f, int dotOffset)
+void AxesPanel::layoutSlots(std::vector<AxisSlot>& slotsVec, juce::Rectangle<int>& area, float f)
 {
     int rowH = juce::roundToInt(f * 1.4f);
     int gap = juce::roundToInt(f * 0.2f);
@@ -197,8 +189,6 @@ void AxesPanel::layoutSlots(std::vector<AxisSlot>& slotsVec, juce::Rectangle<int
         bool active = slot.dropdown->getSelectedId() != 1; // 1 = "---"
 
         auto row = area.removeFromTop(rowH);
-        if (dotOffset > 0)
-            row.removeFromLeft(dotOffset);
 
         // Pole labels no longer shown (axis name visible in dropdown text)
         slot.poleLabelA->setVisible(false);
@@ -206,18 +196,17 @@ void AxesPanel::layoutSlots(std::vector<AxisSlot>& slotsVec, juce::Rectangle<int
         slot.slider->setVisible(active);
         slot.valueLabel->setVisible(active);
 
+        // Uniform dropdown width whether or not the slot is active (a consistent
+        // grid — no width jump on select). When active the slider + value fill
+        // the space to its right; when empty that space stays clear (exactly
+        // where those controls will appear once an axis is chosen).
+        int dropW = juce::roundToInt(row.getWidth() * 0.45f);
+        slot.dropdown->setBounds(row.removeFromLeft(dropW));
         if (active)
         {
-            // Single row: [dropdown ~45%] [slider] [value]
-            int dropW = juce::roundToInt(row.getWidth() * 0.45f);
-            slot.dropdown->setBounds(row.removeFromLeft(dropW));
-            slot.valueLabel->setFont(juce::FontOptions(juce::jmax(kUiValueFontMin, f * 0.8f)));
+            setUiFont(*slot.valueLabel, TextRole::Value, f * 0.8f);
             slot.valueLabel->setBounds(row.removeFromRight(valW));
             slot.slider->setBounds(row);
-        }
-        else
-        {
-            slot.dropdown->setBounds(row);
         }
 
         area.removeFromTop(gap);
@@ -231,25 +220,22 @@ void AxesPanel::resized()
     int pad = juce::roundToInt(w * 0.04f);
     auto area = getLocalBounds().reduced(pad, juce::roundToInt(h * 0.01f));
     float f = fs();
-    int headerH = juce::roundToInt(f * 1.3f);
-    int dotOffset = juce::roundToInt(f * 0.8f);
 
     // Header provided by MainPanel — skip internal header allocation
 
-    layoutSlots(slots, area, f * 0.75f, dotOffset);
+    layoutSlots(slots, area, f * 0.75f);
 
-    // Amount row: short label, slider, value — same column geometry as
-    // the axis rows so everything lines up under the 3 slot rows.
+    // Amount row: same column geometry as the axis rows (label fills the dropdown
+    // column, slider + value align beneath them) so the whole panel reads as one
+    // grid instead of a separate label gutter.
     float fa = f * 0.75f;
     int rowH = juce::roundToInt(fa * 1.4f);
     int valW = juce::roundToInt(fa * 3.0f);
-    int labelW = juce::roundToInt(fa * 3.0f);
     auto row = area.removeFromTop(rowH);
-    if (dotOffset > 0)
-        row.removeFromLeft(dotOffset);
-    amountLabel.setFont(juce::FontOptions(juce::jmax(kUiLabelFontMin, fa * 0.8f)));
+    int labelW = juce::roundToInt(row.getWidth() * 0.45f);
+    setUiFont(amountLabel, TextRole::Caption, fa * 0.8f);
     amountLabel.setBounds(row.removeFromLeft(labelW));
-    amountValue.setFont(juce::FontOptions(juce::jmax(kUiValueFontMin, fa * 0.8f)));
+    setUiFont(amountValue, TextRole::Value, fa * 0.8f);
     amountValue.setBounds(row.removeFromRight(valW));
     amountSlider.setBounds(row);
 }
