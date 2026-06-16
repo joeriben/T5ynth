@@ -1570,7 +1570,7 @@ def _build_native_conditioning_input(pipe, prompt, duration, start_pos=0.0):
     return payload
 
 
-def _native_modality_prefix(pipe):
+def _native_modality_prefix(pipe, track_type=None):
     """Modality prefix prepended to SA3 prompts (Stable Audio 3 paper §5.1).
 
     The SA3 family is trained with a leading "TrackType: ..." field and the
@@ -1579,13 +1579,21 @@ def _native_modality_prefix(pipe):
     domain to render and conditioning is weak). Music checkpoints use the music
     prefix; an "sfx" checkpoint would use the SFX one. Empty for non-SA3 models
     (SAO, AudioLDM2), which were trained without it.
+
+    An explicit ``track_type`` ("music"/"sfx") in the request OVERRIDES the name
+    sniff. This is required for single-checkpoint SA3 models (medium/large) that
+    render BOTH domains from one checkpoint and carry no music/sfx token in their
+    directory name. When absent, the historical name sniff applies unchanged
+    (small-music -> Music, small-sfx -> SFX), so existing requests behave exactly
+    as before.
     """
     name = (getattr(pipe, "model_name", "") or "").lower()
-    if name.startswith("stable-audio-3"):
-        if "sfx" in name:
-            return "TrackType: SFX, "
-        return "TrackType: Music, VocalType: Instrumental, "
-    return ""
+    if not name.startswith("stable-audio-3"):
+        return ""
+    tt = (track_type or "").strip().lower()
+    if tt == "sfx" or (not tt and "sfx" in name):
+        return "TrackType: SFX, "
+    return "TrackType: Music, VocalType: Instrumental, "
 
 
 def load_default_model(model_name, devices):
@@ -2086,7 +2094,7 @@ def _generate_native(pipe, request):
     # SA3 modality prefix (paper §5.1). Prepend to NON-EMPTY prompts only, so an
     # empty field still encodes as the true "" Spiegel-Punkt (null) reference and
     # the a_present/b_present logic below is unaffected. Empty for non-SA3 models.
-    _modality_prefix = _native_modality_prefix(pipe)
+    _modality_prefix = _native_modality_prefix(pipe, request.get("track_type"))
     if _modality_prefix:
         if prompt_a:
             prompt_a = _modality_prefix + prompt_a
