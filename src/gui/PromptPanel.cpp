@@ -883,8 +883,6 @@ void PromptPanel::resized()
     int seedCtrlH = juce::roundToInt(f * kPromptSeedCtrl);
     int repromptRowH = juce::roundToInt(f * kPromptReprompt);
 
-    auto setFs = [](juce::Label& l, float size) { l.setFont(juce::FontOptions(size)); };
-
     const bool easy = easyMode_;
     // Model selector stays visible in BOTH modes — the engine choice changes
     // character enough that hiding it in easy mode left the user with no way
@@ -1013,7 +1011,7 @@ void PromptPanel::resized()
     {
         auto rr = area.removeFromTop(repromptRowH);
 
-        repromptLabel.setFont(juce::FontOptions(f));   // match the "Duration" caption (was f * 0.82, ~18% smaller)
+        setUiFont(repromptLabel, TextRole::Caption, f);   // same type-scale slot as the Duration caption
         const int rpLabelW = juce::jlimit(46, 86, juce::roundToInt(rr.getWidth() * 0.26f));
         repromptLabel.setBounds(rr.removeFromLeft(juce::jmin(rpLabelW, rr.getWidth())));
         rr.removeFromLeft(juce::jmin(gap, rr.getWidth()));
@@ -1059,10 +1057,10 @@ void PromptPanel::resized()
         hdrRow.removeFromLeft(colGap);
         auto rightHdr = hdrRow;
 
-        setFs(lbl1, f); setFs(val1, f);
+        setUiFont(lbl1, TextRole::Caption, f); setUiFont(val1, TextRole::Value, f);
         lbl1.setBounds(leftHdr.removeFromLeft(leftHdr.getWidth() * 2 / 3));
         val1.setBounds(leftHdr);
-        setFs(lbl2, f); setFs(val2, f);
+        setUiFont(lbl2, TextRole::Caption, f); setUiFont(val2, TextRole::Value, f);
         lbl2.setBounds(rightHdr.removeFromLeft(rightHdr.getWidth() * 2 / 3));
         val2.setBounds(rightHdr);
 
@@ -1082,11 +1080,11 @@ void PromptPanel::resized()
         hdrRow.removeFromLeft(colGap);
         auto rightHdr = hdrRow;
 
-        setFs(durLabel, f);
-        setFs(durValue, f);
+        setUiFont(durLabel, TextRole::Caption, f);
+        setUiFont(durValue, TextRole::Value, f);
         durLabel.setBounds(leftHdr.removeFromLeft(leftHdr.getWidth() * 2 / 3));
         durValue.setBounds(leftHdr);
-        setFs(seedLabel, f);
+        setUiFont(seedLabel, TextRole::Caption, f);
         seedLabel.setBounds(rightHdr);
 
         auto controlRow = area.removeFromTop(seedCtrlH);
@@ -1194,7 +1192,7 @@ void PromptPanel::resized()
     }
 
     // Info label pinned at the bottom of the panel
-    setFs(infoLabel, f);
+    setUiFont(infoLabel, TextRole::Caption, f);
     infoLabel.setBounds(infoArea.removeFromBottom(compactRowH));
 }
 
