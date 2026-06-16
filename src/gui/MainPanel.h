@@ -139,6 +139,9 @@ private:
     // Full) replaces the meaningless 0-1 number so "full" is a visible position.
     // Attachment declared AFTER its target component (reverse-destruction order).
     juce::Label resynthLabel;
+    // Decorative module frame ("RESYNTH" header strip) drawn behind the slider
+    // (toBack), so declaration order vs the slider is immaterial.
+    ModuleBox resynthModuleBox;
     juce::Slider resynthSlider;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> resynthA;
     // Drift ghost for the resynth slider: where Drift (target = Resynth) is

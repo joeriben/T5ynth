@@ -953,6 +953,12 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
                              "= the next render follows your fed-back sound more.");
     addAndMakeVisible(resynthSlider);
 
+    // "RESYNTH" module frame behind the slider (decorative; the accent header strip
+    // replaces the old free-floating label). Periwinkle accent matches the track.
+    resynthModuleBox.configure("RESYNTH", kOscCol, Icon::numIcons);
+    addAndMakeVisible(resynthModuleBox);
+    resynthModuleBox.toBack();
+
     resynthA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor.getValueTreeState(), PID::resynthAmount, resynthSlider);
 
@@ -1038,8 +1044,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         {
             resynthSlider.setEnabled(resynthOk);
             resynthSlider.setAlpha(resynthOk ? 1.0f : 0.4f);
-            resynthLabel.setEnabled(resynthOk);
-            resynthLabel.setAlpha(resynthOk ? 1.0f : 0.4f);
+            resynthModuleBox.setAlpha(resynthOk ? 1.0f : 0.4f);  // dim the frame too (label is hidden)
         }
         // (Re-Prompt is engine-agnostic — not SA3-gated — and its controls now live
         // in PromptPanel; nothing to flip here.)
@@ -2951,6 +2956,9 @@ void MainPanel::resized()
     constexpr int kMinGenerateButtonH = 38;
     const int cacheRowH = juce::jlimit(16, 20, juce::roundToInt(h * 0.022f));
     const int resynthRowH = juce::jlimit(16, 22, juce::roundToInt(h * 0.024f));
+    // Resynth is now a module (accent header strip + slider), so reserve both.
+    const int resynthHeaderH = cacheRowH;
+    const int resynthBlockH  = resynthHeaderH + resynthRowH;
     const int genCacheGap = juce::jlimit(22, 36, juce::roundToInt(h * 0.032f));
 
     int genBtnH = juce::jlimit(50, 72,
@@ -2959,7 +2967,7 @@ void MainPanel::resized()
 
     int oscH = juce::jmax(kMinOscH, promptPanel.getPreferredHeightForWidth(genCol.getWidth()));
     int axesH = juce::jlimit(kMinAxesH, 144, juce::roundToInt(h * 0.133f));
-    const int reservedGenerateBlockH = kMinGenerateButtonH + genCacheGap + cacheRowH + kGap + resynthRowH;
+    const int reservedGenerateBlockH = kMinGenerateButtonH + genCacheGap + cacheRowH + kGap + resynthBlockH;
     const int headerCount = oscEasyMode ? 2 : 3;
     const int minDimBudget = oscEasyMode ? 0 : kMinDimH;
     int dimBudget = genCol.getHeight() - (headerH * headerCount + kGap * headerCount
@@ -3033,16 +3041,16 @@ void MainPanel::resized()
     // standalone primary control, not a label for the cache row.
     int remainH = genCol.getHeight();
     int effectiveGenCacheGap = genCacheGap;
-    if (remainH < kMinGenerateButtonH + effectiveGenCacheGap + cacheRowH + kGap + resynthRowH)
+    if (remainH < kMinGenerateButtonH + effectiveGenCacheGap + cacheRowH + kGap + resynthBlockH)
         effectiveGenCacheGap = juce::jmin(effectiveGenCacheGap, kGap);
 
     // The resynth row sits below the snap/cache row, so it is part of the centered
     // control block: reserve its height (+ a gap) here so the Generate button
     // doesn't claim it and the row stays inside genCol instead of colliding with
     // the sequencer below.
-    const int availableGenButtonH = juce::jmax(0, remainH - effectiveGenCacheGap - cacheRowH - kGap - resynthRowH);
+    const int availableGenButtonH = juce::jmax(0, remainH - effectiveGenCacheGap - cacheRowH - kGap - resynthBlockH);
     genBtnH = juce::jlimit(0, genBtnH, availableGenButtonH);
-    const int controlsH = genBtnH + effectiveGenCacheGap + cacheRowH + kGap + resynthRowH;
+    const int controlsH = genBtnH + effectiveGenCacheGap + cacheRowH + kGap + resynthBlockH;
     int genBtnY = genCol.getY() + juce::jmax(0, (remainH - controlsH) / 2);
     auto genBtnArea = juce::Rectangle<int>(genCol.getX(), genBtnY, genCol.getWidth(), genBtnH);
     int genW = juce::roundToInt(static_cast<float>(genBtnArea.getWidth()) * 0.66f);
@@ -3103,20 +3111,21 @@ void MainPanel::resized()
     for (int i = 1; i < kNumInfCacheButtons; ++i)
         cacheSwitchBounds = cacheSwitchBounds.getUnion(infCacheButtons[i].getBounds());
 
-    // Resynth row directly beneath the snap/cache row: [Resynth label][slider].
-    // Its Y is derived the same way as snapCacheRow (from the Generate button's
-    // bottom) so it tracks the centered control block exactly. Reserved above.
-    auto resynthRow = juce::Rectangle<int>(
+    // Resynth module beneath the snap/cache row: a "RESYNTH" accent header strip
+    // over the Off→Full slider (replaces the old free-floating [label][slider] row).
+    // Its Y is derived like snapCacheRow (from the Generate button's bottom) so it
+    // tracks the centered control block exactly; resynthBlockH is reserved above.
+    auto resynthArea = juce::Rectangle<int>(
         genCol.getX(),
         mainGenerateBtn.getBottom() + effectiveGenCacheGap + cacheRowH + kGap,
         genCol.getWidth(),
-        resynthRowH).reduced(1, 0);
-    const int resynthLabelW = juce::jlimit(54, 78,
-        juce::roundToInt(static_cast<float>(resynthRow.getWidth()) * 0.30f));
-    resynthLabel.setFont(juce::FontOptions(switchFs));   // was never sized in resized() → didn't scale; match SNAP/CACHE
-    resynthLabel.setBounds(resynthRow.removeFromLeft(juce::jmin(resynthLabelW, resynthRow.getWidth())));
-    resynthRow.removeFromLeft(juce::jmin(gap, resynthRow.getWidth()));
-    resynthSlider.setBounds(resynthRow);
+        resynthBlockH).reduced(1, 0);
+    resynthLabel.setVisible(false);   // the module header strip names it now
+    resynthModuleBox.setBaseFont(switchFs);
+    resynthModuleBox.setHeaderHeight(resynthHeaderH);
+    resynthModuleBox.setContentPadding(1);   // minimal — keep the slider (14px text box) full-height
+    resynthModuleBox.setBounds(resynthArea);
+    resynthSlider.setBounds(resynthModuleBox.getContentBounds());
 
     // (The Re-Prompt control row that used to sit beneath Resynth now lives in
     // PromptPanel, directly under the prompts.)
