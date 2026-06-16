@@ -985,7 +985,7 @@ void PromptPanel::resized()
     {
         auto rr = area.removeFromTop(repromptRowH);
 
-        repromptLabel.setFont(juce::FontOptions(juce::jmax(10.0f, f * 0.82f)));
+        repromptLabel.setFont(juce::FontOptions(f));   // match the "Duration" caption (was f * 0.82, ~18% smaller)
         const int rpLabelW = juce::jlimit(46, 86, juce::roundToInt(rr.getWidth() * 0.26f));
         repromptLabel.setBounds(rr.removeFromLeft(juce::jmin(rpLabelW, rr.getWidth())));
         rr.removeFromLeft(juce::jmin(gap, rr.getWidth()));

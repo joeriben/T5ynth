@@ -3113,6 +3113,7 @@ void MainPanel::resized()
         resynthRowH).reduced(1, 0);
     const int resynthLabelW = juce::jlimit(54, 78,
         juce::roundToInt(static_cast<float>(resynthRow.getWidth()) * 0.30f));
+    resynthLabel.setFont(juce::FontOptions(switchFs));   // was never sized in resized() → didn't scale; match SNAP/CACHE
     resynthLabel.setBounds(resynthRow.removeFromLeft(juce::jmin(resynthLabelW, resynthRow.getWidth())));
     resynthRow.removeFromLeft(juce::jmin(gap, resynthRow.getWidth()));
     resynthSlider.setBounds(resynthRow);
