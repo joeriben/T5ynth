@@ -841,6 +841,13 @@ PipeInference::Result PipeInference::generate(const Request& request)
         json->setProperty("device", request.device);
     if (request.model.isNotEmpty())
         json->setProperty("model", request.model);
+    // SA3 modality (Music/SFX). The Music and SFX slots can be backed by the SAME
+    // single-checkpoint SA3 model (medium/large), so the domain travels here rather
+    // than in the model id. Omitted when empty → the backend falls back to its
+    // dir-name sniff (small-music/small-sfx), so non-SA3 and older requests are
+    // byte-identical to before.
+    if (request.trackType.isNotEmpty())
+        json->setProperty("track_type", request.trackType);
 
     // Research-mode prompt-injection fields. Always serialised so that the bundled
     // backend sees them; older backends ignore unknown fields.

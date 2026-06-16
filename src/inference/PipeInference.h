@@ -80,6 +80,7 @@ public:
         int seed = -1;
         juce::String device;       // "mps", "cuda", "cpu", or empty for default
         juce::String model;        // model ID (e.g. "stable-audio-open-1.0"), or empty for default
+        juce::String trackType;    // SA3 only: "music"/"sfx" — overrides the backend's dir-name modality sniff. Required for single-checkpoint SA3 (medium/large), which render both domains and carry no music/sfx token. Empty = sniff (unchanged).
         std::vector<std::pair<int, float>> dimensionOffsets;  // DimensionExplorer offsets
         std::map<juce::String, float> semanticAxes;           // SemanticAxes key→value
         float axesAmount = 1.0f;                              // Master scaler for all semantic-axis deltas

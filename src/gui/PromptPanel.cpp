@@ -1375,6 +1375,19 @@ static int patternSlotFor(const juce::String& m)
     return -1;
 }
 
+// Persisted-id domain tag. A single SA3 checkpoint that backs BOTH the Music (0)
+// and SFX (1) slots (medium) can't encode the chosen domain in its bare dir id, so
+// when SFX is the active domain we suffix "-sfx". On recall slotForModel/patternSlotFor
+// re-derive slot 1 from that token and shortenModelName renders it as "SA3 SFX"; the
+// real dir id is always recovered from modelSlotIds[] (this token is never used to load
+// a model). Identity for ids that already carry the domain (small-sfx), the Music slot,
+// and non-SA3 models — so every existing persisted id is byte-for-byte unchanged.
+static juce::String taggedPersistId(const juce::String& id, bool sfxDomain)
+{
+    return (sfxDomain && id.containsIgnoreCase("stable-audio-3") && !id.containsIgnoreCase("sfx"))
+               ? id + "-sfx" : id;
+}
+
 // Resolve a stored/preset model id to an INSTALLED slot: exact installed-id
 // match first, then a family fallback (patternSlotFor) so a legacy preset id —
 // e.g. the pre-split "stable-audio-3-small" — still selects its family's slot
@@ -1410,6 +1423,25 @@ void PromptPanel::populateModelSelector()
             modelBtns[slot].setAlpha(1.0f);
         }
     }
+
+    // SA3 tier resolution. A "medium" SA3 checkpoint is a single model that renders
+    // BOTH domains (the request's track_type, not the dir name, picks Music vs SFX),
+    // so when one is installed it IS the SA3 tier on this machine and backs BOTH the
+    // Music (0) and SFX (1) slots. This also makes the small+medium-both-installed
+    // case deterministic — medium supersedes small's two checkpoints in slots 0/1 —
+    // instead of letting iteration order silently shadow one. patternSlotFor already
+    // routed medium into slot 0 above (it has no "sfx" token); here it also claims 1.
+    for (auto& m : models)
+        if (m.containsIgnoreCase("stable-audio-3") && m.containsIgnoreCase("medium"))
+        {
+            for (int s : { 0, 1 })
+            {
+                modelSlotIds[s] = m;
+                modelBtns[s].setEnabled(true);
+                modelBtns[s].setAlpha(1.0f);
+            }
+            break;
+        }
 
     // Select model: pending preset model > leftmost installed slot in display
     // order. SA3 Music sits at slot 0, so "leftmost installed" naturally
@@ -1554,7 +1586,10 @@ void PromptPanel::refreshInferenceChoices()
     auto selectedModel = getSelectedModel();
 
     if (selectedModel.isNotEmpty())
-        pendingModel_ = selectedModel;
+        // Preserve the Music/SFX slot across the backend restart for a both-slots SA3
+        // checkpoint (medium): re-stash slot 1 as the SFX-tagged id so the post-restart
+        // populateModelSelector re-selects SFX rather than defaulting to Music (slot 0).
+        pendingModel_ = taggedPersistId(selectedModel, getSelectedSlot() == 1);
 
     devicesPopulated = false;
     modelsPopulated = false;
@@ -1629,12 +1664,18 @@ bool PromptPanel::hasHiddenActiveState() const
     return false;
 }
 
-juce::String PromptPanel::getSelectedModel() const
+int PromptPanel::getSelectedSlot() const
 {
     for (int i = 0; i < kNumModelSlots; ++i)
         if (modelBtns[i].getToggleState() && modelSlotIds[i].isNotEmpty())
-            return modelSlotIds[i];
-    return {};
+            return i;
+    return -1;
+}
+
+juce::String PromptPanel::getSelectedModel() const
+{
+    const int s = getSelectedSlot();
+    return s >= 0 ? modelSlotIds[s] : juce::String();
 }
 
 bool PromptPanel::isAudioLDM2Model(const juce::String& model) const
@@ -1984,6 +2025,12 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     {
         req.semanticAxes.clear();
         req.dimensionOffsets.clear();
+        // SA3 modality: the Music slot (0) and SFX slot (1) can be backed by the
+        // SAME medium checkpoint, so the selected slot index — not the model id —
+        // selects the domain. Sent for every SA3 request; the backend prefers it
+        // over the dir-name sniff (medium carries no music/sfx token, so the sniff
+        // alone can't tell, and for small it simply agrees with the name).
+        req.trackType = (getSelectedSlot() == 1) ? "sfx" : "music";
     }
     req.injectionMode = requestInjectionMode;
     // Single-prompt promptability guard (linear mode, slider-driven α only).
@@ -2250,7 +2297,10 @@ void PromptPanel::triggerGeneration()
                     processor.addInferenceCacheEntry(result.audio, result.sampleRate);
                     processor.loadGeneratedAudio(result.audio, result.sampleRate);
                     processor.setLastDevice(deviceForLabel);
-                    processor.setLastModel(modelForLabel);
+                    // Persist the SFX domain when the bare SA3 id can't encode it (medium backs
+                    // both Music/SFX slots). req.trackType is the request-time domain (SA3-only;
+                    // empty otherwise), so this is a no-op for every other model and the Music slot.
+                    processor.setLastModel(taggedPersistId(modelForLabel, req.trackType == "sfx"));
                     processor.setLastSeed(result.seed);
                     auto promptA = self->promptAEditor.getText().trim();
                     auto promptB = self->promptBEditor.getText().trim();
@@ -2395,7 +2445,7 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                     auto promptA = self->promptAEditor.getText().trim();
                     auto promptB = self->promptBEditor.getText().trim();
                     processor.setLastDevice(deviceForLabel);
-                    processor.setLastModel(modelForLabel);
+                    processor.setLastModel(taggedPersistId(modelForLabel, req.trackType == "sfx"));
                     processor.setLastSeed(result.seed);
                     processor.setLastPrompts(promptA, promptB);
                     self->lastGenPromptA_ = promptA;

@@ -189,6 +189,10 @@ private:
     float pendingSplitEnd_   = std::numeric_limits<float>::quiet_NaN();
     void populateModelSelector();
     juce::String getSelectedModel() const;
+    /** Index of the currently-toggled, occupied model slot, or -1 if none. The
+     *  Music (0) and SFX (1) slots can hold the SAME SA3 checkpoint, so the slot
+     *  index — not the model id — is what selects the SA3 track type at request time. */
+    int getSelectedSlot() const;
     /** Pull the active model's DiT block count from the backend's handshake
      *  metadata into ditBlocks_, then clamp/expand the layer-split slider
      *  accordingly. Called after model selection changes and after the
