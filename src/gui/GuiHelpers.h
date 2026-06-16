@@ -278,10 +278,15 @@ public:
     void setContentPadding(int p)   { contentPad_ = juce::jmax(0, p); }
     int  getHeaderHeight() const    { return headerH_; }
 
-    /** Region the owner places controls into (below the header, inset by pad). */
+    /** Region the owner places controls into (below the header, inset by pad).
+     *  PARENT-relative on purpose: the owning panel lays out its controls as
+     *  SIBLINGS of this box (the box is decorative and intercepts no mouse), so
+     *  this rect must be in the parent's coordinate space — getBounds(), not
+     *  getLocalBounds(). (Using local 0-based coords placed siblings at the
+     *  panel's top-left instead of inside the box.) */
     juce::Rectangle<int> getContentBounds() const
     {
-        auto b = getLocalBounds();
+        auto b = getBounds();
         b.removeFromTop(headerH_);
         return b.reduced(contentPad_);
     }
