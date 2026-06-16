@@ -166,6 +166,18 @@ static const ReassemblyAsset kSa3SfxAssets[] = {
     { T5YNTH_COMFY_SA3 "/text_encoders/t5gemma_b_b_ul2.safetensors",
       "t5gemma-b-b-ul2/model.safetensors", 1187264003 },
 };
+// SA3 Medium — ONE checkpoint that renders both Music and SFX (the modality is
+// driven by the request's track_type field, not the dir name). The distilled
+// final checkpoint (stable_audio_3_medium.safetensors, sha256 48d9c65e…), NOT
+// the _base twin. Same shared t5gemma-b-b-ul2 encoder as the small tiers. The
+// medium model_config.json (SAME-L autoencoder) is written by finalizeSa3-
+// Reassembly from bundled BinaryData.
+static const ReassemblyAsset kSa3MediumAssets[] = {
+    { T5YNTH_COMFY_SA3 "/checkpoints/stable_audio_3_medium.safetensors",
+      "model.safetensors", 9222116660 },
+    { T5YNTH_COMFY_SA3 "/text_encoders/t5gemma_b_b_ul2.safetensors",
+      "t5gemma-b-b-ul2/model.safetensors", 1187264003 },
+};
 #undef T5YNTH_COMFY_SA3
 
 // Comfy-Org ungated Stable Audio Open 1.0 weights ("_repackaged"), PINNED to a
@@ -321,6 +333,27 @@ static const KnownModel kKnownModels[] = {
       "Comfy-Org repository. By downloading you accept BOTH licenses and take\n"
       "responsibility for compliance. Copies are written into the model folder.", true, true,
       nullptr, 0, "t5gemma-b-b-ul2", kSa3SfxAssets, 2 },
+    // SA3 Medium — the larger (2.3B-param, ~9.2 GB) SA3 checkpoint. ONE model
+    // renders both Music and SFX; the domain is chosen per request via track_type
+    // (set by the engine slot), not by the dir name. Installs login-free from the
+    // ungated Comfy-Org mirror (kSa3MediumAssets); the gated hfRepo is kept ONLY
+    // so the Auto-Scan fallback can verify a hand-downloaded Stability copy against
+    // the live HuggingFace manifest. Same t5gemma-b-b-ul2 encoder as the small
+    // tiers; needs ~16 GB unified memory / VRAM (small needs ~8).
+    { "stable-audio-3-medium", "Stable Audio 3 Medium", "stabilityai/stable-audio-3-medium", nullptr,
+      "https://stability.ai/community-license-agreement",
+      "Stable Audio 3 Medium bundles two separately licensed components:\n\n"
+      "1) The audio model -- Stability AI Community License:\n"
+      "   - Non-commercial use: free\n"
+      "   - Commercial use under $1M annual revenue: free (register at stability.ai)\n"
+      "   - Commercial use over $1M: enterprise license required\n\n"
+      "2) The t5gemma text encoder -- Google Gemma Terms of Use and the Gemma\n"
+      "   Prohibited Use Policy (ai.google.dev/gemma/terms).\n\n"
+      "This is the larger SA3 checkpoint (~9.2 GB download, ~16 GB memory to run).\n"
+      "T5ynth does not provide the weights; they download from the ungated\n"
+      "Comfy-Org repository. By downloading you accept BOTH licenses and take\n"
+      "responsibility for compliance. Copies are written into the model folder.", true, true,
+      nullptr, 0, "t5gemma-b-b-ul2", kSa3MediumAssets, 2 },
     // Optional prompt-translation LLM (NOT a generation engine). When enabled in
     // PromptPanel, it translates an international prompt to English in the
     // background before the audio model conditions on it (Stable Audio models are
@@ -2330,6 +2363,7 @@ UCDCAE AI Lab.
 
 static bool finalizeSa3Reassembly(const juce::File& targetDir,
                                   const juce::String& encoderSub,
+                                  const juce::String& modelId,
                                   juce::String& err)
 {
     // License documentation for the two third-party components (written first; it
@@ -2394,12 +2428,17 @@ static bool finalizeSa3Reassembly(const juce::File& targetDir,
     if (! extractSpieceModel(encWeights, encDir.getChildFile("tokenizer.model"), err))
         return false;
 
-    // model_config.json LAST — the Stability SA3 config (shared by music+sfx; the
-    // backend derives the TrackType modality from the dir NAME, not this file).
-    // Its presence is what flips the dir to "Installed", so it goes last.
+    // model_config.json LAST — its presence is what flips the dir to "Installed",
+    // so it goes after every encoder config + the tokenizer carve. The MEDIUM tier
+    // has its own config (depth-24 differential DiT + SAME-L sliding-window AE);
+    // small music+sfx share the other one (they differ only by checkpoint weights
+    // and the request-side track_type, not by architecture).
+    const bool isMedium = (modelId == "stable-audio-3-medium");
     return writeBundledFile(targetDir.getChildFile("model_config.json"),
-                            BinaryData::sa3_model_config_json,
-                            BinaryData::sa3_model_config_jsonSize, err);
+                            isMedium ? BinaryData::sa3_medium_model_config_json
+                                     : BinaryData::sa3_model_config_json,
+                            isMedium ? BinaryData::sa3_medium_model_config_jsonSize
+                                     : BinaryData::sa3_model_config_jsonSize, err);
 }
 
 // ── Stable Audio Open 1.0 reassembly finalize ──────────────────────────────────
@@ -2814,7 +2853,7 @@ void SettingsPage::downloadReassemblyInThread()
         {
             juce::String ferr;
             const bool finalizeOk =
-                  needsMetadata                            ? finalizeSa3Reassembly(targetDir, encoderSub, ferr)
+                  needsMetadata                            ? finalizeSa3Reassembly(targetDir, encoderSub, modelId, ferr)
                 : (modelId == "stable-audio-open-1.0")     ? finalizeSaoOpen10Reassembly(targetDir, ferr)
                 : (modelId == "stable-audio-open-small")   ? finalizeSaoSmallReassembly(targetDir, ferr)
                 :                                            true;
