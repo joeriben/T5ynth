@@ -378,6 +378,7 @@ private:
     // repromptCouplingA (the ComboBoxAttachment) is declared AFTER its hidden combo
     // so it tears down first (reverse-destruction order).
     juce::Label repromptLabel;
+    juce::Label genParamsHeader;   // advanced-view "GENERATION" top-header over the param grid
     RepromptStanceBar repromptStanceBar;
     static constexpr int kNumCouplingBtns = RepromptCoupling::kCount;
     juce::TextButton repromptCouplingBtns[kNumCouplingBtns];

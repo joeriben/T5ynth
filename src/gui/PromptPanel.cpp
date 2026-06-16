@@ -30,7 +30,9 @@ constexpr float kPromptReprompt    = 2.6f;   // Re-Prompt row (stance glyph bar 
 // (abBlock = 2·multiInput + 2·innerGap + modeBar = 7.4 + 1.2 + 1.3 = 9.9 units.)
 // The Re-Prompt row + its top gap (innerGap + kPromptReprompt = 0.6 + 2.6 = 3.2)
 // sits between the A↔B block and the divider and is in BOTH budgets below.
-constexpr float kPromptContentUnits = 25.12f;
+// Advanced replaces the easy view's divider (groupGap) with a "GENERATION"
+// top-header (compactRow + gap) above the param grid: -1.0 +1.15 +0.28 = +0.43.
+constexpr float kPromptContentUnits = 25.55f;
 // Easy budget keeps the model selector row but drops the advanced param rows.
 constexpr float kPromptEasyContentUnits = 20.46f;
 constexpr int kBaseSeed = 123456789;
@@ -515,11 +517,21 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     // binds itself to repromptStance; the vertical switchbox mirrors the model
     // switchbox pattern (hidden combo + radio buttons) and binds to repromptCoupling.
     // Re-Prompt is engine-agnostic (NOT SA3-gated): the word loop runs on any model.
-    repromptLabel.setText("Re-Prompt", juce::dontSendNotification);
-    repromptLabel.setColour(juce::Label::textColourId, kDim);
-    repromptLabel.setJustificationType(juce::Justification::centredLeft);
+    // Left-header: the horizontal-flow analogue of the ModuleBox top-header. The
+    // Re-Prompt label becomes a full-height accent strip on the left of its row
+    // (dark ink on accent), with the stance bar + coupling flowing to its right.
+    // Same header language as the GENERATION top-header below and the ModuleBox
+    // titles — top-header spans full width at top, left-header spans full height
+    // at left.
+    paintSectionHeader(repromptLabel, "RE-PROMPT", kOscCol);
     repromptLabel.setInterceptsMouseClicks(false, false);
     addAndMakeVisible(repromptLabel);
+
+    // Advanced-view "GENERATION" top-header framing the diffusion param grid
+    // (Magnitude/Chaos/Steps/CFG/Duration/Variation) — replaces the old divider.
+    paintSectionHeader(genParamsHeader, "GENERATION", kOscCol);
+    genParamsHeader.setInterceptsMouseClicks(false, false);
+    addAndMakeVisible(genParamsHeader);
 
     if (auto* stanceParam = apvts.getParameter(PID::repromptStance))
         repromptStanceBar.attachTo(*stanceParam, RepromptStance::kCount);
@@ -611,7 +623,7 @@ int PromptPanel::getPreferredHeightForWidth(int width) const
 
     return (compactRowH + 2) + modelGap                 // model selector row
          + abBlockH + innerGap + repromptRowH           // A↔B block + Re-Prompt row
-         + groupGap                                     // divider
+         + compactRowH + gap                            // GENERATION top-header (replaces divider)
          + (compactRowH + compactCtrlH + gap) * 2       // Mag/Noise + Steps/CFG
          + compactRowH + seedCtrlH + gap                // Duration / Seed
          + gap + compactRowH;                           // info label
@@ -906,6 +918,7 @@ void PromptPanel::resized()
     // view shows them as ModuleBox header strips instead.
     durLabel.setVisible(!easy);
     seedLabel.setVisible(!easy);
+    genParamsHeader.setVisible(!easy);   // GENERATION top-header: advanced only
     durModuleBox.setVisible(easy);
     varModuleBox.setVisible(easy);
     seedModeSwitchBounds = {};
@@ -1011,8 +1024,11 @@ void PromptPanel::resized()
     {
         auto rr = area.removeFromTop(repromptRowH);
 
-        setUiFont(repromptLabel, TextRole::Caption, f);   // same type-scale slot as the Duration caption
-        const int rpLabelW = juce::jlimit(46, 86, juce::roundToInt(rr.getWidth() * 0.26f));
+        // Full-height left-header chip, sized to its text (not a width fraction).
+        setUiFont(repromptLabel, TextRole::ModuleTitle, f, true);
+        const int rpLabelW = juce::jlimit(56, juce::jmax(56, juce::jmin(140, rr.getWidth() / 2)),
+            uiFont(TextRole::ModuleTitle, f, true).getStringWidth(" RE-PROMPT")
+                + juce::roundToInt(f * 0.9f));   // jmax guards lo<=hi on very narrow panels
         repromptLabel.setBounds(rr.removeFromLeft(juce::jmin(rpLabelW, rr.getWidth())));
         rr.removeFromLeft(juce::jmin(gap, rr.getWidth()));
 
@@ -1038,11 +1054,26 @@ void PromptPanel::resized()
         }
     }
 
-    // Divider between the Re-Prompt row and the generation params: a clear visual
-    // break (the params used to butt straight up against the input box).
-    area.removeFromTop(groupGap / 2);
-    paramsDividerY = area.getY();
-    area.removeFromTop(groupGap - groupGap / 2);
+    // Separator between the Re-Prompt row and the generation params.
+    if (easy)
+    {
+        // Easy view: a thin divider line — the Duration/Variation ModuleBoxes
+        // below carry their own top-headers, so no umbrella header is needed.
+        area.removeFromTop(groupGap / 2);
+        paramsDividerY = area.getY();
+        area.removeFromTop(groupGap - groupGap / 2);
+    }
+    else
+    {
+        // Advanced view: a "GENERATION" top-header frames the flat param grid.
+        // The accent strip IS the visual break, so the divider line is dropped
+        // (sentinel -1 → paint() skips it). Budget swaps groupGap for
+        // compactRowH + gap (see getPreferredHeightForWidth / kPromptContentUnits).
+        paramsDividerY = -1;
+        setUiFont(genParamsHeader, TextRole::ModuleTitle, f, true);
+        genParamsHeader.setBounds(area.removeFromTop(compactRowH));
+        area.removeFromTop(gap);
+    }
 
     // --- Compact params: 2 columns ---
     int colGap = juce::roundToInt(w * 0.03f);
