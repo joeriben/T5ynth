@@ -575,13 +575,13 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     {
         auto& bb = repromptCouplingBtns[i];
         bb.setButtonText(couplingUi[i]);
-        // Filled colour block (balances the RE-PROMPT left-header chip): the
-        // whole 3-way reads as one coloured unit instead of one orange button
-        // floating in the dark. OFF = a darker drift orange, ON = the full drift
-        // orange — both white text, so the brightness step is the selection cue.
-        // White-on-#993600 = 7.3:1 (AA); selected ~2.4x brighter; same hue, so
-        // the off/on gap is luminance-only (CVD-safe across all dichromacy types).
-        bb.setColour(juce::TextButton::buttonColourId, kDriftCol.darker(0.5f));
+        // The block sits in the RE-PROMPT box's own colour: unselected = the same
+        // periwinkle as the left-header chip (kOscCol @0.7), so the whole 3-way
+        // reads as part of RE-PROMPT; ONLY the selected coupling pops in the drift
+        // orange. White text on both. White-on-periwinkle = 6.1:1 (AA), white-on-
+        // orange = 3.8:1; the selected differs in BOTH hue and luminance (1.85x),
+        // and periwinkle<->orange is the canonical CVD-safe pairing.
+        bb.setColour(juce::TextButton::buttonColourId, kOscCol.withAlpha(0.7f));
         bb.setColour(juce::TextButton::buttonOnColourId, kDriftCol);
         bb.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
         bb.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
