@@ -2391,22 +2391,27 @@ void PromptPanel::pollDriftRegen()
     // its callAsync tail; the next tick then proceeds with the rewritten prompts.
     if (generating || translatingPrompts_ || loopStepInFlight_) return;
 
-    // An active Re-Prompt stance is itself a self-running loop driver (faithful to the
-    // clap_llm_loop reference, where running the loop IS the generation): it engages
-    // auto-regen even in Manual mode. Without this, selecting a stance does nothing
-    // until the user separately enables Auto-Regen — exactly the "stance set but
-    // autogenerate never triggers Re-Prompt" report. The repromptLoop standing trigger
-    // below carries each step; setting the stance back to Off stops it and restores the
-    // originals (timerCallback). Read once here; reused for the trigger + cache bypass.
+    // stanceActive: an active Re-Prompt stance. Read once here; reused below for the
+    // repromptLoop standing trigger and the idle-cache bypass (a running stance keeps
+    // rendering fresh audio to listen to). It does NOT override the regen mode.
     const bool stanceActive = static_cast<int>(processorRef.getValueTreeState()
         .getRawParameterValue(PID::repromptStance)->load()) != RepromptStance::Off;
 
     int regenMode = processorRef.driftRegenMode.load(std::memory_order_relaxed);
-    if (regenMode == 0 && !stanceActive)
+    // Manual (regenMode 0) is authoritative: NO auto-regen, even with a stance engaged.
+    // The Re-Prompt loop still advances in Manual, one step per manual Generate press:
+    // triggerGeneration's gen-complete callback runs runSemanticLoopStep, which writes
+    // the next prompt; the next press renders it. ASAP / N-bars drive the loop
+    // automatically via the repromptLoop standing trigger below. (This early-out was
+    // previously gated on !stanceActive, so a stance force-ran the loop in Manual --
+    // making Manual ignore its own setting, reported as "even in Manual it
+    // autogenerates". The regen switchbox is the single cadence control for the stance
+    // loop too.)
+    if (regenMode == 0)
     {
-        convergenceReduction_ = 0.0f;   // loop not running → reset the controller
+        convergenceReduction_ = 0.0f;   // loop not running -> reset the controller
         antiConvergenceActive_ = false; // and its status flag
-        return;                         // Manual — no auto-regen (and no stance loop)
+        return;                         // Manual: no auto-regen; stance loop steps per Generate press
     }
 
     // Failure throttle: when the previous drift-driven regen failed (e.g.
