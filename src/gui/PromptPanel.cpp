@@ -931,11 +931,17 @@ void PromptPanel::resized()
         block.removeFromRight(gap);
 
         // Impulse text is the primary input, so the editors carry a slightly
-        // larger font than the surrounding chrome.
+        // larger font than the surrounding chrome. applyFontToAllText (NOT setFont):
+        // setFont only sets the font for text typed AFTER the call, so any prompt
+        // already in the editor — prefill / preset / loop-apply set before this
+        // resized() ran — keeps the default ~14px while newly typed text jumps to
+        // editorFont (the erratic two-size look). applyFontToAllText re-fonts the
+        // existing text too and sets the current font for new text, so the size is
+        // uniform regardless of setText/resized order. Mirrors syncSeedEditorFont.
         const float editorFont = f * 1.1f;
 
         // Left column, top: Impulse A editor (purple).
-        promptAEditor.setFont(juce::FontOptions(editorFont));
+        promptAEditor.applyFontToAllText(juce::FontOptions(editorFont));
         promptAEditor.setBounds(block.removeFromTop(multiInputH));
         block.removeFromTop(innerGap);
 
@@ -965,8 +971,8 @@ void PromptPanel::resized()
         }
         block.removeFromTop(innerGap);
 
-        // Left column, bottom: Impulse B editor (yellow).
-        promptBEditor.setFont(juce::FontOptions(editorFont));
+        // Left column, bottom: Impulse B editor (yellow). applyFontToAllText, see A above.
+        promptBEditor.applyFontToAllText(juce::FontOptions(editorFont));
         promptBEditor.setBounds(block.removeFromTop(multiInputH));
     }
 
