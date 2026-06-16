@@ -337,6 +337,16 @@ private:
     // and evolves, instead of detaching every tick and disabling the loop. Reset
     // when the loop is not running. Message-thread only (pollDriftRegen).
     bool prevLoopParamsChanged_ = false;
+    // Re-Prompt deactivation re-render: turning a stance Off restores the human
+    // ORIGINAL prompt text, but the last render's audio (and, with Resynth on, the
+    // init_audio carry) would otherwise keep the last machine B audible. On the
+    // restore edge we (a) force the next render to detach init_audio so it renders
+    // CLEAN from the restored prompt (forceCleanRenderOnce_, consumed in
+    // buildInferenceRequest), and (b) actually fire that render once the pipe is
+    // free (pendingOriginalReRender_, retried each tick in timerCallback). Both are
+    // cleared together when the render's request is built. Message-thread only.
+    bool forceCleanRenderOnce_ = false;
+    bool pendingOriginalReRender_ = false;
     // Failure throttle: when a drift-driven auto-regen fails, gate further
     // attempts for a couple of seconds so a persistently broken backend
     // (e.g. a model the bundled pipeline can't load) doesn't get hammered

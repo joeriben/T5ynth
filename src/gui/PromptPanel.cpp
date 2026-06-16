@@ -687,12 +687,38 @@ void PromptPanel::timerCallback()
             processorRef.clearLoopSeedPrompts();   // editors now hold the seed again
             loopOriginalsValid_ = false;
             loopEngaged_ = false;   // re-arm the original-capture edge for the next run
+            // Make the SOUND follow the reverted text: re-render the restored original
+            // once, clean (init_audio detached) so it isn't anchored to the last B.
+            // Deferred — fired by the block at the end of timerCallback once the pipe
+            // is free (a loop step / generation is usually still in flight right here).
+            forceCleanRenderOnce_   = true;
+            pendingOriginalReRender_ = true;
         }
         prevStanceForRestore_ = curStance;
     }
 
     // Auto-regen polling
     pollDriftRegen();
+
+    // Reprompt-off deferred clean re-render: when the stance is switched to Off the
+    // restore block reverts the prompts AND sets pendingOriginalReRender_, but a loop
+    // step / generation is almost always still in flight right at that moment. Fire it
+    // here once the pipe is free. forceCleanRenderOnce_ detaches init_audio for this one
+    // render so the SOUND follows the reverted text instead of staying anchored to the
+    // last mutated B; buildInferenceRequest consumes both flags.
+    //
+    // The guard MUST mirror triggerGeneration's own real-generation preconditions
+    // (cache-not-full + backend-ready): those paths return BEFORE buildInferenceRequest,
+    // which is the only place the flags are consumed — calling into them would leave
+    // pendingOriginalReRender_ stuck true and re-fire every tick (cache replay / status
+    // spam at 10 Hz, and the intended clean render never happening). When a real
+    // generation cannot proceed the debt simply persists (a cheap bool check, no spin)
+    // and discharges the moment it can — e.g. the backend finishes connecting.
+    if (pendingOriginalReRender_
+        && !generating && !translatingPrompts_ && !loopStepInFlight_
+        && processorRef.isInferenceReady()
+        && !processorRef.isInferenceCacheFull())
+        triggerGeneration();
 }
 
 void PromptPanel::paint(juce::Graphics& g)
@@ -1934,9 +1960,21 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     // Drift can modulate resynth: when it does, pollDriftRegen passes the effective
     // (base+offset) value as resynthOverride so the loop denoises from the drifted
     // amount rather than the static slider. NaN override → plain slider read.
-    const float resynthAmount = juce::jlimit(0.0f, 1.0f,
+    float resynthAmount = juce::jlimit(0.0f, 1.0f,
         std::isnan(resynthOverride) ? apvts.getRawParameterValue(PID::resynthAmount)->load()
                                     : resynthOverride);
+    // One-shot clean render after a Re-Prompt deactivation: detach init_audio so the
+    // restored ORIGINAL renders fresh from the prompt instead of staying anchored to
+    // the last machine output (which would otherwise keep the last B audible despite
+    // the reverted text). Consuming it here also clears the pending-trigger flag, so
+    // whichever path renders first (manual / auto-regen / the deferred trigger) does it
+    // exactly once.
+    if (forceCleanRenderOnce_)
+    {
+        resynthAmount = 0.0f;
+        forceCleanRenderOnce_ = false;
+        pendingOriginalReRender_ = false;
+    }
     if (resynthAmount > 0.01f && isSA3Model(req.model))
     {
         const auto& rawBuf = processorRef.getGeneratedAudioRaw();
