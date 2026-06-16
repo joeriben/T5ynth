@@ -1145,14 +1145,6 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     paintSectionHeader(regenHeader, "REGENERATE", kDriftCol);
     addAndMakeVisible(regenHeader);
 
-    // "repeat every" caption above the easy-view vertical switchbox. Visibility
-    // is owned by layoutGenerateEasy (shown only when the column is tall enough
-    // for the switchbox; the compact dropdown is used otherwise).
-    regenIterateLabel.setText("repeat every", juce::dontSendNotification);
-    regenIterateLabel.setColour(juce::Label::textColourId, kDim);
-    regenIterateLabel.setJustificationType(juce::Justification::centredLeft);
-    addChildComponent(regenIterateLabel);
-
     juce::StringArray regenItems;
     for (const auto& e : DriftRegen::kEntries) regenItems.add(juce::String(juce::CharPointer_UTF8(e.label)));
     regenHidden.addItemList(regenItems, 1);
@@ -1553,7 +1545,6 @@ void SynthPanel::updateVisibility()
     setDriftControlsVisible(drift3, activeDriftTab == 2, modEasyMode);
     driftHeader.setVisible(!modEasyMode);
     regenHeader.setVisible(true);
-    regenIterateLabel.setVisible(false);   // layoutGenerateEasy shows it for the switchbox
     if (modEasyMode)
     {
         // Default to the compact dropdown; layoutGenerateEasy upgrades to the
@@ -2293,10 +2284,10 @@ void SynthPanel::layoutGenerateEasy(juce::Rectangle<int> area, float f, int rowH
     const float chipFontSize = juce::jmax(kUiControlFontMin,
                                           juce::jmin(13.0f, static_cast<float>(rowH) * 0.58f));
 
-    // Header chip "GENERATE" — drift-orange (subordinated to drift).
+    // Header chip "REGENERATE" — drift-orange (subordinated to drift).
     auto headerRow = area.removeFromTop(juce::jmin(rowH, area.getHeight()));
-    const int headerW = juce::jmax(72, measureTextWidth("GENERATE", chipFontSize) + 18);
-    regenHeader.setText(" GENERATE", juce::dontSendNotification);
+    const int headerW = juce::jmax(72, measureTextWidth("REGENERATE", chipFontSize) + 18);
+    regenHeader.setText(" REGENERATE", juce::dontSendNotification);
     regenHeader.setFont(juce::FontOptions(chipFontSize, juce::Font::bold));
     regenHeader.setJustificationType(juce::Justification::centred);
     regenHeader.setColour(juce::Label::textColourId, juce::Colour(0xff0e1018));
@@ -2304,23 +2295,18 @@ void SynthPanel::layoutGenerateEasy(juce::Rectangle<int> area, float f, int rowH
     regenHeader.setBounds(headerRow.removeFromLeft(juce::jmin(headerW, headerRow.getWidth())));
     area.removeFromTop(rowGap);
 
-    // "repeat every" caption + vertical 7-way switchbox replaces the dropdown
-    // when the column is tall enough; otherwise fall back to the compact dropdown.
+    // Vertical 7-way switchbox replaces the dropdown when the column is tall
+    // enough; otherwise fall back to the compact dropdown. The "REGENERATE"
+    // chip above already names the control, so there is no caption row.
     const int segGap   = 1;
-    const int labelH   = juce::jmax(12, juce::roundToInt(rowH * 0.72f));
     const int btnH     = juce::jmax(11, juce::roundToInt(rowH * 0.66f));
     const int switchH  = btnH * kNumRegenBtns + segGap * (kNumRegenBtns - 1);
     const int xfadeMin = juce::roundToInt(rowH * 2.2f);   // keep the slider usable
-    const bool useSwitch = area.getHeight() >= labelH + rowGap + switchH + rowGap + xfadeMin;
+    const bool useSwitch = area.getHeight() >= switchH + rowGap + xfadeMin;
 
     if (useSwitch)
     {
         regenHidden.setVisible(false);
-        regenIterateLabel.setVisible(true);
-        regenIterateLabel.setFont(juce::FontOptions(juce::jmax(kUiControlFontMin,
-                                  juce::jmin(12.0f, static_cast<float>(labelH) * 0.80f))));
-        regenIterateLabel.setBounds(area.removeFromTop(labelH));
-        area.removeFromTop(juce::jmax(2, rowGap / 2));
 
         auto switchCol = area.removeFromTop(juce::jmin(switchH, area.getHeight()));
         const int segH = juce::jmax(1,
@@ -2342,7 +2328,6 @@ void SynthPanel::layoutGenerateEasy(juce::Rectangle<int> area, float f, int rowH
     }
     else
     {
-        regenIterateLabel.setVisible(false);
         for (int i = 0; i < kNumRegenBtns; ++i)
             regenBtns[i].setVisible(false);
         regenHidden.setVisible(true);
