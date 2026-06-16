@@ -398,10 +398,14 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     // Model selector — fixed 4 slots, always visible (disabled = gray until model found).
     // Order: SA3 first (newest, default), then SA1 family, then AudioLDM2.
     {
-        const char* slotLabels[kNumModelSlots] = { "SA3 Music", "SA3 SFX", "SA1 Open", "SA1 Small", "AudioLDM2" };
+        // Compact one-token labels (no space between family and variant) to save
+        // horizontal room. "SA3mus" is clipped to 6 chars (matching "SA3sfx") so the
+        // tier s/m badge has clean right-margin room on both SA3 slots.
+        const char* slotLabels[kNumModelSlots] = { "SA3mus", "SA3sfx", "SA1open", "SA1small", "AudioLDM2" };
         for (int i = 0; i < kNumModelSlots; ++i)
         {
             modelBtns[i].setButtonText(slotLabels[i]);
+            modelBtns[i].setLookAndFeel(&modelSwitchLnF);  // draws the s/m tier cell (tierLetter)
             modelBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
             modelBtns[i].setColour(juce::TextButton::buttonOnColourId, kOscCol);
             modelBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
@@ -419,6 +423,18 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
                 if (!modelBtns[i].getToggleState()) return;
                 auto model = modelSlotIds[i];
                 if (model.isEmpty()) return;
+
+                // Second click on the already-active SA3 slot toggles the per-machine
+                // tier (small <-> medium) rather than re-selecting. The tier has no
+                // dedicated widget — just the "s"/"m" cell ModelSwitchLnF draws on these
+                // two slots (the "tierLetter" property). Only when both tiers are
+                // installed (otherwise the tier is forced and there is nothing to toggle).
+                if (i == activeModelSlot_ && (i == 0 || i == 1) && sa3TierChoiceAvailable_)
+                {
+                    setSa3Tier(sa3Tier_ == "medium" ? "small" : "medium", true);
+                    return;
+                }
+                activeModelSlot_ = i;
 
                 // Selecting a model has two distinct kinds of consequence, and
                 // they must NOT share a guard. The JUCE radio toggle that picked
@@ -489,6 +505,9 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
             addAndMakeVisible(modelBtns[i]);
         }
     }
+
+    // (SA3 tier has no dedicated widget — it's the s/m badge on the SA3 slots,
+    // toggled by a second click on the active SA3 slot. See modelBtns onClick.)
 
     // Generate button is now in MainPanel — keep internal for triggerGeneration()
     generateButton.setVisible(false);
@@ -879,6 +898,8 @@ void PromptPanel::paintOverChildren(juce::Graphics& g)
                        juce::Justification::centred, false);
         }
     }
+    // (The SA3 s/m tier cell — divider + letter — is drawn by ModelSwitchLnF in the
+    // button itself via the "tierLetter" property, not overpainted here.)
 }
 
 void PromptPanel::resized()
@@ -1309,7 +1330,12 @@ void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String
             // instead of silently leaving the previously active model selected.
             const int s = slotForModel(model);
             if (s >= 0)
+            {
                 modelBtns[s].setToggleState(true, juce::dontSendNotification);
+                activeModelSlot_ = s;   // keep the SA3 re-click baseline in sync, else
+                                        // the next click on this slot would mis-fire as
+                                        // a tier toggle instead of a fresh select
+            }
             refreshDitBlocksForCurrentModel();
         }
         else
@@ -1421,6 +1447,14 @@ void PromptPanel::populateModelSelector()
 
     for (auto& m : models)
     {
+        // Medium is NOT slotted generically — it shares slot 0 with small-music
+        // (patternSlotFor routes both there, having no "sfx" token), so letting it
+        // through here would make slot 0 depend on backend iteration order. The tier
+        // block below is the SOLE authority for placing medium; skipping it here lets
+        // small deterministically own slots 0/1 whenever the tier resolves to small.
+        if (m.containsIgnoreCase("stable-audio-3") && m.containsIgnoreCase("medium"))
+            continue;
+
         const int slot = patternSlotFor(m);
         if (slot >= 0 && slot < kNumModelSlots)
         {
@@ -1430,24 +1464,46 @@ void PromptPanel::populateModelSelector()
         }
     }
 
-    // SA3 tier resolution. A "medium" SA3 checkpoint is a single model that renders
-    // BOTH domains (the request's track_type, not the dir name, picks Music vs SFX),
-    // so when one is installed it IS the SA3 tier on this machine and backs BOTH the
-    // Music (0) and SFX (1) slots. This also makes the small+medium-both-installed
-    // case deterministic — medium supersedes small's two checkpoints in slots 0/1 —
-    // instead of letting iteration order silently shadow one. patternSlotFor already
-    // routed medium into slot 0 above (it has no "sfx" token); here it also claims 1.
+    // SA3 tier resolution (per-machine, default "small" — installing medium no longer
+    // silently takes over; the user opts in via the visible tier switch). Medium is
+    // ONE checkpoint that renders BOTH domains (track_type, not the dir name, picks
+    // Music vs SFX), so when it owns the SA3 tier it fills BOTH the Music (0) and SFX
+    // (1) slots; small ships two checkpoints (placed in 0/1 by the generic loop above,
+    // which deliberately skipped medium). Decide which tier owns the SA3 slots.
+    juce::String sa3MediumId;
+    bool sa3SmallInstalled = false;
     for (auto& m : models)
-        if (m.containsIgnoreCase("stable-audio-3") && m.containsIgnoreCase("medium"))
+    {
+        if (!m.containsIgnoreCase("stable-audio-3")) continue;
+        if (m.containsIgnoreCase("medium")) sa3MediumId = m;
+        else                                sa3SmallInstalled = true;   // small-music / small-sfx
+    }
+    // A real choice exists only when BOTH tiers are installed; otherwise the tier is
+    // forced and the switch stays hidden. Use medium when the user picked it OR when
+    // it is the only SA3 installed (so a medium-only machine still backs the SA3 slots).
+    sa3TierChoiceAvailable_ = sa3MediumId.isNotEmpty() && sa3SmallInstalled;
+    // Hand the active tier letter to the model-switch LnF, which draws it as a divider
+    // + s/m cell on the two SA3 slots. Empty string on every other state means "plain
+    // slot" — the LnF then falls back to a normal centred label.
+    for (int s : { 0, 1 })
+    {
+        modelBtns[s].getProperties().set("tierLetter",
+            sa3TierChoiceAvailable_ ? (sa3Tier_ == "medium" ? "m" : "s") : juce::String());
+        modelBtns[s].repaint();
+    }
+    const bool useMedium = sa3MediumId.isNotEmpty()
+                           && (sa3Tier_ == "medium" || !sa3SmallInstalled);
+    if (useMedium)
+        for (int s : { 0, 1 })
         {
-            for (int s : { 0, 1 })
-            {
-                modelSlotIds[s] = m;
-                modelBtns[s].setEnabled(true);
-                modelBtns[s].setAlpha(1.0f);
-            }
-            break;
+            modelSlotIds[s] = sa3MediumId;
+            modelBtns[s].setEnabled(true);
+            modelBtns[s].setAlpha(1.0f);
         }
+    // (The effective tier is surfaced by the s/m cell ModelSwitchLnF draws on the SA3
+    // slots from the "tierLetter" property set just above. When only one tier is
+    // installed the tier is forced, tierLetter is empty, the cell is hidden, and there
+    // is nothing to toggle.)
 
     // Select model: pending preset model > leftmost installed slot in display
     // order. SA3 Music sits at slot 0, so "leftmost installed" naturally
@@ -1465,11 +1521,23 @@ void PromptPanel::populateModelSelector()
             if (modelSlotIds[i].isNotEmpty()) { selectIdx = i; break; }
     }
     if (selectIdx >= 0)
+    {
         modelBtns[selectIdx].setToggleState(true, juce::dontSendNotification);
+        activeModelSlot_ = selectIdx;   // baseline for SA3 re-click tier toggle
+    }
 
     modelsPopulated = true;
     syncInjectionModeAvailability();
-    refreshDitBlocksForCurrentModel();
+
+    // refreshDitBlocksForCurrentModel() calls getModelMetadata(), which contends on
+    // the PipeInference mutex that generate() holds for the entire blocking IPC round-
+    // trip — calling it on the message thread mid-render freezes the GUI. Every other
+    // caller of populateModelSelector runs at idle (generating == false), but a tier
+    // flip (setSa3Tier) can land here while a generation / drift auto-regen is in
+    // flight. Mirror the model-switch onClick's deferral: skip the DiT re-scope while
+    // generating; it re-applies on the next idle model touch.
+    if (!generating)
+        refreshDitBlocksForCurrentModel();
 
     // Replay deferred preset splits now that ditBlocks_ reflects the real
     // model. loadPresetData stashed these when the backend wasn't ready yet
@@ -1490,6 +1558,7 @@ void PromptPanel::populateModelSelector()
     }
 
     resized();
+    repaint();   // refresh the SA3 s/m tier badge for the new install/tier state
 }
 
 // juce::Slider works in double; the APVTS parameter range is float. Mirror the
@@ -1682,6 +1751,50 @@ juce::String PromptPanel::getSelectedModel() const
 {
     const int s = getSelectedSlot();
     return s >= 0 ? modelSlotIds[s] : juce::String();
+}
+
+// Per-machine SA3 tier (small | medium). Persisted by MainPanel in ui_settings.json,
+// NOT in presets/APVTS — it's a hardware-capability choice, not part of the sound.
+// Default "small" so installing the heavy medium checkpoint never silently takes
+// over; the user opts in by re-clicking the active SA3 slot (critical-aesthetic
+// mission: expose and let the user choose, don't substitute behind their back).
+void PromptPanel::setSa3Tier(const juce::String& tier, bool persist)
+{
+    const juce::String t = tier.equalsIgnoreCase("medium") ? "medium" : "small";
+    const bool changed = (t != sa3Tier_);
+    sa3Tier_ = t;
+
+    if (persist && changed && onSa3TierChanged)
+        onSa3TierChanged(sa3Tier_);
+
+    // Nothing to re-slot until the backend has reported its models (the startup push
+    // only records the tier so the first populateModelSelector honors it), and no
+    // work to do if the tier did not actually change.
+    if (!modelsPopulated || !changed)
+        return;
+
+    // Re-resolve which checkpoint backs the SA3 slots for the new tier. populateModel-
+    // Selector rebuilds modelSlotIds[], re-selects the leftmost slot, refreshes the
+    // s/m badge, and runs that slot's per-selection consequences.
+    const int prevSlot = getSelectedSlot();
+    populateModelSelector();
+
+    // Restore the user's slot if populate moved off it. SA3 Music/SFX share one
+    // checkpoint id under medium (only the toggle matters — track_type derives from
+    // the slot at request time), so no consequence re-run is needed for them; a
+    // non-SA3 slot has a different id and needs its per-selection UI re-asserted.
+    if (prevSlot > 0 && prevSlot < kNumModelSlots
+        && modelSlotIds[prevSlot].isNotEmpty()
+        && getSelectedSlot() != prevSlot)
+    {
+        modelBtns[prevSlot].setToggleState(true, juce::dontSendNotification);
+        activeModelSlot_ = prevSlot;             // keep re-click baseline on the user's slot
+        syncInjectionModeAvailability();        // re-eval injection + fire onModelChanged
+        applyDurationRangeForCurrentModel();     // duration ceiling (pure UI)
+        if (!generating)
+            refreshDitBlocksForCurrentModel();   // DiT depth (IPC mutex — defer while generating)
+    }
+    repaint();   // ensure the s/m badge reflects the new tier
 }
 
 bool PromptPanel::isAudioLDM2Model(const juce::String& model) const

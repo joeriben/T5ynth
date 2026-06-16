@@ -188,6 +188,8 @@ private:
     void setOscEasyMode(bool easy, bool persist);
     bool loadOscEasyModeSetting() const;
     void saveOscEasyModeSetting() const;
+    juce::String loadSa3TierSetting() const;
+    void saveSa3TierSetting(const juce::String& tier) const;
     bool hasOscHiddenActiveState() const;
     void updateOscModeToggleVisual();
     MainSnapshot captureMainSnapshot();

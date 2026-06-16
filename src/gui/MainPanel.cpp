@@ -16,6 +16,7 @@ constexpr int kComputerKeyboardMinOctaveOffset = -5;
 constexpr int kComputerKeyboardMaxOctaveOffset = 4;
 constexpr const char* kUiSettingsFileName = "ui_settings.json";
 constexpr const char* kOscEasyModeKey = "oscEasyMode";
+constexpr const char* kSa3TierKey = "sa3Tier";
 
 const char* const kMainSnapshotParamIds[] = {
     PID::genAlpha, PID::genMagnitude, PID::genNoise, PID::resynthAmount, PID::genDuration,
@@ -1051,6 +1052,9 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     };
     promptPanel.onModelChanged();  // set initial state (no-op until a model is selected)
 
+    // Persist the SA3 tier when the user flips the switch (machine-local, not preset).
+    promptPanel.onSa3TierChanged = [this](juce::String tier) { saveSa3TierSetting(tier); };
+
 
 
     // Status callback — drive Generate animation and status bar text.
@@ -1150,6 +1154,11 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     addChildComponent(dimResetBtn);
 
     setOscEasyMode(loadOscEasyModeSetting(), false);
+
+    // Restore the per-machine SA3 tier before the backend handshake. PromptPanel has
+    // no models yet, so this just records the choice; the first populateModelSelector
+    // (driven by onModelReady) honors it when it slots the SA3 checkpoints.
+    promptPanel.setSa3Tier(loadSa3TierSetting(), false);
 
     // First-launch empty-library hint: surface the situation immediately
     // rather than letting the user sit in front of an empty preset
@@ -1259,6 +1268,46 @@ void MainPanel::saveOscEasyModeSetting() const
         root = juce::DynamicObject::Ptr(new juce::DynamicObject());
 
     root->setProperty(kOscEasyModeKey, oscEasyMode);
+    file.replaceWithText(juce::JSON::toString(juce::var(root.get()), true));
+}
+
+// Per-machine SA3 tier (small | medium). Stored alongside oscEasyMode in
+// ui_settings.json — a hardware-capability choice, never part of a preset. Default
+// "small" so a medium install never silently supersedes the lighter checkpoint.
+juce::String MainPanel::loadSa3TierSetting() const
+{
+    auto file = getUiSettingsFile();
+    if (!file.existsAsFile())
+        return "small";
+
+    auto parsed = juce::JSON::parse(file.loadFileAsString());
+    if (parsed.getDynamicObject() != nullptr)
+    {
+        const juce::String t = parsed.getProperty(kSa3TierKey, "small").toString();
+        return t.equalsIgnoreCase("medium") ? "medium" : "small";
+    }
+
+    return "small";
+}
+
+void MainPanel::saveSa3TierSetting(const juce::String& tier) const
+{
+    auto file = getUiSettingsFile();
+    file.getParentDirectory().createDirectory();
+
+    juce::var parsed;
+    juce::DynamicObject::Ptr root;
+    if (file.existsAsFile())
+    {
+        parsed = juce::JSON::parse(file.loadFileAsString());
+        if (auto* obj = parsed.getDynamicObject())
+            root = obj;
+    }
+
+    if (root == nullptr)
+        root = juce::DynamicObject::Ptr(new juce::DynamicObject());
+
+    root->setProperty(kSa3TierKey, tier.equalsIgnoreCase("medium") ? "medium" : "small");
     file.replaceWithText(juce::JSON::toString(juce::var(root.get()), true));
 }
 

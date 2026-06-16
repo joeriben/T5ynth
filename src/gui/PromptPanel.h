@@ -9,8 +9,71 @@
 #include "../dsp/BlockParams.h"   // RepromptCoupling (Re-Prompt coupling enum)
 #include "GuiHelpers.h"  // FlippedVerticalSlider, AlphaSliderLnF, impulse colours
 #include "RepromptStanceBar.h"    // Re-Prompt stance "symbol slider"
+#include "T5ynthLookAndFeel.h"    // base LnF for the model-switch text override
 
 class T5ynthProcessor;
+
+/**
+ * LookAndFeel for the model-switch buttons: identical to T5ynthLookAndFeel for plain
+ * slots, but a slot carrying a non-empty "tierLetter" property (the two SA3 slots when
+ * both tiers are installed) is drawn as a centred group [label │ letter]: the label,
+ * a thin vertical divider hugging the label's right edge (no gap to its left), then the
+ * s/m tier letter. Owning the whole layout here — rather than overpainting a badge —
+ * lets the divider sit exactly against the measured label width while the group stays
+ * balanced in the button.
+ */
+class ModelSwitchLnF : public T5ynthLookAndFeel
+{
+public:
+    void drawButtonText(juce::Graphics& g, juce::TextButton& b, bool, bool) override
+    {
+        auto font = getTextButtonFont(b, b.getHeight());
+        g.setFont(font);
+
+        const auto ink = b.findColour(b.getToggleState() ? juce::TextButton::textColourOnId
+                                                         : juce::TextButton::textColourOffId)
+                             .withMultipliedAlpha(b.isEnabled() ? 1.0f : 0.5f);
+
+        const int yIndent = juce::jmin(4, b.proportionOfHeight(0.3f));
+        const int corner  = juce::jmin(b.getHeight(), b.getWidth()) / 2;
+        const int fontH   = juce::roundToInt(font.getHeight() * 0.6f);
+        const int left    = juce::jmin(fontH, 2 + corner / (b.isConnectedOnLeft()  ? 4 : 2));
+        const int right   = juce::jmin(fontH, 2 + corner / (b.isConnectedOnRight() ? 4 : 2));
+        const int textH   = b.getHeight() - yIndent * 2;
+
+        const juce::String tier = b.getProperties().getWithDefault("tierLetter", juce::String()).toString();
+
+        // Plain slot: stock centred label.
+        if (tier.isEmpty())
+        {
+            g.setColour(ink);
+            const int textW = b.getWidth() - left - right;
+            if (textW > 0)
+                g.drawFittedText(b.getButtonText(), left, yIndent, textW, textH,
+                                 juce::Justification::centred, 1);
+            return;
+        }
+
+        // SA3 tier slot: centre [label │ letter] as one group. The divider hugs the
+        // label's measured right edge (no space to its left); the letter follows it.
+        const int labelW  = font.getStringWidth(b.getButtonText());
+        const int letterW = font.getStringWidth(tier);
+        const int gapR    = juce::jmax(3, b.getHeight() / 5);     // divider -> letter
+        const int groupW  = labelW + 1 + gapR + letterW;          // +1 = divider stroke
+        const int gx      = juce::jmax(left, (b.getWidth() - groupW) / 2);
+        const int dx      = gx + labelW;                          // divider, hard against the label
+        const int vInset  = juce::roundToInt(static_cast<float>(b.getHeight()) * 0.26f);
+
+        g.setColour(ink);
+        g.drawText(b.getButtonText(), gx, yIndent, labelW, textH, juce::Justification::centredLeft, false);
+
+        g.setColour(ink.withMultipliedAlpha(0.5f));
+        g.drawVerticalLine(dx, static_cast<float>(vInset), static_cast<float>(b.getHeight() - vInset));
+
+        g.setColour(ink);
+        g.drawText(tier, dx + 1 + gapR, yIndent, letterW, textH, juce::Justification::centredLeft, false);
+    }
+};
 
 /**
  * GENERATION column: prompts, embedding controls, compact params, generate.
@@ -76,10 +139,19 @@ public:
      *  for SA3, whose semantic axes are deactivated pending recalculation. */
     std::function<void()> onModelChanged;
 
+    /** Fired when the user toggles the SA3 tier (small/medium) by re-clicking the
+     *  active SA3 slot. MainPanel persists it to ui_settings.json (machine-local). */
+    std::function<void(juce::String)> onSa3TierChanged;
+
     /** Paint ghost overlay for alpha slider (drift modulation indicator). */
     void paintOverChildren(juce::Graphics& g) override;
 
     bool isGenerating() const { return generating; }
+
+    /** Set the per-machine SA3 tier ("small"/"medium"). persist=true writes it back
+     *  through onSa3TierChanged. Re-resolves which checkpoint backs the SA3 slots. */
+    void setSa3Tier(const juce::String& tier, bool persist);
+    juce::String getSa3Tier() const { return sa3Tier_; }
 
 private:
     void timerCallback() override;
@@ -171,9 +243,24 @@ private:
     // enough to the synth's behavior that hiding it in easy mode left the
     // user without a way to switch engines on the fly.
     static constexpr int kNumModelSlots = 5;
+    // Declared BEFORE modelBtns so it outlives them (LnF destruction order).
+    ModelSwitchLnF modelSwitchLnF;
     juce::TextButton modelBtns[kNumModelSlots];
     juce::String modelSlotIds[kNumModelSlots];  // resolved model directory name per slot
     juce::Rectangle<int> modelSwitchBounds;
+
+    // SA3 tier (small | medium): a per-machine meta-choice with NO dedicated widget.
+    // It is surfaced as a small "s"/"m" cell (divider + letter) that ModelSwitchLnF
+    // draws on the two SA3 model slots from their "tierLetter" property, and toggled by
+    // a SECOND click on the already-selected SA3 slot (see modelBtns onClick). Shown/
+    // togglable only when BOTH tiers are installed (otherwise forced, cell hidden). NO
+    // APVTS — machine-local, persisted to ui_settings.json by MainPanel via
+    // onSa3TierChanged, never preset or automation. Default "small": installing medium
+    // no longer silently overrides the lighter one.
+    juce::String sa3Tier_ = "small";
+    bool sa3TierChoiceAvailable_ = false;         // both tiers installed → tier cell + re-click toggle
+    int  activeModelSlot_ = -1;                   // last-selected slot, for SA3 re-click detection
+
     // Delineation guides painted in paint(): a recessed band framing the mode
     // bar, and a divider line separating the impulse/blend group from the params.
     juce::Rectangle<int> modeBandBounds;
