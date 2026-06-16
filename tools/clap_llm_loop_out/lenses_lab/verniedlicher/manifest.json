@@ -1,0 +1,297 @@
+{
+  "name": "verniedlicher",
+  "coupling": "alpha",
+  "stance_a": null,
+  "stance_b": "verniedlicher",
+  "preset": "Creamy-Dreamy SA3",
+  "model": "stable-audio-3-small-music",
+  "duration_s": 11.0,
+  "steps": 8,
+  "cfg": 1.0,
+  "seed": 2128708858,
+  "magnitude": 1.0,
+  "noise_sigma": 0.0,
+  "injection_mode": "linear",
+  "init_noise": 0.9,
+  "topk": 5,
+  "max_new_tokens": 64,
+  "header_a": "creamy cream, birds chirping",
+  "header_b": "dreamy dream",
+  "alpha0": 0.8,
+  "target": "a deep slow underwater bell",
+  "llm": "qwen2.5-1.5b-instruct",
+  "iters": [
+    {
+      "iter": 1,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream",
+      "alpha": 0.8,
+      "init_noise": null,
+      "heard": [
+        [
+          "dreamy",
+          0.4436947703361511
+        ],
+        [
+          "delicate",
+          0.4162525534629822
+        ],
+        [
+          "crystalline",
+          0.40038973093032837
+        ],
+        [
+          "mellow",
+          0.37247055768966675
+        ],
+        [
+          "gloomy",
+          0.33909520506858826
+        ]
+      ],
+      "spectral": "warm, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "mystical, shimmering, ethereal, serene, shadowy",
+      "cos_to_anchor": 1.0
+    },
+    {
+      "iter": 2,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "mystical, shimmering, ethereal, serene, shadowy",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.4460045099258423
+        ],
+        [
+          "ethereal",
+          0.43929946422576904
+        ],
+        [
+          "dreamy",
+          0.41710349917411804
+        ],
+        [
+          "crystalline",
+          0.36280736327171326
+        ],
+        [
+          "warm",
+          0.3111805319786072
+        ]
+      ],
+      "spectral": "warm, full-bodied, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Shimmering whispers in twilight, serenity's soft glow.",
+      "cos_to_anchor": 0.5888
+    },
+    {
+      "iter": 3,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Shimmering whispers in twilight, serenity's soft glow.",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "crystalline",
+          0.4737296998500824
+        ],
+        [
+          "dreamy",
+          0.4630568325519562
+        ],
+        [
+          "shadowy",
+          0.38738882541656494
+        ],
+        [
+          "ethereal",
+          0.38559895753860474
+        ],
+        [
+          "mellow",
+          0.3808249831199646
+        ]
+      ],
+      "spectral": "warm, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Whispers of moonlight, serenity's soft glow.",
+      "cos_to_anchor": 0.588
+    },
+    {
+      "iter": 4,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Whispers of moonlight, serenity's soft glow.",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "dreamy",
+          0.32398521900177
+        ],
+        [
+          "mellow",
+          0.28075170516967773
+        ],
+        [
+          "delicate",
+          0.2591847777366638
+        ],
+        [
+          "resonant",
+          0.23471075296401978
+        ],
+        [
+          "velvety",
+          0.23440103232860565
+        ]
+      ],
+      "spectral": "warm, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Echoes of twilight, tranquility's tender light.",
+      "cos_to_anchor": 0.6026
+    },
+    {
+      "iter": 5,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Echoes of twilight, tranquility's tender light.",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.39291471242904663
+        ],
+        [
+          "dreamy",
+          0.3751506209373474
+        ],
+        [
+          "gloomy",
+          0.35554248094558716
+        ],
+        [
+          "glittering",
+          0.30671992897987366
+        ],
+        [
+          "brilliant",
+          0.2646070122718811
+        ]
+      ],
+      "spectral": "warm, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Twilight whispers secrets, serene sanctuary.",
+      "cos_to_anchor": 0.6322
+    },
+    {
+      "iter": 6,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Twilight whispers secrets, serene sanctuary.",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.48028331995010376
+        ],
+        [
+          "gloomy",
+          0.31300562620162964
+        ],
+        [
+          "dreamy",
+          0.30790624022483826
+        ],
+        [
+          "glittering",
+          0.26313355565071106
+        ],
+        [
+          "ethereal",
+          0.2485387623310089
+        ]
+      ],
+      "spectral": "warm, full-bodied, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Twilight's veil unfurls, veiled mystery.",
+      "cos_to_anchor": 0.5967
+    },
+    {
+      "iter": 7,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Twilight's veil unfurls, veiled mystery.",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "crystalline",
+          0.5018206834793091
+        ],
+        [
+          "dreamy",
+          0.45218580961227417
+        ],
+        [
+          "mellow",
+          0.42750194668769836
+        ],
+        [
+          "glassy",
+          0.41841715574264526
+        ],
+        [
+          "resonant",
+          0.41304829716682434
+        ]
+      ],
+      "spectral": "warm, full-bodied, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Twilight whispers secrets, veiled in shimmer.",
+      "cos_to_anchor": 0.6498
+    },
+    {
+      "iter": 8,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Twilight whispers secrets, veiled in shimmer.",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "crystalline",
+          0.5041860342025757
+        ],
+        [
+          "dreamy",
+          0.43495631217956543
+        ],
+        [
+          "resonant",
+          0.39301109313964844
+        ],
+        [
+          "glassy",
+          0.38642314076423645
+        ],
+        [
+          "shadowy",
+          0.37121057510375977
+        ]
+      ],
+      "spectral": "warm, full-bodied, tonal",
+      "llm_next_a": null,
+      "llm_next_b": null,
+      "cos_to_anchor": 0.5253
+    }
+  ]
+}

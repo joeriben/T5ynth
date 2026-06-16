@@ -1,0 +1,297 @@
+{
+  "name": "alpha_planetarizer",
+  "coupling": "alpha",
+  "stance_a": null,
+  "stance_b": "planetarizer",
+  "preset": "Creamy-Dreamy SA3",
+  "model": "stable-audio-3-small-music",
+  "duration_s": 11.0,
+  "steps": 8,
+  "cfg": 1.0,
+  "seed": 2128708858,
+  "magnitude": 1.0,
+  "noise_sigma": 0.0,
+  "injection_mode": "linear",
+  "init_noise": 0.9,
+  "topk": 5,
+  "max_new_tokens": 64,
+  "header_a": "creamy cream, birds chirping",
+  "header_b": "dreamy dream",
+  "alpha0": 0.8,
+  "target": "a deep slow underwater bell",
+  "llm": "qwen2.5-1.5b-instruct",
+  "iters": [
+    {
+      "iter": 1,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream",
+      "alpha": 0.8,
+      "init_noise": null,
+      "heard": [
+        [
+          "dreamy",
+          0.4409363865852356
+        ],
+        [
+          "crystalline",
+          0.378894567489624
+        ],
+        [
+          "delicate",
+          0.36053115129470825
+        ],
+        [
+          "sparkly",
+          0.3486534655094147
+        ],
+        [
+          "mellow",
+          0.34617072343826294
+        ]
+      ],
+      "spectral": "warm, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Crystal Dream",
+      "cos_to_anchor": 1.0
+    },
+    {
+      "iter": 2,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Crystal Dream",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.49095624685287476
+        ],
+        [
+          "velvety",
+          0.4249415993690491
+        ],
+        [
+          "steely",
+          0.360920250415802
+        ],
+        [
+          "saturated",
+          0.35793882608413696
+        ],
+        [
+          "ethereal",
+          0.3306826651096344
+        ]
+      ],
+      "spectral": "warm, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Mystic Serene Nexus",
+      "cos_to_anchor": 0.6891
+    },
+    {
+      "iter": 3,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Mystic Serene Nexus",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.46905821561813354
+        ],
+        [
+          "gloomy",
+          0.3421369791030884
+        ],
+        [
+          "dreamy",
+          0.3381720781326294
+        ],
+        [
+          "glittering",
+          0.29544663429260254
+        ],
+        [
+          "delicate",
+          0.26430797576904297
+        ]
+      ],
+      "spectral": "bright, full-bodied, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Mystic Echoes of the Forgotten Realm",
+      "cos_to_anchor": 0.6274
+    },
+    {
+      "iter": 4,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Mystic Echoes of the Forgotten Realm",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.5275217294692993
+        ],
+        [
+          "dreamy",
+          0.38187217712402344
+        ],
+        [
+          "gloomy",
+          0.3811328411102295
+        ],
+        [
+          "ethereal",
+          0.37533682584762573
+        ],
+        [
+          "glittering",
+          0.3232928216457367
+        ]
+      ],
+      "spectral": "warm, full-bodied, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Whispering Veil of the Enchanted Forest",
+      "cos_to_anchor": 0.7169
+    },
+    {
+      "iter": 5,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Whispering Veil of the Enchanted Forest",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.48487919569015503
+        ],
+        [
+          "gloomy",
+          0.33576732873916626
+        ],
+        [
+          "dreamy",
+          0.32468193769454956
+        ],
+        [
+          "brilliant",
+          0.30110639333724976
+        ],
+        [
+          "cold",
+          0.29821640253067017
+        ]
+      ],
+      "spectral": "warm, full-bodied, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Enigmatic Nightly Symphony / Melancholic Starlight Chamber",
+      "cos_to_anchor": 0.5627
+    },
+    {
+      "iter": 6,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Enigmatic Nightly Symphony / Melancholic Starlight Chamber",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.4124002456665039
+        ],
+        [
+          "dreamy",
+          0.3928915858268738
+        ],
+        [
+          "gloomy",
+          0.27431872487068176
+        ],
+        [
+          "delicate",
+          0.25072455406188965
+        ],
+        [
+          "brilliant",
+          0.2310759425163269
+        ]
+      ],
+      "spectral": "warm, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Whispering Shadows of the Ancient Grove",
+      "cos_to_anchor": 0.6384
+    },
+    {
+      "iter": 7,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Whispering Shadows of the Ancient Grove",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.5363534688949585
+        ],
+        [
+          "dreamy",
+          0.5001850128173828
+        ],
+        [
+          "crystalline",
+          0.4292234480381012
+        ],
+        [
+          "ethereal",
+          0.4242389500141144
+        ],
+        [
+          "glassy",
+          0.42075157165527344
+        ]
+      ],
+      "spectral": "warm, full-bodied, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Gossamer Echoes of the Celestial Labyrinth",
+      "cos_to_anchor": 0.6067
+    },
+    {
+      "iter": 8,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Gossamer Echoes of the Celestial Labyrinth",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.4449510872364044
+        ],
+        [
+          "dreamy",
+          0.4375610649585724
+        ],
+        [
+          "crystalline",
+          0.4040086269378662
+        ],
+        [
+          "glassy",
+          0.36966943740844727
+        ],
+        [
+          "ethereal",
+          0.33070921897888184
+        ]
+      ],
+      "spectral": "warm, full-bodied, tonal",
+      "llm_next_a": null,
+      "llm_next_b": null,
+      "cos_to_anchor": 0.5928
+    }
+  ]
+}

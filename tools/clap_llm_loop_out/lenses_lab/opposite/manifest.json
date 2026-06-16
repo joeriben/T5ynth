@@ -1,0 +1,297 @@
+{
+  "name": "opposite",
+  "coupling": "alpha",
+  "stance_a": null,
+  "stance_b": "opposite",
+  "preset": "Creamy-Dreamy SA3",
+  "model": "stable-audio-3-small-music",
+  "duration_s": 11.0,
+  "steps": 8,
+  "cfg": 1.0,
+  "seed": 2128708858,
+  "magnitude": 1.0,
+  "noise_sigma": 0.0,
+  "injection_mode": "linear",
+  "init_noise": 0.9,
+  "topk": 5,
+  "max_new_tokens": 64,
+  "header_a": "creamy cream, birds chirping",
+  "header_b": "dreamy dream",
+  "alpha0": 0.8,
+  "target": "a deep slow underwater bell",
+  "llm": "qwen2.5-1.5b-instruct",
+  "iters": [
+    {
+      "iter": 1,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream",
+      "alpha": 0.8,
+      "init_noise": null,
+      "heard": [
+        [
+          "dreamy",
+          0.4165991544723511
+        ],
+        [
+          "delicate",
+          0.3550716042518616
+        ],
+        [
+          "crystalline",
+          0.34667038917541504
+        ],
+        [
+          "mellow",
+          0.3402063548564911
+        ],
+        [
+          "glittering",
+          0.33270537853240967
+        ]
+      ],
+      "spectral": "warm, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Harsh, coarse, gritty, harsh, dull",
+      "cos_to_anchor": 1.0
+    },
+    {
+      "iter": 2,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Harsh, coarse, gritty, harsh, dull",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "feathery",
+          0.4467628002166748
+        ],
+        [
+          "sterile",
+          0.4453238844871521
+        ],
+        [
+          "abrasive",
+          0.42511290311813354
+        ],
+        [
+          "morphing",
+          0.4199594259262085
+        ],
+        [
+          "resonant",
+          0.41491472721099854
+        ]
+      ],
+      "spectral": "warm, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Tactile: rough, viscous, smooth, rigid, fluid",
+      "cos_to_anchor": 0.2151
+    },
+    {
+      "iter": 3,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Tactile: rough, viscous, smooth, rigid, fluid",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.31927213072776794
+        ],
+        [
+          "tinny",
+          0.27809834480285645
+        ],
+        [
+          "cozy",
+          0.24546879529953003
+        ],
+        [
+          "delicate",
+          0.2424679547548294
+        ],
+        [
+          "clean",
+          0.23828107118606567
+        ]
+      ],
+      "spectral": "warm, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Rumbling, loud, chaotic, rough, cluttered",
+      "cos_to_anchor": 0.5116
+    },
+    {
+      "iter": 4,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Rumbling, loud, chaotic, rough, cluttered",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "tinny",
+          0.38375693559646606
+        ],
+        [
+          "gaseous",
+          0.2861941456794739
+        ],
+        [
+          "reedy",
+          0.2635655999183655
+        ],
+        [
+          "percussive",
+          0.2512335777282715
+        ],
+        [
+          "aggressive",
+          0.23505769670009613
+        ]
+      ],
+      "spectral": "warm, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Soft, clear, melodic, gentle, serene",
+      "cos_to_anchor": 0.3666
+    },
+    {
+      "iter": 5,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Soft, clear, melodic, gentle, serene",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.4244818687438965
+        ],
+        [
+          "dreamy",
+          0.3775694668292999
+        ],
+        [
+          "gloomy",
+          0.2995506823062897
+        ],
+        [
+          "clean",
+          0.2936056852340698
+        ],
+        [
+          "clear",
+          0.2669132649898529
+        ]
+      ],
+      "spectral": "warm, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Squeaky, harsh, vibrant, muddy, crowded",
+      "cos_to_anchor": 0.5976
+    },
+    {
+      "iter": 6,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Squeaky, harsh, vibrant, muddy, crowded",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "tinny",
+          0.32343608140945435
+        ],
+        [
+          "reedy",
+          0.32260558009147644
+        ],
+        [
+          "screaming",
+          0.32244110107421875
+        ],
+        [
+          "gaseous",
+          0.3075945973396301
+        ],
+        [
+          "robotic",
+          0.29599130153656006
+        ]
+      ],
+      "spectral": "bright, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Whispering, smooth, humming, ethereal, natural",
+      "cos_to_anchor": 0.1859
+    },
+    {
+      "iter": 7,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Whispering, smooth, humming, ethereal, natural",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "resonant",
+          0.504768967628479
+        ],
+        [
+          "morphing",
+          0.384407639503479
+        ],
+        [
+          "gaseous",
+          0.2952926754951477
+        ],
+        [
+          "cold",
+          0.2879723310470581
+        ],
+        [
+          "airy",
+          0.2870980203151703
+        ]
+      ],
+      "spectral": "dark, full-bodied, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Tactile, rigid, solid, hot, dense",
+      "cos_to_anchor": 0.2446
+    },
+    {
+      "iter": 8,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Tactile, rigid, solid, hot, dense",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "clear",
+          0.34607845544815063
+        ],
+        [
+          "mellow",
+          0.34350815415382385
+        ],
+        [
+          "woody",
+          0.2818848788738251
+        ],
+        [
+          "percussive",
+          0.26689907908439636
+        ],
+        [
+          "brilliant",
+          0.2407391369342804
+        ]
+      ],
+      "spectral": "warm, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": null,
+      "cos_to_anchor": 0.4469
+    }
+  ]
+}

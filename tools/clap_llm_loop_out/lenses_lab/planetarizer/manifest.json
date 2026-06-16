@@ -1,0 +1,297 @@
+{
+  "name": "planetarizer",
+  "coupling": "alpha",
+  "stance_a": null,
+  "stance_b": "planetarizer",
+  "preset": "Creamy-Dreamy SA3",
+  "model": "stable-audio-3-small-music",
+  "duration_s": 11.0,
+  "steps": 8,
+  "cfg": 1.0,
+  "seed": 2128708858,
+  "magnitude": 1.0,
+  "noise_sigma": 0.0,
+  "injection_mode": "linear",
+  "init_noise": 0.9,
+  "topk": 5,
+  "max_new_tokens": 64,
+  "header_a": "creamy cream, birds chirping",
+  "header_b": "dreamy dream",
+  "alpha0": 0.8,
+  "target": "a deep slow underwater bell",
+  "llm": "qwen2.5-1.5b-instruct",
+  "iters": [
+    {
+      "iter": 1,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream",
+      "alpha": 0.8,
+      "init_noise": null,
+      "heard": [
+        [
+          "dreamy",
+          0.5132091045379639
+        ],
+        [
+          "crystalline",
+          0.458054780960083
+        ],
+        [
+          "sparkly",
+          0.4233599603176117
+        ],
+        [
+          "delicate",
+          0.42154067754745483
+        ],
+        [
+          "glassy",
+          0.4133366346359253
+        ]
+      ],
+      "spectral": "warm, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "dreamy dreamscape, shimmering sea, ethereal mist, delicate petals",
+      "cos_to_anchor": 1.0
+    },
+    {
+      "iter": 2,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dreamscape, shimmering sea, ethereal mist, delicate petals",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "dreamy",
+          0.5759843587875366
+        ],
+        [
+          "shadowy",
+          0.4152851700782776
+        ],
+        [
+          "mellow",
+          0.41200780868530273
+        ],
+        [
+          "ethereal",
+          0.37946027517318726
+        ],
+        [
+          "glassy",
+          0.37944403290748596
+        ]
+      ],
+      "spectral": "warm, full-bodied, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "dreamy dream, shimmering sea, ethereal mist, delicate petals",
+      "cos_to_anchor": 0.723
+    },
+    {
+      "iter": 3,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream, shimmering sea, ethereal mist, delicate petals",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.3887495994567871
+        ],
+        [
+          "dreamy",
+          0.3589041829109192
+        ],
+        [
+          "ethereal",
+          0.321098268032074
+        ],
+        [
+          "delicate",
+          0.2945430874824524
+        ],
+        [
+          "crystalline",
+          0.2935035824775696
+        ]
+      ],
+      "spectral": "warm, full-bodied, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "heard: whispering wind, dancing flames, crystal chandelier, soft moonlight",
+      "cos_to_anchor": 0.6838
+    },
+    {
+      "iter": 4,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "heard: whispering wind, dancing flames, crystal chandelier, soft moonlight",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "crystalline",
+          0.4605962634086609
+        ],
+        [
+          "resonant",
+          0.4370151460170746
+        ],
+        [
+          "dreamy",
+          0.4187890887260437
+        ],
+        [
+          "ethereal",
+          0.3894397020339966
+        ],
+        [
+          "glassy",
+          0.36989182233810425
+        ]
+      ],
+      "spectral": "warm, full-bodied, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Whispering wind, dancing flames, crystal chandelier, soft moonlight",
+      "cos_to_anchor": 0.5806
+    },
+    {
+      "iter": 5,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Whispering wind, dancing flames, crystal chandelier, soft moonlight",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "resonant",
+          0.454999178647995
+        ],
+        [
+          "crystalline",
+          0.43388769030570984
+        ],
+        [
+          "dreamy",
+          0.433185875415802
+        ],
+        [
+          "ethereal",
+          0.42824825644493103
+        ],
+        [
+          "gaseous",
+          0.4113127291202545
+        ]
+      ],
+      "spectral": "warm, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Whispering wind, dancing flames, crystal chandelier, soft moonlight",
+      "cos_to_anchor": 0.546
+    },
+    {
+      "iter": 6,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Whispering wind, dancing flames, crystal chandelier, soft moonlight",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "resonant",
+          0.4680311679840088
+        ],
+        [
+          "dreamy",
+          0.4450409412384033
+        ],
+        [
+          "shadowy",
+          0.429025799036026
+        ],
+        [
+          "gaseous",
+          0.4284908175468445
+        ],
+        [
+          "eerie",
+          0.40760889649391174
+        ]
+      ],
+      "spectral": "warm, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Whispering wind, dancing flames, crystal chandelier, soft moonlight",
+      "cos_to_anchor": 0.519
+    },
+    {
+      "iter": 7,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Whispering wind, dancing flames, crystal chandelier, soft moonlight",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "resonant",
+          0.4441813826560974
+        ],
+        [
+          "ethereal",
+          0.4412113428115845
+        ],
+        [
+          "crystalline",
+          0.4336160123348236
+        ],
+        [
+          "dreamy",
+          0.4209120273590088
+        ],
+        [
+          "gaseous",
+          0.4119998812675476
+        ]
+      ],
+      "spectral": "warm, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Echoes of distant drums, shimmering waterfalls, rustling leaves, warm golden sunlight",
+      "cos_to_anchor": 0.5992
+    },
+    {
+      "iter": 8,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Echoes of distant drums, shimmering waterfalls, rustling leaves, warm golden sunlight",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.47988733649253845
+        ],
+        [
+          "ethereal",
+          0.30647391080856323
+        ],
+        [
+          "gloomy",
+          0.2952509820461273
+        ],
+        [
+          "glittering",
+          0.2764941155910492
+        ],
+        [
+          "dreamy",
+          0.2653005123138428
+        ]
+      ],
+      "spectral": "bright, full-bodied, textured",
+      "llm_next_a": null,
+      "llm_next_b": null,
+      "cos_to_anchor": 0.5884
+    }
+  ]
+}

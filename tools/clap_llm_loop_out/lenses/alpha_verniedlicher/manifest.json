@@ -1,0 +1,297 @@
+{
+  "name": "alpha_verniedlicher",
+  "coupling": "alpha",
+  "stance_a": null,
+  "stance_b": "verniedlicher",
+  "preset": "Creamy-Dreamy SA3",
+  "model": "stable-audio-3-small-music",
+  "duration_s": 11.0,
+  "steps": 8,
+  "cfg": 1.0,
+  "seed": 2128708858,
+  "magnitude": 1.0,
+  "noise_sigma": 0.0,
+  "injection_mode": "linear",
+  "init_noise": 0.9,
+  "topk": 5,
+  "max_new_tokens": 64,
+  "header_a": "creamy cream, birds chirping",
+  "header_b": "dreamy dream",
+  "alpha0": 0.8,
+  "target": "a deep slow underwater bell",
+  "llm": "qwen2.5-1.5b-instruct",
+  "iters": [
+    {
+      "iter": 1,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "dreamy dream",
+      "alpha": 0.8,
+      "init_noise": null,
+      "heard": [
+        [
+          "dreamy",
+          0.44172999262809753
+        ],
+        [
+          "crystalline",
+          0.3905598223209381
+        ],
+        [
+          "delicate",
+          0.38705068826675415
+        ],
+        [
+          "mellow",
+          0.3823218047618866
+        ],
+        [
+          "gloomy",
+          0.3698280155658722
+        ]
+      ],
+      "spectral": "warm, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "crystalline dreams, gentle glow",
+      "cos_to_anchor": 1.0
+    },
+    {
+      "iter": 2,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "crystalline dreams, gentle glow",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "dreamy",
+          0.4506336748600006
+        ],
+        [
+          "mellow",
+          0.450241357088089
+        ],
+        [
+          "resonant",
+          0.40911415219306946
+        ],
+        [
+          "crystalline",
+          0.4052466154098511
+        ],
+        [
+          "delicate",
+          0.395762175321579
+        ]
+      ],
+      "spectral": "warm, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "soft whispers, tender light",
+      "cos_to_anchor": 0.7754
+    },
+    {
+      "iter": 3,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "soft whispers, tender light",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.44143837690353394
+        ],
+        [
+          "dreamy",
+          0.4189980626106262
+        ],
+        [
+          "gloomy",
+          0.35720014572143555
+        ],
+        [
+          "glassy",
+          0.32185226678848267
+        ],
+        [
+          "glittering",
+          0.30643826723098755
+        ]
+      ],
+      "spectral": "warm, full-bodied, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "gentle sighs, soft beams",
+      "cos_to_anchor": 0.7672
+    },
+    {
+      "iter": 4,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "gentle sighs, soft beams",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.4931888282299042
+        ],
+        [
+          "dreamy",
+          0.40993523597717285
+        ],
+        [
+          "gloomy",
+          0.36830276250839233
+        ],
+        [
+          "brilliant",
+          0.34654349088668823
+        ],
+        [
+          "glittering",
+          0.34388265013694763
+        ]
+      ],
+      "spectral": "warm, full-bodied, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "soft whispers, gentle beams",
+      "cos_to_anchor": 0.669
+    },
+    {
+      "iter": 5,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "soft whispers, gentle beams",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "dreamy",
+          0.445902019739151
+        ],
+        [
+          "mellow",
+          0.4448124170303345
+        ],
+        [
+          "gloomy",
+          0.3857715427875519
+        ],
+        [
+          "delicate",
+          0.3391363024711609
+        ],
+        [
+          "glassy",
+          0.3322845697402954
+        ]
+      ],
+      "spectral": "warm, full-bodied, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Soft murmurs, tender beams",
+      "cos_to_anchor": 0.7049
+    },
+    {
+      "iter": 6,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Soft murmurs, tender beams",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.4593569338321686
+        ],
+        [
+          "dreamy",
+          0.40595802664756775
+        ],
+        [
+          "gloomy",
+          0.33386993408203125
+        ],
+        [
+          "glittering",
+          0.3070303201675415
+        ],
+        [
+          "glassy",
+          0.2989042401313782
+        ]
+      ],
+      "spectral": "warm, thin, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Whispering sighs, gentle rays",
+      "cos_to_anchor": 0.6535
+    },
+    {
+      "iter": 7,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Whispering sighs, gentle rays",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "dreamy",
+          0.5394392609596252
+        ],
+        [
+          "mellow",
+          0.4954061210155487
+        ],
+        [
+          "glassy",
+          0.40842312574386597
+        ],
+        [
+          "gloomy",
+          0.40739548206329346
+        ],
+        [
+          "crystalline",
+          0.386741578578949
+        ]
+      ],
+      "spectral": "warm, full-bodied, tonal",
+      "llm_next_a": null,
+      "llm_next_b": "Soft murmurs, tender light",
+      "cos_to_anchor": 0.7657
+    },
+    {
+      "iter": 8,
+      "coupling": "alpha",
+      "prompt_a": "creamy cream, birds chirping",
+      "prompt_b": "Soft murmurs, tender light",
+      "alpha": 0.8,
+      "init_noise": 0.9,
+      "heard": [
+        [
+          "mellow",
+          0.5198044776916504
+        ],
+        [
+          "dreamy",
+          0.3890952467918396
+        ],
+        [
+          "gloomy",
+          0.3375575542449951
+        ],
+        [
+          "crystalline",
+          0.3258605897426605
+        ],
+        [
+          "glassy",
+          0.32497674226760864
+        ]
+      ],
+      "spectral": "warm, full-bodied, tonal",
+      "llm_next_a": null,
+      "llm_next_b": null,
+      "cos_to_anchor": 0.7481
+    }
+  ]
+}
