@@ -559,6 +559,7 @@ struct RowSpec { const char* id; const char* sublabel; const char* familyHeader;
 static const RowSpec kRowSpecs[] = {
     { "stable-audio-3-small-music", "t5gemma encoder included",       "STABLE AUDIO 3" },
     { "stable-audio-3-small-sfx",   "t5gemma encoder included",       nullptr },
+    { "stable-audio-3-medium",      "t5gemma encoder included",       nullptr },
     { "stable-audio-open-1.0",      "T5-Base encoder auto-installed", "STABLE AUDIO OPEN" },
     { "stable-audio-open-small",    "T5-Base encoder auto-installed", nullptr },
     { "audioldm2",                  "self-contained",                 "AUDIOLDM2" },
@@ -1316,7 +1317,8 @@ static bool isNativeStabilityModel(const juce::String& modelId)
     return modelId == "stable-audio-open-1.0"
         || modelId == "stable-audio-open-small"
         || modelId == "stable-audio-3-small-music"
-        || modelId == "stable-audio-3-small-sfx";
+        || modelId == "stable-audio-3-small-sfx"
+        || modelId == "stable-audio-3-medium";
 }
 
 // Cheap, network-free gate in front of the silent Downloads pre-scan: is there any
@@ -3550,6 +3552,14 @@ void SettingsPage::updateStatus()
         setInstructionsText(instructionsLabel,
             display + " -- current SA3 small-format checkpoint with its own t5gemma "
             "text encoder (installed with it, reused across both SA3 variants). Click "
+            "Download; no HuggingFace account needed. License: Stability AI Community "
+            "License + Google Gemma Terms (both written into the model folder).\n"
+            "  Target: " + targetPath);
+    else if (id == "stable-audio-3-medium")
+        setInstructionsText(instructionsLabel,
+            display + " -- the larger, higher-fidelity SA3 checkpoint; a single model "
+            "that renders both Music and SFX (chosen per generation). Ships its own "
+            "t5gemma text encoder (installed with it, shared by all SA3 variants). Click "
             "Download; no HuggingFace account needed. License: Stability AI Community "
             "License + Google Gemma Terms (both written into the model folder).\n"
             "  Target: " + targetPath);
