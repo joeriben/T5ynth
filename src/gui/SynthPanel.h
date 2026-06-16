@@ -278,7 +278,7 @@ private:
     void layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float f, int rowH, int gap);
     void layoutLfoEasy(LfoSection& lfo, juce::Rectangle<int> area, float f, int rowH, int gap);
     void layoutDriftEasy(DriftSection& drift, juce::Rectangle<int> area, float f, int rowH, int gap);
-    void layoutGenerateEasy(juce::Rectangle<int> area, float f, int rowH, int gap);
+    void layoutGenerateEasy(juce::Rectangle<int> area, float f, int rowH, int gap, bool ownHeader = true);
 
     void setModEasyMode(bool easy, bool persist);
     bool loadModEasyModeSetting() const;

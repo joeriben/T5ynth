@@ -889,6 +889,11 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
             for (int i = 0; i < kNumTypeBtns; ++i)
                 filterTypeBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
             updateVisibility();
+            // updateVisibility() hides lfoHeader/driftHeader in easy mode; in the
+            // columnar mod view they double as the LFO/DRIFT column header bars and
+            // are re-shown only by layoutModEasy. Re-run layout so they don't vanish
+            // when the filter is toggled. (Mirrors every other onChange in this file.)
+            resized();
         };
         for (int i = 0; i < kNumTypeBtns; ++i)
         {
@@ -946,6 +951,10 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
             for (int i = 0; i < kNumAlgBtns; ++i)
                 filterAlgBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
             updateVisibility();
+            // See filterTypeHidden.onChange: re-run layout so the columnar
+            // LFO/DRIFT header bars (re-shown only in layoutModEasy) survive a
+            // filter-algorithm change in easy mode.
+            resized();
         };
         for (int i = 0; i < kNumAlgBtns; ++i)
         {
@@ -2278,22 +2287,27 @@ void SynthPanel::layoutDriftEasy(DriftSection& drift, juce::Rectangle<int> area,
     drift.depthRow->setBounds(amtCell);
 }
 
-void SynthPanel::layoutGenerateEasy(juce::Rectangle<int> area, float f, int rowH, int gap)
+void SynthPanel::layoutGenerateEasy(juce::Rectangle<int> area, float f, int rowH, int gap, bool ownHeader)
 {
     const int rowGap = juce::jmax(gap, 6);
     const float chipFontSize = juce::jmax(kUiControlFontMin,
                                           juce::jmin(13.0f, static_cast<float>(rowH) * 0.58f));
 
-    // Header chip "REGENERATE" — drift-orange (subordinated to drift).
-    auto headerRow = area.removeFromTop(juce::jmin(rowH, area.getHeight()));
-    const int headerW = juce::jmax(72, measureTextWidth("REGENERATE", chipFontSize) + 18);
-    regenHeader.setText(" REGENERATE", juce::dontSendNotification);
-    regenHeader.setFont(juce::FontOptions(chipFontSize, juce::Font::bold));
-    regenHeader.setJustificationType(juce::Justification::centred);
-    regenHeader.setColour(juce::Label::textColourId, juce::Colour(0xff0e1018));
-    regenHeader.setColour(juce::Label::backgroundColourId, kDriftCol);
-    regenHeader.setBounds(headerRow.removeFromLeft(juce::jmin(headerW, headerRow.getWidth())));
-    area.removeFromTop(rowGap);
+    // Header chip "REGENERATE" — drift-orange (subordinated to drift). In the
+    // columnar mod view this column already has an aligned REGENERATE header bar
+    // above it (layoutModEasy), so the in-column chip is skipped (ownHeader=false).
+    if (ownHeader)
+    {
+        auto headerRow = area.removeFromTop(juce::jmin(rowH, area.getHeight()));
+        const int headerW = juce::jmax(72, measureTextWidth("REGENERATE", chipFontSize) + 18);
+        regenHeader.setText(" REGENERATE", juce::dontSendNotification);
+        regenHeader.setFont(juce::FontOptions(chipFontSize, juce::Font::bold));
+        regenHeader.setJustificationType(juce::Justification::centred);
+        regenHeader.setColour(juce::Label::textColourId, juce::Colour(0xff0e1018));
+        regenHeader.setColour(juce::Label::backgroundColourId, kDriftCol);
+        regenHeader.setBounds(headerRow.removeFromLeft(juce::jmin(headerW, headerRow.getWidth())));
+        area.removeFromTop(rowGap);
+    }
 
     // Vertical 7-way switchbox replaces the dropdown when the column is tall
     // enough; otherwise fall back to the compact dropdown. The "REGENERATE"
@@ -2458,10 +2472,31 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
         const int generateW = juce::jmax(juce::roundToInt(f * 7.0f),
                                          juce::roundToInt(static_cast<float>(stackW) * 0.55f));
 
-        // Split header row: FILTER chip over filter column, CONTROLS bar over Env+LFO+Drift+Generate.
+        // Per-module header bars, each aligned to its column below
+        // (filter | env | lfo | drift | generate) — replaces the single "CONTROLS"
+        // umbrella so every module names itself. Widths mirror the block row exactly.
+        auto styleHeaderBar = [headerFs](juce::Label& l, const juce::String& t, juce::Colour c)
+        {
+            l.setText(t, juce::dontSendNotification);
+            l.setFont(juce::FontOptions(headerFs));
+            l.setJustificationType(juce::Justification::centredLeft);
+            l.setColour(juce::Label::textColourId, juce::Colour(0xff0e1018));
+            l.setColour(juce::Label::backgroundColourId, c.withAlpha(0.7f));
+            l.setVisible(true);
+        };
         filterHeader.setBounds(modHeaderRow.removeFromLeft(stackW));
         modHeaderRow.removeFromLeft(colGap);
-        modHeader.setBounds(modHeaderRow);
+        modHeader.setText(" ENVELOPES", juce::dontSendNotification);   // env column (bg/font already set in resized())
+        modHeader.setBounds(modHeaderRow.removeFromLeft(envW));
+        modHeaderRow.removeFromLeft(colGap);
+        styleHeaderBar(lfoHeader, " LFO", kLfoCol);
+        lfoHeader.setBounds(modHeaderRow.removeFromLeft(stackW));
+        modHeaderRow.removeFromLeft(colGap);
+        styleHeaderBar(driftHeader, " DRIFT", kDriftCol);
+        driftHeader.setBounds(modHeaderRow.removeFromLeft(stackW));
+        modHeaderRow.removeFromLeft(colGap);
+        styleHeaderBar(regenHeader, " REGENERATE", kDriftCol);   // generate column (was an in-column chip)
+        regenHeader.setBounds(modHeaderRow.removeFromLeft(juce::jmin(generateW, modHeaderRow.getWidth())));
 
         const int blockH = area.getHeight();
         auto block = area.removeFromTop(blockH);
@@ -2483,7 +2518,7 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
         layoutDriftStack(driftArea);
 
         generateEasyBlockBounds = generateArea;
-        layoutGenerateEasy(generateArea.reduced(contentInset, contentInset), f, rowH, gap);
+        layoutGenerateEasy(generateArea.reduced(contentInset, contentInset), f, rowH, gap, false);
         return;
     }
 
