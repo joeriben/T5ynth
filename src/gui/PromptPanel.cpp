@@ -575,9 +575,15 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     {
         auto& bb = repromptCouplingBtns[i];
         bb.setButtonText(couplingUi[i]);
-        bb.setColour(juce::TextButton::buttonColourId, kSurface);
+        // Filled colour block (balances the RE-PROMPT left-header chip): the
+        // whole 3-way reads as one coloured unit instead of one orange button
+        // floating in the dark. OFF = a darker drift orange, ON = the full drift
+        // orange — both white text, so the brightness step is the selection cue.
+        // White-on-#993600 = 7.3:1 (AA); selected ~2.4x brighter; same hue, so
+        // the off/on gap is luminance-only (CVD-safe across all dichromacy types).
+        bb.setColour(juce::TextButton::buttonColourId, kDriftCol.darker(0.5f));
         bb.setColour(juce::TextButton::buttonOnColourId, kDriftCol);
-        bb.setColour(juce::TextButton::textColourOffId, kDim);
+        bb.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
         bb.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
         bb.setClickingTogglesState(true);
         bb.setRadioGroupId(1006);   // unique repo-wide (1004 = model switchbox, 1005 = old MainPanel coupling)
