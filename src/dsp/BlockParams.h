@@ -13,6 +13,11 @@
 // Each entry carries a `.key` column (stable snake_case identifier used for
 // JSON serialization — never changes once shipped) and a `.label` column
 // (user-facing display string — may be renamed without breaking presets).
+// IMPORTANT: `.label` MUST be ASCII (bytes <= 127). Consumers build it via
+// juce::String(const char*) / StringArray::add(const char*), which treat the
+// pointer as ASCII-only — any UTF-8 glyph (arrows, quarter-note, multiply sign)
+// turns into mojibake in the ComboBox AND the DAW automation list. Spell it out
+// in ASCII (e.g. "A/B" not "A<arrow>B"), as the x/× and arrow labels learned.
 // Both columns live in the same array at the same index, so adding a new
 // choice means editing exactly one place. A `static_assert` below every
 // table pins the enum's last value to `kCount - 1` to prevent drift.
@@ -433,7 +438,7 @@ namespace DriftTarget {
     };
     static constexpr ChoiceEntry kEntries[] = {
         { "none",       "---"        },
-        { "alpha",      "A↔B"        },
+        { "alpha",      "A/B"        },
         { "noise",      "Emb. Noise" },
         { "magnitude",  "Magnitude"  },
         { "axis_1",     "Axis 1"     },
@@ -777,7 +782,7 @@ namespace EnvVelTimeMode {
     static_assert(Negative + 1 == kCount, "EnvVelTimeMode out of sync.");
 }
 
-// ── Drift regenerate mode (UTF-8 quarter-note glyph in labels) ──
+// ── Drift regenerate mode (ASCII labels: manual / a.s.a.p. / N bars) ──
 namespace DriftRegen {
     enum : int { Manual = 0, Auto = 1, Bar1 = 2, Bar2 = 3, Bar4 = 4, Bar8 = 5, Bar16 = 6 };
     // "repeat every": manual / a.s.a.p. / N bars (1 bar = 4 beats; the actual
@@ -835,7 +840,7 @@ namespace RepromptStance {
 namespace RepromptCoupling {
     enum : int { Alpha = 0, AbAdd = 1, AbReplace = 2 };
     static constexpr ChoiceEntry kEntries[] = {
-        { "alpha",  "A→B"      },   // = clap_llm_loop "alpha"
+        { "alpha",  "A->B"     },   // = clap_llm_loop "alpha"
         { "concat", "A+B add"  },   // = clap_llm_loop "concat"
         { "voll",   "A+B repl" }    // = clap_llm_loop "voll"
     };
