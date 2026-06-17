@@ -158,15 +158,17 @@ private:
     bool genModeActive = false;
     int genCurrentStep = -1;
 
-    // Row 4: Arp controls (SwitchBox: OFF/Up/Dn/U-D/Rnd)
+    // Row 4: Arp controls (left-labels + glyph/numeric switchboxes)
+    juce::Label arpModeLabel;                    // "ARP" left-label
     static constexpr int kNumModeBtns = 5;
-    juce::TextButton arpModeBtns[kNumModeBtns]; // [OFF][Up][Dn][U/D][Rnd]
+    juce::TextButton arpModeBtns[kNumModeBtns]; // glyphs: off/up/down/updown/random
     juce::ComboBox arpModeBox;                   // hidden, for APVTS
     juce::ComboBox arpRateBox;
-    juce::Label arpOctLabel;
+    juce::Label arpOctLabel;                      // "OCT" left-label
     static constexpr int kNumOctBtns = 4;
     juce::TextButton arpOctBtns[kNumOctBtns];  // [1][2][3][4]
     juce::ComboBox arpOctHidden;                 // hidden, for APVTS
+    juce::Rectangle<int> arpModeSwitchBounds, arpOctSwitchBounds;  // unified frames
 
     // APVTS attachments
     using SA = juce::AudioProcessorValueTreeState::SliderAttachment;

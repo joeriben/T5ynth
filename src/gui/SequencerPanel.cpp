@@ -851,14 +851,12 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         for (int i = 0; i < kNumModeBtns; ++i)
             arpModeBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
     };
-    static const char* modeLabels[] = {"ARP off","Up","Dn","U/D","Rnd"};
     for (int i = 0; i < kNumModeBtns; ++i)
     {
-        arpModeBtns[i].setButtonText(modeLabels[i]);
-        arpModeBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
-        arpModeBtns[i].setColour(juce::TextButton::buttonOnColourId, kSeqCol);
-        arpModeBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
-        arpModeBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        styleSwitchButton(arpModeBtns[i], kSeqCol);
+        setSwitchGlyph(arpModeBtns[i],
+                       static_cast<SwitchGlyph>(static_cast<int>(SwitchGlyph::ArpOff) + i));
+        arpModeBtns[i].setTooltip(arpModeItems[i]);
         arpModeBtns[i].setClickingTogglesState(true);
         arpModeBtns[i].setRadioGroupId(2003);
         arpModeBtns[i].onClick = [this, i] { arpModeBox.setSelectedId(i + 1); };
@@ -866,14 +864,23 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     }
     arpModeA = std::make_unique<CA>(apvts, PID::arpMode, arpModeBox);
 
+    // "ARP" left-label (was embedded in the first mode button as "ARP off")
+    arpModeLabel.setText("ARP", juce::dontSendNotification);
+    arpModeLabel.setColour(juce::Label::textColourId, kDim);
+    arpModeLabel.setJustificationType(juce::Justification::centredRight);
+    addAndMakeVisible(arpModeLabel);
+
     juce::StringArray arpRateItems;
     for (const auto& e : ArpRate::kEntries) arpRateItems.add(e.label);
     arpRateBox.addItemList(arpRateItems, 1);
+    arpRateBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
+    arpRateBox.setColour(juce::ComboBox::textColourId, kSeqCol);
+    arpRateBox.setColour(juce::ComboBox::outlineColourId, kBorder);
     addAndMakeVisible(arpRateBox);
     arpRateA = std::make_unique<CA>(apvts, PID::arpRate, arpRateBox);
 
-    // Oct label
-    arpOctLabel.setText("Oct", juce::dontSendNotification);
+    // "OCT" left-label
+    arpOctLabel.setText("OCT", juce::dontSendNotification);
     arpOctLabel.setColour(juce::Label::textColourId, kDim);
     arpOctLabel.setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(arpOctLabel);
@@ -888,10 +895,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     for (int i = 0; i < kNumOctBtns; ++i)
     {
         arpOctBtns[i].setButtonText(juce::String(i + 1));
-        arpOctBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
-        arpOctBtns[i].setColour(juce::TextButton::buttonOnColourId, kSeqCol);
-        arpOctBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
-        arpOctBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        styleSwitchButton(arpOctBtns[i], kSeqCol);
         arpOctBtns[i].setClickingTogglesState(true);
         arpOctBtns[i].setRadioGroupId(2002);
         arpOctBtns[i].onClick = [this, i] { arpOctHidden.setSelectedId(i + 1); };
@@ -1212,6 +1216,11 @@ void SequencerPanel::paint(juce::Graphics& g)
 
     // Unified switchbox frames (GuiHelpers paintSwitchBoxBorder)
     paintSwitchBoxBorder(g, divisionSwitchBounds);
+    if (arpModeBtns[0].isVisible())
+    {
+        paintSwitchBoxBorder(g, arpModeSwitchBounds);
+        paintSwitchBoxBorder(g, arpOctSwitchBounds);
+    }
 
     // ═══ Gen-Seq visualization ═══
     if (genModeActive && !genVisArea.isEmpty())
@@ -1448,20 +1457,24 @@ void SequencerPanel::resized()
 
     // ═══ Row 4 (bottom): Arp controls ═══
     auto r4 = area.removeFromBottom(rH);
-    const int modeBtnW = 32;
-    const int offBtnW  = 58;   // first button reads "ARP off" — needs extra room
+    const float arpLabelFs = uiFontSize(TextRole::Caption, rH * 0.6f);
+    arpModeLabel.setFont(uiFont(TextRole::Caption, rH * 0.6f));
+    arpModeLabel.setBounds(r4.removeFromLeft(measureTextWidth("ARP", arpLabelFs) + 6));
+    r4.removeFromLeft(2);
+    const int modeBtnW = 28;   // square-ish glyph cells (off/up/down/updown/random)
     for (int i = 0; i < kNumModeBtns; ++i)
     {
         int edges = 0;
         if (i > 0) edges |= juce::Button::ConnectedOnLeft;
         if (i < kNumModeBtns - 1) edges |= juce::Button::ConnectedOnRight;
         arpModeBtns[i].setConnectedEdges(edges);
-        arpModeBtns[i].setBounds(r4.removeFromLeft(i == 0 ? offBtnW : modeBtnW));
+        arpModeBtns[i].setBounds(r4.removeFromLeft(modeBtnW));
     }
+    arpModeSwitchBounds = arpModeBtns[0].getBounds().getUnion(arpModeBtns[kNumModeBtns - 1].getBounds());
     r4.removeFromLeft(g);
     arpRateBox.setBounds(r4.removeFromLeft(60));   r4.removeFromLeft(g);
-    arpOctLabel.setFont(juce::FontOptions(juce::jmax(kUiLabelFontMin, rH * 0.55f)));
-    arpOctLabel.setBounds(r4.removeFromLeft(28));   r4.removeFromLeft(2);
+    arpOctLabel.setFont(uiFont(TextRole::Caption, rH * 0.6f));
+    arpOctLabel.setBounds(r4.removeFromLeft(measureTextWidth("OCT", arpLabelFs) + 6));   r4.removeFromLeft(2);
     int arpOctBtnW = 22;
     for (int i = 0; i < kNumOctBtns; ++i)
     {
@@ -1471,6 +1484,7 @@ void SequencerPanel::resized()
         arpOctBtns[i].setConnectedEdges(edges);
         arpOctBtns[i].setBounds(r4.removeFromLeft(arpOctBtnW));
     }
+    arpOctSwitchBounds = arpOctBtns[0].getBounds().getUnion(arpOctBtns[kNumOctBtns - 1].getBounds());
     area.removeFromBottom(g);
 
     // ═══ Determine mode ═══
