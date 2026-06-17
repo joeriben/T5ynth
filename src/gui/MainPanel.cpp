@@ -874,10 +874,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
             auto& b = snapshotButtons[i];
             b.setButtonText(labels[i]);
             b.setSnapshotIndex(i);
-            b.setColour(juce::TextButton::buttonColourId, kSurface);
-            b.setColour(juce::TextButton::buttonOnColourId, kOscCol);
-            b.setColour(juce::TextButton::textColourOffId, kDim);
-            b.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            styleSwitchButton(b, kOscCol);
             b.setTooltip(i == 0 ? "Disable snapshot recall"
                                 : "Snapshot slot " + juce::String(i));
             int edges = 0;
@@ -908,10 +905,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         {
             auto& b = infCacheButtons[i];
             b.setButtonText(labels[i]);
-            b.setColour(juce::TextButton::buttonColourId, kSurface);
-            b.setColour(juce::TextButton::buttonOnColourId, kOscCol);
-            b.setColour(juce::TextButton::textColourOffId, kDim);
-            b.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            styleSwitchButton(b, kOscCol);
             b.setClickingTogglesState(true);
             b.setRadioGroupId(3017);
             int edges = 0;
