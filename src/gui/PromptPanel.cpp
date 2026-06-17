@@ -218,10 +218,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     // shifts with the active mode (see applyModeToSlider()).
     auto styleModeBtn = [this](juce::TextButton& b)
     {
-        b.setColour(juce::TextButton::buttonColourId, kSurface);
-        b.setColour(juce::TextButton::buttonOnColourId, kOscCol);
-        b.setColour(juce::TextButton::textColourOffId, kDim);
-        b.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        styleSwitchButton(b, kOscCol);
         b.setClickingTogglesState(true);
         b.setRadioGroupId(2027);  // unique id, distinct from model switchbox (1004)
         addAndMakeVisible(b);
@@ -364,10 +361,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
             b.setLookAndFeel(&seedBtnLnF);
             b.getProperties().set("iconId", static_cast<int>(seedIcons[i]));
             b.setTooltip(seedTips[i]);
-            b.setColour(juce::TextButton::buttonColourId, kSurface);
-            b.setColour(juce::TextButton::buttonOnColourId, kOscCol);
-            b.setColour(juce::TextButton::textColourOffId, kDim);
-            b.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            styleSwitchButton(b, kOscCol);
             b.setClickingTogglesState(true);
             b.setRadioGroupId(2038);
             int edges = 0;
@@ -406,10 +400,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         {
             modelBtns[i].setButtonText(slotLabels[i]);
             modelBtns[i].setLookAndFeel(&modelSwitchLnF);  // draws the s/m tier cell (tierLetter)
-            modelBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
-            modelBtns[i].setColour(juce::TextButton::buttonOnColourId, kOscCol);
-            modelBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
-            modelBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            styleSwitchButton(modelBtns[i], kOscCol);
             modelBtns[i].setClickingTogglesState(true);
             modelBtns[i].setRadioGroupId(1004);
             int edges = 0;
@@ -784,13 +775,8 @@ void PromptPanel::paint(juce::Graphics& g)
 {
     // Recessed band framing the mode bar (drawn before children, so the mode
     // buttons + flag paint on top): marks the blend-mode selector as a control.
-    if (!modeBandBounds.isEmpty())
-    {
-        g.setColour(kBg);
-        g.fillRoundedRectangle(modeBandBounds.toFloat(), 4.0f);
-        g.setColour(kBorder);
-        g.drawRoundedRectangle(modeBandBounds.toFloat(), 4.0f, 1.0f);
-    }
+    if (!injModeSwitchBounds.isEmpty())
+        paintSwitchBoxBorder(g, injModeSwitchBounds);
 
     // Divider separating the A↔B block from the generation params below.
     if (paramsDividerY >= 0)
@@ -1011,13 +997,12 @@ void PromptPanel::resized()
         promptAEditor.setBounds(block.removeFromTop(multiInputH));
         block.removeFromTop(innerGap);
 
-        // Left column, middle: the mode band. paint() fills modeBandBounds as a
-        // recessed well; the segmented mode buttons + Union-Jack translate toggle
-        // sit inside it with a small inset so they don't touch the band border.
+        // Left column, middle: the injection-mode switchbox — six connected
+        // radio buttons framed once by paintSwitchBoxBorder (matching the
+        // model/seed switchboxes). The Union-Jack translate toggle sits
+        // separately at the right end of the row.
         {
-            auto band = block.removeFromTop(modeBarH);
-            modeBandBounds = band;
-            auto modeRow = band.reduced(juce::jmax(2, juce::roundToInt(f * 0.18f)));
+            auto modeRow = block.removeFromTop(modeBarH);
 
             // Union-Jack translate toggle at the right end (flag aspect ~1.6:1).
             const int enW = juce::jmin(modeRow.getWidth() / 3,
@@ -1034,6 +1019,8 @@ void PromptPanel::resized()
             injModeKombi1.setBounds(modeRow.removeFromLeft(btnW));
             injModeKombi2.setBounds(modeRow.removeFromLeft(btnW));
             injModeKombi3.setBounds(modeRow);
+            injModeSwitchBounds = injModeLinear.getBounds()
+                .getUnion(injModeKombi3.getBounds());
         }
         block.removeFromTop(innerGap);
 

@@ -261,9 +261,10 @@ private:
     bool sa3TierChoiceAvailable_ = false;         // both tiers installed → tier cell + re-click toggle
     int  activeModelSlot_ = -1;                   // last-selected slot, for SA3 re-click detection
 
-    // Delineation guides painted in paint(): a recessed band framing the mode
-    // bar, and a divider line separating the impulse/blend group from the params.
-    juce::Rectangle<int> modeBandBounds;
+    // Unified switchbox frame for the injection-mode buttons (matches
+    // modelSwitchBounds / seedModeSwitchBounds), and a divider line separating
+    // the impulse/blend group from the params below.
+    juce::Rectangle<int> injModeSwitchBounds;
     int paramsDividerY = -1;
     bool modelsPopulated = false;
     juce::String pendingModel_;  // deferred model selection until models are populated
