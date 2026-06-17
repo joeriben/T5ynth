@@ -855,10 +855,10 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     }
     arpModeA = std::make_unique<CA>(apvts, PID::arpMode, arpModeBox);
 
-    // "ARP" left-label (was embedded in the first mode button as "ARP off")
-    arpModeLabel.setText("ARP", juce::dontSendNotification);
-    arpModeLabel.setColour(juce::Label::textColourId, kDim);
-    arpModeLabel.setJustificationType(juce::Justification::centredRight);
+    // "ARP" left-header: accent band over the full height, left of the mode
+    // switchbox (same grammar as RE-PROMPT/VARIATION; dark bold title on kSeqCol).
+    paintSectionHeader(arpModeLabel, "ARP", kSeqCol);
+    arpModeLabel.setInterceptsMouseClicks(false, false);
     addAndMakeVisible(arpModeLabel);
 
     juce::StringArray arpRateItems;
@@ -870,10 +870,9 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     addAndMakeVisible(arpRateBox);
     arpRateA = std::make_unique<CA>(apvts, PID::arpRate, arpRateBox);
 
-    // "OCT" left-label
-    arpOctLabel.setText("OCT", juce::dontSendNotification);
-    arpOctLabel.setColour(juce::Label::textColourId, kDim);
-    arpOctLabel.setJustificationType(juce::Justification::centredRight);
+    // "OCT" left-header (see ARP)
+    paintSectionHeader(arpOctLabel, "OCT", kSeqCol);
+    arpOctLabel.setInterceptsMouseClicks(false, false);
     addAndMakeVisible(arpOctLabel);
 
     // Arp octaves: toggle buttons [1][2][3][4] with hidden ComboBox for APVTS
@@ -1456,9 +1455,9 @@ void SequencerPanel::resized()
     // ═══ Row 4 (bottom): Arp controls ═══
     auto r4 = area.removeFromBottom(rH);
     const float arpLabelBase = static_cast<float>(rH) * 0.6f;
-    const float arpLabelFs = uiFontSize(TextRole::Caption, arpLabelBase);
-    arpModeLabel.setFont(uiFont(TextRole::Caption, arpLabelBase));
-    arpModeLabel.setBounds(r4.removeFromLeft(measureTextWidth("ARP", arpLabelFs) + 6));
+    const float arpLabelFs = uiFontSize(TextRole::ModuleTitle, arpLabelBase);
+    arpModeLabel.setFont(uiFont(TextRole::ModuleTitle, arpLabelBase, true));
+    arpModeLabel.setBounds(r4.removeFromLeft(measureTextWidth(" ARP", arpLabelFs) + 6));
     r4.removeFromLeft(2);
     const int modeBtnW = 28;   // square-ish glyph cells (off/up/down/updown/random)
     for (int i = 0; i < kNumModeBtns; ++i)
@@ -1472,8 +1471,8 @@ void SequencerPanel::resized()
     arpModeSwitchBounds = arpModeBtns[0].getBounds().getUnion(arpModeBtns[kNumModeBtns - 1].getBounds());
     r4.removeFromLeft(g);
     arpRateBox.setBounds(r4.removeFromLeft(60));   r4.removeFromLeft(g);
-    arpOctLabel.setFont(uiFont(TextRole::Caption, arpLabelBase));
-    arpOctLabel.setBounds(r4.removeFromLeft(measureTextWidth("OCT", arpLabelFs) + 6));   r4.removeFromLeft(2);
+    arpOctLabel.setFont(uiFont(TextRole::ModuleTitle, arpLabelBase, true));
+    arpOctLabel.setBounds(r4.removeFromLeft(measureTextWidth(" OCT", arpLabelFs) + 6));   r4.removeFromLeft(2);
     int arpOctBtnW = 22;
     for (int i = 0; i < kNumOctBtns; ++i)
     {

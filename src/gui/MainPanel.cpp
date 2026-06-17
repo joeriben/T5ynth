@@ -861,10 +861,11 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     mainGenerateBtn.onClick = [this] { triggerMainGeneration(); };
     addAndMakeVisible(mainGenerateBtn);
 
-    snapLabel.setText("SNAP", juce::dontSendNotification);
-    snapLabel.setColour(juce::Label::textColourId, kDim);
-    snapLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    snapLabel.setJustificationType(juce::Justification::centredLeft);
+    // Left-header: same grammar as the RE-PROMPT/VARIATION headers (accent band,
+    // dark bold left-aligned title), rotated to the left edge of this single-row
+    // switchbox module. No frame on the label itself -- the frame is the switchbox's.
+    paintSectionHeader(snapLabel, "SNAP", kOscCol);
+    snapLabel.setInterceptsMouseClicks(false, false);
     addAndMakeVisible(snapLabel);
 
     {
@@ -888,10 +889,8 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         }
     }
 
-    cacheLabel.setText("CACHE", juce::dontSendNotification);
-    cacheLabel.setColour(juce::Label::textColourId, kDim);
-    cacheLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
-    cacheLabel.setJustificationType(juce::Justification::centredLeft);
+    paintSectionHeader(cacheLabel, "CACHE", kOscCol);   // left-header (see SNAP)
+    cacheLabel.setInterceptsMouseClicks(false, false);
     addAndMakeVisible(cacheLabel);
 
     {
@@ -3114,13 +3113,17 @@ void MainPanel::resized()
                                              genCol.getWidth(),
                                              cacheRowH).reduced(1, 0);
     const float switchFs = juce::jmax(kUiLabelFontMin, static_cast<float>(cacheRowH) * 0.58f);
-    setUiFont(snapLabel, TextRole::Caption, switchFs);   // type scale, not a one-off font
-    setUiFont(cacheLabel, TextRole::Caption, switchFs);
+    // Left-header titles: ModuleTitle, bold (matches RE-PROMPT/VARIATION).
+    setUiFont(snapLabel, TextRole::ModuleTitle, switchFs, true);
+    setUiFont(cacheLabel, TextRole::ModuleTitle, switchFs, true);
 
     const bool veryNarrow = snapCacheRow.getWidth() < 260;
     const int gap = veryNarrow ? 3 : 4;
-    const int snapLabelW = veryNarrow ? 28 : juce::jlimit(28, 31, measureTextWidth("SNAP", switchFs) + 4);
-    const int cacheLabelW = veryNarrow ? 36 : juce::jlimit(36, 39, measureTextWidth("CACHE", switchFs) + 4);
+    // Band width = the (space-prefixed) title + a little right breathing room.
+    const float hdrFs = uiFontSize(TextRole::ModuleTitle, switchFs);
+    const int labelPad = veryNarrow ? 4 : 7;
+    const int snapLabelW = measureTextWidth(" SNAP", hdrFs) + labelPad;
+    const int cacheLabelW = measureTextWidth(" CACHE", hdrFs) + labelPad;
     const int snapGroupW = veryNarrow ? 94 : juce::jlimit(108, 128,
                                                           juce::roundToInt(static_cast<float>(snapCacheRow.getWidth()) * 0.28f));
 
