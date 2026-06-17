@@ -612,7 +612,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     genTransportBtn.setColour(juce::TextButton::buttonColourId, kSurface);
     genTransportBtn.setColour(juce::TextButton::buttonOnColourId, kSeqCol);
     genTransportBtn.setColour(juce::TextButton::textColourOffId, kSeqCol);
-    genTransportBtn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    genTransportBtn.setColour(juce::TextButton::textColourOnId, switchBoxSelectedTextColour(kSeqCol));
     genTransportBtn.setClickingTogglesState(true);
     // No onClick needed — ButtonAttachment handles parameter sync
     addAndMakeVisible(genTransportBtn);
@@ -675,7 +675,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         btn.setColour(juce::TextButton::buttonColourId, kSurface);
         btn.setColour(juce::TextButton::buttonOnColourId, kSeqCol);
         btn.setColour(juce::TextButton::textColourOffId, kDim);
-        btn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        btn.setColour(juce::TextButton::textColourOnId, switchBoxSelectedTextColour(kSeqCol));
         btn.setColour(juce::ComboBox::outlineColourId, kSeqCol.withAlpha(0.5f));
         btn.setTooltip(tip);
         addAndMakeVisible(btn);
@@ -726,7 +726,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
             strandEnableBtns[i].setColour(juce::TextButton::buttonColourId,   kSurface);
             strandEnableBtns[i].setColour(juce::TextButton::buttonOnColourId, kSeqCol);
             strandEnableBtns[i].setColour(juce::TextButton::textColourOffId,  kDim);
-            strandEnableBtns[i].setColour(juce::TextButton::textColourOnId,   juce::Colours::white);
+            strandEnableBtns[i].setColour(juce::TextButton::textColourOnId,   switchBoxSelectedTextColour(kSeqCol));
             strandEnableBtns[i].setTooltip("Enable polyphonic strand " + juce::String(i + 2));
             addAndMakeVisible(strandEnableBtns[i]);
             strandEnableA[i] = std::make_unique<BA>(apvts, kEnablePIDs[i], strandEnableBtns[i]);
