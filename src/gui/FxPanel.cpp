@@ -42,10 +42,7 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     for (int i = 0; i < kNumDelayBtns; ++i)
     {
         delayTypeBtns[i].setButtonText(delayLabels[i]);
-        delayTypeBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
-        delayTypeBtns[i].setColour(juce::TextButton::buttonOnColourId, kFxCol);
-        delayTypeBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
-        delayTypeBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        styleSwitchButton(delayTypeBtns[i], kFxCol);
         delayTypeBtns[i].setClickingTogglesState(true);
         delayTypeBtns[i].setRadioGroupId(4001);
         delayTypeBtns[i].onClick = [this, i] { delayTypeHidden.setSelectedId(i + 1); };
@@ -152,10 +149,7 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     for (int i = 0; i < kNumReverbBtns; ++i)
     {
         reverbTypeBtns[i].setButtonText(reverbLabels[i]);
-        reverbTypeBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
-        reverbTypeBtns[i].setColour(juce::TextButton::buttonOnColourId, kFxCol);
-        reverbTypeBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
-        reverbTypeBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        styleSwitchButton(reverbTypeBtns[i], kFxCol);
         reverbTypeBtns[i].setClickingTogglesState(true);
         reverbTypeBtns[i].setRadioGroupId(4002);
         reverbTypeBtns[i].onClick = [this, i] { reverbTypeHidden.setSelectedId(i + 1); };
