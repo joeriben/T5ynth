@@ -434,16 +434,32 @@ void FxPanel::resized()
         .getUnion(reverbTypeBtns[kNumReverbBtns - 1].getBounds());
     area.removeFromTop(gap);
 
-    // Reverb params — always 2 rows: Room+Damp, Width+Mix (dimmed when inactive)
+    // Reverb params — always 2 rows: Room+Damp, Width+Mix (dimmed when inactive).
+    // Column label widths are matched the same way the Delay section does it, so the
+    // slider track left-edges line up vertically (Room over Width, Damp over Mix) —
+    // "Width" is wider than "Room", so without this the tracks step in and out.
     {
+        const int revPairGap = 2;
+        const int revColumnW = juce::jmax(0, (area.getWidth() - revPairGap) / 2);
+        const int revLeftLabelW = std::max(
+            algoRoomRow->getNaturalLabelWidthForAvailableWidth(revColumnW),
+            algoWidthRow->getNaturalLabelWidthForAvailableWidth(revColumnW));
+        const int revRightLabelW = std::max(
+            algoDampRow->getNaturalLabelWidthForAvailableWidth(revColumnW),
+            reverbMixRow->getNaturalLabelWidthForAvailableWidth(revColumnW));
+        algoRoomRow->setForcedLabelWidth(revLeftLabelW);
+        algoWidthRow->setForcedLabelWidth(revLeftLabelW);
+        algoDampRow->setForcedLabelWidth(revRightLabelW);
+        reverbMixRow->setForcedLabelWidth(revRightLabelW);
+
         auto row1 = area.removeFromTop(rowH);
-        auto pair1 = layoutSliderRowPairBounds(row1, *algoRoomRow, *algoDampRow, 2);
+        auto pair1 = layoutSliderRowPairBounds(row1, *algoRoomRow, *algoDampRow, revPairGap);
         algoRoomRow->setBounds(pair1[0]);
         algoDampRow->setBounds(pair1[1]);
 
         area.removeFromTop(gap);
         auto row2 = area.removeFromTop(rowH);
-        auto pair2 = layoutSliderRowPairBounds(row2, *algoWidthRow, *reverbMixRow, 2);
+        auto pair2 = layoutSliderRowPairBounds(row2, *algoWidthRow, *reverbMixRow, revPairGap);
         algoWidthRow->setBounds(pair2[0]);
         reverbMixRow->setBounds(pair2[1]);
     }

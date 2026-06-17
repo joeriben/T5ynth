@@ -3094,6 +3094,22 @@ void SynthPanel::resized()
         area.removeFromTop(gap);
 
         {
+            // Match column label widths so the slider tracks line up vertically:
+            // LEFT = Cutoff(row1)/Mix(row2), RIGHT = Resonance(row1)/Kbd Track(row2).
+            // "Cutoff" is wider than "Mix", so without this the left tracks step in/out
+            // (same forced-width pattern as the FX Delay/Reverb sections).
+            const int fColW = juce::jmax(0, (area.getWidth() - 4) / 2);
+            const int fLeftLabelW = std::max(
+                cutoffRow->getNaturalLabelWidthForAvailableWidth(fColW),
+                filterMixRow->getNaturalLabelWidthForAvailableWidth(fColW));
+            const int fRightLabelW = std::max(
+                resoRow->getNaturalLabelWidthForAvailableWidth(fColW),
+                kbdTrackRow->getNaturalLabelWidthForAvailableWidth(fColW));
+            cutoffRow->setForcedLabelWidth(fLeftLabelW);
+            filterMixRow->setForcedLabelWidth(fLeftLabelW);
+            resoRow->setForcedLabelWidth(fRightLabelW);
+            kbdTrackRow->setForcedLabelWidth(fRightLabelW);
+
             // Always allocate — dimmed when filter off
             auto row1 = area.removeFromTop(rowH);
             auto filterBounds1 = layoutSliderRowPairBounds(row1, *cutoffRow, *resoRow, 4);
