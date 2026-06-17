@@ -1813,6 +1813,15 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
         currentPresetFile = juce::File();
     }
 
+    // Passive session-restore (the standalone "_buffer.t5p" written on quit) must NOT
+    // auto-resume the Re-Prompt loop on launch — the standalone analogue of
+    // setStateInformation's anti-surprise force-Off. importJsonPreset deliberately
+    // restores the stance so a DELIBERATE .t5p load (user clicks a preset) reproduces
+    // the machine patch; only this passive buffer path nukes it back to Off.
+    if (sourceFile.getFileName() == "_buffer.t5p")
+        if (auto* stanceParam = processorRef.getValueTreeState().getParameter(PID::repromptStance))
+            stanceParam->setValueNotifyingHost(0.0f);
+
     presetManager.setCurrentPreset(currentPresetFile, result.presetName);
 }
 

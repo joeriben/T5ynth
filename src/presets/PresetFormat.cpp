@@ -165,8 +165,9 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
     // Patch in prompts (exportJsonPreset leaves them empty). When a Re-Prompt
     // loop is engaged, lastPromptA/B hold the machine's transient mid-loop
     // rewrite — save the HUMAN seed instead so a reloaded preset reproduces the
-    // user's starting point, not a random in-flight prompt. (The stance/coupling
-    // themselves are saved by exportJsonPreset and forced Off on load.)
+    // user's starting point, not a random in-flight prompt. (The stance + coupling
+    // are saved by exportJsonPreset and both restored on load — see importJsonPreset;
+    // the DAW host-state path still forces the stance Off.)
     if (auto* synth = root->getProperty("synth").getDynamicObject())
     {
         const bool loop = processor.hasLoopSeedPrompts();
