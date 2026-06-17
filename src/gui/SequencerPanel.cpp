@@ -1284,7 +1284,7 @@ void SequencerPanel::resized()
     float topH = getTopLevelComponent()
                      ? static_cast<float>(getTopLevelComponent()->getHeight()) : 800.0f;
     int headerH = juce::jlimit(14, 20, juce::roundToInt(topH * 0.022f));
-    seqHeader.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.85f));
+    setUiFont(seqHeader, TextRole::ModuleTitle, static_cast<float>(headerH), true);
     seqHeader.setBounds(area.removeFromTop(headerH));
     area.removeFromTop(juce::jmax(3, headerH / 5));
 
@@ -1305,8 +1305,8 @@ void SequencerPanel::resized()
         }
     };
 
-    const float midiFont = compactTopRow ? kUiValueFontMin : juce::jmax(kUiValueFontMin,
-                                                                         static_cast<float>(rH) * 0.6f);
+    const float midiFont = uiFontSize(TextRole::Value, compactTopRow ? 0.0f
+                                                                      : static_cast<float>(rH) * 0.6f);
     const int midiTextW = measureTextWidth("D#4 v127", midiFont) + 8;
     const int midiLedW = compactTopRow ? 10 : 14;
     const int midiGap = compactTopRow ? 2 : 5;
@@ -1452,8 +1452,9 @@ void SequencerPanel::resized()
 
     // ═══ Row 4 (bottom): Arp controls ═══
     auto r4 = area.removeFromBottom(rH);
-    const float arpLabelFs = uiFontSize(TextRole::Caption, rH * 0.6f);
-    arpModeLabel.setFont(uiFont(TextRole::Caption, rH * 0.6f));
+    const float arpLabelBase = static_cast<float>(rH) * 0.6f;
+    const float arpLabelFs = uiFontSize(TextRole::Caption, arpLabelBase);
+    arpModeLabel.setFont(uiFont(TextRole::Caption, arpLabelBase));
     arpModeLabel.setBounds(r4.removeFromLeft(measureTextWidth("ARP", arpLabelFs) + 6));
     r4.removeFromLeft(2);
     const int modeBtnW = 28;   // square-ish glyph cells (off/up/down/updown/random)
@@ -1468,7 +1469,7 @@ void SequencerPanel::resized()
     arpModeSwitchBounds = arpModeBtns[0].getBounds().getUnion(arpModeBtns[kNumModeBtns - 1].getBounds());
     r4.removeFromLeft(g);
     arpRateBox.setBounds(r4.removeFromLeft(60));   r4.removeFromLeft(g);
-    arpOctLabel.setFont(uiFont(TextRole::Caption, rH * 0.6f));
+    arpOctLabel.setFont(uiFont(TextRole::Caption, arpLabelBase));
     arpOctLabel.setBounds(r4.removeFromLeft(measureTextWidth("OCT", arpLabelFs) + 6));   r4.removeFromLeft(2);
     int arpOctBtnW = 22;
     for (int i = 0; i < kNumOctBtns; ++i)
@@ -1577,7 +1578,7 @@ void SequencerPanel::resized()
                 genScaleRootBox.setBounds(rowL1.removeFromLeft(rootW));  rowL1.removeFromLeft(gapTiny);
                 genScaleTypeBox.setBounds(rowL1.removeFromLeft(scaleW)); rowL1.removeFromLeft(gapMid);
                 genRangeLabel.setText("Rng", juce::dontSendNotification);
-                genRangeLabel.setFont(juce::FontOptions(juce::jmax(kUiLabelFontMin, genCtrlH * 0.55f)));
+                genRangeLabel.setFont(uiFont(TextRole::Caption, static_cast<float>(genCtrlH) * 0.55f));
                 genRangeLabel.setBounds(rowL1.removeFromLeft(rngLblW)); rowL1.removeFromLeft(gapTiny);
                 for (int i = 0; i < kNumRangeBtns; ++i)
                 {
@@ -1651,8 +1652,7 @@ void SequencerPanel::resized()
                     modBot.removeFromLeft(gapPad);
 
                     // Match Rng label's smaller font so "Dom" doesn't truncate.
-                    strandDomLabels[i].setFont(juce::FontOptions(
-                        juce::jmax(kUiLabelFontMin, genCtrlH * 0.55f)));
+                    strandDomLabels[i].setFont(uiFont(TextRole::Caption, static_cast<float>(genCtrlH) * 0.55f));
                     strandDomLabels[i].setBounds(modBot.removeFromLeft(domLblW));
                     modBot.removeFromLeft(gapTiny);
                     strandDomSliders[i].setBounds(modBot);
