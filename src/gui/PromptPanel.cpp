@@ -20,7 +20,7 @@ constexpr float kPromptModeBar     = 1.3f;   // mode-bar height (a real control 
 constexpr float kPromptInnerGap    = 0.6f;   // breathing room around the mode bar, inside the A↔B block
 constexpr float kPromptModelGap    = 0.6f;   // below the model selector
 constexpr float kPromptGroupGap    = 1.0f;   // around the divider between the A↔B block and the params
-constexpr float kPromptReprompt    = 2.6f;   // Re-Prompt row (stance glyph bar + 3 stacked coupling buttons), under the prompts
+constexpr float kPromptReprompt    = 4.0f;   // Re-Prompt MODULE total height (card + accent header + content: stance glyph bar | 3-stacked coupling)
 // The prompting area is an A↔B block: [A editor / mode-bar / B editor] in a left
 // column with a full-height vertical blend slider on the right. The block is
 // framed by breathing room and a recessed band behind the mode bar; a divider
@@ -28,13 +28,13 @@ constexpr float kPromptReprompt    = 2.6f;   // Re-Prompt row (stance glyph bar 
 // Both ContentUnits MUST equal the unit sum in getPreferredHeightForWidth so that
 // resized()'s f = (height-2)/ContentUnits resolves back to the preferred font.
 // (abBlock = 2·multiInput + 2·innerGap + modeBar = 7.4 + 1.2 + 1.3 = 9.9 units.)
-// The Re-Prompt row + its top gap (innerGap + kPromptReprompt = 0.6 + 2.6 = 3.2)
+// The Re-Prompt module + its top gap (innerGap + kPromptReprompt = 0.6 + 4.0 = 4.6)
 // sits between the A↔B block and the divider and is in BOTH budgets below.
 // Advanced replaces the easy view's divider (groupGap) with a "GENERATION"
 // top-header (compactRow + gap) above the param grid: -1.0 +1.15 +0.28 = +0.43.
-constexpr float kPromptContentUnits = 25.55f;
+constexpr float kPromptContentUnits = 26.95f;
 // Easy budget keeps the model selector row but drops the advanced param rows.
-constexpr float kPromptEasyContentUnits = 20.46f;
+constexpr float kPromptEasyContentUnits = 21.86f;
 constexpr int kBaseSeed = 123456789;
 
 float preferredPromptFontForWidth(int width)
@@ -534,15 +534,13 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     // binds itself to repromptStance; the vertical switchbox mirrors the model
     // switchbox pattern (hidden combo + radio buttons) and binds to repromptCoupling.
     // Re-Prompt is engine-agnostic (NOT SA3-gated): the word loop runs on any model.
-    // Left-header: the horizontal-flow analogue of the ModuleBox top-header. The
-    // Re-Prompt label becomes a full-height accent strip on the left of its row
-    // (dark ink on accent), with the stance bar + coupling flowing to its right.
-    // Same header language as the GENERATION top-header below and the ModuleBox
-    // titles — top-header spans full width at top, left-header spans full height
-    // at left.
-    paintSectionHeader(repromptLabel, "RE-PROMPT", kOscCol);
-    repromptLabel.setInterceptsMouseClicks(false, false);
-    addAndMakeVisible(repromptLabel);
+    // Re-Prompt is its own framed module (card + accent top-header) — the same
+    // ModuleBox template as Duration/Variation/Resynth. It IS one control module,
+    // so it gets a frame. The header strip carries the "RE-PROMPT" title; the
+    // stance glyph bar + 3-way coupling stack live in the content area below it.
+    repromptModuleBox.configure("RE-PROMPT", kOscCol, Icon::numIcons);
+    addAndMakeVisible(repromptModuleBox);
+    repromptModuleBox.toBack();
 
     // Advanced-view "GENERATION" top-header framing the diffusion param grid
     // (Magnitude/Chaos/Steps/CFG/Duration/Variation) — replaces the old divider.
@@ -1049,33 +1047,32 @@ void PromptPanel::resized()
         promptBEditor.setBounds(block.removeFromTop(multiInputH));
     }
 
-    // ── Re-Prompt row ────────────────────────────────────────────────────────
-    // Directly under the prompts, above the params divider:
-    //   [label] [stance glyph bar] [vertical 3-way coupling switchbox].
-    // The coupling buttons are kept compact (short row → small auto-font from the
-    // LookAndFeel, plus tight 1 px inter-button gaps) per the layout request.
+    // ── Re-Prompt module ──────────────────────────────────────────────────────
+    // A framed ModuleBox (card + accent top-header), the same template as Duration/
+    // Variation/Resynth. The header strip is the "RE-PROMPT" title; the content
+    // holds the stance glyph bar (left) and the 3-way coupling stack (right). The
+    // stance bar gets the FULL module-content height — its phase-portrait glyph
+    // size is min(height, width)-bound, so keeping it tall AND wide (only the
+    // narrow coupling column comes off the right) un-squeezes the glyphs.
     area.removeFromTop(innerGap);
     {
-        auto rr = area.removeFromTop(repromptRowH);
+        auto rpArea = area.removeFromTop(repromptRowH);   // repromptRowH = module height
+        const int rpPad = juce::jmax(3, juce::roundToInt(f * 0.3f));
+        repromptModuleBox.setBaseFont(f);
+        repromptModuleBox.setHeaderHeight(compactRowH);
+        repromptModuleBox.setContentPadding(rpPad);
+        repromptModuleBox.setBounds(rpArea);
+        auto content = repromptModuleBox.getContentBounds();   // PARENT-relative
 
-        // Full-height left-header chip, sized to its text (not a width fraction).
-        setUiFont(repromptLabel, TextRole::ModuleTitle, f, true);
-        const int rpLabelW = juce::jlimit(56, juce::jmax(56, juce::jmin(140, rr.getWidth() / 2)),
-            uiFont(TextRole::ModuleTitle, f, true).getStringWidth(" RE-PROMPT")
-                + juce::roundToInt(f * 0.9f));   // jmax guards lo<=hi on very narrow panels
-        repromptLabel.setBounds(rr.removeFromLeft(juce::jmin(rpLabelW, rr.getWidth())));
-        rr.removeFromLeft(juce::jmin(gap, rr.getWidth()));
-
-        // Coupling switchbox on the right (3 stacked radio buttons).
-        const int couplingW = juce::jlimit(58, 96, juce::roundToInt(rr.getWidth() * 0.30f));
-        auto couplingCol = rr.removeFromRight(juce::jmin(couplingW, rr.getWidth()));
-        // Clearer separation between the stance bar ("…opposite") and the
-        // coupling field (per layout request) — wider than the base gap.
+        // Coupling stack on the right (3 stacked radio buttons), unchanged.
+        const int couplingW = juce::jlimit(58, 96, juce::roundToInt(content.getWidth() * 0.30f));
+        auto couplingCol = content.removeFromRight(juce::jmin(couplingW, content.getWidth()));
+        // Clearer separation between the stance bar ("…opposite") and the coupling.
         const int couplingGap = juce::jmax(gap * 2, juce::roundToInt(f * 0.9f));
-        rr.removeFromRight(juce::jmin(couplingGap, rr.getWidth()));
+        content.removeFromRight(juce::jmin(couplingGap, content.getWidth()));
 
-        // Stance glyph bar fills the middle.
-        repromptStanceBar.setBounds(rr);
+        // Stance glyph bar fills the rest (full content height → large glyphs).
+        repromptStanceBar.setBounds(content);
 
         const int segGap = 1;
         const int segH = juce::jmax(9,

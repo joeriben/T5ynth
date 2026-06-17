@@ -469,7 +469,10 @@ private:
     // message-thread-only meta-controls (read in pollDriftRegen, not in processBlock).
     // repromptCouplingA (the ComboBoxAttachment) is declared AFTER its hidden combo
     // so it tears down first (reverse-destruction order).
-    juce::Label repromptLabel;
+    // repromptModuleBox is the framed card (accent "RE-PROMPT" top-header) the
+    // stance bar + coupling sit inside — it IS one control module, so it gets a
+    // frame, like Duration/Variation. Decorative; sits behind them (toBack in ctor).
+    ModuleBox repromptModuleBox;
     juce::Label genParamsHeader;   // advanced-view "GENERATION" top-header over the param grid
     RepromptStanceBar repromptStanceBar;
     static constexpr int kNumCouplingBtns = RepromptCoupling::kCount;
