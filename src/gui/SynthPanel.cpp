@@ -678,18 +678,12 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         octaveHidden.onChange = [this] {
             int id = octaveHidden.getSelectedId();
             for (int i = 0; i < kNumOctBtns; ++i)
-            {
-                bool sel = (i + 1 == id);
-                octBtns[i].setToggleState(sel, juce::dontSendNotification);
-                octBtns[i].setColour(juce::TextButton::buttonColourId,
-                                      sel ? kAccent : juce::Colours::transparentBlack);
-                octBtns[i].setColour(juce::TextButton::textColourOffId,
-                                      sel ? juce::Colour(0xff0e1018) : kDimmer);
-            }
+                octBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
         };
         for (int i = 0; i < kNumOctBtns; ++i)
         {
             octBtns[i].setButtonText(octLabels[i]);
+            styleSwitchButton(octBtns[i], kAccent);
             octBtns[i].setClickingTogglesState(false);
             octBtns[i].onClick = [this, i] { octaveHidden.setSelectedId(i + 1); };
             addAndMakeVisible(octBtns[i]);
@@ -705,20 +699,13 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         noiseTypeHidden.addItemList(noiseLabels, 1);
         noiseTypeHidden.onChange = [this] {
             int id = noiseTypeHidden.getSelectedId();
-            auto textCol = kDimmer;
             for (int i = 0; i < kNumNoiseBtns; ++i)
-            {
-                bool sel = (i + 1 == id);
-                noiseBtns[i].setToggleState(sel, juce::dontSendNotification);
-                noiseBtns[i].setColour(juce::TextButton::buttonColourId,
-                                        sel ? kAccent : juce::Colours::transparentBlack);
-                noiseBtns[i].setColour(juce::TextButton::textColourOffId,
-                                        sel ? juce::Colour(0xff0e1018) : textCol);
-            }
+                noiseBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
         };
         for (int i = 0; i < kNumNoiseBtns; ++i)
         {
             noiseBtns[i].setButtonText(noiseLabels[i]);
+            styleSwitchButton(noiseBtns[i], kAccent);
             noiseBtns[i].setClickingTogglesState(false);
             noiseBtns[i].onClick = [this, i] { noiseTypeHidden.setSelectedId(i + 1); };
             addAndMakeVisible(noiseBtns[i]);
