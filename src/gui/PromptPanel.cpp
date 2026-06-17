@@ -789,14 +789,10 @@ void PromptPanel::paint(juce::Graphics& g)
     if (!injModeSwitchBounds.isEmpty())
         paintSwitchBoxBorder(g, injModeSwitchBounds);
 
-    // Divider separating the A↔B block from the generation params below.
-    if (paramsDividerY >= 0)
-    {
-        const int pad = juce::roundToInt(static_cast<float>(getWidth()) * kPromptPadFactor);
-        g.setColour(kBorder);
-        g.drawHorizontalLine(paramsDividerY, static_cast<float>(pad),
-                             static_cast<float>(getWidth() - pad));
-    }
+    // (The A↔B / params divider is drawn in paintOverChildren(): in advanced view
+    // it sits on the GENERATION header's top edge, so it must paint AFTER the
+    // header's fill or the fill overdraws it — same overdraw rule as the
+    // switchbox frames.)
 
     if (!modelSwitchBounds.isEmpty())
         paintSwitchBoxBorder(g, modelSwitchBounds);
@@ -806,6 +802,19 @@ void PromptPanel::paint(juce::Graphics& g)
 
 void PromptPanel::paintOverChildren(juce::Graphics& g)
 {
+    // Divider between the A↔B / Re-Prompt block and the generation params. Drawn
+    // here (after children) because in advanced view it lands on the GENERATION
+    // header's top edge — painting it in paint() would let the header's fill
+    // overdraw it. In easy view it sits in an empty gap, so after-children is
+    // equally fine.
+    if (paramsDividerY >= 0)
+    {
+        const int pad = juce::roundToInt(static_cast<float>(getWidth()) * kPromptPadFactor);
+        g.setColour(kBorder);
+        g.drawHorizontalLine(paramsDividerY, static_cast<float>(pad),
+                             static_cast<float>(getWidth() - pad));
+    }
+
     auto drawGhost = [&](juce::Slider& slider, float ghostVal) {
         if (std::isnan(ghostVal)) return;
         auto sb = slider.getBounds();
@@ -1091,10 +1100,14 @@ void PromptPanel::resized()
     else
     {
         // Advanced view: a "GENERATION" top-header frames the flat param grid.
-        // The accent strip IS the visual break, so the divider line is dropped
-        // (sentinel -1 → paint() skips it). Budget swaps groupGap for
-        // compactRowH + gap (see getPreferredHeightForWidth / kPromptContentUnits).
-        paramsDividerY = -1;
+        // The accent strip alone didn't read as a break — it's periwinkle, and so
+        // is the RE-PROMPT left-header directly above it, so on the left the two
+        // bands merged into one. Restore a thin divider on the header's top edge.
+        // It's drawn in paintOverChildren() (after the header's fill) so the fill
+        // can't overdraw it, and consumes no vertical space — the budget still
+        // swaps groupGap for compactRowH + gap (see getPreferredHeightForWidth /
+        // kPromptContentUnits).
+        paramsDividerY = area.getY();
         setUiFont(genParamsHeader, TextRole::ModuleTitle, f, true);
         genParamsHeader.setBounds(area.removeFromTop(compactRowH));
         area.removeFromTop(gap);
