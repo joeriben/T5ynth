@@ -490,18 +490,30 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     };
     addAndMakeVisible(stepCountBox);
 
-    // ── Division (note length) dropdown ──
-    // A ComboBox, not a 5-button switchbox: the step-seq top strip is horizontally
-    // tight, so this matches the Arp's rate dropdown and the row's stepCount/preset
-    // boxes instead of spending ~140px on connected buttons.
+    // ── Division (note length) switchbox — drawn note glyphs ──
+    // Note symbols (1/1..1/16) keep the 5-button switchbox compact enough for the
+    // tight top strip while showing every option at once. The hidden ComboBox
+    // carries the APVTS attachment; the buttons are a glyph radio group over it.
     juce::StringArray divisionItems;
     for (const auto& e : SeqDivision::kEntries) divisionItems.add(e.label);
-    divisionBox.addItemList(divisionItems, 1);
-    divisionBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
-    divisionBox.setColour(juce::ComboBox::textColourId, kSeqCol);
-    divisionBox.setColour(juce::ComboBox::outlineColourId, kBorder);
-    addAndMakeVisible(divisionBox);
-    divA = std::make_unique<CA>(apvts, PID::seqDivision, divisionBox);
+    divisionHidden.addItemList(divisionItems, 1);
+    divisionHidden.onChange = [this] {
+        int id = divisionHidden.getSelectedId();
+        for (int i = 0; i < kNumDivBtns; ++i)
+            divBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
+    };
+    for (int i = 0; i < kNumDivBtns; ++i)
+    {
+        styleSwitchButton(divBtns[i], kSeqCol);
+        setSwitchGlyph(divBtns[i],
+                       static_cast<SwitchGlyph>(static_cast<int>(SwitchGlyph::NoteWhole) + i));
+        divBtns[i].setTooltip(divisionItems[i]);
+        divBtns[i].setClickingTogglesState(true);
+        divBtns[i].setRadioGroupId(2001);
+        divBtns[i].onClick = [this, i] { divisionHidden.setSelectedId(i + 1); };
+        addAndMakeVisible(divBtns[i]);
+    }
+    divA = std::make_unique<CA>(apvts, PID::seqDivision, divisionHidden);
 
     // ── BPM ──
     bpmRow = std::make_unique<SliderRow>("BPM", [](double v) { return juce::String(juce::roundToInt(v)); }, kSeqCol);
@@ -981,9 +993,9 @@ void SequencerPanel::showHeaderOverflowMenu()
     menu.addSubMenu("Steps", stepMenu);
 
     juce::PopupMenu divisionMenu;
-    for (int i = 0; i < divisionBox.getNumItems(); ++i)
-        divisionMenu.addItem(kOverflowDivisionBase + i + 1, divisionBox.getItemText(i), true,
-                             divisionBox.getSelectedId() == i + 1);
+    for (int i = 0; i < divisionHidden.getNumItems(); ++i)
+        divisionMenu.addItem(kOverflowDivisionBase + i + 1, divisionHidden.getItemText(i), true,
+                             divisionHidden.getSelectedId() == i + 1);
     menu.addSubMenu("Division", divisionMenu);
 
     juce::PopupMenu octaveMenu;
@@ -1026,7 +1038,7 @@ void SequencerPanel::showHeaderOverflowMenu()
         }
         if (result >= kOverflowDivisionBase && result < kOverflowOctaveBase)
         {
-            safeThis->divisionBox.setSelectedId(result - kOverflowDivisionBase, juce::sendNotificationSync);
+            safeThis->divisionHidden.setSelectedId(result - kOverflowDivisionBase, juce::sendNotificationSync);
             return;
         }
         if (result >= kOverflowOctaveBase && result < kOverflowSavePattern)
@@ -1198,6 +1210,9 @@ void SequencerPanel::paint(juce::Graphics& g)
         g.drawHorizontalLine(arpY - 2, 6.0f, static_cast<float>(getWidth() - 6));
     }
 
+    // Unified switchbox frames (GuiHelpers paintSwitchBoxBorder)
+    paintSwitchBoxBorder(g, divisionSwitchBounds);
+
     // ═══ Gen-Seq visualization ═══
     if (genModeActive && !genVisArea.isEmpty())
     {
@@ -1339,8 +1354,8 @@ void SequencerPanel::resized()
     const int compactTierWidth = compactTopRow ? 72 : 90;
     const int compactStepWidth = compactTopRow ? 42 : 52;
     const int iconW = compactTopRow ? 18 : rH;
-    const int divisionPrefW = compactTopRow ? 52 : 60;   // dropdown (was a 5-button switchbox)
-    const int divisionMinW  = compactTopRow ? 44 : 50;
+    const int divisionPrefW = kNumDivBtns * (compactTopRow ? 18 : 22);  // note-glyph switchbox
+    const int divisionMinW  = kNumDivBtns * (compactTopRow ? 15 : 18);
     const int octavePrefW = kNumOctShiftBtns * (compactTopRow ? 20 : 24);
     const int octaveMinW = kNumOctShiftBtns * (compactTopRow ? 18 : 20);
     const int midiClusterW = midiTextW + midiLedW + midiGap;
@@ -1390,8 +1405,29 @@ void SequencerPanel::resized()
     seqLoadBtn.setVisible(hasBounds(headerLayout.bounds[slotLoad]));
     seqLoadBtn.setBounds(headerLayout.bounds[slotLoad]);
 
-    divisionBox.setVisible(hasBounds(headerLayout.bounds[slotDivision]));
-    divisionBox.setBounds(headerLayout.bounds[slotDivision]);
+    const bool divVisible = hasBounds(headerLayout.bounds[slotDivision]);
+    for (int i = 0; i < kNumDivBtns; ++i)
+    {
+        divBtns[i].setVisible(divVisible);
+        if (!divVisible)
+            divBtns[i].setBounds({});
+    }
+    if (divVisible)
+    {
+        auto divArea = headerLayout.bounds[slotDivision];
+        const int divBtnW = divArea.getWidth() / kNumDivBtns;
+        for (int i = 0; i < kNumDivBtns; ++i)
+        {
+            int edges = 0;
+            if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+            if (i < kNumDivBtns - 1) edges |= juce::Button::ConnectedOnRight;
+            divBtns[i].setConnectedEdges(edges);
+            divBtns[i].setBounds(divArea.removeFromLeft(i == kNumDivBtns - 1 ? divArea.getWidth() : divBtnW));
+        }
+        divisionSwitchBounds = divBtns[0].getBounds().getUnion(divBtns[kNumDivBtns - 1].getBounds());
+    }
+    else
+        divisionSwitchBounds = {};
 
     setOctShiftVisible(hasBounds(headerLayout.bounds[slotOctave]));
     if (hasBounds(headerLayout.bounds[slotOctave]))
