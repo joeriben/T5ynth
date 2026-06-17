@@ -428,10 +428,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
 
     // ── Engine mode ──
     auto styleBtn = [](juce::TextButton& btn, bool on) {
-        btn.setColour(juce::TextButton::buttonColourId, on ? juce::Colour(0xff1a2a3a) : kSurface);
-        btn.setColour(juce::TextButton::buttonOnColourId, kAccent);
-        btn.setColour(juce::TextButton::textColourOffId, kDim);
-        btn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        styleSwitchButton(btn, kAccent);
         btn.setClickingTogglesState(true);
         btn.setRadioGroupId(1001);
         btn.setToggleState(on, juce::dontSendNotification);
@@ -478,10 +475,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         for (int i = 0; i < kNumVoiceBtns; ++i)
         {
             voiceBtns[i].setButtonText(vcLabels[i]);
-            voiceBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
-            voiceBtns[i].setColour(juce::TextButton::buttonOnColourId, kAccent);
-            voiceBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
-            voiceBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            styleSwitchButton(voiceBtns[i], kAccent);
             voiceBtns[i].setClickingTogglesState(true);
             voiceBtns[i].setRadioGroupId(1002);
             int edges = 0;
@@ -553,10 +547,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
 
     // ── Loop mode ──
     auto styleLoopBtn = [](juce::TextButton& btn) {
-        btn.setColour(juce::TextButton::buttonColourId, kSurface);
-        btn.setColour(juce::TextButton::buttonOnColourId, kAccent);
-        btn.setColour(juce::TextButton::textColourOffId, kDim);
-        btn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        styleSwitchButton(btn, kAccent);
         btn.setClickingTogglesState(true);
         btn.setRadioGroupId(1003);
     };
@@ -841,10 +832,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         {
             auto& btn = tabs[static_cast<size_t>(i)];
             btn.setButtonText(labels[i]);
-            btn.setColour(juce::TextButton::buttonColourId, kSurface);
-            btn.setColour(juce::TextButton::buttonOnColourId, kModCol);
-            btn.setColour(juce::TextButton::textColourOffId, kDim);
-            btn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            styleSwitchButton(btn, kModCol);
             btn.setClickingTogglesState(true);
             btn.setRadioGroupId(radioGroup);
             btn.onClick = [this, i, radioGroup]
@@ -885,10 +873,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         for (int i = 0; i < kNumTypeBtns; ++i)
         {
             filterTypeBtns[i].setButtonText(typeLabels[i]);
-            filterTypeBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
-            filterTypeBtns[i].setColour(juce::TextButton::buttonOnColourId, kFilterCol);
-            filterTypeBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
-            filterTypeBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            styleSwitchButton(filterTypeBtns[i], kFilterCol);
             filterTypeBtns[i].setClickingTogglesState(true);
             filterTypeBtns[i].setRadioGroupId(3001);
             { int edges = 0;
@@ -913,10 +898,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         for (int i = 0; i < kNumSlopeBtns; ++i)
         {
             filterSlopeBtns[i].setButtonText(slopeLabels[i]);
-            filterSlopeBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
-            filterSlopeBtns[i].setColour(juce::TextButton::buttonOnColourId, kFilterCol);
-            filterSlopeBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
-            filterSlopeBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            styleSwitchButton(filterSlopeBtns[i], kFilterCol);
             filterSlopeBtns[i].setClickingTogglesState(true);
             filterSlopeBtns[i].setRadioGroupId(3002);
             { int edges = 0;
@@ -946,10 +928,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         for (int i = 0; i < kNumAlgBtns; ++i)
         {
             filterAlgBtns[i].setButtonText(algLabels[i]);
-            filterAlgBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
-            filterAlgBtns[i].setColour(juce::TextButton::buttonOnColourId, kFilterCol);
-            filterAlgBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
-            filterAlgBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            styleSwitchButton(filterAlgBtns[i], kFilterCol);
             filterAlgBtns[i].setClickingTogglesState(true);
             filterAlgBtns[i].setRadioGroupId(3005);
             { int edges = 0;
@@ -1016,10 +995,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         for (int i = 0; i < kNumDriveOsBtns; ++i)
         {
             filterDriveOsBtns[i].setButtonText(osLabels[i]);
-            filterDriveOsBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
-            filterDriveOsBtns[i].setColour(juce::TextButton::buttonOnColourId, kFilterCol);
-            filterDriveOsBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
-            filterDriveOsBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            styleSwitchButton(filterDriveOsBtns[i], kFilterCol);
             filterDriveOsBtns[i].setClickingTogglesState(true);
             filterDriveOsBtns[i].setRadioGroupId(3004);
             { int edges = 0;
@@ -1153,10 +1129,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     for (int i = 0; i < kNumRegenBtns; ++i)
     {
         regenBtns[i].setButtonText(regenItems[i]);
-        regenBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
-        regenBtns[i].setColour(juce::TextButton::buttonOnColourId, kDriftCol);
-        regenBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
-        regenBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        styleSwitchButton(regenBtns[i], kDriftCol);
         regenBtns[i].setClickingTogglesState(true);
         regenBtns[i].setRadioGroupId(3006);
         regenBtns[i].onClick = [this, i] { regenHidden.setSelectedId(i + 1); };
