@@ -78,6 +78,24 @@ void T5ynthLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& bt
     g.fillRect(bounds);
 }
 
+void T5ynthLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& btn,
+                                       bool highlighted, bool down)
+{
+    // Switchbox segments can opt into a drawn glyph (arp arrows / note divisions)
+    // via the "glyphId" property; everything else uses the default text rendering.
+    const int gid = static_cast<int>(btn.getProperties().getWithDefault("glyphId", -1));
+    if (gid >= 0 && gid < static_cast<int>(SwitchGlyph::numGlyphs))
+    {
+        const auto col = btn.findColour(btn.getToggleState() ? juce::TextButton::textColourOnId
+                                                             : juce::TextButton::textColourOffId);
+        const float inset = juce::jmax(2.0f, static_cast<float>(btn.getHeight()) * 0.18f);
+        drawSwitchGlyph(g, static_cast<SwitchGlyph>(gid),
+                        btn.getLocalBounds().toFloat().reduced(inset), col);
+        return;
+    }
+    juce::LookAndFeel_V4::drawButtonText(g, btn, highlighted, down);
+}
+
 void T5ynthLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& btn,
                                           bool /*highlighted*/, bool /*down*/)
 {

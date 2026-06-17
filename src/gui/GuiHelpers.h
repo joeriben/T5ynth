@@ -157,6 +157,175 @@ inline void paintSwitchBoxBorder(juce::Graphics& g, juce::Rectangle<int> bounds)
     g.drawRect(bounds, 1);
 }
 
+// ── Unified switchbox design system ──────────────────────────────────────────
+// Every radio-style switchbox (a row/column of TextButtons backed by a hidden
+// ComboBox/Slider for APVTS) shares ONE visual language:
+//   • body         = kSurface
+//   • whole group  = framed once by paintSwitchBoxBorder (1px kBorder)
+//   • selected seg = filled with the section accent
+//   • off text     = kDim
+//   • on  text     = white on dark accents, dark ink on the bright ones
+// Call styleSwitchButton() on each segment, lay the segments out adjacent (no
+// internal gaps), and paint the frame on the union of their bounds. The global
+// LookAndFeel draws the fill (drawButtonBackground) and honours these colour
+// IDs, so the look stays in one place.
+
+/** Selected-segment text colour: white on dark accents, dark ink (#0e1018) on
+ *  the bright accents (green/cyan/amber) where white drops below the WCAG UI
+ *  contrast floor. The threshold sits between drift-orange (stays white, as
+ *  approved on the REGENERATE box) and sequencer-green (flips to dark ink). */
+inline juce::Colour switchBoxSelectedTextColour(juce::Colour accent)
+{
+    return accent.getPerceivedBrightness() > 0.55f ? juce::Colour(0xff0e1018)
+                                                   : juce::Colours::white;
+}
+
+/** Apply the unified switchbox colours to one segment button. */
+inline void styleSwitchButton(juce::TextButton& b, juce::Colour accent)
+{
+    b.setColour(juce::TextButton::buttonColourId,   kSurface);
+    b.setColour(juce::TextButton::buttonOnColourId, accent);
+    b.setColour(juce::TextButton::textColourOffId,  kDim);
+    b.setColour(juce::TextButton::textColourOnId,   switchBoxSelectedTextColour(accent));
+}
+
+// Drawn glyphs for switchbox segments where a symbol reads faster than a word:
+// arp modes (arrows) and note divisions (note heads). Drawn as juce::Path so
+// they never depend on a font carrying the Unicode musical symbols. A button
+// opts in via setSwitchGlyph(); T5ynthLookAndFeel::drawButtonText renders it
+// tinted with the button's resolved text colour (so it inherits the per-accent
+// on/off colours above). Enumerator order MATCHES the APVTS choice order for
+// the two parameters so a button index maps straight to its glyph.
+enum class SwitchGlyph
+{
+    ArpOff, ArpUp, ArpDown, ArpUpDown, ArpRandom,                 // ArpMode:     Off,Up,Down,UpDown,Random
+    NoteWhole, NoteHalf, NoteQuarter, NoteEighth, NoteSixteenth,  // SeqDivision: 1/1,1/2,1/4,1/8,1/16
+    numGlyphs
+};
+
+inline void setSwitchGlyph(juce::TextButton& b, SwitchGlyph glyph)
+{
+    b.getProperties().set("glyphId", static_cast<int>(glyph));
+}
+
+/** Draw a switchbox glyph centred in `area`, tinted `colour`. Geometry lives in
+ *  a 0..24 design box scaled to fit (the Icon-registry convention). */
+inline void drawSwitchGlyph(juce::Graphics& g, SwitchGlyph glyph,
+                            juce::Rectangle<float> area, juce::Colour colour)
+{
+    const float s = juce::jmin(area.getWidth(), area.getHeight());
+    if (s <= 0.0f)
+        return;
+    // Geometry is authored in a 0..24 box and mapped by T; juce strokePath bakes
+    // T into the vertices but takes the pen width RAW, so widths are scaled here
+    // by the same factor (k) to keep the SVG-mockup proportions at any size.
+    const float k = s / 24.0f;
+    auto box = juce::Rectangle<float>(s, s).withCentre(area.getCentre());
+    const auto T = juce::AffineTransform::scale(k).translated(box.getX(), box.getY());
+    g.setColour(colour);
+
+    auto stroke = [&](const juce::Path& p, float w)
+    {
+        g.strokePath(p, juce::PathStrokeType(w * k, juce::PathStrokeType::curved,
+                                             juce::PathStrokeType::rounded), T);
+    };
+
+    switch (glyph)
+    {
+        case SwitchGlyph::ArpOff:
+        {
+            juce::Path p;
+            p.addEllipse(4.5f, 4.5f, 15.0f, 15.0f);
+            p.startNewSubPath(7.6f, 7.6f); p.lineTo(16.4f, 16.4f);
+            stroke(p, 2.0f);
+            break;
+        }
+        case SwitchGlyph::ArpUp:
+        {
+            juce::Path p;
+            p.startNewSubPath(12.0f, 19.0f); p.lineTo(12.0f, 6.0f);
+            p.startNewSubPath(7.3f, 10.7f);  p.lineTo(12.0f, 6.0f); p.lineTo(16.7f, 10.7f);
+            stroke(p, 2.3f);
+            break;
+        }
+        case SwitchGlyph::ArpDown:
+        {
+            juce::Path p;
+            p.startNewSubPath(12.0f, 5.0f);  p.lineTo(12.0f, 18.0f);
+            p.startNewSubPath(7.3f, 13.3f);  p.lineTo(12.0f, 18.0f); p.lineTo(16.7f, 13.3f);
+            stroke(p, 2.3f);
+            break;
+        }
+        case SwitchGlyph::ArpUpDown:
+        {
+            juce::Path p;
+            p.startNewSubPath(12.0f, 4.0f);  p.lineTo(12.0f, 20.0f);
+            p.startNewSubPath(8.3f, 7.7f);   p.lineTo(12.0f, 4.0f);  p.lineTo(15.7f, 7.7f);
+            p.startNewSubPath(8.3f, 16.3f);  p.lineTo(12.0f, 20.0f); p.lineTo(15.7f, 16.3f);
+            stroke(p, 2.1f);
+            break;
+        }
+        case SwitchGlyph::ArpRandom:
+        {
+            juce::Path frame;
+            frame.addRoundedRectangle(5.0f, 5.0f, 14.0f, 14.0f, 3.0f);
+            stroke(frame, 1.8f);
+            juce::Path dots;
+            dots.addEllipse(7.7f,  7.7f,  2.6f, 2.6f);
+            dots.addEllipse(10.7f, 10.7f, 2.6f, 2.6f);
+            dots.addEllipse(13.7f, 13.7f, 2.6f, 2.6f);
+            g.fillPath(dots, T);
+            break;
+        }
+        case SwitchGlyph::NoteWhole:
+        case SwitchGlyph::NoteHalf:
+        case SwitchGlyph::NoteQuarter:
+        case SwitchGlyph::NoteEighth:
+        case SwitchGlyph::NoteSixteenth:
+        {
+            const bool open    = (glyph == SwitchGlyph::NoteWhole || glyph == SwitchGlyph::NoteHalf);
+            const bool hasStem = (glyph != SwitchGlyph::NoteWhole);
+
+            juce::Path head;
+            if (glyph == SwitchGlyph::NoteWhole)
+                head.addEllipse(6.6f, 9.0f, 10.8f, 6.4f);
+            else
+                head.addEllipse(5.2f, 13.2f, 7.8f, 5.4f);
+
+            if (open)
+                g.strokePath(head, juce::PathStrokeType(1.9f * k), T);
+            else
+                g.fillPath(head, T);
+
+            if (hasStem)
+            {
+                juce::Path stem_;
+                stem_.startNewSubPath(12.7f, 15.9f); stem_.lineTo(12.7f, 5.0f);
+                stroke(stem_, 2.0f);
+            }
+
+            auto flag = [&](float yTop)
+            {
+                juce::Path f;
+                f.startNewSubPath(12.7f, yTop);
+                f.cubicTo(16.8f, yTop + 1.6f, 17.0f, yTop + 4.6f, 14.2f, yTop + 6.8f);
+                stroke(f, 1.8f);
+            };
+            if (glyph == SwitchGlyph::NoteEighth)
+                flag(5.0f);
+            else if (glyph == SwitchGlyph::NoteSixteenth)
+            {
+                flag(5.0f);
+                flag(8.4f);
+            }
+            break;
+        }
+        case SwitchGlyph::numGlyphs:
+        default:
+            break;
+    }
+}
+
 inline int measureTextWidth(const juce::String& text, float fontSize)
 {
     if (text.isEmpty())

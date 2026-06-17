@@ -18,6 +18,10 @@ public:
                               bool shouldDrawButtonAsHighlighted,
                               bool shouldDrawButtonAsDown) override;
 
+    void drawButtonText(juce::Graphics& g, juce::TextButton& btn,
+                        bool shouldDrawButtonAsHighlighted,
+                        bool shouldDrawButtonAsDown) override;
+
     void drawToggleButton(juce::Graphics& g, juce::ToggleButton& btn,
                           bool shouldDrawButtonAsHighlighted,
                           bool shouldDrawButtonAsDown) override;
