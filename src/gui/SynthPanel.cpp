@@ -1738,10 +1738,15 @@ void SynthPanel::syncModTabButtons()
             if (i < kNumModTabs - 1) edges |= juce::Button::ConnectedOnRight;
             btn.setConnectedEdges(edges);
             btn.setToggleState(active, juce::dontSendNotification);
+            // Selected-tab text follows the unified switchbox rule: dark ink on
+            // bright accents (amber env/lfo), white on dark ones (drift) — same as
+            // styleSwitchButton. (textColourOffId's active branch is dead since
+            // active == toggled, so JUCE reads textColourOnId; kept symmetric.)
+            const auto onTxt = switchBoxSelectedTextColour(accent);
             btn.setColour(juce::TextButton::buttonColourId, active ? accent : kSurface);
             btn.setColour(juce::TextButton::buttonOnColourId, accent);
-            btn.setColour(juce::TextButton::textColourOffId, active ? juce::Colours::white : kDim);
-            btn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+            btn.setColour(juce::TextButton::textColourOffId, active ? onTxt : kDim);
+            btn.setColour(juce::TextButton::textColourOnId, onTxt);
         }
     };
 
