@@ -76,6 +76,26 @@ void T5ynthLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& bt
 
     g.setColour(baseColour);
     g.fillRect(bounds);
+
+    // Unified switchbox frame. Segments opt in via the "switchSegment" property
+    // (set by styleSwitchButton). Each strokes its kBorder edges AFTER its own
+    // fill, so the frame survives — a frame drawn by the parent panel is painted
+    // BEFORE these segment fills and overdrawn by them (the long-standing "no
+    // visible switchbox frame" bug). Top + bottom + the right edge are drawn
+    // always; the left edge only when NOT connected on the left, so adjacent
+    // segments share a single 1px divider and the group reads as one framed unit
+    // with consistent 1px lines (this is what brings back the "lines between"
+    // the model slots and frames every switchbox like the VARIATION box).
+    if (btn.getProperties().getWithDefault("switchSegment", false))
+    {
+        auto r = btn.getLocalBounds();
+        g.setColour(kBorder);
+        g.fillRect(r.getX(), r.getY(), r.getWidth(), 1);            // top
+        g.fillRect(r.getX(), r.getBottom() - 1, r.getWidth(), 1);  // bottom
+        g.fillRect(r.getRight() - 1, r.getY(), 1, r.getHeight());  // right (divider / frame end)
+        if (! btn.isConnectedOnLeft())
+            g.fillRect(r.getX(), r.getY(), 1, r.getHeight());      // left (group start)
+    }
 }
 
 void T5ynthLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& btn,

@@ -148,20 +148,21 @@ inline void paintCard(juce::Graphics& g, juce::Rectangle<int> bounds)
     g.drawRect(bounds, 1);
 }
 
-/** Paint a border around a switchbox button group (sharp corners). */
+/** Paint a border around a switchbox button group (sharp corners).
+ *  NOTE: the VISIBLE switchbox frame is drawn per-segment in
+ *  T5ynthLookAndFeel::drawButtonBackground — each styleSwitchButton segment
+ *  strokes its own kBorder edges AFTER its fill, so neighbours share one 1px
+ *  divider and the group reads as one framed unit. A frame drawn here from the
+ *  parent panel is painted BEFORE the child segments and then overdrawn by
+ *  their fills (the long-standing "no visible switchbox frame" bug), so this
+ *  call is only a harmless backstop for non-styleSwitchButton groups; it draws
+ *  on the union edge, coincident with the segments' own outer borders. */
 inline void paintSwitchBoxBorder(juce::Graphics& g, juce::Rectangle<int> bounds)
 {
     if (bounds.isEmpty())
         return;
     g.setColour(kBorder);
-    // Stroke 1px OUTSIDE the button union. The group's segment buttons are
-    // child components, painted AFTER this (their parent) and filling their
-    // full bounds with kSurface — a frame drawn on the union edge is overdrawn
-    // by them (the long-standing "no visible switchbox frame" bug). The 1px
-    // expansion lands the stroke in the parent-only margin just outside the
-    // buttons, so it survives. (paintCard stays visible because ModuleBox
-    // insets its content instead.)
-    g.drawRect(bounds.expanded(1), 1);
+    g.drawRect(bounds, 1);
 }
 
 // ── Unified switchbox design system ──────────────────────────────────────────
@@ -187,13 +188,16 @@ inline juce::Colour switchBoxSelectedTextColour(juce::Colour accent)
                                                    : juce::Colours::white;
 }
 
-/** Apply the unified switchbox colours to one segment button. */
+/** Apply the unified switchbox colours to one segment button. The "switchSegment"
+ *  property opts the button into the per-segment kBorder frame drawn in
+ *  T5ynthLookAndFeel::drawButtonBackground (visible dividers + group frame). */
 inline void styleSwitchButton(juce::TextButton& b, juce::Colour accent)
 {
     b.setColour(juce::TextButton::buttonColourId,   kSurface);
     b.setColour(juce::TextButton::buttonOnColourId, accent);
     b.setColour(juce::TextButton::textColourOffId,  kDim);
     b.setColour(juce::TextButton::textColourOnId,   switchBoxSelectedTextColour(accent));
+    b.getProperties().set("switchSegment", true);
 }
 
 // Drawn glyphs for switchbox segments where a symbol reads faster than a word:
