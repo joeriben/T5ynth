@@ -1560,14 +1560,15 @@ void SequencerPanel::resized()
         //     Row L1: [C▾] [DblHarm▾] [Rng][1][2][3][4]
         //     Row L2: [Mode▾] [Field== 12cyc]
         //   Right column (wide): four strand modules side by side, each one
-        //     a 2-row vertical block — top row is the existing [Sx][Role▾]
-        //     pair, bottom row is [Div: combo] [Oct: lbl+slider] [Dom: lbl+slider].
+        //     a 3-row vertical block — row 1 [Sx][Role▾], row 2 [Div▾][Dom],
+        //     row 3 the octave switchbox across the full module width (its own
+        //     row so the five cells stay readable in a narrow strand column).
         //   Generous horizontal padding between strand modules visually
         //   delimits each strand without a separator graphic.
         {
             const int intraGap = 2;
             const int colGap   = 12;
-            const int blockH   = 2 * genCtrlH + intraGap;
+            const int blockH   = 3 * genCtrlH + 2 * intraGap;
             auto block = area.removeFromTop(blockH);
 
             const int leftW = juce::jlimit(360, 540, block.getWidth() / 5);  // ~20%, clamped
@@ -1607,7 +1608,7 @@ void SequencerPanel::resized()
             // controls — they are derived from the Scale Root and Scale
             // Type respectively (see PluginProcessor's per-block setters).
             {
-                auto rowL2 = leftCol;   // remaining height = genCtrlH
+                auto rowL2 = leftCol.removeFromTop(genCtrlH);   // 1 row; block is now 3 rows tall
                 const int modeW = 95;
                 const int gapSm = 4;
                 genFieldModeBox.setBounds(rowL2.removeFromLeft(modeW));
@@ -1625,50 +1626,52 @@ void SequencerPanel::resized()
                     auto module = rightCol.removeFromLeft(moduleW);
                     if (i < kNumExtraStrands - 1) rightCol.removeFromLeft(moduleGap);
 
-                    // Top row: [Sx][Role▾]
+                    const int onW     = 28;
+                    const int divW    = 60;
+                    const int domLblW = 30;                 // "Dom"
+                    const int gapInm  = 2;
+                    const int gapPad  = 6;                  // between control groups
+                    const int gapTiny = 2;                  // between label and its slider
+
+                    // Row 1: [Sx enable][Role▾]
                     auto modTop = module.removeFromTop(genCtrlH);
-                    const int onW    = 28;
-                    const int gapInm = 2;
                     strandEnableBtns[i].setBounds(modTop.removeFromLeft(onW));
                     modTop.removeFromLeft(gapInm);
                     strandRoleBoxes[i].setBounds(modTop);
 
                     module.removeFromTop(intraGap);
 
-                    // Bottom row: [Div▾]  [-2][-1][0][+1][+2]  [Dom lbl] [Dom slider]
-                    // Div and Oct values are self-explanatory; only Dom needs
-                    // a prefix label (a bare "0.50" wouldn't say what it is).
-                    auto modBot = module;   // remaining height = genCtrlH
-                    const int divW    = 66;                 // "1/16x" max
-                    const int octBtnW = 22;
-                    const int octRowW = octBtnW * kStrandOctBtns;
-                    const int domLblW = 30;                 // "Dom"
-                    const int gapPad  = 6;                  // between control groups
-                    const int gapTiny = 2;                  // between label and its slider
+                    // Row 2: [Div▾]  [Dom lbl][Dom slider]. Only Dom needs a prefix
+                    // label (a bare "0.50" wouldn't say what it is); Div is self-evident.
+                    auto modMid = module.removeFromTop(genCtrlH);
+                    strandDivBoxes[i].setBounds(modMid.removeFromLeft(divW));
+                    modMid.removeFromLeft(gapPad);
+                    strandDomLabels[i].setFont(uiFont(TextRole::Caption, static_cast<float>(genCtrlH) * 0.55f));
+                    strandDomLabels[i].setBounds(modMid.removeFromLeft(domLblW));
+                    modMid.removeFromLeft(gapTiny);
+                    strandDomSliders[i].setBounds(modMid);
 
-                    strandDivBoxes[i].setBounds(modBot.removeFromLeft(divW));
-                    modBot.removeFromLeft(gapPad);
+                    module.removeFromTop(intraGap);
 
+                    // Row 3: octave switchbox [-2][-1][0][+1][+2] across the FULL
+                    // module width — its own row so the five cells stay readable and
+                    // clickable however narrow the strand column is (the old single
+                    // [Div][Oct][Dom] row crushed these to a few px each → unsteuerbar).
                     {
-                        auto octRow = modBot.removeFromLeft(octRowW);
+                        auto octRow = module.removeFromTop(genCtrlH);
+                        const int octBtnW = juce::jmax(1, octRow.getWidth() / kStrandOctBtns);
                         for (int b = 0; b < kStrandOctBtns; ++b)
                         {
                             int edges = 0;
                             if (b > 0) edges |= juce::Button::ConnectedOnLeft;
                             if (b < kStrandOctBtns - 1) edges |= juce::Button::ConnectedOnRight;
                             strandOctBtns[i][b].setConnectedEdges(edges);
-                            strandOctBtns[i][b].setBounds(octRow.removeFromLeft(octBtnW));
+                            const int w = (b == kStrandOctBtns - 1) ? octRow.getWidth() : octBtnW;
+                            strandOctBtns[i][b].setBounds(octRow.removeFromLeft(w));
                         }
                         strandOctSwitchBounds[i] = strandOctBtns[i][0].getBounds()
                             .getUnion(strandOctBtns[i][kStrandOctBtns - 1].getBounds());
                     }
-                    modBot.removeFromLeft(gapPad);
-
-                    // Match Rng label's smaller font so "Dom" doesn't truncate.
-                    strandDomLabels[i].setFont(uiFont(TextRole::Caption, static_cast<float>(genCtrlH) * 0.55f));
-                    strandDomLabels[i].setBounds(modBot.removeFromLeft(domLblW));
-                    modBot.removeFromLeft(gapTiny);
-                    strandDomSliders[i].setBounds(modBot);
                 }
             }
             area.removeFromTop(g);
