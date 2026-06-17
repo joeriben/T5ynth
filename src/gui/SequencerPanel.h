@@ -48,9 +48,7 @@ private:
     // Row 1: Transport + step config
     juce::TextButton transportBtn { "PLAY" };
     juce::ComboBox stepCountBox;                  // dropdown 2-32
-    static constexpr int kNumDivBtns = 5;
-    juce::TextButton divBtns[kNumDivBtns];        // [1/1][1/2][1/4][1/8][1/16]
-    juce::ComboBox divisionHidden;                 // hidden, for APVTS attachment
+    juce::ComboBox divisionBox;                    // note-length dropdown (1/1..1/16)
     std::unique_ptr<SliderRow> bpmRow;
     juce::Label midiMonitor;
     juce::Rectangle<float> midiLedBounds;
