@@ -128,6 +128,7 @@ private:
     juce::TextButton genRangeBtns[kNumRangeBtns];
     juce::ComboBox genRangeHidden;  // hidden, for APVTS
     juce::Label genRangeLabel;
+    juce::Rectangle<int> genRangeSwitchBounds;   // unified frame (gen mode only)
 
     // Fix toggle buttons (lock/unlock icons)
     juce::TextButton genFixStepsBtn, genFixPulsesBtn, genFixRotationBtn, genFixMutationBtn;
@@ -149,6 +150,7 @@ private:
     static constexpr int kStrandOctBtns = 5;
     juce::ComboBox   strandDivBoxes[kNumExtraStrands];
     juce::TextButton strandOctBtns[kNumExtraStrands][kStrandOctBtns];
+    juce::Rectangle<int> strandOctSwitchBounds[kNumExtraStrands]; // unified frames (gen mode only)
     juce::Slider     strandOctaveSliders[kNumExtraStrands]; // hidden APVTS bridge
     juce::Slider     strandDomSliders[kNumExtraStrands];
     juce::Label      strandDomLabels[kNumExtraStrands];

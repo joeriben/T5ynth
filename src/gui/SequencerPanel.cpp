@@ -1213,6 +1213,9 @@ void SequencerPanel::paint(juce::Graphics& g)
         paintSwitchBoxBorder(g, arpModeSwitchBounds);
         paintSwitchBoxBorder(g, arpOctSwitchBounds);
     }
+    paintSwitchBoxBorder(g, genRangeSwitchBounds);
+    for (int i = 0; i < kNumExtraStrands; ++i)
+        paintSwitchBoxBorder(g, strandOctSwitchBounds[i]);
 
     // ═══ Gen-Seq visualization ═══
     if (genModeActive && !genVisArea.isEmpty())
@@ -1519,6 +1522,12 @@ void SequencerPanel::resized()
         strandDomLabels[i].setVisible(genModeActive);
     }
 
+    // Reset gen-switchbox frames; set below only when laid out (gen mode on),
+    // so the isEmpty() guard in paint() drops them when the grid is showing.
+    genRangeSwitchBounds = {};
+    for (int i = 0; i < kNumExtraStrands; ++i)
+        strandOctSwitchBounds[i] = {};
+
     if (genModeActive)
     {
         // ═══ Gen mode: 2-column grid with fix buttons ═══
@@ -1588,6 +1597,8 @@ void SequencerPanel::resized()
                     genRangeBtns[i].setConnectedEdges(edges);
                     genRangeBtns[i].setBounds(rowL1.removeFromLeft(rngBtnW));
                 }
+                genRangeSwitchBounds = genRangeBtns[0].getBounds()
+                    .getUnion(genRangeBtns[kNumRangeBtns - 1].getBounds());
             }
             leftCol.removeFromTop(intraGap);
 
@@ -1648,6 +1659,8 @@ void SequencerPanel::resized()
                             strandOctBtns[i][b].setConnectedEdges(edges);
                             strandOctBtns[i][b].setBounds(octRow.removeFromLeft(octBtnW));
                         }
+                        strandOctSwitchBounds[i] = strandOctBtns[i][0].getBounds()
+                            .getUnion(strandOctBtns[i][kStrandOctBtns - 1].getBounds());
                     }
                     modBot.removeFromLeft(gapPad);
 
