@@ -717,21 +717,14 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         framesHidden.addItemList(frameLabels, 1);
         framesHidden.onChange = [this] {
             int id = framesHidden.getSelectedId();
-            auto textCol = kDimmer;
             for (int i = 0; i < kNumFrameBtns; ++i)
-            {
-                bool sel = (i + 1 == id);
-                frameBtns[i].setToggleState(sel, juce::dontSendNotification);
-                frameBtns[i].setColour(juce::TextButton::buttonColourId,
-                                        sel ? kAccent : juce::Colours::transparentBlack);
-                frameBtns[i].setColour(juce::TextButton::textColourOffId,
-                                        sel ? juce::Colour(0xff0e1018) : textCol);
-            }
+                frameBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
             processorRef.reextractWavetable();
         };
         for (int i = 0; i < kNumFrameBtns; ++i)
         {
             frameBtns[i].setButtonText(frameLabels[i]);
+            styleSwitchButton(frameBtns[i], kAccent);
             frameBtns[i].setClickingTogglesState(false);
             frameBtns[i].onClick = [this, i] { framesHidden.setSelectedId(i + 1); };
             addAndMakeVisible(frameBtns[i]);
@@ -779,18 +772,12 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         freezeTextureHidden.onChange = [this] {
             const int id = freezeTextureHidden.getSelectedId();
             for (int i = 0; i < kNumFreezeTextureBtns; ++i)
-            {
-                const bool sel = (i + 1 == id);
-                freezeTextureBtns[i].setToggleState(sel, juce::dontSendNotification);
-                freezeTextureBtns[i].setColour(juce::TextButton::buttonColourId,
-                                                sel ? kAccent : juce::Colours::transparentBlack);
-                freezeTextureBtns[i].setColour(juce::TextButton::textColourOffId,
-                                                sel ? juce::Colour(0xff0e1018) : kDimmer);
-            }
+                freezeTextureBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
         };
         for (int i = 0; i < kNumFreezeTextureBtns; ++i)
         {
             freezeTextureBtns[i].setButtonText(textureLabels[i]);
+            styleSwitchButton(freezeTextureBtns[i], kAccent);
             freezeTextureBtns[i].setClickingTogglesState(false);
             freezeTextureBtns[i].onClick = [this, i] { freezeTextureHidden.setSelectedId(i + 1); };
             addAndMakeVisible(freezeTextureBtns[i]);
