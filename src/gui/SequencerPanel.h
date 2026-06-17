@@ -64,6 +64,7 @@ private:
     static constexpr int kNumOctShiftBtns = 5;
     juce::TextButton octShiftBtns[kNumOctShiftBtns];
     juce::ComboBox octShiftHidden;
+    juce::Rectangle<int> octShiftSwitchBounds;     // unified frame
 
     // Icon LookAndFeel for save/load buttons (declared before buttons — destroyed after)
     struct IconLnF : juce::LookAndFeel_V4

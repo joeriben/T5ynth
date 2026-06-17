@@ -600,10 +600,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     for (int i = 0; i < kNumOctShiftBtns; ++i)
     {
         octShiftBtns[i].setButtonText(seqOctItems[i]);
-        octShiftBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
-        octShiftBtns[i].setColour(juce::TextButton::buttonOnColourId, kSeqCol);
-        octShiftBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
-        octShiftBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        styleSwitchButton(octShiftBtns[i], kSeqCol);
         octShiftBtns[i].setClickingTogglesState(true);
         octShiftBtns[i].setRadioGroupId(2004);
         octShiftBtns[i].onClick = [this, i] { octShiftHidden.setSelectedId(i + 1); };
@@ -652,10 +649,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     for (int i = 0; i < kNumRangeBtns; ++i)
     {
         genRangeBtns[i].setButtonText(juce::String(i + 1));
-        genRangeBtns[i].setColour(juce::TextButton::buttonColourId, kSurface);
-        genRangeBtns[i].setColour(juce::TextButton::buttonOnColourId, kSeqCol);
-        genRangeBtns[i].setColour(juce::TextButton::textColourOffId, kDim);
-        genRangeBtns[i].setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+        styleSwitchButton(genRangeBtns[i], kSeqCol);
         genRangeBtns[i].setClickingTogglesState(true);
         genRangeBtns[i].setRadioGroupId(2005);
         genRangeBtns[i].onClick = [this, i] { genRangeHidden.setSelectedId(i + 1); };
@@ -787,10 +781,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
             for (int b = 0; b < kStrandOctBtns; ++b)
             {
                 strandOctBtns[i][b].setButtonText(SeqOctave::kEntries[b].label);
-                strandOctBtns[i][b].setColour(juce::TextButton::buttonColourId,   kSurface);
-                strandOctBtns[i][b].setColour(juce::TextButton::buttonOnColourId, kSeqCol);
-                strandOctBtns[i][b].setColour(juce::TextButton::textColourOffId,  kDim);
-                strandOctBtns[i][b].setColour(juce::TextButton::textColourOnId,   juce::Colours::white);
+                styleSwitchButton(strandOctBtns[i][b], kSeqCol);
                 strandOctBtns[i][b].setClickingTogglesState(true);
                 strandOctBtns[i][b].setRadioGroupId(3001 + i); // unique per strand
                 strandOctBtns[i][b].setTooltip(sName + " octave shift");
@@ -1216,6 +1207,7 @@ void SequencerPanel::paint(juce::Graphics& g)
 
     // Unified switchbox frames (GuiHelpers paintSwitchBoxBorder)
     paintSwitchBoxBorder(g, divisionSwitchBounds);
+    paintSwitchBoxBorder(g, octShiftSwitchBounds);
     if (arpModeBtns[0].isVisible())
     {
         paintSwitchBoxBorder(g, arpModeSwitchBounds);
@@ -1451,7 +1443,10 @@ void SequencerPanel::resized()
             octShiftBtns[i].setConnectedEdges(edges);
             octShiftBtns[i].setBounds(octArea.removeFromLeft(i == kNumOctShiftBtns - 1 ? octArea.getWidth() : octBtnW));
         }
+        octShiftSwitchBounds = octShiftBtns[0].getBounds().getUnion(octShiftBtns[kNumOctShiftBtns - 1].getBounds());
     }
+    else
+        octShiftSwitchBounds = {};
 
     area.removeFromTop(compactTopRow ? 5 : g);
 
