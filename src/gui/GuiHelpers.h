@@ -154,7 +154,14 @@ inline void paintSwitchBoxBorder(juce::Graphics& g, juce::Rectangle<int> bounds)
     if (bounds.isEmpty())
         return;
     g.setColour(kBorder);
-    g.drawRect(bounds, 1);
+    // Stroke 1px OUTSIDE the button union. The group's segment buttons are
+    // child components, painted AFTER this (their parent) and filling their
+    // full bounds with kSurface — a frame drawn on the union edge is overdrawn
+    // by them (the long-standing "no visible switchbox frame" bug). The 1px
+    // expansion lands the stroke in the parent-only margin just outside the
+    // buttons, so it survives. (paintCard stays visible because ModuleBox
+    // insets its content instead.)
+    g.drawRect(bounds.expanded(1), 1);
 }
 
 // ── Unified switchbox design system ──────────────────────────────────────────
