@@ -104,18 +104,24 @@ public:
     const juce::String& getLastPromptA() const { return lastPromptA; }
     const juce::String& getLastPromptB() const { return lastPromptB; }
 
-    // Re-Prompt loop seed: while a stance is self-running, the editors (and so
-    // lastPromptA/B) hold the machine's transient mid-loop rewrites. A saved
-    // preset must store the HUMAN seed, not a random in-flight prompt — so the
-    // loop registers its captured originals here on engage and clears them on
-    // disengage; PresetFormat::saveToFile prefers them while valid. Mirrors
-    // PromptPanel::loopOriginalsValid_ exactly.
-    void setLoopSeedPrompts(const juce::String& a, const juce::String& b)
-        { loopSeedPromptA = a; loopSeedPromptB = b; loopSeedValid = true; }
-    void clearLoopSeedPrompts() { loopSeedPromptA.clear(); loopSeedPromptB.clear(); loopSeedValid = false; }
-    bool hasLoopSeedPrompts() const { return loopSeedValid; }
-    const juce::String& getLoopSeedPromptA() const { return loopSeedPromptA; }
-    const juce::String& getLoopSeedPromptB() const { return loopSeedPromptB; }
+    // Durable HUMAN prompts — the single source of truth for "what the user
+    // authored", independent of the live editors. The Re-Prompt loop rewrites the
+    // editors in place (and so lastPromptA/B, which mirror them), and a missed
+    // deactivation-restore or a buffer reload can leave a machine rewrite sitting
+    // in an editor; deriving the saved prompt from the editors there is what kept
+    // baking machine text into presets. This store is written ONLY by human
+    // authorship — onTextChange (per pole) and preset load (both poles) — never by
+    // the loop, so PresetFormat::saveToFile can always persist the human prompt
+    // regardless of editor state. Per-pole setters: an A edit must not recapture a
+    // rewritten B (and vice-versa).
+    void setHumanPromptA(const juce::String& a) { humanPromptA = a; humanPromptsValid = true; }
+    void setHumanPromptB(const juce::String& b) { humanPromptB = b; humanPromptsValid = true; }
+    void setHumanPrompts(const juce::String& a, const juce::String& b)
+        { humanPromptA = a; humanPromptB = b; humanPromptsValid = true; }
+    void clearHumanPrompts() { humanPromptA.clear(); humanPromptB.clear(); humanPromptsValid = false; }
+    bool hasHumanPrompts() const { return humanPromptsValid; }
+    const juce::String& getHumanPromptA() const { return humanPromptA; }
+    const juce::String& getHumanPromptB() const { return humanPromptB; }
     void setLastPresetName(const juce::String& name) { lastPresetName = name; }
     const juce::String& getLastPresetName() const { return lastPresetName; }
     void setLastTags(const juce::StringArray& tags) { lastTags = tags; }
@@ -368,8 +374,8 @@ private:
     juce::String lastPresetName;
     juce::StringArray lastTags;
     juce::String lastPromptA, lastPromptB;
-    juce::String loopSeedPromptA, loopSeedPromptB;   // human seed during an active Re-Prompt loop
-    bool loopSeedValid = false;
+    juce::String humanPromptA, humanPromptB;   // durable human-authored prompts (never the loop's rewrites)
+    bool humanPromptsValid = false;
     float lastGenerationTimeMs = 0.0f;
     int lastSeed = 123456789;
     bool lastRandomSeed = false;

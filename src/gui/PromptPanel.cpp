@@ -147,6 +147,11 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     promptAEditor.onTextChange = [this] {
         // Impulse edits should force the next drift regen to use a fresh snapshot.
         lastGenPromptA_.clear();
+        // Record human authorship of pole A into the durable human-prompt store so
+        // preset save persists THIS, not a later loop rewrite. Fires only on human
+        // typing + translation (loop/restore/load writes use dontSendNotification),
+        // so the loop can never poison it. Per-pole: an A edit must not recapture B.
+        processorRef.setHumanPromptA(promptAEditor.getText().trim());
     };
     promptAEditor.setBufferedToImage(true);
     addAndMakeVisible(promptAEditor);
@@ -163,6 +168,8 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     promptBEditor.onTextChange = [this] {
         // Impulse edits should force the next drift regen to use a fresh snapshot.
         lastGenPromptB_.clear();
+        // Record human authorship of pole B (see promptAEditor.onTextChange).
+        processorRef.setHumanPromptB(promptBEditor.getText().trim());
     };
     promptBEditor.setBufferedToImage(true);
     addAndMakeVisible(promptBEditor);
@@ -734,7 +741,11 @@ void PromptPanel::timerCallback()
             lastGenPromptA_ = loopOriginalA_;
             lastGenPromptB_ = loopOriginalB_;
             processorRef.setLastPrompts(loopOriginalA_, loopOriginalB_);
-            processorRef.clearLoopSeedPrompts();   // editors now hold the seed again
+            // NOTE: do NOT touch the durable human-prompt store here — it already holds
+            // these originals (loopOriginalA_/B_ were sourced from it on engage) and must
+            // survive so a later save/buffer-write persists the human text even if this
+            // restore edge is ever missed. setText above used dontSendNotification, so
+            // onTextChange won't overwrite it with the reverted text either.
             loopOriginalsValid_ = false;
             loopEngaged_ = false;   // re-arm the original-capture edge for the next run
             // Make the SOUND follow the reverted text: re-render the restored original
@@ -1262,7 +1273,11 @@ void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String
     // the processor restores separately (Off for presets predating Re-Prompt).
     loopEngaged_ = false;
     loopOriginalsValid_ = false;
-    processorRef.clearLoopSeedPrompts();   // the OLD session's seed must not leak into this preset's save
+    // The loaded prompts ARE the human authorship for this preset — seed the durable
+    // store so a re-save reproduces them (and a subsequent loop engage restores to
+    // them), regardless of any rewrite the loop later puts in the editors. setText
+    // above used dontSendNotification, so onTextChange did NOT fire — set explicitly.
+    processorRef.setHumanPrompts(promptA, promptB);
     randomSeedToggle.setToggleState(randomSeed, juce::dontSendNotification);
     syncSeedEditorDisplay(seed, true);
     syncSeedEditorEnabledState();
@@ -2287,6 +2302,20 @@ void PromptPanel::translatePromptsInPlace()
 {
     if (translatingPrompts_) return;  // already translating
 
+    // Mutually exclusive with an engaged Re-Prompt stance. The loop already yields to
+    // translation (runSemanticLoopStep bails on translatingPrompts_); make the reverse
+    // true too. Translate reads the LIVE editors and writes them back WITH notification
+    // (onTextChange → the human-prompt store). Mid-loop the editors hold the machine's
+    // rewrite, not the user's text, so translating then would poison the human store
+    // with machine-derived text — the exact leak this store exists to prevent. Turn the
+    // stance Off (restores the human originals) before translating.
+    if (static_cast<int>(processorRef.getValueTreeState()
+            .getRawParameterValue(PID::repromptStance)->load()) != RepromptStance::Off)
+    {
+        if (onStatusChanged) onStatusChanged("Turn Re-Prompt off to translate", false);
+        return;
+    }
+
     if (!processorRef.isPipeInferenceReady())
     {
         if (onStatusChanged) onStatusChanged("Backend not connected", false);
@@ -2963,25 +2992,37 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
     // glieder[-3:], which on iter 1 is just [original]).
     if (!loopEngaged_)
     {
-        loopOriginalA_ = promptAEditor.getText().trim();   // FULL (with any musical suffix) — the restore puts this back verbatim
-        loopOriginalB_ = promptBEditor.getText().trim();
-        // Hold the user's trailing pitch/tempo tokens (c3, 120bpm) aside, run the
-        // whole chain on the descriptive CORE, re-append on every editor write — so
-        // no stance ever paraphrases or drops them. Empty when none were appended.
-        loopSuffixA_ = RepromptStances::trailingMusicSuffix(loopOriginalA_);
-        loopSuffixB_ = RepromptStances::trailingMusicSuffix(loopOriginalB_);
-        const juce::String coreA0 = RepromptStances::stripMusicSuffix(loopOriginalA_);
-        const juce::String coreB0 = RepromptStances::stripMusicSuffix(loopOriginalB_);
-        loopLastA_ = coreA0;
-        loopLastB_ = coreB0;
-        loopRecentA_.clearQuick(); loopRecentA_.add(coreA0);
-        loopRecentB_.clearQuick(); loopRecentB_.add(coreB0);
         loopEngaged_ = true;
-        loopOriginalsValid_ = true;   // arm the stance→Off restore (timerCallback)
-        // Register the human seed so a preset saved mid-loop stores it, not the
-        // machine's transient rewrites (mirrors loopOriginalsValid_; cleared on
-        // the stance→Off restore and on preset load).
-        processorRef.setLoopSeedPrompts(loopOriginalA_, loopOriginalB_);
+        // Only (re)capture the originals on a GENUINE fresh engage. A stance blip
+        // (the Off early-out re-arms loopEngaged_ without restoring the editors) must
+        // not reset the loop's evolving memory mid-run.
+        if (!loopOriginalsValid_)
+        {
+            // Source the "human original" from the DURABLE human-prompt store, NOT the
+            // live editors: after a buffer reload or a missed deactivation-restore the
+            // editors can already hold a machine rewrite, and reading them here is what
+            // poisoned the saved seed (then re-poisoned it every buffer round-trip).
+            // The store is written only by human authorship. Fall back to the editors
+            // only if nothing has been authored yet this session.
+            const bool haveHuman = processorRef.hasHumanPrompts();
+            loopOriginalA_ = haveHuman ? processorRef.getHumanPromptA() : promptAEditor.getText().trim();  // FULL (with any musical suffix) — the restore puts this back verbatim
+            loopOriginalB_ = haveHuman ? processorRef.getHumanPromptB() : promptBEditor.getText().trim();
+            // Hold the user's trailing pitch/tempo tokens (c3, 120bpm) aside, run the
+            // whole chain on the descriptive CORE, re-append on every editor write — so
+            // no stance ever paraphrases or drops them. Empty when none were appended.
+            loopSuffixA_ = RepromptStances::trailingMusicSuffix(loopOriginalA_);
+            loopSuffixB_ = RepromptStances::trailingMusicSuffix(loopOriginalB_);
+            const juce::String coreA0 = RepromptStances::stripMusicSuffix(loopOriginalA_);
+            const juce::String coreB0 = RepromptStances::stripMusicSuffix(loopOriginalB_);
+            loopLastA_ = coreA0;
+            loopLastB_ = coreB0;
+            loopRecentA_.clearQuick(); loopRecentA_.add(coreA0);
+            loopRecentB_.clearQuick(); loopRecentB_.add(coreB0);
+            loopOriginalsValid_ = true;   // arm the stance→Off restore (timerCallback)
+            // Back-fill the store for a from-empty engage (no prior load/typing).
+            if (!haveHuman)
+                processorRef.setHumanPrompts(loopOriginalA_, loopOriginalB_);
+        }
         loopAltWriteA_ = false;       // each new session starts by writing B (the primary pole)
     }
 

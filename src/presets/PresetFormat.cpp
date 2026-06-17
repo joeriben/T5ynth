@@ -162,17 +162,21 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
         root->setProperty("tags", tagArr);
     }
 
-    // Patch in prompts (exportJsonPreset leaves them empty). When a Re-Prompt
-    // loop is engaged, lastPromptA/B hold the machine's transient mid-loop
-    // rewrite — save the HUMAN seed instead so a reloaded preset reproduces the
-    // user's starting point, not a random in-flight prompt. (The stance + coupling
-    // are saved by exportJsonPreset and both restored on load — see importJsonPreset;
-    // the DAW host-state path still forces the stance Off.)
+    // Patch in prompts (exportJsonPreset leaves them empty). Persist the durable
+    // HUMAN prompts, not the live editors: while a Re-Prompt loop is/was running the
+    // editors (and lastPromptA/B, which mirror them) can hold a machine rewrite, and
+    // a missed deactivation-restore or buffer reload can leave that rewrite stranded
+    // in an editor even with the stance Off. The human store is written only by
+    // human authorship (onTextChange / preset load), never by the loop, so it always
+    // reproduces the user's starting point. Fall back to lastPromptA/B only when
+    // nothing has been authored yet (legacy / fresh empty state). (The stance +
+    // coupling are saved by exportJsonPreset and both restored on load — see
+    // importJsonPreset; the DAW host-state path still forces the stance Off.)
     if (auto* synth = root->getProperty("synth").getDynamicObject())
     {
-        const bool loop = processor.hasLoopSeedPrompts();
-        synth->setProperty("promptA", loop ? processor.getLoopSeedPromptA() : processor.getLastPromptA());
-        synth->setProperty("promptB", loop ? processor.getLoopSeedPromptB() : processor.getLastPromptB());
+        const bool human = processor.hasHumanPrompts();
+        synth->setProperty("promptA", human ? processor.getHumanPromptA() : processor.getLastPromptA());
+        synth->setProperty("promptB", human ? processor.getHumanPromptB() : processor.getLastPromptB());
         synth->setProperty("seed", processor.getLastSeed());
         synth->setProperty("model", processor.getLastModel());
         // The Easy/Adv seed-mode UI does not write back to PID::genSeed, so we
