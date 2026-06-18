@@ -86,10 +86,11 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
     const bool isTape = (mode == kTape2 || mode == kTape3);
     const bool isPingPong = (mode == kPingPong) && stereo;
 
-    // Per-mode wow/flutter restraint vs. the base depths: Tape 2 = 50% subtler,
-    // Tape 3 = 30% subtler. The 2-head voicing reads as the most overtly wobbly,
-    // so it gets pulled back the hardest.
-    const float wobbleScale = (mode == kTape2) ? 0.5f : 0.7f;
+    // Per-mode wow/flutter restraint vs. the base depths, applied twice over two
+    // rounds of tuning: Tape 2 = 0.5·0.5 = 0.25, Tape 3 = 0.7·0.7 = 0.49. The
+    // 2-head voicing reads as the most overtly wobbly, so it gets pulled back the
+    // hardest.
+    const float wobbleScale = (mode == kTape2) ? 0.25f : 0.49f;
 
     // Constant-power pan gains for tape heads, spread evenly across [-w, +w].
     // On a mono buffer the defaults (panL=1, panR=0) leave the head sum flat so

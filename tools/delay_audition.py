@@ -88,7 +88,7 @@ def render(mode, dryL, dryR, T_ms=375.0, fb=0.45, mix=0.6, damp=0.45):
         else:  # Tape2 / Tape3  (mono tape, panned heads)
             mono = 0.5*(dryL[i] + dryR[i])
             wow += dwow; fl1 += df1; fl2 += df2
-            wobble = 0.5 if mode == "Tape2" else 0.7  # Tape2 50% / Tape3 30% subtler
+            wobble = 0.25 if mode == "Tape2" else 0.49  # two rounds: Tape2 0.5², Tape3 0.7²
             modw = (math.sin(wow)*WOW_DEPTH + (math.sin(fl1)+math.sin(fl2))*FLUT_DEPTH) * T * wobble
             wl = wr = 0.0
             longest = 0.0
