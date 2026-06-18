@@ -93,10 +93,10 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
         if (std::abs(v) < 0.005) return "0";
         return juce::String(v >= 0.0 ? "+" : "") + juce::String(v, 2);
     };
-    env.aVsRow = std::make_unique<SliderRow>("A", fmtVs, kEnvCol);
-    env.dVsRow = std::make_unique<SliderRow>("D", fmtVs, kEnvCol);
-    env.sVsRow = std::make_unique<SliderRow>("S", fmtVs, kEnvCol);
-    env.rVsRow = std::make_unique<SliderRow>("R", fmtVs, kEnvCol);
+    env.aVsRow = std::make_unique<SliderRow>("Vel.A", fmtVs, kEnvCol);
+    env.dVsRow = std::make_unique<SliderRow>("Vel.D", fmtVs, kEnvCol);
+    env.sVsRow = std::make_unique<SliderRow>("Vel.S", fmtVs, kEnvCol);
+    env.rVsRow = std::make_unique<SliderRow>("Vel.R", fmtVs, kEnvCol);
 
     for (auto* row : { env.aRow.get(), env.dRow.get(), env.sRow.get(),
                        env.rRow.get(), env.amtRow.get(),
@@ -1381,6 +1381,7 @@ void SynthPanel::updateVisibility()
     auto setEnvDimmed = [](EnvSection& env) {
         bool active = env.targetBox.getSelectedId() != 1; // 1 = "---"
         float alpha = active ? 1.0f : dimAlpha;
+        env.header.setAlpha(alpha);   // advanced-view title greys out when the env drives nothing
         env.loopToggle.setAlpha(alpha);
         env.aCurveBtn.setAlpha(alpha);
         env.dCurveBtn.setAlpha(alpha);
@@ -1393,6 +1394,17 @@ void SynthPanel::updateVisibility()
     setEnvDimmed(ampEnv);
     setEnvDimmed(mod1Env);
     setEnvDimmed(mod2Env);
+
+    // Easy-view env-selector tab greys out for any env that drives nothing
+    // (target = None), matching setEnvDimmed — inactive envs read as inactive at
+    // a glance (incl. the selected one, whose controls are already dimmed).
+    // Alpha is orthogonal to syncGroup's colour/toggle setup, so it survives.
+    {
+        EnvSection* envs[kNumModTabs] = { &ampEnv, &mod1Env, &mod2Env };
+        for (int i = 0; i < kNumModTabs; ++i)
+            envTabBtns[static_cast<size_t>(i)].setAlpha(
+                envs[i]->targetBox.getSelectedId() != 1 ? 1.0f : dimAlpha);
+    }
 
     auto setLfoDimmed = [](LfoSection& lfo) {
         bool active = lfo.targetBox.getSelectedId() != 1; // 1 = "---"
@@ -1812,6 +1824,8 @@ void SynthPanel::layoutEnv(EnvSection& env, juce::Rectangle<int>& area, float f,
                      env.aVsRow.get(), env.dVsRow.get(), env.sVsRow.get(), env.rVsRow.get() })
         if (r) r->setVerticalMode(false);
 
+    if (env.amtRow) env.amtRow->setLabelAsBand(false);  // band is an easy-view-only treatment
+
     env.header.setFont(juce::FontOptions(f));
     auto hdr = area.removeFromTop(rowH);
     int headerW = juce::roundToInt(hdr.getWidth() * 0.18f);
@@ -2135,20 +2149,27 @@ void SynthPanel::layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float
     env.targetBox.setBounds(targetRow.removeFromLeft(juce::jmin(tgtW, targetRow.getWidth())));
     area.removeFromTop(gap);
 
-    // Reserve the bottom block: four vertical velSense sliders (~25% of the
-    // height, taken from the graph) + Amt; the graphical ADSR editor takes the
-    // remaining (largest) middle area.
-    const int velRowH  = juce::jmax(rowH * 2, juce::roundToInt(area.getHeight() * 0.25f));
-    const int reserved = velRowH + gap + rowH + gap;        // velSense block + Amt
-    const int graphH   = juce::jmax(rowH * 3, area.getHeight() - reserved);
-
+    // Compact ADSR graph at the top — it's a readout, not the dominant element
+    // (it was ~3x taller than needed). The velSense faders take the bulk of the
+    // freed height; Amt sits near the bottom with breathing room (not flush).
+    const int graphH = juce::jmax(rowH * 2, juce::roundToInt(area.getHeight() * 0.25f));
     auto graphArea = area.removeFromTop(juce::jmin(graphH, area.getHeight()));
     if (env.graph) env.graph->setBounds(graphArea);
     area.removeFromTop(gap);
 
-    // Four short vertical velSense sliders, columns aligned under A/D/S/R.
-    auto vsArea = area.removeFromTop(juce::jmin(velRowH, area.getHeight()));
+    // Reserve the Amt row near the bottom, with a margin below it so it doesn't
+    // touch the panel edge.
+    juce::Rectangle<int> amtArea;
+    if (env.amtRow)
     {
+        area.removeFromBottom(gap * 2);                                   // breathing room below Amt
+        amtArea = area.removeFromBottom(juce::jmin(rowH, area.getHeight()));
+        area.removeFromBottom(gap);
+    }
+
+    // Four vertical velSense faders fill the middle, columns aligned under A/D/S/R.
+    {
+        auto vsArea = area;
         SliderRow* vs[4] = { env.aVsRow.get(), env.dVsRow.get(), env.sVsRow.get(), env.rVsRow.get() };
         constexpr int vGap = 4;
         const int vW = juce::jmax(1, (vsArea.getWidth() - vGap * 3) / 4);
@@ -2159,12 +2180,12 @@ void SynthPanel::layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float
             if (vs[i]) { vs[i]->setVerticalMode(true); vs[i]->setBounds(cell); }
         }
     }
-    area.removeFromTop(gap);
 
     if (env.amtRow)
     {
         env.amtRow->setVerticalMode(false);
-        env.amtRow->setBounds(area.removeFromTop(rowH));
+        env.amtRow->setLabelAsBand(true);   // standard horizontal-slider look (matches the Target band)
+        env.amtRow->setBounds(amtArea);
     }
 }
 
@@ -3235,6 +3256,8 @@ void SynthPanel::resized()
             modulationForcedLabelWidthFor(*ampEnv.aRow, modColumnWidth, curveLabelMin),
             modulationForcedLabelWidthFor(*ampEnv.sRow, modColumnWidth),
             modulationForcedLabelWidthFor(*ampEnv.amtRow, modColumnWidth),
+            modulationForcedLabelWidthFor(*ampEnv.aVsRow, modColumnWidth),   // "Vel.A"
+            modulationForcedLabelWidthFor(*ampEnv.sVsRow, modColumnWidth),   // "Vel.S"
             modulationForcedLabelWidthFor(*lfo1.rateRow, modColumnWidth),
             modulationForcedLabelWidthFor(*lfo1.divisionRow, modColumnWidth),
             modulationForcedLabelWidthFor(*aftertouchAmountRow, modColumnWidth),
@@ -3245,6 +3268,8 @@ void SynthPanel::resized()
         const int rightLabelWidth = std::max({
             modulationForcedLabelWidthFor(*ampEnv.dRow, modColumnWidth, curveLabelMin),
             modulationForcedLabelWidthFor(*ampEnv.rRow, modColumnWidth, curveLabelMin),
+            modulationForcedLabelWidthFor(*ampEnv.dVsRow, modColumnWidth),   // "Vel.D"
+            modulationForcedLabelWidthFor(*ampEnv.rVsRow, modColumnWidth),   // "Vel.R"
             modulationForcedLabelWidthFor(*lfo1.depthRow, modColumnWidth),
             modulationForcedLabelWidthFor(*drift1.depthRow, modColumnWidth)
         });
