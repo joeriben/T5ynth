@@ -928,9 +928,8 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     // render evolves from the previous one, up to Full at the right. A word readout
     // (Off..Full) replaces the 0-1 number, so "full" is a visible end position you
     // navigate to rather than a value to guess.
-    resynthLabel.setText("Resynth", juce::dontSendNotification);
-    resynthLabel.setColour(juce::Label::textColourId, kDim);
-    resynthLabel.setJustificationType(juce::Justification::centredLeft);
+    // Left-title band ("RESYNTH" on accent, dark ink) — the snap/cache treatment.
+    paintSectionHeader(resynthLabel, "RESYNTH", kOscCol);
     resynthLabel.setInterceptsMouseClicks(false, false);
     resynthLabel.setTooltip("Resynth (SA3): feed the last generation back as the "
                             "seed so each render evolves from the previous one.");
@@ -946,12 +945,6 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
                              "feed the last render back as the seed — further right "
                              "= the next render follows your fed-back sound more.");
     addAndMakeVisible(resynthSlider);
-
-    // "RESYNTH" module frame behind the slider (decorative; the accent header strip
-    // replaces the old free-floating label). Periwinkle accent matches the track.
-    resynthModuleBox.configure("RESYNTH", kOscCol, Icon::numIcons);
-    addAndMakeVisible(resynthModuleBox);
-    resynthModuleBox.toBack();
 
     resynthA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor.getValueTreeState(), PID::resynthAmount, resynthSlider);
@@ -1038,7 +1031,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         {
             resynthSlider.setEnabled(resynthOk);
             resynthSlider.setAlpha(resynthOk ? 1.0f : 0.4f);
-            resynthModuleBox.setAlpha(resynthOk ? 1.0f : 0.4f);  // dim the frame too (label is hidden)
+            resynthLabel.setAlpha(resynthOk ? 1.0f : 0.4f);   // dim the left-title with the slider
         }
         // (Re-Prompt is engine-agnostic — not SA3-gated — and its controls now live
         // in PromptPanel; nothing to flip here.)
@@ -3006,10 +2999,9 @@ void MainPanel::resized()
     constexpr int kMinAxesH = 84;
     constexpr int kMinGenerateButtonH = 38;
     const int cacheRowH = juce::jlimit(16, 20, juce::roundToInt(h * 0.022f));
-    const int resynthRowH = juce::jlimit(16, 22, juce::roundToInt(h * 0.024f));
-    // Resynth is now a module (accent header strip + slider), so reserve both.
-    const int resynthHeaderH = cacheRowH;
-    const int resynthBlockH  = resynthHeaderH + resynthRowH;
+    // Resynth is a single [left-title | slider] row, same height as the snap/cache
+    // row right above it (no separate header strip → frees that vertical space).
+    const int resynthBlockH  = cacheRowH;
     const int genCacheGap = juce::jlimit(22, 36, juce::roundToInt(h * 0.032f));
 
     int genBtnH = juce::jlimit(50, 72,
@@ -3166,21 +3158,22 @@ void MainPanel::resized()
     for (int i = 1; i < kNumInfCacheButtons; ++i)
         cacheSwitchBounds = cacheSwitchBounds.getUnion(infCacheButtons[i].getBounds());
 
-    // Resynth module beneath the snap/cache row: a "RESYNTH" accent header strip
-    // over the Off→Full slider (replaces the old free-floating [label][slider] row).
-    // Its Y is derived like snapCacheRow (from the Generate button's bottom) so it
-    // tracks the centered control block exactly; resynthBlockH is reserved above.
+    // Resynth row beneath the snap/cache row: a "RESYNTH" left-title band + the
+    // Off→Full slider to its right — the snap/cache treatment, just with a slider
+    // (single-row module → left-header). Y derived like snapCacheRow (from the
+    // Generate button's bottom) so it tracks the centered control block exactly;
+    // resynthBlockH is reserved above.
     auto resynthArea = juce::Rectangle<int>(
         genCol.getX(),
         mainGenerateBtn.getBottom() + effectiveGenCacheGap + cacheRowH + kGap,
         genCol.getWidth(),
         resynthBlockH).reduced(1, 0);
-    resynthLabel.setVisible(false);   // the module header strip names it now
-    resynthModuleBox.setBaseFont(switchFs);
-    resynthModuleBox.setHeaderHeight(resynthHeaderH);
-    resynthModuleBox.setContentPadding(1);   // minimal — keep the slider (14px text box) full-height
-    resynthModuleBox.setBounds(resynthArea);
-    resynthSlider.setBounds(resynthModuleBox.getContentBounds());
+    resynthLabel.setVisible(true);
+    setUiFont(resynthLabel, TextRole::ModuleTitle, switchFs, true);
+    const int resynthLabelW = measureTextWidth(" RESYNTH", hdrFs) + labelPad;
+    resynthLabel.setBounds(resynthArea.removeFromLeft(juce::jmin(resynthLabelW, resynthArea.getWidth())));
+    resynthArea.removeFromLeft(juce::jmin(gap, resynthArea.getWidth()));
+    resynthSlider.setBounds(resynthArea);
 
     // (The Re-Prompt control row that used to sit beneath Resynth now lives in
     // PromptPanel, directly under the prompts.)
