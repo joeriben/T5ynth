@@ -589,22 +589,21 @@ namespace FilterWarpStyle {
 
 // ── Delay type ──
 // Index 1 keeps the key "stereo" for preset back-compat: presets saved before
-// the multi-mode expansion stored delay_type = "stereo" and must still resolve
-// to the original dual-mono behaviour (now labelled "2M"). Choice params are
-// serialised by key (choiceToKey/choiceFromKey), so ordering is free — only the
-// key→DSP mapping must stay stable. Real stereo, cross-feedback and tape modes
-// are appended with fresh keys. DSP voicing lives in dsp/DelayLine.cpp.
+// the multi-mode rework stored delay_type = "stereo" and must still resolve to
+// the original clean dual-mono behaviour (now labelled "Digital"). Choice params
+// are serialised by key (choiceToKey/choiceFromKey), so ordering is free — only
+// the key→DSP mapping must stay stable. DSP voicing lives in dsp/DelayLine.cpp.
 namespace DelayType {
-    enum : int { Off = 0, DualMono = 1, Stereo = 2, Cross = 3, Tape = 4 };
+    enum : int { Off = 0, Digital = 1, PingPong = 2, Tape2 = 3, Tape3 = 4 };
     static constexpr ChoiceEntry kEntries[] = {
-        { "off",    "Off"   },
-        { "stereo", "2M"    },   // dual-mono; key kept for preset back-compat
-        { "wide",   "St"    },   // true stereo via L/R time offset
-        { "cross",  "Cross" },   // cross-coupled feedback (stereo spread)
-        { "tape",   "Tape"  }    // dual-mono + saturating/filtered feedback
+        { "off",      "Off"       },
+        { "stereo",   "Digital"   },   // clean dual-mono; key kept for preset back-compat
+        { "pingpong", "Ping-Pong" },   // true ping-pong (mono-sum in, cross feedback)
+        { "tape2",    "Tape 2"    },   // 2-head tape echo (heads at T, 2T)
+        { "tape3",    "Tape 3"    }    // 3-head tape echo (RE-201 1:2:3 spacing)
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(Tape + 1 == kCount, "DelayType out of sync.");
+    static_assert(Tape3 + 1 == kCount, "DelayType out of sync.");
 }
 
 // ── Reverb type ──
@@ -634,18 +633,20 @@ namespace NoiseKind {
     static_assert(Brown + 1 == kCount, "NoiseKind out of sync.");
 }
 
-// ── LFO waveform (5 entries including S&H) ──
+// ── LFO waveform (6 entries; SawDown = inverse/falling saw, appended last so
+//    existing choice indices stay stable for DAW-session recall) ──
 namespace LfoWave {
-    enum : int { Sine = 0, Tri = 1, Saw = 2, Square = 3, SampleHold = 4 };
+    enum : int { Sine = 0, Tri = 1, Saw = 2, Square = 3, SampleHold = 4, SawDown = 5 };
     static constexpr ChoiceEntry kEntries[] = {
         { "sine",            "Sin"  },
         { "triangle",        "Tri"  },
         { "sawtooth",        "Saw"  },
         { "square",          "Sq"   },
-        { "sample_and_hold", "S&H"  }
+        { "sample_and_hold", "S&H"  },
+        { "saw_down",        "SawD" }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(SampleHold + 1 == kCount, "LfoWave out of sync.");
+    static_assert(SawDown + 1 == kCount, "LfoWave out of sync.");
 }
 
 // ── LFO trigger mode ──
@@ -749,18 +750,21 @@ namespace ClockSync {
     }
 }
 
-// ── Drift LFO waveform (label "Sq" differs from LfoWave "Square"!) ──
+// ── Drift LFO waveform (label "Sq" differs from LfoWave "Square"!).
+//    SawDown = inverse/falling saw, appended last to keep choice indices
+//    stable for DAW-session recall. ──
 namespace DriftWave {
-    enum : int { Sine = 0, Tri = 1, Saw = 2, Square = 3, Random = 4 };
+    enum : int { Sine = 0, Tri = 1, Saw = 2, Square = 3, Random = 4, SawDown = 5 };
     static constexpr ChoiceEntry kEntries[] = {
         { "sine",     "Sine" },
         { "triangle", "Tri"  },
         { "sawtooth", "Saw"  },
         { "square",   "Sq"   },
-        { "random",   "Rnd"  }
+        { "random",   "Rnd"  },
+        { "saw_down", "SawD" }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(Random + 1 == kCount, "DriftWave out of sync.");
+    static_assert(SawDown + 1 == kCount, "DriftWave out of sync.");
 }
 
 // ── Envelope curve shape (namespace name avoids clash with the global

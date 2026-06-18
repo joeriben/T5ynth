@@ -23,10 +23,11 @@ float DriftLFO::waveformValue(const InternalLFO& lfo)
         case Square:
             return p < 0.5 ? 1.0f : -1.0f;
         case Sawtooth:
-            // Asymmetric ping-pong saw: fast rise (20%), slow fall (60%), fast rise (20%)
-            if (p < 0.2) return static_cast<float>(p * 5.0);
-            if (p < 0.8) return static_cast<float>(1.0 - (p - 0.2) * (10.0 / 3.0));
-            return static_cast<float>(-1.0 + (p - 0.8) * 5.0);
+            // True rising sawtooth: linear ramp -1..+1, hard reset down.
+            return static_cast<float>(2.0 * p - 1.0);
+        case SawDown:
+            // Inverse (falling) sawtooth: linear ramp +1..-1, hard reset up.
+            return static_cast<float>(1.0 - 2.0 * p);
         case Random:
             return lfo.heldValue;
         default:

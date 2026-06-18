@@ -51,6 +51,9 @@ float LFO::processSample()
         case 4: // Sample & Hold
             output = heldValue_;
             break;
+        case 5: // Saw (falling / inverse): ramp +1 -> -1, hard reset up
+            output = static_cast<float>(1.0 - 2.0 * phase);
+            break;
         default:
             output = static_cast<float>(std::sin(phase * TWO_PI));
             break;

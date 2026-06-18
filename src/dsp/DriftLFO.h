@@ -6,7 +6,7 @@
 /**
  * Drift LFO system — port of useDriftLfo.ts.
  *
- * 3 internal LFOs with selectable waveform (sine/tri/saw/sq/rnd).
+ * 3 internal LFOs with selectable waveform (sine/tri/saw/sq/rnd/inv-saw).
  * Output = waveform(phase) * depth * halfRange (offset added to base).
  * Phase resets to 0 on target change.
  *
@@ -43,7 +43,7 @@ public:
     };
 
     /** Waveform types. Matches APVTS drift_wave choice order. */
-    enum Waveform { Sine = 0, Triangle, Sawtooth, Square, Random };
+    enum Waveform { Sine = 0, Triangle, Sawtooth, Square, Random, SawDown };
 
     static constexpr int NUM_LFOS = 3;
 

@@ -5,7 +5,8 @@
 /**
  * Low-frequency oscillator with multiple waveforms.
  *
- * Runs per-sample. Waveform types: 0=Sine, 1=Triangle, 2=Saw, 3=Square, 4=S&H.
+ * Runs per-sample. Waveform types: 0=Sine, 1=Triangle, 2=Saw, 3=Square, 4=S&H,
+ *                                   5=SawDown (inverse/falling saw).
  */
 class LFO
 {
@@ -25,7 +26,7 @@ public:
     /** Set rate in Hz. */
     void setRate(float hz) { rate = hz; }
 
-    /** Set waveform type (0=Sine, 1=Triangle, 2=Saw, 3=Square, 4=S&H). */
+    /** Set waveform type (0=Sine, 1=Triangle, 2=Saw, 3=Square, 4=S&H, 5=SawDown). */
     void setWaveform(int type) { waveform = type; }
 
     /** Set output depth/amount (multiplier). */

@@ -168,7 +168,7 @@ private:
     };
     EnvSection ampEnv, mod1Env, mod2Env;
     static constexpr int kNumModTabs = 3;
-    static constexpr int kNumWaveBtns = 5;
+    static constexpr int kNumWaveBtns = 6;  // sine/tri/saw/sq/s&h/saw-down (mirrors LfoWave + DriftWave)
     static constexpr int kNumLfoModeBtns = 2;
     std::array<juce::TextButton, kNumModTabs> envTabBtns, lfoTabBtns, driftTabBtns;
     int activeEnvTab = 0;
