@@ -133,6 +133,12 @@ private:
     // Fix toggle buttons (lock/unlock icons)
     juce::TextButton genFixStepsBtn, genFixPulsesBtn, genFixRotationBtn, genFixMutationBtn;
 
+    // Framed cards around the four Euclidean controls (slider + value + FIX),
+    // recorded in resized() and drawn in paint(); reset to {} in step mode so
+    // the isEmpty() guard drops them when the grid shows.
+    juce::Rectangle<int> genStepsCardBounds, genPulsesCardBounds,
+                         genRotationCardBounds, genMutationCardBounds;
+
     // ── Polyphony (Phase 5) ──────────────────────────────────────────────
     // Shared pitch-field controls
     juce::ComboBox genFieldModeBox;

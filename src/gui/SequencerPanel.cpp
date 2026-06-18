@@ -668,6 +668,12 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     genMutationRow->getSlider().onValueChange = [this] { genMutationRow->updateValue(); };
     genMutationRow->updateValue();
 
+    // Euclidean gen rows: render the label as an accent band (the left-header),
+    // so each sits inside its framed card like the Duration module.
+    for (auto* r : { genStepsRow.get(), genPulsesRow.get(),
+                     genRotationRow.get(), genMutationRow.get() })
+        r->setLabelAsBand(true);
+
     // Fix toggle buttons (FIX = locked against drift)
     auto setupFixBtn = [this](juce::TextButton& btn, const juce::String& tip) {
         btn.setButtonText("FIX");
@@ -1216,6 +1222,24 @@ void SequencerPanel::paint(juce::Graphics& g)
     for (int i = 0; i < kNumExtraStrands; ++i)
         paintSwitchBoxBorder(g, strandOctSwitchBounds[i]);
 
+    // Framed cards around the Euclidean gen controls (gen mode only — bounds are
+    // {} in step mode). Lighter kSurface fill so the card reads on the kCard panel
+    // (drawn before the child controls, which paint on top). Matches the FX/synth
+    // module-card recipe; no module-colour stripe.
+    {
+        auto card = [&g](juce::Rectangle<int> b)
+        {
+            if (b.isEmpty()) return;
+            g.setColour(kSurface.withAlpha(0.62f)); g.fillRect(b);
+            g.setColour(juce::Colour(0xaa05070d)); g.drawRect(b.expanded(1, 1), 1);
+            g.setColour(kBorder.withAlpha(0.82f)); g.drawRect(b, 1);
+        };
+        card(genStepsCardBounds);
+        card(genPulsesCardBounds);
+        card(genRotationCardBounds);
+        card(genMutationCardBounds);
+    }
+
     // ═══ Gen-Seq visualization ═══
     if (genModeActive && !genVisArea.isEmpty())
     {
@@ -1527,6 +1551,8 @@ void SequencerPanel::resized()
     // Reset gen-switchbox frames; set below only when laid out (gen mode on),
     // so the isEmpty() guard in paint() drops them when the grid is showing.
     genRangeSwitchBounds = {};
+    genStepsCardBounds = genPulsesCardBounds = {};
+    genRotationCardBounds = genMutationCardBounds = {};
     for (int i = 0; i < kNumExtraStrands; ++i)
         strandOctSwitchBounds[i] = {};
 
@@ -1537,25 +1563,37 @@ void SequencerPanel::resized()
         int colGap = 4;
         int fixW = 28;
         int colW = (area.getWidth() - colGap) / 2;
-        int sliderW = colW - fixW;
 
-        // Row 1:  Steps [====] 21 [FIX]  |  Pulses [====] 16 [FIX]
-        auto row1 = area.removeFromTop(genCtrlH);
-        genStepsRow->setBounds(row1.removeFromLeft(sliderW));
-        genFixStepsBtn.setBounds(row1.removeFromLeft(fixW));
+        // Each Euclidean control (band-label + slider + value + FIX) sits inside
+        // a framed card: record the full colW group rect, then inset the content
+        // so it sits INSIDE the frame with padding (Duration-with-left-header).
+        const int cardPad = 2;
+        auto placeGenCard = [&](juce::Rectangle<int> colRect, SliderRow& row,
+                                juce::TextButton& fix) -> juce::Rectangle<int>
+        {
+            auto c = colRect.reduced(cardPad);
+            row.setBounds(c.removeFromLeft(juce::jmax(1, c.getWidth() - fixW)));
+            fix.setBounds(c);
+            return colRect;
+        };
+
+        // Card row height = control row + padding on both sides, so the slider/
+        // value/FIX keep their full genCtrlH height inside the frame (no shrink).
+        const int genCardH = genCtrlH + 2 * cardPad;
+
+        // Row 1:  [ Steps [====] 21 [FIX] ]  |  [ Pulses [====] 16 [FIX] ]
+        auto row1 = area.removeFromTop(genCardH);
+        genStepsCardBounds  = placeGenCard(row1.removeFromLeft(colW), *genStepsRow,  genFixStepsBtn);
         row1.removeFromLeft(colGap);
-        genPulsesRow->setBounds(row1.removeFromLeft(sliderW));
-        genFixPulsesBtn.setBounds(row1.removeFromLeft(fixW));
-        area.removeFromTop(2);
+        genPulsesCardBounds = placeGenCard(row1.removeFromLeft(colW), *genPulsesRow, genFixPulsesBtn);
+        area.removeFromTop(4);
 
-        // Row 2:  Rotation [====] 2 [FIX]  |  Evolve [====] 80% [FIX]
-        auto row2 = area.removeFromTop(genCtrlH);
-        genRotationRow->setBounds(row2.removeFromLeft(sliderW));
-        genFixRotationBtn.setBounds(row2.removeFromLeft(fixW));
+        // Row 2:  [ Rotation [====] 2 [FIX] ]  |  [ Evolve [====] 80% [FIX] ]
+        auto row2 = area.removeFromTop(genCardH);
+        genRotationCardBounds = placeGenCard(row2.removeFromLeft(colW), *genRotationRow, genFixRotationBtn);
         row2.removeFromLeft(colGap);
-        genMutationRow->setBounds(row2.removeFromLeft(sliderW));
-        genFixMutationBtn.setBounds(row2.removeFromLeft(fixW));
-        area.removeFromTop(2);
+        genMutationCardBounds = placeGenCard(row2.removeFromLeft(colW), *genMutationRow, genFixMutationBtn);
+        area.removeFromTop(4);
 
         // ── 2-column / 2-row GEN block ──
         //   Left column (narrow):
