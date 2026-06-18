@@ -391,6 +391,17 @@ SA3 is a latent diffusion transformer with a t5gemma text encoder (<code>google/
 <strong>Duration.</strong> SA3 generates variable-length audio; with an SA3 model selected the Duration slider reaches 120&nbsp;s. For the other engines it caps at 11&nbsp;s.
 </p>
 
+<h4>Stable Audio 3 Medium</h4>
+<p>
+Stable Audio 3 Medium is the larger SA3 checkpoint (about 2.3&nbsp;billion parameters, ~9.2&nbsp;GB download), added in T5ynth&nbsp;2.4.0. Unlike the Small tiers, a <strong>single</strong> Medium checkpoint renders both modalities &mdash; Music or SFX is chosen per generation by the engine slot, not by a separate download. It uses the same <code>google/t5gemma-b-b-ul2</code> text encoder, 44.1&nbsp;kHz stereo, and the same automatic inference settings as Small (<code>pingpong</code> sampler, 8&nbsp;steps). Internally it is a deeper diffusion transformer (24 blocks against 20, with differential attention) on a SAME autoencoder with sliding-window attention, and it needs roughly <strong>16&nbsp;GB</strong> of unified memory or VRAM to run, against about 8&nbsp;GB for Small.
+</p>
+<p>
+<strong>Install.</strong> Select <strong>Stable Audio 3 Medium</strong> in Settings and click <strong>Download</strong>. As with the Small tiers you must accept both the <a href="https://stability.ai/community-license-agreement">Stability AI Community License</a> (the audio model) and the <a href="https://ai.google.dev/gemma/terms">Google Gemma Terms of Use</a> with the Gemma Prohibited Use Policy (the t5gemma text encoder); the download then runs login-free and the license texts are written into the model folder. Medium shares the t5gemma encoder with the Small tiers, so if you already have an SA3 Small model installed only the audio checkpoint is fetched.
+</p>
+<p>
+<strong>Choosing Small or Medium.</strong> The tier is a <em>per-machine</em> choice, not part of a preset, and it defaults to <strong>Small</strong> so installing Medium never silently takes over a lighter machine. When both tiers are installed, the active SA3 model button carries a small <code>s</code>/<code>m</code> marker; <strong>click that button again</strong> &mdash; a second click on the already-selected SA3 slot &mdash; to toggle between Small and Medium. If only Medium is installed it is used automatically and the marker is hidden. Prompting and the 120&nbsp;s Duration range are identical to the Small tiers.
+</p>
+
 <h4>Stable Audio Open 1.0</h4>
 <p>
 Stable Audio Open 1.0 is the original full-size Stable Audio Open checkpoint, licensed under the <a href="https://stability.ai/community-license-agreement">Stability AI Community License</a>. Like Stable Audio Open Small, it also needs the auxiliary <strong>T5-Base</strong> text encoder (ungated, Apache-2.0), which installs automatically with the engine.
@@ -1104,6 +1115,42 @@ Drift modulation of generation parameters only changes the internal generation c
 
 <div class="tip">
   <strong>Energy awareness:</strong> Each re-generation runs the full diffusion inference pipeline on the GPU (or CPU). Auto-regen with fast drift rates can trigger many generations per minute. The beat-limited modes (max 4♩, max 16♩) help keep compute and energy use in check. Consider whether Manual mode is sufficient for your purpose.
+</div>
+
+<h4>Re-Prompt: the semantic self-listening loop</h4>
+<p>
+Drift moves the generation through its <em>parameters</em>. <strong>Re-Prompt</strong> moves it through <em>language</em>: after each render the machine listens to its own output and rewrites the prompt before the next one. It is a second feedback loop, riding on the same trigger as Auto-Regenerate, but closing through words instead of control values.
+</p>
+<p>
+Each step runs two models. A machine-listening model (<strong>CLAP</strong>, <code>laion/clap-htsat-unfused</code>) hears the rendered audio and ranks it against a fixed tag vocabulary &mdash; it does not <em>describe</em> the sound, it <em>ranks</em> it &mdash; yielding a handful of timbre tags plus a few signal-level spectral words (dark/bright, thin/full-bodied, tonal/textured). Those words are handed to the same local instruct LLM that powers prompt translation (<code>Qwen2.5-1.5B-Instruct</code>), which rewrites the prompt under the stance you chose. The next render is then triggered the usual way &mdash; by Generate, or automatically when an Auto-Regen mode is active &mdash; so the loop only steps when there is fresh audio to listen to. CLAP is fetched automatically from Hugging Face the first time you engage a stance (about 1&nbsp;GB), so the first Re-Prompt step needs an internet connection; the interpreter is the same local model T5ynth installs for prompt translation.
+</p>
+<p>
+The point is not to "improve" the sound, and not to correct the model's listening. It is to make that listening &mdash; and your steering of it &mdash; audible. You set two things: <strong>how</strong> the machine re-reads what it hears (the stance), and <strong>how far</strong> it may displace your own words (the coupling).
+</p>
+<p>
+The <strong>stance bar</strong> selects the interpreter's attitude. Each stance is named for the kind of motion it tends to produce over repeated steps:
+</p>
+<table>
+  <tr><th>Stance</th><th>Behavior</th></tr>
+  <tr><td><strong>Off</strong></td><td>Re-Prompt loop disabled.</td></tr>
+  <tr><td><strong>Transcribe</strong> (fixed point)</td><td>The machine re-describes what it hears; the prompt stays put.</td></tr>
+  <tr><td><strong>Sober</strong> (inward spiral)</td><td>Re-states the sound plainly and factually &mdash; sentiment and scene stripped, the real source kept.</td></tr>
+  <tr><td><strong>Sweeten</strong> (damped settling)</td><td>Softens toward a gentler, cuter reading.</td></tr>
+  <tr><td><strong>Variation</strong> (bounded cluster)</td><td>Small variations around the current theme.</td></tr>
+  <tr><td><strong>Abduction</strong> (wandering)</td><td>Leaps to new scenes, drifting far from the source.</td></tr>
+  <tr><td><strong>Opposite</strong> (limit cycle)</td><td>Oscillates between opposing readings.</td></tr>
+</table>
+<p>
+The <strong>coupling</strong> switch sets how far the rewrite reaches into your A/B prompt pair:
+</p>
+<table>
+  <tr><th>Coupling</th><th>Behavior</th></tr>
+  <tr><td><strong>B only</strong></td><td>One interpret run rewrites prompt B; A stays the human anchor (the Alpha slider sets the A/B mix).</td></tr>
+  <tr><td><strong>AB add</strong></td><td>Two runs (A &amp; B); each pole becomes its own original prompt plus its latest interpretation.</td></tr>
+  <tr><td><strong>AB replace</strong></td><td>Two runs (A &amp; B); each pole is fully replaced by its stance interpretation &mdash; the human input is broken, and Alpha now blends two machine self-readings.</td></tr>
+</table>
+<div class="tip">
+  <strong>Energy awareness:</strong> Re-Prompt adds a CLAP analysis and one or two short LLM passes to every regeneration, on top of the diffusion render. With a fast Auto-Regen cadence it keeps re-rendering to feed itself; the same beat-limited regen modes keep that in check.
 </div>
 
 <!-- ═══════════════════════════════════════════ -->

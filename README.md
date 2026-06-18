@@ -78,14 +78,17 @@ The instrument flow is therefore:
    **Drift Modulators & Auto-Regenerate**.
 
 T5ynth can use **Stable Audio 3 Small Music**, **Stable Audio 3 Small SFX**,
-**Stable Audio Open 1.0**, **Stable Audio Open Small**, or **AudioLDM2**. Each
+**Stable Audio 3 Medium**, **Stable Audio Open 1.0**, **Stable Audio Open Small**,
+or **AudioLDM2**. Each
 engine has its own learned response profile, so the same A/B pair can open a
 different space depending on the selected model. The Stable Audio engines are
 strongest with English sound-oriented phrases: sound effects, field recordings,
 drum or instrument loops, ambient sounds, foley, and production elements. The
 **Stable Audio 3** engines are the default since v2.1.0: a diffusion transformer
 with a t5gemma text encoder — Small Music for instrumental music, Small SFX for
-sound effects. AudioLDM2 is broader in its training goal and can cover sound effects,
+sound effects. A larger **Stable Audio 3 Medium** checkpoint (one model for both
+modalities, deeper transformer, ~16 GB to run) can be installed as a per-machine
+alternative to the Small tiers. AudioLDM2 is broader in its training goal and can cover sound effects,
 speech-like material, and music, but it is non-commercial only and less tied to
 T5ynth's newer injection-mode research.
 
@@ -214,6 +217,10 @@ just as you can use FM without solving the equations.
   diffusion process: Linear, Step-in, Layer, Combo 1, Combo 2, Combo 3.
 - **Drift** keeps the possible-sound space moving over time and can trigger new
   generations in the background.
+- **Re-Prompt** closes a second loop through language rather than parameters:
+  after each render a machine-listening model (CLAP) hears the output and a local
+  LLM rewrites the prompt under a chosen *stance*, so the words drift, not just
+  the controls.
 
 ### Drift Modulators & Auto-Regenerate
 
