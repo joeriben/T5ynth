@@ -69,9 +69,18 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     env.targetBox.onChange = [this] { updateVisibility(); resized(); };
     addAndMakeVisible(env.targetBox);
 
-    env.loopToggle.setColour(juce::ToggleButton::textColourId, kDim);
-    env.loopToggle.setColour(juce::ToggleButton::tickColourId, kAccent);
+    // Loop: standard switchbox toggle (kSurface off / accent@0.7 + white on),
+    // used in both views. In easy it sits in the top row, right of the dropdown.
+    env.loopToggle.setClickingTogglesState(true);
+    env.loopToggle.setColour(juce::TextButton::buttonColourId, kSurface);
+    env.loopToggle.setColour(juce::TextButton::buttonOnColourId, kEnvCol.withAlpha(0.7f));
+    env.loopToggle.setColour(juce::TextButton::textColourOffId, kDim);
+    env.loopToggle.setColour(juce::TextButton::textColourOnId, kHeaderText);
     addAndMakeVisible(env.loopToggle);
+
+    // Easy-view "Target" left-header band (accent@0.7 + white, like SNAP/CACHE).
+    paintSectionHeader(env.targetHeader, "Target", kEnvCol);
+    addAndMakeVisible(env.targetHeader);
 
     env.aRow   = std::make_unique<SliderRow>("Att", fmtMs, kEnvCol);
     env.dRow   = std::make_unique<SliderRow>("Dec", fmtMs, kEnvCol);
@@ -115,37 +124,59 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     setupCurveBtn(env.dCurveBtn, env.dCurveHidden, dCurveId, apvts, env.dCurveA);
     setupCurveBtn(env.rCurveBtn, env.rCurveHidden, rCurveId, apvts, env.rCurveA);
 
-    auto setupVelMode = [](SliderRow& row, juce::ComboBox& hidden,
-                           const juce::String& paramId,
-                           juce::AudioProcessorValueTreeState& vts,
-                           std::unique_ptr<CA>& attachment)
+    auto setupVelMode = [this](SliderRow& row, juce::ComboBox& hidden,
+                               juce::TextButton& velBtn, const juce::String& stage,
+                               const juce::String& paramId,
+                               juce::AudioProcessorValueTreeState& vts,
+                               std::unique_ptr<CA>& attachment)
     {
         juce::StringArray items;
         for (const auto& e : EnvVelTimeMode::kEntries)
             items.add(e.label);
         hidden.addItemList(items, 1);
-        hidden.onChange = [&row, &hidden]
+
+        // Easy-view button: amber@0.7 band when active, surface when off — same
+        // band/white treatment as the section title bands.
+        velBtn.setClickingTogglesState(false);
+        velBtn.setColour(juce::TextButton::buttonColourId, kSurface);
+        velBtn.setColour(juce::TextButton::buttonOnColourId, kEnvCol.withAlpha(0.7f));
+        velBtn.setColour(juce::TextButton::textColourOffId, kDim);
+        velBtn.setColour(juce::TextButton::textColourOnId, kHeaderText);
+        addAndMakeVisible(velBtn);
+
+        hidden.onChange = [&row, &hidden, &velBtn, stage]
         {
             const int index = hidden.getSelectedId() - 1;
             SliderRow::LabelMode mode = SliderRow::LabelMode::Off;
-            if (index == EnvVelTimeMode::Positive)
-                mode = SliderRow::LabelMode::Positive;
-            else if (index == EnvVelTimeMode::Negative)
-                mode = SliderRow::LabelMode::Negative;
-            row.setLabelMode(mode);
+            juce::String suffix;
+            if (index == EnvVelTimeMode::Positive)      { mode = SliderRow::LabelMode::Positive; suffix = "+"; }
+            else if (index == EnvVelTimeMode::Negative) { mode = SliderRow::LabelMode::Negative; suffix = "-"; }
+            row.setLabelMode(mode);                         // advanced fader-label badge
+            velBtn.setButtonText(stage + suffix);           // easy button mirrors the same state
+            velBtn.setToggleState(index != EnvVelTimeMode::Off, juce::dontSendNotification);
         };
-        row.setLabelClickHandler([&hidden]
-        {
+        auto cycle = [&hidden] {
             const int next = (hidden.getSelectedId() % EnvVelTimeMode::kCount) + 1;
             hidden.setSelectedId(next);
-        });
+        };
+        row.setLabelClickHandler(cycle);
+        velBtn.onClick = cycle;
         attachment = std::make_unique<CA>(vts, paramId, hidden);
         hidden.onChange();
     };
-    setupVelMode(*env.aRow, env.aVelModeHidden, aVelModeId, apvts, env.aVelModeA);
-    setupVelMode(*env.dRow, env.dVelModeHidden, dVelModeId, apvts, env.dVelModeA);
-    setupVelMode(*env.rRow, env.rVelModeHidden, rVelModeId, apvts, env.rVelModeA);
+    setupVelMode(*env.aRow, env.aVelModeHidden, env.aVelBtn, "A", aVelModeId, apvts, env.aVelModeA);
+    setupVelMode(*env.dRow, env.dVelModeHidden, env.dVelBtn, "D", dVelModeId, apvts, env.dVelModeA);
+    setupVelMode(*env.rRow, env.rVelModeHidden, env.rVelBtn, "R", rVelModeId, apvts, env.rVelModeA);
     env.velRow->setLabelMode(SliderRow::LabelMode::Positive);
+
+    // ── Easy-view graphical ADSR editor (replaces the four faders) ──
+    // Bound to the existing SliderRows + curve ComboBoxes, so APVTS stays the
+    // single source of truth. Created after the attachments above so the sliders
+    // already carry their parameter ranges.
+    env.graph = std::make_unique<AdsrGraph>(kEnvCol);
+    env.graph->bind(env.aRow.get(), env.dRow.get(), env.sRow.get(), env.rRow.get(),
+                    &env.aCurveHidden, &env.dCurveHidden, &env.rCurveHidden);
+    addAndMakeVisible(*env.graph);
 
     // Trigger initial value display
     env.aRow->updateValue();
@@ -1441,13 +1472,27 @@ void SynthPanel::updateVisibility()
     {
         env.header.setVisible(!easy);
         env.targetBox.setVisible(!easy || selected);
-        env.loopToggle.setVisible(!easy);
+        // "Target" left-header is an easy-only label (advanced uses env.header).
+        env.targetHeader.setVisible(easy && selected);
+        // Loop is now exposed in easy too (a toggle in the top row).
+        env.loopToggle.setVisible(!easy || selected);
+        // Curve buttons: advanced only — in easy you set curves by clicking the
+        // graph's segments.
         env.aCurveBtn.setVisible(!easy);
         env.dCurveBtn.setVisible(!easy);
         env.rCurveBtn.setVisible(!easy);
-        for (auto* r : { env.aRow.get(), env.dRow.get(), env.sRow.get(),
-                         env.rRow.get(), env.amtRow.get(), env.velRow.get() })
+        // A/D/S/R faders: advanced always; in easy they are REPLACED by the graph.
+        for (auto* r : { env.aRow.get(), env.dRow.get(), env.sRow.get(), env.rRow.get() })
+            if (r) r->setVisible(!easy);
+        // Amt / Vel-Sens rows: advanced always; easy only for the selected env.
+        for (auto* r : { env.amtRow.get(), env.velRow.get() })
             if (r) r->setVisible(!easy || selected);
+        // Easy-view graph + per-stage vel-time toggles: easy + selected only.
+        const bool easySel = easy && selected;
+        if (env.graph) env.graph->setVisible(easySel);
+        env.aVelBtn.setVisible(easySel);
+        env.dVelBtn.setVisible(easySel);
+        env.rVelBtn.setVisible(easySel);
     };
     setEnvControlsVisible(ampEnv,  activeEnvTab == 0, modEasyMode);
     setEnvControlsVisible(mod1Env, activeEnvTab == 1, modEasyMode);
@@ -2079,37 +2124,54 @@ void SynthPanel::layoutFilterEasy(juce::Rectangle<int> area, float f, int rowH, 
 
 void SynthPanel::layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float f, int rowH, int gap)
 {
-    juce::ignoreUnused(f);
-
-    for (auto* r : { env.aRow.get(), env.dRow.get(), env.sRow.get(),
-                     env.rRow.get(), env.amtRow.get(), env.velRow.get() })
+    for (auto* r : { env.amtRow.get(), env.velRow.get() })
         if (r)
         {
             r->clearForcedLabelWidth();
             r->clearForcedValueWidth();
         }
 
+    // Top row: [Target left-header][short dropdown] ........... [Loop toggle]
     auto targetRow = area.removeFromTop(rowH);
-    env.targetBox.setBounds(targetRow);
+    const float headerFs = juce::jmax(kUiControlFontMin, juce::jmin(13.0f, static_cast<float>(rowH) * 0.58f));
+    env.targetHeader.setFont(juce::FontOptions(headerFs, juce::Font::bold));
+    const int targetHdrW = measureTextWidth("Target", headerFs) + 16;
+    env.targetHeader.setBounds(targetRow.removeFromLeft(juce::jmin(targetHdrW, targetRow.getWidth())));
+    targetRow.removeFromLeft(gap);
+    const int loopW = buttonTextWidthFor("Loop", f, juce::roundToInt(f * 3.2f));
+    env.loopToggle.setBounds(targetRow.removeFromRight(juce::jmin(loopW, targetRow.getWidth())));
+    targetRow.removeFromRight(gap);
+    const int tgtW = choiceBoxWidthFor(EnvTarget::kEntries, f, juce::roundToInt(f * 7.0f));
+    env.targetBox.setBounds(targetRow.removeFromLeft(juce::jmin(tgtW, targetRow.getWidth())));
     area.removeFromTop(gap);
 
-    const int bottomRowsH = rowH * 2 + gap;
-    const int faderH = juce::jmax(rowH * 4, area.getHeight() - bottomRowsH);
-    auto faders = area.removeFromTop(juce::jmin(faderH, area.getHeight()));
-    constexpr int cellGap = 5;
-    const int cellW = juce::jmax(1, (faders.getWidth() - cellGap * 3) / 4);
+    // Reserve the bottom block: vel-time toggle row + Amt + Vel-Sens; the
+    // graphical ADSR editor takes the remaining (largest) middle area.
+    const int velModeRowH = rowH;
+    const int bottomRowsH  = rowH * 2 + gap;                 // Amt + Vel-Sens
+    const int reserved     = velModeRowH + gap + bottomRowsH + gap;
+    const int graphH       = juce::jmax(rowH * 3, area.getHeight() - reserved);
 
-    SliderRow* verticalRows[] = { env.aRow.get(), env.dRow.get(), env.sRow.get(), env.rRow.get() };
-    for (int i = 0; i < 4; ++i)
+    auto graphArea = area.removeFromTop(juce::jmin(graphH, area.getHeight()));
+    if (env.graph) env.graph->setBounds(graphArea);
+    area.removeFromTop(gap);
+
+    // Vel→time toggles [A][D][R].  (Loop now lives in the top row.)
+    auto velModeRow = area.removeFromTop(velModeRowH);
     {
-        auto cell = (i == 3) ? faders : faders.removeFromLeft(cellW);
-        if (i < 3)
-            faders.removeFromLeft(cellGap);
-        verticalRows[i]->setVerticalMode(true);
-        verticalRows[i]->setBounds(cell);
+        constexpr int vCount = 3;
+        constexpr int vGap = 4;
+        const int vW = juce::jmax(1, (velModeRow.getWidth() - vGap * (vCount - 1)) / vCount);
+        juce::TextButton* vb[vCount] = { &env.aVelBtn, &env.dVelBtn, &env.rVelBtn };
+        for (int i = 0; i < vCount; ++i)
+        {
+            auto cell = (i == vCount - 1) ? velModeRow : velModeRow.removeFromLeft(vW);
+            if (i < vCount - 1) velModeRow.removeFromLeft(vGap);
+            vb[i]->setBounds(cell);
+        }
     }
-
     area.removeFromTop(gap);
+
     env.amtRow->setVerticalMode(false);
     env.velRow->setVerticalMode(false);
     env.amtRow->setBounds(area.removeFromTop(rowH));

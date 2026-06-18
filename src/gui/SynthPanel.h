@@ -142,8 +142,9 @@ private:
     struct EnvSection
     {
         juce::Label header;
+        juce::Label targetHeader;   // easy-view "Target" left-header band
         juce::ComboBox targetBox;
-        juce::ToggleButton loopToggle { "Loop" };
+        juce::TextButton loopToggle { "Loop" };   // switchbox toggle (both views)
         std::unique_ptr<SliderRow> aRow, dRow, sRow, rRow, amtRow, velRow;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> aA, dA, sA, rA, amtA, velA;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> loopA;
@@ -154,6 +155,16 @@ private:
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> aCurveA, dCurveA, rCurveA;
         juce::ComboBox aVelModeHidden, dVelModeHidden, rVelModeHidden;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> aVelModeA, dVelModeA, rVelModeA;
+
+        // Easy-view per-stage velocity→time toggles. In advanced the mode is set
+        // by clicking the fader label; the easy graph replaces the faders, so it
+        // gets explicit A/D/R buttons that cycle the same hidden ComboBoxes.
+        juce::TextButton aVelBtn, dVelBtn, rVelBtn;
+
+        // Easy-view graphical ADSR editor — replaces the four faders. Declared
+        // LAST so it is destroyed FIRST: its dtor detaches listeners from the
+        // SliderRows / curve ComboBoxes above while those are still alive.
+        std::unique_ptr<AdsrGraph> graph;
     };
     EnvSection ampEnv, mod1Env, mod2Env;
     static constexpr int kNumModTabs = 3;

@@ -6,6 +6,7 @@
 #include <functional>
 #include <limits>
 #include <vector>
+#include "../dsp/ADSREnvelope.h"   // CurveShape + applyCurve: single source of truth for env curve math
 
 // ── Color constants (shared across all GUI files) ──────────────────────────
 static const auto kAccent  = juce::Colour(0xffe91e63);  // C — Pink (engine accent)
@@ -780,6 +781,9 @@ public:
     juce::Slider& getSlider() { return slider; }
     juce::Label& getLabel() { return label; }
     juce::Label& getValueLabel() { return value; }
+    // The formatted value text exactly as this row displays it (honours the
+    // row's valueFormatter). Used by AdsrGraph to mirror the fader read-out.
+    juce::String getDisplayValue() const { return currentValueText(); }
     int getPreferredWidth() const { return getLayoutProfile(false).preferredWidth; }
     int getMinimumWidth() const { return getLayoutProfile(true).minimumWidth; }
     // Layout-only override for cross-row column alignment. Any code deriving a new
@@ -1327,6 +1331,284 @@ private:
     }
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CurveButton)
+};
+
+/**
+ * Interactive ADSR envelope display — the Easy-view replacement for the four
+ * A/D/S/R faders. It renders the envelope with per-stage curve shaping using the
+ * SAME ADSREnvelope::applyCurve the audio path uses (what you see is what you
+ * hear) and exposes three draggable handles:
+ *
+ *   • peak handle    → Attack time   (drag X)
+ *   • sustain corner → Decay time    (drag X) + Sustain level (drag Y)
+ *   • end handle     → Release time  (drag X)
+ *
+ * Clicking a segment body (away from a handle) cycles that stage's curve shape
+ * (Log→…→Exp), mirroring the advanced-view CurveButton.
+ *
+ * The component owns NO parameter state: it drives the existing per-stage
+ * SliderRows / curve ComboBoxes, so APVTS stays the single source of truth, and
+ * it repaints when they change. No timer — repaints are listener- or
+ * mouse-driven, so it adds zero idle CPU.
+ */
+class AdsrGraph : public juce::Component,
+                  private juce::Slider::Listener,
+                  private juce::ComboBox::Listener
+{
+public:
+    explicit AdsrGraph(juce::Colour accent) : accentCol(accent)
+    {
+        setMouseCursor(juce::MouseCursor::PointingHandCursor);
+    }
+    ~AdsrGraph() override { detach(); }
+
+    /** Bind to one EnvSection's controls. Re-bindable (detaches the old set). */
+    void bind(SliderRow* a, SliderRow* d, SliderRow* s, SliderRow* r,
+              juce::ComboBox* aCurve, juce::ComboBox* dCurve, juce::ComboBox* rCurve)
+    {
+        detach();
+        aRow = a; dRow = d; sRow = s; rRow = r;
+        aCv = aCurve; dCv = dCurve; rCv = rCurve;
+        for (auto* row : { aRow, dRow, sRow, rRow }) if (row) row->getSlider().addListener(this);
+        for (auto* cb  : { aCv, dCv, rCv })          if (cb)  cb->addListener(this);
+        repaint();
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        auto bounds = getLocalBounds().toFloat();
+        g.setColour(kSurface);
+        g.fillRoundedRectangle(bounds, 3.0f);
+        g.setColour(kBorder);
+        g.drawRoundedRectangle(bounds.reduced(0.5f), 3.0f, 1.0f);
+
+        if (! isBound()) return;
+        const auto geo = computeGeometry();
+
+        // Envelope outline (with per-stage curve shaping).
+        juce::Path curve;
+        curve.startNewSubPath(geo.p0);
+        appendStage(curve, geo.p0, geo.p1, curveIndex(aCv));   // attack 0→1
+        appendStage(curve, geo.p1, geo.p2, curveIndex(dCv));   // decay 1→sustain
+        curve.lineTo(geo.p3);                                  // sustain hold (flat)
+        appendStage(curve, geo.p3, geo.p4, curveIndex(rCv), true);   // release sustain→0 (RC-discharge)
+
+        // Faint fill under the curve.
+        juce::Path fill = curve;
+        fill.lineTo(geo.p4.x, geo.plot.getBottom());
+        fill.lineTo(geo.p0.x, geo.plot.getBottom());
+        fill.closeSubPath();
+        g.setColour(accentCol.withAlpha(0.12f));
+        g.fillPath(fill);
+
+        g.setColour(accentCol);
+        g.strokePath(curve, juce::PathStrokeType(1.6f, juce::PathStrokeType::curved,
+                                                 juce::PathStrokeType::rounded));
+
+        drawHandle(g, geo.p1, draggingHandle == Handle::Attack);
+        drawHandle(g, geo.p2, draggingHandle == Handle::Sustain);
+        drawHandle(g, geo.p4, draggingHandle == Handle::Release);
+
+        // Value read-out while dragging (mirrors the hidden fader's text).
+        if (draggingHandle != Handle::None)
+        {
+            const juce::String txt = dragReadout();
+            if (txt.isNotEmpty())
+            {
+                auto anchor = (draggingHandle == Handle::Attack) ? geo.p1
+                            : (draggingHandle == Handle::Sustain) ? geo.p2 : geo.p4;
+                juce::Rectangle<float> box(anchor.x - 32.0f, geo.plot.getY() + 1.0f, 64.0f, 14.0f);
+                box = box.constrainedWithin(bounds);
+                g.setColour(kBg.withAlpha(0.75f));
+                g.fillRoundedRectangle(box, 2.0f);
+                g.setColour(kTextPrimary);
+                g.setFont(juce::FontOptions(11.0f));
+                g.drawText(txt, box, juce::Justification::centred);
+            }
+        }
+    }
+
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        if (! isBound()) return;
+        const auto geo = computeGeometry();
+        const auto p = e.position;
+
+        if      (p.getDistanceFrom(geo.p1) <= kHandleHit) draggingHandle = Handle::Attack;
+        else if (p.getDistanceFrom(geo.p2) <= kHandleHit) draggingHandle = Handle::Sustain;
+        else if (p.getDistanceFrom(geo.p4) <= kHandleHit) draggingHandle = Handle::Release;
+        else
+        {
+            // Click on a segment body → cycle that stage's curve shape.
+            draggingHandle = Handle::None;
+            juce::ComboBox* seg = nullptr;
+            if      (p.x < geo.p1.x)      seg = aCv;
+            else if (p.x < geo.p2.x)      seg = dCv;
+            else if (p.x >= geo.p3.x)     seg = rCv;   // sustain hold (p2..p3) has no curve
+            if (seg) cycleCurve(*seg);
+            return;
+        }
+        repaint();
+    }
+
+    void mouseDrag(const juce::MouseEvent& e) override
+    {
+        if (draggingHandle == Handle::None || ! isBound()) return;
+        const auto geo = computeGeometry();
+        const auto p = e.position;
+
+        switch (draggingHandle)
+        {
+            case Handle::Attack:
+                setProp(aRow->getSlider(), (p.x - geo.p0.x) / geo.segW);   // p0.x = inset left
+                break;
+            case Handle::Sustain:
+                setProp(dRow->getSlider(), (p.x - geo.p1.x) / geo.segW);
+                setProp(sRow->getSlider(), (geo.plot.getBottom() - p.y) / geo.plot.getHeight());
+                break;
+            case Handle::Release:
+                setProp(rRow->getSlider(), (p.x - geo.p3.x) / geo.segW);
+                break;
+            default: break;
+        }
+        // setProp → slider notifies → sliderValueChanged → repaint().
+    }
+
+    void mouseUp(const juce::MouseEvent&) override
+    {
+        if (draggingHandle != Handle::None) { draggingHandle = Handle::None; repaint(); }
+    }
+
+private:
+    enum class Handle { None, Attack, Sustain, Release };
+
+    struct Geometry
+    {
+        juce::Rectangle<float> plot;
+        juce::Point<float> p0, p1, p2, p3, p4;
+        float segW = 1.0f;
+    };
+
+    bool isBound() const { return aRow && dRow && sRow && rRow && aCv && dCv && rCv; }
+
+    void detach()
+    {
+        for (auto* row : { aRow, dRow, sRow, rRow }) if (row) row->getSlider().removeListener(this);
+        for (auto* cb  : { aCv, dCv, rCv })          if (cb)  cb->removeListener(this);
+    }
+
+    void sliderValueChanged(juce::Slider*) override { repaint(); }
+    void comboBoxChanged(juce::ComboBox*) override   { repaint(); }
+
+    static int curveIndex(juce::ComboBox* cb)
+    {
+        return cb ? juce::jlimit(0, 4, cb->getSelectedId() - 1) : 2;  // default Lin
+    }
+
+    static void cycleCurve(juce::ComboBox& cb)
+    {
+        const int n = juce::jmax(1, cb.getNumItems());
+        cb.setSelectedId((cb.getSelectedId() % n) + 1);
+    }
+
+    static void setProp(juce::Slider& s, float prop)
+    {
+        prop = juce::jlimit(0.0f, 1.0f, prop);
+        s.setValue(s.proportionOfLengthToValue(prop), juce::sendNotificationSync);
+    }
+
+    Geometry computeGeometry() const
+    {
+        Geometry geo;
+        geo.plot = getLocalBounds().toFloat().reduced(8.0f);
+        // Inset the time axis by the handle radius so the attack/release end
+        // handles sit fully inside the frame — at Attack=0 the attack edge is a
+        // clean vertical, not a slant jammed against the left wall.
+        const float hpad    = 7.0f;
+        const float left    = geo.plot.getX() + hpad;
+        const float top     = geo.plot.getY();
+        const float bottom  = geo.plot.getBottom();
+        const float H       = geo.plot.getHeight();
+        const float usableW = geo.plot.getWidth() - 2.0f * hpad;
+        const float holdW   = usableW * 0.16f;
+        geo.segW = (usableW - holdW) / 3.0f;
+
+        auto prop = [](SliderRow* r)
+        {
+            auto& s = r->getSlider();
+            return (float) s.valueToProportionOfLength(s.getValue());
+        };
+        const float aP = prop(aRow), dP = prop(dRow), rP = prop(rRow), sP = prop(sRow);
+        const float susY = bottom - sP * H;
+
+        geo.p0 = { left, bottom };
+        geo.p1 = { left + aP * geo.segW, top };
+        geo.p2 = { geo.p1.x + dP * geo.segW, susY };
+        geo.p3 = { geo.p2.x + holdW, susY };
+        geo.p4 = { geo.p3.x + rP * geo.segW, bottom };
+        return geo;
+    }
+
+    static void appendStage(juce::Path& path, juce::Point<float> a, juce::Point<float> b,
+                            int curveIdx, bool isRelease = false)
+    {
+        const auto shape = static_cast<CurveShape>(curveIdx);
+        constexpr int N = 24;
+        for (int i = 1; i <= N; ++i)
+        {
+            const float t = (float) i / (float) N;
+            float shaped;
+            if (isRelease && (shape == CurveShape::Exp || shape == CurveShape::SoftExp))
+            {
+                // Audio renders Exp/SoftExp release as RC-discharge e^(-t/τ),
+                // τ = relMs/5 (Exp) or relMs/3 (SoftExp); relMs cancels over the
+                // normalized segment, leaving a fixed decay shape per curve. This
+                // keeps the drawn release matching what's heard (ADSREnvelope.cpp).
+                const float k = (shape == CurveShape::Exp) ? 5.0f : 3.0f;
+                shaped = (1.0f - std::exp(-k * t)) / (1.0f - std::exp(-k));
+            }
+            else
+            {
+                shaped = ADSREnvelope::applyCurve(t, shape);
+            }
+            const float x = a.x + (b.x - a.x) * t;          // x is linear in time
+            const float y = a.y + (b.y - a.y) * shaped;     // y follows the shaped curve
+            path.lineTo(x, y);
+        }
+    }
+
+    void drawHandle(juce::Graphics& g, juce::Point<float> c, bool active) const
+    {
+        const float rad = active ? 5.5f : 4.5f;
+        g.setColour(kBg);
+        g.fillEllipse(c.x - rad - 1.0f, c.y - rad - 1.0f, (rad + 1.0f) * 2.0f, (rad + 1.0f) * 2.0f);
+        g.setColour(accentCol);
+        g.fillEllipse(c.x - rad, c.y - rad, rad * 2.0f, rad * 2.0f);
+        g.setColour(kBg);
+        g.fillEllipse(c.x - rad * 0.45f, c.y - rad * 0.45f, rad * 0.9f, rad * 0.9f);
+    }
+
+    juce::String dragReadout() const
+    {
+        switch (draggingHandle)
+        {
+            case Handle::Attack:  return aRow->getDisplayValue();
+            case Handle::Sustain: return sRow->getDisplayValue();
+            case Handle::Release: return rRow->getDisplayValue();
+            default: return {};
+        }
+    }
+
+    static constexpr float kHandleHit = 11.0f;
+
+    juce::Colour accentCol;
+    Handle draggingHandle = Handle::None;
+
+    SliderRow* aRow = nullptr; SliderRow* dRow = nullptr;
+    SliderRow* sRow = nullptr; SliderRow* rRow = nullptr;
+    juce::ComboBox* aCv = nullptr; juce::ComboBox* dCv = nullptr; juce::ComboBox* rCv = nullptr;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AdsrGraph)
 };
 
 /**

@@ -54,6 +54,10 @@ public:
 
     bool isIdle() const { return state == State::Idle; }
 
+    /** Apply curve shaping to normalized progress t ∈ [0,1]. Pure & stateless —
+     *  also used by the GUI's AdsrGraph so the drawn envelope matches the audio. */
+    static float applyCurve(float t, CurveShape shape);
+
 private:
     enum class State { Idle, Attack, Decay, Sustain, Release };
     State state = State::Idle;
@@ -93,7 +97,4 @@ private:
     bool looping  = false;
 
     static constexpr float MIN_RAMP_SEC = 0.003f; // 3ms minimum ramp
-
-    /** Apply curve shaping to normalized progress t ∈ [0,1]. */
-    static float applyCurve(float t, CurveShape shape);
 };
