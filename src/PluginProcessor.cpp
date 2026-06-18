@@ -2773,6 +2773,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         delay.setFeedback(juce::jlimit(0.0f, 0.95f, baseDelayFb + modDelayFb));
         delay.setMix(juce::jlimit(0.0f, 1.0f, baseDelayMix + modDelayMix));
         delay.setDamp(paramCache.delayDamp->load());
+        delay.setMode(delayType);
     }
 
     if (reverbEnabled)

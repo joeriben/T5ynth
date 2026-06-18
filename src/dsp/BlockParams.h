@@ -588,14 +588,23 @@ namespace FilterWarpStyle {
 }
 
 // ── Delay type ──
+// Index 1 keeps the key "stereo" for preset back-compat: presets saved before
+// the multi-mode expansion stored delay_type = "stereo" and must still resolve
+// to the original dual-mono behaviour (now labelled "2M"). Choice params are
+// serialised by key (choiceToKey/choiceFromKey), so ordering is free — only the
+// key→DSP mapping must stay stable. Real stereo, cross-feedback and tape modes
+// are appended with fresh keys. DSP voicing lives in dsp/DelayLine.cpp.
 namespace DelayType {
-    enum : int { Off = 0, Stereo = 1 };
+    enum : int { Off = 0, DualMono = 1, Stereo = 2, Cross = 3, Tape = 4 };
     static constexpr ChoiceEntry kEntries[] = {
-        { "off",    "Off"    },
-        { "stereo", "Stereo" }
+        { "off",    "Off"   },
+        { "stereo", "2M"    },   // dual-mono; key kept for preset back-compat
+        { "wide",   "St"    },   // true stereo via L/R time offset
+        { "cross",  "Cross" },   // cross-coupled feedback (stereo spread)
+        { "tape",   "Tape"  }    // dual-mono + saturating/filtered feedback
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(Stereo + 1 == kCount, "DelayType out of sync.");
+    static_assert(Tape + 1 == kCount, "DelayType out of sync.");
 }
 
 // ── Reverb type ──
