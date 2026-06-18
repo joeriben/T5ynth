@@ -38,8 +38,8 @@ private:
 
     // Delay section
     juce::Label delayHeader;
-    static constexpr int kNumDelayBtns = 2;
-    juce::TextButton delayTypeBtns[kNumDelayBtns]; // [OFF][Stereo]
+    static constexpr int kNumDelayBtns = 5;
+    juce::TextButton delayTypeBtns[kNumDelayBtns]; // [OFF][2M][St][Cross][Tape]
     juce::ComboBox delayTypeHidden;
     juce::Rectangle<int> delayTypeSwitchBounds;
     juce::TextButton delayClockBtn;            // BPM-sync clock button
