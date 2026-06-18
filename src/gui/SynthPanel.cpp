@@ -1463,7 +1463,7 @@ void SynthPanel::updateVisibility()
         lfo.waveBox.setVisible(visible);
         for (auto& btn : lfo.waveBtns)
             btn.setVisible(false);
-        lfo.modeBtn.setVisible(visible && !easy);
+        lfo.modeBtn.setVisible(visible);   // Free/Trig now in easy too (left of the sync clock)
         for (auto& btn : lfo.modeBtns)
             btn.setVisible(false);
         lfo.clockBtn.setVisible(visible);
@@ -2149,19 +2149,22 @@ void SynthPanel::layoutLfoEasy(LfoSection& lfo, juce::Rectangle<int> area, float
     auto top = area.removeFromTop(rowH);
     const int targetW = choiceBoxWidthFor(LfoTarget::kEntries, f, juce::roundToInt(f * 8.4f));
     const int waveW = choiceBoxWidthFor(LfoWave::kEntries, f, juce::roundToInt(f * 4.8f));
+    const int modeW = rowH;   // square Free/Trig toggle ("F"/"T"), grouped left of the clock
     const int syncW = rowH;
 
     const std::vector<ResponsiveStripItem> rowItems {
         { targetW, juce::roundToInt(f * 5.4f), 0, true, ResponsiveStripFallback::none },
         { waveW,   juce::roundToInt(f * 3.7f), 0, false, ResponsiveStripFallback::none },
+        { modeW,   rowH, 0, false, ResponsiveStripFallback::none },
         { syncW,   rowH, 0, false, ResponsiveStripFallback::none }
     };
     auto rowLayout = layoutResponsiveStrip(top, rowItems, controlGap);
 
     lfo.targetBox.setBounds(rowLayout.bounds[0]);
     lfo.waveBox.setBounds(rowLayout.bounds[1]);
+    lfo.modeBtn.setBounds(rowLayout.bounds[2]);
     const int syncNudge = juce::jmax(2, juce::roundToInt(f * 0.18f));
-    lfo.clockBtn.setBounds(rowLayout.bounds[2].translated(-syncNudge, 0));
+    lfo.clockBtn.setBounds(rowLayout.bounds[3].translated(-syncNudge, 0));
     lfo.waveSwitchBounds = {};
     lfo.modeSwitchBounds = {};
     lfo.modeHidden.onChange();
