@@ -2162,7 +2162,7 @@ void SynthPanel::layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float
     juce::Rectangle<int> amtArea;
     if (env.amtRow)
     {
-        area.removeFromBottom(gap * 2);                                   // breathing room below Amt
+        area.removeFromBottom(gap);                                       // small gap; the card content-inset is the main bottom margin
         amtArea = area.removeFromBottom(juce::jmin(rowH, area.getHeight()));
         area.removeFromBottom(gap);
     }
@@ -2419,10 +2419,16 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
                            auto&& layoutContent)
     {
         blockBounds = block;
+        // Uniform padding inside the card. ENV was the only easy block insetting
+        // its content horizontally only (reduced(contentInset, 0)); its siblings
+        // (Filter/Generate) inset both axes, so ENV's controls + value read-outs
+        // touched the top/bottom frame edges — the "falsche Randabstände" vs the
+        // Duration card template.
+        block.reduce(contentInset, contentInset);
         auto tabRow = block.removeFromTop(tabH);
         layoutModTabStrip(tabs, tabRow, tabBounds);
         block.removeFromTop(juce::jmax(gap * 2, 8));
-        layoutContent(block.reduced(contentInset, 0));
+        layoutContent(block);
     };
 
     auto layoutLfoStack = [&](juce::Rectangle<int> block)
