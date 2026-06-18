@@ -450,6 +450,12 @@ inline void drawIcon(juce::Graphics& g, Icon id, juce::Rectangle<float> area,
 class ModuleBox : public juce::Component
 {
 public:
+    /** Top: accent strip across the top (the default, e.g. DURATION).
+     *  Left: accent band down the left edge, content to its right — the
+     *  "same card, but with a left-header" variant for single-control modules
+     *  (RESYNTH/SNAP/CACHE/BPM…) that read better with the title beside them. */
+    enum class HeaderSide { Top, Left };
+
     ModuleBox() { setInterceptsMouseClicks(false, false); }
 
     void configure(const juce::String& title, juce::Colour accent, Icon icon)
@@ -466,6 +472,11 @@ public:
     void setContentPadding(int p)   { contentPad_ = juce::jmax(0, p); }
     int  getHeaderHeight() const    { return headerH_; }
 
+    /** Left-header geometry (only consulted when side == Left). */
+    void setHeaderSide(HeaderSide s) { headerSide_ = s; }
+    void setHeaderWidth(int w)       { headerW_ = juce::jmax(0, w); }
+    int  getHeaderWidth() const      { return headerW_; }
+
     /** Region the owner places controls into (below the header, inset by pad).
      *  PARENT-relative on purpose: the owning panel lays out its controls as
      *  SIBLINGS of this box (the box is decorative and intercepts no mouse), so
@@ -475,7 +486,10 @@ public:
     juce::Rectangle<int> getContentBounds() const
     {
         auto b = getBounds();
-        b.removeFromTop(headerH_);
+        if (headerSide_ == HeaderSide::Left)
+            b.removeFromLeft(headerW_);
+        else
+            b.removeFromTop(headerH_);
         return b.reduced(contentPad_);
     }
 
@@ -484,11 +498,27 @@ public:
         auto b = getLocalBounds();
         paintCard(g, b);
 
+        const auto headerInk = kHeaderText;
+
+        if (headerSide_ == HeaderSide::Left)
+        {
+            // Vertical accent band on the left; title centred horizontally in it.
+            // (No icon in this variant — the single-control modules using it
+            // carry no glyph, and the title is the whole point of the band.)
+            auto header = b.removeFromLeft(headerW_);
+            g.setColour(accent_.withAlpha(0.7f));
+            g.fillRect(header);
+            g.setColour(headerInk);
+            g.setFont(uiFont(TextRole::ModuleTitle, baseFont_, true));
+            g.drawText(title_, header.reduced(juce::jmax(2, headerPadX_ / 2), 0),
+                       juce::Justification::centred, false);
+            return;
+        }
+
         auto header = b.removeFromTop(headerH_);
         g.setColour(accent_.withAlpha(0.7f));
         g.fillRect(header);
 
-        const auto headerInk = kHeaderText;
         auto inner = header.reduced(headerPadX_, 0);
         if (icon_ != Icon::numIcons && header.getHeight() > 0)
         {
@@ -511,6 +541,8 @@ private:
     int   headerPadX_ { 6 };
     int   iconInset_  { 3 };
     int   contentPad_ { 5 };
+    HeaderSide headerSide_ { HeaderSide::Top };
+    int   headerW_    { 0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ModuleBox)
 };
