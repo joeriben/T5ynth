@@ -2161,25 +2161,25 @@ void SynthPanel::layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float
         area.removeFromBottom(rowGap);
     }
 
-    // ADSR graph = the column hero, sized like the Cutoff knob in the Filter column
-    // (~2:1 over its secondary controls). Generous but CAPPED so it never balloons
-    // back to the old ~3x height. The freed space below becomes breathing room — the
-    // velSense faders stay compact instead of stretching to fill the tall column.
-    const int velBlockH = juce::jmax(rowH * 4, juce::roundToInt(f * 7.0f));
-    const int minGraphH = juce::jmax(rowH * 4, juce::roundToInt(f * 6.0f));
-    const int maxGraphH = juce::jmax(rowH * 8, juce::roundToInt(f * 14.0f));
-    int graphH = juce::jlimit(minGraphH, juce::jmax(minGraphH, maxGraphH),
-                              area.getHeight() - velBlockH - rowGap);
-    graphH = juce::jmin(graphH, area.getHeight());
-    auto graphArea = area.removeFromTop(graphH);
+    // Split the remaining height so the column is FILLED (no dead gap): the ADSR
+    // graph is the dominant hero (~2/3), the velSense trim faders take the
+    // secondary third. One gap between them; minimums keep both usable when the
+    // column is short (stack layout / small window).
+    const int avail     = juce::jmax(0, area.getHeight() - rowGap);
+    const int minGraphH = juce::jmax(rowH * 3, juce::roundToInt(f * 5.0f));
+    const int minVelH   = juce::jmax(rowH * 2, juce::roundToInt(f * 3.0f));
+    const int loGraph   = juce::jmin(minGraphH, avail);
+    const int hiGraph   = juce::jmax(loGraph, avail - juce::jmin(minVelH, avail));
+    const int graphH    = juce::jlimit(loGraph, hiGraph,
+                                       juce::roundToInt(static_cast<float>(avail) * 0.60f));
+    auto graphArea = area.removeFromTop(juce::jmin(graphH, area.getHeight()));
     if (env.graph) env.graph->setBounds(graphArea);
     area.removeFromTop(rowGap);
 
-    // velSense = a COMPACT secondary trim strip, anchored directly under the graph
-    // with its columns aligned to the A/D/S/R stages. Deliberately small (fixed
-    // velBlockH, not fill) — it is not the centre of the panel.
+    // velSense faders fill the rest of the column (no void), columns aligned under
+    // the graph's A/D/S/R stages. Clearly secondary — about half the graph's height.
     {
-        auto vsArea = area.removeFromTop(juce::jmin(velBlockH, area.getHeight()));
+        auto vsArea = area;
         SliderRow* vs[4] = { env.aVsRow.get(), env.dVsRow.get(), env.sVsRow.get(), env.rVsRow.get() };
         constexpr int vGap = 4;
         const int vW = juce::jmax(1, (vsArea.getWidth() - vGap * 3) / 4);
