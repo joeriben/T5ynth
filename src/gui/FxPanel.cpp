@@ -350,9 +350,10 @@ void FxPanel::paint(juce::Graphics& g)
     g.drawVerticalLine(0, 0.0f, static_cast<float>(getHeight()));
 
     // Framed module cards (Delay, Reverb) — same recipe as the synth easy-view
-    // module blocks (paintEasyBlock): a lighter fill so the card stands out on
-    // this kCard panel, a border, and an accent left-stripe. Drawn BEFORE the
-    // child controls so they sit on top; the accent header band is the top strip.
+    // module blocks (paintEasyBlock): a lighter fill so the card stands out on this
+    // kCard panel, plus a border. Drawn BEFORE the child controls so they sit on top;
+    // the accent header band is the top strip. (No module-colour left stripe — it was
+    // removed per design review.)
     auto paintFxCard = [&g](juce::Rectangle<int> b)
     {
         if (b.isEmpty()) return;
@@ -362,8 +363,6 @@ void FxPanel::paint(juce::Graphics& g)
         g.drawRect(b.expanded(1, 1), 1);
         g.setColour(kBorder.withAlpha(0.82f));
         g.drawRect(b, 1);
-        g.setColour(kFxCol.withAlpha(0.32f));
-        g.fillRect(b.withWidth(2));
     };
     paintFxCard(delayCardBounds);
     paintFxCard(reverbCardBounds);

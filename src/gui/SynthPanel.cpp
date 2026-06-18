@@ -2149,27 +2149,37 @@ void SynthPanel::layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float
     env.targetBox.setBounds(targetRow.removeFromLeft(juce::jmin(tgtW, targetRow.getWidth())));
     area.removeFromTop(gap);
 
-    // Compact ADSR graph at the top — it's a readout, not the dominant element
-    // (it was ~3x taller than needed). The velSense faders take the bulk of the
-    // freed height; Amt sits near the bottom with breathing room (not flush).
-    const int graphH = juce::jmax(rowH * 2, juce::roundToInt(area.getHeight() * 0.25f));
-    auto graphArea = area.removeFromTop(juce::jmin(graphH, area.getHeight()));
-    if (env.graph) env.graph->setBounds(graphArea);
-    area.removeFromTop(gap);
+    const int rowGap = juce::jmax(gap, 6);
 
-    // Reserve the Amt row near the bottom, with a margin below it so it doesn't
-    // touch the panel edge.
+    // Amt = the envelope DEPTH — a primary control, reserved at the bottom as a
+    // full-width band slider with a margin below (the card content-inset adds the
+    // rest). Reserved FIRST so the block above can never squeeze it into the edge.
     juce::Rectangle<int> amtArea;
     if (env.amtRow)
     {
-        area.removeFromBottom(gap);                                       // small gap; the card content-inset is the main bottom margin
         amtArea = area.removeFromBottom(juce::jmin(rowH, area.getHeight()));
-        area.removeFromBottom(gap);
+        area.removeFromBottom(rowGap);
     }
 
-    // Four vertical velSense faders fill the middle, columns aligned under A/D/S/R.
+    // ADSR graph = the column hero, sized like the Cutoff knob in the Filter column
+    // (~2:1 over its secondary controls). Generous but CAPPED so it never balloons
+    // back to the old ~3x height. The freed space below becomes breathing room — the
+    // velSense faders stay compact instead of stretching to fill the tall column.
+    const int velBlockH = juce::jmax(rowH * 4, juce::roundToInt(f * 7.0f));
+    const int minGraphH = juce::jmax(rowH * 4, juce::roundToInt(f * 6.0f));
+    const int maxGraphH = juce::jmax(rowH * 8, juce::roundToInt(f * 14.0f));
+    int graphH = juce::jlimit(minGraphH, juce::jmax(minGraphH, maxGraphH),
+                              area.getHeight() - velBlockH - rowGap);
+    graphH = juce::jmin(graphH, area.getHeight());
+    auto graphArea = area.removeFromTop(graphH);
+    if (env.graph) env.graph->setBounds(graphArea);
+    area.removeFromTop(rowGap);
+
+    // velSense = a COMPACT secondary trim strip, anchored directly under the graph
+    // with its columns aligned to the A/D/S/R stages. Deliberately small (fixed
+    // velBlockH, not fill) — it is not the centre of the panel.
     {
-        auto vsArea = area;
+        auto vsArea = area.removeFromTop(juce::jmin(velBlockH, area.getHeight()));
         SliderRow* vs[4] = { env.aVsRow.get(), env.dVsRow.get(), env.sVsRow.get(), env.rVsRow.get() };
         constexpr int vGap = 4;
         const int vW = juce::jmax(1, (vsArea.getWidth() - vGap * 3) / 4);
@@ -2671,7 +2681,9 @@ void SynthPanel::paint(juce::Graphics& g)
 
         if (modEasyMode)
         {
-            auto paintEasyBlock = [&](juce::Rectangle<int> bounds, juce::Colour accent)
+            // Plain framed card (fill + border). The module-colour left stripe was
+            // removed per design review — it read as an unwanted embellishment.
+            auto paintEasyBlock = [&](juce::Rectangle<int> bounds)
             {
                 if (bounds.isEmpty())
                     return;
@@ -2682,15 +2694,13 @@ void SynthPanel::paint(juce::Graphics& g)
                 g.drawRect(bounds.expanded(1, 1), 1);
                 g.setColour(kBorder.withAlpha(0.82f));
                 g.drawRect(bounds, 1);
-                g.setColour(accent.withAlpha(0.32f));
-                g.fillRect(bounds.withWidth(2));
             };
 
-            paintEasyBlock(filterEasyBlockBounds, kFilterCol);
-            paintEasyBlock(envEasyBlockBounds, kModCol);
-            paintEasyBlock(lfoEasyBlockBounds, kLfoCol);
-            paintEasyBlock(driftEasyBlockBounds, kDriftCol);
-            paintEasyBlock(generateEasyBlockBounds, kDriftCol);
+            paintEasyBlock(filterEasyBlockBounds);
+            paintEasyBlock(envEasyBlockBounds);
+            paintEasyBlock(lfoEasyBlockBounds);
+            paintEasyBlock(driftEasyBlockBounds);
+            paintEasyBlock(generateEasyBlockBounds);
 
             for (const auto& moduleBounds : lfoEasyModuleBounds)
             {
