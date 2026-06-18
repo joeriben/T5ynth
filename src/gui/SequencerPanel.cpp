@@ -1286,7 +1286,10 @@ void SequencerPanel::resized()
     float topH = getTopLevelComponent()
                      ? static_cast<float>(getTopLevelComponent()->getHeight()) : 800.0f;
     int headerH = juce::jlimit(14, 20, juce::roundToInt(topH * 0.022f));
-    setUiFont(seqHeader, TextRole::ModuleTitle, static_cast<float>(headerH), true);
+    // Match the sibling top-headers (DELAY/REVERB/T5 OSCILLATOR/AXES): plain
+    // weight at headerH*0.85. SEQUENCER was the only top-header on bold
+    // ModuleTitle, so it read noticeably fatter than the rest.
+    seqHeader.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.85f));
     seqHeader.setBounds(area.removeFromTop(headerH));
     area.removeFromTop(juce::jmax(3, headerH / 5));
 
