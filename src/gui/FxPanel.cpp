@@ -349,6 +349,25 @@ void FxPanel::paint(juce::Graphics& g)
     g.setColour(kBorder);
     g.drawVerticalLine(0, 0.0f, static_cast<float>(getHeight()));
 
+    // Framed module cards (Delay, Reverb) — same recipe as the synth easy-view
+    // module blocks (paintEasyBlock): a lighter fill so the card stands out on
+    // this kCard panel, a border, and an accent left-stripe. Drawn BEFORE the
+    // child controls so they sit on top; the accent header band is the top strip.
+    auto paintFxCard = [&g](juce::Rectangle<int> b)
+    {
+        if (b.isEmpty()) return;
+        g.setColour(kSurface.withAlpha(0.62f));
+        g.fillRect(b);
+        g.setColour(juce::Colour(0xaa05070d));
+        g.drawRect(b.expanded(1, 1), 1);
+        g.setColour(kBorder.withAlpha(0.82f));
+        g.drawRect(b, 1);
+        g.setColour(kFxCol.withAlpha(0.32f));
+        g.fillRect(b.withWidth(2));
+    };
+    paintFxCard(delayCardBounds);
+    paintFxCard(reverbCardBounds);
+
     // SwitchBox borders
     paintSwitchBoxBorder(g, delayTypeSwitchBounds);
     paintSwitchBoxBorder(g, reverbTypeSwitchBounds);
@@ -365,118 +384,136 @@ void FxPanel::resized()
     int rowH = juce::jmin(juce::roundToInt(static_cast<float>(getHeight()) * 0.14f), 20);
     int gap = 2;
 
-    // ── DELAY header ──
-    delayHeader.setFont(juce::FontOptions(f * 0.85f));
-    delayHeader.setBounds(area.removeFromTop(headerH));
-    area.removeFromTop(gap);
+    // Each effect is a framed module card (same look as the synth easy-view
+    // blocks): an accent header strip on top, content inset so the value
+    // read-outs sit INSIDE the frame with padding — the Duration card template,
+    // adapted to this kCard panel. Net vertical cost is zero: each card's bottom
+    // pad is reclaimed from the old inter-section gap*2.
+    const int fxPad = juce::jmax(3, juce::roundToInt(f * 0.3f));
+    const int sectionBodyH = rowH * 3 + gap * 2;        // switchbox + 2 param rows
 
-    // Delay type switchbox
-    auto delaySwRow = area.removeFromTop(rowH);
-    int delayCellW = delaySwRow.getWidth() / kNumDelayBtns;
-    for (int i = 0; i < kNumDelayBtns; ++i)
+    // ── DELAY card ──
+    auto delayCard = area.removeFromTop(headerH + gap + sectionBodyH + gap);
+    delayCardBounds = delayCard;
     {
-        int edges = 0;
-        if (i > 0) edges |= juce::Button::ConnectedOnLeft;
-        if (i < kNumDelayBtns - 1) edges |= juce::Button::ConnectedOnRight;
-        delayTypeBtns[i].setConnectedEdges(edges);
-        delayTypeBtns[i].setBounds(delaySwRow.removeFromLeft(delayCellW));
-    }
-    delayTypeSwitchBounds = delayTypeBtns[0].getBounds()
-        .getUnion(delayTypeBtns[kNumDelayBtns - 1].getBounds());
-    area.removeFromTop(gap);
+        auto dc = delayCard;
+        delayHeader.setFont(juce::FontOptions(f * 0.85f));
+        delayHeader.setBounds(dc.removeFromTop(headerH));   // full-width accent header strip
+        dc.removeFromTop(gap);
+        dc.removeFromBottom(gap);                            // bottom pad inside the card
+        dc.reduce(fxPad, 0);                                 // side pad → value read-outs sit inside the frame
 
-    // Delay params — always laid out, dimmed when OFF.
-    // Time/Division/Damp share the LEFT label column; FB/Mix share the
-    // RIGHT label column. Both forced widths derive from natural-width
-    // maxima.
-    {
-        const int delayPairGap = 2;
-        const int delayColumnW = juce::jmax(0, (area.getWidth() - delayPairGap) / 2);
+        // Delay type switchbox
+        auto delaySwRow = dc.removeFromTop(rowH);
+        int delayCellW = delaySwRow.getWidth() / kNumDelayBtns;
+        for (int i = 0; i < kNumDelayBtns; ++i)
+        {
+            int edges = 0;
+            if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+            if (i < kNumDelayBtns - 1) edges |= juce::Button::ConnectedOnRight;
+            delayTypeBtns[i].setConnectedEdges(edges);
+            delayTypeBtns[i].setBounds(delaySwRow.removeFromLeft(delayCellW));
+        }
+        delayTypeSwitchBounds = delayTypeBtns[0].getBounds()
+            .getUnion(delayTypeBtns[kNumDelayBtns - 1].getBounds());
+        dc.removeFromTop(gap);
 
-        const int delayLeftLabelW = std::max({
-            delayTimeRow->getNaturalLabelWidthForAvailableWidth(delayColumnW),
-            delayDivisionRow->getNaturalLabelWidthForAvailableWidth(delayColumnW),
-            delayDampRow->getNaturalLabelWidthForAvailableWidth(delayColumnW)
-        });
-        const int delayRightLabelW = std::max({
-            delayFbRow->getNaturalLabelWidthForAvailableWidth(delayColumnW),
-            delayMixRow->getNaturalLabelWidthForAvailableWidth(delayColumnW)
-        });
+        // Delay params — Time/Division/Damp share the LEFT label column; FB/Mix
+        // share the RIGHT. Both forced widths derive from natural-width maxima.
+        {
+            const int delayPairGap = 2;
+            const int delayColumnW = juce::jmax(0, (dc.getWidth() - delayPairGap) / 2);
 
-        for (auto* r : { delayTimeRow.get(), delayDivisionRow.get(), delayDampRow.get() })
-            r->setForcedLabelWidth(delayLeftLabelW);
-        for (auto* r : { delayFbRow.get(), delayMixRow.get() })
-            r->setForcedLabelWidth(delayRightLabelW);
+            const int delayLeftLabelW = std::max({
+                delayTimeRow->getNaturalLabelWidthForAvailableWidth(delayColumnW),
+                delayDivisionRow->getNaturalLabelWidthForAvailableWidth(delayColumnW),
+                delayDampRow->getNaturalLabelWidthForAvailableWidth(delayColumnW)
+            });
+            const int delayRightLabelW = std::max({
+                delayFbRow->getNaturalLabelWidthForAvailableWidth(delayColumnW),
+                delayMixRow->getNaturalLabelWidthForAvailableWidth(delayColumnW)
+            });
 
-        auto row1 = area.removeFromTop(rowH);
-        auto pair1 = layoutSliderRowPairBounds(row1, *delayTimeRow, *delayFbRow, delayPairGap);
-        delayTimeRow->setBounds(pair1[0]);
-        delayFbRow->setBounds(pair1[1]);
-        if (delayDivisionRow) delayDivisionRow->setBounds(pair1[0]);
-        // Overlay clock button on the (empty) reserved label slot at the
-        // start of pair1[0] so it sits in the same column as "Damp" below.
-        delayClockBtn.setBounds(pair1[0].withWidth(delayLeftLabelW));
+            for (auto* r : { delayTimeRow.get(), delayDivisionRow.get(), delayDampRow.get() })
+                r->setForcedLabelWidth(delayLeftLabelW);
+            for (auto* r : { delayFbRow.get(), delayMixRow.get() })
+                r->setForcedLabelWidth(delayRightLabelW);
 
-        area.removeFromTop(gap);
-        auto row2 = area.removeFromTop(rowH);
-        auto pair2 = layoutSliderRowPairBounds(row2, *delayDampRow, *delayMixRow, delayPairGap);
-        delayDampRow->setBounds(pair2[0]);
-        delayMixRow->setBounds(pair2[1]);
-    }
+            auto row1 = dc.removeFromTop(rowH);
+            auto pair1 = layoutSliderRowPairBounds(row1, *delayTimeRow, *delayFbRow, delayPairGap);
+            delayTimeRow->setBounds(pair1[0]);
+            delayFbRow->setBounds(pair1[1]);
+            if (delayDivisionRow) delayDivisionRow->setBounds(pair1[0]);
+            // Overlay clock button on the (empty) reserved label slot at the
+            // start of pair1[0] so it sits in the same column as "Damp" below.
+            delayClockBtn.setBounds(pair1[0].withWidth(delayLeftLabelW));
 
-    area.removeFromTop(gap * 2);
-
-    // ── REVERB header ──
-    reverbHeader.setFont(juce::FontOptions(f * 0.85f));
-    reverbHeader.setBounds(area.removeFromTop(headerH));
-    area.removeFromTop(gap);
-
-    // Reverb type switchbox
-    auto revSwRow = area.removeFromTop(rowH);
-    int revCellW = revSwRow.getWidth() / kNumReverbBtns;
-    for (int i = 0; i < kNumReverbBtns; ++i)
-    {
-        int edges = 0;
-        if (i > 0) edges |= juce::Button::ConnectedOnLeft;
-        if (i < kNumReverbBtns - 1) edges |= juce::Button::ConnectedOnRight;
-        reverbTypeBtns[i].setConnectedEdges(edges);
-        reverbTypeBtns[i].setBounds(revSwRow.removeFromLeft(revCellW));
-    }
-    reverbTypeSwitchBounds = reverbTypeBtns[0].getBounds()
-        .getUnion(reverbTypeBtns[kNumReverbBtns - 1].getBounds());
-    area.removeFromTop(gap);
-
-    // Reverb params — always 2 rows: Room+Damp, Width+Mix (dimmed when inactive).
-    // Column label widths are matched the same way the Delay section does it, so the
-    // slider track left-edges line up vertically (Room over Width, Damp over Mix) —
-    // "Width" is wider than "Room", so without this the tracks step in and out.
-    {
-        const int revPairGap = 2;
-        const int revColumnW = juce::jmax(0, (area.getWidth() - revPairGap) / 2);
-        const int revLeftLabelW = std::max(
-            algoRoomRow->getNaturalLabelWidthForAvailableWidth(revColumnW),
-            algoWidthRow->getNaturalLabelWidthForAvailableWidth(revColumnW));
-        const int revRightLabelW = std::max(
-            algoDampRow->getNaturalLabelWidthForAvailableWidth(revColumnW),
-            reverbMixRow->getNaturalLabelWidthForAvailableWidth(revColumnW));
-        algoRoomRow->setForcedLabelWidth(revLeftLabelW);
-        algoWidthRow->setForcedLabelWidth(revLeftLabelW);
-        algoDampRow->setForcedLabelWidth(revRightLabelW);
-        reverbMixRow->setForcedLabelWidth(revRightLabelW);
-
-        auto row1 = area.removeFromTop(rowH);
-        auto pair1 = layoutSliderRowPairBounds(row1, *algoRoomRow, *algoDampRow, revPairGap);
-        algoRoomRow->setBounds(pair1[0]);
-        algoDampRow->setBounds(pair1[1]);
-
-        area.removeFromTop(gap);
-        auto row2 = area.removeFromTop(rowH);
-        auto pair2 = layoutSliderRowPairBounds(row2, *algoWidthRow, *reverbMixRow, revPairGap);
-        algoWidthRow->setBounds(pair2[0]);
-        reverbMixRow->setBounds(pair2[1]);
+            dc.removeFromTop(gap);
+            auto row2 = dc.removeFromTop(rowH);
+            auto pair2 = layoutSliderRowPairBounds(row2, *delayDampRow, *delayMixRow, delayPairGap);
+            delayDampRow->setBounds(pair2[0]);
+            delayMixRow->setBounds(pair2[1]);
+        }
     }
 
-    area.removeFromTop(gap * 2);
+    area.removeFromTop(gap);
+
+    // ── REVERB card ──
+    auto reverbCard = area.removeFromTop(headerH + gap + sectionBodyH + gap);
+    reverbCardBounds = reverbCard;
+    {
+        auto rc = reverbCard;
+        reverbHeader.setFont(juce::FontOptions(f * 0.85f));
+        reverbHeader.setBounds(rc.removeFromTop(headerH));
+        rc.removeFromTop(gap);
+        rc.removeFromBottom(gap);
+        rc.reduce(fxPad, 0);
+
+        // Reverb type switchbox
+        auto revSwRow = rc.removeFromTop(rowH);
+        int revCellW = revSwRow.getWidth() / kNumReverbBtns;
+        for (int i = 0; i < kNumReverbBtns; ++i)
+        {
+            int edges = 0;
+            if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+            if (i < kNumReverbBtns - 1) edges |= juce::Button::ConnectedOnRight;
+            reverbTypeBtns[i].setConnectedEdges(edges);
+            reverbTypeBtns[i].setBounds(revSwRow.removeFromLeft(revCellW));
+        }
+        reverbTypeSwitchBounds = reverbTypeBtns[0].getBounds()
+            .getUnion(reverbTypeBtns[kNumReverbBtns - 1].getBounds());
+        rc.removeFromTop(gap);
+
+        // Reverb params — Room+Damp, Width+Mix. Column label widths matched like
+        // Delay so the slider tracks line up (Room over Width, Damp over Mix).
+        {
+            const int revPairGap = 2;
+            const int revColumnW = juce::jmax(0, (rc.getWidth() - revPairGap) / 2);
+            const int revLeftLabelW = std::max(
+                algoRoomRow->getNaturalLabelWidthForAvailableWidth(revColumnW),
+                algoWidthRow->getNaturalLabelWidthForAvailableWidth(revColumnW));
+            const int revRightLabelW = std::max(
+                algoDampRow->getNaturalLabelWidthForAvailableWidth(revColumnW),
+                reverbMixRow->getNaturalLabelWidthForAvailableWidth(revColumnW));
+            algoRoomRow->setForcedLabelWidth(revLeftLabelW);
+            algoWidthRow->setForcedLabelWidth(revLeftLabelW);
+            algoDampRow->setForcedLabelWidth(revRightLabelW);
+            reverbMixRow->setForcedLabelWidth(revRightLabelW);
+
+            auto row1 = rc.removeFromTop(rowH);
+            auto pair1 = layoutSliderRowPairBounds(row1, *algoRoomRow, *algoDampRow, revPairGap);
+            algoRoomRow->setBounds(pair1[0]);
+            algoDampRow->setBounds(pair1[1]);
+
+            rc.removeFromTop(gap);
+            auto row2 = rc.removeFromTop(rowH);
+            auto pair2 = layoutSliderRowPairBounds(row2, *algoWidthRow, *reverbMixRow, revPairGap);
+            algoWidthRow->setBounds(pair2[0]);
+            reverbMixRow->setBounds(pair2[1]);
+        }
+    }
+
+    area.removeFromTop(gap);
     wordmark.setBounds(area);
     wordmark.setVisible(area.getHeight() >= 24);
 }

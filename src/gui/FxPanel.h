@@ -42,6 +42,7 @@ private:
     juce::TextButton delayTypeBtns[kNumDelayBtns]; // [OFF][2M][St][Cross][Tape]
     juce::ComboBox delayTypeHidden;
     juce::Rectangle<int> delayTypeSwitchBounds;
+    juce::Rectangle<int> delayCardBounds;      // framed module card (header + content)
     juce::TextButton delayClockBtn;            // BPM-sync clock button
     juce::ComboBox   delayClockModeHidden;     // hidden, APVTS-attached
     std::unique_ptr<SliderRow> delayTimeRow, delayFbRow, delayDampRow, delayMixRow;
@@ -53,6 +54,7 @@ private:
     juce::TextButton reverbTypeBtns[kNumReverbBtns]; // [OFF][Dark][Med][Brt][Algo]
     juce::ComboBox reverbTypeHidden;
     juce::Rectangle<int> reverbTypeSwitchBounds;
+    juce::Rectangle<int> reverbCardBounds;     // framed module card (header + content)
     std::unique_ptr<SliderRow> reverbMixRow;
     std::unique_ptr<SliderRow> algoRoomRow, algoDampRow, algoWidthRow;
 
