@@ -2,17 +2,25 @@
 
 namespace
 {
-    // St: L/R time offset depth. Longer side = base*(1+spread); kept small so
-    // the worst-case read stays inside the buffer (see kMaxDelaySeconds).
-    constexpr float  kStereoSpread     = 0.15f;
-    // Tape feedback voicing (no user parameter — all fixed/auto).
-    constexpr float  kTapeHpHz         = 120.0f;   // high-pass in the loop
-    constexpr float  kTapeDrive        = 1.8f;     // soft-sat pre-gain
-    constexpr float  kWowRateHz        = 0.6f;     // wow LFO rate
-    constexpr float  kWowDepth         = 0.0025f;  // ±0.25% read-position drift
-    // Buffer capacity headroom: the processor clamps modulated time to 5 s;
-    // St can stretch one side by (1+kStereoSpread). Size for the worst case.
-    constexpr double kMaxDelaySeconds  = 6.0;
+    // Tape character (Tape2/Tape3) — all fixed/auto, no user parameter.
+    constexpr float  kWowHz      = 0.7f;     // slow pitch drift
+    constexpr float  kFlut1Hz    = 6.3f;     // flutter: two incommensurate sines
+    constexpr float  kFlut2Hz    = 9.7f;     //   summed = organic, non-repeating feel
+    constexpr float  kWowDepth   = 0.0030f;  // * delay-samples
+    constexpr float  kFlutDepth  = 0.0015f;  // * delay-samples, per flutter sine
+    constexpr float  kTapeDrive  = 1.6f;     // soft-sat pre-gain (auto-limiting)
+    constexpr float  kTapeHpHz   = 100.0f;   // high-pass in the feedback loop
+    constexpr float  kPanWidth   = 0.75f;    // multi-head stereo spread (0..1)
+
+    // Buffer capacity headroom: holds the longest single tap (the 5 s processor
+    // clamp) and Tape3's 3rd head; the tape base is capped to keep 3·base inside.
+    constexpr double kBufferSeconds = 6.2;
+
+    inline float onePoleCoeff(double fc, double sr)
+    {
+        return 1.0f - std::exp(-2.0f * juce::MathConstants<float>::pi
+                               * static_cast<float>(fc / sr));
+    }
 }
 
 void T5ynthDelayLine::prepare(double sampleRate, int samplesPerBlock)
@@ -27,36 +35,30 @@ void T5ynthDelayLine::prepare(double sampleRate, int samplesPerBlock)
     delayLine.prepare(spec);
 
     // SR-aware capacity. The old fixed 96000 samples (= 2 s @48k) overflowed at
-    // higher sample rates and under modulation toward the processor's 5 s clamp;
-    // size for the clamp plus the St stereo-spread headroom. setMaximumDelay...
-    // reallocates using the channel count established by prepare() above.
-    const int capacity = static_cast<int>(std::ceil(kMaxDelaySeconds * sampleRate))
+    // high sample rates and under modulation toward the processor's 5 s clamp.
+    // setMaximumDelayInSamples reallocates using the channel count from prepare().
+    const int capacity = static_cast<int>(std::ceil(kBufferSeconds * sampleRate))
                        + samplesPerBlock + 4;
     delayLine.setMaximumDelayInSamples(capacity);
     maxDelaySamples = static_cast<float>(capacity - samplesPerBlock - 2);
 
-    currentDelaySamples = static_cast<float>(delayTimeMs * 0.001 * sr);
+    currentDelaySamples = juce::jlimit(1.0f, maxDelaySamples,
+                                       static_cast<float>(delayTimeMs * 0.001 * sr));
     targetDelaySamples = currentDelaySamples;
-    delayLine.setDelay(juce::jlimit(1.0f, maxDelaySamples, currentDelaySamples));
+    delayLine.setDelay(currentDelaySamples);
     targetFeedback = feedback;
 
-    // Damping low-pass (Butterworth, Q ~= 0.707) + fixed tape high-pass.
     updateDampCoeffs();
-    auto hp = juce::dsp::IIR::Coefficients<float>::makeHighPass(sr, kTapeHpHz, 0.707f);
-    tapeHpL.coefficients = hp;
-    tapeHpR.coefficients = hp;
-
-    // Settle each filter's internal order off-thread to match the freshly
-    // assigned 2nd-order coefficients. Assigning .coefficients is only a
-    // ReferenceCountedObjectPtr swap and does NOT update Filter::order, so
-    // without this the first audio-thread processSample() would trip
-    // Filter::check() → reset() → malloc — the #1 BLOCKING bug class.
-    // prepareToPlay calls prepare() but never reset(), so the first block
-    // would otherwise pay it.
+    // Settle each filter's internal order off-thread to match the assigned
+    // 2nd-order coefficients. Assigning .coefficients is only a pointer swap and
+    // does NOT update Filter::order, so without this the first audio-thread
+    // processSample() would trip Filter::check() → reset() → malloc (the #1
+    // BLOCKING bug class). prepareToPlay calls prepare() but never reset().
     dampFilterL.reset();
     dampFilterR.reset();
-    tapeHpL.reset();
-    tapeHpR.reset();
+
+    tapeHpState = 0.0f;
+    wowPhase = flut1Phase = flut2Phase = 0.0f;
 
     prepared = true;
 }
@@ -70,59 +72,46 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
     if (numSamples == 0 || buffer.getNumChannels() < 1)
         return;
 
-    // Silence detection: skip only after output has truly decayed
-    float inMag = buffer.getMagnitude(0, numSamples);
-    bool inputSilent = inMag < 1e-6f;
-
+    // Silence detection: skip only after output has truly decayed.
+    const float inMag = buffer.getMagnitude(0, numSamples);
+    const bool inputSilent = inMag < 1e-6f;
     if (inputSilent && silentOutputBlocks > SILENCE_CONFIRM_BLOCKS)
         return;
 
     const bool stereo = buffer.getNumChannels() >= 2;
-
-    // True crossfade insert: out = dry*(1-mix) + wet*mix. At mix=1 the dry path
-    // vanishes entirely. Feedback path is unaffected — the delay-line input
-    // always receives the un-attenuated dry plus conditioned feedback, so the
-    // tail keeps growing predictably across the full mix range.
     const float dryGain = 1.0f - wetMix;
-
-    // Per-sample smoothing coefficient (~5ms ramp at current SR)
     const float smoothCoeff = 1.0f - std::exp(-1.0f / static_cast<float>(sr * 0.005));
 
-    // Mode flags. Stereo routings require an actual stereo buffer; on a mono
-    // buffer St/Cross degrade gracefully to dual-mono (no offset, no cross).
-    const bool doOffset = (mode == kStereo) && stereo;
-    const bool doCross  = (mode == kCross)  && stereo;
-    const bool doTape   = (mode == kTape);
+    const int  heads = (mode == kTape3) ? 3 : (mode == kTape2) ? 2 : 1;
+    const bool isTape = (mode == kTape2 || mode == kTape3);
+    const bool isPingPong = (mode == kPingPong) && stereo;
 
-    const float ratioL = doOffset ? (1.0f + kStereoSpread) : 1.0f;
-    const float ratioR = doOffset ? (1.0f - kStereoSpread) : 1.0f;
-    const float wowInc = juce::MathConstants<float>::twoPi * kWowRateHz
-                       / static_cast<float>(sr);
+    // Constant-power pan gains for tape heads, spread evenly across [-w, +w].
+    // On a mono buffer the defaults (panL=1, panR=0) leave the head sum flat so
+    // mono fold-down keeps full level — the spread only applies in true stereo.
+    float panL[3] = { 1.0f, 1.0f, 1.0f };
+    float panR[3] = { 0.0f, 0.0f, 0.0f };
+    if (isTape && stereo)
+    {
+        for (int k = 0; k < heads; ++k)
+        {
+            const float p = (heads == 1) ? 0.0f
+                          : -kPanWidth + (2.0f * kPanWidth) * static_cast<float>(k)
+                            / static_cast<float>(heads - 1);
+            const float t = (p + 1.0f) * 0.25f * juce::MathConstants<float>::pi;
+            panL[k] = std::cos(t);
+            panR[k] = std::sin(t);
+        }
+    }
+
+    const float twoPi = juce::MathConstants<float>::twoPi;
+    const float dWow = twoPi * kWowHz   / static_cast<float>(sr);
+    const float dF1  = twoPi * kFlut1Hz / static_cast<float>(sr);
+    const float dF2  = twoPi * kFlut2Hz / static_cast<float>(sr);
+    const float aHP  = onePoleCoeff(kTapeHpHz, sr);
 
     auto* dataL = buffer.getWritePointer(0);
     auto* dataR = stereo ? buffer.getWritePointer(1) : nullptr;
-
-    // Feedback conditioning per channel: fb gain, then (Tape only) high-pass +
-    // damping low-pass + soft tanh saturation. The tanh is normalised by its
-    // drive so small-signal gain stays ~1.0 (feedback feel unchanged) while hot
-    // signals compress — an automatic limiter that tames runaway tape feedback.
-    auto conditionFb = [this, doTape](float x,
-                                      juce::dsp::IIR::Filter<float>& damp,
-                                      juce::dsp::IIR::Filter<float>& hp) -> float
-    {
-        float y = x * feedback;
-        if (doTape)
-        {
-            y = hp.processSample(y);
-            y = damp.processSample(y);
-            y = std::tanh(y * kTapeDrive) / kTapeDrive;
-        }
-        else
-        {
-            y = damp.processSample(y);
-        }
-        return y;
-    };
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -130,48 +119,89 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
         currentDelaySamples += (targetDelaySamples - currentDelaySamples) * smoothCoeff;
         feedback += (targetFeedback - feedback) * smoothCoeff;
 
-        // Tape wow: tiny read-position drift (skipped entirely in other modes).
-        float wow = 0.0f;
-        if (doTape)
-        {
-            wow = std::sin(wowPhase) * kWowDepth * currentDelaySamples;
-            wowPhase += wowInc;
-            if (wowPhase > juce::MathConstants<float>::twoPi)
-                wowPhase -= juce::MathConstants<float>::twoPi;
-        }
-
-        const float dlyL = juce::jlimit(1.0f, maxDelaySamples,
-                                        currentDelaySamples * ratioL + wow);
-        const float outL = delayLine.popSample(0, dlyL, true);
-
-        float outR = 0.0f;
-        if (stereo)
-        {
-            const float dlyR = juce::jlimit(1.0f, maxDelaySamples,
-                                            currentDelaySamples * ratioR + wow);
-            outR = delayLine.popSample(1, dlyR, true);
-        }
-
         const float dryL = dataL[i];
         const float dryR = stereo ? dataR[i] : 0.0f;
+        const float clampedT = juce::jlimit(1.0f, maxDelaySamples, currentDelaySamples);
 
-        // Cross routing feeds each line from the OTHER channel's output; all
-        // other modes feed each line from its own output.
-        const float fbSrcL = doCross ? outR : outL;
-        const float fbSrcR = doCross ? outL : outR;
+        if (isTape)
+        {
+            const float mono = stereo ? 0.5f * (dryL + dryR) : dryL;
 
-        delayLine.pushSample(0, dryL + conditionFb(fbSrcL, dampFilterL, tapeHpL));
-        if (stereo)
-            delayLine.pushSample(1, dryR + conditionFb(fbSrcR, dampFilterR, tapeHpR));
+            wowPhase += dWow; flut1Phase += dF1; flut2Phase += dF2;
+            if (wowPhase   > twoPi) wowPhase   -= twoPi;
+            if (flut1Phase > twoPi) flut1Phase -= twoPi;
+            if (flut2Phase > twoPi) flut2Phase -= twoPi;
+            const float modw = (std::sin(wowPhase) * kWowDepth
+                              + (std::sin(flut1Phase) + std::sin(flut2Phase)) * kFlutDepth)
+                              * currentDelaySamples;
 
-        // Crossfade insert: dry vanishes as mix → 1.
-        dataL[i] = dryL * dryGain + outL * wetMix;
-        if (stereo)
-            dataR[i] = dryR * dryGain + outR * wetMix;
+            // Cap the head spacing so the longest head (heads·base) stays inside
+            // the buffer even at long times.
+            const float base = juce::jmin(currentDelaySamples,
+                                          maxDelaySamples / static_cast<float>(heads));
+
+            float wetL = 0.0f, wetR = 0.0f, longest = 0.0f;
+            for (int k = 0; k < heads; ++k)
+            {
+                const float d = juce::jlimit(1.0f, maxDelaySamples,
+                                             static_cast<float>(k + 1) * base + modw);
+                const bool last = (k == heads - 1);
+                // Advance the read pointer exactly once per sample, on the last tap.
+                const float tap = delayLine.popSample(0, d, last);
+                wetL += tap * panL[k];
+                wetR += tap * panR[k];
+                if (last) longest = tap;
+            }
+
+            // Feedback from the long head: high-pass → damping low-pass → soft
+            // saturation. tanh(x·drive)/drive keeps small-signal gain ≈ 1 so the
+            // feedback feel is unchanged, while hot signals self-limit (tape).
+            float f = longest * feedback;
+            tapeHpState += aHP * (f - tapeHpState);
+            f = f - tapeHpState;
+            f = dampFilterL.processSample(f);
+            f = std::tanh(f * kTapeDrive) / kTapeDrive;
+            delayLine.pushSample(0, mono + f);
+
+            dataL[i] = dryL * dryGain + wetL * wetMix;
+            if (stereo)
+                dataR[i] = dryR * dryGain + wetR * wetMix;
+        }
+        else if (isPingPong)
+        {
+            const float mono = 0.5f * (dryL + dryR);
+            const float dl = delayLine.popSample(0, clampedT, true);
+            const float dr = delayLine.popSample(1, clampedT, true);
+
+            // Cross-coupled feedback: each line is fed from the OTHER line's
+            // output; the (mono) dry is injected into the left line only.
+            const float fbToL = dampFilterL.processSample(dr * feedback);
+            const float fbToR = dampFilterR.processSample(dl * feedback);
+            delayLine.pushSample(0, mono + fbToL);
+            delayLine.pushSample(1, fbToR);
+
+            dataL[i] = dryL * dryGain + dl * wetMix;
+            dataR[i] = dryR * dryGain + dr * wetMix;
+        }
+        else // Digital (dual-mono); also the mono fallback for PingPong
+        {
+            const float dl = delayLine.popSample(0, clampedT, true);
+            const float fbL = dampFilterL.processSample(dl * feedback);
+            delayLine.pushSample(0, dryL + fbL);
+            dataL[i] = dryL * dryGain + dl * wetMix;
+
+            if (stereo)
+            {
+                const float dr = delayLine.popSample(1, clampedT, true);
+                const float fbR = dampFilterR.processSample(dr * feedback);
+                delayLine.pushSample(1, dryR + fbR);
+                dataR[i] = dryR * dryGain + dr * wetMix;
+            }
+        }
     }
 
-    // Check output magnitude — count as silent only when input is also silent
-    float outMag = buffer.getMagnitude(0, numSamples);
+    // Count as silent only when input is also silent.
+    const float outMag = buffer.getMagnitude(0, numSamples);
     if (outMag < 1e-6f && inputSilent)
         ++silentOutputBlocks;
     else
@@ -183,9 +213,8 @@ void T5ynthDelayLine::reset()
     delayLine.reset();
     dampFilterL.reset();
     dampFilterR.reset();
-    tapeHpL.reset();
-    tapeHpR.reset();
-    wowPhase = 0.0f;
+    tapeHpState = 0.0f;
+    wowPhase = flut1Phase = flut2Phase = 0.0f;
     silentOutputBlocks = 0;
 }
 
@@ -214,13 +243,11 @@ void T5ynthDelayLine::setDamp(float d)
     d = juce::jlimit(0.0f, 1.0f, d);
     const float newFreq = 20000.0f * std::pow(500.0f / 20000.0f, d);
 
-    // The processor calls setDamp() every block with the (usually unchanged)
-    // damp param. updateDampCoeffs() runs makeLowPass() = a heap allocation, so
-    // recomputing unconditionally was a per-block audio-thread malloc (the #1
-    // BLOCKING bug class). Skip when the resolved frequency is identical — the
-    // expression is deterministic for a steady param, so this is exact and
-    // output-identical; coefficients are rebuilt only when the knob actually
-    // moves (a transient user gesture, not idle/steady state).
+    // The processor calls setDamp() every block with the (usually static) damp
+    // param, and updateDampCoeffs() runs makeLowPass() = a heap allocation. Skip
+    // when the resolved frequency is identical (deterministic for a steady param,
+    // so the equality check is exact and output-identical) — coefficients are
+    // rebuilt only when the knob actually moves, never on an idle block.
     if (newFreq == dampFreq)
         return;
 

@@ -2,26 +2,27 @@
 #include <JuceHeader.h>
 
 /**
- * Delay effect with four routing/voicing modes (mirrors DelayType in
- * BlockParams.h; Off is handled by the caller — the delay is simply not run):
+ * Delay effect with four voicings (mirrors DelayType in BlockParams.h; Off is
+ * handled by the caller — the delay is simply not run). The algorithm was
+ * prototyped and auditioned in tools/delay_audition.py before this port.
  *
- *   1 DualMono ("2M")  : two independent lines, identical time, no coupling.
- *                        The original behaviour; preset key "stereo".
- *   2 Stereo   ("St")  : L/R time offset (±kStereoSpread) → width from a mono
- *                        source. No cross-feedback. Longer side stays within
- *                        the buffer (see kMaxDelaySeconds).
- *   3 Cross            : cross-coupled feedback (L line fed from R's output and
- *                        vice versa) → echoes migrate across the stereo field.
- *   4 Tape             : dual-mono routing plus a "tape" feedback voicing —
- *                        high-pass + low-pass (Damp) band-limiting, a soft
- *                        tanh saturation that auto-limits runaway feedback,
- *                        and a subtle wow (slow read-position drift). No new
- *                        user parameter: drive scales with the signal, tone
- *                        rides the existing Damp control.
+ *   1 Digital  : clean dual-mono. Two independent lines, identical time, a
+ *                damping low-pass in each feedback path. Transparent and
+ *                mono-compatible. The original behaviour; preset key "stereo".
+ *   2 PingPong : true ping-pong. Input summed to mono and injected into the
+ *                LEFT line only; feedback cross-coupled (left output → right
+ *                line, right output → left line). A mono source bounces cleanly
+ *                L/R/L/R at the set time; the dry stays put.
+ *   3 Tape2    : 2-head tape echo. Read taps at T and 2T summed and spread
+ *                across the field; feedback from the long head through a
+ *                high-pass + damping low-pass + soft tanh saturation, with a
+ *                wow+flutter read-position drift scaled to the delay time.
+ *   4 Tape3    : as Tape2 but three heads at T, 2T, 3T — the Roland RE-201's
+ *                1:2:3 head spacing.
  *
- * Common controls: time (ms, smoothed), feedback, dry/wet mix, feedback-damping
- * low-pass. Damping: 0 = bright (20kHz), 1 = dark (500Hz). Mix is a true
- * crossfade: out = dry*(1-mix) + wet*mix; at mix=1 the dry path vanishes.
+ * Common controls: time (ms, smoothed), feedback, dry/wet mix, damping low-pass
+ * (0 = bright 20kHz, 1 = dark 500Hz). Mix is a true crossfade: at mix=1 the dry
+ * path vanishes.
  */
 class T5ynthDelayLine
 {
@@ -44,26 +45,26 @@ public:
     /** Set feedback damping (0=bright 20kHz, 1=dark 500Hz). */
     void setDamp(float d);
 
-    /** Routing/voicing mode = DelayType value (1=DualMono, 2=Stereo,
-        3=Cross, 4=Tape). Off (0) is handled by the caller. */
+    /** Routing/voicing mode = DelayType value (1=Digital, 2=PingPong,
+        3=Tape2, 4=Tape3). Off (0) is handled by the caller. */
     void setMode(int delayType);
 
     float getMix() const { return wetMix; }
 
 private:
     // Local mirror of BlockParams DelayType (avoids including BlockParams here).
-    enum Mode { kDualMono = 1, kStereo = 2, kCross = 3, kTape = 4 };
+    enum Mode { kDigital = 1, kPingPong = 2, kTape2 = 3, kTape3 = 4 };
 
     // Capacity is set SR-aware in prepare(); the constructor value is a
-    // placeholder that is reallocated before any audio runs.
+    // placeholder reallocated before any audio runs.
     juce::dsp::DelayLine<float> delayLine { 96000 };
 
-    // Feedback damping low-pass (all modes) + tape high-pass (Tape only).
+    // Feedback damping low-pass: one per channel (Digital/PingPong); Tape uses
+    // dampFilterL on its mono feedback.
     juce::dsp::IIR::Filter<float> dampFilterL, dampFilterR;
-    juce::dsp::IIR::Filter<float> tapeHpL, tapeHpR;
 
     double sr = 44100.0;
-    int   mode = kDualMono;
+    int   mode = kDigital;
     float delayTimeMs = 250.0f;          // Reference default
     float targetDelaySamples = 0.0f;     // smoothing target
     float currentDelaySamples = 0.0f;    // smoothed current
@@ -74,8 +75,9 @@ private:
     float maxDelaySamples = 0.0f;        // read-position guard (set in prepare)
     bool prepared = false;
 
-    // Tape wow: slow sine LFO phase driving a tiny read-position drift.
-    float wowPhase = 0.0f;
+    // Tape character state (Tape2/Tape3 only)
+    float tapeHpState = 0.0f;            // one-pole high-pass state
+    float wowPhase = 0.0f, flut1Phase = 0.0f, flut2Phase = 0.0f;
 
     // Silence detection — skip processing only after output has truly decayed
     int silentOutputBlocks = 0;
