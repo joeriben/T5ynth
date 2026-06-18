@@ -20,6 +20,13 @@ static const auto kCard    = juce::Colour(0xff1a1e2a);  // Card/section backgrou
 static const auto kBg      = juce::Colour(0xff0e1018);  // Main background (dark blue-gray, not black)
 static const auto kBorder  = juce::Colour(0xff353a4a);  // Section borders (more visible)
 
+// Inverted section-header / title-band text. Light (near-white) reads better on
+// the accent@0.7 fills than dark ink does on EVERY accent (verified via WCAG
+// large-text contrast); it also matches the GENERATE button's light-on-accent
+// convention. NOTE: switchbox *selected-button* text is a separate decision —
+// see switchBoxSelectedTextColour() (dark ink on bright/full accents).
+static const auto kHeaderText = kTextPrimary;
+
 static constexpr float kUiLabelFontMin = 11.0f;
 static constexpr float kUiValueFontMin = 11.0f;
 static constexpr float kUiControlFontMin = 11.0f;
@@ -130,11 +137,11 @@ inline juce::Colour abBlendColour(float t)
     return lerpColour(kImpulseBWarm, kImpulseB, (t - 0.75f) * 4.0f);
 }
 
-/** Configure a label as an inverted section header bar (colored bg, dark text). */
+/** Configure a label as an inverted section header bar (colored bg, light text). */
 inline void paintSectionHeader(juce::Label& lbl, const juce::String& text, juce::Colour col)
 {
     lbl.setText(" " + text, juce::dontSendNotification);
-    lbl.setColour(juce::Label::textColourId, juce::Colour(0xff0e1018));
+    lbl.setColour(juce::Label::textColourId, kHeaderText);
     lbl.setColour(juce::Label::backgroundColourId, col.withAlpha(0.7f));
     lbl.setJustificationType(juce::Justification::centredLeft);
 }
@@ -480,16 +487,16 @@ public:
         g.setColour(accent_.withAlpha(0.7f));
         g.fillRect(header);
 
-        const auto darkInk = juce::Colour(0xff0e1018);
+        const auto headerInk = kHeaderText;
         auto inner = header.reduced(headerPadX_, 0);
         if (icon_ != Icon::numIcons && header.getHeight() > 0)
         {
             auto iconCell = inner.removeFromLeft(header.getHeight());
             drawIcon(g, icon_, iconCell.toFloat().reduced(static_cast<float>(iconInset_)),
-                     darkInk, 1.6f);
+                     headerInk, 1.6f);
             inner.removeFromLeft(juce::jmax(2, headerPadX_ / 2));
         }
-        g.setColour(darkInk);
+        g.setColour(headerInk);
         g.setFont(uiFont(TextRole::ModuleTitle, baseFont_, true));
         g.drawText(title_, inner, juce::Justification::centredLeft, false);
     }

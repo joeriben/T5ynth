@@ -168,9 +168,9 @@ void MainPanel::GenerateButton::paintButton(juce::Graphics& g, bool highlighted,
     g.setColour(fill);
     g.fillRect(bounds);
 
-    // Label — dark on accent, exactly like paintSectionHeader. Font size
-    // is bounded by BOTH height and width so the label can't grow out of
-    // proportion when the button is short and wide (or tall and narrow).
+    // Label — light on accent, like paintSectionHeader. Font size is bounded
+    // by BOTH height and width so the label can't grow out of proportion when
+    // the button is short and wide (or tall and narrow).
     const float fromHeight = bounds.getHeight() * 0.50f;
     const float fromWidth  = bounds.getWidth() / 11.0f;  // ~"GENERATE" + chevrons
     const float fontSize = juce::jlimit(16.0f, 30.0f, juce::jmin(fromHeight, fromWidth));
@@ -183,9 +183,8 @@ void MainPanel::GenerateButton::paintButton(juce::Graphics& g, bool highlighted,
 
     // Inverted button text follows the system convention used by every other
     // active/toggled button in the L&F: TextButton::textColourOnId = kTextPrimary
-    // (near-white). Section *labels* (paintSectionHeader) use dark text on the
-    // same fill, but a button is not a label — using the header convention
-    // here was a mis-inheritance, corrected back to the button convention.
+    // (near-white). Section labels (paintSectionHeader / kHeaderText) now use the
+    // same light text on the accent fill, so button and header agree.
     const auto fgText = kTextPrimary;
     const float textAlpha = active ? (down ? 0.85f : 1.0f) : 0.55f;
 

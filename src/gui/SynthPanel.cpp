@@ -791,10 +791,10 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     freezeStereoA = std::make_unique<SA>(apvts, PID::freezeStereo, freezeStereoRow->getSlider());
     freezeStereoRow->updateValue();
 
-    // ── Section headers — inverted (colored bg, dark text) ──
+    // ── Section headers — inverted (colored bg, light text) ──
     auto makeHeader = [this](juce::Label& lbl, const juce::String& text, juce::Colour col) {
         lbl.setText(" " + text, juce::dontSendNotification);
-        lbl.setColour(juce::Label::textColourId, juce::Colour(0xff0e1018));
+        lbl.setColour(juce::Label::textColourId, kHeaderText);
         lbl.setColour(juce::Label::backgroundColourId, col.withAlpha(0.7f));
         lbl.setJustificationType(juce::Justification::centredLeft);
         addAndMakeVisible(lbl);
@@ -2139,7 +2139,9 @@ void SynthPanel::layoutLfoEasy(LfoSection& lfo, juce::Rectangle<int> area, float
     const int headerW = juce::jmax(54, measureTextWidth(lfo.header.getText(), topFontSize) + 18);
     lfo.header.setFont(juce::FontOptions(topFontSize, juce::Font::bold));
     lfo.header.setJustificationType(juce::Justification::centred);
-    lfo.header.setColour(juce::Label::textColourId, juce::Colour(0xff0e1018));
+    // Opaque-accent chip (not a @0.7 band) → brightness rule: amber is bright,
+    // so this resolves to dark ink (white would fail WCAG on full amber).
+    lfo.header.setColour(juce::Label::textColourId, switchBoxSelectedTextColour(kLfoCol));
     lfo.header.setColour(juce::Label::backgroundColourId, kLfoCol);
     lfo.header.setBounds(headerRow.removeFromLeft(juce::jmin(headerW, headerRow.getWidth())));
     area.removeFromTop(rowGap);
@@ -2202,7 +2204,8 @@ void SynthPanel::layoutDriftEasy(DriftSection& drift, juce::Rectangle<int> area,
     drift.header.setText(title, juce::dontSendNotification);
     drift.header.setFont(juce::FontOptions(topFontSize, juce::Font::bold));
     drift.header.setJustificationType(juce::Justification::centred);
-    drift.header.setColour(juce::Label::textColourId, juce::Colour(0xff0e1018));
+    // Opaque-accent chip → brightness rule (drift-orange resolves to white).
+    drift.header.setColour(juce::Label::textColourId, switchBoxSelectedTextColour(kDriftCol));
     drift.header.setColour(juce::Label::backgroundColourId, kDriftCol);
     drift.header.setBounds(headerRow.removeFromLeft(juce::jmin(headerW, headerRow.getWidth())));
     area.removeFromTop(rowGap);
@@ -2255,7 +2258,9 @@ void SynthPanel::layoutGenerateEasy(juce::Rectangle<int> area, float f, int rowH
         regenHeader.setText(" REGENERATE", juce::dontSendNotification);
         regenHeader.setFont(juce::FontOptions(chipFontSize, juce::Font::bold));
         regenHeader.setJustificationType(juce::Justification::centred);
-        regenHeader.setColour(juce::Label::textColourId, juce::Colour(0xff0e1018));
+        // Opaque-accent chip → brightness rule (drift-orange resolves to white,
+        // the REGENERATE-box treatment that established this threshold).
+        regenHeader.setColour(juce::Label::textColourId, switchBoxSelectedTextColour(kDriftCol));
         regenHeader.setColour(juce::Label::backgroundColourId, kDriftCol);
         regenHeader.setBounds(headerRow.removeFromLeft(juce::jmin(headerW, headerRow.getWidth())));
         area.removeFromTop(rowGap);
@@ -2328,7 +2333,7 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
 
     filterHeader.setText(" FILTER", juce::dontSendNotification);
     filterHeader.setFont(juce::FontOptions(headerFs));
-    filterHeader.setColour(juce::Label::textColourId, juce::Colour(0xff0e1018));
+    filterHeader.setColour(juce::Label::textColourId, kHeaderText);
     filterHeader.setColour(juce::Label::backgroundColourId, kFilterCol.withAlpha(0.7f));
     filterHeader.setJustificationType(juce::Justification::centredLeft);
 
@@ -2432,7 +2437,7 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
             l.setText(t, juce::dontSendNotification);
             l.setFont(juce::FontOptions(headerFs));
             l.setJustificationType(juce::Justification::centredLeft);
-            l.setColour(juce::Label::textColourId, juce::Colour(0xff0e1018));
+            l.setColour(juce::Label::textColourId, kHeaderText);
             l.setColour(juce::Label::backgroundColourId, c.withAlpha(0.7f));
             l.setVisible(true);
         };
@@ -3035,7 +3040,7 @@ void SynthPanel::resized()
         // ── FILTER section header ──
         filterHeader.setText(" FILTER", juce::dontSendNotification);
         filterHeader.setFont(juce::FontOptions(headerFs));
-        filterHeader.setColour(juce::Label::textColourId, juce::Colour(0xff0e1018));
+        filterHeader.setColour(juce::Label::textColourId, kHeaderText);
         filterHeader.setColour(juce::Label::backgroundColourId, kFilterCol.withAlpha(0.7f));
         filterHeader.setJustificationType(juce::Justification::centredLeft);
         filterHeader.setBounds(area.removeFromTop(headerH));
@@ -3238,6 +3243,7 @@ void SynthPanel::resized()
     area.removeFromTop(gap);
     regenHeader.setText(" REGENERATE", juce::dontSendNotification);
     regenHeader.setFont(juce::FontOptions(headerFs));
+    regenHeader.setColour(juce::Label::textColourId, kHeaderText);   // @0.7 band → white
     regenHeader.setColour(juce::Label::backgroundColourId, kDriftCol.withAlpha(0.7f));
     regenHeader.setJustificationType(juce::Justification::centredLeft);
     auto regenHeaderRow = area.removeFromTop(headerH);
