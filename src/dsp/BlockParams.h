@@ -48,43 +48,43 @@ namespace PID {
     static constexpr const char* ampSustain       = "amp_sustain";
     static constexpr const char* ampRelease       = "amp_release";
     static constexpr const char* ampAmount        = "amp_amount";
-    static constexpr const char* ampVelSens       = "amp_vel_sens";
     static constexpr const char* ampLoop          = "amp_loop";
     static constexpr const char* ampTarget        = "amp_target";
     static constexpr const char* ampAttackCurve   = "amp_attack_curve";
     static constexpr const char* ampDecayCurve    = "amp_decay_curve";
     static constexpr const char* ampReleaseCurve  = "amp_release_curve";
-    static constexpr const char* ampAttackVelMode = "amp_attack_vel_mode";
-    static constexpr const char* ampDecayVelMode  = "amp_decay_vel_mode";
-    static constexpr const char* ampReleaseVelMode= "amp_release_vel_mode";
+    static constexpr const char* ampAttackVelSens = "amp_attack_vel_sens";
+    static constexpr const char* ampDecayVelSens  = "amp_decay_vel_sens";
+    static constexpr const char* ampSustainVelSens= "amp_sustain_vel_sens";
+    static constexpr const char* ampReleaseVelSens= "amp_release_vel_sens";
     static constexpr const char* mod1Attack       = "mod1_attack";
     static constexpr const char* mod1Decay        = "mod1_decay";
     static constexpr const char* mod1Sustain      = "mod1_sustain";
     static constexpr const char* mod1Release      = "mod1_release";
     static constexpr const char* mod1Amount       = "mod1_amount";
-    static constexpr const char* mod1VelSens      = "mod1_vel_sens";
     static constexpr const char* mod1Loop         = "mod1_loop";
     static constexpr const char* mod1Target       = "mod1_target";
     static constexpr const char* mod1AttackCurve  = "mod1_attack_curve";
     static constexpr const char* mod1DecayCurve   = "mod1_decay_curve";
     static constexpr const char* mod1ReleaseCurve = "mod1_release_curve";
-    static constexpr const char* mod1AttackVelMode = "mod1_attack_vel_mode";
-    static constexpr const char* mod1DecayVelMode  = "mod1_decay_vel_mode";
-    static constexpr const char* mod1ReleaseVelMode= "mod1_release_vel_mode";
+    static constexpr const char* mod1AttackVelSens = "mod1_attack_vel_sens";
+    static constexpr const char* mod1DecayVelSens  = "mod1_decay_vel_sens";
+    static constexpr const char* mod1SustainVelSens= "mod1_sustain_vel_sens";
+    static constexpr const char* mod1ReleaseVelSens= "mod1_release_vel_sens";
     static constexpr const char* mod2Attack       = "mod2_attack";
     static constexpr const char* mod2Decay        = "mod2_decay";
     static constexpr const char* mod2Sustain      = "mod2_sustain";
     static constexpr const char* mod2Release      = "mod2_release";
     static constexpr const char* mod2Amount       = "mod2_amount";
-    static constexpr const char* mod2VelSens      = "mod2_vel_sens";
     static constexpr const char* mod2Loop         = "mod2_loop";
     static constexpr const char* mod2Target       = "mod2_target";
     static constexpr const char* mod2AttackCurve  = "mod2_attack_curve";
     static constexpr const char* mod2DecayCurve   = "mod2_decay_curve";
     static constexpr const char* mod2ReleaseCurve = "mod2_release_curve";
-    static constexpr const char* mod2AttackVelMode = "mod2_attack_vel_mode";
-    static constexpr const char* mod2DecayVelMode  = "mod2_decay_vel_mode";
-    static constexpr const char* mod2ReleaseVelMode= "mod2_release_vel_mode";
+    static constexpr const char* mod2AttackVelSens = "mod2_attack_vel_sens";
+    static constexpr const char* mod2DecayVelSens  = "mod2_decay_vel_sens";
+    static constexpr const char* mod2SustainVelSens= "mod2_sustain_vel_sens";
+    static constexpr const char* mod2ReleaseVelSens= "mod2_release_vel_sens";
     static constexpr const char* lfo1Rate         = "lfo1_rate";
     static constexpr const char* lfo1Depth        = "lfo1_depth";
     static constexpr const char* lfo1Wave         = "lfo1_wave";
@@ -1199,34 +1199,28 @@ struct BlockParams
     // Amp envelope
     float ampAttack = 0.0f, ampDecay = 0.0f, ampSustain = 1.0f, ampRelease = 0.0f;
     float ampAmount = 1.0f;
-    float ampVelSens = 1.0f;  // 0=fixed, 1=full velocity
+    // Per-stage velocity sensitivity, signed [-1..+1]. A/D/R = velocity→time;
+    // Sustain = velocity→peak (loudness when target=DCA, else mod-depth). 0=off.
+    // Sustain defaults to 1.0 to preserve the classic velocity→loudness response.
+    float ampAttackVelSens = 0.0f, ampDecayVelSens = 0.0f, ampSustainVelSens = 1.0f, ampReleaseVelSens = 0.0f;
     int   ampTarget = EnvTarget::DCA;
     int   ampAttackCurve = 2, ampDecayCurve = 2, ampReleaseCurve = 4; // CurveShape indices
-    int   ampAttackVelMode = EnvVelTimeMode::Off;
-    int   ampDecayVelMode = EnvVelTimeMode::Off;
-    int   ampReleaseVelMode = EnvVelTimeMode::Off;
     bool  ampLoop = false;
 
     // Mod envelope 1
     float mod1Attack = 0.0f, mod1Decay = 0.0f, mod1Sustain = 1.0f, mod1Release = 0.0f;
     float mod1Amount = 0.0f;
-    float mod1VelSens = 1.0f;
+    float mod1AttackVelSens = 0.0f, mod1DecayVelSens = 0.0f, mod1SustainVelSens = 1.0f, mod1ReleaseVelSens = 0.0f;
     int   mod1Target = 0; // EnvTarget::None
     int   mod1AttackCurve = 2, mod1DecayCurve = 2, mod1ReleaseCurve = 4;
-    int   mod1AttackVelMode = EnvVelTimeMode::Off;
-    int   mod1DecayVelMode = EnvVelTimeMode::Off;
-    int   mod1ReleaseVelMode = EnvVelTimeMode::Off;
     bool  mod1Loop = false;
 
     // Mod envelope 2
     float mod2Attack = 0.0f, mod2Decay = 0.0f, mod2Sustain = 1.0f, mod2Release = 0.0f;
     float mod2Amount = 0.0f;
-    float mod2VelSens = 1.0f;
+    float mod2AttackVelSens = 0.0f, mod2DecayVelSens = 0.0f, mod2SustainVelSens = 1.0f, mod2ReleaseVelSens = 0.0f;
     int   mod2Target = 0; // EnvTarget::None
     int   mod2AttackCurve = 2, mod2DecayCurve = 2, mod2ReleaseCurve = 4;
-    int   mod2AttackVelMode = EnvVelTimeMode::Off;
-    int   mod2DecayVelMode = EnvVelTimeMode::Off;
-    int   mod2ReleaseVelMode = EnvVelTimeMode::Off;
     bool  mod2Loop = false;
 
     // LFOs (global rates/depths for cross-mod, targets for routing).

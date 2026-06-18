@@ -140,28 +140,29 @@ private:
 
     double sr = 44100.0;
 
-    // Velocity sensitivity (updated per block from BlockParams)
-    float ampVelSens_ = 1.0f;
-    float mod1VelSens_ = 1.0f;
-    float mod2VelSens_ = 1.0f;
+    // Per-stage velocity sensitivity, signed [-1..+1] (updated per block from
+    // BlockParams). A/D/R scale envelope times; Sustain scales the note-on peak.
     float ampAttackBaseMs_ = 0.0f;
     float ampDecayBaseMs_ = 0.0f;
     float ampReleaseBaseMs_ = 0.0f;
-    int ampAttackVelMode_ = EnvVelTimeMode::Off;
-    int ampDecayVelMode_ = EnvVelTimeMode::Off;
-    int ampReleaseVelMode_ = EnvVelTimeMode::Off;
+    float ampAttackVelSens_ = 0.0f;
+    float ampDecayVelSens_ = 0.0f;
+    float ampSustainVelSens_ = 1.0f;
+    float ampReleaseVelSens_ = 0.0f;
     float mod1AttackBaseMs_ = 0.0f;
     float mod1DecayBaseMs_ = 0.0f;
     float mod1ReleaseBaseMs_ = 0.0f;
-    int mod1AttackVelMode_ = EnvVelTimeMode::Off;
-    int mod1DecayVelMode_ = EnvVelTimeMode::Off;
-    int mod1ReleaseVelMode_ = EnvVelTimeMode::Off;
+    float mod1AttackVelSens_ = 0.0f;
+    float mod1DecayVelSens_ = 0.0f;
+    float mod1SustainVelSens_ = 1.0f;
+    float mod1ReleaseVelSens_ = 0.0f;
     float mod2AttackBaseMs_ = 0.0f;
     float mod2DecayBaseMs_ = 0.0f;
     float mod2ReleaseBaseMs_ = 0.0f;
-    int mod2AttackVelMode_ = EnvVelTimeMode::Off;
-    int mod2DecayVelMode_ = EnvVelTimeMode::Off;
-    int mod2ReleaseVelMode_ = EnvVelTimeMode::Off;
+    float mod2AttackVelSens_ = 0.0f;
+    float mod2DecayVelSens_ = 0.0f;
+    float mod2SustainVelSens_ = 1.0f;
+    float mod2ReleaseVelSens_ = 0.0f;
 
     // Cached mod values from last renderBlock (for VoiceManager capture)
     float lastMod1Val_ = 0.0f;
@@ -182,15 +183,15 @@ private:
         float ampSustain = -1.0f;
         float ampRelease = -1.0f;
         float ampAmount = -1.0f;
-        float ampVelSens = -1.0f;
         int ampTarget = EnvTarget::DCA;
         bool ampLoop = false;
         int ampAttackCurve = -1;
         int ampDecayCurve = -1;
         int ampReleaseCurve = -1;
-        int ampAttackVelMode = EnvVelTimeMode::Off;
-        int ampDecayVelMode = EnvVelTimeMode::Off;
-        int ampReleaseVelMode = EnvVelTimeMode::Off;
+        float ampAttackVelSens = -2.0f;
+        float ampDecayVelSens = -2.0f;
+        float ampSustainVelSens = -2.0f;
+        float ampReleaseVelSens = -2.0f;
 
         int mod1Target = EnvTarget::None;
         float mod1Attack = -1.0f;
@@ -198,14 +199,14 @@ private:
         float mod1Sustain = -1.0f;
         float mod1Release = -1.0f;
         float mod1Amount = -1.0f;
-        float mod1VelSens = -1.0f;
         bool mod1Loop = false;
         int mod1AttackCurve = -1;
         int mod1DecayCurve = -1;
         int mod1ReleaseCurve = -1;
-        int mod1AttackVelMode = EnvVelTimeMode::Off;
-        int mod1DecayVelMode = EnvVelTimeMode::Off;
-        int mod1ReleaseVelMode = EnvVelTimeMode::Off;
+        float mod1AttackVelSens = -2.0f;
+        float mod1DecayVelSens = -2.0f;
+        float mod1SustainVelSens = -2.0f;
+        float mod1ReleaseVelSens = -2.0f;
 
         int mod2Target = EnvTarget::None;
         float mod2Attack = -1.0f;
@@ -213,14 +214,14 @@ private:
         float mod2Sustain = -1.0f;
         float mod2Release = -1.0f;
         float mod2Amount = -1.0f;
-        float mod2VelSens = -1.0f;
         bool mod2Loop = false;
         int mod2AttackCurve = -1;
         int mod2DecayCurve = -1;
         int mod2ReleaseCurve = -1;
-        int mod2AttackVelMode = EnvVelTimeMode::Off;
-        int mod2DecayVelMode = EnvVelTimeMode::Off;
-        int mod2ReleaseVelMode = EnvVelTimeMode::Off;
+        float mod2AttackVelSens = -2.0f;
+        float mod2DecayVelSens = -2.0f;
+        float mod2SustainVelSens = -2.0f;
+        float mod2ReleaseVelSens = -2.0f;
 
         float velocity = -1.0f;
         float startPos = -1.0f;

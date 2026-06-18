@@ -628,16 +628,26 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::mod2Amount, 1}, "Mod2 Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
 
-    // Velocity sensitivity (per envelope, 0=fixed, 1=full velocity)
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::ampVelSens, 1}, "Amp Vel Sens",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::mod1VelSens, 1}, "Mod1 Vel Sens",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::mod2VelSens, 1}, "Mod2 Vel Sens",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
+    // Per-stage velocity sensitivity, signed [-1..+1]. A/D/R = velocity→time,
+    // Sustain = velocity→peak. Sustain defaults to 1.0 (classic velocity→loudness);
+    // the time stages default to 0 (no velocity effect).
+    auto addVelSens = [&params](const char* id, const juce::String& name, float def) {
+        params.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{id, 1}, name,
+            juce::NormalisableRange<float>(-1.0f, 1.0f), def));
+    };
+    addVelSens(PID::ampAttackVelSens,  "Amp Attack Vel Sens",  0.0f);
+    addVelSens(PID::ampDecayVelSens,   "Amp Decay Vel Sens",   0.0f);
+    addVelSens(PID::ampSustainVelSens, "Amp Sustain Vel Sens", 1.0f);
+    addVelSens(PID::ampReleaseVelSens, "Amp Release Vel Sens", 0.0f);
+    addVelSens(PID::mod1AttackVelSens,  "Mod1 Attack Vel Sens",  0.0f);
+    addVelSens(PID::mod1DecayVelSens,   "Mod1 Decay Vel Sens",   0.0f);
+    addVelSens(PID::mod1SustainVelSens, "Mod1 Sustain Vel Sens", 1.0f);
+    addVelSens(PID::mod1ReleaseVelSens, "Mod1 Release Vel Sens", 0.0f);
+    addVelSens(PID::mod2AttackVelSens,  "Mod2 Attack Vel Sens",  0.0f);
+    addVelSens(PID::mod2DecayVelSens,   "Mod2 Decay Vel Sens",   0.0f);
+    addVelSens(PID::mod2SustainVelSens, "Mod2 Sustain Vel Sens", 1.0f);
+    addVelSens(PID::mod2ReleaseVelSens, "Mod2 Release Vel Sens", 0.0f);
 
     // ENV Loop (per envelope)
     params.push_back(std::make_unique<juce::AudioParameterBool>(
@@ -655,13 +665,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::ampDecayCurve, 2},   "Amp Decay Curve",   curveChoices, 2));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::ampReleaseCurve, 2}, "Amp Release Curve", curveChoices, 4));
-    const juce::StringArray envVelTimeChoices = toChoices(EnvVelTimeMode::kEntries);
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::ampAttackVelMode, 1}, "Amp Attack Vel Mode", envVelTimeChoices, EnvVelTimeMode::Off));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::ampDecayVelMode, 1}, "Amp Decay Vel Mode", envVelTimeChoices, EnvVelTimeMode::Off));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::ampReleaseVelMode, 1}, "Amp Release Vel Mode", envVelTimeChoices, EnvVelTimeMode::Off));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::mod1AttackCurve, 2},  "Mod1 Attack Curve",  curveChoices, 2));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
@@ -669,23 +672,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::mod1ReleaseCurve, 2}, "Mod1 Release Curve", curveChoices, 4));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::mod1AttackVelMode, 1}, "Mod1 Attack Vel Mode", envVelTimeChoices, EnvVelTimeMode::Off));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::mod1DecayVelMode, 1}, "Mod1 Decay Vel Mode", envVelTimeChoices, EnvVelTimeMode::Off));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::mod1ReleaseVelMode, 1}, "Mod1 Release Vel Mode", envVelTimeChoices, EnvVelTimeMode::Off));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::mod2AttackCurve, 2},  "Mod2 Attack Curve",  curveChoices, 2));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::mod2DecayCurve, 2},   "Mod2 Decay Curve",   curveChoices, 2));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::mod2ReleaseCurve, 2}, "Mod2 Release Curve", curveChoices, 4));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::mod2AttackVelMode, 1}, "Mod2 Attack Vel Mode", envVelTimeChoices, EnvVelTimeMode::Off));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::mod2DecayVelMode, 1}, "Mod2 Decay Vel Mode", envVelTimeChoices, EnvVelTimeMode::Off));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::mod2ReleaseVelMode, 1}, "Mod2 Release Vel Mode", envVelTimeChoices, EnvVelTimeMode::Off));
 
     // ENV / LFO target choice lists — the single source of truth lives in
     // src/dsp/BlockParams.h (EnvTarget::kEntries / LfoTarget::kEntries). The
@@ -1778,45 +1769,45 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.ampSustain = paramCache.ampSustain->load();
     bp.ampRelease = paramCache.ampRelease->load();
     bp.ampAmount  = paramCache.ampAmount->load();
-    bp.ampVelSens = paramCache.ampVelSens->load();
     bp.ampTarget  = static_cast<int>(paramCache.ampTarget->load());
     bp.ampLoop    = paramCache.ampLoop->load() > 0.5f;
     bp.ampAttackCurve  = static_cast<int>(paramCache.ampAttackCurve->load());
     bp.ampDecayCurve   = static_cast<int>(paramCache.ampDecayCurve->load());
     bp.ampReleaseCurve = static_cast<int>(paramCache.ampReleaseCurve->load());
-    bp.ampAttackVelMode  = static_cast<int>(paramCache.ampAttackVelMode->load());
-    bp.ampDecayVelMode   = static_cast<int>(paramCache.ampDecayVelMode->load());
-    bp.ampReleaseVelMode = static_cast<int>(paramCache.ampReleaseVelMode->load());
+    bp.ampAttackVelSens  = paramCache.ampAttackVelSens->load();
+    bp.ampDecayVelSens   = paramCache.ampDecayVelSens->load();
+    bp.ampSustainVelSens = paramCache.ampSustainVelSens->load();
+    bp.ampReleaseVelSens = paramCache.ampReleaseVelSens->load();
 
     bp.mod1Attack  = paramCache.mod1Attack->load();
     bp.mod1Decay   = paramCache.mod1Decay->load();
     bp.mod1Sustain = paramCache.mod1Sustain->load();
     bp.mod1Release = paramCache.mod1Release->load();
     bp.mod1Amount  = paramCache.mod1Amount->load();
-    bp.mod1VelSens = paramCache.mod1VelSens->load();
     bp.mod1Target  = static_cast<int>(paramCache.mod1Target->load());
     bp.mod1Loop    = paramCache.mod1Loop->load() > 0.5f;
     bp.mod1AttackCurve  = static_cast<int>(paramCache.mod1AttackCurve->load());
     bp.mod1DecayCurve   = static_cast<int>(paramCache.mod1DecayCurve->load());
     bp.mod1ReleaseCurve = static_cast<int>(paramCache.mod1ReleaseCurve->load());
-    bp.mod1AttackVelMode  = static_cast<int>(paramCache.mod1AttackVelMode->load());
-    bp.mod1DecayVelMode   = static_cast<int>(paramCache.mod1DecayVelMode->load());
-    bp.mod1ReleaseVelMode = static_cast<int>(paramCache.mod1ReleaseVelMode->load());
+    bp.mod1AttackVelSens  = paramCache.mod1AttackVelSens->load();
+    bp.mod1DecayVelSens   = paramCache.mod1DecayVelSens->load();
+    bp.mod1SustainVelSens = paramCache.mod1SustainVelSens->load();
+    bp.mod1ReleaseVelSens = paramCache.mod1ReleaseVelSens->load();
 
     bp.mod2Attack  = paramCache.mod2Attack->load();
     bp.mod2Decay   = paramCache.mod2Decay->load();
     bp.mod2Sustain = paramCache.mod2Sustain->load();
     bp.mod2Release = paramCache.mod2Release->load();
     bp.mod2Amount  = paramCache.mod2Amount->load();
-    bp.mod2VelSens = paramCache.mod2VelSens->load();
     bp.mod2Target  = static_cast<int>(paramCache.mod2Target->load());
     bp.mod2Loop    = paramCache.mod2Loop->load() > 0.5f;
     bp.mod2AttackCurve  = static_cast<int>(paramCache.mod2AttackCurve->load());
     bp.mod2DecayCurve   = static_cast<int>(paramCache.mod2DecayCurve->load());
     bp.mod2ReleaseCurve = static_cast<int>(paramCache.mod2ReleaseCurve->load());
-    bp.mod2AttackVelMode  = static_cast<int>(paramCache.mod2AttackVelMode->load());
-    bp.mod2DecayVelMode   = static_cast<int>(paramCache.mod2DecayVelMode->load());
-    bp.mod2ReleaseVelMode = static_cast<int>(paramCache.mod2ReleaseVelMode->load());
+    bp.mod2AttackVelSens  = paramCache.mod2AttackVelSens->load();
+    bp.mod2DecayVelSens   = paramCache.mod2DecayVelSens->load();
+    bp.mod2SustainVelSens = paramCache.mod2SustainVelSens->load();
+    bp.mod2ReleaseVelSens = paramCache.mod2ReleaseVelSens->load();
 
     // LFOs (global) — Clock-Sync override: when ClockMode::Sync, the rate
     // displayed on the slider is replaced by the sync-derived rate. We store
@@ -3796,6 +3787,57 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
             loadedTree.appendChild(node, nullptr);
         }
 
+        // Per-stage velocity sensitivity (continuous signed) replaced the old
+        // global velSens + discrete A/D/R vel modes. Convert a pre-redesign
+        // session's params straight into the loaded tree so velocity response
+        // survives the reload (same mapping as the .t5p preset migration):
+        //   A/D/R velSens = sign(oldMode) * oldVelSens ;  Sustain velSens = oldVelSens.
+        // Legacy IDs are gone from PID:: by design — match them as raw strings.
+        {
+            auto paramVal = [&](const juce::String& pid, float fallback) -> float {
+                for (int i = 0; i < loadedTree.getNumChildren(); ++i)
+                    if (loadedTree.getChild(i).getProperty("id").toString() == pid)
+                        return static_cast<float>(loadedTree.getChild(i).getProperty("value"));
+                return fallback;
+            };
+            auto appendParam = [&](const char* pid, float value) {
+                juce::ValueTree node("PARAM");
+                node.setProperty("id", pid, nullptr);
+                node.setProperty("value", value, nullptr);
+                loadedTree.appendChild(node, nullptr);
+            };
+            auto modeSign = [](float idx) -> float {
+                const int m = juce::roundToInt(idx);
+                return m == EnvVelTimeMode::Positive ?  1.0f
+                     : m == EnvVelTimeMode::Negative ? -1.0f : 0.0f;
+            };
+            struct VsMig {
+                const char* oldVelSens;
+                const char* oldAtkMode; const char* oldDecMode; const char* oldRelMode;
+                const char* newAtk; const char* newDec; const char* newSus; const char* newRel;
+            };
+            const VsMig vsMig[] = {
+                { "amp_vel_sens",  "amp_attack_vel_mode",  "amp_decay_vel_mode",  "amp_release_vel_mode",
+                  PID::ampAttackVelSens,  PID::ampDecayVelSens,  PID::ampSustainVelSens,  PID::ampReleaseVelSens },
+                { "mod1_vel_sens", "mod1_attack_vel_mode", "mod1_decay_vel_mode", "mod1_release_vel_mode",
+                  PID::mod1AttackVelSens, PID::mod1DecayVelSens, PID::mod1SustainVelSens, PID::mod1ReleaseVelSens },
+                { "mod2_vel_sens", "mod2_attack_vel_mode", "mod2_decay_vel_mode", "mod2_release_vel_mode",
+                  PID::mod2AttackVelSens, PID::mod2DecayVelSens, PID::mod2SustainVelSens, PID::mod2ReleaseVelSens },
+            };
+            for (const auto& m : vsMig)
+            {
+                // Only when genuinely pre-redesign: old global velSens present AND
+                // the new per-stage params absent (don't clobber a new session).
+                if (!hasParam(m.oldVelSens) || hasParam(m.newSus))
+                    continue;
+                const float vs = paramVal(m.oldVelSens, 1.0f);
+                appendParam(m.newAtk, modeSign(paramVal(m.oldAtkMode, 0.0f)) * vs);
+                appendParam(m.newDec, modeSign(paramVal(m.oldDecMode, 0.0f)) * vs);
+                appendParam(m.newSus, vs);
+                appendParam(m.newRel, modeSign(paramVal(m.oldRelMode, 0.0f)) * vs);
+            }
+        }
+
         parameters.replaceState(loadedTree);
     }
 
@@ -3901,23 +3943,23 @@ static juce::String envVelTimeModeToString(int i)          { return choiceToKey(
 // ── PID group tables for looped save/load of envelopes, LFOs, drift ──
 struct EnvPIDs {
     const char* attack; const char* decay; const char* sustain; const char* release;
-    const char* amount; const char* velSens; const char* loop; const char* target;
+    const char* amount; const char* loop; const char* target;
     const char* attackCurve; const char* decayCurve; const char* releaseCurve;
-    const char* attackVelMode; const char* decayVelMode; const char* releaseVelMode;
+    const char* attackVelSens; const char* decayVelSens; const char* sustainVelSens; const char* releaseVelSens;
 };
 static constexpr EnvPIDs kEnvPIDs[] = {
     { PID::ampAttack, PID::ampDecay, PID::ampSustain, PID::ampRelease,
-      PID::ampAmount, PID::ampVelSens, PID::ampLoop, PID::ampTarget,
+      PID::ampAmount, PID::ampLoop, PID::ampTarget,
       PID::ampAttackCurve, PID::ampDecayCurve, PID::ampReleaseCurve,
-      PID::ampAttackVelMode, PID::ampDecayVelMode, PID::ampReleaseVelMode },
+      PID::ampAttackVelSens, PID::ampDecayVelSens, PID::ampSustainVelSens, PID::ampReleaseVelSens },
     { PID::mod1Attack, PID::mod1Decay, PID::mod1Sustain, PID::mod1Release,
-      PID::mod1Amount, PID::mod1VelSens, PID::mod1Loop, PID::mod1Target,
+      PID::mod1Amount, PID::mod1Loop, PID::mod1Target,
       PID::mod1AttackCurve, PID::mod1DecayCurve, PID::mod1ReleaseCurve,
-      PID::mod1AttackVelMode, PID::mod1DecayVelMode, PID::mod1ReleaseVelMode },
+      PID::mod1AttackVelSens, PID::mod1DecayVelSens, PID::mod1SustainVelSens, PID::mod1ReleaseVelSens },
     { PID::mod2Attack, PID::mod2Decay, PID::mod2Sustain, PID::mod2Release,
-      PID::mod2Amount, PID::mod2VelSens, PID::mod2Loop, PID::mod2Target,
+      PID::mod2Amount, PID::mod2Loop, PID::mod2Target,
       PID::mod2AttackCurve, PID::mod2DecayCurve, PID::mod2ReleaseCurve,
-      PID::mod2AttackVelMode, PID::mod2DecayVelMode, PID::mod2ReleaseVelMode },
+      PID::mod2AttackVelSens, PID::mod2DecayVelSens, PID::mod2SustainVelSens, PID::mod2ReleaseVelSens },
 };
 
 struct LfoPIDs {
@@ -4075,15 +4117,15 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         env->setProperty("sustain", get(ep.sustain));
         env->setProperty("releaseMs", get(ep.release));
         env->setProperty("amount", get(ep.amount));
-        env->setProperty("velSens", get(ep.velSens));
         env->setProperty("target", envTargetToString(static_cast<int>(get(ep.target))));
         env->setProperty("loop", get(ep.loop) > 0.5f);
         env->setProperty("attackCurve", curveShapeToString(static_cast<int>(get(ep.attackCurve))));
         env->setProperty("decayCurve", curveShapeToString(static_cast<int>(get(ep.decayCurve))));
         env->setProperty("releaseCurve", curveShapeToString(static_cast<int>(get(ep.releaseCurve))));
-        env->setProperty("attackVelMode", envVelTimeModeToString(static_cast<int>(get(ep.attackVelMode))));
-        env->setProperty("decayVelMode", envVelTimeModeToString(static_cast<int>(get(ep.decayVelMode))));
-        env->setProperty("releaseVelMode", envVelTimeModeToString(static_cast<int>(get(ep.releaseVelMode))));
+        env->setProperty("attackVelSens", get(ep.attackVelSens));
+        env->setProperty("decayVelSens", get(ep.decayVelSens));
+        env->setProperty("sustainVelSens", get(ep.sustainVelSens));
+        env->setProperty("releaseVelSens", get(ep.releaseVelSens));
         envArr.add(env.get());
     }
     modObj->setProperty("envs", envArr);
@@ -4424,8 +4466,35 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 setParam(parameters, ep.release, static_cast<float>(env->getProperty("releaseMs")));
                 setParam(parameters, ep.amount, static_cast<float>(env->getProperty("amount")));
                 setParam(parameters, ep.loop, env->getProperty("loop") ? 1.0f : 0.0f);
-                if (env->hasProperty("velSens"))
-                    setParam(parameters, ep.velSens, static_cast<float>(env->getProperty("velSens")));
+                // Velocity sensitivity. New format: 4 signed per-stage velSens.
+                // Legacy format: a single "velSens" (0..1) + per-stage A/D/R vel
+                // *modes* (off/+/-). Convert legacy → signed per-stage on load:
+                //   A/D/R velSens = sign(mode) * velSens ;  Sustain velSens = velSens.
+                if (env->hasProperty("sustainVelSens"))
+                {
+                    setParam(parameters, ep.attackVelSens,  static_cast<float>(env->getProperty("attackVelSens")));
+                    setParam(parameters, ep.decayVelSens,   static_cast<float>(env->getProperty("decayVelSens")));
+                    setParam(parameters, ep.sustainVelSens, static_cast<float>(env->getProperty("sustainVelSens")));
+                    setParam(parameters, ep.releaseVelSens, static_cast<float>(env->getProperty("releaseVelSens")));
+                }
+                else if (env->hasProperty("velSens"))
+                {
+                    const float legacyVs = static_cast<float>(env->getProperty("velSens"));
+                    auto signFromMode = [](int m) -> float {
+                        return m == EnvVelTimeMode::Positive ?  1.0f
+                             : m == EnvVelTimeMode::Negative ? -1.0f : 0.0f;
+                    };
+                    const int aMode = env->hasProperty("attackVelMode")
+                        ? envVelTimeModeFromString(env->getProperty("attackVelMode").toString()) : EnvVelTimeMode::Off;
+                    const int dMode = env->hasProperty("decayVelMode")
+                        ? envVelTimeModeFromString(env->getProperty("decayVelMode").toString()) : EnvVelTimeMode::Off;
+                    const int rMode = env->hasProperty("releaseVelMode")
+                        ? envVelTimeModeFromString(env->getProperty("releaseVelMode").toString()) : EnvVelTimeMode::Off;
+                    setParam(parameters, ep.attackVelSens,  signFromMode(aMode) * legacyVs);
+                    setParam(parameters, ep.decayVelSens,   signFromMode(dMode) * legacyVs);
+                    setParam(parameters, ep.sustainVelSens, legacyVs);
+                    setParam(parameters, ep.releaseVelSens, signFromMode(rMode) * legacyVs);
+                }
                 if (env->hasProperty("attackCurve"))
                     setParam(parameters, ep.attackCurve,
                              static_cast<float>(curveShapeFromString(env->getProperty("attackCurve").toString())));
@@ -4435,15 +4504,6 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 if (env->hasProperty("releaseCurve"))
                     setParam(parameters, ep.releaseCurve,
                              static_cast<float>(curveShapeFromString(env->getProperty("releaseCurve").toString())));
-                if (env->hasProperty("attackVelMode"))
-                    setParam(parameters, ep.attackVelMode,
-                             static_cast<float>(envVelTimeModeFromString(env->getProperty("attackVelMode").toString())));
-                if (env->hasProperty("decayVelMode"))
-                    setParam(parameters, ep.decayVelMode,
-                             static_cast<float>(envVelTimeModeFromString(env->getProperty("decayVelMode").toString())));
-                if (env->hasProperty("releaseVelMode"))
-                    setParam(parameters, ep.releaseVelMode,
-                             static_cast<float>(envVelTimeModeFromString(env->getProperty("releaseVelMode").toString())));
                 if (env->hasProperty("target"))
                     setParam(parameters, ep.target,
                              static_cast<float>(envTargetFromString(env->getProperty("target").toString())));

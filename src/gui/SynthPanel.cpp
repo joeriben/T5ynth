@@ -50,9 +50,9 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
                           const juce::String& sId, const juce::String& rId,
                           const juce::String& aCurveId, const juce::String& dCurveId,
                           const juce::String& rCurveId,
-                          const juce::String& aVelModeId, const juce::String& dVelModeId,
-                          const juce::String& rVelModeId,
-                          const juce::String& amtId, const juce::String& velId,
+                          const juce::String& aVsId, const juce::String& dVsId,
+                          const juce::String& sVsId, const juce::String& rVsId,
+                          const juce::String& amtId,
                           const juce::String& loopId,
                           juce::AudioProcessorValueTreeState& apvts)
 {
@@ -87,10 +87,20 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     env.sRow   = std::make_unique<SliderRow>("Sus", fmtF2, kEnvCol);
     env.rRow   = std::make_unique<SliderRow>("Rel", fmtMs, kEnvCol);
     env.amtRow = std::make_unique<SliderRow>("Amt", fmtF2, kEnvCol);
-    env.velRow = std::make_unique<SliderRow>("Vel Sens", fmtF2, kEnvCol);
+
+    // Per-stage velocity-sensitivity sliders (signed -1..+1; double-click → 0).
+    auto fmtVs = [](double v) -> juce::String {
+        if (std::abs(v) < 0.005) return "0";
+        return juce::String(v >= 0.0 ? "+" : "") + juce::String(v, 2);
+    };
+    env.aVsRow = std::make_unique<SliderRow>("A", fmtVs, kEnvCol);
+    env.dVsRow = std::make_unique<SliderRow>("D", fmtVs, kEnvCol);
+    env.sVsRow = std::make_unique<SliderRow>("S", fmtVs, kEnvCol);
+    env.rVsRow = std::make_unique<SliderRow>("R", fmtVs, kEnvCol);
 
     for (auto* row : { env.aRow.get(), env.dRow.get(), env.sRow.get(),
-                       env.rRow.get(), env.amtRow.get(), env.velRow.get() })
+                       env.rRow.get(), env.amtRow.get(),
+                       env.aVsRow.get(), env.dVsRow.get(), env.sVsRow.get(), env.rVsRow.get() })
         addAndMakeVisible(*row);
 
     env.aA   = std::make_unique<SA>(apvts, aId,   env.aRow->getSlider());
@@ -98,8 +108,15 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     env.sA   = std::make_unique<SA>(apvts, sId,   env.sRow->getSlider());
     env.rA   = std::make_unique<SA>(apvts, rId,   env.rRow->getSlider());
     env.amtA = std::make_unique<SA>(apvts, amtId, env.amtRow->getSlider());
-    env.velA = std::make_unique<SA>(apvts, velId,  env.velRow->getSlider());
+    env.aVsA = std::make_unique<SA>(apvts, aVsId, env.aVsRow->getSlider());
+    env.dVsA = std::make_unique<SA>(apvts, dVsId, env.dVsRow->getSlider());
+    env.sVsA = std::make_unique<SA>(apvts, sVsId, env.sVsRow->getSlider());
+    env.rVsA = std::make_unique<SA>(apvts, rVsId, env.rVsRow->getSlider());
     env.loopA = std::make_unique<BA>(apvts, loopId, env.loopToggle);
+
+    // Velocity sliders snap back to neutral (0) on double-click.
+    for (auto* row : { env.aVsRow.get(), env.dVsRow.get(), env.sVsRow.get(), env.rVsRow.get() })
+        row->getSlider().setDoubleClickReturnValue(true, 0.0);
 
     // ── Curve shape cycling buttons (square icons) ──
     auto setupCurveBtn = [this](CurveButton& btn, juce::ComboBox& hidden,
@@ -124,51 +141,6 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     setupCurveBtn(env.dCurveBtn, env.dCurveHidden, dCurveId, apvts, env.dCurveA);
     setupCurveBtn(env.rCurveBtn, env.rCurveHidden, rCurveId, apvts, env.rCurveA);
 
-    auto setupVelMode = [this](SliderRow& row, juce::ComboBox& hidden,
-                               juce::TextButton& velBtn, const juce::String& stage,
-                               const juce::String& paramId,
-                               juce::AudioProcessorValueTreeState& vts,
-                               std::unique_ptr<CA>& attachment)
-    {
-        juce::StringArray items;
-        for (const auto& e : EnvVelTimeMode::kEntries)
-            items.add(e.label);
-        hidden.addItemList(items, 1);
-
-        // Easy-view button: amber@0.7 band when active, surface when off — same
-        // band/white treatment as the section title bands.
-        velBtn.setClickingTogglesState(false);
-        velBtn.setColour(juce::TextButton::buttonColourId, kSurface);
-        velBtn.setColour(juce::TextButton::buttonOnColourId, kEnvCol.withAlpha(0.7f));
-        velBtn.setColour(juce::TextButton::textColourOffId, kDim);
-        velBtn.setColour(juce::TextButton::textColourOnId, kHeaderText);
-        addAndMakeVisible(velBtn);
-
-        hidden.onChange = [&row, &hidden, &velBtn, stage]
-        {
-            const int index = hidden.getSelectedId() - 1;
-            SliderRow::LabelMode mode = SliderRow::LabelMode::Off;
-            juce::String suffix;
-            if (index == EnvVelTimeMode::Positive)      { mode = SliderRow::LabelMode::Positive; suffix = "+"; }
-            else if (index == EnvVelTimeMode::Negative) { mode = SliderRow::LabelMode::Negative; suffix = "-"; }
-            row.setLabelMode(mode);                         // advanced fader-label badge
-            velBtn.setButtonText(stage + suffix);           // easy button mirrors the same state
-            velBtn.setToggleState(index != EnvVelTimeMode::Off, juce::dontSendNotification);
-        };
-        auto cycle = [&hidden] {
-            const int next = (hidden.getSelectedId() % EnvVelTimeMode::kCount) + 1;
-            hidden.setSelectedId(next);
-        };
-        row.setLabelClickHandler(cycle);
-        velBtn.onClick = cycle;
-        attachment = std::make_unique<CA>(vts, paramId, hidden);
-        hidden.onChange();
-    };
-    setupVelMode(*env.aRow, env.aVelModeHidden, env.aVelBtn, "A", aVelModeId, apvts, env.aVelModeA);
-    setupVelMode(*env.dRow, env.dVelModeHidden, env.dVelBtn, "D", dVelModeId, apvts, env.dVelModeA);
-    setupVelMode(*env.rRow, env.rVelModeHidden, env.rVelBtn, "R", rVelModeId, apvts, env.rVelModeA);
-    env.velRow->setLabelMode(SliderRow::LabelMode::Positive);
-
     // ── Easy-view graphical ADSR editor (replaces the four faders) ──
     // Bound to the existing SliderRows + curve ComboBoxes, so APVTS stays the
     // single source of truth. Created after the attachments above so the sliders
@@ -184,7 +156,10 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     env.sRow->updateValue();
     env.rRow->updateValue();
     env.amtRow->updateValue();
-    env.velRow->updateValue();
+    env.aVsRow->updateValue();
+    env.dVsRow->updateValue();
+    env.sVsRow->updateValue();
+    env.rVsRow->updateValue();
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1075,16 +1050,16 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     // ── Envelopes ──
     initEnv(ampEnv,  "ENV 1", 2, PID::ampAttack,  PID::ampDecay,  PID::ampSustain,  PID::ampRelease,
             PID::ampAttackCurve, PID::ampDecayCurve, PID::ampReleaseCurve,
-            PID::ampAttackVelMode, PID::ampDecayVelMode, PID::ampReleaseVelMode,
-            PID::ampAmount,  PID::ampVelSens,  PID::ampLoop,  apvts);
+            PID::ampAttackVelSens, PID::ampDecayVelSens, PID::ampSustainVelSens, PID::ampReleaseVelSens,
+            PID::ampAmount,  PID::ampLoop,  apvts);
     initEnv(mod1Env, "ENV 2", 1, PID::mod1Attack, PID::mod1Decay, PID::mod1Sustain, PID::mod1Release,
             PID::mod1AttackCurve, PID::mod1DecayCurve, PID::mod1ReleaseCurve,
-            PID::mod1AttackVelMode, PID::mod1DecayVelMode, PID::mod1ReleaseVelMode,
-            PID::mod1Amount, PID::mod1VelSens, PID::mod1Loop, apvts);
+            PID::mod1AttackVelSens, PID::mod1DecayVelSens, PID::mod1SustainVelSens, PID::mod1ReleaseVelSens,
+            PID::mod1Amount, PID::mod1Loop, apvts);
     initEnv(mod2Env, "ENV 3", 1, PID::mod2Attack, PID::mod2Decay, PID::mod2Sustain, PID::mod2Release,
             PID::mod2AttackCurve, PID::mod2DecayCurve, PID::mod2ReleaseCurve,
-            PID::mod2AttackVelMode, PID::mod2DecayVelMode, PID::mod2ReleaseVelMode,
-            PID::mod2Amount, PID::mod2VelSens, PID::mod2Loop, apvts);
+            PID::mod2AttackVelSens, PID::mod2DecayVelSens, PID::mod2SustainVelSens, PID::mod2ReleaseVelSens,
+            PID::mod2Amount, PID::mod2Loop, apvts);
 
     // ── LFOs ──
     initLfo(lfo1, "LFO 1",
@@ -1411,7 +1386,8 @@ void SynthPanel::updateVisibility()
         env.dCurveBtn.setAlpha(alpha);
         env.rCurveBtn.setAlpha(alpha);
         for (auto* r : { env.aRow.get(), env.dRow.get(), env.sRow.get(),
-                         env.rRow.get(), env.amtRow.get(), env.velRow.get() })
+                         env.rRow.get(), env.amtRow.get(),
+                         env.aVsRow.get(), env.dVsRow.get(), env.sVsRow.get(), env.rVsRow.get() })
             if (r) r->setAlpha(alpha);
     };
     setEnvDimmed(ampEnv);
@@ -1484,15 +1460,17 @@ void SynthPanel::updateVisibility()
         // A/D/S/R faders: advanced always; in easy they are REPLACED by the graph.
         for (auto* r : { env.aRow.get(), env.dRow.get(), env.sRow.get(), env.rRow.get() })
             if (r) r->setVisible(!easy);
-        // Amt / Vel-Sens rows: advanced always; easy only for the selected env.
-        for (auto* r : { env.amtRow.get(), env.velRow.get() })
+        // Amt row: advanced always; easy only for the selected env.
+        if (env.amtRow) env.amtRow->setVisible(!easy || selected);
+        // Per-stage velSense sliders: advanced always; easy only for selected env.
+        for (auto* r : { env.aVsRow.get(), env.dVsRow.get(), env.sVsRow.get(), env.rVsRow.get() })
             if (r) r->setVisible(!easy || selected);
-        // Easy-view graph + per-stage vel-time toggles: easy + selected only.
+        // Sustain velSense is moot when the env drives nothing (target None).
+        const bool targetActive = env.targetBox.getSelectedId() != 1;
+        if (env.sVsRow) env.sVsRow->getSlider().setEnabled(targetActive);
+        // Easy-view graph: easy + selected only.
         const bool easySel = easy && selected;
         if (env.graph) env.graph->setVisible(easySel);
-        env.aVelBtn.setVisible(easySel);
-        env.dVelBtn.setVisible(easySel);
-        env.rVelBtn.setVisible(easySel);
     };
     setEnvControlsVisible(ampEnv,  activeEnvTab == 0, modEasyMode);
     setEnvControlsVisible(mod1Env, activeEnvTab == 1, modEasyMode);
@@ -1667,10 +1645,7 @@ bool SynthPanel::hasModHiddenActiveState() const
         return env.loopToggle.getToggleState()
             || comboId(env.aCurveHidden, 3) != 3
             || comboId(env.dCurveHidden, 3) != 3
-            || comboId(env.rCurveHidden, 5) != 5
-            || comboId(env.aVelModeHidden, 1) != 1
-            || comboId(env.dVelModeHidden, 1) != 1
-            || comboId(env.rVelModeHidden, 1) != 1;
+            || comboId(env.rCurveHidden, 5) != 5;
     };
 
     const EnvSection* envs[] = { &ampEnv, &mod1Env, &mod2Env };
@@ -1833,7 +1808,8 @@ static int buttonTextWidthFor(const juce::String& text, float f, int fallbackWid
 void SynthPanel::layoutEnv(EnvSection& env, juce::Rectangle<int>& area, float f, int rowH, int gap)
 {
     for (auto* r : { env.aRow.get(), env.dRow.get(), env.sRow.get(),
-                     env.rRow.get(), env.amtRow.get(), env.velRow.get() })
+                     env.rRow.get(), env.amtRow.get(),
+                     env.aVsRow.get(), env.dVsRow.get(), env.sVsRow.get(), env.rVsRow.get() })
         if (r) r->setVerticalMode(false);
 
     env.header.setFont(juce::FontOptions(f));
@@ -1863,10 +1839,23 @@ void SynthPanel::layoutEnv(EnvSection& env, juce::Rectangle<int>& area, float f,
     env.rCurveBtn.setBounds(srBounds[1].getX() + env.rRow->getLabelWidthForAvailableWidth(srBounds[1].getWidth()) - btnSize,
                             srBounds[1].getY() + 1, btnSize, btnSize);
 
-    auto amtRow = area.removeFromTop(rowH);
-    auto amtBounds = layoutSliderRowPairBounds(amtRow, *env.amtRow, *env.velRow, 4);
-    env.amtRow->setBounds(amtBounds[0]);
-    env.velRow->setBounds(amtBounds[1]);
+    // Amt (master level) on its own left-column row; right cell stays empty.
+    auto amtRowArea = area.removeFromTop(rowH);
+    {
+        const int halfW = juce::jmax(1, (amtRowArea.getWidth() - 4) / 2);
+        env.amtRow->setBounds(amtRowArea.removeFromLeft(halfW));
+    }
+
+    // Per-stage velocity sensitivity, 2×2: [A][D] then [S][R].
+    auto avRow = area.removeFromTop(rowH);
+    auto avBounds = layoutSliderRowPairBounds(avRow, *env.aVsRow, *env.dVsRow, 4);
+    env.aVsRow->setBounds(avBounds[0]);
+    env.dVsRow->setBounds(avBounds[1]);
+
+    auto svRow = area.removeFromTop(rowH);
+    auto svBounds = layoutSliderRowPairBounds(svRow, *env.sVsRow, *env.rVsRow, 4);
+    env.sVsRow->setBounds(svBounds[0]);
+    env.rVsRow->setBounds(svBounds[1]);
 
     area.removeFromTop(gap);
 }
@@ -2124,7 +2113,8 @@ void SynthPanel::layoutFilterEasy(juce::Rectangle<int> area, float f, int rowH, 
 
 void SynthPanel::layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float f, int rowH, int gap)
 {
-    for (auto* r : { env.amtRow.get(), env.velRow.get() })
+    for (auto* r : { env.amtRow.get(),
+                     env.aVsRow.get(), env.dVsRow.get(), env.sVsRow.get(), env.rVsRow.get() })
         if (r)
         {
             r->clearForcedLabelWidth();
@@ -2145,38 +2135,37 @@ void SynthPanel::layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float
     env.targetBox.setBounds(targetRow.removeFromLeft(juce::jmin(tgtW, targetRow.getWidth())));
     area.removeFromTop(gap);
 
-    // Reserve the bottom block: vel-time toggle row + Amt + Vel-Sens; the
-    // graphical ADSR editor takes the remaining (largest) middle area.
-    const int velModeRowH = rowH;
-    const int bottomRowsH  = rowH * 2 + gap;                 // Amt + Vel-Sens
-    const int reserved     = velModeRowH + gap + bottomRowsH + gap;
-    const int graphH       = juce::jmax(rowH * 3, area.getHeight() - reserved);
+    // Reserve the bottom block: four vertical velSense sliders (~25% of the
+    // height, taken from the graph) + Amt; the graphical ADSR editor takes the
+    // remaining (largest) middle area.
+    const int velRowH  = juce::jmax(rowH * 2, juce::roundToInt(area.getHeight() * 0.25f));
+    const int reserved = velRowH + gap + rowH + gap;        // velSense block + Amt
+    const int graphH   = juce::jmax(rowH * 3, area.getHeight() - reserved);
 
     auto graphArea = area.removeFromTop(juce::jmin(graphH, area.getHeight()));
     if (env.graph) env.graph->setBounds(graphArea);
     area.removeFromTop(gap);
 
-    // Vel→time toggles [A][D][R].  (Loop now lives in the top row.)
-    auto velModeRow = area.removeFromTop(velModeRowH);
+    // Four short vertical velSense sliders, columns aligned under A/D/S/R.
+    auto vsArea = area.removeFromTop(juce::jmin(velRowH, area.getHeight()));
     {
-        constexpr int vCount = 3;
+        SliderRow* vs[4] = { env.aVsRow.get(), env.dVsRow.get(), env.sVsRow.get(), env.rVsRow.get() };
         constexpr int vGap = 4;
-        const int vW = juce::jmax(1, (velModeRow.getWidth() - vGap * (vCount - 1)) / vCount);
-        juce::TextButton* vb[vCount] = { &env.aVelBtn, &env.dVelBtn, &env.rVelBtn };
-        for (int i = 0; i < vCount; ++i)
+        const int vW = juce::jmax(1, (vsArea.getWidth() - vGap * 3) / 4);
+        for (int i = 0; i < 4; ++i)
         {
-            auto cell = (i == vCount - 1) ? velModeRow : velModeRow.removeFromLeft(vW);
-            if (i < vCount - 1) velModeRow.removeFromLeft(vGap);
-            vb[i]->setBounds(cell);
+            auto cell = (i == 3) ? vsArea : vsArea.removeFromLeft(vW);
+            if (i < 3) vsArea.removeFromLeft(vGap);
+            if (vs[i]) { vs[i]->setVerticalMode(true); vs[i]->setBounds(cell); }
         }
     }
     area.removeFromTop(gap);
 
-    env.amtRow->setVerticalMode(false);
-    env.velRow->setVerticalMode(false);
-    env.amtRow->setBounds(area.removeFromTop(rowH));
-    area.removeFromTop(gap);
-    env.velRow->setBounds(area.removeFromTop(rowH));
+    if (env.amtRow)
+    {
+        env.amtRow->setVerticalMode(false);
+        env.amtRow->setBounds(area.removeFromTop(rowH));
+    }
 }
 
 void SynthPanel::layoutLfoEasy(LfoSection& lfo, juce::Rectangle<int> area, float f, int rowH, int gap)
@@ -3256,15 +3245,17 @@ void SynthPanel::resized()
         const int rightLabelWidth = std::max({
             modulationForcedLabelWidthFor(*ampEnv.dRow, modColumnWidth, curveLabelMin),
             modulationForcedLabelWidthFor(*ampEnv.rRow, modColumnWidth, curveLabelMin),
-            modulationForcedLabelWidthFor(*ampEnv.velRow, modColumnWidth),
             modulationForcedLabelWidthFor(*lfo1.depthRow, modColumnWidth),
             modulationForcedLabelWidthFor(*drift1.depthRow, modColumnWidth)
         });
 
         for (auto* row : {
                  ampEnv.aRow.get(), ampEnv.sRow.get(), ampEnv.amtRow.get(),
+                 ampEnv.aVsRow.get(), ampEnv.sVsRow.get(),
                  mod1Env.aRow.get(), mod1Env.sRow.get(), mod1Env.amtRow.get(),
+                 mod1Env.aVsRow.get(), mod1Env.sVsRow.get(),
                  mod2Env.aRow.get(), mod2Env.sRow.get(), mod2Env.amtRow.get(),
+                 mod2Env.aVsRow.get(), mod2Env.sVsRow.get(),
                  lfo1.rateRow.get(), lfo2.rateRow.get(), lfo3.rateRow.get(),
                  lfo1.divisionRow.get(), lfo2.divisionRow.get(), lfo3.divisionRow.get(),
                  aftertouchAmountRow.get(),
@@ -3273,9 +3264,9 @@ void SynthPanel::resized()
             row->setForcedLabelWidth(leftLabelWidth);
 
         for (auto* row : {
-                 ampEnv.dRow.get(), ampEnv.rRow.get(), ampEnv.velRow.get(),
-                 mod1Env.dRow.get(), mod1Env.rRow.get(), mod1Env.velRow.get(),
-                 mod2Env.dRow.get(), mod2Env.rRow.get(), mod2Env.velRow.get(),
+                 ampEnv.dRow.get(), ampEnv.rRow.get(), ampEnv.dVsRow.get(), ampEnv.rVsRow.get(),
+                 mod1Env.dRow.get(), mod1Env.rRow.get(), mod1Env.dVsRow.get(), mod1Env.rVsRow.get(),
+                 mod2Env.dRow.get(), mod2Env.rRow.get(), mod2Env.dVsRow.get(), mod2Env.rVsRow.get(),
                  lfo1.depthRow.get(), lfo2.depthRow.get(), lfo3.depthRow.get(),
                  drift1.depthRow.get(), drift2.depthRow.get(), drift3.depthRow.get() })
             row->setForcedLabelWidth(rightLabelWidth);

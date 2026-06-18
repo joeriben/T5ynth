@@ -145,21 +145,21 @@ private:
         juce::Label targetHeader;   // easy-view "Target" left-header band
         juce::ComboBox targetBox;
         juce::TextButton loopToggle { "Loop" };   // switchbox toggle (both views)
-        std::unique_ptr<SliderRow> aRow, dRow, sRow, rRow, amtRow, velRow;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> aA, dA, sA, rA, amtA, velA;
+        std::unique_ptr<SliderRow> aRow, dRow, sRow, rRow, amtRow;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> aA, dA, sA, rA, amtA;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> loopA;
+
+        // Per-stage velocity sensitivity, signed [-1..+1]. A/D/R = velocity→time,
+        // Sustain = velocity→peak. Four short vertical sliders under the easy-view
+        // graph; a 2×2 block in advanced. The Sustain slider is disabled when the
+        // env target is None (the env drives nothing, so peak velocity is moot).
+        std::unique_ptr<SliderRow> aVsRow, dVsRow, sVsRow, rVsRow;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> aVsA, dVsA, sVsA, rVsA;
 
         // Curve shape cycling buttons (Log/Lin/Exp) — square icons
         CurveButton aCurveBtn, dCurveBtn, rCurveBtn;
         juce::ComboBox aCurveHidden, dCurveHidden, rCurveHidden;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> aCurveA, dCurveA, rCurveA;
-        juce::ComboBox aVelModeHidden, dVelModeHidden, rVelModeHidden;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> aVelModeA, dVelModeA, rVelModeA;
-
-        // Easy-view per-stage velocity→time toggles. In advanced the mode is set
-        // by clicking the fader label; the easy graph replaces the faders, so it
-        // gets explicit A/D/R buttons that cycle the same hidden ComboBoxes.
-        juce::TextButton aVelBtn, dVelBtn, rVelBtn;
 
         // Easy-view graphical ADSR editor — replaces the four faders. Declared
         // LAST so it is destroyed FIRST: its dtor detaches listeners from the
@@ -264,9 +264,9 @@ private:
                  const juce::String& sId, const juce::String& rId,
                  const juce::String& aCurveId, const juce::String& dCurveId,
                  const juce::String& rCurveId,
-                 const juce::String& aVelModeId, const juce::String& dVelModeId,
-                 const juce::String& rVelModeId,
-                 const juce::String& amtId, const juce::String& velId,
+                 const juce::String& aVsId, const juce::String& dVsId,
+                 const juce::String& sVsId, const juce::String& rVsId,
+                 const juce::String& amtId,
                  const juce::String& loopId,
                  juce::AudioProcessorValueTreeState& apvts);
     void initLfo(LfoSection& lfo, const juce::String& name,
