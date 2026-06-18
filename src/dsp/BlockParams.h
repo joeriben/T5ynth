@@ -833,7 +833,7 @@ namespace RepromptStance {
     static constexpr ChoiceEntry kEntries[] = {
         { "off",           "Off"           },
         { "transcribe",    "Transcribe"    },
-        { "entkitscher",   "De-Kitsch"     },
+        { "entkitscher",   "Sober"         },
         { "verniedlicher", "Sweeten"       },
         { "variation",     "Variation"     },
         { "abduction",     "Abduction"     },
