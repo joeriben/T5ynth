@@ -859,6 +859,21 @@ public:
     LabelMode getLabelMode() const { return labelMode; }
     void setLabelClickHandler(std::function<void()> handler) { onLabelClick = std::move(handler); }
 
+    /** Render the label as an accent section-header band (paintSectionHeader
+        style: trackCol@0.7 fill + light text) — the SliderRow equivalent of the
+        RESYNTH left-title, for the unified horizontal-label-slider look. This is
+        purely graphical: layout (label width / slider position) is unchanged.
+        Independent of LabelMode (which encodes velocity sign on env rows) and
+        follows setTrackColor() automatically. */
+    void setLabelAsBand(bool shouldBeBand)
+    {
+        if (labelIsBand == shouldBeBand)
+            return;
+        labelIsBand = shouldBeBand;
+        updateLabelAppearance();
+        repaint();
+    }
+
     void updateValue()
     {
         if (valueFormatter)
@@ -1028,6 +1043,7 @@ private:
     std::function<juce::String(double)> valueFormatter;
     juce::Colour trackCol;
     LabelMode labelMode = LabelMode::Off;
+    bool labelIsBand = false;   // render label as a trackCol@0.7 section-header band
     ControlMode controlMode = ControlMode::Horizontal;
     std::function<void()> onLabelClick;
 
@@ -1187,6 +1203,16 @@ private:
 
     void updateLabelAppearance()
     {
+        if (labelIsBand)
+        {
+            // Accent section-header band (paintSectionHeader style): trackCol@0.7
+            // fill + light text. The SliderRow equivalent of the RESYNTH left-title.
+            label.setColour(juce::Label::textColourId, kHeaderText);
+            label.setColour(juce::Label::backgroundColourId, trackCol.withAlpha(0.7f));
+            label.setBorderSize(juce::BorderSize<int>(1, 5, 1, 5));
+            return;
+        }
+
         juce::Colour textColour = kTextSecondary;
         auto border = juce::BorderSize<int>(1, 5, 1, 5);
         if (labelMode == LabelMode::Positive)
@@ -1200,6 +1226,7 @@ private:
             border = juce::BorderSize<int>(1, 3, 1, 3);
         }
         label.setColour(juce::Label::textColourId, textColour);
+        label.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
         label.setBorderSize(border);
     }
 
@@ -1335,7 +1362,9 @@ private:
 /**
  * Look-and-feel for the BPM-sync clock button. Two visual states driven by
  * the button's toggleState():
- *   - Off  → grey kSurface background, dim icon
+ *   - Off  → offFill background (default grey kSurface, dim icon). Owners may
+ *            set offFill to an accent@0.7 band — then the icon uses kHeaderText
+ *            so it stays legible (FX Delay clock row).
  *   - Sync → orange fill (syncFill member), white icon
  * Used by LFO 1/2/3, Drift 1/2/3 and Delay rows. Owners must declare the
  * LnF instance BEFORE any button using it (so destruction order = button
@@ -1346,6 +1375,8 @@ class ClockButtonLnF : public juce::LookAndFeel_V4
 {
 public:
     juce::Colour syncFill { 0xffFF6F00 };  // amber-orange, shared sync indicator
+    juce::Colour offFill  { kSurface };    // OFF/free background; owners may set an
+                                           // accent@0.7 band fill (e.g. FX clock row)
     juce::Path icon;
 
     ClockButtonLnF()
@@ -1360,7 +1391,7 @@ public:
                               const juce::Colour&, bool over, bool down) override
     {
         const bool on = b.getToggleState();
-        auto base = on ? syncFill : kSurface;
+        auto base = on ? syncFill : offFill;
         if (down)      base = base.darker(0.15f);
         else if (over) base = base.brighter(0.10f);
         g.setColour(base);
@@ -1374,7 +1405,11 @@ public:
     {
         auto bounds = b.getLocalBounds().toFloat().reduced(3.0f);
         const bool on = b.getToggleState();
-        g.setColour(on ? juce::Colours::white : (over ? syncFill : kDim));
+        // On an accent band off-fill, the dim/grey glyph would vanish — use the
+        // band's light text colour instead (matches the sibling label bands).
+        const bool offIsBand = (offFill != kSurface);
+        g.setColour(on ? juce::Colours::white
+                       : (offIsBand ? kHeaderText : (over ? syncFill : kDim)));
         if (b.getButtonText() == "SYNC")
         {
             const float fs = juce::jmax(kUiControlFontMin, bounds.getHeight() * 0.50f);

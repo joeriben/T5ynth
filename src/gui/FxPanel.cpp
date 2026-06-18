@@ -54,6 +54,11 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     delayDampRow = std::make_unique<SliderRow>("Damp", fmtDampHz, kFxCol);
     delayMixRow  = std::make_unique<SliderRow>("Mix",  fmtF3, kFxCol);
 
+    // Unified label-band look (accent@0.7 + light text, like the RESYNTH
+    // left-title). Time/Division carry no text label — the clock band stands in.
+    for (auto* r : { delayFbRow.get(), delayDampRow.get(), delayMixRow.get() })
+        r->setLabelAsBand(true);
+
     // Division row swaps in for the Time slider when ClockMode == Sync.
     // Same screen rect, label "Time", but the value formatter returns
     // a musical-division name and the slider is stepped 0..12.
@@ -96,6 +101,10 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     for (const auto& e : ClockMode::kEntries) clockItems.add(e.label);
     delayClockModeHidden.addItemList(clockItems, 1);
     delayClockBtn.setLookAndFeel(&delayClockLnf);
+    // The clock toggle sits in the Time row's label slot, so it doubles as that
+    // row's band: cyan @0.7 when free (matches the sibling label bands below),
+    // amber when tempo-synced (the shared sync indicator).
+    delayClockLnf.offFill = kFxCol.withAlpha(0.7f);
     delayClockBtn.setClickingTogglesState(false);
     delayClockBtn.onClick = [this] {
         const int cur = delayClockModeHidden.getSelectedId();
@@ -162,7 +171,10 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     algoWidthRow  = std::make_unique<SliderRow>("Width", fmtF2, kFxCol);
 
     for (auto* r : { reverbMixRow.get(), algoRoomRow.get(), algoDampRow.get(), algoWidthRow.get() })
+    {
+        r->setLabelAsBand(true);   // unified label-band look (see Delay section)
         addAndMakeVisible(*r);
+    }
 
     reverbMixA = std::make_unique<SA>(apvts, PID::reverbMix,   reverbMixRow->getSlider());
     algoRoomA  = std::make_unique<SA>(apvts, PID::algoRoom,    algoRoomRow->getSlider());
