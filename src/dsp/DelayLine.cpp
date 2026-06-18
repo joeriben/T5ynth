@@ -212,7 +212,19 @@ void T5ynthDelayLine::setDamp(float d)
     // Exponential mapping: 0 = bright (20kHz), 1 = dark (500Hz)
     // freq = 20000 * pow(500/20000, d)
     d = juce::jlimit(0.0f, 1.0f, d);
-    dampFreq = 20000.0f * std::pow(500.0f / 20000.0f, d);
+    const float newFreq = 20000.0f * std::pow(500.0f / 20000.0f, d);
+
+    // The processor calls setDamp() every block with the (usually unchanged)
+    // damp param. updateDampCoeffs() runs makeLowPass() = a heap allocation, so
+    // recomputing unconditionally was a per-block audio-thread malloc (the #1
+    // BLOCKING bug class). Skip when the resolved frequency is identical — the
+    // expression is deterministic for a steady param, so this is exact and
+    // output-identical; coefficients are rebuilt only when the knob actually
+    // moves (a transient user gesture, not idle/steady state).
+    if (newFreq == dampFreq)
+        return;
+
+    dampFreq = newFreq;
     if (prepared)
         updateDampCoeffs();
 }
