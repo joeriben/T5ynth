@@ -571,25 +571,55 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
                 }
             }
         }
+        // Bank label shown in the Replace confirmation below. Normally the
+        // user-chosen target bank; on the maintainer redirect (see below) it
+        // becomes the bank that actually owns the colliding file.
+        juce::String replaceBankLabel = bank.isEmpty()
+                                            ? PresetManagerPanel::kRootUserBank() : bank;
+
         if (collidingFile.existsAsFile())
         {
-            const auto displayBank = bank.isEmpty() ? PresetManagerPanel::kRootUserBank() : bank;
-            juce::AlertWindow::showAsync(
-                juce::MessageBoxOptions()
-                    .withIconType(juce::MessageBoxIconType::WarningIcon)
-                    .withTitle("Name Already In Use")
-                    .withMessage("A preset named \"" + presetName
-                                 + "\" already exists in bank \"" + collidingBank
-                                 + "\".\n\nPick a different name, or delete \""
-                                 + presetName + "\" from \"" + collidingBank
-                                 + "\" first. Two banks cannot share the same preset name.")
-                    .withButton("OK")
-                    .withParentComponent(this),
-                nullptr);
-            presetManager.setStatusText("\"" + presetName + "\" already exists in \""
-                                            + collidingBank + "\" — pick another name",
-                                        true);
-            return;
+            // Maintainer machine: the presets dir IS the git checkout that
+            // publishes the bank, so a name that already lives in another
+            // bank is not a user-duplication hazard — it's the maintainer
+            // updating the published preset. Redirect the save onto the
+            // existing bank file and fall through to the Replace dialog to
+            // confirm the overwrite. Regular installs get the cross-bank
+            // block instead, which steers fork-on-edit copies away from
+            // colliding labels.
+            if (PresetFormat::userPresetsDirIsGitCheckout())
+            {
+                // If the chosen bank holds no file of this name, redirect the
+                // save onto the colliding bank file so the maintainer updates
+                // the published preset in place. If the chosen bank ALREADY
+                // holds this name it's an ordinary same-bank replace — leave
+                // target/label untouched and fall through to the Replace
+                // dialog below, which overwrites the chosen file directly.
+                if (! target.existsAsFile())
+                {
+                    target           = collidingFile;
+                    replaceBankLabel = collidingBank;
+                }
+            }
+            else
+            {
+                juce::AlertWindow::showAsync(
+                    juce::MessageBoxOptions()
+                        .withIconType(juce::MessageBoxIconType::WarningIcon)
+                        .withTitle("Name Already In Use")
+                        .withMessage("A preset named \"" + presetName
+                                     + "\" already exists in bank \"" + collidingBank
+                                     + "\".\n\nPick a different name, or delete \""
+                                     + presetName + "\" from \"" + collidingBank
+                                     + "\" first. Two banks cannot share the same preset name.")
+                        .withButton("OK")
+                        .withParentComponent(this),
+                    nullptr);
+                presetManager.setStatusText("\"" + presetName + "\" already exists in \""
+                                                + collidingBank + "\" — pick another name",
+                                            true);
+                return;
+            }
         }
 
         juce::Component::SafePointer<MainPanel> safeThis(this);
@@ -620,10 +650,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
                 .withIconType(juce::MessageBoxIconType::WarningIcon)
                 .withTitle("Replace Preset")
                 .withMessage("Replace \"" + target.getFileNameWithoutExtension()
-                             + "\" in bank \""
-                             + (bank.isEmpty() ? PresetManagerPanel::kRootUserBank()
-                                                : bank)
-                             + "\"?")
+                             + "\" in bank \"" + replaceBankLabel + "\"?")
                 .withButton("Replace")
                 .withButton("Cancel")
                 .withParentComponent(this),
