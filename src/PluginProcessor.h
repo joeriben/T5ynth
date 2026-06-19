@@ -564,7 +564,7 @@ private:
     // ── MIDI Output (LED feedback) ───────────────────────────────────────────
     std::unique_ptr<juce::MidiOutput> midiOutputDevice_;
     juce::String                      midiOutputDeviceId_;
-    bool                              dawModeActive_ = false;  // XL driven in DAW mode (host LEDs)
+    std::atomic<bool>                 dawModeActive_ { false };  // XL in DAW mode (LEDs + ch16 controls + buttons); audio thread reads it to gate button actions
     juce::SpinLock                    midiOutputLock_;
 
     // One-shot timer for the deferred XL LED burst (see applyXLDefaultBindings).
@@ -581,6 +581,17 @@ private:
     void sendMidiOutputMessage(const juce::MidiMessage& msg);
     void sendLearnLed(bool learning, int boundCc);
     void lightXLLeds();   // send all Page-1 LED colours (DAW mode; deferred from XL Map)
+
+    // XL DAW-mode buttons (CC 37-52, ch1) → transport/actions. handleXLButtonPress
+    // runs on the AUDIO thread (on a button press): it raises an atomic request and
+    // triggerAsyncUpdate()s — the actual setValueNotifyingHost runs on the message
+    // thread in handleAsyncUpdate() (it locks, so it must never run on the audio
+    // thread). Panic uses the existing midiPanicRequested atomic.
+    void handleXLButtonPress(int cc);
+    juce::RangedAudioParameter* seqRunningParam_    = nullptr;  // resolved once (ctor)
+    juce::RangedAudioParameter* genSeqRunningParam_ = nullptr;
+    std::atomic<bool>           xlSeqToggleReq_     { false };  // audio→message: toggle seq_running
+    std::atomic<bool>           xlSeqModeToggleReq_ { false };  // audio→message: toggle gen_seq_running
 
     // ── MIDI CC Learn (internals) ────────────────────────────────────────────
     std::array<CcMapping, 128> ccMappings_;

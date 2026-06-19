@@ -173,6 +173,12 @@ T5ynthProcessor::T5ynthProcessor()
       parameters(*this, nullptr, "T5ynth", createParameterLayout())
 {
     paramCache.init(parameters);
+
+    // Cache the transport params the XL DAW-mode buttons toggle (set from the audio
+    // thread via setValueNotifyingHost — same mechanism as the CC binding apply).
+    seqRunningParam_    = parameters.getParameter(PID::seqRunning);
+    genSeqRunningParam_ = parameters.getParameter(PID::genSeqRunning);
+
     juce::File("/tmp/t5ynth_sampler_debug.log").deleteFile();
     samplerProcessorDebugLog("session start");
     stepSequencer.setOneShotTriggerCallback(
@@ -2657,6 +2663,19 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                             genStrandPan[static_cast<size_t>(genSourceId)] =
                                 juce::jlimit(-1.0f, 1.0f, value * 2.0f - 1.0f);
                         }
+                        else if (dawModeActive_.load(std::memory_order_relaxed)
+                                 && msg.getChannel() == 1 && cc >= 37 && cc <= 52)
+                        {
+                            // XL DAW-mode buttons (CC 37-52, ch1). Act on press (value>=64);
+                            // the release (0) is ignored. The device sends exactly one 127
+                            // per press, and transport toggles are de-duplicated by the
+                            // atomic-request exchange in handleAsyncUpdate, so one press =
+                            // one action with no per-button latch needed. Gated by
+                            // dawModeActive_ so these CCs only act as buttons while the XL
+                            // is driving us.
+                            if (value7 >= 64)
+                                handleXLButtonPress(cc);
+                        }
                         else
                         {
                             // Explicit user binding wins over the built-in GM CCs.
@@ -5016,7 +5035,10 @@ void T5ynthProcessor::cancelMidiLearn()
     midiLearnActive.store(false, std::memory_order_release);
     midiLearnParamId.clear();
     midiLearnTargetCc.store(-1, std::memory_order_release);
-    cancelPendingUpdate();
+    // NOTE: do NOT cancelPendingUpdate() here — the AsyncUpdater is shared with the XL
+    // button toggles, and cancelling would silently drop (then later replay) a pending
+    // toggle. Cleanup is done inline below; if a learn-capture async is still queued it
+    // runs harmlessly (handleAsyncUpdate returns at the !midiLearnActive guard).
     sendLearnLed(false, -1);
     if (onMidiLearnStateChanged) onMidiLearnStateChanged(false, -1);
 }
@@ -5057,6 +5079,21 @@ T5ynthProcessor::CcMapping T5ynthProcessor::getCcMappingCopy(int cc) const
 
 void T5ynthProcessor::handleAsyncUpdate()
 {
+    // XL DAW-mode transport buttons: toggle on the message thread (setValueNotifyingHost
+    // locks, so it must not run on the audio thread). Consumed before — and independently
+    // of — CC-Learn. exchange() collapses duplicate requests to a single toggle.
+    if (xlSeqToggleReq_.exchange(false, std::memory_order_acq_rel) && seqRunningParam_ != nullptr)
+        seqRunningParam_->setValueNotifyingHost(
+            paramCache.seqRunning->load() > 0.5f ? 0.0f : 1.0f);
+    if (xlSeqModeToggleReq_.exchange(false, std::memory_order_acq_rel) && genSeqRunningParam_ != nullptr)
+        genSeqRunningParam_->setValueNotifyingHost(
+            paramCache.genSeqRunning->load() > 0.5f ? 0.0f : 1.0f);
+
+    // The rest is CC-Learn, which only triggers this async update while a learn is
+    // armed; a button-only update (above) has nothing more to do.
+    if (! midiLearnActive.load(std::memory_order_acquire))
+        return;
+
     const int cc = midiLearnTargetCc.load(std::memory_order_acquire);
     if (cc < 0 || cc >= 128 || midiLearnParamId.isEmpty())
     {
@@ -5121,14 +5158,14 @@ void T5ynthProcessor::openMidiOutputDevice(const juce::String& deviceId)
 void T5ynthProcessor::closeMidiOutputDevice()
 {
     const juce::SpinLock::ScopedLockType lock(midiOutputLock_);
-    if (midiOutputDevice_ != nullptr && dawModeActive_)
+    if (midiOutputDevice_ != nullptr && dawModeActive_.load(std::memory_order_acquire))
     {
         // Restore the device to standalone/custom mode before we stop driving it.
         // Sent directly (not via sendMidiOutputMessage) because we already hold the
         // lock — the SpinLock is non-recursive.
         try { midiOutputDevice_->sendMessageNow(LaunchControlXLLeds::dawMode(false)); } catch (...) {}
     }
-    dawModeActive_ = false;
+    dawModeActive_.store(false, std::memory_order_release);
     midiOutputDevice_.reset();
     midiOutputDeviceId_.clear();
 }
@@ -5170,7 +5207,7 @@ void T5ynthProcessor::applyXLDefaultBindings()
         if (midiOutputDevice_ != nullptr)
         {
             try { midiOutputDevice_->sendMessageNow(LaunchControlXLLeds::dawMode(true)); } catch (...) {}
-            dawModeActive_ = true;
+            dawModeActive_.store(true, std::memory_order_release);
         }
     }
 
@@ -5211,6 +5248,13 @@ void T5ynthProcessor::applyXLDefaultBindings()
     xlLedTimer_.startTimer(100);
 }
 
+// XL DAW-mode action-button assignments (bottom button row, CC 45-52, left→right).
+// The SAME constants drive both the LED colour (lightXLLeds) and the action dispatch
+// (handleXLButtonPress) so a button's light always matches what it does.
+static constexpr int kXLBtnSeqRun  = 45;  // Seq Start/Stop  → toggle seq_running
+static constexpr int kXLBtnSeqMode = 46;  // Seq STEP / GEN  → toggle gen_seq_running
+static constexpr int kXLBtnPanic   = 52;  // MIDI Panic      → all notes off
+
 void T5ynthProcessor::lightXLLeds()
 {
     // Light all XL Page-1 LEDs in their module accent colour (honoured only in DAW
@@ -5221,5 +5265,37 @@ void T5ynthProcessor::lightXLLeds()
         const int note = LaunchControlXLLeds::ccToLedNote(b.cc);
         if (note >= 0)
             sendMidiOutputMessage(LaunchControlXLLeds::ledOn(note, b.color));
+    }
+
+    // Action buttons (bottom row) — static accent colours so the user can see which
+    // buttons are mapped. Control-index == CC for buttons too (programmer's ref p.9),
+    // so send the CC directly. (LEDs that track live transport state = a follow-up.)
+    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnSeqRun,  LaunchControlXLLeds::kColorVol)); // green
+    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnSeqMode, LaunchControlXLLeds::kColorGen)); // periwinkle
+    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnPanic,   lcxl3_detail::rgb(127, 0, 0)));   // red
+}
+
+void T5ynthProcessor::handleXLButtonPress(int cc)
+{
+    // Audio-thread dispatch for an XL DAW-mode button press edge. Transport toggles are
+    // DEFERRED to the message thread (handleAsyncUpdate) via an atomic request +
+    // triggerAsyncUpdate, because setValueNotifyingHost locks and must never run on the
+    // audio thread. Panic raises an atomic flag consumed in processBlock. Unmapped
+    // buttons are ignored.
+    switch (cc)
+    {
+        case kXLBtnSeqRun:
+            xlSeqToggleReq_.store(true, std::memory_order_release);
+            triggerAsyncUpdate();
+            break;
+        case kXLBtnSeqMode:
+            xlSeqModeToggleReq_.store(true, std::memory_order_release);
+            triggerAsyncUpdate();
+            break;
+        case kXLBtnPanic:
+            requestMidiPanic();
+            break;
+        default:
+            break;
     }
 }

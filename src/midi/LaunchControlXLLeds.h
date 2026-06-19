@@ -12,12 +12,13 @@
 //   juce::MidiMessage::createSysExMessage() adds the F0/F7, so we pass the
 //   inner bytes only.
 //
-// ASSUMPTION (verify on device): control-index == CC#, i.e. the same numbers
-// the hardware transmits (faders 5-12, knobs 13-36, buttons 37-52, all on MIDI
-// channel 1 in Custom Mode 1). If a control lights the WRONG LED, only the
-// index mapping in ccToLedNote() needs adjusting — colors + send path stay.
+// DAW-mode mapping (programmer's reference p.9): control-index == CC#. The same
+// indices the hardware transmits double as the LED colour indices — faders 5-12,
+// encoders 13-36 (ch16), buttons 37-52 (ch1). If a control lights the WRONG LED,
+// only the index mapping in ccToLedNote() needs adjusting — colors + send path stay.
+// (Spec-confirmed; physical per-LED position still worth a once-over on device.)
 //
-// Source: Novation LCXL3 programmer's reference (DAW-mode LED SysEx).
+// Source: Novation LCXL3 programmer's reference (DAW mode: LED SysEx p.12, layout p.9).
 
 namespace lcxl3_detail
 {
@@ -48,21 +49,22 @@ struct LaunchControlXLLeds
     static constexpr int kColorFx     = lcxl3_detail::rgb(  0,  94, 106);  // Cyan       #00BCD4 — delay/reverb
     static constexpr int kColorVol    = lcxl3_detail::rgb(  0, 100,  41);  // Green      #00C853 — amp amount
 
-    // ── CC ranges (LCXL3 Custom Mode 1, MIDI channel 1, verified) ───────────
+    // ── CC ranges (LCXL3, verified) ─────────────────────────────────────────
+    // In DAW mode faders/encoders transmit on ch16, buttons on ch1; the CC
+    // numbers are the same as Custom Mode. Control-index == CC for LEDs.
     // Faders (left→right): CC  5-12
     // Row 1 top knobs:     CC 13-20
     // Row 2 mid knobs:     CC 21-28
     // Row 3 bottom knobs:  CC 29-36
-    // Buttons (2 rows):    CC 37-52   (Phase 2, not implemented)
+    // Buttons: upper row   CC 37-44, lower row CC 45-52 (actions: seq/panic)
 
     // Map a CC number → LED control index. Returns -1 if not an XL control.
     // (control-index == CC# assumed; see header note.)
     static int ccToLedNote(int cc) noexcept
     {
-        if (cc >= 5  && cc <= 12) return cc;   // Faders (verified: CC 5-12)
-        if (cc >= 13 && cc <= 20) return cc;   // Row 1  (verified: CC 13-20)
-        if (cc >= 21 && cc <= 28) return cc;   // Row 2  (verified: CC 21-28)
-        if (cc >= 29 && cc <= 36) return cc;   // Row 3  (verified: CC 29-36)
+        if (cc >= 5  && cc <= 12) return cc;   // Faders  (CC 5-12)
+        if (cc >= 13 && cc <= 36) return cc;   // Encoder rows 1-3 (CC 13-36)
+        if (cc >= 37 && cc <= 52) return cc;   // Buttons (CC 37-52)
         return -1;
     }
 
