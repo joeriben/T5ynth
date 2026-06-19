@@ -33,8 +33,19 @@ void equalPowerPan(float pan, float& left, float& right)
 {
     pan = juce::jlimit(-1.0f, 1.0f, pan);
     const float angle = (pan + 1.0f) * juce::MathConstants<float>::pi * 0.25f;
-    left  = std::cos(angle);
-    right = std::sin(angle);
+    // √2 normalization: CENTER gain = cos(π/4)·√2 = 1.0 (unity), not the bare
+    // equal-power 0.707. This is the ONLY pan-law point in the mixer and it is applied
+    // ONLY to generative-strand voices (sourceId 0-3); step/manual voices use the
+    // full-level stereo passthrough (gain 1.0). With the bare 0.707 a centered gen
+    // strand sat ~3 dB BELOW a step note, so switching STEP↔GEN jumped in loudness —
+    // the "GenSeq→StepSeq verändert Lautstärke" bug. Unity-center makes a centered gen
+    // strand match the passthrough level exactly (mono voice → sampleMono·1.0 = s, same
+    // as step's sampleLeft/sampleRight). Still constant power (left²+right² = 2 for all
+    // pan), so the stereo spread is unchanged and perceived loudness stays flat as a
+    // strand pans; only the absolute reference rises to meet the centered passthrough.
+    constexpr float kUnityCenter = juce::MathConstants<float>::sqrt2;  // 1.41421356…
+    left  = kUnityCenter * std::cos(angle);
+    right = kUnityCenter * std::sin(angle);
 }
 }
 
