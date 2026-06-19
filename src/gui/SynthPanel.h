@@ -26,6 +26,7 @@ private:
     void timerCallback() override;
     float fs() const;
     void updateVisibility();
+    void followModParamToTab(const juce::String& paramId);  // easy-mode tab follows controller
     bool initialized = false;
     bool pendingWtReextract_ = false;
 
@@ -172,6 +173,7 @@ private:
     int activeEnvTab = 0;
     int activeLfoTab = 0;
     int activeDriftTab = 0;
+    uint32_t lastSeenMidiTouchSeq_ = 0;  // tracks processor's midiTouchSeq_ for tab-follow
 
     // ── Clock-button LnFs (shared across the section's clock buttons) ──
     //   Declared BEFORE LfoSection/DriftSection so destruction order is

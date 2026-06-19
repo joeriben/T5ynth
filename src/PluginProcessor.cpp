@@ -2706,6 +2706,14 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                                             mapping.minNorm, mapping.maxNorm);
                                         mapping.param->setValueNotifyingHost(
                                             juce::jlimit(0.0f, 1.0f, norm));
+                                        // Record the touch so the editor can make the easy-mode
+                                        // ENV/LFO/Drift tab follow this controller (cosmetic).
+                                        // Pack (seq+1, cc) into one word — single writer here.
+                                        const uint64_t seq =
+                                            (midiTouchPacked_.load(std::memory_order_relaxed) >> 32) + 1;
+                                        midiTouchPacked_.store(
+                                            (seq << 32) | static_cast<uint32_t>(cc),
+                                            std::memory_order_release);
                                     }
                                 }
                             }

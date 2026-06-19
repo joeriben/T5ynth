@@ -1193,8 +1193,59 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
 // ──────────────────────────────────────────────────────────────────────────────
 // Waveform display polling
 // ──────────────────────────────────────────────────────────────────────────────
+void SynthPanel::followModParamToTab(const juce::String& paramId)
+{
+    if (paramId.isEmpty()) return;
+
+    // env A/D/S/R → ENV tab (amp = ENV1, mod1 = ENV2, mod2 = ENV3).
+    // amp_amount (the volume fader) deliberately excluded — it is not an envelope edit.
+    auto isEnvAdsr = [&paramId](const char* prefix)
+    {
+        return paramId.startsWith(prefix)
+            && (paramId.endsWith("_attack") || paramId.endsWith("_decay")
+             || paramId.endsWith("_sustain") || paramId.endsWith("_release"));
+    };
+
+    int group = -1;  // 0 = env, 1 = lfo, 2 = drift
+    int index = -1;  // tab within the group (0..2)
+    if      (isEnvAdsr("amp_"))             { group = 0; index = 0; }
+    else if (isEnvAdsr("mod1_"))            { group = 0; index = 1; }
+    else if (isEnvAdsr("mod2_"))            { group = 0; index = 2; }
+    else if (paramId.startsWith("lfo1_"))   { group = 1; index = 0; }
+    else if (paramId.startsWith("lfo2_"))   { group = 1; index = 1; }
+    else if (paramId.startsWith("lfo3_"))   { group = 1; index = 2; }
+    else if (paramId.startsWith("drift1_")) { group = 2; index = 0; }
+    else if (paramId.startsWith("drift2_")) { group = 2; index = 1; }
+    else if (paramId.startsWith("drift3_")) { group = 2; index = 2; }
+    if (group < 0) return;
+
+    int& active = (group == 0) ? activeEnvTab : (group == 1) ? activeLfoTab : activeDriftTab;
+    if (active == index) return;  // already showing → avoid needless relayout/repaint
+
+    active = index;
+    syncModTabButtons();
+    updateVisibility();
+    resized();
+    repaint();
+}
+
 void SynthPanel::timerCallback()
 {
+    // Easy-mode "tab follows controller": when an incoming mapped CC changes a mod
+    // param, switch the visible ENV/LFO/Drift tab to the affected one. Keep the seq
+    // in sync even outside easy mode so only touches made *while* in easy mode act.
+    {
+        const uint64_t packed = processorRef.getMidiTouchPacked();
+        const uint32_t seq = static_cast<uint32_t>(packed >> 32);
+        if (seq != lastSeenMidiTouchSeq_)
+        {
+            lastSeenMidiTouchSeq_ = seq;
+            if (modEasyMode)
+                followModParamToTab(
+                    processorRef.getCcMappingCopy(static_cast<int>(packed & 0xffffffffu)).paramId);
+        }
+    }
+
     if (processorRef.hasNewWaveform())
     {
         auto& snap = processorRef.getWaveformSnapshot();

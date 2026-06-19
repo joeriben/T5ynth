@@ -533,6 +533,10 @@ public:
     void clearAllCcMappings();
     /** Returns a copy of the mapping for the given CC (0–127). Thread-safe: acquires ccMappingLock_. */
     CcMapping getCcMappingCopy(int cc) const;
+    /** Packed (seq << 32) | cc, bumped whenever an incoming mapped CC changes a param. The
+     *  editor polls this so the easy-mode ENV/LFO/Drift tab follows the hardware controller.
+     *  Lock-free; read seq from the high 32 bits, cc from the low 32. */
+    uint64_t getMidiTouchPacked()   const noexcept { return midiTouchPacked_.load(std::memory_order_acquire); }
     bool isMidiLearnActive() const { return midiLearnActive.load(std::memory_order_relaxed); }
     /** The param waiting for a CC assignment. Message thread only. */
     const juce::String& getMidiLearnParamId() const { return midiLearnParamId; }
@@ -569,6 +573,12 @@ private:
     mutable juce::SpinLock     ccMappingLock_;
     std::atomic<bool>          midiLearnActive { false };
     std::atomic<int>           midiLearnTargetCc { -1 };  // audio thread writes, message thread reads
+
+    // Easy-mode "tab follows controller": the audio thread records the last mapped
+    // CC it applied; the editor's 30 Hz timer reads it (lock-free) and switches the
+    // ENV/LFO/Drift tab to match. Packed as (seq << 32) | cc in ONE word so the
+    // reader always gets a consistent seq/cc pair (single writer = the audio thread).
+    std::atomic<uint64_t>      midiTouchPacked_ { 0 };
     juce::String               midiLearnParamId;           // message thread only
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(T5ynthProcessor)
