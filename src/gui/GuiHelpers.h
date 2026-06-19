@@ -1466,9 +1466,16 @@ public:
         const auto geo = computeGeometry();
         const auto p = e.position;
 
-        if      (p.getDistanceFrom(geo.p1) <= kHandleHit) draggingHandle = Handle::Attack;
-        else if (p.getDistanceFrom(geo.p2) <= kHandleHit) draggingHandle = Handle::Sustain;
-        else if (p.getDistanceFrom(geo.p4) <= kHandleHit) draggingHandle = Handle::Release;
+        // Pick the NEAREST handle within reach (not first-match): the sustain
+        // node sits close to the attack node at decay≈0, and first-match would
+        // let attack steal clicks on the sustain node's near half.
+        const float dA = p.getDistanceFrom(geo.p1);
+        const float dS = p.getDistanceFrom(geo.p2);
+        const float dR = p.getDistanceFrom(geo.p4);
+        const float dMin = juce::jmin(dA, dS, dR);
+        if (dMin <= kHandleHit)
+            draggingHandle = (dMin == dA) ? Handle::Attack
+                           : (dMin == dS) ? Handle::Sustain : Handle::Release;
         else
         {
             // Click on a segment body → cycle that stage's curve shape.
@@ -1480,6 +1487,16 @@ public:
             if (seg) cycleCurve(*seg);
             return;
         }
+
+        // Record the grab anchor + starting proportions so dragging is RELATIVE:
+        // the node tracks the cursor 1:1 from where it was grabbed. A node drawn
+        // off its exact value position (the min-width-clamped sustain node at
+        // decay≈0) then doesn't jump its decay on the first drag.
+        dragStart  = p;
+        startAprop = prop(aRow);
+        startDprop = prop(dRow);
+        startSprop = prop(sRow);
+        startRprop = prop(rRow);
         repaint();
     }
 
@@ -1487,19 +1504,20 @@ public:
     {
         if (draggingHandle == Handle::None || ! isBound()) return;
         const auto geo = computeGeometry();
-        const auto p = e.position;
+        const float dx = e.position.x - dragStart.x;
+        const float dy = e.position.y - dragStart.y;
 
         switch (draggingHandle)
         {
             case Handle::Attack:
-                setProp(aRow->getSlider(), (p.x - geo.p0.x) / geo.segW);   // p0.x = inset left
+                setProp(aRow->getSlider(), startAprop + dx / geo.segW);
                 break;
             case Handle::Sustain:
-                setProp(dRow->getSlider(), (p.x - geo.p1.x) / geo.segW);
-                setProp(sRow->getSlider(), (geo.plot.getBottom() - p.y) / geo.plot.getHeight());
+                setProp(dRow->getSlider(), startDprop + dx / geo.segW);
+                setProp(sRow->getSlider(), startSprop - dy / geo.plot.getHeight());
                 break;
             case Handle::Release:
-                setProp(rRow->getSlider(), (p.x - geo.p3.x) / geo.segW);
+                setProp(rRow->getSlider(), startRprop + dx / geo.segW);
                 break;
             default: break;
         }
@@ -1549,6 +1567,12 @@ private:
         s.setValue(s.proportionOfLengthToValue(prop), juce::sendNotificationSync);
     }
 
+    static float prop(SliderRow* r)
+    {
+        auto& s = r->getSlider();
+        return (float) s.valueToProportionOfLength(s.getValue());
+    }
+
     Geometry computeGeometry() const
     {
         Geometry geo;
@@ -1565,17 +1589,19 @@ private:
         const float holdW   = usableW * 0.16f;
         geo.segW = (usableW - holdW) / 3.0f;
 
-        auto prop = [](SliderRow* r)
-        {
-            auto& s = r->getSlider();
-            return (float) s.valueToProportionOfLength(s.getValue());
-        };
         const float aP = prop(aRow), dP = prop(dRow), rP = prop(rRow), sP = prop(sRow);
         const float susY = bottom - sP * H;
 
+        // Keep the sustain node clear of the attack node: at decay≈0 the two
+        // share an x, and at sustain≈1 they also share a y — collapsing into a
+        // single circle the user can neither see nor grab (e.g. older patches
+        // with A>0,D=0,S=1). Enforce a small minimum drawn decay width: at
+        // sustain=1 it's an invisible flat extension, otherwise a short slope,
+        // so the sustain node always reads as a distinct, grabbable node.
+        const float decayW = juce::jmax(dP * geo.segW, kMinDecayDraw);
         geo.p0 = { left, bottom };
         geo.p1 = { left + aP * geo.segW, top };
-        geo.p2 = { geo.p1.x + dP * geo.segW, susY };
+        geo.p2 = { geo.p1.x + decayW, susY };
         geo.p3 = { geo.p2.x + holdW, susY };
         geo.p4 = { geo.p3.x + rP * geo.segW, bottom };
         return geo;
@@ -1632,9 +1658,18 @@ private:
     }
 
     static constexpr float kHandleHit = 11.0f;
+    // Min on-screen decay width so the sustain node stays a visibly separate,
+    // individually grabbable circle when decay≈0. Handles are picked by nearest
+    // hit (mouseDown) and dragging is relative (mouseDrag), so this only governs
+    // visual spacing — it need not exceed kHandleHit.
+    static constexpr float kMinDecayDraw = 12.0f;
 
     juce::Colour accentCol;
     Handle draggingHandle = Handle::None;
+
+    // Relative-drag anchor: cursor position + slider proportions at mouseDown.
+    juce::Point<float> dragStart;
+    float startAprop = 0.0f, startDprop = 0.0f, startSprop = 0.0f, startRprop = 0.0f;
 
     SliderRow* aRow = nullptr; SliderRow* dRow = nullptr;
     SliderRow* sRow = nullptr; SliderRow* rRow = nullptr;
