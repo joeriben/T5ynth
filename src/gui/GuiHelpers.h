@@ -138,12 +138,49 @@ inline juce::Colour abBlendColour(float t)
     return lerpColour(kImpulseBWarm, kImpulseB, (t - 0.75f) * 4.0f);
 }
 
-/** Configure a label as an inverted section header bar (colored bg, light text). */
+// ── Semantic label roles (atomic foreground+background) ─────────────────────
+// A label's text colour and its background colour are a PAIR — set them
+// together or you risk dark-on-dark. These helpers set both at once for each
+// role, so an incoherent combination (e.g. dark ink on a transparent/dark
+// background) is not representable. Pick a role; never hand-set
+// Label::textColourId / backgroundColourId on a label that has a role.
+//
+// IMPORTANT: header labels are ALWAYS light text (kHeaderText), never the
+// switch-button brightness rule (switchBoxSelectedTextColour). That rule is for
+// selected switch *segments* (full-accent fills), where dark ink on a bright
+// accent passes WCAG. Applying it to header *labels* made near-identical
+// accents disagree — amber LFO (brightness .66) flipped to black ink while the
+// slightly darker Drift orange (.55) stayed white. The @0.7 band keeps white
+// legible on every accent (incl. full amber), so headers read consistently.
+
+/** Header band: a module/section title — light text on an accent@0.7 fill. */
+inline void labelAsHeaderBand(juce::Label& lbl, juce::Colour accent)
+{
+    lbl.setColour(juce::Label::textColourId, kHeaderText);
+    lbl.setColour(juce::Label::backgroundColourId, accent.withAlpha(0.7f));
+}
+
+/** Plain title: accent-coloured text on no fill (e.g. advanced-view titles). */
+inline void labelAsTitle(juce::Label& lbl, juce::Colour accent)
+{
+    lbl.setColour(juce::Label::textColourId, accent);
+    lbl.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+}
+
+/** Caption / value / hint: plain text on no fill. Defaults to the dim caption
+ *  colour; pass an accent for a value read-out. */
+inline void labelAsCaption(juce::Label& lbl, juce::Colour textCol = kDim)
+{
+    lbl.setColour(juce::Label::textColourId, textCol);
+    lbl.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+}
+
+/** Configure a label as an inverted section header bar (colored bg, light text).
+ *  Convenience over labelAsHeaderBand that also sets the text + left justify. */
 inline void paintSectionHeader(juce::Label& lbl, const juce::String& text, juce::Colour col)
 {
     lbl.setText(" " + text, juce::dontSendNotification);
-    lbl.setColour(juce::Label::textColourId, kHeaderText);
-    lbl.setColour(juce::Label::backgroundColourId, col.withAlpha(0.7f));
+    labelAsHeaderBand(lbl, col);
     lbl.setJustificationType(juce::Justification::centredLeft);
 }
 

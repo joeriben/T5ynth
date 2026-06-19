@@ -56,7 +56,7 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
                           juce::AudioProcessorValueTreeState& apvts)
 {
     env.header.setText(name, juce::dontSendNotification);
-    env.header.setColour(juce::Label::textColourId, kEnvCol);
+    labelAsTitle(env.header, kEnvCol);
     addAndMakeVisible(env.header);
 
     // Labels driven from BlockParams::EnvTarget::kEntries (single source of
@@ -161,7 +161,7 @@ void SynthPanel::initLfo(LfoSection& lfo, const juce::String& name,
                           juce::AudioProcessorValueTreeState& apvts)
 {
     lfo.header.setText(name, juce::dontSendNotification);
-    lfo.header.setColour(juce::Label::textColourId, kLfoCol);
+    labelAsTitle(lfo.header, kLfoCol);
     addAndMakeVisible(lfo.header);
 
     // Labels driven from BlockParams::LfoTarget::kEntries (single source of
@@ -318,7 +318,7 @@ void SynthPanel::initDrift(DriftSection& drift, const juce::String& name,
                             juce::AudioProcessorValueTreeState& apvts)
 {
     drift.header.setText(name, juce::dontSendNotification);
-    drift.header.setColour(juce::Label::textColourId, kDriftCol);
+    labelAsTitle(drift.header, kDriftCol);
     addAndMakeVisible(drift.header);
 
     juce::StringArray driftTargetItems;
@@ -651,7 +651,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     scanRow = std::make_unique<SliderRow>("", fmtF2);
     addAndMakeVisible(*scanRow);
     scanHint.setText("Morph between frames (0 = start, 1 = end)", juce::dontSendNotification);
-    scanHint.setColour(juce::Label::textColourId, kDimmer);
+    labelAsCaption(scanHint, kDimmer);
     addAndMakeVisible(scanHint);
     scanA = std::make_unique<SA>(apvts, PID::oscScan, scanRow->getSlider());
     scanRow->updateValue();
@@ -754,7 +754,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     wtAutoScanA = std::make_unique<BA>(apvts, PID::wtAutoScan, autoScanToggle);
     autoScanToggle.onClick(); // sync initial colors
 
-    frameCountLabel.setColour(juce::Label::textColourId, kDimmer);
+    labelAsCaption(frameCountLabel, kDimmer);
     frameCountLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(frameCountLabel);
 
@@ -789,8 +789,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     // ── Section headers — inverted (colored bg, light text) ──
     auto makeHeader = [this](juce::Label& lbl, const juce::String& text, juce::Colour col) {
         lbl.setText(" " + text, juce::dontSendNotification);
-        lbl.setColour(juce::Label::textColourId, kHeaderText);
-        lbl.setColour(juce::Label::backgroundColourId, col.withAlpha(0.7f));
+        labelAsHeaderBand(lbl, col);
         lbl.setJustificationType(juce::Justification::centredLeft);
         addAndMakeVisible(lbl);
     };
@@ -959,7 +958,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         addAndMakeVisible(filterWarpStyleBox);
 
         filterWarpStyleLabel.setFont(juce::FontOptions(fs() * 0.9f));
-        filterWarpStyleLabel.setColour(juce::Label::textColourId, kDim);
+        labelAsCaption(filterWarpStyleLabel, kDim);
         filterWarpStyleLabel.setJustificationType(juce::Justification::centredRight);
         addAndMakeVisible(filterWarpStyleLabel);
     }
@@ -1062,7 +1061,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
             PID::lfo3ClockMode, PID::lfo3ClockDivision, apvts);
 
     // ── MIDI aftertouch ──
-    aftertouchLabel.setColour(juce::Label::textColourId, kLfoCol);
+    labelAsTitle(aftertouchLabel, kLfoCol);
     aftertouchLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(aftertouchLabel);
     {
@@ -1865,8 +1864,7 @@ void SynthPanel::layoutLfo(LfoSection& lfo, juce::Rectangle<int>& area, float f,
     if (lfo.rateRow)     lfo.rateRow->getLabel().setText("Rate", juce::dontSendNotification);
     if (lfo.depthRow)    lfo.depthRow->getLabel().setText("Depth", juce::dontSendNotification);
     if (lfo.divisionRow) lfo.divisionRow->getLabel().setText("Rate", juce::dontSendNotification);
-    lfo.header.setColour(juce::Label::textColourId, kLfoCol);
-    lfo.header.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    labelAsTitle(lfo.header, kLfoCol);
     lfo.header.setJustificationType(juce::Justification::centredLeft);
     if (lfo.rateRow)     lfo.rateRow->setForcedValueWidth(56);
     if (lfo.divisionRow) lfo.divisionRow->setForcedValueWidth(56);
@@ -1932,8 +1930,7 @@ void SynthPanel::layoutDrift(DriftSection& drift, juce::Rectangle<int>& area, fl
     if (drift.divisionRow) drift.divisionRow->getLabel().setText("Rate", juce::dontSendNotification);
     drift.header.setText(&drift == &drift2 ? "D2" : (&drift == &drift3 ? "D3" : "D1"),
                          juce::dontSendNotification);
-    drift.header.setColour(juce::Label::textColourId, kDriftCol);
-    drift.header.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    labelAsTitle(drift.header, kDriftCol);
     drift.header.setJustificationType(juce::Justification::centredLeft);
     if (drift.rateRow)     drift.rateRow->setForcedValueWidth(64);
     if (drift.divisionRow) drift.divisionRow->setForcedValueWidth(64);
@@ -2201,10 +2198,10 @@ void SynthPanel::layoutLfoEasy(LfoSection& lfo, juce::Rectangle<int> area, float
     const int headerW = juce::jmax(54, measureTextWidth(lfo.header.getText(), topFontSize) + 18);
     lfo.header.setFont(juce::FontOptions(topFontSize, juce::Font::bold));
     lfo.header.setJustificationType(juce::Justification::centred);
-    // Opaque-accent chip (not a @0.7 band) → brightness rule: amber is bright,
-    // so this resolves to dark ink (white would fail WCAG on full amber).
-    lfo.header.setColour(juce::Label::textColourId, switchBoxSelectedTextColour(kLfoCol));
-    lfo.header.setColour(juce::Label::backgroundColourId, kLfoCol);
+    // Header band: light text on accent@0.7 — same treatment as every other
+    // module/section header (see labelAsHeaderBand). Replaces the old opaque
+    // amber chip whose brightness-ink rule disagreed with Drift's white.
+    labelAsHeaderBand(lfo.header, kLfoCol);
     lfo.header.setBounds(headerRow.removeFromLeft(juce::jmin(headerW, headerRow.getWidth())));
     area.removeFromTop(rowGap);
 
@@ -2269,9 +2266,8 @@ void SynthPanel::layoutDriftEasy(DriftSection& drift, juce::Rectangle<int> area,
     drift.header.setText(title, juce::dontSendNotification);
     drift.header.setFont(juce::FontOptions(topFontSize, juce::Font::bold));
     drift.header.setJustificationType(juce::Justification::centred);
-    // Opaque-accent chip → brightness rule (drift-orange resolves to white).
-    drift.header.setColour(juce::Label::textColourId, switchBoxSelectedTextColour(kDriftCol));
-    drift.header.setColour(juce::Label::backgroundColourId, kDriftCol);
+    // Header band: light text on accent@0.7 (see labelAsHeaderBand).
+    labelAsHeaderBand(drift.header, kDriftCol);
     drift.header.setBounds(headerRow.removeFromLeft(juce::jmin(headerW, headerRow.getWidth())));
     area.removeFromTop(rowGap);
 
@@ -2323,10 +2319,8 @@ void SynthPanel::layoutGenerateEasy(juce::Rectangle<int> area, float f, int rowH
         regenHeader.setText(" REGENERATE", juce::dontSendNotification);
         regenHeader.setFont(juce::FontOptions(chipFontSize, juce::Font::bold));
         regenHeader.setJustificationType(juce::Justification::centred);
-        // Opaque-accent chip → brightness rule (drift-orange resolves to white,
-        // the REGENERATE-box treatment that established this threshold).
-        regenHeader.setColour(juce::Label::textColourId, switchBoxSelectedTextColour(kDriftCol));
-        regenHeader.setColour(juce::Label::backgroundColourId, kDriftCol);
+        // Header band: light text on accent@0.7 (see labelAsHeaderBand).
+        labelAsHeaderBand(regenHeader, kDriftCol);
         regenHeader.setBounds(headerRow.removeFromLeft(juce::jmin(headerW, headerRow.getWidth())));
         area.removeFromTop(rowGap);
     }
@@ -2398,8 +2392,7 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
 
     filterHeader.setText(" FILTER", juce::dontSendNotification);
     filterHeader.setFont(juce::FontOptions(headerFs));
-    filterHeader.setColour(juce::Label::textColourId, kHeaderText);
-    filterHeader.setColour(juce::Label::backgroundColourId, kFilterCol.withAlpha(0.7f));
+    labelAsHeaderBand(filterHeader, kFilterCol);
     filterHeader.setJustificationType(juce::Justification::centredLeft);
 
     auto layoutBlock = [&](std::array<juce::TextButton, kNumModTabs>& tabs,
@@ -2508,8 +2501,7 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
             l.setText(t, juce::dontSendNotification);
             l.setFont(juce::FontOptions(headerFs));
             l.setJustificationType(juce::Justification::centredLeft);
-            l.setColour(juce::Label::textColourId, kHeaderText);
-            l.setColour(juce::Label::backgroundColourId, c.withAlpha(0.7f));
+            labelAsHeaderBand(l, c);
             l.setVisible(true);
         };
         filterHeader.setBounds(modHeaderRow.removeFromLeft(stackW));
@@ -3111,8 +3103,7 @@ void SynthPanel::resized()
         // ── FILTER section header ──
         filterHeader.setText(" FILTER", juce::dontSendNotification);
         filterHeader.setFont(juce::FontOptions(headerFs));
-        filterHeader.setColour(juce::Label::textColourId, kHeaderText);
-        filterHeader.setColour(juce::Label::backgroundColourId, kFilterCol.withAlpha(0.7f));
+        labelAsHeaderBand(filterHeader, kFilterCol);
         filterHeader.setJustificationType(juce::Justification::centredLeft);
         filterHeader.setBounds(area.removeFromTop(headerH));
         area.removeFromTop(headerGap);
@@ -3205,7 +3196,7 @@ void SynthPanel::resized()
     // ── MODULATION section header ──
     area.removeFromTop(sectionGap);
     modHeader.setText(modEasyMode ? " CONTROLS" : " ENVELOPES", juce::dontSendNotification);
-    modHeader.setColour(juce::Label::backgroundColourId, kModCol.withAlpha(0.7f));
+    labelAsHeaderBand(modHeader, kModCol);
     modHeader.setFont(juce::FontOptions(headerFs));
     auto modHeaderBounds = area.removeFromTop(headerH);
 
@@ -3320,8 +3311,7 @@ void SynthPanel::resized()
     area.removeFromTop(gap);
     regenHeader.setText(" REGENERATE", juce::dontSendNotification);
     regenHeader.setFont(juce::FontOptions(headerFs));
-    regenHeader.setColour(juce::Label::textColourId, kHeaderText);   // @0.7 band → white
-    regenHeader.setColour(juce::Label::backgroundColourId, kDriftCol.withAlpha(0.7f));
+    labelAsHeaderBand(regenHeader, kDriftCol);
     regenHeader.setJustificationType(juce::Justification::centredLeft);
     auto regenHeaderRow = area.removeFromTop(headerH);
     regenHeader.setBounds(regenHeaderRow.removeFromLeft(juce::roundToInt(f * 10.6f)));
