@@ -2585,21 +2585,16 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                         const int pbChannel = msg.getChannel();
                         const float centered = (static_cast<float>(msg.getPitchWheelValue()) - 8192.0f) / 8192.0f;
                         // Ch1 = MPE master / standard MIDI global bend.
-                        // Channels 2, 8 (step-seq bind/glide) and 3-6 (genSeq strands) are
-                        // internal-only; pitch-bend on those from an external MPE controller
-                        // is dropped to avoid bending sequencer voices unintentionally.
-                        const bool isInternalChannel =
-                            pbChannel == T5ynthStepSequencer::kBindChannel
-                         || pbChannel == T5ynthStepSequencer::kGlideChannel
-                         || (pbChannel >= 3 && pbChannel <= 6);
+                        // Ch2-16 = MPE per-note bend; VoiceManager only forwards to voices
+                        // that were tagged with that channel on noteOn (external notes only —
+                        // internal sequencer notes are tagged channel 0 and never match).
                         if (pbChannel == 1)
                         {
                             voiceManager.setPitchBendSemitones(
                                 juce::jlimit(-1.0f, 1.0f, centered) * masterPitchBendRangeSemitones_);
                         }
-                        else if (!isInternalChannel)
+                        else
                         {
-                            // MPE per-note channel: route to the voice(s) triggered on this channel.
                             voiceManager.setPerVoicePitchBend(pbChannel,
                                 centered * notePitchBendRangeSemitones_);
                         }

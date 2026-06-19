@@ -120,6 +120,13 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
     sourceId = sourceId >= 0 ? juce::jlimit(0, 15, sourceId) : -1;
     pan = juce::jlimit(-1.0f, 1.0f, pan);
 
+    // Internal notes (sequencer bind/glide or genSeq strands) must not pollute the
+    // MPE channel tracking — only tag a voice with its MIDI channel when the note
+    // arrives from an external controller (no sequencer sourceId, not a bind/glide).
+    const int8_t effectiveMidiChannel = (sourceId < 0 && !isBind)
+        ? static_cast<int8_t>(juce::jlimit(1, 16, midiChannel))
+        : 0;
+
     // ── Mono mode: always voice 0, legato (no retrigger if held) ──
     if (voiceLimit == 1)
     {
@@ -135,7 +142,7 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
         {
             voiceSourceId[0] = sourceId;
             voicePan[0] = pan;
-            voiceMidiChannel_[0] = static_cast<int8_t>(midiChannel);
+            voiceMidiChannel_[0] = effectiveMidiChannel;
             sustainedVoice[0] = false;
             sostenutoVoice[0] = false;
             sostenutoReleasedVoice[0] = false;
@@ -170,7 +177,7 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
         v.noteOn(note, velocity, false);
         voiceSourceId[0] = sourceId;
         voicePan[0] = pan;
-        voiceMidiChannel_[0] = static_cast<int8_t>(midiChannel);
+        voiceMidiChannel_[0] = effectiveMidiChannel;
         v.setPerVoicePitchBend(0.0f);
         samplerVoiceDebugLog("noteOn mono trigger voice=0 note=" + juce::String(note)
                              + " velocity=" + juce::String(velocity, 3)
@@ -213,7 +220,7 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
         {
             voices[static_cast<size_t>(newest)].setTuningTable(tuningHz_);
             voices[static_cast<size_t>(newest)].setPerVoicePitchBend(0.0f);
-            voiceMidiChannel_[static_cast<size_t>(newest)] = static_cast<int8_t>(midiChannel);
+            voiceMidiChannel_[static_cast<size_t>(newest)] = effectiveMidiChannel;
             voices[static_cast<size_t>(newest)].glideToNote(note, glideMs);
             return;
         }
@@ -251,7 +258,7 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
     v.noteOn(note, velocity, false);
     voiceSourceId[static_cast<size_t>(idx)] = sourceId;
     voicePan[static_cast<size_t>(idx)] = pan;
-    voiceMidiChannel_[static_cast<size_t>(idx)] = static_cast<int8_t>(midiChannel);
+    voiceMidiChannel_[static_cast<size_t>(idx)] = effectiveMidiChannel;
     v.setPerVoicePitchBend(0.0f);
     samplerVoiceDebugLog("noteOn poly trigger voice=" + juce::String(idx)
                          + " note=" + juce::String(note)
