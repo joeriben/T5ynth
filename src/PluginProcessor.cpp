@@ -4421,6 +4421,25 @@ juce::String T5ynthProcessor::exportJsonPreset() const
 
     root->setProperty("generativeSeq", genSeq.get());
 
+    // CC bindings — sparse: only write entries that have a param assigned.
+    // Old presets that lack this key default to no bindings on load.
+    juce::Array<juce::var> ccArr;
+    {
+        const juce::SpinLock::ScopedLockType lock(ccMappingLock_);
+        for (int cc = 0; cc < 128; ++cc)
+        {
+            const auto& m = ccMappings_[static_cast<size_t>(cc)];
+            if (m.paramId.isEmpty()) continue;
+            juce::DynamicObject::Ptr entry = new juce::DynamicObject();
+            entry->setProperty("cc",    cc);
+            entry->setProperty("param", m.paramId);
+            entry->setProperty("min",   static_cast<double>(m.minNorm));
+            entry->setProperty("max",   static_cast<double>(m.maxNorm));
+            ccArr.add(entry.get());
+        }
+    }
+    root->setProperty("ccMappings", ccArr);
+
     return juce::JSON::toString(root.get(), true);
 }
 
@@ -4893,6 +4912,33 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         }
     }
 
+    // CC bindings — clear first, then restore from preset (if present).
+    // Old presets that lack "ccMappings" silently clear all bindings.
+    // Held under one lock to keep the audio thread's view atomic.
+    {
+        const juce::SpinLock::ScopedLockType lock(ccMappingLock_);
+        ccMappings_.fill({});
+        if (const auto* arr = root->getProperty("ccMappings").getArray())
+        {
+            for (const auto& entry : *arr)
+            {
+                auto* obj = entry.getDynamicObject();
+                if (!obj) continue;
+                const int cc = static_cast<int>(obj->getProperty("cc"));
+                if (cc < 0 || cc >= 128) continue;
+                const juce::String pid = obj->getProperty("param").toString();
+                if (pid.isEmpty()) continue;
+                auto* param = parameters.getParameter(pid);
+                if (!param) continue;
+                auto& m = ccMappings_[static_cast<size_t>(cc)];
+                m.paramId = pid;
+                m.param   = param;
+                m.minNorm = obj->hasProperty("min") ? static_cast<float>(obj->getProperty("min")) : 0.0f;
+                m.maxNorm = obj->hasProperty("max") ? static_cast<float>(obj->getProperty("max")) : 1.0f;
+            }
+        }
+    }
+
     // Pin engine-mode to the loaded value so the audio thread's Step↔Gen
     // transition (which copies pattern data between the two sequencers) does
     // not fire on the next block and overwrite the freshly imported step/gen
@@ -4948,8 +4994,18 @@ void T5ynthProcessor::clearAllCcMappings()
 T5ynthProcessor::CcMapping T5ynthProcessor::getCcMappingCopy(int cc) const
 {
     if (cc < 0 || cc >= 128) return {};
-    const juce::SpinLock::ScopedLockType lock(ccMappingLock_);
-    return ccMappings_[static_cast<size_t>(cc)];
+    // Hold the lock only for POD fields that the audio thread also reads.
+    // paramId is message-thread-only, so it is safe to read after the lock.
+    CcMapping result;
+    {
+        const juce::SpinLock::ScopedLockType lock(ccMappingLock_);
+        const auto& m = ccMappings_[static_cast<size_t>(cc)];
+        result.param   = m.param;
+        result.minNorm = m.minNorm;
+        result.maxNorm = m.maxNorm;
+    }
+    result.paramId = ccMappings_[static_cast<size_t>(cc)].paramId;
+    return result;
 }
 
 void T5ynthProcessor::handleAsyncUpdate()
