@@ -1,6 +1,7 @@
 #include "PromptPanel.h"
 #include "DimensionExplorer.h"
 #include "GuiHelpers.h"
+#include "MidiLearnMenu.h"
 #include "../PluginProcessor.h"
 #include "../dsp/BlockParams.h"
 #include "../inference/RepromptStances.h"
@@ -520,6 +521,15 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     durA    = std::make_unique<Attachment>(apvts, PID::genDuration, durationSlider);
     stepsA  = std::make_unique<Attachment>(apvts, PID::infSteps, stepsSlider);
     cfgA    = std::make_unique<Attachment>(apvts, PID::genCfg, cfgSlider);
+
+    // Right-click MIDI Learn on raw sliders (not wrapped in SliderRow).
+    for (juce::Slider* s : { static_cast<juce::Slider*>(&alphaSlider),
+                              static_cast<juce::Slider*>(&magnitudeSlider),
+                              static_cast<juce::Slider*>(&noiseSlider),
+                              static_cast<juce::Slider*>(&durationSlider),
+                              static_cast<juce::Slider*>(&stepsSlider),
+                              static_cast<juce::Slider*>(&cfgSlider) })
+        s->addMouseListener(this, false);
     if (auto* startParam = apvts.getParameter(PID::genStart))
         startParam->setValueNotifyingHost(0.0f);
 
@@ -3194,4 +3204,22 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
             self->loopStepInFlight_ = false;
         });
     }).detach();
+}
+
+void PromptPanel::mouseDown(const juce::MouseEvent& e)
+{
+    if (! e.mods.isRightButtonDown())
+        return;
+
+    juce::String paramId;
+    auto* src = e.eventComponent;
+    if      (src == &alphaSlider)     paramId = PID::genAlpha;
+    else if (src == &magnitudeSlider) paramId = PID::genMagnitude;
+    else if (src == &noiseSlider)     paramId = PID::genNoise;
+    else if (src == &durationSlider)  paramId = PID::genDuration;
+    else if (src == &stepsSlider)     paramId = PID::infSteps;
+    else if (src == &cfgSlider)       paramId = PID::genCfg;
+
+    if (paramId.isNotEmpty())
+        showMidiLearnMenu(processorRef, paramId, e.getScreenPosition());
 }

@@ -1,5 +1,6 @@
 #include "SynthPanel.h"
 #include "../PluginProcessor.h"
+#include "MidiLearnMenu.h"
 #include <algorithm>
 #include <cmath>
 
@@ -102,6 +103,20 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     env.dVsA = std::make_unique<SA>(apvts, dVsId, env.dVsRow->getSlider());
     env.sVsA = std::make_unique<SA>(apvts, sVsId, env.sVsRow->getSlider());
     env.rVsA = std::make_unique<SA>(apvts, rVsId, env.rVsRow->getSlider());
+
+    auto wireMidiRow = [this](SliderRow* row, const juce::String& pid) {
+        row->onRightClick = [this, pid](juce::Point<int> pos) {
+            showMidiLearnMenu(processorRef, pid, pos); };
+    };
+    wireMidiRow(env.aRow.get(),   aId);
+    wireMidiRow(env.dRow.get(),   dId);
+    wireMidiRow(env.sRow.get(),   sId);
+    wireMidiRow(env.rRow.get(),   rId);
+    wireMidiRow(env.amtRow.get(), amtId);
+    wireMidiRow(env.aVsRow.get(), aVsId);
+    wireMidiRow(env.dVsRow.get(), dVsId);
+    wireMidiRow(env.sVsRow.get(), sVsId);
+    wireMidiRow(env.rVsRow.get(), rVsId);
 
     // Velocity sliders snap back to neutral (0) on double-click.
     for (auto* row : { env.aVsRow.get(), env.dVsRow.get(), env.sVsRow.get(), env.rVsRow.get() })
@@ -276,6 +291,14 @@ void SynthPanel::initLfo(LfoSection& lfo, const juce::String& name,
     lfo.divisionA  = std::make_unique<SA>(apvts, divisionId,  lfo.divisionRow->getSlider());
     lfo.clockModeA = std::make_unique<CA>(apvts, clockModeId, lfo.clockModeHidden);
 
+    auto wireMidiRow = [this](SliderRow* row, const juce::String& pid) {
+        row->onRightClick = [this, pid](juce::Point<int> pos) {
+            showMidiLearnMenu(processorRef, pid, pos); };
+    };
+    wireMidiRow(lfo.rateRow.get(),     rateId);
+    wireMidiRow(lfo.depthRow.get(),    depthId);
+    wireMidiRow(lfo.divisionRow.get(), divisionId);
+
     lfo.waveBox.onChange = [&lfo] {
         const int selected = lfo.waveBox.getSelectedId();
         for (int i = 0; i < kNumWaveBtns; ++i)
@@ -385,6 +408,14 @@ void SynthPanel::initDrift(DriftSection& drift, const juce::String& name,
     drift.waveA      = std::make_unique<CA>(apvts, waveId,      drift.waveBox);
     drift.divisionA  = std::make_unique<SA>(apvts, divisionId,  drift.divisionRow->getSlider());
     drift.clockModeA = std::make_unique<CA>(apvts, clockModeId, drift.clockModeHidden);
+
+    auto wireMidiRow = [this](SliderRow* row, const juce::String& pid) {
+        row->onRightClick = [this, pid](juce::Point<int> pos) {
+            showMidiLearnMenu(processorRef, pid, pos); };
+    };
+    wireMidiRow(drift.rateRow.get(),     rateId);
+    wireMidiRow(drift.depthRow.get(),    depthId);
+    wireMidiRow(drift.divisionRow.get(), divisionId);
 
     drift.waveBox.onChange = [&drift] {
         const int selected = drift.waveBox.getSelectedId();
@@ -581,6 +612,8 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     addAndMakeVisible(*crossfadeRow);
     crossfadeA = std::make_unique<SA>(apvts, PID::crossfadeMs, crossfadeRow->getSlider());
     crossfadeRow->updateValue();
+    crossfadeRow->onRightClick = [this](juce::Point<int> pos) {
+        showMidiLearnMenu(processorRef, PID::crossfadeMs, pos); };
 
     // Normalize toggle
     normalizeToggle.setConnectedEdges(juce::Button::ConnectedOnLeft);
@@ -655,6 +688,8 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     addAndMakeVisible(scanHint);
     scanA = std::make_unique<SA>(apvts, PID::oscScan, scanRow->getSlider());
     scanRow->updateValue();
+    scanRow->onRightClick = [this](juce::Point<int> pos) {
+        showMidiLearnMenu(processorRef, PID::oscScan, pos); };
 
     // ── Octave shift switchbox: -2 | -1 | 0 | +1 | +2 ──
     {
@@ -703,6 +738,8 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     addAndMakeVisible(*noiseLevelRow);
     noiseLevelA = std::make_unique<SA>(apvts, PID::noiseLevel, noiseLevelRow->getSlider());
     noiseLevelRow->updateValue();
+    noiseLevelRow->onRightClick = [this](juce::Point<int> pos) {
+        showMidiLearnMenu(processorRef, PID::noiseLevel, pos); };
 
     // ── Wavetable controls: frame count switchbox ──
     // Frame count switchbox: 32 | 64 | 128 | 256
@@ -784,6 +821,8 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     freezeStereoRow = std::make_unique<SliderRow>("Stereo", fmtPct);
     addAndMakeVisible(*freezeStereoRow);
     freezeStereoA = std::make_unique<SA>(apvts, PID::freezeStereo, freezeStereoRow->getSlider());
+    freezeStereoRow->onRightClick = [this](juce::Point<int> pos) {
+        showMidiLearnMenu(processorRef, PID::freezeStereo, pos); };
     freezeStereoRow->updateValue();
 
     // ── Section headers — inverted (colored bg, light text) ──
@@ -1003,6 +1042,12 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     kbdTrackA      = std::make_unique<SA>(apvts, PID::filterKbdTrack,  kbdTrackRow->getSlider());
     filterDriveA   = std::make_unique<SA>(apvts, PID::filterDrive,     filterDriveRow->getSlider());
 
+    cutoffRow->onRightClick     = [this](juce::Point<int> p) { showMidiLearnMenu(processorRef, PID::filterCutoff,    p); };
+    resoRow->onRightClick       = [this](juce::Point<int> p) { showMidiLearnMenu(processorRef, PID::filterResonance, p); };
+    filterMixRow->onRightClick  = [this](juce::Point<int> p) { showMidiLearnMenu(processorRef, PID::filterMix,       p); };
+    kbdTrackRow->onRightClick   = [this](juce::Point<int> p) { showMidiLearnMenu(processorRef, PID::filterKbdTrack,  p); };
+    filterDriveRow->onRightClick = [this](juce::Point<int> p) { showMidiLearnMenu(processorRef, PID::filterDrive,    p); };
+
     filterTypeA      = std::make_unique<CA>(apvts, PID::filterType,      filterTypeHidden);
     filterSlopeA     = std::make_unique<CA>(apvts, PID::filterSlope,     filterSlopeHidden);
     filterDriveOsA   = std::make_unique<CA>(apvts, PID::filterDriveOs,   filterDriveOsHidden);
@@ -1074,6 +1119,8 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         addAndMakeVisible(*aftertouchAmountRow);
         aftertouchTargetA = std::make_unique<CA>(apvts, PID::aftertouchTarget, aftertouchTargetBox);
         aftertouchAmountA = std::make_unique<SA>(apvts, PID::aftertouchAmount, aftertouchAmountRow->getSlider());
+        aftertouchAmountRow->onRightClick = [this](juce::Point<int> p) {
+            showMidiLearnMenu(processorRef, PID::aftertouchAmount, p); };
         aftertouchAmountRow->updateValue();
     }
 
@@ -1122,6 +1169,8 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     crossfadeRegenRow = std::make_unique<SliderRow>("XFade", fmtMs, kDriftCol);
     addAndMakeVisible(*crossfadeRegenRow);
     crossfadeRegenA = std::make_unique<SA>(apvts, PID::driftCrossfade, crossfadeRegenRow->getSlider());
+    crossfadeRegenRow->onRightClick = [this](juce::Point<int> p) {
+        showMidiLearnMenu(processorRef, PID::driftCrossfade, p); };
     crossfadeRegenRow->updateValue();
 
     // All components are now set up — enable callbacks and trigger initial state

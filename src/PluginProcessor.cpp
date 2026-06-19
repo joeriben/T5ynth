@@ -5045,3 +5045,12 @@ void T5ynthProcessor::handleAsyncUpdate()
     midiLearnParamId.clear();
     midiLearnTargetCc.store(-1, std::memory_order_release);
 }
+
+int T5ynthProcessor::findBoundCc(const juce::String& paramId) const
+{
+    const juce::SpinLock::ScopedLockType lock(ccMappingLock_);
+    for (int cc = 0; cc < 128; ++cc)
+        if (ccMappings_[static_cast<size_t>(cc)].paramId == paramId)
+            return cc;
+    return -1;
+}

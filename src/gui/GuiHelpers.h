@@ -824,6 +824,26 @@ inline ResponsiveStripResult layoutResponsiveStrip(juce::Rectangle<int> area,
 }
 
 /**
+ * juce::Slider that swallows right-button presses without moving the slider
+ * value, so enclosing components can show a MIDI Learn context menu on
+ * right-click without inadvertently changing the parameter.
+ */
+class MidiLearnSlider : public juce::Slider
+{
+public:
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        if (!e.mods.isRightButtonDown())
+            juce::Slider::mouseDown(e);
+    }
+    void mouseDrag(const juce::MouseEvent& e) override
+    {
+        if (!e.mods.isRightButtonDown())
+            juce::Slider::mouseDrag(e);
+    }
+};
+
+/**
  * Compact parameter control. Defaults to a horizontal row, but can be laid out
  * as a vertical fader in Easy views without changing the APVTS attachment.
  */
@@ -857,6 +877,11 @@ public:
         value.setJustificationType(juce::Justification::centredLeft);
         addAndMakeVisible(value);
         updateLabelAppearance();
+
+        // Relay mouse events from children so right-click on the slider track
+        // or value label reaches our mouseDown override.
+        slider.addMouseListener(this, false);
+        value.addMouseListener(this, false);
     }
 
     juce::Slider& getSlider() { return slider; }
@@ -943,6 +968,10 @@ public:
 
     LabelMode getLabelMode() const { return labelMode; }
     void setLabelClickHandler(std::function<void()> handler) { onLabelClick = std::move(handler); }
+
+    /** Called on right-click anywhere in the row (label, slider track, value).
+     *  Set this to wire up a MIDI Learn context menu. */
+    std::function<void(juce::Point<int>)> onRightClick;
 
     /** Render the label as an accent section-header band (paintSectionHeader
         style: trackCol@0.7 fill + light text) — the SliderRow equivalent of the
@@ -1106,8 +1135,15 @@ public:
 
     void mouseUp(const juce::MouseEvent& e) override
     {
+        if (e.eventComponent != this) return;  // ignore relayed events from children
         if (onLabelClick && label.getBounds().contains(e.getPosition()))
             onLabelClick();
+    }
+
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        if (e.mods.isRightButtonDown() && onRightClick)
+            onRightClick(e.getScreenPosition());
     }
 
 private:
@@ -1124,7 +1160,7 @@ private:
     };
 
     juce::Label label, value;
-    juce::Slider slider;
+    MidiLearnSlider slider;
     std::function<juce::String(double)> valueFormatter;
     juce::Colour trackCol;
     LabelMode labelMode = LabelMode::Off;
@@ -1845,7 +1881,7 @@ public:
  * parameter skew (delegates to the base impl), and stays transparent to
  * juce::SliderAttachment — which maps value↔parameter and never sees the flip.
  */
-class FlippedVerticalSlider : public juce::Slider
+class FlippedVerticalSlider : public MidiLearnSlider
 {
 public:
     double proportionOfLengthToValue(double proportion) override

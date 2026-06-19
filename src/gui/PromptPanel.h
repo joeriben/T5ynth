@@ -86,6 +86,7 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    void mouseDown(const juce::MouseEvent& e) override;
     int getPreferredHeightForWidth(int width) const;
     void setEasyMode(bool easy);
     bool isEasyMode() const { return easyMode_; }
@@ -211,13 +212,13 @@ private:
     // (a later member) is destroyed first — the LnF must outlive its only user.
     AlphaSliderLnF alphaLnF;             // A→B gradient track + position-coloured thumb
     FlippedVerticalSlider alphaSlider;   // vertical A↔B blend, A at top
-    juce::Slider magnitudeSlider, noiseSlider;
+    MidiLearnSlider magnitudeSlider, noiseSlider;
     juce::Label alphaLabel, alphaValue;  // retained for callbacks but hidden (gradient is self-describing)
     juce::Label magLabel, magValue, magHint;
     juce::Label noiseLabel, noiseValue, noiseHint;
 
     // Compact params rows: Magnitude/Noise, Steps/CFG, Duration/Seed
-    juce::Slider durationSlider, stepsSlider, cfgSlider;
+    MidiLearnSlider durationSlider, stepsSlider, cfgSlider;
     juce::Label durLabel, durValue, durHint;
     juce::Label stepsLabel, stepsValue, stepsHint;
     juce::Label cfgLabel, cfgValue, cfgHint;

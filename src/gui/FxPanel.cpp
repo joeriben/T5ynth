@@ -1,6 +1,7 @@
 #include "FxPanel.h"
 #include "../dsp/BlockParams.h"
 #include "../PluginProcessor.h"
+#include "MidiLearnMenu.h"
 
 static juce::String fmtMs(double v)
 {
@@ -119,6 +120,12 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     delayDivisionA  = std::make_unique<SA>(apvts, PID::delayClockDivision,
                                            delayDivisionRow->getSlider());
 
+    delayTimeRow->onRightClick     = [this](juce::Point<int> p) { showMidiLearnMenu(processorRef, PID::delayTime,            p); };
+    delayFbRow->onRightClick       = [this](juce::Point<int> p) { showMidiLearnMenu(processorRef, PID::delayFeedback,        p); };
+    delayDampRow->onRightClick     = [this](juce::Point<int> p) { showMidiLearnMenu(processorRef, PID::delayDamp,            p); };
+    delayMixRow->onRightClick      = [this](juce::Point<int> p) { showMidiLearnMenu(processorRef, PID::delayMix,             p); };
+    delayDivisionRow->onRightClick = [this](juce::Point<int> p) { showMidiLearnMenu(processorRef, PID::delayClockDivision,   p); };
+
     delayTimeRow->updateValue();
     delayFbRow->updateValue();
     delayDampRow->updateValue();
@@ -180,6 +187,11 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     algoRoomA  = std::make_unique<SA>(apvts, PID::algoRoom,    algoRoomRow->getSlider());
     algoDampA  = std::make_unique<SA>(apvts, PID::algoDamping, algoDampRow->getSlider());
     algoWidthA = std::make_unique<SA>(apvts, PID::algoWidth,   algoWidthRow->getSlider());
+
+    reverbMixRow->onRightClick = [this](juce::Point<int> p) { showMidiLearnMenu(processorRef, PID::reverbMix,    p); };
+    algoRoomRow->onRightClick  = [this](juce::Point<int> p) { showMidiLearnMenu(processorRef, PID::algoRoom,     p); };
+    algoDampRow->onRightClick  = [this](juce::Point<int> p) { showMidiLearnMenu(processorRef, PID::algoDamping,  p); };
+    algoWidthRow->onRightClick = [this](juce::Point<int> p) { showMidiLearnMenu(processorRef, PID::algoWidth,    p); };
 
     reverbMixRow->updateValue();
     algoRoomRow->updateValue();

@@ -536,6 +536,8 @@ public:
     bool isMidiLearnActive() const { return midiLearnActive.load(std::memory_order_relaxed); }
     /** The param waiting for a CC assignment. Message thread only. */
     const juce::String& getMidiLearnParamId() const { return midiLearnParamId; }
+    /** Search all mappings for one bound to paramId. Returns CC (0–127) or -1. Message thread only. */
+    int findBoundCc(const juce::String& paramId) const;
 
 private:
 
