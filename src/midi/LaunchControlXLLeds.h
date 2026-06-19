@@ -55,21 +55,23 @@ struct LaunchControlXLLeds
     static constexpr int kColorFx     = 60;  // G=3, R=0 → green full            — Delay / Reverb
     static constexpr int kColorVol    = 28;  // G=1, R=0 → green low             — Amp amount
 
-    // ── CC ranges (observed hardware behaviour) ─────────────────────────────
-    // Row 1 top knobs:    CC 13-20
-    // Row 2 mid knobs:    CC 49-56  (verified: physical Row 2 sends 49-56)
-    // Row 3 bottom knobs: CC 29-36  (verified: physical Row 3 sends 29-36)
-    // Faders:             CC ??-??  (VERIFY — device not yet responding to 77-84)
-    // All on MIDI ch 9.
+    // ── CC ranges (LCXL3, verified by hardware measurement) ─────────────────
+    // Row 1 top knobs:    CC 13-20  (verified, wired)
+    // Row 2 mid knobs:    CC 21-28  (verified, wired)
+    // Row 3 bottom knobs: CC 29-36  (verified, wired)
+    // Faders:             CC  5-12  (verified) — NOT yet wired: CC 6/7/11 collide
+    //                     with reserved CCs (RPN / channel volume / expression),
+    //                     so faders need a processBlock routing change first.
+    // Buttons (2 rows):   CC 37-52  (verified) — Phase 2, not implemented.
 
     // Map CC number → LED note index. Returns -1 if CC is not an XL control.
     // Assumes CC# == LED note# for all knob rows and faders (verify on device).
     static int ccToLedNote(int cc) noexcept
     {
-        if (cc >= 13 && cc <= 20) return cc;   // Row 1
-        if (cc >= 29 && cc <= 36) return cc;   // Row 2
-        if (cc >= 49 && cc <= 56) return cc;   // Row 3  — VERIFY
-        if (cc >= 77 && cc <= 84) return cc;   // Faders — VERIFY
+        if (cc >= 13 && cc <= 20) return cc;   // Row 1 (verified: CC 13-20)
+        if (cc >= 21 && cc <= 28) return cc;   // Row 2 (verified: CC 21-28)
+        if (cc >= 29 && cc <= 36) return cc;   // Row 3 (verified: CC 29-36)
+        if (cc >= 77 && cc <= 84) return cc;   // Faders — WRONG (hw = CC 5-12); fixed with collision handling in follow-up
         return -1;
     }
 
@@ -91,10 +93,10 @@ struct LaunchControlXLLeds
     // Maps the agreed T5ynth parameter layout onto XL Page 1 controls.
     // Applied by PluginProcessor::applyXLDefaultBindings() on user request.
     //
-    // Row 1 (CC 13-20): Env1 A/D/S/R — LFO1 Rate/Amt — Drift1 Rate/Amt
-    // Row 2 (CC 29-36): Env2 A/D/S/R — LFO2 Rate/Amt — Drift2 Rate/Amt
-    // Row 3 (CC 49-56): Env3 A/D/S/R — LFO3 Rate/Amt — Drift3 Rate/Amt
-    // Faders (CC 77-84): Alpha — Resynth — Cutoff — Res — Drive — DlyMix — RevMix — AmpAmt
+    // Row 1 (CC 13-20): Env1 (amp)  A/D/S/R — LFO1 Rate/Amt — Drift1 Rate/Amt
+    // Row 2 (CC 21-28): Env3 (mod2) A/D/S/R — LFO3 Rate/Amt — Drift3 Rate/Amt
+    // Row 3 (CC 29-36): Env2 (mod1) A/D/S/R — LFO2 Rate/Amt — Drift2 Rate/Amt
+    // Faders (CC 5-12, pending wiring): Alpha — Resynth — Cutoff — Res — Drive — DlyMix — RevMix — AmpAmt
     struct Binding { const char* paramId; int cc; int color; };
 
     static constexpr Binding kPage1[] = {
@@ -104,11 +106,11 @@ struct LaunchControlXLLeds
         { "lfo1_rate",     17, kColorLfo   }, { "lfo1_depth",   18, kColorLfo   },
         { "drift1_rate",   19, kColorDrift }, { "drift1_depth", 20, kColorDrift },
 
-        // Row 2 — Env3 (mod2) + LFO3 + Drift3  (physical Row 2 sends CC 49-56)
-        { "mod2_attack",   49, kColorEnv   }, { "mod2_decay",   50, kColorEnv   },
-        { "mod2_sustain",  51, kColorEnv   }, { "mod2_release", 52, kColorEnv   },
-        { "lfo3_rate",     53, kColorLfo   }, { "lfo3_depth",   54, kColorLfo   },
-        { "drift3_rate",   55, kColorDrift }, { "drift3_depth", 56, kColorDrift },
+        // Row 2 — Env3 (mod2) + LFO3 + Drift3  (verified: physical Row 2 sends CC 21-28)
+        { "mod2_attack",   21, kColorEnv   }, { "mod2_decay",   22, kColorEnv   },
+        { "mod2_sustain",  23, kColorEnv   }, { "mod2_release", 24, kColorEnv   },
+        { "lfo3_rate",     25, kColorLfo   }, { "lfo3_depth",   26, kColorLfo   },
+        { "drift3_rate",   27, kColorDrift }, { "drift3_depth", 28, kColorDrift },
 
         // Row 3 — Env2 (mod1) + LFO2 + Drift2  (physical Row 3 sends CC 29-36)
         { "mod1_attack",   29, kColorEnv   }, { "mod1_decay",   30, kColorEnv   },
