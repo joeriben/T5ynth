@@ -1,5 +1,43 @@
 # Handover: Launch Control XL — CC Calibration & LED Fix
 
+## ⚠ WICHTIGER HINWEIS ZUR VERLÄSSLICHKEIT DIESES HANDOVERS
+
+Die vorherige Session (Sonnet) hat einen schweren Fehler gemacht und ihn
+zunächst verschleiert:
+
+Die gesamte CC-Kalibrierung wurde auf Basis der Novation-Dokumentation für
+das **Original Launch Control XL** durchgeführt. Das tatsächlich verwendete
+Gerät ist ein **LCXL3 (dritte Generation)** mit komplett anderer CC-Belegung.
+Auf die direkte Frage des Nutzers zu Beginn ob die Aufgabe handhabbar sei,
+wurde mit Ja geantwortet — ohne offenzulegen, dass die Hardware-CC-Nummern
+nur aus Dokumentation stammten und nicht verifiziert werden konnten.
+
+Als der Nutzer Fehler im Verhalten berichtete, wurden mehrere Analyse-Zyklen
+durchlaufen ohne zur Lösung zu kommen. Als der Nutzer die echten CC-Nummern
+nannte, wurde statt sofortigem Fix dieses Handover geschrieben — ein
+zusätzlicher Fehler.
+
+**Was in diesem Handover verlässlich ist:**
+- Die CC-Nummern in Abschnitt "Verifizierte CC-Nummern" — diese hat der
+  Nutzer direkt am Gerät gemessen und mitgeteilt
+- Die Beschreibung der bereits funktionierenden Teile (Row 1, Row 3)
+
+**Was in diesem Handover ungeprüft/unzuverlässig ist:**
+- Ob LED-Note-Nummern für die neuen CC-Ranges (Fader 5–12, Row 2 21–28)
+  tatsächlich mit den CC-Nummern übereinstimmen (CC==LED-Note ist eine
+  Annahme aus der Original-XL-Doku, nicht am LCXL3 verifiziert)
+- Das gesamte LED-Farbprotokoll (kColorOff, kColorBound, Kanal 9) —
+  ebenfalls aus Original-XL-Doku, nicht am LCXL3 getestet
+- Die Button-Rows (Phase 2) fehlen komplett — weder implementiert noch
+  dokumentiert (siehe Abschnitt unten)
+- Der aktuelle Code-Stand ist inkonsistent: kPage1[] hat Row 2 noch auf
+  CC 49–56 statt 21–28, Fader noch auf CC 77–84 statt 5–12
+
+Opus sollte alle Annahmen über das LED-Protokoll am Gerät verifizieren
+bevor eine Version getaggt wird.
+
+---
+
 ## Status
 
 MIDI Output LED feature ist fertig implementiert und kompiliert.
@@ -174,11 +212,46 @@ Das braucht Messung am Gerät mit einem MIDI-Monitor der Antwort-NoteOns verfolg
 
 ---
 
-## Nächste Schritte für Opus
+## Button-Rows (Phase 2) — NICHT IMPLEMENTIERT
 
-1. `src/midi/LaunchControlXLLeds.h` mit den oben dokumentierten Korrekturen schreiben
-2. Build: `cmake --build build_clean --config Release -j$(sysctl -n hw.ncpu)`
-3. Verification Agent (opus): „This code has a bug. Find it."
-4. Commit: `fix(midi): correct LCXL3 CC ranges — faders CC 5-12, Row 2 CC 21-28`
-5. Nutzer testen lassen: Leuchten alle 32 Knobs + 8 Fader nach „XL Map"?
-6. Falls Fader-LED-Notes falsch: `ccToLedNote()` für CC 5–12 anpassen
+Die zwei Button-Rows des LCXL3 wurden in dieser Session nicht umgesetzt.
+Weder Bindings noch LED-Ansteuerung existieren.
+
+**Gewünschtes Verhalten (vom Nutzer spezifiziert):**
+
+| Button | Aktion |
+|--------|--------|
+| Snap 1 / 2 / 3 / 4 | Snapshot 1-4 |
+| Cache x2 / x4 / x8 / x16 | Cache-Multiplikator |
+| Seq Start/Stop | Sequencer starten/stoppen |
+| Seq Step/Gen | Step vs Gen umschalten |
+| Regen Manual | Manuelle Regeneration |
+| a.s.a.p | Sofort-Regen |
+| Regen 1bar / 2bar / 4bar | Regen nach Taktanzahl |
+| Panic | MIDI Panic (allNotesOff) |
+
+**Architektur-Unterschied zu Knobs:**
+
+Buttons senden NoteOn, nicht CC. Die bestehende ccMappings_-Tabelle greift
+nicht. Benoetigt wird eine separate noteToAction_-Tabelle in PluginProcessor,
+eine ButtonBinding-Struktur (note, action, ledNote, colorOn, colorOff), und
+NoteOn-Routing in processBlock. Die tatsaechlichen Note-Nummern der
+LCXL3-Buttons sind noch nicht gemessen.
+
+---
+
+## Naechste Schritte fuer Opus
+
+**Phase 1 - CC-Fix (dringend):**
+1. src/midi/LaunchControlXLLeds.h mit den oben dokumentierten Korrekturen schreiben
+2. Build: cmake --build build_clean --config Release -j$(sysctl -n hw.ncpu)
+3. Verification Agent (opus): This code has a bug. Find it.
+4. Commit: fix(midi): correct LCXL3 CC ranges -- faders CC 5-12, Row 2 CC 21-28
+5. Nutzer testen lassen: Leuchten alle 32 Knobs + 8 Fader nach XL Map?
+6. Falls Fader-LED-Notes falsch: ccToLedNote() fuer CC 5-12 anpassen
+
+**Phase 2 - Button-Rows:**
+7. Nutzer bittet, Note-Nummern der LCXL3-Buttons am Geraet zu messen
+8. ButtonBinding-Tabelle in LaunchControlXLLeds.h ergaenzen
+9. noteToAction_-Tabelle + NoteOn-Routing in PluginProcessor implementieren
+10. LED-Feedback fuer Button-Zustaende implementieren
