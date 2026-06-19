@@ -5167,8 +5167,8 @@ void T5ynthProcessor::applyXLDefaultBindings()
         CcMapping m;
         m.paramId = b.paramId;
         m.param   = param;
-        m.minNorm = 0.0f;
-        m.maxNorm = 1.0f;
+        m.minNorm = b.minNorm;
+        m.maxNorm = b.maxNorm;
         pending.push_back({ b.cc, std::move(m) });
     }
 

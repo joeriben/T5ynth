@@ -82,22 +82,24 @@ struct LaunchControlXLLeds
     // ── Page 1 default bindings: { paramId, CC, color } ─────────────────────
     // Applied by PluginProcessor::applyXLDefaultBindings() on user request.
     //
-    // Faders (CC 5-12): Alpha — Resynth — Cutoff — Res — Drive — DlyMix — RevMix — AmpAmt
+    // Faders (CC 5-12): Alpha(inv) — Resynth — Cutoff — Res — Drive — DlyMix — RevMix — Vol
+    // Alpha is inverted (minNorm=1,maxNorm=0): fader UP = A, matching the on-screen
+    // FlippedVerticalSlider (A at top). Vol = master_vol (the on-screen "Vol" knob).
     // Row 1 (CC 13-20): Env1 (amp)  A/D/S/R — LFO1 Rate/Amt — Drift1 Rate/Amt
     // Row 2 (CC 21-28): Env2 (mod1) A/D/S/R — LFO2 Rate/Amt — Drift2 Rate/Amt
     // Row 3 (CC 29-36): Env3 (mod2) A/D/S/R — LFO3 Rate/Amt — Drift3 Rate/Amt
     //
     // Physical row N drives module group N — matching the easy-panel tab order
     // ENV1/2/3 = amp/mod1/mod2 (SynthPanel initEnv). Rows 2 and 3 were swapped.
-    struct Binding { const char* paramId; int cc; int color; };
+    struct Binding { const char* paramId; int cc; int color; float minNorm = 0.0f; float maxNorm = 1.0f; };
 
     static constexpr Binding kPage1[] = {
         // Faders — Generation | Filter | FX | Vol  (CC 5-12)
-        { "gen_alpha",         5, kColorGen    }, { "resynth_amount",    6, kColorGen    },
+        { "gen_alpha",         5, kColorGen, 1.0f, 0.0f }, { "resynth_amount", 6, kColorGen },
         { "filter_cutoff",     7, kColorFilter }, { "filter_resonance",  8, kColorFilter },
         { "filter_drive",      9, kColorFilter },
         { "delay_mix",        10, kColorFx     }, { "reverb_mix",       11, kColorFx     },
-        { "amp_amount",       12, kColorVol    },
+        { "master_vol",       12, kColorVol    },
 
         // Row 1 — Env1 (amp) + LFO1 + Drift1  (CC 13-20)
         { "amp_attack",    13, kColorEnv   }, { "amp_decay",    14, kColorEnv   },
