@@ -4912,12 +4912,13 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         }
     }
 
-    // CC bindings — clear first, then restore from preset (if present).
-    // Old presets that lack "ccMappings" silently clear all bindings.
-    // Held under one lock to keep the audio thread's view atomic.
+    // CC bindings — resolve entries outside the lock (getParameter is lock-free
+    // but non-trivial), then hold the lock only for fill + field writes.
+    // Matches the handleAsyncUpdate() pattern: never call getParameter under
+    // the SpinLock; doing so lengthens the audio thread's contended window.
     {
-        const juce::SpinLock::ScopedLockType lock(ccMappingLock_);
-        ccMappings_.fill({});
+        struct PendingEntry { int cc; CcMapping m; };
+        std::vector<PendingEntry> pending;
         if (const auto* arr = root->getProperty("ccMappings").getArray())
         {
             for (const auto& entry : *arr)
@@ -4930,13 +4931,18 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 if (pid.isEmpty()) continue;
                 auto* param = parameters.getParameter(pid);
                 if (!param) continue;
-                auto& m = ccMappings_[static_cast<size_t>(cc)];
+                CcMapping m;
                 m.paramId = pid;
                 m.param   = param;
                 m.minNorm = obj->hasProperty("min") ? static_cast<float>(obj->getProperty("min")) : 0.0f;
                 m.maxNorm = obj->hasProperty("max") ? static_cast<float>(obj->getProperty("max")) : 1.0f;
+                pending.push_back({ cc, std::move(m) });
             }
         }
+        const juce::SpinLock::ScopedLockType lock(ccMappingLock_);
+        ccMappings_.fill({});
+        for (auto& e : pending)
+            ccMappings_[static_cast<size_t>(e.cc)] = std::move(e.m);
     }
 
     // Pin engine-mode to the loaded value so the audio thread's Step↔Gen
