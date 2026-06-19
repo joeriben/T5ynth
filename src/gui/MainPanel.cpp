@@ -453,6 +453,18 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         // cancelled / aborted: leave the current status text unchanged
     };
 
+    // MIDI output device selector
+    statusBar.onMidiOutputDeviceChanged = [this](const juce::String& deviceId)
+    {
+        processorRef.openMidiOutputDevice(deviceId);
+    };
+    statusBar.onApplyXLDefaults = [this]
+    {
+        processorRef.applyXLDefaultBindings();
+    };
+    statusBar.refreshMidiOutputDevices();
+    statusBar.setMidiOutputDeviceId(processorRef.getMidiOutputDeviceId());
+
     // Settings overlay (same pattern as DimExplorer)
     settingsScrim.onClick = [this] { hideSettings(); };
     settingsScrim.setVisible(false);
@@ -2284,6 +2296,8 @@ static juce::File getBufferPresetFile()
 
 MainPanel::~MainPanel()
 {
+    statusBar.onMidiOutputDeviceChanged = nullptr;
+    statusBar.onApplyXLDefaults         = nullptr;
     processorRef.onMidiLearnStateChanged = nullptr;
     releaseComputerKeyboardNotes();
     stopTimer();

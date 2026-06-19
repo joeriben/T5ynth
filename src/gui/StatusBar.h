@@ -33,6 +33,16 @@ public:
      *  a callback so MainPanel can populate it with rename/delete/etc. */
     std::function<void(juce::Point<int> screenPos)> onPresetNameContextMenu;
 
+    // ── MIDI Output device selector ─────────────────────────────────────────
+    /** Called when user selects a device. Empty string = no output. */
+    std::function<void(const juce::String& deviceId)> onMidiOutputDeviceChanged;
+    /** Called when user clicks "XL Map" — apply XL default CC bindings. */
+    std::function<void()> onApplyXLDefaults;
+    /** Sync the combo box to the currently-open device (call after processor restore). */
+    void setMidiOutputDeviceId(const juce::String& deviceId);
+    /** Refresh the device list (called on startup or when devices change). */
+    void refreshMidiOutputDevices();
+
     void mouseDown(const juce::MouseEvent& e) override;
 
 private:
@@ -49,6 +59,9 @@ private:
     juce::TextButton manualBtn { "Manual" };
     juce::TextButton panicBtn { "Panic" };
     juce::TextButton keyboardBtn { "Kbd" };
+
+    juce::ComboBox   midiOutCombo_;
+    juce::TextButton xlMapBtn_ { "XL Map" };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StatusBar)
 };

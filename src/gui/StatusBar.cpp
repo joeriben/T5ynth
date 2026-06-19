@@ -70,6 +70,42 @@ StatusBar::StatusBar()
         if (onKeyboardInputChanged)
             onKeyboardInputChanged(keyboardBtn.getToggleState());
     };
+
+    // MIDI output device combo box
+    midiOutCombo_.setColour(juce::ComboBox::backgroundColourId, kSurface);
+    midiOutCombo_.setColour(juce::ComboBox::textColourId, kDim);
+    midiOutCombo_.setColour(juce::ComboBox::outlineColourId, kSurface);
+    midiOutCombo_.setTooltip("MIDI output device for LED feedback");
+    addAndMakeVisible(midiOutCombo_);
+
+    midiOutCombo_.onChange = [this]
+    {
+        if (!onMidiOutputDeviceChanged) return;
+        const int idx = midiOutCombo_.getSelectedId();
+        if (idx <= 1)
+        {
+            onMidiOutputDeviceChanged({});
+        }
+        else
+        {
+            // IDs 2..N map to device index (idx - 2)
+            const auto devices = juce::MidiOutput::getAvailableDevices();
+            const int devIdx = idx - 2;
+            if (devIdx >= 0 && devIdx < devices.size())
+                onMidiOutputDeviceChanged(devices[devIdx].identifier);
+        }
+        xlMapBtn_.setEnabled(idx > 1);
+    };
+
+    // "XL Map" button — apply Launch Control XL Page 1 default bindings
+    xlMapBtn_.setColour(juce::TextButton::buttonColourId, kSurface);
+    xlMapBtn_.setColour(juce::TextButton::textColourOffId, kDim);
+    xlMapBtn_.setTooltip("Apply Launch Control XL Page 1 default CC bindings");
+    xlMapBtn_.setEnabled(false);
+    xlMapBtn_.onClick = [this] { if (onApplyXLDefaults) onApplyXLDefaults(); };
+    addAndMakeVisible(xlMapBtn_);
+
+    refreshMidiOutputDevices();
 }
 
 void StatusBar::mouseDown(const juce::MouseEvent& e)
@@ -101,8 +137,8 @@ void StatusBar::paint(juce::Graphics& g)
 
     int textX = juce::roundToInt(dotX + dotSize + 6.0f);
     // Status text + preset name share the space left of the leftmost button.
-    // Panic now sits left of Kbd, so it defines the right edge.
-    int rightEdge = panicBtn.getX() - 8;
+    // MIDI-out combo is now the leftmost control, so it defines the right edge.
+    int rightEdge = midiOutCombo_.getX() - 8;
     auto statusBounds = juce::Rectangle<int>(textX, 0,
                                              juce::jmax(0, rightEdge - textX),
                                              getHeight());
@@ -143,7 +179,8 @@ void StatusBar::resized()
     int y = 1;
     int gap = 4;
 
-    // Right to left: Manual, Settings, Export, Library, Save, Init, Kbd, Panic
+    // Right to left: Manual, Settings, Export, Library, Save, Init, Kbd, Panic,
+    //                XL Map, MIDI out combo
     int manualW   = 60;
     int settingsW = 60;
     int exportW   = 54;
@@ -152,6 +189,8 @@ void StatusBar::resized()
     int newW      = 40;
     int kbdW      = 42;
     int panicW    = 50;
+    int xlMapW    = 52;
+    int comboW    = 130;
 
     manualBtn.setBounds(b.getRight() - manualW - gap, y, manualW, btnH);
     settingsBtn.setBounds(manualBtn.getX() - settingsW - gap, y, settingsW, btnH);
@@ -161,6 +200,8 @@ void StatusBar::resized()
     newBtn.setBounds(saveBtn.getX() - newW - gap, y, newW, btnH);
     keyboardBtn.setBounds(newBtn.getX() - kbdW - gap, y, kbdW, btnH);
     panicBtn.setBounds(keyboardBtn.getX() - panicW - gap, y, panicW, btnH);
+    xlMapBtn_.setBounds(panicBtn.getX() - xlMapW - gap, y, xlMapW, btnH);
+    midiOutCombo_.setBounds(xlMapBtn_.getX() - comboW - gap, y, comboW, btnH);
 }
 
 void StatusBar::setStatusText(const juce::String& text)
@@ -189,4 +230,42 @@ void StatusBar::setKeyboardInputEnabled(bool enabled)
                           enabled ? juce::Colours::white : kDim);
     keyboardBtn.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
     keyboardBtn.repaint();
+}
+
+void StatusBar::refreshMidiOutputDevices()
+{
+    const auto currentId = midiOutCombo_.getSelectedId();
+    midiOutCombo_.clear(juce::dontSendNotification);
+    midiOutCombo_.addItem("No MIDI output", 1);
+    const auto devices = juce::MidiOutput::getAvailableDevices();
+    for (int i = 0; i < devices.size(); ++i)
+        midiOutCombo_.addItem(devices[i].name, i + 2);
+    // Restore selection if it was set
+    if (currentId > 0)
+        midiOutCombo_.setSelectedId(currentId, juce::dontSendNotification);
+    else
+        midiOutCombo_.setSelectedId(1, juce::dontSendNotification);
+}
+
+void StatusBar::setMidiOutputDeviceId(const juce::String& deviceId)
+{
+    if (deviceId.isEmpty())
+    {
+        midiOutCombo_.setSelectedId(1, juce::dontSendNotification);
+        xlMapBtn_.setEnabled(false);
+        return;
+    }
+    const auto devices = juce::MidiOutput::getAvailableDevices();
+    for (int i = 0; i < devices.size(); ++i)
+    {
+        if (devices[i].identifier == deviceId)
+        {
+            midiOutCombo_.setSelectedId(i + 2, juce::dontSendNotification);
+            xlMapBtn_.setEnabled(true);
+            return;
+        }
+    }
+    // Device not currently available — show "No MIDI output"
+    midiOutCombo_.setSelectedId(1, juce::dontSendNotification);
+    xlMapBtn_.setEnabled(false);
 }
