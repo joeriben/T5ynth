@@ -1,73 +1,54 @@
 #pragma once
 #include <JuceHeader.h>
 
-// ── Novation Launch Control XL — LED protocol + Page 1 default CC bindings ──
+// ── Novation Launch Control XL 3 (Mk3) — LED protocol + Page 1 CC bindings ──
 //
-// IMPORTANT: All constants below must be verified against the official
-// "Launch Control XL Programmer's Reference Guide" PDF (Focusrite downloads).
-// The values here are derived from multiple community sources and empirical
-// testing; they are believed correct for Template 1 but should be confirmed
-// on the physical device before shipping.
+// The LCXL3 has full-RGB LEDs set via SysEx (NOT the original XL's Note-On
+// velocity palette). One control's LED is addressed by its "control index":
 //
-// LED protocol (Template 1, MIDI channel 9 = index 8):
-//   To set an LED: NoteOn ch9, note = <led_note>, vel = <color_velocity>
-//   Color velocity = (16 * green_level) + red_level + kCopyFlag
-//     green_level, red_level: 0 (off) … 3 (full)
-//     kCopyFlag (12): write directly to LED without double-buffer swap
-//   Off: vel = kColorOff  (12 = copy flag, no color bits)
+//   F0 00 20 29 02 15 01 53 <control-index> <R> <G> <B> F7     (R/G/B 0..127)
 //
-// CC → LED note mapping (knob rows): CC# == LED note# on the XL.
-// Faders: CC 77-84; their LED note numbers also match the CC numbers.
-// ── VERIFY all of the above on hardware before committing to release ──
+//   00 20 29 = Novation manufacturer ID, 02 15 = LCXL3 device, 01 53 = LED cmd.
+//   juce::MidiMessage::createSysExMessage() adds the F0/F7, so we pass the
+//   inner bytes only.
+//
+// ASSUMPTION (verify on device): control-index == CC#, i.e. the same numbers
+// the hardware transmits (faders 5-12, knobs 13-36, buttons 37-52, all on MIDI
+// channel 1 in Custom Mode 1). If a control lights the WRONG LED, only the
+// index mapping in ccToLedNote() needs adjusting — colors + send path stay.
+//
+// Source: Novation LCXL3 programmer's reference (DAW-mode LED SysEx).
+
+namespace lcxl3_detail
+{
+    // Pack a 7-bit RGB triplet into one int: (R<<16)|(G<<8)|B, each 0..127.
+    constexpr int rgb (int r, int g, int b) noexcept { return (r << 16) | (g << 8) | b; }
+}
 
 struct LaunchControlXLLeds
 {
-    // ── Protocol constants ──────────────────────────────────────────────────
-    static constexpr int kMidiChannel = 9;   // 1-indexed (JUCE MidiMessage uses 1-based)
+    // ── Module accent colors (7-bit RGB) — mirrored from the on-screen UI
+    //    palette in src/gui/GuiHelpers.h. Each channel 0..127 (MIDI range). ──
+    static constexpr int kColorOff    = lcxl3_detail::rgb(  0,   0,   0);  // LED off
+    static constexpr int kColorBound  = lcxl3_detail::rgb(  0, 110,   0);  // CC-Learn bound (green)
 
-    // Color velocities: vel = (16*G + R + kCopyFlag), G/R in 0..3
-    static constexpr int kCopyFlag    = 12;
-    static constexpr int kColorOff    = 12;  // G=0, R=0, flag → LED off (registers state)
+    static constexpr int kColorGen    = lcxl3_detail::rgb( 51,  63, 117);  // Periwinkle #667EEA — generation (Alpha/Resynth)
+    static constexpr int kColorEnv    = lcxl3_detail::rgb(127,  55,   0);  // Amber      #FF6F00 — envelopes
+    static constexpr int kColorLfo    = lcxl3_detail::rgb(127,  55,   0);  // Amber      #FF6F00 — LFOs
+    static constexpr int kColorDrift  = lcxl3_detail::rgb(115,  40,   0);  // Dark amber #E65100 — drift
+    static constexpr int kColorFilter = lcxl3_detail::rgb( 62,  38, 127);  // Violet     #7C4DFF — filter
+    static constexpr int kColorFx     = lcxl3_detail::rgb(  0,  94, 106);  // Cyan       #00BCD4 — delay/reverb
+    static constexpr int kColorVol    = lcxl3_detail::rgb(  0, 100,  41);  // Green      #00C853 — amp amount
 
-    // Generic "bound by CC Learn" color (green) — used when learn binds an
-    // arbitrary CC that is not in the kPage1 default layout.
-    static constexpr int kColorBound  = 60;  // G=3, R=0, flag → green full
+    // ── CC ranges (LCXL3 Custom Mode 1, MIDI channel 1, verified) ───────────
+    // Faders (left→right): CC  5-12
+    // Row 1 top knobs:     CC 13-20
+    // Row 2 mid knobs:     CC 21-28
+    // Row 3 bottom knobs:  CC 29-36
+    // Buttons (2 rows):    CC 37-52   (Phase 2, not implemented)
 
-    // Waiting-for-CC color during an active CC Learn session (amber low).
-    static constexpr int kColorLearn  = 29;  // G=1, R=1, flag → amber low
-
-    // ── Module accent colors — matched to T5ynth UI palette ─────────────────
-    // XL palette: green (G=3,R=0), yellow (G=3,R=2), amber (G=3,R=3),
-    //             amber-low (G=1,R=1), red-low (G=0,R=1), red (G=0,R=3).
-    // UI → XL mapping:
-    //   kEnvCol  (Amber FF6F00) → amber full (63)  — envelopes
-    //   kLfoCol  (Amber FF6F00) → amber low  (29)  — LFOs (same palette, lower saturation)
-    //   kDriftCol (Dark amber)  → red low    (13)  — drift (random/subtle → dim red)
-    //   kFilterCol (Violet)     → red full   (15)  — filter (XL has no violet; red = "cut")
-    //   kFxCol   (Cyan 00BCD4)  → green full (60)  — FX delay/reverb (XL has no cyan)
-    //   kOscCol  (Periwinkle)   → full amber (63)  — generation controls (highest salience)
-    //   Amp amount              → green low  (28)  — output level
-    static constexpr int kColorGen    = 63;  // G=3, R=3 → full amber / orange — Alpha, Resynth
-    static constexpr int kColorEnv    = 62;  // G=3, R=2 → yellow               — Envelope A/D/S/R
-    static constexpr int kColorLfo    = 29;  // G=1, R=1 → amber low             — LFO Rate/Depth
-    static constexpr int kColorDrift  = 13;  // G=0, R=1 → red low               — Drift Rate/Depth
-    static constexpr int kColorFilter = 15;  // G=0, R=3 → red full              — Filter (cut)
-    static constexpr int kColorFx     = 60;  // G=3, R=0 → green full            — Delay / Reverb
-    static constexpr int kColorVol    = 28;  // G=1, R=0 → green low             — Amp amount
-
-    // ── CC ranges (LCXL3, verified by hardware measurement) ─────────────────
-    // Row 1 top knobs:    CC 13-20  (verified, wired)
-    // Row 2 mid knobs:    CC 21-28  (verified, wired)
-    // Row 3 bottom knobs: CC 29-36  (verified, wired)
-    // Faders:             CC  5-12  (verified, wired)
-    //                     CC 6/7/11 are reserved GM CCs (RPN / channel volume /
-    //                     expression); processBlock lets an explicit binding win,
-    //                     so the faders drive their mapped params.
-    // Buttons (2 rows):   CC 37-52  (verified) — Phase 2, not implemented.
-    // All XL controls transmit on MIDI channel 1 (Custom Mode 1).
-
-    // Map CC number → LED note index. Returns -1 if CC is not an XL control.
-    // Assumes CC# == LED note# for all knob rows and faders (verify on device).
+    // Map a CC number → LED control index. Returns -1 if not an XL control.
+    // (control-index == CC# assumed; see header note.)
     static int ccToLedNote(int cc) noexcept
     {
         if (cc >= 5  && cc <= 12) return cc;   // Faders (verified: CC 5-12)
@@ -77,56 +58,90 @@ struct LaunchControlXLLeds
         return -1;
     }
 
-    // Build a NoteOn LED-on message.
-    static juce::MidiMessage ledOn(int ledNote, int colorVelocity)
+    // Build a SysEx "set LED color" message for one control.
+    //   controlIndex : the control's index (== its CC#, see header note)
+    //   packedRgb    : (R<<16)|(G<<8)|B, each channel 0..127
+    static juce::MidiMessage ledOn(int controlIndex, int packedRgb)
     {
-        return juce::MidiMessage::noteOn(kMidiChannel, ledNote,
-                                         static_cast<uint8_t>(colorVelocity));
+        const juce::uint8 body[] = {
+            0x00, 0x20, 0x29, 0x02, 0x15, 0x01, 0x53,
+            static_cast<juce::uint8>(controlIndex      & 0x7F),
+            static_cast<juce::uint8>((packedRgb >> 16) & 0x7F),
+            static_cast<juce::uint8>((packedRgb >>  8) & 0x7F),
+            static_cast<juce::uint8>( packedRgb        & 0x7F)
+        };
+        return juce::MidiMessage::createSysExMessage(body, static_cast<int>(sizeof(body)));
     }
 
-    // Build a NoteOn LED-off message (vel = kColorOff to apply copy flag).
-    static juce::MidiMessage ledOff(int ledNote)
+    // Build a SysEx LED-off message (RGB 0,0,0).
+    static juce::MidiMessage ledOff(int controlIndex)
     {
-        return juce::MidiMessage::noteOn(kMidiChannel, ledNote,
-                                         static_cast<uint8_t>(kColorOff));
+        return ledOn(controlIndex, kColorOff);
     }
 
-    // ── Page 1 default bindings: { paramId, CC, color } ───────────────────
-    // Maps the agreed T5ynth parameter layout onto XL Page 1 controls.
+    // ── Page 1 default bindings: { paramId, CC, color } ─────────────────────
     // Applied by PluginProcessor::applyXLDefaultBindings() on user request.
     //
-    // Row 1 (CC 13-20): Env1 (amp)  A/D/S/R — LFO1 Rate/Amt — Drift1 Rate/Amt
-    // Row 2 (CC 21-28): Env3 (mod2) A/D/S/R — LFO3 Rate/Amt — Drift3 Rate/Amt
-    // Row 3 (CC 29-36): Env2 (mod1) A/D/S/R — LFO2 Rate/Amt — Drift2 Rate/Amt
     // Faders (CC 5-12): Alpha — Resynth — Cutoff — Res — Drive — DlyMix — RevMix — AmpAmt
+    // Row 1 (CC 13-20): Env1 (amp)  A/D/S/R — LFO1 Rate/Amt — Drift1 Rate/Amt
+    // Row 2 (CC 21-28): Env2 (mod1) A/D/S/R — LFO2 Rate/Amt — Drift2 Rate/Amt
+    // Row 3 (CC 29-36): Env3 (mod2) A/D/S/R — LFO3 Rate/Amt — Drift3 Rate/Amt
+    //
+    // Physical row N drives module group N — matching the easy-panel tab order
+    // ENV1/2/3 = amp/mod1/mod2 (SynthPanel initEnv). Rows 2 and 3 were swapped.
     struct Binding { const char* paramId; int cc; int color; };
 
     static constexpr Binding kPage1[] = {
-        // Row 1 — Env1 (amp) + LFO1 + Drift1
-        { "amp_attack",    13, kColorEnv   }, { "amp_decay",    14, kColorEnv   },
-        { "amp_sustain",   15, kColorEnv   }, { "amp_release",  16, kColorEnv   },
-        { "lfo1_rate",     17, kColorLfo   }, { "lfo1_depth",   18, kColorLfo   },
-        { "drift1_rate",   19, kColorDrift }, { "drift1_depth", 20, kColorDrift },
-
-        // Row 2 — Env3 (mod2) + LFO3 + Drift3  (verified: physical Row 2 sends CC 21-28)
-        { "mod2_attack",   21, kColorEnv   }, { "mod2_decay",   22, kColorEnv   },
-        { "mod2_sustain",  23, kColorEnv   }, { "mod2_release", 24, kColorEnv   },
-        { "lfo3_rate",     25, kColorLfo   }, { "lfo3_depth",   26, kColorLfo   },
-        { "drift3_rate",   27, kColorDrift }, { "drift3_depth", 28, kColorDrift },
-
-        // Row 3 — Env2 (mod1) + LFO2 + Drift2  (physical Row 3 sends CC 29-36)
-        { "mod1_attack",   29, kColorEnv   }, { "mod1_decay",   30, kColorEnv   },
-        { "mod1_sustain",  31, kColorEnv   }, { "mod1_release", 32, kColorEnv   },
-        { "lfo2_rate",     33, kColorLfo   }, { "lfo2_depth",   34, kColorLfo   },
-        { "drift2_rate",   35, kColorDrift }, { "drift2_depth", 36, kColorDrift },
-
         // Faders — Generation | Filter | FX | Vol  (CC 5-12)
         { "gen_alpha",         5, kColorGen    }, { "resynth_amount",    6, kColorGen    },
         { "filter_cutoff",     7, kColorFilter }, { "filter_resonance",  8, kColorFilter },
         { "filter_drive",      9, kColorFilter },
         { "delay_mix",        10, kColorFx     }, { "reverb_mix",       11, kColorFx     },
         { "amp_amount",       12, kColorVol    },
+
+        // Row 1 — Env1 (amp) + LFO1 + Drift1  (CC 13-20)
+        { "amp_attack",    13, kColorEnv   }, { "amp_decay",    14, kColorEnv   },
+        { "amp_sustain",   15, kColorEnv   }, { "amp_release",  16, kColorEnv   },
+        { "lfo1_rate",     17, kColorLfo   }, { "lfo1_depth",   18, kColorLfo   },
+        { "drift1_rate",   19, kColorDrift }, { "drift1_depth", 20, kColorDrift },
+
+        // Row 2 — Env2 (mod1) + LFO2 + Drift2  (CC 21-28)
+        { "mod1_attack",   21, kColorEnv   }, { "mod1_decay",   22, kColorEnv   },
+        { "mod1_sustain",  23, kColorEnv   }, { "mod1_release", 24, kColorEnv   },
+        { "lfo2_rate",     25, kColorLfo   }, { "lfo2_depth",   26, kColorLfo   },
+        { "drift2_rate",   27, kColorDrift }, { "drift2_depth", 28, kColorDrift },
+
+        // Row 3 — Env3 (mod2) + LFO3 + Drift3  (CC 29-36)
+        { "mod2_attack",   29, kColorEnv   }, { "mod2_decay",   30, kColorEnv   },
+        { "mod2_sustain",  31, kColorEnv   }, { "mod2_release", 32, kColorEnv   },
+        { "lfo3_rate",     33, kColorLfo   }, { "lfo3_depth",   34, kColorLfo   },
+        { "drift3_rate",   35, kColorDrift }, { "drift3_depth", 36, kColorDrift },
     };
 
     static constexpr int kPage1Count = static_cast<int>(std::size(kPage1));
+
+    // Canonical Page-1 paramId bound to a CC, or nullptr if the CC is not in the map.
+    static const char* paramIdForCc(int cc) noexcept
+    {
+        for (const auto& b : kPage1)
+            if (b.cc == cc) return b.paramId;
+        return nullptr;
+    }
+
+    // One-time migration for presets saved before the Row-2/Row-3 fix, where the
+    // two knob blocks (CC 21-28 ↔ 29-36) were swapped. Because the blocks were
+    // swapped wholesale, the pre-fix paramId at a CC equals the *canonical*
+    // paramId of its swap partner (CC±8); that signature uniquely identifies a
+    // stale slot. Genuine user CC-learns (e.g. CC21→filter_cutoff) never match,
+    // so they are returned unchanged.
+    static juce::String migrateLegacyKnobParam(int cc, const juce::String& loadedParamId)
+    {
+        if (cc < 21 || cc > 36) return loadedParamId;        // only the swapped blocks moved
+        const int partnerCc   = (cc <= 28) ? cc + 8 : cc - 8;
+        const char* canonical = paramIdForCc(cc);
+        const char* legacy    = paramIdForCc(partnerCc);     // == what the slot held pre-fix
+        if (canonical != nullptr && legacy != nullptr && loadedParamId == legacy)
+            return juce::String(canonical);
+        return loadedParamId;
+    }
 };

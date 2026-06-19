@@ -4958,8 +4958,9 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 if (!obj) continue;
                 const int cc = static_cast<int>(obj->getProperty("cc"));
                 if (cc < 0 || cc >= 128) continue;
-                const juce::String pid = obj->getProperty("param").toString();
+                juce::String pid = obj->getProperty("param").toString();
                 if (pid.isEmpty()) continue;
+                pid = LaunchControlXLLeds::migrateLegacyKnobParam(cc, pid);   // repair pre-fix swapped XL knob layout
                 auto* param = parameters.getParameter(pid);
                 if (!param) continue;
                 CcMapping m;
@@ -5149,8 +5150,10 @@ void T5ynthProcessor::sendLearnLed(bool learning, int boundCc)
 
 void T5ynthProcessor::applyXLDefaultBindings()
 {
-    // Populate CC bindings from the Page 1 map. Only writes slots that are currently
-    // unbound — existing user-learned mappings are preserved.
+    // Populate CC bindings from the Page 1 map. XL Map is authoritative for the
+    // controls it owns: each Page-1 CC is overwritten so a stale/half-applied
+    // table (e.g. an old layout or a leftover learn) is fully repaired. Bindings
+    // on CCs outside the Page-1 set are left untouched.
     struct PendingEntry { int cc; CcMapping m; };
     std::vector<PendingEntry> pending;
     pending.reserve(LaunchControlXLLeds::kPage1Count);
@@ -5172,11 +5175,7 @@ void T5ynthProcessor::applyXLDefaultBindings()
     {
         const juce::SpinLock::ScopedLockType lock(ccMappingLock_);
         for (auto& e : pending)
-        {
-            auto& slot = ccMappings_[static_cast<size_t>(e.cc)];
-            if (slot.paramId.isEmpty())          // don't overwrite existing bindings
-                slot = std::move(e.m);
-        }
+            ccMappings_[static_cast<size_t>(e.cc)] = std::move(e.m);   // overwrite — XL Map wins
     }
 
     // Light up all XL Page 1 LEDs in their module accent color.
