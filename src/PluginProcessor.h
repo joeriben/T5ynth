@@ -537,8 +537,6 @@ public:
     /** The param waiting for a CC assignment. Message thread only. */
     const juce::String& getMidiLearnParamId() const { return midiLearnParamId; }
 
-    std::atomic<bool> midiLearnActive { false };
-
 private:
 
     void handleAsyncUpdate() override;
@@ -546,6 +544,7 @@ private:
     // ── MIDI CC Learn (internals) ────────────────────────────────────────────
     std::array<CcMapping, 128> ccMappings_;
     mutable juce::SpinLock     ccMappingLock_;
+    std::atomic<bool>          midiLearnActive { false };
     std::atomic<int>           midiLearnTargetCc { -1 };  // audio thread writes, message thread reads
     juce::String               midiLearnParamId;           // message thread only
 

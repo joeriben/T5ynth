@@ -184,6 +184,10 @@ T5ynthProcessor::T5ynthProcessor()
 
 T5ynthProcessor::~T5ynthProcessor()
 {
+    // Cancel any pending AsyncUpdater callback before members are destroyed.
+    // Same rule as stopTimer() — must run while all members are still alive.
+    cancelPendingUpdate();
+
     samplerReprepareThreadShouldExit.store(true, std::memory_order_release);
     if (samplerReprepareThread.joinable())
         samplerReprepareThread.join();
@@ -2672,6 +2676,36 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                         else if (cc == 121)
                         {
                             voiceManager.resetPerformanceControllers();
+                        }
+                        else
+                        {
+                            // CC Learn intercept: signal the message thread with the CC number.
+                            if (midiLearnActive.load(std::memory_order_relaxed))
+                            {
+                                midiLearnTargetCc.store(cc, std::memory_order_release);
+                                triggerAsyncUpdate();
+                            }
+                            else
+                            {
+                                // Normal operation: apply any bound mapping.
+                                // ScopedTryLockType: if the message thread holds the lock
+                                // (writing a new binding) we skip this block — safe, the
+                                // binding will be visible on the next CC event.
+                                const juce::SpinLock::ScopedTryLockType tryLock(ccMappingLock_);
+                                if (tryLock.isLocked())
+                                {
+                                    // param* and minNorm/maxNorm only — no String access.
+                                    const auto& mapping = ccMappings_[static_cast<size_t>(cc)];
+                                    if (mapping.param != nullptr)
+                                    {
+                                        const float norm = juce::jmap(
+                                            static_cast<float>(value7), 0.f, 127.f,
+                                            mapping.minNorm, mapping.maxNorm);
+                                        mapping.param->setValueNotifyingHost(
+                                            juce::jlimit(0.0f, 1.0f, norm));
+                                    }
+                                }
+                            }
                         }
                     }
                     ++midiIter;
