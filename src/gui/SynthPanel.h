@@ -144,10 +144,8 @@ private:
         juce::Label header;
         juce::Label targetHeader;   // easy-view "Target" left-header band
         juce::ComboBox targetBox;
-        juce::TextButton loopToggle { "Loop" };   // switchbox toggle (both views)
         std::unique_ptr<SliderRow> aRow, dRow, sRow, rRow, amtRow;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> aA, dA, sA, rA, amtA;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> loopA;
 
         // Per-stage velocity sensitivity, signed [-1..+1]. A/D/R = velocity→time,
         // Sustain = velocity→peak. Four short vertical sliders under the easy-view
@@ -267,7 +265,6 @@ private:
                  const juce::String& aVsId, const juce::String& dVsId,
                  const juce::String& sVsId, const juce::String& rVsId,
                  const juce::String& amtId,
-                 const juce::String& loopId,
                  juce::AudioProcessorValueTreeState& apvts);
     void initLfo(LfoSection& lfo, const juce::String& name,
                  const juce::String& rateId, const juce::String& depthId,

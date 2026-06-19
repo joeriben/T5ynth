@@ -53,7 +53,6 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
                           const juce::String& aVsId, const juce::String& dVsId,
                           const juce::String& sVsId, const juce::String& rVsId,
                           const juce::String& amtId,
-                          const juce::String& loopId,
                           juce::AudioProcessorValueTreeState& apvts)
 {
     env.header.setText(name, juce::dontSendNotification);
@@ -68,15 +67,6 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     env.targetBox.setSelectedId(defaultTarget, juce::dontSendNotification);
     env.targetBox.onChange = [this] { updateVisibility(); resized(); };
     addAndMakeVisible(env.targetBox);
-
-    // Loop: standard switchbox toggle (kSurface off / accent@0.7 + white on),
-    // used in both views. In easy it sits in the top row, right of the dropdown.
-    env.loopToggle.setClickingTogglesState(true);
-    env.loopToggle.setColour(juce::TextButton::buttonColourId, kSurface);
-    env.loopToggle.setColour(juce::TextButton::buttonOnColourId, kEnvCol.withAlpha(0.7f));
-    env.loopToggle.setColour(juce::TextButton::textColourOffId, kDim);
-    env.loopToggle.setColour(juce::TextButton::textColourOnId, kHeaderText);
-    addAndMakeVisible(env.loopToggle);
 
     // Easy-view "Target" left-header band (accent@0.7 + white, like SNAP/CACHE).
     paintSectionHeader(env.targetHeader, "Target", kEnvCol);
@@ -112,7 +102,6 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     env.dVsA = std::make_unique<SA>(apvts, dVsId, env.dVsRow->getSlider());
     env.sVsA = std::make_unique<SA>(apvts, sVsId, env.sVsRow->getSlider());
     env.rVsA = std::make_unique<SA>(apvts, rVsId, env.rVsRow->getSlider());
-    env.loopA = std::make_unique<BA>(apvts, loopId, env.loopToggle);
 
     // Velocity sliders snap back to neutral (0) on double-click.
     for (auto* row : { env.aVsRow.get(), env.dVsRow.get(), env.sVsRow.get(), env.rVsRow.get() })
@@ -1051,15 +1040,15 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     initEnv(ampEnv,  "ENV 1", 2, PID::ampAttack,  PID::ampDecay,  PID::ampSustain,  PID::ampRelease,
             PID::ampAttackCurve, PID::ampDecayCurve, PID::ampReleaseCurve,
             PID::ampAttackVelSens, PID::ampDecayVelSens, PID::ampSustainVelSens, PID::ampReleaseVelSens,
-            PID::ampAmount,  PID::ampLoop,  apvts);
+            PID::ampAmount,  apvts);
     initEnv(mod1Env, "ENV 2", 1, PID::mod1Attack, PID::mod1Decay, PID::mod1Sustain, PID::mod1Release,
             PID::mod1AttackCurve, PID::mod1DecayCurve, PID::mod1ReleaseCurve,
             PID::mod1AttackVelSens, PID::mod1DecayVelSens, PID::mod1SustainVelSens, PID::mod1ReleaseVelSens,
-            PID::mod1Amount, PID::mod1Loop, apvts);
+            PID::mod1Amount, apvts);
     initEnv(mod2Env, "ENV 3", 1, PID::mod2Attack, PID::mod2Decay, PID::mod2Sustain, PID::mod2Release,
             PID::mod2AttackCurve, PID::mod2DecayCurve, PID::mod2ReleaseCurve,
             PID::mod2AttackVelSens, PID::mod2DecayVelSens, PID::mod2SustainVelSens, PID::mod2ReleaseVelSens,
-            PID::mod2Amount, PID::mod2Loop, apvts);
+            PID::mod2Amount, apvts);
 
     // ── LFOs ──
     initLfo(lfo1, "LFO 1",
@@ -1382,7 +1371,6 @@ void SynthPanel::updateVisibility()
         bool active = env.targetBox.getSelectedId() != 1; // 1 = "---"
         float alpha = active ? 1.0f : dimAlpha;
         env.header.setAlpha(alpha);   // advanced-view title greys out when the env drives nothing
-        env.loopToggle.setAlpha(alpha);
         env.aCurveBtn.setAlpha(alpha);
         env.dCurveBtn.setAlpha(alpha);
         env.rCurveBtn.setAlpha(alpha);
@@ -1462,8 +1450,6 @@ void SynthPanel::updateVisibility()
         env.targetBox.setVisible(!easy || selected);
         // "Target" left-header is an easy-only label (advanced uses env.header).
         env.targetHeader.setVisible(easy && selected);
-        // Loop is now exposed in easy too (a toggle in the top row).
-        env.loopToggle.setVisible(!easy || selected);
         // Curve buttons: advanced only — in easy you set curves by clicking the
         // graph's segments.
         env.aCurveBtn.setVisible(!easy);
@@ -1654,8 +1640,7 @@ bool SynthPanel::hasModHiddenActiveState() const
 
     auto envAdvancedHidden = [&](const EnvSection& env)
     {
-        return env.loopToggle.getToggleState()
-            || comboId(env.aCurveHidden, 3) != 3
+        return comboId(env.aCurveHidden, 3) != 3
             || comboId(env.dCurveHidden, 3) != 3
             || comboId(env.rCurveHidden, 5) != 5;
     };
@@ -1832,8 +1817,6 @@ void SynthPanel::layoutEnv(EnvSection& env, juce::Rectangle<int>& area, float f,
     int targetW = juce::roundToInt(hdr.getWidth() * 0.28f);
     env.header.setBounds(hdr.removeFromLeft(headerW));
     env.targetBox.setBounds(hdr.removeFromLeft(targetW));
-    hdr.removeFromLeft(4);
-    env.loopToggle.setBounds(hdr.removeFromLeft(juce::roundToInt(hdr.getWidth() * 0.4f)));
 
     // Always allocate space — inactive sections are dimmed, not hidden
     int btnSize = rowH - 2;  // square, slightly smaller than row height
@@ -2135,16 +2118,13 @@ void SynthPanel::layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float
             r->clearForcedValueWidth();
         }
 
-    // Top row: [Target left-header][short dropdown] ........... [Loop toggle]
+    // Top row: [Target left-header][short dropdown]
     auto targetRow = area.removeFromTop(rowH);
     const float headerFs = juce::jmax(kUiControlFontMin, juce::jmin(13.0f, static_cast<float>(rowH) * 0.58f));
     env.targetHeader.setFont(juce::FontOptions(headerFs, juce::Font::bold));
     const int targetHdrW = measureTextWidth("Target", headerFs) + 16;
     env.targetHeader.setBounds(targetRow.removeFromLeft(juce::jmin(targetHdrW, targetRow.getWidth())));
     targetRow.removeFromLeft(gap);
-    const int loopW = buttonTextWidthFor("Loop", f, juce::roundToInt(f * 3.2f));
-    env.loopToggle.setBounds(targetRow.removeFromRight(juce::jmin(loopW, targetRow.getWidth())));
-    targetRow.removeFromRight(gap);
     const int tgtW = choiceBoxWidthFor(EnvTarget::kEntries, f, juce::roundToInt(f * 7.0f));
     env.targetBox.setBounds(targetRow.removeFromLeft(juce::jmin(tgtW, targetRow.getWidth())));
     area.removeFromTop(gap);
