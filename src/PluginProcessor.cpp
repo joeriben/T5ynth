@@ -4880,3 +4880,72 @@ juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new T5ynthProcessor();
 }
+
+// ── MIDI CC Learn ──────────────────────────────────────────────────────────
+
+void T5ynthProcessor::startMidiLearn(const juce::String& paramId)
+{
+    midiLearnParamId = paramId;
+    midiLearnTargetCc.store(-1, std::memory_order_release);
+    midiLearnActive.store(true, std::memory_order_release);
+}
+
+void T5ynthProcessor::cancelMidiLearn()
+{
+    midiLearnActive.store(false, std::memory_order_release);
+    midiLearnParamId.clear();
+    midiLearnTargetCc.store(-1, std::memory_order_release);
+    cancelPendingUpdate();
+}
+
+void T5ynthProcessor::clearCcMapping(int cc)
+{
+    if (cc < 0 || cc >= 128) return;
+    const juce::SpinLock::ScopedLockType lock(ccMappingLock_);
+    ccMappings_[static_cast<size_t>(cc)] = {};
+}
+
+void T5ynthProcessor::clearAllCcMappings()
+{
+    const juce::SpinLock::ScopedLockType lock(ccMappingLock_);
+    ccMappings_.fill({});
+}
+
+T5ynthProcessor::CcMapping T5ynthProcessor::getCcMappingCopy(int cc) const
+{
+    if (cc < 0 || cc >= 128) return {};
+    const juce::SpinLock::ScopedLockType lock(ccMappingLock_);
+    return ccMappings_[static_cast<size_t>(cc)];
+}
+
+void T5ynthProcessor::handleAsyncUpdate()
+{
+    const int cc = midiLearnTargetCc.load(std::memory_order_acquire);
+    if (cc < 0 || cc >= 128 || midiLearnParamId.isEmpty())
+    {
+        midiLearnActive.store(false, std::memory_order_release);
+        midiLearnParamId.clear();
+        return;
+    }
+
+    auto* param = parameters.getParameter(midiLearnParamId);
+    if (param == nullptr)
+    {
+        midiLearnActive.store(false, std::memory_order_release);
+        midiLearnParamId.clear();
+        return;
+    }
+
+    {
+        const juce::SpinLock::ScopedLockType lock(ccMappingLock_);
+        auto& m = ccMappings_[static_cast<size_t>(cc)];
+        m.paramId  = midiLearnParamId;
+        m.param    = param;
+        m.minNorm  = 0.0f;
+        m.maxNorm  = 1.0f;
+    }
+
+    midiLearnActive.store(false, std::memory_order_release);
+    midiLearnParamId.clear();
+    midiLearnTargetCc.store(-1, std::memory_order_release);
+}

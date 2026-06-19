@@ -19,7 +19,8 @@
 #include "sequencer/Arpeggiator.h"
 #include "inference/PipeInference.h"
 
-class T5ynthProcessor : public juce::AudioProcessor
+class T5ynthProcessor : public juce::AudioProcessor,
+                        private juce::AsyncUpdater
 {
 public:
     T5ynthProcessor();
@@ -517,7 +518,36 @@ public:
     std::atomic<float> driftRegenBpm { 120.0f };   // current BPM for cooldown calc
     std::atomic<bool>  barBoundaryFlag { false };
 
+    // ── MIDI CC Learn (public API — call from message thread only) ──────────
+    struct CcMapping
+    {
+        juce::String                paramId;           // APVTS param ID — message thread only
+        juce::RangedAudioParameter* param   = nullptr; // resolved pointer — audio thread reads this
+        float                       minNorm = 0.0f;
+        float                       maxNorm = 1.0f;
+    };
+
+    void startMidiLearn(const juce::String& paramId);
+    void cancelMidiLearn();
+    void clearCcMapping(int cc);
+    void clearAllCcMappings();
+    /** Returns a copy of the mapping for the given CC (0–127). Thread-safe: acquires ccMappingLock_. */
+    CcMapping getCcMappingCopy(int cc) const;
+    bool isMidiLearnActive() const { return midiLearnActive.load(std::memory_order_relaxed); }
+    /** The param waiting for a CC assignment. Message thread only. */
+    const juce::String& getMidiLearnParamId() const { return midiLearnParamId; }
+
+    std::atomic<bool> midiLearnActive { false };
+
 private:
+
+    void handleAsyncUpdate() override;
+
+    // ── MIDI CC Learn (internals) ────────────────────────────────────────────
+    std::array<CcMapping, 128> ccMappings_;
+    mutable juce::SpinLock     ccMappingLock_;
+    std::atomic<int>           midiLearnTargetCc { -1 };  // audio thread writes, message thread reads
+    juce::String               midiLearnParamId;           // message thread only
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(T5ynthProcessor)
 };
