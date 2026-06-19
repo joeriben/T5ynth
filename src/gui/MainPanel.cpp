@@ -445,6 +445,14 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     statusBar.onPresetNameContextMenu = [this](juce::Point<int> p) { showPresetNameContextMenu(p); };
     statusBar.setKeyboardInputEnabled(false);
 
+    processorRef.onMidiLearnStateChanged = [this](bool learning, int boundCc) {
+        if (learning)
+            statusBar.setStatusText("MIDI Learn: touch a CC on your controller...");
+        else if (boundCc >= 0)
+            statusBar.setStatusText("Assigned to CC " + juce::String(boundCc));
+        // cancelled / aborted: leave the current status text unchanged
+    };
+
     // Settings overlay (same pattern as DimExplorer)
     settingsScrim.onClick = [this] { hideSettings(); };
     settingsScrim.setVisible(false);
@@ -2276,6 +2284,7 @@ static juce::File getBufferPresetFile()
 
 MainPanel::~MainPanel()
 {
+    processorRef.onMidiLearnStateChanged = nullptr;
     releaseComputerKeyboardNotes();
     stopTimer();
 

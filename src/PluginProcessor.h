@@ -539,6 +539,11 @@ public:
     /** Search all mappings for one bound to paramId. Returns CC (0–127) or -1. Message thread only. */
     int findBoundCc(const juce::String& paramId) const;
 
+    /** Fired on the message thread whenever MIDI Learn mode changes.
+     *  learning=true → learn started. learning=false, boundCc≥0 → CC was bound.
+     *  learning=false, boundCc<0 → cancelled or aborted (no change to make). */
+    std::function<void(bool learning, int boundCc)> onMidiLearnStateChanged;
+
 private:
 
     void handleAsyncUpdate() override;

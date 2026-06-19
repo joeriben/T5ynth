@@ -4974,6 +4974,7 @@ void T5ynthProcessor::startMidiLearn(const juce::String& paramId)
     midiLearnParamId = paramId;
     midiLearnTargetCc.store(-1, std::memory_order_release);
     midiLearnActive.store(true, std::memory_order_release);
+    if (onMidiLearnStateChanged) onMidiLearnStateChanged(true, -1);
 }
 
 void T5ynthProcessor::cancelMidiLearn()
@@ -4982,6 +4983,7 @@ void T5ynthProcessor::cancelMidiLearn()
     midiLearnParamId.clear();
     midiLearnTargetCc.store(-1, std::memory_order_release);
     cancelPendingUpdate();
+    if (onMidiLearnStateChanged) onMidiLearnStateChanged(false, -1);
 }
 
 void T5ynthProcessor::clearCcMapping(int cc)
@@ -5021,6 +5023,7 @@ void T5ynthProcessor::handleAsyncUpdate()
     {
         midiLearnActive.store(false, std::memory_order_release);
         midiLearnParamId.clear();
+        if (onMidiLearnStateChanged) onMidiLearnStateChanged(false, -1);
         return;
     }
 
@@ -5029,6 +5032,7 @@ void T5ynthProcessor::handleAsyncUpdate()
     {
         midiLearnActive.store(false, std::memory_order_release);
         midiLearnParamId.clear();
+        if (onMidiLearnStateChanged) onMidiLearnStateChanged(false, -1);
         return;
     }
 
@@ -5044,6 +5048,7 @@ void T5ynthProcessor::handleAsyncUpdate()
     midiLearnActive.store(false, std::memory_order_release);
     midiLearnParamId.clear();
     midiLearnTargetCc.store(-1, std::memory_order_release);
+    if (onMidiLearnStateChanged) onMidiLearnStateChanged(false, cc);
 }
 
 int T5ynthProcessor::findBoundCc(const juce::String& paramId) const
