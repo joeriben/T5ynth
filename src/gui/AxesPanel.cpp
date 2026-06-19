@@ -48,7 +48,7 @@ AxesPanel::AxesPanel(juce::AudioProcessorValueTreeState& apvts)
 
     // Master amount: scales all axis deltas before they reach the backend.
     amountLabel.setText("Amount", juce::dontSendNotification);
-    amountLabel.setColour(juce::Label::textColourId, kDim);   // match the other captions
+    labelAsCaption(amountLabel, kDim);   // match the other captions
     amountLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(amountLabel);
 
@@ -58,7 +58,7 @@ AxesPanel::AxesPanel(juce::AudioProcessorValueTreeState& apvts)
     amountSlider.setColour(juce::Slider::backgroundColourId, kBorder);   // visible rail (kSurface too dark on kBg)
     addAndMakeVisible(amountSlider);
 
-    amountValue.setColour(juce::Label::textColourId, kOscCol);
+    labelAsCaption(amountValue, kOscCol);
     amountValue.setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(amountValue);
 
@@ -92,17 +92,17 @@ void AxesPanel::initSlot(AxisSlot& slot, const juce::StringArray& options, int a
     addAndMakeVisible(*slot.slider);
 
     slot.valueLabel = std::make_unique<juce::Label>("", "0.00");
-    slot.valueLabel->setColour(juce::Label::textColourId, sliderColor);
+    labelAsCaption(*slot.valueLabel, sliderColor);
     slot.valueLabel->setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(*slot.valueLabel);
 
     slot.poleLabelA = std::make_unique<juce::Label>();
-    slot.poleLabelA->setColour(juce::Label::textColourId, kTextMuted);
+    labelAsCaption(*slot.poleLabelA, kTextMuted);
     slot.poleLabelA->setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(*slot.poleLabelA);
 
     slot.poleLabelB = std::make_unique<juce::Label>();
-    slot.poleLabelB->setColour(juce::Label::textColourId, kTextMuted);
+    labelAsCaption(*slot.poleLabelB, kTextMuted);
     slot.poleLabelB->setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(*slot.poleLabelB);
 

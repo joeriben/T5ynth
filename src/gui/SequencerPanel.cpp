@@ -523,7 +523,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     bpmRow->updateValue();
 
     // ── MIDI monitor ──
-    midiMonitor.setColour(juce::Label::textColourId, juce::Colour(0xff4ade80));
+    midiMonitor.setColour(juce::Label::textColourId, kSuccess);
     midiMonitor.setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(midiMonitor);
 
@@ -807,7 +807,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
 
             // Dom: small "Dom" label + slider 0..1
             strandDomLabels[i].setText("Dom", juce::dontSendNotification);
-            strandDomLabels[i].setColour(juce::Label::textColourId, kDim);
+            labelAsCaption(strandDomLabels[i], kDim);
             strandDomLabels[i].setJustificationType(juce::Justification::centredRight);
             strandDomLabels[i].setBorderSize(juce::BorderSize<int>(0));
             addAndMakeVisible(strandDomLabels[i]);
@@ -1153,7 +1153,7 @@ void SequencerPanel::timerCallback()
         auto txt = on ? (noteName(note) + " v" + juce::String(vel))
                       : (noteName(note) + " off");
         midiMonitor.setText(txt, juce::dontSendNotification);
-        midiMonitor.setColour(juce::Label::textColourId, on ? juce::Colour(0xff4ade80) : kDim);
+        midiMonitor.setColour(juce::Label::textColourId, on ? kSuccess : kDim);
     }
 
     // LED reflects lastMidiNoteOn alone — kept outside the note-number guard so
@@ -1196,7 +1196,7 @@ void SequencerPanel::paint(juce::Graphics& g)
     if (!midiLedBounds.isEmpty())
     {
         bool noteOn = processorRef.lastMidiNoteOn.load(std::memory_order_relaxed);
-        g.setColour(noteOn ? juce::Colour(0xff4ade80) : kDimmer);
+        g.setColour(noteOn ? kSuccess : kDimmer);
         g.fillEllipse(midiLedBounds);
     }
 

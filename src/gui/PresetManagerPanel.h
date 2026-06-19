@@ -434,7 +434,7 @@ public:
     {
         statusLabel.setText(s, juce::dontSendNotification);
         statusLabel.setColour(juce::Label::textColourId,
-                              isError ? juce::Colour(0xffff8a80) : kDim);
+                              isError ? kErrorText : kDim);
     }
 
     /** Disable the Update / Import buttons while a background sync is in
@@ -2001,7 +2001,7 @@ private:
             addAndMakeVisible(nameEdit);
 
             configureLabel(warningLabel);
-            warningLabel.setColour(juce::Label::textColourId, juce::Colour(0xffffaa55));
+            warningLabel.setColour(juce::Label::textColourId, kWarning);
             warningLabel.setJustificationType(juce::Justification::centredLeft);
             addAndMakeVisible(warningLabel);
 
@@ -2451,7 +2451,7 @@ private:
                 warningLabel.setText(juce::String::fromUTF8("\xe2\x9a\xa0  Will replace \"")
                                      + name + "\" in bank \"" + bankLabel + "\"",
                                      juce::dontSendNotification);
-                warningLabel.setColour(juce::Label::textColourId, juce::Colour(0xffff5050));
+                warningLabel.setColour(juce::Label::textColourId, kWarningStrong);
                 saveBtn.setButtonText("Replace \"" + name + "\"");
                 saveBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffaa3333));
             }
@@ -2577,9 +2577,9 @@ private:
 
         if (isConflictRow)
         {
-            g.setColour(juce::Colour(0xffff5050).withAlpha(0.28f));
+            g.setColour(kWarningStrong.withAlpha(0.28f));
             g.fillRect(0, 0, width, height);
-            g.setColour(juce::Colour(0xffff5050));
+            g.setColour(kWarningStrong);
             g.fillRect(0, 0, 3, height);
         }
         else

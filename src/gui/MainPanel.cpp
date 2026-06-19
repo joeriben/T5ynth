@@ -414,8 +414,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     addAndMakeVisible(oscHeader);
 
     poweredByLabel.setText("Powered by Stability AI", juce::dontSendNotification);
-    poweredByLabel.setColour(juce::Label::textColourId, kBg.withAlpha(0.7f));
-    poweredByLabel.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    labelAsCaption(poweredByLabel, kBg.withAlpha(0.7f));   // dark sub-label on the periwinkle header band
     poweredByLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(poweredByLabel);
 
@@ -874,7 +873,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     addAndMakeVisible(masterVolKnob);
 
     masterVolLabel.setText("Vol", juce::dontSendNotification);
-    masterVolLabel.setColour(juce::Label::textColourId, kDim);
+    labelAsCaption(masterVolLabel, kDim);
     masterVolLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(masterVolLabel);
 

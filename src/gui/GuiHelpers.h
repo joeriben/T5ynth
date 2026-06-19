@@ -21,6 +21,18 @@ static const auto kCard    = juce::Colour(0xff1a1e2a);  // Card/section backgrou
 static const auto kBg      = juce::Colour(0xff0e1018);  // Main background (dark blue-gray, not black)
 static const auto kBorder  = juce::Colour(0xff353a4a);  // Section borders (more visible)
 
+// ── Status / feedback colours ──────────────────────────────────────────────
+// Semantic STATE (ok / caution / failure), not module identity. Values are
+// preserved verbatim from the scattered literals they replace — this is pure
+// centralisation, zero visual change. The two tonal variants exist because a
+// softer red reads better as caption text on dark, and a hotter red marks a
+// high-severity warning; collapse them here if the design ever unifies them.
+static const auto kSuccess       = juce::Colour(0xff4ade80);  // ok / active / valid
+static const auto kError         = juce::Colour(0xffef4444);  // failure / invalid
+static const auto kErrorText     = juce::Colour(0xffff8a80);  // softer red — error text on dark
+static const auto kWarning       = juce::Colour(0xffffaa55);  // caution
+static const auto kWarningStrong = juce::Colour(0xffff5050);  // high-severity caution
+
 // Inverted section-header / title-band text. Light (near-white) reads better on
 // the accent@0.7 fills than dark ink does on EVERY accent (verified via WCAG
 // large-text contrast); it also matches the GENERATE button's light-on-accent

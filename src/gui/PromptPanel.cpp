@@ -122,7 +122,7 @@ static void makeLabel(juce::Label& l, const juce::String& text, juce::Colour col
                       juce::Justification just, juce::Component* p)
 {
     l.setText(text, juce::dontSendNotification);
-    l.setColour(juce::Label::textColourId, col);
+    labelAsCaption(l, col);
     l.setJustificationType(just);
     p->addAndMakeVisible(l);
 }

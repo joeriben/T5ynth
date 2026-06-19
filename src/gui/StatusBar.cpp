@@ -54,7 +54,7 @@ StatusBar::StatusBar()
     // Red text so the destructive action is visible. Same red as the
     // disconnect-state dot (kept inline rather than promoted to a palette
     // entry — Panic is the only red surface in the bar).
-    panicBtn.setColour(juce::TextButton::textColourOffId, juce::Colour(0xffef4444));
+    panicBtn.setColour(juce::TextButton::textColourOffId, kError);
     panicBtn.setTooltip("MIDI Panic — release all hanging voices");
 
     newBtn.onClick      = [this] { if (onNewPreset) onNewPreset(); };
@@ -92,7 +92,7 @@ void StatusBar::paint(juce::Graphics& g)
     float h = static_cast<float>(getHeight());
     float dotSize = juce::jmax(5.0f, h * 0.30f);
     float dotX = 8.0f;
-    g.setColour(backendConnected ? juce::Colour(0xff4ade80) : juce::Colour(0xffef4444));
+    g.setColour(backendConnected ? kSuccess : kError);
     g.fillEllipse(dotX, (h - dotSize) * 0.5f, dotSize, dotSize);
 
     float fs = juce::jlimit(10.0f, 14.0f, h * 0.55f);

@@ -1555,7 +1555,7 @@ SettingsPage::InstallOutcome SettingsPage::installFromManifestFolder(
                     self->downloadStatusLabel.setText("Model install failed",
                                                       juce::dontSendNotification);
                     self->downloadStatusLabel.setColour(juce::Label::textColourId,
-                                                        juce::Colour(0xffef4444));
+                                                        kError);
                     juce::AlertWindow::showMessageBoxAsync(
                         juce::MessageBoxIconType::WarningIcon, errorTitle, errorBody);
                     return;
@@ -1564,7 +1564,7 @@ SettingsPage::InstallOutcome SettingsPage::installFromManifestFolder(
                 self->downloadStatusLabel.setText("Model copied. Activating...",
                                                   juce::dontSendNotification);
                 self->downloadStatusLabel.setColour(juce::Label::textColourId,
-                                                    juce::Colour(0xff4ade80));
+                                                    kSuccess);
 
                 juce::AlertWindow::showMessageBoxAsync(
                     juce::MessageBoxIconType::InfoIcon,
@@ -1614,7 +1614,7 @@ void SettingsPage::performAutoScan()
             updateStatus();
             downloadStatusLabel.setText("Model import failed", juce::dontSendNotification);
             downloadStatusLabel.setColour(juce::Label::textColourId,
-                                          juce::Colour(0xffef4444));
+                                          kError);
             setInstructionsText(instructionsLabel, importResult.getErrorMessage());
             return;
         }
@@ -1623,7 +1623,7 @@ void SettingsPage::performAutoScan()
         downloadStatusLabel.setText("Model imported: " + activeDir.getFullPathName(),
                                     juce::dontSendNotification);
         downloadStatusLabel.setColour(juce::Label::textColourId,
-                                      juce::Colour(0xff4ade80));
+                                      kSuccess);
         return;
     }
 
@@ -1639,7 +1639,7 @@ void SettingsPage::performAutoScan()
             "No model found in standard locations. Follow the instructions below.",
             juce::dontSendNotification);
         downloadStatusLabel.setColour(juce::Label::textColourId,
-                                      juce::Colour(0xffef4444));
+                                      kError);
         return;
     }
     const auto modelDisplayName = selectedModelDisplay();
@@ -1665,7 +1665,7 @@ void SettingsPage::performAutoScan()
                 self->downloadStatusLabel.setText("Could not reach HuggingFace",
                                                   juce::dontSendNotification);
                 self->downloadStatusLabel.setColour(juce::Label::textColourId,
-                                                    juce::Colour(0xffef4444));
+                                                    kError);
                 juce::AlertWindow::showMessageBoxAsync(
                     juce::MessageBoxIconType::WarningIcon,
                     "Could not fetch the file list",
@@ -1714,7 +1714,7 @@ void SettingsPage::performAutoScan()
                             "Auto-Scan cancelled. Follow the checklist below.",
                             juce::dontSendNotification);
                         s2->downloadStatusLabel.setColour(juce::Label::textColourId,
-                                                          juce::Colour(0xffef4444));
+                                                          kError);
                         return;
                     }
                     s2->installFromManifestFolder(
@@ -3333,11 +3333,11 @@ void SettingsPage::onDownloadFinished(bool success, const juce::String& error)
             // as a generation engine (no setModelPath / backend restart). The
             // engine-focus restore happens below, after the success/failure split.
             downloadStatusLabel.setText(selectedModelDisplay() + " installed.", juce::dontSendNotification);
-            downloadStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xff4ade80));
+            downloadStatusLabel.setColour(juce::Label::textColourId, kSuccess);
         }
     } else {
         downloadStatusLabel.setText("Download failed", juce::dontSendNotification);
-        downloadStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xffef4444));
+        downloadStatusLabel.setColour(juce::Label::textColourId, kError);
         // Show full error in the multi-line instructions area
         setInstructionsText(instructionsLabel, error);
     }
@@ -3358,11 +3358,11 @@ void SettingsPage::setBackendConnected(bool connected)
     backendStatusLabel.setText(connected ? "Backend: Connected" : "Backend: Not connected",
                               juce::dontSendNotification);
     backendStatusLabel.setColour(juce::Label::textColourId,
-        connected ? juce::Colour(0xff4ade80) : juce::Colour(0xffef4444));
+        connected ? kSuccess : kError);
     if (connected && modelPath.exists())
     {
         downloadStatusLabel.setText("Model active.", juce::dontSendNotification);
-        downloadStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xff4ade80));
+        downloadStatusLabel.setColour(juce::Label::textColourId, kSuccess);
     }
     updateStatus();
 }
@@ -3386,10 +3386,10 @@ void SettingsPage::setBackendFailed(const juce::String& reason)
     backendConnected = false;
     backendFailReason = reason;
     backendStatusLabel.setText("Backend: Start failed", juce::dontSendNotification);
-    backendStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xffef4444));
+    backendStatusLabel.setColour(juce::Label::textColourId, kError);
     downloadStatusLabel.setText("Activation failed: " + firstErrorLine(reason),
                                 juce::dontSendNotification);
-    downloadStatusLabel.setColour(juce::Label::textColourId, juce::Colour(0xffef4444));
+    downloadStatusLabel.setColour(juce::Label::textColourId, kError);
     updateStatus();
 }
 

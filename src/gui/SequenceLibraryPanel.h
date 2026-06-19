@@ -111,7 +111,7 @@ public:
     {
         statusLabel.setText(s, juce::dontSendNotification);
         statusLabel.setColour(juce::Label::textColourId,
-                              isError ? juce::Colour(0xffff8a80) : kDim);
+                              isError ? kErrorText : kDim);
     }
 
     /** Owner calls this when opening the overlay: rescan, clear transient
