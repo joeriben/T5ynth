@@ -5159,11 +5159,11 @@ void T5ynthProcessor::applyXLDefaultBindings()
         }
     }
 
-    // Light up all newly-bound LEDs on the XL.
+    // Light up all XL Page 1 LEDs in their module accent color.
     for (const auto& b : LaunchControlXLLeds::kPage1)
     {
         const int note = LaunchControlXLLeds::ccToLedNote(b.cc);
         if (note >= 0)
-            sendMidiOutputMessage(LaunchControlXLLeds::ledOn(note, LaunchControlXLLeds::kColorBound));
+            sendMidiOutputMessage(LaunchControlXLLeds::ledOn(note, b.color));
     }
 }
