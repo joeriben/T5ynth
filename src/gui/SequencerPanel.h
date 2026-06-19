@@ -142,7 +142,8 @@ private:
     // ── Polyphony (Phase 5) ──────────────────────────────────────────────
     // Shared pitch-field controls
     juce::ComboBox genFieldModeBox;
-    std::unique_ptr<SliderRow> genFieldRateRow;   // TODO: inline-value variant of SliderRow
+    juce::ComboBox genFieldRateBox;    // "Cyc" — field cycle count (1..32) as a dropdown
+    juce::Label    genFieldRateLabel;  // "Cyc" left-header band
     // Per-extra-strand (indices 0..3 map to strands 2..5)
     static constexpr int kNumExtraStrands = 4;
     juce::TextButton strandEnableBtns[kNumExtraStrands];
@@ -191,7 +192,7 @@ private:
 
     // Polyphony attachments
     std::unique_ptr<CA> genFieldModeA;
-    std::unique_ptr<SA> genFieldRateA;
+    std::unique_ptr<CA> genFieldRateA;
     std::unique_ptr<BA> strandEnableA[kNumExtraStrands];
     std::unique_ptr<CA> strandRoleA[kNumExtraStrands];
     std::unique_ptr<CA> strandDivA[kNumExtraStrands];

@@ -656,9 +656,8 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         addAndMakeVisible(genRangeBtns[i]);
     }
     genRangeA = std::make_unique<CA>(apvts, PID::genRange, genRangeHidden);
-    genRangeLabel.setText("Range", juce::dontSendNotification);
-    genRangeLabel.setColour(juce::Label::textColourId, kDim);
-    genRangeLabel.setJustificationType(juce::Justification::centredRight);
+    // "Rng" left-header band (standard accent@0.7 + white design).
+    paintSectionHeader(genRangeLabel, "Rng", kSeqCol);
     addAndMakeVisible(genRangeLabel);
 
     genMutationRow = std::make_unique<SliderRow>("Evolve",
@@ -706,13 +705,21 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         addAndMakeVisible(genFieldModeBox);
         genFieldModeA = std::make_unique<CA>(apvts, PID::genFieldMode, genFieldModeBox);
 
-        genFieldRateRow = std::make_unique<SliderRow>("Field",
-            [](double v) { return juce::String(juce::roundToInt(v)) + " cyc"; },
-            kSeqCol);
-        addAndMakeVisible(*genFieldRateRow);
-        genFieldRateA = std::make_unique<SA>(apvts, PID::genFieldRate, genFieldRateRow->getSlider());
-        genFieldRateRow->getSlider().onValueChange = [this] { genFieldRateRow->updateValue(); };
-        genFieldRateRow->updateValue();
+        // Field cycle count (1..32) as a dropdown, mirroring the StepSeq step-
+        // count box. Items must match the param's 32 discrete values 1:1 and be
+        // populated BEFORE the attachment (ComboBoxAttachment maps item index ↔
+        // param value, so 32 items ⇒ index i → value i+1).
+        for (int i = 1; i <= 32; ++i)
+            genFieldRateBox.addItem(juce::String(i), i);
+        genFieldRateBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
+        genFieldRateBox.setColour(juce::ComboBox::textColourId, kSeqCol);
+        genFieldRateBox.setColour(juce::ComboBox::outlineColourId, kBorder);
+        addAndMakeVisible(genFieldRateBox);
+        genFieldRateA = std::make_unique<CA>(apvts, PID::genFieldRate, genFieldRateBox);
+
+        // "Cyc" left-header band (standard accent@0.7 + white design).
+        paintSectionHeader(genFieldRateLabel, "Cyc", kSeqCol);
+        addAndMakeVisible(genFieldRateLabel);
     }
     {
         juce::StringArray roleItems;
@@ -1534,7 +1541,8 @@ void SequencerPanel::resized()
     genFixRotationBtn.setVisible(genModeActive);
     genFixMutationBtn.setVisible(genModeActive);
     genFieldModeBox.setVisible(genModeActive);
-    if (genFieldRateRow) genFieldRateRow->setVisible(genModeActive);
+    genFieldRateBox.setVisible(genModeActive);
+    genFieldRateLabel.setVisible(genModeActive);
     for (int i = 0; i < kNumExtraStrands; ++i)
     {
         strandEnableBtns[i].setVisible(genModeActive);
@@ -1595,65 +1603,78 @@ void SequencerPanel::resized()
         genMutationCardBounds = placeGenCard(row2.removeFromLeft(colW), *genMutationRow, genFixMutationBtn);
         area.removeFromTop(4);
 
-        // ── 2-column / 2-row GEN block ──
-        //   Left column (narrow):
-        //     Row L1: [C▾] [DblHarm▾] [Rng][1][2][3][4]
-        //     Row L2: [Mode▾] [Field== 12cyc]
+        // ── 2-column GEN block ──
+        //   Left column (narrow, 3 rows):
+        //     Row L1: [C▾] [DblHarm▾]                  (Root + Scale)
+        //     Row L2: [Rng][1][2][3][4]                (Range)
+        //     Row L3: [Mode▾] [Cyc][12▾]               (Transform mode + Cyc)
         //   Right column (wide): four strand modules side by side, each one
         //     a 3-row vertical block — row 1 [Sx][Role▾], row 2 [Div▾][Dom],
         //     row 3 the octave switchbox across the full module width (its own
         //     row so the five cells stay readable in a narrow strand column).
-        //   Generous horizontal padding between strand modules visually
-        //   delimits each strand without a separator graphic.
+        //   The left column is kept tight so the strand modules get the width
+        //     they need (otherwise the Dominance slider gets crushed to nothing).
         {
             const int intraGap = 2;
             const int colGap   = 12;
             const int blockH   = 3 * genCtrlH + 2 * intraGap;
             auto block = area.removeFromTop(blockH);
 
-            const int leftW = juce::jlimit(360, 540, block.getWidth() / 5);  // ~20%, clamped
+            const float bandFs = static_cast<float>(genCtrlH) * 0.55f;
+            const int   rngLblW = 34;   // "Rng" band
+            const int   cycLblW = 34;   // "Cyc" band
+
+            const int leftW = juce::jlimit(178, 220, block.getWidth() * 2 / 9);
             auto leftCol  = block.removeFromLeft(leftW);
             block.removeFromLeft(colGap);
             auto rightCol = block;
 
-            // ── Left column — Row L1: Scale + Range ──
+            // ── Left column — Row L1: Root + Scale ──
             {
                 auto rowL1 = leftCol.removeFromTop(genCtrlH);
                 const int rootW   = 55;
                 const int scaleW  = 100;
-                const int rngLblW = 32;
-                const int rngBtnW = 22;
                 const int gapTiny = 2;
-                const int gapMid  = 8;
                 genScaleRootBox.setBounds(rowL1.removeFromLeft(rootW));  rowL1.removeFromLeft(gapTiny);
-                genScaleTypeBox.setBounds(rowL1.removeFromLeft(scaleW)); rowL1.removeFromLeft(gapMid);
-                genRangeLabel.setText("Rng", juce::dontSendNotification);
-                genRangeLabel.setFont(uiFont(TextRole::Caption, static_cast<float>(genCtrlH) * 0.55f));
-                genRangeLabel.setBounds(rowL1.removeFromLeft(rngLblW)); rowL1.removeFromLeft(gapTiny);
+                genScaleTypeBox.setBounds(rowL1.removeFromLeft(scaleW));
+            }
+            leftCol.removeFromTop(intraGap);
+
+            // ── Left column — Row L2: Range ──
+            {
+                auto rowL2 = leftCol.removeFromTop(genCtrlH);
+                const int rngBtnW = 22;
+                const int gapMid  = 6;
+                genRangeLabel.setFont(uiFont(TextRole::Caption, bandFs));
+                genRangeLabel.setBounds(rowL2.removeFromLeft(rngLblW)); rowL2.removeFromLeft(gapMid);
                 for (int i = 0; i < kNumRangeBtns; ++i)
                 {
                     int edges = 0;
                     if (i > 0) edges |= juce::Button::ConnectedOnLeft;
                     if (i < kNumRangeBtns - 1) edges |= juce::Button::ConnectedOnRight;
                     genRangeBtns[i].setConnectedEdges(edges);
-                    genRangeBtns[i].setBounds(rowL1.removeFromLeft(rngBtnW));
+                    genRangeBtns[i].setBounds(rowL2.removeFromLeft(rngBtnW));
                 }
                 genRangeSwitchBounds = genRangeBtns[0].getBounds()
                     .getUnion(genRangeBtns[kNumRangeBtns - 1].getBounds());
             }
             leftCol.removeFromTop(intraGap);
 
-            // ── Left column — Row L2: Field Mode + Field Rate ──
+            // ── Left column — Row L3: Transform mode + Cyc ──
             // Field Center PC and Pivot interval are no longer separate
             // controls — they are derived from the Scale Root and Scale
             // Type respectively (see PluginProcessor's per-block setters).
             {
-                auto rowL2 = leftCol.removeFromTop(genCtrlH);   // 1 row; block is now 3 rows tall
-                const int modeW = 95;
-                const int gapSm = 4;
-                genFieldModeBox.setBounds(rowL2.removeFromLeft(modeW));
-                rowL2.removeFromLeft(gapSm);
-                if (genFieldRateRow) genFieldRateRow->setBounds(rowL2);
+                auto rowL3 = leftCol.removeFromTop(genCtrlH);
+                const int modeW   = 76;   // ~−20% vs the old 95
+                const int gapSm   = 6;
+                const int gapTiny = 2;
+                genFieldModeBox.setBounds(rowL3.removeFromLeft(juce::jmin(modeW, rowL3.getWidth())));
+                rowL3.removeFromLeft(gapSm);
+                genFieldRateLabel.setFont(uiFont(TextRole::Caption, bandFs));
+                genFieldRateLabel.setBounds(rowL3.removeFromLeft(juce::jmin(cycLblW, rowL3.getWidth())));
+                rowL3.removeFromLeft(gapTiny);
+                genFieldRateBox.setBounds(rowL3.removeFromLeft(juce::jmin(64, rowL3.getWidth())));
             }
 
             // ── Right column — 4 strand modules side by side ──
