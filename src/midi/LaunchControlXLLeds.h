@@ -55,11 +55,11 @@ struct LaunchControlXLLeds
     static constexpr int kColorFx     = 60;  // G=3, R=0 → green full            — Delay / Reverb
     static constexpr int kColorVol    = 28;  // G=1, R=0 → green low             — Amp amount
 
-    // ── CC ranges (Template 1) ──────────────────────────────────────────────
+    // ── CC ranges (observed hardware behaviour) ─────────────────────────────
     // Row 1 top knobs:    CC 13-20
-    // Row 2 mid knobs:    CC 29-36
-    // Row 3 bottom knobs: CC 49-56  (VERIFY — some sources list 45-52)
-    // Faders:             CC 77-84
+    // Row 2 mid knobs:    CC 49-56  (verified: physical Row 2 sends 49-56)
+    // Row 3 bottom knobs: CC 29-36  (verified: physical Row 3 sends 29-36)
+    // Faders:             CC ??-??  (VERIFY — device not yet responding to 77-84)
     // All on MIDI ch 9.
 
     // Map CC number → LED note index. Returns -1 if CC is not an XL control.
@@ -104,17 +104,17 @@ struct LaunchControlXLLeds
         { "lfo1_rate",     17, kColorLfo   }, { "lfo1_depth",   18, kColorLfo   },
         { "drift1_rate",   19, kColorDrift }, { "drift1_depth", 20, kColorDrift },
 
-        // Row 2 — Env2 (mod1) + LFO2 + Drift2
-        { "mod1_attack",   29, kColorEnv   }, { "mod1_decay",   30, kColorEnv   },
-        { "mod1_sustain",  31, kColorEnv   }, { "mod1_release", 32, kColorEnv   },
-        { "lfo2_rate",     33, kColorLfo   }, { "lfo2_depth",   34, kColorLfo   },
-        { "drift2_rate",   35, kColorDrift }, { "drift2_depth", 36, kColorDrift },
-
-        // Row 3 — Env3 (mod2) + LFO3 + Drift3  (CC 49-56 — VERIFY)
+        // Row 2 — Env3 (mod2) + LFO3 + Drift3  (physical Row 2 sends CC 49-56)
         { "mod2_attack",   49, kColorEnv   }, { "mod2_decay",   50, kColorEnv   },
         { "mod2_sustain",  51, kColorEnv   }, { "mod2_release", 52, kColorEnv   },
         { "lfo3_rate",     53, kColorLfo   }, { "lfo3_depth",   54, kColorLfo   },
         { "drift3_rate",   55, kColorDrift }, { "drift3_depth", 56, kColorDrift },
+
+        // Row 3 — Env2 (mod1) + LFO2 + Drift2  (physical Row 3 sends CC 29-36)
+        { "mod1_attack",   29, kColorEnv   }, { "mod1_decay",   30, kColorEnv   },
+        { "mod1_sustain",  31, kColorEnv   }, { "mod1_release", 32, kColorEnv   },
+        { "lfo2_rate",     33, kColorLfo   }, { "lfo2_depth",   34, kColorLfo   },
+        { "drift2_rate",   35, kColorDrift }, { "drift2_depth", 36, kColorDrift },
 
         // Faders — Generation | Filter | FX | Vol
         { "gen_alpha",        77, kColorGen    }, { "resynth_amount",   78, kColorGen    },
