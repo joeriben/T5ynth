@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include "BinaryData.h"
 #include "dsp/Tuning.h"
+#include "midi/LaunchControlXLLeds.h"
 #include <chrono>
 
 #define SAMPLER_PROCESSOR_DEBUG_LOG 0
@@ -187,6 +188,8 @@ T5ynthProcessor::~T5ynthProcessor()
     // Cancel any pending AsyncUpdater callback before members are destroyed.
     // Same rule as stopTimer() — must run while all members are still alive.
     cancelPendingUpdate();
+
+    closeMidiOutputDevice();
 
     samplerReprepareThreadShouldExit.store(true, std::memory_order_release);
     if (samplerReprepareThread.joinable())
@@ -3805,6 +3808,7 @@ void T5ynthProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto state = parameters.copyState();
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
+    xml->setAttribute("midiOutputDeviceId", midiOutputDeviceId_);
     copyXmlToBinary(*xml, destData);
 }
 
@@ -3932,6 +3936,13 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
     // covers hosts that reuse a live instance across project loads.
     lastSeqPreset.store(-1, std::memory_order_relaxed);
     seqStateRestored.store(true, std::memory_order_relaxed);
+
+    // Restore MIDI output device (per-installation setting, not per-preset).
+    {
+        const auto deviceId = xml->getStringAttribute("midiOutputDeviceId");
+        if (deviceId.isNotEmpty())
+            openMidiOutputDevice(deviceId);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -4974,6 +4985,7 @@ void T5ynthProcessor::startMidiLearn(const juce::String& paramId)
     midiLearnParamId = paramId;
     midiLearnTargetCc.store(-1, std::memory_order_release);
     midiLearnActive.store(true, std::memory_order_release);
+    sendLearnLed(true, -1);
     if (onMidiLearnStateChanged) onMidiLearnStateChanged(true, -1);
 }
 
@@ -4983,12 +4995,17 @@ void T5ynthProcessor::cancelMidiLearn()
     midiLearnParamId.clear();
     midiLearnTargetCc.store(-1, std::memory_order_release);
     cancelPendingUpdate();
+    sendLearnLed(false, -1);
     if (onMidiLearnStateChanged) onMidiLearnStateChanged(false, -1);
 }
 
 void T5ynthProcessor::clearCcMapping(int cc)
 {
     if (cc < 0 || cc >= 128) return;
+    // Turn off the LED before clearing the binding.
+    const int note = LaunchControlXLLeds::ccToLedNote(cc);
+    if (note >= 0)
+        sendMidiOutputMessage(LaunchControlXLLeds::ledOff(note));
     const juce::SpinLock::ScopedLockType lock(ccMappingLock_);
     ccMappings_[static_cast<size_t>(cc)] = {};
 }
@@ -5011,8 +5028,8 @@ T5ynthProcessor::CcMapping T5ynthProcessor::getCcMappingCopy(int cc) const
         result.param   = m.param;
         result.minNorm = m.minNorm;
         result.maxNorm = m.maxNorm;
+        result.paramId = m.paramId;  // must be read under the lock (juce::String is not free-threaded)
     }
-    result.paramId = ccMappings_[static_cast<size_t>(cc)].paramId;
     return result;
 }
 
@@ -5023,6 +5040,7 @@ void T5ynthProcessor::handleAsyncUpdate()
     {
         midiLearnActive.store(false, std::memory_order_release);
         midiLearnParamId.clear();
+        sendLearnLed(false, -1);
         if (onMidiLearnStateChanged) onMidiLearnStateChanged(false, -1);
         return;
     }
@@ -5032,6 +5050,7 @@ void T5ynthProcessor::handleAsyncUpdate()
     {
         midiLearnActive.store(false, std::memory_order_release);
         midiLearnParamId.clear();
+        sendLearnLed(false, -1);
         if (onMidiLearnStateChanged) onMidiLearnStateChanged(false, -1);
         return;
     }
@@ -5048,6 +5067,7 @@ void T5ynthProcessor::handleAsyncUpdate()
     midiLearnActive.store(false, std::memory_order_release);
     midiLearnParamId.clear();
     midiLearnTargetCc.store(-1, std::memory_order_release);
+    sendLearnLed(false, cc);
     if (onMidiLearnStateChanged) onMidiLearnStateChanged(false, cc);
 }
 
@@ -5058,4 +5078,92 @@ int T5ynthProcessor::findBoundCc(const juce::String& paramId) const
         if (ccMappings_[static_cast<size_t>(cc)].paramId == paramId)
             return cc;
     return -1;
+}
+
+// ── MIDI Output (LED feedback) ─────────────────────────────────────────────
+
+void T5ynthProcessor::openMidiOutputDevice(const juce::String& deviceId)
+{
+    closeMidiOutputDevice();
+    if (deviceId.isEmpty()) return;
+
+    // openDevice can block — call before acquiring the lock.
+    auto device = juce::MidiOutput::openDevice(deviceId);
+    if (!device) return;
+
+    const juce::SpinLock::ScopedLockType lock(midiOutputLock_);
+    midiOutputDevice_   = std::move(device);
+    midiOutputDeviceId_ = deviceId;
+}
+
+void T5ynthProcessor::closeMidiOutputDevice()
+{
+    const juce::SpinLock::ScopedLockType lock(midiOutputLock_);
+    midiOutputDevice_.reset();
+    midiOutputDeviceId_.clear();
+}
+
+void T5ynthProcessor::sendMidiOutputMessage(const juce::MidiMessage& msg)
+{
+    // Message thread only — MidiOutput::sendMessageNow is not audio-thread-safe.
+    const juce::SpinLock::ScopedLockType lock(midiOutputLock_);
+    if (!midiOutputDevice_) return;
+    try { midiOutputDevice_->sendMessageNow(msg); } catch (...) {}
+}
+
+void T5ynthProcessor::sendLearnLed(bool learning, int boundCc)
+{
+    if (learning)
+    {
+        // No LED change on learn-start — the XL has no knob-ring LEDs to blink.
+        // Amber pulse could be added here in future (button-row Phase 2).
+        return;
+    }
+    if (boundCc >= 0)
+    {
+        const int note = LaunchControlXLLeds::ccToLedNote(boundCc);
+        if (note >= 0)
+            sendMidiOutputMessage(LaunchControlXLLeds::ledOn(note, LaunchControlXLLeds::kColorBound));
+    }
+}
+
+void T5ynthProcessor::applyXLDefaultBindings()
+{
+    // Populate CC bindings from the Page 1 map. Only writes slots that are currently
+    // unbound — existing user-learned mappings are preserved.
+    struct PendingEntry { int cc; CcMapping m; };
+    std::vector<PendingEntry> pending;
+    pending.reserve(LaunchControlXLLeds::kPage1Count);
+
+    for (int i = 0; i < LaunchControlXLLeds::kPage1Count; ++i)
+    {
+        const auto& b = LaunchControlXLLeds::kPage1[i];
+        if (b.cc < 0 || b.cc >= 128) continue;
+        auto* param = parameters.getParameter(b.paramId);
+        if (!param) continue;
+        CcMapping m;
+        m.paramId = b.paramId;
+        m.param   = param;
+        m.minNorm = 0.0f;
+        m.maxNorm = 1.0f;
+        pending.push_back({ b.cc, std::move(m) });
+    }
+
+    {
+        const juce::SpinLock::ScopedLockType lock(ccMappingLock_);
+        for (auto& e : pending)
+        {
+            auto& slot = ccMappings_[static_cast<size_t>(e.cc)];
+            if (slot.paramId.isEmpty())          // don't overwrite existing bindings
+                slot = std::move(e.m);
+        }
+    }
+
+    // Light up all newly-bound LEDs on the XL.
+    for (const auto& b : LaunchControlXLLeds::kPage1)
+    {
+        const int note = LaunchControlXLLeds::ccToLedNote(b.cc);
+        if (note >= 0)
+            sendMidiOutputMessage(LaunchControlXLLeds::ledOn(note, LaunchControlXLLeds::kColorBound));
+    }
 }

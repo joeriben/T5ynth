@@ -544,9 +544,25 @@ public:
      *  learning=false, boundCc<0 → cancelled or aborted (no change to make). */
     std::function<void(bool learning, int boundCc)> onMidiLearnStateChanged;
 
+    // ── MIDI Output (LED feedback) — message thread only ────────────────────
+    void openMidiOutputDevice(const juce::String& deviceId);
+    void closeMidiOutputDevice();
+    const juce::String& getMidiOutputDeviceId() const { return midiOutputDeviceId_; }
+    /** Populate CC bindings with the agreed XL Page 1 layout.
+     *  Does NOT overwrite bindings for CCs already mapped to a param. */
+    void applyXLDefaultBindings();
+
 private:
 
     void handleAsyncUpdate() override;
+
+    // ── MIDI Output (LED feedback) ───────────────────────────────────────────
+    std::unique_ptr<juce::MidiOutput> midiOutputDevice_;
+    juce::String                      midiOutputDeviceId_;
+    juce::SpinLock                    midiOutputLock_;
+
+    void sendMidiOutputMessage(const juce::MidiMessage& msg);
+    void sendLearnLed(bool learning, int boundCc);
 
     // ── MIDI CC Learn (internals) ────────────────────────────────────────────
     std::array<CcMapping, 128> ccMappings_;
