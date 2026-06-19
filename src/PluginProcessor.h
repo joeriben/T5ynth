@@ -552,8 +552,9 @@ public:
     void openMidiOutputDevice(const juce::String& deviceId);
     void closeMidiOutputDevice();
     const juce::String& getMidiOutputDeviceId() const { return midiOutputDeviceId_; }
-    /** Populate CC bindings with the agreed XL Page 1 layout.
-     *  Does NOT overwrite bindings for CCs already mapped to a param. */
+    /** Enable DAW mode, overwrite the XL Page-1 CC bindings with the canonical
+     *  layout, and (after a short delay) light the LEDs. Authoritative for the
+     *  Page-1 CC range; bindings on other CCs are left untouched. */
     void applyXLDefaultBindings();
 
 private:
@@ -563,10 +564,23 @@ private:
     // ── MIDI Output (LED feedback) ───────────────────────────────────────────
     std::unique_ptr<juce::MidiOutput> midiOutputDevice_;
     juce::String                      midiOutputDeviceId_;
+    bool                              dawModeActive_ = false;  // XL driven in DAW mode (host LEDs)
     juce::SpinLock                    midiOutputLock_;
+
+    // One-shot timer for the deferred XL LED burst (see applyXLDefaultBindings).
+    // Owned + declared AFTER the midiOutput members so it is torn down (and its
+    // ~Timer stops it) before them; ~T5ynthProcessor also stops it explicitly. This
+    // makes the deferred burst safe even if a host destroys the plugin off the
+    // message thread — unlike an un-cancellable Timer::callAfterDelay.
+    struct OneShotTimer : public juce::Timer {
+        std::function<void()> fn;
+        void timerCallback() override { stopTimer(); if (fn) fn(); }
+    };
+    OneShotTimer                      xlLedTimer_;
 
     void sendMidiOutputMessage(const juce::MidiMessage& msg);
     void sendLearnLed(bool learning, int boundCc);
+    void lightXLLeds();   // send all Page-1 LED colours (DAW mode; deferred from XL Map)
 
     // ── MIDI CC Learn (internals) ────────────────────────────────────────────
     std::array<CcMapping, 128> ccMappings_;

@@ -185,8 +185,9 @@ T5ynthProcessor::T5ynthProcessor()
 
 T5ynthProcessor::~T5ynthProcessor()
 {
-    // Cancel any pending AsyncUpdater callback before members are destroyed.
-    // Same rule as stopTimer() — must run while all members are still alive.
+    // Cancel any pending deferred LED burst + AsyncUpdater callback before members
+    // are destroyed — both must run while all members are still alive.
+    xlLedTimer_.stopTimer();
     cancelPendingUpdate();
 
     closeMidiOutputDevice();
@@ -5120,6 +5121,14 @@ void T5ynthProcessor::openMidiOutputDevice(const juce::String& deviceId)
 void T5ynthProcessor::closeMidiOutputDevice()
 {
     const juce::SpinLock::ScopedLockType lock(midiOutputLock_);
+    if (midiOutputDevice_ != nullptr && dawModeActive_)
+    {
+        // Restore the device to standalone/custom mode before we stop driving it.
+        // Sent directly (not via sendMidiOutputMessage) because we already hold the
+        // lock — the SpinLock is non-recursive.
+        try { midiOutputDevice_->sendMessageNow(LaunchControlXLLeds::dawMode(false)); } catch (...) {}
+    }
+    dawModeActive_ = false;
     midiOutputDevice_.reset();
     midiOutputDeviceId_.clear();
 }
@@ -5150,6 +5159,21 @@ void T5ynthProcessor::sendLearnLed(bool learning, int boundCc)
 
 void T5ynthProcessor::applyXLDefaultBindings()
 {
+    // Host LED control requires the device in DAW mode (programmer's ref p.8-12);
+    // a Custom Mode's LEDs cannot be recoloured by the host. Enable it first so the
+    // deferred LED burst below is honoured. (User must select the XL's "DAW" USB
+    // port; faders/knobs then transmit on ch16 — handled by the channel-agnostic
+    // binding apply in processBlock.) Flag DAW mode active ONLY if a device actually
+    // received the enable, and write the flag under the lock that guards it.
+    {
+        const juce::SpinLock::ScopedLockType lock(midiOutputLock_);
+        if (midiOutputDevice_ != nullptr)
+        {
+            try { midiOutputDevice_->sendMessageNow(LaunchControlXLLeds::dawMode(true)); } catch (...) {}
+            dawModeActive_ = true;
+        }
+    }
+
     // Populate CC bindings from the Page 1 map. XL Map is authoritative for the
     // controls it owns: each Page-1 CC is overwritten so a stale/half-applied
     // table (e.g. an old layout or a leftover learn) is fully repaired. Bindings
@@ -5178,7 +5202,20 @@ void T5ynthProcessor::applyXLDefaultBindings()
             ccMappings_[static_cast<size_t>(e.cc)] = std::move(e.m);   // overwrite — XL Map wins
     }
 
-    // Light up all XL Page 1 LEDs in their module accent color.
+    // Defer the LED burst so the device has time to finish entering DAW mode before
+    // the colours arrive — otherwise the first XL-Map click leaves the LEDs dark.
+    // Owned one-shot timer (not callAfterDelay) so ~T5ynthProcessor can cancel a
+    // pending burst deterministically; capturing `this` is safe because the timer's
+    // lifetime is bounded by the processor's and it is stopped before teardown.
+    xlLedTimer_.fn = [this] { lightXLLeds(); };
+    xlLedTimer_.startTimer(100);
+}
+
+void T5ynthProcessor::lightXLLeds()
+{
+    // Light all XL Page-1 LEDs in their module accent colour (honoured only in DAW
+    // mode). ccToLedNote()==-1 skips controls with no LED; sendMidiOutputMessage is
+    // a no-op when no output device is open.
     for (const auto& b : LaunchControlXLLeds::kPage1)
     {
         const int note = LaunchControlXLLeds::ccToLedNote(b.cc);

@@ -23,6 +23,14 @@ namespace lcxl3_detail
 {
     // Pack a 7-bit RGB triplet into one int: (R<<16)|(G<<8)|B, each 0..127.
     constexpr int rgb (int r, int g, int b) noexcept { return (r << 16) | (g << 8) | b; }
+
+    // One XL Page-1 binding. minNorm/maxNorm map the 0..127 CC onto the param's
+    // normalized range (default 0..1; swap to invert a control, e.g. Alpha).
+    // Kept at namespace scope (not nested in LaunchControlXLLeds) so these default
+    // member initializers stay usable by kPage1's aggregate init regardless of how
+    // the enclosing class's static members get instantiated — a nested struct's
+    // defaults can be rejected as "needed within an incomplete enclosing class".
+    struct Binding { const char* paramId; int cc; int color; float minNorm = 0.0f; float maxNorm = 1.0f; };
 }
 
 struct LaunchControlXLLeds
@@ -79,6 +87,15 @@ struct LaunchControlXLLeds
         return ledOn(controlIndex, kColorOff);
     }
 
+    // DAW-mode enable/disable. Host LED control ("Colouring the surface") is ONLY
+    // honored once the device is in DAW mode — programmer's reference p.8-12; a
+    // Custom Mode's LEDs cannot be recoloured by the host. Sent as Note On ch16,
+    // note 0x0C, velocity 127 (enable) / 0 (disable): bytes 9F 0C 7F / 9F 0C 00.
+    static juce::MidiMessage dawMode(bool enable)
+    {
+        return juce::MidiMessage(0x9F, 0x0C, enable ? 0x7F : 0x00);
+    }
+
     // ── Page 1 default bindings: { paramId, CC, color } ─────────────────────
     // Applied by PluginProcessor::applyXLDefaultBindings() on user request.
     //
@@ -91,9 +108,7 @@ struct LaunchControlXLLeds
     //
     // Physical row N drives module group N — matching the easy-panel tab order
     // ENV1/2/3 = amp/mod1/mod2 (SynthPanel initEnv). Rows 2 and 3 were swapped.
-    struct Binding { const char* paramId; int cc; int color; float minNorm = 0.0f; float maxNorm = 1.0f; };
-
-    static constexpr Binding kPage1[] = {
+    static constexpr lcxl3_detail::Binding kPage1[] = {
         // Faders — Generation | Filter | FX | Vol  (CC 5-12)
         { "gen_alpha",         5, kColorGen, 1.0f, 0.0f }, { "resynth_amount", 6, kColorGen },
         { "filter_cutoff",     7, kColorFilter }, { "filter_resonance",  8, kColorFilter },
