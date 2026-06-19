@@ -2558,7 +2558,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                             channel == T5ynthStepSequencer::kBindChannel
                                 ? 0.0f : stepSequencer.getGlideTime(),
                             lfo1TrigMode, lfo2TrigMode, lfo3TrigMode,
-                            genSourceId, sourcePan);
+                            genSourceId, sourcePan, channel);
                     }
                     else if (msg.isNoteOff())
                     {
@@ -2582,10 +2582,27 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                     }
                     else if (msg.isPitchWheel())
                     {
-                        static constexpr float kPitchBendRangeSemitones = 2.0f;
+                        const int pbChannel = msg.getChannel();
                         const float centered = (static_cast<float>(msg.getPitchWheelValue()) - 8192.0f) / 8192.0f;
-                        voiceManager.setPitchBendSemitones(
-                            juce::jlimit(-1.0f, 1.0f, centered) * kPitchBendRangeSemitones);
+                        // Ch1 = MPE master / standard MIDI global bend.
+                        // Channels 2, 8 (step-seq bind/glide) and 3-6 (genSeq strands) are
+                        // internal-only; pitch-bend on those from an external MPE controller
+                        // is dropped to avoid bending sequencer voices unintentionally.
+                        const bool isInternalChannel =
+                            pbChannel == T5ynthStepSequencer::kBindChannel
+                         || pbChannel == T5ynthStepSequencer::kGlideChannel
+                         || (pbChannel >= 3 && pbChannel <= 6);
+                        if (pbChannel == 1)
+                        {
+                            voiceManager.setPitchBendSemitones(
+                                juce::jlimit(-1.0f, 1.0f, centered) * masterPitchBendRangeSemitones_);
+                        }
+                        else if (!isInternalChannel)
+                        {
+                            // MPE per-note channel: route to the voice(s) triggered on this channel.
+                            voiceManager.setPerVoicePitchBend(pbChannel,
+                                centered * notePitchBendRangeSemitones_);
+                        }
                     }
                     else if (msg.isAllNotesOff() || msg.isAllSoundOff())
                     {
@@ -2596,7 +2613,28 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                     {
                         const int cc = msg.getControllerNumber();
                         const int value7 = msg.getControllerValue();
-                        if (cc == 10 && msg.getChannel() >= 3 && msg.getChannel() <= 6)
+                        // RPN state machine: CC101/100 select the parameter, CC6 writes it.
+                        // Only RPN 0x0000 (Pitch Bend Sensitivity) is acted upon.
+                        if (cc == 101)
+                        {
+                            midiRpnMsb_ = value7;
+                        }
+                        else if (cc == 100)
+                        {
+                            midiRpnLsb_ = value7;
+                        }
+                        else if (cc == 6 && midiRpnMsb_ == 0 && midiRpnLsb_ == 0)
+                        {
+                            // RPN 0x0000 Data Entry MSB = semitones for pitch-bend range.
+                            // Ch1 sets the master (global) range; all other channels set the
+                            // per-note MPE range. Value 0 is treated as 1 (1 semitone min).
+                            const float rangeS = static_cast<float>(std::max(1, value7));
+                            if (msg.getChannel() == 1)
+                                masterPitchBendRangeSemitones_ = rangeS;
+                            else
+                                notePitchBendRangeSemitones_ = rangeS;
+                        }
+                        else if (cc == 10 && msg.getChannel() >= 3 && msg.getChannel() <= 6)
                         {
                             const int genSourceId = msg.getChannel() - 3;
                             const float value = static_cast<float>(value7) / 127.0f;

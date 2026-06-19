@@ -360,6 +360,14 @@ private:
     bool retireOneShotSampleToBin(SequencerOneShotSamplePtr& ptr) noexcept;  // audio thread
     void drainSequencerOneShotRetireBin() noexcept;                          // worker thread
 
+    // MPE / pitch-bend-range state (audio thread only, no atomics needed)
+    // RPN 0x0000 (Pitch Bend Sensitivity): CC101=0, CC100=0, then CC6=semitones.
+    // RPN 0x7F7F (RPN Null): deselects the active RPN — subsequent CC6 is ignored.
+    int   midiRpnMsb_ = 0x7F;
+    int   midiRpnLsb_ = 0x7F;
+    float masterPitchBendRangeSemitones_ = 2.0f;   // ch1 global bend range (standard ±2)
+    float notePitchBendRangeSemitones_   = 48.0f;  // ch2-16 per-note range (MPE default ±48)
+
     // Edge-detection for arp-toggle note-off cleanup. When arp transitions
     // false→true while a sequencer is running, the seq's currently-sounding
     // note must be flushed before arp's filter starts swallowing noteOffs.

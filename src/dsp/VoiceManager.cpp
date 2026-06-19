@@ -50,6 +50,7 @@ void VoiceManager::prepare(double sampleRate, int samplesPerBlock)
         scratch.resize(static_cast<size_t>(samplesPerBlock));
     voicePan.fill(0.0f);
     voiceSourceId.fill(-1);
+    voiceMidiChannel_.fill(0);
     sustainedVoice.fill(false);
     sostenutoVoice.fill(false);
     sostenutoReleasedVoice.fill(false);
@@ -60,6 +61,7 @@ void VoiceManager::prepare(double sampleRate, int samplesPerBlock)
     expressionGain = 1.0f;
     channelVolumeGain = 1.0f;
     pitchBendSemitones = 0.0f;
+    for (auto& v : voices) v.setPerVoicePitchBend(0.0f);
     sustainPedalDown = false;
     sostenutoPedalDown = false;
     softPedalDown = false;
@@ -84,6 +86,7 @@ void VoiceManager::reset()
     droneNote = -1;
     voicePan.fill(0.0f);
     voiceSourceId.fill(-1);
+    voiceMidiChannel_.fill(0);
     sustainedVoice.fill(false);
     sostenutoVoice.fill(false);
     sostenutoReleasedVoice.fill(false);
@@ -94,6 +97,7 @@ void VoiceManager::reset()
     expressionGain = 1.0f;
     channelVolumeGain = 1.0f;
     pitchBendSemitones = 0.0f;
+    for (auto& v : voices) v.setPerVoicePitchBend(0.0f);
     sustainPedalDown = false;
     sostenutoPedalDown = false;
     softPedalDown = false;
@@ -111,7 +115,7 @@ void VoiceManager::setBlockParams(const BlockParams& bp)
 
 void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
                            bool lfo1TrigMode, bool lfo2TrigMode, bool lfo3TrigMode,
-                           int sourceId, float pan)
+                           int sourceId, float pan, int midiChannel)
 {
     sourceId = sourceId >= 0 ? juce::jlimit(0, 15, sourceId) : -1;
     pan = juce::jlimit(-1.0f, 1.0f, pan);
@@ -131,9 +135,11 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
         {
             voiceSourceId[0] = sourceId;
             voicePan[0] = pan;
+            voiceMidiChannel_[0] = static_cast<int8_t>(midiChannel);
             sustainedVoice[0] = false;
             sostenutoVoice[0] = false;
             sostenutoReleasedVoice[0] = false;
+            v.setPerVoicePitchBend(0.0f);
             v.setAftertouch(pressureForNote(note));
             // Glide pitch without retriggering envelopes
             // (If voice is releasing, re-hold it so it stays alive during glide)
@@ -164,6 +170,8 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
         v.noteOn(note, velocity, false);
         voiceSourceId[0] = sourceId;
         voicePan[0] = pan;
+        voiceMidiChannel_[0] = static_cast<int8_t>(midiChannel);
+        v.setPerVoicePitchBend(0.0f);
         samplerVoiceDebugLog("noteOn mono trigger voice=0 note=" + juce::String(note)
                              + " velocity=" + juce::String(velocity, 3)
                              + " engine=" + juce::String(engineModeName(v.getEngineMode())));
@@ -204,6 +212,8 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
         if (newest >= 0)
         {
             voices[static_cast<size_t>(newest)].setTuningTable(tuningHz_);
+            voices[static_cast<size_t>(newest)].setPerVoicePitchBend(0.0f);
+            voiceMidiChannel_[static_cast<size_t>(newest)] = static_cast<int8_t>(midiChannel);
             voices[static_cast<size_t>(newest)].glideToNote(note, glideMs);
             return;
         }
@@ -241,6 +251,8 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
     v.noteOn(note, velocity, false);
     voiceSourceId[static_cast<size_t>(idx)] = sourceId;
     voicePan[static_cast<size_t>(idx)] = pan;
+    voiceMidiChannel_[static_cast<size_t>(idx)] = static_cast<int8_t>(midiChannel);
+    v.setPerVoicePitchBend(0.0f);
     samplerVoiceDebugLog("noteOn poly trigger voice=" + juce::String(idx)
                          + " note=" + juce::String(note)
                          + " velocity=" + juce::String(velocity, 3)
@@ -429,8 +441,22 @@ void VoiceManager::resetPerformanceControllers()
     pitchBendSemitones = 0.0f;
     polyPressureByNote.fill(0.0f);
     for (auto& v : voices)
+    {
         if (v.isActive())
             v.setAftertouch(0.0f);
+        v.setPerVoicePitchBend(0.0f);
+    }
+    voiceMidiChannel_.fill(0);
+}
+
+void VoiceManager::setPerVoicePitchBend(int midiChannel, float semitones)
+{
+    if (midiChannel < 1 || midiChannel > 16)
+        return;
+    const auto ch = static_cast<int8_t>(midiChannel);
+    for (int i = 0; i < MAX_VOICES; ++i)
+        if (voiceMidiChannel_[static_cast<size_t>(i)] == ch)
+            voices[static_cast<size_t>(i)].setPerVoicePitchBend(semitones);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -495,6 +521,8 @@ VoiceManager::VoiceOutput VoiceManager::renderBlock(
         {
             voiceSourceId[static_cast<size_t>(vi)] = -1;
             voicePan[static_cast<size_t>(vi)] = 0.0f;
+            voiceMidiChannel_[static_cast<size_t>(vi)] = 0;
+            v.setPerVoicePitchBend(0.0f);
             sustainedVoice[static_cast<size_t>(vi)] = false;
             sostenutoVoice[static_cast<size_t>(vi)] = false;
             sostenutoReleasedVoice[static_cast<size_t>(vi)] = false;
@@ -876,6 +904,8 @@ void VoiceManager::setDroneNote(int note, float velocity, bool lfo1TrigMode, boo
         v.noteOn(note, velocity, false);
         voiceSourceId[static_cast<size_t>(idx)] = -1;
         voicePan[static_cast<size_t>(idx)] = 0.0f;
+        voiceMidiChannel_[static_cast<size_t>(idx)] = 0;  // drone is not an MPE note
+        v.setPerVoicePitchBend(0.0f);
         v.noteOnTimestamp = ++noteOnCounter;
         if (lfo1TrigMode) v.getPerVoiceLfo1().reset();
         if (lfo2TrigMode) v.getPerVoiceLfo2().reset();

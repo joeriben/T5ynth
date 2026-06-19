@@ -36,6 +36,11 @@ public:
     void setAftertouch(float pressure) { aftertouch_ = juce::jlimit(0.0f, 1.0f, pressure); }
     float getAftertouch() const { return aftertouch_; }
 
+    // MPE per-note pitch bend (semitones, in addition to the global channel bend).
+    // Set by VoiceManager when pitch-wheel arrives on the voice's MIDI channel.
+    void setPerVoicePitchBend(float semitones) { perVoicePitchBendSemitones_ = juce::jlimit(-48.0f, 48.0f, semitones); }
+    float getPerVoicePitchBend() const { return perVoicePitchBendSemitones_; }
+
     // ── Per-block setup ──
     /** Configure envelopes from block params. Call once per block before the renderBlock loop. */
     void configureForBlock(const BlockParams& p);
@@ -122,6 +127,7 @@ private:
     int octaveShift_ = 0;
     float currentVelocity = 0.0f;
     float aftertouch_ = 0.0f;
+    float perVoicePitchBendSemitones_ = 0.0f;
     bool active = false;
     bool noteHeld = false;
     float lastAmpEnvLevel = 0.0f;

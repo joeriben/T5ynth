@@ -574,6 +574,11 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
     if (p.lfo2TrigMode) { fillPerVoice(perVoiceLfo2, perVoiceLfoBuf2_, p.lfo2Rate, p.lfo2Wave); lfo2Buf = perVoiceLfoBuf2_.data(); }
     if (p.lfo3TrigMode) { fillPerVoice(perVoiceLfo3, perVoiceLfoBuf3_, p.lfo3Rate, p.lfo3Wave); lfo3Buf = perVoiceLfoBuf3_.data(); }
 
+    // Combine global pitch-bend ratio (all voices) with per-voice MPE pitch bend.
+    // For standard MIDI perVoicePitchBendSemitones_ stays 0, so this is a no-op.
+    const float effectivePitchRatio = p.performancePitchRatio
+        * std::pow(2.0f, perVoicePitchBendSemitones_ / 12.0f);
+
     bool samplerMode = (engineMode == EngineMode::Sampler) && sampler.hasAudio();
     bool freezeMode = (engineMode == EngineMode::Freeze) && freezeEngine.hasAudio();
     bool oscReady = (engineMode == EngineMode::Wavetable) && osc.hasFrames();
@@ -613,7 +618,7 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
         if (p.lfo1Target == LfoTarget::Pitch) pitchMod += lfo1Buf[mid] * lfo1Depth;
         if (p.lfo2Target == LfoTarget::Pitch) pitchMod += lfo2Buf[mid] * lfo2Depth;
         if (p.lfo3Target == LfoTarget::Pitch) pitchMod += lfo3Buf[mid] * lfo3Depth;
-        sampler.setPitchModulation(p.performancePitchRatio * (1.0f + pitchMod));
+        sampler.setPitchModulation(effectivePitchRatio * (1.0f + pitchMod));
 
         sampler.renderPitchedBlock(samplerBlockBuf_.data(), numSamples);
     }
@@ -770,7 +775,7 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                 if (p.lfo1Target == LfoTarget::Pitch) pitchMod += lfo1Val;
                 if (p.lfo2Target == LfoTarget::Pitch) pitchMod += lfo2Val;
                 if (p.lfo3Target == LfoTarget::Pitch) pitchMod += lfo3Val;
-                freezeEngine.setPitchModulation(p.performancePitchRatio
+                freezeEngine.setPitchModulation(effectivePitchRatio
                     * juce::jlimit(0.0625f, 16.0f, 1.0f + pitchMod));
 
                 float scanMod = p.baseScan + p.driftScanOffset;
@@ -804,7 +809,7 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                 if (!osc.isGliding())
                 {
                     baseFrequency = blockBaseFreqWavetable;
-                    osc.setFrequency(baseFrequency * p.performancePitchRatio * (1.0f + pitchMod));
+                    osc.setFrequency(baseFrequency * effectivePitchRatio * (1.0f + pitchMod));
                 }
 
                 float scanBase = p.wtAutoScan ? 0.0f : p.baseScan;

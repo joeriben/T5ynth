@@ -25,7 +25,7 @@ public:
     // ── MIDI handling ──
     void noteOn(int note, float velocity, bool isBind, float glideMs,
                 bool lfo1TrigMode, bool lfo2TrigMode, bool lfo3TrigMode,
-                int sourceId = -1, float pan = 0.0f);
+                int sourceId = -1, float pan = 0.0f, int midiChannel = 1);
     void noteOff(int note, int sourceId = -1);
     void allNotesOff();
     void setSustainPedal(bool down);
@@ -39,6 +39,9 @@ public:
     void setChannelPressure(float pressure);
     void setPolyPressure(int note, float pressure, int sourceId = -1);
     void resetPerformanceControllers();
+
+    // MPE: route pitch-wheel on a per-note channel to the voice(s) triggered on it.
+    void setPerVoicePitchBend(int midiChannel, float semitones);
 
     // ── Drone (step-hold) handling ──
     // A drone is a user-held note (e.g. mouse-hold on a sequencer step) that
@@ -129,6 +132,7 @@ private:
     std::array<std::vector<float>, MAX_VOICES> voiceScratchRight;
     std::array<float, MAX_VOICES> voicePan {};
     std::array<int, MAX_VOICES> voiceSourceId {};
+    std::array<int8_t, MAX_VOICES> voiceMidiChannel_ {};  // 0=unassigned, 1-16=MIDI channel
     std::array<bool, MAX_VOICES> sustainedVoice {};
     std::array<bool, MAX_VOICES> sostenutoVoice {};
     std::array<bool, MAX_VOICES> sostenutoReleasedVoice {};
