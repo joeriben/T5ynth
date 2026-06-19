@@ -2615,9 +2615,22 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                     {
                         const int cc = msg.getControllerNumber();
                         const int value7 = msg.getControllerValue();
-                        // RPN state machine: CC101/100 select the parameter, CC6 writes it.
-                        // Only RPN 0x0000 (Pitch Bend Sensitivity) is acted upon.
-                        if (cc == 101)
+                        // ── CC routing priority ──────────────────────────────────────
+                        //  1. CC Learn: capture ANY incoming CC (incl. reserved) as target.
+                        //  2. RPN state machine (pitch-bend range / MPE) + gen-seq strand pan:
+                        //     internal/standard routing — kept ABOVE user bindings so a bound
+                        //     CC6/CC10 can never shadow MPE bend-range or strand pan.
+                        //  3. Explicit user binding (XL Map / CC Learn): wins over the built-in
+                        //     GM performance CCs below — e.g. an XL fader on CC7/CC11 drives its
+                        //     mapped param instead of channel-volume / expression.
+                        //  4. Built-in GM / system CCs: fallback for unbound CCs.
+                        if (midiLearnActive.load(std::memory_order_relaxed))
+                        {
+                            // CC Learn intercept: signal the message thread with the CC number.
+                            midiLearnTargetCc.store(cc, std::memory_order_release);
+                            triggerAsyncUpdate();
+                        }
+                        else if (cc == 101)
                         {
                             midiRpnMsb_ = value7;
                         }
@@ -2643,57 +2656,14 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                             genStrandPan[static_cast<size_t>(genSourceId)] =
                                 juce::jlimit(-1.0f, 1.0f, value * 2.0f - 1.0f);
                         }
-                        else if (cc == 64)
-                        {
-                            voiceManager.setSustainPedal(value7 >= 64);
-                        }
-                        else if (cc == 1)
-                        {
-                            voiceManager.setModWheel(static_cast<float>(value7) / 127.0f);
-                        }
-                        else if (cc == 2)
-                        {
-                            voiceManager.setBreathController(static_cast<float>(value7) / 127.0f);
-                        }
-                        else if (cc == 7)
-                        {
-                            voiceManager.setChannelVolume(static_cast<float>(value7) / 127.0f);
-                        }
-                        else if (cc == 11)
-                        {
-                            voiceManager.setExpression(static_cast<float>(value7) / 127.0f);
-                        }
-                        else if (cc == 66)
-                        {
-                            voiceManager.setSostenutoPedal(value7 >= 64);
-                        }
-                        else if (cc == 67)
-                        {
-                            voiceManager.setSoftPedal(value7 >= 64);
-                        }
-                        else if (cc == 120 || cc == 123)
-                        {
-                            voiceManager.allNotesOff();
-                            lastMidiNoteOn.store(false, std::memory_order_relaxed);
-                        }
-                        else if (cc == 121)
-                        {
-                            voiceManager.resetPerformanceControllers();
-                        }
                         else
                         {
-                            // CC Learn intercept: signal the message thread with the CC number.
-                            if (midiLearnActive.load(std::memory_order_relaxed))
+                            // Explicit user binding wins over the built-in GM CCs.
+                            // ScopedTryLockType: if the message thread holds the lock (writing
+                            // a new binding) we skip the apply — the binding becomes visible on
+                            // the next CC event — and fall through to the GM handling below.
+                            bool boundHandled = false;
                             {
-                                midiLearnTargetCc.store(cc, std::memory_order_release);
-                                triggerAsyncUpdate();
-                            }
-                            else
-                            {
-                                // Normal operation: apply any bound mapping.
-                                // ScopedTryLockType: if the message thread holds the lock
-                                // (writing a new binding) we skip this block — safe, the
-                                // binding will be visible on the next CC event.
                                 const juce::SpinLock::ScopedTryLockType tryLock(ccMappingLock_);
                                 if (tryLock.isLocked())
                                 {
@@ -2714,7 +2684,49 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                                         midiTouchPacked_.store(
                                             (seq << 32) | static_cast<uint32_t>(cc),
                                             std::memory_order_release);
+                                        boundHandled = true;
                                     }
+                                }
+                            }
+
+                            if (! boundHandled)
+                            {
+                                if (cc == 64)
+                                {
+                                    voiceManager.setSustainPedal(value7 >= 64);
+                                }
+                                else if (cc == 1)
+                                {
+                                    voiceManager.setModWheel(static_cast<float>(value7) / 127.0f);
+                                }
+                                else if (cc == 2)
+                                {
+                                    voiceManager.setBreathController(static_cast<float>(value7) / 127.0f);
+                                }
+                                else if (cc == 7)
+                                {
+                                    voiceManager.setChannelVolume(static_cast<float>(value7) / 127.0f);
+                                }
+                                else if (cc == 11)
+                                {
+                                    voiceManager.setExpression(static_cast<float>(value7) / 127.0f);
+                                }
+                                else if (cc == 66)
+                                {
+                                    voiceManager.setSostenutoPedal(value7 >= 64);
+                                }
+                                else if (cc == 67)
+                                {
+                                    voiceManager.setSoftPedal(value7 >= 64);
+                                }
+                                else if (cc == 120 || cc == 123)
+                                {
+                                    voiceManager.allNotesOff();
+                                    lastMidiNoteOn.store(false, std::memory_order_relaxed);
+                                }
+                                else if (cc == 121)
+                                {
+                                    voiceManager.resetPerformanceControllers();
                                 }
                             }
                         }

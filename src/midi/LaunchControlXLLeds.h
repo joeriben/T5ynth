@@ -59,19 +59,21 @@ struct LaunchControlXLLeds
     // Row 1 top knobs:    CC 13-20  (verified, wired)
     // Row 2 mid knobs:    CC 21-28  (verified, wired)
     // Row 3 bottom knobs: CC 29-36  (verified, wired)
-    // Faders:             CC  5-12  (verified) — NOT yet wired: CC 6/7/11 collide
-    //                     with reserved CCs (RPN / channel volume / expression),
-    //                     so faders need a processBlock routing change first.
+    // Faders:             CC  5-12  (verified, wired)
+    //                     CC 6/7/11 are reserved GM CCs (RPN / channel volume /
+    //                     expression); processBlock lets an explicit binding win,
+    //                     so the faders drive their mapped params.
     // Buttons (2 rows):   CC 37-52  (verified) — Phase 2, not implemented.
+    // All XL controls transmit on MIDI channel 1 (Custom Mode 1).
 
     // Map CC number → LED note index. Returns -1 if CC is not an XL control.
     // Assumes CC# == LED note# for all knob rows and faders (verify on device).
     static int ccToLedNote(int cc) noexcept
     {
-        if (cc >= 13 && cc <= 20) return cc;   // Row 1 (verified: CC 13-20)
-        if (cc >= 21 && cc <= 28) return cc;   // Row 2 (verified: CC 21-28)
-        if (cc >= 29 && cc <= 36) return cc;   // Row 3 (verified: CC 29-36)
-        if (cc >= 77 && cc <= 84) return cc;   // Faders — WRONG (hw = CC 5-12); fixed with collision handling in follow-up
+        if (cc >= 5  && cc <= 12) return cc;   // Faders (verified: CC 5-12)
+        if (cc >= 13 && cc <= 20) return cc;   // Row 1  (verified: CC 13-20)
+        if (cc >= 21 && cc <= 28) return cc;   // Row 2  (verified: CC 21-28)
+        if (cc >= 29 && cc <= 36) return cc;   // Row 3  (verified: CC 29-36)
         return -1;
     }
 
@@ -96,7 +98,7 @@ struct LaunchControlXLLeds
     // Row 1 (CC 13-20): Env1 (amp)  A/D/S/R — LFO1 Rate/Amt — Drift1 Rate/Amt
     // Row 2 (CC 21-28): Env3 (mod2) A/D/S/R — LFO3 Rate/Amt — Drift3 Rate/Amt
     // Row 3 (CC 29-36): Env2 (mod1) A/D/S/R — LFO2 Rate/Amt — Drift2 Rate/Amt
-    // Faders (CC 5-12, pending wiring): Alpha — Resynth — Cutoff — Res — Drive — DlyMix — RevMix — AmpAmt
+    // Faders (CC 5-12): Alpha — Resynth — Cutoff — Res — Drive — DlyMix — RevMix — AmpAmt
     struct Binding { const char* paramId; int cc; int color; };
 
     static constexpr Binding kPage1[] = {
@@ -118,12 +120,12 @@ struct LaunchControlXLLeds
         { "lfo2_rate",     33, kColorLfo   }, { "lfo2_depth",   34, kColorLfo   },
         { "drift2_rate",   35, kColorDrift }, { "drift2_depth", 36, kColorDrift },
 
-        // Faders — Generation | Filter | FX | Vol
-        { "gen_alpha",        77, kColorGen    }, { "resynth_amount",   78, kColorGen    },
-        { "filter_cutoff",    79, kColorFilter }, { "filter_resonance", 80, kColorFilter },
-        { "filter_drive",     81, kColorFilter },
-        { "delay_mix",        82, kColorFx     }, { "reverb_mix",       83, kColorFx     },
-        { "amp_amount",       84, kColorVol    },
+        // Faders — Generation | Filter | FX | Vol  (CC 5-12)
+        { "gen_alpha",         5, kColorGen    }, { "resynth_amount",    6, kColorGen    },
+        { "filter_cutoff",     7, kColorFilter }, { "filter_resonance",  8, kColorFilter },
+        { "filter_drive",      9, kColorFilter },
+        { "delay_mix",        10, kColorFx     }, { "reverb_mix",       11, kColorFx     },
+        { "amp_amount",       12, kColorVol    },
     };
 
     static constexpr int kPage1Count = static_cast<int>(std::size(kPage1));
