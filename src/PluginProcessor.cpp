@@ -2664,17 +2664,52 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                                 juce::jlimit(-1.0f, 1.0f, value * 2.0f - 1.0f);
                         }
                         else if (dawModeActive_.load(std::memory_order_relaxed)
-                                 && msg.getChannel() == 1 && cc >= 37 && cc <= 52)
+                                 && msg.getChannel() == 1
+                                 && ((cc >= 37 && cc <= 52) || cc == 116 || cc == 118))
                         {
-                            // XL DAW-mode buttons (CC 37-52, ch1). Act on press (value>=64);
-                            // the release (0) is ignored. The device sends exactly one 127
-                            // per press, and transport toggles are de-duplicated by the
-                            // atomic-request exchange in handleAsyncUpdate, so one press =
-                            // one action with no per-button latch needed. Gated by
-                            // dawModeActive_ so these CCs only act as buttons while the XL
-                            // is driving us.
+                            // XL DAW-mode buttons (ch1): the two bottom rows CC 37-52 plus
+                            // the left transport buttons Play ▶ = 116 / Record ● = 118
+                            // (programmer's ref p.9). Act on press (value>=64); the release
+                            // (0) is ignored. The device sends exactly one 127 per press, and
+                            // transport toggles are de-duplicated by the atomic-request
+                            // exchange in handleAsyncUpdate, so one press = one action with no
+                            // per-button latch needed. Gated by dawModeActive_ so these CCs
+                            // only act as buttons while the XL is driving us.
                             if (value7 >= 64)
                                 handleXLButtonPress(cc);
+                        }
+                        else if (dawModeActive_.load(std::memory_order_relaxed)
+                                 && cc >= 77 && cc <= 100)
+                        {
+                            // XL DAW-mode encoders in RELATIVE mode (endless encoders): the
+                            // value is a signed delta around 64, and the relative CC is the
+                            // absolute CC + 64. Nudge the bound param from its CURRENT value
+                            // (no absolute position → no jump). Same setValueNotifyingHost /
+                            // ScopedTryLock path as the absolute fader binding below.
+                            const int absCc = cc - 64;          // 77-100 → 13-36
+                            const int delta = value7 - 64;      // signed: >0 CW, <0 CCW
+                            if (delta != 0)
+                            {
+                                const juce::SpinLock::ScopedTryLockType tryLock(ccMappingLock_);
+                                if (tryLock.isLocked())
+                                {
+                                    const auto& mapping = ccMappings_[static_cast<size_t>(absCc)];
+                                    if (mapping.param != nullptr)
+                                    {
+                                        // span is signed so an inverted binding keeps its direction.
+                                        const float span = mapping.maxNorm - mapping.minNorm;
+                                        const float next = juce::jlimit(0.0f, 1.0f,
+                                            mapping.param->getValue()
+                                            + static_cast<float>(delta) / 127.0f * span);
+                                        mapping.param->setValueNotifyingHost(next);
+                                        const uint64_t seq =
+                                            (midiTouchPacked_.load(std::memory_order_relaxed) >> 32) + 1;
+                                        midiTouchPacked_.store(
+                                            (seq << 32) | static_cast<uint32_t>(absCc),
+                                            std::memory_order_release);
+                                    }
+                                }
+                            }
                         }
                         else
                         {
@@ -5248,15 +5283,28 @@ void T5ynthProcessor::applyXLDefaultBindings()
     xlLedTimer_.startTimer(100);
 }
 
-// XL DAW-mode action-button assignments (bottom button row, CC 45-52, left→right).
-// The SAME constants drive both the LED colour (lightXLLeds) and the action dispatch
-// (handleXLButtonPress) so a button's light always matches what it does.
-static constexpr int kXLBtnSeqRun  = 45;  // Seq Start/Stop  → toggle seq_running
-static constexpr int kXLBtnSeqMode = 46;  // Seq STEP / GEN  → toggle gen_seq_running
-static constexpr int kXLBtnPanic   = 52;  // MIDI Panic      → all notes off
+// XL DAW-mode action-button assignments. The SAME constants drive both the LED colour
+// (lightXLLeds) and the action dispatch (handleXLButtonPress) so a button's light always
+// matches what it does. Transport lives on the dedicated LEFT transport buttons (DAW
+// mode, programmer's ref p.9); Panic stays on a bottom-row button.
+static constexpr int kXLBtnPlay   = 116;  // ▶ left transport → toggle seq_running (transport)
+static constexpr int kXLBtnRecord = 118;  // ● left transport → toggle gen_seq_running (STEP/GEN)
+static constexpr int kXLBtnPanic  = 52;   // bottom-row button → MIDI panic (all notes off)
 
 void T5ynthProcessor::lightXLLeds()
 {
+    // Deferred DAW-mode device setup (runs ~100 ms after the mode switch, once the XL
+    // has entered DAW mode). First put the three encoder rows into RELATIVE mode so the
+    // endless encoders nudge the bound param instead of jumping to an absolute position.
+    for (int row = 0; row < 3; ++row)
+        sendMidiOutputMessage(LaunchControlXLLeds::encoderRelativeMode(row, true));
+
+    // NOTE: Fader Pickup (soft takeover, LaunchControlXLLeds::faderPickup(true)) is left
+    // OFF on purpose. The user reported jumping ENDLESS ENCODERS — fixed by relative mode
+    // above; physical faders are absolute and SHOULD move the param immediately on touch.
+    // Enabling pickup would make a fader dead until swept past its current value, an
+    // unrequested trade-off. Re-enable here only if jump-free faders are explicitly wanted.
+
     // Light all XL Page-1 LEDs in their module accent colour (honoured only in DAW
     // mode). ccToLedNote()==-1 skips controls with no LED; sendMidiOutputMessage is
     // a no-op when no output device is open.
@@ -5267,12 +5315,12 @@ void T5ynthProcessor::lightXLLeds()
             sendMidiOutputMessage(LaunchControlXLLeds::ledOn(note, b.color));
     }
 
-    // Action buttons (bottom row) — static accent colours so the user can see which
+    // Transport + action buttons — static accent colours so the user can see which
     // buttons are mapped. Control-index == CC for buttons too (programmer's ref p.9),
     // so send the CC directly. (LEDs that track live transport state = a follow-up.)
-    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnSeqRun,  LaunchControlXLLeds::kColorVol)); // green
-    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnSeqMode, LaunchControlXLLeds::kColorGen)); // periwinkle
-    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnPanic,   lcxl3_detail::rgb(127, 0, 0)));   // red
+    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnPlay,   LaunchControlXLLeds::kColorVol)); // ▶ green  = transport
+    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnRecord, LaunchControlXLLeds::kColorGen)); // ● periwinkle = STEP/GEN
+    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnPanic,  lcxl3_detail::rgb(127, 0, 0)));   // panic red
 }
 
 void T5ynthProcessor::handleXLButtonPress(int cc)
@@ -5284,11 +5332,11 @@ void T5ynthProcessor::handleXLButtonPress(int cc)
     // buttons are ignored.
     switch (cc)
     {
-        case kXLBtnSeqRun:
+        case kXLBtnPlay:
             xlSeqToggleReq_.store(true, std::memory_order_release);
             triggerAsyncUpdate();
             break;
-        case kXLBtnSeqMode:
+        case kXLBtnRecord:
             xlSeqModeToggleReq_.store(true, std::memory_order_release);
             triggerAsyncUpdate();
             break;

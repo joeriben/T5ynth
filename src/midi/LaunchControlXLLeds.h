@@ -42,9 +42,17 @@ struct LaunchControlXLLeds
     static constexpr int kColorBound  = lcxl3_detail::rgb(  0, 110,   0);  // CC-Learn bound (green)
 
     static constexpr int kColorGen    = lcxl3_detail::rgb( 51,  63, 117);  // Periwinkle #667EEA — generation (Alpha/Resynth)
-    static constexpr int kColorEnv    = lcxl3_detail::rgb(127,  55,   0);  // Amber      #FF6F00 — envelopes
-    static constexpr int kColorLfo    = lcxl3_detail::rgb(127,  55,   0);  // Amber      #FF6F00 — LFOs
-    static constexpr int kColorDrift  = lcxl3_detail::rgb(115,  40,   0);  // Dark amber #E65100 — drift
+    // ENV / LFO / DRIFT deliberately DIVERGE from the on-screen palette (which paints
+    // all three amber/amber/dark-amber): on 24 identical encoder LEDs that read as a
+    // uniform yellow wall. ENV stays amber (envelope identity); LFO=teal, DRIFT=blue is
+    // the only triad (verified ΔE2000≥20 in normal + deuteran/protan/tritan; Machado CVD
+    // on the 7-bit-quantized values; tool: tools/led_color_verify.py) that keeps ENV amber
+    // AND stays distinct under colour-vision deficiency — amber↔blue rides the yellow-blue
+    // axis (immune to red-green CVD), and the bright teal separates from the darker blue by
+    // luminance even under tritanopia.
+    static constexpr int kColorEnv    = lcxl3_detail::rgb(127,  55,   0);  // Amber — envelopes (A/D/S/R)
+    static constexpr int kColorLfo    = lcxl3_detail::rgb( 12, 127, 104);  // Teal  — LFOs   (bright; lum-separated from Drift)
+    static constexpr int kColorDrift  = lcxl3_detail::rgb(  0,  59, 127);  // Blue  — drift  (yellow↔blue axis vs amber)
     static constexpr int kColorFilter = lcxl3_detail::rgb( 62,  38, 127);  // Violet     #7C4DFF — filter
     static constexpr int kColorFx     = lcxl3_detail::rgb(  0,  94, 106);  // Cyan       #00BCD4 — delay/reverb
     static constexpr int kColorVol    = lcxl3_detail::rgb(  0, 100,  41);  // Green      #00C853 — amp amount
@@ -56,7 +64,11 @@ struct LaunchControlXLLeds
     // Row 1 top knobs:     CC 13-20
     // Row 2 mid knobs:     CC 21-28
     // Row 3 bottom knobs:  CC 29-36
-    // Buttons: upper row   CC 37-44, lower row CC 45-52 (actions: seq/panic)
+    // Bottom buttons:      upper row CC 37-44, lower row CC 45-52  (CC 52 = panic)
+    // Left transport (ch1, programmer's ref p.9 DAW-mode surface):
+    //   Play ▶  = CC 116 (0x74)   Record ● = CC 118 (0x76)
+    //   Page ^v = CC 106/107      Track ‹› = CC 103/102   (nav — unused by T5ynth)
+    //   Shift   = CC 63 on ch7    (device-managed feature control — never host-driven)
 
     // Map a CC number → LED control index. Returns -1 if not an XL control.
     // (control-index == CC# assumed; see header note.)
@@ -96,6 +108,42 @@ struct LaunchControlXLLeds
     static juce::MidiMessage dawMode(bool enable)
     {
         return juce::MidiMessage(0x9F, 0x0C, enable ? 0x7F : 0x00);
+    }
+
+    // ── Feature controls (programmer's reference p.16-17) ───────────────────────
+    // Every feature control is a CC on channel 7 (status byte B6h); On/Off = 127/0.
+    // They configure the device's DAW-mode behaviour (and are reset when DAW mode is
+    // disabled, except the (*)-marked persistent ones which we deliberately never set).
+    static constexpr int kFcEncRow1Rel  = 0x45;  // 69 — encoder row 1 relative output
+    static constexpr int kFcEncRow2Rel  = 0x48;  // 72 — encoder row 2 relative output
+    static constexpr int kFcEncRow3Rel  = 0x49;  // 73 — encoder row 3 relative output
+    static constexpr int kFcFaderPickup = 0x46;  // 70 — fader pickup (soft takeover)
+    static constexpr int kFcTouchEvents = 0x47;  // 71 — continuous-control touch events
+
+    // Build a feature-control message: CC on ch7 (B6h), value 0..127.
+    static juce::MidiMessage featureControl(int cc, int value)
+    {
+        return juce::MidiMessage(0xB6, cc & 0x7F, value & 0x7F);
+    }
+
+    // Switch an encoder row to RELATIVE mode. The endless encoders default to ABSOLUTE
+    // (they emit an internal 0-127 position, so the synth value JUMPS to it on the first
+    // turn); relative mode emits a signed delta around 64 instead — no jump. Programmer's
+    // ref p.10: B6h <RowID> 7Fh (ch7). RowID 0x45/0x48/0x49 = rows 1/2/3. In relative
+    // mode a row's encoders transmit on CC (absoluteCC + 64): rows 1-3 = CC 77-84 /
+    // 85-92 / 93-100, value = 64 + delta. rowIndex 0..2.
+    static juce::MidiMessage encoderRelativeMode(int rowIndex, bool enable)
+    {
+        static constexpr int rowId[3] = { kFcEncRow1Rel, kFcEncRow2Rel, kFcEncRow3Rel };
+        return featureControl(rowId[juce::jlimit(0, 2, rowIndex)], enable ? 0x7F : 0x00);
+    }
+
+    // Fader pickup (soft takeover): a physical fader does not "jump" the bound param to
+    // its position on touch — it engages only once swept past the current value. Avoids
+    // the analogous jump that relative mode fixes for encoders. Feature control CC 70/ch7.
+    static juce::MidiMessage faderPickup(bool enable)
+    {
+        return featureControl(kFcFaderPickup, enable ? 0x7F : 0x00);
     }
 
     // ── Page 1 default bindings: { paramId, CC, color } ─────────────────────
