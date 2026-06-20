@@ -5237,6 +5237,12 @@ void T5ynthProcessor::handleAsyncUpdate()
         genSeqRunningParam_->setValueNotifyingHost(
             paramCache.genSeqRunning->load() > 0.5f ? 0.0f : 1.0f);
 
+    // XL "Generate" button (CC 45): trigger a generation on the message thread.
+    // onGenerateRequested → MainPanel::triggerMainGeneration (which itself no-ops if a
+    // generation is already in flight). exchange() collapses duplicate presses.
+    if (xlGenerateReq_.exchange(false, std::memory_order_acq_rel) && onGenerateRequested)
+        onGenerateRequested();
+
     // XL auto-(re)apply: a Launch Control XL output was selected or a session was restored.
     // (Re)enter DAW mode, repopulate the Page-1 bindings, and relight the LEDs — all on the
     // message thread — so selecting the port is self-sufficient and the faders/encoders are
@@ -5437,9 +5443,10 @@ void T5ynthProcessor::populateXLDefaultBindings()
 // (lightXLLeds) and the action dispatch (handleXLButtonPress) so a button's light always
 // matches what it does. Transport lives on the dedicated LEFT transport buttons (DAW
 // mode, programmer's ref p.9); Panic stays on a bottom-row button.
-static constexpr int kXLBtnPlay   = 116;  // ▶ left transport → toggle seq_running (transport)
-static constexpr int kXLBtnRecord = 118;  // ● left transport → toggle gen_seq_running (STEP/GEN)
-static constexpr int kXLBtnPanic  = 52;   // bottom-row button → MIDI panic (all notes off)
+static constexpr int kXLBtnGenerate = 45;   // bottom-row button 1 (freed Seq-Start) → trigger generation
+static constexpr int kXLBtnPlay     = 116;  // ▶ left transport → toggle seq_running (transport)
+static constexpr int kXLBtnRecord   = 118;  // ● left transport → toggle gen_seq_running (STEP/GEN)
+static constexpr int kXLBtnPanic    = 52;   // bottom-row button → MIDI panic (all notes off)
 
 void T5ynthProcessor::lightXLLeds()
 {
@@ -5468,6 +5475,7 @@ void T5ynthProcessor::lightXLLeds()
     // Transport + action buttons — static accent colours so the user can see which
     // buttons are mapped. Control-index == CC for buttons too (programmer's ref p.9),
     // so send the CC directly. (LEDs that track live transport state = a follow-up.)
+    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnGenerate, lcxl3_detail::rgb(127, 127, 127))); // ◆ white = Generate
     sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnPlay,   LaunchControlXLLeds::kColorVol)); // ▶ green  = transport
     sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnRecord, LaunchControlXLLeds::kColorGen)); // ● periwinkle = STEP/GEN
     sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnPanic,  lcxl3_detail::rgb(127, 0, 0)));   // panic red
@@ -5488,6 +5496,10 @@ void T5ynthProcessor::handleXLButtonPress(int cc)
             break;
         case kXLBtnRecord:
             xlSeqModeToggleReq_.store(true, std::memory_order_release);
+            triggerAsyncUpdate();
+            break;
+        case kXLBtnGenerate:
+            xlGenerateReq_.store(true, std::memory_order_release);
             triggerAsyncUpdate();
             break;
         case kXLBtnPanic:

@@ -548,6 +548,10 @@ public:
      *  learning=false, boundCc<0 → cancelled or aborted (no change to make). */
     std::function<void(bool learning, int boundCc)> onMidiLearnStateChanged;
 
+    /** Fired on the message thread when the XL "Generate" button (CC 45) is pressed.
+     *  The editor wires this to MainPanel::triggerMainGeneration. */
+    std::function<void()> onGenerateRequested;
+
     // ── MIDI Output (LED feedback) — message thread only ────────────────────
     void openMidiOutputDevice(const juce::String& deviceId);
     void closeMidiOutputDevice();
@@ -603,6 +607,7 @@ private:
     juce::RangedAudioParameter* genSeqRunningParam_ = nullptr;
     std::atomic<bool>           xlSeqToggleReq_     { false };  // audio→message: toggle seq_running
     std::atomic<bool>           xlSeqModeToggleReq_ { false };  // audio→message: toggle gen_seq_running
+    std::atomic<bool>           xlGenerateReq_      { false };  // audio→message: trigger generation (CC 45)
     std::atomic<bool>           xlAutoApplyReq_     { false };  // any→message: (re)apply XL bindings (port select / preset load)
 
     // ── MIDI CC Learn (internals) ────────────────────────────────────────────

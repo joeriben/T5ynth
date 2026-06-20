@@ -453,6 +453,9 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         // cancelled / aborted: leave the current status text unchanged
     };
 
+    // XL "Generate" button (CC 45) → main generation (same path as the on-screen button).
+    processorRef.onGenerateRequested = [this] { triggerMainGeneration(); };
+
     // MIDI output device selector
     statusBar.onMidiOutputDeviceChanged = [this](const juce::String& deviceId)
     {
@@ -2302,6 +2305,7 @@ MainPanel::~MainPanel()
 {
     statusBar.onMidiOutputDeviceChanged = nullptr;
     processorRef.onMidiLearnStateChanged = nullptr;
+    processorRef.onGenerateRequested = nullptr;
     releaseComputerKeyboardNotes();
     stopTimer();
 
