@@ -36,8 +36,6 @@ public:
     // ── MIDI Output device selector ─────────────────────────────────────────
     /** Called when user selects a device. Empty string = no output. */
     std::function<void(const juce::String& deviceId)> onMidiOutputDeviceChanged;
-    /** Called when user clicks "XL Map" — apply XL default CC bindings. */
-    std::function<void()> onApplyXLDefaults;
     /** Sync the combo box to the currently-open device (call after processor restore). */
     void setMidiOutputDeviceId(const juce::String& deviceId);
     /** Refresh the device list (called on startup or when devices change). */
@@ -66,8 +64,13 @@ private:
     juce::TextButton panicBtn { "Panic" };
     juce::TextButton keyboardBtn { "Kbd" };
 
+    // In the standalone app these two controls live in JUCE's "MIDI/Audio Settings"
+    // dialog (see MidiOutputSettingsPanel), so the bottom row is left clean — nothing
+    // sits left of Panic. In a plugin (no such dialog) they remain here. The "XL Map"
+    // button is gone entirely: selecting an XL output now applies its mapping
+    // automatically (PluginProcessor::openMidiOutputDevice).
+    const bool       standalone_ { juce::JUCEApplicationBase::isStandaloneApp() };
     juce::ComboBox   midiOutCombo_;
-    juce::TextButton xlMapBtn_      { "XL Map" };
     juce::TextButton extClockBtn_   { "Ext.Clock" };
 
     // Cache to suppress unnecessary repaints in setMidiClockState (called 30 Hz)

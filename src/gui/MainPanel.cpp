@@ -458,10 +458,6 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     {
         processorRef.openMidiOutputDevice(deviceId);
     };
-    statusBar.onApplyXLDefaults = [this]
-    {
-        processorRef.applyXLDefaultBindings();
-    };
     statusBar.refreshMidiOutputDevices();
     statusBar.setMidiOutputDeviceId(processorRef.getMidiOutputDeviceId());
 
@@ -2305,7 +2301,6 @@ static juce::File getBufferPresetFile()
 MainPanel::~MainPanel()
 {
     statusBar.onMidiOutputDeviceChanged = nullptr;
-    statusBar.onApplyXLDefaults         = nullptr;
     processorRef.onMidiLearnStateChanged = nullptr;
     releaseComputerKeyboardNotes();
     stopTimer();
