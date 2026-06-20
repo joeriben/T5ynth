@@ -2771,7 +2771,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                                 const juce::SpinLock::ScopedTryLockType tryLock(ccMappingLock_);
                                 if (tryLock.isLocked())
                                 {
-                                    const auto& mapping = ccMappings_[static_cast<size_t>(absCc)];
+                                    const auto& mapping = resolveCcMapping(absCc);
                                     if (mapping.param != nullptr)
                                     {
                                         // span is signed so an inverted binding keeps its direction.
@@ -2801,7 +2801,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                                 if (tryLock.isLocked())
                                 {
                                     // param* and minNorm/maxNorm only — no String access.
-                                    const auto& mapping = ccMappings_[static_cast<size_t>(cc)];
+                                    const auto& mapping = resolveCcMapping(cc);
                                     if (mapping.param != nullptr)
                                     {
                                         const float norm = juce::jmap(
@@ -5136,35 +5136,10 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         for (auto& e : pending)
             ccMappings_[static_cast<size_t>(e.cc)] = std::move(e.m);
     }
-
-    // The fill above replaces the whole CC table with the preset's stored mappings, which
-    // would wipe the XL Page-1 DEVICE bindings (CC 5-36) on every load — the "faders dead
-    // after loading a preset, had to re-click XL Map" instability. If a Launch Control XL
-    // output is connected, re-overwrite its Page-1 bindings (XL Map wins, as on the button).
-    // No SysEx/LED here, so it is synchronous and flicker-free.
-    {
-        bool outIsXL = false;
-        {
-            const juce::SpinLock::ScopedLockType lock(midiOutputLock_);
-            outIsXL = midiOutputDevice_ != nullptr
-                   && midiOutputDevice_->getName().containsIgnoreCase("Launch Control XL");
-        }
-        if (outIsXL)
-        {
-            populateXLDefaultBindings();   // synchronous, flicker-free: faders + encoder bindings live now
-            // If DAW mode is NOT currently active, the physical encoders aren't in relative
-            // mode and the LEDs are dark — request the full async handshake (DAW mode +
-            // encoder relative-mode + LED burst) so the ENCODERS recover too, not just the
-            // faders. When DAW mode IS active (the normal case after port-select), the
-            // synchronous rebind above already suffices, so we skip the SysEx/LED burst to
-            // avoid relighting the controller on every preset load.
-            if (! dawModeActive_.load(std::memory_order_acquire))
-            {
-                xlAutoApplyReq_.store(true, std::memory_order_release);
-                triggerAsyncUpdate();
-            }
-        }
-    }
+    // NOTE: this fill replaces ONLY ccMappings_ (user/preset bindings). The XL controller
+    // bindings live in the separate xlDefaults_ device layer (resolveCcMapping), which is
+    // not touched here and not serialized — so a preset load can no longer wipe the XL
+    // faders/encoders. No re-apply needed.
 
     // Pin engine-mode to the loaded value so the audio thread's Step↔Gen
     // transition (which copies pattern data between the two sequencers) does
@@ -5237,7 +5212,11 @@ T5ynthProcessor::CcMapping T5ynthProcessor::getCcMappingCopy(int cc) const
     CcMapping result;
     {
         const juce::SpinLock::ScopedLockType lock(ccMappingLock_);
-        const auto& m = ccMappings_[static_cast<size_t>(cc)];
+        // Resolve through the SAME precedence the audio thread uses (XL device layer wins,
+        // else user/preset) so GUI consumers — e.g. the easy-mode "ENV/LFO/Drift tab follows
+        // the controller" feature in SynthPanel — see the active XL binding for CC 5-36,
+        // which now lives in xlDefaults_, not ccMappings_.
+        const auto& m = resolveCcMapping(cc);
         result.param   = m.param;
         result.minNorm = m.minNorm;
         result.maxNorm = m.maxNorm;
@@ -5349,17 +5328,25 @@ void T5ynthProcessor::openMidiOutputDevice(const juce::String& deviceId)
 
 void T5ynthProcessor::closeMidiOutputDevice()
 {
-    const juce::SpinLock::ScopedLockType lock(midiOutputLock_);
-    if (midiOutputDevice_ != nullptr && dawModeActive_.load(std::memory_order_acquire))
     {
-        // Restore the device to standalone/custom mode before we stop driving it.
-        // Sent directly (not via sendMidiOutputMessage) because we already hold the
-        // lock — the SpinLock is non-recursive.
-        try { midiOutputDevice_->sendMessageNow(LaunchControlXLLeds::dawMode(false)); } catch (...) {}
+        const juce::SpinLock::ScopedLockType lock(midiOutputLock_);
+        if (midiOutputDevice_ != nullptr && dawModeActive_.load(std::memory_order_acquire))
+        {
+            // Restore the device to standalone/custom mode before we stop driving it.
+            // Sent directly (not via sendMidiOutputMessage) because we already hold the
+            // lock — the SpinLock is non-recursive.
+            try { midiOutputDevice_->sendMessageNow(LaunchControlXLLeds::dawMode(false)); } catch (...) {}
+        }
+        dawModeActive_.store(false, std::memory_order_release);
+        midiOutputDevice_.reset();
+        midiOutputDeviceId_.clear();
     }
-    dawModeActive_.store(false, std::memory_order_release);
-    midiOutputDevice_.reset();
-    midiOutputDeviceId_.clear();
+    // Tear down the XL device layer so a disconnected/!XL output stops shadowing user
+    // CC-learns. Separate lock scope — ccMappingLock_ is NEVER nested with midiOutputLock_.
+    {
+        const juce::SpinLock::ScopedLockType lock(ccMappingLock_);
+        xlDefaults_.fill({});
+    }
 }
 
 void T5ynthProcessor::sendMidiOutputMessage(const juce::MidiMessage& msg)
@@ -5416,12 +5403,10 @@ void T5ynthProcessor::applyXLDefaultBindings()
 
 void T5ynthProcessor::populateXLDefaultBindings()
 {
-    // Overwrite ONLY the XL Page-1 CC bindings. XL Map is authoritative for the controls
-    // it owns: each Page-1 CC is overwritten so a stale/half-applied table (an old layout,
-    // a leftover learn, or a preset's ccMappings that just wiped the live table) is fully
-    // repaired. Bindings on CCs outside the Page-1 set are left untouched. No SysEx / no
-    // LED / no DAW-mode handshake here, so this is safe to call synchronously from any
-    // thread (e.g. right after a preset import replaces ccMappings_).
+    // Build the XL DEVICE layer from the fixed Page-1 layout. This writes xlDefaults_ — a
+    // table separate from the preset-controlled ccMappings_ — so it is immune to preset
+    // loads and is never serialized. No SysEx / no LED / no DAW-mode handshake here, so it
+    // is safe to call from any thread. Resolve param pointers off the lock first.
     struct PendingEntry { int cc; CcMapping m; };
     std::vector<PendingEntry> pending;
     pending.reserve(LaunchControlXLLeds::kPage1Count);
@@ -5442,8 +5427,9 @@ void T5ynthProcessor::populateXLDefaultBindings()
 
     {
         const juce::SpinLock::ScopedLockType lock(ccMappingLock_);
+        xlDefaults_.fill({});                                          // rebuild the whole device layer
         for (auto& e : pending)
-            ccMappings_[static_cast<size_t>(e.cc)] = std::move(e.m);   // overwrite — XL Map wins
+            xlDefaults_[static_cast<size_t>(e.cc)] = std::move(e.m);
     }
 }
 

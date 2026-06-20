@@ -606,7 +606,21 @@ private:
     std::atomic<bool>           xlAutoApplyReq_     { false };  // any→message: (re)apply XL bindings (port select / preset load)
 
     // ── MIDI CC Learn (internals) ────────────────────────────────────────────
-    std::array<CcMapping, 128> ccMappings_;
+    std::array<CcMapping, 128> ccMappings_;   // user CC-learns + preset mappings (serialized in presets)
+    // XL DEVICE layer — a separate binding table populated from the fixed Page-1 layout ONLY
+    // while a Launch Control XL output is connected, and cleared when it disconnects. It is
+    // NEVER serialized, so loading a preset (which replaces ccMappings_) cannot wipe the XL
+    // controls. This is the architectural separation: controller bindings are device state,
+    // not preset content.
+    std::array<CcMapping, 128> xlDefaults_;
+    // Resolve a CC to its active binding: the XL device layer wins on the controls it owns
+    // (populated only while an XL is connected), otherwise fall through to user/preset
+    // bindings. Caller must hold ccMappingLock_ (the audio thread holds the try-lock).
+    const CcMapping& resolveCcMapping (int cc) const noexcept
+    {
+        const auto& xl = xlDefaults_[static_cast<size_t>(cc)];
+        return xl.param != nullptr ? xl : ccMappings_[static_cast<size_t>(cc)];
+    }
     mutable juce::SpinLock     ccMappingLock_;
     std::atomic<bool>          midiLearnActive { false };
     std::atomic<int>           midiLearnTargetCc { -1 };  // audio thread writes, message thread reads
