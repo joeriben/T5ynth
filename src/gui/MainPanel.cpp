@@ -465,6 +465,14 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     statusBar.refreshMidiOutputDevices();
     statusBar.setMidiOutputDeviceId(processorRef.getMidiOutputDeviceId());
 
+    statusBar.onMidiClockEnabledChanged = [this](bool e)
+    {
+        processorRef.setMidiClockEnabled(e);
+    };
+    statusBar.setMidiClockState(processorRef.isMidiClockEnabled(),
+                                processorRef.isMidiClockActive(),
+                                processorRef.getMidiClockBpm());
+
     // Settings overlay (same pattern as DimExplorer)
     settingsScrim.onClick = [this] { hideSettings(); };
     settingsScrim.setVisible(false);
@@ -2990,6 +2998,11 @@ void MainPanel::timerCallback()
         pendingInferenceReload = false;
         tryLoadInferenceModels(true);
     }
+
+    // Poll MIDI Clock state (30 Hz — no need for a separate timer)
+    statusBar.setMidiClockState(processorRef.isMidiClockEnabled(),
+                                processorRef.isMidiClockActive(),
+                                processorRef.getMidiClockBpm());
 }
 
 void MainPanel::resized()

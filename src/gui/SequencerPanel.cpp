@@ -1105,6 +1105,9 @@ void SequencerPanel::timerCallback()
         }
     }
 
+    // Dim the BPM slider when an external MIDI clock overrides it
+    bpmRow->setAlpha(processorRef.isMidiClockActive() ? 0.45f : 1.0f);
+
     // Skip expensive updates when audio is idle and neither sequencer runs
     bool seqIdle = processorRef.audioIdle.load(std::memory_order_relaxed)
                    && !seqRunning && !genRunning;

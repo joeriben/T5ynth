@@ -105,6 +105,19 @@ StatusBar::StatusBar()
     xlMapBtn_.onClick = [this] { if (onApplyXLDefaults) onApplyXLDefaults(); };
     addAndMakeVisible(xlMapBtn_);
 
+    // "Ext. Clock" toggle — sync T5ynth BPM to incoming MIDI clock
+    extClockBtn_.setClickingTogglesState(true);
+    extClockBtn_.setColour(juce::TextButton::buttonColourId,  kSurface);
+    extClockBtn_.setColour(juce::TextButton::textColourOffId, kDim);
+    extClockBtn_.setColour(juce::TextButton::textColourOnId,  juce::Colours::white);
+    extClockBtn_.setTooltip("Sync BPM to incoming MIDI clock (overrides host transport + Seq BPM)");
+    extClockBtn_.onClick = [this]
+    {
+        if (onMidiClockEnabledChanged)
+            onMidiClockEnabledChanged(extClockBtn_.getToggleState());
+    };
+    addAndMakeVisible(extClockBtn_);
+
     refreshMidiOutputDevices();
 }
 
@@ -190,6 +203,7 @@ void StatusBar::resized()
     int kbdW      = 42;
     int panicW    = 50;
     int xlMapW    = 52;
+    int extClockW = 72;
     int comboW    = 130;
 
     manualBtn.setBounds(b.getRight() - manualW - gap, y, manualW, btnH);
@@ -201,7 +215,8 @@ void StatusBar::resized()
     keyboardBtn.setBounds(newBtn.getX() - kbdW - gap, y, kbdW, btnH);
     panicBtn.setBounds(keyboardBtn.getX() - panicW - gap, y, panicW, btnH);
     xlMapBtn_.setBounds(panicBtn.getX() - xlMapW - gap, y, xlMapW, btnH);
-    midiOutCombo_.setBounds(xlMapBtn_.getX() - comboW - gap, y, comboW, btnH);
+    extClockBtn_.setBounds(xlMapBtn_.getX() - extClockW - gap, y, extClockW, btnH);
+    midiOutCombo_.setBounds(extClockBtn_.getX() - comboW - gap, y, comboW, btnH);
 }
 
 void StatusBar::setStatusText(const juce::String& text)
@@ -245,6 +260,41 @@ void StatusBar::refreshMidiOutputDevices()
         midiOutCombo_.setSelectedId(currentId, juce::dontSendNotification);
     else
         midiOutCombo_.setSelectedId(1, juce::dontSendNotification);
+}
+
+void StatusBar::setMidiClockState(bool enabled, bool active, float bpm)
+{
+    // Suppress repaints when nothing has changed (called at 30 Hz from timerCallback)
+    const float bpmRounded = std::floor(bpm * 10.0f + 0.5f) / 10.0f;
+    if (enabled == extClockLastEnabled_ && active == extClockLastActive_
+        && bpmRounded == extClockLastBpm_)
+        return;
+    extClockLastEnabled_ = enabled;
+    extClockLastActive_  = active;
+    extClockLastBpm_     = bpmRounded;
+
+    extClockBtn_.setToggleState(enabled, juce::dontSendNotification);
+
+    if (!enabled)
+    {
+        extClockBtn_.setColour(juce::TextButton::buttonColourId, kSurface);
+        extClockBtn_.setColour(juce::TextButton::textColourOffId, kDim);
+        extClockBtn_.setTooltip("Sync BPM to incoming MIDI clock (overrides host transport + Seq BPM)");
+    }
+    else if (active)
+    {
+        extClockBtn_.setColour(juce::TextButton::buttonColourId, kSuccess.withAlpha(0.25f));
+        extClockBtn_.setColour(juce::TextButton::textColourOffId, kSuccess);
+        extClockBtn_.setTooltip(juce::String("Ext. Clock active — ")
+                                + juce::String(bpm, 1) + " BPM");
+    }
+    else
+    {
+        extClockBtn_.setColour(juce::TextButton::buttonColourId, kWarning.withAlpha(0.20f));
+        extClockBtn_.setColour(juce::TextButton::textColourOffId, kWarning);
+        extClockBtn_.setTooltip("Ext. Clock enabled — no signal received");
+    }
+    extClockBtn_.repaint();
 }
 
 void StatusBar::setMidiOutputDeviceId(const juce::String& deviceId)

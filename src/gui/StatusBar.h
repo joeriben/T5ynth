@@ -43,6 +43,12 @@ public:
     /** Refresh the device list (called on startup or when devices change). */
     void refreshMidiOutputDevices();
 
+    // ── MIDI Clock toggle ────────────────────────────────────────────────────
+    /** Fired when the user toggles "Ext. Clock". */
+    std::function<void(bool enabled)> onMidiClockEnabledChanged;
+    /** Called by MainPanel's timer to update button colour and tooltip. */
+    void setMidiClockState(bool enabled, bool active, float bpm);
+
     void mouseDown(const juce::MouseEvent& e) override;
 
 private:
@@ -61,7 +67,13 @@ private:
     juce::TextButton keyboardBtn { "Kbd" };
 
     juce::ComboBox   midiOutCombo_;
-    juce::TextButton xlMapBtn_ { "XL Map" };
+    juce::TextButton xlMapBtn_      { "XL Map" };
+    juce::TextButton extClockBtn_   { "Ext.Clock" };
+
+    // Cache to suppress unnecessary repaints in setMidiClockState (called 30 Hz)
+    bool  extClockLastEnabled_ = false;
+    bool  extClockLastActive_  = false;
+    float extClockLastBpm_     = 0.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StatusBar)
 };
