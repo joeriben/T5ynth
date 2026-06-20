@@ -642,9 +642,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::mod2Amount, 1}, "Mod2 Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
 
-    // Per-stage velocity sensitivity, signed [-1..+1]. A/D/R = velocity→time,
-    // Sustain = velocity→peak. Sustain defaults to 1.0 (classic velocity→loudness);
-    // the time stages default to 0 (no velocity effect).
+    // Per-stage velocity sensitivity, signed [-1..+1]: velocity→stage TIME only
+    // (A/D/R), default 0 (no velocity effect). Peak/depth is owned by Amt; the
+    // held level is expressed via Aftertouch, not velocity.
     auto addVelSens = [&params](const char* id, const juce::String& name, float def) {
         params.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{id, 1}, name,
@@ -652,15 +652,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     };
     addVelSens(PID::ampAttackVelSens,  "Amp Attack Vel Sens",  0.0f);
     addVelSens(PID::ampDecayVelSens,   "Amp Decay Vel Sens",   0.0f);
-    addVelSens(PID::ampSustainVelSens, "Amp Sustain Vel Sens", 1.0f);
     addVelSens(PID::ampReleaseVelSens, "Amp Release Vel Sens", 0.0f);
     addVelSens(PID::mod1AttackVelSens,  "Mod1 Attack Vel Sens",  0.0f);
     addVelSens(PID::mod1DecayVelSens,   "Mod1 Decay Vel Sens",   0.0f);
-    addVelSens(PID::mod1SustainVelSens, "Mod1 Sustain Vel Sens", 1.0f);
     addVelSens(PID::mod1ReleaseVelSens, "Mod1 Release Vel Sens", 0.0f);
     addVelSens(PID::mod2AttackVelSens,  "Mod2 Attack Vel Sens",  0.0f);
     addVelSens(PID::mod2DecayVelSens,   "Mod2 Decay Vel Sens",   0.0f);
-    addVelSens(PID::mod2SustainVelSens, "Mod2 Sustain Vel Sens", 1.0f);
     addVelSens(PID::mod2ReleaseVelSens, "Mod2 Release Vel Sens", 0.0f);
 
     // ENV Loop (per envelope)
@@ -1868,7 +1865,6 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.ampReleaseCurve = static_cast<int>(paramCache.ampReleaseCurve->load());
     bp.ampAttackVelSens  = paramCache.ampAttackVelSens->load();
     bp.ampDecayVelSens   = paramCache.ampDecayVelSens->load();
-    bp.ampSustainVelSens = paramCache.ampSustainVelSens->load();
     bp.ampReleaseVelSens = paramCache.ampReleaseVelSens->load();
 
     bp.mod1Attack  = paramCache.mod1Attack->load();
@@ -1883,7 +1879,6 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.mod1ReleaseCurve = static_cast<int>(paramCache.mod1ReleaseCurve->load());
     bp.mod1AttackVelSens  = paramCache.mod1AttackVelSens->load();
     bp.mod1DecayVelSens   = paramCache.mod1DecayVelSens->load();
-    bp.mod1SustainVelSens = paramCache.mod1SustainVelSens->load();
     bp.mod1ReleaseVelSens = paramCache.mod1ReleaseVelSens->load();
 
     bp.mod2Attack  = paramCache.mod2Attack->load();
@@ -1898,7 +1893,6 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.mod2ReleaseCurve = static_cast<int>(paramCache.mod2ReleaseCurve->load());
     bp.mod2AttackVelSens  = paramCache.mod2AttackVelSens->load();
     bp.mod2DecayVelSens   = paramCache.mod2DecayVelSens->load();
-    bp.mod2SustainVelSens = paramCache.mod2SustainVelSens->load();
     bp.mod2ReleaseVelSens = paramCache.mod2ReleaseVelSens->load();
 
     // LFOs (global) — Clock-Sync override: when ClockMode::Sync, the rate
@@ -2449,7 +2443,11 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
             if (msg.isNoteOn())
             {
-                if (isLead)
+                // XL DAW-mode ch16 encoder/fader channel: never musical. Drop it here so
+                // a startup ch16 Note-On cannot arm the arpeggiator as a base note.
+                if (dawModeActive_.load(std::memory_order_relaxed) && ch == 16)
+                { /* silently discard */ }
+                else if (isLead)
                     arpeggiator.setBaseNote(msg.getNoteNumber(), msg.getFloatVelocity());
                 else
                     filtered.addEvent(msg, metadata.samplePosition);
@@ -2624,7 +2622,14 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                        && (*midiIter).samplePosition <= subEnd)
                 {
                     const auto msg = (*midiIter).getMessage();
-                    if (msg.isNoteOn())
+                    if (msg.isNoteOn()
+                        // XL DAW-mode ch16 is the encoder/fader channel and never sends
+                        // musical Note Ons. Without this guard the DAW-mode-enable message
+                        // we send (0x9F 0x0C 0x7F) can loop back via the OS MIDI stack and
+                        // trigger a stuck voice on note 12 — the root cause of the
+                        // intermittent startup pulsating sound.
+                        && ! (dawModeActive_.load(std::memory_order_relaxed)
+                              && msg.getChannel() == 16))
                     {
                         int note = msg.getNoteNumber();
                         float velocity = msg.getFloatVelocity();
@@ -4062,11 +4067,12 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
             loadedTree.appendChild(node, nullptr);
         }
 
-        // Per-stage velocity sensitivity (continuous signed) replaced the old
-        // global velSens + discrete A/D/R vel modes. Convert a pre-redesign
-        // session's params straight into the loaded tree so velocity response
-        // survives the reload (same mapping as the .t5p preset migration):
-        //   A/D/R velSens = sign(oldMode) * oldVelSens ;  Sustain velSens = oldVelSens.
+        // Per-stage velocity sensitivity (continuous signed, A/D/R TIME only)
+        // replaced the old global velSens + discrete A/D/R vel modes. Convert a
+        // pre-redesign session's params straight into the loaded tree so the
+        // velocity response survives the reload (same mapping as the .t5p preset
+        // migration):  A/D/R velSens = sign(oldMode) * oldVelSens. The old
+        // velocity→peak (loudness) is intentionally dropped — peak is Amt's job.
         // Legacy IDs are gone from PID:: by design — match them as raw strings.
         {
             auto paramVal = [&](const juce::String& pid, float fallback) -> float {
@@ -4089,26 +4095,27 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
             struct VsMig {
                 const char* oldVelSens;
                 const char* oldAtkMode; const char* oldDecMode; const char* oldRelMode;
-                const char* newAtk; const char* newDec; const char* newSus; const char* newRel;
+                const char* newAtk; const char* newDec; const char* newRel;
             };
             const VsMig vsMig[] = {
                 { "amp_vel_sens",  "amp_attack_vel_mode",  "amp_decay_vel_mode",  "amp_release_vel_mode",
-                  PID::ampAttackVelSens,  PID::ampDecayVelSens,  PID::ampSustainVelSens,  PID::ampReleaseVelSens },
+                  PID::ampAttackVelSens,  PID::ampDecayVelSens,  PID::ampReleaseVelSens },
                 { "mod1_vel_sens", "mod1_attack_vel_mode", "mod1_decay_vel_mode", "mod1_release_vel_mode",
-                  PID::mod1AttackVelSens, PID::mod1DecayVelSens, PID::mod1SustainVelSens, PID::mod1ReleaseVelSens },
+                  PID::mod1AttackVelSens, PID::mod1DecayVelSens, PID::mod1ReleaseVelSens },
                 { "mod2_vel_sens", "mod2_attack_vel_mode", "mod2_decay_vel_mode", "mod2_release_vel_mode",
-                  PID::mod2AttackVelSens, PID::mod2DecayVelSens, PID::mod2SustainVelSens, PID::mod2ReleaseVelSens },
+                  PID::mod2AttackVelSens, PID::mod2DecayVelSens, PID::mod2ReleaseVelSens },
             };
             for (const auto& m : vsMig)
             {
                 // Only when genuinely pre-redesign: old global velSens present AND
                 // the new per-stage params absent (don't clobber a new session).
-                if (!hasParam(m.oldVelSens) || hasParam(m.newSus))
+                // (The old global velSens→loudness is intentionally dropped now —
+                // peak is Amt's job; velocity only maps to the A/D/R times.)
+                if (!hasParam(m.oldVelSens) || hasParam(m.newAtk))
                     continue;
                 const float vs = paramVal(m.oldVelSens, 1.0f);
                 appendParam(m.newAtk, modeSign(paramVal(m.oldAtkMode, 0.0f)) * vs);
                 appendParam(m.newDec, modeSign(paramVal(m.oldDecMode, 0.0f)) * vs);
-                appendParam(m.newSus, vs);
                 appendParam(m.newRel, modeSign(paramVal(m.oldRelMode, 0.0f)) * vs);
             }
         }
@@ -4230,21 +4237,21 @@ struct EnvPIDs {
     const char* attack; const char* decay; const char* sustain; const char* release;
     const char* amount; const char* loop; const char* target;
     const char* attackCurve; const char* decayCurve; const char* releaseCurve;
-    const char* attackVelSens; const char* decayVelSens; const char* sustainVelSens; const char* releaseVelSens;
+    const char* attackVelSens; const char* decayVelSens; const char* releaseVelSens;
 };
 static constexpr EnvPIDs kEnvPIDs[] = {
     { PID::ampAttack, PID::ampDecay, PID::ampSustain, PID::ampRelease,
       PID::ampAmount, PID::ampLoop, PID::ampTarget,
       PID::ampAttackCurve, PID::ampDecayCurve, PID::ampReleaseCurve,
-      PID::ampAttackVelSens, PID::ampDecayVelSens, PID::ampSustainVelSens, PID::ampReleaseVelSens },
+      PID::ampAttackVelSens, PID::ampDecayVelSens, PID::ampReleaseVelSens },
     { PID::mod1Attack, PID::mod1Decay, PID::mod1Sustain, PID::mod1Release,
       PID::mod1Amount, PID::mod1Loop, PID::mod1Target,
       PID::mod1AttackCurve, PID::mod1DecayCurve, PID::mod1ReleaseCurve,
-      PID::mod1AttackVelSens, PID::mod1DecayVelSens, PID::mod1SustainVelSens, PID::mod1ReleaseVelSens },
+      PID::mod1AttackVelSens, PID::mod1DecayVelSens, PID::mod1ReleaseVelSens },
     { PID::mod2Attack, PID::mod2Decay, PID::mod2Sustain, PID::mod2Release,
       PID::mod2Amount, PID::mod2Loop, PID::mod2Target,
       PID::mod2AttackCurve, PID::mod2DecayCurve, PID::mod2ReleaseCurve,
-      PID::mod2AttackVelSens, PID::mod2DecayVelSens, PID::mod2SustainVelSens, PID::mod2ReleaseVelSens },
+      PID::mod2AttackVelSens, PID::mod2DecayVelSens, PID::mod2ReleaseVelSens },
 };
 
 struct LfoPIDs {
@@ -4409,7 +4416,6 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         env->setProperty("releaseCurve", curveShapeToString(static_cast<int>(get(ep.releaseCurve))));
         env->setProperty("attackVelSens", get(ep.attackVelSens));
         env->setProperty("decayVelSens", get(ep.decayVelSens));
-        env->setProperty("sustainVelSens", get(ep.sustainVelSens));
         env->setProperty("releaseVelSens", get(ep.releaseVelSens));
         envArr.add(env.get());
     }
@@ -4770,15 +4776,15 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 setParam(parameters, ep.release, static_cast<float>(env->getProperty("releaseMs")));
                 setParam(parameters, ep.amount, static_cast<float>(env->getProperty("amount")));
                 setParam(parameters, ep.loop, env->getProperty("loop") ? 1.0f : 0.0f);
-                // Velocity sensitivity. New format: 4 signed per-stage velSens.
-                // Legacy format: a single "velSens" (0..1) + per-stage A/D/R vel
-                // *modes* (off/+/-). Convert legacy → signed per-stage on load:
-                //   A/D/R velSens = sign(mode) * velSens ;  Sustain velSens = velSens.
-                if (env->hasProperty("sustainVelSens"))
+                // Velocity sensitivity = signed per-stage A/D/R TIME only.
+                // Any "sustainVelSens" from older presets (velocity→peak) is
+                // intentionally ignored — peak is Amt's job now. Legacy format:
+                // a single "velSens" (0..1) + per-stage A/D/R vel *modes*
+                // (off/+/-) → A/D/R velSens = sign(mode) * velSens (sustain dropped).
+                if (env->hasProperty("attackVelSens"))
                 {
                     setParam(parameters, ep.attackVelSens,  static_cast<float>(env->getProperty("attackVelSens")));
                     setParam(parameters, ep.decayVelSens,   static_cast<float>(env->getProperty("decayVelSens")));
-                    setParam(parameters, ep.sustainVelSens, static_cast<float>(env->getProperty("sustainVelSens")));
                     setParam(parameters, ep.releaseVelSens, static_cast<float>(env->getProperty("releaseVelSens")));
                 }
                 else if (env->hasProperty("velSens"))
@@ -4796,7 +4802,6 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                         ? envVelTimeModeFromString(env->getProperty("releaseVelMode").toString()) : EnvVelTimeMode::Off;
                     setParam(parameters, ep.attackVelSens,  signFromMode(aMode) * legacyVs);
                     setParam(parameters, ep.decayVelSens,   signFromMode(dMode) * legacyVs);
-                    setParam(parameters, ep.sustainVelSens, legacyVs);
                     setParam(parameters, ep.releaseVelSens, signFromMode(rMode) * legacyVs);
                 }
                 if (env->hasProperty("attackCurve"))
@@ -5456,8 +5461,12 @@ void T5ynthProcessor::applyXLDefaultBindings()
         const juce::SpinLock::ScopedLockType lock(midiOutputLock_);
         if (midiOutputDevice_ != nullptr)
         {
-            try { midiOutputDevice_->sendMessageNow(LaunchControlXLLeds::dawMode(true)); } catch (...) {}
+            // Set the flag BEFORE sending so the ch16 Note-On guard in processBlock
+            // is already true if the OS MIDI stack loops back 0x9F 0x0C 0x7F.
+            // (Setting after the send leaves a window where the loopback arrives
+            // while dawModeActive_ is still false, causing a stuck voice.)
             dawModeActive_.store(true, std::memory_order_release);
+            try { midiOutputDevice_->sendMessageNow(LaunchControlXLLeds::dawMode(true)); } catch (...) {}
         }
     }
 
