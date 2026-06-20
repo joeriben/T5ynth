@@ -2719,13 +2719,25 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                         {
                             midiRpnMsb_ = value7;
                         }
-                        else if (cc == 100)
+                        else if (cc == 100
+                                 && ! (dawModeActive_.load(std::memory_order_relaxed)
+                                       && msg.getChannel() == 16))
                         {
+                            // CC100 = RPN LSB for normal controllers. BUT in DAW mode the XL's
+                            // Row-3 rightmost encoder (Drift3 Amt) transmits RELATIVE CC100 on
+                            // ch16 (abs CC36 + 64). Without this guard it was swallowed here as
+                            // RPN and never reached the relative-encoder handler → Drift3 Amt
+                            // dead. Other channels keep working as RPN (keyboard pitch-bend range
+                            // / MPE), so this only excludes the XL's own encoder channel.
                             midiRpnLsb_ = value7;
                         }
-                        else if (cc == 6 && midiRpnMsb_ == 0 && midiRpnLsb_ == 0)
+                        else if (cc == 6 && midiRpnMsb_ == 0 && midiRpnLsb_ == 0
+                                 && ! (dawModeActive_.load(std::memory_order_relaxed)
+                                       && msg.getChannel() == 16))
                         {
                             // RPN 0x0000 Data Entry MSB = semitones for pitch-bend range.
+                            // Guarded off for the XL's ch16 CC6 fader (Resynth): when no RPN is in
+                            // flight this branch would otherwise swallow the fader → Resynth dead.
                             // Ch1 sets the master (global) range; all other channels set the
                             // per-note MPE range. Value 0 is treated as 1 (1 semitone min).
                             const float rangeS = static_cast<float>(std::max(1, value7));
@@ -2757,9 +2769,13 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                                 handleXLButtonPress(cc);
                         }
                         else if (dawModeActive_.load(std::memory_order_relaxed)
+                                 && msg.getChannel() == 16
                                  && cc >= 77 && cc <= 100)
                         {
                             // XL DAW-mode encoders in RELATIVE mode (endless encoders): the
+                            // ch16 guard matches the manual (p.9 "Encoders and faders output on
+                            // channel 16") and is consistent with the cc100/cc6 guards above — it
+                            // stops a second controller's CC 77-100 from nudging XL-mapped params.
                             // value is a signed delta around 64, and the relative CC is the
                             // absolute CC + 64. Nudge the bound param from its CURRENT value
                             // (no absolute position → no jump). Same setValueNotifyingHost /
@@ -2776,10 +2792,21 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                                     {
                                         // span is signed so an inverted binding keeps its direction.
                                         const float span = mapping.maxNorm - mapping.minNorm;
-                                        const float next = juce::jlimit(0.0f, 1.0f,
-                                            mapping.param->getValue()
-                                            + static_cast<float>(delta) / 127.0f * span);
+                                        // One detent is delta≈±1 → ±1/127≈0.008 normalized. For a
+                                        // param with a fine interval AND low-end skew (e.g. Attack:
+                                        // 0-5000 ms, interval 0.1 ms, skew 0.3) that step converts to
+                                        // ~0.0005 ms and snaps back to 0 — so getValue() never advances
+                                        // and the encoder is dead at its 0 default. Carry the unrealized
+                                        // remainder across detents so it eventually crosses the snap.
+                                        float& acc = relEncoderAccum_[static_cast<size_t>(absCc)];
+                                        acc += static_cast<float>(delta) / 127.0f * span;
+                                        const float cur  = mapping.param->getValue();
+                                        const float next = juce::jlimit(0.0f, 1.0f, cur + acc);
                                         mapping.param->setValueNotifyingHost(next);
+                                        if (next <= 0.0f || next >= 1.0f)
+                                            acc = 0.0f;  // at a rail: drop remainder (no reversal dead-zone)
+                                        else
+                                            acc -= (mapping.param->getValue() - cur);  // keep sub-snap remainder
                                         const uint64_t seq =
                                             (midiTouchPacked_.load(std::memory_order_relaxed) >> 32) + 1;
                                         midiTouchPacked_.store(
@@ -5358,6 +5385,7 @@ void T5ynthProcessor::closeMidiOutputDevice()
     {
         const juce::SpinLock::ScopedLockType lock(ccMappingLock_);
         xlDefaults_.fill({});
+        relEncoderAccum_.fill(0.0f);   // drop any parked relative-encoder remainder with the bindings
     }
 }
 
@@ -5440,6 +5468,7 @@ void T5ynthProcessor::populateXLDefaultBindings()
     {
         const juce::SpinLock::ScopedLockType lock(ccMappingLock_);
         xlDefaults_.fill({});                                          // rebuild the whole device layer
+        relEncoderAccum_.fill(0.0f);                                   // reset relative-encoder remainder on rebind
         for (auto& e : pending)
             xlDefaults_[static_cast<size_t>(e.cc)] = std::move(e.m);
     }

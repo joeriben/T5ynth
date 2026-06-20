@@ -618,6 +618,11 @@ private:
     // controls. This is the architectural separation: controller bindings are device state,
     // not preset content.
     std::array<CcMapping, 128> xlDefaults_;
+    // Relative-encoder sub-step accumulator (audio-thread only; indexed by absolute CC 13-36).
+    // Carries the unrealized fraction of an endless-encoder detent across messages so a param
+    // with a fine interval + low-end skew (e.g. Attack at its 0 default) escapes the value snap
+    // instead of sticking dead at the floor. Dropped when a value reaches a rail.
+    std::array<float, 128> relEncoderAccum_ {};
     // Resolve a CC to its active binding: the XL device layer wins on the controls it owns
     // (populated only while an XL is connected), otherwise fall through to user/preset
     // bindings. Caller must hold ccMappingLock_ (the audio thread holds the try-lock).
