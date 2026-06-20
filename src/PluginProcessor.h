@@ -372,7 +372,13 @@ private:
     int   midiRpnMsb_ = 0x7F;
     int   midiRpnLsb_ = 0x7F;
     float masterPitchBendRangeSemitones_ = 2.0f;   // ch1 global bend range (standard ±2)
-    float notePitchBendRangeSemitones_   = 48.0f;  // ch2-16 per-note range (MPE default ±48)
+    // Per-note (member-channel) range, used until a controller transmits its RPN.
+    // Defaulted to ±24 to match the reference controller: a LinnStrument maxes at
+    // ±24 semitones (configurable, even on the newest firmware), so the MPE-spec
+    // ±48 over-bends it. A controller that DOES send RPN 0 (LinnStrument on a
+    // settings change / forced MPE; ROLI, etc.) overrides this — and the engine
+    // clamp in SynthVoice stays ±48 so a larger transmitted range is still honored.
+    float notePitchBendRangeSemitones_   = 24.0f;
 
     // Edge-detection for arp-toggle note-off cleanup. When arp transitions
     // false→true while a sequencer is running, the seq's currently-sounding
