@@ -55,7 +55,6 @@ namespace PID {
     static constexpr const char* ampReleaseCurve  = "amp_release_curve";
     static constexpr const char* ampAttackVelSens = "amp_attack_vel_sens";
     static constexpr const char* ampDecayVelSens  = "amp_decay_vel_sens";
-    static constexpr const char* ampSustainVelSens= "amp_sustain_vel_sens";
     static constexpr const char* ampReleaseVelSens= "amp_release_vel_sens";
     static constexpr const char* mod1Attack       = "mod1_attack";
     static constexpr const char* mod1Decay        = "mod1_decay";
@@ -69,7 +68,6 @@ namespace PID {
     static constexpr const char* mod1ReleaseCurve = "mod1_release_curve";
     static constexpr const char* mod1AttackVelSens = "mod1_attack_vel_sens";
     static constexpr const char* mod1DecayVelSens  = "mod1_decay_vel_sens";
-    static constexpr const char* mod1SustainVelSens= "mod1_sustain_vel_sens";
     static constexpr const char* mod1ReleaseVelSens= "mod1_release_vel_sens";
     static constexpr const char* mod2Attack       = "mod2_attack";
     static constexpr const char* mod2Decay        = "mod2_decay";
@@ -83,7 +81,6 @@ namespace PID {
     static constexpr const char* mod2ReleaseCurve = "mod2_release_curve";
     static constexpr const char* mod2AttackVelSens = "mod2_attack_vel_sens";
     static constexpr const char* mod2DecayVelSens  = "mod2_decay_vel_sens";
-    static constexpr const char* mod2SustainVelSens= "mod2_sustain_vel_sens";
     static constexpr const char* mod2ReleaseVelSens= "mod2_release_vel_sens";
     static constexpr const char* lfo1Rate         = "lfo1_rate";
     static constexpr const char* lfo1Depth        = "lfo1_depth";
@@ -1203,10 +1200,10 @@ struct BlockParams
     // Amp envelope
     float ampAttack = 0.0f, ampDecay = 0.0f, ampSustain = 1.0f, ampRelease = 0.0f;
     float ampAmount = 1.0f;
-    // Per-stage velocity sensitivity, signed [-1..+1]. A/D/R = velocity→time;
-    // Sustain = velocity→peak (loudness when target=DCA, else mod-depth). 0=off.
-    // Sustain defaults to 1.0 to preserve the classic velocity→loudness response.
-    float ampAttackVelSens = 0.0f, ampDecayVelSens = 0.0f, ampSustainVelSens = 1.0f, ampReleaseVelSens = 0.0f;
+    // Per-stage velocity sensitivity, signed [-1..+1]: velocity→stage TIME only
+    // (A/D/R). 0 = no velocity effect. The peak/depth is owned exclusively by
+    // Amt; the held level is expressed via Aftertouch, not velocity.
+    float ampAttackVelSens = 0.0f, ampDecayVelSens = 0.0f, ampReleaseVelSens = 0.0f;
     int   ampTarget = EnvTarget::DCA;
     int   ampAttackCurve = 2, ampDecayCurve = 2, ampReleaseCurve = 4; // CurveShape indices
     bool  ampLoop = false;
@@ -1214,7 +1211,7 @@ struct BlockParams
     // Mod envelope 1
     float mod1Attack = 0.0f, mod1Decay = 0.0f, mod1Sustain = 1.0f, mod1Release = 0.0f;
     float mod1Amount = 0.0f;
-    float mod1AttackVelSens = 0.0f, mod1DecayVelSens = 0.0f, mod1SustainVelSens = 1.0f, mod1ReleaseVelSens = 0.0f;
+    float mod1AttackVelSens = 0.0f, mod1DecayVelSens = 0.0f, mod1ReleaseVelSens = 0.0f;
     int   mod1Target = 0; // EnvTarget::None
     int   mod1AttackCurve = 2, mod1DecayCurve = 2, mod1ReleaseCurve = 4;
     bool  mod1Loop = false;
@@ -1222,7 +1219,7 @@ struct BlockParams
     // Mod envelope 2
     float mod2Attack = 0.0f, mod2Decay = 0.0f, mod2Sustain = 1.0f, mod2Release = 0.0f;
     float mod2Amount = 0.0f;
-    float mod2AttackVelSens = 0.0f, mod2DecayVelSens = 0.0f, mod2SustainVelSens = 1.0f, mod2ReleaseVelSens = 0.0f;
+    float mod2AttackVelSens = 0.0f, mod2DecayVelSens = 0.0f, mod2ReleaseVelSens = 0.0f;
     int   mod2Target = 0; // EnvTarget::None
     int   mod2AttackCurve = 2, mod2DecayCurve = 2, mod2ReleaseCurve = 4;
     bool  mod2Loop = false;

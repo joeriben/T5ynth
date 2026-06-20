@@ -52,7 +52,7 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
                           const juce::String& aCurveId, const juce::String& dCurveId,
                           const juce::String& rCurveId,
                           const juce::String& aVsId, const juce::String& dVsId,
-                          const juce::String& sVsId, const juce::String& rVsId,
+                          const juce::String& rVsId,
                           const juce::String& amtId,
                           juce::AudioProcessorValueTreeState& apvts)
 {
@@ -86,12 +86,11 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     };
     env.aVsRow = std::make_unique<SliderRow>("Vel.A", fmtVs, kEnvCol);
     env.dVsRow = std::make_unique<SliderRow>("Vel.D", fmtVs, kEnvCol);
-    env.sVsRow = std::make_unique<SliderRow>("Vel.S", fmtVs, kEnvCol);
     env.rVsRow = std::make_unique<SliderRow>("Vel.R", fmtVs, kEnvCol);
 
     for (auto* row : { env.aRow.get(), env.dRow.get(), env.sRow.get(),
                        env.rRow.get(), env.amtRow.get(),
-                       env.aVsRow.get(), env.dVsRow.get(), env.sVsRow.get(), env.rVsRow.get() })
+                       env.aVsRow.get(), env.dVsRow.get(), env.rVsRow.get() })
         addAndMakeVisible(*row);
 
     env.aA   = std::make_unique<SA>(apvts, aId,   env.aRow->getSlider());
@@ -101,7 +100,6 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     env.amtA = std::make_unique<SA>(apvts, amtId, env.amtRow->getSlider());
     env.aVsA = std::make_unique<SA>(apvts, aVsId, env.aVsRow->getSlider());
     env.dVsA = std::make_unique<SA>(apvts, dVsId, env.dVsRow->getSlider());
-    env.sVsA = std::make_unique<SA>(apvts, sVsId, env.sVsRow->getSlider());
     env.rVsA = std::make_unique<SA>(apvts, rVsId, env.rVsRow->getSlider());
 
     auto wireMidiRow = [this](SliderRow* row, const juce::String& pid) {
@@ -115,11 +113,10 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     wireMidiRow(env.amtRow.get(), amtId);
     wireMidiRow(env.aVsRow.get(), aVsId);
     wireMidiRow(env.dVsRow.get(), dVsId);
-    wireMidiRow(env.sVsRow.get(), sVsId);
     wireMidiRow(env.rVsRow.get(), rVsId);
 
     // Velocity sliders snap back to neutral (0) on double-click.
-    for (auto* row : { env.aVsRow.get(), env.dVsRow.get(), env.sVsRow.get(), env.rVsRow.get() })
+    for (auto* row : { env.aVsRow.get(), env.dVsRow.get(), env.rVsRow.get() })
         row->getSlider().setDoubleClickReturnValue(true, 0.0);
 
     // ── Curve shape cycling buttons (square icons) ──
@@ -162,7 +159,6 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     env.amtRow->updateValue();
     env.aVsRow->updateValue();
     env.dVsRow->updateValue();
-    env.sVsRow->updateValue();
     env.rVsRow->updateValue();
 }
 
@@ -1083,15 +1079,15 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     // ── Envelopes ──
     initEnv(ampEnv,  "ENV 1", 2, PID::ampAttack,  PID::ampDecay,  PID::ampSustain,  PID::ampRelease,
             PID::ampAttackCurve, PID::ampDecayCurve, PID::ampReleaseCurve,
-            PID::ampAttackVelSens, PID::ampDecayVelSens, PID::ampSustainVelSens, PID::ampReleaseVelSens,
+            PID::ampAttackVelSens, PID::ampDecayVelSens, PID::ampReleaseVelSens,
             PID::ampAmount,  apvts);
     initEnv(mod1Env, "ENV 2", 1, PID::mod1Attack, PID::mod1Decay, PID::mod1Sustain, PID::mod1Release,
             PID::mod1AttackCurve, PID::mod1DecayCurve, PID::mod1ReleaseCurve,
-            PID::mod1AttackVelSens, PID::mod1DecayVelSens, PID::mod1SustainVelSens, PID::mod1ReleaseVelSens,
+            PID::mod1AttackVelSens, PID::mod1DecayVelSens, PID::mod1ReleaseVelSens,
             PID::mod1Amount, apvts);
     initEnv(mod2Env, "ENV 3", 1, PID::mod2Attack, PID::mod2Decay, PID::mod2Sustain, PID::mod2Release,
             PID::mod2AttackCurve, PID::mod2DecayCurve, PID::mod2ReleaseCurve,
-            PID::mod2AttackVelSens, PID::mod2DecayVelSens, PID::mod2SustainVelSens, PID::mod2ReleaseVelSens,
+            PID::mod2AttackVelSens, PID::mod2DecayVelSens, PID::mod2ReleaseVelSens,
             PID::mod2Amount, apvts);
 
     // ── LFOs ──
@@ -1475,7 +1471,7 @@ void SynthPanel::updateVisibility()
         env.rCurveBtn.setAlpha(alpha);
         for (auto* r : { env.aRow.get(), env.dRow.get(), env.sRow.get(),
                          env.rRow.get(), env.amtRow.get(),
-                         env.aVsRow.get(), env.dVsRow.get(), env.sVsRow.get(), env.rVsRow.get() })
+                         env.aVsRow.get(), env.dVsRow.get(), env.rVsRow.get() })
             if (r) r->setAlpha(alpha);
     };
     setEnvDimmed(ampEnv);
@@ -1560,11 +1556,8 @@ void SynthPanel::updateVisibility()
         // Amt row: advanced always; easy only for the selected env.
         if (env.amtRow) env.amtRow->setVisible(!easy || selected);
         // Per-stage velSense sliders: advanced always; easy only for selected env.
-        for (auto* r : { env.aVsRow.get(), env.dVsRow.get(), env.sVsRow.get(), env.rVsRow.get() })
+        for (auto* r : { env.aVsRow.get(), env.dVsRow.get(), env.rVsRow.get() })
             if (r) r->setVisible(!easy || selected);
-        // Sustain velSense is moot when the env drives nothing (target None).
-        const bool targetActive = env.targetBox.getSelectedId() != 1;
-        if (env.sVsRow) env.sVsRow->getSlider().setEnabled(targetActive);
         // Easy-view graph: easy + selected only.
         const bool easySel = easy && selected;
         if (env.graph) env.graph->setVisible(easySel);
@@ -1905,7 +1898,7 @@ void SynthPanel::layoutEnv(EnvSection& env, juce::Rectangle<int>& area, float f,
 {
     for (auto* r : { env.aRow.get(), env.dRow.get(), env.sRow.get(),
                      env.rRow.get(), env.amtRow.get(),
-                     env.aVsRow.get(), env.dVsRow.get(), env.sVsRow.get(), env.rVsRow.get() })
+                     env.aVsRow.get(), env.dVsRow.get(), env.rVsRow.get() })
         if (r) r->setVerticalMode(false);
 
     if (env.amtRow) env.amtRow->setLabelAsBand(false);  // band is an easy-view-only treatment
@@ -1935,23 +1928,17 @@ void SynthPanel::layoutEnv(EnvSection& env, juce::Rectangle<int>& area, float f,
     env.rCurveBtn.setBounds(srBounds[1].getX() + env.rRow->getLabelWidthForAvailableWidth(srBounds[1].getWidth()) - btnSize,
                             srBounds[1].getY() + 1, btnSize, btnSize);
 
-    // Amt (master level) on its own left-column row; right cell stays empty.
-    auto amtRowArea = area.removeFromTop(rowH);
-    {
-        const int halfW = juce::jmax(1, (amtRowArea.getWidth() - 4) / 2);
-        env.amtRow->setBounds(amtRowArea.removeFromLeft(halfW));
-    }
-
-    // Per-stage velocity sensitivity, 2×2: [A][D] then [S][R].
+    // Per-stage velocity (→ A/D/R time) + Amt, 2×2: [Vel.A][Vel.D] then
+    // [Vel.R][Amt]. Amt is the 4th cell — the old separate Amt row is gone.
     auto avRow = area.removeFromTop(rowH);
     auto avBounds = layoutSliderRowPairBounds(avRow, *env.aVsRow, *env.dVsRow, 4);
     env.aVsRow->setBounds(avBounds[0]);
     env.dVsRow->setBounds(avBounds[1]);
 
     auto svRow = area.removeFromTop(rowH);
-    auto svBounds = layoutSliderRowPairBounds(svRow, *env.sVsRow, *env.rVsRow, 4);
-    env.sVsRow->setBounds(svBounds[0]);
-    env.rVsRow->setBounds(svBounds[1]);
+    auto svBounds = layoutSliderRowPairBounds(svRow, *env.rVsRow, *env.amtRow, 4);
+    env.rVsRow->setBounds(svBounds[0]);
+    env.amtRow->setBounds(svBounds[1]);
 
     area.removeFromTop(gap);
 }
@@ -2208,7 +2195,7 @@ void SynthPanel::layoutFilterEasy(juce::Rectangle<int> area, float f, int rowH, 
 void SynthPanel::layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float f, int rowH, int gap)
 {
     for (auto* r : { env.amtRow.get(),
-                     env.aVsRow.get(), env.dVsRow.get(), env.sVsRow.get(), env.rVsRow.get() })
+                     env.aVsRow.get(), env.dVsRow.get(), env.rVsRow.get() })
         if (r)
         {
             r->clearForcedLabelWidth();
@@ -2228,20 +2215,9 @@ void SynthPanel::layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float
 
     const int rowGap = juce::jmax(gap, 6);
 
-    // Amt = the envelope DEPTH — a primary control, reserved at the bottom as a
-    // full-width band slider with a margin below (the card content-inset adds the
-    // rest). Reserved FIRST so the block above can never squeeze it into the edge.
-    juce::Rectangle<int> amtArea;
-    if (env.amtRow)
-    {
-        amtArea = area.removeFromBottom(juce::jmin(rowH, area.getHeight()));
-        area.removeFromBottom(rowGap);
-    }
-
-    // Split the remaining height so the column is FILLED (no dead gap): the ADSR
-    // graph is the dominant hero (~2/3), the velSense trim faders take the
-    // secondary third. One gap between them; minimums keep both usable when the
-    // column is short (stack layout / small window).
+    // Split the full remaining height: the ADSR graph is the dominant hero
+    // (~2/3); the velocity (A/D/R) + Amt fader row takes the secondary third.
+    // One gap between them; minimums keep both usable when the column is short.
     const int avail     = juce::jmax(0, area.getHeight() - rowGap);
     const int minGraphH = juce::jmax(rowH * 3, juce::roundToInt(f * 5.0f));
     const int minVelH   = juce::jmax(rowH * 2, juce::roundToInt(f * 3.0f));
@@ -2253,26 +2229,20 @@ void SynthPanel::layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float
     if (env.graph) env.graph->setBounds(graphArea);
     area.removeFromTop(rowGap);
 
-    // velSense faders fill the rest of the column (no void), columns aligned under
-    // the graph's A/D/S/R stages. Clearly secondary — about half the graph's height.
+    // Velocity A/D/R + Amt as one 4-wide vertical fader row, columns aligned
+    // under the graph's stages. Amt is the 4th fader (the old horizontal Amt
+    // band is gone): velocity shapes the A/D/R times, Amt owns the depth.
     {
         auto vsArea = area;
-        SliderRow* vs[4] = { env.aVsRow.get(), env.dVsRow.get(), env.sVsRow.get(), env.rVsRow.get() };
+        SliderRow* vs[4] = { env.aVsRow.get(), env.dVsRow.get(), env.rVsRow.get(), env.amtRow.get() };
         constexpr int vGap = 4;
         const int vW = juce::jmax(1, (vsArea.getWidth() - vGap * 3) / 4);
         for (int i = 0; i < 4; ++i)
         {
             auto cell = (i == 3) ? vsArea : vsArea.removeFromLeft(vW);
             if (i < 3) vsArea.removeFromLeft(vGap);
-            if (vs[i]) { vs[i]->setVerticalMode(true); vs[i]->setBounds(cell); }
+            if (vs[i]) { vs[i]->setVerticalMode(true); vs[i]->setLabelAsBand(false); vs[i]->setBounds(cell); }
         }
-    }
-
-    if (env.amtRow)
-    {
-        env.amtRow->setVerticalMode(false);
-        env.amtRow->setLabelAsBand(true);   // standard horizontal-slider look (matches the Target band)
-        env.amtRow->setBounds(amtArea);
     }
 }
 
@@ -3342,9 +3312,8 @@ void SynthPanel::resized()
         const int leftLabelWidth = std::max({
             modulationForcedLabelWidthFor(*ampEnv.aRow, modColumnWidth, curveLabelMin),
             modulationForcedLabelWidthFor(*ampEnv.sRow, modColumnWidth),
-            modulationForcedLabelWidthFor(*ampEnv.amtRow, modColumnWidth),
             modulationForcedLabelWidthFor(*ampEnv.aVsRow, modColumnWidth),   // "Vel.A"
-            modulationForcedLabelWidthFor(*ampEnv.sVsRow, modColumnWidth),   // "Vel.S"
+            modulationForcedLabelWidthFor(*ampEnv.rVsRow, modColumnWidth),   // "Vel.R"
             modulationForcedLabelWidthFor(*lfo1.rateRow, modColumnWidth),
             modulationForcedLabelWidthFor(*lfo1.divisionRow, modColumnWidth),
             modulationForcedLabelWidthFor(*aftertouchAmountRow, modColumnWidth),
@@ -3356,18 +3325,18 @@ void SynthPanel::resized()
             modulationForcedLabelWidthFor(*ampEnv.dRow, modColumnWidth, curveLabelMin),
             modulationForcedLabelWidthFor(*ampEnv.rRow, modColumnWidth, curveLabelMin),
             modulationForcedLabelWidthFor(*ampEnv.dVsRow, modColumnWidth),   // "Vel.D"
-            modulationForcedLabelWidthFor(*ampEnv.rVsRow, modColumnWidth),   // "Vel.R"
+            modulationForcedLabelWidthFor(*ampEnv.amtRow, modColumnWidth),   // "Amt"
             modulationForcedLabelWidthFor(*lfo1.depthRow, modColumnWidth),
             modulationForcedLabelWidthFor(*drift1.depthRow, modColumnWidth)
         });
 
         for (auto* row : {
-                 ampEnv.aRow.get(), ampEnv.sRow.get(), ampEnv.amtRow.get(),
-                 ampEnv.aVsRow.get(), ampEnv.sVsRow.get(),
-                 mod1Env.aRow.get(), mod1Env.sRow.get(), mod1Env.amtRow.get(),
-                 mod1Env.aVsRow.get(), mod1Env.sVsRow.get(),
-                 mod2Env.aRow.get(), mod2Env.sRow.get(), mod2Env.amtRow.get(),
-                 mod2Env.aVsRow.get(), mod2Env.sVsRow.get(),
+                 ampEnv.aRow.get(), ampEnv.sRow.get(),
+                 ampEnv.aVsRow.get(), ampEnv.rVsRow.get(),
+                 mod1Env.aRow.get(), mod1Env.sRow.get(),
+                 mod1Env.aVsRow.get(), mod1Env.rVsRow.get(),
+                 mod2Env.aRow.get(), mod2Env.sRow.get(),
+                 mod2Env.aVsRow.get(), mod2Env.rVsRow.get(),
                  lfo1.rateRow.get(), lfo2.rateRow.get(), lfo3.rateRow.get(),
                  lfo1.divisionRow.get(), lfo2.divisionRow.get(), lfo3.divisionRow.get(),
                  aftertouchAmountRow.get(),
@@ -3376,9 +3345,9 @@ void SynthPanel::resized()
             row->setForcedLabelWidth(leftLabelWidth);
 
         for (auto* row : {
-                 ampEnv.dRow.get(), ampEnv.rRow.get(), ampEnv.dVsRow.get(), ampEnv.rVsRow.get(),
-                 mod1Env.dRow.get(), mod1Env.rRow.get(), mod1Env.dVsRow.get(), mod1Env.rVsRow.get(),
-                 mod2Env.dRow.get(), mod2Env.rRow.get(), mod2Env.dVsRow.get(), mod2Env.rVsRow.get(),
+                 ampEnv.dRow.get(), ampEnv.rRow.get(), ampEnv.dVsRow.get(), ampEnv.amtRow.get(),
+                 mod1Env.dRow.get(), mod1Env.rRow.get(), mod1Env.dVsRow.get(), mod1Env.amtRow.get(),
+                 mod2Env.dRow.get(), mod2Env.rRow.get(), mod2Env.dVsRow.get(), mod2Env.amtRow.get(),
                  lfo1.depthRow.get(), lfo2.depthRow.get(), lfo3.depthRow.get(),
                  drift1.depthRow.get(), drift2.depthRow.get(), drift3.depthRow.get() })
             row->setForcedLabelWidth(rightLabelWidth);

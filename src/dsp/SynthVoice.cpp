@@ -64,17 +64,6 @@ float computeVelocityTimedMs(float baseMs, float velSense, float velocity)
 {
     return std::max(0.0f, baseMs * computeVelocityTimeScale(velSense, velocity));
 }
-
-// Signed velocity → peak scale (note-on level), bounded [0..1]. velSense ∈ [-1..+1]:
-//   +  harder hits → higher peak (= velocity at +1),
-//   -  harder hits → lower peak (inverted), 0 = fixed peak (1).
-float computeVelocityPeakScale(float velSense, float velocity)
-{
-    const float vel = juce::jlimit(0.0f, 1.0f, velocity);
-    const float amount = std::abs(velSense);
-    const float target = (velSense >= 0.0f) ? vel : (1.0f - vel);
-    return (1.0f - amount) + amount * target;
-}
 }
 
 void SynthVoice::prepare(double sampleRate, int samplesPerBlock)
@@ -188,13 +177,11 @@ void SynthVoice::noteOn(int note, float velocity, bool legato)
 
     if (!legato)
     {
-        // Velocity → peak, driven by each env's signed Sustain velSense.
-        float ampVel  = computeVelocityPeakScale(ampSustainVelSens_,  velocity);
-        float mod1Vel = computeVelocityPeakScale(mod1SustainVelSens_, velocity);
-        float mod2Vel = computeVelocityPeakScale(mod2SustainVelSens_, velocity);
-        ampEnv.noteOn(ampVel);
-        modEnv1.noteOn(mod1Vel);
-        modEnv2.noteOn(mod2Vel);
+        // Peak is fixed at 1.0; envelope depth is owned by Amt. Velocity shapes
+        // only the A/D/R times (applyVelocityTimedEnvelopeTimes), never the level.
+        ampEnv.noteOn(1.0f);
+        modEnv1.noteOn(1.0f);
+        modEnv2.noteOn(1.0f);
     }
     samplerPreStretchNormDirty_ = true;
 
@@ -258,7 +245,6 @@ void SynthVoice::configureForBlock(const BlockParams& p)
     ampReleaseBaseMs_ = p.ampRelease;
     ampAttackVelSens_ = p.ampAttackVelSens;
     ampDecayVelSens_ = p.ampDecayVelSens;
-    ampSustainVelSens_ = p.ampSustainVelSens;
     ampReleaseVelSens_ = p.ampReleaseVelSens;
     ampEnv.setSustain(applyAftertouchTarget(p, AftertouchTarget::Env1Sustain,
                                             p.ampSustain, aftertouch_));
@@ -272,7 +258,6 @@ void SynthVoice::configureForBlock(const BlockParams& p)
     mod1ReleaseBaseMs_ = p.mod1Release;
     mod1AttackVelSens_ = p.mod1AttackVelSens;
     mod1DecayVelSens_ = p.mod1DecayVelSens;
-    mod1SustainVelSens_ = p.mod1SustainVelSens;
     mod1ReleaseVelSens_ = p.mod1ReleaseVelSens;
     modEnv1.setSustain(applyAftertouchTarget(p, AftertouchTarget::Env2Sustain,
                                              p.mod1Sustain, aftertouch_));
@@ -286,7 +271,6 @@ void SynthVoice::configureForBlock(const BlockParams& p)
     mod2ReleaseBaseMs_ = p.mod2Release;
     mod2AttackVelSens_ = p.mod2AttackVelSens;
     mod2DecayVelSens_ = p.mod2DecayVelSens;
-    mod2SustainVelSens_ = p.mod2SustainVelSens;
     mod2ReleaseVelSens_ = p.mod2ReleaseVelSens;
     modEnv2.setSustain(applyAftertouchTarget(p, AftertouchTarget::Env3Sustain,
                                              p.mod2Sustain, aftertouch_));
@@ -336,7 +320,6 @@ bool SynthVoice::preStretchNormStateMatches(const BlockParams& p) const
         && preStretchNormState_.ampReleaseCurve == p.ampReleaseCurve
         && nearlyEqual(preStretchNormState_.ampAttackVelSens, p.ampAttackVelSens)
         && nearlyEqual(preStretchNormState_.ampDecayVelSens, p.ampDecayVelSens)
-        && nearlyEqual(preStretchNormState_.ampSustainVelSens, p.ampSustainVelSens)
         && nearlyEqual(preStretchNormState_.ampReleaseVelSens, p.ampReleaseVelSens)
         && preStretchNormState_.mod1Target == p.mod1Target
         && nearlyEqual(preStretchNormState_.mod1Attack, p.mod1Attack)
@@ -350,7 +333,6 @@ bool SynthVoice::preStretchNormStateMatches(const BlockParams& p) const
         && preStretchNormState_.mod1ReleaseCurve == p.mod1ReleaseCurve
         && nearlyEqual(preStretchNormState_.mod1AttackVelSens, p.mod1AttackVelSens)
         && nearlyEqual(preStretchNormState_.mod1DecayVelSens, p.mod1DecayVelSens)
-        && nearlyEqual(preStretchNormState_.mod1SustainVelSens, p.mod1SustainVelSens)
         && nearlyEqual(preStretchNormState_.mod1ReleaseVelSens, p.mod1ReleaseVelSens)
         && preStretchNormState_.mod2Target == p.mod2Target
         && nearlyEqual(preStretchNormState_.mod2Attack, p.mod2Attack)
@@ -364,7 +346,6 @@ bool SynthVoice::preStretchNormStateMatches(const BlockParams& p) const
         && preStretchNormState_.mod2ReleaseCurve == p.mod2ReleaseCurve
         && nearlyEqual(preStretchNormState_.mod2AttackVelSens, p.mod2AttackVelSens)
         && nearlyEqual(preStretchNormState_.mod2DecayVelSens, p.mod2DecayVelSens)
-        && nearlyEqual(preStretchNormState_.mod2SustainVelSens, p.mod2SustainVelSens)
         && nearlyEqual(preStretchNormState_.mod2ReleaseVelSens, p.mod2ReleaseVelSens)
         && nearlyEqual(preStretchNormState_.velocity, currentVelocity)
         && nearlyEqual(preStretchNormState_.startPos, sampler.getStartPos())
@@ -460,13 +441,9 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
     mod2Ref.setDecayCurve(static_cast<CurveShape>(p.mod2DecayCurve));
     mod2Ref.setReleaseCurve(static_cast<CurveShape>(p.mod2ReleaseCurve));
 
-    const float ampVel  = computeVelocityPeakScale(ampSustainVelSens_,  currentVelocity);
-    const float mod1Vel = computeVelocityPeakScale(mod1SustainVelSens_, currentVelocity);
-    const float mod2Vel = computeVelocityPeakScale(mod2SustainVelSens_, currentVelocity);
-
-    ampRef.noteOn(ampVel);
-    mod1Ref.noteOn(mod1Vel);
-    mod2Ref.noteOn(mod2Vel);
+    ampRef.noteOn(1.0f);
+    mod1Ref.noteOn(1.0f);
+    mod2Ref.noteOn(1.0f);
 
     for (int i = 0; i < analysisSamples; ++i)
     {
@@ -506,7 +483,6 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
     preStretchNormState_.ampReleaseCurve = p.ampReleaseCurve;
     preStretchNormState_.ampAttackVelSens = p.ampAttackVelSens;
     preStretchNormState_.ampDecayVelSens = p.ampDecayVelSens;
-    preStretchNormState_.ampSustainVelSens = p.ampSustainVelSens;
     preStretchNormState_.ampReleaseVelSens = p.ampReleaseVelSens;
     preStretchNormState_.mod1Target = p.mod1Target;
     preStretchNormState_.mod1Attack = p.mod1Attack;
@@ -520,7 +496,6 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
     preStretchNormState_.mod1ReleaseCurve = p.mod1ReleaseCurve;
     preStretchNormState_.mod1AttackVelSens = p.mod1AttackVelSens;
     preStretchNormState_.mod1DecayVelSens = p.mod1DecayVelSens;
-    preStretchNormState_.mod1SustainVelSens = p.mod1SustainVelSens;
     preStretchNormState_.mod1ReleaseVelSens = p.mod1ReleaseVelSens;
     preStretchNormState_.mod2Target = p.mod2Target;
     preStretchNormState_.mod2Attack = p.mod2Attack;
@@ -534,7 +509,6 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
     preStretchNormState_.mod2ReleaseCurve = p.mod2ReleaseCurve;
     preStretchNormState_.mod2AttackVelSens = p.mod2AttackVelSens;
     preStretchNormState_.mod2DecayVelSens = p.mod2DecayVelSens;
-    preStretchNormState_.mod2SustainVelSens = p.mod2SustainVelSens;
     preStretchNormState_.mod2ReleaseVelSens = p.mod2ReleaseVelSens;
     preStretchNormState_.velocity = currentVelocity;
     preStretchNormState_.startPos = sampler.getStartPos();

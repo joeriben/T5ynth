@@ -4111,6 +4111,10 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
                 // the new per-stage params absent (don't clobber a new session).
                 // (The old global velSens→loudness is intentionally dropped now —
                 // peak is Amt's job; velocity only maps to the A/D/R times.)
+                // newAtk is a valid "already-redesigned" discriminator because the
+                // per-stage A/D/(S)/R velSens params have always been written as a
+                // set since they were introduced together (f6e69410) — there is no
+                // attack-less-but-sustain-bearing format to misclassify.
                 if (!hasParam(m.oldVelSens) || hasParam(m.newAtk))
                     continue;
                 const float vs = paramVal(m.oldVelSens, 1.0f);

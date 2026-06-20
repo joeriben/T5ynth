@@ -27,14 +27,14 @@
     X(tuning)     X(masterVol)     X(ampAttack)     X(ampDecay) \
     X(ampSustain)     X(ampRelease)     X(ampAmount)     X(ampLoop) \
     X(ampTarget)     X(ampAttackCurve)     X(ampDecayCurve)     X(ampReleaseCurve) \
-    X(ampAttackVelSens)     X(ampDecayVelSens)     X(ampSustainVelSens)     X(ampReleaseVelSens) \
+    X(ampAttackVelSens)     X(ampDecayVelSens)     X(ampReleaseVelSens) \
     X(mod1Attack)     X(mod1Decay)     X(mod1Sustain)     X(mod1Release) \
     X(mod1Amount)     X(mod1Loop)     X(mod1Target)     X(mod1AttackCurve) \
     X(mod1DecayCurve)     X(mod1ReleaseCurve)     X(mod1AttackVelSens)     X(mod1DecayVelSens) \
-    X(mod1SustainVelSens)     X(mod1ReleaseVelSens)     X(mod2Attack)     X(mod2Decay) \
+    X(mod1ReleaseVelSens)     X(mod2Attack)     X(mod2Decay) \
     X(mod2Sustain)     X(mod2Release)     X(mod2Amount)     X(mod2Loop) \
     X(mod2Target)     X(mod2AttackCurve)     X(mod2DecayCurve)     X(mod2ReleaseCurve) \
-    X(mod2AttackVelSens)     X(mod2DecayVelSens)     X(mod2SustainVelSens)     X(mod2ReleaseVelSens) \
+    X(mod2AttackVelSens)     X(mod2DecayVelSens)     X(mod2ReleaseVelSens) \
     X(lfo1Rate)     X(lfo1Depth)     X(lfo1Wave)     X(lfo1Target) \
     X(lfo1Mode)     X(lfo2Rate)     X(lfo2Depth)     X(lfo2Wave) \
     X(lfo2Target)     X(lfo2Mode)     X(lfo3Rate)     X(lfo3Depth) \

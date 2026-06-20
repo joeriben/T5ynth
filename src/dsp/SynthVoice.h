@@ -147,27 +147,25 @@ private:
     double sr = 44100.0;
 
     // Per-stage velocity sensitivity, signed [-1..+1] (updated per block from
-    // BlockParams). A/D/R scale envelope times; Sustain scales the note-on peak.
+    // BlockParams). A/D/R scale the envelope TIMES only — velocity never scales
+    // the level (peak = Amt's job; held level = Aftertouch's).
     float ampAttackBaseMs_ = 0.0f;
     float ampDecayBaseMs_ = 0.0f;
     float ampReleaseBaseMs_ = 0.0f;
     float ampAttackVelSens_ = 0.0f;
     float ampDecayVelSens_ = 0.0f;
-    float ampSustainVelSens_ = 1.0f;
     float ampReleaseVelSens_ = 0.0f;
     float mod1AttackBaseMs_ = 0.0f;
     float mod1DecayBaseMs_ = 0.0f;
     float mod1ReleaseBaseMs_ = 0.0f;
     float mod1AttackVelSens_ = 0.0f;
     float mod1DecayVelSens_ = 0.0f;
-    float mod1SustainVelSens_ = 1.0f;
     float mod1ReleaseVelSens_ = 0.0f;
     float mod2AttackBaseMs_ = 0.0f;
     float mod2DecayBaseMs_ = 0.0f;
     float mod2ReleaseBaseMs_ = 0.0f;
     float mod2AttackVelSens_ = 0.0f;
     float mod2DecayVelSens_ = 0.0f;
-    float mod2SustainVelSens_ = 1.0f;
     float mod2ReleaseVelSens_ = 0.0f;
 
     // Cached mod values from last renderBlock (for VoiceManager capture)
@@ -196,7 +194,6 @@ private:
         int ampReleaseCurve = -1;
         float ampAttackVelSens = -2.0f;
         float ampDecayVelSens = -2.0f;
-        float ampSustainVelSens = -2.0f;
         float ampReleaseVelSens = -2.0f;
 
         int mod1Target = EnvTarget::None;
@@ -211,7 +208,6 @@ private:
         int mod1ReleaseCurve = -1;
         float mod1AttackVelSens = -2.0f;
         float mod1DecayVelSens = -2.0f;
-        float mod1SustainVelSens = -2.0f;
         float mod1ReleaseVelSens = -2.0f;
 
         int mod2Target = EnvTarget::None;
@@ -226,7 +222,6 @@ private:
         int mod2ReleaseCurve = -1;
         float mod2AttackVelSens = -2.0f;
         float mod2DecayVelSens = -2.0f;
-        float mod2SustainVelSens = -2.0f;
         float mod2ReleaseVelSens = -2.0f;
 
         float velocity = -1.0f;

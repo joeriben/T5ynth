@@ -148,12 +148,12 @@ private:
         std::unique_ptr<SliderRow> aRow, dRow, sRow, rRow, amtRow;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> aA, dA, sA, rA, amtA;
 
-        // Per-stage velocity sensitivity, signed [-1..+1]. A/D/R = velocity→time,
-        // Sustain = velocity→peak. Four short vertical sliders under the easy-view
-        // graph; a 2×2 block in advanced. The Sustain slider is disabled when the
-        // env target is None (the env drives nothing, so peak velocity is moot).
-        std::unique_ptr<SliderRow> aVsRow, dVsRow, sVsRow, rVsRow;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> aVsA, dVsA, sVsA, rVsA;
+        // Per-stage velocity sensitivity, signed [-1..+1]: velocity→stage TIME
+        // (A/D/R). Three short vertical sliders that, together with the Amt fader
+        // (amtRow), form the 2×2 velocity/amount block under the easy-view graph
+        // and in advanced. Velocity never scales the level — peak is Amt's job.
+        std::unique_ptr<SliderRow> aVsRow, dVsRow, rVsRow;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> aVsA, dVsA, rVsA;
 
         // Curve shape cycling buttons (Log/Lin/Exp) — square icons
         CurveButton aCurveBtn, dCurveBtn, rCurveBtn;
@@ -265,7 +265,7 @@ private:
                  const juce::String& aCurveId, const juce::String& dCurveId,
                  const juce::String& rCurveId,
                  const juce::String& aVsId, const juce::String& dVsId,
-                 const juce::String& sVsId, const juce::String& rVsId,
+                 const juce::String& rVsId,
                  const juce::String& amtId,
                  juce::AudioProcessorValueTreeState& apvts);
     void initLfo(LfoSection& lfo, const juce::String& name,
