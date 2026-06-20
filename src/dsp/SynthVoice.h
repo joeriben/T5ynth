@@ -41,6 +41,14 @@ public:
     void setPerVoicePitchBend(float semitones) { perVoicePitchBendSemitones_ = juce::jlimit(-48.0f, 48.0f, semitones); }
     float getPerVoicePitchBend() const { return perVoicePitchBendSemitones_; }
 
+    // MPE per-note Timbre (the Y / slide axis, MIDI CC 74). Normalised 0..1 with
+    // a neutral centre at CC 64 (64/127) so a note with no timbre data — and a
+    // controller resting at its centre detent — is exactly unmodulated. Routed to
+    // filter brightness in the per-block cutoff chain.
+    static constexpr float kTimbreNeutral = 64.0f / 127.0f;
+    void setTimbre(float t) { timbre_ = juce::jlimit(0.0f, 1.0f, t); }
+    float getTimbre() const { return timbre_; }
+
     // ── Per-block setup ──
     /** Configure envelopes from block params. Call once per block before the renderBlock loop. */
     void configureForBlock(const BlockParams& p);
@@ -128,6 +136,7 @@ private:
     float currentVelocity = 0.0f;
     float aftertouch_ = 0.0f;
     float perVoicePitchBendSemitones_ = 0.0f;
+    float timbre_ = kTimbreNeutral;   // MPE CC74, neutral centre (CC64)
     bool active = false;
     bool noteHeld = false;
     float lastAmpEnvLevel = 0.0f;

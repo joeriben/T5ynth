@@ -62,6 +62,7 @@ void VoiceManager::prepare(double sampleRate, int samplesPerBlock)
     voicePan.fill(0.0f);
     voiceSourceId.fill(-1);
     voiceMidiChannel_.fill(0);
+    voiceMpePressure_.fill(0.0f);
     sustainedVoice.fill(false);
     sostenutoVoice.fill(false);
     sostenutoReleasedVoice.fill(false);
@@ -98,6 +99,7 @@ void VoiceManager::reset()
     voicePan.fill(0.0f);
     voiceSourceId.fill(-1);
     voiceMidiChannel_.fill(0);
+    voiceMpePressure_.fill(0.0f);
     sustainedVoice.fill(false);
     sostenutoVoice.fill(false);
     sostenutoReleasedVoice.fill(false);
@@ -153,6 +155,7 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
             voiceSourceId[0] = sourceId;
             voicePan[0] = pan;
             voiceMidiChannel_[0] = effectiveMidiChannel;
+            voiceMpePressure_[0] = 0.0f;
             sustainedVoice[0] = false;
             sostenutoVoice[0] = false;
             sostenutoReleasedVoice[0] = false;
@@ -188,6 +191,7 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
         voiceSourceId[0] = sourceId;
         voicePan[0] = pan;
         voiceMidiChannel_[0] = effectiveMidiChannel;
+        voiceMpePressure_[0] = 0.0f;
         v.setPerVoicePitchBend(0.0f);
         samplerVoiceDebugLog("noteOn mono trigger voice=0 note=" + juce::String(note)
                              + " velocity=" + juce::String(velocity, 3)
@@ -231,6 +235,7 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
             voices[static_cast<size_t>(newest)].setTuningTable(tuningHz_);
             voices[static_cast<size_t>(newest)].setPerVoicePitchBend(0.0f);
             voiceMidiChannel_[static_cast<size_t>(newest)] = effectiveMidiChannel;
+            voiceMpePressure_[static_cast<size_t>(newest)] = 0.0f;
             voices[static_cast<size_t>(newest)].glideToNote(note, glideMs);
             return;
         }
@@ -269,6 +274,7 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
     voiceSourceId[static_cast<size_t>(idx)] = sourceId;
     voicePan[static_cast<size_t>(idx)] = pan;
     voiceMidiChannel_[static_cast<size_t>(idx)] = effectiveMidiChannel;
+    voiceMpePressure_[static_cast<size_t>(idx)] = 0.0f;
     v.setPerVoicePitchBend(0.0f);
     samplerVoiceDebugLog("noteOn poly trigger voice=" + juce::String(idx)
                          + " note=" + juce::String(note)
@@ -434,7 +440,7 @@ void VoiceManager::setPolyPressure(int note, float pressure, int sourceId)
         const bool sourceMatches = sourceId < 0
                                 || voiceSourceId[static_cast<size_t>(i)] == sourceId;
         if (v.isActive() && v.getCurrentNote() == note && sourceMatches)
-            v.setAftertouch(pressureForNote(note));
+            v.setAftertouch(pressureForVoice(i));
     }
 }
 
@@ -464,6 +470,7 @@ void VoiceManager::resetPerformanceControllers()
         v.setPerVoicePitchBend(0.0f);
     }
     voiceMidiChannel_.fill(0);
+    voiceMpePressure_.fill(0.0f);
 }
 
 void VoiceManager::setPerVoicePitchBend(int midiChannel, float semitones)
@@ -474,6 +481,35 @@ void VoiceManager::setPerVoicePitchBend(int midiChannel, float semitones)
     for (int i = 0; i < MAX_VOICES; ++i)
         if (voiceMidiChannel_[static_cast<size_t>(i)] == ch)
             voices[static_cast<size_t>(i)].setPerVoicePitchBend(semitones);
+}
+
+void VoiceManager::setChannelPressureForChannel(int midiChannel, float pressure)
+{
+    if (midiChannel < 1 || midiChannel > 16)
+        return;
+    pressure = juce::jlimit(0.0f, 1.0f, pressure);
+    const auto ch = static_cast<int8_t>(midiChannel);
+    for (int i = 0; i < MAX_VOICES; ++i)
+        if (voiceMidiChannel_[static_cast<size_t>(i)] == ch
+            && voices[static_cast<size_t>(i)].isActive())
+        {
+            // Per-note Z stored separately, then the voice's effective pressure is
+            // max(this, zone-wide pressure) — so member and master pressure compose
+            // instead of clobbering each other.
+            voiceMpePressure_[static_cast<size_t>(i)] = pressure;
+            voices[static_cast<size_t>(i)].setAftertouch(pressureForVoice(i));
+        }
+}
+
+void VoiceManager::setTimbre(int midiChannel, float value)
+{
+    if (midiChannel < 1 || midiChannel > 16)
+        return;
+    value = juce::jlimit(0.0f, 1.0f, value);
+    const auto ch = static_cast<int8_t>(midiChannel);
+    for (int i = 0; i < MAX_VOICES; ++i)
+        if (voiceMidiChannel_[static_cast<size_t>(i)] == ch)
+            voices[static_cast<size_t>(i)].setTimbre(value);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -539,6 +575,7 @@ VoiceManager::VoiceOutput VoiceManager::renderBlock(
             voiceSourceId[static_cast<size_t>(vi)] = -1;
             voicePan[static_cast<size_t>(vi)] = 0.0f;
             voiceMidiChannel_[static_cast<size_t>(vi)] = 0;
+            voiceMpePressure_[static_cast<size_t>(vi)] = 0.0f;
             v.setPerVoicePitchBend(0.0f);
             sustainedVoice[static_cast<size_t>(vi)] = false;
             sostenutoVoice[static_cast<size_t>(vi)] = false;
@@ -847,9 +884,9 @@ void VoiceManager::releaseSostenutoVoices()
 
 void VoiceManager::refreshPerformancePressure()
 {
-    for (auto& v : voices)
-        if (v.isActive())
-            v.setAftertouch(pressureForNote(v.getCurrentNote()));
+    for (int i = 0; i < MAX_VOICES; ++i)
+        if (voices[static_cast<size_t>(i)].isActive())
+            voices[static_cast<size_t>(i)].setAftertouch(pressureForVoice(i));
 }
 
 float VoiceManager::pressureForNote(int note) const
@@ -857,6 +894,13 @@ float VoiceManager::pressureForNote(int note) const
     note = juce::jlimit(0, 127, note);
     return juce::jmax(juce::jmax(channelPressure, modWheelPressure),
                       juce::jmax(breathPressure, polyPressureByNote[static_cast<size_t>(note)]));
+}
+
+float VoiceManager::pressureForVoice(int voiceIdx) const
+{
+    const auto& v = voices[static_cast<size_t>(voiceIdx)];
+    return juce::jmax(pressureForNote(v.getCurrentNote()),
+                      voiceMpePressure_[static_cast<size_t>(voiceIdx)]);
 }
 
 float VoiceManager::performanceOutputGain() const
@@ -922,6 +966,7 @@ void VoiceManager::setDroneNote(int note, float velocity, bool lfo1TrigMode, boo
         voiceSourceId[static_cast<size_t>(idx)] = -1;
         voicePan[static_cast<size_t>(idx)] = 0.0f;
         voiceMidiChannel_[static_cast<size_t>(idx)] = 0;  // drone is not an MPE note
+        voiceMpePressure_[static_cast<size_t>(idx)] = 0.0f;
         v.setPerVoicePitchBend(0.0f);
         v.noteOnTimestamp = ++noteOnCounter;
         if (lfo1TrigMode) v.getPerVoiceLfo1().reset();

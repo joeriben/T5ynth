@@ -3,11 +3,33 @@
 
 namespace
 {
-constexpr float kFilterModOctaves = 10.0f;
+// Per-target aftertouch normalization: one global Amt knob, scaled into each
+// target's natural units so heterogeneous targets feel comparable. [0..1]-range
+// targets (Scan, Reso, Noise, Env Sustain, LFO Depth) add up to `amount`
+// directly; the constants below set full-scale depth for the unit-bearing ones.
+constexpr float kFilterModOctaves = 10.0f;   // Cutoff: ×2^(drive·octaves)
+constexpr float kAtPitchSemitones = 12.0f;   // Pitch:  up to +N semitones (ratio)
+constexpr float kAtDcaGain        = 1.0f;    // DCA:    gain ×(1 + drive·this)
 
 float applyNormalizedOffset(float baseValue, float modulationOffset)
 {
     return juce::jlimit(0.0f, 1.0f, baseValue + modulationOffset);
+}
+
+// Single source of truth for "is this target driven by aftertouch?". Phase 2 is
+// single-select (the aftertouchTarget int); Phase 3 swaps this to per-target
+// bools — every DSP hook routes through here, so only this body changes.
+bool aftertouchTargetActive(const BlockParams& p, int target)
+{
+    return p.aftertouchTarget == target;
+}
+
+// Normalized aftertouch drive [0..amount] for an active target, else 0.
+float aftertouchDrive(const BlockParams& p, int target, float pressure)
+{
+    return aftertouchTargetActive(p, target)
+        ? juce::jlimit(0.0f, 1.0f, pressure) * p.aftertouchAmount
+        : 0.0f;
 }
 
 float computeEffectiveLfoDepth(const BlockParams& p, int target, float baseDepth,
@@ -23,21 +45,33 @@ float computeEffectiveLfoDepth(const BlockParams& p, int target, float baseDepth
     return depth;
 }
 
+// [0..1]-range additive targets (Scan, Resonance, Noise, Env Sustain, LFO Depth).
 float applyAftertouchTarget(const BlockParams& p, int target, float baseValue, float pressure)
 {
-    const float offset = (p.aftertouchTarget == target)
-        ? juce::jlimit(0.0f, 1.0f, pressure) * p.aftertouchAmount
-        : 0.0f;
-    return applyNormalizedOffset(baseValue, offset);
+    return applyNormalizedOffset(baseValue, aftertouchDrive(p, target, pressure));
 }
 
+// Cutoff: multiplicative octaves (the base ranges over the full audio band).
 float applyAftertouchCutoffTarget(const BlockParams& p, float cutoffHz, float pressure)
 {
-    if (p.aftertouchTarget != AftertouchTarget::Cutoff)
-        return cutoffHz;
+    const float drive = aftertouchDrive(p, AftertouchTarget::Cutoff, pressure);
+    return drive > 0.0f ? cutoffHz * std::pow(2.0f, drive * kFilterModOctaves) : cutoffHz;
+}
 
-    const float offset = juce::jlimit(0.0f, 1.0f, pressure) * p.aftertouchAmount;
-    return cutoffHz * std::pow(2.0f, offset * kFilterModOctaves);
+// Pitch: adds up to kAtPitchSemitones of upward bend as a ratio offset onto the
+// existing pitchMod (which is summed with 1.0 downstream before setFrequency).
+float applyAftertouchPitchMod(const BlockParams& p, float pitchMod, float pressure)
+{
+    const float drive = aftertouchDrive(p, AftertouchTarget::Pitch, pressure);
+    return drive > 0.0f
+        ? pitchMod + (std::pow(2.0f, drive * kAtPitchSemitones / 12.0f) - 1.0f)
+        : pitchMod;
+}
+
+// DCA: swells the VCA gain by up to ×(1 + amount·kAtDcaGain) with pressure.
+float applyAftertouchDcaGain(const BlockParams& p, float gain, float pressure)
+{
+    return gain * (1.0f + aftertouchDrive(p, AftertouchTarget::DCA, pressure) * kAtDcaGain);
 }
 
 float computeDcaGain(const BlockParams& p, float ampEnvVal, float mod1EnvVal, float mod2EnvVal)
@@ -182,6 +216,9 @@ void SynthVoice::noteOn(int note, float velocity, bool legato)
         ampEnv.noteOn(1.0f);
         modEnv1.noteOn(1.0f);
         modEnv2.noteOn(1.0f);
+        // Fresh note starts at neutral MPE timbre until its first CC74 arrives;
+        // legato (held finger sliding to a new note) keeps the current timbre.
+        timbre_ = kTimbreNeutral;
     }
     samplerPreStretchNormDirty_ = true;
 
@@ -592,6 +629,7 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
         if (p.lfo1Target == LfoTarget::Pitch) pitchMod += lfo1Buf[mid] * lfo1Depth;
         if (p.lfo2Target == LfoTarget::Pitch) pitchMod += lfo2Buf[mid] * lfo2Depth;
         if (p.lfo3Target == LfoTarget::Pitch) pitchMod += lfo3Buf[mid] * lfo3Depth;
+        pitchMod = applyAftertouchPitchMod(p, pitchMod, aftertouch_);
         sampler.setPitchModulation(effectivePitchRatio * (1.0f + pitchMod));
 
         sampler.renderPitchedBlock(samplerBlockBuf_.data(), numSamples);
@@ -639,6 +677,17 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             if (p.driftFilterOffset != 0.0f)
                 cutoffMod *= std::pow(2.0f, p.driftFilterOffset * FILTER_OCTAVES);
             cutoffMod = applyAftertouchCutoffTarget(p, cutoffMod, aftertouch_);
+
+            // MPE Timbre (CC74 / the Y slide axis) → filter brightness, the
+            // conventional MPE mapping. Bipolar around the neutral centre (CC64):
+            // full up = +octaves, full down = −octaves. Gated so a note with no
+            // timbre data (every non-MPE note) pays nothing and is unmodulated.
+            // Per-block, like every other factor in this chain.
+            if (timbre_ != kTimbreNeutral)
+            {
+                constexpr float MPE_TIMBRE_OCTAVES = 4.0f;
+                cutoffMod *= std::pow(2.0f, (timbre_ - kTimbreNeutral) * 2.0f * MPE_TIMBRE_OCTAVES);
+            }
 
             cutoffMod = juce::jlimit(20.0f, 20000.0f, cutoffMod);
             const float resonanceMod = applyAftertouchTarget(
@@ -749,6 +798,7 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                 if (p.lfo1Target == LfoTarget::Pitch) pitchMod += lfo1Val;
                 if (p.lfo2Target == LfoTarget::Pitch) pitchMod += lfo2Val;
                 if (p.lfo3Target == LfoTarget::Pitch) pitchMod += lfo3Val;
+                pitchMod = applyAftertouchPitchMod(p, pitchMod, aftertouch_);
                 freezeEngine.setPitchModulation(effectivePitchRatio
                     * juce::jlimit(0.0625f, 16.0f, 1.0f + pitchMod));
 
@@ -779,6 +829,7 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                 if (p.lfo1Target == LfoTarget::Pitch) pitchMod += lfo1Val;
                 if (p.lfo2Target == LfoTarget::Pitch) pitchMod += lfo2Val;
                 if (p.lfo3Target == LfoTarget::Pitch) pitchMod += lfo3Val;
+                pitchMod = applyAftertouchPitchMod(p, pitchMod, aftertouch_);
 
                 if (!osc.isGliding())
                 {
@@ -811,7 +862,8 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             if (p.lfo1Target == LfoTarget::NoiseLevel) noiseLevel += lfo1Val;
             if (p.lfo2Target == LfoTarget::NoiseLevel) noiseLevel += lfo2Val;
             if (p.lfo3Target == LfoTarget::NoiseLevel) noiseLevel += lfo3Val;
-            noiseLevel = juce::jlimit(0.0f, 1.0f, noiseLevel);
+            // Aftertouch → Noise (additive, clamps to [0,1] internally).
+            noiseLevel = applyAftertouchTarget(p, AftertouchTarget::NoiseLevel, noiseLevel, aftertouch_);
             lastModulatedNoiseLevel_ = noiseLevel;
             if (noiseLevel > 0.001f)
             {
@@ -823,6 +875,7 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
 
             // Cache VCA for phase D; raw audio goes to output[i] / outputRBuf untouched.
             float vca = computeDcaGain(p, ampEnvVal, mod1EnvVal, mod2EnvVal);
+            vca = applyAftertouchDcaGain(p, vca, aftertouch_);
 
             output[i] = sample;
             outputRBuf[i - pos] = sampleR;

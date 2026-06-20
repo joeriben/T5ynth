@@ -44,6 +44,11 @@ public:
 
     // MPE: route pitch-wheel on a per-note channel to the voice(s) triggered on it.
     void setPerVoicePitchBend(int midiChannel, float semitones);
+    // MPE Loudness (Z): channel pressure on a member channel drives only the
+    // voice(s) tagged with that channel, not the whole zone.
+    void setChannelPressureForChannel(int midiChannel, float pressure);
+    // MPE Timbre (Y, CC74): route to the voice(s) tagged with that channel.
+    void setTimbre(int midiChannel, float value);
 
     // ── Drone (step-hold) handling ──
     // A drone is a user-held note (e.g. mouse-hold on a sequencer step) that
@@ -135,6 +140,7 @@ private:
     std::array<float, MAX_VOICES> voicePan {};
     std::array<int, MAX_VOICES> voiceSourceId {};
     std::array<int8_t, MAX_VOICES> voiceMidiChannel_ {};  // 0=unassigned, 1-16=MIDI channel
+    std::array<float, MAX_VOICES> voiceMpePressure_ {};   // MPE per-note Z (member-channel pressure)
     std::array<bool, MAX_VOICES> sustainedVoice {};
     std::array<bool, MAX_VOICES> sostenutoVoice {};
     std::array<bool, MAX_VOICES> sostenutoReleasedVoice {};
@@ -160,6 +166,9 @@ private:
     void releaseSostenutoVoices();
     void refreshPerformancePressure();
     float pressureForNote(int note) const;
+    // Effective Z for a voice = max(its note's aggregate pressure, its own MPE
+    // member-channel pressure). Keeps per-note Z independent of zone-wide pressure.
+    float pressureForVoice(int voiceIdx) const;
     float performanceOutputGain() const;
     BlockParams applyPerformanceControllers(const BlockParams& bp) const;
     static constexpr float GAIN_RAMP_MS = 5.0f;

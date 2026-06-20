@@ -2737,7 +2737,13 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                     else if (msg.isChannelPressure())
                     {
                         const float pressure = static_cast<float>(msg.getChannelPressureValue()) / 127.0f;
-                        voiceManager.setChannelPressure(pressure);
+                        // MPE Loudness (Z). Master channel (1/16) = zone-wide pressure
+                        // (all voices). Member channel = per-note pressure on the voice
+                        // tagged with that channel only.
+                        if (channel == 1 || channel == 16)
+                            voiceManager.setChannelPressure(pressure);
+                        else
+                            voiceManager.setChannelPressureForChannel(channel, pressure);
                     }
                     else if (msg.isPitchWheel())
                     {
@@ -2824,6 +2830,17 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                                 // Member channel (MMA MPE: applies to all member channels).
                                 notePitchBendRangeSemitones_ = rangeS;
                             }
+                        }
+                        else if (cc == 74 && channel != 1 && channel != 16)
+                        {
+                            // MPE Timbre (Y / the slide axis) → per-note brightness on the
+                            // voice(s) tagged with this MEMBER channel. Gated off the master
+                            // channels (1/16) on purpose: CC74 on ch1 is the generic
+                            // control-surface knob default (kExtMap → osc_scan), and MPE
+                            // timbre is always transmitted per-note on member channels, so
+                            // the channel cleanly separates the two meanings — a ch1 knob
+                            // keeps driving Scan, a LinnStrument slide drives brightness.
+                            voiceManager.setTimbre(channel, static_cast<float>(value7) / 127.0f);
                         }
                         else if (dawModeActive_.load(std::memory_order_relaxed)
                                  && msg.getChannel() == 1
