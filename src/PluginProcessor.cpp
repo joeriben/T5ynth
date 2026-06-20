@@ -5507,6 +5507,25 @@ void T5ynthProcessor::lightXLLeds()
             sendMidiOutputMessage(LaunchControlXLLeds::ledOn(note, b.color));
     }
 
+    // Faders have NO LED (programmer's ref p.11 "if the control has any"), so the fader
+    // module colours above are invisible on the surface. Mirror each fader's module colour
+    // onto the button directly below it — the top button row CC 37-44 is left-aligned under
+    // faders CC 5-12 (p.9) — so the LED-less faders get a visible module legend: A/B +
+    // Resynth = Gen, Cutoff/Res/Drive = Filter, Dly/Rev = Fx, Vol = Vol. These buttons
+    // carry no T5ynth action, so this is purely a colour legend. Colour is taken from the
+    // fader's own kPage1 binding (single source of truth).
+    for (int i = 0; i < 8; ++i)
+    {
+        const int faderCc  = 5 + i;
+        const int buttonCc = 37 + i;
+        for (const auto& b : LaunchControlXLLeds::kPage1)
+            if (b.cc == faderCc)
+            {
+                sendMidiOutputMessage(LaunchControlXLLeds::ledOn(buttonCc, b.color));
+                break;
+            }
+    }
+
     // Transport + action buttons — static accent colours so the user can see which
     // buttons are mapped. Control-index == CC for buttons too (programmer's ref p.9),
     // so send the CC directly. (LEDs that track live transport state = a follow-up.)
