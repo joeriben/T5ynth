@@ -68,7 +68,7 @@ float applyAftertouchPitchMod(const BlockParams& p, float pitchMod, float pressu
         : pitchMod;
 }
 
-// DCA: swells the VCA gain by up to ×(1 + amount·kAtDcaGain) with pressure.
+// DCA: scales the VCA gain by up to ×(1 + amount·kAtDcaGain) with pressure.
 float applyAftertouchDcaGain(const BlockParams& p, float gain, float pressure)
 {
     return gain * (1.0f + aftertouchDrive(p, AftertouchTarget::DCA, pressure) * kAtDcaGain);

@@ -386,7 +386,10 @@ namespace AftertouchTarget {
         Env3Sustain = 6,
         Cutoff = 7,
         Resonance = 8,
-        Scan = 9
+        Scan = 9,
+        DCA = 10,
+        Pitch = 11,
+        NoiseLevel = 12
     };
     static constexpr ChoiceEntry kEntries[] = {
         { "none",         "---"          },
@@ -398,10 +401,13 @@ namespace AftertouchTarget {
         { "env3_sustain", "ENV3 Sustain" },
         { "cutoff",       "Cutoff"       },
         { "resonance",    "Resonance"    },
-        { "scan",         "Scan"         }
+        { "scan",         "Scan"         },
+        { "dca",          "DCA"          },
+        { "pitch",        "Pitch"        },
+        { "noise_level",  "Noise"        }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(Scan + 1 == kCount,
+    static_assert(NoiseLevel + 1 == kCount,
                   "AftertouchTarget enum and kEntries are out of sync.");
 }
 
