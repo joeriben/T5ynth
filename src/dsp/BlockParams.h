@@ -99,21 +99,24 @@ namespace PID {
     static constexpr const char* lfo3Mode         = "lfo3_mode";
     static constexpr const char* aftertouchTarget = "aftertouch_target";
     static constexpr const char* aftertouchAmount = "aftertouch_amount";
-    // Per-target aftertouch enables (multi-select). One bool per AftertouchTarget
-    // member 1..12; order mirrors the enum. The single-select aftertouchTarget
-    // Choice above is transitional and folded into the same mask at block read.
-    static constexpr const char* aftertouchOnLfo1Depth   = "aftertouch_on_lfo1_depth";
-    static constexpr const char* aftertouchOnLfo2Depth   = "aftertouch_on_lfo2_depth";
-    static constexpr const char* aftertouchOnLfo3Depth   = "aftertouch_on_lfo3_depth";
-    static constexpr const char* aftertouchOnEnv1Sustain = "aftertouch_on_env1_sustain";
-    static constexpr const char* aftertouchOnEnv2Sustain = "aftertouch_on_env2_sustain";
-    static constexpr const char* aftertouchOnEnv3Sustain = "aftertouch_on_env3_sustain";
-    static constexpr const char* aftertouchOnCutoff      = "aftertouch_on_cutoff";
-    static constexpr const char* aftertouchOnResonance   = "aftertouch_on_resonance";
-    static constexpr const char* aftertouchOnScan        = "aftertouch_on_scan";
-    static constexpr const char* aftertouchOnDca         = "aftertouch_on_dca";
-    static constexpr const char* aftertouchOnPitch       = "aftertouch_on_pitch";
-    static constexpr const char* aftertouchOnNoiseLevel  = "aftertouch_on_noise_level";
+    // Per-target aftertouch amounts (bipolar, -1..+1). One float per
+    // AftertouchTarget member 1..12; order mirrors the enum. Each target's own
+    // amount is its signed depth: pressure x amount drives the target (sign sets
+    // direction). The legacy single-select aftertouchTarget Choice + global
+    // aftertouchAmount above are transitional and fold into empty slots at block
+    // read until preset/DAW migration retires them.
+    static constexpr const char* aftertouchAmtLfo1Depth   = "aftertouch_amt_lfo1_depth";
+    static constexpr const char* aftertouchAmtLfo2Depth   = "aftertouch_amt_lfo2_depth";
+    static constexpr const char* aftertouchAmtLfo3Depth   = "aftertouch_amt_lfo3_depth";
+    static constexpr const char* aftertouchAmtEnv1Sustain = "aftertouch_amt_env1_sustain";
+    static constexpr const char* aftertouchAmtEnv2Sustain = "aftertouch_amt_env2_sustain";
+    static constexpr const char* aftertouchAmtEnv3Sustain = "aftertouch_amt_env3_sustain";
+    static constexpr const char* aftertouchAmtCutoff      = "aftertouch_amt_cutoff";
+    static constexpr const char* aftertouchAmtResonance   = "aftertouch_amt_resonance";
+    static constexpr const char* aftertouchAmtScan        = "aftertouch_amt_scan";
+    static constexpr const char* aftertouchAmtDca         = "aftertouch_amt_dca";
+    static constexpr const char* aftertouchAmtPitch       = "aftertouch_amt_pitch";
+    static constexpr const char* aftertouchAmtNoiseLevel  = "aftertouch_amt_noise_level";
     static constexpr const char* driftEnabled     = "drift_enabled";
     static constexpr const char* driftRegen       = "drift_regen";
     static constexpr const char* driftCrossfade   = "drift_crossfade";
@@ -1260,11 +1263,13 @@ struct BlockParams
     bool  lfo3TrigMode = false;
 
     // MIDI aftertouch (channel pressure and poly pressure are resolved per
-    // voice before rendering; amount is bipolar so pressure can open or close
-    // the target).
+    // voice before rendering). Per-target bipolar amount: index by
+    // AftertouchTarget (1..12); pressure x amount drives the target, sign sets
+    // direction. aftertouchTarget/aftertouchAmount are the legacy single-select
+    // pair, folded into the array at block read until migration retires them.
     int   aftertouchTarget = AftertouchTarget::None;
-    int   aftertouchTargetMask = 0;   // bit t ⇒ AftertouchTarget t (1..12) active (multi-select)
     float aftertouchAmount = 0.5f;
+    float aftertouchTargetAmt[AftertouchTarget::kCount] = {}; // [t] = signed depth for target t
 
     // Filter
     bool  filterEnabled = false;

@@ -3,12 +3,14 @@
 
 namespace
 {
-// Per-target aftertouch normalization: one global Amt knob, scaled into each
-// target's natural units so heterogeneous targets feel comparable. [0..1]-range
-// targets (Scan, Reso, Noise, Env Sustain, LFO Depth) add up to `amount`
-// directly; the constants below set full-scale depth for the unit-bearing ones.
+// Per-target aftertouch normalization: each target carries its own bipolar
+// amount (-1..+1), scaled into the target's natural units so heterogeneous
+// targets feel comparable. [0..1]-range targets (Scan, Reso, Noise, Env
+// Sustain, LFO Depth) add the signed drive directly; the constants below set
+// full-scale depth for the unit-bearing ones. Negative amount drives the
+// opposite direction (pressure closes the filter, bends down, ducks the DCA).
 constexpr float kFilterModOctaves = 10.0f;   // Cutoff: ×2^(drive·octaves)
-constexpr float kAtPitchSemitones = 12.0f;   // Pitch:  up to +N semitones (ratio)
+constexpr float kAtPitchSemitones = 12.0f;   // Pitch:  ±N semitones (ratio)
 constexpr float kAtDcaGain        = 1.0f;    // DCA:    gain ×(1 + drive·this)
 
 float applyNormalizedOffset(float baseValue, float modulationOffset)
@@ -16,19 +18,20 @@ float applyNormalizedOffset(float baseValue, float modulationOffset)
     return juce::jlimit(0.0f, 1.0f, baseValue + modulationOffset);
 }
 
-// Single source of truth for "is this target driven by aftertouch?". Reads the
-// per-target bitmask (bit t ⇒ AftertouchTarget t active); every DSP hook routes
-// through here. Multi-select via per-target bool params.
+// Single source of truth for "is this target driven by aftertouch?". A target is
+// active when its per-target amount is non-zero; every DSP hook routes through
+// here. Per-target bipolar amounts live in BlockParams::aftertouchTargetAmt.
 bool aftertouchTargetActive(const BlockParams& p, int target)
 {
-    return (p.aftertouchTargetMask & (1 << target)) != 0;
+    return p.aftertouchTargetAmt[target] != 0.0f;
 }
 
-// Normalized aftertouch drive [0..amount] for an active target, else 0.
+// Signed aftertouch drive for a target: pressure (rectified to [0..1]) times the
+// target's bipolar amount, so drive ∈ [-1..+1]; 0 when the target is off.
 float aftertouchDrive(const BlockParams& p, int target, float pressure)
 {
     return aftertouchTargetActive(p, target)
-        ? juce::jlimit(0.0f, 1.0f, pressure) * p.aftertouchAmount
+        ? juce::jlimit(0.0f, 1.0f, pressure) * p.aftertouchTargetAmt[target]
         : 0.0f;
 }
 
@@ -51,24 +54,27 @@ float applyAftertouchTarget(const BlockParams& p, int target, float baseValue, f
     return applyNormalizedOffset(baseValue, aftertouchDrive(p, target, pressure));
 }
 
-// Cutoff: multiplicative octaves (the base ranges over the full audio band).
+// Cutoff: multiplicative octaves (the base ranges over the full audio band);
+// negative drive sweeps the cutoff down, positive up.
 float applyAftertouchCutoffTarget(const BlockParams& p, float cutoffHz, float pressure)
 {
     const float drive = aftertouchDrive(p, AftertouchTarget::Cutoff, pressure);
-    return drive > 0.0f ? cutoffHz * std::pow(2.0f, drive * kFilterModOctaves) : cutoffHz;
+    return drive != 0.0f ? cutoffHz * std::pow(2.0f, drive * kFilterModOctaves) : cutoffHz;
 }
 
-// Pitch: adds up to kAtPitchSemitones of upward bend as a ratio offset onto the
-// existing pitchMod (which is summed with 1.0 downstream before setFrequency).
+// Pitch: adds up to ±kAtPitchSemitones of bend (sign follows the amount) as a
+// ratio offset onto the existing pitchMod (summed with 1.0 downstream before
+// setFrequency); negative pressure-drive bends the note down.
 float applyAftertouchPitchMod(const BlockParams& p, float pitchMod, float pressure)
 {
     const float drive = aftertouchDrive(p, AftertouchTarget::Pitch, pressure);
-    return drive > 0.0f
+    return drive != 0.0f
         ? pitchMod + (std::pow(2.0f, drive * kAtPitchSemitones / 12.0f) - 1.0f)
         : pitchMod;
 }
 
-// DCA: scales the VCA gain by up to ×(1 + amount·kAtDcaGain) with pressure.
+// DCA: scales the VCA gain by ×(1 + drive·kAtDcaGain); positive drive raises the
+// gain with pressure, negative drive ducks it (drive ∈ [-1..+1]).
 float applyAftertouchDcaGain(const BlockParams& p, float gain, float pressure)
 {
     return gain * (1.0f + aftertouchDrive(p, AftertouchTarget::DCA, pressure) * kAtDcaGain);

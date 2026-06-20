@@ -581,28 +581,30 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::aftertouchAmount, 1}, "Aftertouch Amount",
         juce::NormalisableRange<float>(-1.0f, 1.0f, 0.001f), 0.5f));
-    // Per-target aftertouch enables (multi-select). The aftertouchTarget Choice
-    // above stays for now and is folded into the same mask at block read; the UI
-    // moves onto these bools (and the Choice is removed) when the switchbox lands.
+    // Per-target aftertouch amounts (bipolar, -1..+1, default 0 = off). The
+    // legacy aftertouchTarget Choice + aftertouchAmount above stay transitional
+    // and fold into empty slots at block read; the UI binds to these per-target
+    // floats, and migration retires the legacy pair.
     {
         struct AtTarget { const char* pid; const char* name; };
         const AtTarget atTargets[] = {
-            { PID::aftertouchOnLfo1Depth,   "AT LFO1 Depth"   },
-            { PID::aftertouchOnLfo2Depth,   "AT LFO2 Depth"   },
-            { PID::aftertouchOnLfo3Depth,   "AT LFO3 Depth"   },
-            { PID::aftertouchOnEnv1Sustain, "AT ENV1 Sustain" },
-            { PID::aftertouchOnEnv2Sustain, "AT ENV2 Sustain" },
-            { PID::aftertouchOnEnv3Sustain, "AT ENV3 Sustain" },
-            { PID::aftertouchOnCutoff,      "AT Cutoff"       },
-            { PID::aftertouchOnResonance,   "AT Resonance"    },
-            { PID::aftertouchOnScan,        "AT Scan"         },
-            { PID::aftertouchOnDca,         "AT DCA"          },
-            { PID::aftertouchOnPitch,       "AT Pitch"        },
-            { PID::aftertouchOnNoiseLevel,  "AT Noise"        },
+            { PID::aftertouchAmtLfo1Depth,   "AT LFO1 Depth"   },
+            { PID::aftertouchAmtLfo2Depth,   "AT LFO2 Depth"   },
+            { PID::aftertouchAmtLfo3Depth,   "AT LFO3 Depth"   },
+            { PID::aftertouchAmtEnv1Sustain, "AT ENV1 Sustain" },
+            { PID::aftertouchAmtEnv2Sustain, "AT ENV2 Sustain" },
+            { PID::aftertouchAmtEnv3Sustain, "AT ENV3 Sustain" },
+            { PID::aftertouchAmtCutoff,      "AT Cutoff"       },
+            { PID::aftertouchAmtResonance,   "AT Resonance"    },
+            { PID::aftertouchAmtScan,        "AT Scan"         },
+            { PID::aftertouchAmtDca,         "AT DCA"          },
+            { PID::aftertouchAmtPitch,       "AT Pitch"        },
+            { PID::aftertouchAmtNoiseLevel,  "AT Noise"        },
         };
         for (const auto& a : atTargets)
-            params.push_back(std::make_unique<juce::AudioParameterBool>(
-                juce::ParameterID{ a.pid, 1 }, a.name, false));
+            params.push_back(std::make_unique<juce::AudioParameterFloat>(
+                juce::ParameterID{ a.pid, 1 }, a.name,
+                juce::NormalisableRange<float>(-1.0f, 1.0f, 0.001f), 0.0f));
     }
 
     // Drift LFO
@@ -1976,27 +1978,28 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.aftertouchTarget = static_cast<int>(paramCache.aftertouchTarget->load());
     bp.aftertouchAmount = paramCache.aftertouchAmount->load();
     {
-        int atMask = 0;
-        auto setBit = [&](const std::atomic<float>* p, int target) {
-            if (p->load() > 0.5f) atMask |= (1 << target);
+        auto setAmt = [&](const std::atomic<float>* p, int target) {
+            bp.aftertouchTargetAmt[target] = p->load();
         };
-        setBit(paramCache.aftertouchOnLfo1Depth,   AftertouchTarget::LFO1Depth);
-        setBit(paramCache.aftertouchOnLfo2Depth,   AftertouchTarget::LFO2Depth);
-        setBit(paramCache.aftertouchOnLfo3Depth,   AftertouchTarget::LFO3Depth);
-        setBit(paramCache.aftertouchOnEnv1Sustain, AftertouchTarget::Env1Sustain);
-        setBit(paramCache.aftertouchOnEnv2Sustain, AftertouchTarget::Env2Sustain);
-        setBit(paramCache.aftertouchOnEnv3Sustain, AftertouchTarget::Env3Sustain);
-        setBit(paramCache.aftertouchOnCutoff,      AftertouchTarget::Cutoff);
-        setBit(paramCache.aftertouchOnResonance,   AftertouchTarget::Resonance);
-        setBit(paramCache.aftertouchOnScan,        AftertouchTarget::Scan);
-        setBit(paramCache.aftertouchOnDca,         AftertouchTarget::DCA);
-        setBit(paramCache.aftertouchOnPitch,       AftertouchTarget::Pitch);
-        setBit(paramCache.aftertouchOnNoiseLevel,  AftertouchTarget::NoiseLevel);
-        // Transitional: the legacy single-select Choice still contributes one bit
-        // so behaviour is unchanged until the multi-select switchbox UI lands.
-        if (bp.aftertouchTarget != AftertouchTarget::None)
-            atMask |= (1 << bp.aftertouchTarget);
-        bp.aftertouchTargetMask = atMask;
+        setAmt(paramCache.aftertouchAmtLfo1Depth,   AftertouchTarget::LFO1Depth);
+        setAmt(paramCache.aftertouchAmtLfo2Depth,   AftertouchTarget::LFO2Depth);
+        setAmt(paramCache.aftertouchAmtLfo3Depth,   AftertouchTarget::LFO3Depth);
+        setAmt(paramCache.aftertouchAmtEnv1Sustain, AftertouchTarget::Env1Sustain);
+        setAmt(paramCache.aftertouchAmtEnv2Sustain, AftertouchTarget::Env2Sustain);
+        setAmt(paramCache.aftertouchAmtEnv3Sustain, AftertouchTarget::Env3Sustain);
+        setAmt(paramCache.aftertouchAmtCutoff,      AftertouchTarget::Cutoff);
+        setAmt(paramCache.aftertouchAmtResonance,   AftertouchTarget::Resonance);
+        setAmt(paramCache.aftertouchAmtScan,        AftertouchTarget::Scan);
+        setAmt(paramCache.aftertouchAmtDca,         AftertouchTarget::DCA);
+        setAmt(paramCache.aftertouchAmtPitch,       AftertouchTarget::Pitch);
+        setAmt(paramCache.aftertouchAmtNoiseLevel,  AftertouchTarget::NoiseLevel);
+        // Transitional: a legacy single-select preset (Choice + global amount)
+        // folds into its slot when that slot is still 0, so old sessions keep
+        // their aftertouch until preset/DAW migration writes the per-target
+        // floats directly.
+        if (bp.aftertouchTarget != AftertouchTarget::None
+            && bp.aftertouchTargetAmt[bp.aftertouchTarget] == 0.0f)
+            bp.aftertouchTargetAmt[bp.aftertouchTarget] = bp.aftertouchAmount;
     }
 
     // Filter
@@ -3276,7 +3279,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                                  || bp.mod1Target == EnvTarget::Filter || bp.mod2Target == EnvTarget::Filter
                                  || bp.kbdTrack > 0.0f) && hasVoices;
             bool aftertouchModFilter = bp.filterEnabled
-                                    && bp.aftertouchTarget == AftertouchTarget::Cutoff && hasVoices;
+                                    && bp.aftertouchTargetAmt[AftertouchTarget::Cutoff] != 0.0f && hasVoices;
 
             if (hasVoices && (lfoModFilter || envModFilter || aftertouchModFilter))
             {
@@ -3301,7 +3304,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         // Filter resonance ghost
         {
             const bool aftertouchModResonance = bp.filterEnabled
-                                             && bp.aftertouchTarget == AftertouchTarget::Resonance && hasVoices;
+                                             && bp.aftertouchTargetAmt[AftertouchTarget::Resonance] != 0.0f && hasVoices;
             modulatedValues.filterResonance.store(aftertouchModResonance
                 ? voiceOut.lastModulatedResonance
                 : NO_GHOST, std::memory_order_relaxed);

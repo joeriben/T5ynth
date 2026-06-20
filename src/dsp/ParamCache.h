@@ -40,10 +40,10 @@
     X(lfo2Target)     X(lfo2Mode)     X(lfo3Rate)     X(lfo3Depth) \
     X(lfo3Wave)     X(lfo3Target)     X(lfo3Mode)     X(aftertouchTarget) \
     X(aftertouchAmount) \
-    X(aftertouchOnLfo1Depth)   X(aftertouchOnLfo2Depth)   X(aftertouchOnLfo3Depth) \
-    X(aftertouchOnEnv1Sustain) X(aftertouchOnEnv2Sustain) X(aftertouchOnEnv3Sustain) \
-    X(aftertouchOnCutoff)      X(aftertouchOnResonance)   X(aftertouchOnScan) \
-    X(aftertouchOnDca)         X(aftertouchOnPitch)       X(aftertouchOnNoiseLevel) \
+    X(aftertouchAmtLfo1Depth)   X(aftertouchAmtLfo2Depth)   X(aftertouchAmtLfo3Depth) \
+    X(aftertouchAmtEnv1Sustain) X(aftertouchAmtEnv2Sustain) X(aftertouchAmtEnv3Sustain) \
+    X(aftertouchAmtCutoff)      X(aftertouchAmtResonance)   X(aftertouchAmtScan) \
+    X(aftertouchAmtDca)         X(aftertouchAmtPitch)       X(aftertouchAmtNoiseLevel) \
     X(driftEnabled)     X(driftRegen)     X(driftCrossfade) \
     X(drift1Rate)     X(drift1Depth)     X(drift1Target)     X(drift1Wave) \
     X(drift2Rate)     X(drift2Depth)     X(drift2Target)     X(drift2Wave) \
