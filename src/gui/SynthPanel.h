@@ -207,11 +207,6 @@ private:
     LfoSection lfo1, lfo2, lfo3;
 
     // ── MIDI performance modulation ──
-    juce::Label aftertouchLabel { {}, "AT" };
-    juce::ComboBox aftertouchTargetBox;
-    std::unique_ptr<SliderRow> aftertouchAmountRow;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> aftertouchTargetA;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> aftertouchAmountA;
     // Easy-panel AT module: 12 bipolar drag-fill bars (one per target, enum
     // order 1..12) + column header. Bars declared BEFORE their attachments so
     // the attachments destruct first (JUCE reverse-destruction-order rule).
@@ -289,7 +284,6 @@ private:
 
     void layoutEnv(EnvSection& env, juce::Rectangle<int>& area, float f, int rowH, int gap);
     void layoutLfo(LfoSection& lfo, juce::Rectangle<int>& area, float f, int rowH, int gap);
-    void layoutAftertouch(juce::Rectangle<int>& area, float f, int rowH, int gap);
     void layoutDrift(DriftSection& drift, juce::Rectangle<int>& area, float f, int rowH, int gap);
     void layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> modHeaderRow, float f, int rowH, int gap, int headerH, float headerFs);
     void layoutFilterEasy(juce::Rectangle<int> area, float f, int rowH, int gap);

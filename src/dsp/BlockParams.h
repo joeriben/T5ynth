@@ -97,14 +97,11 @@ namespace PID {
     static constexpr const char* lfo3Wave         = "lfo3_wave";
     static constexpr const char* lfo3Target       = "lfo3_target";
     static constexpr const char* lfo3Mode         = "lfo3_mode";
-    static constexpr const char* aftertouchTarget = "aftertouch_target";
-    static constexpr const char* aftertouchAmount = "aftertouch_amount";
     // Per-target aftertouch amounts (bipolar, -1..+1). One float per
     // AftertouchTarget member 1..12; order mirrors the enum. Each target's own
     // amount is its signed depth: pressure x amount drives the target (sign sets
-    // direction). The legacy single-select aftertouchTarget Choice + global
-    // aftertouchAmount above are transitional and fold into empty slots at block
-    // read until preset/DAW migration retires them.
+    // direction). (Superseded the old single-select aftertouch_target Choice +
+    // global aftertouch_amount, retired with preset/DAW migration.)
     static constexpr const char* aftertouchAmtLfo1Depth   = "aftertouch_amt_lfo1_depth";
     static constexpr const char* aftertouchAmtLfo2Depth   = "aftertouch_amt_lfo2_depth";
     static constexpr const char* aftertouchAmtLfo3Depth   = "aftertouch_amt_lfo3_depth";
@@ -1265,10 +1262,7 @@ struct BlockParams
     // MIDI aftertouch (channel pressure and poly pressure are resolved per
     // voice before rendering). Per-target bipolar amount: index by
     // AftertouchTarget (1..12); pressure x amount drives the target, sign sets
-    // direction. aftertouchTarget/aftertouchAmount are the legacy single-select
-    // pair, folded into the array at block read until migration retires them.
-    int   aftertouchTarget = AftertouchTarget::None;
-    float aftertouchAmount = 0.5f;
+    // direction.
     float aftertouchTargetAmt[AftertouchTarget::kCount] = {}; // [t] = signed depth for target t
 
     // Filter

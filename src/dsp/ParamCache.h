@@ -38,8 +38,7 @@
     X(lfo1Rate)     X(lfo1Depth)     X(lfo1Wave)     X(lfo1Target) \
     X(lfo1Mode)     X(lfo2Rate)     X(lfo2Depth)     X(lfo2Wave) \
     X(lfo2Target)     X(lfo2Mode)     X(lfo3Rate)     X(lfo3Depth) \
-    X(lfo3Wave)     X(lfo3Target)     X(lfo3Mode)     X(aftertouchTarget) \
-    X(aftertouchAmount) \
+    X(lfo3Wave)     X(lfo3Target)     X(lfo3Mode) \
     X(aftertouchAmtLfo1Depth)   X(aftertouchAmtLfo2Depth)   X(aftertouchAmtLfo3Depth) \
     X(aftertouchAmtEnv1Sustain) X(aftertouchAmtEnv2Sustain) X(aftertouchAmtEnv3Sustain) \
     X(aftertouchAmtCutoff)      X(aftertouchAmtResonance)   X(aftertouchAmtScan) \

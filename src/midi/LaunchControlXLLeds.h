@@ -229,7 +229,8 @@ struct LaunchControlXLLeds
         { "seq_bpm",          69, kColorSeq }, { "seq_steps",        70, kColorSeq },
         { "seq_gate",         71, kColorSeq }, { "seq_shuffle",      72, kColorSeq },
         { "seq_glide_time",   73, kColorSeq }, { "osc_scan",         74, kColorGen },
-        { "drift_crossfade",  75, kColorDrift}, { "aftertouch_amount",76, kColorEnv },
+        { "drift_crossfade",  75, kColorDrift},
+        // CC 76 spare (was aftertouch_amount; AT is now 12 per-target bars in the easy panel)
     };
     static constexpr int kExtMapCount = static_cast<int>(std::size(kExtMap));
 

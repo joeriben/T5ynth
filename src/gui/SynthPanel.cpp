@@ -1101,25 +1101,6 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
             PID::lfo3Rate, PID::lfo3Depth, PID::lfo3Wave, PID::lfo3Mode,
             PID::lfo3ClockMode, PID::lfo3ClockDivision, apvts);
 
-    // ── MIDI aftertouch ──
-    labelAsTitle(aftertouchLabel, kLfoCol);
-    aftertouchLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(aftertouchLabel);
-    {
-        juce::StringArray atItems;
-        for (const auto& e : AftertouchTarget::kEntries) atItems.add(e.label);
-        aftertouchTargetBox.addItemList(atItems, 1);
-        aftertouchTargetBox.onChange = [this] { updateVisibility(); resized(); };
-        addAndMakeVisible(aftertouchTargetBox);
-        aftertouchAmountRow = std::make_unique<SliderRow>("Amt", fmtF2, kLfoCol);
-        addAndMakeVisible(*aftertouchAmountRow);
-        aftertouchTargetA = std::make_unique<CA>(apvts, PID::aftertouchTarget, aftertouchTargetBox);
-        aftertouchAmountA = std::make_unique<SA>(apvts, PID::aftertouchAmount, aftertouchAmountRow->getSlider());
-        aftertouchAmountRow->onRightClick = [this](juce::Point<int> p) {
-            showMidiLearnMenu(processorRef, PID::aftertouchAmount, p); };
-        aftertouchAmountRow->updateValue();
-    }
-
     // ── Easy-panel AT module: 12 bipolar drag-fill bars (one per target) ──
     {
         struct AtBar { const char* pid; const char* label; };
@@ -1541,13 +1522,6 @@ void SynthPanel::updateVisibility()
     setLfoDimmed(lfo2);
     setLfoDimmed(lfo3);
 
-    {
-        const bool active = aftertouchTargetBox.getSelectedId() > 1;
-        const float alpha = active ? 1.0f : dimAlpha;
-        aftertouchLabel.setAlpha(alpha);
-        aftertouchAmountRow->setAlpha(alpha);
-    }
-
     auto setDriftDimmed = [](DriftSection& drift) {
         bool active = drift.targetBox.getSelectedId() != 1; // 1 = "---"
         float alpha = active ? 1.0f : dimAlpha;
@@ -1625,13 +1599,8 @@ void SynthPanel::updateVisibility()
     setLfoControlsVisible(lfo3, activeLfoTab == 2, modEasyMode);
     lfoHeader.setVisible(!modEasyMode);
 
-    aftertouchLabel.setVisible(!modEasyMode);
-    aftertouchTargetBox.setVisible(!modEasyMode);
-    if (aftertouchAmountRow)
-        aftertouchAmountRow->setVisible(!modEasyMode);
-
-    // New per-target AT bars are the easy-panel module; the column header is
-    // re-shown by the columns easy-layout (hidden in the stacked fallback/advanced).
+    // Per-target AT bars are the easy-panel module; the column header is
+    // re-shown by the columns easy-layout (hidden in the stacked fallback).
     aftertouchHeader.setVisible(false);
     for (auto& bar : aftertouchBars)
         if (bar) bar->setVisible(modEasyMode);
@@ -1802,9 +1771,6 @@ bool SynthPanel::hasModHiddenActiveState() const
         return true;
     if (comboId(filterAlgHidden, FilterAlgorithm::SVF + 1) == FilterAlgorithm::Warp + 1
         && comboId(filterWarpStyleBox, FilterWarpStyle::SoftClip + 1) != FilterWarpStyle::SoftClip + 1)
-        return true;
-
-    if (aftertouchTargetBox.getSelectedId() > 1)
         return true;
 
     return regenHidden.getSelectedId() > 1;
@@ -2028,23 +1994,6 @@ void SynthPanel::layoutLfo(LfoSection& lfo, juce::Rectangle<int>& area, float f,
     lfo.rateRow->setBounds(bounds[0]);
     lfo.depthRow->setBounds(bounds[1]);
     if (lfo.divisionRow) lfo.divisionRow->setBounds(bounds[0]);
-
-    area.removeFromTop(gap);
-}
-
-void SynthPanel::layoutAftertouch(juce::Rectangle<int>& area, float f, int rowH, int gap)
-{
-    aftertouchLabel.setFont(juce::FontOptions(f));
-    auto row = area.removeFromTop(rowH);
-
-    const int headerW = juce::roundToInt(f * 2.5f);
-    const int targetW = choiceBoxWidthFor(AftertouchTarget::kEntries, f, juce::roundToInt(f * 8.5f));
-    const int boxGap = 4;
-
-    aftertouchLabel.setBounds(row.removeFromLeft(headerW));
-    aftertouchTargetBox.setBounds(row.removeFromLeft(targetW));
-    row.removeFromLeft(boxGap * 2);
-    aftertouchAmountRow->setBounds(row);
 
     area.removeFromTop(gap);
 }
@@ -2792,7 +2741,6 @@ void SynthPanel::paint(juce::Graphics& g)
                              mod2Env.amtRow->getBottom());
             bot = juce::jmax(bot, lfo1.depthRow->getBottom(), lfo2.depthRow->getBottom(),
                              lfo3.depthRow->getBottom());
-            bot = juce::jmax(bot, aftertouchAmountRow->getBottom());
             bot = juce::jmax(bot, drift1.depthRow->getBottom(), drift2.depthRow->getBottom(),
                              drift3.depthRow->getBottom());
             bot = juce::jmax(bot, modCardBottom);
@@ -3396,7 +3344,6 @@ void SynthPanel::resized()
             modulationForcedLabelWidthFor(*ampEnv.rVsRow, modColumnWidth),   // "Vel.R"
             modulationForcedLabelWidthFor(*lfo1.rateRow, modColumnWidth),
             modulationForcedLabelWidthFor(*lfo1.divisionRow, modColumnWidth),
-            modulationForcedLabelWidthFor(*aftertouchAmountRow, modColumnWidth),
             modulationForcedLabelWidthFor(*drift1.rateRow, modColumnWidth),
             modulationForcedLabelWidthFor(*drift1.divisionRow, modColumnWidth)
         });
@@ -3419,7 +3366,6 @@ void SynthPanel::resized()
                  mod2Env.aVsRow.get(), mod2Env.rVsRow.get(),
                  lfo1.rateRow.get(), lfo2.rateRow.get(), lfo3.rateRow.get(),
                  lfo1.divisionRow.get(), lfo2.divisionRow.get(), lfo3.divisionRow.get(),
-                 aftertouchAmountRow.get(),
                  drift1.rateRow.get(), drift2.rateRow.get(), drift3.rateRow.get(),
                  drift1.divisionRow.get(), drift2.divisionRow.get(), drift3.divisionRow.get() })
             row->setForcedLabelWidth(leftLabelWidth);
@@ -3445,7 +3391,6 @@ void SynthPanel::resized()
     layoutLfo(lfo1, area, f, rowH, gap);
     layoutLfo(lfo2, area, f, rowH, gap);
     layoutLfo(lfo3, area, f, rowH, gap);
-    layoutAftertouch(area, f, rowH, gap);
 
     // ── Drift (part of modulation section) ──
     area.removeFromTop(gap);

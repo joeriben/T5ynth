@@ -38,6 +38,25 @@ float snapGenerationAlpha(float rangeStart, float rangeEnd, float value)
     return juce::jlimit(rangeStart, rangeEnd, value);
 }
 
+// Per-target aftertouch amount param IDs in AftertouchTarget order (index by the
+// enum; [0]=None unused). Shared by preset save/load + DAW migration so the old
+// single-select aftertouch_target/_amount can be folded onto the right target.
+const char* const kAftertouchAmtPid[AftertouchTarget::kCount] = {
+    nullptr,                              // None
+    PID::aftertouchAmtLfo1Depth,          // LFO1Depth
+    PID::aftertouchAmtLfo2Depth,          // LFO2Depth
+    PID::aftertouchAmtLfo3Depth,          // LFO3Depth
+    PID::aftertouchAmtEnv1Sustain,        // Env1Sustain
+    PID::aftertouchAmtEnv2Sustain,        // Env2Sustain
+    PID::aftertouchAmtEnv3Sustain,        // Env3Sustain
+    PID::aftertouchAmtCutoff,             // Cutoff
+    PID::aftertouchAmtResonance,          // Resonance
+    PID::aftertouchAmtScan,               // Scan
+    PID::aftertouchAmtDca,                // DCA
+    PID::aftertouchAmtPitch,              // Pitch
+    PID::aftertouchAmtNoiseLevel,         // NoiseLevel
+};
+
 float snapGenerationMagnitude(float rangeStart, float rangeEnd, float value)
 {
     constexpr float interval = 0.001f;
@@ -574,17 +593,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::lfo3Wave, 1}, "LFO3 Wave",
         toChoices(LfoWave::kEntries), 0));
 
-    // MIDI aftertouch performance routing
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(
-        juce::ParameterID{PID::aftertouchTarget, 1}, "Aftertouch Target",
-        toChoices(AftertouchTarget::kEntries), 0));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::aftertouchAmount, 1}, "Aftertouch Amount",
-        juce::NormalisableRange<float>(-1.0f, 1.0f, 0.001f), 0.5f));
-    // Per-target aftertouch amounts (bipolar, -1..+1, default 0 = off). The
-    // legacy aftertouchTarget Choice + aftertouchAmount above stay transitional
-    // and fold into empty slots at block read; the UI binds to these per-target
-    // floats, and migration retires the legacy pair.
+    // MIDI aftertouch performance routing: 12 per-target bipolar amounts
+    // (-1..+1, default 0 = off). Each AT target owns its signed depth; the UI
+    // binds to these per-target floats.
     {
         struct AtTarget { const char* pid; const char* name; };
         const AtTarget atTargets[] = {
@@ -1975,8 +1986,6 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         bp.lfo3Target = static_cast<int>(paramCache.lfo3Target->load());
     }
 
-    bp.aftertouchTarget = static_cast<int>(paramCache.aftertouchTarget->load());
-    bp.aftertouchAmount = paramCache.aftertouchAmount->load();
     {
         auto setAmt = [&](const std::atomic<float>* p, int target) {
             bp.aftertouchTargetAmt[target] = p->load();
@@ -1993,13 +2002,6 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         setAmt(paramCache.aftertouchAmtDca,         AftertouchTarget::DCA);
         setAmt(paramCache.aftertouchAmtPitch,       AftertouchTarget::Pitch);
         setAmt(paramCache.aftertouchAmtNoiseLevel,  AftertouchTarget::NoiseLevel);
-        // Transitional: a legacy single-select preset (Choice + global amount)
-        // folds into its slot when that slot is still 0, so old sessions keep
-        // their aftertouch until preset/DAW migration writes the per-target
-        // floats directly.
-        if (bp.aftertouchTarget != AftertouchTarget::None
-            && bp.aftertouchTargetAmt[bp.aftertouchTarget] == 0.0f)
-            bp.aftertouchTargetAmt[bp.aftertouchTarget] = bp.aftertouchAmount;
     }
 
     // Filter
@@ -4257,6 +4259,18 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
                 appendParam(m.newDec, modeSign(paramVal(m.oldDecMode, 0.0f)) * vs);
                 appendParam(m.newRel, modeSign(paramVal(m.oldRelMode, 0.0f)) * vs);
             }
+
+            // Aftertouch: the single-select Choice (aftertouch_target) + global
+            // aftertouch_amount were replaced by 12 per-target bipolar amounts.
+            // Fold a pre-redesign session's routing onto the selected target's
+            // per-target param. Legacy IDs are gone from PID:: — raw strings.
+            if (hasParam("aftertouch_target"))
+            {
+                const int t = juce::roundToInt(paramVal("aftertouch_target", 0.0f));
+                if (t >= AftertouchTarget::LFO1Depth && t <= AftertouchTarget::NoiseLevel
+                    && ! hasParam(kAftertouchAmtPid[t]))
+                    appendParam(kAftertouchAmtPid[t], paramVal("aftertouch_amount", 0.0f));
+            }
         }
 
         parameters.replaceState(loadedTree);
@@ -4577,15 +4591,13 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     }
     modObj->setProperty("lfos", lfoArr);
 
-    // MIDI aftertouch routing. Both params are in
-    // MainPanel::kMainSnapshotParamIds so per-snapshot save persisted
-    // them, but they were absent from the main preset JSON -- saving a
-    // preset that routed aftertouch to (e.g.) Cutoff at 80% reset to
-    // None/50% on reload. Same root cause and same fix shape as the
-    // voiceCount / tuning case.
+    // MIDI aftertouch routing: 12 per-target bipolar amounts, keyed by target
+    // key. (Superseded the old single-select target + global amount; pre-existing
+    // presets are migrated on load.) Saved in the main preset JSON as well as
+    // MainPanel::kMainSnapshotParamIds, so a routed preset reloads intact.
     juce::DynamicObject::Ptr aftertouch = new juce::DynamicObject();
-    aftertouch->setProperty("target", choiceToKey(static_cast<int>(get(PID::aftertouchTarget)), AftertouchTarget::kEntries));
-    aftertouch->setProperty("amount", get(PID::aftertouchAmount));
+    for (int t = AftertouchTarget::LFO1Depth; t <= AftertouchTarget::NoiseLevel; ++t)
+        aftertouch->setProperty(AftertouchTarget::kEntries[t].key, get(kAftertouchAmtPid[t]));
     modObj->setProperty("aftertouch", aftertouch.get());
 
     root->setProperty("modulation", modObj.get());
@@ -4984,17 +4996,28 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
             }
         }
 
-        // MIDI aftertouch routing. Gated with hasProperty so .t5p files
-        // written before this commit keep loading with their previous
-        // (now-default) None / 0.5 routing instead of being rejected.
+        // MIDI aftertouch routing. New format: 12 per-target bipolar amounts
+        // keyed by target key. Legacy format (single-select target + global
+        // amount) is migrated onto the selected target's per-target amount.
+        // hasProperty-gated so older .t5p files keep loading at their previous
+        // routing instead of being rejected.
         if (auto* at = mod->getProperty("aftertouch").getDynamicObject())
         {
-            if (at->hasProperty("target"))
-                setParam(parameters, PID::aftertouchTarget,
-                         static_cast<float>(choiceFromKey(at->getProperty("target").toString(), AftertouchTarget::kEntries)));
-            if (at->hasProperty("amount"))
-                setParam(parameters, PID::aftertouchAmount,
-                         static_cast<float>(at->getProperty("amount")));
+            bool perTarget = false;
+            for (int t = AftertouchTarget::LFO1Depth; t <= AftertouchTarget::NoiseLevel; ++t)
+                if (at->hasProperty(AftertouchTarget::kEntries[t].key))
+                {
+                    setParam(parameters, kAftertouchAmtPid[t],
+                             static_cast<float>(at->getProperty(AftertouchTarget::kEntries[t].key)));
+                    perTarget = true;
+                }
+            if (! perTarget && at->hasProperty("target"))
+            {
+                const int t = choiceFromKey(at->getProperty("target").toString(), AftertouchTarget::kEntries);
+                if (t >= AftertouchTarget::LFO1Depth && t <= AftertouchTarget::NoiseLevel)
+                    setParam(parameters, kAftertouchAmtPid[t],
+                             at->hasProperty("amount") ? static_cast<float>(at->getProperty("amount")) : 0.0f);
+            }
         }
     }
 
