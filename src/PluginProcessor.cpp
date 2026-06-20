@@ -612,10 +612,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
             { PID::aftertouchAmtPitch,       "AT Pitch"        },
             { PID::aftertouchAmtNoiseLevel,  "AT Noise"        },
         };
+        // Symmetric 0.3 skew (fine resolution near 0), matching every other depth
+        // control in the synth (LFO / Drift depth). Without it this bipolar amount
+        // was the only linear depth control, so it alone needed 1/100-scale values.
         for (const auto& a : atTargets)
             params.push_back(std::make_unique<juce::AudioParameterFloat>(
                 juce::ParameterID{ a.pid, 1 }, a.name,
-                juce::NormalisableRange<float>(-1.0f, 1.0f, 0.001f), 0.0f));
+                juce::NormalisableRange<float>(-1.0f, 1.0f, 0.001f, 0.3f, true), 0.0f));
     }
 
     // Drift LFO

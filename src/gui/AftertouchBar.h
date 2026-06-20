@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "GuiHelpers.h"
+#include <cmath>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AftertouchBar — one bipolar aftertouch depth bar (combined select + amount).
@@ -68,8 +69,12 @@ public:
             return;
 
         const float w = (float) juce::jmax(1, getWidth());
-        double mag = juce::jlimit(0.0, 1.0, (double) e.position.x / w);
-        if (mag < 0.02) mag = 0.0;                       // dead-zone → clean off
+        const double pos = juce::jlimit(0.0, 1.0, (double) e.position.x / w);
+        // Same logarithmic feel as the synth's other depth controls: skew the
+        // magnitude (mag = pos^(1/skew)) so the musical range spreads across the
+        // travel instead of crowding the first few percent.
+        double mag = std::pow(pos, 1.0 / kAtBarSkew);
+        if (mag < 0.005) mag = 0.0;                      // dead-zone → clean off
         setValue(dragSign_ * mag, juce::sendNotificationSync);
         repaint();
     }
@@ -105,7 +110,9 @@ public:
         if (mag > 0.0f)
         {
             g.setColour(v >= 0.0f ? kAtCol : kAtNegCol);
-            g.fillRect(b.withWidth(b.getWidth() * mag));
+            // Inverse of the drag skew so the fill tracks the bar position.
+            const float frac = std::pow(mag, (float) kAtBarSkew);
+            g.fillRect(b.withWidth(b.getWidth() * frac));
         }
 
         const bool active = mag > 0.0f;
@@ -132,6 +139,10 @@ public:
     }
 
 private:
+    // Perceptual skew for the magnitude, matching the AT amount param's
+    // NormalisableRange skew (PluginProcessor.cpp) and the synth's other depth
+    // controls (0.3). Keep the two in sync.
+    static constexpr double kAtBarSkew = 0.3;
     juce::String label_;
     double dragSign_    = 1.0;
     bool   held_        = false;
