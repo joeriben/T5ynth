@@ -7,6 +7,7 @@
 #include <limits>
 #include <thread>
 #include "dsp/VoiceManager.h"
+#include "dsp/VoiceEvent.h"
 #include "dsp/ParamCache.h"
 #include "dsp/LFO.h"
 #include "dsp/DriftLFO.h"
@@ -294,7 +295,11 @@ private:
     bool genModeActiveInAudio = false;  // tracks which engine is currently running
     int lastGenSteps = -1, lastGenPulses = -1, lastGenRotation = -1;
     float lastGenMutation = -1.0f;
-    std::array<float, 4> genStrandPan {};
+
+    // Internal note events from the sequencers/arp — typed, NOT MIDI. Reused
+    // each block (cleared, capacity retained) so the audio thread never
+    // allocates. Merged with the external MIDI stream in processBlock.
+    std::vector<VoiceEvent> internalNoteEvents_;
 
     struct SequencerOneShotSample
     {

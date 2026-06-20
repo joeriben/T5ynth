@@ -226,13 +226,14 @@ void T5ynthStepSequencer::prepare(double sr, int /*samplesPerBlock*/)
 }
 
 void T5ynthStepSequencer::processBlock(juce::AudioBuffer<float>& buffer,
-                                       juce::MidiBuffer& midi)
+                                       std::vector<VoiceEvent>& out)
 {
     if (!running)
     {
         if (lastPlayedNote >= 0)
         {
-            midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), 0);
+            out.push_back({ 0, VoiceEvent::Type::NoteOff, lastPlayedNote, 0.0f,
+                            VoiceEvent::Articulation::Normal, -1, 0.0f });
             lastPlayedNote = -1;
         }
         currentStep = 0;
@@ -281,7 +282,8 @@ void T5ynthStepSequencer::processBlock(juce::AudioBuffer<float>& buffer,
             // Gate-off event
             if (lastPlayedNote >= 0)
             {
-                midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), eventPos);
+                out.push_back({ eventPos, VoiceEvent::Type::NoteOff, lastPlayedNote, 0.0f,
+                                VoiceEvent::Articulation::Normal, -1, 0.0f });
                 lastPlayedNote = -1;
             }
             samplesUntilGateOff = -1.0;
@@ -313,7 +315,8 @@ void T5ynthStepSequencer::processBlock(juce::AudioBuffer<float>& buffer,
         // (its voice must stay alive so this note can continue/ramp it).
         if (lastPlayedNote >= 0 && !prevSlid)
         {
-            midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), eventPos);
+            out.push_back({ eventPos, VoiceEvent::Type::NoteOff, lastPlayedNote, 0.0f,
+                            VoiceEvent::Articulation::Normal, -1, 0.0f });
             lastPlayedNote = -1;
         }
 
@@ -321,18 +324,18 @@ void T5ynthStepSequencer::processBlock(juce::AudioBuffer<float>& buffer,
         if (step.enabled)
         {
             int midiNote = juce::jlimit(0, 127, step.note + octaveShiftSemitones);
-            int vel = juce::jlimit(1, 127, juce::roundToInt(step.velocity * 127.0f));
-            // Channel encodes the INCOMING transition for the processor's voice
-            // dispatch: if the previous step slid, continue its voice — Glide →
-            // kGlideChannel (ramped), Bind → kBindChannel (instant); otherwise a
-            // fresh note on kNormalChannel.
+            float vel = juce::jlimit(0.0f, 1.0f, step.velocity);
+            // Articulation carries the INCOMING transition for voice dispatch: if
+            // the previous step slid, continue its voice — Glide (ramped) or Bind
+            // (instant); otherwise a fresh Normal note.
             const BindMode incoming = prevSlid ? steps[static_cast<size_t>(prevIdx)].bindMode
                                                : BindMode::Off;
-            int channel = incoming == BindMode::Glide ? kGlideChannel
-                        : incoming == BindMode::Bind  ? kBindChannel
-                                                      : kNormalChannel;
-            midi.addEvent(juce::MidiMessage::noteOn(channel, midiNote,
-                          static_cast<juce::uint8>(vel)), eventPos);
+            const VoiceEvent::Articulation artic =
+                  incoming == BindMode::Glide ? VoiceEvent::Articulation::Glide
+                : incoming == BindMode::Bind  ? VoiceEvent::Articulation::Bind
+                                              : VoiceEvent::Articulation::Normal;
+            out.push_back({ eventPos, VoiceEvent::Type::NoteOn, midiNote,
+                            vel, artic, -1, 0.0f });
             lastPlayedNote = midiNote;
 
             // If THIS step slides into an enabled next step, hold the note for
@@ -374,11 +377,12 @@ void T5ynthStepSequencer::reset()
     stop();
 }
 
-void T5ynthStepSequencer::allNotesOff(juce::MidiBuffer& midi, int sampleOffset)
+void T5ynthStepSequencer::allNotesOff(std::vector<VoiceEvent>& out, int sampleOffset)
 {
     if (lastPlayedNote >= 0)
     {
-        midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), sampleOffset);
+        out.push_back({ sampleOffset, VoiceEvent::Type::NoteOff, lastPlayedNote, 0.0f,
+                        VoiceEvent::Articulation::Normal, -1, 0.0f });
         lastPlayedNote = -1;
     }
     samplesUntilGateOff = -1.0;

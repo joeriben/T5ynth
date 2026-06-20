@@ -1,9 +1,11 @@
 #pragma once
 #include <JuceHeader.h>
+#include "../dsp/VoiceEvent.h"
 #include <array>
 #include <atomic>
 #include <cstdint>
 #include <random>
+#include <vector>
 
 /**
  * Generative Euclidean Sequencer — alternative to step sequencer.
@@ -46,7 +48,10 @@ public:
     T5ynthGenerativeSequencer();
 
     void prepare(double sampleRate, int samplesPerBlock);
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi);
+    /** Append this block's per-strand note events (typed, not MIDI) to `out`.
+     *  Strand identity travels as VoiceEvent::strandId and stereo placement as
+     *  VoiceEvent::pan — no MIDI channels are used internally. */
+    void processBlock(juce::AudioBuffer<float>& buffer, std::vector<VoiceEvent>& out);
     void reset();
 
     // Strand-0 legacy API — routed internally to strands[0].
@@ -101,10 +106,10 @@ public:
     void start();
     void stop();
 
-    /** Emit note-off for every strand's currently-sounding note into `midi`
+    /** Append a note-off for every strand's currently-sounding note to `out`
         at `sampleOffset`, then clear each strand.lastPlayedNote. Does not
         alter pattern/position — safe to call at any transition. */
-    void allNotesOff(juce::MidiBuffer& midi, int sampleOffset = 0);
+    void allNotesOff(std::vector<VoiceEvent>& out, int sampleOffset = 0);
 
     bool isRunning() const { return running; }
 
@@ -306,12 +311,10 @@ private:
     double strandStepDurationSamples(const Strand& s) const;
     int    baseMidiForStrand(const Strand& s) const;
     int    strandIndexOf(const Strand& s) const;
-    int    midiChannelForStrand(const Strand& s) const;
     int    rolePriority(const Strand& s) const;     // strand 0 = -1, else static_cast<int>(role)
     float  fireProbability(const Strand& s, bool isPulse) const;   // V4: strand-0-symmetric
     float  spatialTargetForStrand(const Strand& s) const;          // static lane per strand
     float  updateSpatialPan(Strand& s);
-    int    panControllerValue(float pan) const;
     int    pickNote(Strand& s, int stepIdx, int rawDegree);
     int    voiceLedFieldMember(int rawPc) const;
     bool   fieldContains(int pc) const;

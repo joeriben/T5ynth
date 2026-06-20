@@ -1,8 +1,10 @@
 #pragma once
 #include <JuceHeader.h>
+#include "../dsp/VoiceEvent.h"
 #include <array>
 #include <atomic>
 #include <functional>
+#include <vector>
 
 /**
  * Step sequencer — port of useStepSequencer.ts.
@@ -47,13 +49,6 @@ public:
         Glide      ///< No retrigger, pitch ramps over getGlideTime().
     };
 
-    /** MIDI channels this sequencer emits on, decoded by the processor's voice
-     *  dispatch. Gen-seq strands occupy channels 3-7 (3 + strand index), so the
-     *  glide channel sits at 8 to stay clear of them. */
-    static constexpr int kNormalChannel = 1; ///< BindMode::Off
-    static constexpr int kBindChannel   = 2; ///< BindMode::Bind  (glideMs = 0)
-    static constexpr int kGlideChannel  = 8; ///< BindMode::Glide (glideMs = getGlideTime())
-
     struct OneShotTrigger
     {
         int stepIndex = 0;
@@ -67,7 +62,8 @@ public:
     T5ynthStepSequencer() = default;
 
     void prepare(double sampleRate, int samplesPerBlock);
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi);
+    /** Append this block's note events (typed, not MIDI) to `out`. */
+    void processBlock(juce::AudioBuffer<float>& buffer, std::vector<VoiceEvent>& out);
     void reset();
 
     /** Set the number of active steps (1-64). */
@@ -117,10 +113,10 @@ public:
     void start() { if (!running) { running = true; samplesUntilNextStep = 0.0; currentStep = 0; scheduledStep = 0; } }
     void stop();
 
-    /** Emit note-off for the currently-sounding step note into `midi` at
+    /** Append a note-off for the currently-sounding step note to `out` at
         `sampleOffset`, then clear lastPlayedNote. Does not alter running/
         position — safe to call at any transition. */
-    void allNotesOff(juce::MidiBuffer& midi, int sampleOffset = 0);
+    void allNotesOff(std::vector<VoiceEvent>& out, int sampleOffset = 0);
 
     bool isRunning() const { return running; }
 

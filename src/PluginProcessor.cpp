@@ -3,6 +3,7 @@
 #include "BinaryData.h"
 #include "dsp/Tuning.h"
 #include "midi/LaunchControlXLLeds.h"
+#include <algorithm>
 #include <chrono>
 
 #define SAMPLER_PROCESSOR_DEBUG_LOG 0
@@ -1098,6 +1099,13 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
                                static_cast<size_t>(BinaryData::emt_140_plate_medium_wavSize));
     lastReverbIr = 1; // 0=Bright, 1=Medium, 2=Dark
     limiter.prepare(sampleRate, samplesPerBlock);
+    // Pre-size the internal note-event buffer so the audio thread never grows it
+    // (a push_back reallocation would be a heap alloc on the audio thread). Worst
+    // case is pathological — max BPM (300) + smallest division + all 5 strands +
+    // arp, in a large offline-render block — which tops out around a few hundred
+    // events even at an 8192-sample block. 2048 leaves a wide margin; the buffer
+    // is allocated once here and only ever clear()ed (capacity retained) per block.
+    internalNoteEvents_.reserve(2048);
     stepSequencer.prepare(sampleRate, samplesPerBlock);
     generativeSequencer.prepare(sampleRate, samplesPerBlock);
     arpeggiator.prepare(sampleRate, samplesPerBlock);
@@ -2035,6 +2043,10 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     int arpRate = static_cast<int>(paramCache.arpRate->load());
     int arpOctaves = static_cast<int>(paramCache.arpOctaves->load());
 
+    // Internal note events for this block (sequencers + arp). Typed, never MIDI.
+    // Cleared here (capacity retained — no allocation) before any source writes.
+    internalNoteEvents_.clear();
+
     // Arp false→true edge: the active sequencer's currently-sounding note was
     // emitted direct-to-synth last block, and from this block on the arp will
     // swallow all seq note-offs — so flush that single note now before the
@@ -2042,9 +2054,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     if (arpEnabled && !arpWasEnabled)
     {
         if (genModeActiveInAudio)
-            generativeSequencer.allNotesOff(midiMessages, 0);
+            generativeSequencer.allNotesOff(internalNoteEvents_);
         else
-            stepSequencer.allNotesOff(midiMessages, 0);
+            stepSequencer.allNotesOff(internalNoteEvents_);
     }
 
     // Preset change detection
@@ -2109,7 +2121,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
                 // Flush step-seq's currently-sounding note before the gen-seq
                 // takes over — avoids a hanging voice across the engine swap.
-                stepSequencer.allNotesOff(midiMessages, 0);
+                stepSequencer.allNotesOff(internalNoteEvents_);
                 stopSequencerOneShots();
                 stepSequencer.stop();
                 generativeSequencer.setBpm(static_cast<double>(seqBpm));
@@ -2158,7 +2170,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 }
                 // Flush every gen-seq strand's sounding note before handing
                 // back to the step-seq — avoids hanging voices across the swap.
-                generativeSequencer.allNotesOff(midiMessages, 0);
+                generativeSequencer.allNotesOff(internalNoteEvents_);
                 generativeSequencer.stop();
                 genModeActiveInAudio = false;
             }
@@ -2346,7 +2358,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             generativeSequencer.start();
         else
             generativeSequencer.stop();
-        generativeSequencer.processBlock(buffer, midiMessages);
+        generativeSequencer.processBlock(buffer, internalNoteEvents_);
 
         // Write effective (post-drift) values back to APVTS so sliders move
         {
@@ -2388,7 +2400,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             stepSequencer.start();
         else
             stepSequencer.stop();
-        stepSequencer.processBlock(buffer, midiMessages);
+        stepSequencer.processBlock(buffer, internalNoteEvents_);
     }
 
     // Consume bar-start flag (sequencer display + sync-arm release)
@@ -2411,7 +2423,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // (driftRegenBpm is now stored in updateDriftState() with the resolved
     // sync BPM — no duplicate write needed here.)
 
-    // Stage 2: Arpeggiator (consumes seq note events, generates arpeggiated output)
+    // Stage 2: Arpeggiator. Base note comes from the sequencer when one is
+    // running, else from manual/external play. The "lead" note feeds the arp;
+    // everything else passes through to the voices.
     if (arpEnabled)
     {
         arpeggiator.setBpm(static_cast<double>(seqBpm));
@@ -2420,66 +2434,82 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         arpeggiator.setShuffle(seqShuffle);
         arpeggiator.setMode(static_cast<T5ynthArpeggiator::Mode>(arpMode));
 
-        juce::MidiBuffer filtered;
-        for (const auto metadata : midiMessages)
+        if (seqRunning)
         {
-            auto msg = metadata.getMessage();
-
-            // When a sequencer is driving, only the "lead" channel feeds the
-            // arp — otherwise the polyphonic gen-seq's secondary strands
-            // (channels 4-7) would chaotically slap the arp's base note
-            // between every step. Lead channels:
-            //   gen-seq active → channel 3 (strand 0)
-            //   step-seq active → channel 1 (normal), 2 (bind) or 8 (glide)
-            // When seq is stopped (manual keyboard play) any channel feeds
-            // the arp, preserving the historical external-input behaviour.
-            const int ch = msg.getChannel();
-            const bool isLead = !seqRunning
-                              || (genModeActiveInAudio
-                                  ? (ch == 3)
-                                  : (ch == T5ynthStepSequencer::kNormalChannel
-                                  || ch == T5ynthStepSequencer::kBindChannel
-                                  || ch == T5ynthStepSequencer::kGlideChannel));
-
-            if (msg.isNoteOn())
-            {
-                // XL DAW-mode ch16 encoder/fader channel: never musical. Drop it here so
-                // a startup ch16 Note-On cannot arm the arpeggiator as a base note.
-                if (dawModeActive_.load(std::memory_order_relaxed) && ch == 16)
-                { /* silently discard */ }
-                else if (isLead)
-                    arpeggiator.setBaseNote(msg.getNoteNumber(), msg.getFloatVelocity());
-                else
-                    filtered.addEvent(msg, metadata.samplePosition);
-            }
-            else if (msg.isNoteOff())
-            {
-                if (isLead)
-                {
-                    // When seq is running, don't kill arp on seq gate-offs —
-                    // arp runs continuously, seq just updates the base note.
-                    if (!seqRunning)
-                        arpeggiator.stopArp();
-                }
-                else
-                {
-                    filtered.addEvent(msg, metadata.samplePosition);
-                }
-            }
-            else
-            {
-                filtered.addEvent(msg, metadata.samplePosition);
-            }
+            // The sequencer drives the arp. Lead = step-seq notes (strandId < 0)
+            // or gen-seq strand 0; non-lead gen strands keep sounding alongside
+            // the arp. Pull every lead event out of the internal stream, feeding
+            // the last lead note-on to the arp as its base note.
+            int leadNote = -1;
+            float leadVel = 0.0f;
+            const bool genMode = genModeActiveInAudio;
+            internalNoteEvents_.erase(
+                std::remove_if(internalNoteEvents_.begin(), internalNoteEvents_.end(),
+                    [&](const VoiceEvent& e)
+                    {
+                        const bool lead = genMode ? (e.strandId == 0) : (e.strandId < 0);
+                        if (!lead) return false;
+                        if (e.type == VoiceEvent::Type::NoteOn)
+                            { leadNote = e.note; leadVel = e.velocity; }
+                        return true;  // drop lead note-ons AND note-offs
+                    }),
+                internalNoteEvents_.end());
+            if (leadNote >= 0)
+                arpeggiator.setBaseNote(leadNote, leadVel);
         }
-        midiMessages.swapWith(filtered);
-        arpeggiator.processBlock(buffer, midiMessages);
+        else
+        {
+            // Manual play drives the arp: consume external note-ons/offs, but keep
+            // pitch-bend/CC so they still reach the voices. The arp's own notes
+            // sound; the raw key does not.
+            juce::MidiBuffer filtered;
+            for (const auto metadata : midiMessages)
+            {
+                auto msg = metadata.getMessage();
+                const int ch = msg.getChannel();
+                if (msg.isNoteOn())
+                {
+                    // XL DAW-mode ch16 encoder channel is never musical.
+                    if (dawModeActive_.load(std::memory_order_relaxed) && ch == 16)
+                        continue;
+                    arpeggiator.setBaseNote(msg.getNoteNumber(), msg.getFloatVelocity());
+                }
+                else if (msg.isNoteOff())
+                {
+                    arpeggiator.stopArp();
+                }
+                else
+                {
+                    filtered.addEvent(msg, metadata.samplePosition);
+                }
+            }
+            midiMessages.swapWith(filtered);
+        }
+        arpeggiator.processBlock(buffer, internalNoteEvents_);
     }
     else
     {
         // Arp off: flush the arp's own sounding note (if any), then drop state.
-        arpeggiator.allNotesOff(midiMessages, 0);
+        arpeggiator.allNotesOff(internalNoteEvents_);
         arpeggiator.reset();
     }
+
+    // The sequencers schedule per-strand and the arp appends after them, so the
+    // internal stream is not globally time-ordered. Sort by sample offset so the
+    // merge-walk below stays sample-accurate. std::sort is in-place (introsort) —
+    // unlike std::stable_sort it never requests a heap temp buffer, so it is
+    // audio-thread-safe. The secondary key (NoteOff before NoteOn at an equal
+    // offset) replaces what stability was buying us: a note-off must free its
+    // voice before a same-tick note-on can retrigger/steal it. All sequencer/arp
+    // emissions are off-then-on at a shared tick, so this matches emit intent.
+    std::sort(internalNoteEvents_.begin(), internalNoteEvents_.end(),
+              [](const VoiceEvent& a, const VoiceEvent& b)
+              {
+                  if (a.sampleOffset != b.sampleOffset)
+                      return a.sampleOffset < b.sampleOffset;
+                  return a.type == VoiceEvent::Type::NoteOff
+                      && b.type == VoiceEvent::Type::NoteOn;
+              });
 
     arpWasEnabled = arpEnabled;
 
@@ -2601,14 +2631,22 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         // ── Sample-accurate rendering: split block at MIDI event boundaries ──
         {
             auto midiIter = midiMessages.cbegin();
+            size_t intIdx = 0;
             int renderPos = 0;
+            // Sentinel strictly above any real event position (positions are
+            // 0..numSamples-1) so an exhausted stream never wins the comparisons.
+            const int kNoEvent = numSamples + 1;
 
             while (renderPos < numSamples)
             {
-                // Next sub-block ends at the next MIDI event or block end
+                // Next sub-block ends at the earliest pending event across BOTH
+                // streams: external controller MIDI (real MPE channels) and the
+                // internal typed events (sequencer/arp).
                 int subEnd = numSamples;
                 if (midiIter != midiMessages.cend())
-                    subEnd = juce::jmin((*midiIter).samplePosition, numSamples);
+                    subEnd = juce::jmin((*midiIter).samplePosition, subEnd);
+                if (intIdx < internalNoteEvents_.size())
+                    subEnd = juce::jmin(internalNoteEvents_[intIdx].sampleOffset, subEnd);
 
                 // Render voices up to this point
                 int subLen = subEnd - renderPos;
@@ -2617,11 +2655,50 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                         lfo1Buf + renderPos, lfo2Buf + renderPos, lfo3Buf + renderPos,
                         renderPos, subLen);
 
-                // Process all MIDI events at this sample position
-                while (midiIter != midiMessages.cend()
-                       && (*midiIter).samplePosition <= subEnd)
+                // Dispatch every event at this position, internal and external
+                // interleaved in time order (internal first on a tie so a seq
+                // note-off precedes a same-tick external note-on).
+                while (true)
                 {
+                    const int extPos = (midiIter != midiMessages.cend())
+                                     ? (*midiIter).samplePosition : kNoEvent;
+                    const int intPos = (intIdx < internalNoteEvents_.size())
+                                     ? internalNoteEvents_[intIdx].sampleOffset : kNoEvent;
+                    if (extPos > subEnd && intPos > subEnd)
+                        break;
+
+                    if (intPos <= extPos)
+                    {
+                        // ── Internal sequencer/arp event — typed, never MPE ──
+                        const VoiceEvent& ev = internalNoteEvents_[intIdx++];
+                        if (ev.type == VoiceEvent::Type::NoteOn)
+                        {
+                            const bool isBind = (ev.artic != VoiceEvent::Articulation::Normal);
+                            // Bind = instant (glideMs 0); Glide + Normal = getGlideTime()
+                            // (Normal's value only feeds mono legato).
+                            const float glideMs = (ev.artic == VoiceEvent::Articulation::Bind)
+                                                ? 0.0f : stepSequencer.getGlideTime();
+                            lastMidiNote.store(ev.note, std::memory_order_relaxed);
+                            lastMidiVelocity.store(juce::roundToInt(ev.velocity * 127.0f),
+                                                   std::memory_order_relaxed);
+                            lastMidiNoteOn.store(true, std::memory_order_relaxed);
+                            voiceManager.noteOn(ev.note, ev.velocity, isBind, glideMs,
+                                lfo1TrigMode, lfo2TrigMode, lfo3TrigMode,
+                                ev.strandId, ev.pan, /*mpeChannel=*/0);
+                        }
+                        else
+                        {
+                            voiceManager.noteOff(ev.note, ev.strandId);
+                            if (!voiceManager.hasActiveVoices())
+                                lastMidiNoteOn.store(false, std::memory_order_relaxed);
+                        }
+                        continue;
+                    }
+
+                    // ── External controller MIDI — real channels → full MPE ──
                     const auto msg = (*midiIter).getMessage();
+                    ++midiIter;
+                    const int channel = msg.getChannel();
                     if (msg.isNoteOn()
                         // XL DAW-mode ch16 is the encoder/fader channel and never sends
                         // musical Note Ons. Without this guard the DAW-mode-enable message
@@ -2629,48 +2706,33 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                         // trigger a stuck voice on note 12 — the root cause of the
                         // intermittent startup pulsating sound.
                         && ! (dawModeActive_.load(std::memory_order_relaxed)
-                              && msg.getChannel() == 16))
+                              && channel == 16))
                     {
-                        int note = msg.getNoteNumber();
-                        float velocity = msg.getFloatVelocity();
-                        const int channel = msg.getChannel();
-                        // Step-seq bind-mode channels: kBindChannel = instant pitch
-                        // change, kGlideChannel = ramped. Both take the no-retrigger
-                        // glide path; they differ only in the glide time below.
-                        const bool isBind = (channel == T5ynthStepSequencer::kBindChannel
-                                          || channel == T5ynthStepSequencer::kGlideChannel);
-                        const int genSourceId = (channel >= 3 && channel <= 6) ? channel - 3 : -1;
-                        const float sourcePan = genSourceId >= 0
-                                              ? genStrandPan[static_cast<size_t>(genSourceId)]
-                                              : 0.0f;
-
+                        const int note = msg.getNoteNumber();
+                        const float velocity = msg.getFloatVelocity();
                         lastMidiNote.store(note, std::memory_order_relaxed);
                         lastMidiVelocity.store(juce::roundToInt(velocity * 127.0f),
                                                std::memory_order_relaxed);
                         lastMidiNoteOn.store(true, std::memory_order_relaxed);
-
-                        // Bind = instant (glideMs 0); Glide + everything else =
-                        // getGlideTime() (the non-bind value still feeds mono legato).
-                        voiceManager.noteOn(note, velocity, isBind,
-                            channel == T5ynthStepSequencer::kBindChannel
-                                ? 0.0f : stepSequencer.getGlideTime(),
+                        // External note: tagged with its real MIDI channel so per-note
+                        // MPE bend / pressure / timbre on that channel route to it. No
+                        // bind/glide/strand — those are internal-sequencer concepts.
+                        voiceManager.noteOn(note, velocity, /*isBind=*/false,
+                            stepSequencer.getGlideTime(),
                             lfo1TrigMode, lfo2TrigMode, lfo3TrigMode,
-                            genSourceId, sourcePan, channel);
+                            /*sourceId=*/-1, /*pan=*/0.0f, /*mpeChannel=*/channel);
                     }
                     else if (msg.isNoteOff())
                     {
-                        const int channel = msg.getChannel();
-                        const int genSourceId = (channel >= 3 && channel <= 6) ? channel - 3 : -1;
-                        voiceManager.noteOff(msg.getNoteNumber(), genSourceId);
+                        voiceManager.noteOff(msg.getNoteNumber(), -1);
                         if (!voiceManager.hasActiveVoices())
                             lastMidiNoteOn.store(false, std::memory_order_relaxed);
                     }
                     else if (msg.isAftertouch())
                     {
-                        const int channel = msg.getChannel();
-                        const int genSourceId = (channel >= 3 && channel <= 6) ? channel - 3 : -1;
+                        // Poly key pressure matches by note number across external voices.
                         const float pressure = static_cast<float>(msg.getAfterTouchValue()) / 127.0f;
-                        voiceManager.setPolyPressure(msg.getNoteNumber(), pressure, genSourceId);
+                        voiceManager.setPolyPressure(msg.getNoteNumber(), pressure, -1);
                     }
                     else if (msg.isChannelPressure())
                     {
@@ -2746,17 +2808,22 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                             // Ch1 sets the master (global) range; all other channels set the
                             // per-note MPE range. Value 0 is treated as 1 (1 semitone min).
                             const float rangeS = static_cast<float>(std::max(1, value7));
-                            if (msg.getChannel() == 1)
+                            const int rpnCh = msg.getChannel();
+                            if (rpnCh == 1 || rpnCh == 16)
+                            {
+                                // Zone master channel: set the master bend AND mirror it to
+                                // the per-note range. MPE controllers that configure the whole
+                                // zone from the master channel (e.g. LinnStrument, which only
+                                // transmits its Bend Range there) then drive member notes with
+                                // the range the user actually set, instead of the 48-st default.
                                 masterPitchBendRangeSemitones_ = rangeS;
+                                notePitchBendRangeSemitones_   = rangeS;
+                            }
                             else
+                            {
+                                // Member channel (MMA MPE: applies to all member channels).
                                 notePitchBendRangeSemitones_ = rangeS;
-                        }
-                        else if (cc == 10 && msg.getChannel() >= 3 && msg.getChannel() <= 6)
-                        {
-                            const int genSourceId = msg.getChannel() - 3;
-                            const float value = static_cast<float>(value7) / 127.0f;
-                            genStrandPan[static_cast<size_t>(genSourceId)] =
-                                juce::jlimit(-1.0f, 1.0f, value * 2.0f - 1.0f);
+                            }
                         }
                         else if (dawModeActive_.load(std::memory_order_relaxed)
                                  && msg.getChannel() == 1
@@ -2896,7 +2963,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                             }
                         }
                     }
-                    ++midiIter;
+                    // (midiIter was advanced right after getMessage() above — the
+                    // instant we committed to consuming this external message — so
+                    // there is no second increment here.)
                 }
 
                 renderPos = subEnd;

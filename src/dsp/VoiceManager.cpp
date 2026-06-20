@@ -126,17 +126,16 @@ void VoiceManager::setBlockParams(const BlockParams& bp)
 
 void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
                            bool lfo1TrigMode, bool lfo2TrigMode, bool lfo3TrigMode,
-                           int sourceId, float pan, int midiChannel)
+                           int sourceId, float pan, int mpeChannel)
 {
     sourceId = sourceId >= 0 ? juce::jlimit(0, 15, sourceId) : -1;
     pan = juce::jlimit(-1.0f, 1.0f, pan);
 
-    // Internal notes (sequencer bind/glide or genSeq strands) must not pollute the
-    // MPE channel tracking — only tag a voice with its MIDI channel when the note
-    // arrives from an external controller (no sequencer sourceId, not a bind/glide).
-    const int8_t effectiveMidiChannel = (sourceId < 0 && !isBind)
-        ? static_cast<int8_t>(juce::jlimit(1, 16, midiChannel))
-        : 0;
+    // Origin is explicit: mpeChannel 1-16 = external controller note (tracked so
+    // per-note pitch bend / pressure / timbre route to it); 0 = internal note
+    // (sequencer or arp) which is never part of any MPE zone.
+    const int8_t effectiveMidiChannel =
+        (mpeChannel >= 1 && mpeChannel <= 16) ? static_cast<int8_t>(mpeChannel) : 0;
 
     // ── Mono mode: always voice 0, legato (no retrigger if held) ──
     if (voiceLimit == 1)

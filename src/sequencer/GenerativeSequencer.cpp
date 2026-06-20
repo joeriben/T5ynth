@@ -464,13 +464,14 @@ void T5ynthGenerativeSequencer::reset()
     stop();
 }
 
-void T5ynthGenerativeSequencer::allNotesOff(juce::MidiBuffer& midi, int sampleOffset)
+void T5ynthGenerativeSequencer::allNotesOff(std::vector<VoiceEvent>& out, int sampleOffset)
 {
     for (auto& s : strands)
     {
         if (s.lastPlayedNote >= 0)
         {
-            midi.addEvent(juce::MidiMessage::noteOff(midiChannelForStrand(s), s.lastPlayedNote), sampleOffset);
+            out.push_back({ sampleOffset, VoiceEvent::Type::NoteOff, s.lastPlayedNote, 0.0f,
+                            VoiceEvent::Articulation::Normal, strandIndexOf(s), 0.0f });
             s.lastPlayedNote = -1;
         }
         s.samplesUntilGateOff = -1.0;
@@ -1023,12 +1024,6 @@ float T5ynthGenerativeSequencer::fireProbability(const Strand& s, bool isPulse) 
 
 
 
-int T5ynthGenerativeSequencer::midiChannelForStrand(const Strand& s) const
-{
-    // Channel 2 is reserved by the step sequencer for bind/glide.
-    return juce::jlimit(1, 16, 3 + strandIndexOf(s));
-}
-
 float T5ynthGenerativeSequencer::spatialTargetForStrand(const Strand& s) const
 {
     // Static lane per strand index. The previous metric/role-modulated
@@ -1044,12 +1039,6 @@ float T5ynthGenerativeSequencer::updateSpatialPan(Strand& s)
     s.spatialTargetPan = spatialTargetForStrand(s);
     s.spatialPan = s.spatialTargetPan;
     return s.spatialPan;
-}
-
-int T5ynthGenerativeSequencer::panControllerValue(float pan) const
-{
-    pan = juce::jlimit(-1.0f, 1.0f, pan);
-    return juce::jlimit(0, 127, juce::roundToInt((pan * 0.5f + 0.5f) * 127.0f));
 }
 
 int T5ynthGenerativeSequencer::baseMidiForStrand(const Strand& s) const
@@ -1255,7 +1244,7 @@ int T5ynthGenerativeSequencer::pickNote(Strand& s, int stepIdx, int rawDegree)
 // ─── Process Block ─────────────────────────────────────────────────────────
 
 void T5ynthGenerativeSequencer::processBlock(juce::AudioBuffer<float>& buffer,
-                                              juce::MidiBuffer& midi)
+                                              std::vector<VoiceEvent>& out)
 {
     if (!running)
     {
@@ -1263,7 +1252,8 @@ void T5ynthGenerativeSequencer::processBlock(juce::AudioBuffer<float>& buffer,
         {
             if (st.lastPlayedNote >= 0)
             {
-                midi.addEvent(juce::MidiMessage::noteOff(midiChannelForStrand(st), st.lastPlayedNote), 0);
+                out.push_back({ 0, VoiceEvent::Type::NoteOff, st.lastPlayedNote, 0.0f,
+                                VoiceEvent::Articulation::Normal, strandIndexOf(st), 0.0f });
                 st.lastPlayedNote = -1;
             }
             st.currentStep = 0;
@@ -1334,7 +1324,8 @@ void T5ynthGenerativeSequencer::processBlock(juce::AudioBuffer<float>& buffer,
         {
             if (s.lastPlayedNote >= 0)
             {
-                midi.addEvent(juce::MidiMessage::noteOff(midiChannelForStrand(s), s.lastPlayedNote), eventPos);
+                out.push_back({ eventPos, VoiceEvent::Type::NoteOff, s.lastPlayedNote, 0.0f,
+                                VoiceEvent::Articulation::Normal, strandIndexOf(s), 0.0f });
                 s.lastPlayedNote = -1;
             }
             s.samplesUntilGateOff = -1.0;
@@ -1356,7 +1347,8 @@ void T5ynthGenerativeSequencer::processBlock(juce::AudioBuffer<float>& buffer,
         // Note-off for this strand's previous note
         if (s.lastPlayedNote >= 0)
         {
-            midi.addEvent(juce::MidiMessage::noteOff(midiChannelForStrand(s), s.lastPlayedNote), eventPos);
+            out.push_back({ eventPos, VoiceEvent::Type::NoteOff, s.lastPlayedNote, 0.0f,
+                            VoiceEvent::Articulation::Normal, strandIndexOf(s), 0.0f });
             s.lastPlayedNote = -1;
         }
 
@@ -1411,9 +1403,10 @@ void T5ynthGenerativeSequencer::processBlock(juce::AudioBuffer<float>& buffer,
                 {
                     // Displace the lowest-priority sounding strand so the
                     // higher-priority s can take its slot.
-                    midi.addEvent(juce::MidiMessage::noteOff(
-                        midiChannelForStrand(*worstStrand),
-                        worstStrand->lastPlayedNote), eventPos);
+                    out.push_back({ eventPos, VoiceEvent::Type::NoteOff,
+                                    worstStrand->lastPlayedNote, 0.0f,
+                                    VoiceEvent::Articulation::Normal,
+                                    strandIndexOf(*worstStrand), 0.0f });
                     worstStrand->lastPlayedNote      = -1;
                     worstStrand->samplesUntilGateOff = -1.0;
                 }
@@ -1429,13 +1422,13 @@ void T5ynthGenerativeSequencer::processBlock(juce::AudioBuffer<float>& buffer,
         {
             const int note = pickNote(s, stepIdx, rawDegree);
             const double stepDur = shuffledStrandStepDurationSamples(s, stepIdx);
-            const int channel = midiChannelForStrand(s);
             const float pan = updateSpatialPan(s);
 
             const int velInt = velocityForNote(s, stepIdx, isPulse);
-            midi.addEvent(juce::MidiMessage::controllerEvent(channel, 10, panControllerValue(pan)), eventPos);
-            midi.addEvent(juce::MidiMessage::noteOn(channel, note,
-                          static_cast<juce::uint8>(velInt)), eventPos);
+            // Strand id + pan travel as typed fields — no MIDI channel, no CC10.
+            out.push_back({ eventPos, VoiceEvent::Type::NoteOn, note,
+                            juce::jlimit(0.0f, 1.0f, static_cast<float>(velInt) / 127.0f),
+                            VoiceEvent::Articulation::Normal, strandIndexOf(s), pan });
 
             s.lastPlayedNote       = note;
             s.priorOutputNote      = s.previousOutputNote;

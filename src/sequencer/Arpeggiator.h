@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include "../dsp/VoiceEvent.h"
 #include <vector>
 #include <array>
 
@@ -27,7 +28,8 @@ public:
     T5ynthArpeggiator() = default;
 
     void prepare(double sampleRate, int samplesPerBlock);
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi);
+    /** Append this block's arpeggiated note events (typed, not MIDI) to `out`. */
+    void processBlock(juce::AudioBuffer<float>& buffer, std::vector<VoiceEvent>& out);
     void reset();
 
     void setMode(Mode m);
@@ -43,10 +45,10 @@ public:
     /** Stop arpeggiator. */
     void stopArp();
 
-    /** Emit note-off for any currently-sounding arp note into `midi` at
+    /** Append a note-off for any currently-sounding arp note to `out` at
         `sampleOffset`, then clear lastPlayedNote. Does not alter active/
         pattern state — safe to call unconditionally at any transition. */
-    void allNotesOff(juce::MidiBuffer& midi, int sampleOffset = 0);
+    void allNotesOff(std::vector<VoiceEvent>& out, int sampleOffset = 0);
 
     bool isActive() const { return active; }
     int getLastPlayedNote() const { return lastPlayedNote; }

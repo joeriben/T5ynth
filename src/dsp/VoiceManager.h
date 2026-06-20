@@ -23,9 +23,11 @@ public:
     void setBlockParams(const BlockParams& bp);
 
     // ── MIDI handling ──
+    // mpeChannel: 0 = internal note (sequencer/arp, never MPE-tracked);
+    //             1-16 = external controller channel (tagged for per-note MPE).
     void noteOn(int note, float velocity, bool isBind, float glideMs,
                 bool lfo1TrigMode, bool lfo2TrigMode, bool lfo3TrigMode,
-                int sourceId = -1, float pan = 0.0f, int midiChannel = 1);
+                int sourceId = -1, float pan = 0.0f, int mpeChannel = 0);
     void noteOff(int note, int sourceId = -1);
     void allNotesOff();
     void setSustainPedal(bool down);

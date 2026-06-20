@@ -95,24 +95,26 @@ void T5ynthArpeggiator::stopArp()
     samplesUntilGateOff = -1.0;
 }
 
-void T5ynthArpeggiator::allNotesOff(juce::MidiBuffer& midi, int sampleOffset)
+void T5ynthArpeggiator::allNotesOff(std::vector<VoiceEvent>& out, int sampleOffset)
 {
     if (lastPlayedNote >= 0)
     {
-        midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), sampleOffset);
+        out.push_back({ sampleOffset, VoiceEvent::Type::NoteOff, lastPlayedNote, 0.0f,
+                        VoiceEvent::Articulation::Normal, -1, 0.0f });
         lastPlayedNote = -1;
     }
     samplesUntilGateOff = -1.0;
 }
 
 void T5ynthArpeggiator::processBlock(juce::AudioBuffer<float>& buffer,
-                                     juce::MidiBuffer& midi)
+                                     std::vector<VoiceEvent>& out)
 {
     if (!active || intervals.empty())
     {
         if (lastPlayedNote >= 0)
         {
-            midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), 0);
+            out.push_back({ 0, VoiceEvent::Type::NoteOff, lastPlayedNote, 0.0f,
+                            VoiceEvent::Articulation::Normal, -1, 0.0f });
             lastPlayedNote = -1;
         }
         samplesUntilGateOff = -1.0;
@@ -135,7 +137,8 @@ void T5ynthArpeggiator::processBlock(juce::AudioBuffer<float>& buffer,
                                         numSamples - 1);
             if (lastPlayedNote >= 0)
             {
-                midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), gateOffPos);
+                out.push_back({ gateOffPos, VoiceEvent::Type::NoteOff, lastPlayedNote, 0.0f,
+                                VoiceEvent::Articulation::Normal, -1, 0.0f });
                 lastPlayedNote = -1;
             }
             samplesUntilNext -= samplesUntilGateOff;
@@ -149,7 +152,8 @@ void T5ynthArpeggiator::processBlock(juce::AudioBuffer<float>& buffer,
             // Note-off for previous (if gate didn't already end it)
             if (lastPlayedNote >= 0)
             {
-                midi.addEvent(juce::MidiMessage::noteOff(1, lastPlayedNote), samplePos);
+                out.push_back({ samplePos, VoiceEvent::Type::NoteOff, lastPlayedNote, 0.0f,
+                                VoiceEvent::Articulation::Normal, -1, 0.0f });
                 lastPlayedNote = -1;
             }
 
@@ -157,10 +161,10 @@ void T5ynthArpeggiator::processBlock(juce::AudioBuffer<float>& buffer,
             const double stepDur = shuffledStepDurationSamples(samplesPerStep, idx,
                                                                static_cast<int>(intervals.size()));
             int midiNote = juce::jlimit(0, 127, baseNote + intervals[static_cast<size_t>(idx)]);
-            int velInt = juce::jlimit(1, 127, juce::roundToInt(baseVelocity * 127.0f));
+            float vel = juce::jlimit(0.0f, 1.0f, baseVelocity);
 
-            midi.addEvent(juce::MidiMessage::noteOn(1, midiNote,
-                          static_cast<juce::uint8>(velInt)), samplePos);
+            out.push_back({ samplePos, VoiceEvent::Type::NoteOn, midiNote, vel,
+                            VoiceEvent::Articulation::Normal, -1, 0.0f });
             lastPlayedNote = midiNote;
             currentIndex++;
 
