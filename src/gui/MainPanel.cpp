@@ -453,8 +453,21 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         // cancelled / aborted: leave the current status text unchanged
     };
 
-    // XL "Generate" button (CC 45) → main generation (same path as the on-screen button).
+    // XL "Generate" button (CC 37) → main generation (same path as the on-screen button).
     processorRef.onGenerateRequested = [this] { triggerMainGeneration(); };
+
+    // XL snapshot buttons (CC 45-48) → recall slot 1-4 (same path as the on-screen
+    // snapshot buttons; activateSnapshot restores the params and syncs the UI).
+    processorRef.onSnapshotRequested = [this](int slot) { activateSnapshot(slot); };
+
+    // XL cache button (CC 49) → toggle the inference cache between 4 and Off, mirroring
+    // the on-screen radio buttons (read current, flip, then refresh the radio UI).
+    processorRef.onCacheToggleRequested = [this]
+    {
+        const int cur = processorRef.getInferenceCacheCapacity();
+        processorRef.setInferenceCacheCapacity(cur == 4 ? 0 : 4);
+        syncInferenceCacheUi();
+    };
 
     // MIDI output device selector
     statusBar.onMidiOutputDeviceChanged = [this](const juce::String& deviceId)
@@ -2306,6 +2319,8 @@ MainPanel::~MainPanel()
     statusBar.onMidiOutputDeviceChanged = nullptr;
     processorRef.onMidiLearnStateChanged = nullptr;
     processorRef.onGenerateRequested = nullptr;
+    processorRef.onSnapshotRequested = nullptr;
+    processorRef.onCacheToggleRequested = nullptr;
     releaseComputerKeyboardNotes();
     stopTimer();
 
@@ -2764,6 +2779,16 @@ void MainPanel::triggerMainGeneration()
 {
     if (!mainGenerateBtn.isEnabled())
         return;
+
+    // Generate is an explicit manual action: drop the regen loop OUT of any auto/bar
+    // cadence so a deliberate Generate isn't immediately overwritten by the auto-loop.
+    // This lives in the shared path so it applies to BOTH the on-screen Generate button
+    // and the XL Generate button (CC 37). The REGENERATE switchbox is attached to
+    // drift_regen (SynthPanel hidden combo → radio buttons), so the UI follows. The
+    // auto-loop reads the driftRegenMode atomic mirror and early-outs on Manual, so this
+    // cleanly stops auto-regen without touching the loop's own generation path.
+    if (auto* p = processorRef.getValueTreeState().getParameter(PID::driftRegen))
+        p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(DriftRegen::Manual)));
 
     activeSnapshotIndex = 0;
     syncSnapshotUi();

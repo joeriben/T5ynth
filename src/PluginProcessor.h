@@ -548,9 +548,17 @@ public:
      *  learning=false, boundCc<0 → cancelled or aborted (no change to make). */
     std::function<void(bool learning, int boundCc)> onMidiLearnStateChanged;
 
-    /** Fired on the message thread when the XL "Generate" button (CC 45) is pressed.
+    /** Fired on the message thread when the XL "Generate" button (CC 37) is pressed.
      *  The editor wires this to MainPanel::triggerMainGeneration. */
     std::function<void()> onGenerateRequested;
+
+    /** Fired on the message thread when an XL snapshot button (CC 45-48) is pressed.
+     *  Argument = slot 1-4. The editor wires this to MainPanel::activateSnapshot. */
+    std::function<void(int slot)> onSnapshotRequested;
+
+    /** Fired on the message thread when the XL cache button (CC 49) is pressed.
+     *  The editor wires this to toggle the inference cache between 4 and Off. */
+    std::function<void()> onCacheToggleRequested;
 
     // ── MIDI Output (LED feedback) — message thread only ────────────────────
     void openMidiOutputDevice(const juce::String& deviceId);
@@ -606,8 +614,12 @@ private:
     juce::RangedAudioParameter* seqRunningParam_    = nullptr;  // resolved once (ctor)
     juce::RangedAudioParameter* genSeqRunningParam_ = nullptr;
     std::atomic<bool>           xlSeqToggleReq_     { false };  // audio→message: toggle seq_running
-    std::atomic<bool>           xlSeqModeToggleReq_ { false };  // audio→message: toggle gen_seq_running
-    std::atomic<bool>           xlGenerateReq_      { false };  // audio→message: trigger generation (CC 45)
+    std::atomic<bool>           xlSeqModeToggleReq_ { false };  // audio→message: toggle gen_seq_running (Step/Gen)
+    std::atomic<bool>           xlGenerateReq_      { false };  // audio→message: trigger generation (CC 37)
+    std::atomic<int>            xlRepromptStanceReq_ { -1 };    // audio→message: set reprompt_stance to index 0-6 (CC 38-44); -1 = none
+    std::atomic<int>            xlSnapshotReq_      { -1 };     // audio→message: recall snapshot slot 1-4 (CC 45-48); -1 = none
+    std::atomic<bool>           xlCacheToggleReq_   { false };  // audio→message: toggle inference cache 4↔Off (CC 49)
+    std::atomic<bool>           xlGenTimingToggleReq_ { false };// audio→message: toggle drift_regen a.s.a.p.↔4 bars (CC 50)
     std::atomic<bool>           xlAutoApplyReq_     { false };  // any→message: (re)apply XL bindings (port select / preset load)
 
     // ── MIDI CC Learn (internals) ────────────────────────────────────────────

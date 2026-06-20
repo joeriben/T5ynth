@@ -5264,11 +5264,42 @@ void T5ynthProcessor::handleAsyncUpdate()
         genSeqRunningParam_->setValueNotifyingHost(
             paramCache.genSeqRunning->load() > 0.5f ? 0.0f : 1.0f);
 
-    // XL "Generate" button (CC 45): trigger a generation on the message thread.
+    // XL "Generate" button (CC 37): trigger a generation on the message thread.
     // onGenerateRequested → MainPanel::triggerMainGeneration (which itself no-ops if a
-    // generation is already in flight). exchange() collapses duplicate presses.
+    // generation is already in flight, and forces drift_regen = Manual). exchange()
+    // collapses duplicate presses.
     if (xlGenerateReq_.exchange(false, std::memory_order_acq_rel) && onGenerateRequested)
         onGenerateRequested();
+
+    // XL Re-Prompt stance buttons (CC 38-44): set reprompt_stance to the requested index
+    // (0-6). The PromptPanel stance bar is attached to the param, so the UI follows. -1
+    // (the reset sentinel) means no press is pending; last-press-wins on a duplicate.
+    const int stanceReq = xlRepromptStanceReq_.exchange(-1, std::memory_order_acq_rel);
+    if (stanceReq >= 0)
+        if (auto* p = parameters.getParameter(PID::repromptStance))
+            p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(stanceReq)));
+
+    // XL snapshot buttons (CC 45-48): recall slot 1-4 via the editor (activateSnapshot
+    // restores the params and refreshes the snapshot UI). -1 = no press pending.
+    const int snapReq = xlSnapshotReq_.exchange(-1, std::memory_order_acq_rel);
+    if (snapReq >= 0 && onSnapshotRequested)
+        onSnapshotRequested(snapReq);
+
+    // XL cache button (CC 49): toggle the inference cache 4 ↔ Off via the editor (keeps the
+    // on-screen radio buttons in sync).
+    if (xlCacheToggleReq_.exchange(false, std::memory_order_acq_rel) && onCacheToggleRequested)
+        onCacheToggleRequested();
+
+    // XL generate-timing button (CC 50): toggle drift_regen between a.s.a.p. (Auto=1) and
+    // 4 bars (Bar4=4). From any other mode (e.g. Manual after a Generate press) it engages
+    // a.s.a.p. The REGENERATE switchbox is attached to drift_regen, so the UI follows.
+    if (xlGenTimingToggleReq_.exchange(false, std::memory_order_acq_rel))
+        if (auto* p = parameters.getParameter(PID::driftRegen))
+        {
+            const int cur  = static_cast<int>(p->convertFrom0to1(p->getValue()));
+            const int next = (cur == DriftRegen::Auto) ? DriftRegen::Bar4 : DriftRegen::Auto;
+            p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(next)));
+        }
 
     // XL auto-(re)apply: a Launch Control XL output was selected or a session was restored.
     // (Re)enter DAW mode, repopulate the Page-1 bindings, and relight the LEDs — all on the
@@ -5476,12 +5507,21 @@ void T5ynthProcessor::populateXLDefaultBindings()
 
 // XL DAW-mode action-button assignments. The SAME constants drive both the LED colour
 // (lightXLLeds) and the action dispatch (handleXLButtonPress) so a button's light always
-// matches what it does. Transport lives on the dedicated LEFT transport buttons (DAW
-// mode, programmer's ref p.9); Panic stays on a bottom-row button.
-static constexpr int kXLBtnGenerate = 45;   // bottom-row button 1 (freed Seq-Start) → trigger generation
-static constexpr int kXLBtnPlay     = 116;  // ▶ left transport → toggle seq_running (transport)
-static constexpr int kXLBtnRecord   = 118;  // ● left transport → toggle gen_seq_running (STEP/GEN)
-static constexpr int kXLBtnPanic    = 52;   // bottom-row button → MIDI panic (all notes off)
+// matches what it does. The two bottom button rows (programmer's ref p.9) are laid out:
+//   TOP row    CC 37-44: Generate, then the 7 Re-Prompt stances (reprompt_stance 0-6).
+//   BOTTOM row CC 45-52: Snap 1-4, Cache 4/Off, a.s.a.p./4 bars, Step/Gen, Panic.
+// Transport lives on the dedicated LEFT transport buttons (Play 116 / Record 118).
+static constexpr int kXLBtnGenerate    = 37;   // top row 1 → trigger generation (+ force regen = Manual)
+static constexpr int kXLReStanceFirst  = 38;   // top row 2-8 → reprompt_stance index 0-6
+static constexpr int kXLReStanceLast   = 44;
+static constexpr int kXLSnapFirst      = 45;   // bottom row 1-4 → snapshot slots 1-4
+static constexpr int kXLSnapLast       = 48;
+static constexpr int kXLBtnCache       = 49;   // bottom row 5 → toggle inference cache 4↔Off
+static constexpr int kXLBtnGenTiming   = 50;   // bottom row 6 → toggle drift_regen a.s.a.p.↔4 bars
+static constexpr int kXLBtnStepGen     = 51;   // bottom row 7 → toggle gen_seq_running (Step/Gen)
+static constexpr int kXLBtnPanic       = 52;   // bottom row 8 → MIDI panic (all notes off)
+static constexpr int kXLBtnPlay        = 116;  // ▶ left transport → toggle seq_running (transport)
+static constexpr int kXLBtnRecord      = 118;  // ● left transport → toggle gen_seq_running (Step/Gen)
 
 void T5ynthProcessor::lightXLLeds()
 {
@@ -5507,53 +5547,75 @@ void T5ynthProcessor::lightXLLeds()
             sendMidiOutputMessage(LaunchControlXLLeds::ledOn(note, b.color));
     }
 
-    // Faders have NO LED (programmer's ref p.11 "if the control has any"), so the fader
-    // module colours above are invisible on the surface. Mirror each fader's module colour
-    // onto the button directly below it — the top button row CC 37-44 is left-aligned under
-    // faders CC 5-12 (p.9) — so the LED-less faders get a visible module legend: A/B +
-    // Resynth = Gen, Cutoff/Res/Drive = Filter, Dly/Rev = Fx, Vol = Vol. These buttons
-    // carry no T5ynth action, so this is purely a colour legend. Colour is taken from the
-    // fader's own kPage1 binding (single source of truth).
-    for (int i = 0; i < 8; ++i)
-    {
-        const int faderCc  = 5 + i;
-        const int buttonCc = 37 + i;
-        for (const auto& b : LaunchControlXLLeds::kPage1)
-            if (b.cc == faderCc)
-            {
-                sendMidiOutputMessage(LaunchControlXLLeds::ledOn(buttonCc, b.color));
-                break;
-            }
-    }
-
-    // Transport + action buttons — static accent colours so the user can see which
-    // buttons are mapped. Control-index == CC for buttons too (programmer's ref p.9),
-    // so send the CC directly. (LEDs that track live transport state = a follow-up.)
-    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnGenerate, lcxl3_detail::rgb(127, 127, 127))); // ◆ white = Generate
-    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnPlay,   LaunchControlXLLeds::kColorVol)); // ▶ green  = transport
-    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnRecord, LaunchControlXLLeds::kColorGen)); // ● periwinkle = STEP/GEN
-    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnPanic,  lcxl3_detail::rgb(127, 0, 0)));   // panic red
+    // Bottom two button rows — FUNCTION legend (DAW mode only). The faders themselves have
+    // NO LED (programmer's ref p.11), so their kPage1 module colours are invisible; these
+    // buttons carry the action legend instead. Control-index == CC for buttons (p.9), so
+    // send the CC directly. Colours are STATIC group accents drawn from the existing module
+    // palette — LEDs that track the live active stance / cache / timing / Step-Gen state are
+    // a deliberate follow-up.
+    //
+    // TOP row CC 37-44: Generate (white) + the 7 Re-Prompt stances (periwinkle = Gen family).
+    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnGenerate, lcxl3_detail::rgb(127, 127, 127))); // ◆ Generate
+    for (int cc = kXLReStanceFirst; cc <= kXLReStanceLast; ++cc)
+        sendMidiOutputMessage(LaunchControlXLLeds::ledOn(cc, LaunchControlXLLeds::kColorGen));            // Re-Prompt stance
+    //
+    // BOTTOM row CC 45-52: Snap 1-4 (teal) · Cache (amber) · a.s.a.p./4 bars (blue = drift) ·
+    // Step/Gen (violet) · Panic (red).
+    for (int cc = kXLSnapFirst; cc <= kXLSnapLast; ++cc)
+        sendMidiOutputMessage(LaunchControlXLLeds::ledOn(cc, LaunchControlXLLeds::kColorLfo));            // Snap 1-4
+    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnCache,     LaunchControlXLLeds::kColorEnv));    // Cache 4/Off
+    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnGenTiming, LaunchControlXLLeds::kColorDrift));  // a.s.a.p./4 bars
+    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnStepGen,   LaunchControlXLLeds::kColorFilter)); // Step/Gen
+    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnPanic,     lcxl3_detail::rgb(127, 0, 0)));      // Panic
+    //
+    // LEFT transport buttons (unchanged): Play ▶ green, Record ● periwinkle (Step/Gen).
+    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnPlay,   LaunchControlXLLeds::kColorVol));       // ▶ transport
+    sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnRecord, LaunchControlXLLeds::kColorGen));       // ● Step/Gen
 }
 
 void T5ynthProcessor::handleXLButtonPress(int cc)
 {
-    // Audio-thread dispatch for an XL DAW-mode button press edge. Transport toggles are
-    // DEFERRED to the message thread (handleAsyncUpdate) via an atomic request +
-    // triggerAsyncUpdate, because setValueNotifyingHost locks and must never run on the
-    // audio thread. Panic raises an atomic flag consumed in processBlock. Unmapped
-    // buttons are ignored.
+    // Audio-thread dispatch for an XL DAW-mode button press edge. Every action that sets a
+    // parameter or calls into the editor is DEFERRED to the message thread
+    // (handleAsyncUpdate) via an atomic request + triggerAsyncUpdate, because
+    // setValueNotifyingHost / editor callbacks lock and must never run on the audio thread.
+    // Only Panic acts inline (it just raises an atomic flag consumed in processBlock).
+    // The two range groups (stances, snapshots) are handled first; the rest are exact CCs.
+
+    if (cc >= kXLReStanceFirst && cc <= kXLReStanceLast)   // top row 2-8 → reprompt_stance 0-6
+    {
+        xlRepromptStanceReq_.store(cc - kXLReStanceFirst, std::memory_order_release);
+        triggerAsyncUpdate();
+        return;
+    }
+    if (cc >= kXLSnapFirst && cc <= kXLSnapLast)           // bottom row 1-4 → snapshot slot 1-4
+    {
+        xlSnapshotReq_.store(cc - kXLSnapFirst + 1, std::memory_order_release);
+        triggerAsyncUpdate();
+        return;
+    }
+
     switch (cc)
     {
-        case kXLBtnPlay:
-            xlSeqToggleReq_.store(true, std::memory_order_release);
+        case kXLBtnGenerate:
+            xlGenerateReq_.store(true, std::memory_order_release);
             triggerAsyncUpdate();
             break;
+        case kXLBtnCache:
+            xlCacheToggleReq_.store(true, std::memory_order_release);
+            triggerAsyncUpdate();
+            break;
+        case kXLBtnGenTiming:
+            xlGenTimingToggleReq_.store(true, std::memory_order_release);
+            triggerAsyncUpdate();
+            break;
+        case kXLBtnStepGen:   // dedicated bottom-row Step/Gen, same toggle as Record
         case kXLBtnRecord:
             xlSeqModeToggleReq_.store(true, std::memory_order_release);
             triggerAsyncUpdate();
             break;
-        case kXLBtnGenerate:
-            xlGenerateReq_.store(true, std::memory_order_release);
+        case kXLBtnPlay:
+            xlSeqToggleReq_.store(true, std::memory_order_release);
             triggerAsyncUpdate();
             break;
         case kXLBtnPanic:
