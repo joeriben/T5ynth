@@ -16,12 +16,12 @@ float applyNormalizedOffset(float baseValue, float modulationOffset)
     return juce::jlimit(0.0f, 1.0f, baseValue + modulationOffset);
 }
 
-// Single source of truth for "is this target driven by aftertouch?". Phase 2 is
-// single-select (the aftertouchTarget int); Phase 3 swaps this to per-target
-// bools — every DSP hook routes through here, so only this body changes.
+// Single source of truth for "is this target driven by aftertouch?". Reads the
+// per-target bitmask (bit t ⇒ AftertouchTarget t active); every DSP hook routes
+// through here. Multi-select via per-target bool params.
 bool aftertouchTargetActive(const BlockParams& p, int target)
 {
-    return p.aftertouchTarget == target;
+    return (p.aftertouchTargetMask & (1 << target)) != 0;
 }
 
 // Normalized aftertouch drive [0..amount] for an active target, else 0.

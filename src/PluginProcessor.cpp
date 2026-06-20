@@ -581,6 +581,29 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::aftertouchAmount, 1}, "Aftertouch Amount",
         juce::NormalisableRange<float>(-1.0f, 1.0f, 0.001f), 0.5f));
+    // Per-target aftertouch enables (multi-select). The aftertouchTarget Choice
+    // above stays for now and is folded into the same mask at block read; the UI
+    // moves onto these bools (and the Choice is removed) when the switchbox lands.
+    {
+        struct AtTarget { const char* pid; const char* name; };
+        const AtTarget atTargets[] = {
+            { PID::aftertouchOnLfo1Depth,   "AT LFO1 Depth"   },
+            { PID::aftertouchOnLfo2Depth,   "AT LFO2 Depth"   },
+            { PID::aftertouchOnLfo3Depth,   "AT LFO3 Depth"   },
+            { PID::aftertouchOnEnv1Sustain, "AT ENV1 Sustain" },
+            { PID::aftertouchOnEnv2Sustain, "AT ENV2 Sustain" },
+            { PID::aftertouchOnEnv3Sustain, "AT ENV3 Sustain" },
+            { PID::aftertouchOnCutoff,      "AT Cutoff"       },
+            { PID::aftertouchOnResonance,   "AT Resonance"    },
+            { PID::aftertouchOnScan,        "AT Scan"         },
+            { PID::aftertouchOnDca,         "AT DCA"          },
+            { PID::aftertouchOnPitch,       "AT Pitch"        },
+            { PID::aftertouchOnNoiseLevel,  "AT Noise"        },
+        };
+        for (const auto& a : atTargets)
+            params.push_back(std::make_unique<juce::AudioParameterBool>(
+                juce::ParameterID{ a.pid, 1 }, a.name, false));
+    }
 
     // Drift LFO
     params.push_back(std::make_unique<juce::AudioParameterBool>(
@@ -1952,6 +1975,29 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     bp.aftertouchTarget = static_cast<int>(paramCache.aftertouchTarget->load());
     bp.aftertouchAmount = paramCache.aftertouchAmount->load();
+    {
+        int atMask = 0;
+        auto setBit = [&](const std::atomic<float>* p, int target) {
+            if (p->load() > 0.5f) atMask |= (1 << target);
+        };
+        setBit(paramCache.aftertouchOnLfo1Depth,   AftertouchTarget::LFO1Depth);
+        setBit(paramCache.aftertouchOnLfo2Depth,   AftertouchTarget::LFO2Depth);
+        setBit(paramCache.aftertouchOnLfo3Depth,   AftertouchTarget::LFO3Depth);
+        setBit(paramCache.aftertouchOnEnv1Sustain, AftertouchTarget::Env1Sustain);
+        setBit(paramCache.aftertouchOnEnv2Sustain, AftertouchTarget::Env2Sustain);
+        setBit(paramCache.aftertouchOnEnv3Sustain, AftertouchTarget::Env3Sustain);
+        setBit(paramCache.aftertouchOnCutoff,      AftertouchTarget::Cutoff);
+        setBit(paramCache.aftertouchOnResonance,   AftertouchTarget::Resonance);
+        setBit(paramCache.aftertouchOnScan,        AftertouchTarget::Scan);
+        setBit(paramCache.aftertouchOnDca,         AftertouchTarget::DCA);
+        setBit(paramCache.aftertouchOnPitch,       AftertouchTarget::Pitch);
+        setBit(paramCache.aftertouchOnNoiseLevel,  AftertouchTarget::NoiseLevel);
+        // Transitional: the legacy single-select Choice still contributes one bit
+        // so behaviour is unchanged until the multi-select switchbox UI lands.
+        if (bp.aftertouchTarget != AftertouchTarget::None)
+            atMask |= (1 << bp.aftertouchTarget);
+        bp.aftertouchTargetMask = atMask;
+    }
 
     // Filter
     // filter_type: 0=Off, 1=LP, 2=HP, 3=BP → filterEnabled from type, DSP type is 0-based
