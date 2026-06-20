@@ -5480,21 +5480,27 @@ void T5ynthProcessor::populateXLDefaultBindings()
     // is safe to call from any thread. Resolve param pointers off the lock first.
     struct PendingEntry { int cc; CcMapping m; };
     std::vector<PendingEntry> pending;
-    pending.reserve(LaunchControlXLLeds::kPage1Count);
+    pending.reserve(LaunchControlXLLeds::kPage1Count + LaunchControlXLLeds::kExtMapCount);
 
-    for (int i = 0; i < LaunchControlXLLeds::kPage1Count; ++i)
+    // Helper: resolve one Binding into a PendingEntry (shared by kPage1 + kExtMap)
+    auto addBinding = [&](const lcxl3_detail::Binding& b)
     {
-        const auto& b = LaunchControlXLLeds::kPage1[i];
-        if (b.cc < 0 || b.cc >= 128) continue;
+        if (b.cc < 0 || b.cc >= 128) return;
         auto* param = parameters.getParameter(b.paramId);
-        if (!param) continue;
+        if (!param) return;
         CcMapping m;
         m.paramId = b.paramId;
         m.param   = param;
         m.minNorm = b.minNorm;
         m.maxNorm = b.maxNorm;
         pending.push_back({ b.cc, std::move(m) });
-    }
+    };
+
+    for (int i = 0; i < LaunchControlXLLeds::kPage1Count; ++i)
+        addBinding(LaunchControlXLLeds::kPage1[i]);
+
+    for (int i = 0; i < LaunchControlXLLeds::kExtMapCount; ++i)
+        addBinding(LaunchControlXLLeds::kExtMap[i]);
 
     {
         const juce::SpinLock::ScopedLockType lock(ccMappingLock_);

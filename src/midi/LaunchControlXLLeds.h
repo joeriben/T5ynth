@@ -25,10 +25,22 @@ namespace lcxl3_detail
     // Pack a 7-bit RGB triplet into one int: (R<<16)|(G<<8)|B, each 0..127.
     constexpr int rgb (int r, int g, int b) noexcept { return (r << 16) | (g << 8) | b; }
 
-    // One XL Page-1 binding. minNorm/maxNorm map the 0..127 CC onto the param's
+    // Convert a 0xAARRGGBB colour literal (from GuiHelpers.h) to a 7-bit RGB packed int.
+    // Uses rounding (ch8*127+127)/255 so the result is pixel-identical to the original
+    // rounded constants that were previously hand-coded here. When GuiHelpers.h changes
+    // a colour, update the hex literal in kColor* below; the conversion stays.
+    constexpr int fromGuiColor (unsigned int argb) noexcept
+    {
+        return rgb(
+            static_cast<int>(( (argb >> 16) & 0xFFu) * 127u + 127u) / 255,
+            static_cast<int>((( argb >>  8) & 0xFFu) * 127u + 127u) / 255,
+            static_cast<int>((  argb        & 0xFFu) * 127u + 127u) / 255);
+    }
+
+    // One XL binding. minNorm/maxNorm map the 0..127 CC onto the param's
     // normalized range (default 0..1; swap to invert a control, e.g. Alpha).
     // Kept at namespace scope (not nested in LaunchControlXLLeds) so these default
-    // member initializers stay usable by kPage1's aggregate init regardless of how
+    // member initializers stay usable by the constexpr arrays regardless of how
     // the enclosing class's static members get instantiated — a nested struct's
     // defaults can be rejected as "needed within an incomplete enclosing class".
     struct Binding { const char* paramId; int cc; int color; float minNorm = 0.0f; float maxNorm = 1.0f; };
@@ -36,26 +48,20 @@ namespace lcxl3_detail
 
 struct LaunchControlXLLeds
 {
-    // ── Module accent colors (7-bit RGB) — mirrored from the on-screen UI
-    //    palette in src/gui/GuiHelpers.h. Each channel 0..127 (MIDI range). ──
-    static constexpr int kColorOff    = lcxl3_detail::rgb(  0,   0,   0);  // LED off
-    static constexpr int kColorBound  = lcxl3_detail::rgb(  0, 110,   0);  // CC-Learn bound (green)
+    // ── Module accent colors (7-bit RGB) — derived from GuiHelpers.h via fromGuiColor().
+    //    Hex literals match the 0xAARRGGBB values in GuiHelpers.h exactly; update both
+    //    together when the on-screen palette changes. ──────────────────────────────────
+    static constexpr int kColorOff    = lcxl3_detail::rgb(0, 0, 0);        // LED off
+    static constexpr int kColorBound  = lcxl3_detail::rgb(0, 110, 0);      // CC-Learn bound — functional indicator, not a module colour
 
-    static constexpr int kColorGen    = lcxl3_detail::rgb( 51,  63, 117);  // Periwinkle #667EEA — generation (Alpha/Resynth)
-    // ENV / LFO / DRIFT deliberately DIVERGE from the on-screen palette (which paints
-    // all three amber/amber/dark-amber): on 24 identical encoder LEDs that read as a
-    // uniform yellow wall. ENV stays amber (envelope identity); LFO=teal, DRIFT=blue is
-    // the only triad (verified ΔE2000≥20 in normal + deuteran/protan/tritan; Machado CVD
-    // on the 7-bit-quantized values; tool: tools/led_color_verify.py) that keeps ENV amber
-    // AND stays distinct under colour-vision deficiency — amber↔blue rides the yellow-blue
-    // axis (immune to red-green CVD), and the bright teal separates from the darker blue by
-    // luminance even under tritanopia.
-    static constexpr int kColorEnv    = lcxl3_detail::rgb(127,  55,   0);  // Amber — envelopes (A/D/S/R)
-    static constexpr int kColorLfo    = lcxl3_detail::rgb( 12, 127, 104);  // Teal  — LFOs   (bright; lum-separated from Drift)
-    static constexpr int kColorDrift  = lcxl3_detail::rgb(  0,  59, 127);  // Blue  — drift  (yellow↔blue axis vs amber)
-    static constexpr int kColorFilter = lcxl3_detail::rgb( 62,  38, 127);  // Violet     #7C4DFF — filter
-    static constexpr int kColorFx     = lcxl3_detail::rgb(  0,  94, 106);  // Cyan       #00BCD4 — delay/reverb
-    static constexpr int kColorVol    = lcxl3_detail::rgb(  0, 100,  41);  // Green      #00C853 — amp amount
+    static constexpr int kColorGen    = lcxl3_detail::fromGuiColor(0xff667eea); // kOscCol   — periwinkle (generation / osc)
+    static constexpr int kColorEnv    = lcxl3_detail::fromGuiColor(0xffFF6F00); // kEnvCol   — amber      (envelopes A/D/S/R)
+    static constexpr int kColorLfo    = lcxl3_detail::fromGuiColor(0xffFF6F00); // kLfoCol   — amber      (same as Env; matches on-screen palette)
+    static constexpr int kColorDrift  = lcxl3_detail::fromGuiColor(0xffe65100); // kDriftCol — dark amber (drift)
+    static constexpr int kColorFilter = lcxl3_detail::fromGuiColor(0xff7C4DFF); // kFilterCol— violet     (filter)
+    static constexpr int kColorFx     = lcxl3_detail::fromGuiColor(0xff00BCD4); // kFxCol    — cyan       (delay / reverb)
+    static constexpr int kColorSeq    = lcxl3_detail::fromGuiColor(0xff4CAF50); // kSeqCol   — green      (sequencer)
+    static constexpr int kColorVol    = lcxl3_detail::fromGuiColor(0xff4CAF50); // kSeqCol   — green      (master vol)
 
     // ── CC ranges (LCXL3, verified) ─────────────────────────────────────────
     // In DAW mode faders/encoders transmit on ch16, buttons on ch1; the CC
@@ -186,6 +192,40 @@ struct LaunchControlXLLeds
     };
 
     static constexpr int kPage1Count = static_cast<int>(std::size(kPage1));
+
+    // ── Extended map — secondary parameters (CC 53-76) ───────────────────────
+    // CC 53-76 sits between the button row (CC 52) and the relative-encoder
+    // overlay (CC 77-100). No XL DAW-mode control transmits these CCs, so
+    // this range is safe for generic MIDI controllers without any XL conflict.
+    // Applied by populateXLDefaultBindings() alongside kPage1, so the table is
+    // active in xlDefaults_ and any controller whose knob CC falls here is
+    // immediately usable without manual CC-learn.
+    //
+    // Layout: three groups of 8 (mirrors the XL's 3×8 encoder grid for orientation):
+    //   Block A CC 53-60  FX secondary
+    //   Block B CC 61-68  Generation secondary
+    //   Block C CC 69-76  Sequencer + misc
+    static constexpr lcxl3_detail::Binding kExtMap[] = {
+        // Block A — FX secondary (CC 53-60)
+        { "delay_time",       53, kColorFx  }, { "delay_feedback",   54, kColorFx  },
+        { "delay_damp",       55, kColorFx  }, { "algo_room",        56, kColorFx  },
+        { "algo_damping",     57, kColorFx  }, { "algo_width",       58, kColorFx  },
+        // CC 59-60 spare (future: reverb pre-delay, IR trim)
+
+        // Block B — Generation secondary (CC 61-68)
+        { "gen_magnitude",    61, kColorGen }, { "gen_noise",        62, kColorGen },
+        { "gen_duration",     63, kColorGen }, { "inf_steps",        64, kColorGen },
+        { "gen_cfg",          65, kColorGen }, { "gen_start",        66, kColorGen },
+        { "gen_axes_amount",  67, kColorGen },
+        // CC 68 spare (future: gen_seed, gen_hf_boost)
+
+        // Block C — Sequencer + misc (CC 69-76)
+        { "seq_bpm",          69, kColorSeq }, { "seq_steps",        70, kColorSeq },
+        { "seq_gate",         71, kColorSeq }, { "seq_shuffle",      72, kColorSeq },
+        { "seq_glide_time",   73, kColorSeq }, { "osc_scan",         74, kColorGen },
+        { "drift_crossfade",  75, kColorDrift}, { "aftertouch_amount",76, kColorEnv },
+    };
+    static constexpr int kExtMapCount = static_cast<int>(std::size(kExtMap));
 
     // Canonical Page-1 paramId bound to a CC, or nullptr if the CC is not in the map.
     static const char* paramIdForCc(int cc) noexcept
