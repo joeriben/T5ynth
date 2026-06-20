@@ -5316,7 +5316,13 @@ void T5ynthProcessor::openMidiOutputDevice(const juce::String& deviceId)
         const juce::SpinLock::ScopedLockType lock(midiOutputLock_);
         midiOutputDevice_   = std::move(device);
         midiOutputDeviceId_ = deviceId;
-        isXL = midiOutputDevice_->getName().containsIgnoreCase("Launch Control XL");
+        // The Mk3 enumerates its ports as "LCXL3 1 DAW In" — it does NOT contain the
+        // string "Launch Control XL", so the original check silently never matched and
+        // auto-apply never fired (the XL stayed in Custom mode → warm default LEDs =
+        // the "orange cast"). Match both the abbreviation and the full product name.
+        const auto outName = midiOutputDevice_->getName();
+        isXL = outName.containsIgnoreCase("LCXL")
+            || outName.containsIgnoreCase("Launch Control XL");
     }
 
     // Selecting (or restoring) a Launch Control XL output is self-sufficient: auto-apply the
