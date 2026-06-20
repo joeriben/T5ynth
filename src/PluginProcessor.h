@@ -556,6 +556,10 @@ public:
      *  layout, and (after a short delay) light the LEDs. Authoritative for the
      *  Page-1 CC range; bindings on other CCs are left untouched. */
     void applyXLDefaultBindings();
+    /** Overwrite ONLY the XL Page-1 CC bindings in ccMappings_ (no SysEx, no LED,
+     *  no DAW-mode handshake) — safe to call from any thread. Used to keep the XL
+     *  device bindings alive after a preset load wipes ccMappings_. */
+    void populateXLDefaultBindings();
 
     // ── MIDI Clock Input ─────────────────────────────────────────────────────
     bool  isMidiClockActive()  const noexcept;
@@ -599,6 +603,7 @@ private:
     juce::RangedAudioParameter* genSeqRunningParam_ = nullptr;
     std::atomic<bool>           xlSeqToggleReq_     { false };  // audio→message: toggle seq_running
     std::atomic<bool>           xlSeqModeToggleReq_ { false };  // audio→message: toggle gen_seq_running
+    std::atomic<bool>           xlAutoApplyReq_     { false };  // any→message: (re)apply XL bindings (port select / preset load)
 
     // ── MIDI CC Learn (internals) ────────────────────────────────────────────
     std::array<CcMapping, 128> ccMappings_;

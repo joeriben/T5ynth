@@ -5137,6 +5137,35 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
             ccMappings_[static_cast<size_t>(e.cc)] = std::move(e.m);
     }
 
+    // The fill above replaces the whole CC table with the preset's stored mappings, which
+    // would wipe the XL Page-1 DEVICE bindings (CC 5-36) on every load — the "faders dead
+    // after loading a preset, had to re-click XL Map" instability. If a Launch Control XL
+    // output is connected, re-overwrite its Page-1 bindings (XL Map wins, as on the button).
+    // No SysEx/LED here, so it is synchronous and flicker-free.
+    {
+        bool outIsXL = false;
+        {
+            const juce::SpinLock::ScopedLockType lock(midiOutputLock_);
+            outIsXL = midiOutputDevice_ != nullptr
+                   && midiOutputDevice_->getName().containsIgnoreCase("Launch Control XL");
+        }
+        if (outIsXL)
+        {
+            populateXLDefaultBindings();   // synchronous, flicker-free: faders + encoder bindings live now
+            // If DAW mode is NOT currently active, the physical encoders aren't in relative
+            // mode and the LEDs are dark — request the full async handshake (DAW mode +
+            // encoder relative-mode + LED burst) so the ENCODERS recover too, not just the
+            // faders. When DAW mode IS active (the normal case after port-select), the
+            // synchronous rebind above already suffices, so we skip the SysEx/LED burst to
+            // avoid relighting the controller on every preset load.
+            if (! dawModeActive_.load(std::memory_order_acquire))
+            {
+                xlAutoApplyReq_.store(true, std::memory_order_release);
+                triggerAsyncUpdate();
+            }
+        }
+    }
+
     // Pin engine-mode to the loaded value so the audio thread's Step↔Gen
     // transition (which copies pattern data between the two sequencers) does
     // not fire on the next block and overwrite the freshly imported step/gen
@@ -5229,6 +5258,13 @@ void T5ynthProcessor::handleAsyncUpdate()
         genSeqRunningParam_->setValueNotifyingHost(
             paramCache.genSeqRunning->load() > 0.5f ? 0.0f : 1.0f);
 
+    // XL auto-(re)apply: a Launch Control XL output was selected or a session was restored.
+    // (Re)enter DAW mode, repopulate the Page-1 bindings, and relight the LEDs — all on the
+    // message thread — so selecting the port is self-sufficient and the faders/encoders are
+    // never left unbound waiting for a manual "XL Map" click.
+    if (xlAutoApplyReq_.exchange(false, std::memory_order_acq_rel))
+        applyXLDefaultBindings();
+
     // The rest is CC-Learn, which only triggers this async update while a learn is
     // armed; a button-only update (above) has nothing more to do.
     if (! midiLearnActive.load(std::memory_order_acquire))
@@ -5290,9 +5326,25 @@ void T5ynthProcessor::openMidiOutputDevice(const juce::String& deviceId)
     auto device = juce::MidiOutput::openDevice(deviceId);
     if (!device) return;
 
-    const juce::SpinLock::ScopedLockType lock(midiOutputLock_);
-    midiOutputDevice_   = std::move(device);
-    midiOutputDeviceId_ = deviceId;
+    bool isXL = false;
+    {
+        const juce::SpinLock::ScopedLockType lock(midiOutputLock_);
+        midiOutputDevice_   = std::move(device);
+        midiOutputDeviceId_ = deviceId;
+        isXL = midiOutputDevice_->getName().containsIgnoreCase("Launch Control XL");
+    }
+
+    // Selecting (or restoring) a Launch Control XL output is self-sufficient: auto-apply the
+    // DAW-mode mapping so the faders/encoders bind and the LEDs light without a manual "XL
+    // Map" click ("Dropdown = verbindlich aktiv"). Deferred to the message thread via the
+    // shared AsyncUpdater because applyXLDefaultBindings sends SysEx + starts a Timer +
+    // takes setValueNotifyingHost-class locks; triggerAsyncUpdate is safe from any thread,
+    // so this also covers the setStateInformation restore path that may run off-message.
+    if (isXL)
+    {
+        xlAutoApplyReq_.store(true, std::memory_order_release);
+        triggerAsyncUpdate();
+    }
 }
 
 void T5ynthProcessor::closeMidiOutputDevice()
@@ -5351,10 +5403,25 @@ void T5ynthProcessor::applyXLDefaultBindings()
         }
     }
 
-    // Populate CC bindings from the Page 1 map. XL Map is authoritative for the
-    // controls it owns: each Page-1 CC is overwritten so a stale/half-applied
-    // table (e.g. an old layout or a leftover learn) is fully repaired. Bindings
-    // on CCs outside the Page-1 set are left untouched.
+    populateXLDefaultBindings();
+
+    // Defer the LED burst so the device has time to finish entering DAW mode before
+    // the colours arrive — otherwise the first XL-Map click leaves the LEDs dark.
+    // Owned one-shot timer (not callAfterDelay) so ~T5ynthProcessor can cancel a
+    // pending burst deterministically; capturing `this` is safe because the timer's
+    // lifetime is bounded by the processor's and it is stopped before teardown.
+    xlLedTimer_.fn = [this] { lightXLLeds(); };
+    xlLedTimer_.startTimer(100);
+}
+
+void T5ynthProcessor::populateXLDefaultBindings()
+{
+    // Overwrite ONLY the XL Page-1 CC bindings. XL Map is authoritative for the controls
+    // it owns: each Page-1 CC is overwritten so a stale/half-applied table (an old layout,
+    // a leftover learn, or a preset's ccMappings that just wiped the live table) is fully
+    // repaired. Bindings on CCs outside the Page-1 set are left untouched. No SysEx / no
+    // LED / no DAW-mode handshake here, so this is safe to call synchronously from any
+    // thread (e.g. right after a preset import replaces ccMappings_).
     struct PendingEntry { int cc; CcMapping m; };
     std::vector<PendingEntry> pending;
     pending.reserve(LaunchControlXLLeds::kPage1Count);
@@ -5378,14 +5445,6 @@ void T5ynthProcessor::applyXLDefaultBindings()
         for (auto& e : pending)
             ccMappings_[static_cast<size_t>(e.cc)] = std::move(e.m);   // overwrite — XL Map wins
     }
-
-    // Defer the LED burst so the device has time to finish entering DAW mode before
-    // the colours arrive — otherwise the first XL-Map click leaves the LEDs dark.
-    // Owned one-shot timer (not callAfterDelay) so ~T5ynthProcessor can cancel a
-    // pending burst deterministically; capturing `this` is safe because the timer's
-    // lifetime is bounded by the processor's and it is stopped before teardown.
-    xlLedTimer_.fn = [this] { lightXLLeds(); };
-    xlLedTimer_.startTimer(100);
 }
 
 // XL DAW-mode action-button assignments. The SAME constants drive both the LED colour
