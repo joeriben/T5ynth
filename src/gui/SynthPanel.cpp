@@ -1120,6 +1120,42 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         aftertouchAmountRow->updateValue();
     }
 
+    // ── Easy-panel AT module: 12 bipolar drag-fill bars (one per target) ──
+    {
+        struct AtBar { const char* pid; const char* label; };
+        static const AtBar atBars[12] = {
+            { PID::aftertouchAmtLfo1Depth,   "LFO1 Dep" },
+            { PID::aftertouchAmtLfo2Depth,   "LFO2 Dep" },
+            { PID::aftertouchAmtLfo3Depth,   "LFO3 Dep" },
+            { PID::aftertouchAmtEnv1Sustain, "ENV1 Sus" },
+            { PID::aftertouchAmtEnv2Sustain, "ENV2 Sus" },
+            { PID::aftertouchAmtEnv3Sustain, "ENV3 Sus" },
+            { PID::aftertouchAmtCutoff,      "Cutoff"   },
+            { PID::aftertouchAmtResonance,   "Reso"     },
+            { PID::aftertouchAmtScan,        "Scan"     },
+            { PID::aftertouchAmtDca,         "DCA"      },
+            { PID::aftertouchAmtPitch,       "Pitch"    },
+            { PID::aftertouchAmtNoiseLevel,  "Noise"    },
+        };
+        for (int i = 0; i < 12; ++i)
+        {
+            const char* pid = atBars[i].pid;
+            auto bar = std::make_unique<AftertouchBar>();
+            bar->setTargetLabel(atBars[i].label);
+            if (auto* p = apvts.getParameter(pid))
+            {
+                bar->onDragStart = [p] { p->beginChangeGesture(); };
+                bar->onDragEnd   = [p] { p->endChangeGesture(); };
+            }
+            bar->onRightClick = [this, pid](juce::Point<int> pt) {
+                showMidiLearnMenu(processorRef, pid, pt); };
+            addAndMakeVisible(*bar);
+            aftertouchBarA[i] = std::make_unique<SA>(apvts, pid, *bar);
+            aftertouchBars[i] = std::move(bar);
+        }
+        addChildComponent(aftertouchHeader);   // shown by the columns easy-layout
+    }
+
     // ── Drift ──
     initDrift(drift1, "D1",
               PID::drift1Rate, PID::drift1Depth, PID::drift1Target, PID::drift1Wave,
@@ -1593,6 +1629,12 @@ void SynthPanel::updateVisibility()
     aftertouchTargetBox.setVisible(!modEasyMode);
     if (aftertouchAmountRow)
         aftertouchAmountRow->setVisible(!modEasyMode);
+
+    // New per-target AT bars are the easy-panel module; the column header is
+    // re-shown by the columns easy-layout (hidden in the stacked fallback/advanced).
+    aftertouchHeader.setVisible(false);
+    for (auto& bar : aftertouchBars)
+        if (bar) bar->setVisible(modEasyMode);
 
     auto setDriftControlsVisible = [](DriftSection& drift, bool selected, bool easy)
     {
@@ -2373,6 +2415,23 @@ void SynthPanel::layoutDriftEasy(DriftSection& drift, juce::Rectangle<int> area,
     drift.depthRow->setBounds(amtCell);
 }
 
+void SynthPanel::layoutAftertouchEasy(juce::Rectangle<int> area)
+{
+    const int n = (int) aftertouchBars.size();
+    if (n <= 0 || area.isEmpty())
+        return;
+
+    // 12 equal stacked bars; each paints its own kBorder edge so neighbours
+    // share a 1px divider (no gap). Last bar absorbs the rounding remainder.
+    const int barH = juce::jmax(1, area.getHeight() / n);
+    for (int i = 0; i < n; ++i)
+    {
+        auto row = (i == n - 1) ? area : area.removeFromTop(barH);
+        if (aftertouchBars[i])
+            aftertouchBars[i]->setBounds(row);
+    }
+}
+
 void SynthPanel::layoutGenerateEasy(juce::Rectangle<int> area, float f, int rowH, int gap, bool ownHeader)
 {
     const int rowGap = juce::jmax(gap, 6);
@@ -2556,10 +2615,14 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
                                          juce::jmax(1, blockW),
                                          juce::roundToInt(static_cast<float>(previousLfoW) * 0.60f));
 
-        // 5 columns: filter | env | lfo | drift | generate. Generate is the narrowest
-        // (subordinated to drift) — give it ~55% of a stack column.
+        // 6 columns: filter | env | lfo | drift | AT | generate. AT is a thin
+        // column (~82% of a stack column), generate the narrowest (~55%). The
+        // parts denominator 100+100+100+82+55=437 carves AT's width out of the
+        // flexible columns, leaving env (envW) untouched.
         const int stackW = juce::jmin(easyModStackWidth,
-                                      juce::jmax(1, (blockW - envW - colGap * 4) * 100 / 355));
+                                      juce::jmax(1, (blockW - envW - colGap * 5) * 100 / 437));
+        const int aftertouchW = juce::jmax(juce::roundToInt(f * 6.0f),
+                                           juce::roundToInt(static_cast<float>(stackW) * 0.82f));
         const int generateW = juce::jmax(juce::roundToInt(f * 7.0f),
                                          juce::roundToInt(static_cast<float>(stackW) * 0.55f));
 
@@ -2585,6 +2648,9 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
         styleHeaderBar(driftHeader, " DRIFT", kDriftCol);
         driftHeader.setBounds(modHeaderRow.removeFromLeft(stackW));
         modHeaderRow.removeFromLeft(colGap);
+        styleHeaderBar(aftertouchHeader, " AT", kAtCol);
+        aftertouchHeader.setBounds(modHeaderRow.removeFromLeft(aftertouchW));
+        modHeaderRow.removeFromLeft(colGap);
         styleHeaderBar(regenHeader, " REGENERATE", kDriftCol);   // generate column (was an in-column chip)
         regenHeader.setBounds(modHeaderRow.removeFromLeft(juce::jmin(generateW, modHeaderRow.getWidth())));
 
@@ -2598,6 +2664,8 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
         block.removeFromLeft(colGap);
         auto driftArea = block.removeFromLeft(stackW);
         block.removeFromLeft(colGap);
+        auto aftertouchArea = block.removeFromLeft(aftertouchW);
+        block.removeFromLeft(colGap);
         auto generateArea = block.removeFromLeft(juce::jmin(generateW, block.getWidth()));
 
         filterEasyBlockBounds = filterArea;
@@ -2606,6 +2674,9 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
                     [&](juce::Rectangle<int> content) { layoutEnvEasy(*env, content, f, rowH, gap); });
         layoutLfoStack(lfoArea);
         layoutDriftStack(driftArea);
+
+        aftertouchEasyBlockBounds = aftertouchArea;
+        layoutAftertouchEasy(aftertouchArea.reduced(contentInset, contentInset));
 
         generateEasyBlockBounds = generateArea;
         layoutGenerateEasy(generateArea.reduced(contentInset, contentInset), f, rowH, gap, false);
@@ -2620,13 +2691,14 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
         modHeader.setBounds(modHeaderRow);
     }
 
-    const int totalGap = blockGap * 4;
+    const int totalGap = blockGap * 5;
     const int usableH = juce::jmax(0, area.getHeight() - totalGap);
-    const int filterH = usableH * 8 / 44;
-    const int envH = usableH * 7 / 44;
-    const int lfoH = usableH * 12 / 44;
-    const int generateH = usableH * 5 / 44;
-    const int driftH = usableH - filterH - envH - lfoH - generateH;
+    const int filterH = usableH * 8 / 52;
+    const int envH = usableH * 7 / 52;
+    const int lfoH = usableH * 12 / 52;
+    const int generateH = usableH * 5 / 52;
+    const int aftertouchH = usableH * 8 / 52;
+    const int driftH = usableH - filterH - envH - lfoH - generateH - aftertouchH;
 
     auto filterArea = area.removeFromTop(filterH);
     filterEasyBlockBounds = filterArea;
@@ -2644,6 +2716,11 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
 
     auto driftArea = area.removeFromTop(driftH);
     layoutDriftStack(driftArea);
+    area.removeFromTop(blockGap);
+
+    auto aftertouchArea = area.removeFromTop(aftertouchH);
+    aftertouchEasyBlockBounds = aftertouchArea;
+    layoutAftertouchEasy(aftertouchArea.reduced(contentInset, contentInset));
     area.removeFromTop(blockGap);
 
     auto generateArea = area.removeFromTop(generateH);
@@ -2705,7 +2782,8 @@ void SynthPanel::paint(juce::Graphics& g)
         {
             bot = juce::jmax(filterEasyBlockBounds.getBottom(), envEasyBlockBounds.getBottom(),
                              lfoEasyBlockBounds.getBottom(), driftEasyBlockBounds.getBottom());
-            bot = juce::jmax(bot, generateEasyBlockBounds.getBottom());
+            bot = juce::jmax(bot, generateEasyBlockBounds.getBottom(),
+                             aftertouchEasyBlockBounds.getBottom());
             bot = juce::jmax(bot, modCardBottom);
         }
         else
@@ -2742,6 +2820,7 @@ void SynthPanel::paint(juce::Graphics& g)
             paintEasyBlock(envEasyBlockBounds);
             paintEasyBlock(lfoEasyBlockBounds);
             paintEasyBlock(driftEasyBlockBounds);
+            paintEasyBlock(aftertouchEasyBlockBounds);
             paintEasyBlock(generateEasyBlockBounds);
 
             for (const auto& moduleBounds : lfoEasyModuleBounds)
@@ -3291,6 +3370,7 @@ void SynthPanel::resized()
     lfoEasyBlockBounds = {};
     driftEasyBlockBounds = {};
     generateEasyBlockBounds = {};
+    aftertouchEasyBlockBounds = {};
     for (auto& b : lfoEasyModuleBounds)
         b = {};
     for (auto& b : driftEasyModuleBounds)

@@ -102,6 +102,11 @@ static const auto kEnvCol    = juce::Colour(0xffFF6F00);  // C₂ — Amber (env
 static const auto kModCol    = juce::Colour(0xffFF6F00);  // C₂ — Amber (LFOs)
 static const auto kLfoCol    = juce::Colour(0xffFF6F00);  // C₂ — Amber (LFOs)
 static const auto kDriftCol  = juce::Colour(0xffe65100);  // C₂ darker variant (drift)
+// Aftertouch module. Phase-4 colour pass ratifies these against the
+// Env→Regenerate gradient; positive amount = module orange, negative = a dark
+// red-amber so the sign reads at a glance without a second control.
+static const auto kAtCol     = juce::Colour(0xffEC5900);  // AT positive (placeholder)
+static const auto kAtNegCol  = juce::Colour(0xffA83C18);  // AT negative — dark red-amber (placeholder)
 
 // Module lead colors (UCDCAE: C=Engine D=Filter U=Osc C₂=Mod A=Seq E=FX)
 static const auto kOscCol    = juce::Colour(0xff667eea);  // U — Periwinkle (prompt/osc)

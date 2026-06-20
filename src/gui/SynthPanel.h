@@ -3,6 +3,7 @@
 #include <array>
 #include "WaveformDisplay.h"
 #include "GuiHelpers.h"
+#include "AftertouchBar.h"
 
 class T5ynthProcessor;
 
@@ -110,6 +111,7 @@ private:
     int modCardBottom = 0;
     juce::Rectangle<int> envTabSwitchBounds, lfoTabSwitchBounds, driftTabSwitchBounds;
     juce::Rectangle<int> filterEasyBlockBounds, envEasyBlockBounds, lfoEasyBlockBounds, driftEasyBlockBounds, generateEasyBlockBounds;
+    juce::Rectangle<int> aftertouchEasyBlockBounds;
     std::array<juce::Rectangle<int>, 3> lfoEasyModuleBounds;
     std::array<juce::Rectangle<int>, 3> driftEasyModuleBounds;
 
@@ -210,6 +212,12 @@ private:
     std::unique_ptr<SliderRow> aftertouchAmountRow;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> aftertouchTargetA;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> aftertouchAmountA;
+    // Easy-panel AT module: 12 bipolar drag-fill bars (one per target, enum
+    // order 1..12) + column header. Bars declared BEFORE their attachments so
+    // the attachments destruct first (JUCE reverse-destruction-order rule).
+    juce::Label aftertouchHeader;
+    std::array<std::unique_ptr<AftertouchBar>, 12> aftertouchBars;
+    std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>, 12> aftertouchBarA;
 
     // ── Drift ──
     //   Same dual-control pattern as LFO, minus the F/T mode (Drift has
@@ -288,6 +296,7 @@ private:
     void layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float f, int rowH, int gap);
     void layoutLfoEasy(LfoSection& lfo, juce::Rectangle<int> area, float f, int rowH, int gap);
     void layoutDriftEasy(DriftSection& drift, juce::Rectangle<int> area, float f, int rowH, int gap);
+    void layoutAftertouchEasy(juce::Rectangle<int> area);
     void layoutGenerateEasy(juce::Rectangle<int> area, float f, int rowH, int gap, bool ownHeader = true);
 
     void setModEasyMode(bool easy, bool persist);
