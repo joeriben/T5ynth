@@ -1155,7 +1155,7 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     addAndMakeVisible(driftHeader);
 
     // Regenerate mode switchbox
-    paintSectionHeader(regenHeader, "REGENERATE", kDriftCol);
+    paintSectionHeader(regenHeader, "REGENERATE", kRegenCol);
     addAndMakeVisible(regenHeader);
 
     juce::StringArray regenItems;
@@ -2398,7 +2398,7 @@ void SynthPanel::layoutGenerateEasy(juce::Rectangle<int> area, float f, int rowH
         regenHeader.setFont(juce::FontOptions(chipFontSize, juce::Font::bold));
         regenHeader.setJustificationType(juce::Justification::centred);
         // Header band: light text on accent@0.7 (see labelAsHeaderBand).
-        labelAsHeaderBand(regenHeader, kDriftCol);
+        labelAsHeaderBand(regenHeader, kRegenCol);
         regenHeader.setBounds(headerRow.removeFromLeft(juce::jmin(headerW, headerRow.getWidth())));
         area.removeFromTop(rowGap);
     }
@@ -2600,7 +2600,7 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
         styleHeaderBar(aftertouchHeader, " AT", kAtCol);
         aftertouchHeader.setBounds(modHeaderRow.removeFromLeft(aftertouchW));
         modHeaderRow.removeFromLeft(colGap);
-        styleHeaderBar(regenHeader, " REGENERATE", kDriftCol);   // generate column (was an in-column chip)
+        styleHeaderBar(regenHeader, " REGENERATE", kRegenCol);   // generate column (was an in-column chip)
         regenHeader.setBounds(modHeaderRow.removeFromLeft(juce::jmin(generateW, modHeaderRow.getWidth())));
 
         const int blockH = area.getHeight();
@@ -3405,7 +3405,7 @@ void SynthPanel::resized()
     area.removeFromTop(gap);
     regenHeader.setText(" REGENERATE", juce::dontSendNotification);
     regenHeader.setFont(juce::FontOptions(headerFs));
-    labelAsHeaderBand(regenHeader, kDriftCol);
+    labelAsHeaderBand(regenHeader, kRegenCol);
     regenHeader.setJustificationType(juce::Justification::centredLeft);
     auto regenHeaderRow = area.removeFromTop(headerH);
     regenHeader.setBounds(regenHeaderRow.removeFromLeft(juce::roundToInt(f * 10.6f)));

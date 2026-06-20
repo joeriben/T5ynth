@@ -12,9 +12,10 @@
 //   • right-click → MIDI-learn menu (onRightClick)
 //   • the numeric value shows ONLY while the mouse is held
 //
-// Sign is shown by fill colour: orange (kAtCol) positive, dark red-amber
-// (kAtNegCol) negative. Magnitude uses the full bar width, so depth keeps full
-// resolution regardless of sign.
+// Sign rides on a persistent +/- suffix on the label (greyscale / colour-blind
+// safe); the fill colour — orange (kAtCol) positive, dark red-amber (kAtNegCol)
+// negative — is a redundant cue. Magnitude uses the full bar width, so depth
+// keeps full resolution regardless of sign.
 //
 // Backed by a juce::Slider so an APVTS SliderAttachment drives our value (range
 // −1..+1); we override the mouse for the combined feel and paint the fill
@@ -108,9 +109,15 @@ public:
         }
 
         const bool active = mag > 0.0f;
+        // Persistent sign suffix ("Reso +" / "Reso −") so polarity reads without
+        // relying on the fill hue — works in greyscale and for colour-blind users.
+        juce::String lab = " " + label_;
+        if (active)
+            lab += (v >= 0.0f) ? " +"
+                               : " " + juce::String(juce::CharPointer_UTF8("\xE2\x88\x92"));
         g.setColour(active ? juce::Colours::white : kTextMuted);
         g.setFont(juce::FontOptions(juce::jlimit(9.0f, 13.0f, b.getHeight() * 0.58f)));
-        g.drawText(" " + label_, b.reduced(2.0f, 0.0f),
+        g.drawText(lab, b.reduced(2.0f, 0.0f),
                    juce::Justification::centredLeft, false);
 
         if (held_)
