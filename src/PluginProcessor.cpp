@@ -1645,6 +1645,81 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         }
         hostPlayingNow.store(playing, std::memory_order_relaxed);
     }
+
+    // ── MIDI Clock: loss detection + tick pre-pass (feeds resolveSyncBpm()) ─
+    if (midiClockEnabled_.load(std::memory_order_relaxed))
+    {
+        // Re-enable edge: reset counters so stale intervals from a previous
+        // session don't produce a wrong first post-re-enable tick interval.
+        if (!midiClockPrevEnabled_)
+        {
+            midiClockTickCount_ = 0;
+            midiClockLastTick_  = 0;
+            midiClockPrevEnabled_ = true;
+        }
+
+        // Loss detection: no tick for > 1 second → invalidate.
+        if (midiClockValid_.load(std::memory_order_relaxed)
+            && midiClockLastTick_ > 0
+            && midiClockBlockStart_ > midiClockLastTick_
+            && (midiClockBlockStart_ - midiClockLastTick_)
+               > static_cast<uint64_t>(getSampleRate()))
+        {
+            midiClockValid_.store(false, std::memory_order_release);
+            midiClockTickCount_ = 0;
+        }
+
+        for (const auto& meta : midiMessages)
+        {
+            const auto msg = meta.getMessage();
+            if (msg.isMidiClock())
+            {
+                const uint64_t tickSample = midiClockBlockStart_
+                                          + static_cast<uint64_t>(meta.samplePosition);
+                if (midiClockLastTick_ > 0 && tickSample > midiClockLastTick_)
+                {
+                    const uint32_t interval =
+                        static_cast<uint32_t>(tickSample - midiClockLastTick_);
+                    midiClockIntervals_[midiClockTickIdx_] = interval;
+                    midiClockTickIdx_ = (midiClockTickIdx_ + 1) % 24;
+                    if (midiClockTickCount_ < 24) ++midiClockTickCount_;
+
+                    if (midiClockTickCount_ >= 4)
+                    {
+                        uint64_t sum = 0;
+                        for (int i = 0; i < midiClockTickCount_; ++i)
+                            sum += midiClockIntervals_[i];
+                        const float avg = static_cast<float>(sum)
+                                        / static_cast<float>(midiClockTickCount_);
+                        const float bpm = 60.0f * static_cast<float>(getSampleRate())
+                                        / (avg * 24.0f);
+                        midiClockBpm_.store(juce::jlimit(20.0f, 300.0f, bpm),
+                                            std::memory_order_release);
+                        midiClockValid_.store(true, std::memory_order_release);
+                    }
+                }
+                midiClockLastTick_ = tickSample;
+            }
+            else if (msg.isMidiStop())
+            {
+                midiClockValid_.store(false, std::memory_order_release);
+                midiClockTickCount_ = 0;
+                midiClockLastTick_  = 0;
+            }
+            else if (msg.isMidiStart())
+            {
+                midiClockValid_.store(false, std::memory_order_release);
+                midiClockTickCount_ = 0;
+                midiClockLastTick_  = 0;
+            }
+            // isMidiContinue: keep accumulating ticks without resetting warm-up
+        }
+    }
+    else
+    {
+        midiClockPrevEnabled_ = false;  // reset so re-enable is detected next time
+    }
+
     const float syncBpm = resolveSyncBpm();
 
     // ── MIDI Panic (StatusBar button) ────────────────────────────────────
@@ -1750,6 +1825,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         lfo1.advancePhase(numSamples);
         lfo2.advancePhase(numSamples);
         lfo3.advancePhase(numSamples);
+        // MIDI Clock sample counter must advance unconditionally — a frozen base
+        // would corrupt tick timestamps and break loss detection after idle gaps.
+        midiClockBlockStart_ += static_cast<uint64_t>(numSamples);
         return;
     }
     audioIdle.store(false, std::memory_order_relaxed);
@@ -3234,6 +3312,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     limiter.setThreshold(paramCache.limiterThresh->load());
     limiter.setRelease(paramCache.limiterRelease->load());
     limiter.processBlock(buffer);
+
+    midiClockBlockStart_ += static_cast<uint64_t>(numSamples);
 }
 
 T5ynthProcessor::WtTraversalMapping T5ynthProcessor::makeWtTraversalMapping(int totalSamples) const
@@ -3398,12 +3478,33 @@ bool T5ynthProcessor::seqRunningNow() const
 
 float T5ynthProcessor::resolveSyncBpm() const
 {
+    if (midiClockEnabled_.load(std::memory_order_relaxed)
+        && midiClockValid_.load(std::memory_order_relaxed))
+        return midiClockBpm_.load(std::memory_order_relaxed);
     if (hostPlayingNow.load(std::memory_order_relaxed))
         return hostBpmLastSeen.load(std::memory_order_relaxed);
     if (seqRunningNow())
         return paramCache.seqBpm->load();
     const float h = hostBpmLastSeen.load(std::memory_order_relaxed);
     return (h > 0.0f) ? h : paramCache.seqBpm->load();
+}
+
+bool  T5ynthProcessor::isMidiClockActive()  const noexcept
+{
+    return midiClockEnabled_.load(std::memory_order_relaxed)
+        && midiClockValid_.load(std::memory_order_relaxed);
+}
+float T5ynthProcessor::getMidiClockBpm()    const noexcept { return midiClockBpm_.load(std::memory_order_relaxed); }
+bool  T5ynthProcessor::isMidiClockEnabled() const noexcept { return midiClockEnabled_.load(std::memory_order_relaxed); }
+
+void T5ynthProcessor::setMidiClockEnabled(bool e)
+{
+    // Only flip the atomics here — called from message thread.
+    // midiClockTickCount_ / midiClockLastTick_ are audio-thread-only;
+    // the audio thread resets them when it first sees enabled=false.
+    midiClockEnabled_.store(e, std::memory_order_release);
+    if (!e)
+        midiClockValid_.store(false, std::memory_order_release);
 }
 
 bool T5ynthProcessor::isWavetableMode() const
@@ -3884,6 +3985,7 @@ void T5ynthProcessor::getStateInformation(juce::MemoryBlock& destData)
     auto state = parameters.copyState();
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
     xml->setAttribute("midiOutputDeviceId", midiOutputDeviceId_);
+    xml->setAttribute("midiClockEnabled", midiClockEnabled_.load());
     copyXmlToBinary(*xml, destData);
 }
 
@@ -4017,6 +4119,9 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
         const auto deviceId = xml->getStringAttribute("midiOutputDeviceId");
         if (deviceId.isNotEmpty())
             openMidiOutputDevice(deviceId);
+
+        if (xml->getBoolAttribute("midiClockEnabled", false))
+            setMidiClockEnabled(true);
     }
 }
 

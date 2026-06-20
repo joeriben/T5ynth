@@ -557,6 +557,13 @@ public:
      *  Page-1 CC range; bindings on other CCs are left untouched. */
     void applyXLDefaultBindings();
 
+    // ── MIDI Clock Input ─────────────────────────────────────────────────────
+    bool  isMidiClockActive()  const noexcept;
+    float getMidiClockBpm()    const noexcept;
+    bool  isMidiClockEnabled() const noexcept;
+    void  setMidiClockEnabled(bool e);
+
+
 private:
 
     void handleAsyncUpdate() override;
@@ -605,6 +612,20 @@ private:
     // reader always gets a consistent seq/cc pair (single writer = the audio thread).
     std::atomic<uint64_t>      midiTouchPacked_ { 0 };
     juce::String               midiLearnParamId;           // message thread only
+
+    // ── MIDI Clock Input (internals) ─────────────────────────────────────────
+    // Atomics shared between audio thread (write BPM/valid) and message thread
+    // (read for GUI display and resolveSyncBpm guard).
+    std::atomic<bool>  midiClockEnabled_ { false };
+    std::atomic<bool>  midiClockValid_   { false };
+    std::atomic<float> midiClockBpm_     { 120.0f };
+    // Audio-thread-only state — no concurrent access, no atomics needed:
+    uint64_t           midiClockBlockStart_   = 0;     // abs sample at start of current block
+    uint64_t           midiClockLastTick_     = 0;     // abs sample of last 0xF8 tick
+    uint32_t           midiClockIntervals_[24] {};     // ring buffer of inter-tick intervals
+    int                midiClockTickIdx_      = 0;
+    int                midiClockTickCount_    = 0;     // ticks seen (caps at 24 = 1 beat)
+    bool               midiClockPrevEnabled_  = false; // edge-detect re-enable on audio thread
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(T5ynthProcessor)
 };
