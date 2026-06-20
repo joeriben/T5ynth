@@ -5565,8 +5565,8 @@ void T5ynthProcessor::lightXLLeds()
     for (int cc = kXLReStanceFirst; cc <= kXLReStanceLast; ++cc)
         sendMidiOutputMessage(LaunchControlXLLeds::ledOn(cc, LaunchControlXLLeds::kColorGen));            // Re-Prompt stance
     //
-    // BOTTOM row CC 45-52: Snap 1-4 (teal) · Cache (amber) · a.s.a.p./4 bars (blue = drift) ·
-    // Step/Gen (violet) · Panic (red).
+    // BOTTOM row CC 45-52: Snap 1-4 (gold = LFO) · Cache (amber = Env) · a.s.a.p./4 bars (red-orange = Drift) ·
+    // Step/Gen (violet = Filter) · Panic (red).
     for (int cc = kXLSnapFirst; cc <= kXLSnapLast; ++cc)
         sendMidiOutputMessage(LaunchControlXLLeds::ledOn(cc, LaunchControlXLLeds::kColorLfo));            // Snap 1-4
     sendMidiOutputMessage(LaunchControlXLLeds::ledOn(kXLBtnCache,     LaunchControlXLLeds::kColorEnv));    // Cache 4/Off

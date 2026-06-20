@@ -56,8 +56,12 @@ struct LaunchControlXLLeds
 
     static constexpr int kColorGen    = lcxl3_detail::fromGuiColor(0xff667eea); // kOscCol   — periwinkle (generation / osc)
     static constexpr int kColorEnv    = lcxl3_detail::fromGuiColor(0xffFF6F00); // kEnvCol   — amber      (envelopes A/D/S/R)
-    static constexpr int kColorLfo    = lcxl3_detail::fromGuiColor(0xffFF6F00); // kLfoCol   — amber      (same as Env; matches on-screen palette)
-    static constexpr int kColorDrift  = lcxl3_detail::fromGuiColor(0xffe65100); // kDriftCol — dark amber (drift)
+    // kLfoCol == kEnvCol == #FF6F00 in GuiHelpers.h — identical on screen, unreadable on hardware.
+    // kDriftCol == #e65100 is only ~12 % darker than amber: imperceptible on LED RGB.
+    // → LFO and Drift use distinct warm-family LED colours that anchor to the amber hue
+    //   but spread across the yellow-to-red-orange range for hardware readability.
+    static constexpr int kColorLfo    = lcxl3_detail::rgb(127, 110,   0); // warm gold-yellow (brighter than amber, clearly distinct)
+    static constexpr int kColorDrift  = lcxl3_detail::rgb(127,  20,   0); // deep red-orange  (darker than amber, clearly distinct)
     static constexpr int kColorFilter = lcxl3_detail::fromGuiColor(0xff7C4DFF); // kFilterCol— violet     (filter)
     static constexpr int kColorFx     = lcxl3_detail::fromGuiColor(0xff00BCD4); // kFxCol    — cyan       (delay / reverb)
     static constexpr int kColorSeq    = lcxl3_detail::fromGuiColor(0xff4CAF50); // kSeqCol   — green      (sequencer)
