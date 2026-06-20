@@ -1104,19 +1104,23 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     // ── Easy-panel AT module: 12 bipolar drag-fill bars (one per target) ──
     {
         struct AtBar { const char* pid; const char* label; };
+        // Order follows the canonical EnvTarget order (BlockParams.h): voice
+        // destinations first (DCA, Filter=Cutoff+Reso, Scan, Pitch, Noise), then
+        // the mod-source levels (LFO depths, then env sustains). "Amt" matches the
+        // LFO module's own depth label in the easy panel.
         static const AtBar atBars[12] = {
-            { PID::aftertouchAmtLfo1Depth,   "LFO1 Dep" },
-            { PID::aftertouchAmtLfo2Depth,   "LFO2 Dep" },
-            { PID::aftertouchAmtLfo3Depth,   "LFO3 Dep" },
-            { PID::aftertouchAmtEnv1Sustain, "ENV1 Sus" },
-            { PID::aftertouchAmtEnv2Sustain, "ENV2 Sus" },
-            { PID::aftertouchAmtEnv3Sustain, "ENV3 Sus" },
+            { PID::aftertouchAmtDca,         "DCA"      },
             { PID::aftertouchAmtCutoff,      "Cutoff"   },
             { PID::aftertouchAmtResonance,   "Reso"     },
             { PID::aftertouchAmtScan,        "Scan"     },
-            { PID::aftertouchAmtDca,         "DCA"      },
             { PID::aftertouchAmtPitch,       "Pitch"    },
             { PID::aftertouchAmtNoiseLevel,  "Noise"    },
+            { PID::aftertouchAmtLfo1Depth,   "LFO1 Amt" },
+            { PID::aftertouchAmtLfo2Depth,   "LFO2 Amt" },
+            { PID::aftertouchAmtLfo3Depth,   "LFO3 Amt" },
+            { PID::aftertouchAmtEnv1Sustain, "ENV1 Sus" },
+            { PID::aftertouchAmtEnv2Sustain, "ENV2 Sus" },
+            { PID::aftertouchAmtEnv3Sustain, "ENV3 Sus" },
         };
         for (int i = 0; i < 12; ++i)
         {
