@@ -56,13 +56,14 @@ struct LaunchControlXLLeds
 
     static constexpr int kColorGen    = lcxl3_detail::fromGuiColor(0xff667eea); // kOscCol   — periwinkle (generation / osc)
     static constexpr int kColorEnv    = lcxl3_detail::fromGuiColor(0xffFF6F00); // kEnvCol   — amber      (envelopes A/D/S/R)
-    // kLfoCol == kEnvCol == #FF6F00 in GuiHelpers.h — identical on screen, unreadable on hardware.
-    // kDriftCol == #e65100 is only ~12 % darker than amber: imperceptible on LED RGB.
-    // → Two-group scheme: Env cols 1-4 = amber; LFO+Drift cols 5-8 = deep red-orange.
-    //   Gives clear orientation (time-domain ADSR vs modulator group) without a third
-    //   intermediate shade that reads as yellow-green on hardware.
-    static constexpr int kColorLfo    = lcxl3_detail::rgb(127,  20,   0); // deep red-orange — same as Drift (LFO+Drift = one group)
-    static constexpr int kColorDrift  = lcxl3_detail::rgb(127,  20,   0); // deep red-orange
+    // kLfoCol == kEnvCol == #FF6F00 in GuiHelpers.h — identical on screen; GUI palette has no
+    // separate LFO or Drift colour. Three distinct hardware shades are hardcoded:
+    //   Env   (127, 55, 0) ≈ #FF6E00 — amber-orange   (via fromGuiColor above)
+    //   LFO   (127, 35, 0) ≈ #FF4700 — pure orange     ΔE2000 ≈ 9.3 from Env
+    //   Drift (127, 10, 0) ≈ #FF1400 — deep red-orange ΔE2000 ≈ 5.8 from LFO, 15.2 from Env
+    // All pairs exceed ΔE2000 = 5 (clearly distinguishable on hardware LEDs).
+    static constexpr int kColorLfo    = lcxl3_detail::rgb(127,  35,   0); // pure orange    (LFO cols 5–6)
+    static constexpr int kColorDrift  = lcxl3_detail::rgb(127,  10,   0); // deep red-orange (Drift cols 7–8)
     static constexpr int kColorFilter = lcxl3_detail::fromGuiColor(0xff7C4DFF); // kFilterCol— violet     (filter)
     static constexpr int kColorFx     = lcxl3_detail::fromGuiColor(0xff00BCD4); // kFxCol    — cyan       (delay / reverb)
     static constexpr int kColorSeq    = lcxl3_detail::fromGuiColor(0xff4CAF50); // kSeqCol   — green      (sequencer)
