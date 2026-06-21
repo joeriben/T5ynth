@@ -941,6 +941,13 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
             int id = filterTypeHidden.getSelectedId();
             for (int i = 0; i < kNumTypeBtns; ++i)
                 filterTypeBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
+            // Easy TYPE toggle: remember the last active type so bypass→re-enable
+            // restores it, and label the toggle with the current (or remembered) type.
+            if (id >= FilterType::Lowpass + 1)
+                lastEasyFilterType_ = id;
+            const char* const typeShort[] = { "LP", "HP", "BP" };  // ids 2,3,4
+            const int shown = (id >= FilterType::Lowpass + 1) ? id : lastEasyFilterType_;
+            filterEasyTypeBtn.setButtonText(typeShort[shown - 2]);
             updateVisibility();
             // updateVisibility() hides lfoHeader/driftHeader in easy mode; in the
             // columnar mod view they double as the LFO/DRIFT column header bars and
@@ -1042,6 +1049,27 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
             filterTypeHidden.setSelectedId(FilterType::Off + 1);
         };
         addAndMakeVisible(filterEasyOffBtn);
+    }
+
+    // ── Easy-mode filter TYPE toggle (cycles LP→HP→BP, right of the slope row) ──
+    {
+        styleSwitchButton(filterEasyTypeBtn, kFilterCol);
+        // Cycles via onClick — its lit/unlit appearance is driven from
+        // updateVisibility (reflects filter on/off), not from click toggling.
+        filterEasyTypeBtn.setClickingTogglesState(false);
+        filterEasyTypeBtn.setConnectedEdges(0);  // standalone toggle, distinct from the slope group
+        filterEasyTypeBtn.onClick = [this] {
+            const int cur = filterTypeHidden.getSelectedId();   // 1=Off,2=LP,3=HP,4=BP
+            int next;
+            if (cur <= FilterType::Off + 1)                     // bypassed → re-enable last type
+                next = lastEasyFilterType_;
+            else if (cur >= FilterType::Bandpass + 1)           // BP → wrap to LP
+                next = FilterType::Lowpass + 1;
+            else
+                next = cur + 1;                                 // LP→HP, HP→BP
+            filterTypeHidden.setSelectedId(next);
+        };
+        addAndMakeVisible(filterEasyTypeBtn);
     }
 
     // ── Warp style combo: tanh / softclip / ojd / sin / digital / asym ──
@@ -1475,6 +1503,12 @@ void SynthPanel::updateVisibility()
                                             juce::dontSendNotification);
         }
     }
+    // Easy TYPE toggle: stays live like the algorithm buttons (so it can re-enable
+    // the filter from bypass), lit only while the filter is on. Label set in onChange.
+    filterEasyTypeBtn.setAlpha(1.0f);
+    filterEasyTypeBtn.setEnabled(true);
+    filterEasyTypeBtn.setToggleState(filterOn, juce::dontSendNotification);
+
     // Warp Style dims further (to 0.3× of the already-filter-dim) when the
     // selected algorithm isn't Warp — style only applies to the warp ladder.
     const bool warpActive = filterAlgHidden.getSelectedId() == (FilterAlgorithm::Warp + 1);
@@ -1485,8 +1519,10 @@ void SynthPanel::updateVisibility()
     filterHeader.setVisible(true);
     for (int i = 0; i < kNumTypeBtns; ++i)
         filterTypeBtns[i].setVisible(!modEasyMode);
+    // Easy sacrifices the 18 dB slope so its cell can host the LP/HP/BP type toggle.
     for (int i = 0; i < kNumSlopeBtns; ++i)
-        filterSlopeBtns[i].setVisible(true);
+        filterSlopeBtns[i].setVisible(i == FilterSlope::Slope18 ? !modEasyMode : true);
+    filterEasyTypeBtn.setVisible(modEasyMode);
     for (int i = 0; i < kNumAlgBtns; ++i)
         filterAlgBtns[i].setVisible(true);
     filterWarpStyleBox.setVisible(!modEasyMode);
@@ -1834,9 +1870,11 @@ bool SynthPanel::hasModHiddenActiveState() const
         if (comboId(lfo->modeHidden, 1) != 1)
             return true;
 
-    // Easy exposes OFF (via the filter OFF segment) and LP; only HP/BP are
-    // hidden advanced filter state worth pulsing the » adv. toggle for.
-    if (comboId(filterTypeHidden, FilterType::Lowpass + 1) > FilterType::Lowpass + 1)
+    // Easy now exposes OFF (filter OFF segment), the full LP/HP/BP type (the type
+    // toggle) and the 6/12/24 dB slopes — none of those are hidden anymore. The
+    // 18 dB slope is the one filter state Easy sacrifices, so it alone pulses the
+    // » adv. toggle when active (the Easy slope switch shows no lit segment for it).
+    if (comboId(filterSlopeHidden, FilterSlope::Slope24 + 1) == FilterSlope::Slope18 + 1)
         return true;
     if (comboId(filterDriveOsHidden, FilterDriveOs::X2 + 1) != FilterDriveOs::X2 + 1)
         return true;
@@ -2212,9 +2250,27 @@ void SynthPanel::layoutFilterEasy(juce::Rectangle<int> area, float f, int rowH, 
         layoutButtons(filterAlgBtns, kNumAlgBtns, algRow, filterAlgSwitchBounds);
         filterAlgSwitchBounds = filterAlgSwitchBounds.getUnion(filterEasyOffBtn.getBounds());
     }
-    filterTypeSwitchBounds = {};
     area.removeFromTop(rowGap);
-    layoutButtons(filterSlopeBtns, kNumSlopeBtns, area.removeFromTop(rowH), filterSlopeSwitchBounds);
+    {
+        // Slope is a 3-way switch (6/12/24 — Easy drops the 18 dB segment) across
+        // three of four equal cells; the freed fourth cell, right of 24 dB, hosts
+        // the LP/HP/BP type toggle.
+        auto slopeRow = area.removeFromTop(rowH);
+        const int cellW = slopeRow.getWidth() / 4;
+        juce::TextButton* const slope3[] = { &filterSlopeBtns[FilterSlope::Slope6],
+                                             &filterSlopeBtns[FilterSlope::Slope12],
+                                             &filterSlopeBtns[FilterSlope::Slope24] };
+        filterSlopeSwitchBounds = {};
+        for (auto* b : slope3)
+        {
+            auto cell = slopeRow.removeFromLeft(cellW);
+            b->setBounds(cell);
+            filterSlopeSwitchBounds = filterSlopeSwitchBounds.isEmpty()
+                                          ? cell : filterSlopeSwitchBounds.getUnion(cell);
+        }
+        filterEasyTypeBtn.setBounds(slopeRow);   // remaining cell, right of 24 dB
+        filterTypeSwitchBounds = slopeRow;
+    }
     filterDriveOsSwitchBounds = {};
     area.removeFromTop(rowGap);
 
@@ -2882,6 +2938,7 @@ void SynthPanel::paint(juce::Graphics& g)
 
             paintSwitchBoxBorder(g, filterAlgSwitchBounds);
             paintSwitchBoxBorder(g, filterSlopeSwitchBounds);
+            paintSwitchBoxBorder(g, filterTypeSwitchBounds);   // Easy LP/HP/BP toggle
             paintSwitchBoxBorder(g, envTabSwitchBounds);
             paintSwitchBoxBorder(g, regenSwitchBounds);
             return;
