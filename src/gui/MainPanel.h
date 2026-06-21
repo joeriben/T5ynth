@@ -30,7 +30,6 @@ public:
     void mouseDown(const juce::MouseEvent& e) override;
     bool keyPressed(const juce::KeyPress& key) override;
     void toggleSettings();
-    SettingsPage& getModelPanel() { return settingsPage; }
 
 private:
     class GenerateButton : public juce::TextButton
