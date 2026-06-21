@@ -255,6 +255,12 @@ private:
     };
 
     juce::AudioProcessorValueTreeState parameters;
+
+    // Global (machine-wide) settings store: ~/Library/Application Support/T5ynth/
+    // T5ynth.settings. Currently holds the nonlinear-filter oversampling quality.
+    // Read once at construction into filterOsFactor_ (the audio thread only ever
+    // touches that atomic); written by the Settings UI via setFilterOsQuality().
+    juce::ApplicationProperties appProperties_;
     ParamCache paramCache;
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     WtTraversalMapping makeWtTraversalMapping(int totalSamples) const;
@@ -511,6 +517,10 @@ public:
     // audio thread only ever touches this atomic, never a settings file. Default
     // 2× (see docs/HANDOVER_FILTER_OVERSAMPLING.md). Teil B adds file persistence.
     std::atomic<int> filterOsFactor_ { 2 };
+    // Persist/restore that to the global store (Teil B). Called by the Settings
+    // UI on the message thread, never the audio thread. Quality index 0=Off,1=2×,2=4×.
+    void setFilterOsQuality(int qualityIndex);
+    int  getFilterOsQuality() const;
 
     // Modulated parameter values (audio thread writes, GUI reads for ghost indicators)
     struct ModulatedValues

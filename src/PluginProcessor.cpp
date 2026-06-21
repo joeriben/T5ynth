@@ -188,12 +188,38 @@ juce::AudioBuffer<float> makeFreezeLoadBuffer(const juce::AudioBuffer<float>& so
 }
 }
 
+namespace {
+// Nonlinear-filter oversampling: UI quality index 0/1/2 ↔ DSP factor 1/2/4.
+inline int osFactorFromQualityIndex(int idx) noexcept
+{
+    switch (idx) { case 2: return 4; case 1: return 2; default: return 1; }
+}
+inline int osQualityIndexFromFactor(int factor) noexcept
+{
+    switch (factor) { case 4: return 2; case 2: return 1; default: return 0; }
+}
+} // namespace
+
 T5ynthProcessor::T5ynthProcessor()
     : AudioProcessor(BusesProperties()
                      .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       parameters(*this, nullptr, "T5ynth", createParameterLayout())
 {
     paramCache.init(parameters);
+
+    // Load the global (machine-wide) nonlinear-filter oversampling quality from
+    // the settings store into the audio-thread atomic. Default index 1 = 2×.
+    {
+        juce::PropertiesFile::Options opts;
+        opts.applicationName     = "T5ynth";
+        opts.filenameSuffix      = "settings";
+        opts.folderName          = "T5ynth";
+        opts.osxLibrarySubFolder = "Application Support";
+        appProperties_.setStorageParameters(opts);
+
+        const int qualityIdx = appProperties_.getUserSettings()->getIntValue("filterOsQuality", 1);
+        filterOsFactor_.store(osFactorFromQualityIndex(qualityIdx), std::memory_order_relaxed);
+    }
 
     // Cache the transport params the XL DAW-mode buttons toggle (set from the audio
     // thread via setValueNotifyingHost — same mechanism as the CC binding apply).
@@ -208,6 +234,22 @@ T5ynthProcessor::T5ynthProcessor()
             queueSequencerOneShotTrigger(trigger);
         });
     samplerReprepareThread = std::thread([this] { samplerReprepareThreadMain(); });
+}
+
+void T5ynthProcessor::setFilterOsQuality(int qualityIndex)
+{
+    qualityIndex = juce::jlimit(0, 2, qualityIndex);
+    filterOsFactor_.store(osFactorFromQualityIndex(qualityIndex), std::memory_order_relaxed);
+    if (auto* s = appProperties_.getUserSettings())
+    {
+        s->setValue("filterOsQuality", qualityIndex);
+        s->saveIfNeeded();
+    }
+}
+
+int T5ynthProcessor::getFilterOsQuality() const
+{
+    return osQualityIndexFromFactor(filterOsFactor_.load(std::memory_order_relaxed));
 }
 
 T5ynthProcessor::~T5ynthProcessor()
