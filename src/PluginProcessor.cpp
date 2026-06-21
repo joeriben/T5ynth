@@ -674,21 +674,26 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::driftCrossfade, 1}, "Drift Crossfade",
         juce::NormalisableRange<float>(0.0f, 2000.0f, 1.0f), 200.0f));
+    // Drift rate floor = 1/128 Hz = 128 s/cycle (≈ 64 bars @120 BPM): the slowest
+    // genuinely useful drift on T5ynth's short sounds — slower than that the cycle
+    // is effectively static within a note. Free mode displays the period (s/cyc);
+    // the param stays Hz with a log skew. Pre-existing sub-floor drift clamps up
+    // to the floor on load (raising a floor is inherently lossy — accepted).
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift1Rate, 1}, "Drift1 Rate",
-        juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.01f));
+        juce::NormalisableRange<float>(1.0f / 128.0f, 2.0f, 0.001f, 0.3f), 0.01f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift1Depth, 1}, "Drift1 Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift2Rate, 1}, "Drift2 Rate",
-        juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.005f));
+        juce::NormalisableRange<float>(1.0f / 128.0f, 2.0f, 0.001f, 0.3f), 1.0f / 128.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift2Depth, 1}, "Drift2 Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift3Rate, 1}, "Drift3 Rate",
-        juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.002f));
+        juce::NormalisableRange<float>(1.0f / 128.0f, 2.0f, 0.001f, 0.3f), 1.0f / 128.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift3Depth, 1}, "Drift3 Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));

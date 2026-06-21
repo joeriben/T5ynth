@@ -95,9 +95,9 @@ private:
     };
 
     std::array<InternalLFO, NUM_LFOS> lfos {{
-        { 0.0, 0.01f,  0.0f, 0, Sine },      // Drift 1: rate=0.01 Hz
-        { 0.0, 0.005f, 0.0f, 0, Triangle },   // Drift 2: rate=0.005 Hz
-        { 0.0, 0.002f, 0.0f, 0, Sine },       // Drift 3: rate=0.002 Hz
+        { 0.0, 0.01f,        0.0f, 0, Sine },     // Drift 1: rate=0.01 Hz (100 s/cyc)
+        { 0.0, 1.0f / 128.0f, 0.0f, 0, Triangle }, // Drift 2: rate=1/128 Hz — mirrors APVTS floor
+        { 0.0, 1.0f / 128.0f, 0.0f, 0, Sine },     // Drift 3: rate=1/128 Hz — mirrors APVTS floor
     }};
 
     bool active = false;

@@ -450,7 +450,7 @@ void SynthPanel::initDrift(DriftSection& drift, const juce::String& name,
         0.0, static_cast<double>(ClockDivision::kCount - 1), 1.0);
     // Lock the value column to a fixed pixel width so the slider track's
     // RIGHT edge stays put when ClockMode swaps. Free mode now shows the period
-    // ("1000 s/cyc" at the slow floor), wider than the old "0.001 Hz", hence 84.
+    // (e.g. "128 s/cyc" at the floor, "0.50 s/cyc" fast), wider than "Hz", hence 84.
     // BOTH rows share the width so the track edge is stable across the swap. The
     // label column is forced from SynthPanel::resized() to the
     // modulation-section-wide left column width — do NOT force it here.
