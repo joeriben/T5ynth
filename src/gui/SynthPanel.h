@@ -165,7 +165,7 @@ private:
         // four velSens/Amt faders; the SliderRows above still serve advanced.
         // velAmt is global, so every env section's Level bar attaches to the same
         // parameter — only the selected env's box is visible at a time.
-        juce::Label velBoxTitle;
+        ModuleBox velBox;   // framed card + accent top-header, same template as DURATION/RE-PROMPT
         std::unique_ptr<VelocityBar> attVB, decVB, relVB, levelVB;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attVBA, decVBA, relVBA, levelVBA;
 

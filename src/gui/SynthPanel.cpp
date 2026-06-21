@@ -155,9 +155,9 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     wireVB(*env.relVB,   rVsId);
     wireVB(*env.levelVB, PID::velAmt);
 
-    env.velBoxTitle.setText("Velocity Amount", juce::dontSendNotification);
-    env.velBoxTitle.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(env.velBoxTitle);
+    env.velBox.configure("VELOCITY AMOUNT", kEnvCol, Icon::numIcons);
+    addAndMakeVisible(env.velBox);
+    env.velBox.toBack();   // decorative frame — must sit behind the bars it frames
 
     // ── Curve shape cycling buttons (square icons) ──
     auto setupCurveBtn = [this](CurveButton& btn, juce::ComboBox& hidden,
@@ -1616,7 +1616,7 @@ void SynthPanel::updateVisibility()
         // Easy-view graph + "Velocity Amount" box: easy + selected only.
         const bool easySel = easy && selected;
         if (env.graph) env.graph->setVisible(easySel);
-        env.velBoxTitle.setVisible(easySel);
+        env.velBox.setVisible(easySel);
         for (auto* vb : { env.attVB.get(), env.decVB.get(), env.relVB.get(), env.levelVB.get() })
             if (vb) vb->setVisible(easySel);
     };
@@ -2268,17 +2268,17 @@ void SynthPanel::layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float
     if (env.graph) env.graph->setBounds(graphArea);
     area.removeFromTop(rowGap);
 
-    // "Velocity Amount" box: a centred title over four vertical drag-fill bars
-    // (Att/Dec/Rel = bipolar velocity→stage TIME; Level = the global velocity→
-    // peak amount, velAmt — last, set slightly apart as the sum attenuation).
+    // "Velocity Amount" ModuleBox: accent top-header (same template as DURATION/
+    // RE-PROMPT/RESYNTH) framing four vertical drag-fill bars (Att/Dec/Rel =
+    // bipolar velocity→stage TIME; Level = the global velocity→peak amount,
+    // velAmt — last, set slightly apart as the sum attenuation).
     {
-        auto vsArea = area;
-        const int titleH = juce::jlimit(12, rowH, juce::roundToInt(f * 1.4f));
-        env.velBoxTitle.setFont(juce::FontOptions(
-            juce::jmax(kUiControlFontMin, juce::jmin(12.0f, static_cast<float>(titleH) * 0.82f)),
-            juce::Font::bold));
-        env.velBoxTitle.setBounds(vsArea.removeFromTop(juce::jmin(titleH, vsArea.getHeight())));
-        vsArea.removeFromTop(juce::jmin(2, vsArea.getHeight()));
+        const int headerH = juce::jlimit(12, rowH, juce::roundToInt(f * 1.4f));
+        env.velBox.setBaseFont(f);
+        env.velBox.setHeaderHeight(headerH);
+        env.velBox.setContentPadding(juce::jmax(3, juce::roundToInt(f * 0.3f)));
+        env.velBox.setBounds(area);
+        auto vsArea = env.velBox.getContentBounds();   // PARENT-relative
 
         VelocityBar* vb[4] = { env.attVB.get(), env.decVB.get(), env.relVB.get(), env.levelVB.get() };
         constexpr int vGap = 4;
