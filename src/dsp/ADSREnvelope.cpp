@@ -45,43 +45,40 @@ void ADSREnvelope::reset()
     releaseStartLevel = 0.0f;
     releaseSampleCount = 0;
     releaseTotalSamples = 1;
+    holdSampleCount = 0;
+    holdTotalSamples = 1;
+    noteHeld = false;
     bypassed = false;
 }
 
-void ADSREnvelope::noteOn(float velocity)
+void ADSREnvelope::beginAttack()
 {
-    targetVelocity = velocity;
-    bypassed = false;
+    // Soft retrigger from the current level — shared by noteOn and the loop cycle.
+    const float peak   = targetVelocity;
+    const float atkSec = std::max(attackMs / 1000.0f, MIN_RAMP_SEC);
 
-    // Attack ramp (from current level to peak — soft retrigger)
-    float peak = targetVelocity;
-    float atkSec = std::max(attackMs / 1000.0f, MIN_RAMP_SEC);
-
-    attackStartLevel = currentLevel;
-    attackTarget = peak;
-    attackSampleCount = 0;
+    attackStartLevel   = currentLevel;
+    attackTarget       = peak;
+    attackSampleCount  = 0;
     attackTotalSamples = std::max(1, static_cast<int>(atkSec * static_cast<float>(sr)));
 
     // Pre-compute decay parameters (used when attack finishes)
-    float susLevel = sustainLevel * peak;
-    float decSec   = std::max(decayMs / 1000.0f, MIN_RAMP_SEC);
+    const float susLevel = sustainLevel * peak;
+    const float decSec   = std::max(decayMs / 1000.0f, MIN_RAMP_SEC);
 
-    decayStartLevel = peak;
-    decayTarget = susLevel;
+    decayStartLevel  = peak;
+    decayTarget      = susLevel;
     decaySampleCount = 0;
     decayTotalSamples = std::max(1, static_cast<int>(decSec * static_cast<float>(sr)));
 
     state = State::Attack;
-    // Don't reset currentLevel — soft retrigger from current position
 }
 
-void ADSREnvelope::noteOff()
+void ADSREnvelope::beginRelease()
 {
-    if (state == State::Idle) return;
+    const float relSec = std::max(releaseMs / 1000.0f, MIN_RAMP_SEC);
 
-    float relSec = std::max(releaseMs / 1000.0f, MIN_RAMP_SEC);
-
-    releaseStartLevel = currentLevel;
+    releaseStartLevel  = currentLevel;
     releaseSampleCount = 0;
     releaseTotalSamples = std::max(1, static_cast<int>(relSec * static_cast<float>(sr)));
 
@@ -89,6 +86,21 @@ void ADSREnvelope::noteOff()
     releaseTau = relSec / 5.0f;
 
     state = State::Release;
+}
+
+void ADSREnvelope::noteOn(float velocity)
+{
+    targetVelocity = velocity;
+    bypassed = false;
+    noteHeld = true;
+    beginAttack();   // soft retrigger from current level
+}
+
+void ADSREnvelope::noteOff()
+{
+    noteHeld = false;   // ends any loop: the cycle releases to Idle, no retrigger
+    if (state == State::Idle) return;
+    beginRelease();
 }
 
 void ADSREnvelope::bypass()
@@ -137,34 +149,42 @@ float ADSREnvelope::processSample()
             if (t >= 1.0f)
             {
                 currentLevel = decayTarget;
-                state = State::Sustain;
+                if (looping)
+                {
+                    // Loop cycle: timed Hold at the sustain level, then Release → repeat.
+                    holdSampleCount  = 0;
+                    const float holdSec = std::max(holdMs / 1000.0f, 0.0f);
+                    holdTotalSamples = std::max(1, static_cast<int>(holdSec * static_cast<float>(sr)));
+                    state = State::Hold;
+                }
+                else
+                    state = State::Sustain;
             }
+            return currentLevel;
+        }
+
+        case State::Hold:
+        {
+            // Loop-only plateau at the (decayed) sustain level.
+            if (! looping)            // loop switched off mid-hold → behave like Sustain
+            {
+                state = State::Sustain;
+                return currentLevel;
+            }
+            holdSampleCount++;
+            if (holdSampleCount >= holdTotalSamples)
+                beginRelease();   // per-cycle release to zero (then retrigger)
             return currentLevel;
         }
 
         case State::Sustain:
-        {
-            // Loop: restart attack when sustain is reached
-            if (looping)
-            {
-                float peak = targetVelocity;
-                float atkSec = std::max(attackMs / 1000.0f, MIN_RAMP_SEC);
-                attackStartLevel = currentLevel;
-                attackTarget = peak;
-                attackSampleCount = 0;
-                attackTotalSamples = std::max(1, static_cast<int>(atkSec * static_cast<float>(sr)));
-
-                float susLevel = sustainLevel * peak;
-                float decSec   = std::max(decayMs / 1000.0f, MIN_RAMP_SEC);
-                decayStartLevel = peak;
-                decayTarget = susLevel;
-                decaySampleCount = 0;
-                decayTotalSamples = std::max(1, static_cast<int>(decSec * static_cast<float>(sr)));
-
-                state = State::Attack;
-            }
+            // Non-loop: hold at sustain level until noteOff. (Loop path uses Hold.)
+            // If loop is switched on while parked here (toggled mid-note), enter the
+            // cycle — mirrors the Release-exit gate; noteOff clears noteHeld first, so
+            // this can never retrigger after release.
+            if (looping && noteHeld)
+                beginAttack();
             return currentLevel;
-        }
 
         case State::Release:
         {
@@ -191,7 +211,10 @@ float ADSREnvelope::processSample()
             if (currentLevel < 1e-4f)
             {
                 currentLevel = 0.0f;
-                state = State::Idle;
+                if (looping && noteHeld)
+                    beginAttack();      // loop: start the next cycle from zero
+                else
+                    state = State::Idle;
             }
             return currentLevel;
         }
