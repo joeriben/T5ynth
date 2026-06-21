@@ -6,13 +6,11 @@ namespace
 // Per-target aftertouch normalization: each target carries its own bipolar
 // amount (-1..+1), scaled into the target's natural units so heterogeneous
 // targets feel comparable. [0..1]-range targets (Scan, Reso, Noise, Env
-// Sustain, LFO Depth) add the signed drive directly; the constants below set
-// full-scale depth for the unit-bearing ones. Negative amount drives the
-// opposite direction (pressure closes the filter, bends down, ducks the DCA).
-constexpr float kFilterModOctaves = 4.0f;    // Cutoff: ×2^(drive·octaves), full-scale ±4 oct
-                                             // (matches MPE timbre's ±4-oct sweep; was ±10,
-                                             // which crowded the musical band into the first
-                                             // ~10–30% of the amount control)
+// Sustain, LFO Depth) add the signed drive directly. Cutoff is NOT AT-specific:
+// aftertouch feeds the shared cutoff modulation bus (ModCalib::kCutoffModOctaves,
+// BlockParams.h) alongside env/LFO/Drift/timbre. The constants below set
+// full-scale for the AT-only unit-bearing targets. Negative amount drives the
+// opposite direction (bends down, ducks the DCA).
 constexpr float kAtPitchSemitones = 12.0f;   // Pitch:  ±N semitones (ratio)
 constexpr float kAtDcaGain        = 1.0f;    // DCA:    gain ×(1 + drive·this)
 
@@ -55,14 +53,6 @@ float computeEffectiveLfoDepth(const BlockParams& p, int target, float baseDepth
 float applyAftertouchTarget(const BlockParams& p, int target, float baseValue, float pressure)
 {
     return applyNormalizedOffset(baseValue, aftertouchDrive(p, target, pressure));
-}
-
-// Cutoff: multiplicative octaves (the base ranges over the full audio band);
-// negative drive sweeps the cutoff down, positive up.
-float applyAftertouchCutoffTarget(const BlockParams& p, float cutoffHz, float pressure)
-{
-    const float drive = aftertouchDrive(p, AftertouchTarget::Cutoff, pressure);
-    return drive != 0.0f ? cutoffHz * std::pow(2.0f, drive * kFilterModOctaves) : cutoffHz;
 }
 
 // Pitch: adds up to ±kAtPitchSemitones of bend (sign follows the amount) as a
@@ -309,14 +299,30 @@ void SynthVoice::configureForBlock(const BlockParams& p)
 {
     octaveShift_ = p.octaveShift;
     velAmt_ = p.velAmt;
+
+    // Loop mode repurposes the Sustain control: the LEVEL is fixed and the slider
+    // value becomes the per-cycle Hold duration (A→D→Hold→R→repeat). Depth comes
+    // from the envelope Amount; A/D/R keep their normal meaning.
+    constexpr float kLoopHoldLevel = 0.5f;
+    auto loopHoldMs = [](float sus) { return sus * sus * 4000.0f; }; // 0..1 → 0..4s, fine at the short end
+
     ampAttackBaseMs_ = p.ampAttack;
     ampDecayBaseMs_ = p.ampDecay;
     ampReleaseBaseMs_ = p.ampRelease;
     ampAttackVelSens_ = p.ampAttackVelSens;
     ampDecayVelSens_ = p.ampDecayVelSens;
     ampReleaseVelSens_ = p.ampReleaseVelSens;
-    ampEnv.setSustain(applyAftertouchTarget(p, AftertouchTarget::Env1Sustain,
-                                            p.ampSustain, aftertouch_));
+    if (p.ampLoop)
+    {
+        ampEnv.setSustain(kLoopHoldLevel);
+        ampEnv.setHoldMs(loopHoldMs(p.ampSustain));
+    }
+    else
+    {
+        ampEnv.setSustain(applyAftertouchTarget(p, AftertouchTarget::Env1Sustain,
+                                                p.ampSustain, aftertouch_));
+        ampEnv.setHoldMs(0.0f);
+    }
     ampEnv.setLooping(p.ampLoop);
     ampEnv.setAttackCurve(static_cast<CurveShape>(p.ampAttackCurve));
     ampEnv.setDecayCurve(static_cast<CurveShape>(p.ampDecayCurve));
@@ -328,8 +334,17 @@ void SynthVoice::configureForBlock(const BlockParams& p)
     mod1AttackVelSens_ = p.mod1AttackVelSens;
     mod1DecayVelSens_ = p.mod1DecayVelSens;
     mod1ReleaseVelSens_ = p.mod1ReleaseVelSens;
-    modEnv1.setSustain(applyAftertouchTarget(p, AftertouchTarget::Env2Sustain,
-                                             p.mod1Sustain, aftertouch_));
+    if (p.mod1Loop)
+    {
+        modEnv1.setSustain(kLoopHoldLevel);
+        modEnv1.setHoldMs(loopHoldMs(p.mod1Sustain));
+    }
+    else
+    {
+        modEnv1.setSustain(applyAftertouchTarget(p, AftertouchTarget::Env2Sustain,
+                                                 p.mod1Sustain, aftertouch_));
+        modEnv1.setHoldMs(0.0f);
+    }
     modEnv1.setLooping(p.mod1Loop);
     modEnv1.setAttackCurve(static_cast<CurveShape>(p.mod1AttackCurve));
     modEnv1.setDecayCurve(static_cast<CurveShape>(p.mod1DecayCurve));
@@ -341,8 +356,17 @@ void SynthVoice::configureForBlock(const BlockParams& p)
     mod2AttackVelSens_ = p.mod2AttackVelSens;
     mod2DecayVelSens_ = p.mod2DecayVelSens;
     mod2ReleaseVelSens_ = p.mod2ReleaseVelSens;
-    modEnv2.setSustain(applyAftertouchTarget(p, AftertouchTarget::Env3Sustain,
-                                             p.mod2Sustain, aftertouch_));
+    if (p.mod2Loop)
+    {
+        modEnv2.setSustain(kLoopHoldLevel);
+        modEnv2.setHoldMs(loopHoldMs(p.mod2Sustain));
+    }
+    else
+    {
+        modEnv2.setSustain(applyAftertouchTarget(p, AftertouchTarget::Env3Sustain,
+                                                 p.mod2Sustain, aftertouch_));
+        modEnv2.setHoldMs(0.0f);
+    }
     modEnv2.setLooping(p.mod2Loop);
     modEnv2.setAttackCurve(static_cast<CurveShape>(p.mod2AttackCurve));
     modEnv2.setDecayCurve(static_cast<CurveShape>(p.mod2DecayCurve));
@@ -732,31 +756,30 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                 cutoffMod *= std::pow(2.0f, (soundingNote - 60.0f) / 12.0f * p.kbdTrack);
             }
 
-            constexpr float FILTER_OCTAVES = 10.0f;
-            float rawAmp = (p.ampAmount > 0.001f) ? lastAmpEnvLevel / p.ampAmount : 0.0f;
-            float rawEnv1 = (p.mod1Amount > 0.001f) ? lastMod1Val_ / p.mod1Amount : 0.0f;
-            float rawEnv2 = (p.mod2Amount > 0.001f) ? lastMod2Val_ / p.mod2Amount : 0.0f;
-
-            if (p.ampTarget == EnvTarget::Filter) cutoffMod *= std::pow(2.0f, rawAmp * p.ampAmount * FILTER_OCTAVES);
-            if (p.mod1Target == EnvTarget::Filter) cutoffMod *= std::pow(2.0f, rawEnv1 * p.mod1Amount * FILTER_OCTAVES);
-            if (p.mod2Target == EnvTarget::Filter) cutoffMod *= std::pow(2.0f, rawEnv2 * p.mod2Amount * FILTER_OCTAVES);
-            if (p.lfo1Target == LfoTarget::Filter) cutoffMod *= std::pow(2.0f, lfo1Mid * FILTER_OCTAVES);
-            if (p.lfo2Target == LfoTarget::Filter) cutoffMod *= std::pow(2.0f, lfo2Mid * FILTER_OCTAVES);
-            if (p.lfo3Target == LfoTarget::Filter) cutoffMod *= std::pow(2.0f, lfo3Mid * FILTER_OCTAVES);
-            if (p.driftFilterOffset != 0.0f)
-                cutoffMod *= std::pow(2.0f, p.driftFilterOffset * FILTER_OCTAVES);
-            cutoffMod = applyAftertouchCutoffTarget(p, cutoffMod, aftertouch_);
-
-            // MPE Timbre (CC74 / the Y slide axis) → filter brightness, the
-            // conventional MPE mapping. Bipolar around the neutral centre (CC64):
-            // full up = +octaves, full down = −octaves. Gated so a note with no
-            // timbre data (every non-MPE note) pays nothing and is unmodulated.
-            // Per-block, like every other factor in this chain.
+            // ── Cutoff modulation bus ──────────────────────────────────────
+            // Every source contributes a NORMALIZED octave-fraction summed into a
+            // single exponent; the destination owns the one full-scale, applied
+            // once. ±1 of summed contribution == ±ModCalib::kCutoffModOctaves
+            // octaves. Replaces three per-source constants (env/LFO/Drift were
+            // ±10, AT and MPE timbre ±4) so a LINEAR amount/depth maps to a
+            // musical sweep and no source needs its own filter calibration.
+            //   env  → lastAmpEnvLevel etc. are already amount-scaled (peak == Amt)
+            //   LFO  → lfo*Mid are already depth-scaled (lfoBuf · depth)
+            //   Drift→ p.driftFilterOffset is now normalized (filter half-range 1.0)
+            //   AT   → signed pressure·amount drive in [-1..+1]
+            //   timbre→ bipolar Y around neutral, 0 when no MPE timbre data
+            float cutoffOctaves = 0.0f;
+            if (p.ampTarget  == EnvTarget::Filter) cutoffOctaves += lastAmpEnvLevel;
+            if (p.mod1Target == EnvTarget::Filter) cutoffOctaves += lastMod1Val_;
+            if (p.mod2Target == EnvTarget::Filter) cutoffOctaves += lastMod2Val_;
+            if (p.lfo1Target == LfoTarget::Filter) cutoffOctaves += lfo1Mid;
+            if (p.lfo2Target == LfoTarget::Filter) cutoffOctaves += lfo2Mid;
+            if (p.lfo3Target == LfoTarget::Filter) cutoffOctaves += lfo3Mid;
+            cutoffOctaves += p.driftFilterOffset;
+            cutoffOctaves += aftertouchDrive(p, AftertouchTarget::Cutoff, aftertouch_);
             if (timbre_ != kTimbreNeutral)
-            {
-                constexpr float MPE_TIMBRE_OCTAVES = 4.0f;
-                cutoffMod *= std::pow(2.0f, (timbre_ - kTimbreNeutral) * 2.0f * MPE_TIMBRE_OCTAVES);
-            }
+                cutoffOctaves += (timbre_ - kTimbreNeutral) * 2.0f;
+            cutoffMod *= std::pow(2.0f, cutoffOctaves * ModCalib::kCutoffModOctaves);
 
             cutoffMod = juce::jlimit(20.0f, 20000.0f, cutoffMod);
             const float resonanceMod = applyAftertouchTarget(

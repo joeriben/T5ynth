@@ -44,7 +44,7 @@ float DriftLFO::halfRangeForTarget(int target)
         case TgtAxis2:     return 2.0f;   // sem_axis_2
         case TgtAxis3:     return 2.0f;   // sem_axis_3
         case TgtWtScan:    return 0.5f;   // wt_scan: [0, 1]
-        case TgtFilter:    return 0.3f;   // filter cutoff: ±30% modulation depth
+        case TgtFilter:    return 1.0f;   // filter cutoff: normalized — the cutoff bus owns the octave scale (ModCalib::kCutoffModOctaves)
         case TgtPitch:     return 12.0f;  // pitch: ±12 semitones
         case TgtDelayTime: return 0.5f;   // delay time: ±50% of base
         case TgtDelayFb:   return 0.3f;   // delay feedback: ±30%

@@ -300,6 +300,16 @@ namespace PID {
 }
 
 // ── Modulation envelope targets ──
+// ── Modulation full-scale calibration (destination-owned) ──────────────────────
+// Each modulation DESTINATION owns the single full-scale that converts a summed,
+// NORMALIZED modulation contribution into the real parameter change. Every source
+// (env, LFO, Drift, aftertouch, MPE timbre) feeds a normalized amount into the
+// SAME constant — so the feel is calibrated here, once per destination, never
+// per-source. ±1 of summed contribution maps to the full-scale below.
+namespace ModCalib {
+    static constexpr float kCutoffModOctaves = 4.0f; // cutoff: ±1 summed → ±4 octaves
+}
+
 namespace EnvTarget {
     // Keep the shared target order aligned with LfoTarget: Filter, Scan,
     // Pitch, Delay, Reverb, Noise. Env-only targets stay in their own blocks.
@@ -1299,7 +1309,7 @@ struct BlockParams
     float driftScanOffset = 0.0f;
 
     // Drift offsets for filter and pitch (applied per-voice in SynthVoice)
-    float driftFilterOffset = 0.0f;  // multiplicative: cutoff *= (1 + offset * FILTER_DEPTH)
+    float driftFilterOffset = 0.0f;  // normalized cutoff contribution (octave-fraction), summed into the cutoff bus
     float driftPitchOffset = 0.0f;   // additive: pitchMod += offset
     float performancePitchRatio = 1.0f; // MIDI pitch bend, applied as a frequency multiplier
 

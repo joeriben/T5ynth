@@ -609,7 +609,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::NormalisableRange<float>(0.01f, 30.0f, 0.01f, 0.3f), 2.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::lfo1Depth, 1}, "LFO1 Amount",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.3f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::lfo1Wave, 1}, "LFO1 Wave",
         toChoices(LfoWave::kEntries), 0));
@@ -620,7 +620,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::NormalisableRange<float>(0.01f, 30.0f, 0.01f, 0.3f), 0.5f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::lfo2Depth, 1}, "LFO2 Amount",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.3f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::lfo2Wave, 1}, "LFO2 Wave",
         toChoices(LfoWave::kEntries), 1));
@@ -631,7 +631,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::NormalisableRange<float>(0.01f, 30.0f, 0.01f, 0.3f), 0.2f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::lfo3Depth, 1}, "LFO3 Amount",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.3f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::lfo3Wave, 1}, "LFO3 Wave",
         toChoices(LfoWave::kEntries), 0));
@@ -656,9 +656,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
             { PID::aftertouchAmtNoiseLevel,  "AT Noise"        },
         };
         // Honest linear bipolar amount, 0.01 step (two decimals). The DSP
-        // full-scales are now musical (e.g. AT→Cutoff = ±4 oct, see
-        // SynthVoice kFilterModOctaves), so the control no longer needs a skew or
-        // 1/1000-scale values to be usable — the whole travel maps to a usable range.
+        // full-scales are now musical (AT→Cutoff feeds the shared cutoff bus at
+        // ±4 oct, ModCalib::kCutoffModOctaves), so the control no longer needs a
+        // skew or 1/1000-scale values — the whole travel maps to a usable range.
         for (const auto& a : atTargets)
             params.push_back(std::make_unique<juce::AudioParameterFloat>(
                 juce::ParameterID{ a.pid, 1 }, a.name,
@@ -679,19 +679,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.01f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift1Depth, 1}, "Drift1 Amount",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.3f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift2Rate, 1}, "Drift2 Rate",
         juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.005f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift2Depth, 1}, "Drift2 Amount",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.3f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift3Rate, 1}, "Drift3 Rate",
         juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.002f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift3Depth, 1}, "Drift3 Amount",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.3f), 0.0f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
 
     // Drift targets + waveform selection
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
@@ -3346,12 +3346,15 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             }
             else if (lfoModFilter)
             {
-                // Hypothetical cutoff from base + LFO (no envelope, no kbd track)
-                constexpr float FILTER_OCTAVES = 10.0f;
-                float hypo = bp.baseCutoff;
-                if (bp.lfo1Target == LfoTarget::Filter) hypo *= std::pow(2.0f, lastLfo1Val_ * FILTER_OCTAVES);
-                if (bp.lfo2Target == LfoTarget::Filter) hypo *= std::pow(2.0f, lastLfo2Val_ * FILTER_OCTAVES);
-                if (bp.lfo3Target == LfoTarget::Filter) hypo *= std::pow(2.0f, lastLfo3Val_ * FILTER_OCTAVES);
+                // Hypothetical cutoff from base + LFO (no envelope, no kbd track).
+                // Same per-destination full-scale as the audio path: each filter-
+                // targeted LFO contributes a normalized octave-fraction, summed,
+                // then scaled once by ModCalib::kCutoffModOctaves.
+                float hypoOct = 0.0f;
+                if (bp.lfo1Target == LfoTarget::Filter) hypoOct += lastLfo1Val_;
+                if (bp.lfo2Target == LfoTarget::Filter) hypoOct += lastLfo2Val_;
+                if (bp.lfo3Target == LfoTarget::Filter) hypoOct += lastLfo3Val_;
+                float hypo = bp.baseCutoff * std::pow(2.0f, hypoOct * ModCalib::kCutoffModOctaves);
                 modulatedValues.filterCutoff.store(juce::jlimit(20.0f, 20000.0f, hypo), std::memory_order_relaxed);
             }
             else
@@ -5027,11 +5030,19 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 auto* env = (*envsArr)[i].getDynamicObject();
                 if (!env) continue;
                 const auto& ep = kEnvPIDs[i];
+                // Resolve the env's target up front: the cutoff-bus migration
+                // rescales a filter-targeted env's amount (target-conditional), and
+                // the same value sets the target param below.
+                const int envTarget = env->hasProperty("target")
+                    ? envTargetFromString(env->getProperty("target").toString())
+                    : (i == 0 ? EnvTarget::DCA : EnvTarget::None);
                 setParam(parameters, ep.attack, static_cast<float>(env->getProperty("attackMs")));
                 setParam(parameters, ep.decay, static_cast<float>(env->getProperty("decayMs")));
                 setParam(parameters, ep.sustain, static_cast<float>(env->getProperty("sustain")));
                 setParam(parameters, ep.release, static_cast<float>(env->getProperty("releaseMs")));
-                setParam(parameters, ep.amount, static_cast<float>(env->getProperty("amount")));
+                setParam(parameters, ep.amount,
+                         Calibration::migrateScalarCond(ep.amount,
+                             static_cast<float>(env->getProperty("amount")), fileCalibEpoch, envTarget));
                 setParam(parameters, ep.loop, env->getProperty("loop") ? 1.0f : 0.0f);
                 // Velocity sensitivity = signed per-stage A/D/R TIME only.
                 // Any "sustainVelSens" from older presets (velocity→peak) is
@@ -5070,11 +5081,7 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 if (env->hasProperty("releaseCurve"))
                     setParam(parameters, ep.releaseCurve,
                              static_cast<float>(curveShapeFromString(env->getProperty("releaseCurve").toString())));
-                if (env->hasProperty("target"))
-                    setParam(parameters, ep.target,
-                             static_cast<float>(envTargetFromString(env->getProperty("target").toString())));
-                else if (i == 0)
-                    setParam(parameters, ep.target, static_cast<float>(EnvTarget::DCA));
+                setParam(parameters, ep.target, static_cast<float>(envTarget));
             }
         }
 
@@ -5086,10 +5093,13 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 auto* lfo = (*lfosArr)[i].getDynamicObject();
                 if (!lfo) continue;
                 const auto& lp = kLfoPIDs[i];
+                const int lfoTarget = lfoTargetFromString(lfo->getProperty("target").toString());
                 setParam(parameters, lp.rate, static_cast<float>(lfo->getProperty("rate")));
-                setParam(parameters, lp.depth, static_cast<float>(lfo->getProperty("depth")));
+                setParam(parameters, lp.depth,
+                         Calibration::migrateScalarCond(lp.depth,
+                             static_cast<float>(lfo->getProperty("depth")), fileCalibEpoch, lfoTarget));
                 setParam(parameters, lp.wave, static_cast<float>(lfoWaveFromString(lfo->getProperty("waveform").toString())));
-                setParam(parameters, lp.target, static_cast<float>(lfoTargetFromString(lfo->getProperty("target").toString())));
+                setParam(parameters, lp.target, static_cast<float>(lfoTarget));
                 setParam(parameters, lp.mode, static_cast<float>(lfoModeFromString(lfo->getProperty("mode").toString())));
                 // Pre-v1.7 presets have no clock fields — default to Off / 1/4
                 // explicitly so the previous session's clock state cannot stick.
@@ -5140,10 +5150,13 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
             auto* d = (*driftArr)[i].getDynamicObject();
             if (!d) continue;
             const auto& dp = kDriftPIDs[i];
+            const int driftTarget = driftTargetFromString(d->getProperty("target").toString());
             setParam(parameters, dp.rate, static_cast<float>(d->getProperty("rate")));
-            setParam(parameters, dp.depth, static_cast<float>(d->getProperty("depth")));
+            setParam(parameters, dp.depth,
+                     Calibration::migrateScalarCond(dp.depth,
+                         static_cast<float>(d->getProperty("depth")), fileCalibEpoch, driftTarget));
             setParam(parameters, dp.wave, static_cast<float>(driftWaveFromString(d->getProperty("waveform").toString())));
-            setParam(parameters, dp.target, static_cast<float>(driftTargetFromString(d->getProperty("target").toString())));
+            setParam(parameters, dp.target, static_cast<float>(driftTarget));
             setParam(parameters, dp.clockMode, d->hasProperty("clockMode")
                 ? static_cast<float>(clockModeFromString(d->getProperty("clockMode").toString()))
                 : static_cast<float>(ClockMode::Off));
