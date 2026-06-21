@@ -493,7 +493,19 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     settingsScrim.onClick = [this] { hideSettings(); };
     settingsScrim.setVisible(false);
     addChildComponent(settingsScrim);
-    addChildComponent(settingsPage);
+
+    // Settings overlay is tabbed: "Modelle" (model manager, default-open) +
+    // "Settings" (global options). deleteWhenNotNeeded=false — MainPanel owns the
+    // pages; the TabbedComponent only displays them (and reparents them).
+    settingsTabs.addTab("Modelle",  kBg, &settingsPage,        false);
+    settingsTabs.addTab("Settings", kBg, &generalSettingsPage, false);
+    settingsTabs.setCurrentTabIndex(0);
+    settingsTabs.setOutline(0);
+    addChildComponent(settingsTabs);
+
+    generalSettingsPage.onOsQualityChanged = [this](int idx) { processorRef.setFilterOsQuality(idx); };
+    generalSettingsPage.setOsQuality(processorRef.getFilterOsQuality());
+
     settingsPage.onModelReady = [this]
     {
         if (promptPanel.isGenerating())
@@ -2024,7 +2036,7 @@ void MainPanel::mouseDown(const juce::MouseEvent& e)
     }
     if (settingsVisible)
     {
-        auto settingsBounds = settingsPage.getBounds();
+        auto settingsBounds = settingsTabs.getBounds();   // tabs are the MainPanel-space child now
         if (!settingsBounds.contains(e.x, e.y))
             hideSettings();
     }
@@ -2130,8 +2142,8 @@ void MainPanel::showSettings()
     settingsVisible = true;
     settingsScrim.setVisible(true);
     settingsScrim.toFront(false);
-    settingsPage.setVisible(true);
-    settingsPage.toFront(false);
+    settingsTabs.setVisible(true);
+    settingsTabs.toFront(false);
     resized();
 }
 
@@ -2139,7 +2151,7 @@ void MainPanel::hideSettings()
 {
     settingsVisible = false;
     settingsScrim.setVisible(false);
-    settingsPage.setVisible(false);
+    settingsTabs.setVisible(false);
     resized();
 }
 
@@ -3342,7 +3354,7 @@ void MainPanel::resized()
         int settingsH = juce::jlimit(300, 500, juce::roundToInt(h * 0.55f));
         int sx = getWidth() - settingsW - 20;
         int sy = getHeight() - statusH - settingsH - 30;
-        settingsPage.setBounds(sx, sy, settingsW, settingsH);
+        settingsTabs.setBounds(sx, sy, settingsW, settingsH);
     }
 
     // DimExplorer overlay

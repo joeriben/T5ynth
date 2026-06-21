@@ -3594,6 +3594,55 @@ void SettingsPage::paint(juce::Graphics& g)
     }
 }
 
+// ───────────────────────────── GeneralSettingsPage ─────────────────────────────
+
+GeneralSettingsPage::GeneralSettingsPage()
+{
+    osTitle_.setText("Filter Oversampling", juce::dontSendNotification);
+    osTitle_.setColour(juce::Label::textColourId, kTextPrimary);
+    osTitle_.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(osTitle_);
+
+    osCombo_.addItem("Off",  1);                 // item ids are index+1
+    osCombo_.addItem("2×", 2);
+    osCombo_.addItem("4×", 3);
+    osCombo_.setSelectedId(2, juce::dontSendNotification);   // default 2x
+    osCombo_.onChange = [this]
+    {
+        if (onOsQualityChanged)
+            onOsQualityChanged(osCombo_.getSelectedId() - 1);
+    };
+    addAndMakeVisible(osCombo_);
+}
+
+void GeneralSettingsPage::setOsQuality(int qualityIndex)
+{
+    osCombo_.setSelectedId(juce::jlimit(0, 2, qualityIndex) + 1, juce::dontSendNotification);
+}
+
+void GeneralSettingsPage::paint(juce::Graphics& g)
+{
+    g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
+
+    g.setColour(kTextMuted);
+    g.setFont(juce::FontOptions(12.0f));
+    g.drawFittedText("Suppresses aliasing on the nonlinear Ladder / Warp filters by running them "
+                     "at a higher internal rate. Higher = cleaner, more CPU; the linear SVF is "
+                     "unaffected. Global setting for this machine — not stored per preset.",
+                     helpBounds_, juce::Justification::topLeft, 5);
+}
+
+void GeneralSettingsPage::resized()
+{
+    auto r = getLocalBounds().reduced(18);
+    auto row = r.removeFromTop(26);
+    osTitle_.setBounds(row.removeFromLeft(150));
+    row.removeFromLeft(10);
+    osCombo_.setBounds(row.removeFromLeft(110));
+    r.removeFromTop(14);
+    helpBounds_ = r.removeFromTop(90);
+}
+
 void SettingsPage::resized()
 {
     auto area = getLocalBounds().reduced(8, 6);

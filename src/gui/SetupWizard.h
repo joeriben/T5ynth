@@ -258,3 +258,32 @@ private:
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SettingsPage)
 };
+
+
+/**
+ * General (machine-wide) settings — the "Settings" tab beside the model manager.
+ * Currently exposes the nonlinear-filter oversampling quality (Off / 2x / 4x).
+ * Processor-agnostic: emits onOsQualityChanged(index 0/1/2); the host wires it to
+ * the processor and seeds the current value via setOsQuality().
+ */
+class GeneralSettingsPage : public juce::Component
+{
+public:
+    GeneralSettingsPage();
+
+    void paint(juce::Graphics& g) override;
+    void resized() override;
+
+    /** Seed the dropdown to the stored value without firing onOsQualityChanged. */
+    void setOsQuality(int qualityIndex);
+
+    /** Fired when the user picks a new quality (index 0=Off, 1=2x, 2=4x). */
+    std::function<void(int)> onOsQualityChanged;
+
+private:
+    juce::Label          osTitle_;
+    juce::ComboBox       osCombo_;
+    juce::Rectangle<int> helpBounds_;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GeneralSettingsPage)
+};
