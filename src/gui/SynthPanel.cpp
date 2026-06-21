@@ -42,6 +42,17 @@ static juce::String fmtDb(double v)  { return juce::String(v, 1) + " dB"; }
 static juce::String fmtHzF1(double v){ return juce::String(v, 1) + " Hz"; }
 static juce::String fmtHzF2(double v){ return juce::String(v, 2) + " Hz"; }
 static juce::String fmtHzF3(double v){ return juce::String(v, 3) + " Hz"; }
+// Drift "Rate" in FREE mode reads as the cycle PERIOD (seconds) rather than a
+// three-decimal sub-Hz value: 0.002 Hz → "500 s/cyc", 1 Hz → "1.0 s/cyc".
+// Adaptive precision keeps it short. (Sync mode uses the musical-division label.)
+static juce::String fmtPeriodSc(double hz)
+{
+    const double s = (hz > 1.0e-6) ? 1.0 / hz : 0.0;
+    const juce::String num = (s >= 100.0) ? juce::String(juce::roundToInt(s))
+                           : (s >= 1.0)   ? juce::String(s, 1)
+                                          : juce::String(s, 2);
+    return num + " s/cyc";
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Envelope init
@@ -427,7 +438,7 @@ void SynthPanel::initDrift(DriftSection& drift, const juce::String& name,
     };
     addAndMakeVisible(drift.clockBtn);
 
-    drift.rateRow     = std::make_unique<SliderRow>("Rate", fmtHzF3, kDriftCol);
+    drift.rateRow     = std::make_unique<SliderRow>("Rate", fmtPeriodSc, kDriftCol);
     drift.depthRow    = std::make_unique<SliderRow>("Amt", fmtPctFine, kDriftCol);
     drift.divisionRow = std::make_unique<SliderRow>("Rate",
         [](double v) {
@@ -438,12 +449,13 @@ void SynthPanel::initDrift(DriftSection& drift, const juce::String& name,
     drift.divisionRow->getSlider().setRange(
         0.0, static_cast<double>(ClockDivision::kCount - 1), 1.0);
     // Lock the value column to a fixed pixel width so the slider track's
-    // RIGHT edge stays put when ClockMode swaps. Drift's "0.001 Hz" is
-    // wider than LFO's by ~8 px, hence 64 vs 56. The label column is
-    // forced from SynthPanel::resized() to the modulation-section-wide
-    // left column width — do NOT force it here.
-    drift.rateRow->setForcedValueWidth(64);
-    drift.divisionRow->setForcedValueWidth(64);
+    // RIGHT edge stays put when ClockMode swaps. Free mode now shows the period
+    // ("1000 s/cyc" at the slow floor), wider than the old "0.001 Hz", hence 84.
+    // BOTH rows share the width so the track edge is stable across the swap. The
+    // label column is forced from SynthPanel::resized() to the
+    // modulation-section-wide left column width — do NOT force it here.
+    drift.rateRow->setForcedValueWidth(84);
+    drift.divisionRow->setForcedValueWidth(84);
     addAndMakeVisible(*drift.rateRow);
     addAndMakeVisible(*drift.depthRow);
     addAndMakeVisible(*drift.divisionRow);
