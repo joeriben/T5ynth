@@ -682,8 +682,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::mod2Amount, 1}, "Mod2 Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
 
+    // Global velocity amount: how strongly note velocity scales EVERY envelope's
+    // peak — i.e. the env's depth on whatever it targets (DCA loudness, filter,
+    // pitch, scan…). 1.0 = full (peak == velocity), 0.0 = velocity-independent.
+    // Orthogonal to the per-env Amt (static depth); see SynthVoice::velPeakScale.
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{PID::velAmt, 1}, "Velocity Amount",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 1.0f));
+
     // Per-stage velocity sensitivity, signed [-1..+1]: velocity→stage TIME only
-    // (A/D/R), default 0 (no velocity effect). Peak/depth is owned by Amt; the
+    // (A/D/R), default 0 (no velocity effect). Velocity→peak is velAmt above; the
     // held level is expressed via Aftertouch, not velocity.
     auto addVelSens = [&params](const char* id, const juce::String& name, float def) {
         params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -1905,6 +1913,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.ampSustain = paramCache.ampSustain->load();
     bp.ampRelease = paramCache.ampRelease->load();
     bp.ampAmount  = paramCache.ampAmount->load();
+    bp.velAmt     = paramCache.velAmt->load();
     bp.ampTarget  = static_cast<int>(paramCache.ampTarget->load());
     bp.ampLoop    = paramCache.ampLoop->load() > 0.5f;
     bp.ampAttackCurve  = static_cast<int>(paramCache.ampAttackCurve->load());
@@ -4521,6 +4530,7 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     synth->setProperty("noise", get(PID::genNoise));
     synth->setProperty("axesAmount", get(PID::genAxesAmount));
     synth->setProperty("resynth", get(PID::resynthAmount));
+    synth->setProperty("velAmt", get(PID::velAmt));   // global velocity→peak amount
     // Re-Prompt (semantic loop): stance + coupling, saved as KEY strings so the
     // enum order can change without breaking presets. A preset saved before
     // Re-Prompt existed lacks both -> choiceFromKey("") -> 0 -> stance Off on load.
@@ -4858,6 +4868,11 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         // saved before Resynth existed lacks the property -> var() -> 0.0f -> the
         // Resynth slider resets to off on load, as a preset's full state should.
         setParam(parameters, PID::resynthAmount, static_cast<float>(synth->getProperty("resynth")));
+        // velAmt default is 1.0 (full velocity→peak). A preset saved before VEL AMT
+        // existed lacks the property; treat absence as 1.0 so old patches regain full
+        // velocity response (the chosen "1.0 global"), not silence-on-soft-notes 0.
+        setParam(parameters, PID::velAmt,
+                 synth->hasProperty("velAmt") ? static_cast<float>(synth->getProperty("velAmt")) : 1.0f);
         // Re-Prompt: restore BOTH the stance and the coupling — a preset is a full
         // patch, and a self-listening "machine" preset (a stance + a non-Manual
         // cadence + Resynth) cannot reproduce without the stance that drives the

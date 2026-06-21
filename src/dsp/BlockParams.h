@@ -48,6 +48,7 @@ namespace PID {
     static constexpr const char* ampSustain       = "amp_sustain";
     static constexpr const char* ampRelease       = "amp_release";
     static constexpr const char* ampAmount        = "amp_amount";
+    static constexpr const char* velAmt           = "vel_amt";   // global velocity→peak amount
     static constexpr const char* ampLoop          = "amp_loop";
     static constexpr const char* ampTarget        = "amp_target";
     static constexpr const char* ampAttackCurve   = "amp_attack_curve";
@@ -1221,9 +1222,14 @@ struct BlockParams
     // Amp envelope
     float ampAttack = 0.0f, ampDecay = 0.0f, ampSustain = 1.0f, ampRelease = 0.0f;
     float ampAmount = 1.0f;
+    // Global velocity → envelope-peak amount [0..1], default 1.0 (full): scales
+    // EVERY envelope's note-on peak by (1−velAmt)+velAmt·velocity, so velocity
+    // drives the env's depth on any target (DCA loudness, filter, pitch, scan…).
+    // 0 = velocity-independent (peak 1.0). Orthogonal to per-env Amt (static depth).
+    float velAmt = 1.0f;
     // Per-stage velocity sensitivity, signed [-1..+1]: velocity→stage TIME only
-    // (A/D/R). 0 = no velocity effect. The peak/depth is owned exclusively by
-    // Amt; the held level is expressed via Aftertouch, not velocity.
+    // (A/D/R). 0 = no velocity effect. Velocity→peak is the global velAmt above;
+    // the held level is expressed via Aftertouch, not velocity.
     float ampAttackVelSens = 0.0f, ampDecayVelSens = 0.0f, ampReleaseVelSens = 0.0f;
     int   ampTarget = EnvTarget::DCA;
     int   ampAttackCurve = 2, ampDecayCurve = 2, ampReleaseCurve = 4; // CurveShape indices

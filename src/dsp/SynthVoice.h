@@ -155,9 +155,14 @@ private:
 
     double sr = 44100.0;
 
+    // Global velocity → envelope-peak amount [0..1] (updated per block from
+    // BlockParams). Drives velPeakScale for ALL three envelopes' note-on peaks,
+    // so velocity scales each env's depth on its target. Orthogonal to per-env Amt.
+    float velAmt_ = 1.0f;
+
     // Per-stage velocity sensitivity, signed [-1..+1] (updated per block from
-    // BlockParams). A/D/R scale the envelope TIMES only — velocity never scales
-    // the level (peak = Amt's job; held level = Aftertouch's).
+    // BlockParams). A/D/R scale the envelope TIMES only; the LEVEL is scaled by
+    // velAmt_ above (velocity→peak), held level by Aftertouch.
     float ampAttackBaseMs_ = 0.0f;
     float ampDecayBaseMs_ = 0.0f;
     float ampReleaseBaseMs_ = 0.0f;
@@ -234,6 +239,7 @@ private:
         float mod2ReleaseVelSens = -2.0f;
 
         float velocity = -1.0f;
+        float velAmt = -1.0f;
         float startPos = -1.0f;
         float loopStart = -1.0f;
         float loopEnd = -1.0f;

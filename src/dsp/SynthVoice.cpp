@@ -104,6 +104,18 @@ float computeVelocityTimedMs(float baseMs, float velSense, float velocity)
 {
     return std::max(0.0f, baseMs * computeVelocityTimeScale(velSense, velocity));
 }
+
+// Global velocity → envelope note-on PEAK. velAmt ∈ [0..1]: 0 = velocity-
+// independent (peak 1.0), 1 = peak tracks velocity 1:1. Linear blend — the
+// synth's long-standing default (== the old per-env sustain_vel_sens at 1.0).
+// Applied to ALL three envelope peaks, so velocity scales each env's depth on
+// whatever it targets: DCA loudness, filter cutoff, pitch, scan, noise…
+float velPeakScale(float velAmt, float velocity)
+{
+    const float a = juce::jlimit(0.0f, 1.0f, velAmt);
+    const float v = juce::jlimit(0.0f, 1.0f, velocity);
+    return (1.0f - a) + a * v;
+}
 }
 
 void SynthVoice::prepare(double sampleRate, int samplesPerBlock)
@@ -217,14 +229,15 @@ void SynthVoice::noteOn(int note, float velocity, bool legato)
 
     if (!legato)
     {
-        // Velocity scales the AMP-envelope peak → note loudness, full sensitivity
-        // (peak == velocity, the synth's long-standing default). Amt scales the
-        // env's overall depth on top of that; velSens shapes only the A/D/R times.
-        // The MOD envelopes keep a fixed 1.0 peak — their modulation depth is owned
-        // by Amt, not velocity (the orthogonal half of the env refactor we keep).
-        ampEnv.noteOn(velocity);
-        modEnv1.noteOn(1.0f);
-        modEnv2.noteOn(1.0f);
+        // Velocity scales every envelope's note-on peak via the global Velocity
+        // Amount (velAmt_). This drives the env's depth on whatever it targets —
+        // DCA loudness, filter cutoff, pitch, scan… — so velocity is alive on all
+        // targets, not just the DCA. Per-env Amt (static depth) stays orthogonal;
+        // velSens shapes only the A/D/R times.
+        const float peak = velPeakScale(velAmt_, velocity);
+        ampEnv.noteOn(peak);
+        modEnv1.noteOn(peak);
+        modEnv2.noteOn(peak);
         // Fresh note starts at neutral MPE timbre until its first CC74 arrives;
         // legato (held finger sliding to a new note) keeps the current timbre.
         timbre_ = kTimbreNeutral;
@@ -286,6 +299,7 @@ void SynthVoice::glideToNote(int note, float glideMs)
 void SynthVoice::configureForBlock(const BlockParams& p)
 {
     octaveShift_ = p.octaveShift;
+    velAmt_ = p.velAmt;
     ampAttackBaseMs_ = p.ampAttack;
     ampDecayBaseMs_ = p.ampDecay;
     ampReleaseBaseMs_ = p.ampRelease;
@@ -394,6 +408,7 @@ bool SynthVoice::preStretchNormStateMatches(const BlockParams& p) const
         && nearlyEqual(preStretchNormState_.mod2DecayVelSens, p.mod2DecayVelSens)
         && nearlyEqual(preStretchNormState_.mod2ReleaseVelSens, p.mod2ReleaseVelSens)
         && nearlyEqual(preStretchNormState_.velocity, currentVelocity)
+        && nearlyEqual(preStretchNormState_.velAmt, velAmt_)
         && nearlyEqual(preStretchNormState_.startPos, sampler.getStartPos())
         && nearlyEqual(preStretchNormState_.loopStart, sampler.getLoopStart())
         && nearlyEqual(preStretchNormState_.loopEnd, sampler.getLoopEnd())
@@ -487,12 +502,13 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
     mod2Ref.setDecayCurve(static_cast<CurveShape>(p.mod2DecayCurve));
     mod2Ref.setReleaseCurve(static_cast<CurveShape>(p.mod2ReleaseCurve));
 
-    // Mirror the live amp env (peak == velocity) so the sampler pre-stretch
+    // Mirror the live envelopes (peak == velPeakScale) so the sampler pre-stretch
     // normalization analyses the same DCA curve playback will produce; otherwise
-    // soft notes would be double-attenuated. Cache already keys on currentVelocity.
-    ampRef.noteOn(currentVelocity);
-    mod1Ref.noteOn(1.0f);
-    mod2Ref.noteOn(1.0f);
+    // soft notes would be double-attenuated. Cache keys on currentVelocity + velAmt_.
+    const float refPeak = velPeakScale(velAmt_, currentVelocity);
+    ampRef.noteOn(refPeak);
+    mod1Ref.noteOn(refPeak);
+    mod2Ref.noteOn(refPeak);
 
     for (int i = 0; i < analysisSamples; ++i)
     {
@@ -560,6 +576,7 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
     preStretchNormState_.mod2DecayVelSens = p.mod2DecayVelSens;
     preStretchNormState_.mod2ReleaseVelSens = p.mod2ReleaseVelSens;
     preStretchNormState_.velocity = currentVelocity;
+    preStretchNormState_.velAmt = velAmt_;
     preStretchNormState_.startPos = sampler.getStartPos();
     preStretchNormState_.loopStart = sampler.getLoopStart();
     preStretchNormState_.loopEnd = sampler.getLoopEnd();
