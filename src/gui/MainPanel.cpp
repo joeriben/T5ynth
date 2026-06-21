@@ -1395,6 +1395,8 @@ void MainPanel::setOscEasyMode(bool easy, bool persist)
         hideDimExplorer();
 
     promptPanel.setEasyMode(oscEasyMode);
+    axesHeader.setVisible(easy);
+    axesPanel.setVisible(easy);
     dimHeader.setVisible(!oscEasyMode);
     dimensionExplorer.setVisible(!oscEasyMode);
     oscModeToggle.setButtonText(oscEasyMode ? juce::String::fromUTF8("\xc2\xbb adv.")
@@ -1410,10 +1412,16 @@ void MainPanel::setOscEasyMode(bool easy, bool persist)
 
 bool MainPanel::hasOscHiddenActiveState() const
 {
-    if (!oscEasyMode)
-        return false;
+    if (oscEasyMode)
+        return promptPanel.hasHiddenActiveState() || dimensionExplorer.hasOffsets();
 
-    return promptPanel.hasHiddenActiveState() || dimensionExplorer.hasOffsets();
+    // In Advanced, axes are hidden — pulse toggle when any axis is selected AND non-zero.
+    // dropdownId == 1 means "---" (no axis chosen); value alone is unreliable because
+    // the slider retains its last value even after the dropdown reverts to "---".
+    for (const auto& s : axesPanel.getSlotStates())
+        if (s.dropdownId > 1 && std::abs(s.value) > 1e-5f)
+            return true;
+    return false;
 }
 
 void MainPanel::updateOscModeToggleVisual()
@@ -3115,10 +3123,10 @@ void MainPanel::resized()
     int headerH = juce::jlimit(14, 20, juce::roundToInt(h * 0.022f));
     int kGap = juce::jlimit(3, 6, juce::roundToInt(h * 0.005f));
     constexpr int kMinDimH = 24;
-    // The explorer is a proper |A-B| focus spectrum now, not a residual strip:
-    // scale it with window height (~the axes band) but keep it capped so it can
-    // never push the Generate block into the Sequencer — availableDimH guards that.
-    const int kMaxDimH = juce::jlimit(90, 150, juce::roundToInt(h * 0.140f));
+    // The explorer is a proper |A-B| focus spectrum now, not a residual strip.
+    // In Advanced mode it inherits the ~100px freed by axes moving to Easy, so
+    // raise the cap: availableDimH still guards the Generate block.
+    const int kMaxDimH = juce::jlimit(120, 240, juce::roundToInt(h * 0.250f));
     constexpr int kMinOscH = 220;
     constexpr int kMinAxesH = 84;
     constexpr int kMinGenerateButtonH = 38;
@@ -3135,17 +3143,22 @@ void MainPanel::resized()
     int oscH = juce::jmax(kMinOscH, promptPanel.getPreferredHeightForWidth(genCol.getWidth()));
     int axesH = juce::jlimit(kMinAxesH, 144, juce::roundToInt(h * 0.133f));
     const int reservedGenerateBlockH = kMinGenerateButtonH + genCacheGap + cacheRowH + kGap + resynthBlockH;
-    const int headerCount = oscEasyMode ? 2 : 3;
+    // Both modes have 2 headers (osc + axes|dim); axes only consume vertical
+    // space in Easy — Advanced reclaims that band for the DimExplorer.
+    const int headerCount = 2;
+    const int effectiveAxesH = oscEasyMode ? axesH : 0;
     const int minDimBudget = oscEasyMode ? 0 : kMinDimH;
     int dimBudget = genCol.getHeight() - (headerH * headerCount + kGap * headerCount
-                                          + reservedGenerateBlockH + oscH + axesH);
+                                          + reservedGenerateBlockH + oscH + effectiveAxesH);
     if (dimBudget < minDimBudget)
     {
         int shortage = minDimBudget - dimBudget;
-        int trimAxes = juce::jmin(shortage, juce::jmax(0, axesH - kMinAxesH));
-        axesH -= trimAxes;
-        shortage -= trimAxes;
-
+        if (oscEasyMode)
+        {
+            int trimAxes = juce::jmin(shortage, juce::jmax(0, axesH - kMinAxesH));
+            axesH -= trimAxes;
+            shortage -= trimAxes;
+        }
         if (shortage > 0)
             oscH = juce::jmax(kMinOscH, oscH - shortage);
     }
@@ -3168,11 +3181,19 @@ void MainPanel::resized()
     promptPanel.setBounds(genCol.removeFromTop(oscH));
     genCol.removeFromTop(kGap);
 
-    // Card 2: SEMANTIC AXES
-    axesHeader.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.85f));
-    axesHeader.setBounds(genCol.removeFromTop(headerH));
-    axesPanel.setBounds(genCol.removeFromTop(axesH));
-    genCol.removeFromTop(kGap);
+    // Card 2: SEMANTIC AXES (Easy only — in Advanced the band belongs to DimExplorer)
+    if (oscEasyMode)
+    {
+        axesHeader.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.85f));
+        axesHeader.setBounds(genCol.removeFromTop(headerH));
+        axesPanel.setBounds(genCol.removeFromTop(axesH));
+        genCol.removeFromTop(kGap);
+    }
+    else
+    {
+        axesHeader.setBounds({});
+        axesPanel.setBounds({});
+    }
 
     if (oscEasyMode)
     {
