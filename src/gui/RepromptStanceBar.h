@@ -50,9 +50,13 @@ public:
     {
         const Geom gm = geom();
         const int N = numPositions_;
+        // Disabled (translation model absent) → uniformly dim so the bar reads as
+        // deactivated; 0.40 mirrors the Union-Jack flag's disabled alpha. The
+        // setFromMouse guard already blocks interaction.
+        const float ena = isEnabled() ? 1.0f : 0.40f;
 
         // Connecting track behind the glyphs (faint), then the glyphs on top.
-        g.setColour (kBorder);
+        g.setColour (kBorder.withMultipliedAlpha (ena));
         g.drawLine (cxFor (0, gm), gm.cy, cxFor (N - 1, gm), gm.cy,
                     juce::jmax (1.0f, gm.R * 0.10f));
 
@@ -62,16 +66,17 @@ public:
             const float hw = (gm.step > 0.0f ? juce::jmin (gm.step * 0.92f, gm.R * 2.5f) : gm.R * 2.5f);
             const float hh = juce::jmin (gm.R * 2.0f, (float) getHeight() - 2.0f);
             auto hl = juce::Rectangle<float> (0.0f, 0.0f, hw, hh).withCentre ({ x, gm.cy });
-            g.setColour (kDriftCol.withAlpha (0.16f));
+            g.setColour (kDriftCol.withAlpha (0.16f * ena));
             g.fillRoundedRectangle (hl, 4.0f);
-            g.setColour (kDriftCol.withAlpha (0.85f));
+            g.setColour (kDriftCol.withAlpha (0.85f * ena));
             g.drawRoundedRectangle (hl, 4.0f, 1.0f);
         }
 
         for (int i = 0; i < N; ++i)
         {
-            const juce::Colour c = (i == currentIndex_) ? kDriftCol
-                                 : (i == 0 ? kDim.withMultipliedAlpha (0.7f) : kDim);
+            const juce::Colour c = ((i == currentIndex_) ? kDriftCol
+                                 : (i == 0 ? kDim.withMultipliedAlpha (0.7f) : kDim))
+                                   .withMultipliedAlpha (ena);
             drawGlyph (g, i, cxFor (i, gm), gm.cy, gm.R, c);
         }
     }
@@ -81,6 +86,9 @@ public:
 
     void mouseMove (const juce::MouseEvent& e) override
     {
+        // Disabled → keep the component-level "install Qwen" tooltip; do NOT let a
+        // per-glyph tip overwrite it.
+        if (! isEnabled()) return;
         if (positionTips_.isEmpty()) return;
         const int idx = indexForX ((float) e.position.x);
         if (juce::isPositiveAndBelow (idx, positionTips_.size()))

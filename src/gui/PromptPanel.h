@@ -89,6 +89,13 @@ public:
     void mouseDown(const juce::MouseEvent& e) override;
     int getPreferredHeightForWidth(int width) const;
     void setEasyMode(bool easy);
+
+    // Enable/disable the controls that REQUIRE the optional translation LLM (Qwen):
+    // the Re-Prompt stance bar + coupling and the Translate flag. Driven by the
+    // model-settings install state (MainPanel). Disabled controls dim and explain
+    // themselves via tooltip; the loop also bails (runSemanticLoopStep) so a preset
+    // with an engaged stance can't silently no-op when Qwen is absent. Message thread.
+    void setQwenAvailable(bool available);
     bool isEasyMode() const { return easyMode_; }
     bool hasHiddenActiveState() const;
 
@@ -397,6 +404,7 @@ private:
     // the generation-complete callbacks, and runSemanticLoopStep's callAsync tail).
     bool loopStepInFlight_ = false;   // re-entrancy guard (like `generating`)
     bool loopEngaged_ = false;        // false→true edge = capture the human originals
+    bool qwenAvailable_ = true;       // translation LLM installed? gates Re-Prompt + Translate
     juce::String loopOriginalA_, loopOriginalB_;  // glieder[0] (the human impulse, kept by concat) — FULL, incl. musical suffix (for restore)
     juce::String loopLastA_, loopLastB_;          // glieder[-1] (the chain's own last link) — CORE only (no musical suffix)
     juce::StringArray loopRecentA_, loopRecentB_; // glieder[-3:] anti-stasis memory (last 3 links) — CORE only

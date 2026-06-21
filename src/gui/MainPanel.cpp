@@ -518,6 +518,16 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         tryLoadInferenceModels(true);
     };
 
+    // Gate the Qwen-dependent controls (Re-Prompt stance + coupling, Translate flag)
+    // on the optional translation model's install state: disabled and explained via
+    // tooltip when absent, re-enabled the instant it is installed (no restart). The
+    // callback fires on transitions; this initial push sets the startup state.
+    settingsPage.onTranslationModelChanged = [this](bool installed)
+    {
+        promptPanel.setQwenAvailable(installed);
+    };
+    promptPanel.setQwenAvailable(settingsPage.isTranslationModelInstalled());
+
     presetScrim.onClick = [this] { hidePresetManager(); };
     presetScrim.setVisible(false);
     addChildComponent(presetScrim);

@@ -3475,6 +3475,18 @@ void SettingsPage::refreshTranslationRow()
                               installed ? ModelRow::Action::Installed
                                         : ModelRow::Action::Download,
                               !busy);
+
+    // Notify the editor's Qwen gate only on an install-state TRANSITION: this is
+    // called on every refresh (construction, download/import complete, backend
+    // connect), so an unconditional fire would re-notify on unchanged state.
+    // MainPanel pushes the initial state explicitly; this catches live install/removal.
+    if (! translationInstalledKnown_ || installed != translationInstalledLast_)
+    {
+        translationInstalledKnown_ = true;
+        translationInstalledLast_  = installed;
+        if (onTranslationModelChanged)
+            onTranslationModelChanged(installed);
+    }
 }
 
 void SettingsPage::updateStatus()

@@ -46,6 +46,15 @@ public:
     /** Called when a model becomes available (after download or browse). */
     std::function<void()> onModelReady;
 
+    /** Fired when the OPTIONAL translation model's install state TRANSITIONS
+     *  (download / import / removal), with the new installed flag. Lets the editor
+     *  enable or disable the Qwen-dependent controls (Re-Prompt, Translate) live. */
+    std::function<void(bool)> onTranslationModelChanged;
+
+    /** True iff the optional prompt-translation LLM (Qwen) is installed on disk.
+     *  Public wrapper over the internal install gate for the editor's UI gating. */
+    bool isTranslationModelInstalled() const { return translationModelInstalled(); }
+
     static juce::File getAppSupportModelDir();
     static juce::File getAppSupportModelDir(const juce::String& modelId);
 
@@ -74,6 +83,13 @@ private:
     // (config.json + tokenizer.json + model weights — mirrors the backend's
     // _is_local_transformers_model_dir gate).
     bool translationModelInstalled() const;
+    // Transition latch for onTranslationModelChanged: refreshTranslationRow() is called
+    // on every refresh (construction, download/import, backend connect), so it notifies
+    // only when `installed` actually changes. `known` stays false until the first
+    // refresh; MainPanel also pushes an explicit initial state, so a missed ctor-time
+    // fire (callback not wired yet) is harmless.
+    bool translationInstalledLast_  = false;
+    bool translationInstalledKnown_ = false;
     void timerCallback() override;
     void setModelInstallBusy(bool busy, const juce::String& statusText = {});
     juce::Result importModelDirectoryForId(const juce::String& modelId,

@@ -2315,6 +2315,41 @@ bool PromptPanel::playNextCachedInference()
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Qwen (translation LLM) availability gate
+// ──────────────────────────────────────────────────────────────────────────────
+// Re-Prompt (stance + coupling) and the Union-Jack Translate flag both REQUIRE the
+// optional translation model. When it is absent they fail silently — Translate keeps
+// the original text, and the Re-Prompt interpreter falls back to the previous prompt
+// every step (an invisible no-op loop). So mirror the model-settings install state:
+// disable the controls (they dim) and explain why via tooltip when Qwen is missing,
+// and re-enable the instant it is installed. The loop guard in runSemanticLoopStep
+// covers any preset/automation that engaged a stance while Qwen is gone.
+void PromptPanel::setQwenAvailable(bool available)
+{
+    if (available == qwenAvailable_)
+        return;   // idempotent: onTranslationModelChanged may re-send the same value
+    qwenAvailable_ = available;
+
+    translateToggle.setEnabled(available);
+    repromptStanceBar.setEnabled(available);
+    for (auto& b : repromptCouplingBtns)
+        b.setEnabled(available);
+
+    translateToggle.setTooltip(available
+        ? "Translate prompts to English in place "
+          "(auto-regen pauses during translation, then resumes)"
+        : "Install the translation model (Qwen2.5-1.5B) in the Modelle settings "
+          "tab to translate prompts.");
+    // Empty → the stance bar's per-glyph hover tooltips resume (set in mouseMove).
+    repromptStanceBar.setTooltip(available
+        ? juce::String()
+        : juce::String("Re-Prompt needs the translation model (Qwen2.5-1.5B). "
+                       "Install it in the Modelle settings tab."));
+
+    repromptStanceBar.repaint();   // a raw Component: reflect the dim immediately
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Manual prompt translation (Union-Jack flag)
 // ──────────────────────────────────────────────────────────────────────────────
 // Clicking the flag rewrites the A/B prompts to English IN PLACE. The single IPC
@@ -2346,6 +2381,14 @@ void PromptPanel::translatePromptsInPlace()
     if (!processorRef.isPipeInferenceReady())
     {
         if (onStatusChanged) onStatusChanged("Backend not connected", false);
+        return;
+    }
+
+    // Defensive: the flag is disabled when Qwen is absent, so onClick can't fire —
+    // but never reach the backend for a translate that can only return an error.
+    if (!qwenAvailable_)
+    {
+        if (onStatusChanged) onStatusChanged("Translation model not installed", false);
         return;
     }
 
@@ -2989,6 +3032,12 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
     // OPTIONAL init_audio signal carry (Resynth) is SA3-only, layered on top by
     // buildInferenceRequest when present; non-SA3 simply runs the pure word loop
     // (fresh render from the rewritten prompt each step).
+    // Qwen gate: the interpreter REQUIRES the translation model. Without it every
+    // interpret() errors and the loop falls back to the previous prompt each step,
+    // an invisible no-op. Bail instead. The UI also disables the stance bar; this
+    // covers a preset/automation that engaged a stance while Qwen is absent.
+    if (! qwenAvailable_)
+        return;
     // (2) Re-entrancy guard: a fast Auto-Regen cadence must not stack steps, and a
     //     manual Generate mid-step must not contend on the single IPC pipe.
     if (loopStepInFlight_ || generating || translatingPrompts_)
