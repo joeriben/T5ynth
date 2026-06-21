@@ -692,8 +692,16 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
 
             float cutoffMod = p.baseCutoff;
 
+            // Keyboard tracking. At kbd=1 the cutoff follows pitch 1:1 — one
+            // octave of cutoff per octave of note, pivot at middle C (note 60);
+            // kbd=0 leaves the cutoff fixed. Tracks the SOUNDING note (currentNote
+            // plus the global OCT transpose octaveShift_), so the filter follows the
+            // same pitch the oscillator plays.
             if (p.kbdTrack > 0.0f && currentNote >= 0)
-                cutoffMod *= std::pow(2.0f, (static_cast<float>(currentNote) - 60.0f) / 12.0f * p.kbdTrack);
+            {
+                const float soundingNote = static_cast<float>(currentNote + octaveShift_ * 12);
+                cutoffMod *= std::pow(2.0f, (soundingNote - 60.0f) / 12.0f * p.kbdTrack);
+            }
 
             constexpr float FILTER_OCTAVES = 10.0f;
             float rawAmp = (p.ampAmount > 0.001f) ? lastAmpEnvLevel / p.ampAmount : 0.0f;
