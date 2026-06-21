@@ -3111,7 +3111,10 @@ void MainPanel::resized()
     int headerH = juce::jlimit(14, 20, juce::roundToInt(h * 0.022f));
     int kGap = juce::jlimit(3, 6, juce::roundToInt(h * 0.005f));
     constexpr int kMinDimH = 24;
-    constexpr int kMaxDimH = 48;
+    // The explorer is a proper |A-B| focus spectrum now, not a residual strip:
+    // scale it with window height (~the axes band) but keep it capped so it can
+    // never push the Generate block into the Sequencer — availableDimH guards that.
+    const int kMaxDimH = juce::jlimit(90, 150, juce::roundToInt(h * 0.140f));
     constexpr int kMinOscH = 220;
     constexpr int kMinAxesH = 84;
     constexpr int kMinGenerateButtonH = 38;
@@ -3174,8 +3177,9 @@ void MainPanel::resized()
     }
     else
     {
-        // Card 3: DIM EXPLORER. This mini view is residual context; it must give
-        // up space before the Generate/cache controls can collide with Sequencer.
+        // Card 3: DIM EXPLORER. A proper |A-B| focus spectrum (not a residual
+        // strip); kMaxDimH scales it with the window, availableDimH caps it so it
+        // yields space before the Generate/cache controls can reach the Sequencer.
         dimHeader.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.85f));
         dimHeader.setBounds(genCol.removeFromTop(headerH));
         const int availableDimH = genCol.getHeight() - kGap - reservedGenerateBlockH;
