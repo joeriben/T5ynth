@@ -17,6 +17,7 @@ import base64
 import json
 import math
 import os
+import re
 import struct
 import sys
 import time
@@ -1570,30 +1571,110 @@ def _build_native_conditioning_input(pipe, prompt, duration, start_pos=0.0):
     return payload
 
 
-def _native_modality_prefix(pipe, track_type=None):
+# Deterministic modality routing for SA3 prompts. From v2.5.0 the tonal slot is binary:
+# its default is "instrument" = an ISOLATED single instrument, upgraded to "TrackType:
+# Music" only when the prompt carries a music signal (tempo / drumtrack / track-form /
+# dance-genre / the word "music"). SFX is NEVER produced from a tonal prompt regardless
+# of wording — SFX has its own dedicated slot (track_type "sfx" on the SA3 SFX
+# checkpoint). The whole scheme is gated by a per-preset "modality epoch" (see
+# _native_modality_prefix) so legacy presets keep the old Music/SFX-only behaviour.
+# Grounded in the UCDCAE AI Lab preset corpus ("...909 drumtrack, 140bpm" = music;
+# "steady saw wave, c3" / "a trombone, c3" / "FUNKY res BASS LINE, c3" = instrument).
+#
+# Music signals. Matching is on whole lowercased tokens, so "soundtrack" does NOT match
+# "track" (listed separately) and "sound" never routes anywhere on its own. NO ensemble
+# words (choir/band/group/orchestra): a "heavenly choir" is a valid isolated texture. NO
+# bare style adjectives ("funky").
+_MUSIC_TEMPO_RE = re.compile(r"\b\d{2,3}\s*bpm\b")
+_TOKEN_RE = re.compile(r"[a-z0-9&]+")
+_MUSIC_WORDS = {
+    # rhythm / drums
+    "drumtrack", "drums", "drumbeat", "beat", "beats", "rhythm", "groove",
+    "percussion", "909", "808", "breakbeat",
+    # explicit musical intent + track / musical form
+    "music", "track", "loop", "soundtrack", "jam", "song", "anthem",
+    # dance-genre nouns (imply a full arrangement)
+    "techno", "house", "trance", "edm", "dubstep", "dnb", "d&b", "jungle",
+    "trap", "disco", "samba", "salsa", "reggaeton", "hiphop",
+}
+_MUSIC_PHRASES = ("drum track", "drum and bass", "hip hop", "hip-hop",
+                  "amen break", "backing track")
+
+_SFX_PREFIX = "TrackType: SFX, "
+_MUSIC_PREFIX = "TrackType: Music, VocalType: Instrumental, "
+_INSTR_PREFIX = "TrackType: Instrument, "
+
+# Modality-epoch sentinel. ABSENCE of "modality_epoch" in a request IS the legacy switch:
+# a missing field (old preset, older caller) -> legacy behaviour. The live plugin always
+# resolves the per-preset epoch and sends it explicitly (0 for a versionless/legacy
+# preset, >=1 for v2.5.0+). Keep epoch>=1 in sync with kModalityEpoch in the C++
+# (PluginProcessor.h): 1 == the v2.5.0 behaviour.
+_LEGACY_MODALITY_EPOCH = 0
+
+
+def _looks_like_music(text):
+    """Deterministic soft classifier: does this prompt describe MUSIC (rhythmic /
+    arranged) rather than an isolated single instrument? Pure string logic, no model
+    calls. Drives the Instrument->Music auto-upgrade in _native_modality_prefix."""
+    if not text:
+        return False
+    low = text.lower()
+    if _MUSIC_TEMPO_RE.search(low):
+        return True
+    if any(p in low for p in _MUSIC_PHRASES):
+        return True
+    return bool(set(_TOKEN_RE.findall(low)) & _MUSIC_WORDS)
+
+
+def _native_modality_prefix(pipe, track_type=None, prompt_text="",
+                            epoch=_LEGACY_MODALITY_EPOCH):
     """Modality prefix prepended to SA3 prompts (Stable Audio 3 paper §5.1).
 
-    The SA3 family is trained with a leading "TrackType: ..." field and the
-    authors recommend all users prepend it at inference: it significantly
-    improves generation quality (without it the model has no signal for which
-    domain to render and conditioning is weak). Music checkpoints use the music
-    prefix; an "sfx" checkpoint would use the SFX one. Empty for non-SA3 models
-    (SAO, AudioLDM2), which were trained without it.
+    The SA3 family is trained with a leading "TrackType: ..." field and the authors
+    recommend prepending it at inference — it significantly improves quality. Empty for
+    non-SA3 models (SAO, AudioLDM2), trained without it.
 
-    An explicit ``track_type`` ("music"/"sfx") in the request OVERRIDES the name
-    sniff. This is required for single-checkpoint SA3 models (medium/large) that
-    render BOTH domains from one checkpoint and carry no music/sfx token in their
-    directory name. When absent, the historical name sniff applies unchanged
-    (small-music -> Music, small-sfx -> SFX), so existing requests behave exactly
-    as before.
+    ``epoch`` is the per-preset modality behaviour version (see kModalityEpoch in the
+    C++). It makes the routing switchable so legacy presets keep their original prefixes:
+
+      epoch <= 0  (legacy / pre-2.5.0, i.e. any preset saved without the field):
+          "sfx" (or a small-sfx name) -> SFX; everything else -> Music. No Instrument,
+          no heuristic, no hard selectors — byte-identical to the historical behaviour.
+
+      epoch >= 1  (v2.5.0+): the tonal slot (track_type "instrument") renders
+          "TrackType: Instrument" (isolated single instrument) by default, upgraded to
+          Music only when ``prompt_text`` carries a music signal (_looks_like_music). A
+          tonal prompt is NEVER routed to SFX — SFX comes solely from the dedicated SFX
+          slot (track_type "sfx"). Capability still applies: small-sfx renders SFX only,
+          small-music and medium render the tonal pair.
+
+    Future heuristic revisions add another `elif epoch == N` branch here.
     """
     name = (getattr(pipe, "model_name", "") or "").lower()
     if not name.startswith("stable-audio-3"):
         return ""
+
     tt = (track_type or "").strip().lower()
-    if tt == "sfx" or (not tt and "sfx" in name):
-        return "TrackType: SFX, "
-    return "TrackType: Music, VocalType: Instrumental, "
+
+    # ── Legacy (pre-2.5.0): Music / SFX only ──
+    if epoch <= 0:
+        if tt == "sfx" or (not tt and "sfx" in name):
+            return _SFX_PREFIX
+        return _MUSIC_PREFIX
+
+    # ── v2.5.0+ : tonal slot is binary Instrument / Music; SFX only via its own slot ──
+    # SFX is produced ONLY by the dedicated SFX slot (track_type "sfx") on the SA3 SFX
+    # checkpoint — a tonal prompt is NEVER routed to SFX, whatever its wording.
+    if tt == "sfx" or (not tt and "sfx" in name):      # the SFX slot
+        return _SFX_PREFIX
+    if "sfx" in name:                                  # small-sfx can only render SFX
+        return _SFX_PREFIX
+
+    # Tonal slot: Instrument by default, upgraded to Music when the prompt signals music
+    # (tempo / drumtrack / track-form / dance-genre / the word "music").
+    if _looks_like_music(prompt_text):
+        return _MUSIC_PREFIX
+    return _INSTR_PREFIX
 
 
 def load_default_model(model_name, devices):
@@ -2094,7 +2175,13 @@ def _generate_native(pipe, request):
     # SA3 modality prefix (paper §5.1). Prepend to NON-EMPTY prompts only, so an
     # empty field still encodes as the true "" Spiegel-Punkt (null) reference and
     # the a_present/b_present logic below is unaffected. Empty for non-SA3 models.
-    _modality_prefix = _native_modality_prefix(pipe, request.get("track_type"))
+    # Classify on the RAW user text (both poles) before the prefix is prepended, so the
+    # "instrument" default can auto-upgrade to Music for rhythmic/arranged prompts. The
+    # per-preset modality epoch gates the whole scheme; an ABSENT field is the legacy
+    # switch (old presets stay Music/SFX) — the live plugin always sends it explicitly.
+    _modality_prefix = _native_modality_prefix(
+        pipe, request.get("track_type"), (prompt_a + " " + prompt_b),
+        int(request.get("modality_epoch", _LEGACY_MODALITY_EPOCH)))
     if _modality_prefix:
         if prompt_a:
             prompt_a = _modality_prefix + prompt_a

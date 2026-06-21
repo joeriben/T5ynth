@@ -849,6 +849,10 @@ PipeInference::Result PipeInference::generate(const Request& request)
     if (request.trackType.isNotEmpty())
         json->setProperty("track_type", request.trackType);
 
+    // Per-preset modality-routing epoch. ALWAYS serialised (explicit on the wire); the
+    // backend acts on it only for SA3 and treats an ABSENT field as legacy (pre-2.5.0).
+    json->setProperty("modality_epoch", request.modalityEpoch);
+
     // Research-mode prompt-injection fields. Always serialised so that the bundled
     // backend sees them; older backends ignore unknown fields.
     json->setProperty("injection_mode", request.injectionMode);

@@ -101,6 +101,19 @@ public:
     void setLastModel(const juce::String& m) { lastModel = m; }
     const juce::String& getLastModel() const { return lastModel; }
 
+    // ── Modality epoch ──────────────────────────────────────────────────────────
+    // Which SA3 TrackType-routing behaviour the current preset/session was authored
+    // under. Travels in the preset (.t5p synth.modalityEpoch), the DAW session state
+    // (XML attr), and every inference request (modality_epoch). ABSENCE of the field
+    // is the legacy switch everywhere. Keep kModalityEpoch in sync with the backend
+    // (backend/pipe_inference.py _native_modality_prefix): epoch>=1 == v2.5.0 routing
+    // (Instrument default + music heuristic + hard selectors); epoch<=0 == pre-2.5.0
+    // (Music/SFX only). Re-saving a legacy preset preserves its legacy mode.
+    static constexpr int kLegacyModalityEpoch = 0;   // pre-2.5.0: Music/SFX only
+    static constexpr int kModalityEpoch       = 1;   // v2.5.0: Instrument default + heuristic
+    int  getModalityEpoch() const noexcept { return currentModalityEpoch_; }
+    void setModalityEpoch(int e) noexcept  { currentModalityEpoch_ = e; }
+
     // Preset metadata (GUI-only state that must survive save/load)
     void setLastPrompts(const juce::String& a, const juce::String& b) { lastPromptA = a; lastPromptB = b; }
     const juce::String& getLastPromptA() const { return lastPromptA; }
@@ -389,6 +402,9 @@ private:
     std::shared_ptr<PipeInference> pipeInference = std::make_shared<PipeInference>();
     juce::String lastDevice;
     juce::String lastModel;
+    // Modality-routing epoch (see getModalityEpoch / kModalityEpoch). Default = current
+    // for a fresh instance; preset/DAW load overwrites it; Init resets it to current.
+    int currentModalityEpoch_ = kModalityEpoch;
 
     // Preset metadata (stored here so preset save can access them)
     juce::String lastPresetName;

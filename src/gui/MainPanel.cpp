@@ -3397,6 +3397,12 @@ void MainPanel::loadInitPreset()
         if (param != nullptr)
             param->setValueNotifyingHost(param->getDefaultValue());
 
+    // Init is a clean MODERN preset: reset the modality epoch to current so a sound
+    // built right after loading a legacy preset routes under the v2.5.0 behaviour.
+    // (The epoch is processor state, not an APVTS param, so the reset loop above and
+    // the Init defaults don't touch it.)
+    processorRef.setModalityEpoch(T5ynthProcessor::kModalityEpoch);
+
     juce::AudioBuffer<float> emptyAudio;
     const double sampleRate = processorRef.getSampleRate() > 0.0
         ? processorRef.getSampleRate()

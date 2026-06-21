@@ -4158,6 +4158,7 @@ void T5ynthProcessor::getStateInformation(juce::MemoryBlock& destData)
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
     xml->setAttribute("midiOutputDeviceId", midiOutputDeviceId_);
     xml->setAttribute("midiClockEnabled", midiClockEnabled_.load());
+    xml->setAttribute("modalityEpoch", currentModalityEpoch_);
     copyXmlToBinary(*xml, destData);
 }
 
@@ -4277,6 +4278,12 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
         }
 
         parameters.replaceState(loadedTree);
+
+        // Modality epoch (v2.5.0+) — restored only on a matching-tag state load, so a
+        // foreign/empty blob (guard false) leaves the live epoch untouched rather than
+        // clobbering it to legacy. ABSENT attribute = pre-2.5.0 session -> legacy routing
+        // (an old project keeps the Music/SFX-only behaviour it was built with).
+        currentModalityEpoch_ = xml->getIntAttribute("modalityEpoch", kLegacyModalityEpoch);
     }
 
     // Never auto-start sequencers on session restore — no acoustic surprises
@@ -4528,6 +4535,15 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     synth->setProperty("seed", static_cast<int>(get(PID::genSeed)));
     synth->setProperty("model", lastModel);
     synth->setProperty("hfBoost", get(PID::genHfBoost) > 0.5f);
+    // Modality epoch + authoring app version (v2.5.0+). A LEGACY preset (loaded
+    // versionless, then re-saved) must stay versionless so it keeps the old routing,
+    // so we OMIT both fields when legacy — absence is the switch (see importJsonPreset
+    // and _native_modality_prefix in the backend).
+    if (currentModalityEpoch_ != kLegacyModalityEpoch)
+    {
+        synth->setProperty("modalityEpoch", currentModalityEpoch_);
+        synth->setProperty("appVersion", juce::String(ProjectInfo::versionString));
+    }
     root->setProperty("synth", synth.get());
 
     // Engine
@@ -4867,6 +4883,13 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         setParam(parameters, PID::genSeed, static_cast<float>(static_cast<int>(synth->getProperty("seed"))));
         if (synth->hasProperty("hfBoost"))
             setParam(parameters, PID::genHfBoost, static_cast<bool>(synth->getProperty("hfBoost")) ? 1.0f : 0.0f);
+        // Modality epoch (v2.5.0+): which TrackType-routing behaviour this preset was
+        // authored under. ABSENT = legacy (pre-2.5.0) -> the backend keeps the old
+        // Music/SFX-only prefixes. (A partial .t5seq has no synth block, so this whole
+        // reader is skipped and the live epoch is left untouched.)
+        currentModalityEpoch_ = synth->hasProperty("modalityEpoch")
+            ? static_cast<int>(synth->getProperty("modalityEpoch"))
+            : kLegacyModalityEpoch;
     }
 
     // ── Engine ──

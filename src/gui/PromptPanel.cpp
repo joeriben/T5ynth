@@ -2153,6 +2153,10 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     req.seed = seed;
     req.device = defaultInferenceDevice_;
     req.model = getSelectedModel();
+    // Modality-routing epoch for this preset/session (T5ynthProcessor::getModalityEpoch).
+    // Sent on every request; the backend acts on it only for SA3. A legacy preset reports
+    // kLegacyModalityEpoch, so the backend keeps the old Music/SFX-only prefixes.
+    req.modalityEpoch = processorRef.getModalityEpoch();
     const auto requestInjectionMode = isAudioLDM2Model(req.model) ? juce::String("linear")
                                                                   : injectionMode_;
     req.dimensionOffsets = std::move(pendingOffsets_);
@@ -2166,12 +2170,15 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     {
         req.semanticAxes.clear();
         req.dimensionOffsets.clear();
-        // SA3 modality: the Music slot (0) and SFX slot (1) can be backed by the
+        // SA3 modality: the tonal slot (0) and SFX slot (1) can be backed by the
         // SAME medium checkpoint, so the selected slot index — not the model id —
-        // selects the domain. Sent for every SA3 request; the backend prefers it
-        // over the dir-name sniff (medium carries no music/sfx token, so the sniff
-        // alone can't tell, and for small it simply agrees with the name).
-        req.trackType = (getSelectedSlot() == 1) ? "sfx" : "music";
+        // selects the domain. The tonal slot sends "instrument" (isolated single
+        // instrument): from epoch 1 the backend renders Instrument by default and
+        // upgrades to Music only for music-signalling prompts (never SFX — that is
+        // the SFX slot's job); under the legacy epoch "instrument" maps straight to
+        // Music, so old presets don't change. Sent for every SA3 request; the backend
+        // prefers it over the dir-name sniff.
+        req.trackType = (getSelectedSlot() == 1) ? "sfx" : "instrument";
     }
     req.injectionMode = requestInjectionMode;
     // Single-prompt promptability guard (linear mode, slider-driven α only).
