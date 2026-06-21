@@ -174,6 +174,12 @@ private:
         juce::ComboBox aCurveHidden, dCurveHidden, rCurveHidden;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> aCurveA, dCurveA, rCurveA;
 
+        // Loop toggle (both views): turns the env into a self-retriggering
+        // A→D→Hold→R complex-LFO cycle while the note is held. In loop mode the
+        // Sustain control is repurposed as the per-cycle Hold time.
+        juce::TextButton loopBtn;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> loopBtnA;
+
         // Easy-view graphical ADSR editor — replaces the four faders. Declared
         // LAST so it is destroyed FIRST: its dtor detaches listeners from the
         // SliderRows / curve ComboBoxes above while those are still alive.
@@ -282,6 +288,7 @@ private:
                  const juce::String& aVsId, const juce::String& dVsId,
                  const juce::String& rVsId,
                  const juce::String& amtId,
+                 const juce::String& loopId,
                  juce::AudioProcessorValueTreeState& apvts);
     void initLfo(LfoSection& lfo, const juce::String& name,
                  const juce::String& rateId, const juce::String& depthId,

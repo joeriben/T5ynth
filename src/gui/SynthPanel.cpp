@@ -54,11 +54,21 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
                           const juce::String& aVsId, const juce::String& dVsId,
                           const juce::String& rVsId,
                           const juce::String& amtId,
+                          const juce::String& loopId,
                           juce::AudioProcessorValueTreeState& apvts)
 {
     env.header.setText(name, juce::dontSendNotification);
     labelAsTitle(env.header, kEnvCol);
     addAndMakeVisible(env.header);
+
+    // Loop toggle — turns the env into a self-retriggering A→D→Hold→R cycle.
+    // In loop mode the Sustain control becomes the per-cycle Hold time.
+    env.loopBtn.setButtonText("LOOP");
+    styleSwitchButton(env.loopBtn, kEnvCol);
+    env.loopBtn.setClickingTogglesState(true);
+    env.loopBtn.setTooltip("Loop the envelope as an A-D-Hold-R cycle. In loop mode Sustain sets the Hold time.");
+    addAndMakeVisible(env.loopBtn);
+    env.loopBtnA = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(apvts, loopId, env.loopBtn);
 
     // Labels driven from BlockParams::EnvTarget::kEntries (single source of
     // truth for enum index ↔ human-readable label).
@@ -1120,15 +1130,15 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     initEnv(ampEnv,  "ENV 1", 2, PID::ampAttack,  PID::ampDecay,  PID::ampSustain,  PID::ampRelease,
             PID::ampAttackCurve, PID::ampDecayCurve, PID::ampReleaseCurve,
             PID::ampAttackVelSens, PID::ampDecayVelSens, PID::ampReleaseVelSens,
-            PID::ampAmount,  apvts);
+            PID::ampAmount,  PID::ampLoop,  apvts);
     initEnv(mod1Env, "ENV 2", 1, PID::mod1Attack, PID::mod1Decay, PID::mod1Sustain, PID::mod1Release,
             PID::mod1AttackCurve, PID::mod1DecayCurve, PID::mod1ReleaseCurve,
             PID::mod1AttackVelSens, PID::mod1DecayVelSens, PID::mod1ReleaseVelSens,
-            PID::mod1Amount, apvts);
+            PID::mod1Amount, PID::mod1Loop, apvts);
     initEnv(mod2Env, "ENV 3", 1, PID::mod2Attack, PID::mod2Decay, PID::mod2Sustain, PID::mod2Release,
             PID::mod2AttackCurve, PID::mod2DecayCurve, PID::mod2ReleaseCurve,
             PID::mod2AttackVelSens, PID::mod2DecayVelSens, PID::mod2ReleaseVelSens,
-            PID::mod2Amount, apvts);
+            PID::mod2Amount, PID::mod2Loop, apvts);
 
     // ── LFOs ──
     initLfo(lfo1, "LFO 1",
@@ -1597,6 +1607,7 @@ void SynthPanel::updateVisibility()
     {
         env.header.setVisible(!easy);
         env.targetBox.setVisible(!easy || selected);
+        env.loopBtn.setVisible(!easy || selected);
         // "Target" left-header is an easy-only label (advanced uses env.header).
         env.targetHeader.setVisible(easy && selected);
         // Curve buttons: advanced only — in easy you set curves by clicking the
@@ -1965,6 +1976,10 @@ void SynthPanel::layoutEnv(EnvSection& env, juce::Rectangle<int>& area, float f,
     int targetW = juce::roundToInt(hdr.getWidth() * 0.28f);
     env.header.setBounds(hdr.removeFromLeft(headerW));
     env.targetBox.setBounds(hdr.removeFromLeft(targetW));
+    {
+        const int loopW = juce::jmin(juce::roundToInt(f * 3.2f), hdr.getWidth());
+        if (loopW > 0) env.loopBtn.setBounds(hdr.removeFromRight(loopW).reduced(1));
+    }
 
     // Always allocate space — inactive sections are dimmed, not hidden
     int btnSize = rowH - 2;  // square, slightly smaller than row height
@@ -2250,6 +2265,10 @@ void SynthPanel::layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float
     targetRow.removeFromLeft(gap);
     const int tgtW = choiceBoxWidthFor(EnvTarget::kEntries, f, juce::roundToInt(f * 7.0f));
     env.targetBox.setBounds(targetRow.removeFromLeft(juce::jmin(tgtW, targetRow.getWidth())));
+    {
+        const int loopW = juce::jmin(juce::roundToInt(f * 3.2f), targetRow.getWidth());
+        if (loopW > 0) env.loopBtn.setBounds(targetRow.removeFromRight(loopW).reduced(1));
+    }
     area.removeFromTop(gap);
 
     const int rowGap = juce::jmax(gap, 6);
