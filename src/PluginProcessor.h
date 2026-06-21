@@ -506,6 +506,12 @@ public:
     std::atomic<int> lastMidiVelocity { 0 };
     std::atomic<bool> lastMidiNoteOn { false };
 
+    // Global (machine-wide, not per-preset) nonlinear-filter oversampling factor:
+    // 1 = Off, 2, 4. Read once per block into BlockParams.filterOsFactor; the
+    // audio thread only ever touches this atomic, never a settings file. Default
+    // 2× (see docs/HANDOVER_FILTER_OVERSAMPLING.md). Teil B adds file persistence.
+    std::atomic<int> filterOsFactor_ { 2 };
+
     // Modulated parameter values (audio thread writes, GUI reads for ghost indicators)
     struct ModulatedValues
     {

@@ -145,6 +145,12 @@ void SynthVoice::prepare(double sampleRate, int samplesPerBlock)
     filterR.prepare(sampleRate, samplesPerBlock);
     filterLadderR.prepare(sampleRate, samplesPerBlock);
     filterWarpR.prepare(sampleRate, samplesPerBlock);
+    // The nonlinear filters were just (re-)prepared at BASE rate. Invalidate the
+    // cached OS factor so the sr×factor re-prepare re-runs on the next render.
+    // Without this, a host prepareToPlay (sample-rate / buffer-size change) rewinds
+    // the filters to base rate while filterPreparedOsFactor_ still claims 2/4, and
+    // Phase C would oversample with base-rate coefficients (cutoff an octave off).
+    filterPreparedOsFactor_ = 1;
 
     // Build + init the three oversamplers around the pre-filter tanh drive.
     // 2 channels (L+R) for stereo drive — same OS instance handles both with
@@ -667,6 +673,29 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
         sampler.renderPitchedBlock(samplerBlockBuf_.data(), numSamples);
     }
 
+    // ── Nonlinear-filter oversampling: prepare Ladder/Warp at sr × factor ──
+    // Their in-loop saturation aliases at base rate; running the per-sample loop
+    // oversampled (Phase C) fixes it. The filter's coefficient g = tan(π·fc/sr)
+    // is derived from its internal rate, so it must be prepared at sr×factor
+    // BEFORE the sub-block setCutoff calls below. prepare() is allocation-free
+    // (sr + reset + updateCoeffs) → audio-thread safe. Guarded so we only
+    // re-prepare (and thus reset state) on an actual factor change, not per block.
+    // SVF is linear and never oversampled; factor 1 = Off = base rate.
+    if (p.filterEnabled && p.filterAlgorithm != FilterAlgorithm::SVF)
+    {
+        const int req    = juce::jmax(1, p.filterOsFactor);
+        const int wantOs = (req >= 4) ? 4 : (req >= 2) ? 2 : 1;   // only 1/2/4 — match the OS instances
+        if (wantOs != filterPreparedOsFactor_)
+        {
+            const double osr = sr * static_cast<double>(wantOs);
+            filterLadder.prepare(osr, maxBlockSize_);
+            filterLadderR.prepare(osr, maxBlockSize_);
+            filterWarp.prepare(osr, maxBlockSize_);
+            filterWarpR.prepare(osr, maxBlockSize_);
+            filterPreparedOsFactor_ = wantOs;
+        }
+    }
+
     int pos = 0;
     while (pos < numSamples && active)
     {
@@ -993,7 +1022,55 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
         // cold. Phase D mirrors output[i] into the right channel.
         if (p.filterEnabled)
         {
-            if (freezeMode)
+            // Nonlinear filters (Ladder/Warp) optionally run oversampled to kill
+            // their in-loop saturation aliasing; SVF is linear and stays at base
+            // rate. osf = the factor they were prepared at this block (1/2/4),
+            // so the OS instance below always matches the prepared coefficients.
+            const int osf = (p.filterAlgorithm != FilterAlgorithm::SVF) ? filterPreparedOsFactor_ : 1;
+
+            if (osf > 1)
+            {
+                // ── Oversampled nonlinear filter ──
+                // Upsample the sub-block, run the filter per oversampled sample
+                // (coeffs already set for sr×osf at sub-block setup), downsample.
+                // Reuses the drive oversamplers — free here, since Phase B (drive)
+                // is a no-op for non-SVF algorithms. Mirrors Phase B's block setup.
+                auto* os = (osf == 2) ? driveOs2x_.get() : driveOs4x_.get();
+                float* chPtrL = output + pos;
+                float* chPtrR = outputRBuf;
+                float* const channels[2] = { chPtrL, chPtrR };
+                juce::dsp::AudioBlock<float> block(channels, 2, static_cast<size_t>(driveLen));
+                juce::dsp::AudioBlock<const float> constBlock(block);
+                auto upBlock = os->processSamplesUp(constBlock);
+                const size_t upN = upBlock.getNumSamples();
+                auto* up0 = upBlock.getChannelPointer(0);
+                auto* up1 = upBlock.getChannelPointer(1);
+
+                if (p.filterAlgorithm == FilterAlgorithm::Ladder)
+                {
+                    for (size_t i = 0; i < upN; ++i) up0[i] = filterLadder.processSample(up0[i]);
+                    if (freezeMode)
+                        for (size_t i = 0; i < upN; ++i) up1[i] = filterLadderR.processSample(up1[i]);
+                }
+                else // Warp
+                {
+                    for (size_t i = 0; i < upN; ++i) up0[i] = filterWarp.processSample(up0[i]);
+                    if (freezeMode)
+                        for (size_t i = 0; i < upN; ++i) up1[i] = filterWarpR.processSample(up1[i]);
+                }
+
+                os->processSamplesDown(block);
+
+                if (! freezeMode)
+                {
+                    // Mono: only the left filter ran (Phase D mirrors L→R). Sync the
+                    // right filter state to the left — matches the base-rate path so
+                    // a later switch into a stereo source inherits sensible state.
+                    if (p.filterAlgorithm == FilterAlgorithm::Ladder) filterLadderR = filterLadder;
+                    else                                              filterWarpR   = filterWarp;
+                }
+            }
+            else if (freezeMode)
             {
                 switch (p.filterAlgorithm)
                 {

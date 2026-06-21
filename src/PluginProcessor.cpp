@@ -2034,6 +2034,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.filterDriveOs = static_cast<int>(paramCache.filterDriveOs->load());
     bp.filterAlgorithm = static_cast<int>(paramCache.filterAlgorithm->load());
     bp.filterWarpStyle = static_cast<int>(paramCache.filterWarpStyle->load());
+    bp.filterOsFactor = filterOsFactor_.load(std::memory_order_relaxed);  // global, not per-preset
     bp.filterDriveGain = std::pow(10.0f, bp.filterDriveDb * (1.0f / 20.0f));
 
     // Scan

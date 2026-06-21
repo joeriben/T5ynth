@@ -127,6 +127,10 @@ private:
     std::unique_ptr<juce::dsp::Oversampling<float>> driveOs2x_;  // numStages=1, 2x
     std::unique_ptr<juce::dsp::Oversampling<float>> driveOs4x_;  // numStages=2, 4x
     std::unique_ptr<juce::dsp::Oversampling<float>> driveOs8x_;  // numStages=3, 8x
+    // OS factor the nonlinear filters (Ladder/Warp) are currently prepared at.
+    // 1 = base rate. renderBlock re-prepares them at sr×factor only when the
+    // requested factor differs (rare → no per-block state reset). SVF never OS.
+    int filterPreparedOsFactor_ = 1;
     NoiseGenerator noise;
 
     EngineMode engineMode = EngineMode::Sampler;

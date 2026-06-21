@@ -1284,6 +1284,12 @@ struct BlockParams
     // Filter algorithm selection (SVF / Ladder / Warp) and Warp-specific style.
     int   filterAlgorithm = FilterAlgorithm::SVF;
     int   filterWarpStyle = FilterWarpStyle::Tanh;
+    // Nonlinear-filter (Ladder/Warp) oversampling factor: 1=Off, 2, 4. GLOBAL
+    // machine setting, not a preset param — filled in processBlock from the
+    // processor's atomic. Ladder/Warp run their per-sample loop at sr×this to
+    // suppress in-loop saturation aliasing; SVF (linear) ignores it. Struct
+    // default 1 = safe Off; the product default (2×) is enforced by the processor.
+    int   filterOsFactor = 1;
     // Pre-computed derived value (filled in processBlock, not by user):
     float filterDriveGain = 1.0f;      // 10^(driveDb/20)
     float kbdTrack = 0.0f;
