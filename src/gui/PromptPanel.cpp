@@ -511,8 +511,6 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     // Generate button is now in MainPanel — keep internal for triggerGeneration()
     generateButton.setVisible(false);
 
-    makeLabel(infoLabel, "", kDim, juce::Justification::centredLeft, this);
-
     // APVTS
     auto& apvts = processor.getValueTreeState();
     alphaA  = std::make_unique<Attachment>(apvts, PID::genAlpha, alphaSlider);
@@ -648,16 +646,14 @@ int PromptPanel::getPreferredHeightForWidth(int width) const
         return (compactRowH + 2) + modelGap             // model selector row
              + abBlockH + innerGap + repromptRowH       // A↔B block + Re-Prompt row
              + groupGap                                 // divider
-             + compactRowH + seedCtrlH + gap            // Duration / Seed
-             + gap + compactRowH;                       // info label
+             + compactRowH + seedCtrlH + gap;           // Duration / Seed
     }
 
     return (compactRowH + 2) + modelGap                 // model selector row
          + abBlockH + innerGap + repromptRowH           // A↔B block + Re-Prompt row
          + compactRowH + gap                            // GENERATION top-header (replaces divider)
          + (compactRowH + compactCtrlH + gap) * 2       // Mag/Noise + Steps/CFG
-         + compactRowH + seedCtrlH + gap                // Duration / Seed
-         + gap + compactRowH;                           // info label
+         + compactRowH + seedCtrlH + gap;               // Duration / Seed
 }
 
 void PromptPanel::timerCallback()
@@ -1245,12 +1241,10 @@ void PromptPanel::resized()
         area.removeFromTop(gap);
     };
 
-    // Center the generation-param block in the free space below the divider
-    // instead of letting it hang off the prompt block. The info label stays
-    // pinned to the bottom. At the panel's preferred (minimum) height the slack
-    // is zero, so this lays out identically to before; any extra height is split
-    // evenly above and below the param block.
-    auto infoArea = area.removeFromBottom(gap + compactRowH);
+    // Center the generation-param block in the free space below the divider.
+    // At the panel's preferred (minimum) height the slack is zero, so the block
+    // sits flush above SEMANTIC AXES; any extra height is split evenly above and
+    // below it.
     {
         const int paramsH = easy
             ? (compactRowH + seedCtrlH + gap)
@@ -1270,10 +1264,6 @@ void PromptPanel::resized()
                           cfgLabel, cfgSlider, cfgValue);
         layoutDurationSeedRow();
     }
-
-    // Info label pinned at the bottom of the panel
-    setUiFont(infoLabel, TextRole::Caption, f);
-    infoLabel.setBounds(infoArea.removeFromBottom(compactRowH));
 }
 
 void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String& promptB,

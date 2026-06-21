@@ -306,7 +306,6 @@ private:
     void populateDeviceChoice();
 
     juce::TextButton generateButton { "Generate" };
-    juce::Label infoLabel;
 
     // ── Temporary injection-mode test UI (research; not in APVTS). ──
     // Six toggle buttons + the existing alphaSlider whose label/range/state
