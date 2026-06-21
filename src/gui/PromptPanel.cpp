@@ -1032,15 +1032,15 @@ void PromptPanel::resized()
         {
             auto modeRow = block.removeFromTop(modeBarH);
 
-            // Union-Jack translate toggle: one cell at the right end, sized to the
-            // injection-mode buttons. A solid flag reads heavier than an outlined
-            // radio, so keep it to ~one button's width and inset it slightly within
-            // the row (centred) instead of filling the full bar height edge-to-edge.
-            const int flagW = juce::jmax(1, modeRow.getWidth() / 7);
-            const int flagH = juce::jmax(8, juce::roundToInt(modeRow.getHeight() * 0.82f));
-            translateToggle.setBounds(modeRow.removeFromRight(flagW)
-                                          .withSizeKeepingCentre(flagW, flagH));
-            modeRow.removeFromRight(juce::jmax(2, gap));
+            // Union-Jack translate toggle: reserve the same right region (so the mode
+            // switchbox keeps its width), then CENTRE the flag within it — midway
+            // between the switchbox and the prompt-box right edge above — rather than
+            // flush-right, so it has equal breathing room on both sides.
+            const int flagRegionW = juce::jmax(1, modeRow.getWidth() / 7 + juce::jmax(2, gap));
+            auto flagRegion = modeRow.removeFromRight(flagRegionW);
+            const int flagH = juce::jmax(8, juce::roundToInt(modeRow.getHeight() * 0.80f));
+            const int flagW = juce::jmin(flagRegionW, juce::roundToInt(flagH * 1.6f));
+            translateToggle.setBounds(flagRegion.withSizeKeepingCentre(flagW, flagH));
 
             // Six connected radio buttons fill the remaining width; the last
             // claims the integer-division remainder so the row ends flush.
