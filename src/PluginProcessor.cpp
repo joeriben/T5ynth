@@ -566,7 +566,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::lfo1Rate, 1}, "LFO1 Rate",
         juce::NormalisableRange<float>(0.01f, 30.0f, 0.01f, 0.3f), 2.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::lfo1Depth, 1}, "LFO1 Depth",
+        juce::ParameterID{PID::lfo1Depth, 1}, "LFO1 Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.3f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::lfo1Wave, 1}, "LFO1 Wave",
@@ -577,7 +577,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::lfo2Rate, 1}, "LFO2 Rate",
         juce::NormalisableRange<float>(0.01f, 30.0f, 0.01f, 0.3f), 0.5f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::lfo2Depth, 1}, "LFO2 Depth",
+        juce::ParameterID{PID::lfo2Depth, 1}, "LFO2 Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.3f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::lfo2Wave, 1}, "LFO2 Wave",
@@ -588,7 +588,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::lfo3Rate, 1}, "LFO3 Rate",
         juce::NormalisableRange<float>(0.01f, 30.0f, 0.01f, 0.3f), 0.2f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::lfo3Depth, 1}, "LFO3 Depth",
+        juce::ParameterID{PID::lfo3Depth, 1}, "LFO3 Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.3f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::lfo3Wave, 1}, "LFO3 Wave",
@@ -600,9 +600,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     {
         struct AtTarget { const char* pid; const char* name; };
         const AtTarget atTargets[] = {
-            { PID::aftertouchAmtLfo1Depth,   "AT LFO1 Depth"   },
-            { PID::aftertouchAmtLfo2Depth,   "AT LFO2 Depth"   },
-            { PID::aftertouchAmtLfo3Depth,   "AT LFO3 Depth"   },
+            { PID::aftertouchAmtLfo1Depth,   "AT LFO1 Amount"   },
+            { PID::aftertouchAmtLfo2Depth,   "AT LFO2 Amount"   },
+            { PID::aftertouchAmtLfo3Depth,   "AT LFO3 Amount"   },
             { PID::aftertouchAmtEnv1Sustain, "AT ENV1 Sustain" },
             { PID::aftertouchAmtEnv2Sustain, "AT ENV2 Sustain" },
             { PID::aftertouchAmtEnv3Sustain, "AT ENV3 Sustain" },
@@ -636,19 +636,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::drift1Rate, 1}, "Drift1 Rate",
         juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.01f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::drift1Depth, 1}, "Drift1 Depth",
+        juce::ParameterID{PID::drift1Depth, 1}, "Drift1 Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.3f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift2Rate, 1}, "Drift2 Rate",
         juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.005f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::drift2Depth, 1}, "Drift2 Depth",
+        juce::ParameterID{PID::drift2Depth, 1}, "Drift2 Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.3f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift3Rate, 1}, "Drift3 Rate",
         juce::NormalisableRange<float>(0.001f, 2.0f, 0.001f, 0.3f), 0.002f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::drift3Depth, 1}, "Drift3 Depth",
+        juce::ParameterID{PID::drift3Depth, 1}, "Drift3 Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.0f, 0.3f), 0.0f));
 
     // Drift targets + waveform selection

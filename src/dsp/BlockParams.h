@@ -333,11 +333,11 @@ namespace EnvTarget {
         { "reverb_mix", "Rev Mix"    },
         { "noise_level","Noise Lvl"  },
         { "lfo1_rate",  "LFO1 Rate"  },
-        { "lfo1_depth", "LFO1 Depth" },
+        { "lfo1_depth", "LFO1 Amt" },
         { "lfo2_rate",  "LFO2 Rate"  },
-        { "lfo2_depth", "LFO2 Depth" },
+        { "lfo2_depth", "LFO2 Amt" },
         { "lfo3_rate",  "LFO3 Rate"  },
-        { "lfo3_depth", "LFO3 Depth" }
+        { "lfo3_depth", "LFO3 Amt" }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
     static_assert(LFO3Depth + 1 == kCount,
@@ -409,9 +409,9 @@ namespace AftertouchTarget {
     };
     static constexpr ChoiceEntry kEntries[] = {
         { "none",         "---"          },
-        { "lfo1_depth",   "LFO1 Depth"   },
-        { "lfo2_depth",   "LFO2 Depth"   },
-        { "lfo3_depth",   "LFO3 Depth"   },
+        { "lfo1_depth",   "LFO1 Amt"   },
+        { "lfo2_depth",   "LFO2 Amt"   },
+        { "lfo3_depth",   "LFO3 Amt"   },
         { "env1_sustain", "ENV1 Sustain" },
         { "env2_sustain", "ENV2 Sustain" },
         { "env3_sustain", "ENV3 Sustain" },

@@ -301,7 +301,7 @@ void SynthPanel::initLfo(LfoSection& lfo, const juce::String& name,
     // Hz row + Division row occupy the same on-screen rect; visibility
     // swaps based on ClockMode (Off → rate, Sync → division).
     lfo.rateRow     = std::make_unique<SliderRow>("Rate", fmtHzF1, kLfoCol);
-    lfo.depthRow    = std::make_unique<SliderRow>("Depth", fmtPctFine, kLfoCol);
+    lfo.depthRow    = std::make_unique<SliderRow>("Amt", fmtPctFine, kLfoCol);
     lfo.divisionRow = std::make_unique<SliderRow>("Rate",
         [](double v) {
             const int idx = juce::jlimit(0, ClockDivision::kCount - 1,
@@ -418,7 +418,7 @@ void SynthPanel::initDrift(DriftSection& drift, const juce::String& name,
     addAndMakeVisible(drift.clockBtn);
 
     drift.rateRow     = std::make_unique<SliderRow>("Rate", fmtHzF3, kDriftCol);
-    drift.depthRow    = std::make_unique<SliderRow>("Depth", fmtPctFine, kDriftCol);
+    drift.depthRow    = std::make_unique<SliderRow>("Amt", fmtPctFine, kDriftCol);
     drift.divisionRow = std::make_unique<SliderRow>("Rate",
         [](double v) {
             const int idx = juce::jlimit(0, ClockDivision::kCount - 1,
@@ -2005,7 +2005,7 @@ void SynthPanel::layoutLfo(LfoSection& lfo, juce::Rectangle<int>& area, float f,
     if (lfo.depthRow)    lfo.depthRow->setVerticalMode(false);
     if (lfo.divisionRow) lfo.divisionRow->setVerticalMode(false);
     if (lfo.rateRow)     lfo.rateRow->getLabel().setText("Rate", juce::dontSendNotification);
-    if (lfo.depthRow)    lfo.depthRow->getLabel().setText("Depth", juce::dontSendNotification);
+    if (lfo.depthRow)    lfo.depthRow->getLabel().setText("Amt", juce::dontSendNotification);
     if (lfo.divisionRow) lfo.divisionRow->getLabel().setText("Rate", juce::dontSendNotification);
     labelAsTitle(lfo.header, kLfoCol);
     lfo.header.setJustificationType(juce::Justification::centredLeft);
@@ -2052,7 +2052,7 @@ void SynthPanel::layoutDrift(DriftSection& drift, juce::Rectangle<int>& area, fl
     if (drift.depthRow)    drift.depthRow->setVerticalMode(false);
     if (drift.divisionRow) drift.divisionRow->setVerticalMode(false);
     if (drift.rateRow)     drift.rateRow->getLabel().setText("Rate", juce::dontSendNotification);
-    if (drift.depthRow)    drift.depthRow->getLabel().setText("Depth", juce::dontSendNotification);
+    if (drift.depthRow)    drift.depthRow->getLabel().setText("Amt", juce::dontSendNotification);
     if (drift.divisionRow) drift.divisionRow->getLabel().setText("Rate", juce::dontSendNotification);
     drift.header.setText(&drift == &drift2 ? "D2" : (&drift == &drift3 ? "D3" : "D1"),
                          juce::dontSendNotification);
