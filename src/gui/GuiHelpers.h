@@ -1463,7 +1463,7 @@ private:
  * SAME ADSREnvelope::applyCurve the audio path uses (what you see is what you
  * hear) and exposes three draggable handles:
  *
- *   • peak handle    → Attack time   (drag X)
+ *   • peak handle    → Attack time   (drag X) + ENV Amount / ceiling (drag Y)
  *   • sustain corner → Decay time    (drag X) + Sustain level (drag Y)
  *   • end handle     → Release time  (drag X)
  *
@@ -1487,14 +1487,14 @@ public:
     ~AdsrGraph() override { detach(); }
 
     /** Bind to one EnvSection's controls. Re-bindable (detaches the old set). */
-    void bind(SliderRow* a, SliderRow* d, SliderRow* s, SliderRow* r,
+    void bind(SliderRow* a, SliderRow* d, SliderRow* s, SliderRow* r, SliderRow* amt,
               juce::ComboBox* aCurve, juce::ComboBox* dCurve, juce::ComboBox* rCurve)
     {
         detach();
-        aRow = a; dRow = d; sRow = s; rRow = r;
+        aRow = a; dRow = d; sRow = s; rRow = r; amtRow = amt;
         aCv = aCurve; dCv = dCurve; rCv = rCurve;
-        for (auto* row : { aRow, dRow, sRow, rRow }) if (row) row->getSlider().addListener(this);
-        for (auto* cb  : { aCv, dCv, rCv })          if (cb)  cb->addListener(this);
+        for (auto* row : { aRow, dRow, sRow, rRow, amtRow }) if (row) row->getSlider().addListener(this);
+        for (auto* cb  : { aCv, dCv, rCv })                  if (cb)  cb->addListener(this);
         repaint();
     }
 
@@ -1584,11 +1584,13 @@ public:
         // the node tracks the cursor 1:1 from where it was grabbed. A node drawn
         // off its exact value position (the min-width-clamped sustain node at
         // decay≈0) then doesn't jump its decay on the first drag.
-        dragStart  = p;
-        startAprop = prop(aRow);
-        startDprop = prop(dRow);
-        startSprop = prop(sRow);
-        startRprop = prop(rRow);
+        dragStart    = p;
+        startAprop   = prop(aRow);
+        startDprop   = prop(dRow);
+        startSprop   = prop(sRow);
+        startRprop   = prop(rRow);
+        startAmtProp = prop(amtRow);
+        peakShowAmt  = false;       // until the drag reveals a dominant axis
         repaint();
     }
 
@@ -1602,11 +1604,18 @@ public:
         switch (draggingHandle)
         {
             case Handle::Attack:
-                setProp(aRow->getSlider(), startAprop + dx / geo.segW);
+                // X = attack time; Y = ENV Amount (drag the ceiling down to scale
+                // the whole envelope proportionally). Both track the cursor 1:1.
+                setProp(aRow->getSlider(),   startAprop   + dx / geo.segW);
+                setProp(amtRow->getSlider(), startAmtProp - dy / geo.plot.getHeight());
+                peakShowAmt = std::abs(dy) > std::abs(dx);
                 break;
             case Handle::Sustain:
                 setProp(dRow->getSlider(), startDprop + dx / geo.segW);
-                setProp(sRow->getSlider(), startSprop - dy / geo.plot.getHeight());
+                // Sustain Y is scaled by the ceiling (susY = bottom − amtP·sP·H),
+                // so divide by amtP·H to keep the node tracking the cursor.
+                setProp(sRow->getSlider(), startSprop
+                        - dy / (juce::jmax(startAmtProp, 0.05f) * geo.plot.getHeight()));
                 break;
             case Handle::Release:
                 setProp(rRow->getSlider(), startRprop + dx / geo.segW);
@@ -1631,11 +1640,11 @@ private:
         float segW = 1.0f;
     };
 
-    bool isBound() const { return aRow && dRow && sRow && rRow && aCv && dCv && rCv; }
+    bool isBound() const { return aRow && dRow && sRow && rRow && amtRow && aCv && dCv && rCv; }
 
     void detach()
     {
-        for (auto* row : { aRow, dRow, sRow, rRow }) if (row) row->getSlider().removeListener(this);
+        for (auto* row : { aRow, dRow, sRow, rRow, amtRow }) if (row) row->getSlider().removeListener(this);
         for (auto* cb  : { aCv, dCv, rCv })          if (cb)  cb->removeListener(this);
     }
 
@@ -1674,7 +1683,6 @@ private:
         // clean vertical, not a slant jammed against the left wall.
         const float hpad    = 7.0f;
         const float left    = geo.plot.getX() + hpad;
-        const float top     = geo.plot.getY();
         const float bottom  = geo.plot.getBottom();
         const float H       = geo.plot.getHeight();
         const float usableW = geo.plot.getWidth() - 2.0f * hpad;
@@ -1682,7 +1690,13 @@ private:
         geo.segW = (usableW - holdW) / 3.0f;
 
         const float aP = prop(aRow), dP = prop(dRow), rP = prop(rRow), sP = prop(sRow);
-        const float susY = bottom - sP * H;
+        // ENV Amount (ampAmount, 0..1) is the envelope CEILING: the whole shape
+        // scales vertically by amtP, anchored at the bottom. Peak height = amtP·H,
+        // sustain height = amtP·sP·H. The peak handle's Y drag sets amtP. (amtP=1
+        // ⇒ peak at the top, identical to the pre-ceiling layout.)
+        const float amtP  = prop(amtRow);
+        const float peakY = bottom - amtP * H;
+        const float susY  = bottom - amtP * sP * H;
 
         // Keep the sustain node clear of the attack node: at decay≈0 the two
         // share an x, and at sustain≈1 they also share a y — collapsing into a
@@ -1692,7 +1706,7 @@ private:
         // so the sustain node always reads as a distinct, grabbable node.
         const float decayW = juce::jmax(dP * geo.segW, kMinDecayDraw);
         geo.p0 = { left, bottom };
-        geo.p1 = { left + aP * geo.segW, top };
+        geo.p1 = { left + aP * geo.segW, peakY };
         geo.p2 = { geo.p1.x + decayW, susY };
         geo.p3 = { geo.p2.x + holdW, susY };
         geo.p4 = { geo.p3.x + rP * geo.segW, bottom };
@@ -1742,7 +1756,8 @@ private:
     {
         switch (draggingHandle)
         {
-            case Handle::Attack:  return aRow->getDisplayValue();
+            case Handle::Attack:  return peakShowAmt ? "Amt " + amtRow->getDisplayValue()
+                                                     : aRow->getDisplayValue();
             case Handle::Sustain: return sRow->getDisplayValue();
             case Handle::Release: return rRow->getDisplayValue();
             default: return {};
@@ -1762,9 +1777,12 @@ private:
     // Relative-drag anchor: cursor position + slider proportions at mouseDown.
     juce::Point<float> dragStart;
     float startAprop = 0.0f, startDprop = 0.0f, startSprop = 0.0f, startRprop = 0.0f;
+    float startAmtProp = 0.0f;
+    bool  peakShowAmt = false;   // peak-handle readout: true → show Amt, false → Attack
 
     SliderRow* aRow = nullptr; SliderRow* dRow = nullptr;
     SliderRow* sRow = nullptr; SliderRow* rRow = nullptr;
+    SliderRow* amtRow = nullptr;
     juce::ComboBox* aCv = nullptr; juce::ComboBox* dCv = nullptr; juce::ComboBox* rCv = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AdsrGraph)

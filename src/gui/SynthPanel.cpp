@@ -187,7 +187,7 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     // single source of truth. Created after the attachments above so the sliders
     // already carry their parameter ranges.
     env.graph = std::make_unique<AdsrGraph>(kEnvCol);
-    env.graph->bind(env.aRow.get(), env.dRow.get(), env.sRow.get(), env.rRow.get(),
+    env.graph->bind(env.aRow.get(), env.dRow.get(), env.sRow.get(), env.rRow.get(), env.amtRow.get(),
                     &env.aCurveHidden, &env.dCurveHidden, &env.rCurveHidden);
     addAndMakeVisible(*env.graph);
 
