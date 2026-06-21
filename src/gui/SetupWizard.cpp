@@ -3604,8 +3604,10 @@ GeneralSettingsPage::GeneralSettingsPage()
     addAndMakeVisible(osTitle_);
 
     osCombo_.addItem("Off",  1);                 // item ids are index+1
-    osCombo_.addItem("2×", 2);
-    osCombo_.addItem("4×", 3);
+    // Plain ASCII "x" — a raw UTF-8 × (U+00D7) mojibakes through JUCE's ComboBox
+    // font (same reason FilterDriveOs uses "2x"/"4x"/"8x", see BlockParams.h).
+    osCombo_.addItem("2x", 2);
+    osCombo_.addItem("4x", 3);
     osCombo_.setSelectedId(2, juce::dontSendNotification);   // default 2x
     osCombo_.onChange = [this]
     {
