@@ -100,6 +100,7 @@ private:
     float valueScaleMax_ = 0.1f;
 
     void rebuildBars(const std::vector<float>& baselineValues, bool preserveOffsets);
+    void paintMiniBins(juce::Graphics& g);   // mini-view: |A-B| focus spectrum (binned)
     int barAtX(float x) const;
     float valueToY(float value, float scaleMax) const;
     float yToValue(float y, float scaleMax) const;

@@ -425,6 +425,14 @@ void DimensionExplorer::paint(juce::Graphics& g)
         return;
     }
 
+    // Mini-view renders as a binned focus spectrum; the per-dimension editable
+    // console below (zero line + 768 bars + hints + tooltip) is overlay-only.
+    if (!overlayMode_)
+    {
+        paintMiniBins(g);
+        return;
+    }
+
     // Zero line
     float centreY = barArea_.getCentreY();
     g.setColour(kZeroLine);
@@ -524,6 +532,76 @@ void DimensionExplorer::paint(juce::Graphics& g)
         float tipY = barArea_.getY() - 2.0f;
         g.drawText(tip, juce::roundToInt(tipX), juce::roundToInt(tipY - fs),
                    300, juce::roundToInt(fs + 2), juce::Justification::centredLeft);
+    }
+}
+
+void DimensionExplorer::paintMiniBins(juce::Graphics& g)
+{
+    // The mini-view is a calm |A-B| focus spectrum: the 768 sorted dimensions
+    // aggregated into a couple dozen fat bins (tall left = the divergent
+    // dimensions, short right = the shared basis), drawn one-sided from a
+    // baseline. The A/B side that the overlay carries with up/down is carried
+    // by hue here (periwinkle A / gold B) so no height is wasted splitting a
+    // ~40px strip; cyan marks a bin that holds a user edit. The full editable
+    // per-dimension console lives in the overlay.
+    const int numDims = static_cast<int>(bars_.size());
+    if (numDims == 0 || barArea_.getWidth() <= 0.0f || barArea_.getHeight() <= 0.0f)
+        return;
+
+    const float baseY   = barArea_.getBottom();
+    const float usableH = juce::jmax(1.0f, barArea_.getHeight() - 2.0f);
+
+    int numBins = juce::jlimit(8, 28, juce::roundToInt(barArea_.getWidth() / 11.0f));
+    numBins = juce::jmin(numBins, numDims);
+
+    struct BinAgg { float magSum = 0.0f; float signSum = 0.0f; int count = 0; bool edited = false; };
+    std::vector<BinAgg> bins(static_cast<size_t>(numBins));
+    for (int i = 0; i < numDims; ++i)
+    {
+        const int b = juce::jlimit(0, numBins - 1, (i * numBins) / numDims);
+        const auto& bar = bars_[static_cast<size_t>(i)];
+        // Height encodes the SAME metric the bars are sorted by — the |A-B|
+        // divergence (bValue is 0 for a single prompt, so this is |A| there) —
+        // so the spectrum falls off monotonically: tall left = the divergent
+        // dimensions, short right = the shared basis. The per-dim VALUE sits at
+        // the A/B midpoint and would read as a flat ~0 line; the divergence is
+        // what carries the focus metaphor. Sign picks the leaning side for hue.
+        const float div = bar.aValue - bar.bValue;
+        auto& agg = bins[static_cast<size_t>(b)];
+        agg.magSum  += std::abs(div);
+        agg.signSum += div;
+        ++agg.count;
+        if (std::abs(bar.offset) > 1e-8f)
+            agg.edited = true;
+    }
+
+    // Scale to the strongest bin so the leftmost (most divergent) bin fills the
+    // height and the falloff stays legible regardless of absolute magnitude.
+    float binMax = 1.0e-6f;
+    for (const auto& agg : bins)
+        if (agg.count > 0)
+            binMax = juce::jmax(binMax, agg.magSum / static_cast<float>(agg.count));
+
+    const float slot    = barArea_.getWidth() / static_cast<float>(numBins);
+    const float gapFrac = (slot > 4.0f) ? 0.18f : 0.0f;
+
+    g.setColour(kZeroLine);
+    g.drawHorizontalLine(juce::roundToInt(baseY), barArea_.getX(), barArea_.getRight());
+
+    for (int b = 0; b < numBins; ++b)
+    {
+        const auto& agg = bins[static_cast<size_t>(b)];
+        if (agg.count == 0)
+            continue;
+        const float mag = (agg.magSum / static_cast<float>(agg.count)) / binMax; // 0..1
+        const float h   = juce::jlimit(1.0f, usableH, mag * usableH);
+        const float x   = barArea_.getX() + static_cast<float>(b) * slot + slot * gapFrac * 0.5f;
+        const float w   = juce::jmax(1.0f, slot * (1.0f - gapFrac));
+
+        const juce::Colour col = agg.edited ? kBarEdit
+                                            : (agg.signSum >= 0.0f ? kBarA : kBarB);
+        g.setColour(col.withAlpha(0.88f));
+        g.fillRect(x, baseY - h, w, h);
     }
 }
 
