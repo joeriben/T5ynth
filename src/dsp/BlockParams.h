@@ -768,7 +768,8 @@ namespace ClockDivision {
 //    deliberately MATCH ClockDivision's for the shared divisions (16/1 … 1/4),
 //    so a preset saved before Drift had its own list reloads by key with no
 //    migration; a now-removed division (e.g. "1_8" or a tuplet) falls back to
-//    the 1/4 default. kFactor[i] = events per whole note.
+//    1/4, the nearest surviving step (the param DEFAULT, separately, is 2/1).
+//    kFactor[i] = events per whole note.
 namespace DriftDivision {
     enum : int {
         D64_1 = 0,

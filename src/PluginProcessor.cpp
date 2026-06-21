@@ -820,7 +820,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         toChoices(LfoMode::kEntries), 0));
 
     // BPM-sync clock mode + division for LFO 1/2/3, Drift 1/2/3, Delay.
-    // ClockMode default Off; Division default 1/4 (= ClockDivision::D1_4).
+    // ClockMode default Off. Division default 1/4 for LFO/Delay
+    // (ClockDivision::D1_4); Drift has its own slower list, default 2/1.
     // No DSP behaviour yet — wired up here so presets save/load and the UI
     // can attach. Sync rate computation lands in a later step.
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
@@ -846,19 +847,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         toChoices(ClockMode::kEntries), ClockMode::Off));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::drift1ClockDivision, 1}, "Drift1 Clock Division",
-        toChoices(DriftDivision::kEntries), DriftDivision::D1_4));
+        toChoices(DriftDivision::kEntries), DriftDivision::D2_1));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::drift2ClockMode, 1}, "Drift2 Clock Mode",
         toChoices(ClockMode::kEntries), ClockMode::Off));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::drift2ClockDivision, 1}, "Drift2 Clock Division",
-        toChoices(DriftDivision::kEntries), DriftDivision::D1_4));
+        toChoices(DriftDivision::kEntries), DriftDivision::D2_1));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::drift3ClockMode, 1}, "Drift3 Clock Mode",
         toChoices(ClockMode::kEntries), ClockMode::Off));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::drift3ClockDivision, 1}, "Drift3 Clock Division",
-        toChoices(DriftDivision::kEntries), DriftDivision::D1_4));
+        toChoices(DriftDivision::kEntries), DriftDivision::D2_1));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::delayClockMode, 1}, "Delay Clock Mode",
         toChoices(ClockMode::kEntries), ClockMode::Off));
@@ -4249,11 +4250,11 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
             { PID::lfo3ClockMode,      ClockMode::Off          },
             { PID::lfo3ClockDivision,  ClockDivision::D1_4     },
             { PID::drift1ClockMode,    ClockMode::Off          },
-            { PID::drift1ClockDivision,DriftDivision::D1_4     },
+            { PID::drift1ClockDivision,DriftDivision::D2_1     },
             { PID::drift2ClockMode,    ClockMode::Off          },
-            { PID::drift2ClockDivision,DriftDivision::D1_4     },
+            { PID::drift2ClockDivision,DriftDivision::D2_1     },
             { PID::drift3ClockMode,    ClockMode::Off          },
-            { PID::drift3ClockDivision,DriftDivision::D1_4     },
+            { PID::drift3ClockDivision,DriftDivision::D2_1     },
             { PID::delayClockMode,     ClockMode::Off          },
             { PID::delayClockDivision, ClockDivision::D1_4     },
         };
@@ -4463,9 +4464,11 @@ static juce::String clockDivisionToString(int i)          { return choiceToKey(i
 
 // Drift owns a SEPARATE, slower division list (DriftDivision, 64/1 … 1/4) and
 // must serialise against THAT table, not the shared ClockDivision one. The keys
-// overlap for the common divisions, so a pre-split preset reloads by key; an
-// unknown/removed key (e.g. "1_8" or a tuplet) defaults to 1/4 instead of the
-// bare choiceFromKey() fallback of index 0 (= 64/1, the slowest division).
+// overlap for the common divisions, so a pre-split preset reloads by key. An
+// unknown/removed key (e.g. a now-too-fast "1_8" or a tuplet) maps to the
+// fast-end 1/4 — the nearest surviving step for those removed faster divisions,
+// NOT the 2/1 param default — instead of choiceFromKey()'s index-0 fallback
+// (= 64/1, the slowest division).
 static int driftDivisionFromString(const juce::String& s) {
     for (int i = 0; i < DriftDivision::kCount; ++i)
         if (s == DriftDivision::kEntries[i].key) return i;
@@ -5180,7 +5183,7 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 : static_cast<float>(ClockMode::Off));
             setParam(parameters, dp.clockDivision, d->hasProperty("clockDivision")
                 ? static_cast<float>(driftDivisionFromString(d->getProperty("clockDivision").toString()))
-                : static_cast<float>(DriftDivision::D1_4));
+                : static_cast<float>(DriftDivision::D2_1));
         }
     }
     setParam(parameters, PID::driftEnabled, static_cast<bool>(root->getProperty("driftEnabled")) ? 1.0f : 0.0f);
