@@ -6,13 +6,13 @@ namespace
 // Per-target aftertouch normalization: each target carries its own bipolar
 // amount (-1..+1), scaled into the target's natural units so heterogeneous
 // targets feel comparable. [0..1]-range targets (Scan, Reso, Noise, Env
-// Sustain, LFO Depth) add the signed drive directly. Cutoff is NOT AT-specific:
-// aftertouch feeds the shared cutoff modulation bus (ModCalib::kCutoffModOctaves,
-// BlockParams.h) alongside env/LFO/Drift/timbre. The constants below set
-// full-scale for the AT-only unit-bearing targets. Negative amount drives the
-// opposite direction (bends down, ducks the DCA).
-constexpr float kAtPitchSemitones = 12.0f;   // Pitch:  ±N semitones (ratio)
-constexpr float kAtDcaGain        = 1.0f;    // DCA:    gain ×(1 + drive·this)
+// Sustain, LFO Depth) add the signed drive directly. Cutoff and Pitch are NOT
+// AT-specific: aftertouch feeds the shared modulation buses (ModCalib::
+// kCutoffModOctaves / kPitchModSemitones, BlockParams.h) alongside
+// env/LFO/Drift/timbre. The constant below sets full-scale for the one
+// remaining AT-only unit-bearing target. Negative amount drives the opposite
+// direction (bends down, ducks the DCA).
+constexpr float kAtDcaGain = 1.0f;    // DCA: gain ×(1 + drive·this)
 
 float applyNormalizedOffset(float baseValue, float modulationOffset)
 {
@@ -53,17 +53,6 @@ float computeEffectiveLfoDepth(const BlockParams& p, int target, float baseDepth
 float applyAftertouchTarget(const BlockParams& p, int target, float baseValue, float pressure)
 {
     return applyNormalizedOffset(baseValue, aftertouchDrive(p, target, pressure));
-}
-
-// Pitch: adds up to ±kAtPitchSemitones of bend (sign follows the amount) as a
-// ratio offset onto the existing pitchMod (summed with 1.0 downstream before
-// setFrequency); negative pressure-drive bends the note down.
-float applyAftertouchPitchMod(const BlockParams& p, float pitchMod, float pressure)
-{
-    const float drive = aftertouchDrive(p, AftertouchTarget::Pitch, pressure);
-    return drive != 0.0f
-        ? pitchMod + (std::pow(2.0f, drive * kAtPitchSemitones / 12.0f) - 1.0f)
-        : pitchMod;
 }
 
 // DCA: scales the VCA gain by ×(1 + drive·kAtDcaGain); positive drive raises the
@@ -684,15 +673,19 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
         const float lfo3Depth = applyAftertouchTarget(p, AftertouchTarget::LFO3Depth,
             computeEffectiveLfoDepth(p, EnvTarget::LFO3Depth, p.lfo3Depth,
                                      lastAmpEnvLevel, lastMod1Val_, lastMod2Val_), aftertouch_);
-        float pitchMod = p.driftPitchOffset;
-        if (p.ampTarget == EnvTarget::Pitch) pitchMod += lastAmpEnvLevel;
-        if (p.mod1Target == EnvTarget::Pitch) pitchMod += lastMod1Val_;
-        if (p.mod2Target == EnvTarget::Pitch) pitchMod += lastMod2Val_;
-        if (p.lfo1Target == LfoTarget::Pitch) pitchMod += lfo1Buf[mid] * lfo1Depth;
-        if (p.lfo2Target == LfoTarget::Pitch) pitchMod += lfo2Buf[mid] * lfo2Depth;
-        if (p.lfo3Target == LfoTarget::Pitch) pitchMod += lfo3Buf[mid] * lfo3Depth;
-        pitchMod = applyAftertouchPitchMod(p, pitchMod, aftertouch_);
-        sampler.setPitchModulation(effectivePitchRatio * (1.0f + pitchMod));
+        // ── Pitch modulation bus ──────────────────────────────────────
+        // Every source contributes a NORMALIZED semitone-fraction; one full-scale
+        // (ModCalib::kPitchModSemitones) applied once as an equal-tempered ratio.
+        float pitchSemis = p.driftPitchOffset;
+        if (p.ampTarget  == EnvTarget::Pitch) pitchSemis += lastAmpEnvLevel;
+        if (p.mod1Target == EnvTarget::Pitch) pitchSemis += lastMod1Val_;
+        if (p.mod2Target == EnvTarget::Pitch) pitchSemis += lastMod2Val_;
+        if (p.lfo1Target == LfoTarget::Pitch) pitchSemis += lfo1Buf[mid] * lfo1Depth;
+        if (p.lfo2Target == LfoTarget::Pitch) pitchSemis += lfo2Buf[mid] * lfo2Depth;
+        if (p.lfo3Target == LfoTarget::Pitch) pitchSemis += lfo3Buf[mid] * lfo3Depth;
+        pitchSemis += aftertouchDrive(p, AftertouchTarget::Pitch, aftertouch_);
+        sampler.setPitchModulation(effectivePitchRatio
+            * std::pow(2.0f, pitchSemis * ModCalib::kPitchModSemitones / 12.0f));
 
         sampler.renderPitchedBlock(samplerBlockBuf_.data(), numSamples);
     }
@@ -883,16 +876,17 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             }
             else if (freezeMode)
             {
-                float pitchMod = p.driftPitchOffset;
-                if (p.ampTarget == EnvTarget::Pitch) pitchMod += ampEnvVal;
-                if (p.mod1Target == EnvTarget::Pitch) pitchMod += mod1EnvVal;
-                if (p.mod2Target == EnvTarget::Pitch) pitchMod += mod2EnvVal;
-                if (p.lfo1Target == LfoTarget::Pitch) pitchMod += lfo1Val;
-                if (p.lfo2Target == LfoTarget::Pitch) pitchMod += lfo2Val;
-                if (p.lfo3Target == LfoTarget::Pitch) pitchMod += lfo3Val;
-                pitchMod = applyAftertouchPitchMod(p, pitchMod, aftertouch_);
+                float pitchSemis = p.driftPitchOffset;
+                if (p.ampTarget  == EnvTarget::Pitch) pitchSemis += ampEnvVal;
+                if (p.mod1Target == EnvTarget::Pitch) pitchSemis += mod1EnvVal;
+                if (p.mod2Target == EnvTarget::Pitch) pitchSemis += mod2EnvVal;
+                if (p.lfo1Target == LfoTarget::Pitch) pitchSemis += lfo1Val;
+                if (p.lfo2Target == LfoTarget::Pitch) pitchSemis += lfo2Val;
+                if (p.lfo3Target == LfoTarget::Pitch) pitchSemis += lfo3Val;
+                pitchSemis += aftertouchDrive(p, AftertouchTarget::Pitch, aftertouch_);
                 freezeEngine.setPitchModulation(effectivePitchRatio
-                    * juce::jlimit(0.0625f, 16.0f, 1.0f + pitchMod));
+                    * juce::jlimit(0.0625f, 16.0f,
+                                   std::pow(2.0f, pitchSemis * ModCalib::kPitchModSemitones / 12.0f)));
 
                 float scanMod = p.baseScan + p.driftScanOffset;
                 if (p.ampTarget == EnvTarget::Scan) scanMod += ampEnvVal;
@@ -914,19 +908,20 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             else if (oscReady)
             {
                 // Wavetable: per-sample pitch modulation
-                float pitchMod = p.driftPitchOffset;
-                if (p.ampTarget == EnvTarget::Pitch) pitchMod += ampEnvVal;
-                if (p.mod1Target == EnvTarget::Pitch) pitchMod += mod1EnvVal;
-                if (p.mod2Target == EnvTarget::Pitch) pitchMod += mod2EnvVal;
-                if (p.lfo1Target == LfoTarget::Pitch) pitchMod += lfo1Val;
-                if (p.lfo2Target == LfoTarget::Pitch) pitchMod += lfo2Val;
-                if (p.lfo3Target == LfoTarget::Pitch) pitchMod += lfo3Val;
-                pitchMod = applyAftertouchPitchMod(p, pitchMod, aftertouch_);
+                float pitchSemis = p.driftPitchOffset;
+                if (p.ampTarget  == EnvTarget::Pitch) pitchSemis += ampEnvVal;
+                if (p.mod1Target == EnvTarget::Pitch) pitchSemis += mod1EnvVal;
+                if (p.mod2Target == EnvTarget::Pitch) pitchSemis += mod2EnvVal;
+                if (p.lfo1Target == LfoTarget::Pitch) pitchSemis += lfo1Val;
+                if (p.lfo2Target == LfoTarget::Pitch) pitchSemis += lfo2Val;
+                if (p.lfo3Target == LfoTarget::Pitch) pitchSemis += lfo3Val;
+                pitchSemis += aftertouchDrive(p, AftertouchTarget::Pitch, aftertouch_);
 
                 if (!osc.isGliding())
                 {
                     baseFrequency = blockBaseFreqWavetable;
-                    osc.setFrequency(baseFrequency * effectivePitchRatio * (1.0f + pitchMod));
+                    osc.setFrequency(baseFrequency * effectivePitchRatio
+                                     * std::pow(2.0f, pitchSemis * ModCalib::kPitchModSemitones / 12.0f));
                 }
 
                 float scanBase = p.wtAutoScan ? 0.0f : p.baseScan;

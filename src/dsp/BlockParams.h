@@ -307,7 +307,8 @@ namespace PID {
 // SAME constant — so the feel is calibrated here, once per destination, never
 // per-source. ±1 of summed contribution maps to the full-scale below.
 namespace ModCalib {
-    static constexpr float kCutoffModOctaves = 4.0f; // cutoff: ±1 summed → ±4 octaves
+    static constexpr float kCutoffModOctaves  = 4.0f;  // cutoff: ±1 summed → ±4 octaves
+    static constexpr float kPitchModSemitones = 12.0f; // pitch:  ±1 summed → ±12 semitones (±1 octave)
 }
 
 namespace EnvTarget {
@@ -1310,7 +1311,7 @@ struct BlockParams
 
     // Drift offsets for filter and pitch (applied per-voice in SynthVoice)
     float driftFilterOffset = 0.0f;  // normalized cutoff contribution (octave-fraction), summed into the cutoff bus
-    float driftPitchOffset = 0.0f;   // additive: pitchMod += offset
+    float driftPitchOffset = 0.0f;   // normalized pitch contribution (semitone-fraction), summed into the pitch bus
     float performancePitchRatio = 1.0f; // MIDI pitch bend, applied as a frequency multiplier
 
     // Noise oscillator
