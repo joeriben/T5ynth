@@ -33,9 +33,11 @@ constexpr float kPromptReprompt    = 4.0f;   // Re-Prompt MODULE total height (c
 // sits between the A↔B block and the divider and is in BOTH budgets below.
 // Advanced replaces the easy view's divider (groupGap) with a "GENERATION"
 // top-header (compactRow + gap) above the param grid: -1.0 +1.15 +0.28 = +0.43.
-constexpr float kPromptContentUnits = 26.95f;
+// (The trailing info label — gap + compactRow = 1.43 — was removed from both
+// budgets; if it ever returns, add 1.43 back here AND in getPreferredHeightForWidth.)
+constexpr float kPromptContentUnits = 25.52f;
 // Easy budget keeps the model selector row but drops the advanced param rows.
-constexpr float kPromptEasyContentUnits = 21.86f;
+constexpr float kPromptEasyContentUnits = 20.43f;
 constexpr int kBaseSeed = 123456789;
 
 float preferredPromptFontForWidth(int width)
