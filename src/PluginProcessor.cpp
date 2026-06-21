@@ -462,12 +462,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::NormalisableRange<float>(0.0f, 0.95f), 0.35f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::delayMix, 1}, "Delay Mix",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f, 0.3f), 0.3f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.3f));
 
     // Reverb
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::reverbMix, 1}, "Reverb Mix",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f, 0.3f), 0.25f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.25f));
 
     // Algorithmic reverb parameters (only active when reverb_type == Algo)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
