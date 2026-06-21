@@ -3107,6 +3107,10 @@ void MainPanel::resized()
     // ═══ Col 1: Three cards — OSCILLATOR, AXES, DIM EXPLORER ═══
     int col1W = juce::jlimit(240, 420, juce::roundToInt(w * 0.25f));
     auto genCol = b.removeFromLeft(col1W).reduced(6, 2);
+    // Guarantee breathing room between this column's lowest control (RESYNTH) and
+    // the SEQUENCER header below: reserve a bottom gap up-front so neither the
+    // DimExplorer nor the centered Generate block can grow flush against the footer.
+    genCol.removeFromBottom(juce::jlimit(10, 16, juce::roundToInt(h * 0.015f)));
 
     int headerH = juce::jlimit(14, 20, juce::roundToInt(h * 0.022f));
     int kGap = juce::jlimit(3, 6, juce::roundToInt(h * 0.005f));
