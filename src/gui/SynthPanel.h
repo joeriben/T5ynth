@@ -4,6 +4,7 @@
 #include "WaveformDisplay.h"
 #include "GuiHelpers.h"
 #include "AftertouchBar.h"
+#include "VelocityBar.h"
 
 class T5ynthProcessor;
 
@@ -151,11 +152,22 @@ private:
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> aA, dA, sA, rA, amtA;
 
         // Per-stage velocity sensitivity, signed [-1..+1]: velocity→stage TIME
-        // (A/D/R). Three short vertical sliders that, together with the Amt fader
-        // (amtRow), form the 2×2 velocity/amount block under the easy-view graph
-        // and in advanced. Velocity never scales the level — peak is Amt's job.
+        // (A/D/R). Three short vertical sliders that serve the ADVANCED grid
+        // (alongside amtRow = ENV AMT). In easy view these are replaced by the
+        // "Velocity Amount" box below.
         std::unique_ptr<SliderRow> aVsRow, dVsRow, rVsRow;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> aVsA, dVsA, rVsA;
+
+        // ── Easy-view "Velocity Amount" box ──
+        // Vertical drag-fill bars (AftertouchBar feel). Att/Dec/Rel mirror the
+        // velSens above (bipolar, velocity→stage TIME); Level drives the GLOBAL
+        // velAmt (unipolar, velocity→peak). Shown in easy view in place of the
+        // four velSens/Amt faders; the SliderRows above still serve advanced.
+        // velAmt is global, so every env section's Level bar attaches to the same
+        // parameter — only the selected env's box is visible at a time.
+        juce::Label velBoxTitle;
+        std::unique_ptr<VelocityBar> attVB, decVB, relVB, levelVB;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attVBA, decVBA, relVBA, levelVBA;
 
         // Curve shape cycling buttons (Log/Lin/Exp) — square icons
         CurveButton aCurveBtn, dCurveBtn, rCurveBtn;

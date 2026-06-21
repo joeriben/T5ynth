@@ -119,6 +119,46 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     for (auto* row : { env.aVsRow.get(), env.dVsRow.get(), env.rVsRow.get() })
         row->getSlider().setDoubleClickReturnValue(true, 0.0);
 
+    // ── Easy-view "Velocity Amount" box (vertical drag-fill bars) ──
+    // Att/Dec/Rel are bipolar (velocity→stage TIME, mirror the velSens above);
+    // Level is unipolar (the GLOBAL velocity→peak amount, velAmt). Same widget
+    // feel as the aftertouch bars, just vertical.
+    env.attVB   = std::make_unique<VelocityBar>(true);
+    env.decVB   = std::make_unique<VelocityBar>(true);
+    env.relVB   = std::make_unique<VelocityBar>(true);
+    env.levelVB = std::make_unique<VelocityBar>(false);
+    env.attVB->setBarLabel("Att");
+    env.decVB->setBarLabel("Dec");
+    env.relVB->setBarLabel("Rel");
+    env.levelVB->setBarLabel("Level");
+    for (auto* vb : { env.attVB.get(), env.decVB.get(), env.relVB.get(), env.levelVB.get() })
+        addAndMakeVisible(*vb);
+
+    env.attVBA   = std::make_unique<SA>(apvts, aVsId,       *env.attVB);
+    env.decVBA   = std::make_unique<SA>(apvts, dVsId,       *env.decVB);
+    env.relVBA   = std::make_unique<SA>(apvts, rVsId,       *env.relVB);
+    env.levelVBA = std::make_unique<SA>(apvts, PID::velAmt, *env.levelVB);
+
+    // Host automation gestures (the attachment can't, since we bypass the base
+    // drag) + MIDI-learn parity with the advanced rows.
+    auto wireVB = [this, &apvts](VelocityBar& vb, const juce::String& pid) {
+        if (auto* p = apvts.getParameter(pid))
+        {
+            vb.onDragStart = [p] { p->beginChangeGesture(); };
+            vb.onDragEnd   = [p] { p->endChangeGesture(); };
+        }
+        vb.onRightClick = [this, pid](juce::Point<int> pt) {
+            showMidiLearnMenu(processorRef, pid, pt); };
+    };
+    wireVB(*env.attVB,   aVsId);
+    wireVB(*env.decVB,   dVsId);
+    wireVB(*env.relVB,   rVsId);
+    wireVB(*env.levelVB, PID::velAmt);
+
+    env.velBoxTitle.setText("Velocity Amount", juce::dontSendNotification);
+    env.velBoxTitle.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(env.velBoxTitle);
+
     // ── Curve shape cycling buttons (square icons) ──
     auto setupCurveBtn = [this](CurveButton& btn, juce::ComboBox& hidden,
                                 const juce::String& paramId,
@@ -1567,14 +1607,18 @@ void SynthPanel::updateVisibility()
         // A/D/S/R faders: advanced always; in easy they are REPLACED by the graph.
         for (auto* r : { env.aRow.get(), env.dRow.get(), env.sRow.get(), env.rRow.get() })
             if (r) r->setVisible(!easy);
-        // Amt row: advanced always; easy only for the selected env.
-        if (env.amtRow) env.amtRow->setVisible(!easy || selected);
-        // Per-stage velSense sliders: advanced always; easy only for selected env.
+        // Amt row + per-stage velSens sliders: ADVANCED ONLY now — in easy they
+        // are replaced by the "Velocity Amount" box (velSens → Att/Dec/Rel bars,
+        // velAmt → Level bar). ENV AMT (amtRow) currently lives only in advanced.
+        if (env.amtRow) env.amtRow->setVisible(!easy);
         for (auto* r : { env.aVsRow.get(), env.dVsRow.get(), env.rVsRow.get() })
-            if (r) r->setVisible(!easy || selected);
-        // Easy-view graph: easy + selected only.
+            if (r) r->setVisible(!easy);
+        // Easy-view graph + "Velocity Amount" box: easy + selected only.
         const bool easySel = easy && selected;
         if (env.graph) env.graph->setVisible(easySel);
+        env.velBoxTitle.setVisible(easySel);
+        for (auto* vb : { env.attVB.get(), env.decVB.get(), env.relVB.get(), env.levelVB.get() })
+            if (vb) vb->setVisible(easySel);
     };
     setEnvControlsVisible(ampEnv,  activeEnvTab == 0, modEasyMode);
     setEnvControlsVisible(mod1Env, activeEnvTab == 1, modEasyMode);
@@ -2211,11 +2255,11 @@ void SynthPanel::layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float
     const int rowGap = juce::jmax(gap, 6);
 
     // Split the full remaining height: the ADSR graph is the dominant hero
-    // (~2/3); the velocity (A/D/R) + Amt fader row takes the secondary third.
+    // (~2/3); the "Velocity Amount" box takes the secondary third.
     // One gap between them; minimums keep both usable when the column is short.
     const int avail     = juce::jmax(0, area.getHeight() - rowGap);
     const int minGraphH = juce::jmax(rowH * 3, juce::roundToInt(f * 5.0f));
-    const int minVelH   = juce::jmax(rowH * 2, juce::roundToInt(f * 3.0f));
+    const int minVelH   = juce::jmax(rowH * 3, juce::roundToInt(f * 4.5f));  // title + bars
     const int loGraph   = juce::jmin(minGraphH, avail);
     const int hiGraph   = juce::jmax(loGraph, avail - juce::jmin(minVelH, avail));
     const int graphH    = juce::jlimit(loGraph, hiGraph,
@@ -2224,19 +2268,27 @@ void SynthPanel::layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float
     if (env.graph) env.graph->setBounds(graphArea);
     area.removeFromTop(rowGap);
 
-    // Velocity A/D/R + Amt as one 4-wide vertical fader row, columns aligned
-    // under the graph's stages. Amt is the 4th fader (the old horizontal Amt
-    // band is gone): velocity shapes the A/D/R times, Amt owns the depth.
+    // "Velocity Amount" box: a centred title over four vertical drag-fill bars
+    // (Att/Dec/Rel = bipolar velocity→stage TIME; Level = the global velocity→
+    // peak amount, velAmt — last, set slightly apart as the sum attenuation).
     {
         auto vsArea = area;
-        SliderRow* vs[4] = { env.aVsRow.get(), env.dVsRow.get(), env.rVsRow.get(), env.amtRow.get() };
+        const int titleH = juce::jlimit(12, rowH, juce::roundToInt(f * 1.4f));
+        env.velBoxTitle.setFont(juce::FontOptions(
+            juce::jmax(kUiControlFontMin, juce::jmin(12.0f, static_cast<float>(titleH) * 0.82f)),
+            juce::Font::bold));
+        env.velBoxTitle.setBounds(vsArea.removeFromTop(juce::jmin(titleH, vsArea.getHeight())));
+        vsArea.removeFromTop(juce::jmin(2, vsArea.getHeight()));
+
+        VelocityBar* vb[4] = { env.attVB.get(), env.decVB.get(), env.relVB.get(), env.levelVB.get() };
         constexpr int vGap = 4;
-        const int vW = juce::jmax(1, (vsArea.getWidth() - vGap * 3) / 4);
+        constexpr int levelGap = 8;   // wider gap before Level — it is the sum attenuation
+        const int vW = juce::jmax(1, (vsArea.getWidth() - vGap * 2 - levelGap) / 4);
         for (int i = 0; i < 4; ++i)
         {
             auto cell = (i == 3) ? vsArea : vsArea.removeFromLeft(vW);
-            if (i < 3) vsArea.removeFromLeft(vGap);
-            if (vs[i]) { vs[i]->setVerticalMode(true); vs[i]->setLabelAsBand(false); vs[i]->setBounds(cell); }
+            if (i < 3) vsArea.removeFromLeft(i == 2 ? levelGap : vGap);
+            if (vb[i]) vb[i]->setBounds(cell);
         }
     }
 }
