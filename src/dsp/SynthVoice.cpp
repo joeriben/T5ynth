@@ -217,9 +217,12 @@ void SynthVoice::noteOn(int note, float velocity, bool legato)
 
     if (!legato)
     {
-        // Peak is fixed at 1.0; envelope depth is owned by Amt. Velocity shapes
-        // only the A/D/R times (applyVelocityTimedEnvelopeTimes), never the level.
-        ampEnv.noteOn(1.0f);
+        // Velocity scales the AMP-envelope peak → note loudness, full sensitivity
+        // (peak == velocity, the synth's long-standing default). Amt scales the
+        // env's overall depth on top of that; velSens shapes only the A/D/R times.
+        // The MOD envelopes keep a fixed 1.0 peak — their modulation depth is owned
+        // by Amt, not velocity (the orthogonal half of the env refactor we keep).
+        ampEnv.noteOn(velocity);
         modEnv1.noteOn(1.0f);
         modEnv2.noteOn(1.0f);
         // Fresh note starts at neutral MPE timbre until its first CC74 arrives;
@@ -484,7 +487,10 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
     mod2Ref.setDecayCurve(static_cast<CurveShape>(p.mod2DecayCurve));
     mod2Ref.setReleaseCurve(static_cast<CurveShape>(p.mod2ReleaseCurve));
 
-    ampRef.noteOn(1.0f);
+    // Mirror the live amp env (peak == velocity) so the sampler pre-stretch
+    // normalization analyses the same DCA curve playback will produce; otherwise
+    // soft notes would be double-attenuated. Cache already keys on currentVelocity.
+    ampRef.noteOn(currentVelocity);
     mod1Ref.noteOn(1.0f);
     mod2Ref.noteOn(1.0f);
 
