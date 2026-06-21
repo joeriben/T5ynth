@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include "GuiHelpers.h"
 #include <array>
 #include <vector>
 #include <map>
@@ -60,9 +61,7 @@ private:
     // the backend. Non-trained vector directions can push the embedding off
     // the manifold and produce harsh output; this knob lets the user dial
     // the effect back without losing the per-axis balance.
-    juce::Label  amountLabel;
-    juce::Slider amountSlider;
-    juce::Label  amountValue;
+    std::unique_ptr<SliderRow> amountRow;   // house-standard left-header band (single control)
     using Attachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     std::unique_ptr<Attachment> amountAttachment;
 

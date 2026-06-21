@@ -47,27 +47,14 @@ AxesPanel::AxesPanel(juce::AudioProcessorValueTreeState& apvts)
         initSlot(slots[i], kEffectiveAxes, static_cast<int>(i));
 
     // Master amount: scales all axis deltas before they reach the backend.
-    amountLabel.setText("Amount", juce::dontSendNotification);
-    labelAsCaption(amountLabel, kDim);   // match the other captions
-    amountLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(amountLabel);
+    // House-standard SliderRow with a left-header band — single control → left-
+    // header, matching RESYNTH / SNAP / CACHE in the same column.
+    amountRow = std::make_unique<SliderRow>(
+        "Amount", [](double v) { return juce::String(v, 2); }, kOscCol);
+    amountRow->setLabelAsBand(true);
+    addAndMakeVisible(*amountRow);
 
-    amountSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    amountSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
-    amountSlider.setColour(juce::Slider::trackColourId, kOscCol);
-    amountSlider.setColour(juce::Slider::backgroundColourId, kBorder);   // visible rail (kSurface too dark on kBg)
-    addAndMakeVisible(amountSlider);
-
-    labelAsCaption(amountValue, kOscCol);
-    amountValue.setJustificationType(juce::Justification::centredRight);
-    addAndMakeVisible(amountValue);
-
-    amountSlider.onValueChange = [this] {
-        amountValue.setText(juce::String(amountSlider.getValue(), 2), juce::dontSendNotification);
-    };
-
-    amountAttachment = std::make_unique<Attachment>(apvts, PID::genAxesAmount, amountSlider);
-    amountValue.setText(juce::String(amountSlider.getValue(), 2), juce::dontSendNotification);
+    amountAttachment = std::make_unique<Attachment>(apvts, PID::genAxesAmount, amountRow->getSlider());
 }
 
 void AxesPanel::initSlot(AxisSlot& slot, const juce::StringArray& options, int axisIndex)
@@ -225,19 +212,11 @@ void AxesPanel::resized()
 
     layoutSlots(slots, area, f * 0.75f);
 
-    // Amount row: same column geometry as the axis rows (label fills the dropdown
-    // column, slider + value align beneath them) so the whole panel reads as one
-    // grid instead of a separate label gutter.
+    // Amount row: the master attenuator as a single left-header control. SliderRow
+    // owns its label-band / slider / value layout — the house standard.
     float fa = f * 0.75f;
     int rowH = juce::roundToInt(fa * 1.4f);
-    int valW = juce::roundToInt(fa * 3.0f);
-    auto row = area.removeFromTop(rowH);
-    int labelW = juce::roundToInt(row.getWidth() * 0.45f);
-    setUiFont(amountLabel, TextRole::Caption, fa * 0.8f);
-    amountLabel.setBounds(row.removeFromLeft(labelW));
-    setUiFont(amountValue, TextRole::Value, fa * 0.8f);
-    amountValue.setBounds(row.removeFromRight(valW));
-    amountSlider.setBounds(row);
+    amountRow->setBounds(area.removeFromTop(rowH));
 }
 
 std::map<juce::String, float> AxesPanel::getAxisValues() const
