@@ -679,21 +679,23 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     // is effectively static within a note. Free mode displays the period (s/cyc);
     // the param stays Hz with a log skew. Pre-existing sub-floor drift clamps up
     // to the floor on load (raising a floor is inherently lossy — accepted).
+    // Default 0.25 Hz (4 s/cyc) = the 2/1 sync division @120 BPM, so a fresh
+    // drift idles at the same musical rate whether free-running or BPM-synced.
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift1Rate, 1}, "Drift1 Rate",
-        juce::NormalisableRange<float>(1.0f / 128.0f, 2.0f, 0.001f, 0.3f), 0.01f));
+        juce::NormalisableRange<float>(1.0f / 128.0f, 2.0f, 0.001f, 0.3f), 0.25f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift1Depth, 1}, "Drift1 Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift2Rate, 1}, "Drift2 Rate",
-        juce::NormalisableRange<float>(1.0f / 128.0f, 2.0f, 0.001f, 0.3f), 1.0f / 128.0f));
+        juce::NormalisableRange<float>(1.0f / 128.0f, 2.0f, 0.001f, 0.3f), 0.25f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift2Depth, 1}, "Drift2 Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift3Rate, 1}, "Drift3 Rate",
-        juce::NormalisableRange<float>(1.0f / 128.0f, 2.0f, 0.001f, 0.3f), 1.0f / 128.0f));
+        juce::NormalisableRange<float>(1.0f / 128.0f, 2.0f, 0.001f, 0.3f), 0.25f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::drift3Depth, 1}, "Drift3 Amount",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
