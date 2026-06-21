@@ -442,12 +442,12 @@ void SynthPanel::initDrift(DriftSection& drift, const juce::String& name,
     drift.depthRow    = std::make_unique<SliderRow>("Amt", fmtPctFine, kDriftCol);
     drift.divisionRow = std::make_unique<SliderRow>("Rate",
         [](double v) {
-            const int idx = juce::jlimit(0, ClockDivision::kCount - 1,
+            const int idx = juce::jlimit(0, DriftDivision::kCount - 1,
                                           juce::roundToInt(v));
-            return juce::String(ClockDivision::kEntries[idx].label);
+            return juce::String(DriftDivision::kEntries[idx].label);
         }, kDriftCol);
     drift.divisionRow->getSlider().setRange(
-        0.0, static_cast<double>(ClockDivision::kCount - 1), 1.0);
+        0.0, static_cast<double>(DriftDivision::kCount - 1), 1.0);
     // Lock the value column to a fixed pixel width so the slider track's
     // RIGHT edge stays put when ClockMode swaps. Free mode now shows the period
     // (e.g. "128 s/cyc" at the floor, "0.50 s/cyc" fast), wider than "Hz", hence 84.

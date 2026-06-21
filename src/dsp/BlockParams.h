@@ -760,17 +760,67 @@ namespace ClockDivision {
                   "ClockDivision kFactor and kEntries out of sync.");
 }
 
+// ── Drift-only BPM-sync divisions ─ a slower, coarser subset than
+//    ClockDivision. Drift is slow harmonic/timbral motion, so its sync range
+//    runs from 64/1 (64 whole-note cycles) at the slow end down to 1/4 at the
+//    fast end — no sub-1/4 or tuplet steps. Monotonic slow → fast like
+//    ClockDivision so the stepped slider stays coherent. The `.key` strings
+//    deliberately MATCH ClockDivision's for the shared divisions (16/1 … 1/4),
+//    so a preset saved before Drift had its own list reloads by key with no
+//    migration; a now-removed division (e.g. "1_8" or a tuplet) falls back to
+//    the 1/4 default. kFactor[i] = events per whole note.
+namespace DriftDivision {
+    enum : int {
+        D64_1 = 0,
+        D32_1 = 1,
+        D16_1 = 2,
+        D8_1  = 3,
+        D4_1  = 4,
+        D2_1  = 5,
+        D1_1  = 6,
+        D1_2  = 7,
+        D1_4  = 8
+    };
+    static constexpr ChoiceEntry kEntries[] = {
+        { "64_1", "64/1" },
+        { "32_1", "32/1" },
+        { "16_1", "16/1" },
+        { "8_1",  "8/1"  },
+        { "4_1",  "4/1"  },
+        { "2_1",  "2/1"  },
+        { "1_1",  "1/1"  },
+        { "1_2",  "1/2"  },
+        { "1_4",  "1/4"  }
+    };
+    static constexpr float kFactor[] = {
+        1.0f / 64.0f, 1.0f / 32.0f, 1.0f / 16.0f, 1.0f / 8.0f,
+        1.0f / 4.0f, 1.0f / 2.0f, 1.0f, 2.0f, 4.0f
+    };
+    static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
+    static_assert(D1_4 + 1 == kCount,
+                  "DriftDivision enum and kEntries out of sync.");
+    static_assert(sizeof(kFactor) / sizeof(kFactor[0]) == kCount,
+                  "DriftDivision kFactor and kEntries out of sync.");
+}
+
 // ── Sync-rate / sync-delay helpers ──
 // `bpm` is the resolved sync BPM (host transport, in-app sequencer, frozen
 // host, or seqBpm fallback — caller is responsible for resolution). A zero
 // or negative bpm degrades to 120 to keep the LFO/delay alive instead of
 // freezing or dividing by zero.
 namespace ClockSync {
-    inline float computeRate(float bpm, int divisionIdx)
+    // Core: events-per-whole-note `factor` → cycles/sec at `bpm` (4 beats per
+    // whole note). Drift calls this directly with DriftDivision::kFactor; the
+    // ClockDivision path goes through computeRate() just below.
+    inline float computeRateFromFactor(float bpm, float factor)
     {
         if (! (bpm > 0.0f)) bpm = 120.0f;
+        return factor * (bpm / 60.0f) / 4.0f;
+    }
+    inline float computeRate(float bpm, int divisionIdx)
+    {
         const int idx = std::clamp(divisionIdx, 0, ClockDivision::kCount - 1);
-        return ClockDivision::kFactor[idx] * (bpm / 60.0f) / 4.0f;
+        return computeRateFromFactor(bpm, ClockDivision::kFactor[idx]);
     }
     inline float computeDelayMs(float bpm, int divisionIdx)
     {
