@@ -70,11 +70,11 @@ public:
 
         const float w = (float) juce::jmax(1, getWidth());
         const double pos = juce::jlimit(0.0, 1.0, (double) e.position.x / w);
-        // Same logarithmic feel as the synth's other depth controls: skew the
-        // magnitude (mag = pos^(1/skew)) so the musical range spreads across the
-        // travel instead of crowding the first few percent.
-        double mag = std::pow(pos, 1.0 / kAtBarSkew);
-        if (mag < 0.005) mag = 0.0;                      // dead-zone → clean off
+        // Honest linear control: the bar position IS the depth. The DSP full-scales
+        // are calibrated so the whole travel is usable (no skew to compensate a
+        // too-hot function, and therefore no min-fill "jump" near zero).
+        double mag = pos;
+        if (mag < 0.01) mag = 0.0;                       // snap to clean off (matches 0.01 step)
         setValue(dragSign_ * mag, juce::sendNotificationSync);
         repaint();
     }
@@ -110,9 +110,8 @@ public:
         if (mag > 0.0f)
         {
             g.setColour(v >= 0.0f ? kAtCol : kAtNegCol);
-            // Inverse of the drag skew so the fill tracks the bar position.
-            const float frac = std::pow(mag, (float) kAtBarSkew);
-            g.fillRect(b.withWidth(b.getWidth() * frac));
+            // Linear fill = depth (drag position). No skew → no min-fill jump.
+            g.fillRect(b.withWidth(b.getWidth() * mag));
         }
 
         const bool active = mag > 0.0f;
@@ -139,10 +138,6 @@ public:
     }
 
 private:
-    // Perceptual skew for the magnitude, matching the AT amount param's
-    // NormalisableRange skew (PluginProcessor.cpp) and the synth's other depth
-    // controls (0.3). Keep the two in sync.
-    static constexpr double kAtBarSkew = 0.3;
     juce::String label_;
     double dragSign_    = 1.0;
     bool   held_        = false;

@@ -198,7 +198,8 @@ private:
     // Marshals mainSnapshots → preset format for persistence, and the
     // reverse direction when applying a loaded preset.
     std::vector<PresetFormat::SnapshotState> buildSnapshotsForSave() const;
-    void applySnapshotsFromLoad(const std::vector<PresetFormat::SnapshotState>& snapshots);
+    void applySnapshotsFromLoad(const std::vector<PresetFormat::SnapshotState>& snapshots,
+                                int calibEpoch);
     void triggerMainGeneration();
     void setComputerKeyboardEnabled(bool enabled);
     void shiftComputerKeyboardOctave(int delta);

@@ -89,6 +89,10 @@ public:
         juce::String device;
         juce::String model;
 
+        // Calibration epoch the file was authored under (0 = absent / pre-calibration).
+        // Used to rescale stored values so old presets stay sonically identical.
+        int calibEpoch = 0;
+
         // Embedded audio (empty if old-format preset)
         juce::AudioBuffer<float> audio;
         double sampleRate = 44100.0;

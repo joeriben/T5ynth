@@ -3,6 +3,7 @@
 #include "BinaryData.h"
 #include "dsp/Tuning.h"
 #include "midi/LaunchControlXLLeds.h"
+#include "presets/CalibrationMigration.h"
 #include <algorithm>
 #include <chrono>
 
@@ -612,13 +613,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
             { PID::aftertouchAmtPitch,       "AT Pitch"        },
             { PID::aftertouchAmtNoiseLevel,  "AT Noise"        },
         };
-        // Symmetric 0.3 skew (fine resolution near 0), matching every other depth
-        // control in the synth (LFO / Drift depth). Without it this bipolar amount
-        // was the only linear depth control, so it alone needed 1/100-scale values.
+        // Honest linear bipolar amount, 0.01 step (two decimals). The DSP
+        // full-scales are now musical (e.g. AT→Cutoff = ±4 oct, see
+        // SynthVoice kFilterModOctaves), so the control no longer needs a skew or
+        // 1/1000-scale values to be usable — the whole travel maps to a usable range.
         for (const auto& a : atTargets)
             params.push_back(std::make_unique<juce::AudioParameterFloat>(
                 juce::ParameterID{ a.pid, 1 }, a.name,
-                juce::NormalisableRange<float>(-1.0f, 1.0f, 0.001f, 0.3f, true), 0.0f));
+                juce::NormalisableRange<float>(-1.0f, 1.0f, 0.01f), 0.0f));
     }
 
     // Drift LFO
@@ -4168,6 +4170,7 @@ void T5ynthProcessor::getStateInformation(juce::MemoryBlock& destData)
     xml->setAttribute("midiOutputDeviceId", midiOutputDeviceId_);
     xml->setAttribute("midiClockEnabled", midiClockEnabled_.load());
     xml->setAttribute("modalityEpoch", currentModalityEpoch_);
+    xml->setAttribute("calibEpoch", Calibration::kEpoch);
     copyXmlToBinary(*xml, destData);
 }
 
@@ -4285,6 +4288,13 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
                     appendParam(kAftertouchAmtPid[t], paramVal("aftertouch_amount", 0.0f));
             }
         }
+
+        // Calibration migration: rescale values authored under older DSP full-scales
+        // so the session sounds identical under the new ones. Done on the loaded tree
+        // BEFORE replaceState so only params actually present in the file are touched
+        // (never a stale live value). ABSENT calibEpoch = epoch 0. The legacy AT fold
+        // above already appended its cutoff node, so it gets rescaled too.
+        Calibration::migrateValueTree(loadedTree, xml->getIntAttribute("calibEpoch", 0));
 
         parameters.replaceState(loadedTree);
 
@@ -4554,6 +4564,10 @@ juce::String T5ynthProcessor::exportJsonPreset() const
         synth->setProperty("modalityEpoch", currentModalityEpoch_);
         synth->setProperty("appVersion", juce::String(ProjectInfo::versionString));
     }
+    // Calibration epoch is unconditional (independent of the modality-legacy switch):
+    // a fresh save is always at the current calibration, so a load→re-save never
+    // re-migrates already-migrated values.
+    synth->setProperty("calibEpoch", Calibration::kEpoch);
     root->setProperty("synth", synth.get());
 
     // Engine
@@ -4856,6 +4870,14 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
     if (!root) return false;
     const bool importingSequencePattern = root->getProperty("kind").toString() == "t5seq";
 
+    // Calibration epoch the file was authored under (ABSENT = 0 = pre-calibration).
+    // Stored values authored under older DSP full-scales are rescaled as they are
+    // read (Calibration::migrateScalar) so the preset sounds identical.
+    int fileCalibEpoch = 0;
+    if (auto* synth = root->getProperty("synth").getDynamicObject())
+        fileCalibEpoch = synth->hasProperty("calibEpoch")
+                             ? static_cast<int>(synth->getProperty("calibEpoch")) : 0;
+
     // ── Synth params ──
     if (auto* synth = root->getProperty("synth").getDynamicObject())
     {
@@ -5049,7 +5071,9 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 if (at->hasProperty(AftertouchTarget::kEntries[t].key))
                 {
                     setParam(parameters, kAftertouchAmtPid[t],
-                             static_cast<float>(at->getProperty(AftertouchTarget::kEntries[t].key)));
+                             Calibration::migrateScalar(kAftertouchAmtPid[t],
+                                 static_cast<float>(at->getProperty(AftertouchTarget::kEntries[t].key)),
+                                 fileCalibEpoch));
                     perTarget = true;
                 }
             if (! perTarget && at->hasProperty("target"))
@@ -5057,7 +5081,9 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                 const int t = choiceFromKey(at->getProperty("target").toString(), AftertouchTarget::kEntries);
                 if (t >= AftertouchTarget::LFO1Depth && t <= AftertouchTarget::NoiseLevel)
                     setParam(parameters, kAftertouchAmtPid[t],
-                             at->hasProperty("amount") ? static_cast<float>(at->getProperty("amount")) : 0.0f);
+                             Calibration::migrateScalar(kAftertouchAmtPid[t],
+                                 at->hasProperty("amount") ? static_cast<float>(at->getProperty("amount")) : 0.0f,
+                                 fileCalibEpoch));
             }
         }
     }

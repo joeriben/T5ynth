@@ -9,7 +9,10 @@ namespace
 // Sustain, LFO Depth) add the signed drive directly; the constants below set
 // full-scale depth for the unit-bearing ones. Negative amount drives the
 // opposite direction (pressure closes the filter, bends down, ducks the DCA).
-constexpr float kFilterModOctaves = 10.0f;   // Cutoff: ×2^(drive·octaves)
+constexpr float kFilterModOctaves = 4.0f;    // Cutoff: ×2^(drive·octaves), full-scale ±4 oct
+                                             // (matches MPE timbre's ±4-oct sweep; was ±10,
+                                             // which crowded the musical band into the first
+                                             // ~10–30% of the amount control)
 constexpr float kAtPitchSemitones = 12.0f;   // Pitch:  ±N semitones (ratio)
 constexpr float kAtDcaGain        = 1.0f;    // DCA:    gain ×(1 + drive·this)
 

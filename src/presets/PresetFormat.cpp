@@ -483,6 +483,8 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
             if (s > 0) result.seed = s;
             result.device = synth->getProperty("device").toString();
             result.model = synth->getProperty("model").toString();
+            result.calibEpoch = synth->hasProperty("calibEpoch")
+                                    ? static_cast<int>(synth->getProperty("calibEpoch")) : 0;
             if (synth->hasProperty("randomSeed"))
                 result.randomSeed = static_cast<bool>(synth->getProperty("randomSeed"));
 

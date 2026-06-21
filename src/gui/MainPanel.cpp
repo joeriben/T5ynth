@@ -2,6 +2,7 @@
 #include "../PluginProcessor.h"
 #include "../dsp/BlockParams.h"
 #include "../presets/TagVocabulary.h"
+#include "../presets/CalibrationMigration.h"
 #include "GuiHelpers.h"
 #include "BinaryData.h"
 #include <cmath>
@@ -1805,7 +1806,7 @@ void MainPanel::syncGuiStateForPresetSave()
 void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const juce::File& sourceFile)
 {
     activeSnapshotIndex = 0;
-    applySnapshotsFromLoad(result.snapshots);
+    applySnapshotsFromLoad(result.snapshots, result.calibEpoch);
 
     promptPanel.loadPresetData(result.promptA, result.promptB,
                                result.seed, result.randomSeed, result.device, result.model,
@@ -2663,7 +2664,8 @@ std::vector<PresetFormat::SnapshotState> MainPanel::buildSnapshotsForSave() cons
     return out;
 }
 
-void MainPanel::applySnapshotsFromLoad(const std::vector<PresetFormat::SnapshotState>& snapshots)
+void MainPanel::applySnapshotsFromLoad(const std::vector<PresetFormat::SnapshotState>& snapshots,
+                                       int calibEpoch)
 {
     // Clear all session snapshots first; only the slots present in the
     // preset are populated. Slot index from JSON is authoritative; values
@@ -2705,7 +2707,12 @@ void MainPanel::applySnapshotsFromLoad(const std::vector<PresetFormat::SnapshotS
         if (src.parametersXml.isNotEmpty())
         {
             if (auto xml = juce::parseXML(src.parametersXml))
+            {
                 dst.parameters = juce::ValueTree::fromXml(*xml);
+                // Snapshot param values were stored under the file's calibration
+                // epoch; rescale so recalling this slot sounds identical post-update.
+                Calibration::migrateValueTree(dst.parameters, calibEpoch);
+            }
         }
 
         dst.loopStart      = src.loopStart;
