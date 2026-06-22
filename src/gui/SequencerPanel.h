@@ -128,29 +128,24 @@ private:
 
     // Generative sequencer controls
     juce::TextButton genTransportBtn { "GEN" };  // mode toggle, not transport
-    std::unique_ptr<SliderRow> genStepsRow, genPulsesRow, genRotationRow, genMutationRow;
+    // Euclidean + harmony sliders, all inline-label bars. Range and Cyc are
+    // sliders now (were a switchbox / dropdown); they bind to the genRange
+    // Choice and genFieldRate Int params via SliderAttachments.
+    std::unique_ptr<SliderRow> genStepsRow, genPulsesRow, genRotationRow,
+                               genMutationRow, genRangeRow, genCycRow;
     juce::ComboBox genScaleRootBox, genScaleTypeBox;
-    // Range switchbox [1][2][3][4]
-    static constexpr int kNumRangeBtns = 4;
-    juce::TextButton genRangeBtns[kNumRangeBtns];
-    juce::ComboBox genRangeHidden;  // hidden, for APVTS
-    juce::Label genRangeLabel;
-    juce::Rectangle<int> genRangeSwitchBounds;   // unified frame (gen mode only)
+    // Harmony box (framed card in the gen-mode left column) + the thin divider
+    // above the voices. Recorded in resized(), drawn in paint() (gen mode only).
+    juce::Rectangle<int> harmonyBoxBounds;
+    int voicesDividerY = -1;
 
     // Fix toggle buttons (lock/unlock icons)
     juce::TextButton genFixStepsBtn, genFixPulsesBtn, genFixRotationBtn, genFixMutationBtn;
 
-    // Framed cards around the four Euclidean controls (slider + value + FIX),
-    // recorded in resized() and drawn in paint(); reset to {} in step mode so
-    // the isEmpty() guard drops them when the grid shows.
-    juce::Rectangle<int> genStepsCardBounds, genPulsesCardBounds,
-                         genRotationCardBounds, genMutationCardBounds;
-
     // ── Polyphony (Phase 5) ──────────────────────────────────────────────
-    // Shared pitch-field controls
+    // Shared pitch-field controls. "Drift" mode stays a dropdown; "Cyc"
+    // (genFieldRate) is now the genCycRow inline slider declared above.
     juce::ComboBox genFieldModeBox;
-    juce::ComboBox genFieldRateBox;    // "Cyc" — field cycle count (1..32) as a dropdown
-    juce::Label    genFieldRateLabel;  // "Cyc" left-header band
     // Per-extra-strand (indices 0..3 map to strands 2..5)
     static constexpr int kNumExtraStrands = 4;
     juce::TextButton strandEnableBtns[kNumExtraStrands];
@@ -188,15 +183,15 @@ private:
     using SA = juce::AudioProcessorValueTreeState::SliderAttachment;
     using CA = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
     using BA = juce::AudioProcessorValueTreeState::ButtonAttachment;
-    std::unique_ptr<SA> bpmA, gateA, shuffleA, genStepsA, genPulsesA, genRotationA, genMutationA;
+    std::unique_ptr<SA> bpmA, gateA, shuffleA, genStepsA, genPulsesA, genRotationA,
+                        genMutationA, genRangeA, genFieldRateA;
     std::unique_ptr<CA> divA, presetA, arpModeA, arpRateA, arpOctA, octShiftA,
-                        genScaleRootA, genScaleTypeA, genRangeA;
+                        genScaleRootA, genScaleTypeA;
     std::unique_ptr<BA> genRunningA;
     std::unique_ptr<BA> genFixStepsA, genFixPulsesA, genFixRotationA, genFixMutationA;
 
     // Polyphony attachments
     std::unique_ptr<CA> genFieldModeA;
-    std::unique_ptr<CA> genFieldRateA;
     std::unique_ptr<BA> strandEnableA[kNumExtraStrands];
     std::unique_ptr<CA> strandRoleA[kNumExtraStrands];
     std::unique_ptr<CA> strandDivA[kNumExtraStrands];

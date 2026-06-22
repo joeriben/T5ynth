@@ -1095,7 +1095,7 @@ namespace ScaleType {
         Pelg, Slnd                                             // 26-27: southeast asian
     };
     static constexpr ChoiceEntry kEntries[] = {
-        { "off",   "Off"       },
+        { "off",   "Chromatic" },   // key "off" kept stable; "off" == no scale quantize
         { "maj",   "Major"     },
         { "min",   "Minor"     },
         { "pent",  "Penta"     },

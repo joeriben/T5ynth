@@ -658,28 +658,16 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     genRotationRow->getSlider().onValueChange = [this] { genRotationRow->updateValue(); };
     genRotationRow->updateValue();
 
-    // Range switchbox [1][2][3][4] octaves
-    juce::StringArray genRangeItems;
-    for (const auto& e : GenRange::kEntries) genRangeItems.add(e.label);
-    genRangeHidden.addItemList(genRangeItems, 1);
-    genRangeHidden.onChange = [this] {
-        int id = genRangeHidden.getSelectedId();
-        for (int i = 0; i < kNumRangeBtns; ++i)
-            genRangeBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
-    };
-    for (int i = 0; i < kNumRangeBtns; ++i)
-    {
-        genRangeBtns[i].setButtonText(juce::String(i + 1));
-        styleSwitchButton(genRangeBtns[i], kSeqCol);
-        genRangeBtns[i].setClickingTogglesState(true);
-        genRangeBtns[i].setRadioGroupId(2005);
-        genRangeBtns[i].onClick = [this, i] { genRangeHidden.setSelectedId(i + 1); };
-        addAndMakeVisible(genRangeBtns[i]);
-    }
-    genRangeA = std::make_unique<CA>(apvts, PID::genRange, genRangeHidden);
-    // "Rng" left-header band (standard accent@0.7 + white design).
-    paintSectionHeader(genRangeLabel, "Rng", kSeqCol);
-    addAndMakeVisible(genRangeLabel);
+    // Range — inline slider on the genRange Choice param (0..3 -> display 1..4
+    // octaves; the DSP adds 1, see PluginProcessor). A SliderAttachment maps the
+    // choice's four discrete values onto the slider.
+    genRangeRow = std::make_unique<SliderRow>("Range",
+        [](double v) { return juce::String(juce::roundToInt(v) + 1); }, kSeqCol);
+    genRangeRow->setInlineLabel(true);
+    addAndMakeVisible(*genRangeRow);
+    genRangeA = std::make_unique<SA>(apvts, PID::genRange, genRangeRow->getSlider());
+    genRangeRow->getSlider().onValueChange = [this] { genRangeRow->updateValue(); };
+    genRangeRow->updateValue();
 
     genMutationRow = std::make_unique<SliderRow>("Evolve",
         [](double v) { return juce::String(juce::roundToInt(v * 100)) + "%"; }, kSeqCol);
@@ -688,11 +676,11 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     genMutationRow->getSlider().onValueChange = [this] { genMutationRow->updateValue(); };
     genMutationRow->updateValue();
 
-    // Euclidean gen rows: render the label as an accent band (the left-header),
-    // so each sits inside its framed card like the Duration module.
+    // Euclidean gen rows render as Poly-AT-style inline bars (label + value
+    // inside the track); each bar's own border replaces the old framed card.
     for (auto* r : { genStepsRow.get(), genPulsesRow.get(),
                      genRotationRow.get(), genMutationRow.get() })
-        r->setLabelAsBand(true);
+        r->setInlineLabel(true);
 
     // Fix toggle buttons (FIX = locked against drift)
     auto setupFixBtn = [this](juce::TextButton& btn, const juce::String& tip) {
@@ -726,21 +714,13 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         addAndMakeVisible(genFieldModeBox);
         genFieldModeA = std::make_unique<CA>(apvts, PID::genFieldMode, genFieldModeBox);
 
-        // Field cycle count (1..32) as a dropdown, mirroring the StepSeq step-
-        // count box. Items must match the param's 32 discrete values 1:1 and be
-        // populated BEFORE the attachment (ComboBoxAttachment maps item index ↔
-        // param value, so 32 items ⇒ index i → value i+1).
-        for (int i = 1; i <= 32; ++i)
-            genFieldRateBox.addItem(juce::String(i), i);
-        genFieldRateBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
-        genFieldRateBox.setColour(juce::ComboBox::textColourId, kSeqCol);
-        genFieldRateBox.setColour(juce::ComboBox::outlineColourId, kBorder);
-        addAndMakeVisible(genFieldRateBox);
-        genFieldRateA = std::make_unique<CA>(apvts, PID::genFieldRate, genFieldRateBox);
-
-        // "Cyc" left-header band (standard accent@0.7 + white design).
-        paintSectionHeader(genFieldRateLabel, "Cyc", kSeqCol);
-        addAndMakeVisible(genFieldRateLabel);
+        // Cyc — inline slider on the genFieldRate Int param (1..32 cycles).
+        genCycRow = std::make_unique<SliderRow>("Cyc", intFmt, kSeqCol);
+        genCycRow->setInlineLabel(true);
+        addAndMakeVisible(*genCycRow);
+        genFieldRateA = std::make_unique<SA>(apvts, PID::genFieldRate, genCycRow->getSlider());
+        genCycRow->getSlider().onValueChange = [this] { genCycRow->updateValue(); };
+        genCycRow->updateValue();
     }
     {
         juce::StringArray roleItems;
@@ -1212,26 +1192,23 @@ void SequencerPanel::paint(juce::Graphics& g)
         paintSwitchBoxBorder(g, arpModeSwitchBounds);
         paintSwitchBoxBorder(g, arpOctSwitchBounds);
     }
-    paintSwitchBoxBorder(g, genRangeSwitchBounds);
     for (int i = 0; i < kNumExtraStrands; ++i)
         paintSwitchBoxBorder(g, strandOctSwitchBounds[i]);
 
-    // Framed cards around the Euclidean gen controls (gen mode only — bounds are
-    // {} in step mode). Lighter kSurface fill so the card reads on the kCard panel
-    // (drawn before the child controls, which paint on top). Matches the FX/synth
-    // module-card recipe; no module-colour stripe.
+    // Harmony box card (gen-mode left column) + the thin divider above the voices.
+    // Both reset (empty / -1) in step mode, so they don't draw there. Lighter
+    // kSurface fill so the card reads on the kCard panel; drawn before the child
+    // controls, which paint on top (FX/synth module-card recipe).
+    if (!harmonyBoxBounds.isEmpty())
     {
-        auto card = [&g](juce::Rectangle<int> b)
-        {
-            if (b.isEmpty()) return;
-            g.setColour(kSurface.withAlpha(0.62f)); g.fillRect(b);
-            g.setColour(juce::Colour(0xaa05070d)); g.drawRect(b.expanded(1, 1), 1);
-            g.setColour(kBorder.withAlpha(0.82f)); g.drawRect(b, 1);
-        };
-        card(genStepsCardBounds);
-        card(genPulsesCardBounds);
-        card(genRotationCardBounds);
-        card(genMutationCardBounds);
+        g.setColour(kSurface.withAlpha(0.62f)); g.fillRect(harmonyBoxBounds);
+        g.setColour(juce::Colour(0xaa05070d)); g.drawRect(harmonyBoxBounds.expanded(1, 1), 1);
+        g.setColour(kBorder.withAlpha(0.82f)); g.drawRect(harmonyBoxBounds, 1);
+    }
+    if (voicesDividerY >= 0)
+    {
+        g.setColour(kBorder);
+        g.drawHorizontalLine(voicesDividerY, 6.0f, static_cast<float>(getWidth() - 6));
     }
 }
 
@@ -1305,10 +1282,15 @@ void SequencerPanel::resized()
     const int divisionPrefW = kNumDivBtns * (compactTopRow ? 18 : 22);  // note-glyph switchbox
     const int divisionMinW  = kNumDivBtns * (compactTopRow ? 15 : 18);
     const int midiClusterW = midiTextW + midiLedW + midiGap;
-    const int gateMinW = gateRow->getMinimumWidth();
-    const int gatePrefW = gateMinW;
-    const int shuffleMinW = shuffleRow->getMinimumWidth();
-    const int shufflePrefW = shuffleMinW;
+    // Inline Gate/Shuffle draw "label  value" INSIDE the bar, but getMinimumWidth()
+    // counts only the track (inline zeroes the label/value cells). Give an explicit
+    // preferred width that fits the text or the strip starves them to the track
+    // minimum and label+value overprint. Min stays small so they can still shed.
+    const float hdrFs = 12.0f;
+    const int gateMinW     = gateRow->getMinimumWidth();
+    const int gatePrefW    = measureTextWidth("Gate", hdrFs)    + measureTextWidth("100%", hdrFs) + 20;
+    const int shuffleMinW  = shuffleRow->getMinimumWidth();
+    const int shufflePrefW = measureTextWidth("Shuffle", hdrFs) + measureTextWidth("100%", hdrFs) + 20;
 
     // Overflow drop order (highest tier sheds first; the note divisions, tier 1,
     // survive longest). Shuffle is the most expendable; BPM/Gate/MIDI, transport
@@ -1420,18 +1402,15 @@ void SequencerPanel::resized()
     genPulsesRow->setVisible(genModeActive);
     genRotationRow->setVisible(genModeActive);
     genMutationRow->setVisible(genModeActive);
+    genRangeRow->setVisible(genModeActive);
+    genCycRow->setVisible(genModeActive);
     genScaleRootBox.setVisible(genModeActive);
     genScaleTypeBox.setVisible(genModeActive);
-    genRangeLabel.setVisible(genModeActive);
-    for (int i = 0; i < kNumRangeBtns; ++i)
-        genRangeBtns[i].setVisible(genModeActive);
     genFixStepsBtn.setVisible(genModeActive);
     genFixPulsesBtn.setVisible(genModeActive);
     genFixRotationBtn.setVisible(genModeActive);
     genFixMutationBtn.setVisible(genModeActive);
     genFieldModeBox.setVisible(genModeActive);
-    genFieldRateBox.setVisible(genModeActive);
-    genFieldRateLabel.setVisible(genModeActive);
     for (int i = 0; i < kNumExtraStrands; ++i)
     {
         strandEnableBtns[i].setVisible(genModeActive);
@@ -1455,186 +1434,145 @@ void SequencerPanel::resized()
     for (int i = 0; i < kNumOctShiftBtns; ++i)
         octShiftBtns[i].setVisible(stepModeActive);
 
-    // Reset gen-switchbox frames; set below only when laid out (gen mode on),
-    // so the isEmpty() guard in paint() drops them when the grid is showing.
-    genRangeSwitchBounds = {};
-    genStepsCardBounds = genPulsesCardBounds = {};
-    genRotationCardBounds = genMutationCardBounds = {};
+    // Reset gen-mode frames/divider; set below only when laid out (gen mode on),
+    // so the empty-guards in paint() drop them when the step grid is showing.
+    harmonyBoxBounds = {};
+    voicesDividerY = -1;
     for (int i = 0; i < kNumExtraStrands; ++i)
         strandOctSwitchBounds[i] = {};
 
     if (genModeActive)
     {
-        // ═══ Gen mode: 2-column grid with fix buttons ═══
-        int genCtrlH = rH;
-        int colGap = 4;
-        int fixW = 28;
-        int colW = (area.getWidth() - colGap) / 2;
+        // ═══ Gen mode: 2-column layout ═══
+        //   Row A:  Steps[FIX]  |  Pulses[FIX]
+        //   Left column : harmony box (Note+Skala, Range, Cyc, Drift) in a card
+        //   Right column: Rotation[FIX]  Evolve[FIX]  (one row)
+        //   Below both, full width: a thin divider then the voice modules.
+        const int genCtrlH = rH;
+        const int colGap   = 8;
+        const int fixW     = 28;
+        const int fixGap   = 2;
+        const int rowGap   = 4;
+        const int intraGap = 2;
+        const int colW     = (area.getWidth() - colGap) / 2;
 
-        // Each Euclidean control (band-label + slider + value + FIX) sits inside
-        // a framed card: record the full colW group rect, then inset the content
-        // so it sits INSIDE the frame with padding (Duration-with-left-header).
-        const int cardPad = 2;
-        auto placeGenCard = [&](juce::Rectangle<int> colRect, SliderRow& row,
-                                juce::TextButton& fix) -> juce::Rectangle<int>
+        // Place an inline slider + its FIX button into a row rect.
+        auto placeFixRow = [fixW, fixGap](juce::Rectangle<int> r, SliderRow& row,
+                                          juce::TextButton& fix)
         {
-            auto c = colRect.reduced(cardPad);
-            row.setBounds(c.removeFromLeft(juce::jmax(1, c.getWidth() - fixW)));
-            fix.setBounds(c);
-            return colRect;
+            fix.setBounds(r.removeFromRight(fixW));
+            r.removeFromRight(fixGap);
+            row.setBounds(r);
         };
 
-        // Card row height = control row + padding on both sides, so the slider/
-        // value/FIX keep their full genCtrlH height inside the frame (no shrink).
-        const int genCardH = genCtrlH + 2 * cardPad;
-
-        // Row 1:  [ Steps [====] 21 [FIX] ]  |  [ Pulses [====] 16 [FIX] ]
-        auto row1 = area.removeFromTop(genCardH);
-        genStepsCardBounds  = placeGenCard(row1.removeFromLeft(colW), *genStepsRow,  genFixStepsBtn);
-        row1.removeFromLeft(colGap);
-        genPulsesCardBounds = placeGenCard(row1.removeFromLeft(colW), *genPulsesRow, genFixPulsesBtn);
-        area.removeFromTop(4);
-
-        // Row 2:  [ Rotation [====] 2 [FIX] ]  |  [ Evolve [====] 80% [FIX] ]
-        auto row2 = area.removeFromTop(genCardH);
-        genRotationCardBounds = placeGenCard(row2.removeFromLeft(colW), *genRotationRow, genFixRotationBtn);
-        row2.removeFromLeft(colGap);
-        genMutationCardBounds = placeGenCard(row2.removeFromLeft(colW), *genMutationRow, genFixMutationBtn);
-        area.removeFromTop(4);
-
-        // ── 2-column GEN block ──
-        //   Left column (narrow, 3 rows):
-        //     Row L1: [C▾] [DblHarm▾]                  (Root + Scale)
-        //     Row L2: [Rng][1][2][3][4]                (Range)
-        //     Row L3: [Mode▾] [Cyc][12▾]               (Transform mode + Cyc)
-        //   Right column (wide): four strand modules side by side, each one
-        //     a 3-row vertical block — row 1 [Sx][Role▾], row 2 [Div▾][Dom],
-        //     row 3 the octave switchbox across the full module width (its own
-        //     row so the five cells stay readable in a narrow strand column).
-        //   The left column is kept tight so the strand modules get the width
-        //     they need (otherwise the Dominance slider gets crushed to nothing).
+        // ── Row A: Steps[FIX] | Pulses[FIX] ──
         {
-            const int intraGap = 2;
-            const int colGap   = 12;
-            const int blockH   = 3 * genCtrlH + 2 * intraGap;
-            auto block = area.removeFromTop(blockH);
+            auto rowA = area.removeFromTop(genCtrlH);
+            placeFixRow(rowA.removeFromLeft(colW), *genStepsRow, genFixStepsBtn);
+            rowA.removeFromLeft(colGap);
+            placeFixRow(rowA, *genPulsesRow, genFixPulsesBtn);
+        }
+        area.removeFromTop(rowGap);
 
-            const float bandFs = static_cast<float>(genCtrlH) * 0.55f;
-            const int   rngLblW = 34;   // "Rng" band
-            const int   cycLblW = 34;   // "Cyc" band
+        // ── Split the region below Row A into the harmony columns (top) and the
+        //    full-width voices (bottom), divider between. The HARMONY BOX is ONE
+        //    row: Note · Skala · Range · Cyc · Drift. Voices take the remainder
+        //    (Phase 5 redesigns them). ──
+        const int dividerGap  = 6;
+        const int boxPad      = 3;
+        const int regionH     = juce::jmax(0, area.getHeight());
+        const int rowH        = juce::jlimit(14, genCtrlH, regionH - dividerGap - 2 * boxPad);
+        const int boxH        = rowH + 2 * boxPad;
 
-            const int leftW = juce::jlimit(178, 220, block.getWidth() * 2 / 9);
-            auto leftCol  = block.removeFromLeft(leftW);
-            block.removeFromLeft(colGap);
-            auto rightCol = block;
+        auto colsArea  = area.removeFromTop(juce::jmin(boxH, regionH));
+        voicesDividerY = colsArea.getBottom() + dividerGap / 2;
+        area.removeFromTop(juce::jmin(dividerGap, area.getHeight()));
+        auto voicesArea = area;                          // full-width remainder
 
-            // ── Left column — Row L1: Root + Scale ──
+        auto leftCol  = colsArea.removeFromLeft(colW);
+        colsArea.removeFromLeft(colGap);
+        auto rightCol = colsArea;
+
+        // LEFT column — harmony box (framed card; the frame is drawn in paint()).
+        // Everything shares ONE row: Note · Skala · Range · Cyc · Drift. The two
+        // dropdowns and Drift get fixed text-sized widths (Note narrow for "C#",
+        // Skala wider for "Chromatic"); the two inline sliders split the middle.
+        {
+            harmonyBoxBounds = leftCol;
+            auto row = harmonyBoxBounds.reduced(boxPad);
+            const int g = 3;
+            genScaleRootBox.setBounds(row.removeFromLeft(juce::jmin(44, row.getWidth())));   row.removeFromLeft(g);
+            genScaleTypeBox.setBounds(row.removeFromLeft(juce::jmin(88, row.getWidth())));   row.removeFromLeft(g);
+            genFieldModeBox.setBounds(row.removeFromRight(juce::jmin(72, row.getWidth())));   row.removeFromRight(g);
+            const int rangeW = juce::jmax(1, row.getWidth() / 2);
+            genRangeRow->setBounds(row.removeFromLeft(rangeW));   row.removeFromLeft(g);
+            genCycRow->setBounds(row);
+        }
+
+        // RIGHT column — Rotation[FIX] + Evolve[FIX] share one row.
+        {
+            auto rRow = rightCol.removeFromTop(genCtrlH);
+            const int half = (rRow.getWidth() - colGap) / 2;
+            placeFixRow(rRow.removeFromLeft(half), *genRotationRow, genFixRotationBtn);
+            rRow.removeFromLeft(colGap);
+            placeFixRow(rRow, *genMutationRow, genFixMutationBtn);
+        }
+
+        // ── Voice modules (full width, below the divider) ──
+        {
+            const int moduleGap = 16;
+            const int moduleW = (voicesArea.getWidth() - (kNumExtraStrands - 1) * moduleGap)
+                               / kNumExtraStrands;
+            for (int i = 0; i < kNumExtraStrands; ++i)
             {
-                auto rowL1 = leftCol.removeFromTop(genCtrlH);
-                const int rootW   = 55;
-                const int scaleW  = 100;
-                const int gapTiny = 2;
-                genScaleRootBox.setBounds(rowL1.removeFromLeft(rootW));  rowL1.removeFromLeft(gapTiny);
-                genScaleTypeBox.setBounds(rowL1.removeFromLeft(scaleW));
-            }
-            leftCol.removeFromTop(intraGap);
+                auto module = voicesArea.removeFromLeft(moduleW);
+                if (i < kNumExtraStrands - 1) voicesArea.removeFromLeft(moduleGap);
 
-            // ── Left column — Row L2: Range ──
-            {
-                auto rowL2 = leftCol.removeFromTop(genCtrlH);
-                const int rngBtnW = 22;
-                const int gapMid  = 6;
-                genRangeLabel.setFont(uiFont(TextRole::Caption, bandFs));
-                genRangeLabel.setBounds(rowL2.removeFromLeft(rngLblW)); rowL2.removeFromLeft(gapMid);
-                for (int i = 0; i < kNumRangeBtns; ++i)
+                const int onW     = 28;
+                const int divW    = 60;
+                const int domLblW = 30;                 // "Dom"
+                const int gapInm  = 2;
+                const int gapPad  = 6;                  // between control groups
+                const int gapTiny = 2;                  // between label and its slider
+
+                // Row 1: [Sx enable][Role]
+                auto modTop = module.removeFromTop(genCtrlH);
+                strandEnableBtns[i].setBounds(modTop.removeFromLeft(onW));
+                modTop.removeFromLeft(gapInm);
+                strandRoleBoxes[i].setBounds(modTop);
+
+                module.removeFromTop(intraGap);
+
+                // Row 2: [Div]  [Dom lbl][Dom slider]. Only Dom needs a prefix label
+                // (a bare "0.50" wouldn't say what it is); Div is self-evident.
+                auto modMid = module.removeFromTop(genCtrlH);
+                strandDivBoxes[i].setBounds(modMid.removeFromLeft(divW));
+                modMid.removeFromLeft(gapPad);
+                strandDomLabels[i].setFont(uiFont(TextRole::Caption, static_cast<float>(genCtrlH) * 0.55f));
+                strandDomLabels[i].setBounds(modMid.removeFromLeft(domLblW));
+                modMid.removeFromLeft(gapTiny);
+                strandDomSliders[i].setBounds(modMid);
+
+                module.removeFromTop(intraGap);
+
+                // Row 3: octave switchbox [-2][-1][0][+1][+2] across the FULL module
+                // width — its own row so the five cells stay readable and clickable.
                 {
-                    int edges = 0;
-                    if (i > 0) edges |= juce::Button::ConnectedOnLeft;
-                    if (i < kNumRangeBtns - 1) edges |= juce::Button::ConnectedOnRight;
-                    genRangeBtns[i].setConnectedEdges(edges);
-                    genRangeBtns[i].setBounds(rowL2.removeFromLeft(rngBtnW));
-                }
-                genRangeSwitchBounds = genRangeBtns[0].getBounds()
-                    .getUnion(genRangeBtns[kNumRangeBtns - 1].getBounds());
-            }
-            leftCol.removeFromTop(intraGap);
-
-            // ── Left column — Row L3: Transform mode + Cyc ──
-            // Field Center PC and Pivot interval are no longer separate
-            // controls — they are derived from the Scale Root and Scale
-            // Type respectively (see PluginProcessor's per-block setters).
-            {
-                auto rowL3 = leftCol.removeFromTop(genCtrlH);
-                const int modeW   = 76;   // ~−20% vs the old 95
-                const int gapSm   = 6;
-                const int gapTiny = 2;
-                genFieldModeBox.setBounds(rowL3.removeFromLeft(juce::jmin(modeW, rowL3.getWidth())));
-                rowL3.removeFromLeft(gapSm);
-                genFieldRateLabel.setFont(uiFont(TextRole::Caption, bandFs));
-                genFieldRateLabel.setBounds(rowL3.removeFromLeft(juce::jmin(cycLblW, rowL3.getWidth())));
-                rowL3.removeFromLeft(gapTiny);
-                genFieldRateBox.setBounds(rowL3.removeFromLeft(juce::jmin(64, rowL3.getWidth())));
-            }
-
-            // ── Right column — 4 strand modules side by side ──
-            {
-                const int moduleGap = 16;
-                const int moduleW = (rightCol.getWidth() - (kNumExtraStrands - 1) * moduleGap)
-                                   / kNumExtraStrands;
-                for (int i = 0; i < kNumExtraStrands; ++i)
-                {
-                    auto module = rightCol.removeFromLeft(moduleW);
-                    if (i < kNumExtraStrands - 1) rightCol.removeFromLeft(moduleGap);
-
-                    const int onW     = 28;
-                    const int divW    = 60;
-                    const int domLblW = 30;                 // "Dom"
-                    const int gapInm  = 2;
-                    const int gapPad  = 6;                  // between control groups
-                    const int gapTiny = 2;                  // between label and its slider
-
-                    // Row 1: [Sx enable][Role▾]
-                    auto modTop = module.removeFromTop(genCtrlH);
-                    strandEnableBtns[i].setBounds(modTop.removeFromLeft(onW));
-                    modTop.removeFromLeft(gapInm);
-                    strandRoleBoxes[i].setBounds(modTop);
-
-                    module.removeFromTop(intraGap);
-
-                    // Row 2: [Div▾]  [Dom lbl][Dom slider]. Only Dom needs a prefix
-                    // label (a bare "0.50" wouldn't say what it is); Div is self-evident.
-                    auto modMid = module.removeFromTop(genCtrlH);
-                    strandDivBoxes[i].setBounds(modMid.removeFromLeft(divW));
-                    modMid.removeFromLeft(gapPad);
-                    strandDomLabels[i].setFont(uiFont(TextRole::Caption, static_cast<float>(genCtrlH) * 0.55f));
-                    strandDomLabels[i].setBounds(modMid.removeFromLeft(domLblW));
-                    modMid.removeFromLeft(gapTiny);
-                    strandDomSliders[i].setBounds(modMid);
-
-                    module.removeFromTop(intraGap);
-
-                    // Row 3: octave switchbox [-2][-1][0][+1][+2] across the FULL
-                    // module width — its own row so the five cells stay readable and
-                    // clickable however narrow the strand column is (the old single
-                    // [Div][Oct][Dom] row crushed these to a few px each → unsteuerbar).
+                    auto octRow = module.removeFromTop(genCtrlH);
+                    const int octBtnW = juce::jmax(1, octRow.getWidth() / kStrandOctBtns);
+                    for (int b = 0; b < kStrandOctBtns; ++b)
                     {
-                        auto octRow = module.removeFromTop(genCtrlH);
-                        const int octBtnW = juce::jmax(1, octRow.getWidth() / kStrandOctBtns);
-                        for (int b = 0; b < kStrandOctBtns; ++b)
-                        {
-                            int edges = 0;
-                            if (b > 0) edges |= juce::Button::ConnectedOnLeft;
-                            if (b < kStrandOctBtns - 1) edges |= juce::Button::ConnectedOnRight;
-                            strandOctBtns[i][b].setConnectedEdges(edges);
-                            const int w = (b == kStrandOctBtns - 1) ? octRow.getWidth() : octBtnW;
-                            strandOctBtns[i][b].setBounds(octRow.removeFromLeft(w));
-                        }
-                        strandOctSwitchBounds[i] = strandOctBtns[i][0].getBounds()
-                            .getUnion(strandOctBtns[i][kStrandOctBtns - 1].getBounds());
+                        int edges = 0;
+                        if (b > 0) edges |= juce::Button::ConnectedOnLeft;
+                        if (b < kStrandOctBtns - 1) edges |= juce::Button::ConnectedOnRight;
+                        strandOctBtns[i][b].setConnectedEdges(edges);
+                        const int w = (b == kStrandOctBtns - 1) ? octRow.getWidth() : octBtnW;
+                        strandOctBtns[i][b].setBounds(octRow.removeFromLeft(w));
                     }
+                    strandOctSwitchBounds[i] = strandOctBtns[i][0].getBounds()
+                        .getUnion(strandOctBtns[i][kStrandOctBtns - 1].getBounds());
                 }
             }
-            area.removeFromTop(g);
         }
 
         gridArea = {};

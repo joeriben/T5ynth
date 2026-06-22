@@ -1282,10 +1282,22 @@ private:
 
         const float fs = juce::jlimit(9.0f, 13.0f, b.getHeight() * 0.58f);
         g.setFont(juce::FontOptions(fs));
+        // Reserve the value's measured width on the RIGHT, a small gap, then let
+        // the label fill the remaining LEFT span (clipped). On a narrow bar the
+        // two can no longer overprint (was "Gat84%" / "Shu0%").
         auto textArea = b.reduced(4.0f, 0.0f);
         g.setColour(juce::Colours::white);
-        g.drawText(label.getText(), textArea, juce::Justification::centredLeft, false);
-        g.drawText(currentValueText(), textArea, juce::Justification::centredRight, false);
+        const juce::String valTxt = currentValueText();
+        if (valTxt.isNotEmpty())
+        {
+            const float vw = juce::jmin(textArea.getWidth(),
+                                        static_cast<float>(measureTextWidth(valTxt, fs)) + 2.0f);
+            g.drawText(valTxt, textArea.removeFromRight(vw),
+                       juce::Justification::centredRight, false);
+            textArea.removeFromRight(4.0f);   // gap between value and label
+        }
+        if (label.getText().isNotEmpty())
+            g.drawText(label.getText(), textArea, juce::Justification::centredLeft, false);
 
         g.setColour(kBorder);
         g.drawRect(b, 1.0f);
