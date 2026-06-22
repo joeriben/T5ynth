@@ -390,7 +390,7 @@ ending at the model's output.
 T5ynth requires at least one diffusion model. Audio model weights are <strong>not bundled</strong> — they must be downloaded separately. The Stable Audio Open engines (1.0 and Small) also need the auxiliary <strong>T5-Base</strong> text encoder (ungated, Apache-2.0), which installs automatically with the engine; Stable Audio 3 instead uses its own t5gemma encoder, fetched at install.
 </p>
 <p>
-Open the <strong>Settings</strong> panel from the status bar, pick a model from the dropdown, and read the per-model instructions shown there. The summary below tells you which model to pick.
+Open the <strong>Settings</strong> panel from the status bar. The panel is tabbed: the <strong>Models</strong> tab (default) handles model download and shows per-model instructions; the <strong>Settings</strong> tab (General Settings) contains machine-wide options that are not saved per preset. Currently: <strong>Filter Oversampling</strong> (Off / 2× / 4×) — applies to the Ladder and Warp nonlinear filter stages, default 2×; does not affect SVF. Pick a model from the Models tab; the summary below tells you which to choose.
 </p>
 
 <h4>Stable Audio 3 Small Music &amp; Small SFX</h4>
@@ -962,7 +962,7 @@ selector in the filter header row.
   <tr><td><strong>Mix</strong></td><td>0.0 – 1.0</td><td>Equal-power dry/wet crossfade</td></tr>
   <tr><td><strong>Kbd Track</strong></td><td>0.0 – 1.0</td><td>Cutoff offset per MIDI semitone</td></tr>
   <tr><td><strong>Drive</strong></td><td>0 – 36 dB</td><td>On SVF: pre-filter <code>tanh</code> saturation (optionally oversampled). On Ladder / Warp: input gain into the filter's own nonlinear stages — the filter itself provides the saturation character, master volume handles level.</td></tr>
-  <tr><td><strong>OS</strong></td><td>Off / 2× / 4× / 8×</td><td>Oversampling for the SVF drive <code>tanh</code>. Inactive on Ladder / Warp; their internal nonlinearities aren't oversampled in this first iteration.</td></tr>
+  <tr><td><strong>OS</strong></td><td>Off / 2× / 4× / 8×</td><td>On <strong>SVF</strong>: inline oversampling for the Drive <code>tanh</code>, stored per preset. On <strong>Ladder / Warp</strong>: oversampling is a global machine-wide setting in the <em>Settings</em> panel (General Settings tab), not per preset — default 2×.</td></tr>
   <tr><td><strong>Style</strong></td><td>Tanh / SoftClip / OJD / Sin / Digital / Asym</td><td>Warp-only — picks the per-pole saturation curve. Greyed out for SVF / Ladder. See algorithm notes.</td></tr>
 </table>
 
@@ -997,11 +997,21 @@ Three identical ADSR envelopes, each with a <strong>Target dropdown</strong> to 
   <tr><td><strong>Sustain</strong></td><td>0.0 – 1.0</td><td></td></tr>
   <tr><td><strong>Release</strong></td><td>0 – 10 000 ms</td><td></td></tr>
   <tr><td><strong>A / D / R Curve</strong></td><td>Log / SLog / Lin / SExp / Exp</td><td>Per-stage slope shape. Each of the three stages (Attack, Decay, Release) has its own 5-position selector, so an envelope can e.g. be linear on the way up but exponential on release. Minimum ramp 3&nbsp;ms on every stage. Defaults: A = Lin, D = Lin, R = Exp. See the <em>Curve shapes</em> note below the table.</td></tr>
-  <tr><td><strong>Amount</strong></td><td>0.0 – 1.0</td><td>Output scaling</td></tr>
-  <tr><td><strong>Vel Sens</strong></td><td>0.0 – 1.0</td><td>0 = fixed level, 1 = full velocity response. Aftertouch is handled by the global <strong>AT</strong> routing row below the LFOs.</td></tr>
+  <tr><td><strong>Amount</strong></td><td>0.0 – 1.0</td><td>Envelope ceiling — the maximum level the envelope can reach. Drag the peak handle on the ADSR graph vertically; the whole shape scales proportionally. At 1.0 the envelope reaches full range; at 0.5 it peaks at half regardless of ADSR times.</td></tr>
+  <tr><td><strong>A / D / R Vel Sens</strong></td><td>−1.0 – +1.0</td><td>Per-stage velocity sensitivity for <em>timing</em>. Positive: harder hits shorten the stage (snappier attack or decay). Negative: harder hits lengthen it. 0 = fixed timing. Held-phase (pressure) response is handled by the <strong>AT</strong> panel.</td></tr>
   <tr><td><strong>Loop</strong></td><td>on / off</td><td>Re-triggers attack when sustain is reached</td></tr>
-  <tr><td><strong>Target</strong></td><td>Dropdown</td><td>DCA, Filter, Scan, Pitch, Dly Time/FB/Mix, Rev Mix, Noise Lvl, LFO1/2/3 Rate, LFO1/2/3 Depth</td></tr>
+  <tr><td><strong>Target</strong></td><td>Dropdown</td><td>DCA, Filter, Scan, Pitch, Dly Time/FB/Mix, Rev Mix, Noise Lvl, LFO1/2/3 Amt, LFO1/2/3 Depth</td></tr>
 </table>
+
+<p>
+<strong>Velocity Amount.</strong> The <strong>Velocity Amount</strong> panel (between the
+envelopes and the LFOs) collects all velocity-to-dynamics controls in one place.
+<strong>Level</strong> is a global velocity-to-peak amount (0.0–1.0, default&nbsp;1.0):
+at 1.0 a note at velocity&nbsp;127 reaches the full envelope peak; at 0 velocity has no
+effect on level at all. The per-stage <strong>Att / Dec / Rel</strong> sliders are the
+same A/D/R vel&nbsp;sens controls as the per-envelope sliders — they set how velocity
+affects stage timing, bipolar (−1.0…+1.0).
+</p>
 
 <div class="note">
   <strong>Curve shapes</strong> (applied to the normalised stage progress <em>t&nbsp;∈&nbsp;[0,&nbsp;1]</em>):
@@ -1026,17 +1036,31 @@ Three identical ADSR envelopes, each with a <strong>Target dropdown</strong> to 
   <tr><td><strong>Target</strong></td><td>Dropdown</td><td>Filter, Scan, Pitch, Dly Time/FB/Mix, Rev Mix, Noise Lvl, ENV1–3 Amt, Drift1/2/3 Depth</td></tr>
 </table>
 
-<h3>MIDI Aftertouch (AT)</h3>
+<h3>Aftertouch (AT)</h3>
 <p>
-The compact <strong>AT</strong> row routes MIDI channel pressure, polyphonic aftertouch, Mod Wheel, or Breath to one performance destination at a time. Poly pressure follows the individual note where the controller provides it; channel pressure, Mod Wheel, and Breath apply to all active voices.
+The <strong>AT</strong> panel routes held-phase pressure to twelve independent modulation
+targets simultaneously. Each target has its own signed depth bar — there is no single
+global Amount or shared dropdown. Sources: polyphonic key pressure (per-note), channel
+pressure, Mod Wheel (CC1), and Breath (CC2); T5ynth resolves each voice's pressure as
+the maximum of all applicable sources.
+</p>
+<p>
+<strong>Interaction:</strong> drag a bar up or down to set its depth (−1.0 … +1.0);
+click the bar to toggle the sign. The current sign is displayed as a persistent
+<strong>+</strong> or <strong>−</strong> suffix on the target label (e.g.
+<em>Reso&nbsp;+</em> / <em>Reso&nbsp;−</em>). The numeric value shows while
+the bar is held.
 </p>
 <table>
-  <tr><th>Target</th><th>Result</th></tr>
-  <tr><td><strong>LFO1 Depth / LFO2 Depth / LFO3 Depth</strong></td><td>Pressure raises or lowers the selected LFO depth by the AT Amount.</td></tr>
-  <tr><td><strong>ENV1 Sustain / ENV2 Sustain / ENV3 Sustain</strong></td><td>Pressure raises or lowers the selected envelope sustain level by the AT Amount.</td></tr>
-  <tr><td><strong>Cutoff / Resonance</strong></td><td>Pressure shifts the filter cutoff (octave-scaled) or resonance by the AT Amount.</td></tr>
-  <tr><td><strong>Scan</strong></td><td>Pressure shifts the granular/wavetable scan (read) position by the AT Amount.</td></tr>
-  <tr><td><strong>Amount</strong></td><td>Bipolar depth from -1.0 to +1.0. Negative values invert the pressure response.</td></tr>
+  <tr><th>Target</th><th>Effect</th></tr>
+  <tr><td><strong>LFO1 / LFO2 / LFO3 Amt</strong></td><td>Pressure scales the LFO depth by the bar's signed amount.</td></tr>
+  <tr><td><strong>ENV1 / ENV2 / ENV3 Sustain</strong></td><td>Pressure offsets the envelope sustain level.</td></tr>
+  <tr><td><strong>Cutoff</strong></td><td>Pressure shifts filter cutoff (octave-scaled).</td></tr>
+  <tr><td><strong>Resonance</strong></td><td>Pressure shifts filter resonance.</td></tr>
+  <tr><td><strong>Scan</strong></td><td>Pressure shifts the granular / wavetable read position.</td></tr>
+  <tr><td><strong>DCA</strong></td><td>Pressure scales voice amplitude — volume swell under touch.</td></tr>
+  <tr><td><strong>Pitch</strong></td><td>Pressure shifts pitch in semitones.</td></tr>
+  <tr><td><strong>Noise</strong></td><td>Pressure raises or lowers the noise generator level.</td></tr>
 </table>
 
 <div class="note">
@@ -1097,7 +1121,7 @@ The Drift section provides three slow LFOs (0.001–2.0 Hz) designed for organic
 </p>
 
 <div class="note">
-  With an SA3 model selected, the sound-character axes are unavailable, so drift targets only Alpha, Noise, and Magnitude.
+  With an SA3 model selected, the sound-character axes are unavailable as drift targets. <strong>Resynth</strong> is available as a drift target only with an SA3 model — it routes drift into the audio-conditioned re-inference loop (see <a href="#drift">§6</a>). Without SA3, Resynth is greyed out.
 </div>
 
 <h4>Drift LFOs (3×)</h4>
@@ -1109,7 +1133,7 @@ The Drift section provides three slow LFOs (0.001–2.0 Hz) designed for organic
   <tr><td><strong>Division</strong></td><td>16/1 … 1/32 (incl. T &amp; Q)</td><td>Active when Clock is Sync. For drift, the slow-end musical divisions (16/1, 8/1, 4/1, 2/1) are typically where the movement breathes.</td></tr>
   <tr><td><strong>Depth</strong></td><td>0.0 – 1.0</td><td>How far the LFO pushes the target parameter</td></tr>
   <tr><td><strong>Waveform</strong></td><td>Sine / Tri / Saw / Square</td><td></td></tr>
-  <tr><td><strong>Target</strong></td><td>Dropdown</td><td>Alpha, Axis 1/2/3, WT Scan, Filter, Pitch, Dly Time/FB/Mix, Rev Mix, ENV1–3 Amt, Noise, Magnitude</td></tr>
+  <tr><td><strong>Target</strong></td><td>Dropdown</td><td>A/B, Emb. Noise, Magnitude, Axis 1/2/3, Resynth, Scan, Filter, Pitch, Dly Time/FB/Mix, Rev Mix, ENV1–3 Amt</td></tr>
 </table>
 
 <p>
@@ -1386,6 +1410,9 @@ T5ynth uses <code>.t5p</code> preset files — a binary container that stores:
   <li>Source-control vectors (768 floats each, for DimExplorer context)</li>
   <li>Seed, device, model selection</li>
 </ul>
+<p>
+Presets carry <strong>tags</strong> — a set of descriptive labels you assign when saving. Tags are shown as chips in the save dialog; when saving over an existing preset, the chips are pre-filled from that target preset's tag set, not from whatever tags you last used. Tags are stored in the <code>.t5p</code> file and indexed by the Library for filtering.
+</p>
 <p>
 Use <strong>Import Presets</strong> in the Library to copy one or more <code>.t5p</code>
 files into your user library. <strong>Update Library</strong> downloads and
