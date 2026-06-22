@@ -1080,12 +1080,38 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         filterWarpStyleBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
         filterWarpStyleBox.setColour(juce::ComboBox::textColourId, juce::Colours::white);
         filterWarpStyleBox.setColour(juce::ComboBox::outlineColourId, kFilterCol);
+        filterWarpStyleBox.onChange = [this] {
+            const int id = filterWarpStyleBox.getSelectedId();
+            if (id >= 1 && id <= FilterWarpStyle::kCount)
+                filterEasyWarpBtn.setButtonText(
+                    juce::String(FilterWarpStyle::kEntries[id - 1].label));
+        };
         addAndMakeVisible(filterWarpStyleBox);
 
         filterWarpStyleLabel.setFont(juce::FontOptions(fs() * 0.9f));
         labelAsCaption(filterWarpStyleLabel, kDim);
         filterWarpStyleLabel.setJustificationType(juce::Justification::centredRight);
         addAndMakeVisible(filterWarpStyleLabel);
+    }
+
+    // ── Easy-mode Warp hold button ──
+    {
+        styleSwitchButton(filterEasyWarpBtn, kFilterCol);
+        filterEasyWarpBtn.setClickingTogglesState(false);
+        filterEasyWarpBtn.setConnectedEdges(juce::Button::ConnectedOnLeft);
+        addAndMakeVisible(filterEasyWarpBtn);
+
+        filterEasyWarpBtn.onTap = [this] {
+            if (filterTypeHidden.getSelectedId() == FilterType::Off + 1)
+                filterTypeHidden.setSelectedId(FilterType::Lowpass + 1);
+            filterAlgHidden.setSelectedId(FilterAlgorithm::Warp + 1);
+        };
+        filterEasyWarpBtn.onStylePick = [this](int id) {
+            filterWarpStyleBox.setSelectedId(id);
+            if (filterTypeHidden.getSelectedId() == FilterType::Off + 1)
+                filterTypeHidden.setSelectedId(FilterType::Lowpass + 1);
+            filterAlgHidden.setSelectedId(FilterAlgorithm::Warp + 1);
+        };
     }
 
     // ── Filter drive oversampling switchbox: Off 2x 4x 8x ──
@@ -1139,6 +1165,13 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     filterDriveOsA   = std::make_unique<CA>(apvts, PID::filterDriveOs,   filterDriveOsHidden);
     filterAlgA       = std::make_unique<CA>(apvts, PID::filterAlgorithm, filterAlgHidden);
     filterWarpStyleA = std::make_unique<CA>(apvts, PID::filterWarpStyle, filterWarpStyleBox);
+    // Sync WarpHoldBtn label from APVTS directly — ComboBoxAttachment notification
+    // timing on first paint is unreliable (same reason syncRadioRow exists below).
+    {
+        const int raw = static_cast<int>(apvts.getRawParameterValue(PID::filterWarpStyle)->load());
+        const int idx = juce::jlimit(0, FilterWarpStyle::kCount - 1, raw);
+        filterEasyWarpBtn.setButtonText(juce::String(FilterWarpStyle::kEntries[idx].label));
+    }
 
     // Initial radio-button visual sync. Reading the APVTS choice index
     // directly is robust against ComboBoxAttachment notification-timing
@@ -1524,7 +1557,12 @@ void SynthPanel::updateVisibility()
         filterSlopeBtns[i].setVisible(i == FilterSlope::Slope18 ? !modEasyMode : true);
     filterEasyTypeBtn.setVisible(modEasyMode);
     for (int i = 0; i < kNumAlgBtns; ++i)
-        filterAlgBtns[i].setVisible(true);
+        filterAlgBtns[i].setVisible(i == FilterAlgorithm::Warp ? !modEasyMode : true);
+    filterEasyWarpBtn.setVisible(modEasyMode);
+    filterEasyWarpBtn.setAlpha(1.0f);
+    filterEasyWarpBtn.setEnabled(true);
+    filterEasyWarpBtn.setToggleState(filterOn && filterAlgHidden.getSelectedId() == FilterAlgorithm::Warp + 1,
+                                     juce::dontSendNotification);
     filterWarpStyleBox.setVisible(!modEasyMode);
     filterWarpStyleLabel.setVisible(false);
     for (int i = 0; i < kNumDriveOsBtns; ++i)
@@ -2241,14 +2279,18 @@ void SynthPanel::layoutFilterEasy(juce::Rectangle<int> area, float f, int rowH, 
 
     filterAlgBtns[FilterAlgorithm::SVF].setButtonText("SVF");
     filterAlgBtns[FilterAlgorithm::Ladder].setButtonText("Ladder");
-    filterAlgBtns[FilterAlgorithm::Warp].setButtonText("Softclip");
+    // filterAlgBtns[Warp] is hidden in Easy; WarpHoldBtn occupies its cell.
     {
-        // One 4-way switch: OFF | SVF | Ladder | Softclip, equal cells.
+        // One 4-way switch: OFF | SVF | Ladder | [WarpHoldBtn], equal cells.
         auto algRow = area.removeFromTop(rowH);
-        const int offCellW = algRow.getWidth() / (kNumAlgBtns + 1);
-        filterEasyOffBtn.setBounds(algRow.removeFromLeft(offCellW));
-        layoutButtons(filterAlgBtns, kNumAlgBtns, algRow, filterAlgSwitchBounds);
-        filterAlgSwitchBounds = filterAlgSwitchBounds.getUnion(filterEasyOffBtn.getBounds());
+        const int cellW = algRow.getWidth() / (kNumAlgBtns + 1);
+        filterEasyOffBtn.setBounds(algRow.removeFromLeft(cellW));
+        filterAlgBtns[FilterAlgorithm::SVF].setBounds(algRow.removeFromLeft(cellW));
+        filterAlgBtns[FilterAlgorithm::Ladder].setBounds(algRow.removeFromLeft(cellW));
+        filterEasyWarpBtn.setBounds(algRow);           // remaining cell
+        filterAlgSwitchBounds = filterEasyOffBtn.getBounds()
+            .getUnion(filterAlgBtns[FilterAlgorithm::SVF].getBounds())
+            .getUnion(filterEasyWarpBtn.getBounds());
     }
     area.removeFromTop(rowGap);
     {
@@ -3576,4 +3618,56 @@ void SynthPanel::resized()
         crossfadeRegenRow->setBounds(regenRow);
     }
     modCardBottom = juce::jmax(regenHeader.getBottom(), crossfadeRegenRow->getBottom());
+}
+
+// ── WarpHoldBtn ──
+
+void SynthPanel::WarpHoldBtn::mouseDown(const juce::MouseEvent& e)
+{
+    holdTriggered_ = false;
+    startTimer(350);
+    TextButton::mouseDown(e);
+}
+
+void SynthPanel::WarpHoldBtn::mouseUp(const juce::MouseEvent& e)
+{
+    if (!holdTriggered_)
+    {
+        stopTimer();
+        if (onTap) onTap();
+    }
+    TextButton::mouseUp(e);
+}
+
+void SynthPanel::WarpHoldBtn::mouseExit(const juce::MouseEvent& e)
+{
+    stopTimer();
+    holdTriggered_ = false;
+    TextButton::mouseExit(e);
+}
+
+void SynthPanel::WarpHoldBtn::timerCallback()
+{
+    stopTimer();
+    holdTriggered_ = true;
+    juce::PopupMenu menu;
+    for (int i = 0; i < FilterWarpStyle::kCount; ++i)
+        menu.addItem(i + 1, juce::String(FilterWarpStyle::kEntries[i].label));
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
+                       [this](int r) { if (r > 0 && onStylePick) onStylePick(r); });
+}
+
+void SynthPanel::WarpHoldBtn::paintButton(juce::Graphics& g, bool highlighted, bool down)
+{
+    TextButton::paintButton(g, highlighted, down);
+    // Corner triangle — same visual language as ComboBox dropdown indicator.
+    const float s = juce::jlimit(4.0f, 7.0f, static_cast<float>(getHeight()) * 0.26f);
+    const auto bg = findColour(getToggleState() ? juce::TextButton::buttonOnColourId
+                                                 : juce::TextButton::buttonColourId);
+    g.setColour(bg.darker(0.7f).withAlpha(0.9f));
+    juce::Path p;
+    p.addTriangle(static_cast<float>(getWidth()) - s,  static_cast<float>(getHeight()),
+                  static_cast<float>(getWidth()),        static_cast<float>(getHeight()) - s,
+                  static_cast<float>(getWidth()),        static_cast<float>(getHeight()));
+    g.fillPath(p);
 }

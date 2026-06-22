@@ -152,6 +152,26 @@ private:
     juce::ComboBox filterWarpStyleBox;
     juce::Label    filterWarpStyleLabel { {}, "Style" };
 
+    // Easy-mode Warp style "hold-to-dropdown" button.
+    // Click (<350 ms): activate Warp algorithm, keep current style.
+    // Hold (≥350 ms): open style picker popup; chosen style becomes new preselection.
+    // Sits in the 4th cell of the Easy algorithm row, replacing filterAlgBtns[Warp].
+    struct WarpHoldBtn : juce::TextButton, private juce::Timer
+    {
+        WarpHoldBtn() = default;
+        std::function<void()>    onTap;       // short click
+        std::function<void(int)> onStylePick; // popup pick, 1-based style id
+
+        void mouseDown (const juce::MouseEvent& e) override;
+        void mouseUp   (const juce::MouseEvent& e) override;
+        void mouseExit (const juce::MouseEvent& e) override;
+        void paintButton(juce::Graphics& g, bool highlighted, bool down) override;
+    private:
+        void timerCallback() override;
+        bool holdTriggered_ = false;
+    };
+    WarpHoldBtn filterEasyWarpBtn;
+
     // ── Envelope sections ──
     struct EnvSection
     {

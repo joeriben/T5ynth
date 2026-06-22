@@ -294,19 +294,16 @@ void T5ynthLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, b
         g.drawRect(bounds.reduced(1.0f), 1.0f);
     }
 
-    const float side = juce::jlimit(4.0f, 5.5f, static_cast<float>(height) * 0.22f);
-    const float x = bounds.getRight() - side - 3.0f;
-    const float y = bounds.getCentreY() - side * 0.5f;
-    auto markerColour = box.findColour(juce::ComboBox::textColourId)
-                            .withAlpha(box.isEnabled() ? 0.72f : 0.28f);
-
-    g.setColour(markerColour);
-    g.drawRect(juce::Rectangle<float>(x, y, side, side), 1.15f);
-
-    const float dot = juce::jmax(1.25f, side * 0.26f);
-    g.fillEllipse(x + side * 0.5f - dot * 0.5f,
-                  y + side * 0.5f - dot * 0.5f,
-                  dot, dot);
+    // Corner triangle: bottom-right, filled with darkened background — no reserved
+    // right-side space needed, so text can use the full width minus padding.
+    const float tri = juce::jlimit(5.0f, 8.0f, static_cast<float>(height) * 0.33f);
+    auto triColour = bg.darker(0.65f).withAlpha(box.isEnabled() ? 0.9f : 0.4f);
+    g.setColour(triColour);
+    juce::Path triangle;
+    triangle.addTriangle(bounds.getRight() - tri, bounds.getBottom(),
+                         bounds.getRight(),        bounds.getBottom() - tri,
+                         bounds.getRight(),        bounds.getBottom());
+    g.fillPath(triangle);
 }
 
 juce::Font T5ynthLookAndFeel::getComboBoxFont(juce::ComboBox& box)
@@ -317,7 +314,7 @@ juce::Font T5ynthLookAndFeel::getComboBoxFont(juce::ComboBox& box)
 void T5ynthLookAndFeel::positionComboBoxText(juce::ComboBox& box, juce::Label& label)
 {
     constexpr int leftInset = 6;
-    const int rightInset = juce::jlimit(10, 13, juce::roundToInt(static_cast<float>(box.getHeight()) * 0.50f));
+    constexpr int rightInset = leftInset;
     label.setBounds(leftInset, 1, juce::jmax(0, box.getWidth() - leftInset - rightInset), box.getHeight() - 2);
     label.setFont(getComboBoxFont(box));
     label.setColour(juce::Label::textColourId, box.findColour(juce::ComboBox::textColourId));
