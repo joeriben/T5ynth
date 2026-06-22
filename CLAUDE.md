@@ -52,6 +52,14 @@ Idle CPU regressions are the #1 historical class of bug in this project. Before 
 - Never modify preset files (.t5p) or binary resources without explicit permission.
 - Never add UI elements not requested.
 
+## Platform Invariants (BLOCKING — never trade away for an unrelated task)
+
+These are user-observable fundamentals — the instrument's flow concept, not soft preferences. Changing one is NEVER an acceptable side effect of a "stabilize" / perf / refactor / bugfix task. If a task appears to REQUIRE weakening an invariant (e.g. a race or crash seems to force it), STOP and surface the conflict — do the harder correct fix, or ask. Do not pick the convenient shortcut; a diff that locally "stabilizes" something can silently abolish a fundamental and still pass review.
+
+- **A HELD note always plays the CURRENT sample.** With A/B drift active, regenerating while a note is held MUST switch the held voice to the new sample. All three engines live-follow: Wavetable (`morphToFramesFrom`), Freeze (`morphToBufferFrom`), Sampler (`adoptSharedBuffer`). Do NOT re-freeze held voices onto the old buffer. This was silently broken once (d03c607a, `freezeActiveSamplerVoices`) and restored race-safe in f872c73c. Guard: `tools/audition_sampler_follow.cpp` (seam delta ≈ 0 on both render paths). The correct way to make a held-voice buffer swap RT-safe on the lock-free macOS audio thread is the atomic-snapshot + off-thread reclaim pattern (`std::atomic_load/store_explicit`, mirrored from `FreezeTextureEngine`), NOT pinning the old buffer.
+
+When a commit touches a guardian path (voice/buffer distribution, engine data flow, modulation routing), call out any behavior change in the commit body and verify the relevant invariant still holds (audition + adversarial review).
+
 ## Release (BLOCKING — applies to every `v*` tag)
 
 Before `git push origin v*` runs, EVERY step of `docs/RELEASE_PROCESS.md` §7 must have been executed AND the evidence pasted into the conversation. No exceptions, no "I already know it works".
