@@ -161,8 +161,11 @@ private:
     juce::TextButton strandOctBtns[kNumExtraStrands][kStrandOctBtns];
     juce::Rectangle<int> strandOctSwitchBounds[kNumExtraStrands]; // unified frames (gen mode only)
     juce::Slider     strandOctaveSliders[kNumExtraStrands]; // hidden APVTS bridge
-    juce::Slider     strandDomSliders[kNumExtraStrands];
-    juce::Label      strandDomLabels[kNumExtraStrands];
+    // Dom = full-module-width inline bar (Poly-AT style), label+value in the track.
+    std::unique_ptr<SliderRow> strandDomRows[kNumExtraStrands];
+    // V1 is a display-only dummy module (no params); its frame + placeholders are
+    // drawn in paint() from this rect (gen mode only).
+    juce::Rectangle<int> v1ModuleBounds;
 
 
     bool genModeActive = false;

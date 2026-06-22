@@ -731,7 +731,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         static const char* kRolePIDs[kNumExtraStrands] = {
             PID::gen2Role, PID::gen3Role, PID::gen4Role, PID::gen5Role
         };
-        static const char* kStrandLabels[kNumExtraStrands] = { "S2", "S3", "S4", "S5" };
+        static const char* kStrandLabels[kNumExtraStrands] = { "V2", "V3", "V4", "V5" };
 
         for (int i = 0; i < kNumExtraStrands; ++i)
         {
@@ -741,7 +741,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
             strandEnableBtns[i].setColour(juce::TextButton::buttonOnColourId, kSeqCol);
             strandEnableBtns[i].setColour(juce::TextButton::textColourOffId,  kDim);
             strandEnableBtns[i].setColour(juce::TextButton::textColourOnId,   switchBoxSelectedTextColour(kSeqCol));
-            strandEnableBtns[i].setTooltip("Enable polyphonic strand " + juce::String(i + 2));
+            strandEnableBtns[i].setTooltip("Enable polyphonic voice " + juce::String(i + 2));
             addAndMakeVisible(strandEnableBtns[i]);
             strandEnableA[i] = std::make_unique<BA>(apvts, kEnablePIDs[i], strandEnableBtns[i]);
 
@@ -770,7 +770,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
 
         for (int i = 0; i < kNumExtraStrands; ++i)
         {
-            const juce::String sName = "Strand " + juce::String(i + 2);
+            const juce::String sName = "Voice " + juce::String(i + 2);
 
             // Div: ComboBox is its own label, sorted by multiplier.
             strandDivBoxes[i].addItemList(divItems, 1);
@@ -806,26 +806,16 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
             }
             strandOctaveSliders[i].onValueChange();   // initial toggle sync
 
-            // Dom: small "Dom" label + slider 0..1
-            strandDomLabels[i].setText("Dom", juce::dontSendNotification);
-            labelAsCaption(strandDomLabels[i], kDim);
-            strandDomLabels[i].setJustificationType(juce::Justification::centredRight);
-            strandDomLabels[i].setBorderSize(juce::BorderSize<int>(0));
-            addAndMakeVisible(strandDomLabels[i]);
-
-            strandDomSliders[i].setSliderStyle(juce::Slider::LinearHorizontal);
-            strandDomSliders[i].setTextBoxStyle(juce::Slider::TextBoxRight, false, 32, 18);
-            strandDomSliders[i].setNumDecimalPlacesToDisplay(2);
-            strandDomSliders[i].setColour(juce::Slider::backgroundColourId, kSurface);
-            strandDomSliders[i].setColour(juce::Slider::trackColourId,      kSeqCol);
-            strandDomSliders[i].setColour(juce::Slider::thumbColourId,      juce::Colours::white);
-            strandDomSliders[i].setColour(juce::Slider::textBoxTextColourId,        kSeqCol);
-            strandDomSliders[i].setColour(juce::Slider::textBoxBackgroundColourId,  juce::Colours::transparentBlack);
-            strandDomSliders[i].setColour(juce::Slider::textBoxOutlineColourId,     juce::Colours::transparentBlack);
-            strandDomSliders[i].setTooltip(sName
+            // Dom: full-module-width inline bar (Poly-AT style), 0..1.
+            strandDomRows[i] = std::make_unique<SliderRow>("Dom",
+                [](double v) { return juce::String(v, 2); }, kSeqCol);
+            strandDomRows[i]->setInlineLabel(true);
+            strandDomRows[i]->getSlider().setTooltip(sName
                 + " dominance — probability of snapping to field center at the cycle downbeat (0..1)");
-            addAndMakeVisible(strandDomSliders[i]);
-            strandDomA[i] = std::make_unique<SA>(apvts, kDomPIDs[i], strandDomSliders[i]);
+            addAndMakeVisible(*strandDomRows[i]);
+            strandDomA[i] = std::make_unique<SA>(apvts, kDomPIDs[i], strandDomRows[i]->getSlider());
+            strandDomRows[i]->getSlider().onValueChange = [this, i] { strandDomRows[i]->updateValue(); };
+            strandDomRows[i]->updateValue();
         }
     }
 
@@ -1210,6 +1200,29 @@ void SequencerPanel::paint(juce::Graphics& g)
         g.setColour(kBorder);
         g.drawHorizontalLine(voicesDividerY, 6.0f, static_cast<float>(getWidth() - 6));
     }
+
+    // V1 — display-only placeholder voice. Same 3-row module shape as V2..V5 but
+    // inactive (greyed): a frame, a "V1" tag, and three muted placeholder bars.
+    // Real functions for V1 are TBD; for now it just holds the slot.
+    if (!v1ModuleBounds.isEmpty())
+    {
+        auto b = v1ModuleBounds.toFloat();
+        g.setColour(kSurface.withAlpha(0.30f)); g.fillRect(b);
+        g.setColour(kBorder.withAlpha(0.45f));  g.drawRect(b, 1.0f);
+
+        auto inner = v1ModuleBounds.reduced(4, 3);
+        const int ph = juce::jmax(10, (inner.getHeight() - 2 * 2) / 3);   // placeholder row height
+        g.setColour(kDim);
+        g.setFont(juce::FontOptions(static_cast<float>(ph) * 0.6f));
+        g.drawText("V1", inner.removeFromTop(ph), juce::Justification::centredLeft, false);
+        inner.removeFromTop(2);
+        for (int r = 0; r < 2; ++r)
+        {
+            g.setColour(kSurface.withAlpha(0.5f));
+            g.fillRect(inner.removeFromTop(ph));
+            inner.removeFromTop(2);
+        }
+    }
 }
 
 void SequencerPanel::resized()
@@ -1420,8 +1433,7 @@ void SequencerPanel::resized()
         // toggle buttons (strandOctBtns) are shown.
         for (int b = 0; b < kStrandOctBtns; ++b)
             strandOctBtns[i][b].setVisible(genModeActive);
-        strandDomSliders[i].setVisible(genModeActive);
-        strandDomLabels[i].setVisible(genModeActive);
+        strandDomRows[i]->setVisible(genModeActive);
     }
 
     // Step-mode-only controls (step row 2): unified Steps slider, octave switch,
@@ -1438,6 +1450,7 @@ void SequencerPanel::resized()
     // so the empty-guards in paint() drop them when the step grid is showing.
     harmonyBoxBounds = {};
     voicesDividerY = -1;
+    v1ModuleBounds = {};
     for (int i = 0; i < kNumExtraStrands; ++i)
         strandOctSwitchBounds[i] = {};
 
@@ -1518,47 +1531,49 @@ void SequencerPanel::resized()
             placeFixRow(rRow, *genMutationRow, genFixMutationBtn);
         }
 
-        // ── Voice modules (full width, below the divider) ──
+        // ── Voice modules (full width, below the divider): V1 (dummy) + V2..V5,
+        //    five equal slots. Each real module is three rows:
+        //      Row 1: [Vx enable] [Role ~50%] [Tempo/Div rest]
+        //      Row 2: Dom inline slider, full module width
+        //      Row 3: octave switchbox [-2..+2], full module width
+        //    V1 is a display-only placeholder drawn in paint() (no params). ──
         {
-            const int moduleGap = 16;
-            const int moduleW = (voicesArea.getWidth() - (kNumExtraStrands - 1) * moduleGap)
-                               / kNumExtraStrands;
+            const int nVoices   = kNumExtraStrands + 1;     // V1 dummy + V2..V5
+            const int moduleGap = 12;
+            const int moduleW   = (voicesArea.getWidth() - (nVoices - 1) * moduleGap) / nVoices;
+            const int vRowH     = genCtrlH;
+
+            // Slot 0 — V1 dummy (frame + "V1" + greyed placeholders, painted later).
+            v1ModuleBounds = voicesArea.removeFromLeft(moduleW);
+            voicesArea.removeFromLeft(moduleGap);
+
             for (int i = 0; i < kNumExtraStrands; ++i)
             {
                 auto module = voicesArea.removeFromLeft(moduleW);
                 if (i < kNumExtraStrands - 1) voicesArea.removeFromLeft(moduleGap);
 
-                const int onW     = 28;
-                const int divW    = 60;
-                const int domLblW = 30;                 // "Dom"
-                const int gapInm  = 2;
-                const int gapPad  = 6;                  // between control groups
-                const int gapTiny = 2;                  // between label and its slider
+                const int vEnW = 30;
+                const int gap  = 3;
 
-                // Row 1: [Sx enable][Role]
-                auto modTop = module.removeFromTop(genCtrlH);
-                strandEnableBtns[i].setBounds(modTop.removeFromLeft(onW));
-                modTop.removeFromLeft(gapInm);
-                strandRoleBoxes[i].setBounds(modTop);
-
-                module.removeFromTop(intraGap);
-
-                // Row 2: [Div]  [Dom lbl][Dom slider]. Only Dom needs a prefix label
-                // (a bare "0.50" wouldn't say what it is); Div is self-evident.
-                auto modMid = module.removeFromTop(genCtrlH);
-                strandDivBoxes[i].setBounds(modMid.removeFromLeft(divW));
-                modMid.removeFromLeft(gapPad);
-                strandDomLabels[i].setFont(uiFont(TextRole::Caption, static_cast<float>(genCtrlH) * 0.55f));
-                strandDomLabels[i].setBounds(modMid.removeFromLeft(domLblW));
-                modMid.removeFromLeft(gapTiny);
-                strandDomSliders[i].setBounds(modMid);
+                // Row 1: [Vx enable] [Role 50% of module] [Tempo/Div rest]
+                auto r1 = module.removeFromTop(vRowH);
+                strandEnableBtns[i].setBounds(r1.removeFromLeft(vEnW));
+                r1.removeFromLeft(gap);
+                const int roleW = juce::jmax(0, juce::jmin(moduleW / 2, r1.getWidth()));
+                strandRoleBoxes[i].setBounds(r1.removeFromLeft(roleW));
+                r1.removeFromLeft(gap);
+                strandDivBoxes[i].setBounds(r1);
 
                 module.removeFromTop(intraGap);
 
-                // Row 3: octave switchbox [-2][-1][0][+1][+2] across the FULL module
-                // width — its own row so the five cells stay readable and clickable.
+                // Row 2: Dom inline slider, full module width.
+                strandDomRows[i]->setBounds(module.removeFromTop(vRowH));
+
+                module.removeFromTop(intraGap);
+
+                // Row 3: octave switchbox [-2][-1][0][+1][+2], full module width.
                 {
-                    auto octRow = module.removeFromTop(genCtrlH);
+                    auto octRow = module.removeFromTop(vRowH);
                     const int octBtnW = juce::jmax(1, octRow.getWidth() / kStrandOctBtns);
                     for (int b = 0; b < kStrandOctBtns; ++b)
                     {
