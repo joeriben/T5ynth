@@ -83,8 +83,16 @@ public:
 
     // ── Engine data distribution ──
     void setEngineMode(SynthVoice::EngineMode mode);
-    void freezeActiveSamplerVoices();
-    void distributeSamplerBuffer(const SamplePlayer& master);
+    // adoptActiveVoices=true lets a HELD sampler voice live-follow the new
+    // snapshot so a sustained note plays the freshly generated sample during
+    // A/B-drift regenerate. MUST be true ONLY at the audio-thread call site
+    // (the swap then runs on the thread that reads the snapshot — no race);
+    // off-thread callers pass false and leave held voices to adopt on the next
+    // audio block. Mirrors distributeFreezeBuffer's allowMorph gate.
+    void distributeSamplerBuffer(const SamplePlayer& master, bool adoptActiveVoices);
+    // Release the per-voice sampler reclaim slots populated by adoptSharedBuffer.
+    // Off-thread only; sequence before the master republishes its snapshot.
+    void drainRetiredSamplerSnapshots();
     void distributeWavetableFrames(const WavetableOscillator& masterOsc);
     // allowMorph=true lets a HELD granular voice crossfade-adopt the new buffer
     // (morphToBufferFrom, morphMs = Drift Crossfade) instead of clinging to the

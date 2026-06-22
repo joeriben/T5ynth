@@ -166,9 +166,24 @@ public:
      *  master's prepared buffer. loadBuffer/preparePlaybackBuffer are no-ops. */
     void shareBufferFrom(const SamplePlayer& master);
 
-    /** Detach from the shared master buffer and keep the current playback source
-     *  as a local snapshot for an already-running note. */
-    void freezeSharedBuffer();
+    /** Live-follow for an already-playing shared voice: adopt the master's
+     *  current snapshot in place — read position, direction and the per-voice
+     *  noteOn normalization are preserved, only the underlying audio (and its
+     *  region bounds) follow. This is how a HELD note plays the freshly
+     *  generated sample during A/B-drift regenerate.
+     *
+     *  RT discipline: call ONLY on the audio thread (the thread that reads the
+     *  snapshot), so the swap never races the lock-free reader. The outgoing
+     *  snapshot is parked in a reclaim slot instead of having its last reference
+     *  dropped here, so the buffer free never lands on the audio thread;
+     *  drainRetiredSnapshot() releases it off-thread. A short output declick
+     *  absorbs any content step at the seam. */
+    void adoptSharedBuffer(const SamplePlayer& master);
+
+    /** Release the reclaim slot populated by adoptSharedBuffer(). MUST be called
+     *  off the audio thread, sequenced before the master republishes its
+     *  snapshot (frees the retired snapshot's buffers). */
+    void drainRetiredSnapshot();
 
     // ─── Modes and processing ───
     void setLoopMode(LoopMode mode);
@@ -244,6 +259,13 @@ private:
     // the linear source path until the first loop boundary has been crossed.
     juce::AudioBuffer<float> playBuffer;
     std::shared_ptr<const PlaybackSnapshot> playbackSnapshot_;
+    // Reclaim slot for adoptSharedBuffer(): the audio thread MOVES its outgoing
+    // snapshot here (never dropping the last reference on the audio thread) so
+    // the std::vector free is deferred. drainRetiredSnapshot() — off-thread,
+    // sequenced before the master republishes — releases it. Single slot: the
+    // audio thread parks at most once per regenerate (the only event that
+    // changes the master snapshot), and each regenerate drains first.
+    std::shared_ptr<const PlaybackSnapshot> retiredSnapshot_;
 
     double playbackSampleRate = 44100.0;
     double bufferOriginalSR   = 44100.0;
@@ -251,6 +273,13 @@ private:
     double transposeRatio     = 1.0;
     float  pitchModFactor     = 1.0f;  // block-rate pitch mod from envelopes/LFOs
     float  sourceGain_        = 1.0f;  // constant per-voice gain applied before stretch
+    // Output declicker: a decaying offset that makes the emitted signal
+    // continuous across a mid-note buffer adoption (adoptSharedBuffer). Dormant
+    // (zero cost beyond a compare) when no swap is in flight.
+    float  declickOffset_     = 0.0f;
+    float  declickCoeff_      = 0.0f;  // per-sample decay, set from sr in prepare()
+    float  prevOut_           = 0.0f;  // last emitted output sample
+    bool   pendingDeclick_    = false; // set by adoptSharedBuffer() while playing
     double glideTargetRatio   = 1.0;
     double glideRatioIncr     = 0.0;  // per-sample increment
     int    glideSamplesLeft   = 0;
@@ -312,6 +341,10 @@ private:
     float cubicSample(double pos) const;
     float cubicSampleFrom(const juce::AudioBuffer<float>& buf, double pos) const;
     float playbackSample(double pos, bool useFirstPassBuffer) const;
+
+    /** Apply the output declicker over a rendered block and update prevOut_.
+     *  No-op (beyond tracking prevOut_) unless a buffer adoption set a seam. */
+    void applyDeclick(float* output, int numSamples);
 
     const juce::AudioBuffer<float>& currentPlaybackBuffer() const;
     const juce::AudioBuffer<float>& currentFirstPassBuffer() const;

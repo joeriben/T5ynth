@@ -677,29 +677,29 @@ void VoiceManager::setEngineMode(SynthVoice::EngineMode mode)
         v.setEngineMode(mode);
 }
 
-void VoiceManager::freezeActiveSamplerVoices()
+void VoiceManager::drainRetiredSamplerSnapshots()
 {
-    int frozen = 0;
     for (auto& v : voices)
-    {
-        if (v.isActive() && v.getEngineMode() == SynthVoice::EngineMode::Sampler)
-        {
-            v.getSampler().freezeSharedBuffer();
-            ++frozen;
-        }
-    }
-
-    if (frozen > 0)
-        samplerVoiceDebugLog("freezeActiveSamplerVoices count=" + juce::String(frozen));
+        v.getSampler().drainRetiredSnapshot();
 }
 
-void VoiceManager::distributeSamplerBuffer(const SamplePlayer& master)
+void VoiceManager::distributeSamplerBuffer(const SamplePlayer& master, bool adoptActiveVoices)
 {
     currentSamplerMaster_ = &master;
     for (auto& v : voices)
     {
         if (v.isActive() && v.getEngineMode() == SynthVoice::EngineMode::Sampler)
+        {
+            // Held sampler note: live-follow the freshly published snapshot so a
+            // held tone plays the CURRENT sample during A/B-drift regenerate.
+            // Adopt ONLY on the audio-thread pass (adoptActiveVoices) — the swap
+            // then runs on the thread that reads the snapshot, so it cannot race
+            // the lock-free reader; the retired snapshot is freed later by
+            // drainRetiredSamplerSnapshots() off the audio thread.
+            if (adoptActiveVoices)
+                v.getSampler().adoptSharedBuffer(master);
             continue;
+        }
 
         v.getSampler().shareBufferFrom(master);
     }

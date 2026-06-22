@@ -72,6 +72,8 @@ void SamplePlayer::prepare(double sampleRate, int samplesPerBlock)
     playbackSampleRate = sampleRate;
     maxBlockSize = samplesPerBlock;
     rawReadBuf.resize(static_cast<size_t>(samplesPerBlock));
+    // ~3 ms one-pole decay for the buffer-adoption declicker.
+    declickCoeff_ = static_cast<float>(std::exp(-1.0 / (0.003 * std::max(1.0, sampleRate))));
     prepareStretcher();
 }
 
@@ -80,10 +82,14 @@ void SamplePlayer::reset()
     originalBuffer.setSize(0, 0);
     playBuffer.setSize(0, 0);
     playbackSnapshot_.reset();
+    retiredSnapshot_.reset();
     audioLoaded = false;
     playing = false;
     readPosition = 0.0;
     sourceGain_ = 1.0f;
+    declickOffset_ = 0.0f;
+    prevOut_ = 0.0f;
+    pendingDeclick_ = false;
     sharedMode = false;
     stretcher.reset();
 }
@@ -147,7 +153,12 @@ void SamplePlayer::shareBufferFrom(const SamplePlayer& master)
 {
     bool wasShared = sharedMode;
     sharedMode = true;
-    playbackSnapshot_ = master.playbackSnapshot_;
+    // The master republishes its snapshot off-thread; read it atomically
+    // (acquire) so this never tears the pointer or races the free of a retired
+    // master snapshot. (The voice-side store is plain — for an active voice it
+    // is audio-thread-owned.)
+    playbackSnapshot_ = std::atomic_load_explicit(&master.playbackSnapshot_,
+                                                  std::memory_order_acquire);
     if (playbackSnapshot_ == nullptr)
         playBuffer.setSize(0, 0);
     bufferOriginalSR = master.bufferOriginalSR;
@@ -175,18 +186,67 @@ void SamplePlayer::shareBufferFrom(const SamplePlayer& master)
                     + " state={" + debugStateString() + "}");
 }
 
-void SamplePlayer::freezeSharedBuffer()
+void SamplePlayer::adoptSharedBuffer(const SamplePlayer& master)
 {
-    if (!sharedMode || playbackSnapshot_ == nullptr)
-        return;
+    // Live-follow swap for a playing shared voice. Runs on the AUDIO THREAD —
+    // the thread that reads this voice's OWN playbackSnapshot_, so the voice-side
+    // pointer is never written from two threads. The MASTER's snapshot is
+    // republished off-thread, so read it atomically (acquire); the retired slot
+    // is handed to the off-thread drain atomically. This mirrors the snapshot
+    // discipline FreezeTextureEngine uses (std::atomic_load/store_explicit).
+    auto masterSnap = std::atomic_load_explicit(&master.playbackSnapshot_,
+                                                std::memory_order_acquire);
+    if (masterSnap == playbackSnapshot_)
+        return;                              // already current — nothing to do
 
-    samplerDebugLog("freezeSharedBuffer player=" + samplerPtrTag(this)
-                    + " before={" + debugStateString() + "}");
-    sharedMode = false;
-    audioLoaded = playbackSnapshot_->playBuffer.getNumSamples() > 0;
-    needsReprepareFlag = false;
-    samplerDebugLog("freezeSharedBuffer player=" + samplerPtrTag(this)
-                    + " after={" + debugStateString() + "}");
+    if (std::atomic_load_explicit(&retiredSnapshot_, std::memory_order_acquire) != nullptr)
+        return;                              // reclaim slot still full — defer one
+                                             // block (current snapshot stays valid)
+
+    // Hold a reference to the outgoing snapshot, swap the new one into the
+    // voice-side pointer (audio thread only), then park the old reference for
+    // the off-thread drain. The slot was just observed empty and only the audio
+    // thread parks, so the atomic_store never drops a live reference here — the
+    // std::vector free always lands in drainRetiredSnapshot() off the audio thread.
+    auto outgoing      = playbackSnapshot_;
+    playbackSnapshot_  = masterSnap;
+    std::atomic_store_explicit(&retiredSnapshot_, outgoing, std::memory_order_release);
+    pendingDeclick_    = playing;            // smooth the content step at the seam
+
+    // Follow the new sample's region / loop / SR state.
+    bufferOriginalSR    = master.bufferOriginalSR;
+    playStart           = master.playStart;
+    playEnd             = master.playEnd;
+    coldStart           = master.coldStart;
+    loopMode            = master.loopMode;
+    startPosFrac        = master.startPosFrac;
+    loopStartFrac       = master.loopStartFrac;
+    loopEndFrac         = master.loopEndFrac;
+    wtExtractStartFrac_ = master.wtExtractStartFrac_;
+    wtExtractEndFrac_   = master.wtExtractEndFrac_;
+    startPosOffset_     = master.startPosOffset_;
+    audioLoaded         = master.audioLoaded;
+    sharedMode          = true;
+    needsReprepareFlag  = false;
+    // readPosition / playDirection_ / inFirstPass_ deliberately preserved
+    // (playback continuity). sourceGain_ preserved (per-voice noteOn
+    // normalization; configureForBlock re-asserts it each block).
+
+    samplerDebugLog("adoptSharedBuffer dst=" + samplerPtrTag(this)
+                    + " src=" + samplerPtrTag(&master)
+                    + " readPos=" + juce::String(readPosition, 2)
+                    + " state={" + debugStateString() + "}");
+}
+
+void SamplePlayer::drainRetiredSnapshot()
+{
+    // Off-thread: atomically take the parked snapshot (so it never races the
+    // audio thread's atomic park) and let this local drop the last reference
+    // here — the buffer free lands off the audio thread.
+    auto dead = std::atomic_exchange_explicit(&retiredSnapshot_,
+                                              std::shared_ptr<const PlaybackSnapshot>{},
+                                              std::memory_order_acq_rel);
+    (void) dead;
 }
 
 void SamplePlayer::setMidiNote(int note)
@@ -235,6 +295,10 @@ void SamplePlayer::retrigger()
 
     readPosition = static_cast<double>(juce::jlimit(0, bufLen - 1, startSample));
     playing = true;
+    // Fresh hard restart — drop any in-flight buffer-adoption declick so it
+    // can't bleed into the new note's first samples.
+    declickOffset_ = 0.0f;
+    pendingDeclick_ = false;
 
     if (stretcherPrepared)
     {
@@ -435,7 +499,14 @@ void SamplePlayer::applyPreparedPlaybackState(PreparedPlaybackState preparedStat
     snapshot->playBuffer = std::move(preparedState.playBuffer);
     snapshot->firstPassBuffer = std::move(preparedState.firstPassBuffer);
     snapshot->bufferOriginalSR = preparedState.bufferOriginalSR;
-    playbackSnapshot_ = std::move(snapshot);
+    // Publish atomically (release): held voices read this with acquire from the
+    // audio thread (adoptSharedBuffer / shareBufferFrom) while this republish
+    // runs off-thread, and processBlock holds no lock on VST3/AU. Pairs with the
+    // atomic_load_explicit reads — no torn pointer, no UAF of the retired master
+    // snapshot.
+    std::atomic_store_explicit(&playbackSnapshot_,
+                               std::shared_ptr<const PlaybackSnapshot>(std::move(snapshot)),
+                               std::memory_order_release);
 
     playBuffer.setSize(0, 0);
     bufferOriginalSR = preparedState.bufferOriginalSR;
@@ -669,6 +740,9 @@ void SamplePlayer::renderPitchedBlock(float* output, int numSamples)
     if (!audioLoaded || !playing)
     {
         std::memset(output, 0, sizeof(float) * static_cast<size_t>(numSamples));
+        declickOffset_ = 0.0f;
+        pendingDeclick_ = false;
+        prevOut_ = 0.0f;
         return;
     }
 
@@ -687,9 +761,10 @@ void SamplePlayer::renderPitchedBlock(float* output, int numSamples)
             {
                 std::memset(output + i + 1, 0,
                             sizeof(float) * static_cast<size_t>(numSamples - i - 1));
-                return;
+                break;
             }
         }
+        applyDeclick(output, numSamples);
         return;
     }
 
@@ -728,6 +803,40 @@ void SamplePlayer::renderPitchedBlock(float* output, int numSamples)
     // Pitch-shift through Signalsmith Stretch (mono: 1 channel)
     float* inPtr = rawReadBuf.data();
     stretcher.process(&inPtr, numSamples, &output, numSamples);
+
+    applyDeclick(output, numSamples);
+}
+
+void SamplePlayer::applyDeclick(float* output, int numSamples)
+{
+    if (numSamples <= 0)
+        return;
+
+    // A fresh buffer adoption arms the seam: emit prevOut_ exactly at the first
+    // post-swap sample (output[0] + offset == prevOut_) and decay the corrective
+    // offset to zero over ~3 ms — continuous output regardless of the content
+    // step or which render path (stretch / bypass) produced it.
+    if (pendingDeclick_)
+    {
+        declickOffset_ = prevOut_ - output[0];
+        pendingDeclick_ = false;
+    }
+
+    if (declickOffset_ != 0.0f)
+    {
+        for (int i = 0; i < numSamples; ++i)
+        {
+            output[i] += declickOffset_;
+            declickOffset_ *= declickCoeff_;
+            if (std::abs(declickOffset_) < 1.0e-6f)
+            {
+                declickOffset_ = 0.0f;
+                break;
+            }
+        }
+    }
+
+    prevOut_ = output[numSamples - 1];
 }
 
 int SamplePlayer::estimateReferenceLengthSamples() const

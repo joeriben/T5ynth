@@ -1693,9 +1693,13 @@ bool T5ynthProcessor::serviceSamplerReprepare()
             return false;
         }
 
+        voiceManager.drainRetiredSamplerSnapshots();
         masterSampler.applyPreparedBufferLoad(std::move(prepared), config);
         masterFreeze.loadBuffer(preparedFreezeBuffer, sourceRate);
-        voiceManager.distributeSamplerBuffer(masterSampler);
+        // Held sampler voices adopt the re-prepared snapshot on the next
+        // audio-thread distribute pass (adopting here would race the lock-free
+        // reader).
+        voiceManager.distributeSamplerBuffer(masterSampler, /*adoptActiveVoices=*/false);
         // Sampler re-prepare (config change, not a new inference) → keep held
         // granular voices on their current buffer (no live morph).
         voiceManager.distributeFreezeBuffer(masterFreeze, 0.0f, false);
@@ -2667,9 +2671,11 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         float baseDrift3Depth = paramCache.drift3Depth->load();
 
         // Re-prepare runs on samplerReprepareThread; the audio thread keeps
-        // using the last published snapshot and only distributes it.
+        // using the last published snapshot and only distributes it. This is the
+        // ONE pass where held sampler voices adopt the new snapshot — on the
+        // audio thread, so the swap never races the lock-free reader.
         if (masterSampler.hasAudio())
-            voiceManager.distributeSamplerBuffer(masterSampler);
+            voiceManager.distributeSamplerBuffer(masterSampler, /*adoptActiveVoices=*/true);
         if (masterFreeze.hasAudio())
             // Audio-thread per-block redistribution → allowMorph MUST be false
             // (morphToBufferFrom may free a retired snapshot off-thread). The
@@ -4025,9 +4031,10 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
         // Keep generatedAudioFull in sync (used for waveform display + presets)
         generatedAudioFull = std::move(preparedGeneratedAudio);
 
-        // Keep currently sounding sampler notes on their old snapshot so a
-        // regenerate only affects newly triggered notes.
-        voiceManager.freezeActiveSamplerVoices();
+        // Release the reclaim slot the audio thread parked after the previous
+        // regenerate (off-thread free), sequenced before publishing the new
+        // snapshot so it cannot overlap a fresh audio-thread adoption.
+        voiceManager.drainRetiredSamplerSnapshots();
 
         // Publish the already-prepared sampler state inside the lock so the
         // audio thread only sees a short atomic handoff.
@@ -4036,7 +4043,10 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
         syncWavetableTraversal(sr, feedBuffer.getNumSamples());
         masterOsc.setMorphTimeMs(paramCache.driftCrossfade->load());
 
-        voiceManager.distributeSamplerBuffer(masterSampler);
+        // A HELD note plays the freshly generated sample: held sampler voices
+        // live-follow the new snapshot on the next audio-thread distribute pass
+        // (false here — off-thread adoption would race the lock-free reader).
+        voiceManager.distributeSamplerBuffer(masterSampler, /*adoptActiveVoices=*/false);
         voiceManager.distributeWavetableFrames(masterOsc);
         // New inference → held granular voices crossfade-adopt it live (near
         // real-time), mirroring distributeWavetableFrames above. Off the audio
@@ -4107,11 +4117,13 @@ void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& proce
 
         // Update stored audio and reload into sampler without Rumble/HF/Normalize
         generatedAudioFull = std::move(preparedGeneratedAudio);
-        voiceManager.freezeActiveSamplerVoices();
+        voiceManager.drainRetiredSamplerSnapshots();
         masterSampler.applyPreparedBufferLoad(std::move(preparedSamplerLoad), samplerConfig);
         if (preparedWaveformSnapshot.getNumSamples() > 0)
             waveformSnapshot = std::move(preparedWaveformSnapshot);
-        voiceManager.distributeSamplerBuffer(masterSampler);
+        // Held sampler notes live-follow the reprocessed sample on the next
+        // audio-thread distribute pass.
+        voiceManager.distributeSamplerBuffer(masterSampler, /*adoptActiveVoices=*/false);
         if (masterOsc.hasFrames())
         {
             syncWavetableTraversal(generatedSampleRate, waveformSnapshot.getNumSamples());
