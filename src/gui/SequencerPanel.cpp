@@ -1597,10 +1597,19 @@ void SequencerPanel::resized()
         // ═══ Step mode ═══
 
         // Row 2: unified Steps slider (no FIX) · Octave switch · preset mgmt.
+        // Steps is sized to EXACTLY the gen-mode Steps bar width (left column minus
+        // the FIX cell), so the bar stays put when toggling Step<->Gen. Octave +
+        // preset then occupy the right column, where Pulses sits in gen mode.
         auto stepRow = area.removeFromTop(rH);
         const int presetW = compactTopRow ? 76 : 96;
         const int iconW   = rH;
         const int octW    = kNumOctShiftBtns * (compactTopRow ? 20 : 24);
+        const int sColGap = 8, sFixW = 28, sFixGap = 2;          // mirror the gen branch
+        const int sColW   = (stepRow.getWidth() - sColGap) / 2;
+        const int stepsW  = juce::jmax(40, sColW - sFixW - sFixGap);  // == genStepsRow width
+
+        // Steps bar on the left, exactly the gen width.
+        seqStepsRow->setBounds(stepRow.removeFromLeft(stepsW));
 
         // From the right: [Preset▾][S][L]
         seqLoadBtn.setBounds(stepRow.removeFromRight(iconW));
@@ -1625,10 +1634,6 @@ void SequencerPanel::resized()
             octShiftSwitchBounds = octShiftBtns[0].getBounds()
                 .getUnion(octShiftBtns[kNumOctShiftBtns - 1].getBounds());
         }
-        stepRow.removeFromRight(g);
-
-        // Steps inline slider fills the remaining left space.
-        seqStepsRow->setBounds(stepRow);
 
         area.removeFromTop(compactTopRow ? 4 : g);
 
