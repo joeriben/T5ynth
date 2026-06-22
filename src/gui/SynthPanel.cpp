@@ -3662,9 +3662,9 @@ void SynthPanel::WarpHoldBtn::paintButton(juce::Graphics& g, bool highlighted, b
     TextButton::paintButton(g, highlighted, down);
     // Corner triangle — same visual language as ComboBox dropdown indicator.
     const float s = juce::jlimit(8.0f, 14.0f, static_cast<float>(getHeight()) * 0.52f);
-    const auto bg = findColour(getToggleState() ? juce::TextButton::buttonOnColourId
-                                                 : juce::TextButton::buttonColourId);
-    g.setColour(bg.darker(0.7f).withAlpha(0.9f));
+    g.setColour(findColour(getToggleState() ? juce::TextButton::textColourOnId
+                                            : juce::TextButton::textColourOffId)
+                    .withAlpha(0.22f));
     juce::Path p;
     p.addTriangle(static_cast<float>(getWidth()) - s,  static_cast<float>(getHeight()),
                   static_cast<float>(getWidth()),        static_cast<float>(getHeight()) - s,
