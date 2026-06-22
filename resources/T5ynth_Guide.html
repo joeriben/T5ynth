@@ -239,10 +239,8 @@ are similar, what counts as "music" or "noise", which combinations it renders fl
 and which are absent. T5ynth deconstructs that map directly: operating on the embedding rather
 than on words reaches sound regions that prompting alone cannot access. The instrument
 dynamizes this access through embedding manipulation modes, Sound-Character Axes, and
-Drift — and closes it back on itself through Re-Prompt (language &rarr; next inference)
-and Resynth (audio &rarr; next inference), while the Generative Sequencer provides an
-independently self-evolving melodic layer that drives the voice engine. What emerges is
-a self-recursive,
+Drift — and closes it back on itself through Re-Prompt, Resynth, and the Generative
+Sequencer, each output feeding the next generation. What emerges is a self-recursive,
 musically playable instrument built around the model's learned representation of sound,
 rather than a tool that returns audio results.
 </p>
@@ -1047,7 +1045,7 @@ pressure, Mod Wheel (CC1), and Breath (CC2); T5ynth resolves each voice's pressu
 the maximum of all applicable sources.
 </p>
 <p>
-<strong>Interaction:</strong> drag a bar left or right to set its magnitude (0 … 1.0);
+<strong>Interaction:</strong> drag a bar up or down to set its depth (−1.0 … +1.0);
 click the bar to toggle the sign. The current sign is displayed as a persistent
 <strong>+</strong> or <strong>−</strong> suffix on the target label (e.g.
 <em>Reso&nbsp;+</em> / <em>Reso&nbsp;−</em>). The numeric value shows while
