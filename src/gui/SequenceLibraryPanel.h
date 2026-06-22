@@ -6,10 +6,14 @@
 
 /**
  * SequenceLibraryPanel — compact in-app browser for .t5seq sequencer
- * patterns. Deliberately a fraction of PresetManagerPanel: one list, a
- * save row, right-click rename/delete. No tags / banks / search / GitHub /
- * detail pane. MainPanel shows it as a centered overlay over a dimmed scrim,
- * mirroring how it hosts the preset manager.
+ * patterns. Deliberately a fraction of PresetManagerPanel: one list plus a
+ * mode-specific action row, right-click rename/delete. No tags / banks /
+ * search / GitHub / detail pane. MainPanel shows it as a centered overlay
+ * over a dimmed scrim, mirroring how it hosts the preset manager.
+ *
+ * The two StepSeq toolbar icons open it in distinct modes (prepareForShow):
+ * Save shows the name field + Save button; Load shows the Load button acting
+ * on the list selection. The pattern list is visible in both modes.
  *
  * It is a (mostly) self-contained view:
  *   - Load + Save are emitted as callbacks — they need the processor, which
@@ -77,6 +81,19 @@ public:
         saveBtn.onClick = [this] { doSave(); };
         addAndMakeVisible(saveBtn);
 
+        // Explicit Load action (complements double-click / Return): loads the
+        // currently-selected pattern. Secondary styling — Save stays the accent.
+        loadBtn.setButtonText("Load");
+        loadBtn.setColour(juce::TextButton::buttonColourId, kSurface.brighter(0.08f));
+        loadBtn.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+        loadBtn.onClick = [this]
+        {
+            const int r = patternList.getSelectedRow();
+            if (r < 0) { setStatusText("Select a pattern to load", true); return; }
+            loadRow(r);
+        };
+        addAndMakeVisible(loadBtn);
+
         statusLabel.setColour(juce::Label::textColourId, kDim);
         statusLabel.setFont(juce::FontOptions(11.5f));
         statusLabel.setJustificationType(juce::Justification::centredLeft);
@@ -121,8 +138,33 @@ public:
         refreshList();
         nameEditor.setText({}, juce::dontSendNotification);
         setStatusText({});
-        if (focusSave) nameEditor.grabKeyboardFocus();
-        else           patternList.grabKeyboardFocus();
+
+        // Two toolbar icons → two modes. Save: name field + Save button.
+        // Load: list selection + Load button. The list shows in both.
+        saveMode_ = focusSave;
+        title.setText(saveMode_ ? "Save Pattern" : "Load Pattern",
+                      juce::dontSendNotification);
+        saveAsLabel.setVisible(saveMode_);
+        nameEditor .setVisible(saveMode_);
+        saveBtn    .setVisible(saveMode_);
+        loadBtn    .setVisible(! saveMode_);
+        hintLabel.setText(saveMode_
+            ? juce::String("right-click to rename or delete")
+            : juce::String::fromUTF8("Double-click to load \xc2\xb7 right-click to rename or delete"),
+            juce::dontSendNotification);
+        resized();   // visible rows changed → re-flow so the list reclaims the space
+
+        if (saveMode_)
+        {
+            nameEditor.grabKeyboardFocus();
+        }
+        else
+        {
+            // Preselect the most-recent pattern so Load / Return act immediately.
+            if (files.size() > 0 && patternList.getSelectedRow() < 0)
+                patternList.selectRow(0);
+            patternList.grabKeyboardFocus();
+        }
     }
 
     // ── juce::Component ─────────────────────────────────────────────────
@@ -151,15 +193,29 @@ public:
         statusLabel.setBounds(b.removeFromBottom(18));
         b.removeFromBottom(4);
 
-        auto saveRow = b.removeFromBottom(28);
-        saveAsLabel.setBounds(saveRow.removeFromLeft(56));
-        saveBtn.setBounds(saveRow.removeFromRight(64));
-        saveRow.removeFromRight(6);
-        nameEditor.setBounds(saveRow);
-        b.removeFromBottom(6);
+        // One mode-specific action row: Save (name field + Save button) or Load
+        // (Load button). The two StepSeq toolbar icons open the panel in the
+        // matching mode, so only the relevant controls show — see prepareForShow().
+        if (saveMode_)
+        {
+            auto saveRow = b.removeFromBottom(28);
+            saveAsLabel.setBounds(saveRow.removeFromLeft(56));
+            saveBtn.setBounds(saveRow.removeFromRight(64));
+            saveRow.removeFromRight(6);
+            nameEditor.setBounds(saveRow);
+            b.removeFromBottom(6);
 
-        hintLabel.setBounds(b.removeFromBottom(16));
-        b.removeFromBottom(6);
+            hintLabel.setBounds(b.removeFromBottom(16));
+            b.removeFromBottom(6);
+        }
+        else
+        {
+            auto loadRow = b.removeFromBottom(28);
+            loadBtn.setBounds(loadRow.removeFromRight(64));
+            loadRow.removeFromRight(6);
+            hintLabel.setBounds(loadRow);
+            b.removeFromBottom(6);
+        }
 
         patternList.setBounds(b);
     }
@@ -358,10 +414,11 @@ private:
     }
 
     juce::Label      title, saveAsLabel, hintLabel, statusLabel;
-    juce::TextButton closeBtn, saveBtn;
+    juce::TextButton closeBtn, saveBtn, loadBtn;
     juce::TextEditor nameEditor;
     juce::ListBox    patternList;
     juce::Array<juce::File> files;
+    bool saveMode_ = true;   // prepareForShow: Save (name+Save) vs Load (list+Load)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SequenceLibraryPanel)
 };
