@@ -296,7 +296,7 @@ void T5ynthLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, b
 
     // Corner triangle: bottom-right, filled with darkened background — no reserved
     // right-side space needed, so text can use the full width minus padding.
-    const float tri = juce::jlimit(5.0f, 8.0f, static_cast<float>(height) * 0.33f);
+    const float tri = juce::jlimit(10.0f, 16.0f, static_cast<float>(height) * 0.66f);
     auto triColour = bg.darker(0.65f).withAlpha(box.isEnabled() ? 0.9f : 0.4f);
     g.setColour(triColour);
     juce::Path triangle;
