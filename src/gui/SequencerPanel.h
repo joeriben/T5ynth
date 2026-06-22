@@ -9,10 +9,11 @@ class T5ynthProcessor;
  * SequencerPanel — sequencer + arpeggiator controls + step grid.
  *
  * Layout:
- *   Row 1: LED [>][||]  [Steps▾]  [1/4|1/8|1/16]  BPM[==] 120  MIDI: D#2 v102
- *   Row 2: [Preset▾ wider]  Gate[==]
- *   Row 3: Step grid (dot | vertical note slider | glide dot | horiz velocity)
- *   Row 4: [Arp ✓]  [Up▾]  [1/16▾]  Oct[==]  Gate[==]
+ *   Row 1 (SHARED): [>/■] [Step|Gen]  BPM[==]  [1/4|1/8|1/16]  Gate[==] Shuffle[==] · MIDI
+ *   STEP mode row 2: Steps[==●]16   Oct[-2 -1 0 +1 +2]   [Preset▾][S][L]
+ *   STEP mode grid : dot | vertical note slider | glide dot | horiz velocity
+ *   GEN  mode      : 2-column Euclidean + harmony box + voices (no genVisArea)
+ *   Row 4 (bottom): [Arp ✓] [Up▾] [1/16▾]  [Oct 1 2 3 4]
  */
 class SequencerPanel : public juce::Component, private juce::Timer
 {
@@ -47,7 +48,13 @@ private:
 
     // Row 1: Transport + step config
     juce::TextButton transportBtn { "PLAY" };
-    juce::ComboBox stepCountBox;                  // dropdown 2-32
+    // Step | Gen mode switchbox — the visible control; drives genTransportBtn
+    // (the hidden APVTS bridge for PID::genSeqRunning, a STEP↔GEN toggle).
+    juce::TextButton modeStepBtn { "Step" }, modeGenBtn { "Gen" };
+    juce::Rectangle<int> modeSwitchBounds;
+    // Unified Steps slider (step mode, inline bar, no FIX). Manual write to
+    // seqSteps (like the old dropdown) so the grid stays capped at MAX_COLS.
+    std::unique_ptr<SliderRow> seqStepsRow;
     static constexpr int kNumDivBtns = 5;
     juce::TextButton divBtns[kNumDivBtns];        // note-length glyph switchbox [1/1..1/16]
     juce::ComboBox divisionHidden;                 // hidden, for APVTS attachment

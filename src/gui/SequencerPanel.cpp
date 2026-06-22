@@ -12,8 +12,6 @@ static juce::String noteName(int n)
 
 namespace
 {
-constexpr int kOverflowPresetBase = 1000;
-constexpr int kOverflowStepBase = 2000;
 constexpr int kOverflowDivisionBase = 3000;
 constexpr int kOverflowOctaveBase = 4000;
 constexpr int kOverflowSavePattern = 5001;
@@ -472,23 +470,22 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     };
     addAndMakeVisible(transportBtn);
 
-    // ── Step count dropdown (2-32) ──
-    for (int i = 2; i <= 32; ++i)
-        stepCountBox.addItem(juce::String(i), i);
-    stepCountBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
-    stepCountBox.setColour(juce::ComboBox::textColourId, kSeqCol);
-    stepCountBox.setColour(juce::ComboBox::outlineColourId, kBorder);
-    stepCountBox.onChange = [this] {
-        int steps = stepCountBox.getSelectedId();
+    // ── Steps slider (step mode; gen mode shows its own genStepsRow with FIX) ──
+    // Inline bar mirroring the old 2..32 step-count dropdown: writes seqSteps
+    // directly (manual, no attachment) so the grid stays capped at MAX_COLS.
+    seqStepsRow = std::make_unique<SliderRow>("Steps",
+        [](double v) { return juce::String(juce::roundToInt(v)); }, kSeqCol);
+    seqStepsRow->setInlineLabel(true);
+    seqStepsRow->getSlider().setRange(2.0, static_cast<double>(MAX_COLS), 1.0);
+    addAndMakeVisible(*seqStepsRow);
+    seqStepsRow->getSlider().onValueChange = [this] {
+        int steps = juce::roundToInt(seqStepsRow->getSlider().getValue());
         if (steps < 2) return;
         if (auto* par = processorRef.getValueTreeState().getParameter(PID::seqSteps))
-        {
-            auto range = par->getNormalisableRange();
-            par->setValueNotifyingHost(range.convertTo0to1(static_cast<float>(steps)));
-        }
+            par->setValueNotifyingHost(
+                par->getNormalisableRange().convertTo0to1(static_cast<float>(steps)));
         syncStepCount();
     };
-    addAndMakeVisible(stepCountBox);
 
     // ── Division (note length) switchbox — drawn note glyphs ──
     // Note symbols (1/1..1/16) keep the 5-button switchbox compact enough for the
@@ -517,6 +514,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
 
     // ── BPM ──
     bpmRow = std::make_unique<SliderRow>("BPM", [](double v) { return juce::String(juce::roundToInt(v)); }, kSeqCol);
+    bpmRow->setInlineLabel(true);
     addAndMakeVisible(*bpmRow);
     bpmA = std::make_unique<SA>(apvts, PID::seqBpm, bpmRow->getSlider());
     bpmRow->getSlider().onValueChange = [this] { bpmRow->updateValue(); };
@@ -576,6 +574,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
 
     // ── Gate ──
     gateRow = std::make_unique<SliderRow>("Gate", [](double v) { return juce::String(juce::roundToInt(v*100)) + "%"; }, kSeqCol);
+    gateRow->setInlineLabel(true);
     addAndMakeVisible(*gateRow);
     gateA = std::make_unique<SA>(apvts, PID::seqGate, gateRow->getSlider());
     gateRow->getSlider().onValueChange = [this] { gateRow->updateValue(); };
@@ -583,6 +582,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
 
     // ── Shuffle ──
     shuffleRow = std::make_unique<SliderRow>("Shuffle", [](double v) { return juce::String(juce::roundToInt(v * 100.0)) + "%"; }, kSeqCol);
+    shuffleRow->setInlineLabel(true);
     addAndMakeVisible(*shuffleRow);
     shuffleA = std::make_unique<SA>(apvts, PID::seqShuffle, shuffleRow->getSlider());
     shuffleRow->getSlider().onValueChange = [this] { shuffleRow->updateValue(); };
@@ -609,14 +609,35 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     octShiftA = std::make_unique<CA>(apvts, PID::seqOctave, octShiftHidden);
 
     // ── Generative sequencer controls ──
-    genTransportBtn.setColour(juce::TextButton::buttonColourId, kSurface);
-    genTransportBtn.setColour(juce::TextButton::buttonOnColourId, kSeqCol);
-    genTransportBtn.setColour(juce::TextButton::textColourOffId, kSeqCol);
-    genTransportBtn.setColour(juce::TextButton::textColourOnId, switchBoxSelectedTextColour(kSeqCol));
+    // genTransportBtn is now a HIDDEN APVTS bridge for PID::genSeqRunning
+    // (a STEP↔GEN mode toggle). The visible control is the Step|Gen switchbox
+    // below, which drives this button; the BA keeps the param in sync both ways.
     genTransportBtn.setClickingTogglesState(true);
-    // No onClick needed — ButtonAttachment handles parameter sync
-    addAndMakeVisible(genTransportBtn);
+    addChildComponent(genTransportBtn);              // in the tree, never shown
     genRunningA = std::make_unique<BA>(apvts, PID::genSeqRunning, genTransportBtn);
+    genTransportBtn.onStateChange = [this] {
+        const bool gen = genTransportBtn.getToggleState();
+        modeStepBtn.setToggleState(!gen, juce::dontSendNotification);
+        modeGenBtn .setToggleState( gen, juce::dontSendNotification);
+    };
+
+    // Step | Gen mode switchbox (visible) — segments drive the hidden bridge.
+    modeStepBtn.setConnectedEdges(juce::Button::ConnectedOnRight);
+    modeGenBtn .setConnectedEdges(juce::Button::ConnectedOnLeft);
+    for (auto* b : { &modeStepBtn, &modeGenBtn })
+    {
+        styleSwitchButton(*b, kSeqCol);
+        b->setClickingTogglesState(true);
+        b->setRadioGroupId(2010);
+        addAndMakeVisible(*b);
+    }
+    modeStepBtn.onClick = [this] { genTransportBtn.setToggleState(false, juce::sendNotificationSync); };
+    modeGenBtn .onClick = [this] { genTransportBtn.setToggleState(true,  juce::sendNotificationSync); };
+    {
+        const bool gen = genTransportBtn.getToggleState();   // initial sync from param
+        modeStepBtn.setToggleState(!gen, juce::dontSendNotification);
+        modeGenBtn .setToggleState( gen, juce::dontSendNotification);
+    }
 
     auto intFmt = [](double v) { return juce::String(juce::roundToInt(v)); };
     genStepsRow = std::make_unique<SliderRow>("Steps", intFmt, kSeqCol);
@@ -987,29 +1008,11 @@ void SequencerPanel::showHeaderOverflowMenu()
 {
     juce::PopupMenu menu;
 
-    juce::PopupMenu presetMenu;
-    for (int i = 0; i < presetBox.getNumItems(); ++i)
-        presetMenu.addItem(kOverflowPresetBase + i + 1, presetBox.getItemText(i), true,
-                           presetBox.getSelectedId() == i + 1);
-    menu.addSubMenu("Preset", presetMenu);
-
-    juce::PopupMenu stepMenu;
-    for (int steps = 2; steps <= 32; ++steps)
-        stepMenu.addItem(kOverflowStepBase + steps, juce::String(steps), true,
-                         stepCountBox.getSelectedId() == steps);
-    menu.addSubMenu("Steps", stepMenu);
-
     juce::PopupMenu divisionMenu;
     for (int i = 0; i < divisionHidden.getNumItems(); ++i)
         divisionMenu.addItem(kOverflowDivisionBase + i + 1, divisionHidden.getItemText(i), true,
                              divisionHidden.getSelectedId() == i + 1);
     menu.addSubMenu("Division", divisionMenu);
-
-    juce::PopupMenu octaveMenu;
-    for (int i = 0; i < octShiftHidden.getNumItems(); ++i)
-        octaveMenu.addItem(kOverflowOctaveBase + i + 1, octShiftHidden.getItemText(i), true,
-                           octShiftHidden.getSelectedId() == i + 1);
-    menu.addSubMenu("Octave", octaveMenu);
 
     juce::PopupMenu shuffleMenu;
     const int currentShufflePct = juce::roundToInt(shuffleRow->getSlider().getValue() * 100.0);
@@ -1033,24 +1036,9 @@ void SequencerPanel::showHeaderOverflowMenu()
 
         if (result == kOverflowSavePattern) { if (safeThis->onOpenPatternLibrary) safeThis->onOpenPatternLibrary(true);  return; }
         if (result == kOverflowLoadPattern) { if (safeThis->onOpenPatternLibrary) safeThis->onOpenPatternLibrary(false); return; }
-        if (result >= kOverflowPresetBase && result < kOverflowStepBase)
-        {
-            safeThis->presetBox.setSelectedId(result - kOverflowPresetBase, juce::sendNotificationSync);
-            return;
-        }
-        if (result >= kOverflowStepBase && result < kOverflowDivisionBase)
-        {
-            safeThis->stepCountBox.setSelectedId(result - kOverflowStepBase, juce::sendNotificationSync);
-            return;
-        }
         if (result >= kOverflowDivisionBase && result < kOverflowOctaveBase)
         {
             safeThis->divisionHidden.setSelectedId(result - kOverflowDivisionBase, juce::sendNotificationSync);
-            return;
-        }
-        if (result >= kOverflowOctaveBase && result < kOverflowSavePattern)
-        {
-            safeThis->octShiftHidden.setSelectedId(result - kOverflowOctaveBase, juce::sendNotificationSync);
             return;
         }
         if (result >= kOverflowShuffleBase
@@ -1071,7 +1059,8 @@ void SequencerPanel::syncStepCount()
     for (int i = 0; i < MAX_COLS; ++i)
         stepCols[static_cast<size_t>(i)]->setVisible(i < numVisibleSteps);
 
-    stepCountBox.setSelectedId(numVisibleSteps, juce::dontSendNotification);
+    seqStepsRow->getSlider().setValue(numVisibleSteps, juce::dontSendNotification);
+    seqStepsRow->updateValue();
     resized();
 }
 
@@ -1221,6 +1210,7 @@ void SequencerPanel::paint(juce::Graphics& g)
     }
 
     // Unified switchbox frames (GuiHelpers paintSwitchBoxBorder)
+    paintSwitchBoxBorder(g, modeSwitchBounds);
     paintSwitchBoxBorder(g, divisionSwitchBounds);
     paintSwitchBoxBorder(g, octShiftSwitchBounds);
     if (arpModeBtns[0].isVisible())
@@ -1332,17 +1322,10 @@ void SequencerPanel::resized()
     const int panelW = getWidth();
     const bool compactTopRow = panelW < 760;
 
-    // ═══ Row 1: ALWAYS the same — transport, GEN, preset, save/load, steps, division, etc. ═══
+    // ═══ Row 1: ALWAYS the same (shared) — Play/Stop, Step|Gen, BPM, Division,
+    //            Gate, Shuffle, MIDI. Steps/Octave/Preset are mode-dependent and
+    //            live in the STEP-mode row below. ═══
     auto r1 = area.removeFromTop(rH);
-    auto setOctShiftVisible = [this](bool visible)
-    {
-        for (int i = 0; i < kNumOctShiftBtns; ++i)
-        {
-            octShiftBtns[i].setVisible(visible);
-            if (!visible)
-                octShiftBtns[i].setBounds({});
-        }
-    };
 
     const float midiFont = uiFontSize(TextRole::Value, compactTopRow ? 0.0f
                                                                       : static_cast<float>(rH) * 0.6f);
@@ -1377,27 +1360,19 @@ void SequencerPanel::resized()
     enum HeaderSlot
     {
         slotTransport,
-        slotGenTransport,
-        slotPreset,
-        slotSave,
-        slotLoad,
-        slotSteps,
-        slotDivision,
-        slotOctave,
+        slotMode,
         slotBpm,
+        slotDivision,
         slotGate,
         slotShuffle,
         slotMidi
     };
 
     const int transportW = 36;
-    const int compactTierWidth = compactTopRow ? 72 : 90;
-    const int compactStepWidth = compactTopRow ? 42 : 52;
-    const int iconW = compactTopRow ? 18 : rH;
+    const int modeSegW = compactTopRow ? 30 : 38;   // one Step/Gen segment
+    const int modeW = modeSegW * 2;
     const int divisionPrefW = kNumDivBtns * (compactTopRow ? 18 : 22);  // note-glyph switchbox
     const int divisionMinW  = kNumDivBtns * (compactTopRow ? 15 : 18);
-    const int octavePrefW = kNumOctShiftBtns * (compactTopRow ? 20 : 24);
-    const int octaveMinW = kNumOctShiftBtns * (compactTopRow ? 18 : 20);
     const int midiClusterW = midiTextW + midiLedW + midiGap;
     const int gateMinW = gateRow->getMinimumWidth();
     const int gatePrefW = gateMinW;
@@ -1405,28 +1380,31 @@ void SequencerPanel::resized()
     const int shufflePrefW = shuffleMinW;
 
     // Overflow drop order (highest tier sheds first; the note divisions, tier 1,
-    // survive longest). Shuffle is the most expendable, then preset/save/load,
-    // then octave, then steps; BPM/Gate/MIDI and transport never drop.
+    // survive longest). Shuffle is the most expendable; BPM/Gate/MIDI, transport
+    // and the Step|Gen switch never drop.
     std::vector<ResponsiveStripItem> items {
-        { transportW, transportW, 0, false, ResponsiveStripFallback::none },        // PLAY
-        { transportW, transportW, 0, false, ResponsiveStripFallback::none },        // GEN
-        { compactTierWidth, 72, 4, false, ResponsiveStripFallback::overflow },      // Preset
-        { iconW, iconW, 4, false, ResponsiveStripFallback::overflow },              // Save
-        { iconW, iconW, 4, false, ResponsiveStripFallback::overflow },              // Load
-        { compactStepWidth, 38, 2, false, ResponsiveStripFallback::overflow },      // Steps
-        { divisionPrefW, divisionMinW, 1, false, ResponsiveStripFallback::overflow },// Division (kept longest)
-        { octavePrefW, octaveMinW, 3, false, ResponsiveStripFallback::overflow },   // Octave
-        { bpmRow->getPreferredWidth(),  bpmRow->getMinimumWidth(),  0, true,  ResponsiveStripFallback::none }, // BPM
-        { gatePrefW, gateMinW, 0, false, ResponsiveStripFallback::none },           // Gate
-        { shufflePrefW, shuffleMinW, 5, false, ResponsiveStripFallback::overflow }, // Shuffle (sheds first)
-        { midiClusterW, midiClusterW, 0, false, ResponsiveStripFallback::none }     // MIDI
+        { transportW, transportW, 0, false, ResponsiveStripFallback::none },          // Play/Stop
+        { modeW, modeW, 0, false, ResponsiveStripFallback::none },                    // Step|Gen
+        { bpmRow->getPreferredWidth(), bpmRow->getMinimumWidth(), 0, true, ResponsiveStripFallback::none }, // BPM
+        { divisionPrefW, divisionMinW, 1, false, ResponsiveStripFallback::overflow }, // Division (kept longest)
+        { gatePrefW, gateMinW, 0, false, ResponsiveStripFallback::none },             // Gate
+        { shufflePrefW, shuffleMinW, 5, false, ResponsiveStripFallback::overflow },   // Shuffle (sheds first)
+        { midiClusterW, midiClusterW, 0, false, ResponsiveStripFallback::none }       // MIDI
     };
 
     auto headerLayout = layoutResponsiveStrip(r1, items, g, compactTopRow ? 24 : 28);
     const auto hasBounds = [](juce::Rectangle<int> bounds) { return !bounds.isEmpty(); };
 
     transportBtn.setBounds(headerLayout.bounds[slotTransport]);
-    genTransportBtn.setBounds(headerLayout.bounds[slotGenTransport]);
+
+    // Step | Gen switchbox — two equal connected segments.
+    {
+        auto modeArea = headerLayout.bounds[slotMode];
+        modeStepBtn.setBounds(modeArea.removeFromLeft(modeArea.getWidth() / 2));
+        modeGenBtn .setBounds(modeArea);
+        modeSwitchBounds = modeStepBtn.getBounds().getUnion(modeGenBtn.getBounds());
+    }
+
     bpmRow->setBounds(headerLayout.bounds[slotBpm]);
     gateRow->setBounds(headerLayout.bounds[slotGate]);
     shuffleRow->setVisible(hasBounds(headerLayout.bounds[slotShuffle]));
@@ -1435,15 +1413,6 @@ void SequencerPanel::resized()
 
     headerOverflowBtn.setVisible(headerLayout.overflowUsed);
     headerOverflowBtn.setBounds(headerLayout.overflowUsed ? headerLayout.overflowBounds : juce::Rectangle<int>{});
-
-    presetBox.setVisible(hasBounds(headerLayout.bounds[slotPreset]));
-    presetBox.setBounds(headerLayout.bounds[slotPreset]);
-    stepCountBox.setVisible(hasBounds(headerLayout.bounds[slotSteps]));
-    stepCountBox.setBounds(headerLayout.bounds[slotSteps]);
-    seqSaveBtn.setVisible(hasBounds(headerLayout.bounds[slotSave]));
-    seqSaveBtn.setBounds(headerLayout.bounds[slotSave]);
-    seqLoadBtn.setVisible(hasBounds(headerLayout.bounds[slotLoad]));
-    seqLoadBtn.setBounds(headerLayout.bounds[slotLoad]);
 
     const bool divVisible = hasBounds(headerLayout.bounds[slotDivision]);
     for (int i = 0; i < kNumDivBtns; ++i)
@@ -1469,23 +1438,9 @@ void SequencerPanel::resized()
     else
         divisionSwitchBounds = {};
 
-    setOctShiftVisible(hasBounds(headerLayout.bounds[slotOctave]));
-    if (hasBounds(headerLayout.bounds[slotOctave]))
-    {
-        auto octArea = headerLayout.bounds[slotOctave];
-        const int octBtnW = octArea.getWidth() / kNumOctShiftBtns;
-        for (int i = 0; i < kNumOctShiftBtns; ++i)
-        {
-            int edges = 0;
-            if (i > 0) edges |= juce::Button::ConnectedOnLeft;
-            if (i < kNumOctShiftBtns - 1) edges |= juce::Button::ConnectedOnRight;
-            octShiftBtns[i].setConnectedEdges(edges);
-            octShiftBtns[i].setBounds(octArea.removeFromLeft(i == kNumOctShiftBtns - 1 ? octArea.getWidth() : octBtnW));
-        }
-        octShiftSwitchBounds = octShiftBtns[0].getBounds().getUnion(octShiftBtns[kNumOctShiftBtns - 1].getBounds());
-    }
-    else
-        octShiftSwitchBounds = {};
+    // Octave + preset management are laid out in the STEP-mode row (see the step
+    // branch below), not the shared header. Reset the frame here; step sets it.
+    octShiftSwitchBounds = {};
 
     area.removeFromTop(compactTopRow ? 5 : g);
 
@@ -1558,6 +1513,16 @@ void SequencerPanel::resized()
         strandDomSliders[i].setVisible(genModeActive);
         strandDomLabels[i].setVisible(genModeActive);
     }
+
+    // Step-mode-only controls (step row 2): unified Steps slider, octave switch,
+    // preset management. Hidden in gen mode, which has its own Steps (with FIX).
+    const bool stepModeActive = !genModeActive;
+    seqStepsRow->setVisible(stepModeActive);
+    presetBox.setVisible(stepModeActive);
+    seqSaveBtn.setVisible(stepModeActive);
+    seqLoadBtn.setVisible(stepModeActive);
+    for (int i = 0; i < kNumOctShiftBtns; ++i)
+        octShiftBtns[i].setVisible(stepModeActive);
 
     // Reset gen-switchbox frames; set below only when laid out (gen mode on),
     // so the isEmpty() guard in paint() drops them when the grid is showing.
@@ -1747,8 +1712,46 @@ void SequencerPanel::resized()
     }
     else
     {
-        // ═══ Step mode: step grid ═══
+        // ═══ Step mode ═══
         genVisArea = {};
+
+        // Row 2: unified Steps slider (no FIX) · Octave switch · preset mgmt.
+        auto stepRow = area.removeFromTop(rH);
+        const int presetW = compactTopRow ? 76 : 96;
+        const int iconW   = rH;
+        const int octW    = kNumOctShiftBtns * (compactTopRow ? 20 : 24);
+
+        // From the right: [Preset▾][S][L]
+        seqLoadBtn.setBounds(stepRow.removeFromRight(iconW));
+        seqSaveBtn.setBounds(stepRow.removeFromRight(iconW));
+        stepRow.removeFromRight(2);
+        presetBox.setBounds(stepRow.removeFromRight(presetW));
+        stepRow.removeFromRight(g);
+
+        // Octave switchbox (relocated from the shared header).
+        {
+            auto octArea = stepRow.removeFromRight(octW);
+            const int octBtnW = octArea.getWidth() / kNumOctShiftBtns;
+            for (int i = 0; i < kNumOctShiftBtns; ++i)
+            {
+                int edges = 0;
+                if (i > 0) edges |= juce::Button::ConnectedOnLeft;
+                if (i < kNumOctShiftBtns - 1) edges |= juce::Button::ConnectedOnRight;
+                octShiftBtns[i].setConnectedEdges(edges);
+                octShiftBtns[i].setBounds(octArea.removeFromLeft(
+                    i == kNumOctShiftBtns - 1 ? octArea.getWidth() : octBtnW));
+            }
+            octShiftSwitchBounds = octShiftBtns[0].getBounds()
+                .getUnion(octShiftBtns[kNumOctShiftBtns - 1].getBounds());
+        }
+        stepRow.removeFromRight(g);
+
+        // Steps inline slider fills the remaining left space.
+        seqStepsRow->setBounds(stepRow);
+
+        area.removeFromTop(compactTopRow ? 4 : g);
+
+        // Step grid (remaining space, slightly reduced by the row above).
         gridArea = area;
         if (numVisibleSteps > 0 && gridArea.getWidth() > numVisibleSteps)
         {
