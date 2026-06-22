@@ -114,13 +114,15 @@ public:
             g.fillRect(b.withWidth(b.getWidth() * mag));
         }
 
-        const bool active = mag > 0.0f;
+        // Round to display precision (2 dp) — any sub-cent residue is visually 0.
+        const int centis  = juce::roundToInt(v * 100.0f);
+        const bool active = centis != 0;
         // Persistent sign suffix ("Reso +" / "Reso −") so polarity reads without
         // relying on the fill hue — works in greyscale and for colour-blind users.
         juce::String lab = " " + label_;
         if (active)
-            lab += (v >= 0.0f) ? " +"
-                               : " " + juce::String(juce::CharPointer_UTF8("\xE2\x88\x92"));
+            lab += centis > 0 ? " +"
+                              : " " + juce::String(juce::CharPointer_UTF8("\xE2\x88\x92"));
         g.setColour(active ? juce::Colours::white : kTextMuted);
         g.setFont(juce::FontOptions(juce::jlimit(9.0f, 13.0f, b.getHeight() * 0.58f)));
         g.drawText(lab, b.reduced(2.0f, 0.0f),
@@ -129,10 +131,9 @@ public:
         if (held_)
         {
             g.setColour(juce::Colours::white);
-            { const float av = std::abs(v);
-              const juce::String sgn = av < 0.005f ? "" : (v > 0.0f ? "+" : "-");
-              g.drawText(sgn + juce::String(av, 2) + " ",
-                         b.reduced(2.0f, 0.0f), juce::Justification::centredRight, false); }
+            const juce::String sgn = centis == 0 ? "" : (centis > 0 ? "+" : "-");
+            g.drawText(sgn + juce::String(std::abs(centis) / 100.0f, 2) + " ",
+                       b.reduced(2.0f, 0.0f), juce::Justification::centredRight, false);
         }
 
         g.setColour(kBorder);
