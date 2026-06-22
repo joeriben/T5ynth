@@ -1223,10 +1223,23 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 
 void T5ynthProcessor::releaseResources()
 {
-    masterOsc.reset();
-    masterSampler.reset();
-    masterFreeze.reset();
-    voiceManager.reset();
+    // The sampler-reprepare worker (samplerReprepareThreadMain) is NOT joined here
+    // — it is started in the ctor and joined only in the dtor, so it keeps polling
+    // across stop/start. Its publish critical section (serviceSamplerReprepare
+    // block 4) mutates masterSampler/masterFreeze/voiceManager under getCallbackLock
+    // (originalBuffer move, playBuffer.setSize, audioLoaded, snapshot atomic_store,
+    // voice distribute). reset() rewrites those same members, so take the SAME lock
+    // to serialize teardown against an in-flight publish; without it the two threads
+    // could reallocate the same juce::AudioBuffer concurrently (heap corruption).
+    // No deadlock: the worker never holds getCallbackLock and samplerReprepareSource-
+    // Mutex at once, and neither do we (separate scopes); reset() takes no lock.
+    {
+        const juce::ScopedLock sl(getCallbackLock());
+        masterOsc.reset();
+        masterSampler.reset();
+        masterFreeze.reset();
+        voiceManager.reset();
+    }
     {
         std::lock_guard<std::mutex> lock(samplerReprepareSourceMutex);
         samplerReprepareSourceBuffer.setSize(0, 0);
