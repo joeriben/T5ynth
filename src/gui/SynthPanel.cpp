@@ -2782,7 +2782,7 @@ void SynthPanel::layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> 
         styleHeaderBar(driftHeader, " DRIFT", kDriftCol);
         driftHeader.setBounds(modHeaderRow.removeFromLeft(stackW));
         modHeaderRow.removeFromLeft(colGap);
-        styleHeaderBar(aftertouchHeader, " AT", kAtCol);
+        styleHeaderBar(aftertouchHeader, " Poly-AT", kAtCol);
         aftertouchHeader.setBounds(modHeaderRow.removeFromLeft(aftertouchW));
         modHeaderRow.removeFromLeft(colGap);
         styleHeaderBar(regenHeader, " REGENERATE", kRegenCol);   // generate column (was an in-column chip)

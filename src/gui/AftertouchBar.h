@@ -129,8 +129,10 @@ public:
         if (held_)
         {
             g.setColour(juce::Colours::white);
-            g.drawText((v >= 0.0f ? "+" : "") + juce::String(v, 2) + " ",
-                       b.reduced(2.0f, 0.0f), juce::Justification::centredRight, false);
+            { const float av = std::abs(v);
+              const juce::String sgn = av < 0.005f ? "" : (v > 0.0f ? "+" : "-");
+              g.drawText(sgn + juce::String(av, 2) + " ",
+                         b.reduced(2.0f, 0.0f), juce::Justification::centredRight, false); }
         }
 
         g.setColour(kBorder);
