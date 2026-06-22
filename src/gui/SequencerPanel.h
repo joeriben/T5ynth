@@ -170,10 +170,7 @@ private:
     juce::Label      strandDomLabels[kNumExtraStrands];
 
 
-    // Gen visualisation (painted in paint(), positioned in resized())
-    juce::Rectangle<int> genVisArea;
     bool genModeActive = false;
-    int genCurrentStep = -1;
 
     // Row 4: Arp controls (left-labels + glyph/numeric switchboxes)
     juce::Label arpModeLabel;                    // "ARP" left-label

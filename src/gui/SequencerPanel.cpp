@@ -1103,23 +1103,10 @@ void SequencerPanel::timerCallback()
     if (seqIdle)
         return;
 
-    if (genRunning)
+    // Step-grid highlight (step mode only). Gen mode has no per-step UI now that
+    // the broken visualization is gone, so nothing to track/repaint there.
+    if (!genRunning)
     {
-        // Gen-Seq step highlight
-        int gs = processorRef.getGenerativeSequencer().currentStepForGui.load(std::memory_order_relaxed);
-        if (gs != genCurrentStep)
-        {
-            genCurrentStep = gs;
-            repaint(); // repaint visualization
-        }
-
-        // GEN button stays "GEN" — toggle state shown via color (on/off)
-    }
-    else
-    {
-        genCurrentStep = -1;
-
-        // Step highlight
         int step = processorRef.getStepSequencer().currentStepForGui.load(std::memory_order_relaxed);
         if (step != currentStep)
         {
@@ -1245,69 +1232,6 @@ void SequencerPanel::paint(juce::Graphics& g)
         card(genPulsesCardBounds);
         card(genRotationCardBounds);
         card(genMutationCardBounds);
-    }
-
-    // ═══ Gen-Seq visualization ═══
-    if (genModeActive && !genVisArea.isEmpty())
-    {
-        auto& genSeq = processorRef.getGenerativeSequencer();
-        int numS = genSeq.numStepsForGui.load(std::memory_order_relaxed);
-        if (numS < 1) numS = 1;
-
-        float areaW = static_cast<float>(genVisArea.getWidth());
-        float areaH = static_cast<float>(genVisArea.getHeight());
-        float areaX = static_cast<float>(genVisArea.getX());
-        float areaY = static_cast<float>(genVisArea.getY());
-        float stepW = areaW / static_cast<float>(numS);
-
-        // Draw steps
-        for (int i = 0; i < numS; ++i)
-        {
-            float x = areaX + static_cast<float>(i) * stepW;
-            int midiNote = genSeq.notePatternForGui[static_cast<size_t>(i)].load(std::memory_order_relaxed);
-            bool isPulse = midiNote > 0;
-            bool isCurrent = (i == genCurrentStep);
-
-            // Step background
-            if (isCurrent)
-                g.setColour(kSeqCol.withAlpha(0.35f));
-            else if (isPulse)
-                g.setColour(kSurface);
-            else
-                g.setColour(kBg);
-            g.fillRect(x + 1.0f, areaY, stepW - 2.0f, areaH);
-
-            // Beat group border
-            if (i % 4 == 0)
-            {
-                g.setColour(kBorder);
-                g.drawLine(x, areaY, x, areaY + areaH, 1.0f);
-            }
-
-            if (isPulse)
-            {
-                // Note bar — height represents pitch (36-96 range)
-                float frac = juce::jlimit(0.0f, 1.0f, static_cast<float>(midiNote - 36) / 60.0f);
-                float barH = frac * (areaH - 20.0f);
-                g.setColour(isCurrent ? kSeqCol : kSeqCol.withAlpha(0.6f));
-                g.fillRect(x + 3.0f, areaY + areaH - 14.0f - barH,
-                           stepW - 6.0f, barH);
-
-                // Note name
-                g.setColour(juce::Colours::white.withAlpha(isCurrent ? 1.0f : 0.7f));
-                float fs = juce::jlimit(8.0f, 12.0f, stepW * 0.3f);
-                g.setFont(juce::FontOptions(fs));
-                g.drawText(noteName(midiNote),
-                           juce::Rectangle<float>(x, areaY + areaH - 14.0f, stepW, 14.0f),
-                           juce::Justification::centred);
-            }
-
-            // Pulse indicator dot at top
-            float dotSize = juce::jlimit(4.0f, 8.0f, stepW * 0.2f);
-            float dotX = x + stepW * 0.5f - dotSize * 0.5f;
-            g.setColour(isPulse ? kSeqCol : kDimmer.withAlpha(0.3f));
-            g.fillEllipse(dotX, areaY + 3.0f, dotSize, dotSize);
-        }
     }
 }
 
@@ -1713,14 +1637,11 @@ void SequencerPanel::resized()
             area.removeFromTop(g);
         }
 
-        // Visualization area (remaining space)
-        genVisArea = area;
         gridArea = {};
     }
     else
     {
         // ═══ Step mode ═══
-        genVisArea = {};
 
         // Row 2: unified Steps slider (no FIX) · Octave switch · preset mgmt.
         auto stepRow = area.removeFromTop(rH);
