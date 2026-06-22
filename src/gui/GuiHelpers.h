@@ -854,7 +854,8 @@ public:
  * Compact parameter control. Defaults to a horizontal row, but can be laid out
  * as a vertical fader in Easy views without changing the APVTS attachment.
  */
-class SliderRow : public juce::Component
+class SliderRow : public juce::Component,
+                  private juce::Slider::Listener
 {
 public:
     enum class LabelMode { Off, Positive, Negative };
@@ -879,6 +880,10 @@ public:
         slider.setColour(juce::Slider::backgroundColourId, trackCol.withAlpha(0.18f));
         slider.onValueChange = [this] { updateValue(); };
         addAndMakeVisible(slider);
+        // Inline-bar rows paint the fill+value in SliderRow::paint(), so the
+        // PARENT must repaint on value change. A listener (not onValueChange)
+        // survives callers that reassign getSlider().onValueChange.
+        slider.addListener(this);
 
         value.setColour(juce::Label::textColourId, trackCol);
         value.setJustificationType(juce::Justification::centredLeft);
@@ -995,10 +1000,52 @@ public:
         repaint();
     }
 
+    /** Poly-AT-style inline bar: the slider becomes a full-width LinearBar with
+        the label drawn inline-left and the value inline-right (over the fill),
+        like AftertouchBar/VelocityBar. The child slider stays as the (invisible)
+        interaction/value layer — SliderRow paints the bar + text itself. Opt-in;
+        default rows keep the side label/value cells, so other SliderRow users
+        (FX, synth) are unaffected. Horizontal only. */
+    void setInlineLabel(bool shouldBeInline)
+    {
+        if (inlineLabel == shouldBeInline)
+            return;
+        inlineLabel = shouldBeInline;
+        label.setVisible(!inlineLabel);
+        value.setVisible(!inlineLabel);
+        if (inlineLabel)
+        {
+            slider.setSliderStyle(juce::Slider::LinearBar);
+            // We paint the fill ourselves; keep the LinearBar invisible so only
+            // our paint() shows. V4's bar branch draws BOTH the trackColour fill
+            // AND a NoTextBox outline (textBoxOutlineColourId) — suppress both,
+            // else the outline doubles our own kBorder frame.
+            slider.setColour(juce::Slider::trackColourId,         juce::Colours::transparentBlack);
+            slider.setColour(juce::Slider::backgroundColourId,    juce::Colours::transparentBlack);
+            slider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+        }
+        else
+        {
+            slider.setSliderStyle(juce::Slider::LinearHorizontal);
+            slider.setColour(juce::Slider::trackColourId,         trackCol);
+            slider.setColour(juce::Slider::backgroundColourId,    trackCol.withAlpha(0.18f));
+            slider.setColour(juce::Slider::textBoxOutlineColourId, kBorder);
+        }
+        resized();
+        repaint();
+    }
+
     void updateValue()
     {
         if (valueFormatter)
             value.setText(valueFormatter(slider.getValue()), juce::dontSendNotification);
+    }
+
+    // Slider::Listener — robust repaint for inline-bar rows regardless of who
+    // owns getSlider().onValueChange. No-op (and no extra cost) for normal rows.
+    void sliderValueChanged(juce::Slider*) override
+    {
+        if (inlineLabel) { updateValue(); repaint(); }
     }
 
     /** Set ghost target value. NaN = no ghost. Smoothing happens in tickGhost(). */
@@ -1029,6 +1076,12 @@ public:
 
     void paint(juce::Graphics& g) override
     {
+        if (inlineLabel)
+        {
+            paintInlineBar(g);
+            return;
+        }
+
         if (labelMode == LabelMode::Off)
             return;
 
@@ -1096,6 +1149,12 @@ public:
     void resized() override
     {
         auto b = getLocalBounds();
+        if (inlineLabel)
+        {
+            slider.setBounds(b);
+            return;
+        }
+
         if (controlMode == ControlMode::Vertical)
         {
             const int labelH = juce::jlimit(13, 20, juce::roundToInt(static_cast<float>(b.getHeight()) * 0.16f));
@@ -1172,6 +1231,7 @@ private:
     juce::Colour trackCol;
     LabelMode labelMode = LabelMode::Off;
     bool labelIsBand = false;   // render label as a trackCol@0.7 section-header band
+    bool inlineLabel = false;   // Poly-AT-style: bar fill + inline label/value, no side cells
     ControlMode controlMode = ControlMode::Horizontal;
     std::function<void()> onLabelClick;
 
@@ -1202,6 +1262,35 @@ private:
         return {};
     }
 
+    // Poly-AT-style bar: kSurface track, trackCol fill from left = value
+    // proportion, inline white label (left) + value (right), kBorder frame.
+    // Mirrors AftertouchBar/VelocityBar so all inline rows read consistently.
+    void paintInlineBar(juce::Graphics& g)
+    {
+        auto b = getLocalBounds().toFloat();
+
+        g.setColour(kSurface);
+        g.fillRect(b);
+
+        const double prop = juce::jlimit(0.0, 1.0,
+            slider.valueToProportionOfLength(slider.getValue()));
+        if (prop > 0.0)
+        {
+            g.setColour(trackCol);
+            g.fillRect(b.withWidth(static_cast<float>(static_cast<double>(b.getWidth()) * prop)));
+        }
+
+        const float fs = juce::jlimit(9.0f, 13.0f, b.getHeight() * 0.58f);
+        g.setFont(juce::FontOptions(fs));
+        auto textArea = b.reduced(4.0f, 0.0f);
+        g.setColour(juce::Colours::white);
+        g.drawText(label.getText(), textArea, juce::Justification::centredLeft, false);
+        g.drawText(currentValueText(), textArea, juce::Justification::centredRight, false);
+
+        g.setColour(kBorder);
+        g.drawRect(b, 1.0f);
+    }
+
     SliderLayoutProfile getLayoutProfile(bool compact, bool applyForcedLabelWidth = true) const
     {
         const int resolvedHeight = juce::jmax(18, getHeight() > 0 ? getHeight() : 22);
@@ -1220,6 +1309,8 @@ private:
             profile.labelWidth = forcedLabelWidth;
         if (applyForcedLabelWidth && forcedValueWidth >= 0)
             profile.valueWidth = forcedValueWidth;
+        // Inline rows overlay label+value on the bar — no side cells reserved.
+        if (inlineLabel) { profile.labelWidth = 0; profile.valueWidth = 0; }
         profile.minTrackWidth = compact ? 40 : 64;
         profile.preferredTrackWidth = compact ? 70 : 112;
         profile.minimumWidth = profile.labelWidth + profile.valueWidth + profile.minTrackWidth;
