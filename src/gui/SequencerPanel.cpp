@@ -1157,12 +1157,19 @@ void SequencerPanel::timerCallback()
             repaint(midiLedBounds.getSmallestIntegerContainer());
     }
 
-    // Sync step count if changed externally (step seq mode)
+    // Sync step count if changed externally (step seq mode).
+    // Compare against the CLAMPED value, not the raw param. seqSteps' range is
+    // 1..64 but the grid caps at [2, MAX_COLS]; syncStepCount() clamps into that
+    // window and never writes the param back (its slider set is dontSend). A raw
+    // value outside the window (1, or 33..64 from a preset/DAW automation) would
+    // otherwise keep steps != numVisibleSteps permanently true, firing
+    // syncStepCount() (and its resized()) every 100 ms — an idle-CPU regression.
     if (!genRunning)
     {
         int steps = static_cast<int>(processorRef.getValueTreeState()
                         .getRawParameterValue(PID::seqSteps)->load());
-        if (steps != numVisibleSteps)
+        const int clamped = juce::jlimit(2, MAX_COLS, steps);
+        if (clamped != numVisibleSteps)
             syncStepCount();
     }
 
