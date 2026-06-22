@@ -239,8 +239,10 @@ are similar, what counts as "music" or "noise", which combinations it renders fl
 and which are absent. T5ynth deconstructs that map directly: operating on the embedding rather
 than on words reaches sound regions that prompting alone cannot access. The instrument
 dynamizes this access through embedding manipulation modes, Sound-Character Axes, and
-Drift — and closes it back on itself through Re-Prompt, Resynth, and the Generative
-Sequencer, each output feeding the next generation. What emerges is a self-recursive,
+Drift — and closes it back on itself through Re-Prompt (language &rarr; next inference)
+and Resynth (audio &rarr; next inference), while the Generative Sequencer provides an
+independently self-evolving melodic layer that drives the voice engine. What emerges is
+a self-recursive,
 musically playable instrument built around the model's learned representation of sound,
 rather than a tool that returns audio results.
 </p>
@@ -962,7 +964,7 @@ selector in the filter header row.
   <tr><td><strong>Mix</strong></td><td>0.0 – 1.0</td><td>Equal-power dry/wet crossfade</td></tr>
   <tr><td><strong>Kbd Track</strong></td><td>0.0 – 1.0</td><td>Cutoff offset per MIDI semitone</td></tr>
   <tr><td><strong>Drive</strong></td><td>0 – 36 dB</td><td>On SVF: pre-filter <code>tanh</code> saturation (optionally oversampled). On Ladder / Warp: input gain into the filter's own nonlinear stages — the filter itself provides the saturation character, master volume handles level.</td></tr>
-  <tr><td><strong>OS</strong></td><td>Off / 2× / 4× / 8×</td><td>On <strong>SVF</strong>: inline oversampling for the Drive <code>tanh</code>, stored per preset. On <strong>Ladder / Warp</strong>: oversampling is a global machine-wide setting in the <em>Settings</em> panel (General Settings tab), not per preset — default 2×.</td></tr>
+  <tr><td><strong>OS</strong></td><td>SVF: Off / 2× / 4× / 8× &middot; Ladder/Warp: see Settings</td><td>On <strong>SVF</strong>: inline, per-preset oversampling for the Drive <code>tanh</code> (Off / 2× / 4× / 8×). On <strong>Ladder / Warp</strong>: global machine-wide setting in the <em>Settings</em> panel (General Settings tab), not per preset — Off / 2× / 4×, default 2×. 8× is not available for Ladder / Warp.</td></tr>
   <tr><td><strong>Style</strong></td><td>Tanh / SoftClip / OJD / Sin / Digital / Asym</td><td>Warp-only — picks the per-pole saturation curve. Greyed out for SVF / Ladder. See algorithm notes.</td></tr>
 </table>
 
@@ -1045,8 +1047,9 @@ pressure, Mod Wheel (CC1), and Breath (CC2); T5ynth resolves each voice's pressu
 the maximum of all applicable sources.
 </p>
 <p>
-<strong>Interaction:</strong> drag a bar up or down to set its depth (−1.0 … +1.0);
-click the bar to toggle the sign. The current sign is displayed as a persistent
+<strong>Interaction:</strong> drag a bar left or right to set its magnitude (0 … 1.0);
+click without dragging to toggle the sign (positive or negative depth at the same
+magnitude). The current sign is displayed as a persistent
 <strong>+</strong> or <strong>−</strong> suffix on the target label (e.g.
 <em>Reso&nbsp;+</em> / <em>Reso&nbsp;−</em>). The numeric value shows while
 the bar is held.
@@ -1121,7 +1124,7 @@ The Drift section provides three slow LFOs (0.001–2.0 Hz) designed for organic
 </p>
 
 <div class="note">
-  With an SA3 model selected, the sound-character axes are unavailable as drift targets. <strong>Resynth</strong> is available as a drift target only with an SA3 model — it routes drift into the audio-conditioned re-inference loop (see <a href="#drift">§6</a>). Without SA3, Resynth is greyed out.
+  With an SA3 model selected, the sound-character axes are unavailable as drift targets. <strong>Resynth</strong> as a drift target only takes effect with an SA3 model — it routes drift into the audio-conditioned re-inference loop (see <a href="#resynth">§ Resynth</a>). Without SA3, the Resynth <em>slider</em> is disabled; the drift-target dropdown entry remains selectable but has no effect.
 </div>
 
 <h4>Drift LFOs (3×)</h4>
