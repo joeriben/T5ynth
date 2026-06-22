@@ -683,21 +683,22 @@ void VoiceManager::drainRetiredSamplerSnapshots()
         v.getSampler().drainRetiredSnapshot();
 }
 
-void VoiceManager::distributeSamplerBuffer(const SamplePlayer& master, bool adoptActiveVoices)
+void VoiceManager::distributeSamplerBuffer(const SamplePlayer& master, float morphMs, bool allowMorph)
 {
     currentSamplerMaster_ = &master;
     for (auto& v : voices)
     {
         if (v.isActive() && v.getEngineMode() == SynthVoice::EngineMode::Sampler)
         {
-            // Held sampler note: live-follow the freshly published snapshot so a
-            // held tone plays the CURRENT sample during A/B-drift regenerate.
-            // Adopt ONLY on the audio-thread pass (adoptActiveVoices) — the swap
-            // then runs on the thread that reads the snapshot, so it cannot race
-            // the lock-free reader; the retired snapshot is freed later by
-            // drainRetiredSamplerSnapshots() off the audio thread.
-            if (adoptActiveVoices)
-                v.getSampler().adoptSharedBuffer(master);
+            // Held sampler note: equal-power crossfade-follow the freshly published
+            // snapshot (over morphMs = Drift Crossfade) so a held tone plays the
+            // CURRENT sample during A/B-drift regenerate. Crossfade ONLY on the
+            // audio-thread pass (allowMorph) — the swap then runs on the thread that
+            // reads the snapshot, so it cannot race the lock-free reader; the retired
+            // snapshot is freed later by drainRetiredSamplerSnapshots() off-thread.
+            // Never shareBufferFrom a held voice — that hard-swaps mid-note and clicks.
+            if (allowMorph)
+                v.getSampler().morphToBufferFrom(master, morphMs);
             continue;
         }
 

@@ -166,21 +166,26 @@ public:
      *  master's prepared buffer. loadBuffer/preparePlaybackBuffer are no-ops. */
     void shareBufferFrom(const SamplePlayer& master);
 
-    /** Live-follow for an already-playing shared voice: adopt the master's
-     *  current snapshot in place — read position, direction and the per-voice
-     *  noteOn normalization are preserved, only the underlying audio (and its
-     *  region bounds) follow. This is how a HELD note plays the freshly
-     *  generated sample during A/B-drift regenerate.
+    /** Live-follow for an already-playing shared voice: equal-power crossfade
+     *  from the current buffer to the master's freshly published snapshot over
+     *  morphMs (the global Drift Crossfade time) — read position, direction and
+     *  the per-voice noteOn normalization are preserved, only the underlying
+     *  audio (and its region bounds) follow. This is how a HELD note plays the
+     *  freshly generated sample during A/B-drift regenerate, click-free and
+     *  honouring the Regen XFade control. Counterpart to
+     *  WavetableOscillator::morphToFramesFrom and FreezeTextureEngine::
+     *  morphToBufferFrom; morphMs<=0 collapses to an instant swap.
      *
      *  RT discipline: call ONLY on the audio thread (the thread that reads the
-     *  snapshot), so the swap never races the lock-free reader. The outgoing
-     *  snapshot is parked in a reclaim slot instead of having its last reference
-     *  dropped here, so the buffer free never lands on the audio thread;
-     *  drainRetiredSnapshot() releases it off-thread. A short output declick
-     *  absorbs any content step at the seam. */
-    void adoptSharedBuffer(const SamplePlayer& master);
+     *  snapshot), so the swap never races the lock-free reader. The buffer being
+     *  faded FROM is retained in morphFromSnapshot_; the snapshot it displaces is
+     *  parked in a reclaim slot instead of being freed here, so the buffer free
+     *  never lands on the audio thread — drainRetiredSnapshot() releases it
+     *  off-thread. Pointer identity is the generation guard (same snapshot ⇒
+     *  no-op, never restarts an in-flight crossfade). */
+    void morphToBufferFrom(const SamplePlayer& master, float morphMs);
 
-    /** Release the reclaim slot populated by adoptSharedBuffer(). MUST be called
+    /** Release the reclaim slot populated by morphToBufferFrom(). MUST be called
      *  off the audio thread, sequenced before the master republishes its
      *  snapshot (frees the retired snapshot's buffers). */
     void drainRetiredSnapshot();
@@ -259,13 +264,20 @@ private:
     // the linear source path until the first loop boundary has been crossed.
     juce::AudioBuffer<float> playBuffer;
     std::shared_ptr<const PlaybackSnapshot> playbackSnapshot_;
-    // Reclaim slot for adoptSharedBuffer(): the audio thread MOVES its outgoing
-    // snapshot here (never dropping the last reference on the audio thread) so
-    // the std::vector free is deferred. drainRetiredSnapshot() — off-thread,
-    // sequenced before the master republishes — releases it. Single slot: the
-    // audio thread parks at most once per regenerate (the only event that
-    // changes the master snapshot), and each regenerate drains first.
+    // Reclaim slot for morphToBufferFrom(): the audio thread MOVES the snapshot it
+    // displaces from the crossfade here (never dropping the last reference on the
+    // audio thread) so the std::vector free is deferred. drainRetiredSnapshot() —
+    // off-thread, sequenced before the master republishes — releases it. Single
+    // slot: the audio thread parks at most once per regenerate (the only event
+    // that changes the master snapshot), and each regenerate drains first.
     std::shared_ptr<const PlaybackSnapshot> retiredSnapshot_;
+    // The buffer a held voice is fading FROM during a Drift-Crossfade adopt
+    // (morphToBufferFrom). Audio-thread-owned: written and read per-sample on the
+    // audio thread (the morph runs there, unlike FreezeTextureEngine's off-thread
+    // morph), so it needs no atomic. When a new morph supersedes it, the old
+    // fade-from is moved into retiredSnapshot_ for off-thread release; on morph
+    // completion it is retained and freed at the next park / reset.
+    std::shared_ptr<const PlaybackSnapshot> morphFromSnapshot_;
 
     double playbackSampleRate = 44100.0;
     double bufferOriginalSR   = 44100.0;
@@ -273,13 +285,15 @@ private:
     double transposeRatio     = 1.0;
     float  pitchModFactor     = 1.0f;  // block-rate pitch mod from envelopes/LFOs
     float  sourceGain_        = 1.0f;  // constant per-voice gain applied before stretch
-    // Output declicker: a decaying offset that makes the emitted signal
-    // continuous across a mid-note buffer adoption (adoptSharedBuffer). Dormant
-    // (zero cost beyond a compare) when no swap is in flight.
-    float  declickOffset_     = 0.0f;
-    float  declickCoeff_      = 0.0f;  // per-sample decay, set from sr in prepare()
-    float  prevOut_           = 0.0f;  // last emitted output sample
-    bool   pendingDeclick_    = false; // set by adoptSharedBuffer() while playing
+    // Held-note Drift-Crossfade adopt state (morphToBufferFrom). A held voice
+    // equal-power crossfades from morphFromSnapshot_ to the new buffer over
+    // morphMs (the global Drift Crossfade), so a regenerated sample swaps in
+    // click-free. All audio-thread-owned (the morph is set up and advanced on the
+    // audio thread): plain, no atomics. Dormant — costs one bool compare per
+    // sample — when no crossfade is in flight.
+    bool   morphActive_       = false; // true while a crossfade is ramping
+    float  morphAlpha_        = 1.0f;  // 0 = all old buffer, 1 = all new buffer
+    float  morphIncrement_    = 0.0f;  // per-source-sample ramp, 1/morphSamples
     double glideTargetRatio   = 1.0;
     double glideRatioIncr     = 0.0;  // per-sample increment
     int    glideSamplesLeft   = 0;
@@ -341,10 +355,6 @@ private:
     float cubicSample(double pos) const;
     float cubicSampleFrom(const juce::AudioBuffer<float>& buf, double pos) const;
     float playbackSample(double pos, bool useFirstPassBuffer) const;
-
-    /** Apply the output declicker over a rendered block and update prevOut_.
-     *  No-op (beyond tracking prevOut_) unless a buffer adoption set a seam. */
-    void applyDeclick(float* output, int numSamples);
 
     const juce::AudioBuffer<float>& currentPlaybackBuffer() const;
     const juce::AudioBuffer<float>& currentFirstPassBuffer() const;

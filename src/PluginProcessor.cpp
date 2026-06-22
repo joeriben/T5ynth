@@ -1709,10 +1709,10 @@ bool T5ynthProcessor::serviceSamplerReprepare()
         voiceManager.drainRetiredSamplerSnapshots();
         masterSampler.applyPreparedBufferLoad(std::move(prepared), config);
         masterFreeze.loadBuffer(preparedFreezeBuffer, sourceRate);
-        // Held sampler voices adopt the re-prepared snapshot on the next
-        // audio-thread distribute pass (adopting here would race the lock-free
-        // reader).
-        voiceManager.distributeSamplerBuffer(masterSampler, /*adoptActiveVoices=*/false);
+        // Held sampler voices crossfade onto the re-prepared snapshot on the next
+        // audio-thread distribute pass (morphing here would race the lock-free
+        // reader). Off-thread → allowMorph=false (sync inactive voices only).
+        voiceManager.distributeSamplerBuffer(masterSampler, 0.0f, /*allowMorph=*/false);
         // Sampler re-prepare (config change, not a new inference) → keep held
         // granular voices on their current buffer (no live morph).
         voiceManager.distributeFreezeBuffer(masterFreeze, 0.0f, false);
@@ -2685,10 +2685,14 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
         // Re-prepare runs on samplerReprepareThread; the audio thread keeps
         // using the last published snapshot and only distributes it. This is the
-        // ONE pass where held sampler voices adopt the new snapshot — on the
-        // audio thread, so the swap never races the lock-free reader.
+        // ONE pass where held sampler voices crossfade onto the new snapshot —
+        // on the audio thread, so the swap never races the lock-free reader. The
+        // crossfade runs over the Drift Crossfade time (Regen XFade); the
+        // generation guard makes this a no-op once a held voice is current.
         if (masterSampler.hasAudio())
-            voiceManager.distributeSamplerBuffer(masterSampler, /*adoptActiveVoices=*/true);
+            voiceManager.distributeSamplerBuffer(masterSampler,
+                                                 paramCache.driftCrossfade->load(),
+                                                 /*allowMorph=*/true);
         if (masterFreeze.hasAudio())
             // Audio-thread per-block redistribution → allowMorph MUST be false
             // (morphToBufferFrom may free a retired snapshot off-thread). The
@@ -4057,9 +4061,9 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
         masterOsc.setMorphTimeMs(paramCache.driftCrossfade->load());
 
         // A HELD note plays the freshly generated sample: held sampler voices
-        // live-follow the new snapshot on the next audio-thread distribute pass
-        // (false here — off-thread adoption would race the lock-free reader).
-        voiceManager.distributeSamplerBuffer(masterSampler, /*adoptActiveVoices=*/false);
+        // crossfade onto the new snapshot on the next audio-thread distribute pass
+        // (false here — off-thread morphing would race the lock-free reader).
+        voiceManager.distributeSamplerBuffer(masterSampler, 0.0f, /*allowMorph=*/false);
         voiceManager.distributeWavetableFrames(masterOsc);
         // New inference → held granular voices crossfade-adopt it live (near
         // real-time), mirroring distributeWavetableFrames above. Off the audio
@@ -4134,9 +4138,9 @@ void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& proce
         masterSampler.applyPreparedBufferLoad(std::move(preparedSamplerLoad), samplerConfig);
         if (preparedWaveformSnapshot.getNumSamples() > 0)
             waveformSnapshot = std::move(preparedWaveformSnapshot);
-        // Held sampler notes live-follow the reprocessed sample on the next
-        // audio-thread distribute pass.
-        voiceManager.distributeSamplerBuffer(masterSampler, /*adoptActiveVoices=*/false);
+        // Held sampler notes crossfade onto the reprocessed sample on the next
+        // audio-thread distribute pass (off-thread → allowMorph=false).
+        voiceManager.distributeSamplerBuffer(masterSampler, 0.0f, /*allowMorph=*/false);
         if (masterOsc.hasFrames())
         {
             syncWavetableTraversal(generatedSampleRate, waveformSnapshot.getNumSamples());

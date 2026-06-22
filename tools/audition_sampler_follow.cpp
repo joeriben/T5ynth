@@ -1,12 +1,25 @@
-// Offline audition for held-note sample-follow (adoptSharedBuffer + declicker).
+// Offline audition for held-note Regen XFade (morphToBufferFrom crossfade).
 //
 // Reproduces the A/B-drift regenerate seam: a held sampler voice shares buffer A,
-// then the master publishes a very different buffer B and the voice adopts it
-// live (adoptSharedBuffer). We render straight through the seam and measure the
-// sample-to-sample discontinuity vs. the signal's natural per-sample delta, for
-// both render paths (unity → bypass/processSample, pitched → Signalsmith stretch).
+// then the master publishes a very different buffer B and the voice equal-power
+// crossfades A->B over the Drift Crossfade time (morphToBufferFrom). We render
+// straight through the crossfade and measure the sample-to-sample discontinuity
+// vs. the signal's natural per-sample delta, AND confirm the blend actually
+// transitions, for both render paths (unity → bypass/processSample, pitched →
+// Signalsmith stretch).
 //
-// Build: see tools/build_sampler_follow.sh (links the plugin's static lib).
+// Build: compile against the plugin's static lib + JUCE flags, e.g.
+//   FLAGS=build_clean/CMakeFiles/T5ynth.dir/flags.make
+//   { grep -m1 CXX_DEFINES "$FLAGS"; grep -m1 CXX_INCLUDES "$FLAGS"; } \
+//     | sed 's/^CXX_[A-Z]* = //' > /tmp/h.rsp
+//   echo -I$PWD/build_clean/_deps/signalsmith_stretch-src >> /tmp/h.rsp
+//   clang++ -std=c++17 -O2 @/tmp/h.rsp tools/audition_sampler_follow.cpp \
+//     build_clean/T5ynth_artefacts/Release/libT5ynth_SharedCode.a \
+//     -framework Accelerate -framework AudioToolbox -framework Cocoa -framework CoreAudio \
+//     -framework CoreAudioKit -framework CoreMIDI -framework DiscRecording -framework Foundation \
+//     -framework IOKit -framework QuartzCore -framework Security -framework WebKit \
+//     -weak_framework Metal -weak_framework MetalKit -o /tmp/sampler_follow
+// Exits non-zero if any case is not a click-free, actually-transitioning crossfade.
 #include "JuceHeader.h"
 #include "dsp/SamplePlayer.h"
 
@@ -43,14 +56,12 @@ static juce::AudioBuffer<float> makeTone(int sr, double seconds, double freq, fl
     return b;
 }
 
-struct SeamReport { float seamDelta; float naturalMaxDelta; int seamIndex; };
-
-static SeamReport runCase(const std::string& label, double ratio,
-                          const std::string& wavOut, int sr)
+static bool runCase(const std::string& label, double ratio, float morphMs,
+                    const std::string& wavOut, int sr)
 {
     const int block = 512;
     const int preBlocks = 40;    // ~0.43 s held on buffer A
-    const int postBlocks = 40;   // ~0.43 s on buffer B after the live adopt
+    const int postBlocks = 80;   // ~0.85 s on buffer B after the live crossfade
 
     auto bufA = makeTone(sr, 2.0, 220.0, 0.50f, 0.0);
     auto bufB = makeTone(sr, 2.0, 660.0, 0.85f, M_PI * 0.5); // very different content
@@ -77,36 +88,55 @@ static SeamReport runCase(const std::string& label, double ratio,
         out.insert(out.end(), blockBuf.begin(), blockBuf.end());
     }
 
-    const int seamIndex = static_cast<int>(out.size()); // first sample off buffer B
+    const int seamIndex = static_cast<int>(out.size()); // first crossfade sample
 
-    // The A/B-drift regenerate handoff: master republishes, held voice adopts live.
+    // The A/B-drift regenerate handoff: master republishes, held voice crossfades
+    // from A to B over morphMs (the Regen XFade). morphToBufferFrom runs on the
+    // audio thread, exactly as VoiceManager::distributeSamplerBuffer drives it.
     master.loadBuffer(bufB, sr);
-    voice.adoptSharedBuffer(master);
+    voice.morphToBufferFrom(master, morphMs);
 
     for (int b = 0; b < postBlocks; ++b) {
         voice.renderPitchedBlock(blockBuf.data(), block);
         out.insert(out.end(), blockBuf.begin(), blockBuf.end());
     }
 
-    // Seam discontinuity vs. the natural per-sample delta away from the seam.
+    const int morphSamples = (int) std::lround((double) morphMs * 0.001 * sr);
+    // Crossfade window (seam → end of the equal-power ramp, + a small guard). The
+    // stretch path delays the blend by the STFT latency, so cover generously.
+    const int winEnd = seamIndex + morphSamples + 4096;
+
+    // Continuity at the seam itself: alpha starts at 0 (all old buffer), so the
+    // first crossfade sample continues A — there must be no step here.
     float seamDelta = std::abs(out[seamIndex] - out[seamIndex - 1]);
+
+    // Max per-sample delta THROUGH the whole crossfade window — the click test.
+    float windowMax = 0.0f;
+    for (int i = seamIndex - 1; i < winEnd && i < (int) out.size() - 1; ++i)
+        windowMax = std::max(windowMax, std::abs(out[i + 1] - out[i]));
+
+    // Natural per-sample delta in steady state (pure B), the reference ceiling.
     float naturalMax = 0.0f;
-    for (int i = seamIndex + 400; i < static_cast<int>(out.size()) - 1; ++i)
+    for (int i = winEnd; i < (int) out.size() - 1; ++i)
         naturalMax = std::max(naturalMax, std::abs(out[i + 1] - out[i]));
-    // Max per-sample delta THROUGH the seam + declicker decay window (~3 ms).
-    float decayMax = 0.0f;
-    for (int i = seamIndex - 1; i < seamIndex + 300; ++i)
-        decayMax = std::max(decayMax, std::abs(out[i + 1] - out[i]));
-    // What the step WOULD have been with a naive hard swap (no declick).
-    float hardStep = std::abs(out[seamIndex] /*==prevOut_*/ - 0.0f); // ref only
+
+    // The crossfade must actually transition: pre-seam is A (220 Hz/0.50),
+    // post-window is B (660 Hz/0.85). Confirm RMS moved toward B's level.
+    auto rms = [&](int a, int b){ double s = 0; int n = 0;
+        for (int i = a; i < b && i < (int) out.size(); ++i) { s += out[i]*out[i]; ++n; }
+        return n ? std::sqrt(s / n) : 0.0; };
+    const double rmsA = rms(seamIndex - 4000, seamIndex);
+    const double rmsB = rms(winEnd, winEnd + 4000);
 
     writeWav(wavOut, out, sr);
 
-    printf("  [%-22s] seamDelta=%.5f  decayWindowMax=%.5f  naturalMax=%.5f  ratio=%.4f -> %s\n",
-           label.c_str(), seamDelta, decayMax, naturalMax, ratio,
-           (decayMax <= naturalMax * 1.5f + 1.0e-4f) ? "CLICK-FREE" : "*** STEP ***");
-    (void) hardStep;
-    return { seamDelta, naturalMax, seamIndex };
+    const bool clickFree = windowMax <= naturalMax * 1.5f + 1.0e-4f;
+    const bool transitioned = rmsB > rmsA * 1.2;   // 0.85 vs 0.50 → clearly higher
+    const bool pass = clickFree && transitioned;
+    printf("  [%-22s] seamDelta=%.5f  windowMax=%.5f  naturalMax=%.5f  rmsA=%.3f rmsB=%.3f  morph=%.0fms -> %s\n",
+           label.c_str(), seamDelta, windowMax, naturalMax, rmsA, rmsB, morphMs,
+           pass ? "CLICK-FREE XFADE" : (clickFree ? "*** NO XFADE ***" : "*** STEP ***"));
+    return pass;
 }
 
 int main()
@@ -114,9 +144,11 @@ int main()
     const int sr = 48000;
     juce::ScopedJuceInitialiser_GUI juceInit; // safe init for any JUCE statics
 
-    printf("Held-note sample-follow audition (A=220Hz/0.50, B=660Hz/0.85):\n");
-    runCase("unity (bypass path)",   1.0,                                   "/tmp/sampler_follow_unity.wav",   sr);
-    runCase("pitched +7 (stretch)",  std::pow(2.0, 7.0 / 12.0),             "/tmp/sampler_follow_pitched.wav", sr);
+    printf("Held-note Regen-XFade audition (A=220Hz/0.50 -> B=660Hz/0.85, default 200 ms):\n");
+    bool ok = true;
+    ok &= runCase("unity (bypass path)",  1.0,                       200.0f, "/tmp/sampler_follow_unity.wav",   sr);
+    ok &= runCase("pitched +7 (stretch)", std::pow(2.0, 7.0 / 12.0), 200.0f, "/tmp/sampler_follow_pitched.wav", sr);
     printf("WAVs: /tmp/sampler_follow_unity.wav  /tmp/sampler_follow_pitched.wav\n");
-    return 0;
+    printf("%s\n", ok ? "ALL PASS" : "*** FAIL ***");
+    return ok ? 0 : 1;
 }

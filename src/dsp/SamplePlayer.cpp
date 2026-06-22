@@ -72,8 +72,6 @@ void SamplePlayer::prepare(double sampleRate, int samplesPerBlock)
     playbackSampleRate = sampleRate;
     maxBlockSize = samplesPerBlock;
     rawReadBuf.resize(static_cast<size_t>(samplesPerBlock));
-    // ~3 ms one-pole decay for the buffer-adoption declicker.
-    declickCoeff_ = static_cast<float>(std::exp(-1.0 / (0.003 * std::max(1.0, sampleRate))));
     prepareStretcher();
 }
 
@@ -81,15 +79,22 @@ void SamplePlayer::reset()
 {
     originalBuffer.setSize(0, 0);
     playBuffer.setSize(0, 0);
+    // playbackSnapshot_/retiredSnapshot_ are republished/parked atomically by the
+    // sampler-reprepare worker and read lock-free by audio-thread voices. reset()
+    // also rewrites the non-atomic originalBuffer/playBuffer/audioLoaded that the
+    // worker mutates under getCallbackLock — so reset() must run under that same
+    // lock (its only caller, T5ynthProcessor::releaseResources, holds it). With the
+    // worker excluded, these plain clears are safe and the audio thread is stopped.
     playbackSnapshot_.reset();
     retiredSnapshot_.reset();
+    morphFromSnapshot_.reset();
     audioLoaded = false;
     playing = false;
     readPosition = 0.0;
     sourceGain_ = 1.0f;
-    declickOffset_ = 0.0f;
-    prevOut_ = 0.0f;
-    pendingDeclick_ = false;
+    morphActive_ = false;
+    morphAlpha_ = 1.0f;
+    morphIncrement_ = 0.0f;
     sharedMode = false;
     stretcher.reset();
 }
@@ -174,6 +179,10 @@ void SamplePlayer::shareBufferFrom(const SamplePlayer& master)
     startPosOffset_ = master.startPosOffset_;
     sourceGain_ = master.sourceGain_;
     audioLoaded = master.audioLoaded;
+    // A plain (non-crossfade) buffer sync — cancel any in-flight crossfade so the
+    // freshly shared buffer plays directly. morphFromSnapshot_ is retained (freed
+    // off-thread at the next morph/reset), never released on the audio thread.
+    morphActive_ = false;
     // Only reset read position on first share, not on subsequent syncs
     if (!wasShared)
         readPosition = static_cast<double>(coldStart);
@@ -186,32 +195,45 @@ void SamplePlayer::shareBufferFrom(const SamplePlayer& master)
                     + " state={" + debugStateString() + "}");
 }
 
-void SamplePlayer::adoptSharedBuffer(const SamplePlayer& master)
+void SamplePlayer::morphToBufferFrom(const SamplePlayer& master, float morphMs)
 {
-    // Live-follow swap for a playing shared voice. Runs on the AUDIO THREAD —
-    // the thread that reads this voice's OWN playbackSnapshot_, so the voice-side
-    // pointer is never written from two threads. The MASTER's snapshot is
-    // republished off-thread, so read it atomically (acquire); the retired slot
-    // is handed to the off-thread drain atomically. This mirrors the snapshot
-    // discipline FreezeTextureEngine uses (std::atomic_load/store_explicit).
+    // Live-follow crossfade for a playing shared voice. Runs on the AUDIO THREAD —
+    // the thread that reads this voice's OWN playbackSnapshot_/morphFromSnapshot_,
+    // so the voice-side pointers are never written from two threads (plain access).
+    // The MASTER's snapshot is republished off-thread, so read it atomically
+    // (acquire); the displaced snapshot is handed to the off-thread drain
+    // atomically. Snapshot discipline mirrors FreezeTextureEngine.
     auto masterSnap = std::atomic_load_explicit(&master.playbackSnapshot_,
                                                 std::memory_order_acquire);
-    if (masterSnap == playbackSnapshot_)
-        return;                              // already current — nothing to do
+    if (masterSnap == nullptr || masterSnap == playbackSnapshot_)
+        return;                              // no master audio, or already current —
+                                             // pointer identity is the generation guard
+                                             // (never restarts an in-flight crossfade)
 
     if (std::atomic_load_explicit(&retiredSnapshot_, std::memory_order_acquire) != nullptr)
         return;                              // reclaim slot still full — defer one
-                                             // block (current snapshot stays valid)
+                                             // block (current crossfade stays valid)
 
-    // Hold a reference to the outgoing snapshot, swap the new one into the
-    // voice-side pointer (audio thread only), then park the old reference for
-    // the off-thread drain. The slot was just observed empty and only the audio
-    // thread parks, so the atomic_store never drops a live reference here — the
-    // std::vector free always lands in drainRetiredSnapshot() off the audio thread.
-    auto outgoing      = playbackSnapshot_;
-    playbackSnapshot_  = masterSnap;
+    // Set up the crossfade: the buffer we are playing becomes the fade-FROM
+    // (retained in morphFromSnapshot_), the new buffer becomes the fade-TO. The
+    // snapshot displaced from morphFromSnapshot_ (a prior crossfade's fade-from,
+    // or null) is parked for the off-thread drain — its last reference must not
+    // drop on the audio thread. The slot was just observed empty and only the
+    // audio thread parks, so the std::vector free always lands in
+    // drainRetiredSnapshot() off the audio thread.
+    auto outgoing      = morphFromSnapshot_;   // prior fade-from (may be null)
+    morphFromSnapshot_ = playbackSnapshot_;     // current playback → fade-from
+    playbackSnapshot_  = masterSnap;            // adopt the new buffer
     std::atomic_store_explicit(&retiredSnapshot_, outgoing, std::memory_order_release);
-    pendingDeclick_    = playing;            // smooth the content step at the seam
+
+    // Equal-power ramp over morphMs (the global Drift Crossfade). morphMs<=0 →
+    // 1 sample = effectively instant. Only crossfade when there is a fade-from
+    // buffer and the voice is sounding; otherwise this is a plain adopt.
+    const int morphSamples = juce::jmax(1, juce::roundToInt(
+        static_cast<double>(morphMs) * 0.001 * playbackSampleRate));
+    morphAlpha_     = 0.0f;
+    morphIncrement_ = 1.0f / static_cast<float>(morphSamples);
+    morphActive_    = playing && morphFromSnapshot_ != nullptr;
 
     // Follow the new sample's region / loop / SR state.
     bufferOriginalSR    = master.bufferOriginalSR;
@@ -232,8 +254,10 @@ void SamplePlayer::adoptSharedBuffer(const SamplePlayer& master)
     // (playback continuity). sourceGain_ preserved (per-voice noteOn
     // normalization; configureForBlock re-asserts it each block).
 
-    samplerDebugLog("adoptSharedBuffer dst=" + samplerPtrTag(this)
+    samplerDebugLog("morphToBufferFrom dst=" + samplerPtrTag(this)
                     + " src=" + samplerPtrTag(&master)
+                    + " morphMs=" + juce::String(morphMs, 1)
+                    + " active=" + juce::String(morphActive_ ? 1 : 0)
                     + " readPos=" + juce::String(readPosition, 2)
                     + " state={" + debugStateString() + "}");
 }
@@ -295,10 +319,12 @@ void SamplePlayer::retrigger()
 
     readPosition = static_cast<double>(juce::jlimit(0, bufLen - 1, startSample));
     playing = true;
-    // Fresh hard restart — drop any in-flight buffer-adoption declick so it
-    // can't bleed into the new note's first samples.
-    declickOffset_ = 0.0f;
-    pendingDeclick_ = false;
+    // Fresh hard restart — stop any in-flight buffer-adoption crossfade so the
+    // fading-out old buffer can't bleed into the new note's first samples.
+    // morphFromSnapshot_ is retained (audio thread); released off-thread on the
+    // next morphToBufferFrom park / reset.
+    morphActive_ = false;
+    morphAlpha_ = 1.0f;
 
     if (stretcherPrepared)
     {
@@ -500,7 +526,7 @@ void SamplePlayer::applyPreparedPlaybackState(PreparedPlaybackState preparedStat
     snapshot->firstPassBuffer = std::move(preparedState.firstPassBuffer);
     snapshot->bufferOriginalSR = preparedState.bufferOriginalSR;
     // Publish atomically (release): held voices read this with acquire from the
-    // audio thread (adoptSharedBuffer / shareBufferFrom) while this republish
+    // audio thread (morphToBufferFrom / shareBufferFrom) while this republish
     // runs off-thread, and processBlock holds no lock on VST3/AU. Pairs with the
     // atomic_load_explicit reads — no torn pointer, no UAF of the retired master
     // snapshot.
@@ -559,7 +585,27 @@ float SamplePlayer::cubicSample(double pos) const
 
 float SamplePlayer::playbackSample(double pos, bool useFirstPassBuffer) const
 {
-    return cubicSampleFrom(useFirstPassBuffer ? currentFirstPassBuffer() : currentPlaybackBuffer(), pos);
+    const float newS = cubicSampleFrom(
+        useFirstPassBuffer ? currentFirstPassBuffer() : currentPlaybackBuffer(), pos);
+
+    // Held-note Drift-Crossfade: equal-power blend the outgoing buffer in while
+    // the crossfade ramps. All morph state is audio-thread-owned (morphToBufferFrom
+    // runs on the audio thread), so these are plain reads. Both buffers are read at
+    // the same read position; cubicSampleFrom bounds-clamps each independently, so a
+    // length/region mismatch is at worst a brief, fading-out artefact, never an OOB.
+    if (! morphActive_ || morphFromSnapshot_ == nullptr)
+        return newS;
+
+    const auto& oldBuf =
+        (useFirstPassBuffer && morphFromSnapshot_->firstPassBuffer.getNumSamples() > 0)
+            ? morphFromSnapshot_->firstPassBuffer
+            : morphFromSnapshot_->playBuffer;
+    const float oldS = cubicSampleFrom(oldBuf, pos);
+
+    const float g       = juce::jlimit(0.0f, 1.0f, morphAlpha_);
+    const float newGain = std::sin(g * juce::MathConstants<float>::halfPi);
+    const float oldGain = std::cos(g * juce::MathConstants<float>::halfPi);
+    return newS * newGain + oldS * oldGain;
 }
 
 float SamplePlayer::cubicSampleFrom(const juce::AudioBuffer<float>& buf, double pos) const
@@ -666,6 +712,22 @@ bool SamplePlayer::advancePosition(double speedMagnitude)
         }
     }
 
+    // Advance the held-note Drift-Crossfade ramp one source-sample step. Called
+    // once per emitted sample in the bypass path and once per consumed input
+    // sample (1:1 with output per block) in the stretch path, so the crossfade
+    // lasts morphMs of output either way. At alpha=1 the old buffer is fully gone.
+    if (morphActive_)
+    {
+        morphAlpha_ += morphIncrement_;
+        if (morphAlpha_ >= 1.0f)
+        {
+            morphAlpha_ = 1.0f;
+            morphActive_ = false;
+            // morphFromSnapshot_ retained (audio thread); released off-thread on the
+            // next morphToBufferFrom park / reset — never freed here.
+        }
+    }
+
     return true;
 }
 
@@ -740,9 +802,6 @@ void SamplePlayer::renderPitchedBlock(float* output, int numSamples)
     if (!audioLoaded || !playing)
     {
         std::memset(output, 0, sizeof(float) * static_cast<size_t>(numSamples));
-        declickOffset_ = 0.0f;
-        pendingDeclick_ = false;
-        prevOut_ = 0.0f;
         return;
     }
 
@@ -764,7 +823,6 @@ void SamplePlayer::renderPitchedBlock(float* output, int numSamples)
                 break;
             }
         }
-        applyDeclick(output, numSamples);
         return;
     }
 
@@ -800,43 +858,11 @@ void SamplePlayer::renderPitchedBlock(float* output, int numSamples)
     // Read raw samples at original speed (SR-corrected only)
     readRawSamples(rawReadBuf.data(), numSamples);
 
-    // Pitch-shift through Signalsmith Stretch (mono: 1 channel)
+    // Pitch-shift through Signalsmith Stretch (mono: 1 channel). When a held-note
+    // crossfade is in flight, readRawSamples already blended the fade-from buffer
+    // into rawReadBuf, so the stretcher pitch-shifts the crossfaded source.
     float* inPtr = rawReadBuf.data();
     stretcher.process(&inPtr, numSamples, &output, numSamples);
-
-    applyDeclick(output, numSamples);
-}
-
-void SamplePlayer::applyDeclick(float* output, int numSamples)
-{
-    if (numSamples <= 0)
-        return;
-
-    // A fresh buffer adoption arms the seam: emit prevOut_ exactly at the first
-    // post-swap sample (output[0] + offset == prevOut_) and decay the corrective
-    // offset to zero over ~3 ms — continuous output regardless of the content
-    // step or which render path (stretch / bypass) produced it.
-    if (pendingDeclick_)
-    {
-        declickOffset_ = prevOut_ - output[0];
-        pendingDeclick_ = false;
-    }
-
-    if (declickOffset_ != 0.0f)
-    {
-        for (int i = 0; i < numSamples; ++i)
-        {
-            output[i] += declickOffset_;
-            declickOffset_ *= declickCoeff_;
-            if (std::abs(declickOffset_) < 1.0e-6f)
-            {
-                declickOffset_ = 0.0f;
-                break;
-            }
-        }
-    }
-
-    prevOut_ = output[numSamples - 1];
 }
 
 int SamplePlayer::estimateReferenceLengthSamples() const
