@@ -661,16 +661,41 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     genRotationRow->getSlider().onValueChange = [this] { genRotationRow->updateValue(); };
     genRotationRow->updateValue();
 
-    // Range — inline slider on the genRange Choice param (0..3 -> display 1..4
-    // octaves; the DSP adds 1, see PluginProcessor). A SliderAttachment maps the
-    // choice's four discrete values onto the slider.
-    genRangeRow = std::make_unique<SliderRow>("Range",
-        [](double v) { return juce::String(juce::roundToInt(v) + 1); }, kSeqFill);
-    genRangeRow->setInlineLabel(true);
-    addAndMakeVisible(*genRangeRow);
-    genRangeA = std::make_unique<SA>(apvts, PID::genRange, genRangeRow->getSlider());
-    genRangeRow->getSlider().onValueChange = [this] { genRangeRow->updateValue(); };
-    genRangeRow->updateValue();
+    // Range — switchbox [1][2][3][4] on the genRange Choice param. Range sets the
+    // octave span of the whole generative pitch field (shared by ALL voices, not
+    // V1 alone — GenerativeSequencer::setRange marks every strand dirty). The four
+    // discrete values wasted space as a slider, so it is a compact switchbox; a
+    // hidden ComboBox carries the APVTS attachment (mirrors the octave switchbox).
+    {
+        juce::StringArray rangeItems;
+        for (const auto& e : GenRange::kEntries) rangeItems.add(e.label);
+        genRangeHidden.addItemList(rangeItems, 1);
+        genRangeHidden.onChange = [this]
+        {
+            const int id = genRangeHidden.getSelectedId();
+            for (int i = 0; i < kNumRangeBtns; ++i)
+                genRangeBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
+        };
+        for (int i = 0; i < kNumRangeBtns; ++i)
+        {
+            genRangeBtns[i].setButtonText(rangeItems[i]);
+            styleSwitchButton(genRangeBtns[i], kSeqFill);   // gen-specific dark green
+            genRangeBtns[i].setClickingTogglesState(true);
+            genRangeBtns[i].setRadioGroupId(2011);
+            genRangeBtns[i].onClick = [this, i] { genRangeHidden.setSelectedId(i + 1); };
+            addAndMakeVisible(genRangeBtns[i]);
+        }
+        genRangeA = std::make_unique<CA>(apvts, PID::genRange, genRangeHidden);
+
+        // "Rng" tag in front of the switchbox (it has no value text of its own).
+        // White to match the inline-bar labels it sits beside (Cyc).
+        genRangeLabel.setText("Rng", juce::dontSendNotification);
+        genRangeLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+        genRangeLabel.setJustificationType(juce::Justification::centredLeft);
+        genRangeLabel.setFont(juce::FontOptions(11.0f));
+        genRangeLabel.setInterceptsMouseClicks(false, false);
+        addAndMakeVisible(genRangeLabel);
+    }
 
     genMutationRow = std::make_unique<SliderRow>("Evolve",
         [](double v) { return juce::String(juce::roundToInt(v * 100)) + "%"; }, kSeqFill);
@@ -1180,6 +1205,7 @@ void SequencerPanel::paint(juce::Graphics& g)
     paintSwitchBoxBorder(g, modeSwitchBounds);
     paintSwitchBoxBorder(g, divisionSwitchBounds);
     paintSwitchBoxBorder(g, octShiftSwitchBounds);
+    paintSwitchBoxBorder(g, genRangeSwitchBounds);
     if (arpModeBtns[0].isVisible())
     {
         paintSwitchBoxBorder(g, arpModeSwitchBounds);
@@ -1425,7 +1451,8 @@ void SequencerPanel::resized()
     genPulsesRow->setVisible(genModeActive);
     genRotationRow->setVisible(genModeActive);
     genMutationRow->setVisible(genModeActive);
-    genRangeRow->setVisible(genModeActive);
+    for (auto& b : genRangeBtns) b.setVisible(genModeActive);
+    genRangeLabel.setVisible(genModeActive);
     genCycRow->setVisible(genModeActive);
     genScaleRootBox.setVisible(genModeActive);
     genScaleTypeBox.setVisible(genModeActive);
@@ -1464,6 +1491,7 @@ void SequencerPanel::resized()
     for (auto& r : voiceModuleBounds) r = {};
     for (int i = 0; i < kNumExtraStrands; ++i)
         strandOctSwitchBounds[i] = {};
+    genRangeSwitchBounds = {};
 
     if (genModeActive)
     {
@@ -1527,9 +1555,27 @@ void SequencerPanel::resized()
             const int g = 3;
             genScaleRootBox.setBounds(row.removeFromLeft(juce::jmin(44, row.getWidth())));   row.removeFromLeft(g);
             genScaleTypeBox.setBounds(row.removeFromLeft(juce::jmin(88, row.getWidth())));   row.removeFromLeft(g);
-            genFieldModeBox.setBounds(row.removeFromRight(juce::jmin(72, row.getWidth())));   row.removeFromRight(g);
-            const int rangeW = juce::jmax(1, row.getWidth() / 2);
-            genRangeRow->setBounds(row.removeFromLeft(rangeW));   row.removeFromLeft(g);
+            // "Rng" label + [1][2][3][4] switchbox — compact fixed width (the four
+            // discrete values needed only a fraction of the old slider). Then Drift,
+            // then Cyc: pick the field-evolution MODE before its RATE. The label's
+            // width is taken from Cyc (the remainder).
+            genRangeLabel.setBounds(row.removeFromLeft(juce::jmin(26, row.getWidth())));
+            {
+                auto rangeArea = row.removeFromLeft(juce::jmin(56, row.getWidth()));   row.removeFromLeft(g);
+                const int rbW = rangeArea.getWidth() / kNumRangeBtns;
+                for (int i = 0; i < kNumRangeBtns; ++i)
+                {
+                    int edges = 0;
+                    if (i > 0)                 edges |= juce::Button::ConnectedOnLeft;
+                    if (i < kNumRangeBtns - 1) edges |= juce::Button::ConnectedOnRight;
+                    genRangeBtns[i].setConnectedEdges(edges);
+                    genRangeBtns[i].setBounds(rangeArea.removeFromLeft(
+                        i == kNumRangeBtns - 1 ? rangeArea.getWidth() : rbW));
+                }
+                genRangeSwitchBounds = genRangeBtns[0].getBounds()
+                    .getUnion(genRangeBtns[kNumRangeBtns - 1].getBounds());
+            }
+            genFieldModeBox.setBounds(row.removeFromLeft(juce::jmin(72, row.getWidth())));   row.removeFromLeft(g);
             genCycRow->setBounds(row);
         }
 

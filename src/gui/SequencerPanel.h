@@ -128,12 +128,18 @@ private:
 
     // Generative sequencer controls
     juce::TextButton genTransportBtn { "GEN" };  // mode toggle, not transport
-    // Euclidean + harmony sliders, all inline-label bars. Range and Cyc are
-    // sliders now (were a switchbox / dropdown); they bind to the genRange
-    // Choice and genFieldRate Int params via SliderAttachments.
+    // Euclidean + harmony controls as inline-label bars. Cyc binds genFieldRate
+    // (Int) via a SliderAttachment; Range is a separate switchbox (see below).
     std::unique_ptr<SliderRow> genStepsRow, genPulsesRow, genRotationRow,
-                               genMutationRow, genRangeRow, genCycRow;
+                               genMutationRow, genCycRow;
     juce::ComboBox genScaleRootBox, genScaleTypeBox;
+    // Range switchbox [1][2][3][4] on the genRange Choice — the octave span of the
+    // whole pitch field (shared by ALL voices). Hidden ComboBox = APVTS bridge.
+    static constexpr int kNumRangeBtns = 4;
+    juce::TextButton genRangeBtns[kNumRangeBtns];
+    juce::ComboBox   genRangeHidden;
+    juce::Rectangle<int> genRangeSwitchBounds;       // unified frame (gen mode only)
+    juce::Label      genRangeLabel;                  // "Rng" tag before the switchbox
     // Harmony box (framed card in the gen-mode left column) + the thin divider
     // above the voices. Recorded in resized(), drawn in paint() (gen mode only).
     juce::Rectangle<int> harmonyBoxBounds;
@@ -190,9 +196,9 @@ private:
     using CA = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
     using BA = juce::AudioProcessorValueTreeState::ButtonAttachment;
     std::unique_ptr<SA> bpmA, gateA, shuffleA, genStepsA, genPulsesA, genRotationA,
-                        genMutationA, genRangeA, genFieldRateA;
+                        genMutationA, genFieldRateA;
     std::unique_ptr<CA> divA, presetA, arpModeA, arpRateA, arpOctA, octShiftA,
-                        genScaleRootA, genScaleTypeA;
+                        genScaleRootA, genScaleTypeA, genRangeA;
     std::unique_ptr<BA> genRunningA;
     std::unique_ptr<BA> genFixStepsA, genFixPulsesA, genFixRotationA, genFixMutationA;
 
