@@ -624,6 +624,8 @@ void T5ynthGenerativeSequencer::mutateNotes(Strand& s, float rate, int totalDegr
     int numMutations = juce::jmax(1, juce::roundToInt(
         rate * static_cast<float>(pulseCount) * 0.6f));
 
+    int lastIdx = -1, lastOld = 0, lastNew = 0, lastDir = 0, lastJump = 0;
+
     if (pulseCount > 0)
     {
         std::uniform_int_distribution<int> pickDist(0, pulseCount - 1);
@@ -635,18 +637,50 @@ void T5ynthGenerativeSequencer::mutateNotes(Strand& s, float rate, int totalDegr
             int idx = pulseIndices[pickDist(rng)];
             int dir = dirDist(rng) == 0 ? -1 : 1;
             int jump = jumpDist(rng);
+            int oldNote = s.notePattern[static_cast<size_t>(idx)];
             int newDeg = s.degreePattern[static_cast<size_t>(idx)] + dir * jump;
             newDeg = ((newDeg % totalDegrees) + totalDegrees) % totalDegrees;
             s.degreePattern[static_cast<size_t>(idx)] = newDeg;
             s.notePattern[static_cast<size_t>(idx)] =
                 ScaleQuantizer::degreeToMidi(newDeg, scaleRoot, scale, baseNote);
+            lastIdx = idx; lastOld = oldNote; lastNew = s.notePattern[static_cast<size_t>(idx)];
+            lastDir = (dir > 0 ? 1 : 0); lastJump = jump;
+        }
+
+        // A NoteJump is the lowest-priority monitor event: note mutation fires
+        // almost every cycle, so it is recorded ONLY when no structural drift
+        // (rotation/pulse/steps) already claimed evtOp this cycle — otherwise it
+        // would mask the rarer, more salient structural changes.
+        if (s.evtOp == (int) MutEvent::None && lastIdx >= 0)
+        {
+            s.evtOp = (int) MutEvent::NoteJump; s.evtStep = lastIdx;
+            s.evtOld = lastOld; s.evtNew = lastNew; s.evtA = lastDir; s.evtB = lastJump;
         }
     }
+}
+
+static_assert (std::atomic<std::uint64_t>::is_always_lock_free,
+               "mutationEventForGui must be lock-free for RT use");
+
+std::uint64_t T5ynthGenerativeSequencer::packMutEvent (unsigned gen, int op, int step,
+                                                       int oldN, int newN, int a, int b) noexcept
+{
+    auto u6 = [](int v){ return (std::uint64_t) juce::jlimit(0, 63,  v); };
+    auto u7 = [](int v){ return (std::uint64_t) juce::jlimit(0, 127, v); };
+    std::uint64_t w = (std::uint64_t) (op & 0xF);
+    w |= u6 (step) << 4;
+    w |= u7 (oldN) << 10;
+    w |= u7 (newN) << 17;
+    w |= u6 (a)    << 24;
+    w |= u6 (b)    << 30;
+    w |= ((std::uint64_t) gen & 0xFFFFFFFu) << 36;
+    return w;
 }
 
 void T5ynthGenerativeSequencer::mutatePattern(Strand& s)
 {
     if (s.mutationRate <= 0.0f) return;
+    s.evtOp = (int) MutEvent::None;
 
     auto scale = static_cast<ScaleQuantizer::Scale>(
         juce::jlimit(1, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
@@ -661,6 +695,17 @@ void T5ynthGenerativeSequencer::mutatePattern(Strand& s)
     mutateNotes(s, s.mutationRate, totalDegrees, static_cast<int>(scale), baseNote);
 
     publishStrandToGui(s);
+
+    // Publish ONE mutation event per cycle for the GUI monitor (strand 0 only).
+    // Among structural drifts the call order in applyEuclideanDrift is ascending
+    // priority — rotation, then pulse, then steps — so the last writer (the most
+    // structural change of the cycle) wins; NoteJump is the guarded fallback
+    // above. If that ordering changes, this priority changes with it.
+    if (&s == &strands[0] && s.evtOp != (int) MutEvent::None)
+        mutationEventForGui.store (
+            packMutEvent (++mutationEventGen_, s.evtOp, s.evtStep,
+                          s.evtOld, s.evtNew, s.evtA, s.evtB),
+            std::memory_order_release);
 }
 
 // ─── Euclidean drift ────────────────────────────────────────────────────────
@@ -688,6 +733,8 @@ void T5ynthGenerativeSequencer::applyEuclideanDrift(Strand& s)
             shiftLeft(s.notePattern);
             shiftLeft(s.accentPattern);
             shiftLeft(s.degreePattern);
+            s.evtOp = (int) MutEvent::Rotate; s.evtStep = 0;
+            s.evtOld = 0; s.evtNew = 0; s.evtA = rotPulses; s.evtB = driftIdx;
         }
     }
 
@@ -769,6 +816,10 @@ void T5ynthGenerativeSequencer::applyStepsDrift(Strand& s)
         s.degreePattern[static_cast<size_t>(i)] = 0;
     }
 
+    s.evtOp   = (int) (delta > 0 ? MutEvent::StepsUp : MutEvent::StepsDown);
+    s.evtStep = 0; s.evtOld = 0; s.evtNew = 0;
+    s.evtA    = s.numSteps;   // old
+    s.evtB    = newSteps;     // new
     s.numSteps  = newSteps;
     enforcePulseInvariant(s);
     s.stepsDriftAccum += (delta > 0) ? 1 : -1;
@@ -829,6 +880,9 @@ void T5ynthGenerativeSequencer::addPulse(Strand& s)
         ScaleQuantizer::degreeToMidi(newDeg, scaleRoot, scale, baseNote);
     s.accentPattern[static_cast<size_t>(insertIdx)] = false;
     s.numPulses++;
+    s.evtOp = (int) MutEvent::PulseAdd; s.evtStep = insertIdx;
+    s.evtOld = 0; s.evtNew = s.notePattern[static_cast<size_t>(insertIdx)];
+    s.evtA = bestStart; s.evtB = bestGap;
 }
 
 void T5ynthGenerativeSequencer::removePulse(Strand& s)
@@ -856,11 +910,14 @@ void T5ynthGenerativeSequencer::removePulse(Strand& s)
     }
     if (bestIdx < 0) return;
 
+    int removedNote = s.notePattern[static_cast<size_t>(bestIdx)];
     s.eucPattern[static_cast<size_t>(bestIdx)]    = false;
     s.notePattern[static_cast<size_t>(bestIdx)]   = 0;
     s.degreePattern[static_cast<size_t>(bestIdx)] = 0;
     s.accentPattern[static_cast<size_t>(bestIdx)] = false;
     s.numPulses--;
+    s.evtOp = (int) MutEvent::PulseRemove; s.evtStep = bestIdx;
+    s.evtOld = removedNote; s.evtNew = 0; s.evtA = bestGap; s.evtB = 0;
 }
 
 int T5ynthGenerativeSequencer::countPulses(const Strand& s) const

@@ -126,6 +126,25 @@ public:
     std::atomic<int>   effectivePulsesForGui  { 0 };
     std::atomic<float> effectiveMutationForGui{ 0.0f };
 
+    /** Last pattern-mutation event for GUI (tracks strand 0). Packed into one
+        atomic so the read is tear-free; high bits are a generation counter the
+        GUI compares to its last-seen value to detect a new event. */
+    enum class MutEvent : int { None = 0, Rotate = 1, PulseAdd = 2,
+                                PulseRemove = 3, StepsUp = 4, StepsDown = 5, NoteJump = 6 };
+    std::atomic<std::uint64_t> mutationEventForGui { 0 };
+
+    struct MutEventData { unsigned gen; int op; int step; int oldNote; int newNote; int a; int b; };
+    static MutEventData unpackMutEvent (std::uint64_t w) noexcept
+    {
+        return { (unsigned) ((w >> 36) & 0xFFFFFFFu),
+                 (int) ( w        & 0xFu),
+                 (int) ((w >> 4)  & 0x3Fu),
+                 (int) ((w >> 10) & 0x7Fu),
+                 (int) ((w >> 17) & 0x7Fu),
+                 (int) ((w >> 24) & 0x3Fu),
+                 (int) ((w >> 30) & 0x3Fu) };
+    }
+
 private:
     /**
      * Shared pitch material for all strands.
@@ -247,6 +266,9 @@ private:
         bool fixRotation = false;
         bool fixMutation = true;
 
+        // GUI mutation-event capture (audio-thread only; published for strand 0)
+        int evtOp = 0, evtStep = 0, evtOld = 0, evtNew = 0, evtA = 0, evtB = 0;
+
         // Strand identity (activated in Phase 3)
         bool  enabled            = false;   // strand 0 is enabled via ctor
         Role  role               = Role::Line;
@@ -281,12 +303,16 @@ private:
     // Shared RNG (accessed only from the audio thread)
     std::mt19937 rng { static_cast<std::mt19937::result_type>(std::random_device{}()) };
 
+    unsigned mutationEventGen_ = 0;   // increments per published mutation event (audio thread only)
+
     // Internal helpers — all operate on a passed Strand reference.
     double stepDurationSamples() const;
     double shuffledStrandStepDurationSamples(const Strand& s, int stepIdx) const;
     void   rebuildPattern(Strand& s);
     void   mutatePattern(Strand& s);
     void   computeGaps(const Strand& s, int* gaps, int* gapCount) const;
+    static std::uint64_t packMutEvent (unsigned gen, int op, int step,
+                                        int oldN, int newN, int a, int b) noexcept;
     void   publishStrandToGui(const Strand& s);
     void   mutateNotes(Strand& s, float rate, int totalDegrees, int scaleEnum, int baseNote);
     void   applyEuclideanDrift(Strand& s);
