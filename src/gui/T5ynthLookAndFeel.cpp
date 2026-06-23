@@ -309,7 +309,13 @@ void T5ynthLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, b
 
 juce::Font T5ynthLookAndFeel::getComboBoxFont(juce::ComboBox& box)
 {
-    return juce::Font(juce::FontOptions(juce::jmax(kUiControlFontMin, static_cast<float>(box.getHeight()) * 0.58f)));
+    // Mirror getTextButtonFont exactly: same 0.58 ratio, same floor, same 13.5
+    // ceiling. Without the upper bound a ComboBox laid out to fill a growing
+    // container (the GenSeq strand Role/Div× boxes are a third of a module that
+    // scales with the window) balloons its text far past every other control —
+    // the lone unbounded font in the UI.
+    return juce::Font(juce::FontOptions(
+        juce::jlimit(kUiControlFontMin, 13.5f, static_cast<float>(box.getHeight()) * 0.58f)));
 }
 
 void T5ynthLookAndFeel::positionComboBoxText(juce::ComboBox& box, juce::Label& label)
