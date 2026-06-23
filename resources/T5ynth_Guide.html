@@ -1301,6 +1301,29 @@ Press the <strong>GEN</strong> button to switch from the manual step sequencer t
 Each Euclidean parameter (Steps, Pulses, Rotation, Mutation) has a lock toggle. When unlocked, that parameter itself drifts over time — the pattern length, density, rotation, and mutation rate all evolve. Lock what you want stable, unlock what you want to breathe.
 </p>
 
+<h3>Core Monitor</h3>
+
+<p>
+The Strand&nbsp;1 module slot holds the <strong>Core Monitor</strong>, a read-only, phosphor-green readout that names each pattern mutation as the engine applies it. It follows Strand&nbsp;1 and redraws only when a mutation fires &mdash; between events it stays still. Whenever a parameter's Fix toggle is unlocked and that parameter drifts, the Monitor reports what the drift just did.
+</p>
+
+<p>
+Each event is shown on three lines: the <strong>operation</strong> that fired, the <strong>result</strong> (which memory cell received which note, or the old&nbsp;&rarr;&nbsp;new value), and the <strong>rule</strong> that chose it.
+</p>
+
+<table>
+  <tr><th>Operation</th><th>Rule</th><th>What happens</th></tr>
+  <tr><td><strong>ROTATE</strong></td><td><code>gate N/8</code></td><td>The pattern shifts one step. Rotations are Euclidean-distributed across the drift window: N of every 8 cycles carry a shift, and N rises with the Evolve rate.</td></tr>
+  <tr><td><strong>PULSE&nbsp;+</strong></td><td><code>longest gap</code></td><td>A beat is added in the middle of the longest silent gap, its pitch interpolated from the neighbouring beats. The result names the filled cell and its new note.</td></tr>
+  <tr><td><strong>PULSE&nbsp;&minus;</strong></td><td><code>tightest gap</code></td><td>The most crowded beat &mdash; the one with the smallest gap to its neighbours &mdash; is removed. The result names the emptied cell.</td></tr>
+  <tr><td><strong>STEPS</strong></td><td><code>steps drift</code></td><td>The pattern length changes by one. The result shows the old&nbsp;&rarr;&nbsp;new step count.</td></tr>
+  <tr><td><strong>TURING</strong></td><td><code>random pitch</code></td><td>An active beat's pitch jumps to a new scale degree. This is the one mutation chosen at random rather than by rule, so it is drawn in amber while the others are green. The result shows the old&nbsp;&rarr;&nbsp;new note.</td></tr>
+</table>
+
+<p>
+On the left, the <strong>ring</strong> plots the current pattern around a circle: step&nbsp;0 at the top (marked by the triangle), active beats as filled nodes joined by a line, rests as faint dots. After a <strong>PULSE&nbsp;+</strong> the gap it just filled is highlighted. Along the bottom, the <strong>memory bar</strong> lays the steps out left to right; the cell named in the result line (<code>M00</code>, <code>M01</code>, &hellip;) flashes as it is overwritten.
+</p>
+
 <h3>Polyphonic Mode — Strands &amp; Pitch Field</h3>
 
 <p>
