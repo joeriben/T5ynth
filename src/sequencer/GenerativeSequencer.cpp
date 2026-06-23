@@ -1042,6 +1042,11 @@ void T5ynthGenerativeSequencer::publishStrandToGui(const Strand& s)
         notePatternForGui[static_cast<size_t>(i)].store(
             i < s.numSteps ? s.notePattern[static_cast<size_t>(i)] : 0,
             std::memory_order_relaxed);
+
+    std::uint32_t eucMask = 0;
+    for (int i = 0; i < s.numSteps && i < MAX_STEPS; ++i)
+        if (s.eucPattern[static_cast<size_t>(i)]) eucMask |= (1u << i);
+    eucPatternForGui.store(eucMask, std::memory_order_relaxed);
 }
 
 // ─── Note selection ────────────────────────────────────────────────────────

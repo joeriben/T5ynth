@@ -145,6 +145,10 @@ public:
                  (int) ((w >> 30) & 0x3Fu) };
     }
 
+    /** Current euclidean pulse pattern for the GUI ring (strand 0): bit i set
+        = step i is a pulse. Valid for i in [0, numStepsForGui). */
+    std::atomic<std::uint32_t> eucPatternForGui { 0 };
+
 private:
     /**
      * Shared pitch material for all strands.

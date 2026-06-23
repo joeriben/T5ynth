@@ -2,6 +2,7 @@
 #include <JuceHeader.h>
 #include <array>
 #include "GuiHelpers.h"
+#include "GenSeqCRTMonitor.h"
 
 class T5ynthProcessor;
 
@@ -175,7 +176,9 @@ private:
     // Per-voice (V2..V5) module rects, recorded in resized() and drawn as subtle
     // group cards in paint() (gen mode only) — the mod-panel sub-card "Abschattung".
     juce::Rectangle<int> voiceModuleBounds[kNumExtraStrands];
-
+    // GEN-mode "core monitor" occupying the S1 slot — makes the engine's
+    // per-cycle euclidean/Turing decisions legible. Visible only in GEN mode.
+    std::unique_ptr<GenSeqCRTMonitor> genMonitor;
 
     bool genModeActive = false;
 

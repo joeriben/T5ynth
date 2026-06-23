@@ -847,6 +847,10 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         }
     }
 
+    genMonitor = std::make_unique<GenSeqCRTMonitor> (processorRef.getGenerativeSequencer());
+    addAndMakeVisible (*genMonitor);
+    genMonitor->setVisible (false);   // shown by resized() in GEN mode
+
     juce::StringArray scaleRootItems;
     for (const auto& e : ScaleRoot::kEntries) scaleRootItems.add(e.label);
     genScaleRootBox.addItemList(scaleRootItems, 1);
@@ -1101,6 +1105,8 @@ void SequencerPanel::timerCallback()
     if (seqIdle)
         return;
 
+    if (genRunning && genMonitor) genMonitor->poll();
+
     // Step-grid highlight (step mode only). Gen mode has no per-step UI now that
     // the broken visualization is gone, so nothing to track/repaint there.
     if (!genRunning)
@@ -1239,26 +1245,7 @@ void SequencerPanel::paint(juce::Graphics& g)
         g.setColour(kCard.withAlpha(0.42f));   g.fillRect(r);
         g.setColour(kBorder.withAlpha(0.72f)); g.drawRect(r, 1);
     };
-    paintVoiceCard(v1ModuleBounds);
     for (const auto& r : voiceModuleBounds) paintVoiceCard(r);
-
-    // S1 — display-only placeholder content over its card: an "S1" tag and two
-    // muted placeholder bars. Real functions for S1 are TBD; it just holds the slot.
-    if (!v1ModuleBounds.isEmpty())
-    {
-        auto inner = v1ModuleBounds.reduced(4, 3);
-        const int ph = juce::jmax(10, (inner.getHeight() - 2 * 2) / 3);   // placeholder row height
-        g.setColour(kDim);
-        g.setFont(juce::FontOptions(static_cast<float>(ph) * 0.6f));
-        g.drawText("S1", inner.removeFromTop(ph), juce::Justification::centredLeft, false);
-        inner.removeFromTop(2);
-        for (int r = 0; r < 2; ++r)
-        {
-            g.setColour(kSurface.withAlpha(0.5f));
-            g.fillRect(inner.removeFromTop(ph));
-            inner.removeFromTop(2);
-        }
-    }
 }
 
 void SequencerPanel::resized()
@@ -1488,6 +1475,7 @@ void SequencerPanel::resized()
     harmonyBoxBounds = {};
     voicesDividerY = -1;
     v1ModuleBounds = {};
+    if (genMonitor) genMonitor->setVisible (false);
     for (auto& r : voiceModuleBounds) r = {};
     for (int i = 0; i < kNumExtraStrands; ++i)
         strandOctSwitchBounds[i] = {};
@@ -1602,6 +1590,7 @@ void SequencerPanel::resized()
 
             // Slot 0 — V1 dummy (card + "V1" + greyed placeholders, painted later).
             v1ModuleBounds = voicesArea.removeFromLeft(moduleW);
+            if (genMonitor) { genMonitor->setBounds (v1ModuleBounds); genMonitor->setVisible (true); }
             voicesArea.removeFromLeft(moduleGap);
 
             for (int i = 0; i < kNumExtraStrands; ++i)
