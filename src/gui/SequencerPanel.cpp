@@ -474,7 +474,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     // Inline bar mirroring the old 2..32 step-count dropdown: writes seqSteps
     // directly (manual, no attachment) so the grid stays capped at MAX_COLS.
     seqStepsRow = std::make_unique<SliderRow>("Steps",
-        [](double v) { return juce::String(juce::roundToInt(v)); }, kSeqFill);
+        [](double v) { return juce::String(juce::roundToInt(v)); }, kSeqCol);
     seqStepsRow->setInlineLabel(true);
     seqStepsRow->getSlider().setRange(2.0, static_cast<double>(MAX_COLS), 1.0);
     addAndMakeVisible(*seqStepsRow);
@@ -501,7 +501,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     };
     for (int i = 0; i < kNumDivBtns; ++i)
     {
-        styleSwitchButton(divBtns[i], kSeqFill);
+        styleSwitchButton(divBtns[i], kSeqCol);
         setSwitchGlyph(divBtns[i],
                        static_cast<SwitchGlyph>(static_cast<int>(SwitchGlyph::NoteWhole) + i));
         divBtns[i].setTooltip(divisionItems[i]);
@@ -513,7 +513,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     divA = std::make_unique<CA>(apvts, PID::seqDivision, divisionHidden);
 
     // ── BPM ──
-    bpmRow = std::make_unique<SliderRow>("BPM", [](double v) { return juce::String(juce::roundToInt(v)); }, kSeqFill);
+    bpmRow = std::make_unique<SliderRow>("BPM", [](double v) { return juce::String(juce::roundToInt(v)); }, kSeqCol);
     bpmRow->setInlineLabel(true);
     addAndMakeVisible(*bpmRow);
     bpmA = std::make_unique<SA>(apvts, PID::seqBpm, bpmRow->getSlider());
@@ -573,7 +573,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     seqLoadBtn.onClick = [this] { if (onOpenPatternLibrary) onOpenPatternLibrary(false); };
 
     // ── Gate ──
-    gateRow = std::make_unique<SliderRow>("Gate", [](double v) { return juce::String(juce::roundToInt(v*100)) + "%"; }, kSeqFill);
+    gateRow = std::make_unique<SliderRow>("Gate", [](double v) { return juce::String(juce::roundToInt(v*100)) + "%"; }, kSeqCol);
     gateRow->setInlineLabel(true);
     addAndMakeVisible(*gateRow);
     gateA = std::make_unique<SA>(apvts, PID::seqGate, gateRow->getSlider());
@@ -581,7 +581,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     gateRow->updateValue();
 
     // ── Shuffle ──
-    shuffleRow = std::make_unique<SliderRow>("Shuffle", [](double v) { return juce::String(juce::roundToInt(v * 100.0)) + "%"; }, kSeqFill);
+    shuffleRow = std::make_unique<SliderRow>("Shuffle", [](double v) { return juce::String(juce::roundToInt(v * 100.0)) + "%"; }, kSeqCol);
     shuffleRow->setInlineLabel(true);
     addAndMakeVisible(*shuffleRow);
     shuffleA = std::make_unique<SA>(apvts, PID::seqShuffle, shuffleRow->getSlider());
@@ -600,7 +600,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     for (int i = 0; i < kNumOctShiftBtns; ++i)
     {
         octShiftBtns[i].setButtonText(seqOctItems[i]);
-        styleSwitchButton(octShiftBtns[i], kSeqFill);
+        styleSwitchButton(octShiftBtns[i], kSeqCol);
         octShiftBtns[i].setClickingTogglesState(true);
         octShiftBtns[i].setRadioGroupId(2004);
         octShiftBtns[i].onClick = [this, i] { octShiftHidden.setSelectedId(i + 1); };
@@ -624,9 +624,12 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     // Step | Gen mode switchbox (visible) — segments drive the hidden bridge.
     modeStepBtn.setConnectedEdges(juce::Button::ConnectedOnRight);
     modeGenBtn .setConnectedEdges(juce::Button::ConnectedOnLeft);
+    // Step = general bright green; Gen = the gen-specific dark green, so the lit
+    // segment's colour itself signals which mode you are in.
+    styleSwitchButton(modeStepBtn, kSeqCol);
+    styleSwitchButton(modeGenBtn,  kSeqFill);
     for (auto* b : { &modeStepBtn, &modeGenBtn })
     {
-        styleSwitchButton(*b, kSeqFill);
         b->setClickingTogglesState(true);
         b->setRadioGroupId(2010);
         addAndMakeVisible(*b);
@@ -848,7 +851,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     };
     for (int i = 0; i < kNumModeBtns; ++i)
     {
-        styleSwitchButton(arpModeBtns[i], kSeqFill);
+        styleSwitchButton(arpModeBtns[i], kSeqCol);
         setSwitchGlyph(arpModeBtns[i],
                        static_cast<SwitchGlyph>(static_cast<int>(SwitchGlyph::ArpOff) + i));
         arpModeBtns[i].setTooltip(arpModeItems[i]);
@@ -889,7 +892,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     for (int i = 0; i < kNumOctBtns; ++i)
     {
         arpOctBtns[i].setButtonText(juce::String(i + 1));
-        styleSwitchButton(arpOctBtns[i], kSeqFill);
+        styleSwitchButton(arpOctBtns[i], kSeqCol);
         arpOctBtns[i].setClickingTogglesState(true);
         arpOctBtns[i].setRadioGroupId(2002);
         arpOctBtns[i].onClick = [this, i] { arpOctHidden.setSelectedId(i + 1); };
