@@ -835,7 +835,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
             strandOctaveSliders[i].onValueChange();   // initial toggle sync
 
             // Dom: full-module-width inline bar (Poly-AT style), 0..1.
-            strandDomRows[i] = std::make_unique<SliderRow>("Dom",
+            strandDomRows[i] = std::make_unique<SliderRow>("Dominance",
                 [](double v) { return juce::String(v, 2); }, kSeqFill);
             strandDomRows[i]->setInlineLabel(true);
             strandDomRows[i]->getSlider().setTooltip(sName
@@ -1622,7 +1622,9 @@ void SequencerPanel::resized()
                 auto r1 = module.removeFromTop(vRowH);
                 strandEnableBtns[i].setBounds(r1.removeFromLeft(vEnW));
                 r1.removeFromLeft(gap);
-                const int roleW = juce::jmax(0, juce::jmin(moduleW / 2, r1.getWidth()));
+                // Role box trimmed to 75% of its old half-module width so the
+                // tempo-multiplier box beside it fits the full "1/16x" label.
+                const int roleW = juce::jmax(0, juce::jmin(moduleW * 3 / 8, r1.getWidth()));
                 strandRoleBoxes[i].setBounds(r1.removeFromLeft(roleW));
                 r1.removeFromLeft(gap);
                 strandDivBoxes[i].setBounds(r1);
