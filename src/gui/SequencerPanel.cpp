@@ -474,7 +474,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     // Inline bar mirroring the old 2..32 step-count dropdown: writes seqSteps
     // directly (manual, no attachment) so the grid stays capped at MAX_COLS.
     seqStepsRow = std::make_unique<SliderRow>("Steps",
-        [](double v) { return juce::String(juce::roundToInt(v)); }, kSeqCol);
+        [](double v) { return juce::String(juce::roundToInt(v)); }, kSeqFill);
     seqStepsRow->setInlineLabel(true);
     seqStepsRow->getSlider().setRange(2.0, static_cast<double>(MAX_COLS), 1.0);
     addAndMakeVisible(*seqStepsRow);
@@ -501,7 +501,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     };
     for (int i = 0; i < kNumDivBtns; ++i)
     {
-        styleSwitchButton(divBtns[i], kSeqCol);
+        styleSwitchButton(divBtns[i], kSeqFill);
         setSwitchGlyph(divBtns[i],
                        static_cast<SwitchGlyph>(static_cast<int>(SwitchGlyph::NoteWhole) + i));
         divBtns[i].setTooltip(divisionItems[i]);
@@ -513,7 +513,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     divA = std::make_unique<CA>(apvts, PID::seqDivision, divisionHidden);
 
     // ── BPM ──
-    bpmRow = std::make_unique<SliderRow>("BPM", [](double v) { return juce::String(juce::roundToInt(v)); }, kSeqCol);
+    bpmRow = std::make_unique<SliderRow>("BPM", [](double v) { return juce::String(juce::roundToInt(v)); }, kSeqFill);
     bpmRow->setInlineLabel(true);
     addAndMakeVisible(*bpmRow);
     bpmA = std::make_unique<SA>(apvts, PID::seqBpm, bpmRow->getSlider());
@@ -573,7 +573,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     seqLoadBtn.onClick = [this] { if (onOpenPatternLibrary) onOpenPatternLibrary(false); };
 
     // ── Gate ──
-    gateRow = std::make_unique<SliderRow>("Gate", [](double v) { return juce::String(juce::roundToInt(v*100)) + "%"; }, kSeqCol);
+    gateRow = std::make_unique<SliderRow>("Gate", [](double v) { return juce::String(juce::roundToInt(v*100)) + "%"; }, kSeqFill);
     gateRow->setInlineLabel(true);
     addAndMakeVisible(*gateRow);
     gateA = std::make_unique<SA>(apvts, PID::seqGate, gateRow->getSlider());
@@ -581,7 +581,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     gateRow->updateValue();
 
     // ── Shuffle ──
-    shuffleRow = std::make_unique<SliderRow>("Shuffle", [](double v) { return juce::String(juce::roundToInt(v * 100.0)) + "%"; }, kSeqCol);
+    shuffleRow = std::make_unique<SliderRow>("Shuffle", [](double v) { return juce::String(juce::roundToInt(v * 100.0)) + "%"; }, kSeqFill);
     shuffleRow->setInlineLabel(true);
     addAndMakeVisible(*shuffleRow);
     shuffleA = std::make_unique<SA>(apvts, PID::seqShuffle, shuffleRow->getSlider());
@@ -600,7 +600,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     for (int i = 0; i < kNumOctShiftBtns; ++i)
     {
         octShiftBtns[i].setButtonText(seqOctItems[i]);
-        styleSwitchButton(octShiftBtns[i], kSeqCol);
+        styleSwitchButton(octShiftBtns[i], kSeqFill);
         octShiftBtns[i].setClickingTogglesState(true);
         octShiftBtns[i].setRadioGroupId(2004);
         octShiftBtns[i].onClick = [this, i] { octShiftHidden.setSelectedId(i + 1); };
@@ -626,7 +626,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     modeGenBtn .setConnectedEdges(juce::Button::ConnectedOnLeft);
     for (auto* b : { &modeStepBtn, &modeGenBtn })
     {
-        styleSwitchButton(*b, kSeqCol);
+        styleSwitchButton(*b, kSeqFill);
         b->setClickingTogglesState(true);
         b->setRadioGroupId(2010);
         addAndMakeVisible(*b);
@@ -640,19 +640,19 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     }
 
     auto intFmt = [](double v) { return juce::String(juce::roundToInt(v)); };
-    genStepsRow = std::make_unique<SliderRow>("Steps", intFmt, kSeqCol);
+    genStepsRow = std::make_unique<SliderRow>("Steps", intFmt, kSeqFill);
     addAndMakeVisible(*genStepsRow);
     genStepsA = std::make_unique<SA>(apvts, PID::genSteps, genStepsRow->getSlider());
     genStepsRow->getSlider().onValueChange = [this] { genStepsRow->updateValue(); };
     genStepsRow->updateValue();
 
-    genPulsesRow = std::make_unique<SliderRow>("Pulses", intFmt, kSeqCol);
+    genPulsesRow = std::make_unique<SliderRow>("Pulses", intFmt, kSeqFill);
     addAndMakeVisible(*genPulsesRow);
     genPulsesA = std::make_unique<SA>(apvts, PID::genPulses, genPulsesRow->getSlider());
     genPulsesRow->getSlider().onValueChange = [this] { genPulsesRow->updateValue(); };
     genPulsesRow->updateValue();
 
-    genRotationRow = std::make_unique<SliderRow>("Rotation", intFmt, kSeqCol);
+    genRotationRow = std::make_unique<SliderRow>("Rotation", intFmt, kSeqFill);
     addAndMakeVisible(*genRotationRow);
     genRotationA = std::make_unique<SA>(apvts, PID::genRotation, genRotationRow->getSlider());
     genRotationRow->getSlider().onValueChange = [this] { genRotationRow->updateValue(); };
@@ -662,7 +662,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     // octaves; the DSP adds 1, see PluginProcessor). A SliderAttachment maps the
     // choice's four discrete values onto the slider.
     genRangeRow = std::make_unique<SliderRow>("Range",
-        [](double v) { return juce::String(juce::roundToInt(v) + 1); }, kSeqCol);
+        [](double v) { return juce::String(juce::roundToInt(v) + 1); }, kSeqFill);
     genRangeRow->setInlineLabel(true);
     addAndMakeVisible(*genRangeRow);
     genRangeA = std::make_unique<SA>(apvts, PID::genRange, genRangeRow->getSlider());
@@ -670,7 +670,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     genRangeRow->updateValue();
 
     genMutationRow = std::make_unique<SliderRow>("Evolve",
-        [](double v) { return juce::String(juce::roundToInt(v * 100)) + "%"; }, kSeqCol);
+        [](double v) { return juce::String(juce::roundToInt(v * 100)) + "%"; }, kSeqFill);
     addAndMakeVisible(*genMutationRow);
     genMutationA = std::make_unique<SA>(apvts, PID::genMutation, genMutationRow->getSlider());
     genMutationRow->getSlider().onValueChange = [this] { genMutationRow->updateValue(); };
@@ -687,10 +687,10 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         btn.setButtonText("FIX");
         btn.setClickingTogglesState(true);
         btn.setColour(juce::TextButton::buttonColourId, kSurface);
-        btn.setColour(juce::TextButton::buttonOnColourId, kSeqCol);
+        btn.setColour(juce::TextButton::buttonOnColourId, kSeqFill);
         btn.setColour(juce::TextButton::textColourOffId, kDim);
-        btn.setColour(juce::TextButton::textColourOnId, switchBoxSelectedTextColour(kSeqCol));
-        btn.setColour(juce::ComboBox::outlineColourId, kSeqCol.withAlpha(0.5f));
+        btn.setColour(juce::TextButton::textColourOnId, switchBoxSelectedTextColour(kSeqFill));
+        btn.setColour(juce::ComboBox::outlineColourId, kSeqFill.withAlpha(0.5f));
         btn.setTooltip(tip);
         addAndMakeVisible(btn);
     };
@@ -715,7 +715,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         genFieldModeA = std::make_unique<CA>(apvts, PID::genFieldMode, genFieldModeBox);
 
         // Cyc — inline slider on the genFieldRate Int param (1..32 cycles).
-        genCycRow = std::make_unique<SliderRow>("Cyc", intFmt, kSeqCol);
+        genCycRow = std::make_unique<SliderRow>("Cyc", intFmt, kSeqFill);
         genCycRow->setInlineLabel(true);
         addAndMakeVisible(*genCycRow);
         genFieldRateA = std::make_unique<SA>(apvts, PID::genFieldRate, genCycRow->getSlider());
@@ -738,9 +738,9 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
             strandEnableBtns[i].setButtonText(kStrandLabels[i]);
             strandEnableBtns[i].setClickingTogglesState(true);
             strandEnableBtns[i].setColour(juce::TextButton::buttonColourId,   kSurface);
-            strandEnableBtns[i].setColour(juce::TextButton::buttonOnColourId, kSeqCol);
+            strandEnableBtns[i].setColour(juce::TextButton::buttonOnColourId, kSeqFill);
             strandEnableBtns[i].setColour(juce::TextButton::textColourOffId,  kDim);
-            strandEnableBtns[i].setColour(juce::TextButton::textColourOnId,   switchBoxSelectedTextColour(kSeqCol));
+            strandEnableBtns[i].setColour(juce::TextButton::textColourOnId,   switchBoxSelectedTextColour(kSeqFill));
             strandEnableBtns[i].setTooltip("Enable polyphonic voice " + juce::String(i + 2));
             addAndMakeVisible(strandEnableBtns[i]);
             strandEnableA[i] = std::make_unique<BA>(apvts, kEnablePIDs[i], strandEnableBtns[i]);
@@ -795,7 +795,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
             for (int b = 0; b < kStrandOctBtns; ++b)
             {
                 strandOctBtns[i][b].setButtonText(SeqOctave::kEntries[b].label);
-                styleSwitchButton(strandOctBtns[i][b], kSeqCol);
+                styleSwitchButton(strandOctBtns[i][b], kSeqFill);
                 strandOctBtns[i][b].setClickingTogglesState(true);
                 strandOctBtns[i][b].setRadioGroupId(3001 + i); // unique per strand
                 strandOctBtns[i][b].setTooltip(sName + " octave shift");
@@ -808,7 +808,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
 
             // Dom: full-module-width inline bar (Poly-AT style), 0..1.
             strandDomRows[i] = std::make_unique<SliderRow>("Dom",
-                [](double v) { return juce::String(v, 2); }, kSeqCol);
+                [](double v) { return juce::String(v, 2); }, kSeqFill);
             strandDomRows[i]->setInlineLabel(true);
             strandDomRows[i]->getSlider().setTooltip(sName
                 + " dominance — probability of snapping to field center at the cycle downbeat (0..1)");
@@ -848,7 +848,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     };
     for (int i = 0; i < kNumModeBtns; ++i)
     {
-        styleSwitchButton(arpModeBtns[i], kSeqCol);
+        styleSwitchButton(arpModeBtns[i], kSeqFill);
         setSwitchGlyph(arpModeBtns[i],
                        static_cast<SwitchGlyph>(static_cast<int>(SwitchGlyph::ArpOff) + i));
         arpModeBtns[i].setTooltip(arpModeItems[i]);
@@ -889,7 +889,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     for (int i = 0; i < kNumOctBtns; ++i)
     {
         arpOctBtns[i].setButtonText(juce::String(i + 1));
-        styleSwitchButton(arpOctBtns[i], kSeqCol);
+        styleSwitchButton(arpOctBtns[i], kSeqFill);
         arpOctBtns[i].setClickingTogglesState(true);
         arpOctBtns[i].setRadioGroupId(2002);
         arpOctBtns[i].onClick = [this, i] { arpOctHidden.setSelectedId(i + 1); };
@@ -1201,15 +1201,22 @@ void SequencerPanel::paint(juce::Graphics& g)
         g.drawHorizontalLine(voicesDividerY, 6.0f, static_cast<float>(getWidth() - 6));
     }
 
-    // V1 — display-only placeholder voice. Same 3-row module shape as V2..V5 but
-    // inactive (greyed): a frame, a "V1" tag, and three muted placeholder bars.
-    // Real functions for V1 are TBD; for now it just holds the slot.
+    // Voice group cards (gen mode) — subtle kCard fill + border per voice slot,
+    // mirroring the per-instance sub-cards in the modulation panel ("Abschattung").
+    // Drawn before the child controls, which paint on top.
+    auto paintVoiceCard = [&g](const juce::Rectangle<int>& r)
+    {
+        if (r.isEmpty()) return;
+        g.setColour(kCard.withAlpha(0.42f));   g.fillRect(r);
+        g.setColour(kBorder.withAlpha(0.72f)); g.drawRect(r, 1);
+    };
+    paintVoiceCard(v1ModuleBounds);
+    for (const auto& r : voiceModuleBounds) paintVoiceCard(r);
+
+    // V1 — display-only placeholder content over its card: a "V1" tag and two
+    // muted placeholder bars. Real functions for V1 are TBD; it just holds the slot.
     if (!v1ModuleBounds.isEmpty())
     {
-        auto b = v1ModuleBounds.toFloat();
-        g.setColour(kSurface.withAlpha(0.30f)); g.fillRect(b);
-        g.setColour(kBorder.withAlpha(0.45f));  g.drawRect(b, 1.0f);
-
         auto inner = v1ModuleBounds.reduced(4, 3);
         const int ph = juce::jmax(10, (inner.getHeight() - 2 * 2) / 3);   // placeholder row height
         g.setColour(kDim);
@@ -1451,6 +1458,7 @@ void SequencerPanel::resized()
     harmonyBoxBounds = {};
     voicesDividerY = -1;
     v1ModuleBounds = {};
+    for (auto& r : voiceModuleBounds) r = {};
     for (int i = 0; i < kNumExtraStrands; ++i)
         strandOctSwitchBounds[i] = {};
 
@@ -1541,16 +1549,22 @@ void SequencerPanel::resized()
             const int nVoices   = kNumExtraStrands + 1;     // V1 dummy + V2..V5
             const int moduleGap = 12;
             const int moduleW   = (voicesArea.getWidth() - (nVoices - 1) * moduleGap) / nVoices;
-            const int vRowH     = genCtrlH;
+            const int cardPad   = 3;   // inset controls within each group card
 
-            // Slot 0 — V1 dummy (frame + "V1" + greyed placeholders, painted later).
+            // Slot 0 — V1 dummy (card + "V1" + greyed placeholders, painted later).
             v1ModuleBounds = voicesArea.removeFromLeft(moduleW);
             voicesArea.removeFromLeft(moduleGap);
 
             for (int i = 0; i < kNumExtraStrands; ++i)
             {
-                auto module = voicesArea.removeFromLeft(moduleW);
+                voiceModuleBounds[i] = voicesArea.removeFromLeft(moduleW);
                 if (i < kNumExtraStrands - 1) voicesArea.removeFromLeft(moduleGap);
+
+                // Controls inset within the group card so its fill/border show
+                // (mirrors the mod-panel sub-cards). Row height derives from the
+                // inset card so three rows always fit.
+                auto module = voiceModuleBounds[i].reduced(cardPad);
+                const int vRowH = juce::jmax(12, (module.getHeight() - 2 * intraGap) / 3);
 
                 const int vEnW = 30;
                 const int gap  = 3;

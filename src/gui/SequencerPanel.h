@@ -166,6 +166,9 @@ private:
     // V1 is a display-only dummy module (no params); its frame + placeholders are
     // drawn in paint() from this rect (gen mode only).
     juce::Rectangle<int> v1ModuleBounds;
+    // Per-voice (V2..V5) module rects, recorded in resized() and drawn as subtle
+    // group cards in paint() (gen mode only) — the mod-panel sub-card "Abschattung".
+    juce::Rectangle<int> voiceModuleBounds[kNumExtraStrands];
 
 
     bool genModeActive = false;

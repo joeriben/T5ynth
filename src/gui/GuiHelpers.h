@@ -112,7 +112,8 @@ static const auto kAtNegCol  = juce::Colour(0xffA83C18);  // AT negative — dar
 
 // Module lead colors (UCDCAE: C=Engine D=Filter U=Osc C₂=Mod A=Seq E=FX)
 static const auto kOscCol    = juce::Colour(0xff667eea);  // U — Periwinkle (prompt/osc)
-static const auto kSeqCol    = juce::Colour(0xff4CAF50);  // A — Green (sequencer)
+static const auto kSeqCol    = juce::Colour(0xff4CAF50);  // A — Green (sequencer header / green text on dark)
+static const auto kSeqFill   = juce::Colour(0xff1B5E20);  // Darker green — bar fills & switchbox selection (calmer; white text ~7.9:1)
 static const auto kFxCol     = juce::Colour(0xff00BCD4);  // E — Cyan (effects)
 
 // Impulse A/B identity — shared by the prompt fields, the A↔B slider gradient,
