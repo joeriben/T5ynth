@@ -662,8 +662,8 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
     genRotationRow->updateValue();
 
     // Range — switchbox [1][2][3][4] on the genRange Choice param. Range sets the
-    // octave span of the whole generative pitch field (shared by ALL voices, not
-    // V1 alone — GenerativeSequencer::setRange marks every strand dirty). The four
+    // octave span of the whole generative pitch field (shared by ALL strands, not
+    // S1 alone — GenerativeSequencer::setRange marks every strand dirty). The four
     // discrete values wasted space as a slider, so it is a compact switchbox; a
     // hidden ComboBox carries the APVTS attachment (mirrors the octave switchbox).
     {
@@ -759,7 +759,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         static const char* kRolePIDs[kNumExtraStrands] = {
             PID::gen2Role, PID::gen3Role, PID::gen4Role, PID::gen5Role
         };
-        static const char* kStrandLabels[kNumExtraStrands] = { "V2", "V3", "V4", "V5" };
+        static const char* kStrandLabels[kNumExtraStrands] = { "S2", "S3", "S4", "S5" };
 
         for (int i = 0; i < kNumExtraStrands; ++i)
         {
@@ -769,7 +769,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
             strandEnableBtns[i].setColour(juce::TextButton::buttonOnColourId, kSeqFill);
             strandEnableBtns[i].setColour(juce::TextButton::textColourOffId,  kDim);
             strandEnableBtns[i].setColour(juce::TextButton::textColourOnId,   switchBoxSelectedTextColour(kSeqFill));
-            strandEnableBtns[i].setTooltip("Enable polyphonic voice " + juce::String(i + 2));
+            strandEnableBtns[i].setTooltip("Enable polyphonic strand " + juce::String(i + 2));
             addAndMakeVisible(strandEnableBtns[i]);
             strandEnableA[i] = std::make_unique<BA>(apvts, kEnablePIDs[i], strandEnableBtns[i]);
 
@@ -798,7 +798,7 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
 
         for (int i = 0; i < kNumExtraStrands; ++i)
         {
-            const juce::String sName = "Voice " + juce::String(i + 2);
+            const juce::String sName = "Strand " + juce::String(i + 2);
 
             // Div: ComboBox is its own label, sorted by multiplier.
             strandDivBoxes[i].addItemList(divItems, 1);
@@ -1242,15 +1242,15 @@ void SequencerPanel::paint(juce::Graphics& g)
     paintVoiceCard(v1ModuleBounds);
     for (const auto& r : voiceModuleBounds) paintVoiceCard(r);
 
-    // V1 — display-only placeholder content over its card: a "V1" tag and two
-    // muted placeholder bars. Real functions for V1 are TBD; it just holds the slot.
+    // S1 — display-only placeholder content over its card: an "S1" tag and two
+    // muted placeholder bars. Real functions for S1 are TBD; it just holds the slot.
     if (!v1ModuleBounds.isEmpty())
     {
         auto inner = v1ModuleBounds.reduced(4, 3);
         const int ph = juce::jmax(10, (inner.getHeight() - 2 * 2) / 3);   // placeholder row height
         g.setColour(kDim);
         g.setFont(juce::FontOptions(static_cast<float>(ph) * 0.6f));
-        g.drawText("V1", inner.removeFromTop(ph), juce::Justification::centredLeft, false);
+        g.drawText("S1", inner.removeFromTop(ph), juce::Justification::centredLeft, false);
         inner.removeFromTop(2);
         for (int r = 0; r < 2; ++r)
         {
@@ -1588,12 +1588,12 @@ void SequencerPanel::resized()
             placeFixRow(rRow, *genMutationRow, genFixMutationBtn);
         }
 
-        // ── Voice modules (full width, below the divider): V1 (dummy) + V2..V5,
+        // ── Strand modules (full width, below the divider): S1 (dummy) + S2..S5,
         //    five equal slots. Each real module is three rows:
-        //      Row 1: [Vx enable] [Role ~50%] [Tempo/Div rest]
-        //      Row 2: Dom inline slider, full module width
+        //      Row 1: [Sx enable] [Role ~50%] [Tempo/Div rest]
+        //      Row 2: Dominance inline slider, full module width
         //      Row 3: octave switchbox [-2..+2], full module width
-        //    V1 is a display-only placeholder drawn in paint() (no params). ──
+        //    S1 is a display-only placeholder drawn in paint() (no params). ──
         {
             const int nVoices   = kNumExtraStrands + 1;     // V1 dummy + V2..V5
             const int moduleGap = 12;
