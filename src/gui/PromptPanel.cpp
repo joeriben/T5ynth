@@ -150,6 +150,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     promptAEditor.onTextChange = [this] {
         // Impulse edits should force the next drift regen to use a fresh snapshot.
         lastGenPromptA_.clear();
+        pendingLoopPromptA_.clear();  // user override: discard any staged loop prompt
         // Record human authorship of pole A into the durable human-prompt store so
         // preset save persists THIS, not a later loop rewrite. Fires only on human
         // typing + translation (loop/restore/load writes use dontSendNotification),
@@ -171,6 +172,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     promptBEditor.onTextChange = [this] {
         // Impulse edits should force the next drift regen to use a fresh snapshot.
         lastGenPromptB_.clear();
+        pendingLoopPromptB_.clear();  // user override: discard any staged loop prompt
         // Record human authorship of pole B (see promptAEditor.onTextChange).
         processorRef.setHumanPromptB(promptBEditor.getText().trim());
     };
@@ -754,6 +756,8 @@ void PromptPanel::timerCallback()
             // onTextChange won't overwrite it with the reverted text either.
             loopOriginalsValid_ = false;
             loopEngaged_ = false;   // re-arm the original-capture edge for the next run
+            pendingLoopPromptA_.clear();
+            pendingLoopPromptB_.clear();
             // Make the SOUND follow the reverted text: re-render the restored original
             // once, clean (init_audio detached) so it isn't anchored to the last B.
             // Deferred — fired by the block at the end of timerCallback once the pipe
@@ -2137,8 +2141,8 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     const float effSplitEnd   = std::isnan(splitEndOverride)   ? splitLayerEnd_     : splitEndOverride;
 
     PipeInference::Request req;
-    req.promptA = promptAEditor.getText().trim();
-    req.promptB = promptBEditor.getText().trim();
+    req.promptA = (pendingLoopPromptA_.isNotEmpty() ? pendingLoopPromptA_ : promptAEditor.getText()).trim();
+    req.promptB = (pendingLoopPromptB_.isNotEmpty() ? pendingLoopPromptB_ : promptBEditor.getText()).trim();
     req.alpha = alpha;
     req.magnitude = magnitude;
     req.noiseSigma = noiseSigma;
@@ -2503,6 +2507,17 @@ void PromptPanel::triggerGeneration()
                     // empty otherwise), so this is a no-op for every other model and the Music slot.
                     processor.setLastModel(taggedPersistId(modelForLabel, req.trackType == "sfx"));
                     processor.setLastSeed(result.seed);
+                    // Reveal the loop prompt that just became wirksam in this generation.
+                    if (self->pendingLoopPromptA_.isNotEmpty())
+                    {
+                        self->promptAEditor.setText(self->pendingLoopPromptA_, juce::dontSendNotification);
+                        self->pendingLoopPromptA_.clear();
+                    }
+                    if (self->pendingLoopPromptB_.isNotEmpty())
+                    {
+                        self->promptBEditor.setText(self->pendingLoopPromptB_, juce::dontSendNotification);
+                        self->pendingLoopPromptB_.clear();
+                    }
                     auto promptA = self->promptAEditor.getText().trim();
                     auto promptB = self->promptBEditor.getText().trim();
                     processor.setLastPrompts(promptA, promptB);
@@ -2643,6 +2658,17 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                         applyDriftCrossfade(newAudio, oldRaw, xfadeSamples);
                     processor.addInferenceCacheEntry(result.audio, result.sampleRate);
                     processor.loadGeneratedAudio(newAudio, result.sampleRate);
+                    // Reveal the loop prompt that just became wirksam in this generation.
+                    if (self->pendingLoopPromptA_.isNotEmpty())
+                    {
+                        self->promptAEditor.setText(self->pendingLoopPromptA_, juce::dontSendNotification);
+                        self->pendingLoopPromptA_.clear();
+                    }
+                    if (self->pendingLoopPromptB_.isNotEmpty())
+                    {
+                        self->promptBEditor.setText(self->pendingLoopPromptB_, juce::dontSendNotification);
+                        self->pendingLoopPromptB_.clear();
+                    }
                     auto promptA = self->promptAEditor.getText().trim();
                     auto promptB = self->promptBEditor.getText().trim();
                     processor.setLastDevice(deviceForLabel);
@@ -3194,32 +3220,26 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
                 if (altWriteA)
                 {
                     self->loopLastA_ = nextB;
-                    self->promptAEditor.setText(RepromptStances::reattachMusicSuffix(nextB, self->loopSuffixA_),
-                                                juce::dontSendNotification);
+                    self->pendingLoopPromptA_ = RepromptStances::reattachMusicSuffix(nextB, self->loopSuffixA_);
                     self->loopRecentA_.add(nextB);
                     while (self->loopRecentA_.size() > 3) self->loopRecentA_.remove(0);
                 }
                 else
                 {
                     self->loopLastB_ = nextB;
-                    self->promptBEditor.setText(RepromptStances::reattachMusicSuffix(nextB, self->loopSuffixB_),
-                                                juce::dontSendNotification);
+                    self->pendingLoopPromptB_ = RepromptStances::reattachMusicSuffix(nextB, self->loopSuffixB_);
                     self->loopRecentB_.add(nextB);
                     while (self->loopRecentB_.size() > 3) self->loopRecentB_.remove(0);
                 }
                 self->loopAltWriteA_ = ! altWriteA;   // alternate the target for next step
-                self->lastGenPromptA_ = self->promptAEditor.getText().trim();
-                self->lastGenPromptB_ = self->promptBEditor.getText().trim();
-                self->processorRef.setLastPrompts(self->lastGenPromptA_, self->lastGenPromptB_);
                 self->loopStepInFlight_ = false;
                 return;
             }
 
-            // Apply the coupling onto the editor(s). dontSendNotification so neither
-            // onTextChange nor pollDriftRegen's promptChanged path re-fires (we update
-            // the lastGen* trackers + setLastPrompts ourselves below).
-            // B pole (always driven). loopLast_/recent_ keep the CORE; the editor
-            // (and the lastGen* trackers below) carry the re-appended musical suffix.
+            // Stage the new prompt into pending — the editor is only updated when the
+            // next generation completes (i.e., when the prompt becomes wirksam).
+            // B pole (always driven). loopLast_/recent_ keep the CORE; pending carries
+            // the re-appended musical suffix.
             self->loopLastB_ = nextB;                                   // glieder[-1] (CORE)
             // concat2 only when there's a real core to prepend — a pole that was nothing
             // but a musical token has an EMPTY core (origB==""), and concat2("",x) would
@@ -3228,30 +3248,22 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
             const juce::String appliedB = RepromptStances::reattachMusicSuffix(
                 (concat && origB.isNotEmpty()) ? RepromptStances::concat2(origB, nextB) : nextB,
                 self->loopSuffixB_);
-            self->promptBEditor.setText(appliedB, juce::dontSendNotification);
+            self->pendingLoopPromptB_ = appliedB;
             self->loopRecentB_.add(nextB);                             // push into recent…
             while (self->loopRecentB_.size() > 3) self->loopRecentB_.remove(0);  // …keep last 3
 
             // A pole: driven only in dual couplings; in alpha it stays the human anchor
             // (untouched → its suffix is inherently preserved).
-            juce::String appliedA = self->promptAEditor.getText().trim();
             if (dual)
             {
                 self->loopLastA_ = nextA;                               // CORE
-                appliedA = RepromptStances::reattachMusicSuffix(
+                const juce::String appliedA = RepromptStances::reattachMusicSuffix(
                     (concat && origA.isNotEmpty()) ? RepromptStances::concat2(origA, nextA) : nextA,
                     self->loopSuffixA_);
-                self->promptAEditor.setText(appliedA, juce::dontSendNotification);
+                self->pendingLoopPromptA_ = appliedA;
                 self->loopRecentA_.add(nextA);
                 while (self->loopRecentA_.size() > 3) self->loopRecentA_.remove(0);
             }
-
-            // Tell the rest of the machinery these are the current prompts, so the
-            // next Auto-Regen tick sees NO spurious prompt change (which would trip
-            // the resynth-loop release edge and detach the init carry).
-            self->lastGenPromptA_ = appliedA;
-            self->lastGenPromptB_ = appliedB;
-            self->processorRef.setLastPrompts(appliedA, appliedB);
 
             self->loopStepInFlight_ = false;
         });

@@ -411,6 +411,9 @@ private:
     // engage and re-appended on every editor write so the loop's LLM rewrites never
     // touch them. Empty when the originals carried none. (RepromptStances::*MusicSuffix.)
     juce::String loopSuffixA_, loopSuffixB_;
+    // Pending loop prompts: held off the editor until the next generation fires,
+    // so the displayed prompt only updates when it becomes wirksam (effective).
+    juce::String pendingLoopPromptA_, pendingLoopPromptB_;
     // Deactivation restore: when a stance→Off transition is seen (timerCallback edge
     // detect), the human originals captured at engage are put back into the editors.
     // loopOriginalsValid_ gates it: true only once a step has captured originals AND
