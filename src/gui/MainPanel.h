@@ -176,8 +176,9 @@ private:
     int computerKeyboardOctaveOffset = 0;
     bool computerKeyboardOctaveDownKeyDown = false;
     bool computerKeyboardOctaveUpKeyDown = false;
-    std::array<bool, 13> computerKeyboardNotesDown {};
-    std::array<int, 13> computerKeyboardActiveNotes {};
+    static constexpr int kComputerKeyboardKeyCount = 21; // a…k octave + o l p ö ä ü # +
+    std::array<bool, kComputerKeyboardKeyCount> computerKeyboardNotesDown {};
+    std::array<int, kComputerKeyboardKeyCount> computerKeyboardActiveNotes {};
     void timerCallback() override;
     void syncInferenceCacheUi();
     void updateGenerateButtonsForCacheState(bool pulseCacheHit);

@@ -11,7 +11,15 @@
 
 namespace
 {
-constexpr char kComputerKeyboardNoteKeys[] = { 'a', 'w', 's', 'e', 'd', 'f', 't', 'g', 'z', 'h', 'u', 'j', 'k' };
+// Computer-keyboard → note map, chromatic from kComputerKeyboardBaseMidiNote.
+// QWERTZ (German) layout: home row a s d f g h j k l ö ä # = white keys,
+// top row w e t z u o p ü + = black keys. juce_wchar (not char) so the
+// umlauts ö/ä/ü fit. On macOS JUCE registers these by their toUpperCase
+// codepoint (Ö=0xD6 etc., all < 0xff), which the release-poll already checks.
+constexpr juce_wchar kComputerKeyboardNoteKeys[] = {
+    'a', 'w', 's', 'e', 'd', 'f', 't', 'g', 'z', 'h', 'u', 'j', 'k', // C4 … C5
+    'o', 'l', 'p', 0x00F6, 0x00E4, 0x00FC, '#', '+'                  // C#5 … G#5 (o l p ö ä ü # +)
+};
 constexpr int kComputerKeyboardBaseMidiNote = 60;
 constexpr int kComputerKeyboardMinOctaveOffset = -5;
 constexpr int kComputerKeyboardMaxOctaveOffset = 4;
@@ -2882,6 +2890,10 @@ bool MainPanel::isTextEditingFocus() const
 
 int MainPanel::computerKeyIndexFor(const juce::KeyPress& key) const
 {
+    static_assert (static_cast<int>(sizeof(kComputerKeyboardNoteKeys) / sizeof(kComputerKeyboardNoteKeys[0]))
+                       == kComputerKeyboardKeyCount,
+                   "kComputerKeyboardNoteKeys length must equal kComputerKeyboardKeyCount "
+                   "(computerKeyboardNotesDown/ActiveNotes are sized by it).");
     const juce_wchar c = juce::CharacterFunctions::toLowerCase(key.getTextCharacter());
     for (int i = 0; i < static_cast<int>(sizeof(kComputerKeyboardNoteKeys) / sizeof(kComputerKeyboardNoteKeys[0])); ++i)
         if (c == kComputerKeyboardNoteKeys[i])
@@ -2901,7 +2913,10 @@ juce::String MainPanel::computerKeyboardBaseNoteName() const
 
 juce::String MainPanel::computerKeyboardStatusText() const
 {
-    return "Kbd on: y/x oct, awsedftgzhujk from " + computerKeyboardBaseNoteName();
+    // Explicit UTF-8 bytes (ö ä ü) + fromUTF8 → encoding-independent, no mojibake.
+    return juce::String::fromUTF8 ("Kbd on: y/x oct, awsedftgzhujkolp"
+                                   "\xc3\xb6" "\xc3\xa4" "\xc3\xbc" "#+ from ")
+           + computerKeyboardBaseNoteName();
 }
 
 void MainPanel::pollComputerKeyboard()
