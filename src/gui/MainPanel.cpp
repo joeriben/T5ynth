@@ -17,14 +17,20 @@ namespace
 // in translateVirtualToAsciiKeyCode). Matching the hardware position, NOT the
 // produced character, makes this layout-INDEPENDENT: the same physical keys play
 // the same notes on US / German / French / … and the old z=G# layout bug is gone.
-// Index = semitone above kComputerKeyboardBaseMidiNote (chromatic, two rows):
-//   white = home row  A S D F G H J K L ;/Ö '/Ä #/\        (US-label / DE-label)
-//   black = row above W E   T Y/Z U   O P   [/Ü ]/+
+// Index = semitone above kComputerKeyboardBaseMidiNote (chromatic). The lower
+// ~1.5 octaves use the Ableton convention (home row = white keys, row above =
+// black). The upper EXTENSION keys ascend chromatically by physical position
+// (left = lower pitch), so the top-row [/Ü and ]/+ are the white F and G and the
+// home-row '/Ä and #/\ are the black F# and G# — matching where the keys sit.
 constexpr int kComputerKeyboardNoteKeys[] = {
     0x00, 0x0D, 0x01, 0x0E, 0x02, 0x03, 0x11, 0x05, 0x10, 0x04, 0x20, // C4 … A#4
     //C    C#    D     D#    E     F     F#    G     G#    A     A#
-    0x26, 0x28, 0x1F, 0x25, 0x23, 0x29, 0x27, 0x21, 0x2A, 0x1E        // B4 … G#5
+    // US:A  W    S     E     D     F     T     G     Y     H     U
+    // DE:A  W    S     E     D     F     T     G     Z     H     U
+    0x26, 0x28, 0x1F, 0x25, 0x23, 0x29, 0x21, 0x27, 0x1E, 0x2A        // B4 … G#5
     //B    C     C#    D     D#    E     F     F#    G     G#
+    // US:J  K    O     L     P     ;     [     '     ]     '\'
+    // DE:J  K    O     L     P     oe    ue    ae    +     #
 };
 // Octave shift: the bottom-left two letters (physical Z-pos / X). US labels Z X,
 // German labels Y X — same physical keys, so octave is layout-independent too.
