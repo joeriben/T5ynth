@@ -176,7 +176,7 @@ private:
     int computerKeyboardOctaveOffset = 0;
     bool computerKeyboardOctaveDownKeyDown = false;
     bool computerKeyboardOctaveUpKeyDown = false;
-    static constexpr int kComputerKeyboardKeyCount = 21; // a…k octave + o l p ö ä ü # +
+    static constexpr int kComputerKeyboardKeyCount = 20; // C4–G5: a…k octave + o l p ö ä + #  (ü has no note)
     std::array<bool, kComputerKeyboardKeyCount> computerKeyboardNotesDown {};
     std::array<int, kComputerKeyboardKeyCount> computerKeyboardActiveNotes {};
     void timerCallback() override;
