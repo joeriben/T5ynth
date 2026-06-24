@@ -176,6 +176,7 @@ private:
     int computerKeyboardOctaveOffset = 0;
     bool computerKeyboardOctaveDownKeyDown = false;
     bool computerKeyboardOctaveUpKeyDown = false;
+    bool spaceRestKeyDown_ = false;   // step-record: Space-rest edge (re-armed when the key lifts)
     static constexpr int kComputerKeyboardKeyCount = 20; // C4–G5: a…k octave + o l p ö ä + #  (ü has no note)
     std::array<bool, kComputerKeyboardKeyCount> computerKeyboardNotesDown {};
     std::array<int, kComputerKeyboardKeyCount> computerKeyboardActiveNotes {};

@@ -2144,6 +2144,23 @@ bool MainPanel::keyPressed(const juce::KeyPress& key)
                                        && !mods.isCommandDown()
                                        && !mods.isCtrlDown()
                                        && !mods.isAltDown();
+
+        // Step-record: Space inserts an empty step (rest) while armed — independent
+        // of the typing-keyboard piano mode (Space is never a note key), so it works
+        // whether you play in via MIDI or the computer keyboard. Edge-gated via
+        // spaceRestKeyDown_ (re-armed in pollComputerKeyboard when the key lifts)
+        // so OS auto-repeat doesn't spam rests.
+        if (processorRef.isStepRecordArmed() && key.getKeyCode() == juce::KeyPress::spaceKey
+            && ! mods.isCommandDown() && ! mods.isCtrlDown() && ! mods.isAltDown())
+        {
+            if (! spaceRestKeyDown_)
+            {
+                spaceRestKeyDown_ = true;
+                processorRef.recordStepRest();
+            }
+            return true;
+        }
+
         // keyPressed only fires while we hold keyboard focus, so this is the
         // focus-scoped note-ON path (allowStart = true). Returns true when a
         // mapped physical key is held → consume so it doesn't trigger shortcuts.
@@ -2958,6 +2975,12 @@ juce::String MainPanel::computerKeyboardStatusText() const
 
 void MainPanel::pollComputerKeyboard()
 {
+    // Re-arm the Space-rest edge once the key physically lifts. Runs every tick,
+    // independent of piano mode (Space-rest is gated only on step-record). Global
+    // read — worst case is a missed rest while another app holds space.
+    if (! juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey))
+        spaceRestKeyDown_ = false;
+
     if (!computerKeyboardEnabled || isTextEditingFocus()
         || settingsVisible || manualVisible || presetManagerVisible || seqLibraryVisible
         || !juce::Process::isForegroundProcess())

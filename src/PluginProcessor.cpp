@@ -409,6 +409,19 @@ void T5ynthProcessor::recordStepNote(int playedNote, float velocity)
     stepRecordCursor.store(cursor + 1, std::memory_order_relaxed);
 }
 
+void T5ynthProcessor::recordStepRest()
+{
+    // Message thread (Space key + sustain-pedal rest). Leave the current step
+    // empty (disabled) and advance the cursor — a gap in the pattern.
+    if (! stepRecordArmed.load(std::memory_order_relaxed))
+        return;
+    const int cursor = stepRecordCursor.load(std::memory_order_relaxed);
+    if (cursor < 0 || cursor >= stepSequencer.getNumSteps())
+        return;   // pattern full: ignore, stay armed until toggled off
+    stepSequencer.setStepEnabled(cursor, false);
+    stepRecordCursor.store(cursor + 1, std::memory_order_relaxed);
+}
+
 void T5ynthProcessor::pushStepRecordCandidate(int note, float velocity)
 {
     // Audio thread (external MIDI note-on). Lock-free, no allocation.
@@ -430,12 +443,13 @@ void T5ynthProcessor::drainStepRecordQueue()
         return;
     int s1, sz1, s2, sz2;
     stepRecFifo.prepareToRead(ready, s1, sz1, s2, sz2);
-    for (int i = 0; i < sz1; ++i)
-        recordStepNote(stepRecQueue[static_cast<size_t>(s1 + i)].note,
-                       stepRecQueue[static_cast<size_t>(s1 + i)].velocity);
-    for (int i = 0; i < sz2; ++i)
-        recordStepNote(stepRecQueue[static_cast<size_t>(s2 + i)].note,
-                       stepRecQueue[static_cast<size_t>(s2 + i)].velocity);
+    auto apply = [this](const StepRecCandidate& c)
+    {
+        if (c.note < 0) recordStepRest();              // sentinel: empty step (rest)
+        else            recordStepNote(c.note, c.velocity);
+    };
+    for (int i = 0; i < sz1; ++i) apply(stepRecQueue[static_cast<size_t>(s1 + i)]);
+    for (int i = 0; i < sz2; ++i) apply(stepRecQueue[static_cast<size_t>(s2 + i)]);
     stepRecFifo.finishedRead(sz1 + sz2);
 }
 
@@ -3158,7 +3172,27 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                             {
                                 if (cc == 64)
                                 {
-                                    voiceManager.setSustainPedal(value7 >= 64);
+                                    const bool down = value7 >= 64;
+                                    // While step-record is armed the sustain pedal
+                                    // enters a REST (empty step) on each press —
+                                    // edge-triggered so a held pedal doesn't spam,
+                                    // and normal sustain is suppressed. Otherwise it
+                                    // is the usual damper pedal.
+                                    if (stepRecordArmed.load(std::memory_order_relaxed))
+                                    {
+                                        if (down && ! sustainPedalDown_)
+                                            pushStepRecordCandidate(-1, 0.0f);  // sentinel: rest
+                                        // Never latch the damper while armed: arming
+                                        // with the pedal already held would otherwise
+                                        // leave notes stuck (the release routes here).
+                                        // setSustainPedal early-returns if unchanged.
+                                        voiceManager.setSustainPedal(false);
+                                    }
+                                    else
+                                    {
+                                        voiceManager.setSustainPedal(down);
+                                    }
+                                    sustainPedalDown_ = down;
                                 }
                                 else if (cc == 1)
                                 {

@@ -225,6 +225,7 @@ public:
     bool isStepRecordArmed() const { return stepRecordArmed.load(std::memory_order_relaxed); }
     int  getStepRecordCursor() const { return stepRecordCursor.load(std::memory_order_relaxed); }
     void drainStepRecordQueue();   // message thread: pop queued MIDI notes → steps
+    void recordStepRest();         // message thread: empty step (rest) + advance
 
     // Waveform display data
     bool hasNewWaveform() const { return newWaveformReady.load(std::memory_order_acquire); }
@@ -491,6 +492,7 @@ private:
     static constexpr int kStepRecQueueSize = 64;
     std::array<StepRecCandidate, kStepRecQueueSize> stepRecQueue;
     juce::AbstractFifo stepRecFifo { kStepRecQueueSize };
+    bool sustainPedalDown_ = false;   // audio thread: CC64 edge tracking for pedal-rest
 
     // Idle detection (audio thread only — not atomic)
     int silentBlockCount = 0;
