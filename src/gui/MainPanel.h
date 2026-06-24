@@ -206,7 +206,7 @@ private:
     void pollComputerKeyboard();
     void releaseComputerKeyboardNotes();
     bool isTextEditingFocus() const;
-    int computerKeyIndexFor(const juce::KeyPress& key) const;
+    bool scanComputerKeyboard(bool allowStart);   // reconcile notes from physical key state
     int computerKeyboardNoteForIndex(int keyIndex) const;
     juce::String computerKeyboardBaseNoteName() const;
     juce::String computerKeyboardStatusText() const;

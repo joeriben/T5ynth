@@ -5,21 +5,31 @@
 #include "../presets/CalibrationMigration.h"
 #include "GuiHelpers.h"
 #include "BinaryData.h"
+#include "PhysicalKeyState.h"   // t5::physicalKeyDown — layout-independent (isolated TU)
 #include <cmath>
 #include <cstring>
 #include <thread>
 
 namespace
 {
-// Computer-keyboard → note map, chromatic from kComputerKeyboardBaseMidiNote.
-// QWERTZ (German) layout: home row a s d f g h j k l ö ä # = white keys,
-// top row w e t z u o p ü + = black keys. juce_wchar (not char) so the
-// umlauts ö/ä/ü fit. On macOS JUCE registers these by their toUpperCase
-// codepoint (Ö=0xD6 etc., all < 0xff), which the release-poll already checks.
-constexpr juce_wchar kComputerKeyboardNoteKeys[] = {
-    'a', 'w', 's', 'e', 'd', 'f', 't', 'g', 'z', 'h', 'u', 'j', 'k', // C4 … C5
-    'o', 'l', 'p', 0x00F6, 0x00E4, 0x00FC, '#', '+'                  // C#5 … G#5 (o l p ö ä ü # +)
+// Computer-keyboard → note map, by PHYSICAL key POSITION (macOS virtual
+// keycodes kVK_ANSI_*, from HIToolbox/Events.h — the same table JUCE itself uses
+// in translateVirtualToAsciiKeyCode). Matching the hardware position, NOT the
+// produced character, makes this layout-INDEPENDENT: the same physical keys play
+// the same notes on US / German / French / … and the old z=G# layout bug is gone.
+// Index = semitone above kComputerKeyboardBaseMidiNote (chromatic, two rows):
+//   white = home row  A S D F G H J K L ;/Ö '/Ä #/\        (US-label / DE-label)
+//   black = row above W E   T Y/Z U   O P   [/Ü ]/+
+constexpr int kComputerKeyboardNoteKeys[] = {
+    0x00, 0x0D, 0x01, 0x0E, 0x02, 0x03, 0x11, 0x05, 0x10, 0x04, 0x20, // C4 … A#4
+    //C    C#    D     D#    E     F     F#    G     G#    A     A#
+    0x26, 0x28, 0x1F, 0x25, 0x23, 0x29, 0x27, 0x21, 0x2A, 0x1E        // B4 … G#5
+    //B    C     C#    D     D#    E     F     F#    G     G#
 };
+// Octave shift: the bottom-left two letters (physical Z-pos / X). US labels Z X,
+// German labels Y X — same physical keys, so octave is layout-independent too.
+constexpr int kComputerKeyboardOctaveDownKey = 0x06; // physical Z-position (DE Y)
+constexpr int kComputerKeyboardOctaveUpKey   = 0x07; // physical X
 constexpr int kComputerKeyboardBaseMidiNote = 60;
 constexpr int kComputerKeyboardMinOctaveOffset = -5;
 constexpr int kComputerKeyboardMaxOctaveOffset = 4;
@@ -2127,33 +2137,15 @@ bool MainPanel::keyPressed(const juce::KeyPress& key)
             return true;
         }
 
-        const juce_wchar lower = juce::CharacterFunctions::toLowerCase(c);
         const bool plainKeyboardCommand = computerKeyboardEnabled
                                        && !mods.isCommandDown()
                                        && !mods.isCtrlDown()
                                        && !mods.isAltDown();
-        if (plainKeyboardCommand && (lower == 'y' || lower == 'x'))
-        {
-            auto& keyHeld = (lower == 'y') ? computerKeyboardOctaveDownKeyDown
-                                           : computerKeyboardOctaveUpKeyDown;
-            if (!keyHeld)
-                shiftComputerKeyboardOctave(lower == 'y' ? -1 : 1);
-            keyHeld = true;
+        // keyPressed only fires while we hold keyboard focus, so this is the
+        // focus-scoped note-ON path (allowStart = true). Returns true when a
+        // mapped physical key is held → consume so it doesn't trigger shortcuts.
+        if (plainKeyboardCommand && scanComputerKeyboard(true))
             return true;
-        }
-
-        const int keyIndex = computerKeyboardEnabled ? computerKeyIndexFor(key) : -1;
-        if (keyIndex >= 0)
-        {
-            if (!computerKeyboardNotesDown[static_cast<size_t>(keyIndex)])
-            {
-                computerKeyboardNotesDown[static_cast<size_t>(keyIndex)] = true;
-                const int note = computerKeyboardNoteForIndex(keyIndex);
-                computerKeyboardActiveNotes[static_cast<size_t>(keyIndex)] = note;
-                processorRef.beginComputerKeyboardNote(note, 0.82f);
-            }
-            return true;
-        }
     }
     return false;
 }
@@ -2888,75 +2880,43 @@ bool MainPanel::isTextEditingFocus() const
     return false;
 }
 
-int MainPanel::computerKeyIndexFor(const juce::KeyPress& key) const
+// Reconcile note/octave state from the live PHYSICAL key state.
+//   allowStart=true  (keyPressed, focus-scoped): begin notes + apply octave edges.
+//   allowStart=false (poll): release-only — never begins a note from the global
+//   key read, so an unfocused editor can't pick up the host's keystrokes; key-UP
+//   (and octave-flag clearing) is still detected.
+// Returns true if any mapped physical key (note or octave) is currently held.
+bool MainPanel::scanComputerKeyboard(bool allowStart)
 {
     static_assert (static_cast<int>(sizeof(kComputerKeyboardNoteKeys) / sizeof(kComputerKeyboardNoteKeys[0]))
                        == kComputerKeyboardKeyCount,
                    "kComputerKeyboardNoteKeys length must equal kComputerKeyboardKeyCount "
                    "(computerKeyboardNotesDown/ActiveNotes are sized by it).");
-    const juce_wchar c = juce::CharacterFunctions::toLowerCase(key.getTextCharacter());
-    for (int i = 0; i < static_cast<int>(sizeof(kComputerKeyboardNoteKeys) / sizeof(kComputerKeyboardNoteKeys[0])); ++i)
-        if (c == kComputerKeyboardNoteKeys[i])
-            return i;
-    return -1;
-}
+    bool anyDown = false;
 
-int MainPanel::computerKeyboardNoteForIndex(int keyIndex) const
-{
-    return kComputerKeyboardBaseMidiNote + computerKeyboardOctaveOffset * 12 + keyIndex;
-}
-
-juce::String MainPanel::computerKeyboardBaseNoteName() const
-{
-    return juce::MidiMessage::getMidiNoteName(computerKeyboardNoteForIndex(0), true, true, 4);
-}
-
-juce::String MainPanel::computerKeyboardStatusText() const
-{
-    // Explicit UTF-8 bytes (ö ä ü) + fromUTF8 → encoding-independent, no mojibake.
-    return juce::String::fromUTF8 ("Kbd on: y/x oct, awsedftgzhujkolp"
-                                   "\xc3\xb6" "\xc3\xa4" "\xc3\xbc" "#+ from ")
-           + computerKeyboardBaseNoteName();
-}
-
-void MainPanel::pollComputerKeyboard()
-{
-    if (!computerKeyboardEnabled || isTextEditingFocus()
-        || settingsVisible || manualVisible || presetManagerVisible || seqLibraryVisible)
-    {
-        releaseComputerKeyboardNotes();
-        computerKeyboardOctaveDownKeyDown = false;
-        computerKeyboardOctaveUpKeyDown = false;
-        return;
-    }
-
-    const auto isCharDown = [] (char keyChar)
-    {
-        const int lower = static_cast<int>(keyChar);
-        const int upper = static_cast<int>(juce::CharacterFunctions::toUpperCase(keyChar));
-        return juce::KeyPress::isKeyCurrentlyDown(lower)
-            || juce::KeyPress::isKeyCurrentlyDown(upper);
-    };
-
-    const bool octaveDown = isCharDown('y');
-    if (octaveDown && !computerKeyboardOctaveDownKeyDown)
+    // Octave: flags always track (so a release re-arms the edge); shift only when
+    // allowed to start (i.e. from the focus-scoped keyPressed path).
+    const bool octaveDown = t5::physicalKeyDown(kComputerKeyboardOctaveDownKey);
+    if (octaveDown && !computerKeyboardOctaveDownKeyDown && allowStart)
         shiftComputerKeyboardOctave(-1);
     computerKeyboardOctaveDownKeyDown = octaveDown;
+    anyDown |= octaveDown;
 
-    const bool octaveUp = isCharDown('x');
-    if (octaveUp && !computerKeyboardOctaveUpKeyDown)
+    const bool octaveUp = t5::physicalKeyDown(kComputerKeyboardOctaveUpKey);
+    if (octaveUp && !computerKeyboardOctaveUpKeyDown && allowStart)
         shiftComputerKeyboardOctave(1);
     computerKeyboardOctaveUpKeyDown = octaveUp;
+    anyDown |= octaveUp;
 
-    for (int i = 0; i < static_cast<int>(sizeof(kComputerKeyboardNoteKeys) / sizeof(kComputerKeyboardNoteKeys[0])); ++i)
+    for (int i = 0; i < kComputerKeyboardKeyCount; ++i)
     {
-        const int lower = static_cast<int>(kComputerKeyboardNoteKeys[i]);
-        const int upper = static_cast<int>(juce::CharacterFunctions::toUpperCase(kComputerKeyboardNoteKeys[i]));
-        const bool down = juce::KeyPress::isKeyCurrentlyDown(lower)
-                       || juce::KeyPress::isKeyCurrentlyDown(upper);
+        const bool down = t5::physicalKeyDown(kComputerKeyboardNoteKeys[i]);
+        anyDown |= down;
 
         if (down == computerKeyboardNotesDown[static_cast<size_t>(i)])
             continue;
+        if (down && !allowStart)
+            continue;   // release-only path: don't begin notes
 
         computerKeyboardNotesDown[static_cast<size_t>(i)] = down;
         if (down)
@@ -2973,6 +2933,45 @@ void MainPanel::pollComputerKeyboard()
             computerKeyboardActiveNotes[static_cast<size_t>(i)] = -1;
         }
     }
+    return anyDown;
+}
+
+int MainPanel::computerKeyboardNoteForIndex(int keyIndex) const
+{
+    return kComputerKeyboardBaseMidiNote + computerKeyboardOctaveOffset * 12 + keyIndex;
+}
+
+juce::String MainPanel::computerKeyboardBaseNoteName() const
+{
+    return juce::MidiMessage::getMidiNoteName(computerKeyboardNoteForIndex(0), true, true, 4);
+}
+
+juce::String MainPanel::computerKeyboardStatusText() const
+{
+    // Layout-agnostic: keys map by physical position, so name rows, not glyphs.
+    return "Kbd on: home row = white keys, row above = black, bottom-left = octave -/+, from "
+           + computerKeyboardBaseNoteName();
+}
+
+void MainPanel::pollComputerKeyboard()
+{
+    if (!computerKeyboardEnabled || isTextEditingFocus()
+        || settingsVisible || manualVisible || presetManagerVisible || seqLibraryVisible
+        || !juce::Process::isForegroundProcess())
+    {
+        releaseComputerKeyboardNotes();
+        computerKeyboardOctaveDownKeyDown = false;
+        computerKeyboardOctaveUpKeyDown = false;
+        return;
+    }
+
+    // Release-only reconcile (allowStart=false): note-ON is the focus-scoped
+    // keyPressed path. The poll MUST NOT begin notes — t5::physicalKeyDown is a
+    // GLOBAL read, so starting here would pick up the host's / another app's
+    // keystrokes. Intended consequence: a note key still physically held across a
+    // focus-loss/disable is released by the guard above and stays silent until
+    // re-pressed. Do NOT "fix" that by starting notes here — it reopens the leak.
+    scanComputerKeyboard(false);
 }
 
 void MainPanel::releaseComputerKeyboardNotes()

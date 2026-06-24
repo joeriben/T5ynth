@@ -159,6 +159,7 @@ target_sources(T5ynth PRIVATE
 
     # GUI
     src/gui/MainPanel.cpp
+    src/gui/PhysicalKeyState.cpp
     src/gui/PromptPanel.cpp
     src/gui/SynthPanel.cpp
     src/gui/FxPanel.cpp
