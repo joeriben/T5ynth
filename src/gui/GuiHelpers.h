@@ -2002,6 +2002,62 @@ public:
 };
 
 /**
+ * Padlock toggle for the LFO Free/Trig (note-retrigger) phase mode. Outlined glyph
+ * in the same surface+border box as ClockButtonLnF so the two icon-toggles read as
+ * a matched pair (the lock sits directly above the sync clock in the easy view).
+ * The shape carries the state — shackle ajar = Free (free-running phase), shackle
+ * seated = Trig (phase reset on each note-on) — and the tint follows
+ * getToggleState(): dim when free, module-accent when locked.
+ */
+class LockButtonLnF : public juce::LookAndFeel_V4
+{
+public:
+    juce::Colour lockTint { kLfoCol };   // locked / Trig accent
+    juce::Colour offFill  { kSurface };
+
+    void drawButtonBackground(juce::Graphics& g, juce::Button& b,
+                              const juce::Colour&, bool over, bool down) override
+    {
+        auto base = offFill;
+        if (down)      base = base.darker(0.15f);
+        else if (over) base = base.brighter(0.10f);
+        g.setColour(base);
+        g.fillRect(b.getLocalBounds());
+        g.setColour(kBorder);
+        g.drawRect(b.getLocalBounds(), 1);
+    }
+
+    void drawButtonText(juce::Graphics& g, juce::TextButton& b,
+                        bool /*over*/, bool /*down*/) override
+    {
+        const bool locked = b.getToggleState();   // Trig
+
+        // 16-unit viewport: body (lower rounded rect) + shackle (upper ∩). Both
+        // states share the SAME body, left arm and top arc — only the right arm
+        // differs (seated into the body = locked/Trig, lifted clear = open/Free).
+        // The lifted arm stays within the body's x-extent and below the arc apex,
+        // so the path's bounds are identical across states and the glyph does not
+        // shift/rescale under getTransformToScaleToFit when toggled.
+        constexpr float hp = juce::MathConstants<float>::halfPi;
+        juce::Path p;
+        p.addRoundedRectangle(3.6f, 7.6f, 8.8f, 5.8f, 1.2f);   // body
+        p.startNewSubPath(5.6f, 7.6f);
+        p.lineTo(5.6f, 5.1f);                                  // left arm (hinge)
+        p.addCentredArc(8.0f, 5.1f, 2.4f, 2.4f, 0.0f, -hp, hp, false);
+        if (locked) p.lineTo(10.4f, 7.6f);                     // seated → locked
+        else        p.lineTo(11.4f, 3.4f);                     // lifted out → open
+
+        // Tint tracks STATE only (dim = Free, accent = Trig); the hover cue is the
+        // background brighten in drawButtonBackground, so the icon never paints the
+        // Trig accent while Free.
+        auto bounds = b.getLocalBounds().toFloat().reduced(3.0f);
+        g.setColour(locked ? lockTint : kDim);
+        g.strokePath(p, juce::PathStrokeType(1.4f),
+                     p.getTransformToScaleToFit(bounds, true));
+    }
+};
+
+/**
  * Vertical slider whose value axis is flipped so the MINIMUM sits at the top.
  *
  * Used for the A↔B blend slider: genAlpha runs −2 (toward A) … +2 (toward B), and

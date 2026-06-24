@@ -230,6 +230,7 @@ private:
     //   button-first, LnF-second. Never call setLookAndFeel(nullptr) on
     //   the buttons during teardown.
     ClockButtonLnF lfoClockLnf, driftClockLnf;
+    LockButtonLnF  lfoModeLnf;   // Free/Trig padlock (LFO only; Drift has no mode)
 
     // ── LFO sections ──
     //   modeHidden + clockModeHidden are APVTS-attached (not addAndMakeVisible'd);

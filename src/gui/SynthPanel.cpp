@@ -281,8 +281,8 @@ void SynthPanel::initLfo(LfoSection& lfo, const juce::String& name,
         btn.onClick = [&lfo, i] { lfo.modeHidden.setSelectedId(i + 1); };
         addAndMakeVisible(btn);
     }
-    lfo.modeBtn.setColour(juce::TextButton::buttonColourId, kSurface);
-    lfo.modeBtn.setColour(juce::TextButton::textColourOffId, kDim);
+    lfo.modeBtn.setLookAndFeel(&lfoModeLnf);   // padlock: open = Free, closed = Trig
+    lfo.modeBtn.setTooltip("LFO phase: unlocked = free-running, locked = reset on each note-on");
     lfo.modeBtn.setClickingTogglesState(false);
     lfo.modeBtn.onClick = [&lfo] {
         const int cur = lfo.modeHidden.getSelectedId();
@@ -290,9 +290,9 @@ void SynthPanel::initLfo(LfoSection& lfo, const juce::String& name,
     };
     lfo.modeHidden.onChange = [&lfo] {
         const bool trig = lfo.modeHidden.getSelectedId() == 2;
-        const bool wide = lfo.modeBtn.getWidth() >= 56;
-        lfo.modeBtn.setButtonText(wide ? (trig ? "Trigger" : "Free")
-                                       : (trig ? "T" : "F"));
+        // Drive the padlock: locked (closed) = Trig, open = Free.
+        lfo.modeBtn.setToggleState(trig, juce::dontSendNotification);
+        lfo.modeBtn.repaint();
         for (int i = 0; i < kNumLfoModeBtns; ++i)
         {
             auto& btn = lfo.modeBtns[static_cast<size_t>(i)];
@@ -2440,6 +2440,8 @@ void SynthPanel::layoutLfoEasy(LfoSection& lfo, juce::Rectangle<int> area, float
     const int controlGap = juce::jmax(7, juce::roundToInt(f * 0.55f));
     const float topFontSize = juce::jmax(kUiControlFontMin, juce::jmin(13.0f, static_cast<float>(rowH) * 0.58f));
 
+    const int syncNudge = juce::jmax(2, juce::roundToInt(f * 0.18f));
+
     auto headerRow = area.removeFromTop(rowH);
     const int headerW = juce::jmax(54, measureTextWidth(lfo.header.getText(), topFontSize) + 18);
     lfo.header.setFont(juce::FontOptions(topFontSize, juce::Font::bold));
@@ -2449,30 +2451,33 @@ void SynthPanel::layoutLfoEasy(LfoSection& lfo, juce::Rectangle<int> area, float
     // amber chip whose brightness-ink rule disagreed with Drift's white.
     labelAsHeaderBand(lfo.header, kLfoCol);
     lfo.header.setBounds(headerRow.removeFromLeft(juce::jmin(headerW, headerRow.getWidth())));
+    // Free/Trig padlock sits at the header's right edge — directly above the sync
+    // clock — so the control row below stays a clean [target][wave][clock], pixel-
+    // identical to Drift. (Packed into the control row it was a 4th item that
+    // overcrowded the column and shoved the sync clock against/past the frame.)
+    const int lockW = juce::jmin(rowH, headerRow.getWidth());
+    if (lockW > 0)
+        lfo.modeBtn.setBounds(headerRow.removeFromRight(lockW).translated(-syncNudge, 0));
+    lfo.modeHidden.onChange();
     area.removeFromTop(rowGap);
 
     auto top = area.removeFromTop(rowH);
     const int targetW = choiceBoxWidthFor(LfoTarget::kEntries, f, juce::roundToInt(f * 8.4f));
     const int waveW = choiceBoxWidthFor(LfoWave::kEntries, f, juce::roundToInt(f * 4.8f));
-    const int modeW = rowH;   // square Free/Trig toggle ("F"/"T"), grouped left of the clock
     const int syncW = rowH;
 
     const std::vector<ResponsiveStripItem> rowItems {
         { targetW, juce::roundToInt(f * 5.4f), 0, true, ResponsiveStripFallback::none },
         { waveW,   juce::roundToInt(f * 3.7f), 0, false, ResponsiveStripFallback::none },
-        { modeW,   rowH, 0, false, ResponsiveStripFallback::none },
         { syncW,   rowH, 0, false, ResponsiveStripFallback::none }
     };
     auto rowLayout = layoutResponsiveStrip(top, rowItems, controlGap);
 
     lfo.targetBox.setBounds(rowLayout.bounds[0]);
     lfo.waveBox.setBounds(rowLayout.bounds[1]);
-    lfo.modeBtn.setBounds(rowLayout.bounds[2]);
-    const int syncNudge = juce::jmax(2, juce::roundToInt(f * 0.18f));
-    lfo.clockBtn.setBounds(rowLayout.bounds[3].translated(-syncNudge, 0));
+    lfo.clockBtn.setBounds(rowLayout.bounds[2].translated(-syncNudge, 0));
     lfo.waveSwitchBounds = {};
     lfo.modeSwitchBounds = {};
-    lfo.modeHidden.onChange();
 
     area.removeFromTop(rowGap);
 
