@@ -346,7 +346,6 @@ public:
         std::stable_sort(allEntries.begin(), allEntries.end(),
             [](const Entry& a, const Entry& b)
             {
-                if (a.bank != b.bank) return a.bank.compareIgnoreCase(b.bank) < 0;
                 return a.name.compareIgnoreCase(b.name) < 0;
             });
 
