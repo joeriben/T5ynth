@@ -2,7 +2,7 @@
 
 namespace
 {
-    // Tape character (Tape2/Tape3) — all fixed/auto, no user parameter.
+    // Tape character (Tape mode) — all fixed/auto, no user parameter.
     // ONE capstan/transport speed wobble m(t) ~ 0, applied MULTIPLICATIVELY to
     // every head (delay_k = (k+1)*base*(1+m)): the far head reads tape recorded
     // (k+1)*D1 ago, so over its longer record->play gap the speed drifted further
@@ -24,7 +24,7 @@ namespace
     constexpr float  kPanWidth   = 0.75f;    // multi-head stereo spread (0..1)
 
     // Buffer capacity headroom: holds the longest single tap (the 5 s processor
-    // clamp) and Tape3's 3rd head; the tape base is capped to keep 3·base inside.
+    // clamp) and the tape 3rd head; the tape base is capped to keep 3·base inside.
     constexpr double kBufferSeconds = 6.2;
 
     inline float onePoleCoeff(double fc, double sr)
@@ -93,8 +93,8 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
     const float dryGain = 1.0f - wetMix;
     const float smoothCoeff = 1.0f - std::exp(-1.0f / static_cast<float>(sr * 0.005));
 
-    const int  heads = (mode == kTape3) ? 3 : (mode == kTape2) ? 2 : 1;
-    const bool isTape = (mode == kTape2 || mode == kTape3);
+    const int  heads = (mode == kTape) ? 3 : 1;
+    const bool isTape = (mode == kTape);
     const bool isPingPong = (mode == kPingPong) && stereo;
 
     // Constant-power pan gains for tape heads, spread evenly across [-w, +w].

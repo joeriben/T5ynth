@@ -13,12 +13,11 @@
  *                LEFT line only; feedback cross-coupled (left output → right
  *                line, right output → left line). A mono source bounces cleanly
  *                L/R/L/R at the set time; the dry stays put.
- *   3 Tape2    : 2-head tape echo. Read taps at T and 2T summed and spread
- *                across the field; feedback from the long head through a
- *                high-pass + damping low-pass + soft tanh saturation, with a
- *                wow+flutter read-position drift scaled to the delay time.
- *   4 Tape3    : as Tape2 but three heads at T, 2T, 3T — the Roland RE-201's
- *                1:2:3 head spacing.
+ *   3 Tape     : 3-head tape echo (Roland RE-201's 1:2:3 head spacing). Read
+ *                taps at T, 2T, 3T summed and spread across the field; feedback
+ *                from the long head through a high-pass + damping low-pass + soft
+ *                tanh saturation, with a wow+flutter read-position drift applied
+ *                multiplicatively per head (excursion + pitch scale 1:2:3).
  *
  * Common controls: time (ms, smoothed), feedback, dry/wet mix, damping low-pass
  * (0 = bright 20kHz, 1 = dark 500Hz). Mix is a true crossfade: at mix=1 the dry
@@ -46,14 +45,14 @@ public:
     void setDamp(float d);
 
     /** Routing/voicing mode = DelayType value (1=Digital, 2=PingPong,
-        3=Tape2, 4=Tape3). Off (0) is handled by the caller. */
+        3=Tape). Off (0) is handled by the caller. */
     void setMode(int delayType);
 
     float getMix() const { return wetMix; }
 
 private:
     // Local mirror of BlockParams DelayType (avoids including BlockParams here).
-    enum Mode { kDigital = 1, kPingPong = 2, kTape2 = 3, kTape3 = 4 };
+    enum Mode { kDigital = 1, kPingPong = 2, kTape = 3 };
 
     // Capacity is set SR-aware in prepare(); the constructor value is a
     // placeholder reallocated before any audio runs.
@@ -75,7 +74,7 @@ private:
     float maxDelaySamples = 0.0f;        // read-position guard (set in prepare)
     bool prepared = false;
 
-    // Tape character state (Tape2/Tape3 only)
+    // Tape character state (Tape mode only)
     float tapeHpState = 0.0f;            // one-pole high-pass state
     float wow1Phase = 0.0f, wow2Phase = 0.0f, flutPhase = 0.0f;
 

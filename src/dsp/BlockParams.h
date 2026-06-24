@@ -624,16 +624,17 @@ namespace FilterWarpStyle {
 // are serialised by key (choiceToKey/choiceFromKey), so ordering is free — only
 // the key→DSP mapping must stay stable. DSP voicing lives in dsp/DelayLine.cpp.
 namespace DelayType {
-    enum : int { Off = 0, Digital = 1, PingPong = 2, Tape2 = 3, Tape3 = 4 };
+    enum : int { Off = 0, Digital = 1, PingPong = 2, Tape = 3 };
     static constexpr ChoiceEntry kEntries[] = {
         { "off",      "Off"       },
         { "stereo",   "Digital"   },   // clean dual-mono; key kept for preset back-compat
         { "pingpong", "Ping-Pong" },   // true ping-pong (mono-sum in, cross feedback)
-        { "tape2",    "Tape 2"    },   // 2-head tape echo (heads at T, 2T)
-        { "tape3",    "Tape 3"    }    // 3-head tape echo (RE-201 1:2:3 spacing)
+        { "tape3",    "Tape"      }    // 3-head tape echo (RE-201 1:2:3 spacing). Key
+                                       // "tape3" kept for back-compat; the retired 2-head
+                                       // "tape2" folds in on load (see setStateInformation).
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(Tape3 + 1 == kCount, "DelayType out of sync.");
+    static_assert(Tape + 1 == kCount, "DelayType out of sync.");
 }
 
 // ── Reverb type ──

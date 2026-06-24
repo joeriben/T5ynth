@@ -3,13 +3,12 @@
 Delay-mode audition mock — exact algorithm prototype for the T5ynth delay
 rework, rendered to WAV so we judge the *sound* before writing C++.
 
-Modes (final candidate set, mediocre St/saturation-Tape dropped):
+Modes (the redundant 2-head Tape2 was dropped; the single Tape is the RE-201):
   Digital  : clean dual-mono, per-channel LP-damped feedback (today's baseline)
   PingPong : true ping-pong — input summed to mono into the LEFT line,
              cross-coupled feedback (L->R->L). Clean stereo bounce.
-  Tape2    : 2-head tape echo, heads at T, 2T (RE-201 1:2 spacing), panned,
+  Tape     : 3-head tape echo, heads at T, 2T, 3T (RE-201 1:2:3), spread-panned,
              wow+flutter + soft saturation + HF loss (Space-Echo character)
-  Tape3    : 3-head tape echo, heads at T, 2T, 3T (RE-201 1:2:3), spread-panned
 
 Run with the project venv:
   .venv/bin/python tools/delay_audition.py
@@ -71,7 +70,7 @@ def render(mode, dryL, dryR, T_ms=375.0, fb=0.45, mix=0.6, damp=0.45):
     wow1 = wow2 = flut = 0.0
     dwow1 = 2*math.pi*WOW1_HZ/SR; dwow2 = 2*math.pi*WOW2_HZ/SR; dflut = 2*math.pi*FLUT_HZ/SR
 
-    heads = {"Tape2": 2, "Tape3": 3}.get(mode, 1)
+    heads = {"Tape": 3}.get(mode, 1)
     pans = []
     if heads >= 2:
         for k in range(heads):
@@ -150,8 +149,8 @@ def main():
     pluck[int(0.18*SR):] = 0.0    # one short note, then silence -> hear the tail
 
     print("Impulse-response tap timing (T=375ms; expect Digital@375, "
-          "PingPong L@375/R@750, Tape3@375/750/1125):")
-    for mode in ["Digital", "PingPong", "Tape2", "Tape3"]:
+          "PingPong L@375/R@750, Tape@375/750/1125):")
+    for mode in ["Digital", "PingPong", "Tape"]:
         L,R = render(mode, imp, imp.copy(), mix=1.0, fb=0.5)
         tap_report(mode, L, R)
         write_wav(os.path.join(OUT, f"{mode}_impulse.wav"), L, R)

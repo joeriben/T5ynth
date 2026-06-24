@@ -28,7 +28,7 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     paintSectionHeader(delayHeader, "DELAY", kFxCol);
     addAndMakeVisible(delayHeader);
 
-    // Delay type switchbox: OFF / Digital / Ping-Pong / Tape2 / Tape3
+    // Delay type switchbox: OFF / Digital / Ping-Pong / Tape
     juce::StringArray delayTypeItems;
     for (const auto& e : DelayType::kEntries) delayTypeItems.add(e.label);
     delayTypeHidden.addItemList(delayTypeItems, 1);
@@ -39,7 +39,7 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
         updateVisibility();
     };
 
-    static const char* delayLabels[] = {"OFF", "Dig", "PP", "Tp2", "Tp3"};
+    static const char* delayLabels[] = {"OFF", "Dig", "PP", "Tape"};
     for (int i = 0; i < kNumDelayBtns; ++i)
     {
         delayTypeBtns[i].setButtonText(delayLabels[i]);

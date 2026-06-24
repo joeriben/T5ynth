@@ -5325,8 +5325,13 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
     // ── Effects ──
     if (auto* fx = root->getProperty("effects").getDynamicObject())
     {
+        // Back-compat: the retired 2-head "tape2" mode folds into the single
+        // "Tape" (3-head, key "tape3") — remap so old presets don't fall back to
+        // Off (choiceFromKey returns 0 for an unknown key).
+        juce::String delayTypeKey = fx->getProperty("delayType").toString();
+        if (delayTypeKey == "tape2") delayTypeKey = "tape3";
         setParam(parameters, PID::delayType,
-                 static_cast<float>(choiceFromKey(fx->getProperty("delayType").toString(), DelayType::kEntries)));
+                 static_cast<float>(choiceFromKey(delayTypeKey, DelayType::kEntries)));
         setParam(parameters, PID::delayTime, static_cast<float>(fx->getProperty("delayTimeMs")));
         setParam(parameters, PID::delayFeedback, static_cast<float>(fx->getProperty("delayFeedback")));
         setParam(parameters, PID::delayMix, static_cast<float>(fx->getProperty("delayMix")));
