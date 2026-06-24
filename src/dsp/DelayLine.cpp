@@ -26,6 +26,19 @@ namespace
                                                // intrinsic baseline HF loss that
                                                // compounds per pass (vs Digital's
                                                // fully-open 20 kHz). Auditioned.
+    constexpr float  kTapePbFloorHz = 750.0f;  // tape PLAYBACK rolloff floor (Damp=1):
+                                               // higher than the feedback's 500 Hz so
+                                               // cranking Damp doesn't double-crush the
+                                               // top (playback + feedback both rolling
+                                               // to 500 was too dark). Auditioned.
+
+    // BBD (bucket-brigade) character — fixed/auto, no extra user parameter.
+    constexpr float  kBbdReconTopHz = 3000.0f; // recon-LP top at Damp=0: dark, steep
+                                               // 3-pole reconstruction (the BBD voice).
+    constexpr float  kBbdHpHz       = 180.0f;  // mid-focus high-pass (thins the lows)
+    constexpr float  kBbdDrive      = 2.2f;    // gentle bucket-brigade grit
+    constexpr float  kBbdClockHz    = 0.6f;    // subtle clock-drift rate
+    constexpr float  kBbdClockDepth = 0.0006f; // clock-drift depth (cleaner than tape)
 
     // Buffer capacity headroom: holds the longest single tap (the 5 s processor
     // clamp) and the tape 3rd head; the tape base is capped to keep 3·base inside.
@@ -64,6 +77,7 @@ void T5ynthDelayLine::prepare(double sampleRate, int samplesPerBlock)
     targetFeedback = feedback;
 
     updateDampCoeffs();
+    updateTapePbCoeffs();
     // Settle each filter's internal order off-thread to match the assigned
     // 2nd-order coefficients. Assigning .coefficients is only a pointer swap and
     // does NOT update Filter::order, so without this the first audio-thread
@@ -71,9 +85,20 @@ void T5ynthDelayLine::prepare(double sampleRate, int samplesPerBlock)
     // BLOCKING bug class). prepareToPlay calls prepare() but never reset().
     dampFilterL.reset();
     dampFilterR.reset();
+    tapePbFilterL.reset();
+    tapePbFilterR.reset();
 
     tapeHpState = 0.0f;
     wow1Phase = wow2Phase = flutPhase = 0.0f;
+
+    // BBD: the recon cascade tracks Damp (rebuilt in recomputeDamp); seed its
+    // coeff at the current baseline and the fixed mid-focus HP here. One-pole
+    // coeffs only — no allocation, safe to recompute on the audio thread.
+    bbdReconCoeff = onePoleCoeff(bbdReconFreq, sr);
+    bbdHpCoeff    = onePoleCoeff(kBbdHpHz, sr);
+    bbdRecon1 = bbdRecon2 = bbdRecon3 = 0.0f;
+    bbdHpState = 0.0f;
+    bbdClockPhase = 0.0f;
 
     prepared = true;
 }
@@ -99,6 +124,7 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
 
     const int  heads = (mode == kTape) ? 3 : 1;
     const bool isTape = (mode == kTape);
+    const bool isBbd  = (mode == kBbd);
     const bool isPingPong = (mode == kPingPong) && stereo;
 
     // Constant-power pan gains for tape heads, spread evenly across [-w, +w].
@@ -124,6 +150,7 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
     const float dWow2 = twoPi * kWow2Hz / static_cast<float>(sr);
     const float dFlut = twoPi * kFlutHz / static_cast<float>(sr);
     const float aHP   = onePoleCoeff(kTapeHpHz, sr);
+    const float dBbdClock = twoPi * kBbdClockHz / static_cast<float>(sr);
 
     auto* dataL = buffer.getWritePointer(0);
     auto* dataR = stereo ? buffer.getWritePointer(1) : nullptr;
@@ -170,6 +197,14 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
                 if (last) longest = tap;
             }
 
+            // Playback rolloff: a real playback head loses HF on EVERY repeat, so
+            // roll off what we HEAR (incl. the first repeat) — the darkening no
+            // longer arrives only via feedback accumulation ("very late"). The
+            // feedback path below uses the raw long head, so its own cumulative
+            // damping is unchanged; this only shapes the output taps.
+            wetL = tapePbFilterL.processSample(wetL);
+            wetR = tapePbFilterR.processSample(wetR);
+
             // Feedback from the long head: high-pass → damping low-pass → soft
             // saturation. tanh(x·drive)/drive keeps small-signal gain ≈ 1 so the
             // feedback feel is unchanged, while hot signals self-limit (tape).
@@ -183,6 +218,34 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
             dataL[i] = dryL * dryGain + wetL * wetMix;
             if (stereo)
                 dataR[i] = dryR * dryGain + wetR * wetMix;
+        }
+        else if (isBbd)
+        {
+            // Bucket-brigade: single tap, a subtle clock-drift warble on the read,
+            // then a steep 3-pole reconstruction LP + mid-focus HP (the dark BBD
+            // voice), with gentle companding grit in the feedback. Mono → centred.
+            const float mono = stereo ? 0.5f * (dryL + dryR) : dryL;
+
+            bbdClockPhase += dBbdClock;
+            if (bbdClockPhase > twoPi) bbdClockPhase -= twoPi;
+            const float dd = juce::jlimit(1.0f, maxDelaySamples,
+                                          clampedT * (1.0f + std::sin(bbdClockPhase) * kBbdClockDepth));
+            const float raw = delayLine.popSample(0, dd, true);
+
+            // 3 cascaded one-poles = steep, dark reconstruction; then a mild HP.
+            bbdRecon1 += bbdReconCoeff * (raw       - bbdRecon1);
+            bbdRecon2 += bbdReconCoeff * (bbdRecon1 - bbdRecon2);
+            bbdRecon3 += bbdReconCoeff * (bbdRecon2 - bbdRecon3);
+            bbdHpState += bbdHpCoeff   * (bbdRecon3 - bbdHpState);
+            const float wet = bbdRecon3 - bbdHpState;
+
+            // Gentle bucket-brigade grit on the band-limited feedback.
+            const float f = std::tanh(wet * feedback * kBbdDrive) / kBbdDrive;
+            delayLine.pushSample(0, mono + f);
+
+            dataL[i] = dryL * dryGain + wet * wetMix;
+            if (stereo)
+                dataR[i] = dryR * dryGain + wet * wetMix;
         }
         else if (isPingPong)
         {
@@ -230,8 +293,13 @@ void T5ynthDelayLine::reset()
     delayLine.reset();
     dampFilterL.reset();
     dampFilterR.reset();
+    tapePbFilterL.reset();
+    tapePbFilterR.reset();
     tapeHpState = 0.0f;
     wow1Phase = wow2Phase = flutPhase = 0.0f;
+    bbdRecon1 = bbdRecon2 = bbdRecon3 = 0.0f;
+    bbdHpState = 0.0f;
+    bbdClockPhase = 0.0f;
     silentOutputBlocks = 0;
 }
 
@@ -281,17 +349,51 @@ void T5ynthDelayLine::recomputeDamp()
     // stay open (20 kHz) at Damp=0, where Damp is the only darkening source. Damp
     // then trims down toward 500 Hz from whichever top.
     //
-    // The processor calls setDamp()/setMode() every block; makeLowPass() (a heap
-    // allocation) runs only when the resolved frequency actually changes — the
-    // equality gate below is exact for a steady param/mode, so an idle block
-    // rebuilds nothing.
+    // The processor calls setDamp()/setMode() every block; recomputeDamp() runs
+    // only when dampAmount or mode actually changed (both setters gate first), and
+    // the equality gates below are exact for a steady value — so an idle block
+    // rebuilds no filter and never allocates.
+
+    // BBD: the reconstruction cascade tracks Damp from its ~3kHz top toward 500Hz.
+    // One-pole coeff only — no makeLowPass alloc, so this branch is allocation-free.
+    if (mode == kBbd)
+    {
+        const float f = kBbdReconTopHz * std::pow(500.0f / kBbdReconTopHz, dampAmount);
+        if (f == bbdReconFreq)
+            return;
+        bbdReconFreq = f;
+        if (prepared)
+            bbdReconCoeff = onePoleCoeff(f, sr);
+        return;
+    }
+
+    // Feedback damping low-pass (Digital/PingPong/Tape). Per-mode top: Tape starts
+    // at an intrinsic baseline rolloff (kTapeDampTopHz) that COMPOUNDS through the
+    // feedback loop, so tape repeats darken across generations even at Damp=0 — the
+    // defining tape behaviour. Digital/PingPong stay open (20kHz) at Damp=0, where
+    // Damp is the only darkening source. Both trim toward 500 Hz.
     const float topHz = (mode == kTape) ? kTapeDampTopHz : 20000.0f;
     const float newFreq = topHz * std::pow(500.0f / topHz, dampAmount);
-    if (newFreq == dampFreq)
-        return;
-    dampFreq = newFreq;
-    if (prepared)
-        updateDampCoeffs();
+    if (newFreq != dampFreq)
+    {
+        dampFreq = newFreq;
+        if (prepared)
+            updateDampCoeffs();
+    }
+
+    // Tape ALSO rolls off the playback (every repeat, incl. the first). Tracks Damp
+    // but bottoms at kTapePbFloorHz (> the feedback's 500 Hz) so cranking Damp keeps
+    // the per-repeat playback from double-crushing the top with the feedback.
+    if (mode == kTape)
+    {
+        const float pbFreq = kTapeDampTopHz * std::pow(kTapePbFloorHz / kTapeDampTopHz, dampAmount);
+        if (pbFreq != tapePbFreq)
+        {
+            tapePbFreq = pbFreq;
+            if (prepared)
+                updateTapePbCoeffs();
+        }
+    }
 }
 
 void T5ynthDelayLine::updateDampCoeffs()
@@ -300,4 +402,12 @@ void T5ynthDelayLine::updateDampCoeffs()
     auto coeffs = juce::dsp::IIR::Coefficients<float>::makeLowPass(sr, dampFreq, 0.707f);
     dampFilterL.coefficients = coeffs;
     dampFilterR.coefficients = coeffs;
+}
+
+void T5ynthDelayLine::updateTapePbCoeffs()
+{
+    // Same 2nd-order shape as the feedback damp, at the playback floor cutoff.
+    auto coeffs = juce::dsp::IIR::Coefficients<float>::makeLowPass(sr, tapePbFreq, 0.707f);
+    tapePbFilterL.coefficients = coeffs;
+    tapePbFilterR.coefficients = coeffs;
 }

@@ -43,6 +43,12 @@ TAPE_DAMP_TOP_HZ = 9000.0  # tape feedback-LP ceiling at Damp=0: an intrinsic
                            # baseline HF loss that COMPOUNDS per pass (Digital
                            # stays open at 20 kHz). Damp trims darker from here.
 
+# ---- BBD (bucket-brigade / analog) — the dark, gritty single-tap archetype ----
+BBD_RECON_HZ  = 3000.0     # steep (3-pole) reconstruction LP = the dark BBD top
+BBD_HP_HZ     = 180.0      # mild HP: BBDs are mid-focused, thin the lows
+BBD_DRIVE     = 2.2        # gentle bucket-brigade grit (a touch more than tape)
+BBD_WOW_DEPTH = 0.0006     # subtle clock drift (single slow sine; cleaner than tape)
+
 def damp_fc(d, mode=None):  # matches DelayLine::recomputeDamp per-mode mapping
     top = TAPE_DAMP_TOP_HZ if mode == "Tape" else 20000.0
     return top * (500.0/top) ** d
@@ -61,8 +67,26 @@ def const_power_pan(p):    # p in [-1,1] -> (gL,gR)
     t = (p + 1.0) * 0.25 * math.pi
     return math.cos(t), math.sin(t)
 
+def make_lp_biquad(fc, sr, Q=0.70710678):
+    # RBJ low-pass biquad — matches juce::dsp::IIR::makeLowPass(sr, fc, Q), so the
+    # mock's tape damping is the SAME 2-pole/12dB-oct the plugin ships (the old
+    # one-pole here was 6dB/oct and under-sold how dark it actually gets).
+    w0 = 2*math.pi*fc/sr
+    cosw, sinw = math.cos(w0), math.sin(w0)
+    alpha = sinw/(2*Q)
+    b0 = (1-cosw)/2; b1 = 1-cosw; b2 = (1-cosw)/2
+    a0 = 1+alpha;    a1 = -2*cosw; a2 = 1-alpha
+    b0/=a0; b1/=a0; b2/=a0; a1/=a0; a2/=a0
+    s = {"x1":0.0,"x2":0.0,"y1":0.0,"y2":0.0}
+    def proc(x):
+        y = b0*x + b1*s["x1"] + b2*s["x2"] - a1*s["y1"] - a2*s["y2"]
+        s["x2"]=s["x1"]; s["x1"]=x; s["y2"]=s["y1"]; s["y1"]=y
+        return y
+    return proc
+
 # ---- per-mode render --------------------------------------------------------
-def render(mode, dryL, dryR, T_ms=375.0, fb=0.45, mix=0.6, damp=0.45):
+def render(mode, dryL, dryR, T_ms=375.0, fb=0.45, mix=0.6, damp=0.45,
+           playback=False, pb_floor=500.0):
     n = len(dryL)
     T = T_ms * 0.001 * SR
     cap = int(math.ceil(3.2 * T)) + 8         # holds head 3 (3T) + slack
@@ -73,6 +97,15 @@ def render(mode, dryL, dryR, T_ms=375.0, fb=0.45, mix=0.6, damp=0.45):
     outL = np.zeros(n); outR = np.zeros(n)
     wow1 = wow2 = flut = 0.0
     dwow1 = 2*math.pi*WOW1_HZ/SR; dwow2 = 2*math.pi*WOW2_HZ/SR; dflut = 2*math.pi*FLUT_HZ/SR
+    aRecon = one_pole_a(BBD_RECON_HZ); bbd1 = bbd2 = bbd3 = 0.0   # BBD recon cascade
+    aBbdHp = one_pole_a(BBD_HP_HZ);    bbd_hp = 0.0               # BBD mid-focus HP
+    tapeFbBq = make_lp_biquad(damp_fc(damp, "Tape"), SR)         # 2-pole, matches C++
+    # Playback rolloff tracks the knob too, but bottoms out at pb_floor (>= the
+    # feedback's 500 Hz) so cranking Damp doesn't double-crush the top. Feedback
+    # still reaches 500 Hz for the cumulative tail darkening.
+    pb_fc = TAPE_DAMP_TOP_HZ * (pb_floor/TAPE_DAMP_TOP_HZ) ** damp
+    tapePbL = make_lp_biquad(pb_fc, SR)
+    tapePbR = make_lp_biquad(pb_fc, SR)
 
     heads = {"Tape": 3}.get(mode, 1)
     pans = []
@@ -97,7 +130,22 @@ def render(mode, dryL, dryR, T_ms=375.0, fb=0.45, mix=0.6, damp=0.45):
             bR[wp] = lpR
             wl, wr = dl, dr
 
-        else:  # Tape2 / Tape3  (mono tape, panned heads)
+        elif mode == "BBD":   # bucket-brigade: dark steep recon LP + grit, 1 tap
+            mono = 0.5*(dryL[i] + dryR[i])
+            wow1 += dwow1                              # subtle clock drift
+            raw = frac_read(bL, wp, T*(1.0 + math.sin(wow1)*BBD_WOW_DEPTH))
+            # reconstruction filter: 3 cascaded one-poles = steep, dark BBD top
+            bbd1 += aRecon*(raw  - bbd1)
+            bbd2 += aRecon*(bbd1 - bbd2)
+            bbd3 += aRecon*(bbd2 - bbd3)
+            bbd_hp += aBbdHp*(bbd3 - bbd_hp)           # mild HP (mid-focus)
+            wet = bbd3 - bbd_hp
+            # feedback: gentle bucket-brigade grit on the band-limited signal
+            f = math.tanh(wet*fb*BBD_DRIVE)/BBD_DRIVE
+            bL[wp] = mono + f
+            wl = wr = wet                              # mono -> center
+
+        else:  # Tape  (mono tape, panned heads)
             mono = 0.5*(dryL[i] + dryR[i])
             wow1 += dwow1; wow2 += dwow2; flut += dflut
             # ONE shared transport-speed wobble, applied MULTIPLICATIVELY per head
@@ -111,10 +159,15 @@ def render(mode, dryL, dryR, T_ms=375.0, fb=0.45, mix=0.6, damp=0.45):
                 gL, gR = pans[k]
                 wl += tap*gL; wr += tap*gR
                 if k == heads-1: longest = tap
-            # feedback from the long head: HP -> LP -> soft saturation
+            # PLAYBACK rolloff (optional): real tape loses HF on EVERY playback,
+            # so even the first repeat is already dark — not just via feedback
+            # accumulation. Kills the "darkening arrives very late" feel.
+            if playback:
+                wl = tapePbL(wl); wr = tapePbR(wr)
+            # feedback from the long head: HP -> 2-pole LP (matches C++) -> tanh
             f = longest*fb
             hp_lp += aHP*(f - hp_lp); f = f - hp_lp
-            lpL += aLP*(f - lpL); f = lpL
+            f = tapeFbBq(f)
             f = math.tanh(f*TAPE_DRIVE)/TAPE_DRIVE
             bL[wp] = mono + f
 
@@ -159,8 +212,8 @@ def main():
     bright[int(0.22*SR):] = 0.0
 
     print("Impulse-response tap timing (T=375ms; expect Digital@375, "
-          "PingPong L@375/R@750, Tape@375/750/1125):")
-    for mode in ["Digital", "PingPong", "Tape"]:
+          "PingPong L@375/R@750, Tape@375/750/1125, BBD@375 single):")
+    for mode in ["Digital", "PingPong", "Tape", "BBD"]:
         L,R = render(mode, imp, imp.copy(), mix=1.0, fb=0.5)
         tap_report(mode, L, R)
         write_wav(os.path.join(OUT, f"{mode}_impulse.wav"), L, R)
@@ -173,9 +226,31 @@ def main():
     # Digital_bright_ref keeps the top open (no compounding) for the A/B.
     dl, dr = render("Digital", bright, bright.copy(), fb=0.6)
     write_wav(os.path.join(OUT, "Digital_bright_ref.wav"), dl, dr)
+    # BBD (bright source — its dark, steep, gritty tone is the whole point; the
+    # sine pluck can't show it). A/B against Digital_bright_ref (open) and Tape.
+    bl, br = render("BBD", bright, bright.copy(), fb=0.6)
+    write_wav(os.path.join(OUT, "BBD_bright.wav"), bl, br)
+    # Two tape damping structures, A/B (both now 2-pole, = what ships):
+    #   Tape_damp{XX}    = feedback-only (current ship) — repeat 1 is bright, the
+    #                      darkening builds up over repeats -> can feel "very late".
+    #   Tape_pbdamp{XX}  = + playback rolloff — repeat 1 already dark, still
+    #                      compounds. More tape-accurate, darkening arrives sooner.
+    # Three tape damping structures, A/B (all 2-pole, = what ships):
+    #   Tape_damp{XX}    = feedback-only (the OLD ship) — repeat 1 bright, darkening
+    #                      builds up over repeats -> can feel "very late".
+    #   Tape_pbdamp{XX}  = + playback rolloff, floor 500 — repeat 1 already dark but
+    #                      at 70 the playback+feedback double-crush is a bit too dark.
+    #   Tape_pbtame{XX}  = + playback rolloff, floor 750 (SHIPPED) — playback bottoms
+    #                      higher so 70 isn't crushed; feedback still reaches 500 Hz.
     for d in [0.0, 0.35, 0.7]:
+        x = int(round(d*100))
         pl, pr = render("Tape", bright, bright.copy(), fb=0.6, damp=d)
-        write_wav(os.path.join(OUT, f"Tape_damp{int(round(d*100)):02d}.wav"), pl, pr)
+        write_wav(os.path.join(OUT, f"Tape_damp{x:02d}.wav"), pl, pr)
+        pl, pr = render("Tape", bright, bright.copy(), fb=0.6, damp=d, playback=True)
+        write_wav(os.path.join(OUT, f"Tape_pbdamp{x:02d}.wav"), pl, pr)
+        pl, pr = render("Tape", bright, bright.copy(), fb=0.6, damp=d,
+                        playback=True, pb_floor=750.0)
+        write_wav(os.path.join(OUT, f"Tape_pbtame{x:02d}.wav"), pl, pr)
     print(f"\nWAVs -> {OUT}")
 
 if __name__ == "__main__":

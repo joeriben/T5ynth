@@ -38,8 +38,8 @@ private:
 
     // Delay section
     juce::Label delayHeader;
-    static constexpr int kNumDelayBtns = 4;
-    juce::TextButton delayTypeBtns[kNumDelayBtns]; // [OFF][Dig][PP][Tape]
+    static constexpr int kNumDelayBtns = 5;
+    juce::TextButton delayTypeBtns[kNumDelayBtns]; // [OFF][Dig][PP][Tape][BBD]
     juce::ComboBox delayTypeHidden;
     juce::Rectangle<int> delayTypeSwitchBounds;
     juce::Rectangle<int> delayCardBounds;      // framed module card (header + content)

@@ -39,7 +39,7 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
         updateVisibility();
     };
 
-    static const char* delayLabels[] = {"OFF", "Dig", "PP", "Tape"};
+    static const char* delayLabels[] = {"OFF", "Dig", "PP", "Tape", "BBD"};
     for (int i = 0; i < kNumDelayBtns; ++i)
     {
         delayTypeBtns[i].setButtonText(delayLabels[i]);
