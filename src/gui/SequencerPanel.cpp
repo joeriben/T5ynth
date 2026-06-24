@@ -220,6 +220,14 @@ void SequencerPanel::StepColumn::paint(juce::Graphics& g)
     g.setColour(bound ? juce::Colours::white : kDimmer);
     g.setFont(juce::FontOptions(btnFs));
     g.drawText(isGlide ? "Glide" : "Bind", glR, juce::Justification::centred);
+
+    // Step-record armed-target highlight: an unmistakable red frame on the step
+    // about to receive the next played note.
+    if (isRecordCursor)
+    {
+        g.setColour(kError);
+        g.drawRect(getLocalBounds(), 2);
+    }
 }
 
 void SequencerPanel::StepColumn::mouseDown(const juce::MouseEvent& e)
@@ -619,6 +627,9 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         const bool gen = genTransportBtn.getToggleState();
         modeStepBtn.setToggleState(!gen, juce::dontSendNotification);
         modeGenBtn .setToggleState( gen, juce::dontSendNotification);
+        // Leaving Step mode cancels an in-progress step-record.
+        if (gen && processorRef.isStepRecordArmed())
+            processorRef.toggleStepRecord();
     };
 
     // Step | Gen mode switchbox (visible) — segments drive the hidden bridge.
@@ -635,6 +646,8 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         addAndMakeVisible(*b);
     }
     modeStepBtn.onClick = [this] { genTransportBtn.setToggleState(false, juce::sendNotificationSync); };
+    // Double-click the Step segment to latch step-record (handled in mouseDoubleClick).
+    modeStepBtn.addMouseListener(this, false);
     modeGenBtn .onClick = [this] { genTransportBtn.setToggleState(true,  juce::sendNotificationSync); };
     {
         const bool gen = genTransportBtn.getToggleState();   // initial sync from param
@@ -1066,6 +1079,13 @@ void SequencerPanel::syncStepCount()
     resized();
 }
 
+void SequencerPanel::mouseDoubleClick(const juce::MouseEvent& e)
+{
+    // Double-click on the Step mode segment toggles step-record (latched).
+    if (e.eventComponent == &modeStepBtn)
+        processorRef.toggleStepRecord();
+}
+
 void SequencerPanel::timerCallback()
 {
     bool genRunning = processorRef.getValueTreeState()
@@ -1093,6 +1113,48 @@ void SequencerPanel::timerCallback()
         {
             syncStepCount();   // step count + column visibility follow the preset
             repaint();         // redraw the new note pattern
+        }
+    }
+
+    // ── Step-record (double-click Step latch) ───────────────────────────────
+    // Runs ABOVE the idle early-return below: you record into steps with the
+    // transport stopped. When disarmed this is just two atomic reads per tick.
+    {
+        const bool armed = processorRef.isStepRecordArmed();
+
+        if (armed != recordArmedDisplayed)
+        {
+            recordArmedDisplayed = armed;
+            // Red fill + "REC" label while recording. The colour flip alone is a
+            // red↔green change (CVD-ambiguous), so the label change is the
+            // accessible cue. kError's perceived brightness (0.515) lands just
+            // under switchBoxSelectedTextColour's 0.55 white/ink threshold, so it
+            // would pick white (3.76:1 — sub-AA); force dark ink for REC (5.05:1,
+            // matching how the green Step state is inked).
+            const auto accent = armed ? kError : kSeqCol;
+            modeStepBtn.setColour(juce::TextButton::buttonOnColourId, accent);
+            modeStepBtn.setColour(juce::TextButton::textColourOnId,
+                                  armed ? kBg : switchBoxSelectedTextColour(accent));
+            modeStepBtn.setButtonText(armed ? "REC" : "Step");
+            modeStepBtn.repaint();
+        }
+
+        if (armed)
+            processorRef.drainStepRecordQueue();   // write any MIDI-played notes into steps
+
+        // Move the record cursor highlight; repaint only the affected columns
+        // (the just-written one + the new target).
+        const int recCur = armed ? processorRef.getStepRecordCursor() : -1;
+        if (recCur != recordCursorDisplayed)
+        {
+            const int prev = recordCursorDisplayed;
+            recordCursorDisplayed = recCur;
+            for (int i = 0; i < MAX_COLS; ++i)
+                stepCols[static_cast<size_t>(i)]->isRecordCursor = (i == recCur);
+            const int lo = juce::jmax(0, juce::jmin(prev, recCur));
+            const int hi = juce::jmin(MAX_COLS - 1, juce::jmax(prev, recCur));
+            for (int i = lo; i <= hi; ++i)
+                stepCols[static_cast<size_t>(i)]->repaint();
         }
     }
 

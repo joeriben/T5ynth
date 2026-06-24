@@ -39,6 +39,7 @@ public:
 
 private:
     void timerCallback() override;
+    void mouseDoubleClick(const juce::MouseEvent& e) override;
     void syncStepCount();
     void showHeaderOverflowMenu();
 
@@ -97,6 +98,7 @@ private:
         int stepIndex = 0;
         T5ynthProcessor* processor = nullptr;
         bool isCurrentStep = false;
+        bool isRecordCursor = false;   // step-record armed-target highlight (red)
         int dragZone = -1;        // 0=dot, 1=note, 2=bind/glide, 3=velocity, 4=one-shot
         int dropHoverSlot = -1;
         int oneShotPressSlot = -1;       // slot pressed in the one-shot zone (cycle on click / copy-drag source)
@@ -215,6 +217,11 @@ private:
 
     int currentStep = -1;
     int lastPresetGen = 0;   // mirrors StepSequencer::presetAppliedGen for grid refresh
+
+    // Step-record display mirrors (updated only when the bit/cursor changes, so
+    // the 10 Hz timer never repaints idly).
+    bool recordArmedDisplayed = false;
+    int  recordCursorDisplayed = -1;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SequencerPanel)
 };

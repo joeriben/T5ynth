@@ -217,6 +217,15 @@ public:
     void endComputerKeyboardNote(int midiNote);
     void allComputerKeyboardNotesOff();
 
+    // ── Step-record (double-click Step latch) ──────────────────────────────
+    // GUI toggles this; while armed, every played note (computer keyboard or
+    // external MIDI) is written into the current step, advancing a cursor that
+    // resets to 0 on each (re-)arm. Monophonic: one note-on per step.
+    void toggleStepRecord();
+    bool isStepRecordArmed() const { return stepRecordArmed.load(std::memory_order_relaxed); }
+    int  getStepRecordCursor() const { return stepRecordCursor.load(std::memory_order_relaxed); }
+    void drainStepRecordQueue();   // message thread: pop queued MIDI notes → steps
+
     // Waveform display data
     bool hasNewWaveform() const { return newWaveformReady.load(std::memory_order_acquire); }
     void clearNewWaveformFlag() { newWaveformReady.store(false, std::memory_order_release); }
@@ -467,6 +476,21 @@ private:
     // Temporary preview note from step-grid mouse-hold editing.
     bool stepHoldPreviewActive = false;
     int stepHoldPreviewNote = -1;
+
+    // ── Step-record state ──────────────────────────────────────────────────
+    // stepRecordArmed is read on the audio thread (MIDI note-on branches) to
+    // decide whether to enqueue; the cursor + step writes happen ONLY on the
+    // message thread (recordStepNote, called from the computer-keyboard note
+    // path and from drainStepRecordQueue). MIDI candidates cross threads via a
+    // single-producer (audio) / single-consumer (message) lock-free FIFO.
+    std::atomic<bool> stepRecordArmed { false };
+    std::atomic<int>  stepRecordCursor { 0 };
+    void recordStepNote(int playedNote, float velocity);    // message thread
+    void pushStepRecordCandidate(int note, float velocity); // audio thread
+    struct StepRecCandidate { int note = 0; float velocity = 0.0f; };
+    static constexpr int kStepRecQueueSize = 64;
+    std::array<StepRecCandidate, kStepRecQueueSize> stepRecQueue;
+    juce::AbstractFifo stepRecFifo { kStepRecQueueSize };
 
     // Idle detection (audio thread only — not atomic)
     int silentBlockCount = 0;

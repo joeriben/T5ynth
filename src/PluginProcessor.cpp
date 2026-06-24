@@ -343,6 +343,10 @@ void T5ynthProcessor::beginComputerKeyboardNote(int midiNote, float velocity)
     lastMidiNote.store(note, std::memory_order_relaxed);
     lastMidiVelocity.store(juce::roundToInt(vel * 127.0f), std::memory_order_relaxed);
     lastMidiNoteOn.store(true, std::memory_order_relaxed);
+
+    // Step-record: capture this played note into the current step (self-gates
+    // on stepRecordArmed; runs on the message thread under the callback lock).
+    recordStepNote(note, vel);
 }
 
 void T5ynthProcessor::endComputerKeyboardNote(int midiNote)
@@ -364,6 +368,75 @@ void T5ynthProcessor::allComputerKeyboardNotesOff()
         voiceManager.noteOff(note, kComputerKeyboardSourceId);
     if (!voiceManager.hasActiveVoices())
         lastMidiNoteOn.store(false, std::memory_order_relaxed);
+}
+
+void T5ynthProcessor::toggleStepRecord()
+{
+    const bool nowArmed = ! stepRecordArmed.load(std::memory_order_relaxed);
+    if (nowArmed)
+    {
+        // Failsafe: every (re-)arm starts at step 1 and discards any stale
+        // candidates an audio block may have queued during the last disarm.
+        // Discard consumer-side (this runs on the message thread, the FIFO's
+        // only consumer) — never reset() concurrently with the audio producer.
+        stepRecordCursor.store(0, std::memory_order_relaxed);
+        int s1, sz1, s2, sz2;
+        stepRecFifo.prepareToRead(stepRecFifo.getNumReady(), s1, sz1, s2, sz2);
+        stepRecFifo.finishedRead(sz1 + sz2);
+    }
+    stepRecordArmed.store(nowArmed, std::memory_order_relaxed);
+}
+
+void T5ynthProcessor::recordStepNote(int playedNote, float velocity)
+{
+    // Message thread only (computer-keyboard note path + drainStepRecordQueue).
+    if (! stepRecordArmed.load(std::memory_order_relaxed))
+        return;
+    const int cursor = stepRecordCursor.load(std::memory_order_relaxed);
+    if (cursor < 0 || cursor >= stepSequencer.getNumSteps())
+        return;   // pattern full: ignore further notes, stay armed until toggled off
+
+    // WYSIWYG: playback re-applies the seq-wide octave shift to step.note, so
+    // store the played note MINUS that shift — the recorded pitch then sounds
+    // identical on playback (mirrors beginStepHoldPreview's inverse).
+    const int seqOctaveIdx  = static_cast<int>(paramCache.seqOctave->load());
+    const int seqOctaveSemi = (seqOctaveIdx - 2) * 12;
+    const int stored = juce::jlimit(0, 127, playedNote - seqOctaveSemi);
+
+    stepSequencer.setStepNote(cursor, stored);
+    stepSequencer.setStepVelocity(cursor, juce::jlimit(0.0f, 1.0f, velocity));
+    stepSequencer.setStepEnabled(cursor, true);
+    stepRecordCursor.store(cursor + 1, std::memory_order_relaxed);
+}
+
+void T5ynthProcessor::pushStepRecordCandidate(int note, float velocity)
+{
+    // Audio thread (external MIDI note-on). Lock-free, no allocation.
+    int s1, sz1, s2, sz2;
+    stepRecFifo.prepareToWrite(1, s1, sz1, s2, sz2);
+    if (sz1 > 0)
+    {
+        stepRecQueue[static_cast<size_t>(s1)] = { note, velocity };
+        stepRecFifo.finishedWrite(1);
+    }
+}
+
+void T5ynthProcessor::drainStepRecordQueue()
+{
+    // Message thread (SequencerPanel timer). Drains MIDI-played notes into the
+    // step grid in arrival order.
+    const int ready = stepRecFifo.getNumReady();
+    if (ready <= 0)
+        return;
+    int s1, sz1, s2, sz2;
+    stepRecFifo.prepareToRead(ready, s1, sz1, s2, sz2);
+    for (int i = 0; i < sz1; ++i)
+        recordStepNote(stepRecQueue[static_cast<size_t>(s1 + i)].note,
+                       stepRecQueue[static_cast<size_t>(s1 + i)].velocity);
+    for (int i = 0; i < sz2; ++i)
+        recordStepNote(stepRecQueue[static_cast<size_t>(s2 + i)].note,
+                       stepRecQueue[static_cast<size_t>(s2 + i)].velocity);
+    stepRecFifo.finishedRead(sz1 + sz2);
 }
 
 juce::NormalisableRange<float> T5ynthProcessor::makeDurationRange(float maxSeconds)
@@ -2606,6 +2679,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                     if (dawModeActive_.load(std::memory_order_relaxed) && ch == 16)
                         continue;
                     arpeggiator.setBaseNote(msg.getNoteNumber(), msg.getFloatVelocity());
+                    if (stepRecordArmed.load(std::memory_order_relaxed))
+                        pushStepRecordCandidate(msg.getNoteNumber(), msg.getFloatVelocity());
                 }
                 else if (msg.isNoteOff())
                 {
@@ -2860,6 +2935,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                             stepSequencer.getGlideTime(),
                             lfo1TrigMode, lfo2TrigMode, lfo3TrigMode,
                             /*sourceId=*/-1, /*pan=*/0.0f, /*mpeChannel=*/channel);
+                        if (stepRecordArmed.load(std::memory_order_relaxed))
+                            pushStepRecordCandidate(note, velocity);
                     }
                     else if (msg.isNoteOff())
                     {
