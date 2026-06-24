@@ -217,29 +217,51 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
     // ── Poly: glide handling ──
     if (isBind)
     {
-        // Glide: change pitch of most recently triggered active voice (exclude drone).
+        // Continue the most recently triggered active voice OF THE SAME SOURCE
+        // (exclude drone). A bind/slide must never hijack a voice owned by another
+        // origin (e.g. a held keyboard note while the step-seq slides): gliding it
+        // drifts that voice's currentNote so neither origin's note-off can match it
+        // again, stranding the voice held until a panic/restart. Same-source match
+        // mirrors noteOff() (sourceId<0 ↔ voiceSourceId<0). The owning source's
+        // note-off can then always release the continued voice.
         int newest = -1;
         uint64_t maxTs = 0;
         for (int i = 0; i < voiceLimit; ++i)
         {
             if (i == droneVoiceIndex) continue;
-            if (voices[static_cast<size_t>(i)].isActive()
-                && voices[static_cast<size_t>(i)].noteOnTimestamp >= maxTs)
+            auto& vi = voices[static_cast<size_t>(i)];
+            const bool sourceMatches = sourceId >= 0
+                ? voiceSourceId[static_cast<size_t>(i)] == sourceId
+                : voiceSourceId[static_cast<size_t>(i)] < 0;
+            // The sourceId<0 bucket conflates the step-seq with external MIDI (both
+            // pass -1), so also require the same ORIGIN: a step-seq slide (internal,
+            // channel 0) must not continue a held external-MIDI note (channel 1-16),
+            // which would strand that key's voice. Binds are always internal, so this
+            // never blocks a real slide. (channel 0 == internal sequencer/arp.)
+            const bool originMatches =
+                voiceMidiChannel_[static_cast<size_t>(i)] == effectiveMidiChannel;
+            if (vi.isActive() && sourceMatches && originMatches
+                && vi.noteOnTimestamp >= maxTs)
             {
-                maxTs = voices[static_cast<size_t>(i)].noteOnTimestamp;
+                maxTs = vi.noteOnTimestamp;
                 newest = i;
             }
         }
         if (newest >= 0)
         {
-            voices[static_cast<size_t>(newest)].setTuningTable(tuningHz_);
-            voices[static_cast<size_t>(newest)].setPerVoicePitchBend(0.0f);
+            auto& v = voices[static_cast<size_t>(newest)];
+            v.setTuningTable(tuningHz_);
+            v.setPerVoicePitchBend(0.0f);
+            voiceSourceId[static_cast<size_t>(newest)] = sourceId;
             voiceMidiChannel_[static_cast<size_t>(newest)] = effectiveMidiChannel;
             voiceMpePressure_[static_cast<size_t>(newest)] = 0.0f;
-            voices[static_cast<size_t>(newest)].glideToNote(note, glideMs);
+            v.glideToNote(note, glideMs);
+            // Continued voice is now the newest: keeps it from becoming the steal
+            // victim mid-slide, and makes the next same-source bind find it.
+            v.noteOnTimestamp = ++noteOnCounter;
             return;
         }
-        // No active voice to glide — fall through to normal noteOn
+        // No same-source active voice to continue — fall through to a fresh noteOn.
     }
 
     // Find a voice: re-trigger same note > free > steal oldest
