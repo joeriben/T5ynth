@@ -1247,6 +1247,17 @@ A traditional step sequencer with 2–32 steps. Each step has:
 Drag a step's note lane to set its pitch silently. Hold <strong>Shift</strong> while clicking or dragging the note lane to audition the step as a held preview note.
 </p>
 
+<h4>Recording Steps (Live Entry)</h4>
+<p>
+Instead of dragging each note lane, you can play a pattern in. <strong>Double-click the Step mode button</strong> to arm recording: it turns red and reads <strong>REC</strong>, and the step waiting for input is framed in red. While armed, every note you play — on a connected MIDI keyboard or the enabled computer keyboard — is written into the current step (its pitch, plus velocity from a MIDI keyboard; the computer keyboard records a fixed velocity) and the cursor advances to the next step. Recording is monophonic: one note per step, so a chord played as a roll lands across consecutive steps in the order struck.
+</p>
+<p>
+To leave a step empty (a rest), press <strong>Space</strong> on the computer keyboard or tap the <strong>sustain pedal</strong> on a MIDI keyboard — the current step stays silent and the cursor still moves on. While recording, the sustain pedal enters rests rather than holding notes; outside recording it is the normal damper.
+</p>
+<p>
+A recorded note plays back at the pitch you played, independent of the <strong>Octave Shift</strong> setting. Recording works whether or not the transport is running. Reaching the last step stops further writing; <strong>double-click the Step button again</strong> — or switch to <a href="#genseq">GEN</a> — to end recording. Each time you re-arm, the cursor restarts at step 1.
+</p>
+
 <h4>Per-Step One-Shot Slots</h4>
 <p>
 Each step can hold up to three independent one-shot samples. Drag from the waveform area onto a slot to copy the current <strong>P1→P3</strong> region into that slot. The copied audio is a physical sample owned by the step sequencer, not a reference to the current main buffer, so later generations do not overwrite it.
