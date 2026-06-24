@@ -86,7 +86,7 @@ def make_lp_biquad(fc, sr, Q=0.70710678):
 
 # ---- per-mode render --------------------------------------------------------
 def render(mode, dryL, dryR, T_ms=375.0, fb=0.45, mix=0.6, damp=0.45,
-           playback=False, pb_floor=500.0):
+           playback=False, pb_floor=500.0, bbd_recon_hz=4500.0, bbd_loop_hz=6000.0):
     n = len(dryL)
     T = T_ms * 0.001 * SR
     cap = int(math.ceil(3.2 * T)) + 8         # holds head 3 (3T) + slack
@@ -97,8 +97,9 @@ def render(mode, dryL, dryR, T_ms=375.0, fb=0.45, mix=0.6, damp=0.45,
     outL = np.zeros(n); outR = np.zeros(n)
     wow1 = wow2 = flut = 0.0
     dwow1 = 2*math.pi*WOW1_HZ/SR; dwow2 = 2*math.pi*WOW2_HZ/SR; dflut = 2*math.pi*FLUT_HZ/SR
-    aRecon = one_pole_a(BBD_RECON_HZ); bbd1 = bbd2 = bbd3 = 0.0   # BBD recon cascade
-    aBbdHp = one_pole_a(BBD_HP_HZ);    bbd_hp = 0.0               # BBD mid-focus HP
+    aRecon = one_pole_a(bbd_recon_hz); bbd1 = bbd2 = bbd3 = 0.0   # BBD recon cascade (OUT)
+    aFbLp  = one_pole_a(bbd_loop_hz);  bbd_fblp = 0.0             # BBD feedback loop LP
+    aBbdHp = one_pole_a(BBD_HP_HZ);    bbd_hp = bbd_fbhp = 0.0    # BBD HP (out + fb)
     tapeFbBq = make_lp_biquad(damp_fc(damp, "Tape"), SR)         # 2-pole, matches C++
     # Playback rolloff tracks the knob too, but bottoms out at pb_floor (>= the
     # feedback's 500 Hz) so cranking Damp doesn't double-crush the top. Feedback
@@ -134,14 +135,20 @@ def render(mode, dryL, dryR, T_ms=375.0, fb=0.45, mix=0.6, damp=0.45,
             mono = 0.5*(dryL[i] + dryR[i])
             wow1 += dwow1                              # subtle clock drift
             raw = frac_read(bL, wp, T*(1.0 + math.sin(wow1)*BBD_WOW_DEPTH))
-            # reconstruction filter: 3 cascaded one-poles = steep, dark BBD top
+            # OUTPUT path: 3 cascaded one-poles = steep, dark BBD top + mid HP.
+            # This is ONLY on what you hear; it never touches the feedback loop.
             bbd1 += aRecon*(raw  - bbd1)
             bbd2 += aRecon*(bbd1 - bbd2)
             bbd3 += aRecon*(bbd2 - bbd3)
             bbd_hp += aBbdHp*(bbd3 - bbd_hp)           # mild HP (mid-focus)
-            wet = bbd3 - bbd_hp
-            # feedback: gentle bucket-brigade grit on the band-limited signal
-            f = math.tanh(wet*fb*BBD_DRIVE)/BBD_DRIVE
+            wet = bbd3 - bbd_hp                        # what you HEAR (full dark + HP)
+            # FEEDBACK path: a SEPARATE, more-open loop LP (bbd_loop_hz) on the RAW
+            # tap so the loop keeps gain and BLOOMS toward self-osc — the dark 3-pole
+            # recon is NOT in the loop. NO mid HP here: a 180Hz HP in a 375ms loop
+            # compounds over ~13 passes and strips the fundamental, killing sustain;
+            # the mid-focus HP lives on the OUTPUT (applied once). + grit only.
+            bbd_fblp += aFbLp*(raw - bbd_fblp)
+            f = math.tanh(bbd_fblp*fb*BBD_DRIVE)/BBD_DRIVE
             bL[wp] = mono + f
             wl = wr = wet                              # mono -> center
 
@@ -226,10 +233,28 @@ def main():
     # Digital_bright_ref keeps the top open (no compounding) for the A/B.
     dl, dr = render("Digital", bright, bright.copy(), fb=0.6)
     write_wav(os.path.join(OUT, "Digital_bright_ref.wav"), dl, dr)
-    # BBD (bright source — its dark, steep, gritty tone is the whole point; the
-    # sine pluck can't show it). A/B against Digital_bright_ref (open) and Tape.
-    bl, br = render("BBD", bright, bright.copy(), fb=0.6)
-    write_wav(os.path.join(OUT, "BBD_bright.wav"), bl, br)
+    # BBD brightness at the OPEN end — recon top sweep (fb_tap=1 = bright loop).
+    # The shipped 3000 felt too dark at Damp 0; 4500/6000 lift the top while
+    # keeping the steep 3-pole BBD character. A/B against Digital_bright_ref (open).
+    for top in [3000, 4500, 6000]:
+        bl, br = render("BBD", bright, bright.copy(), fb=0.6, bbd_recon_hz=float(top))
+        write_wav(os.path.join(OUT, f"BBD_top{top}.wav"), bl, br)
+    # SELF-OSCILLATION at near-max feedback (0.9). 6 s source: one note then long
+    # silence so the TAIL is the whole story. The dark recon is OUT of the loop now;
+    # the loop is a separate gentle LP — sweep its cutoff to dial how much it blooms.
+    # Higher loop cutoff = brighter loop = blooms more (closer to the TAPE target).
+    durSO = int(6.0*SR); tSO = np.arange(durSO)/SR
+    phSO = 220.0*tSO
+    brightSO = 2.0*(phSO - np.floor(phSO + 0.5)) * np.exp(-tSO/0.15)
+    brightSO[int(0.22*SR):] = 0.0
+    # fb 0.95 = the user's "maximal". Loop cutoff now shapes the REPEAT tone (how
+    # dark the tail melts), not the sustain length — pick by ear.
+    for loop in [3000, 6000, 9000]:
+        bl, br = render("BBD", brightSO, brightSO.copy(), fb=0.95,
+                        bbd_recon_hz=4500.0, bbd_loop_hz=float(loop))
+        write_wav(os.path.join(OUT, f"BBD_selfosc_loop{loop}.wav"), bl, br)
+    bl, br = render("Tape", brightSO, brightSO.copy(), fb=0.95, damp=0.0)
+    write_wav(os.path.join(OUT, "BBD_selfosc_TAPEref.wav"), bl, br)
     # Two tape damping structures, A/B (both now 2-pole, = what ships):
     #   Tape_damp{XX}    = feedback-only (current ship) — repeat 1 is bright, the
     #                      darkening builds up over repeats -> can feel "very late".

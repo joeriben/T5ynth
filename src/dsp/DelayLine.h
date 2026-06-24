@@ -20,15 +20,19 @@
  *                multiplicatively per head (excursion + pitch scale 1:2:3). The
  *                playback is ALSO rolled off (every repeat, like a real playback
  *                head) so darkening doesn't arrive only via feedback build-up.
- *   4 BBD      : bucket-brigade (analog) echo. Single tap, a steep 3-pole
- *                reconstruction low-pass (dark, ~3kHz top) + mid-focus high-pass
- *                + gentle companding grit, with a subtle clock-drift warble.
- *                Darker, grittier and less pitch-mobile than tape; mono/centred.
+ *   4 BBD      : bucket-brigade (analog) echo. Single tap. The dark, steep 3-pole
+ *                reconstruction low-pass (~4.5kHz top) + mid-focus high-pass shape
+ *                the OUTPUT; the FEEDBACK runs a separate, more-open loop low-pass
+ *                so the echo rings/blooms toward self-oscillation instead of dying
+ *                (the dark recon is NOT in the loop). Gentle companding grit and a
+ *                subtle clock-drift warble. Grittier, less pitch-mobile than tape;
+ *                mono/centred.
  *
  * Common controls: time (ms, smoothed), feedback, dry/wet mix, damping low-pass
  * (0..1 trim; per-mode top — Tape starts at a ~9kHz baseline that compounds per
- * feedback pass, Digital/PingPong stay open at 20kHz, BBD trims from its ~3kHz
- * recon top; all reach 500Hz dark). Mix is a true crossfade: mix=1 drops the dry.
+ * feedback pass, Digital/PingPong stay open at 20kHz, BBD trims its OUTPUT recon
+ * from a ~4.5kHz top; all reach 500Hz dark). Mix is a true crossfade: mix=1 drops
+ * the dry.
  */
 class T5ynthDelayLine
 {
@@ -50,7 +54,7 @@ public:
 
     /** Set feedback damping trim (0=open, 1=dark). Per-mode top: Tape starts at
         an intrinsic ~9kHz baseline; Digital/PingPong fully open (20kHz); BBD from
-        its ~3kHz recon top. Tape also tracks Damp on its playback rolloff. */
+        its ~4.5kHz recon top. Tape also tracks Damp on its playback rolloff. */
     void setDamp(float d);
 
     /** Routing/voicing mode = DelayType value (1=Digital, 2=PingPong,
@@ -95,12 +99,14 @@ private:
     float wow1Phase = 0.0f, wow2Phase = 0.0f, flutPhase = 0.0f;
 
     // BBD (bucket-brigade) character state (kBbd only)
-    float bbdRecon1 = 0.0f, bbdRecon2 = 0.0f, bbdRecon3 = 0.0f; // 3-pole recon cascade
-    float bbdHpState = 0.0f;             // mid-focus high-pass state
+    float bbdRecon1 = 0.0f, bbdRecon2 = 0.0f, bbdRecon3 = 0.0f; // 3-pole recon cascade (OUT)
+    float bbdHpState = 0.0f;             // mid-focus high-pass state (OUTPUT only)
+    float bbdLoopState = 0.0f;           // feedback loop LP state (separate, open-ish)
     float bbdClockPhase = 0.0f;          // subtle clock-drift LFO phase
-    float bbdReconFreq = 3000.0f;        // recon cutoff (Damp-tracked from ~3kHz top)
+    float bbdReconFreq = 4500.0f;        // recon cutoff (Damp-tracked from ~4.5kHz top)
     float bbdReconCoeff = 0.0f;          // one-pole coeff for the recon cascade
     float bbdHpCoeff = 0.0f;             // one-pole coeff for the mid-focus HP
+    float bbdLoopCoeff = 0.0f;           // one-pole coeff for the feedback loop LP (fixed)
 
     // Silence detection — skip processing only after output has truly decayed
     int silentOutputBlocks = 0;

@@ -33,9 +33,17 @@ namespace
                                                // to 500 was too dark). Auditioned.
 
     // BBD (bucket-brigade) character — fixed/auto, no extra user parameter.
-    constexpr float  kBbdReconTopHz = 3000.0f; // recon-LP top at Damp=0: dark, steep
-                                               // 3-pole reconstruction (the BBD voice).
-    constexpr float  kBbdHpHz       = 180.0f;  // mid-focus high-pass (thins the lows)
+    constexpr float  kBbdReconTopHz = 4500.0f; // OUTPUT recon-LP top at Damp=0: dark,
+                                               // steep 3-pole reconstruction (the BBD
+                                               // voice). 3000 was too dark at Damp 0.
+    constexpr float  kBbdLoopHz     = 6000.0f; // FEEDBACK loop LP (fixed, open-ish):
+                                               // a SEPARATE gentle 1-pole, NOT the dark
+                                               // recon — keeps loop gain so the echo
+                                               // rings/blooms toward self-oscillation.
+    constexpr float  kBbdHpHz       = 180.0f;  // mid-focus high-pass — OUTPUT ONLY. In
+                                               // the short feedback loop a 180Hz HP
+                                               // compounds (~13 passes) and strips the
+                                               // fundamental, killing sustain.
     constexpr float  kBbdDrive      = 2.2f;    // gentle bucket-brigade grit
     constexpr float  kBbdClockHz    = 0.6f;    // subtle clock-drift rate
     constexpr float  kBbdClockDepth = 0.0006f; // clock-drift depth (cleaner than tape)
@@ -92,12 +100,14 @@ void T5ynthDelayLine::prepare(double sampleRate, int samplesPerBlock)
     wow1Phase = wow2Phase = flutPhase = 0.0f;
 
     // BBD: the recon cascade tracks Damp (rebuilt in recomputeDamp); seed its
-    // coeff at the current baseline and the fixed mid-focus HP here. One-pole
-    // coeffs only — no allocation, safe to recompute on the audio thread.
+    // coeff at the current baseline plus the fixed mid-focus HP and the fixed
+    // feedback loop LP here. One-pole coeffs only — no allocation, audio-safe.
     bbdReconCoeff = onePoleCoeff(bbdReconFreq, sr);
     bbdHpCoeff    = onePoleCoeff(kBbdHpHz, sr);
+    bbdLoopCoeff  = onePoleCoeff(kBbdLoopHz, sr);
     bbdRecon1 = bbdRecon2 = bbdRecon3 = 0.0f;
     bbdHpState = 0.0f;
+    bbdLoopState = 0.0f;
     bbdClockPhase = 0.0f;
 
     prepared = true;
@@ -232,15 +242,20 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
                                           clampedT * (1.0f + std::sin(bbdClockPhase) * kBbdClockDepth));
             const float raw = delayLine.popSample(0, dd, true);
 
-            // 3 cascaded one-poles = steep, dark reconstruction; then a mild HP.
+            // OUTPUT: 3 cascaded one-poles = steep, dark reconstruction + a mild HP.
+            // This shapes only what we HEAR; it never enters the feedback loop.
             bbdRecon1 += bbdReconCoeff * (raw       - bbdRecon1);
             bbdRecon2 += bbdReconCoeff * (bbdRecon1 - bbdRecon2);
             bbdRecon3 += bbdReconCoeff * (bbdRecon2 - bbdRecon3);
             bbdHpState += bbdHpCoeff   * (bbdRecon3 - bbdHpState);
             const float wet = bbdRecon3 - bbdHpState;
 
-            // Gentle bucket-brigade grit on the band-limited feedback.
-            const float f = std::tanh(wet * feedback * kBbdDrive) / kBbdDrive;
+            // FEEDBACK: a SEPARATE, more-open loop LP on the RAW tap (NOT the dark
+            // recon, and no mid HP — a 180Hz HP in this short loop compounds over
+            // ~13 passes and strips the fundamental, killing sustain). This keeps
+            // loop gain so the echo rings/blooms toward self-oscillation. Grit only.
+            bbdLoopState += bbdLoopCoeff * (raw - bbdLoopState);
+            const float f = std::tanh(bbdLoopState * feedback * kBbdDrive) / kBbdDrive;
             delayLine.pushSample(0, mono + f);
 
             dataL[i] = dryL * dryGain + wet * wetMix;
@@ -299,6 +314,7 @@ void T5ynthDelayLine::reset()
     wow1Phase = wow2Phase = flutPhase = 0.0f;
     bbdRecon1 = bbdRecon2 = bbdRecon3 = 0.0f;
     bbdHpState = 0.0f;
+    bbdLoopState = 0.0f;
     bbdClockPhase = 0.0f;
     silentOutputBlocks = 0;
 }
