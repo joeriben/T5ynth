@@ -20,8 +20,9 @@
  *                multiplicatively per head (excursion + pitch scale 1:2:3).
  *
  * Common controls: time (ms, smoothed), feedback, dry/wet mix, damping low-pass
- * (0 = bright 20kHz, 1 = dark 500Hz). Mix is a true crossfade: at mix=1 the dry
- * path vanishes.
+ * (0..1 trim; per-mode top — Tape starts at a ~9kHz baseline that compounds per
+ * feedback pass, Digital/PingPong stay open at 20kHz; both reach 500Hz dark).
+ * Mix is a true crossfade: at mix=1 the dry path vanishes.
  */
 class T5ynthDelayLine
 {
@@ -41,7 +42,8 @@ public:
     /** Set dry/wet mix (0=dry, 1=wet). True crossfade: at mix=1 dry vanishes. */
     void setMix(float mix);
 
-    /** Set feedback damping (0=bright 20kHz, 1=dark 500Hz). */
+    /** Set feedback damping trim (0=open, 1=dark). Per-mode top: Tape starts at
+        an intrinsic ~9kHz baseline; Digital/PingPong fully open (20kHz). */
     void setDamp(float d);
 
     /** Routing/voicing mode = DelayType value (1=Digital, 2=PingPong,
@@ -70,7 +72,8 @@ private:
     float feedback = 0.35f;              // Reference default
     float targetFeedback = 0.35f;        // smoothing target
     float wetMix = 0.3f;                 // Reference default (send amount)
-    float dampFreq = 4000.0f;            // Default at damp=0.5
+    float dampFreq = 4000.0f;            // resolved feedback-LP cutoff (per-mode top)
+    float dampAmount = -1.0f;            // raw 0..1 Damp param (-1 = force first resolve)
     float maxDelaySamples = 0.0f;        // read-position guard (set in prepare)
     bool prepared = false;
 
@@ -83,4 +86,5 @@ private:
     static constexpr int SILENCE_CONFIRM_BLOCKS = 4;
 
     void updateDampCoeffs();
+    void recomputeDamp();   // resolve dampFreq from dampAmount + mode (per-mode top)
 };

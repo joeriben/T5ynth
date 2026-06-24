@@ -39,9 +39,13 @@ FLUT_DEPTH  = 0.00004
 TAPE_DRIVE  = 1.6
 TAPE_HP_HZ  = 100.0
 PAN_WIDTH   = 0.75         # multi-head stereo spread (0..1)
+TAPE_DAMP_TOP_HZ = 9000.0  # tape feedback-LP ceiling at Damp=0: an intrinsic
+                           # baseline HF loss that COMPOUNDS per pass (Digital
+                           # stays open at 20 kHz). Damp trims darker from here.
 
-def damp_fc(d):            # matches DelayLine::setDamp mapping
-    return 20000.0 * (500.0/20000.0) ** d
+def damp_fc(d, mode=None):  # matches DelayLine::recomputeDamp per-mode mapping
+    top = TAPE_DAMP_TOP_HZ if mode == "Tape" else 20000.0
+    return top * (500.0/top) ** d
 
 def one_pole_a(fc):
     return 1.0 - math.exp(-2.0*math.pi*fc/SR)
@@ -64,7 +68,7 @@ def render(mode, dryL, dryR, T_ms=375.0, fb=0.45, mix=0.6, damp=0.45):
     cap = int(math.ceil(3.2 * T)) + 8         # holds head 3 (3T) + slack
     bL = np.zeros(cap); bR = np.zeros(cap)
     wp = 0
-    aLP = one_pole_a(damp_fc(damp)); lpL = lpR = 0.0
+    aLP = one_pole_a(damp_fc(damp, mode)); lpL = lpR = 0.0
     aHP = one_pole_a(TAPE_HP_HZ);    hp_lp = 0.0
     outL = np.zeros(n); outR = np.zeros(n)
     wow1 = wow2 = flut = 0.0
@@ -147,6 +151,12 @@ def main():
     t = np.arange(dur)/SR
     pluck = np.sin(2*math.pi*220*t) * np.exp(-t/0.12)
     pluck[int(0.18*SR):] = 0.0    # one short note, then silence -> hear the tail
+    # Bright, harmonically-rich pluck (naive sawtooth, energy up to Nyquist) — the
+    # SINE pluck above has no overtones, so a feedback LP above its 220Hz removes
+    # nothing audible; DAMP/HF-loss is only judgeable on a spectrally rich source.
+    phase = 220.0 * t
+    bright = 2.0*(phase - np.floor(phase + 0.5)) * np.exp(-t/0.15)
+    bright[int(0.22*SR):] = 0.0
 
     print("Impulse-response tap timing (T=375ms; expect Digital@375, "
           "PingPong L@375/R@750, Tape@375/750/1125):")
@@ -156,6 +166,16 @@ def main():
         write_wav(os.path.join(OUT, f"{mode}_impulse.wav"), L, R)
         pl, pr = render(mode, pluck, pluck.copy())
         write_wav(os.path.join(OUT, f"{mode}_pluck.wav"), pl, pr)
+
+    # Tape Damp audition (BRIGHT source) — judge the intrinsic baseline rolloff.
+    # damp00 = knob at ZERO (should ALREADY darken across repeats via the 9 kHz
+    # feedback ceiling that compounds per pass); 35/70 = the knob trimming further.
+    # Digital_bright_ref keeps the top open (no compounding) for the A/B.
+    dl, dr = render("Digital", bright, bright.copy(), fb=0.6)
+    write_wav(os.path.join(OUT, "Digital_bright_ref.wav"), dl, dr)
+    for d in [0.0, 0.35, 0.7]:
+        pl, pr = render("Tape", bright, bright.copy(), fb=0.6, damp=d)
+        write_wav(os.path.join(OUT, f"Tape_damp{int(round(d*100)):02d}.wav"), pl, pr)
     print(f"\nWAVs -> {OUT}")
 
 if __name__ == "__main__":

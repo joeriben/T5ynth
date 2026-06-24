@@ -22,6 +22,10 @@ namespace
     constexpr float  kTapeDrive  = 1.6f;     // soft-sat pre-gain (auto-limiting)
     constexpr float  kTapeHpHz   = 100.0f;   // high-pass in the feedback loop
     constexpr float  kPanWidth   = 0.75f;    // multi-head stereo spread (0..1)
+    constexpr float  kTapeDampTopHz = 9000.0f; // Damp=0 feedback-LP ceiling: an
+                                               // intrinsic baseline HF loss that
+                                               // compounds per pass (vs Digital's
+                                               // fully-open 20 kHz). Auditioned.
 
     // Buffer capacity headroom: holds the longest single tap (the 5 s processor
     // clamp) and the tape 3rd head; the tape base is capped to keep 3·base inside.
@@ -251,27 +255,43 @@ void T5ynthDelayLine::setMix(float mix)
 
 void T5ynthDelayLine::setDamp(float d)
 {
-    // Exponential mapping: 0 = bright (20kHz), 1 = dark (500Hz)
-    // freq = 20000 * pow(500/20000, d)
     d = juce::jlimit(0.0f, 1.0f, d);
-    const float newFreq = 20000.0f * std::pow(500.0f / 20000.0f, d);
-
-    // The processor calls setDamp() every block with the (usually static) damp
-    // param, and updateDampCoeffs() runs makeLowPass() = a heap allocation. Skip
-    // when the resolved frequency is identical (deterministic for a steady param,
-    // so the equality check is exact and output-identical) — coefficients are
-    // rebuilt only when the knob actually moves, never on an idle block.
-    if (newFreq == dampFreq)
+    if (d == dampAmount)   // steady param → nothing to resolve (no idle work)
         return;
-
-    dampFreq = newFreq;
-    if (prepared)
-        updateDampCoeffs();
+    dampAmount = d;
+    recomputeDamp();
 }
 
 void T5ynthDelayLine::setMode(int delayType)
 {
+    if (delayType == mode)
+        return;
     mode = delayType;
+    // The per-mode damp top changes with the mode (Tape starts darker than
+    // Digital at the same knob value), so re-resolve the feedback cutoff.
+    recomputeDamp();
+}
+
+void T5ynthDelayLine::recomputeDamp()
+{
+    // Per-mode TOP of the exponential damp range. Tape starts at an intrinsic
+    // baseline rolloff (kTapeDampTopHz) rather than fully open: a gentle HF loss
+    // that COMPOUNDS through the feedback loop, so tape repeats darken across
+    // generations even at Damp=0 — the defining tape behaviour. Digital/PingPong
+    // stay open (20 kHz) at Damp=0, where Damp is the only darkening source. Damp
+    // then trims down toward 500 Hz from whichever top.
+    //
+    // The processor calls setDamp()/setMode() every block; makeLowPass() (a heap
+    // allocation) runs only when the resolved frequency actually changes — the
+    // equality gate below is exact for a steady param/mode, so an idle block
+    // rebuilds nothing.
+    const float topHz = (mode == kTape) ? kTapeDampTopHz : 20000.0f;
+    const float newFreq = topHz * std::pow(500.0f / topHz, dampAmount);
+    if (newFreq == dampFreq)
+        return;
+    dampFreq = newFreq;
+    if (prepared)
+        updateDampCoeffs();
 }
 
 void T5ynthDelayLine::updateDampCoeffs()

@@ -12,13 +12,13 @@ static juce::String fmtMs(double v)
 static juce::String fmtF2(double v)  { return juce::String(v, 2); }
 static juce::String fmtF3(double v)  { return juce::String(v, 3); }
 
-static juce::String fmtDampHz(double v)
+static juce::String fmtDampPct(double v)
 {
-    // Must match DSP mapping in DelayLine::setDamp: freq = 20000 * pow(500/20000, d)
-    // 0 = bright (20kHz cutoff), 1 = dark (500Hz cutoff)
-    double hz = 20000.0 * std::pow(500.0 / 20000.0, v);
-    if (hz >= 1000.0) return juce::String(hz / 1000.0, 1) + "k";
-    return juce::String(juce::roundToInt(hz)) + "Hz";
+    // Damp is a normalized 0..1 trim, NOT a single cutoff: the DSP adds a
+    // per-mode intrinsic baseline rolloff (Tape darker than Digital at the same
+    // value, and it compounds per feedback pass), so a kHz readout would
+    // misrepresent it. Show the knob amount instead.
+    return juce::String(juce::roundToInt(v * 100.0)) + "%";
 }
 
 FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& processor)
@@ -52,7 +52,7 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
 
     delayTimeRow = std::make_unique<SliderRow>("Time", fmtMs, kFxCol);
     delayFbRow   = std::make_unique<SliderRow>("FB",   fmtF2, kFxCol);
-    delayDampRow = std::make_unique<SliderRow>("Damp", fmtDampHz, kFxCol);
+    delayDampRow = std::make_unique<SliderRow>("Damp", fmtDampPct, kFxCol);
     delayMixRow  = std::make_unique<SliderRow>("Mix",  fmtF3, kFxCol);
 
     // Unified label-band look (accent@0.7 + light text, like the RESYNTH
