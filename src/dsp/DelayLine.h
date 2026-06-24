@@ -77,7 +77,7 @@ private:
 
     // Tape character state (Tape2/Tape3 only)
     float tapeHpState = 0.0f;            // one-pole high-pass state
-    float wowPhase = 0.0f, flut1Phase = 0.0f, flut2Phase = 0.0f;
+    float wow1Phase = 0.0f, wow2Phase = 0.0f, flutPhase = 0.0f;
 
     // Silence detection — skip processing only after output has truly decayed
     int silentOutputBlocks = 0;

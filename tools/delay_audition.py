@@ -22,12 +22,21 @@ SR = 48000
 OUT = os.path.join(os.path.dirname(__file__), "delay_audition_out")
 os.makedirs(OUT, exist_ok=True)
 
-# ---- voicing constants (mirror the planned C++) -----------------------------
-WOW_HZ      = 0.7          # slow pitch drift
-FLUT1_HZ    = 6.3          # flutter (two incommensurate sines = organic)
-FLUT2_HZ    = 9.7
-WOW_DEPTH   = 0.0030       # * delay-samples
-FLUT_DEPTH  = 0.0015       # * delay-samples, per flutter sine
+# ---- tape-transport speed wobble (dimensionless, mirror the planned C++) -----
+# ONE capstan/transport speed modulation m(t) ~ 0, applied MULTIPLICATIVELY to
+# every head: delay_k = (k+1)*T*(1+m). Physical: the far head reads tape recorded
+# (k+1)*D1 ago, so over its longer record->play gap the speed drifted further from
+# "now" — BOTH the delay excursion AND the pitch wobble scale 1:2:3 with transit
+# length (the error v(now)-v(now-D_k) grows with D_k for slow drift). Heads are
+# NOT pitch-locked; exact for slow wow, fast flutter slightly over-scaled (tiny).
+# Wow dominates (capstan, <2 Hz); flutter is faster but far shallower — a high
+# freq amplifies the pitch deviation (∝ f), so even small flutter buzzes if hot.
+WOW1_HZ     = 0.6          # primary wow (capstan rotation)
+WOW2_HZ     = 1.3          # secondary wow, incommensurate -> organic, non-repeating
+FLUT_HZ     = 6.0          # flutter shimmer (kept very shallow on purpose)
+WOW1_DEPTH  = 0.0018       # fractional speed deviation
+WOW2_DEPTH  = 0.0009
+FLUT_DEPTH  = 0.00004
 TAPE_DRIVE  = 1.6
 TAPE_HP_HZ  = 100.0
 PAN_WIDTH   = 0.75         # multi-head stereo spread (0..1)
@@ -59,8 +68,8 @@ def render(mode, dryL, dryR, T_ms=375.0, fb=0.45, mix=0.6, damp=0.45):
     aLP = one_pole_a(damp_fc(damp)); lpL = lpR = 0.0
     aHP = one_pole_a(TAPE_HP_HZ);    hp_lp = 0.0
     outL = np.zeros(n); outR = np.zeros(n)
-    wow = fl1 = fl2 = 0.0
-    dwow = 2*math.pi*WOW_HZ/SR; df1 = 2*math.pi*FLUT1_HZ/SR; df2 = 2*math.pi*FLUT2_HZ/SR
+    wow1 = wow2 = flut = 0.0
+    dwow1 = 2*math.pi*WOW1_HZ/SR; dwow2 = 2*math.pi*WOW2_HZ/SR; dflut = 2*math.pi*FLUT_HZ/SR
 
     heads = {"Tape2": 2, "Tape3": 3}.get(mode, 1)
     pans = []
@@ -87,13 +96,15 @@ def render(mode, dryL, dryR, T_ms=375.0, fb=0.45, mix=0.6, damp=0.45):
 
         else:  # Tape2 / Tape3  (mono tape, panned heads)
             mono = 0.5*(dryL[i] + dryR[i])
-            wow += dwow; fl1 += df1; fl2 += df2
-            wobble = 0.25 if mode == "Tape2" else 0.49  # two rounds: Tape2 0.5², Tape3 0.7²
-            modw = (math.sin(wow)*WOW_DEPTH + (math.sin(fl1)+math.sin(fl2))*FLUT_DEPTH) * T * wobble
+            wow1 += dwow1; wow2 += dwow2; flut += dflut
+            # ONE shared transport-speed wobble, applied MULTIPLICATIVELY per head
+            # so delay excursion AND pitch both scale 1:2:3 with head distance.
+            m = (math.sin(wow1)*WOW1_DEPTH + math.sin(wow2)*WOW2_DEPTH
+                 + math.sin(flut)*FLUT_DEPTH)
             wl = wr = 0.0
             longest = 0.0
             for k in range(heads):
-                tap = frac_read(bL, wp, (k+1)*T + modw)
+                tap = frac_read(bL, wp, (k+1)*T*(1.0+m))
                 gL, gR = pans[k]
                 wl += tap*gL; wr += tap*gR
                 if k == heads-1: longest = tap

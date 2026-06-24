@@ -3,11 +3,22 @@
 namespace
 {
     // Tape character (Tape2/Tape3) — all fixed/auto, no user parameter.
-    constexpr float  kWowHz      = 0.7f;     // slow pitch drift
-    constexpr float  kFlut1Hz    = 6.3f;     // flutter: two incommensurate sines
-    constexpr float  kFlut2Hz    = 9.7f;     //   summed = organic, non-repeating feel
-    constexpr float  kWowDepth   = 0.0030f;  // * delay-samples
-    constexpr float  kFlutDepth  = 0.0015f;  // * delay-samples, per flutter sine
+    // ONE capstan/transport speed wobble m(t) ~ 0, applied MULTIPLICATIVELY to
+    // every head (delay_k = (k+1)*base*(1+m)): the far head reads tape recorded
+    // (k+1)*D1 ago, so over its longer record->play gap the speed drifted further
+    // from "now" — BOTH the delay excursion AND the pitch wobble scale 1:2:3 with
+    // transit length (pitch dev = d/dt[delay] = (k+1)*base*m'; timing error
+    // v(now)-v(now-D_k) likewise grows with D_k for slow drift). Heads are NOT
+    // pitch-locked. Exact for the dominant slow wow; fast flutter is slightly
+    // over-scaled on the far heads but negligible at these depths. Wow dominates
+    // (capstan, <2 Hz); flutter is faster but far shallower (a high freq amplifies
+    // the pitch deviation ∝ f, so even small flutter buzzes if hot).
+    constexpr float  kWow1Hz     = 0.6f;      // primary wow (capstan rotation)
+    constexpr float  kWow2Hz     = 1.3f;      // secondary wow, incommensurate -> organic
+    constexpr float  kFlutHz     = 6.0f;      // flutter shimmer (kept very shallow)
+    constexpr float  kWow1Depth  = 0.0018f;   // fractional speed deviation
+    constexpr float  kWow2Depth  = 0.0009f;
+    constexpr float  kFlutDepth  = 0.00004f;
     constexpr float  kTapeDrive  = 1.6f;     // soft-sat pre-gain (auto-limiting)
     constexpr float  kTapeHpHz   = 100.0f;   // high-pass in the feedback loop
     constexpr float  kPanWidth   = 0.75f;    // multi-head stereo spread (0..1)
@@ -58,7 +69,7 @@ void T5ynthDelayLine::prepare(double sampleRate, int samplesPerBlock)
     dampFilterR.reset();
 
     tapeHpState = 0.0f;
-    wowPhase = flut1Phase = flut2Phase = 0.0f;
+    wow1Phase = wow2Phase = flutPhase = 0.0f;
 
     prepared = true;
 }
@@ -86,12 +97,6 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
     const bool isTape = (mode == kTape2 || mode == kTape3);
     const bool isPingPong = (mode == kPingPong) && stereo;
 
-    // Per-mode wow/flutter restraint vs. the base depths, applied twice over two
-    // rounds of tuning: Tape 2 = 0.5·0.5 = 0.25, Tape 3 = 0.7·0.7 = 0.49. The
-    // 2-head voicing reads as the most overtly wobbly, so it gets pulled back the
-    // hardest.
-    const float wobbleScale = (mode == kTape2) ? 0.25f : 0.49f;
-
     // Constant-power pan gains for tape heads, spread evenly across [-w, +w].
     // On a mono buffer the defaults (panL=1, panR=0) leave the head sum flat so
     // mono fold-down keeps full level — the spread only applies in true stereo.
@@ -111,10 +116,10 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
     }
 
     const float twoPi = juce::MathConstants<float>::twoPi;
-    const float dWow = twoPi * kWowHz   / static_cast<float>(sr);
-    const float dF1  = twoPi * kFlut1Hz / static_cast<float>(sr);
-    const float dF2  = twoPi * kFlut2Hz / static_cast<float>(sr);
-    const float aHP  = onePoleCoeff(kTapeHpHz, sr);
+    const float dWow1 = twoPi * kWow1Hz / static_cast<float>(sr);
+    const float dWow2 = twoPi * kWow2Hz / static_cast<float>(sr);
+    const float dFlut = twoPi * kFlutHz / static_cast<float>(sr);
+    const float aHP   = onePoleCoeff(kTapeHpHz, sr);
 
     auto* dataL = buffer.getWritePointer(0);
     auto* dataR = stereo ? buffer.getWritePointer(1) : nullptr;
@@ -133,13 +138,15 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
         {
             const float mono = stereo ? 0.5f * (dryL + dryR) : dryL;
 
-            wowPhase += dWow; flut1Phase += dF1; flut2Phase += dF2;
-            if (wowPhase   > twoPi) wowPhase   -= twoPi;
-            if (flut1Phase > twoPi) flut1Phase -= twoPi;
-            if (flut2Phase > twoPi) flut2Phase -= twoPi;
-            const float modw = (std::sin(wowPhase) * kWowDepth
-                              + (std::sin(flut1Phase) + std::sin(flut2Phase)) * kFlutDepth)
-                              * currentDelaySamples * wobbleScale;
+            wow1Phase += dWow1; wow2Phase += dWow2; flutPhase += dFlut;
+            if (wow1Phase > twoPi) wow1Phase -= twoPi;
+            if (wow2Phase > twoPi) wow2Phase -= twoPi;
+            if (flutPhase > twoPi) flutPhase -= twoPi;
+            // ONE shared transport-speed wobble, applied MULTIPLICATIVELY per head
+            // (below) so delay excursion AND pitch both scale 1:2:3 with distance.
+            const float m = std::sin(wow1Phase) * kWow1Depth
+                          + std::sin(wow2Phase) * kWow2Depth
+                          + std::sin(flutPhase) * kFlutDepth;
 
             // Cap the head spacing so the longest head (heads·base) stays inside
             // the buffer even at long times.
@@ -150,7 +157,7 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
             for (int k = 0; k < heads; ++k)
             {
                 const float d = juce::jlimit(1.0f, maxDelaySamples,
-                                             static_cast<float>(k + 1) * base + modw);
+                                             static_cast<float>(k + 1) * base * (1.0f + m));
                 const bool last = (k == heads - 1);
                 // Advance the read pointer exactly once per sample, on the last tap.
                 const float tap = delayLine.popSample(0, d, last);
@@ -220,7 +227,7 @@ void T5ynthDelayLine::reset()
     dampFilterL.reset();
     dampFilterR.reset();
     tapeHpState = 0.0f;
-    wowPhase = flut1Phase = flut2Phase = 0.0f;
+    wow1Phase = wow2Phase = flutPhase = 0.0f;
     silentOutputBlocks = 0;
 }
 
