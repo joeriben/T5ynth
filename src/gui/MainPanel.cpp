@@ -1041,25 +1041,34 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     // (Off..Full) replaces the 0-1 number, so "full" is a visible end position you
     // navigate to rather than a value to guess.
     // Left-title band ("RESYNTH" on accent, dark ink) — the snap/cache treatment.
-    paintSectionHeader(resynthLabel, "RESYNTH", kOscCol);
-    resynthLabel.setInterceptsMouseClicks(false, false);
-    resynthLabel.setTooltip("Resynth (SA3): feed the last generation back as the "
-                            "seed so each render evolves from the previous one.");
-    addAndMakeVisible(resynthLabel);
-
-    resynthSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    resynthSlider.setColour(juce::Slider::trackColourId, kOscCol);
-    resynthSlider.setColour(juce::Slider::backgroundColourId, kBorder);   // visible rail (kSurface was too dark on kBg)
-    resynthSlider.setColour(juce::Slider::textBoxTextColourId, kDim);
-    resynthSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    resynthSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    resynthSlider.setTooltip("Resynth (SA3): Off = normal generation. Drag right to "
-                             "feed the last render back as the seed — further right "
-                             "= the next render follows your fed-back sound more.");
-    addAndMakeVisible(resynthSlider);
+    // RESYNTH (init_audio / i2i): house-standard inline-bar SliderRow (the same
+    // format as the sequencer's Shuffle row) — accent band label + fill bar in
+    // kOscCol, with an Off..Full word read-out as the inline value. SA3-gated.
+    // The int/ext source toggle sits to its right (where Shuffle shows value+dot).
+    resynthRow = std::make_unique<SliderRow>(
+        "RESYNTH",
+        [](double v) {
+            auto onAnchor = [v](double a) { return std::abs(v - a) < 0.02; };
+            if (onAnchor(0.0))  return juce::String("Off");
+            if (onAnchor(0.05)) return juce::String("Min");
+            if (onAnchor(0.25)) return juce::String("Subtle");
+            if (onAnchor(0.50)) return juce::String("Medium");
+            if (onAnchor(0.75)) return juce::String("Strong");
+            if (onAnchor(1.0))  return juce::String("Full");
+            return juce::String(juce::roundToInt(v * 100.0)) + "%";
+        },
+        kOscCol);
+    resynthRow->setInlineLabel(true);
+    resynthRow->getSlider().setTooltip(
+        "Resynth (SA3): Off = normal generation. Drag right to feed the source back "
+        "as the seed — further right = the next render follows it more.");
+    addAndMakeVisible(*resynthRow);
 
     resynthA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        processor.getValueTreeState(), PID::resynthAmount, resynthSlider);
+        processor.getValueTreeState(), PID::resynthAmount, resynthRow->getSlider());
+    // Keep the inline read-out in sync (the attachment overwrites onValueChange).
+    resynthRow->getSlider().onValueChange = [this] { resynthRow->updateValue(); };
+    resynthRow->updateValue();
 
     // int/ext source toggle — two TextButtons + hidden ComboBox with APVTS attachment.
     // Replaces the slider's value readout; mirrors the repromptCoupling mechanism in
@@ -1090,42 +1099,6 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         resynthSrcA = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
             processor.getValueTreeState(), PID::resynthSource, resynthSrcHidden);
     }
-
-    // Word readout on the named anchors (0/.05/.25/.5/.75/1 → Off / Min / Subtle /
-    // Medium / Strong / Full), a percentage in between. The anchors line up with
-    // the init_noise mapping in buildInferenceRequest so "Full" really is the
-    // strongest source carry-over — and it shows only at the rightmost anchor
-    // (1.0), never at an 80% in-between. "Min" is the smallest active step (0.05 =
-    // kResynthLoopFloor, the weakest carry-over before the Off dead-zone). Other
-    // off-anchor values (the 0.05 grid lets you dial them) read as a percent so a
-    // between-anchor setting stays legible.
-    // IMPORTANT: SliderAttachment's constructor OVERWRITES these two functions, so
-    // they must be assigned AFTER the attachment is created — then updateText()
-    // refreshes the box from the restored value. (Setting them before the
-    // attachment silently reverts the box to the parameter's 3-decimal number.)
-    resynthSlider.textFromValueFunction = [](double v) {
-        auto onAnchor = [v](double a) { return std::abs(v - a) < 0.02; };
-        if (onAnchor(0.0))  return juce::String("Off");
-        if (onAnchor(0.05)) return juce::String("Min");
-        if (onAnchor(0.25)) return juce::String("Subtle");
-        if (onAnchor(0.50)) return juce::String("Medium");
-        if (onAnchor(0.75)) return juce::String("Strong");
-        if (onAnchor(1.0))  return juce::String("Full");
-        return juce::String(juce::roundToInt(v * 100.0)) + "%";
-    };
-    resynthSlider.valueFromTextFunction = [](const juce::String& t) {
-        auto s = t.trim().toLowerCase();
-        if (s == "off")    return 0.0;
-        if (s == "min")    return 0.05;
-        if (s == "subtle") return 0.25;
-        if (s == "medium") return 0.50;
-        if (s == "strong") return 0.75;
-        if (s == "full")   return 1.0;
-        // Accept "35%" as well as a bare number.
-        return s.endsWith("%") ? s.dropLastCharacters(1).getDoubleValue() / 100.0
-                               : t.getDoubleValue();
-    };
-    resynthSlider.updateText();
 
     // (Re-Prompt stance/coupling controls moved into PromptPanel — they now sit
     // directly under the prompts, co-located with the loop logic. See PromptPanel's
@@ -1169,11 +1142,10 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         // element is scoped to SA3; AudioLDM2's diffusers path can't take it).
         // Separate guard — its enabled state is the opposite of the cards above.
         const bool resynthOk = promptPanel.selectedModelIsSA3();
-        if (resynthSlider.isEnabled() != resynthOk)
+        if (resynthRow->isEnabled() != resynthOk)
         {
-            resynthSlider.setEnabled(resynthOk);
-            resynthSlider.setAlpha(resynthOk ? 1.0f : 0.4f);
-            resynthLabel.setAlpha(resynthOk ? 1.0f : 0.4f);   // dim the left-title with the slider
+            resynthRow->setEnabled(resynthOk);
+            resynthRow->setAlpha(resynthOk ? 1.0f : 0.4f);   // dims the inline band label too
         }
         // The int/ext source toggle follows resynthOk; "ext" additionally requires
         // an available input bus. This sets the state on model change; ext-
@@ -2487,34 +2459,6 @@ void MainPanel::paint(juce::Graphics& g)
     }
 }
 
-void MainPanel::paintOverChildren(juce::Graphics& g)
-{
-    // Faint Mod-colour dot showing where Drift (target = Resynth) is pushing the
-    // slider — the MainPanel counterpart to the alpha/mag/noise ghosts in
-    // PromptPanel. Only when driftResynth is a real value AND the slider is live
-    // (SA3 selected): a non-SA3 model can still have Drift→Resynth armed, but the
-    // disabled slider must not sprout an orphan ghost.
-    if (std::isnan(resynthGhostValue_) || ! resynthSlider.isEnabled())
-        return;
-
-    // The slider carries a text box on the right (TextBoxRight, 46px); the drawn
-    // track is the bounds minus that box. Map value→pixel within the track with
-    // the same thumb-inset math the horizontal ghosts use in PromptPanel.
-    const auto  full   = resynthSlider.getBounds();
-    const auto  track  = full.withTrimmedRight(resynthSlider.getTextBoxWidth());
-    const int   thumbW = resynthSlider.getLookAndFeel().getSliderThumbRadius(resynthSlider) * 2;
-    const double norm  = juce::jlimit(0.0, 1.0,
-        resynthSlider.valueToProportionOfLength(static_cast<double>(resynthGhostValue_)));
-
-    const float gx = static_cast<float>(track.getX() + thumbW / 2)
-                   + static_cast<float>(track.getWidth() - thumbW) * static_cast<float>(norm);
-    const float gy = static_cast<float>(track.getCentreY());
-    const float r  = static_cast<float>(track.getHeight()) * 0.28f;
-
-    g.setColour(kModCol.withAlpha(0.8f)); // ghost stays in the Mod-section colour
-    g.fillEllipse(gx - r, gy - r, r * 2.0f, r * 2.0f);
-}
-
 void MainPanel::syncInferenceCacheUi()
 {
     const int capacity = processorRef.getInferenceCacheCapacity();
@@ -3130,26 +3074,15 @@ void MainPanel::timerCallback()
         mv.driftAxis2.load(std::memory_order_relaxed),
         mv.driftAxis3.load(std::memory_order_relaxed));
 
-    // Resynth-slider drift ghost: repaint only the slider region, and only when
-    // the modulated value actually changes. driftResynth is NaN whenever Drift is
-    // not targeting Resynth, so at idle this never repaints (NaN==NaN short-circuit
-    // below treats both-NaN as unchanged).
-    {
-        const float newResynthGhost = mv.driftResynth.load(std::memory_order_relaxed);
-        const bool wasNan = std::isnan(resynthGhostValue_);
-        const bool isNan  = std::isnan(newResynthGhost);
-        if (wasNan != isNan || (!isNan && newResynthGhost != resynthGhostValue_))
-        {
-            resynthGhostValue_ = newResynthGhost;
-            // Skip the repaint while the slider is disabled (non-SA3 model with
-            // Drift→Resynth armed): paintOverChildren would draw nothing anyway.
-            // The value keeps tracking, and re-enabling on the SA3 switch repaints
-            // the slider region itself — which re-runs paintOverChildren — so the
-            // ghost still appears the moment it becomes valid.
-            if (resynthSlider.isEnabled())
-                repaint(resynthSlider.getBounds().expanded(0, 3));
-        }
-    }
+    // Resynth drift ghost: the SliderRow paints + smooths it natively (setGhostValue
+    // + tickGhost, like the FX rows). driftResynth is NaN whenever Drift is not
+    // targeting Resynth → clearGhost, so at idle tickGhost early-returns (no repaint).
+    // Suppress on a disabled (non-SA3) row so a greyed control sprouts no orphan ghost.
+    if (resynthRow->isEnabled())
+        resynthRow->setGhostValue(mv.driftResynth.load(std::memory_order_relaxed));
+    else
+        resynthRow->clearGhost();
+    resynthRow->tickGhost();
 
     if (pendingInferenceReload && !promptPanel.isGenerating())
     {
@@ -3408,14 +3341,9 @@ void MainPanel::resized()
         mainGenerateBtn.getBottom() + effectiveGenCacheGap + cacheRowH + kGap,
         genCol.getWidth(),
         resynthBlockH).reduced(1, 0);
-    resynthLabel.setVisible(true);
-    setUiFont(resynthLabel, TextRole::ModuleTitle, switchFs, true);
-    const int resynthLabelW = measureTextWidth(" RESYNTH", hdrFs) + labelPad;
-    resynthLabel.setBounds(resynthArea.removeFromLeft(juce::jmin(resynthLabelW, resynthArea.getWidth())));
-    resynthArea.removeFromLeft(juce::jmin(gap, resynthArea.getWidth()));
     auto srcToggle = resynthArea.removeFromRight(56);     // 2× ~28px int/ext buttons
     resynthArea.removeFromRight(juce::jmin(gap, resynthArea.getWidth()));
-    resynthSlider.setBounds(resynthArea);
+    resynthRow->setBounds(resynthArea);                   // inline SliderRow draws its own band label + value
     for (int i = 0; i < 2; ++i)
         resynthSrcBtns[i].setBounds(srcToggle.removeFromLeft(srcToggle.getWidth() / (2 - i)));
 

@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include "GuiHelpers.h"   // SliderRow (house-standard inline-bar row)
 #include "PromptPanel.h"
 #include "AxesPanel.h"
 #include "DimensionExplorer.h"
@@ -25,7 +26,6 @@ public:
     ~MainPanel() override;
 
     void paint(juce::Graphics& g) override;
-    void paintOverChildren(juce::Graphics& g) override;
     void resized() override;
     void mouseDown(const juce::MouseEvent& e) override;
     bool keyPressed(const juce::KeyPress& key) override;
@@ -132,26 +132,20 @@ private:
     std::array<MainSnapshot, kNumSnapshotSlots> snapshotPressCaptures;
     int activeSnapshotIndex = 0;  // 0=OFF, 1..4=session snapshot selected
 
-    // Resynth (init_audio / i2i): one SA3-gated Off->Full slider under the snap/
-    // cache row. Left = off (text-only), right = full (next render follows the
-    // fed-back source most strongly). The source toggle (int/ext) replaces the
-    // slider readout.
+    // Resynth (init_audio / i2i): SA3-gated, house-standard inline-bar SliderRow
+    // (the same format as the sequencer's Shuffle row) — accent band label + fill
+    // bar in kOscCol, Off..Full inline read-out. The int/ext source toggle sits to
+    // its right. The SliderRow paints its own Drift ghost (setGhostValue/tickGhost).
     // JUCE destruction order (CLAUDE.md rule 3): attachments destruct first
-    // (declared last); buttons and ComboBox must be declared before their attachment.
-    juce::Label resynthLabel;   // accent left-title band ("RESYNTH"), like SNAP/CACHE
-    juce::Slider resynthSlider;
+    // (declared last); the row/buttons/ComboBox precede their attachments.
+    std::unique_ptr<SliderRow> resynthRow;   // inline-bar row (Shuffle format), kOscCol
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> resynthA;
     // int/ext source toggle: two TextButtons drive a hidden ComboBox whose
-    // attachment syncs with APVTS. Declared after resynthSlider and resynthA so
+    // attachment syncs with APVTS. Declared after resynthRow and resynthA so
     // resynthSrcA (the attachment) destructs first.
     juce::TextButton resynthSrcBtns[2];                 // "int" / "ext"
     juce::ComboBox   resynthSrcHidden;                  // drives the APVTS attachment
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> resynthSrcA;
-    // Drift ghost for the resynth slider: where Drift (target = Resynth) is
-    // currently pushing the value, painted as a faint Mod-colour dot over the
-    // track. NaN = no drift on this target → nothing painted (and no repaint, so
-    // zero idle cost). Polled from modulatedValues.driftResynth in timerCallback.
-    float resynthGhostValue_ = std::numeric_limits<float>::quiet_NaN();
 
     // (Re-Prompt controls now live in PromptPanel, under the prompts, next to the
     // loop logic that drives them — see PromptPanel's repromptStanceBar/coupling.)
