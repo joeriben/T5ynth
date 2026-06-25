@@ -111,7 +111,10 @@ def check_computer_keyboard_note_off() -> None:
             "computerKeyboardActiveNotes",
             "releaseComputerKeyboardNotes",
             "endComputerKeyboardNote(note >= 0 ? note : computerKeyboardNoteForIndex(i))",
-            "lower == 'y' || lower == 'x'",
+            # Octave control is now layout-independent (physical scancodes), not a
+            # character comparison — see the a9376a83 typing-keyboard refactor.
+            "kComputerKeyboardOctaveDownKey",
+            "kComputerKeyboardOctaveUpKey",
             "shiftComputerKeyboardOctave",
         ],
         "computer keyboard note-off and octave controls",
