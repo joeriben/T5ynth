@@ -83,6 +83,8 @@ juce_add_plugin(T5ynth
     COPY_PLUGIN_AFTER_BUILD FALSE
     BLUETOOTH_PERMISSION_ENABLED TRUE
     BLUETOOTH_PERMISSION_TEXT "T5ynth uses Bluetooth to connect to MIDI controllers."
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    MICROPHONE_PERMISSION_TEXT "T5ynth captures live audio input to seed Resynth (init_audio)."
 )
 
 # ── macOS: ad-hoc sign VST3 / AU bundles after JUCE's build steps ──

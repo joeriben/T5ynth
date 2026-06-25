@@ -1052,7 +1052,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     resynthSlider.setColour(juce::Slider::backgroundColourId, kBorder);   // visible rail (kSurface was too dark on kBg)
     resynthSlider.setColour(juce::Slider::textBoxTextColourId, kDim);
     resynthSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    resynthSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 46, 14);
+    resynthSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
     resynthSlider.setTooltip("Resynth (SA3): Off = normal generation. Drag right to "
                              "feed the last render back as the seed — further right "
                              "= the next render follows your fed-back sound more.");
@@ -1060,6 +1060,36 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
 
     resynthA = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor.getValueTreeState(), PID::resynthAmount, resynthSlider);
+
+    // int/ext source toggle — two TextButtons + hidden ComboBox with APVTS attachment.
+    // Replaces the slider's value readout; mirrors the repromptCoupling mechanism in
+    // PromptPanel (ComboBox attachment syncs the buttons).
+    {
+        static constexpr const char* labels[2] = { "int", "ext" };
+        resynthSrcHidden.addItemList({ "int", "ext" }, 1);
+        resynthSrcHidden.onChange = [this] {
+            const int id = resynthSrcHidden.getSelectedId();
+            for (int i = 0; i < 2; ++i)
+                resynthSrcBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
+        };
+        addChildComponent(resynthSrcHidden);   // hidden, not visible
+        for (int i = 0; i < 2; ++i)
+        {
+            auto& b = resynthSrcBtns[i];
+            b.setButtonText(labels[i]);
+            styleSwitchButton(b, kOscCol);
+            b.setClickingTogglesState(true);
+            b.setRadioGroupId(3019);            // fresh id (3017 cache, 3001 filter, 2038 seed)
+            b.setConnectedEdges(i == 0 ? juce::Button::ConnectedOnRight
+                                       : juce::Button::ConnectedOnLeft);
+            b.setTooltip(i == 0 ? "Int: resynthesise the last generation (self-feedback)."
+                                : "Ext: resynthesise live audio input (needs an input source in Audio settings).");
+            b.onClick = [this, i] { resynthSrcHidden.setSelectedId(i + 1); };
+            addAndMakeVisible(b);
+        }
+        resynthSrcA = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+            processor.getValueTreeState(), PID::resynthSource, resynthSrcHidden);
+    }
 
     // Word readout on the named anchors (0/.05/.25/.5/.75/1 → Off / Min / Subtle /
     // Medium / Strong / Full), a percentage in between. The anchors line up with
@@ -1145,6 +1175,15 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
             resynthSlider.setAlpha(resynthOk ? 1.0f : 0.4f);
             resynthLabel.setAlpha(resynthOk ? 1.0f : 0.4f);   // dim the left-title with the slider
         }
+        // The int/ext source toggle follows resynthOk; "ext" additionally requires
+        // an available input bus. This sets the state on model change; ext-
+        // availability is then refreshed live in timerCallback (the input bus can
+        // appear/vanish without a model change, e.g. user selects an input device).
+        const bool extOk = resynthOk && processorRef.hasExternalInputAvailable();
+        resynthSrcBtns[0].setEnabled(resynthOk);
+        resynthSrcBtns[0].setAlpha(resynthOk ? 1.0f : 0.4f);
+        resynthSrcBtns[1].setEnabled(extOk);
+        resynthSrcBtns[1].setAlpha(extOk ? 1.0f : 0.4f);
         // (Re-Prompt is engine-agnostic — not SA3-gated — and its controls now live
         // in PromptPanel; nothing to flip here.)
     };
@@ -3055,6 +3094,21 @@ void MainPanel::timerCallback()
     mainGenerateBtn.setAnimationState(glowPhase, glowGenerating);
     updateGenerateButtonsForCacheState(false);
     syncInferenceCacheUi();
+
+    // Live-refresh the Resynth "ext" source button: it needs an available input
+    // bus, which can appear or vanish (the user picks an input device in the
+    // standalone Audio settings) WITHOUT a model change, so onModelChanged alone
+    // would leave it stale. Change-guarded: the uncontended mutex read is cheap and
+    // setEnabled only repaints when the state actually flips, so idle costs nothing.
+    {
+        const bool extOk = promptPanel.selectedModelIsSA3()
+                        && processorRef.hasExternalInputAvailable();
+        if (resynthSrcBtns[1].isEnabled() != extOk)
+        {
+            resynthSrcBtns[1].setEnabled(extOk);
+            resynthSrcBtns[1].setAlpha(extOk ? 1.0f : 0.4f);
+        }
+    }
     pollComputerKeyboard();
 
     // Drive the cache-button pulse phase while the cache is still filling.
@@ -3359,7 +3413,11 @@ void MainPanel::resized()
     const int resynthLabelW = measureTextWidth(" RESYNTH", hdrFs) + labelPad;
     resynthLabel.setBounds(resynthArea.removeFromLeft(juce::jmin(resynthLabelW, resynthArea.getWidth())));
     resynthArea.removeFromLeft(juce::jmin(gap, resynthArea.getWidth()));
+    auto srcToggle = resynthArea.removeFromRight(56);     // 2× ~28px int/ext buttons
+    resynthArea.removeFromRight(juce::jmin(gap, resynthArea.getWidth()));
     resynthSlider.setBounds(resynthArea);
+    for (int i = 0; i < 2; ++i)
+        resynthSrcBtns[i].setBounds(srcToggle.removeFromLeft(srcToggle.getWidth() / (2 - i)));
 
     // (The Re-Prompt control row that used to sit beneath Resynth now lives in
     // PromptPanel, directly under the prompts.)

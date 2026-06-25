@@ -163,6 +163,7 @@ namespace PID {
     static constexpr const char* genSeed          = "gen_seed";
     static constexpr const char* genHfBoost       = "gen_hf_boost";
     static constexpr const char* resynthAmount    = "resynth_amount";   // Resynth (init_audio / i2i): 0=off .. 1=full
+    static constexpr const char* resynthSource   = "resynth_source";   // ResynthSource: 0=Internal (self-feedback), 1=External (live capture)
     // ── Semantic self-listening loop (CLAP ear → LLM interpreter → next prompt) ──
     // Both are read message-thread-only at generation time (PromptPanel), NOT in
     // processBlock — they have no audio-thread consumer.
@@ -942,6 +943,21 @@ namespace RepromptCoupling {
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
     static_assert(AbReplace + 1 == kCount, "RepromptCoupling out of sync.");
+}
+
+// ── Resynth seed source ──────────────────────────────────────────────────────
+// Controls which audio seeds the Resynth (init_audio / SDEdit) path in
+// buildInferenceRequest. Per-preset (saved/loaded as a key string). Default 0
+// (Internal) restores the original self-feedback behaviour so old presets load
+// correctly; External requires a live input bus (ext-audio capture feature).
+namespace ResynthSource {
+    enum : int { Internal = 0, External = 1 };
+    static constexpr ChoiceEntry kEntries[] = {
+        { "int", "Int" },   // self-feedback: seed = last generation
+        { "ext", "Ext" }    // external: seed = live audio input capture
+    };
+    static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
+    static_assert(External + 1 == kCount, "ResynthSource out of sync.");
 }
 
 // ── Voice count ──

@@ -202,6 +202,7 @@ inline int osQualityIndexFromFactor(int factor) noexcept
 
 T5ynthProcessor::T5ynthProcessor()
     : AudioProcessor(BusesProperties()
+                     .withInput("Input", juce::AudioChannelSet::stereo(), true)
                      .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       parameters(*this, nullptr, "T5ynth", createParameterLayout())
 {
@@ -626,6 +627,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::repromptCoupling, 1}, "Re-Prompt Coupling",
         toChoices(RepromptCoupling::kEntries), 0));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::resynthSource, 1}, "Resynth Source",
+        toChoices(ResynthSource::kEntries), 0));   // default 0 = Internal (self-feedback)
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::genAxesAmount, 1}, "Axes Amount",
@@ -1306,6 +1310,23 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     silentBlockCount = 0;
     // Allow ~10 seconds of reverb tail before deep idle
     tailBlocks = std::max(1, static_cast<int>(10.0 * sampleRate / samplesPerBlock));
+
+    // External-capture ring: size for this host sample rate (usable history +
+    // race margin). Allocation happens here on the prepare thread, never on the
+    // audio thread. The lock serializes this (re)allocation against a concurrent
+    // message-thread snapshot read — a host may re-call prepareToPlay (SR/buffer
+    // change) while a regen snapshot is in flight; without it the reader would
+    // copy from a buffer being freed. processBlock is already excluded by JUCE.
+    {
+        const std::lock_guard<std::mutex> lk(captureRingMutex);
+        captureSampleRate    = sampleRate;
+        captureUsableSamples = (int) std::ceil(kMaxCaptureSeconds * sampleRate);
+        const int captureRingLen = captureUsableSamples
+                                 + (int) std::ceil(kCaptureMarginSeconds * sampleRate);
+        captureRing.setSize(2, captureRingLen, false, true, true);
+        captureRing.clear();
+        captureWritePos.store(0, std::memory_order_relaxed);
+    }
 }
 
 void T5ynthProcessor::releaseResources()
@@ -1333,6 +1354,7 @@ void T5ynthProcessor::releaseResources()
         samplerReprepareSourceValid = false;
         ++samplerReprepareSourceVersion;
     }
+    captureWritePos.store(0, std::memory_order_relaxed);
 }
 
 bool T5ynthProcessor::assignSequencerOneShotFromCurrentRegion(int step, int slot)
@@ -1825,9 +1847,120 @@ void T5ynthProcessor::samplerReprepareThreadMain()
     }
 }
 
+bool T5ynthProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
+{
+    // Output must be mono or stereo.
+    const auto out = layouts.getMainOutputChannelSet();
+    if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo())
+        return false;
+    // Input is OPTIONAL (live-capture seed for Resynth): allow it disabled, mono,
+    // or stereo. A host that gives a synth no input simply disables the bus.
+    const auto in = layouts.getMainInputChannelSet();
+    if (! in.isDisabled()
+        && in != juce::AudioChannelSet::mono()
+        && in != juce::AudioChannelSet::stereo())
+        return false;
+    return true;
+}
+
+bool T5ynthProcessor::snapshotExternalCapture (juce::AudioBuffer<float>& dest,
+                                               double& sampleRateOut,
+                                               double seconds) const
+{
+    // Hold the ring lock across the whole read: it serializes against prepareToPlay
+    // reallocating captureRing under us (use-after-free). Not contended by the audio
+    // thread — the writer is lock-free and processBlock can't run during prepareToPlay.
+    const std::lock_guard<std::mutex> lk(captureRingMutex);
+
+    const int    ringN = captureRing.getNumSamples();
+    const double sr    = captureSampleRate;
+    if (ringN <= 0 || sr <= 0.0 || seconds <= 0.0 || captureUsableSamples <= 0)
+        return false;
+
+    // Never request more than the usable history; the remaining margin keeps the
+    // writer from lapping the read window during this copy.
+    int want = juce::jmin(captureUsableSamples, (int) std::llround(seconds * sr));
+    want = juce::jmin(want, ringN);
+    if (want <= 0)
+        return false;
+
+    const int wp = captureWritePos.load(std::memory_order_acquire);
+    const int ch = captureRing.getNumChannels();
+
+    // Message thread: allocation is allowed here.
+    dest.setSize(ch, want, false, false, true);
+
+    int start = wp - want; if (start < 0) start += ringN;
+    const int firstLen = juce::jmin(want, ringN - start);
+    for (int c = 0; c < ch; ++c)
+    {
+        dest.copyFrom(c, 0, captureRing, c, start, firstLen);
+        if (want > firstLen)
+            dest.copyFrom(c, firstLen, captureRing, c, 0, want - firstLen);
+    }
+
+    // Silence guard: no device / denied permission / nothing playing → report no
+    // capture so the caller falls back to text-only rather than seeding silence.
+    float mag = 0.0f;
+    for (int c = 0; c < ch; ++c)
+        mag = juce::jmax(mag, dest.getMagnitude(c, 0, want));
+    if (mag < 1.0e-4f)
+    {
+        // Empty dest so the wire serializer (PipeInference.cpp, init_audio is
+        // emitted whenever initAudio.getNumSamples() > 0) omits init_audio
+        // entirely — a false return must mean "no seed", not "silent seed".
+        dest.setSize(0, 0);
+        return false;
+    }
+
+    // Peak-normalise to ~unit amplitude. The VAE encoder expects the seed in the
+    // conditioned range the OLD self-feedback seed had: the backend peak-normalises
+    // model output to 1.0 (pipe_inference.py, "SA3 outputs hot"), so the old loop
+    // always fed a peak-1.0 seed. Raw live input arrives at an arbitrary/hot level
+    // — nothing downstream normalises init_audio (prepare_audio only resamples /
+    // pad-crops) — so an un-normalised hot capture drives the encode out of
+    // distribution → audible overdrive. Target 0.95 (not 1.0) leaves headroom
+    // against inter-sample overshoot from the backend's 48k→model-SR resample
+    // (the old seed was model-native, so it never resampled). mag is the captured
+    // peak, already computed above and guaranteed >= 1e-4 here.
+    dest.applyGain(0.95f / mag);
+
+    sampleRateOut = sr;
+    return true;
+}
+
 void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
+
+    // ── External-audio capture (Resynth init_audio source) ──────────────────
+    // Snapshot the live input bus into the pre-allocated ring BEFORE buffer.clear()
+    // wipes the shared in/out buffer. RT-safe: block memcpy + one atomic store, no
+    // alloc, no lock. numSamples is always << ring length, so the write wraps at
+    // most once.
+    if (getTotalNumInputChannels() > 0 && captureRing.getNumSamples() > 0)
+    {
+        auto inBus = getBusBuffer(buffer, true, 0);
+        const int nIn   = inBus.getNumChannels();
+        const int ringN = captureRing.getNumSamples();
+        const int n     = buffer.getNumSamples();
+        if (nIn > 0 && n > 0 && n <= ringN)
+        {
+            int wp = captureWritePos.load(std::memory_order_relaxed);
+            const int first = juce::jmin(n, ringN - wp);
+            for (int ch = 0; ch < captureRing.getNumChannels(); ++ch)
+            {
+                const int src = juce::jmin(ch, nIn - 1);   // mono input spreads to both ring channels
+                const float* in = inBus.getReadPointer(src);
+                captureRing.copyFrom(ch, wp, in, first);
+                if (n > first)
+                    captureRing.copyFrom(ch, 0, in + first, n - first);
+            }
+            wp += n; if (wp >= ringN) wp -= ringN;
+            captureWritePos.store(wp, std::memory_order_release);
+        }
+    }
+
     buffer.clear();
     pendingSequencerOneShotCount = 0;
 
@@ -4757,6 +4890,8 @@ juce::String T5ynthProcessor::exportJsonPreset() const
                        choiceToKey(static_cast<int>(get(PID::repromptStance)), RepromptStance::kEntries));
     synth->setProperty("repromptCoupling",
                        choiceToKey(static_cast<int>(get(PID::repromptCoupling)), RepromptCoupling::kEntries));
+    synth->setProperty("resynthSource",
+                       choiceToKey(static_cast<int>(get(PID::resynthSource)), ResynthSource::kEntries));
     synth->setProperty("duration", get(PID::genDuration));
     synth->setProperty("startPosition", get(PID::genStart));
     synth->setProperty("steps", static_cast<int>(get(PID::infSteps)));
@@ -5122,6 +5257,10 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
                      choiceFromKey(synth->getProperty("repromptStance").toString(), RepromptStance::kEntries)));
         setParam(parameters, PID::repromptCoupling, static_cast<float>(
                      choiceFromKey(synth->getProperty("repromptCoupling").toString(), RepromptCoupling::kEntries)));
+        // Absence of "resynthSource" (old presets) -> choiceFromKey("") -> 0 -> Internal,
+        // restoring the original self-feedback behaviour so old presets load correctly.
+        setParam(parameters, PID::resynthSource, static_cast<float>(
+                     choiceFromKey(synth->getProperty("resynthSource").toString(), ResynthSource::kEntries)));
         setParam(parameters, PID::genDuration, static_cast<float>(synth->getProperty("duration")));
         setParam(parameters, PID::genStart, static_cast<float>(synth->getProperty("startPosition")));
         setParam(parameters, PID::infSteps, static_cast<float>(static_cast<int>(synth->getProperty("steps"))));

@@ -134,12 +134,19 @@ private:
 
     // Resynth (init_audio / i2i): one SA3-gated Off->Full slider under the snap/
     // cache row. Left = off (text-only), right = full (next render follows the
-    // fed-back source most strongly). No separate toggle; a word readout (Off..
-    // Full) replaces the meaningless 0-1 number so "full" is a visible position.
-    // Attachment declared AFTER its target component (reverse-destruction order).
+    // fed-back source most strongly). The source toggle (int/ext) replaces the
+    // slider readout.
+    // JUCE destruction order (CLAUDE.md rule 3): attachments destruct first
+    // (declared last); buttons and ComboBox must be declared before their attachment.
     juce::Label resynthLabel;   // accent left-title band ("RESYNTH"), like SNAP/CACHE
     juce::Slider resynthSlider;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> resynthA;
+    // int/ext source toggle: two TextButtons drive a hidden ComboBox whose
+    // attachment syncs with APVTS. Declared after resynthSlider and resynthA so
+    // resynthSrcA (the attachment) destructs first.
+    juce::TextButton resynthSrcBtns[2];                 // "int" / "ext"
+    juce::ComboBox   resynthSrcHidden;                  // drives the APVTS attachment
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> resynthSrcA;
     // Drift ghost for the resynth slider: where Drift (target = Resynth) is
     // currently pushing the value, painted as a faint Mod-colour dot over the
     // track. NaN = no drift on this target → nothing painted (and no repaint, so

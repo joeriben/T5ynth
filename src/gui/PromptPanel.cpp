@@ -2253,44 +2253,66 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     }
     if (resynthAmount > 0.01f && isSA3Model(req.model))
     {
-        const auto& rawBuf = processorRef.getGeneratedAudioRaw();
-        if (rawBuf.getNumSamples() > 0 && rawBuf.getNumChannels() > 0)
+        const int resynthSource = static_cast<int>(
+            apvts.getRawParameterValue(PID::resynthSource)->load());
+        bool haveSeed = false;
+        if (resynthSource == ResynthSource::External)
         {
-            req.initAudio.makeCopyOf(rawBuf);
-            req.initAudioSampleRate = processorRef.getGeneratedSampleRate();
-            // Amount (0->1) maps to backend init_noise_level across SA3's MEASURED
-            // useful band: Full (1.0) -> 0.05, low end -> ~0.48 (just under the
-            // >=0.5 dead zone where init_audio is ignored entirely).
+            // EXTERNAL: seed from LIVE external audio capture. Returns false (→ no
+            // init_audio, text-only) when no input device / denied permission /
+            // silence, so a missing source never seeds silence.
+            double extCaptureSR = 0.0;
+            if (processorRef.snapshotExternalCapture(req.initAudio, extCaptureSR, duration))
+            {
+                req.initAudioSampleRate = extCaptureSR;
+                haveSeed = true;
+            }
+        }
+        else
+        {
+            // INTERNAL (default): self-feedback — seed from the last raw generation,
+            // so each render evolves from the previous. The original Resynth path.
+            const auto& rawBuf = processorRef.getGeneratedAudioRaw();
+            if (rawBuf.getNumSamples() > 0 && rawBuf.getNumChannels() > 0)
+            {
+                req.initAudio.makeCopyOf(rawBuf);
+                req.initAudioSampleRate = processorRef.getGeneratedSampleRate();
+                haveSeed = true;
+            }
+        }
+        if (haveSeed)
+        {
+            // Amount (0->1) maps to backend init_noise_level (the SDEdit start
+            // sigma). Full (1.0) -> 0.05 = max self-resynthesis (the input strongly
+            // seeds the result); LOW end -> ~0.90 = PROMPT-DOMINANT (a typed prompt
+            // wins over the carried input).
             //
-            // VALIDATED empirically by the 20-iteration feedback-loop sweep
-            // (tools/test_resynth_loop.py; full writeup in
-            // tools/RESYNTH_CALIBRATION_FINDINGS.md). On
-            // stable-audio-3-small-music the loop CONVERGES at every sigma:
-            //   - Full (sigma 0.05): max self-resynthesis. The output morphs into
-            //     a related-but-distinct member of the prompt family and settles
-            //     (timbre_corr-to-original 0.37). Coherent, the strongest evolve.
-            //   - 5% floor (sigma ~0.48): a CHANGED prompt washes the carried sound
-            //     out by ~iter 6 (<<20) — this is what fixed the old "5% holds for
-            //     x bars" complaint (the prior 0.30 cap never washed out in 20).
-            // The evolution response saturates below sigma ~0.12 and vanishes above
-            // sigma ~0.40, so SA3 offers only ~3 resolvable evolution levels; LINEAR
-            // spends them on the top three detents (where it matters) and leaves the
-            // bottom two as a harmless wash-out plateau. A curve only moves that
-            // redundancy onto the useful end — strictly worse. Hence: keep linear.
-            // Another engine would want its own band re-measured the same way.
-            req.initNoiseLevel = 0.50f - 0.45f * resynthAmount;
+            // WHY 0.90 and not the old 0.50 cap: at sigma <=0.5 the init_audio carry
+            // DROWNS the prompt. The old band [0.05 .. 0.50] therefore had NO setting
+            // where a static, user-typed prompt could win — feed a pad, type "samba",
+            // and you heard "forever a slightly altered pad". The prompt only broke
+            // through when Re-Prompt forced sigma 0.9 (the override below) — i.e.
+            // prompt-dominance was gated behind a button it should never have needed.
+            // Reaching 0.9 here hands the sound to the prompt directly: turn Resynth
+            // DOWN for the prompt, UP to resynthesise/preserve the input.
+            //
+            // The self-resynthesis EVOLUTION response (measured: tools/test_resynth_loop.py,
+            // RESYNTH_CALIBRATION_FINDINGS.md) lives in sigma [~0.12 .. ~0.40]
+            // (saturates below 0.12, washes the carry out above ~0.40) and now
+            // occupies the UPPER part of the travel (Full..mid); the lower part is
+            // the prompt-dominant region the user asked to reach. Linear — the
+            // full-scale numbers are the user's by-ear call. Applies to both int and ext.
+            req.initNoiseLevel = 0.90f - 0.85f * resynthAmount;
 
             // ── Semantic-loop word-dominance override ──
             // When a loop stance is active the rewritten PROMPT must drive the next
-            // render, not the carried-over wave. The Resynth slider's measured band
-            // tops out at init_noise 0.05 (Full) and never exceeds 0.50 — and at
-            // <=0.5 the init_audio carry DROWNS the rewritten prompt, so every loop
-            // iteration re-renders the same carry centroid (the fixed point the tool
-            // already had to fix). clap_llm_loop.py runs at init_noise 0.9
-            // (validated: commit 9feb21ef / tools/diag_promptbite.py) so the words
-            // win while the signal still carries. Override the slider-derived value
-            // to that band whenever a stance is engaged — this needs no extra slider
-            // (it rides on the existing Resynth attach gate above). Read on the
+            // render, not the carried-over wave. At HIGH Resynth amounts the band
+            // above sits at low sigma (Full -> 0.05) where the init_audio carry
+            // DROWNS the rewritten prompt and the loop re-renders the same carry
+            // centroid. clap_llm_loop.py runs at init_noise 0.9 (validated: commit
+            // 9feb21ef / tools/diag_promptbite.py) so the words win while the signal
+            // still carries. Force that band whenever a stance is engaged, regardless
+            // of the Resynth amount, so a rewrite is never drowned. Read on the
             // message thread, same as every other param here.
             const int repromptStance = static_cast<int>(
                 apvts.getRawParameterValue(PID::repromptStance)->load());

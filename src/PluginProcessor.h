@@ -30,6 +30,7 @@ public:
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
@@ -184,6 +185,26 @@ public:
     /** Get the raw VAE output (unmodified, for re-apply on HF toggle). */
     const juce::AudioBuffer<float>& getGeneratedAudioRaw() const { return generatedAudioRaw; }
     double getGeneratedSampleRate() const { return generatedSampleRate; }
+
+    /** Copy the last `seconds` of captured live input (the window ending "now")
+        into `dest` and set `sampleRateOut`. Returns false (leaving dest untouched)
+        when there is no usable capture — no input bus, or the window is
+        effectively silent (no device / denied mic permission / nothing playing).
+        Message-thread only. */
+    bool snapshotExternalCapture(juce::AudioBuffer<float>& dest,
+                                 double& sampleRateOut, double seconds) const;
+
+    /** Returns true when an external audio input is available and the capture
+        ring has been primed with at least some data (input bus open + SR set).
+        Message-thread only — captureRingMutex is mutable. Used to gate the
+        "ext" resynth source button in MainPanel. */
+    bool hasExternalInputAvailable() const
+    {
+        const std::lock_guard<std::mutex> lk(captureRingMutex);
+        return getTotalNumInputChannels() > 0
+            && captureRing.getNumSamples() > 0
+            && captureSampleRate > 0.0;
+    }
 
     // Sequencer
     T5ynthStepSequencer& getStepSequencer() { return stepSequencer; }
@@ -439,6 +460,25 @@ private:
     std::vector<float> lastEmbeddingA, lastEmbeddingB;
     juce::AudioBuffer<float> generatedAudioFull;  // boosted buffer for engines + display
     juce::AudioBuffer<float> generatedAudioRaw;   // raw VAE output (for re-apply on toggle)
+
+    // ── External-audio capture (live input → Resynth init_audio seed) ───────
+    // The audio thread writes the main input bus into this pre-allocated ring
+    // every block; the message thread snapshots the last N seconds at regen
+    // (snapshotExternalCapture). RT-safe: one atomic write index, no locks. The
+    // ring is sized kMaxCaptureSeconds of usable history PLUS a margin, so the
+    // writer cannot lap the read window during a (sub-millisecond) snapshot copy.
+    static constexpr double kMaxCaptureSeconds    = 12.0;
+    static constexpr double kCaptureMarginSeconds = 0.5;
+    juce::AudioBuffer<float> captureRing;                // [2, (max+margin)*sr]
+    std::atomic<int>         captureWritePos { 0 };      // next write index (release-published)
+    int                      captureUsableSamples { 0 }; // kMaxCaptureSeconds*sr — snapshot ceiling
+    double                   captureSampleRate { 0.0 };  // host SR of the captured audio
+    // Serializes the ring (re)allocation in prepareToPlay against the message-
+    // thread snapshot read (snapshotExternalCapture). The audio-thread writer
+    // NEVER takes it (stays lock-free; writer-vs-reader is covered by the margin),
+    // and processBlock is already excluded from prepareToPlay by JUCE — so the
+    // audio thread never contends this lock and RT-safety is preserved.
+    mutable std::mutex       captureRingMutex;
     double generatedSampleRate = 44100.0;
     int inferenceCacheCapacity = 0;
     int inferenceCachePlaybackIndex = 0;
