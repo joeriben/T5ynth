@@ -529,3 +529,49 @@ every audio-thread function for hidden allocations before merging.**
 The campaign saved roughly 14 % of total CPU at idle and 30 %+ under
 stress. The code didn't get more complex — most fixes were 5–15
 lines of guards. The discipline is cheap once it's habitual.
+
+## 9. Baseline measurements (M3 Max, 2026-06-26)
+
+Measured on MacBook Pro M3 Max, standalone, 44.1 kHz, buffer 512.
+Filter oversampling as noted. CPU figures are Activity Monitor's
+per-process column (100 % = one core).
+
+### Synth (CPU)
+
+| Scenario | CPU |
+|---|---|
+| Idle (no voices, no inference) | 6–7 % |
+| 1 voice — Sampler, no FX, 4× OS | 22–29 % |
+| 1 voice — Wavetable, no FX, 4× OS | 30 % |
+| 1 voice — Granular, no FX, 4× OS | 32 % |
+| 16 voices — any engine, no FX, 4× OS | 34–36 % |
+| 16 voices + TapeDelay + bright-hall, 4× OS | 35–42 % |
+| 1 voice — Sampler, no FX, **2× OS** | 21–30 % |
+
+Voice DSP and FX are well within budget.
+
+### Inference (the `pipe_inference` process) — GPU-bound
+
+SA3 generation runs on the **GPU** (MPS): the GPU carries the load
+(~50–75 % during a generate, per Activity Monitor's GPU-process view).
+The `pipe_inference` **CPU** stays modest — ~13–35 % across every regen
+cadence (120 BPM 2-bar / 1-bar / ASAP alike). An early read of these
+numbers mistook the GPU load for a CPU spike; isolating the process's
+CPU vs GPU corrected it.
+
+Inference is strictly serialised, so generations never overlap:
+
+- the backend is a single-threaded request loop (one generate at a time);
+- `_generate_native` forces a GPU sync via `output.cpu()` before
+  returning (the GPU is drained between requests);
+- the C++ side guards dispatch with `generating`, held across the whole
+  blocking IPC round-trip.
+
+A single inference's wall time is constant whether spaced or fired
+back-to-back (no contention). Sustained higher GPU at ASAP is therefore
+duty cycle (continuous back-to-back), not stacking.
+
+Cache (≥2 slots) skips inference for repeated patterns → `pipe_inference`
+drops to 0. The reprompt instruct-LLM adds one interpret inference per
+loop step; the dual A/B path was halved from two interprets per step to
+one (alternating poles, commit `5a0a900e`).
