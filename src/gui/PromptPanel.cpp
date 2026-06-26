@@ -3146,7 +3146,10 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
         loopAltWriteA_ = false;       // each new session starts by writing B (the primary pole)
     }
 
-    const bool altWriteA = altReplace && loopAltWriteA_;   // which pole this alt step writes
+    // Which pole this step writes. Alternation is active in altReplace (transcribe) AND
+    // in dual non-altReplace (voll/concat) — both now run ONE interpret per step and
+    // flip the driven pole. Alpha (non-dual, non-altReplace) never alternates: always B.
+    const bool altWriteA = (altReplace || dual) && loopAltWriteA_;
 
     loopStepInFlight_ = true;
 
@@ -3199,17 +3202,21 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
             return cleaned.isNotEmpty() ? cleaned : fallback;
         };
 
-        // alpha → B only (build_a is None); dual (concat/voll) → A and B, each with
-        // its OWN prev/recent but the SAME stance. nextB always holds this step's
-        // result (B's inputs); for altReplace it is routed to whichever pole this step
-        // targets (transcribe is pole-independent), so the second run is skipped.
-        const juce::String nextB = interpretPole(prevB, recentB, prevB);
-        juce::String nextA;
-        if (dual && !altReplace)
-            nextA = interpretPole(prevA, recentA, prevA);
+        // ONE interpret per loop step (never two): the reprompt LLM inferences are
+        // linearised and the driven pole alternates A↔B, exactly the pattern the
+        // altReplace/transcribe path already uses.
+        //   • altReplace (transcribe): pole-independent CLAP tags (B inputs), routed
+        //     to the alternating pole in the tail.
+        //   • dual non-altReplace (voll/concat): was TWO interprets per step; now one,
+        //     alternating via altWriteA — each pole evolves at half cadence.
+        //   • alpha (non-dual): B only.
+        const bool writeAthisStep = dual && !altReplace && altWriteA;
+        const juce::String nextPole = writeAthisStep
+            ? interpretPole(prevA, recentA, prevA)
+            : interpretPole(prevB, recentB, prevB);
 
         juce::MessageManager::callAsync(
-            [safeThis, dual, concat, altReplace, altWriteA, nextA, nextB, origA, origB]
+            [safeThis, dual, concat, altReplace, altWriteA, nextPole, origA, origB]
         {
             auto* self = safeThis.getComponent();
             if (self == nullptr) return;   // panel gone — nothing to write; guard auto-clears with the object
@@ -3234,23 +3241,23 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
             // transcribe + AB-replace: write ONE pole this step (alternating), leaving
             // the other untouched, so A and B stay distinct snapshots of consecutive
             // renders — an A/B axis for alpha-drift instead of an instant A==B collapse.
-            // nextB carries the transcription (transcribe is pole-independent).
+            // nextPole carries the transcription (transcribe is pole-independent).
             if (altReplace)
             {
-                // loopLast_/recent_ keep the CORE (nextB); only the editor gets the
+                // loopLast_/recent_ keep the CORE (nextPole); only the editor gets the
                 // pole's preserved pitch/tempo suffix re-appended.
                 if (altWriteA)
                 {
-                    self->loopLastA_ = nextB;
-                    self->pendingLoopPromptA_ = RepromptStances::reattachMusicSuffix(nextB, self->loopSuffixA_);
-                    self->loopRecentA_.add(nextB);
+                    self->loopLastA_ = nextPole;
+                    self->pendingLoopPromptA_ = RepromptStances::reattachMusicSuffix(nextPole, self->loopSuffixA_);
+                    self->loopRecentA_.add(nextPole);
                     while (self->loopRecentA_.size() > 3) self->loopRecentA_.remove(0);
                 }
                 else
                 {
-                    self->loopLastB_ = nextB;
-                    self->pendingLoopPromptB_ = RepromptStances::reattachMusicSuffix(nextB, self->loopSuffixB_);
-                    self->loopRecentB_.add(nextB);
+                    self->loopLastB_ = nextPole;
+                    self->pendingLoopPromptB_ = RepromptStances::reattachMusicSuffix(nextPole, self->loopSuffixB_);
+                    self->loopRecentB_.add(nextPole);
                     while (self->loopRecentB_.size() > 3) self->loopRecentB_.remove(0);
                 }
                 self->loopAltWriteA_ = ! altWriteA;   // alternate the target for next step
@@ -3260,32 +3267,38 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
 
             // Stage the new prompt into pending — the editor is only updated when the
             // next generation completes (i.e., when the prompt becomes wirksam).
-            // B pole (always driven). loopLast_/recent_ keep the CORE; pending carries
-            // the re-appended musical suffix.
-            self->loopLastB_ = nextB;                                   // glieder[-1] (CORE)
-            // concat2 only when there's a real core to prepend — a pole that was nothing
-            // but a musical token has an EMPTY core (origB==""), and concat2("",x) would
-            // emit a leading ", "; fall back to the bare new link so the suffix re-append
-            // yields "x, 120bpm" not ", x, 120bpm".
-            const juce::String appliedB = RepromptStances::reattachMusicSuffix(
-                (concat && origB.isNotEmpty()) ? RepromptStances::concat2(origB, nextB) : nextB,
-                self->loopSuffixB_);
-            self->pendingLoopPromptB_ = appliedB;
-            self->loopRecentB_.add(nextB);                             // push into recent…
-            while (self->loopRecentB_.size() > 3) self->loopRecentB_.remove(0);  // …keep last 3
-
-            // A pole: driven only in dual couplings; in alpha it stays the human anchor
-            // (untouched → its suffix is inherently preserved).
-            if (dual)
+            // ONE pole this step (alternating in dual; always B in alpha), so a dual
+            // step runs a single interpret instead of two. concat2 only when there's a
+            // real core to prepend — a pole that was nothing but a musical token has an
+            // EMPTY core (orig==""), and concat2("",x) would emit a leading ", "; fall
+            // back to the bare new link so the suffix re-append yields "x, 120bpm".
+            if (dual && altWriteA)
             {
-                self->loopLastA_ = nextA;                               // CORE
+                // A pole this step (dual only). loopLast_/recent_ keep the CORE.
+                self->loopLastA_ = nextPole;                            // glieder[-1] (CORE)
                 const juce::String appliedA = RepromptStances::reattachMusicSuffix(
-                    (concat && origA.isNotEmpty()) ? RepromptStances::concat2(origA, nextA) : nextA,
+                    (concat && origA.isNotEmpty()) ? RepromptStances::concat2(origA, nextPole) : nextPole,
                     self->loopSuffixA_);
                 self->pendingLoopPromptA_ = appliedA;
-                self->loopRecentA_.add(nextA);
-                while (self->loopRecentA_.size() > 3) self->loopRecentA_.remove(0);
+                self->loopRecentA_.add(nextPole);                      // push into recent…
+                while (self->loopRecentA_.size() > 3) self->loopRecentA_.remove(0);  // …keep last 3
             }
+            else
+            {
+                // B pole this step (alpha always lands here; dual on B's turn).
+                self->loopLastB_ = nextPole;                            // glieder[-1] (CORE)
+                const juce::String appliedB = RepromptStances::reattachMusicSuffix(
+                    (concat && origB.isNotEmpty()) ? RepromptStances::concat2(origB, nextPole) : nextPole,
+                    self->loopSuffixB_);
+                self->pendingLoopPromptB_ = appliedB;
+                self->loopRecentB_.add(nextPole);                      // push into recent…
+                while (self->loopRecentB_.size() > 3) self->loopRecentB_.remove(0);  // …keep last 3
+            }
+
+            // Alternate the driven pole for the next step (dual only; alpha stays on B,
+            // its A pole the untouched human anchor).
+            if (dual)
+                self->loopAltWriteA_ = ! altWriteA;
 
             self->loopStepInFlight_ = false;
         });
