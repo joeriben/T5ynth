@@ -44,8 +44,13 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     // Width is tight, so the cycling types are numbered series — Tp1/2/3 and
     // BBD1/2/3 — with the full character name in the tooltip. The label always
     // shows the armed variant (the one a click would select).
-    static const char* kTapeLbls[] = { "Tp1",  "Tp2",  "Tp3"  };
-    static const char* kBbdLbls[]  = { "BBD1", "BBD2", "BBD3" };
+    // Indexed by DelayType::character() (0/1/2). The NUMBER reflects the logical
+    // order (mildest → wildest), NOT the DSP character index:
+    //   Tape: Natural=Tp1, Warm=Tp2, Wild=Tp3        (char order already logical)
+    //   BBD:  Clean=BBD1, Vintage=BBD2, Degraded=BBD3 (Vintage=char 0 is the
+    //         released default → sits in the MIDDLE, so its label is BBD2).
+    static const char* kTapeLbls[] = { "Tp1",  "Tp2",  "Tp3"  };  // char 0/1/2 = Nat/Warm/Wild
+    static const char* kBbdLbls[]  = { "BBD2", "BBD1", "BBD3" };  // char 0/1/2 = Vint/Clean/Degr
     static const char* kTapeTips[] = { "Tape echo - Natural", "Tape echo - Warm", "Tape echo - Wild" };
     static const char* kBbdTips[]  = { "Bucket-brigade - Vintage", "Bucket-brigade - Clean", "Bucket-brigade - Degraded" };
     delayTypeHidden.onChange = [this]
@@ -64,7 +69,7 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
         updateVisibility();
     };
 
-    static const char* delayLabels[] = { "OFF", "Dig", "PP", "Tp1", "BBD1" };
+    static const char* delayLabels[] = { "OFF", "Dig", "PP", "Tp1", "BBD2" };
     for (int i = 0; i < kNumDelayBtns; ++i)
     {
         delayTypeBtns[i].setButtonText(delayLabels[i]);
@@ -87,15 +92,17 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
         else                                  next = DelayType::Tape;
         delayTypeHidden.setSelectedId(next + 1);
     };
-    // BBD: cycle Vintage → Clean → Degraded → Vintage on repeated clicks.
+    // BBD: cycle in logical order BBD1→BBD2→BBD3→BBD1 = Clean→Vintage→Degraded
+    // →Clean on repeated clicks. Entry from another type lands on Vintage (BBD2,
+    // the released default — preserves delayType=4's established voicing).
     delayTypeBtns[4].onClick = [this]
     {
         const int cur = delayTypeHidden.getSelectedId() - 1;
         int next;
-        if      (cur == DelayType::Bbd)         next = DelayType::BbdClean;
-        else if (cur == DelayType::BbdClean)    next = DelayType::BbdDegraded;
-        else if (cur == DelayType::BbdDegraded) next = DelayType::Bbd;
-        else                                     next = DelayType::Bbd;
+        if      (cur == DelayType::BbdClean)    next = DelayType::Bbd;          // BBD1→BBD2
+        else if (cur == DelayType::Bbd)         next = DelayType::BbdDegraded;  // BBD2→BBD3
+        else if (cur == DelayType::BbdDegraded) next = DelayType::BbdClean;     // BBD3→BBD1
+        else                                     next = DelayType::Bbd;         // entry → Vintage
         delayTypeHidden.setSelectedId(next + 1);
     };
 
