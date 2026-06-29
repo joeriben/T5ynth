@@ -40,7 +40,14 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
         delayTypeHidden.addItemList(delayTypeItems, 1);
     }
 
-    // Update toggle states and button labels whenever the APVTS selection changes.
+    // Update toggle states + button labels whenever the APVTS selection changes.
+    // Width is tight, so the cycling types are numbered series — Tp1/2/3 and
+    // BBD1/2/3 — with the full character name in the tooltip. The label always
+    // shows the armed variant (the one a click would select).
+    static const char* kTapeLbls[] = { "Tp1",  "Tp2",  "Tp3"  };
+    static const char* kBbdLbls[]  = { "BBD1", "BBD2", "BBD3" };
+    static const char* kTapeTips[] = { "Tape echo - Natural", "Tape echo - Warm", "Tape echo - Wild" };
+    static const char* kBbdTips[]  = { "Bucket-brigade - Vintage", "Bucket-brigade - Clean", "Bucket-brigade - Degraded" };
     delayTypeHidden.onChange = [this]
     {
         const int dt       = delayTypeHidden.getSelectedId() - 1;
@@ -48,14 +55,16 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
         const int charIdx  = DelayType::character(dt);
         for (int i = 0; i < kNumDelayBtns; ++i)
             delayTypeBtns[i].setToggleState(i == baseType, juce::dontSendNotification);
-        static const char* tapeLbls[] = { "Tape", "Warm", "Wild" };
-        static const char* bbdLbls[]  = { "BBD",  "Clean", "Dgrd" };
-        delayTypeBtns[3].setButtonText(baseType == DelayType::Tape ? tapeLbls[charIdx] : "Tape");
-        delayTypeBtns[4].setButtonText(baseType == DelayType::Bbd  ? bbdLbls[charIdx]  : "BBD");
+        const int tapeIdx = (baseType == DelayType::Tape) ? charIdx : 0;
+        const int bbdIdx  = (baseType == DelayType::Bbd)  ? charIdx : 0;
+        delayTypeBtns[3].setButtonText(kTapeLbls[tapeIdx]);
+        delayTypeBtns[4].setButtonText(kBbdLbls[bbdIdx]);
+        delayTypeBtns[3].setTooltip(kTapeTips[tapeIdx]);
+        delayTypeBtns[4].setTooltip(kBbdTips[bbdIdx]);
         updateVisibility();
     };
 
-    static const char* delayLabels[] = { "OFF", "Dig", "PP", "Tape", "BBD" };
+    static const char* delayLabels[] = { "OFF", "Dig", "PP", "Tp1", "BBD1" };
     for (int i = 0; i < kNumDelayBtns; ++i)
     {
         delayTypeBtns[i].setButtonText(delayLabels[i]);
@@ -294,7 +303,12 @@ void FxPanel::updateVisibility()
     reverbMixRow->setAlpha(reverbAlpha);
     reverbMixRow->setEnabled(reverbOn);
 
-    resized();
+    // NOTE: no resized() here. This only changes visual state (alpha/enabled/
+    // toggle/label), none of which affects layout. Calling resized() on every
+    // type click re-derived headerH from getTopLevelComponent()->getHeight(),
+    // which (depending on when the window settled its size) could differ from
+    // the initial layout pass by a pixel or two — a visible header jump on the
+    // first click. The Time↔Division swap has its own setVisible handler.
     repaint();
 }
 
