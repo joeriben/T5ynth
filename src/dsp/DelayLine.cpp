@@ -48,6 +48,28 @@ namespace
     constexpr float  kBbdClockHz    = 0.6f;    // subtle clock-drift rate
     constexpr float  kBbdClockDepth = 0.0006f; // clock-drift depth (cleaner than tape)
 
+    // ── Tape character presets ──────────────────────────────────────────────────
+    // Both flutter LFOs (6.0 Hz = kFlutHz, 9.7 Hz = kFlut2Hz) are non-zero in
+    // every preset — like a real machine where capstan flutter and tape-guide
+    // friction both vibrate at all times. Natural < Warm < Wild.
+    struct TapeChar { float wow1D, wow2D, flut1D, flut2D; };
+    static constexpr float kFlut2Hz = 9.7f;
+    static constexpr TapeChar kTapeChars[3] = {
+        { 0.0018f, 0.0009f, 0.00004f, 0.00003f },  // Natural (current behaviour)
+        { 0.004f,  0.002f,  0.0002f,  0.0003f  },  // Warm: deeper slow wow + 9.7 Hz zitter
+        { 0.008f,  0.004f,  0.0008f,  0.0006f  },  // Wild: heavy + 6.0 + 9.7 Hz flutter
+    };
+
+    // ── BBD character presets ───────────────────────────────────────────────────
+    // Vintage = current shipped voicing (index 0). Clean lifts the recon top and
+    // tames grit/warble (DM-2 style). Degraded darkens + adds grit and warble.
+    struct BbdChar { float reconHz, loopHz, drive, clockDepth; };
+    static constexpr BbdChar kBbdChars[3] = {
+        { 4500.0f, 6000.0f, 2.2f, 0.0006f },  // Vintage (current kBbdReconTopHz etc.)
+        { 6000.0f, 7500.0f, 1.6f, 0.0003f },  // Clean
+        { 3200.0f, 4500.0f, 3.0f, 0.0014f },  // Degraded
+    };
+
     // Buffer capacity headroom: holds the longest single tap (the 5 s processor
     // clamp) and the tape 3rd head; the tape base is capped to keep 3·base inside.
     constexpr double kBufferSeconds = 6.2;
@@ -97,14 +119,14 @@ void T5ynthDelayLine::prepare(double sampleRate, int samplesPerBlock)
     tapePbFilterR.reset();
 
     tapeHpState = 0.0f;
-    wow1Phase = wow2Phase = flutPhase = 0.0f;
+    wow1Phase = wow2Phase = flutPhase = flut2Phase = 0.0f;
 
     // BBD: the recon cascade tracks Damp (rebuilt in recomputeDamp); seed its
     // coeff at the current baseline plus the fixed mid-focus HP and the fixed
     // feedback loop LP here. One-pole coeffs only — no allocation, audio-safe.
     bbdReconCoeff = onePoleCoeff(bbdReconFreq, sr);
     bbdHpCoeff    = onePoleCoeff(kBbdHpHz, sr);
-    bbdLoopCoeff  = onePoleCoeff(kBbdLoopHz, sr);
+    bbdLoopCoeff  = onePoleCoeff(kBbdChars[delayCharacter].loopHz, sr);
     bbdRecon1 = bbdRecon2 = bbdRecon3 = 0.0f;
     bbdHpState = 0.0f;
     bbdLoopState = 0.0f;
@@ -156,9 +178,11 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
     }
 
     const float twoPi = juce::MathConstants<float>::twoPi;
-    const float dWow1 = twoPi * kWow1Hz / static_cast<float>(sr);
-    const float dWow2 = twoPi * kWow2Hz / static_cast<float>(sr);
-    const float dFlut = twoPi * kFlutHz / static_cast<float>(sr);
+    const TapeChar& tc = kTapeChars[delayCharacter];
+    const float dWow1  = twoPi * kWow1Hz  / static_cast<float>(sr);
+    const float dWow2  = twoPi * kWow2Hz  / static_cast<float>(sr);
+    const float dFlut  = twoPi * kFlutHz  / static_cast<float>(sr);
+    const float dFlut2 = twoPi * kFlut2Hz / static_cast<float>(sr);
     const float aHP   = onePoleCoeff(kTapeHpHz, sr);
     const float dBbdClock = twoPi * kBbdClockHz / static_cast<float>(sr);
 
@@ -179,15 +203,18 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
         {
             const float mono = stereo ? 0.5f * (dryL + dryR) : dryL;
 
-            wow1Phase += dWow1; wow2Phase += dWow2; flutPhase += dFlut;
-            if (wow1Phase > twoPi) wow1Phase -= twoPi;
-            if (wow2Phase > twoPi) wow2Phase -= twoPi;
-            if (flutPhase > twoPi) flutPhase -= twoPi;
+            wow1Phase += dWow1; wow2Phase += dWow2; flutPhase += dFlut; flut2Phase += dFlut2;
+            if (wow1Phase  > twoPi) wow1Phase  -= twoPi;
+            if (wow2Phase  > twoPi) wow2Phase  -= twoPi;
+            if (flutPhase  > twoPi) flutPhase  -= twoPi;
+            if (flut2Phase > twoPi) flut2Phase -= twoPi;
             // ONE shared transport-speed wobble, applied MULTIPLICATIVELY per head
             // (below) so delay excursion AND pitch both scale 1:2:3 with distance.
-            const float m = std::sin(wow1Phase) * kWow1Depth
-                          + std::sin(wow2Phase) * kWow2Depth
-                          + std::sin(flutPhase) * kFlutDepth;
+            // Two flutter LFOs (6.0 + 9.7 Hz): capstan flutter + tape-guide friction.
+            const float m = std::sin(wow1Phase)  * tc.wow1D
+                          + std::sin(wow2Phase)  * tc.wow2D
+                          + std::sin(flutPhase)  * tc.flut1D
+                          + std::sin(flut2Phase) * tc.flut2D;
 
             // Cap the head spacing so the longest head (heads·base) stays inside
             // the buffer even at long times.
@@ -238,8 +265,9 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
 
             bbdClockPhase += dBbdClock;
             if (bbdClockPhase > twoPi) bbdClockPhase -= twoPi;
+            const BbdChar& bc = kBbdChars[delayCharacter];
             const float dd = juce::jlimit(1.0f, maxDelaySamples,
-                                          clampedT * (1.0f + std::sin(bbdClockPhase) * kBbdClockDepth));
+                                          clampedT * (1.0f + std::sin(bbdClockPhase) * bc.clockDepth));
             const float raw = delayLine.popSample(0, dd, true);
 
             // OUTPUT: 3 cascaded one-poles = steep, dark reconstruction + a mild HP.
@@ -255,7 +283,7 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
             // ~13 passes and strips the fundamental, killing sustain). This keeps
             // loop gain so the echo rings/blooms toward self-oscillation. Grit only.
             bbdLoopState += bbdLoopCoeff * (raw - bbdLoopState);
-            const float f = std::tanh(bbdLoopState * feedback * kBbdDrive) / kBbdDrive;
+            const float f = std::tanh(bbdLoopState * feedback * bc.drive) / bc.drive;
             delayLine.pushSample(0, mono + f);
 
             dataL[i] = dryL * dryGain + wet * wetMix;
@@ -311,7 +339,7 @@ void T5ynthDelayLine::reset()
     tapePbFilterL.reset();
     tapePbFilterR.reset();
     tapeHpState = 0.0f;
-    wow1Phase = wow2Phase = flutPhase = 0.0f;
+    wow1Phase = wow2Phase = flutPhase = flut2Phase = 0.0f;
     bbdRecon1 = bbdRecon2 = bbdRecon3 = 0.0f;
     bbdHpState = 0.0f;
     bbdLoopState = 0.0f;
@@ -356,6 +384,19 @@ void T5ynthDelayLine::setMode(int delayType)
     recomputeDamp();
 }
 
+void T5ynthDelayLine::setCharacter(int c)
+{
+    delayCharacter = juce::jlimit(0, 2, c);
+    // BBD loop LP cutoff changes with character — rebuild the one-pole coeff.
+    // This is a trivial float computation (no allocation), safe on the audio thread.
+    if (mode == kBbd && prepared)
+        bbdLoopCoeff = onePoleCoeff(kBbdChars[delayCharacter].loopHz, sr);
+    // Tape: no coefficients to rebuild (depths read per-sample from kTapeChars).
+    // Trigger a damp recompute so the BBD recon top updates for the new character.
+    if (mode == kBbd)
+        recomputeDamp();
+}
+
 void T5ynthDelayLine::recomputeDamp()
 {
     // Per-mode TOP of the exponential damp range. Tape starts at an intrinsic
@@ -374,7 +415,8 @@ void T5ynthDelayLine::recomputeDamp()
     // One-pole coeff only — no makeLowPass alloc, so this branch is allocation-free.
     if (mode == kBbd)
     {
-        const float f = kBbdReconTopHz * std::pow(500.0f / kBbdReconTopHz, dampAmount);
+        const float top = kBbdChars[delayCharacter].reconHz;
+        const float f = top * std::pow(500.0f / top, dampAmount);
         if (f == bbdReconFreq)
             return;
         bbdReconFreq = f;

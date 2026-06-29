@@ -61,6 +61,11 @@ public:
         3=Tape, 4=BBD). Off (0) is handled by the caller. */
     void setMode(int delayType);
 
+    /** Character preset index (0=default, 1=variant1, 2=variant2).
+        Tape: 0=Natural, 1=Warm, 2=Wild.
+        BBD:  0=Vintage, 1=Clean, 2=Degraded. */
+    void setCharacter(int c);
+
     float getMix() const { return wetMix; }
 
 private:
@@ -94,9 +99,12 @@ private:
     float maxDelaySamples = 0.0f;        // read-position guard (set in prepare)
     bool prepared = false;
 
+    // Character preset index (0=default/Natural/Vintage, 1=Warm/Clean, 2=Wild/Degraded)
+    int delayCharacter = 0;
+
     // Tape character state (Tape mode only)
     float tapeHpState = 0.0f;            // one-pole high-pass state
-    float wow1Phase = 0.0f, wow2Phase = 0.0f, flutPhase = 0.0f;
+    float wow1Phase = 0.0f, wow2Phase = 0.0f, flutPhase = 0.0f, flut2Phase = 0.0f;
 
     // BBD (bucket-brigade) character state (kBbd only)
     float bbdRecon1 = 0.0f, bbdRecon2 = 0.0f, bbdRecon3 = 0.0f; // 3-pole recon cascade (OUT)

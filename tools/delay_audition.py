@@ -86,7 +86,10 @@ def make_lp_biquad(fc, sr, Q=0.70710678):
 
 # ---- per-mode render --------------------------------------------------------
 def render(mode, dryL, dryR, T_ms=375.0, fb=0.45, mix=0.6, damp=0.45,
-           playback=False, pb_floor=500.0, bbd_recon_hz=4500.0, bbd_loop_hz=6000.0):
+           playback=False, pb_floor=500.0, bbd_recon_hz=4500.0, bbd_loop_hz=6000.0,
+           wow1_depth=WOW1_DEPTH, wow2_depth=WOW2_DEPTH,
+           flut_depth=FLUT_DEPTH, flut2_depth=0.0, flut2_hz=9.7,
+           bbd_drive=BBD_DRIVE, bbd_clock_depth=BBD_WOW_DEPTH):
     n = len(dryL)
     T = T_ms * 0.001 * SR
     cap = int(math.ceil(3.2 * T)) + 8         # holds head 3 (3T) + slack
@@ -95,8 +98,9 @@ def render(mode, dryL, dryR, T_ms=375.0, fb=0.45, mix=0.6, damp=0.45,
     aLP = one_pole_a(damp_fc(damp, mode)); lpL = lpR = 0.0
     aHP = one_pole_a(TAPE_HP_HZ);    hp_lp = 0.0
     outL = np.zeros(n); outR = np.zeros(n)
-    wow1 = wow2 = flut = 0.0
-    dwow1 = 2*math.pi*WOW1_HZ/SR; dwow2 = 2*math.pi*WOW2_HZ/SR; dflut = 2*math.pi*FLUT_HZ/SR
+    wow1 = wow2 = flut = flut2 = 0.0
+    dwow1 = 2*math.pi*WOW1_HZ/SR; dwow2 = 2*math.pi*WOW2_HZ/SR
+    dflut = 2*math.pi*FLUT_HZ/SR; dflut2 = 2*math.pi*flut2_hz/SR
     aRecon = one_pole_a(bbd_recon_hz); bbd1 = bbd2 = bbd3 = 0.0   # BBD recon cascade (OUT)
     aFbLp  = one_pole_a(bbd_loop_hz);  bbd_fblp = 0.0             # BBD feedback loop LP
     aBbdHp = one_pole_a(BBD_HP_HZ);    bbd_hp = bbd_fbhp = 0.0    # BBD HP (out + fb)
@@ -134,7 +138,7 @@ def render(mode, dryL, dryR, T_ms=375.0, fb=0.45, mix=0.6, damp=0.45,
         elif mode == "BBD":   # bucket-brigade: dark steep recon LP + grit, 1 tap
             mono = 0.5*(dryL[i] + dryR[i])
             wow1 += dwow1                              # subtle clock drift
-            raw = frac_read(bL, wp, T*(1.0 + math.sin(wow1)*BBD_WOW_DEPTH))
+            raw = frac_read(bL, wp, T*(1.0 + math.sin(wow1)*bbd_clock_depth))
             # OUTPUT path: 3 cascaded one-poles = steep, dark BBD top + mid HP.
             # This is ONLY on what you hear; it never touches the feedback loop.
             bbd1 += aRecon*(raw  - bbd1)
@@ -148,17 +152,18 @@ def render(mode, dryL, dryR, T_ms=375.0, fb=0.45, mix=0.6, damp=0.45,
             # compounds over ~13 passes and strips the fundamental, killing sustain;
             # the mid-focus HP lives on the OUTPUT (applied once). + grit only.
             bbd_fblp += aFbLp*(raw - bbd_fblp)
-            f = math.tanh(bbd_fblp*fb*BBD_DRIVE)/BBD_DRIVE
+            f = math.tanh(bbd_fblp*fb*bbd_drive)/bbd_drive
             bL[wp] = mono + f
             wl = wr = wet                              # mono -> center
 
         else:  # Tape  (mono tape, panned heads)
             mono = 0.5*(dryL[i] + dryR[i])
-            wow1 += dwow1; wow2 += dwow2; flut += dflut
+            wow1 += dwow1; wow2 += dwow2; flut += dflut; flut2 += dflut2
             # ONE shared transport-speed wobble, applied MULTIPLICATIVELY per head
             # so delay excursion AND pitch both scale 1:2:3 with head distance.
-            m = (math.sin(wow1)*WOW1_DEPTH + math.sin(wow2)*WOW2_DEPTH
-                 + math.sin(flut)*FLUT_DEPTH)
+            # flut2 is a second incommensurate flutter LFO (depth=0 unless Wild).
+            m = (math.sin(wow1)*wow1_depth + math.sin(wow2)*wow2_depth
+                 + math.sin(flut)*flut_depth + math.sin(flut2)*flut2_depth)
             wl = wr = 0.0
             longest = 0.0
             for k in range(heads):
@@ -276,6 +281,92 @@ def main():
         pl, pr = render("Tape", bright, bright.copy(), fb=0.6, damp=d,
                         playback=True, pb_floor=750.0)
         write_wav(os.path.join(OUT, f"Tape_pbtame{x:02d}.wav"), pl, pr)
+    # ── Tape character-preset audition (Natural / Warm / Wild) ──────────────────
+    # Three candidate presets rendered side-by-side on a bright pluck + long tail:
+    #   Natural = current shipped values (baseline)
+    #   Warm    = 2x wow, 20x flutter  (moderate movement)
+    #   Wild    = old Tp3 feel (heavy flutter at ~0.003 fractional depth)
+    # Judge on the fluttery tail: Warm should feel "analog warmth", Wild should
+    # flutter visibly like a wobbly tape machine.
+    # Wild uses two incommensurate flutter LFOs (6.0 + 9.7 Hz, multiplicative)
+    # — physically: capstan flutter + tape-guide friction at a different rate.
+    # Warm: slow/stronger wow for organic warmth, fast/subtle flutter for light shimmer.
+    # Both flutter LFOs (6.0 + 9.7 Hz) are ALWAYS present in every preset — like a
+    # real machine where capstan flutter and tape-guide friction both vibrate at
+    # all times. Even unhearably subtle beats a hard zero. Staffelung Natural<Warm<Wild.
+    TAPE_CHARS = {
+        "Natural": dict(wow1_depth=0.0018, wow2_depth=0.0009, flut_depth=0.00004, flut2_depth=0.00003, flut2_hz=9.7),
+        "Warm":    dict(wow1_depth=0.004,  wow2_depth=0.002,  flut_depth=0.0002,  flut2_depth=0.0003,  flut2_hz=9.7),
+        "Wild":    dict(wow1_depth=0.008,  wow2_depth=0.004,  flut_depth=0.0008,  flut2_depth=0.0006,  flut2_hz=9.7),
+    }
+    dur2 = int(4.0*SR); t2 = np.arange(dur2)/SR
+    ph2 = 220.0*t2
+    pluck2 = 2.0*(ph2 - np.floor(ph2 + 0.5)) * np.exp(-t2/0.15)
+    pluck2[int(0.22*SR):] = 0.0   # short note, then silence — hear the whole tail
+    print("\nTape character presets (Natural / Warm / Wild):")
+    for name, kw in TAPE_CHARS.items():
+        pl, pr = render("Tape", pluck2.copy(), pluck2.copy(),
+                        T_ms=375.0, fb=0.55, mix=0.65, damp=0.3, playback=True, pb_floor=750.0,
+                        **kw)
+        path = os.path.join(OUT, f"Tape_{name}.wav")
+        write_wav(path, pl, pr)
+        f2 = kw.get('flut2_depth', 0.0); hz2 = kw.get('flut2_hz', 9.7)
+        print(f"  {name:8s}: wow={kw['wow1_depth']:.4f}/{kw['wow2_depth']:.4f}  "
+              f"flut={kw['flut_depth']:.5f}@6Hz + {f2:.4f}@{hz2}Hz -> {path}")
+
+    print("\nWarm zitter sweep (9.7Hz, wow fixed at 0.004/0.002, flut@6Hz=0):")
+    for fd in [0.0004, 0.0006, 0.001, 0.002]:
+        pl, pr = render("Tape", pluck2.copy(), pluck2.copy(),
+                        T_ms=375.0, fb=0.55, mix=0.65, damp=0.3, playback=True, pb_floor=750.0,
+                        wow1_depth=0.004, wow2_depth=0.002,
+                        flut_depth=0.0, flut2_depth=fd, flut2_hz=9.7)
+        label = f"{fd:.4f}".replace("0.", "").rstrip("0")
+        path = os.path.join(OUT, f"Tape_Warm_z{label}.wav")
+        write_wav(path, pl, pr)
+        print(f"  9.7Hz depth={fd:.4f} -> {path}")
+
+    # ── BBD character-preset audition (Clean / Vintage / Degraded) ──────────────
+    # Real bucket-brigade units scatter from bright/short chorus-echo (Boss DM-2,
+    # early stage) to dark/gritty/degraded (EHX Memory Man cranked, or a worn unit).
+    # The character axis varies four constants together:
+    #   recon_hz  — output reconstruction LP top: darkness (lower = darker)
+    #   loop_hz   — feedback-loop LP: how brightly the tail blooms
+    #   drive     — bucket-brigade grit (companding distortion)
+    #   clock     — clock-drift warble depth (BBDs warble as the clock ages/drifts)
+    # Vintage = the current shipped voicing (baseline). Clean lifts the top + tames
+    # grit/warble; Degraded darkens, adds grit and a heavier clock warble.
+    BBD_CHARS = {
+        "Clean":    dict(bbd_recon_hz=6000.0, bbd_loop_hz=7500.0, bbd_drive=1.6, bbd_clock_depth=0.0003),
+        "Vintage":  dict(bbd_recon_hz=4500.0, bbd_loop_hz=6000.0, bbd_drive=2.2, bbd_clock_depth=0.0006),
+        "Degraded": dict(bbd_recon_hz=3200.0, bbd_loop_hz=4500.0, bbd_drive=3.0, bbd_clock_depth=0.0014),
+    }
+    print("\nBBD character presets (Clean / Vintage / Degraded):")
+    for name, kw in BBD_CHARS.items():
+        pl, pr = render("BBD", pluck2.copy(), pluck2.copy(),
+                        T_ms=375.0, fb=0.55, mix=0.65, damp=0.3, **kw)
+        path = os.path.join(OUT, f"BBD_{name}.wav")
+        write_wav(path, pl, pr)
+        print(f"  {name:9s}: recon={kw['bbd_recon_hz']:.0f}Hz loop={kw['bbd_loop_hz']:.0f}Hz "
+              f"drive={kw['bbd_drive']:.1f} clock={kw['bbd_clock_depth']:.4f} -> {path}")
+
+    # BBD grit A/B — the tanh companding only bites when the loop signal runs HOT,
+    # so a quick pluck at moderate fb hides it. Drive the loop hard: a hotter,
+    # longer note at fb=0.85 so the feedback accumulates into the nonlinear region.
+    # Fix recon/loop/clock at Vintage; vary ONLY drive so the grit is isolated.
+    durG = int(5.0*SR); tG = np.arange(durG)/SR
+    phG = 110.0*tG
+    gritSrc = 1.4 * 2.0*(phG - np.floor(phG + 0.5)) * np.exp(-tG/0.5)  # hot, 0.5s decay
+    gritSrc[int(0.7*SR):] = 0.0     # ~0.7s note, then the loop sustains on its own
+    print("\nBBD grit isolation (fb=0.85, hot source, recon/loop/clock=Vintage):")
+    for drv in [1.6, 2.2, 3.0, 4.0]:
+        bl, br = render("BBD", gritSrc.copy(), gritSrc.copy(),
+                        T_ms=300.0, fb=0.85, mix=0.7, damp=0.3,
+                        bbd_recon_hz=4500.0, bbd_loop_hz=6000.0,
+                        bbd_drive=drv, bbd_clock_depth=0.0006)
+        path = os.path.join(OUT, f"BBD_grit_drive{drv:.1f}.wav")
+        write_wav(path, bl, br)
+        print(f"  drive={drv:.1f} -> {path}")
+
     print(f"\nWAVs -> {OUT}")
 
 if __name__ == "__main__":

@@ -28,27 +28,16 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     paintSectionHeader(delayHeader, "DELAY", kFxCol);
     addAndMakeVisible(delayHeader);
 
-    // Delay type switchbox: OFF / Digital / Ping-Pong / Tape
+    // Delay type + preset selector: visible ComboBox replaces the 5-button switchbox.
     juce::StringArray delayTypeItems;
     for (const auto& e : DelayType::kEntries) delayTypeItems.add(e.label);
-    delayTypeHidden.addItemList(delayTypeItems, 1);
-    delayTypeHidden.onChange = [this] {
-        int id = delayTypeHidden.getSelectedId();
-        for (int i = 0; i < kNumDelayBtns; ++i)
-            delayTypeBtns[i].setToggleState(i + 1 == id, juce::dontSendNotification);
-        updateVisibility();
-    };
-
-    static const char* delayLabels[] = {"OFF", "Dig", "PP", "Tape", "BBD"};
-    for (int i = 0; i < kNumDelayBtns; ++i)
-    {
-        delayTypeBtns[i].setButtonText(delayLabels[i]);
-        styleSwitchButton(delayTypeBtns[i], kFxCol);
-        delayTypeBtns[i].setClickingTogglesState(true);
-        delayTypeBtns[i].setRadioGroupId(4001);
-        delayTypeBtns[i].onClick = [this, i] { delayTypeHidden.setSelectedId(i + 1); };
-        addAndMakeVisible(delayTypeBtns[i]);
-    }
+    delayTypeCombo.addItemList(delayTypeItems, 1);
+    delayTypeCombo.setColour(juce::ComboBox::backgroundColourId, kSurface);
+    delayTypeCombo.setColour(juce::ComboBox::textColourId,       kFxCol);
+    delayTypeCombo.setColour(juce::ComboBox::outlineColourId,    kBorder);
+    delayTypeCombo.setColour(juce::ComboBox::arrowColourId,      kFxCol.withAlpha(0.7f));
+    delayTypeCombo.onChange = [this] { updateVisibility(); };
+    addAndMakeVisible(delayTypeCombo);
 
     delayTimeRow = std::make_unique<SliderRow>("Time", fmtMs, kFxCol);
     delayFbRow   = std::make_unique<SliderRow>("FB",   fmtF2, kFxCol);
@@ -143,7 +132,7 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     };
 
     // Attach APVTS AFTER buttons are set up (triggers onChange → updateVisibility)
-    delayTypeA       = std::make_unique<CA>(apvts, PID::delayType,      delayTypeHidden);
+    delayTypeA       = std::make_unique<CA>(apvts, PID::delayType,      delayTypeCombo);
     delayClockModeA  = std::make_unique<CA>(apvts, PID::delayClockMode, delayClockModeHidden);
 
     // ══════════ REVERB section ══════════
@@ -228,7 +217,7 @@ void FxPanel::updateVisibility()
     constexpr float dimAlpha = 0.3f;
 
     // Delay: always visible, dimmed when OFF
-    bool delayOn = delayTypeHidden.getSelectedId() > 1;
+    bool delayOn = delayTypeCombo.getSelectedId() > 1;
     float delayAlpha = delayOn ? 1.0f : dimAlpha;
     for (auto* r : { delayTimeRow.get(), delayFbRow.get(), delayDampRow.get(),
                      delayMixRow.get(), delayDivisionRow.get() })
@@ -380,7 +369,6 @@ void FxPanel::paint(juce::Graphics& g)
     paintFxCard(reverbCardBounds);
 
     // SwitchBox borders
-    paintSwitchBoxBorder(g, delayTypeSwitchBounds);
     paintSwitchBoxBorder(g, reverbTypeSwitchBounds);
 }
 
@@ -414,19 +402,8 @@ void FxPanel::resized()
         dc.removeFromBottom(gap);                            // bottom pad inside the card
         dc.reduce(fxPad, 0);                                 // side pad → value read-outs sit inside the frame
 
-        // Delay type switchbox
-        auto delaySwRow = dc.removeFromTop(rowH);
-        int delayCellW = delaySwRow.getWidth() / kNumDelayBtns;
-        for (int i = 0; i < kNumDelayBtns; ++i)
-        {
-            int edges = 0;
-            if (i > 0) edges |= juce::Button::ConnectedOnLeft;
-            if (i < kNumDelayBtns - 1) edges |= juce::Button::ConnectedOnRight;
-            delayTypeBtns[i].setConnectedEdges(edges);
-            delayTypeBtns[i].setBounds(delaySwRow.removeFromLeft(delayCellW));
-        }
-        delayTypeSwitchBounds = delayTypeBtns[0].getBounds()
-            .getUnion(delayTypeBtns[kNumDelayBtns - 1].getBounds());
+        // Delay type + preset ComboBox
+        delayTypeCombo.setBounds(dc.removeFromTop(rowH));
         dc.removeFromTop(gap);
 
         // Delay params — Time/Division/Damp share the LEFT label column; FB/Mix

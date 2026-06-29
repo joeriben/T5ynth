@@ -625,18 +625,36 @@ namespace FilterWarpStyle {
 // are serialised by key (choiceToKey/choiceFromKey), so ordering is free — only
 // the key→DSP mapping must stay stable. DSP voicing lives in dsp/DelayLine.cpp.
 namespace DelayType {
-    enum : int { Off = 0, Digital = 1, PingPong = 2, Tape = 3, Bbd = 4 };
+    enum : int { Off = 0, Digital = 1, PingPong = 2, Tape = 3, Bbd = 4,
+                 TapeWarm = 5, TapeWild = 6, BbdClean = 7, BbdDegraded = 8 };
     static constexpr ChoiceEntry kEntries[] = {
-        { "off",      "Off"       },
-        { "stereo",   "Digital"   },   // clean dual-mono; key kept for preset back-compat
-        { "pingpong", "Ping-Pong" },   // true ping-pong (mono-sum in, cross feedback)
-        { "tape3",    "Tape"      },   // 3-head tape echo (RE-201 1:2:3 spacing). Key
-                                       // "tape3" kept for back-compat; the retired 2-head
-                                       // "tape2" folds in on load (see setStateInformation).
-        { "bbd",      "BBD"       }    // bucket-brigade (analog): dark steep recon, grit
+        { "off",         "Off"         },
+        { "stereo",      "Digital"     },   // clean dual-mono; key kept for preset back-compat
+        { "pingpong",    "Ping-Pong"   },   // true ping-pong (mono-sum in, cross feedback)
+        { "tape3",       "Tape"        },   // 3-head tape echo (RE-201 1:2:3 spacing). Key
+                                            // "tape3" kept for back-compat; the retired 2-head
+                                            // "tape2" folds in on load (see setStateInformation).
+        { "bbd",         "BBD"         },   // bucket-brigade (analog): dark steep recon, grit
+        { "tape_warm",   "Tape Warm"   },   // tape + deeper wow + subtle 9.7 Hz zitter
+        { "tape_wild",   "Tape Wild"   },   // tape + heavy wow + 6.0 + 9.7 Hz flutter
+        { "bbd_clean",   "BBD Clean"   },   // BBD + bright recon + low grit (DM-2 style)
+        { "bbd_degraded","BBD Degraded"},   // BBD + dark recon + heavy grit + warble
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(Bbd + 1 == kCount, "DelayType out of sync.");
+    static_assert(BbdDegraded + 1 == kCount, "DelayType out of sync.");
+
+    // Map flat choice index to DSP voicing mode (Off/Digital/PP/Tape/BBD)
+    // and to character preset (0=default, 1=variant1, 2=variant2).
+    inline int baseMode(int dt) {
+        if (dt == TapeWarm || dt == TapeWild)    return Tape;
+        if (dt == BbdClean || dt == BbdDegraded) return Bbd;
+        return dt;
+    }
+    inline int character(int dt) {
+        if (dt == TapeWarm || dt == BbdClean)    return 1;
+        if (dt == TapeWild || dt == BbdDegraded) return 2;
+        return 0;
+    }
 }
 
 // ── Reverb type ──
