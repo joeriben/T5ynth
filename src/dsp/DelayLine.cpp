@@ -55,10 +55,13 @@ namespace
     struct TapeChar { float wow1D, wow2D, flut1D, flut2D; };
     static constexpr float kFlut2Hz = 9.7f;
     static constexpr TapeChar kTapeChars[3] = {
-        { 0.0018f, 0.0009f, 0.00004f, 0.00003f },  // Natural (current behaviour)
-        { 0.004f,  0.002f,  0.0002f,  0.0003f  },  // Warm: deeper slow wow + 9.7 Hz zitter
-        { 0.008f,  0.004f,  0.0008f,  0.0006f  },  // Wild: heavy + 6.0 + 9.7 Hz flutter
+        { 0.0018f, 0.0009f, 0.00004f,  0.00003f  },  // Natural (current behaviour)
+        { 0.002f,  0.001f,  0.0001f,   0.00015f  },  // Warm: deeper slow wow + 9.7 Hz zitter
+        { 0.004f,  0.002f,  0.0004f,   0.0003f   },  // Wild: heavy + 6.0 + 9.7 Hz flutter
     };
+    // Warm/Wild depths halved from the bench-auditioned set: in real play the
+    // slow wow read as "leiernd" (Warm) and the fast flutter as a vibrato effect
+    // (Wild). Hz unchanged (kWow*/kFlut*/kFlut2Hz); only the excursions dropped.
 
     // ── BBD character presets ───────────────────────────────────────────────────
     // Vintage = current shipped voicing (index 0). Clean lifts the recon top and
