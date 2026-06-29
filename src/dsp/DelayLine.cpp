@@ -144,10 +144,21 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
     if (numSamples == 0 || buffer.getNumChannels() < 1)
         return;
 
-    // Silence detection: skip only after output has truly decayed.
+    // Silence detection: skip only after the output has TRULY decayed.
+    // A delay's output is legitimately silent for up to one whole delay period
+    // BEFORE the first echo returns — and again in the gaps between sparse taps
+    // at low feedback. Gating on a fixed ~4-block window (~46 ms) killed any echo
+    // whose delay time exceeded that: a single short hit died before its first
+    // repeat ever came back, while a held note (input stays non-silent past the
+    // first echo) sounded fine. Require the output to stay silent for at least
+    // one full delay period + the confirm margin before concluding the tail is
+    // done. (The host-side idle gate still bounds the absolute tail length.)
     const float inMag = buffer.getMagnitude(0, numSamples);
     const bool inputSilent = inMag < 1e-6f;
-    if (inputSilent && silentOutputBlocks > SILENCE_CONFIRM_BLOCKS)
+    const int delayPeriodBlocks = (numSamples > 0)
+        ? static_cast<int>(std::ceil(targetDelaySamples / static_cast<float>(numSamples)))
+        : 0;
+    if (inputSilent && silentOutputBlocks > delayPeriodBlocks + SILENCE_CONFIRM_BLOCKS)
         return;
 
     const bool stereo = buffer.getNumChannels() >= 2;
