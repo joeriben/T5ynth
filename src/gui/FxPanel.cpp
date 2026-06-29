@@ -28,16 +28,67 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     paintSectionHeader(delayHeader, "DELAY", kFxCol);
     addAndMakeVisible(delayHeader);
 
-    // Delay type + preset selector: visible ComboBox replaces the 5-button switchbox.
-    juce::StringArray delayTypeItems;
-    for (const auto& e : DelayType::kEntries) delayTypeItems.add(e.label);
-    delayTypeCombo.addItemList(delayTypeItems, 1);
-    delayTypeCombo.setColour(juce::ComboBox::backgroundColourId, kSurface);
-    delayTypeCombo.setColour(juce::ComboBox::textColourId,       kFxCol);
-    delayTypeCombo.setColour(juce::ComboBox::outlineColourId,    kBorder);
-    delayTypeCombo.setColour(juce::ComboBox::arrowColourId,      kFxCol.withAlpha(0.7f));
-    delayTypeCombo.onChange = [this] { updateVisibility(); };
-    addAndMakeVisible(delayTypeCombo);
+    // Delay type switchbox: 5 radio buttons [OFF][Dig][PP][Tape][BBD].
+    // Tape and BBD cycle through character presets on re-click:
+    //   Tape  → Natural → Warm → Wild → Natural …
+    //   BBD   → Vintage → Clean → Degraded → Vintage …
+    // The button label reflects the active character. All 9 choices map to the
+    // flat delayType APVTS param via delayTypeHidden (hidden ComboBox).
+    {
+        juce::StringArray delayTypeItems;
+        for (const auto& e : DelayType::kEntries) delayTypeItems.add(e.label);
+        delayTypeHidden.addItemList(delayTypeItems, 1);
+    }
+
+    // Update toggle states and button labels whenever the APVTS selection changes.
+    delayTypeHidden.onChange = [this]
+    {
+        const int dt       = delayTypeHidden.getSelectedId() - 1;
+        const int baseType = DelayType::baseMode(dt);
+        const int charIdx  = DelayType::character(dt);
+        for (int i = 0; i < kNumDelayBtns; ++i)
+            delayTypeBtns[i].setToggleState(i == baseType, juce::dontSendNotification);
+        static const char* tapeLbls[] = { "Tape", "Warm", "Wild" };
+        static const char* bbdLbls[]  = { "BBD",  "Clean", "Dgrd" };
+        delayTypeBtns[3].setButtonText(baseType == DelayType::Tape ? tapeLbls[charIdx] : "Tape");
+        delayTypeBtns[4].setButtonText(baseType == DelayType::Bbd  ? bbdLbls[charIdx]  : "BBD");
+        updateVisibility();
+    };
+
+    static const char* delayLabels[] = { "OFF", "Dig", "PP", "Tape", "BBD" };
+    for (int i = 0; i < kNumDelayBtns; ++i)
+    {
+        delayTypeBtns[i].setButtonText(delayLabels[i]);
+        styleSwitchButton(delayTypeBtns[i], kFxCol);
+        delayTypeBtns[i].setClickingTogglesState(true);
+        delayTypeBtns[i].setRadioGroupId(4001);
+        addAndMakeVisible(delayTypeBtns[i]);
+    }
+    // Off / Digital / Ping-Pong: simple select.
+    for (int i = 0; i < 3; ++i)
+        delayTypeBtns[i].onClick = [this, i] { delayTypeHidden.setSelectedId(i + 1); };
+    // Tape: cycle Natural → Warm → Wild → Natural on repeated clicks.
+    delayTypeBtns[3].onClick = [this]
+    {
+        const int cur = delayTypeHidden.getSelectedId() - 1;
+        int next;
+        if      (cur == DelayType::Tape)     next = DelayType::TapeWarm;
+        else if (cur == DelayType::TapeWarm) next = DelayType::TapeWild;
+        else if (cur == DelayType::TapeWild) next = DelayType::Tape;
+        else                                  next = DelayType::Tape;
+        delayTypeHidden.setSelectedId(next + 1);
+    };
+    // BBD: cycle Vintage → Clean → Degraded → Vintage on repeated clicks.
+    delayTypeBtns[4].onClick = [this]
+    {
+        const int cur = delayTypeHidden.getSelectedId() - 1;
+        int next;
+        if      (cur == DelayType::Bbd)         next = DelayType::BbdClean;
+        else if (cur == DelayType::BbdClean)    next = DelayType::BbdDegraded;
+        else if (cur == DelayType::BbdDegraded) next = DelayType::Bbd;
+        else                                     next = DelayType::Bbd;
+        delayTypeHidden.setSelectedId(next + 1);
+    };
 
     delayTimeRow = std::make_unique<SliderRow>("Time", fmtMs, kFxCol);
     delayFbRow   = std::make_unique<SliderRow>("FB",   fmtF2, kFxCol);
@@ -132,7 +183,7 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     };
 
     // Attach APVTS AFTER buttons are set up (triggers onChange → updateVisibility)
-    delayTypeA       = std::make_unique<CA>(apvts, PID::delayType,      delayTypeCombo);
+    delayTypeA       = std::make_unique<CA>(apvts, PID::delayType,      delayTypeHidden);
     delayClockModeA  = std::make_unique<CA>(apvts, PID::delayClockMode, delayClockModeHidden);
 
     // ══════════ REVERB section ══════════
@@ -217,7 +268,7 @@ void FxPanel::updateVisibility()
     constexpr float dimAlpha = 0.3f;
 
     // Delay: always visible, dimmed when OFF
-    bool delayOn = delayTypeCombo.getSelectedId() > 1;
+    bool delayOn = delayTypeHidden.getSelectedId() > 1;
     float delayAlpha = delayOn ? 1.0f : dimAlpha;
     for (auto* r : { delayTimeRow.get(), delayFbRow.get(), delayDampRow.get(),
                      delayMixRow.get(), delayDivisionRow.get() })
@@ -369,6 +420,7 @@ void FxPanel::paint(juce::Graphics& g)
     paintFxCard(reverbCardBounds);
 
     // SwitchBox borders
+    paintSwitchBoxBorder(g, delayTypeSwitchBounds);
     paintSwitchBoxBorder(g, reverbTypeSwitchBounds);
 }
 
@@ -402,8 +454,21 @@ void FxPanel::resized()
         dc.removeFromBottom(gap);                            // bottom pad inside the card
         dc.reduce(fxPad, 0);                                 // side pad → value read-outs sit inside the frame
 
-        // Delay type + preset ComboBox
-        delayTypeCombo.setBounds(dc.removeFromTop(rowH));
+        // Delay type switchbox (5 buttons; Tape+BBD show char in label on cycle)
+        {
+            auto delaySwRow = dc.removeFromTop(rowH);
+            int delayCellW = delaySwRow.getWidth() / kNumDelayBtns;
+            for (int i = 0; i < kNumDelayBtns; ++i)
+            {
+                int edges = 0;
+                if (i > 0)                   edges |= juce::Button::ConnectedOnLeft;
+                if (i < kNumDelayBtns - 1)  edges |= juce::Button::ConnectedOnRight;
+                delayTypeBtns[i].setConnectedEdges(edges);
+                delayTypeBtns[i].setBounds(delaySwRow.removeFromLeft(delayCellW));
+            }
+            delayTypeSwitchBounds = delayTypeBtns[0].getBounds()
+                .getUnion(delayTypeBtns[kNumDelayBtns - 1].getBounds());
+        }
         dc.removeFromTop(gap);
 
         // Delay params — Time/Division/Damp share the LEFT label column; FB/Mix

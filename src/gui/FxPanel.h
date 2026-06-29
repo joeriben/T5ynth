@@ -38,7 +38,10 @@ private:
 
     // Delay section
     juce::Label delayHeader;
-    juce::ComboBox delayTypeCombo;   // visible APVTS-attached type+preset selector
+    static constexpr int kNumDelayBtns = 5;
+    juce::TextButton delayTypeBtns[kNumDelayBtns]; // [OFF][Dig][PP][Tape][BBD]; Tape+BBD cycle chars on re-click
+    juce::ComboBox   delayTypeHidden;              // APVTS-attached, not visible
+    juce::Rectangle<int> delayTypeSwitchBounds;
     juce::Rectangle<int> delayCardBounds;      // framed module card (header + content)
     juce::TextButton delayClockBtn;            // BPM-sync clock button
     juce::ComboBox   delayClockModeHidden;     // hidden, APVTS-attached
