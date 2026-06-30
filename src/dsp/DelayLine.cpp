@@ -55,13 +55,16 @@ namespace
     struct TapeChar { float wow1D, wow2D, flut1D, flut2D; };
     static constexpr float kFlut2Hz = 9.7f;
     static constexpr TapeChar kTapeChars[3] = {
-        { 0.0018f, 0.0009f, 0.00004f,  0.00003f  },  // Natural (current behaviour)
-        { 0.0016f, 0.0008f, 0.00008f,  0.00012f  },  // Warm: deeper slow wow + 9.7 Hz zitter
+        { 0.0006f, 0.0003f, 0.00004f,  0.00003f  },  // Natural: wow /3 — 6988cdf1's per-head
+        { 0.0016f, 0.0008f, 0.00005f,  0.00005f  },  // Warm: warmth via WOW, flutter near-Natural
         { 0.002f,  0.001f,  0.0002f,   0.00015f  },  // Wild: heavy + 6.0 + 9.7 Hz flutter
     };
-    // Depths tuned by ear in real play: halved once (too dominant), then Warm
-    // -20% / Wild -50% more (Wild still sits above Warm on every component).
-    // Hz unchanged (kWow*/kFlut*/kFlut2Hz); only the excursions dropped.
+    // Depths tuned by ear in real play. Natural's wow was /3'd because 6988cdf1
+    // (06-24) made wow scale MULTIPLICATIVELY per head (1:2:3): the long head
+    // then leiert at ~0.0054 vs the old additive ~0.0015 flat — audibly "broken
+    // tape". /3 brings the long head back to ~0.0018 ≈ the old clean level.
+    // Warm -20% / Wild -50% from the bench set (Wild still above Warm + Natural
+    // on every component). Hz unchanged (kWow*/kFlut*/kFlut2Hz).
 
     // ── Tape Old (character 3) — the pre-6988cdf1 ADDITIVE wobble ────────────────
     // Restored on request. Physically wrong on purpose: one modulation offset is
