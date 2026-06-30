@@ -1260,8 +1260,16 @@ def _patch_scheduler(pipe):
 
 def _infer_dtype(device):
     """fp16 on CUDA (halves VRAM, no audible quality loss); fp32 everywhere else.
-    MPS has incomplete fp16 coverage; CPU benefits from fp32 precision."""
-    return torch.float16 if isinstance(device, str) and device.startswith("cuda") else torch.float32
+    MPS has incomplete fp16 coverage; CPU benefits from fp32 precision.
+
+    T5YNTH_CUDA_FP32=1 forces fp32 on CUDA too — an escape hatch for max
+    precision / reproducing legacy fp32-cuda presets, and the control arm for
+    auditing fp16 audio quality (same seed, both dtypes, same card)."""
+    if isinstance(device, str) and device.startswith("cuda"):
+        if os.environ.get("T5YNTH_CUDA_FP32") == "1":
+            return torch.float32
+        return torch.float16
+    return torch.float32
 
 
 def load_pipeline(model_dir, device):
