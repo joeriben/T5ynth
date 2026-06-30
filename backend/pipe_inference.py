@@ -875,6 +875,35 @@ def _resolve_translation_model_dir(request):
     return None
 
 
+# Qwen serves BOTH translate and interpret/reprompt — one shared instance. It
+# normally runs on the audio device, but on a small-VRAM CUDA card co-residency
+# with the audio model doesn't fit, so the per-pool LRU would swap them in and
+# out across every reprompt→generate boundary (they're never active at the same
+# instant, but each load evicts the other). The instruct step runs once per
+# generation — not per audio block — so paying CPU latency there is tolerable,
+# and it permanently frees ~2.9 GB of VRAM for the audio model. Large cards keep
+# the translator on the GPU for speed. Mirrors CLAP's existing CPU pin.
+# Override: T5YNTH_TRANSLATOR_CPU=1 forces CPU, T5YNTH_TRANSLATOR_GPU=1 forces GPU.
+TRANSLATOR_GPU_MIN_VRAM = 7.0 * 1024 ** 3  # CUDA cards below this pin Qwen to CPU
+
+
+def _translator_device(audio_device):
+    """Device the instruct LLM (translate/interpret) should run on, given the
+    audio device. CPU on small CUDA cards; unchanged on mps/cpu/large CUDA."""
+    if not (isinstance(audio_device, str) and audio_device.startswith("cuda")):
+        return audio_device  # mps/cpu: no separate VRAM pool to protect
+    if os.environ.get("T5YNTH_TRANSLATOR_CPU") == "1":
+        return "cpu"
+    if os.environ.get("T5YNTH_TRANSLATOR_GPU") == "1":
+        return audio_device
+    try:
+        idx = int(audio_device.split(":")[1]) if ":" in audio_device else torch.cuda.current_device()
+        total = torch.cuda.get_device_properties(idx).total_memory
+    except Exception:
+        return audio_device  # can't measure → keep current (GPU) behavior
+    return "cpu" if total < TRANSLATOR_GPU_MIN_VRAM else audio_device
+
+
 def _get_translator(model_dir, device):
     """Lazily load + cache the translation tokenizer/model for (dir, device)."""
     key = (str(model_dir), device)
@@ -919,14 +948,18 @@ def run_instruct(text, model_dir, device, system_prompt, max_new_tokens=96):
     if not text:
         return ""
 
-    tokenizer, model = _get_translator(model_dir, device)
+    # Resolve the translator device ONCE (may pin to CPU on a small CUDA card)
+    # and use it for both the model load and the input tensors — otherwise a
+    # CPU-pinned model would meet cuda input_ids and raise a device mismatch.
+    tdev = _translator_device(device)
+    tokenizer, model = _get_translator(model_dir, tdev)
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": text},
     ]
     input_ids = tokenizer.apply_chat_template(
         messages, add_generation_prompt=True, return_tensors="pt"
-    ).to(device)
+    ).to(tdev)
     attention_mask = torch.ones_like(input_ids)
 
     real_stdout = sys.stdout
