@@ -3563,12 +3563,15 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     if (delayEnabled && reverbEnabled)
     {
-        // Reverb sends from the original source (pre-delay) so the reverb tail
-        // doesn't echo the delay repeats; crossfade sums against post-delay dry.
+        // Serial chain: delay -> reverb. The reverb send is taken AFTER the delay
+        // so the delay repeats are themselves reverberated (delay INTO reverb, the
+        // classic lush routing); the crossfade then sums the reverb against the
+        // post-delay dry. (Previously the send was pre-delay, leaving the delay
+        // running parallel PAST the reverb — the repeats were never reverberated.)
+        delay.processBlock(buffer);
+
         for (int ch = 0; ch < numChannels; ++ch)
             reverbSendBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
-
-        delay.processBlock(buffer);
 
         processReverb(reverbSendBuffer);
         if (!reverbIsAlgo)
