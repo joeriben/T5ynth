@@ -296,8 +296,8 @@ def main():
     # all times. Even unhearably subtle beats a hard zero. Staffelung Natural<Warm<Wild.
     TAPE_CHARS = {
         "Natural": dict(wow1_depth=0.0018, wow2_depth=0.0009, flut_depth=0.00004, flut2_depth=0.00003, flut2_hz=9.7),
-        "Warm":    dict(wow1_depth=0.002,  wow2_depth=0.001,  flut_depth=0.0001,  flut2_depth=0.00015, flut2_hz=9.7),
-        "Wild":    dict(wow1_depth=0.004,  wow2_depth=0.002,  flut_depth=0.0004,  flut2_depth=0.0003,  flut2_hz=9.7),
+        "Warm":    dict(wow1_depth=0.0016, wow2_depth=0.0008, flut_depth=0.00008, flut2_depth=0.00012, flut2_hz=9.7),
+        "Wild":    dict(wow1_depth=0.002,  wow2_depth=0.001,  flut_depth=0.0002,  flut2_depth=0.00015, flut2_hz=9.7),
     }
     dur2 = int(4.0*SR); t2 = np.arange(dur2)/SR
     ph2 = 220.0*t2
