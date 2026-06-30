@@ -156,6 +156,11 @@ public:
 
     bool isGenerating() const { return generating; }
 
+    /** Backend-selected inference device for this machine ("mps"/"cuda"/"cpu").
+     *  Empty until the subprocess reports its device list. Used by the preset
+     *  manager to flag presets rendered on a different device type. */
+    const juce::String& getInferenceDevice() const { return defaultInferenceDevice_; }
+
     /** Set the per-machine SA3 tier ("small"/"medium"). persist=true writes it back
      *  through onSa3TierChanged. Re-resolves which checkpoint backs the SA3 slots. */
     void setSa3Tier(const juce::String& tier, bool persist);

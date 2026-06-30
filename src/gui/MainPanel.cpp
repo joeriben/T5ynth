@@ -1518,6 +1518,7 @@ void MainPanel::showPresetManager()
     const bool genSeqActive = processorRef.getValueTreeState()
                                   .getRawParameterValue(PID::genSeqRunning)->load() > 0.5f;
     presetManager.setTagVocabularyCanonical(TagVocabulary::getCanonical(genSeqActive));
+    presetManager.setRuntimeDevice(promptPanel.getInferenceDevice());
     presetManager.refreshLibrary();
     presetManager.setCurrentPreset(currentPresetFile, getCurrentPresetDisplayName());
     presetScrim.setVisible(true);

@@ -37,6 +37,7 @@ public:
         juce::File   file;
         juce::String name;
         juce::String model;        // shortened display name (SA1 Open, SA3 Music, …)
+        juce::String device;       // "mps"/"cuda"/"cpu" the audio was rendered on; empty = legacy
         juce::String engineMode;   // "Sampler" / "Wavetable" / "Granular"
         juce::String seqMode;      // "Off" / "Step" / "Gen" / "Step + Gen"
         juce::String promptA;
@@ -393,6 +394,11 @@ public:
         }
         presetList.repaint();
     }
+
+    /** Push this machine's backend device so the Detail card can flag presets
+     *  rendered on a different device type (their audio won't reproduce here;
+     *  prompts and synth settings still transfer). */
+    void setRuntimeDevice(const juce::String& dev) { detail.setRuntimeDevice(dev); }
 
     void setCurrentPreset(const juce::File& file, const juce::String& name)
     {
@@ -797,6 +803,7 @@ private:
             e.promptB = synth->getProperty("promptB").toString();
             const auto rawModel = synth->getProperty("model").toString().trim();
             e.model = shortenModelName(rawModel);
+            e.device = synth->getProperty("device").toString().trim();
             // synth.inferenceMs is optional — added to format after the
             // initial v3 release; older presets simply have 0.
             e.inferenceMs = (float) (double) synth->getProperty("inferenceMs");
@@ -1449,6 +1456,7 @@ private:
             numSamples  = e.numSamples;
             inferenceMs = e.inferenceMs;
             model       = e.model;
+            device      = e.device;
             engineMode  = e.engineMode;
             seqMode     = e.seqMode;
             tags = e.tags;
@@ -1498,6 +1506,19 @@ private:
                                  : juce::String()),
                        area.removeFromTop(16), juce::Justification::centredLeft, false);
             area.removeFromTop(10);
+
+            // ── DEVICE row — above MODEL. The audio is reproducible only on the
+            //    device it was rendered on (MPS/CUDA/CPU diverge for the same
+            //    seed). A preset from a different device type than this machine's
+            //    is flagged pink: its prompts and synth settings still transfer,
+            //    only the regenerated audio will differ. Empty = legacy preset
+            //    (no claim) → neutral "—", like the other unknown meta rows. ──
+            const bool deviceMismatch = device.isNotEmpty()
+                                     && runtimeDevice.isNotEmpty()
+                                     && ! device.equalsIgnoreCase(runtimeDevice);
+            paintMetaRow(g, area.removeFromTop(16), "DEVICE",
+                         device.toUpperCase(),
+                         deviceMismatch ? kAccent : juce::Colours::white);
 
             // ── META block — compact label/value rows. Always rendered so the
             //    detail card has a stable shape regardless of which fields a
@@ -1622,6 +1643,14 @@ private:
          *  is the tag string. */
         void setDragSourceEnabled(bool e) { dragSourceEnabled = e; }
 
+        /** This machine's backend inference device, for the cross-device flag. */
+        void setRuntimeDevice(const juce::String& dev)
+        {
+            if (runtimeDevice == dev) return;
+            runtimeDevice = dev;
+            repaint();
+        }
+
         /** Browse-only actions are hidden while the Save drawer is open. */
         void setBrowseActionsVisible(bool visible)
         {
@@ -1693,12 +1722,13 @@ private:
 
         /** Compact label/value row used by the META block. */
         static void paintMetaRow(juce::Graphics& g, juce::Rectangle<int> r,
-                                 const juce::String& label, const juce::String& value)
+                                 const juce::String& label, const juce::String& value,
+                                 juce::Colour valueColour = juce::Colours::white)
         {
             g.setColour(kDim);
             g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
             g.drawText(label, r.removeFromLeft(56), juce::Justification::centredLeft, false);
-            g.setColour(juce::Colours::white);
+            g.setColour(valueColour);
             g.setFont(juce::FontOptions(11.5f));
             const auto display = value.isEmpty()
                                     ? juce::String::fromUTF8("\xe2\x80\x94")
@@ -1932,6 +1962,8 @@ private:
         bool hasAxes = false;
         juce::String name, bank, promptA, promptB;
         juce::String model, engineMode, seqMode;
+        juce::String device;        // device the audio was rendered on; empty = legacy
+        juce::String runtimeDevice; // this machine's backend device, for mismatch flag
         juce::Time modified;
         std::array<std::pair<juce::String, float>, 3> axes;
         double sampleRate = 0.0;
