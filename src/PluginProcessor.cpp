@@ -1303,6 +1303,7 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     lfo2Buffer.resize(static_cast<size_t>(samplesPerBlock));
     lfo3Buffer.resize(static_cast<size_t>(samplesPerBlock));
     reverbSendBuffer.setSize(2, samplesPerBlock);
+    oneShotBuffer.setSize(2, samplesPerBlock);
     pendingSequencerOneShotCount = 0;
     for (auto& voice : activeSequencerOneShots)
         voice.active = false;
@@ -3465,7 +3466,23 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         }
     }
 
-    renderSequencerOneShots(buffer);
+    // GenSeq one-shots render into their own buffer. They are kept OUT of the
+    // delay path (injected post-delay so the echo line never repeats them) but
+    // folded into the signal before the reverb send so they still reverberate.
+    // Match the current block length — renderSequencerOneShots advances voices by
+    // the passed buffer's sample count. Allocated at samplesPerBlock in
+    // prepareToPlay, so this is a no-op resize while the host honours its declared
+    // max block (same RT-safety assumption as reverbSendBuffer).
+    oneShotBuffer.setSize(2, numSamples, false, false, true);
+    oneShotBuffer.clear();
+    renderSequencerOneShots(oneShotBuffer);
+
+    auto addOneShots = [&](juce::AudioBuffer<float>& dest)
+    {
+        const int ch = juce::jmin(dest.getNumChannels(), oneShotBuffer.getNumChannels());
+        for (int c = 0; c < ch; ++c)
+            dest.addFrom(c, 0, oneShotBuffer, c, 0, numSamples);
+    };
 
     // ── Effects (parallel send-bus: dry + delay + reverb → limiter) ───────
     int delayType = static_cast<int>(paramCache.delayType->load());
@@ -3570,6 +3587,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         // running parallel PAST the reverb — the repeats were never reverberated.)
         delay.processBlock(buffer);
 
+        addOneShots(buffer);  // one-shots skip the delay, join before the reverb send
+
         for (int ch = 0; ch < numChannels; ++ch)
             reverbSendBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
 
@@ -3584,9 +3603,12 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     else if (delayEnabled)
     {
         delay.processBlock(buffer);
+        addOneShots(buffer);  // one-shots bypass the delay entirely
     }
     else if (reverbEnabled)
     {
+        addOneShots(buffer);  // one-shots reverberate with everything else
+
         for (int ch = 0; ch < numChannels; ++ch)
             reverbSendBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
 
@@ -3597,6 +3619,10 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         float revMix = juce::jlimit(0.0f, 1.0f,
             paramCache.reverbMix->load() + modReverbMix);
         crossfadeReverbInto(buffer, revMix);
+    }
+    else
+    {
+        addOneShots(buffer);  // no FX: one-shots still need to reach the output
     }
 
     // ── Update modulated values for GUI ghost indicators ────────────────────

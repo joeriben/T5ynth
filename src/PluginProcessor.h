@@ -559,6 +559,11 @@ private:
     // Pre-allocated buffer for parallel reverb send (avoids heap alloc in processBlock)
     juce::AudioBuffer<float> reverbSendBuffer;
 
+    // Pre-allocated buffer for GenSeq one-shots, kept out of the delay path (they
+    // are injected post-delay so the echo line never repeats them) but folded back
+    // in before the reverb send so they still reverberate.
+    juce::AudioBuffer<float> oneShotBuffer;
+
 
 public:
     // Audio idle state (audio thread writes, GUI reads for timer gating)
