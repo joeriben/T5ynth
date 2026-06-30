@@ -1747,8 +1747,10 @@ _latent_cache = {}   # {name: torch.Tensor on CPU}
 def vae_decode(pipe, latent, duration):
     """Decode a latent tensor to audio via VAE. Returns (audio_np, sr)."""
     sr = 44100
-    device = next(pipe.vae.parameters()).device
-    latent = latent.to(device)
+    # Cached latents live on CPU (device-agnostic) and may be fp32; the VAE is
+    # fp16 on CUDA. Match both device and dtype, else decode raises a mismatch.
+    vae_param = next(pipe.vae.parameters())
+    latent = latent.to(vae_param.device, vae_param.dtype)
     with torch.no_grad():
         audio = pipe.vae.decode(latent).sample
     audio_np = audio.squeeze(0).cpu().float().numpy()
@@ -1838,7 +1840,11 @@ def _apply_semantic_axes(manipulated, axes_dict, encode_fn, model_name, amount=1
     if cache_key not in _axis_emb_cache:
         neutral_emb, _ = encode_fn("")
         _axis_emb_cache[cache_key] = neutral_emb.detach()
-    neutral_emb = _axis_emb_cache[cache_key].to(manipulated.device)
+    # Cache is keyed by (text, model_name) only — NOT device/dtype. A session
+    # that switches devices (mps fp32 → cuda fp16) would otherwise hand back an
+    # fp32 emb for an fp16 manipulated, promoting the sum to fp32 and breaking
+    # the fp16 model. Match manipulated's dtype on retrieval. No-op same-dtype.
+    neutral_emb = _axis_emb_cache[cache_key].to(manipulated.device, manipulated.dtype)
 
     for axis_key, value in axes_dict.items():
         if abs(value) < 0.001:
@@ -1855,8 +1861,8 @@ def _apply_semantic_axes(manipulated, axes_dict, encode_fn, model_name, amount=1
                 emb, _ = encode_fn(pole_text)
                 _axis_emb_cache[ck] = emb.detach()
 
-        emb_a = _axis_emb_cache[(axis_key + "_" + pole_a_text, model_name)].to(manipulated.device)
-        emb_b = _axis_emb_cache[(axis_key + "_" + pole_b_text, model_name)].to(manipulated.device)
+        emb_a = _axis_emb_cache[(axis_key + "_" + pole_a_text, model_name)].to(manipulated.device, manipulated.dtype)
+        emb_b = _axis_emb_cache[(axis_key + "_" + pole_b_text, model_name)].to(manipulated.device, manipulated.dtype)
 
         # Direction: positive value → pole_b, negative → pole_a
         if value >= 0:
@@ -2036,7 +2042,7 @@ def _generate_audioldm2(wrapper, request):
         if noise_sigma > 0.0:
             rng = np.random.Generator(np.random.PCG64(seed))
             noise_np = rng.standard_normal(manipulated_pe.shape).astype(np.float32)
-            noise = torch.from_numpy(noise_np).to(manipulated_pe.device) * (noise_sigma * NOISE_SIGMA_SCALE)
+            noise = torch.from_numpy(noise_np).to(manipulated_pe.device, manipulated_pe.dtype) * (noise_sigma * NOISE_SIGMA_SCALE)
             manipulated_pe = manipulated_pe + noise
 
         # Semantic axes
@@ -2395,7 +2401,10 @@ def _generate_native(pipe, request):
         if noise_sigma > 0.0:
             rng = np.random.Generator(np.random.PCG64(seed))
             noise_np = rng.standard_normal(prompt_emb_a.shape).astype(np.float32)
-            _noise_tensor = torch.from_numpy(noise_np).to(prompt_emb_a.device) * (noise_sigma * NOISE_SIGMA_SCALE)
+            # Match the embedding dtype (fp16 on CUDA) so the later add stays in
+            # the model's dtype — promotion to fp32 here would feed an fp32 cond
+            # into the fp16 DiT and raise a dtype-mismatch. No-op on fp32 paths.
+            _noise_tensor = torch.from_numpy(noise_np).to(prompt_emb_a.device, prompt_emb_a.dtype) * (noise_sigma * NOISE_SIGMA_SCALE)
 
         def apply_pre_offsets(emb):
             """Magnitude + noise + semantic axes — i.e. all manipulations
@@ -2741,9 +2750,16 @@ def _generate_native(pipe, request):
     # byte-for-byte unchanged.
     init_audio_tuple, init_noise_level = _decode_init_audio_request(request, sr)
     if init_audio_tuple is not None:
+        _ia_sr, _ia_tensor = init_audio_tuple
+        # init_audio is VAE-encoded by the model's pretransform, which carries
+        # the model dtype (fp16 on CUDA). The decode hands back fp32, so cast it
+        # to match — otherwise the encode raises an fp16/fp32 mismatch. The
+        # library's prepare_audio handles device placement but not dtype. No-op
+        # on fp32 paths (mps/cpu).
+        _ia_tensor = _ia_tensor.to(next(pipe.model.parameters()).dtype)
+        init_audio_tuple = (_ia_sr, _ia_tensor)
         generate_kwargs["init_audio"] = init_audio_tuple
         generate_kwargs["init_noise_level"] = init_noise_level
-        _ia_sr, _ia_tensor = init_audio_tuple
         log.info(
             "init_audio: %d ch x %d frames @ %d Hz, init_noise_level=%.3f",
             _ia_tensor.shape[0] if _ia_tensor.dim() > 1 else 1,
@@ -2951,7 +2967,7 @@ def generate(pipe, request):
         if noise_sigma > 0.0:
             rng = np.random.Generator(np.random.PCG64(seed))
             noise_np = rng.standard_normal(manipulated.shape).astype(np.float32)
-            noise = torch.from_numpy(noise_np).to(manipulated.device) * (noise_sigma * NOISE_SIGMA_SCALE)
+            noise = torch.from_numpy(noise_np).to(manipulated.device, manipulated.dtype) * (noise_sigma * NOISE_SIGMA_SCALE)
             manipulated = manipulated + noise
 
         # Apply semantic axes
