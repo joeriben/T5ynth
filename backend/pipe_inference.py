@@ -1225,6 +1225,12 @@ def _patch_scheduler(pipe):
     pipe.scheduler.step = patched_step.__get__(pipe.scheduler)
 
 
+def _infer_dtype(device):
+    """fp16 on CUDA (halves VRAM, no audible quality loss); fp32 everywhere else.
+    MPS has incomplete fp16 coverage; CPU benefits from fp32 precision."""
+    return torch.float16 if isinstance(device, str) and device.startswith("cuda") else torch.float32
+
+
 def load_pipeline(model_dir, device):
     """Load pipeline on a specific device. Dispatches by format."""
     model_name = model_dir.name
@@ -1241,7 +1247,7 @@ def _load_diffusers_pipeline(model_dir, device):
     from diffusers import StableAudioPipeline
 
     log.info(f"Loading diffusers pipeline from {model_dir} on {device}...")
-    pipe = StableAudioPipeline.from_pretrained(str(model_dir), torch_dtype=torch.float32)
+    pipe = StableAudioPipeline.from_pretrained(str(model_dir), torch_dtype=_infer_dtype(device))
     pipe = pipe.to(device)
 
     _patch_scheduler(pipe)
@@ -1470,7 +1476,7 @@ def _load_audioldm2_pipeline(model_dir, device):
     from diffusers import AudioLDM2Pipeline
 
     log.info(f"Loading AudioLDM2 pipeline from {model_dir} on {device}...")
-    pipe = AudioLDM2Pipeline.from_pretrained(str(model_dir), torch_dtype=torch.float32)
+    pipe = AudioLDM2Pipeline.from_pretrained(str(model_dir), torch_dtype=_infer_dtype(device))
     pipe = pipe.to(device)
 
     if device in ("mps", "cpu"):
@@ -1540,7 +1546,7 @@ def _load_native_pipeline(model_dir, device):
         model = create_model_from_config(model_config)
         model.load_state_dict(load_ckpt_state_dict(str(weights_path)))
         model.eval()
-        model = model.to(device)
+        model = model.to(device=device, dtype=_infer_dtype(device))
     finally:
         _restore_hf_env(hf_env)
         sys.stdout = real_stdout
