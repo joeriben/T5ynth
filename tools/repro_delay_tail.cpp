@@ -100,6 +100,18 @@ int main()
                    ok ? "ok" : "*** SHORT HIT KILLED ***");
         }
     }
+    // Tape Old (character 3, the legacy additive wobble) must obey the same
+    // short-hit invariant as the modern presets.
+    printf("--- Tape character variants, short hit fb=0.70 ---\n");
+    for (int ch = 0; ch <= 3; ++ch) {
+        const int shortTail = run(3, ch, 1, 0.70f, false);
+        const int holdTail  = run(3, ch, 60, 0.70f, false);
+        const bool ok = shortTail > 4 * delayPeriodBlocks && shortTail >= holdTail / 2;
+        if (!ok) ++fails;
+        printf("[Tape    ] char=%d  short=%5.2fs  hold=%5.2fs  %s\n",
+               ch, shortTail * BS / SR, holdTail * BS / SR, ok ? "ok" : "*** KILLED ***");
+    }
+
     printf("\n--- verbose: Tape short hit fb=0.70 (echo must appear ~blk %d) ---\n",
            delayPeriodBlocks);
     run(3, 0, 1, 0.70f, true);

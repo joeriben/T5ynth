@@ -63,6 +63,19 @@ namespace
     // slow wow read as "leiernd" (Warm) and the fast flutter as a vibrato effect
     // (Wild). Hz unchanged (kWow*/kFlut*/kFlut2Hz); only the excursions dropped.
 
+    // ── Tape Old (character 3) — the pre-6988cdf1 ADDITIVE wobble ────────────────
+    // Restored on request. Physically wrong on purpose: one modulation offset is
+    // ADDED to every head identically (the near head wobbles as much as the far
+    // one), and it scales with the delay-sample count rather than being a fractional
+    // speed deviation. Exact constants from 6988cdf1^ (the old kTape voicing, which
+    // applied a 0.7*0.7 = 0.49 wobble scale). Uses its own LFO set: wow 0.7 Hz,
+    // flutter 6.3 + 9.7 Hz, summed for an organic non-repeating drift.
+    constexpr float  kOldWowHz    = 0.7f;
+    constexpr float  kOldFlut1Hz  = 6.3f;
+    constexpr float  kOldWowDepth  = 0.0030f;  // * delay-samples
+    constexpr float  kOldFlutDepth = 0.0015f;  // * delay-samples, per flutter sine
+    constexpr float  kOldWobbleScale = 0.49f;  // old kTape (Tape 3) restraint
+
     // ── BBD character presets ───────────────────────────────────────────────────
     // Vintage = current shipped voicing (index 0). Clean lifts the recon top and
     // tames grit/warble (DM-2 style). Degraded darkens + adds grit and warble.
@@ -129,7 +142,7 @@ void T5ynthDelayLine::prepare(double sampleRate, int samplesPerBlock)
     // feedback loop LP here. One-pole coeffs only — no allocation, audio-safe.
     bbdReconCoeff = onePoleCoeff(bbdReconFreq, sr);
     bbdHpCoeff    = onePoleCoeff(kBbdHpHz, sr);
-    bbdLoopCoeff  = onePoleCoeff(kBbdChars[delayCharacter].loopHz, sr);
+    bbdLoopCoeff  = onePoleCoeff(kBbdChars[juce::jmin(delayCharacter, 2)].loopHz, sr);
     bbdRecon1 = bbdRecon2 = bbdRecon3 = 0.0f;
     bbdHpState = 0.0f;
     bbdLoopState = 0.0f;
@@ -192,10 +205,15 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
     }
 
     const float twoPi = juce::MathConstants<float>::twoPi;
-    const TapeChar& tc = kTapeChars[delayCharacter];
-    const float dWow1  = twoPi * kWow1Hz  / static_cast<float>(sr);
+    // Character 3 = Tape Old (additive wobble). It reuses three of the phase
+    // accumulators at the OLD rates (wow 0.7, flutter 6.3 + 9.7 Hz); the modern
+    // presets use four LFOs (wow 0.6/1.3, flutter 6.0 + 9.7). tc is unused when
+    // tapeOld, but the reference is taken with a clamped index to stay in bounds.
+    const bool tapeOld = (delayCharacter == 3);
+    const TapeChar& tc = kTapeChars[juce::jlimit(0, 2, delayCharacter)];
+    const float dWow1  = twoPi * (tapeOld ? kOldWowHz   : kWow1Hz) / static_cast<float>(sr);
     const float dWow2  = twoPi * kWow2Hz  / static_cast<float>(sr);
-    const float dFlut  = twoPi * kFlutHz  / static_cast<float>(sr);
+    const float dFlut  = twoPi * (tapeOld ? kOldFlut1Hz : kFlutHz) / static_cast<float>(sr);
     const float dFlut2 = twoPi * kFlut2Hz / static_cast<float>(sr);
     const float aHP   = onePoleCoeff(kTapeHpHz, sr);
     const float dBbdClock = twoPi * kBbdClockHz / static_cast<float>(sr);
@@ -222,13 +240,20 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
             if (wow2Phase  > twoPi) wow2Phase  -= twoPi;
             if (flutPhase  > twoPi) flutPhase  -= twoPi;
             if (flut2Phase > twoPi) flut2Phase -= twoPi;
-            // ONE shared transport-speed wobble, applied MULTIPLICATIVELY per head
-            // (below) so delay excursion AND pitch both scale 1:2:3 with distance.
-            // Two flutter LFOs (6.0 + 9.7 Hz): capstan flutter + tape-guide friction.
+            // Modern presets (0..2): ONE shared transport-speed wobble, applied
+            // MULTIPLICATIVELY per head (below) so delay excursion AND pitch both
+            // scale 1:2:3 with distance. Two flutter LFOs (6.0 + 9.7 Hz): capstan
+            // flutter + tape-guide friction.
             const float m = std::sin(wow1Phase)  * tc.wow1D
                           + std::sin(wow2Phase)  * tc.wow2D
                           + std::sin(flutPhase)  * tc.flut1D
                           + std::sin(flut2Phase) * tc.flut2D;
+            // Tape Old (3): the legacy ADDITIVE offset — same modw added to EVERY
+            // head (wow1Phase=0.7Hz wow, flutPhase/flut2Phase=6.3+9.7Hz flutter),
+            // scaled by the delay-sample count. Physically wrong, kept on request.
+            const float modw = (std::sin(wow1Phase) * kOldWowDepth
+                              + (std::sin(flutPhase) + std::sin(flut2Phase)) * kOldFlutDepth)
+                              * currentDelaySamples * kOldWobbleScale;
 
             // Cap the head spacing so the longest head (heads·base) stays inside
             // the buffer even at long times.
@@ -239,7 +264,8 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
             for (int k = 0; k < heads; ++k)
             {
                 const float d = juce::jlimit(1.0f, maxDelaySamples,
-                                             static_cast<float>(k + 1) * base * (1.0f + m));
+                                             tapeOld ? (static_cast<float>(k + 1) * base + modw)
+                                                     : (static_cast<float>(k + 1) * base * (1.0f + m)));
                 const bool last = (k == heads - 1);
                 // Advance the read pointer exactly once per sample, on the last tap.
                 const float tap = delayLine.popSample(0, d, last);
@@ -400,11 +426,12 @@ void T5ynthDelayLine::setMode(int delayType)
 
 void T5ynthDelayLine::setCharacter(int c)
 {
-    delayCharacter = juce::jlimit(0, 2, c);
+    delayCharacter = juce::jlimit(0, 3, c);   // 0..2 modern, 3 = Tape Old (Tape only)
     // BBD loop LP cutoff changes with character — rebuild the one-pole coeff.
     // This is a trivial float computation (no allocation), safe on the audio thread.
+    // (character 3 only ever pairs with Tape mode; clamp the BBD index defensively.)
     if (mode == kBbd && prepared)
-        bbdLoopCoeff = onePoleCoeff(kBbdChars[delayCharacter].loopHz, sr);
+        bbdLoopCoeff = onePoleCoeff(kBbdChars[juce::jmin(delayCharacter, 2)].loopHz, sr);
     // Tape: no coefficients to rebuild (depths read per-sample from kTapeChars).
     // Trigger a damp recompute so the BBD recon top updates for the new character.
     if (mode == kBbd)
@@ -429,7 +456,7 @@ void T5ynthDelayLine::recomputeDamp()
     // One-pole coeff only — no makeLowPass alloc, so this branch is allocation-free.
     if (mode == kBbd)
     {
-        const float top = kBbdChars[delayCharacter].reconHz;
+        const float top = kBbdChars[juce::jmin(delayCharacter, 2)].reconHz;
         const float f = top * std::pow(500.0f / top, dampAmount);
         if (f == bbdReconFreq)
             return;

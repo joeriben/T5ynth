@@ -626,7 +626,8 @@ namespace FilterWarpStyle {
 // the key→DSP mapping must stay stable. DSP voicing lives in dsp/DelayLine.cpp.
 namespace DelayType {
     enum : int { Off = 0, Digital = 1, PingPong = 2, Tape = 3, Bbd = 4,
-                 TapeWarm = 5, TapeWild = 6, BbdClean = 7, BbdDegraded = 8 };
+                 TapeWarm = 5, TapeWild = 6, BbdClean = 7, BbdDegraded = 8,
+                 TapeOld = 9 };
     static constexpr ChoiceEntry kEntries[] = {
         { "off",         "Off"         },
         { "stereo",      "Digital"     },   // clean dual-mono; key kept for preset back-compat
@@ -639,20 +640,24 @@ namespace DelayType {
         { "tape_wild",   "Tape Wild"   },   // tape + heavy wow + 6.0 + 9.7 Hz flutter
         { "bbd_clean",   "BBD Clean"   },   // BBD + bright recon + low grit (DM-2 style)
         { "bbd_degraded","BBD Degraded"},   // BBD + dark recon + heavy grit + warble
+        { "tape_old",    "Tape Old"    },   // the pre-6988cdf1 ADDITIVE wobble (physically
+                                            // wrong: same excursion on all heads) — restored
+                                            // on request as a distinct flavour, NOT a default.
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(BbdDegraded + 1 == kCount, "DelayType out of sync.");
+    static_assert(TapeOld + 1 == kCount, "DelayType out of sync.");
 
     // Map flat choice index to DSP voicing mode (Off/Digital/PP/Tape/BBD)
-    // and to character preset (0=default, 1=variant1, 2=variant2).
+    // and to character preset (0=default, 1=variant1, 2=variant2, 3=Tape-old additive).
     inline int baseMode(int dt) {
-        if (dt == TapeWarm || dt == TapeWild)    return Tape;
-        if (dt == BbdClean || dt == BbdDegraded) return Bbd;
+        if (dt == TapeWarm || dt == TapeWild || dt == TapeOld) return Tape;
+        if (dt == BbdClean || dt == BbdDegraded)               return Bbd;
         return dt;
     }
     inline int character(int dt) {
         if (dt == TapeWarm || dt == BbdClean)    return 1;
         if (dt == TapeWild || dt == BbdDegraded) return 2;
+        if (dt == TapeOld)                       return 3;
         return 0;
     }
 }

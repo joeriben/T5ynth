@@ -30,9 +30,9 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
 
     // Delay type switchbox: 5 radio buttons [OFF][Dig][PP][Tape][BBD].
     // Tape and BBD cycle through character presets on re-click:
-    //   Tape  → Natural → Warm → Wild → Natural …
+    //   Tape  → Natural → Warm → Wild → Old → Natural …  (Old = legacy additive)
     //   BBD   → Vintage → Clean → Degraded → Vintage …
-    // The button label reflects the active character. All 9 choices map to the
+    // The button label reflects the active character. All 10 choices map to the
     // flat delayType APVTS param via delayTypeHidden (hidden ComboBox).
     {
         juce::StringArray delayTypeItems;
@@ -46,12 +46,12 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     // shows the armed variant (the one a click would select).
     // Indexed by DelayType::character() (0/1/2). The NUMBER reflects the logical
     // order (mildest → wildest), NOT the DSP character index:
-    //   Tape: Natural=Tp1, Warm=Tp2, Wild=Tp3        (char order already logical)
+    //   Tape: Natural=Tp1, Warm=Tp2, Wild=Tp3, Old=Tp4 (char 3 = legacy additive)
     //   BBD:  Clean=BBD1, Vintage=BBD2, Degraded=BBD3 (Vintage=char 0 is the
     //         released default → sits in the MIDDLE, so its label is BBD2).
-    static const char* kTapeLbls[] = { "Tp1",  "Tp2",  "Tp3"  };  // char 0/1/2 = Nat/Warm/Wild
+    static const char* kTapeLbls[] = { "Tp1",  "Tp2",  "Tp3", "Tp4" };  // char 0/1/2/3 = Nat/Warm/Wild/Old
     static const char* kBbdLbls[]  = { "BBD2", "BBD1", "BBD3" };  // char 0/1/2 = Vint/Clean/Degr
-    static const char* kTapeTips[] = { "Tape echo - Natural", "Tape echo - Warm", "Tape echo - Wild" };
+    static const char* kTapeTips[] = { "Tape echo - Natural", "Tape echo - Warm", "Tape echo - Wild", "Tape echo - Old (additive wobble)" };
     static const char* kBbdTips[]  = { "Bucket-brigade - Vintage", "Bucket-brigade - Clean", "Bucket-brigade - Degraded" };
     delayTypeHidden.onChange = [this]
     {
@@ -81,14 +81,16 @@ FxPanel::FxPanel(juce::AudioProcessorValueTreeState& apvts, T5ynthProcessor& pro
     // Off / Digital / Ping-Pong: simple select.
     for (int i = 0; i < 3; ++i)
         delayTypeBtns[i].onClick = [this, i] { delayTypeHidden.setSelectedId(i + 1); };
-    // Tape: cycle Natural → Warm → Wild → Natural on repeated clicks.
+    // Tape: cycle Natural → Warm → Wild → Old → Natural on repeated clicks
+    // (Tp1→Tp2→Tp3→Tp4→Tp1). Tp4 = the legacy additive wobble.
     delayTypeBtns[3].onClick = [this]
     {
         const int cur = delayTypeHidden.getSelectedId() - 1;
         int next;
         if      (cur == DelayType::Tape)     next = DelayType::TapeWarm;
         else if (cur == DelayType::TapeWarm) next = DelayType::TapeWild;
-        else if (cur == DelayType::TapeWild) next = DelayType::Tape;
+        else if (cur == DelayType::TapeWild) next = DelayType::TapeOld;
+        else if (cur == DelayType::TapeOld)  next = DelayType::Tape;
         else                                  next = DelayType::Tape;
         delayTypeHidden.setSelectedId(next + 1);
     };
