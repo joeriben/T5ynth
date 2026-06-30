@@ -32,6 +32,14 @@ private:
     juce::dsp::DryWetMixer<float> mixer;
     float wetMix = 0.0f;
     bool prepared = false;
+    double sr = 44100.0;
+
+    // Output tone LP driven by Damp: JUCE's internal comb damping is intentionally
+    // capped (it rings if pushed past ~0.4 internal), so it darkens only weakly and
+    // its top half is nearly inaudible. A one-pole LP on the wet output extends the
+    // Damp control into a strong, monotone bright->dark sweep across the whole knob.
+    float dampLpCoeff = 1.0f;     // 1 = fully open (no darkening)
+    float dampLpStateL = 0.0f, dampLpStateR = 0.0f;
 
     // Silence detection — skip processing only after output has truly decayed
     int silentOutputBlocks = 0;

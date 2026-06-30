@@ -7,9 +7,11 @@ void AlgorithmicReverb::prepare(double sampleRate, int samplesPerBlock)
     spec.maximumBlockSize = static_cast<juce::uint32>(samplesPerBlock);
     spec.numChannels = 2;
 
+    sr = sampleRate;
     reverb.prepare(spec);
     mixer.prepare(spec);
     mixer.setWetMixProportion(wetMix);
+    dampLpStateL = dampLpStateR = 0.0f;
 
     // Medium hall: warm and spacious
     juce::dsp::Reverb::Parameters params;
@@ -44,6 +46,25 @@ void AlgorithmicReverb::processBlock(juce::AudioBuffer<float>& buffer)
 
     mixer.mixWetSamples(block);
 
+    // Output tone LP (Damp): one-pole per channel on the wet tail. coeff==1 is
+    // fully open (no work happens audibly). RT-safe: float state only, no alloc.
+    if (dampLpCoeff < 0.999f)
+    {
+        const int n = buffer.getNumSamples();
+        const int nch = buffer.getNumChannels();
+        auto* L = buffer.getWritePointer(0);
+        auto* R = nch > 1 ? buffer.getWritePointer(1) : nullptr;
+        for (int i = 0; i < n; ++i)
+        {
+            dampLpStateL += dampLpCoeff * (L[i] - dampLpStateL);
+            L[i] = dampLpStateL;
+            if (R) {
+                dampLpStateR += dampLpCoeff * (R[i] - dampLpStateR);
+                R[i] = dampLpStateR;
+            }
+        }
+    }
+
     // Check output magnitude — count as silent only when input is also silent
     float outMag = buffer.getMagnitude(0, buffer.getNumSamples());
     if (outMag < 1e-6f && inputSilent)
@@ -56,6 +77,7 @@ void AlgorithmicReverb::reset()
 {
     reverb.reset();
     mixer.reset();
+    dampLpStateL = dampLpStateR = 0.0f;
 }
 
 void AlgorithmicReverb::setMix(float mix)
@@ -74,9 +96,21 @@ void AlgorithmicReverb::setRoomSize(float size)
 
 void AlgorithmicReverb::setDamping(float damp)
 {
+    const float knob = juce::jlimit(0.0f, 1.0f, damp);
+
+    // JUCE's internal comb damping, kept in its well-behaved range (it rings if
+    // pushed past ~0.4 internal). This gives the in-tail, frequency-dependent
+    // decay character.
     auto params = reverb.getParameters();
-    params.damping = juce::jlimit(0.0f, 1.0f, damp);
+    params.damping = knob;
     reverb.setParameters(params);
+
+    // Plus an output tone LP for the bulk of the audible darkening: sweep the
+    // cutoff log-spaced from ~20 kHz (open) down to ~1.2 kHz (dark) so the knob
+    // darkens progressively across its WHOLE travel, not just the lower half.
+    const float fc = 20000.0f * std::pow(1200.0f / 20000.0f, knob);
+    dampLpCoeff = 1.0f - std::exp(-2.0f * juce::MathConstants<float>::pi
+                                  * fc / static_cast<float>(sr));
 }
 
 void AlgorithmicReverb::setWidth(float w)
