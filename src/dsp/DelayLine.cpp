@@ -178,7 +178,25 @@ void T5ynthDelayLine::processBlock(juce::AudioBuffer<float>& buffer)
         ? static_cast<int>(std::ceil(targetDelaySamples / static_cast<float>(numSamples)))
         : 0;
     if (inputSilent && silentOutputBlocks > delayPeriodBlocks + SILENCE_CONFIRM_BLOCKS)
+    {
+        // Idle skip — but keep the wow/flutter LFOs FREE-RUNNING across it so they
+        // track wall-clock time like a real capstan. If we just returned, the
+        // phases would freeze during silence and every note would catch them at
+        // (nearly) the same phase, making the flutter sound note-on-triggered
+        // instead of continuously running through. Closed-form per-block advance
+        // (4 float ops, only on idle blocks — no per-sample cost).
+        if (mode == kTape)
+        {
+            const float wrap = juce::MathConstants<float>::twoPi;
+            const float n = static_cast<float>(numSamples) / static_cast<float>(sr);
+            const bool  old = (delayCharacter == 3);
+            wow1Phase  = std::fmod(wow1Phase  + wrap * (old ? kOldWowHz   : kWow1Hz) * n, wrap);
+            wow2Phase  = std::fmod(wow2Phase  + wrap *  kWow2Hz                      * n, wrap);
+            flutPhase  = std::fmod(flutPhase  + wrap * (old ? kOldFlut1Hz : kFlutHz) * n, wrap);
+            flut2Phase = std::fmod(flut2Phase + wrap *  kFlut2Hz                     * n, wrap);
+        }
         return;
+    }
 
     const bool stereo = buffer.getNumChannels() >= 2;
     const float dryGain = 1.0f - wetMix;
