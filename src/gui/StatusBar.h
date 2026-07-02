@@ -9,6 +9,7 @@ public:
     ~StatusBar() override = default;
 
     void paint(juce::Graphics& g) override;
+    void paintOverChildren(juce::Graphics& g) override;
     void resized() override;
 
     void setStatusText(const juce::String& text);
@@ -17,10 +18,11 @@ public:
     /** Show loaded preset name (empty = no preset). */
     void setPresetName(const juce::String& name);
 
-    /** Reveals a small "Update" pill in the status row; clicking it opens `url`
-     *  in the default browser. Called once per session by MainPanel when the
-     *  background UpdateChecker finds a newer GitHub release. */
-    void setUpdateAvailable(const juce::String& version, const juce::String& url);
+    /** Shows/hides a small accent dot on the Settings button (Chrome/VS Code
+     *  convention) — the download itself lives in the General Settings page.
+     *  Called by MainPanel when the background UpdateChecker finds a newer
+     *  GitHub release. `version` only feeds the Settings-button tooltip. */
+    void setUpdateBadge(bool available, const juce::String& version = {});
 
     /** Callbacks for buttons. */
     std::function<void()> onNewPreset;
@@ -68,8 +70,7 @@ private:
     juce::TextButton manualBtn { "Manual" };
     juce::TextButton panicBtn { "Panic" };
     juce::TextButton keyboardBtn { "Kbd" };
-    juce::TextButton updateBtn_ { "Update" };   // hidden until setUpdateAvailable() fires
-    juce::String updateUrl_;
+    bool updateBadge_ = false;   // accent dot on Settings when an update is available
 
     // In the standalone app these two controls live in JUCE's "MIDI/Audio Settings"
     // dialog (see MidiOutputSettingsPanel), so the bottom row is left clean — nothing

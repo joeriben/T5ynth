@@ -2193,6 +2193,16 @@ void MainPanel::toggleSettings()
 void MainPanel::showSettings()
 {
     settingsVisible = true;
+    // When the Settings badge is what drew the user here (a pending update),
+    // open straight to the "Settings" tab (index 1) where the Download row is,
+    // so the update is visible immediately — Chrome/VS Code "open → it's right
+    // there" behaviour. One-shot: cleared after the jump so later opens keep the
+    // default tab and the model-setup open (tab 0) is never hijacked.
+    if (pendingUpdateTabJump_)
+    {
+        settingsTabs.setCurrentTabIndex(1);
+        pendingUpdateTabJump_ = false;
+    }
     settingsScrim.setVisible(true);
     settingsScrim.toFront(false);
     settingsTabs.setVisible(true);
@@ -3003,11 +3013,16 @@ void MainPanel::releaseComputerKeyboardNotes()
 void MainPanel::timerCallback()
 {
     // Surface a background update-check result (if any) once, non-blocking —
-    // does not touch model loading/PipeInference at all.
+    // does not touch model loading/PipeInference at all. Chrome/VS Code pattern:
+    // an accent dot on Settings; the Download button lives in General Settings.
     {
         juce::String updVer, updUrl;
         if (processorRef.takeAvailableUpdate(updVer, updUrl))
-            statusBar.setUpdateAvailable(updVer, updUrl);
+        {
+            pendingUpdateTabJump_ = true;
+            statusBar.setUpdateBadge(true, updVer);
+            generalSettingsPage.setUpdateAvailable(updVer, updUrl);
+        }
     }
 
     // Stop the temporary pulse after a cache hit, but keep the cache-hit

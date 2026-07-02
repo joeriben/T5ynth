@@ -57,15 +57,6 @@ StatusBar::StatusBar()
     panicBtn.setColour(juce::TextButton::textColourOffId, kError);
     panicBtn.setTooltip("MIDI Panic — release all hanging voices");
 
-    // Hidden until a background UpdateChecker result arrives (see setUpdateAvailable).
-    updateBtn_.setVisible(false);
-    updateBtn_.onClick = [this]
-    {
-        if (updateUrl_.isNotEmpty())
-            juce::URL(updateUrl_).launchInDefaultBrowser();
-    };
-    addChildComponent(updateBtn_);
-
     newBtn.onClick      = [this] { if (onNewPreset) onNewPreset(); };
     saveBtn.onClick     = [this] { if (onSavePreset) onSavePreset(); };
     loadBtn.onClick     = [this] { if (onLoadPreset) onLoadPreset(); };
@@ -213,13 +204,9 @@ void StatusBar::resized()
     int panicW    = 50;
     int extClockW = 72;
     int comboW    = 130;
-    int updateW   = 70;
 
     manualBtn.setBounds(b.getRight() - manualW - gap, y, manualW, btnH);
-    // Reserved slot just left of Manual, occupied unconditionally (harmless while
-    // invisible) so the rest of the chain never has to shift when it appears/hides.
-    updateBtn_.setBounds(manualBtn.getX() - updateW - gap, y, updateW, btnH);
-    settingsBtn.setBounds(updateBtn_.getX() - settingsW - gap, y, settingsW, btnH);
+    settingsBtn.setBounds(manualBtn.getX() - settingsW - gap, y, settingsW, btnH);
     exportBtn.setBounds(settingsBtn.getX() - exportW - gap, y, exportW, btnH);
     loadBtn.setBounds(exportBtn.getX() - libraryW - gap, y, libraryW, btnH);
     saveBtn.setBounds(loadBtn.getX() - saveW - gap, y, saveW, btnH);
@@ -252,13 +239,33 @@ void StatusBar::setPresetName(const juce::String& name)
     repaint();
 }
 
-void StatusBar::setUpdateAvailable(const juce::String& version, const juce::String& url)
+void StatusBar::setUpdateBadge(bool available, const juce::String& version)
 {
-    updateUrl_ = url;
-    updateBtn_.setTooltip("T5ynth " + version + " is available — click to open the release page");
-    updateBtn_.setColour(juce::TextButton::buttonColourId, kAccent.withAlpha(0.30f));
-    updateBtn_.setColour(juce::TextButton::textColourOffId, kAccent);
-    updateBtn_.setVisible(true);
+    if (updateBadge_ == available)
+        return;
+    updateBadge_ = available;
+    settingsBtn.setTooltip(available
+        ? "Update available (" + version + ") - open Settings to download"
+        : juce::String());
+    repaint();
+}
+
+void StatusBar::paintOverChildren(juce::Graphics& g)
+{
+    // Update indicator: a small accent dot on the Settings button's top-right
+    // corner (Chrome/VS Code convention). Painted over the child button so it
+    // sits on top, and only while an update is pending — zero layout cost, no
+    // reserved slot. Detail + Download live in the General Settings page.
+    if (! updateBadge_)
+        return;
+    const float d = 7.0f;
+    const auto r = settingsBtn.getBounds().toFloat();
+    const float cx = r.getRight() - d * 0.5f - 2.0f;
+    const float cy = r.getY() + d * 0.5f + 2.0f;
+    g.setColour(kCard);
+    g.fillEllipse(cx - d * 0.5f - 1.0f, cy - d * 0.5f - 1.0f, d + 2.0f, d + 2.0f);
+    g.setColour(kAccent);
+    g.fillEllipse(cx - d * 0.5f, cy - d * 0.5f, d, d);
 }
 
 void StatusBar::setKeyboardInputEnabled(bool enabled)

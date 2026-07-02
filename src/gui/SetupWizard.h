@@ -302,7 +302,20 @@ public:
     /** Fired when the user (un)ticks "Check for updates on startup". */
     std::function<void(bool)> onCheckForUpdatesChanged;
 
+    /** Reveal (or clear) the "Update available: vX — Download" row at the top of
+     *  this page. Called by MainPanel when the background UpdateChecker finds a
+     *  newer release; the Download button opens `url` in the browser. */
+    void setUpdateAvailable(const juce::String& version, const juce::String& url);
+
 private:
+    void layoutRows();
+
+    // Update banner (top of page; hidden until an update is found).
+    juce::Label          updateLabel_;
+    juce::TextButton     updateDownloadBtn_ { "Download" };
+    juce::String         updateUrl_;
+    bool                 updateAvailable_ = false;
+
     juce::Label          osTitle_;
     juce::ComboBox       osCombo_;
     juce::Rectangle<int> helpBounds_;

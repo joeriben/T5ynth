@@ -308,6 +308,11 @@ private:
     juce::TabbedComponent settingsTabs { juce::TabbedButtonBar::TabsAtTop };
     Scrim settingsScrim;
     bool settingsVisible = false;
+    // One-shot: set when a newer release is found so the NEXT Settings-open lands
+    // on the General/Settings tab (where the Download row is), then cleared. The
+    // badge + banner persist on their own — this only steers the first open, so it
+    // can't stick the tab for the whole session or hijack the model-setup open.
+    bool pendingUpdateTabJump_ = false;
     bool pendingInferenceReload = false;
 
     // Preset manager overlay (also hosts the Save-Drawer in Save mode)

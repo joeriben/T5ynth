@@ -3636,6 +3636,30 @@ GeneralSettingsPage::GeneralSettingsPage()
             onCheckForUpdatesChanged(updateCheckToggle_.getToggleState());
     };
     addAndMakeVisible(updateCheckToggle_);
+
+    // Update banner (top of page) — hidden until setUpdateAvailable() fires.
+    updateLabel_.setColour(juce::Label::textColourId, kAccent);
+    updateLabel_.setJustificationType(juce::Justification::centredLeft);
+    addChildComponent(updateLabel_);
+
+    updateDownloadBtn_.setColour(juce::TextButton::buttonColourId, kAccent.withAlpha(0.30f));
+    updateDownloadBtn_.setColour(juce::TextButton::textColourOffId, kAccent);
+    updateDownloadBtn_.onClick = [this]
+    {
+        if (updateUrl_.isNotEmpty())
+            juce::URL(updateUrl_).launchInDefaultBrowser();
+    };
+    addChildComponent(updateDownloadBtn_);
+}
+
+void GeneralSettingsPage::setUpdateAvailable(const juce::String& version, const juce::String& url)
+{
+    updateUrl_ = url;
+    updateAvailable_ = url.isNotEmpty();
+    updateLabel_.setText("Update available: " + version, juce::dontSendNotification);
+    updateLabel_.setVisible(updateAvailable_);
+    updateDownloadBtn_.setVisible(updateAvailable_);
+    layoutRows();
 }
 
 void GeneralSettingsPage::setOsQuality(int qualityIndex)
@@ -3656,21 +3680,42 @@ void GeneralSettingsPage::paint(juce::Graphics& g)
     g.setFont(juce::FontOptions(12.0f));
     g.drawFittedText("Suppresses aliasing on the nonlinear Ladder / Warp filters by running them "
                      "at a higher internal rate. Higher = cleaner, more CPU; the linear SVF is "
-                     "unaffected. Global setting for this machine — not stored per preset.",
+                     "unaffected. Global setting for this machine - not stored per preset.",
                      helpBounds_, juce::Justification::topLeft, 5);
 }
 
 void GeneralSettingsPage::resized()
 {
+    layoutRows();
+}
+
+void GeneralSettingsPage::layoutRows()
+{
     auto r = getLocalBounds().reduced(18);
+
+    // ── Updates group (kept together at the top) ──
+    // The "Update available … Download" banner (only when an update exists) sits
+    // directly above its own opt-out toggle — the two update controls must not be
+    // split by the unrelated Filter Oversampling row below.
+    if (updateAvailable_)
+    {
+        auto row = r.removeFromTop(28);
+        updateDownloadBtn_.setBounds(row.removeFromRight(96));
+        row.removeFromRight(10);
+        updateLabel_.setBounds(row);
+        r.removeFromTop(8);
+    }
+    updateCheckToggle_.setBounds(r.removeFromTop(26));
+
+    r.removeFromTop(22);
+
+    // ── Filter Oversampling group ──
     auto row = r.removeFromTop(26);
     osTitle_.setBounds(row.removeFromLeft(150));
     row.removeFromLeft(10);
     osCombo_.setBounds(row.removeFromLeft(110));
     r.removeFromTop(14);
     helpBounds_ = r.removeFromTop(90);
-    r.removeFromTop(10);
-    updateCheckToggle_.setBounds(r.removeFromTop(26));
 }
 
 void SettingsPage::resized()
