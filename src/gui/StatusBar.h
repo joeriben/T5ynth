@@ -17,6 +17,11 @@ public:
     /** Show loaded preset name (empty = no preset). */
     void setPresetName(const juce::String& name);
 
+    /** Reveals a small "Update" pill in the status row; clicking it opens `url`
+     *  in the default browser. Called once per session by MainPanel when the
+     *  background UpdateChecker finds a newer GitHub release. */
+    void setUpdateAvailable(const juce::String& version, const juce::String& url);
+
     /** Callbacks for buttons. */
     std::function<void()> onNewPreset;
     std::function<void()> onSavePreset;
@@ -63,6 +68,8 @@ private:
     juce::TextButton manualBtn { "Manual" };
     juce::TextButton panicBtn { "Panic" };
     juce::TextButton keyboardBtn { "Kbd" };
+    juce::TextButton updateBtn_ { "Update" };   // hidden until setUpdateAvailable() fires
+    juce::String updateUrl_;
 
     // In the standalone app these two controls live in JUCE's "MIDI/Audio Settings"
     // dialog (see MidiOutputSettingsPanel), so the bottom row is left clean — nothing

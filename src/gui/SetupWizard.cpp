@@ -3627,11 +3627,25 @@ GeneralSettingsPage::GeneralSettingsPage()
             onOsQualityChanged(osCombo_.getSelectedId() - 1);
     };
     addAndMakeVisible(osCombo_);
+
+    updateCheckToggle_.setColour(juce::ToggleButton::textColourId, kTextPrimary);
+    updateCheckToggle_.setToggleState(true, juce::dontSendNotification);   // opt-out default
+    updateCheckToggle_.onClick = [this]
+    {
+        if (onCheckForUpdatesChanged)
+            onCheckForUpdatesChanged(updateCheckToggle_.getToggleState());
+    };
+    addAndMakeVisible(updateCheckToggle_);
 }
 
 void GeneralSettingsPage::setOsQuality(int qualityIndex)
 {
     osCombo_.setSelectedId(juce::jlimit(0, 2, qualityIndex) + 1, juce::dontSendNotification);
+}
+
+void GeneralSettingsPage::setCheckForUpdatesEnabled(bool enabled)
+{
+    updateCheckToggle_.setToggleState(enabled, juce::dontSendNotification);
 }
 
 void GeneralSettingsPage::paint(juce::Graphics& g)
@@ -3655,6 +3669,8 @@ void GeneralSettingsPage::resized()
     osCombo_.setBounds(row.removeFromLeft(110));
     r.removeFromTop(14);
     helpBounds_ = r.removeFromTop(90);
+    r.removeFromTop(10);
+    updateCheckToggle_.setBounds(r.removeFromTop(26));
 }
 
 void SettingsPage::resized()

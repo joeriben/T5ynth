@@ -57,6 +57,15 @@ StatusBar::StatusBar()
     panicBtn.setColour(juce::TextButton::textColourOffId, kError);
     panicBtn.setTooltip("MIDI Panic — release all hanging voices");
 
+    // Hidden until a background UpdateChecker result arrives (see setUpdateAvailable).
+    updateBtn_.setVisible(false);
+    updateBtn_.onClick = [this]
+    {
+        if (updateUrl_.isNotEmpty())
+            juce::URL(updateUrl_).launchInDefaultBrowser();
+    };
+    addChildComponent(updateBtn_);
+
     newBtn.onClick      = [this] { if (onNewPreset) onNewPreset(); };
     saveBtn.onClick     = [this] { if (onSavePreset) onSavePreset(); };
     loadBtn.onClick     = [this] { if (onLoadPreset) onLoadPreset(); };
@@ -204,9 +213,13 @@ void StatusBar::resized()
     int panicW    = 50;
     int extClockW = 72;
     int comboW    = 130;
+    int updateW   = 70;
 
     manualBtn.setBounds(b.getRight() - manualW - gap, y, manualW, btnH);
-    settingsBtn.setBounds(manualBtn.getX() - settingsW - gap, y, settingsW, btnH);
+    // Reserved slot just left of Manual, occupied unconditionally (harmless while
+    // invisible) so the rest of the chain never has to shift when it appears/hides.
+    updateBtn_.setBounds(manualBtn.getX() - updateW - gap, y, updateW, btnH);
+    settingsBtn.setBounds(updateBtn_.getX() - settingsW - gap, y, settingsW, btnH);
     exportBtn.setBounds(settingsBtn.getX() - exportW - gap, y, exportW, btnH);
     loadBtn.setBounds(exportBtn.getX() - libraryW - gap, y, libraryW, btnH);
     saveBtn.setBounds(loadBtn.getX() - saveW - gap, y, saveW, btnH);
@@ -237,6 +250,15 @@ void StatusBar::setPresetName(const juce::String& name)
 {
     presetName = name;
     repaint();
+}
+
+void StatusBar::setUpdateAvailable(const juce::String& version, const juce::String& url)
+{
+    updateUrl_ = url;
+    updateBtn_.setTooltip("T5ynth " + version + " is available — click to open the release page");
+    updateBtn_.setColour(juce::TextButton::buttonColourId, kAccent.withAlpha(0.30f));
+    updateBtn_.setColour(juce::TextButton::textColourOffId, kAccent);
+    updateBtn_.setVisible(true);
 }
 
 void StatusBar::setKeyboardInputEnabled(bool enabled)

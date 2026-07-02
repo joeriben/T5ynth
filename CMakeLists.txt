@@ -17,10 +17,15 @@ else()
         set(_T5YNTH_VERSION "0.0.0")
     endif()
 endif()
+# Keep the FULL tag (e.g. "v2.5.3-beta.1") for the update check — every T5ynth
+# release is a GitHub pre-release, so the checker must compare full semver
+# (incl. the -beta.N precedence), not just the X.Y.Z triplet JUCE requires.
+set(_T5YNTH_FULL_VERSION "${_T5YNTH_VERSION}")
 string(REGEX REPLACE "^v" "" _T5YNTH_VERSION "${_T5YNTH_VERSION}")
 string(REGEX REPLACE "-.*$" "" _T5YNTH_VERSION "${_T5YNTH_VERSION}")
 if(NOT _T5YNTH_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
     set(_T5YNTH_VERSION "0.0.0")
+    set(_T5YNTH_FULL_VERSION "0.0.0")
 endif()
 
 project(T5ynth VERSION ${_T5YNTH_VERSION})
@@ -128,6 +133,7 @@ target_sources(T5ynth PRIVATE
     # Core
     src/PluginProcessor.cpp
     src/PluginEditor.cpp
+    src/UpdateChecker.cpp
 
     # DSP
     src/dsp/WavetableOscillator.cpp
@@ -254,4 +260,5 @@ target_compile_definitions(T5ynth
         JUCE_DISPLAY_SPLASH_SCREEN=0
     PRIVATE
         T5YNTH_BACKEND_DIR="${CMAKE_SOURCE_DIR}/backend"
+        T5YNTH_FULL_VERSION="${_T5YNTH_FULL_VERSION}"
 )

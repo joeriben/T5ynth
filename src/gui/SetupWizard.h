@@ -296,10 +296,17 @@ public:
     /** Fired when the user picks a new quality (index 0=Off, 1=2x, 2=4x). */
     std::function<void(int)> onOsQualityChanged;
 
+    /** Seed the toggle to the stored value without firing onCheckForUpdatesChanged. */
+    void setCheckForUpdatesEnabled(bool enabled);
+
+    /** Fired when the user (un)ticks "Check for updates on startup". */
+    std::function<void(bool)> onCheckForUpdatesChanged;
+
 private:
     juce::Label          osTitle_;
     juce::ComboBox       osCombo_;
     juce::Rectangle<int> helpBounds_;
+    juce::ToggleButton   updateCheckToggle_ { "Check for updates on startup" };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GeneralSettingsPage)
 };

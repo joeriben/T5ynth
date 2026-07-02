@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "BinaryData.h"
+#include "UpdateChecker.h"
 #include "dsp/Tuning.h"
 #include "midi/LaunchControlXLLeds.h"
 #include "presets/CalibrationMigration.h"
@@ -222,6 +223,11 @@ T5ynthProcessor::T5ynthProcessor()
         filterOsFactor_.store(osFactorFromQualityIndex(qualityIdx), std::memory_order_relaxed);
     }
 
+    // Kick off the (opt-out, throttled) background update check. Its own thread;
+    // does not touch appProperties_ again after this call returns, so it cannot
+    // race the audio thread or delay Python backend / model loading below.
+    startUpdateCheckIfDue();
+
     // Cache the transport params the XL DAW-mode buttons toggle (set from the audio
     // thread via setValueNotifyingHost — same mechanism as the CC binding apply).
     seqRunningParam_    = parameters.getParameter(PID::seqRunning);
@@ -253,12 +259,81 @@ int T5ynthProcessor::getFilterOsQuality() const
     return osQualityIndexFromFactor(filterOsFactor_.load(std::memory_order_relaxed));
 }
 
+void T5ynthProcessor::startUpdateCheckIfDue()
+{
+    auto* s = appProperties_.getUserSettings();
+    if (s == nullptr || ! s->getBoolValue("checkForUpdatesEnabled", true))
+        return;
+
+    const juce::int64 lastCheckSec = s->getValue("lastUpdateCheckEpochSec", "0").getLargeIntValue();
+    const juce::int64 nowSec = juce::Time::getCurrentTime().toMilliseconds() / 1000;
+    constexpr juce::int64 kMinIntervalSec = 24 * 60 * 60;
+    if (nowSec - lastCheckSec < kMinIntervalSec)
+        return;
+
+    s->setValue("lastUpdateCheckEpochSec", juce::String(nowSec));
+    s->saveIfNeeded();
+
+    // Use the FULL tag (incl. -beta.N), not the JUCE-stripped X.Y.Z — otherwise
+    // every beta→beta bump (how this project actually releases) is invisible.
+   #if defined(T5YNTH_FULL_VERSION)
+    const juce::String selfVersion { T5YNTH_FULL_VERSION };
+   #else
+    const juce::String selfVersion { ProjectInfo::versionString };
+   #endif
+    updateChecker_ = std::make_unique<UpdateChecker>(selfVersion);
+    // Captures updateState_ by value (shared_ptr), never `this` — see the
+    // UpdateState comment in PluginProcessor.h for why that matters.
+    updateChecker_->onUpdateAvailable = [state = updateState_](juce::String version, juce::String url)
+    {
+        const juce::ScopedLock sl(state->lock);
+        state->version = std::move(version);
+        state->url = std::move(url);
+        state->consumed = false;
+    };
+    updateChecker_->startThread(juce::Thread::Priority::background);
+}
+
+void T5ynthProcessor::setCheckForUpdatesEnabled(bool enabled)
+{
+    if (auto* s = appProperties_.getUserSettings())
+    {
+        s->setValue("checkForUpdatesEnabled", enabled);
+        s->saveIfNeeded();
+    }
+}
+
+bool T5ynthProcessor::getCheckForUpdatesEnabled() const
+{
+    if (auto* s = const_cast<juce::ApplicationProperties&>(appProperties_).getUserSettings())
+        return s->getBoolValue("checkForUpdatesEnabled", true);
+    return true;
+}
+
+bool T5ynthProcessor::takeAvailableUpdate(juce::String& versionOut, juce::String& urlOut)
+{
+    const juce::ScopedLock sl(updateState_->lock);
+    if (updateState_->consumed)
+        return false;
+    versionOut = updateState_->version;
+    urlOut = updateState_->url;
+    updateState_->consumed = true;
+    return true;
+}
+
 T5ynthProcessor::~T5ynthProcessor()
 {
     // Cancel any pending deferred LED burst + AsyncUpdater callback before members
     // are destroyed — both must run while all members are still alive.
     xlLedTimer_.stopTimer();
     cancelPendingUpdate();
+
+    // Join the update-check thread before it (or its members) go away. Its result
+    // callback only holds a shared_ptr to updateState_, never `this`, so even a
+    // callAsync that was already queued before stopThread() joins is harmless —
+    // it just writes into a still-live, otherwise-unread UpdateState.
+    if (updateChecker_)
+        updateChecker_->stopThread(4000);
 
     closeMidiOutputDevice();
 

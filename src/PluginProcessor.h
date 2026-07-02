@@ -288,10 +288,42 @@ private:
     juce::AudioProcessorValueTreeState parameters;
 
     // Global (machine-wide) settings store: ~/Library/Application Support/T5ynth/
-    // T5ynth.settings. Currently holds the nonlinear-filter oversampling quality.
-    // Read once at construction into filterOsFactor_ (the audio thread only ever
-    // touches that atomic); written by the Settings UI via setFilterOsQuality().
+    // T5ynth.settings. Holds the nonlinear-filter oversampling quality (read once at
+    // construction into filterOsFactor_, the audio thread only ever touches that
+    // atomic; written by the Settings UI via setFilterOsQuality()) and the
+    // update-check opt-out / throttle below.
     juce::ApplicationProperties appProperties_;
+
+public:
+    // ── Update check (machine-wide opt-out, GitHub "latest release" poll) ──
+    // Started once at construction on its own background thread (UpdateChecker) —
+    // never blocks Python backend / model loading. A result (if any) lands in
+    // updateState_, guarded by its own lock; MainPanel's timer polls
+    // takeAvailableUpdate() once to surface a StatusBar notification. Throttled to
+    // at most once per 24h via "lastUpdateCheckEpochSec" in appProperties_.
+    void setCheckForUpdatesEnabled(bool enabled);
+    bool getCheckForUpdatesEnabled() const;
+    /** True and fills version/url iff a newer release was found since the last call
+     *  (consumes the result — call once per notification). */
+    bool takeAvailableUpdate(juce::String& versionOut, juce::String& urlOut);
+
+private:
+    void startUpdateCheckIfDue();
+    // UpdateChecker's background thread posts its result via
+    // juce::MessageManager::callAsync — that message can still be sitting in the
+    // queue after ~T5ynthProcessor runs (stopThread() joins the thread but cannot
+    // dequeue an already-posted callback). So the shared state it writes into is
+    // heap-allocated and kept alive by a shared_ptr the checker's callback holds a
+    // copy of — never by a raw `this` capture — so a late-firing callback touches
+    // a still-live object instead of freed processor memory.
+    struct UpdateState
+    {
+        juce::CriticalSection lock;
+        juce::String version, url;
+        bool consumed = true;
+    };
+    std::shared_ptr<UpdateState> updateState_ = std::make_shared<UpdateState>();
+    std::unique_ptr<class UpdateChecker> updateChecker_;
     ParamCache paramCache;
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     WtTraversalMapping makeWtTraversalMapping(int totalSamples) const;

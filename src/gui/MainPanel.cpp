@@ -527,6 +527,9 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     generalSettingsPage.onOsQualityChanged = [this](int idx) { processorRef.setFilterOsQuality(idx); };
     generalSettingsPage.setOsQuality(processorRef.getFilterOsQuality());
 
+    generalSettingsPage.onCheckForUpdatesChanged = [this](bool enabled) { processorRef.setCheckForUpdatesEnabled(enabled); };
+    generalSettingsPage.setCheckForUpdatesEnabled(processorRef.getCheckForUpdatesEnabled());
+
     settingsPage.onModelReady = [this]
     {
         if (promptPanel.isGenerating())
@@ -2999,6 +3002,14 @@ void MainPanel::releaseComputerKeyboardNotes()
 
 void MainPanel::timerCallback()
 {
+    // Surface a background update-check result (if any) once, non-blocking —
+    // does not touch model loading/PipeInference at all.
+    {
+        juce::String updVer, updUrl;
+        if (processorRef.takeAvailableUpdate(updVer, updUrl))
+            statusBar.setUpdateAvailable(updVer, updUrl);
+    }
+
     // Stop the temporary pulse after a cache hit, but keep the cache-hit
     // label as long as the cache is still full.
     if (cacheHitActive)
