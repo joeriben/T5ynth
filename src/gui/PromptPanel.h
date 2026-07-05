@@ -432,17 +432,6 @@ private:
     // alternating, so A and B stay distinct transcriptions of consecutive renders.
     // false = this step writes B, true = writes A; flips after each applied step.
     bool loopAltWriteA_ = false;
-    // Resynth-loop anti-convergence: an adaptive amount subtracted from the
-    // loop's effective resynth when consecutive outputs stop differing, raising
-    // init_noise to break the loop out of a fixed-point. 0 = no reduction (the
-    // loop follows the user's setting). Message-thread only (pollDriftRegen +
-    // the generation-complete callback both run there), so no atomic needed.
-    float convergenceReduction_ = 0.0f;
-    // Whether the round just triggered actually had its resynth lowered by the
-    // controller (loopResynth < effResynth). Set in pollDriftRegen at trigger
-    // time, read by the generation-complete callback to flag "+noise" — true only
-    // when the reduction has effect, so near the floor (no headroom) it stays off.
-    bool antiConvergenceActive_ = false;
     // Resynth-loop release edge-detector: the previous loop regen's "a parameter
     // moved" state. The release (detach init so a changed prompt renders clean) is
     // edge-triggered on the false→true transition — so a continuous drift, which
