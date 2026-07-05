@@ -9,11 +9,12 @@
  * Sole writer of the open .t5evt file. Mirrors UpdateChecker (the codebase's
  * one existing juce::Thread subclass): run() loops on wait(), drains whatever
  * it owns, exits on stopThread(). Everything it drains arrives via enqueue*()
- * calls made from the audio thread (T5ynthProcessor::drainEventLogQueues(),
- * itself called from the message thread at the same cadence as
- * drainStepRecordQueue()) — enqueue* takes a short mutex, never blocks on I/O,
- * never allocates beyond an occasional vector growth on the CALLER's thread
- * (the message thread, which is not audio-thread-safety-constrained).
+ * calls made from the MESSAGE thread only (T5ynthProcessor::drainEventLogQueues(),
+ * itself called from MainPanel's timer at the same cadence as
+ * drainStepRecordQueue()) — the audio thread never calls enqueue*(), it only
+ * ever touches the lock-free FIFOs drainEventLogQueues() reads from. enqueue*
+ * takes a short mutex, never blocks on I/O, never allocates beyond an
+ * occasional vector growth — both fine off the audio thread.
  *
  * paramId resolution (APVTS index -> human-readable string) happens here, on
  * this thread, at serialization time — never inside the audio-thread-adjacent
