@@ -72,7 +72,7 @@ Folgerung für die Architektur: plausibel **CLAP immer (als Ohr), LLM optional d
 
 ### 1. Homöostase / kybernetische Korrektur (affirmativ)
 Reine *Regelung*: Distanz zu einer Zielregion im Embedding-Raum, zurückziehen. Braucht keine Sprache. — **Motor: CLAP allein.**
-Pointe: Homöostase ist konservativ (zieht zum Attraktor zurück) und damit zugleich das **Gegengift gegen die Degenerations-/Kollaps-Gefahr des i2i-Loops** — der Gouverneur, der die Rückkopplung daran hindert, in den Loop-Attraktor zu fallen.
+Homöostase ist konservativ (zieht zum Ziel zurück) — der affirmative Pol.
 → Linie: 2.-Ordnung-Kybernetik; Di Scipio, Kayn, Tudor, Nakamura (s. Bibliografie).
 
 ### 2. Variation / B-Prompt-Entwurf (mittig)
@@ -80,13 +80,13 @@ Braucht generative Rekombination. CLAP kann nur *vorhandene* Kandidaten ranken �
 Durch den 2-Embedding-Osc ist eine „Variation" hier kein *Punkt*, sondern eine *Richtung* (siehe Modus 5).
 
 ### 3. Kritik / Kontextualisierung — westliche Biases, Orientalismus (dekonstruktiv)
-Der anspruchsvollste *und* heikelste Modus; der, der das Projekt erst *eigen* macht. Zwei ehrliche Punkte:
+Der anspruchsvollste und heikelste Modus — und **noch Entwurf, nicht gebaut** (s. Ehrlichkeits-Fußnoten). Zwei Punkte, die er ernst nehmen müsste:
 
 - Die *kritische Geste* (rekontextualisieren, widerstehen) braucht Weltwissen → LLM. CLAP kann höchstens *Nähe* zu einer klischee-etikettierten Region *detektieren* — und ein solches Vokabular zu bauen ist selbst schon ein kuratorischer, situierter Akt.
 - **Der Widerspruch:** CLAP/MusicCaps/AudioSet *sind* das westliche, anglophone Ohr (trainiert auf YouTube/AudioSet mit englischen Captions). „Orientalismus mit CLAP detektieren" hieße, mit genau dem Instrument zu kritisieren, das den Bias verkörpert. Für ein kritisch-ästhetisches/arts-education-Projekt ist das kein Bug, sondern ein **produktiver Widerspruch**, den man *vorzeigen* statt verstecken sollte.
 
-Daher die schärfere Fassung: nicht **korrigieren** (paternalistischer Techno-Solutionismus — selbst ein neues Klischee), sondern **exponieren/befragen** — die Taxonomie des Datensatzes *als Konstrukt hörbar* machen („dieser Output liegt im 'world/exotic'-Cluster von AudioSet"), den Synth zum *reflexiven* Instrument machen, das die kulturelle Eingebettetheit von „gutem Klang" verhandelbar macht.
-— **Motor: CLAP-Detektor + LLM-Kritiker, reflexiv gerahmt** (oder Audio-LLM, um unter das Vokabular zu hören).
+Die intendierte Haltung wäre: nicht **korrigieren** (paternalistischer Techno-Solutionismus — selbst ein neues Klischee), sondern **exponieren/befragen** — die Taxonomie des Datensatzes als Konstrukt hörbar machen („dieser Output liegt im 'world/exotic'-Cluster von AudioSet"). Ob der Synth das je einlöst, ist offen; im Instrument steht es heute nicht.
+— **Motor (geplant): CLAP-Detektor + LLM-Kritiker, reflexiv gerahmt** (oder Audio-LLM, um unter das Vokabular zu hören).
 → Linie: Ochoa Gautier, Robinson, Said/Locke, Sterne. Anschluss an die hauseigene „anti-extractive"-A/B-Philosophie.
 
 ### 4. Assoziation / ästhetische Abduktion (dekonstruktiv)
@@ -117,7 +117,7 @@ Die fünf Intuitionen entdecken je eine benannte Tradition wieder.
 ## Wieso man das wollen sollte
 
 - **Schwache Antwort** (generative/modulare Tradition): der *kontrollierte Kontrollverlust*. Kybernetische Klangkunst von Kayn bis Di Scipio schätzt die Emergenz — das System überrascht seinen Macher. Nicht *ein* Verhalten, sondern patchbare Tendenzen, die man *kultiviert*, nicht *spielt*.
-- **Starke Antwort** (die eigentliche): Fast alle KI-Audio-Werkzeuge (Magenta voran) zielen auf *mehr/besseres* Material — affirmativ, produktivistisch. Ein Synth, der die *kulturelle Situation seines eigenen Outputs kontextualisieren und befragen* kann, ist eine **andere Kategorie**: ein **kritisch-ästhetisches und pädagogisches Instrument**, das die Biases des maschinellen Hörens hörbar und verhandelbar macht. Das ist die Durchgangslinie zur anti-extraktiven A/B-Gleichheit und zum Arts-Education-Rahmen — eine Position, die kommerziell wie im Magenta-Forschungsraum praktisch niemand besetzt.
+- **Starke Antwort** (die Absicht, nicht der erreichte Zustand): Fast alle KI-Audio-Werkzeuge (Magenta voran) zielen auf *mehr/besseres* Material — affirmativ, produktivistisch. Die Gegenrichtung, die dieses Projekt *anstrebt*, wäre ein kritisch-ästhetisches und pädagogisches Instrument, das die kulturelle Situation seines eigenen Outputs befragbar hält, statt sie als gegeben zu nehmen — die Verbindungslinie zur anti-extraktiven A/B-Philosophie. Ob und wo das eingelöst ist, steht in den Ehrlichkeits-Fußnoten; heute ist es überwiegend Programm, nicht Funktion.
 
 ## Annotierte Bibliografie
 
@@ -151,6 +151,7 @@ Die fünf Intuitionen entdecken je eine benannte Tradition wieder.
 
 ## Offene Punkte / Ehrlichkeits-Fußnoten
 
+- **Was gebaut ist vs. was Programm ist (Stand jetzt):** Implementiert und spielbar ist der Off-Distribution-Apparat — A/B-Mischung samt Extrapolation über die Pole, die Injection-Modi über die DiT-Blöcke, die Embedding-Manipulatoren (Rauschen/„Chaos", Magnitude, Dimension-Offsets) und die Resynth-Rückkopplung. Das treibt das Modell weg vom Plausiblen — es macht damit noch keine *Biases* offen. Der semantische Loop (die fünf Modi oben, v. a. Modus 3) und alles, was „hörbar/verhandelbar" verspricht, ist **Entwurf**, nicht Funktion. Die kritisch-reflexive Beziehung zum Output entsteht, wenn überhaupt, im *Spielen* — nicht durch ein Feature, das sie ankündigt.
 - Die Zuschreibungen sind aus dem Stand synthetisiert (Computermusik, Klangkunst, Sound Studies). Tragfähig, aber den **Kritik-Modus** mit jemandem aus *dem* Feld gegenlesen — das ist Autorschaft und Politik, kein Feature-Toggle.
 - Der Befund der CLAP-Probe verschiebt die Lesart je Modus: für **Homöostase** zählt CLAPs *Konsistenz* (ähnliche Klänge → ähnliche Region); für den **Kritik-Modus** ist der MusicCaps/AudioSet-*Bias gerade informativ* (er zeigt die westliche Taxonomie).
 - Verwandt: `docs/RESEARCH_IDEAS.md` (Embedding-Mix-Strategien), `docs/INJECTION_RECTANGLE_PLAN.md` (Injection-Modi), die i2i-/Resynth-Notizen (Signal-Loop), `tools/clap_probe.py` (CLAP-Machbarkeit).
