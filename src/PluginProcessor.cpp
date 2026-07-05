@@ -21,6 +21,21 @@ constexpr float kAlphaLinearSnapThreshold = 0.02f;
 constexpr float kMagnitudeUnitySnapThreshold = 0.03f;
 constexpr float kDurationSecondSnapThreshold = 0.05f;
 
+// RAII around begin/endBulkParamLoad so an early return during a bulk parameter
+// apply (preset import, DAW state restore) can't leave eventLogSuppressParamEvents_
+// stuck on — commit() marks a real load happened; an uncommitted guard cancels
+// silently (no marker), which is correct for a parse failure before anything
+// was actually suppressed as well as for one after.
+struct BulkParamLoadGuard
+{
+    explicit BulkParamLoadGuard(T5ynthProcessor& p) : proc(p) { proc.beginBulkParamLoad(); }
+    ~BulkParamLoadGuard() { committed ? proc.endBulkParamLoad(name) : proc.cancelBulkParamLoad(); }
+    void commit(juce::String presetName) { name = std::move(presetName); committed = true; }
+    T5ynthProcessor& proc;
+    juce::String name;
+    bool committed = false;
+};
+
 float snapIfNear(float value, float target, float threshold)
 {
     return std::abs(value - target) <= threshold ? target : value;
@@ -223,6 +238,41 @@ T5ynthProcessor::T5ynthProcessor()
         filterOsFactor_.store(osFactorFromQualityIndex(qualityIdx), std::memory_order_relaxed);
     }
 
+    // Event Log (.t5evt): build the paramID<->index tables once (index is what
+    // crosses the audio-thread-safe FIFO; the ID string only gets resolved back
+    // on the writer thread) and register one listener for every parameter. The
+    // writer thread itself always starts — recording is gated by
+    // eventLogEnabled_ at every push site, not by the thread's lifecycle, so
+    // toggling the Settings switch mid-session needs no thread restart.
+    {
+        std::vector<juce::String> paramIdByIndex;
+        for (auto* p : getParameters())
+        {
+            auto* rap = dynamic_cast<juce::RangedAudioParameter*>(p);
+            if (rap == nullptr)
+                continue;   // every APVTS-created parameter in this codebase is one; defensive only
+            const auto id = rap->getParameterID();
+            eventLogParamIndexById_[id] = static_cast<int>(paramIdByIndex.size());
+            paramIdByIndex.push_back(id);
+            parameters.addParameterListener(id, this);
+        }
+
+       #if defined(T5YNTH_FULL_VERSION)
+        const juce::String eventLogVersion { T5YNTH_FULL_VERSION };
+       #else
+        const juce::String eventLogVersion { ProjectInfo::versionString };
+       #endif
+        EventLogHeader header;
+        header.t5ynthVersion = eventLogVersion;
+        const auto eventLogDir = juce::File::getSpecialLocation(juce::File::userHomeDirectory)
+                                      .getChildFile("Library/T5ynth/eventlogs");
+        eventLogWriter_ = std::make_unique<EventLogWriterThread>(eventLogDir, header, std::move(paramIdByIndex));
+        eventLogWriter_->startThread(juce::Thread::Priority::background);
+
+        eventLogEnabled_.store(appProperties_.getUserSettings()->getBoolValue("eventLogEnabled", false),
+                               std::memory_order_relaxed);
+    }
+
     // Kick off the (opt-out, throttled) background update check. Its own thread;
     // does not touch appProperties_ again after this call returns, so it cannot
     // race the audio thread or delay Python backend / model loading below.
@@ -323,6 +373,12 @@ bool T5ynthProcessor::takeAvailableUpdate(juce::String& versionOut, juce::String
 
 T5ynthProcessor::~T5ynthProcessor()
 {
+    // Unregister first, before anything else in this destructor runs — a
+    // parameter change landing on `this` between here and `parameters`'s own
+    // destruction would otherwise call parameterChanged() on a half-torn-down object.
+    for (const auto& kv : eventLogParamIndexById_)
+        parameters.removeParameterListener(kv.first, this);
+
     // Cancel any pending deferred LED burst + AsyncUpdater callback before members
     // are destroyed — both must run while all members are still alive.
     xlLedTimer_.stopTimer();
@@ -334,6 +390,12 @@ T5ynthProcessor::~T5ynthProcessor()
     // it just writes into a still-live, otherwise-unread UpdateState.
     if (updateChecker_)
         updateChecker_->stopThread(4000);
+
+    // Stops and joins itself (~EventLogWriterThread calls stopThread(4000)) before
+    // any member it might otherwise reference is destroyed. Owns its own copies of
+    // everything it needs (paramIdByIndex_, header_), so ordering relative to the
+    // rest of this destructor doesn't matter beyond "before the object is gone".
+    eventLogWriter_.reset();
 
     closeMidiOutputDevice();
 
@@ -527,6 +589,184 @@ void T5ynthProcessor::drainStepRecordQueue()
     for (int i = 0; i < sz1; ++i) apply(stepRecQueue[static_cast<size_t>(s1 + i)]);
     for (int i = 0; i < sz2; ++i) apply(stepRecQueue[static_cast<size_t>(s2 + i)]);
     stepRecFifo.finishedRead(sz1 + sz2);
+}
+
+// ── Event Log (.t5evt) ───────────────────────────────────────────────────────
+
+void T5ynthProcessor::logInternalNoteEventsFrom(size_t startIndex, NoteEventLogEntry::Source source,
+                                                bool skipLeadForArp, bool genModeForSkip)
+{
+    // Audio thread. internalNoteEvents_[startIndex..) is exactly what the
+    // just-returned producer call appended (GenSeq/StepSeq/Arp all append their
+    // own notes with a real sampleOffset), so no other tap can have touched this
+    // range yet — but the seq-drives-arp lead-extraction erase() (later in this
+    // same processBlock) still WILL touch it if skipLeadForArp is set, so those
+    // entries are excluded here rather than logged and then also logged again
+    // as the arp notes derived from them.
+    for (size_t i = startIndex; i < internalNoteEvents_.size(); ++i)
+    {
+        const auto& ev = internalNoteEvents_[i];
+        if (skipLeadForArp && (genModeForSkip ? (ev.strandId == 0) : (ev.strandId < 0)))
+            continue;
+        NoteEventLogEntry e;
+        e.timestamp   = eventLogBlockStart_ + static_cast<uint64_t>(juce::jmax(0, ev.sampleOffset));
+        e.source      = source;
+        e.type        = ev.type;
+        e.note        = ev.note;
+        e.velocity    = ev.velocity;
+        e.artic       = ev.artic;
+        e.strandId    = ev.strandId;
+        e.pan         = ev.pan;
+        e.midiChannel = 0;
+
+        int s1, sz1, s2, sz2;
+        eventLogNoteFifo_.prepareToWrite(1, s1, sz1, s2, sz2);
+        if (sz1 > 0)
+        {
+            eventLogNoteQueue_[static_cast<size_t>(s1)] = e;
+            eventLogNoteFifo_.finishedWrite(1);
+        }
+    }
+}
+
+void T5ynthProcessor::logExternalNoteEvent(bool noteOn, int note, float velocity, int channel,
+                                           int sampleOffsetInBlock)
+{
+    // Audio thread.
+    NoteEventLogEntry e;
+    e.timestamp   = eventLogBlockStart_ + static_cast<uint64_t>(juce::jmax(0, sampleOffsetInBlock));
+    e.source      = NoteEventLogEntry::Source::ExternalMidi;
+    e.type        = noteOn ? VoiceEvent::Type::NoteOn : VoiceEvent::Type::NoteOff;
+    e.note        = note;
+    e.velocity    = velocity;
+    e.artic       = VoiceEvent::Articulation::Normal;
+    e.strandId    = -1;
+    e.pan         = 0.0f;
+    e.midiChannel = channel;
+
+    int s1, sz1, s2, sz2;
+    eventLogNoteFifo_.prepareToWrite(1, s1, sz1, s2, sz2);
+    if (sz1 > 0)
+    {
+        eventLogNoteQueue_[static_cast<size_t>(s1)] = e;
+        eventLogNoteFifo_.finishedWrite(1);
+    }
+}
+
+void T5ynthProcessor::parameterChanged(const juce::String& parameterID, float newValue)
+{
+    // Can run on the audio thread (confirmed: MIDI-CC-Learn-bound params call
+    // setValueNotifyingHost from inside processBlock) or the message thread —
+    // never assume which. No allocation, no lock beyond the lock-free FIFO.
+    if (! eventLogEnabled_.load(std::memory_order_relaxed))
+        return;
+    if (eventLogSuppressParamEvents_.load(std::memory_order_relaxed))
+        return;
+
+    const auto it = eventLogParamIndexById_.find(parameterID);
+    if (it == eventLogParamIndexById_.end())
+        return;
+
+    // "Last writer" hint, mirrors midiTouchPacked_: set immediately before a
+    // known-origin setValueNotifyingHost call, consumed here. No hint present
+    // (-1) defaults to HostAutomation — the "not one of our own recognized paths"
+    // bucket, which covers real host automation and (for now, see Phase 1
+    // report) plain GUI edits alike.
+    const int originHint = eventLogOriginHint_.exchange(-1, std::memory_order_relaxed);
+
+    ParamEventLogEntry e;
+    e.timestamp  = eventLogTotalSamples_.load(std::memory_order_relaxed);
+    e.paramIndex = it->second;
+    e.value      = newValue;
+    e.origin     = (originHint == static_cast<int>(ParamOrigin::MidiCCLearn))
+                 ? ParamOrigin::MidiCCLearn : ParamOrigin::HostAutomation;
+
+    int s1, sz1, s2, sz2;
+    eventLogParamFifo_.prepareToWrite(1, s1, sz1, s2, sz2);
+    if (sz1 > 0)
+    {
+        eventLogParamQueue_[static_cast<size_t>(s1)] = e;
+        eventLogParamFifo_.finishedWrite(1);
+    }
+}
+
+void T5ynthProcessor::drainEventLogQueues()
+{
+    // Message thread (same cadence as drainStepRecordQueue).
+    if (eventLogWriter_ == nullptr)
+        return;
+
+    const int noteReady = eventLogNoteFifo_.getNumReady();
+    if (noteReady > 0)
+    {
+        int s1, sz1, s2, sz2;
+        eventLogNoteFifo_.prepareToRead(noteReady, s1, sz1, s2, sz2);
+        for (int i = 0; i < sz1; ++i) eventLogWriter_->enqueue(eventLogNoteQueue_[static_cast<size_t>(s1 + i)]);
+        for (int i = 0; i < sz2; ++i) eventLogWriter_->enqueue(eventLogNoteQueue_[static_cast<size_t>(s2 + i)]);
+        eventLogNoteFifo_.finishedRead(sz1 + sz2);
+    }
+
+    const int paramReady = eventLogParamFifo_.getNumReady();
+    if (paramReady > 0)
+    {
+        int s1, sz1, s2, sz2;
+        eventLogParamFifo_.prepareToRead(paramReady, s1, sz1, s2, sz2);
+        for (int i = 0; i < sz1; ++i) eventLogWriter_->enqueue(eventLogParamQueue_[static_cast<size_t>(s1 + i)]);
+        for (int i = 0; i < sz2; ++i) eventLogWriter_->enqueue(eventLogParamQueue_[static_cast<size_t>(s2 + i)]);
+        eventLogParamFifo_.finishedRead(sz1 + sz2);
+    }
+}
+
+void T5ynthProcessor::beginBulkParamLoad()
+{
+    // Message thread (PresetFormat::loadFromFile, around parameters.replaceState).
+    eventLogSuppressParamEvents_.store(true, std::memory_order_relaxed);
+}
+
+void T5ynthProcessor::endBulkParamLoad(const juce::String& presetName)
+{
+    eventLogSuppressParamEvents_.store(false, std::memory_order_relaxed);
+    if (! eventLogEnabled_.load(std::memory_order_relaxed) || eventLogWriter_ == nullptr)
+        return;
+    PresetLoadedLogEntry e;
+    e.timestamp  = eventLogTotalSamples_.load(std::memory_order_relaxed);
+    e.presetName = presetName;
+    eventLogWriter_->enqueue(e);
+}
+
+void T5ynthProcessor::cancelBulkParamLoad()
+{
+    eventLogSuppressParamEvents_.store(false, std::memory_order_relaxed);
+}
+
+void T5ynthProcessor::recordEventLogGeneration(GenerationEventLogEntry entry, bool wasInternalResynth)
+{
+    if (! eventLogEnabled_.load(std::memory_order_relaxed) || eventLogWriter_ == nullptr)
+        return;
+
+    const uint64_t id = eventLogNextGenerationId_.fetch_add(1, std::memory_order_relaxed);
+    entry.timestamp    = eventLogTotalSamples_.load(std::memory_order_relaxed);
+    entry.generationId = id;
+    entry.parentGenerationId = wasInternalResynth
+                             ? eventLogLastGenerationId_.load(std::memory_order_relaxed) : 0;
+
+    eventLogWriter_->enqueue(entry);
+    eventLogLastGenerationId_.store(id, std::memory_order_relaxed);
+}
+
+void T5ynthProcessor::setEventLogEnabled(bool enabled)
+{
+    eventLogEnabled_.store(enabled, std::memory_order_relaxed);
+    if (auto* s = appProperties_.getUserSettings())
+    {
+        s->setValue("eventLogEnabled", enabled);
+        s->saveIfNeeded();
+    }
+}
+
+bool T5ynthProcessor::getEventLogEnabled() const
+{
+    return eventLogEnabled_.load(std::memory_order_relaxed);
 }
 
 juce::NormalisableRange<float> T5ynthProcessor::makeDurationRange(float maxSeconds)
@@ -1348,6 +1588,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
 
 void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
+    if (eventLogWriter_)
+        eventLogWriter_->setSampleRate(sampleRate);
+
     masterOsc.prepare(sampleRate, samplesPerBlock);
     masterSampler.prepare(sampleRate, samplesPerBlock);
     masterFreeze.prepare(sampleRate, samplesPerBlock);
@@ -2043,6 +2286,12 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     const int numSamples = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
+
+    // Event Log sample clock: snap this block's absolute start before any tap
+    // below uses it, then advance for the next block. Audio thread is the sole
+    // writer; relaxed is enough since readers only need an approximate count.
+    eventLogBlockStart_ = eventLogTotalSamples_.load(std::memory_order_relaxed);
+    eventLogTotalSamples_.fetch_add(static_cast<uint64_t>(numSamples), std::memory_order_relaxed);
 
     // ── Host-transport snapshot (feeds resolveSyncBpm()) ────────────────────
     {
@@ -2787,7 +3036,11 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             generativeSequencer.start();
         else
             generativeSequencer.stop();
+        const size_t eventLogGenSeqBefore_ = internalNoteEvents_.size();
         generativeSequencer.processBlock(buffer, internalNoteEvents_);
+        if (eventLogEnabled_.load(std::memory_order_relaxed))
+            logInternalNoteEventsFrom(eventLogGenSeqBefore_, NoteEventLogEntry::Source::GenerativeSequencer,
+                                     seqRunning && arpEnabled, /*genModeForSkip=*/true);
 
         // Write effective (post-drift) values back to APVTS so sliders move
         {
@@ -2829,7 +3082,11 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             stepSequencer.start();
         else
             stepSequencer.stop();
+        const size_t eventLogStepSeqBefore_ = internalNoteEvents_.size();
         stepSequencer.processBlock(buffer, internalNoteEvents_);
+        if (eventLogEnabled_.load(std::memory_order_relaxed))
+            logInternalNoteEventsFrom(eventLogStepSeqBefore_, NoteEventLogEntry::Source::StepSequencer,
+                                     seqRunning && arpEnabled, /*genModeForSkip=*/false);
     }
 
     // Consume bar-start flag (sequencer display + sync-arm release)
@@ -2916,12 +3173,18 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             }
             midiMessages.swapWith(filtered);
         }
+        const size_t eventLogArpBefore_ = internalNoteEvents_.size();
         arpeggiator.processBlock(buffer, internalNoteEvents_);
+        if (eventLogEnabled_.load(std::memory_order_relaxed))
+            logInternalNoteEventsFrom(eventLogArpBefore_, NoteEventLogEntry::Source::Arpeggiator);
     }
     else
     {
         // Arp off: flush the arp's own sounding note (if any), then drop state.
+        const size_t eventLogArpOffBefore_ = internalNoteEvents_.size();
         arpeggiator.allNotesOff(internalNoteEvents_);
+        if (eventLogEnabled_.load(std::memory_order_relaxed))
+            logInternalNoteEventsFrom(eventLogArpOffBefore_, NoteEventLogEntry::Source::Arpeggiator);
         arpeggiator.reset();
     }
 
@@ -3160,12 +3423,16 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                             /*sourceId=*/-1, /*pan=*/0.0f, /*mpeChannel=*/channel);
                         if (stepRecordArmed.load(std::memory_order_relaxed))
                             pushStepRecordCandidate(note, velocity);
+                        if (eventLogEnabled_.load(std::memory_order_relaxed))
+                            logExternalNoteEvent(true, note, velocity, channel, extPos);
                     }
                     else if (msg.isNoteOff())
                     {
                         voiceManager.noteOff(msg.getNoteNumber(), -1);
                         if (!voiceManager.hasActiveVoices())
                             lastMidiNoteOn.store(false, std::memory_order_relaxed);
+                        if (eventLogEnabled_.load(std::memory_order_relaxed))
+                            logExternalNoteEvent(false, msg.getNoteNumber(), 0.0f, channel, extPos);
                     }
                     else if (msg.isAftertouch())
                     {
@@ -3330,6 +3597,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                                         acc += static_cast<float>(delta) / 127.0f * span;
                                         const float cur  = mapping.param->getValue();
                                         const float next = juce::jlimit(0.0f, 1.0f, cur + acc);
+                                        eventLogOriginHint_.store(static_cast<int>(ParamOrigin::MidiCCLearn),
+                                                                  std::memory_order_relaxed);
                                         mapping.param->setValueNotifyingHost(next);
                                         if (next <= 0.0f || next >= 1.0f)
                                             acc = 0.0f;  // at a rail: drop remainder (no reversal dead-zone)
@@ -3362,6 +3631,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                                         const float norm = juce::jmap(
                                             static_cast<float>(value7), 0.f, 127.f,
                                             mapping.minNorm, mapping.maxNorm);
+                                        eventLogOriginHint_.store(static_cast<int>(ParamOrigin::MidiCCLearn),
+                                                                  std::memory_order_relaxed);
                                         mapping.param->setValueNotifyingHost(
                                             juce::jlimit(0.0f, 1.0f, norm));
                                         // Record the touch so the editor can make the easy-mode
@@ -4729,7 +5000,12 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
         // above already appended its cutoff node, so it gets rescaled too.
         Calibration::migrateValueTree(loadedTree, xml->getIntAttribute("calibEpoch", 0));
 
+        // Suppresses the per-param ParamEvent flood replaceState() otherwise
+        // generates (one setValueNotifyingHost per changed param) — a DAW
+        // reopening a saved session is a bulk load exactly like a preset import.
+        BulkParamLoadGuard eventLogGuard(*this);
         parameters.replaceState(loadedTree);
+        eventLogGuard.commit({});   // no name for a DAW-session restore
 
         // Modality epoch (v2.5.0+) — restored only on a matching-tag state load, so a
         // foreign/empty blob (guard false) leaves the live epoch untouched rather than
@@ -5312,6 +5588,11 @@ juce::String T5ynthProcessor::exportJsonPreset() const
 
 bool T5ynthProcessor::importJsonPreset(const juce::String& json)
 {
+    // Suppresses the per-param ParamEvent flood every setParam() call below would
+    // otherwise generate; any early return below (parse failure) cancels silently
+    // via the guard's destructor, no marker logged for a load that never happened.
+    BulkParamLoadGuard eventLogGuard(*this);
+
     auto parsed = juce::JSON::parse(json);
     if (!parsed.isObject()) return false;
 
@@ -5884,6 +6165,7 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         lastGenMutation = -1.0f;
     }
 
+    eventLogGuard.commit({});   // no filename here; the caller's own marker (applyLoadedPreset) carries the real name
     return true;
 }
 

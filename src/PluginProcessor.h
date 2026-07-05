@@ -6,6 +6,7 @@
 #include <memory>
 #include <limits>
 #include <thread>
+#include <unordered_map>
 #include "dsp/VoiceManager.h"
 #include "dsp/VoiceEvent.h"
 #include "dsp/ParamCache.h"
@@ -19,9 +20,12 @@
 #include "sequencer/GenerativeSequencer.h"
 #include "sequencer/Arpeggiator.h"
 #include "inference/PipeInference.h"
+#include "eventlog/EventLog.h"
+#include "eventlog/EventLogWriterThread.h"
 
 class T5ynthProcessor : public juce::AudioProcessor,
-                        private juce::AsyncUpdater
+                        private juce::AsyncUpdater,
+                        private juce::AudioProcessorValueTreeState::Listener
 {
 public:
     T5ynthProcessor();
@@ -566,6 +570,54 @@ private:
     juce::AbstractFifo stepRecFifo { kStepRecQueueSize };
     bool sustainPedalDown_ = false;   // audio thread: CC64 edge tracking for pedal-rest
 
+    // ── Event Log (.t5evt) — audio-thread taps ──────────────────────────────
+    // Same lock-free single-producer/single-consumer pattern as stepRecFifo
+    // above: the audio thread only ever writes small PODs into a pre-allocated
+    // ring via AbstractFifo, never allocates/locks/does file I/O. Drained on
+    // the message thread by drainEventLogQueues() into eventLogWriter_, which
+    // does the actual (mutex-guarded, off-audio-thread) file writing.
+    static constexpr int kEventLogNoteQueueSize = 256;
+    static constexpr int kEventLogParamQueueSize = 256;
+    std::array<NoteEventLogEntry, kEventLogNoteQueueSize>   eventLogNoteQueue_;
+    juce::AbstractFifo                                      eventLogNoteFifo_  { kEventLogNoteQueueSize };
+    std::array<ParamEventLogEntry, kEventLogParamQueueSize> eventLogParamQueue_;
+    juce::AbstractFifo                                      eventLogParamFifo_ { kEventLogParamQueueSize };
+    std::atomic<bool> eventLogEnabled_ { false };
+    // Set just before a known-origin setValueNotifyingHost call (CC-Learn today),
+    // read-and-cleared inside parameterChanged() — mirrors midiTouchPacked_'s
+    // "last writer" idiom. -1 = no hint recorded → defaults to HostAutomation.
+    std::atomic<int>  eventLogOriginHint_ { -1 };
+    // Suppresses per-param ParamEvents during a bulk preset/state load (one
+    // PresetLoaded marker is emitted instead) — see beginBulkParamLoad().
+    std::atomic<bool> eventLogSuppressParamEvents_ { false };
+    // Running sample clock. eventLogTotalSamples_ is atomic because
+    // parameterChanged() (below) can fire on a non-audio thread and reads it for
+    // a best-effort ParamEvent timestamp. eventLogBlockStart_ is snapped from the
+    // total at the top of every processBlock and is audio-thread-only (only the
+    // note taps, themselves only called from processBlock, read it).
+    std::atomic<uint64_t> eventLogTotalSamples_ { 0 };
+    uint64_t              eventLogBlockStart_ = 0;
+    std::unique_ptr<EventLogWriterThread>   eventLogWriter_;
+    std::unordered_map<juce::String, int>   eventLogParamIndexById_;   // built once at construction, read-only after
+    // Message-thread-only (both touched solely from recordEventLogGeneration,
+    // called from PromptPanel's inference-result callback) — atomic only so a
+    // future non-message-thread caller can't silently corrupt them.
+    std::atomic<uint64_t> eventLogNextGenerationId_ { 1 };
+    std::atomic<uint64_t> eventLogLastGenerationId_ { 0 };   // 0 = none yet
+
+    // skipLeadForArp: when the seq-drives-arp path is about to erase() the lead
+    // strand's events out of internalNoteEvents_ (see the arp-lead-extraction
+    // block in processBlock), skip logging those same events here instead of
+    // logging them AND the arp notes derived from them — the original never
+    // reaches voiceManager directly, so counting both would double the note in
+    // the log. Mirrors that erase's own predicate exactly; genModeForSkip
+    // selects strandId==0 (GenSeq) vs strandId<0 (StepSeq), matching genMode
+    // there.
+    void logInternalNoteEventsFrom(size_t startIndex, NoteEventLogEntry::Source source,
+                                   bool skipLeadForArp = false, bool genModeForSkip = false);
+    void logExternalNoteEvent(bool noteOn, int note, float velocity, int channel, int sampleOffsetInBlock);
+    void parameterChanged(const juce::String& parameterID, float newValue) override;
+
     // Idle detection (audio thread only — not atomic)
     int silentBlockCount = 0;
     int tailBlocks = 860;  // recalculated in prepareToPlay (~10s of reverb tail)
@@ -624,6 +676,27 @@ public:
     // UI on the message thread, never the audio thread. Quality index 0=Off,1=2×,2=4×.
     void setFilterOsQuality(int qualityIndex);
     int  getFilterOsQuality() const;
+
+    // ── Event Log (.t5evt) — global (machine-wide) on/off, mirrors filterOsQuality ──
+    void setEventLogEnabled(bool enabled);
+    bool getEventLogEnabled() const;
+    /** Message thread (SequencerPanel-cadence timer, alongside drainStepRecordQueue). */
+    void drainEventLogQueues();
+    /** Wrap a full parameter-state replace (preset/snapshot load) between these two
+     *  calls: suppresses the per-param ParamEvent flood and logs one coarse marker
+     *  instead. Message thread only. */
+    void beginBulkParamLoad();
+    void endBulkParamLoad(const juce::String& presetName);
+    /** Same as endBulkParamLoad but logs no PresetLoaded marker — for a load
+     *  attempt that started applying parameters and then failed/aborted. */
+    void cancelBulkParamLoad();
+
+    /** Fills in timestamp/generationId (and parentGenerationId, iff
+     *  wasInternalResynth — the chain-tracking that makes the resynth
+     *  self-feedback loop replayable without storing audio) and logs the entry.
+     *  Message thread (called from PromptPanel's inference-result callback).
+     *  No-op if the Event Log is disabled. */
+    void recordEventLogGeneration(GenerationEventLogEntry entry, bool wasInternalResynth);
 
     // Modulated parameter values (audio thread writes, GUI reads for ghost indicators)
     struct ModulatedValues

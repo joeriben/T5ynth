@@ -165,6 +165,10 @@ target_sources(T5ynth PRIVATE
     src/inference/PipeInference.cpp
     src/inference/RepromptStances.cpp
 
+    # Event Log (.t5evt session log)
+    src/eventlog/EventLog.cpp
+    src/eventlog/EventLogWriterThread.cpp
+
     # GUI
     src/gui/MainPanel.cpp
     src/gui/PhysicalKeyState.cpp

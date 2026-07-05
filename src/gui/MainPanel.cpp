@@ -530,6 +530,9 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     generalSettingsPage.onCheckForUpdatesChanged = [this](bool enabled) { processorRef.setCheckForUpdatesEnabled(enabled); };
     generalSettingsPage.setCheckForUpdatesEnabled(processorRef.getCheckForUpdatesEnabled());
 
+    generalSettingsPage.onEventLogEnabledChanged = [this](bool enabled) { processorRef.setEventLogEnabled(enabled); };
+    generalSettingsPage.setEventLogEnabled(processorRef.getEventLogEnabled());
+
     settingsPage.onModelReady = [this]
     {
         if (promptPanel.isGenerating())
@@ -1871,6 +1874,11 @@ void MainPanel::syncGuiStateForPresetSave()
 
 void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const juce::File& sourceFile)
 {
+    // Suppresses the per-param ParamEvent flood this whole-preset apply would
+    // otherwise generate (every attachment-driven setValueNotifyingHost below);
+    // one coarse PresetLoaded marker is logged instead at the end.
+    processorRef.beginBulkParamLoad();
+
     activeSnapshotIndex = 0;
     applySnapshotsFromLoad(result.snapshots, result.calibEpoch);
 
@@ -1944,6 +1952,8 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
             stanceParam->setValueNotifyingHost(0.0f);
 
     presetManager.setCurrentPreset(currentPresetFile, result.presetName);
+
+    processorRef.endBulkParamLoad(result.presetName);
 }
 
 bool MainPanel::savePresetToFile(const juce::File& file, bool includeInferenceCache)
@@ -3012,6 +3022,11 @@ void MainPanel::releaseComputerKeyboardNotes()
 
 void MainPanel::timerCallback()
 {
+    // Drain the Event Log's lock-free audio-thread queues unconditionally, same
+    // cadence as everything else in this timer — independent of step-record arm
+    // state (drainStepRecordQueue, elsewhere, is gated on that; this isn't).
+    processorRef.drainEventLogQueues();
+
     // Surface a background update-check result (if any) once, non-blocking —
     // does not touch model loading/PipeInference at all. Chrome/VS Code pattern:
     // an accent dot on Settings; the Download button lives in General Settings.

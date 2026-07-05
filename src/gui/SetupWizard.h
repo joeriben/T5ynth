@@ -302,6 +302,12 @@ public:
     /** Fired when the user (un)ticks "Check for updates on startup". */
     std::function<void(bool)> onCheckForUpdatesChanged;
 
+    /** Seed the toggle to the stored value without firing onEventLogEnabledChanged. */
+    void setEventLogEnabled(bool enabled);
+
+    /** Fired when the user (un)ticks "Record Event Log". */
+    std::function<void(bool)> onEventLogEnabledChanged;
+
     /** Reveal (or clear) the "Update available: vX — Download" row at the top of
      *  this page. Called by MainPanel when the background UpdateChecker finds a
      *  newer release; the Download button opens `url` in the browser. */
@@ -320,6 +326,7 @@ private:
     juce::ComboBox       osCombo_;
     juce::Rectangle<int> helpBounds_;
     juce::ToggleButton   updateCheckToggle_ { "Check for updates on startup" };
+    juce::ToggleButton   eventLogToggle_ { "Record Event Log (.t5evt)" };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GeneralSettingsPage)
 };

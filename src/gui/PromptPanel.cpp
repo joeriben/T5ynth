@@ -10,6 +10,44 @@
 
 namespace
 {
+GenerationEventLogEntry buildEventLogGenerationEntry(const PipeInference::Request& req,
+                                                     const PipeInference::Result& result)
+{
+    GenerationEventLogEntry e;
+    e.success          = result.success;
+    e.generationTimeMs = result.generationTimeMs;
+    e.realizedSeed     = result.seed;
+
+    e.promptA = req.promptA;
+    e.promptB = req.promptB;
+    e.alpha           = req.alpha;
+    e.magnitude       = req.magnitude;
+    e.noiseSigma      = req.noiseSigma;
+    e.durationSeconds = req.durationSeconds;
+    e.startPosition   = req.startPosition;
+    e.steps           = req.steps;
+    e.cfgScale        = req.cfgScale;
+    e.device          = req.device;
+    e.model           = req.model;
+    e.trackType       = req.trackType;
+    e.modalityEpoch   = req.modalityEpoch;
+
+    e.dimensionOffsets = req.dimensionOffsets;
+    e.semanticAxes     = req.semanticAxes;
+    e.axesAmount       = req.axesAmount;
+
+    e.injectionMode         = req.injectionMode;
+    e.injectionTransitionAt = req.injectionTransitionAt;
+    e.latePhaseAlpha        = req.latePhaseAlpha;
+    e.splitStart            = req.splitStart;
+    e.splitEnd              = req.splitEnd;
+
+    e.hadInitAudio        = req.initAudio.getNumSamples() > 0;
+    e.initAudioSampleRate = req.initAudioSampleRate;
+    e.initNoiseLevel      = req.initNoiseLevel;
+    return e;
+}
+
 constexpr float kPromptPadFactor   = 0.04f;
 constexpr float kPromptMultiInput  = 3.7f;   // two-line prompt editor (roomy box)
 constexpr float kPromptCompactRow  = 1.15f;
@@ -2469,12 +2507,19 @@ void PromptPanel::triggerGeneration()
     auto req = buildInferenceRequest();
     auto deviceForLabel = req.device.isEmpty() ? pipeInf.getDefaultDevice() : req.device;
     auto modelForLabel = req.model.isEmpty() ? pipeInf.getDefaultModel() : req.model;
+    // Snapshot alongside req, not re-read later — the user can flip Resynth
+    // Source while this generation is in flight, and the async result callback
+    // must judge "was this call internally-seeded" against what req actually
+    // was built with, not whatever the toggle reads by the time results land.
+    const bool wasInternalResynth = req.initAudio.getNumSamples() > 0
+        && static_cast<int>(processorRef.getValueTreeState()
+               .getRawParameterValue(PID::resynthSource)->load()) == 0;
     auto pipePtr = processorRef.getPipeInferencePtr();
     juce::Component::SafePointer<PromptPanel> safeThis(this);
-    std::thread([safeThis, pipePtr, req, deviceForLabel, modelForLabel]() mutable
+    std::thread([safeThis, pipePtr, req, deviceForLabel, modelForLabel, wasInternalResynth]() mutable
     {
         auto inferenceResult = pipePtr->generate(req);
-        juce::MessageManager::callAsync([safeThis, result = std::move(inferenceResult), req, deviceForLabel, modelForLabel]()
+        juce::MessageManager::callAsync([safeThis, result = std::move(inferenceResult), req, deviceForLabel, modelForLabel, wasInternalResynth]()
         {
             if (auto* self = safeThis.getComponent())
             {
@@ -2491,6 +2536,8 @@ void PromptPanel::triggerGeneration()
                     // empty otherwise), so this is a no-op for every other model and the Music slot.
                     processor.setLastModel(taggedPersistId(modelForLabel, req.trackType == "sfx"));
                     processor.setLastSeed(result.seed);
+                    processor.recordEventLogGeneration(buildEventLogGenerationEntry(req, result),
+                                                       wasInternalResynth);
                     // Reveal the loop prompt that just became wirksam in this generation.
                     if (self->pendingLoopPromptA_.isNotEmpty())
                     {
@@ -2595,12 +2642,17 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
         ? processorRef.getPipeInference().getDefaultDevice() : req.device;
     auto modelForLabel = req.model.isEmpty()
         ? processorRef.getPipeInference().getDefaultModel() : req.model;
+    // See triggerGeneration()'s identical comment: snapshot now, don't re-read
+    // PID::resynthSource inside the async result callback.
+    const bool wasInternalResynth = req.initAudio.getNumSamples() > 0
+        && static_cast<int>(processorRef.getValueTreeState()
+               .getRawParameterValue(PID::resynthSource)->load()) == 0;
     auto pipePtr = processorRef.getPipeInferencePtr();
     juce::Component::SafePointer<PromptPanel> safeThis(this);
-    std::thread([safeThis, pipePtr, req, deviceForLabel, modelForLabel]() mutable
+    std::thread([safeThis, pipePtr, req, deviceForLabel, modelForLabel, wasInternalResynth]() mutable
     {
         auto inferenceResult = pipePtr->generate(req);
-        juce::MessageManager::callAsync([safeThis, result = std::move(inferenceResult), req, deviceForLabel, modelForLabel]()
+        juce::MessageManager::callAsync([safeThis, result = std::move(inferenceResult), req, deviceForLabel, modelForLabel, wasInternalResynth]()
         {
             if (auto* self = safeThis.getComponent())
             {
@@ -2640,6 +2692,8 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                     processor.setLastDevice(deviceForLabel);
                     processor.setLastModel(taggedPersistId(modelForLabel, req.trackType == "sfx"));
                     processor.setLastSeed(result.seed);
+                    processor.recordEventLogGeneration(buildEventLogGenerationEntry(req, result),
+                                                       wasInternalResynth);
                     processor.setLastPrompts(promptA, promptB);
                     self->lastGenPromptA_ = promptA;
                     self->lastGenPromptB_ = promptB;

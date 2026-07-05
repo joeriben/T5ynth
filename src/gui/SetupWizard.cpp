@@ -3637,6 +3637,15 @@ GeneralSettingsPage::GeneralSettingsPage()
     };
     addAndMakeVisible(updateCheckToggle_);
 
+    eventLogToggle_.setColour(juce::ToggleButton::textColourId, kTextPrimary);
+    eventLogToggle_.setToggleState(false, juce::dontSendNotification);   // opt-in default
+    eventLogToggle_.onClick = [this]
+    {
+        if (onEventLogEnabledChanged)
+            onEventLogEnabledChanged(eventLogToggle_.getToggleState());
+    };
+    addAndMakeVisible(eventLogToggle_);
+
     // Update banner (top of page) — hidden until setUpdateAvailable() fires.
     updateLabel_.setColour(juce::Label::textColourId, kAccent);
     updateLabel_.setJustificationType(juce::Justification::centredLeft);
@@ -3670,6 +3679,11 @@ void GeneralSettingsPage::setOsQuality(int qualityIndex)
 void GeneralSettingsPage::setCheckForUpdatesEnabled(bool enabled)
 {
     updateCheckToggle_.setToggleState(enabled, juce::dontSendNotification);
+}
+
+void GeneralSettingsPage::setEventLogEnabled(bool enabled)
+{
+    eventLogToggle_.setToggleState(enabled, juce::dontSendNotification);
 }
 
 void GeneralSettingsPage::paint(juce::Graphics& g)
@@ -3706,6 +3720,9 @@ void GeneralSettingsPage::layoutRows()
         r.removeFromTop(8);
     }
     updateCheckToggle_.setBounds(r.removeFromTop(26));
+
+    r.removeFromTop(14);
+    eventLogToggle_.setBounds(r.removeFromTop(26));
 
     r.removeFromTop(22);
 
