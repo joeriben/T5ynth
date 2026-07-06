@@ -526,10 +526,14 @@ void SamplePlayer::applyPreparedPlaybackState(PreparedPlaybackState preparedStat
     snapshot->firstPassBuffer = std::move(preparedState.firstPassBuffer);
     snapshot->bufferOriginalSR = preparedState.bufferOriginalSR;
     // Publish atomically (release): held voices read this with acquire from the
-    // audio thread (morphToBufferFrom / shareBufferFrom) while this republish
-    // runs off-thread, and processBlock holds no lock on VST3/AU. Pairs with the
-    // atomic_load_explicit reads — no torn pointer, no UAF of the retired master
-    // snapshot.
+    // audio thread (morphToBufferFrom / shareBufferFrom) while this republish runs
+    // off-thread. That off-thread work is under getCallbackLock(), which processBlock
+    // ALSO holds on every shipped format (Standalone/VST3/AU — the JUCE wrapper locks
+    // it), so the audio thread is already excluded here. The atomic store/load is
+    // belt-and-suspenders — lock-free correct on weakly ordered cores even if that
+    // lock guarantee were ever lost — pairing with the atomic_load_explicit reads:
+    // no torn pointer, no UAF of the retired master snapshot. Do NOT drop the lock
+    // trusting these atomics alone.
     std::atomic_store_explicit(&playbackSnapshot_,
                                std::shared_ptr<const PlaybackSnapshot>(std::move(snapshot)),
                                std::memory_order_release);

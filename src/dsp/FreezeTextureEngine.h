@@ -164,11 +164,14 @@ private:
     // the snapshots, morphAlpha_ and morphIncrement_ and THEN stores morphActive_
     // with release; processSampleStereo (audio thread) loads it with acquire FIRST.
     // That happens-before edge makes the setup visible across the message→audio
-    // hand-off on weakly-ordered cores (Apple Silicon) without a lock — processBlock
-    // does not hold getCallbackLock() on the VST3/AU paths. The morphAlpha_/grain
-    // writes during a *re*-morph (morphActive_ already true) still race, but that is
-    // the same crash-safe, glitch-only POD race Wavetable accepts (aligned fields,
-    // clamped reads, no pointers in Grain).
+    // hand-off on weakly-ordered cores (Apple Silicon). NOTE: processBlock DOES hold
+    // getCallbackLock() on every shipped format (Standalone/VST3/AU — the JUCE wrapper
+    // locks it), and the off-thread morphToBufferFrom takes the same lock, so the two
+    // are in fact mutually excluded — this release/acquire is belt-and-suspenders, not
+    // the sole guard; do NOT drop the lock trusting it. Were that lock guarantee ever
+    // lost, the morphAlpha_/grain writes during a *re*-morph (morphActive_ already
+    // true) would race — but only as the same crash-safe, glitch-only POD race
+    // Wavetable accepts (aligned fields, clamped reads, no pointers in Grain).
     std::atomic<bool> morphActive_ { false };
     float morphAlpha_ = 1.0f;       // 0 = all old buffer, 1 = all new buffer
     float morphIncrement_ = 0.0f;
