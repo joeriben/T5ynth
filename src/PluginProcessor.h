@@ -571,17 +571,11 @@ private:
     bool sustainPedalDown_ = false;   // audio thread: CC64 edge tracking for pedal-rest
 
     // ── Event Log (.t5evt) — audio-thread taps ──────────────────────────────
-    // Same lock-free single-producer/single-consumer pattern as stepRecFifo
-    // above: the audio thread only ever writes small PODs into a pre-allocated
-    // ring via AbstractFifo, never allocates/locks/does file I/O. Drained on
-    // the message thread by drainEventLogQueues() into eventLogWriter_, which
-    // does the actual (mutex-guarded, off-audio-thread) file writing.
-    static constexpr int kEventLogNoteQueueSize = 256;
-    static constexpr int kEventLogParamQueueSize = 256;
-    std::array<NoteEventLogEntry, kEventLogNoteQueueSize>   eventLogNoteQueue_;
-    juce::AbstractFifo                                      eventLogNoteFifo_  { kEventLogNoteQueueSize };
-    std::array<ParamEventLogEntry, kEventLogParamQueueSize> eventLogParamQueue_;
-    juce::AbstractFifo                                      eventLogParamFifo_ { kEventLogParamQueueSize };
+    // The lock-free ingress rings + drain loop + output file all live inside
+    // eventLogWriter_ (below) — see EventLogWriterThread. The taps here just build
+    // an entry and hand it to eventLogWriter_->pushNote()/pushParam() (audio-safe,
+    // lock-free). Nothing about the recorder reaches back into this processor, so
+    // recording is editor-independent and shutdown-safe.
     std::atomic<bool> eventLogEnabled_ { false };
     // Set just before a known-origin setValueNotifyingHost call (CC-Learn today),
     // read-and-cleared inside parameterChanged() — mirrors midiTouchPacked_'s
@@ -680,8 +674,6 @@ public:
     // ── Event Log (.t5evt) — global (machine-wide) on/off, mirrors filterOsQuality ──
     void setEventLogEnabled(bool enabled);
     bool getEventLogEnabled() const;
-    /** Message thread (SequencerPanel-cadence timer, alongside drainStepRecordQueue). */
-    void drainEventLogQueues();
     /** Wrap a full parameter-state replace (preset/snapshot load) between these two
      *  calls: suppresses the per-param ParamEvent flood and logs one coarse marker
      *  instead. Message thread only. */

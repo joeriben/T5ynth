@@ -267,11 +267,10 @@ T5ynthProcessor::T5ynthProcessor()
         const auto eventLogDir = juce::File::getSpecialLocation(juce::File::userHomeDirectory)
                                       .getChildFile("Library/T5ynth/eventlogs");
         eventLogWriter_ = std::make_unique<EventLogWriterThread>(eventLogDir, header, std::move(paramIdByIndex));
-        // The writer thread drives its own drain — recording is processor-owned and
-        // does NOT depend on the editor being open. `this` outlives the thread: it
-        // is stopped/joined (eventLogWriter_.reset()) at the top of ~T5ynthProcessor,
-        // before any FIFO the callback reads is destroyed. Set before startThread().
-        eventLogWriter_->setPullCallback([this] { drainEventLogQueues(); });
+        // The writer owns its ingress FIFOs and drains itself — it never reaches
+        // back into this processor, so recording is editor-independent and cannot
+        // touch processor memory at shutdown. The audio-thread taps only call its
+        // lock-free pushNote()/pushParam().
         eventLogWriter_->startThread(juce::Thread::Priority::background);
 
         eventLogEnabled_.store(appProperties_.getUserSettings()->getBoolValue("eventLogEnabled", false),
@@ -396,11 +395,20 @@ T5ynthProcessor::~T5ynthProcessor()
     if (updateChecker_)
         updateChecker_->stopThread(4000);
 
-    // Stops and joins itself (~EventLogWriterThread calls stopThread(4000)) before
-    // any member it might otherwise reference is destroyed. Owns its own copies of
-    // everything it needs (paramIdByIndex_, header_), so ordering relative to the
-    // rest of this destructor doesn't matter beyond "before the object is gone".
-    eventLogWriter_.reset();
+    // The writer thread is fully self-contained (owns its FIFOs + file), so a clean
+    // join just deletes it. On the pathological path where stopThread(4000) times
+    // out on stalled disk I/O and cannot join, we LEAK the object (release, not
+    // delete) rather than free memory a still-live thread is using: it only ever
+    // touches its own members, so a one-time small leak at process exit is strictly
+    // safer than a use-after-free. (This is the only place that can happen; a
+    // normal shutdown always joins well within 4 s for these tiny writes.)
+    if (eventLogWriter_)
+    {
+        if (eventLogWriter_->stopThread(4000))
+            eventLogWriter_.reset();
+        else
+            eventLogWriter_.release();   // deliberate leak — see above
+    }
 
     closeMidiOutputDevice();
 
@@ -624,13 +632,9 @@ void T5ynthProcessor::logInternalNoteEventsFrom(size_t startIndex, NoteEventLogE
         e.pan         = ev.pan;
         e.midiChannel = 0;
 
-        int s1, sz1, s2, sz2;
-        eventLogNoteFifo_.prepareToWrite(1, s1, sz1, s2, sz2);
-        if (sz1 > 0)
-        {
-            eventLogNoteQueue_[static_cast<size_t>(s1)] = e;
-            eventLogNoteFifo_.finishedWrite(1);
-        }
+        // eventLogWriter_ is created in the ctor and only reset in the dtor, both
+        // while the audio thread is stopped, so it is always valid here.
+        eventLogWriter_->pushNote(e);
     }
 }
 
@@ -649,13 +653,7 @@ void T5ynthProcessor::logExternalNoteEvent(bool noteOn, int note, float velocity
     e.pan         = 0.0f;
     e.midiChannel = channel;
 
-    int s1, sz1, s2, sz2;
-    eventLogNoteFifo_.prepareToWrite(1, s1, sz1, s2, sz2);
-    if (sz1 > 0)
-    {
-        eventLogNoteQueue_[static_cast<size_t>(s1)] = e;
-        eventLogNoteFifo_.finishedWrite(1);
-    }
+    eventLogWriter_->pushNote(e);
 }
 
 void T5ynthProcessor::parameterChanged(const juce::String& parameterID, float newValue)
@@ -686,42 +684,12 @@ void T5ynthProcessor::parameterChanged(const juce::String& parameterID, float ne
     e.origin     = (originHint == static_cast<int>(ParamOrigin::MidiCCLearn))
                  ? ParamOrigin::MidiCCLearn : ParamOrigin::HostAutomation;
 
-    int s1, sz1, s2, sz2;
-    eventLogParamFifo_.prepareToWrite(1, s1, sz1, s2, sz2);
-    if (sz1 > 0)
-    {
-        eventLogParamQueue_[static_cast<size_t>(s1)] = e;
-        eventLogParamFifo_.finishedWrite(1);
-    }
-}
-
-void T5ynthProcessor::drainEventLogQueues()
-{
-    // Runs on the EventLogWriterThread (installed as its pull callback), NOT the
-    // message thread and NOT the editor. It is the sole consumer of these two
-    // lock-free FIFOs (audio thread is the sole producer — SPSC preserved).
-    if (eventLogWriter_ == nullptr)
-        return;
-
-    const int noteReady = eventLogNoteFifo_.getNumReady();
-    if (noteReady > 0)
-    {
-        int s1, sz1, s2, sz2;
-        eventLogNoteFifo_.prepareToRead(noteReady, s1, sz1, s2, sz2);
-        for (int i = 0; i < sz1; ++i) eventLogWriter_->enqueue(eventLogNoteQueue_[static_cast<size_t>(s1 + i)]);
-        for (int i = 0; i < sz2; ++i) eventLogWriter_->enqueue(eventLogNoteQueue_[static_cast<size_t>(s2 + i)]);
-        eventLogNoteFifo_.finishedRead(sz1 + sz2);
-    }
-
-    const int paramReady = eventLogParamFifo_.getNumReady();
-    if (paramReady > 0)
-    {
-        int s1, sz1, s2, sz2;
-        eventLogParamFifo_.prepareToRead(paramReady, s1, sz1, s2, sz2);
-        for (int i = 0; i < sz1; ++i) eventLogWriter_->enqueue(eventLogParamQueue_[static_cast<size_t>(s1 + i)]);
-        for (int i = 0; i < sz2; ++i) eventLogWriter_->enqueue(eventLogParamQueue_[static_cast<size_t>(s2 + i)]);
-        eventLogParamFifo_.finishedRead(sz1 + sz2);
-    }
+    // pushParam is multi-producer-safe (try-lock inside) and audio-thread-safe.
+    // Guarded because parameterChanged could in principle fire before the writer
+    // is constructed; in practice eventLogEnabled_ (checked above) is only set
+    // true after construction, so this is belt-and-suspenders.
+    if (eventLogWriter_)
+        eventLogWriter_->pushParam(e);
 }
 
 void T5ynthProcessor::beginBulkParamLoad()
