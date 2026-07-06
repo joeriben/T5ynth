@@ -463,6 +463,8 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     statusBar.onSavePreset   = [this] { savePreset(); };
     statusBar.onLoadPreset   = [this] { loadPreset(); };
     statusBar.onExportWav    = [this] { exportWav(); };
+    statusBar.onSaveSessionLog   = [this] { saveSessionLog(); };
+    statusBar.sessionLogAvailable = [this] { return processorRef.getEventLogCurrentFile().existsAsFile(); };
     statusBar.onSettings     = [this] { if (settingsVisible) hideSettings(); else showSettings(); };
     statusBar.onManual       = [this] { showManual(); };
     statusBar.onMidiPanic    = [this] { processorRef.requestMidiPanic(); };
@@ -3644,6 +3646,52 @@ void MainPanel::exportWav()
             }
             else
                 self->statusBar.setStatusText("Export failed");
+        });
+}
+
+// Copy the current session's .t5evt (the continuously-recorded event log) to a
+// user-chosen location. The live file keeps recording; this exports a snapshot
+// of everything up to the last flush. Loading/replaying one needs the replay
+// Player, which is a separate future piece — this is the "save" half only.
+void MainPanel::saveSessionLog()
+{
+    const auto src = processorRef.getEventLogCurrentFile();
+    if (! src.existsAsFile())
+    {
+        statusBar.setStatusText("No session log yet — enable \"Record Event Log\" in Settings");
+        return;
+    }
+
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Save Session Log",
+        juce::File::getSpecialLocation(juce::File::userDesktopDirectory).getChildFile(src.getFileName()),
+        "*.t5evt");
+
+    juce::Component::SafePointer<MainPanel> safeThis(this);
+    chooser->launchAsync(juce::FileBrowserComponent::saveMode
+                         | juce::FileBrowserComponent::canSelectFiles
+                         | juce::FileBrowserComponent::warnAboutOverwriting,
+        [safeThis, chooser, src](const juce::FileChooser& fc)
+        {
+            if (! safeThis) return;
+            auto* self = safeThis.getComponent();
+            auto dest = fc.getResult();
+            if (dest == juce::File()) return;
+
+            if (! dest.hasFileExtension("t5evt"))
+                dest = dest.getParentDirectory().getChildFile(dest.getFileName() + ".t5evt");
+
+            // Re-check existence at write time; recording may have produced the
+            // file between the menu opening and the chooser returning.
+            if (! src.existsAsFile())
+            {
+                self->statusBar.setStatusText("Session log no longer available");
+                return;
+            }
+            if (src.copyFileTo(dest))
+                self->statusBar.setStatusText("Saved session log: " + dest.getFileName());
+            else
+                self->statusBar.setStatusText("Session log save failed");
         });
 }
 

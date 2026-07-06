@@ -80,13 +80,24 @@ void EventLogWriterThread::openFileIfNeeded()
 
     directory_.createDirectory();
     const auto filename = "session_" + juce::Time::getCurrentTime().formatted("%Y%m%d_%H%M%S") + ".t5evt";
-    out_ = std::make_unique<juce::FileOutputStream>(directory_.getChildFile(filename));
+    const auto file = directory_.getChildFile(filename);
+    out_ = std::make_unique<juce::FileOutputStream>(file);
     if (! out_->openedOk())
     {
         out_.reset();
         return;
     }
+    {
+        const std::lock_guard<std::mutex> lock(pendingMutex_);
+        currentFile_ = file;   // publish for getCurrentFile()
+    }
     writeLine(juce::var(eventLogHeaderToDynamicObject(headerSnapshot).get()));
+}
+
+juce::File EventLogWriterThread::getCurrentFile() const
+{
+    const std::lock_guard<std::mutex> lock(pendingMutex_);
+    return currentFile_;
 }
 
 void EventLogWriterThread::writeLine(const juce::var& obj)

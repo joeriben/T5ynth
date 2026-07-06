@@ -54,6 +54,11 @@ public:
      *  later) — set it before the first event opens the file. */
     void setSampleRate(double sr);
 
+    /** The .t5evt file currently being written this session, or an empty File if
+     *  nothing has been recorded yet (the file is created lazily on the first
+     *  event). Thread-safe; message thread calls it to offer "Save Session Log". */
+    juce::File getCurrentFile() const;
+
 private:
     void drainFifos();       // lock-free ingress rings -> writer-thread staging
     void drainAndWrite();    // staging + message-thread queues -> file
@@ -64,6 +69,7 @@ private:
     EventLogHeader header_;
     std::vector<juce::String> paramIdByIndex_;
     std::unique_ptr<juce::FileOutputStream> out_;
+    juce::File   currentFile_;   // guarded by pendingMutex_; published in openFileIfNeeded()
 
     // Lock-free ingress rings (producer/consumer threads per the class doc).
     static constexpr int kNoteRingSize  = 256;
@@ -79,7 +85,7 @@ private:
     std::vector<ParamEventLogEntry>      stagedParams_;
     // Message-thread-origin queues (mutex-guarded: producer = message thread,
     // consumer = this thread).
-    std::mutex pendingMutex_;
+    mutable std::mutex pendingMutex_;   // mutable: getCurrentFile() is const
     std::vector<GenerationEventLogEntry> pendingGenerations_;
     std::vector<PresetLoadedLogEntry>    pendingPresetLoads_;
 

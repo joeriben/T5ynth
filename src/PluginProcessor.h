@@ -674,6 +674,12 @@ public:
     // ── Event Log (.t5evt) — global (machine-wide) on/off, mirrors filterOsQuality ──
     void setEventLogEnabled(bool enabled);
     bool getEventLogEnabled() const;
+    /** The .t5evt file being recorded this session, or empty if nothing has been
+     *  recorded yet. Message thread — used to offer "Save Session Log". */
+    juce::File getEventLogCurrentFile() const
+    {
+        return eventLogWriter_ ? eventLogWriter_->getCurrentFile() : juce::File();
+    }
     /** Wrap a full parameter-state replace (preset/snapshot load) between these two
      *  calls: suppresses the per-param ParamEvent flood and logs one coarse marker
      *  instead. Message thread only. */

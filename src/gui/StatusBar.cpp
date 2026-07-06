@@ -60,7 +60,27 @@ StatusBar::StatusBar()
     newBtn.onClick      = [this] { if (onNewPreset) onNewPreset(); };
     saveBtn.onClick     = [this] { if (onSavePreset) onSavePreset(); };
     loadBtn.onClick     = [this] { if (onLoadPreset) onLoadPreset(); };
-    exportBtn.onClick   = [this] { if (onExportWav) onExportWav(); };
+    exportBtn.onClick   = [this]
+    {
+        // Export is now a small menu: WAV (existing) + Session Log (.t5evt).
+        // MIDI export will join here later. Each item ends in the standard async
+        // FileChooser handled by the callbacks' owners (MainPanel).
+        juce::PopupMenu m;
+        m.addItem(1, "Export WAV…", onExportWav != nullptr);
+        const bool hasLog = sessionLogAvailable && sessionLogAvailable();
+        m.addItem(2, "Save Session Log…", hasLog && onSaveSessionLog != nullptr);
+        // SafePointer, not raw `this`: the callback fires later off the message
+        // loop (matches the SafePointer idiom elsewhere in the GUI).
+        juce::Component::SafePointer<StatusBar> safeThis(this);
+        m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&exportBtn),
+            [safeThis](int r)
+            {
+                auto* self = safeThis.getComponent();
+                if (self == nullptr) return;
+                if      (r == 1) { if (self->onExportWav)      self->onExportWav(); }
+                else if (r == 2) { if (self->onSaveSessionLog) self->onSaveSessionLog(); }
+            });
+    };
     settingsBtn.onClick = [this] { if (onSettings) onSettings(); };
     manualBtn.onClick   = [this] { if (onManual) onManual(); };
     panicBtn.onClick    = [this] { if (onMidiPanic) onMidiPanic(); };

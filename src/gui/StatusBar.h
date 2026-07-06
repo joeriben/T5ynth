@@ -29,6 +29,8 @@ public:
     std::function<void()> onSavePreset;
     std::function<void()> onLoadPreset;
     std::function<void()> onExportWav;
+    std::function<void()> onSaveSessionLog;          // Export menu → save the current .t5evt
+    std::function<bool()> sessionLogAvailable;       // enables the menu item iff a session has been recorded
     std::function<void()> onSettings;
     std::function<void()> onManual;
     std::function<void(bool)> onKeyboardInputChanged;
