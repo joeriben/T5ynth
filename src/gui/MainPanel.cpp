@@ -3022,10 +3022,9 @@ void MainPanel::releaseComputerKeyboardNotes()
 
 void MainPanel::timerCallback()
 {
-    // Drain the Event Log's lock-free audio-thread queues unconditionally, same
-    // cadence as everything else in this timer — independent of step-record arm
-    // state (drainStepRecordQueue, elsewhere, is gated on that; this isn't).
-    processorRef.drainEventLogQueues();
+    // (Event Log draining is NOT here — it is processor-owned, driven by the
+    // EventLogWriterThread's own loop, so recording never depends on this editor
+    // being open. See EventLogWriterThread::setPullCallback.)
 
     // Surface a background update-check result (if any) once, non-blocking —
     // does not touch model loading/PipeInference at all. Chrome/VS Code pattern:

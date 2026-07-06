@@ -267,6 +267,11 @@ T5ynthProcessor::T5ynthProcessor()
         const auto eventLogDir = juce::File::getSpecialLocation(juce::File::userHomeDirectory)
                                       .getChildFile("Library/T5ynth/eventlogs");
         eventLogWriter_ = std::make_unique<EventLogWriterThread>(eventLogDir, header, std::move(paramIdByIndex));
+        // The writer thread drives its own drain — recording is processor-owned and
+        // does NOT depend on the editor being open. `this` outlives the thread: it
+        // is stopped/joined (eventLogWriter_.reset()) at the top of ~T5ynthProcessor,
+        // before any FIFO the callback reads is destroyed. Set before startThread().
+        eventLogWriter_->setPullCallback([this] { drainEventLogQueues(); });
         eventLogWriter_->startThread(juce::Thread::Priority::background);
 
         eventLogEnabled_.store(appProperties_.getUserSettings()->getBoolValue("eventLogEnabled", false),
@@ -692,7 +697,9 @@ void T5ynthProcessor::parameterChanged(const juce::String& parameterID, float ne
 
 void T5ynthProcessor::drainEventLogQueues()
 {
-    // Message thread (same cadence as drainStepRecordQueue).
+    // Runs on the EventLogWriterThread (installed as its pull callback), NOT the
+    // message thread and NOT the editor. It is the sole consumer of these two
+    // lock-free FIFOs (audio thread is the sole producer — SPSC preserved).
     if (eventLogWriter_ == nullptr)
         return;
 

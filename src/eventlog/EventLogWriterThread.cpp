@@ -117,8 +117,14 @@ void EventLogWriterThread::run()
 {
     while (! threadShouldExit())
     {
+        if (pullFromSource_)
+            pullFromSource_();   // drain the processor's lock-free FIFOs into our queues
         drainAndWrite();
         wait(kDrainWaitMs);
     }
-    drainAndWrite();   // final flush of anything enqueued right before stopThread()
+    // Final flush: pull once more so events produced right before stopThread()
+    // (e.g. a note-off at transport stop) aren't lost, then write.
+    if (pullFromSource_)
+        pullFromSource_();
+    drainAndWrite();
 }
