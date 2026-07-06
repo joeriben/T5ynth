@@ -69,3 +69,21 @@ tools/clap_llm_loop_out_run.log
 tools/diag_promptbite_out/
 # scratch dirs written by verification agents
 tools/_bugcheck_out*/
+
+# Stray non-standard build dir
+/build_updtest/
+
+# Accumulated render output (keep the scripts, drop the WAV/PNG renders)
+tools/alpha0_collapse_out/
+tools/delay_audition_out/
+tools/env_loop_audition_out/
+tools/loop_hang_out/
+tools/medium_probe_out/
+tools/medium_sweep_out/
+tools/resynth_band_fix_out/
+tools/resynth_platform_out/
+tools/tracktype_audition_out/
+tools/filter_os_test/out/
+# compiled diagnostic binaries
+tools/filter_os_test/filter_bench
+tools/filter_os_test/filter_os_test
