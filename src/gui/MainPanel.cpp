@@ -3585,9 +3585,12 @@ void MainPanel::exportWav()
         }
     }
 
+    // Propose a filename (Desktop / <preset-or-prompt>.wav) so the save dialog
+    // isn't an empty field the user must fill from scratch.
     auto chooser = std::make_shared<juce::FileChooser>(
         isWavetable ? "Export Wavetable" : "Export WAV",
-        juce::File::getSpecialLocation(juce::File::userDesktopDirectory),
+        juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
+            .getChildFile(suggestedExportBaseName() + ".wav"),
         "*.wav");
 
     juce::Component::SafePointer<MainPanel> safeThis(this);
@@ -3647,6 +3650,21 @@ void MainPanel::exportWav()
             else
                 self->statusBar.setStatusText("Export failed");
         });
+}
+
+// A human-friendly default filename for the WAV export dialog: the preset name
+// if the user has one, else the A prompt, sanitised to a legal filename and
+// length-capped. Falls back to "T5ynth" so the field is never empty.
+juce::String MainPanel::suggestedExportBaseName() const
+{
+    juce::String base = processorRef.getLastPresetName().trim();
+    if (base.isEmpty() || base == "T5ynth Export" || base == "Init")
+        base = processorRef.getLastPromptA();
+    base = base.replaceCharacters("\r\n\t", "   ").trim();
+    if (base.length() > 48)
+        base = base.substring(0, 48).trim();
+    base = juce::File::createLegalFileName(base);
+    return base.isNotEmpty() ? base : juce::String("T5ynth");
 }
 
 // Copy the current session's .t5evt (the continuously-recorded event log) to a

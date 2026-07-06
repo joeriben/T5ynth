@@ -257,6 +257,7 @@ private:
                             juce::String error);
     void exportWav();
     void saveSessionLog();   // Export menu → copy the current .t5evt to a chosen location
+    juce::String suggestedExportBaseName() const;   // filename proposed in the WAV save dialog
     void loadDefaultPreset();
     void loadInitPreset();
     bool savePresetToFile(const juce::File& file, bool includeInferenceCache = true);
