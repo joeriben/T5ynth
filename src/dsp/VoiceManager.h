@@ -164,6 +164,7 @@ private:
     bool softPedalDown = false;
 
     // ── Voice allocation ──
+    int findHeldVoiceForNote(int note, int sourceId = -1) const;
     int findFreeVoice() const;
     int stealVoice() const; // oldest-note policy
 

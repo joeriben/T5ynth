@@ -264,14 +264,20 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
         // No same-source active voice to continue — fall through to a fresh noteOn.
     }
 
-    // Rotate voices: take a FREE voice first, steal the oldest only when every
-    // voice is busy. A repeated note (same pitch) MUST land on a fresh voice so
-    // the previous note keeps its own voice and rings out its release. The old
-    // first priority — re-trigger the SAME-pitch voice — grabbed that voice back
-    // and beginRestartFade + retriggered it, so the release was cut dead and the
-    // sample onset replayed at full level: the audible "new attack" with no
-    // release, on every repeat (sequencer AND manual, same allocation path).
-    int idx = findFreeVoice();
+    // Voice allocation for a repeated pitch turns on whether the previous
+    // same-note voice is still HELD or already RELEASING:
+    //  - RELEASING (its note-off fired — sequencer step, manual key repeat): do
+    //    NOT grab it back; rotate to a FREE voice so it rings out its release.
+    //    Grabbing releasing voices (the old findVoiceForNote matched ANY active
+    //    voice) cut the release dead and replayed the sample onset — the audible
+    //    "new attack / no release" on every repeat.
+    //  - HELD (note-off deferred by the sustain/sostenuto pedal, so the note is
+    //    still sounding at full level): REUSE it — else every repeat stacks a
+    //    fresh phase-coherent duplicate → voice-pool exhaustion + level buildup.
+    // So reuse a HELD same-note voice; otherwise take a free voice; steal the
+    // oldest only when all are busy.
+    int idx = findHeldVoiceForNote(note, sourceId);
+    if (idx < 0) idx = findFreeVoice();
     if (idx < 0) idx = stealVoice();
 
     auto& v = voices[static_cast<size_t>(idx)];
@@ -773,6 +779,25 @@ void VoiceManager::distributeFreezeBuffer(const FreezeTextureEngine& masterFreez
 // ═══════════════════════════════════════════════════════════════════
 // Voice allocation helpers
 // ═══════════════════════════════════════════════════════════════════
+
+int VoiceManager::findHeldVoiceForNote(int note, int sourceId) const
+{
+    // A HELD (active AND NOT releasing) same-note, same-source voice. Only the
+    // pedal-deferred repeat produces one; a released note is releasing (matched
+    // nowhere here) so it rings out and the repeat rotates to a fresh voice.
+    for (int i = 0; i < voiceLimit; ++i)
+    {
+        if (i == droneVoiceIndex) continue;
+        const bool sourceMatches = sourceId >= 0
+                                ? voiceSourceId[static_cast<size_t>(i)] == sourceId
+                                : voiceSourceId[static_cast<size_t>(i)] < 0;
+        const auto& v = voices[static_cast<size_t>(i)];
+        if (v.isActive() && !v.isReleasing()
+            && sourceMatches && v.getCurrentNote() == note)
+            return i;
+    }
+    return -1;
+}
 
 int VoiceManager::findFreeVoice() const
 {
