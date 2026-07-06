@@ -218,27 +218,6 @@ void T5ynthStepSequencer::emitOneShotTriggers(int stepIdx, const Step& step, int
     }
 }
 
-bool T5ynthStepSequencer::tiesIntoNext(int idx) const
-{
-    const Step& s = getStep(idx);
-    // Explicit Bind/Glide carry-over is handled by the bindMode checks in
-    // processBlock — this predicate is ONLY the full-gate same-pitch tie.
-    //
-    // Gate is a SINGLE GLOBAL control (seqGate → setAllGates() stamps every step
-    // each block), so at gate 100 this fires for EVERY same-pitch adjacency in
-    // the pattern — which is exactly what "gate 100 = no gaps" means: two
-    // identical pitches with no gap are one continuous note. Different pitches
-    // still retrigger; a specific pair can be tied at any gate via per-step Bind.
-    // Threshold (not == 1.0f): the global gate snaps to 0.01 steps and reaches
-    // here as exactly 1.0f at 100% today, but compare defensively so the tie
-    // never silently breaks if that float mapping ever shifts. 0.999 sits cleanly
-    // above 99% (0.99), so only 100% qualifies.
-    if (!s.enabled || s.bindMode != BindMode::Off || s.gate < 0.999f)
-        return false;
-    const Step& n = getStep((idx + 1) % numSteps);
-    return n.enabled && n.note == s.note;
-}
-
 void T5ynthStepSequencer::prepare(double sr, int /*samplesPerBlock*/)
 {
     sampleRate = sr;
@@ -328,18 +307,12 @@ void T5ynthStepSequencer::processBlock(juce::AudioBuffer<float>& buffer,
         // reset on loop, so prevIdx also resolves a slide on the last step into
         // the first step of the next loop; scheduledStep == 0 has no predecessor.)
         const int prevIdx = (scheduledStep - 1 + numSteps) % numSteps;
-        // The previous step carries its voice into THIS one — no note-off, no
-        // retrigger — when it explicitly slid (Bind/Glide) OR when it is a
-        // full-gate (100%) step repeating the same pitch (a tie). Both keep the
-        // live voice alive so this note continues it instead of re-attacking.
-        const bool prevBindSlid = scheduledStep > 0
-                               && steps[static_cast<size_t>(prevIdx)].enabled
-                               && steps[static_cast<size_t>(prevIdx)].bindMode != BindMode::Off;
-        const bool prevTied = scheduledStep > 0 && tiesIntoNext(prevIdx);
-        const bool prevSlid = prevBindSlid || prevTied;
+        const bool prevSlid = scheduledStep > 0
+                           && steps[static_cast<size_t>(prevIdx)].enabled
+                           && steps[static_cast<size_t>(prevIdx)].bindMode != BindMode::Off;
 
-        // Note-off for the previous note — but SKIP it if the previous step
-        // slid/tied (its voice must stay alive so this note can continue/ramp it).
+        // Note-off for the previous note — but SKIP it if the previous step slid
+        // (its voice must stay alive so this note can continue/ramp it).
         if (lastPlayedNote >= 0 && !prevSlid)
         {
             out.push_back({ eventPos, VoiceEvent::Type::NoteOff, lastPlayedNote, 0.0f,
@@ -352,27 +325,26 @@ void T5ynthStepSequencer::processBlock(juce::AudioBuffer<float>& buffer,
         {
             int midiNote = juce::jlimit(0, 127, step.note + octaveShiftSemitones);
             float vel = juce::jlimit(0.0f, 1.0f, step.velocity);
-            // Articulation carries the INCOMING transition for voice dispatch: an
-            // explicit slide continues its voice as Glide (ramped) or Bind (instant);
-            // a gate-100 tie continues it as Bind (instant — same pitch, so no audible
-            // ramp); otherwise a fresh Normal note that retriggers the envelopes.
+            // Articulation carries the INCOMING transition for voice dispatch: if
+            // the previous step slid, continue its voice — Glide (ramped) or Bind
+            // (instant); otherwise a fresh Normal note.
+            const BindMode incoming = prevSlid ? steps[static_cast<size_t>(prevIdx)].bindMode
+                                               : BindMode::Off;
             const VoiceEvent::Articulation artic =
-                  (prevBindSlid && steps[static_cast<size_t>(prevIdx)].bindMode == BindMode::Glide)
-                      ? VoiceEvent::Articulation::Glide
-                : (prevBindSlid || prevTied) ? VoiceEvent::Articulation::Bind
-                                             : VoiceEvent::Articulation::Normal;
+                  incoming == BindMode::Glide ? VoiceEvent::Articulation::Glide
+                : incoming == BindMode::Bind  ? VoiceEvent::Articulation::Bind
+                                              : VoiceEvent::Articulation::Normal;
             out.push_back({ eventPos, VoiceEvent::Type::NoteOn, midiNote,
                             vel, artic, -1, 0.0f });
             lastPlayedNote = midiNote;
 
-            // If THIS step slides/ties into an enabled next step, hold the note for
+            // If THIS step slides into an enabled next step, hold the note for
             // the full step (no early gate-off) so the voice stays alive to be
-            // continued/ramped by that next note. A slide/tie into a rest has no
+            // continued/ramped by that next note. A slide into a rest has no
             // target, so it gates off normally.
             const int nextIdx = (scheduledStep + 1) % numSteps;
-            const bool bindSlidesToNext = step.bindMode != BindMode::Off
-                                       && steps[static_cast<size_t>(nextIdx)].enabled;
-            const bool slidesToNext = bindSlidesToNext || tiesIntoNext(stepIdx);
+            const bool slidesToNext = step.bindMode != BindMode::Off
+                                   && steps[static_cast<size_t>(nextIdx)].enabled;
             samplesUntilGateOff = slidesToNext ? -1.0 : step.gate * stepDur;
         }
         else

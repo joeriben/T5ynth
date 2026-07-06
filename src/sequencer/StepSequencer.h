@@ -167,15 +167,6 @@ private:
     double shuffledStepDurationSamples(int stepIdx) const;
     void emitOneShotTriggers(int stepIdx, const Step& step, int sampleOffset);
 
-    /** Gate-100 tie: is step `idx` a FULL-gate (100%) Normal step whose (enabled)
-        successor repeats the SAME pitch? Such a pair must sound as ONE continuous
-        note — no gate-off, no note-off, no re-attack — a musical tie. It reuses the
-        Bind carry-over path (hold the voice, continue it without retriggering).
-        Explicit Bind/Glide slides are handled by their own bindMode checks; this
-        returns false for them. Raw step index; the last step's successor is step 0
-        (loop), mirroring the bind/slide wrap. */
-    bool tiesIntoNext(int idx) const;
-
     // Preset data
     struct PresetData { const char* name; const Step* steps; int count; };
     static const PresetData presetTable[NUM_PRESETS];
