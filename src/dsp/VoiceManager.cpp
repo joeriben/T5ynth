@@ -264,9 +264,14 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
         // No same-source active voice to continue — fall through to a fresh noteOn.
     }
 
-    // Find a voice: re-trigger same note > free > steal oldest
-    int idx = findVoiceForNote(note, sourceId);
-    if (idx < 0) idx = findFreeVoice();
+    // Rotate voices: take a FREE voice first, steal the oldest only when every
+    // voice is busy. A repeated note (same pitch) MUST land on a fresh voice so
+    // the previous note keeps its own voice and rings out its release. The old
+    // first priority — re-trigger the SAME-pitch voice — grabbed that voice back
+    // and beginRestartFade + retriggered it, so the release was cut dead and the
+    // sample onset replayed at full level: the audible "new attack" with no
+    // release, on every repeat (sequencer AND manual, same allocation path).
+    int idx = findFreeVoice();
     if (idx < 0) idx = stealVoice();
 
     auto& v = voices[static_cast<size_t>(idx)];
@@ -768,22 +773,6 @@ void VoiceManager::distributeFreezeBuffer(const FreezeTextureEngine& masterFreez
 // ═══════════════════════════════════════════════════════════════════
 // Voice allocation helpers
 // ═══════════════════════════════════════════════════════════════════
-
-int VoiceManager::findVoiceForNote(int note, int sourceId) const
-{
-    for (int i = 0; i < voiceLimit; ++i)
-    {
-        if (i == droneVoiceIndex) continue;
-        const bool sourceMatches = sourceId >= 0
-                                ? voiceSourceId[static_cast<size_t>(i)] == sourceId
-                                : voiceSourceId[static_cast<size_t>(i)] < 0;
-        if (voices[static_cast<size_t>(i)].isActive()
-            && sourceMatches
-            && voices[static_cast<size_t>(i)].getCurrentNote() == note)
-            return i;
-    }
-    return -1;
-}
 
 int VoiceManager::findFreeVoice() const
 {
