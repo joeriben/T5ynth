@@ -619,10 +619,17 @@ float SamplePlayer::cubicSampleFrom(const juce::AudioBuffer<float>& buf, double 
     int i1 = static_cast<int>(std::floor(pos));
     float t = static_cast<float>(pos - i1);
 
-    // Clamp indices to buffer bounds
-    int i0 = (i1 > 0) ? i1 - 1 : 0;
+    // Clamp the base index into the buffer FIRST, then derive all four cubic taps
+    // from the clamped value so every data[] read stays in bounds even when pos
+    // runs past the buffer. A held voice live-following onto a freshly-adopted
+    // SHORTER buffer keeps its old readPosition (morphToBufferFrom preserves it),
+    // so pos can exceed bufLen for the sample or two before advancePosition wraps
+    // it. i0 was previously computed from the PRE-clamp i1 and read out of bounds
+    // (crash: i0 = floor(pos)-1 far past a shorter buffer). t is the fractional
+    // part (pos - floor pos) and is unaffected by the clamp.
     if (i1 < 0) i1 = 0;
     else if (i1 >= bufLen) i1 = bufLen - 1;
+    int i0 = (i1 > 0) ? i1 - 1 : 0;
     int i2 = (i1 + 1 < bufLen) ? i1 + 1 : bufLen - 1;
     int i3 = (i1 + 2 < bufLen) ? i1 + 2 : bufLen - 1;
 
