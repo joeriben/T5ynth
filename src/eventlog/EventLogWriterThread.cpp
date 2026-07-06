@@ -164,6 +164,18 @@ void EventLogWriterThread::drainAndWrite()
 
 void EventLogWriterThread::run()
 {
+    // Retention sweep, once at startup on this background thread (never blocks
+    // plugin construction): delete session logs older than 30 days. Runs before
+    // this session's own file is created, and only touches files old enough that
+    // they cannot be another instance's live session, so there is no concurrency
+    // hazard. directory_ may not exist yet → findChildFiles returns empty.
+    {
+        const auto cutoff = juce::Time::getCurrentTime() - juce::RelativeTime::days(30.0);
+        for (auto& f : directory_.findChildFiles(juce::File::findFiles, false, "*.t5evt"))
+            if (f.getLastModificationTime() < cutoff)
+                f.deleteFile();
+    }
+
     while (! threadShouldExit())
     {
         drainFifos();
