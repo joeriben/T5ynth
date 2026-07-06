@@ -241,6 +241,7 @@ private:
     juce::TextButton dimUndoBtn     { "Undo" };
     juce::TextButton dimRedoBtn     { "Redo" };
     juce::TextButton dimResetBtn    { "Reset All" };
+    juce::TextButton dimExplorerOpenBtn;   // header trigger -> opens the overlay (mini-view is overlay-only)
     bool dimExplorerVisible = false;
 
     void showDimExplorer();
