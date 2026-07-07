@@ -48,10 +48,15 @@ private:
     T5ynthProcessor& processorRef;
 
     // Col 1: GENERATION — three cards with headers
-    juce::Label oscHeader, axesHeader, dimHeader, axesNote, poweredByLabel;
+    juce::Label oscHeader, axesNote, poweredByLabel;
     juce::TextButton oscModeToggle { juce::String::fromUTF8("\xc2\xbb adv.") };
     PromptPanel promptPanel;
     AxesPanel axesPanel;
+    // Semantic Axes | Dim Explorer — a 2-segment view switch (switchbox template)
+    // over ONE shared fixed-height box. Not tied to Easy/Advanced; default shows
+    // the Axes controls. false = Semantic Axes, true = Dim Explorer mini-view.
+    juce::TextButton axesDimSegBtns[2];
+    bool showDimSegment_ = false;
     GenerateButton mainGenerateBtn { "GENERATE" };
     juce::Label snapLabel, cacheLabel;
     static constexpr int kNumInfCacheButtons = 7;
@@ -245,6 +250,7 @@ private:
 
     void showDimExplorer();
     void hideDimExplorer();
+    void updateAxesDimSegment();   // apply showDimSegment_ → visibility + relayout
     void tryLoadInferenceModels(bool forceRestart = false);
     void savePreset();
     void loadPreset();

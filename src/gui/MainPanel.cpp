@@ -170,8 +170,8 @@ void MainPanel::GenerateButton::paintButton(juce::Graphics& g, bool highlighted,
     const auto label = getButtonText().trim().isNotEmpty() ? getButtonText().trim()
                                                            : juce::String("GENERATE");
 
-    // Section-header style: same kOscCol fill as oscHeader/axesHeader/
-    // dimHeader above this button. Flat, sharp corners, no border.
+    // Section-header style: same kOscCol fill as oscHeader / the axes|dim
+    // segment switch above this button. Flat, sharp corners, no border.
     // The button reads as the active counterpart to those headers — the
     // primary action of the prompt/oscillator section.
     auto fill = kOscCol;
@@ -451,10 +451,26 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     oscModeToggle.onClick = [this] { setOscEasyMode(!oscEasyMode, true); };
     addAndMakeVisible(oscModeToggle);
 
-    paintSectionHeader(axesHeader, "SEMANTIC AXES", kOscCol);
-    addAndMakeVisible(axesHeader);
-    paintSectionHeader(dimHeader, "LATENT DIMENSION EXPLORER", kOscCol);
-    addAndMakeVisible(dimHeader);
+    // Semantic Axes | Dim Explorer — a 2-segment switch (switchbox template, same
+    // as the resynth int/ext toggle) replacing the two old section headers. The
+    // active segment shows either the Axes controls or the DimExplorer mini-view
+    // in one shared fixed-height box below. Default = Semantic Axes.
+    {
+        static constexpr const char* segLabels[2] = { "Semantic Axes", "Dim Explorer" };
+        for (int i = 0; i < 2; ++i)
+        {
+            auto& s = axesDimSegBtns[i];
+            s.setButtonText(segLabels[i]);
+            styleSwitchButton(s, kOscCol);
+            s.setClickingTogglesState(true);
+            s.setRadioGroupId(3021);   // fresh id (3019 resynth src, 3017 cache)
+            s.setConnectedEdges(i == 0 ? juce::Button::ConnectedOnRight
+                                       : juce::Button::ConnectedOnLeft);
+            s.onClick = [this, i] { showDimSegment_ = (i == 1); updateAxesDimSegment(); };
+            addAndMakeVisible(s);
+        }
+        axesDimSegBtns[0].setToggleState(true, juce::dontSendNotification);
+    }
 
     // Axes description note is inside AxesPanel
 
@@ -1130,19 +1146,22 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         {
             axesPanel.setEnabled(enabled);
             axesPanel.setAlpha(enabled ? 1.0f : 0.4f);
-            axesHeader.setEnabled(enabled);
-            axesHeader.setAlpha(enabled ? 1.0f : 0.4f);
 
             // Dimension Explorer: close the overlay first (if open) so we don't
-            // leave a greyed-but-open card, then disable+dim the mini-view and
-            // its header. A disabled mini-view ignores clicks, so the overlay
-            // can't be reopened under SA3.
+            // leave a greyed-but-open card, then disable+dim the mini-view. A
+            // disabled mini-view ignores clicks, so the overlay can't be
+            // reopened under SA3.
             if (!enabled && dimExplorerVisible)
                 hideDimExplorer();
             dimensionExplorer.setEnabled(enabled);
             dimensionExplorer.setAlpha(enabled ? 1.0f : 0.4f);
-            dimHeader.setEnabled(enabled);
-            dimHeader.setAlpha(enabled ? 1.0f : 0.4f);
+
+            // Both segments operate on embeddings — grey the whole switch.
+            for (auto& s : axesDimSegBtns)
+            {
+                s.setEnabled(enabled);
+                s.setAlpha(enabled ? 1.0f : 0.4f);
+            }
         }
 
         // Resynth is the INVERSE gate: enabled only for SA3, the inpaint engine
@@ -1271,6 +1290,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     addChildComponent(dimResetBtn);
 
     setOscEasyMode(loadOscEasyModeSetting(), false);
+    updateAxesDimSegment();   // seed the default segment (Semantic Axes) + visibility
 
     // Restore the per-machine SA3 tier before the backend handshake. PromptPanel has
     // no models yet, so this just records the choice; the first populateModelSelector
@@ -1348,6 +1368,22 @@ void MainPanel::hideDimExplorer()
     dimRedoBtn.setVisible(false);
     dimResetBtn.setVisible(false);
     resized();  // repositions DimExplorer back to mini-view
+    repaint();
+}
+
+void MainPanel::updateAxesDimSegment()
+{
+    const bool dim = showDimSegment_;
+    axesDimSegBtns[0].setToggleState(!dim, juce::dontSendNotification);
+    axesDimSegBtns[1].setToggleState(dim,  juce::dontSendNotification);
+
+    // Leaving the Dim segment with the overlay open → close the overlay first.
+    if (!dim && dimExplorerVisible)
+        hideDimExplorer();
+
+    axesPanel.setVisible(!dim);
+    dimensionExplorer.setVisible(dim);
+    resized();
     repaint();
 }
 
@@ -1431,14 +1467,11 @@ void MainPanel::saveSa3TierSetting(const juce::String& tier) const
 void MainPanel::setOscEasyMode(bool easy, bool persist)
 {
     oscEasyMode = easy;
-    if (oscEasyMode && dimExplorerVisible)
-        hideDimExplorer();
 
+    // Axes | Dim Explorer are no longer tied to Easy/Advanced — they live under
+    // the always-present segment switch (see updateAxesDimSegment). Only the
+    // T5Osc prompt block still changes with the mode.
     promptPanel.setEasyMode(oscEasyMode);
-    axesHeader.setVisible(easy);
-    axesPanel.setVisible(easy);
-    dimHeader.setVisible(!oscEasyMode);
-    dimensionExplorer.setVisible(!oscEasyMode);
     oscModeToggle.setButtonText(oscEasyMode ? juce::String::fromUTF8("\xc2\xbb adv.")
                                             : juce::String::fromUTF8("\xc2\xbb easy"));
     updateOscModeToggleVisual();
@@ -2449,19 +2482,19 @@ void MainPanel::paint(juce::Graphics& g)
         paintCard(g, juce::Rectangle<int>(left, top, cardW, bot - top));
     }
 
-    // Card 2: AXES (axesHeader + axesPanel)
+    // Card 2: SEMANTIC AXES | DIM EXPLORER (segment switch + shared box)
     {
-        int top = axesHeader.getY() - inset;
+        int top = axesDimSegBtns[0].getY() - inset;
         int bot = axesPanel.getBottom() + inset;
-        int left = axesHeader.getX() - inset;
+        int left = axesDimSegBtns[0].getX() - inset;
         int cardW = axesPanel.getWidth() + inset * 2;
         paintCard(g, juce::Rectangle<int>(left, top, cardW, bot - top));
     }
 
-    // Card 3: DIM EXPLORER + Generate button
+    // Card 3: Generate button + cache/resynth block (below the shared box)
     if (!dimExplorerVisible)
     {
-        int top = (oscEasyMode ? axesPanel.getBottom() + inset : dimHeader.getY() - inset);
+        int top = axesPanel.getBottom() + inset;
         int bot = sequencerPanel.getY() - inset;
         int left = promptPanel.getX() - inset;
         int cardW = promptPanel.getWidth() + inset * 2;
@@ -3191,11 +3224,6 @@ void MainPanel::resized()
 
     int headerH = juce::jlimit(14, 20, juce::roundToInt(h * 0.022f));
     int kGap = juce::jlimit(3, 6, juce::roundToInt(h * 0.005f));
-    constexpr int kMinDimH = 24;
-    // The explorer is a proper |A-B| focus spectrum now, not a residual strip.
-    // In Advanced mode it inherits the ~100px freed by axes moving to Easy, so
-    // raise the cap: availableDimH still guards the Generate block.
-    const int kMaxDimH = juce::jlimit(120, 240, juce::roundToInt(h * 0.250f));
     constexpr int kMinOscH = 220;
     constexpr int kMinAxesH = 84;
     constexpr int kMinGenerateButtonH = 38;
@@ -3212,22 +3240,19 @@ void MainPanel::resized()
     int oscH = juce::jmax(kMinOscH, promptPanel.getPreferredHeightForWidth(genCol.getWidth()));
     int axesH = juce::jlimit(kMinAxesH, 144, juce::roundToInt(h * 0.133f));
     const int reservedGenerateBlockH = kMinGenerateButtonH + genCacheGap + cacheRowH + kGap + resynthBlockH;
-    // Both modes have 2 headers (osc + axes|dim); axes only consume vertical
-    // space in Easy — Advanced reclaims that band for the DimExplorer.
+    // Two headers (osc + the axes|dim segment switch) and ONE shared fixed-height
+    // box (axesH) hosting either the Axes controls or the DimExplorer mini-view —
+    // same band height in every segment and mode, so the Generate block never
+    // shifts. If the column is too short, trim the box (to kMinAxesH) then oscH.
     const int headerCount = 2;
-    const int effectiveAxesH = oscEasyMode ? axesH : 0;
-    const int minDimBudget = oscEasyMode ? 0 : kMinDimH;
-    int dimBudget = genCol.getHeight() - (headerH * headerCount + kGap * headerCount
-                                          + reservedGenerateBlockH + oscH + effectiveAxesH);
-    if (dimBudget < minDimBudget)
+    int bandBudget = genCol.getHeight() - (headerH * headerCount + kGap * headerCount
+                                           + reservedGenerateBlockH + oscH + axesH);
+    if (bandBudget < 0)
     {
-        int shortage = minDimBudget - dimBudget;
-        if (oscEasyMode)
-        {
-            int trimAxes = juce::jmin(shortage, juce::jmax(0, axesH - kMinAxesH));
-            axesH -= trimAxes;
-            shortage -= trimAxes;
-        }
+        int shortage = -bandBudget;
+        const int trimAxes = juce::jmin(shortage, juce::jmax(0, axesH - kMinAxesH));
+        axesH -= trimAxes;
+        shortage -= trimAxes;
         if (shortage > 0)
             oscH = juce::jmax(kMinOscH, oscH - shortage);
     }
@@ -3250,46 +3275,22 @@ void MainPanel::resized()
     promptPanel.setBounds(genCol.removeFromTop(oscH));
     genCol.removeFromTop(kGap);
 
-    // Card 2: SEMANTIC AXES (Easy only — in Advanced the band belongs to DimExplorer)
-    if (oscEasyMode)
+    // Card 2: SEMANTIC AXES | DIM EXPLORER — a 2-segment switch over one shared
+    // fixed-height box (axesH). The active segment shows the Axes controls or the
+    // DimExplorer mini-view; the box height is constant across segment AND osc
+    // mode, so the Generate block below never shifts. (Visibility of axesPanel vs
+    // dimensionExplorer is driven by updateAxesDimSegment, not here.)
     {
-        axesHeader.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.85f));
-        axesHeader.setBounds(genCol.removeFromTop(headerH));
-        axesPanel.setBounds(genCol.removeFromTop(axesH));
-        genCol.removeFromTop(kGap);
-    }
-    else
-    {
-        axesHeader.setBounds({});
-        axesPanel.setBounds({});
-    }
+        auto switchBar = genCol.removeFromTop(headerH);
+        const int segW = switchBar.getWidth() / 2;
+        axesDimSegBtns[0].setBounds(switchBar.removeFromLeft(segW));
+        axesDimSegBtns[1].setBounds(switchBar);
 
-    if (oscEasyMode)
-    {
-        dimHeader.setBounds({});
-        dimensionExplorer.setBounds({});
-    }
-    else
-    {
-        // Card 3: DIM EXPLORER. A proper |A-B| focus spectrum (not a residual
-        // strip); kMaxDimH scales it with the window, availableDimH caps it so it
-        // yields space before the Generate/cache controls can reach the Sequencer.
-        dimHeader.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.85f));
-        dimHeader.setBounds(genCol.removeFromTop(headerH));
-        const int availableDimH = genCol.getHeight() - kGap - reservedGenerateBlockH;
-        int dimH = juce::jlimit(0, kMaxDimH, availableDimH);
+        auto boxArea = genCol.removeFromTop(axesH);
+        axesPanel.setBounds(boxArea);
         if (!dimExplorerVisible)
-        {
-            if (dimH >= kMinDimH)
-                dimensionExplorer.setBounds(genCol.removeFromTop(dimH));
-            else
-                dimensionExplorer.setBounds({});
-        }
-        else if (dimH > 0)
-        {
-            genCol.removeFromTop(dimH);
-        }
-        genCol.removeFromTop(juce::jmin(kGap, genCol.getHeight()));
+            dimensionExplorer.setBounds(boxArea);   // overlay path repositions it below
+        genCol.removeFromTop(kGap);
     }
 
     // Generate + InfCache controls get all slack freed by the explorer cap,
