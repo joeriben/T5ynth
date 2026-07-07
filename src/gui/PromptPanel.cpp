@@ -73,9 +73,18 @@ constexpr float kPromptReprompt    = 4.0f;   // Re-Prompt MODULE total height (c
 // top-header (compactRow + gap) above the param grid: -1.0 +1.15 +0.28 = +0.43.
 // (The trailing info label — gap + compactRow = 1.43 — was removed from both
 // budgets; if it ever returns, add 1.43 back here AND in getPreferredHeightForWidth.)
-constexpr float kPromptContentUnits = 25.52f;
+// Magnitude/Chaos moved from Advanced to Easy (mirroring Duration's earlier
+// move, see layoutEasyGenParamsBlock in resized()): Advanced drops one
+// compactPair block (compactRow + compactCtrl + gap = 1.15 + 0.9 + 0.28 = 2.33
+// units: 25.52 - 2.33 = 23.19). Easy's old 2-row Duration/VAR block
+// (compactRow + seedCtrl + gap = 3.18 units) is replaced by a 4-row block of
+// the SAME per-row height (Duration / VAR / Magnitude / Chaos), each row
+// (compactRow + seedCtrl - 0.15) / 2 = 1.375 units, plus 3 inter-row stackGaps
+// (~0.15 each) and the trailing gap: 4·1.375 + 3·0.15 + 0.28 = 6.23 units
+// (20.43 - 3.18 + 6.23 = 23.48).
+constexpr float kPromptContentUnits = 23.19f;
 // Easy budget keeps the model selector row but drops the advanced param rows.
-constexpr float kPromptEasyContentUnits = 20.43f;
+constexpr float kPromptEasyContentUnits = 23.48f;
 constexpr int kBaseSeed = 123456789;
 
 float preferredPromptFontForWidth(int width)
@@ -258,24 +267,6 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     injModeKombi2.onClick = [this] { if (injModeKombi2.getToggleState()) selectInjectionMode("kombi2", true); };
     injModeKombi3.onClick = [this] { if (injModeKombi3.getToggleState()) selectInjectionMode("kombi3", true); };
 
-    // Magnitude
-    makeSlider(magnitudeSlider, this);
-    makeLabel(magLabel, "Magnitude", kDim, juce::Justification::centredLeft, this);
-    makeLabel(magValue, "1.00", kOscCol, juce::Justification::centredRight, this);
-    makeLabel(magHint, "Embedding magnitude (1.0 = unchanged)", kDim, juce::Justification::centredLeft, this);
-    magnitudeSlider.onValueChange = [this] {
-        magValue.setText(juce::String(magnitudeSlider.getValue(), 3), juce::dontSendNotification);
-    };
-
-    // Chaos
-    makeSlider(noiseSlider, this);
-    makeLabel(noiseLabel, "Chaos", kDim, juce::Justification::centredLeft, this);
-    makeLabel(noiseValue, "0.000", kOscCol, juce::Justification::centredRight, this);
-    makeLabel(noiseHint, "Embedding chaos (0 = none)", kDim, juce::Justification::centredLeft, this);
-    noiseSlider.onValueChange = [this] {
-        noiseValue.setText(juce::String(noiseSlider.getValue(), 3), juce::dontSendNotification);
-    };
-
     // --- Compact params ---
     // Duration — Easy view only, house-standard inline-bar SliderRow (mirrors
     // MainPanel's RESYNTH row): accent-band label + fill bar in kOscCol, with
@@ -287,6 +278,26 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         kOscCol);
     durationRow->setInlineLabel(true);
     addAndMakeVisible(*durationRow);
+
+    // Magnitude — Easy view only, house-standard inline-bar SliderRow (mirrors
+    // durationRow above). Moved out of Advanced entirely. Attached to
+    // PID::genMagnitude alongside the other Attachments below.
+    magRow = std::make_unique<SliderRow>(
+        "MAGNITUDE",
+        [](double v) { return juce::String(v, 3); },
+        kOscCol);
+    magRow->setInlineLabel(true);
+    addAndMakeVisible(*magRow);
+
+    // Chaos — Easy view only, house-standard inline-bar SliderRow (mirrors
+    // durationRow above). Moved out of Advanced entirely. Attached to
+    // PID::genNoise alongside the other Attachments below.
+    noiseRow = std::make_unique<SliderRow>(
+        "CHAOS",
+        [](double v) { return juce::String(v, 3); },
+        kOscCol);
+    noiseRow->setInlineLabel(true);
+    addAndMakeVisible(*noiseRow);
 
     // Steps
     makeSlider(stepsSlider, this);
@@ -308,9 +319,9 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 
     // Variation (text field + random toggle)
     makeLabel(seedLabel, "Variation", kDim, juce::Justification::centredLeft, this);
-    // Match the value-display style used by noiseValue / cfgValue / durationRow
-    // (kOscCol on dark surface) so the current seed reads as a first-class
-    // number, not a grey decoration.
+    // Match the value-display style used by cfgValue / durationRow / magRow /
+    // noiseRow (kOscCol on dark surface) so the current seed reads as a
+    // first-class number, not a grey decoration.
     seedEditor.setColour(juce::TextEditor::backgroundColourId, kSurface.brighter(0.04f));
     seedEditor.setColour(juce::TextEditor::textColourId, kOscCol);
     seedEditor.setColour(juce::TextEditor::outlineColourId, kBorder);
@@ -515,23 +526,31 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     // APVTS
     auto& apvts = processor.getValueTreeState();
     alphaA  = std::make_unique<Attachment>(apvts, PID::genAlpha, alphaSlider);
-    magA    = std::make_unique<Attachment>(apvts, PID::genMagnitude, magnitudeSlider);
-    noiseA  = std::make_unique<Attachment>(apvts, PID::genNoise, noiseSlider);
+    magA    = std::make_unique<Attachment>(apvts, PID::genMagnitude, magRow->getSlider());
+    noiseA  = std::make_unique<Attachment>(apvts, PID::genNoise, noiseRow->getSlider());
     durA    = std::make_unique<Attachment>(apvts, PID::genDuration, durationRow->getSlider());
     stepsA  = std::make_unique<Attachment>(apvts, PID::infSteps, stepsSlider);
     cfgA    = std::make_unique<Attachment>(apvts, PID::genCfg, cfgSlider);
-    // Keep the inline read-out in sync (mirrors MainPanel's resynthRow — the
+    // Keep the inline read-outs in sync (mirrors MainPanel's resynthRow — the
     // attachment owns onValueChange, so re-wire the display update after it).
     durationRow->getSlider().onValueChange = [this] { durationRow->updateValue(); };
     durationRow->updateValue();
     durationRow->onRightClick = [this](juce::Point<int> p) {
         showMidiLearnMenu(processorRef, PID::genDuration, p);
     };
+    magRow->getSlider().onValueChange = [this] { magRow->updateValue(); };
+    magRow->updateValue();
+    magRow->onRightClick = [this](juce::Point<int> p) {
+        showMidiLearnMenu(processorRef, PID::genMagnitude, p);
+    };
+    noiseRow->getSlider().onValueChange = [this] { noiseRow->updateValue(); };
+    noiseRow->updateValue();
+    noiseRow->onRightClick = [this](juce::Point<int> p) {
+        showMidiLearnMenu(processorRef, PID::genNoise, p);
+    };
 
     // Right-click MIDI Learn on raw sliders (not wrapped in SliderRow).
     for (juce::Slider* s : { static_cast<juce::Slider*>(&alphaSlider),
-                              static_cast<juce::Slider*>(&magnitudeSlider),
-                              static_cast<juce::Slider*>(&noiseSlider),
                               static_cast<juce::Slider*>(&stepsSlider),
                               static_cast<juce::Slider*>(&cfgSlider) })
         s->addMouseListener(this, false);
@@ -642,6 +661,11 @@ int PromptPanel::getPreferredHeightForWidth(int width) const
     const int compactCtrlH = juce::roundToInt(f * kPromptCompactCtrl);
     const int seedCtrlH = juce::roundToInt(f * kPromptSeedCtrl);
     const int repromptRowH = juce::roundToInt(f * kPromptReprompt);
+    // Easy view's 4 stacked rows below the divider (Duration / VAR / Magnitude /
+    // Chaos) share one row height + gap — mirrors layoutEasyGenParamsBlock in
+    // resized() exactly so this reported preferred height matches the real layout.
+    const int stackGap = juce::jmax(2, juce::roundToInt(f * 0.15f));
+    const int easyRowH = juce::jmax(1, (compactRowH + seedCtrlH - stackGap) / 2);
 
     // A↔B block: A editor / mode-bar / B editor with breathing room around the
     // mode bar (the right-hand vertical slider overlays this same height, so it
@@ -653,13 +677,13 @@ int PromptPanel::getPreferredHeightForWidth(int width) const
         return (compactRowH + 2) + modelGap             // model selector row
              + abBlockH + innerGap + repromptRowH       // A↔B block + Re-Prompt row
              + groupGap                                 // divider
-             + compactRowH + seedCtrlH + gap;           // Duration (inline row) / Variation
+             + (easyRowH * 4 + stackGap * 3) + gap;     // Duration / VAR / Magnitude / Chaos (4 rows)
     }
 
     return (compactRowH + 2) + modelGap                 // model selector row
          + abBlockH + innerGap + repromptRowH           // A↔B block + Re-Prompt row
          + compactRowH + gap                            // GENERATION top-header (replaces divider)
-         + (compactRowH + compactCtrlH + gap) * 2       // Mag/Noise + Steps/CFG
+         + (compactRowH + compactCtrlH + gap)           // Steps/CFG (Mag/Chaos moved to Easy view)
          + compactRowH + seedCtrlH + gap;               // Seed (Duration moved to Easy view)
 }
 
@@ -718,22 +742,23 @@ void PromptPanel::timerCallback()
                                 || !same(lateMixGhostValue_,  newLateMix)
                                 || !same(splitStartGhostValue_, newSplitStart)
                                 || !same(splitEndGhostValue_, newSplitEnd);
-    const bool magChanged   = !same(magGhostValue_,   newMag);
-    const bool noiseChanged = !same(noiseGhostValue_, newNoise);
 
     alphaGhostValue_      = newAlpha;
-    magGhostValue_        = newMag;
-    noiseGhostValue_      = newNoise;
     lateMixGhostValue_    = newLateMix;
     splitStartGhostValue_ = newSplitStart;
     splitEndGhostValue_   = newSplitEnd;
 
     if (alphaGroupChanged)
         repaint(alphaSlider.getBounds().expanded(4));
-    if (magChanged)
-        repaint(magnitudeSlider.getBounds().expanded(4));
-    if (noiseChanged)
-        repaint(noiseSlider.getBounds().expanded(4));
+
+    // Magnitude/Chaos ghosts are now SliderRow-owned drift indicators (the row
+    // paints + smooths natively via setGhostValue/tickGhost, like MainPanel's
+    // resynthRow and the FX/Synth panel rows) — no manual bounds/repaint
+    // bookkeeping needed here.
+    magRow->setGhostValue(newMag);
+    noiseRow->setGhostValue(newNoise);
+    magRow->tickGhost();
+    noiseRow->tickGhost();
 
     // Re-Prompt deactivation → restore the human originals. Edge-detected here (not in
     // pollDriftRegen, which returns early once the loop is Off) so it fires the instant
@@ -877,11 +902,8 @@ void PromptPanel::paintOverChildren(juce::Graphics& g)
         drawGhost(alphaSlider, splitStartGhostValue_);
         drawGhost(alphaSlider, splitEndGhostValue_);
     }
-    if (!easyMode_)
-    {
-        drawGhost(magnitudeSlider, magGhostValue_);
-        drawGhost(noiseSlider, noiseGhostValue_);
-    }
+    // (Magnitude/Chaos ghosts are painted by magRow/noiseRow themselves —
+    // SliderRow's native setGhostValue/tickGhost — see timerCallback().)
 
     // Tiny A / 0 / B anchor scale at the slider's left edge, aligned to the snap
     // positions (−1 / 0 / +1). A minimal orientation aid replacing the removed
@@ -949,11 +971,8 @@ void PromptPanel::resized()
         modelBtns[i].setVisible(true);
     modelSwitchBounds = {};
 
-    for (auto* c : { &magLabel, &magValue, &noiseLabel, &noiseValue,
-                     &stepsLabel, &stepsValue, &cfgLabel, &cfgValue })
+    for (auto* c : { &stepsLabel, &stepsValue, &cfgLabel, &cfgValue })
         c->setVisible(!easy);
-    magnitudeSlider.setVisible(!easy);
-    noiseSlider.setVisible(!easy);
     stepsSlider.setVisible(!easy);
     cfgSlider.setVisible(!easy);
     seedEditor.setVisible(!easy);
@@ -961,11 +980,14 @@ void PromptPanel::resized()
     for (auto& bSeed : seedModeBtns)
         bSeed.setVisible(easy);
     // Advanced shows the floating "Variation" caption; Easy shows the "VAR"
-    // switchbox caption instead. Duration has no advanced form any more — it's
-    // the inline durationRow, shown in Easy only.
+    // switchbox caption instead. Duration/Magnitude/Chaos have no advanced form
+    // any more — they're the inline durationRow/magRow/noiseRow, shown in Easy
+    // only.
     seedLabel.setVisible(!easy);
     genParamsHeader.setVisible(!easy);   // GENERATION top-header: advanced only
     durationRow->setVisible(easy);
+    magRow->setVisible(easy);
+    noiseRow->setVisible(easy);
     varSwitchLabel.setVisible(easy);
     seedModeSwitchBounds = {};   // re-set by the Easy layout in resized()
 
@@ -990,8 +1012,6 @@ void PromptPanel::resized()
         area.removeFromTop(modelGap);
     }
 
-    magHint.setVisible(false);
-    noiseHint.setVisible(false);
     stepsHint.setVisible(false);
     cfgHint.setVisible(false);
 
@@ -1182,23 +1202,26 @@ void PromptPanel::resized()
         area.removeFromTop(gap);
     };
 
-    // Easy view: two standard-height rows in the same total budget as the old
-    // paired-cards block (compactRowH + seedCtrlH). Row 1 = the Duration inline
-    // SliderRow; row 2 = the Variation switchbox ("VAR" caption + the 3 connected
-    // seed-mode icons, framed by paintSwitchBoxBorder). No card, nothing squished.
-    auto layoutEasyDurationSeedRow = [&]
+    // Easy view: four standard-height rows in the same total budget as the old
+    // two-row Duration/VAR block, extended. Row 1 = Duration inline SliderRow;
+    // row 2 = the Variation switchbox ("VAR" caption + the 3 connected seed-mode
+    // icons, framed by paintSwitchBoxBorder); row 3 = Magnitude inline SliderRow;
+    // row 4 = Chaos inline SliderRow. Magnitude/Chaos moved out of Advanced
+    // entirely (mirrors Duration's earlier move) — same per-row height +
+    // stackGap as the original Duration/VAR rows, just stacked twice more, so
+    // all four rows stay uniform (nothing squished).
+    const int stackGap = juce::jmax(2, juce::roundToInt(f * 0.15f));
+    const int easyRowH = juce::jmax(1, (compactRowH + seedCtrlH - stackGap) / 2);
+    auto layoutEasyGenParamsBlock = [&]
     {
-        const int boxH = compactRowH + seedCtrlH;
-        auto block = area.removeFromTop(boxH);
-        const int stackGap = juce::jmax(2, juce::roundToInt(f * 0.15f));
-        const int rowH = juce::jmax(1, (block.getHeight() - stackGap) / 2);
+        auto block = area.removeFromTop(easyRowH * 4 + stackGap * 3);
 
         // Row 1: Duration inline SliderRow.
-        durationRow->setBounds(block.removeFromTop(rowH));
+        durationRow->setBounds(block.removeFromTop(easyRowH));
         block.removeFromTop(stackGap);
 
         // Row 2: Variation switchbox — "VAR" caption + the 3 seed-mode icons.
-        auto varRow = block.removeFromTop(rowH);
+        auto varRow = block.removeFromTop(easyRowH);
         setUiFont(varSwitchLabel, TextRole::Caption, f);
         const int varLabelW = measureTextWidth("VAR", uiFontSize(TextRole::Caption, f))
                             + juce::roundToInt(f * 0.6f);
@@ -1213,6 +1236,15 @@ void PromptPanel::resized()
         }
         seedModeSwitchBounds = seedModeBtns[0].getBounds()
             .getUnion(seedModeBtns[kNumSeedModeBtns - 1].getBounds());
+        block.removeFromTop(stackGap);
+
+        // Row 3: Magnitude inline SliderRow (moved out of Advanced).
+        magRow->setBounds(block.removeFromTop(easyRowH));
+        block.removeFromTop(stackGap);
+
+        // Row 4: Chaos inline SliderRow (moved out of Advanced).
+        noiseRow->setBounds(block.removeFromTop(easyRowH));
+
         area.removeFromTop(gap);
     };
 
@@ -1222,19 +1254,17 @@ void PromptPanel::resized()
     // below it.
     {
         const int paramsH = easy
-            ? (compactRowH + seedCtrlH + gap)
-            : ((compactRowH + compactCtrlH + gap) * 2 + compactRowH + seedCtrlH + gap);
+            ? (easyRowH * 4 + stackGap * 3 + gap)
+            : ((compactRowH + compactCtrlH + gap) + compactRowH + seedCtrlH + gap);
         area.removeFromTop(juce::jmax(0, area.getHeight() - paramsH) / 2);
     }
 
     if (easy)
     {
-        layoutEasyDurationSeedRow();
+        layoutEasyGenParamsBlock();
     }
     else
     {
-        layoutCompactPair(magLabel, magnitudeSlider, magValue,
-                          noiseLabel, noiseSlider, noiseValue);
         layoutCompactPair(stepsLabel, stepsSlider, stepsValue,
                           cfgLabel, cfgSlider, cfgValue);
         layoutSeedRow();
@@ -1700,13 +1730,9 @@ bool PromptPanel::hasHiddenActiveState() const
         return std::abs(value - neutral) > epsilon;
     };
 
-    if (auto* v = apvts.getRawParameterValue(PID::genMagnitude))
-        if (differs(v->load(), 1.0f, 0.001f))
-            return true;
-
-    if (auto* v = apvts.getRawParameterValue(PID::genNoise))
-        if (differs(v->load(), 0.0f, 0.001f))
-            return true;
+    // Magnitude/Chaos are no longer Advanced-only (they're the inline
+    // magRow/noiseRow, always visible in Easy) — no longer "hidden" state to
+    // report while easyMode_ is active, so they've been dropped from this check.
 
     // Compare steps/CFG against the active model's defaults (the same
     // values the model-click handler writes on selection). Skip when no
@@ -3247,8 +3273,6 @@ void PromptPanel::mouseDown(const juce::MouseEvent& e)
     juce::String paramId;
     auto* src = e.eventComponent;
     if      (src == &alphaSlider)     paramId = PID::genAlpha;
-    else if (src == &magnitudeSlider) paramId = PID::genMagnitude;
-    else if (src == &noiseSlider)     paramId = PID::genNoise;
     else if (src == &stepsSlider)     paramId = PID::infSteps;
     else if (src == &cfgSlider)       paramId = PID::genCfg;
 

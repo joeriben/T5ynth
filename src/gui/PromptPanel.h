@@ -224,12 +224,9 @@ private:
     // (a later member) is destroyed first — the LnF must outlive its only user.
     AlphaSliderLnF alphaLnF;             // A→B gradient track + position-coloured thumb
     FlippedVerticalSlider alphaSlider;   // vertical A↔B blend, A at top
-    MidiLearnSlider magnitudeSlider, noiseSlider;
     juce::Label alphaLabel, alphaValue;  // retained for callbacks but hidden (gradient is self-describing)
-    juce::Label magLabel, magValue, magHint;
-    juce::Label noiseLabel, noiseValue, noiseHint;
 
-    // Compact params rows: Magnitude/Noise, Steps/CFG (advanced only)
+    // Compact params row: Steps/CFG (advanced only)
     MidiLearnSlider stepsSlider, cfgSlider;
     juce::Label stepsLabel, stepsValue, stepsHint;
     juce::Label cfgLabel, cfgValue, cfgHint;
@@ -243,6 +240,11 @@ private:
     // Easy-view "VAR" caption for the Variation switchbox row (the 3 seed-mode
     // icons framed by paintSwitchBoxBorder — no card, standard row height).
     juce::Label varSwitchLabel;
+    // Magnitude / Chaos — house-standard inline-bar SliderRows (mirror
+    // durationRow above). Easy view only (moved out of Advanced entirely).
+    // Declared BEFORE magA/noiseA (below) so the attachments tear down first
+    // (reverse destruction order).
+    std::unique_ptr<SliderRow> magRow, noiseRow;
     juce::TextEditor seedEditor;
     juce::TextButton randomSeedToggle { "Rnd" };
     static constexpr int kNumSeedModeBtns = 3;
@@ -461,8 +463,6 @@ private:
     // "auto regen..." and the error message.
     double lastRegenFailureMs_ = 0.0;
     float alphaGhostValue_ = std::numeric_limits<float>::quiet_NaN();
-    float magGhostValue_ = std::numeric_limits<float>::quiet_NaN();
-    float noiseGhostValue_ = std::numeric_limits<float>::quiet_NaN();
     // Mode-specific ghosts: set when alpha-LFO offset is non-zero AND the
     // active mode targets the corresponding parameter. Painted via the same
     // drawGhost lambda in paintOverChildren.
