@@ -76,15 +76,14 @@ constexpr float kPromptReprompt    = 4.0f;   // Re-Prompt MODULE total height (c
 // Magnitude/Chaos moved from Advanced to Easy (mirroring Duration's earlier
 // move, see layoutEasyGenParamsBlock in resized()): Advanced drops one
 // compactPair block (compactRow + compactCtrl + gap = 1.15 + 0.9 + 0.28 = 2.33
-// units: 25.52 - 2.33 = 23.19). Easy's old 2-row Duration/VAR block
-// (compactRow + seedCtrl + gap = 3.18 units) is replaced by a 4-row block of
-// the SAME per-row height (Duration / VAR / Magnitude / Chaos), each row
-// (compactRow + seedCtrl - 0.15) / 2 = 1.375 units, plus 3 inter-row stackGaps
-// (~0.15 each) and the trailing gap: 4·1.375 + 3·0.15 + 0.28 = 6.23 units
-// (20.43 - 3.18 + 6.23 = 23.48).
+// units: 25.52 - 2.33 = 23.19). Easy hosts all four generation params in a
+// 2x2 block: two side-by-side pair rows (Duration|Variation, Magnitude|Chaos),
+// each row = compactRow + compactCtrl + gap = 1.15 + 0.9 + 0.28 = 2.33 units;
+// block = 2 * 2.33 = 4.66 units. (Replaces the old 4-row stack of 6.23 units:
+// 23.48 - 6.23 + 4.66 = 21.91.)
 constexpr float kPromptContentUnits = 23.19f;
 // Easy budget keeps the model selector row but drops the advanced param rows.
-constexpr float kPromptEasyContentUnits = 23.48f;
+constexpr float kPromptEasyContentUnits = 21.91f;
 constexpr int kBaseSeed = 123456789;
 
 float preferredPromptFontForWidth(int width)
@@ -661,11 +660,6 @@ int PromptPanel::getPreferredHeightForWidth(int width) const
     const int compactCtrlH = juce::roundToInt(f * kPromptCompactCtrl);
     const int seedCtrlH = juce::roundToInt(f * kPromptSeedCtrl);
     const int repromptRowH = juce::roundToInt(f * kPromptReprompt);
-    // Easy view's 4 stacked rows below the divider (Duration / VAR / Magnitude /
-    // Chaos) share one row height + gap — mirrors layoutEasyGenParamsBlock in
-    // resized() exactly so this reported preferred height matches the real layout.
-    const int stackGap = juce::jmax(2, juce::roundToInt(f * 0.15f));
-    const int easyRowH = juce::jmax(1, (compactRowH + seedCtrlH - stackGap) / 2);
 
     // A↔B block: A editor / mode-bar / B editor with breathing room around the
     // mode bar (the right-hand vertical slider overlays this same height, so it
@@ -677,7 +671,7 @@ int PromptPanel::getPreferredHeightForWidth(int width) const
         return (compactRowH + 2) + modelGap             // model selector row
              + abBlockH + innerGap + repromptRowH       // A↔B block + Re-Prompt row
              + groupGap                                 // divider
-             + (easyRowH * 4 + stackGap * 3) + gap;     // Duration / VAR / Magnitude / Chaos (4 rows)
+             + 2 * (compactRowH + compactCtrlH + gap);  // 2x2 gen block: Duration|Variation, Magnitude|Chaos
     }
 
     return (compactRowH + 2) + modelGap                 // model selector row
@@ -1202,50 +1196,56 @@ void PromptPanel::resized()
         area.removeFromTop(gap);
     };
 
-    // Easy view: four standard-height rows in the same total budget as the old
-    // two-row Duration/VAR block, extended. Row 1 = Duration inline SliderRow;
-    // row 2 = the Variation switchbox ("VAR" caption + the 3 connected seed-mode
-    // icons, framed by paintSwitchBoxBorder); row 3 = Magnitude inline SliderRow;
-    // row 4 = Chaos inline SliderRow. Magnitude/Chaos moved out of Advanced
-    // entirely (mirrors Duration's earlier move) — same per-row height +
-    // stackGap as the original Duration/VAR rows, just stacked twice more, so
-    // all four rows stay uniform (nothing squished).
-    const int stackGap = juce::jmax(2, juce::roundToInt(f * 0.15f));
-    const int easyRowH = juce::jmax(1, (compactRowH + seedCtrlH - stackGap) / 2);
+    // Easy view: the four generation params in a 2x2 block of side-by-side pair
+    // rows, mirroring layoutCompactPair's column split. Row 1 = Duration (inline
+    // SliderRow) | Variation (VAR switchbox: "VAR" caption + the 3 connected
+    // seed-mode icons, framed by paintSwitchBoxBorder). Row 2 = Magnitude | Chaos
+    // (inline SliderRows). Magnitude/Chaos moved out of Advanced entirely
+    // (mirrors Duration's earlier move). Each row = compactRow + compactCtrl (a
+    // layoutCompactPair-equivalent band); nothing stacked full-width, nothing
+    // squished. Height budget: getPreferredHeightForWidth / kPromptEasyContentUnits.
     auto layoutEasyGenParamsBlock = [&]
     {
-        auto block = area.removeFromTop(easyRowH * 4 + stackGap * 3);
+        const int rowH = compactRowH + compactCtrlH;
+        const int colW = (area.getWidth() - colGap) / 2;
 
-        // Row 1: Duration inline SliderRow.
-        durationRow->setBounds(block.removeFromTop(easyRowH));
-        block.removeFromTop(stackGap);
-
-        // Row 2: Variation switchbox — "VAR" caption + the 3 seed-mode icons.
-        auto varRow = block.removeFromTop(easyRowH);
-        setUiFont(varSwitchLabel, TextRole::Caption, f);
-        const int varLabelW = measureTextWidth("VAR", uiFontSize(TextRole::Caption, f))
-                            + juce::roundToInt(f * 0.6f);
-        varSwitchLabel.setBounds(varRow.removeFromLeft(juce::jmin(varLabelW, varRow.getWidth() / 2)));
-        varRow.removeFromLeft(juce::jmax(2, juce::roundToInt(f * 0.3f)));
-        for (int i = 0; i < kNumSeedModeBtns; ++i)
+        // The VAR switchbox occupies one pair-cell: "VAR" caption + the 3
+        // connected seed-mode icons (union framed by paintSwitchBoxBorder).
+        auto layoutVarSwitchbox = [&](juce::Rectangle<int> cell)
         {
-            const int cellWSeed = (i == kNumSeedModeBtns - 1)
-                ? varRow.getWidth()
-                : juce::jmax(1, varRow.getWidth() / (kNumSeedModeBtns - i));
-            seedModeBtns[i].setBounds(varRow.removeFromLeft(cellWSeed));
+            setUiFont(varSwitchLabel, TextRole::Caption, f);
+            const int varLabelW = measureTextWidth("VAR", uiFontSize(TextRole::Caption, f))
+                                + juce::roundToInt(f * 0.6f);
+            varSwitchLabel.setBounds(cell.removeFromLeft(juce::jmin(varLabelW, cell.getWidth() / 2)));
+            cell.removeFromLeft(juce::jmax(2, juce::roundToInt(f * 0.3f)));
+            for (int i = 0; i < kNumSeedModeBtns; ++i)
+            {
+                const int cellWSeed = (i == kNumSeedModeBtns - 1)
+                    ? cell.getWidth()
+                    : juce::jmax(1, cell.getWidth() / (kNumSeedModeBtns - i));
+                seedModeBtns[i].setBounds(cell.removeFromLeft(cellWSeed));
+            }
+            seedModeSwitchBounds = seedModeBtns[0].getBounds()
+                .getUnion(seedModeBtns[kNumSeedModeBtns - 1].getBounds());
+        };
+
+        // Row 1: Duration | Variation.
+        {
+            auto row = area.removeFromTop(rowH);
+            durationRow->setBounds(row.removeFromLeft(colW));
+            row.removeFromLeft(colGap);
+            layoutVarSwitchbox(row);
+            area.removeFromTop(gap);
         }
-        seedModeSwitchBounds = seedModeBtns[0].getBounds()
-            .getUnion(seedModeBtns[kNumSeedModeBtns - 1].getBounds());
-        block.removeFromTop(stackGap);
 
-        // Row 3: Magnitude inline SliderRow (moved out of Advanced).
-        magRow->setBounds(block.removeFromTop(easyRowH));
-        block.removeFromTop(stackGap);
-
-        // Row 4: Chaos inline SliderRow (moved out of Advanced).
-        noiseRow->setBounds(block.removeFromTop(easyRowH));
-
-        area.removeFromTop(gap);
+        // Row 2: Magnitude | Chaos.
+        {
+            auto row = area.removeFromTop(rowH);
+            magRow->setBounds(row.removeFromLeft(colW));
+            row.removeFromLeft(colGap);
+            noiseRow->setBounds(row);
+            area.removeFromTop(gap);
+        }
     };
 
     // Center the generation-param block in the free space below the divider.
@@ -1254,7 +1254,7 @@ void PromptPanel::resized()
     // below it.
     {
         const int paramsH = easy
-            ? (easyRowH * 4 + stackGap * 3 + gap)
+            ? (2 * (compactRowH + compactCtrlH + gap))
             : ((compactRowH + compactCtrlH + gap) + compactRowH + seedCtrlH + gap);
         area.removeFromTop(juce::jmax(0, area.getHeight() - paramsH) / 2);
     }
