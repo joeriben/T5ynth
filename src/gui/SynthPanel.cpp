@@ -894,13 +894,8 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     makeHeader(filterHeader, "FILTER", kFilterCol);
     makeHeader(modHeader, "ENVELOPES", kModCol);
 
-    modModeToggle.setColour(juce::TextButton::buttonColourId, kSurface.darker(0.45f));
-    modModeToggle.setColour(juce::TextButton::buttonOnColourId, kSurface.darker(0.45f));
-    modModeToggle.setColour(juce::TextButton::textColourOffId, kModCol);
-    modModeToggle.setColour(juce::TextButton::textColourOnId, kModCol);
-    modModeToggle.setTooltip("Switch modulation interface mode");
-    modModeToggle.onClick = [this] { setModEasyMode(!modEasyMode, true); };
-    addAndMakeVisible(modModeToggle);
+    // The Easy/Advanced modulation view was removed — the panel is always the
+    // unified view. The mode toggle is no longer created or shown.
 
     auto setupModTabs = [this](std::array<juce::TextButton, kNumModTabs>& tabs,
                                const char* const* labels,
@@ -1325,7 +1320,8 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     lfo2TargetA = std::make_unique<CA>(apvts, PID::lfo2Target, lfo2.targetBox);
     lfo3TargetA = std::make_unique<CA>(apvts, PID::lfo3Target, lfo3.targetBox);
 
-    setModEasyMode(loadModEasyModeSetting(), false);
+    // Easy/Advanced view removed: the panel is permanently the unified view.
+    setModEasyMode(true, false);
     updateVisibility();
     startTimerHz(30);
 }
@@ -1684,7 +1680,6 @@ void SynthPanel::updateVisibility()
     if (crossfadeRegenRow)
         crossfadeRegenRow->setAlpha(1.0f);
 
-    modModeToggle.setVisible(true);
     for (auto& btn : envTabBtns)   btn.setVisible(modEasyMode);
     for (auto& btn : lfoTabBtns)   btn.setVisible(false);
     for (auto& btn : driftTabBtns) btn.setVisible(false);
@@ -3159,20 +3154,9 @@ void SynthPanel::resized()
     float headerFs = static_cast<float>(headerH) * 0.85f;
     int headerGap = juce::jmax(3, headerH / 5);  // ~20% of header height
 
-    // The Easy/Adv toggle lives in the Engine title because it controls the
-    // whole synth panel (filter, envelopes, LFOs, drift, generate, …), not
-    // just the modulation section.
-    const int modToggleW = juce::jlimit(58, 78,
-        measureTextWidth(modModeToggle.getButtonText(), juce::jmax(kUiControlFontMin, headerFs * 0.72f)) + 16);
     engineHeader.setFont(juce::FontOptions(headerFs));
     auto engineHeaderRow = area.removeFromTop(headerH);
-    // Header takes the FULL row so its pink fill frames the toggle button on
-    // all sides (matches T5 OSC header behavior). The toggle is then drawn
-    // on top with a 2 px reduction → the header colour shows through as a
-    // border around the dark button surface.
     engineHeader.setBounds(engineHeaderRow);
-    modModeToggle.setBounds(engineHeaderRow.removeFromRight(modToggleW).reduced(2, 2));
-    modModeToggle.toFront(false);
     area.removeFromTop(headerGap);
 
     // ── Engine mode + Voice count: compact switchboxes ──
