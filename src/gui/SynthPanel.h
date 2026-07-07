@@ -95,19 +95,10 @@ private:
 
     // ── Section headers ──
     juce::Label engineHeader, filterHeader, modHeader, lfoHeader, driftHeader;
-    juce::TextButton modModeToggle { juce::String::fromUTF8("\xc2\xbb adv.") };
-    bool modEasyMode = true;
-    float modModePulsePhase = 0.0f;
-    bool modModePulseActive_ = false;
-    // Caches the last 8-bit ARGB applied to modModeToggle. setColour() always
-    // triggers an internal repaint; without this guard the pulse cascades 5
-    // repaints per 30 Hz tick even when the resulting Colour has not changed.
-    juce::Colour lastAppliedModFill_, lastAppliedModText_;
-    bool lastAppliedModColoursValid_ = false;
 
     // ── Layout rects for paint() ──
     juce::Rectangle<int> engineSwitchBounds, loopSwitchBounds, optSwitchBounds;
-    juce::Rectangle<int> filterTypeSwitchBounds, filterSlopeSwitchBounds, filterDriveOsSwitchBounds, filterAlgSwitchBounds;
+    juce::Rectangle<int> filterTypeSwitchBounds, filterSlopeSwitchBounds, filterAlgSwitchBounds;
     int engineCardBottom = 0;
     int modCardBottom = 0;
     juce::Rectangle<int> envTabSwitchBounds, lfoTabSwitchBounds, driftTabSwitchBounds;
@@ -117,18 +108,16 @@ private:
     std::array<juce::Rectangle<int>, 3> driftEasyModuleBounds;
 
     // ── Filter ──
-    // Type switchbox: OFF LP HP BP (drives filter_type APVTS via hidden ComboBox)
-    static constexpr int kNumTypeBtns = 4;
-    juce::TextButton filterTypeBtns[kNumTypeBtns];
+    // Type: OFF LP HP BP — drives filter_type APVTS via hidden ComboBox; the
+    // visible affordance is filterEasyOffBtn + filterEasyTypeBtn below.
     juce::ComboBox filterTypeHidden;
     // Slope switchbox: 6dB 12dB 18dB 24dB
     static constexpr int kNumSlopeBtns = 4;
     juce::TextButton filterSlopeBtns[kNumSlopeBtns];
     juce::ComboBox filterSlopeHidden;
     std::unique_ptr<SliderRow> cutoffRow, resoRow, filterMixRow, kbdTrackRow, filterDriveRow;
-    // Drive oversampling switchbox: Off 2x 4x 8x
-    static constexpr int kNumDriveOsBtns = 4;
-    juce::TextButton filterDriveOsBtns[kNumDriveOsBtns];
+    // Drive oversampling: Off 2x 4x 8x — hidden carrier only, no visible
+    // switchbox; drive oversampling is controlled elsewhere.
     juce::ComboBox filterDriveOsHidden;
     // Filter algorithm switchbox: SVF Ladder Warp
     static constexpr int kNumAlgBtns = 3;
@@ -150,7 +139,6 @@ private:
     int lastEasyFilterType_ = 2;
     // Warp style selector (only active when algorithm == Warp)
     juce::ComboBox filterWarpStyleBox;
-    juce::Label    filterWarpStyleLabel { {}, "Style" };
 
     // Easy-mode Warp style "hold-to-dropdown" button.
     // Click (<350 ms): activate Warp algorithm, keep current style.
@@ -175,44 +163,27 @@ private:
     // ── Envelope sections ──
     struct EnvSection
     {
-        juce::Label header;
-        juce::Label targetHeader;   // easy-view "Target" left-header band
+        juce::Label targetHeader;   // "Target" left-header band
         juce::ComboBox targetBox;
-        std::unique_ptr<SliderRow> aRow, dRow, sRow, rRow, amtRow;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> aA, dA, sA, rA, amtA;
 
-        // Per-stage velocity sensitivity, signed [-1..+1]: velocity→stage TIME
-        // (A/D/R). Three short vertical sliders that serve the ADVANCED grid
-        // (alongside amtRow = ENV AMT). In easy view these are replaced by the
-        // "Velocity Amount" box below.
-        std::unique_ptr<SliderRow> aVsRow, dVsRow, rVsRow;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> aVsA, dVsA, rVsA;
-
-        // ── Easy-view "Velocity Amount" box ──
-        // Vertical drag-fill bars (AftertouchBar feel). Att/Dec/Rel mirror the
-        // velSens above (bipolar, velocity→stage TIME); Level drives the GLOBAL
-        // velAmt (unipolar, velocity→peak). Shown in easy view in place of the
-        // four velSens/Amt faders; the SliderRows above still serve advanced.
-        // velAmt is global, so every env section's Level bar attaches to the same
-        // parameter — only the selected env's box is visible at a time.
+        // ── "Velocity Amount" box ──
+        // Vertical drag-fill bars (AftertouchBar feel). Att/Dec/Rel are bipolar
+        // (velocity→stage TIME); Level drives the GLOBAL velAmt (unipolar,
+        // velocity→peak). velAmt is global, so every env section's Level bar
+        // attaches to the same parameter — only the selected env's box is
+        // visible at a time.
         ModuleBox velBox;   // framed card + accent top-header, same template as DURATION/RE-PROMPT
         std::unique_ptr<VelocityBar> attVB, decVB, relVB, levelVB;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attVBA, decVBA, relVBA, levelVBA;
 
-        // Curve shape cycling buttons (Log/Lin/Exp) — square icons
-        CurveButton aCurveBtn, dCurveBtn, rCurveBtn;
-        juce::ComboBox aCurveHidden, dCurveHidden, rCurveHidden;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> aCurveA, dCurveA, rCurveA;
-
-        // Loop toggle (both views): turns the env into a self-retriggering
+        // Loop toggle: turns the env into a self-retriggering
         // A→D→Hold→R complex-LFO cycle while the note is held. In loop mode the
         // Sustain control is repurposed as the per-cycle Hold time.
         juce::TextButton loopBtn;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> loopBtnA;
 
-        // Easy-view graphical ADSR editor — replaces the four faders. Declared
-        // LAST so it is destroyed FIRST: its dtor detaches listeners from the
-        // SliderRows / curve ComboBoxes above while those are still alive.
+        // Graphical ADSR editor — attaches directly to the APVTS envelope
+        // parameters. Declared LAST so it is destroyed FIRST.
         std::unique_ptr<AdsrGraph> graph;
     };
     EnvSection ampEnv, mod1Env, mod2Env;
@@ -332,9 +303,6 @@ private:
                    const juce::String& clockModeId, const juce::String& divisionId,
                    juce::AudioProcessorValueTreeState& apvts);
 
-    void layoutEnv(EnvSection& env, juce::Rectangle<int>& area, float f, int rowH, int gap);
-    void layoutLfo(LfoSection& lfo, juce::Rectangle<int>& area, float f, int rowH, int gap);
-    void layoutDrift(DriftSection& drift, juce::Rectangle<int>& area, float f, int rowH, int gap);
     void layoutModEasy(juce::Rectangle<int>& area, juce::Rectangle<int> modHeaderRow, float f, int rowH, int gap, int headerH, float headerFs);
     void layoutFilterEasy(juce::Rectangle<int> area, float f, int rowH, int gap);
     void layoutEnvEasy(EnvSection& env, juce::Rectangle<int> area, float f, int rowH, int gap);
@@ -343,11 +311,6 @@ private:
     void layoutAftertouchEasy(juce::Rectangle<int> area);
     void layoutGenerateEasy(juce::Rectangle<int> area, float f, int rowH, int gap, bool ownHeader = true);
 
-    void setModEasyMode(bool easy, bool persist);
-    bool loadModEasyModeSetting() const;
-    void saveModEasyModeSetting() const;
-    bool hasModHiddenActiveState() const;
-    void updateModModeToggleVisual();
     void syncModTabButtons();
     void selectFirstActiveModTabs();
 
