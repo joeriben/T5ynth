@@ -150,9 +150,23 @@ void DimensionExplorer::rebuildBars(const std::vector<float>& baselineValues, bo
 
         valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.aValue)));
         if (hasBPrompt_)
+        {
             valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.bValue)));
-        valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.baseActualValue)));
-        valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, displayedActualValue(bar))));
+            // Overlay fits the A/B divergence envelope (plus any user offset), NOT the
+            // baseline's common-mode magnitude. orientedValue(baseActual) folds in the
+            // baseline's deviation from the A/B midpoint (~ (magnitude-1)*midpoint), which
+            // a single high-|midpoint| dimension inflates enough to crush the whole
+            // envelope to a thin strip around the zero line — the pre-rebuild scale was
+            // the plain divergence extent (max|A-B diff + offset|), which fills the view.
+            valueScaleMax_ = std::max(valueScaleMax_, std::abs(bar.offset));
+        }
+        else
+        {
+            // Single prompt: oriented == raw value, no midpoint to leak a common-mode
+            // term — fit the honest displayed extent, exactly as before.
+            valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.baseActualValue)));
+            valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, displayedActualValue(bar))));
+        }
         if (std::abs(bar.offset) > 1e-8f)
             hasUserEdits_ = true;
     }
@@ -216,11 +230,19 @@ void DimensionExplorer::setDimensionOffsets(const std::vector<std::pair<int, flo
     valueScaleMax_ = kMinValueScale;
     for (auto& bar : bars_)
     {
+        // Same scale rule as rebuildBars: fit the A/B divergence envelope (+ any offset),
+        // not the baseline's common-mode magnitude, so loading offsets keeps the fill.
         valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.aValue)));
         if (hasBPrompt_)
+        {
             valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.bValue)));
-        valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.baseActualValue)));
-        valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, displayedActualValue(bar))));
+            valueScaleMax_ = std::max(valueScaleMax_, std::abs(bar.offset));
+        }
+        else
+        {
+            valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.baseActualValue)));
+            valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, displayedActualValue(bar))));
+        }
         if (std::abs(bar.offset) > 1e-8f)
             hasUserEdits_ = true;
     }
@@ -486,18 +508,26 @@ void DimensionExplorer::paint(juce::Graphics& g)
             g.fillRect(x, centreY, w, topY - centreY);
     }
 
+    // hintFs is shared with the tooltip below so both stay clear of the header band.
+    float hintFs = juce::jlimit(10.0f, 15.0f, fs * 0.7f);
+
     // Axis hints (only in overlay mode with two prompts)
     if (overlayMode_ && hasBPrompt_)
     {
-        float hintFs = juce::jlimit(10.0f, 15.0f, fs * 0.7f);
         g.setFont(juce::FontOptions(hintFs).withStyle("Bold"));
         g.setColour(juce::Colour(0x40ffffff));
+        // Vertical axis: up = toward A (top-left corner), down = toward B.
         g.drawText("toward A",
                    juce::roundToInt(barArea_.getX() + 4.0f), juce::roundToInt(barArea_.getY() + 2.0f),
                    140, juce::roundToInt(hintFs + 2), juce::Justification::topLeft);
+        // Keep "toward B" one line ABOVE the horizontal-axis row so the two no longer
+        // collide at the bottom-left corner (they used to be stacked ~2px apart).
         g.drawText("toward B",
-                   juce::roundToInt(barArea_.getX() + 4.0f), juce::roundToInt(barArea_.getBottom() - hintFs - 2.0f),
+                   juce::roundToInt(barArea_.getX() + 4.0f),
+                   juce::roundToInt(barArea_.getBottom() - 2.0f * hintFs - 8.0f),
                    140, juce::roundToInt(hintFs + 2), juce::Justification::bottomLeft);
+        // Horizontal axis on the bottom row (its pre-rebuild home): left dims are the
+        // divergent ones (change the A/B relation), right dims are the shared basis.
         float hintY = barArea_.getBottom() - hintFs - 4.0f;
         g.drawText("changes A/B relation",
                    juce::roundToInt(barArea_.getX() + 4.0f), juce::roundToInt(hintY),
@@ -528,10 +558,16 @@ void DimensionExplorer::paint(juce::Graphics& g)
         if (std::abs(bar.offset) > 1e-8f)
             tip += "  (edit " + juce::String(bar.offset, 4) + ")";
 
+        // Draw the tooltip just INSIDE the top of the plot — one line below "toward A"
+        // and always below the header band. The old tipY (barArea top - fs) rendered it
+        // up in the header, on top of the "LATENT DIMENSION EXPLORER" title.
+        const float tipW = 300.0f;
         float tipX = barArea_.getX() + static_cast<float>(hoveredBar_) * barW;
-        float tipY = barArea_.getY() - 2.0f;
-        g.drawText(tip, juce::roundToInt(tipX), juce::roundToInt(tipY - fs),
-                   300, juce::roundToInt(fs + 2), juce::Justification::centredLeft);
+        tipX = juce::jlimit(barArea_.getX(),
+                            juce::jmax(barArea_.getX(), barArea_.getRight() - tipW), tipX);
+        float tipY = barArea_.getY() + hintFs + 6.0f;
+        g.drawText(tip, juce::roundToInt(tipX), juce::roundToInt(tipY),
+                   juce::roundToInt(tipW), juce::roundToInt(fs + 2), juce::Justification::centredLeft);
     }
 }
 
