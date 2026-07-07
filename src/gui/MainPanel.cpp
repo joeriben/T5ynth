@@ -1270,14 +1270,6 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     dimResetBtn.setVisible(false);
     addChildComponent(dimResetBtn);
 
-    // Header trigger that opens the DimExplorer overlay (the inline mini-view is
-    // gone -> overlay-only). Visibility follows Advanced mode; see setOscEasyMode.
-    dimExplorerOpenBtn.setButtonText(juce::String::fromUTF8("Open \xc2\xbb"));
-    dimExplorerOpenBtn.setColour(juce::TextButton::buttonColourId, kSurface);
-    dimExplorerOpenBtn.setColour(juce::TextButton::textColourOffId, kDim);
-    dimExplorerOpenBtn.onClick = [this] { if (!dimExplorerVisible) showDimExplorer(); };
-    addChildComponent(dimExplorerOpenBtn);
-
     setOscEasyMode(loadOscEasyModeSetting(), false);
 
     // Restore the per-machine SA3 tier before the backend handshake. PromptPanel has
@@ -1331,7 +1323,6 @@ void MainPanel::showDimExplorer()
 {
     dimExplorerVisible = true;
     dimensionExplorer.setOverlayMode(true);
-    dimensionExplorer.setVisible(true);   // overlay-only: visible only while the overlay is open
     dimScrim.setVisible(true);
     dimScrim.toFront(false);
     dimApplyBtn.setVisible(true);
@@ -1351,7 +1342,6 @@ void MainPanel::hideDimExplorer()
 {
     dimExplorerVisible = false;
     dimensionExplorer.setOverlayMode(false);
-    dimensionExplorer.setVisible(false);  // overlay-only: hidden again once the overlay closes
     dimScrim.setVisible(false);
     dimApplyBtn.setVisible(false);
     dimUndoBtn.setVisible(false);
@@ -1448,8 +1438,7 @@ void MainPanel::setOscEasyMode(bool easy, bool persist)
     axesHeader.setVisible(easy);
     axesPanel.setVisible(easy);
     dimHeader.setVisible(!oscEasyMode);
-    dimExplorerOpenBtn.setVisible(!oscEasyMode);
-    dimensionExplorer.setVisible(false);  // overlay-only; shown only while its overlay is open
+    dimensionExplorer.setVisible(!oscEasyMode);
     oscModeToggle.setButtonText(oscEasyMode ? juce::String::fromUTF8("\xc2\xbb adv.")
                                             : juce::String::fromUTF8("\xc2\xbb easy"));
     updateOscModeToggleVisual();
@@ -3203,7 +3192,10 @@ void MainPanel::resized()
     int headerH = juce::jlimit(14, 20, juce::roundToInt(h * 0.022f));
     int kGap = juce::jlimit(3, 6, juce::roundToInt(h * 0.005f));
     constexpr int kMinDimH = 24;
-    // DimExplorer inline mini-view removed (now overlay-only) -> no dim-height cap.
+    // The explorer is a proper |A-B| focus spectrum now, not a residual strip.
+    // In Advanced mode it inherits the ~100px freed by axes moving to Easy, so
+    // raise the cap: availableDimH still guards the Generate block.
+    const int kMaxDimH = juce::jlimit(120, 240, juce::roundToInt(h * 0.250f));
     constexpr int kMinOscH = 220;
     constexpr int kMinAxesH = 84;
     constexpr int kMinGenerateButtonH = 38;
@@ -3279,19 +3271,24 @@ void MainPanel::resized()
     }
     else
     {
-        // Card 3: DIM EXPLORER - overlay-only. The inline mini-view is gone; the
-        // header carries a right-aligned "Open >>" trigger (mirrors oscHeader/
-        // oscModeToggle). The freed band flows to the Generate block below and is
-        // where the DCO oscillator surface will live.
+        // Card 3: DIM EXPLORER. A proper |A-B| focus spectrum (not a residual
+        // strip); kMaxDimH scales it with the window, availableDimH caps it so it
+        // yields space before the Generate/cache controls can reach the Sequencer.
         dimHeader.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.85f));
-        auto dimHeaderBounds = genCol.removeFromTop(headerH);
-        const float dimHeaderFs = static_cast<float>(headerH) * 0.85f;
-        const int openW = juce::jlimit(52, 78,
-            measureTextWidth(dimExplorerOpenBtn.getButtonText(),
-                             juce::jmax(kUiControlFontMin, dimHeaderFs * 0.72f)) + 16);
-        dimExplorerOpenBtn.setBounds(dimHeaderBounds.removeFromRight(openW).reduced(2, 2));
-        dimHeader.setBounds(dimHeaderBounds);
-        dimensionExplorer.setBounds({});  // overlay-only; positioned by the overlay path when open
+        dimHeader.setBounds(genCol.removeFromTop(headerH));
+        const int availableDimH = genCol.getHeight() - kGap - reservedGenerateBlockH;
+        int dimH = juce::jlimit(0, kMaxDimH, availableDimH);
+        if (!dimExplorerVisible)
+        {
+            if (dimH >= kMinDimH)
+                dimensionExplorer.setBounds(genCol.removeFromTop(dimH));
+            else
+                dimensionExplorer.setBounds({});
+        }
+        else if (dimH > 0)
+        {
+            genCol.removeFromTop(dimH);
+        }
         genCol.removeFromTop(juce::jmin(kGap, genCol.getHeight()));
     }
 
