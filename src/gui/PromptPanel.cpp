@@ -277,14 +277,16 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     };
 
     // --- Compact params ---
-    // Duration
-    makeSlider(durationSlider, this);
-    makeLabel(durLabel, "Duration", kDim, juce::Justification::centredLeft, this);
-    makeLabel(durValue, "3.00s", kOscCol, juce::Justification::centredRight, this);
-    makeLabel(durHint, "Audio length (seconds)", kDim, juce::Justification::centredLeft, this);
-    durationSlider.onValueChange = [this] {
-        durValue.setText(juce::String(durationSlider.getValue(), 2) + "s", juce::dontSendNotification);
-    };
+    // Duration — Easy view only, house-standard inline-bar SliderRow (mirrors
+    // MainPanel's RESYNTH row): accent-band label + fill bar in kOscCol, with
+    // the "Ns" read-out as the inline value. Attached to PID::genDuration
+    // alongside the other Attachments below.
+    durationRow = std::make_unique<SliderRow>(
+        "DURATION",
+        [](double v) { return juce::String(v, 2) + "s"; },
+        kOscCol);
+    durationRow->setInlineLabel(true);
+    addAndMakeVisible(*durationRow);
 
     // Steps
     makeSlider(stepsSlider, this);
@@ -306,7 +308,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 
     // Variation (text field + random toggle)
     makeLabel(seedLabel, "Variation", kDim, juce::Justification::centredLeft, this);
-    // Match the value-display style used by noiseValue / cfgValue / durValue
+    // Match the value-display style used by noiseValue / cfgValue / durationRow
     // (kOscCol on dark surface) so the current seed reads as a first-class
     // number, not a grey decoration.
     seedEditor.setColour(juce::TextEditor::backgroundColourId, kSurface.brighter(0.04f));
@@ -390,14 +392,13 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         }
         syncSeedModeButtons();
 
-        // Easy-view module frames for Duration + Variation (decorative card +
-        // accent header strip with icon). Added last + sent to back so the
-        // sliders / icon buttons paint on top.
-        durModuleBox.configure("DURATION",  kOscCol, Icon::Clock);
+        // Easy-view module frame for Variation (decorative card + accent
+        // header strip with icon). Duration no longer has one — it moved to
+        // an inline SliderRow (durationRow) that sits above this card in the
+        // easy layout. Added last + sent to back so the icon buttons paint
+        // on top.
         varModuleBox.configure("VARIATION", kOscCol, Icon::Shuffle);
-        addAndMakeVisible(durModuleBox);
         addAndMakeVisible(varModuleBox);
-        durModuleBox.toBack();
         varModuleBox.toBack();
     }
 
@@ -520,15 +521,21 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     alphaA  = std::make_unique<Attachment>(apvts, PID::genAlpha, alphaSlider);
     magA    = std::make_unique<Attachment>(apvts, PID::genMagnitude, magnitudeSlider);
     noiseA  = std::make_unique<Attachment>(apvts, PID::genNoise, noiseSlider);
-    durA    = std::make_unique<Attachment>(apvts, PID::genDuration, durationSlider);
+    durA    = std::make_unique<Attachment>(apvts, PID::genDuration, durationRow->getSlider());
     stepsA  = std::make_unique<Attachment>(apvts, PID::infSteps, stepsSlider);
     cfgA    = std::make_unique<Attachment>(apvts, PID::genCfg, cfgSlider);
+    // Keep the inline read-out in sync (mirrors MainPanel's resynthRow — the
+    // attachment owns onValueChange, so re-wire the display update after it).
+    durationRow->getSlider().onValueChange = [this] { durationRow->updateValue(); };
+    durationRow->updateValue();
+    durationRow->onRightClick = [this](juce::Point<int> p) {
+        showMidiLearnMenu(processorRef, PID::genDuration, p);
+    };
 
     // Right-click MIDI Learn on raw sliders (not wrapped in SliderRow).
     for (juce::Slider* s : { static_cast<juce::Slider*>(&alphaSlider),
                               static_cast<juce::Slider*>(&magnitudeSlider),
                               static_cast<juce::Slider*>(&noiseSlider),
-                              static_cast<juce::Slider*>(&durationSlider),
                               static_cast<juce::Slider*>(&stepsSlider),
                               static_cast<juce::Slider*>(&cfgSlider) })
         s->addMouseListener(this, false);
@@ -650,14 +657,14 @@ int PromptPanel::getPreferredHeightForWidth(int width) const
         return (compactRowH + 2) + modelGap             // model selector row
              + abBlockH + innerGap + repromptRowH       // A↔B block + Re-Prompt row
              + groupGap                                 // divider
-             + compactRowH + seedCtrlH + gap;           // Duration / Seed
+             + compactRowH + seedCtrlH + gap;           // Duration (inline row) / Variation
     }
 
     return (compactRowH + 2) + modelGap                 // model selector row
          + abBlockH + innerGap + repromptRowH           // A↔B block + Re-Prompt row
          + compactRowH + gap                            // GENERATION top-header (replaces divider)
          + (compactRowH + compactCtrlH + gap) * 2       // Mag/Noise + Steps/CFG
-         + compactRowH + seedCtrlH + gap;               // Duration / Seed
+         + compactRowH + seedCtrlH + gap;               // Seed (Duration moved to Easy view)
 }
 
 void PromptPanel::timerCallback()
@@ -957,12 +964,12 @@ void PromptPanel::resized()
     randomSeedToggle.setVisible(!easy);
     for (auto& bSeed : seedModeBtns)
         bSeed.setVisible(easy);
-    // Floating Duration/Variation captions belong to the advanced view; the easy
-    // view shows them as ModuleBox header strips instead.
-    durLabel.setVisible(!easy);
+    // Floating Variation caption belongs to the advanced view; the easy view
+    // shows it as a ModuleBox header strip instead. Duration has no advanced
+    // form any more — it's the inline durationRow, shown in Easy only.
     seedLabel.setVisible(!easy);
     genParamsHeader.setVisible(!easy);   // GENERATION top-header: advanced only
-    durModuleBox.setVisible(easy);
+    durationRow->setVisible(easy);
     varModuleBox.setVisible(easy);
     seedModeSwitchBounds = {};
 
@@ -989,7 +996,6 @@ void PromptPanel::resized()
 
     magHint.setVisible(false);
     noiseHint.setVisible(false);
-    durHint.setVisible(false);
     stepsHint.setVisible(false);
     cfgHint.setVisible(false);
 
@@ -1153,27 +1159,16 @@ void PromptPanel::resized()
         area.removeFromTop(gap);
     };
 
-    auto layoutDurationSeedRow = [&]
+    // Advanced view: Duration moved out entirely (it's the Easy-only inline
+    // durationRow below), so this row is Seed alone, full width, in the same
+    // header + control budget the paired Duration/Seed row used to occupy.
+    auto layoutSeedRow = [&]
     {
-        int colW = (area.getWidth() - colGap) / 2;
-
         auto hdrRow = area.removeFromTop(compactRowH);
-        auto leftHdr = hdrRow.removeFromLeft(colW);
-        hdrRow.removeFromLeft(colGap);
-        auto rightHdr = hdrRow;
-
-        setUiFont(durLabel, TextRole::Caption, f);
-        setUiFont(durValue, TextRole::Value, f);
-        durLabel.setBounds(leftHdr.removeFromLeft(leftHdr.getWidth() * 2 / 3));
-        durValue.setBounds(leftHdr);
         setUiFont(seedLabel, TextRole::Caption, f);
-        seedLabel.setBounds(rightHdr);
+        seedLabel.setBounds(hdrRow);
 
         auto controlRow = area.removeFromTop(seedCtrlH);
-        auto durationBounds = controlRow.removeFromLeft(colW);
-        controlRow.removeFromLeft(colGap);
-
-        durationSlider.setBounds(durationBounds.withSizeKeepingCentre(durationBounds.getWidth(), compactCtrlH));
 
         const float seedFontSize = f * 1.25f;
         const float toggleFontSize = juce::jmin(15.0f, static_cast<float>(seedCtrlH) * 0.72f);
@@ -1191,44 +1186,26 @@ void PromptPanel::resized()
         area.removeFromTop(gap);
     };
 
+    // Easy view: Duration is a full-width inline SliderRow (durationRow) on
+    // top, with the Variation ModuleBox (seedModeBtns) stacked full-width
+    // below it. Box budget unchanged from the old paired-cards layout
+    // (compactRowH + seedCtrlH) so the surrounding centring math still holds.
     auto layoutEasyDurationSeedRow = [&]
     {
-        const int colW = (area.getWidth() - colGap) / 2;
-        // Box = header strip + content; total equals the old (header row +
-        // control row) so the surrounding centring math is unchanged.
         const int boxH = compactRowH + seedCtrlH;
-
         auto blockRow = area.removeFromTop(boxH);
-        auto leftBox  = blockRow.removeFromLeft(colW);
-        blockRow.removeFromLeft(colGap);
-        auto rightBox = blockRow;
+
+        const int durRowH = compactCtrlH;
+        const int stackGap = juce::jmax(2, juce::roundToInt(f * 0.15f));
+
+        durationRow->setBounds(blockRow.removeFromTop(durRowH));
+        blockRow.removeFromTop(stackGap);
 
         const int contentPad = juce::jmax(3, juce::roundToInt(f * 0.3f));
-        for (auto* mb : { &durModuleBox, &varModuleBox })
-        {
-            mb->setBaseFont(f);
-            mb->setHeaderHeight(compactRowH);
-            mb->setContentPadding(contentPad);
-        }
-        durModuleBox.setBounds(leftBox);
-        varModuleBox.setBounds(rightBox);
-
-        // Duration content: slider (left, flexible) + value read-out (right).
-        {
-            auto content = durModuleBox.getContentBounds();
-            const int sliderH = juce::jmax(0, juce::jmin(compactCtrlH, content.getHeight()));
-            // Clamp the value column to [lo, half-content]; guard lo<=hi so a very
-            // narrow panel can't invert the jlimit bounds (jassert / garbage width).
-            const int valLo = juce::roundToInt(f * 2.4f);
-            const int valHi = juce::jmax(valLo, content.getWidth() / 2);
-            const int valW  = juce::jlimit(valLo, valHi,
-                                           measureTextWidth("00.00s", uiFontSize(TextRole::Value, f)) + 6);
-            auto valArea = content.removeFromRight(valW);
-            content.removeFromRight(juce::jmax(2, juce::roundToInt(f * 0.3f)));
-            setUiFont(durValue, TextRole::Value, f);
-            durValue.setBounds(valArea.withSizeKeepingCentre(valArea.getWidth(), sliderH));
-            durationSlider.setBounds(content.withSizeKeepingCentre(content.getWidth(), sliderH));
-        }
+        varModuleBox.setBaseFont(f);
+        varModuleBox.setHeaderHeight(compactRowH);
+        varModuleBox.setContentPadding(contentPad);
+        varModuleBox.setBounds(blockRow);
 
         // Variation content: the none/last/auto icon buttons fill the card.
         {
@@ -1268,7 +1245,7 @@ void PromptPanel::resized()
                           noiseLabel, noiseSlider, noiseValue);
         layoutCompactPair(stepsLabel, stepsSlider, stepsValue,
                           cfgLabel, cfgSlider, cfgValue);
-        layoutDurationSeedRow();
+        layoutSeedRow();
     }
 }
 
@@ -1618,7 +1595,7 @@ void PromptPanel::applyDurationRangeForCurrentModel()
     // the slider inside the parameter's range, never beyond it. setNormalisableRange
     // re-clamps the thumb with dontSendNotification (juce_Slider.cpp updateRange),
     // so it never writes back to the parameter on its own.
-    durationSlider.setNormalisableRange(toDoubleRange(T5ynthProcessor::makeDurationRange(maxSec)));
+    durationRow->getSlider().setNormalisableRange(toDoubleRange(T5ynthProcessor::makeDurationRange(maxSec)));
 
     // Model selection is UI state from the backend handshake, not an APVTS
     // parameter — at editor-construction / DAW state-restore time no model is
@@ -1639,7 +1616,7 @@ void PromptPanel::applyDurationRangeForCurrentModel()
     {
         const float cur     = p->convertFrom0to1(p->getValue());
         const float clamped = juce::jlimit(0.1f, maxSec, cur);
-        durationSlider.setValue(clamped, juce::sendNotificationSync);
+        durationRow->getSlider().setValue(clamped, juce::sendNotificationSync);
     }
 }
 
@@ -3280,7 +3257,6 @@ void PromptPanel::mouseDown(const juce::MouseEvent& e)
     if      (src == &alphaSlider)     paramId = PID::genAlpha;
     else if (src == &magnitudeSlider) paramId = PID::genMagnitude;
     else if (src == &noiseSlider)     paramId = PID::genNoise;
-    else if (src == &durationSlider)  paramId = PID::genDuration;
     else if (src == &stepsSlider)     paramId = PID::infSteps;
     else if (src == &cfgSlider)       paramId = PID::genCfg;
 

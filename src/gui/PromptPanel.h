@@ -229,15 +229,20 @@ private:
     juce::Label magLabel, magValue, magHint;
     juce::Label noiseLabel, noiseValue, noiseHint;
 
-    // Compact params rows: Magnitude/Noise, Steps/CFG, Duration/Seed
-    MidiLearnSlider durationSlider, stepsSlider, cfgSlider;
-    juce::Label durLabel, durValue, durHint;
+    // Compact params rows: Magnitude/Noise, Steps/CFG (advanced only)
+    MidiLearnSlider stepsSlider, cfgSlider;
     juce::Label stepsLabel, stepsValue, stepsHint;
     juce::Label cfgLabel, cfgValue, cfgHint;
     juce::Label seedLabel;
-    // Easy-view "module" frames for the Duration + Variation parameters (card +
-    // accent header strip with icon). Decorative; sit behind their controls.
-    ModuleBox durModuleBox, varModuleBox;
+    // Duration — house-standard inline-bar SliderRow (mirrors MainPanel's
+    // RESYNTH row): accent-band label + fill bar in kOscCol, with the "Ns"
+    // read-out as the inline value. Easy view only (moved out of Advanced
+    // entirely). Declared BEFORE durA (below) so the attachment tears down
+    // first (reverse destruction order).
+    std::unique_ptr<SliderRow> durationRow;
+    // Easy-view "module" frame for the Variation parameter (card + accent
+    // header strip with icon). Decorative; sits behind its controls.
+    ModuleBox varModuleBox;
     juce::TextEditor seedEditor;
     juce::TextButton randomSeedToggle { "Rnd" };
     static constexpr int kNumSeedModeBtns = 3;
