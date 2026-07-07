@@ -78,12 +78,13 @@ constexpr float kPromptReprompt    = 4.0f;   // Re-Prompt MODULE total height (c
 // compactPair block (compactRow + compactCtrl + gap = 1.15 + 0.9 + 0.28 = 2.33
 // units: 25.52 - 2.33 = 23.19). Easy hosts all four generation params in a
 // 2x2 block: two side-by-side pair rows (Duration|Variation, Magnitude|Chaos),
-// each row = compactRow + compactCtrl + gap = 1.15 + 0.9 + 0.28 = 2.33 units;
-// block = 2 * 2.33 = 4.66 units. (Replaces the old 4-row stack of 6.23 units:
-// 23.48 - 6.23 + 4.66 = 21.91.)
+// each cell a single standard inline band at the template row height
+// (compactRow), so each row = compactRow + gap = 1.15 + 0.28 = 1.43 units;
+// block = 2 * 1.43 = 2.86 units. (Replaces the old 4-row stack of 6.23 units:
+// 23.48 - 6.23 + 2.86 = 20.11.)
 constexpr float kPromptContentUnits = 23.19f;
 // Easy budget keeps the model selector row but drops the advanced param rows.
-constexpr float kPromptEasyContentUnits = 21.91f;
+constexpr float kPromptEasyContentUnits = 20.11f;
 constexpr int kBaseSeed = 123456789;
 
 float preferredPromptFontForWidth(int width)
@@ -671,7 +672,7 @@ int PromptPanel::getPreferredHeightForWidth(int width) const
         return (compactRowH + 2) + modelGap             // model selector row
              + abBlockH + innerGap + repromptRowH       // A↔B block + Re-Prompt row
              + groupGap                                 // divider
-             + 2 * (compactRowH + compactCtrlH + gap);  // 2x2 gen block: Duration|Variation, Magnitude|Chaos
+             + 2 * (compactRowH + gap);                 // 2x2 gen block: Duration|Variation, Magnitude|Chaos
     }
 
     return (compactRowH + 2) + modelGap                 // model selector row
@@ -1201,12 +1202,13 @@ void PromptPanel::resized()
     // SliderRow) | Variation (VAR switchbox: "VAR" caption + the 3 connected
     // seed-mode icons, framed by paintSwitchBoxBorder). Row 2 = Magnitude | Chaos
     // (inline SliderRows). Magnitude/Chaos moved out of Advanced entirely
-    // (mirrors Duration's earlier move). Each row = compactRow + compactCtrl (a
-    // layoutCompactPair-equivalent band); nothing stacked full-width, nothing
-    // squished. Height budget: getPreferredHeightForWidth / kPromptEasyContentUnits.
+    // (mirrors Duration's earlier move). Each cell is one standard inline band
+    // at the template row height (rowH = compactRow), same as the resynth/cache
+    // rows; nothing stacked full-width, nothing oversized. Height budget:
+    // getPreferredHeightForWidth / kPromptEasyContentUnits.
     auto layoutEasyGenParamsBlock = [&]
     {
-        const int rowH = compactRowH + compactCtrlH;
+        const int rowH = compactRowH;
         const int colW = (area.getWidth() - colGap) / 2;
 
         // The VAR switchbox occupies one pair-cell: "VAR" caption + the 3
@@ -1254,7 +1256,7 @@ void PromptPanel::resized()
     // below it.
     {
         const int paramsH = easy
-            ? (2 * (compactRowH + compactCtrlH + gap))
+            ? (2 * (compactRowH + gap))
             : ((compactRowH + compactCtrlH + gap) + compactRowH + seedCtrlH + gap);
         area.removeFromTop(juce::jmax(0, area.getHeight() - paramsH) / 2);
     }
