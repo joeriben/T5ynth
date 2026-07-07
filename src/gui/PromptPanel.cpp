@@ -392,14 +392,10 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         }
         syncSeedModeButtons();
 
-        // Easy-view module frame for Variation (decorative card + accent
-        // header strip with icon). Duration no longer has one — it moved to
-        // an inline SliderRow (durationRow) that sits above this card in the
-        // easy layout. Added last + sent to back so the icon buttons paint
-        // on top.
-        varModuleBox.configure("VARIATION", kOscCol, Icon::Shuffle);
-        addAndMakeVisible(varModuleBox);
-        varModuleBox.toBack();
+        // Easy-view Variation is a single switchbox row: a "VAR" caption + the
+        // 3 seed-mode icons (framed by paintSwitchBoxBorder). No card — the
+        // Duration inline row + this row are the two standard-height rows.
+        makeLabel(varSwitchLabel, "VAR", kDim, juce::Justification::centredLeft, this);
     }
 
     // Model selector — fixed 4 slots, always visible (disabled = gray until model found).
@@ -964,14 +960,14 @@ void PromptPanel::resized()
     randomSeedToggle.setVisible(!easy);
     for (auto& bSeed : seedModeBtns)
         bSeed.setVisible(easy);
-    // Floating Variation caption belongs to the advanced view; the easy view
-    // shows it as a ModuleBox header strip instead. Duration has no advanced
-    // form any more — it's the inline durationRow, shown in Easy only.
+    // Advanced shows the floating "Variation" caption; Easy shows the "VAR"
+    // switchbox caption instead. Duration has no advanced form any more — it's
+    // the inline durationRow, shown in Easy only.
     seedLabel.setVisible(!easy);
     genParamsHeader.setVisible(!easy);   // GENERATION top-header: advanced only
     durationRow->setVisible(easy);
-    varModuleBox.setVisible(easy);
-    seedModeSwitchBounds = {};
+    varSwitchLabel.setVisible(easy);
+    seedModeSwitchBounds = {};   // re-set by the Easy layout in resized()
 
     // ── Model selector switchbox at top (compact, fixed 5 slots) ──
     // Laid out in both modes; visibility is unconditionally true above.
@@ -1186,41 +1182,37 @@ void PromptPanel::resized()
         area.removeFromTop(gap);
     };
 
-    // Easy view: Duration is a full-width inline SliderRow (durationRow) on
-    // top, with the Variation ModuleBox (seedModeBtns) stacked full-width
-    // below it. Box budget unchanged from the old paired-cards layout
-    // (compactRowH + seedCtrlH) so the surrounding centring math still holds.
+    // Easy view: two standard-height rows in the same total budget as the old
+    // paired-cards block (compactRowH + seedCtrlH). Row 1 = the Duration inline
+    // SliderRow; row 2 = the Variation switchbox ("VAR" caption + the 3 connected
+    // seed-mode icons, framed by paintSwitchBoxBorder). No card, nothing squished.
     auto layoutEasyDurationSeedRow = [&]
     {
         const int boxH = compactRowH + seedCtrlH;
-        auto blockRow = area.removeFromTop(boxH);
-
-        const int durRowH = compactCtrlH;
+        auto block = area.removeFromTop(boxH);
         const int stackGap = juce::jmax(2, juce::roundToInt(f * 0.15f));
+        const int rowH = juce::jmax(1, (block.getHeight() - stackGap) / 2);
 
-        durationRow->setBounds(blockRow.removeFromTop(durRowH));
-        blockRow.removeFromTop(stackGap);
+        // Row 1: Duration inline SliderRow.
+        durationRow->setBounds(block.removeFromTop(rowH));
+        block.removeFromTop(stackGap);
 
-        const int contentPad = juce::jmax(3, juce::roundToInt(f * 0.3f));
-        varModuleBox.setBaseFont(f);
-        varModuleBox.setHeaderHeight(compactRowH);
-        varModuleBox.setContentPadding(contentPad);
-        varModuleBox.setBounds(blockRow);
-
-        // Variation content: the none/last/auto icon buttons fill the card.
+        // Row 2: Variation switchbox — "VAR" caption + the 3 seed-mode icons.
+        auto varRow = block.removeFromTop(rowH);
+        setUiFont(varSwitchLabel, TextRole::Caption, f);
+        const int varLabelW = measureTextWidth("VAR", uiFontSize(TextRole::Caption, f))
+                            + juce::roundToInt(f * 0.6f);
+        varSwitchLabel.setBounds(varRow.removeFromLeft(juce::jmin(varLabelW, varRow.getWidth() / 2)));
+        varRow.removeFromLeft(juce::jmax(2, juce::roundToInt(f * 0.3f)));
+        for (int i = 0; i < kNumSeedModeBtns; ++i)
         {
-            auto seedRow = varModuleBox.getContentBounds();
-            for (int i = 0; i < kNumSeedModeBtns; ++i)
-            {
-                const int cellWSeed = (i == kNumSeedModeBtns - 1)
-                    ? seedRow.getWidth()
-                    : juce::jmax(1, seedRow.getWidth() / (kNumSeedModeBtns - i));
-                seedModeBtns[i].setBounds(seedRow.removeFromLeft(cellWSeed));
-            }
+            const int cellWSeed = (i == kNumSeedModeBtns - 1)
+                ? varRow.getWidth()
+                : juce::jmax(1, varRow.getWidth() / (kNumSeedModeBtns - i));
+            seedModeBtns[i].setBounds(varRow.removeFromLeft(cellWSeed));
         }
-
-        // The ModuleBox card frames the switchbox now — skip the group border.
-        seedModeSwitchBounds = {};
+        seedModeSwitchBounds = seedModeBtns[0].getBounds()
+            .getUnion(seedModeBtns[kNumSeedModeBtns - 1].getBounds());
         area.removeFromTop(gap);
     };
 

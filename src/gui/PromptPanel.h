@@ -240,9 +240,9 @@ private:
     // entirely). Declared BEFORE durA (below) so the attachment tears down
     // first (reverse destruction order).
     std::unique_ptr<SliderRow> durationRow;
-    // Easy-view "module" frame for the Variation parameter (card + accent
-    // header strip with icon). Decorative; sits behind its controls.
-    ModuleBox varModuleBox;
+    // Easy-view "VAR" caption for the Variation switchbox row (the 3 seed-mode
+    // icons framed by paintSwitchBoxBorder — no card, standard row height).
+    juce::Label varSwitchLabel;
     juce::TextEditor seedEditor;
     juce::TextButton randomSeedToggle { "Rnd" };
     static constexpr int kNumSeedModeBtns = 3;
