@@ -1579,26 +1579,46 @@ private:
  * it repaints when they change. No timer — repaints are listener- or
  * mouse-driven, so it adds zero idle CPU.
  */
-class AdsrGraph : public juce::Component,
-                  private juce::Slider::Listener,
-                  private juce::ComboBox::Listener
+class AdsrGraph : public juce::Component
 {
 public:
     explicit AdsrGraph(juce::Colour accent) : accentCol(accent)
     {
         setMouseCursor(juce::MouseCursor::PointingHandCursor);
     }
-    ~AdsrGraph() override { detach(); }
 
-    /** Bind to one EnvSection's controls. Re-bindable (detaches the old set). */
-    void bind(SliderRow* a, SliderRow* d, SliderRow* s, SliderRow* r, SliderRow* amt,
-              juce::ComboBox* aCurve, juce::ComboBox* dCurve, juce::ComboBox* rCurve)
+    /** Bind directly to the APVTS envelope parameters. The graph reads and writes
+     *  the parameters through ParameterAttachments — it does NOT drive any
+     *  intermediary slider. Each parameter's skew lives in its NormalisableRange,
+     *  so the graph works purely in normalized proportion space: prop ==
+     *  param->getValue(), and a write of proportion p sets the param's normalized
+     *  value to p (exactly what the old slider path did via
+     *  proportionOfLengthToValue). fmtTime formats A/D/R, fmtLevel formats S/Amt. */
+    void bind(juce::AudioProcessorValueTreeState& apvts,
+              const juce::String& aId, const juce::String& dId, const juce::String& sId,
+              const juce::String& rId, const juce::String& amtId,
+              const juce::String& aCurveId, const juce::String& dCurveId, const juce::String& rCurveId,
+              std::function<juce::String(double)> fmtTime,
+              std::function<juce::String(double)> fmtLevel)
     {
-        detach();
-        aRow = a; dRow = d; sRow = s; rRow = r; amtRow = amt;
-        aCv = aCurve; dCv = dCurve; rCv = rCurve;
-        for (auto* row : { aRow, dRow, sRow, rRow, amtRow }) if (row) row->getSlider().addListener(this);
-        for (auto* cb  : { aCv, dCv, rCv })                  if (cb)  cb->addListener(this);
+        pA   = apvts.getParameter(aId);      pD   = apvts.getParameter(dId);
+        pS   = apvts.getParameter(sId);      pR   = apvts.getParameter(rId);
+        pAmt = apvts.getParameter(amtId);
+        pAcv = apvts.getParameter(aCurveId); pDcv = apvts.getParameter(dCurveId);
+        pRcv = apvts.getParameter(rCurveId);
+        fmtTimeFn = std::move(fmtTime); fmtLevelFn = std::move(fmtLevel);
+
+        auto mk = [this](juce::RangedAudioParameter* p)
+                      -> std::unique_ptr<juce::ParameterAttachment> {
+            return p ? std::make_unique<juce::ParameterAttachment>(
+                           *p, [this](float) { repaint(); })
+                     : nullptr;
+        };
+        attA = mk(pA); attD = mk(pD); attS = mk(pS); attR = mk(pR); attAmt = mk(pAmt);
+        attAcv = mk(pAcv); attDcv = mk(pDcv); attRcv = mk(pRcv);
+        for (auto* a : { attA.get(), attD.get(), attS.get(), attR.get(), attAmt.get(),
+                         attAcv.get(), attDcv.get(), attRcv.get() })
+            if (a) a->sendInitialUpdate();
         repaint();
     }
 
@@ -1616,10 +1636,10 @@ public:
         // Envelope outline (with per-stage curve shaping).
         juce::Path curve;
         curve.startNewSubPath(geo.p0);
-        appendStage(curve, geo.p0, geo.p1, curveIndex(aCv));   // attack 0→1
-        appendStage(curve, geo.p1, geo.p2, curveIndex(dCv));   // decay 1→sustain
+        appendStage(curve, geo.p0, geo.p1, curveIndex(pAcv));   // attack 0→1
+        appendStage(curve, geo.p1, geo.p2, curveIndex(pDcv));   // decay 1→sustain
         curve.lineTo(geo.p3);                                  // sustain hold (flat)
-        appendStage(curve, geo.p3, geo.p4, curveIndex(rCv), true);   // release sustain→0 (RC-discharge)
+        appendStage(curve, geo.p3, geo.p4, curveIndex(pRcv), true);   // release sustain→0 (RC-discharge)
 
         // Faint fill under the curve.
         juce::Path fill = curve;
@@ -1676,12 +1696,19 @@ public:
         {
             // Click on a segment body → cycle that stage's curve shape.
             draggingHandle = Handle::None;
-            juce::ComboBox* seg = nullptr;
-            if      (p.x < geo.p1.x)      seg = aCv;
-            else if (p.x < geo.p2.x)      seg = dCv;
-            else if (p.x >= geo.p3.x)     seg = rCv;   // sustain hold (p2..p3) has no curve
-            if (seg) cycleCurve(*seg);
+            if      (p.x < geo.p1.x)  cycleCurve(attAcv, pAcv);
+            else if (p.x < geo.p2.x)  cycleCurve(attDcv, pDcv);
+            else if (p.x >= geo.p3.x) cycleCurve(attRcv, pRcv);   // sustain hold (p2..p3) has no curve
             return;
+        }
+
+        // Begin host-automation gesture(s) for the parameter(s) this handle edits.
+        switch (draggingHandle)
+        {
+            case Handle::Attack:  beginG(attA); beginG(attAmt); break;
+            case Handle::Sustain: beginG(attD); beginG(attS);   break;
+            case Handle::Release: beginG(attR);                 break;
+            default: break;
         }
 
         // Record the grab anchor + starting proportions so dragging is RELATIVE:
@@ -1689,11 +1716,11 @@ public:
         // off its exact value position (the min-width-clamped sustain node at
         // decay≈0) then doesn't jump its decay on the first drag.
         dragStart    = p;
-        startAprop   = prop(aRow);
-        startDprop   = prop(dRow);
-        startSprop   = prop(sRow);
-        startRprop   = prop(rRow);
-        startAmtProp = prop(amtRow);
+        startAprop   = propOf(pA);
+        startDprop   = propOf(pD);
+        startSprop   = propOf(pS);
+        startRprop   = propOf(pR);
+        startAmtProp = propOf(pAmt);
         peakShowAmt  = false;       // until the drag reveals a dominant axis
         repaint();
     }
@@ -1710,19 +1737,19 @@ public:
             case Handle::Attack:
                 // X = attack time; Y = ENV Amount (drag the ceiling down to scale
                 // the whole envelope proportionally). Both track the cursor 1:1.
-                setProp(aRow->getSlider(),   startAprop   + dx / geo.segW);
-                setProp(amtRow->getSlider(), startAmtProp - dy / geo.plot.getHeight());
+                setPropG(attA,   pA,   startAprop   + dx / geo.segW);
+                setPropG(attAmt, pAmt, startAmtProp - dy / geo.plot.getHeight());
                 peakShowAmt = std::abs(dy) > std::abs(dx);
                 break;
             case Handle::Sustain:
-                setProp(dRow->getSlider(), startDprop + dx / geo.segW);
+                setPropG(attD, pD, startDprop + dx / geo.segW);
                 // Sustain Y is scaled by the ceiling (susY = bottom − amtP·sP·H),
                 // so divide by amtP·H to keep the node tracking the cursor.
-                setProp(sRow->getSlider(), startSprop
+                setPropG(attS, pS, startSprop
                         - dy / (juce::jmax(startAmtProp, 0.05f) * geo.plot.getHeight()));
                 break;
             case Handle::Release:
-                setProp(rRow->getSlider(), startRprop + dx / geo.segW);
+                setPropG(attR, pR, startRprop + dx / geo.segW);
                 break;
             default: break;
         }
@@ -1731,7 +1758,15 @@ public:
 
     void mouseUp(const juce::MouseEvent&) override
     {
-        if (draggingHandle != Handle::None) { draggingHandle = Handle::None; repaint(); }
+        switch (draggingHandle)
+        {
+            case Handle::Attack:  endG(attA); endG(attAmt); break;
+            case Handle::Sustain: endG(attD); endG(attS);   break;
+            case Handle::Release: endG(attR);               break;
+            default: return;   // segment-click (curve cycle) began no gesture
+        }
+        draggingHandle = Handle::None;
+        repaint();
     }
 
 private:
@@ -1744,38 +1779,46 @@ private:
         float segW = 1.0f;
     };
 
-    bool isBound() const { return aRow && dRow && sRow && rRow && amtRow && aCv && dCv && rCv; }
+    bool isBound() const { return pA && pD && pS && pR && pAmt && pAcv && pDcv && pRcv; }
 
-    void detach()
+    // Number of envelope curve shapes (Log / SoftLog / Lin / SoftExp / Exp).
+    static constexpr int kNumCurves = 5;
+
+    static void beginG(std::unique_ptr<juce::ParameterAttachment>& a) { if (a) a->beginGesture(); }
+    static void endG  (std::unique_ptr<juce::ParameterAttachment>& a) { if (a) a->endGesture(); }
+
+    // Current choice index of a curve parameter (denormalized value rounded).
+    static int curveIndex(juce::RangedAudioParameter* p)
     {
-        for (auto* row : { aRow, dRow, sRow, rRow, amtRow }) if (row) row->getSlider().removeListener(this);
-        for (auto* cb  : { aCv, dCv, rCv })          if (cb)  cb->removeListener(this);
+        return p ? juce::jlimit(0, kNumCurves - 1,
+                                (int) std::lround(
+                                    p->getNormalisableRange().convertFrom0to1(p->getValue())))
+                 : 2;  // default Lin
     }
 
-    void sliderValueChanged(juce::Slider*) override { repaint(); }
-    void comboBoxChanged(juce::ComboBox*) override   { repaint(); }
-
-    static int curveIndex(juce::ComboBox* cb)
+    static void cycleCurve(std::unique_ptr<juce::ParameterAttachment>& att,
+                           juce::RangedAudioParameter* p)
     {
-        return cb ? juce::jlimit(0, 4, cb->getSelectedId() - 1) : 2;  // default Lin
+        if (! att || ! p) return;
+        att->setValueAsCompleteGesture((float) ((curveIndex(p) + 1) % kNumCurves));
     }
 
-    static void cycleCurve(juce::ComboBox& cb)
+    // Write a 0..1 proportion straight to the parameter. prop maps 1:1 onto the
+    // parameter's normalized value (skew handled inside its NormalisableRange),
+    // exactly as the old slider path did via proportionOfLengthToValue.
+    static void setPropG(std::unique_ptr<juce::ParameterAttachment>& att,
+                         juce::RangedAudioParameter* p, float prop)
     {
-        const int n = juce::jmax(1, cb.getNumItems());
-        cb.setSelectedId((cb.getSelectedId() % n) + 1);
-    }
-
-    static void setProp(juce::Slider& s, float prop)
-    {
+        if (! att || ! p) return;
         prop = juce::jlimit(0.0f, 1.0f, prop);
-        s.setValue(s.proportionOfLengthToValue(prop), juce::sendNotificationSync);
+        att->setValueAsPartOfGesture(p->getNormalisableRange().convertFrom0to1(prop));
     }
 
-    static float prop(SliderRow* r)
+    static float propOf(juce::RangedAudioParameter* p) { return p ? p->getValue() : 0.0f; }
+
+    static double denorm(juce::RangedAudioParameter* p)
     {
-        auto& s = r->getSlider();
-        return (float) s.valueToProportionOfLength(s.getValue());
+        return p ? (double) p->getNormalisableRange().convertFrom0to1(p->getValue()) : 0.0;
     }
 
     Geometry computeGeometry() const
@@ -1793,12 +1836,12 @@ private:
         const float holdW   = usableW * 0.16f;
         geo.segW = (usableW - holdW) / 3.0f;
 
-        const float aP = prop(aRow), dP = prop(dRow), rP = prop(rRow), sP = prop(sRow);
+        const float aP = propOf(pA), dP = propOf(pD), rP = propOf(pR), sP = propOf(pS);
         // ENV Amount (ampAmount, 0..1) is the envelope CEILING: the whole shape
         // scales vertically by amtP, anchored at the bottom. Peak height = amtP·H,
         // sustain height = amtP·sP·H. The peak handle's Y drag sets amtP. (amtP=1
         // ⇒ peak at the top, identical to the pre-ceiling layout.)
-        const float amtP  = prop(amtRow);
+        const float amtP  = propOf(pAmt);
         const float peakY = bottom - amtP * H;
         const float susY  = bottom - amtP * sP * H;
 
@@ -1858,12 +1901,13 @@ private:
 
     juce::String dragReadout() const
     {
+        if (! fmtTimeFn || ! fmtLevelFn) return {};
         switch (draggingHandle)
         {
-            case Handle::Attack:  return peakShowAmt ? "Amt " + amtRow->getDisplayValue()
-                                                     : aRow->getDisplayValue();
-            case Handle::Sustain: return sRow->getDisplayValue();
-            case Handle::Release: return rRow->getDisplayValue();
+            case Handle::Attack:  return peakShowAmt ? "Amt " + fmtLevelFn(denorm(pAmt))
+                                                     : fmtTimeFn(denorm(pA));
+            case Handle::Sustain: return fmtLevelFn(denorm(pS));
+            case Handle::Release: return fmtTimeFn(denorm(pR));
             default: return {};
         }
     }
@@ -1884,10 +1928,16 @@ private:
     float startAmtProp = 0.0f;
     bool  peakShowAmt = false;   // peak-handle readout: true → show Amt, false → Attack
 
-    SliderRow* aRow = nullptr; SliderRow* dRow = nullptr;
-    SliderRow* sRow = nullptr; SliderRow* rRow = nullptr;
-    SliderRow* amtRow = nullptr;
-    juce::ComboBox* aCv = nullptr; juce::ComboBox* dCv = nullptr; juce::ComboBox* rCv = nullptr;
+    // Envelope parameters (owned by the processor; outlive this component) plus a
+    // ParameterAttachment each for gesture-wrapped writes + repaint-on-change.
+    juce::RangedAudioParameter* pA = nullptr;   juce::RangedAudioParameter* pD = nullptr;
+    juce::RangedAudioParameter* pS = nullptr;   juce::RangedAudioParameter* pR = nullptr;
+    juce::RangedAudioParameter* pAmt = nullptr;
+    juce::RangedAudioParameter* pAcv = nullptr; juce::RangedAudioParameter* pDcv = nullptr;
+    juce::RangedAudioParameter* pRcv = nullptr;
+    std::unique_ptr<juce::ParameterAttachment> attA, attD, attS, attR, attAmt,
+                                               attAcv, attDcv, attRcv;
+    std::function<juce::String(double)> fmtTimeFn, fmtLevelFn;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AdsrGraph)
 };

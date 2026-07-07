@@ -203,13 +203,13 @@ void SynthPanel::initEnv(EnvSection& env, const juce::String& name, int defaultT
     setupCurveBtn(env.dCurveBtn, env.dCurveHidden, dCurveId, apvts, env.dCurveA);
     setupCurveBtn(env.rCurveBtn, env.rCurveHidden, rCurveId, apvts, env.rCurveA);
 
-    // ── Easy-view graphical ADSR editor (replaces the four faders) ──
-    // Bound to the existing SliderRows + curve ComboBoxes, so APVTS stays the
-    // single source of truth. Created after the attachments above so the sliders
-    // already carry their parameter ranges.
+    // ── Graphical ADSR editor ──
+    // Attaches DIRECTLY to the APVTS parameters (not to the faders), so APVTS is
+    // the single source of truth and no hidden slider is load-bearing. fmtMs
+    // formats A/D/R, fmtF2 formats Sustain/Amt — mirroring the fader read-outs.
     env.graph = std::make_unique<AdsrGraph>(kEnvCol);
-    env.graph->bind(env.aRow.get(), env.dRow.get(), env.sRow.get(), env.rRow.get(), env.amtRow.get(),
-                    &env.aCurveHidden, &env.dCurveHidden, &env.rCurveHidden);
+    env.graph->bind(apvts, aId, dId, sId, rId, amtId, aCurveId, dCurveId, rCurveId,
+                    fmtMs, fmtF2);
     addAndMakeVisible(*env.graph);
 
     // Trigger initial value display
