@@ -87,6 +87,7 @@ public:
     void paint(juce::Graphics& g) override;
     void resized() override;
     void mouseDown(const juce::MouseEvent& e) override;
+    void mouseDoubleClick(const juce::MouseEvent& e) override;
     int getPreferredHeightForWidth(int width) const;
     void setEasyMode(bool easy);
 
@@ -177,6 +178,13 @@ private:
     void syncSeedEditorEnabledState();
     void syncSeedEditorFont(float size);
     void syncSeedEditorDisplay(int seed, bool force = false);
+    /** Easy-mode entry point for an exact fixed seed: opened by double-clicking
+     *  the Lock (steady) button in the Variation switchbox (seedEditor's own
+     *  text field is Advanced-only). Async AlertWindow — mirrors the "Rename
+     *  Preset" pattern in MainPanel.cpp. On OK, writes the typed value into
+     *  seedEditor BEFORE switching to steady mode, so setSeedMode's "keep
+     *  current value" branch preserves it. */
+    void openSeedEntryDialog();
 
     /** Build a PipeInference::Request from current UI state, with optional overrides. */
     PipeInference::Request buildInferenceRequest(float alphaOverride = std::numeric_limits<float>::quiet_NaN(),

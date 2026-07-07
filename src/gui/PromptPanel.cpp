@@ -376,7 +376,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         static constexpr Icon seedIcons[kNumSeedModeBtns] = { Icon::Ban, Icon::Lock, Icon::Shuffle };
         static constexpr const char* seedTips[kNumSeedModeBtns] = {
             "none: fixed base seed (no variation)",
-            "last: reuse the previous seed",
+            "last: reuse the previous seed (double-click to type a specific seed)",
             "auto: new random seed each generation"
         };
         for (int i = 0; i < kNumSeedModeBtns; ++i)
@@ -402,6 +402,13 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
             addAndMakeVisible(b);
         }
         syncSeedModeButtons();
+
+        // Double-click on the Lock ("last"/steady) button opens a modal to type
+        // an exact seed (see mouseDoubleClick/openSeedEntryDialog) — the Easy-mode
+        // way to set a specific seed, since seedEditor's text field is hidden
+        // outside Advanced. The co-firing single click just selects steady mode,
+        // which is fine/desired.
+        seedModeBtns[static_cast<int>(SeedMode::steady)].addMouseListener(this, false);
 
         // Easy-view Variation is a single switchbox row: a "VAR" caption + the
         // 3 seed-mode icons (framed by paintSwitchBoxBorder). No card — the
@@ -2009,6 +2016,36 @@ void PromptPanel::syncSeedEditorDisplay(int seed, bool force)
     syncSeedEditorFont(preferredPromptFontForWidth(getWidth()) * 1.25f);
 }
 
+// Easy-mode entry point for an exact fixed seed: double-clicking the Lock
+// (steady) button in the Variation switchbox (mouseDoubleClick) opens this
+// instead of just selecting steady mode. Mirrors the "Rename Preset" async
+// AlertWindow pattern (MainPanel.cpp, onRenameRequested) — heap-owned,
+// deleted inside its own modal callback; never a blocking modal loop.
+void PromptPanel::openSeedEntryDialog()
+{
+    auto* alert = new juce::AlertWindow("Set Seed", "Enter a seed number:",
+                                        juce::MessageBoxIconType::NoIcon, this);
+    alert->addTextEditor("seed", juce::String(getSeed()));
+    alert->getTextEditor("seed")->setInputRestrictions(12, "0123456789");
+    alert->addButton("Set", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    alert->enterModalState(true,
+        juce::ModalCallbackFunction::create([this, alert](int result)
+        {
+            std::unique_ptr<juce::AlertWindow> deleter(alert);
+            if (result != 1) return;
+
+            const int seed = alert->getTextEditor("seed")->getText().getIntValue();
+            if (seed <= 0) return;
+
+            // Value-first: write the typed seed into the store BEFORE switching
+            // to steady mode, so setSeedMode's "seedEditor already has a value"
+            // branch keeps it instead of falling back to getLastSeed()/kBaseSeed.
+            syncSeedEditorDisplay(seed, true);
+            setSeedMode(SeedMode::steady, true);
+        }), false);
+}
+
 void PromptPanel::triggerGenerationWithOffsets(std::vector<std::pair<int, float>> offsets)
 {
     pendingOffsets_ = std::move(offsets);
@@ -3280,4 +3317,13 @@ void PromptPanel::mouseDown(const juce::MouseEvent& e)
 
     if (paramId.isNotEmpty())
         showMidiLearnMenu(processorRef, paramId, e.getScreenPosition());
+}
+
+void PromptPanel::mouseDoubleClick(const juce::MouseEvent& e)
+{
+    // The co-firing single click (Button's own handling) already selects
+    // steady mode via seedModeBtns[steady].onClick — this only layers the
+    // seed-entry dialog on top for the Easy-mode "type an exact seed" path.
+    if (e.eventComponent == &seedModeBtns[static_cast<int>(SeedMode::steady)])
+        openSeedEntryDialog();
 }
