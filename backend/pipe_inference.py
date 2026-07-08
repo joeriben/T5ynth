@@ -2249,14 +2249,11 @@ def _generate_native(pipe, request):
     cfg_scale = request.get("cfg_scale", 4.0)
     seed = request.get("seed", -1)
     dim_offsets = _sanitize_dimension_offsets(request.get("dimension_offsets"))
-    # Dimension Explorer is disabled for SA3 (see the GUI grey-out). Pushing
-    # t5gemma's live embedding dims doesn't morph semantically — measured, it
-    # only drives the output off-manifold toward noise/brightness, which the
-    # noise slider already covers. Ignore offsets here regardless of source
-    # (e.g. a preset saved under SAO), a safety net mirroring the request-side
-    # clear. The offsets-count log line below then correctly reports none.
-    if dim_offsets and (getattr(pipe, "model_name", "") or "").lower().startswith("stable-audio-3"):
-        dim_offsets = None
+    # Dimension Explorer now runs for SA3 too. The edit is confined to the real
+    # (non-padded) tokens by _mask_pad below — broadcasting a raw t5gemma-dim push
+    # across the 95-99 % learned-padding positions is what previously drove the
+    # output off-manifold. Offsets are honoured uniformly for every conditioner
+    # here; the per-token confinement + honest masked pooling live further down.
     injection_mode = request.get("injection_mode", "linear")
     injection_transition_at = max(
         0.05, min(0.95, float(request.get("injection_transition_at", 0.6)))
@@ -2367,10 +2364,8 @@ def _generate_native(pipe, request):
             prompt_emb_a = _echo_through_null(prompt_emb_b, null_pe)
             mask_a = mask_b
 
-        # Mean-pool for DimensionExplorer stats (post-echo, pre-manipulation)
-        emb_a_pooled = prompt_emb_a.squeeze(0).mean(dim=0).cpu().float().numpy()
-        emb_b_pooled = prompt_emb_b.squeeze(0).mean(dim=0).cpu().float().numpy()
-
+        # Masks first — both the explorer pooling and the padding handling
+        # below depend on them.
         combined_mask = None
         if mask_a is not None and mask_b is not None:
             combined_mask = (mask_a | mask_b)
@@ -2393,13 +2388,42 @@ def _generate_native(pipe, request):
                 _learned_padding = prompt_emb_a[_pad_pos].abs().mean().item() > 1e-4
 
         def _mask_pad(emb):
-            """Zero padded positions to scrub manipulation pollution — UNLESS the
-            conditioner uses a learned (non-zero) padding embedding the DiT
-            depends on, in which case masking would be destructive (no-op).
-            Also a no-op when there is no mask."""
-            if combined_mask is None or _learned_padding:
+            """Confine every embedding manipulation to the REAL (non-padded)
+            tokens. Two conditioner regimes:
+              • TRUE-ZERO padding (SAO's T5): zero the padded positions, which
+                both restores padding to zero AND scrubs manipulation pollution.
+              • LEARNED padding (SA3's t5gemma): the DiT cross-attends to a
+                non-zero sentinel at padded positions, so zeroing it collapses
+                the latent to a ~10.76 Hz buzz. Instead RESTORE the raw sentinel
+                (from the un-manipulated prompt_emb_a) — this leaves the learned
+                padding untouched while keeping magnitude / noise / axes / dim
+                offsets on the real tokens only, where the semantic content
+                lives. Broadcasting an edit across the 95-99 % padded positions
+                is what pushed SA3 manipulation off-manifold.
+            No-op when there is no mask, or when nothing was manipulated (the
+            un-manipulated blend already carries the raw sentinel at padding)."""
+            if combined_mask is None:
                 return emb
+            if _learned_padding:
+                out = emb.clone()
+                pad = ~combined_mask.bool()  # [1, seq]
+                out[pad] = prompt_emb_a[pad].to(out.dtype)
+                return out
             return emb * combined_mask.unsqueeze(-1).float()
+
+        def _pooled(emb, mask):
+            """Pool an embedding [1, seq, 768] → [768] for the GUI explorer.
+            Masked mean over the REAL tokens when the conditioner uses learned
+            padding (SA3) — a naive full-sequence mean dilutes the true per-token
+            divergence ~20-80× across the padded positions. SAO's true-zero
+            padding keeps the historical naive mean (byte-identical bars)."""
+            if _learned_padding and mask is not None:
+                return _mean_pool(emb, mask)
+            return emb.squeeze(0).mean(dim=0).cpu().float().numpy()
+
+        # Mean-pool for DimensionExplorer stats (post-echo, pre-manipulation)
+        emb_a_pooled = _pooled(prompt_emb_a, mask_a)
+        emb_b_pooled = _pooled(prompt_emb_b, mask_b)
 
         # ── Embedding-level manipulators ──
         # Magnitude / Noise / Semantic Axes / Dimension Offsets all act
@@ -2415,17 +2439,13 @@ def _generate_native(pipe, request):
         sem_axes = request.get("semantic_axes")
         axes_amount = float(request.get("axes_amount", 1.0))
 
-        # Semantic axes are disabled for SA3. The axis directions were derived
-        # from aggregate prompt→embedding patterns on the SAO/T5 conditioner and
-        # do not transfer to SA3's t5gemma: its learned padding displaces the
-        # neutral "zero line", so the per-axis direction = encode(pole) − neutral
-        # comes out unbalanced (one pole coherent, the other off-manifold) and
-        # ~10× under-scaled. Until they are recomputed for SA3 this is a backend
-        # safety net mirroring the GUI grey-out — ignore axes here regardless of
-        # what the request carries (e.g. a preset saved under SAO). SAO and
-        # AudioLDM2 keep their working axes untouched.
-        if sem_axes and (getattr(pipe, "model_name", "") or "").lower().startswith("stable-audio-3"):
-            sem_axes = None
+        # Semantic axes now run for SA3 too, with one KNOWN LIMITATION: the axis
+        # direction = encode(pole) − encode("") still uses t5gemma's learned
+        # padding as the neutral "zero line", so the poles come out somewhat
+        # unbalanced / under-scaled vs SAO's T5 (a proper per-SA3 recompute of the
+        # pole texts is the real fix). The push is at least confined to the real
+        # tokens by _mask_pad below, so it is no longer swamped by the padding.
+        # SAO and AudioLDM2 keep their validated axes untouched.
 
         def native_encode(text):
             cond = pipe.model.conditioner(
@@ -2501,13 +2521,13 @@ def _generate_native(pipe, request):
             # your dim offsets" reference contract).
             manipulated = apply_pre_offsets(manipulated)
             baseline = _mask_pad(manipulated)
-            baseline_pooled = baseline.squeeze(0).mean(dim=0).cpu().float().numpy()
+            baseline_pooled = _pooled(baseline, combined_mask)
             manipulated = apply_dim_offsets(manipulated)
         elif injection_mode == "delta":
             manipulated = prompt_emb_a + alpha * (prompt_emb_b - null_pe)
             manipulated = apply_pre_offsets(manipulated)
             baseline = _mask_pad(manipulated)
-            baseline_pooled = baseline.squeeze(0).mean(dim=0).cpu().float().numpy()
+            baseline_pooled = _pooled(baseline, combined_mask)
             manipulated = apply_dim_offsets(manipulated)
         elif injection_mode == "late_step":
             # Late-phase blend driven by late_phase_alpha (set by the Fine slider).
@@ -2521,7 +2541,7 @@ def _generate_native(pipe, request):
             late_emb_manip = apply_all(late_blend)        # late-phase conditioning
             late_emb_zeroed = _mask_pad(late_emb_manip)
             late_step_payload = (late_emb_zeroed, combined_mask)
-            baseline_pooled = manipulated.squeeze(0).mean(dim=0).cpu().float().numpy()
+            baseline_pooled = _pooled(manipulated, combined_mask)
         elif injection_mode == "layer_split":
             # Per-block context override via forward_pre_hook on each
             # block.cross_attn. Pre-project A, B, null through to_cond_embed
@@ -2546,7 +2566,7 @@ def _generate_native(pipe, request):
             blocks = dit.transformer.layers
             layer_split_payload = (proj_a, proj_b, proj_null, blocks)
             manipulated = emb_a_manip  # un-hooked fallback / global cond path
-            baseline_pooled = manipulated.squeeze(0).mean(dim=0).cpu().float().numpy()
+            baseline_pooled = _pooled(manipulated, combined_mask)
         else:  # kombi1 / kombi2 / kombi3 — late-step × layer-split.
             # Kombi semantics: early sampler steps see pure A on every block.
             # After the transition step, each block in the per-Kombi
@@ -2568,7 +2588,7 @@ def _generate_native(pipe, request):
             blocks = dit.transformer.layers
             kombi_payload = (proj_a, proj_late, proj_null, blocks)
             manipulated = emb_a_manip  # un-hooked fallback / global cond path
-            baseline_pooled = manipulated.squeeze(0).mean(dim=0).cpu().float().numpy()
+            baseline_pooled = _pooled(manipulated, combined_mask)
 
         # Scrub manipulation pollution from padded positions. For conditioners
         # with TRUE-ZERO padding (SAO's T5) this restores padding to zero; for

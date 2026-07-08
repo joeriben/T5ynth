@@ -1133,37 +1133,10 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         return axesPanel.getAxisValuesWithOffsets(o1, o2, o3);
     };
 
-    // Grey out the Semantic Axes AND Dimension Explorer cards for SA3 — neither
-    // embedding-space manipulator transfers to the t5gemma conditioner (the axes
-    // lose their zero-line reference; pushing live dims only drives the output
-    // off-manifold toward noise, which the noise slider already covers).
-    // PromptPanel also withholds both from the request and the backend ignores
-    // them. Guarded so we only repaint on an actual state flip, not on every
-    // model/injection-mode notification.
+    // Semantic Axes AND the Dimension Explorer now run for SA3 too — the backend
+    // confines the embedding edit to the real (non-padded) tokens, so both panels
+    // stay live on every engine. Only Resynth remains model-gated (below).
     promptPanel.onModelChanged = [this]() {
-        const bool enabled = !promptPanel.selectedModelIsSA3();
-        if (axesPanel.isEnabled() != enabled)
-        {
-            axesPanel.setEnabled(enabled);
-            axesPanel.setAlpha(enabled ? 1.0f : 0.4f);
-
-            // Dimension Explorer: close the overlay first (if open) so we don't
-            // leave a greyed-but-open card, then disable+dim the mini-view. A
-            // disabled mini-view ignores clicks, so the overlay can't be
-            // reopened under SA3.
-            if (!enabled && dimExplorerVisible)
-                hideDimExplorer();
-            dimensionExplorer.setEnabled(enabled);
-            dimensionExplorer.setAlpha(enabled ? 1.0f : 0.4f);
-
-            // Both segments operate on embeddings — grey the whole switch.
-            for (auto& s : axesDimSegBtns)
-            {
-                s.setEnabled(enabled);
-                s.setAlpha(enabled ? 1.0f : 0.4f);
-            }
-        }
-
         // Resynth is the INVERSE gate: enabled only for SA3, the inpaint engine
         // whose init_audio path it drives (SAO is backend-capable too, but the
         // element is scoped to SA3; AudioLDM2's diffusers path can't take it).

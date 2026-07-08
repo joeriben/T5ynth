@@ -144,8 +144,8 @@ public:
     std::function<std::map<juce::String, float>(float, float, float)> getAxisValuesCallback;
 
     /** Fired whenever the selected model may have changed (model click, preset
-     *  load, backend availability). MainPanel uses it to grey out the AxesPanel
-     *  for SA3, whose semantic axes are deactivated pending recalculation. */
+     *  load, backend availability). MainPanel uses it to flip the Resynth gate
+     *  (SA3-only). Semantic Axes / Dimension Explorer now run on every engine. */
     std::function<void()> onModelChanged;
 
     /** Fired when the user toggles the SA3 tier (small/medium) by re-clicking the
@@ -377,8 +377,8 @@ private:
 
 public:
     /** True when the active model is SA3 (Stable Audio 3 Small Music). Public
-     *  so MainPanel can gate the AxesPanel — SA3's semantic axes are disabled
-     *  pending recalculation for its t5gemma conditioner. */
+     *  so MainPanel can gate the SA3-only Resynth control and the 120 s duration
+     *  ceiling. (Semantic Axes / Dimension Explorer now run on SA3 too.) */
     bool selectedModelIsSA3() const;
 
 private:

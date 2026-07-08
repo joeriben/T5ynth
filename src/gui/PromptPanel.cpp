@@ -2196,14 +2196,11 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     req.dimensionOffsets = std::move(pendingOffsets_);
     req.semanticAxes = axesOverride.empty() ? std::move(pendingAxes_) : std::move(axesOverride);
     req.axesAmount = apvts.getRawParameterValue(PID::genAxesAmount)->load();
-    // Semantic axes AND the dimension explorer are disabled for SA3 (both panels
-    // are greyed out for it). Clear them here regardless of source so values left
-    // in the panels — e.g. from a preset saved under SAO and recalled under SA3 —
-    // are never sent. The backend ignores both for SA3 too, as a safety net.
+    // Semantic axes AND the dimension explorer now run for SA3 too — the backend
+    // confines the embedding edit to the real (non-padded) tokens, so both are
+    // sent as-is. Only the SA3 modality routing is model-specific below.
     if (isSA3Model(req.model))
     {
-        req.semanticAxes.clear();
-        req.dimensionOffsets.clear();
         // SA3 modality: the tonal slot (0) and SFX slot (1) can be backed by the
         // SAME medium checkpoint, so the selected slot index — not the model id —
         // selects the domain. The tonal slot sends "instrument" (isolated single
