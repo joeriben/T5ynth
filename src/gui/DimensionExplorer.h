@@ -97,12 +97,14 @@ private:
     int dragBar_ = -1;
     int lastPaintBar_ = -1;
     bool dragDirty_ = false;
+    float valueScaleMax_ = 0.1f;
 
     void rebuildBars(const std::vector<float>& baselineValues, bool preserveOffsets);
     void paintMiniBins(juce::Graphics& g);   // mini-view: |A-B| focus spectrum (binned)
     int barAtX(float x) const;
-    float valueToY(float value) const;       // fixed symmetric-log map (up = A, down = B)
-    float yToValue(float y) const;           // inverse of valueToY
+    float valueToY(float value, float scaleMax) const;
+    float yToValue(float y, float scaleMax) const;
+    float currentDisplayMax() const;
     float barOrientation(const Bar& bar) const;
     float barMidpoint(const Bar& bar) const;
     float orientedValue(const Bar& bar, float actualValue) const;

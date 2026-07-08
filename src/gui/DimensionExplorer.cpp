@@ -11,17 +11,8 @@ static const auto kBarB     = kImpulseB;                 // Yellow (B-side)
 static const auto kBarEdit  = juce::Colour(0xff26C6DA);  // Cyan (user-edited offset)
 static const auto kBarBg    = juce::Colour(0xff0e0e0e);
 static const auto kZeroLine = juce::Colour(0xff2a2a2a);
-// Fixed symmetric-log Y axis (see valueToY): linear within ±kLogLinThresh, logarithmic
-// out to ±kLogMaxValue at the rail; kLogLinFrac is the share of the half-axis given to
-// the linear near-zero region. FIXED constants → the axis never rescales per generation,
-// so nothing "flips": both SAO's tiny and SA3's ~13x-outlier oriented values sit at
-// stable positions on the same ~3-decade span.
-static constexpr float kLogLinThresh = 0.05f;
-static constexpr float kLogMaxValue  = 50.0f;
-static constexpr float kLogLinFrac   = 0.12f;
-// UI drag clamp — mirror the backend's MAX_DIMENSION_OFFSET so a dragged bar can never
-// show more offset than the backend will actually apply.
-static constexpr float kMaxOffset = 4.0f;
+static constexpr float kMinValueScale = 0.1f;
+static constexpr float kScaleHeadroom = 1.05f;
 
 DimensionExplorer::DimensionExplorer() = default;
 
@@ -87,6 +78,7 @@ void DimensionExplorer::clear()
     dragBar_ = -1;
     lastPaintBar_ = -1;
     dragDirty_ = false;
+    valueScaleMax_ = kMinValueScale;
     undoStack_.clear();
     undoPos_ = -1;
     repaint();
@@ -125,6 +117,7 @@ void DimensionExplorer::rebuildBars(const std::vector<float>& baselineValues, bo
         hasUserEdits_ = false;
         undoStack_.clear();
         undoPos_ = -1;
+        valueScaleMax_ = kMinValueScale;
         return;
     }
 
@@ -139,6 +132,7 @@ void DimensionExplorer::rebuildBars(const std::vector<float>& baselineValues, bo
 
     bars_.resize(static_cast<size_t>(numDims));
     hasUserEdits_ = false;
+    valueScaleMax_ = kMinValueScale;
     for (int i = 0; i < numDims; ++i)
     {
         auto& bar = bars_[static_cast<size_t>(i)];
@@ -153,9 +147,31 @@ void DimensionExplorer::rebuildBars(const std::vector<float>& baselineValues, bo
         else
             bar.baseActualValue = bar.aValue;
         bar.offset = oldOffsets[static_cast<size_t>(i)];
+
+        valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.aValue)));
+        if (hasBPrompt_)
+        {
+            valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.bValue)));
+            // Overlay fits the A/B divergence envelope (plus any user offset), NOT the
+            // baseline's common-mode magnitude. orientedValue(baseActual) folds in the
+            // baseline's deviation from the A/B midpoint (~ (magnitude-1)*midpoint), which
+            // a single high-|midpoint| dimension inflates enough to crush the whole
+            // envelope to a thin strip around the zero line — the pre-rebuild scale was
+            // the plain divergence extent (max|A-B diff + offset|), which fills the view.
+            valueScaleMax_ = std::max(valueScaleMax_, std::abs(bar.offset));
+        }
+        else
+        {
+            // Single prompt: oriented == raw value, no midpoint to leak a common-mode
+            // term — fit the honest displayed extent, exactly as before.
+            valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.baseActualValue)));
+            valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, displayedActualValue(bar))));
+        }
         if (std::abs(bar.offset) > 1e-8f)
             hasUserEdits_ = true;
     }
+
+    valueScaleMax_ *= kScaleHeadroom;
 
     // Sort by |A-B| descending (most significant first)
     std::sort(bars_.begin(), bars_.end(), [](const Bar& a, const Bar& b) {
@@ -206,16 +222,31 @@ void DimensionExplorer::setDimensionOffsets(const std::vector<std::pair<int, flo
         for (auto& bar : bars_)
             if (bar.dimIndex == dimIndex)
             {
-                // Clamp to the backend's applied range (as mouseDrag does) so a loaded
-                // snapshot can't display / report more offset than the backend uses.
-                bar.offset = juce::jlimit(-kMaxOffset, kMaxOffset, delta);
+                bar.offset = delta;
                 break;
             }
 
     hasUserEdits_ = false;
+    valueScaleMax_ = kMinValueScale;
     for (auto& bar : bars_)
+    {
+        // Same scale rule as rebuildBars: fit the A/B divergence envelope (+ any offset),
+        // not the baseline's common-mode magnitude, so loading offsets keeps the fill.
+        valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.aValue)));
+        if (hasBPrompt_)
+        {
+            valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.bValue)));
+            valueScaleMax_ = std::max(valueScaleMax_, std::abs(bar.offset));
+        }
+        else
+        {
+            valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.baseActualValue)));
+            valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, displayedActualValue(bar))));
+        }
         if (std::abs(bar.offset) > 1e-8f)
             hasUserEdits_ = true;
+    }
+    valueScaleMax_ *= kScaleHeadroom;
 
     undoStack_.clear();
     undoStack_.push_back(makeUndoState());
@@ -340,50 +371,45 @@ int DimensionExplorer::barAtX(float x) const
     return juce::jlimit(0, static_cast<int>(bars_.size()) - 1, idx);
 }
 
-float DimensionExplorer::valueToY(float value) const
+float DimensionExplorer::currentDisplayMax() const
 {
-    // Fixed symmetric-log Y axis: linear within ±kLogLinThresh (so near-zero / shared-
-    // basis dims stay distinguishable and zero sits on the centre line), logarithmic
-    // beyond, out to kLogMaxValue at the rail. Up = toward A, down = toward B. The axis
-    // is FIXED — it never depends on the current data or edits, so nothing rescales
-    // ("flips") between generations; SAO's tiny and SA3's ~13x-outlier oriented values
-    // both fit the same static span.
-    const float centreY = barArea_.getCentreY();
-    const float halfH   = barArea_.getHeight() * 0.45f;
-    const float s = (value >= 0.0f) ? 1.0f : -1.0f;
-    const float a = std::abs(value);
-    float n;
-    if (a <= kLogLinThresh)
-        n = kLogLinFrac * (a / kLogLinThresh);
-    else
+    // Largest |oriented value| actually on screen right now — A/B reference lines,
+    // baseline, and the live edited finals. Unlike valueScaleMax_ (which bakes in
+    // editing headroom and stays frozen during a drag), this tracks the current
+    // offsets, so the mini-view always fits the real extent to 100% and can never
+    // clip a freshly dragged bar.
+    float maxAbs = kMinValueScale;
+    for (const auto& bar : bars_)
     {
-        const float decades = std::log10(a / kLogLinThresh)
-                            / std::log10(kLogMaxValue / kLogLinThresh);
-        n = kLogLinFrac + (1.0f - kLogLinFrac) * juce::jmin(1.0f, decades);
+        maxAbs = std::max(maxAbs, std::abs(orientedValue(bar, bar.aValue)));
+        if (hasBPrompt_)
+            maxAbs = std::max(maxAbs, std::abs(orientedValue(bar, bar.bValue)));
+        maxAbs = std::max(maxAbs, std::abs(orientedValue(bar, bar.baseActualValue)));
+        maxAbs = std::max(maxAbs, std::abs(orientedValue(bar, displayedActualValue(bar))));
     }
-    return centreY - s * n * halfH;
+    return maxAbs;
 }
 
-float DimensionExplorer::yToValue(float y) const
+float DimensionExplorer::valueToY(float value, float scaleMax) const
 {
-    // Inverse of the fixed symmetric-log map (drag is overlay-only).
-    const float centreY = barArea_.getCentreY();
-    const float halfH   = barArea_.getHeight() * 0.45f;
+    float centreY = barArea_.getCentreY();
+    // Mini-view is non-editable: the caller passes currentDisplayMax() and we use the
+    // full half-height, so the largest change reaches 100%. The editable overlay gets
+    // valueScaleMax_ (with headroom) + a smaller margin so bars can be dragged higher.
+    const float halfH = barArea_.getHeight() * (overlayMode_ ? 0.45f : 0.5f);
+    float clampedValue = juce::jlimit(-scaleMax, scaleMax, value);
+    return centreY - (clampedValue / scaleMax) * halfH;
+}
+
+float DimensionExplorer::yToValue(float y, float scaleMax) const
+{
+    float centreY = barArea_.getCentreY();
+    // Inverse of valueToY for the same mode/scale (drag is overlay-only).
+    const float halfH = barArea_.getHeight() * (overlayMode_ ? 0.45f : 0.5f);
     if (halfH < 1.0f) return 0.0f;
 
-    const float clampedY = juce::jlimit(centreY - halfH, centreY + halfH, y);
-    const float n = (centreY - clampedY) / halfH;   // [-1, 1]
-    const float s = (n >= 0.0f) ? 1.0f : -1.0f;
-    const float b = std::abs(n);
-    float a;
-    if (b <= kLogLinFrac)
-        a = kLogLinThresh * (b / kLogLinFrac);
-    else
-    {
-        const float frac = (b - kLogLinFrac) / (1.0f - kLogLinFrac);
-        a = kLogLinThresh * std::pow(10.0f, frac * std::log10(kLogMaxValue / kLogLinThresh));
-    }
-    return s * a;
+    float clampedY = juce::jlimit(barArea_.getY(), barArea_.getBottom(), y);
+    return -(clampedY - centreY) / halfH * scaleMax;
 }
 
 // ── Paint ───────────────────────────────────────────────────────
@@ -439,6 +465,10 @@ void DimensionExplorer::paint(juce::Graphics& g)
     float barW = barArea_.getWidth() / static_cast<float>(numBars);
     float gapFrac = (barW > 3.0f) ? 0.15f : 0.0f;
 
+    // Overlay holds a stable, headroom-padded scale so dragged bars don't rescale the
+    // view mid-gesture; the non-editable mini-view fits the live extent to 100%.
+    const float scaleMax = overlayMode_ ? valueScaleMax_ : currentDisplayMax();
+
     for (int i = 0; i < numBars; ++i)
     {
         auto& bar = bars_[static_cast<size_t>(i)];
@@ -446,19 +476,19 @@ void DimensionExplorer::paint(juce::Graphics& g)
         float w = barW * (1.0f - gapFrac);
         const float finalActual = displayedActualValue(bar);
         const float finalOriented = orientedValue(bar, finalActual);
-        float topY = valueToY(finalOriented);
+        float topY = valueToY(finalOriented, scaleMax);
 
         if (hasBPrompt_)
         {
-            const float aY = valueToY(orientedValue(bar, bar.aValue));
-            const float bY = valueToY(orientedValue(bar, bar.bValue));
+            const float aY = valueToY(orientedValue(bar, bar.aValue), scaleMax);
+            const float bY = valueToY(orientedValue(bar, bar.bValue), scaleMax);
             g.setColour(kBarA.withAlpha(0.25f));
             g.drawHorizontalLine(juce::roundToInt(aY), x, x + w);
             g.setColour(kBarB.withAlpha(0.25f));
             g.drawHorizontalLine(juce::roundToInt(bY), x, x + w);
         }
 
-        // Color: edited (cyan), toward A (periwinkle), toward B (yellow)
+        // Color: edited (blue), toward A (green), toward B (orange)
         juce::Colour col;
         if (std::abs(bar.offset) > 1e-8f)
             col = kBarEdit;
@@ -660,7 +690,7 @@ void DimensionExplorer::mouseDrag(const juce::MouseEvent& e)
 {
     if (dragBar_ < 0 || dragBar_ >= static_cast<int>(bars_.size())) return;
 
-    float newOrientedValue = yToValue(static_cast<float>(e.y));
+    float newOrientedValue = yToValue(static_cast<float>(e.y), valueScaleMax_);
     const bool paintMode = e.mods.isShiftDown();
     int targetBar = paintMode ? barAtX(static_cast<float>(e.x)) : dragBar_;
     if (targetBar < 0)
@@ -678,10 +708,7 @@ void DimensionExplorer::mouseDrag(const juce::MouseEvent& e)
     {
         auto& bar = bars_[static_cast<size_t>(i)];
         float newActualValue = actualValueFromOriented(bar, newOrientedValue);
-        // Clamp to the backend's applied range so the drawn bar can't claim more
-        // offset than the backend will use.
-        float newOffset = juce::jlimit(-kMaxOffset, kMaxOffset,
-                                       newActualValue - bar.baseActualValue);
+        float newOffset = newActualValue - bar.baseActualValue;
         if (std::abs(newOffset - bar.offset) > 1e-6f)
             dragDirty_ = true;
         bar.offset = newOffset;
