@@ -100,9 +100,10 @@ struct PresetLoadedLogEntry
 /** Header line — leads every .t5evt file, before any event line. */
 struct EventLogHeader
 {
-    int          formatVersion = 1;
+    int          formatVersion = 2;   // v2 adds startStateBase64 for replay
     juce::String t5ynthVersion;
     double       sampleRate = 44100.0;
+    juce::String startStateBase64;   // base64-encoded APVTS state at recording start (R0)
 };
 
 juce::DynamicObject::Ptr eventLogHeaderToDynamicObject(const EventLogHeader& h);

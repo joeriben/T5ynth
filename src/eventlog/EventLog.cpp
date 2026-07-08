@@ -69,6 +69,8 @@ juce::DynamicObject::Ptr eventLogHeaderToDynamicObject(const EventLogHeader& h)
     obj->setProperty("formatVersion", h.formatVersion);
     obj->setProperty("t5ynthVersion", h.t5ynthVersion);
     obj->setProperty("sampleRate",    h.sampleRate);
+    if (h.startStateBase64.isNotEmpty())
+        obj->setProperty("startState", h.startStateBase64);
     return obj;
 }
 

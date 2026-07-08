@@ -26,6 +26,14 @@ void EventLogWriterThread::setSampleRate(double sr)
     header_.sampleRate = sr;
 }
 
+void EventLogWriterThread::setStartState(const juce::String& base64State)
+{
+    // Message-thread only; called once when recording is enabled. The header
+    // is stamped into the file by openFileIfNeeded() on the first event.
+    const std::lock_guard<std::mutex> lock(pendingMutex_);
+    header_.startStateBase64 = base64State;
+}
+
 void EventLogWriterThread::pushNote(const NoteEventLogEntry& e) noexcept
 {
     // Audio thread, single producer, lock-free.

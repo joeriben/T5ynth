@@ -54,6 +54,11 @@ public:
      *  later) — set it before the first event opens the file. */
     void setSampleRate(double sr);
 
+    /** Capture the full APVTS state (base64-encoded) at recording start so the
+     *  .t5evt file is self-contained for replay. Message-thread only; called
+     *  once when recording is enabled. */
+    void setStartState(const juce::String& base64State);
+
     /** The .t5evt file currently being written this session, or an empty File if
      *  nothing has been recorded yet (the file is created lazily on the first
      *  event). Thread-safe; message thread calls it to offer "Save Session Log". */

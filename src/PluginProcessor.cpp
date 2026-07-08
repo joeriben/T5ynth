@@ -737,6 +737,17 @@ void T5ynthProcessor::setEventLogEnabled(bool enabled)
         s->setValue("eventLogEnabled", enabled);
         s->saveIfNeeded();
     }
+
+    // R0: Capture the full APVTS state at recording start so the .t5evt file
+    // is self-contained for replay. Message-thread only; getStateInformation()
+    // is safe here (no audio-thread contention on the APVTS tree read).
+    if (enabled && eventLogWriter_)
+    {
+        juce::MemoryBlock stateBlock;
+        getStateInformation(stateBlock);
+        const auto base64 = juce::Base64::toBase64(stateBlock.getData(), stateBlock.getSize());
+        eventLogWriter_->setStartState(base64);
+    }
 }
 
 bool T5ynthProcessor::getEventLogEnabled() const
