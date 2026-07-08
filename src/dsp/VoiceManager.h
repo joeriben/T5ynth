@@ -5,7 +5,8 @@
 #include <cmath>
 
 /**
- * Polyphonic voice manager — 8 voices with oldest-note stealing.
+ * Polyphonic voice manager — 8 voices with tiered voice stealing
+ * (releasing-oldest first, then lowest-amplitude held voice).
  *
  * Signal chain: MIDI → Voice allocation → per-voice (Osc→VCA→Filter) → sum
  * Dynamic equal-power scaling: each voice at 1/sqrt(N) where N = active voices.
@@ -165,7 +166,7 @@ private:
 
     // ── Voice allocation ──
     int findFreeVoice() const;
-    int stealVoice() const; // oldest-note policy
+    int stealVoice() const; // tiered: releasing-oldest first, then lowest-amplitude
 
     void updateGainTarget();
     int getHeldVoiceCount() const;

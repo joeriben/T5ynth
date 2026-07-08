@@ -787,23 +787,52 @@ int VoiceManager::findFreeVoice() const
 
 int VoiceManager::stealVoice() const
 {
-    // Oldest-note policy: steal voice with lowest noteOnTimestamp, skipping the
-    // drone voice so a mouse-held step never loses its voice to a seq trigger.
-    int oldest = -1;
-    uint64_t minTs = 0;
+    // Tiered voice-stealing policy:
+    //   Tier 0: releasing voices, oldest first (longest in release = most expendable)
+    //   Tier 1: active held voices, lowest amplitude first, oldest as tiebreaker
+    // The drone voice (sequencer-held step) is never stolen.
+    //
+    // getAmpEnvLevel() returns the last rendered amp-envelope level (0..1),
+    // already computed in renderBlock — no extra CPU cost for the comparison.
+
+    int bestIdx = -1;
+    uint64_t bestTs = 0;
+
+    // ── Tier 0: prefer releasing voices, oldest first ──
     for (int i = 0; i < voiceLimit; ++i)
     {
         if (i == droneVoiceIndex) continue;
-        if (oldest < 0 || voices[static_cast<size_t>(i)].noteOnTimestamp < minTs)
+        if (!voices[static_cast<size_t>(i)].isReleasing()) continue;
+
+        if (bestIdx < 0 || voices[static_cast<size_t>(i)].noteOnTimestamp < bestTs)
         {
-            minTs = voices[static_cast<size_t>(i)].noteOnTimestamp;
-            oldest = i;
+            bestTs = voices[static_cast<size_t>(i)].noteOnTimestamp;
+            bestIdx = i;
         }
     }
-    // If every voice in range is the drone (poly=1 with drone on 0), callers
-    // already handle the mono-drone case via the early-return in noteOn(), so
-    // this path is not exercised. Fallback keeps the return value defined.
-    return oldest >= 0 ? oldest : 0;
+    if (bestIdx >= 0) return bestIdx;
+
+    // ── Tier 1: any active voice — lowest amplitude wins, oldest breaks ties ──
+    float bestAmp = 2.0f;  // higher than any possible ampEnvLevel (0..1)
+    for (int i = 0; i < voiceLimit; ++i)
+    {
+        if (i == droneVoiceIndex) continue;
+        if (!voices[static_cast<size_t>(i)].isActive()) continue;
+
+        float amp = voices[static_cast<size_t>(i)].getAmpEnvLevel();
+        bool better = (amp < bestAmp)
+                   || (amp == bestAmp && voices[static_cast<size_t>(i)].noteOnTimestamp < bestTs);
+        if (better)
+        {
+            bestAmp = amp;
+            bestTs  = voices[static_cast<size_t>(i)].noteOnTimestamp;
+            bestIdx = i;
+        }
+    }
+
+    // Fallback (should never be reached — stealVoice() is only called when
+    // findFreeVoice() == -1, i.e. at least one non-drone voice is active).
+    return bestIdx >= 0 ? bestIdx : 0;
 }
 
 int VoiceManager::getActiveVoiceCount() const
