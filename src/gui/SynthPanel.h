@@ -42,7 +42,7 @@ private:
     WaveformDisplay waveformDisplay;
 
     // ── Voice count ──
-    static constexpr int kNumVoiceBtns = 6;
+    static constexpr int kNumVoiceBtns = 8;
     juce::TextButton voiceBtns[kNumVoiceBtns];
     juce::ComboBox voiceCountHidden;
     juce::Rectangle<int> voiceSwitchBounds;

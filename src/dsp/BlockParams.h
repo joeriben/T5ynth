@@ -985,17 +985,19 @@ namespace ResynthSource {
 
 // ── Voice count ──
 namespace VoiceCount {
-    enum : int { Mono = 0, V4 = 1, V6 = 2, V8 = 3, V12 = 4, V16 = 5 };
+    enum : int { Mono = 0, V4 = 1, V6 = 2, V8 = 3, V12 = 4, V16 = 5, V64 = 6, V128 = 7 };
     static constexpr ChoiceEntry kEntries[] = {
         { "mono", "Mono" },
         { "4",    "4"    },
         { "6",    "6"    },
         { "8",    "8"    },
         { "12",   "12"   },
-        { "16",   "16"   }
+        { "16",   "16"   },
+        { "64",   "64"   },
+        { "128",  "128"  }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(V16 + 1 == kCount, "VoiceCount out of sync.");
+    static_assert(V128 + 1 == kCount, "VoiceCount out of sync.");
 }
 
 // ── Wavetable frame count ──

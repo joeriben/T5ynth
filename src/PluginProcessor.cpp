@@ -2481,9 +2481,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     // ── Voice count ──────────────────────────────────────────────────────────
     {
-        static constexpr int voiceCounts[] = { 1, 4, 6, 8, 12, 16 };
+        static constexpr int voiceCounts[] = { 1, 4, 6, 8, 12, 16, 64, 128 };
         int vcIdx = static_cast<int>(paramCache.voiceCount->load());
-        voiceManager.setVoiceLimit(voiceCounts[juce::jlimit(0, 5, vcIdx)]);
+        voiceManager.setVoiceLimit(voiceCounts[juce::jlimit(0, 7, vcIdx)]);
     }
 
     // ── Tuning table ──────────────────────────────────────────────────────────

@@ -15,7 +15,7 @@
 class VoiceManager
 {
 public:
-    static constexpr int MAX_VOICES = 16;
+    static constexpr int MAX_VOICES = 128;
 
     VoiceManager() = default;
 
