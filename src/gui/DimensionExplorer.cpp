@@ -13,6 +13,10 @@ static const auto kBarBg    = juce::Colour(0xff0e0e0e);
 static const auto kZeroLine = juce::Colour(0xff2a2a2a);
 static constexpr float kMinValueScale = 0.1f;
 static constexpr float kScaleHeadroom = 1.05f;
+// Mirrors the backend's MAX_DIMENSION_OFFSET (pipe_inference.py) — a dragged offset
+// beyond this is silently clamped server-side, so the UI must clamp to the same
+// bound or the bar's resting position lies about what the backend will apply.
+static constexpr float kMaxOffset = 4.0f;
 
 DimensionExplorer::DimensionExplorer() = default;
 
@@ -52,10 +56,13 @@ std::vector<float> DimensionExplorer::estimateBaselineValues(
 
 void DimensionExplorer::setEmbeddings(const std::vector<float>& embA, const std::vector<float>& embB,
                                       const std::vector<float>& baselineValues,
-                                      bool preserveOffsets)
+                                      bool preserveOffsets,
+                                      float alpha, float magnitude)
 {
     embA_ = embA;
     embB_ = embB;
+    currentAlpha_ = alpha;
+    currentMagnitude_ = magnitude;
 
     // Symmetric prompt design: B is always meaningful — either typed text,
     // the Spiegelung-am-Modell-Null echo of A, or the model-unconditional
@@ -65,6 +72,20 @@ void DimensionExplorer::setEmbeddings(const std::vector<float>& embA, const std:
 
     rebuildBars(baselineValues, preserveOffsets);
     repaint();
+}
+
+void DimensionExplorer::setLiveAlphaMagnitude(float alpha, float magnitude)
+{
+    // Slider drag / Drift tick between generations: re-tint and re-height the
+    // existing bars against the new Alpha/Magnitude. Sort order and valueScaleMax_
+    // stay fixed from the last rebuildBars — only the per-bar weightedDiff() result
+    // (and therefore what's drawn) changes, so bars never reshuffle mid-drift.
+    if (std::abs(alpha - currentAlpha_) < 1e-6f && std::abs(magnitude - currentMagnitude_) < 1e-6f)
+        return;
+    currentAlpha_ = alpha;
+    currentMagnitude_ = magnitude;
+    if (!bars_.empty())
+        repaint();
 }
 
 void DimensionExplorer::clear()
@@ -79,6 +100,8 @@ void DimensionExplorer::clear()
     lastPaintBar_ = -1;
     dragDirty_ = false;
     valueScaleMax_ = kMinValueScale;
+    currentAlpha_ = 0.0f;
+    currentMagnitude_ = 1.0f;
     undoStack_.clear();
     undoPos_ = -1;
     repaint();
@@ -148,36 +171,20 @@ void DimensionExplorer::rebuildBars(const std::vector<float>& baselineValues, bo
             bar.baseActualValue = bar.aValue;
         bar.offset = oldOffsets[static_cast<size_t>(i)];
 
-        valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.aValue)));
-        if (hasBPrompt_)
-        {
-            valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.bValue)));
-            // Overlay fits the A/B divergence envelope (plus any user offset), NOT the
-            // baseline's common-mode magnitude. orientedValue(baseActual) folds in the
-            // baseline's deviation from the A/B midpoint (~ (magnitude-1)*midpoint), which
-            // a single high-|midpoint| dimension inflates enough to crush the whole
-            // envelope to a thin strip around the zero line — the pre-rebuild scale was
-            // the plain divergence extent (max|A-B diff + offset|), which fills the view.
-            valueScaleMax_ = std::max(valueScaleMax_, std::abs(bar.offset));
-        }
-        else
-        {
-            // Single prompt: oriented == raw value, no midpoint to leak a common-mode
-            // term — fit the honest displayed extent, exactly as before.
-            valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.baseActualValue)));
-            valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, displayedActualValue(bar))));
-        }
+        // Fit the same quantity the bars plot: the weighted A-B portions (at the
+        // Alpha/Magnitude captured just above) + any offset.
+        valueScaleMax_ = std::max(valueScaleMax_, std::abs(weightedDiff(bar) + bar.offset));
         if (std::abs(bar.offset) > 1e-8f)
             hasUserEdits_ = true;
     }
 
     valueScaleMax_ *= kScaleHeadroom;
 
-    // Sort by |A-B| descending (most significant first)
-    std::sort(bars_.begin(), bars_.end(), [](const Bar& a, const Bar& b) {
-        const float metricA = std::abs(a.aValue - a.bValue);
-        const float metricB = std::abs(b.aValue - b.bValue);
-        return metricA > metricB;
+    // Sort by |weighted A-B portions| descending (most significant first), fixed at
+    // this generation's Alpha/Magnitude. Order stays put as Alpha drifts afterward —
+    // only setLiveAlphaMagnitude()'s repaint changes what each bar shows.
+    std::sort(bars_.begin(), bars_.end(), [this](const Bar& a, const Bar& b) {
+        return std::abs(weightedDiff(a)) > std::abs(weightedDiff(b));
     });
 
     bool canPreserveUndo = preserveOffsets && !undoStack_.empty();
@@ -222,7 +229,7 @@ void DimensionExplorer::setDimensionOffsets(const std::vector<std::pair<int, flo
         for (auto& bar : bars_)
             if (bar.dimIndex == dimIndex)
             {
-                bar.offset = delta;
+                bar.offset = juce::jlimit(-kMaxOffset, kMaxOffset, delta);
                 break;
             }
 
@@ -230,19 +237,8 @@ void DimensionExplorer::setDimensionOffsets(const std::vector<std::pair<int, flo
     valueScaleMax_ = kMinValueScale;
     for (auto& bar : bars_)
     {
-        // Same scale rule as rebuildBars: fit the A/B divergence envelope (+ any offset),
-        // not the baseline's common-mode magnitude, so loading offsets keeps the fill.
-        valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.aValue)));
-        if (hasBPrompt_)
-        {
-            valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.bValue)));
-            valueScaleMax_ = std::max(valueScaleMax_, std::abs(bar.offset));
-        }
-        else
-        {
-            valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, bar.baseActualValue)));
-            valueScaleMax_ = std::max(valueScaleMax_, std::abs(orientedValue(bar, displayedActualValue(bar))));
-        }
+        // Same scale rule as rebuildBars: fit the weighted A-B portions + any offset.
+        valueScaleMax_ = std::max(valueScaleMax_, std::abs(weightedDiff(bar) + bar.offset));
         if (std::abs(bar.offset) > 1e-8f)
             hasUserEdits_ = true;
     }
@@ -254,41 +250,19 @@ void DimensionExplorer::setDimensionOffsets(const std::vector<std::pair<int, flo
     repaint();
 }
 
-float DimensionExplorer::barOrientation(const Bar& bar) const
+float DimensionExplorer::weightedDiff(const Bar& bar) const
 {
+    // The displayed/manipulated quantity is not the raw, Alpha-independent A-B
+    // difference — it's the A and B portions of THE ONE VECTOR the current Alpha
+    // blend actually produces (same aWeight/bWeight blend estimateBaselineValues
+    // uses for the generated embedding itself, applied to the difference instead
+    // of the sum). That's why this keeps changing as Alpha drifts, and why it's
+    // still non-zero at Alpha=0 (both weights 0.5, not zero).
     if (!hasBPrompt_)
-        return 1.0f;
-
-    const float diff = bar.aValue - bar.bValue;
-    if (std::abs(diff) <= 1e-8f)
-        return 1.0f;
-    return diff > 0.0f ? 1.0f : -1.0f;
-}
-
-float DimensionExplorer::barMidpoint(const Bar& bar) const
-{
-    if (!hasBPrompt_)
-        return 0.0f;
-    return 0.5f * (bar.aValue + bar.bValue);
-}
-
-float DimensionExplorer::orientedValue(const Bar& bar, float actualValue) const
-{
-    if (!hasBPrompt_)
-        return actualValue;
-    return barOrientation(bar) * (actualValue - barMidpoint(bar));
-}
-
-float DimensionExplorer::actualValueFromOriented(const Bar& bar, float oriented) const
-{
-    if (!hasBPrompt_)
-        return oriented;
-    return barMidpoint(bar) + barOrientation(bar) * oriented;
-}
-
-float DimensionExplorer::displayedActualValue(const Bar& bar) const
-{
-    return bar.baseActualValue + bar.offset;
+        return currentMagnitude_ * bar.aValue;
+    const float aWeight = 0.5f - 0.5f * currentAlpha_;
+    const float bWeight = 0.5f + 0.5f * currentAlpha_;
+    return currentMagnitude_ * (aWeight * bar.aValue - bWeight * bar.bValue);
 }
 
 void DimensionExplorer::pushUndoState()
@@ -371,31 +345,12 @@ int DimensionExplorer::barAtX(float x) const
     return juce::jlimit(0, static_cast<int>(bars_.size()) - 1, idx);
 }
 
-float DimensionExplorer::currentDisplayMax() const
-{
-    // Largest |oriented value| actually on screen right now — A/B reference lines,
-    // baseline, and the live edited finals. Unlike valueScaleMax_ (which bakes in
-    // editing headroom and stays frozen during a drag), this tracks the current
-    // offsets, so the mini-view always fits the real extent to 100% and can never
-    // clip a freshly dragged bar.
-    float maxAbs = kMinValueScale;
-    for (const auto& bar : bars_)
-    {
-        maxAbs = std::max(maxAbs, std::abs(orientedValue(bar, bar.aValue)));
-        if (hasBPrompt_)
-            maxAbs = std::max(maxAbs, std::abs(orientedValue(bar, bar.bValue)));
-        maxAbs = std::max(maxAbs, std::abs(orientedValue(bar, bar.baseActualValue)));
-        maxAbs = std::max(maxAbs, std::abs(orientedValue(bar, displayedActualValue(bar))));
-    }
-    return maxAbs;
-}
-
 float DimensionExplorer::valueToY(float value, float scaleMax) const
 {
     float centreY = barArea_.getCentreY();
-    // Mini-view is non-editable: the caller passes currentDisplayMax() and we use the
-    // full half-height, so the largest change reaches 100%. The editable overlay gets
-    // valueScaleMax_ (with headroom) + a smaller margin so bars can be dragged higher.
+    // Only called from the overlay bar loop (the mini-view draws its bins directly in
+    // paintMiniBins). valueScaleMax_ (with headroom) is the scale passed in, with a
+    // smaller margin than full height so dragged bars have room to go higher.
     const float halfH = barArea_.getHeight() * (overlayMode_ ? 0.45f : 0.5f);
     float clampedValue = juce::jlimit(-scaleMax, scaleMax, value);
     return centreY - (clampedValue / scaleMax) * halfH;
@@ -465,34 +420,28 @@ void DimensionExplorer::paint(juce::Graphics& g)
     float barW = barArea_.getWidth() / static_cast<float>(numBars);
     float gapFrac = (barW > 3.0f) ? 0.15f : 0.0f;
 
-    // Overlay holds a stable, headroom-padded scale so dragged bars don't rescale the
-    // view mid-gesture; the non-editable mini-view fits the live extent to 100%.
-    const float scaleMax = overlayMode_ ? valueScaleMax_ : currentDisplayMax();
+    // This branch only runs in overlay mode (mini-view returned above already), so the
+    // stable, headroom-padded scale applies: it doesn't rescale mid-drag.
+    const float scaleMax = valueScaleMax_;
 
     for (int i = 0; i < numBars; ++i)
     {
         auto& bar = bars_[static_cast<size_t>(i)];
         float x = barArea_.getX() + static_cast<float>(i) * barW + barW * gapFrac * 0.5f;
         float w = barW * (1.0f - gapFrac);
-        const float finalActual = displayedActualValue(bar);
-        const float finalOriented = orientedValue(bar, finalActual);
-        float topY = valueToY(finalOriented, scaleMax);
+        // Same quantity the mini-view sums per bin: the weighted A-B portions of the
+        // Alpha-blended vector (bValue's weight is 0 for a single prompt, so this is
+        // just magnitude*A there), plus any user-dragged offset. Full-scale and
+        // mini-view plot the exact same metric, just per individual dimension vs.
+        // binned — see weightedDiff().
+        const float displayDiff = weightedDiff(bar) + bar.offset;
+        float topY = valueToY(displayDiff, scaleMax);
 
-        if (hasBPrompt_)
-        {
-            const float aY = valueToY(orientedValue(bar, bar.aValue), scaleMax);
-            const float bY = valueToY(orientedValue(bar, bar.bValue), scaleMax);
-            g.setColour(kBarA.withAlpha(0.25f));
-            g.drawHorizontalLine(juce::roundToInt(aY), x, x + w);
-            g.setColour(kBarB.withAlpha(0.25f));
-            g.drawHorizontalLine(juce::roundToInt(bY), x, x + w);
-        }
-
-        // Color: edited (blue), toward A (green), toward B (orange)
+        // Color: edited (cyan), toward A (periwinkle), toward B (gold)
         juce::Colour col;
         if (std::abs(bar.offset) > 1e-8f)
             col = kBarEdit;
-        else if (finalOriented >= 0.0f)
+        else if (displayDiff >= 0.0f)
             col = kBarA;
         else
             col = kBarB;
@@ -502,7 +451,7 @@ void DimensionExplorer::paint(juce::Graphics& g)
             col = col.brighter(0.3f);
 
         g.setColour(col.withAlpha(0.85f));
-        if (finalOriented >= 0.0f)
+        if (displayDiff >= 0.0f)
             g.fillRect(x, topY, w, centreY - topY);
         else
             g.fillRect(x, centreY, w, topY - centreY);
@@ -548,12 +497,11 @@ void DimensionExplorer::paint(juce::Graphics& g)
         {
             tip += "  A " + juce::String(bar.aValue, 4)
                 + "  B " + juce::String(bar.bValue, 4)
-                + "  final " + juce::String(displayedActualValue(bar), 4)
-                + "  A-B " + juce::String(bar.aValue - bar.bValue, 4);
+                + "  shown " + juce::String(weightedDiff(bar), 4);
         }
         else
         {
-            tip += ": " + juce::String(displayedActualValue(bar), 4);
+            tip += ": " + juce::String(bar.aValue, 4);
         }
         if (std::abs(bar.offset) > 1e-8f)
             tip += "  (edit " + juce::String(bar.offset, 4) + ")";
@@ -573,13 +521,15 @@ void DimensionExplorer::paint(juce::Graphics& g)
 
 void DimensionExplorer::paintMiniBins(juce::Graphics& g)
 {
-    // The mini-view is a calm |A-B| focus spectrum: the 768 sorted dimensions
+    // The mini-view is a calm weighted-A-B focus spectrum: the 768 sorted dimensions
     // aggregated into a couple dozen fat bins (tall left = the divergent
     // dimensions, short right = the shared basis), drawn one-sided from a
     // baseline. The A/B side that the overlay carries with up/down is carried
     // by hue here (periwinkle A / gold B) so no height is wasted splitting a
     // ~40px strip; cyan marks a bin that holds a user edit. The full editable
-    // per-dimension console lives in the overlay.
+    // per-dimension console lives in the overlay. Bin contents (weightedDiff per
+    // dimension) change continuously as Alpha drifts — only the bar ORDER, fixed
+    // at the last rebuildBars, stays put.
     const int numDims = static_cast<int>(bars_.size());
     if (numDims == 0 || barArea_.getWidth() <= 0.0f || barArea_.getHeight() <= 0.0f)
         return;
@@ -596,13 +546,12 @@ void DimensionExplorer::paintMiniBins(juce::Graphics& g)
     {
         const int b = juce::jlimit(0, numBins - 1, (i * numBins) / numDims);
         const auto& bar = bars_[static_cast<size_t>(i)];
-        // Height encodes the SAME metric the bars are sorted by — the |A-B|
-        // divergence (bValue is 0 for a single prompt, so this is |A| there) —
-        // so the spectrum falls off monotonically: tall left = the divergent
-        // dimensions, short right = the shared basis. The per-dim VALUE sits at
-        // the A/B midpoint and would read as a flat ~0 line; the divergence is
-        // what carries the focus metaphor. Sign picks the leaning side for hue.
-        const float div = bar.aValue - bar.bValue;
+        // Height encodes the SAME metric the bars are sorted by — the weighted A-B
+        // portions of the Alpha-blended vector (see weightedDiff()) — so the
+        // spectrum falls off monotonically at the Alpha the dimensions were last
+        // sorted at: tall left = the divergent dimensions, short right = the shared
+        // basis. Sign picks the leaning side for hue.
+        const float div = weightedDiff(bar);
         auto& agg = bins[static_cast<size_t>(b)];
         agg.magSum  += std::abs(div);
         agg.signSum += div;
@@ -690,7 +639,7 @@ void DimensionExplorer::mouseDrag(const juce::MouseEvent& e)
 {
     if (dragBar_ < 0 || dragBar_ >= static_cast<int>(bars_.size())) return;
 
-    float newOrientedValue = yToValue(static_cast<float>(e.y), valueScaleMax_);
+    float newDisplayDiff = yToValue(static_cast<float>(e.y), valueScaleMax_);
     const bool paintMode = e.mods.isShiftDown();
     int targetBar = paintMode ? barAtX(static_cast<float>(e.x)) : dragBar_;
     if (targetBar < 0)
@@ -707,8 +656,7 @@ void DimensionExplorer::mouseDrag(const juce::MouseEvent& e)
     for (int i = rangeStart; i <= rangeEnd; ++i)
     {
         auto& bar = bars_[static_cast<size_t>(i)];
-        float newActualValue = actualValueFromOriented(bar, newOrientedValue);
-        float newOffset = newActualValue - bar.baseActualValue;
+        float newOffset = juce::jlimit(-kMaxOffset, kMaxOffset, newDisplayDiff - weightedDiff(bar));
         if (std::abs(newOffset - bar.offset) > 1e-6f)
             dragDirty_ = true;
         bar.offset = newOffset;

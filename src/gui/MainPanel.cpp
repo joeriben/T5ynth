@@ -1227,7 +1227,10 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     promptPanel.onEmbeddingsReady = [this](const std::vector<float>& a,
                                            const std::vector<float>& b,
                                            const std::vector<float>& baseline) {
-        dimensionExplorer.setEmbeddings(a, b, baseline);
+        auto& apvts = processorRef.getValueTreeState();
+        dimensionExplorer.setEmbeddings(a, b, baseline, true,
+                                         apvts.getRawParameterValue(PID::genAlpha)->load(),
+                                         apvts.getRawParameterValue(PID::genMagnitude)->load());
     };
 
     // "Anwenden + generieren" — green, triggers generation with offsets
@@ -1928,11 +1931,12 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
     {
         processorRef.setLastEmbeddings(result.embeddingA, result.embeddingB);
         auto& apvts = processorRef.getValueTreeState();
+        const float alpha = apvts.getRawParameterValue(PID::genAlpha)->load();
+        const float magnitude = apvts.getRawParameterValue(PID::genMagnitude)->load();
         auto baseline = DimensionExplorer::estimateBaselineValues(
-            result.embeddingA, result.embeddingB,
-            apvts.getRawParameterValue(PID::genAlpha)->load(),
-            apvts.getRawParameterValue(PID::genMagnitude)->load());
-        dimensionExplorer.setEmbeddings(result.embeddingA, result.embeddingB, baseline, false);
+            result.embeddingA, result.embeddingB, alpha, magnitude);
+        dimensionExplorer.setEmbeddings(result.embeddingA, result.embeddingB, baseline, false,
+                                         alpha, magnitude);
     }
 
     processorRef.setLastPresetName(result.presetName);
@@ -2639,7 +2643,8 @@ void MainPanel::restoreMainSnapshot(const MainSnapshot& snapshot)
                                                                   snapshot.embeddingB,
                                                                   alpha,
                                                                   magnitude);
-        dimensionExplorer.setEmbeddings(snapshot.embeddingA, snapshot.embeddingB, baseline, false);
+        dimensionExplorer.setEmbeddings(snapshot.embeddingA, snapshot.embeddingB, baseline, false,
+                                         alpha, magnitude);
         dimensionExplorer.setDimensionOffsets(snapshot.dimensionOffsets);
     }
     else
@@ -3121,6 +3126,21 @@ void MainPanel::timerCallback()
         mv.driftAxis1.load(std::memory_order_relaxed),
         mv.driftAxis2.load(std::memory_order_relaxed),
         mv.driftAxis3.load(std::memory_order_relaxed));
+
+    // DimensionExplorer shows the A-B portions of the CURRENT Alpha-blended vector,
+    // so it must track live Alpha/Magnitude — slider moves and Drift ticks alike —
+    // not just the value at the last generation. driftAlpha/driftMagnitude are the
+    // effective (base+offset) value when a Drift slot targets them, NaN otherwise.
+    {
+        const auto& apvtsLive = processorRef.getValueTreeState();
+        float liveAlpha = mv.driftAlpha.load(std::memory_order_relaxed);
+        if (std::isnan(liveAlpha))
+            liveAlpha = apvtsLive.getRawParameterValue(PID::genAlpha)->load();
+        float liveMagnitude = mv.driftMagnitude.load(std::memory_order_relaxed);
+        if (std::isnan(liveMagnitude))
+            liveMagnitude = apvtsLive.getRawParameterValue(PID::genMagnitude)->load();
+        dimensionExplorer.setLiveAlphaMagnitude(liveAlpha, liveMagnitude);
+    }
 
     // Resynth drift ghost: the SliderRow paints + smooths it natively (setGhostValue
     // + tickGhost, like the FX rows). driftResynth is NaN whenever Drift is not
