@@ -168,6 +168,7 @@ target_sources(T5ynth PRIVATE
     # Event Log (.t5evt session log)
     src/eventlog/EventLog.cpp
     src/eventlog/EventLogWriterThread.cpp
+    src/eventlog/EventLogReader.cpp
 
     # GUI
     src/gui/MainPanel.cpp
