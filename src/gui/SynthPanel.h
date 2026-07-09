@@ -42,7 +42,11 @@ private:
     WaveformDisplay waveformDisplay;
 
     // ── Voice count ──
-    static constexpr int kNumVoiceBtns = 8;
+    // 7 visible buttons (Mono, 4, 6, 8, 12, 16, 64). The 128-voice option
+    // remains in the backend (BlockParams enum + voiceCounts array) for host
+    // automation / presets, but is hidden from the UI — too many voices for
+    // typical use.
+    static constexpr int kNumVoiceBtns = 7;
     juce::TextButton voiceBtns[kNumVoiceBtns];
     juce::ComboBox voiceCountHidden;
     juce::Rectangle<int> voiceSwitchBounds;
