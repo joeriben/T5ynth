@@ -611,9 +611,7 @@ int PromptPanel::getPreferredHeightForWidth(int width) const
 
     return (compactRowH + 2) + modelGap                 // model selector row
          + abBlockH + innerGap + repromptRowH           // A↔B block + Re-Prompt row
-         + compactRowH + gap                            // GENERATION top-header (replaces divider)
-         + (compactRowH + compactCtrlH + gap)           // Steps/CFG (Mag/Chaos moved to Easy view)
-         + compactRowH + seedCtrlH + gap;               // Seed (Duration moved to Easy view)
+         + groupGap;                                    // divider only (param grid removed, DCO Slice 0)
 }
 
 void PromptPanel::timerCallback()
