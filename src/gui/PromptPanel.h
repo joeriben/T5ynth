@@ -113,11 +113,14 @@ public:
                         float splitStart = std::numeric_limits<float>::quiet_NaN(),
                         float splitEnd = std::numeric_limits<float>::quiet_NaN());
 
-    /** Read current prompt/seed state (for preset save). */
+    /** Read current prompt/seed state (for preset save). Seed state lives on the
+     *  processor (setLastSeed/getLastSeed, setLastRandomSeed/getLastRandomSeed),
+     *  driven exclusively by the Easy-mode Variation switchbox — the Advanced
+     *  seedEditor/randomSeedToggle widgets were removed (DCO Slice 0). */
     juce::String getPromptA() const { return promptAEditor.getText().trim(); }
     juce::String getPromptB() const { return promptBEditor.getText().trim(); }
-    int getSeed() const { return seedEditor.getText().getIntValue(); }
-    bool isRandomSeed() const { return randomSeedToggle.getToggleState(); }
+    int getSeed() const { return processorRef.getLastSeed(); }
+    bool isRandomSeed() const { return processorRef.getLastRandomSeed(); }
 
     /** Read current injection-mode state (for preset save). */
     juce::String getInjectionMode()  const { return injectionMode_; }
@@ -175,15 +178,14 @@ private:
     // automatically, with its unchanged bar setting, when the translation finishes.
     void translatePromptsInPlace();
     bool playNextCachedInference();
-    void syncSeedEditorEnabledState();
-    void syncSeedEditorFont(float size);
-    void syncSeedEditorDisplay(int seed, bool force = false);
+    /** Push the realized seed from a generation result onto the processor's
+     *  seed store (replaces the old seedEditor display sync — no widget to
+     *  update anymore, the Easy Variation switchbox reads processor state). */
+    void syncSeedState(int seed);
     /** Easy-mode entry point for an exact fixed seed: opened by double-clicking
-     *  the Lock (steady) button in the Variation switchbox (seedEditor's own
-     *  text field is Advanced-only). Async AlertWindow — mirrors the "Rename
-     *  Preset" pattern in MainPanel.cpp. On OK, writes the typed value into
-     *  seedEditor BEFORE switching to steady mode, so setSeedMode's "keep
-     *  current value" branch preserves it. */
+     *  the Lock (steady) button in the Variation switchbox. Async AlertWindow —
+     *  mirrors the "Rename Preset" pattern in MainPanel.cpp. On OK, writes the
+     *  typed value into the processor's seed store and switches to steady mode. */
     void openSeedEntryDialog();
 
     /** Build a PipeInference::Request from current UI state, with optional overrides. */
@@ -234,11 +236,6 @@ private:
     FlippedVerticalSlider alphaSlider;   // vertical A↔B blend, A at top
     juce::Label alphaLabel, alphaValue;  // retained for callbacks but hidden (gradient is self-describing)
 
-    // Compact params row: Steps/CFG (advanced only)
-    MidiLearnSlider stepsSlider, cfgSlider;
-    juce::Label stepsLabel, stepsValue, stepsHint;
-    juce::Label cfgLabel, cfgValue, cfgHint;
-    juce::Label seedLabel;
     // Duration — house-standard inline-bar SliderRow (mirrors MainPanel's
     // RESYNTH row): accent-band label + fill bar in kOscCol, with the "Ns"
     // read-out as the inline value. Easy view only (moved out of Advanced
@@ -253,8 +250,6 @@ private:
     // Declared BEFORE magA/noiseA (below) so the attachments tear down first
     // (reverse destruction order).
     std::unique_ptr<SliderRow> magRow, noiseRow;
-    juce::TextEditor seedEditor;
-    juce::TextButton randomSeedToggle { "Rnd" };
     static constexpr int kNumSeedModeBtns = 3;
     // Declared BEFORE seedModeBtns so it outlives them (LnF destruction order).
     IconButtonLnF seedBtnLnF;
@@ -399,7 +394,7 @@ private:
     std::map<juce::String, float> pendingAxes_;          // for SemanticAxes
 
     using Attachment = juce::AudioProcessorValueTreeState::SliderAttachment;
-    std::unique_ptr<Attachment> alphaA, magA, noiseA, durA, stepsA, cfgA;
+    std::unique_ptr<Attachment> alphaA, magA, noiseA, durA;
     bool easyMode_ = false;
 
     // Auto-regen state
@@ -491,7 +486,6 @@ private:
     // stance bar + coupling sit inside — it IS one control module, so it gets a
     // frame, like Duration/Variation. Decorative; sits behind them (toBack in ctor).
     ModuleBox repromptModuleBox;
-    juce::Label genParamsHeader;   // advanced-view "GENERATION" top-header over the param grid
     RepromptStanceBar repromptStanceBar;
     static constexpr int kNumCouplingBtns = RepromptCoupling::kCount;
     juce::TextButton repromptCouplingBtns[kNumCouplingBtns];

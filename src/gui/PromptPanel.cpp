@@ -69,20 +69,17 @@ constexpr float kPromptReprompt    = 4.0f;   // Re-Prompt MODULE total height (c
 // (abBlock = 2·multiInput + 2·innerGap + modeBar = 7.4 + 1.2 + 1.3 = 9.9 units.)
 // The Re-Prompt module + its top gap (innerGap + kPromptReprompt = 0.6 + 4.0 = 4.6)
 // sits between the A↔B block and the divider and is in BOTH budgets below.
-// Advanced replaces the easy view's divider (groupGap) with a "GENERATION"
-// top-header (compactRow + gap) above the param grid: -1.0 +1.15 +0.28 = +0.43.
-// (The trailing info label — gap + compactRow = 1.43 — was removed from both
-// budgets; if it ever returns, add 1.43 back here AND in getPreferredHeightForWidth.)
-// Magnitude/Chaos moved from Advanced to Easy (mirroring Duration's earlier
-// move, see layoutEasyGenParamsBlock in resized()): Advanced drops one
-// compactPair block (compactRow + compactCtrl + gap = 1.15 + 0.9 + 0.28 = 2.33
-// units: 25.52 - 2.33 = 23.19). Easy hosts all four generation params in a
-// 2x2 block: two side-by-side pair rows (Duration|Variation, Magnitude|Chaos),
-// each cell a single standard inline band at the template row height
-// (compactRow), so each row = compactRow + gap = 1.15 + 0.28 = 1.43 units;
-// block = 2 * 1.43 = 2.86 units. (Replaces the old 4-row stack of 6.23 units:
-// 23.48 - 6.23 + 2.86 = 20.11.)
-constexpr float kPromptContentUnits = 23.19f;
+// Advanced view: Steps/CFG sliders + GENERATION header + Seed row removed
+// (DCO canvas-freeing, Slice 0). Advanced now hosts only the model selector +
+// A↔B block + Re-Prompt module — the param grid is empty, ready for the DCO.
+// Removed from the Advanced budget: Steps/CFG compactPair (compactRow +
+// compactCtrl + gap = 2.33) + GENERATION header (compactRow + gap = 1.43) +
+// Seed row (compactRow + seedCtrl + gap = 1.15 + 1.75 + 0.28 = 3.18) =
+// 6.94 units: 23.19 - 6.94 = 16.25. Seed state now lives on the processor
+// (setLastSeed/getLastSeed, setLastRandomSeed/getLastRandomSeed), driven
+// exclusively by the Easy-mode Variation switchbox.
+// Easy budget keeps the model selector row but drops the advanced param rows.
+constexpr float kPromptContentUnits = 16.25f;
 // Easy budget keeps the model selector row but drops the advanced param rows.
 constexpr float kPromptEasyContentUnits = 20.11f;
 constexpr int kBaseSeed = 123456789;
@@ -299,65 +296,6 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     noiseRow->setInlineLabel(true);
     addAndMakeVisible(*noiseRow);
 
-    // Steps
-    makeSlider(stepsSlider, this);
-    makeLabel(stepsLabel, "Steps", kDim, juce::Justification::centredLeft, this);
-    makeLabel(stepsValue, "8", kOscCol, juce::Justification::centredRight, this);
-    makeLabel(stepsHint, "More = higher quality", kDim, juce::Justification::centredLeft, this);
-    stepsSlider.onValueChange = [this] {
-        stepsValue.setText(juce::String(juce::roundToInt(stepsSlider.getValue())), juce::dontSendNotification);
-    };
-
-    // CFG
-    makeSlider(cfgSlider, this);
-    makeLabel(cfgLabel, "CFG", kDim, juce::Justification::centredLeft, this);
-    makeLabel(cfgValue, "1.0", kOscCol, juce::Justification::centredRight, this);
-    makeLabel(cfgHint, "Classifier-free guidance", kDim, juce::Justification::centredLeft, this);
-    cfgSlider.onValueChange = [this] {
-        cfgValue.setText(juce::String(cfgSlider.getValue(), 1), juce::dontSendNotification);
-    };
-
-    // Variation (text field + random toggle)
-    makeLabel(seedLabel, "Variation", kDim, juce::Justification::centredLeft, this);
-    // Match the value-display style used by cfgValue / durationRow / magRow /
-    // noiseRow (kOscCol on dark surface) so the current seed reads as a
-    // first-class number, not a grey decoration.
-    seedEditor.setColour(juce::TextEditor::backgroundColourId, kSurface.brighter(0.04f));
-    seedEditor.setColour(juce::TextEditor::textColourId, kOscCol);
-    seedEditor.setColour(juce::TextEditor::outlineColourId, kBorder);
-    seedEditor.setColour(juce::TextEditor::focusedOutlineColourId, kOscCol);
-    seedEditor.setMultiLine(false);
-    seedEditor.setReturnKeyStartsNewLine(false);
-    seedEditor.setInputRestrictions(12, "0123456789");
-    seedEditor.setIndents(3, 2);
-    seedEditor.setJustification(juce::Justification::centredLeft);
-    seedEditor.setText("123456789", false);
-    syncSeedEditorFont(14.0f);
-    addAndMakeVisible(seedEditor);
-
-    seedEditor.onReturnKey = [this] { triggerGeneration(); };
-    seedEditor.onTextChange = [this] {
-        syncSeedEditorFont(preferredPromptFontForWidth(getWidth()) * 1.25f);
-        syncSeedModeFromCurrentState();
-    };
-
-    randomSeedToggle.setColour(juce::TextButton::buttonColourId, kSurface);
-    randomSeedToggle.setColour(juce::TextButton::buttonOnColourId, kOscCol);
-    randomSeedToggle.setColour(juce::TextButton::textColourOffId, juce::Colour(0xffe3e7f2));
-    randomSeedToggle.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
-    randomSeedToggle.setTooltip("Automatic variation");
-    randomSeedToggle.setClickingTogglesState(true);
-    randomSeedToggle.setToggleState(false, juce::dontSendNotification);
-    randomSeedToggle.onClick = [this] {
-        syncSeedEditorEnabledState();
-        syncSeedModeFromCurrentState();
-        // Cache the auto/random choice on the processor so preset save can
-        // persist it — APVTS PID::genSeed isn't driven from this UI.
-        processorRef.setLastRandomSeed(randomSeedToggle.getToggleState());
-    };
-    addAndMakeVisible(randomSeedToggle);
-    syncSeedEditorEnabledState();
-
     // Union-Jack translate: a MOMENTARY action. Clicking it rewrites the A/B
     // prompts to English in place. Because the single IPC pipe is shared with
     // auto-regen, the click pauses auto-regen for the duration of the translation
@@ -405,8 +343,8 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 
         // Double-click on the Lock ("last"/steady) button opens a modal to type
         // an exact seed (see mouseDoubleClick/openSeedEntryDialog) — the Easy-mode
-        // way to set a specific seed, since seedEditor's text field is hidden
-        // outside Advanced. The co-firing single click just selects steady mode,
+        // way to set a specific seed (the Advanced seed-entry field was removed
+        // in DCO Slice 0). The co-firing single click just selects steady mode,
         // which is fine/desired.
         seedModeBtns[static_cast<int>(SeedMode::steady)].addMouseListener(this, false);
 
@@ -536,8 +474,6 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     magA    = std::make_unique<Attachment>(apvts, PID::genMagnitude, magRow->getSlider());
     noiseA  = std::make_unique<Attachment>(apvts, PID::genNoise, noiseRow->getSlider());
     durA    = std::make_unique<Attachment>(apvts, PID::genDuration, durationRow->getSlider());
-    stepsA  = std::make_unique<Attachment>(apvts, PID::infSteps, stepsSlider);
-    cfgA    = std::make_unique<Attachment>(apvts, PID::genCfg, cfgSlider);
     // Keep the inline read-outs in sync (mirrors MainPanel's resynthRow — the
     // attachment owns onValueChange, so re-wire the display update after it).
     durationRow->getSlider().onValueChange = [this] { durationRow->updateValue(); };
@@ -557,10 +493,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     };
 
     // Right-click MIDI Learn on raw sliders (not wrapped in SliderRow).
-    for (juce::Slider* s : { static_cast<juce::Slider*>(&alphaSlider),
-                              static_cast<juce::Slider*>(&stepsSlider),
-                              static_cast<juce::Slider*>(&cfgSlider) })
-        s->addMouseListener(this, false);
+    alphaSlider.addMouseListener(this, false);
     if (auto* startParam = apvts.getParameter(PID::genStart))
         startParam->setValueNotifyingHost(0.0f);
 
@@ -582,12 +515,6 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     repromptModuleBox.configure("RE-PROMPT", kOscCol, Icon::numIcons);
     addAndMakeVisible(repromptModuleBox);
     repromptModuleBox.toBack();
-
-    // Advanced-view "GENERATION" top-header framing the diffusion param grid
-    // (Magnitude/Chaos/Steps/CFG/Duration/Variation) — replaces the old divider.
-    paintSectionHeader(genParamsHeader, "GENERATION", kOscCol);
-    genParamsHeader.setInterceptsMouseClicks(false, false);
-    addAndMakeVisible(genParamsHeader);
 
     if (auto* stanceParam = apvts.getParameter(PID::repromptStance))
         repromptStanceBar.attachTo(*stanceParam, RepromptStance::kCount);
@@ -973,20 +900,10 @@ void PromptPanel::resized()
         modelBtns[i].setVisible(true);
     modelSwitchBounds = {};
 
-    for (auto* c : { &stepsLabel, &stepsValue, &cfgLabel, &cfgValue })
-        c->setVisible(!easy);
-    stepsSlider.setVisible(!easy);
-    cfgSlider.setVisible(!easy);
-    seedEditor.setVisible(!easy);
-    randomSeedToggle.setVisible(!easy);
     for (auto& bSeed : seedModeBtns)
         bSeed.setVisible(easy);
-    // Advanced shows the floating "Variation" caption; Easy shows the "VAR"
-    // switchbox caption instead. Duration/Magnitude/Chaos have no advanced form
-    // any more — they're the inline durationRow/magRow/noiseRow, shown in Easy
-    // only.
-    seedLabel.setVisible(!easy);
-    genParamsHeader.setVisible(!easy);   // GENERATION top-header: advanced only
+    // Duration/Magnitude/Chaos have no advanced form any more — they're the
+    // inline durationRow/magRow/noiseRow, shown in Easy only.
     durationRow->setVisible(easy);
     magRow->setVisible(easy);
     noiseRow->setVisible(easy);
@@ -1014,9 +931,6 @@ void PromptPanel::resized()
         area.removeFromTop(modelGap);
     }
 
-    stepsHint.setVisible(false);
-    cfgHint.setVisible(false);
-
     const int multiInputH = juce::roundToInt(f * kPromptMultiInput);
 
     // ── A↔B block ──────────────────────────────────────────────────────────
@@ -1043,7 +957,7 @@ void PromptPanel::resized()
         // resized() ran — keeps the default ~14px while newly typed text jumps to
         // editorFont (the erratic two-size look). applyFontToAllText re-fonts the
         // existing text too and sets the current font for new text, so the size is
-        // uniform regardless of setText/resized order. Mirrors syncSeedEditorFont.
+        // uniform regardless of setText/resized order.
         const float editorFont = f * 1.1f;
 
         // Left column, top: Impulse A editor (purple).
@@ -1136,73 +1050,17 @@ void PromptPanel::resized()
     }
     else
     {
-        // Advanced view: a "GENERATION" top-header frames the flat param grid.
-        // The accent strip alone didn't read as a break — it's periwinkle, and so
-        // is the RE-PROMPT left-header directly above it, so on the left the two
-        // bands merged into one. Restore a thin divider on the header's top edge.
-        // It's drawn in paintOverChildren() (after the header's fill) so the fill
-        // can't overdraw it, and consumes no vertical space — the budget still
-        // swaps groupGap for compactRowH + gap (see getPreferredHeightForWidth /
-        // kPromptContentUnits).
+        // Advanced view: the param grid was removed (DCO Slice 0) — the canvas
+        // below the divider stays empty, ready for the DCO surface. A thin
+        // divider line still marks the boundary (drawn in paintOverChildren).
         paramsDividerY = area.getY();
-        setUiFont(genParamsHeader, TextRole::ModuleTitle, f, true);
-        genParamsHeader.setBounds(area.removeFromTop(compactRowH));
-        area.removeFromTop(gap);
     }
 
     // --- Compact params: 2 columns ---
     int colGap = juce::roundToInt(w * 0.03f);
 
-    auto layoutCompactPair = [&](juce::Label& lbl1, juce::Slider& sl1, juce::Label& val1,
-                                  juce::Label& lbl2, juce::Slider& sl2, juce::Label& val2)
-    {
-        int colW = (area.getWidth() - colGap) / 2;
-
-        auto hdrRow = area.removeFromTop(compactRowH);
-        auto leftHdr = hdrRow.removeFromLeft(colW);
-        hdrRow.removeFromLeft(colGap);
-        auto rightHdr = hdrRow;
-
-        setUiFont(lbl1, TextRole::Caption, f); setUiFont(val1, TextRole::Value, f);
-        lbl1.setBounds(leftHdr.removeFromLeft(leftHdr.getWidth() * 2 / 3));
-        val1.setBounds(leftHdr);
-        setUiFont(lbl2, TextRole::Caption, f); setUiFont(val2, TextRole::Value, f);
-        lbl2.setBounds(rightHdr.removeFromLeft(rightHdr.getWidth() * 2 / 3));
-        val2.setBounds(rightHdr);
-
-        auto slRow = area.removeFromTop(compactCtrlH);
-        sl1.setBounds(slRow.removeFromLeft(colW));
-        slRow.removeFromLeft(colGap);
-        sl2.setBounds(slRow);
-        area.removeFromTop(gap);
-    };
-
-    // Advanced view: Duration moved out entirely (it's the Easy-only inline
-    // durationRow below), so this row is Seed alone, full width, in the same
-    // header + control budget the paired Duration/Seed row used to occupy.
-    auto layoutSeedRow = [&]
-    {
-        auto hdrRow = area.removeFromTop(compactRowH);
-        setUiFont(seedLabel, TextRole::Caption, f);
-        seedLabel.setBounds(hdrRow);
-
-        auto controlRow = area.removeFromTop(seedCtrlH);
-
-        const float seedFontSize = f * 1.25f;
-        const float toggleFontSize = juce::jmin(15.0f, static_cast<float>(seedCtrlH) * 0.72f);
-        const int minToggleW = measureTextWidth(randomSeedToggle.getButtonText(), toggleFontSize)
-                             + juce::roundToInt(f * 1.2f);
-
-        auto seedRow = controlRow.reduced(0, 1);
-        int toggleW = juce::jmax(juce::roundToInt(static_cast<float>(seedRow.getWidth()) * 0.32f), minToggleW);
-        toggleW = juce::jmin(toggleW, seedRow.getWidth() / 2);
-
-        randomSeedToggle.setBounds(seedRow.removeFromRight(toggleW));
-        seedEditor.setBounds(seedRow);
-        syncSeedEditorFont(seedFontSize);
-
-        area.removeFromTop(gap);
-    };
+    // (layoutCompactPair/layoutSeedRow were removed in DCO Slice 0 — Advanced no
+    // longer renders a Steps/CFG/Seed param grid.)
 
     // Easy view: the four generation params in a 2x2 block of side-by-side pair
     // rows, mirroring layoutCompactPair's column split. Row 1 = Duration (inline
@@ -1262,9 +1120,7 @@ void PromptPanel::resized()
     // sits flush above SEMANTIC AXES; any extra height is split evenly above and
     // below it.
     {
-        const int paramsH = easy
-            ? (2 * (compactRowH + gap))
-            : ((compactRowH + compactCtrlH + gap) + compactRowH + seedCtrlH + gap);
+        const int paramsH = easy ? (2 * (compactRowH + gap)) : 0;
         area.removeFromTop(juce::jmax(0, area.getHeight() - paramsH) / 2);
     }
 
@@ -1272,12 +1128,7 @@ void PromptPanel::resized()
     {
         layoutEasyGenParamsBlock();
     }
-    else
-    {
-        layoutCompactPair(stepsLabel, stepsSlider, stepsValue,
-                          cfgLabel, cfgSlider, cfgValue);
-        layoutSeedRow();
-    }
+    // Advanced: param grid removed (DCO Slice 0) — canvas stays empty.
 }
 
 void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String& promptB,
@@ -1306,9 +1157,7 @@ void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String
     // them), regardless of any rewrite the loop later puts in the editors. setText
     // above used dontSendNotification, so onTextChange did NOT fire — set explicitly.
     processorRef.setHumanPrompts(promptA, promptB);
-    randomSeedToggle.setToggleState(randomSeed, juce::dontSendNotification);
-    syncSeedEditorDisplay(seed, true);
-    syncSeedEditorEnabledState();
+    processorRef.setLastSeed(seed);
     syncSeedModeFromCurrentState();
     // Keep the cached auto-state aligned with what we just restored, so a
     // subsequent Save (without re-touching the UI) round-trips correctly.
@@ -1882,25 +1731,13 @@ void PromptPanel::setSeedMode(SeedMode mode, bool applyState)
     {
         if (mode == SeedMode::base)
         {
-            randomSeedToggle.setToggleState(false, juce::dontSendNotification);
-            syncSeedEditorDisplay(kBaseSeed, true);
+            processorRef.setLastSeed(kBaseSeed);
         }
         else if (mode == SeedMode::steady)
         {
-            randomSeedToggle.setToggleState(false, juce::dontSendNotification);
-            if (seedEditor.getText().trim().isEmpty() || seedEditor.getText().getIntValue() <= 0)
-            {
-                const int lastSeed = processorRef.getLastSeed() > 0 ? processorRef.getLastSeed()
-                                                                    : kBaseSeed;
-                syncSeedEditorDisplay(lastSeed, true);
-            }
+            if (processorRef.getLastSeed() <= 0)
+                processorRef.setLastSeed(kBaseSeed);
         }
-        else
-        {
-            randomSeedToggle.setToggleState(true, juce::dontSendNotification);
-        }
-
-        syncSeedEditorEnabledState();
     }
 
     seedMode_ = mode;
@@ -1912,9 +1749,9 @@ void PromptPanel::setSeedMode(SeedMode mode, bool applyState)
 
 void PromptPanel::syncSeedModeFromCurrentState()
 {
-    if (randomSeedToggle.getToggleState())
+    if (processorRef.getLastRandomSeed())
         seedMode_ = SeedMode::autoRandom;
-    else if (seedEditor.getText().getIntValue() == kBaseSeed)
+    else if (processorRef.getLastSeed() == kBaseSeed)
         seedMode_ = SeedMode::base;
     else
         seedMode_ = SeedMode::steady;
@@ -1981,39 +1818,9 @@ void PromptPanel::syncInjectionModeAvailability()
         onModelChanged();
 }
 
-void PromptPanel::syncSeedEditorEnabledState()
+void PromptPanel::syncSeedState(int seed)
 {
-    const bool randomSeed = randomSeedToggle.getToggleState();
-    seedEditor.setEnabled(!randomSeed);
-    seedEditor.setAlpha(randomSeed ? 0.3f : 1.0f);
-}
-
-void PromptPanel::syncSeedEditorFont(float size)
-{
-    float fittedSize = size;
-    const auto bounds = seedEditor.getLocalBounds();
-
-    if (!bounds.isEmpty())
-        fittedSize = juce::jmin(fittedSize, static_cast<float>(bounds.getHeight()) * 0.78f);
-
-    juce::Font font { juce::FontOptions(fittedSize) };
-    seedEditor.setFont(font);
-    seedEditor.applyFontToAllText(font);
-}
-
-void PromptPanel::syncSeedEditorDisplay(int seed, bool force)
-{
-    const bool randomSeed = randomSeedToggle.getToggleState();
-    const bool userEditingFixedSeed = !randomSeed && seedEditor.hasKeyboardFocus(true);
-
-    if (!force && userEditingFixedSeed)
-        return;
-
-    const auto seedText = juce::String(seed);
-    if (force || seedEditor.getText() != seedText)
-        seedEditor.setText(seedText, false);
-
-    syncSeedEditorFont(preferredPromptFontForWidth(getWidth()) * 1.25f);
+    processorRef.setLastSeed(seed);
 }
 
 // Easy-mode entry point for an exact fixed seed: double-clicking the Lock
@@ -2039,9 +1846,9 @@ void PromptPanel::openSeedEntryDialog()
             if (seed <= 0) return;
 
             // Value-first: write the typed seed into the store BEFORE switching
-            // to steady mode, so setSeedMode's "seedEditor already has a value"
-            // branch keeps it instead of falling back to getLastSeed()/kBaseSeed.
-            syncSeedEditorDisplay(seed, true);
+            // to steady mode, so setSeedMode keeps it instead of falling back
+            // to getLastSeed()/kBaseSeed.
+            syncSeedState(seed);
             setSeedMode(SeedMode::steady, true);
         }), false);
 }
@@ -2166,7 +1973,7 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
     float duration = apvts.getRawParameterValue(PID::genDuration)->load();
     int steps = static_cast<int>(apvts.getRawParameterValue(PID::infSteps)->load());
     float cfgScale = apvts.getRawParameterValue(PID::genCfg)->load();
-    int seed = randomSeedToggle.getToggleState() ? -1 : seedEditor.getText().getIntValue();
+    int seed = processorRef.getLastRandomSeed() ? -1 : processorRef.getLastSeed();
 
     // Mode-specific parameter resolution: drift-driven overrides win when
     // present, otherwise fall back to the panel's slider state.
@@ -2585,7 +2392,7 @@ void PromptPanel::triggerGeneration()
                     processor.setLastPrompts(promptA, promptB);
                     self->lastGenPromptA_ = promptA;
                     self->lastGenPromptB_ = promptB;
-                    self->syncSeedEditorDisplay(result.seed);
+                    self->syncSeedState(result.seed);
                     processor.setLastGenerationTimeMs(result.generationTimeMs);
                     // A successful manual generate proves the backend is
                     // healthy — clear any stale failure stamp left by a
@@ -2728,7 +2535,7 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
                     processor.setLastPrompts(promptA, promptB);
                     self->lastGenPromptA_ = promptA;
                     self->lastGenPromptB_ = promptB;
-                    self->syncSeedEditorDisplay(result.seed);
+                    self->syncSeedState(result.seed);
                     processor.setLastGenerationTimeMs(result.generationTimeMs);
                     // Healthy generation — clear the failure throttle so the
                     // next drift change can fire immediately again.
@@ -2978,7 +2785,7 @@ void PromptPanel::pollDriftRegen()
         }
     }
 
-    bool randomRegen = randomSeedToggle.getToggleState();
+    bool randomRegen = processorRef.getLastRandomSeed();
     if (!alphaChanged && !axesChanged && !noiseChanged && !magChanged && !promptChanged
         && !resynthLoop && !repromptLoop && !randomRegen)
         return;
@@ -3309,8 +3116,6 @@ void PromptPanel::mouseDown(const juce::MouseEvent& e)
     juce::String paramId;
     auto* src = e.eventComponent;
     if      (src == &alphaSlider)     paramId = PID::genAlpha;
-    else if (src == &stepsSlider)     paramId = PID::infSteps;
-    else if (src == &cfgSlider)       paramId = PID::genCfg;
 
     if (paramId.isNotEmpty())
         showMidiLearnMenu(processorRef, paramId, e.getScreenPosition());
