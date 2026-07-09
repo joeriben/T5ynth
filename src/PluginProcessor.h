@@ -21,6 +21,7 @@
 #include "sequencer/Arpeggiator.h"
 #include "inference/PipeInference.h"
 #include "eventlog/EventLog.h"
+#include "eventlog/EventLogReader.h"
 #include "eventlog/EventLogWriterThread.h"
 
 class T5ynthProcessor : public juce::AudioProcessor,

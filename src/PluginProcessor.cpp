@@ -763,11 +763,12 @@ void T5ynthProcessor::startReplay(ReplayState&& state)
     // the exact configuration the session was recorded with.
     if (state.startStateBase64.isNotEmpty())
     {
-        juce::MemoryBlock stateBlock;
-        if (juce::Base64::convertFromBase64(stateBlock, state.startStateBase64))
+        // Base64::convertFromBase64 writes into an OutputStream, not a MemoryBlock.
+        juce::MemoryOutputStream stateStream;
+        if (juce::Base64::convertFromBase64(stateStream, state.startStateBase64))
         {
             beginBulkParamLoad();  // suppress per-param event log spam
-            setStateInformation(stateBlock.getData(), static_cast<int>(stateBlock.getSize()));
+            setStateInformation(stateStream.getData(), static_cast<int>(stateStream.getDataSize()));
             endBulkParamLoad("replay_start");
         }
     }
