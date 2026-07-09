@@ -119,8 +119,8 @@ public:
      *  seedEditor/randomSeedToggle widgets were removed (DCO Slice 0). */
     juce::String getPromptA() const { return promptAEditor.getText().trim(); }
     juce::String getPromptB() const { return promptBEditor.getText().trim(); }
-    int getSeed() const { return processorRef.getLastSeed(); }
-    bool isRandomSeed() const { return processorRef.getLastRandomSeed(); }
+    int getSeed() const;        // defined in the .cpp: T5ynthProcessor is only
+    bool isRandomSeed() const;  // forward-declared here
 
     /** Read current injection-mode state (for preset save). */
     juce::String getInjectionMode()  const { return injectionMode_; }

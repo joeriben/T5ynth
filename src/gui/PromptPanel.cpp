@@ -75,11 +75,12 @@ constexpr float kPromptReprompt    = 4.0f;   // Re-Prompt MODULE total height (c
 // Removed from the Advanced budget: Steps/CFG compactPair (compactRow +
 // compactCtrl + gap = 2.33) + GENERATION header (compactRow + gap = 1.43) +
 // Seed row (compactRow + seedCtrl + gap = 1.15 + 1.75 + 0.28 = 3.18) =
-// 6.94 units: 23.19 - 6.94 = 16.25. Seed state now lives on the processor
-// (setLastSeed/getLastSeed, setLastRandomSeed/getLastRandomSeed), driven
-// exclusively by the Easy-mode Variation switchbox.
-// Easy budget keeps the model selector row but drops the advanced param rows.
-constexpr float kPromptContentUnits = 16.25f;
+// 6.94 units; the GENERATION header used to REPLACE the divider, so the
+// divider's groupGap (1.0) comes back in: 23.19 - 6.94 + 1.0 = 17.25.
+// Seed state now lives on the processor (setLastSeed/getLastSeed,
+// setLastRandomSeed/getLastRandomSeed), driven exclusively by the Easy-mode
+// Variation switchbox.
+constexpr float kPromptContentUnits = 17.25f;
 // Easy budget keeps the model selector row but drops the advanced param rows.
 constexpr float kPromptEasyContentUnits = 20.11f;
 constexpr int kBaseSeed = 123456789;
@@ -1037,22 +1038,14 @@ void PromptPanel::resized()
         }
     }
 
-    // Separator between the Re-Prompt row and the generation params.
-    if (easy)
-    {
-        // Easy view: a thin divider line — the Duration/Variation ModuleBoxes
-        // below carry their own top-headers, so no umbrella header is needed.
-        area.removeFromTop(groupGap / 2);
-        paramsDividerY = area.getY();
-        area.removeFromTop(groupGap - groupGap / 2);
-    }
-    else
-    {
-        // Advanced view: the param grid was removed (DCO Slice 0) — the canvas
-        // below the divider stays empty, ready for the DCO surface. A thin
-        // divider line still marks the boundary (drawn in paintOverChildren).
-        paramsDividerY = area.getY();
-    }
+    // Separator between the Re-Prompt row and what follows: a thin divider line
+    // centred in the groupGap. Easy view: the 2x2 gen block below carries its
+    // own captions, no umbrella header. Advanced view: the param grid was
+    // removed (DCO Slice 0) — the canvas below stays empty, ready for the DCO
+    // surface. Both budgets include this groupGap (drawn in paintOverChildren).
+    area.removeFromTop(groupGap / 2);
+    paramsDividerY = area.getY();
+    area.removeFromTop(groupGap - groupGap / 2);
 
     // --- Compact params: 2 columns ---
     int colGap = juce::roundToInt(w * 0.03f);
@@ -1155,11 +1148,12 @@ void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String
     // them), regardless of any rewrite the loop later puts in the editors. setText
     // above used dontSendNotification, so onTextChange did NOT fire — set explicitly.
     processorRef.setHumanPrompts(promptA, promptB);
+    // Write BOTH seed fields before syncing: syncSeedModeFromCurrentState()
+    // derives the VAR switchbox mode from getLastRandomSeed(), so the random
+    // flag must be current or the box shows the previous preset's mode.
     processorRef.setLastSeed(seed);
-    syncSeedModeFromCurrentState();
-    // Keep the cached auto-state aligned with what we just restored, so a
-    // subsequent Save (without re-touching the UI) round-trips correctly.
     processorRef.setLastRandomSeed(randomSeed);
+    syncSeedModeFromCurrentState();
     if (auto* startParam = processorRef.getValueTreeState().getParameter(PID::genStart))
         startParam->setValueNotifyingHost(0.0f);
 
@@ -1575,40 +1569,17 @@ void PromptPanel::setEasyMode(bool easy)
     repaint();
 }
 
+// Out-of-line because PromptPanel.h only forward-declares T5ynthProcessor.
+int PromptPanel::getSeed() const        { return processorRef.getLastSeed(); }
+bool PromptPanel::isRandomSeed() const  { return processorRef.getLastRandomSeed(); }
+
 bool PromptPanel::hasHiddenActiveState() const
 {
-    if (!easyMode_)
-        return false;
-
-    auto& apvts = processorRef.getValueTreeState();
-    auto differs = [](float value, float neutral, float epsilon)
-    {
-        return std::abs(value - neutral) > epsilon;
-    };
-
-    // Magnitude/Chaos are no longer Advanced-only (they're the inline
-    // magRow/noiseRow, always visible in Easy) — no longer "hidden" state to
-    // report while easyMode_ is active, so they've been dropped from this check.
-
-    // Compare steps/CFG against the active model's defaults (the same
-    // values the model-click handler writes on selection). Skip when no
-    // model is selected yet — before populateModelSelector runs there's
-    // nothing to compare against, and the user couldn't have changed
-    // anything from the easy-mode UI either.
-    const auto selectedModel = getSelectedModel();
-    if (selectedModel.isNotEmpty())
-    {
-        const auto defaults = defaultParamsFor(selectedModel);
-
-        if (auto* v = apvts.getRawParameterValue(PID::infSteps))
-            if (static_cast<int>(std::round(v->load())) != static_cast<int>(std::round(defaults.steps)))
-                return true;
-
-        if (auto* v = apvts.getRawParameterValue(PID::genCfg))
-            if (differs(v->load(), defaults.cfg, 0.001f))
-                return true;
-    }
-
+    // Nothing qualifies anymore: Magnitude/Chaos live on the Easy view, and
+    // Steps/CFG have no UI anywhere (DCO Slice 0) — buildInferenceRequest
+    // force-overrides them per model, so a stale APVTS value can never affect
+    // a render. Pulsing the toggle would point at an empty Advanced canvas.
+    // Revisit once the DCO surface holds real state.
     return false;
 }
 
@@ -1969,8 +1940,13 @@ PipeInference::Request PromptPanel::buildInferenceRequest(
                            ? apvts.getRawParameterValue(PID::genNoise)->load()
                            : noiseOverride;
     float duration = apvts.getRawParameterValue(PID::genDuration)->load();
-    int steps = static_cast<int>(apvts.getRawParameterValue(PID::infSteps)->load());
-    float cfgScale = apvts.getRawParameterValue(PID::genCfg)->load();
+    // Steps/CFG have no UI anymore (DCO Slice 0) — always force the per-model
+    // values at the generation choke point, overriding whatever a preset or
+    // host automation wrote into APVTS. The model-click handler keeps APVTS in
+    // sync for display/automation lanes, but the request never trusts it.
+    const auto forcedInf = defaultParamsFor(getSelectedModel());
+    int steps = static_cast<int>(forcedInf.steps);
+    float cfgScale = forcedInf.cfg;
     int seed = processorRef.getLastRandomSeed() ? -1 : processorRef.getLastSeed();
 
     // Mode-specific parameter resolution: drift-driven overrides win when
