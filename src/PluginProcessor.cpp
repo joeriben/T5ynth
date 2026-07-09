@@ -755,6 +755,47 @@ bool T5ynthProcessor::getEventLogEnabled() const
     return eventLogEnabled_.load(std::memory_order_relaxed);
 }
 
+// ── R2: Replay Transport ──────────────────────────────────────────────────────
+
+void T5ynthProcessor::startReplay(ReplayState&& state)
+{
+    // Message thread only. Restore the start-state first so the engine is in
+    // the exact configuration the session was recorded with.
+    if (state.startStateBase64.isNotEmpty())
+    {
+        juce::MemoryBlock stateBlock;
+        if (juce::Base64::convertFromBase64(stateBlock, state.startStateBase64))
+        {
+            beginBulkParamLoad();  // suppress per-param event log spam
+            setStateInformation(stateBlock.getData(), static_cast<int>(stateBlock.getSize()));
+            endBulkParamLoad("replay_start");
+        }
+    }
+
+    // Reset playhead and indices
+    state.playheadSamples = 0;
+    state.nextNoteIdx     = 0;
+    state.nextParamIdx    = 0;
+    state.nextGenIdx      = 0;
+
+    // Publish the state (audio thread will pick it up on next processBlock)
+    replayState_ = std::move(state);
+    replayDueGenerationId_.store(0, std::memory_order_relaxed);
+    replayModeActive_.store(true, std::memory_order_release);
+}
+
+void T5ynthProcessor::stopReplay()
+{
+    // Message thread only. Clear the flag first so the audio thread stops
+    // injecting events on the next processBlock.
+    replayModeActive_.store(false, std::memory_order_release);
+
+    // Flush any held notes by sending all-notes-off through the voice manager.
+    // This is safe on the message thread — voiceManager.noteOff() just marks
+    // voices for release.
+    voiceManager.allNotesOff();
+}
+
 juce::NormalisableRange<float> T5ynthProcessor::makeDurationRange(float maxSeconds)
 {
     // Single source for the Duration range's skew + snapping. The APVTS

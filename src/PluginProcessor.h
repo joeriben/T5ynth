@@ -599,6 +599,46 @@ private:
     std::atomic<uint64_t> eventLogNextGenerationId_ { 1 };
     std::atomic<uint64_t> eventLogLastGenerationId_ { 0 };   // 0 = none yet
 
+    // ── R2: Replay Transport ──────────────────────────────────────────────────
+    // Replays a recorded .t5evt session: notes inject at sample-accurate times,
+    // generations re-fire at their logged times and crossfade in when complete.
+    // Architecture mirrors the drift-regen loop (pollDriftRegen in PromptPanel).
+    struct ReplayState
+    {
+        // Parsed event vectors (message thread builds, publishes via replayModeActive_)
+        std::vector<NoteEventLogEntry>       noteEvents;
+        std::vector<EventLogReader::ParsedParamEvent> paramEvents;
+        std::vector<GenerationEventLogEntry> generationEvents;
+
+        // Playhead (audio thread reads, message thread writes only when inactive)
+        uint64_t playheadSamples = 0;
+        size_t   nextNoteIdx     = 0;
+        size_t   nextParamIdx    = 0;
+        size_t   nextGenIdx      = 0;
+
+        // Start state (base64-encoded APVTS snapshot)
+        juce::String startStateBase64;
+        double       sampleRate = 44100.0;
+    };
+
+    std::atomic<bool> replayModeActive_ { false };
+    ReplayState       replayState_;   // written by message thread, read by audio thread
+    std::atomic<uint64_t> replayDueGenerationId_ { 0 };  // audio flags, message polls+fires
+
+    /** Start replaying a parsed session. Message thread only.
+     *  Restores start-state, publishes event vectors, flips replayModeActive_. */
+    void startReplay(ReplayState&& state);
+
+    /** Stop replay, return to live control. Message thread only.
+     *  Flushes any held notes, clears replayModeActive_. */
+    void stopReplay();
+
+    /** Check if replay is currently active. Thread-safe. */
+    bool isReplayActive() const { return replayModeActive_.load(std::memory_order_acquire); }
+
+    /** Get the replay playhead position in samples. Audio thread only. */
+    uint64_t getReplayPlayhead() const { return replayState_.playheadSamples; }
+
     // skipLeadForArp: when the seq-drives-arp path is about to erase() the lead
     // strand's events out of internalNoteEvents_ (see the arp-lead-extraction
     // block in processBlock), skip logging those same events here instead of
