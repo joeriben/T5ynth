@@ -233,6 +233,12 @@ private:
     // instead of firing an old tape's generation against the new one.
     std::optional<GenerationEventLogEntry> pendingReplayGen_;
     uint32_t pendingReplayEpoch_ = 0;
+    // The user's prompts, saved when the tape's first generation overwrites the
+    // editors and restored when replay ends — otherwise a replay would silently
+    // eat the prompt the user had typed (manual Generate reads the editors direct).
+    // replayPromptsSaved_ guards against re-saving the tape's own text mid-replay.
+    juce::String preReplayPromptA_, preReplayPromptB_;
+    bool         replayPromptsSaved_ = false;
     // Did the previous replayed generation actually render? An internal-resynth link
     // seeds from the parent's output sitting in the processor — if the parent failed
     // at replay time, that buffer is the GRANDparent's and the seed would be wrong.

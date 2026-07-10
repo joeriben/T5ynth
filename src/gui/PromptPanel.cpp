@@ -2817,6 +2817,15 @@ void PromptPanel::pollReplayRegen()
     if (! processorRef.isReplayActive())
     {
         pendingReplayGen_.reset();
+        // Replay just ended (Stop, end-of-tape, or a stale flag): give the user
+        // their prompts back. Covers every stop path — this poll runs each tick and
+        // the transition to inactive lands here regardless of how it stopped.
+        if (replayPromptsSaved_)
+        {
+            promptAEditor.setText(preReplayPromptA_, juce::dontSendNotification);
+            promptBEditor.setText(preReplayPromptB_, juce::dontSendNotification);
+            replayPromptsSaved_ = false;
+        }
         return;
     }
 
@@ -2908,6 +2917,22 @@ void PromptPanel::fireReplayGeneration(const GenerationEventLogEntry& logged)
             req.initNoiseLevel      = logged.initNoiseLevel;
         }
     }
+
+    // Show the tape's prompts in the editors as this generation fires — the start
+    // patch cannot carry them (prompts are GUI-only, not in the APVTS state), so
+    // without this the editors keep whatever text was there when Play was pressed.
+    // Save the user's prompts on the FIRST replay generation so pollReplayRegen can
+    // restore them when the tape ends — otherwise the replay silently eats them
+    // (manual Generate reads the editors directly). dontSendNotification: a display
+    // update, not a user edit — must not re-trigger translation or mark dirty.
+    if (! replayPromptsSaved_)
+    {
+        preReplayPromptA_   = promptAEditor.getText();
+        preReplayPromptB_   = promptBEditor.getText();
+        replayPromptsSaved_ = true;
+    }
+    promptAEditor.setText(logged.promptA, juce::dontSendNotification);
+    promptBEditor.setText(logged.promptB, juce::dontSendNotification);
 
     generating = true;
     generateButton.setEnabled(false);

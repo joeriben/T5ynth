@@ -625,6 +625,23 @@ private:
     // future non-message-thread caller can't silently corrupt them.
     std::atomic<uint64_t> eventLogNextGenerationId_ { 1 };
     std::atomic<uint64_t> eventLogLastGenerationId_ { 0 };   // 0 = none yet
+    // False until the first real (non-bulk-suppressed) event is logged this session.
+    // While false, the start-state is (re)captured on each preset/state load so the
+    // header carries the patch actually in effect at t=0; once true, capturing stops
+    // (the running patch no longer equals the tape's start). Set at the audio-thread
+    // note taps + parameterChanged + recordEventLogGeneration; read on the message
+    // thread. See captureEventLogStartStateIfPending().
+    std::atomic<bool> eventLogRealEventLogged_ { false };
+    // True only across the setStateInformation calls inside startReplay()/stopReplay().
+    // Those restores are internal transport machinery, not user/host state changes:
+    // the log must not stamp the tape's patch as the live session's start-state, nor
+    // emit a replay_start/replay_end preset marker into it. replayModeActive_ can't
+    // gate this — it is flipped AFTER the start restore and cleared BEFORE the stop
+    // restore, so it is provably false at the exact moment endBulkParamLoad runs here.
+    bool eventLogInReplayRestore_ = false;
+    // Message thread. Snapshots current APVTS as the replay start state, gated by the
+    // flag above. Idempotent; safe to call from any start-of-session hook.
+    void captureEventLogStartStateIfPending();
 
     // ── R2: Replay Transport — internals ──────────────────────────────────────
     // See the public startReplay()/stopReplay() block below for the contract.

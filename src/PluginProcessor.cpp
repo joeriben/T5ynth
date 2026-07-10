@@ -636,6 +636,7 @@ void T5ynthProcessor::logInternalNoteEventsFrom(size_t startIndex, NoteEventLogE
         // eventLogWriter_ is created in the ctor and only reset in the dtor, both
         // while the audio thread is stopped, so it is always valid here.
         eventLogWriter_->pushNote(e);
+        eventLogRealEventLogged_.store(true, std::memory_order_relaxed);   // freeze the start-state
     }
 }
 
@@ -655,6 +656,7 @@ void T5ynthProcessor::logExternalNoteEvent(bool noteOn, int note, float velocity
     e.midiChannel = channel;
 
     eventLogWriter_->pushNote(e);
+    eventLogRealEventLogged_.store(true, std::memory_order_relaxed);   // freeze the start-state
 }
 
 void T5ynthProcessor::parameterChanged(const juce::String& parameterID, float newValue)
@@ -690,7 +692,10 @@ void T5ynthProcessor::parameterChanged(const juce::String& parameterID, float ne
     // is constructed; in practice eventLogEnabled_ (checked above) is only set
     // true after construction, so this is belt-and-suspenders.
     if (eventLogWriter_)
+    {
         eventLogWriter_->pushParam(e);
+        eventLogRealEventLogged_.store(true, std::memory_order_relaxed);   // freeze the start-state
+    }
 }
 
 void T5ynthProcessor::beginBulkParamLoad()
@@ -704,10 +709,43 @@ void T5ynthProcessor::endBulkParamLoad(const juce::String& presetName)
     eventLogSuppressParamEvents_.store(false, std::memory_order_relaxed);
     if (! eventLogRecordingActive() || eventLogWriter_ == nullptr)
         return;
+
+    // A replay's own start/stop restore is not a session event — no start-state
+    // capture, no preset marker into the live log. (See eventLogInReplayRestore_.)
+    if (eventLogInReplayRestore_)
+        return;
+
+    // A preset/state load before the first musical event IS this session's start
+    // patch — re-snapshot it so the .t5evt header carries the patch actually in
+    // effect. This is the load that matters in the sticky-enabled case: the ctor
+    // runs before standalone's _buffer.t5p (or a DAW's project state) is restored,
+    // so capturing at construction would freeze the init patch instead.
+    captureEventLogStartStateIfPending();
+
     PresetLoadedLogEntry e;
     e.timestamp  = eventLogTotalSamples_.load(std::memory_order_relaxed);
     e.presetName = presetName;
     eventLogWriter_->enqueue(e);
+}
+
+void T5ynthProcessor::captureEventLogStartStateIfPending()
+{
+    // Message thread only. Captures the current APVTS patch as the replay start
+    // state, but only until the first real event is logged — after that, the
+    // running patch no longer equals the tape's t=0 patch. getStateInformation
+    // reads live APVTS, so every hook that calls this (enable toggle, preset/state
+    // load, prepareToPlay) captures whatever is loaded at that moment; the last one
+    // before the first event wins.
+    if (eventLogWriter_ == nullptr
+        || ! eventLogEnabled_.load(std::memory_order_relaxed)
+        || replayModeActive_.load(std::memory_order_relaxed)
+        || eventLogRealEventLogged_.load(std::memory_order_relaxed))
+        return;
+
+    juce::MemoryBlock stateBlock;
+    getStateInformation(stateBlock);
+    eventLogWriter_->setStartState(
+        juce::Base64::toBase64(stateBlock.getData(), stateBlock.getSize()));
 }
 
 void T5ynthProcessor::cancelBulkParamLoad()
@@ -728,6 +766,7 @@ void T5ynthProcessor::recordEventLogGeneration(GenerationEventLogEntry entry, bo
 
     eventLogWriter_->enqueue(entry);
     eventLogLastGenerationId_.store(id, std::memory_order_relaxed);
+    eventLogRealEventLogged_.store(true, std::memory_order_relaxed);   // freeze the start-state
 }
 
 void T5ynthProcessor::setEventLogEnabled(bool enabled)
@@ -739,16 +778,10 @@ void T5ynthProcessor::setEventLogEnabled(bool enabled)
         s->saveIfNeeded();
     }
 
-    // R0: Capture the full APVTS state at recording start so the .t5evt file
-    // is self-contained for replay. Message-thread only; getStateInformation()
-    // is safe here (no audio-thread contention on the APVTS tree read).
-    if (enabled && eventLogWriter_)
-    {
-        juce::MemoryBlock stateBlock;
-        getStateInformation(stateBlock);
-        const auto base64 = juce::Base64::toBase64(stateBlock.getData(), stateBlock.getSize());
-        eventLogWriter_->setStartState(base64);
-    }
+    // R0: capture the current patch as the replay start state (self-contained
+    // .t5evt). On a runtime toggle this grabs exactly what the user is looking at.
+    if (enabled)
+        captureEventLogStartStateIfPending();
 }
 
 bool T5ynthProcessor::getEventLogEnabled() const
@@ -832,9 +865,12 @@ bool T5ynthProcessor::startReplay(const EventLogReader& reader)
     // Restore the start-state (decoded and validated at the top) so the engine is in
     // the exact configuration the session was recorded with. setStateInformation
     // guards the param flood itself — do NOT wrap it in a second BulkParamLoadGuard;
-    // the suppress flag is a plain bool, not a counter.
+    // the suppress flag is a plain bool, not a counter. eventLogInReplayRestore_
+    // keeps this restore out of any live recording (start-state + marker).
+    eventLogInReplayRestore_ = true;
     stateRestoreMarkerName_ = "replay_start";
     setStateInformation(startStateBytes.getData(), static_cast<int>(startStateBytes.getDataSize()));
+    eventLogInReplayRestore_ = false;
 
     // Publish under the callback lock: processBlock reads replayState_ by
     // reference, so the vectors must not be reseated while a block is in flight.
@@ -882,7 +918,9 @@ void T5ynthProcessor::stopReplay()
         const juce::MemoryBlock patch = std::move(preReplayPatch_);
         preReplayPatch_.reset();
         stateRestoreMarkerName_ = "replay_end";   // setStateInformation's own guard names the marker
+        eventLogInReplayRestore_ = true;          // keep this restore out of a live recording
         setStateInformation(patch.getData(), static_cast<int>(patch.getSize()));
+        eventLogInReplayRestore_ = false;
 
         // setStateInformation zeroes these unconditionally ("no acoustic surprise on
         // session reopen"). Correct for a host reopening a project; wrong here, where
@@ -1784,6 +1822,11 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     if (eventLogWriter_)
         eventLogWriter_->setSampleRate(sampleRate);
+
+    // Fallback start-state capture: if recording is enabled but nothing has loaded a
+    // patch (user just plays from the init patch), the header would otherwise carry
+    // no start-state. Reads live APVTS, so it's also correct after a host restore.
+    captureEventLogStartStateIfPending();
 
     masterOsc.prepare(sampleRate, samplesPerBlock);
     masterSampler.prepare(sampleRate, samplesPerBlock);
