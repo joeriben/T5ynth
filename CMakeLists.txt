@@ -136,6 +136,7 @@ target_sources(T5ynth PRIVATE
     src/UpdateChecker.cpp
 
     # DSP
+    src/dsp/DcoBaker.cpp
     src/dsp/WavetableOscillator.cpp
     src/dsp/WavetableBank.cpp
     src/dsp/NoiseGenerator.cpp
