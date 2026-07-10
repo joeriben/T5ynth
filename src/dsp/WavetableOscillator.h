@@ -100,6 +100,29 @@ public:
     void extractContiguousFrames(const juce::AudioBuffer<float>& buffer, double bufferSR,
                                  float startFrac = 0.0f, float endFrac = 1.0f);
 
+    /** Adopt a strip of pre-sliced single-cycle frames BIT-EXACTLY (DCO bakes:
+     *  mono, N*FRAME_SIZE samples on exact frame boundaries). Unlike
+     *  extractContiguousFrames there is NO seam ramp and NO per-frame renorm —
+     *  the baker's closed-form cycles are already loop-exact per cycle, and
+     *  both "corrections" audibly corrupt them (measured 0.43 max sample
+     *  error on a pwm bake: the renorm re-levels every width step of the
+     *  authored sweep). Same mip/publish path as extraction. */
+    void setExactFrames(const juce::AudioBuffer<float>& strip);
+
+    /** DCO motion transport. The table is an authored GESTURE (recipe motion,
+     *  loop-closed by construction), not a sampled timeline: position runs at
+     *  rateHz full loops per second with an exact modular wrap and NO scan
+     *  smoothing on the motion component — the 5 ms smoother exists to mask
+     *  control jumps and would turn every wrap into an audible reverse sweep
+     *  (the "dropout every table pass" defect). Manual scan + modulation
+     *  (setScanPosition) still go through the smoother and ADD to the motion
+     *  position. Active state and rate are traversal config (copied to voices
+     *  via syncSharedConfigFrom); the phase is per-voice, reset on noteOn by
+     *  retriggerAutoScan so every note restarts the gesture. Neural
+     *  extraction (extractContiguousFrames) deactivates it. */
+    void setDcoMotion(bool active, float rateHz);
+    bool isDcoMotionActive() const { return dcoMotionActive_; }
+
     /** Process a single sample. */
     float processSample();
 
@@ -183,6 +206,12 @@ private:
     LoopMode autoScanLoopMode_ = LoopMode::Loop;
     bool  autoScanInFirstPass_ = true;   // true until first loop boundary hit
     int   autoScanDirection_ = 1;        // +1 forward, -1 backward
+
+    // DCO motion transport (see setDcoMotion). Rate/active = shared traversal
+    // config; position = per-voice gesture phase.
+    bool   dcoMotionActive_ = false;
+    float  dcoMotionRateHz_ = 0.25f;
+    double dcoMotionPos_ = 0.0;
 
     MipDataPtr loadPublishedMipData() const;
     void syncSharedConfigFrom(const WavetableOscillator& source);

@@ -50,6 +50,8 @@ struct Recipe {
     std::vector<MotionSegment> motion;  // if empty: single static keyframe[0]
     bool loop = true;                   // loop=true recipes should END on the start keyframe
     int  frames = 128;                  // bake resolution, clamped [8, 256]
+    float motionRateHz = 0.0f;          // full motion loops per second; <= 0 =
+                                        // unspecified (consumer picks a fallback)
 };
 
 } // namespace dco

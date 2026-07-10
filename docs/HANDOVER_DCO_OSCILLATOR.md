@@ -16,9 +16,16 @@ by an external session (`035e5cf8`/`63dc543f`) and repaired (`e90ac3d7`: font lo
 forced per-model Steps/CFG at the request choke point, preset seed-mode sync). Every slice passed
 an adversarial opus review; the audition tool re-proved the two lost design demos
 (`tools/dco_audition_out/`). §§2–7 below remain the authoritative concept + subsystem reference.
-Known v1 seams: per-frame renorm in `extractContiguousFrames` flattens morph level dynamics
-(bit-exact `setFrames` = flagged follow-up); WT frame-count/bracket edits revert the table to the
-last neural audio; DCO bakes are not yet event-logged or preset-persisted.
+The two bake sound defects the user heard were measured and fixed post-handover: DCO strips are
+now adopted bit-exact (`WavetableOscillator::setExactFrames` — the `extractContiguousFrames`
+seam-ramp/renorm corrupted exact cycles by up to 0.433) and driven by a dedicated motion
+transport (`setDcoMotion`, recipe `motion_rate_hz`, lexicon v2) instead of the sampler-style
+auto-scan whose Loop wrap slewed back through the whole table every strip-duration ("Aussetzer
+alle 2-3 Sekunden"). Held-note DCO↔neural transport flips stay click-free via the smoothedScan
+fold in `syncSharedConfigFrom`; guard: `tools/audition_dco_plugin_path.cpp`.
+Known v1 seams: WT frame-count/bracket edits revert the table to the last neural audio; the
+wavetable display's scan cursor does not show DCO motion (`getCurrentScanPosition` returns only
+`smoothedScan`); DCO bakes are not yet event-logged or preset-persisted.
 Branch: `main` (the user works directly on main and commits concurrently — see §9).
 Scope: this is the DCO **engine** handover. The UI-migration that frees the canvas is a separate,
 nearly-finished doc: `docs/HANDOVER_OSC_EASY_MIGRATION.md` (untracked, still in the tree). Read it too.

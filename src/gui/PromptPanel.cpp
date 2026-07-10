@@ -1969,10 +1969,12 @@ void PromptPanel::triggerDcoBake()
 
         juce::String status, flagTooltip;
         juce::AudioBuffer<float> strip;
+        float motionRateHz = 0.0f;
         if (authored.success)
         {
             const auto parsed = juce::JSON::parse(authored.json);
             const auto recipe = dco::recipeFromVar(parsed.getProperty("recipe", juce::var()));
+            motionRateHz = recipe.motionRateHz;
             if (!recipe.keyframes.empty())
             {
                 const auto frameData = dco::Baker::bake(recipe);
@@ -2006,12 +2008,12 @@ void PromptPanel::triggerDcoBake()
         }
 
         juce::MessageManager::callAsync(
-            [safeThis, strip = std::move(strip), status, flagTooltip]() mutable
+            [safeThis, strip = std::move(strip), status, flagTooltip, motionRateHz]() mutable
         {
             if (auto* self = safeThis.getComponent())
             {
                 if (strip.getNumSamples() > 0)
-                    self->processorRef.loadDcoWavetable(strip);
+                    self->processorRef.loadDcoWavetable(strip, motionRateHz);
                 self->dcoStatusLabel.setText(status, juce::dontSendNotification);
                 self->dcoStatusLabel.setTooltip(flagTooltip);
                 self->dcoBakeBtn.setEnabled(true);

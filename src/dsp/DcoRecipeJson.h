@@ -88,6 +88,8 @@ inline Recipe recipeFromVar(const juce::var& v)
 
     r.loop   = (bool) v.getProperty("loop", true);
     r.frames = (int) v.getProperty("frames", 128);
+    r.motionRateHz = static_cast<float>(
+        static_cast<double>(v.getProperty("motion_rate_hz", 0.0)));
     return r;
 }
 

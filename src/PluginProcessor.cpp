@@ -4484,6 +4484,10 @@ void T5ynthProcessor::syncWavetableTraversal(double bufferSampleRate, int totalS
         default:                               oscLoopMode = WavetableOscillator::LoopMode::Loop;     break;
     }
 
+    // Neural traversal owns the table again — the DCO motion transport must
+    // not keep driving scan over a sampled timeline. (extractContiguousFrames
+    // already clears it; this covers any sync without a fresh extraction.)
+    masterOsc.setDcoMotion(false, 0.0f);
     masterOsc.setAutoScanStartPos(mapping.startInExtract);
     masterOsc.setAutoScanLoop(mapping.loopStartInExtract, mapping.loopEndInExtract, oscLoopMode);
     if (paramCache.wtAutoScan->load() > 0.5f)
@@ -4949,7 +4953,8 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
     }
 }
 
-void T5ynthProcessor::loadDcoWavetable(const juce::AudioBuffer<float>& frameStrip)
+void T5ynthProcessor::loadDcoWavetable(const juce::AudioBuffer<float>& frameStrip,
+                                       float motionRateHz)
 {
     // Message thread. The strip is N baked single cycles laid end-to-end
     // (mono, N*2048 samples) — extractContiguousFrames re-slices it on exact
@@ -4979,28 +4984,32 @@ void T5ynthProcessor::loadDcoWavetable(const juce::AudioBuffer<float>& frameStri
         engineParam->setValueNotifyingHost(
             engineParam->convertTo0to1(static_cast<float>(EngineMode::Wavetable)));
 
-    masterOsc.extractContiguousFrames(frameStrip, sr, 0.0f, 1.0f);
+    // Bit-exact adoption — NOT extractContiguousFrames: its seam ramp and
+    // per-frame renorm are corrections for arbitrary neural slices and
+    // audibly corrupt exact closed-form cycles (setExactFrames doc). Also
+    // marks the table content-seamless so auto-scan Loop wraps don't slew
+    // back through the whole table (the "dropout every table-pass" defect).
+    masterOsc.setExactFrames(frameStrip);
 
     {
         // Guard engine-state mutation against the realtime callback (same
         // rule as loadGeneratedAudio).
         const juce::ScopedLock sl (getCallbackLock());
 
-        // NOT syncWavetableTraversal(): that derives scan-loop brackets from
-        // the SAMPLER's active region (state of the last neural sample), which
-        // is meaningless for a baked strip and would loop only part of the
-        // motion. The recipe motion is loop-authored over the FULL table.
-        masterOsc.setAutoScanStartPos(0.0f);
-        masterOsc.setAutoScanLoop(0.0f, 1.0f, WavetableOscillator::LoopMode::Loop);
-        if (paramCache.wtAutoScan->load() > 0.5f)
-        {
-            masterOsc.setAutoScan(true);
-            masterOsc.setAutoScanRate(sr, frameStrip.getNumSamples());
-        }
-        else
-        {
-            masterOsc.setAutoScan(false);
-        }
+        // NOT syncWavetableTraversal() and NOT the sampler-style auto-scan:
+        // both model a sampled timeline (scan brackets over a neural sample,
+        // rate = buffer duration). The DCO table is an authored gesture with
+        // its own tempo — the engine's dedicated motion transport drives it
+        // (exact modular wrap, no scan smoothing on the motion). The recipe's
+        // motion_rate_hz sets the tempo; older recipes without it fall back
+        // to the legacy strip-length rate. The neural wtAutoScan toggle does
+        // not apply here — the motion IS the recipe's sound, always on; the
+        // manual Scan control and modulation still ADD on top.
+        masterOsc.setAutoScan(false);
+        masterOsc.setDcoMotion(true,
+            motionRateHz > 0.0f
+                ? motionRateHz
+                : static_cast<float>(sr / static_cast<double>(frameStrip.getNumSamples())));
 
         masterOsc.setMorphTimeMs(paramCache.driftCrossfade->load());
         // Gate the per-block traversal re-sync BEFORE distributing, so no

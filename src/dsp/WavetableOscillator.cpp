@@ -17,6 +17,7 @@ void WavetableOscillator::reset()
 {
     phase = 0.0;
     smoothedScan = 0.0f;
+    dcoMotionPos_ = 0.0;
     if (!morphActive_)
         morphAlpha_ = 1.0f;
 }
@@ -76,6 +77,28 @@ void WavetableOscillator::syncSharedConfigFrom(const WavetableOscillator& source
     autoScanLoopStart_ = source.autoScanLoopStart_;
     autoScanLoopEnd_ = source.autoScanLoopEnd_;
     autoScanLoopMode_ = source.autoScanLoopMode_;
+
+    // Transport flip on a LIVE voice (held-note DCO<->neural regeneration):
+    // scanNow = dcoMotionPos_ + smoothedScan under DCO motion, plain
+    // smoothedScan under neural — flipping the flag mid-render would step
+    // scanNow by the whole motion offset in one sample at full outgoing
+    // morph gain (a hard click; the held-note click-free crossfade is a
+    // platform invariant). Fold the offset into smoothedScan so scanNow is
+    // bit-continuous across the flip; the smoother then slews to the new
+    // target over its normal 5 ms. Deliberately unclamped: smoothedScan may
+    // transiently leave [0,1] (readMipSample/scanNow clamp downstream), and
+    // clamping here would break the exact continuity this exists for. Guarded
+    // on an actual transition — this sync runs on every distribute, not only
+    // when the transport changes.
+    if (dcoMotionActive_ != source.dcoMotionActive_)
+    {
+        if (source.dcoMotionActive_)
+            smoothedScan -= static_cast<float>(dcoMotionPos_);  // motion term joins scanNow
+        else
+            smoothedScan += static_cast<float>(dcoMotionPos_);  // motion term leaves scanNow
+    }
+    dcoMotionActive_ = source.dcoMotionActive_;
+    dcoMotionRateHz_ = source.dcoMotionRateHz_;
     morphTimeMs_ = source.morphTimeMs_;
 }
 
@@ -642,6 +665,9 @@ void WavetableOscillator::setAutoScanStartPos(float frac)
 
 void WavetableOscillator::retriggerAutoScan()
 {
+    // DCO gesture restarts with the note (per-voice phase).
+    dcoMotionPos_ = 0.0;
+
     // Determine direction from P1 vs P3
     bool reversed = (autoScanStartPos_ > autoScanLoopEnd_);
     autoScanDirection_ = reversed ? -1 : 1;
@@ -709,6 +735,39 @@ void WavetableOscillator::extractContiguousFrames(const juce::AudioBuffer<float>
         while (static_cast<int>(frames.size()) < MIN_FRAMES)
             frames.push_back(frames.back());
 
+    dcoMotionActive_ = false;    // neural timeline: the auto-scan transport owns traversal
+
+    if (!frames.empty())
+        generateMipLevels(frames);
+}
+
+void WavetableOscillator::setDcoMotion(bool active, float rateHz)
+{
+    dcoMotionActive_ = active;
+    if (active)
+        dcoMotionRateHz_ = juce::jlimit(0.01f, 10.0f, rateHz);
+}
+
+void WavetableOscillator::setExactFrames(const juce::AudioBuffer<float>& strip)
+{
+    if (sharedSource_ != nullptr) return;
+
+    const int totalSamples = strip.getNumSamples();
+    if (strip.getNumChannels() < 1 || totalSamples < FRAME_SIZE)
+        return;
+
+    const float* data = strip.getReadPointer(0);
+    const int numFrames = totalSamples / FRAME_SIZE;   // exact boundaries, tail ignored
+
+    std::vector<std::vector<float>> frames;
+    frames.reserve(static_cast<size_t>(numFrames));
+    for (int f = 0; f < numFrames; ++f)
+        frames.emplace_back(data + f * FRAME_SIZE, data + (f + 1) * FRAME_SIZE);
+
+    if (static_cast<int>(frames.size()) < MIN_FRAMES && !frames.empty())
+        while (static_cast<int>(frames.size()) < MIN_FRAMES)
+            frames.push_back(frames.back());
+
     if (!frames.empty())
         generateMipLevels(frames);
 }
@@ -748,8 +807,19 @@ float WavetableOscillator::processSample()
 
     float scanTarget = scanControl_;
 
+    // DCO motion transport: the authored gesture advances with an exact
+    // modular wrap and bypasses the scan smoother entirely — the recipe
+    // motion is loop-closed, so the wrap is one ordinary motion step, and
+    // smoothing it would slew backwards through the whole table instead
+    // (an audible dropout once per loop). Manual scan + modulation keep
+    // the smoother via scanTarget below and ADD to the motion position.
+    if (dcoMotionActive_)
+    {
+        dcoMotionPos_ += static_cast<double>(dcoMotionRateHz_) / sampleRate;
+        dcoMotionPos_ -= std::floor(dcoMotionPos_);
+    }
     // Auto-scan: advance scan position per sample (3-point logic)
-    if (autoScan_)
+    else if (autoScan_)
     {
         const double pEnd   = static_cast<double>(autoScanLoopEnd_);
         const double pStart = static_cast<double>(autoScanLoopStart_);
@@ -815,8 +885,12 @@ float WavetableOscillator::processSample()
             static_cast<float>(autoScanPos_) + scanControl_);
     }
 
-    // Smooth scan position
+    // Smooth scan position (control component only under DCO motion)
     smoothedScan += (scanTarget - smoothedScan) * scanSmoothCoeff;
+
+    const float scanNow = dcoMotionActive_
+        ? juce::jlimit(0.0f, 1.0f, static_cast<float>(dcoMotionPos_) + smoothedScan)
+        : smoothedScan;
 
     // Recompute mip-level selector only when frequency changes. Outside glide and modulation
     // bursts this is constant for very long runs, so the log2/ceil cost is amortised to ~0.
@@ -829,14 +903,14 @@ float WavetableOscillator::processSample()
     }
 
     const int activeMip = juce::jlimit(0, activeMorphMipData_->numLevels - 1, cachedMipRawCeil_);
-    float output = readMipSample(*activeMorphMipData_, activeMip, phase, smoothedScan, doInterpolate);
+    float output = readMipSample(*activeMorphMipData_, activeMip, phase, scanNow, doInterpolate);
 
     if (morphActive_ && targetMorphMipData_ != nullptr && targetMorphMipData_->numFrames > 0)
     {
         const float alpha = juce::jlimit(0.0f, 1.0f, morphAlpha_);
         const int targetMip = juce::jlimit(0, targetMorphMipData_->numLevels - 1, cachedMipRawCeil_);
         const float targetSample = readMipSample(*targetMorphMipData_, targetMip, phase,
-                                                 smoothedScan, doInterpolate);
+                                                 scanNow, doInterpolate);
         const float dryGain = std::cos(alpha * juce::MathConstants<float>::halfPi);
         const float wetGain = std::sin(alpha * juce::MathConstants<float>::halfPi);
         output = output * dryGain + targetSample * wetGain;

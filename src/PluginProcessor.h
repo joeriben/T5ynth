@@ -80,10 +80,14 @@ public:
      *  end-to-end) into the wavetable master and switch the engine to
      *  Wavetable. Message thread only. Held voices crossfade over the Regen
      *  XFade time (distributeWavetableFrames), like any regeneration.
+     *  motionRateHz = the recipe's authored motion tempo (full loops/sec,
+     *  drives the engine's DCO motion transport); <= 0 falls back to the
+     *  legacy strip-length rate (one loop per strip-duration).
      *  NOTE: reextractWavetable()/reloadProcessedAudio() re-extract from the
      *  last GENERATED audio, so touching WT frame-count/brackets after a DCO
      *  bake reverts the table to the neural material — known Slice-4 seam. */
-    void loadDcoWavetable(const juce::AudioBuffer<float>& frameStrip);
+    void loadDcoWavetable(const juce::AudioBuffer<float>& frameStrip,
+                          float motionRateHz = 0.0f);
 
     // Inference cache: raw inference audio only, no duplicate prompt/model metadata.
     struct InferenceCacheEntry
