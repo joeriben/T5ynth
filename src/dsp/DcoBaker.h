@@ -63,6 +63,9 @@ private:
     // Ring at ratio 1 (sin(x)*sin(x) has a DC half).
     static void removeDC(Cycle& cycle);
 
+    // Post-render waveshape (tanh soft-clip) driven by Keyframe::shape.
+    static void applyShape(Cycle& cycle, float shape);
+
     // Shape a local blend position a in [0,1] by the segment's motion Curve.
     static double shapeCurve(double a, Curve curve);
 };

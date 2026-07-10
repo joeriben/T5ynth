@@ -1640,10 +1640,16 @@
           "args": {
             "delta": 2
           }
+        },
+        {
+          "op": "inharm",
+          "args": {
+            "amount": 0.5
+          }
         }
       ],
       "priority": 10,
-      "why": "clangy high-partial emphasis on any spectrum; denser sideband spread where FM is present"
+      "why": "clangy high-partial emphasis on any spectrum; denser sideband spread where FM is present + inharmonic-reading sparse highs on non-FM bases"
     },
     {
       "key": "smooth",
@@ -1873,20 +1879,80 @@
           }
         },
         {
-          "op": "fm_ratio",
+          "op": "inharm",
           "args": {
-            "delta": 1
-          }
-        },
-        {
-          "op": "fm_index",
-          "args": {
-            "delta": 0.5
+            "amount": 0.5
           }
         }
       ],
       "priority": 8,
-      "why": "bright plus a slight FM shimmer where FM is present"
+      "why": "bright plus an inharmonic-reading sheen (sparse high odd/prime partials); the single-cycle limit is flagged"
+    },
+    {
+      "key": "brittle",
+      "surface_forms": [
+        "brittle",
+        "spröde",
+        "spröder",
+        "sprödem",
+        "spröden",
+        "sprödes"
+      ],
+      "delta": [
+        {
+          "op": "cut",
+          "args": {
+            "h": 1,
+            "amount": -0.3
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 3,
+            "from_h": 4
+          }
+        },
+        {
+          "op": "inharm",
+          "args": {
+            "amount": 0.4
+          }
+        }
+      ],
+      "priority": 8,
+      "why": "thin fundamental + sharp highs + an inharmonic-reading sparse top — a brittle, glassy crack"
+    },
+    {
+      "key": "clangorous",
+      "surface_forms": [
+        "clangorous",
+        "clangy",
+        "clang",
+        "scheppernd",
+        "scheppernde",
+        "schepperndem",
+        "scheppernden",
+        "scheppernder",
+        "schepperndes"
+      ],
+      "delta": [
+        {
+          "op": "inharm",
+          "args": {
+            "amount": 0.8
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 2,
+            "from_h": 6
+          }
+        }
+      ],
+      "priority": 8,
+      "why": "dense inharmonic-reading metal — the strongest inharm push"
     },
     {
       "key": "growling",
@@ -2790,6 +2856,14 @@
       ],
       "priority": 6,
       "why": "a percussive-reading edge, milder and more targeted than harsh"
+    },
+    {
+      "key": "distorted",
+      "surface_forms": ["distorted","distortion","verzerrt","overdriven","saturated",
+                        "verzerrte","verzerrtem","verzerrten","verzerrter","verzerrtes"],
+      "delta": [ {"op": "drive", "args": {"amount": 0.6}} ],
+      "priority": 8,
+      "why": "nonlinear soft-clip (tanh waveshaper) adds real harmonics to any base — genuine distortion, not a brightness tilt"
     }
   ],
   "motions": [

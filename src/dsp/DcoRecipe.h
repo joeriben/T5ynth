@@ -34,6 +34,7 @@ struct Keyframe {
     int   order = 2;      // Cheby: polynomial order, clamped [2, 12]
     float drive = 1.0f;   // Cheby: input amplitude into T_n, clamped [0.1, 1]
     float mix   = 1.0f;   // Ring: ring-mod wet mix vs plain fundamental, clamped [0,1]
+    float shape = 0.0f;   // post-render waveshape amount, clamped [0,1]; 0 = none. Baker applies a tanh soft-clip to the rendered cycle of ANY kind (adds harmonics). Distinct from cheby 'drive' (a pre-shaper input level).
 };
 
 // Shapes the LOCAL blend position within one motion segment (a in [0,1]).

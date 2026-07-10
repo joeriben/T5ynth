@@ -512,6 +512,68 @@ def _apply_motion_depth(recipe, scale):
                     p["a"] = p["a"] * scale
 
 
+def _apply_drive(recipe, amount):
+    """Waveshape (soft-clip) amount added to every keyframe's post-render
+    'shape' field, clamped [0,1]. Kind-agnostic: the C++ baker applies a tanh
+    soft-clip to the rendered cycle of ANY kind, so unlike fm_index/width this
+    never has an inapplicable-keyframe case (always applies, never flags)."""
+    amount = float(amount)
+    for kf in recipe["keyframes"]:
+        kf["shape"] = max(0.0, min(1.0, kf.get("shape", 0.0) + amount))
+
+
+def _apply_inharm(recipe, amount, adjective_word, flags):
+    """Honest inharmonicity within the single-cycle paradigm. A periodic cycle
+    can only hold INTEGER harmonics, so true inharmonicity is unrepresentable
+    (same boundary the fm_bell flag names). This op approximates the PERCEPT:
+    on FM keyframes it densifies the (still-integer) sidebands; on additive it
+    attenuates the fused octave harmonics (2,4,8,16) and boosts a sparse high
+    odd/prime set (5,7,11,13,17) so the spectrum reads clangorous/glassy rather
+    than a fused tone. Always flags the approximation. Deterministic."""
+    a = max(0.0, min(1.0, float(amount)))
+    if a <= 0.0:
+        return
+    fm_touched = False
+    add_touched = False
+    for kf in recipe["keyframes"]:
+        if kf.get("kind") == "fm2":
+            kf["ratio"] = min(8, int(kf.get("ratio", 2)) + int(round(a * 3)))
+            kf["index"] = min(8.0, float(kf.get("index", 1.0)) + a * 2.0)
+            fm_touched = True
+    # additive path (convert closed-form kinds first, like the spectral ops)
+    for kf in recipe["keyframes"]:
+        conv = _ensure_additive(kf)
+        if conv is None:
+            continue
+        add_touched = True
+        for p in conv["partials"]:
+            if p["h"] in (2, 4, 8, 16):
+                p["a"] = p["a"] * (1.0 - 0.6 * a)
+        present = {p["h"]: p for p in conv["partials"]}
+        for h in (5, 7, 11, 13, 17):
+            if h in present:
+                present[h]["a"] = present[h]["a"] + 0.15 * a
+            else:
+                conv["partials"].append({"h": h, "a": 0.15 * a, "phase": 0.0})
+    # Honesty flag must describe EVERY path that fired, not just one: a mixed
+    # recipe (fm2 + additive, e.g. the fm_bell template reached by "glassy bell")
+    # rewrites BOTH, so a FM-only message would misinform the user about what was
+    # done to the additive keyframe. Neither path applicable (a cheby/ring-only
+    # recipe) is itself flagged, mirroring the spectral/fm ops' "ignored" notes.
+    how_parts = []
+    if fm_touched:
+        how_parts.append("denser FM sidebands")
+    if add_touched:
+        how_parts.append("a sparse stretched partial set")
+    if how_parts:
+        how = " and ".join(how_parts)
+        flags.append({"word": adjective_word,
+                      "reason": f"true inharmonicity exceeds a single-cycle wavetable — approximated by {how}"})
+    else:
+        flags.append({"word": adjective_word,
+                      "reason": "no FM or additive keyframe here for an inharmonic approximation — ignored"})
+
+
 _SPECTRAL_OPS = {"tilt", "even_odd", "ceiling", "boost", "cut"}
 
 
@@ -549,6 +611,10 @@ def _apply_delta_op(recipe, adjective_word, op_name, args, flags):
         _apply_motion_rate(recipe, args["scale"])
     elif op_name == "motion_depth":
         _apply_motion_depth(recipe, args["scale"])
+    elif op_name == "inharm":
+        _apply_inharm(recipe, args["amount"], adjective_word, flags)
+    elif op_name == "drive":
+        _apply_drive(recipe, args["amount"])
     # unknown op names cannot occur -- the lexicon is validated at load/index time
 
 
@@ -947,6 +1013,10 @@ def _scale_op_args(op_name, raw_args, degree):
         # scale is itself a multiplier already centered on 1.0; degree
         # pushes it further from 1.0 in the same direction
         args["scale"] = 1.0 + (args["scale"] - 1.0) * degree
+    elif op_name == "drive":
+        args["amount"] = args["amount"] * degree
+    elif op_name == "inharm":
+        args["amount"] = args["amount"] * degree
     return args
 
 
@@ -1096,6 +1166,10 @@ def _clamp_and_repair(recipe):
             ckf["ratio"] = r
             ckf["mix"] = mix
         # saw/square/triangle: no extra fields
+
+        sh, _ = _clamp_float(kf.get("shape", 0.0), 0.0, 1.0, 0.0)
+        if sh > 0.0:
+            ckf["shape"] = sh
         clean_keyframes.append(ckf)
     keyframes = clean_keyframes
     recipe["keyframes"] = keyframes

@@ -25,6 +25,7 @@
 // loop=true recipe's motion doesn't actually close (see checkClosure()).
 #include "JuceHeader.h"
 #include "dsp/DcoBaker.h"
+#include "dsp/DcoRecipeJson.h"
 #include "dsp/WavetableOscillator.h"
 
 #include <algorithm>
@@ -111,6 +112,22 @@ static Recipe makeFmbell()
         MotionSegment{ 1, 0.5f, Curve::Lin },
         MotionSegment{ 0, 0.5f, Curve::Lin },
     };
+    r.loop = true;
+    r.frames = 128;
+    return r;
+}
+
+static Recipe makeDistorted(float sh)
+{
+    // A statically-driven saw: exercises applyShape (shape>0) inside the
+    // asserted demo suite so the shaper is gated by checkFiniteSanity /
+    // checkLoopwrapClicks / checkClosure (the waveshaper is periodic-preserving,
+    // so a looping single-keyframe bake must stay finite AND click-free).
+    Keyframe saw; saw.kind = Keyframe::Kind::Saw; saw.shape = sh;
+
+    Recipe r;
+    r.keyframes = { saw };
+    r.motion = { MotionSegment{ 0, 0.0f, Curve::Lin } };
     r.loop = true;
     r.frames = 128;
     return r;
@@ -286,9 +303,31 @@ static bool checkClosure(const std::string& label, const Recipe& recipe, bool& a
     return ok;
 }
 
-int main()
+// argv[1] = path to a recipe JSON file, argv[2] = output WAV path: bakes the
+// recipe and renders ~2s at 220Hz (A3) to argv[2]. No args: runs the demo suite below.
+int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInit; // safe init for any JUCE statics
+
+    if (argc == 3)
+    {
+        const juce::File jsonFile(argv[1]);
+        const juce::var parsed = juce::JSON::parse(jsonFile.loadFileAsString());
+        const Recipe recipe = recipeFromVar(parsed);
+
+        auto frames = Baker::bake(recipe);
+        auto buf = Baker::framesToBuffer(frames);
+
+        WavetableOscillator osc;
+        osc.prepare(44100.0, 512);
+        osc.setExactFrames(buf);   // the DCO plugin load path (bit-exact, no per-frame renorm)
+        osc.setInterpolation(true);
+
+        auto mono = renderScan(osc, 220.0, 2.0, 44100, scanLinear);
+        writeWav(argv[2], mono, 44100);
+        return 0;
+    }
+
     std::filesystem::create_directories("tools/dco_audition_out");
 
     const int sr = 48000;
@@ -300,6 +339,9 @@ int main()
         { "morphloop", makeMorphloop() },
         { "pwm",       makePwm() },
         { "fmbell",    makeFmbell() },
+        { "dist040",   makeDistorted(0.4f) },
+        { "dist060",   makeDistorted(0.6f) },
+        { "dist100",   makeDistorted(1.0f) },
     };
 
     for (const auto& c : cases)
@@ -321,7 +363,7 @@ int main()
 
         WavetableOscillator osc;
         osc.prepare(static_cast<double>(sr), 512);
-        osc.extractContiguousFrames(buf, static_cast<double>(sr), 0.0f, 1.0f);
+        osc.setExactFrames(buf);   // the DCO plugin load path (bit-exact, no per-frame renorm)
         osc.setInterpolation(true);
 
         // A3_scan: 8s @ 220Hz, scan swept 0->1->0 (out-and-back over the morph).

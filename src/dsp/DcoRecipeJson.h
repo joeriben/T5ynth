@@ -55,6 +55,7 @@ inline Recipe recipeFromVar(const juce::var& v)
             kf.order = (int) kfVar.getProperty("order", 2);
             kf.drive = (float) (double) kfVar.getProperty("drive", 1.0);
             kf.mix   = (float) (double) kfVar.getProperty("mix", 1.0);
+            kf.shape = (float) (double) kfVar.getProperty("shape", 0.0);
             if (const auto* parts = kfVar.getProperty("partials", juce::var()).getArray())
             {
                 for (const auto& pVar : *parts)

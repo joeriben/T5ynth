@@ -247,6 +247,37 @@ def run_unit_tests():
     check("'metallic' recipe differs from plain 'saw' (adjective not inert on non-FM)",
           json.dumps(r_met["recipe"], sort_keys=True) != json.dumps(r_saw["recipe"], sort_keys=True))
 
+    # 'distorted' drives a real waveshaper (post-render 'shape'), not a tilt:
+    # every keyframe gets shape>0 and the recipe differs from plain saw.
+    r_dist = dr.author_recipe("distorted", llm_route=None, frames=None)
+    check("'distorted' -> every keyframe carries shape>0",
+          bool(r_dist["recipe"]["keyframes"]) and
+          all(kf.get("shape", 0.0) > 0.0 for kf in r_dist["recipe"]["keyframes"]),
+          [kf.get("shape") for kf in r_dist["recipe"]["keyframes"]])
+    check("'distorted' -> not flagged as unmapped",
+          not any(f["word"] == "distorted" for f in r_dist["flags"]), r_dist["flags"])
+    check("'distorted saw' recipe differs from plain 'saw'",
+          json.dumps(dr.author_recipe("distorted saw", llm_route=None, frames=None)["recipe"], sort_keys=True)
+          != json.dumps(dr.author_recipe("saw", llm_route=None, frames=None)["recipe"], sort_keys=True))
+
+    # 'glassy'/'brittle'/'clangorous' route to the honest inharm op: each MUST
+    # carry the single-cycle-boundary flag (expose, don't fake), and on a saw
+    # inharm de-emphasizes the fused octave harmonics while boosting a sparse
+    # high odd/prime set.
+    for w in ("glassy", "brittle", "clangorous"):
+        rw = dr.author_recipe(w, llm_route=None, frames=None)
+        check(f"{w!r} -> adjective {w!r} applied", w in rw["resolved"]["adjectives"], rw["resolved"])
+        check(f"{w!r} -> honesty flag: inharmonicity approximated (not faked)",
+              any("inharmonicity exceeds a single-cycle" in f["reason"] for f in rw["flags"]), rw["flags"])
+    r_gl = dr.author_recipe("glassy", llm_route=None, frames=None)
+    parts = {p["h"]: p["a"] for p in r_gl["recipe"]["keyframes"][0].get("partials", [])}
+    check("'glassy' -> octave harmonic h2 de-emphasized below its native saw 0.5",
+          parts.get(2, 1.0) < 0.45, parts)
+    check("'glassy' -> sparse high h5 boosted above its native saw 0.2",
+          parts.get(5, 0.0) > 0.22, parts)
+    check("'glassy' -> no 'no FM operator' flag on a saw (fm-only ops dropped from glassy)",
+          not any("no FM operator" in f["reason"] for f in r_gl["flags"]), r_gl["flags"])
+
     # seamless close-loop: for EVERY multi-keyframe technique, a close-motion
     # prompt must produce motion that ends on the keyframe it started on,
     # or the looping wavetable clicks at every frame[N-1]->frame[0] wrap.

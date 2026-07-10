@@ -22,6 +22,33 @@ void Baker::removeDC(Cycle& cycle)
     for (double& s : cycle) s -= mean;
 }
 
+void Baker::applyShape(Cycle& cycle, float shape)
+{
+    // NaN-safe: jlimit(0,1,NaN) returns NaN and NaN<=0 is false, so an unguarded
+    // NaN shape would poison the whole cycle (and survive bake()'s normalizer).
+    // Same isfinite guard renderFm2/renderRing use before their lround.
+    const double sv = std::isfinite(static_cast<double>(shape)) ? static_cast<double>(shape) : 0.0;
+    const double s = juce::jlimit(0.0, 1.0, sv);
+    if (s <= 0.0) return;
+    // ASYMMETRIC soft-clip (tanh with a DC bias into the nonlinearity). A plain
+    // symmetric tanh is odd-only -> it drives ANY rich source toward a hollow
+    // square (it SUPPRESSES the even harmonics of e.g. a saw), which reads as
+    // "thinner", the opposite of "distorted". The bias makes the transfer curve
+    // asymmetric so the shaper generates EVEN harmonics too -> the warm, dense,
+    // gritty character of real analog overdrive (tubes/diodes/transistors are
+    // all asymmetric). tanh is self-bounding [-1,1] so no explicit renorm is
+    // needed (the global bake normalize + per-frame engine renorm set level);
+    // removeDC() strips the constant offset the bias adds -- the even HARMONICS
+    // (h2,h4,... at nonzero frequency) are not DC and survive. Audition-tuned:
+    // gain 6 spans gentle->hard over shape 0..1, bias 0.25*s keeps the low-shape
+    // end nearly symmetric and only opens the even content as drive increases.
+    const double drive = 1.0 + s * 4.0;
+    const double bias  = 0.2 * s;
+    for (double& x : cycle)
+        x = std::tanh(drive * (x + bias));
+    removeDC(cycle);
+}
+
 double Baker::shapeCurve(double a, Curve curve)
 {
     a = juce::jlimit(0.0, 1.0, a);
@@ -229,18 +256,21 @@ Baker::Cycle Baker::renderRing(const Keyframe& kf)
 
 Baker::Cycle Baker::renderKeyframe(const Keyframe& kf)
 {
+    Cycle c;
     switch (kf.kind)
     {
-        case Keyframe::Kind::Additive: return renderAdditive(kf);
-        case Keyframe::Kind::Saw:      return renderSaw();
-        case Keyframe::Kind::Square:   return renderSquare();
-        case Keyframe::Kind::Pulse:    return renderPulse(kf);
-        case Keyframe::Kind::Triangle: return renderTriangle();
-        case Keyframe::Kind::Fm2:      return renderFm2(kf);
-        case Keyframe::Kind::Cheby:    return renderCheby(kf);
-        case Keyframe::Kind::Ring:     return renderRing(kf);
+        case Keyframe::Kind::Additive: c = renderAdditive(kf); break;
+        case Keyframe::Kind::Saw:      c = renderSaw();        break;
+        case Keyframe::Kind::Square:   c = renderSquare();     break;
+        case Keyframe::Kind::Pulse:    c = renderPulse(kf);    break;
+        case Keyframe::Kind::Triangle: c = renderTriangle();   break;
+        case Keyframe::Kind::Fm2:      c = renderFm2(kf);      break;
+        case Keyframe::Kind::Cheby:    c = renderCheby(kf);    break;
+        case Keyframe::Kind::Ring:     c = renderRing(kf);     break;
+        default: return Cycle(static_cast<size_t>(kFrameSize), 0.0); // unreachable; -Wreturn-type
     }
-    return Cycle(static_cast<size_t>(kFrameSize), 0.0); // unreachable; keeps -Wreturn-type quiet defensively
+    applyShape(c, kf.shape);
+    return c;
 }
 
 // ─── Motion sampling ───
@@ -342,13 +372,24 @@ std::vector<std::vector<float>> Baker::bake(const Recipe& recipe)
         frames[static_cast<size_t>(i)] = std::move(frame);
     }
 
-    // Global normalization: ONE gain across ALL frames so the loudest frame
-    // peaks at 0.95. Range safety only — the live consumer
-    // (WavetableOscillator::extractContiguousFrames) renormalizes EVERY frame
-    // to 0.95 independently, so per-frame level differences of the morph do
-    // NOT survive playback. If morph amplitude dynamics ever become a product
-    // goal, the engine needs a bit-exact setFrames() entry that skips the
-    // per-frame renorm (flagged in docs/HANDOVER_DCO_OSCILLATOR.md §4.5).
+    // Global normalization: ONE gain across ALL frames. Range safety AND morph
+    // level preservation for the bit-exact DCO consumer (WavetableOscillator::
+    // setExactFrames), which — unlike extractContiguousFrames — does NOT
+    // per-frame renorm, so this global gain is exactly what plays.
+    //
+    // Shaped (waveshaped) recipes get extra headroom. Time-domain waveshaping
+    // rebuilds the source's Fourier phases, and the reconstructed harmonics
+    // overshoot ~15% at the waveform discontinuity through the engine's
+    // band-limited mip + Catmull-Rom interpolation (measured: a driven saw
+    // peaks ~1.09 from a 0.95 target — regardless of drive amount, since even a
+    // little waveshaping re-phases the series). A 0.83 target keeps that
+    // overshoot at ~0.95 in playback; unshaped bakes keep the fuller 0.95
+    // (their reconstruction only reaches ~0.94).
+    bool anyShaped = false;
+    for (const auto& kf : recipe.keyframes)
+        if (kf.shape > 0.0f) { anyShaped = true; break; }
+    const float normTarget = anyShaped ? 0.83f : 0.95f;
+
     float peak = 0.0f;
     for (const auto& frame : frames)
         for (float s : frame)
@@ -356,7 +397,7 @@ std::vector<std::vector<float>> Baker::bake(const Recipe& recipe)
 
     if (peak > 1.0e-6f)
     {
-        const float gain = 0.95f / peak;
+        const float gain = normTarget / peak;
         for (auto& frame : frames)
             for (float& s : frame)
                 s *= gain;
