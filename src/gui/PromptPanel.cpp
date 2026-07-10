@@ -759,6 +759,10 @@ void PromptPanel::timerCallback()
         prevStanceForRestore_ = curStance;
     }
 
+    // Replay transport: fires the generation the playhead just crossed. Checked
+    // before auto-regen — while a tape runs, its generations own the pipe.
+    pollReplayRegen();
+
     // Auto-regen polling
     pollDriftRegen();
 
@@ -1913,6 +1917,14 @@ void PromptPanel::triggerGenerationWithOffsets(std::vector<std::pair<int, float>
 
 void PromptPanel::triggerDcoBake()
 {
+    // A bake loads a wavetable into the engine — same clash with a running tape as
+    // a manual generation (see triggerGeneration).
+    if (processorRef.isReplayActive())
+    {
+        if (onStatusChanged) onStatusChanged("replay running — stop it to bake", false);
+        return;
+    }
+
     if (dcoBaking_)
         return;
     // The pipe is one serialized channel (recursive stateMutex_): a bake
@@ -2464,6 +2476,18 @@ void PromptPanel::translatePromptsInPlace()
 
 void PromptPanel::triggerGeneration()
 {
+    // A running tape owns the generation pipe and the sample buffer: a manual render
+    // would loadGeneratedAudio() over the sound the replay just faded in, dragging
+    // every held voice to a timbre the tape never contained. Say so rather than
+    // silently ignoring the press. (Same reasoning as pollDriftRegen's guard; this
+    // covers the Generate button, the prompt editors' Return key, MIDI-mapped
+    // generate and triggerGenerationWithOffsets.)
+    if (processorRef.isReplayActive())
+    {
+        if (onStatusChanged) onStatusChanged("replay running — stop it to generate", false);
+        return;
+    }
+
     // loopStepInFlight_ too: a semantic-loop step's analyze+interpret holds the
     // single IPC pipe on a background thread (with `generating` already false), so a
     // manual Generate must wait or it would contend on the pipe.
@@ -2733,11 +2757,209 @@ void PromptPanel::triggerDriftRegeneration(float effectiveAlpha,
     }).detach();
 }
 
+PromptPanel::~PromptPanel()
+{
+    stopTimer();
+    if (processorRef.isReplayActive())
+        processorRef.stopReplay();
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// R2c: Replay generation (called from timerCallback at 10 Hz)
+// ──────────────────────────────────────────────────────────────────────────────
+void PromptPanel::pollReplayRegen()
+{
+    if (! processorRef.isReplayActive())
+    {
+        pendingReplayGen_.reset();
+        return;
+    }
+
+    const uint32_t epoch = processorRef.getReplayEpoch();
+
+    // A new tape (Stop then Play, possibly inside one timer gap): any held entry
+    // belongs to the old timeline. Drop it — the new tape's startReplay() already
+    // reset the generation slot, so there is nothing to hand back — and forget the
+    // old tape's resynth lineage.
+    if (pendingReplayEpoch_ != epoch)
+    {
+        pendingReplayEpoch_     = epoch;
+        pendingReplayGen_.reset();
+        lastReplayGenSucceeded_ = false;
+    }
+
+    if (! pendingReplayGen_.has_value())
+    {
+        GenerationEventLogEntry ge;
+        if (! processorRef.takeDueReplayGeneration(ge))
+            return;
+        pendingReplayGen_ = std::move(ge);
+    }
+
+    // A generation the tape recorded as failed is not worth re-firing — release the
+    // slot so the playhead can arm the next one.
+    if (! pendingReplayGen_->success)
+    {
+        pendingReplayGen_.reset();
+        lastReplayGenSucceeded_ = false;
+        processorRef.replayGenerationFinished(epoch);
+        return;
+    }
+
+    // Pipe busy (manual generate, drift regen, a semantic-loop step): hold the entry
+    // and retry on the next tick rather than dropping it.
+    if (generating || translatingPrompts_ || loopStepInFlight_)
+        return;
+    if (! processorRef.isPipeInferenceReady())
+        return;
+
+    const auto logged = *pendingReplayGen_;
+    pendingReplayGen_.reset();
+    fireReplayGeneration(logged);
+}
+
+void PromptPanel::fireReplayGeneration(const GenerationEventLogEntry& logged)
+{
+    PipeInference::Request req;
+    req.promptA         = logged.promptA;
+    req.promptB         = logged.promptB;
+    req.alpha           = logged.alpha;
+    req.magnitude       = logged.magnitude;
+    req.noiseSigma      = logged.noiseSigma;
+    req.durationSeconds = logged.durationSeconds;
+    req.startPosition   = logged.startPosition;
+    req.steps           = logged.steps;
+    req.cfgScale        = logged.cfgScale;
+    req.seed            = logged.realizedSeed;   // the REALIZED seed — never the -1 sentinel
+    req.device          = logged.device;
+    req.model           = logged.model;
+    req.trackType       = logged.trackType;
+    req.modalityEpoch   = logged.modalityEpoch;
+    req.dimensionOffsets = logged.dimensionOffsets;
+    req.semanticAxes     = logged.semanticAxes;
+    req.axesAmount       = logged.axesAmount;
+    req.injectionMode         = logged.injectionMode;
+    req.injectionTransitionAt = logged.injectionTransitionAt;
+    req.latePhaseAlpha        = logged.latePhaseAlpha;
+    req.splitStart            = logged.splitStart;
+    req.splitEnd              = logged.splitEnd;
+
+    // Resynth. An INTERNAL-resynth link (parent != 0) reconstructs for free: the
+    // parent generation already replayed, so its raw output is exactly what sits in
+    // the processor right now — the same buffer buildInferenceRequest would take.
+    // Two cases degrade to text-only, both deliberately:
+    //  * EXTERNAL capture (parent == 0 with init audio): live mic audio, genuinely
+    //    gone. The disclosed fidelity gap.
+    //  * The parent did not render this time round (backend error, or it was the
+    //    first generation of the tape): the buffer sitting in the processor is NOT
+    //    the parent's output, so seeding from it would resynthesize the wrong sound.
+    if (logged.hadInitAudio && logged.parentGenerationId != 0 && lastReplayGenSucceeded_)
+    {
+        const auto& rawBuf = processorRef.getGeneratedAudioRaw();
+        if (rawBuf.getNumSamples() > 0 && rawBuf.getNumChannels() > 0)
+        {
+            req.initAudio.makeCopyOf(rawBuf);
+            req.initAudioSampleRate = processorRef.getGeneratedSampleRate();
+            req.initNoiseLevel      = logged.initNoiseLevel;
+        }
+    }
+
+    generating = true;
+    generateButton.setEnabled(false);
+    if (onStatusChanged) onStatusChanged("replay: generating...", true);
+
+    const auto deviceForLabel = req.device.isEmpty()
+        ? processorRef.getPipeInference().getDefaultDevice() : req.device;
+    const auto modelForLabel = req.model.isEmpty()
+        ? processorRef.getPipeInference().getDefaultModel() : req.model;
+    const uint32_t epoch = processorRef.getReplayEpoch();
+
+    auto pipePtr = processorRef.getPipeInferencePtr();
+    juce::Component::SafePointer<PromptPanel> safeThis(this);
+    std::thread([safeThis, pipePtr, req, deviceForLabel, modelForLabel, epoch]() mutable
+    {
+        auto inferenceResult = pipePtr->generate(req);
+        juce::MessageManager::callAsync([safeThis, result = std::move(inferenceResult), req,
+                                         deviceForLabel, modelForLabel, epoch]()
+        {
+            auto* self = safeThis.getComponent();
+            if (self == nullptr)
+                return;   // editor closed mid-generation; ~PromptPanel already stopped the replay
+
+            auto& processor = self->processorRef;
+            self->generating = false;
+            self->generateButton.setEnabled(true);
+            self->lastReplayGenSucceeded_ = false;
+
+            // Stopped — or a different tape started — while this was in flight. The
+            // user is back in live control (or on another timeline), so do not
+            // overwrite the sound they are now playing with this tape's audio. The
+            // epoch check also stops us releasing a slot that is no longer ours.
+            if (! processor.isReplayActive() || processor.getReplayEpoch() != epoch)
+            {
+                processor.replayGenerationFinished(epoch);
+                return;
+            }
+
+            if (result.success)
+            {
+                auto newAudio = result.audio;
+
+                // The identical crossfade-then-load block the drift loop uses, so held
+                // voices follow the new sample over Regen XFade through the single
+                // existing swap site — no new swap path, invariant preserved.
+                const auto& oldRaw = processor.getGeneratedAudioRaw();
+                const float xfadeMs = processor.getValueTreeState()
+                    .getRawParameterValue(PID::driftCrossfade)->load();
+                const int xfadeSamples = juce::roundToInt(xfadeMs * 0.001f * static_cast<float>(result.sampleRate));
+                if (xfadeSamples > 0 && oldRaw.getNumSamples() > 0)
+                    applyDriftCrossfade(newAudio, oldRaw, xfadeSamples);
+                processor.loadGeneratedAudio(newAudio, result.sampleRate);
+
+                processor.setLastDevice(deviceForLabel);
+                processor.setLastModel(taggedPersistId(modelForLabel, req.trackType == "sfx"));
+                processor.setLastSeed(result.seed);
+                processor.setLastPrompts(req.promptA, req.promptB);
+                processor.setLastGenerationTimeMs(result.generationTimeMs);
+                self->syncSeedState(result.seed);
+
+                if (! result.embeddingA.empty())
+                {
+                    processor.setLastEmbeddings(result.embeddingA, result.embeddingB);
+                    auto baseline = result.embeddingBaseline;
+                    if (baseline.size() != result.embeddingA.size())
+                        baseline = DimensionExplorer::estimateBaselineValues(
+                            result.embeddingA, result.embeddingB, req.alpha, req.magnitude);
+                    if (self->onEmbeddingsReady)
+                        self->onEmbeddingsReady(result.embeddingA, result.embeddingB, baseline);
+                }
+
+                self->lastReplayGenSucceeded_ = true;
+                if (self->onStatusChanged)
+                    self->onStatusChanged(juce::String(result.generationTimeMs / 1000.0f, 1) + "s | replay", false);
+            }
+            else if (self->onStatusChanged)
+            {
+                self->onStatusChanged("replay: " + result.errorMessage, false);
+            }
+
+            // Release the slot last, whatever happened: the audio thread arms the next
+            // logged generation only once this one is done.
+            processor.replayGenerationFinished(epoch);
+        });
+    }).detach();
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Drift regen polling (called from timerCallback at 10 Hz)
 // ──────────────────────────────────────────────────────────────────────────────
 void PromptPanel::pollDriftRegen()
 {
+    // A running tape owns the generation pipe: its own logged generations drive the
+    // timbre, and an auto-regen firing alongside them would overwrite the sound the
+    // replay just faded in.
+    if (processorRef.isReplayActive()) return;
+
     // loopStepInFlight_ too: while a semantic-loop step is analyzing+interpreting on
     // a background thread (`generating` is already false), Auto-Regen must not fire a
     // new generate() — both share the single IPC pipe. The step clears the flag on

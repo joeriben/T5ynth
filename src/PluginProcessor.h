@@ -622,45 +622,56 @@ private:
     std::atomic<uint64_t> eventLogNextGenerationId_ { 1 };
     std::atomic<uint64_t> eventLogLastGenerationId_ { 0 };   // 0 = none yet
 
-    // ── R2: Replay Transport ──────────────────────────────────────────────────
-    // Replays a recorded .t5evt session: notes inject at sample-accurate times,
-    // generations re-fire at their logged times and crossfade in when complete.
-    // Architecture mirrors the drift-regen loop (pollDriftRegen in PromptPanel).
+    // ── R2: Replay Transport — internals ──────────────────────────────────────
+    // See the public startReplay()/stopReplay() block below for the contract.
     struct ReplayState
     {
-        // Parsed event vectors (message thread builds, publishes via replayModeActive_)
-        std::vector<NoteEventLogEntry>       noteEvents;
+        std::vector<NoteEventLogEntry>                noteEvents;
         std::vector<EventLogReader::ParsedParamEvent> paramEvents;
-        std::vector<GenerationEventLogEntry> generationEvents;
+        std::vector<GenerationEventLogEntry>          generationEvents;
 
-        // Playhead (audio thread reads, message thread writes only when inactive)
-        uint64_t playheadSamples = 0;
-        size_t   nextNoteIdx     = 0;
-        size_t   nextParamIdx    = 0;
-        size_t   nextGenIdx      = 0;
+        size_t   nextNoteIdx  = 0;   // audio thread
+        size_t   nextParamIdx = 0;   // message thread
+        size_t   nextGenIdx   = 0;   // audio thread (advances only when the flag is free)
 
-        // Start state (base64-encoded APVTS snapshot)
-        juce::String startStateBase64;
-        double       sampleRate = 44100.0;
+        uint64_t totalDurationSamples = 0;
+        double   sampleRate = 44100.0;
     };
+    //
+    // replayState_ is written by the message thread ONLY while holding the
+    // callback lock (startReplay), and read by the audio thread ONLY while
+    // replayModeActive_ is true. nextNoteIdx / nextGenIdx are audio-thread-only;
+    // nextParamIdx is message-thread-only (replayTimerTick).
+    std::atomic<bool>     replayModeActive_ { false };
+    ReplayState           replayState_;
+    std::atomic<uint64_t> replayPlayhead_        { 0 };   // audio thread writes, both read
+    std::atomic<uint64_t> replayDueGenerationId_ { 0 };   // audio raises (1-based idx), message consumes
+    std::atomic<bool>     replayGenerationBusy_  { false };// message: a replay generation is in flight
 
-    std::atomic<bool> replayModeActive_ { false };
-    ReplayState       replayState_;   // written by message thread, read by audio thread
-    std::atomic<uint64_t> replayDueGenerationId_ { 0 };  // audio flags, message polls+fires
+    // Message-thread half of the transport: applies logged param events at the
+    // playhead and auto-stops at the end of the tape. Started in startReplay(),
+    // stopped in stopReplay() and (defensively) first thing in ~T5ynthProcessor.
+    struct ReplayTimer : public juce::Timer {
+        T5ynthProcessor* owner = nullptr;
+        ~ReplayTimer() override { stopTimer(); }
+        void timerCallback() override { if (owner != nullptr) owner->replayTimerTick(); }
+    };
+    ReplayTimer replayTimer_;
+    void        replayTimerTick();
 
-    /** Start replaying a parsed session. Message thread only.
-     *  Restores start-state, publishes event vectors, flips replayModeActive_. */
-    void startReplay(ReplayState&& state);
+    // Bumped by every startReplay(). A generation dispatched for tape N must not
+    // load its audio into — or release the generation slot of — tape N+1 after a
+    // stop/restart; the epoch it captured at dispatch is checked on completion.
+    std::atomic<uint32_t> replayEpoch_ { 0 };
 
-    /** Stop replay, return to live control. Message thread only.
-     *  Flushes any held notes, clears replayModeActive_. */
-    void stopReplay();
-
-    /** Check if replay is currently active. Thread-safe. */
-    bool isReplayActive() const { return replayModeActive_.load(std::memory_order_acquire); }
-
-    /** Get the replay playhead position in samples. Audio thread only. */
-    uint64_t getReplayPlayhead() const { return replayState_.playheadSamples; }
+    // True only when a live session should be written to the .t5evt log: recording
+    // is on AND we are not replaying one (a replay's injected notes and re-applied
+    // params must not feed back into a new recording).
+    bool eventLogRecordingActive() const noexcept
+    {
+        return eventLogEnabled_.load(std::memory_order_relaxed)
+            && ! replayModeActive_.load(std::memory_order_relaxed);
+    }
 
     // skipLeadForArp: when the seq-drives-arp path is about to erase() the lead
     // strand's events out of internalNoteEvents_ (see the arp-lead-extraction
@@ -707,6 +718,48 @@ private:
 
 
 public:
+    // ── R2: Replay Transport — public API ─────────────────────────────────────
+    // Replays a recorded .t5evt session: the start-state patch is restored, logged
+    // notes inject at their sample-accurate times, logged params are re-applied at
+    // the playhead, and logged generations are re-fired at their logged times and
+    // crossfade in when they complete (the drift-regen loop's own timing model).
+    //
+    // While a replay runs, live input is neutralised: incoming MIDI is dropped at
+    // the top of processBlock, and the sequencers/arp are held stopped — the log
+    // already contains the notes they produced. Recording into the .t5evt log is
+    // suspended too, so a replay never feeds back into a new tape.
+
+    /** Start replaying a parsed session. Message thread only. Restores the
+     *  start-state patch, publishes the event vectors under the callback lock,
+     *  then flips replayModeActive_. A running replay is stopped first. */
+    void startReplay(const EventLogReader& reader);
+
+    /** Stop replay and return to live control. Message thread only. Idempotent. */
+    void stopReplay();
+
+    bool     isReplayActive()        const noexcept { return replayModeActive_.load(std::memory_order_acquire); }
+    uint64_t getReplayPlayhead()     const noexcept { return replayPlayhead_.load(std::memory_order_relaxed); }
+    uint64_t getReplayDurationSamples() const noexcept { return replayState_.totalDurationSamples; }
+
+    /** Message thread. Returns true and fills `out` when the playhead has crossed
+     *  the next logged generation. At most one is pending at a time: the audio
+     *  thread will not arm the next until this one has been taken, so a slow
+     *  generation simply delays the following one rather than dropping it. */
+    bool takeDueReplayGeneration(GenerationEventLogEntry& out);
+
+    /** Message thread. Called by PromptPanel when a replay generation finished (or
+     *  failed) so the audio thread may arm the next one. No-op if the replay it
+     *  belonged to has since been stopped and another started — see replayEpoch_. */
+    void replayGenerationFinished(uint32_t epoch);
+
+    /** Identifies the current tape. Capture at generation dispatch, pass back to
+     *  replayGenerationFinished(); a mismatch means the tape was swapped underneath. */
+    uint32_t getReplayEpoch() const noexcept { return replayEpoch_.load(std::memory_order_acquire); }
+
+    /** Called on the message thread when the tape runs out (replay already stopped).
+     *  Set by the editor to reset its transport button; null when no editor is open. */
+    std::function<void()> onReplayFinished;
+
     // Audio idle state (audio thread writes, GUI reads for timer gating)
     std::atomic<bool> audioIdle { false };
 

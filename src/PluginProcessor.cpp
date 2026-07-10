@@ -386,6 +386,7 @@ T5ynthProcessor::~T5ynthProcessor()
     // Cancel any pending deferred LED burst + AsyncUpdater callback before members
     // are destroyed — both must run while all members are still alive.
     xlLedTimer_.stopTimer();
+    replayTimer_.stopTimer();   // its callback reaches back into `this`
     cancelPendingUpdate();
 
     // Join the update-check thread before it (or its members) go away. Its result
@@ -661,7 +662,7 @@ void T5ynthProcessor::parameterChanged(const juce::String& parameterID, float ne
     // Can run on the audio thread (confirmed: MIDI-CC-Learn-bound params call
     // setValueNotifyingHost from inside processBlock) or the message thread —
     // never assume which. No allocation, no lock beyond the lock-free FIFO.
-    if (! eventLogEnabled_.load(std::memory_order_relaxed))
+    if (! eventLogRecordingActive())
         return;
     if (eventLogSuppressParamEvents_.load(std::memory_order_relaxed))
         return;
@@ -701,7 +702,7 @@ void T5ynthProcessor::beginBulkParamLoad()
 void T5ynthProcessor::endBulkParamLoad(const juce::String& presetName)
 {
     eventLogSuppressParamEvents_.store(false, std::memory_order_relaxed);
-    if (! eventLogEnabled_.load(std::memory_order_relaxed) || eventLogWriter_ == nullptr)
+    if (! eventLogRecordingActive() || eventLogWriter_ == nullptr)
         return;
     PresetLoadedLogEntry e;
     e.timestamp  = eventLogTotalSamples_.load(std::memory_order_relaxed);
@@ -716,7 +717,7 @@ void T5ynthProcessor::cancelBulkParamLoad()
 
 void T5ynthProcessor::recordEventLogGeneration(GenerationEventLogEntry entry, bool wasInternalResynth)
 {
-    if (! eventLogEnabled_.load(std::memory_order_relaxed) || eventLogWriter_ == nullptr)
+    if (! eventLogRecordingActive() || eventLogWriter_ == nullptr)
         return;
 
     const uint64_t id = eventLogNextGenerationId_.fetch_add(1, std::memory_order_relaxed);
@@ -757,44 +758,167 @@ bool T5ynthProcessor::getEventLogEnabled() const
 
 // ── R2: Replay Transport ──────────────────────────────────────────────────────
 
-void T5ynthProcessor::startReplay(ReplayState&& state)
+void T5ynthProcessor::startReplay(const EventLogReader& reader)
 {
-    // Message thread only. Restore the start-state first so the engine is in
-    // the exact configuration the session was recorded with.
-    if (state.startStateBase64.isNotEmpty())
+    // Message thread only.
+    if (isReplayActive())
+        stopReplay();
+
+    // Build the state off to the side (allocations, string decode) before it is
+    // published — nothing here is visible to the audio thread yet.
+    ReplayState state;
+    state.noteEvents         = reader.getNoteEvents();
+    state.paramEvents        = reader.getParamEvents();
+    state.generationEvents   = reader.getGenerationEvents();
+    state.sampleRate         = reader.getHeader().sampleRate;
+
+    // ── Rebase and rescale the timeline ──────────────────────────────────────
+    // Logged timestamps are absolute samples on the recorder's free-running clock,
+    // which starts at plugin CONSTRUCTION, not at record-enable — a log whose first
+    // event sits at t=80412160 would otherwise replay 28 minutes of silence before
+    // the first note. Subtract the earliest event so the tape starts at zero.
+    //
+    // They are also counted in the RECORDING device's samples. Replaying a 48 kHz
+    // log on a 44.1 kHz device without rescaling would play the whole performance
+    // ~8.8 % slow, so convert into the current device's sample domain.
+    uint64_t base = std::numeric_limits<uint64_t>::max();
+    if (! state.noteEvents.empty())       base = std::min(base, state.noteEvents.front().timestamp);
+    if (! state.paramEvents.empty())      base = std::min(base, state.paramEvents.front().timestamp);
+    if (! state.generationEvents.empty()) base = std::min(base, state.generationEvents.front().timestamp);
+    if (base == std::numeric_limits<uint64_t>::max())
+        base = 0;   // empty tape
+
+    const double logSR    = state.sampleRate > 0.0 ? state.sampleRate : 44100.0;
+    const double deviceSR = getSampleRate() > 0.0 ? getSampleRate() : logSR;
+    const double scale    = deviceSR / logSR;
+
+    const auto rebase = [base, scale](uint64_t t) -> uint64_t
+    {
+        const uint64_t rel = t > base ? t - base : 0;
+        return static_cast<uint64_t>(static_cast<double>(rel) * scale);
+    };
+    for (auto& n : state.noteEvents)       n.timestamp = rebase(n.timestamp);
+    for (auto& p : state.paramEvents)      p.timestamp = rebase(p.timestamp);
+    for (auto& g : state.generationEvents) g.timestamp = rebase(g.timestamp);
+    state.totalDurationSamples = rebase(reader.getTotalDurationSamples());
+    state.sampleRate = deviceSR;   // the tail check below now lives in the device domain
+
+    // Restore the start-state first so the engine is in the exact configuration
+    // the session was recorded with. Bulk-guarded: one preset_loaded marker, no
+    // per-param flood (and, since replay also suspends recording, no marker at all
+    // when the log is off).
+    const auto& startState = reader.getHeader().startStateBase64;
+    if (startState.isNotEmpty())
     {
         // Base64::convertFromBase64 writes into an OutputStream, not a MemoryBlock.
         juce::MemoryOutputStream stateStream;
-        if (juce::Base64::convertFromBase64(stateStream, state.startStateBase64))
+        if (juce::Base64::convertFromBase64(stateStream, startState))
         {
-            beginBulkParamLoad();  // suppress per-param event log spam
+            beginBulkParamLoad();
             setStateInformation(stateStream.getData(), static_cast<int>(stateStream.getDataSize()));
             endBulkParamLoad("replay_start");
         }
     }
 
-    // Reset playhead and indices
-    state.playheadSamples = 0;
-    state.nextNoteIdx     = 0;
-    state.nextParamIdx    = 0;
-    state.nextGenIdx      = 0;
+    // Publish under the callback lock: processBlock reads replayState_ by
+    // reference, so the vectors must not be reseated while a block is in flight.
+    // (processBlock does hold this lock on every format we ship.)
+    {
+        const juce::ScopedLock sl(getCallbackLock());
+        replayState_ = std::move(state);
+        replayPlayhead_.store(0, std::memory_order_relaxed);
+        replayDueGenerationId_.store(0, std::memory_order_relaxed);
+        replayGenerationBusy_.store(false, std::memory_order_relaxed);
+        replayEpoch_.fetch_add(1, std::memory_order_acq_rel);   // invalidates in-flight generations from a prior tape
+        replayModeActive_.store(true, std::memory_order_release);
+    }
 
-    // Publish the state (audio thread will pick it up on next processBlock)
-    replayState_ = std::move(state);
-    replayDueGenerationId_.store(0, std::memory_order_relaxed);
-    replayModeActive_.store(true, std::memory_order_release);
+    // Kill anything the user was holding when they hit Play — the audio thread
+    // consumes this on its next block (never call voiceManager from here).
+    requestMidiPanic();
+
+    replayTimer_.owner = this;
+    replayTimer_.startTimerHz(30);   // param application + end-of-tape detection
 }
 
 void T5ynthProcessor::stopReplay()
 {
-    // Message thread only. Clear the flag first so the audio thread stops
-    // injecting events on the next processBlock.
-    replayModeActive_.store(false, std::memory_order_release);
+    replayTimer_.stopTimer();
 
-    // Flush any held notes by sending all-notes-off through the voice manager.
-    // This is safe on the message thread — voiceManager.noteOff() just marks
-    // voices for release.
-    voiceManager.allNotesOff();
+    // Clear the flag first so the audio thread stops injecting on the next block;
+    // replayState_ itself is left alone (an in-flight block may still be reading it).
+    replayModeActive_.store(false, std::memory_order_release);
+    replayDueGenerationId_.store(0, std::memory_order_relaxed);
+    replayGenerationBusy_.store(false, std::memory_order_relaxed);
+
+    // Release whatever the tape left sounding. Audio-thread-consumed, so this is
+    // safe from the message thread — unlike calling voiceManager.allNotesOff() here.
+    requestMidiPanic();
+}
+
+bool T5ynthProcessor::takeDueReplayGeneration(GenerationEventLogEntry& out)
+{
+    // Message thread. Claim the busy slot BEFORE consuming the due flag: taking the
+    // flag first would leave a window in which the audio thread sees flag==0 and
+    // busy==false and arms a second generation, breaking "one in flight".
+    bool expected = false;
+    if (! replayGenerationBusy_.compare_exchange_strong(expected, true,
+                                                        std::memory_order_acq_rel,
+                                                        std::memory_order_acquire))
+        return false;
+
+    const uint64_t oneBased = replayDueGenerationId_.exchange(0, std::memory_order_acquire);
+    const size_t   idx      = static_cast<size_t>(oneBased) - 1;
+    if (oneBased == 0 || idx >= replayState_.generationEvents.size())
+    {
+        replayGenerationBusy_.store(false, std::memory_order_release);   // nothing due; hand the slot back
+        return false;
+    }
+
+    out = replayState_.generationEvents[idx];
+    return true;
+}
+
+void T5ynthProcessor::replayGenerationFinished(uint32_t epoch)
+{
+    // A generation dispatched for a previous tape must not release the current
+    // tape's slot — its own slot was already reset by that tape's startReplay().
+    if (epoch != replayEpoch_.load(std::memory_order_acquire))
+        return;
+    replayGenerationBusy_.store(false, std::memory_order_release);
+}
+
+void T5ynthProcessor::replayTimerTick()
+{
+    // Message thread, 30 Hz. Param application is deliberately NOT sample-accurate:
+    // a parameter landing a few ms late is inaudible, and setValueNotifyingHost
+    // locks — it can never run on the audio thread.
+    if (! isReplayActive())
+        return;
+
+    const uint64_t playhead = replayPlayhead_.load(std::memory_order_relaxed);
+    auto& params = replayState_.paramEvents;
+
+    // The logged value is DENORMALISED (APVTS::Listener hands parameterChanged the
+    // denormalised value), so it goes back in through convertTo0to1 — the same
+    // idiom every other programmatic param write in this file uses.
+    while (replayState_.nextParamIdx < params.size()
+           && params[replayState_.nextParamIdx].timestamp <= playhead)
+    {
+        const auto& pe = params[replayState_.nextParamIdx++];
+        if (auto* p = parameters.getParameter(pe.paramId))
+            p->setValueNotifyingHost(p->convertTo0to1(pe.value));
+    }
+
+    // End of tape: stop once the playhead has passed the last event, plus a short
+    // tail so final releases ring out rather than being cut by the panic.
+    const uint64_t tail = static_cast<uint64_t>(replayState_.sampleRate * 2.0);
+    if (playhead > replayState_.totalDurationSamples + tail)
+    {
+        stopReplay();
+        if (onReplayFinished)
+            onReplayFinished();
+    }
 }
 
 juce::NormalisableRange<float> T5ynthProcessor::makeDurationRange(float maxSeconds)
@@ -2321,6 +2445,26 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     eventLogBlockStart_ = eventLogTotalSamples_.load(std::memory_order_relaxed);
     eventLogTotalSamples_.fetch_add(static_cast<uint64_t>(numSamples), std::memory_order_relaxed);
 
+    // ── R2: Replay transport ────────────────────────────────────────────────
+    // Acquire pairs with startReplay's release store: everything it wrote into
+    // replayState_ is visible here. Its own playhead starts at 0 for each tape,
+    // independent of the recorder's running sample clock above.
+    const bool replayActive = replayModeActive_.load(std::memory_order_acquire);
+    const uint64_t replayBlockStart = replayActive
+        ? replayPlayhead_.fetch_add(static_cast<uint64_t>(numSamples), std::memory_order_relaxed)
+        : 0;
+
+    // Live input is neutralised for the duration of the tape: dropping the whole
+    // MIDI buffer here takes out external notes, pitch-bend, CC, CC-Learn and both
+    // pushStepRecordCandidate sites in one move. (The sequencers and arp are held
+    // stopped further down; their notes are already in the log.)
+    //
+    // Disclosed consequence: incoming MIDI Clock is dropped too, so a patch whose
+    // LFO/Drift is set to Clock Sync falls back to internal BPM for the duration of
+    // the replay. The tape's own transport is sample-driven and does not need it.
+    if (replayActive)
+        midiMessages.clear();
+
     // ── Host-transport snapshot (feeds resolveSyncBpm()) ────────────────────
     {
         bool playing = false;
@@ -2492,7 +2636,11 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     updateDriftState(numSamples, syncBpm);
 
     // ── Idle detection ──────────────────────────────────────────────────────
-    bool seqRunning = paramCache.seqRunning->load() > 0.5f;
+    // During replay the sequencers and arp are held stopped: the tape already
+    // contains every note they emitted, so letting them run would double each one.
+    // Overriding the local (rather than writing the APVTS params) keeps the user's
+    // patch untouched — a Stop hands back exactly the transport state they had.
+    bool seqRunning = paramCache.seqRunning->load() > 0.5f && ! replayActive;
     // A pending sequencer-preset change must keep the block awake for one cycle
     // so the apply further below runs even while stopped — otherwise picking a
     // preset in the dropdown does nothing until playback starts. Cheap (one
@@ -2504,7 +2652,8 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                        || hasActiveSequencerOneShots()
                        || !midiMessages.isEmpty()
                        || seqRunning
-                       || seqPresetPending;
+                       || seqPresetPending
+                       || replayActive;   // the tape must never idle out mid-playback
 
     if (hasActivity)
         silentBlockCount = 0;
@@ -2744,7 +2893,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     float seqShuffle = paramCache.seqShuffle->load();
     int seqPreset = static_cast<int>(paramCache.seqPreset->load());
     int arpModeRaw = static_cast<int>(paramCache.arpMode->load());
-    bool arpEnabled = arpModeRaw > 0;
+    bool arpEnabled = arpModeRaw > 0 && ! replayActive;   // see seqRunning above
     int arpMode = arpModeRaw > 0 ? arpModeRaw - 1 : 0; // 0=Up,1=Down,2=UpDown,3=Random
     int arpRate = static_cast<int>(paramCache.arpRate->load());
     int arpOctaves = static_cast<int>(paramCache.arpOctaves->load());
@@ -2752,6 +2901,53 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // Internal note events for this block (sequencers + arp). Typed, never MIDI.
     // Cleared here (capacity retained — no allocation) before any source writes.
     internalNoteEvents_.clear();
+
+    // ── R2: inject this block's replay notes ────────────────────────────────
+    // They enter the same stream the sequencers write to, so the sort + merge-walk
+    // below dispatch them to voiceManager exactly as if a sequencer had emitted
+    // them. External-MIDI notes in the log come through here too: they lose their
+    // MPE channel (VoiceEvent has none), which is the one disclosed fidelity gap.
+    // Bounded by the reserved capacity — push_back must never allocate here.
+    if (replayActive)
+    {
+        const uint64_t blockEnd = replayBlockStart + static_cast<uint64_t>(numSamples);
+        const auto& notes = replayState_.noteEvents;
+        while (replayState_.nextNoteIdx < notes.size()
+               && internalNoteEvents_.size() < internalNoteEvents_.capacity())
+        {
+            const auto& n = notes[replayState_.nextNoteIdx];
+            if (n.timestamp >= blockEnd)
+                break;
+            // Events already behind the playhead (a tape that starts mid-note, or a
+            // block-size change) land at offset 0 rather than being dropped.
+            const uint64_t delta = n.timestamp > replayBlockStart ? n.timestamp - replayBlockStart : 0;
+
+            VoiceEvent ev;
+            ev.sampleOffset = static_cast<int>(delta);
+            ev.type         = n.type;
+            ev.note         = n.note;
+            ev.velocity     = n.velocity;
+            ev.artic        = n.artic;
+            ev.strandId     = n.strandId;
+            ev.pan          = n.pan;
+            internalNoteEvents_.push_back(ev);
+            ++replayState_.nextNoteIdx;
+        }
+
+        // Arm the next logged generation once the playhead reaches it. At most one
+        // is armed at a time (the message thread clears busy when it completes), so
+        // a slow generation delays the following one instead of dropping it — the
+        // same "one in flight" rule the live drift-regen loop follows.
+        const auto& gens = replayState_.generationEvents;
+        if (replayState_.nextGenIdx < gens.size()
+            && ! replayGenerationBusy_.load(std::memory_order_acquire)
+            && replayDueGenerationId_.load(std::memory_order_relaxed) == 0
+            && gens[replayState_.nextGenIdx].timestamp < blockEnd)
+        {
+            replayDueGenerationId_.store(replayState_.nextGenIdx + 1, std::memory_order_release);
+            ++replayState_.nextGenIdx;
+        }
+    }
 
     // Arp false→true edge: the active sequencer's currently-sounding note was
     // emitted direct-to-synth last block, and from this block on the arp will
@@ -3066,7 +3262,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             generativeSequencer.stop();
         const size_t eventLogGenSeqBefore_ = internalNoteEvents_.size();
         generativeSequencer.processBlock(buffer, internalNoteEvents_);
-        if (eventLogEnabled_.load(std::memory_order_relaxed))
+        if (eventLogRecordingActive())
             logInternalNoteEventsFrom(eventLogGenSeqBefore_, NoteEventLogEntry::Source::GenerativeSequencer,
                                      seqRunning && arpEnabled, /*genModeForSkip=*/true);
 
@@ -3112,7 +3308,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             stepSequencer.stop();
         const size_t eventLogStepSeqBefore_ = internalNoteEvents_.size();
         stepSequencer.processBlock(buffer, internalNoteEvents_);
-        if (eventLogEnabled_.load(std::memory_order_relaxed))
+        if (eventLogRecordingActive())
             logInternalNoteEventsFrom(eventLogStepSeqBefore_, NoteEventLogEntry::Source::StepSequencer,
                                      seqRunning && arpEnabled, /*genModeForSkip=*/false);
     }
@@ -3203,7 +3399,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         }
         const size_t eventLogArpBefore_ = internalNoteEvents_.size();
         arpeggiator.processBlock(buffer, internalNoteEvents_);
-        if (eventLogEnabled_.load(std::memory_order_relaxed))
+        if (eventLogRecordingActive())
             logInternalNoteEventsFrom(eventLogArpBefore_, NoteEventLogEntry::Source::Arpeggiator);
     }
     else
@@ -3211,7 +3407,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         // Arp off: flush the arp's own sounding note (if any), then drop state.
         const size_t eventLogArpOffBefore_ = internalNoteEvents_.size();
         arpeggiator.allNotesOff(internalNoteEvents_);
-        if (eventLogEnabled_.load(std::memory_order_relaxed))
+        if (eventLogRecordingActive())
             logInternalNoteEventsFrom(eventLogArpOffBefore_, NoteEventLogEntry::Source::Arpeggiator);
         arpeggiator.reset();
     }
@@ -3456,7 +3652,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                             /*sourceId=*/-1, /*pan=*/0.0f, /*mpeChannel=*/channel);
                         if (stepRecordArmed.load(std::memory_order_relaxed))
                             pushStepRecordCandidate(note, velocity);
-                        if (eventLogEnabled_.load(std::memory_order_relaxed))
+                        if (eventLogRecordingActive())
                             logExternalNoteEvent(true, note, velocity, channel, extPos);
                     }
                     else if (msg.isNoteOff())
@@ -3464,7 +3660,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                         voiceManager.noteOff(msg.getNoteNumber(), -1);
                         if (!voiceManager.hasActiveVoices())
                             lastMidiNoteOn.store(false, std::memory_order_relaxed);
-                        if (eventLogEnabled_.load(std::memory_order_relaxed))
+                        if (eventLogRecordingActive())
                             logExternalNoteEvent(false, msg.getNoteNumber(), 0.0f, channel, extPos);
                     }
                     else if (msg.isAftertouch())

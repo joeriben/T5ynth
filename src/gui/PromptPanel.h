@@ -5,7 +5,9 @@
 #include <functional>
 #include <map>
 #include <limits>
+#include <optional>
 #include "../inference/PipeInference.h"
+#include "../eventlog/EventLog.h"   // GenerationEventLogEntry (replay transport)
 #include "../dsp/BlockParams.h"   // RepromptCoupling (Re-Prompt coupling enum)
 #include "GuiHelpers.h"  // FlippedVerticalSlider, AlphaSliderLnF, impulse colours
 #include "RepromptStanceBar.h"    // Re-Prompt stance "symbol slider"
@@ -82,7 +84,12 @@ class PromptPanel : public juce::Component, private juce::Timer
 {
 public:
     explicit PromptPanel(T5ynthProcessor& processor);
-    ~PromptPanel() override { stopTimer(); }
+    // stopTimer() first (JUCE rule). Then stop any replay: the transport's
+    // generation half lives here — with the panel gone, the tape's notes would keep
+    // firing while its timbre changes never arrive. Recording is unaffected (it is
+    // processor-owned); only playback, which the user started from this window,
+    // ends with the window.
+    ~PromptPanel() override;
 
     void paint(juce::Graphics& g) override;
     void resized() override;
@@ -211,6 +218,24 @@ private:
 
     /** Check if drift requires auto-regeneration (called from timerCallback). */
     void pollDriftRegen();
+
+    /** R2c: replay transport — fire the generation the playhead just crossed.
+     *  Called from timerCallback; a no-op unless a .t5evt replay is running.
+     *  Mirrors pollDriftRegen's shape: the tape never stalls, the regenerated
+     *  timbre crossfades in whenever the backend finishes. */
+    void pollReplayRegen();
+    void fireReplayGeneration(const GenerationEventLogEntry& logged);
+    // Held across ticks when the pipe is busy: the processor has already handed us
+    // this generation (and will not arm the next until it completes), so dropping it
+    // here would silently truncate the tape's generation chain. Tagged with the tape
+    // epoch it was taken from, so a stop/restart inside one timer gap discards it
+    // instead of firing an old tape's generation against the new one.
+    std::optional<GenerationEventLogEntry> pendingReplayGen_;
+    uint32_t pendingReplayEpoch_ = 0;
+    // Did the previous replayed generation actually render? An internal-resynth link
+    // seeds from the parent's output sitting in the processor — if the parent failed
+    // at replay time, that buffer is the GRANDparent's and the seed would be wrong.
+    bool lastReplayGenSucceeded_ = false;
 
     /** One step of the CLAP→LLM semantic self-listening loop, mirroring one
      *  iteration body of clap_llm_loop.py run_llm_loop (minus its own generate()).
