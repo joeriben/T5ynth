@@ -937,13 +937,26 @@ def _get_translator(model_dir, device):
     return tokenizer, model
 
 
-def run_instruct(text, model_dir, device, system_prompt, max_new_tokens=96):
+def run_instruct(text, model_dir, device, system_prompt, max_new_tokens=96,
+                 repetition_penalty=None, no_repeat_ngram_size=None):
     """Run the instruct LLM (the translator's Qwen) with an ARBITRARY system
     prompt on one short user text. Empty in → empty out. Greedy decoding for
     determinism within a device. This is the general form of ``translate_prompt``:
     the model is a general instruction-follower, so the same loaded weights serve
     translation AND other prompt transforms (variation, abduction, ...) — the only
-    difference is the system prompt. Reuses the same lazy/cached loader."""
+    difference is the system prompt. Reuses the same lazy/cached loader.
+
+    repetition_penalty / no_repeat_ngram_size default to None and are passed to
+    generate() ONLY when a caller sets them (the Re-Prompt/interpret path). Left
+    None they are omitted entirely, so translate + the DCO S2 router fall through
+    to the model's OWN generation_config — Qwen2.5-1.5B ships
+    repetition_penalty=1.1 — making their output BYTE-IDENTICAL to before this
+    param existed. (Forcing 1.0 would be WRONG: it overwrites the model's 1.1,
+    silently changing every translation AND every S2 routing key, which breaks the
+    DCO "same text -> byte-identical recipe" determinism invariant.) Both are
+    deterministic logit transforms, so greedy stays deterministic; they exist
+    solely so the Re-Prompt path can defeat the degenerate token-cycle a long
+    "recombine these freely" palette provokes at the model's default 1.1."""
     text = (text or "").strip()
     if not text:
         return ""
@@ -962,18 +975,26 @@ def run_instruct(text, model_dir, device, system_prompt, max_new_tokens=96):
     ).to(tdev)
     attention_mask = torch.ones_like(input_ids)
 
+    # Build the kwargs so that unset (None) penalties are OMITTED entirely — the
+    # call is then byte-for-byte the original generate(), letting the model's own
+    # generation_config (Qwen: repetition_penalty=1.1) stand. Only the interpret
+    # path sets them, overriding 1.1 with a stronger 1.2 + a hard 3-gram block.
+    gen_kwargs = dict(
+        max_new_tokens=max_new_tokens,
+        do_sample=False,
+        num_beams=1,
+        pad_token_id=tokenizer.eos_token_id,
+    )
+    if repetition_penalty is not None:
+        gen_kwargs["repetition_penalty"] = repetition_penalty
+    if no_repeat_ngram_size is not None:
+        gen_kwargs["no_repeat_ngram_size"] = no_repeat_ngram_size
+
     real_stdout = sys.stdout
     sys.stdout = sys.stderr  # protect the IPC pipe during generate()
     try:
         with torch.no_grad():
-            generated = model.generate(
-                input_ids,
-                attention_mask=attention_mask,
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-                num_beams=1,
-                pad_token_id=tokenizer.eos_token_id,
-            )
+            generated = model.generate(input_ids, attention_mask=attention_mask, **gen_kwargs)
     finally:
         sys.stdout = real_stdout
 
@@ -3255,8 +3276,16 @@ def main():
                 system_prompt = request.get("system_prompt") or TRANSLATION_SYSTEM_PROMPT
                 source_text = request.get("prompt_a") or request.get("text") or ""
                 max_new = int(request.get("max_new_tokens", 96))
+                # Re-Prompt only: defeat the degenerate token-cycle a long "recombine
+                # these freely" palette provokes ("sharp, thin, metallic, buzzing,
+                # sharp, thin, metallic, …"). Deterministic logit transforms, so the
+                # rewrite stays reproducible; translate + DCO S2 (which never take
+                # this branch) are byte-identical. no_repeat_ngram_size=3 blocks any
+                # verbatim 3-gram loop; a mild repetition_penalty discourages the
+                # slower drift into it without suppressing legitimate word reuse.
                 send_text(run_instruct(source_text, translation_dir, t_device,
-                                       system_prompt, max_new))
+                                       system_prompt, max_new,
+                                       repetition_penalty=1.2, no_repeat_ngram_size=3))
                 continue
 
             # DCO recipe author (docs/DCO_LLM_GUARDRAILS.md): the classical,
