@@ -367,6 +367,12 @@ private:
     // loaders), audio thread reads relaxed. Any neural (re-)extraction into
     // masterOsc clears it.
     std::atomic<bool> dcoTableActive_ { false };
+    // Engine mode the user was on before a DCO bake forced Wavetable, or -1.
+    // The next fresh neural generation restores it (only if the mode is still
+    // Wavetable, i.e. the user didn't pick another engine in between) so a
+    // bake never permanently hijacks the neural signal path. Message thread
+    // only (loadDcoWavetable / loadGeneratedAudio / setStateInformation).
+    int dcoPrevEngineMode_ = -1;
     SamplePlayer masterSampler;
     FreezeTextureEngine masterFreeze;
     std::thread samplerReprepareThread;

@@ -4441,6 +4441,24 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
     samplerProcessorDebugLog("loadGeneratedAudio begin samples=" + juce::String(audioBuffer.getNumSamples())
                              + " sr=" + juce::String(sr, 2)
                              + " masterBefore={" + masterSampler.debugStateString() + "}");
+
+    // A pending bake stash → the bake forced engineMode to Wavetable; give the
+    // user back the engine they had, but only if they haven't picked another
+    // one since (mode still Wavetable). Deliberately keyed on the stash, NOT
+    // on dcoTableActive_: a WT-bracket edit or FX reprocess can revert the
+    // table to neural frames without restoring the engine — the stash stays
+    // pending so the next generation still returns the user's engine. Same
+    // message-thread param-write pattern as loadDcoWavetable, before the
+    // engine data lands.
+    if (dcoPrevEngineMode_ >= 0
+        && static_cast<int>(paramCache.engineMode->load()) == EngineMode::Wavetable)
+    {
+        if (auto* engineParam = parameters.getParameter(PID::engineMode))
+            engineParam->setValueNotifyingHost(
+                engineParam->convertTo0to1(static_cast<float>(dcoPrevEngineMode_)));
+    }
+    dcoPrevEngineMode_ = -1;
+
     // Store raw audio (unmodified) for preset embedding and re-apply on toggle
     if (&audioBuffer != &generatedAudioRaw)
         generatedAudioRaw.makeCopyOf(audioBuffer);
@@ -4750,7 +4768,17 @@ void T5ynthProcessor::loadDcoWavetable(const juce::AudioBuffer<float>& frameStri
 
     // The DCO is a wavetable source: make it audible. Host-visible param
     // change, message thread, before the engine data lands so the block-param
-    // mapper picks both up together.
+    // mapper picks both up together. Remember the engine the user came from
+    // so the next neural generation can restore it — a re-bake while the DCO
+    // is already active keeps the original stash (the pre-DCO engine), and a
+    // user genuinely on Wavetable for neural audio has nothing to restore.
+    {
+        const int cur = static_cast<int>(paramCache.engineMode->load());
+        if (cur != EngineMode::Wavetable)
+            dcoPrevEngineMode_ = cur;
+        else if (!dcoTableActive_.load(std::memory_order_relaxed))
+            dcoPrevEngineMode_ = -1;
+    }
     if (auto* engineParam = parameters.getParameter(PID::engineMode))
         engineParam->setValueNotifyingHost(
             engineParam->convertTo0to1(static_cast<float>(EngineMode::Wavetable)));
@@ -4969,6 +4997,10 @@ void T5ynthProcessor::getStateInformation(juce::MemoryBlock& destData)
 
 void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
+    // A loaded state defines its own engine mode; a stale pre-bake stash must
+    // not "restore" over it when the state's audio loads below.
+    dcoPrevEngineMode_ = -1;
+
     std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(data, sizeInBytes));
     if (xml != nullptr && xml->hasTagName(parameters.state.getType()))
     {
