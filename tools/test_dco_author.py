@@ -373,6 +373,96 @@ def run_unit_tests():
     check("'2 op fm boost harmonic 5' -> still a structurally valid recipe",
           not validate_recipe_structure(r_fm["recipe"]))
 
+    # ── RELATIVE FM LANGUAGE (Commit D): comparative index/ratio nudges on the
+    #    fm2 keyframe, through the same _apply_delta_op fm path "metallic" uses.
+    def _fm_kf(resp):
+        for kf in resp["recipe"]["keyframes"]:
+            if kf.get("kind") == "fm2":
+                return kf
+        return None
+
+    r_bell = dr.author_recipe("bell", llm_route=None, frames=None)
+    base_kf = _fm_kf(r_bell)
+    check("'bell' -> fm2 keyframe present", base_kf is not None, r_bell["recipe"]["keyframes"])
+    base_index, base_ratio = base_kf["index"], base_kf["ratio"]
+
+    r_deep = dr.author_recipe("bell deeper modulation", llm_route=None, frames=None)
+    check("'bell deeper modulation' -> fm index raised",
+          _fm_kf(r_deep)["index"] > base_index, (_fm_kf(r_deep)["index"], base_index))
+    check("'bell deeper modulation' -> recorded in resolved.fm",
+          r_deep["resolved"]["fm"] == ["deeper modulation"], r_deep["resolved"].get("fm"))
+    check("'bell deeper modulation' -> no residue leak ('modulation' not flagged)",
+          not any("no mapping" in f["reason"] for f in r_deep["flags"]), r_deep["flags"])
+
+    r_less = dr.author_recipe("bell less modulation", llm_route=None, frames=None)
+    check("'bell less modulation' -> fm index lowered",
+          _fm_kf(r_less)["index"] < base_index, (_fm_kf(r_less)["index"], base_index))
+
+    r_hi = dr.author_recipe("bell higher ratio", llm_route=None, frames=None)
+    check("'bell higher ratio' -> fm ratio raised, still int",
+          _fm_kf(r_hi)["ratio"] > base_ratio and isinstance(_fm_kf(r_hi)["ratio"], int),
+          (_fm_kf(r_hi)["ratio"], base_ratio))
+    check("'bell higher ratio' -> recorded in resolved.fm",
+          r_hi["resolved"]["fm"] == ["higher ratio"], r_hi["resolved"].get("fm"))
+
+    r_lo = dr.author_recipe("bell lower ratio", llm_route=None, frames=None)
+    check("'bell lower ratio' -> fm ratio lowered",
+          _fm_kf(r_lo)["ratio"] < base_ratio, (_fm_kf(r_lo)["ratio"], base_ratio))
+
+    # German invariant adverb (no inflection) pairs with the 'modulation' noun
+    r_mehr = dr.author_recipe("bell mehr modulation", llm_route=None, frames=None)
+    check("'bell mehr modulation' -> fm index raised (DE)",
+          _fm_kf(r_mehr)["index"] > base_index, _fm_kf(r_mehr)["index"])
+
+    # regression: the compound German noun must match IN FULL (longest-first) --
+    # the shorter "modulation" alt must NOT shadow it and leak a "sindex" tail
+    r_msi = dr.author_recipe("bell mehr modulationsindex", llm_route=None, frames=None)
+    check("'bell mehr modulationsindex' -> full phrase, no 'sindex' residue leak",
+          r_msi["resolved"]["fm"] == ["mehr modulationsindex"]
+          and not any("no mapping" in f["reason"] for f in r_msi["flags"]),
+          (r_msi["resolved"].get("fm"), r_msi["flags"]))
+
+    # non-FM base -> honest flag, op still recorded, recipe still valid
+    r_saw_fm = dr.author_recipe("saw more modulation", llm_route=None, frames=None)
+    check("'saw more modulation' -> 'no FM operator' flag",
+          any("no FM operator" in f["reason"] for f in r_saw_fm["flags"]), r_saw_fm["flags"])
+    check("'saw more modulation' -> still structurally valid",
+          not validate_recipe_structure(r_saw_fm["recipe"]))
+    check("'saw more modulation' -> op recorded despite inapplicability",
+          r_saw_fm["resolved"]["fm"] == ["more modulation"], r_saw_fm["resolved"].get("fm"))
+
+    # the bare "fm" technique must NOT be shadowed by the FM-op noun set
+    r_fmtech = dr.author_recipe("fm", llm_route=None, frames=None)
+    check("'fm' -> still resolves the fm technique (noun set excludes bare 'fm')",
+          r_fmtech["resolved"]["technique"] == "fm", r_fmtech["resolved"])
+    # 'pulse width modulation' (pwm) must survive a leading direction word intact
+    r_pwm_mod = dr.author_recipe("pwm", llm_route=None, frames=None)
+    check("'pwm' -> pwm technique (FM regex needs dir DIRECTLY before 'modulation')",
+          r_pwm_mod["resolved"]["technique"] == "pwm", r_pwm_mod["resolved"])
+
+    # two ops, prompt order preserved, deterministic
+    r_two = dr.author_recipe("bell deeper modulation, higher ratio", llm_route=None, frames=None)
+    check("'bell deeper modulation, higher ratio' -> both ops in prompt order",
+          r_two["resolved"]["fm"] == ["deeper modulation", "higher ratio"],
+          r_two["resolved"].get("fm"))
+    r_two2 = dr.author_recipe("bell deeper modulation, higher ratio", llm_route=None, frames=None)
+    check("'bell deeper modulation, higher ratio' -> deterministic double-run",
+          json.dumps(r_two, sort_keys=True) == json.dumps(r_two2, sort_keys=True))
+
+    # the _compose-failure fallback resolved dict must expose the SAME keys as the
+    # happy path (C added 'composition' here; D must add 'fm') -- force _compose
+    # to raise and confirm no resolved field silently vanishes on the fallback.
+    _orig_compose = dr._compose
+    try:
+        dr._compose = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("forced"))
+        r_fb = dr.author_recipe("saw", llm_route=None, frames=None)
+    finally:
+        dr._compose = _orig_compose
+    check("_compose-failure fallback resolved has the full key set (incl. 'fm')",
+          set(r_fb["resolved"].keys()) == {"technique", "adjectives", "composition",
+                                           "fm", "motion", "values"},
+          sorted(r_fb["resolved"].keys()))
+
     # ── SILENCE INVARIANT (regression): a composition op must NEVER produce an
     #    all-zero additive spectrum (silent bake + divide-by-zero in the baker's
     #    peak-normalize). "only even" on an all-odd base (sine/square/triangle/
@@ -617,8 +707,9 @@ def run_unit_tests():
     #    flagged as unmapped residue ("dasselbe wie für die Auswertung").
     brief = dr.reference_vocabulary()
     check("reference_vocabulary is non-empty", bool(brief.strip()), repr(brief[:80]))
-    for header in ("WAVEFORMS", "SPECTRAL QUALITIES", "MOTION", "INTENSITY", "HARMONIC EDITS"):
-        check(f"reference_vocabulary lists a {header} section", header in brief, brief[:120])
+    for header in ("WAVEFORMS", "SPECTRAL QUALITIES", "MOTION", "INTENSITY",
+                   "HARMONIC EDITS", "FM CONTROL"):
+        check(f"reference_vocabulary lists a {header} section", header in brief, brief[:160])
 
     def _residue_words(resp):
         return {f["word"] for f in resp["flags"] if "no mapping" in f["reason"]}

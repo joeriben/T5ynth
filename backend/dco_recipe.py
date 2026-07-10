@@ -275,6 +275,70 @@ def _extract_composition_ops(norm_text):
     return ordered, "".join(chars)
 
 
+# ─── S1: relative FM instructions (comparative index / ratio nudges) ───────
+# The comparative twin of the typed "index 2.5" / "ratio 3" overrides: a
+# direction word bound to an FM noun nudges the fm2 keyframe. Amount words
+# ("more/deeper/less/gentler") + an index noun (modulation/sidebands/fm depth)
+# move fm_index; ratio words ("higher/lower/wider/closer") + "ratio" move
+# fm_ratio. Applied through the SAME _apply_delta_op fm_index/fm_ratio path the
+# "metallic" adjective uses, so a non-FM template gets the identical honest
+# "no FM operator" flag -- never a silent coercion. Bare "fm" is deliberately
+# NOT an index noun (it is itself a technique surface form); the multi-word
+# "fm depth / fm amount / fm index" forms cover the fm-worded case without
+# shadowing the technique.
+_FM_INDEX_UP   = {"more", "deeper", "stronger", "harder", "denser", "mehr"}
+_FM_INDEX_DOWN = {"less", "gentler", "softer", "cleaner", "weaker", "weniger"}
+_FM_RATIO_UP   = {"higher", "wider", "bigger"}
+_FM_RATIO_DOWN = {"lower", "closer", "narrower", "smaller"}
+_FM_INDEX_DELTA = 1.5    # one clear step, == the "metallic" adjective's index bump
+_FM_RATIO_DELTA = 1      # one integer ratio step (fm_ratio is an int in [1,8])
+
+# longest-first: "modulationsindex" MUST precede "modulation", or leftmost-first
+# alternation (no trailing \b) matches only the "modulation" prefix and leaks the
+# "sindex" tail as residue (same longest-first discipline as _VERB_ALT above).
+_FM_INDEX_NOUN = r"(?:modulationsindex|modulation|sidebands?|fm\s+depth|fm\s+amount|fm\s+index)"
+_FM_RATIO_NOUN = r"(?:ratio|verhältnis)"
+# longest-first alternation, alphabetical secondary key -> byte-reproducible
+# compiled pattern across processes (same rationale as _VERB_ALT above).
+_FM_INDEX_DIR_ALT = "|".join(sorted(_FM_INDEX_UP | _FM_INDEX_DOWN, key=lambda w: (-len(w), w)))
+_FM_RATIO_DIR_ALT = "|".join(sorted(_FM_RATIO_UP | _FM_RATIO_DOWN, key=lambda w: (-len(w), w)))
+# "<dir> <index-noun>" and "<dir> [fm] <ratio-noun>" -- the noun must immediately
+# follow the direction (one whitespace run), so "pulse width modulation" and a
+# bare "ratio 3" are never mis-claimed (no leading direction word / a number, not
+# a direction, follows/precedes).
+_RE_FM_INDEX = re.compile(r"\b(?P<dir>" + _FM_INDEX_DIR_ALT + r")\s+" + _FM_INDEX_NOUN)
+_RE_FM_RATIO = re.compile(r"\b(?P<dir>" + _FM_RATIO_DIR_ALT + r")\s+(?:fm\s+)?" + _FM_RATIO_NOUN)
+
+
+def _extract_fm_ops(norm_text):
+    """Returns (ops in prompt order, remaining_text with spans blanked). Each op
+    is {"word": <matched phrase>, "op": "fm_index"|"fm_ratio", "args":{"delta":±}}.
+    Deterministic: regex order + prompt position only (mirrors
+    _extract_composition_ops)."""
+    hits = []   # (start_pos, op_dict)
+    spans = []
+
+    for m in _RE_FM_INDEX.finditer(norm_text):
+        spans.append(m.span())
+        delta = _FM_INDEX_DELTA if m.group("dir") in _FM_INDEX_UP else -_FM_INDEX_DELTA
+        hits.append((m.start(), {"word": m.group(0).strip(), "op": "fm_index",
+                                 "args": {"delta": delta}}))
+    for m in _RE_FM_RATIO.finditer(norm_text):
+        spans.append(m.span())
+        delta = _FM_RATIO_DELTA if m.group("dir") in _FM_RATIO_UP else -_FM_RATIO_DELTA
+        hits.append((m.start(), {"word": m.group(0).strip(), "op": "fm_ratio",
+                                 "args": {"delta": delta}}))
+
+    hits.sort(key=lambda t: t[0])
+    ordered = [op for _, op in hits]
+
+    chars = list(norm_text)
+    for (s, e) in spans:
+        for i in range(s, e):
+            chars[i] = " "
+    return ordered, "".join(chars)
+
+
 # ─── S1: lexicon scan index (longest-match-first) ──────────────────────────
 
 def _build_index(lexicon):
@@ -330,13 +394,16 @@ def _build_index(lexicon):
 def _scan(norm_text, lexicon):
     """S1. Returns a dict: values, technique_hits, adjective_hits, motion_hits,
     connector_hits, residue (list of {"word","degree","pos"})."""
-    # Composition FIRST, then typed values: "every 3 harmonics" must be claimed
-    # as a comb (every-3rd) before _RE_HARMONICS can mis-read the "3 harmonics"
-    # inside it as a 3-partial ceiling. Comb/HN patterns all require a leading
-    # spectral verb, which no typed value (ratio/index/order/harmonics/%) carries,
-    # so this ordering removes the ceiling collision without introducing any
-    # reverse one.
-    composition_ops, remaining = _extract_composition_ops(norm_text)
+    # Pre-extract the three regex-driven instruction families in a fixed order,
+    # each blanking its spans so the next pass and the lexicon scan never re-read
+    # them. FM ops FIRST (a comparative "<dir> ratio" must be claimed before a
+    # typed "ratio N" could grab the bare "ratio"); composition BEFORE typed
+    # values ("every 3 harmonics" must be a comb before _RE_HARMONICS mis-reads
+    # the "3 harmonics" inside it as a 3-partial ceiling). The families use
+    # disjoint nouns/verbs, so the order resolves only these two shadowing cases
+    # and never introduces a new one.
+    fm_ops, remaining = _extract_fm_ops(norm_text)
+    composition_ops, remaining = _extract_composition_ops(remaining)
     values, remaining = _extract_typed_values(remaining)
     tokens = _tokenize(remaining)
     index = _build_index(lexicon)
@@ -394,7 +461,7 @@ def _scan(norm_text, lexicon):
         pending_degree = None
         i += L
 
-    return {"values": values, "composition_ops": composition_ops,
+    return {"values": values, "composition_ops": composition_ops, "fm_ops": fm_ops,
             "technique_hits": technique_hits, "adjective_hits": adjective_hits,
             "motion_hits": motion_hits, "connector_hits": connector_hits,
             "residue": residue}
@@ -1067,6 +1134,19 @@ def _compose(scan, s2_extra_adjective_hits, lexicon, frames_override):
         v, _ = _clamp_int(values["order"], 2, 12, 2)
         pre_applied["order"] = _apply_order_override(recipe, v)
 
+    # step 1c: relative FM instructions ("deeper modulation", "higher ratio")
+    # nudge the fm2 keyframe BEFORE the adjective pass, so a later spectral
+    # adjective that converts fm2->additive bakes the nudged index/ratio in
+    # (mirrors step 1b's typed-value ordering). Same _apply_delta_op fm path the
+    # "metallic" adjective uses; a non-FM template gets the honest "no FM
+    # operator" flag. Prompt order; no degree scaling (comparatives carry none).
+    # applied_fm records every parsed op verbatim -- even one that flags as
+    # inapplicable -- exactly as step 2b's applied_composition does.
+    applied_fm = []
+    for fop in scan.get("fm_ops", []):
+        _apply_delta_op(recipe, fop["word"], fop["op"], fop["args"], flags)
+        applied_fm.append(fop["word"])
+
     # step 2: adjective deltas, priority order then prompt order
     ordered = sorted(all_adjective_hits, key=lambda h: (-h["priority"], h["pos"]))
     applied_adjective_keys = []
@@ -1179,6 +1259,7 @@ def _compose(scan, s2_extra_adjective_hits, lexicon, frames_override):
         "technique": resolved_technique,
         "adjectives": applied_adjective_keys,
         "composition": applied_composition,
+        "fm": applied_fm,
         "motion": applied_motion_keys,
         "values": resolved_values,
     }
@@ -1526,6 +1607,10 @@ def reference_vocabulary(lexicon=None):
     reduce = ", ".join(sorted(_REDUCE_VERBS))
     remove = ", ".join(sorted(_REMOVE_VERBS))
 
+    # relative FM direction words (only bite on an FM/bell/EP recipe).
+    fm_amount  = ", ".join(sorted(_FM_INDEX_UP | _FM_INDEX_DOWN))
+    fm_spacing = ", ".join(sorted(_FM_RATIO_UP | _FM_RATIO_DOWN))
+
     return "\n".join([
         "WAVEFORMS (pick one, or morph two with '" + morph + "'): " + ", ".join(waveforms),
         "SPECTRAL QUALITIES: " + ", ".join(qualities),
@@ -1536,6 +1621,10 @@ def reference_vocabulary(lexicon=None):
         "  boost verbs: " + boost,
         "  reduce verbs: " + reduce,
         "  remove verbs: " + remove,
+        "FM CONTROL (only on bell / electric piano / metal / fm recipes): "
+        "'<dir> modulation' (amount), '<dir> ratio' (spacing)",
+        "  amount dir: " + fm_amount,
+        "  ratio dir: " + fm_spacing,
     ])
 
 
@@ -1581,7 +1670,7 @@ def author_recipe(text, llm_route=None, frames=None):
             recipe["frames"] = frames
         recipe, _ = _clamp_and_repair(recipe)
         resolved = {"technique": resolved_technique, "adjectives": [], "composition": [],
-                    "motion": [], "values": {}}
+                    "fm": [], "motion": [], "values": {}}
         flags = s2_flags + [{"word": resolved_technique,
                              "reason": f"recipe composition failed ({e}) — fell back to the plain technique template"}]
 
