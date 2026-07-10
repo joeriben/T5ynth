@@ -10,6 +10,7 @@
 #include "../eventlog/EventLog.h"   // GenerationEventLogEntry (replay transport)
 #include "../dsp/BlockParams.h"   // RepromptCoupling (Re-Prompt coupling enum)
 #include "GuiHelpers.h"  // FlippedVerticalSlider, AlphaSliderLnF, impulse colours
+#include "DcoWavetableView.h"     // baked-table frame stack (Advanced/DCO view)
 #include "RepromptStanceBar.h"    // Re-Prompt stance "symbol slider"
 #include "T5ynthLookAndFeel.h"    // base LnF for the model-switch text override
 
@@ -276,15 +277,19 @@ private:
     // (reverse destruction order).
     std::unique_ptr<SliderRow> magRow, noiseRow;
     // DCO surface — Advanced IS the DCO panel now (a completely different
-    // paradigm from the neural Easy view, not a variant of it): its own
-    // multiline prompt editor (panel-local text, NOT bound to Impulse A) +
-    // a bake trigger + status/flags line. The bake authors a recipe from the
-    // DCO prompt via the backend lexicon router (docs/DCO_LLM_GUARDRAILS.md),
-    // bakes frames on a background thread, and loads them into the wavetable
-    // master.
+    // paradigm from the neural Easy view, not a variant of it): a 3-line
+    // prompt editor (panel-local text, NOT bound to Impulse A), the
+    // BAKE/status row, the flags list (the guardrail honesty channel,
+    // one "word: reason" line per approximated/unmappable term), and the
+    // baked table drawn as a depth-staggered frame stack below. The bake
+    // authors a recipe from the DCO prompt via the backend lexicon router
+    // (docs/DCO_LLM_GUARDRAILS.md), bakes frames on a background thread, and
+    // loads them into the wavetable master.
     juce::TextEditor dcoPromptEditor;
     juce::TextButton dcoBakeBtn { "BAKE" };
     juce::Label dcoStatusLabel;
+    juce::Label dcoFlagsLabel;
+    DcoWavetableView dcoWaveView;
     bool dcoBaking_ = false;
     void triggerDcoBake();
 

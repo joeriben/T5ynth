@@ -386,6 +386,15 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         dcoBakeBtn.setTooltip("Author a DCO wavetable from the DCO prompt (offline bake)");
         dcoBakeBtn.onClick = [this] { triggerDcoBake(); };
         makeLabel(dcoStatusLabel, "DCO: ready", kDim, juce::Justification::centredLeft, this);
+
+        // Flags list — the guardrail honesty channel made visible: one
+        // "word: reason" line per approximated/unmappable prompt term
+        // (previously tooltip-only on the status label). Empty when clean;
+        // the layout collapses its row then.
+        makeLabel(dcoFlagsLabel, "", kWarning, juce::Justification::topLeft, this);
+
+        // Baked-table display: fills whatever height remains under the flags.
+        addAndMakeVisible(dcoWaveView);
     }
 
     // Model selector — fixed 4 slots, always visible (disabled = gray until model found).
@@ -971,6 +980,8 @@ void PromptPanel::resized()
     dcoPromptEditor.setVisible(!easy);
     dcoBakeBtn.setVisible(!easy);
     dcoStatusLabel.setVisible(!easy);
+    dcoFlagsLabel.setVisible(!easy);
+    dcoWaveView.setVisible(!easy);
 
     if (!easy)
     {
@@ -983,24 +994,47 @@ void PromptPanel::resized()
         seedModeSwitchBounds = {};
         paramsDividerY = -1;
 
-        // Pure DCO canvas: a BAKE/status row pinned to the bottom (same bakeW
-        // jlimit logic as the old Advanced BAKE row), and the prompt editor
-        // takes 100% of whatever height remains above it — a large canvas is
-        // the point, not a squeezed strip.
+        // Pure DCO canvas, top-down: 3-line prompt editor, the BAKE/status
+        // row, the flags list (natural height, collapses when clean), and
+        // the baked-table display filling everything that remains.
         setUiFont(dcoStatusLabel, TextRole::Caption, f);
-        auto row = area.removeFromBottom(compactRowH);
+        setUiFont(dcoFlagsLabel, TextRole::Caption, f);
+
+        const float editorFontH = f * 1.1f;
+        // 3 text lines + the editor's top/bottom indents and outline.
+        const int editorH = juce::roundToInt(editorFontH * 3.0f + 10.0f);
+        dcoPromptEditor.setBounds(area.removeFromTop(editorH));
+        // applyFontToAllText (NOT setFont) — same reasoning as the Impulse
+        // editors below: setFont only affects text typed after the call, so
+        // text already in the box would stay at the default size.
+        dcoPromptEditor.applyFontToAllText(juce::FontOptions(editorFontH));
+        area.removeFromTop(gap);
+
+        auto row = area.removeFromTop(compactRowH);
         const int bakeW = juce::jlimit(juce::roundToInt(f * 3.2f),
                                        row.getWidth() / 3,
                                        juce::roundToInt(f * 4.2f));
         dcoBakeBtn.setBounds(row.removeFromLeft(bakeW));
         row.removeFromLeft(juce::jmax(2, gap));
         dcoStatusLabel.setBounds(row);
-        area.removeFromBottom(gap);
-        dcoPromptEditor.setBounds(area);
-        // applyFontToAllText (NOT setFont) — same reasoning as the Impulse
-        // editors below: setFont only affects text typed after the call, so
-        // text already in the box would stay at the default size.
-        dcoPromptEditor.applyFontToAllText(juce::FontOptions(f * 1.1f));
+        area.removeFromTop(gap);
+
+        // One caption line per flag, capped — the full text stays on the
+        // tooltip. Zero flags = zero height, the table display gets the room.
+        const auto flagsText = dcoFlagsLabel.getText();
+        if (flagsText.isNotEmpty())
+        {
+            const int numLines = juce::StringArray::fromLines(flagsText).size();
+            const int lineH = juce::roundToInt(dcoFlagsLabel.getFont().getHeight() + 2.0f);
+            dcoFlagsLabel.setBounds(area.removeFromTop(juce::jmin(numLines, 4) * lineH));
+            area.removeFromTop(gap);
+        }
+        else
+        {
+            dcoFlagsLabel.setBounds({});
+        }
+
+        dcoWaveView.setBounds(area);
         return;
     }
 
@@ -2013,11 +2047,20 @@ void PromptPanel::triggerDcoBake()
             if (auto* self = safeThis.getComponent())
             {
                 if (strip.getNumSamples() > 0)
+                {
                     self->processorRef.loadDcoWavetable(strip, motionRateHz);
+                    // Display what actually shipped to the engine (bit-exact
+                    // frames). On a failed/empty bake the view keeps the last
+                    // table — matching the engine, which keeps playing it.
+                    self->dcoWaveView.setStrip(strip, WavetableOscillator::FRAME_SIZE);
+                }
                 self->dcoStatusLabel.setText(status, juce::dontSendNotification);
                 self->dcoStatusLabel.setTooltip(flagTooltip);
+                self->dcoFlagsLabel.setText(flagTooltip, juce::dontSendNotification);
+                self->dcoFlagsLabel.setTooltip(flagTooltip);  // full text if clipped
                 self->dcoBakeBtn.setEnabled(true);
                 self->dcoBaking_ = false;
+                self->resized();   // flag count changes the DCO column layout
             }
         });
     }).detach();
