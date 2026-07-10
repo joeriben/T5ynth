@@ -66,27 +66,29 @@ constexpr float kPromptReprompt    = 4.0f;   // Re-Prompt MODULE total height (c
 // column with a full-height vertical blend slider on the right. The block is
 // framed by breathing room and a recessed band behind the mode bar; a divider
 // separates it from the generation params below.
-// Both ContentUnits MUST equal the unit sum in getPreferredHeightForWidth so that
-// resized()'s f = (height-2)/ContentUnits resolves back to the preferred font.
-// (abBlock = 2·multiInput + 2·innerGap + modeBar = 7.4 + 1.2 + 1.3 = 9.9 units.)
-// The Re-Prompt module + its top gap (innerGap + kPromptReprompt = 0.6 + 4.0 = 4.6)
-// sits between the A↔B block and the divider and is in BOTH budgets below.
-// Advanced view: Steps/CFG sliders + GENERATION header + Seed row removed
-// (DCO canvas-freeing, Slice 0). Advanced now hosts only the model selector +
-// A↔B block + Re-Prompt module — the param grid is empty, ready for the DCO.
-// Removed from the Advanced budget: Steps/CFG compactPair (compactRow +
-// compactCtrl + gap = 2.33) + GENERATION header (compactRow + gap = 1.43) +
-// Seed row (compactRow + seedCtrl + gap = 1.15 + 1.75 + 0.28 = 3.18) =
-// 6.94 units; the GENERATION header used to REPLACE the divider, so the
-// divider's groupGap (1.0) comes back in: 23.19 - 6.94 + 1.0 = 17.25.
-// Seed state now lives on the processor (setLastSeed/getLastSeed,
-// setLastRandomSeed/getLastRandomSeed), driven exclusively by the Easy-mode
-// Variation switchbox.
-// The DCO surface (Slice 4) adds one standard row on the Advanced canvas:
-// BAKE + status = compactRow + gap = 1.43 -> 17.25 + 1.43 = 18.68.
-constexpr float kPromptContentUnits = 18.68f;
-// Easy budget keeps the model selector row but drops the advanced param rows.
-constexpr float kPromptEasyContentUnits = 20.11f;
+//
+// ONE shared height/font budget for BOTH modes (Easy and Advanced/DCO). This
+// replaces a former two-constant pair that getPreferredHeightForWidth and
+// resized() each branched on by easyMode_ — keeping two numbers in lockstep
+// by hand was a standing bug risk, and toggling the mode used to resize the
+// section and rescale the font. kPromptContentUnits MUST equal the unit sum
+// in getPreferredHeightForWidth so that resized()'s
+// f = (height-2)/kPromptContentUnits resolves back to the preferred font.
+//
+// The sum is the EASY layout's own (model row + A/B block + Re-Prompt row +
+// divider + the 2x2 gen-param block); Advanced no longer gets a distinct,
+// smaller budget of its own:
+//   modelRow(compactRow) + modelGap                                    = 1.15 + 0.6  = 1.75
+//   abBlock (2*multiInput + 2*innerGap + modeBar = 7.4+1.2+1.3=9.9) + innerGap = 9.9 + 0.6 -> 12.25
+//   + repromptRow                                                      = 4.0          -> 16.25
+//   + groupGap (divider)                                               = 1.0          -> 17.25
+//   + 2x(compactRow + gap)  (Duration|Variation, Magnitude|Chaos)      = 2*1.43 = 2.86 -> 20.11
+// Advanced (the DCO panel: one prompt editor + a BAKE/status row) needs LESS
+// minimum height than this sum, so it is a valid minimum for Advanced too —
+// resized()'s Advanced branch lays the BAKE/status row out at a fixed
+// compactRow height and gives the DCO prompt editor 100% of whatever height
+// remains, so it simply absorbs the slack instead of needing its own budget.
+constexpr float kPromptContentUnits = 20.11f;
 constexpr int kBaseSeed = 123456789;
 
 float preferredPromptFontForWidth(int width)
@@ -359,12 +361,29 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         makeLabel(varSwitchLabel, "VAR", kDim, juce::Justification::centredLeft, this);
     }
 
-    // DCO surface (Advanced view, on the canvas Slice 0 freed): bake trigger +
-    // status line. Authors a recipe from prompt A via the backend lexicon
-    // router, bakes off-thread, loads the wavetable master (loadDcoWavetable).
+    // DCO surface — Advanced IS the DCO panel now (a completely different
+    // paradigm from the neural Easy view, not a variant of it): its own
+    // multiline prompt editor (panel-local text, NOT bound to Impulse A) +
+    // a bake trigger + status/flags line. Authors a recipe from the DCO
+    // prompt via the backend lexicon router, bakes off-thread, loads the
+    // wavetable master (loadDcoWavetable).
     {
+        dcoPromptEditor.setMultiLine(true, true);
+        dcoPromptEditor.setReturnKeyStartsNewLine(false);
+        dcoPromptEditor.setColour(juce::TextEditor::backgroundColourId, kSurface.brighter(0.08f));
+        dcoPromptEditor.setColour(juce::TextEditor::textColourId, kDim);
+        dcoPromptEditor.setColour(juce::TextEditor::outlineColourId, kBorder);
+        dcoPromptEditor.setColour(juce::TextEditor::focusedOutlineColourId, kOscCol);
+        dcoPromptEditor.setColour(juce::TextEditor::highlightColourId, kOscCol.withAlpha(0.30f));
+        dcoPromptEditor.setTextToShowWhenEmpty("Describe the oscillator to bake", kDim.withAlpha(0.45f));
+        dcoPromptEditor.onReturnKey = [this] { triggerDcoBake(); };
+        // No onTextChange mirror to the processor: the DCO prompt is
+        // panel-local for now (preset persistence is a documented open seam).
+        dcoPromptEditor.setBufferedToImage(true);
+        addAndMakeVisible(dcoPromptEditor);
+
         addAndMakeVisible(dcoBakeBtn);
-        dcoBakeBtn.setTooltip("Author a DCO wavetable from prompt A (offline bake)");
+        dcoBakeBtn.setTooltip("Author a DCO wavetable from the DCO prompt (offline bake)");
         dcoBakeBtn.onClick = [this] { triggerDcoBake(); };
         makeLabel(dcoStatusLabel, "DCO: ready", kDim, juce::Justification::centredLeft, this);
     }
@@ -616,18 +635,16 @@ int PromptPanel::getPreferredHeightForWidth(int width) const
     // adds nothing to the vertical budget).
     const int abBlockH = multiInputH + innerGap + modeBarH + innerGap + multiInputH;
 
-    if (easyMode_)
-    {
-        return (compactRowH + 2) + modelGap             // model selector row
-             + abBlockH + innerGap + repromptRowH       // A↔B block + Re-Prompt row
-             + groupGap                                 // divider
-             + 2 * (compactRowH + gap);                 // 2x2 gen block: Duration|Variation, Magnitude|Chaos
-    }
-
-    return (compactRowH + 2) + modelGap                 // model selector row
-         + abBlockH + innerGap + repromptRowH           // A↔B block + Re-Prompt row
-         + groupGap                                     // divider (param grid removed, DCO Slice 0)
-         + compactRowH + gap;                           // DCO surface: BAKE + status row
+    // ONE budget for both modes (kPromptContentUnits, unified above) — toggling
+    // EASY/ADV must never resize the section. This is the Easy layout's own
+    // sum; Advanced (a pure DCO panel: one prompt editor + a BAKE/status row)
+    // needs LESS minimum height than this, so it fits under the same minimum
+    // with room to spare — the DCO editor absorbs the slack in resized()
+    // rather than being budgeted here.
+    return (compactRowH + 2) + modelGap             // model selector row
+         + abBlockH + innerGap + repromptRowH       // A↔B block + Re-Prompt row
+         + groupGap                                 // divider
+         + 2 * (compactRowH + gap);                 // 2x2 gen block: Duration|Variation, Magnitude|Chaos
 }
 
 void PromptPanel::timerCallback()
@@ -691,7 +708,10 @@ void PromptPanel::timerCallback()
     splitStartGhostValue_ = newSplitStart;
     splitEndGhostValue_   = newSplitEnd;
 
-    if (alphaGroupChanged)
+    // Easy-only: the ghost draw itself is easyMode_-gated in paintOverChildren
+    // (the alpha slider is hidden behind the DCO panel in Advanced), so
+    // invalidating its stale rect there would blit for no visual effect.
+    if (easyMode_ && alphaGroupChanged)
         repaint(alphaSlider.getBounds().expanded(4));
 
     // Magnitude/Chaos ghosts are now SliderRow-owned drift indicators (the row
@@ -770,10 +790,9 @@ void PromptPanel::paint(juce::Graphics& g)
     if (!injModeSwitchBounds.isEmpty())
         paintSwitchBoxBorder(g, injModeSwitchBounds);
 
-    // (The A↔B / params divider is drawn in paintOverChildren(): in advanced view
-    // it sits on the GENERATION header's top edge, so it must paint AFTER the
-    // header's fill or the fill overdraws it — same overdraw rule as the
-    // switchbox frames.)
+    // (The A↔B / params divider is drawn in paintOverChildren() — Easy view
+    // only; Advanced is the DCO panel and never sets paramsDividerY, so no
+    // divider paints there. See the divider block in resized() for detail.)
 
     if (!modelSwitchBounds.isEmpty())
         paintSwitchBoxBorder(g, modelSwitchBounds);
@@ -783,11 +802,9 @@ void PromptPanel::paint(juce::Graphics& g)
 
 void PromptPanel::paintOverChildren(juce::Graphics& g)
 {
-    // Divider between the A↔B / Re-Prompt block and the generation params. Drawn
-    // here (after children) because in advanced view it lands on the GENERATION
-    // header's top edge — painting it in paint() would let the header's fill
-    // overdraw it. In easy view it sits in an empty gap, so after-children is
-    // equally fine.
+    // Divider between the A↔B / Re-Prompt block and the generation params.
+    // Easy view only — Advanced (the DCO panel) sets paramsDividerY = -1 in
+    // resized(), so this never paints there.
     if (paramsDividerY >= 0)
     {
         const int pad = juce::roundToInt(static_cast<float>(getWidth()) * kPromptPadFactor);
@@ -831,19 +848,24 @@ void PromptPanel::paintOverChildren(juce::Graphics& g)
     // Alpha ghost only makes sense when the slider drives α (linear). In Step-in
     // and Layer the alpha-LFO offset is remapped onto the active parameter's
     // axis (lateMix or [splitStart, splitEnd]) — those ghosts paint on the
-    // same physical slider but at the mode-specific value position.
-    if (injectionMode_ == "linear")
-        drawGhost(alphaSlider, alphaGhostValue_);
-    else if (injectionMode_ == "late_step"
-          || injectionMode_ == "kombi1"
-          || injectionMode_ == "kombi2"
-          || injectionMode_ == "kombi3")
-        drawGhost(alphaSlider, lateMixGhostValue_);
-    else if (injectionMode_ == "layer_split")
+    // same physical slider but at the mode-specific value position. Easy-only:
+    // alphaSlider belongs to the neural view — Advanced hides it and lays out
+    // the DCO editor instead, so its bounds are stale there and must not be read.
+    if (easyMode_)
     {
-        // Two synchronous ghosts for the range slider — one per thumb.
-        drawGhost(alphaSlider, splitStartGhostValue_);
-        drawGhost(alphaSlider, splitEndGhostValue_);
+        if (injectionMode_ == "linear")
+            drawGhost(alphaSlider, alphaGhostValue_);
+        else if (injectionMode_ == "late_step"
+              || injectionMode_ == "kombi1"
+              || injectionMode_ == "kombi2"
+              || injectionMode_ == "kombi3")
+            drawGhost(alphaSlider, lateMixGhostValue_);
+        else if (injectionMode_ == "layer_split")
+        {
+            // Two synchronous ghosts for the range slider — one per thumb.
+            drawGhost(alphaSlider, splitStartGhostValue_);
+            drawGhost(alphaSlider, splitEndGhostValue_);
+        }
     }
     // (Magnitude/Chaos ghosts are painted by magRow/noiseRow themselves —
     // SliderRow's native setGhostValue/tickGhost — see timerCallback().)
@@ -853,8 +875,8 @@ void PromptPanel::paintOverChildren(juce::Graphics& g)
     // numeric readout; in the impulse identity colours (A periwinkle, centre
     // neutral, B gold). Linear mode only — other modes give the slider different
     // semantics. Same value→pixel mapping as the ghost so the marks sit exactly
-    // where the thumb detents.
-    if (injectionMode_ == "linear")
+    // where the thumb detents. Easy-only, same reason as the ghost above.
+    if (easyMode_ && injectionMode_ == "linear")
     {
         const auto sb = alphaSlider.getBounds();
         const int   thumbW  = alphaSlider.getLookAndFeel().getSliderThumbRadius(alphaSlider) * 2;
@@ -894,8 +916,7 @@ void PromptPanel::resized()
     auto area = b.reduced(pad);
 
     float f = juce::jlimit(10.0f, 20.0f,
-        (static_cast<float>(area.getHeight()) - 2.0f)
-            / (easyMode_ ? kPromptEasyContentUnits : kPromptContentUnits));
+        (static_cast<float>(area.getHeight()) - 2.0f) / kPromptContentUnits);
     int gap = juce::roundToInt(f * kPromptGap);
     int modelGap = juce::roundToInt(f * kPromptModelGap);
     int innerGap = juce::roundToInt(f * kPromptInnerGap);
@@ -907,12 +928,28 @@ void PromptPanel::resized()
     int repromptRowH = juce::roundToInt(f * kPromptReprompt);
 
     const bool easy = easyMode_;
-    // Model selector stays visible in BOTH modes — the engine choice changes
-    // character enough that hiding it in easy mode left the user with no way
-    // to switch on the fly.
+
+    // Visibility split: Advanced IS the DCO panel now — a completely different
+    // paradigm from the neural Easy view, not a variant of it. Model selector,
+    // A/B editors, injection-mode bar, translate flag, alpha slider, and the
+    // Re-Prompt module are Easy-only; the DCO trio (prompt editor + BAKE +
+    // status) is Advanced-only.
     for (int i = 0; i < kNumModelSlots; ++i)
-        modelBtns[i].setVisible(true);
-    modelSwitchBounds = {};
+        modelBtns[i].setVisible(easy);
+    promptAEditor.setVisible(easy);
+    promptBEditor.setVisible(easy);
+    injModeLinear.setVisible(easy);
+    injModeFine.setVisible(easy);
+    injModeLayer.setVisible(easy);
+    injModeKombi1.setVisible(easy);
+    injModeKombi2.setVisible(easy);
+    injModeKombi3.setVisible(easy);
+    translateToggle.setVisible(easy);
+    alphaSlider.setVisible(easy);
+    repromptModuleBox.setVisible(easy);
+    repromptStanceBar.setVisible(easy);
+    for (auto& bCoupling : repromptCouplingBtns)
+        bCoupling.setVisible(easy);
 
     for (auto& bSeed : seedModeBtns)
         bSeed.setVisible(easy);
@@ -922,13 +959,46 @@ void PromptPanel::resized()
     magRow->setVisible(easy);
     noiseRow->setVisible(easy);
     varSwitchLabel.setVisible(easy);
-    // The DCO surface lives on the Advanced canvas only.
+    // The DCO surface IS the Advanced canvas now (its own prompt editor + the
+    // BAKE/status row), not one row sharing the canvas with neural controls.
+    dcoPromptEditor.setVisible(!easy);
     dcoBakeBtn.setVisible(!easy);
     dcoStatusLabel.setVisible(!easy);
-    seedModeSwitchBounds = {};   // re-set by the Easy layout in resized()
+
+    if (!easy)
+    {
+        // Chrome sentinels: these gate the custom paint()/paintOverChildren()
+        // drawing (switchbox frames, params divider) for components hidden
+        // above — clear them so nothing belonging to the neural view renders
+        // behind the DCO panel.
+        modelSwitchBounds = {};
+        injModeSwitchBounds = {};
+        seedModeSwitchBounds = {};
+        paramsDividerY = -1;
+
+        // Pure DCO canvas: a BAKE/status row pinned to the bottom (same bakeW
+        // jlimit logic as the old Advanced BAKE row), and the prompt editor
+        // takes 100% of whatever height remains above it — a large canvas is
+        // the point, not a squeezed strip.
+        setUiFont(dcoStatusLabel, TextRole::Caption, f);
+        auto row = area.removeFromBottom(compactRowH);
+        const int bakeW = juce::jlimit(juce::roundToInt(f * 3.2f),
+                                       row.getWidth() / 3,
+                                       juce::roundToInt(f * 4.2f));
+        dcoBakeBtn.setBounds(row.removeFromLeft(bakeW));
+        row.removeFromLeft(juce::jmax(2, gap));
+        dcoStatusLabel.setBounds(row);
+        area.removeFromBottom(gap);
+        dcoPromptEditor.setBounds(area);
+        // applyFontToAllText (NOT setFont) — same reasoning as the Impulse
+        // editors below: setFont only affects text typed after the call, so
+        // text already in the box would stay at the default size.
+        dcoPromptEditor.applyFontToAllText(juce::FontOptions(f * 1.1f));
+        return;
+    }
 
     // ── Model selector switchbox at top (compact, fixed 5 slots) ──
-    // Laid out in both modes; visibility is unconditionally true above.
+    // Easy-only — Advanced returned above with its own DCO layout.
     {
         auto modelRow = area.removeFromTop(compactRowH + 2);
         // Distribute remaining row width across remaining slots so the row
@@ -1056,11 +1126,10 @@ void PromptPanel::resized()
         }
     }
 
-    // Separator between the Re-Prompt row and what follows: a thin divider line
-    // centred in the groupGap. Easy view: the 2x2 gen block below carries its
-    // own captions, no umbrella header. Advanced view: the param grid was
-    // removed (DCO Slice 0) — the canvas below stays empty, ready for the DCO
-    // surface. Both budgets include this groupGap (drawn in paintOverChildren).
+    // Separator between the Re-Prompt row and the 2x2 gen-param block below: a
+    // thin divider line centred in the groupGap (drawn in paintOverChildren).
+    // Easy-only — Advanced returned above with its own DCO layout and set
+    // paramsDividerY = -1, so no divider paints under the DCO panel.
     area.removeFromTop(groupGap / 2);
     paramsDividerY = area.getY();
     area.removeFromTop(groupGap - groupGap / 2);
@@ -1079,7 +1148,7 @@ void PromptPanel::resized()
     // (mirrors Duration's earlier move). Each cell is one standard inline band
     // at the template row height (rowH = compactRow), same as the resynth/cache
     // rows; nothing stacked full-width, nothing oversized. Height budget:
-    // getPreferredHeightForWidth / kPromptEasyContentUnits.
+    // getPreferredHeightForWidth / kPromptContentUnits.
     auto layoutEasyGenParamsBlock = [&]
     {
         const int rowH = compactRowH;
@@ -1127,32 +1196,10 @@ void PromptPanel::resized()
     // Center the generation-param block in the free space below the divider.
     // At the panel's preferred (minimum) height the slack is zero, so the block
     // sits flush above SEMANTIC AXES; any extra height is split evenly above and
-    // below it.
-    {
-        const int paramsH = easy ? (2 * (compactRowH + gap)) : (compactRowH + gap);
-        area.removeFromTop(juce::jmax(0, area.getHeight() - paramsH) / 2);
-    }
+    // below it. (Easy-only code from here on — Advanced returned above.)
+    area.removeFromTop(juce::jmax(0, area.getHeight() - 2 * (compactRowH + gap)) / 2);
 
-    if (easy)
-    {
-        layoutEasyGenParamsBlock();
-    }
-    else
-    {
-        // Advanced: the DCO surface (Slice 4 MVP) — one standard row: BAKE
-        // trigger + status/flags line. Grows as the DCO gains controls; every
-        // height change goes into kPromptContentUnits + the preferred-height
-        // Advanced branch in lockstep.
-        setUiFont(dcoStatusLabel, TextRole::Caption, f);
-        auto row = area.removeFromTop(compactRowH);
-        const int bakeW = juce::jlimit(juce::roundToInt(f * 3.2f),
-                                       row.getWidth() / 3,
-                                       juce::roundToInt(f * 4.2f));
-        dcoBakeBtn.setBounds(row.removeFromLeft(bakeW));
-        row.removeFromLeft(juce::jmax(2, gap));
-        dcoStatusLabel.setBounds(row);
-        area.removeFromTop(gap);
-    }
+    layoutEasyGenParamsBlock();
 }
 
 void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String& promptB,
@@ -1879,10 +1926,10 @@ void PromptPanel::triggerDcoBake()
         dcoStatusLabel.setText("DCO: backend not running", juce::dontSendNotification);
         return;
     }
-    const auto text = promptAEditor.getText().trim();
+    const auto text = dcoPromptEditor.getText().trim();
     if (text.isEmpty())
     {
-        dcoStatusLabel.setText("DCO: prompt A is empty", juce::dontSendNotification);
+        dcoStatusLabel.setText("DCO: prompt is empty", juce::dontSendNotification);
         return;
     }
 

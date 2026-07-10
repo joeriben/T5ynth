@@ -250,10 +250,14 @@ private:
     // Declared BEFORE magA/noiseA (below) so the attachments tear down first
     // (reverse destruction order).
     std::unique_ptr<SliderRow> magRow, noiseRow;
-    // DCO surface (Advanced view only — the canvas freed by Slice 0): bake
-    // trigger + status/flags line. The bake authors a recipe from prompt A via
-    // the backend lexicon router (docs/DCO_LLM_GUARDRAILS.md), bakes frames on
-    // a background thread, and loads them into the wavetable master.
+    // DCO surface — Advanced IS the DCO panel now (a completely different
+    // paradigm from the neural Easy view, not a variant of it): its own
+    // multiline prompt editor (panel-local text, NOT bound to Impulse A) +
+    // a bake trigger + status/flags line. The bake authors a recipe from the
+    // DCO prompt via the backend lexicon router (docs/DCO_LLM_GUARDRAILS.md),
+    // bakes frames on a background thread, and loads them into the wavetable
+    // master.
+    juce::TextEditor dcoPromptEditor;
     juce::TextButton dcoBakeBtn { "BAKE" };
     juce::Label dcoStatusLabel;
     bool dcoBaking_ = false;
@@ -271,9 +275,8 @@ private:
     void syncSeedModeButtons();
 
     // Model selector (fixed 4-slot switchbox: SA3 Music | SA1 Open | SA1 Small | AudioLDM2).
-    // Visible in both compact and easy modes — the model choice is central
-    // enough to the synth's behavior that hiding it in easy mode left the
-    // user without a way to switch engines on the fly.
+    // Easy-only: the model choice belongs to the neural view — Advanced is
+    // the DCO panel, where no neural engine is involved.
     static constexpr int kNumModelSlots = 5;
     // Declared BEFORE modelBtns so it outlives them (LnF destruction order).
     ModelSwitchLnF modelSwitchLnF;
