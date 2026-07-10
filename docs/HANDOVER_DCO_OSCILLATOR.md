@@ -1,6 +1,16 @@
 # Handover — the DCO oscillator (T5Osc "Advanced" becomes a classical, LLM-authored oscillator)
 
-Status: **concept locked, build not started.** All prerequisites are done or one commit away.
+Status: **BUILT end-to-end (2026-07-10).** The v1 pipeline exists on `main`: prompt A → backend
+lexicon router (Qwen guardrailed per `docs/DCO_LLM_GUARDRAILS.md`) → recipe JSON → `dco::Baker`
+(`src/dsp/DcoBaker.*`, Slices 1+2, commit `bcd02384`) → `loadDcoWavetable` → Wavetable engine, with
+a BAKE + status row on the freed Advanced canvas (Slice 4, commit `71aa57d2`). Slice 0 was executed
+by an external session (`035e5cf8`/`63dc543f`) and repaired (`e90ac3d7`: font lockstep 17.25,
+forced per-model Steps/CFG at the request choke point, preset seed-mode sync). Every slice passed
+an adversarial opus review; the audition tool re-proved the two lost design demos
+(`tools/dco_audition_out/`). §§2–7 below remain the authoritative concept + subsystem reference.
+Known v1 seams: per-frame renorm in `extractContiguousFrames` flattens morph level dynamics
+(bit-exact `setFrames` = flagged follow-up); WT frame-count/bracket edits revert the table to the
+last neural audio; DCO bakes are not yet event-logged or preset-persisted.
 Branch: `main` (the user works directly on main and commits concurrently — see §9).
 Scope: this is the DCO **engine** handover. The UI-migration that frees the canvas is a separate,
 nearly-finished doc: `docs/HANDOVER_OSC_EASY_MIGRATION.md` (untracked, still in the tree). Read it too.
