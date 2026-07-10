@@ -2346,10 +2346,17 @@ void PromptPanel::triggerDcoReprompt()
         const juce::String sysp = RepromptStances::stanceSystemPrompt(stanceKey);
         juce::String userTurn =
             RepromptStances::buildDcoStanceUserTurn(stanceKey, reading, flags, prev, recent);
-        // Ground the rewrite in the scanner's own vocabulary (LCO-only; a no-op
-        // when the palette is empty). Skip on an empty turn (off/unknown stance)
-        // so a bare constraint is never sent with nothing to reinterpret.
-        if (userTurn.isNotEmpty())
+        // Ground the rewrite in the acoustic palette (LCO-only; a no-op when the
+        // palette is empty), but ONLY for the stances that DESCRIBE the sound.
+        // abduction (name a real-world source) and verniedlicher (re-narrate as
+        // magical realism) leave acoustic description entirely — constraining them
+        // to the palette collapses them back onto the reading instead of leaping
+        // (empirically: with the palette, abduction converged 100% on "a vintage
+        // Moog synthesizer produces…"; without it, real leaps — tools/lco_diagnostic.py).
+        // Skip on an empty turn (off/unknown stance) so a bare constraint is never
+        // sent with nothing to reinterpret.
+        const bool leavesAcoustic = (stanceKey == "abduction" || stanceKey == "verniedlicher");
+        if (userTurn.isNotEmpty() && ! leavesAcoustic)
             userTurn += RepromptStances::dcoVocabularyConstraintBlock(vocab);
         // 64 == the same maxNewTokens runSemanticLoopStep passes to interpret()
         // for the neural loop's short (3-8 word) prompt rewrites.

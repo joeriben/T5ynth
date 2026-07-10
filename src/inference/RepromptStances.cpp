@@ -226,19 +226,26 @@ juce::String buildDcoStanceUserTurn (const juce::String& stanceKey,
 
 // ── DCO/LCO reference-vocabulary constraint (Re-Prompt grounding) ────────────
 // Appended to the LCO re-prompt user turn ONLY (the neural loop never calls
-// this). `referenceVocabulary` is the backend brief verbatim — the exact set of
-// words backend/dco_recipe.py's scanner resolves — so a rewrite that stays
-// inside it is one this same pipeline can actually read. Empty in → empty out
-// (an old backend without the field, or before the first bake): the turn is
-// unchanged and behaves exactly as it did before this grounding existed.
+// this), and ONLY for stances that DESCRIBE the sound (see triggerDcoReprompt's
+// gate — abduction/verniedlicher, which leave acoustic description entirely, get
+// no palette). `referenceVocabulary` is the backend brief verbatim — a palette
+// of ACOUSTIC / SPECTRAL qualities (brightness, harmonic structure, movement),
+// the glass-box counterpart of the neural embedding. It is NOT "the machine's
+// vocabulary": framing it that way pushed the 1.5B LLM into machine-speak ("a
+// vintage Moog synthesizer produces…") instead of hearing the sound. Empty in →
+// empty out (old backend without the field, or before the first bake): the turn
+// is unchanged and behaves exactly as it did before this grounding existed.
 juce::String dcoVocabularyConstraintBlock (const juce::String& referenceVocabulary)
 {
     if (referenceVocabulary.trim().isEmpty())
         return {};
-    return "\n\nBuild the new prompt using ONLY the synthesizer's own vocabulary "
-           "below. These are the exact words the instrument can read; any other "
-           "word is silently ignored, so a prompt built from outside words changes "
-           "nothing. Recombine them freely.\n\n"
+    // ASCII-only (no fromUTF8): a raw em-dash in a const char* -> juce::String
+    // literal mojibakes (see syspTranscribe's note); plain hyphens keep the
+    // literal byte-clean AND byte-identical to the harness mirror (lco_diagnostic).
+    return "\n\nDescribe the sound itself - its spectral character, harmonic "
+           "structure, and movement - in the acoustic qualities below. Stay "
+           "within them: they are what this instrument can actually shape, so a "
+           "sound described in them is one it can render. Recombine them freely.\n\n"
          + referenceVocabulary.trim();
 }
 

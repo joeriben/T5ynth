@@ -1611,20 +1611,26 @@ def reference_vocabulary(lexicon=None):
     fm_amount  = ", ".join(sorted(_FM_INDEX_UP | _FM_INDEX_DOWN))
     fm_spacing = ", ".join(sorted(_FM_RATIO_UP | _FM_RATIO_DOWN))
 
+    # Framed as ACOUSTIC / SPECTRAL qualities of the SOUND -- not "the synth's
+    # controls". The lexicon is a glass box of how a sound is heard and shaped
+    # (bright, hollow, harmonic structure, movement), the human-negotiable
+    # counterpart of the neural embedding; naming it "the machine's vocabulary"
+    # is a category error that pushes the re-prompt LLM into machine-speak.
     return "\n".join([
-        "WAVEFORMS (pick one, or morph two with '" + morph + "'): " + ", ".join(waveforms),
-        "SPECTRAL QUALITIES: " + ", ".join(qualities),
-        "MOTION over time: " + ", ".join(motions),
-        "INTENSITY: " + ", ".join(intensity),
-        "HARMONIC EDITS: '<verb> the Nth harmonic', '<verb> every Nth harmonic', "
+        "BASE WAVEFORM — the raw tone's harmonic makeup (pick one, or morph "
+        "two with '" + morph + "'): " + ", ".join(waveforms),
+        "SPECTRAL CHARACTER: " + ", ".join(qualities),
+        "MOVEMENT over time: " + ", ".join(motions),
+        "DEGREE: " + ", ".join(intensity),
+        "HARMONIC STRUCTURE: '<verb> the Nth harmonic', '<verb> every Nth harmonic', "
         "'only odd/even harmonics' (N = 2..10)",
-        "  boost verbs: " + boost,
-        "  reduce verbs: " + reduce,
-        "  remove verbs: " + remove,
-        "FM CONTROL (only on bell / electric piano / metal / fm recipes): "
-        "'<dir> modulation' (amount), '<dir> ratio' (spacing)",
-        "  amount dir: " + fm_amount,
-        "  ratio dir: " + fm_spacing,
+        "  strengthen: " + boost,
+        "  soften: " + reduce,
+        "  remove: " + remove,
+        "FM RICHNESS (bell / electric piano / metal tones): "
+        "'<dir> modulation' = sideband density, '<dir> ratio' = partial spacing",
+        "  denser / sparser: " + fm_amount,
+        "  wider / closer: " + fm_spacing,
     ])
 
 

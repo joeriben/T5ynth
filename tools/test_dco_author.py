@@ -707,8 +707,11 @@ def run_unit_tests():
     #    flagged as unmapped residue ("dasselbe wie für die Auswertung").
     brief = dr.reference_vocabulary()
     check("reference_vocabulary is non-empty", bool(brief.strip()), repr(brief[:80]))
-    for header in ("WAVEFORMS", "SPECTRAL QUALITIES", "MOTION", "INTENSITY",
-                   "HARMONIC EDITS", "FM CONTROL"):
+    # Section labels are framed as ACOUSTIC / SPECTRAL qualities of the sound,
+    # not "the synth's controls" (the machine framing pushed the re-prompt LLM
+    # into machine-speak).
+    for header in ("BASE WAVEFORM", "SPECTRAL CHARACTER", "MOVEMENT", "DEGREE",
+                   "HARMONIC STRUCTURE", "FM RICHNESS"):
         check(f"reference_vocabulary lists a {header} section", header in brief, brief[:160])
 
     def _residue_words(resp):
