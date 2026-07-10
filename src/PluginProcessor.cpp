@@ -758,11 +758,37 @@ bool T5ynthProcessor::getEventLogEnabled() const
 
 // ── R2: Replay Transport ──────────────────────────────────────────────────────
 
-void T5ynthProcessor::startReplay(const EventLogReader& reader)
+bool T5ynthProcessor::startReplay(const EventLogReader& reader)
 {
     // Message thread only.
+    //
+    // Decode and VALIDATE the tape's start patch before touching anything. A tape
+    // whose start-state is missing or corrupt would otherwise play its notes against
+    // whatever patch happens to be loaded — right notes, wrong sound — and, worse,
+    // feed a garbage blob into setStateInformation.
+    juce::MemoryOutputStream startStateBytes;
+    {
+        const auto& startState = reader.getHeader().startStateBase64;
+        if (startState.isEmpty() || ! juce::Base64::convertFromBase64(startStateBytes, startState))
+            return false;
+
+        std::unique_ptr<juce::XmlElement> probe(
+            getXmlFromBinary(startStateBytes.getData(), static_cast<int>(startStateBytes.getDataSize())));
+        if (probe == nullptr || ! probe->hasTagName(parameters.state.getType()))
+            return false;
+    }
+
+    // Stopping first also restores the user's patch, so the snapshot taken below is
+    // theirs and not the outgoing tape's.
     if (isReplayActive())
         stopReplay();
+
+    // Play is non-destructive: remember the patch we are about to overwrite, plus the
+    // three transport params setStateInformation insists on zeroing.
+    getStateInformation(preReplayPatch_);
+    preReplaySeqRunning_     = parameters.getRawParameterValue(PID::seqRunning)->load();
+    preReplayGenSeqRunning_  = parameters.getRawParameterValue(PID::genSeqRunning)->load();
+    preReplayRepromptStance_ = parameters.getRawParameterValue(PID::repromptStance)->load();
 
     // Build the state off to the side (allocations, string decode) before it is
     // published — nothing here is visible to the audio thread yet.
@@ -803,22 +829,12 @@ void T5ynthProcessor::startReplay(const EventLogReader& reader)
     state.totalDurationSamples = rebase(reader.getTotalDurationSamples());
     state.sampleRate = deviceSR;   // the tail check below now lives in the device domain
 
-    // Restore the start-state first so the engine is in the exact configuration
-    // the session was recorded with. Bulk-guarded: one preset_loaded marker, no
-    // per-param flood (and, since replay also suspends recording, no marker at all
-    // when the log is off).
-    const auto& startState = reader.getHeader().startStateBase64;
-    if (startState.isNotEmpty())
-    {
-        // Base64::convertFromBase64 writes into an OutputStream, not a MemoryBlock.
-        juce::MemoryOutputStream stateStream;
-        if (juce::Base64::convertFromBase64(stateStream, startState))
-        {
-            beginBulkParamLoad();
-            setStateInformation(stateStream.getData(), static_cast<int>(stateStream.getDataSize()));
-            endBulkParamLoad("replay_start");
-        }
-    }
+    // Restore the start-state (decoded and validated at the top) so the engine is in
+    // the exact configuration the session was recorded with. setStateInformation
+    // guards the param flood itself — do NOT wrap it in a second BulkParamLoadGuard;
+    // the suppress flag is a plain bool, not a counter.
+    stateRestoreMarkerName_ = "replay_start";
+    setStateInformation(startStateBytes.getData(), static_cast<int>(startStateBytes.getDataSize()));
 
     // Publish under the callback lock: processBlock reads replayState_ by
     // reference, so the vectors must not be reseated while a block is in flight.
@@ -839,6 +855,7 @@ void T5ynthProcessor::startReplay(const EventLogReader& reader)
 
     replayTimer_.owner = this;
     replayTimer_.startTimerHz(30);   // param application + end-of-tape detection
+    return true;
 }
 
 void T5ynthProcessor::stopReplay()
@@ -854,6 +871,31 @@ void T5ynthProcessor::stopReplay()
     // Release whatever the tape left sounding. Audio-thread-consumed, so this is
     // safe from the message thread — unlike calling voiceManager.allNotesOff() here.
     requestMidiPanic();
+
+    // Hand the user their patch back (see preReplayPatch_). Done after the flag is
+    // cleared so the restore is logged as one preset_loaded marker in a live
+    // recording rather than swallowed as replay traffic.
+    if (preReplayPatch_.getSize() > 0)
+    {
+        // Move it out first: setStateInformation must not read a member this call
+        // could otherwise re-enter, and a failed restore must not retry forever.
+        const juce::MemoryBlock patch = std::move(preReplayPatch_);
+        preReplayPatch_.reset();
+        stateRestoreMarkerName_ = "replay_end";   // setStateInformation's own guard names the marker
+        setStateInformation(patch.getData(), static_cast<int>(patch.getSize()));
+
+        // setStateInformation zeroes these unconditionally ("no acoustic surprise on
+        // session reopen"). Correct for a host reopening a project; wrong here, where
+        // Stop Replay promises the user the state they left. Put them back.
+        const auto restore = [this](const char* pid, float v)
+        {
+            if (auto* p = parameters.getParameter(pid))
+                p->setValueNotifyingHost(p->convertTo0to1(v));
+        };
+        restore(PID::seqRunning,      preReplaySeqRunning_);
+        restore(PID::genSeqRunning,   preReplayGenSeqRunning_);
+        restore(PID::repromptStance,  preReplayRepromptStance_);
+    }
 }
 
 bool T5ynthProcessor::takeDueReplayGeneration(GenerationEventLogEntry& out)
@@ -5191,6 +5233,17 @@ juce::AudioProcessorEditor* T5ynthProcessor::createEditor()
 
 void T5ynthProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
+    // Mid-replay, the live APVTS holds the TAPE's patch, not the user's — a host
+    // saving its project (or an auto-save) would silently persist the tape over
+    // unsaved work. Hand back the patch we stashed at startReplay() instead. Safe
+    // against recursion: startReplay() takes its snapshot before replayModeActive_
+    // is set, so this branch cannot fire while filling preReplayPatch_ itself.
+    if (isReplayActive() && preReplayPatch_.getSize() > 0)
+    {
+        destData = preReplayPatch_;
+        return;
+    }
+
     auto state = parameters.copyState();
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
     xml->setAttribute("midiOutputDeviceId", midiOutputDeviceId_);
@@ -5205,6 +5258,12 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
     // A loaded state defines its own engine mode; a stale pre-bake stash must
     // not "restore" over it when the state's audio loads below.
     dcoPrevEngineMode_ = -1;
+
+    // Consume the caller's marker name HERE, not inside the guard block below: a
+    // blob that fails the xml/tag check never reaches the guard, and a name left
+    // behind would mislabel the next, unrelated DAW-session restore.
+    const juce::String markerName = stateRestoreMarkerName_;
+    stateRestoreMarkerName_.clear();
 
     std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(data, sizeInBytes));
     if (xml != nullptr && xml->hasTagName(parameters.state.getType()))
@@ -5331,7 +5390,9 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
         // reopening a saved session is a bulk load exactly like a preset import.
         BulkParamLoadGuard eventLogGuard(*this);
         parameters.replaceState(loadedTree);
-        eventLogGuard.commit({});   // no name for a DAW-session restore
+        // Unnamed for a DAW-session restore; the replay transport names its own
+        // (replay_start / replay_end) via stateRestoreMarkerName_.
+        eventLogGuard.commit(markerName);
 
         // Modality epoch (v2.5.0+) — restored only on a matching-tag state load, so a
         // foreign/empty blob (guard false) leaves the live epoch untouched rather than
@@ -5366,6 +5427,10 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
     seqStateRestored.store(true, std::memory_order_relaxed);
 
     // Restore MIDI output device (per-installation setting, not per-preset).
+    // Null-guarded: getXmlFromBinary returns null for any blob that is not a JUCE
+    // binary XML, and "Play Session Log…" now feeds an arbitrary user-chosen file
+    // into this path. Everything above already tolerates a null xml; this did not.
+    if (xml != nullptr)
     {
         const auto deviceId = xml->getStringAttribute("midiOutputDeviceId");
         if (deviceId.isNotEmpty())

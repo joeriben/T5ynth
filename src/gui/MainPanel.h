@@ -263,6 +263,7 @@ private:
                             juce::String error);
     void exportWav();
     void saveSessionLog();   // Export menu → copy the current .t5evt to a chosen location
+    void loadReplaySession();// Export menu → pick a .t5evt and hand it to the replay transport
     juce::String suggestedExportBaseName() const;   // filename proposed in the WAV save dialog
     void loadDefaultPreset();
     void loadInitPreset();

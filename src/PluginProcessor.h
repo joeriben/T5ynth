@@ -668,6 +668,30 @@ private:
     // stop/restart; the epoch it captured at dispatch is checked on completion.
     std::atomic<uint32_t> replayEpoch_ { 0 };
 
+    // The user's patch, snapshotted before the tape's start-state overwrites it and
+    // put back on stopReplay() — Play must not destroy unsaved work. Message thread
+    // only; empty when no replay is running.
+    //
+    // Params only. getStateInformation carries neither the generated audio buffer nor
+    // the last seed/embeddings, so after a Stop the SOUND is still the tape's last
+    // generation and the seed/DimensionExplorer readouts still show the tape's.
+    // Regenerate to get yours back.
+    juce::MemoryBlock preReplayPatch_;
+
+    // setStateInformation force-zeroes these three on every restore ("no acoustic
+    // surprise on session reopen"). That rule is wrong for Stop Replay, which the
+    // user reads as "give me back what I had" — so they are captured alongside the
+    // patch and re-applied after it.
+    float preReplaySeqRunning_      = 0.0f;
+    float preReplayGenSeqRunning_   = 0.0f;
+    float preReplayRepromptStance_  = 0.0f;
+
+    // Names the preset_loaded marker that setStateInformation's OWN BulkParamLoadGuard
+    // emits (it commits unnamed by default). Set immediately before the call, consumed
+    // there. Exists because that guard is not reentrant: wrapping setStateInformation
+    // in a second guard would end suppression early and log a doubled marker.
+    juce::String stateRestoreMarkerName_;
+
     // True only when a live session should be written to the .t5evt log: recording
     // is on AND we are not replaying one (a replay's injected notes and re-applied
     // params must not feed back into a new recording).
@@ -735,8 +759,11 @@ public:
 
     /** Start replaying a parsed session. Message thread only. Restores the
      *  start-state patch, publishes the event vectors under the callback lock,
-     *  then flips replayModeActive_. A running replay is stopped first. */
-    void startReplay(const EventLogReader& reader);
+     *  then flips replayModeActive_. A running replay is stopped first.
+     *  Returns false (changing nothing) if the tape carries no decodable start
+     *  patch — replaying a tape against a foreign patch would play the right
+     *  notes with the wrong sound. */
+    bool startReplay(const EventLogReader& reader);
 
     /** Stop replay and return to live control. Message thread only. Idempotent. */
     void stopReplay();

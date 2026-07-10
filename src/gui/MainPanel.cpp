@@ -481,6 +481,20 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     statusBar.onExportWav    = [this] { exportWav(); };
     statusBar.onSaveSessionLog   = [this] { saveSessionLog(); };
     statusBar.sessionLogAvailable = [this] { return processorRef.getEventLogCurrentFile().existsAsFile(); };
+    statusBar.onPlaySessionLog   = [this] { loadReplaySession(); };
+    statusBar.onStopReplay       = [this]
+    {
+        processorRef.stopReplay();
+        statusBar.setReplayState(false, {});
+        statusBar.setStatusText("Replay stopped — patch restored");
+    };
+    // Cleared in ~MainPanel: the processor outlives this panel and would otherwise
+    // call into a dead `this` when a tape reaches its end.
+    processorRef.onReplayFinished = [this]
+    {
+        statusBar.setReplayState(false, {});
+        statusBar.setStatusText("Replay finished — patch restored");
+    };
     statusBar.onSettings     = [this] { if (settingsVisible) hideSettings(); else showSettings(); };
     statusBar.onManual       = [this] { showManual(); };
     statusBar.onMidiPanic    = [this] { processorRef.requestMidiPanic(); };
@@ -2443,7 +2457,19 @@ static juce::File getBufferPresetFile()
 
 MainPanel::~MainPanel()
 {
+    // FIRST: a replay running at quit must be stopped here, not in ~PromptPanel.
+    // promptPanel is declared first in MainPanel.h and so is destroyed LAST — after
+    // this body has already written the standalone buffer preset below. Restoring
+    // there would be too late: the buffer would carry the TAPE's patch and the
+    // user's unsaved work would be gone on next launch. (PresetFormat::saveToFile
+    // reads the live APVTS, so it cannot benefit from getStateInformation's own
+    // mid-replay guard.) Guarded: stopReplay() raises a MIDI panic, which must not
+    // fire on every ordinary editor close and cut the notes the user is holding.
+    if (processorRef.isReplayActive())
+        processorRef.stopReplay();
+
     statusBar.onMidiOutputDeviceChanged = nullptr;
+    processorRef.onReplayFinished = nullptr;   // captures `this`; processor outlives us
     processorRef.onMidiLearnStateChanged = nullptr;
     processorRef.onGenerateRequested = nullptr;
     processorRef.onSnapshotRequested = nullptr;
@@ -3075,6 +3101,21 @@ void MainPanel::timerCallback()
     // (Event Log draining is NOT here — the EventLogWriterThread owns its ingress
     // FIFOs and drains itself, so recording never depends on this editor being open.)
 
+    // Replay transport readout. setReplayState() early-outs unless the string
+    // actually changed, so this repaints ~1 Hz, not at timer rate.
+    if (processorRef.isReplayActive())
+    {
+        const double sr = processorRef.getSampleRate() > 0.0 ? processorRef.getSampleRate() : 44100.0;
+        const auto mmss = [](double seconds)
+        {
+            const int total = juce::jmax(0, juce::roundToInt(seconds));
+            return juce::String(total / 60) + ":" + juce::String(total % 60).paddedLeft('0', 2);
+        };
+        statusBar.setReplayState(true,
+            mmss(static_cast<double>(processorRef.getReplayPlayhead()) / sr) + " / "
+          + mmss(static_cast<double>(processorRef.getReplayDurationSamples()) / sr));
+    }
+
     // Surface a background update-check result (if any) once, non-blocking —
     // does not touch model loading/PipeInference at all. Chrome/VS Code pattern:
     // an accent dot on Settings; the Download button lives in General Settings.
@@ -3702,6 +3743,44 @@ juce::String MainPanel::suggestedExportBaseName() const
 // user-chosen location. The live file keeps recording; this exports a snapshot
 // of everything up to the last flush. Loading/replaying one needs the replay
 // Player, which is a separate future piece — this is the "save" half only.
+void MainPanel::loadReplaySession()
+{
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Play Session Log",
+        processorRef.getEventLogCurrentFile().existsAsFile()
+            ? processorRef.getEventLogCurrentFile().getParentDirectory()
+            : juce::File::getSpecialLocation(juce::File::userDesktopDirectory),
+        "*.t5evt");
+
+    juce::Component::SafePointer<MainPanel> safeThis(this);
+    chooser->launchAsync(juce::FileBrowserComponent::openMode
+                         | juce::FileBrowserComponent::canSelectFiles,
+        [safeThis, chooser](const juce::FileChooser& fc)
+        {
+            if (! safeThis) return;
+            auto* self = safeThis.getComponent();
+            const auto file = fc.getResult();
+            if (file == juce::File() || ! file.existsAsFile()) return;
+
+            EventLogReader reader;
+            if (! reader.loadFile(file))
+            {
+                self->statusBar.setStatusText("Could not read session log: " + reader.getErrorMessage());
+                return;
+            }
+            // startReplay() refuses a tape whose start patch is missing (pre-R0
+            // formatVersion 1) or undecodable — replaying one against whatever is
+            // loaded now would play the right notes with the wrong sound. It snapshots
+            // the current patch and restores it on Stop, so this is non-destructive.
+            if (! self->processorRef.startReplay(reader))
+            {
+                self->statusBar.setStatusText("Session log has no usable start patch — cannot replay");
+                return;
+            }
+            self->statusBar.setStatusText("Replaying " + file.getFileName());
+        });
+}
+
 void MainPanel::saveSessionLog()
 {
     const auto src = processorRef.getEventLogCurrentFile();
