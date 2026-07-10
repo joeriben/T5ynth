@@ -3259,6 +3259,66 @@ def main():
                                        system_prompt, max_new))
                 continue
 
+            # DCO recipe author (docs/DCO_LLM_GUARDRAILS.md): the classical,
+            # non-neural oscillator's word->recipe pipeline. Five stages, ONE
+            # constrained LLM call (S2 -- residue words only, closed-choice
+            # routing, never free-form). Like translate/interpret it has no
+            # audio-model dependency, so it is dispatched before audio-model
+            # routing. S2 reuses the exact same translator/device resolution
+            # as translate/interpret; if the translator model is not
+            # installed, author_recipe still returns a valid recipe --
+            # unmapped words are flagged, never fabricated (S4 guarantees a
+            # bakeable recipe for any text input, so this never needs its own
+            # try/except: any genuine failure propagates to the standard
+            # \x00 error frame via the outer try/except, exactly like
+            # translate/interpret).
+            if request.get("mode") == "dco":
+                from dco_recipe import author_recipe
+
+                t_device = request.get("device", default_device)
+                if t_device == "auto" or t_device not in devices:
+                    t_device = default_device
+                translation_dir = _resolve_translation_model_dir(request)
+
+                llm_route = None
+                if translation_dir is not None:
+                    def llm_route(residue_words, allowed_keys, _dir=translation_dir, _dev=t_device):
+                        """S2: the one constrained LLM call, closed-choice
+                        routing only (docs/DCO_LLM_GUARDRAILS.md S2)."""
+                        system_prompt = (
+                            "You map sound-descriptor words to a fixed vocabulary. Reply with one "
+                            "line per input word, exactly \"word -> key\". key must be one of the "
+                            "allowed keys. If no key fits, use NONE. No other text."
+                        )
+                        user_prompt = ("Words: " + ", ".join(residue_words) + "\n"
+                                       "Allowed keys: " + ", ".join(allowed_keys))
+                        max_new = min(96, 8 * len(residue_words))
+                        raw = run_instruct(user_prompt, _dir, _dev, system_prompt, max_new)
+
+                        allowed_set = set(allowed_keys)
+                        lower_to_word = {w.lower(): w for w in residue_words}
+                        line_re = re.compile(r"^(\S.*?)\s*->\s*([A-Z_a-z]+)$")
+                        routed = {w: None for w in residue_words}
+                        for line in raw.splitlines():
+                            m = line_re.match(line.strip())
+                            if not m:
+                                continue
+                            word = lower_to_word.get(m.group(1).strip().lower())
+                            if word is None:
+                                continue
+                            # Lowercase before the enum check: all lexicon keys are
+                            # lowercase, but the LLM may echo "BRIGHT" -- a correct
+                            # routing that a case-sensitive check would throw away.
+                            # Zero sandbox cost: the comparison set is unchanged.
+                            key = m.group(2).strip().lower()
+                            routed[word] = key if key in allowed_set else None  # enum IS the sandbox
+                        return routed
+
+                response = author_recipe(request.get("text") or "", llm_route=llm_route,
+                                          frames=request.get("frames"))
+                send_text(json.dumps(response))
+                continue
+
             # CLAP machine-listening analysis: decode init_audio → top-k CLAP tags
             # + DSP spectral words, returned in ONE \x03 text frame as JSON. Like
             # translate/interpret it is dispatched BEFORE audio-model routing — it
