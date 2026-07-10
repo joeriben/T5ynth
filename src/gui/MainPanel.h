@@ -136,6 +136,10 @@ private:
     juce::Rectangle<int> cacheSwitchBounds;
     std::array<MainSnapshot, kNumSnapshotSlots> mainSnapshots;
     std::array<MainSnapshot, kNumSnapshotSlots> snapshotPressCaptures;
+    // LCO SNAP slots: in LCO mode the SNAP buttons park/recall the LCO prompt TEXT
+    // here (the neural mainSnapshots capture audio+params, which an LCO bake has
+    // none of — a separate, deliberately lightweight store). Slot i ↔ button i+1.
+    std::array<juce::String, kNumSnapshotSlots> lcoPromptSlots;
     int activeSnapshotIndex = 0;  // 0=OFF, 1..4=session snapshot selected
 
     // Resynth (init_audio / i2i): SA3-gated, house-standard inline-bar SliderRow

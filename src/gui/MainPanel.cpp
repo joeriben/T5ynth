@@ -1492,13 +1492,15 @@ void MainPanel::setOscEasyMode(bool easy, bool persist)
     mainGenerateBtn.setVisible(true);
     snapLabel.setVisible(true);
     cacheLabel.setVisible(true);
-    snapLabel.setAlpha(dimA);
+    snapLabel.setAlpha(1.0f);       // SNAP is live in both modes (LCO parks prompts)
     cacheLabel.setAlpha(dimA);
+    // SNAP stays live in BOTH modes: neural recalls audio snapshots, LCO parks the
+    // prompt text (lcoPromptSlots). Only CACHE/RESYNTH go disabled+dimmed in LCO.
     for (auto& bSnap : snapshotButtons)
     {
         bSnap.setVisible(true);
-        bSnap.setEnabled(neural);
-        bSnap.setAlpha(dimA);
+        bSnap.setEnabled(true);
+        bSnap.setAlpha(1.0f);
     }
     for (auto& bCache : infCacheButtons)
     {
@@ -1535,6 +1537,11 @@ void MainPanel::setOscEasyMode(bool easy, bool persist)
     // return and leave neural pulsing frozen on the now-dimmed LCO buttons (or leave
     // them un-pulsing after returning to neural mid-fill).
     lastInfCacheUiCapacity = -1;
+
+    // The SNAP store is mode-specific (audio snapshots vs LCO prompts), so clear the
+    // active highlight and refresh the filled dots for the mode we just entered.
+    activeSnapshotIndex = 0;
+    syncSnapshotUi();
 
     updateAxesDimSegment();   // re-applies axesPanel/dimensionExplorer (mode-aware)
 
@@ -2270,7 +2277,7 @@ bool MainPanel::keyPressed(const juce::KeyPress& key)
             const int slot = static_cast<int>(c - '0');
             if (mods.isShiftDown())
             {
-                snapshotPressCaptures[static_cast<size_t>(slot - 1)] = captureMainSnapshot();
+                captureSnapshotPress(slot);   // no-ops in LCO (nothing to pre-capture)
                 storeSnapshotFromPress(slot);
             }
             else
@@ -2926,6 +2933,8 @@ void MainPanel::captureSnapshotPress(int slot)
 {
     if (slot < 1 || slot > kNumSnapshotSlots)
         return;
+    if (!oscEasyMode)
+        return;   // LCO parks prompt TEXT at store-time — no audio to pre-capture
     snapshotPressCaptures[static_cast<size_t>(slot - 1)] = captureMainSnapshot();
 }
 
@@ -2933,6 +2942,23 @@ void MainPanel::storeSnapshotFromPress(int slot)
 {
     if (slot < 1 || slot > kNumSnapshotSlots)
         return;
+
+    if (!oscEasyMode)
+    {
+        // LCO: park the current LCO prompt TEXT into this slot (no audio/params).
+        const juce::String prompt = promptPanel.getLcoPrompt().trim();
+        if (prompt.isEmpty())
+        {
+            statusBar.setStatusText("No LCO prompt to snapshot");
+            return;
+        }
+        lcoPromptSlots[static_cast<size_t>(slot - 1)] = prompt;
+        activeSnapshotIndex = slot;
+        syncSnapshotUi();
+        snapshotButtons[slot].flashStored();
+        statusBar.setStatusText("LCO prompt " + juce::String(slot) + " saved");
+        return;
+    }
 
     auto& pending = snapshotPressCaptures[static_cast<size_t>(slot - 1)];
     if (!pending.valid)
@@ -2958,6 +2984,23 @@ void MainPanel::activateSnapshot(int slot)
         return;
     }
 
+    if (!oscEasyMode)
+    {
+        // LCO: recall the parked prompt TEXT into the editor (no auto-bake — the
+        // user bakes via GENERATE when ready).
+        if (slot > kNumSnapshotSlots || lcoPromptSlots[static_cast<size_t>(slot - 1)].isEmpty())
+        {
+            statusBar.setStatusText("LCO prompt " + juce::String(slot) + " empty");
+            syncSnapshotUi();
+            return;
+        }
+        promptPanel.setLcoPrompt(lcoPromptSlots[static_cast<size_t>(slot - 1)]);
+        activeSnapshotIndex = slot;
+        syncSnapshotUi();
+        statusBar.setStatusText("LCO prompt " + juce::String(slot) + " recalled");
+        return;
+    }
+
     if (slot > kNumSnapshotSlots || !mainSnapshots[static_cast<size_t>(slot - 1)].valid)
     {
         statusBar.setStatusText("Snapshot " + juce::String(slot) + " empty");
@@ -2976,7 +3019,12 @@ void MainPanel::syncSnapshotUi()
     for (int i = 0; i < kNumSnapshotButtons; ++i)
     {
         snapshotButtons[i].setToggleState(activeSnapshotIndex == i, juce::dontSendNotification);
-        snapshotButtons[i].setSnapshotFilled(i > 0 && mainSnapshots[static_cast<size_t>(i - 1)].valid);
+        // Filled dot reflects the store for the CURRENT mode: neural audio snapshots
+        // vs LCO parked prompts.
+        const bool filled = i > 0 && (oscEasyMode
+            ? mainSnapshots[static_cast<size_t>(i - 1)].valid
+            : !lcoPromptSlots[static_cast<size_t>(i - 1)].isEmpty());
+        snapshotButtons[i].setSnapshotFilled(filled);
     }
 }
 

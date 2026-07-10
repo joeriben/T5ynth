@@ -127,6 +127,12 @@ public:
      *  seedEditor/randomSeedToggle widgets were removed (DCO Slice 0). */
     juce::String getPromptA() const { return promptAEditor.getText().trim(); }
     juce::String getPromptB() const { return promptBEditor.getText().trim(); }
+
+    /** LCO (Advanced) prompt text — the SNAP slots park/recall it in LCO mode. get
+     *  returns the raw editor text; set replaces it without notifying (no auto-bake —
+     *  recall parks the prompt; the user bakes via GENERATE when ready). */
+    juce::String getLcoPrompt() const { return dcoPromptEditor.getText(); }
+    void setLcoPrompt(const juce::String& t) { dcoPromptEditor.setText(t, juce::dontSendNotification); }
     int getSeed() const;        // defined in the .cpp: T5ynthProcessor is only
     bool isRandomSeed() const;  // forward-declared here
 
