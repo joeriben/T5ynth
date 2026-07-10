@@ -139,6 +139,12 @@ public:
     /** Trigger generation with optional dimension offsets from DimensionExplorer. */
     void triggerGenerationWithOffsets(std::vector<std::pair<int, float>> offsets);
 
+    /** LCO (Advanced) counterpart of triggerMainGeneration: the reused GENERATE
+     *  button routes here in LCO mode. Stance Off (or no prior bake yet) → author/
+     *  bake from the prompt; stance engaged → one re-prompt STEP (read recipe →
+     *  rewrite → bake). One entry point so button + Cmd/Return + XL CC all agree. */
+    void triggerLcoGenerate();
+
     /** Set semantic axis values to include in the next generation request. */
     void setSemanticAxes(std::map<juce::String, float> axes) { pendingAxes_ = std::move(axes); }
 
@@ -150,6 +156,11 @@ public:
 
     /** Status callback — called with status text (e.g. "generating...", "12.3s | seed 42 | mps") */
     std::function<void(const juce::String&, bool generating)> onStatusChanged;
+
+    /** LCO busy callback — fired true when a bake/re-prompt starts, false when it
+     *  ends. MainPanel uses it to disable the reused GENERATE button during an LCO
+     *  authoring pass (the neural glow/cache path never runs in LCO). */
+    std::function<void(bool busy)> onLcoBusyChanged;
 
     /** Callback to read AxesPanel values with per-slot drift offsets (wired by MainPanel). */
     std::function<std::map<juce::String, float>(float, float, float)> getAxisValuesCallback;
@@ -286,25 +297,31 @@ private:
     // (docs/DCO_LLM_GUARDRAILS.md), bakes frames on a background thread, and
     // loads them into the wavetable master.
     juce::TextEditor dcoPromptEditor;
-    juce::TextButton dcoBakeBtn { "BAKE" };
     juce::Label dcoStatusLabel;
     juce::Label dcoFlagsLabel;
+    // "Language-Controlled Oscillator" — the LCO name spelled out, a small
+    // periwinkle caption above the prompt (TextRole::Hint, set in resized()).
+    juce::Label dcoSubtitleLabel;
     DcoWavetableView dcoWaveView;
     bool dcoBaking_ = false;
     void triggerDcoBake();
 
     // DCO Re-Prompt (stance-driven self-reading loop, docs/DCO_REPROMPT_CONCEPT.md):
-    // a SECOND stance bar + STEP button, bound to its OWN parameter
-    // (dcoRepromptStance — never repromptStance; paradigm isolation, see
-    // BlockParams.h). One step = the router reads its own last bake (resolved +
-    // recipe facts + flags), Qwen rewrites the DCO prompt under the selected
-    // stance, then triggerDcoBake() re-bakes it. All state below is panel-local
-    // and deliberately NOT persisted (the same seam as dcoPromptEditor itself,
-    // above): the editor IS the visible chain, and v1 has no auto-restore of the
-    // human original when the stance returns to Off (documented open point,
-    // concept doc "Ein Feld, keine Historie sichtbar").
+    // a SECOND stance bar bound to its OWN parameter (dcoRepromptStance — never
+    // repromptStance; paradigm isolation, see BlockParams.h). One step = the router
+    // reads its own last bake (resolved + recipe facts + flags), Qwen rewrites the
+    // DCO prompt under the selected stance, then triggerDcoBake() re-bakes it. The
+    // reused GENERATE button drives it (there is no separate STEP button): stance
+    // Off → bake, stance engaged → one step. All state below is panel-local and
+    // deliberately NOT persisted (the same seam as dcoPromptEditor itself, above):
+    // the editor IS the visible chain, and v1 has no auto-restore of the human
+    // original when the stance returns to Off (concept doc "Ein Feld, keine
+    // Historie sichtbar").
     RepromptStanceBar dcoStanceBar;
-    juce::TextButton dcoStepBtn { "STEP" };
+    // "RE-PROMPT" left-title caption for the stance strip — the house ModuleTitle
+    // treatment (like SNAP/CACHE), no frame. The framed ModuleBox + STEP button
+    // are gone: the stance strip sits directly above the reused GENERATE button.
+    juce::Label dcoRepromptTitle;
     juce::String dcoLastMachineReading_, dcoLastFlagsLine_, dcoLoopLast_;
     juce::StringArray dcoLoopRecent_;
     bool dcoRepromptBusy_ = false;

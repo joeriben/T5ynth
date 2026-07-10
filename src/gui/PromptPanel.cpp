@@ -376,16 +376,20 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         dcoPromptEditor.setColour(juce::TextEditor::focusedOutlineColourId, kOscCol);
         dcoPromptEditor.setColour(juce::TextEditor::highlightColourId, kOscCol.withAlpha(0.30f));
         dcoPromptEditor.setTextToShowWhenEmpty("Describe the oscillator to bake", kDim.withAlpha(0.45f));
-        dcoPromptEditor.onReturnKey = [this] { triggerDcoBake(); };
+        dcoPromptEditor.onReturnKey = [this] { triggerLcoGenerate(); };
         // No onTextChange mirror to the processor: the DCO prompt is
         // panel-local for now (preset persistence is a documented open seam).
         dcoPromptEditor.setBufferedToImage(true);
         addAndMakeVisible(dcoPromptEditor);
 
-        addAndMakeVisible(dcoBakeBtn);
-        dcoBakeBtn.setTooltip("Author a DCO wavetable from the DCO prompt (offline bake)");
-        dcoBakeBtn.onClick = [this] { triggerDcoBake(); };
-        makeLabel(dcoStatusLabel, "DCO: ready", kDim, juce::Justification::centredLeft, this);
+        // "Language-Controlled Oscillator" — the LCO name spelled out, a small
+        // periwinkle caption above the prompt field (sized TextRole::Hint in resized()).
+        makeLabel(dcoSubtitleLabel, "Language-Controlled Oscillator", kOscCol,
+                  juce::Justification::centredLeft, this);
+
+        // No BAKE button: the reused GENERATE button (MainPanel) authors the bake
+        // in LCO mode via triggerLcoGenerate().
+        makeLabel(dcoStatusLabel, "LCO: ready", kDim, juce::Justification::centredLeft, this);
 
         // Flags list — the guardrail honesty channel made visible: one
         // "word: reason" line per approximated/unmappable prompt term
@@ -407,8 +411,8 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         if (auto* dcoStanceParam = processor.getValueTreeState().getParameter(PID::dcoRepromptStance))
             dcoStanceBar.attachTo(*dcoStanceParam, RepromptStance::kCount);
         dcoStanceBar.setTooltip(
-            "DCO Re-Prompt stance: the machine reads its own last recipe (resolved "
-            "values + flags), not audio - it rewrites the DCO prompt before the next "
+            "LCO Re-Prompt stance: the machine reads its own last recipe (resolved "
+            "values + flags), not audio - it rewrites the LCO prompt before the next "
             "bake. Hover a glyph for its movement type.");
         dcoStanceBar.setPositionTooltips({
             "Off - Re-Prompt loop disabled.",
@@ -423,11 +427,12 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         });
         addAndMakeVisible(dcoStanceBar);
 
-        addAndMakeVisible(dcoStepBtn);
-        dcoStepBtn.onClick = [this] { triggerDcoReprompt(); };
-        dcoStepBtn.setTooltip(
-            "One re-prompt step: the machine reads its last recipe (resolved + flags), "
-            "rewrites the DCO prompt under the selected stance, then bakes.");
+        // "RE-PROMPT" left-title for the stance strip (house ModuleTitle caption,
+        // like SNAP/CACHE) — no frame, no STEP button. The strip sits directly
+        // above the reused GENERATE button, which drives the loop: stance Off →
+        // bake, stance engaged → one re-prompt step.
+        makeLabel(dcoRepromptTitle, "RE-PROMPT", kOscCol,
+                  juce::Justification::centredLeft, this);
     }
 
     // Model selector — fixed 4 slots, always visible (disabled = gray until model found).
@@ -1011,12 +1016,12 @@ void PromptPanel::resized()
     // The DCO surface IS the Advanced canvas now (its own prompt editor + the
     // BAKE/status row), not one row sharing the canvas with neural controls.
     dcoPromptEditor.setVisible(!easy);
-    dcoBakeBtn.setVisible(!easy);
     dcoStatusLabel.setVisible(!easy);
     dcoFlagsLabel.setVisible(!easy);
+    dcoSubtitleLabel.setVisible(!easy);
     dcoWaveView.setVisible(!easy);
     dcoStanceBar.setVisible(!easy);
-    dcoStepBtn.setVisible(!easy);
+    dcoRepromptTitle.setVisible(!easy);
 
     if (!easy)
     {
@@ -1029,11 +1034,19 @@ void PromptPanel::resized()
         seedModeSwitchBounds = {};
         paramsDividerY = -1;
 
-        // Pure DCO canvas, top-down: 3-line prompt editor, the BAKE/status
-        // row, the flags list (natural height, collapses when clean), and
-        // the baked-table display filling everything that remains.
+        // Pure LCO canvas. Top-down: the "Language-Controlled Oscillator" subtitle,
+        // the 3-line prompt editor, the LCO status line. Bottom-up (pinned so they
+        // sit directly above the reused GENERATE button in the column below): the
+        // RE-PROMPT stance strip, then the flags list. The baked-table display fills
+        // the middle. There is no BAKE/STEP button — GENERATE drives the bake/loop
+        // (triggerLcoGenerate), so this panel only lays out the read-out surface.
         setUiFont(dcoStatusLabel, TextRole::Caption, f);
-        setUiFont(dcoFlagsLabel, TextRole::Caption, f);
+        setUiFont(dcoFlagsLabel, TextRole::Hint, f);   // honesty channel: small, not body-size
+
+        // Subtitle: a small periwinkle caption naming the mode, tight above the prompt.
+        setUiFont(dcoSubtitleLabel, TextRole::Hint, f);
+        dcoSubtitleLabel.setBounds(area.removeFromTop(juce::roundToInt(f * 1.0f)));
+        area.removeFromTop(juce::jmax(1, gap / 2));
 
         const float editorFontH = f * 1.1f;
         // 3 text lines + the editor's top/bottom indents and outline.
@@ -1045,44 +1058,43 @@ void PromptPanel::resized()
         dcoPromptEditor.applyFontToAllText(juce::FontOptions(editorFontH));
         area.removeFromTop(gap);
 
-        auto row = area.removeFromTop(compactRowH);
-        const int bakeW = juce::jlimit(juce::roundToInt(f * 3.2f),
-                                       row.getWidth() / 3,
-                                       juce::roundToInt(f * 4.2f));
-        dcoBakeBtn.setBounds(row.removeFromLeft(bakeW));
-        row.removeFromLeft(juce::jmax(2, gap));
-        dcoStatusLabel.setBounds(row);
+        // Status line on its own row: "LCO: <technique>  [N flags]".
+        dcoStatusLabel.setBounds(area.removeFromTop(compactRowH));
         area.removeFromTop(gap);
 
-        // Re-Prompt row: STEP button (same fixed-width rule as BAKE) + the DCO
-        // stance bar taking the rest. Sits between the BAKE/status row and the
-        // flags list — docs/DCO_REPROMPT_CONCEPT.md.
+        // RE-PROMPT stance strip, pinned to the BOTTOM so it always sits directly
+        // above the reused GENERATE button (MainPanel) no matter how tall the flags
+        // or wavetable grow: a "RE-PROMPT" left-title (house ModuleTitle, like SNAP/
+        // CACHE) + the stance glyph bar filling the rest. No frame, no STEP button —
+        // GENERATE steps the loop. docs/DCO_REPROMPT_CONCEPT.md.
         {
-            auto stepRow = area.removeFromTop(compactRowH);
-            const int stepW = juce::jlimit(juce::roundToInt(f * 3.2f),
-                                           stepRow.getWidth() / 3,
-                                           juce::roundToInt(f * 4.2f));
-            dcoStepBtn.setBounds(stepRow.removeFromLeft(stepW));
-            stepRow.removeFromLeft(juce::jmax(2, gap));
-            dcoStanceBar.setBounds(stepRow);
-            area.removeFromTop(gap);
+            auto stanceRow = area.removeFromBottom(compactRowH);
+            const float titleFs = uiFontSize(TextRole::ModuleTitle, f);
+            setUiFont(dcoRepromptTitle, TextRole::ModuleTitle, f, true);
+            const int titleW = measureTextWidth(" RE-PROMPT", titleFs) + juce::jmax(4, gap);
+            dcoRepromptTitle.setBounds(stanceRow.removeFromLeft(juce::jmin(titleW, stanceRow.getWidth())));
+            stanceRow.removeFromLeft(juce::jmax(2, gap));
+            dcoStanceBar.setBounds(stanceRow);
         }
+        area.removeFromBottom(gap);
 
-        // One caption line per flag, capped — the full text stays on the
-        // tooltip. Zero flags = zero height, the table display gets the room.
+        // Flags list directly above the stance strip — one caption line per flag,
+        // capped; the full text stays on the tooltip. Zero flags = zero height, the
+        // table display reclaims the room.
         const auto flagsText = dcoFlagsLabel.getText();
         if (flagsText.isNotEmpty())
         {
             const int numLines = juce::StringArray::fromLines(flagsText).size();
             const int lineH = juce::roundToInt(dcoFlagsLabel.getFont().getHeight() + 2.0f);
-            dcoFlagsLabel.setBounds(area.removeFromTop(juce::jmin(numLines, 4) * lineH));
-            area.removeFromTop(gap);
+            dcoFlagsLabel.setBounds(area.removeFromBottom(juce::jmin(numLines, 4) * lineH));
+            area.removeFromBottom(gap);
         }
         else
         {
             dcoFlagsLabel.setBounds({});
         }
 
+        // Baked-table display fills the middle.
         dcoWaveView.setBounds(area);
         return;
     }
@@ -1998,6 +2010,21 @@ void PromptPanel::triggerGenerationWithOffsets(std::vector<std::pair<int, float>
     triggerGeneration();
 }
 
+void PromptPanel::triggerLcoGenerate()
+{
+    // The reused GENERATE button's LCO action (also Cmd/Return and XL CC, since all
+    // route through MainPanel::triggerMainGeneration). Stance Off — or no recipe
+    // baked yet, so there is nothing to re-read — authors from the current prompt;
+    // an engaged stance runs one re-prompt STEP (read last recipe → rewrite → bake).
+    // triggerDcoBake / triggerDcoReprompt own the busy-gates and Qwen checks.
+    const int stance = static_cast<int>(processorRef.getValueTreeState()
+                          .getRawParameterValue(PID::dcoRepromptStance)->load());
+    if (stance != RepromptStance::Off && dcoLastMachineReading_.isNotEmpty())
+        triggerDcoReprompt();
+    else
+        triggerDcoBake();
+}
+
 void PromptPanel::triggerDcoBake()
 {
     // A bake loads a wavetable into the engine — same clash with a running tape as
@@ -2015,19 +2042,19 @@ void PromptPanel::triggerDcoBake()
     // misleading "authoring..." label. Same gate set as triggerGeneration.
     if (generating || translatingPrompts_ || loopStepInFlight_)
     {
-        dcoStatusLabel.setText("DCO: busy (generation running)", juce::dontSendNotification);
+        dcoStatusLabel.setText("LCO: busy (generation running)", juce::dontSendNotification);
         return;
     }
     auto pipePtr = processorRef.getPipeInferencePtr();
     if (pipePtr == nullptr)
     {
-        dcoStatusLabel.setText("DCO: backend not running", juce::dontSendNotification);
+        dcoStatusLabel.setText("LCO: backend not running", juce::dontSendNotification);
         return;
     }
     const auto text = dcoPromptEditor.getText().trim();
     if (text.isEmpty())
     {
-        dcoStatusLabel.setText("DCO: prompt is empty", juce::dontSendNotification);
+        dcoStatusLabel.setText("LCO: prompt is empty", juce::dontSendNotification);
         return;
     }
 
@@ -2039,8 +2066,8 @@ void PromptPanel::triggerDcoBake()
     const int frames = frameCounts[juce::jlimit(0, 3, fcIdx)];
 
     dcoBaking_ = true;
-    dcoBakeBtn.setEnabled(false);
-    dcoStatusLabel.setText("DCO: authoring...", juce::dontSendNotification);
+    if (onLcoBusyChanged) onLcoBusyChanged(true);   // disable the reused GENERATE button
+    dcoStatusLabel.setText("LCO: authoring...", juce::dontSendNotification);
 
     // Author (one IPC round-trip, may lazily load the instruct model) and bake
     // on a detached background thread; only the engine load + status update
@@ -2091,12 +2118,12 @@ void PromptPanel::triggerDcoBake()
                 flagTooltip = lines.joinIntoString("\n");
                 flagsLine = flagParts.joinIntoString("; ");
             }
-            status = "DCO: " + technique
+            status = "LCO: " + technique
                    + (numFlags > 0 ? "  [" + juce::String(numFlags)
                                      + (numFlags == 1 ? " flag]" : " flags]")
                                    : juce::String());
             if (strip.getNumSamples() == 0)
-                status = "DCO: empty recipe";
+                status = "LCO: empty recipe";
 
             // machineReading: technique + adjectives + motion + values (resolved{}),
             // then motion rate + frame count + keyframe shapes (recipe facts) —
@@ -2145,7 +2172,7 @@ void PromptPanel::triggerDcoBake()
         }
         else
         {
-            status = "DCO: " + authored.errorMessage;
+            status = "LCO: " + authored.errorMessage;
         }
 
         juce::MessageManager::callAsync(
@@ -2166,8 +2193,8 @@ void PromptPanel::triggerDcoBake()
                 self->dcoStatusLabel.setTooltip(flagTooltip);
                 self->dcoFlagsLabel.setText(flagTooltip, juce::dontSendNotification);
                 self->dcoFlagsLabel.setTooltip(flagTooltip);  // full text if clipped
-                self->dcoBakeBtn.setEnabled(true);
                 self->dcoBaking_ = false;
+                if (self->onLcoBusyChanged) self->onLcoBusyChanged(false);
 
                 // Stash this bake's own reading of itself for the next Re-Prompt
                 // STEP, and (re-)seed the chain's link from this BAKE — docs/
@@ -2234,12 +2261,12 @@ void PromptPanel::triggerDcoReprompt()
     // click did nothing (house pattern: triggerDcoBake, triggerGeneration).
     if (dcoRepromptBusy_)
     {
-        dcoStatusLabel.setText("DCO: re-prompt already running", juce::dontSendNotification);
+        dcoStatusLabel.setText("LCO: re-prompt already running", juce::dontSendNotification);
         return;
     }
     if (dcoBaking_)
     {
-        dcoStatusLabel.setText("DCO: busy (bake running)", juce::dontSendNotification);
+        dcoStatusLabel.setText("LCO: busy (bake running)", juce::dontSendNotification);
         return;
     }
     // loopStepInFlight_ added to match triggerDcoBake's identical gate (line
@@ -2253,24 +2280,24 @@ void PromptPanel::triggerDcoReprompt()
     // not re-baked) — adversarial review finding.
     if (generating || translatingPrompts_ || loopStepInFlight_)
     {
-        dcoStatusLabel.setText("DCO: busy (generation running)", juce::dontSendNotification);
+        dcoStatusLabel.setText("LCO: busy (generation running)", juce::dontSendNotification);
         return;
     }
     if (! qwenAvailable_)
     {
-        dcoStatusLabel.setText("DCO: re-prompt needs the translation model", juce::dontSendNotification);
+        dcoStatusLabel.setText("LCO: re-prompt needs the translation model", juce::dontSendNotification);
         return;
     }
     const int stanceIdx = static_cast<int>(processorRef.getValueTreeState()
                               .getRawParameterValue(PID::dcoRepromptStance)->load());
     if (stanceIdx == RepromptStance::Off)
     {
-        dcoStatusLabel.setText("DCO: pick a stance first", juce::dontSendNotification);
+        dcoStatusLabel.setText("LCO: pick a stance first", juce::dontSendNotification);
         return;
     }
     if (dcoLastMachineReading_.isEmpty())
     {
-        dcoStatusLabel.setText("DCO: bake once first", juce::dontSendNotification);
+        dcoStatusLabel.setText("LCO: bake once first", juce::dontSendNotification);
         return;
     }
 
@@ -2289,14 +2316,14 @@ void PromptPanel::triggerDcoReprompt()
     auto pipePtr = processorRef.getPipeInferencePtr();
     if (pipePtr == nullptr)
     {
-        dcoStatusLabel.setText("DCO: backend not running", juce::dontSendNotification);
+        dcoStatusLabel.setText("LCO: backend not running", juce::dontSendNotification);
         return;
     }
     const juce::String device = defaultInferenceDevice_;
 
     dcoRepromptBusy_ = true;
-    dcoStepBtn.setEnabled(false);
-    dcoStatusLabel.setText("DCO: interpreting...", juce::dontSendNotification);
+    if (onLcoBusyChanged) onLcoBusyChanged(true);   // disable the reused GENERATE button
+    dcoStatusLabel.setText("LCO: interpreting...", juce::dontSendNotification);
 
     // IPC on a detached background thread ONLY — never the message thread (JUCE
     // rule; house pattern: triggerDcoBake / runSemanticLoopStep).
@@ -2318,12 +2345,12 @@ void PromptPanel::triggerDcoReprompt()
             if (self == nullptr) return;   // panel gone — nothing to write
 
             self->dcoRepromptBusy_ = false;
-            self->dcoStepBtn.setEnabled(self->qwenAvailable_);
+            if (self->onLcoBusyChanged) self->onLcoBusyChanged(false);
 
             if (! success || cleaned.isEmpty())
             {
                 self->dcoStatusLabel.setText(
-                    "DCO: " + (errorMessage.isNotEmpty() ? errorMessage
+                    "LCO: " + (errorMessage.isNotEmpty() ? errorMessage
                                                          : juce::String("re-prompt returned nothing")),
                     juce::dontSendNotification);
                 return;   // do NOT touch the editor on failure/empty
@@ -2680,7 +2707,6 @@ void PromptPanel::setQwenAvailable(bool available)
     for (auto& b : repromptCouplingBtns)
         b.setEnabled(available);
     dcoStanceBar.setEnabled(available);
-    dcoStepBtn.setEnabled(available);
 
     translateToggle.setTooltip(available
         ? "Translate prompts to English in place "
@@ -2694,12 +2720,7 @@ void PromptPanel::setQwenAvailable(bool available)
                        "Install it in the Modelle settings tab."));
     dcoStanceBar.setTooltip(available
         ? juce::String()
-        : juce::String("DCO Re-Prompt needs the translation model (Qwen2.5-1.5B). "
-                       "Install it in the Modelle settings tab."));
-    dcoStepBtn.setTooltip(available
-        ? juce::String("One re-prompt step: the machine reads its last recipe (resolved + flags), "
-                       "rewrites the DCO prompt under the selected stance, then bakes.")
-        : juce::String("DCO Re-Prompt needs the translation model (Qwen2.5-1.5B). "
+        : juce::String("LCO Re-Prompt needs the translation model (Qwen2.5-1.5B). "
                        "Install it in the Modelle settings tab."));
 
     repromptStanceBar.repaint();   // a raw Component: reflect the dim immediately

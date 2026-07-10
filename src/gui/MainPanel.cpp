@@ -448,7 +448,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     oscModeToggle.setColour(juce::TextButton::buttonOnColourId, kSurface.darker(0.45f));
     oscModeToggle.setColour(juce::TextButton::textColourOffId, kOscCol);
     oscModeToggle.setColour(juce::TextButton::textColourOnId, kOscCol);
-    oscModeToggle.setTooltip("Switch T5 OSC interface mode");
+    oscModeToggle.setTooltip("Switch oscillator mode: T5osc (neural generator) / LCO (language-controlled)");
     oscModeToggle.onClick = [this] { setOscEasyMode(!oscEasyMode, true); };
     addAndMakeVisible(oscModeToggle);
 
@@ -1013,6 +1013,13 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     mainGenerateBtn.onClick = [this] { triggerMainGeneration(); };
     addAndMakeVisible(mainGenerateBtn);
 
+    // LCO: the reused GENERATE button drives the bake/re-prompt; disable it while an
+    // LCO authoring pass runs (the neural glow/cache path never fires in LCO).
+    promptPanel.onLcoBusyChanged = [this](bool busy) {
+        if (!oscEasyMode)
+            mainGenerateBtn.setEnabled(!busy);
+    };
+
     // Left-header: same grammar as the RE-PROMPT/VARIATION headers (accent band,
     // dark bold left-aligned title), rotated to the left edge of this single-row
     // switchbox module. No frame on the label itself -- the frame is the switchbox's.
@@ -1470,24 +1477,69 @@ void MainPanel::setOscEasyMode(bool easy, bool persist)
     const bool neural = oscEasyMode;
     if (!neural && dimExplorerVisible)
         hideDimExplorer();
+
+    // Axes|Dim segment + the Stability credit are neural-only (no LCO meaning).
     axesDimSegBtns[0].setVisible(neural);
     axesDimSegBtns[1].setVisible(neural);
-    mainGenerateBtn.setVisible(neural);
-    snapLabel.setVisible(neural);
-    cacheLabel.setVisible(neural);
-    for (auto& bSnap : snapshotButtons)
-        bSnap.setVisible(neural);
-    for (auto& bCache : infCacheButtons)
-        bCache.setVisible(neural);
-    for (auto& bSrc : resynthSrcBtns)
-        bSrc.setVisible(neural);
-    if (resynthRow)
-        resynthRow->setVisible(neural);
     poweredByLabel.setVisible(neural);
+
+    // The GENERATE control block stays in BOTH modes — RUHE on switch, and GENERATE
+    // is reused for the LCO bake. Controls with no meaning for a deterministic
+    // language bake are shown DISABLED (dimmed) rather than removed: CACHE (no
+    // inference cache) and RESYNTH (no init-audio). SNAP is disabled here too until
+    // it learns to store LCO prompts (follow-up); GENERATE + row labels stay live.
+    const float dimA = neural ? 1.0f : 0.4f;
+    mainGenerateBtn.setVisible(true);
+    snapLabel.setVisible(true);
+    cacheLabel.setVisible(true);
+    snapLabel.setAlpha(dimA);
+    cacheLabel.setAlpha(dimA);
+    for (auto& bSnap : snapshotButtons)
+    {
+        bSnap.setVisible(true);
+        bSnap.setEnabled(neural);
+        bSnap.setAlpha(dimA);
+    }
+    for (auto& bCache : infCacheButtons)
+    {
+        bCache.setVisible(true);
+        bCache.setEnabled(neural);
+        bCache.setAlpha(dimA);
+    }
+    for (auto& bSrc : resynthSrcBtns)
+        bSrc.setVisible(true);
+    if (resynthRow)
+        resynthRow->setVisible(true);
+
+    if (neural)
+    {
+        // Restore the SA3-gated RESYNTH + int/ext enabled/alpha state exactly.
+        if (promptPanel.onModelChanged)
+            promptPanel.onModelChanged();
+    }
+    else
+    {
+        // LCO: force RESYNTH off + dimmed, and clear any leftover neural GENERATE
+        // state (cache-hit label, glow, disabled-during-generation) so the reused
+        // button reads a clean, live "GENERATE".
+        for (auto& bSrc : resynthSrcBtns) { bSrc.setEnabled(false); bSrc.setAlpha(dimA); }
+        if (resynthRow)                   { resynthRow->setEnabled(false); resynthRow->setAlpha(dimA); }
+        glowGenerating = false;
+        mainGenerateBtn.setAnimationState(glowPhase, false);
+        mainGenerateBtn.setButtonText("GENERATE");
+        mainGenerateBtn.setEnabled(true);
+    }
+
+    // Force the inference-cache UI (button pulsing) to re-evaluate for the new mode
+    // on the next timer tick — the syncInferenceCacheUi memo would otherwise early-
+    // return and leave neural pulsing frozen on the now-dimmed LCO buttons (or leave
+    // them un-pulsing after returning to neural mid-fill).
+    lastInfCacheUiCapacity = -1;
+
     updateAxesDimSegment();   // re-applies axesPanel/dimensionExplorer (mode-aware)
 
-    oscModeToggle.setButtonText(oscEasyMode ? juce::String::fromUTF8("\xc2\xbb adv.")
-                                            : juce::String::fromUTF8("\xc2\xbb easy"));
+    oscModeToggle.setButtonText(oscEasyMode ? juce::String::fromUTF8("\xc2\xbb LCO")
+                                            : juce::String::fromUTF8("\xc2\xbb T5osc"));
     updateOscModeToggleVisual();
 
     if (persist)
@@ -2583,7 +2635,8 @@ void MainPanel::syncInferenceCacheUi()
     // Pulse the *selected* button while the cache is filling. Once full,
     // pulsing stops and the button sits at solid kOscCol — that solid state
     // is the "cache full" signal, replacing the dropped status text row.
-    const bool isFilling = (capacity > 0) && (fill < capacity);
+    // Neural-only: the cache buttons are disabled + dimmed in LCO — never animate them.
+    const bool isFilling = oscEasyMode && (capacity > 0) && (fill < capacity);
     for (int i = 0; i < kNumInfCacheButtons; ++i)
     {
         infCacheButtons[i].setToggleState(capacity == values[i], juce::dontSendNotification);
@@ -2593,6 +2646,12 @@ void MainPanel::syncInferenceCacheUi()
 
 void MainPanel::updateGenerateButtonsForCacheState(bool pulseCacheHit)
 {
+    // Neural-only. In LCO the reused GENERATE button is owned by onLcoBusyChanged
+    // (bake busy-state) + setOscEasyMode (mode reset); letting this 20 Hz cache path
+    // touch it would re-enable it mid-bake and could leak a "cache hit" label there.
+    if (!oscEasyMode)
+        return;
+
     const bool cachePlaybackReady = processorRef.isInferenceCacheFull();
     if (cachePlaybackReady)
     {
@@ -2923,13 +2982,16 @@ void MainPanel::syncSnapshotUi()
 
 void MainPanel::triggerMainGeneration()
 {
-    // Easy-only, enforced centrally for EVERY caller (on-screen button, the
-    // Cmd/Shift+Return shortcut, XL Generate CC 37 via onGenerateRequested):
-    // in Advanced — the DCO panel — the neural prompts are hidden, and
-    // generating from invisible text is the paradigm leak the panel split
-    // exists to prevent.
+    // Central trigger for EVERY caller (on-screen GENERATE button, the Cmd/Shift+
+    // Return shortcut, XL Generate CC 37 via onGenerateRequested). In LCO the SAME
+    // button is reused to author the language oscillator, so route to the LCO action
+    // here — one entry point keeps button + shortcut + MIDI in agreement (paradigm
+    // boundary, BlockParams.h). triggerLcoGenerate owns its own busy/Qwen gates.
     if (!oscEasyMode)
+    {
+        promptPanel.triggerLcoGenerate();
         return;
+    }
 
     if (!mainGenerateBtn.isEnabled())
         return;
@@ -3176,6 +3238,9 @@ void MainPanel::timerCallback()
     // standalone Audio settings) WITHOUT a model change, so onModelChanged alone
     // would leave it stale. Change-guarded: the uncontended mutex read is cheap and
     // setEnabled only repaints when the state actually flips, so idle costs nothing.
+    // Neural-only: in LCO the RESYNTH int/ext toggle is force-disabled+dimmed
+    // (setOscEasyMode); this live-refresh must not re-enable "ext" behind that.
+    if (oscEasyMode)
     {
         const bool extOk = promptPanel.selectedModelIsSA3()
                         && processorRef.hasExternalInputAvailable();
@@ -3190,7 +3255,7 @@ void MainPanel::timerCallback()
     // Drive the cache-button pulse phase while the cache is still filling.
     // Uses an independent 2 Hz counter (not glowPhase, which crawls at idle)
     // so the selected button visibly blinks. Only the toggled button repaints.
-    if (lastInfCacheUiCapacity > 0 && lastInfCacheUiFill < lastInfCacheUiCapacity)
+    if (oscEasyMode && lastInfCacheUiCapacity > 0 && lastInfCacheUiFill < lastInfCacheUiCapacity)
     {
         cachePulsePhase += 2.0f * juce::MathConstants<float>::twoPi * dt;
         while (cachePulsePhase > juce::MathConstants<float>::twoPi)
@@ -3333,15 +3398,18 @@ void MainPanel::resized()
     poweredByLabel.setFont(juce::FontOptions(juce::jmax(kUiLabelFontMin,
                                                         static_cast<float>(headerH) * 0.6f)));
     poweredByLabel.setBounds(poweredBounds);
-    // Advanced = DCO panel: the prompt block takes the WHOLE column — no axes
-    // box, no Generate block, no snap/cache/resynth rows below it. Their
-    // components are hidden by setOscEasyMode; the switchbox-border sentinels
-    // are cleared here so paint() draws no frames around stale bounds.
+    // LCO (Advanced) reuses the neural column skeleton: the prompt block absorbs
+    // everything ABOVE the reserved GENERATE control block (GENERATE + snap/cache +
+    // resynth), which the shared block further down lays out in the SAME place as
+    // neural — RUHE on switch. No axes segment/box in LCO. CACHE/RESYNTH are shown
+    // disabled by setOscEasyMode; the block is still laid out so the skeleton — and
+    // the switchbox-border sentinels — stay identical across the mode switch.
     if (!oscEasyMode)
     {
-        promptPanel.setBounds(genCol);
-        snapshotSwitchBounds = {};
-        cacheSwitchBounds = {};
+        const int lcoReservedH = genBtnH + genCacheGap + cacheRowH + kGap + resynthBlockH;
+        const int lcoPromptH   = juce::jmax(kMinOscH, genCol.getHeight() - lcoReservedH - kGap);
+        promptPanel.setBounds(genCol.removeFromTop(lcoPromptH));
+        genCol.removeFromTop(kGap);
     }
     else
     {
@@ -3366,7 +3434,14 @@ void MainPanel::resized()
                 dimensionExplorer.setBounds(boxArea);   // overlay path repositions it below
             genCol.removeFromTop(kGap);
         }
+    }   // end neural-only axes segment; the GENERATE block below is shared
 
+    // ── Shared GENERATE control block (BOTH modes) ──────────────────────────────
+    // GENERATE + snap/cache + resynth, laid out in the remaining genCol. In LCO the
+    // CACHE/RESYNTH rows are disabled (setOscEasyMode) but still positioned here so
+    // the column skeleton is identical across the mode switch; GENERATE is reused
+    // for the LCO bake (MainPanel::triggerMainGeneration routes to the LCO action).
+    {
         // Generate + InfCache controls get all slack freed by the explorer cap,
         // centered in the remaining card area so the controls have breathing room.
         // genCacheGap is intentionally larger than kGap so Generate doesn't read
@@ -3463,8 +3538,7 @@ void MainPanel::resized()
         resynthRow->setBounds(resynthArea);                   // inline SliderRow draws its own band label + value
         for (int i = 0; i < 2; ++i)
             resynthSrcBtns[i].setBounds(srcToggle.removeFromLeft(srcToggle.getWidth() / (2 - i)));
-
-    }   // end easy-only neural generation column
+    }   // end shared GENERATE control block
 
     // (The Re-Prompt control row that used to sit beneath Resynth now lives in
     // PromptPanel, directly under the prompts.)

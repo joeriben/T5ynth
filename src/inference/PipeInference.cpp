@@ -1282,7 +1282,7 @@ PipeInference::DcoAuthorResult PipeInference::authorDcoRecipe(const juce::String
             result.errorMessage = "Inference crashed — restarted, try again";
         }
         else
-            result.errorMessage = "Timeout waiting for DCO recipe";
+            result.errorMessage = "Timeout waiting for LCO recipe";
         return result;
     }
 
@@ -1291,7 +1291,7 @@ PipeInference::DcoAuthorResult PipeInference::authorDcoRecipe(const juce::String
         juce::uint32 msgLen = 0;
         if (!readExact(&msgLen, 4))
         {
-            result.errorMessage = "Failed to read DCO recipe length";
+            result.errorMessage = "Failed to read LCO recipe length";
             return result;
         }
         if (msgLen > 0)
@@ -1299,14 +1299,14 @@ PipeInference::DcoAuthorResult PipeInference::authorDcoRecipe(const juce::String
             std::vector<char> msg(msgLen + 1, 0);
             if (!readExact(msg.data(), static_cast<int>(msgLen)))
             {
-                result.errorMessage = "Failed to read DCO recipe";
+                result.errorMessage = "Failed to read LCO recipe";
                 return result;
             }
             result.json = juce::String::fromUTF8(msg.data(), static_cast<int>(msgLen));
         }
         result.success = result.json.isNotEmpty();
         if (!result.success)
-            result.errorMessage = "Empty DCO response";
+            result.errorMessage = "Empty LCO response";
         return result;
     }
 
