@@ -2817,15 +2817,6 @@ void PromptPanel::pollReplayRegen()
     if (! processorRef.isReplayActive())
     {
         pendingReplayGen_.reset();
-        // Replay just ended (Stop, end-of-tape, or a stale flag): give the user
-        // their prompts back. Covers every stop path — this poll runs each tick and
-        // the transition to inactive lands here regardless of how it stopped.
-        if (replayPromptsSaved_)
-        {
-            promptAEditor.setText(preReplayPromptA_, juce::dontSendNotification);
-            promptBEditor.setText(preReplayPromptB_, juce::dontSendNotification);
-            replayPromptsSaved_ = false;
-        }
         return;
     }
 
@@ -2918,39 +2909,22 @@ void PromptPanel::fireReplayGeneration(const GenerationEventLogEntry& logged)
         }
     }
 
-    // Show the tape's prompts in the editors as this generation fires — the start
-    // patch cannot carry them (prompts are GUI-only, not in the APVTS state), so
-    // without this the editors keep whatever text was there when Play was pressed.
-    // Save the user's prompts on the FIRST replay generation so pollReplayRegen can
-    // restore them when the tape ends — otherwise the replay silently eats them
-    // (manual Generate reads the editors directly). dontSendNotification: a display
-    // update, not a user edit — must not re-trigger translation or mark dirty.
-    if (! replayPromptsSaved_)
-    {
-        preReplayPromptA_   = promptAEditor.getText();
-        preReplayPromptB_   = promptBEditor.getText();
-        replayPromptsSaved_ = true;
-    }
-    promptAEditor.setText(logged.promptA, juce::dontSendNotification);
-    promptBEditor.setText(logged.promptB, juce::dontSendNotification);
-
+    // The tape's prompts are NOT written into the editors: the replay overlay
+    // covers the panel and displays them itself, so the user's typed prompts stay
+    // untouched — no stash/restore needed. (Prompts are GUI-only, not in the APVTS
+    // state, so they never travel through the start-patch either.)
     generating = true;
     generateButton.setEnabled(false);
     if (onStatusChanged) onStatusChanged("replay: generating...", true);
 
-    const auto deviceForLabel = req.device.isEmpty()
-        ? processorRef.getPipeInference().getDefaultDevice() : req.device;
-    const auto modelForLabel = req.model.isEmpty()
-        ? processorRef.getPipeInference().getDefaultModel() : req.model;
     const uint32_t epoch = processorRef.getReplayEpoch();
 
     auto pipePtr = processorRef.getPipeInferencePtr();
     juce::Component::SafePointer<PromptPanel> safeThis(this);
-    std::thread([safeThis, pipePtr, req, deviceForLabel, modelForLabel, epoch]() mutable
+    std::thread([safeThis, pipePtr, req, epoch]() mutable
     {
         auto inferenceResult = pipePtr->generate(req);
-        juce::MessageManager::callAsync([safeThis, result = std::move(inferenceResult), req,
-                                         deviceForLabel, modelForLabel, epoch]()
+        juce::MessageManager::callAsync([safeThis, result = std::move(inferenceResult), req, epoch]()
         {
             auto* self = safeThis.getComponent();
             if (self == nullptr)
@@ -2986,24 +2960,11 @@ void PromptPanel::fireReplayGeneration(const GenerationEventLogEntry& logged)
                     applyDriftCrossfade(newAudio, oldRaw, xfadeSamples);
                 processor.loadGeneratedAudio(newAudio, result.sampleRate);
 
-                processor.setLastDevice(deviceForLabel);
-                processor.setLastModel(taggedPersistId(modelForLabel, req.trackType == "sfx"));
-                processor.setLastSeed(result.seed);
-                processor.setLastPrompts(req.promptA, req.promptB);
-                processor.setLastGenerationTimeMs(result.generationTimeMs);
-                self->syncSeedState(result.seed);
-
-                if (! result.embeddingA.empty())
-                {
-                    processor.setLastEmbeddings(result.embeddingA, result.embeddingB);
-                    auto baseline = result.embeddingBaseline;
-                    if (baseline.size() != result.embeddingA.size())
-                        baseline = DimensionExplorer::estimateBaselineValues(
-                            result.embeddingA, result.embeddingB, req.alpha, req.magnitude);
-                    if (self->onEmbeddingsReady)
-                        self->onEmbeddingsReady(result.embeddingA, result.embeddingB, baseline);
-                }
-
+                // Deliberately NO fingerprints: the tape must not overwrite the
+                // user's last-prompt/seed/model/device/embedding state — the overlay
+                // displays the tape's identity, the live UI keeps the user's. (Also
+                // keeps a quit-during-replay from persisting tape state into the
+                // standalone buffer preset; only the SOUND is the tape's, disclosed.)
                 self->lastReplayGenSucceeded_ = true;
                 if (self->onStatusChanged)
                     self->onStatusChanged(juce::String(result.generationTimeMs / 1000.0f, 1) + "s | replay", false);

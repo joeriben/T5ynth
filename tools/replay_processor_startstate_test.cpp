@@ -28,6 +28,11 @@ int main()
     T5ynthProcessor proc;
     proc.prepareToPlay(48000.0, 512);
 
+    // setEventLogEnabled persists to the MACHINE-WIDE settings store — this harness
+    // must not clobber the user's real recording preference. The ctor restored that
+    // preference into the processor; snapshot it now and put it back at the end.
+    const bool userHadRecordingOn = proc.getEventLogEnabled();
+
     // Turn recording on at runtime (also covers the sticky-restore semantics: the
     // capture is gated identically). This alone captures the current patch.
     proc.setEventLogEnabled(true);
@@ -115,6 +120,19 @@ int main()
         CHECK(p1 > p0, "playhead advanced while replaying (transport ran, no crash)");
         CHECK(p1 >= 512ull * 60, "playhead advanced by ~the rendered sample count");
 
+        // Speed control: at ×2 the playhead must cover ~2 tape samples per device
+        // sample (fractional carry keeps it exact over whole blocks).
+        proc.setReplayRate(2.0f);
+        const uint64_t q0 = proc.getReplayPlayhead();
+        for (int blk = 0; blk < 20; ++blk)
+        {
+            buffer.clear();
+            midi.clear();
+            proc.processBlock(buffer, midi);
+        }
+        const uint64_t q1 = proc.getReplayPlayhead();
+        CHECK(q1 - q0 == 2ull * 512 * 20, "playhead advances at exactly 2x under Speed x2");
+
         proc.stopReplay();
         CHECK(! proc.isReplayActive(), "note tape stops cleanly");
     }
@@ -137,7 +155,7 @@ int main()
               "live log start-state still the user's patch, not a tape's");
     }
 
-    proc.setEventLogEnabled(false);
+    proc.setEventLogEnabled(userHadRecordingOn);   // restore the user's preference
     file.deleteFile();
 
     std::printf("\n%s (%d failure(s))\n", failures == 0 ? "ALL PASS" : "FAILED", failures);

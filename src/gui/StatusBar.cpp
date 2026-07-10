@@ -51,12 +51,6 @@ StatusBar::StatusBar()
     keyboardBtn.setClickingTogglesState(true);
     keyboardBtn.setTooltip("Enable computer-keyboard note input");
 
-    // addChildComponent, not addAndMakeVisible: hidden until a tape runs.
-    stopReplayBtn.setColour(juce::TextButton::buttonColourId, kSurface);
-    stopReplayBtn.setColour(juce::TextButton::textColourOffId, kAccent);
-    stopReplayBtn.setTooltip("Stop the session replay and restore your patch");
-    addChildComponent(stopReplayBtn);
-
     // Red text so the destructive action is visible. Same red as the
     // disconnect-state dot (kept inline rather than promoted to a palette
     // entry — Panic is the only red surface in the bar).
@@ -78,7 +72,8 @@ StatusBar::StatusBar()
         const bool hasLog = sessionLogAvailable && sessionLogAvailable();
         m.addItem(2, "Save Session Log…", hasLog && onSaveSessionLog != nullptr);
         m.addSeparator();
-        m.addItem(3, "Play Session Log…", onPlaySessionLog != nullptr && ! replayActive_);
+        const bool replaying = replayActive && replayActive();
+        m.addItem(3, "Play Session Log…", onPlaySessionLog != nullptr && ! replaying);
         // SafePointer, not raw `this`: the callback fires later off the message
         // loop (matches the SafePointer idiom elsewhere in the GUI).
         juce::Component::SafePointer<StatusBar> safeThis(this);
@@ -92,7 +87,6 @@ StatusBar::StatusBar()
                 else if (r == 3) { if (self->onPlaySessionLog) self->onPlaySessionLog(); }
             });
     };
-    stopReplayBtn.onClick = [this] { if (onStopReplay) onStopReplay(); };
     settingsBtn.onClick = [this] { if (onSettings) onSettings(); };
     manualBtn.onClick   = [this] { if (onManual) onManual(); };
     panicBtn.onClick    = [this] { if (onMidiPanic) onMidiPanic(); };
@@ -198,22 +192,6 @@ void StatusBar::paint(juce::Graphics& g)
                    false);
     }
 
-    // While a tape runs the centre region belongs to the replay transport: the Stop
-    // button (a real child component) plus this position readout. The preset name is
-    // suppressed — the tape's patch is playing, not the saved preset — which also
-    // makes the whole bar read as the "you are in replay mode" indicator.
-    if (replayActive_)
-    {
-        presetNameBounds = {};
-        g.setColour(kAccent);
-        g.drawText(replayPositionText_,
-                   juce::Rectangle<int>(stopReplayBtn.getRight() + 8, 0,
-                                        juce::jmax(0, rightEdge - stopReplayBtn.getRight() - 8),
-                                        getHeight()),
-                   juce::Justification::centredLeft);
-        return;
-    }
-
     // Preset name (centered between status text and buttons). Bounds are
     // remembered so the right-click hit-test in mouseDown() lines up with
     // the painted text.
@@ -267,30 +245,6 @@ void StatusBar::resized()
         extClockBtn_.setBounds(panicBtn.getX() - extClockW - gap, y, extClockW, btnH);
         midiOutCombo_.setBounds(extClockBtn_.getX() - comboW - gap, y, comboW, btnH);
     }
-
-    // Replay transport in the (otherwise empty) centre region: the button sits just
-    // left of centre, its position readout is painted just right of it. Nothing else
-    // moves, because the button is hidden whenever no tape is running.
-    {
-        const int replayW  = 92;
-        const int leftEdge = 30;   // clear of the connection dot + status text start
-        const int rightEdge = (standalone_ ? panicBtn.getX() : midiOutCombo_.getX()) - 8;
-        const int centre   = (leftEdge + rightEdge) / 2;
-        stopReplayBtn.setBounds(centre - replayW - 6, y, replayW, btnH);
-    }
-}
-
-void StatusBar::setReplayState(bool active, const juce::String& positionText)
-{
-    // Called at GUI timer rate — do nothing (and above all do not repaint) unless
-    // something the user can see actually changed. See docs/PERFORMANCE_GUIDE.md.
-    if (active == replayActive_ && positionText == replayPositionText_)
-        return;
-
-    replayActive_       = active;
-    replayPositionText_ = positionText;
-    stopReplayBtn.setVisible(active);
-    repaint();
 }
 
 void StatusBar::setStatusText(const juce::String& text)

@@ -32,13 +32,7 @@ public:
     std::function<void()> onSaveSessionLog;          // Export menu → save the current .t5evt
     std::function<bool()> sessionLogAvailable;       // enables the menu item iff a session has been recorded
     std::function<void()> onPlaySessionLog;          // Export menu → pick a .t5evt and replay it
-    std::function<void()> onStopReplay;              // the transport button, visible only while a tape runs
-
-    /** Replay transport. While active, a "Stop Replay" button and `positionText`
-     *  occupy the status bar's centre region (where the preset name otherwise sits),
-     *  which doubles as the "you are in replay mode" indicator. Call at timer rate:
-     *  repaints only when something actually changed. */
-    void setReplayState(bool active, const juce::String& positionText);
+    std::function<bool()> replayActive;              // gates the menu item while a tape runs (transport = ReplayOverlay)
     std::function<void()> onSettings;
     std::function<void()> onManual;
     std::function<void(bool)> onKeyboardInputChanged;
@@ -81,13 +75,6 @@ private:
     juce::TextButton panicBtn { "Panic" };
     juce::TextButton keyboardBtn { "Kbd" };
     bool updateBadge_ = false;   // accent dot on Settings when an update is available
-
-    // Replay transport. Lives in the centre region, which is empty apart from the
-    // preset name (hidden while a tape runs — the tape's patch is in charge, not the
-    // saved preset). Hidden when idle, so resized() never has to move anything else.
-    juce::TextButton stopReplayBtn { "Stop Replay" };
-    bool         replayActive_ = false;
-    juce::String replayPositionText_;
 
     // In the standalone app these two controls live in JUCE's "MIDI/Audio Settings"
     // dialog (see MidiOutputSettingsPanel), so the bottom row is left clean — nothing

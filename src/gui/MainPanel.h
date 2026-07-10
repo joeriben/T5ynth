@@ -8,6 +8,7 @@
 #include "FxPanel.h"
 #include "SequencerPanel.h"
 #include "StatusBar.h"
+#include "ReplayOverlay.h"
 #include "SetupWizard.h"
 #include "PresetManagerPanel.h"
 #include "SequenceLibraryPanel.h"
@@ -346,6 +347,11 @@ private:
     bool manualVisible = false;
     bool manualLoaded = false;
     juce::File manualHtmlOnDisk;  // temp extraction of the bundled HTML
+
+    // Replay transport overlay — covers everything above the StatusBar while a
+    // .t5evt tape plays (the tape drives the engine; this is its display). Declared
+    // last: destroyed first, holds only processorRef.
+    ReplayOverlay replayOverlay_ { processorRef };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainPanel)
 };

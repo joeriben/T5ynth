@@ -183,6 +183,7 @@ target_sources(T5ynth PRIVATE
     src/gui/WaveformDisplay.cpp
     src/gui/SetupWizard.cpp
     src/gui/StatusBar.cpp
+    src/gui/ReplayOverlay.cpp
     src/gui/T5ynthLookAndFeel.cpp
 
     # Presets

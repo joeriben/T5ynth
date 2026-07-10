@@ -433,6 +433,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     addAndMakeVisible(fxPanel);
     addAndMakeVisible(sequencerPanel);
     addAndMakeVisible(statusBar);
+    addChildComponent(replayOverlay_);   // hidden until a tape plays; begin()/end()
 
     // Left column section headers
     paintSectionHeader(oscHeader, "T5 OSCILLATOR", kOscCol);
@@ -482,17 +483,18 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     statusBar.onSaveSessionLog   = [this] { saveSessionLog(); };
     statusBar.sessionLogAvailable = [this] { return processorRef.getEventLogCurrentFile().existsAsFile(); };
     statusBar.onPlaySessionLog   = [this] { loadReplaySession(); };
-    statusBar.onStopReplay       = [this]
+    statusBar.replayActive       = [this] { return processorRef.isReplayActive(); };
+    replayOverlay_.onStop = [this]
     {
         processorRef.stopReplay();
-        statusBar.setReplayState(false, {});
+        replayOverlay_.end();
         statusBar.setStatusText("Replay stopped — patch restored");
     };
     // Cleared in ~MainPanel: the processor outlives this panel and would otherwise
     // call into a dead `this` when a tape reaches its end.
     processorRef.onReplayFinished = [this]
     {
-        statusBar.setReplayState(false, {});
+        replayOverlay_.end();
         statusBar.setStatusText("Replay finished — patch restored");
     };
     statusBar.onSettings     = [this] { if (settingsVisible) hideSettings(); else showSettings(); };
@@ -2163,6 +2165,15 @@ bool MainPanel::keyPressed(const juce::KeyPress& key)
 {
     const auto mods = key.getModifiers();
 
+    // Replay overlay up: swallow ALL shortcuts. The overlay blocks the mouse by
+    // covering the panel, but key events propagate up to this handler regardless of
+    // focus — without this, Cmd+S would save the TAPE's patch as a user preset,
+    // Shift+Return would fire a generation against the tape, and 1-4 would apply
+    // snapshots over it. (Computer-keyboard notes are separately gated in the
+    // processor.) Consume rather than pass: no shortcut may act on tape state.
+    if (replayOverlay_.isVisible())
+        return true;
+
     if ((mods.isCommandDown() || mods.isCtrlDown()) && key.getTextCharacter() == 'k')
     {
         setComputerKeyboardEnabled(!computerKeyboardEnabled);
@@ -3101,20 +3112,10 @@ void MainPanel::timerCallback()
     // (Event Log draining is NOT here — the EventLogWriterThread owns its ingress
     // FIFOs and drains itself, so recording never depends on this editor being open.)
 
-    // Replay transport readout. setReplayState() early-outs unless the string
-    // actually changed, so this repaints ~1 Hz, not at timer rate.
-    if (processorRef.isReplayActive())
-    {
-        const double sr = processorRef.getSampleRate() > 0.0 ? processorRef.getSampleRate() : 44100.0;
-        const auto mmss = [](double seconds)
-        {
-            const int total = juce::jmax(0, juce::roundToInt(seconds));
-            return juce::String(total / 60) + ":" + juce::String(total % 60).paddedLeft('0', 2);
-        };
-        statusBar.setReplayState(true,
-            mmss(static_cast<double>(processorRef.getReplayPlayhead()) / sr) + " / "
-          + mmss(static_cast<double>(processorRef.getReplayDurationSamples()) / sr));
-    }
+    // Replay overlay readouts (playhead, feed, prompts). refresh() repaints only
+    // when something visible changed, so this costs nothing per tick when idle.
+    if (replayOverlay_.isVisible())
+        replayOverlay_.refresh();
 
     // Surface a background update-check result (if any) once, non-blocking —
     // does not touch model loading/PipeInference at all. Chrome/VS Code pattern:
@@ -3236,6 +3237,10 @@ void MainPanel::resized()
     int statusH = 20;
     int footerH = juce::jlimit(160, 280, juce::roundToInt(h * 0.24f));
     statusBar.setBounds(b.removeFromBottom(statusH));
+
+    // Replay overlay covers everything ABOVE the status bar: the bar stays live as
+    // the info/error channel (generation status) and keeps Panic reachable.
+    replayOverlay_.setBounds(getLocalBounds().withTrimmedBottom(statusH));
 
     // Gap between footer and main content
     b.removeFromBottom(6);
@@ -3778,6 +3783,7 @@ void MainPanel::loadReplaySession()
                 return;
             }
             self->statusBar.setStatusText("Replaying " + file.getFileName());
+            self->replayOverlay_.begin(file.getFileName());
         });
 }
 

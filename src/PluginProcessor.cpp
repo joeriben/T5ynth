@@ -479,6 +479,12 @@ void T5ynthProcessor::endStepHoldPreview()
 
 void T5ynthProcessor::beginComputerKeyboardNote(int midiNote, float velocity)
 {
+    // Computer-keyboard notes bypass the MIDI buffer (direct voiceManager call), so
+    // the replay transport's midiMessages.clear() cannot neutralise them — gate here
+    // or they'd play on top of the tape.
+    if (isReplayActive())
+        return;
+
     const juce::ScopedLock sl(getCallbackLock());
 
     const int note = juce::jlimit(0, 127, midiNote);
@@ -881,6 +887,8 @@ bool T5ynthProcessor::startReplay(const EventLogReader& reader)
         replayPlayhead_.store(0, std::memory_order_relaxed);
         replayDueGenerationId_.store(0, std::memory_order_relaxed);
         replayGenerationBusy_.store(false, std::memory_order_relaxed);
+        replayRate_.store(1.0f, std::memory_order_relaxed);   // every tape starts at ×1
+        replayRateFrac_ = 0.0;   // audio-thread member, but the callback is held out by this lock
         replayEpoch_.fetch_add(1, std::memory_order_acq_rel);   // invalidates in-flight generations from a prior tape
         replayModeActive_.store(true, std::memory_order_release);
     }
@@ -2533,11 +2541,19 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // ── R2: Replay transport ────────────────────────────────────────────────
     // Acquire pairs with startReplay's release store: everything it wrote into
     // replayState_ is visible here. Its own playhead starts at 0 for each tape,
-    // independent of the recorder's running sample clock above.
+    // independent of the recorder's running sample clock above. The playhead is in
+    // TAPE samples and advances by numSamples×rate (Speed control) with a
+    // fractional carry so non-integer rates stay drift-free.
     const bool replayActive = replayModeActive_.load(std::memory_order_acquire);
-    const uint64_t replayBlockStart = replayActive
-        ? replayPlayhead_.fetch_add(static_cast<uint64_t>(numSamples), std::memory_order_relaxed)
-        : 0;
+    const float replayRateNow = replayRate_.load(std::memory_order_relaxed);
+    uint64_t replayBlockStart = 0, replayAdvance = 0;
+    if (replayActive)
+    {
+        replayRateFrac_ += static_cast<double>(numSamples) * static_cast<double>(replayRateNow);
+        replayAdvance    = static_cast<uint64_t>(replayRateFrac_);
+        replayRateFrac_ -= static_cast<double>(replayAdvance);
+        replayBlockStart = replayPlayhead_.fetch_add(replayAdvance, std::memory_order_relaxed);
+    }
 
     // Live input is neutralised for the duration of the tape: dropping the whole
     // MIDI buffer here takes out external notes, pitch-bend, CC, CC-Learn and both
@@ -2995,7 +3011,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // Bounded by the reserved capacity — push_back must never allocate here.
     if (replayActive)
     {
-        const uint64_t blockEnd = replayBlockStart + static_cast<uint64_t>(numSamples);
+        const uint64_t blockEnd = replayBlockStart + replayAdvance;
         const auto& notes = replayState_.noteEvents;
         while (replayState_.nextNoteIdx < notes.size()
                && internalNoteEvents_.size() < internalNoteEvents_.capacity())
@@ -3004,11 +3020,14 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             if (n.timestamp >= blockEnd)
                 break;
             // Events already behind the playhead (a tape that starts mid-note, or a
-            // block-size change) land at offset 0 rather than being dropped.
+            // block-size change) land at offset 0 rather than being dropped. The
+            // tape-samples delta maps back into DEVICE samples via ÷rate (the block
+            // covers `replayAdvance` tape samples across `numSamples` device samples).
             const uint64_t delta = n.timestamp > replayBlockStart ? n.timestamp - replayBlockStart : 0;
 
             VoiceEvent ev;
-            ev.sampleOffset = static_cast<int>(delta);
+            ev.sampleOffset = juce::jlimit(0, numSamples - 1,
+                static_cast<int>(static_cast<double>(delta) / static_cast<double>(replayRateNow)));
             ev.type         = n.type;
             ev.note         = n.note;
             ev.velocity     = n.velocity;

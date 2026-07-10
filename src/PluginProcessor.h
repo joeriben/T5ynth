@@ -665,7 +665,9 @@ private:
     // nextParamIdx is message-thread-only (replayTimerTick).
     std::atomic<bool>     replayModeActive_ { false };
     ReplayState           replayState_;
-    std::atomic<uint64_t> replayPlayhead_        { 0 };   // audio thread writes, both read
+    std::atomic<uint64_t> replayPlayhead_        { 0 };   // audio thread writes, both read (TAPE samples)
+    std::atomic<float>    replayRate_            { 1.0f };// speed multiplier, see setReplayRate()
+    double                replayRateFrac_ = 0.0;          // audio-thread-only fractional carry
     std::atomic<uint64_t> replayDueGenerationId_ { 0 };   // audio raises (1-based idx), message consumes
     std::atomic<bool>     replayGenerationBusy_  { false };// message: a replay generation is in flight
 
@@ -788,6 +790,26 @@ public:
     bool     isReplayActive()        const noexcept { return replayModeActive_.load(std::memory_order_acquire); }
     uint64_t getReplayPlayhead()     const noexcept { return replayPlayhead_.load(std::memory_order_relaxed); }
     uint64_t getReplayDurationSamples() const noexcept { return replayState_.totalDurationSamples; }
+
+    /** Replay speed multiplier (×0.25–×4). The tape's timeline is wall-clock samples
+     *  (no bar grid), so "tempo" is honestly a time-scale: the playhead advances by
+     *  numSamples×rate per block. Changeable live; generations still take real time,
+     *  so at high rates they bunch (the one-in-flight rule delays, never drops). */
+    void  setReplayRate(float rate) noexcept
+    { replayRate_.store(juce::jlimit(0.25f, 4.0f, rate), std::memory_order_relaxed); }
+    float getReplayRate() const noexcept { return replayRate_.load(std::memory_order_relaxed); }
+
+    /** True while a replayed generation is on the pipe (overlay shows "generating…"). */
+    bool isReplayGenerationInFlight() const noexcept
+    { return replayGenerationBusy_.load(std::memory_order_relaxed); }
+
+    // Read-only views into the ACTIVE tape for the replay overlay. Message thread
+    // only, and only while isReplayActive() — the vectors are reseated (under the
+    // callback lock, also from the message thread) each startReplay, so no
+    // cross-thread hazard exists for a message-thread reader.
+    const std::vector<NoteEventLogEntry>&                getReplayNoteEventsForUi()  const { return replayState_.noteEvents; }
+    const std::vector<EventLogReader::ParsedParamEvent>& getReplayParamEventsForUi() const { return replayState_.paramEvents; }
+    const std::vector<GenerationEventLogEntry>&          getReplayGenerationEventsForUi() const { return replayState_.generationEvents; }
 
     /** Message thread. Returns true and fills `out` when the playhead has crossed
      *  the next logged generation. At most one is pending at a time: the audio
