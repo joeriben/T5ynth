@@ -80,7 +80,19 @@ def load_lexicon(path=None):
 # opaque "moog-bass" token. The lexicon carries the corresponding
 # space-separated surface forms ("8 bit", "2 op fm", ...) for the handful of
 # genuinely-compound technique names this affects.
+#
+# Arrow notation ("->", "-->", "=>", "<->", "→", "↔", ...) is rewritten to
+# the word " into " BEFORE punctuation stripping runs: '-', '=', '<', '>'
+# and the unicode arrow glyphs are not in _KEEP_CHARS_RE's keep-set and
+# would otherwise be silently destroyed (turned into plain spaces), leaving
+# "saw -> square" scanner-indistinguishable from "saw square". " into " is
+# the canonical morph-connector surface form (dco_lexicon.json's
+# "connectors"); the arrow spelling itself is never registered as a surface
+# form and never user-visible -- _tokenize would drop a bare arrow token
+# anyway (no alnum chars). No bare ">" (false-positive risk: greater-than
+# has legitimate non-arrow uses).
 
+_ARROW_RE = re.compile(r"(?:<\s*[-=]+\s*>)|(?:[-=]+\s*>)|[→⇒➔⟶↔]")
 _KEEP_CHARS_RE = re.compile(r"[^a-z0-9\s%.äöüß]")
 _STRAY_DOT_RE = re.compile(r"(?<!\d)\.|\.(?!\d)")
 _WS_RE = re.compile(r"\s+")
@@ -88,6 +100,7 @@ _WS_RE = re.compile(r"\s+")
 
 def _normalize(text):
     text = (text or "").lower()
+    text = _ARROW_RE.sub(" into ", text)
     text = _KEEP_CHARS_RE.sub(" ", text)
     text = _STRAY_DOT_RE.sub(" ", text)
     text = _WS_RE.sub(" ", text).strip()
@@ -174,6 +187,11 @@ def _build_index(lexicon):
         for sf in mo["surface_forms"]:
             register(sf, {"category": "motion", "key": mo["key"], "priority": mo["priority"],
                           "motion_category": mo["category"]})
+    # lexicon_version 3+; lexicon.get(...) so an older lexicon dict (no
+    # "connectors" key) still loads -- a morph chain simply never gates.
+    for c in lexicon.get("connectors", []):
+        for sf in c["surface_forms"]:
+            register(sf, {"category": "connector", "key": c["key"]})
     for word, mult in lexicon["degrees"].items():
         register(word, {"category": "degree", "multiplier": float(mult)})
     # Stopwords go through the SAME lookup dict (not a separate set) so a
@@ -191,7 +209,7 @@ def _build_index(lexicon):
 
 def _scan(norm_text, lexicon):
     """S1. Returns a dict: values, technique_hits, adjective_hits, motion_hits,
-    residue (list of {"word","degree","pos"})."""
+    connector_hits, residue (list of {"word","degree","pos"})."""
     values, remaining = _extract_typed_values(norm_text)
     tokens = _tokenize(remaining)
     index = _build_index(lexicon)
@@ -201,6 +219,7 @@ def _scan(norm_text, lexicon):
     technique_hits = []
     adjective_hits = []
     motion_hits = []
+    connector_hits = []
     residue = []
 
     pending_degree = None
@@ -243,11 +262,14 @@ def _scan(norm_text, lexicon):
         elif cat == "motion":
             motion_hits.append({"key": hit["key"], "priority": hit["priority"], "pos": i,
                                  "motion_category": hit["motion_category"]})
+        elif cat == "connector":
+            connector_hits.append({"key": hit["key"], "pos": i})
         pending_degree = None
         i += L
 
     return {"values": values, "technique_hits": technique_hits,
-            "adjective_hits": adjective_hits, "motion_hits": motion_hits, "residue": residue}
+            "adjective_hits": adjective_hits, "motion_hits": motion_hits,
+            "connector_hits": connector_hits, "residue": residue}
 
 
 # ─── S2 wiring helpers (the LLM call itself lives in the caller) ──────────
@@ -639,6 +661,43 @@ def _apply_motion_intent(recipe, intent_key, flags):
 
 # ─── S3: technique-template lookup + default inference ───────────────────
 
+def _technique_sequence(scan, technique_index):
+    """Gate for connector-driven morph-chain composition ("saw morphing into
+    a square"): returns the participant technique hits in PROMPT order (one
+    per distinct key, first occurrence kept), or None if this prompt is not
+    a chain. A chain requires (a) at least one connector word anywhere in
+    the prompt, (b) at least two DISTINCT technique keys ("saw into saw"
+    chains nothing), and (c) at least one connector strictly BETWEEN the
+    first and last (deduped) technique mention -- a connector outside that
+    span ("into a warm saw square") does not establish an ordering between
+    the two waveforms, so it does not gate a chain. Chainability itself
+    (single-keyframe template) is NOT checked here -- that is a _compose
+    concern, so a bailed chain can still explain itself via technique_index.
+    technique_index is accepted but unused by the gate; kept in the
+    signature for symmetry with _resolve_technique."""
+    connector_hits = scan["connector_hits"]
+    hits = scan["technique_hits"]
+    if not connector_hits or len(hits) < 2:
+        return None
+
+    seen = set()
+    deduped = []
+    for h in sorted(hits, key=lambda h: h["pos"]):
+        if h["key"] in seen:
+            continue
+        seen.add(h["key"])
+        deduped.append(h)
+    if len(deduped) < 2:
+        return None
+
+    first_pos = deduped[0]["pos"]
+    last_pos = deduped[-1]["pos"]
+    if not any(first_pos < c["pos"] < last_pos for c in connector_hits):
+        return None
+
+    return deduped
+
+
 def _resolve_technique(scan, adjective_keys_present, technique_index, flags):
     hits = scan["technique_hits"]
     if hits:
@@ -678,14 +737,64 @@ def _compose(scan, s2_extra_adjective_hits, lexicon, frames_override):
     all_adjective_hits = list(scan["adjective_hits"]) + list(s2_extra_adjective_hits)
     adjective_keys_present = {h["key"] for h in all_adjective_hits}
 
-    # step 1: template
-    resolved_technique = _resolve_technique(scan, adjective_keys_present, technique_index, flags)
-    template = technique_index[resolved_technique]["template"]
-    recipe = copy.deepcopy(template)
-    for mflag in technique_index[resolved_technique].get("mandatory_flags", []):
-        flags.append({"word": resolved_technique, "reason": mflag})
-    if frames_override is not None:
-        recipe["frames"] = frames_override
+    # step 1: template. A connector word ("morphing into", "wird zu", an
+    # arrow rewritten by S0's _ARROW_RE, ...) spanning >=2 distinct
+    # technique mentions composes a multi-keyframe morph chain instead of
+    # the usual single-winner resolution -- see _technique_sequence. A
+    # chain bails (falls through to the normal path below) if any
+    # participant's template is itself multi-keyframe: chaining chains is
+    # not supported, and it is more honest to say so than to silently
+    # flatten it.
+    sequence = _technique_sequence(scan, technique_index)
+    if sequence is not None:
+        # cap at 4 participants FIRST -- an honest drop, not a silent
+        # truncation. Order matters: the multi-part bail below must only
+        # judge the participants that actually survive the cap, or a
+        # would-be-dropped 5th waveform could discard the whole chain.
+        if len(sequence) > 4:
+            for dropped in sequence[4:]:
+                flags.append({"word": dropped["key"],
+                              "reason": "morph chain capped at 4 waveforms — dropped"})
+            sequence = sequence[:4]
+        non_chainable = next((h["key"] for h in sequence
+                               if len(technique_index[h["key"]]["template"]["keyframes"]) != 1), None)
+        if non_chainable is not None:
+            flags.append({"word": non_chainable,
+                          "reason": "morph chain includes a multi-part recipe — using the usual resolution"})
+            sequence = None
+
+    if sequence is not None:
+
+        keys = [h["key"] for h in sequence]
+        recipe = {
+            "keyframes": [copy.deepcopy(technique_index[k]["template"]["keyframes"][0]) for k in keys],
+            "motion": _motion_cycle(len(keys)),
+            "loop": True,
+            "frames": 128,
+            "motion_rate_hz": sum(technique_index[k]["template"].get("motion_rate_hz", 0.25)
+                                   for k in keys) / len(keys),
+        }
+        for k in keys:
+            for mflag in technique_index[k].get("mandatory_flags", []):
+                flags.append({"word": k, "reason": mflag})
+        if frames_override is not None:
+            recipe["frames"] = frames_override
+        resolved_technique = "->".join(keys)
+    else:
+        # honest about the degenerate case a chain-shaped prompt collapses
+        # to: a connector was said, but there was never a second waveform
+        # to morph into (NOT the same as the multi-part bail above, which
+        # gets its own flag).
+        if scan["connector_hits"] and len({h["key"] for h in scan["technique_hits"]}) < 2:
+            flags.append({"word": "morph",
+                          "reason": "only one waveform named — nothing to morph into"})
+        resolved_technique = _resolve_technique(scan, adjective_keys_present, technique_index, flags)
+        template = technique_index[resolved_technique]["template"]
+        recipe = copy.deepcopy(template)
+        for mflag in technique_index[resolved_technique].get("mandatory_flags", []):
+            flags.append({"word": resolved_technique, "reason": mflag})
+        if frames_override is not None:
+            recipe["frames"] = frames_override
 
     # step 1b: typed base-waveform values (width/ratio/index/order) are
     # applied to the template keyframes BEFORE the adjective pass, so that a

@@ -173,7 +173,8 @@ def run_unit_tests():
 
     lexicon = dr.load_lexicon()
     check("lexicon has all required top-level keys",
-          {"lexicon_version", "techniques", "adjectives", "motions", "degrees", "stopwords"} <= set(lexicon),
+          {"lexicon_version", "techniques", "adjectives", "motions", "connectors",
+           "degrees", "stopwords"} <= set(lexicon),
           sorted(lexicon))
     check("technique count >= 25 (spec floor)", len(lexicon["techniques"]) >= 25, len(lexicon["techniques"]))
     check("adjective count >= 45", len(lexicon["adjectives"]) >= 45, len(lexicon["adjectives"]))
@@ -308,6 +309,116 @@ def run_unit_tests():
           r["resolved"]["technique"])
     for a in r["resolved"]["adjectives"]:
         check(f"injection prompt -> adjective {a!r} is a real enum key", a in adjective_keys)
+
+    # connector-gated morph-chain composition: "X morphing into Y" (a
+    # connector word spanning >=2 distinct techniques) composes a
+    # multi-keyframe recipe instead of winner-takes-all. See
+    # _technique_sequence in dco_recipe.py.
+    r = dr.author_recipe("saw wave morphing into a square wave", llm_route=None, frames=None)
+    check("'saw wave morphing into a square wave' -> technique saw->square",
+          r["resolved"]["technique"] == "saw->square", r["resolved"])
+    kinds = [kf.get("kind") for kf in r["recipe"]["keyframes"]]
+    check("'saw wave morphing into a square wave' -> keyframe kinds [saw, square]",
+          kinds == ["saw", "square"], kinds)
+    m = r["recipe"]["motion"]
+    check("'saw wave morphing into a square wave' -> motion loop-closed (motion[0].to == motion[-1].to)",
+          bool(m) and m[0]["to"] == m[-1]["to"], m)
+    check("'saw wave morphing into a square wave' -> motion visits keyframe 1",
+          any(seg["to"] == 1 for seg in m), m)
+    check("'saw wave morphing into a square wave' -> motion_rate_hz == 0.25",
+          r["recipe"]["motion_rate_hz"] == 0.25, r["recipe"]["motion_rate_hz"])
+    check("'saw wave morphing into a square wave' -> no 'also mentioned' flag",
+          not any("also mentioned" in f["reason"] for f in r["flags"]), r["flags"])
+    check("'saw wave morphing into a square wave' -> no flag word 'morphing' or 'into'",
+          not any(f["word"] in ("morphing", "into") for f in r["flags"]), r["flags"])
+    errs = validate_response(r)
+    check("'saw wave morphing into a square wave' -> validate_response clean", not errs, errs)
+    r_again = dr.author_recipe("saw wave morphing into a square wave", llm_route=None, frames=None)
+    check("'saw wave morphing into a square wave' -> deterministic double-run",
+          json.dumps(r, sort_keys=True) == json.dumps(r_again, sort_keys=True))
+
+    r = dr.author_recipe("sinus wird zu rechteck", llm_route=None, frames=None)
+    check("'sinus wird zu rechteck' -> technique sine->square",
+          r["resolved"]["technique"] == "sine->square", r["resolved"])
+
+    r = dr.author_recipe("sine into square into triangle", llm_route=None, frames=None)
+    check("'sine into square into triangle' -> technique sine->square->triangle",
+          r["resolved"]["technique"] == "sine->square->triangle", r["resolved"])
+    check("'sine into square into triangle' -> 3 keyframes",
+          len(r["recipe"]["keyframes"]) == 3, r["recipe"]["keyframes"])
+    m = r["recipe"]["motion"]
+    check("'sine into square into triangle' -> motion closes on start",
+          bool(m) and m[0]["to"] == m[-1]["to"], m)
+
+    # regression: a comma is not a connector -- no chain, pwm still wins on priority
+    r = dr.author_recipe("a square wave, PWM", llm_route=None, frames=None)
+    check("'a square wave, PWM' -> technique still pwm (no connector, no chain)",
+          r["resolved"]["technique"] == "pwm", r["resolved"])
+
+    # a non-chainable (multi-keyframe) participant bails the chain honestly
+    r = dr.author_recipe("sine morphing into a bell", llm_route=None, frames=None)
+    check("'sine morphing into a bell' -> technique fm_bell (priority resolution, chain bailed)",
+          r["resolved"]["technique"] == "fm_bell", r["resolved"])
+    check("'sine morphing into a bell' -> a 'multi-part' flag explains the bail",
+          any("multi-part" in f["reason"] for f in r["flags"]), r["flags"])
+
+    # cap-before-bail ordering: a multi-part participant that the 4-cap
+    # would drop anyway must not discard the whole chain -- the surviving
+    # four chain, the fifth gets the capped-drop flag.
+    r = dr.author_recipe("sine into square into triangle into saw into strings",
+                          llm_route=None, frames=None)
+    check("'... into saw into strings' -> 5th (multi-part) capped away, 4-chain survives",
+          r["resolved"]["technique"] == "sine->square->triangle->saw", r["resolved"])
+    check("'... into saw into strings' -> strings carries the capped-drop flag",
+          any(f["word"] == "strings" and "capped" in f["reason"] for f in r["flags"]),
+          r["flags"])
+
+    # only one waveform actually named -- honest "nothing to morph into" flag
+    r = dr.author_recipe("a saw morphing into shimmering glass", llm_route=None, frames=None)
+    check("'a saw morphing into shimmering glass' -> technique saw",
+          r["resolved"]["technique"] == "saw", r["resolved"])
+    check("'a saw morphing into shimmering glass' -> 'nothing to morph into' flag",
+          any("nothing to morph into" in f["reason"] for f in r["flags"]), r["flags"])
+
+    # a chain composes independently of the adjective pass
+    r = dr.author_recipe("warm saw morphing into a square", llm_route=None, frames=None)
+    check("'warm saw morphing into a square' -> technique saw->square",
+          r["resolved"]["technique"] == "saw->square", r["resolved"])
+    check("'warm saw morphing into a square' -> adjective 'warm' applied",
+          "warm" in r["resolved"]["adjectives"], r["resolved"])
+
+    # arrow notation is an alternate spelling of the same morph connector:
+    # S0 rewrites it to " into " before punctuation stripping (_ARROW_RE),
+    # so it must chain identically to the word forms above.
+    r = dr.author_recipe("saw -> square", llm_route=None, frames=None)
+    check("'saw -> square' -> technique saw->square",
+          r["resolved"]["technique"] == "saw->square", r["resolved"])
+
+    r = dr.author_recipe("saw → square", llm_route=None, frames=None)
+    check("'saw → square' -> technique saw->square",
+          r["resolved"]["technique"] == "saw->square", r["resolved"])
+
+    r = dr.author_recipe("sine <-> square", llm_route=None, frames=None)
+    check("'sine <-> square' -> technique sine->square",
+          r["resolved"]["technique"] == "sine->square", r["resolved"])
+
+    r = dr.author_recipe("saw - > square", llm_route=None, frames=None)
+    check("'saw - > square' -> technique saw->square",
+          r["resolved"]["technique"] == "saw->square", r["resolved"])
+
+    r = dr.author_recipe("sinus → rechteck", llm_route=None, frames=None)
+    check("'sinus → rechteck' -> technique sine->square",
+          r["resolved"]["technique"] == "sine->square", r["resolved"])
+
+    r_arrow = dr.author_recipe("saw -> square", llm_route=None, frames=None)
+    r_arrow2 = dr.author_recipe("saw -> square", llm_route=None, frames=None)
+    check("'saw -> square' -> deterministic double-run",
+          json.dumps(r_arrow, sort_keys=True) == json.dumps(r_arrow2, sort_keys=True))
+
+    r_pct = dr.author_recipe("50% pulse", llm_route=None, frames=None)
+    check("'50% pulse' -> still resolves pulse, width 0.5 (arrow regex leaves '%' path untouched)",
+          r_pct["resolved"]["technique"] == "pulse" and r_pct["resolved"]["values"].get("width") == 0.5,
+          r_pct["resolved"])
 
     # S4 validate_recipe, exercised directly on deliberately malformed input
     malformed_cases = [

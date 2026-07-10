@@ -1,5 +1,5 @@
 {
-  "lexicon_version": 2,
+  "lexicon_version": 3,
   "techniques": [
     {
       "key": "saw",
@@ -3010,6 +3010,31 @@
       "category": "speed",
       "priority": 8,
       "why": "sharply compresses the transition segment(s), scale 3.0"
+    }
+  ],
+  "connectors": [
+    {
+      "key": "morph_into",
+      "surface_forms": [
+        "into",
+        "morphing",
+        "morphing into",
+        "morphs into",
+        "morph into",
+        "morphing to",
+        "morphed into",
+        "becomes",
+        "becoming",
+        "turns into",
+        "turning into",
+        "blend into",
+        "blending into",
+        "wird zu",
+        "morpht zu",
+        "geht über in",
+        "übergeht in",
+        "übergehend in"
+      ]
     }
   ],
   "degrees": {
