@@ -700,6 +700,79 @@ def run_unit_tests():
         errs = validate_recipe_structure(fixed)
         check(f"validate_recipe repairs {str(bad)[:60]!r} to structural validity", not errs, errs)
 
+    # ── LEXICON v4 COMPREHENSION (natural-language gaps the diagnostic harness
+    #    surfaced). New surface forms must resolve; role/envelope/harmony nouns
+    #    OUT of the DCO's waveform/spectrum/motion remit must be SILENT stopwords
+    #    (not residue that the live S2 then mis-routes onto an adjective); and the
+    #    words deliberately LEFT unmapped — honest exposure of a reduction the
+    #    instrument cannot make — must still flag.
+    check("lexicon_version bumped to 4 for the vocabulary additions",
+          lexicon["lexicon_version"] == 4, lexicon["lexicon_version"])
+
+    def _residue(resp):
+        return {f["word"] for f in resp["flags"] if "no mapping" in f["reason"]}
+    def _motions(resp):
+        r = resp["resolved"]
+        return set(r.get("motion") or r.get("motions") or [])
+
+    # new motion surface forms (swell/decay/movement families)
+    for phrase, key in (("a pad that swells", "open_up"), ("a swelling tone", "open_up"),
+                        ("a sound that decays", "close"), ("a decaying tone", "close"),
+                        ("a sound with movement", "evolve"), ("a moving tone", "evolve")):
+        rp = dr.author_recipe(phrase, llm_route=None, frames=None)
+        check(f"{phrase!r} -> motion {key}", key in _motions(rp), (rp["resolved"], rp["flags"]))
+
+    # new adjective surface forms
+    for phrase, key in (("gritty bass", "dirty"), ("velvet bass", "velvety"),
+                        ("glass bell", "glassy")):
+        rp = dr.author_recipe(phrase, llm_route=None, frames=None)
+        check(f"{phrase!r} -> adjective {key}", key in rp["resolved"].get("adjectives", []),
+              (rp["resolved"], rp["flags"]))
+
+    # German subordinate/reflexive clause order ("der sich (langsam) VERB") splits
+    # or inverts the "VERB sich" surface form, leaking the verb as residue. Bare
+    # öffnet/schließt/entwickelt + "sich" as a stopword recover the motion. Only
+    # these three reflexive motion verbs have a bare finite form added; other
+    # "sich"-verbs stay residue by design (honest, not silently coerced).
+    _reflexive_verbs = {"sich", "öffnet", "schließt", "entwickelt"}
+    for phrase, key in (("clarinet, der sich langsam öffnet", "open_up"),
+                        ("saw das sich öffnet", "open_up"),
+                        ("saw der sich langsam schließt", "close"),
+                        ("pad das sich entwickelt", "evolve")):
+        rp = dr.author_recipe(phrase, llm_route=None, frames=None)
+        check(f"{phrase!r} -> {key} (subordinate clause), no sich/verb residue",
+              key in _motions(rp) and not (_residue(rp) & _reflexive_verbs),
+              (rp["resolved"], rp["flags"]))
+    # main-clause "VERB sich" forms still resolve. Outcome-stable: the 2-word form
+    # and the bare form map to the SAME motion, so this guards the mapping, not the
+    # longest-match ordering per se (which is unobservable when both agree).
+    for phrase, key in (("saw öffnet sich", "open_up"), ("saw schließt sich", "close"),
+                        ("saw entwickelt sich", "evolve")):
+        rp = dr.author_recipe(phrase, llm_route=None, frames=None)
+        check(f"{phrase!r} -> {key} (main-clause form still resolves)",
+              key in _motions(rp), (rp["resolved"], rp["flags"]))
+
+    # role/envelope/harmony nouns are out-of-remit stopwords: no residue for the
+    # live S2 to silently mis-route onto an adjective ("swells" -> "airy" etc.)
+    for noun in ("pad", "pads", "lead", "leads", "stab", "stabs", "pluck", "plucked",
+                 "plucking", "plucks", "chord", "chords", "drone", "drones"):
+        rp = dr.author_recipe(f"warm {noun}", llm_route=None, frames=None)
+        check(f"role-noun {noun!r} is a silent stopword (no residue)",
+              noun not in _residue(rp), rp["flags"])
+
+    # honest exposure: words the DCO has no concept for stay FLAGGED — a silent
+    # coercion (oboe->clarinet, acid->distorted) would be worse than the honest
+    # "no mapping" the UI surfaces. Deliberately NOT mapped.
+    for word in ("acid", "digital", "oboe", "vintage"):
+        rp = dr.author_recipe(f"{word} bass", llm_route=None, frames=None)
+        check(f"{word!r} left honestly flagged (deliberate non-mapping)",
+              word in _residue(rp), rp["flags"])
+    # bare 'decay' is NOT a motion (ADSR-stage noun ambiguity); only the verbal
+    # 'decays'/'decaying' are the close-motion.
+    rp = dr.author_recipe("fast decay", llm_route=None, frames=None)
+    check("bare 'decay' NOT a motion (envelope-stage ambiguity kept honest)",
+          "close" not in _motions(rp), (rp["resolved"], rp["flags"]))
+
     # ── REFERENCE VOCABULARY (Re-Prompt grounding). The palette handed to the
     #    Re-Prompt LLM must be exactly the vocabulary author_recipe RESOLVES, so
     #    a rewrite stops emitting words the scanner silently drops. The contract:

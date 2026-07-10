@@ -1,5 +1,5 @@
 {
-  "lexicon_version": 3,
+  "lexicon_version": 4,
   "techniques": [
     {
       "key": "saw",
@@ -1868,7 +1868,8 @@
         "glasigem",
         "glasigen",
         "glasiger",
-        "glasiges"
+        "glasiges",
+        "glass"
       ],
       "delta": [
         {
@@ -2153,7 +2154,8 @@
         "dreckigem",
         "dreckigen",
         "dreckiger",
-        "dreckiges"
+        "dreckiges",
+        "gritty"
       ],
       "delta": [
         {
@@ -2562,7 +2564,8 @@
         "samtigem",
         "samtigen",
         "samtiger",
-        "samtiges"
+        "samtiges",
+        "velvet"
       ],
       "delta": [
         {
@@ -2882,7 +2885,11 @@
         "öffnend",
         "anschwellend",
         "aufbauend",
-        "gleitend"
+        "gleitend",
+        "swells",
+        "swelling",
+        "swell",
+        "öffnet"
       ],
       "category": "intent",
       "priority": 8,
@@ -2899,8 +2906,11 @@
         "fading",
         "fades away",
         "schließt sich",
+        "schließt",
         "schließend",
-        "verklingend"
+        "verklingend",
+        "decays",
+        "decaying"
       ],
       "category": "intent",
       "priority": 8,
@@ -2966,11 +2976,14 @@
         "evolve",
         "evolving",
         "entwickelt sich",
+        "entwickelt",
         "entwicklung",
         "drift",
         "drifting",
         "driftet",
-        "treibend"
+        "treibend",
+        "movement",
+        "moving"
       ],
       "category": "intent",
       "priority": 8,
@@ -3138,6 +3151,8 @@
     "bisschen",
     "bitte",
     "but",
+    "chord",
+    "chords",
     "create",
     "creates",
     "das",
@@ -3145,6 +3160,8 @@
     "den",
     "der",
     "die",
+    "drone",
+    "drones",
     "ein",
     "eine",
     "einer",
@@ -3164,6 +3181,8 @@
     "klingend",
     "klingt",
     "klänge",
+    "lead",
+    "leads",
     "like",
     "mach",
     "mache",
@@ -3175,12 +3194,21 @@
     "of",
     "on",
     "or",
+    "pad",
+    "pads",
     "please",
+    "pluck",
+    "plucked",
+    "plucking",
+    "plucks",
+    "sich",
     "sind",
     "so",
     "some",
     "sound",
     "sounds",
+    "stab",
+    "stabs",
     "that",
     "the",
     "these",
