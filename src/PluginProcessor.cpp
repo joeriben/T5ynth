@@ -1182,6 +1182,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::repromptCoupling, 1}, "Re-Prompt Coupling",
         toChoices(RepromptCoupling::kEntries), 0));
+    // DCO panel's own Re-Prompt stance (docs/DCO_REPROMPT_CONCEPT.md) — a SEPARATE
+    // parameter from repromptStance above (paradigm isolation), reusing the same
+    // RepromptStance::kEntries table (the DCO stance bar's glyphs are index-
+    // hardwired to that order; a curated DCO-specific stance set is a documented
+    // follow-up, not this slice). Read message-thread-only by PromptPanel, same as
+    // repromptStance — no audio-thread consumer.
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{PID::dcoRepromptStance, 1}, "DCO Re-Prompt Stance",
+        toChoices(RepromptStance::kEntries), 0));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{PID::resynthSource, 1}, "Resynth Source",
         toChoices(ResynthSource::kEntries), 0));   // default 0 = Internal (self-feedback)

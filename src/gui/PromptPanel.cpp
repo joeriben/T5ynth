@@ -395,6 +395,39 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 
         // Baked-table display: fills whatever height remains under the flags.
         addAndMakeVisible(dcoWaveView);
+
+        // DCO Re-Prompt (stance-driven self-reading loop, docs/DCO_REPROMPT_CONCEPT.md):
+        // a SECOND stance bar bound to its OWN parameter (dcoRepromptStance) — never
+        // shares repromptStance with the neural loop (paradigm isolation, BlockParams.h).
+        // Reuses the SAME RepromptStance::kEntries as the neural bar (the glyphs are
+        // index-hardwired to that order; a curated DCO-specific stance set is a
+        // documented follow-up, not this slice). Uses `processor` (the ctor parameter)
+        // directly, not the `apvts` alias below — this block runs before that alias
+        // is declared.
+        if (auto* dcoStanceParam = processor.getValueTreeState().getParameter(PID::dcoRepromptStance))
+            dcoStanceBar.attachTo(*dcoStanceParam, RepromptStance::kCount);
+        dcoStanceBar.setTooltip(
+            "DCO Re-Prompt stance: the machine reads its own last recipe (resolved "
+            "values + flags), not audio - it rewrites the DCO prompt before the next "
+            "bake. Hover a glyph for its movement type.");
+        dcoStanceBar.setPositionTooltips({
+            "Off - Re-Prompt loop disabled.",
+            // "reads", not the neural list's "hears": the DCO stance works on the
+            // router's own recipe reading, never audio (docs/DCO_REPROMPT_CONCEPT.md).
+            "Transcribe (fixed point): the machine re-describes what it reads; the prompt stays put.",
+            "Sober (inward spiral): re-states the sound plainly and factually - sentiment and scene stripped, the real source kept.",
+            "Sweeten (damped settling): softens toward a gentler, cuter reading.",
+            "Variation (bounded cluster): small variations around the current theme.",
+            "Abduction (wandering): leaps to new scenes, drifting far from the source.",
+            "Opposite (limit cycle): oscillates between opposing readings."
+        });
+        addAndMakeVisible(dcoStanceBar);
+
+        addAndMakeVisible(dcoStepBtn);
+        dcoStepBtn.onClick = [this] { triggerDcoReprompt(); };
+        dcoStepBtn.setTooltip(
+            "One re-prompt step: the machine reads its last recipe (resolved + flags), "
+            "rewrites the DCO prompt under the selected stance, then bakes.");
     }
 
     // Model selector — fixed 4 slots, always visible (disabled = gray until model found).
@@ -982,6 +1015,8 @@ void PromptPanel::resized()
     dcoStatusLabel.setVisible(!easy);
     dcoFlagsLabel.setVisible(!easy);
     dcoWaveView.setVisible(!easy);
+    dcoStanceBar.setVisible(!easy);
+    dcoStepBtn.setVisible(!easy);
 
     if (!easy)
     {
@@ -1018,6 +1053,20 @@ void PromptPanel::resized()
         row.removeFromLeft(juce::jmax(2, gap));
         dcoStatusLabel.setBounds(row);
         area.removeFromTop(gap);
+
+        // Re-Prompt row: STEP button (same fixed-width rule as BAKE) + the DCO
+        // stance bar taking the rest. Sits between the BAKE/status row and the
+        // flags list — docs/DCO_REPROMPT_CONCEPT.md.
+        {
+            auto stepRow = area.removeFromTop(compactRowH);
+            const int stepW = juce::jlimit(juce::roundToInt(f * 3.2f),
+                                           stepRow.getWidth() / 3,
+                                           juce::roundToInt(f * 4.2f));
+            dcoStepBtn.setBounds(stepRow.removeFromLeft(stepW));
+            stepRow.removeFromLeft(juce::jmax(2, gap));
+            dcoStanceBar.setBounds(stepRow);
+            area.removeFromTop(gap);
+        }
 
         // One caption line per flag, capped — the full text stays on the
         // tooltip. Zero flags = zero height, the table display gets the room.
@@ -2004,10 +2053,18 @@ void PromptPanel::triggerDcoBake()
         juce::String status, flagTooltip;
         juce::AudioBuffer<float> strip;
         float motionRateHz = 0.0f;
+        // DCO Re-Prompt (docs/DCO_REPROMPT_CONCEPT.md "lesen -> deuten -> umformulieren"):
+        // the router's OWN reading of what it just baked, as two plain display
+        // strings for the next interpret() call (RepromptStances::buildDcoStanceUserTurn).
+        // Built ONLY on a successful author (parsed/resolved/recipe on hand); never
+        // fed back into the recipe itself — router not author, the next bake
+        // re-validates through the same lexicon regardless of what the LLM writes.
+        juce::String machineReading, flagsLine;
         if (authored.success)
         {
             const auto parsed = juce::JSON::parse(authored.json);
-            const auto recipe = dco::recipeFromVar(parsed.getProperty("recipe", juce::var()));
+            const auto recipeVar = parsed.getProperty("recipe", juce::var());
+            const auto recipe = dco::recipeFromVar(recipeVar);
             motionRateHz = recipe.motionRateHz;
             if (!recipe.keyframes.empty())
             {
@@ -2023,11 +2080,16 @@ void PromptPanel::triggerDcoBake()
             if (const auto* flags = parsed.getProperty("flags", juce::var()).getArray())
             {
                 numFlags = flags->size();
-                juce::StringArray lines;
+                juce::StringArray lines, flagParts;
                 for (const auto& fl : *flags)
-                    lines.add(fl.getProperty("word", juce::var()).toString()
-                              + ": " + fl.getProperty("reason", juce::var()).toString());
+                {
+                    const auto word = fl.getProperty("word", juce::var()).toString();
+                    const auto reason = fl.getProperty("reason", juce::var()).toString();
+                    lines.add(word + ": " + reason);
+                    flagParts.add(word + " (" + reason + ")");
+                }
                 flagTooltip = lines.joinIntoString("\n");
+                flagsLine = flagParts.joinIntoString("; ");
             }
             status = "DCO: " + technique
                    + (numFlags > 0 ? "  [" + juce::String(numFlags)
@@ -2035,6 +2097,51 @@ void PromptPanel::triggerDcoBake()
                                    : juce::String());
             if (strip.getNumSamples() == 0)
                 status = "DCO: empty recipe";
+
+            // machineReading: technique + adjectives + motion + values (resolved{}),
+            // then motion rate + frame count + keyframe shapes (recipe facts) —
+            // "; "-separated, empty parts omitted. Keyframe "kind" is read straight
+            // off the JSON var (recipeFromVar only keeps the enum, not the string,
+            // and there is no enum->string helper — see DcoRecipeJson.h).
+            {
+                juce::StringArray parts;
+                if (technique.isNotEmpty() && technique != "?")
+                    parts.add("technique: " + technique);
+                if (const auto* adjArr = resolved.getProperty("adjectives", juce::var()).getArray())
+                {
+                    juce::StringArray adjs;
+                    for (const auto& a : *adjArr) adjs.add(a.toString());
+                    if (!adjs.isEmpty())
+                        parts.add("adjectives: " + adjs.joinIntoString(", "));
+                }
+                if (const auto* motionArr = resolved.getProperty("motion", juce::var()).getArray())
+                {
+                    juce::StringArray mots;
+                    for (const auto& m : *motionArr) mots.add(m.toString());
+                    if (!mots.isEmpty())
+                        parts.add("motion: " + mots.joinIntoString(", "));
+                }
+                if (auto* valuesObj = resolved.getProperty("values", juce::var()).getDynamicObject())
+                {
+                    juce::StringArray vals;
+                    for (const auto& prop : valuesObj->getProperties())
+                        vals.add(prop.name.toString() + "=" + prop.value.toString());
+                    if (!vals.isEmpty())
+                        parts.add("values: " + vals.joinIntoString(", "));
+                }
+                if (motionRateHz > 0.0f)
+                    parts.add("motion rate " + juce::String(motionRateHz, 2) + " Hz");
+                parts.add("frames " + juce::String(recipe.frames));
+                if (const auto* kfArr = recipeVar.getProperty("keyframes", juce::var()).getArray())
+                {
+                    juce::StringArray kinds;
+                    for (const auto& kf : *kfArr)
+                        kinds.add(kf.getProperty("kind", "saw").toString());
+                    if (!kinds.isEmpty())
+                        parts.add("shapes: " + kinds.joinIntoString(", "));
+                }
+                machineReading = parts.joinIntoString("; ");
+            }
         }
         else
         {
@@ -2042,7 +2149,8 @@ void PromptPanel::triggerDcoBake()
         }
 
         juce::MessageManager::callAsync(
-            [safeThis, strip = std::move(strip), status, flagTooltip, motionRateHz]() mutable
+            [safeThis, strip = std::move(strip), status, flagTooltip, motionRateHz,
+             machineReading, flagsLine, text]() mutable
         {
             if (auto* self = safeThis.getComponent())
             {
@@ -2060,8 +2168,173 @@ void PromptPanel::triggerDcoBake()
                 self->dcoFlagsLabel.setTooltip(flagTooltip);  // full text if clipped
                 self->dcoBakeBtn.setEnabled(true);
                 self->dcoBaking_ = false;
+
+                // Stash this bake's own reading of itself for the next Re-Prompt
+                // STEP, and (re-)seed the chain's link from this BAKE — docs/
+                // DCO_REPROMPT_CONCEPT.md. `text != dcoLoopLast_` covers BOTH:
+                //   - the very first bake (dcoLoopLast_ starts empty), AND
+                //   - a manual re-bake of EDITED text after the chain already has
+                //     a link — without this, a human edit-then-BAKE would refresh
+                //     dcoLastMachineReading_ (the new recipe's reading) while
+                //     dcoLoopLast_ kept pointing at the OLD text, so the next STEP
+                //     would feed the LLM a `prev` that mismatches `reading`
+                //     (adversarial review finding). A manual edit is a deliberate
+                //     human takeover, so the anti-stasis memory resets with it
+                //     (clearQuick), same as starting a fresh chain.
+                // A STEP-triggered re-bake is a no-op here: triggerDcoReprompt
+                // already sets dcoLoopLast_ = cleaned BEFORE calling triggerDcoBake,
+                // and `text` (the editor content at bake time) is that same
+                // `cleaned` string, so text == dcoLoopLast_ and this is skipped —
+                // the STEP's own dcoLoopRecent_ append (with its 3-entry cap)
+                // stands untouched.
+                if (machineReading.isNotEmpty())
+                {
+                    self->dcoLastMachineReading_ = machineReading;
+                    self->dcoLastFlagsLine_ = flagsLine;
+                    if (text != self->dcoLoopLast_)
+                    {
+                        self->dcoLoopLast_ = text;
+                        self->dcoLoopRecent_.clearQuick();
+                        self->dcoLoopRecent_.add(text);
+                    }
+                }
+                else
+                {
+                    // FAILED/empty bake: the editor now shows text whose recipe
+                    // could NOT be read. A STEP mid-chain may already have
+                    // advanced dcoLoopLast_ to that text — keeping the OLD
+                    // reading would make the next STEP feed Qwen a prev/reading
+                    // pair describing two different recipes (adversarial review
+                    // finding). Clear instead: the next STEP honestly refuses
+                    // with "bake once first" until a bake succeeds again.
+                    self->dcoLastMachineReading_.clear();
+                    self->dcoLastFlagsLine_.clear();
+                }
+
                 self->resized();   // flag count changes the DCO column layout
             }
+        });
+    }).detach();
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// DCO Re-Prompt step (docs/DCO_REPROMPT_CONCEPT.md)
+// ──────────────────────────────────────────────────────────────────────────────
+// One STEP = one interpret() call under the selected stance, reading the DCO's
+// OWN last bake (dcoLastMachineReading_/dcoLastFlagsLine_, stashed by
+// triggerDcoBake) instead of CLAP tags — "lesen -> deuten -> umformulieren"
+// (the concept doc's fundamental difference from the neural loop: the DCO's
+// interpretation is fully machine-readable before any audio renders, so there
+// is nothing to hear, only to read). Manual STEP only — no auto-loop, no CLAP,
+// no A/B poles (v1, see the concept doc's "was bewusst NICHT kopiert wird").
+void PromptPanel::triggerDcoReprompt()
+{
+    // Message-thread gates, mirroring triggerDcoBake's gate order/shape. Every
+    // early-out reports through dcoStatusLabel so the user always sees WHY a
+    // click did nothing (house pattern: triggerDcoBake, triggerGeneration).
+    if (dcoRepromptBusy_)
+    {
+        dcoStatusLabel.setText("DCO: re-prompt already running", juce::dontSendNotification);
+        return;
+    }
+    if (dcoBaking_)
+    {
+        dcoStatusLabel.setText("DCO: busy (bake running)", juce::dontSendNotification);
+        return;
+    }
+    // loopStepInFlight_ added to match triggerDcoBake's identical gate (line
+    // ~2018): the neural loop's runSemanticLoopStep can be mid-flight with
+    // `generating` already false (its own analyze+interpret round-trip runs
+    // AFTER the render completes), and it is not gated by easyMode_ — so a user
+    // can flip to Advanced and hit STEP while a background neural step is still
+    // interpreting. Without this, STEP would proceed, serialize its interpret()
+    // behind the neural one on the shared IPC pipe, then its own triggerDcoBake()
+    // call would silently no-op on THIS same gate (editor text updated, table
+    // not re-baked) — adversarial review finding.
+    if (generating || translatingPrompts_ || loopStepInFlight_)
+    {
+        dcoStatusLabel.setText("DCO: busy (generation running)", juce::dontSendNotification);
+        return;
+    }
+    if (! qwenAvailable_)
+    {
+        dcoStatusLabel.setText("DCO: re-prompt needs the translation model", juce::dontSendNotification);
+        return;
+    }
+    const int stanceIdx = static_cast<int>(processorRef.getValueTreeState()
+                              .getRawParameterValue(PID::dcoRepromptStance)->load());
+    if (stanceIdx == RepromptStance::Off)
+    {
+        dcoStatusLabel.setText("DCO: pick a stance first", juce::dontSendNotification);
+        return;
+    }
+    if (dcoLastMachineReading_.isEmpty())
+    {
+        dcoStatusLabel.setText("DCO: bake once first", juce::dontSendNotification);
+        return;
+    }
+
+    const int sIdx = juce::jlimit(0, RepromptStance::kCount - 1, stanceIdx);
+    const juce::String stanceKey = RepromptStance::kEntries[sIdx].key;
+
+    // The chain's own last link — falls back to the live editor text on the
+    // very first step. The DCO chain has no separate "human original" concept
+    // to restore on deactivation (unlike the neural loop): a documented v1 seam,
+    // docs/DCO_REPROMPT_CONCEPT.md "Ein Feld, keine Historie sichtbar".
+    const juce::String prev = dcoLoopLast_.isNotEmpty() ? dcoLoopLast_ : dcoPromptEditor.getText().trim();
+    const juce::StringArray recent = dcoLoopRecent_;
+    const juce::String reading = dcoLastMachineReading_;
+    const juce::String flags = dcoLastFlagsLine_;
+
+    auto pipePtr = processorRef.getPipeInferencePtr();
+    if (pipePtr == nullptr)
+    {
+        dcoStatusLabel.setText("DCO: backend not running", juce::dontSendNotification);
+        return;
+    }
+    const juce::String device = defaultInferenceDevice_;
+
+    dcoRepromptBusy_ = true;
+    dcoStepBtn.setEnabled(false);
+    dcoStatusLabel.setText("DCO: interpreting...", juce::dontSendNotification);
+
+    // IPC on a detached background thread ONLY — never the message thread (JUCE
+    // rule; house pattern: triggerDcoBake / runSemanticLoopStep).
+    juce::Component::SafePointer<PromptPanel> safeThis(this);
+    std::thread([safeThis, pipePtr, stanceKey, reading, flags, prev, recent, device]() mutable
+    {
+        const juce::String sysp = RepromptStances::stanceSystemPrompt(stanceKey);
+        const juce::String userTurn =
+            RepromptStances::buildDcoStanceUserTurn(stanceKey, reading, flags, prev, recent);
+        // 64 == the same maxNewTokens runSemanticLoopStep passes to interpret()
+        // for the neural loop's short (3-8 word) prompt rewrites.
+        auto r = pipePtr->interpret(sysp, userTurn, 64, device);
+        const juce::String cleaned = r.success ? RepromptStances::cleanPrompt(r.text) : juce::String();
+
+        juce::MessageManager::callAsync(
+            [safeThis, success = r.success, cleaned, errorMessage = r.errorMessage]()
+        {
+            auto* self = safeThis.getComponent();
+            if (self == nullptr) return;   // panel gone — nothing to write
+
+            self->dcoRepromptBusy_ = false;
+            self->dcoStepBtn.setEnabled(self->qwenAvailable_);
+
+            if (! success || cleaned.isEmpty())
+            {
+                self->dcoStatusLabel.setText(
+                    "DCO: " + (errorMessage.isNotEmpty() ? errorMessage
+                                                         : juce::String("re-prompt returned nothing")),
+                    juce::dontSendNotification);
+                return;   // do NOT touch the editor on failure/empty
+            }
+
+            self->dcoLoopLast_ = cleaned;
+            self->dcoLoopRecent_.add(cleaned);
+            while (self->dcoLoopRecent_.size() > 3)
+                self->dcoLoopRecent_.remove(0);
+            self->dcoPromptEditor.setText(cleaned, juce::dontSendNotification);
+            self->triggerDcoBake();   // re-checks its own gates
         });
     }).detach();
 }
@@ -2406,6 +2679,8 @@ void PromptPanel::setQwenAvailable(bool available)
     repromptStanceBar.setEnabled(available);
     for (auto& b : repromptCouplingBtns)
         b.setEnabled(available);
+    dcoStanceBar.setEnabled(available);
+    dcoStepBtn.setEnabled(available);
 
     translateToggle.setTooltip(available
         ? "Translate prompts to English in place "
@@ -2417,8 +2692,18 @@ void PromptPanel::setQwenAvailable(bool available)
         ? juce::String()
         : juce::String("Re-Prompt needs the translation model (Qwen2.5-1.5B). "
                        "Install it in the Modelle settings tab."));
+    dcoStanceBar.setTooltip(available
+        ? juce::String()
+        : juce::String("DCO Re-Prompt needs the translation model (Qwen2.5-1.5B). "
+                       "Install it in the Modelle settings tab."));
+    dcoStepBtn.setTooltip(available
+        ? juce::String("One re-prompt step: the machine reads its last recipe (resolved + flags), "
+                       "rewrites the DCO prompt under the selected stance, then bakes.")
+        : juce::String("DCO Re-Prompt needs the translation model (Qwen2.5-1.5B). "
+                       "Install it in the Modelle settings tab."));
 
     repromptStanceBar.repaint();   // a raw Component: reflect the dim immediately
+    dcoStanceBar.repaint();        // same custom-paint dim logic as repromptStanceBar
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

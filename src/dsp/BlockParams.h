@@ -169,6 +169,12 @@ namespace PID {
     // processBlock — they have no audio-thread consumer.
     static constexpr const char* repromptStance       = "reprompt_stance";      // interpreter stance (Off disables the loop)
     static constexpr const char* repromptCoupling     = "reprompt_coupling";    // how far the machine displaces the human input
+    // The DCO/Advanced panel's OWN stance parameter — deliberately separate from
+    // repromptStance above (paradigm isolation, docs/DCO_REPROMPT_CONCEPT.md): the
+    // neural loop's stance must never leak into the DCO panel and vice versa. The
+    // two loops share only the interpreter (Qwen) and the stance system-prompt
+    // TEXT (RepromptStances::stanceSystemPrompt), never state or a parameter.
+    static constexpr const char* dcoRepromptStance    = "dco_reprompt_stance";  // DCO panel's own re-prompt stance
     static constexpr const char* infSteps         = "inf_steps";
     static constexpr const char* loopMode         = "loop_mode";
     static constexpr const char* crossfadeMs      = "crossfade_ms";

@@ -50,6 +50,45 @@ namespace RepromptStances
                                       const juce::StringArray& recentList,
                                       const juce::String& spectral);
 
+    /** The DCO twin of buildStanceUserTurn — same per-stance structure and tone,
+     *  for the DCO/Advanced panel's Re-Prompt step (docs/DCO_REPROMPT_CONCEPT.md).
+     *
+     *  The one fundamental difference from the neural loop: the DCO's
+     *  interpretation is fully machine-readable BEFORE any audio renders (the
+     *  authorDcoRecipe() response's resolved{} + recipe facts + flags[]), so
+     *  there is nothing to HEAR — CLAP's ear is replaced by the router's own
+     *  SELF-READING of what it just baked. `tags`/`spectral` (buildStanceUserTurn)
+     *  become `machineReading`/`flagsLine` here; both are plain display strings
+     *  the CALLER builds from the authorDcoRecipe() JSON (PromptPanel::
+     *  triggerDcoBake), not parsed or interpreted by this function.
+     *
+     *  Guardrail note (router not author): numbers embedded in machineReading
+     *  (motion rate, frame count, ...) are DISPLAY strings for the LLM's prose
+     *  only. Whatever Qwen writes back is re-authored through authorDcoRecipe()'s
+     *  lexicon exactly like hand-typed text — this function cannot bypass that
+     *  validation, it only composes the prompt Qwen sees.
+     *
+     *  The stance SYSTEM prompts are UNCHANGED and shared verbatim with the
+     *  neural loop (stanceSystemPrompt above) — they still say "neural ear" /
+     *  "spectral descriptors", a known v1 mismatch accepted for now (see
+     *  docs/DCO_REPROMPT_CONCEPT.md, section "Qwen-Realismus").
+     *
+     *  @param stanceKey      one of the six shipped stance ids
+     *  @param machineReading the router's own reading of the last bake, one line
+     *                        (e.g. "technique: pwm; adjectives: warm; motion:
+     *                        open_up; motion rate 0.35 Hz; frames 64")
+     *  @param flagsLine      the flags[] honesty channel as one line (e.g.
+     *                        "screamy (no mapping - ignored)"); empty when clean
+     *  @param prevPrompt     the DCO loop's own last link (mirrors prevPolePrompt)
+     *  @param recentList     the DCO loop's anti-stasis memory (its last <=3
+     *                        links); only abduction/opposite read it
+     *  @return the user-turn string; empty for an unknown key or "off". */
+    juce::String buildDcoStanceUserTurn (const juce::String& stanceKey,
+                                         const juce::String& machineReading,
+                                         const juce::String& flagsLine,
+                                         const juce::String& prevPrompt,
+                                         const juce::StringArray& recentList);
+
     /** Port of clap_llm_loop.py `_clean_prompt`: keep the first real line, strip
      *  label echoes (heard:/neural ear:/current prompt:/…) and wrapping quotes
      *  (straight or curly), cap to ≤maxWords words / ≤maxChars chars, and drop

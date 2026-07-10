@@ -293,6 +293,23 @@ private:
     bool dcoBaking_ = false;
     void triggerDcoBake();
 
+    // DCO Re-Prompt (stance-driven self-reading loop, docs/DCO_REPROMPT_CONCEPT.md):
+    // a SECOND stance bar + STEP button, bound to its OWN parameter
+    // (dcoRepromptStance — never repromptStance; paradigm isolation, see
+    // BlockParams.h). One step = the router reads its own last bake (resolved +
+    // recipe facts + flags), Qwen rewrites the DCO prompt under the selected
+    // stance, then triggerDcoBake() re-bakes it. All state below is panel-local
+    // and deliberately NOT persisted (the same seam as dcoPromptEditor itself,
+    // above): the editor IS the visible chain, and v1 has no auto-restore of the
+    // human original when the stance returns to Off (documented open point,
+    // concept doc "Ein Feld, keine Historie sichtbar").
+    RepromptStanceBar dcoStanceBar;
+    juce::TextButton dcoStepBtn { "STEP" };
+    juce::String dcoLastMachineReading_, dcoLastFlagsLine_, dcoLoopLast_;
+    juce::StringArray dcoLoopRecent_;
+    bool dcoRepromptBusy_ = false;
+    void triggerDcoReprompt();
+
     static constexpr int kNumSeedModeBtns = 3;
     // Declared BEFORE seedModeBtns so it outlives them (LnF destruction order).
     IconButtonLnF seedBtnLnF;

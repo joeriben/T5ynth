@@ -162,6 +162,68 @@ juce::String buildStanceUserTurn (const juce::String& stanceKey,
     return {};   // "off" or unknown
 }
 
+// ── DCO per-stance user-turn builder (self-READING twin of buildStanceUserTurn) ──
+// Same six stances, same per-stance shape/tone as buildStanceUserTurn above, but
+// every input is the DCO router's own machine-readable reading of the last bake
+// (resolved + recipe facts + flags), never CLAP tags/spectral words — see the
+// header doc and docs/DCO_REPROMPT_CONCEPT.md ("lesen -> deuten -> umformulieren").
+juce::String buildDcoStanceUserTurn (const juce::String& stanceKey,
+                                     const juce::String& machineReading,
+                                     const juce::String& flagsLine,
+                                     const juce::String& prevPrompt,
+                                     const juce::StringArray& recentList)
+{
+    // Identical shape to buildStanceUserTurn's local triedClause; duplicated
+    // rather than shared, mirroring this file's existing style of one small
+    // lambda per builder (buildStanceUserTurn does the same above).
+    auto triedClause = [&recentList] () -> juce::String
+    {
+        if (recentList.isEmpty()) return {};
+        return "\nAlready tried (do not reuse): " + recentList.joinIntoString (" / ");
+    };
+
+    if (stanceKey == "transcribe")
+    {
+        // The shared system prompt asks for "machine measurements" from "a
+        // neural ear" / "spectral descriptors" — machineReading IS that
+        // measurement here (resolved + recipe facts), so it slots into the same
+        // shape. flagsLine surfaces what the router could NOT map, mirroring
+        // transcribe's "measured qualities only, no scene/story/metaphor" brief.
+        const juce::String notUnderstood = flagsLine.isNotEmpty()
+            ? ("\nNot understood: " + flagsLine) : juce::String();
+        return "Machine reading: " + machineReading + notUnderstood;
+    }
+    if (stanceKey == "abduction")
+    {
+        // Bare description of what the oscillator does (no prevPrompt) — mirrors
+        // buildStanceUserTurn's "Heard: {tags}{tried}" shape.
+        return "The oscillator does: " + machineReading + triedClause();
+    }
+    if (stanceKey == "opposite")
+    {
+        // DCO opposite is BETTER defined than neural's opposite (docs/
+        // DCO_REPROMPT_CONCEPT.md, "Die sechs Stances im DCO"): the lexicon's
+        // bipolar adjective/motion axes give it a real prompt to invert, so —
+        // unlike neural's opposite, which reads only tags — the DCO version
+        // also carries prevPrompt.
+        return "Current prompt: \"" + prevPrompt + "\"\nThe machine read it as: "
+             + machineReading + triedClause();
+    }
+    if (stanceKey == "entkitscher")
+    {
+        return "Current prompt: \"" + prevPrompt + "\"\nMachine reading: " + machineReading;
+    }
+    if (stanceKey == "verniedlicher")
+    {
+        return "Current prompt: \"" + prevPrompt + "\"\nMachine reading: " + machineReading;
+    }
+    if (stanceKey == "variation")
+    {
+        return "Current prompt: \"" + prevPrompt + "\"\nThe machine read it as: " + machineReading;
+    }
+    return {};   // "off" or unknown
+}
+
 // ── _clean_prompt port ───────────────────────────────────────────────────────
 // function words a mid-sentence max_new_tokens cut tends to leave dangling — drop
 // them so the prompt ends on a content word. VERBATIM from _TRAIL_FW.
@@ -205,7 +267,13 @@ juce::String cleanPrompt (const juce::String& raw, int maxChars, int maxWords)
         static const char* kLabels[] = {
             "prompt b:", "new prompt b:", "new prompt:", "prompt:", "next:",
             "output:", "answer:", "heard:", "machine heard:", "neural ear:",
-            "current prompt b:", "current prompt:"
+            "current prompt b:", "current prompt:",
+            // DCO Re-Prompt user-turn labels (buildDcoStanceUserTurn below) —
+            // a leaked echo here would author into spurious lexicon flags,
+            // corrupting the honesty channel. Mirrored in _clean_prompt
+            // (tools/clap_llm_loop.py), which stays the source of truth.
+            "machine reading:", "the oscillator does:",
+            "the machine read it as:", "not understood:"
         };
         const juce::String low = s.toLowerCase();
         for (auto* lab : kLabels)

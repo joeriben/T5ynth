@@ -72,6 +72,16 @@ int main()
                              "metallic, resonant drone");
     // 200 chars, no spaces → cap to 120 (rsplit on a no-space prefix keeps it).
     checkTrue ("char cap 120", cleanPrompt (juce::String::repeatedString ("a", 200)).length() == 120);
+    // DCO user-turn labels (buildDcoStanceUserTurn) — an unstripped echo would
+    // author into spurious lexicon flags on the DCO Re-Prompt loop.
+    check ("dco label: machine reading", cleanPrompt ("Machine reading: warm pulse tone"),
+                                         "warm pulse tone");
+    check ("dco label: oscillator does", cleanPrompt ("The oscillator does: a slow pwm sweep"),
+                                         "a slow pwm sweep");
+    check ("dco label: read it as",      cleanPrompt ("The machine read it as: glassy bell"),
+                                         "glassy bell");
+    check ("dco label: not understood",  cleanPrompt ("Not understood: shimmering saw"),
+                                         "shimmering saw");
 
     std::printf ("concat2:\n");
     check ("concat2",       concat2 ("rain on a roof", "distant thunder"),
@@ -187,6 +197,50 @@ int main()
            "Current prompt: \"sunset romance\"\nHeard: bright");
     checkTrue ("off → empty turn",
                buildStanceUserTurn ("off", "x", "y", {}, "").isEmpty());
+
+    std::printf ("DCO user turns (buildDcoStanceUserTurn):\n");
+    {
+        const juce::String reading = "technique: pwm; adjectives: warm; motion: open_up; "
+                                     "motion rate 0.35 Hz; frames 64";
+        const juce::String flags = "screamy (no mapping - ignored)";
+        juce::StringArray dcoRecent { "old dco a", "old dco b" };
+
+        // every stance key returns non-empty
+        const char* dcoKeys[] = { "transcribe", "entkitscher", "verniedlicher",
+                                  "variation", "abduction", "opposite" };
+        for (auto* k : dcoKeys)
+            checkTrue ((juce::String ("dco non-empty: ") + k).toRawUTF8(),
+                       buildDcoStanceUserTurn (k, reading, flags, "prev dco prompt", dcoRecent).isNotEmpty());
+
+        // unknown / off → empty
+        checkTrue ("dco off → empty turn",
+                   buildDcoStanceUserTurn ("off", reading, flags, "prev", {}).isEmpty());
+        checkTrue ("dco unknown → empty turn",
+                   buildDcoStanceUserTurn ("planetarizer", reading, flags, "prev", {}).isEmpty());
+
+        // transcribe: machineReading verbatim; flags line only when provided
+        checkTrue ("dco transcribe has reading",
+                   buildDcoStanceUserTurn ("transcribe", reading, flags, "prev", {}).contains (reading));
+        checkTrue ("dco transcribe has flags when given",
+                   buildDcoStanceUserTurn ("transcribe", reading, flags, "prev", {}).contains (flags));
+        checkTrue ("dco transcribe no flags line when empty",
+                   ! buildDcoStanceUserTurn ("transcribe", reading, "", "prev", {}).contains ("Not understood"));
+
+        // abduction/opposite: "Already tried" only when recentList is non-empty
+        checkTrue ("dco abduction tried when recent",
+                   buildDcoStanceUserTurn ("abduction", reading, "", "prev", dcoRecent).contains ("Already tried"));
+        checkTrue ("dco abduction no tried when empty",
+                   ! buildDcoStanceUserTurn ("abduction", reading, "", "prev", {}).contains ("Already tried"));
+        checkTrue ("dco opposite tried when recent",
+                   buildDcoStanceUserTurn ("opposite", reading, "", "prev", dcoRecent).contains ("Already tried"));
+        checkTrue ("dco opposite no tried when empty",
+                   ! buildDcoStanceUserTurn ("opposite", reading, "", "prev", {}).contains ("Already tried"));
+
+        // variation contains prevPrompt
+        checkTrue ("dco variation has prevPrompt",
+                   buildDcoStanceUserTurn ("variation", reading, "", "shimmering pwm chain", {})
+                       .contains ("shimmering pwm chain"));
+    }
 
     std::printf (g_fail == 0 ? "\nALL PASS\n" : "\n%d FAILURE(S)\n", g_fail);
     return g_fail == 0 ? 0 : 1;

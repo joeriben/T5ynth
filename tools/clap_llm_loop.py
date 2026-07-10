@@ -347,9 +347,15 @@ def _clean_prompt(s: str, max_chars: int = 120, max_words: int = 12) -> str:
     low = s.lower()
     # also strip echoes of the user-turn prefixes (small models sometimes parrot them,
     # e.g. "heard: whispering wind"): the build()s start the user turn with these.
+    # The last four are the DCO Re-Prompt user-turn labels (RepromptStances.cpp
+    # buildDcoStanceUserTurn) — never produced by THIS loop's build()s, so they are
+    # a no-op here, but the C++ cleanPrompt is a port of this function ("keep in
+    # sync") and the DCO loop routes leaked labels into spurious lexicon flags.
     for lab in ("prompt b:", "new prompt b:", "new prompt:", "prompt:", "next:",
                 "output:", "answer:", "heard:", "machine heard:", "neural ear:",
-                "current prompt b:", "current prompt:"):
+                "current prompt b:", "current prompt:",
+                "machine reading:", "the oscillator does:",
+                "the machine read it as:", "not understood:"):
         if low.startswith(lab):
             s = s[len(lab):].strip()
             break
