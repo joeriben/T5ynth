@@ -1,9 +1,17 @@
 # Handover — the DCO oscillator (T5Osc "Advanced" becomes a classical, LLM-authored oscillator)
 
-Status: **BUILT end-to-end (2026-07-10).** The v1 pipeline exists on `main`: prompt A → backend
-lexicon router (Qwen guardrailed per `docs/DCO_LLM_GUARDRAILS.md`) → recipe JSON → `dco::Baker`
-(`src/dsp/DcoBaker.*`, Slices 1+2, commit `bcd02384`) → `loadDcoWavetable` → Wavetable engine, with
-a BAKE + status row on the freed Advanced canvas (Slice 4, commit `71aa57d2`). Slice 0 was executed
+Status: **BUILT end-to-end (2026-07-10).** The v1 pipeline exists on `main`: DCO prompt → backend
+lexicon router (Qwen guardrailed per `docs/DCO_LLM_GUARDRAILS.md`, Slice 3, commit `427ffef2`) →
+recipe JSON → `dco::Baker`
+(`src/dsp/DcoBaker.*`, Slices 1+2, commit `bcd02384`) → `loadDcoWavetable` → Wavetable engine
+(Slice 4, commit `71aa57d2`). **UI correction (`acf295e7`): the Advanced view IS the DCO panel** —
+a paradigm split earlier revisions of this handover under-specified (the Slice-4 MVP had wedged a
+BAKE row under the neural Advanced layout instead). ADV now shows only a large multiline DCO
+prompt editor (its OWN text, not bound to prompt A; Enter bakes) plus the BAKE/status row; the
+model switchbox, A/B editors, injection bar, translate flag, alpha slider and RE-PROMPT module are
+Easy-only, and the height/font budget is a single mode-independent constant
+(`kPromptContentUnits = 20.11`), so the EASY↔ADV toggle changes neither section height nor font
+scale. Sections below that say "prompt A" for the DCO input predate this. Slice 0 was executed
 by an external session (`035e5cf8`/`63dc543f`) and repaired (`e90ac3d7`: font lockstep 17.25,
 forced per-model Steps/CFG at the request choke point, preset seed-mode sync). Every slice passed
 an adversarial opus review; the audition tool re-proved the two lost design demos
