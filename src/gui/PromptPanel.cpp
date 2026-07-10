@@ -4,6 +4,8 @@
 #include "MidiLearnMenu.h"
 #include "../PluginProcessor.h"
 #include "../dsp/BlockParams.h"
+#include "../dsp/DcoBaker.h"
+#include "../dsp/DcoRecipeJson.h"
 #include "../inference/RepromptStances.h"
 #include <thread>
 #include <cmath>
@@ -80,7 +82,9 @@ constexpr float kPromptReprompt    = 4.0f;   // Re-Prompt MODULE total height (c
 // Seed state now lives on the processor (setLastSeed/getLastSeed,
 // setLastRandomSeed/getLastRandomSeed), driven exclusively by the Easy-mode
 // Variation switchbox.
-constexpr float kPromptContentUnits = 17.25f;
+// The DCO surface (Slice 4) adds one standard row on the Advanced canvas:
+// BAKE + status = compactRow + gap = 1.43 -> 17.25 + 1.43 = 18.68.
+constexpr float kPromptContentUnits = 18.68f;
 // Easy budget keeps the model selector row but drops the advanced param rows.
 constexpr float kPromptEasyContentUnits = 20.11f;
 constexpr int kBaseSeed = 123456789;
@@ -355,6 +359,16 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         makeLabel(varSwitchLabel, "VAR", kDim, juce::Justification::centredLeft, this);
     }
 
+    // DCO surface (Advanced view, on the canvas Slice 0 freed): bake trigger +
+    // status line. Authors a recipe from prompt A via the backend lexicon
+    // router, bakes off-thread, loads the wavetable master (loadDcoWavetable).
+    {
+        addAndMakeVisible(dcoBakeBtn);
+        dcoBakeBtn.setTooltip("Author a DCO wavetable from prompt A (offline bake)");
+        dcoBakeBtn.onClick = [this] { triggerDcoBake(); };
+        makeLabel(dcoStatusLabel, "DCO: ready", kDim, juce::Justification::centredLeft, this);
+    }
+
     // Model selector — fixed 4 slots, always visible (disabled = gray until model found).
     // Order: SA3 first (newest, default), then SA1 family, then AudioLDM2.
     {
@@ -612,7 +626,8 @@ int PromptPanel::getPreferredHeightForWidth(int width) const
 
     return (compactRowH + 2) + modelGap                 // model selector row
          + abBlockH + innerGap + repromptRowH           // A↔B block + Re-Prompt row
-         + groupGap;                                    // divider only (param grid removed, DCO Slice 0)
+         + groupGap                                     // divider (param grid removed, DCO Slice 0)
+         + compactRowH + gap;                           // DCO surface: BAKE + status row
 }
 
 void PromptPanel::timerCallback()
@@ -907,6 +922,9 @@ void PromptPanel::resized()
     magRow->setVisible(easy);
     noiseRow->setVisible(easy);
     varSwitchLabel.setVisible(easy);
+    // The DCO surface lives on the Advanced canvas only.
+    dcoBakeBtn.setVisible(!easy);
+    dcoStatusLabel.setVisible(!easy);
     seedModeSwitchBounds = {};   // re-set by the Easy layout in resized()
 
     // ── Model selector switchbox at top (compact, fixed 5 slots) ──
@@ -1111,7 +1129,7 @@ void PromptPanel::resized()
     // sits flush above SEMANTIC AXES; any extra height is split evenly above and
     // below it.
     {
-        const int paramsH = easy ? (2 * (compactRowH + gap)) : 0;
+        const int paramsH = easy ? (2 * (compactRowH + gap)) : (compactRowH + gap);
         area.removeFromTop(juce::jmax(0, area.getHeight() - paramsH) / 2);
     }
 
@@ -1119,7 +1137,22 @@ void PromptPanel::resized()
     {
         layoutEasyGenParamsBlock();
     }
-    // Advanced: param grid removed (DCO Slice 0) — canvas stays empty.
+    else
+    {
+        // Advanced: the DCO surface (Slice 4 MVP) — one standard row: BAKE
+        // trigger + status/flags line. Grows as the DCO gains controls; every
+        // height change goes into kPromptContentUnits + the preferred-height
+        // Advanced branch in lockstep.
+        setUiFont(dcoStatusLabel, TextRole::Caption, f);
+        auto row = area.removeFromTop(compactRowH);
+        const int bakeW = juce::jlimit(juce::roundToInt(f * 3.2f),
+                                       row.getWidth() / 3,
+                                       juce::roundToInt(f * 4.2f));
+        dcoBakeBtn.setBounds(row.removeFromLeft(bakeW));
+        row.removeFromLeft(juce::jmax(2, gap));
+        dcoStatusLabel.setBounds(row);
+        area.removeFromTop(gap);
+    }
 }
 
 void PromptPanel::loadPresetData(const juce::String& promptA, const juce::String& promptB,
@@ -1826,6 +1859,104 @@ void PromptPanel::triggerGenerationWithOffsets(std::vector<std::pair<int, float>
 {
     pendingOffsets_ = std::move(offsets);
     triggerGeneration();
+}
+
+void PromptPanel::triggerDcoBake()
+{
+    if (dcoBaking_)
+        return;
+    // The pipe is one serialized channel (recursive stateMutex_): a bake
+    // clicked mid-generation would just park behind it for minutes with a
+    // misleading "authoring..." label. Same gate set as triggerGeneration.
+    if (generating || translatingPrompts_ || loopStepInFlight_)
+    {
+        dcoStatusLabel.setText("DCO: busy (generation running)", juce::dontSendNotification);
+        return;
+    }
+    auto pipePtr = processorRef.getPipeInferencePtr();
+    if (pipePtr == nullptr)
+    {
+        dcoStatusLabel.setText("DCO: backend not running", juce::dontSendNotification);
+        return;
+    }
+    const auto text = promptAEditor.getText().trim();
+    if (text.isEmpty())
+    {
+        dcoStatusLabel.setText("DCO: prompt A is empty", juce::dontSendNotification);
+        return;
+    }
+
+    // Bake at the engine's current WT Frames resolution (same index->count
+    // mapping as reextractWavetable).
+    constexpr int frameCounts[] = { 32, 64, 128, 256 };
+    const int fcIdx = static_cast<int>(processorRef.getValueTreeState()
+                          .getRawParameterValue(PID::wtFrames)->load());
+    const int frames = frameCounts[juce::jlimit(0, 3, fcIdx)];
+
+    dcoBaking_ = true;
+    dcoBakeBtn.setEnabled(false);
+    dcoStatusLabel.setText("DCO: authoring...", juce::dontSendNotification);
+
+    // Author (one IPC round-trip, may lazily load the instruct model) and bake
+    // on a detached background thread; only the engine load + status update
+    // marshal back to the message thread (house pattern: triggerGeneration).
+    juce::Component::SafePointer<PromptPanel> safeThis(this);
+    std::thread([safeThis, pipePtr, text, frames]() mutable
+    {
+        auto authored = pipePtr->authorDcoRecipe(text, frames);
+
+        juce::String status, flagTooltip;
+        juce::AudioBuffer<float> strip;
+        if (authored.success)
+        {
+            const auto parsed = juce::JSON::parse(authored.json);
+            const auto recipe = dco::recipeFromVar(parsed.getProperty("recipe", juce::var()));
+            if (!recipe.keyframes.empty())
+            {
+                const auto frameData = dco::Baker::bake(recipe);
+                strip = dco::Baker::framesToBuffer(frameData);
+            }
+
+            const auto resolved = parsed.getProperty("resolved", juce::var());
+            auto technique = resolved.getProperty("technique", juce::var()).toString();
+            if (technique.isEmpty())
+                technique = "?";
+            int numFlags = 0;
+            if (const auto* flags = parsed.getProperty("flags", juce::var()).getArray())
+            {
+                numFlags = flags->size();
+                juce::StringArray lines;
+                for (const auto& fl : *flags)
+                    lines.add(fl.getProperty("word", juce::var()).toString()
+                              + ": " + fl.getProperty("reason", juce::var()).toString());
+                flagTooltip = lines.joinIntoString("\n");
+            }
+            status = "DCO: " + technique
+                   + (numFlags > 0 ? "  [" + juce::String(numFlags)
+                                     + (numFlags == 1 ? " flag]" : " flags]")
+                                   : juce::String());
+            if (strip.getNumSamples() == 0)
+                status = "DCO: empty recipe";
+        }
+        else
+        {
+            status = "DCO: " + authored.errorMessage;
+        }
+
+        juce::MessageManager::callAsync(
+            [safeThis, strip = std::move(strip), status, flagTooltip]() mutable
+        {
+            if (auto* self = safeThis.getComponent())
+            {
+                if (strip.getNumSamples() > 0)
+                    self->processorRef.loadDcoWavetable(strip);
+                self->dcoStatusLabel.setText(status, juce::dontSendNotification);
+                self->dcoStatusLabel.setTooltip(flagTooltip);
+                self->dcoBakeBtn.setEnabled(true);
+                self->dcoBaking_ = false;
+            }
+        });
+    }).detach();
 }
 
 // ── Per-mode slider memory ───────────────────────────────────────────────────

@@ -3287,9 +3287,14 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             // (morphToBufferFrom may free a retired snapshot off-thread). The
             // generation guard makes this a no-op when the buffer is unchanged.
             voiceManager.distributeFreezeBuffer(masterFreeze, 0.0f, false);
-        if (masterOsc.hasFrames() && generatedAudioFull.getNumSamples() > 0)
+        if (masterOsc.hasFrames())
         {
-            syncWavetableTraversal(generatedSampleRate, generatedAudioFull.getNumSamples());
+            // With a DCO-baked table the traversal was set once by
+            // loadDcoWavetable (full-range motion loop) — re-deriving it from
+            // the last neural sample's regions every block would clobber it.
+            if (!dcoTableActive_.load(std::memory_order_relaxed)
+                && generatedAudioFull.getNumSamples() > 0)
+                syncWavetableTraversal(generatedSampleRate, generatedAudioFull.getNumSamples());
             masterOsc.setMorphTimeMs(paramCache.driftCrossfade->load());
             voiceManager.distributeWavetableFrames(masterOsc);
         }
@@ -4705,6 +4710,7 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
         // audio thread only sees a short atomic handoff.
         masterSampler.applyPreparedBufferLoad(std::move(preparedSamplerLoad), samplerConfig);
 
+        dcoTableActive_.store(false, std::memory_order_relaxed);  // neural frames own masterOsc again
         syncWavetableTraversal(sr, feedBuffer.getNumSamples());
         masterOsc.setMorphTimeMs(paramCache.driftCrossfade->load());
 
@@ -4726,6 +4732,59 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
             waveformSnapshot = std::move(preparedWaveformSnapshot);
             newWaveformReady.store(true, std::memory_order_release);
         }
+    }
+}
+
+void T5ynthProcessor::loadDcoWavetable(const juce::AudioBuffer<float>& frameStrip)
+{
+    // Message thread. The strip is N baked single cycles laid end-to-end
+    // (mono, N*2048 samples) — extractContiguousFrames re-slices it on exact
+    // frame boundaries (no pitch detection, no resampling). Publish discipline
+    // mirrors loadGeneratedAudio: extraction off the lock (it ends in an
+    // atomic snapshot publish), traversal/morph/distribute under it.
+    if (frameStrip.getNumChannels() < 1
+        || frameStrip.getNumSamples() < WavetableOscillator::FRAME_SIZE)
+        return;
+
+    const double sr = getSampleRate() > 0.0 ? getSampleRate() : 44100.0;
+
+    // The DCO is a wavetable source: make it audible. Host-visible param
+    // change, message thread, before the engine data lands so the block-param
+    // mapper picks both up together.
+    if (auto* engineParam = parameters.getParameter(PID::engineMode))
+        engineParam->setValueNotifyingHost(
+            engineParam->convertTo0to1(static_cast<float>(EngineMode::Wavetable)));
+
+    masterOsc.extractContiguousFrames(frameStrip, sr, 0.0f, 1.0f);
+
+    {
+        // Guard engine-state mutation against the realtime callback (same
+        // rule as loadGeneratedAudio).
+        const juce::ScopedLock sl (getCallbackLock());
+
+        // NOT syncWavetableTraversal(): that derives scan-loop brackets from
+        // the SAMPLER's active region (state of the last neural sample), which
+        // is meaningless for a baked strip and would loop only part of the
+        // motion. The recipe motion is loop-authored over the FULL table.
+        masterOsc.setAutoScanStartPos(0.0f);
+        masterOsc.setAutoScanLoop(0.0f, 1.0f, WavetableOscillator::LoopMode::Loop);
+        if (paramCache.wtAutoScan->load() > 0.5f)
+        {
+            masterOsc.setAutoScan(true);
+            masterOsc.setAutoScanRate(sr, frameStrip.getNumSamples());
+        }
+        else
+        {
+            masterOsc.setAutoScan(false);
+        }
+
+        masterOsc.setMorphTimeMs(paramCache.driftCrossfade->load());
+        // Gate the per-block traversal re-sync BEFORE distributing, so no
+        // audio block can re-derive neural scan brackets over the DCO table.
+        dcoTableActive_.store(true, std::memory_order_relaxed);
+        // A HELD note plays the freshly baked table: active wavetable voices
+        // equal-power crossfade over the Regen XFade time, silent voices adopt.
+        voiceManager.distributeWavetableFrames(masterOsc);
     }
 }
 
@@ -4791,6 +4850,7 @@ void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& proce
         voiceManager.distributeSamplerBuffer(masterSampler, 0.0f, /*allowMorph=*/false);
         if (masterOsc.hasFrames())
         {
+            dcoTableActive_.store(false, std::memory_order_relaxed);  // re-extracted from processed audio above
             syncWavetableTraversal(generatedSampleRate, waveformSnapshot.getNumSamples());
             masterOsc.setMorphTimeMs(paramCache.driftCrossfade->load());
             voiceManager.distributeWavetableFrames(masterOsc);
@@ -4884,6 +4944,7 @@ void T5ynthProcessor::reextractWavetable()
         else
             masterOsc.extractContiguousFrames(waveformSnapshot, generatedSampleRate, start, end);
 
+        dcoTableActive_.store(false, std::memory_order_relaxed);  // re-extracted from the snapshot above
         syncWavetableTraversal(generatedSampleRate, waveformSnapshot.getNumSamples());
         masterOsc.setMorphTimeMs(paramCache.driftCrossfade->load());
         voiceManager.distributeWavetableFrames(masterOsc);

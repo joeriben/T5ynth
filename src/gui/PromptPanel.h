@@ -250,6 +250,15 @@ private:
     // Declared BEFORE magA/noiseA (below) so the attachments tear down first
     // (reverse destruction order).
     std::unique_ptr<SliderRow> magRow, noiseRow;
+    // DCO surface (Advanced view only — the canvas freed by Slice 0): bake
+    // trigger + status/flags line. The bake authors a recipe from prompt A via
+    // the backend lexicon router (docs/DCO_LLM_GUARDRAILS.md), bakes frames on
+    // a background thread, and loads them into the wavetable master.
+    juce::TextButton dcoBakeBtn { "BAKE" };
+    juce::Label dcoStatusLabel;
+    bool dcoBaking_ = false;
+    void triggerDcoBake();
+
     static constexpr int kNumSeedModeBtns = 3;
     // Declared BEFORE seedModeBtns so it outlives them (LnF destruction order).
     IconButtonLnF seedBtnLnF;

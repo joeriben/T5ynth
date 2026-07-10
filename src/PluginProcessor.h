@@ -76,6 +76,14 @@ public:
     void loadGeneratedAudio(const juce::AudioBuffer<float>& buffer, double sampleRate);
     /** Reload already-processed audio into sampler (no Rumble/HF/Normalize). */
     void reloadProcessedAudio(const juce::AudioBuffer<float>& processed);
+    /** Load DCO-baked single-cycle frames (mono strip, N*2048 samples laid
+     *  end-to-end) into the wavetable master and switch the engine to
+     *  Wavetable. Message thread only. Held voices crossfade over the Regen
+     *  XFade time (distributeWavetableFrames), like any regeneration.
+     *  NOTE: reextractWavetable()/reloadProcessedAudio() re-extract from the
+     *  last GENERATED audio, so touching WT frame-count/brackets after a DCO
+     *  bake reverts the table to the neural material — known Slice-4 seam. */
+    void loadDcoWavetable(const juce::AudioBuffer<float>& frameStrip);
 
     // Inference cache: raw inference audio only, no duplicate prompt/model metadata.
     struct InferenceCacheEntry
@@ -351,6 +359,14 @@ private:
 
     // Master data holders (own the audio/frame data, voices share from these)
     WavetableOscillator masterOsc;
+    // True while masterOsc holds a DCO-baked table (loadDcoWavetable) instead
+    // of frames extracted from generated audio. Gates the per-block
+    // syncWavetableTraversal in processBlock, which would otherwise re-derive
+    // scan-loop brackets from the LAST NEURAL sample every block and clobber
+    // the DCO's full-range motion loop. Message thread writes (all engine
+    // loaders), audio thread reads relaxed. Any neural (re-)extraction into
+    // masterOsc clears it.
+    std::atomic<bool> dcoTableActive_ { false };
     SamplePlayer masterSampler;
     FreezeTextureEngine masterFreeze;
     std::thread samplerReprepareThread;

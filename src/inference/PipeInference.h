@@ -138,6 +138,13 @@ public:
         juce::String errorMessage;  // set when success == false
     };
 
+    struct DcoAuthorResult
+    {
+        bool success = false;
+        juce::String json;          // full backend response: {ok, recipe, resolved, flags, lexicon_version}
+        juce::String errorMessage;  // set when success == false
+    };
+
     /** Blocking generation — call from background thread.
      *  Auto-restarts Python if subprocess died. */
     Result generate(const Request& request);
@@ -174,6 +181,13 @@ public:
                           double sampleRate,
                           int topk,
                           const juce::String& device);
+
+    /** Blocking DCO recipe authoring (docs/DCO_LLM_GUARDRAILS.md) — call from a
+     *  background thread. The backend routes the text through its lexicons (one
+     *  constrained instruct-LLM call at most) and ALWAYS returns a bakeable
+     *  recipe JSON with resolved{} + flags[]. `frames` <= 0 uses the backend
+     *  default. Empty input returns success == false without a round-trip. */
+    DcoAuthorResult authorDcoRecipe(const juce::String& text, int frames = 0);
 
     /** Preload a model+device combo so first generate is fast.
      *  Blocking — call from background thread. Returns true on success. */
