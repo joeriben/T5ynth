@@ -1470,6 +1470,75 @@ def _dedupe_flags(flags):
     return out
 
 
+# ─── reference vocabulary (Re-Prompt grounding) ────────────────────────────
+# The controlled vocabulary the S0->S1 scanner actually resolves, formatted as
+# a compact palette for the Re-Prompt LLM. Every term here is a real surface
+# form (or composition pattern) _scan / _extract_composition_ops recognizes --
+# it is the SAME vocabulary used "für die Auswertung" (for parsing), handed to
+# the generator so a re-prompt stops emitting words the instrument silently
+# drops. One canonical (first-ASCII) surface form per key keeps it a clean
+# concept palette instead of every inflected / German synonym the scanner also
+# accepts; because each canonical form is ITSELF a registered surface form, the
+# brief never promises a word the parser cannot honour. Derived live from the
+# lexicon + the shared composition-verb taxonomy -- there is no second, hand-
+# maintained list that could drift out of sync with what _scan matches.
+
+def _canonical_surface_form(item):
+    """First ASCII surface form of a lexicon entry (the clean English one),
+    falling back to the first form when every surface form is non-ASCII, and to
+    the entry's key when the list is empty. Total by design: a malformed lexicon
+    entry (empty surface_forms) must never raise here, because reference_
+    vocabulary runs OUTSIDE author_recipe's _compose try/except -- a raise would
+    break author_recipe's 'any text input -> ok:True' guarantee for every bake."""
+    forms = item.get("surface_forms") or []
+    for sf in forms:
+        if all(ord(c) < 128 for c in sf):
+            return sf
+    return forms[0] if forms else item.get("key", "")
+
+
+def reference_vocabulary(lexicon=None):
+    """A human-readable brief of the exact vocabulary author_recipe resolves,
+    for grounding the Re-Prompt LLM (docs/DCO_REPROMPT_CONCEPT.md). Pure lexicon
+    derivation -- no model, deterministic, cheap enough to rebuild per bake."""
+    lex = lexicon if lexicon is not None else load_lexicon()
+
+    waveforms = [_canonical_surface_form(t) for t in lex["techniques"]]
+    qualities = [_canonical_surface_form(a) for a in lex["adjectives"]]
+    motions   = [_canonical_surface_form(m) for m in lex["motions"]]
+    # the morph connector ("saw into square") and the intensity degrees are
+    # scanner categories too -- surface them so chained / graded prompts parse.
+    morph = _canonical_surface_form(lex["connectors"][0]) if lex.get("connectors") else "into"
+    # One representative per intensity tier (dedupe by multiplier, first-seen):
+    # collapses the graded synonyms -- incl. the German ones -- to the English
+    # leads (slightly / very / extremely), a cleaner steer than the full list.
+    # Relies on the lexicon listing the English form first in each tier (its
+    # current convention); a stray German lead would still parse, just read odd.
+    _seen_mult, intensity = set(), []
+    for _word, _mult in lex["degrees"].items():
+        if _mult not in _seen_mult:
+            _seen_mult.add(_mult)
+            intensity.append(_word)
+
+    # composition-op verbs (additive harmonic addressing): "<verb> the Nth
+    # harmonic", "<verb> every Nth harmonic", "only odd|even harmonics".
+    boost  = ", ".join(sorted(_BOOST_VERBS))
+    reduce = ", ".join(sorted(_REDUCE_VERBS))
+    remove = ", ".join(sorted(_REMOVE_VERBS))
+
+    return "\n".join([
+        "WAVEFORMS (pick one, or morph two with '" + morph + "'): " + ", ".join(waveforms),
+        "SPECTRAL QUALITIES: " + ", ".join(qualities),
+        "MOTION over time: " + ", ".join(motions),
+        "INTENSITY: " + ", ".join(intensity),
+        "HARMONIC EDITS: '<verb> the Nth harmonic', '<verb> every Nth harmonic', "
+        "'only odd/even harmonics' (N = 2..10)",
+        "  boost verbs: " + boost,
+        "  reduce verbs: " + reduce,
+        "  remove verbs: " + remove,
+    ])
+
+
 # ─── top level: author_recipe ──────────────────────────────────────────────
 
 def author_recipe(text, llm_route=None, frames=None):
@@ -1522,4 +1591,10 @@ def author_recipe(text, llm_route=None, frames=None):
         "resolved": resolved,
         "flags": _dedupe_flags(flags),
         "lexicon_version": lexicon["lexicon_version"],
+        # Sibling key (NOT inside "recipe", so the baked recipe stays byte-
+        # identical): the Re-Prompt LLM's allowed palette, so its rewrites use
+        # words this same pipeline can resolve. Static per lexicon; the C++ side
+        # caches the first non-empty one it sees. Reuses the lexicon already
+        # loaded above -- no second file read.
+        "reference_vocabulary": reference_vocabulary(lexicon),
     }

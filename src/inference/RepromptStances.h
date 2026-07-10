@@ -89,6 +89,15 @@ namespace RepromptStances
                                          const juce::String& prevPrompt,
                                          const juce::StringArray& recentList);
 
+    /** Frames the DCO/LCO reference vocabulary (backend dco_recipe.reference_
+     *  vocabulary — the exact palette the scanner resolves) as a constraint
+     *  block to append to the LCO re-prompt turn, so the LLM stops emitting
+     *  words the instrument silently drops. LCO-only: the neural loop's
+     *  stanceSystemPrompt/buildStanceUserTurn never see this. Returns "" when
+     *  the brief is empty (backend too old / not yet baked → current behaviour).
+     *  @param referenceVocabulary  the backend brief verbatim (grouped word lists) */
+    juce::String dcoVocabularyConstraintBlock (const juce::String& referenceVocabulary);
+
     /** Port of clap_llm_loop.py `_clean_prompt`: keep the first real line, strip
      *  label echoes (heard:/neural ear:/current prompt:/…) and wrapping quotes
      *  (straight or curly), cap to ≤maxWords words / ≤maxChars chars, and drop

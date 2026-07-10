@@ -330,6 +330,13 @@ private:
     juce::Label dcoRepromptTitle;
     juce::String dcoLastMachineReading_, dcoLastFlagsLine_, dcoLoopLast_;
     juce::StringArray dcoLoopRecent_;
+    // The Re-Prompt LLM's allowed palette — the scanner's own vocabulary, sent
+    // back as a sibling field on every author response (backend dco_recipe.
+    // reference_vocabulary). Static per lexicon; cached from the first non-empty
+    // bake and appended to every re-prompt turn so the LLM stops emitting words
+    // the instrument silently drops. Message-thread only (written in the bake
+    // callAsync, read in triggerDcoReprompt) — no cross-thread access.
+    juce::String dcoReferenceVocab_;
     bool dcoRepromptBusy_ = false;
     void triggerDcoReprompt();
 

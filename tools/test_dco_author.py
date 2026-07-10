@@ -610,6 +610,57 @@ def run_unit_tests():
         errs = validate_recipe_structure(fixed)
         check(f"validate_recipe repairs {str(bad)[:60]!r} to structural validity", not errs, errs)
 
+    # ── REFERENCE VOCABULARY (Re-Prompt grounding). The palette handed to the
+    #    Re-Prompt LLM must be exactly the vocabulary author_recipe RESOLVES, so
+    #    a rewrite stops emitting words the scanner silently drops. The contract:
+    #    every canonical word the brief lists round-trips through S1 WITHOUT being
+    #    flagged as unmapped residue ("dasselbe wie für die Auswertung").
+    brief = dr.reference_vocabulary()
+    check("reference_vocabulary is non-empty", bool(brief.strip()), repr(brief[:80]))
+    for header in ("WAVEFORMS", "SPECTRAL QUALITIES", "MOTION", "INTENSITY", "HARMONIC EDITS"):
+        check(f"reference_vocabulary lists a {header} section", header in brief, brief[:120])
+
+    def _residue_words(resp):
+        return {f["word"] for f in resp["flags"] if "no mapping" in f["reason"]}
+
+    for cat in ("techniques", "adjectives", "motions"):
+        for item in lexicon[cat]:
+            word = dr._canonical_surface_form(item)
+            resp = dr.author_recipe(word, llm_route=None, frames=None)
+            # token-overlap (not membership): a MULTI-WORD canonical ("electric
+            # piano", "opens up") can never equal a single-token residue word, so
+            # a plain `word not in residue` would pass vacuously and miss a leaked
+            # constituent. Splitting enforces the contract per token.
+            check(f"brief {cat[:-1]} {word!r} parses (no residue flag)",
+                  not (_residue_words(resp) & set(word.split())), resp["flags"])
+
+    # the intensity + morph words the brief promises must also be scanner terms
+    # (degrees never surface as residue; the connector chains two waveforms)
+    for deg in ("slightly", "very", "extremely"):
+        resp = dr.author_recipe(f"{deg} bright saw", llm_route=None, frames=None)
+        check(f"brief intensity {deg!r} not flagged as residue",
+              deg not in _residue_words(resp), resp["flags"])
+    resp = dr.author_recipe("saw into square", llm_route=None, frames=None)
+    check("brief morph connector 'into' chains (saw->square, not residue)",
+          resp["resolved"]["technique"] == "saw->square", resp["resolved"])
+
+    # the harmonic-edit syntax the brief describes must resolve to real ops
+    for phrase in ("boost the 3rd harmonic", "attenuate every 2nd harmonic",
+                   "only odd harmonics", "remove harmonic 4"):
+        resp = dr.author_recipe("saw " + phrase, llm_route=None, frames=None)
+        check(f"brief harmonic-edit {phrase!r} -> a composition op",
+              len(resp["resolved"]["composition"]) >= 1
+              and not (_residue_words(resp) & set(phrase.split())),
+              (resp["resolved"]["composition"], resp["flags"]))
+
+    # the brief is piggybacked on every author response, byte-identical to the
+    # standalone call, and never leaks into the (determinism-critical) recipe.
+    r_pv = dr.author_recipe("saw", llm_route=None, frames=None)
+    check("author_recipe response carries reference_vocabulary",
+          r_pv.get("reference_vocabulary") == brief, repr(r_pv.get("reference_vocabulary"))[:80])
+    check("reference_vocabulary is a SIBLING key, not inside the recipe",
+          "reference_vocabulary" not in r_pv["recipe"])
+
     print()
     return list(_FAILURES)
 

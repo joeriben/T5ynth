@@ -224,6 +224,24 @@ juce::String buildDcoStanceUserTurn (const juce::String& stanceKey,
     return {};   // "off" or unknown
 }
 
+// ── DCO/LCO reference-vocabulary constraint (Re-Prompt grounding) ────────────
+// Appended to the LCO re-prompt user turn ONLY (the neural loop never calls
+// this). `referenceVocabulary` is the backend brief verbatim — the exact set of
+// words backend/dco_recipe.py's scanner resolves — so a rewrite that stays
+// inside it is one this same pipeline can actually read. Empty in → empty out
+// (an old backend without the field, or before the first bake): the turn is
+// unchanged and behaves exactly as it did before this grounding existed.
+juce::String dcoVocabularyConstraintBlock (const juce::String& referenceVocabulary)
+{
+    if (referenceVocabulary.trim().isEmpty())
+        return {};
+    return "\n\nBuild the new prompt using ONLY the synthesizer's own vocabulary "
+           "below. These are the exact words the instrument can read; any other "
+           "word is silently ignored, so a prompt built from outside words changes "
+           "nothing. Recombine them freely.\n\n"
+         + referenceVocabulary.trim();
+}
+
 // ── _clean_prompt port ───────────────────────────────────────────────────────
 // function words a mid-sentence max_new_tokens cut tends to leave dangling — drop
 // them so the prompt ends on a content word. VERBATIM from _TRAIL_FW.

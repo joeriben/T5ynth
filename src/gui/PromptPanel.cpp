@@ -2087,9 +2087,15 @@ void PromptPanel::triggerDcoBake()
         // fed back into the recipe itself — router not author, the next bake
         // re-validates through the same lexicon regardless of what the LLM writes.
         juce::String machineReading, flagsLine;
+        // The scanner's own vocabulary, sent back as a sibling field (NOT inside
+        // "recipe") — cached message-thread-side for the Re-Prompt palette. Empty
+        // from an older backend without the field; the re-prompt then simply omits
+        // the constraint (pre-grounding behaviour).
+        juce::String referenceVocab;
         if (authored.success)
         {
             const auto parsed = juce::JSON::parse(authored.json);
+            referenceVocab = parsed.getProperty("reference_vocabulary", juce::var()).toString();
             const auto recipeVar = parsed.getProperty("recipe", juce::var());
             const auto recipe = dco::recipeFromVar(recipeVar);
             motionRateHz = recipe.motionRateHz;
@@ -2177,7 +2183,7 @@ void PromptPanel::triggerDcoBake()
 
         juce::MessageManager::callAsync(
             [safeThis, strip = std::move(strip), status, flagTooltip, motionRateHz,
-             machineReading, flagsLine, text]() mutable
+             machineReading, flagsLine, referenceVocab, text]() mutable
         {
             if (auto* self = safeThis.getComponent())
             {
@@ -2195,6 +2201,12 @@ void PromptPanel::triggerDcoBake()
                 self->dcoFlagsLabel.setTooltip(flagTooltip);  // full text if clipped
                 self->dcoBaking_ = false;
                 if (self->onLcoBusyChanged) self->onLcoBusyChanged(false);
+
+                // Cache the scanner's vocabulary for the Re-Prompt palette. Static
+                // per lexicon, so the first non-empty one stands; guarded so a
+                // failed/empty bake (or old backend) never clobbers a good palette.
+                if (referenceVocab.isNotEmpty())
+                    self->dcoReferenceVocab_ = referenceVocab;
 
                 // Stash this bake's own reading of itself for the next Re-Prompt
                 // STEP, and (re-)seed the chain's link from this BAKE — docs/
@@ -2312,6 +2324,7 @@ void PromptPanel::triggerDcoReprompt()
     const juce::StringArray recent = dcoLoopRecent_;
     const juce::String reading = dcoLastMachineReading_;
     const juce::String flags = dcoLastFlagsLine_;
+    const juce::String vocab = dcoReferenceVocab_;   // scanner palette (may be empty)
 
     auto pipePtr = processorRef.getPipeInferencePtr();
     if (pipePtr == nullptr)
@@ -2328,11 +2341,16 @@ void PromptPanel::triggerDcoReprompt()
     // IPC on a detached background thread ONLY — never the message thread (JUCE
     // rule; house pattern: triggerDcoBake / runSemanticLoopStep).
     juce::Component::SafePointer<PromptPanel> safeThis(this);
-    std::thread([safeThis, pipePtr, stanceKey, reading, flags, prev, recent, device]() mutable
+    std::thread([safeThis, pipePtr, stanceKey, reading, flags, prev, recent, vocab, device]() mutable
     {
         const juce::String sysp = RepromptStances::stanceSystemPrompt(stanceKey);
-        const juce::String userTurn =
+        juce::String userTurn =
             RepromptStances::buildDcoStanceUserTurn(stanceKey, reading, flags, prev, recent);
+        // Ground the rewrite in the scanner's own vocabulary (LCO-only; a no-op
+        // when the palette is empty). Skip on an empty turn (off/unknown stance)
+        // so a bare constraint is never sent with nothing to reinterpret.
+        if (userTurn.isNotEmpty())
+            userTurn += RepromptStances::dcoVocabularyConstraintBlock(vocab);
         // 64 == the same maxNewTokens runSemanticLoopStep passes to interpret()
         // for the neural loop's short (3-8 word) prompt rewrites.
         auto r = pipePtr->interpret(sysp, userTurn, 64, device);
