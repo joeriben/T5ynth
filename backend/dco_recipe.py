@@ -155,6 +155,126 @@ def _extract_typed_values(norm_text):
     return values, "".join(chars)
 
 
+# ─── S1: compositional harmonic instructions (additive addressing) ─────────
+# Typed harmonic-level commands the adjective lexicon cannot express: "only odd
+# overtones", "attenuate every 3rd", "boost harmonic 5", "remove the 3rd
+# harmonic". Parsed on the normalized text BEFORE both the typed-value pass and
+# the word-scan (so "every 3 harmonics" is claimed as a comb, not mis-read as a
+# 3-partial ceiling); matched spans are blanked, so their tokens ("attenuate",
+# "every", "3rd", ...) never leak to residue/S2. Each match yields a concrete
+# additive op ({"op","args"}) that _compose applies AFTER the adjective pass
+# (explicit user instruction beats worded adjective), through the SAME
+# _ensure_additive + inapplicable-flag path as the spectral ops. This is pure
+# deterministic parsing of the user's own words/numbers -- no LLM, exactly like
+# the typed values above; fully inside the "router not author" guardrail.
+#
+# CONVENTION: "overtone" is treated as a synonym for "harmonic" in addressing
+# (dominant colloquial synth usage) -- the Nth harmonic and the Nth overtone
+# both mean partial h=N here, NOT the formal overtone=h(N+1). Documented in
+# docs/DCO_LLM_GUARDRAILS.md.
+
+_ORDINAL_WORDS = {"second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6,
+                  "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10, "other": 2}
+
+# Verb taxonomy shared by the comb (every-Nth) and single-harmonic patterns.
+# remove = zero it; reduce = proportional dip; boost = emphasize.
+_REMOVE_VERBS = {"remove", "kill", "mute", "suppress", "notch"}
+_REDUCE_VERBS = {"attenuate", "reduce", "damp", "dampen", "soften", "weaken",
+                 "lower", "cut", "drop"}
+_BOOST_VERBS = {"boost", "emphasize", "emphasise", "strengthen", "raise",
+                "lift", "accent", "accentuate"}
+_ALL_COMP_VERBS = _REMOVE_VERBS | _REDUCE_VERBS | _BOOST_VERBS
+# longest-first so "accentuate" cannot be shadowed by "accent" in the alternation.
+# Secondary alphabetical key makes the alternation SOURCE fully deterministic
+# (the input is a set, whose same-length iteration order is hash-seed-dependent);
+# matching behaviour is order-invariant here, but a stable source keeps the
+# compiled pattern byte-reproducible across processes.
+_VERB_ALT = "|".join(sorted(_ALL_COMP_VERBS, key=lambda w: (-len(w), w)))
+
+_HNOUN = r"(?:harmonics|harmonic|overtones|overtone|partials|partial|obertöne|oberton)"
+_ORD_ALT = r"\d+(?:st|nd|rd|th)?|" + "|".join(_ORDINAL_WORDS.keys())
+
+# "only|just|nur (odd|even) <hnoun>"
+_RE_ONLY_PARITY = re.compile(r"\b(?:only|just|nur)\s+(?P<parity>odd|even|ungerade|gerade)\s+" + _HNOUN)
+# "<verb> every|each <ordinal> [<hnoun>]"  (noun optional: "attenuate every 3rd")
+_RE_COMB = re.compile(r"\b(?P<verb>" + _VERB_ALT + r")\s+(?:every|each)\s+(?P<ord>" +
+                      _ORD_ALT + r")\s*" + _HNOUN + r"?")
+# "<verb> [the] <hnoun> N"  OR  "<verb> [the] Nth <hnoun>"
+_RE_HN = re.compile(r"\b(?P<verb>" + _VERB_ALT + r")\s+(?:the\s+)?(?:" +
+                    _HNOUN + r"\s+(?P<hnum1>\d+)|(?P<hnum2>\d+)(?:st|nd|rd|th)\s+" + _HNOUN + r")")
+
+_COMB_REMOVE_FACTOR = 0.0
+_COMB_REDUCE_FACTOR = 0.35
+_COMB_BOOST_FACTOR = 1.7
+_HN_BOOST_AMOUNT = 0.5      # additive (can create an absent partial)
+_HN_REDUCE_FACTOR = 0.3     # multiplicative (only reduces existing)
+_HN_REMOVE_FACTOR = 0.0
+
+
+def _parse_ordinal(tok):
+    """'3rd'/'3'/'third'/'other' -> int, or None."""
+    tok = tok.strip().lower()
+    if tok in _ORDINAL_WORDS:
+        return _ORDINAL_WORDS[tok]
+    m = re.match(r"(\d+)", tok)
+    return int(m.group(1)) if m else None
+
+
+def _comb_factor(verb):
+    if verb in _REMOVE_VERBS:
+        return _COMB_REMOVE_FACTOR
+    if verb in _BOOST_VERBS:
+        return _COMB_BOOST_FACTOR
+    return _COMB_REDUCE_FACTOR
+
+
+def _extract_composition_ops(norm_text):
+    """Returns (ops list in prompt order, remaining_text with spans blanked).
+    Each op is {"word": <matched phrase, for the flag machinery>, "op": ...,
+    "args": ...}. Deterministic: regex order + prompt position only."""
+    hits = []   # (start_pos, op_dict)
+    spans = []
+
+    for m in _RE_ONLY_PARITY.finditer(norm_text):
+        odd = m.group("parity") in ("odd", "ungerade")
+        # even_odd(balance): -1 -> evens x0, odds x2 (== only-odd after normalize);
+        # +1 -> odds x0 (incl. the odd fundamental h1), evens x2 (== only-even).
+        hits.append((m.start(), {"word": m.group(0).strip(), "op": "even_odd",
+                                 "args": {"balance": -1.0 if odd else 1.0}}))
+        spans.append(m.span())
+
+    for m in _RE_COMB.finditer(norm_text):
+        spans.append(m.span())   # a recognized harmonic phrase: always blanked (no residue leak)
+        n = _parse_ordinal(m.group("ord"))
+        if n is None or n < 2:
+            continue   # "every 1st" / unparseable -> blanked, but no op
+        hits.append((m.start(), {"word": m.group(0).strip(), "op": "comb",
+                                 "args": {"n": n, "factor": _comb_factor(m.group("verb"))}}))
+
+    for m in _RE_HN.finditer(norm_text):
+        spans.append(m.span())   # recognized harmonic phrase: always blanked (no residue leak)
+        h = int(m.group("hnum1") or m.group("hnum2"))
+        if h < 1:
+            continue   # "harmonic 0" addresses nothing (h1 is the fundamental) -> blanked, no op
+        verb = m.group("verb")
+        if verb in _BOOST_VERBS:
+            op = {"op": "boost", "args": {"h": h, "amount": _HN_BOOST_AMOUNT}}
+        else:
+            factor = _HN_REMOVE_FACTOR if verb in _REMOVE_VERBS else _HN_REDUCE_FACTOR
+            op = {"op": "scale_h", "args": {"h": h, "factor": factor}}
+        op["word"] = m.group(0).strip()
+        hits.append((m.start(), op))
+
+    hits.sort(key=lambda t: t[0])
+    ordered = [op for _, op in hits]
+
+    chars = list(norm_text)
+    for (s, e) in spans:
+        for i in range(s, e):
+            chars[i] = " "
+    return ordered, "".join(chars)
+
+
 # ─── S1: lexicon scan index (longest-match-first) ──────────────────────────
 
 def _build_index(lexicon):
@@ -210,7 +330,14 @@ def _build_index(lexicon):
 def _scan(norm_text, lexicon):
     """S1. Returns a dict: values, technique_hits, adjective_hits, motion_hits,
     connector_hits, residue (list of {"word","degree","pos"})."""
-    values, remaining = _extract_typed_values(norm_text)
+    # Composition FIRST, then typed values: "every 3 harmonics" must be claimed
+    # as a comb (every-3rd) before _RE_HARMONICS can mis-read the "3 harmonics"
+    # inside it as a 3-partial ceiling. Comb/HN patterns all require a leading
+    # spectral verb, which no typed value (ratio/index/order/harmonics/%) carries,
+    # so this ordering removes the ceiling collision without introducing any
+    # reverse one.
+    composition_ops, remaining = _extract_composition_ops(norm_text)
+    values, remaining = _extract_typed_values(remaining)
     tokens = _tokenize(remaining)
     index = _build_index(lexicon)
     lookup = index["lookup"]
@@ -267,9 +394,10 @@ def _scan(norm_text, lexicon):
         pending_degree = None
         i += L
 
-    return {"values": values, "technique_hits": technique_hits,
-            "adjective_hits": adjective_hits, "motion_hits": motion_hits,
-            "connector_hits": connector_hits, "residue": residue}
+    return {"values": values, "composition_ops": composition_ops,
+            "technique_hits": technique_hits, "adjective_hits": adjective_hits,
+            "motion_hits": motion_hits, "connector_hits": connector_hits,
+            "residue": residue}
 
 
 # ─── S2 wiring helpers (the LLM call itself lives in the caller) ──────────
@@ -398,11 +526,23 @@ def _op_tilt(kf, db_per_oct, from_h):
 
 
 def _op_even_odd(kf, balance):
+    """Even/odd harmonic balance. balance>0 favours evens, <0 favours odds; ±1
+    fully isolates one parity. Returns True if applied, False if this balance
+    would zero EVERY partial — "only even" (mult_odd=0) on an all-odd spectrum
+    (sine/square/triangle/clarinet has no even harmonics to keep). In that
+    unsatisfiable case the spectrum is left UNCHANGED (never silent — the same
+    invariant _op_ceiling guards; a silent keyframe is also a divide-by-zero for
+    the baker's peak-normalize) and the caller flags it."""
     balance = max(-1.0, min(1.0, float(balance)))
     mult_even = max(0.0, min(2.0, 1.0 + balance))
     mult_odd = max(0.0, min(2.0, 1.0 - balance))
+    would_survive = any((mult_even if p["h"] % 2 == 0 else mult_odd) > 0.0 and p["a"] > 0.0
+                        for p in kf["partials"])
+    if not would_survive:
+        return False
     for p in kf["partials"]:
         p["a"] = p["a"] * (mult_even if p["h"] % 2 == 0 else mult_odd)
+    return True
 
 
 def _op_ceiling(kf, h_max):
@@ -431,6 +571,36 @@ def _op_cut(kf, h, amount):
             p["a"] = p["a"] + amount  # amount is negative by convention
             return
     # nothing to cut -- no partial created (cut only reduces existing presence)
+
+
+def _op_comb(kf, n, factor):
+    """Periodic harmonic addressing ("attenuate every 3rd harmonic"): multiply
+    every n-th harmonic (h % n == 0) by factor. factor<1 attenuates, ==0 removes,
+    >1 emphasizes. n>=2 (n==1 would scale every partial = a global gain, a no-op
+    after the baker's normalize). MULTIPLICATIVE, unlike boost/cut's additive
+    amount, because a comb acts across the whole series and a proportional notch
+    reads as the same gesture at every partial level. The fundamental (h1) is
+    never touched for n>=2 (1 % n != 0), so a comb never removes the pitch."""
+    n = max(2, int(n))
+    factor = max(0.0, min(4.0, float(factor)))
+    for p in kf["partials"]:
+        if p["h"] % n == 0:
+            p["a"] = p["a"] * factor
+
+
+def _op_scale_h(kf, h, factor):
+    """Multiply ONE named harmonic's amplitude by factor (attenuate/remove a
+    specific harmonic). Unlike _op_boost this never CREATES a partial: you can
+    only reduce presence that already exists -- "attenuate harmonic 30" on a
+    spectrum that never had an h30 is correctly a silent no-op. (A single-
+    harmonic BOOST stays on _op_boost, which DOES create, so "boost harmonic 4"
+    on a square -- which has no even harmonics -- can still add one.)"""
+    h = int(h)
+    factor = max(0.0, min(4.0, float(factor)))
+    for p in kf["partials"]:
+        if p["h"] == h:
+            p["a"] = p["a"] * factor
+            return
 
 
 def _apply_fm_index(recipe, delta):
@@ -574,12 +744,13 @@ def _apply_inharm(recipe, amount, adjective_word, flags):
                       "reason": "no FM or additive keyframe here for an inharmonic approximation — ignored"})
 
 
-_SPECTRAL_OPS = {"tilt", "even_odd", "ceiling", "boost", "cut"}
+_SPECTRAL_OPS = {"tilt", "even_odd", "ceiling", "boost", "cut", "comb", "scale_h"}
 
 
 def _apply_delta_op(recipe, adjective_word, op_name, args, flags):
     if op_name in _SPECTRAL_OPS:
         any_additive = False
+        even_odd_applied = False   # any keyframe where the parity op actually took
         for kf in recipe["keyframes"]:
             conv = _ensure_additive(kf)
             if conv is None:
@@ -588,16 +759,26 @@ def _apply_delta_op(recipe, adjective_word, op_name, args, flags):
             if op_name == "tilt":
                 _op_tilt(conv, args["db_per_oct"], args["from_h"])
             elif op_name == "even_odd":
-                _op_even_odd(conv, args["balance"])
+                if _op_even_odd(conv, args["balance"]):
+                    even_odd_applied = True
             elif op_name == "ceiling":
                 _op_ceiling(conv, args["h_max"])
             elif op_name == "boost":
                 _op_boost(conv, args["h"], args["amount"])
             elif op_name == "cut":
                 _op_cut(conv, args["h"], args["amount"])
+            elif op_name == "comb":
+                _op_comb(conv, args["n"], args["factor"])
+            elif op_name == "scale_h":
+                _op_scale_h(conv, args["h"], args["factor"])
         if not any_additive:
             flags.append({"word": adjective_word,
                           "reason": "no additive-convertible keyframe in this recipe — ignored"})
+        elif op_name == "even_odd" and not even_odd_applied:
+            # e.g. "only even" on an all-odd base — nothing to isolate; the op
+            # left the spectrum unchanged (audible) rather than silencing it.
+            flags.append({"word": adjective_word,
+                          "reason": "no harmonics of that parity to isolate — left unchanged"})
     elif op_name == "fm_index":
         if not _apply_fm_index(recipe, args["delta"]):
             flags.append({"word": adjective_word, "reason": "no FM operator in this recipe — ignored"})
@@ -905,6 +1086,16 @@ def _compose(scan, s2_extra_adjective_hits, lexicon, frames_override):
             scaled_args = _scale_op_args(op_name, raw_args, degree)
             _apply_delta_op(recipe, key, op_name, scaled_args, flags)
 
+    # step 2b: explicit compositional harmonic instructions ("only odd
+    # overtones", "attenuate every 3rd", "boost harmonic 5"). Typed by the
+    # user, so they land AFTER the adjective deltas (explicit beats worded) and
+    # in prompt order, through the same _ensure_additive + inapplicable-flag
+    # path. args are final (no degree scaling — these carry no degree word).
+    applied_composition = []
+    for cop in scan.get("composition_ops", []):
+        _apply_delta_op(recipe, cop["word"], cop["op"], cop["args"], flags)
+        applied_composition.append(cop["word"])
+
     # step 3: explicit typed values override (typed beats worded beats
     # default). Base-waveform values were already applied in step 1b; this
     # pass (a) re-asserts them on keyframes that survived the adjective pass
@@ -987,6 +1178,7 @@ def _compose(scan, s2_extra_adjective_hits, lexicon, frames_override):
     resolved = {
         "technique": resolved_technique,
         "adjectives": applied_adjective_keys,
+        "composition": applied_composition,
         "motion": applied_motion_keys,
         "values": resolved_values,
     }
@@ -1017,6 +1209,10 @@ def _scale_op_args(op_name, raw_args, degree):
         args["amount"] = args["amount"] * degree
     elif op_name == "inharm":
         args["amount"] = args["amount"] * degree
+    elif op_name in ("comb", "scale_h"):
+        # factor is a multiplier centered on 1.0 (like motion_rate/motion_depth);
+        # degree pushes it further from unity in the same direction
+        args["factor"] = 1.0 + (args["factor"] - 1.0) * degree
     return args
 
 
@@ -1132,6 +1328,15 @@ def _clamp_and_repair(recipe):
                 repairs.append("more than 64 partials — truncated to 64")
             if not clean_partials:
                 clean_partials = [{"h": 1, "a": 1.0, "phase": 0.0}]
+            elif not any(p["a"] > 1e-6 for p in clean_partials):
+                # Never emit a SILENT (or near-silent) additive keyframe: the
+                # baker peak-normalizes, and at/below 1e-6 it skips normalize and
+                # emits ~-120 dB frames (DcoBaker.cpp bake() uses the same 1e-6
+                # floor). An op zeroed the spectrum (e.g. "kill harmonic 1" on a
+                # sine, or reducing h1 twelve times) — restore the fundamental.
+                # Mirrors the empty-partials guard above and _op_ceiling's invariant.
+                clean_partials = [{"h": 1, "a": 1.0, "phase": 0.0}]
+                repairs.append("all-zero additive spectrum — restored the fundamental")
             ckf["partials"] = clean_partials
         elif kind == "pulse":
             w, bad = _clamp_float(kf.get("width", 0.5), 0.02, 0.98, 0.5)
@@ -1306,7 +1511,8 @@ def author_recipe(text, llm_route=None, frames=None):
         if frames is not None:
             recipe["frames"] = frames
         recipe, _ = _clamp_and_repair(recipe)
-        resolved = {"technique": resolved_technique, "adjectives": [], "motion": [], "values": {}}
+        resolved = {"technique": resolved_technique, "adjectives": [], "composition": [],
+                    "motion": [], "values": {}}
         flags = s2_flags + [{"word": resolved_technique,
                              "reason": f"recipe composition failed ({e}) — fell back to the plain technique template"}]
 

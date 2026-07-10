@@ -278,6 +278,145 @@ def run_unit_tests():
     check("'glassy' -> no 'no FM operator' flag on a saw (fm-only ops dropped from glassy)",
           not any("no FM operator" in f["reason"] for f in r_gl["flags"]), r_gl["flags"])
 
+    # ── compositional harmonic addressing (additive): "only odd overtones",
+    #    "attenuate every 3rd", "boost harmonic 5". Typed instructions the
+    #    adjective lexicon can't express, parsed deterministically (no LLM) and
+    #    applied through the additive ops. See _extract_composition_ops.
+    def _lows(resp, upto=10):
+        parts = {p["h"]: p["a"] for p in resp["recipe"]["keyframes"][0].get("partials", [])}
+        return {h: parts.get(h, 0.0) for h in range(1, upto + 1)}
+
+    r_oo = dr.author_recipe("only odd overtones", llm_route=None, frames=None)
+    p = _lows(r_oo)
+    check("'only odd overtones' -> even harmonics silenced (h2,h4 ~0)",
+          p[2] < 0.01 and p[4] < 0.01, p)
+    check("'only odd overtones' -> odd harmonics survive (h1,h3,h5 present)",
+          p[1] > 0.5 and p[3] > 0.1 and p[5] > 0.1, p)
+    check("'only odd overtones' -> recorded in resolved.composition",
+          "only odd overtones" in r_oo["resolved"]["composition"], r_oo["resolved"])
+    check("'only odd overtones' -> no residue leak (no 'no mapping' flag)",
+          not any("no mapping" in f["reason"] for f in r_oo["flags"]), r_oo["flags"])
+
+    r_oe = dr.author_recipe("only even overtones", llm_route=None, frames=None)
+    p = _lows(r_oe)
+    check("'only even overtones' -> odd harmonics silenced incl. the fundamental (h1,h3 ~0)",
+          p[1] < 0.01 and p[3] < 0.01, p)
+    check("'only even overtones' -> even harmonics survive (h2,h4 present)",
+          p[2] > 0.5 and p[4] > 0.1, p)
+
+    # comb: attenuate every 3rd. h3,h6,h9 reduced below their native saw levels
+    # (1/3, 1/6, 1/9); the non-multiples (h2,h4,h5) stay at native saw levels.
+    r_c3 = dr.author_recipe("attenuate every 3rd overtone", llm_route=None, frames=None)
+    p = _lows(r_c3)
+    check("'attenuate every 3rd' -> h3 reduced below native saw 1/3",
+          p[3] < 0.2, p)
+    check("'attenuate every 3rd' -> h6 reduced below native saw 1/6",
+          p[6] < 0.1, p)
+    check("'attenuate every 3rd' -> non-multiples untouched (h2~0.5, h5~0.2)",
+          p[2] > 0.4 and p[5] > 0.15, p)
+    check("'attenuate every 3rd' -> fundamental never touched by a comb (h1==1.0)",
+          p[1] > 0.99, p)
+
+    r_r2 = dr.author_recipe("remove every 2nd harmonic", llm_route=None, frames=None)
+    p = _lows(r_r2)
+    check("'remove every 2nd harmonic' -> h2,h4 silenced, odds survive",
+          p[2] < 0.01 and p[4] < 0.01 and p[3] > 0.2, p)
+
+    r_be = dr.author_recipe("boost every other harmonic", llm_route=None, frames=None)
+    p = _lows(r_be)
+    check("'boost every other harmonic' -> h2 boosted above native saw 0.5",
+          p[2] > 0.6, p)
+
+    # single-harmonic: boost creates/raises h5; a reduce/remove only scales an
+    # existing partial (never creates one).
+    r_b5 = dr.author_recipe("boost harmonic 5", llm_route=None, frames=None)
+    p = _lows(r_b5)
+    check("'boost harmonic 5' -> h5 raised above native saw 0.2", p[5] > 0.5, p)
+    check("'boost harmonic 5' -> neighbours untouched (h4~0.25, h6~0.167)",
+          0.2 < p[4] < 0.3 and 0.12 < p[6] < 0.22, p)
+
+    r_k2 = dr.author_recipe("kill harmonic 2", llm_route=None, frames=None)
+    p = _lows(r_k2)
+    check("'kill harmonic 2' -> h2 removed, h1/h3 intact", p[2] < 0.01 and p[1] > 0.9 and p[3] > 0.2, p)
+
+    # the headline combined instruction (the user's own example): odd-only AND
+    # every 3rd of those attenuated.
+    r_combo = dr.author_recipe("only odd overtones, attenuate every 3rd", llm_route=None, frames=None)
+    p = _lows(r_combo)
+    check("'only odd overtones, attenuate every 3rd' -> both ops recorded in order",
+          r_combo["resolved"]["composition"] == ["only odd overtones", "attenuate every 3rd"],
+          r_combo["resolved"]["composition"])
+    check("'only odd..., attenuate every 3rd' -> evens gone (h2,h4~0)", p[2] < 0.01 and p[4] < 0.01, p)
+    check("'only odd..., attenuate every 3rd' -> h3 (odd multiple of 3) attenuated below h5",
+          p[3] < p[5], p)
+    check("'only odd..., attenuate every 3rd' -> h5,h7 (odd non-multiples) survive",
+          p[5] > 0.3 and p[7] > 0.2, p)
+    check("'only odd..., attenuate every 3rd' -> no residue leak",
+          not any("no mapping" in f["reason"] for f in r_combo["flags"]), r_combo["flags"])
+    r_combo2 = dr.author_recipe("only odd overtones, attenuate every 3rd", llm_route=None, frames=None)
+    check("'only odd..., attenuate every 3rd' -> deterministic double-run",
+          json.dumps(r_combo, sort_keys=True) == json.dumps(r_combo2, sort_keys=True))
+
+    # ceiling-vs-comb disambiguation: "N harmonics" is a ceiling (keep N), but
+    # "every N harmonics" is a comb — the leading "every" flips the reading, so
+    # h(N+1) must SURVIVE the comb where it would be truncated by the ceiling.
+    r_ceil = dr.author_recipe("3 harmonics", llm_route=None, frames=None)
+    r_comb = dr.author_recipe("attenuate every 3 harmonics", llm_route=None, frames=None)
+    check("'3 harmonics' -> ceiling: h4 truncated away", _lows(r_ceil)[4] < 0.01, _lows(r_ceil))
+    check("'attenuate every 3 harmonics' -> comb: h4 survives (not a ceiling)",
+          _lows(r_comb)[4] > 0.1, _lows(r_comb))
+
+    # inapplicable base (FM has no additive partials) -> honest ignore flag, no crash
+    r_fm = dr.author_recipe("2 op fm boost harmonic 5", llm_route=None, frames=None)
+    check("'2 op fm boost harmonic 5' -> flagged 'no additive-convertible keyframe'",
+          any("no additive-convertible" in f["reason"] for f in r_fm["flags"]), r_fm["flags"])
+    check("'2 op fm boost harmonic 5' -> still a structurally valid recipe",
+          not validate_recipe_structure(r_fm["recipe"]))
+
+    # ── SILENCE INVARIANT (regression): a composition op must NEVER produce an
+    #    all-zero additive spectrum (silent bake + divide-by-zero in the baker's
+    #    peak-normalize). "only even" on an all-odd base (sine/square/triangle/
+    #    clarinet) and "kill harmonic 1" on a sine are the reachable cases.
+    def _no_silent_kf(resp):
+        for kf in resp["recipe"]["keyframes"]:
+            if kf.get("kind") == "additive" and not any(
+                    p.get("a", 0.0) > 0.0 for p in kf.get("partials", [])):
+                return False
+        return True
+
+    for base in ("sine", "square", "triangle", "clarinet"):
+        rp = dr.author_recipe(f"{base} only even harmonics", llm_route=None, frames=None)
+        check(f"'{base} only even harmonics' -> NOT a silent spectrum", _no_silent_kf(rp),
+              rp["recipe"]["keyframes"])
+        check(f"'{base} only even harmonics' -> structurally valid", not validate_recipe_structure(rp["recipe"]))
+    # the odd-only bases must ALSO carry the honest 'nothing to isolate' flag
+    for base in ("sine", "square", "triangle"):
+        rp = dr.author_recipe(f"{base} only even harmonics", llm_route=None, frames=None)
+        check(f"'{base} only even harmonics' -> honest 'no harmonics of that parity' flag",
+              any("parity to isolate" in f["reason"] for f in rp["flags"]), rp["flags"])
+    # 'only odd' on an already-odd square is satisfiable — must NOT be silent and NOT flag parity
+    r_oosq = dr.author_recipe("square only odd harmonics", llm_route=None, frames=None)
+    check("'square only odd harmonics' -> not silent, no parity flag", _no_silent_kf(r_oosq) and
+          not any("parity to isolate" in f["reason"] for f in r_oosq["flags"]), r_oosq["flags"])
+    # 'kill harmonic 1' on a sine zeroes the only partial -> S4 backstop restores it
+    r_kill1 = dr.author_recipe("sine kill harmonic 1", llm_route=None, frames=None)
+    check("'sine kill harmonic 1' -> S4 backstop keeps it audible (not silent)",
+          _no_silent_kf(r_kill1), r_kill1["recipe"]["keyframes"])
+    # near-zero (not exactly 0): reducing the fundamental many times drives it below
+    # the baker's 1e-6 floor -> the S4 backstop restores it (would be ~-125 dB else)
+    r_nz = dr.author_recipe("sine " + "cut harmonic 1 " * 12, llm_route=None, frames=None)
+    kf0 = r_nz["recipe"]["keyframes"][0]
+    check("'sine' + 12x 'cut harmonic 1' -> not near-silent (S4 1e-6 floor restores h1)",
+          any(p.get("a", 0.0) > 1e-6 for p in kf0.get("partials", [])), kf0.get("partials"))
+
+    # residue-leak contract: an out-of-range target ("harmonic 0", "every 1st")
+    # is a RECOGNIZED phrase — it must be blanked, never leaked to S2 as unmapped.
+    for bad in ("boost harmonic 0", "attenuate every 1st harmonic"):
+        rb = dr.author_recipe(bad, llm_route=None, frames=None)
+        leaked = {f["word"] for f in rb["flags"] if "no mapping" in f["reason"]}
+        check(f"'{bad}' -> no residue leak (tokens blanked, not flagged 'no mapping')",
+              not ({"boost", "attenuate", "every", "harmonic", "1st"} & leaked), leaked)
+
     # seamless close-loop: for EVERY multi-keyframe technique, a close-motion
     # prompt must produce motion that ends on the keyframe it started on,
     # or the looping wavetable clicks at every frame[N-1]->frame[0] wrap.
