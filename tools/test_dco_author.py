@@ -130,6 +130,11 @@ def validate_recipe_structure(recipe):
     if not (isinstance(frames, int) and 8 <= frames <= 256):
         errs.append(f"frames={frames!r} not an int in [8,256]")
 
+    rate = recipe.get("motion_rate_hz")
+    if not (isinstance(rate, (int, float)) and not isinstance(rate, bool)
+            and 0.02 - 1e-9 <= rate <= 8.0 + 1e-9):
+        errs.append(f"motion_rate_hz={rate!r} not a number in [0.02,8.0]")
+
     return errs
 
 
@@ -254,6 +259,38 @@ def run_unit_tests():
               rc["resolved"]["technique"] == t["key"], rc["resolved"])
         check(f"close motion on {t['key']!r} loops seamlessly (motion[0].to == motion[-1].to)",
               bool(m) and m[0]["to"] == m[-1]["to"], m)
+
+    # absolute motion tempo (motion_rate_hz): every technique must resolve
+    # with a rate in the valid range; 'pwm' must carry its template value
+    # EXACTLY; a speed word must scale the absolute rate, not just dur_frac.
+    for t in lexicon["techniques"]:
+        rt = dr.author_recipe(t["surface_forms"][0], llm_route=None, frames=None)
+        rate = rt["recipe"].get("motion_rate_hz")
+        check(f"technique {t['key']!r} -> motion_rate_hz in [0.02, 8.0]",
+              isinstance(rate, (int, float)) and 0.02 <= rate <= 8.0, rate)
+    pwm_template_rate = next(t for t in lexicon["techniques"]
+                             if t["key"] == "pwm")["template"]["motion_rate_hz"]
+    r_pwm = dr.author_recipe("pwm", llm_route=None, frames=None)
+    check("'pwm' -> motion_rate_hz == template value exactly",
+          r_pwm["recipe"]["motion_rate_hz"] == pwm_template_rate,
+          (r_pwm["recipe"]["motion_rate_hz"], pwm_template_rate))
+    r_slow = dr.author_recipe("pwm slowly", llm_route=None, frames=None)
+    check("'pwm slowly' -> LOWER motion_rate_hz than plain 'pwm'",
+          r_slow["recipe"]["motion_rate_hz"] < r_pwm["recipe"]["motion_rate_hz"],
+          (r_slow["recipe"]["motion_rate_hz"], r_pwm["recipe"]["motion_rate_hz"]))
+
+    # S4 clamps an artificial out-of-range rate (both directions) + repair note
+    base = {"keyframes": [{"kind": "saw"}],
+            "motion": [{"to": 0, "dur_frac": 0.0, "curve": "lin"}],
+            "loop": True, "frames": 128}
+    hi, hi_rep = dr.validate_recipe({**base, "motion_rate_hz": 99.0})
+    check("validate_recipe clamps motion_rate_hz 99.0 -> 8.0",
+          hi["motion_rate_hz"] == 8.0, hi["motion_rate_hz"])
+    check("out-of-range motion_rate_hz produces a repair note",
+          any("motion_rate_hz" in r for r in hi_rep), hi_rep)
+    lo, _ = dr.validate_recipe({**base, "motion_rate_hz": 0.001})
+    check("validate_recipe clamps motion_rate_hz 0.001 -> 0.02",
+          lo["motion_rate_hz"] == 0.02, lo["motion_rate_hz"])
 
     r = dr.author_recipe("warm evening nostalgia", llm_route=None, frames=None)
     check("mood-only prompt -> flags non-empty", len(r["flags"]) > 0, r["flags"])

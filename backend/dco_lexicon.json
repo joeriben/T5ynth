@@ -1,5 +1,5 @@
 {
-  "lexicon_version": 1,
+  "lexicon_version": 2,
   "techniques": [
     {
       "key": "saw",
@@ -24,7 +24,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 5,
       "why": "the canonical bright analogue waveform; full harmonic series decaying 1/h"
@@ -51,7 +52,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 5,
       "why": "odd-only harmonic series; hollow, clarinet-adjacent character by construction"
@@ -79,7 +81,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 5,
       "why": "narrow rectangular wave (default 30% width); an explicit width% overrides the template default"
@@ -122,7 +125,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.35
       },
       "priority": 10,
       "why": "classic PWM sweep: square (50%) narrowing to a thin pulse (8%) and back, closing the loop"
@@ -149,7 +153,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 5,
       "why": "odd harmonics decaying 1/h^2; the softest of the classic analogue waves"
@@ -183,7 +188,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 5,
       "why": "a single partial; the reference tone with no harmonic content to shape"
@@ -228,7 +234,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 3,
       "why": "a generic additive base (light 2nd/3rd harmonic) for adjectives to shape from"
@@ -259,7 +266,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 3,
       "why": "plain 2-operator FM (ratio 2, index 1.5); a neutral starting sideband spread"
@@ -320,7 +328,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.15
       },
       "priority": 10,
       "why": "integer-ratio FM plus a sparse harmonic tail approximates bell-like density",
@@ -368,7 +377,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.3
       },
       "priority": 10,
       "why": "1:1 FM with a softening index over the cycle, the classic tine-EP sideband shape"
@@ -396,7 +406,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 10,
       "why": "high-ratio FM (6:1) packs dense, inharmonic-reading sidebands"
@@ -426,7 +437,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 10,
       "why": "two-operand sidebands at a 2:1 ratio; closed-form ring/AM spectrum"
@@ -457,7 +469,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 10,
       "why": "3rd-order Chebyshev waveshaper; exact polynomial-to-harmonic mapping"
@@ -517,7 +530,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 10,
       "why": "classic drawbar harmonic set {1,2,3,4,6,8} at typical registration levels"
@@ -577,7 +591,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 10,
       "why": "odd-only series (square-family) is the textbook cylindrical-reed approximation"
@@ -621,7 +636,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 10,
       "why": "near-pure tone with a faint 2nd/3rd harmonic; breath noise itself is not modeled"
@@ -756,7 +772,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 10,
       "why": "saw-family spectrum that opens from a dark 6-harmonic set to a brighter 12-harmonic set"
@@ -866,7 +883,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.18
       },
       "priority": 10,
       "why": "bright saw-family spectrum with a slow, gentle harmonic-count breathing motion",
@@ -1020,7 +1038,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 10,
       "why": "dark saw-family spectrum, harmonic count ceilinged near 24 for a rolled-off low end"
@@ -1130,7 +1149,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 10,
       "why": "bright single-cycle saw stands in for the spectral brightness; the detune itself is not a cycle property",
@@ -1164,7 +1184,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 10,
       "why": "bright, dense FM stands in for hard sync's sideband-rich character",
@@ -1229,7 +1250,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 10,
       "why": "bright, plucky additive spectrum (many odd+even partials)",
@@ -1261,7 +1283,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 10,
       "why": "retro chiptune leads are classically a square/pulse wave"
@@ -1292,7 +1315,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 10,
       "why": "a pure tone stands in for the instrument's timbre",
@@ -1328,7 +1352,8 @@
           }
         ],
         "loop": true,
-        "frames": 128
+        "frames": 128,
+        "motion_rate_hz": 0.25
       },
       "priority": 10,
       "why": "a pure sine is the standard sub-bass building block",
@@ -2787,7 +2812,8 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "dark to bright trajectory, slow build then a fast close back to start"
+      "why": "dark to bright trajectory, slow build then a fast close back to start",
+      "motion_rate_hz": 0.2
     },
     {
       "key": "close",
@@ -2804,7 +2830,8 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "the inverse of open_up: starts bright, settles dark"
+      "why": "the inverse of open_up: starts bright, settles dark",
+      "motion_rate_hz": 0.15
     },
     {
       "key": "sweep",
@@ -2816,7 +2843,8 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "one gentle there-and-back pass per loop"
+      "why": "one gentle there-and-back pass per loop",
+      "motion_rate_hz": 0.3
     },
     {
       "key": "wobble",
@@ -2830,7 +2858,8 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "a brisk two-cycle there-and-back per loop"
+      "why": "a brisk two-cycle there-and-back per loop",
+      "motion_rate_hz": 2.5
     },
     {
       "key": "pingpong",
@@ -2842,7 +2871,8 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "tours every keyframe forward then backward"
+      "why": "tours every keyframe forward then backward",
+      "motion_rate_hz": 0.5
     },
     {
       "key": "breathe",
@@ -2853,7 +2883,8 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "a slow, uneven there-and-back pass, gentler than sweep"
+      "why": "a slow, uneven there-and-back pass, gentler than sweep",
+      "motion_rate_hz": 0.12
     },
     {
       "key": "evolve",
@@ -2869,7 +2900,8 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "a long slow-curve chain touring every keyframe once, then closing"
+      "why": "a long slow-curve chain touring every keyframe once, then closing",
+      "motion_rate_hz": 0.1
     },
     {
       "key": "static",
@@ -2911,7 +2943,8 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "four brisk there-and-back cycles per loop"
+      "why": "four brisk there-and-back cycles per loop",
+      "motion_rate_hz": 3.0
     },
     {
       "key": "vibrate",
@@ -2925,7 +2958,8 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "six fast, dense there-and-back cycles per loop"
+      "why": "six fast, dense there-and-back cycles per loop",
+      "motion_rate_hz": 4.5
     },
     {
       "key": "settle",

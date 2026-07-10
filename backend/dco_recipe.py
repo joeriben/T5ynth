@@ -21,6 +21,23 @@ Pipeline:
   S4 validate/repair -> validate_recipe (structural clamp; fallback on the
                         rare unrepairable case)
 
+Recipe schema (field names match the C++ consumer, src/dsp/DcoRecipeJson.h):
+  {
+    "keyframes": [ { "kind": "additive|saw|square|pulse|triangle|fm2|cheby|ring",
+                     "partials": [{"h": int, "a": float, "phase": float}, ...],
+                     "width": float, "ratio": int, "index": float,
+                     "order": int, "drive": float, "mix": float }, ... ],  # <= 8
+    "motion":    [ {"to": int, "dur_frac": float, "curve": "lin|fast|slow"},
+                   ... ],                                                  # <= 16
+    "loop": bool,
+    "frames": int,               # baked wavetable frames, [8, 256]
+    "motion_rate_hz": float,     # ABSOLUTE motion tempo: full motion loops per
+                                 # second, [0.02, 8.0]. Read by the C++ DCO
+                                 # motion driver; decouples the audible morph
+                                 # tempo from the baked strip length
+                                 # (frames*2048/sr, musically arbitrary).
+  }
+
 Determinism: no randomness anywhere. Same text + same lexicon + same
 llm_route output -> byte-identical recipe (docs/DCO_LLM_GUARDRAILS.md S4).
 """
@@ -422,15 +439,25 @@ def _apply_width(recipe, delta):
 
 
 def _apply_motion_rate(recipe, scale):
-    """"slowly/langsam scales segment curves/rate" (S3.5). Reallocates the
-    dur_frac SHARE of the interior (non-start, non-closing) segment(s)
-    relative to the fixed closing segment; final normalization to sum=1.0
-    happens once, later, in _clamp_and_repair -- so this must NOT
-    renormalize itself (a uniform scale-then-renormalize is a no-op)."""
+    """"slowly/langsam scales segment curves/rate" (S3.5). Two effects, both
+    deterministic (pure float ops), and both live INSIDE this function so
+    that every call site -- the adjective-op dispatch in _apply_delta_op and
+    the speed-word loop in _compose step 4 -- scales each exactly once:
+
+    1. ABSOLUTE tempo: multiplies motion_rate_hz (full motion loops per
+       second; scale > 1 = faster). This is the field the C++ DCO motion
+       driver reads.
+    2. SHAPE: reallocates the dur_frac SHARE of the interior (non-start,
+       non-closing) segment(s) relative to the fixed closing segment; final
+       normalization to sum=1.0 happens once, later, in _clamp_and_repair --
+       so this must NOT renormalize itself (a uniform scale-then-renormalize
+       is a no-op)."""
+    scale = float(scale)
+    if scale > 1e-6:
+        recipe["motion_rate_hz"] = recipe.get("motion_rate_hz", 0.25) * scale
     motion = recipe.get("motion") or []
     if len(motion) < 3:
         return
-    scale = float(scale)
     inv = (1.0 / scale) if scale > 1e-6 else 1.0
     for seg in motion[1:-1]:
         seg["dur_frac"] = seg["dur_frac"] * inv
@@ -595,15 +622,19 @@ _MOTION_SPEED_SCALE = {"slow": 0.5, "fast": 1.7, "snap": 3.0}
 
 
 def _apply_motion_intent(recipe, intent_key, flags):
+    """Returns True iff the loop was actually rewritten (the caller only
+    applies the intent's own motion_rate_hz override in that case — a bailed
+    rewrite must leave the template's rate untouched)."""
     K = len(recipe["keyframes"])
     if intent_key in _MOTION_NEEDS_K2 and K < 2:
         flags.append({"word": intent_key,
                       "reason": "only one keyframe in this recipe — motion has nothing to move between"})
-        return
+        return False
     fn = _MOTION_REWRITE.get(intent_key)
     if fn is None:
-        return
+        return False
     recipe["motion"] = fn(K)
+    return True
 
 
 # ─── S3: technique-template lookup + default inference ───────────────────
@@ -642,6 +673,7 @@ def _compose(scan, s2_extra_adjective_hits, lexicon, frames_override):
     flags = []
     technique_index = {t["key"]: t for t in lexicon["techniques"]}
     adjective_index = {a["key"]: a for a in lexicon["adjectives"]}
+    motion_index = {m["key"]: m for m in lexicon["motions"]}
 
     all_adjective_hits = list(scan["adjective_hits"]) + list(s2_extra_adjective_hits)
     adjective_keys_present = {h["key"] for h in all_adjective_hits}
@@ -758,7 +790,15 @@ def _compose(scan, s2_extra_adjective_hits, lexicon, frames_override):
             seen.add(h["key"])
             flags.append({"word": h["key"],
                           "reason": f"also mentioned: {h['key']} — using {winner['key']}"})
-        _apply_motion_intent(recipe, winner["key"], flags)
+        if _apply_motion_intent(recipe, winner["key"], flags):
+            # The gesture brings its own natural tempo when its lexicon
+            # entry carries one: the rewrite replaced the loop, so its
+            # motion_rate_hz replaces the template's. Entries without the
+            # field keep the template rate. Speed words (below) scale it
+            # afterwards, so "slow wobble" = wobble's rate x 0.5.
+            m_entry = motion_index.get(winner["key"], {})
+            if "motion_rate_hz" in m_entry:
+                recipe["motion_rate_hz"] = m_entry["motion_rate_hz"]
         applied_motion_keys.append(winner["key"])
 
     for h in sorted(speed_hits, key=lambda h: h["pos"]):
@@ -1005,6 +1045,14 @@ def _clamp_and_repair(recipe):
     if f_bad:
         repairs.append(f"frames {recipe.get('frames')} clamped to {frames}")
     recipe["frames"] = frames
+
+    # Absolute motion tempo (full motion loops per second) for the C++ DCO
+    # motion driver. Neutral default 0.25 when missing (external/malformed
+    # input — every lexicon template carries the field since version 2).
+    rate, r_bad = _clamp_float(recipe.get("motion_rate_hz", 0.25), 0.02, 8.0, 0.25)
+    if r_bad:
+        repairs.append(f"motion_rate_hz {recipe.get('motion_rate_hz')} clamped to {rate}")
+    recipe["motion_rate_hz"] = rate
 
     return recipe, repairs
 
