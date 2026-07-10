@@ -776,7 +776,10 @@ void PromptPanel::timerCallback()
     // spam at 10 Hz, and the intended clean render never happening). When a real
     // generation cannot proceed the debt simply persists (a cheap bool check, no spin)
     // and discharges the moment it can — e.g. the backend finishes connecting.
-    if (pendingOriginalReRender_
+    // easyMode_ too: this is a neural render of the (in Advanced: hidden)
+    // prompts — deferred until the user is back on the Easy view, same
+    // debt-persists semantics as the other preconditions.
+    if (pendingOriginalReRender_ && easyMode_
         && !generating && !translatingPrompts_ && !loopStepInFlight_
         && processorRef.isInferenceReady()
         && !processorRef.isInferenceCacheFull())
@@ -2740,6 +2743,12 @@ void PromptPanel::pollDriftRegen()
     // new generate() — both share the single IPC pipe. The step clears the flag on
     // its callAsync tail; the next tick then proceeds with the rewritten prompts.
     if (generating || translatingPrompts_ || loopStepInFlight_) return;
+
+    // Paused while the DCO panel is shown: auto-regen renders the HIDDEN neural
+    // prompts and would silently clobber a baked DCO table every cycle. The
+    // loop resumes on the next tick after switching back to Easy — cadence
+    // state (bar counters, stance) is untouched.
+    if (!easyMode_) return;
 
     // stanceActive: an active Re-Prompt stance. Read once here; reused below for the
     // repromptLoop standing trigger and the idle-cache bypass (a running stance keeps

@@ -1354,8 +1354,10 @@ void MainPanel::updateAxesDimSegment()
     if (!dim && dimExplorerVisible)
         hideDimExplorer();
 
-    axesPanel.setVisible(!dim);
-    dimensionExplorer.setVisible(dim);
+    // Easy-only either way: in Advanced the DCO panel owns the whole column
+    // (setOscEasyMode hides the segment buttons and everything below them).
+    axesPanel.setVisible(!dim && oscEasyMode);
+    dimensionExplorer.setVisible(dim && oscEasyMode);
     resized();
     repaint();
 }
@@ -1441,10 +1443,33 @@ void MainPanel::setOscEasyMode(bool easy, bool persist)
 {
     oscEasyMode = easy;
 
-    // Axes | Dim Explorer are no longer tied to Easy/Advanced — they live under
-    // the always-present segment switch (see updateAxesDimSegment). Only the
-    // T5Osc prompt block still changes with the mode.
     promptPanel.setEasyMode(oscEasyMode);
+
+    // Advanced IS the DCO panel — a different paradigm, not a neural variant.
+    // The entire neural generation column below the prompt block (axes/dim
+    // segment + box, GENERATE, snapshots, inference cache, resynth, and the
+    // Stability credit) is Easy-only; the DCO prompt canvas absorbs the whole
+    // column in Advanced (see resized()). Axes state stays live either way —
+    // hasOscHiddenActiveState pulses the toggle when hidden-but-active.
+    const bool neural = oscEasyMode;
+    if (!neural && dimExplorerVisible)
+        hideDimExplorer();
+    axesDimSegBtns[0].setVisible(neural);
+    axesDimSegBtns[1].setVisible(neural);
+    mainGenerateBtn.setVisible(neural);
+    snapLabel.setVisible(neural);
+    cacheLabel.setVisible(neural);
+    for (auto& bSnap : snapshotButtons)
+        bSnap.setVisible(neural);
+    for (auto& bCache : infCacheButtons)
+        bCache.setVisible(neural);
+    for (auto& bSrc : resynthSrcBtns)
+        bSrc.setVisible(neural);
+    if (resynthRow)
+        resynthRow->setVisible(neural);
+    poweredByLabel.setVisible(neural);
+    updateAxesDimSegment();   // re-applies axesPanel/dimensionExplorer (mode-aware)
+
     oscModeToggle.setButtonText(oscEasyMode ? juce::String::fromUTF8("\xc2\xbb adv.")
                                             : juce::String::fromUTF8("\xc2\xbb easy"));
     updateOscModeToggleVisual();
@@ -2135,6 +2160,11 @@ bool MainPanel::keyPressed(const juce::KeyPress& key)
     {
         if (settingsVisible || manualVisible || presetManagerVisible || seqLibraryVisible)
             return false;
+        // Easy-only: in Advanced (the DCO panel) the neural prompts are hidden —
+        // a shortcut generating from invisible text is exactly the paradigm
+        // leak the DCO panel exists to prevent. BAKE has its own Return key.
+        if (!oscEasyMode)
+            return false;
         triggerMainGeneration();
         return true;
     }
@@ -2455,7 +2485,11 @@ void MainPanel::paint(juce::Graphics& g)
         paintCard(g, juce::Rectangle<int>(left, top, cardW, bot - top));
     }
 
-    // Card 2: SEMANTIC AXES | DIM EXPLORER (segment switch + shared box)
+    // Card 2: SEMANTIC AXES | DIM EXPLORER (segment switch + shared box).
+    // Easy-only: in Advanced the DCO panel owns the whole column and these
+    // components keep stale last-Easy bounds — painting from them would draw
+    // orphaned card chrome behind/next to the DCO canvas.
+    if (oscEasyMode)
     {
         int top = axesDimSegBtns[0].getY() - inset;
         int bot = axesPanel.getBottom() + inset;
@@ -2465,7 +2499,7 @@ void MainPanel::paint(juce::Graphics& g)
     }
 
     // Card 3: Generate button + cache/resynth block (below the shared box)
-    if (!dimExplorerVisible)
+    if (oscEasyMode && !dimExplorerVisible)
     {
         int top = axesPanel.getBottom() + inset;
         int bot = sequencerPanel.getY() - inset;
@@ -2480,7 +2514,7 @@ void MainPanel::paint(juce::Graphics& g)
     if (!cacheSwitchBounds.isEmpty())
         paintSwitchBoxBorder(g, cacheSwitchBounds);
 
-    if (glowGenerating)
+    if (oscEasyMode && glowGenerating)
     {
         const float pulse = 0.5f + 0.5f * std::sin(glowPhase);
         auto gb = mainGenerateBtn.getBounds().toFloat().expanded(7.0f, 5.0f);
@@ -2852,6 +2886,14 @@ void MainPanel::syncSnapshotUi()
 
 void MainPanel::triggerMainGeneration()
 {
+    // Easy-only, enforced centrally for EVERY caller (on-screen button, the
+    // Cmd/Shift+Return shortcut, XL Generate CC 37 via onGenerateRequested):
+    // in Advanced — the DCO panel — the neural prompts are hidden, and
+    // generating from invisible text is the paradigm leak the panel split
+    // exists to prevent.
+    if (!oscEasyMode)
+        return;
+
     if (!mainGenerateBtn.isEnabled())
         return;
 
@@ -3245,123 +3287,138 @@ void MainPanel::resized()
     poweredByLabel.setFont(juce::FontOptions(juce::jmax(kUiLabelFontMin,
                                                         static_cast<float>(headerH) * 0.6f)));
     poweredByLabel.setBounds(poweredBounds);
-    promptPanel.setBounds(genCol.removeFromTop(oscH));
-    genCol.removeFromTop(kGap);
-
-    // Card 2: SEMANTIC AXES | DIM EXPLORER — a 2-segment switch over one shared
-    // fixed-height box (axesH). The active segment shows the Axes controls or the
-    // DimExplorer mini-view; the box height is constant across segment AND osc
-    // mode, so the Generate block below never shifts. (Visibility of axesPanel vs
-    // dimensionExplorer is driven by updateAxesDimSegment, not here.)
+    // Advanced = DCO panel: the prompt block takes the WHOLE column — no axes
+    // box, no Generate block, no snap/cache/resynth rows below it. Their
+    // components are hidden by setOscEasyMode; the switchbox-border sentinels
+    // are cleared here so paint() draws no frames around stale bounds.
+    if (!oscEasyMode)
     {
-        auto switchBar = genCol.removeFromTop(headerH);
-        const int segW = switchBar.getWidth() / 2;
-        axesDimSegBtns[0].setBounds(switchBar.removeFromLeft(segW));
-        axesDimSegBtns[1].setBounds(switchBar);
-
-        auto boxArea = genCol.removeFromTop(axesH);
-        axesPanel.setBounds(boxArea);
-        if (!dimExplorerVisible)
-            dimensionExplorer.setBounds(boxArea);   // overlay path repositions it below
-        genCol.removeFromTop(kGap);
+        promptPanel.setBounds(genCol);
+        snapshotSwitchBounds = {};
+        cacheSwitchBounds = {};
     }
-
-    // Generate + InfCache controls get all slack freed by the explorer cap,
-    // centered in the remaining card area so the controls have breathing room.
-    // genCacheGap is intentionally larger than kGap so Generate doesn't read
-    // as glued to the cache row — separation here marks Generate as a
-    // standalone primary control, not a label for the cache row.
-    int remainH = genCol.getHeight();
-    int effectiveGenCacheGap = genCacheGap;
-    if (remainH < kMinGenerateButtonH + effectiveGenCacheGap + cacheRowH + kGap + resynthBlockH)
-        effectiveGenCacheGap = juce::jmin(effectiveGenCacheGap, kGap);
-
-    // The resynth row sits below the snap/cache row, so it is part of the centered
-    // control block: reserve its height (+ a gap) here so the Generate button
-    // doesn't claim it and the row stays inside genCol instead of colliding with
-    // the sequencer below.
-    const int availableGenButtonH = juce::jmax(0, remainH - effectiveGenCacheGap - cacheRowH - kGap - resynthBlockH);
-    genBtnH = juce::jlimit(0, genBtnH, availableGenButtonH);
-    const int controlsH = genBtnH + effectiveGenCacheGap + cacheRowH + kGap + resynthBlockH;
-    int genBtnY = genCol.getY() + juce::jmax(0, (remainH - controlsH) / 2);
-    auto genBtnArea = juce::Rectangle<int>(genCol.getX(), genBtnY, genCol.getWidth(), genBtnH);
-    int genW = juce::roundToInt(static_cast<float>(genBtnArea.getWidth()) * 0.66f);
-    int genX = genBtnArea.getX() + (genBtnArea.getWidth() - genW) / 2;
-    mainGenerateBtn.setBounds(genX, genBtnArea.getY(), genW, genBtnArea.getHeight());
-
-    auto snapCacheRow = juce::Rectangle<int>(genCol.getX(),
-                                             mainGenerateBtn.getBottom() + effectiveGenCacheGap,
-                                             genCol.getWidth(),
-                                             cacheRowH).reduced(1, 0);
-    const float switchFs = juce::jmax(kUiLabelFontMin, static_cast<float>(cacheRowH) * 0.58f);
-    // Left-header titles: ModuleTitle, bold (matches RE-PROMPT/VARIATION).
-    setUiFont(snapLabel, TextRole::ModuleTitle, switchFs, true);
-    setUiFont(cacheLabel, TextRole::ModuleTitle, switchFs, true);
-
-    const bool veryNarrow = snapCacheRow.getWidth() < 260;
-    const int gap = veryNarrow ? 3 : 4;
-    // Band width = the (space-prefixed) title + a little right breathing room.
-    const float hdrFs = uiFontSize(TextRole::ModuleTitle, switchFs);
-    const int labelPad = veryNarrow ? 4 : 7;
-    const int snapLabelW = measureTextWidth(" SNAP", hdrFs) + labelPad;
-    const int cacheLabelW = measureTextWidth(" CACHE", hdrFs) + labelPad;
-    const int snapGroupW = veryNarrow ? 94 : juce::jlimit(108, 128,
-                                                          juce::roundToInt(static_cast<float>(snapCacheRow.getWidth()) * 0.28f));
-
-    snapLabel.setBounds(snapCacheRow.removeFromLeft(snapLabelW));
-    auto snapGroup = snapCacheRow.removeFromLeft(juce::jmin(snapGroupW, snapCacheRow.getWidth()));
-    snapCacheRow.removeFromLeft(juce::jmin(gap, snapCacheRow.getWidth()));
-    cacheLabel.setBounds(snapCacheRow.removeFromLeft(juce::jmin(cacheLabelW, snapCacheRow.getWidth())));
-    snapCacheRow.removeFromLeft(juce::jmin(gap, snapCacheRow.getWidth()));
-
-    auto layoutWeightedButtons = [](auto& buttons, int count, juce::Rectangle<int> area, const float* weights)
+    else
     {
-        float remainingWeight = 0.0f;
-        for (int i = 0; i < count; ++i)
-            remainingWeight += weights[i];
 
-        for (int i = 0; i < count; ++i)
+        promptPanel.setBounds(genCol.removeFromTop(oscH));
+        genCol.removeFromTop(kGap);
+
+        // Card 2: SEMANTIC AXES | DIM EXPLORER — a 2-segment switch over one shared
+        // fixed-height box (axesH). The active segment shows the Axes controls or the
+        // DimExplorer mini-view; the box height is constant across segment AND osc
+        // mode, so the Generate block below never shifts. (Visibility of axesPanel vs
+        // dimensionExplorer is driven by updateAxesDimSegment, not here.)
         {
-            const int cellW = (i == count - 1)
-                ? area.getWidth()
-                : juce::jmax(1, juce::roundToInt(static_cast<float>(area.getWidth()) * weights[i] / remainingWeight));
-            buttons[i].setBounds(area.removeFromLeft(cellW));
-            remainingWeight -= weights[i];
+            auto switchBar = genCol.removeFromTop(headerH);
+            const int segW = switchBar.getWidth() / 2;
+            axesDimSegBtns[0].setBounds(switchBar.removeFromLeft(segW));
+            axesDimSegBtns[1].setBounds(switchBar);
+
+            auto boxArea = genCol.removeFromTop(axesH);
+            axesPanel.setBounds(boxArea);
+            if (!dimExplorerVisible)
+                dimensionExplorer.setBounds(boxArea);   // overlay path repositions it below
+            genCol.removeFromTop(kGap);
         }
-    };
 
-    static constexpr float snapshotWeights[kNumSnapshotButtons] = {
-        1.65f, 1.00f, 1.00f, 1.00f, 1.00f
-    };
-    layoutWeightedButtons(snapshotButtons, kNumSnapshotButtons, snapGroup, snapshotWeights);
-    snapshotSwitchBounds = snapshotButtons[0].getBounds();
-    for (int i = 1; i < kNumSnapshotButtons; ++i)
-        snapshotSwitchBounds = snapshotSwitchBounds.getUnion(snapshotButtons[i].getBounds());
+        // Generate + InfCache controls get all slack freed by the explorer cap,
+        // centered in the remaining card area so the controls have breathing room.
+        // genCacheGap is intentionally larger than kGap so Generate doesn't read
+        // as glued to the cache row — separation here marks Generate as a
+        // standalone primary control, not a label for the cache row.
+        int remainH = genCol.getHeight();
+        int effectiveGenCacheGap = genCacheGap;
+        if (remainH < kMinGenerateButtonH + effectiveGenCacheGap + cacheRowH + kGap + resynthBlockH)
+            effectiveGenCacheGap = juce::jmin(effectiveGenCacheGap, kGap);
 
-    auto cacheGroup = snapCacheRow;
-    static constexpr float cacheWeights[kNumInfCacheButtons] = {
-        1.35f, 1.00f, 1.00f, 1.00f, 1.12f, 1.12f, 1.12f
-    };
-    layoutWeightedButtons(infCacheButtons, kNumInfCacheButtons, cacheGroup, cacheWeights);
-    cacheSwitchBounds = infCacheButtons[0].getBounds();
-    for (int i = 1; i < kNumInfCacheButtons; ++i)
-        cacheSwitchBounds = cacheSwitchBounds.getUnion(infCacheButtons[i].getBounds());
+        // The resynth row sits below the snap/cache row, so it is part of the centered
+        // control block: reserve its height (+ a gap) here so the Generate button
+        // doesn't claim it and the row stays inside genCol instead of colliding with
+        // the sequencer below.
+        const int availableGenButtonH = juce::jmax(0, remainH - effectiveGenCacheGap - cacheRowH - kGap - resynthBlockH);
+        genBtnH = juce::jlimit(0, genBtnH, availableGenButtonH);
+        const int controlsH = genBtnH + effectiveGenCacheGap + cacheRowH + kGap + resynthBlockH;
+        int genBtnY = genCol.getY() + juce::jmax(0, (remainH - controlsH) / 2);
+        auto genBtnArea = juce::Rectangle<int>(genCol.getX(), genBtnY, genCol.getWidth(), genBtnH);
+        int genW = juce::roundToInt(static_cast<float>(genBtnArea.getWidth()) * 0.66f);
+        int genX = genBtnArea.getX() + (genBtnArea.getWidth() - genW) / 2;
+        mainGenerateBtn.setBounds(genX, genBtnArea.getY(), genW, genBtnArea.getHeight());
 
-    // Resynth row beneath the snap/cache row: a "RESYNTH" left-title band + the
-    // Off→Full slider to its right — the snap/cache treatment, just with a slider
-    // (single-row module → left-header). Y derived like snapCacheRow (from the
-    // Generate button's bottom) so it tracks the centered control block exactly;
-    // resynthBlockH is reserved above.
-    auto resynthArea = juce::Rectangle<int>(
-        genCol.getX(),
-        mainGenerateBtn.getBottom() + effectiveGenCacheGap + cacheRowH + kGap,
-        genCol.getWidth(),
-        resynthBlockH).reduced(1, 0);
-    auto srcToggle = resynthArea.removeFromRight(56);     // 2× ~28px int/ext buttons
-    resynthArea.removeFromRight(juce::jmin(gap, resynthArea.getWidth()));
-    resynthRow->setBounds(resynthArea);                   // inline SliderRow draws its own band label + value
-    for (int i = 0; i < 2; ++i)
-        resynthSrcBtns[i].setBounds(srcToggle.removeFromLeft(srcToggle.getWidth() / (2 - i)));
+        auto snapCacheRow = juce::Rectangle<int>(genCol.getX(),
+                                                 mainGenerateBtn.getBottom() + effectiveGenCacheGap,
+                                                 genCol.getWidth(),
+                                                 cacheRowH).reduced(1, 0);
+        const float switchFs = juce::jmax(kUiLabelFontMin, static_cast<float>(cacheRowH) * 0.58f);
+        // Left-header titles: ModuleTitle, bold (matches RE-PROMPT/VARIATION).
+        setUiFont(snapLabel, TextRole::ModuleTitle, switchFs, true);
+        setUiFont(cacheLabel, TextRole::ModuleTitle, switchFs, true);
+
+        const bool veryNarrow = snapCacheRow.getWidth() < 260;
+        const int gap = veryNarrow ? 3 : 4;
+        // Band width = the (space-prefixed) title + a little right breathing room.
+        const float hdrFs = uiFontSize(TextRole::ModuleTitle, switchFs);
+        const int labelPad = veryNarrow ? 4 : 7;
+        const int snapLabelW = measureTextWidth(" SNAP", hdrFs) + labelPad;
+        const int cacheLabelW = measureTextWidth(" CACHE", hdrFs) + labelPad;
+        const int snapGroupW = veryNarrow ? 94 : juce::jlimit(108, 128,
+                                                              juce::roundToInt(static_cast<float>(snapCacheRow.getWidth()) * 0.28f));
+
+        snapLabel.setBounds(snapCacheRow.removeFromLeft(snapLabelW));
+        auto snapGroup = snapCacheRow.removeFromLeft(juce::jmin(snapGroupW, snapCacheRow.getWidth()));
+        snapCacheRow.removeFromLeft(juce::jmin(gap, snapCacheRow.getWidth()));
+        cacheLabel.setBounds(snapCacheRow.removeFromLeft(juce::jmin(cacheLabelW, snapCacheRow.getWidth())));
+        snapCacheRow.removeFromLeft(juce::jmin(gap, snapCacheRow.getWidth()));
+
+        auto layoutWeightedButtons = [](auto& buttons, int count, juce::Rectangle<int> area, const float* weights)
+        {
+            float remainingWeight = 0.0f;
+            for (int i = 0; i < count; ++i)
+                remainingWeight += weights[i];
+
+            for (int i = 0; i < count; ++i)
+            {
+                const int cellW = (i == count - 1)
+                    ? area.getWidth()
+                    : juce::jmax(1, juce::roundToInt(static_cast<float>(area.getWidth()) * weights[i] / remainingWeight));
+                buttons[i].setBounds(area.removeFromLeft(cellW));
+                remainingWeight -= weights[i];
+            }
+        };
+
+        static constexpr float snapshotWeights[kNumSnapshotButtons] = {
+            1.65f, 1.00f, 1.00f, 1.00f, 1.00f
+        };
+        layoutWeightedButtons(snapshotButtons, kNumSnapshotButtons, snapGroup, snapshotWeights);
+        snapshotSwitchBounds = snapshotButtons[0].getBounds();
+        for (int i = 1; i < kNumSnapshotButtons; ++i)
+            snapshotSwitchBounds = snapshotSwitchBounds.getUnion(snapshotButtons[i].getBounds());
+
+        auto cacheGroup = snapCacheRow;
+        static constexpr float cacheWeights[kNumInfCacheButtons] = {
+            1.35f, 1.00f, 1.00f, 1.00f, 1.12f, 1.12f, 1.12f
+        };
+        layoutWeightedButtons(infCacheButtons, kNumInfCacheButtons, cacheGroup, cacheWeights);
+        cacheSwitchBounds = infCacheButtons[0].getBounds();
+        for (int i = 1; i < kNumInfCacheButtons; ++i)
+            cacheSwitchBounds = cacheSwitchBounds.getUnion(infCacheButtons[i].getBounds());
+
+        // Resynth row beneath the snap/cache row: a "RESYNTH" left-title band + the
+        // Off→Full slider to its right — the snap/cache treatment, just with a slider
+        // (single-row module → left-header). Y derived like snapCacheRow (from the
+        // Generate button's bottom) so it tracks the centered control block exactly;
+        // resynthBlockH is reserved above.
+        auto resynthArea = juce::Rectangle<int>(
+            genCol.getX(),
+            mainGenerateBtn.getBottom() + effectiveGenCacheGap + cacheRowH + kGap,
+            genCol.getWidth(),
+            resynthBlockH).reduced(1, 0);
+        auto srcToggle = resynthArea.removeFromRight(56);     // 2× ~28px int/ext buttons
+        resynthArea.removeFromRight(juce::jmin(gap, resynthArea.getWidth()));
+        resynthRow->setBounds(resynthArea);                   // inline SliderRow draws its own band label + value
+        for (int i = 0; i < 2; ++i)
+            resynthSrcBtns[i].setBounds(srcToggle.removeFromLeft(srcToggle.getWidth() / (2 - i)));
+
+    }   // end easy-only neural generation column
 
     // (The Re-Prompt control row that used to sit beneath Resynth now lives in
     // PromptPanel, directly under the prompts.)
