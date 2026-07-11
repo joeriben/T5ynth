@@ -25,6 +25,7 @@ auf die richtige Konstruktion ab?
 Transport: run_instruct DIREKT importiert (kein IPC) -- gleiches Muster wie die
 anderen tools/-Proben; der Shipping-Backend hat diesen Mode noch nicht.
 """
+import os
 import sys
 import re
 from pathlib import Path
@@ -189,22 +190,18 @@ SYS = (
     "Translate the prompt's MEANING into this vocabulary -- match by meaning, NOT by exact word: "
     "'luminous/crystalline' -> inharmonic highs (GEN09); 'aggressive/screaming' -> SHAPE; "
     "'opens up/evolves' -> morph dark->bright; 'mellow/soft' -> few low partials.\n\n"
-    "The two examples below show ONLY the FORMAT. Do NOT reuse their partials, "
-    "phases, strengths or shapes -- derive every number FRESH from the actual "
-    "prompt's meaning. Use 2 to 4 keyframes so the table has real motion.\n\n"
-    "Format example -- 'deep underwater sub rumble':\n"
+    "Build the wavetable as a MOTION from a START timbre to an END timbre -- the "
+    "keyframes are stops on that journey, and each MUST differ from the one "
+    "before it (that difference IS the sound's movement). Read the journey from "
+    "the prompt: 'pad that opens up' = dark start -> bright end; 'aggressive stab' "
+    "= clean start -> distorted end (rising SHAPE); 'soft mellow' = few partials, "
+    "little change. Use 2 or 3 keyframes. Keep each keyframe's list SHORT -- at "
+    "most 8 numbers -- never a long shrinking tail.\n\n"
+    "Reply in EXACTLY this shape, no other text:\n"
     "KEYFRAMES:\n"
-    "f1 0 2048 10 1 0.4 0.1\n"
-    "f2 0 2048 10 1 0.6 0.3 0.15 0.08\n"
-    "MORPH: f1 f2\n\n"
-    "Format example -- 'sharp digital chiptune blip':\n"
-    "KEYFRAMES:\n"
-    "f1 0 2048 10 1 0 0.33 0 0.2 0 0.14\n"
-    "f2 0 2048 9 1 1 0  3.0 0.5 0  5.0 0.4 0\n"
-    "SHAPE: f2=0.3\n"
-    "MORPH: f1 f2\n\n"
-    "Now reply for the prompt in EXACTLY this form, no other text:\n"
-    "KEYFRAMES:\n<f-statements>\nSHAPE: <optional>\nMORPH: <ordered f names>"
+    "<one f-statement per keyframe -- GEN10 or GEN09 as the sound needs>\n"
+    "SHAPE: f<N>=<0..1>   (only for dirty keyframes; omit otherwise)\n"
+    "MORPH: <ordered f names>"
 )
 
 
@@ -221,13 +218,24 @@ PROMPTS = [
 ]
 
 
+def _centroid(cycle):
+    """Spectral centroid (harmonic-bin weighted) — objective brightness proxy."""
+    mag = np.abs(np.fft.rfft(cycle))
+    bins = np.arange(len(mag))
+    tot = mag.sum()
+    return float((bins * mag).sum() / tot) if tot > 1e-9 else 0.0
+
+
 def main():
-    mdir = P._resolve_translation_model_dir({})
+    # Swap the combiner model without touching run_instruct: LCO_MODEL_DIR points
+    # at any HF causal-LM dir (the coder), else fall back to the translator Qwen.
+    mdir = os.environ.get("LCO_MODEL_DIR") or P._resolve_translation_model_dir({})
     dev = "mps"
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     print(f"translator: {mdir}\n")
     print(f"{'prompt':38} {'live':7}  construction")
     print("-" * 100)
+    results = []  # (prompt, table) for the discrimination summary
     for i, prompt in enumerate(PROMPTS, 1):
         raw = P.run_instruct(prompt, mdir, dev, SYS, max_new_tokens=220)
         construction, meta = parse(raw)
@@ -241,9 +249,38 @@ def main():
         audio = BP.scan_render(table, scan="sweep")
         BP.write_wav(OUT_DIR / f"{name}.wav", audio)
         live = BP.frame_liveness(table)
+        results.append((prompt, table))
         print(f"{prompt:38} {live:7.4f}  {meta or '(none)'}")
         print(f"    RAW: {raw.strip()!r}")
     print(f"\nWAVs -> {OUT_DIR}  (gen_*.wav)")
+
+    # ── The real metric: does MEANING map to a DISTINCT construction? ──
+    # frame_liveness measures per-frame wiggle; it CANNOT see two prompts that
+    # produced the SAME table. Centroid sweep + cross-prompt RMS can.
+    print("\ndiscrimination — centroid sweep + cross-prompt distinctness")
+    print(f"{'prompt':26} {'cen[0]':>7} {'cen[N]':>7} {'sweepΔ':>7}")
+    for prompt, t in results:
+        c0, c1 = _centroid(t[0]), _centroid(t[-1])
+        print(f"{prompt[:26]:26} {c0:7.2f} {c1:7.2f} {abs(c1 - c0):7.2f}")
+    parent = list(range(len(results)))
+
+    def _find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    pairs = []
+    for a in range(len(results)):
+        for b in range(a + 1, len(results)):
+            d = float(np.sqrt(((results[a][1] - results[b][1]) ** 2).mean()))
+            if d < 0.02:
+                pairs.append((results[a][0], results[b][0]))
+                parent[_find(a)] = _find(b)
+    clusters = len({_find(i) for i in range(len(results))}) if results else 0
+    print("\nnear-identical (RMS<0.02): "
+          + ("; ".join(f"{x[:12]}=={y[:12]}" for x, y in pairs) if pairs else "none"))
+    print(f"distinct constructions: {clusters} / {len(results)}")
 
 
 if __name__ == "__main__":
