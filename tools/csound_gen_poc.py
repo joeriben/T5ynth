@@ -1,29 +1,27 @@
 #!/usr/bin/env python3
 """
-GEN-Wavetable PoC — Stufe 2, korrigiert: das LLM emittiert eine SPRACHE, die es
-schon kann, statt ein bespoke Schema, das wir ihm beibringen muessen.
+GEN-Wavetable PoC — Stufe 3: per-station authoring, deterministic morph.
 
-Die Kritik, die diesen Prototyp ausloest: eine eigene "deklarative Synth-Bau-
-Sprache" (DcoRecipe) zu erfinden ist Unfug, wenn es sie seit Jahrzehnten gibt.
-Also: Emit-Ziel = Csound GEN-Function-Table-Statements (Music-N-Linie, ~1960 ->
-Csound) -- die kanonische deklarative Wavetable-Vokabel. Ein Coder/Instruct-LLM
-hat sie im Training gesehen; kein Few-Shot-Zwang fuer eine Kunstsprache.
+Vorgeschichte: das kleine LLM (Qwen) EMITTIERT zuverlaessig ein einzelnes
+Ziel-Timbre als Csound GEN-Statement (Semantik ist da -- Zentroid trackt die
+Bedeutung), aber es KOMPONIERT keine zuverlaessige spektrale Bewegung zwischen
+mehreren Keyframes: in einem Schuss wiederholt es die Partial-Liste und variiert
+nur die SHAPE -> tote Tables. Drei Prompt-Varianten, dasselbe Scheitern.
 
-Was wir NICHT von Csound uebernehmen: den Renderer (kein libcsound-Dep). Wir
-implementieren das kleine GEN-Subset selbst -- GEN10/GEN09 sind je ein paar
-Zeilen. Wir adoptieren die SPRACHE, nicht die Engine.
+Der Fix (User): "das Modell pro Station fahren und dann deterministisch damit
+weiterarbeiten." Also:
+  1. Das Modell zerlegt den Prompt in 2-3 TIMBRAL STATIONS (Wortphrasen).
+  2. Das Modell emittiert PRO STATION ein einzelnes GEN-Spektrum -- die enge
+     Frage, die es kann.
+  3. Der Code morpht zwischen den Stationen -> lebender Table, GARANTIERT
+     (identische Keyframes sind strukturell unmoeglich: jede Station ist ein
+     eigener Aufruf mit eigener Beschreibung).
 
-Was UNSER Teil ist (die eigentliche Innovation): der Morph ueber die Frames.
-GEN macht STATISCHE Einzelzyklen. Das LLM ordnet GEN-Keyframes in eine MORPH-
-Trajektorie -> lebender Table. Reused vocabulary, novel authoring.
-
-Verglichen wird gegen tools/bridge_poc_qwen.py (freies Bridge-Selektieren, das
-scheiterte): dieselben 8 Prompts, dieselbe Frage -- bildet das Modell Woerter,
-die KEINE Vokabel sind ("luminous", "aggressive", "muddy"), ueber die Bedeutung
-auf die richtige Konstruktion ab?
+Reused vocabulary (Csound GEN), novel authoring (per-station + unser Morph).
+Modell = Timbre, Code = Morph -- "der Morph bleibt unsere Innovation."
 
 Transport: run_instruct DIREKT importiert (kein IPC) -- gleiches Muster wie die
-anderen tools/-Proben; der Shipping-Backend hat diesen Mode noch nicht.
+anderen tools/-Proben. LCO_MODEL_DIR waehlt das Modell (Coder), sonst Translator.
 """
 import os
 import sys
@@ -104,9 +102,9 @@ def _curve(a, curve):
 
 
 def morph_table(cycles, curve="lin"):
-    """cycles = keyframe single-cycles in MORPH order. Linear-blend across
-    NUM_FRAMES, curve-shaped local position. One keyframe -> static (dead) table:
-    allowed, and frame_liveness will expose it as the anti-goal it is."""
+    """cycles = station single-cycles in order. Linear-blend across NUM_FRAMES,
+    curve-shaped local position. One station -> static table (appropriate for a
+    sound that does not evolve). Distinct stations -> guaranteed motion."""
     cycles = [c for c in cycles if c is not None]
     if not cycles:
         return None
@@ -126,7 +124,15 @@ def morph_table(cycles, curve="lin"):
     return table
 
 
-# ─── Parser: Qwens Csound-Ausgabe -> Keyframes + Morph ─────────────────────
+def _centroid(cycle):
+    """Spectral centroid (harmonic-bin weighted) — objective brightness proxy."""
+    mag = np.abs(np.fft.rfft(cycle))
+    bins = np.arange(len(mag))
+    tot = mag.sum()
+    return float((bins * mag).sum() / tot) if tot > 1e-9 else 0.0
+
+
+# ─── Parser: eine Station -> ein Spektrum ──────────────────────────────────
 
 # f<N> <time> <size> <gennum> <args...>
 _F = re.compile(r"^\s*f\s*(\d+)\s+[-\d.]+\s+\d+\s+(\d+)\s+(.*)$", re.I)
@@ -134,78 +140,78 @@ _F = re.compile(r"^\s*f\s*(\d+)\s+[-\d.]+\s+\d+\s+(\d+)\s+(.*)$", re.I)
 
 def _floats(s):
     # Accept leading-dot decimals (.5, .33) as well as 0.5 / 4.2 / -45 / 2048.
-    # A digit-first-only pattern silently turns ".5" into "5" -> corrupt strengths,
-    # and the SYS vocab line itself teaches the bare-dot form.
+    # A digit-first-only pattern silently turns ".5" into "5" -> corrupt strengths.
     return [float(t) for t in re.findall(r"-?(?:\d+\.?\d*|\.\d+)", s)]
 
 
-def parse(raw):
-    """-> (ordered_construction, meta_str). ordered_construction is a list of
-    (gennum, args, shape). Only GEN10/GEN09 survive; junk is dropped, never
-    invented. MORPH gives the order; SHAPE gives per-table drive."""
-    keyframes = {}      # table# -> (gennum, args)
-    shapes = {}         # table# -> shape amount
-    morph = []          # ordered table#s
+def _parse_one_spectrum(raw):
+    """One station's model reply -> ONE single-cycle spectrum. Takes the FIRST
+    valid GEN f-statement + an optional SHAPE. Returns (gennum, args, shape) or
+    None. args capped so a runaway list can't build a pathological cycle."""
+    gennum = args = None
     for line in raw.splitlines():
         m = _F.match(line)
-        if m:
-            tbl, gennum, rest = int(m.group(1)), int(m.group(2)), m.group(3)
-            if gennum in _GEN:
-                keyframes[tbl] = (gennum, _floats(rest))
-            continue
-        ms = re.match(r"\s*SHAPE:?\s*(.+)", line, re.I)
-        if ms:
-            for tbl, val in re.findall(r"f\s*(\d+)\s*=\s*(-?(?:\d+\.?\d*|\.\d+))", ms.group(1), re.I):
-                shapes[int(tbl)] = float(val)
-            continue
-        mm = re.match(r"\s*MORPH:?\s*(.+)", line, re.I)
-        if mm:
-            morph = [int(t) for t in re.findall(r"f\s*(\d+)", mm.group(1), re.I)]
-
-    if not morph:
-        morph = sorted(keyframes)                     # fallback: numeric order
-    morph = [t for t in morph if t in keyframes]      # drop dangling refs
-    construction = [(keyframes[t][0], keyframes[t][1], shapes.get(t, 0.0)) for t in morph]
-
-    meta = " -> ".join(f"f{t}(G{keyframes[t][0]}{'+sh' if shapes.get(t) else ''})" for t in morph)
-    return construction, meta
+        if m and int(m.group(2)) in _GEN:
+            gennum, args = int(m.group(2)), _floats(m.group(3))[:24]
+            break
+    if gennum is None or not args:
+        return None
+    shape = 0.0
+    ms = re.search(r"SHAPE:?\s*(?:f\s*\d+\s*=\s*)?(-?(?:\d+\.?\d*|\.\d+))", raw, re.I)
+    if ms:
+        shape = float(ms.group(1))
+    return gennum, args, shape
 
 
-# ─── Der Autor-Prompt: das LLM schreibt Csound (few-shot, kein Kunst-Schema) ─
+# ─── Die zwei engen Modell-Aufgaben (je ein Aufruf) ────────────────────────
 
-SYS = (
-    "You are a sound designer who builds wavetables by writing Csound GEN "
-    "function-table statements. Each f-statement is ONE single-cycle waveform "
-    "(a keyframe). You then order keyframes into a MORPH so the wavetable "
-    "EVOLVES across its frames -- a LIVING table, never one static cycle.\n\n"
-    "Vocabulary (use ONLY this):\n"
-    "  f<N> 0 2048 10 <s1> <s2> <s3> ...   GEN10: harmonic partials. s_k = strength of harmonic k.\n"
-    "     saw = 1 0.5 0.33 0.25 0.2 ; square = 1 0 0.33 0 0.2 0 (odd only);\n"
-    "     warm/dark = strong lows, rolled highs ; bright = boosted highs ; hollow = odd-heavy.\n"
-    "  f<N> 0 2048 9 <p1> <str1> <ph1>  <p2> <str2> <ph2> ...   GEN09: partials by\n"
-    "     (partial#, strength, phase-degrees). partial# MAY be non-integer -> inharmonic:\n"
-    "     use for glassy / bell / metallic / crystalline shimmer.\n"
-    "  SHAPE: f<N>=<0..1>   optional per-keyframe distortion (dirty/gritty/aggressive/screaming). 0=clean.\n"
-    "  MORPH: f<A> f<B> f<C>   the ordered keyframes the table morphs through. USE AT LEAST TWO.\n\n"
-    "Translate the prompt's MEANING into this vocabulary -- match by meaning, NOT by exact word: "
-    "'luminous/crystalline' -> inharmonic highs (GEN09); 'aggressive/screaming' -> SHAPE; "
-    "'opens up/evolves' -> morph dark->bright; 'mellow/soft' -> few low partials.\n\n"
-    "Build the wavetable as a MOTION from a START timbre to an END timbre -- the "
-    "keyframes are stops on that journey, and each MUST differ from the one "
-    "before it (that difference IS the sound's movement). Read the journey from "
-    "the prompt: 'pad that opens up' = dark start -> bright end; 'aggressive stab' "
-    "= clean start -> distorted end (rising SHAPE); 'soft mellow' = few partials, "
-    "little change. Use 2 or 3 keyframes. Keep each keyframe's list SHORT -- at "
-    "most 8 numbers -- never a long shrinking tail.\n\n"
-    "Reply in EXACTLY this shape, no other text:\n"
-    "KEYFRAMES:\n"
-    "<one f-statement per keyframe -- GEN10 or GEN09 as the sound needs>\n"
-    "SHAPE: f<N>=<0..1>   (only for dirty keyframes; omit otherwise)\n"
-    "MORPH: <ordered f names>"
+STATION_SYS = (
+    "You are a sound designer. Break the described sound into 2 or 3 TIMBRAL "
+    "STATIONS -- the key points the timbre passes through from start to end. "
+    "Each station is a SHORT phrase (2-5 words) naming that timbre. If the sound "
+    "barely evolves, give 2 near-identical stations. Reply ONLY the phrases, one "
+    "per line, ordered start to end -- no numbering, no other text.\n\n"
+    "Example -- 'a swell from muffled to piercing':\n"
+    "muffled and dark\npiercing and bright"
+)
+
+SPECTRUM_SYS = (
+    "You are a sound designer writing ONE Csound GEN function-table statement -- "
+    "a single-cycle waveform matching a timbre.\n"
+    "  f1 0 2048 10 <s1> <s2> ...   GEN10: harmonic partial strengths "
+    "(saw = 1 0.5 0.33 0.25; square = 1 0 0.33 0 0.2; warm/dark = strong lows, "
+    "rolled highs; bright = strong highs; hollow = odd-heavy).\n"
+    "  f1 0 2048 9 <p1> <str1> <ph1> ...   GEN09: partials by (partial#, strength, "
+    "phase-degrees); a NON-integer partial# is inharmonic -> glassy / metallic / "
+    "bell / crystalline.\n"
+    "Add a second line 'SHAPE: f1=<0..1>' ONLY if the timbre is dirty / distorted "
+    "/ aggressive / screaming.\n"
+    "Use at most 8 numbers. Reply ONLY the f1 line (and optional SHAPE line), "
+    "nothing else."
 )
 
 
-# Dieselben 8 wie bridge_poc_qwen.py -- Woerter, die KEINE Vokabel sind.
+def _plan_stations(prompt, mdir, dev):
+    """Model -> ordered list of 2-3 short timbre phrases (planning, its strength).
+    Falls back to the prompt itself as a single station if nothing usable comes."""
+    raw = P.run_instruct(prompt, mdir, dev, STATION_SYS, max_new_tokens=64)
+    stations = []
+    for line in raw.splitlines():
+        # Strip only a real leading list-marker ("-", "*", "1.", "1)"), NOT a
+        # digit run inside a legit phrase ("80s brass" must not become "s brass").
+        t = re.sub(r"^\s*(?:[-*]|\d+[.)])?\s*", "", line).strip()
+        if t and any(c.isalpha() for c in t):
+            stations.append(t)
+    return stations[:3] if stations else [prompt]
+
+
+def _emit_spectrum(phrase, mdir, dev):
+    """Model -> one GEN spectrum for one station phrase (the narrow task it can do)."""
+    raw = P.run_instruct(phrase, mdir, dev, SPECTRUM_SYS, max_new_tokens=96)
+    return _parse_one_spectrum(raw)
+
+
+# Dieselben 8 wie zuvor -- Woerter, die KEINE Vokabel sind.
 PROMPTS = [
     "warm analog pad that slowly opens up",
     "luminous crystalline bell",
@@ -218,45 +224,39 @@ PROMPTS = [
 ]
 
 
-def _centroid(cycle):
-    """Spectral centroid (harmonic-bin weighted) — objective brightness proxy."""
-    mag = np.abs(np.fft.rfft(cycle))
-    bins = np.arange(len(mag))
-    tot = mag.sum()
-    return float((bins * mag).sum() / tot) if tot > 1e-9 else 0.0
-
-
 def main():
     # Swap the combiner model without touching run_instruct: LCO_MODEL_DIR points
     # at any HF causal-LM dir (the coder), else fall back to the translator Qwen.
     mdir = os.environ.get("LCO_MODEL_DIR") or P._resolve_translation_model_dir({})
     dev = "mps"
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"translator: {mdir}\n")
-    print(f"{'prompt':38} {'live':7}  construction")
-    print("-" * 100)
+    print(f"model: {mdir}\n")
+
     results = []  # (prompt, table) for the discrimination summary
     for i, prompt in enumerate(PROMPTS, 1):
-        raw = P.run_instruct(prompt, mdir, dev, SYS, max_new_tokens=220)
-        construction, meta = parse(raw)
-        cycles = [render_keyframe(g, a, sh) for (g, a, sh) in construction]
+        stations = _plan_stations(prompt, mdir, dev)
+        cycles, tags = [], []
+        for s in stations:
+            parsed = _emit_spectrum(s, mdir, dev)
+            if parsed is None:
+                tags.append(f"{s!r}:??")
+                continue
+            cycles.append(render_keyframe(*parsed))
+            tags.append(f"{s!r}:G{parsed[0]}{'+sh' if parsed[2] else ''}")
         table = morph_table(cycles)
         name = f"gen_{i:02d}_" + re.sub(r"[^a-z]+", "_", prompt.lower())[:24].strip("_")
+        print(f"[{i}] {prompt}")
+        print(f"    stations: {'  ->  '.join(tags) if tags else '(none)'}")
         if table is None:
-            print(f"{prompt:38} {'--':>7}  (no valid GEN emitted)")
-            print(f"    RAW: {raw.strip()!r}")
+            print("    (no valid spectra)\n")
             continue
         audio = BP.scan_render(table, scan="sweep")
         BP.write_wav(OUT_DIR / f"{name}.wav", audio)
-        live = BP.frame_liveness(table)
         results.append((prompt, table))
-        print(f"{prompt:38} {live:7.4f}  {meta or '(none)'}")
-        print(f"    RAW: {raw.strip()!r}")
-    print(f"\nWAVs -> {OUT_DIR}  (gen_*.wav)")
+        print(f"    liveness={BP.frame_liveness(table):.4f}\n")
+    print(f"WAVs -> {OUT_DIR}  (gen_*.wav)")
 
-    # ── The real metric: does MEANING map to a DISTINCT construction? ──
-    # frame_liveness measures per-frame wiggle; it CANNOT see two prompts that
-    # produced the SAME table. Centroid sweep + cross-prompt RMS can.
+    # ── Discrimination: does MEANING map to a DISTINCT, LIVING construction? ──
     print("\ndiscrimination — centroid sweep + cross-prompt distinctness")
     print(f"{'prompt':26} {'cen[0]':>7} {'cen[N]':>7} {'sweepΔ':>7}")
     for prompt, t in results:
