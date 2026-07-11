@@ -1551,6 +1551,31 @@ def _dedupe_flags(flags):
     return out
 
 
+# ─── flag display tiers ────────────────────────────────────────────────────
+# Every honesty flag carries a "tier" the C++ panel groups by, so the ~1 word
+# the system genuinely could not read stops drowning in the honest disclosures
+# that are the vast majority of flags. Two tiers:
+#   "unresolved" — the token never became sound-shaping. ACTIONABLE: a residue
+#                  word S2 could not route (add a lexicon entry), the S2 word
+#                  budget overflowed (shorten the prompt), or S4 composition
+#                  failed outright (a real fault). This is the "Not understood"
+#                  count the user reacts to.
+#   "adapted"    — it DID become sound-shaping, and the flag honestly discloses
+#                  how (approximated / inapplicable-here / defaulted / clamped).
+# Closed allowlist of unresolved reason stems; the DEFAULT is "adapted", so a
+# newly added honest-disclosure reason is correctly-tiered by construction and
+# never silently promoted into the actionable count. "no mapping" is a distinct
+# prefix from the many adapted "no FM operator ..." / "no pulse width ..." ones.
+_UNRESOLVED_REASON_STEMS = ("no mapping", "unprocessed", "recipe composition failed")
+
+
+def _flag_tier(reason):
+    """Map a flag's reason string to its display tier (see above). Pure and
+    deterministic -- same reason -> same tier -- so stamping it leaves the
+    'same text -> byte-identical response' invariant intact."""
+    return "unresolved" if reason.startswith(_UNRESOLVED_REASON_STEMS) else "adapted"
+
+
 # ─── reference vocabulary (Re-Prompt grounding) ────────────────────────────
 # The controlled vocabulary the S0->S1 scanner actually resolves, formatted as
 # a compact palette for the Re-Prompt LLM. Every term here is a real surface
@@ -1684,7 +1709,11 @@ def author_recipe(text, llm_route=None, frames=None):
         "ok": True,
         "recipe": recipe,
         "resolved": resolved,
-        "flags": _dedupe_flags(flags),
+        # Stamp the display tier on each surviving flag (a copy -- never mutate
+        # the per-op dicts _compose built). Pure function of the reason, so the
+        # response stays byte-identical for identical input.
+        "flags": [dict(f, tier=_flag_tier(f.get("reason", "")))
+                  for f in _dedupe_flags(flags)],
         "lexicon_version": lexicon["lexicon_version"],
         # Sibling key (NOT inside "recipe", so the baked recipe stays byte-
         # identical): the Re-Prompt LLM's allowed palette, so its rewrites use

@@ -158,6 +158,8 @@ def validate_response(resp):
         for f in flags:
             if not (isinstance(f, dict) and "word" in f and "reason" in f):
                 errs.append(f"malformed flag entry {f!r}")
+            elif f.get("tier") not in ("unresolved", "adapted"):
+                errs.append(f"flag missing/invalid tier: {f!r}")
     return errs
 
 
@@ -827,6 +829,38 @@ def run_unit_tests():
           r_pv.get("reference_vocabulary") == brief, repr(r_pv.get("reference_vocabulary"))[:80])
     check("reference_vocabulary is a SIBLING key, not inside the recipe",
           "reference_vocabulary" not in r_pv["recipe"])
+
+    # ── FLAG DISPLAY TIER (the two-tier panel split: "Not understood" vs
+    #    "Adapted"). _flag_tier is a closed allowlist; the load-bearing case is
+    #    that the actionable "no mapping" prefix does NOT swallow the many honest
+    #    "no FM operator ..." / "no pulse width ..." disclosures.
+    tier_cases = [
+        ("no mapping — ignored", "unresolved"),
+        ("unprocessed — exceeds the 12-word S2 budget", "unresolved"),
+        ("recipe composition failed (boom) — fell back to the plain technique template", "unresolved"),
+        ("no FM operator in this recipe — ignored", "adapted"),        # must NOT be swallowed by "no mapping"
+        ("no pulse width in this recipe — ignored", "adapted"),
+        ("no additive-convertible keyframe in this recipe — ignored", "adapted"),
+        ("no harmonics of that parity to isolate — left unchanged", "adapted"),
+        ("true bell inharmonicity exceeds a single-cycle wavetable — approximated by FM", "adapted"),
+        ("also mentioned: square — using saw", "adapted"),
+        ("defaulted to saw (no technique keyword found)", "adapted"),
+    ]
+    for reason, expect in tier_cases:
+        check(f"_flag_tier({reason[:32]!r}...) == {expect}",
+              dr._flag_tier(reason) == expect, dr._flag_tier(reason))
+
+    # every flag on a real response carries a valid tier (validate_response also
+    # enforces this on all smoke prompts above; assert it end-to-end here too)
+    r_ban = dr.author_recipe("banana square", llm_route=None, frames=None)
+    check("nonsense word -> an 'unresolved' (Not understood) flag",
+          any(f["tier"] == "unresolved" and f["reason"].startswith("no mapping")
+              for f in r_ban["flags"]), r_ban["flags"])
+    check("every flag carries a tier",
+          all(f.get("tier") in ("unresolved", "adapted") for f in r_ban["flags"]), r_ban["flags"])
+    r_fmb = dr.author_recipe("fm bell", llm_route=None, frames=None)
+    check("fm bell approximation -> an 'adapted' (honest disclosure) flag",
+          any(f["tier"] == "adapted" for f in r_fmb["flags"]), r_fmb["flags"])
 
     print()
     return list(_FAILURES)

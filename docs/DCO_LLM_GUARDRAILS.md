@@ -239,13 +239,19 @@ Response via existing `send_text` (`\x03`):
   "recipe": { ...DcoRecipe JSON... },
   "resolved": { "technique":"pwm", "adjectives":["warm"], "motion":["open_up"],
                  "values":{"width":0.3} },
-  "flags": [ {"word":"screamy","reason":"no mapping — ignored"} ],
+  "flags": [ {"word":"screamy","reason":"no mapping — ignored","tier":"unresolved"} ],
   "lexicon_version": 1 }
 ```
 
 `ok:false` never occurs for user text (S4 guarantees a recipe); it is reserved
 for transport-level failures (translator model missing). The C++ side shows
-`flags[]` verbatim in the DCO status line — the honesty channel is UI-visible.
+`flags[]` in the DCO status line — the honesty channel is UI-visible. Each flag
+carries a **`tier`** the panel groups by: `"unresolved"` (the token never became
+sound-shaping — a residue word S2 could not route, an S2 word-budget overflow, or
+an S4 composition failure; the actionable *"Not understood"* count) vs `"adapted"`
+(it *did* shape the sound and the flag honestly discloses how — approximated,
+inapplicable-here, defaulted, clamped). `tier` is a pure function of `reason`
+(`dco_recipe._flag_tier`), so it never perturbs the determinism invariant (§4).
 
 ## 6. Adversarial test list (ships with Slice 3 as an IPC test)
 
