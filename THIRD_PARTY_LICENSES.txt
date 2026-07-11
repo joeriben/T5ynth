@@ -69,6 +69,30 @@ not include Stable Audio weights.
 
 ---
 
+## LCO Coder (Qwen2.5-Coder-3B-Instruct)
+
+**Model:** `Qwen/Qwen2.5-Coder-3B-Instruct`
+**License:** Qwen RESEARCH License
+**URL:** https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct
+
+T5ynth uses Qwen2.5-Coder-3B-Instruct as the code-authoring model for the LCO
+(classic oscillator): it reads the user's prompt, plans 2-3 timbre stations,
+and writes a Csound GEN spectrum for each, which T5ynth bakes into a
+wavetable. The model is not included in this repository and must be
+downloaded separately by the user from HuggingFace (ungated, no account
+required).
+
+Per the Qwen RESEARCH License:
+- Licensed for **research or evaluation use only** — **non-commercial**
+- Commercial use requires a separate license from Alibaba Cloud
+- Full license: https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct/blob/main/LICENSE
+
+T5ynth does not provide the model weights. By downloading the LCO coder via
+T5ynth's Settings page, users accept the Qwen RESEARCH License terms and take
+responsibility for compliance.
+
+---
+
 ## AudioLDM2
 
 **Model:** `cvssp/audioldm2`

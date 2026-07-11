@@ -374,6 +374,29 @@ static const KnownModel kKnownModels[] = {
       "weights; they download from HuggingFace (ungated, no account). By "
       "downloading you accept the Apache 2.0 license.", true, false,
       nullptr, 0 },
+    // Optional LCO code-authoring LLM (NOT a generation engine). The LCO reads the
+    // user's prompt, plans 2-3 timbre stations, and asks this model to write a
+    // Csound GEN spectrum for each, which DcoBaker bakes into a wavetable.
+    // isGenerationEngine=false routes it through the plain HF tree-API download and
+    // keeps it out of the engine rows AND the backend-activation glue
+    // (onDownloadFinished), exactly like the translation model above. It installs
+    // to <model root>/coder/qwen2.5-coder-3b-instruct, where the backend's
+    // _resolve_coder_model_dir auto-discovers it (it also accepts a dev drop at
+    // <model root>/lco-coder/...). Ungated (no HuggingFace account needed) but
+    // NON-COMMERCIALLY licensed: Qwen RESEARCH License, not Apache-2.0 like the
+    // translation model above -- research/evaluation use only.
+    { "coder/qwen2.5-coder-3b-instruct", "LCO coder (Qwen2.5-Coder-3B)",
+      "Qwen/Qwen2.5-Coder-3B-Instruct", nullptr,
+      "https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct/blob/main/LICENSE",
+      "Qwen2.5-Coder-3B-Instruct is licensed under the Qwen RESEARCH License -- "
+      "NON-COMMERCIAL: research or evaluation use only. Commercial use requires a "
+      "separate license from Alibaba Cloud.\n\n"
+      "Required for the LCO (classic oscillator): it reads your prompt, plans 2-3 "
+      "timbre stations and writes a Csound GEN spectrum for each, which T5ynth "
+      "bakes into a wavetable. T5ynth does not provide the weights; they download "
+      "from HuggingFace (ungated, no account). By downloading you accept the Qwen "
+      "Research License terms and take responsibility for compliance.", true, false,
+      nullptr, 0 },
 };
 static constexpr int kNumKnownModels = sizeof(kKnownModels) / sizeof(kKnownModels[0]);
 
@@ -850,9 +873,35 @@ SettingsPage::SettingsPage()
         addAndMakeVisible(*translationRow_);
     }
 
+    // Optional LCO-coder row — same ModelRow widget as the translation row (its
+    // own "LCO CODER" family header is painted in paint()), and likewise
+    // auxiliary: clicking Download sets activeOpModelId_ and runs the normal
+    // download path, which onDownloadFinished routes around the engine glue. No
+    // onBrowse — nothing to import by hand for this ungated auto-discovered helper.
+    {
+        const auto& cm = kKnownModels[catalogIndexForId("coder/qwen2.5-coder-3b-instruct")];
+        coderRow_ = std::make_unique<ModelRow>("coder/qwen2.5-coder-3b-instruct",
+                                               cm.displayName,
+                                               "writes Csound-GEN spectra for the LCO");
+        coderRow_->onAction = [this](juce::String id) {
+            activeOpModelId_ = id;
+            startDownload();
+        };
+        coderRow_->onCancel = [this](juce::String) { cancelDownload(); };
+        coderRow_->onOpenPage = [this](juce::String id) {
+            activeOpModelId_ = id;
+            juce::URL("https://huggingface.co/" + selectedHfRepo()).launchInDefaultBrowser();
+        };
+        coderRow_->onReveal = [](juce::String) {
+            auto dir = getAppSupportModelDir("coder/qwen2.5-coder-3b-instruct");
+            if (dir.exists()) dir.revealToUser();
+        };
+        addAndMakeVisible(*coderRow_);
+    }
+
     auto found = scanForModel();
     if (found.exists()) modelPath = found;
-    updateStatus();  // calls refreshAllRows() -> refreshTranslationRow()
+    updateStatus();  // calls refreshAllRows() -> refreshTranslationRow() + refreshCoderRow()
 
     setSize(500, 480);
 }
@@ -3226,6 +3275,8 @@ SettingsPage::ModelRow* SettingsPage::activeRow()
             return r.get();
     if (translationRow_ && translationRow_->modelId() == downloadModelId_)
         return translationRow_.get();
+    if (coderRow_ && coderRow_->modelId() == downloadModelId_)
+        return coderRow_.get();
     return nullptr;
 }
 
@@ -3438,6 +3489,7 @@ void SettingsPage::refreshAllRows()
     }
 
     refreshTranslationRow();
+    refreshCoderRow();
 }
 
 bool SettingsPage::translationModelInstalled() const
@@ -3489,6 +3541,55 @@ void SettingsPage::refreshTranslationRow()
     }
 }
 
+bool SettingsPage::coderModelInstalled() const
+{
+    // Two install shapes the backend's _resolve_coder_model_dir (pipe_inference.py)
+    // accepts: the in-app Download slot at <model root>/coder/qwen2.5-coder-3b-
+    // instruct, or a manually dropped dev copy at <model root>/lco-coder/qwen2.5-
+    // coder-3b-instruct. scanForModelById covers BOTH the current and legacy
+    // per-user install roots (plus the HF cache) for each -- the same
+    // hasModelMarker gate every other row's install check already uses, so the
+    // coder row agrees with the rest of the Model Manager on what "installed" means.
+    const auto& cm = kKnownModels[catalogIndexForId("coder/qwen2.5-coder-3b-instruct")];
+    if (scanForModelById("coder/qwen2.5-coder-3b-instruct", cm.hfRepo).exists())
+        return true;
+    return scanForModelById("lco-coder/qwen2.5-coder-3b-instruct", {}).exists();
+}
+
+void SettingsPage::refreshCoderRow()
+{
+    if (coderRow_ == nullptr)
+        return;
+    const bool busy      = downloading.load() || modelInstallBusy_.load();
+    const bool installed = coderModelInstalled();
+
+    // Mirror refreshTranslationRow(): the active download owns its own visuals
+    // (inline meter + Cancel); otherwise show the idle Installed / Download
+    // state. Always "downloadable", so it never shows a Gated state.
+    if (downloading.load() && downloadModelId_ == "coder/qwen2.5-coder-3b-instruct")
+    {
+        coderRow_->enterDownloadingState();
+        return;
+    }
+    coderRow_->setState(installed,
+                        installed ? "Installed" : "Not installed",
+                        installed ? ModelRow::Action::Installed
+                                  : ModelRow::Action::Download,
+                        !busy);
+
+    // Notify the editor's coder gate only on an install-state TRANSITION (mirrors
+    // refreshTranslationRow above): this runs on every refresh, so an unconditional
+    // fire would re-notify on unchanged state. Lets a coder-only install refresh the
+    // base LCO bake gate live, without a reopen.
+    if (! coderInstalledKnown_ || installed != coderInstalledLast_)
+    {
+        coderInstalledKnown_ = true;
+        coderInstalledLast_  = installed;
+        if (onCoderModelChanged)
+            onCoderModelChanged(installed);
+    }
+}
+
 void SettingsPage::updateStatus()
 {
     // Keep modelPath pointing at the focused model's dir — the backend-activation
@@ -3523,6 +3624,27 @@ void SettingsPage::updateStatus()
                 "trained on English captions); your typed text is never changed. "
                 "Toggle it per prompt with the EN button. Ungated, Apache-2.0, no "
                 "HuggingFace account.\n  Target: " + targetPath);
+        return;
+    }
+
+    // The optional LCO coder is likewise auxiliary: same treatment as the
+    // translation branch above, own terms rather than the engine installed/
+    // active logic below.
+    if (id == "coder/qwen2.5-coder-3b-instruct")
+    {
+        if (coderModelInstalled())
+            setInstructionsText(instructionsLabel,
+                display + " is installed. The LCO (classic oscillator) uses it to "
+                "plan timbre stations and write their Csound GEN spectra whenever "
+                "you bake a prompt.");
+        else
+            setInstructionsText(instructionsLabel,
+                "Required by the LCO (classic oscillator) -- it reads your prompt, "
+                "plans 2-3 timbre stations, and writes a Csound GEN spectrum for "
+                "each, which T5ynth bakes into a wavetable. Ungated, no HuggingFace "
+                "account. License: Qwen RESEARCH License (non-commercial -- research "
+                "or evaluation use only; written into the model folder).\n"
+                "  Target: " + targetPath);
         return;
     }
 
@@ -3763,18 +3885,20 @@ void SettingsPage::resized()
     familyHeaders_.clear();
     const int headerH = 13;
     const int detailMin = 40;        // detail strip floor; grows on larger panels
-    // The optional translation row below the engines has a fixed vertical cost
-    // (top gap + its "PROMPT TRANSLATION" header + one engine-height row). Reserve
-    // it in the row budget so the engine rows shrink to fit instead of pushing the
-    // row down INTO (and hiding) the detail strip. The host sizes this page from
-    // 300–500 px tall (MainPanel), so the rows MUST give up this space.
-    const int transBandH = 8 + headerH + 44;   // 44 = max engine rowH (upper bound)
+    // The two optional auxiliary rows below the engines (prompt translation + LCO
+    // coder) SHARE one "OPTIONAL MODELS" family header, so their fixed vertical
+    // cost is one top gap + one header + two engine-height rows. Reserve it in the
+    // row budget so the engine rows shrink to fit instead of pushing the aux rows
+    // down INTO (and hiding) the detail strip. One shared header (not one per
+    // model) keeps the second aux model from cramming the strip. The host sizes
+    // this page 300–500 px tall (MainPanel), so the rows MUST give up this space.
+    const int auxBandH = 8 + headerH + 2 * 44;   // 44 = max engine rowH (upper bound)
     int numHeaders = 0;
     for (int i = 0; i < kNumRowSpecs; ++i)
         if (kRowSpecs[i].familyHeader != nullptr) ++numHeaders;
 
     const int rowH = juce::jlimit(28, 44,
-        (area.getHeight() - numHeaders * headerH - detailMin - transBandH)
+        (area.getHeight() - numHeaders * headerH - detailMin - auxBandH)
             / juce::jmax(1, kNumRowSpecs));
 
     for (int i = 0; i < kNumRowSpecs && i < (int) rows_.size(); ++i)
@@ -3787,16 +3911,20 @@ void SettingsPage::resized()
         rows_[(size_t) i]->setBounds(area.removeFromTop(rowH));
     }
 
-    // Optional prompt-translation row: its own "PROMPT TRANSLATION" family header
-    // (painted like the engine headers) + one engine-height ModelRow, between the
-    // engine rows and the shared detail strip.
+    // The two optional auxiliary models (prompt translation + LCO coder) share ONE
+    // "OPTIONAL MODELS" family header (painted like the engine headers) above their
+    // two engine-height ModelRows, between the engine rows and the shared detail
+    // strip. One shared header, not one per model, so adding the second aux model
+    // does not cram the detail strip — each ModelRow already names its own model.
     area.removeFromTop(8);
     {
         auto hr = area.removeFromTop(headerH);
-        familyHeaders_.push_back({ "PROMPT TRANSLATION", hr });
+        familyHeaders_.push_back({ "OPTIONAL MODELS", hr });
     }
     if (translationRow_ != nullptr)
         translationRow_->setBounds(area.removeFromTop(rowH));
+    if (coderRow_ != nullptr)
+        coderRow_->setBounds(area.removeFromTop(rowH));
 
     area.removeFromTop(6);
     instructionsLabel.setFont(juce::FontOptions(11.5f));

@@ -2027,6 +2027,16 @@ void PromptPanel::triggerLcoGenerate()
 
 void PromptPanel::triggerDcoBake()
 {
+    // The base bake needs the LCO coder model (per-station Csound-GEN authoring)
+    // to be installed before it can reach the backend at all — checked first,
+    // ahead of every other gate below. triggerDcoReprompt is untouched: it reads
+    // the separate qwenAvailable_ (translation model) flag.
+    if (! coderAvailable_)
+    {
+        dcoStatusLabel.setText("Load the LCO coder in Settings", juce::dontSendNotification);
+        return;
+    }
+
     // A bake loads a wavetable into the engine — same clash with a running tape as
     // a manual generation (see triggerGeneration).
     if (processorRef.isReplayActive())
@@ -2795,6 +2805,19 @@ void PromptPanel::setQwenAvailable(bool available)
 
     repromptStanceBar.repaint();   // a raw Component: reflect the dim immediately
     dcoStanceBar.repaint();        // same custom-paint dim logic as repromptStanceBar
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// LCO coder availability gate
+// ──────────────────────────────────────────────────────────────────────────────
+// The base LCO bake (triggerDcoBake) requires the optional Qwen2.5-Coder-3B model
+// (per-station Csound-GEN authoring). Unlike qwenAvailable_ above, no control here
+// dims or grows a tooltip — the gate lives entirely at the top of triggerDcoBake,
+// so this setter just records the flag. Re-Prompt (triggerDcoReprompt) reads the
+// DIFFERENT qwenAvailable_ flag and is untouched by this one.
+void PromptPanel::setCoderAvailable(bool available)
+{
+    coderAvailable_ = available;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

@@ -583,11 +583,18 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     // on the optional translation model's install state: disabled and explained via
     // tooltip when absent, re-enabled the instant it is installed (no restart). The
     // callback fires on transitions; this initial push sets the startup state.
+    // The LCO coder model has its OWN parallel callback (onCoderModelChanged), so
+    // installing either auxiliary model alone refreshes its dependent control live.
     settingsPage.onTranslationModelChanged = [this](bool installed)
     {
         promptPanel.setQwenAvailable(installed);
     };
+    settingsPage.onCoderModelChanged = [this](bool installed)
+    {
+        promptPanel.setCoderAvailable(installed);
+    };
     promptPanel.setQwenAvailable(settingsPage.isTranslationModelInstalled());
+    promptPanel.setCoderAvailable(settingsPage.isCoderModelInstalled());
 
     presetScrim.onClick = [this] { hidePresetManager(); };
     presetScrim.setVisible(false);

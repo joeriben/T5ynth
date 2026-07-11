@@ -105,6 +105,14 @@ public:
     // themselves via tooltip; the loop also bails (runSemanticLoopStep) so a preset
     // with an engaged stance can't silently no-op when Qwen is absent. Message thread.
     void setQwenAvailable(bool available);
+
+    // Enable/disable the base LCO generate path (triggerDcoBake), which REQUIRES
+    // the optional LCO coder LLM (Qwen2.5-Coder-3B). Driven by the model-settings
+    // install state (MainPanel), mirroring setQwenAvailable/qwenAvailable_ — but
+    // scoped to just the one flag triggerDcoBake reads; Re-Prompt
+    // (triggerDcoReprompt) is untouched, it already has its own qwenAvailable_
+    // gate for the (different) translation model. Message thread.
+    void setCoderAvailable(bool available);
     bool isEasyMode() const { return easyMode_; }
     bool hasHiddenActiveState() const;
 
@@ -508,6 +516,7 @@ private:
     bool loopStepInFlight_ = false;   // re-entrancy guard (like `generating`)
     bool loopEngaged_ = false;        // false→true edge = capture the human originals
     bool qwenAvailable_ = true;       // translation LLM installed? gates Re-Prompt + Translate
+    bool coderAvailable_ = true;      // LCO coder LLM installed? gates triggerDcoBake only
     juce::String loopOriginalA_, loopOriginalB_;  // glieder[0] (the human impulse, kept by concat) — FULL, incl. musical suffix (for restore)
     juce::String loopLastA_, loopLastB_;          // glieder[-1] (the chain's own last link) — CORE only (no musical suffix)
     juce::StringArray loopRecentA_, loopRecentB_; // glieder[-3:] anti-stasis memory (last 3 links) — CORE only
