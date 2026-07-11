@@ -875,6 +875,37 @@ def _resolve_translation_model_dir(request):
     return None
 
 
+def _resolve_coder_model_dir(request):
+    """Locate the LCO coder model directory (a HF causal-LM dir), or None.
+
+    Mirrors _resolve_translation_model_dir but for the code-authoring LLM the LCO
+    uses. Coexists with the translator: run_instruct caches per (dir, device), so
+    both models live side by side without evicting each other.
+
+    Precedence:
+      1. request["coder_model_path"]              — explicit path from the client
+      2. $T5YNTH_CODER_MODEL / $LCO_MODEL_DIR     — override (dev/testing)
+      3. <model root>/coder/<dir>                 — auto-discovered installed coder
+      4. <model root>/lco-coder/<dir>             — dev drop (the local coder dir)
+    """
+    explicit = (request.get("coder_model_path")
+                or os.environ.get("T5YNTH_CODER_MODEL")
+                or os.environ.get("LCO_MODEL_DIR"))
+    if explicit:
+        candidate = Path(explicit).expanduser()
+        return candidate if _is_local_transformers_model_dir(candidate) else None
+
+    for base in _model_search_base_dirs():
+        for sub in ("coder", "lco-coder"):
+            coder_dir = base / sub
+            if not coder_dir.is_dir():
+                continue
+            for child in sorted(coder_dir.iterdir()):
+                if _is_local_transformers_model_dir(child):
+                    return child
+    return None
+
+
 # Qwen serves BOTH translate and interpret/reprompt — one shared instance. It
 # normally runs on the audio device, but on a small-VRAM CUDA card co-residency
 # with the audio model doesn't fit, so the per-pool LRU would swap them in and
@@ -3288,63 +3319,36 @@ def main():
                                        repetition_penalty=1.2, no_repeat_ngram_size=3))
                 continue
 
-            # DCO recipe author (docs/DCO_LLM_GUARDRAILS.md): the classical,
-            # non-neural oscillator's word->recipe pipeline. Five stages, ONE
-            # constrained LLM call (S2 -- residue words only, closed-choice
-            # routing, never free-form). Like translate/interpret it has no
-            # audio-model dependency, so it is dispatched before audio-model
-            # routing. S2 reuses the exact same translator/device resolution
-            # as translate/interpret; if the translator model is not
-            # installed, author_recipe still returns a valid recipe --
-            # unmapped words are flagged, never fabricated (S4 guarantees a
-            # bakeable recipe for any text input, so this never needs its own
-            # try/except: any genuine failure propagates to the standard
-            # \x00 error frame via the outer try/except, exactly like
-            # translate/interpret).
+            # LCO recipe author: the coder LLM authors a wavetable recipe from
+            # the prompt -- it plans 2-3 timbre STATIONS and emits one Csound GEN
+            # spectrum per station; lco_author maps each spectrum to an Additive
+            # keyframe (GEN10 harmonic / GEN09 inharmonic partials) and the
+            # station order to a Motion trajectory, which the C++ DcoBaker bakes.
+            # Like translate/interpret it has no audio-model dependency, so it is
+            # dispatched before audio-model routing. It NEEDS the coder model; if
+            # that is not installed the request raises and the outer try/except
+            # returns the standard \x00 error frame, exactly like translate. The
+            # per-station calls are greedy (deterministic within a device).
             if request.get("mode") == "dco":
-                from dco_recipe import author_recipe
+                from lco_author import build_lco_response
 
                 t_device = request.get("device", default_device)
                 if t_device == "auto" or t_device not in devices:
                     t_device = default_device
-                translation_dir = _resolve_translation_model_dir(request)
+                coder_dir = _resolve_coder_model_dir(request)
+                if coder_dir is None:
+                    raise RuntimeError("LCO coder model not installed (load it in Settings)")
+                coder_device = _translator_device(t_device)
 
-                llm_route = None
-                if translation_dir is not None:
-                    def llm_route(residue_words, allowed_keys, _dir=translation_dir, _dev=t_device):
-                        """S2: the one constrained LLM call, closed-choice
-                        routing only (docs/DCO_LLM_GUARDRAILS.md S2)."""
-                        system_prompt = (
-                            "You map sound-descriptor words to a fixed vocabulary. Reply with one "
-                            "line per input word, exactly \"word -> key\". key must be one of the "
-                            "allowed keys. If no key fits, use NONE. No other text."
-                        )
-                        user_prompt = ("Words: " + ", ".join(residue_words) + "\n"
-                                       "Allowed keys: " + ", ".join(allowed_keys))
-                        max_new = min(96, 8 * len(residue_words))
-                        raw = run_instruct(user_prompt, _dir, _dev, system_prompt, max_new)
+                def lco_llm(text, system_prompt, max_new_tokens,
+                            _dir=coder_dir, _dev=coder_device):
+                    """The single model surface lco_author needs: a greedy
+                    instruct call on the coder model."""
+                    return run_instruct(text, _dir, _dev, system_prompt,
+                                        max_new_tokens=max_new_tokens)
 
-                        allowed_set = set(allowed_keys)
-                        lower_to_word = {w.lower(): w for w in residue_words}
-                        line_re = re.compile(r"^(\S.*?)\s*->\s*([A-Z_a-z]+)$")
-                        routed = {w: None for w in residue_words}
-                        for line in raw.splitlines():
-                            m = line_re.match(line.strip())
-                            if not m:
-                                continue
-                            word = lower_to_word.get(m.group(1).strip().lower())
-                            if word is None:
-                                continue
-                            # Lowercase before the enum check: all lexicon keys are
-                            # lowercase, but the LLM may echo "BRIGHT" -- a correct
-                            # routing that a case-sensitive check would throw away.
-                            # Zero sandbox cost: the comparison set is unchanged.
-                            key = m.group(2).strip().lower()
-                            routed[word] = key if key in allowed_set else None  # enum IS the sandbox
-                        return routed
-
-                response = author_recipe(request.get("text") or "", llm_route=llm_route,
-                                          frames=request.get("frames"))
+                response = build_lco_response(request.get("text") or "", lco_llm,
+                                              frames=request.get("frames"))
                 send_text(json.dumps(response))
                 continue
 

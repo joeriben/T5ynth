@@ -72,9 +72,20 @@ double Baker::shapeCurve(double a, Curve curve)
 
 Baker::Cycle Baker::renderAdditive(const Keyframe& kf)
 {
-    // Explicit partial sum: a * sin(h*x + phase). h is clamped into
-    // [1, kMaxHarmonics] per partial (each partial names its own harmonic,
-    // independent of any series index).
+    // Explicit partial sum: a * sin(h*x + phase). h is a FLOAT harmonic number,
+    // clamped into [0, kMaxHarmonics] per partial: an INTEGER h is an ordinary
+    // harmonic; a NON-INTEGER h is an inharmonic partial (glassy/metallic/bell),
+    // which makes the single cycle non-periodic over the frame -> a wrap
+    // discontinuity whose extra highs the engine's per-pitch band-limited mips
+    // resolve at playback. This is how a Csound GEN09 spectrum (the LCO author's
+    // inharmonic timbres) maps EXACTLY onto an Additive keyframe, with no
+    // integer-harmonic projection or truncation. For an integer h >= 1 -- all any
+    // existing recipe/old-author output produces (dco_recipe floored every h to
+    // [1, 1024]; no DCO preset persistence ships yet) -- this renders exactly as
+    // the former int path did; the widened range only ADDS h=0 (silent after
+    // removeDC), and non-integer h. So existing recipes are unaffected.
+    // NaN-safe (same guard applyShape/renderFm2 use): a malformed h must not
+    // poison the whole cycle through sin(NaN).
     Cycle cyc(static_cast<size_t>(kFrameSize), 0.0);
     for (int n = 0; n < kFrameSize; ++n)
     {
@@ -82,9 +93,9 @@ Baker::Cycle Baker::renderAdditive(const Keyframe& kf)
         double sum = 0.0;
         for (const auto& p : kf.partials)
         {
-            const int h = juce::jlimit(1, kMaxHarmonics, p.h);
-            sum += static_cast<double>(p.a)
-                 * std::sin(static_cast<double>(h) * x + static_cast<double>(p.phase));
+            const double hv = std::isfinite(static_cast<double>(p.h)) ? static_cast<double>(p.h) : 0.0;
+            const double h = juce::jlimit(0.0, static_cast<double>(kMaxHarmonics), hv);
+            sum += static_cast<double>(p.a) * std::sin(h * x + static_cast<double>(p.phase));
         }
         cyc[static_cast<size_t>(n)] = sum;
     }

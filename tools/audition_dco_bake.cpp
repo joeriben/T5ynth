@@ -98,10 +98,10 @@ static Recipe makeFmbell()
 {
     Keyframe add; add.kind = Keyframe::Kind::Additive;
     add.partials = {
-        Partial{ 1,  1.0f,  0.0f },
-        Partial{ 4,  0.35f, 0.0f },
-        Partial{ 7,  0.15f, 0.0f },
-        Partial{ 10, 0.08f, 0.0f },
+        Partial{ 1.0f,  1.0f,  0.0f },
+        Partial{ 4.0f,  0.35f, 0.0f },
+        Partial{ 7.0f,  0.15f, 0.0f },
+        Partial{ 10.0f, 0.08f, 0.0f },
     };
     Keyframe fm2; fm2.kind = Keyframe::Kind::Fm2; fm2.ratio = 3.0f; fm2.index = 2.5f;
 

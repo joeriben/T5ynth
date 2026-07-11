@@ -17,8 +17,13 @@
  */
 namespace dco {
 
-// One harmonic partial: harmonic number (1-based), amplitude, phase (radians).
-struct Partial { int h = 1; float a = 0.0f; float phase = 0.0f; };
+// One partial: harmonic number, amplitude, phase (radians). h is a FLOAT: an
+// integer h is an ordinary harmonic; a non-integer h is an INHARMONIC partial
+// (glassy/metallic/bell — a Csound GEN09 spectrum), which DcoBaker renders as a
+// sub-cycle sine that the engine's per-pitch band-limited mips resolve. An
+// integer h >= 1 (all existing recipe data) renders exactly as the former int
+// field did; non-integer h is the new inharmonic case.
+struct Partial { float h = 1.0f; float a = 0.0f; float phase = 0.0f; };
 
 // A keyframe = one single-cycle spectrum with a closed-form param->spectrum map.
 // The field ranges noted below are DcoBaker's contract — it clamps every field

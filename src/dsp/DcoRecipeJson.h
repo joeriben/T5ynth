@@ -63,7 +63,7 @@ inline Recipe recipeFromVar(const juce::var& v)
                     if ((int) kf.partials.size() >= kMaxPartials)
                         break;
                     Partial p;
-                    p.h     = (int) pVar.getProperty("h", 1);
+                    p.h     = (float) (double) pVar.getProperty("h", 1.0);
                     p.a     = (float) (double) pVar.getProperty("a", 0.0);
                     p.phase = (float) (double) pVar.getProperty("phase", 0.0);
                     kf.partials.push_back(p);
