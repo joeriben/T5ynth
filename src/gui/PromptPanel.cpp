@@ -1078,9 +1078,9 @@ void PromptPanel::resized()
         }
         area.removeFromBottom(gap);
 
-        // Flags list directly above the stance strip — one caption line per flag,
-        // capped; the full text stays on the tooltip. Zero flags = zero height, the
-        // table display reclaims the room.
+        // Flags summary directly above the stance strip — one line per tier
+        // (Not understood / Adapted), so at most 2; the full per-flag detail stays
+        // on the tooltip. Zero flags = zero height, the table display reclaims it.
         const auto flagsText = dcoFlagsLabel.getText();
         if (flagsText.isNotEmpty())
         {
@@ -2077,7 +2077,7 @@ void PromptPanel::triggerDcoBake()
     {
         auto authored = pipePtr->authorDcoRecipe(text, frames);
 
-        juce::String status, flagTooltip;
+        juce::String status, flagTooltip, flagsSummary;
         juce::AudioBuffer<float> strip;
         float motionRateHz = 0.0f;
         // DCO Re-Prompt (docs/DCO_REPROMPT_CONCEPT.md "lesen -> deuten -> umformulieren"):
@@ -2109,25 +2109,70 @@ void PromptPanel::triggerDcoBake()
             auto technique = resolved.getProperty("technique", juce::var()).toString();
             if (technique.isEmpty())
                 technique = "?";
-            int numFlags = 0;
+            juce::String flagCount;
             if (const auto* flags = parsed.getProperty("flags", juce::var()).getArray())
             {
-                numFlags = flags->size();
-                juce::StringArray lines, flagParts;
+                // flagsLine (the Re-Prompt LLM's input, RepromptStances::
+                // buildDcoStanceUserTurn) stays byte-identical: EVERY flag as
+                // "word (reason)", wire order. The tier split below is DISPLAY
+                // only — the tier is a UI grouping the LLM neither needs nor sees.
+                juce::StringArray flagParts;
+                juce::StringArray unresolvedLines, adaptedLines;  // "word: reason" per tier, for the tooltip
+                juce::StringArray unresolvedWords, adaptedWords;  // words only, for the compact panel line
                 for (const auto& fl : *flags)
                 {
-                    const auto word = fl.getProperty("word", juce::var()).toString();
+                    const auto word   = fl.getProperty("word",   juce::var()).toString();
                     const auto reason = fl.getProperty("reason", juce::var()).toString();
-                    lines.add(word + ": " + reason);
+                    const auto tier   = fl.getProperty("tier",   juce::var()).toString();
                     flagParts.add(word + " (" + reason + ")");
+                    // Unknown/missing tier (an older backend) degrades to "adapted",
+                    // the non-alarming tier — never a crash, never a false "flag" count.
+                    if (tier == "unresolved") { unresolvedLines.add(word + ": " + reason); unresolvedWords.add(word); }
+                    else                      { adaptedLines.add(word + ": " + reason);    adaptedWords.add(word); }
                 }
-                flagTooltip = lines.joinIntoString("\n");
                 flagsLine = flagParts.joinIntoString("; ");
+
+                // Full detail for the hover tooltip, grouped by tier. Header only
+                // for a non-empty group; "Not understood" first — it is the one
+                // actionable tier (a word S2 could not read) and must never hide
+                // beneath the honest "Adapted" disclosures that dominate the list.
+                juce::StringArray tipBlocks;
+                if (! unresolvedLines.isEmpty())
+                    tipBlocks.add("NOT UNDERSTOOD\n  " + unresolvedLines.joinIntoString("\n  "));
+                if (! adaptedLines.isEmpty())
+                    tipBlocks.add("ADAPTED\n  " + adaptedLines.joinIntoString("\n  "));
+                flagTooltip = tipBlocks.joinIntoString("\n");
+
+                // Compact panel line(s): tier label + its DISTINCT words, capped
+                // with an honest "(+N more)"; the reasons stay on the tooltip.
+                // Dedupe for the glance — a word that produced two flags (e.g.
+                // "metallic", flagged for both an inapplicable FM op AND an
+                // inharmonic approximation) would otherwise read "metallic,
+                // metallic"; the tooltip still lists both reasons in full.
+                unresolvedWords.removeDuplicates(false);
+                adaptedWords.removeDuplicates(false);
+                auto joinCapped = [](const juce::StringArray& w, int cap) -> juce::String
+                {
+                    if (w.size() <= cap) return w.joinIntoString(", ");
+                    juce::StringArray head (w);
+                    head.removeRange(cap, head.size() - cap);
+                    return head.joinIntoString(", ") + " (+" + juce::String(w.size() - cap) + " more)";
+                };
+                juce::StringArray sumLines;
+                if (! unresolvedWords.isEmpty()) sumLines.add("Not understood: " + joinCapped(unresolvedWords, 6));
+                if (! adaptedWords.isEmpty())    sumLines.add("Adapted: " + joinCapped(adaptedWords, 6));
+                flagsSummary = sumLines.joinIntoString("\n");
+
+                // Split count uses the SAME distinct words the panel shows, so the
+                // two glance surfaces agree; the tooltip is the richer detail (a
+                // word may carry more reason-lines there). "[0 not understood,
+                // N adapted]" reads as "understood — here is how it was adapted".
+                const int nU = unresolvedWords.size(), nA = adaptedWords.size();
+                if (nU > 0 && nA > 0) flagCount = "  [" + juce::String(nU) + " not understood, " + juce::String(nA) + " adapted]";
+                else if (nU > 0)      flagCount = "  [" + juce::String(nU) + " not understood]";
+                else if (nA > 0)      flagCount = "  [" + juce::String(nA) + " adapted]";
             }
-            status = "LCO: " + technique
-                   + (numFlags > 0 ? "  [" + juce::String(numFlags)
-                                     + (numFlags == 1 ? " flag]" : " flags]")
-                                   : juce::String());
+            status = "LCO: " + technique + flagCount;
             if (strip.getNumSamples() == 0)
                 status = "LCO: empty recipe";
 
@@ -2182,7 +2227,7 @@ void PromptPanel::triggerDcoBake()
         }
 
         juce::MessageManager::callAsync(
-            [safeThis, strip = std::move(strip), status, flagTooltip, motionRateHz,
+            [safeThis, strip = std::move(strip), status, flagTooltip, flagsSummary, motionRateHz,
              machineReading, flagsLine, referenceVocab, text]() mutable
         {
             if (auto* self = safeThis.getComponent())
@@ -2197,8 +2242,8 @@ void PromptPanel::triggerDcoBake()
                 }
                 self->dcoStatusLabel.setText(status, juce::dontSendNotification);
                 self->dcoStatusLabel.setTooltip(flagTooltip);
-                self->dcoFlagsLabel.setText(flagTooltip, juce::dontSendNotification);
-                self->dcoFlagsLabel.setTooltip(flagTooltip);  // full text if clipped
+                self->dcoFlagsLabel.setText(flagsSummary, juce::dontSendNotification);  // compact tier summary
+                self->dcoFlagsLabel.setTooltip(flagTooltip);  // full per-flag detail, grouped by tier
                 self->dcoBaking_ = false;
                 if (self->onLcoBusyChanged) self->onLcoBusyChanged(false);
 
