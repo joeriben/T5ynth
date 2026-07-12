@@ -938,7 +938,10 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
 
                 sample = osc.processSample();
                 sampleR = sample;
-                lastModulatedScan_ = osc.getCurrentScanPosition();
+                // Effective position (includes the DCO motion sweep) so the engine-
+                // window WT scan cursor follows the gesture; identical to the control-
+                // only value when DCO motion is off (neural wavetable unchanged).
+                lastModulatedScan_ = osc.getEffectiveScanPosition();
             }
 
             // Mix noise oscillator (goes through drive + filter + VCA with the main signal)

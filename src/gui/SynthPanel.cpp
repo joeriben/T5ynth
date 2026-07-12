@@ -1303,7 +1303,26 @@ void SynthPanel::timerCallback()
 
         processorRef.clearNewWaveformFlag();
 
+        // A fresh neural sample means the table is no longer a DCO/LCO bake:
+        // setWaveform already dropped wtMode; reconcile the region label too (a
+        // neural gen on the Wavetable engine may not re-run updateVisibility).
+        reconcileWaveformDisplayMode();
+
         // Update frame count display
+        int nf = processorRef.getMasterOsc().getNumFrames();
+        frameCountLabel.setText(juce::String(nf) + "f", juce::dontSendNotification);
+    }
+
+    // Baked wavetable (LCO/DCO): draw the actual table in the engine window as a
+    // 2.5D fan with a scan cursor, in place of the last neural sample. Distinct
+    // from hasNewWaveform — a bake publishes frames + this display strip but NO
+    // sample snapshot, so the extraction-region sample view never fires.
+    if (processorRef.hasNewWtDisplay())
+    {
+        waveformDisplay.setWavetableFrames(processorRef.getWtDisplaySnapshot(),
+                                           WavetableOscillator::FRAME_SIZE);
+        processorRef.clearNewWtDisplayFlag();
+        reconcileWaveformDisplayMode();   // ensure the "Wavetable" label + fan mode
         int nf = processorRef.getMasterOsc().getNumFrames();
         frameCountLabel.setText(juce::String(nf) + "f", juce::dontSendNotification);
     }
@@ -1342,6 +1361,22 @@ void SynthPanel::timerCallback()
     if (drift2.depthRow) drift2.depthRow->tickGhost();
     if (drift3.depthRow) drift3.depthRow->tickGhost();
     waveformDisplay.tickScan();
+}
+
+// Reconcile the engine-window waveform display with the engine state: show the
+// 2.5D WT fan while a DCO/LCO table is active, else the interactive sample view,
+// and set the region label to match. Idempotent and cheap (no per-tick cost of
+// note) — safe to call from updateVisibility AND the timer's new-data blocks so
+// an engine switch, a bake, or a neural gen each land on the right mode + label.
+void SynthPanel::reconcileWaveformDisplayMode()
+{
+    const bool showWtTable = processorRef.isWavetableMode() && processorRef.isDcoTableActive();
+    if (! showWtTable && waveformDisplay.isWavetableMode())
+        waveformDisplay.exitWavetableMode();   // left the DCO table → restore sample view + brackets
+    waveformDisplay.setRegionLabel(showWtTable        ? "Wavetable"
+                                 : processorRef.isWavetableMode() ? "Extraction region"
+                                 : processorRef.isFreezeMode()    ? "Granular position"
+                                                                  : "Loop interval");
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1442,8 +1477,7 @@ void SynthPanel::updateVisibility()
         freezeTextureBtns[i].setVisible(isFreeze);
     freezeStereoRow->setVisible(isFreeze);
 
-    waveformDisplay.setRegionLabel(isWavetable ? "Extraction region"
-                                                : (isFreeze ? "Granular position" : "Loop interval"));
+    reconcileWaveformDisplayMode();   // WT fan vs sample view + region label
 
     if (isSampler)
     {

@@ -42,8 +42,28 @@ public:
     void mouseDrag(const juce::MouseEvent& e) override;
     void mouseUp(const juce::MouseEvent& e) override;
 
-    /** Set waveform peak data to display. */
+    /** Set waveform peak data to display. Clears wavetable mode: the widget goes
+     *  back to the sample-with-brackets view (sampler / freeze / neural wavetable). */
     void setWaveform(const float* data, int numSamples);
+
+    /** Switch to WAVETABLE mode: draw the baked table as a frame-decimated,
+     *  cycle-readable morph across the full width (front-lit frame 0), instead of
+     *  a sample peak-waveform. The strip is N single cycles of frameSize samples
+     *  laid end-to-end (mono ch 0); a decimated copy is kept, the caller may
+     *  discard the buffer. Suppresses the extraction/loop brackets and the lock
+     *  button (a baked table has no source region to slice); the live scan line
+     *  (motion playhead) still draws. Message thread. */
+    void setWavetableFrames(const juce::AudioBuffer<float>& strip, int frameSize);
+
+    /** True while showing a baked wavetable (setWavetableFrames) rather than a
+     *  sample (setWaveform). */
+    bool isWavetableMode() const { return wtMode; }
+
+    /** Leave wavetable mode WITHOUT loading a sample: drop the fan + cache,
+     *  restore the interactive sample view (brackets + lock button). For an
+     *  engine switch OFF a DCO table when no new sample arrives (setWaveform is
+     *  the reset when one does). No-op when already a sample view. */
+    void exitWavetableMode();
 
     /** Set total buffer duration in seconds (for time labels). */
     void setBufferDuration(float seconds) { bufferDurationSec = seconds; repaint(); }
@@ -89,6 +109,24 @@ private:
 
     std::vector<float> waveformData;
     juce::CriticalSection dataLock;
+
+    // Wavetable mode (setWavetableFrames): the baked table drawn as a 2.5D fan
+    // along X — frames march left→right with a gentle slant — and a scan cursor
+    // that follows the DCO motion sweep. The static fan is cached to an image
+    // (rebuilt ONLY on a new bake or a resize); paint() blits that image and
+    // overlays just the live cursor cycle + a vertical guide, so the per-tick
+    // cost during playback is one image draw + one path, not 256 strokes.
+    // wtMode gates the sample-vs-table paint and mutes the extraction brackets /
+    // lock button. Guarded by dataLock like waveformData.
+    bool wtMode = false;
+    std::vector<std::vector<float>> wtFrames;       // decimated single cycles (frame-major)
+    juce::Image wtFanCache;                         // the static fan, rebuilt on bake/resize
+    bool wtFanDirty = false;
+    void renderWtFan();                             // (re)build wtFanCache at the current size
+    static constexpr int kWtMaxDrawnFrames = 256;   // full table depth along X
+    static constexpr int kWtPointsPerFrame = 128;   // per-cycle resolution kept
+    static constexpr float kWtDepthXFrac = 0.68f;   // frames spread across X (approved geometry)
+    static constexpr float kWtDepthYFrac = 0.16f;   // gentle 2.5D slant
 
     float startPos  = 0.0f;   // P1: playback start position
     float loopStart = 0.0f;   // P2: loop begin

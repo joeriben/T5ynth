@@ -5132,6 +5132,15 @@ void T5ynthProcessor::loadDcoWavetable(const juce::AudioBuffer<float>& frameStri
         // equal-power crossfade over the Regen XFade time, silent voices adopt.
         voiceManager.distributeWavetableFrames(masterOsc);
     }
+
+    // Publish the baked strip for the engine-window WT display. Message thread
+    // (makeCopyOf allocates — fine here, never on the audio thread), OUTSIDE the
+    // callback lock: it is display data, not engine state. The SynthPanel timer
+    // reads it via hasNewWtDisplay() and draws the table frame-decimated. NOT the
+    // sample path (newWaveformReady) — a bake sets no sample snapshot, so the
+    // extraction-region sample view never fires for the LCO.
+    wtDisplaySnapshot.makeCopyOf(frameStrip);
+    newWtDisplayReady.store(true, std::memory_order_release);
 }
 
 void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& processed)

@@ -66,6 +66,11 @@ public:
     void setScanPosition(float pos) { scanControl_ = juce::jlimit(0.0f, 1.0f, pos); }
     float getCurrentScanPosition() const { return juce::jlimit(0.0f, 1.0f, smoothedScan); }
 
+    /** The EFFECTIVE scan position last read — includes the DCO motion sweep
+     *  (dcoMotionPos_ + smoothedScan), clamped [0,1]. Equals getCurrentScanPosition()
+     *  when DCO motion is off. Drives the engine-window WT display's scan cursor. */
+    float getEffectiveScanPosition() const { return lastScanNow_; }
+
     /** Enable/disable Catmull-Rom interpolation between frames. */
     void setInterpolation(bool enabled) { doInterpolate = enabled; }
 
@@ -212,6 +217,12 @@ private:
     bool   dcoMotionActive_ = false;
     float  dcoMotionRateHz_ = 0.25f;
     double dcoMotionPos_ = 0.0;
+    // Last EFFECTIVE scan (dcoMotionPos_ + smoothedScan under DCO motion, plain
+    // smoothedScan otherwise), clamped [0,1] — the frame actually being read.
+    // Published for the engine-window WT display's scan cursor via
+    // getEffectiveScanPosition(); getCurrentScanPosition() is the control-only
+    // component and does NOT follow the motion sweep.
+    float  lastScanNow_ = 0.0f;
 
     MipDataPtr loadPublishedMipData() const;
     void syncSharedConfigFrom(const WavetableOscillator& source);

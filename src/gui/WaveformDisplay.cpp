@@ -85,14 +85,63 @@ void WaveformDisplay::paint(juce::Graphics& g)
         int labelW = juce::jmax(90, static_cast<int>(g.getCurrentFont().getStringWidthFloat(regionLabel) + 10));
         g.drawText(regionLabel, labelArea.removeFromLeft(static_cast<float>(labelW)), juce::Justification::centredLeft);
 
-        float tStart = loopStart * bufferDurationSec;
-        float tEnd   = loopEnd * bufferDurationSec;
-        juce::String timeStr = juce::String(tStart, 3) + "s \u2013 " + juce::String(tEnd, 3) + "s";
-        g.setColour(kAccent);
-        g.drawText(timeStr, labelArea, juce::Justification::centredRight);
+        // Loop-interval readout is a sample concept; a baked table has no source
+        // seconds, so the wavetable view drops it (keeps only the "Wavetable" label).
+        if (! wtMode)
+        {
+            float tStart = loopStart * bufferDurationSec;
+            float tEnd   = loopEnd * bufferDurationSec;
+            juce::String timeStr = juce::String(tStart, 3) + "s \u2013 " + juce::String(tEnd, 3) + "s";
+            g.setColour(kAccent);
+            g.drawText(timeStr, labelArea, juce::Justification::centredRight);
+        }
     }
 
     const juce::ScopedLock lock(dataLock);
+
+    if (wtMode)
+    {
+        // ── Wavetable: 2.5D fan (cached) + live scan cursor ──────────────────
+        // Blit the pre-rendered static fan (frames marching along X with a gentle
+        // slant), then overlay ONLY the cycle at the current effective scan
+        // position, bright, with a vertical guide — it sweeps along X as the DCO
+        // motion plays. The cache is rebuilt on a new bake or a resize; a moving
+        // cursor never touches it. No brackets/dim region (a baked table has no
+        // source slice to select).
+        if (wtFanDirty || wtFanCache.getWidth() != getWidth() || wtFanCache.getHeight() != getHeight())
+            renderWtFan();
+        if (wtFanCache.isValid())
+            g.drawImageAt(wtFanCache, 0, 0);
+
+        const int n = static_cast<int>(wtFrames.size());
+        if (n > 0 && ! std::isnan(scanPos))
+        {
+            const float depthX = area.getWidth()  * kWtDepthXFrac;
+            const float depthY = area.getHeight() * kWtDepthYFrac;
+            const float waveW  = area.getWidth() - depthX;
+            const float ampWt  = (area.getHeight() - depthY) * 0.5f;
+            const int cf = juce::jlimit(0, n - 1,
+                juce::roundToInt(juce::jlimit(0.0f, 1.0f, scanPos) * (n - 1)));
+            const float frac = n == 1 ? 0.0f : static_cast<float>(cf) / static_cast<float>(n - 1);
+            const float x0 = area.getX() + depthX * frac;
+            const float yC = area.getBottom() - ampWt - depthY * frac;
+            const float cursorX = x0 + waveW * 0.5f;
+            g.setColour(juce::Colours::white.withAlpha(0.25f));   // faint vertical guide at the scan frame
+            g.drawLine(cursorX, area.getY(), cursorX, area.getBottom(), 1.0f);
+            const auto& pts = wtFrames[static_cast<size_t>(cf)];
+            if (pts.size() >= 2)
+            {
+                const float dx = waveW / static_cast<float>(pts.size() - 1);
+                juce::Path p;
+                p.startNewSubPath(x0, yC - pts[0] * ampWt);
+                for (size_t i = 1; i < pts.size(); ++i)
+                    p.lineTo(x0 + dx * static_cast<float>(i), yC - pts[i] * ampWt);
+                g.setColour(juce::Colours::white);                // the sounding cycle, bright
+                g.strokePath(p, juce::PathStrokeType(2.2f));
+            }
+        }
+        return;
+    }
 
     if (waveformData.empty())
         return;
@@ -207,6 +256,8 @@ void WaveformDisplay::resized()
     int x = static_cast<int>(area.getRight()) - kBtnW - 2;
     int y = static_cast<int>(lineY) - kBtnH - static_cast<int>(HANDLE_RADIUS) - 1;
     lockButton.setBounds(x, y, kBtnW, kBtnH);
+
+    wtFanDirty = true;   // size changed → the cached WT fan must be re-rendered
 }
 
 void WaveformDisplay::mouseDown(const juce::MouseEvent& e)
@@ -319,8 +370,105 @@ void WaveformDisplay::mouseUp(const juce::MouseEvent&)
 
 void WaveformDisplay::setWaveform(const float* data, int numSamples)
 {
-    const juce::ScopedLock lock(dataLock);
-    waveformData.assign(data, data + numSamples);
+    {
+        const juce::ScopedLock lock(dataLock);
+        waveformData.assign(data, data + numSamples);
+        if (wtMode) { wtMode = false; wtFrames.clear(); }
+    }
+    // Back to the interactive sample view (sampler / freeze / neural wavetable):
+    // brackets draggable, lock button shown. Idempotent when already a sample.
+    setInterceptsMouseClicks(true, true);
+    lockButton.setVisible(true);
+}
+
+void WaveformDisplay::setWavetableFrames(const juce::AudioBuffer<float>& strip, int frameSize)
+{
+    bool ok = false;
+    {
+        const juce::ScopedLock lock(dataLock);
+        wtFrames.clear();
+        if (frameSize > 0 && strip.getNumChannels() > 0
+            && strip.getNumSamples() >= frameSize)
+        {
+            const int numFrames = strip.getNumSamples() / frameSize;
+            // More than ~a dozen cycles smear into a blob at panel width — draw
+            // evenly spaced frames, first and last always in.
+            const int drawn = juce::jmin(numFrames, kWtMaxDrawnFrames);
+            const int step  = juce::jmax(1, frameSize / kWtPointsPerFrame);
+            const float* s = strip.getReadPointer(0);
+            for (int d = 0; d < drawn; ++d)
+            {
+                const int k = drawn == 1 ? 0
+                    : juce::roundToInt((double) d * (numFrames - 1) / (drawn - 1));
+                auto& pts = wtFrames.emplace_back();
+                pts.reserve(static_cast<size_t>(frameSize / step) + 1u);
+                for (int i = 0; i < frameSize; i += step)
+                    pts.push_back(s[(size_t) k * (size_t) frameSize + (size_t) i]);
+            }
+        }
+        wtMode = ok = ! wtFrames.empty();
+    }
+    // A baked table has no source region to slice: display-only, no lock button.
+    // On a degenerate strip (ok == false) leave the widget interactive rather
+    // than a dead non-interactive blank.
+    setInterceptsMouseClicks(! ok, ! ok);
+    lockButton.setVisible(! ok);
+    wtFanDirty = true;   // new table → rebuild the cached fan on next paint
+    repaint();
+}
+
+void WaveformDisplay::exitWavetableMode()
+{
+    {
+        const juce::ScopedLock lock(dataLock);
+        if (! wtMode) return;
+        wtMode = false;
+        wtFrames.clear();
+    }
+    wtFanCache = juce::Image();   // release the cached fan
+    setInterceptsMouseClicks(true, true);
+    lockButton.setVisible(true);
+    repaint();
+}
+
+// (Re)render the static 2.5D fan (all decimated frames, no cursor) into
+// wtFanCache at the current component size. Message thread; called lazily from
+// paint when the cache is dirty or the size changed. The cursor is NOT baked in
+// — it is overlaid live in paint so the fan image survives every cursor move.
+void WaveformDisplay::renderWtFan()
+{
+    wtFanDirty = false;
+    const int w = getWidth(), h = getHeight();
+    if (w <= 0 || h <= 0) { wtFanCache = juce::Image(); return; }
+
+    wtFanCache = juce::Image(juce::Image::ARGB, w, h, true);
+    juce::Graphics g(wtFanCache);
+
+    const juce::ScopedLock lock(dataLock);   // wtFrames (recursive CS — safe if paint holds it)
+    const int n = static_cast<int>(wtFrames.size());
+    if (n == 0)
+        return;
+
+    const auto area   = getWaveformArea();
+    const float depthX = area.getWidth()  * kWtDepthXFrac;
+    const float depthY = area.getHeight() * kWtDepthYFrac;
+    const float waveW  = area.getWidth() - depthX;
+    const float amp    = (area.getHeight() - depthY) * 0.5f;
+    for (int d = n - 1; d >= 0; --d)   // back → front (frame 0 drawn last, on top)
+    {
+        const auto& pts = wtFrames[static_cast<size_t>(d)];
+        if (pts.size() < 2) continue;
+        const float frac = n == 1 ? 0.0f : static_cast<float>(d) / static_cast<float>(n - 1);
+        const float x0 = area.getX() + depthX * frac;
+        const float yC = area.getBottom() - amp - depthY * frac;
+        const float dx = waveW / static_cast<float>(pts.size() - 1);
+        juce::Path p;
+        p.startNewSubPath(x0, yC - pts[0] * amp);
+        for (size_t i = 1; i < pts.size(); ++i)
+            p.lineTo(x0 + dx * static_cast<float>(i), yC - pts[i] * amp);
+        g.setColour(kOscCol.withAlpha(0.10f + 0.5f * (1.0f - frac)));
+        g.strokePath(p, juce::PathStrokeType(d == 0 ? 1.4f : 0.9f));
+    }
 }
 
 void WaveformDisplay::tickScan()
@@ -335,7 +483,13 @@ void WaveformDisplay::tickScan()
         return;
     }
 
-    if (std::isnan(scanPos))
+    if (std::isnan(scanPos) || wtMode)
+        // wtMode = a DCO table: the motion transport is already deterministic and
+        // smooth, so track it 1:1. The one-pole smoother (tuned for the noisy
+        // sample-scan dot) would only LAG it, COMPRESS its range at higher motion
+        // rates (cursor never reaching the ends → looks static), and smear the
+        // 1->0 loop wrap into a backward sweep. Snapping matches the audio, whose
+        // wrap is an instant content-seamless jump.
         scanPos = scanTarget;
     else
         scanPos += (scanTarget - scanPos) * kSmooth;

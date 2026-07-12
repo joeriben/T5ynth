@@ -60,6 +60,10 @@ public:
     bool isWavetableMode() const;
     bool isFreezeMode() const;
     bool isSamplerMode() const;
+    // True while masterOsc holds a DCO/LCO-baked table (loadDcoWavetable) rather
+    // than neural-extracted frames — the engine-window display uses it to label
+    // the wavetable "Wavetable" and suppress the source extraction brackets.
+    bool isDcoTableActive() const { return dcoTableActive_.load(std::memory_order_relaxed); }
 
     /** GUI-thread entry point for the StatusBar "Panic" button. Sets a flag
      *  that the audio thread consumes at the start of the next processBlock,
@@ -269,6 +273,15 @@ public:
     bool hasNewWaveform() const { return newWaveformReady.load(std::memory_order_acquire); }
     void clearNewWaveformFlag() { newWaveformReady.store(false, std::memory_order_release); }
     const juce::AudioBuffer<float>& getWaveformSnapshot() const { return waveformSnapshot; }
+
+    // Baked-wavetable display data (LCO/DCO). loadDcoWavetable stashes the strip
+    // it just published to masterOsc so the engine-window WaveformDisplay can draw
+    // the actual table (frame-decimated, cycle-readable) instead of the last
+    // neural sample. Separate flag from newWaveformReady: a bake does NOT set a
+    // new sample snapshot, so the sample display path never fires for the LCO.
+    bool hasNewWtDisplay() const { return newWtDisplayReady.load(std::memory_order_acquire); }
+    void clearNewWtDisplayFlag() { newWtDisplayReady.store(false, std::memory_order_release); }
+    const juce::AudioBuffer<float>& getWtDisplaySnapshot() const { return wtDisplaySnapshot; }
 
     // JSON preset import/export (compatible with Vue reference format)
     juce::String exportJsonPreset() const;
@@ -565,6 +578,13 @@ private:
     // Waveform display
     juce::AudioBuffer<float> waveformSnapshot;
     std::atomic<bool> newWaveformReady { false };
+
+    // Baked-wavetable display (LCO/DCO): the strip loadDcoWavetable published,
+    // kept for the engine-window WaveformDisplay. Message-thread write (in
+    // loadDcoWavetable) + message-thread read (SynthPanel timer) — the atomic
+    // flag is the publish handshake, mirroring waveformSnapshot/newWaveformReady.
+    juce::AudioBuffer<float> wtDisplaySnapshot;
+    std::atomic<bool> newWtDisplayReady { false };
 
     // Track loaded reverb IR / seq preset to avoid reloading every block.
     // lastSeqPreset is atomic: the audio thread applies preset changes, while

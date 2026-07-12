@@ -28,6 +28,7 @@ private:
     void timerCallback() override;
     float fs() const;
     void updateVisibility();
+    void reconcileWaveformDisplayMode();   // WT fan vs sample view + region label
     void followModParamToTab(const juce::String& paramId);  // easy-mode tab follows controller
     bool initialized = false;
     bool pendingWtReextract_ = false;

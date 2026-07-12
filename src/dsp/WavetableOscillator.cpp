@@ -891,6 +891,10 @@ float WavetableOscillator::processSample()
     const float scanNow = dcoMotionActive_
         ? juce::jlimit(0.0f, 1.0f, static_cast<float>(dcoMotionPos_) + smoothedScan)
         : smoothedScan;
+    // Publish the effective read position for the WT display's scan cursor
+    // (clamped so the neural branch, which does not clamp scanNow, still reports
+    // a display-safe [0,1]). One float write, no allocation — audio-thread safe.
+    lastScanNow_ = juce::jlimit(0.0f, 1.0f, scanNow);
 
     // Recompute mip-level selector only when frequency changes. Outside glide and modulation
     // bursts this is constant for very long runs, so the log2/ceil cost is amortised to ~0.
