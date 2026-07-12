@@ -62,7 +62,113 @@ def build_lco_response(text, llm, frames=None):
             routed[word] = key if key in allowed_set else None   # enum IS the sandbox
         return routed
 
-    return author_recipe(text, llm_route=llm_route, frames=frames)
+    resp = author_recipe(text, llm_route=llm_route, frames=frames)
+    return _apply_analog_life(resp, text)
+
+
+# ─── Analog life: a charactered-but-static table drifts alive ─────────────────
+# The maintainer's bridge_poc rule (tools/bridge_poc.py): a bare geometric base
+# (saw/square/tri) with NO character and NO motion stays static; anything with
+# CHARACTER lives via a tiny deterministic per-partial drift across the frames —
+# "die kleine Frequenz-/Timbre-Abweichung zwischen den Waves" that turns 256
+# identical copies into a living table. dco_recipe composes the spectral
+# character statically; this pass adds the MOVEMENT, so dco_recipe (and its test
+# suite) stay byte-identical. Deterministic (math.sin of frame+partial index),
+# stdlib-only, and re-validated through dco_recipe so the recipe stays bakeable.
+
+_ANALOG_CUES = ("analog", "analogue", "vintage", "living", "alive", "drift", "drifting")
+_GRIT_CUES = ("gritty", "grit", "dirty", "rough", "harsh", "raw", "crunchy")
+_GOLDEN = 2.399963229728653   # radians — decorrelates successive partials
+
+
+def _drift_frames(base_partials, n, amt, pdev):
+    """n keyframes = base_partials + a small deterministic per-partial deviation,
+    sampled on a CLOSED sine cycle (frame n-1 -> frame 0 continues the sine, so a
+    looping table wraps click-free). Partial index i is offset by the golden angle
+    so partials wander out of lockstep — analog drift, not a global tremolo."""
+    frames = []
+    for j in range(n):
+        theta = 2.0 * math.pi * j / n
+        parts = []
+        for i, p in enumerate(base_partials):
+            a = p["a"] * (1.0 + amt * math.sin(theta + _GOLDEN * i))
+            ph = p.get("phase", 0.0) + pdev * math.sin(theta + 1.7 * i + 0.5)
+            a = 0.0 if a < 0.0 else (1.0 if a > 1.0 else a)
+            parts.append({"h": p["h"], "a": a, "phase": ph})
+        frames.append(parts)
+    return frames
+
+
+def _apply_analog_life(resp, text):
+    """Expand a charactered-but-static single-cycle recipe into a living drift
+    table (bridge_poc rule). No-op for bare geometry, for an already-moving or
+    morphing recipe, and for a non-additive-convertible keyframe (fm2/cheby/ring)."""
+    import dco_recipe
+
+    recipe = resp.get("recipe") or {}
+    kfs = recipe.get("keyframes") or []
+    resolved = resp.get("resolved") or {}
+    adjectives = resolved.get("adjectives") or []
+    motion = recipe.get("motion") or []
+
+    # already alive? (a real morph chain, or a lexicon motion trajectory)
+    has_motion = len(motion) > 1 and any(seg.get("dur_frac", 0.0) > 0.0 for seg in motion[1:])
+    if len(kfs) != 1 or has_motion:
+        return resp
+
+    low = (text or "").lower()
+    analog = any(c in low for c in _ANALOG_CUES)
+    # "Alles andere lebt": any spectral character OR an explicit analog cue.
+    # Bare geometry (no adjective, no cue) stays static — the documented exception.
+    if not adjectives and not analog:
+        return resp
+
+    kf = kfs[0]
+    if kf.get("kind") != "additive":
+        conv = dco_recipe._ensure_additive(dict(kf))   # copy — never mutate resp's kf
+        if conv is None:                               # fm2/cheby/ring: no closed-form series
+            return resp
+        base_partials = conv.get("partials") or []
+        shape = conv.get("shape", kf.get("shape", 0.0))
+    else:
+        base_partials = kf.get("partials") or []
+        shape = kf.get("shape", 0.0)
+    if not base_partials:
+        return resp
+
+    grit = analog or "dirty" in adjectives or any(c in low for c in _GRIT_CUES)
+    # SMALL deviations ("kleine Abweichungen") — the drift must read as a living
+    # shimmer, clearly gentler than a full waveform morph (flux ~0.15). Tuned on
+    # the real-baker gate (tools/lco_testbench.py) so grit ~0.09, gentle ~0.045.
+    amt = 0.10 if grit else 0.05
+    pdev = 0.12 if grit else 0.06
+
+    n = 3
+    new_kfs = []
+    for parts in _drift_frames(base_partials, n, amt, pdev):
+        nk = {"kind": "additive", "partials": parts}
+        if shape and shape > 0.0:
+            nk["shape"] = shape
+        new_kfs.append(nk)
+    recipe["keyframes"] = new_kfs
+    recipe["motion"] = ([{"to": 0, "dur_frac": 0.0, "curve": "lin"}]
+                        + [{"to": i, "dur_frac": 1.0 / n, "curve": "lin"} for i in range(1, n)]
+                        + [{"to": 0, "dur_frac": 1.0 / n, "curve": "lin"}])
+    recipe["loop"] = True
+    recipe["motion_rate_hz"] = 0.15   # a slow analog wander (not a fast wobble)
+
+    recipe, _ = dco_recipe.validate_recipe(recipe)   # loop closure + range clamps -> bakeable
+    resp["recipe"] = recipe
+
+    mot = list(resolved.get("motion") or [])
+    if "analog drift" not in mot:
+        mot.append("analog drift")
+    resolved["motion"] = mot
+    resp["resolved"] = resolved
+    # the analog/living cue is now REALIZED, not dropped — clear its "no mapping" flag
+    resp["flags"] = [f for f in resp.get("flags", [])
+                     if str(f.get("word", "")).lower() not in _ANALOG_CUES]
+    return resp
 
 
 # ─── Phase-1 legacy per-station coder path (retained for a possible Phase-2 residue fallback; NOT on the shipping path) ───

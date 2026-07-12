@@ -213,6 +213,7 @@ def main():
         print(f"    technique={tech}  adj=[{adjs}]  motion=[{mot}]  keyframes={nkf}  rate={recipe.get('motion_rate_hz')}Hz")
         print(f"    bright frame: centroid={an['bright'][0]:.1f} npart={an['bright'][1]} odd/even={an['bright'][2]:.1f}")
         print(f"    dark   frame: centroid={an['dark'][0]:.1f} npart={an['dark'][1]} odd/even={an['dark'][2]:.1f}")
+        print(f"    trajectory : centroid spread={an['morph_range']:.2f}  flux={an['flux']:.3f}  ({'ALIVE' if an['flux'] > 0.012 else 'static'})")
         for n in notes:
             print(f"      - {n}")
         npass += 1 if ok else 0
