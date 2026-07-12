@@ -89,10 +89,16 @@ def load_lexicon(path=None):
 # the canonical morph-connector surface form (dco_lexicon.json's
 # "connectors"); the arrow spelling itself is never registered as a surface
 # form and never user-visible -- _tokenize would drop a bare arrow token
-# anyway (no alnum chars). No bare ">" (false-positive risk: greater-than
-# has legitimate non-arrow uses).
+# anyway (no alnum chars). A LETTER-FLANKED bare ">" ("square > sine",
+# "square>sine") IS a morph arrow -- it is the idiom the DCO/LCO prompt editor
+# invites and the maintainer types; the last alternative below rewrites it too.
+# A NUMERIC ">" (a real comparison, "5 > 3", "> 3 harmonics") is left untouched:
+# the letter lookbehind/lookahead never fires on a digit, so the original
+# false-positive concern (greater-than has non-arrow uses) is sidestepped rather
+# than blanket-excluded.
 
-_ARROW_RE = re.compile(r"(?:<\s*[-=]+\s*>)|(?:[-=]+\s*>)|[→⇒➔⟶↔]")
+_ARROW_RE = re.compile(r"(?:<\s*[-=]+\s*>)|(?:[-=]+\s*>)|[→⇒➔⟶↔]"
+                       r"|(?<=[a-zäöüß])\s*>\s*(?=[a-zäöüß])")
 _KEEP_CHARS_RE = re.compile(r"[^a-z0-9\s%.äöüß]")
 _STRAY_DOT_RE = re.compile(r"(?<!\d)\.|\.(?!\d)")
 _WS_RE = re.compile(r"\s+")
