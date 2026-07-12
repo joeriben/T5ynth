@@ -397,8 +397,15 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         // the layout collapses its row then.
         makeLabel(dcoFlagsLabel, "", kWarning, juce::Justification::topLeft, this);
 
-        // Baked-table display: fills whatever height remains under the flags.
-        addAndMakeVisible(dcoWaveView);
+        // Machine reading: fills the middle where the baked wave used to sit
+        // (the wave now draws in the engine window). A small "HEARD AS" caption
+        // over the acoustic reading lines — the disclosure the LCO is FOR
+        // (docs/DCO_REPROMPT_CONCEPT.md): what the instrument heard, made
+        // visible and negotiable, not a picture of the table.
+        makeLabel(dcoReadingHeader, "HEARD AS", kOscCol, juce::Justification::topLeft, this);
+        makeLabel(dcoReadingLabel,
+                  "The machine's reading of your prompt appears here after Generate.",
+                  kDim, juce::Justification::topLeft, this);
 
         // DCO Re-Prompt (stance-driven self-reading loop, docs/DCO_REPROMPT_CONCEPT.md):
         // a SECOND stance bar bound to its OWN parameter (dcoRepromptStance) — never
@@ -1019,7 +1026,8 @@ void PromptPanel::resized()
     dcoStatusLabel.setVisible(!easy);
     dcoFlagsLabel.setVisible(!easy);
     dcoSubtitleLabel.setVisible(!easy);
-    dcoWaveView.setVisible(!easy);
+    dcoReadingHeader.setVisible(!easy);
+    dcoReadingLabel.setVisible(!easy);
     dcoStanceBar.setVisible(!easy);
     dcoRepromptTitle.setVisible(!easy);
 
@@ -1094,8 +1102,15 @@ void PromptPanel::resized()
             dcoFlagsLabel.setBounds({});
         }
 
-        // Baked-table display fills the middle.
-        dcoWaveView.setBounds(area);
+        // Machine reading fills the middle: a small "HEARD AS" caption over the
+        // acoustic reading lines. This is the LCO's disclosure surface — the
+        // baked wave now lives in the engine window, so the freed space shows
+        // what the instrument HEARD, prominent and readable.
+        setUiFont(dcoReadingHeader, TextRole::ModuleTitle, f, true);
+        setUiFont(dcoReadingLabel, TextRole::Caption, f);
+        dcoReadingHeader.setBounds(area.removeFromTop(juce::roundToInt(f * 1.1f)));
+        area.removeFromTop(juce::jmax(1, gap / 2));
+        dcoReadingLabel.setBounds(area);
         return;
     }
 
@@ -2096,7 +2111,7 @@ void PromptPanel::triggerDcoBake()
         // Built ONLY on a successful author (parsed/resolved/recipe on hand); never
         // fed back into the recipe itself — router not author, the next bake
         // re-validates through the same lexicon regardless of what the LLM writes.
-        juce::String machineReading, flagsLine;
+        juce::String machineReading, flagsLine, displayReading;
         // The scanner's own vocabulary, sent back as a sibling field (NOT inside
         // "recipe") — cached message-thread-side for the Re-Prompt palette. Empty
         // from an older backend without the field; the re-prompt then simply omits
@@ -2229,6 +2244,48 @@ void PromptPanel::triggerDcoBake()
                         parts.add("shapes: " + kinds.joinIntoString(", "));
                 }
                 machineReading = parts.joinIntoString("; ");
+
+                // Display reading (dcoReadingLabel, shown where the wave used to
+                // sit): the SAME resolved facts as machineReading, but formatted
+                // for the eye as short acoustic lines — technique + timbre words,
+                // motion, the ordered shape path (the timbre "stations"), then
+                // the frame/rate footprint. Non-ASCII separators go through
+                // CharPointer_UTF8 (raw literals mojibake in JUCE UI strings).
+                {
+                    const juce::String kMid   = juce::String(juce::CharPointer_UTF8(" \xc2\xb7 "));      // " · "
+                    const juce::String kArrow = juce::String(juce::CharPointer_UTF8(" \xe2\x86\x92 "));  // " → "
+                    juce::StringArray lines;
+
+                    juce::String head = (technique.isNotEmpty() && technique != "?") ? technique : juce::String();
+                    if (const auto* adjArr = resolved.getProperty("adjectives", juce::var()).getArray())
+                    {
+                        juce::StringArray adjs;
+                        for (const auto& a : *adjArr) adjs.add(a.toString());
+                        adjs.removeDuplicates(false);
+                        if (adjs.size() > 5) adjs.removeRange(5, adjs.size() - 5);
+                        if (! adjs.isEmpty())
+                            head = head.isEmpty() ? adjs.joinIntoString(", ")
+                                                  : head + kMid + adjs.joinIntoString(", ");
+                    }
+                    if (head.isNotEmpty()) lines.add(head);
+
+                    if (const auto* motionArr = resolved.getProperty("motion", juce::var()).getArray())
+                    {
+                        juce::StringArray mots;
+                        for (const auto& m : *motionArr) mots.add(m.toString());
+                        if (! mots.isEmpty()) lines.add("motion: " + mots.joinIntoString(", "));
+                    }
+                    if (const auto* kfArr = recipeVar.getProperty("keyframes", juce::var()).getArray())
+                    {
+                        juce::StringArray kinds;
+                        for (const auto& kf : *kfArr) kinds.add(kf.getProperty("kind", "saw").toString());
+                        if (! kinds.isEmpty()) lines.add(kinds.joinIntoString(kArrow));
+                    }
+                    juce::String foot = juce::String(recipe.frames) + " frames";
+                    if (motionRateHz > 0.0f) foot += kMid + juce::String(motionRateHz, 2) + " Hz";
+                    lines.add(foot);
+                    displayReading = lines.joinIntoString("\n");
+                }
             }
         }
         else
@@ -2238,20 +2295,30 @@ void PromptPanel::triggerDcoBake()
 
         juce::MessageManager::callAsync(
             [safeThis, strip = std::move(strip), status, flagTooltip, flagsSummary, motionRateHz,
-             machineReading, flagsLine, referenceVocab, text]() mutable
+             machineReading, displayReading, flagsLine, referenceVocab, text]() mutable
         {
             if (auto* self = safeThis.getComponent())
             {
                 if (strip.getNumSamples() > 0)
                 {
                     self->processorRef.loadDcoWavetable(strip, motionRateHz);
-                    // Display what actually shipped to the engine (bit-exact
-                    // frames). On a failed/empty bake the view keeps the last
-                    // table — matching the engine, which keeps playing it.
-                    self->dcoWaveView.setStrip(strip, WavetableOscillator::FRAME_SIZE);
+                    // The bit-exact frames now draw in the engine window
+                    // (SynthPanel wtMode) — loadDcoWavetable publishes them
+                    // there. The LCO shows the READING instead (below).
                 }
                 self->dcoStatusLabel.setText(status, juce::dontSendNotification);
                 self->dcoStatusLabel.setTooltip(flagTooltip);
+                // The machine's reading, prominent in the middle. Show it bright
+                // ONLY when a table actually baked (non-empty strip) AND a reading
+                // was built — otherwise a parse-that-yields-no-frames ("empty
+                // recipe") would paint a confident "256 frames" reading that
+                // contradicts the status. On that path fall back to the status
+                // line (which carries the error), dimmed, so the panel is never
+                // blank-but-live and never reads as a successful bake.
+                const bool haveReading = strip.getNumSamples() > 0 && displayReading.isNotEmpty();
+                self->dcoReadingLabel.setColour(juce::Label::textColourId, haveReading ? kOscCol : kDim);
+                self->dcoReadingLabel.setText(haveReading ? displayReading : status,
+                                              juce::dontSendNotification);
                 self->dcoFlagsLabel.setText(flagsSummary, juce::dontSendNotification);  // compact tier summary
                 self->dcoFlagsLabel.setTooltip(flagTooltip);  // full per-flag detail, grouped by tier
                 self->dcoBaking_ = false;

@@ -10,7 +10,8 @@
 #include "../eventlog/EventLog.h"   // GenerationEventLogEntry (replay transport)
 #include "../dsp/BlockParams.h"   // RepromptCoupling (Re-Prompt coupling enum)
 #include "GuiHelpers.h"  // FlippedVerticalSlider, AlphaSliderLnF, impulse colours
-#include "DcoWavetableView.h"     // baked-table frame stack (Advanced/DCO view)
+// (the baked table is now drawn in the engine window — SynthPanel/WaveformDisplay
+//  wtMode — so the LCO shows the machine's READING here, not the wave)
 #include "RepromptStanceBar.h"    // Re-Prompt stance "symbol slider"
 #include "T5ynthLookAndFeel.h"    // base LnF for the model-switch text override
 
@@ -304,19 +305,27 @@ private:
     // DCO surface — Advanced IS the DCO panel now (a completely different
     // paradigm from the neural Easy view, not a variant of it): a 3-line
     // prompt editor (panel-local text, NOT bound to Impulse A), the
-    // BAKE/status row, the flags list (the guardrail honesty channel,
-    // one "word: reason" line per approximated/unmappable term), and the
-    // baked table drawn as a depth-staggered frame stack below. The bake
-    // authors a recipe from the DCO prompt via the backend lexicon router
-    // (docs/DCO_LLM_GUARDRAILS.md), bakes frames on a background thread, and
-    // loads them into the wavetable master.
+    // BAKE/status row, the machine's READING of the prompt (dcoReadingLabel —
+    // the acoustic interpretation, "how it was heard", where the baked wave
+    // used to sit; the wave itself now draws in the engine window), and the
+    // flags list (the guardrail honesty channel, one "word: reason" line per
+    // approximated/unmappable term). The bake authors a recipe from the DCO
+    // prompt via the backend lexicon router (docs/DCO_LLM_GUARDRAILS.md), bakes
+    // frames on a background thread, and loads them into the wavetable master.
     juce::TextEditor dcoPromptEditor;
     juce::Label dcoStatusLabel;
     juce::Label dcoFlagsLabel;
     // "Language-Controlled Oscillator" — the LCO name spelled out, a small
     // periwinkle caption above the prompt (TextRole::Hint, set in resized()).
     juce::Label dcoSubtitleLabel;
-    DcoWavetableView dcoWaveView;
+    // The machine's reading of the prompt, shown prominently in the middle of
+    // the LCO panel in place of the baked wave (which the engine window now
+    // owns). dcoReadingHeader is the "HEARD AS" periwinkle caption; the label
+    // below it carries the acoustic lines (technique + timbre words, motion,
+    // the ordered shape path, frame/rate footprint). Populated from the bake's
+    // resolved recipe — the same facts as dcoLastMachineReading_, formatted for
+    // the eye. Empty-state placeholder until the first Generate.
+    juce::Label dcoReadingHeader, dcoReadingLabel;
     bool dcoBaking_ = false;
     void triggerDcoBake();
 
