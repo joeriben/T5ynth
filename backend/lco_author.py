@@ -1,37 +1,71 @@
 #!/usr/bin/env python3
-"""LCO author — per-station Csound-GEN wavetable recipe.
+"""LCO author — routes to the deterministic dco_recipe author.
 
-Replaces the lexicon/S2 author (dco_recipe.py). A small coder LLM does the two
-narrow things it reliably does — (1) decompose a prompt into 2-3 TIMBRAL
-STATIONS, (2) emit ONE Csound GEN spectrum per station — and this module's
-deterministic code turns each spectrum into an Additive keyframe and the station
-order into a Motion trajectory. The SHIPPING DcoBaker then bakes the exact same
-time-domain morph the PoC validated (tools/csound_gen_poc.py): the baker's
-per-frame blend (1-a)*from + a*to IS our morph (DcoBaker.cpp), so no DSP lives
-here — only the GEN->keyframe projection.
+build_lco_response() (mode=="dco" in pipe_inference.py) delegates recipe
+authoring to dco_recipe.author_recipe(), per docs/DCO_LLM_GUARDRAILS.md: "the
+LLM never authors DSP data. It only routes." The injected coder ``llm`` is
+used ONLY for S2 residue-routing — mapping prompt words the curated lexicon
+doesn't already cover to the nearest allowed lexicon key (or NONE), through a
+closed-choice enum check that is itself the sandbox. It no longer plans
+timbre stations or authors Csound GEN spectra.
 
-Per-station INDEPENDENCE is the liveness guarantee: each station is a separate
-model call with its own phrase, so identical keyframes are structurally
-impossible unless the prompt genuinely names one static timbre.
-
-GEN -> partials is DIRECT and exact (no rendering, no FFT): DcoBaker::renderAdditive
-sums a*sin(h*x + phase) with a FLOAT harmonic number h, so
-  GEN10 arg k        -> partial (h=k,        a=strength, phase=0)
-  GEN09 triple p,s,d -> partial (h=p,        a=s,        phase=radians(d))
-and GEN09's non-integer p is an INHARMONIC partial the baker renders natively
-(glassy/metallic/bell). This reproduces the PoC single cycle verbatim.
-
-Torch-free / numpy-free by contract (stdlib only): the ONE model dependency is
-the injected ``llm`` callable ``(text, system_prompt, max_new_tokens) -> str``,
-supplied by pipe_inference.py, so the whole GEN->recipe path unit-tests
-in-process with no model load.
-
-Determinism: stdlib + a greedy ``llm`` -> byte-identical recipe for identical
-text. The translator already assumes MPS greedy determinism; the coder is
-empirically 3x byte-identical (tools/csound_gen_poc.py restore check).
+The per-station Csound-GEN coder path that previously authored spectra
+directly is retained unchanged below a banner comment as dead code (a
+possible Phase-2 residue-fallback candidate); it is not on the shipping
+response path. It was replaced because the coder emitted unparseable/wrong
+GEN lines for basic waveforms and byte-identical spectra for distinct
+timbres.
 """
 import math
 import re
+
+
+def build_lco_response(text, llm, frames=None):
+    """The response dict pipe_inference sends to C++ for mode=="dco". Delegates
+    authoring to dco_recipe.author_recipe (the deterministic, regression-tested
+    author) per docs/DCO_LLM_GUARDRAILS.md: the LLM never authors DSP data, it
+    only routes. ``llm`` (the injected coder) is used ONLY as the S2
+    residue-router via the ``llm_route`` adapter below. Returns
+    author_recipe's dict verbatim: {ok, recipe, resolved, flags,
+    lexicon_version, reference_vocabulary}."""
+    from dco_recipe import author_recipe
+
+    def llm_route(residue_words, allowed_keys):
+        """S2 residue-routing (docs/DCO_LLM_GUARDRAILS.md S2): the coder maps each
+        unmapped word to the nearest curated lexicon key, or NONE. Closed-choice —
+        the enum check is the sandbox; it never authors DSP numbers."""
+        system_prompt = (
+            "You map sound-descriptor words to a fixed vocabulary. Reply with one "
+            "line per input word, exactly \"word -> key\". key must be one of the "
+            "allowed keys. If no key fits, use NONE. No other text."
+        )
+        user_prompt = ("Words: " + ", ".join(residue_words) + "\n"
+                       "Allowed keys: " + ", ".join(allowed_keys))
+        max_new = min(96, 8 * len(residue_words))
+        try:
+            raw = llm(user_prompt, system_prompt, max_new)
+        except Exception:
+            return {w: None for w in residue_words}   # deterministic degradation
+
+        allowed_set = set(allowed_keys)
+        lower_to_word = {w.lower(): w for w in residue_words}
+        line_re = re.compile(r"^(\S.*?)\s*->\s*([A-Z_a-z]+)$")
+        routed = {w: None for w in residue_words}
+        for line in raw.splitlines():
+            m = line_re.match(line.strip())
+            if not m:
+                continue
+            word = lower_to_word.get(m.group(1).strip().lower())
+            if word is None:
+                continue
+            key = m.group(2).strip().lower()   # lexicon keys are lowercase; LLM may echo "BRIGHT"
+            routed[word] = key if key in allowed_set else None   # enum IS the sandbox
+        return routed
+
+    return author_recipe(text, llm_route=llm_route, frames=frames)
+
+
+# ─── Phase-1 legacy per-station coder path (retained for a possible Phase-2 residue fallback; NOT on the shipping path) ───
 
 # Baked wavetable frames per recipe (DcoBaker clamps to [8, 256]); matches the PoC.
 NUM_FRAMES = 256
@@ -212,29 +246,3 @@ def author_recipe(text, llm, frames=None):
         "motion_rate_hz": _MOTION_RATE_DEFAULT,
     }
     return recipe, kept
-
-
-def build_lco_response(text, llm, frames=None):
-    """The response dict pipe_inference sends to C++. ``recipe`` is the hard DSP
-    contract (DcoRecipeJson.h). The remaining fields are the MINIMAL Phase-1
-    projection onto what PromptPanel reads today (machineReading + the two-tier
-    flag panel + Re-Prompt) so the C++ side keeps working unchanged: the station
-    decomposition surfaces via ``resolved.adjectives``; ``flags`` is empty
-    (there is no lexicon 'not-understood/adapted' notion in this author) rather
-    than fabricating tiers. The honest station-as-reading disclosure is Phase 3."""
-    recipe, stations = author_recipe(text, llm, frames)
-    multi = len(recipe["keyframes"]) > 1
-    return {
-        "ok": True,
-        "recipe": recipe,
-        "resolved": {
-            "technique": "additive",
-            "adjectives": list(stations),
-            "composition": [],
-            "fm": [],
-            "motion": ["morph"] if multi else [],
-            "values": {},
-        },
-        "flags": [],
-        "reference_vocabulary": [],
-    }
