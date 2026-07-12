@@ -171,7 +171,17 @@ def _apply_analog_life(resp, text):
     return resp
 
 
-# ─── Phase-1 legacy per-station coder path (retained for a possible Phase-2 residue fallback; NOT on the shipping path) ───
+# ─── Per-station Csound-GEN coder path (author_recipe) ───────────────────────
+# The LLM plans 2-3 timbre stations, then emits ONE Csound GEN spectrum per
+# station; the morph between them is a Motion trajectory the shipping Baker walks.
+# The prompts below are the ones proven on the REAL baker (tools/lco_coder_bench.py):
+# with the literal-station rule + explicit GEN09/GEN10 routine choice, gemma3:27b
+# authors exact odd-only squares / 1/n saws / inharmonic bells (8/9 gate), and an
+# 80B model hits 9/9. The 3B collapse was substantially THIS prompt bug (GEN9/GEN10
+# confusion + waveform paraphrase), not only model size -- so model capability is
+# now the remaining gate, and the coder model is user-installed + availability-gated.
+# build_lco_response() does not yet route to this path (it delegates to the
+# deterministic dco_recipe author); wiring it in is the boundary change under review.
 
 # Baked wavetable frames per recipe (DcoBaker clamps to [8, 256]); matches the PoC.
 NUM_FRAMES = 256
@@ -258,38 +268,62 @@ def _parse_one_spectrum(raw):
 
 
 # ─── The two narrow model tasks (one call each) ───────────────────────────────
-# System prompts ported verbatim from the validated PoC.
+# System prompts are the versions proven on the real baker (tools/lco_coder_bench.py),
+# not the original PoC prompts (which confused GEN09/GEN10 and paraphrased waveforms).
 
+# Station planning that PRESERVES literal waveform/instrument names -- the earlier
+# prompt let the model paraphrase "square" -> "harsh digital pulse", losing the
+# exactness the DCO demands. Only a purely descriptive prompt gets an invented
+# mood phrase. (Proven on the real baker: tools/lco_coder_bench.py, 8/9 gemma3:27b,
+# 9/9 mistral-medium.)
 STATION_SYS = (
-    "You are a sound designer. Break the described sound into 2 or 3 TIMBRAL "
-    "STATIONS -- the key points the timbre passes through from start to end. "
-    "Each station is a SHORT phrase (2-5 words) naming that timbre. If the sound "
-    "barely evolves, give 2 near-identical stations. Reply ONLY the phrases, one "
-    "per line, ordered start to end -- no numbering, no other text.\n\n"
-    "Example -- 'a swell from muffled to piercing':\n"
-    "muffled and dark\npiercing and bright"
+    "Break the described sound into the 2-3 TIMBRAL STATIONS it passes through, "
+    "start to end. Reply ONLY the station names, one per line -- no numbering, no "
+    "other text.\n"
+    "RULE: if the prompt names specific waveforms or instruments (sine, square, "
+    "saw, sawtooth, triangle, pulse, violin, piano, bell, organ, clarinet, "
+    "flute, ...), use those EXACT words as the stations, IN ORDER -- never "
+    "paraphrase them into moods. Invent a short descriptive phrase ONLY for a "
+    "purely descriptive prompt that names no waveform/instrument.\n"
+    "'square > sine' ->\nsquare\nsine\n"
+    "'saw into triangle' ->\nsaw\ntriangle\n"
+    "'a swell from muffled to piercing' ->\nmuffled dark\npiercing bright"
 )
 
+# The routine choice is made EXPLICIT (GEN10 for harmonic, GEN09 ONLY for
+# inharmonic) with COMPLETE examples that carry their routine number, so the model
+# can't mislabel a square's odd-harmonic amplitudes as GEN09. This was the core 3B
+# failure -- a PROMPT bug, not only a model-size limit.
 SPECTRUM_SYS = (
-    "You are a sound designer writing ONE Csound GEN function-table statement -- "
-    "a single-cycle waveform matching a timbre.\n"
-    "  f1 0 2048 10 <s1> <s2> ...   GEN10: harmonic partial strengths "
-    "(saw = 1 0.5 0.33 0.25; square = 1 0 0.33 0 0.2; warm/dark = strong lows, "
-    "rolled highs; bright = strong highs; hollow = odd-heavy).\n"
-    "  f1 0 2048 9 <p1> <str1> <ph1> ...   GEN09: partials by (partial#, strength, "
-    "phase-degrees); a NON-integer partial# is inharmonic -> glassy / metallic / "
-    "bell / crystalline.\n"
-    "Add a second line 'SHAPE: f1=<0..1>' ONLY if the timbre is dirty / distorted "
-    "/ aggressive / screaming.\n"
-    "Use at most 8 numbers. Reply ONLY the f1 line (and optional SHAPE line), "
-    "nothing else."
+    "You write ONE Csound GEN function-table statement: a single-cycle waveform "
+    "for the given timbre. Reply with ONLY the f1 line (plus an optional SHAPE "
+    "line). No prose, no code fences, no reasoning.\n\n"
+    "Choose the routine:\n"
+    "* HARMONIC timbre (sine, saw, square, triangle, pulse, strings, reed, organ, "
+    "warm, bright, hollow, ...) -> routine 10 (GEN10): a list of harmonic "
+    "strengths, one per harmonic starting at the fundamental.\n"
+    "    sine:     f1 0 2048 10 1\n"
+    "    saw:      f1 0 2048 10 1 0.5 0.33 0.25 0.2 0.166 0.142 0.125\n"
+    "    square:   f1 0 2048 10 1 0 0.333 0 0.2 0 0.142 0 0.111   (odd only; evens = 0)\n"
+    "    triangle: f1 0 2048 10 1 0 0.111 0 0.04 0 0.02           (odd, steep rolloff)\n"
+    "    warm/dark:f1 0 2048 10 1 0.6 0.3 0.15 0.08 0.04 0.02     (strong lows, rolled highs)\n"
+    "    bright:   f1 0 2048 10 1 0.9 0.85 0.8 0.7 0.6 0.5 0.4    (strong highs)\n"
+    "    hollow:   f1 0 2048 10 1 0 0.5 0 0.33 0 0.25             (odd-heavy, reedy)\n"
+    "* INHARMONIC timbre ONLY (bell, metallic, glassy, crystalline, clangorous) "
+    "-> routine 9 (GEN09): triples partial#,strength,phase-degrees; a NON-integer "
+    "partial# is the inharmonic partial.\n"
+    "    bell:     f1 0 2048 9 1 1 0 2.76 0.55 0 5.40 0.33 0 8.93 0.16 0\n"
+    "    metallic: f1 0 2048 9 1 1 0 1.73 0.7 0 3.19 0.5 0 4.51 0.3 0\n\n"
+    "Add 'SHAPE: f1=<0..1>' on a second line ONLY if dirty / distorted / "
+    "aggressive / screaming. Use up to ~10 numbers. Match the timbre's brightness "
+    "and harmonic makeup. Output the f1 line now."
 )
 
 
 def _plan_stations(prompt, llm):
     """Model -> ordered list of 2-3 short timbre phrases (planning, its strength).
     Falls back to the prompt itself as a single station if nothing usable comes."""
-    raw = llm(prompt, STATION_SYS, 64)
+    raw = llm(prompt, STATION_SYS, 80)
     stations = []
     for line in raw.splitlines():
         # Strip only a real leading list-marker ("-", "*", "1.", "1)"), NOT a
@@ -302,7 +336,7 @@ def _plan_stations(prompt, llm):
 
 def _emit_spectrum(phrase, llm):
     """Model -> one GEN spectrum for one station phrase (the narrow task it can do)."""
-    raw = llm(phrase, SPECTRUM_SYS, 96)
+    raw = llm(phrase, SPECTRUM_SYS, 160)
     return _parse_one_spectrum(raw)
 
 
