@@ -208,12 +208,25 @@ class Ear:
 
 
 def rank(cands):
-    """Fitness-first (semantic cosine + brightness-axis match) with a richness floor:
-    live candidates (flux >= floor) rank by fit; only if EVERY candidate is
-    near-static do dead ones compete."""
+    """Semantic-cosine fitness with a richness floor: live candidates (flux >= floor)
+    rank by fit (== CLAP cosine); only if EVERY candidate is near-static do dead ones
+    compete. NOTE: the floor only governs WITHIN this list -- a cross-batch incumbent
+    vs. challenger decision must use _better(), not a raw fit compare (see the
+    refine loop), or a dead neighbour can unseat a live incumbent on cosine alone."""
     live = [c for c in cands if c["alive"]]
     pool = live if live else cands
     return sorted(pool, key=lambda c: c["fit"], reverse=True)
+
+
+def _better(a, b):
+    """Is candidate a strictly better than incumbent b, under the SAME live-first
+    doctrine rank() encodes -- so the richness floor governs the one comparison that
+    actually picks the winner. A live bake always beats a dead one (CLAP's audio
+    tower over-rates bare static bright tones, so a raw-cosine compare would let a
+    dead neighbour win); same liveness -> monotone on cosine with hysteresis."""
+    if a["alive"] != b["alive"]:
+        return a["alive"]
+    return a["fit"] > b["fit"] + 1e-4
 
 
 def survey(ear, idioms):
@@ -315,7 +328,7 @@ def main():
                 break
             heard = ear.hear([("+".join(k), build_recipe(k, idioms)) for k in nbrs])
             cand = rank(heard)[0] if heard else None
-            if cand and cand["fit"] > best["fit"] + 1e-4:
+            if cand and _better(cand, best):        # live-first: a dead neighbour never unseats a live best
                 best = cand; best_keys = best["tag"].split("+")
                 print(f"[refine {rnd}] -> {best['tag']}  cos={best['sem']:.3f} cent={best['cent']:.1f}  "
                       f"heard={best['tags']}  flux={best['flux']:.2f}")
