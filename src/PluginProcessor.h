@@ -94,15 +94,18 @@ public:
     void loadDcoWavetable(const juce::AudioBuffer<float>& frameStrip,
                           float motionRateHz = 0.0f);
 
-    /** Load an INHARMONIC single-cycle spectrum as a real-time additive bank
-     *  (non-integer partial ratios a single looped wavetable cannot hold — bells,
-     *  metal, glass). Message thread. Mirrors loadDcoWavetable's engine-mode stash,
-     *  callback-lock discipline and held-voice crossfade (distributeWavetableFrames),
-     *  but publishes an additive bank (masterOsc.setAdditiveBank) with NO frame motion
-     *  (a static spectrum has no keyframes to scan). Used only for a single-keyframe
-     *  additive recipe with a non-integer partial; every other recipe still bakes a
-     *  frame strip through loadDcoWavetable. No-op on an empty partial list. */
-    void loadDcoAdditive(const std::vector<dco::Partial>& partials,
+    /** Load an INHARMONIC chain as a real-time additive bank of K index-aligned
+     *  stations (non-integer partial ratios a single looped wavetable cannot hold —
+     *  bells, metal, glass). Message thread. Mirrors loadDcoWavetable's engine-mode
+     *  stash, callback-lock discipline and held-voice crossfade
+     *  (distributeWavetableFrames), publishing an additive bank
+     *  (masterOsc.setAdditiveBank) instead of baked frames. K>=2 stations MOVE: the
+     *  engine interpolates between them under DCO motion at motionRateHz (mirror of
+     *  loadDcoWavetable), so the Scan control and EnvTarget::Scan drive inharmonic
+     *  timbres too. K==1 is one static spectrum — motion off, nothing to scan. Used
+     *  for any all-Additive chain with a non-integer partial; every other recipe still
+     *  bakes a frame strip through loadDcoWavetable. No-op on an empty station list. */
+    void loadDcoAdditive(const std::vector<std::vector<dco::Partial>>& stationSets,
                          float motionRateHz = 0.0f);
 
     // Inference cache: raw inference audio only, no duplicate prompt/model metadata.

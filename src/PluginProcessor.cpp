@@ -5143,26 +5143,39 @@ void T5ynthProcessor::loadDcoWavetable(const juce::AudioBuffer<float>& frameStri
     newWtDisplayReady.store(true, std::memory_order_release);
 }
 
-void T5ynthProcessor::loadDcoAdditive(const std::vector<dco::Partial>& partials,
+void T5ynthProcessor::loadDcoAdditive(const std::vector<std::vector<dco::Partial>>& stationSets,
                                       float motionRateHz)
 {
-    // Message thread. An INHARMONIC single-cycle spectrum (non-integer partial
-    // ratios) cannot be held by a single looped wavetable cycle, so it is published
-    // as a real-time additive bank instead of baked frames. Publish discipline
-    // mirrors loadDcoWavetable exactly, MINUS the frame motion: a static spectrum
-    // has no keyframes to scan. motionRateHz is unused here (kept for API symmetry
-    // and a future animated-additive path).
-    juce::ignoreUnused(motionRateHz);
-    if (partials.empty())
+    // Message thread. An INHARMONIC chain (non-integer partial ratios) cannot be held
+    // by a single looped wavetable cycle, so it is published as a real-time additive
+    // bank of K index-aligned stations instead of baked frames. Publish discipline
+    // mirrors loadDcoWavetable exactly; the only difference from the baked path is the
+    // payload. K>=2 stations move under DCO motion at motionRateHz (spec §3); K==1 is
+    // a single static spectrum with motion off (no keyframes to scan).
+    if (stationSets.empty())
         return;
+    // Belt-and-braces behind the router's alignment-contract check: an EMPTY station
+    // would collapse the engine's aligned index range to N==0 -> gain 0 -> a published
+    // bank of total silence. Refuse to publish instead (the router never lets this
+    // through; this guards any direct caller).
+    for (const auto& station : stationSets)
+        if (station.empty())
+            return;
 
-    // Convert the recipe partials to the engine bank type. setAdditiveBank
-    // re-sanitizes h/a/phase and drops non-positive h defensively — this copy just
-    // carries the values across.
-    std::vector<WavetableOscillator::AdditivePartial> bank;
-    bank.reserve(partials.size());
-    for (const auto& p : partials)
-        bank.push_back({ p.h, p.a, p.phase });
+    // Convert each recipe station to the engine bank type. setAdditiveBank re-sanitizes
+    // h/a/phase, aligns the stations to a common index length N and drops non-positive
+    // h defensively — this copy just carries the values across, in wire order.
+    std::vector<std::vector<WavetableOscillator::AdditivePartial>> bank;
+    bank.reserve(stationSets.size());
+    for (const auto& station : stationSets)
+    {
+        std::vector<WavetableOscillator::AdditivePartial> conv;
+        conv.reserve(station.size());
+        for (const auto& p : station)
+            conv.push_back({ p.h, p.a, p.phase });
+        bank.push_back(std::move(conv));
+    }
+    const int numSets = static_cast<int>(bank.size());
 
     // Same engine-mode stash as loadDcoWavetable: remember the pre-DCO engine so the
     // next neural generation can restore it; a re-bake while the DCO is already
@@ -5185,12 +5198,17 @@ void T5ynthProcessor::loadDcoAdditive(const std::vector<dco::Partial>& partials,
         // loadDcoWavetable / loadGeneratedAudio).
         const juce::ScopedLock sl (getCallbackLock());
 
-        // No frame motion: the additive bank is ONE static spectrum (numFrames==1
-        // sentinel), nothing to scan. setDcoMotion(false) also stops any motion left
-        // from a prior DCO table. The manual Scan control has no effect on an
-        // additive bank (no frames) — correct, the sound IS the partials.
         masterOsc.setAutoScan(false);
-        masterOsc.setDcoMotion(false, 0.0f);
+        // K>=2 stations move: the engine interpolates between them under the recipe's
+        // motion tempo (mirror of loadDcoWavetable's setDcoMotion), so the manual Scan
+        // control and the EnvTarget::Scan envelope drive inharmonic timbres too — the
+        // same movement as everywhere, no special path. K==1 is ONE static spectrum:
+        // nothing to scan, motion off (also stops any motion left from a prior DCO
+        // table). setDcoMotion falls back to 0.25 Hz when the recipe left rate unset.
+        if (numSets >= 2)
+            masterOsc.setDcoMotion(true, motionRateHz > 0.0f ? motionRateHz : 0.25f);
+        else
+            masterOsc.setDcoMotion(false, 0.0f);
         masterOsc.setMorphTimeMs(paramCache.driftCrossfade->load());
         // Gate the per-block traversal re-sync BEFORE distributing, exactly as the
         // baked path does, so no audio block re-derives neural scan brackets.
@@ -5200,27 +5218,35 @@ void T5ynthProcessor::loadDcoAdditive(const std::vector<dco::Partial>& partials,
         voiceManager.distributeWavetableFrames(masterOsc);
     }
 
-    // Publish a display waveform for the engine-window WT view: one fundamental
-    // period of the summed partials. NOT a closed single cycle for inharmonic h (it
-    // won't wrap seamlessly), but an honest picture of the bank's spectral content.
-    // Message thread, allocation OK, OUTSIDE the callback lock — display data only.
-    juce::AudioBuffer<float> display(1, WavetableOscillator::FRAME_SIZE);
+    // Publish a display strip for the engine-window WT view: one fundamental period
+    // per station laid end-to-end (K*FRAME_SIZE), each period normalized like the
+    // former single image, so the engine-window 2.5D fan shows the stations honestly.
+    // NOT a closed single cycle for inharmonic h (it won't wrap seamlessly), but an
+    // honest picture of each station's spectral content. Message thread, allocation
+    // OK, OUTSIDE the callback lock — display data only.
+    const int frameSize = WavetableOscillator::FRAME_SIZE;
+    juce::AudioBuffer<float> display(1, numSets * frameSize);
     auto* d = display.getWritePointer(0);
-    float peak = 0.0f;
-    for (int i = 0; i < WavetableOscillator::FRAME_SIZE; ++i)
+    for (int s = 0; s < numSets; ++s)
     {
-        const double x = juce::MathConstants<double>::twoPi
-                       * static_cast<double>(i) / static_cast<double>(WavetableOscillator::FRAME_SIZE);
-        double s = 0.0;
-        for (const auto& p : bank)
-            if (p.h > 0.0f && std::isfinite(p.a) && std::isfinite(p.phase))  // match setAdditiveBank's guard so the picture is never NaN
-                s += static_cast<double>(p.a) * std::sin(static_cast<double>(p.h) * x
-                                                         + static_cast<double>(p.phase));
-        d[i] = static_cast<float>(s);
-        peak = std::max(peak, std::fabs(d[i]));
+        const int base = s * frameSize;
+        float peak = 0.0f;
+        for (int i = 0; i < frameSize; ++i)
+        {
+            const double x = juce::MathConstants<double>::twoPi
+                           * static_cast<double>(i) / static_cast<double>(frameSize);
+            double sum = 0.0;
+            for (const auto& p : bank[static_cast<size_t>(s)])
+                if (p.h > 0.0f && std::isfinite(p.a) && std::isfinite(p.phase))  // match setAdditiveBank's guard so the picture is never NaN
+                    sum += static_cast<double>(p.a) * std::sin(static_cast<double>(p.h) * x
+                                                             + static_cast<double>(p.phase));
+            d[base + i] = static_cast<float>(sum);
+            peak = std::max(peak, std::fabs(d[base + i]));
+        }
+        if (peak > 1.0e-6f)
+            for (int i = 0; i < frameSize; ++i)
+                d[base + i] *= 0.95f / peak;
     }
-    if (peak > 1.0e-6f)
-        display.applyGain(0.95f / peak);
     wtDisplaySnapshot.makeCopyOf(display);
     newWtDisplayReady.store(true, std::memory_order_release);
 }

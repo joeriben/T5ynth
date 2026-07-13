@@ -37,6 +37,13 @@ public:
     // phase state is a fixed array of this size — no audio-thread allocation).
     static constexpr int MAX_ADDITIVE_PARTIALS = 64;
 
+    // Largest number of index-aligned additive "stations" one bank can hold.
+    // User-level recipes carry 1–5 stations (key-waves); character passes may
+    // later insert perturbed sub-stations between them (spec §6.4), so the
+    // internal cap is generous. Memory is trivial (K small vectors); per-voice
+    // phase state is per-INDEX, not per-station, so it does not scale with K.
+    static constexpr int MAX_ADDITIVE_SETS = 64;
+
     // One inharmonic partial for real-time additive synthesis. h is an ARBITRARY
     // ratio of the fundamental: an integer h is an ordinary harmonic, a NON-integer
     // h is a genuinely inharmonic partial (bell/metal/glass). A single looped
@@ -140,6 +147,19 @@ public:
      *  baked path); this is only for the inharmonic case. */
     void setAdditiveBank(const std::vector<AdditivePartial>& partials);
 
+    /** Publish K index-aligned additive "stations" as the bank (spec §3). All sets
+     *  must have the SAME length N — index i is the SAME partial in every set (one
+     *  shared running phase accumulator, one Nyquist gate). Movement is a per-index
+     *  linear blend of (a,h) between the two stations bracketing the current scan
+     *  position, using the SAME scanNow the wavetable path reads — no parameter
+     *  trajectories, no new synthesis path. Gain is 0.95/max_over_sets(sum|a_i|)
+     *  (bank-wide worst case, NOT per-position renorm — loudness must breathe). K==1
+     *  degenerates EXACTLY to the single-set overload above. Sanitize rules mirror
+     *  it: unequal lengths cap to the shortest, index i is dropped from ALL sets if
+     *  ANY set's h there is non-finite or <= 0 (dropping per-set would break the
+     *  alignment). Same atomic-publish/share/morph path. */
+    void setAdditiveBank(const std::vector<std::vector<AdditivePartial>>& sets);
+
     /** DCO motion transport. The table is an authored GESTURE (recipe motion,
      *  loop-closed by construction), not a sampled timeline: position runs at
      *  rateHz full loops per second with an exact modular wrap and NO scan
@@ -197,9 +217,15 @@ private:
         int numLevels = 0;
         uint64_t generation = 0;
 
-        bool isAdditive = false;                    // true: synthesize `partials`, ignore frames
-        std::vector<AdditivePartial> partials;      // additive-bank spectrum (isAdditive only)
-        float additiveGain = 1.0f;                  // 0.95 / sum|a_i|, precomputed at publish
+        bool isAdditive = false;                    // true: synthesize `partialSets`, ignore frames
+        // K index-aligned additive stations (isAdditive only). ALL sets are EXACTLY
+        // the same length N — index i is the SAME partial in every set (same running
+        // phase accumulator, same Nyquist gate). Movement = per-index lerp of (a,h)
+        // across the sets, blended by scanNow. K==1 degenerates to the former
+        // single-set path (byte-identical math). phase is a per-index property, read
+        // from set 0 (identical across sets by backend contract).
+        std::vector<std::vector<AdditivePartial>> partialSets;
+        float additiveGain = 1.0f;                  // 0.95 / max_over_sets(sum|a_i|), precomputed
     };
 
     using MipDataPtr = std::shared_ptr<const MipData>;
@@ -216,9 +242,10 @@ private:
     float morphTimeMs_ = 200.0f;
 
     // Real-time additive synthesis: per-voice running phase (radians) for each
-    // partial of the active/target additive bank. Fixed size — never allocated on
-    // the audio thread. Only the first activeMorphMipData_->partials.size() entries
-    // are live. Advanced once per sample (mod 2*pi) when the bank isAdditive.
+    // partial INDEX of the active/target additive bank. Fixed size — never allocated
+    // on the audio thread. Phase is per-index (shared across the K stations), so only
+    // the first partialSets[0].size() (== N) entries are live. Advanced once per
+    // sample (mod 2*pi) when the bank isAdditive.
     std::array<double, MAX_ADDITIVE_PARTIALS> activeAddPhase_{};
     std::array<double, MAX_ADDITIVE_PARTIALS> targetAddPhase_{};
 
@@ -271,15 +298,20 @@ private:
                                float scanPosition, bool interpolate);
 
     // ── Real-time additive synthesis (inharmonic banks) ──
-    // Seed dst[i] from the bank's per-partial phase offsets (fresh start / morph-in).
+    // Seed dst[i] from the bank's per-index phase offsets (set 0; phase is per-index,
+    // identical across stations). Fresh start / morph-in.
     void seedAdditivePhases(std::array<double, MAX_ADDITIVE_PARTIALS>& dst,
                             const MipData& mip) const;
-    // Sum a_i*sin(phaseAcc_i) over in-band partials (>= Nyquist dropped). Read-only.
+    // Sum a_i*sin(phaseAcc_i) over in-band partials (>= Nyquist dropped), (a,h)
+    // interpolated between the stations bracketing scanNow. Read-only. K==1: the
+    // former single-set math, byte-identical.
     float synthAdditiveSample(const MipData& mip,
-                              const std::array<double, MAX_ADDITIVE_PARTIALS>& phaseAcc) const;
-    // Advance each in-use partial phase by its per-sample increment, wrapped mod 2*pi.
+                              const std::array<double, MAX_ADDITIVE_PARTIALS>& phaseAcc,
+                              float scanNow) const;
+    // Advance each in-use partial phase by w * h_i(scanNow) (same station blend as the
+    // sample sum), wrapped mod 2*pi. K==1: the former single-set advance, byte-identical.
     void advanceAdditivePhases(std::array<double, MAX_ADDITIVE_PARTIALS>& phaseAcc,
-                               const MipData& mip) const;
+                               const MipData& mip, float scanNow) const;
 
     // Cached mip-level selector. log2/ceil only recomputed when targetFrequency changes.
     // NaN sentinel: any comparison with NaN is false in IEEE-754, so the first sample after

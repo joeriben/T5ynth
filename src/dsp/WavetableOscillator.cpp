@@ -799,6 +799,13 @@ void WavetableOscillator::setExactFrames(const juce::AudioBuffer<float>& strip)
 
 void WavetableOscillator::setAdditiveBank(const std::vector<AdditivePartial>& partials)
 {
+    // Thin overload: one station is the K==1 case of the aligned-sets bank. Delegates
+    // so there is exactly one sanitize/publish path.
+    setAdditiveBank(std::vector<std::vector<AdditivePartial>>{ partials });
+}
+
+void WavetableOscillator::setAdditiveBank(const std::vector<std::vector<AdditivePartial>>& sets)
+{
     if (sharedSource_ != nullptr) return;   // shared-mode voices adopt from the master
 
     // Build the additive-bank payload. No frames, no mips: the partials are
@@ -808,32 +815,82 @@ void WavetableOscillator::setAdditiveBank(const std::vector<AdditivePartial>& pa
     auto dest = std::make_shared<MipData>();
     dest->isAdditive = true;
     dest->numFrames = 1;   // sentinel: hasFrames()/processSample treat the bank as "has data"
+                           // (the STATION count is partialSets.size(), NOT numFrames)
     dest->numLevels = 1;   // frames stay empty; the additive path never indexes them
 
-    dest->partials.reserve(std::min(partials.size(), static_cast<size_t>(MAX_ADDITIVE_PARTIALS)));
-    double sumAbs = 0.0;
-    for (const auto& p : partials)
+    // Cap the station count K (spec §3: user recipes 1–5, sub-stations up to 64).
+    const int numSets = std::min(static_cast<int>(sets.size()), MAX_ADDITIVE_SETS);
+
+    // Aligned INPUT range = the SHORTEST station's length. Index i can only carry a
+    // partial if EVERY set has an entry there (index alignment), so it is the min over
+    // sets, not the max — unequal lengths cap to the shortest defensively. Deliberately
+    // NOT capped at MAX_ADDITIVE_PARTIALS: that cap is on the ACCEPTED count in the
+    // loop below, so the scan may pass dropped (invalid-h) indices and still fill all
+    // 64 slots with valid partials — exactly the old single-set whole-list scan.
+    int nIn = 0;
+    if (numSets > 0)
     {
-        if (static_cast<int>(dest->partials.size()) >= MAX_ADDITIVE_PARTIALS) break;
-        // h is a frequency ratio and MUST be > 0. A non-finite or non-positive h is
-        // not a real partial: h <= 0 never advances (w*h == 0) and never trips the
-        // Nyquist drop (f0*h >= nyquist is 0 >= nyquist = false), so clamping it to 0
-        // would leave a constant a*gain*sin(phase0) DC term in the sum forever (and
-        // steal headroom via sumAbs). Skip it outright, as an above-Nyquist partial is
-        // skipped per-sample. h is clamped high-side only, to the wavetable ceiling.
-        if (!std::isfinite(p.h) || p.h <= 0.0f) continue;
-        AdditivePartial q;
-        // NaN-guard the remaining fields: a recipe may come from an LLM's output, and a
-        // non-finite a/phase would poison the running sum through sin() forever.
-        q.h     = std::min(p.h, static_cast<float>(HALF_FRAME));
-        q.a     = std::isfinite(p.a)     ? p.a : 0.0f;
-        q.phase = std::isfinite(p.phase) ? p.phase : 0.0f;
-        dest->partials.push_back(q);
-        sumAbs += std::abs(static_cast<double>(q.a));
+        nIn = static_cast<int>(sets[0].size());
+        for (int s = 1; s < numSets; ++s)
+            nIn = std::min(nIn, static_cast<int>(sets[static_cast<size_t>(s)].size()));
     }
-    // Scale so the worst-case aligned sum peaks at ~0.95 (matches the baked path's
-    // headroom). An all-silent bank (sumAbs ~ 0) gets gain 0 -> silence, no div-by-0.
-    dest->additiveGain = (sumAbs > 1.0e-9) ? static_cast<float>(0.95 / sumAbs) : 0.0f;
+
+    // Sanitize per index across ALL sets in lockstep. h is a frequency ratio and MUST
+    // be > 0: a non-finite/non-positive h never advances (w*h == 0) and never trips the
+    // Nyquist drop, so clamping it to 0 would leave a constant a*gain*sin(phase0) DC
+    // term forever (and steal headroom). It is dropped — but the drop is applied to the
+    // SAME index in EVERY set, because dropping per-set would misalign the stations.
+    std::vector<std::vector<AdditivePartial>> kept(static_cast<size_t>(numSets));
+    for (int s = 0; s < numSets; ++s)
+        kept[static_cast<size_t>(s)].reserve(
+            static_cast<size_t>(std::min(nIn, MAX_ADDITIVE_PARTIALS)));
+    for (int i = 0; i < nIn; ++i)
+    {
+        // Cap the KEPT count: stop only once MAX_ADDITIVE_PARTIALS partials have been
+        // ACCEPTED — the same break-before-validity order as the old single-set loop,
+        // so K==1 stays byte-equivalent to it. The kept sets grow in lockstep, so
+        // kept[0] is THE accepted count (safe: nIn > 0 implies numSets > 0).
+        if (static_cast<int>(kept[0].size()) >= MAX_ADDITIVE_PARTIALS) break;
+        bool good = true;
+        for (int s = 0; s < numSets && good; ++s)
+        {
+            const float h = sets[static_cast<size_t>(s)][static_cast<size_t>(i)].h;
+            if (!std::isfinite(h) || h <= 0.0f) good = false;
+        }
+        if (!good) continue;
+        for (int s = 0; s < numSets; ++s)
+        {
+            const auto& src = sets[static_cast<size_t>(s)][static_cast<size_t>(i)];
+            AdditivePartial q;
+            // NaN-guard a/phase (a recipe may come from an LLM's output) and clamp h
+            // high-side to the wavetable ceiling — exactly as the single-set path did.
+            q.h     = std::min(src.h, static_cast<float>(HALF_FRAME));
+            q.a     = std::isfinite(src.a)     ? src.a     : 0.0f;
+            q.phase = std::isfinite(src.phase) ? src.phase : 0.0f;
+            kept[static_cast<size_t>(s)].push_back(q);
+        }
+    }
+
+    // Gain = 0.95 / max_over_stations(sum|a_i|): the BANK-WIDE worst case, NOT a
+    // per-position renorm. |lerp(a_s, a_s+1, t)| <= max of the two station sums, so no
+    // scan position can clip; and the loudness between a dark and a bright station
+    // breathes naturally (per-position renorm was the loudness-inversion defect the ear
+    // rejected). For K==1 this is 0.95 / sum|a_i| of the one station — identical to the
+    // former single-set gain.
+    double maxSumAbs = 0.0;
+    for (int s = 0; s < numSets; ++s)
+    {
+        double sumAbs = 0.0;
+        for (const auto& p : kept[static_cast<size_t>(s)])
+            sumAbs += std::abs(static_cast<double>(p.a));
+        maxSumAbs = std::max(maxSumAbs, sumAbs);
+    }
+
+    // Empty outcome (no sets / N==0 / all-silent) keeps today's silence semantics: the
+    // partialSets carry the sanitized (possibly empty) stations and the gain is 0, so
+    // synthAdditiveSample returns 0 with no div-by-0.
+    dest->partialSets = std::move(kept);
+    dest->additiveGain = (maxSumAbs > 1.0e-9) ? static_cast<float>(0.95 / maxSumAbs) : 0.0f;
     dest->generation = ++nextPublishedGeneration_;
 
     MipDataPtr published = dest;
@@ -985,7 +1042,7 @@ float WavetableOscillator::processSample()
     // real time (inharmonic-capable, no mip); a wavetable bank reads its mip frames.
     float output;
     if (activeMorphMipData_->isAdditive)
-        output = synthAdditiveSample(*activeMorphMipData_, activeAddPhase_);
+        output = synthAdditiveSample(*activeMorphMipData_, activeAddPhase_, scanNow);
     else
     {
         const int activeMip = juce::jlimit(0, activeMorphMipData_->numLevels - 1, cachedMipRawCeil_);
@@ -997,7 +1054,7 @@ float WavetableOscillator::processSample()
         const float alpha = juce::jlimit(0.0f, 1.0f, morphAlpha_);
         float targetSample;
         if (targetMorphMipData_->isAdditive)
-            targetSample = synthAdditiveSample(*targetMorphMipData_, targetAddPhase_);
+            targetSample = synthAdditiveSample(*targetMorphMipData_, targetAddPhase_, scanNow);
         else
         {
             const int targetMip = juce::jlimit(0, targetMorphMipData_->numLevels - 1, cachedMipRawCeil_);
@@ -1022,9 +1079,9 @@ float WavetableOscillator::processSample()
     // current phase). Both banks advance while a morph is live so the fading-in
     // target stays phase-correct.
     if (activeMorphMipData_->isAdditive)
-        advanceAdditivePhases(activeAddPhase_, *activeMorphMipData_);
+        advanceAdditivePhases(activeAddPhase_, *activeMorphMipData_, scanNow);
     if (morphActive_ && targetMorphMipData_ != nullptr && targetMorphMipData_->isAdditive)
-        advanceAdditivePhases(targetAddPhase_, *targetMorphMipData_);
+        advanceAdditivePhases(targetAddPhase_, *targetMorphMipData_, scanNow);
 
     // Advance phase. Symmetric wrap via floor handles both positive overshoot
     // and (in case of any unforeseen negative drift) negative phase without an
@@ -1098,45 +1155,107 @@ float WavetableOscillator::readMipSample(const MipData& mipData, int mipLevel, d
 void WavetableOscillator::seedAdditivePhases(std::array<double, MAX_ADDITIVE_PARTIALS>& dst,
                                              const MipData& mip) const
 {
-    const int n = std::min(static_cast<int>(mip.partials.size()), MAX_ADDITIVE_PARTIALS);
+    // phase is a per-index property, identical across stations by backend contract;
+    // set 0 wins defensively. An empty bank (no sets) seeds all-zero.
+    const int n = mip.partialSets.empty()
+        ? 0
+        : std::min(static_cast<int>(mip.partialSets[0].size()), MAX_ADDITIVE_PARTIALS);
     for (int i = 0; i < n; ++i)
-        dst[static_cast<size_t>(i)] = static_cast<double>(mip.partials[static_cast<size_t>(i)].phase);
+        dst[static_cast<size_t>(i)] = static_cast<double>(mip.partialSets[0][static_cast<size_t>(i)].phase);
     for (int i = n; i < MAX_ADDITIVE_PARTIALS; ++i)
         dst[static_cast<size_t>(i)] = 0.0;
 }
 
 float WavetableOscillator::synthAdditiveSample(const MipData& mip,
-                                               const std::array<double, MAX_ADDITIVE_PARTIALS>& phaseAcc) const
+                                               const std::array<double, MAX_ADDITIVE_PARTIALS>& phaseAcc,
+                                               float scanNow) const
 {
     // sum_i a_i * sin(phaseAcc_i), scaled by the precomputed gain. A partial whose
     // frequency f0*h_i has reached Nyquist is dropped (per-sample anti-aliasing):
     // this is why the additive path needs no mip band-limiting.
     const double nyquist = 0.5 * sampleRate;
     const double f0 = static_cast<double>(targetFrequency);
-    const int n = std::min(static_cast<int>(mip.partials.size()), MAX_ADDITIVE_PARTIALS);
+    const int numSets = static_cast<int>(mip.partialSets.size());
+    if (numSets <= 0) return 0.0f;
+
+    // K == 1: byte-identical to the former single-set loop (same operation order).
+    if (numSets == 1)
+    {
+        const auto& set0 = mip.partialSets[0];
+        const int n = std::min(static_cast<int>(set0.size()), MAX_ADDITIVE_PARTIALS);
+        double sum = 0.0;
+        for (int i = 0; i < n; ++i)
+        {
+            const auto& p = set0[static_cast<size_t>(i)];
+            if (f0 * static_cast<double>(p.h) >= nyquist) continue;
+            sum += static_cast<double>(p.a) * std::sin(phaseAcc[static_cast<size_t>(i)]);
+        }
+        return static_cast<float>(sum * static_cast<double>(mip.additiveGain));
+    }
+
+    // K >= 2: linearly blend (a,h) per index between the two stations bracketing the
+    // scan position, then sum. Stations are index-aligned (same N, one phase per index).
+    // scanNow is clamped [0,1] to match readMipSample's own defensive frame clamp.
+    const float pos = juce::jlimit(0.0f, 1.0f, scanNow) * static_cast<float>(numSets - 1);
+    const int s = juce::jlimit(0, numSets - 2, static_cast<int>(std::floor(pos)));
+    const float t = pos - static_cast<float>(s);
+    const auto& setA = mip.partialSets[static_cast<size_t>(s)];
+    const auto& setB = mip.partialSets[static_cast<size_t>(s + 1)];
+    const int n = std::min(static_cast<int>(setA.size()), MAX_ADDITIVE_PARTIALS);
     double sum = 0.0;
     for (int i = 0; i < n; ++i)
     {
-        const auto& p = mip.partials[static_cast<size_t>(i)];
-        if (f0 * static_cast<double>(p.h) >= nyquist) continue;
-        sum += static_cast<double>(p.a) * std::sin(phaseAcc[static_cast<size_t>(i)]);
+        const auto& pa = setA[static_cast<size_t>(i)];
+        const auto& pb = setB[static_cast<size_t>(i)];
+        const float h = pa.h + (pb.h - pa.h) * t;
+        const float a = pa.a + (pb.a - pa.a) * t;
+        if (f0 * static_cast<double>(h) >= nyquist) continue;   // Nyquist drop on the INTERPOLATED h
+        sum += static_cast<double>(a) * std::sin(phaseAcc[static_cast<size_t>(i)]);
     }
     return static_cast<float>(sum * static_cast<double>(mip.additiveGain));
 }
 
 void WavetableOscillator::advanceAdditivePhases(std::array<double, MAX_ADDITIVE_PARTIALS>& phaseAcc,
-                                                const MipData& mip) const
+                                                const MipData& mip, float scanNow) const
 {
     const double twoPi = juce::MathConstants<double>::twoPi;
     const double w = twoPi * static_cast<double>(targetFrequency) / sampleRate;  // fundamental radians/sample
-    const int n = std::min(static_cast<int>(mip.partials.size()), MAX_ADDITIVE_PARTIALS);
+    const int numSets = static_cast<int>(mip.partialSets.size());
+    if (numSets <= 0) return;
+
+    // K == 1: byte-identical to the former single-set advance (same operation order).
+    if (numSets == 1)
+    {
+        const auto& set0 = mip.partialSets[0];
+        const int n = std::min(static_cast<int>(set0.size()), MAX_ADDITIVE_PARTIALS);
+        for (int i = 0; i < n; ++i)
+        {
+            double ph = phaseAcc[static_cast<size_t>(i)]
+                      + w * static_cast<double>(set0[static_cast<size_t>(i)].h);
+            // Wrap mod 2*pi. sin() is 2*pi-periodic, so this is EXACT and click-free for
+            // ANY h (integer or inharmonic) — unlike a wavetable's cycle wrap. floor
+            // covers multi-wrap and any negative drift; NaN can't arise (guarded inputs).
+            ph -= twoPi * std::floor(ph / twoPi);
+            phaseAcc[static_cast<size_t>(i)] = ph;
+        }
+        return;
+    }
+
+    // K >= 2: advance each accumulator by w * h_i(scanNow), using the SAME station
+    // interpolation as the sample sum so phase and amplitude track one blend. The mod
+    // 2*pi wrap stays exact and click-free for any (interpolated) h.
+    const float pos = juce::jlimit(0.0f, 1.0f, scanNow) * static_cast<float>(numSets - 1);
+    const int s = juce::jlimit(0, numSets - 2, static_cast<int>(std::floor(pos)));
+    const float t = pos - static_cast<float>(s);
+    const auto& setA = mip.partialSets[static_cast<size_t>(s)];
+    const auto& setB = mip.partialSets[static_cast<size_t>(s + 1)];
+    const int n = std::min(static_cast<int>(setA.size()), MAX_ADDITIVE_PARTIALS);
     for (int i = 0; i < n; ++i)
     {
-        double ph = phaseAcc[static_cast<size_t>(i)]
-                  + w * static_cast<double>(mip.partials[static_cast<size_t>(i)].h);
-        // Wrap mod 2*pi. sin() is 2*pi-periodic, so this is EXACT and click-free for
-        // ANY h (integer or inharmonic) — unlike a wavetable's cycle wrap. floor
-        // covers multi-wrap and any negative drift; NaN can't arise (guarded inputs).
+        const float hA = setA[static_cast<size_t>(i)].h;
+        const float hB = setB[static_cast<size_t>(i)].h;
+        const float h = hA + (hB - hA) * t;
+        double ph = phaseAcc[static_cast<size_t>(i)] + w * static_cast<double>(h);
         ph -= twoPi * std::floor(ph / twoPi);
         phaseAcc[static_cast<size_t>(i)] = ph;
     }

@@ -2104,10 +2104,11 @@ void PromptPanel::triggerDcoBake()
 
         juce::String status, flagTooltip, flagsSummary;
         juce::AudioBuffer<float> strip;
-        // A single-keyframe INHARMONIC additive recipe (non-integer partial ratios —
-        // bell/metal/glass) can't be held by a looped wavetable cycle; it routes to
-        // the real-time additive bank instead of a baked strip. Non-empty => additive.
-        std::vector<dco::Partial> additivePartials;
+        // An INHARMONIC additive chain (non-integer partial ratios — bell/metal/glass)
+        // can't be held by a looped wavetable cycle; the WHOLE chain routes to the
+        // real-time additive bank as K index-aligned stations instead of a baked strip.
+        // Non-empty => additive. Each entry is one station's partials, in wire order.
+        std::vector<std::vector<dco::Partial>> additiveStations;
         float motionRateHz = 0.0f;
         // DCO Re-Prompt (docs/DCO_REPROMPT_CONCEPT.md "lesen -> deuten -> umformulieren"):
         // the router's OWN reading of what it just baked, as two plain display
@@ -2128,23 +2129,51 @@ void PromptPanel::triggerDcoBake()
             const auto recipeVar = parsed.getProperty("recipe", juce::var());
             const auto recipe = dco::recipeFromVar(recipeVar);
             motionRateHz = recipe.motionRateHz;
-            // A single static additive keyframe with any non-integer partial is an
-            // inharmonic spectrum: baking it to one looped cycle projects it onto the
-            // harmonic grid (a bell comes out a sawtooth). Route those partials to the
-            // real-time additive bank instead. Every other recipe — harmonic additive,
-            // saw/square/fm/cheby, and multi-keyframe station/drift morphs — still
-            // bakes a frame strip (a multi-keyframe inharmonic morph needs animated
-            // additive, not yet built, so it stays on the baked path for now).
-            const bool singleAdditive = recipe.keyframes.size() == 1
-                && recipe.keyframes[0].kind == dco::Keyframe::Kind::Additive;
-            const bool anyInharmonic = singleAdditive
-                && std::any_of(recipe.keyframes[0].partials.begin(),
-                               recipe.keyframes[0].partials.end(),
-                               [](const dco::Partial& p) {
-                                   return std::abs(p.h - std::round(p.h)) > 1.0e-3f;
+            // An inharmonic chain cannot be baked onto the harmonic grid of a looped
+            // cycle (a bell comes out a sawtooth), so the WHOLE chain routes to the
+            // real-time additive bank, which interpolates its keyframes as K
+            // index-aligned stations blended by scan (spec §3). The rule: EVERY
+            // keyframe is Additive AND the stations honor the backend alignment
+            // CONTRACT (below) AND SOME partial anywhere in the chain is non-integer.
+            // Multi-keyframe inharmonic chains are now the animated-additive case
+            // (this replaces the old single-keyframe-only route; the "not yet built"
+            // note is obsolete). Every other recipe — mixed-kind chains, pure-harmonic
+            // additive chains, saw/square/fm/cheby classic kinds — still bakes a frame
+            // strip (bit-exact, full bandwidth).
+            const bool allAdditive = !recipe.keyframes.empty()
+                && std::all_of(recipe.keyframes.begin(), recipe.keyframes.end(),
+                               [](const dco::Keyframe& kf) {
+                                   return kf.kind == dco::Keyframe::Kind::Additive;
+                               });
+            // Backend alignment CONTRACT check (spec §5): the engine blends stations
+            // per index, so every keyframe must carry the SAME non-zero partial count
+            // (index i = the same partial in every station). The Slice-2 alignment
+            // tool is what guarantees this; until it lands — and against any malformed
+            // recipe — a chain violating the contract keeps the BAKED path exactly as
+            // before this route existed (audible), never a degenerate additive bank
+            // (an empty or unequal-length station collapses the engine's aligned index
+            // range to N==0 -> gain 0 -> total silence). A single-keyframe chain
+            // satisfies the check trivially, so K==1 inharmonic routes as today.
+            const bool alignedStations = allAdditive
+                && !recipe.keyframes.front().partials.empty()
+                && std::all_of(recipe.keyframes.begin(), recipe.keyframes.end(),
+                               [n0 = recipe.keyframes.front().partials.size()](const dco::Keyframe& kf) {
+                                   return kf.partials.size() == n0;
+                               });
+            const bool anyInharmonic = alignedStations
+                && std::any_of(recipe.keyframes.begin(), recipe.keyframes.end(),
+                               [](const dco::Keyframe& kf) {
+                                   return std::any_of(kf.partials.begin(), kf.partials.end(),
+                                       [](const dco::Partial& p) {
+                                           return std::abs(p.h - std::round(p.h)) > 1.0e-3f;
+                                       });
                                });
             if (anyInharmonic)
-                additivePartials = recipe.keyframes[0].partials;
+            {
+                additiveStations.reserve(recipe.keyframes.size());
+                for (const auto& kf : recipe.keyframes)
+                    additiveStations.push_back(kf.partials);   // one station per keyframe, wire order
+            }
             else if (!recipe.keyframes.empty())
             {
                 const auto frameData = dco::Baker::bake(recipe);
@@ -2219,7 +2248,7 @@ void PromptPanel::triggerDcoBake()
                 else if (nA > 0)      flagCount = "  [" + juce::String(nA) + " adapted]";
             }
             status = "LCO: " + technique + flagCount;
-            if (strip.getNumSamples() == 0 && additivePartials.empty())
+            if (strip.getNumSamples() == 0 && additiveStations.empty())
                 status = "LCO: empty recipe";
 
             // machineReading: technique + adjectives + motion + values (resolved{}),
@@ -2315,17 +2344,18 @@ void PromptPanel::triggerDcoBake()
         }
 
         juce::MessageManager::callAsync(
-            [safeThis, strip = std::move(strip), additivePartials = std::move(additivePartials),
+            [safeThis, strip = std::move(strip), additiveStations = std::move(additiveStations),
              status, flagTooltip, flagsSummary, motionRateHz,
              machineReading, displayReading, flagsLine, referenceVocab, text]() mutable
         {
             if (auto* self = safeThis.getComponent())
             {
-                if (!additivePartials.empty())
+                if (!additiveStations.empty())
                 {
-                    // Inharmonic spectrum -> real-time additive bank (a looped cycle
-                    // can't hold non-integer partials). Publishes its own WT display.
-                    self->processorRef.loadDcoAdditive(additivePartials, motionRateHz);
+                    // Inharmonic chain -> real-time additive bank: K index-aligned
+                    // stations blended by scan (a looped cycle can't hold non-integer
+                    // partials). Publishes its own K-period WT display.
+                    self->processorRef.loadDcoAdditive(additiveStations, motionRateHz);
                 }
                 else if (strip.getNumSamples() > 0)
                 {
@@ -2343,7 +2373,7 @@ void PromptPanel::triggerDcoBake()
                 // contradicts the status. On that path fall back to the status
                 // line (which carries the error), dimmed, so the panel is never
                 // blank-but-live and never reads as a successful bake.
-                const bool haveReading = (strip.getNumSamples() > 0 || !additivePartials.empty())
+                const bool haveReading = (strip.getNumSamples() > 0 || !additiveStations.empty())
                                          && displayReading.isNotEmpty();
                 self->dcoReadingLabel.setColour(juce::Label::textColourId, haveReading ? kOscCol : kDim);
                 self->dcoReadingLabel.setText(haveReading ? displayReading : status,
