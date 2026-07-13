@@ -1579,7 +1579,7 @@ Not all conceptual oppositions produce audible differences. The 8 axes included 
 
 <h4>SA3: Bundled Poles</h4>
 <p>
-On SA3's t5gemma encoder a single-word pole is too weak to move the sound — mean-pooled across a sequence that is mostly padding, the direction nearly vanishes. SA3's three axes therefore build each pole from a <em>stack</em> of near-synonyms — for example <code>"sustained, continuous, held, unbroken, droning"</code> against <code>"rhythmic, percussive, syncopated, pulsing, staccato"</code> — which carries enough real tokens to survive. The edit is confined to those real tokens, so it steers without swamping your prompt.
+On SA3's t5gemma encoder a single-word pole is too weak to move the sound — mean-pooled across a sequence that is mostly padding, the direction nearly vanishes. SA3's three axes therefore build each pole from a <em>stack</em> of near-synonyms — for example <code>"a sustained, continuous, persistent, held, unbroken, droning tone"</code> against <code>"a rhythmic, percussive, syncopated, pulsing, staccato, beat-driven groove"</code> — which carries enough real tokens to survive. The edit is confined to those real tokens, so it steers without swamping your prompt.
 </p>
 <div class="note">
   The push is strong but not literal: it shifts the character, it does not guarantee the named property. Treat the SA3 axes as broad directions to explore by ear, not as measured controls.
@@ -1589,7 +1589,7 @@ On SA3's t5gemma encoder a single-word pole is too weak to move the sound — me
 <h2 id="bg-dimex">14. The DimExplorer In Depth</h2>
 
 <p>
-The DimExplorer (see <a href="#dimex">section 3</a> for basic usage) operates on the <strong>mean-pooled</strong> encoder output — the 768-dimensional vector obtained by averaging across the token sequence dimension, weighted by the attention mask. This is the same representation the diffusion model uses for conditioning.
+The DimExplorer (see <a href="#dimex">section 3</a> for basic usage) operates on the <strong>mean-pooled</strong> encoder output — the 768-dimensional vector obtained by averaging across the token sequence dimension. This is the same representation the diffusion model uses for conditioning.
 </p>
 
 <div class="note">
