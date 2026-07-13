@@ -2,6 +2,7 @@
 #include <JuceHeader.h>
 #include <memory>
 #include <vector>
+#include <array>
 #include <cmath>
 #include <atomic>
 #include <limits>
@@ -31,6 +32,19 @@ public:
     static constexpr int HALF_FRAME = FRAME_SIZE / 2;
     static constexpr int NUM_MIP_LEVELS = 8;
     static constexpr int MIN_FRAMES = 8;
+
+    // Largest additive-bank partial count synthesized in real time (per-voice
+    // phase state is a fixed array of this size — no audio-thread allocation).
+    static constexpr int MAX_ADDITIVE_PARTIALS = 64;
+
+    // One inharmonic partial for real-time additive synthesis. h is an ARBITRARY
+    // ratio of the fundamental: an integer h is an ordinary harmonic, a NON-integer
+    // h is a genuinely inharmonic partial (bell/metal/glass). A single looped
+    // wavetable cycle is periodic on the fundamental and so can hold ONLY integer
+    // harmonics — inharmonic partials therefore cannot be baked into a frame; they
+    // are synthesized directly (setAdditiveBank), one running phase accumulator per
+    // partial, wrapped mod 2*pi (click-free for any h).
+    struct AdditivePartial { float h = 1.0f; float a = 0.0f; float phase = 0.0f; };
 
     WavetableOscillator() = default;
 
@@ -114,6 +128,18 @@ public:
      *  authored sweep). Same mip/publish path as extraction. */
     void setExactFrames(const juce::AudioBuffer<float>& strip);
 
+    /** Publish an INHARMONIC additive spectrum as the bank: the voice synthesizes
+     *  sum_i a_i * sin(2*pi * f0 * h_i * t + phase_i) in real time instead of reading
+     *  baked frames, so non-integer h_i sound at their TRUE (inharmonic) frequencies
+     *  — a bell/metal timbre a single looped cycle cannot represent. Same
+     *  publish/share/morph path as setExactFrames, so held-note crossfade-follow
+     *  works table<->additive and additive<->additive. Partials at/above Nyquist are
+     *  dropped per-sample at playback (built-in anti-aliasing; no mip needed).
+     *  Amplitudes are scaled by 0.95/sum|a_i| so the sum stays in range. A recipe
+     *  whose partials are ALL integer h should still use setExactFrames (bit-exact
+     *  baked path); this is only for the inharmonic case. */
+    void setAdditiveBank(const std::vector<AdditivePartial>& partials);
+
     /** DCO motion transport. The table is an authored GESTURE (recipe motion,
      *  loop-closed by construction), not a sampled timeline: position runs at
      *  rateHz full loops per second with an exact modular wrap and NO scan
@@ -162,12 +188,18 @@ private:
         float confidence = 0.0f;
     };
 
-    /** Immutable snapshot of one published WT bank generation. */
+    /** Immutable snapshot of one published WT bank generation. Either a mip-mapped
+     *  wavetable (isAdditive=false, the frames path) OR an inharmonic additive bank
+     *  (isAdditive=true: partials synthesized in real time, frames unused). */
     struct MipData {
         std::vector<std::vector<std::vector<float>>> frames; // [level][frameIdx][sample]
         int numFrames = 0;
         int numLevels = 0;
         uint64_t generation = 0;
+
+        bool isAdditive = false;                    // true: synthesize `partials`, ignore frames
+        std::vector<AdditivePartial> partials;      // additive-bank spectrum (isAdditive only)
+        float additiveGain = 1.0f;                  // 0.95 / sum|a_i|, precomputed at publish
     };
 
     using MipDataPtr = std::shared_ptr<const MipData>;
@@ -182,6 +214,13 @@ private:
     float morphIncrement_ = 0.0f;
     bool morphActive_ = false;
     float morphTimeMs_ = 200.0f;
+
+    // Real-time additive synthesis: per-voice running phase (radians) for each
+    // partial of the active/target additive bank. Fixed size — never allocated on
+    // the audio thread. Only the first activeMorphMipData_->partials.size() entries
+    // are live. Advanced once per sample (mod 2*pi) when the bank isAdditive.
+    std::array<double, MAX_ADDITIVE_PARTIALS> activeAddPhase_{};
+    std::array<double, MAX_ADDITIVE_PARTIALS> targetAddPhase_{};
 
     double sampleRate = 44100.0;
 
@@ -226,10 +265,21 @@ private:
 
     MipDataPtr loadPublishedMipData() const;
     void syncSharedConfigFrom(const WavetableOscillator& source);
-    void adoptMipData(const MipDataPtr& mipData);
+    void adoptMipData(MipDataPtr mipData, bool seedAdditivePhase = true);  // by value: see .cpp (reset aliasing)
     void beginMorphToMipData(const MipDataPtr& mipData);
     static float readMipSample(const MipData& mipData, int mipLevel, double phase,
                                float scanPosition, bool interpolate);
+
+    // ── Real-time additive synthesis (inharmonic banks) ──
+    // Seed dst[i] from the bank's per-partial phase offsets (fresh start / morph-in).
+    void seedAdditivePhases(std::array<double, MAX_ADDITIVE_PARTIALS>& dst,
+                            const MipData& mip) const;
+    // Sum a_i*sin(phaseAcc_i) over in-band partials (>= Nyquist dropped). Read-only.
+    float synthAdditiveSample(const MipData& mip,
+                              const std::array<double, MAX_ADDITIVE_PARTIALS>& phaseAcc) const;
+    // Advance each in-use partial phase by its per-sample increment, wrapped mod 2*pi.
+    void advanceAdditivePhases(std::array<double, MAX_ADDITIVE_PARTIALS>& phaseAcc,
+                               const MipData& mip) const;
 
     // Cached mip-level selector. log2/ceil only recomputed when targetFrequency changes.
     // NaN sentinel: any comparison with NaN is false in IEEE-754, so the first sample after

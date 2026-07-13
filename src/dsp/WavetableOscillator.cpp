@@ -102,8 +102,12 @@ void WavetableOscillator::syncSharedConfigFrom(const WavetableOscillator& source
     morphTimeMs_ = source.morphTimeMs_;
 }
 
-void WavetableOscillator::adoptMipData(const MipDataPtr& mipData)
+void WavetableOscillator::adoptMipData(MipDataPtr mipData, bool seedAdditivePhase)
 {
+    // BY VALUE, not const&: the morph-complete caller passes targetMorphMipData_,
+    // and the targetMorphMipData_.reset() below would null a reference bound to it
+    // BEFORE the seed block dereferences mipData. A copy (cheap atomic refcount,
+    // audio-thread safe) keeps mipData alive independent of that reset.
     if (mipData == nullptr)
         return;
 
@@ -116,6 +120,11 @@ void WavetableOscillator::adoptMipData(const MipDataPtr& mipData)
     // Mip-level cache key only includes frequency; numLevels is currently always 8 across banks,
     // but invalidate defensively in case a future bank emits a different level count.
     lastMipFreq_ = std::numeric_limits<float>::quiet_NaN();
+    // Fresh adopt of an additive bank starts every partial at its authored phase.
+    // The morph-complete path passes seedAdditivePhase=false: it has already carried
+    // the running target phases into activeAddPhase_, so re-seeding would click.
+    if (seedAdditivePhase && mipData->isAdditive)
+        seedAdditivePhases(activeAddPhase_, *mipData);
 }
 
 void WavetableOscillator::beginMorphToMipData(const MipDataPtr& mipData)
@@ -147,8 +156,19 @@ void WavetableOscillator::beginMorphToMipData(const MipDataPtr& mipData)
 
     if (morphActive_ && targetMorphMipData_ != nullptr)
     {
-        const bool targetDominant = morphAlpha_ >= 0.5f;
-        activeMorphMipData_ = targetDominant ? targetMorphMipData_ : activeMorphMipData_;
+        // A second bank arrives mid-morph. If the in-flight target is dominant it
+        // becomes the new active — and for an ADDITIVE target its RUNNING phase is
+        // in targetAddPhase_, which the seed at the tail of this function is about
+        // to overwrite with the NEW target. Carry it into activeAddPhase_ first
+        // (the same phase-continuity the completion branch in processSample does),
+        // or the promoted bank restarts at a foreign phase = a click on the held
+        // note — the very invariant this path exists to preserve. (Table target:
+        // the array copy is harmless, activeAddPhase_ is unused for a wavetable.)
+        if (morphAlpha_ >= 0.5f)
+        {
+            activeMorphMipData_ = targetMorphMipData_;
+            activeAddPhase_ = targetAddPhase_;
+        }
     }
 
     if (activeMorphMipData_ == nullptr
@@ -164,6 +184,11 @@ void WavetableOscillator::beginMorphToMipData(const MipDataPtr& mipData)
         static_cast<double>(morphTimeMs_) * 0.001 * sampleRate)));
     morphIncrement_ = 1.0f / static_cast<float>(morphSamples);
     morphActive_ = true;
+    // A new inharmonic bank fades IN from its authored phase offsets (wetGain
+    // starts at 0, so the seed is inaudible); the equal-power crossfade then
+    // follows the held note table<->additive exactly as it does table<->table.
+    if (mipData->isAdditive)
+        seedAdditivePhases(targetAddPhase_, *mipData);
 }
 
 void WavetableOscillator::shareFramesFrom(const WavetableOscillator& source)
@@ -772,6 +797,49 @@ void WavetableOscillator::setExactFrames(const juce::AudioBuffer<float>& strip)
         generateMipLevels(frames);
 }
 
+void WavetableOscillator::setAdditiveBank(const std::vector<AdditivePartial>& partials)
+{
+    if (sharedSource_ != nullptr) return;   // shared-mode voices adopt from the master
+
+    // Build the additive-bank payload. No frames, no mips: the partials are
+    // synthesized per sample, so this bypasses generateMipLevels entirely. Same
+    // atomic publish tail as generateMipLevels — voices pick it up via
+    // shareFramesFrom / morphToFramesFrom exactly like a wavetable generation.
+    auto dest = std::make_shared<MipData>();
+    dest->isAdditive = true;
+    dest->numFrames = 1;   // sentinel: hasFrames()/processSample treat the bank as "has data"
+    dest->numLevels = 1;   // frames stay empty; the additive path never indexes them
+
+    dest->partials.reserve(std::min(partials.size(), static_cast<size_t>(MAX_ADDITIVE_PARTIALS)));
+    double sumAbs = 0.0;
+    for (const auto& p : partials)
+    {
+        if (static_cast<int>(dest->partials.size()) >= MAX_ADDITIVE_PARTIALS) break;
+        // h is a frequency ratio and MUST be > 0. A non-finite or non-positive h is
+        // not a real partial: h <= 0 never advances (w*h == 0) and never trips the
+        // Nyquist drop (f0*h >= nyquist is 0 >= nyquist = false), so clamping it to 0
+        // would leave a constant a*gain*sin(phase0) DC term in the sum forever (and
+        // steal headroom via sumAbs). Skip it outright, as an above-Nyquist partial is
+        // skipped per-sample. h is clamped high-side only, to the wavetable ceiling.
+        if (!std::isfinite(p.h) || p.h <= 0.0f) continue;
+        AdditivePartial q;
+        // NaN-guard the remaining fields: a recipe may come from an LLM's output, and a
+        // non-finite a/phase would poison the running sum through sin() forever.
+        q.h     = std::min(p.h, static_cast<float>(HALF_FRAME));
+        q.a     = std::isfinite(p.a)     ? p.a : 0.0f;
+        q.phase = std::isfinite(p.phase) ? p.phase : 0.0f;
+        dest->partials.push_back(q);
+        sumAbs += std::abs(static_cast<double>(q.a));
+    }
+    // Scale so the worst-case aligned sum peaks at ~0.95 (matches the baked path's
+    // headroom). An all-silent bank (sumAbs ~ 0) gets gain 0 -> silence, no div-by-0.
+    dest->additiveGain = (sumAbs > 1.0e-9) ? static_cast<float>(0.95 / sumAbs) : 0.0f;
+    dest->generation = ++nextPublishedGeneration_;
+
+    MipDataPtr published = dest;
+    std::atomic_store_explicit(&publishedMipData_, published, std::memory_order_release);
+}
+
 // ─── Per-sample processing ───
 
 void WavetableOscillator::glideToFrequency(float hz, float durationMs)
@@ -788,7 +856,14 @@ void WavetableOscillator::glideToFrequency(float hz, float durationMs)
 float WavetableOscillator::processSample()
 {
     if (activeMorphMipData_ == nullptr)
-        activeMorphMipData_ = loadPublishedMipData();
+    {
+        // First sample after a bare publish (the DCO tool / master path adopts
+        // lazily here). Seed additive phases so an additive bank starts in phase.
+        auto pub = loadPublishedMipData();
+        if (pub != nullptr && pub->isAdditive)
+            seedAdditivePhases(activeAddPhase_, *pub);
+        activeMorphMipData_ = pub;
+    }
     if (activeMorphMipData_ == nullptr || activeMorphMipData_->numFrames == 0)
         return 0.0f;
 
@@ -906,23 +981,50 @@ float WavetableOscillator::processSample()
         lastMipFreq_ = targetFrequency;
     }
 
-    const int activeMip = juce::jlimit(0, activeMorphMipData_->numLevels - 1, cachedMipRawCeil_);
-    float output = readMipSample(*activeMorphMipData_, activeMip, phase, scanNow, doInterpolate);
+    // Active payload -> one sample. An additive bank synthesizes its partials in
+    // real time (inharmonic-capable, no mip); a wavetable bank reads its mip frames.
+    float output;
+    if (activeMorphMipData_->isAdditive)
+        output = synthAdditiveSample(*activeMorphMipData_, activeAddPhase_);
+    else
+    {
+        const int activeMip = juce::jlimit(0, activeMorphMipData_->numLevels - 1, cachedMipRawCeil_);
+        output = readMipSample(*activeMorphMipData_, activeMip, phase, scanNow, doInterpolate);
+    }
 
     if (morphActive_ && targetMorphMipData_ != nullptr && targetMorphMipData_->numFrames > 0)
     {
         const float alpha = juce::jlimit(0.0f, 1.0f, morphAlpha_);
-        const int targetMip = juce::jlimit(0, targetMorphMipData_->numLevels - 1, cachedMipRawCeil_);
-        const float targetSample = readMipSample(*targetMorphMipData_, targetMip, phase,
-                                                 scanNow, doInterpolate);
+        float targetSample;
+        if (targetMorphMipData_->isAdditive)
+            targetSample = synthAdditiveSample(*targetMorphMipData_, targetAddPhase_);
+        else
+        {
+            const int targetMip = juce::jlimit(0, targetMorphMipData_->numLevels - 1, cachedMipRawCeil_);
+            targetSample = readMipSample(*targetMorphMipData_, targetMip, phase, scanNow, doInterpolate);
+        }
         const float dryGain = std::cos(alpha * juce::MathConstants<float>::halfPi);
         const float wetGain = std::sin(alpha * juce::MathConstants<float>::halfPi);
         output = output * dryGain + targetSample * wetGain;
 
         morphAlpha_ += morphIncrement_;
         if (morphAlpha_ >= 1.0f)
-            adoptMipData(targetMorphMipData_);
+        {
+            // Morph done: carry the target's RUNNING partial phases into active so
+            // the additive tail stays phase-continuous (re-seeding would click),
+            // then adopt without re-seeding.
+            activeAddPhase_ = targetAddPhase_;
+            adoptMipData(targetMorphMipData_, /*seedAdditivePhase=*/false);
+        }
     }
+
+    // Advance additive phase accumulators once per sample (the reads above used the
+    // current phase). Both banks advance while a morph is live so the fading-in
+    // target stays phase-correct.
+    if (activeMorphMipData_->isAdditive)
+        advanceAdditivePhases(activeAddPhase_, *activeMorphMipData_);
+    if (morphActive_ && targetMorphMipData_ != nullptr && targetMorphMipData_->isAdditive)
+        advanceAdditivePhases(targetAddPhase_, *targetMorphMipData_);
 
     // Advance phase. Symmetric wrap via floor handles both positive overshoot
     // and (in case of any unforeseen negative drift) negative phase without an
@@ -989,4 +1091,53 @@ float WavetableOscillator::readMipSample(const MipData& mipData, int mipLevel, d
         + (-s0 + s2) * t
         + (2.0f * s0 - 5.0f * s1 + 4.0f * s2 - s3) * t2
         + (-s0 + 3.0f * s1 - 3.0f * s2 + s3) * t3);
+}
+
+// ─── Real-time additive synthesis (inharmonic banks) ───
+
+void WavetableOscillator::seedAdditivePhases(std::array<double, MAX_ADDITIVE_PARTIALS>& dst,
+                                             const MipData& mip) const
+{
+    const int n = std::min(static_cast<int>(mip.partials.size()), MAX_ADDITIVE_PARTIALS);
+    for (int i = 0; i < n; ++i)
+        dst[static_cast<size_t>(i)] = static_cast<double>(mip.partials[static_cast<size_t>(i)].phase);
+    for (int i = n; i < MAX_ADDITIVE_PARTIALS; ++i)
+        dst[static_cast<size_t>(i)] = 0.0;
+}
+
+float WavetableOscillator::synthAdditiveSample(const MipData& mip,
+                                               const std::array<double, MAX_ADDITIVE_PARTIALS>& phaseAcc) const
+{
+    // sum_i a_i * sin(phaseAcc_i), scaled by the precomputed gain. A partial whose
+    // frequency f0*h_i has reached Nyquist is dropped (per-sample anti-aliasing):
+    // this is why the additive path needs no mip band-limiting.
+    const double nyquist = 0.5 * sampleRate;
+    const double f0 = static_cast<double>(targetFrequency);
+    const int n = std::min(static_cast<int>(mip.partials.size()), MAX_ADDITIVE_PARTIALS);
+    double sum = 0.0;
+    for (int i = 0; i < n; ++i)
+    {
+        const auto& p = mip.partials[static_cast<size_t>(i)];
+        if (f0 * static_cast<double>(p.h) >= nyquist) continue;
+        sum += static_cast<double>(p.a) * std::sin(phaseAcc[static_cast<size_t>(i)]);
+    }
+    return static_cast<float>(sum * static_cast<double>(mip.additiveGain));
+}
+
+void WavetableOscillator::advanceAdditivePhases(std::array<double, MAX_ADDITIVE_PARTIALS>& phaseAcc,
+                                                const MipData& mip) const
+{
+    const double twoPi = juce::MathConstants<double>::twoPi;
+    const double w = twoPi * static_cast<double>(targetFrequency) / sampleRate;  // fundamental radians/sample
+    const int n = std::min(static_cast<int>(mip.partials.size()), MAX_ADDITIVE_PARTIALS);
+    for (int i = 0; i < n; ++i)
+    {
+        double ph = phaseAcc[static_cast<size_t>(i)]
+                  + w * static_cast<double>(mip.partials[static_cast<size_t>(i)].h);
+        // Wrap mod 2*pi. sin() is 2*pi-periodic, so this is EXACT and click-free for
+        // ANY h (integer or inharmonic) — unlike a wavetable's cycle wrap. floor
+        // covers multi-wrap and any negative drift; NaN can't arise (guarded inputs).
+        ph -= twoPi * std::floor(ph / twoPi);
+        phaseAcc[static_cast<size_t>(i)] = ph;
+    }
 }
