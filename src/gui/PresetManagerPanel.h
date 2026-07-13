@@ -840,15 +840,15 @@ private:
 
         if (auto* axesArr = root->getProperty("semanticAxes").getArray())
         {
-            const auto& labels = AxesPanel::getAxisLabels();
             bool anyAssigned = false;
             for (int i = 0; i < std::min(axesArr->size(), 3); ++i)
                 if (auto* ax = (*axesArr)[i].getDynamicObject())
                 {
                     const int dropId = (int) ax->getProperty("dropdownId");
-                    const auto label = (dropId >= 1 && dropId <= labels.size())
-                                         ? labels[dropId - 1]
-                                         : juce::String("---");
+                    // Map across BOTH model tables — a preset can carry SAO ids
+                    // (2-9) or SA3 ids (10-12), and the ids are not a contiguous
+                    // 1..N range, so index-into-getAxisLabels() would miss SA3.
+                    const auto label = AxesPanel::displayForAxisId(dropId);
                     e.axes[(size_t) i] = { label, (float) (double) ax->getProperty("value") };
                     if (! label.isEmpty() && label != "---") anyAssigned = true;
                 }

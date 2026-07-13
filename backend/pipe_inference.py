@@ -1908,12 +1908,19 @@ SEMANTIC_AXIS_POLES = {
     "sacred_secular":       ("secular",     "sacred"),
     "tonal_noisy":          ("noisy",       "tonal"),
     "rhythmic_sustained":   ("sustained",   "rhythmic"),
+    "rhythmic_sustained_sa3": ("a sustained, continuous, persistent, held, unbroken, droning tone",
+                               "a rhythmic, percussive, syncopated, pulsing, staccato, beat-driven groove"),
+    "grainy_smooth_sa3":      ("a smooth, clean, pure, polished, even tone",
+                               "a grainy, gritty, rough, textured, rasping, abrasive sound"),
+    "dense_sparse_sa3":       ("a sparse, single, minimal, bare, isolated sound",
+                               "a dense, layered, thick, swarming, saturated texture"),
 }
 
 _axis_emb_cache = {}  # {(axis_key, model_name): (dir_tensor, neutral_emb)}
 
 
-def _apply_semantic_axes(manipulated, axes_dict, encode_fn, model_name, amount=1.0):
+def _apply_semantic_axes(manipulated, axes_dict, encode_fn, model_name, amount=1.0,
+                         custom_poles=None):
     """Apply semantic axis deltas to embedding tensor [1, seq, 768].
 
     axes_dict: {"music_noise": 0.5, "tonal_noisy": -0.3, ...}
@@ -1921,6 +1928,10 @@ def _apply_semantic_axes(manipulated, axes_dict, encode_fn, model_name, amount=1
     amount: master scaler in [0, 1] — attenuates every delta uniformly so
             the user can dial down the off-manifold push that produces
             harsh output without losing the per-axis balance.
+    custom_poles: RESEARCH-ONLY (never set by the plugin). {axis_key: (pole_a,
+            pole_b)} to inject arbitrary inline pole texts — e.g. synonym-stacked
+            "bundled" poles — instead of the shipped SEMANTIC_AXIS_POLES lookup.
+            When None the behaviour is byte-identical to the shipped path.
 
     For each axis, computes direction = pole_emb - neutral_emb,
     then adds direction * value * amount to the manipulated embedding.
@@ -1942,7 +1953,7 @@ def _apply_semantic_axes(manipulated, axes_dict, encode_fn, model_name, amount=1
     for axis_key, value in axes_dict.items():
         if abs(value) < 0.001:
             continue
-        poles = SEMANTIC_AXIS_POLES.get(axis_key)
+        poles = (custom_poles or {}).get(axis_key) or SEMANTIC_AXIS_POLES.get(axis_key)
         if not poles:
             continue
         pole_a_text, pole_b_text = poles
@@ -2454,6 +2465,12 @@ def _generate_native(pipe, request):
                 is what pushed SA3 manipulation off-manifold.
             No-op when there is no mask, or when nothing was manipulated (the
             un-manipulated blend already carries the raw sentinel at padding)."""
+            # RESEARCH-ONLY (never set by the plugin; shipped behaviour unchanged):
+            # apply every manipulation to the FULL conditioning incl. learned
+            # padding, reproducing the Fedora Latent Lab's unmasked axis push
+            # (result_emb += t·pca[k] over all 256 positions) for A/B experiments.
+            if request.get("unmask_manipulation", False):
+                return emb
             if combined_mask is None:
                 return emb
             if _learned_padding:
@@ -2530,7 +2547,8 @@ def _generate_native(pipe, request):
                 out = out + _noise_tensor
             if sem_axes:
                 out = _apply_semantic_axes(out, sem_axes, native_encode, pipe.model_name,
-                                           amount=axes_amount)
+                                           amount=axes_amount,
+                                           custom_poles=request.get("semantic_axes_poles"))
             return out
 
         def apply_dim_offsets(emb):

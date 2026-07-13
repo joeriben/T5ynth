@@ -1172,6 +1172,7 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         // element is scoped to SA3; AudioLDM2's diffusers path can't take it).
         // Separate guard — its enabled state is the opposite of the cards above.
         const bool resynthOk = promptPanel.selectedModelIsSA3();
+        axesPanel.setModelIsSA3(promptPanel.selectedModelIsSA3());
         if (resynthRow->isEnabled() != resynthOk)
         {
             resynthRow->setEnabled(resynthOk);
@@ -1997,6 +1998,15 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
     activeSnapshotIndex = 0;
     applySnapshotsFromLoad(result.snapshots, result.calibEpoch);
 
+    // Drop any pending axis-restore stash left over from a PRIOR state, BEFORE
+    // loadPresetData runs. loadPresetData can fire onModelChanged -> setModelIsSA3,
+    // which would otherwise PROMOTE a stale pending id into the visible dropdown
+    // (whenever the loaded preset's model flips the axis table to that id's
+    // family) and leak it into this preset — even an axis-less legacy one. The
+    // if(result.hasAxes) branch below re-establishes the correct pending for THIS
+    // preset via setSlotStates; a legacy preset correctly ends with no stash.
+    axesPanel.clearPendingRestore();
+
     promptPanel.loadPresetData(result.promptA, result.promptB,
                                result.seed, result.randomSeed, result.device, result.model,
                                result.injectionMode,
@@ -2012,6 +2022,11 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
             states[static_cast<size_t>(i)].dropdownId = result.axes[static_cast<size_t>(i)].dropdownId;
             states[static_cast<size_t>(i)].value = result.axes[static_cast<size_t>(i)].value;
         }
+        // Ensure the dropdown holds the id set matching the just-loaded model
+        // (loadPresetData above already applied it) BEFORE restoring the
+        // preset's saved ids, so SAO-table ids and SA3-table ids land in the
+        // matching table instead of no-op'ing blank.
+        axesPanel.setModelIsSA3(promptPanel.selectedModelIsSA3());
         axesPanel.setSlotStates(states);
     }
 

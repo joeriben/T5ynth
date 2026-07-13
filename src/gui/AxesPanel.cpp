@@ -4,37 +4,98 @@
 
 static const juce::Colour kAxisColors[] = { kAxis1, kAxis2, kAxis3 };
 
-// Top 8 axes validated for 1-3s samples (Mel cosine distance > 0.70 at 1s).
-// Ranked by effectiveness at short duration. PCA axes excluded (collapse at 1s).
-static const juce::StringArray kEffectiveAxes {
-    "---",
-    "noise / music",
-    "electronic / acoustic",
-    "composed / improvised",
-    "raw / refined",
-    "ensemble / solo",
-    "secular / sacred",
-    "noisy / tonal",
-    "sustained / rhythmic"
+// Full definition of the per-model axis table entry (forward-declared in
+// AxesPanel.h — the header only ever holds a pointer into one of the two
+// tables below).
+struct AxisDef { int id; const char* display; const char* key; };
+
+// RESERVED abstract-gesture label set (trialled 2026-07-13, then reverted —
+// tests on real presets showed the concrete pole names usually DO make sense).
+// Kept for possible reuse: SAO ids 2..9 = tilt/slide/nudge/lean/sway/veer/tug/
+// coax; SA3 ids 10..12 = push/shift/move. Full mapping + rationale in memory
+// project_axis_abstract_labels_reserve. Only display strings change (keys/ids
+// stay), so a future swap back is preset-safe.
+//
+// SAO / AudioLDM2 / default: ids 1..9 (id 1 = "---" placeholder, no key).
+// Top 8 axes validated for 1-3s samples (Mel cosine distance > 0.70 at 1s),
+// ranked by effectiveness at short duration. PCA axes excluded (collapse at
+// 1s). These ids are persisted in presets (AxesPanel::SlotState::dropdownId)
+// — never renumber or reassign them.
+static const AxisDef kAxesSAO[] = {
+    {1,"---",""},
+    {2,"noise / music","music_noise"},
+    {3,"electronic / acoustic","acoustic_electronic"},
+    {4,"composed / improvised","improvised_composed"},
+    {5,"raw / refined","refined_raw"},
+    {6,"ensemble / solo","solo_ensemble"},
+    {7,"secular / sacred","sacred_secular"},
+    {8,"noisy / tonal","tonal_noisy"},
+    {9,"sustained / rhythmic","rhythmic_sustained"},
 };
+
+// SA3: 3 bundled-pole axes (synonym-stacked pole prompts on the backend —
+// see SEMANTIC_AXIS_POLES in pipe_inference.py) instead of the 8 SAO
+// single-word axes. id 1 = "---" (shared meaning with kAxesSAO), then ids
+// 10,11,12 — distinct from the SAO ids 2..9 so a saved dropdownId can never
+// collide across model families. (An abstract-gesture alternative label set is
+// reserved — see the RESERVED note above kAxesSAO.)
+static const AxisDef kAxesSA3[] = {
+    {1,"---",""},
+    {10,"sustained / rhythmic","rhythmic_sustained_sa3"},
+    {11,"smooth / grainy","grainy_smooth_sa3"},
+    {12,"sparse / dense","dense_sparse_sa3"},
+};
+
+// Repopulate a dropdown's items from an axis table using explicit, stable
+// ids (never addItemList's implicit 1..N) so ids stay meaningful across a
+// table switch (setModelIsSA3) and across preset save/load.
+static void populateAxisDropdown(juce::ComboBox& box, const AxisDef* axes, int count)
+{
+    box.clear(juce::dontSendNotification);
+    for (int i = 0; i < count; ++i)
+        box.addItem(axes[i].display, axes[i].id);
+}
+
+// Find the backend axis key for a selected dropdown id within a given axis
+// table. Returns empty for id 1 ("---") or an id absent from the table
+// (e.g. a stale preset id from the other model's table).
+static juce::String keyForAxisId(const AxisDef* axes, int count, int id)
+{
+    for (int i = 0; i < count; ++i)
+        if (axes[i].id == id)
+            return juce::String(axes[i].key);
+    return {};
+}
+
+// Whether a dropdown id is present in the given axis table.
+static bool idInTable(const AxisDef* axes, int count, int id)
+{
+    for (int i = 0; i < count; ++i)
+        if (axes[i].id == id)
+            return true;
+    return false;
+}
 
 const juce::StringArray& AxesPanel::getAxisLabels()
 {
-    return kEffectiveAxes;
+    static const juce::StringArray labels = [] {
+        juce::StringArray arr;
+        for (auto& ax : kAxesSAO)
+            arr.add(ax.display);
+        return arr;
+    }();
+    return labels;
 }
 
-// Map display names → backend axis keys (cross_aesthetic_backend.py SEMANTIC_AXES)
-static juce::String axisDisplayToKey(const juce::String& display)
+juce::String AxesPanel::displayForAxisId(int id)
 {
-    if (display.contains("noise / music"))            return "music_noise";
-    if (display.contains("electronic / acoustic"))    return "acoustic_electronic";
-    if (display.contains("composed / improvised"))    return "improvised_composed";
-    if (display.contains("raw / refined"))             return "refined_raw";
-    if (display.contains("ensemble / solo"))           return "solo_ensemble";
-    if (display.contains("secular / sacred"))          return "sacred_secular";
-    if (display.contains("noisy / tonal"))             return "tonal_noisy";
-    if (display.contains("sustained / rhythmic"))      return "rhythmic_sustained";
-    return {};
+    if (id <= 1)
+        return "---"; // id 1 = "---" placeholder (shared by both tables)
+    for (auto& ax : kAxesSAO)
+        if (ax.id == id) return ax.display;
+    for (auto& ax : kAxesSA3)
+        if (ax.id == id) return ax.display;
+    return "---"; // unknown / stale id
 }
 
 AxesPanel::AxesPanel(juce::AudioProcessorValueTreeState& apvts)
@@ -42,9 +103,15 @@ AxesPanel::AxesPanel(juce::AudioProcessorValueTreeState& apvts)
     // Header is now provided by MainPanel — hide internal one
     header.setVisible(false);
 
+    // Default / initial table is SAO's. MainPanel wires an initial
+    // setModelIsSA3() call (via promptPanel.onModelChanged) once the real
+    // model is known, which switches this if the model turns out to be SA3.
+    activeAxes_ = kAxesSAO;
+    activeAxesCount_ = static_cast<int>(sizeof(kAxesSAO) / sizeof(kAxesSAO[0]));
+
     slots.resize(3);
     for (size_t i = 0; i < slots.size(); ++i)
-        initSlot(slots[i], kEffectiveAxes, static_cast<int>(i));
+        initSlot(slots[i], static_cast<int>(i));
 
     // Master amount: scales all axis deltas before they reach the backend.
     // House-standard SliderRow with a left-header band — single control → left-
@@ -57,12 +124,12 @@ AxesPanel::AxesPanel(juce::AudioProcessorValueTreeState& apvts)
     amountAttachment = std::make_unique<Attachment>(apvts, PID::genAxesAmount, amountRow->getSlider());
 }
 
-void AxesPanel::initSlot(AxisSlot& slot, const juce::StringArray& options, int axisIndex)
+void AxesPanel::initSlot(AxisSlot& slot, int axisIndex)
 {
     slot.axisIndex = axisIndex;
 
     slot.dropdown = std::make_unique<juce::ComboBox>();
-    slot.dropdown->addItemList(options, 1);
+    populateAxisDropdown(*slot.dropdown, activeAxes_, activeAxesCount_);
     slot.dropdown->setSelectedId(1, juce::dontSendNotification); // "---"
     addAndMakeVisible(*slot.dropdown);
 
@@ -99,6 +166,14 @@ void AxesPanel::initSlot(AxisSlot& slot, const juce::StringArray& options, int a
     };
 
     slot.dropdown->onChange = [this, &slot] {
+        // An explicit selection supersedes any not-yet-resolved pending restore
+        // for this slot, so getSlotStates() reports the live choice rather than
+        // a stale stashed id. (setSlotStates re-stashes AFTER its notifying
+        // setSelectedId, so its stash survives this clear; setModelIsSA3 uses
+        // dontSendNotification, so it never reaches here.)
+        if (slot.axisIndex >= 0 && slot.axisIndex < 3)
+            pendingRestoreId_[slot.axisIndex] = 0;
+
         auto text = slot.dropdown->getText();
         auto slashIdx = text.indexOf(" / ");
         if (slashIdx >= 0)
@@ -113,6 +188,56 @@ void AxesPanel::initSlot(AxisSlot& slot, const juce::StringArray& options, int a
         }
         resized();
     };
+}
+
+void AxesPanel::setModelIsSA3(bool sa3)
+{
+    if (sa3 == isSA3_)
+        return;
+    isSA3_ = sa3;
+    activeAxes_ = sa3 ? kAxesSA3 : kAxesSAO;
+    activeAxesCount_ = sa3 ? static_cast<int>(sizeof(kAxesSA3) / sizeof(kAxesSA3[0]))
+                           : static_cast<int>(sizeof(kAxesSAO) / sizeof(kAxesSAO[0]));
+
+    // Mirrors the dropdown onChange handler's " / " pole-label split above,
+    // run manually here since the repopulate/reselect below uses
+    // dontSendNotification (no onChange firing on a programmatic change).
+    auto refreshPoleLabels = [](AxisSlot& s) {
+        auto text = s.dropdown->getText();
+        auto slashIdx = text.indexOf(" / ");
+        if (slashIdx >= 0)
+        {
+            s.poleLabelA->setText(text.substring(0, slashIdx).trim(), juce::dontSendNotification);
+            s.poleLabelB->setText(text.substring(slashIdx + 3).trim(), juce::dontSendNotification);
+        }
+        else
+        {
+            s.poleLabelA->setText("", juce::dontSendNotification);
+            s.poleLabelB->setText("", juce::dontSendNotification);
+        }
+    };
+
+    for (auto& slot : slots)
+    {
+        const int idx = slot.axisIndex;
+        const int prevId = slot.dropdown->getSelectedId();
+        populateAxisDropdown(*slot.dropdown, activeAxes_, activeAxesCount_);
+
+        // A pending-restore id (an axis restored before its model was resolved)
+        // takes precedence over the current selection. For a normal user model
+        // switch there is no pending id, so this preserves the prior behaviour:
+        // keep the selection if it exists in the new table, else reset to "---".
+        const bool havePending = (idx >= 0 && idx < 3 && pendingRestoreId_[idx] != 0);
+        const int want = havePending ? pendingRestoreId_[idx] : prevId;
+        const bool exists = idInTable(activeAxes_, activeAxesCount_, want);
+
+        slot.dropdown->setSelectedId(exists ? want : 1, juce::dontSendNotification); // 1 = "---"
+        if (havePending && exists)
+            pendingRestoreId_[idx] = 0; // pending restore satisfied
+        refreshPoleLabels(slot);
+    }
+
+    resized();
 }
 
 float AxesPanel::fs() const
@@ -224,9 +349,10 @@ std::map<juce::String, float> AxesPanel::getAxisValues() const
     std::map<juce::String, float> vals;
     for (auto& slot : slots)
     {
-        if (slot.dropdown->getSelectedId() > 1)
+        const int selId = slot.dropdown->getSelectedId();
+        if (selId > 1)
         {
-            auto key = axisDisplayToKey(slot.dropdown->getText());
+            auto key = keyForAxisId(activeAxes_, activeAxesCount_, selId);
             if (key.isNotEmpty())
                 vals[key] = static_cast<float>(slot.slider->getValue());
         }
@@ -241,9 +367,10 @@ std::map<juce::String, float> AxesPanel::getAxisValuesWithOffsets(float off1, fl
     for (size_t i = 0; i < slots.size(); ++i)
     {
         auto& slot = slots[i];
-        if (slot.dropdown->getSelectedId() > 1)
+        const int selId = slot.dropdown->getSelectedId();
+        if (selId > 1)
         {
-            auto key = axisDisplayToKey(slot.dropdown->getText());
+            auto key = keyForAxisId(activeAxes_, activeAxesCount_, selId);
             if (key.isNotEmpty())
                 vals[key] = static_cast<float>(slot.slider->getValue()) + offsets[i];
         }
@@ -256,17 +383,40 @@ std::array<AxesPanel::SlotState, 3> AxesPanel::getSlotStates() const
     std::array<SlotState, 3> states;
     for (size_t i = 0; i < slots.size() && i < 3; ++i)
     {
-        states[i].dropdownId = slots[i].dropdown->getSelectedId();
+        // Surface a stashed pending-restore id (an SA3 axis restored before its
+        // model resolved, currently shown as "---") so a save/quit during that
+        // window persists the real id, not the degraded "---". Without this,
+        // quitting before the backend resolves the model — or with SA3 not
+        // installed this session — would drop the saved axis permanently.
+        const int pending = pendingRestoreId_[i];
+        states[i].dropdownId = (pending != 0) ? pending : slots[i].dropdown->getSelectedId();
         states[i].value = static_cast<float>(slots[i].slider->getValue());
     }
     return states;
+}
+
+void AxesPanel::clearPendingRestore()
+{
+    for (auto& id : pendingRestoreId_)
+        id = 0;
 }
 
 void AxesPanel::setSlotStates(const std::array<SlotState, 3>& states)
 {
     for (size_t i = 0; i < slots.size() && i < 3; ++i)
     {
-        slots[i].dropdown->setSelectedId(states[i].dropdownId, juce::sendNotificationSync);
+        // If the restored id isn't in the currently-active table (e.g. an SA3
+        // axis restored during the standalone-startup window while the SAO
+        // table is still active, because the backend hasn't resolved the
+        // model yet), JUCE would drop it — getSelectedId() returns 0 for an
+        // absent id. Show "---" for now and stash the id so setModelIsSA3
+        // re-applies it once the matching table becomes active. The slider
+        // value is staged regardless, so it's already correct when the slot
+        // later becomes visible.
+        const int id = states[i].dropdownId;
+        const bool present = idInTable(activeAxes_, activeAxesCount_, id);
+        slots[i].dropdown->setSelectedId(present ? id : 1, juce::sendNotificationSync);
+        pendingRestoreId_[i] = present ? 0 : id;
         slots[i].slider->setValue(static_cast<double>(states[i].value), juce::dontSendNotification);
         slots[i].valueLabel->setText(juce::String(states[i].value, 2), juce::dontSendNotification);
     }
