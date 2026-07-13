@@ -5143,6 +5143,88 @@ void T5ynthProcessor::loadDcoWavetable(const juce::AudioBuffer<float>& frameStri
     newWtDisplayReady.store(true, std::memory_order_release);
 }
 
+void T5ynthProcessor::loadDcoAdditive(const std::vector<dco::Partial>& partials,
+                                      float motionRateHz)
+{
+    // Message thread. An INHARMONIC single-cycle spectrum (non-integer partial
+    // ratios) cannot be held by a single looped wavetable cycle, so it is published
+    // as a real-time additive bank instead of baked frames. Publish discipline
+    // mirrors loadDcoWavetable exactly, MINUS the frame motion: a static spectrum
+    // has no keyframes to scan. motionRateHz is unused here (kept for API symmetry
+    // and a future animated-additive path).
+    juce::ignoreUnused(motionRateHz);
+    if (partials.empty())
+        return;
+
+    // Convert the recipe partials to the engine bank type. setAdditiveBank
+    // re-sanitizes h/a/phase and drops non-positive h defensively — this copy just
+    // carries the values across.
+    std::vector<WavetableOscillator::AdditivePartial> bank;
+    bank.reserve(partials.size());
+    for (const auto& p : partials)
+        bank.push_back({ p.h, p.a, p.phase });
+
+    // Same engine-mode stash as loadDcoWavetable: remember the pre-DCO engine so the
+    // next neural generation can restore it; a re-bake while the DCO is already
+    // active keeps the original stash.
+    {
+        const int cur = static_cast<int>(paramCache.engineMode->load());
+        if (cur != EngineMode::Wavetable)
+            dcoPrevEngineMode_ = cur;
+        else if (!dcoTableActive_.load(std::memory_order_relaxed))
+            dcoPrevEngineMode_ = -1;
+    }
+    if (auto* engineParam = parameters.getParameter(PID::engineMode))
+        engineParam->setValueNotifyingHost(
+            engineParam->convertTo0to1(static_cast<float>(EngineMode::Wavetable)));
+
+    masterOsc.setAdditiveBank(bank);
+
+    {
+        // Guard engine-state mutation against the realtime callback (same rule as
+        // loadDcoWavetable / loadGeneratedAudio).
+        const juce::ScopedLock sl (getCallbackLock());
+
+        // No frame motion: the additive bank is ONE static spectrum (numFrames==1
+        // sentinel), nothing to scan. setDcoMotion(false) also stops any motion left
+        // from a prior DCO table. The manual Scan control has no effect on an
+        // additive bank (no frames) — correct, the sound IS the partials.
+        masterOsc.setAutoScan(false);
+        masterOsc.setDcoMotion(false, 0.0f);
+        masterOsc.setMorphTimeMs(paramCache.driftCrossfade->load());
+        // Gate the per-block traversal re-sync BEFORE distributing, exactly as the
+        // baked path does, so no audio block re-derives neural scan brackets.
+        dcoTableActive_.store(true, std::memory_order_relaxed);
+        // A HELD note crossfades to the new bank over the Regen XFade (equal-power,
+        // table<->additive), silent voices adopt it — the documented held-note follow.
+        voiceManager.distributeWavetableFrames(masterOsc);
+    }
+
+    // Publish a display waveform for the engine-window WT view: one fundamental
+    // period of the summed partials. NOT a closed single cycle for inharmonic h (it
+    // won't wrap seamlessly), but an honest picture of the bank's spectral content.
+    // Message thread, allocation OK, OUTSIDE the callback lock — display data only.
+    juce::AudioBuffer<float> display(1, WavetableOscillator::FRAME_SIZE);
+    auto* d = display.getWritePointer(0);
+    float peak = 0.0f;
+    for (int i = 0; i < WavetableOscillator::FRAME_SIZE; ++i)
+    {
+        const double x = juce::MathConstants<double>::twoPi
+                       * static_cast<double>(i) / static_cast<double>(WavetableOscillator::FRAME_SIZE);
+        double s = 0.0;
+        for (const auto& p : bank)
+            if (p.h > 0.0f && std::isfinite(p.a) && std::isfinite(p.phase))  // match setAdditiveBank's guard so the picture is never NaN
+                s += static_cast<double>(p.a) * std::sin(static_cast<double>(p.h) * x
+                                                         + static_cast<double>(p.phase));
+        d[i] = static_cast<float>(s);
+        peak = std::max(peak, std::fabs(d[i]));
+    }
+    if (peak > 1.0e-6f)
+        display.applyGain(0.95f / peak);
+    wtDisplaySnapshot.makeCopyOf(display);
+    newWtDisplayReady.store(true, std::memory_order_release);
+}
+
 void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& processed)
 {
     samplerProcessorDebugLog("reloadProcessedAudio begin samples=" + juce::String(processed.getNumSamples())

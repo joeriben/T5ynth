@@ -2104,6 +2104,10 @@ void PromptPanel::triggerDcoBake()
 
         juce::String status, flagTooltip, flagsSummary;
         juce::AudioBuffer<float> strip;
+        // A single-keyframe INHARMONIC additive recipe (non-integer partial ratios —
+        // bell/metal/glass) can't be held by a looped wavetable cycle; it routes to
+        // the real-time additive bank instead of a baked strip. Non-empty => additive.
+        std::vector<dco::Partial> additivePartials;
         float motionRateHz = 0.0f;
         // DCO Re-Prompt (docs/DCO_REPROMPT_CONCEPT.md "lesen -> deuten -> umformulieren"):
         // the router's OWN reading of what it just baked, as two plain display
@@ -2124,7 +2128,24 @@ void PromptPanel::triggerDcoBake()
             const auto recipeVar = parsed.getProperty("recipe", juce::var());
             const auto recipe = dco::recipeFromVar(recipeVar);
             motionRateHz = recipe.motionRateHz;
-            if (!recipe.keyframes.empty())
+            // A single static additive keyframe with any non-integer partial is an
+            // inharmonic spectrum: baking it to one looped cycle projects it onto the
+            // harmonic grid (a bell comes out a sawtooth). Route those partials to the
+            // real-time additive bank instead. Every other recipe — harmonic additive,
+            // saw/square/fm/cheby, and multi-keyframe station/drift morphs — still
+            // bakes a frame strip (a multi-keyframe inharmonic morph needs animated
+            // additive, not yet built, so it stays on the baked path for now).
+            const bool singleAdditive = recipe.keyframes.size() == 1
+                && recipe.keyframes[0].kind == dco::Keyframe::Kind::Additive;
+            const bool anyInharmonic = singleAdditive
+                && std::any_of(recipe.keyframes[0].partials.begin(),
+                               recipe.keyframes[0].partials.end(),
+                               [](const dco::Partial& p) {
+                                   return std::abs(p.h - std::round(p.h)) > 1.0e-3f;
+                               });
+            if (anyInharmonic)
+                additivePartials = recipe.keyframes[0].partials;
+            else if (!recipe.keyframes.empty())
             {
                 const auto frameData = dco::Baker::bake(recipe);
                 strip = dco::Baker::framesToBuffer(frameData);
@@ -2198,7 +2219,7 @@ void PromptPanel::triggerDcoBake()
                 else if (nA > 0)      flagCount = "  [" + juce::String(nA) + " adapted]";
             }
             status = "LCO: " + technique + flagCount;
-            if (strip.getNumSamples() == 0)
+            if (strip.getNumSamples() == 0 && additivePartials.empty())
                 status = "LCO: empty recipe";
 
             // machineReading: technique + adjectives + motion + values (resolved{}),
@@ -2294,12 +2315,19 @@ void PromptPanel::triggerDcoBake()
         }
 
         juce::MessageManager::callAsync(
-            [safeThis, strip = std::move(strip), status, flagTooltip, flagsSummary, motionRateHz,
+            [safeThis, strip = std::move(strip), additivePartials = std::move(additivePartials),
+             status, flagTooltip, flagsSummary, motionRateHz,
              machineReading, displayReading, flagsLine, referenceVocab, text]() mutable
         {
             if (auto* self = safeThis.getComponent())
             {
-                if (strip.getNumSamples() > 0)
+                if (!additivePartials.empty())
+                {
+                    // Inharmonic spectrum -> real-time additive bank (a looped cycle
+                    // can't hold non-integer partials). Publishes its own WT display.
+                    self->processorRef.loadDcoAdditive(additivePartials, motionRateHz);
+                }
+                else if (strip.getNumSamples() > 0)
                 {
                     self->processorRef.loadDcoWavetable(strip, motionRateHz);
                     // The bit-exact frames now draw in the engine window
@@ -2315,7 +2343,8 @@ void PromptPanel::triggerDcoBake()
                 // contradicts the status. On that path fall back to the status
                 // line (which carries the error), dimmed, so the panel is never
                 // blank-but-live and never reads as a successful bake.
-                const bool haveReading = strip.getNumSamples() > 0 && displayReading.isNotEmpty();
+                const bool haveReading = (strip.getNumSamples() > 0 || !additivePartials.empty())
+                                         && displayReading.isNotEmpty();
                 self->dcoReadingLabel.setColour(juce::Label::textColourId, haveReading ? kOscCol : kDim);
                 self->dcoReadingLabel.setText(haveReading ? displayReading : status,
                                               juce::dontSendNotification);
