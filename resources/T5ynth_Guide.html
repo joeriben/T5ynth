@@ -827,7 +827,7 @@ Below the A/B area, three dropdown slots let you apply <strong>sound-character a
 </p>
 
 <div class="note">
-  <strong>Available for Stable Audio Open 1.0, Stable Audio Open Small, and AudioLDM2 only.</strong> The sound-character axes are precomputed directions in those engines' text-embedding space. They are disabled when an SA3 model is selected, because SA3's t5gemma encoder has a different embedding geometry.
+  <strong>The available axes depend on the selected model.</strong> Stable Audio Open 1.0, Stable Audio Open Small, and AudioLDM2 share the eight axes listed first below; SA3 offers a different set of three, because its t5gemma encoder has a different embedding geometry and needs its own poles. Each of the three dropdown slots picks one axis from the set your current model offers.
 </div>
 
 <table>
@@ -842,12 +842,20 @@ Below the A/B area, three dropdown slots let you apply <strong>sound-character a
   <tr><td>sustained / rhythmic</td><td><span class="pole-label">sustained</span></td><td><span class="pole-label">rhythmic</span></td></tr>
 </table>
 
+<p>SA3 offers three axes instead:</p>
+<table>
+  <tr><th>Axis</th><th>Left Pole (&minus;1)</th><th>Right Pole (+1)</th></tr>
+  <tr><td>sustained / rhythmic</td><td><span class="pole-label">sustained</span></td><td><span class="pole-label">rhythmic</span></td></tr>
+  <tr><td>smooth / grainy</td><td><span class="pole-label">smooth</span></td><td><span class="pole-label">grainy</span></td></tr>
+  <tr><td>sparse / dense</td><td><span class="pole-label">sparse</span></td><td><span class="pole-label">dense</span></td></tr>
+</table>
+
 <p>
-Each slider runs from −1.0 to +1.0. Multiple axes are interrelated — the more you stack, the less predictable each individual axis becomes.
+Each slider runs from &minus;1.0 to +1.0. Multiple axes are interrelated — the more you stack, the less predictable each individual axis becomes.
 </p>
 
 <div class="note">
-  These 8 axes were experimentally validated via spectral analysis (Mel-cosine distance, 1s vs 10s duration, on RTX 6000). The strongest axes scored Mel distance > 0.80 at 1s — meaning they produce clearly audible differences even in very short samples. PCA-based axes were tested but collapse at short durations (Mel &lt; 0.19) and are not offered. The labels are approximate — they describe tendencies, not guarantees.
+  The eight SAO / AudioLDM2 axes were validated via spectral analysis (Mel-cosine distance, 1s vs 10s duration, on RTX 6000); the strongest scored Mel distance &gt; 0.80 at 1s. SA3's three axes use synonym-<em>bundled</em> poles instead of single words: on SA3 a one-word pole is too weak to move the sound, but a stack of near-synonyms is not (see <a href="#bg-axes">&sect; How Semantic Axes Work</a>). PCA-based sliders were tried and collapse at short durations, so neither set offers them. The labels are approximate — they describe tendencies, not guarantees.
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
@@ -858,7 +866,7 @@ The Dimension Explorer gives you direct access to all <strong>768 internal contr
 </p>
 
 <div class="note">
-  <strong>Available for Stable Audio Open 1.0, Stable Audio Open Small, and AudioLDM2 only.</strong> Like the sound-character axes, the Dimension Explorer operates on those engines' text-embedding vectors and is disabled when an SA3 model is selected.
+  Works on <strong>every engine, including SA3</strong>. The Dimension Explorer operates on each engine's own text-embedding vectors; the backend confines the edit to the real prompt tokens, so it stays live on SA3's t5gemma encoder too.
 </div>
 
 <h4>What You See</h4>
@@ -1125,7 +1133,7 @@ The Drift section provides three slow LFOs (0.001–2.0 Hz) designed for organic
 </p>
 
 <div class="note">
-  With an SA3 model selected, the sound-character axes are unavailable as drift targets. <strong>Resynth</strong> as a drift target only takes effect with an SA3 model — it routes drift into the audio-conditioned re-inference loop (see <a href="#resynth">§ Resynth</a>). Without SA3, the Resynth <em>slider</em> is disabled; the drift-target dropdown entry remains selectable but has no effect.
+  <strong>Resynth</strong> as a drift target only takes effect with an SA3 model — it routes drift into the audio-conditioned re-inference loop (see <a href="#resynth">§ Resynth</a>). Without SA3, the Resynth <em>slider</em> is disabled; the drift-target dropdown entry remains selectable but has no effect. The sound-character axes work as drift targets on every engine, SA3 included.
 </div>
 
 <h4>Drift LFOs (3×)</h4>
@@ -1530,7 +1538,7 @@ T5ynth's semantic axes are directions in the 768-dimensional embedding space of 
 </p>
 
 <div class="note">
-  This applies to the Stable Audio Open 1.0, Stable Audio Open Small, and AudioLDM2 engines, which condition on the T5 text encoder. The semantic axes are disabled when an SA3 model is selected, because SA3's t5gemma encoder has a different embedding geometry.
+  The construction below describes the T5-encoder engines (Stable Audio Open 1.0, Stable Audio Open Small, AudioLDM2). SA3 conditions on a different encoder (t5gemma) and builds its own three axes from synonym-<em>bundled</em> poles rather than single words — see the SA3 note at the end of this section. The axes are active on every engine.
 </div>
 
 <h4>Step 1: Define Poles</h4>
@@ -1569,15 +1577,23 @@ Not all conceptual oppositions produce audible differences. The 8 axes included 
   In the code, axis direction vectors are summed onto the embedding. But because the diffusion model processes the resulting embedding non-linearly, the audible effect is not simply additive — multiple axes are interrelated and can interfere with each other unpredictably. There is no orthogonalization, and axes may partially overlap in embedding space.
 </div>
 
+<h4>SA3: Bundled Poles</h4>
+<p>
+On SA3's t5gemma encoder a single-word pole is too weak to move the sound — mean-pooled across a sequence that is mostly padding, the direction nearly vanishes. SA3's three axes therefore build each pole from a <em>stack</em> of near-synonyms — for example <code>"sustained, continuous, held, unbroken, droning"</code> against <code>"rhythmic, percussive, syncopated, pulsing, staccato"</code> — which carries enough real tokens to survive. The edit is confined to those real tokens, so it steers without swamping your prompt.
+</p>
+<div class="note">
+  The push is strong but not literal: it shifts the character, it does not guarantee the named property. Treat the SA3 axes as broad directions to explore by ear, not as measured controls.
+</div>
+
 <!-- ═══════════════════════════════════════════ -->
 <h2 id="bg-dimex">14. The DimExplorer In Depth</h2>
 
 <p>
-The DimExplorer (see <a href="#dimex">section 3</a> for basic usage) operates on the <strong>mean-pooled</strong> T5 encoder output — the 768-dimensional vector obtained by averaging across the token sequence dimension, weighted by the attention mask. This is the same representation the diffusion model uses for conditioning.
+The DimExplorer (see <a href="#dimex">section 3</a> for basic usage) operates on the <strong>mean-pooled</strong> encoder output — the 768-dimensional vector obtained by averaging across the token sequence dimension, weighted by the attention mask. This is the same representation the diffusion model uses for conditioning.
 </p>
 
 <div class="note">
-  Like the semantic axes, the DimExplorer operates on the T5 encoder output and is available for the Stable Audio Open 1.0, Stable Audio Open Small, and AudioLDM2 engines only; it is disabled when an SA3 model is selected.
+  The DimExplorer operates on the mean-pooled encoder output of whichever engine is active — the T5 encoder for SAO / AudioLDM2, t5gemma for SA3 — so it works on <strong>every engine, including SA3</strong>.
 </div>
 
 <h4>Why Sorted by Magnitude?</h4>
