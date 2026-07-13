@@ -285,11 +285,6 @@
       "template": {
         "keyframes": [
           {
-            "kind": "fm2",
-            "ratio": 3,
-            "index": 2.5
-          },
-          {
             "kind": "additive",
             "partials": [
               {
@@ -298,13 +293,18 @@
                 "phase": 0.0
               },
               {
-                "h": 5,
-                "a": 0.4,
+                "h": 2.76,
+                "a": 0.55,
                 "phase": 0.0
               },
               {
-                "h": 9,
-                "a": 0.2,
+                "h": 5.4,
+                "a": 0.33,
+                "phase": 0.0
+              },
+              {
+                "h": 8.93,
+                "a": 0.16,
                 "phase": 0.0
               }
             ]
@@ -315,27 +315,14 @@
             "to": 0,
             "dur_frac": 0.0,
             "curve": "lin"
-          },
-          {
-            "to": 1,
-            "dur_frac": 0.6,
-            "curve": "slow"
-          },
-          {
-            "to": 0,
-            "dur_frac": 0.4,
-            "curve": "lin"
           }
         ],
         "loop": true,
         "frames": 128,
-        "motion_rate_hz": 0.15
+        "motion_rate_hz": 0.25
       },
       "priority": 10,
-      "why": "integer-ratio FM plus a sparse harmonic tail approximates bell-like density",
-      "mandatory_flags": [
-        "true bell inharmonicity exceeds a single-cycle wavetable; approximated with FM ratio 3"
-      ]
+      "why": "true inharmonic bell partials (h 2.76/5.4/8.93) synthesized directly by the additive engine, no longer projected onto the harmonic grid"
     },
     {
       "key": "fm_ep",
@@ -393,9 +380,29 @@
       "template": {
         "keyframes": [
           {
-            "kind": "fm2",
-            "ratio": 6,
-            "index": 3.0
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1,
+                "a": 1.0,
+                "phase": 0.0
+              },
+              {
+                "h": 1.73,
+                "a": 0.7,
+                "phase": 0.0
+              },
+              {
+                "h": 3.19,
+                "a": 0.5,
+                "phase": 0.0
+              },
+              {
+                "h": 4.51,
+                "a": 0.3,
+                "phase": 0.0
+              }
+            ]
           }
         ],
         "motion": [
@@ -410,7 +417,157 @@
         "motion_rate_hz": 0.25
       },
       "priority": 10,
-      "why": "high-ratio FM (6:1) packs dense, inharmonic-reading sidebands"
+      "why": "true inharmonic metal partials (h 1.73/3.19/4.51) synthesized directly by the additive engine"
+    },
+    {
+      "key": "struck_bar",
+      "surface_forms": [
+        "music box",
+        "musicbox",
+        "glockenspiel",
+        "celesta",
+        "kalimba",
+        "mbira",
+        "spieluhr"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1,
+                "a": 1.0,
+                "phase": 0.0
+              },
+              {
+                "h": 2.76,
+                "a": 0.55,
+                "phase": 0.0
+              },
+              {
+                "h": 5.4,
+                "a": 0.38,
+                "phase": 0.0
+              },
+              {
+                "h": 8.93,
+                "a": 0.24,
+                "phase": 0.0
+              },
+              {
+                "h": 13.34,
+                "a": 0.13,
+                "phase": 0.0
+              }
+            ]
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 128,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "tuned struck metal bar (music box / glockenspiel / celesta / kalimba) — ideal free-free bar partials (h 2.76/5.4/8.93/13.34), brighter and thinner than a big bell, synthesized directly by the additive engine"
+    },
+    {
+      "key": "cymbal",
+      "surface_forms": [
+        "cymbal",
+        "crash cymbal",
+        "ride cymbal",
+        "hi hat",
+        "hihat",
+        "becken"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1.0,
+                "a": 0.15,
+                "phase": 0.0
+              },
+              {
+                "h": 2.43,
+                "a": 0.28,
+                "phase": 0.0
+              },
+              {
+                "h": 3.79,
+                "a": 0.4,
+                "phase": 0.0
+              },
+              {
+                "h": 5.17,
+                "a": 0.55,
+                "phase": 0.0
+              },
+              {
+                "h": 6.94,
+                "a": 0.72,
+                "phase": 0.0
+              },
+              {
+                "h": 8.21,
+                "a": 0.9,
+                "phase": 0.0
+              },
+              {
+                "h": 10.56,
+                "a": 1.0,
+                "phase": 0.0
+              },
+              {
+                "h": 12.83,
+                "a": 0.9,
+                "phase": 0.0
+              },
+              {
+                "h": 15.31,
+                "a": 0.78,
+                "phase": 0.0
+              },
+              {
+                "h": 18.62,
+                "a": 0.62,
+                "phase": 0.0
+              },
+              {
+                "h": 24.05,
+                "a": 0.45,
+                "phase": 0.0
+              },
+              {
+                "h": 31.02,
+                "a": 0.3,
+                "phase": 0.0
+              }
+            ]
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 128,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "dense bright inharmonic plate wash (cymbal / crash / ride / hi-hat) — a characteristic additive sketch of a 2-D plate's dense modal spectrum: weak fundamental, energy piled into the upper partials, all off the harmonic grid"
     },
     {
       "key": "ring_mod",

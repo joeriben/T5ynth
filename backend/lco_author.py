@@ -91,10 +91,14 @@ def _drift_frames(base_partials, n, amt, pdev):
         theta = 2.0 * math.pi * j / n
         parts = []
         for i, p in enumerate(base_partials):
-            a = p["a"] * (1.0 + amt * math.sin(theta + _GOLDEN * i))
+            # h/a read defensively (like phase, and like the inharmonic guard in
+            # _apply_analog_life): base_partials is always post-validate_recipe here
+            # so both keys are present, but a live instrument must never crash a
+            # drift pass on a malformed partial — default to a silent fundamental.
+            a = p.get("a", 0.0) * (1.0 + amt * math.sin(theta + _GOLDEN * i))
             ph = p.get("phase", 0.0) + pdev * math.sin(theta + 1.7 * i + 0.5)
             a = 0.0 if a < 0.0 else (1.0 if a > 1.0 else a)
-            parts.append({"h": p["h"], "a": a, "phase": ph})
+            parts.append({"h": p.get("h", 1.0), "a": a, "phase": ph})
         frames.append(parts)
     return frames
 
@@ -134,6 +138,16 @@ def _apply_analog_life(resp, text):
         base_partials = kf.get("partials") or []
         shape = kf.get("shape", 0.0)
     if not base_partials:
+        return resp
+
+    # An INHARMONIC partial set (non-integer h — bell/metal/glass) must stay a SINGLE
+    # additive keyframe. The drift below fans the base into several keyframes, which
+    # the C++ Baker renders as a wavetable morph — and each inharmonic frame is then
+    # projected back onto the harmonic grid (the bell drifts into a sawtooth again).
+    # The engine plays a single inharmonic bank directly, so keep it static until an
+    # animated-additive path can drift partials in the spectral domain. Harmonic
+    # character (integer h) still drifts alive exactly as before.
+    if any(abs(float(p.get("h", 1)) - round(float(p.get("h", 1)))) > 1e-3 for p in base_partials):
         return resp
 
     grit = analog or "dirty" in adjectives or any(c in low for c in _GRIT_CUES)

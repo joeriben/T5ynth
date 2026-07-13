@@ -76,8 +76,14 @@ def validate_recipe_structure(recipe):
                 partials = []
             for p in partials:
                 h, a = p.get("h"), p.get("a")
-                if not (isinstance(h, int) and 1 <= h <= 1024):
-                    errs.append(f"keyframe {i}: h={h!r} out of [1,1024] or not an int")
+                # h is a FLOAT ratio, not an integer harmonic index: the real-
+                # inharmonicity pivot has the engine synthesize non-integer
+                # partials directly, and S4 (_clamp_and_repair) now unconditionally
+                # casts every partial's h through _clamp_float(..., 0.03125, 1024.0),
+                # so even an untouched harmonic template (e.g. plain 'organ') comes
+                # back with h=1.0/2.0/3.0 rather than int 1/2/3.
+                if not (isinstance(h, (int, float)) and 0.03125 - 1e-9 <= h <= 1024.0 + 1e-9):
+                    errs.append(f"keyframe {i}: h={h!r} out of [0.03125,1024.0] or not a number")
                 if not (isinstance(a, (int, float)) and -1e-9 <= a <= 1.0 + 1e-9):
                     errs.append(f"keyframe {i}: a={a!r} out of [0,1]")
         elif kind == "pulse":
@@ -263,20 +269,25 @@ def run_unit_tests():
           != json.dumps(dr.author_recipe("saw", llm_route=None, frames=None)["recipe"], sort_keys=True))
 
     # 'glassy'/'brittle'/'clangorous' route to the honest inharm op: each MUST
-    # carry the single-cycle-boundary flag (expose, don't fake), and on a saw
-    # inharm de-emphasizes the fused octave harmonics while boosting a sparse
-    # high odd/prime set.
+    # carry the real-inharmonicity disclosure flag (expose, don't fake), and on
+    # a saw inharm STRETCHES every higher partial off the integer grid (a
+    # stiff-bar/bell model, h' = h*sqrt(1 + B*(h^2-1))) while leaving the
+    # fundamental h=1 fixed -- the engine now synthesizes non-integer partials
+    # directly, so this is real inharmonicity, not the old integer-grid
+    # de-emphasize/boost approximation.
     for w in ("glassy", "brittle", "clangorous"):
         rw = dr.author_recipe(w, llm_route=None, frames=None)
         check(f"{w!r} -> adjective {w!r} applied", w in rw["resolved"]["adjectives"], rw["resolved"])
-        check(f"{w!r} -> honesty flag: inharmonicity approximated (not faked)",
-              any("inharmonicity exceeds a single-cycle" in f["reason"] for f in rw["flags"]), rw["flags"])
+        check(f"{w!r} -> honesty flag: real inharmonicity disclosed (not faked)",
+              any("partials stretched off the harmonic grid into true inharmonicity" in f["reason"]
+                  for f in rw["flags"]), rw["flags"])
     r_gl = dr.author_recipe("glassy", llm_route=None, frames=None)
-    parts = {p["h"]: p["a"] for p in r_gl["recipe"]["keyframes"][0].get("partials", [])}
-    check("'glassy' -> octave harmonic h2 de-emphasized below its native saw 0.5",
-          parts.get(2, 1.0) < 0.45, parts)
-    check("'glassy' -> sparse high h5 boosted above its native saw 0.2",
-          parts.get(5, 0.0) > 0.22, parts)
+    parts = r_gl["recipe"]["keyframes"][0].get("partials", [])
+    fundamental = min(parts, key=lambda p: abs(p["h"] - 1.0))
+    check("'glassy' -> fundamental stays at h≈1.0 (the stretch formula fixes h=1)",
+          abs(fundamental["h"] - 1.0) < 1e-3, fundamental)
+    check("'glassy' -> at least one higher partial stretched to a non-integer h (real inharmonicity)",
+          any(abs(p["h"] - round(p["h"])) > 1e-3 for p in parts), parts)
     check("'glassy' -> no 'no FM operator' flag on a saw (fm-only ops dropped from glassy)",
           not any("no FM operator" in f["reason"] for f in r_gl["flags"]), r_gl["flags"])
 
@@ -377,49 +388,57 @@ def run_unit_tests():
 
     # ── RELATIVE FM LANGUAGE (Commit D): comparative index/ratio nudges on the
     #    fm2 keyframe, through the same _apply_delta_op fm path "metallic" uses.
+    #    Fixture: the "fm" technique (single fm2 keyframe, ratio=2, index=1.5),
+    #    NOT "bell" -- the real-inharmonicity pivot turned fm_bell into a single-
+    #    keyframe ADDITIVE recipe (non-integer partials h=1,2.76,5.4,8.93), so it
+    #    no longer has an fm2 keyframe at all. "fm"'s mid-range base was verified
+    #    empirically to give both index and ratio headroom to move up AND down
+    #    without hitting the S4 clamp ([1,8] int ratio / [0,8] float index) for
+    #    every nudge exercised below (electric piano / sync also clamp-free here;
+    #    "fm" chosen as the single-keyframe, no-extra-flag case).
     def _fm_kf(resp):
         for kf in resp["recipe"]["keyframes"]:
             if kf.get("kind") == "fm2":
                 return kf
         return None
 
-    r_bell = dr.author_recipe("bell", llm_route=None, frames=None)
-    base_kf = _fm_kf(r_bell)
-    check("'bell' -> fm2 keyframe present", base_kf is not None, r_bell["recipe"]["keyframes"])
+    r_fm = dr.author_recipe("fm", llm_route=None, frames=None)
+    base_kf = _fm_kf(r_fm)
+    check("'fm' -> fm2 keyframe present", base_kf is not None, r_fm["recipe"]["keyframes"])
     base_index, base_ratio = base_kf["index"], base_kf["ratio"]
 
-    r_deep = dr.author_recipe("bell deeper modulation", llm_route=None, frames=None)
-    check("'bell deeper modulation' -> fm index raised",
+    r_deep = dr.author_recipe("fm deeper modulation", llm_route=None, frames=None)
+    check("'fm deeper modulation' -> fm index raised",
           _fm_kf(r_deep)["index"] > base_index, (_fm_kf(r_deep)["index"], base_index))
-    check("'bell deeper modulation' -> recorded in resolved.fm",
+    check("'fm deeper modulation' -> recorded in resolved.fm",
           r_deep["resolved"]["fm"] == ["deeper modulation"], r_deep["resolved"].get("fm"))
-    check("'bell deeper modulation' -> no residue leak ('modulation' not flagged)",
+    check("'fm deeper modulation' -> no residue leak ('modulation' not flagged)",
           not any("no mapping" in f["reason"] for f in r_deep["flags"]), r_deep["flags"])
 
-    r_less = dr.author_recipe("bell less modulation", llm_route=None, frames=None)
-    check("'bell less modulation' -> fm index lowered",
+    r_less = dr.author_recipe("fm less modulation", llm_route=None, frames=None)
+    check("'fm less modulation' -> fm index lowered",
           _fm_kf(r_less)["index"] < base_index, (_fm_kf(r_less)["index"], base_index))
 
-    r_hi = dr.author_recipe("bell higher ratio", llm_route=None, frames=None)
-    check("'bell higher ratio' -> fm ratio raised, still int",
+    r_hi = dr.author_recipe("fm higher ratio", llm_route=None, frames=None)
+    check("'fm higher ratio' -> fm ratio raised, still int",
           _fm_kf(r_hi)["ratio"] > base_ratio and isinstance(_fm_kf(r_hi)["ratio"], int),
           (_fm_kf(r_hi)["ratio"], base_ratio))
-    check("'bell higher ratio' -> recorded in resolved.fm",
+    check("'fm higher ratio' -> recorded in resolved.fm",
           r_hi["resolved"]["fm"] == ["higher ratio"], r_hi["resolved"].get("fm"))
 
-    r_lo = dr.author_recipe("bell lower ratio", llm_route=None, frames=None)
-    check("'bell lower ratio' -> fm ratio lowered",
+    r_lo = dr.author_recipe("fm lower ratio", llm_route=None, frames=None)
+    check("'fm lower ratio' -> fm ratio lowered",
           _fm_kf(r_lo)["ratio"] < base_ratio, (_fm_kf(r_lo)["ratio"], base_ratio))
 
     # German invariant adverb (no inflection) pairs with the 'modulation' noun
-    r_mehr = dr.author_recipe("bell mehr modulation", llm_route=None, frames=None)
-    check("'bell mehr modulation' -> fm index raised (DE)",
+    r_mehr = dr.author_recipe("fm mehr modulation", llm_route=None, frames=None)
+    check("'fm mehr modulation' -> fm index raised (DE)",
           _fm_kf(r_mehr)["index"] > base_index, _fm_kf(r_mehr)["index"])
 
     # regression: the compound German noun must match IN FULL (longest-first) --
     # the shorter "modulation" alt must NOT shadow it and leak a "sindex" tail
-    r_msi = dr.author_recipe("bell mehr modulationsindex", llm_route=None, frames=None)
-    check("'bell mehr modulationsindex' -> full phrase, no 'sindex' residue leak",
+    r_msi = dr.author_recipe("fm mehr modulationsindex", llm_route=None, frames=None)
+    check("'fm mehr modulationsindex' -> full phrase, no 'sindex' residue leak",
           r_msi["resolved"]["fm"] == ["mehr modulationsindex"]
           and not any("no mapping" in f["reason"] for f in r_msi["flags"]),
           (r_msi["resolved"].get("fm"), r_msi["flags"]))
@@ -443,12 +462,12 @@ def run_unit_tests():
           r_pwm_mod["resolved"]["technique"] == "pwm", r_pwm_mod["resolved"])
 
     # two ops, prompt order preserved, deterministic
-    r_two = dr.author_recipe("bell deeper modulation, higher ratio", llm_route=None, frames=None)
-    check("'bell deeper modulation, higher ratio' -> both ops in prompt order",
+    r_two = dr.author_recipe("fm deeper modulation, higher ratio", llm_route=None, frames=None)
+    check("'fm deeper modulation, higher ratio' -> both ops in prompt order",
           r_two["resolved"]["fm"] == ["deeper modulation", "higher ratio"],
           r_two["resolved"].get("fm"))
-    r_two2 = dr.author_recipe("bell deeper modulation, higher ratio", llm_route=None, frames=None)
-    check("'bell deeper modulation, higher ratio' -> deterministic double-run",
+    r_two2 = dr.author_recipe("fm deeper modulation, higher ratio", llm_route=None, frames=None)
+    check("'fm deeper modulation, higher ratio' -> deterministic double-run",
           json.dumps(r_two, sort_keys=True) == json.dumps(r_two2, sort_keys=True))
 
     # the _compose-failure fallback resolved dict must expose the SAME keys as the
@@ -617,11 +636,15 @@ def run_unit_tests():
     check("'a square wave, PWM' -> technique still pwm (no connector, no chain)",
           r["resolved"]["technique"] == "pwm", r["resolved"])
 
-    # a non-chainable (multi-keyframe) participant bails the chain honestly
-    r = dr.author_recipe("sine morphing into a bell", llm_route=None, frames=None)
-    check("'sine morphing into a bell' -> technique fm_bell (priority resolution, chain bailed)",
-          r["resolved"]["technique"] == "fm_bell", r["resolved"])
-    check("'sine morphing into a bell' -> a 'multi-part' flag explains the bail",
+    # a non-chainable (multi-keyframe) participant bails the chain honestly.
+    # Fixture: "brass" (2 keyframes), NOT "bell" -- the real-inharmonicity pivot
+    # turned fm_bell into a single-KEYFRAME additive recipe, so "bell" is now
+    # itself chainable and "sine morphing into a bell" composes a real
+    # sine->fm_bell chain instead of bailing (verified empirically).
+    r = dr.author_recipe("sine morphing into brass", llm_route=None, frames=None)
+    check("'sine morphing into brass' -> technique brass (priority resolution, chain bailed)",
+          r["resolved"]["technique"] == "brass", r["resolved"])
+    check("'sine morphing into brass' -> a 'multi-part' flag explains the bail",
           any("multi-part" in f["reason"] for f in r["flags"]), r["flags"])
 
     # cap-before-bail ordering: a multi-part participant that the 4-cap
@@ -858,9 +881,13 @@ def run_unit_tests():
               for f in r_ban["flags"]), r_ban["flags"])
     check("every flag carries a tier",
           all(f.get("tier") in ("unresolved", "adapted") for f in r_ban["flags"]), r_ban["flags"])
+    # 'fm bell' is now REAL inharmonicity (single-keyframe additive, non-integer
+    # partials h=1,2.76,5.4,8.93 synthesized directly by the engine) -- no longer
+    # an fm2 sideband stand-in, so unlike the old approximation it needs NO
+    # honesty disclosure at all.
     r_fmb = dr.author_recipe("fm bell", llm_route=None, frames=None)
-    check("fm bell approximation -> an 'adapted' (honest disclosure) flag",
-          any(f["tier"] == "adapted" for f in r_fmb["flags"]), r_fmb["flags"])
+    check("'fm bell' -> no flags at all (real inharmonicity needs no disclosure)",
+          r_fmb["flags"] == [], r_fmb["flags"])
 
     print()
     return list(_FAILURES)

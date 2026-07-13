@@ -766,13 +766,13 @@ def _apply_drive(recipe, amount):
 
 
 def _apply_inharm(recipe, amount, adjective_word, flags):
-    """Honest inharmonicity within the single-cycle paradigm. A periodic cycle
-    can only hold INTEGER harmonics, so true inharmonicity is unrepresentable
-    (same boundary the fm_bell flag names). This op approximates the PERCEPT:
-    on FM keyframes it densifies the (still-integer) sidebands; on additive it
-    attenuates the fused octave harmonics (2,4,8,16) and boosts a sparse high
-    odd/prime set (5,7,11,13,17) so the spectrum reads clangorous/glassy rather
-    than a fused tone. Always flags the approximation. Deterministic."""
+    """Real inharmonicity. The engine now synthesizes non-integer partials
+    directly (real-time additive), so an additive keyframe is STRETCHED off the
+    harmonic grid (a stiff-bar/bell model, higher partials progressively sharp) —
+    the true percept, not the old integer-grid approximation. FM keyframes, which
+    still bake to a single cycle, keep the older integer-sideband densification and
+    are flagged as an approximation. A cheby/ring-only recipe is flagged ignored.
+    Deterministic."""
     a = max(0.0, min(1.0, float(amount)))
     if a <= 0.0:
         return
@@ -783,38 +783,38 @@ def _apply_inharm(recipe, amount, adjective_word, flags):
             kf["ratio"] = min(8, int(kf.get("ratio", 2)) + int(round(a * 3)))
             kf["index"] = min(8.0, float(kf.get("index", 1.0)) + a * 2.0)
             fm_touched = True
-    # additive path (convert closed-form kinds first, like the spectral ops)
+    # additive path (convert closed-form kinds first, like the spectral ops).
+    # STRETCH the partials off the integer grid into REAL inharmonicity: a stiff
+    # bar/plate/bell pushes higher partials progressively sharp,
+    #   h' = h * sqrt(1 + B*(h^2 - 1)),  B = amount * 0.02
+    # so the fundamental (h=1) is unmoved and each higher partial detunes sharper.
+    # The engine now synthesizes non-integer partials directly (real-time additive),
+    # so this is the true percept — NOT the old even-attenuate/odd-boost trick that
+    # kept every partial on an integer h because a single cycle couldn't hold others.
+    B = a * 0.02
     for kf in recipe["keyframes"]:
         conv = _ensure_additive(kf)
         if conv is None:
             continue
         add_touched = True
         for p in conv["partials"]:
-            if p["h"] in (2, 4, 8, 16):
-                p["a"] = p["a"] * (1.0 - 0.6 * a)
-        present = {p["h"]: p for p in conv["partials"]}
-        for h in (5, 7, 11, 13, 17):
-            if h in present:
-                present[h]["a"] = present[h]["a"] + 0.15 * a
-            else:
-                conv["partials"].append({"h": h, "a": 0.15 * a, "phase": 0.0})
-    # Honesty flag must describe EVERY path that fired, not just one: a mixed
-    # recipe (fm2 + additive, e.g. the fm_bell template reached by "glassy bell")
-    # rewrites BOTH, so a FM-only message would misinform the user about what was
-    # done to the additive keyframe. Neither path applicable (a cheby/ring-only
-    # recipe) is itself flagged, mirroring the spectral/fm ops' "ignored" notes.
-    how_parts = []
-    if fm_touched:
-        how_parts.append("denser FM sidebands")
+            h = float(p["h"])
+            p["h"] = round(h * math.sqrt(1.0 + B * (h * h - 1.0)), 4)
+    # Honesty flag, per path that fired. The additive path is now REAL inharmonicity
+    # (no longer an approximation); the FM path still only densifies integer-ratio
+    # sidebands (a wavetable-FM keyframe can't hold non-integer partials, so it stays
+    # an approximation). A mixed recipe rewrites both, so name both truthfully.
+    # Neither-applicable (cheby/ring-only) is flagged as ignored, like the other ops.
+    reasons = []
     if add_touched:
-        how_parts.append("a sparse stretched partial set")
-    if how_parts:
-        how = " and ".join(how_parts)
-        flags.append({"word": adjective_word,
-                      "reason": f"true inharmonicity exceeds a single-cycle wavetable — approximated by {how}"})
+        reasons.append("partials stretched off the harmonic grid into true inharmonicity")
+    if fm_touched:
+        reasons.append("FM sidebands densified (integer-ratio approximation)")
+    if reasons:
+        flags.append({"word": adjective_word, "reason": "; ".join(reasons)})
     else:
         flags.append({"word": adjective_word,
-                      "reason": "no FM or additive keyframe here for an inharmonic approximation — ignored"})
+                      "reason": "no FM or additive keyframe here for inharmonicity — ignored"})
 
 
 _SPECTRAL_OPS = {"tilt", "even_odd", "ceiling", "boost", "cut", "comb", "scale_h"}
@@ -1402,7 +1402,15 @@ def _clamp_and_repair(recipe):
             for p in partials[:64] if len(partials) > 64 else partials:
                 if not isinstance(p, dict):
                     continue
-                h, h_bad = _clamp_int(p.get("h", 1), 1, 1024, 1)
+                # h is a FLOAT ratio, not an integer harmonic index: a non-integer h
+                # is an inharmonic partial (bell/metal/glass), which the engine now
+                # synthesizes directly (real-time additive) instead of projecting onto
+                # the harmonic grid. Rounding it here (the old _clamp_int) was the
+                # backend half of the "inharmonicity unrepresentable" assumption that
+                # made bells bake to sawtooths. Harmonic recipes carry integer-valued
+                # h (1.0, 2.0, ...) that the spectral ops still match exactly. Lower
+                # bound stays >0 (the engine drops h<=0); allow sub-fundamental hums.
+                h, h_bad = _clamp_float(p.get("h", 1.0), 0.03125, 1024.0, 1.0)
                 a, a_bad = _clamp_float(p.get("a", 0.0), 0.0, 1.0, 0.0)
                 try:
                     phase = float(p.get("phase", 0.0))
