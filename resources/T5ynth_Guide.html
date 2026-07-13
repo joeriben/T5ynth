@@ -823,8 +823,12 @@ disables the non-linear buttons and keeps <em>Linear</em> active.
 <h2 id="axes">2. Sound-Character Axes</h2>
 
 <p>
-Below the A/B area, three dropdown slots let you apply <strong>sound-character axes</strong> — continuous sliders between two conceptual poles. Each axis nudges the current possible-sound space. In the UI and technical background these are also called semantic axes; musically, treat them as broad tone-character directions, not as precise EQ controls.
+Below the A/B area, three dropdown slots let you apply <strong>sound-character axes</strong> — continuous sliders between two conceptual poles (in the UI and technical background also called <em>semantic axes</em>). Each one pushes the current possible-sound space along a direction the model ties to a word like <em>grainy</em> or <em>rhythmic</em>. That push has two sides. It is a <strong>reliable way to bring coherent, non-chaotic movement</strong> into the sound — it steers along one consistent direction, so the motion is repeatable rather than scattered. But it is <strong>not a literal control over the named quality</strong>: pushing toward <em>grainy</em> reliably shifts the character without reliably making the sound measurably grainier.
 </p>
+
+<div class="note">
+  <strong>They are probes as much as controls.</strong> The same push lands differently on different prompts: one follows the label, another barely moves, a third veers somewhere you did not predict. That is not a fault — it is the model showing how it hears the word in the context of <em>your</em> sound. Pushing an axis and listening to where a prompt goes, and where it refuses to go, is a direct way to learn where the model's sense of a word lines up with yours and where it parts from it. Treat a labeled axis as a broad direction to explore by ear, not as a value you dial in.
+</div>
 
 <div class="note">
   <strong>The available axes depend on the selected model.</strong> Stable Audio Open 1.0, Stable Audio Open Small, and AudioLDM2 share the eight axes listed first below; SA3 offers a different set of three, because its t5gemma encoder has a different embedding geometry and needs its own poles. Each of the three dropdown slots picks one axis from the set your current model offers.
@@ -855,7 +859,7 @@ Each slider runs from &minus;1.0 to +1.0. Multiple axes are interrelated — the
 </p>
 
 <div class="note">
-  The eight SAO / AudioLDM2 axes were validated via spectral analysis (Mel-cosine distance, 1s vs 10s duration, on RTX 6000); the strongest scored Mel distance &gt; 0.80 at 1s. SA3's three axes use synonym-<em>bundled</em> poles instead of single words: on SA3 a one-word pole is too weak to move the sound, but a stack of near-synonyms is not (see <a href="#bg-axes">&sect; How Semantic Axes Work</a>). PCA-based sliders were tried and collapse at short durations, so neither set offers them. The labels are approximate — they describe tendencies, not guarantees.
+  The eight SAO / AudioLDM2 axes were checked via spectral analysis (Mel-cosine distance, 1s vs 10s duration, on RTX 6000); the strongest scored Mel distance &gt; 0.80 at 1s — which confirms the pole <em>moves</em> the sound strongly, not that it moves it toward the label. SA3's three axes use synonym-<em>bundled</em> poles instead of single words: on SA3 a one-word pole is too weak to move the sound, but a stack of near-synonyms is not (see <a href="#bg-axes">&sect; How Semantic Axes Work</a>). PCA-based sliders were tried and collapse at short durations, so neither set offers them. The labels are approximate — they describe tendencies, not guarantees.
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
