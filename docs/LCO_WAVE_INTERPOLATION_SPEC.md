@@ -50,6 +50,8 @@ Wie werden die Partials zweier Stationen einander zugeordnet?
 
 Die Engine kann nur B — A ist der Spezialfall von B mit konstantem h; **die Wahl liegt allein im Backend-Ausrichtungs-Tool**. Entscheid per **A/B-Render am Ohr** (gleiche Glocke→Ziel-Kette, beide Modi) am Ende von Bau-Slice 1, bevor Slice 2 den Default festschreibt.
 
+**ENTSCHIEDEN (BJ-Ohr-Verdikt, 2026-07-14): A, definitiv.** B verworfen: *„B ist voll daneben (B ist wieder VCO mit Pitch-LFO)."* Das Backend baut ausschließlich Union-Ausrichtung (h pro Index konstant über alle Stationen); der Engine-Primitiv bleibt unverändert beidseitig fähig, Gleiten wird nie emittiert. Ohr-Gate 1 insgesamt: BESTANDEN (*„ja das Aufblühen funktioniert"*).
+
 ## 5. Tools als exakte Wellen-Bauer (Backend)
 
 Jede Station wird von einem Tool **exakt** berechnet; das LLM wählt nur Tools/Keys, nie Zahlen (Guardrail unverändert):
@@ -102,7 +104,8 @@ Wire-Contract (`{ok, recipe, resolved, flags, …}`, Keyframe-Schema, Enum-Strin
 ## 10. Bau-Reihenfolge
 
 - **Slice 1 — Engine + Glue + Routing** (C++): §3 komplett, Audition-Renders, Ohr-Gate 1 + A/B-Entscheid.
-- **Slice 2 — Backend-Tools + Author + Charakter-Pässe** (Python): §5–§7, Flags, Unit-Suite, Testbench.
+- **Slice 2a — Backend-Kern** (Python): Union-Ausrichtung (per §4-Entscheid der einzige Modus), Klassik→Partialsatz-Konverter + FM-Bessel-Tool, movement by default im Author (§7), Motion-Abtastung in Sub-Stationen mit **M ≤ 8** (Wire-Cap `kMaxKeyframes = 8`, `DcoRecipeJson.h:40`), h>0-Validitäts-Check, Flags, Unit-Suite + Testbench. Degenerierte Spektren (<2 Partials, z. B. reiner Sinus) haben kein spektrales Gegenteil → Amplituden-Atmen über die Stationen + ehrliches Flag.
+- **Slice 2b — Charakter-Pässe** (§6.3/§6.4): dirty/old/analog/washed-out/overdriven als Pass-Definitionen; dichte Sub-Stationen (16–32) brauchen die Anhebung des Wire-Caps (kleiner C++-Eingriff + Review) — bewusst NACH 2a.
 - **Slice 3 — Abnahme**: End-zu-End (Prompt → 7B-Map → Stationen-Pass → Charakter-Pässe → Engine) auf den bekannten Problem-Prompts (Kathedralglocke, glassy/brittle, crystalline pad, hohl/nasal, dirty/analog-Fälle); Ohr-Urteil BJ.
 
 Jeder Slice wird einzeln committet (nur von mir autorisierte Dateien), kein Commit vor grüner Verifikation.
