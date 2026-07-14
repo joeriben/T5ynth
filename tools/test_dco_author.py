@@ -889,6 +889,208 @@ def run_unit_tests():
     check("'fm bell' -> no flags at all (real inharmonicity needs no disclosure)",
           r_fmb["flags"] == [], r_fmb["flags"])
 
+    # === LCO WAVE-INTERPOLATION, Slice 2a: station pipeline + movement by default
+    #     (backend/dco_recipe._stationize, backend/lco_author movement-by-default).
+    #     ASCII-only test code. dr.author_recipe is the station-pipeline entry
+    #     (deliverables A + the _apply_motion_intent inharmonic extension of B);
+    #     lco_author.build_lco_response is the movement-by-default entry (the
+    #     no-named-motion / degenerate half of B). =========================
+    import hashlib
+    import math as _math
+    sys.path.insert(0, str(BACKEND_DIR))
+    import lco_author as lca
+
+    def _null_llm(user, system, max_new):
+        return ""   # deterministic: the coder is used ONLY for S2 residue routing
+
+    def _addkfs(recipe):
+        return recipe.get("keyframes") or []
+
+    def _hvec(kf):
+        return tuple(round(float(p["h"]), 6) for p in kf.get("partials", []))
+
+    def _sets_router_ok(recipe):
+        # Independent re-implementation of the shipped PromptPanel.cpp additive-sets
+        # route test (NOT dr._router_contract_ok -- the harness catches the backend,
+        # it does not trust it): every keyframe Additive, every station the SAME
+        # non-empty partial count, some partial non-integer h.
+        kfs = _addkfs(recipe)
+        if not kfs:
+            return False
+        if not all(kf.get("kind") == "additive" for kf in kfs):
+            return False
+        counts = [len(kf.get("partials") or []) for kf in kfs]
+        if counts[0] == 0 or any(c != counts[0] for c in counts):
+            return False
+        return any(abs(float(p["h"]) - round(float(p["h"]))) > 1e-3
+                   for kf in kfs for p in kf["partials"])
+
+    # --- converter parity self-check: the exact station converters MUST mirror
+    #     DcoBaker's closed forms. Compare against a brute-force DFT of the same
+    #     time-domain formula the C++ renders (relative-magnitude spectra). ---
+    def _dft_mag(cycle, hmax):
+        N = len(cycle)
+        out = {}
+        for h in range(1, hmax + 1):
+            s = sum(cycle[n] * _math.sin(h * 2 * _math.pi * n / N) for n in range(N))
+            c = sum(cycle[n] * _math.cos(h * 2 * _math.pi * n / N) for n in range(N))
+            out[h] = _math.hypot(2 * s / N, 2 * c / N)
+        return out
+
+    def _rel(d, hmax):
+        peak = max((d.get(h, 0.0) for h in range(1, hmax + 1)), default=0.0) or 1.0
+        return {h: d.get(h, 0.0) / peak for h in range(1, hmax + 1)}
+
+    def _partials_mag(parts, hmax):
+        d = {}
+        for p in parts:
+            hh = int(round(p["h"]))
+            if 1 <= hh <= hmax and abs(p["h"] - hh) < 1e-6:
+                d[hh] = d.get(hh, 0.0) + p["a"]
+        return d
+
+    N = 1024
+    saw_cyc = [sum((2.0 / (_math.pi * h)) * (1 if h % 2 else -1) * _math.sin(h * 2 * _math.pi * n / N)
+                   for h in range(1, 41)) for n in range(N)]
+    saw_conv = dr._sc_to_partials(dr._saw_sc(64))
+    d_conv = _rel(_partials_mag(saw_conv, 30), 30)
+    d_ref = _rel(_dft_mag(saw_cyc, 30), 30)
+    worst_saw = max(abs(d_conv[h] - d_ref[h]) for h in range(1, 31))
+    check("converter parity: saw mirrors DcoBaker::renderSaw (rel-mag diff < 1e-3)",
+          worst_saw < 1e-3, worst_saw)
+
+    cheby_cyc = []
+    for n in range(N):
+        x = 2 * _math.pi * n / N
+        t = 0.8 * _math.sin(x)
+        tp2, tp1, cur = 1.0, t, t
+        for _k in range(2, 6):
+            cur = 2 * t * tp1 - tp2
+            tp2, tp1 = tp1, cur
+        cheby_cyc.append(cur)
+    cheby_conv = dr._sc_to_partials(dr._cheby_sc(5, 0.8))
+    dc = _rel(_partials_mag(cheby_conv, 12), 12)
+    dr_ = _rel(_dft_mag(cheby_cyc, 12), 12)
+    check("converter parity: cheby(5,0.8) mirrors DcoBaker::renderCheby (rel-mag diff < 1e-3)",
+          max(abs(dc[h] - dr_[h]) for h in range(1, 13)) < 1e-3,
+          max(abs(dc[h] - dr_[h]) for h in range(1, 13)))
+
+    # FM Bessel tool: integer ratio -> harmonic set; non-integer ratio -> inharmonic.
+    fm_h = dr.fm_spectrum(2.0, 3.0)
+    check("fm_spectrum(2,3) -> integer harmonic set (odd h: 1,3,5,7,9)",
+          {int(round(p["h"])) for p in fm_h if p["h"] <= 9.5} == {1, 3, 5, 7, 9}
+          and all(abs(p["h"] - round(p["h"])) < 1e-9 for p in fm_h), [round(p["h"], 3) for p in fm_h])
+    fm_inh = dr.fm_spectrum(1.414, 4.0)
+    check("fm_spectrum(1.414,4) -> inharmonic set (some non-integer h, all h>0)",
+          any(abs(p["h"] - round(p["h"])) > 1e-3 for p in fm_inh) and all(p["h"] > 0 for p in fm_inh),
+          [round(p["h"], 3) for p in fm_inh[:6]])
+    fm_par = dr.fm_spectrum(2.0, 3.0)
+    dfm = _rel(_partials_mag(fm_par, 9), 9)
+    fm_cyc = [_math.sin(2 * _math.pi * n / N + 3.0 * _math.sin(2 * 2 * _math.pi * n / N)) for n in range(N)]
+    dfmref = _rel(_dft_mag(fm_cyc, 9), 9)
+    check("fm_spectrum parity vs renderFm2 within the Carson band (rel-mag diff < 5e-3, h<=9)",
+          max(abs(dfm[h] - dfmref[h]) for h in range(1, 10)) < 5e-3,
+          max(abs(dfm[h] - dfmref[h]) for h in range(1, 10)))
+
+    # --- D.1: "cathedral bell, opens up" -> a movable station chain (dr.author_recipe:
+    #     the named-motion inharmonic endpoint synthesis + station pipeline). ---
+    r1 = dr.author_recipe("cathedral bell, opens up", llm_route=None, frames=None)
+    k1 = _addkfs(r1["recipe"])
+    check("D.1 'cathedral bell, opens up' -> >= 2 additive stations",
+          len(k1) >= 2 and all(kf.get("kind") == "additive" for kf in k1),
+          [kf.get("kind") for kf in k1])
+    check("D.1 -> every station the same partial count (equal length)",
+          len({len(kf.get("partials", [])) for kf in k1}) == 1, [len(kf.get("partials", [])) for kf in k1])
+    check("D.1 -> identical h vector in every station",
+          len({_hvec(kf) for kf in k1}) == 1, [_hvec(kf) for kf in k1][:3])
+    check("D.1 -> all partials h > 0",
+          all(p["h"] > 0 for kf in k1 for p in kf.get("partials", [])), True)
+    check("D.1 -> loop-closed (last station content == first)",
+          len(k1) >= 2 and json.dumps(k1[0]["partials"], sort_keys=True) == json.dumps(k1[-1]["partials"], sort_keys=True))
+    check("D.1 -> satisfies the shipped additive-sets router contract", _sets_router_ok(r1["recipe"]),
+          r1["recipe"]["keyframes"] and [len(k.get("partials", [])) for k in k1])
+    check("D.1 -> no longer refused ('nothing to move between' flag gone)",
+          not any("nothing to move between" in f["reason"] for f in r1["flags"]), r1["flags"])
+    r1b = dr.author_recipe("cathedral bell, opens up", llm_route=None, frames=None)
+    check("D.1 -> deterministic double-run",
+          json.dumps(r1, sort_keys=True) == json.dumps(r1b, sort_keys=True))
+
+    # --- D.2: "saw morphing into a bell" -> ALL keyframes additive + union-aligned
+    #     (the classic->partialset converter ran on the saw). ---
+    r2 = dr.author_recipe("saw morphing into a bell", llm_route=None, frames=None)
+    k2 = _addkfs(r2["recipe"])
+    check("D.2 'saw morphing into a bell' -> ALL keyframes additive (converter ran on the saw)",
+          len(k2) >= 2 and all(kf.get("kind") == "additive" for kf in k2), [kf.get("kind") for kf in k2])
+    check("D.2 -> union-aligned (same h vector + equal length in every station)",
+          len({_hvec(kf) for kf in k2}) == 1 and len({len(kf.get("partials", [])) for kf in k2}) == 1,
+          [len(kf.get("partials", [])) for kf in k2])
+    check("D.2 -> the bell's inharmonic partials survive (union has a non-integer h)",
+          any(abs(p["h"] - round(p["h"])) > 1e-3 for p in k2[0]["partials"]), _hvec(k2[0])[:8])
+    check("D.2 -> satisfies the router contract", _sets_router_ok(r2["recipe"]))
+    check("D.2 -> loop-closed",
+          json.dumps(k2[0]["partials"], sort_keys=True) == json.dumps(k2[-1]["partials"], sort_keys=True))
+
+    # --- D.3: "static bell" -> exactly one station (the ONLY delegated non-movement). ---
+    r3 = dr.author_recipe("static bell", llm_route=None, frames=None)
+    check("D.3 'static bell' -> exactly 1 station", len(_addkfs(r3["recipe"])) == 1,
+          len(_addkfs(r3["recipe"])))
+    r3m = lca.build_lco_response("static bell", _null_llm, frames=None)
+    check("D.3 'static bell' via build_lco_response -> still exactly 1 station (static honored)",
+          len(_addkfs(r3m["recipe"])) == 1, len(_addkfs(r3m["recipe"])))
+
+    # --- D.4: "sine" (no motion words) -> amplitude-breathe stations + honesty flag
+    #     (movement by default, degenerate spectrum; via build_lco_response). ---
+    r4 = lca.build_lco_response("sine", _null_llm, frames=None)
+    k4 = _addkfs(r4["recipe"])
+    a_seq = [kf["partials"][0]["a"] for kf in k4 if kf.get("partials")]
+    check("D.4 'sine' -> >= 2 amplitude-breathe stations (same single h, varying a)",
+          len(k4) >= 2 and len({_hvec(kf) for kf in k4}) == 1
+          and all(len(kf.get("partials", [])) == 1 for kf in k4)
+          and len(set(round(a, 4) for a in a_seq)) >= 2, (len(k4), a_seq))
+    check("D.4 'sine' -> no harmonics invented (still a single partial per station)",
+          all(len(kf.get("partials", [])) == 1 for kf in k4), [len(kf.get("partials", [])) for kf in k4])
+    check("D.4 'sine' -> honesty flag naming the amplitude-breathe fallback",
+          any("amplitude-breathe" in f["reason"] and f.get("tier") == "adapted" for f in r4["flags"]),
+          r4["flags"])
+    r4b = lca.build_lco_response("sine", _null_llm, frames=None)
+    check("D.4 'sine' -> deterministic double-run",
+          json.dumps(r4, sort_keys=True) == json.dumps(r4b, sort_keys=True))
+
+    # --- D.5: injected non-finite / h<=0 partials -> dropped + honestly reported by
+    #     the validator (retires the negative-h silence hole). ---
+    injected = {"keyframes": [{"kind": "additive", "partials": [
+        {"h": 1.0, "a": 1.0, "phase": 0.0},
+        {"h": -2.0, "a": 0.5, "phase": 0.0},
+        {"h": 0.0, "a": 0.4, "phase": 0.0},
+        {"h": float("inf"), "a": 0.3, "phase": 0.0},
+        {"h": 3.0, "a": 0.3, "phase": 0.0}]}],
+        "motion": [{"to": 0, "dur_frac": 0.0, "curve": "lin"}], "loop": True,
+        "frames": 128, "motion_rate_hz": 0.25}
+    clean5, reps5 = dr.validate_recipe(injected)
+    kept5 = [p["h"] for p in clean5["keyframes"][0]["partials"]]
+    check("D.5 injected negative/zero/non-finite h -> dropped (only h>0 survive)",
+          all(h > 0 for h in kept5) and set(kept5) == {1.0, 3.0}, kept5)
+    check("D.5 -> drop is honestly reported (validator repair)",
+          any("non-finite or h<=0" in r for r in reps5), reps5)
+
+    # --- D.6: harmonic non-regression -- author_recipe output for these harmonic
+    #     prompts is BYTE-IDENTICAL to the frozen pre-change (committed HEAD)
+    #     snapshot. The station pipeline is a no-op for harmonic chains; the sha256
+    #     digests below were captured from HEAD before the Slice-2a edits. ---
+    _HARMONIC_BASELINE = {
+        "saw": "fdbc639e3979abe9b244fecf9da79b3c53b8ec9aa386efa62ffc98d110552f4c",
+        "pwm": "64c1756773088f86cd5ce6a23418b522989c26512c1c89339a5734ed47fadebe",
+        "warm pad": "7b1636ff99e77dd25be55dbdfa44a1bb88722ab375df6d1d2b7d7efc09c7d31c",
+        "saw wave morphing into a square wave":
+            "1a1fe7ae7ecfd0a223decfc06ba58344d423d954620c6b3ed772d0f22d83fdd5",
+    }
+    for prompt, want_hash in sorted(_HARMONIC_BASELINE.items()):
+        resp = dr.author_recipe(prompt, llm_route=None, frames=None)
+        canon = json.dumps(resp, sort_keys=True, separators=(",", ":"))
+        got_hash = hashlib.sha256(canon.encode()).hexdigest()
+        check(f"D.6 harmonic non-regression: {prompt!r} byte-identical to pre-change HEAD",
+              got_hash == want_hash, f"got {got_hash}")
+
     print()
     return list(_FAILURES)
 

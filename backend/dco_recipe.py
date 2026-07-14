@@ -962,6 +962,35 @@ _MOTION_REWRITE = {
 
 _MOTION_SPEED_SCALE = {"slow": 0.5, "fast": 1.7, "snap": 3.0}
 
+# A named motion intent ("open up", "close", ...) on a SINGLE charactered
+# keyframe has, historically, nothing to move between -- _apply_motion_intent
+# used to just refuse it (flag + leave the flat static loop). For a HARMONIC
+# additive bank (a real spectrum, not a bare sine, not an inharmonic bell/bar)
+# the refusal is unnecessarily honest: a second endpoint can be HONESTLY
+# synthesized as a spectral-tilted copy of the base, so the named motion
+# becomes real movement instead of a dead flag. _MOTION_ENDPOINT_TILT is the
+# tilt strength used for that synthesized endpoint (ear-tunable).
+_MOTION_ENDPOINT_TILT = 0.3
+
+
+def _spectral_tilt(partials, strength, brighter):
+    """Return a NEW partials list: same h and phase, amplitudes re-weighted by a
+    linear spectral tilt. Partials ranked by h ascending; the lowest gets factor
+    (1 - strength), the highest (1 + strength) for `brighter` (reversed for darker).
+    Amplitudes clamped to [0,1]. Requires len(partials) >= 2 (caller guarantees).
+    Builds entirely new partial dicts (never mutates/aliases the input)."""
+    order = sorted(range(len(partials)), key=lambda i: partials[i].get("h", 1))
+    rank = {idx: r for r, idx in enumerate(order)}
+    n = len(partials)
+    out = []
+    for i, p in enumerate(partials):
+        t = 2.0 * rank[i] / (n - 1) - 1.0   # -1 (lowest h) .. +1 (highest h)
+        factor = (1.0 + strength * t) if brighter else (1.0 - strength * t)
+        a = p.get("a", 0.0) * factor
+        a = 0.0 if a < 0.0 else (1.0 if a > 1.0 else a)
+        out.append({"h": p.get("h", 1.0), "a": a, "phase": p.get("phase", 0.0)})
+    return out
+
 
 def _apply_motion_intent(recipe, intent_key, flags):
     """Returns True iff the loop was actually rewritten (the caller only
@@ -969,14 +998,475 @@ def _apply_motion_intent(recipe, intent_key, flags):
     rewrite must leave the template's rate untouched)."""
     K = len(recipe["keyframes"])
     if intent_key in _MOTION_NEEDS_K2 and K < 2:
-        flags.append({"word": intent_key,
-                      "reason": "only one keyframe in this recipe — motion has nothing to move between"})
-        return False
+        # Endpoint synthesis: a single charactered keyframe has nothing to move
+        # BETWEEN yet, but a named motion is an honest instruction we CAN realize
+        # for ANY additive spectrum -- synthesize the missing second endpoint (a
+        # spectral-tilted copy of the base) rather than refusing outright. The
+        # tilt ranks partials by h and re-weights amplitude, so it works on an
+        # INHARMONIC bank (bell/bar/cymbal) exactly as on a harmonic one: the old
+        # integer-h refusal only protected the baked harmonic grid, and an
+        # inharmonic chain now routes to the real-time additive-sets engine (LCO
+        # wave-interpolation spec sec.7). Only the single-partial floor stays -- a
+        # pure sine has no spectral opposite to tilt toward (lco_author's
+        # analog-life / amplitude-breathe handles that degenerate case).
+        kf0 = recipe["keyframes"][0]
+        partials = kf0.get("partials") or []
+        if kf0.get("kind") == "additive" and len(partials) >= 2:
+            brighter = intent_key not in {"close", "settle"}
+            new_kf = {"kind": "additive",
+                      "partials": _spectral_tilt(partials, _MOTION_ENDPOINT_TILT, brighter)}
+            if "shape" in kf0:
+                new_kf["shape"] = kf0["shape"]
+            recipe["keyframes"].append(new_kf)
+            K = len(recipe["keyframes"])   # now 2 -- fall through to the normal rewrite below
+        else:
+            flags.append({"word": intent_key,
+                          "reason": "only one keyframe in this recipe — motion has nothing to move between"})
+            return False
     fn = _MOTION_REWRITE.get(intent_key)
     if fn is None:
         return False
     recipe["motion"] = fn(K)
     return True
+
+
+# --- S3.5: station pipeline (LCO wave-interpolation spec, Slice 2a) ----------
+# When a composed chain carries inharmonic content (any additive keyframe with a
+# NON-integer h), the shipped engine cannot BAKE it: a looped single cycle
+# projects the bell back onto the harmonic grid -> a sawtooth. Instead the WHOLE
+# chain routes to the real-time additive bank as K index-aligned "stations" the
+# engine blends by scan position (the PromptPanel.cpp router contract). This
+# post-compose step GUARANTEES that contract: every keyframe additive, every
+# station the SAME length, index i == the same (h, phase) partial in every
+# station, loop-closed. Harmonic-only chains never enter here -> their baked-path
+# composition stays byte-identical to before this step existed.
+#
+# The station SPECTRA are computed EXACTLY, mirroring src/dsp/DcoBaker.cpp's
+# closed forms (the baked path is the reference): saw/square/triangle/pulse
+# Fourier series, cheby polynomial->harmonic expansion, ring sum/difference
+# tones, and fm2 via the 2-op Bessel expansion (fm_spectrum). Relative amplitudes
+# and per-partial SIGN (carried in phase, so a stays >= 0 for the [0,1] wire
+# clamp) are preserved; absolute scale is irrelevant (the engine renormalizes,
+# spec sec.3). Verified against a brute-force DFT of the same time-domain formulas
+# DcoBaker renders (worst relative-magnitude diff ~1e-15; FM matches within the
+# spec's deliberate Carson-band/2e-3 sideband truncation).
+
+_STATION_MAX_H = 64          # generous harmonic extent per converted classic wave
+_UNION_BUDGET = 64           # MAX_ADDITIVE_PARTIALS: union capped, weakest dropped
+_STATION_MAX = 8             # kMaxKeyframes wire cap (DcoRecipeJson.h): M <= 8
+_COINCIDE = 1.0e-6           # h-merge tolerance (union alignment / FM fold)
+_STATION_PEAK = 0.98         # global amplitude ceiling (survive the [0,1] wire clamp)
+
+
+def _bessel_j(n, x):
+    """J_n(x), Bessel function of the first kind, via a numerically stable
+    ascending power series. Deterministic, stdlib-only, no new dependency. The
+    recipe clamps the FM index to [0, 8] and the Carson band caps |k| at
+    ceil(index)+2 (<= 10) -- a bounded domain where this series converges quickly
+    and exactly (Miller's downward recurrence is the textbook alternative for
+    large order/argument, unneeded here)."""
+    n = abs(int(n))
+    if x == 0.0:
+        return 1.0 if n == 0 else 0.0
+    half = 0.5 * x
+    term = 1.0
+    for k in range(1, n + 1):
+        term *= half / k                 # term_0 = (x/2)^n / n!
+    total = term
+    q = half * half
+    k = 1
+    while k <= 200:
+        term *= -q / (k * (k + n))
+        total += term
+        if abs(term) < 1.0e-18 * (abs(total) + 1.0e-30):
+            break
+        k += 1
+    return total
+
+
+def fm_spectrum(ratio, index, thresh=2.0e-3):
+    """2-op FM (carrier 1, modulator ``ratio``, ``index``) -> additive partial
+    set: the EXACT Bessel expansion of DcoBaker::renderFm2's
+    sin(x + I*sin(r*x)) = sum_k J_k(I) * sin((1 + k*r) * x). Components at
+    h = |1 + k*ratio| with amplitude J_k(index); a negative folded frequency
+    negates the amplitude (sin(-u) = -sin(u)); components at a coincident |h|
+    (within 1e-6) sum. Truncated at |J_k| < 2e-3; the Carson band
+    |k| <= ceil(index)+2 is the STARTING extent, grown until the edge term
+    actually falls below the threshold -- a hard Carson cut would keep a
+    band-edge k while dropping its above-threshold negative-frequency fold
+    partner, emitting the top retained sideband with the wrong amplitude.
+    A NON-integer ratio yields a non-integer (inharmonic) set. Returned as
+    [{"h","a","phase"}] with the sign carried in phase (0 or pi); h<=0 (DC)
+    dropped. This is a TOOL for stations -- the wire ``fm2`` keyframe kind
+    (integer ratio, baked path) is untouched."""
+    ratio = float(ratio)
+    index = float(index)
+    kmax = int(math.ceil(index)) + 2
+    while abs(_bessel_j(kmax + 1, index)) >= thresh:
+        kmax += 1
+    jn = [_bessel_j(k, index) for k in range(kmax + 1)]
+    merged = []   # [ [h, signed_amp], ... ]
+    for k in range(-kmax, kmax + 1):
+        jk = jn[abs(k)] * (((-1.0) ** k) if k < 0 else 1.0)   # J_{-k} = (-1)^k J_k
+        if abs(jk) < thresh:
+            continue
+        f = 1.0 + k * ratio
+        amp = jk
+        h = f
+        if f < 0.0:
+            amp = -amp
+            h = -f
+        if h <= _COINCIDE:
+            continue   # DC (or below) -> dropped (removeDC in the baker)
+        slot = None
+        for entry in merged:
+            if abs(entry[0] - h) < _COINCIDE:
+                slot = entry
+                break
+        if slot is None:
+            merged.append([h, amp])
+        else:
+            slot[1] += amp
+    out = []
+    for h, amp in merged:
+        if abs(amp) < 1.0e-9:
+            continue
+        out.append({"h": round(h, 6), "a": abs(amp),
+                    "phase": 0.0 if amp >= 0.0 else math.pi})
+    out.sort(key=lambda p: p["h"])
+    return out
+
+
+def _sc_to_partials(sc):
+    """{h: (sine_coeff, cosine_coeff)} -> [{"h","a","phase"}], combining the
+    quadrature pair at each h into one magnitude+phase partial:
+    S*sin(h x) + C*cos(h x) = R*sin(h x + phi), R = hypot(S, C),
+    phi = atan2(C, S). Drops ~zero partials and h<=0; sorts by h ascending."""
+    out = []
+    for h, (s, c) in sc.items():
+        if h <= _COINCIDE:
+            continue
+        r = math.hypot(s, c)
+        if r < 1.0e-9:
+            continue
+        phi = math.atan2(c, s) % (2.0 * math.pi)
+        out.append({"h": round(float(h), 6), "a": r, "phase": phi})
+    out.sort(key=lambda p: p["h"])
+    return out
+
+
+def _saw_sc(n):
+    # DcoBaker::renderSaw: (2/(pi h)) * (-1)^(h+1) sin(h x). Relative sine coeff.
+    return {h: (((-1.0) ** (h + 1)) / h, 0.0) for h in range(1, n + 1)}
+
+
+def _square_sc(n):
+    # DcoBaker::renderSquare: (4/(pi h)) sin(h x), odd h. Relative sine coeff.
+    return {h: (1.0 / h, 0.0) for h in range(1, n + 1, 2)}
+
+
+def _triangle_sc(n):
+    # DcoBaker::renderTriangle: (8/pi^2)((-1)^((h-1)/2)/h^2) sin(h x), odd h.
+    out, sign = {}, 1.0
+    for h in range(1, n + 1, 2):
+        out[h] = (sign / (h * h), 0.0)
+        sign = -sign
+    return out
+
+
+def _pulse_sc(width, n):
+    # DcoBaker::renderPulse: (4/(pi h)) sin(pi h w) cos(h x). COSINE basis.
+    width = max(0.02, min(0.98, float(width)))
+    return {h: (0.0, (1.0 / h) * math.sin(math.pi * h * width)) for h in range(1, n + 1)}
+
+
+def _cheby_poly_coeffs(order):
+    """Chebyshev T_order(z) = sum c[m] z^m, integer coefficients via the standard
+    recurrence T_0=1, T_1=z, T_k = 2 z T_{k-1} - T_{k-2}."""
+    t0, t1 = [1], [0, 1]
+    if order <= 0:
+        return t0
+    if order == 1:
+        return t1
+    prev2, prev1 = t0, t1
+    for _ in range(2, order + 1):
+        cur = [0] * (len(prev1) + 1)
+        for i, v in enumerate(prev1):
+            cur[i + 1] += 2 * v
+        for i, v in enumerate(prev2):
+            cur[i] -= v
+        prev2, prev1 = prev1, cur
+    return prev1
+
+
+def _sinpow_sc(m):
+    """sin^m(x) expanded into harmonics: odd m -> sines, even m -> cosines
+    (plus a DC term at h=0). Exact finite Fourier series."""
+    out = {}
+    if m % 2 == 1:
+        p = (m - 1) // 2
+        for j in range(p + 1):
+            h = m - 2 * j
+            coeff = ((-1.0) ** (p - j)) * math.comb(m, j) / (4.0 ** p)
+            s, c = out.get(h, (0.0, 0.0))
+            out[h] = (s + coeff, c)
+    else:
+        p = m // 2
+        out[0] = (0.0, math.comb(m, p) / (2.0 ** m))
+        for j in range(p):
+            h = m - 2 * j
+            coeff = 2.0 * ((-1.0) ** (p - j)) * math.comb(m, j) / (2.0 ** m)
+            s, c = out.get(h, (0.0, 0.0))
+            out[h] = (s, c + coeff)
+    return out
+
+
+def _cheby_sc(order, drive):
+    # DcoBaker::renderCheby: T_order(drive*sin(x)); expand z=drive*sin(x), z^m via
+    # _sinpow_sc, sum over the polynomial. DC (h=0, from even powers) dropped
+    # (removeDC in the baker).
+    coeffs = _cheby_poly_coeffs(int(order))
+    drive = float(drive)
+    acc = {}
+    for m, cm in enumerate(coeffs):
+        if cm == 0 or m == 0:
+            continue
+        scale = cm * (drive ** m)
+        for h, (s, c) in _sinpow_sc(m).items():
+            if h == 0:
+                continue
+            a = acc.get(h, (0.0, 0.0))
+            acc[h] = (a[0] + scale * s, a[1] + scale * c)
+    return acc
+
+
+def _ring_sc(ratio, mix):
+    # DcoBaker::renderRing: (1-m) sin(x) + m sin(x) sin(r x);
+    # sin(x) sin(r x) = 0.5[cos((r-1)x) - cos((r+1)x)]. r-1==0 -> DC, dropped.
+    r = int(round(float(ratio)))
+    mix = float(mix)
+    acc = {}
+
+    def add(h, s, c):
+        a = acc.get(h, (0.0, 0.0))
+        acc[h] = (a[0] + s, a[1] + c)
+
+    add(1, 1.0 - mix, 0.0)
+    if r - 1 >= 1:
+        add(r - 1, 0.0, 0.5 * mix)
+    add(r + 1, 0.0, -0.5 * mix)
+    return acc
+
+
+def _station_partials(kf):
+    """One keyframe -> its EXACT additive partial set (list of {h,a,phase}),
+    mirroring DcoBaker's closed form for that kind. An already-additive keyframe
+    returns a defensive copy of its partials; fm2 goes through the Bessel tool."""
+    kind = kf.get("kind")
+    if kind == "additive":
+        return [{"h": float(p.get("h", 1.0)), "a": float(p.get("a", 0.0)),
+                 "phase": float(p.get("phase", 0.0))} for p in (kf.get("partials") or [])]
+    if kind == "saw":
+        return _sc_to_partials(_saw_sc(_STATION_MAX_H))
+    if kind == "square":
+        return _sc_to_partials(_square_sc(_STATION_MAX_H))
+    if kind == "triangle":
+        return _sc_to_partials(_triangle_sc(_STATION_MAX_H))
+    if kind == "pulse":
+        return _sc_to_partials(_pulse_sc(kf.get("width", 0.5), _STATION_MAX_H))
+    if kind == "cheby":
+        return _sc_to_partials(_cheby_sc(kf.get("order", 3), kf.get("drive", 0.7)))
+    if kind == "ring":
+        return _sc_to_partials(_ring_sc(kf.get("ratio", 2), kf.get("mix", 1.0)))
+    if kind == "fm2":
+        return fm_spectrum(kf.get("ratio", 2), kf.get("index", 1.0))
+    return [{"h": 1.0, "a": 1.0, "phase": 0.0}]   # unreachable for a valid kind
+
+
+def _union_align(stations, flags=None):
+    """Union-alignment (LCO spec sec.4, the ear-decided mode -- the ONLY one emitted):
+    the union of all h across ``stations`` (merged within 1e-6, sorted ascending);
+    a station lacking a partial gets a=0 there; the phase at each index is the
+    FIRST defining station's phase (h is then constant per index -> a pure spectral
+    blend, nothing glides). Every station ends the SAME length. Budget: union > 64
+    -> drop the indices with the smallest peak |a| across stations, with an honest
+    'reduced' flag. Returns the aligned station list."""
+    union = []   # [ [h, phase], ... ] first-seen order
+    for st in stations:
+        for p in st:
+            h = float(p["h"])
+            if not any(abs(e[0] - h) < _COINCIDE for e in union):
+                union.append([h, float(p.get("phase", 0.0))])
+    union.sort(key=lambda e: e[0])
+
+    def amp_at(st, h):
+        for p in st:
+            if abs(float(p["h"]) - h) < _COINCIDE:
+                return float(p.get("a", 0.0))
+        return 0.0
+
+    if len(union) > _UNION_BUDGET:
+        peaks = sorted((max(amp_at(st, h) for st in stations), idx)
+                       for idx, (h, _ph) in enumerate(union))
+        drop = {idx for _peak, idx in peaks[:len(union) - _UNION_BUDGET]}
+        union = [e for idx, e in enumerate(union) if idx not in drop]
+        if flags is not None:
+            flags.append({"word": "partials",
+                          "reason": f"reduced to {_UNION_BUDGET} partials for the moving inharmonic chain"})
+
+    return [[{"h": round(h, 6), "a": amp_at(st, h), "phase": ph} for h, ph in union]
+            for st in stations]
+
+
+def _build_segments(motion, num_kf):
+    """Mirror DcoBaker::bake's segment construction: (from_kf, to_kf, cum_start,
+    cum_end, curve) over cumulative trajectory fraction [0,1]. Returns [] when
+    there is no real motion (the caller treats that as a single static station)."""
+    def clamp_kf(i):
+        return max(0, min(num_kf - 1, int(i)))
+
+    if not motion or len(motion) <= 1:
+        return []
+    start = clamp_kf(motion[0].get("to", 0))
+    raw = [max(0.0, float(seg.get("dur_frac", 0.0))) for seg in motion[1:]]
+    total = sum(raw)
+    if total <= 0.0:
+        return []
+    segs = []
+    cum = 0.0
+    frm = start
+    for i, seg in enumerate(motion[1:]):
+        dur = raw[i] / total
+        to = clamp_kf(seg.get("to", 0))
+        cum_end = 1.0 if (i + 1 == len(raw)) else (cum + dur)
+        segs.append((frm, to, cum, cum_end, seg.get("curve", "lin")))
+        cum = cum_end
+        frm = to
+    return segs
+
+
+def _curve_shape(a, curve):
+    # Mirror DcoBaker::shapeCurve (Lin / Fast=a^0.4 / Slow=a^2.5).
+    a = 0.0 if a < 0.0 else (1.0 if a > 1.0 else a)
+    if curve == "fast":
+        return a ** 0.4
+    if curve == "slow":
+        return a ** 2.5
+    return a
+
+
+def _content_at(p, segs, corners):
+    """Blend the union-aligned corner spectra at trajectory position p in [0,1],
+    exactly as DcoBaker::bake samples one frame: find the active segment, shape
+    the local fraction by its curve, lerp per-index amplitude between from/to.
+    ``corners`` are aligned (same length, same h/phase per index)."""
+    active = segs[-1]
+    for seg in segs:
+        if p <= seg[3] + 1e-12:
+            active = seg
+            break
+    frm, to, cs, ce, curve = active
+    span = ce - cs
+    a = _curve_shape((p - cs) / span if span > 1e-9 else 1.0, curve)
+    cf, ct = corners[frm], corners[to]
+    return [{"h": cf[i]["h"], "a": (1.0 - a) * cf[i]["a"] + a * ct[i]["a"],
+             "phase": cf[i]["phase"]} for i in range(len(cf))]
+
+
+def _sample_stations(corners, motion, max_stations=_STATION_MAX):
+    """Sample the motion trajectory into <= max_stations aligned sub-stations
+    (LCO spec sec.6.2), mirroring how DcoBaker bakes it into 256 frames -- only into
+    the Sets medium. Station positions are the segment breakpoints (the corner
+    visits: a plain andback -> [A,B,A]) PLUS interior samples inside CURVED
+    (fast/slow), non-hold segments, so a shaped path (open_up's slow rise,
+    settle's quick attack) is not flattened to a straight uniform blend. More of
+    the <=8 slots are spent only when curves actually shape the path."""
+    segs = _build_segments(motion, len(corners))
+    if not segs:
+        return [corners[0]]
+    positions = [0.0] + [seg[3] for seg in segs]     # breakpoints (corner visits)
+    slots = max_stations - len(positions)
+    if slots > 0:
+        curved = [seg for seg in segs
+                  if seg[4] != "lin" and seg[0] != seg[1] and (seg[3] - seg[2]) > 1e-6]
+        if curved:
+            per = max(1, slots // len(curved))
+            extra = []
+            for seg in curved:
+                cs, ce = seg[2], seg[3]
+                for j in range(1, per + 1):
+                    extra.append(cs + (ce - cs) * j / (per + 1.0))
+            positions.extend(extra[:slots])
+    positions = sorted(set(round(p, 9) for p in positions))
+    return [_content_at(p, segs, corners) for p in positions][:max_stations]
+
+
+def _router_contract_ok(recipe):
+    """Mirror the shipped PromptPanel.cpp additive-sets route test: every keyframe
+    Additive, every station the SAME non-zero partial count, and SOME partial
+    non-integer h. Returns (ok, reason). Used as a debug-level self-check in
+    _stationize and asserted directly in tests."""
+    kfs = recipe.get("keyframes") or []
+    if not kfs:
+        return False, "no keyframes"
+    if not all(kf.get("kind") == "additive" for kf in kfs):
+        return False, "not every keyframe is additive"
+    counts = [len(kf.get("partials") or []) for kf in kfs]
+    if counts[0] == 0:
+        return False, "first station has no partials"
+    if any(c != counts[0] for c in counts):
+        return False, "station partial counts differ: " + str(counts)
+    inh = any(abs(float(p["h"]) - round(float(p["h"]))) > 1.0e-3
+              for kf in kfs for p in kf["partials"])
+    if not inh:
+        return False, "no non-integer partial (would bake, not route to sets)"
+    return True, "ok"
+
+
+def _stationize(recipe, flags):
+    """Post-compose station pipeline (LCO wave-interpolation spec sec.3-6, Slice 2a).
+    Runs ONLY when the composed chain carries inharmonic content AND has >= 2
+    keyframes to align. A single already-additive inharmonic station already
+    satisfies the router contract (K==1) and is left byte-identical; a harmonic
+    chain is left byte-identical for the baked path. Otherwise: convert every
+    keyframe to an exact additive station (mirroring DcoBaker), union-align them,
+    sample the motion trajectory into <= 8 loop-closed sub-stations, and emit a
+    recipe that satisfies the shipped additive-sets router contract."""
+    kfs = recipe.get("keyframes") or []
+    inharmonic = any(kf.get("kind") == "additive"
+                     and any(abs(float(p.get("h", 1.0)) - round(float(p.get("h", 1.0)))) > 1.0e-3
+                             for p in (kf.get("partials") or []))
+                     for kf in kfs)
+    if not inharmonic or len(kfs) < 2:
+        return recipe   # harmonic chain, or a lone inharmonic station -> untouched
+
+    # 1. every keyframe -> an exact additive partial set (mirrors DcoBaker).
+    corners = [_station_partials(kf) for kf in kfs]
+    # 2. union-align the corners (shared h+phase per index, equal length, budget).
+    corners = _union_align(corners, flags)
+    # 3. ONE global amplitude ceiling so the exact spectra survive the [0,1] wire
+    #    clamp (relative + cross-station dynamics intact; the engine renormalizes
+    #    anyway -- spec sec.3 forbids per-position renorm).
+    peak = max((p["a"] for st in corners for p in st), default=0.0)
+    if peak > _STATION_PEAK:
+        s = _STATION_PEAK / peak
+        for st in corners:
+            for p in st:
+                p["a"] *= s
+    # 4. sample the trajectory into <= 8 sub-stations, then loop-close (the last
+    #    station repeats the first content -> a seamless transport wrap, spec sec.6.2).
+    stations = _sample_stations(corners, recipe.get("motion") or [])
+    if len(stations) >= 2:
+        stations[-1] = [dict(p) for p in stations[0]]
+    # 5. the stations ARE the keyframes/timeline now.
+    recipe["keyframes"] = [{"kind": "additive", "partials": st} for st in stations]
+    recipe["motion"] = _motion_cycle(len(stations))
+    recipe["loop"] = True
+    recipe, _ = _clamp_and_repair(recipe)
+    # 6. debug-level self-check of the shipped router contract.
+    ok, why = _router_contract_ok(recipe)
+    assert ok, "stationize violated the additive-sets router contract: " + why
+    return recipe
 
 
 # ─── S3: technique-template lookup + default inference ───────────────────
@@ -1261,6 +1751,14 @@ def _compose(scan, s2_extra_adjective_hits, lexicon, frames_override):
     # step 5: clamp everything, force loop-closure on the start keyframe
     recipe, repairs = _clamp_and_repair(recipe)
 
+    # step 6: station pipeline (LCO wave-interpolation, Slice 2a). A multi-keyframe
+    # INHARMONIC chain cannot bake (a bell would come out a sawtooth); convert it
+    # to union-aligned additive stations the shipped engine blends by scan and
+    # emit the additive-sets router contract. A strict no-op for harmonic chains,
+    # (baked path stays byte-identical) and for a lone inharmonic station (already
+    # a valid K==1 sets recipe) -- see _stationize.
+    recipe = _stationize(recipe, flags)
+
     resolved = {
         "technique": resolved_technique,
         "adjectives": applied_adjective_keys,
@@ -1399,6 +1897,7 @@ def _clamp_and_repair(recipe):
                 partials = [{"h": 1, "a": 1.0, "phase": 0.0}]
                 repairs.append("additive keyframe with no partials — injected h1")
             clean_partials = []
+            dropped_bad_h = 0
             for p in partials[:64] if len(partials) > 64 else partials:
                 if not isinstance(p, dict):
                     continue
@@ -1408,9 +1907,19 @@ def _clamp_and_repair(recipe):
                 # the harmonic grid. Rounding it here (the old _clamp_int) was the
                 # backend half of the "inharmonicity unrepresentable" assumption that
                 # made bells bake to sawtooths. Harmonic recipes carry integer-valued
-                # h (1.0, 2.0, ...) that the spectral ops still match exactly. Lower
-                # bound stays >0 (the engine drops h<=0); allow sub-fundamental hums.
-                h, h_bad = _clamp_float(p.get("h", 1.0), 0.03125, 1024.0, 1.0)
+                # h (1.0, 2.0, ...) that the spectral ops still match exactly.
+                # h>0 VALIDITY (LCO spec, Slice 2a): a NUMERIC but non-finite or
+                # non-positive h is DROPPED, not clamped up to 0.03125 -- the engine
+                # drops h<=0 at synthesis (silent partial), so keeping it was a
+                # silent hole; dropping it is the honest repair. A non-NUMERIC h
+                # still falls through to _clamp_float's default (unchanged), so a
+                # valid partial (and every harmonic template) is byte-identical.
+                h_raw = p.get("h", 1.0)
+                if (isinstance(h_raw, (int, float)) and not isinstance(h_raw, bool)
+                        and (not math.isfinite(h_raw) or h_raw <= 0.0)):
+                    dropped_bad_h += 1
+                    continue
+                h, h_bad = _clamp_float(h_raw, 0.03125, 1024.0, 1.0)
                 a, a_bad = _clamp_float(p.get("a", 0.0), 0.0, 1.0, 0.0)
                 try:
                     phase = float(p.get("phase", 0.0))
@@ -1419,6 +1928,8 @@ def _clamp_and_repair(recipe):
                 if h_bad or a_bad:
                     repairs.append(f"partial h={p.get('h')} a={p.get('a')} clamped")
                 clean_partials.append({"h": h, "a": a, "phase": phase})
+            if dropped_bad_h:
+                repairs.append(f"dropped {dropped_bad_h} partial(s) with non-finite or h<=0")
             if len(partials) > 64:
                 repairs.append("more than 64 partials — truncated to 64")
             if not clean_partials:

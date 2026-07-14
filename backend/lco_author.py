@@ -63,7 +63,105 @@ def build_lco_response(text, llm, frames=None):
         return routed
 
     resp = author_recipe(text, llm_route=llm_route, frames=frames)
-    return _apply_analog_life(resp, text)
+    # Movement by default (LCO wave-interpolation spec sec.1/sec.7): nothing leaves the
+    # author standing still unless "static" was ordered. Two passes, disjoint by
+    # construction:
+    #   1. _apply_movement_by_default -- the INHARMONIC (sets-path) and DEGENERATE
+    #      (pure-sine) single stations that _apply_analog_life deliberately bails on
+    #      (its inharmonic guard STAYS): synthesize the dark<->bright opposite
+    #      endpoint + andback (real spectrum) or amplitude-breathe (a lone partial).
+    #   2. _apply_analog_life(always=True) -- the HARMONIC single stations (bare
+    #      geometry AND charactered): the pre-existing, ear-validated per-frame drift,
+    #      now the movement-by-default path (always=True) rather than only firing on
+    #      an adjective/analog cue. Bails on inharmonic and on already-moving recipes,
+    #      so it never double-moves pass 1's output.
+    resp = _apply_movement_by_default(resp, text)
+    return _apply_analog_life(resp, text, always=True)
+
+
+def _apply_movement_by_default(resp, text):
+    """Movement by default for the two single-station cases _apply_analog_life
+    cannot animate (LCO spec sec.1/sec.7). Leaves everything else untouched -- a
+    multi-keyframe / already-moving recipe, an explicit ``static`` order, a
+    non-additive classic kind, and a RICH HARMONIC additive station (that one is
+    _apply_analog_life's drift). Deterministic; re-validated through dco_recipe."""
+    import dco_recipe
+
+    recipe = resp.get("recipe") or {}
+    kfs = recipe.get("keyframes") or []
+    resolved = resp.get("resolved") or {}
+    motion = recipe.get("motion") or []
+
+    has_motion = len(motion) > 1 and any(seg.get("dur_frac", 0.0) > 0.0 for seg in motion[1:])
+    if len(kfs) != 1 or has_motion:
+        return resp
+    if "static" in (resolved.get("motion") or []):
+        return resp   # a static sound must be explicitly ordered -- honor it
+    kf = kfs[0]
+    if kf.get("kind") != "additive":
+        return resp   # bare geometry / classic kinds -> _apply_analog_life drifts them
+    partials = kf.get("partials") or []
+    if not partials:
+        return resp
+    inharmonic = any(abs(float(p.get("h", 1.0)) - round(float(p.get("h", 1.0)))) > 1e-3
+                     for p in partials)
+    shape = kf.get("shape", 0.0)
+
+    if len(partials) >= 2 and inharmonic:
+        # Dark<->bright opposite endpoint (default: brighter -- the ear-validated
+        # "blooming open") + gentle andback. The tilt preserves h + partial count, so
+        # [A,B] is already union-aligned; _stationize samples the andback into the
+        # loop-closed [A,B,A] station chain and asserts the router contract.
+        endpoint = dco_recipe._spectral_tilt(partials, dco_recipe._MOTION_ENDPOINT_TILT, True)
+        base_kf = {"kind": "additive", "partials": [dict(p) for p in partials]}
+        end_kf = {"kind": "additive", "partials": endpoint}
+        if shape and shape > 0.0:
+            base_kf["shape"] = shape
+            end_kf["shape"] = shape
+        recipe["keyframes"] = [base_kf, end_kf]
+        recipe["motion"] = dco_recipe._motion_cycle(2)   # andback 0 -> 1 -> 0
+        recipe["loop"] = True
+        if not recipe.get("motion_rate_hz"):
+            recipe["motion_rate_hz"] = 0.2
+        recipe, _ = dco_recipe.validate_recipe(recipe)
+        flags = list(resp.get("flags") or [])
+        recipe = dco_recipe._stationize(recipe, flags)
+        resp["flags"] = [dict(f, tier=dco_recipe._flag_tier(f.get("reason", "")))
+                         if "tier" not in f else f for f in flags]
+        note = None
+    elif len(partials) < 2:
+        # Degenerate spectrum (pure sine / sub): no spectral opposite exists.
+        # AMPLITUDE-breathe the single partial and say so -- never invent harmonics.
+        def _scaled(g):
+            return [{"h": p.get("h", 1.0),
+                     "a": max(0.0, min(1.0, p.get("a", 0.0) * g)),
+                     "phase": p.get("phase", 0.0)} for p in partials]
+        stations = [_scaled(1.0), _scaled(0.72), _scaled(1.0)]
+        new_kfs = []
+        for st in stations:
+            nk = {"kind": "additive", "partials": st}
+            if shape and shape > 0.0:
+                nk["shape"] = shape
+            new_kfs.append(nk)
+        recipe["keyframes"] = new_kfs
+        recipe["motion"] = dco_recipe._motion_cycle(3)
+        recipe["loop"] = True
+        recipe["motion_rate_hz"] = 0.15
+        recipe, _ = dco_recipe.validate_recipe(recipe)
+        note = {"word": "sine", "tier": "adapted",
+                "reason": "a single partial has no spectral opposite; amplitude-breathe only, no harmonics invented"}
+    else:
+        return resp   # rich HARMONIC single station -> _apply_analog_life drifts it
+
+    resp["recipe"] = recipe
+    mot = list(resolved.get("motion") or [])
+    if "movement by default" not in mot:
+        mot.append("movement by default")
+    resolved["motion"] = mot
+    resp["resolved"] = resolved
+    if note is not None:
+        resp["flags"] = list(resp.get("flags") or []) + [note]
+    return resp
 
 
 # ─── Analog life: a charactered-but-static table drifts alive ─────────────────
@@ -79,6 +177,16 @@ def build_lco_response(text, llm, frames=None):
 _ANALOG_CUES = ("analog", "analogue", "vintage", "living", "alive", "drift", "drifting")
 _GRIT_CUES = ("gritty", "grit", "dirty", "rough", "harsh", "raw", "crunchy")
 _GOLDEN = 2.399963229728653   # radians — decorrelates successive partials
+
+# Drift magnitude (amplitude jitter `amt`, phase jitter `pdev`). The gentle
+# (non-grit) default is deliberately audible rather than a barely-there residue,
+# so "movement by default" (the ungated `always=True` path — see
+# _apply_analog_life) actually reads as alive; grit stays one step above.
+# User-chosen ("leise, aber nicht zu leise"); ear-tuned further later.
+_GENTLE_AMT = 0.08
+_GENTLE_PDEV = 0.10
+_GRIT_AMT = 0.12
+_GRIT_PDEV = 0.14
 
 
 def _drift_frames(base_partials, n, amt, pdev):
@@ -103,10 +211,19 @@ def _drift_frames(base_partials, n, amt, pdev):
     return frames
 
 
-def _apply_analog_life(resp, text):
+def _apply_analog_life(resp, text, always=False):
     """Expand a charactered-but-static single-cycle recipe into a living drift
     table (bridge_poc rule). No-op for bare geometry, for an already-moving or
-    morphing recipe, and for a non-additive-convertible keyframe (fm2/cheby/ring)."""
+    morphing recipe, and for a non-additive-convertible keyframe (fm2/cheby/ring).
+
+    ``always``: when True, movement is the DEFAULT — the "no adjective, no
+    analog cue" gate below is skipped, so even a bare charactered/technique
+    keyframe drifts alive (the dco_llm_map "movement by default" path). Every
+    OTHER gate still applies unchanged: already-moving, non-additive-
+    convertible, inharmonic, empty-partials, AND (always-only) a bare single
+    partial (a pure sine has no timbral drift to fan — stays static rather
+    than faking a tremolo). An explicit `static` motion order is honored
+    either way — see the resolved.motion check below."""
     import dco_recipe
 
     recipe = resp.get("recipe") or {}
@@ -120,11 +237,19 @@ def _apply_analog_life(resp, text):
     if len(kfs) != 1 or has_motion:
         return resp
 
+    # Explicit-static opt-out: the caller ordered `static` motion (dco_recipe's
+    # "static" intent — resolved.motion is populated by _compose's step 4 the
+    # same way for every intent key). Honor it and do NOT drift, even under
+    # `always=True`: "a static sound must be explicitly ordered" cuts both ways.
+    if "static" in (resolved.get("motion") or []):
+        return resp
+
     low = (text or "").lower()
     analog = any(c in low for c in _ANALOG_CUES)
     # "Alles andere lebt": any spectral character OR an explicit analog cue.
-    # Bare geometry (no adjective, no cue) stays static — the documented exception.
-    if not adjectives and not analog:
+    # Bare geometry (no adjective, no cue) stays static — the documented
+    # exception — UNLESS `always` (movement-by-default) overrides it.
+    if not always and not adjectives and not analog:
         return resp
 
     kf = kfs[0]
@@ -150,12 +275,23 @@ def _apply_analog_life(resp, text):
     if any(abs(float(p.get("h", 1)) - round(float(p.get("h", 1)))) > 1e-3 for p in base_partials):
         return resp
 
+    # always=True (movement-by-default): a single-partial pure sine has no
+    # timbral drift to fan across keyframes — leave it static rather than fake
+    # a tremolo out of nothing. The gated (always=False) path has no such floor
+    # (unchanged behavior): a charactered single-partial tone already had to
+    # clear the adjective/analog-cue gate above to reach this point.
+    if always and len(base_partials) < 2:
+        return resp
+
     grit = analog or "dirty" in adjectives or any(c in low for c in _GRIT_CUES)
     # SMALL deviations ("kleine Abweichungen") — the drift must read as a living
-    # shimmer, clearly gentler than a full waveform morph (flux ~0.15). Tuned on
-    # the real-baker gate (tools/lco_testbench.py) so grit ~0.09, gentle ~0.045.
-    amt = 0.10 if grit else 0.05
-    pdev = 0.12 if grit else 0.06
+    # shimmer, clearly gentler than a full waveform morph (flux ~0.15). Gentle
+    # default bumped 0.05->0.08 (amt) / 0.06->0.10 (pdev) so movement-by-default
+    # reads as alive rather than a near-imperceptible residue; grit stays one
+    # step above (0.12/0.14). Re-validate against the real baker with
+    # tools/lco_testbench.py.
+    amt = _GRIT_AMT if grit else _GENTLE_AMT
+    pdev = _GRIT_PDEV if grit else _GENTLE_PDEV
 
     n = 3
     new_kfs = []
