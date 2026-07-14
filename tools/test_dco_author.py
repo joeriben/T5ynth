@@ -1014,6 +1014,26 @@ def run_unit_tests():
     r1b = dr.author_recipe("cathedral bell, opens up", llm_route=None, frames=None)
     check("D.1 -> deterministic double-run",
           json.dumps(r1, sort_keys=True) == json.dumps(r1b, sort_keys=True))
+    # Deep opposite endpoint (ear-gate 2026-07-14: tilt-only judged near-inaudible):
+    # a sparse bell's brighter endpoint EXTENDS the series -- the union must be
+    # larger than the source set, and the dark station must hold the extension
+    # partials at amplitude 0 (energy migration, not re-weighting in place).
+    _bell_src = dr.author_recipe("static bell", llm_route=None, frames=None)
+    _src_hs = sorted(p["h"] for p in _addkfs(_bell_src["recipe"])[0].get("partials", []))
+    check("D.1 -> brighter endpoint extended the sparse set (union > source partial count)",
+          len(k1[0].get("partials", [])) > len(_src_hs),
+          (len(k1[0].get("partials", [])), len(_src_hs)))
+    check("D.1 -> dark station holds the extension partials at amplitude 0",
+          all(p["a"] == 0.0 for p in k1[0]["partials"] if p["h"] > _src_hs[-1] + 1e-6),
+          [(p["h"], p["a"]) for p in k1[0]["partials"]])
+    # Harmonic source stays harmonic through endpoint extension (baked path must
+    # never turn inharmonic and re-route): synthesize directly on an integer set.
+    _harm_end = dr._opposite_endpoint(
+        [{"h": 1.0, "a": 1.0, "phase": 0.0}, {"h": 2.0, "a": 0.5, "phase": 0.0},
+         {"h": 3.0, "a": 0.33, "phase": 0.0}], True)
+    check("_opposite_endpoint on a harmonic set -> extension snaps to the integer grid",
+          all(abs(p["h"] - round(p["h"])) <= 1e-9 for p in _harm_end)
+          and len(_harm_end) > 3, [p["h"] for p in _harm_end])
 
     # --- D.2: "saw morphing into a bell" -> ALL keyframes additive + union-aligned
     #     (the classic->partialset converter ran on the saw). ---

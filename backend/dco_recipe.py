@@ -964,31 +964,72 @@ _MOTION_SPEED_SCALE = {"slow": 0.5, "fast": 1.7, "snap": 3.0}
 
 # A named motion intent ("open up", "close", ...) on a SINGLE charactered
 # keyframe has, historically, nothing to move between -- _apply_motion_intent
-# used to just refuse it (flag + leave the flat static loop). For a HARMONIC
-# additive bank (a real spectrum, not a bare sine, not an inharmonic bell/bar)
-# the refusal is unnecessarily honest: a second endpoint can be HONESTLY
-# synthesized as a spectral-tilted copy of the base, so the named motion
-# becomes real movement instead of a dead flag. _MOTION_ENDPOINT_TILT is the
-# tilt strength used for that synthesized endpoint (ear-tunable).
-_MOTION_ENDPOINT_TILT = 0.3
+# used to just refuse it (flag + leave the flat static loop). The missing
+# second endpoint is HONESTLY synthesizable instead: the OPPOSITE of the base
+# spectrum along the dark<->bright axis (LCO wave-interpolation spec sec.7).
+# Ear-gate 2026-07-14: a multiplicative amplitude tilt (the first cut of this
+# synthesis) moved a 4-partial bell's centroid by only ~110 Hz and was judged
+# barely audible, while the ear-PASSED hand-built bloom migrated energy into
+# HIGH partials that are silent at the dark end (772->2901 Hz). The opposite
+# endpoint is therefore an ABSOLUTE amplitude ramp plus, for sparse sets, a
+# synthesized upward extension of the partial series -- not a tilt.
+_ENDPOINT_RAMP_FLOOR = 0.25   # endpoint amplitude at the weakest rank (ear-tunable)
+_ENDPOINT_EXTEND_MAX = 4      # continuation partials appended for a sparse brighter endpoint
+_ENDPOINT_EXTEND_BELOW = 16   # only sets sparser than this get synthesized extension partials
+_ENDPOINT_EXTEND_REACH = 2.8  # extension stops at this multiple of the source's top h
 
 
-def _spectral_tilt(partials, strength, brighter):
-    """Return a NEW partials list: same h and phase, amplitudes re-weighted by a
-    linear spectral tilt. Partials ranked by h ascending; the lowest gets factor
-    (1 - strength), the highest (1 + strength) for `brighter` (reversed for darker).
-    Amplitudes clamped to [0,1]. Requires len(partials) >= 2 (caller guarantees).
-    Builds entirely new partial dicts (never mutates/aliases the input)."""
-    order = sorted(range(len(partials)), key=lambda i: partials[i].get("h", 1))
-    rank = {idx: r for r, idx in enumerate(order)}
-    n = len(partials)
-    out = []
-    for i, p in enumerate(partials):
-        t = 2.0 * rank[i] / (n - 1) - 1.0   # -1 (lowest h) .. +1 (highest h)
-        factor = (1.0 + strength * t) if brighter else (1.0 - strength * t)
-        a = p.get("a", 0.0) * factor
-        a = 0.0 if a < 0.0 else (1.0 if a > 1.0 else a)
-        out.append({"h": p.get("h", 1.0), "a": a, "phase": p.get("phase", 0.0)})
+def _opposite_endpoint(partials, brighter):
+    """Return a NEW partials list: the opposite endpoint of the dark<->bright
+    movement gesture. Amplitudes are an ABSOLUTE linear ramp over the h-ranked
+    partials -- floor _ENDPOINT_RAMP_FLOOR at the weakest rank up to 1.0
+    (top rank eased to 0.8 for `brighter`, mirroring the ear-passed bloom's
+    tip rolloff) -- so energy genuinely migrates instead of being re-weighted
+    in place. For `brighter` on a SPARSE set (< _ENDPOINT_EXTEND_BELOW
+    partials), up to _ENDPOINT_EXTEND_MAX continuation partials are appended
+    above the top h, extrapolating the series' gap pattern (growth ratio
+    clamped [1.0, 1.6], reach capped at _ENDPOINT_EXTEND_REACH * top h); the
+    source station keeps them at amplitude 0 via union alignment. A HARMONIC
+    source stays harmonic: extension h snaps to the integer grid, so a baked
+    2-keyframe chain never turns inharmonic and re-routes. `darker` is the
+    inverse ramp on the EXISTING partials only (darkening fades what is
+    there; nothing to extend). Existing phases preserved, new partials get
+    phase 0. Requires len(partials) >= 2 (callers guarantee). Builds entirely
+    new partial dicts (never mutates/aliases the input)."""
+    base = sorted((dict(p) for p in partials), key=lambda p: float(p.get("h", 1.0)))
+    hs = [float(p.get("h", 1.0)) for p in base]
+    harmonic = all(abs(h - round(h)) <= 1e-3 for h in hs)
+    out = [{"h": p.get("h", 1.0), "a": 0.0, "phase": p.get("phase", 0.0)} for p in base]
+
+    if brighter and len(base) < _ENDPOINT_EXTEND_BELOW:
+        gaps = [hs[i + 1] - hs[i] for i in range(len(hs) - 1)]
+        if len(gaps) >= 2 and gaps[-2] > 1e-9:
+            growth = gaps[-1] / gaps[-2]
+            growth = 1.0 if growth < 1.0 else (1.6 if growth > 1.6 else growth)
+        else:
+            growth = 1.25
+        gap = gaps[-1] if gaps and gaps[-1] > 1e-9 else 1.0
+        top = hs[-1]
+        prev = hs[-1]
+        for _ in range(_ENDPOINT_EXTEND_MAX):
+            gap *= growth
+            nxt = prev + gap
+            if nxt > _ENDPOINT_EXTEND_REACH * top:
+                break
+            if harmonic:
+                nxt = float(round(nxt))
+                if nxt <= prev:
+                    nxt = prev + 1.0
+            out.append({"h": round(nxt, 6), "a": 0.0, "phase": 0.0})
+            prev = nxt
+
+    n = len(out)
+    for i, p in enumerate(out):
+        t = i / (n - 1) if n > 1 else 1.0
+        a = _ENDPOINT_RAMP_FLOOR + (1.0 - _ENDPOINT_RAMP_FLOOR) * (t if brighter else 1.0 - t)
+        p["a"] = 0.0 if a < 0.0 else (1.0 if a > 1.0 else a)
+    if brighter:
+        out[-1]["a"] = round(out[-1]["a"] * 0.8, 6)
     return out
 
 
@@ -1000,21 +1041,21 @@ def _apply_motion_intent(recipe, intent_key, flags):
     if intent_key in _MOTION_NEEDS_K2 and K < 2:
         # Endpoint synthesis: a single charactered keyframe has nothing to move
         # BETWEEN yet, but a named motion is an honest instruction we CAN realize
-        # for ANY additive spectrum -- synthesize the missing second endpoint (a
-        # spectral-tilted copy of the base) rather than refusing outright. The
-        # tilt ranks partials by h and re-weights amplitude, so it works on an
+        # for ANY additive spectrum -- synthesize the missing second endpoint
+        # (the base's dark<->bright OPPOSITE, _opposite_endpoint) rather than
+        # refusing outright. The ramp ranks partials by h, so it works on an
         # INHARMONIC bank (bell/bar/cymbal) exactly as on a harmonic one: the old
         # integer-h refusal only protected the baked harmonic grid, and an
         # inharmonic chain now routes to the real-time additive-sets engine (LCO
         # wave-interpolation spec sec.7). Only the single-partial floor stays -- a
-        # pure sine has no spectral opposite to tilt toward (lco_author's
-        # analog-life / amplitude-breathe handles that degenerate case).
+        # pure sine has no spectral opposite (lco_author's analog-life /
+        # amplitude-breathe handles that degenerate case).
         kf0 = recipe["keyframes"][0]
         partials = kf0.get("partials") or []
         if kf0.get("kind") == "additive" and len(partials) >= 2:
             brighter = intent_key not in {"close", "settle"}
             new_kf = {"kind": "additive",
-                      "partials": _spectral_tilt(partials, _MOTION_ENDPOINT_TILT, brighter)}
+                      "partials": _opposite_endpoint(partials, brighter)}
             if "shape" in kf0:
                 new_kf["shape"] = kf0["shape"]
             recipe["keyframes"].append(new_kf)

@@ -109,10 +109,12 @@ def _apply_movement_by_default(resp, text):
 
     if len(partials) >= 2 and inharmonic:
         # Dark<->bright opposite endpoint (default: brighter -- the ear-validated
-        # "blooming open") + gentle andback. The tilt preserves h + partial count, so
-        # [A,B] is already union-aligned; _stationize samples the andback into the
-        # loop-closed [A,B,A] station chain and asserts the router contract.
-        endpoint = dco_recipe._spectral_tilt(partials, dco_recipe._MOTION_ENDPOINT_TILT, True)
+        # "blooming open") + gentle andback. The endpoint may EXTEND a sparse set
+        # with continuation partials (silent at the dark end -- that migration is
+        # what the ear actually hears); _stationize union-aligns the differing
+        # counts, samples the andback into the loop-closed [A,B,A] station chain
+        # and asserts the router contract.
+        endpoint = dco_recipe._opposite_endpoint(partials, True)
         base_kf = {"kind": "additive", "partials": [dict(p) for p in partials]}
         end_kf = {"kind": "additive", "partials": endpoint}
         if shape and shape > 0.0:
@@ -136,7 +138,9 @@ def _apply_movement_by_default(resp, text):
             return [{"h": p.get("h", 1.0),
                      "a": max(0.0, min(1.0, p.get("a", 0.0) * g)),
                      "phase": p.get("phase", 0.0)} for p in partials]
-        stations = [_scaled(1.0), _scaled(0.72), _scaled(1.0)]
+        # Breathe depth: 0.72 (-2.9 dB) was ear-judged near-inaudible on
+        # 2026-07-14; 0.35 (-9.1 dB) makes the swell unmistakably a gesture.
+        stations = [_scaled(1.0), _scaled(0.35), _scaled(1.0)]
         new_kfs = []
         for st in stations:
             nk = {"kind": "additive", "partials": st}
