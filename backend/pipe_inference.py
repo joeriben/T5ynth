@@ -885,8 +885,10 @@ def _resolve_coder_model_dir(request):
     Precedence:
       1. request["coder_model_path"]              — explicit path from the client
       2. $T5YNTH_CODER_MODEL / $LCO_MODEL_DIR     — override (dev/testing)
-      3. <model root>/coder/<dir>                 — auto-discovered installed coder
-      4. <model root>/lco-coder/<dir>             — dev drop (the local coder dir)
+      3. <model root>/qwen2.5-7b-instruct         — the 7B instruct INTERPRETER
+                                                    (preferred when installed)
+      4. <model root>/coder/<dir>                 — auto-discovered installed coder
+      5. <model root>/lco-coder/<dir>             — dev drop (the local coder dir)
     """
     explicit = (request.get("coder_model_path")
                 or os.environ.get("T5YNTH_CODER_MODEL")
@@ -894,6 +896,18 @@ def _resolve_coder_model_dir(request):
     if explicit:
         candidate = Path(explicit).expanduser()
         return candidate if _is_local_transformers_model_dir(candidate) else None
+
+    # mode=="dco" is a language-UNDERSTANDING task (dco_llm_map.llm_map_to_recipe
+    # reads the WHOLE prompt into lexicon keys), NOT a code-authoring one. The small
+    # coder drop under lco-coder/ empirically cannot interpret prompts — it dumps the
+    # catalogue instead — so when the 7B instruct interpreter is installed directly at
+    # the model root it is PREFERRED over the coder drop. The env overrides above stay
+    # supreme (a deployment that deliberately pins a coder still wins); a missing model
+    # still falls through to None below and the caller raises — there is NO fallback.
+    for base in _model_search_base_dirs():
+        interpreter = base / "qwen2.5-7b-instruct"
+        if _is_local_transformers_model_dir(interpreter):
+            return interpreter
 
     for base in _model_search_base_dirs():
         for sub in ("coder", "lco-coder"):
