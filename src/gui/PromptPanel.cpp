@@ -2046,9 +2046,11 @@ void PromptPanel::syncInjectionModeAvailability()
 
     // Every model-change path (button click, preset load, backend availability)
     // funnels through here — the same chokepoint that already gates injection
-    // mode by model. Notify MainPanel so it can grey out the AxesPanel for SA3,
-    // whose semantic axes are disabled pending recalculation. Cheap, idempotent,
-    // and user-driven (never on the audio/timer hot path).
+    // mode by model. Notify MainPanel so it can swap the AxesPanel's per-model
+    // axis table (SAO/AudioLDM2 <-> SA3) and refresh the Resynth gate. Resynth is
+    // the only element still scoped to SA3 — the semantic axes and DimExplorer
+    // run on every engine. Cheap, idempotent, and user-driven (never on the
+    // audio/timer hot path).
     if (onModelChanged)
         onModelChanged();
 }
