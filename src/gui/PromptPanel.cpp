@@ -370,25 +370,41 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     {
         dcoPromptEditor.setMultiLine(true, true);
         dcoPromptEditor.setReturnKeyStartsNewLine(false);
+        // Styled EXACTLY like promptAEditor (the neural Impulse A editor) — the
+        // LCO panel reuses the T5osc editor identity verbatim, not a variant.
         dcoPromptEditor.setColour(juce::TextEditor::backgroundColourId, kSurface.brighter(0.08f));
-        dcoPromptEditor.setColour(juce::TextEditor::textColourId, kDim);
+        dcoPromptEditor.setColour(juce::TextEditor::textColourId, kImpulseAText);
         dcoPromptEditor.setColour(juce::TextEditor::outlineColourId, kBorder);
-        dcoPromptEditor.setColour(juce::TextEditor::focusedOutlineColourId, kOscCol);
-        dcoPromptEditor.setColour(juce::TextEditor::highlightColourId, kOscCol.withAlpha(0.30f));
-        dcoPromptEditor.setTextToShowWhenEmpty("Describe the oscillator to bake", kDim.withAlpha(0.45f));
+        dcoPromptEditor.setColour(juce::TextEditor::focusedOutlineColourId, kImpulseA);
+        dcoPromptEditor.setColour(juce::TextEditor::highlightColourId, kImpulseA.withAlpha(0.30f));
+        dcoPromptEditor.setTextToShowWhenEmpty("Describe the oscillator to bake", kImpulseAText.withAlpha(0.45f));
         dcoPromptEditor.onReturnKey = [this] { triggerLcoGenerate(); };
         // No onTextChange mirror to the processor: the DCO prompt is
         // panel-local for now (preset persistence is a documented open seam).
         dcoPromptEditor.setBufferedToImage(true);
         addAndMakeVisible(dcoPromptEditor);
 
-        // "Language-Controlled Oscillator" — the LCO name spelled out, a small
-        // periwinkle caption above the prompt field (sized TextRole::Hint in resized()).
-        makeLabel(dcoSubtitleLabel, "Language-Controlled Oscillator", kOscCol,
-                  juce::Justification::centredLeft, this);
+        // The LCO title now lives in the panel header (MainPanel::setOscEasyMode /
+        // the header layout), so there is no separate subtitle line here any more.
+
+        // LCO model button — display-only for now (selection is future work),
+        // styled EXACTLY like a T5osc model button (modelBtns[], below): same
+        // LnF, same styleSwitchButton accent, same disabled-dim look. Shows the
+        // LCO interpretation LLM's name (set truthfully via setLcoModelName,
+        // MainPanel). Replaces the old idle "LCO: ready" status line.
+        dcoModelBtn.setButtonText(lcoModelName_);
+        dcoModelBtn.setLookAndFeel(&modelSwitchLnF);
+        styleSwitchButton(dcoModelBtn, kOscCol);
+        dcoModelBtn.setClickingTogglesState(false);
+        dcoModelBtn.setEnabled(false);      // display-only for now (selection is future work)
+        dcoModelBtn.setInterceptsMouseClicks(false, false);
+        addAndMakeVisible(dcoModelBtn);
 
         // No BAKE button: the reused GENERATE button (MainPanel) authors the bake
-        // in LCO mode via triggerLcoGenerate().
+        // in LCO mode via triggerLcoGenerate(). dcoStatusLabel stays as the
+        // logical status/error holder (many call sites write it) but is no
+        // longer laid out as its own visible line — its text is routed into
+        // dcoReadingEditor below (setLcoStatus).
         makeLabel(dcoStatusLabel, "LCO: ready", kDim, juce::Justification::centredLeft, this);
 
         // Flags list — the guardrail honesty channel made visible: one
@@ -398,14 +414,25 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         makeLabel(dcoFlagsLabel, "", kWarning, juce::Justification::topLeft, this);
 
         // Machine reading: fills the middle where the baked wave used to sit
-        // (the wave now draws in the engine window). A small "HEARD AS" caption
-        // over the acoustic reading lines — the disclosure the LCO is FOR
-        // (docs/DCO_REPROMPT_CONCEPT.md): what the instrument heard, made
-        // visible and negotiable, not a picture of the table.
-        makeLabel(dcoReadingHeader, "HEARD AS", kOscCol, juce::Justification::topLeft, this);
-        makeLabel(dcoReadingLabel,
-                  "The machine's reading of your prompt appears here after Generate.",
-                  kDim, juce::Justification::topLeft, this);
+        // (the wave now draws in the engine window) — the disclosure the LCO
+        // is FOR (docs/DCO_REPROMPT_CONCEPT.md): what the instrument heard,
+        // made visible and negotiable, not a picture of the table. A read-only
+        // multiline TextEditor styled EXACTLY like promptBEditor (the neural
+        // Impulse B editor — yellow identity), reused verbatim rather than a
+        // plain label pair, so it also doubles as the LCO status/error surface
+        // (setLcoStatus) until a reading exists.
+        dcoReadingEditor.setMultiLine(true, true);
+        dcoReadingEditor.setReadOnly(true);
+        dcoReadingEditor.setCaretVisible(false);
+        dcoReadingEditor.setColour(juce::TextEditor::backgroundColourId, kSurface.brighter(0.08f));
+        dcoReadingEditor.setColour(juce::TextEditor::textColourId, kImpulseB);
+        dcoReadingEditor.setColour(juce::TextEditor::outlineColourId, kBorder);
+        dcoReadingEditor.setColour(juce::TextEditor::focusedOutlineColourId, kImpulseB);
+        dcoReadingEditor.setColour(juce::TextEditor::highlightColourId, kImpulseB.withAlpha(0.30f));
+        dcoReadingEditor.setTextToShowWhenEmpty("The machine's reading of your prompt appears here after Generate.",
+                                                 kImpulseB.withAlpha(0.45f));
+        dcoReadingEditor.setBufferedToImage(true);
+        addAndMakeVisible(dcoReadingEditor);
 
         // DCO Re-Prompt (stance-driven self-reading loop, docs/DCO_REPROMPT_CONCEPT.md):
         // a SECOND stance bar bound to its OWN parameter (dcoRepromptStance) — never
@@ -434,12 +461,14 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         });
         addAndMakeVisible(dcoStanceBar);
 
-        // "RE-PROMPT" left-title for the stance strip (house ModuleTitle caption,
-        // like SNAP/CACHE) — no frame, no STEP button. The strip sits directly
-        // above the reused GENERATE button, which drives the loop: stance Off →
-        // bake, stance engaged → one re-prompt step.
-        makeLabel(dcoRepromptTitle, "RE-PROMPT", kOscCol,
-                  juce::Justification::centredLeft, this);
+        // "RE-PROMPT" framed ModuleBox — the same card template as the neural
+        // repromptModuleBox (accent top-header, no icon), holding just the DCO
+        // stance bar (no coupling column: the DCO chain has no A/B poles). Sits
+        // directly above the reused GENERATE button, which drives the loop:
+        // stance Off -> bake, stance engaged -> one re-prompt step.
+        dcoRepromptBox.configure("RE-PROMPT", kOscCol, Icon::numIcons);
+        addAndMakeVisible(dcoRepromptBox);
+        dcoRepromptBox.toBack();
     }
 
     // Model selector — fixed 4 slots, always visible (disabled = gray until model found).
@@ -1022,14 +1051,14 @@ void PromptPanel::resized()
     varSwitchLabel.setVisible(easy);
     // The DCO surface IS the Advanced canvas now (its own prompt editor + the
     // BAKE/status row), not one row sharing the canvas with neural controls.
+    // dcoStatusLabel is the hidden logical status holder now (never laid out/
+    // shown — see setLcoStatus); it is intentionally NOT toggled here.
     dcoPromptEditor.setVisible(!easy);
-    dcoStatusLabel.setVisible(!easy);
+    dcoModelBtn.setVisible(!easy);
+    dcoReadingEditor.setVisible(!easy);
     dcoFlagsLabel.setVisible(!easy);
-    dcoSubtitleLabel.setVisible(!easy);
-    dcoReadingHeader.setVisible(!easy);
-    dcoReadingLabel.setVisible(!easy);
     dcoStanceBar.setVisible(!easy);
-    dcoRepromptTitle.setVisible(!easy);
+    dcoRepromptBox.setVisible(!easy);
 
     if (!easy)
     {
@@ -1042,75 +1071,115 @@ void PromptPanel::resized()
         seedModeSwitchBounds = {};
         paramsDividerY = -1;
 
-        // Pure LCO canvas. Top-down: the "Language-Controlled Oscillator" subtitle,
-        // the 3-line prompt editor, the LCO status line. Bottom-up (pinned so they
-        // sit directly above the reused GENERATE button in the column below): the
-        // RE-PROMPT stance strip, then the flags list. The baked-table display fills
-        // the middle. There is no BAKE/STEP button — GENERATE drives the bake/loop
-        // (triggerLcoGenerate), so this panel only lays out the read-out surface.
-        setUiFont(dcoStatusLabel, TextRole::Caption, f);
-        setUiFont(dcoFlagsLabel, TextRole::Hint, f);   // honesty channel: small, not body-size
+        // The LCO panel REUSES the T5osc (neural/Easy) editor sizing verbatim
+        // rather than the shared `f` above: `f` is height-driven
+        // ((height-2)/kPromptContentUnits, kPromptContentUnits being the
+        // NEURAL row-count budget), and MainPanel gives the LCO panel a much
+        // TALLER height than that budget assumes, so `f` inflates toward its
+        // 20px ceiling — the oversized-font bug. preferredPromptFontForWidth
+        // is the SAME width-based font T5osc's own editors resolve to
+        // (PromptPanel.cpp construction), so reusing it here makes the LCO
+        // panel match the neural chrome exactly instead of scaling up.
+        const float fLco = preferredPromptFontForWidth(getLocalBounds().getWidth());
+        const int gapLco         = juce::roundToInt(fLco * kPromptGap);
+        const int modelGapLco    = juce::roundToInt(fLco * kPromptModelGap);
+        const int compactRowLco  = juce::roundToInt(fLco * kPromptCompactRow);
+        const int multiInputHLco = juce::roundToInt(fLco * kPromptMultiInput);
+        const float editorFontLco = fLco * 1.1f;
 
-        // Subtitle: a small periwinkle caption naming the mode, tight above the prompt.
-        setUiFont(dcoSubtitleLabel, TextRole::Hint, f);
-        dcoSubtitleLabel.setBounds(area.removeFromTop(juce::roundToInt(f * 1.0f)));
-        area.removeFromTop(juce::jmax(1, gap / 2));
-
-        const float editorFontH = f * 1.1f;
-        // 3 text lines + the editor's top/bottom indents and outline.
-        const int editorH = juce::roundToInt(editorFontH * 3.0f + 10.0f);
-        dcoPromptEditor.setBounds(area.removeFromTop(editorH));
-        // applyFontToAllText (NOT setFont) — same reasoning as the Impulse
-        // editors below: setFont only affects text typed after the call, so
-        // text already in the box would stay at the default size.
-        dcoPromptEditor.applyFontToAllText(juce::FontOptions(editorFontH));
-        area.removeFromTop(gap);
-
-        // Status line on its own row: "LCO: <technique>  [N flags]".
-        dcoStatusLabel.setBounds(area.removeFromTop(compactRowH));
-        area.removeFromTop(gap);
-
-        // RE-PROMPT stance strip, pinned to the BOTTOM so it always sits directly
-        // above the reused GENERATE button (MainPanel) no matter how tall the flags
-        // or wavetable grow: a "RE-PROMPT" left-title (house ModuleTitle, like SNAP/
-        // CACHE) + the stance glyph bar filling the rest. No frame, no STEP button —
-        // GENERATE steps the loop. docs/DCO_REPROMPT_CONCEPT.md.
+        // Top-down: the LCO model button row, then the prompt editor (A-styled).
+        // Bottom-up (pinned so they sit directly above the reused GENERATE
+        // button in the column below): the RE-PROMPT framed card, then the
+        // flags list above it. The HEARD AS output editor (B-styled) fills
+        // whatever remains in the middle. There is no BAKE/STEP button —
+        // GENERATE drives the bake/loop (triggerLcoGenerate).
         {
-            auto stanceRow = area.removeFromBottom(compactRowH);
-            const float titleFs = uiFontSize(TextRole::ModuleTitle, f);
-            setUiFont(dcoRepromptTitle, TextRole::ModuleTitle, f, true);
-            const int titleW = measureTextWidth(" RE-PROMPT", titleFs) + juce::jmax(4, gap);
-            dcoRepromptTitle.setBounds(stanceRow.removeFromLeft(juce::jmin(titleW, stanceRow.getWidth())));
-            stanceRow.removeFromLeft(juce::jmax(2, gap));
-            dcoStanceBar.setBounds(stanceRow);
+            auto modelRow = area.removeFromTop(compactRowLco + 2);
+            dcoModelBtn.setBounds(modelRow);
         }
-        area.removeFromBottom(gap);
+        area.removeFromTop(modelGapLco);
 
-        // Flags summary directly above the stance strip — one line per tier
-        // (Not understood / Adapted), so at most 2; the full per-flag detail stays
-        // on the tooltip. Zero flags = zero height, the table display reclaims it.
+        dcoPromptEditor.applyFontToAllText(juce::FontOptions(editorFontLco));
+        dcoPromptEditor.setBounds(area.removeFromTop(multiInputHLco));
+        area.removeFromTop(gapLco);
+
+        // RE-PROMPT framed ModuleBox — DIMENSIONALLY IDENTICAL to the neural
+        // repromptModuleBox (same kPromptReprompt height budget, same header,
+        // same stance-glyph region width), so the phase-portrait glyphs render at
+        // EXACTLY the T5osc size. The glyph radius is HEIGHT-BOUND
+        // (RepromptStanceBar: R = min(barH*0.36, (barW/N)*0.46)), so a shorter
+        // box shrinks the icons — an earlier compact version floored them to half
+        // size. The LCO has no A/B coupling stack, so the column the neural box
+        // reserves on the right is simply left empty and the SAME-WIDTH glyph bar
+        // is CENTRED in the content (not sprawled full-width, which read as an
+        // oversized empty card). Pinned near the panel bottom; the AIR above
+        // GENERATE comes from the MainPanel GENERATE-block centering (the same
+        // slack T5osc has), NOT from padding inside this panel.
+        {
+            // Size THIS box from the RECONSTRUCTED neural Easy-mode font, NOT fLco.
+            // The neural RE-PROMPT box is laid out in Easy mode, where MainPanel
+            // sits the panel at exactly getPreferredHeightForWidth
+            // (MainPanel.cpp:3462/3533), so its resized() font resolves to
+            //   f = (oscH - 2*pad - 2)/kPromptContentUnits  ==  fLco - 2*pad/units,
+            // i.e. ~1.2 units SMALLER than the width-based fLco. The LCO panel is
+            // deliberately TALLER (MainPanel.cpp:3527), so sizing this box with
+            // fLco makes it ~10-15% too tall and — because the glyph radius is
+            // HEIGHT-bound — renders the stance icons LARGER than T5osc's. Rebuild
+            // the neural Easy font here so the box, and thus the glyph size,
+            // matches T5osc EXACTLY. (At the narrow kMinOscH clamp both paths
+            // converge, so not mirroring that clamp is harmless.)
+            const float fRp = juce::jlimit(10.0f, 20.0f,
+                (static_cast<float>(getPreferredHeightForWidth(b.getWidth())) - 2.0f * pad - 2.0f)
+                    / kPromptContentUnits);
+            const int rpBoxH   = juce::roundToInt(fRp * kPromptReprompt);
+            const int rpPad    = juce::jmax(3, juce::roundToInt(fRp * 0.3f));
+            const int rpHeader = juce::roundToInt(fRp * kPromptCompactRow);
+            auto rpArea = area.removeFromBottom(rpBoxH);
+            dcoRepromptBox.setBaseFont(fRp);
+            dcoRepromptBox.setHeaderHeight(rpHeader);
+            dcoRepromptBox.setContentPadding(rpPad);
+            dcoRepromptBox.setBounds(rpArea);
+            auto content = dcoRepromptBox.getContentBounds();
+            // Match the neural glyph-region WIDTH exactly (there the right ~30% is
+            // the coupling column + a separating gap): this fixes the glyph pitch
+            // and size to T5osc's instead of stretching 7 glyphs across the full
+            // width. Centre the resulting bar since there is no coupling column.
+            const int couplingLikeW = juce::jlimit(58, 96, juce::roundToInt(content.getWidth() * 0.30f));
+            const int couplingGap   = juce::jmax(juce::roundToInt(fRp * kPromptGap) * 2,
+                                                 juce::roundToInt(fRp * 0.9f));
+            const int barW = juce::jmax(1, content.getWidth() - couplingLikeW - couplingGap);
+            dcoStanceBar.setBounds(content.withSizeKeepingCentre(barW, content.getHeight()));
+        }
+        // Tripled breathing room above the RE-PROMPT card (was a single gapLco,
+        // too cramped against the HEARD AS box). The extra space is taken from
+        // the HEARD AS editor below, which fills whatever `area` remains.
+        area.removeFromBottom(gapLco * 3);
+
+        // Flags line directly above the RE-PROMPT card — one "word: reason"
+        // line per approximated/unmappable prompt term (the guardrail honesty
+        // channel). Zero flags = zero height, the HEARD AS box reclaims it.
+        setUiFont(dcoFlagsLabel, TextRole::Hint, fLco);   // honesty channel: small, not body-size
         const auto flagsText = dcoFlagsLabel.getText();
         if (flagsText.isNotEmpty())
         {
             const int numLines = juce::StringArray::fromLines(flagsText).size();
             const int lineH = juce::roundToInt(dcoFlagsLabel.getFont().getHeight() + 2.0f);
             dcoFlagsLabel.setBounds(area.removeFromBottom(juce::jmin(numLines, 4) * lineH));
-            area.removeFromBottom(gap);
+            area.removeFromBottom(gapLco);
         }
         else
         {
             dcoFlagsLabel.setBounds({});
         }
 
-        // Machine reading fills the middle: a small "HEARD AS" caption over the
-        // acoustic reading lines. This is the LCO's disclosure surface — the
-        // baked wave now lives in the engine window, so the freed space shows
-        // what the instrument HEARD, prominent and readable.
-        setUiFont(dcoReadingHeader, TextRole::ModuleTitle, f, true);
-        setUiFont(dcoReadingLabel, TextRole::Caption, f);
-        dcoReadingHeader.setBounds(area.removeFromTop(juce::roundToInt(f * 1.1f)));
-        area.removeFromTop(juce::jmax(1, gap / 2));
-        dcoReadingLabel.setBounds(area);
+        // HEARD AS output editor fills the remaining middle — the LCO's
+        // disclosure surface (docs/DCO_REPROMPT_CONCEPT.md): what the
+        // instrument heard, made visible and negotiable. Flexes to absorb the
+        // tall LCO panel (a "~3x taller" B box, per the neural multiInput
+        // budget), with the placeholder/status text carried by its own
+        // empty-state string and setLcoStatus.
+        dcoReadingEditor.applyFontToAllText(juce::FontOptions(editorFontLco));
+        dcoReadingEditor.setBounds(area);
         return;
     }
 
@@ -2040,6 +2109,21 @@ void PromptPanel::triggerLcoGenerate()
         triggerDcoBake();
 }
 
+// Route status/error text into both the logical holder (dcoStatusLabel — kept
+// for the many call sites that already write it) and the visible HEARD AS box,
+// which doubles as the LCO status/error channel until an actual reading exists.
+void PromptPanel::setLcoStatus(const juce::String& text, const juce::String& tooltip)
+{
+    dcoStatusLabel.setText(text, juce::dontSendNotification);   // keep the logical status holder
+    // Status/error is always DIMMED (kDim) in the HEARD AS box so it never reads
+    // as a successful reading — the completion path re-brightens to kImpulseB only
+    // when an actual reading exists. setColour before setText so the replaced text
+    // picks up the dim colour (and clears any bright colour a prior reading left).
+    dcoReadingEditor.setColour(juce::TextEditor::textColourId, kDim);
+    dcoReadingEditor.setText(text, juce::dontSendNotification); // surface it in the HEARD AS box
+    dcoReadingEditor.setTooltip(tooltip);
+}
+
 void PromptPanel::triggerDcoBake()
 {
     // The base bake needs the LCO coder model (per-station Csound-GEN authoring)
@@ -2048,7 +2132,7 @@ void PromptPanel::triggerDcoBake()
     // the separate qwenAvailable_ (translation model) flag.
     if (! coderAvailable_)
     {
-        dcoStatusLabel.setText("Load the LCO coder in Settings", juce::dontSendNotification);
+        setLcoStatus("Load the LCO coder in Settings");
         return;
     }
 
@@ -2067,19 +2151,19 @@ void PromptPanel::triggerDcoBake()
     // misleading "authoring..." label. Same gate set as triggerGeneration.
     if (generating || translatingPrompts_ || loopStepInFlight_)
     {
-        dcoStatusLabel.setText("LCO: busy (generation running)", juce::dontSendNotification);
+        setLcoStatus("LCO: busy (generation running)");
         return;
     }
     auto pipePtr = processorRef.getPipeInferencePtr();
     if (pipePtr == nullptr)
     {
-        dcoStatusLabel.setText("LCO: backend not running", juce::dontSendNotification);
+        setLcoStatus("LCO: backend not running");
         return;
     }
     const auto text = dcoPromptEditor.getText().trim();
     if (text.isEmpty())
     {
-        dcoStatusLabel.setText("LCO: prompt is empty", juce::dontSendNotification);
+        setLcoStatus("LCO: prompt is empty");
         return;
     }
 
@@ -2092,7 +2176,7 @@ void PromptPanel::triggerDcoBake()
 
     dcoBaking_ = true;
     if (onLcoBusyChanged) onLcoBusyChanged(true);   // disable the reused GENERATE button
-    dcoStatusLabel.setText("LCO: authoring...", juce::dontSendNotification);
+    setLcoStatus("LCO: authoring...");
 
     // Author (one IPC round-trip, may lazily load the instruct model) and bake
     // on a detached background thread; only the engine load + status update
@@ -2295,7 +2379,7 @@ void PromptPanel::triggerDcoBake()
                 }
                 machineReading = parts.joinIntoString("; ");
 
-                // Display reading (dcoReadingLabel, shown where the wave used to
+                // Display reading (dcoReadingEditor, shown where the wave used to
                 // sit): the SAME resolved facts as machineReading, but formatted
                 // for the eye as short acoustic lines — technique + timbre words,
                 // motion, the ordered shape path (the timbre "stations"), then
@@ -2365,19 +2449,24 @@ void PromptPanel::triggerDcoBake()
                     // there. The LCO shows the READING instead (below).
                 }
                 self->dcoStatusLabel.setText(status, juce::dontSendNotification);
-                self->dcoStatusLabel.setTooltip(flagTooltip);
                 // The machine's reading, prominent in the middle. Show it bright
                 // ONLY when a table actually baked (non-empty strip) AND a reading
                 // was built — otherwise a parse-that-yields-no-frames ("empty
                 // recipe") would paint a confident "256 frames" reading that
                 // contradicts the status. On that path fall back to the status
-                // line (which carries the error), dimmed, so the panel is never
-                // blank-but-live and never reads as a successful bake.
+                // line (which carries the error) in the same HEARD AS box, so the
+                // panel is never blank-but-live and never reads as a successful bake.
                 const bool haveReading = (strip.getNumSamples() > 0 || !additiveStations.empty())
                                          && displayReading.isNotEmpty();
-                self->dcoReadingLabel.setColour(juce::Label::textColourId, haveReading ? kOscCol : kDim);
-                self->dcoReadingLabel.setText(haveReading ? displayReading : status,
-                                              juce::dontSendNotification);
+                // Restore the old dcoReadingLabel dim/bright distinction: a real
+                // reading is bright Impulse-B, the status/error fallback is dimmed
+                // (kDim) so it never reads as a successful bake. setColour before
+                // setText so the replaced text picks up the new colour.
+                self->dcoReadingEditor.setColour(juce::TextEditor::textColourId,
+                                                 haveReading ? kImpulseB : kDim);
+                self->dcoReadingEditor.setText(haveReading ? displayReading : status,
+                                               juce::dontSendNotification);
+                self->dcoReadingEditor.setTooltip(flagTooltip);
                 self->dcoFlagsLabel.setText(flagsSummary, juce::dontSendNotification);  // compact tier summary
                 self->dcoFlagsLabel.setTooltip(flagTooltip);  // full per-flag detail, grouped by tier
                 self->dcoBaking_ = false;
@@ -2454,12 +2543,12 @@ void PromptPanel::triggerDcoReprompt()
     // click did nothing (house pattern: triggerDcoBake, triggerGeneration).
     if (dcoRepromptBusy_)
     {
-        dcoStatusLabel.setText("LCO: re-prompt already running", juce::dontSendNotification);
+        setLcoStatus("LCO: re-prompt already running");
         return;
     }
     if (dcoBaking_)
     {
-        dcoStatusLabel.setText("LCO: busy (bake running)", juce::dontSendNotification);
+        setLcoStatus("LCO: busy (bake running)");
         return;
     }
     // loopStepInFlight_ added to match triggerDcoBake's identical gate (line
@@ -2473,24 +2562,24 @@ void PromptPanel::triggerDcoReprompt()
     // not re-baked) — adversarial review finding.
     if (generating || translatingPrompts_ || loopStepInFlight_)
     {
-        dcoStatusLabel.setText("LCO: busy (generation running)", juce::dontSendNotification);
+        setLcoStatus("LCO: busy (generation running)");
         return;
     }
     if (! qwenAvailable_)
     {
-        dcoStatusLabel.setText("LCO: re-prompt needs the translation model", juce::dontSendNotification);
+        setLcoStatus("LCO: re-prompt needs the translation model");
         return;
     }
     const int stanceIdx = static_cast<int>(processorRef.getValueTreeState()
                               .getRawParameterValue(PID::dcoRepromptStance)->load());
     if (stanceIdx == RepromptStance::Off)
     {
-        dcoStatusLabel.setText("LCO: pick a stance first", juce::dontSendNotification);
+        setLcoStatus("LCO: pick a stance first");
         return;
     }
     if (dcoLastMachineReading_.isEmpty())
     {
-        dcoStatusLabel.setText("LCO: bake once first", juce::dontSendNotification);
+        setLcoStatus("LCO: bake once first");
         return;
     }
 
@@ -2510,14 +2599,14 @@ void PromptPanel::triggerDcoReprompt()
     auto pipePtr = processorRef.getPipeInferencePtr();
     if (pipePtr == nullptr)
     {
-        dcoStatusLabel.setText("LCO: backend not running", juce::dontSendNotification);
+        setLcoStatus("LCO: backend not running");
         return;
     }
     const juce::String device = defaultInferenceDevice_;
 
     dcoRepromptBusy_ = true;
     if (onLcoBusyChanged) onLcoBusyChanged(true);   // disable the reused GENERATE button
-    dcoStatusLabel.setText("LCO: interpreting...", juce::dontSendNotification);
+    setLcoStatus("LCO: interpreting...");
 
     // IPC on a detached background thread ONLY — never the message thread (JUCE
     // rule; house pattern: triggerDcoBake / runSemanticLoopStep).
@@ -2555,11 +2644,10 @@ void PromptPanel::triggerDcoReprompt()
 
             if (! success || cleaned.isEmpty())
             {
-                self->dcoStatusLabel.setText(
-                    "LCO: " + (errorMessage.isNotEmpty() ? errorMessage
-                                                         : juce::String("re-prompt returned nothing")),
-                    juce::dontSendNotification);
-                return;   // do NOT touch the editor on failure/empty
+                const juce::String failMsg = "LCO: " + (errorMessage.isNotEmpty() ? errorMessage
+                                                         : juce::String("re-prompt returned nothing"));
+                self->setLcoStatus(failMsg);
+                return;   // do NOT touch the prompt editor on failure/empty
             }
 
             self->dcoLoopLast_ = cleaned;
@@ -2944,6 +3032,15 @@ void PromptPanel::setQwenAvailable(bool available)
 void PromptPanel::setCoderAvailable(bool available)
 {
     coderAvailable_ = available;
+}
+
+// Truthful display name for the LCO interpretation LLM on dcoModelBtn — driven
+// by the model-settings install state (MainPanel), never fabricated.
+void PromptPanel::setLcoModelName(juce::String name)
+{
+    lcoModelName_ = name.isNotEmpty() ? name : juce::String("LCO");
+    dcoModelBtn.setButtonText(lcoModelName_);
+    dcoModelBtn.repaint();
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

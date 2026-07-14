@@ -114,6 +114,11 @@ public:
     // (triggerDcoReprompt) is untouched, it already has its own qwenAvailable_
     // gate for the (different) translation model. Message thread.
     void setCoderAvailable(bool available);
+
+    /** Truthful display name for the LCO interpretation LLM shown on the LCO
+     *  model button (dcoModelBtn). Driven by the model-settings install state
+     *  (MainPanel) — never fabricated; falls back to "LCO" if empty. */
+    void setLcoModelName(juce::String name);
     bool isEasyMode() const { return easyMode_; }
     bool hasHiddenActiveState() const;
 
@@ -305,7 +310,7 @@ private:
     // DCO surface — Advanced IS the DCO panel now (a completely different
     // paradigm from the neural Easy view, not a variant of it): a 3-line
     // prompt editor (panel-local text, NOT bound to Impulse A), the
-    // BAKE/status row, the machine's READING of the prompt (dcoReadingLabel —
+    // BAKE/status row, the machine's READING of the prompt (dcoReadingEditor —
     // the acoustic interpretation, "how it was heard", where the baked wave
     // used to sit; the wave itself now draws in the engine window), and the
     // flags list (the guardrail honesty channel, one "word: reason" line per
@@ -313,21 +318,25 @@ private:
     // prompt via the backend lexicon router (docs/DCO_LLM_GUARDRAILS.md), bakes
     // frames on a background thread, and loads them into the wavetable master.
     juce::TextEditor dcoPromptEditor;
+    // Status/error channel — kept as the logical holder (many call sites write
+    // it) but no longer laid out as its own visible line; its text is routed
+    // into dcoReadingEditor below (see setLcoStatus).
     juce::Label dcoStatusLabel;
     juce::Label dcoFlagsLabel;
-    // "Language-Controlled Oscillator" — the LCO name spelled out, a small
-    // periwinkle caption above the prompt (TextRole::Hint, set in resized()).
-    juce::Label dcoSubtitleLabel;
     // The machine's reading of the prompt, shown prominently in the middle of
     // the LCO panel in place of the baked wave (which the engine window now
-    // owns). dcoReadingHeader is the "HEARD AS" periwinkle caption; the label
-    // below it carries the acoustic lines (technique + timbre words, motion,
-    // the ordered shape path, frame/rate footprint). Populated from the bake's
-    // resolved recipe — the same facts as dcoLastMachineReading_, formatted for
-    // the eye. Empty-state placeholder until the first Generate.
-    juce::Label dcoReadingHeader, dcoReadingLabel;
+    // owns). A read-only multiline editor styled exactly like promptBEditor
+    // (yellow/Impulse-B identity) — the "HEARD AS" surface. Populated from the
+    // bake's resolved recipe — the same facts as dcoLastMachineReading_,
+    // formatted for the eye. Empty-state placeholder until the first Generate.
+    // Also carries status/error text when there is no reading yet (setLcoStatus).
+    juce::TextEditor dcoReadingEditor;
     bool dcoBaking_ = false;
     void triggerDcoBake();
+    /** Write text into both the logical status holder and the visible HEARD AS
+     *  box (which doubles as the LCO status/error channel until a reading
+     *  exists). tooltip is optional context shown on the box. */
+    void setLcoStatus(const juce::String& text, const juce::String& tooltip = {});
 
     // DCO Re-Prompt (stance-driven self-reading loop, docs/DCO_REPROMPT_CONCEPT.md):
     // a SECOND stance bar bound to its OWN parameter (dcoRepromptStance — never
@@ -341,10 +350,12 @@ private:
     // original when the stance returns to Off (concept doc "Ein Feld, keine
     // Historie sichtbar").
     RepromptStanceBar dcoStanceBar;
-    // "RE-PROMPT" left-title caption for the stance strip — the house ModuleTitle
-    // treatment (like SNAP/CACHE), no frame. The framed ModuleBox + STEP button
-    // are gone: the stance strip sits directly above the reused GENERATE button.
-    juce::Label dcoRepromptTitle;
+    // "RE-PROMPT" framed card (house ModuleBox — the same template as the neural
+    // repromptModuleBox), holding just the DCO stance bar (no coupling column:
+    // the DCO chain has no A/B poles to couple). Sits directly above the reused
+    // GENERATE button, which drives it: stance Off -> bake, stance engaged ->
+    // one re-prompt step.
+    ModuleBox dcoRepromptBox;
     juce::String dcoLastMachineReading_, dcoLastFlagsLine_, dcoLoopLast_;
     juce::StringArray dcoLoopRecent_;
     // The Re-Prompt LLM's allowed palette — the scanner's own vocabulary, sent
@@ -375,6 +386,12 @@ private:
     // Declared BEFORE modelBtns so it outlives them (LnF destruction order).
     ModelSwitchLnF modelSwitchLnF;
     juce::TextButton modelBtns[kNumModelSlots];
+    // LCO (Advanced) model-selector button — display-only for now (selection is
+    // future work), styled EXACTLY like modelBtns[] (same modelSwitchLnF). Must
+    // stay declared AFTER modelSwitchLnF above (LnF destruction-order rule: the
+    // LnF must outlive every component whose setLookAndFeel points at it).
+    juce::TextButton dcoModelBtn;
+    juce::String lcoModelName_ { "LCO" };
     juce::String modelSlotIds[kNumModelSlots];  // resolved model directory name per slot
     juce::Rectangle<int> modelSwitchBounds;
 

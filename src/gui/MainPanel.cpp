@@ -589,12 +589,31 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     {
         promptPanel.setQwenAvailable(installed);
     };
-    settingsPage.onCoderModelChanged = [this](bool installed)
+    // Truthful LCO model-button name, by PREFERENCE: the interpreter (Qwen2.5-7B)
+    // is the more capable LCO LLM when present, else the coder (Qwen2.5-Coder-3B),
+    // else no LLM installed at all. Recomputed from BOTH install states so either
+    // one changing alone (coder or interpreter) updates the button correctly.
+    auto lcoModelNameFromInstallState = [this]
+    {
+        if (settingsPage.isInterpreterModelInstalled()) return juce::String("Qwen 7B");
+        if (settingsPage.isCoderModelInstalled())       return juce::String("Qwen 3B");
+        return juce::String("no LLM");
+    };
+    settingsPage.onCoderModelChanged = [this, lcoModelNameFromInstallState](bool installed)
     {
         promptPanel.setCoderAvailable(installed);
+        promptPanel.setLcoModelName(lcoModelNameFromInstallState());
+    };
+    // The LCO interpreter model has its OWN parallel callback, mirroring
+    // onCoderModelChanged above, so installing/removing it alone (without
+    // touching the coder) also refreshes the LCO model-button name live.
+    settingsPage.onInterpreterModelChanged = [this, lcoModelNameFromInstallState](bool)
+    {
+        promptPanel.setLcoModelName(lcoModelNameFromInstallState());
     };
     promptPanel.setQwenAvailable(settingsPage.isTranslationModelInstalled());
     promptPanel.setCoderAvailable(settingsPage.isCoderModelInstalled());
+    promptPanel.setLcoModelName(lcoModelNameFromInstallState());
 
     presetScrim.onClick = [this] { hidePresetManager(); };
     presetScrim.setVisible(false);
@@ -1485,6 +1504,13 @@ void MainPanel::setOscEasyMode(bool easy, bool persist)
     const bool neural = oscEasyMode;
     if (!neural && dimExplorerVisible)
         hideDimExplorer();
+
+    // Panel title is mode-dependent: neural keeps "T5 OSCILLATOR", LCO spells
+    // out the mode's real name instead (no separate subtitle line any more —
+    // the LCO panel's own dcoSubtitleLabel was removed, PromptPanel.cpp).
+    oscHeader.setText(neural ? juce::String(" T5 OSCILLATOR")
+                             : juce::String::fromUTF8(" Language-Controlled Oscillator"),
+                      juce::dontSendNotification);
 
     // Axes|Dim segment + the Stability credit are neural-only (no LCO meaning).
     axesDimSegBtns[0].setVisible(neural);
@@ -3454,14 +3480,22 @@ void MainPanel::resized()
     }
 
     // Card 1: OSCILLATOR
-    oscHeader.setFont(juce::FontOptions(static_cast<float>(headerH) * 0.85f));
     auto oscHeaderBounds = genCol.removeFromTop(headerH);
     oscHeader.setBounds(oscHeaderBounds);
-    const float oscHeaderFs = static_cast<float>(headerH) * 0.85f;
+    // Font is fit-to-width below: "Language-Controlled Oscillator" (LCO title)
+    // is longer than "T5 OSCILLATOR" and must not clip against the mode toggle.
+    // toggleW is sized off the UNFIT base font (matches the original behaviour —
+    // the toggle button's own size doesn't depend on how much the title shrinks).
+    float oscHeaderFs = static_cast<float>(headerH) * 0.85f;
     const int toggleW = juce::jlimit(58, 78,
         measureTextWidth(oscModeToggle.getButtonText(), juce::jmax(kUiControlFontMin, oscHeaderFs * 0.72f)) + 16);
+    const int availTitleW = juce::jmax(1, oscHeaderBounds.getWidth() - toggleW - 10);
+    const float measuredW = measureTextWidth(oscHeader.getText(), oscHeaderFs);
+    if (measuredW > availTitleW && measuredW > 0.0f)
+        oscHeaderFs = juce::jmax(kUiControlFontMin, oscHeaderFs * availTitleW / measuredW);
+    oscHeader.setFont(juce::FontOptions(oscHeaderFs));
     oscModeToggle.setBounds(oscHeaderBounds.removeFromRight(toggleW).reduced(2, 2));
-    const int titleW = measureTextWidth(" T5 OSCILLATOR", oscHeaderFs) + 8;
+    const int titleW = measureTextWidth(oscHeader.getText(), oscHeaderFs) + 8;
     auto poweredBounds = oscHeader.getBounds();
     poweredBounds.removeFromLeft(juce::jmin(titleW, poweredBounds.getWidth()));
     poweredBounds.removeFromRight(toggleW + 4);
@@ -3477,7 +3511,19 @@ void MainPanel::resized()
     if (!oscEasyMode)
     {
         const int lcoReservedH = genBtnH + genCacheGap + cacheRowH + kGap + resynthBlockH;
-        const int lcoPromptH   = juce::jmax(kMinOscH, genCol.getHeight() - lcoReservedH - kGap);
+        // Transfer T5osc's GENERATE breathing room EXACTLY. Neural fills the column
+        // with oscH (prompt) + kGap + headerH (axes segment) + axesH (axes card) +
+        // kGap, and the shared block below CENTERS GENERATE in whatever genCol is
+        // left → real air above the button. LCO has no axes card, so if the prompt
+        // panel eats the whole column (the old `genCol.getHeight() - lcoReservedH -
+        // kGap`) then remainH == controlsH and the centering slack is ZERO — GENERATE
+        // glued to the panel. Give the LCO prompt panel the SAME combined height as
+        // neural's prompt+axes region instead, so the leftover handed to the shared
+        // block is IDENTICAL to neural and GENERATE floats with the same gap. Capped
+        // at the fill-everything max so a tiny host window never pushes GENERATE off.
+        const int lcoPromptPreferred = oscH + headerH + axesH + kGap;
+        const int lcoPromptMax = juce::jmax(kMinOscH, genCol.getHeight() - lcoReservedH - kGap);
+        const int lcoPromptH   = juce::jlimit(kMinOscH, lcoPromptMax, lcoPromptPreferred);
         promptPanel.setBounds(genCol.removeFromTop(lcoPromptH));
         genCol.removeFromTop(kGap);
     }
