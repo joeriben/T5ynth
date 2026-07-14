@@ -26,7 +26,7 @@ Recipe schema (field names match the C++ consumer, src/dsp/DcoRecipeJson.h):
     "keyframes": [ { "kind": "additive|saw|square|pulse|triangle|fm2|cheby|ring",
                      "partials": [{"h": int, "a": float, "phase": float}, ...],
                      "width": float, "ratio": int, "index": float,
-                     "order": int, "drive": float, "mix": float }, ... ],  # <= 8
+                     "order": int, "drive": float, "mix": float }, ... ],  # <= 32
     "motion":    [ {"to": int, "dur_frac": float, "curve": "lin|fast|slow"},
                    ... ],                                                  # <= 16
     "loop": bool,
@@ -1094,9 +1094,23 @@ def _apply_motion_intent(recipe, intent_key, flags):
 
 _STATION_MAX_H = 64          # generous harmonic extent per converted classic wave
 _UNION_BUDGET = 64           # MAX_ADDITIVE_PARTIALS: union capped, weakest dropped
-_STATION_MAX = 8             # deliberate backend chain budget: M <= 8 (the WIRE cap
-                             # kMaxKeyframes is 32 since Slice 2b-i; raised here when
-                             # the 2b character passes need dense sub-stations)
+_STATION_MAX = 32            # backend chain budget, now == the wire cap kMaxKeyframes
+                             # (DcoRecipeJson.h, raised 8->32 in Slice 2b-i). Slice 2b
+                             # character passes land the dense sub-station chains this
+                             # headroom was raised for; motion-trajectory sampling
+                             # (_sample_stations) practically tops out near 16 (its
+                             # interior-curve budget is floored at the old 8, so a
+                             # curved path samples byte-identically -- only extra
+                             # motion BREAKPOINTS, e.g. flutter's 9th, now survive).
+_SAMPLE_INTERIOR_FLOOR = 8   # interior curved-segment sample budget in _sample_stations,
+                             # pinned at the pre-Slice-2b cap so every already-fitting
+                             # curved chain (open_up/close/settle bells) stays byte-
+                             # identical; the 8->32 raise only rescues truncated
+                             # BREAKPOINTS (the known flutter loss), never densifies
+                             # a path that already fit.
+_SUBSTATION_CAP = 32         # hard cap on sub-stations a character pass may insert
+                             # (== kMaxKeyframes wire cap; MAX_ADDITIVE_SETS 64 stays
+                             # the engine ceiling). Sets-path only; see _densify_stations.
 _COINCIDE = 1.0e-6           # h-merge tolerance (union alignment / FM fold)
 _STATION_PEAK = 0.98         # global amplitude ceiling (survive the [0,1] wire clamp)
 
@@ -1428,7 +1442,13 @@ def _sample_stations(corners, motion, max_stations=_STATION_MAX):
     if not segs:
         return [corners[0]]
     positions = [0.0] + [seg[3] for seg in segs]     # breakpoints (corner visits)
-    slots = max_stations - len(positions)
+    # Interior curved-segment samples are budgeted against _SAMPLE_INTERIOR_FLOOR
+    # (the pre-Slice-2b cap of 8), NOT max_stations: a curved path that already
+    # fit under 8 samples byte-identically after the 8->32 raise. The raise ONLY
+    # changes the final truncation below, so a motion with MORE breakpoints than
+    # the old cap (flutter: 9 breakpoints > 8 -> the 9th used to be dropped) now
+    # keeps them all. slots therefore never grows with max_stations.
+    slots = min(_SAMPLE_INTERIOR_FLOOR, max_stations) - len(positions)
     if slots > 0:
         curved = [seg for seg in segs
                   if seg[4] != "lin" and seg[0] != seg[1] and (seg[3] - seg[2]) > 1e-6]
@@ -1510,6 +1530,417 @@ def _stationize(recipe, flags):
     ok, why = _router_contract_ok(recipe)
     assert ok, "stationize violated the additive-sets router contract: " + why
     return recipe
+
+
+# --- S3.6: character/texture passes (LCO wave-interpolation spec sec.6.3/6.4) ---
+# The five texture adjectives (dirty / analog / old / washed-out / overdriven, +
+# their lexicon synonyms) are CONSTRUCTION PASSES over the keyframe chain, not
+# spectral delta-ops on a single station (spec sec.6). Each pass is a named,
+# deterministic transform over the union-aligned additive station chain that
+# movement-by-default / the morph composer already produced. Spectral adjectives
+# (bright/dark/hollow/thin/fat/...) STAY delta-ops in _compose. The passes are
+# invoked ONCE, as the final authoring layer, from lco_author.build_lco_response
+# AFTER the stations exist (movement-by-default's _stationize / _apply_analog_life)
+# -- this is the spec's "post-stationize" position. Placing the FRAMEWORK here (in
+# the torch-free DSP-domain module, reusing _station_partials / _union_align /
+# _clamp_and_repair / _router_contract_ok / _flag_tier) and the INVOCATION in
+# lco_author (where the multi-station chain is guaranteed to exist) reads cleaner
+# than duplicating the alignment machinery in the orchestrator.
+#
+# STRICT no-op when the prompt carries no texture adjective, so every non-texture
+# recipe is byte-identical (the hard non-regression gate, F.4). Determinism:
+# golden-angle / index-derived offsets only -- NO random module (double-run
+# byte-identical).
+#
+# Two media (spec sec.6.2/6.4):
+#   * BAKE path (a harmonic chain, all-integer h): the 256-frame baker
+#     interpolation IS the fluctuation medium, so passes perturb the EXISTING
+#     keyframes IN PLACE; loop closure stays the motion's job (motion[0].to ==
+#     motion[-1].to, already set upstream) so the keyframes need not be equal.
+#   * SETS path (an inharmonic chain, some non-integer h): the discrete stations
+#     ARE the medium, so a TEMPORAL pass first inserts perturbed midpoint
+#     SUB-STATIONS (spec sec.6.4) up to _SUBSTATION_CAP; loop closure is
+#     keyframe-level (station[-1] == station[0], re-asserted). The sets engine
+#     (PluginProcessor.cpp loadDcoAdditive) blends ALL K stations by scan and never
+#     reads recipe.motion, so the sub-station motion is emitted only to keep the
+#     recipe valid + closed.
+#
+# A pass NEVER flips a chain's router classification (F.6): a harmonic chain stays
+# all-integer-h (bakes), an inharmonic chain keeps its non-integer partials (routes
+# to sets). Every pass preserves the wire caps (<= _SUBSTATION_CAP keyframes, <= 64
+# aligned partials via _union_align's budget) and re-asserts the router contract
+# for sets chains.
+
+# Fixed order when several combine: NONLINEARITY FIRST (overdriven CREATES the new
+# partials the amplitude passes then shape), BLUR LAST (washed-out smears whatever
+# the others built; running it earlier would just be re-sharpened by dirty/analog).
+# dirty (per-station scatter) precedes analog (coherent drift) precedes old
+# (erosion+wow): scatter, then the slow coherent layer over it, then age it.
+_PASS_ORDER = ("overdriven", "dirty", "analog", "old", "washed_out")
+_TEMPORAL_PASSES = ("dirty", "analog", "old")   # essence is fluctuation-over-time
+_GOLDEN = 2.399963229728653   # radians (golden angle) -- decorrelates successive
+                              # partial indices so a per-index perturbation never
+                              # reads as a global tremolo (mirrors lco_author._GOLDEN)
+_DENSIFY_TARGET = 16          # sub-station count a temporal sets pass aims for
+                              # (<= _SUBSTATION_CAP; spec sec.6.4 "dense 16-32")
+
+
+def _texture_passes(resolved_adjectives, lexicon):
+    """Ordered [(pass_name, params), ...] for the texture adjectives present, in
+    the fixed _PASS_ORDER. Reads each adjective entry's additive 'pass' field (the
+    LLM only ever picked the KEY; every number below is curated in the lexicon,
+    never authored -- docs/DCO_LLM_GUARDRAILS.md). Two synonym keys mapping to the
+    same pass name collapse to one pass (last definition wins, deterministic)."""
+    by_key = {a["key"]: a for a in lexicon["adjectives"]}
+    found = {}
+    for key in resolved_adjectives:
+        entry = by_key.get(key)
+        pdef = entry.get("pass") if isinstance(entry, dict) else None
+        if isinstance(pdef, dict) and pdef.get("name") in _PASS_ORDER:
+            found[pdef["name"]] = pdef
+    return [(name, found[name]) for name in _PASS_ORDER if name in found]
+
+
+def _waveshape_harmonic(partials, drive, n=512, h_max=_STATION_MAX_H):
+    """Overdrive on a HARMONIC station: reconstruct one cycle from the partials,
+    push it through a tanh soft-clip (the same nonlinearity DcoBaker::applyShape
+    renders, mapped 1 + drive*4 with a 0.2*drive asymmetry bias), and project the
+    result back onto the INTEGER harmonic grid 1..h_max. This adds the real odd
+    (and, from the bias, some even) harmonics a drive stage creates -- computed
+    into the SPECTRUM so it is carried on both media (the sets path never runs the
+    baker's shape). The cycle is peak-normalized first so `drive` means the same
+    regardless of the incoming level (the engine renormalizes anyway). Deterministic,
+    stdlib-only. Output h is always integer -> the chain stays harmonic (no reroute)."""
+    two_pi = 2.0 * math.pi
+    cyc = [0.0] * n
+    for p in partials:
+        h = float(p["h"]); a = float(p["a"]); ph = float(p.get("phase", 0.0))
+        for k in range(n):
+            cyc[k] += a * math.sin(h * two_pi * k / n + ph)
+    peak = max((abs(v) for v in cyc), default=0.0) or 1.0
+    gain = 1.0 + drive * 4.0
+    bias = 0.2 * drive
+    y = [math.tanh(gain * (v / peak + bias)) for v in cyc]
+    mean = sum(y) / n
+    y = [v - mean for v in y]
+    out = []
+    for h in range(1, h_max + 1):
+        s = 0.0; c = 0.0
+        for k in range(n):
+            ang = h * two_pi * k / n
+            s += y[k] * math.sin(ang); c += y[k] * math.cos(ang)
+        s *= 2.0 / n; c *= 2.0 / n
+        r = math.hypot(s, c)
+        if r > 1.0e-4:
+            out.append({"h": float(h), "a": r, "phase": math.atan2(c, s) % two_pi})
+    return out or [{"h": 1.0, "a": 1.0, "phase": 0.0}]
+
+
+def _intermod_partials(partials, drive):
+    """Overdrive on an INHARMONIC station: a soft nonlinearity on a non-harmonic
+    set produces INTERMODULATION partials at f_i +- f_j (and the 2nd self-harmonic
+    2*f_i) that a single-cycle bake could never hold -- the sets engine synthesizes
+    them directly. Amplitudes ~ drive * a_i * a_j (2nd-order term), phases combined
+    (sum/difference of the parents). Existing partials are preserved (vector-summed
+    so a coincident intermod reinforces or cancels honestly). Only the strongest
+    partials seed the intermod (weak parents contribute negligibly), which also
+    bounds a 64-partial union station to O(1) pairs. Non-integer parents keep the
+    set inharmonic -> no reroute. Deterministic."""
+    g2 = drive * 0.5
+    strong = sorted(partials, key=lambda p: -float(p["a"]))[:12]
+    acc = {}   # h_key -> [h, sin_sum, cos_sum]
+
+    def add(h, amp, phase):
+        if h <= _COINCIDE or amp == 0.0:
+            return
+        key = round(h, 6)
+        s = amp * math.sin(phase); c = amp * math.cos(phase)
+        e = acc.get(key)
+        if e is None:
+            acc[key] = [h, s, c]
+        else:
+            e[1] += s; e[2] += c
+
+    for p in partials:
+        add(float(p["h"]), float(p["a"]), float(p.get("phase", 0.0)))
+    for ai in range(len(strong)):
+        pi = strong[ai]; hi = float(pi["h"]); ampi = float(pi["a"]); fi = float(pi.get("phase", 0.0))
+        add(2.0 * hi, g2 * ampi * ampi * 0.5, 2.0 * fi)
+        for bj in range(ai + 1, len(strong)):
+            pj = strong[bj]; hj = float(pj["h"]); ampj = float(pj["a"]); fj = float(pj.get("phase", 0.0))
+            amp = g2 * ampi * ampj
+            add(hi + hj, amp, fi + fj)
+            add(abs(hi - hj), amp, fi - fj)
+    out = []
+    for h, s, c in acc.values():
+        r = math.hypot(s, c)
+        if r < 1.0e-6:
+            continue
+        out.append({"h": round(h, 6), "a": r, "phase": math.atan2(c, s) % (2.0 * math.pi)})
+    out.sort(key=lambda p: p["h"])
+    return out
+
+
+def _pass_overdriven(stations, pdef, inharmonic, flags):
+    """overdriven/distorted: waveshaping-equivalent -> real new harmonics per
+    station (spec sec.6.3). Harmonic chain -> tanh-drive harmonics; inharmonic ->
+    intermod partials. Re-union-aligns afterwards (the count changed) so every
+    station stays the same length; _union_align applies the <=64 budget with the
+    honest 'reduced to 64 partials' flag if the intermod overflows."""
+    drive = float(pdef.get("drive", 0.6))
+    if inharmonic:
+        built = [_intermod_partials(st, drive) for st in stations]
+    else:
+        built = [_waveshape_harmonic(st, drive) for st in stations]
+    return _union_align(built, flags)
+
+
+def _pass_dirty(stations, pdef):
+    """dirty/gritty: small deterministic amplitude+phase jitter that VARIES PER
+    STATION AND PARTIAL (spec sec.6.3, the frame rule "every station slightly
+    different"). Magnitudes from the lexicon. golden angle decorrelates partials;
+    a distinct per-station phase makes neighbours differ. Loop closure is
+    re-asserted by the caller (sets) or carried by motion (bake)."""
+    amp_j = float(pdef.get("amp_jitter", 0.12))
+    ph_j = float(pdef.get("phase_jitter", 0.14))
+    for s_idx, st in enumerate(stations):
+        for i, p in enumerate(st):
+            j_a = math.sin(_GOLDEN * (i + 1) + 1.2341 * s_idx + 0.7)
+            j_p = math.sin(_GOLDEN * (i + 1) * 0.5 + 2.3299 * s_idx + 1.9)
+            p["a"] = float(p["a"]) * (1.0 + amp_j * j_a)
+            p["phase"] = float(p.get("phase", 0.0)) + ph_j * j_p
+    return stations
+
+
+def _pass_analog(stations, pdef, inharmonic):
+    """analog: slow COHERENT drift across the whole chain (spec sec.6.3;
+    generalizes _apply_analog_life._drift_frames). Amplitude wobble + phase drift
+    on a smooth 2*pi cycle across the stations (loop-closed: s=0 and s=K-1 coincide),
+    golden-angle offset per partial index so nothing repeats. Plus an analog h
+    micro-detune -- SETS path only, applied IDENTICALLY to every station so h stays
+    CONSTANT per index (union alignment / no gliding, spec sec.4), the fundamental
+    untouched. A harmonic chain gets NO h detune (any shift flips integer->non-integer
+    and would reroute the engine path -- forbidden)."""
+    wob = float(pdef.get("amp_wobble", 0.08))
+    ph_drift = float(pdef.get("phase_drift", 0.10))
+    h_detune = float(pdef.get("h_detune", 0.0025))
+    K = len(stations)
+    denom = (K - 1) if K > 1 else 1
+    for s_idx, st in enumerate(stations):
+        theta = 2.0 * math.pi * s_idx / denom
+        for i, p in enumerate(st):
+            p["a"] = float(p["a"]) * (1.0 + wob * math.sin(theta + _GOLDEN * i))
+            p["phase"] = float(p.get("phase", 0.0)) + ph_drift * math.sin(theta + 1.7 * i + 0.5)
+    if inharmonic and h_detune > 0.0 and stations:
+        n = len(stations[0])
+        offs = [(1.0 + h_detune * math.sin(_GOLDEN * i + 0.4)) if i > 0 else 1.0 for i in range(n)]
+        for st in stations:
+            for i, p in enumerate(st):
+                p["h"] = round(float(p["h"]) * offs[i], 6)
+    return stations
+
+
+def _pass_old(stations, pdef, inharmonic, static_mode, flags):
+    """old: HF erosion (progressive high-partial attenuation, quadratic in h-rank,
+    varying slightly across stations) + light smear + wow. wow = slow coherent pitch
+    wobble: SETS path -> a tiny COMMON h-scale per station oscillating across the
+    sub-stations (a real, tape-tiny micro-glide, NOT the ear-rejected morph glide;
+    stays inharmonic). BAKED path -> a non-integer pitch wobble is not expressible
+    on the integer-grid baked wire without flipping the route, so the erosion+smear
+    apply and the wow is FLAGGED honestly as not carried here."""
+    erode = float(pdef.get("hf_erode", 0.5))
+    smear = float(pdef.get("smear", 0.12))
+    wow = float(pdef.get("wow", 0.004))
+    K = len(stations)
+    denom = (K - 1) if K > 1 else 1
+    for s_idx, st in enumerate(stations):
+        n = len(st)
+        var = 1.0 + 0.1 * math.sin(2.0 * math.pi * s_idx / denom)
+        eroded = []
+        for i, p in enumerate(st):
+            frac = i / (n - 1) if n > 1 else 0.0
+            g = 1.0 - erode * var * frac * frac
+            eroded.append(float(p["a"]) * (g if g > 0.0 else 0.0))
+        for i, p in enumerate(st):
+            lo = eroded[i - 1] if i > 0 else eroded[i]
+            hi = eroded[i + 1] if i < n - 1 else eroded[i]
+            p["a"] = (1.0 - 2.0 * smear) * eroded[i] + smear * lo + smear * hi
+    if inharmonic and not static_mode and wow > 0.0:
+        for s_idx, st in enumerate(stations):
+            k = 1.0 + wow * math.sin(2.0 * math.pi * s_idx / denom)
+            for p in st:
+                p["h"] = round(float(p["h"]) * k, 6)
+    elif not inharmonic:
+        flags.append({"word": "old",
+                      "reason": "wow (pitch wobble) not carried on the baked harmonic path -- HF erosion and smear applied"})
+    return stations
+
+
+def _pass_washed_out(stations, pdef):
+    """washed-out: spectral blur -- a small fixed [beta, 1-2beta, beta] kernel over
+    each station's h-ordered amplitude vector, so energy leaks between h-neighbours
+    and partial edges lose definition (spec sec.6.3). Single-station spectral (NOT
+    temporal), so it applies even under an explicit 'static' order."""
+    beta = float(pdef.get("blur", 0.18))
+    for st in stations:
+        n = len(st)
+        amps = [float(p["a"]) for p in st]
+        for i, p in enumerate(st):
+            lo = amps[i - 1] if i > 0 else amps[i]
+            hi = amps[i + 1] if i < n - 1 else amps[i]
+            p["a"] = (1.0 - 2.0 * beta) * amps[i] + beta * lo + beta * hi
+    return stations
+
+
+def _densify_stations(stations, target=_DENSIFY_TARGET, cap=_SUBSTATION_CAP):
+    """Insert union-aligned midpoint SUB-STATIONS between adjacent stations until
+    the chain reaches `target` (spec sec.6.4 sets-path medium), never exceeding
+    `cap`. Midpoints are per-index amplitude means of the (already index-aligned)
+    neighbours, keeping h/phase from the left station -> alignment preserved and, as
+    every insertion sits strictly between distinct neighbours, loop closure survives
+    (the last station is still a copy of the first). Deterministic."""
+    out = [[dict(p) for p in st] for st in stations]
+    while len(out) < target and (2 * len(out) - 1) <= cap:
+        dense = [out[0]]
+        for k in range(1, len(out)):
+            a, b = out[k - 1], out[k]
+            mid = [{"h": a[i]["h"], "a": 0.5 * (float(a[i]["a"]) + float(b[i]["a"])),
+                    "phase": a[i]["phase"]} for i in range(len(a))]
+            dense.append(mid)
+            dense.append(b)
+        out = dense
+    return out
+
+
+def _sets_motion(K):
+    """motion[] for a stationized/densified SETS chain. The additive-sets engine
+    blends all K stations by scan and NEVER reads recipe.motion (PluginProcessor.cpp
+    loadDcoAdditive receives only the station list + rate), so this exists solely to
+    keep the recipe structurally valid and loop-closed. A full per-station cycle when
+    it fits the wire's <=16 motion segments (kMaxSegments, DcoRecipeJson.h); otherwise
+    a compact 3-segment there-and-back (still loop-closed)."""
+    if K + 1 <= 16:
+        return _motion_cycle(K)
+    return [_seg(0, 0.0, "lin"), _seg(K - 1, 0.5, "lin"), _seg(0, 0.5, "lin")]
+
+
+def apply_character_passes(resp, text=None):
+    """Final authoring layer (spec sec.6.3/6.4): run the texture/character passes
+    over the station chain build_lco_response already produced. ``resp`` is that
+    working dict {ok, recipe, resolved, flags, lexicon_version, reference_vocabulary};
+    returned mutated. A STRICT no-op (byte-identical recipe) when no texture adjective
+    is present -- the hard non-regression gate. See the section banner above for the
+    two-media / classification-invariance / cap contract."""
+    lexicon = load_lexicon()
+    recipe = resp.get("recipe") or {}
+    resolved = resp.get("resolved") or {}
+    passes = _texture_passes(resolved.get("adjectives") or [], lexicon)
+    if not passes:
+        return resp   # non-texture recipe -> untouched, byte-identical
+
+    kfs = recipe.get("keyframes") or []
+    if not kfs:
+        return resp
+    added_flags = []
+
+    # STATIC rule (deliverable E): an explicit 'static' order collapses the recipe to
+    # ONE station upstream; texture temporality yields to it. Non-temporal components
+    # (overdrive harmonics, washed-out blur) still apply to the single station; a pass
+    # whose essence is fluctuation-over-time (dirty/analog/old) is SUPPRESSED with an
+    # honest adapted-tier flag.
+    static_mode = len(kfs) <= 1
+
+    # 1. every keyframe -> exact additive partials, union-aligned to a shared index
+    #    grid; classify ONCE and freeze (a pass must never flip this -> F.6).
+    stations = [_station_partials(kf) for kf in kfs]
+    if not any(stations):
+        return resp
+    stations = _union_align(stations, added_flags)
+    inharmonic = any(abs(float(p["h"]) - round(float(p["h"]))) > 1.0e-3
+                     for st in stations for p in st)
+
+    # 2. densify (SETS + a temporal pass only): the sub-station medium (spec sec.6.4).
+    temporal_present = any(name in _TEMPORAL_PASSES for name, _ in passes)
+    if inharmonic and not static_mode and temporal_present:
+        stations = _densify_stations(stations)
+
+    # 3. run the passes in the fixed order.
+    ran = []
+    for name, pdef in passes:
+        if static_mode and name in _TEMPORAL_PASSES:
+            added_flags.append({"word": name,
+                                "reason": f"static suppresses the fluctuation of {name}"})
+            continue
+        if name == "overdriven":
+            stations = _pass_overdriven(stations, pdef, inharmonic, added_flags)
+        elif name == "dirty":
+            stations = _pass_dirty(stations, pdef)
+        elif name == "analog":
+            stations = _pass_analog(stations, pdef, inharmonic)
+        elif name == "old":
+            stations = _pass_old(stations, pdef, inharmonic, static_mode, added_flags)
+        elif name == "washed_out":
+            stations = _pass_washed_out(stations, pdef)
+        ran.append(name)
+
+    if not ran:
+        # every requested pass was a suppressed temporal one (e.g. "static dirty
+        # bell"): the recipe is unchanged -> keep it byte-identical, only surface
+        # the suppression flag(s).
+        for f in added_flags:
+            f.setdefault("tier", _flag_tier(f.get("reason", "")))
+        resp["flags"] = list(resp.get("flags") or []) + added_flags
+        return resp
+
+    # 4. amplitude sanitation + one global peak ceiling (mirrors _stationize step 3;
+    #    the engine renormalizes, so this only guarantees the [0,1] wire clamp).
+    for st in stations:
+        for p in st:
+            a = p["a"]
+            p["a"] = 0.0 if a < 0.0 else (1.0 if a > 1.0 else a)
+    peak = max((p["a"] for st in stations for p in st), default=0.0)
+    if peak > _STATION_PEAK:
+        sc = _STATION_PEAK / peak
+        for st in stations:
+            for p in st:
+                p["a"] *= sc
+
+    # 5. loop closure. SETS -> keyframe-level (station[-1] == station[0]); BAKE keeps
+    #    the upstream motion's closure (motion[0].to == motion[-1].to).
+    if inharmonic and len(stations) >= 2:
+        stations[-1] = [dict(p) for p in stations[0]]
+
+    # 6. rebuild keyframes; regenerate motion for a re-counted SETS chain; leave the
+    #    bake chain's existing (loop-closing) motion untouched. A pre-existing 'shape'
+    #    is preserved only on the bake path with an unchanged 1:1 keyframe map AND when
+    #    overdrive did not run (overdrive bakes its harmonics into the partials, so the
+    #    engine's render-time shape must not double it).
+    old_shapes = [kf.get("shape") for kf in kfs]
+    drop_shape = "overdriven" in ran
+    new_kfs = []
+    for i, st in enumerate(stations):
+        nk = {"kind": "additive", "partials": st}
+        if (not inharmonic and not drop_shape and i < len(old_shapes)
+                and old_shapes[i] and len(stations) == len(kfs)):
+            nk["shape"] = old_shapes[i]
+        new_kfs.append(nk)
+    recipe["keyframes"] = new_kfs
+    if inharmonic:
+        recipe["motion"] = _sets_motion(len(new_kfs))
+        recipe["loop"] = True
+    recipe, _ = _clamp_and_repair(recipe)
+    if inharmonic:
+        ok, why = _router_contract_ok(recipe)
+        assert ok, "character passes violated the additive-sets router contract: " + why
+
+    resp["recipe"] = recipe
+    for f in added_flags:
+        f.setdefault("tier", _flag_tier(f.get("reason", "")))
+    resp["flags"] = list(resp.get("flags") or []) + added_flags
+    resolved = dict(resolved)
+    resolved["passes"] = ran
+    resp["resolved"] = resolved
+    return resp
 
 
 # ─── S3: technique-template lookup + default inference ───────────────────
@@ -1623,7 +2054,10 @@ def _compose(scan, s2_extra_adjective_hits, lexicon, frames_override):
             "keyframes": [copy.deepcopy(technique_index[k]["template"]["keyframes"][0]) for k in keys],
             "motion": _motion_cycle(len(keys)),
             "loop": True,
-            "frames": 128,
+            # Documented bake-path standard: 256 frames (LCO_WAVE_INTERPOLATION_SPEC.md
+            # sec.6; DcoBaker full resolution). A morph chain composes its own recipe
+            # rather than copying one template, so the frame count is set explicitly here.
+            "frames": 256,
             "motion_rate_hz": sum(technique_index[k]["template"].get("motion_rate_hz", 0.25)
                                    for k in keys) / len(keys),
         }
@@ -1920,9 +2354,9 @@ def _clamp_and_repair(recipe):
     if not isinstance(keyframes, list) or not keyframes:
         keyframes = [{"kind": "additive", "partials": [{"h": 1, "a": 1.0, "phase": 0.0}]}]
         repairs.append("empty/missing keyframes — injected a default sine keyframe")
-    if len(keyframes) > 8:
-        keyframes = keyframes[:8]
-        repairs.append("more than 8 keyframes — truncated to 8")
+    if len(keyframes) > _SUBSTATION_CAP:
+        keyframes = keyframes[:_SUBSTATION_CAP]
+        repairs.append(f"more than {_SUBSTATION_CAP} keyframes — truncated to {_SUBSTATION_CAP}")
 
     clean_keyframes = []
     for kf in keyframes:
@@ -2078,7 +2512,10 @@ def _clamp_and_repair(recipe):
     recipe["motion"] = motion
     recipe["loop"] = loop
 
-    frames, f_bad = _clamp_int(recipe.get("frames", 128), 8, 256, 128)
+    # Missing/invalid frames -> 256, the documented bake-path standard (LCO spec sec.6),
+    # not a half-resolution 128. Every lexicon template already carries frames=256, so
+    # this default only fires on external/malformed input.
+    frames, f_bad = _clamp_int(recipe.get("frames", 256), 8, 256, 256)
     if f_bad:
         repairs.append(f"frames {recipe.get('frames')} clamped to {frames}")
     recipe["frames"] = frames

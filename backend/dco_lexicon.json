@@ -1,5 +1,5 @@
 {
-  "lexicon_version": 4,
+  "lexicon_version": 5,
   "techniques": [
     {
       "key": "saw",
@@ -24,7 +24,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 5,
@@ -52,7 +52,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 5,
@@ -81,7 +81,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 5,
@@ -125,7 +125,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.35
       },
       "priority": 10,
@@ -153,7 +153,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 5,
@@ -188,7 +188,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 5,
@@ -234,7 +234,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 3,
@@ -266,7 +266,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 3,
@@ -318,7 +318,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 10,
@@ -364,7 +364,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.3
       },
       "priority": 10,
@@ -413,7 +413,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 10,
@@ -471,7 +471,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 10,
@@ -563,7 +563,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 10,
@@ -594,7 +594,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 10,
@@ -626,7 +626,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 10,
@@ -687,7 +687,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 10,
@@ -748,7 +748,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 10,
@@ -793,7 +793,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 10,
@@ -929,7 +929,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 10,
@@ -1040,7 +1040,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.18
       },
       "priority": 10,
@@ -1195,7 +1195,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 10,
@@ -1306,7 +1306,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 10,
@@ -1341,7 +1341,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 10,
@@ -1407,7 +1407,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 10,
@@ -1440,7 +1440,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 10,
@@ -1472,7 +1472,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 10,
@@ -1509,7 +1509,7 @@
           }
         ],
         "loop": true,
-        "frames": 128,
+        "frames": 256,
         "motion_rate_hz": 0.25
       },
       "priority": 10,
@@ -2314,24 +2314,14 @@
         "dreckiges",
         "gritty"
       ],
-      "delta": [
-        {
-          "op": "boost",
-          "args": {
-            "h": 2,
-            "amount": 0.2
-          }
-        },
-        {
-          "op": "tilt",
-          "args": {
-            "db_per_oct": 2,
-            "from_h": 4
-          }
-        }
-      ],
+      "delta": [],
+      "pass": {
+        "name": "dirty",
+        "amp_jitter": 0.12,
+        "phase_jitter": 0.14
+      },
       "priority": 8,
-      "why": "a grimy upper-mid push, grungier than harsh"
+      "why": "a grimy per-frame scatter — deterministic amplitude+phase jitter that differs at every station (spec sec.6.3), not a static upper-mid tilt"
     },
     {
       "key": "clean",
@@ -3021,9 +3011,34 @@
       "key": "distorted",
       "surface_forms": ["distorted","distortion","verzerrt","overdriven","saturated",
                         "verzerrte","verzerrtem","verzerrten","verzerrter","verzerrtes"],
-      "delta": [ {"op": "drive", "args": {"amount": 0.6}} ],
+      "delta": [],
+      "pass": { "name": "overdriven", "drive": 0.6 },
       "priority": 8,
-      "why": "nonlinear soft-clip (tanh waveshaper) adds real harmonics to any base — genuine distortion, not a brightness tilt"
+      "why": "nonlinear soft-clip (tanh waveshaper) computes REAL new harmonics into the spectrum per station — carried on the sets path too, where the render-time shape is ignored (spec sec.6.3)"
+    },
+    {
+      "key": "analog",
+      "surface_forms": ["analog","analogue","analoge","analogem","analogen","analoger","analoges"],
+      "delta": [],
+      "pass": { "name": "analog", "amp_wobble": 0.08, "phase_drift": 0.1, "h_detune": 0.0025 },
+      "priority": 8,
+      "why": "slow coherent drift across the whole chain — amplitude wobble + a tiny analog h micro-detune (sets path), golden-angle offset per partial so nothing repeats (spec sec.6.3)"
+    },
+    {
+      "key": "old",
+      "surface_forms": ["old","aged","worn","alt","alte","altem","alten","alter","altes"],
+      "delta": [],
+      "pass": { "name": "old", "hf_erode": 0.5, "smear": 0.12, "wow": 0.004 },
+      "priority": 8,
+      "why": "age: progressive high-partial erosion + light smear + a tape-tiny wow (slow pitch wobble on the sets path; flagged as not carried on the baked path) — spec sec.6.3"
+    },
+    {
+      "key": "washed_out",
+      "surface_forms": ["washed out","washed","ausgewaschen","verwaschen","verwaschene","verwaschenen"],
+      "delta": [],
+      "pass": { "name": "washed_out", "blur": 0.18 },
+      "priority": 8,
+      "why": "spectral blur — a small fixed kernel leaks energy between h-neighbours so partial edges lose definition (spec sec.6.3)"
     }
   ],
   "motions": [

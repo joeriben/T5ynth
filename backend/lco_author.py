@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""LCO author — routes to the deterministic dco_recipe author.
+"""LCO author — the LLM understands, the deterministic tools construct.
 
-build_lco_response() (mode=="dco" in pipe_inference.py) delegates recipe
-authoring to dco_recipe.author_recipe(), per docs/DCO_LLM_GUARDRAILS.md: "the
-LLM never authors DSP data. It only routes." The injected coder ``llm`` is
-used ONLY for S2 residue-routing — mapping prompt words the curated lexicon
-doesn't already cover to the nearest allowed lexicon key (or NONE), through a
-closed-choice enum check that is itself the sandbox. It no longer plans
-timbre stations or authors Csound GEN spectra.
+build_lco_response() (mode=="dco" in pipe_inference.py) hands the WHOLE
+prompt to dco_llm_map.llm_map_to_recipe: ONE language-understanding LLM call
+emits the lexicon-key plan (technique/adjectives/motion), and that plan
+triggers dco_recipe's deterministic composer/validator. This synth is an
+LLM-based language-understanding synth — there is NO deterministic prompt
+path and NO fallback (no model => pipe_inference refuses the request => no
+oscillator). docs/DCO_LLM_GUARDRAILS.md is unchanged where it matters: "the
+LLM never authors DSP data" — it picks KEYS, every number stays curated.
+On top of the authored recipe this module owns the movement chain:
+movement-by-default, analog life, and the character/texture passes.
 
 The per-station Csound-GEN coder path that previously authored spectra
 directly is retained unchanged below a banner comment as dead code (a
@@ -21,48 +24,18 @@ import re
 
 
 def build_lco_response(text, llm, frames=None):
-    """The response dict pipe_inference sends to C++ for mode=="dco". Delegates
-    authoring to dco_recipe.author_recipe (the deterministic, regression-tested
-    author) per docs/DCO_LLM_GUARDRAILS.md: the LLM never authors DSP data, it
-    only routes. ``llm`` (the injected coder) is used ONLY as the S2
-    residue-router via the ``llm_route`` adapter below. Returns
-    author_recipe's dict verbatim: {ok, recipe, resolved, flags,
-    lexicon_version, reference_vocabulary}."""
-    from dco_recipe import author_recipe
+    """The response dict pipe_inference sends to C++ for mode=="dco". The
+    injected ``llm`` IS the entry: dco_llm_map.llm_map_to_recipe understands
+    the WHOLE prompt in one call and emits the lexicon-key plan that triggers
+    dco_recipe's deterministic construction (docs/DCO_LLM_GUARDRAILS.md
+    unchanged: the LLM picks keys, never numbers). This synth is an LLM-based
+    language-understanding synth -- there is NO deterministic prompt path and
+    NO fallback: without the model there is no oscillator (pipe_inference
+    refuses mode=="dco" before this function is reached). Returns the dict
+    {ok, recipe, resolved, flags, lexicon_version, reference_vocabulary}."""
+    import dco_llm_map
 
-    def llm_route(residue_words, allowed_keys):
-        """S2 residue-routing (docs/DCO_LLM_GUARDRAILS.md S2): the coder maps each
-        unmapped word to the nearest curated lexicon key, or NONE. Closed-choice —
-        the enum check is the sandbox; it never authors DSP numbers."""
-        system_prompt = (
-            "You map sound-descriptor words to a fixed vocabulary. Reply with one "
-            "line per input word, exactly \"word -> key\". key must be one of the "
-            "allowed keys. If no key fits, use NONE. No other text."
-        )
-        user_prompt = ("Words: " + ", ".join(residue_words) + "\n"
-                       "Allowed keys: " + ", ".join(allowed_keys))
-        max_new = min(96, 8 * len(residue_words))
-        try:
-            raw = llm(user_prompt, system_prompt, max_new)
-        except Exception:
-            return {w: None for w in residue_words}   # deterministic degradation
-
-        allowed_set = set(allowed_keys)
-        lower_to_word = {w.lower(): w for w in residue_words}
-        line_re = re.compile(r"^(\S.*?)\s*->\s*([A-Z_a-z]+)$")
-        routed = {w: None for w in residue_words}
-        for line in raw.splitlines():
-            m = line_re.match(line.strip())
-            if not m:
-                continue
-            word = lower_to_word.get(m.group(1).strip().lower())
-            if word is None:
-                continue
-            key = m.group(2).strip().lower()   # lexicon keys are lowercase; LLM may echo "BRIGHT"
-            routed[word] = key if key in allowed_set else None   # enum IS the sandbox
-        return routed
-
-    resp = author_recipe(text, llm_route=llm_route, frames=frames)
+    resp = dco_llm_map.llm_map_to_recipe(text, llm, frames=frames)
     # Movement by default (LCO wave-interpolation spec sec.1/sec.7): nothing leaves the
     # author standing still unless "static" was ordered. Two passes, disjoint by
     # construction:
@@ -76,7 +49,17 @@ def build_lco_response(text, llm, frames=None):
     #      an adjective/analog cue. Bails on inharmonic and on already-moving recipes,
     #      so it never double-moves pass 1's output.
     resp = _apply_movement_by_default(resp, text)
-    return _apply_analog_life(resp, text, always=True)
+    resp = _apply_analog_life(resp, text, always=True)
+    # Character/texture passes (LCO wave-interpolation spec sec.6.3/6.4): the five
+    # texture adjectives (dirty/analog/old/washed-out/overdriven, + lexicon synonyms)
+    # are CONSTRUCTION PASSES over the station chain, not spectral delta-ops. Run as
+    # the final authoring layer, once the two passes above have guaranteed a
+    # multi-station chain exists (or an explicit 'static' order left a single station).
+    # A strict no-op when no texture adjective is present -> non-texture recipes stay
+    # byte-identical. The framework lives in dco_recipe (torch-free DSP domain, reuses
+    # the alignment/validation machinery); this is only its invocation point.
+    import dco_recipe
+    return dco_recipe.apply_character_passes(resp, text)
 
 
 def _apply_movement_by_default(resp, text):
@@ -342,9 +325,9 @@ NUM_FRAMES = 256
 
 # Caps mirrored from src/dsp/DcoRecipeJson.h (the C++ parser hard-caps these; we
 # stay strictly under so every emitted partial/keyframe/segment survives).
-_MAX_KEYFRAMES = 8          # deliberate BACKEND budget (wire kMaxKeyframes is 32
-                            # since Slice 2b-i; dense chains land with the 2b
-                            # character passes)
+_MAX_KEYFRAMES = 32         # == wire kMaxKeyframes (DcoRecipeJson.h, raised 8->32 in
+                            # Slice 2b-i). Slice 2b character passes land the dense
+                            # sub-station chains this headroom was raised for.
 _MAX_PARTIALS = 120         # < kMaxPartials (128); a GEN statement emits <= 8 anyway
 _MOTION_RATE_DEFAULT = 0.25  # Hz — the dco template default (backend clamp [0.02, 8.0])
 

@@ -33,6 +33,38 @@ BACKEND_SCRIPT = BACKEND_DIR / "pipe_inference.py"
 ENUM_KINDS = {"saw", "square", "pulse", "triangle", "additive", "fm2", "cheby", "ring"}
 ENUM_CURVES = {"lin", "fast", "slow"}
 
+# Deterministic stand-in for the language-understanding LLM (LLM-first entry,
+# standing order 2026-07-14: build_lco_response has NO deterministic prompt
+# path -- the injected model IS the entry). The suite injects the KEY PLAN a
+# competent interpreter would emit for each prompt (catalogue reply format of
+# dco_llm_map; values are surface forms, canonicalized by the closed-enum
+# guard), so these tests pin the CONSTRUCTION under the real entry, not any
+# model's live behavior. Unknown prompts honestly answer "none" everywhere.
+_INTERP_REPLIES = {
+    "saw": "TECHNIQUE: saw\nADJECTIVES: none\nMOTION: none",
+    "pwm": "TECHNIQUE: pwm\nADJECTIVES: none\nMOTION: none",
+    "warm pad": "TECHNIQUE: pad\nADJECTIVES: warm\nMOTION: none",
+    "sine": "TECHNIQUE: sine\nADJECTIVES: none\nMOTION: none",
+    "bell": "TECHNIQUE: bell\nADJECTIVES: none\nMOTION: none",
+    "static bell": "TECHNIQUE: bell\nADJECTIVES: none\nMOTION: static",
+    "cathedral bell, opens up": "TECHNIQUE: bell\nADJECTIVES: none\nMOTION: opens up",
+    "saw morphing into a bell": "TECHNIQUE: saw > bell\nADJECTIVES: none\nMOTION: none",
+    "overdriven saw": "TECHNIQUE: saw\nADJECTIVES: overdriven\nMOTION: none",
+    "dirty saw": "TECHNIQUE: saw\nADJECTIVES: dirty\nMOTION: none",
+    "analog pad": "TECHNIQUE: pad\nADJECTIVES: analog\nMOTION: none",
+    "old strings": "TECHNIQUE: strings\nADJECTIVES: old\nMOTION: none",
+    "washed-out square": "TECHNIQUE: square\nADJECTIVES: washed out\nMOTION: none",
+    "dirty bell": "TECHNIQUE: bell\nADJECTIVES: dirty\nMOTION: none",
+    "dirty old analog saw": "TECHNIQUE: saw\nADJECTIVES: dirty, old, analog\nMOTION: none",
+    "static dirty bell": "TECHNIQUE: bell\nADJECTIVES: dirty\nMOTION: static",
+    "static washed-out bell": "TECHNIQUE: bell\nADJECTIVES: washed out\nMOTION: static",
+}
+
+
+def _interp_llm(user, system, max_new):
+    return _INTERP_REPLIES.get(user, "TECHNIQUE: none\nADJECTIVES: none\nMOTION: none")
+
+
 _FAILURES = []
 
 
@@ -255,18 +287,30 @@ def run_unit_tests():
     check("'metallic' recipe differs from plain 'saw' (adjective not inert on non-FM)",
           json.dumps(r_met["recipe"], sort_keys=True) != json.dumps(r_saw["recipe"], sort_keys=True))
 
-    # 'distorted' drives a real waveshaper (post-render 'shape'), not a tilt:
-    # every keyframe gets shape>0 and the recipe differs from plain saw.
+    # 'distorted'/'overdriven' is now a CHARACTER PASS (Slice 2b, spec sec.6.3): the
+    # tanh soft-clip computes REAL new harmonics into the SPECTRUM per station (so it
+    # is carried on the sets path too, where the render-time 'shape' is ignored),
+    # NOT a post-render 'shape' delta-op. The transform lives in the build_lco_response
+    # layer (dco_recipe.apply_character_passes), so it is tested there.
+    import lco_author as _lca_dist
+
     r_dist = dr.author_recipe("distorted", llm_route=None, frames=None)
-    check("'distorted' -> every keyframe carries shape>0",
-          bool(r_dist["recipe"]["keyframes"]) and
-          all(kf.get("shape", 0.0) > 0.0 for kf in r_dist["recipe"]["keyframes"]),
-          [kf.get("shape") for kf in r_dist["recipe"]["keyframes"]])
-    check("'distorted' -> not flagged as unmapped",
+    check("'distorted' -> still a scanned adjective key (not flagged as unmapped)",
           not any(f["word"] == "distorted" for f in r_dist["flags"]), r_dist["flags"])
-    check("'distorted saw' recipe differs from plain 'saw'",
-          json.dumps(dr.author_recipe("distorted saw", llm_route=None, frames=None)["recipe"], sort_keys=True)
-          != json.dumps(dr.author_recipe("saw", llm_route=None, frames=None)["recipe"], sort_keys=True))
+    check("'distorted' -> its delta-op is retired (the pass owns it now, no 'shape')",
+          all(kf.get("shape", 0.0) == 0.0 for kf in r_dist["recipe"]["keyframes"]),
+          [kf.get("shape") for kf in r_dist["recipe"]["keyframes"]])
+    r_od = _lca_dist.build_lco_response("overdriven saw", _interp_llm, frames=None)
+    r_sw = _lca_dist.build_lco_response("saw", _interp_llm, frames=None)
+    check("overdriven pass -> 'overdriven saw' recipe differs from plain 'saw'",
+          json.dumps(r_od["recipe"], sort_keys=True) != json.dumps(r_sw["recipe"], sort_keys=True))
+    check("overdriven pass -> ran and is recorded in resolved.passes",
+          "overdriven" in (r_od["resolved"].get("passes") or []), r_od["resolved"])
+    # the waveshaper adds harmonics ABSENT from the plain saw chain (real new content).
+    _od_hs = {round(float(p["h"]), 3) for kf in r_od["recipe"]["keyframes"] for p in kf["partials"]}
+    _sw_hs = {round(float(p["h"]), 3) for kf in r_sw["recipe"]["keyframes"] for p in kf["partials"]}
+    check("overdriven pass -> chain stays harmonic (all-integer h, still bakes)",
+          all(abs(h - round(h)) < 1e-6 for h in _od_hs), sorted(_od_hs)[:8])
 
     # 'glassy'/'brittle'/'clangorous' route to the honest inharm op: each MUST
     # carry the real-inharmonicity disclosure flag (expose, don't fake), and on
@@ -731,8 +775,8 @@ def run_unit_tests():
     #    (not residue that the live S2 then mis-routes onto an adjective); and the
     #    words deliberately LEFT unmapped — honest exposure of a reduction the
     #    instrument cannot make — must still flag.
-    check("lexicon_version bumped to 4 for the vocabulary additions",
-          lexicon["lexicon_version"] == 4, lexicon["lexicon_version"])
+    check("lexicon_version bumped to 5 for the Slice-2b character-pass additions",
+          lexicon["lexicon_version"] == 5, lexicon["lexicon_version"])
 
     def _residue(resp):
         return {f["word"] for f in resp["flags"] if "no mapping" in f["reason"]}
@@ -900,8 +944,6 @@ def run_unit_tests():
     sys.path.insert(0, str(BACKEND_DIR))
     import lco_author as lca
 
-    def _null_llm(user, system, max_new):
-        return ""   # deterministic: the coder is used ONLY for S2 residue routing
 
     def _addkfs(recipe):
         return recipe.get("keyframes") or []
@@ -1054,13 +1096,13 @@ def run_unit_tests():
     r3 = dr.author_recipe("static bell", llm_route=None, frames=None)
     check("D.3 'static bell' -> exactly 1 station", len(_addkfs(r3["recipe"])) == 1,
           len(_addkfs(r3["recipe"])))
-    r3m = lca.build_lco_response("static bell", _null_llm, frames=None)
+    r3m = lca.build_lco_response("static bell", _interp_llm, frames=None)
     check("D.3 'static bell' via build_lco_response -> still exactly 1 station (static honored)",
           len(_addkfs(r3m["recipe"])) == 1, len(_addkfs(r3m["recipe"])))
 
     # --- D.4: "sine" (no motion words) -> amplitude-breathe stations + honesty flag
     #     (movement by default, degenerate spectrum; via build_lco_response). ---
-    r4 = lca.build_lco_response("sine", _null_llm, frames=None)
+    r4 = lca.build_lco_response("sine", _interp_llm, frames=None)
     k4 = _addkfs(r4["recipe"])
     a_seq = [kf["partials"][0]["a"] for kf in k4 if kf.get("partials")]
     check("D.4 'sine' -> >= 2 amplitude-breathe stations (same single h, varying a)",
@@ -1072,7 +1114,7 @@ def run_unit_tests():
     check("D.4 'sine' -> honesty flag naming the amplitude-breathe fallback",
           any("amplitude-breathe" in f["reason"] and f.get("tier") == "adapted" for f in r4["flags"]),
           r4["flags"])
-    r4b = lca.build_lco_response("sine", _null_llm, frames=None)
+    r4b = lca.build_lco_response("sine", _interp_llm, frames=None)
     check("D.4 'sine' -> deterministic double-run",
           json.dumps(r4, sort_keys=True) == json.dumps(r4b, sort_keys=True))
 
@@ -1093,23 +1135,164 @@ def run_unit_tests():
     check("D.5 -> drop is honestly reported (validator repair)",
           any("non-finite or h<=0" in r for r in reps5), reps5)
 
-    # --- D.6: harmonic non-regression -- author_recipe output for these harmonic
+    # --- D.6: harmonic non-regression -- author_recipe RECIPE for these harmonic
     #     prompts is BYTE-IDENTICAL to the frozen pre-change (committed HEAD)
-    #     snapshot. The station pipeline is a no-op for harmonic chains; the sha256
-    #     digests below were captured from HEAD before the Slice-2a edits. ---
+    #     snapshot. The station pipeline is a no-op for harmonic chains. NOTE: the
+    #     RECIPE is hashed (not the whole response), so a legitimate lexicon_version
+    #     bump -- Slice 2b bumped it 4 -> 5 for the character-pass adjectives -- never
+    #     masquerades as a recipe regression. These digests are recipe-only and were
+    #     captured from HEAD 9bd4542b; the character passes changed neither the
+    #     _compose recipe nor the budget-raise output for any harmonic prompt. ---
+    # RE-BASELINED 2026-07-14: the documented 256-frame bake standard
+    # (LCO_WAVE_INTERPOLATION_SPEC.md sec.6; DcoBaker full resolution) was
+    # restored -- every lexicon template + the morph-chain default carried a
+    # half-resolution 128. frames is the ONLY field that changed: verified
+    # byte-exact by reverting frames 256->128 on each recipe below, which
+    # reproduces the pre-change hash exactly (all keyframes/motion/loop/rate
+    # untouched). Previous 128-frame hashes retired here.
     _HARMONIC_BASELINE = {
-        "saw": "fdbc639e3979abe9b244fecf9da79b3c53b8ec9aa386efa62ffc98d110552f4c",
-        "pwm": "64c1756773088f86cd5ce6a23418b522989c26512c1c89339a5734ed47fadebe",
-        "warm pad": "7b1636ff99e77dd25be55dbdfa44a1bb88722ab375df6d1d2b7d7efc09c7d31c",
+        "saw": "3e9c04d870f5874e1dbaa04171ddfe165db9e649828d5b027953a59ac228c8f2",
+        "pwm": "ab6f51efc138afea150f0d1217ec7b72c47d88003e143adf8721eb9427948559",
+        "warm pad": "ce21257fe1c917953bcb0877dae192d88005353070d092eb7c51b6f5eafa4a57",
         "saw wave morphing into a square wave":
-            "1a1fe7ae7ecfd0a223decfc06ba58344d423d954620c6b3ed772d0f22d83fdd5",
+            "1f0b2125f9d2942d531eff2cedea4b256e8fa4eac258c9421fa715260a695dd0",
     }
     for prompt, want_hash in sorted(_HARMONIC_BASELINE.items()):
         resp = dr.author_recipe(prompt, llm_route=None, frames=None)
-        canon = json.dumps(resp, sort_keys=True, separators=(",", ":"))
+        canon = json.dumps(resp["recipe"], sort_keys=True, separators=(",", ":"))
         got_hash = hashlib.sha256(canon.encode()).hexdigest()
-        check(f"D.6 harmonic non-regression: {prompt!r} byte-identical to pre-change HEAD",
+        check(f"D.6 harmonic non-regression: {prompt!r} recipe byte-identical to pre-change HEAD",
               got_hash == want_hash, f"got {got_hash}")
+
+    # ===================================================================
+    # E: SLICE 2b CHARACTER/TEXTURE PASSES (spec sec.6.3/6.4, deliverable F).
+    #    The five texture adjectives (dirty/analog/old/washed-out/overdriven)
+    #    are construction passes over the station chain, run in the
+    #    build_lco_response layer (dco_recipe.apply_character_passes).
+    # ===================================================================
+    def _rhash(recipe):
+        return hashlib.sha256(json.dumps(recipe, sort_keys=True,
+                                         separators=(",", ":")).encode()).hexdigest()
+
+    def _kf_partials_json(recipe):
+        return [json.dumps(kf.get("partials") or [], sort_keys=True) for kf in recipe["keyframes"]]
+
+    def _is_harmonic_chain(recipe):
+        return all(abs(float(p["h"]) - round(float(p["h"]))) < 1e-3
+                   for kf in recipe["keyframes"] for p in (kf.get("partials") or []))
+
+    def _caps_ok(recipe):
+        if len(recipe["keyframes"]) > 32:
+            return False
+        if any(len(kf.get("partials") or []) > 64 for kf in recipe["keyframes"]):
+            return False
+        return len(recipe.get("motion") or []) <= 16
+
+    # ── E.1: each of the five adjectives on a HARMONIC base -----------------
+    for prompt in ("dirty saw", "analog pad", "old strings", "washed-out square",
+                   "overdriven saw"):
+        r = lca.build_lco_response(prompt, _interp_llm, frames=None)
+        rec = r["recipe"]
+        parts = _kf_partials_json(rec)
+        check(f"E.1 {prompt!r} -> more than one keyframe (movement, not a still)",
+              len(rec["keyframes"]) > 1, len(rec["keyframes"]))
+        check(f"E.1 {prompt!r} -> adjacent stations non-identical (the frame rule)",
+              all(parts[i] != parts[i + 1] for i in range(len(parts) - 1)), None)
+        check(f"E.1 {prompt!r} -> wire caps respected (<=32 kf, <=64 partials, <=16 motion)",
+              _caps_ok(rec), (len(rec["keyframes"]),
+                              max((len(kf.get("partials") or []) for kf in rec["keyframes"]), default=0),
+                              len(rec.get("motion") or [])))
+        r2 = lca.build_lco_response(prompt, _interp_llm, frames=None)
+        check(f"E.1 {prompt!r} -> deterministic (double-run byte-identical)",
+              _rhash(rec) == _rhash(r2["recipe"]))
+        check(f"E.1 {prompt!r} -> chain stays harmonic (would-bake; no reroute) [F.6]",
+              _is_harmonic_chain(rec), None)
+
+    # ── E.2: 'dirty bell' on the SETS path (sub-stations, contract, closure) -
+    r_db = lca.build_lco_response("dirty bell", _interp_llm, frames=None)
+    rec_db = r_db["recipe"]
+    r_plainbell = lca.build_lco_response("bell", _interp_llm, frames=None)
+    n_plain = len(r_plainbell["recipe"]["keyframes"])
+    counts = [len(kf.get("partials") or []) for kf in rec_db["keyframes"]]
+    check("E.2 'dirty bell' -> all keyframes additive + equal partial count (union-aligned)",
+          all(kf.get("kind") == "additive" for kf in rec_db["keyframes"])
+          and len(set(counts)) == 1 and counts[0] > 0, counts[:3])
+    ok_db, why_db = dr._router_contract_ok(rec_db)
+    check("E.2 'dirty bell' -> shipped additive-sets router contract holds", ok_db, why_db)
+    check("E.2 'dirty bell' -> sub-stations inserted (count > the plain bell chain)",
+          len(rec_db["keyframes"]) > n_plain, (len(rec_db["keyframes"]), n_plain))
+    db_parts = _kf_partials_json(rec_db)
+    check("E.2 'dirty bell' -> loop-closed (last station == first)",
+          db_parts[-1] == db_parts[0], None)
+    check("E.2 'dirty bell' -> every station differs from its neighbour (frame rule)",
+          all(db_parts[i] != db_parts[i + 1] for i in range(len(db_parts) - 1)), None)
+    check("E.2 'dirty bell' -> stays inharmonic (routes to sets, not bake) [F.6]",
+          not _is_harmonic_chain(rec_db), None)
+    check("E.2 'dirty bell' -> caps respected", _caps_ok(rec_db), None)
+
+    # ── E.3: combined adjectives 'dirty old analog saw' ---------------------
+    r_comb = lca.build_lco_response("dirty old analog saw", _interp_llm, frames=None)
+    passes_ran = r_comb["resolved"].get("passes") or []
+    check("E.3 'dirty old analog saw' -> all three passes ran in the fixed order",
+          [p for p in passes_ran if p in ("dirty", "analog", "old")] == ["dirty", "analog", "old"],
+          passes_ran)
+    r_comb2 = lca.build_lco_response("dirty old analog saw", _interp_llm, frames=None)
+    check("E.3 'dirty old analog saw' -> deterministic (double-run byte-identical)",
+          _rhash(r_comb["recipe"]) == _rhash(r_comb2["recipe"]))
+    check("E.3 'dirty old analog saw' -> caps respected", _caps_ok(r_comb["recipe"]), None)
+
+    # ── E.4: NON-REGRESSION (the hard gate) -- prompts WITHOUT any texture
+    #    adjective produce a build_lco_response RECIPE byte-identical to the
+    #    HEAD 9bd4542b snapshot: the passes MUST be a no-op. (Recipe-only, so the
+    #    legitimate lexicon_version 4->5 bump is not counted as a regression.)
+    #    'cathedral bell, opens up' was RE-BASELINED at the LLM-first entry
+    #    switch (2026-07-14): keys (fm_bell + open_up), keyframes and station
+    #    contents verified identical to the scan-entry snapshot; only the
+    #    motion dur_frac floats differ by 1 ULP (1/7 computed as a position
+    #    difference vs. a direct share) -- and the additive-sets engine never
+    #    reads recipe.motion for sets chains (see _sets_motion), so the wire
+    #    difference is provably inaudible. Every other pin is the original
+    #    HEAD snapshot, unchanged. --
+    # RE-BASELINED 2026-07-14: same 256-frame standard restoration as D.6 (see
+    # that note). These recipes flow through build_lco_response -> llm_map_to_recipe
+    # -> _compose, the same frames source. frames is the ONLY delta: reverting
+    # frames 256->128 on each recipe below reproduces the pre-change hash exactly.
+    _TEXTURE_NONREG = {
+        "saw": "78c4ed57c31850a1d470bb2a8b583a7f38bc9c4705aa9de035d101a282a613e4",
+        "pwm": "ab6f51efc138afea150f0d1217ec7b72c47d88003e143adf8721eb9427948559",
+        "warm pad": "883129acdf2c562471e97c57260a99be87dd1ac91e018adb47533649ba02c494",
+        "cathedral bell, opens up": "286f075d3ec6fc8d2b889ead93a487c2e75cdb8978556e16632aa6343fb17b5f",
+        "sine": "d14194a704aea3ce559d0fb189afdc5477751f7cdfa320795477643ae1c264dd",
+        "static bell": "cfdd0d0c55600ea9f73706821b12c5016d168243420118280b0f38f9fdae3124",
+        "saw morphing into a bell": "7108935530b08af10ee3e174ec2aa245537f3a1701abf760907fe8dc0652ab3c",
+    }
+    for prompt, want in sorted(_TEXTURE_NONREG.items()):
+        got = _rhash(lca.build_lco_response(prompt, _interp_llm, frames=None)["recipe"])
+        check(f"E.4 non-regression (no texture adjective): {prompt!r} recipe == HEAD",
+              got == want, f"got {got}")
+
+    # ── E.5: STATIC rule -- 'static dirty bell' stays ONE station and the
+    #    temporal 'dirty' fluctuation is suppressed with an honest flag. --------
+    r_sdb = lca.build_lco_response("static dirty bell", _interp_llm, frames=None)
+    check("E.5 'static dirty bell' -> stays a single station",
+          len(r_sdb["recipe"]["keyframes"]) == 1, len(r_sdb["recipe"]["keyframes"]))
+    _supp = [f for f in r_sdb["flags"]
+             if "static suppresses the fluctuation" in f.get("reason", "")]
+    check("E.5 'static dirty bell' -> dirty fluctuation suppressed with an adapted-tier flag",
+          bool(_supp) and all(f.get("tier") == "adapted" for f in _supp), r_sdb["flags"])
+    check("E.5 'static dirty bell' -> recipe equals plain 'static bell' (only the flag differs)",
+          _rhash(r_sdb["recipe"]) == _rhash(lca.build_lco_response("static bell", _interp_llm, frames=None)["recipe"]),
+          None)
+
+    # ── E.6: washed-out is a per-station SPECTRAL blur (non-temporal): it must
+    #    still apply under an explicit 'static' order (single station), unlike the
+    #    temporal passes -- and never flips the router classification. -----------
+    r_swb = lca.build_lco_response("static washed-out bell", _interp_llm, frames=None)
+    check("E.6 'static washed-out bell' -> single station kept, blur still applied (non-temporal)",
+          len(r_swb["recipe"]["keyframes"]) == 1
+          and "washed_out" in (r_swb["resolved"].get("passes") or []), r_swb["resolved"])
+    check("E.6 'static washed-out bell' -> stays inharmonic (sets contract, no reroute)",
+          not _is_harmonic_chain(r_swb["recipe"]), None)
 
     print()
     return list(_FAILURES)
