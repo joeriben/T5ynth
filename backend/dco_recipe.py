@@ -1094,7 +1094,9 @@ def _apply_motion_intent(recipe, intent_key, flags):
 
 _STATION_MAX_H = 64          # generous harmonic extent per converted classic wave
 _UNION_BUDGET = 64           # MAX_ADDITIVE_PARTIALS: union capped, weakest dropped
-_STATION_MAX = 8             # kMaxKeyframes wire cap (DcoRecipeJson.h): M <= 8
+_STATION_MAX = 8             # deliberate backend chain budget: M <= 8 (the WIRE cap
+                             # kMaxKeyframes is 32 since Slice 2b-i; raised here when
+                             # the 2b character passes need dense sub-stations)
 _COINCIDE = 1.0e-6           # h-merge tolerance (union alignment / FM fold)
 _STATION_PEAK = 0.98         # global amplitude ceiling (survive the [0,1] wire clamp)
 

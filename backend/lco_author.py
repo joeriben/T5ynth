@@ -342,7 +342,9 @@ NUM_FRAMES = 256
 
 # Caps mirrored from src/dsp/DcoRecipeJson.h (the C++ parser hard-caps these; we
 # stay strictly under so every emitted partial/keyframe/segment survives).
-_MAX_KEYFRAMES = 8          # DcoRecipeJson kMaxKeyframes
+_MAX_KEYFRAMES = 8          # deliberate BACKEND budget (wire kMaxKeyframes is 32
+                            # since Slice 2b-i; dense chains land with the 2b
+                            # character passes)
 _MAX_PARTIALS = 120         # < kMaxPartials (128); a GEN statement emits <= 8 anyway
 _MOTION_RATE_DEFAULT = 0.25  # Hz — the dco template default (backend clamp [0.02, 8.0])
 

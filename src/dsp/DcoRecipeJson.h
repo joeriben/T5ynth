@@ -37,7 +37,13 @@ inline Recipe recipeFromVar(const juce::var& v)
     r.keyframes.clear();
     r.motion.clear();
 
-    constexpr int kMaxKeyframes = 8;
+    // Wire cap on recipe keyframes = the sub-station chain length (spec sec.10,
+    // Slice 2b: dense character-pass chains of 16-32). Raised 8 -> 32; the router
+    // maps one additive station per keyframe into setAdditiveBank, whose own
+    // MAX_ADDITIVE_SETS = 64 stays the hard engine ceiling (32 <= 64). Over-cap
+    // recipes still truncate (keep the first kMaxKeyframes, drop the tail) exactly
+    // as before -- only the numeric threshold moves.
+    constexpr int kMaxKeyframes = 32;
     constexpr int kMaxSegments  = 16;
     constexpr int kMaxPartials  = 128;
 
