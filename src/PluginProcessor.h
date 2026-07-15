@@ -99,14 +99,35 @@ public:
      *  bells, metal, glass). Message thread. Mirrors loadDcoWavetable's engine-mode
      *  stash, callback-lock discipline and held-voice crossfade
      *  (distributeWavetableFrames), publishing an additive bank
-     *  (masterOsc.setAdditiveBank) instead of baked frames. K>=2 stations MOVE: the
-     *  engine interpolates between them under DCO motion at motionRateHz (mirror of
-     *  loadDcoWavetable), so the Scan control and EnvTarget::Scan drive inharmonic
-     *  timbres too. K==1 is one static spectrum — motion off, nothing to scan. Used
-     *  for any all-Additive chain with a non-integer partial; every other recipe still
-     *  bakes a frame strip through loadDcoWavetable. No-op on an empty station list. */
+     *  (masterOscB.setAdditiveBank — dual A+B, docs: dual_osc_build_spec.md W1;
+     *  A/masterOsc is untouched by this call) instead of baked frames. K>=2
+     *  stations MOVE: the engine interpolates between them under DCO motion at
+     *  motionRateHz (mirror of loadDcoWavetable), so the Scan control and
+     *  EnvTarget::Scan drive inharmonic timbres too. K==1 is one static
+     *  spectrum — motion off, nothing to scan. Used for any all-Additive chain
+     *  with a non-integer partial; every other recipe still bakes a frame strip
+     *  through loadDcoWavetable. No-op on an empty station list. Callers that
+     *  route a genuine dual split must also call setDcoOscBalance afterwards —
+     *  this function alone does not touch the dcoOscAHasContent/
+     *  dcoOscBHasContent flags. */
     void loadDcoAdditive(const std::vector<std::vector<dco::Partial>>& stationSets,
                          float motionRateHz = 0.0f);
+
+    /** Set the dual A+B oscillator's R1 balance gains + per-oscillator
+     *  "current recipe published content here" flags (docs:
+     *  dual_osc_build_spec.md R1/W2). Called by the DCO router
+     *  (PromptPanel::triggerDcoBake) exactly once after each bake action —
+     *  A-only, B-only, or a genuine dual split — so the flags always
+     *  reflect what THIS recipe routed, never a stale bank left by an
+     *  earlier one. gainA/gainB are ignored (oscillators play solo at
+     *  unity) unless BOTH flags are true. A-only passes oscAHasContent=true,
+     *  oscBHasContent=false; B-only passes the reverse (this is the ONE
+     *  place oscAHasContent legitimately goes false — see dcoOscAHasContent_'s
+     *  member comment for why its idle/non-DCO default is true, not false).
+     *  Message thread only (same rule as loadDcoWavetable/loadDcoAdditive);
+     *  mirrored into BlockParams every block for SynthVoice::renderBlock. */
+    void setDcoOscBalance(bool oscAHasContent, float gainA,
+                          bool oscBHasContent, float gainB);
 
     // Inference cache: raw inference audio only, no duplicate prompt/model metadata.
     struct InferenceCacheEntry
@@ -207,6 +228,36 @@ public:
     float getLastSplitStart() const { return lastSplitStart; }
     float getLastSplitEnd() const { return lastSplitEnd; }
 
+    // LCO/DCO bake snapshot — the exact inputs of the LAST successful bake
+    // (prompt, both readings, motion tempo, A/B balance), cached at bake time
+    // (PromptPanel::triggerDcoBake's completion lambda) so exportJsonPreset /
+    // PresetFormat::saveToFile can persist a complete, re-baking-free LCO
+    // preset. Mirrors the humanPromptA/B pattern above. Message-thread only.
+    // Cleared on a fresh neural generation (loadGeneratedAudio) so a preset
+    // saved after leaving LCO mode does not carry stale LCO metadata.
+    void setLcoBakeSnapshot(const juce::String& prompt,
+                            const juce::String& readingA, const juce::String& readingB,
+                            float motionRateHz,
+                            bool oscAHasContent, float gainA,
+                            bool oscBHasContent, float gainB)
+    {
+        lcoPrompt_ = prompt; lcoReadingA_ = readingA; lcoReadingB_ = readingB;
+        lcoMotionRateHz_ = motionRateHz;
+        lcoOscAHasContent_ = oscAHasContent; lcoGainA_ = gainA;
+        lcoOscBHasContent_ = oscBHasContent; lcoGainB_ = gainB;
+        lcoSnapshotValid_ = true;
+    }
+    void clearLcoBakeSnapshot() { lcoSnapshotValid_ = false; }
+    bool hasLcoBakeSnapshot() const { return lcoSnapshotValid_; }
+    const juce::String& getLcoPrompt() const { return lcoPrompt_; }
+    const juce::String& getLcoReadingA() const { return lcoReadingA_; }
+    const juce::String& getLcoReadingB() const { return lcoReadingB_; }
+    float getLcoMotionRateHz() const { return lcoMotionRateHz_; }
+    bool  getLcoOscAHasContent() const { return lcoOscAHasContent_; }
+    float getLcoGainA() const { return lcoGainA_; }
+    bool  getLcoOscBHasContent() const { return lcoOscBHasContent_; }
+    float getLcoGainB() const { return lcoGainB_; }
+
     // Semantic axes state (GUI-only, 3 slots: dropdownId + value)
     struct AxisSlotState { int dropdownId = 1; float value = 0.0f; };
     void setLastAxes(const std::array<AxisSlotState, 3>& a) { lastAxes = a; }
@@ -289,14 +340,26 @@ public:
     void clearNewWaveformFlag() { newWaveformReady.store(false, std::memory_order_release); }
     const juce::AudioBuffer<float>& getWaveformSnapshot() const { return waveformSnapshot; }
 
-    // Baked-wavetable display data (LCO/DCO). loadDcoWavetable stashes the strip
-    // it just published to masterOsc so the engine-window WaveformDisplay can draw
-    // the actual table (frame-decimated, cycle-readable) instead of the last
-    // neural sample. Separate flag from newWaveformReady: a bake does NOT set a
-    // new sample snapshot, so the sample display path never fires for the LCO.
+    // Wavetable display data: the frame strip the engine-window WaveformDisplay
+    // draws as a frame-decimated, cycle-readable 2.5D fan. Populated for BOTH a
+    // DCO/LCO bake (loadDcoWavetable/loadDcoAdditive) and neural/engine frames
+    // (publishWtDisplayFromOscFrames), so the fan shows for every wavetable.
+    // Separate flag from newWaveformReady so the fan can co-exist with the sample
+    // path (a bake sets no sample snapshot at all).
     bool hasNewWtDisplay() const { return newWtDisplayReady.load(std::memory_order_acquire); }
     void clearNewWtDisplayFlag() { newWtDisplayReady.store(false, std::memory_order_release); }
     const juce::AudioBuffer<float>& getWtDisplaySnapshot() const { return wtDisplaySnapshot; }
+
+    /** Re-arm the WT-display publish so a freshly (re)opened editor re-adopts the
+     *  current wavetable's 2.5D fan. The ready flag is one-shot (consumed by the
+     *  previous editor) while the snapshot persists across editor lifetimes; the
+     *  SynthPanel calls this on construction. No-op unless in Wavetable mode with
+     *  a published table (DCO, LCO or neural). */
+    void republishWtDisplayIfActive()
+    {
+        if (isWavetableMode() && wtDisplaySnapshot.getNumSamples() > 0)
+            newWtDisplayReady.store(true, std::memory_order_release);
+    }
 
     // JSON preset import/export (compatible with Vue reference format)
     juce::String exportJsonPreset() const;
@@ -306,6 +369,7 @@ public:
     SamplePlayer& getSampler() { return masterSampler; }
     WavetableOscillator& getMasterOsc() { return masterOsc; }
     const WavetableOscillator& getMasterOscConst() const { return masterOsc; }
+    const WavetableOscillator& getMasterOscBConst() const { return masterOscB; }
 
     /** Re-extract wavetable frames using current bracket region. */
     void reextractWavetable();
@@ -374,6 +438,11 @@ private:
     WtTraversalMapping makeWtTraversalMapping(int totalSamples) const;
     WtTraversalMapping makeWtTraversalMapping(int totalSamples, float p1, float p2, float p3) const;
     void syncWavetableTraversal(double bufferSampleRate, int totalSamples);
+    // Publish the oscillator's current level-0 frames as the WT-display strip so
+    // the engine-window 2.5D fan reflects neural/engine wavetables too (the DCO
+    // paths publish their baked strip directly). No-op when the bank has no
+    // frames (e.g. an inharmonic additive bank). Message thread.
+    void publishWtDisplayFromOscFrames();
     void updateDriftState(int numSamples, float syncBpm);
     void syncSamplerSettingsFromParametersLocked();
     bool serviceSamplerReprepare();
@@ -391,6 +460,15 @@ private:
 
     // Master data holders (own the audio/frame data, voices share from these)
     WavetableOscillator masterOsc;
+    // Second, PARALLEL master oscillator for the dual A+B DCO build (docs:
+    // dual_osc_build_spec.md). masterOsc (A) stays the harmonic/neural
+    // wavetable exactly as before; masterOscB (B) is published ONLY by
+    // loadDcoAdditive (the real-time inharmonic additive bank) — never
+    // touched by neural extraction/sampler/freeze. A second, isolated
+    // instance rather than any change to the shared render/morph hot path
+    // (WavetableOscillator itself is untouched) — see the build spec's
+    // "second instance isolation over cleverness" decision.
+    WavetableOscillator masterOscB;
     // True while masterOsc holds a DCO-baked table (loadDcoWavetable) instead
     // of frames extracted from generated audio. Gates the per-block
     // syncWavetableTraversal in processBlock, which would otherwise re-derive
@@ -399,12 +477,38 @@ private:
     // loaders), audio thread reads relaxed. Any neural (re-)extraction into
     // masterOsc clears it.
     std::atomic<bool> dcoTableActive_ { false };
-    // Engine mode the user was on before a DCO bake forced Wavetable, or -1.
+    // Dual A+B balance state for the CURRENT DCO recipe (set by
+    // setDcoOscBalance, mirrored into BlockParams every block). See
+    // BlockParams.h's dcoGainA/dcoGainB/dcoOscAHasContent/dcoOscBHasContent
+    // for the full contract. Message thread writes, audio thread reads
+    // relaxed — same discipline as dcoTableActive_.
+    //
+    // Asymmetric defaults, and it's deliberate: masterOsc (A) is ALSO the
+    // plain neural/sampler-extraction target, so "A has content" must default
+    // to true (a session that never touches DCO at all must render A exactly
+    // as it always has — the hard bit-identical invariant). It only ever
+    // flips false for the narrow router case where a DCO recipe is active
+    // (dcoTableActive_) and chose to publish to B only (all-inharmonic
+    // recipe, H empty — "skip A"), so a STALE bake left in masterOsc by an
+    // earlier recipe doesn't leak into the mix under the new one. masterOscB
+    // (B) has NO non-DCO content source, so "B has content" correctly
+    // defaults to false — silent until a recipe actually publishes to it.
+    std::atomic<float> dcoGainA_ { 1.0f };
+    std::atomic<float> dcoGainB_ { 1.0f };
+    std::atomic<bool>  dcoOscAHasContent_ { true };
+    std::atomic<bool>  dcoOscBHasContent_ { false };
+    // Engine mode the user was on before a DCO bake forced Lco, or -1.
     // The next fresh neural generation restores it (only if the mode is still
-    // Wavetable, i.e. the user didn't pick another engine in between) so a
+    // Wavetable or Lco, i.e. the user didn't pick another engine in between) so a
     // bake never permanently hijacks the neural signal path. Message thread
     // only (loadDcoWavetable / loadGeneratedAudio / setStateInformation).
     int dcoPrevEngineMode_ = -1;
+    // Bake-time inputs cached for LCO preset save (see setLcoBakeSnapshot).
+    juce::String lcoPrompt_, lcoReadingA_, lcoReadingB_;
+    float lcoMotionRateHz_ = 0.0f;
+    bool  lcoOscAHasContent_ = false, lcoOscBHasContent_ = false;
+    float lcoGainA_ = 1.0f, lcoGainB_ = 1.0f;
+    bool  lcoSnapshotValid_ = false;
     SamplePlayer masterSampler;
     FreezeTextureEngine masterFreeze;
     std::thread samplerReprepareThread;
@@ -594,10 +698,11 @@ private:
     juce::AudioBuffer<float> waveformSnapshot;
     std::atomic<bool> newWaveformReady { false };
 
-    // Baked-wavetable display (LCO/DCO): the strip loadDcoWavetable published,
-    // kept for the engine-window WaveformDisplay. Message-thread write (in
-    // loadDcoWavetable) + message-thread read (SynthPanel timer) — the atomic
-    // flag is the publish handshake, mirroring waveformSnapshot/newWaveformReady.
+    // Wavetable-display strip for the engine-window WaveformDisplay fan, published
+    // by the DCO/LCO bakes (loadDcoWavetable/loadDcoAdditive) and the neural/engine
+    // path (publishWtDisplayFromOscFrames). Message-thread write + message-thread
+    // read (SynthPanel timer) — the atomic flag is the publish handshake, mirroring
+    // waveformSnapshot/newWaveformReady.
     juce::AudioBuffer<float> wtDisplaySnapshot;
     std::atomic<bool> newWtDisplayReady { false };
 

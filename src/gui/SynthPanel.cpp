@@ -438,8 +438,12 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
     engineModeHidden.addItemList(engineModeItems, 1);
     engineModeHidden.onChange = [this] {
         const int id = engineModeHidden.getSelectedId();
+        // ComboBox ids are 1-based EngineMode indices+1. LCO (index 3, id 4) is
+        // bake/restore-only — there's no 4th switch button — so it lights up
+        // the SAME Wavetable button as plain Wavetable (an LCO bake IS a
+        // wavetable, just with a distinct preset identity).
         bool isSampler = id == 1;
-        bool isWavetable = id == 2;
+        bool isWavetable = id == 2 || id == EngineMode::Lco + 1;
         bool isFreeze = id == 3;
         samplerBtn.setToggleState(isSampler, juce::dontSendNotification);
         wavetableBtn.setToggleState(isWavetable, juce::dontSendNotification);
@@ -1370,9 +1374,17 @@ void SynthPanel::timerCallback()
 // an engine switch, a bake, or a neural gen each land on the right mode + label.
 void SynthPanel::reconcileWaveformDisplayMode()
 {
-    const bool showWtTable = processorRef.isWavetableMode() && processorRef.isDcoTableActive();
+    // Fan for EVERY wavetable (DCO/LCO or neural), gated on "wavetable mode AND a
+    // published table strip exists" rather than DCO-only. The strip persists in the
+    // processor across editor lifetimes, so this also re-adopts the fan when the
+    // display was reset (editor reopen, or a Wavetable→other→Wavetable round trip):
+    // re-arm the one-shot publish and the timer reloads it next tick.
+    const bool showWtTable = processorRef.isWavetableMode()
+                          && processorRef.getWtDisplaySnapshot().getNumSamples() > 0;
     if (! showWtTable && waveformDisplay.isWavetableMode())
-        waveformDisplay.exitWavetableMode();   // left the DCO table → restore sample view + brackets
+        waveformDisplay.exitWavetableMode();   // left the table → restore sample view + brackets
+    else if (showWtTable && ! waveformDisplay.isWavetableMode())
+        processorRef.republishWtDisplayIfActive();   // display lost the fan → re-adopt it
     waveformDisplay.setRegionLabel(showWtTable        ? "Wavetable"
                                  : processorRef.isWavetableMode() ? "Extraction region"
                                  : processorRef.isFreezeMode()    ? "Granular position"
@@ -1446,9 +1458,27 @@ void SynthPanel::updateVisibility()
         juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
 
     const int engineId = engineModeHidden.getSelectedId();
-    bool isWavetable = engineId == 2;
+    // LCO (id EngineMode::Lco+1 = 4) is a Wavetable bake — same control set
+    // as plain Wavetable (see the engineModeHidden.onChange mapping above).
+    bool isWavetable = engineId == 2 || engineId == EngineMode::Lco + 1;
     bool isFreeze = engineId == 3;
     bool isSampler = !isWavetable && !isFreeze;
+
+    // A DCO/LCO table owns the oscillator: lock the engine away from Sampler/
+    // Granular (the baked table is the sound) and pin the documented 256-frame
+    // standard (grey the frame-count buttons — reextractWavetable is a no-op for a
+    // baked table anyway). Wavetable stays selectable; released as soon as a neural
+    // gen or re-slice clears the lock. updateVisibility re-runs at bake and restore.
+    const bool dcoLock = isWavetable && processorRef.isDcoTableActive();
+    samplerBtn.setEnabled(!dcoLock);
+    freezeBtn.setEnabled(!dcoLock);
+    samplerBtn.setAlpha(dcoLock ? 0.4f : 1.0f);
+    freezeBtn.setAlpha(dcoLock ? 0.4f : 1.0f);
+    for (int i = 0; i < kNumFrameBtns; ++i)
+    {
+        frameBtns[i].setEnabled(!dcoLock);
+        frameBtns[i].setAlpha(dcoLock ? 0.4f : 1.0f);
+    }
 
     // Shared playback traversal controls
     oneshotBtn.setVisible(!isFreeze);
@@ -2640,7 +2670,8 @@ void SynthPanel::resized()
     // Always reserve same space for engine controls (max of sampler/WT)
     // so waveform height stays stable when switching modes
     const int engineId = engineModeHidden.getSelectedId();
-    const bool isWavetable = engineId == 2;
+    // LCO (id EngineMode::Lco+1 = 4) lays out identically to plain Wavetable.
+    const bool isWavetable = engineId == 2 || engineId == EngineMode::Lco + 1;
     const bool isFreeze = engineId == 3;
     const int waveformReserveH = juce::roundToInt(WaveformDisplay::HANDLE_RADIUS * 2.0f + 4.0f);
     int samplerCtrlH = waveformReserveH + rowH + gap * 2; // waveform handles + one controls row
@@ -2677,9 +2708,11 @@ void SynthPanel::resized()
     {
         // ── Scan-driven engines: dot + brackets on one line below waveform ──
         int scanLineH = waveformReserveH;
+        auto waveformBlock = area.removeFromTop(waveH + scanLineH);
+
         waveformDisplay.setBottomReserve(scanLineH);
         waveformDisplay.setScanVisible(true);
-        waveformDisplay.setBounds(area.removeFromTop(waveH + scanLineH));
+        waveformDisplay.setBounds(waveformBlock);
 
         // Hide the scanRow slider (APVTS still connected), scan is drawn by WaveformDisplay
         scanRow->setBounds(-1000, -1000, 10, 10);

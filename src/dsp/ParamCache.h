@@ -57,7 +57,7 @@
     X(genCfg)     X(genSeed)     X(genHfBoost)     X(infSteps) \
     X(loopMode)     X(crossfadeMs)     X(normalize)     X(loopOptimize) \
     X(noiseLevel)     X(noiseType)     X(wtFrames)     X(wtSmooth) \
-    X(wtAutoScan)     X(freezeTexture)     X(freezeStereo)     X(seqMode) \
+    X(wtAutoScan)     X(oscMix)     X(freezeTexture)     X(freezeStereo)     X(seqMode) \
     X(seqRunning)     X(seqBpm)     X(seqSteps)     X(seqDivision) \
     X(seqGlideTime)     X(seqGate)     X(seqShuffle)     X(seqOctave) \
     X(seqPreset)     X(arpMode)     X(arpRate)     X(arpOctaves) \

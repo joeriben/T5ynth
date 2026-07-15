@@ -815,6 +815,7 @@ private:
             if (m == "wavetable")    e.engineMode = "Wavetable";
             else if (m == "freeze")  e.engineMode = "Granular";
             else if (m == "sampler") e.engineMode = "Sampler";
+            else if (m == "lco")     e.engineMode = "LCO";
             else if (m.isNotEmpty()) e.engineMode = m;
         }
 

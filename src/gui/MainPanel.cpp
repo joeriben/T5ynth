@@ -2083,6 +2083,49 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
         dimensionExplorer.setEmbeddings(result.embeddingA, result.embeddingB, baseline, false);
     }
 
+    // LCO/DCO bake restore (format v5+). Deliberately AFTER the result.hasAudio
+    // block above: a stale neural audio_meta buffer sitting in generatedAudioFull
+    // from before the bake (LCO bakes never touch it) would otherwise have its
+    // loadGeneratedAudio call re-extract neural frames into masterOsc and clear
+    // the just-imported LCO snapshot (importJsonPreset::clearLcoBakeSnapshot
+    // path) — running this block last means the LCO restore always wins.
+    // Absence (result.hasLco == false) covers both legacy v3/v4 files and a v5
+    // file saved with no active bake; nothing to do.
+    if (result.hasLco)
+    {
+        if (result.lcoOscAHasContent)
+            processorRef.loadDcoWavetable(result.lcoFramesA, result.lcoMotionRateHz);
+        if (result.lcoOscBHasContent && !result.lcoStationsB.empty())
+        {
+            // loadDcoAdditive takes dco::Partial, PresetFormat stores the
+            // engine-level WavetableOscillator::AdditivePartial (identical
+            // {h,a,phase} layout, different type) — convert station-wise.
+            std::vector<std::vector<dco::Partial>> stations;
+            stations.reserve(result.lcoStationsB.size());
+            for (const auto& station : result.lcoStationsB)
+            {
+                std::vector<dco::Partial> conv;
+                conv.reserve(station.size());
+                for (const auto& p : station)
+                    conv.push_back({ p.h, p.a, p.phase });
+                stations.push_back(std::move(conv));
+            }
+            processorRef.loadDcoAdditive(stations, result.lcoMotionRateHz);
+        }
+        processorRef.setDcoOscBalance(result.lcoOscAHasContent, result.lcoGainA,
+                                      result.lcoOscBHasContent, result.lcoGainB);
+        // Re-cache the RESTORED (not re-baked) values so an immediate re-save
+        // round-trips without ever calling the LLM again.
+        processorRef.setLcoBakeSnapshot(result.lcoPrompt, result.lcoReadingA, result.lcoReadingB,
+                                        result.lcoMotionRateHz,
+                                        result.lcoOscAHasContent, result.lcoGainA,
+                                        result.lcoOscBHasContent, result.lcoGainB);
+        processorRef.setLastModel("LCO");
+        promptPanel.setLcoPrompt(result.lcoPrompt);
+        promptPanel.setLcoReadingA(result.lcoReadingA);
+        promptPanel.setLcoReadingB(result.lcoReadingB);
+    }
+
     processorRef.setLastPresetName(result.presetName);
     processorRef.setLastTags(result.tags);
     statusBar.setPresetName(result.presetName);

@@ -147,6 +147,13 @@ public:
      *  recall parks the prompt; the user bakes via GENERATE when ready). */
     juce::String getLcoPrompt() const { return dcoPromptEditor.getText(); }
     void setLcoPrompt(const juce::String& t) { dcoPromptEditor.setText(t, juce::dontSendNotification); }
+
+    /** Restore the "HEARD AS" reading boxes on LCO preset load — the same
+     *  text triggerDcoBake's completion lambda writes into them after a
+     *  bake, so a reload shows the original reading rather than an empty
+     *  placeholder or a re-derived one. */
+    void setLcoReadingA(const juce::String& t) { dcoReadingEditorA.setText(t, juce::dontSendNotification); }
+    void setLcoReadingB(const juce::String& t) { dcoReadingEditorB.setText(t, juce::dontSendNotification); }
     int getSeed() const;        // defined in the .cpp: T5ynthProcessor is only
     bool isRandomSeed() const;  // forward-declared here
 
@@ -293,6 +300,21 @@ private:
     FlippedVerticalSlider alphaSlider;   // vertical A↔B blend, A at top
     juce::Label alphaLabel, alphaValue;  // retained for callbacks but hidden (gradient is self-describing)
 
+    // E↔O oscillator-mix slider (Advanced/DCO view) — the dual A+B oscillator
+    // crossfade (PID::oscMix), relocated here from SynthPanel. Same visual idiom
+    // as the neural alphaSlider (FlippedVerticalSlider + AlphaSliderLnF gradient),
+    // but a PLAIN control: just a static SliderAttachment to PID::oscMix, with
+    // NONE of alphaSlider's injection-mode / ghost / applyModeToSlider logic.
+    // Labels E (top) = oscMix 0 = A/harmonic, O (bottom) = oscMix 1 = B/inharmonic
+    // — FlippedVerticalSlider puts the parameter MINIMUM at the top, so E↔0 and
+    // O↔1 fall out directly (same reason A sits at the top of the neural slider).
+    // Sits beside the two read fields below (dcoReadingEditorA/B), NOT the
+    // prompt row — the prompt row is full width (resized()'s !easy branch).
+    // oscMixLnF declared BEFORE oscMixSlider (destruction order), like alphaLnF.
+    AlphaSliderLnF oscMixLnF;
+    FlippedVerticalSlider oscMixSlider;
+    juce::Label oscMixLabelE, oscMixLabelO;
+
     // Duration — house-standard inline-bar SliderRow (mirrors MainPanel's
     // RESYNTH row): accent-band label + fill bar in kOscCol, with the "Ns"
     // read-out as the inline value. Easy view only (moved out of Advanced
@@ -310,7 +332,7 @@ private:
     // DCO surface — Advanced IS the DCO panel now (a completely different
     // paradigm from the neural Easy view, not a variant of it): a 3-line
     // prompt editor (panel-local text, NOT bound to Impulse A), the
-    // BAKE/status row, the machine's READING of the prompt (dcoReadingEditor —
+    // BAKE/status row, the machine's READING of the prompt (dcoReadingEditorA/B —
     // the acoustic interpretation, "how it was heard", where the baked wave
     // used to sit; the wave itself now draws in the engine window), and the
     // flags list (the guardrail honesty channel, one "word: reason" line per
@@ -320,17 +342,23 @@ private:
     juce::TextEditor dcoPromptEditor;
     // Status/error channel — kept as the logical holder (many call sites write
     // it) but no longer laid out as its own visible line; its text is routed
-    // into dcoReadingEditor below (see setLcoStatus).
+    // into dcoReadingEditorA/B below (see setLcoStatus).
     juce::Label dcoStatusLabel;
     juce::Label dcoFlagsLabel;
     // The machine's reading of the prompt, shown prominently in the middle of
     // the LCO panel in place of the baked wave (which the engine window now
-    // owns). A read-only multiline editor styled exactly like promptBEditor
-    // (yellow/Impulse-B identity) — the "HEARD AS" surface. Populated from the
-    // bake's resolved recipe — the same facts as dcoLastMachineReading_,
-    // formatted for the eye. Empty-state placeholder until the first Generate.
-    // Also carries status/error text when there is no reading yet (setLcoStatus).
-    juce::TextEditor dcoReadingEditor;
+    // owns) — the "HEARD AS" surface, split one per engine since a dual bake
+    // routes different partials to each (see the dual-split block in
+    // triggerDcoBake's completion lambda). dcoReadingEditorA (Harmonic, styled
+    // like promptAEditor/dcoPromptEditor) and dcoReadingEditorB (Inharmonic,
+    // styled like promptBEditor — the original single HEARD AS box's
+    // identity). Populated from the bake's resolved recipe — the same facts
+    // as dcoLastMachineReading_, formatted for the eye, plus a per-engine
+    // partial-count/gain footer when both engines are genuinely active.
+    // Empty-state placeholder until the first Generate, or when THIS bake
+    // published nothing to that engine. Both also carry status/error text
+    // when there is no reading yet (setLcoStatus).
+    juce::TextEditor dcoReadingEditorA, dcoReadingEditorB;
     bool dcoBaking_ = false;
     void triggerDcoBake();
     /** Write text into both the logical status holder and the visible HEARD AS
@@ -517,7 +545,7 @@ private:
     std::map<juce::String, float> pendingAxes_;          // for SemanticAxes
 
     using Attachment = juce::AudioProcessorValueTreeState::SliderAttachment;
-    std::unique_ptr<Attachment> alphaA, magA, noiseA, durA;
+    std::unique_ptr<Attachment> alphaA, magA, noiseA, durA, oscMixA;
     bool easyMode_ = false;
 
     // Auto-regen state

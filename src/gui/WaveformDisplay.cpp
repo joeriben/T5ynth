@@ -53,6 +53,19 @@ float WaveformDisplay::xToFrac(float x) const
     return juce::jlimit(0.0f, 1.0f, (x - area.getX()) / area.getWidth());
 }
 
+float WaveformDisplay::xToScanFrac(float x) const
+{
+    if (! wtMode)
+        return xToFrac(x);
+    // Invert the fan cursor mapping from paint(): x0 = area.x + depthX*frac and
+    // cursorX = x0 + waveW/2, so frac = (x - area.x - waveW/2) / depthX. Keeps the
+    // dragged cursor under the pointer across the compressed 2.5D X axis.
+    const auto area = getWaveformArea();
+    const float depthX = area.getWidth() * kWtDepthXFrac;
+    const float waveW  = area.getWidth() - depthX;
+    return juce::jlimit(0.0f, 1.0f, (x - area.getX() - waveW * 0.5f) / juce::jmax(1.0f, depthX));
+}
+
 void WaveformDisplay::setLoopStart(float frac)
 {
     loopStart = juce::jlimit(0.0f, loopEnd - 0.01f, frac);
@@ -264,6 +277,21 @@ void WaveformDisplay::mouseDown(const juce::MouseEvent& e)
 {
     regionDragArmed = false;
     float mx = static_cast<float>(e.getPosition().getX());
+
+    // Fan view: the whole display is a hand-playable scan strip (Serum/Vital-style
+    // wavetable-position drag). Any press starts a Scan drag; there are no brackets
+    // or lock button here. oscScan sums on top of DCO motion in the engine, so this
+    // is a live offset while a baked table is sweeping, or the absolute position on
+    // a static one.
+    if (wtMode)
+    {
+        dragging = Scan;
+        scanPos = xToScanFrac(mx);
+        if (onScanChanged) onScanChanged(scanPos);
+        repaint();
+        return;
+    }
+
     float xS  = fracToX(loopStart);
     float xE  = fracToX(loopEnd);
     float xP1 = fracToX(startPos);
@@ -325,7 +353,8 @@ void WaveformDisplay::mouseDrag(const juce::MouseEvent& e)
 
     if (dragging == Scan)
     {
-        scanPos = juce::jlimit(0.0f, 1.0f, frac);
+        // Use the fan-aware mapping so the cursor tracks the pointer in wtMode.
+        scanPos = xToScanFrac(static_cast<float>(e.getPosition().getX()));
         if (onScanChanged) onScanChanged(scanPos);
         repaint();
         return;
@@ -408,10 +437,12 @@ void WaveformDisplay::setWavetableFrames(const juce::AudioBuffer<float>& strip, 
         }
         wtMode = ok = ! wtFrames.empty();
     }
-    // A baked table has no source region to slice: display-only, no lock button.
-    // On a degenerate strip (ok == false) leave the widget interactive rather
-    // than a dead non-interactive blank.
-    setInterceptsMouseClicks(! ok, ! ok);
+    // A baked table has no source region to slice: no brackets, no lock button.
+    // The widget still intercepts clicks in wtMode so the fan is a hand-playable
+    // scan strip (mouseDown → Scan drag); children stay click-through (the hidden
+    // lock button). On a degenerate strip (ok == false) fall back to the fully
+    // interactive sample view.
+    setInterceptsMouseClicks(true, ! ok);
     lockButton.setVisible(! ok);
     wtFanDirty = true;   // new table → rebuild the cached fan on next paint
     repaint();

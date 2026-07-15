@@ -87,9 +87,9 @@ public:
     void setScanPosition(float pos) { scanControl_ = juce::jlimit(0.0f, 1.0f, pos); }
     float getCurrentScanPosition() const { return juce::jlimit(0.0f, 1.0f, smoothedScan); }
 
-    /** The EFFECTIVE scan position last read — includes the DCO motion sweep
-     *  (dcoMotionPos_ + smoothedScan), clamped [0,1]. Equals getCurrentScanPosition()
-     *  when DCO motion is off. Drives the engine-window WT display's scan cursor. */
+    /** The EFFECTIVE scan position last read by processSample(), clamped [0,1].
+     *  Equals getCurrentScanPosition() (kept as a separate cached sample-accurate
+     *  read for the engine-window WT display's scan cursor). */
     float getEffectiveScanPosition() const { return lastScanNow_; }
 
     /** Enable/disable Catmull-Rom interpolation between frames. */
@@ -110,9 +110,24 @@ public:
      *  Scan advances from 0→1 in (bufferLen / bufferSR) seconds. */
     void setAutoScanRate(double bufferSR, int bufferLen);
 
+    /** Set auto-scan rate directly in Hz (full 0->1 sweeps per second), for
+     *  callers that know a tempo rather than a source buffer's duration (the
+     *  DCO/LCO recipe's motion_rate_hz). Drives the SAME autoScanIncr_ the
+     *  transport above reads — there is only one scan-advance mechanism, so a
+     *  DCO/LCO table's authored motion moves through it exactly like a neural
+     *  buffer's auto-scan does. Equivalent to setAutoScanRate(rateHz, 1). */
+    void setAutoScanRateHz(float rateHz);
+
     /** Set auto-scan loop region (frame fractions). */
     enum class LoopMode { OneShot, Loop, PingPong };
     void setAutoScanLoop(float startFrac, float endFrac, LoopMode mode);
+
+    /** Set ONLY the traversal loop mode, without disturbing the loop brackets
+     *  or rate. Lets the One-shot/Loop/Ping-pong buttons drive a DCO/LCO
+     *  table live: its motion runs through this SAME auto-scan transport
+     *  (loaded with its own rate/brackets once at DCO load time, via
+     *  setAutoScanRateHz, rather than every block). */
+    void setAutoScanLoopMode(LoopMode mode) { autoScanLoopMode_ = mode; }
 
     /** Set auto-scan start position (P1). Fraction 0–1. */
     void setAutoScanStartPos(float frac);
@@ -160,20 +175,6 @@ public:
      *  alignment). Same atomic-publish/share/morph path. */
     void setAdditiveBank(const std::vector<std::vector<AdditivePartial>>& sets);
 
-    /** DCO motion transport. The table is an authored GESTURE (recipe motion,
-     *  loop-closed by construction), not a sampled timeline: position runs at
-     *  rateHz full loops per second with an exact modular wrap and NO scan
-     *  smoothing on the motion component — the 5 ms smoother exists to mask
-     *  control jumps and would turn every wrap into an audible reverse sweep
-     *  (the "dropout every table pass" defect). Manual scan + modulation
-     *  (setScanPosition) still go through the smoother and ADD to the motion
-     *  position. Active state and rate are traversal config (copied to voices
-     *  via syncSharedConfigFrom); the phase is per-voice, reset on noteOn by
-     *  retriggerAutoScan so every note restarts the gesture. Neural
-     *  extraction (extractContiguousFrames) deactivates it. */
-    void setDcoMotion(bool active, float rateHz);
-    bool isDcoMotionActive() const { return dcoMotionActive_; }
-
     /** Process a single sample. */
     float processSample();
 
@@ -201,6 +202,14 @@ public:
     bool snapshotLevel0Frames(std::vector<float>& outFlat,
                               int& outFrameSize,
                               int& outNumFrames) const;
+
+    /** Snapshot the latest published additive bank (K index-aligned stations
+     *  of AdditivePartial) plus its precomputed gain. Used by preset save to
+     *  persist a real-time-additive DCO/LCO bake's exact station data.
+     *  Returns false if the published bank is not additive (isAdditive==false)
+     *  or no bank has been published yet. */
+    bool snapshotAdditiveBank(std::vector<std::vector<AdditivePartial>>& outSets,
+                              float& outGain) const;
 
 private:
     struct PitchEstimate {
@@ -278,16 +287,11 @@ private:
     bool  autoScanInFirstPass_ = true;   // true until first loop boundary hit
     int   autoScanDirection_ = 1;        // +1 forward, -1 backward
 
-    // DCO motion transport (see setDcoMotion). Rate/active = shared traversal
-    // config; position = per-voice gesture phase.
-    bool   dcoMotionActive_ = false;
-    float  dcoMotionRateHz_ = 0.25f;
-    double dcoMotionPos_ = 0.0;
-    // Last EFFECTIVE scan (dcoMotionPos_ + smoothedScan under DCO motion, plain
-    // smoothedScan otherwise), clamped [0,1] — the frame actually being read.
-    // Published for the engine-window WT display's scan cursor via
-    // getEffectiveScanPosition(); getCurrentScanPosition() is the control-only
-    // component and does NOT follow the motion sweep.
+    // Last EFFECTIVE scan (== smoothedScan, clamped [0,1]) — the frame actually
+    // being read by the last processSample() call. Published for the
+    // engine-window WT display's scan cursor via getEffectiveScanPosition();
+    // functionally the same value as getCurrentScanPosition() today, kept as a
+    // separate cached field since the two accessors serve different call sites.
     float  lastScanNow_ = 0.0f;
 
     MipDataPtr loadPublishedMipData() const;

@@ -106,6 +106,7 @@ void SynthVoice::prepare(double sampleRate, int samplesPerBlock)
     maxBlockSize_ = samplesPerBlock;
     samplerBlockBuf_.resize(static_cast<size_t>(samplesPerBlock));
     osc.prepare(sampleRate, samplesPerBlock);
+    oscB.prepare(sampleRate, samplesPerBlock);  // dual A+B DCO (dual_osc_build_spec.md W1)
     sampler.prepare(sampleRate, samplesPerBlock);
     freezeEngine.prepare(sampleRate, samplesPerBlock);
     noise.prepare(sampleRate);
@@ -147,6 +148,7 @@ void SynthVoice::prepare(double sampleRate, int samplesPerBlock)
 void SynthVoice::reset()
 {
     osc.reset();
+    oscB.reset();  // dual A+B DCO (dual_osc_build_spec.md W1)
     sampler.reset();
     freezeEngine.reset();
     ampEnv.reset();
@@ -236,6 +238,7 @@ void SynthVoice::noteOn(int note, float velocity, bool legato)
     int shiftedNote = note + octaveShift_ * 12;
     baseFrequency = tunedHz(shiftedNote);
     osc.setFrequency(baseFrequency);
+    oscB.setFrequency(baseFrequency);  // dual A+B DCO, kept in lockstep with A (dual_osc_build_spec.md SYNC)
 
     if (engineMode == EngineMode::Sampler)
     {
@@ -281,6 +284,7 @@ void SynthVoice::glideToNote(int note, float glideMs)
     {
         float targetFreq = tunedHz(shiftedNote);
         osc.glideToFrequency(targetFreq, glideMs);
+        oscB.glideToFrequency(targetFreq, glideMs);  // dual A+B DCO, kept in lockstep with A (dual_osc_build_spec.md SYNC)
     }
 }
 
@@ -644,14 +648,27 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
     bool samplerMode = (engineMode == EngineMode::Sampler) && sampler.hasAudio();
     bool freezeMode = (engineMode == EngineMode::Freeze) && freezeEngine.hasAudio();
     bool oscReady = (engineMode == EngineMode::Wavetable) && osc.hasFrames();
+    // Dual A+B DCO oscillator (docs: dual_osc_build_spec.md W1/W2). B is ready
+    // only when it genuinely has a published bank AND the CURRENT DCO recipe
+    // claims it (p.dcoOscBHasContent) — masterOscB has no non-DCO content
+    // source, so folding the flag directly into oscBReady is exact and safe.
+    // A is different: osc ALSO serves plain neural/sampler extraction, so
+    // oscReady above is deliberately left untouched (unconditional
+    // hasFrames() check, exactly as before) — the content-flag distinction
+    // for A is applied only at the mix step further down, never here.
+    bool oscBReady = (engineMode == EngineMode::Wavetable) && oscB.hasFrames() && p.dcoOscBHasContent;
 
     // Hoist: setInterpolation is a pure setter; tunedHz is block-constant.
+    // Shared reference note for A and B, so a dual-split recipe's two
+    // oscillators track pitch from the identical source (dual_osc_build_spec.md
+    // SYNC).
     float blockBaseFreqWavetable = 0.0f;
-    if (oscReady)
-    {
-        osc.setInterpolation(p.wtSmooth);
+    if (oscReady || oscBReady)
         blockBaseFreqWavetable = tunedHz(currentNote + octaveShift_ * 12);
-    }
+    if (oscReady)
+        osc.setInterpolation(p.wtSmooth);
+    if (oscBReady)
+        oscB.setInterpolation(p.wtSmooth);
 
     if (freezeMode)
     {
@@ -905,9 +922,13 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                 sampleR = freezeRight;
                 lastModulatedScan_ = freezeEngine.getCurrentPosition();
             }
-            else if (oscReady)
+            else if (oscReady || oscBReady)
             {
-                // Wavetable: per-sample pitch modulation
+                // Wavetable: per-sample pitch/scan modulation. This bus depends
+                // only on p/envelopes/LFOs/aftertouch — never on which
+                // oscillator reads it — so A and B derive the IDENTICAL target
+                // frequency and scan position every sample (dual A+B,
+                // docs: dual_osc_build_spec.md SYNC).
                 float pitchSemis = p.driftPitchOffset;
                 if (p.ampTarget  == EnvTarget::Pitch) pitchSemis += ampEnvVal;
                 if (p.mod1Target == EnvTarget::Pitch) pitchSemis += mod1EnvVal;
@@ -916,13 +937,8 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                 if (p.lfo2Target == LfoTarget::Pitch) pitchSemis += lfo2Val;
                 if (p.lfo3Target == LfoTarget::Pitch) pitchSemis += lfo3Val;
                 pitchSemis += aftertouchDrive(p, AftertouchTarget::Pitch, aftertouch_);
-
-                if (!osc.isGliding())
-                {
-                    baseFrequency = blockBaseFreqWavetable;
-                    osc.setFrequency(baseFrequency * effectivePitchRatio
-                                     * std::pow(2.0f, pitchSemis * ModCalib::kPitchModSemitones / 12.0f));
-                }
+                const float wtTargetFreq = blockBaseFreqWavetable * effectivePitchRatio
+                    * std::pow(2.0f, pitchSemis * ModCalib::kPitchModSemitones / 12.0f);
 
                 float scanBase = p.wtAutoScan ? 0.0f : p.baseScan;
                 float scanMod = scanBase + p.driftScanOffset;
@@ -934,14 +950,74 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                 if (p.lfo3Target == LfoTarget::Scan) scanMod += lfo3Val;
                 scanMod = applyAftertouchTarget(p, AftertouchTarget::Scan, scanMod, aftertouch_);
                 const float clampedScan = juce::jlimit(0.0f, 1.0f, scanMod);
-                osc.setScanPosition(clampedScan);
 
-                sample = osc.processSample();
+                // ---- A: structurally IDENTICAL to the pre-dual single-oscillator
+                // code (same isGliding() gate, same baseFrequency mutation,
+                // same operand order) — the existing path stays bit-identical. ----
+                float aSample = 0.0f;
+                if (oscReady)
+                {
+                    if (!osc.isGliding())
+                    {
+                        baseFrequency = blockBaseFreqWavetable;
+                        osc.setFrequency(wtTargetFreq);
+                    }
+                    osc.setScanPosition(clampedScan);
+                    aSample = osc.processSample();
+                }
+
+                // ---- B: same modulation bus, mirrored onto oscB. oscB has its
+                // own isGliding() state; noteOn/glideToNote already mirror A's
+                // frequency/glide calls onto it 1:1, so the two reach steady
+                // pitch together (dual A+B, docs: dual_osc_build_spec.md). ----
+                float bSample = 0.0f;
+                if (oscBReady)
+                {
+                    if (!oscB.isGliding())
+                        oscB.setFrequency(wtTargetFreq);
+                    oscB.setScanPosition(clampedScan);
+                    bSample = oscB.processSample();
+                }
+
+                // ---- Combine per the R1 balance + SKIP rules (dual A+B,
+                // docs: dual_osc_build_spec.md W2/R1). aPlays (not bare
+                // oscReady) is what decides whether A counts as THIS recipe's
+                // oscillator — see BlockParams.h's dcoOscAHasContent for why
+                // that distinction exists. For any session that never touches
+                // DCO, p.dcoOscAHasContent is always true, so aPlays==oscReady
+                // and the branch below is bit-identical to the pre-dual code. ----
+                const bool aPlays = oscReady && p.dcoOscAHasContent;
+                if (aPlays && oscBReady)
+                {
+                    const float m = juce::jlimit(0.0f, 1.0f, p.oscMix);
+                    if (m <= 1.0e-6f)
+                        sample = aSample * p.dcoGainA;
+                    else if (m >= 1.0f - 1.0e-6f)
+                        sample = bSample * p.dcoGainB;
+                    else
+                    {
+                        const float eqpA = std::cos(m * juce::MathConstants<float>::halfPi);
+                        const float eqpB = std::sin(m * juce::MathConstants<float>::halfPi);
+                        sample = eqpA * p.dcoGainA * aSample + eqpB * p.dcoGainB * bSample;
+                    }
+                }
+                else if (aPlays)
+                    sample = aSample;   // A solo — bit-identical to today, no gain
+                else if (oscBReady)
+                    sample = bSample;   // B solo (all-inharmonic DCO recipe), unity
+
                 sampleR = sample;
                 // Effective position (includes the DCO motion sweep) so the engine-
                 // window WT scan cursor follows the gesture; identical to the control-
                 // only value when DCO motion is off (neural wavetable unchanged).
-                lastModulatedScan_ = osc.getEffectiveScanPosition();
+                // Gated on aPlays (not bare oscReady): a B-only DCO recipe can leave
+                // osc.hasFrames() stale-true (A's bank from an earlier recipe) while
+                // p.dcoOscAHasContent is false — the cursor must still follow B, the
+                // oscillator actually audible, not the silent stale one.
+                if (aPlays)
+                    lastModulatedScan_ = osc.getEffectiveScanPosition();
+                else if (oscBReady)
+                    lastModulatedScan_ = oscB.getEffectiveScanPosition();
             }
 
             // Mix noise oscillator (goes through drive + filter + VCA with the main signal)

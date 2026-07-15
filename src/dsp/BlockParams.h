@@ -185,6 +185,15 @@ namespace PID {
     static constexpr const char* wtFrames         = "wt_frames";
     static constexpr const char* wtSmooth         = "wt_smooth";
     static constexpr const char* wtAutoScan       = "wt_auto_scan";
+    // Dual A+B DCO oscillator crossfade (docs: dual_osc_build_spec.md W2). A at
+    // 0.0, B at 1.0, equal-power. A = the baked wavetable (harmonic body); B =
+    // the real-time additive bank (inharmonic partials). Plumbed via the
+    // noise_level template. gainA/gainB (R1 energy/RMS balance) and the
+    // oscAHasContent/oscBHasContent solo-skip flags are NOT APVTS params —
+    // they are per-recipe derived state set by the DCO router
+    // (T5ynthProcessor::setDcoOscBalance) and mirrored into BlockParams like
+    // filterDriveGain, not user-automatable.
+    static constexpr const char* oscMix           = "osc_mix";
     static constexpr const char* freezeTexture    = "freeze_texture";
     static constexpr const char* freezeStereo     = "freeze_stereo";
     static constexpr const char* seqMode          = "seq_mode";
@@ -500,14 +509,22 @@ namespace DriftTarget {
 
 // ── Engine mode ──
 namespace EngineMode {
-    enum : int { Sampler = 0, Wavetable = 1, Freeze = 2 };
+    // Lco: a DCO/LCO bake (prompt -> lexicon recipe -> baked wavetable +
+    // optional real-time additive bank on the second oscillator). Distinct
+    // from Wavetable so presets round-trip their prompt/readings/frames
+    // instead of silently degrading to a generic neural wavetable on save
+    // (docs/PRESET_FORMAT.md format v5). Maps to the SAME SynthVoice::EngineMode
+    // Wavetable DSP path — SynthVoice's own enum stays 3-valued; only this
+    // BlockParams-level identity gains a 4th value.
+    enum : int { Sampler = 0, Wavetable = 1, Freeze = 2, Lco = 3 };
     static constexpr ChoiceEntry kEntries[] = {
         { "sampler",   "Sampler"   },
         { "wavetable", "Wavetable" },
-        { "freeze",    "Granular"  }
+        { "freeze",    "Granular"  },
+        { "lco",       "LCO"       }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(Freeze + 1 == kCount, "EngineMode out of sync.");
+    static_assert(Lco + 1 == kCount, "EngineMode out of sync.");
 }
 
 // ── Granular texture macro ──
@@ -1417,6 +1434,35 @@ struct BlockParams
     // Noise oscillator
     float noiseLevel = 0.0f;      // 0-1 mix level
     int   noiseType = 0;          // NoiseType index
+
+    // Dual A+B DCO oscillator (docs: dual_osc_build_spec.md). oscMix: user
+    // APVTS control, A@0 -> B@1, equal-power at the SynthVoice render site.
+    // dcoGainA/dcoGainB: R1 energy/RMS balance ratio (headroom-scaled),
+    // computed once per DCO recipe bake by the PromptPanel router and
+    // mirrored here every block (filterDriveGain-style derived value — NOT
+    // user-facing).
+    //
+    // dcoOscAHasContent/dcoOscBHasContent gate whether each oscillator's
+    // sample actually reaches the output — distinct from osc.hasFrames() /
+    // oscB.hasFrames(), which stay true on a STALE bank left by an earlier
+    // recipe. The two default asymmetrically and deliberately:
+    //  - dcoOscAHasContent defaults TRUE. masterOsc (A) is ALSO the plain
+    //    neural/sampler-extraction target, so a session that never touches
+    //    DCO must render A exactly as it always has (hard bit-identical
+    //    invariant). It only goes false for the narrow case where a DCO
+    //    recipe is active and chose to publish to B only (all-inharmonic
+    //    recipe, H empty — "skip A"), so a stale A bake can't leak into that
+    //    recipe's mix.
+    //  - dcoOscBHasContent defaults FALSE. masterOscB (B) has no non-DCO
+    //    content source at all, so "silent until a recipe actually publishes
+    //    to it" is simply correct, always.
+    // When only one flag is true, that oscillator plays SOLO at unity gain
+    // (oscMix and both gains ignored) — see SynthVoice::renderBlock.
+    float oscMix = 0.5f;
+    float dcoGainA = 1.0f;
+    float dcoGainB = 1.0f;
+    bool  dcoOscAHasContent = true;
+    bool  dcoOscBHasContent = false;
 
     // Octave shift (-2..+2)
     int octaveShift = 0;

@@ -3,24 +3,38 @@
 #include <array>
 #include <limits>
 #include <vector>
+#include "../dsp/WavetableOscillator.h"
 
 class T5ynthProcessor;
 
 /**
  * Preset serialization and deserialization.
  *
- * Format v4 (.t5p): Binary container with FLAC-compressed audio payloads.
+ * Format v5 (.t5p): Binary container with FLAC-compressed audio payloads.
  *   [4B]  Magic "T5YN"
- *   [4B]  Version (uint32 LE, currently 4)
+ *   [4B]  Version (uint32 LE, currently 5)
  *   [4B]  JSON length (uint32 LE)
- *   [NB]  JSON (params + meta + embeddings + snapshots)
+ *   [NB]  JSON (params + meta + embeddings + snapshots + lco)
  *   [VAR] Sequence of length-prefixed FLAC blobs, in JSON-declared order:
  *           primary audio · inferenceCache entries · sequencer one-shots ·
- *           snapshot audio (one blob per JSON snapshot entry).
+ *           snapshot audio (one blob per JSON snapshot entry) · LCO frames A
+ *           (only present when the JSON "lco" block's frameCountA > 0).
  *           Each blob is [4B uint32 LE byteLen][N FLAC bytes]. 24-bit
  *           lossless FLAC; the FLAC stream's STREAMINFO carries sampleRate,
  *           channels and sampleCount — JSON metadata mirrors them so the
  *           library UI can describe a preset without decoding the audio.
+ *
+ * Format break v4 → v5: adds the "lco" JSON block (DCO/LCO bake prompt,
+ * readings, A/B balance, Re-Prompt stance, B's additive station data as
+ * plain JSON, and frame-count metadata for A) plus a trailing optional FLAC
+ * blob carrying A's exact baked wavetable frames. This lets an LCO preset
+ * round-trip its baked sound and text without re-running the LLM on load —
+ * previously a DCO/LCO bake saved and reloaded as a generic, often-stale
+ * Wavetable preset (engine.mode was forced to "wavetable" and nothing
+ * LCO-specific was captured at all). Absence of the "lco" block (any v4
+ * file, or a v5 file saved with no active LCO bake) is the "not an LCO
+ * preset" fallback — same append-only append-safe policy as the v4
+ * "snapshots" key. kMinLoadableVersion stays 3; v3/v4 files still load.
  *
  * Format break v3 → v4: audio is FLAC instead of raw float32 PCM. v3
  * presets remain loadable (the reader dispatches on the version field
@@ -128,6 +142,19 @@ public:
         float lateMixAmount = 0.75f;
         float splitStart    = 4.0f;
         float splitEnd      = 16.0f;
+
+        // LCO/DCO bake (format v5+; absent on any v4 file or a v5 file with
+        // no active bake — hasLco stays false, caller skips the restore).
+        bool hasLco = false;
+        juce::String lcoPrompt, lcoReadingA, lcoReadingB;
+        float lcoMotionRateHz = 0.0f;
+        bool  lcoOscAHasContent = false, lcoOscBHasContent = false;
+        float lcoGainA = 1.0f, lcoGainB = 1.0f;
+        // A's exact baked wavetable frame strip (mono, N*FRAME_SIZE samples),
+        // empty when lcoOscAHasContent is false.
+        juce::AudioBuffer<float> lcoFramesA;
+        // B's real-time additive stations, empty when lcoOscBHasContent is false.
+        std::vector<std::vector<WavetableOscillator::AdditivePartial>> lcoStationsB;
     };
 
     /** Save current state to a .t5p file with embedded audio. */
@@ -164,9 +191,10 @@ public:
 
 private:
     static constexpr char kMagic[4] = { 'T', '5', 'Y', 'N' };
-    static constexpr uint32_t kVersion = 4;
+    static constexpr uint32_t kVersion = 5;
     // v3 = raw float32 PCM payloads. v4 = length-prefixed FLAC blobs.
-    // Both are accepted on read; writes always emit kVersion.
+    // v5 = adds the "lco" JSON block + trailing LCO-frames-A FLAC blob.
+    // All are accepted on read; writes always emit kVersion.
     static constexpr uint32_t kMinLoadableVersion = 3;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PresetFormat)

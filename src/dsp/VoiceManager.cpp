@@ -92,6 +92,7 @@ void VoiceManager::reset()
     gainRampSamplesLeft = 0;
     currentSamplerMaster_ = nullptr;
     currentWavetableMaster_ = nullptr;
+    currentWavetableMasterB_ = nullptr;
     currentFreezeMaster_ = nullptr;
     hasCurrentBlockParams_ = false;
     droneVoiceIndex = -1;
@@ -185,6 +186,10 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
         }
         if (v.getEngineMode() == SynthVoice::EngineMode::Wavetable && currentWavetableMaster_ != nullptr)
             v.getOsc().shareFramesFrom(*currentWavetableMaster_);
+        // Dual A+B (docs: dual_osc_build_spec.md W1): oscB mirrors osc's adopt
+        // exactly — a no-op when masterOscB has no published bank.
+        if (v.getEngineMode() == SynthVoice::EngineMode::Wavetable && currentWavetableMasterB_ != nullptr)
+            v.getOscB().shareFramesFrom(*currentWavetableMasterB_);
         if (v.getEngineMode() == SynthVoice::EngineMode::Freeze && currentFreezeMaster_ != nullptr)
             v.getFreezeEngine().shareBufferFrom(*currentFreezeMaster_);
         v.noteOn(note, velocity, false);
@@ -209,6 +214,9 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
         {
             v.getSampler().stop();
             v.getOsc().retriggerAutoScan();
+            // Dual A+B (docs: dual_osc_build_spec.md SYNC): B resets its
+            // AutoScan at the same noteOn as A, so both stay phase-locked.
+            v.getOscB().retriggerAutoScan();
         }
         updateGainTarget();
         return;
@@ -295,6 +303,10 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
     }
     if (v.getEngineMode() == SynthVoice::EngineMode::Wavetable && currentWavetableMaster_ != nullptr)
         v.getOsc().shareFramesFrom(*currentWavetableMaster_);
+    // Dual A+B (docs: dual_osc_build_spec.md W1): oscB mirrors osc's adopt
+    // exactly — a no-op when masterOscB has no published bank.
+    if (v.getEngineMode() == SynthVoice::EngineMode::Wavetable && currentWavetableMasterB_ != nullptr)
+        v.getOscB().shareFramesFrom(*currentWavetableMasterB_);
     if (v.getEngineMode() == SynthVoice::EngineMode::Freeze && currentFreezeMaster_ != nullptr)
         v.getFreezeEngine().shareBufferFrom(*currentFreezeMaster_);
     v.noteOn(note, velocity, false);
@@ -328,6 +340,9 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
     {
         v.getSampler().stop();
         v.getOsc().retriggerAutoScan();
+        // Dual A+B (docs: dual_osc_build_spec.md SYNC): B resets its AutoScan
+        // at the same noteOn as A, so both stay phase-locked.
+        v.getOscB().retriggerAutoScan();
     }
 
     updateGainTarget();
@@ -733,15 +748,30 @@ void VoiceManager::distributeSamplerBuffer(const SamplePlayer& master, float mor
     }
 }
 
-void VoiceManager::distributeWavetableFrames(const WavetableOscillator& masterOsc)
+void VoiceManager::distributeWavetableFrames(const WavetableOscillator& masterOsc,
+                                             const WavetableOscillator& masterOscB)
 {
     currentWavetableMaster_ = &masterOsc;
+    currentWavetableMasterB_ = &masterOscB;
+    // Dual A+B (docs: dual_osc_build_spec.md W1): oscB mirrors osc's morph/share
+    // treatment exactly, one-for-one. A HELD wavetable-mode voice crossfades BOTH
+    // oscillators onto the new banks together (same morph, same timing), so a
+    // dual-split recipe's held-note regenerate never has A and B drift apart.
+    // Safe even when a master has no published bank — morphToFramesFrom /
+    // shareFramesFrom both early-out on hasFrames() (e.g. an A-only recipe leaves
+    // masterOscB empty; every voice's oscB call below is then a no-op).
     for (auto& v : voices)
     {
         if (v.isActive() && v.getEngineMode() == SynthVoice::EngineMode::Wavetable)
+        {
             v.getOsc().morphToFramesFrom(masterOsc);
+            v.getOscB().morphToFramesFrom(masterOscB);
+        }
         else
+        {
             v.getOsc().shareFramesFrom(masterOsc);
+            v.getOscB().shareFramesFrom(masterOscB);
+        }
     }
 }
 
@@ -1000,6 +1030,10 @@ void VoiceManager::setDroneNote(int note, float velocity, bool lfo1TrigMode, boo
             v.getSampler().shareBufferFrom(*currentSamplerMaster_);
         if (v.getEngineMode() == SynthVoice::EngineMode::Wavetable && currentWavetableMaster_ != nullptr)
             v.getOsc().shareFramesFrom(*currentWavetableMaster_);
+        // Dual A+B (docs: dual_osc_build_spec.md W1): oscB mirrors osc's adopt
+        // exactly — a no-op when masterOscB has no published bank.
+        if (v.getEngineMode() == SynthVoice::EngineMode::Wavetable && currentWavetableMasterB_ != nullptr)
+            v.getOscB().shareFramesFrom(*currentWavetableMasterB_);
         if (v.getEngineMode() == SynthVoice::EngineMode::Freeze && currentFreezeMaster_ != nullptr)
             v.getFreezeEngine().shareBufferFrom(*currentFreezeMaster_);
 
@@ -1019,6 +1053,9 @@ void VoiceManager::setDroneNote(int note, float velocity, bool lfo1TrigMode, boo
         {
             v.getSampler().stop();
             v.getOsc().retriggerAutoScan();
+            // Dual A+B (docs: dual_osc_build_spec.md SYNC): B resets its
+            // AutoScan at the same noteOn as A, so both stay phase-locked.
+            v.getOscB().retriggerAutoScan();
         }
         droneVoiceIndex = idx;
     }

@@ -895,6 +895,20 @@ def _motion_cycle(K):
     return out
 
 
+def _motion_forward(K):
+    # One-way scan 0 -> 1 -> ... -> (K-1): a DIRECTIONAL morph that ENDS on its
+    # destination. No baked return-to-start -- "A into B" arrives at B and stays.
+    # Loop-seamlessness, IF the user engages a loop, is the playback's job
+    # (pingpong on the visible loop control), NOT a repeated frame appended here.
+    if K <= 1:
+        return _motion_static(K)
+    out = [_seg(0, 0.0, "lin")]
+    share = 1.0 / (K - 1)
+    for idx in range(1, K):
+        out.append(_seg(idx, share, "lin"))
+    return out
+
+
 def _motion_open_up(K):
     return [_seg(0, 0.0, "lin"), _seg(K - 1, 0.75, "slow"), _seg(0, 0.25, "fast")]
 
@@ -915,6 +929,10 @@ def _motion_breathe(K):
 
 
 def _motion_periodic(K, n_cycles, curve):
+    # Retained helper: this built the there-and-back scan trajectory for the old
+    # vibrate/wobble/flutter motion intents. Those are now per-frame TEXTURE
+    # (dco_frames), so this has no live caller — kept as the generic periodic
+    # trajectory builder a future genuine motion intent could reuse.
     out = [_seg(0, 0.0, "lin")]
     n_segs = 2 * n_cycles
     share = 1.0 / n_segs
@@ -942,21 +960,24 @@ def _motion_settle(K):
             _seg(K - 1, 0.80, "lin"), _seg(0, 0.05, "fast")]
 
 
-_MOTION_NEEDS_K2 = {"open_up", "close", "sweep", "wobble", "pingpong", "breathe",
-                    "evolve", "flutter", "vibrate", "settle"}
+# vibrate / wobble / flutter USED to live here as MOTION intents (scan-trajectory
+# rewrites via _motion_periodic, gated by _MOTION_NEEDS_K2). That was the wrong
+# bucket: they are per-frame TEXTURE (a periodic timbral variation), now carried
+# as lexicon category "texture" and realized frame-by-frame in dco_frames
+# (_apply_texture), alongside the new tremolo/shimmer. They are deliberately absent
+# from both sets below so _compose never routes them to a motion trajectory.
+_MOTION_NEEDS_K2 = {"open_up", "close", "sweep", "pingpong", "breathe",
+                    "evolve", "settle"}
 
 _MOTION_REWRITE = {
     "open_up": _motion_open_up,
     "close": _motion_close,
     "sweep": _motion_sweep,
-    "wobble": lambda K: _motion_periodic(K, 2, "fast"),
     "pingpong": lambda K: _motion_cycle(K) if K > 2 else _motion_sweep(K),
     "breathe": _motion_breathe,
     "evolve": _motion_evolve,
     "static": _motion_static,
     "cycle": _motion_cycle,
-    "flutter": lambda K: _motion_periodic(K, 4, "fast"),
-    "vibrate": lambda K: _motion_periodic(K, 6, "fast"),
     "settle": _motion_settle,
 }
 
@@ -1068,6 +1089,7 @@ def _apply_motion_intent(recipe, intent_key, flags):
     if fn is None:
         return False
     recipe["motion"] = fn(K)
+    recipe["loop"] = True   # an explicit motion intent is cyclic -> it repeats
     return True
 
 
@@ -1516,15 +1538,22 @@ def _stationize(recipe, flags):
         for st in corners:
             for p in st:
                 p["a"] *= s
-    # 4. sample the trajectory into <= 8 sub-stations, then loop-close (the last
-    #    station repeats the first content -> a seamless transport wrap, spec sec.6.2).
+    # 4. sample the trajectory into <= 8 sub-stations. The sampled station
+    #    SEQUENCE already encodes the path shape: a directional morph -> [A..B]
+    #    (ends on B); an explicit cyclic intent's there-and-back trajectory ->
+    #    [A..B..A] (returns on its own). NO content is duplicated to force a wrap
+    #    -- loop-seamlessness, when the user engages a loop, is the playback's job
+    #    (pingpong), not a station repeated 1:1.
     stations = _sample_stations(corners, recipe.get("motion") or [])
-    if len(stations) >= 2:
-        stations[-1] = [dict(p) for p in stations[0]]
-    # 5. the stations ARE the keyframes/timeline now.
+    # 5. the stations ARE the keyframes/timeline now; scan them in order and KEEP
+    #    the chain's own loop flag (directional morph False, cyclic intent True).
     recipe["keyframes"] = [{"kind": "additive", "partials": st} for st in stations]
-    recipe["motion"] = _motion_cycle(len(stations))
-    recipe["loop"] = True
+    # A directional chain (loop False) scans forward and STOPS on its destination.
+    # A cyclic intent (loop True) closes back on index 0, exactly as before -- its
+    # there-and-back trajectory already made the last station equal the first, so
+    # dropping the 1:1 duplication above leaves cyclic recipes byte-identical.
+    recipe["motion"] = (_motion_cycle(len(stations)) if recipe.get("loop")
+                        else _motion_forward(len(stations)))
     recipe, _ = _clamp_and_repair(recipe)
     # 6. debug-level self-check of the shipped router contract.
     ok, why = _router_contract_ok(recipe)
@@ -2052,8 +2081,11 @@ def _compose(scan, s2_extra_adjective_hits, lexicon, frames_override):
         keys = [h["key"] for h in sequence]
         recipe = {
             "keyframes": [copy.deepcopy(technique_index[k]["template"]["keyframes"][0]) for k in keys],
-            "motion": _motion_cycle(len(keys)),
-            "loop": True,
+            # Directional by default: a bare "A into B" morph moves forward and
+            # ENDS on B (no return-to-start). An explicit cyclic motion word
+            # (breathe/cycle/...) overrides both below in _apply_motion_intent.
+            "motion": _motion_forward(len(keys)),
+            "loop": False,
             # Documented bake-path standard: 256 frames (LCO_WAVE_INTERPOLATION_SPEC.md
             # sec.6; DcoBaker full resolution). A morph chain composes its own recipe
             # rather than copying one template, so the frame count is set explicitly here.
@@ -2214,7 +2246,7 @@ def _compose(scan, s2_extra_adjective_hits, lexicon, frames_override):
             # entry carries one: the rewrite replaced the loop, so its
             # motion_rate_hz replaces the template's. Entries without the
             # field keep the template rate. Speed words (below) scale it
-            # afterwards, so "slow wobble" = wobble's rate x 0.5.
+            # afterwards, so "slow sweep" = sweep's rate x 0.5.
             m_entry = motion_index.get(winner["key"], {})
             if "motion_rate_hz" in m_entry:
                 recipe["motion_rate_hz"] = m_entry["motion_rate_hz"]
@@ -2224,6 +2256,26 @@ def _compose(scan, s2_extra_adjective_hits, lexicon, frames_override):
         scale = _MOTION_SPEED_SCALE[h["key"]]
         _apply_motion_rate(recipe, scale)
         applied_motion_keys.append(h["key"])
+
+    # step 4b: texture hits (vibrate/wobble/flutter/tremolo/shimmer). NOT motion —
+    # a per-frame TIMBRAL variation realized frame-by-frame in dco_frames
+    # (_apply_texture), never a scan trajectory. Winner-takes-all like an intent
+    # (also-mentioned textures flagged). Recorded ONLY on resolved.textures so
+    # plan_from_response can pick it up; the recipe WIRE is left untouched, so a
+    # texture prompt's baked/sets recipe stays byte-identical (the non-regression
+    # gate holds — textures live in the new frame engine, not the shipping wire).
+    texture_hits = [h for h in motion_hits if h["motion_category"] == "texture"]
+    applied_texture_keys = []
+    if texture_hits:
+        twin = max(texture_hits, key=lambda h: (h["priority"], -h["pos"]))
+        seen = {twin["key"]}
+        for h in sorted(texture_hits, key=lambda h: h["pos"]):
+            if h["key"] in seen:
+                continue
+            seen.add(h["key"])
+            flags.append({"word": h["key"],
+                          "reason": f"also mentioned: {h['key']} — using {twin['key']}"})
+        applied_texture_keys.append(twin["key"])
 
     # step 5: clamp everything, force loop-closure on the start keyframe
     recipe, repairs = _clamp_and_repair(recipe)
@@ -2242,6 +2294,7 @@ def _compose(scan, s2_extra_adjective_hits, lexicon, frames_override):
         "composition": applied_composition,
         "fm": applied_fm,
         "motion": applied_motion_keys,
+        "textures": applied_texture_keys,
         "values": resolved_values,
     }
     return recipe, resolved, flags

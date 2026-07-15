@@ -96,6 +96,195 @@ float preferredPromptFontForWidth(int width)
     const float innerW = juce::jmax(160.0f, static_cast<float>(width) * (1.0f - 2.0f * kPromptPadFactor));
     return juce::jlimit(12.5f, 17.0f, innerW * 0.05f);
 }
+
+// ── Dual A+B DCO oscillator balance (docs: dual_osc_build_spec.md R1) ──
+//
+// CONFIRMED to match tools/render_dual_ab.py EXACTLY — see that script's
+// _peak_normalize_partials / _subset_energy / _energy_gain and the
+// "C++ parity" comment block inside _process_prompt for the derivation this
+// mirrors line for line. Both engines are measured/derived at the SAME
+// reference pitch/duration the Python tool uses, so a future numeric
+// cross-check against that tool's printed gainA/gainB is meaningful.
+struct DcoDualGains { float gainA = 1.0f; float gainB = 1.0f; };
+
+/** unionPartials: the FULL union-aligned partial list — one entry per index,
+ *  peak-envelope-collapsed across every keyframe/station (max |a| reached
+ *  anywhere in the chain at that index; render_dual_ab.py's
+ *  _gather_full_partials), NOT yet joint-normalized (this function does that
+ *  internally, step 1). hIdx/iIdx: the harmonic/inharmonic index partition
+ *  the router already computed over unionPartials using the same
+ *  |h-round(h)|<=1e-3 tolerance as render_dual_ab.py's _is_harmonic — every
+ *  index appears in exactly one of the two (disjoint, exhaustive). Message/
+ *  background thread only: bakes + renders two throwaway calibration
+ *  oscillators (cheap — ~1 second of DSP each — but not remotely
+ *  audio-thread safe: allocates, and is not called under any RT guarantee). */
+DcoDualGains computeDcoDualBalance(const std::vector<dco::Partial>& unionPartials,
+                                   const std::vector<int>& hIdx,
+                                   const std::vector<int>& iIdx)
+{
+    DcoDualGains result;
+    if (unionPartials.empty() || (hIdx.empty() && iIdx.empty()))
+        return result;
+
+    // STEP 1 (_peak_normalize_partials): ONE joint amplitude-normalize over
+    // the WHOLE union (harmonic+inharmonic together) so a_set/b_set below
+    // carry amplitudes that are each other's true proportion within the one
+    // joint spectrum. Only the RATIOS feed the energies below, so the target
+    // value (1.0) is arbitrary, but both E_A and E_B must be fed from the
+    // SAME normalized list.
+    float jointPeakRaw = 0.0f;
+    for (const auto& p : unionPartials)
+        jointPeakRaw = std::max(jointPeakRaw, std::abs(p.a));
+    if (jointPeakRaw <= 0.0f)
+        return result;   // all-silent union — router shouldn't reach here, defensive only
+    const float normScale = 1.0f / jointPeakRaw;
+
+    constexpr float  kRefF0      = 261.63f;   // C4 — same reference pitch as render_dual_ab.py
+    constexpr double kRefSR      = 44100.0;
+    constexpr int    kRefSamples = 44100;     // 1s: periodic steady-state RMS/peak converge in a
+                                              // few periods (168 samples at C4) — ample margin
+    constexpr float  kAdditivePeak = 0.95f;   // additive engine's own peak target (WavetableOscillator.cpp:856)
+
+    // STEP 2 (_subset_energy): target energy restricted to RENDERED
+    // (sub-Nyquist) partials — an above-Nyquist partial is never actually
+    // sounded by either engine, so it must not inflate the energy target the
+    // compensating gain chases.
+    auto subsetEnergyRendered = [&](const std::vector<int>& idx)
+    {
+        double e = 0.0;
+        for (int i : idx)
+        {
+            const auto& p = unionPartials[static_cast<size_t>(i)];
+            const double hz = static_cast<double>(p.h) * static_cast<double>(kRefF0);
+            if (hz > 0.0 && hz < kRefSR / 2.0)
+            {
+                const double a = static_cast<double>(p.a) * static_cast<double>(normScale);
+                e += a * a;
+            }
+        }
+        return e;
+    };
+
+    // ---- gainA: MUST be measured (render_dual_ab.py's own parity note:
+    // rmsA == 0.95/crestA, and crest varies with harmonic count/count-64 —
+    // no closed form). Bake a THROWAWAY, STATIC (no motion), H-only recipe
+    // at the reference pitch through the exact same Baker + setExactFrames
+    // path loadDcoWavetable uses for the real A, then measure the actual
+    // rendered (band-limited) RMS — not the raw baked strip. ----
+    float gainA = 0.0f;
+    std::vector<float> aBuf;
+    if (!hIdx.empty())
+    {
+        const double E_A = subsetEnergyRendered(hIdx);
+        if (E_A > 0.0)
+        {
+            dco::Keyframe kf;
+            kf.kind = dco::Keyframe::Kind::Additive;
+            kf.partials.reserve(hIdx.size());
+            for (int i : hIdx)
+            {
+                const auto& p = unionPartials[static_cast<size_t>(i)];
+                kf.partials.push_back({ p.h, p.a * normScale, p.phase });
+            }
+            dco::Recipe calRecipe;
+            calRecipe.keyframes.push_back(std::move(kf));
+            // motion left empty -> Baker bakes ONE static keyframe, no
+            // motion (DcoRecipe.h: "if empty: single static keyframe[0]") —
+            // matches render_dual_ab.py's frame_engine "movement": "static".
+            calRecipe.frames = WavetableOscillator::MIN_FRAMES;
+
+            const auto calFrames = dco::Baker::bake(calRecipe);
+            const auto calStrip  = dco::Baker::framesToBuffer(calFrames);
+
+            WavetableOscillator calA;
+            calA.prepare(kRefSR, kRefSamples);
+            calA.reset();
+            calA.setExactFrames(calStrip);   // bit-exact, no seam ramp/renorm — same call loadDcoWavetable makes
+            calA.setFrequency(kRefF0);
+
+            aBuf.resize(static_cast<size_t>(kRefSamples));
+            double sumSq = 0.0;
+            for (int n = 0; n < kRefSamples; ++n)
+            {
+                const float s = calA.processSample();
+                aBuf[static_cast<size_t>(n)] = s;
+                sumSq += static_cast<double>(s) * static_cast<double>(s);
+            }
+            const double rmsA = std::sqrt(sumSq / static_cast<double>(kRefSamples));
+            if (rmsA > 0.0)
+                gainA = static_cast<float>(std::sqrt(E_A) / rmsA);
+        }
+    }
+
+    // ---- gainB: CLOSED FORM (render_dual_ab.py's own "C++ parity" note,
+    // verified there against the measured value to ~4 sig figs): the
+    // additive engine's internal gain is 0.95/sum|a_i| over ALL partials in
+    // the station (WavetableOscillator.cpp:856, maxSumAbs; K=1 here), so
+    // rmsB == (0.95/sumAbsAll) * sqrt(E_B/2) and the E_B term cancels out of
+    // gainB = sqrt(E_B)/rmsB, leaving gainB = sqrt(2)*sumAbsAll/0.95 with NO
+    // render and NO RMS measurement needed. sumAbsAll is over ALL inharmonic
+    // partials INCLUDING above-Nyquist ones — matching maxSumAbs's own
+    // definition exactly, NOT the sub-Nyquist restriction STEP 2 uses for
+    // the (unused, for B) energy target. B is still rendered below — not for
+    // its gain, but because HEADROOM needs its actual peak, which has no
+    // closed form (depends on the partials' relative phases). ----
+    float gainB = 0.0f;
+    std::vector<float> bBuf;
+    if (!iIdx.empty())
+    {
+        double sumAbsAll = 0.0;
+        std::vector<WavetableOscillator::AdditivePartial> station;
+        station.reserve(iIdx.size());
+        for (int i : iIdx)
+        {
+            const auto& p = unionPartials[static_cast<size_t>(i)];
+            const float a = p.a * normScale;
+            sumAbsAll += std::abs(static_cast<double>(a));
+            station.push_back({ p.h, a, p.phase });
+        }
+        if (sumAbsAll > 1.0e-9)
+            gainB = static_cast<float>(std::sqrt(2.0) * sumAbsAll / static_cast<double>(kAdditivePeak));
+
+        WavetableOscillator calB;
+        calB.prepare(kRefSR, kRefSamples);
+        calB.reset();
+        calB.setAdditiveBank(station);   // single K=1 station — mirrors render_dual_ab.py's _render_additive
+        calB.setFrequency(kRefF0);
+
+        bBuf.resize(static_cast<size_t>(kRefSamples));
+        for (int n = 0; n < kRefSamples; ++n)
+            bBuf[static_cast<size_t>(n)] = calB.processSample();
+    }
+
+    // ---- HEADROOM: one common scalar — preserves the gainA:gainB RATIO,
+    // the only thing R1 says matters — so this recipe's dual bake lands at
+    // the SAME loudness target the Baker itself always uses (0.95 peak) and
+    // never clips. Worst-case across A solo, B solo, and the two combined at
+    // the equal-power center (m=0.5), reusing the SAME sample-aligned
+    // buffers rendered above so genuine constructive interference between A
+    // and B is caught, not just each engine's own independent peak. ----
+    float worstPeak = 0.0f;
+    for (float s : aBuf) worstPeak = std::max(worstPeak, std::abs(gainA * s));
+    for (float s : bBuf) worstPeak = std::max(worstPeak, std::abs(gainB * s));
+    if (!aBuf.empty() && !bBuf.empty())
+    {
+        // cos(m*halfPi) at m=0.5 == sin(m*halfPi) at m=0.5 == cos(pi/4) —
+        // same equal-power formula SynthVoice::renderBlock uses at its mix
+        // midpoint.
+        const float eqp = std::cos(0.5f * juce::MathConstants<float>::halfPi);
+        const size_t n = std::min(aBuf.size(), bBuf.size());
+        for (size_t i = 0; i < n; ++i)
+        {
+            const float combined = eqp * gainA * aBuf[i] + eqp * gainB * bBuf[i];
+            worstPeak = std::max(worstPeak, std::abs(combined));
+        }
+    }
+    const float headroom = (worstPeak > 1.0e-9f) ? (kAdditivePeak / worstPeak) : 1.0f;
+
+    result.gainA = gainA * headroom;
+    result.gainB = gainB * headroom;
+    return result;
+}
 }
 
 // Colors from GuiHelpers.h (kAccent, kDim, kDim, kSurface)
@@ -237,6 +426,22 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
                                juce::dontSendNotification);
         }
     };
+
+    // E↔O oscillator-mix slider (Advanced/DCO view) — reuses the neural A↔B
+    // slider machine (FlippedVerticalSlider + AlphaSliderLnF gradient) so it reads
+    // exactly like alphaSlider, but is a PLAIN control (its only behaviour is the
+    // static oscMixA attachment to PID::oscMix, wired in the APVTS block below).
+    // No onValueChange / applyModeToSlider / ghost logic — that is neural-blend
+    // behaviour we deliberately don't want. Advanced-only (setVisible(!easy)).
+    oscMixSlider.setSliderStyle(juce::Slider::LinearVertical);
+    oscMixSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+    oscMixSlider.setLookAndFeel(&oscMixLnF);
+    addAndMakeVisible(oscMixSlider);
+    // E (top) = oscMix 0 = A/harmonic; O (bottom) = oscMix 1 = B/inharmonic.
+    // Same caption style as the SynthPanel oscMixLabelA/B it replaces (kDim,
+    // centred, transparent bg via labelAsCaption inside makeLabel).
+    makeLabel(oscMixLabelE, "E", kDim, juce::Justification::centred, this);
+    makeLabel(oscMixLabelO, "O", kDim, juce::Justification::centred, this);
 
     // ── Injection-mode test row (TEMPORARY, research; not persisted) ──
     // Three radio-group buttons; the existing alphaSlider's range/label/state
@@ -404,7 +609,7 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         // in LCO mode via triggerLcoGenerate(). dcoStatusLabel stays as the
         // logical status/error holder (many call sites write it) but is no
         // longer laid out as its own visible line — its text is routed into
-        // dcoReadingEditor below (setLcoStatus).
+        // dcoReadingEditorA/B below (setLcoStatus).
         makeLabel(dcoStatusLabel, "LCO: ready", kDim, juce::Justification::centredLeft, this);
 
         // Flags list — the guardrail honesty channel made visible: one
@@ -415,24 +620,39 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
 
         // Machine reading: fills the middle where the baked wave used to sit
         // (the wave now draws in the engine window) — the disclosure the LCO
-        // is FOR (docs/DCO_REPROMPT_CONCEPT.md): what the instrument heard,
-        // made visible and negotiable, not a picture of the table. A read-only
-        // multiline TextEditor styled EXACTLY like promptBEditor (the neural
-        // Impulse B editor — yellow identity), reused verbatim rather than a
-        // plain label pair, so it also doubles as the LCO status/error surface
+        // is FOR (docs/DCO_REPROMPT_CONCEPT.md): what each engine heard, made
+        // visible and negotiable, not a picture of the table. Split into two
+        // read-only multiline editors, one per engine — A (Harmonic, styled
+        // EXACTLY like promptAEditor/dcoPromptEditor) and B (Inharmonic,
+        // styled EXACTLY like promptBEditor — the original single HEARD AS
+        // box's identity) — reused verbatim rather than a plain label pair,
+        // so each also doubles as (half of) the LCO status/error surface
         // (setLcoStatus) until a reading exists.
-        dcoReadingEditor.setMultiLine(true, true);
-        dcoReadingEditor.setReadOnly(true);
-        dcoReadingEditor.setCaretVisible(false);
-        dcoReadingEditor.setColour(juce::TextEditor::backgroundColourId, kSurface.brighter(0.08f));
-        dcoReadingEditor.setColour(juce::TextEditor::textColourId, kImpulseB);
-        dcoReadingEditor.setColour(juce::TextEditor::outlineColourId, kBorder);
-        dcoReadingEditor.setColour(juce::TextEditor::focusedOutlineColourId, kImpulseB);
-        dcoReadingEditor.setColour(juce::TextEditor::highlightColourId, kImpulseB.withAlpha(0.30f));
-        dcoReadingEditor.setTextToShowWhenEmpty("The machine's reading of your prompt appears here after Generate.",
-                                                 kImpulseB.withAlpha(0.45f));
-        dcoReadingEditor.setBufferedToImage(true);
-        addAndMakeVisible(dcoReadingEditor);
+        dcoReadingEditorA.setMultiLine(true, true);
+        dcoReadingEditorA.setReadOnly(true);
+        dcoReadingEditorA.setCaretVisible(false);
+        dcoReadingEditorA.setColour(juce::TextEditor::backgroundColourId, kSurface.brighter(0.08f));
+        dcoReadingEditorA.setColour(juce::TextEditor::textColourId, kImpulseAText);
+        dcoReadingEditorA.setColour(juce::TextEditor::outlineColourId, kBorder);
+        dcoReadingEditorA.setColour(juce::TextEditor::focusedOutlineColourId, kImpulseA);
+        dcoReadingEditorA.setColour(juce::TextEditor::highlightColourId, kImpulseA.withAlpha(0.30f));
+        dcoReadingEditorA.setTextToShowWhenEmpty("The Harmonic engine's reading appears here after Generate.",
+                                                  kImpulseAText.withAlpha(0.45f));
+        dcoReadingEditorA.setBufferedToImage(true);
+        addAndMakeVisible(dcoReadingEditorA);
+
+        dcoReadingEditorB.setMultiLine(true, true);
+        dcoReadingEditorB.setReadOnly(true);
+        dcoReadingEditorB.setCaretVisible(false);
+        dcoReadingEditorB.setColour(juce::TextEditor::backgroundColourId, kSurface.brighter(0.08f));
+        dcoReadingEditorB.setColour(juce::TextEditor::textColourId, kImpulseB);
+        dcoReadingEditorB.setColour(juce::TextEditor::outlineColourId, kBorder);
+        dcoReadingEditorB.setColour(juce::TextEditor::focusedOutlineColourId, kImpulseB);
+        dcoReadingEditorB.setColour(juce::TextEditor::highlightColourId, kImpulseB.withAlpha(0.30f));
+        dcoReadingEditorB.setTextToShowWhenEmpty("The Inharmonic engine's reading appears here after Generate.",
+                                                  kImpulseB.withAlpha(0.45f));
+        dcoReadingEditorB.setBufferedToImage(true);
+        addAndMakeVisible(dcoReadingEditorB);
 
         // DCO Re-Prompt (stance-driven self-reading loop, docs/DCO_REPROMPT_CONCEPT.md):
         // a SECOND stance bar bound to its OWN parameter (dcoRepromptStance) — never
@@ -591,6 +811,10 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
     magA    = std::make_unique<Attachment>(apvts, PID::genMagnitude, magRow->getSlider());
     noiseA  = std::make_unique<Attachment>(apvts, PID::genNoise, noiseRow->getSlider());
     durA    = std::make_unique<Attachment>(apvts, PID::genDuration, durationRow->getSlider());
+    // E↔O oscillator mix (Advanced/DCO view). Plain, static attachment — unlike
+    // alphaA it is NEVER reset by applyModeToSlider; the attachment sets the
+    // slider's range (0..1) and default (0.5) from the parameter.
+    oscMixA = std::make_unique<Attachment>(apvts, PID::oscMix, oscMixSlider);
     // Keep the inline read-outs in sync (mirrors MainPanel's resynthRow — the
     // attachment owns onValueChange, so re-wire the display update after it).
     durationRow->getSlider().onValueChange = [this] { durationRow->updateValue(); };
@@ -1055,10 +1279,17 @@ void PromptPanel::resized()
     // shown — see setLcoStatus); it is intentionally NOT toggled here.
     dcoPromptEditor.setVisible(!easy);
     dcoModelBtn.setVisible(!easy);
-    dcoReadingEditor.setVisible(!easy);
+    dcoReadingEditorA.setVisible(!easy);
+    dcoReadingEditorB.setVisible(!easy);
     dcoFlagsLabel.setVisible(!easy);
     dcoStanceBar.setVisible(!easy);
     dcoRepromptBox.setVisible(!easy);
+    // E↔O oscillator-mix slider is Advanced-only — it sits beside the two
+    // read fields (below the prompt row), not the prompt editor; see the
+    // read-field block in the layout below.
+    oscMixSlider.setVisible(!easy);
+    oscMixLabelE.setVisible(!easy);
+    oscMixLabelO.setVisible(!easy);
 
     if (!easy)
     {
@@ -1087,11 +1318,14 @@ void PromptPanel::resized()
         const int multiInputHLco = juce::roundToInt(fLco * kPromptMultiInput);
         const float editorFontLco = fLco * 1.1f;
 
-        // Top-down: the LCO model button row, then the prompt editor (A-styled).
-        // Bottom-up (pinned so they sit directly above the reused GENERATE
-        // button in the column below): the RE-PROMPT framed card, then the
-        // flags list above it. The HEARD AS output editor (B-styled) fills
-        // whatever remains in the middle. There is no BAKE/STEP button —
+        // Top-down: the LCO model button row, then the FULL-WIDTH prompt
+        // editor (A-styled) — no slider sharing this row any more, which was
+        // squeezing it too narrow to use. Bottom-up (pinned so they sit
+        // directly above the reused GENERATE button in the column below): the
+        // RE-PROMPT framed card, then the flags list above it. The two HEARD
+        // AS output editors (A/B-styled, one per engine) fill whatever
+        // remains in the middle, with the E↔O oscillator-mix slider carved
+        // off their combined right edge. There is no BAKE/STEP button —
         // GENERATE drives the bake/loop (triggerLcoGenerate).
         {
             auto modelRow = area.removeFromTop(compactRowLco + 2);
@@ -1099,8 +1333,12 @@ void PromptPanel::resized()
         }
         area.removeFromTop(modelGapLco);
 
-        dcoPromptEditor.applyFontToAllText(juce::FontOptions(editorFontLco));
-        dcoPromptEditor.setBounds(area.removeFromTop(multiInputHLco));
+        // Prompt block — full width now (see comment above).
+        {
+            auto promptBlock = area.removeFromTop(multiInputHLco);
+            dcoPromptEditor.applyFontToAllText(juce::FontOptions(editorFontLco));
+            dcoPromptEditor.setBounds(promptBlock);
+        }
         area.removeFromTop(gapLco);
 
         // RE-PROMPT framed ModuleBox — DIMENSIONALLY IDENTICAL to the neural
@@ -1172,14 +1410,35 @@ void PromptPanel::resized()
             dcoFlagsLabel.setBounds({});
         }
 
-        // HEARD AS output editor fills the remaining middle — the LCO's
-        // disclosure surface (docs/DCO_REPROMPT_CONCEPT.md): what the
-        // instrument heard, made visible and negotiable. Flexes to absorb the
+        // Two HEARD AS output editors fill the remaining middle, one per
+        // engine — the LCO's disclosure surface (docs/DCO_REPROMPT_CONCEPT.md):
+        // what each engine heard, made visible and negotiable. The E↔O
+        // oscillator-mix slider is carved off the RIGHT of this combined
+        // block (not the prompt row above), same sliderColW idiom the old
+        // prompt-row placement used, so it spans both fields' full height;
+        // the fields then split what's left top/bottom with a single gapLco
+        // between them — sized off the SAME T5osc-shared constants as
+        // everywhere else in this panel, never invented. Flexes to absorb the
         // tall LCO panel (a "~3x taller" B box, per the neural multiInput
-        // budget), with the placeholder/status text carried by its own
-        // empty-state string and setLcoStatus.
-        dcoReadingEditor.applyFontToAllText(juce::FontOptions(editorFontLco));
-        dcoReadingEditor.setBounds(area);
+        // budget), with the placeholder/status text carried by each editor's
+        // own empty-state string and setLcoStatus.
+        {
+            const int eoSliderColW = juce::jmax(30, juce::roundToInt(fLco * 1.9f));
+            auto eoCol = area.removeFromRight(eoSliderColW);
+            area.removeFromRight(gapLco);
+
+            const int eoLabelH = juce::roundToInt(fLco * 1.1f);
+            oscMixLabelE.setBounds(eoCol.removeFromTop(eoLabelH));
+            oscMixLabelO.setBounds(eoCol.removeFromBottom(eoLabelH));
+            oscMixSlider.setBounds(eoCol);
+
+            auto topField = area.removeFromTop((area.getHeight() - gapLco) / 2);
+            area.removeFromTop(gapLco);
+            dcoReadingEditorA.applyFontToAllText(juce::FontOptions(editorFontLco));
+            dcoReadingEditorA.setBounds(topField);
+            dcoReadingEditorB.applyFontToAllText(juce::FontOptions(editorFontLco));
+            dcoReadingEditorB.setBounds(area);
+        }
         return;
     }
 
@@ -2112,18 +2371,23 @@ void PromptPanel::triggerLcoGenerate()
 }
 
 // Route status/error text into both the logical holder (dcoStatusLabel — kept
-// for the many call sites that already write it) and the visible HEARD AS box,
-// which doubles as the LCO status/error channel until an actual reading exists.
+// for the many call sites that already write it) and BOTH visible HEARD AS
+// boxes, which double as the LCO status/error channel until actual readings
+// exist.
 void PromptPanel::setLcoStatus(const juce::String& text, const juce::String& tooltip)
 {
     dcoStatusLabel.setText(text, juce::dontSendNotification);   // keep the logical status holder
-    // Status/error is always DIMMED (kDim) in the HEARD AS box so it never reads
-    // as a successful reading — the completion path re-brightens to kImpulseB only
-    // when an actual reading exists. setColour before setText so the replaced text
-    // picks up the dim colour (and clears any bright colour a prior reading left).
-    dcoReadingEditor.setColour(juce::TextEditor::textColourId, kDim);
-    dcoReadingEditor.setText(text, juce::dontSendNotification); // surface it in the HEARD AS box
-    dcoReadingEditor.setTooltip(tooltip);
+    // Status/error is always DIMMED (kDim) in both HEARD AS boxes, mirrored,
+    // so neither reads as a successful reading — the completion path
+    // re-brightens each box independently, only when THAT engine actually
+    // has a reading. setColour before setText so the replaced text picks up
+    // the dim colour (and clears any bright colour a prior reading left).
+    dcoReadingEditorA.setColour(juce::TextEditor::textColourId, kDim);
+    dcoReadingEditorA.setText(text, juce::dontSendNotification);
+    dcoReadingEditorA.setTooltip(tooltip);
+    dcoReadingEditorB.setColour(juce::TextEditor::textColourId, kDim);
+    dcoReadingEditorB.setText(text, juce::dontSendNotification);
+    dcoReadingEditorB.setTooltip(tooltip);
 }
 
 void PromptPanel::triggerDcoBake()
@@ -2196,13 +2460,23 @@ void PromptPanel::triggerDcoBake()
         // Non-empty => additive. Each entry is one station's partials, in wire order.
         std::vector<std::vector<dco::Partial>> additiveStations;
         float motionRateHz = 0.0f;
+        // Dual A+B (docs: dual_osc_build_spec.md W3) — declared here, at the
+        // SAME scope as strip/additiveStations (not inside the
+        // `if (authored.success)` block below, where they're actually
+        // computed), because the callAsync capture at the bottom of this
+        // lambda needs them in scope too, exactly like strip/additiveStations
+        // themselves. Defaults (false/false, unity gains) mean "publish
+        // nothing" — the authoring-failed `else` branch below leaves them
+        // untouched, so a failed re-bake never calls setDcoOscBalance.
+        bool oscAHasContent = false, oscBHasContent = false;
+        DcoDualGains dualGains;
         // DCO Re-Prompt (docs/DCO_REPROMPT_CONCEPT.md "lesen -> deuten -> umformulieren"):
         // the router's OWN reading of what it just baked, as two plain display
         // strings for the next interpret() call (RepromptStances::buildDcoStanceUserTurn).
         // Built ONLY on a successful author (parsed/resolved/recipe on hand); never
         // fed back into the recipe itself — router not author, the next bake
         // re-validates through the same lexicon regardless of what the LLM writes.
-        juce::String machineReading, flagsLine, displayReading;
+        juce::String machineReading, flagsLine, displayReadingA, displayReadingB;
         // The scanner's own vocabulary, sent back as a sibling field (NOT inside
         // "recipe") — cached message-thread-side for the Re-Prompt palette. Empty
         // from an older backend without the field; the re-prompt then simply omits
@@ -2246,24 +2520,136 @@ void PromptPanel::triggerDcoBake()
                                [n0 = recipe.keyframes.front().partials.size()](const dco::Keyframe& kf) {
                                    return kf.partials.size() == n0;
                                });
-            const bool anyInharmonic = alignedStations
-                && std::any_of(recipe.keyframes.begin(), recipe.keyframes.end(),
-                               [](const dco::Keyframe& kf) {
-                                   return std::any_of(kf.partials.begin(), kf.partials.end(),
-                                       [](const dco::Partial& p) {
-                                           return std::abs(p.h - std::round(p.h)) > 1.0e-3f;
-                                       });
-                               });
-            if (anyInharmonic)
+            // Dual A+B (docs: dual_osc_build_spec.md W3): within an aligned
+            // all-Additive chain, split the union INDEX set by the SAME
+            // harmonic tolerance the old anyInharmonic check used — but into
+            // A (harmonic) and B (inharmonic) index sets rather than an
+            // all-or-nothing route. Because the stations are union-aligned, h
+            // at a given index is identical across every keyframe (the
+            // alignment contract just above), so testing keyframe[0]'s
+            // partials alone classifies every station consistently. A
+            // mixed-kind or unaligned chain (alignedStations false) has no
+            // valid index set to split — hIdx/iIdx stay empty and it falls
+            // through to the unfiltered bake below exactly as before this
+            // feature existed.
+            std::vector<int> hIdx, iIdx;
+            if (alignedStations)
             {
+                const auto& refPartials = recipe.keyframes.front().partials;
+                hIdx.reserve(refPartials.size());
+                iIdx.reserve(refPartials.size());
+                for (int i = 0; i < static_cast<int>(refPartials.size()); ++i)
+                {
+                    const float h = refPartials[static_cast<size_t>(i)].h;
+                    if (std::abs(h - std::round(h)) <= 1.0e-3f)
+                        hIdx.push_back(i);
+                    else
+                        iIdx.push_back(i);
+                }
+            }
+
+            // oscAHasContent/oscBHasContent (declared above, outer scope):
+            // which master(s) THIS bake action actually publishes to —
+            // passed to setDcoOscBalance at dispatch (message thread, below)
+            // so a stale bank from an EARLIER bake can never leak into a
+            // recipe that didn't publish to that oscillator (BlockParams.h's
+            // dcoOscAHasContent/dcoOscBHasContent contract).
+            if (alignedStations && !hIdx.empty() && !iIdx.empty())
+            {
+                // Genuine dual split: A gets an H-only bake, B gets an
+                // I-only additive bank, from the SAME recipe (same motion/
+                // loop/frames/rate) — the router is the only place that ever
+                // builds a filtered recipe copy; the loaders themselves stay
+                // untouched, each still just bakes/publishes whatever it's
+                // handed.
+                dco::Recipe hRecipe;
+                hRecipe.motion       = recipe.motion;
+                hRecipe.loop         = recipe.loop;
+                hRecipe.frames       = recipe.frames;
+                hRecipe.motionRateHz = recipe.motionRateHz;
+                hRecipe.keyframes.reserve(recipe.keyframes.size());
+                for (const auto& kf : recipe.keyframes)
+                {
+                    dco::Keyframe hkf = kf;   // carries width/ratio/index/order/drive/mix/shape through unchanged
+                    hkf.partials.clear();
+                    hkf.partials.reserve(hIdx.size());
+                    for (int i : hIdx)
+                        hkf.partials.push_back(kf.partials[static_cast<size_t>(i)]);
+                    hRecipe.keyframes.push_back(std::move(hkf));
+                }
+                const auto hFrameData = dco::Baker::bake(hRecipe);
+                strip = dco::Baker::framesToBuffer(hFrameData);
+
+                additiveStations.reserve(recipe.keyframes.size());
+                for (const auto& kf : recipe.keyframes)
+                {
+                    std::vector<dco::Partial> station;
+                    station.reserve(iIdx.size());
+                    for (int i : iIdx)
+                        station.push_back(kf.partials[static_cast<size_t>(i)]);
+                    additiveStations.push_back(std::move(station));
+                }
+                // Belt-and-braces re-verification of the K-station alignment
+                // CONTRACT on the I-subset specifically (mirrors
+                // loadDcoAdditive's own defensive station-emptiness check):
+                // every station must have walked away with the SAME count as
+                // iIdx — mechanically guaranteed by construction above (same
+                // index list applied to every keyframe), but never assumed.
+                const bool iAligned = std::all_of(additiveStations.begin(), additiveStations.end(),
+                    [n0 = iIdx.size()](const std::vector<dco::Partial>& st) { return st.size() == n0; });
+                if (iAligned)
+                {
+                    oscAHasContent = true;
+                    oscBHasContent = true;
+                }
+                else
+                {
+                    // Unreachable given the construction above (defensive
+                    // only) — refuse to publish a broken split rather than
+                    // guess at a fallback; falls through to the existing
+                    // "empty recipe" status below (both containers empty).
+                    strip = juce::AudioBuffer<float>();
+                    additiveStations.clear();
+                }
+            }
+            else if (alignedStations && !iIdx.empty())
+            {
+                // H empty -> skip A (B-only), exactly as the pre-dual
+                // anyInharmonic route did: EVERY partial in every keyframe is
+                // inharmonic, so the whole chain is the additive bank.
                 additiveStations.reserve(recipe.keyframes.size());
                 for (const auto& kf : recipe.keyframes)
                     additiveStations.push_back(kf.partials);   // one station per keyframe, wire order
+                oscBHasContent = true;
             }
             else if (!recipe.keyframes.empty())
             {
+                // I empty (pure-harmonic additive, OR a mixed-kind/unaligned
+                // chain with no valid index set to split) -> bake everything
+                // to A exactly as today; B stays untouched.
                 const auto frameData = dco::Baker::bake(recipe);
                 strip = dco::Baker::framesToBuffer(frameData);
+                oscAHasContent = true;
+            }
+
+            // R1 balance (docs: dual_osc_build_spec.md R1): dualGains
+            // (declared above, outer scope) only meaningful for a genuine
+            // dual split — A-only/B-only always solo at unity, so it's
+            // simply left at its default and unused on those dispatch paths
+            // below.
+            if (oscAHasContent && oscBHasContent)
+            {
+                std::vector<dco::Partial> unionPartials;
+                const auto& refPartials = recipe.keyframes.front().partials;
+                unionPartials.reserve(refPartials.size());
+                for (size_t i = 0; i < refPartials.size(); ++i)
+                {
+                    dco::Partial up = refPartials[i];
+                    for (const auto& kf : recipe.keyframes)
+                        up.a = std::max(up.a, kf.partials[i].a);
+                    unionPartials.push_back(up);
+                }
+                dualGains = computeDcoDualBalance(unionPartials, hIdx, iIdx);
             }
 
             const auto resolved = parsed.getProperty("resolved", juce::var());
@@ -2381,16 +2767,24 @@ void PromptPanel::triggerDcoBake()
                 }
                 machineReading = parts.joinIntoString("; ");
 
-                // Display reading (dcoReadingEditor, shown where the wave used to
-                // sit): the SAME resolved facts as machineReading, but formatted
-                // for the eye as short acoustic lines — technique + timbre words,
-                // motion, the ordered shape path (the timbre "stations"), then
-                // the frame/rate footprint. Non-ASCII separators go through
+                // Display reading, one per engine (dcoReadingEditorA/B, shown
+                // where the wave used to sit): the SAME resolved facts as
+                // machineReading, but formatted for the eye as short acoustic
+                // lines — technique + timbre words, motion, the ordered shape
+                // path (the timbre "stations") — shared verbatim by both
+                // engines, since a dual bake builds A and B from the SAME
+                // recipe/motion/loop/frames (see hRecipe above); only the
+                // partial SUBSET and gain differ, so each engine appends its
+                // own frame/rate/partial footer. A field is left EMPTY when
+                // this bake published nothing to that engine
+                // (oscAHasContent/oscBHasContent), so it falls back to its
+                // own empty-state placeholder instead of claiming a reading
+                // that isn't there. Non-ASCII separators go through
                 // CharPointer_UTF8 (raw literals mojibake in JUCE UI strings).
                 {
                     const juce::String kMid   = juce::String(juce::CharPointer_UTF8(" \xc2\xb7 "));      // " · "
                     const juce::String kArrow = juce::String(juce::CharPointer_UTF8(" \xe2\x86\x92 "));  // " → "
-                    juce::StringArray lines;
+                    juce::StringArray sharedLines;
 
                     juce::String head = (technique.isNotEmpty() && technique != "?") ? technique : juce::String();
                     if (const auto* adjArr = resolved.getProperty("adjectives", juce::var()).getArray())
@@ -2403,24 +2797,47 @@ void PromptPanel::triggerDcoBake()
                             head = head.isEmpty() ? adjs.joinIntoString(", ")
                                                   : head + kMid + adjs.joinIntoString(", ");
                     }
-                    if (head.isNotEmpty()) lines.add(head);
+                    if (head.isNotEmpty()) sharedLines.add(head);
 
                     if (const auto* motionArr = resolved.getProperty("motion", juce::var()).getArray())
                     {
                         juce::StringArray mots;
                         for (const auto& m : *motionArr) mots.add(m.toString());
-                        if (! mots.isEmpty()) lines.add("motion: " + mots.joinIntoString(", "));
+                        if (! mots.isEmpty()) sharedLines.add("motion: " + mots.joinIntoString(", "));
                     }
                     if (const auto* kfArr = recipeVar.getProperty("keyframes", juce::var()).getArray())
                     {
                         juce::StringArray kinds;
                         for (const auto& kf : *kfArr) kinds.add(kf.getProperty("kind", "saw").toString());
-                        if (! kinds.isEmpty()) lines.add(kinds.joinIntoString(kArrow));
+                        if (! kinds.isEmpty()) sharedLines.add(kinds.joinIntoString(kArrow));
                     }
-                    juce::String foot = juce::String(recipe.frames) + " frames";
-                    if (motionRateHz > 0.0f) foot += kMid + juce::String(motionRateHz, 2) + " Hz";
-                    lines.add(foot);
-                    displayReading = lines.joinIntoString("\n");
+
+                    // Genuine dual split only: append which partial subset and
+                    // gain this engine got, so the two fields actually read as
+                    // distinct rather than duplicating the same recipe text.
+                    const bool genuineDual = oscAHasContent && oscBHasContent;
+                    auto buildFooter = [&](int partialCount, float gain) -> juce::String
+                    {
+                        juce::String foot = juce::String(recipe.frames) + " frames";
+                        if (motionRateHz > 0.0f) foot += kMid + juce::String(motionRateHz, 2) + " Hz";
+                        if (genuineDual)
+                            foot += kMid + juce::String(partialCount) + " partials" + kMid
+                                  + juce::String(juce::roundToInt(gain * 100.0f)) + "%";
+                        return foot;
+                    };
+
+                    if (oscAHasContent)
+                    {
+                        juce::StringArray a(sharedLines);
+                        a.add(buildFooter(static_cast<int>(hIdx.size()), dualGains.gainA));
+                        displayReadingA = a.joinIntoString("\n");
+                    }
+                    if (oscBHasContent)
+                    {
+                        juce::StringArray b(sharedLines);
+                        b.add(buildFooter(static_cast<int>(iIdx.size()), dualGains.gainB));
+                        displayReadingB = b.joinIntoString("\n");
+                    }
                 }
             }
         }
@@ -2432,43 +2849,94 @@ void PromptPanel::triggerDcoBake()
         juce::MessageManager::callAsync(
             [safeThis, strip = std::move(strip), additiveStations = std::move(additiveStations),
              status, flagTooltip, flagsSummary, motionRateHz,
-             machineReading, displayReading, flagsLine, referenceVocab, text]() mutable
+             machineReading, displayReadingA, displayReadingB, flagsLine, referenceVocab, text,
+             dualGains, oscAHasContent, oscBHasContent]() mutable
         {
             if (auto* self = safeThis.getComponent())
             {
-                if (!additiveStations.empty())
+                // Dual A+B (docs: dual_osc_build_spec.md W1-W3): three-way
+                // dispatch instead of the old either/or. oscAHasContent/
+                // oscBHasContent (computed on the background thread above,
+                // in lockstep with strip/additiveStations themselves) say
+                // which master(s) THIS bake actually populated;
+                // setDcoOscBalance is called EXACTLY once here, right after
+                // publishing, so the flags always describe what THIS bake
+                // published — never a stale one left by an earlier bake.
+                if (oscAHasContent && oscBHasContent)
+                {
+                    // Genuine dual split: BOTH masters must scan in
+                    // LOCKSTEP, so resolve ONE motion rate here and hand the
+                    // SAME value to both loaders — otherwise loadDcoWavetable
+                    // would fall back to a strip-length-derived rate while
+                    // loadDcoAdditive falls back to a different constant
+                    // (0.25 Hz), desyncing A and B (dual_osc_build_spec.md
+                    // SYNC). The solo A-only/B-only paths below are
+                    // UNCHANGED — each keeps its own pre-existing,
+                    // independent fallback exactly as before this feature
+                    // existed.
+                    const float resolvedRate = motionRateHz > 0.0f ? motionRateHz : 0.25f;
+                    self->processorRef.loadDcoWavetable(strip, resolvedRate);
+                    self->processorRef.loadDcoAdditive(additiveStations, resolvedRate);
+                    self->processorRef.setDcoOscBalance(true, dualGains.gainA, true, dualGains.gainB);
+                    self->processorRef.setLastModel("LCO");
+                    self->processorRef.setLcoBakeSnapshot(text, displayReadingA, displayReadingB, resolvedRate,
+                                                          true, dualGains.gainA, true, dualGains.gainB);
+                }
+                else if (oscBHasContent)
                 {
                     // Inharmonic chain -> real-time additive bank: K index-aligned
                     // stations blended by scan (a looped cycle can't hold non-integer
                     // partials). Publishes its own K-period WT display.
                     self->processorRef.loadDcoAdditive(additiveStations, motionRateHz);
+                    self->processorRef.setDcoOscBalance(false, 1.0f, true, 1.0f);
+                    self->processorRef.setLastModel("LCO");
+                    self->processorRef.setLcoBakeSnapshot(text, displayReadingA, displayReadingB, motionRateHz,
+                                                          false, 1.0f, true, 1.0f);
                 }
-                else if (strip.getNumSamples() > 0)
+                else if (oscAHasContent)
                 {
                     self->processorRef.loadDcoWavetable(strip, motionRateHz);
                     // The bit-exact frames now draw in the engine window
                     // (SynthPanel wtMode) — loadDcoWavetable publishes them
                     // there. The LCO shows the READING instead (below).
+                    self->processorRef.setDcoOscBalance(true, 1.0f, false, 1.0f);
+                    self->processorRef.setLastModel("LCO");
+                    self->processorRef.setLcoBakeSnapshot(text, displayReadingA, displayReadingB, motionRateHz,
+                                                          true, 1.0f, false, 1.0f);
                 }
                 self->dcoStatusLabel.setText(status, juce::dontSendNotification);
-                // The machine's reading, prominent in the middle. Show it bright
-                // ONLY when a table actually baked (non-empty strip) AND a reading
-                // was built — otherwise a parse-that-yields-no-frames ("empty
-                // recipe") would paint a confident "256 frames" reading that
-                // contradicts the status. On that path fall back to the status
-                // line (which carries the error) in the same HEARD AS box, so the
-                // panel is never blank-but-live and never reads as a successful bake.
-                const bool haveReading = (strip.getNumSamples() > 0 || !additiveStations.empty())
-                                         && displayReading.isNotEmpty();
+                // The machine's reading, prominent in the middle, split one box
+                // per engine. Show a box bright ONLY when a table actually baked
+                // (non-empty strip/additiveStations) AND that SPECIFIC engine
+                // got content this bake AND a reading was built for it —
+                // otherwise a parse-that-yields-no-frames ("empty recipe") would
+                // paint a confident "256 frames" reading that contradicts the
+                // status. On a total-failure path both boxes fall back to the
+                // status line (which carries the error); on a SOLO bake (only
+                // one engine published) the other box falls back to empty —
+                // its own placeholder — rather than echoing a status line that
+                // actually describes a successful bake on the other engine. The
+                // panel is never blank-but-live and never reads as a successful
+                // bake for an engine that got nothing.
+                const bool haveReading  = (strip.getNumSamples() > 0 || !additiveStations.empty());
+                const bool haveReadingA = haveReading && oscAHasContent && displayReadingA.isNotEmpty();
+                const bool haveReadingB = haveReading && oscBHasContent && displayReadingB.isNotEmpty();
                 // Restore the old dcoReadingLabel dim/bright distinction: a real
-                // reading is bright Impulse-B, the status/error fallback is dimmed
-                // (kDim) so it never reads as a successful bake. setColour before
-                // setText so the replaced text picks up the new colour.
-                self->dcoReadingEditor.setColour(juce::TextEditor::textColourId,
-                                                 haveReading ? kImpulseB : kDim);
-                self->dcoReadingEditor.setText(haveReading ? displayReading : status,
-                                               juce::dontSendNotification);
-                self->dcoReadingEditor.setTooltip(flagTooltip);
+                // reading is bright Impulse-A/B, the status/error fallback is
+                // dimmed (kDim) so it never reads as a successful bake. setColour
+                // before setText so the replaced text picks up the new colour.
+                self->dcoReadingEditorA.setColour(juce::TextEditor::textColourId,
+                                                  haveReadingA ? kImpulseAText : kDim);
+                self->dcoReadingEditorA.setText(haveReadingA ? displayReadingA
+                                                              : (haveReading ? juce::String() : status),
+                                                juce::dontSendNotification);
+                self->dcoReadingEditorA.setTooltip(flagTooltip);
+                self->dcoReadingEditorB.setColour(juce::TextEditor::textColourId,
+                                                  haveReadingB ? kImpulseB : kDim);
+                self->dcoReadingEditorB.setText(haveReadingB ? displayReadingB
+                                                              : (haveReading ? juce::String() : status),
+                                                juce::dontSendNotification);
+                self->dcoReadingEditorB.setTooltip(flagTooltip);
                 self->dcoFlagsLabel.setText(flagsSummary, juce::dontSendNotification);  // compact tier summary
                 self->dcoFlagsLabel.setTooltip(flagTooltip);  // full per-flag detail, grouped by tier
                 self->dcoBaking_ = false;

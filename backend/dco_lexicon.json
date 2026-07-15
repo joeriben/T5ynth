@@ -1,5 +1,5 @@
 {
-  "lexicon_version": 5,
+  "lexicon_version": 6,
   "techniques": [
     {
       "key": "saw",
@@ -3112,10 +3112,10 @@
         "pulsating",
         "pulsierend"
       ],
-      "category": "intent",
+      "category": "texture",
       "priority": 8,
-      "why": "a brisk two-cycle there-and-back per loop",
-      "motion_rate_hz": 2.5
+      "why": "a per-frame spectral-tilt wobble — two cycles per loop, a timbral rock low<->high (dco_frames texture, not a scan trajectory)",
+      "texture": {"n_cycles": 2, "depth": 0.55}
     },
     {
       "key": "pingpong",
@@ -3200,10 +3200,10 @@
         "stutters",
         "stottert"
       ],
-      "category": "intent",
+      "category": "texture",
       "priority": 8,
-      "why": "four brisk there-and-back cycles per loop",
-      "motion_rate_hz": 3.0
+      "why": "a brisk per-frame timbral flutter — four bright<->dark shimmer cycles per loop (dco_frames texture, not a scan trajectory)",
+      "texture": {"n_cycles": 4, "depth": 0.5}
     },
     {
       "key": "vibrate",
@@ -3215,10 +3215,39 @@
         "vibriert",
         "zittert"
       ],
-      "category": "intent",
+      "category": "texture",
       "priority": 8,
-      "why": "six fast, dense there-and-back cycles per loop",
-      "motion_rate_hz": 4.5
+      "why": "a fast, dense per-frame timbral shimmer — six centroid-wobble cycles per loop; true pitch vibrato is not single-cycle-representable, so it is realized on the timbral axis (dco_frames texture, not a scan trajectory)",
+      "texture": {"n_cycles": 6, "depth": 0.5}
+    },
+    {
+      "key": "tremolo",
+      "surface_forms": [
+        "tremolo",
+        "tremolando",
+        "tremolierend",
+        "tremoliert"
+      ],
+      "category": "texture",
+      "priority": 8,
+      "why": "a periodic per-frame gain modulation — the amplitude pulses (audible because the wire does no per-frame renorm); a dco_frames texture, not a scan trajectory",
+      "texture": {"n_cycles": 4, "depth": 0.4}
+    },
+    {
+      "key": "shimmer",
+      "surface_forms": [
+        "sparkle",
+        "sparkling",
+        "sparkles",
+        "glitter",
+        "glittering",
+        "funkelnd",
+        "funkelt"
+      ],
+      "category": "texture",
+      "priority": 8,
+      "why": "a periodic high-partial sparkle, golden-angle decorrelated so the top of the spectrum glitters; a dco_frames texture, not a scan trajectory. Triggered by sparkle/glitter words — 'shimmer'/'shimmering' remain the pre-existing morph-rate adjective, a distinct concept",
+      "texture": {"n_cycles": 3, "depth": 0.5}
     },
     {
       "key": "settle",

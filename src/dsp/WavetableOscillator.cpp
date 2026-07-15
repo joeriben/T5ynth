@@ -17,7 +17,6 @@ void WavetableOscillator::reset()
 {
     phase = 0.0;
     smoothedScan = 0.0f;
-    dcoMotionPos_ = 0.0;
     if (!morphActive_)
         morphAlpha_ = 1.0f;
 }
@@ -68,37 +67,32 @@ bool WavetableOscillator::snapshotLevel0Frames(std::vector<float>& outFlat,
     return true;
 }
 
+bool WavetableOscillator::snapshotAdditiveBank(std::vector<std::vector<AdditivePartial>>& outSets,
+                                               float& outGain) const
+{
+    auto published = loadPublishedMipData();
+    if (published == nullptr || !published->isAdditive || published->partialSets.empty())
+        return false;
+
+    outSets = published->partialSets;
+    outGain = published->additiveGain;
+    return true;
+}
+
 void WavetableOscillator::syncSharedConfigFrom(const WavetableOscillator& source)
 {
     // Copy traversal/morph configuration, but keep per-voice runtime state.
+    // scanNow reads only smoothedScan (see processSample) — already per-voice
+    // continuous state untouched by this sync — so a transport change (e.g.
+    // AutoScan toggled, or a DCO<->neural regeneration) needs no compensation
+    // here: the smoother just slews to the new target over its normal 5 ms,
+    // exactly like any other scan-target change.
     autoScan_ = source.autoScan_;
     autoScanIncr_ = source.autoScanIncr_;
     autoScanStartPos_ = source.autoScanStartPos_;
     autoScanLoopStart_ = source.autoScanLoopStart_;
     autoScanLoopEnd_ = source.autoScanLoopEnd_;
     autoScanLoopMode_ = source.autoScanLoopMode_;
-
-    // Transport flip on a LIVE voice (held-note DCO<->neural regeneration):
-    // scanNow = dcoMotionPos_ + smoothedScan under DCO motion, plain
-    // smoothedScan under neural — flipping the flag mid-render would step
-    // scanNow by the whole motion offset in one sample at full outgoing
-    // morph gain (a hard click; the held-note click-free crossfade is a
-    // platform invariant). Fold the offset into smoothedScan so scanNow is
-    // bit-continuous across the flip; the smoother then slews to the new
-    // target over its normal 5 ms. Deliberately unclamped: smoothedScan may
-    // transiently leave [0,1] (readMipSample/scanNow clamp downstream), and
-    // clamping here would break the exact continuity this exists for. Guarded
-    // on an actual transition — this sync runs on every distribute, not only
-    // when the transport changes.
-    if (dcoMotionActive_ != source.dcoMotionActive_)
-    {
-        if (source.dcoMotionActive_)
-            smoothedScan -= static_cast<float>(dcoMotionPos_);  // motion term joins scanNow
-        else
-            smoothedScan += static_cast<float>(dcoMotionPos_);  // motion term leaves scanNow
-    }
-    dcoMotionActive_ = source.dcoMotionActive_;
-    dcoMotionRateHz_ = source.dcoMotionRateHz_;
     morphTimeMs_ = source.morphTimeMs_;
 }
 
@@ -674,6 +668,18 @@ void WavetableOscillator::setAutoScanRate(double bufferSR, int bufferLen)
         autoScanIncr_ = 0.0;
 }
 
+void WavetableOscillator::setAutoScanRateHz(float rateHz)
+{
+    // Full 0->1 sweeps per second, directly — for a caller with a tempo
+    // rather than a source buffer's duration (the DCO/LCO recipe's
+    // motion_rate_hz). Same clamp range the removed private DCO transport
+    // used to apply, so a wild recipe rate still can't produce aliasing/silent
+    // extremes. Writes the SAME autoScanIncr_ setAutoScanRate does above —
+    // one scan-advance mechanism, two ways to express its rate.
+    rateHz = juce::jlimit(0.01f, 10.0f, rateHz);
+    autoScanIncr_ = static_cast<double>(rateHz) / sampleRate;
+}
+
 void WavetableOscillator::setAutoScanLoop(float startFrac, float endFrac, LoopMode mode)
 {
     autoScanLoopStart_ = juce::jlimit(0.0f, 1.0f, startFrac);
@@ -690,9 +696,6 @@ void WavetableOscillator::setAutoScanStartPos(float frac)
 
 void WavetableOscillator::retriggerAutoScan()
 {
-    // DCO gesture restarts with the note (per-voice phase).
-    dcoMotionPos_ = 0.0;
-
     // Determine direction from P1 vs P3
     bool reversed = (autoScanStartPos_ > autoScanLoopEnd_);
     autoScanDirection_ = reversed ? -1 : 1;
@@ -760,17 +763,8 @@ void WavetableOscillator::extractContiguousFrames(const juce::AudioBuffer<float>
         while (static_cast<int>(frames.size()) < MIN_FRAMES)
             frames.push_back(frames.back());
 
-    dcoMotionActive_ = false;    // neural timeline: the auto-scan transport owns traversal
-
     if (!frames.empty())
         generateMipLevels(frames);
-}
-
-void WavetableOscillator::setDcoMotion(bool active, float rateHz)
-{
-    dcoMotionActive_ = active;
-    if (active)
-        dcoMotionRateHz_ = juce::jlimit(0.01f, 10.0f, rateHz);
 }
 
 void WavetableOscillator::setExactFrames(const juce::AudioBuffer<float>& strip)
@@ -939,19 +933,12 @@ float WavetableOscillator::processSample()
 
     float scanTarget = scanControl_;
 
-    // DCO motion transport: the authored gesture advances with an exact
-    // modular wrap and bypasses the scan smoother entirely — the recipe
-    // motion is loop-closed, so the wrap is one ordinary motion step, and
-    // smoothing it would slew backwards through the whole table instead
-    // (an audible dropout once per loop). Manual scan + modulation keep
-    // the smoother via scanTarget below and ADD to the motion position.
-    if (dcoMotionActive_)
-    {
-        dcoMotionPos_ += static_cast<double>(dcoMotionRateHz_) / sampleRate;
-        dcoMotionPos_ -= std::floor(dcoMotionPos_);
-    }
-    // Auto-scan: advance scan position per sample (3-point logic)
-    else if (autoScan_)
+    // Auto-scan: advance scan position per sample (3-point logic). This is the
+    // ONLY scan-advance mechanism the oscillator runs. A DCO/LCO table's
+    // authored motion moves through it too (see setAutoScanRateHz) — enabled
+    // once at load time via the same AutoScan the user's toggle/rate/loop
+    // controls drive; the oscillator itself owns no private transport.
+    if (autoScan_)
     {
         const double pEnd   = static_cast<double>(autoScanLoopEnd_);
         const double pStart = static_cast<double>(autoScanLoopStart_);
@@ -1017,16 +1004,13 @@ float WavetableOscillator::processSample()
             static_cast<float>(autoScanPos_) + scanControl_);
     }
 
-    // Smooth scan position (control component only under DCO motion)
+    // Smooth scan position (5 ms one-pole)
     smoothedScan += (scanTarget - smoothedScan) * scanSmoothCoeff;
 
-    const float scanNow = dcoMotionActive_
-        ? juce::jlimit(0.0f, 1.0f, static_cast<float>(dcoMotionPos_) + smoothedScan)
-        : smoothedScan;
-    // Publish the effective read position for the WT display's scan cursor
-    // (clamped so the neural branch, which does not clamp scanNow, still reports
-    // a display-safe [0,1]). One float write, no allocation — audio-thread safe.
-    lastScanNow_ = juce::jlimit(0.0f, 1.0f, scanNow);
+    const float scanNow = juce::jlimit(0.0f, 1.0f, smoothedScan);
+    // Publish the effective read position for the WT display's scan cursor.
+    // One float write, no allocation — audio-thread safe.
+    lastScanNow_ = scanNow;
 
     // Recompute mip-level selector only when frequency changes. Outside glide and modulation
     // bursts this is constant for very long runs, so the log2/ceil cost is amortised to ~0.

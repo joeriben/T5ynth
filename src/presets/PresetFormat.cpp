@@ -360,6 +360,57 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
             root->setProperty("snapshots", snapsArr);
     }
 
+    // LCO/DCO bake — frame/station data. Patched in here (not
+    // exportJsonPreset) because it requires a FRESH DSP read
+    // (snapshotLevel0Frames/snapshotAdditiveBank), mirroring how audio_meta
+    // above is computed from live engine state rather than cached earlier.
+    // exportJsonPreset already wrote the "lco" object (prompt/readings/
+    // balance/stance) when a bake snapshot exists; this only adds the
+    // frame-count metadata for A and B's station data. A's actual frame
+    // samples are appended as a trailing FLAC blob below.
+    juce::AudioBuffer<float> lcoFramesABuffer;
+    if (auto* lco = root->getProperty("lco").getDynamicObject())
+    {
+        if (processor.getLcoOscAHasContent())
+        {
+            std::vector<float> flat;
+            int frameSize = 0, numFrames = 0;
+            if (processor.getMasterOscConst().snapshotLevel0Frames(flat, frameSize, numFrames)
+                && numFrames > 0)
+            {
+                lco->setProperty("frameSize", frameSize);
+                lco->setProperty("frameCountA", numFrames);
+                lcoFramesABuffer.setSize(1, static_cast<int>(flat.size()));
+                lcoFramesABuffer.copyFrom(0, 0, flat.data(), static_cast<int>(flat.size()));
+            }
+        }
+
+        if (processor.getLcoOscBHasContent())
+        {
+            std::vector<std::vector<WavetableOscillator::AdditivePartial>> sets;
+            float additiveGain = 1.0f;
+            if (processor.getMasterOscBConst().snapshotAdditiveBank(sets, additiveGain))
+            {
+                juce::Array<juce::var> stationsArr;
+                for (const auto& station : sets)
+                {
+                    juce::Array<juce::var> partArr;
+                    for (const auto& p : station)
+                    {
+                        juce::DynamicObject::Ptr pd = new juce::DynamicObject();
+                        pd->setProperty("h", static_cast<double>(p.h));
+                        pd->setProperty("a", static_cast<double>(p.a));
+                        pd->setProperty("phase", static_cast<double>(p.phase));
+                        partArr.add(pd.get());
+                    }
+                    stationsArr.add(partArr);
+                }
+                lco->setProperty("stationsB", stationsArr);
+                lco->setProperty("additiveGainB", static_cast<double>(additiveGain));
+            }
+        }
+    }
+
     juce::String json = juce::JSON::toString(parsed, true);
     auto jsonData = json.toRawUTF8();
     uint32_t jsonLen = static_cast<uint32_t>(json.getNumBytesAsUTF8());
@@ -416,6 +467,13 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
             if (!snap.valid) continue;
             writeCompressedAudio(snap.audio, snap.sampleRate);
         }
+
+    // LCO frames A — trailing, purely additive blob (v4 readers never see
+    // it; their cursor logic stops after the snapshot blobs above). Only
+    // written when the JSON "lco.frameCountA" was actually set above.
+    if (lcoFramesABuffer.getNumSamples() > 0)
+        writeCompressedAudio(lcoFramesABuffer,
+                             processor.getSampleRate() > 0.0 ? processor.getSampleRate() : 44100.0);
 
     if (!audioWriteOk) return false;
 
@@ -738,6 +796,60 @@ PresetFormat::LoadResult PresetFormat::loadFromFile(const juce::File& file, T5yn
                 }
                 snap.valid = true;
                 result.snapshots.push_back(std::move(snap));
+            }
+        }
+
+        // LCO/DCO bake (v5+). Absence = not an LCO preset (v4 fallback, or a
+        // v5 file saved with no active bake) — hasLco stays false and the
+        // caller skips the restore entirely. A trailing FLAC blob carries A's
+        // exact baked frames when frameCountA > 0; a corrupt/short tail
+        // degrades to hasLco=false rather than failing the whole load, since
+        // the JSON-declared blob order after this point is otherwise empty.
+        if (auto* lco = root->getProperty("lco").getDynamicObject())
+        {
+            result.hasLco          = true;
+            result.lcoPrompt       = lco->getProperty("prompt").toString();
+            result.lcoReadingA     = lco->getProperty("readingA").toString();
+            result.lcoReadingB     = lco->getProperty("readingB").toString();
+            result.lcoMotionRateHz = static_cast<float>(static_cast<double>(lco->getProperty("motionRateHz")));
+            result.lcoOscAHasContent = static_cast<bool>(lco->getProperty("oscAHasContent"));
+            result.lcoGainA        = static_cast<float>(static_cast<double>(lco->getProperty("gainA")));
+            result.lcoOscBHasContent = static_cast<bool>(lco->getProperty("oscBHasContent"));
+            result.lcoGainB        = static_cast<float>(static_cast<double>(lco->getProperty("gainB")));
+
+            const int frameCountA = lco->hasProperty("frameCountA")
+                                        ? static_cast<int>(lco->getProperty("frameCountA")) : 0;
+            if (frameCountA > 0)
+            {
+                const int frameSize = lco->hasProperty("frameSize")
+                    ? static_cast<int>(lco->getProperty("frameSize")) : WavetableOscillator::FRAME_SIZE;
+                if (!readAudioPayload(result.lcoFramesA, bytes, size, cursor, version,
+                                      /*numChannels=*/1, frameCountA * frameSize))
+                {
+                    result.hasLco = false;  // corrupt tail — degrade rather than fail the whole load
+                    result.lcoFramesA.setSize(0, 0);
+                }
+            }
+
+            if (auto* stationsArr = lco->getProperty("stationsB").getArray())
+            {
+                for (auto& stationVar : *stationsArr)
+                {
+                    std::vector<WavetableOscillator::AdditivePartial> station;
+                    if (auto* partArr = stationVar.getArray())
+                    {
+                        for (auto& pv : *partArr)
+                        {
+                            if (auto* pm = pv.getDynamicObject())
+                                station.push_back({
+                                    static_cast<float>(static_cast<double>(pm->getProperty("h"))),
+                                    static_cast<float>(static_cast<double>(pm->getProperty("a"))),
+                                    static_cast<float>(static_cast<double>(pm->getProperty("phase"))) });
+                        }
+                    }
+                    if (!station.empty())
+                        result.lcoStationsB.push_back(std::move(station));
+                }
             }
         }
 

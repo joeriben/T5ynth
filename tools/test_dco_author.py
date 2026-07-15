@@ -646,8 +646,8 @@ def run_unit_tests():
     check("'saw wave morphing into a square wave' -> keyframe kinds [saw, square]",
           kinds == ["saw", "square"], kinds)
     m = r["recipe"]["motion"]
-    check("'saw wave morphing into a square wave' -> motion loop-closed (motion[0].to == motion[-1].to)",
-          bool(m) and m[0]["to"] == m[-1]["to"], m)
+    check("'saw wave morphing into a square wave' -> directional motion ENDS on the destination (no baked return)",
+          bool(m) and m[-1]["to"] == len(r["recipe"]["keyframes"]) - 1 and m[-1]["to"] != m[0]["to"], m)
     check("'saw wave morphing into a square wave' -> motion visits keyframe 1",
           any(seg["to"] == 1 for seg in m), m)
     check("'saw wave morphing into a square wave' -> motion_rate_hz == 0.25",
@@ -672,8 +672,8 @@ def run_unit_tests():
     check("'sine into square into triangle' -> 3 keyframes",
           len(r["recipe"]["keyframes"]) == 3, r["recipe"]["keyframes"])
     m = r["recipe"]["motion"]
-    check("'sine into square into triangle' -> motion closes on start",
-          bool(m) and m[0]["to"] == m[-1]["to"], m)
+    check("'sine into square into triangle' -> directional motion ENDS on triangle (index 2), no return",
+          bool(m) and m[-1]["to"] == 2 and m[-1]["to"] != m[0]["to"], m)
 
     # regression: a comma is not a connector -- no chain, pwm still wins on priority
     r = dr.author_recipe("a square wave, PWM", llm_route=None, frames=None)
@@ -775,8 +775,8 @@ def run_unit_tests():
     #    (not residue that the live S2 then mis-routes onto an adjective); and the
     #    words deliberately LEFT unmapped — honest exposure of a reduction the
     #    instrument cannot make — must still flag.
-    check("lexicon_version bumped to 5 for the Slice-2b character-pass additions",
-          lexicon["lexicon_version"] == 5, lexicon["lexicon_version"])
+    check("lexicon_version bumped to 6 for the texture reclassification (vibrate/wobble/flutter -> texture; +tremolo/shimmer)",
+          lexicon["lexicon_version"] == 6, lexicon["lexicon_version"])
 
     def _residue(resp):
         return {f["word"] for f in resp["flags"] if "no mapping" in f["reason"]}
@@ -1089,8 +1089,8 @@ def run_unit_tests():
     check("D.2 -> the bell's inharmonic partials survive (union has a non-integer h)",
           any(abs(p["h"] - round(p["h"])) > 1e-3 for p in k2[0]["partials"]), _hvec(k2[0])[:8])
     check("D.2 -> satisfies the router contract", _sets_router_ok(r2["recipe"]))
-    check("D.2 -> loop-closed",
-          json.dumps(k2[0]["partials"], sort_keys=True) == json.dumps(k2[-1]["partials"], sort_keys=True))
+    check("D.2 -> directional: last station is the destination (bell), NOT a 1:1 repeat of the first (saw)",
+          json.dumps(k2[0]["partials"], sort_keys=True) != json.dumps(k2[-1]["partials"], sort_keys=True))
 
     # --- D.3: "static bell" -> exactly one station (the ONLY delegated non-movement). ---
     r3 = dr.author_recipe("static bell", llm_route=None, frames=None)
@@ -1154,8 +1154,11 @@ def run_unit_tests():
         "saw": "3e9c04d870f5874e1dbaa04171ddfe165db9e649828d5b027953a59ac228c8f2",
         "pwm": "ab6f51efc138afea150f0d1217ec7b72c47d88003e143adf8721eb9427948559",
         "warm pad": "ce21257fe1c917953bcb0877dae192d88005353070d092eb7c51b6f5eafa4a57",
+        # Directional-morph fix (2026-07-15): the morph-chain default is now
+        # forward + loop:False -- it ENDS on the destination instead of baking a
+        # there-and-back return. motion+loop changed vs the old loop-closed hash.
         "saw wave morphing into a square wave":
-            "1f0b2125f9d2942d531eff2cedea4b256e8fa4eac258c9421fa715260a695dd0",
+            "dbadff968e6565a0568c37010178ebe842a2e9fa90577475b7daea2565bb76b9",
     }
     for prompt, want_hash in sorted(_HARMONIC_BASELINE.items()):
         resp = dr.author_recipe(prompt, llm_route=None, frames=None)
@@ -1264,7 +1267,10 @@ def run_unit_tests():
         "cathedral bell, opens up": "286f075d3ec6fc8d2b889ead93a487c2e75cdb8978556e16632aa6343fb17b5f",
         "sine": "d14194a704aea3ce559d0fb189afdc5477751f7cdfa320795477643ae1c264dd",
         "static bell": "cfdd0d0c55600ea9f73706821b12c5016d168243420118280b0f38f9fdae3124",
-        "saw morphing into a bell": "7108935530b08af10ee3e174ec2aa245537f3a1701abf760907fe8dc0652ab3c",
+        # Directional-morph fix (2026-07-15): forward + loop:False -- ends on the
+        # bell instead of a there-and-back return. ('cathedral bell, opens up' is
+        # cyclic and stays byte-identical via the loop-conditional station motion.)
+        "saw morphing into a bell": "f8506895bdcb49a0deacf8bb50233f803841962fa678719539e371092b5fd4b1",
     }
     for prompt, want in sorted(_TEXTURE_NONREG.items()):
         got = _rhash(lca.build_lco_response(prompt, _interp_llm, frames=None)["recipe"])
@@ -1293,6 +1299,181 @@ def run_unit_tests():
           and "washed_out" in (r_swb["resolved"].get("passes") or []), r_swb["resolved"])
     check("E.6 'static washed-out bell' -> stays inharmonic (sets contract, no reroute)",
           not _is_harmonic_chain(r_swb["recipe"]), None)
+
+    # ===================================================================
+    # F: FORK-INDEPENDENT 256-FRAME ENGINE (backend/dco_frames.py) +
+    #    TEXTURE RECLASSIFICATION. bake_frames COMPUTES F explicit
+    #    single-cycle frames by Fourier math (irfft of a per-frame
+    #    half-spectrum); movement is the per-frame spectrum EVOLVING, not a
+    #    2-corner interpolation. vibrate/wobble/flutter are now per-frame
+    #    TEXTURE (dco_frames), no longer motion trajectories.
+    # ===================================================================
+    import numpy as np
+    import dco_frames as dfr
+
+    # local deterministic key-plan interpreter (the LLM-first entry needs an
+    # injected llm; these are the plans a competent interpreter would emit).
+    _FRAME_REPLIES = {
+        "saw": "TECHNIQUE: saw\nADJECTIVES: none\nMOTION: none",
+        "metallic FM that evolves": "TECHNIQUE: fm\nADJECTIVES: none\nMOTION: evolve",
+        "distorted saw": "TECHNIQUE: saw\nADJECTIVES: distorted\nMOTION: none",
+        "vibrating saw": "TECHNIQUE: saw\nADJECTIVES: none\nMOTION: vibrate",
+    }
+    def _frame_llm(user, system, max_new):
+        return _FRAME_REPLIES.get(user, "TECHNIQUE: none\nADJECTIVES: none\nMOTION: none")
+
+    # ── F.1: bake_frames core contract (count / normalization / DC / fidelity) ──
+    _saw_plan = {"base": {"kind": "saw"}, "movement": "static",
+                 "character": [], "character_params": {}, "texture": None}
+    fr8 = dfr.bake_frames({"keyframes": [{"kind": "saw"}], "frames": 8, "frame_engine": _saw_plan})
+    check("F.1 bake_frames -> (F, 2048), F == recipe frames", fr8.shape == (8, 2048), fr8.shape)
+    check("F.1 bake_frames returns float32", fr8.dtype == np.float32, fr8.dtype)
+    frcap = dfr.bake_frames({"keyframes": [{"kind": "saw"}], "frames": 999, "frame_engine": _saw_plan})
+    check("F.1 bake_frames caps F at 256", frcap.shape[0] == 256, frcap.shape)
+
+    peak8 = float(np.max(np.abs(fr8)))
+    check("F.1 normalization: global peak <= 0.95", peak8 <= 0.95 + 1e-6, peak8)
+    check("F.1 normalization: clean harmonic table peaks at 0.95", abs(peak8 - 0.95) < 1e-3, peak8)
+    dc8 = float(np.max(np.abs(fr8.astype(np.float64).mean(axis=1))))
+    check("F.1 dc-removed: max |frame mean| < 1e-5", dc8 < 1e-5, dc8)
+
+    # irfft reproduces _saw_sc within ~1e-6 (the fidelity anchor -- reuse dco_recipe's
+    # exact spectrum; a static single-frame saw must equal the direct time-domain saw).
+    parts = dr._sc_to_partials(dr._saw_sc(64))
+    theta = 2.0 * np.pi * np.arange(2048) / 2048.0
+    ref = np.zeros(2048)
+    for p in parts:
+        ref += p["a"] * np.sin(p["h"] * theta + p["phase"])
+    ref -= ref.mean()
+    ref *= 0.95 / np.max(np.abs(ref))
+    saw_diff = float(np.max(np.abs(fr8[0].astype(np.float64) - ref)))
+    check("F.1 irfft reproduces _saw_sc within ~1e-6", saw_diff < 1e-6, saw_diff)
+
+    # a waveshaped (overdriven) table normalizes to the 0.83 ceiling, not 0.95.
+    _od_plan = {"base": {"kind": "saw"}, "movement": "static", "character": ["overdriven"],
+                "character_params": {"overdriven": {"drive": 0.6}}, "texture": None}
+    frod = dfr.bake_frames({"keyframes": [{"kind": "saw"}], "frames": 16, "frame_engine": _od_plan})
+    check("F.1 waveshaped table normalizes to the 0.83 ceiling",
+          abs(float(np.max(np.abs(frod))) - 0.83) < 1e-3, float(np.max(np.abs(frod))))
+
+    # ── F.1b: OPTION A -- an inharmonic base is now the dense-harmonic 256-frame
+    #    APPROXIMATION (was NotImplementedError). Finite, non-silent, real per-frame
+    #    evolution, centroid-faithful (pitch survives the grid), deterministic; the
+    #    harmonic path stays byte-unchanged. The NARROW non-integer FM *ratio* case
+    #    stays fork-pending (a single cycle can't hold non-integer sidebands). ------
+    _bell_parts = [{"h": 1.0, "a": 1.0, "phase": 0.0}, {"h": 2.76, "a": 0.55, "phase": 0.0},
+                   {"h": 5.4, "a": 0.33, "phase": 0.0}, {"h": 8.93, "a": 0.16, "phase": 0.0}]
+    frbell = dfr.bake_frames({"keyframes": [{"kind": "additive", "partials": _bell_parts}], "frames": 256})
+    check("F.1b inharmonic base -> Option-A frames (256, 2048) float32",
+          frbell.shape == (256, 2048) and frbell.dtype == np.float32, (frbell.shape, frbell.dtype))
+    check("F.1b Option-A frames all finite", bool(np.isfinite(frbell).all()), None)
+    check("F.1b Option-A frames non-silent", float(np.max(np.abs(frbell))) > 1e-6, float(np.max(np.abs(frbell))))
+    check("F.1b Option-A within the 0.95 ceiling",
+          float(np.max(np.abs(frbell))) <= 0.95 + 1e-6, float(np.max(np.abs(frbell))))
+    mbell = dfr.frame_metrics(frbell)
+    check("F.1b Option-A -> real per-frame variation (movement-by-default, delta > 0)",
+          mbell["consecutive_delta_mean"] > 0.1, mbell)
+    # F.1b MOVEMENT-BY-DEFAULT DEPTH (regression guard, 2026-07-15): the inharmonic
+    # bloom must reach the ear-VALIDATED depth -- the base<->bright opposite-endpoint
+    # gesture (dco_recipe._opposite_endpoint: absolute amplitude ramp + high-partial
+    # series extension), the SAME one the harmonic path and Option B use, NOT the old
+    # weak in-place multiplicative tilt that swept a bell's baked-frame centroid only
+    # ~0.04 bins (~16 Hz at C4 -- effectively static, the "too subtle" failure the ear
+    # already refuted). Assert the centroid sweeps SUBSTANTIALLY across the 256 frames:
+    # > 3 bins (~785 Hz at C4, in Option B's league), while the STATIC control (same
+    # partials, movement='static') stays frozen (sweep == 0), so the sweep is provably
+    # the movement, not baseline noise. This is the guard that keeps A from silently
+    # collapsing back to a static approximation.
+    _bell_sweep = mbell["centroid_bin_max"] - mbell["centroid_bin_min"]
+    check("F.1b inharmonic movement-by-default sweeps the centroid substantially (>3 bins, not the old ~0.04-bin twitch)",
+          _bell_sweep > 3.0, _bell_sweep)
+    _bell_static_plan = {"base": {"kind": "additive", "partials": _bell_parts}, "movement": "static",
+                         "character": [], "character_params": {}, "texture": None}
+    _mbell_static = dfr.frame_metrics(dfr.bake_frames(
+        {"keyframes": [{"kind": "additive", "partials": _bell_parts}], "frames": 256,
+         "frame_engine": _bell_static_plan}))
+    check("F.1b inharmonic static control stays frozen (centroid sweep == 0 -> the sweep IS the movement)",
+          (_mbell_static["centroid_bin_max"] - _mbell_static["centroid_bin_min"]) == 0.0, _mbell_static)
+    # faithful-mapping proof: a non-integer partial's dense cluster keeps the
+    # amplitude-weighted centroid EXACTLY at the true ratio (pitch survives the grid),
+    # and is energy-normalized so sqrt(sum w^2) == the partial amplitude.
+    _cl = dfr._cluster_bins(2.76, 0.55)
+    _cen = sum(k * w for k, w, _t in _cl) / sum(w for _k, w, _t in _cl)
+    check("F.1b cluster centroid pinned at the true ratio r=2.76", abs(_cen - 2.76) < 1e-9, _cen)
+    check("F.1b cluster energy-normalized to the partial amplitude (sqrt(sum w^2)==a)",
+          abs(float(np.sqrt(sum(w * w for _k, w, _t in _cl))) - 0.55) < 1e-9, None)
+    # deterministic (no RNG, golden-angle only): a double bake is byte-identical.
+    check("F.1b Option-A bake deterministic (byte-identical double run)",
+          dfr.bake_frames({"keyframes": [{"kind": "additive", "partials": _bell_parts}], "frames": 256}).tobytes()
+          == frbell.tobytes(), None)
+    # the harmonic path is BYTE-UNCHANGED by the new inharmonic branch (and itself
+    # deterministic): the same saw bakes identically twice (and F.1 above already
+    # pinned it to the exact _saw_sc reference within ~1e-6).
+    check("F.1b harmonic saw bake unchanged + deterministic (byte-identical double run)",
+          dfr.bake_frames({"keyframes": [{"kind": "saw"}], "frames": 8, "frame_engine": _saw_plan}).tobytes()
+          == fr8.tobytes(), None)
+    # the narrow fork-pending case: a non-integer FM *ratio* still raises.
+    try:
+        dfr.bake_frames({"keyframes": [{"kind": "fm2", "ratio": 2.5, "index": 1.5}], "frames": 8,
+                         "frame_engine": {"base": {"kind": "fm2", "ratio": 2.5, "index": 1.5},
+                                          "movement": "fm_index", "character": [],
+                                          "character_params": {}, "texture": None}})
+        check("F.1b non-integer FM ratio -> NotImplementedError (fork-pending)", False, "no error raised")
+    except NotImplementedError as e:
+        check("F.1b non-integer FM ratio -> NotImplementedError (fork-pending)", "inharmonic" in str(e), str(e))
+
+    # ── F.2: integer-ratio FM index sweep = REAL computed per-frame bloom ──
+    _fm_plan = {"base": {"kind": "fm2", "ratio": 2, "index": 1.5}, "movement": "fm_index",
+                "character": [], "character_params": {}, "texture": None, "index_sweep": [0.2, 6.0]}
+    frfm = dfr.bake_frames({"keyframes": [{"kind": "fm2", "ratio": 2, "index": 1.5}],
+                            "frames": 256, "frame_engine": _fm_plan})
+    mfm = dfr.frame_metrics(frfm)
+    check("F.2 integer-ratio FM stays within the 0.95 ceiling",
+          float(np.max(np.abs(frfm))) <= 0.95 + 1e-6, float(np.max(np.abs(frfm))))
+    check("F.2 FM index sweep -> sidebands bloom (centroid rises across frames)",
+          mfm["centroid_bin_max"] > mfm["centroid_bin_min"] + 2.0, mfm)
+    check("F.2 FM index sweep -> large consecutive-frame spectral delta (real movement)",
+          mfm["consecutive_delta_mean"] > 1.0, mfm)
+
+    # ── F.3: TEXTURE RECLASSIFICATION (the 'vibrating' catch) ──────────────
+    for k in ("vibrate", "wobble", "flutter"):
+        check(f"F.3 {k!r} removed from _MOTION_REWRITE (no longer a motion)",
+              k not in dr._MOTION_REWRITE, sorted(dr._MOTION_REWRITE))
+        check(f"F.3 {k!r} removed from _MOTION_NEEDS_K2 (no longer a motion)",
+              k not in dr._MOTION_NEEDS_K2, sorted(dr._MOTION_NEEDS_K2))
+    _mcat = {m["key"]: m["category"] for m in lexicon["motions"]}
+    for k in ("vibrate", "wobble", "flutter", "tremolo", "shimmer"):
+        check(f"F.3 lexicon classifies {k!r} as category 'texture'", _mcat.get(k) == "texture", _mcat.get(k))
+
+    rvib = lca.build_lco_response("vibrating saw", _frame_llm, frames=None)
+    check("F.3 'vibrating saw' -> 'vibrate' recorded on resolved.textures",
+          "vibrate" in (rvib["resolved"].get("textures") or []), rvib["resolved"])
+    check("F.3 'vibrating saw' -> 'vibrate' NOT routed to resolved.motion",
+          "vibrate" not in (rvib["resolved"].get("motion") or []), rvib["resolved"])
+
+    rvib_recipe = dfr.plan_from_response(rvib)
+    check("F.3 'vibrating saw' plan -> texture=vibrate, movement=static",
+          (rvib_recipe["frame_engine"]["texture"] or {}).get("name") == "vibrate"
+          and rvib_recipe["frame_engine"]["movement"] == "static", rvib_recipe["frame_engine"])
+    fvib = dfr.bake_frames(rvib_recipe)
+    mvib = dfr.frame_metrics(fvib)
+    # THE regression proof: consecutive frames GENUINELY differ (the texture is the
+    # per-frame variation), and the table is not a single frozen frame.
+    check("F.3 'vibrating saw' -> consecutive frames genuinely differ (delta > 0)",
+          mvib["consecutive_delta_mean"] > 0.1, mvib)
+    check("F.3 'vibrating saw' -> not a single frozen frame (some frame differs from frame 0)",
+          not np.allclose(fvib, fvib[0:1]),
+          float(np.max(np.abs(fvib - fvib[0:1]))))
+    # control: a static saw with NO texture is frame-constant -> the variation above
+    # is provably the TEXTURE, not the base movement.
+    check("F.3 control static saw (no texture) is frame-constant (delta == 0)",
+          dfr.frame_metrics(fr8)["consecutive_delta_mean"] == 0.0, None)
+
+    # ── F.4: plain harmonic movement-by-default still evolves per frame ────
+    fsaw = dfr.bake_frames(dfr.plan_from_response(lca.build_lco_response("saw", _frame_llm, frames=None)))
+    msaw = dfr.frame_metrics(fsaw)
+    check("F.4 'saw' movement-by-default -> dark<->bright ramp gives real per-frame variation",
+          msaw["consecutive_delta_mean"] > 0.0 and msaw["centroid_bin_max"] > msaw["centroid_bin_min"] + 1.0, msaw)
 
     print()
     return list(_FAILURES)

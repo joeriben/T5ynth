@@ -84,6 +84,16 @@ public:
 
     // ── Access to sub-components ──
     WavetableOscillator& getOsc() { return osc; }
+    // Dual A+B DCO oscillator (docs: dual_osc_build_spec.md W1). B is a SECOND,
+    // PARALLEL instance of the same WavetableOscillator class as osc (A) — not
+    // a different engine. Fed exclusively from masterOscB via
+    // T5ynthProcessor::loadDcoAdditive; every VoiceManager adopt/share/morph
+    // site that touches osc mirrors the identical call onto oscB. When no DCO
+    // additive recipe has published a bank, oscB.hasFrames() is false and it
+    // renders silence — SynthVoice::renderBlock only ever reads it when
+    // BlockParams::dcoOscBHasContent is true, so an idle oscB costs nothing
+    // audible and the pre-existing single-oscillator path stays bit-identical.
+    WavetableOscillator& getOscB() { return oscB; }
     SamplePlayer& getSampler() { return sampler; }
     FreezeTextureEngine& getFreezeEngine() { return freezeEngine; }
     ADSREnvelope& getAmpEnvelope() { return ampEnv; }
@@ -99,6 +109,9 @@ public:
 
 private:
     WavetableOscillator osc;
+    // Dual A+B DCO oscillator's B instance (docs: dual_osc_build_spec.md W1) —
+    // see getOscB() above for the full rationale.
+    WavetableOscillator oscB;
     SamplePlayer sampler;
     FreezeTextureEngine freezeEngine;
     ADSREnvelope ampEnv;

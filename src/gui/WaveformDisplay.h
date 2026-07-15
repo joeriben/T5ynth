@@ -151,6 +151,10 @@ private:
     juce::Rectangle<float> getWaveformArea() const;
     float fracToX(float frac) const;
     float xToFrac(float x) const;
+    // Map a pointer X to a scan fraction. In wtMode this inverts the 2.5D fan
+    // geometry (paint's cursorX) so a press lands on the frame under the pointer;
+    // otherwise it is the plain linear xToFrac.
+    float xToScanFrac(float x) const;
 
     LockButton lockButton;
 
