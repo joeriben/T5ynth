@@ -1,0 +1,329 @@
+diff --git a/src/dsp/SynthVoice.cpp b/src/dsp/SynthVoice.cpp
+index c6a414cc..5a0b06a7 100644
+--- a/src/dsp/SynthVoice.cpp
++++ b/src/dsp/SynthVoice.cpp
+@@ -175,6 +175,17 @@ void SynthVoice::reset()
+     lastModulatedResonance_ = 0.0f;
+     lastModulatedScan_ = 0.0f;
+     lastModulatedNoiseLevel_ = 0.0f;
++    // Dual A+B presence crossfade — idle, un-initialised (first render snaps).
++    presGainA_ = 0.0f;
++    presGainB_ = 0.0f;
++    presGainAStart_ = 0.0f;
++    presGainBStart_ = 0.0f;
++    presRampT_ = 1.0f;
++    presRampInc_ = 0.0f;
++    presAAudible_ = false;
++    presBAudible_ = false;
++    presInit_ = false;
++    presRampEqualPower_ = false;
+     lastOutputSample_ = 0.0f;
+     lastOutputSampleR_ = 0.0f;
+     restartFadeTailSample_ = 0.0f;
+@@ -215,6 +226,11 @@ void SynthVoice::noteOn(int note, float velocity, bool legato)
+     currentVelocity = velocity;
+     noteHeld = true;
+     active = true;
++    // A fresh note snaps its A/B presence gains to the current recipe's target on
++    // its first render block — it must never crossfade from the gain a PREVIOUS
++    // note left behind. (Legato re-uses the voice without a recipe change, so the
++    // re-arm is a harmless no-op there: aAudible/bAudible are unchanged.)
++    presInit_ = false;
+     applyVelocityTimedEnvelopeTimes();
+ 
+     if (!legato)
+@@ -647,29 +663,97 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
+ 
+     bool samplerMode = (engineMode == EngineMode::Sampler) && sampler.hasAudio();
+     bool freezeMode = (engineMode == EngineMode::Freeze) && freezeEngine.hasAudio();
+-    bool oscReady = (engineMode == EngineMode::Wavetable) && osc.hasFrames();
+-    // Dual A+B DCO oscillator (docs: dual_osc_build_spec.md W1/W2). B is ready
+-    // only when it genuinely has a published bank AND the CURRENT DCO recipe
+-    // claims it (p.dcoOscBHasContent) — masterOscB has no non-DCO content
+-    // source, so folding the flag directly into oscBReady is exact and safe.
+-    // A is different: osc ALSO serves plain neural/sampler extraction, so
+-    // oscReady above is deliberately left untouched (unconditional
+-    // hasFrames() check, exactly as before) — the content-flag distinction
+-    // for A is applied only at the mix step further down, never here.
+-    bool oscBReady = (engineMode == EngineMode::Wavetable) && oscB.hasFrames() && p.dcoOscBHasContent;
++    // Dual A+B DCO oscillator (docs: dual_osc_build_spec.md W1/W2). Two distinct
++    // notions, kept separate so the presence crossfade below works:
++    //   *HasFrames — the oscillator holds a published bank and CAN be synthesized.
++    //     A also serves plain neural/sampler extraction, so aHasFrames is the
++    //     unconditional hasFrames() check (exactly the old oscReady).
++    //   *Audible — the CURRENT DCO recipe wants this oscillator heard (its content
++    //     flag). masterOscB has no non-DCO source, so bAudible == the old oscBReady.
++    // The mix reads *Audible for the TARGET balance but must keep synthesizing an
++    // oscillator that is *HasFrames while its presence gain is still ramping out,
++    // hence the split (the old flag-gated oscBReady hard-cut that fade to nothing).
++    const bool wtMode = (engineMode == EngineMode::Wavetable);
++    const bool aHasFrames = wtMode && osc.hasFrames();
++    const bool bHasFrames = wtMode && oscB.hasFrames();
++    const bool aAudible = aHasFrames && p.dcoOscAHasContent;
++    const bool bAudible = bHasFrames && p.dcoOscBHasContent;
++
++    // TARGET per-oscillator gains for a given audible set (dual_osc_build_spec.md
++    // W2/R1). Today's exact balance: solo = unity (no dcoGain), dual = equal-power
++    // oscMix × the R1 energy gains. ONE definition, read both at ramp-arm time (to
++    // pick the overshoot-safe crossfade law) and per-sample (the live mix) so the
++    // two can never disagree about what the ramp is aiming at.
++    auto dcoTargetGains = [&p](bool aAud, bool bAud, float& tA, float& tB) {
++        tA = 0.0f; tB = 0.0f;
++        if (aAud && bAud)
++        {
++            const float m = juce::jlimit(0.0f, 1.0f, p.oscMix);
++            tA = std::cos(m * juce::MathConstants<float>::halfPi) * p.dcoGainA;
++            tB = std::sin(m * juce::MathConstants<float>::halfPi) * p.dcoGainB;
++        }
++        else if (aAud) tA = 1.0f;   // A solo — unity, bit-identical to today
++        else if (bAud) tB = 1.0f;   // B solo (all-inharmonic recipe), unity
++    };
+ 
+     // Hoist: setInterpolation is a pure setter; tunedHz is block-constant.
+     // Shared reference note for A and B, so a dual-split recipe's two
+     // oscillators track pitch from the identical source (dual_osc_build_spec.md
+-    // SYNC).
++    // SYNC). Keyed on *HasFrames (not *Audible) so an oscillator fading OUT still
++    // gets its per-block config while the presence ramp finishes.
+     float blockBaseFreqWavetable = 0.0f;
+-    if (oscReady || oscBReady)
++    if (aHasFrames || bHasFrames)
+         blockBaseFreqWavetable = tunedHz(currentNote + octaveShift_ * 12);
+-    if (oscReady)
++    if (aHasFrames)
+         osc.setInterpolation(p.wtSmooth);
+-    if (oscBReady)
++    if (bHasFrames)
+         oscB.setInterpolation(p.wtSmooth);
+ 
++    // ── Dual A+B presence crossfade arming (docs: dual_osc_build_spec.md) ──
++    // Detect a change in WHICH oscillators are audible — a new DCO recipe flipping
++    // dcoOscAHasContent / dcoOscBHasContent on a held note. On a change, arm a ramp
++    // that crossfades the per-oscillator mix gains over the Regen XFade time
++    // (p.driftCrossfade) with the same cos/sin equal-power law the oscillators' own
++    // buffer morph uses — so switching which engine is audible on a held note is a
++    // click-free crossfade, never the hard cut the old flag-gated branch produced.
++    // The first block after noteOn snaps (presInit_): a fresh note never crossfades
++    // from a stale gain. Non-DCO sessions never flip a flag, so no ramp ever arms.
++    if (!presInit_)
++    {
++        presAAudible_ = aAudible;
++        presBAudible_ = bAudible;
++        presRampT_ = 1.0f;            // idle: gains snap to target each sample
++        presInit_ = true;
++    }
++    else if (aAudible != presAAudible_ || bAudible != presBAudible_)
++    {
++        presGainAStart_ = presGainA_;   // capture the in-flight gains as the ramp start
++        presGainBStart_ = presGainB_;   // (mid-ramp re-arm continues from where it was)
++        presRampT_ = 0.0f;
++        const int rampSamples = std::max(1, static_cast<int>(std::round(
++            static_cast<double>(juce::jmax(0.0f, p.driftCrossfade)) * 0.001 * sr)));
++        presRampInc_ = 1.0f / static_cast<float>(rampSamples);
++        // Choose the crossfade law. cos/sin equal-power is overshoot-free ONLY when,
++        // for EACH oscillator, at least one of {start, target} gain is zero — then
++        // its cos- or sin-weighted term is a pure monotonic fade. If an oscillator
++        // has BOTH a nonzero start AND a nonzero target, cos/sin bulges its gain to
++        // sqrt(start^2+target^2) > max(start,target) (>unity into the drive/filter).
++        // Testing the audible SETS is only a proxy for this and is WRONG on a
++        // mid-ramp re-arm, where the captured start (the in-flight gains above) has
++        // BOTH components nonzero even for a set-disjoint handoff — so test the
++        // actual start/target vectors. Any shared nonzero component → monotonic
++        // linear ramp (stays within [start,target], never overshoots); otherwise
++        // cos/sin (the buffer-morph equal-power law, flat for the true handoff).
++        float armTgtA = 0.0f, armTgtB = 0.0f;
++        dcoTargetGains(aAudible, bAudible, armTgtA, armTgtB);
++        constexpr float kGainEps = 1.0e-4f;
++        const bool aBothNonzero = std::abs(presGainAStart_) > kGainEps && std::abs(armTgtA) > kGainEps;
++        const bool bBothNonzero = std::abs(presGainBStart_) > kGainEps && std::abs(armTgtB) > kGainEps;
++        presRampEqualPower_ = !(aBothNonzero || bBothNonzero);
++        presAAudible_ = aAudible;
++        presBAudible_ = bAudible;
++    }
++
+     if (freezeMode)
+     {
+         freezeEngine.setTextureMode(p.freezeTexture);
+@@ -922,7 +1006,7 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
+                 sampleR = freezeRight;
+                 lastModulatedScan_ = freezeEngine.getCurrentPosition();
+             }
+-            else if (oscReady || oscBReady)
++            else if (aHasFrames || bHasFrames)
+             {
+                 // Wavetable: per-sample pitch/scan modulation. This bus depends
+                 // only on p/envelopes/LFOs/aftertouch — never on which
+@@ -951,11 +1035,24 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
+                 scanMod = applyAftertouchTarget(p, AftertouchTarget::Scan, scanMod, aftertouch_);
+                 const float clampedScan = juce::jlimit(0.0f, 1.0f, scanMod);
+ 
++                // An oscillator is INVOLVED — worth synthesizing — when it is
++                // audible under the current recipe OR a presence ramp is still
++                // fading it in/out (presRampT_ < 1). Decoupling this from *Audible
++                // is the whole fix: the old code gated the SYNTH on the content
++                // flag, so the instant a flag flipped, the losing oscillator's
++                // samples vanished and there was nothing to fade — a hard cut on a
++                // held note. A non-DCO wavetable has only A audible and never ramps,
++                // so aInvolved == the old oscReady and B is never touched: the
++                // single-oscillator cost and output are unchanged.
++                const bool rampActive = presRampT_ < 1.0f;
++                const bool aInvolved = aHasFrames && (aAudible || rampActive);
++                const bool bInvolved = bHasFrames && (bAudible || rampActive);
++
+                 // ---- A: structurally IDENTICAL to the pre-dual single-oscillator
+                 // code (same isGliding() gate, same baseFrequency mutation,
+-                // same operand order) — the existing path stays bit-identical. ----
++                // same operand order). ----
+                 float aSample = 0.0f;
+-                if (oscReady)
++                if (aInvolved)
+                 {
+                     if (!osc.isGliding())
+                     {
+@@ -971,7 +1068,7 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
+                 // frequency/glide calls onto it 1:1, so the two reach steady
+                 // pitch together (dual A+B, docs: dual_osc_build_spec.md). ----
+                 float bSample = 0.0f;
+-                if (oscBReady)
++                if (bInvolved)
+                 {
+                     if (!oscB.isGliding())
+                         oscB.setFrequency(wtTargetFreq);
+@@ -979,44 +1076,65 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
+                     bSample = oscB.processSample();
+                 }
+ 
+-                // ---- Combine per the R1 balance + SKIP rules (dual A+B,
+-                // docs: dual_osc_build_spec.md W2/R1). aPlays (not bare
+-                // oscReady) is what decides whether A counts as THIS recipe's
+-                // oscillator — see BlockParams.h's dcoOscAHasContent for why
+-                // that distinction exists. For any session that never touches
+-                // DCO, p.dcoOscAHasContent is always true, so aPlays==oscReady
+-                // and the branch below is bit-identical to the pre-dual code. ----
+-                const bool aPlays = oscReady && p.dcoOscAHasContent;
+-                if (aPlays && oscBReady)
++                // ---- TARGET per-oscillator gains for the recipe's audible set —
++                // the SAME dcoTargetGains used at ramp-arm time, read live every
++                // sample so the manual H/I slider tracks instantly in steady state.
++                // Uses *Audible (the flag), NOT *Involved — a fading-out oscillator
++                // has target 0 and the ramp carries it there. For a non-DCO session
++                // bAudible is always false → tgtA = 1 / tgtB = 0 = A-solo unity,
++                // bit-identical to today. ----
++                float tgtA = 0.0f;
++                float tgtB = 0.0f;
++                dcoTargetGains(aAudible, bAudible, tgtA, tgtB);
++
++                // ---- Ramp the EMITTED gains toward the target. Idle (presRampT_ >= 1,
++                // which is every steady-state and every non-DCO block) snaps instantly
++                // so oscMix stays live. During a ramp the gains crossfade start→target,
++                // landing exactly on target — a presence flip on a held note is a
++                // click-free crossfade, never a hard cut. The law was chosen at arm
++                // time: cos/sin equal-power for a disjoint handoff (buffer-morph
++                // analogy, no overshoot), monotonic linear for a shared-oscillator
++                // transition (cos/sin would bulge the gain above unity there). ----
++                if (rampActive)
+                 {
+-                    const float m = juce::jlimit(0.0f, 1.0f, p.oscMix);
+-                    if (m <= 1.0e-6f)
+-                        sample = aSample * p.dcoGainA;
+-                    else if (m >= 1.0f - 1.0e-6f)
+-                        sample = bSample * p.dcoGainB;
++                    if (presRampEqualPower_)
++                    {
++                        const float wv = std::cos(presRampT_ * juce::MathConstants<float>::halfPi);
++                        const float w  = std::sin(presRampT_ * juce::MathConstants<float>::halfPi);
++                        presGainA_ = wv * presGainAStart_ + w * tgtA;
++                        presGainB_ = wv * presGainBStart_ + w * tgtB;
++                    }
+                     else
+                     {
+-                        const float eqpA = std::cos(m * juce::MathConstants<float>::halfPi);
+-                        const float eqpB = std::sin(m * juce::MathConstants<float>::halfPi);
+-                        sample = eqpA * p.dcoGainA * aSample + eqpB * p.dcoGainB * bSample;
++                        const float w = presRampT_;               // 0..1, monotonic
++                        presGainA_ = (1.0f - w) * presGainAStart_ + w * tgtA;
++                        presGainB_ = (1.0f - w) * presGainBStart_ + w * tgtB;
+                     }
++                    presRampT_ += presRampInc_;
++                    if (presRampT_ >= 1.0f)
++                    {
++                        presGainA_ = tgtA;   // land exactly on target
++                        presGainB_ = tgtB;
++                    }
++                }
++                else
++                {
++                    presGainA_ = tgtA;
++                    presGainB_ = tgtB;
+                 }
+-                else if (aPlays)
+-                    sample = aSample;   // A solo — bit-identical to today, no gain
+-                else if (oscBReady)
+-                    sample = bSample;   // B solo (all-inharmonic DCO recipe), unity
+ 
++                sample = presGainA_ * aSample + presGainB_ * bSample;
+                 sampleR = sample;
+                 // Effective position (includes the DCO motion sweep) so the engine-
+                 // window WT scan cursor follows the gesture; identical to the control-
+                 // only value when DCO motion is off (neural wavetable unchanged).
+-                // Gated on aPlays (not bare oscReady): a B-only DCO recipe can leave
+-                // osc.hasFrames() stale-true (A's bank from an earlier recipe) while
+-                // p.dcoOscAHasContent is false — the cursor must still follow B, the
+-                // oscillator actually audible, not the silent stale one.
+-                if (aPlays)
++                // Keyed on *Audible: a B-only DCO recipe can leave osc.hasFrames()
++                // stale-true (A's bank from an earlier recipe) while dcoOscAHasContent
++                // is false — the cursor must follow B, the oscillator actually audible,
++                // not the silent stale one.
++                if (aAudible)
+                     lastModulatedScan_ = osc.getEffectiveScanPosition();
+-                else if (oscBReady)
++                else if (bAudible)
+                     lastModulatedScan_ = oscB.getEffectiveScanPosition();
+             }
+ 
+diff --git a/src/dsp/SynthVoice.h b/src/dsp/SynthVoice.h
+index 889d7096..70ba2fb6 100644
+--- a/src/dsp/SynthVoice.h
++++ b/src/dsp/SynthVoice.h
+@@ -207,6 +207,40 @@ private:
+     float lastModulatedScan_ = 0.0f;
+     float lastModulatedNoiseLevel_ = 0.0f;
+ 
++    // ── Dual A+B DCO presence crossfade (docs: dual_osc_build_spec.md) ──
++    // When a new DCO recipe flips WHICH oscillators are audible
++    // (dcoOscAHasContent / dcoOscBHasContent) WHILE a note is held, the per-
++    // oscillator mix gains crossfade over the Regen XFade time
++    // (BlockParams::driftCrossfade) instead of hard-cutting whichever engine
++    // just lost its flag. The held-note invariant applies to "which engine is
++    // audible" exactly as it does to buffer content — which the oscillators
++    // already morph — so this uses the SAME cos/sin equal-power law
++    // (WavetableOscillator's buffer morph) on the gain numbers. In steady state
++    // (no flag change) presRampT_ stays >= 1 and the gains track the live
++    // oscMix / dcoGain every sample, so the manual H/I slider still responds
++    // instantly and any session that never touches DCO is unaffected (its flags
++    // never flip, so a ramp is never armed and the mix stays A-solo unity).
++    float presGainA_ = 0.0f;        // current emitted A gain (multiplies aSample)
++    float presGainB_ = 0.0f;        // current emitted B gain (multiplies bSample)
++    float presGainAStart_ = 0.0f;   // A gain captured at ramp start
++    float presGainBStart_ = 0.0f;   // B gain captured at ramp start
++    float presRampT_ = 1.0f;        // ramp position 0..1; >= 1 == idle (snap to target)
++    float presRampInc_ = 0.0f;      // per-sample step = 1 / driftCrossfade-samples
++    bool  presAAudible_ = false;    // last block's A-audible state (flip detection)
++    bool  presBAudible_ = false;    // last block's B-audible state (flip detection)
++    bool  presInit_ = false;        // false until first render after noteOn (snap, no ramp)
++    // Crossfade law for the CURRENT ramp, chosen at arm time by whether the old
++    // and new audible SETS are disjoint. cos/sin equal-power is power-preserving
++    // ONLY for uncorrelated signals; the start/target mixes share the SAME live
++    // aSample/bSample, so cos/sin on the gain vector overshoots (>unity) on any
++    // transition where an oscillator is audible in BOTH states (A-solo<->dual,
++    // dual<->solo). A disjoint handoff (A-solo<->B-solo, silence<->solo) has no
++    // shared oscillator — there cos/sin is exactly the buffer-morph equal-power
++    // law and provably does NOT overshoot. Shared-oscillator transitions use a
++    // monotonic linear gain ramp (never exceeds max(start,target), so nothing is
++    // driven above unity into the drive/filter), which is still click-free.
++    bool  presRampEqualPower_ = false;
++
+     // Pre-rendered sampler block (pitch-shifted via Signalsmith Stretch)
+     int maxBlockSize_ = 512;
+     std::vector<float> samplerBlockBuf_;

@@ -112,6 +112,16 @@ private:
     // Dual A+B DCO oscillator's B instance (docs: dual_osc_build_spec.md W1) —
     // see getOscB() above for the full rationale.
     WavetableOscillator oscB;
+    // Per-source smoothed DCO mix gains (held-note A/B presence follow).
+    // Standard per-source gain slew — Linear, monotonic per gain, so no
+    // overshoot regardless of A/B correlation. Re-arms over
+    // BlockParams::driftCrossfade when the recipe fingerprint (content flags +
+    // R1 gains) changes; oscMix moves inside an unchanged recipe keep the
+    // pre-existing instant per-block knob feel.
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> dcoGainSmoothA_, dcoGainSmoothB_;
+    bool  dcoSnapPending_ = true;   // fresh (non-legato) note: first block snaps gains to targets
+    bool  prevDcoFlagA_ = true,  prevDcoFlagB_ = false;
+    float prevDcoGainA_ = 1.0f, prevDcoGainB_ = 1.0f;
     SamplePlayer sampler;
     FreezeTextureEngine freezeEngine;
     ADSREnvelope ampEnv;

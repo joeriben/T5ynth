@@ -2963,6 +2963,7 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.dcoGainB = dcoGainB_.load(std::memory_order_relaxed);
     bp.dcoOscAHasContent = dcoOscAHasContent_.load(std::memory_order_relaxed);
     bp.dcoOscBHasContent = dcoOscBHasContent_.load(std::memory_order_relaxed);
+    bp.driftCrossfade = paramCache.driftCrossfade->load();
 
     // Wavetable smooth
     bp.wtSmooth = paramCache.wtSmooth->load() > 0.5f;
@@ -5380,10 +5381,16 @@ void T5ynthProcessor::setDcoOscBalance(bool oscAHasContent, float gainA,
     // after every bake action it dispatches — dual split, A-only, or B-only —
     // so these 4 atomics always describe what THAT recipe routed, never a
     // stale flag/gain left over from an earlier one (docs:
-    // dual_osc_build_spec.md R1/W2). No lock: each atomic is independently
-    // consistent and BlockParams mirrors all four once per block for
-    // SynthVoice::renderBlock, the same relaxed-atomic mirroring pattern
-    // already used for dcoTableActive_ elsewhere in this file.
+    // dual_osc_build_spec.md R1/W2). Locked: SynthVoice re-arms its per-source
+    // gain glide (dcoGainSmoothA_/dcoGainSmoothB_) whenever the recipe
+    // fingerprint — both flags + both gains — changes, so the 4 values must
+    // land as ONE consistent set relative to the per-block BlockParams mirror;
+    // a torn publish (e.g. flags updated but gains not yet, read mid-store)
+    // could trigger a spurious re-arm toward a half-old fingerprint.
+    // processBlock holds the callback lock on all shipped formats, so this
+    // ScopedLock provides exactly that block-boundary atomicity. Message
+    // thread, once per bake — cost is irrelevant.
+    const juce::ScopedLock sl (getCallbackLock());
     dcoOscAHasContent_.store(oscAHasContent, std::memory_order_relaxed);
     dcoOscBHasContent_.store(oscBHasContent, std::memory_order_relaxed);
     dcoGainA_.store(gainA, std::memory_order_relaxed);

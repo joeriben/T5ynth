@@ -1442,10 +1442,21 @@ struct BlockParams
     // mirrored here every block (filterDriveGain-style derived value — NOT
     // user-facing).
     //
-    // dcoOscAHasContent/dcoOscBHasContent gate whether each oscillator's
-    // sample actually reaches the output — distinct from osc.hasFrames() /
-    // oscB.hasFrames(), which stay true on a STALE bank left by an earlier
-    // recipe. The two default asymmetrically and deliberately:
+    // dcoOscAHasContent/dcoOscBHasContent, together with dcoGainA/dcoGainB and
+    // oscMix, choose each block's per-oscillator TARGET gain — they no longer
+    // gate synthesis directly. Solo (only one flag true) targets unity gain;
+    // dual (both true) targets equal-power oscMix × the R1 gain on each side.
+    // A false flag targets a gain of 0 for that oscillator — that 0-weight
+    // target, not a synthesis gate, is what now keeps a STALE bank
+    // (osc.hasFrames() / oscB.hasFrames(), which stay true on a bank left by
+    // an earlier recipe) from leaking into the mix. SynthVoice glides each
+    // oscillator's actually-emitted gain toward its target with a per-source
+    // juce::SmoothedValue (Linear) over BlockParams::driftCrossfade whenever
+    // the recipe fingerprint (both flags + both gains) changes, so a bake
+    // landing on a HELD note crossfades presence instead of hard-cutting
+    // (CLAUDE.md held-note invariant) — see SynthVoice::renderBlock.
+    //
+    // The two flags default asymmetrically and deliberately:
     //  - dcoOscAHasContent defaults TRUE. masterOsc (A) is ALSO the plain
     //    neural/sampler-extraction target, so a session that never touches
     //    DCO must render A exactly as it always has (hard bit-identical
@@ -1456,13 +1467,16 @@ struct BlockParams
     //  - dcoOscBHasContent defaults FALSE. masterOscB (B) has no non-DCO
     //    content source at all, so "silent until a recipe actually publishes
     //    to it" is simply correct, always.
-    // When only one flag is true, that oscillator plays SOLO at unity gain
-    // (oscMix and both gains ignored) — see SynthVoice::renderBlock.
     float oscMix = 0.5f;
     float dcoGainA = 1.0f;
     float dcoGainB = 1.0f;
     bool  dcoOscAHasContent = true;
     bool  dcoOscBHasContent = false;
+    // Drift Crossfade ("Regen XFade") APVTS value, mirrored each block. Sizes
+    // the per-source DCO gain glide in SynthVoice::renderBlock — the same time
+    // base the wavetable content morphs already use, so a recipe's presence
+    // change and its content change ride the same window.
+    float driftCrossfade = 200.0f;
 
     // Octave shift (-2..+2)
     int octaveShift = 0;

@@ -231,6 +231,12 @@ void SynthVoice::noteOn(int note, float velocity, bool legato)
         // Fresh note starts at neutral MPE timbre until its first CC74 arrives;
         // legato (held finger sliding to a new note) keeps the current timbre.
         timbre_ = kTimbreNeutral;
+        // Fresh (non-legato) attack: snap the DCO A/B presence gains to the
+        // current recipe's targets on the first render block instead of
+        // sliding up from whatever a PREVIOUS note left behind. Legato
+        // continuations must NOT set this — a held/gliding voice mid-bake
+        // keeps its in-flight glide.
+        dcoSnapPending_ = true;
     }
     samplerPreStretchNormDirty_ = true;
 
@@ -648,15 +654,85 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
     bool samplerMode = (engineMode == EngineMode::Sampler) && sampler.hasAudio();
     bool freezeMode = (engineMode == EngineMode::Freeze) && freezeEngine.hasAudio();
     bool oscReady = (engineMode == EngineMode::Wavetable) && osc.hasFrames();
-    // Dual A+B DCO oscillator (docs: dual_osc_build_spec.md W1/W2). B is ready
-    // only when it genuinely has a published bank AND the CURRENT DCO recipe
-    // claims it (p.dcoOscBHasContent) — masterOscB has no non-DCO content
-    // source, so folding the flag directly into oscBReady is exact and safe.
-    // A is different: osc ALSO serves plain neural/sampler extraction, so
-    // oscReady above is deliberately left untouched (unconditional
-    // hasFrames() check, exactly as before) — the content-flag distinction
-    // for A is applied only at the mix step further down, never here.
-    bool oscBReady = (engineMode == EngineMode::Wavetable) && oscB.hasFrames() && p.dcoOscBHasContent;
+
+    // Target gains from the recipe. Solo = unity (HEAD-identical steady state),
+    // dual = equal-power user mix × R1 energy gains. cos/sin runs once per
+    // block here, not per sample.
+    float dcoTargetA, dcoTargetB;
+    {
+        const bool aHas = p.dcoOscAHasContent, bHas = p.dcoOscBHasContent;
+        if (aHas && bHas)
+        {
+            const float m = juce::jlimit(0.0f, 1.0f, p.oscMix);
+            dcoTargetA = std::cos(m * juce::MathConstants<float>::halfPi) * p.dcoGainA;
+            dcoTargetB = std::sin(m * juce::MathConstants<float>::halfPi) * p.dcoGainB;
+        }
+        else if (aHas) { dcoTargetA = 1.0f; dcoTargetB = 0.0f; }
+        else if (bHas) { dcoTargetA = 0.0f; dcoTargetB = 1.0f; }
+        else           { dcoTargetA = 0.0f; dcoTargetB = 0.0f; }
+    }
+    const bool dcoRecipeChanged = p.dcoOscAHasContent != prevDcoFlagA_
+                               || p.dcoOscBHasContent != prevDcoFlagB_
+                               || p.dcoGainA != prevDcoGainA_
+                               || p.dcoGainB != prevDcoGainB_;
+    if (dcoSnapPending_)
+    {
+        // Fresh note: start AT the recipe's gains (the amp env fades the voice in).
+        dcoGainSmoothA_.reset(sr, p.driftCrossfade * 0.001);
+        dcoGainSmoothB_.reset(sr, p.driftCrossfade * 0.001);
+        dcoGainSmoothA_.setCurrentAndTargetValue(dcoTargetA);
+        dcoGainSmoothB_.setCurrentAndTargetValue(dcoTargetB);
+        dcoSnapPending_ = false;
+    }
+    else if (dcoRecipeChanged)
+    {
+        // New recipe on a live voice: glide from wherever each gain is NOW to
+        // its new target over the Regen XFade window. juce::SmoothedValue::
+        // reset() snaps current to target, so the capture/restore order below
+        // is mandatory (also correct for a mid-ramp re-arm).
+        auto rearm = [&](auto& sm, float target)
+        {
+            const float cur = sm.getCurrentValue();
+            sm.reset(sr, p.driftCrossfade * 0.001);
+            sm.setCurrentAndTargetValue(cur);
+            sm.setTargetValue(target);
+        };
+        rearm(dcoGainSmoothA_, dcoTargetA);
+        rearm(dcoGainSmoothB_, dcoTargetB);
+    }
+    else
+    {
+        // Same recipe: oscMix knob moves. In-flight ramps re-target (keep
+        // gliding, never snap mid-ramp); settled gains follow instantly —
+        // exactly the pre-existing per-block knob behavior.
+        auto track = [](auto& sm, float target)
+        {
+            if (sm.isSmoothing())                        sm.setTargetValue(target);
+            else if (target != sm.getTargetValue())      sm.setCurrentAndTargetValue(target);
+        };
+        track(dcoGainSmoothA_, dcoTargetA);
+        track(dcoGainSmoothB_, dcoTargetB);
+    }
+    prevDcoFlagA_ = p.dcoOscAHasContent;  prevDcoFlagB_ = p.dcoOscBHasContent;
+    prevDcoGainA_ = p.dcoGainA;           prevDcoGainB_ = p.dcoGainB;
+
+    // Dual A+B DCO oscillator (docs: dual_osc_build_spec.md W1/W2). oscBReady
+    // is now INVOLVEMENT, not a bare content-flag gate: a fading-out
+    // oscillator KEEPS synthesizing while its smoothed gain rings out to 0 —
+    // that is the core of the fix, since the old flag-gated oscBReady cut B's
+    // samples the instant the flag flipped, leaving nothing left to
+    // crossfade. A is different: osc ALSO serves plain neural/sampler
+    // extraction, so oscReady above is deliberately left untouched
+    // (unconditional hasFrames() check, exactly as before) — A's involvement
+    // (aInvolved, below) is computed separately and applied only at the mix
+    // step further down, never here.
+    const bool dcoAAudible = dcoGainSmoothA_.getCurrentValue() > 0.0f || dcoGainSmoothA_.getTargetValue() > 0.0f;
+    const bool dcoBAudible = dcoGainSmoothB_.getCurrentValue() > 0.0f || dcoGainSmoothB_.getTargetValue() > 0.0f;
+    bool oscBReady = (engineMode == EngineMode::Wavetable) && oscB.hasFrames() && dcoBAudible;
+    // A's involvement, mirroring oscBReady above. Both are block-constant —
+    // computed once here, not per sample (§3c hoists the mix-site booleans
+    // out of the per-sample loop for the same reason).
+    const bool aInvolved = oscReady && dcoAAudible;
 
     // Hoist: setInterpolation is a pure setter; tunedHz is block-constant.
     // Shared reference note for A and B, so a dual-split recipe's two
@@ -979,44 +1055,31 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                     bSample = oscB.processSample();
                 }
 
-                // ---- Combine per the R1 balance + SKIP rules (dual A+B,
-                // docs: dual_osc_build_spec.md W2/R1). aPlays (not bare
-                // oscReady) is what decides whether A counts as THIS recipe's
-                // oscillator — see BlockParams.h's dcoOscAHasContent for why
-                // that distinction exists. For any session that never touches
-                // DCO, p.dcoOscAHasContent is always true, so aPlays==oscReady
-                // and the branch below is bit-identical to the pre-dual code. ----
-                const bool aPlays = oscReady && p.dcoOscAHasContent;
-                if (aPlays && oscBReady)
-                {
-                    const float m = juce::jlimit(0.0f, 1.0f, p.oscMix);
-                    if (m <= 1.0e-6f)
-                        sample = aSample * p.dcoGainA;
-                    else if (m >= 1.0f - 1.0e-6f)
-                        sample = bSample * p.dcoGainB;
-                    else
-                    {
-                        const float eqpA = std::cos(m * juce::MathConstants<float>::halfPi);
-                        const float eqpB = std::sin(m * juce::MathConstants<float>::halfPi);
-                        sample = eqpA * p.dcoGainA * aSample + eqpB * p.dcoGainB * bSample;
-                    }
-                }
-                else if (aPlays)
-                    sample = aSample;   // A solo — bit-identical to today, no gain
-                else if (oscBReady)
-                    sample = bSample;   // B solo (all-inharmonic DCO recipe), unity
+                // Per-source smoothed gains. A session that never bakes B has
+                // oscB.hasFrames()==false and the flags at their defaults, so gainA is
+                // pinned at exactly 1.0f and the += is skipped: s == aSample bit-identical
+                // (×1.0f preserves every value incl. -0.0). Do NOT restructure into an
+                // unconditional sum.
+                float s = 0.0f;
+                if (aInvolved)  s  = dcoGainSmoothA_.getNextValue() * aSample;
+                if (oscBReady)  s += dcoGainSmoothB_.getNextValue() * bSample;
+                sample = s;
 
                 sampleR = sample;
                 // Effective position (includes the DCO motion sweep) so the engine-
                 // window WT scan cursor follows the gesture; identical to the control-
                 // only value when DCO motion is off (neural wavetable unchanged).
-                // Gated on aPlays (not bare oscReady): a B-only DCO recipe can leave
-                // osc.hasFrames() stale-true (A's bank from an earlier recipe) while
-                // p.dcoOscAHasContent is false — the cursor must still follow B, the
-                // oscillator actually audible, not the silent stale one.
-                if (aPlays)
+                // Gated on aPlaysCursor (not bare oscReady, and not the involvement-
+                // based oscBReady): the cursor follows the recipe's TARGET-audible
+                // oscillator, not one that's merely still ringing out. A B-only DCO
+                // recipe can leave osc.hasFrames() stale-true (A's bank from an
+                // earlier recipe) while p.dcoOscAHasContent is false — the cursor
+                // must still follow B, the oscillator actually audible, not the
+                // silent stale one.
+                const bool aPlaysCursor = oscReady && p.dcoOscAHasContent;
+                if (aPlaysCursor)
                     lastModulatedScan_ = osc.getEffectiveScanPosition();
-                else if (oscBReady)
+                else if ((engineMode == EngineMode::Wavetable) && oscB.hasFrames() && p.dcoOscBHasContent)
                     lastModulatedScan_ = oscB.getEffectiveScanPosition();
             }
 
