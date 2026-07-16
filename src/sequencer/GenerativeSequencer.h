@@ -22,6 +22,20 @@
  * 2. Turing mutation = generator (notes drift ±1-4 scale degrees per cycle)
  * 3. Pulse probability = rhythmic breath (ghost notes, skipped pulses)
  *
+ * Expressive layers (design rule: every audible behavior must be derivable
+ * from a NAMED ground — structural (the Euclidean/metric grouping) or
+ * semantic (the strand roles). These three were removed 2026-04-25 as
+ * "decoration without musical cause" and restored 2026-07-16 by explicit
+ * design decision — the grounds are named below and in the implementations):
+ * - Metric elasticity: secondary strands stretch/compress step timing at
+ *   metric group boundaries (rubato derived from grouping structure;
+ *   strand 0 is the reference clock and stays rigid).
+ * - Stage panning: strands are actors on a stage — lane sign = side of the
+ *   stage, role = territory width + agility; metric moments and ensemble
+ *   density move them; a slow role-scaled oscillation keeps actors alive.
+ * - Foreground bias: strand 0 is the ensemble's foreground line; secondary
+ *   non-Gesture strands yield 5 velocity points so they never mask it.
+ *
  * Phase 1 refactor (polyphonic-gen-seq feature):
  * Per-pattern state has been moved into a nested Strand struct, with
  * strands[MAX_STRANDS] held at the class level. In Phase 1 only strand 0
@@ -217,6 +231,31 @@ private:
         ContrapuntalChecks = 3,  // (Phase 2) post-hoc m2-clash check
     };
 
+    /**
+     * Metric grouping path — how a strand phrases its steps into additive
+     * groups (3+3+2 etc.). Derived per strand from role (semantic ground)
+     * plus cycle position / ensemble state; the resulting group boundaries
+     * are what elasticity and stage panning respond to.
+     */
+    enum class MetricPath : int
+    {
+        Gathering      = 0,   // regular 3- or 4-groups pulling inward
+        Additive       = 1,   // 3+3+... with a 2/4 remainder resolution
+        Conversational = 2,   // plain 4-groups, phase-shifted per strand
+        OpenBreath     = 3,   // long head group (5/4), airy remainder
+    };
+
+    /** Where a step sits inside its strand's metric grouping. */
+    struct MetricMoment
+    {
+        MetricPath path       = MetricPath::Additive;
+        bool downbeat         = false;
+        bool groupStart       = false;
+        bool groupEnd         = false;
+        bool anticipatesGroup = false;   // penultimate step of a group
+        bool phraseEnd        = false;   // last step of the last group
+    };
+
     /** Per-strand pattern + playback state. */
     struct Strand
     {
@@ -235,7 +274,7 @@ private:
         int    priorOutputNote       = -1;     // note before previousOutputNote, for melodic tendency
         int    previousOutputNote    = -1;     // survives note-offs for role voice-leading
         int    cycleCount            = 0;
-        float  spatialPan            = 0.0f;   // -1..+1, carried by this strand's MIDI channel
+        float  spatialPan            = 0.0f;   // -1..+1, travels as VoiceEvent::pan
         float  spatialTargetPan      = 0.0f;
 
         // Pattern data
@@ -337,14 +376,25 @@ private:
     void applyPivot();              // rotate pcSet by pivotInterval semitones
     void syncRowFromPcSet();        // keep Transform row aligned with current pcSet
 
+    // Metric grouping (feeds elasticity + stage panning; strand 0's own
+    // note pipeline never reads it).
+    MetricPath   metricPathForStrand(const Strand& s) const;
+    void         buildMetricGroups(int steps, MetricPath path,
+                                   int* groups, int* groupCount) const;
+    int          metricPhaseOffset(const Strand& s, MetricPath path) const;
+    MetricMoment metricMomentForStep(const Strand& s, int stepIdx) const;
+    bool         isMetricStrongStep(const Strand& s, int stepIdx) const;
+    int          activeOtherStrandCount(const Strand& s) const;
+
     // Per-strand rendering.
     double strandStepDurationSamples(const Strand& s) const;
     int    baseMidiForStrand(const Strand& s) const;
     int    strandIndexOf(const Strand& s) const;
     int    rolePriority(const Strand& s) const;     // strand 0 = -1, else static_cast<int>(role)
     float  fireProbability(const Strand& s, bool isPulse) const;   // V4: strand-0-symmetric
-    float  spatialTargetForStrand(const Strand& s) const;          // static lane per strand
-    float  updateSpatialPan(Strand& s);
+    float  spatialTargetForStrand(const Strand& s, int stepIdx,
+                                  bool isPulse, bool isStrong) const;
+    float  updateSpatialPan(Strand& s, int stepIdx, bool isPulse, bool isStrong);
     int    pickNote(Strand& s, int stepIdx, int rawDegree);
     int    voiceLedFieldMember(int rawPc) const;
     bool   fieldContains(int pc) const;

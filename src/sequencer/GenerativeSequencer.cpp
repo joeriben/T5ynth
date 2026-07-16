@@ -44,9 +44,6 @@ double T5ynthGenerativeSequencer::strandStepDurationSamples(const Strand& s) con
 
 double T5ynthGenerativeSequencer::shuffledStrandStepDurationSamples(const Strand& s, int stepIdx) const
 {
-    // V1: same simple formula for every strand. Strand 0 is the reference.
-    // Pre-existing metric-elasticity branch for strands 1-3 is removed —
-    // it was a pseudo-principle layer (V6) without a named (a)/(b) source.
     const double base = strandStepDurationSamples(s);
     if (s.numSteps <= 1)
         return base;
@@ -60,6 +57,32 @@ double T5ynthGenerativeSequencer::shuffledStrandStepDurationSamples(const Strand
             factor *= ((stepIdx & 1) == 0 ? (1.0 + amount) : (1.0 - amount));
         }
     }
+
+    // Strand 0 is the ensemble's reference clock and stays rigid.
+    if (strandIndexOf(s) == 0)
+        return base * factor;
+
+    // Metric elasticity (restored 2026-07-16; removed unauthorized in
+    // b826a898): secondary strands breathe around their metric grouping —
+    // group starts and phrase ends stretch, the step anticipating a group
+    // compresses. Ground: the grouping structure itself (structural) and the
+    // role (semantic — Anchor stays steadier, a crowded ensemble damps the
+    // rubato so the weave keeps its lattice).
+    const auto moment = metricMomentForStep(s, stepIdx);
+    const double elasticity = static_cast<double>(0.012f + 0.030f * s.mutationRate);
+    double metricFactor = 1.0;
+    if (moment.downbeat)         metricFactor += elasticity * 0.55;
+    if (moment.groupStart)       metricFactor += elasticity;
+    if (moment.anticipatesGroup) metricFactor -= elasticity * 0.70;
+    if (moment.phraseEnd)        metricFactor += elasticity * (moment.path == MetricPath::OpenBreath ? 1.45 : 0.85);
+
+    const int activeOthers = activeOtherStrandCount(s);
+    if (activeOthers >= 2)
+        metricFactor = 1.0 + (metricFactor - 1.0) * 0.55;
+    if (s.role == Role::Anchor)
+        metricFactor = 1.0 + (metricFactor - 1.0) * 0.45;
+
+    factor *= juce::jlimit(0.84, 1.22, metricFactor);
     return base * factor;
 }
 
@@ -1054,9 +1077,12 @@ void T5ynthGenerativeSequencer::publishStrandToGui(const Strand& s)
 // All strands run the same pipeline (V1): Euclid → Turing degree → field PC
 // (or scale-degree for strand 0) → MIDI in the strand's register. There are
 // no interval-cost tables, no role-specific cost lookups, no ensemble-
-// negotiation pass. Inter-strand interaction lives entirely in the
-// CoordinationMode dispatch (currently DensityBudget) and runs post-hoc
-// during processBlock — never inside pickNote / fireProbability.
+// negotiation pass. WHICH notes fire stays interaction-free: pickNote and
+// fireProbability never read other strands; note-level coordination lives
+// only in the CoordinationMode dispatch (currently DensityBudget), post-hoc
+// in processBlock. The expressive staging (metric elasticity, stage panning,
+// foreground bias) MAY read ensemble state — it shapes how a note is placed
+// in time/space/dynamics, never whether or which note sounds.
 
 int T5ynthGenerativeSequencer::strandIndexOf(const Strand& s) const
 {
@@ -1075,6 +1101,200 @@ int T5ynthGenerativeSequencer::rolePriority(const Strand& s) const
     return static_cast<int>(s.role);
 }
 
+// ─── Metric grouping ────────────────────────────────────────────────────────
+//
+// The grouping layer phrases a strand's steps into additive groups and asks,
+// per step, "where am I in the phrase?". It feeds ONLY the expressive
+// staging (elasticity, stage panning) — never note choice, accents or firing,
+// which stay purely Euclidean (V5). Restored 2026-07-16 together with the
+// elasticity/pan layers (removed unauthorized in b826a898).
+
+int T5ynthGenerativeSequencer::activeOtherStrandCount(const Strand& s) const
+{
+    int count = 0;
+    for (const auto& other : strands)
+        if (&other != &s && other.enabled && other.lastPlayedNote >= 0)
+            ++count;
+    return count;
+}
+
+T5ynthGenerativeSequencer::MetricPath
+T5ynthGenerativeSequencer::metricPathForStrand(const Strand& s) const
+{
+    // Semantic ground: the role picks the phrasing character. Line and
+    // Density periodically change theirs over the cycle count; Gesture
+    // phrases conversationally when alone, airily against a full stage.
+    switch (s.role)
+    {
+        case Role::Anchor:
+            return MetricPath::Gathering;
+        case Role::Line:
+            return (s.cycleCount % 8 == 7) ? MetricPath::Gathering
+                                           : MetricPath::Additive;
+        case Role::Density:
+            return (s.cycleCount % 4 == 3) ? MetricPath::OpenBreath
+                                           : MetricPath::Conversational;
+        case Role::Gesture:
+            return activeOtherStrandCount(s) <= 0 ? MetricPath::Conversational
+                                                  : MetricPath::OpenBreath;
+    }
+    return MetricPath::Additive;
+}
+
+void T5ynthGenerativeSequencer::buildMetricGroups(int steps, MetricPath path,
+                                                   int* groups, int* groupCount) const
+{
+    steps = juce::jlimit(1, MAX_STEPS, steps);
+    *groupCount = 0;
+
+    auto push = [&](int len) {
+        if (len <= 0 || *groupCount >= MAX_STEPS) return;
+        groups[(*groupCount)++] = len;
+    };
+
+    auto buildAdditive = [&]() {
+        int remaining = steps;
+        while (remaining > 0 && *groupCount < MAX_STEPS)
+        {
+            if (remaining == 1 && *groupCount > 0)
+            {
+                if (groups[*groupCount - 1] > 2)
+                {
+                    groups[*groupCount - 1] -= 1;
+                    push(2);
+                }
+                else
+                {
+                    groups[*groupCount - 1] += 1;
+                }
+                remaining = 0;
+            }
+            else if (remaining <= 4)
+            {
+                push(remaining);
+                remaining = 0;
+            }
+            else
+            {
+                push(3);
+                remaining -= 3;
+            }
+        }
+    };
+
+    switch (path)
+    {
+        case MetricPath::Gathering:
+        {
+            if (steps % 3 == 0)
+            {
+                for (int remaining = steps; remaining > 0; remaining -= 3)
+                    push(3);
+            }
+            else if (steps >= 10)
+            {
+                int remaining = steps;
+                while (remaining > 0)
+                {
+                    if (remaining > 4) { push(4); remaining -= 4; }
+                    else               { push(remaining); remaining = 0; }
+                }
+            }
+            else
+            {
+                buildAdditive();
+            }
+            break;
+        }
+
+        case MetricPath::Additive:
+            buildAdditive();
+            break;
+
+        case MetricPath::Conversational:
+        {
+            int remaining = steps;
+            while (remaining > 0 && *groupCount < MAX_STEPS)
+            {
+                if (remaining > 4) { push(4); remaining -= 4; }
+                else               { push(remaining); remaining = 0; }
+            }
+            break;
+        }
+
+        case MetricPath::OpenBreath:
+        {
+            int remaining = steps;
+            if (remaining >= 10)      { push(5); remaining -= 5; }
+            else if (remaining >= 7)  { push(4); remaining -= 4; }
+
+            while (remaining > 0 && *groupCount < MAX_STEPS)
+            {
+                if (remaining == 1)      { push(1); remaining = 0; }
+                else if (remaining == 4) { push(2); push(2); remaining = 0; }
+                else                     { const int n = juce::jmin(3, remaining); push(n); remaining -= n; }
+            }
+            break;
+        }
+    }
+
+    if (*groupCount <= 0)
+        push(steps);
+}
+
+int T5ynthGenerativeSequencer::metricPhaseOffset(const Strand& s, MetricPath path) const
+{
+    // Actors don't phrase in lockstep: each strand's grouping is rotated by
+    // its identity (index) and its Euclidean rotation, so group boundaries
+    // interlock instead of stacking.
+    const int steps = juce::jmax(1, s.numSteps);
+    const int idx = strandIndexOf(s);
+    switch (path)
+    {
+        case MetricPath::Gathering:      return 0;
+        case MetricPath::Additive:       return positiveModulo(idx, steps);
+        case MetricPath::Conversational: return positiveModulo(1 + idx * 2 + s.rotation, steps);
+        case MetricPath::OpenBreath:     return positiveModulo(steps / 2 + idx + s.rotation, steps);
+    }
+    return 0;
+}
+
+T5ynthGenerativeSequencer::MetricMoment
+T5ynthGenerativeSequencer::metricMomentForStep(const Strand& s, int stepIdx) const
+{
+    MetricMoment moment;
+    moment.path = metricPathForStrand(s);
+    moment.downbeat = stepIdx == 0;
+
+    int groups[MAX_STEPS];
+    int groupCount = 0;
+    buildMetricGroups(s.numSteps, moment.path, groups, &groupCount);
+
+    const int localStep = positiveModulo(stepIdx + metricPhaseOffset(s, moment.path), s.numSteps);
+    int pos = 0;
+    for (int groupIndex = 0; groupIndex < groupCount; ++groupIndex)
+    {
+        const int len = groups[groupIndex];
+        if (localStep >= pos && localStep < pos + len)
+        {
+            moment.groupStart = localStep == pos;
+            moment.groupEnd = localStep == pos + len - 1;
+            moment.anticipatesGroup = len > 1 && localStep == pos + len - 2;
+            moment.phraseEnd = groupIndex == groupCount - 1 && moment.groupEnd;
+            break;
+        }
+        pos += len;
+    }
+
+    return moment;
+}
+
+bool T5ynthGenerativeSequencer::isMetricStrongStep(const Strand& s, int stepIdx) const
+{
+    const auto moment = metricMomentForStep(s, stepIdx);
+    return moment.downbeat || moment.groupStart;
+}
+
 float T5ynthGenerativeSequencer::fireProbability(const Strand& s, bool isPulse) const
 {
     // V4: identical formula for every strand. Symmetric to strand 0's
@@ -1086,21 +1306,92 @@ float T5ynthGenerativeSequencer::fireProbability(const Strand& s, bool isPulse) 
 
 
 
-float T5ynthGenerativeSequencer::spatialTargetForStrand(const Strand& s) const
+float T5ynthGenerativeSequencer::spatialTargetForStrand(const Strand& s, int stepIdx,
+                                                         bool isPulse,
+                                                         bool isStrong) const
 {
-    // Static lane per strand index. The previous metric/role-modulated
-    // sinusoid was a Pseudo-Prinzip layer (decoration without musical cause)
-    // and is removed. Stereo separation comes from the lane choice alone.
-    // S5 sits dead-centre to fill the remaining gap between the inner pair.
+    // Stage panning (restored 2026-07-16; removed unauthorized in b826a898):
+    // the strands are actors on a stage. The lane fixes an actor's SIDE, the
+    // role fixes how far from centre their territory extends (width) and how
+    // lively they are (motion). Metric moments move them — strong beats and
+    // gathering phrases pull toward centre, phrase ends and open-breath
+    // phrasing step outward. Ensemble density stages the whole cast: an actor
+    // alone drifts toward centre stage, a full stage spreads everyone wider;
+    // Density/Gesture ghost notes flicker at the edge of their territory.
+    // A slow role-scaled oscillation keeps actors alive between cues.
+    // S5 is the centre actor: no side (sign 0), so all lateral staging
+    // vanishes and only the oscillation around centre stage remains.
+    const int idx = strandIndexOf(s);
     static constexpr float kLanes[MAX_STRANDS] = { -0.32f, 0.34f, -0.62f, 0.66f, 0.0f };
-    return kLanes[static_cast<size_t>(strandIndexOf(s))];
+    const float lane = kLanes[static_cast<size_t>(idx)];
+    const float sign = lane > 0.0f ? 1.0f : (lane < 0.0f ? -1.0f : 0.0f);
+    const auto moment = metricMomentForStep(s, stepIdx);
+
+    float width = 0.45f;
+    float motion = 0.06f;
+    switch (s.role)
+    {
+        case Role::Anchor:  width = 0.24f; motion = 0.025f; break;
+        case Role::Line:    width = 0.42f; motion = 0.055f; break;
+        case Role::Density: width = 0.66f; motion = 0.085f; break;
+        case Role::Gesture: width = 0.82f; motion = 0.120f; break;
+    }
+
+    float target = sign * width;
+
+    if (moment.path == MetricPath::Gathering)
+        target *= 0.72f;
+    if (isStrong || moment.groupStart)
+        target *= s.role == Role::Anchor ? 0.55f : 0.74f;
+    if (moment.phraseEnd || moment.path == MetricPath::OpenBreath)
+        target = sign * juce::jmin(0.92f, std::abs(target) + 0.14f + 0.08f * s.mutationRate);
+
+    const int activeOthers = activeOtherStrandCount(s);
+    if (activeOthers <= 0)
+    {
+        target *= 0.76f;
+    }
+    else if (activeOthers >= 2)
+    {
+        target = sign * juce::jmin(0.95f, std::abs(target) + 0.08f * static_cast<float>(activeOthers));
+    }
+
+    if (!isPulse && !isStrong && (s.role == Role::Density || s.role == Role::Gesture))
+        target = sign * juce::jmin(0.95f, std::abs(target) + 0.06f);
+
+    const float phase = static_cast<float>(s.cycleCount) * 0.61f
+                      + static_cast<float>(stepIdx) * 0.37f
+                      + static_cast<float>(idx) * 1.93f;
+    target += std::sin(phase) * motion * (moment.groupEnd ? 1.35f : 1.0f);
+
+    return juce::jlimit(-0.95f, 0.95f, target);
 }
 
-float T5ynthGenerativeSequencer::updateSpatialPan(Strand& s)
+float T5ynthGenerativeSequencer::updateSpatialPan(Strand& s, int stepIdx,
+                                                   bool isPulse,
+                                                   bool isStrong)
 {
-    s.spatialTargetPan = spatialTargetForStrand(s);
-    s.spatialPan = s.spatialTargetPan;
-    return s.spatialPan;
+    s.spatialTargetPan = spatialTargetForStrand(s, stepIdx, isPulse, isStrong);
+
+    // Actors walk, they don't teleport: per-note slew toward the target,
+    // with role-typed inertia (Anchor deliberate, Density agile).
+    float slew = 0.12f;
+    switch (s.role)
+    {
+        case Role::Anchor:  slew = 0.07f; break;
+        case Role::Line:    slew = 0.13f; break;
+        case Role::Density: slew = 0.20f; break;
+        case Role::Gesture: slew = 0.16f; break;
+    }
+    if (isStrong)
+        slew += 0.05f;
+
+    if (s.cycleCount == 0 && s.scheduledStep == 0 && s.previousOutputNote < 0)
+        s.spatialPan = s.spatialTargetPan;
+    else
+        s.spatialPan += (s.spatialTargetPan - s.spatialPan) * juce::jlimit(0.02f, 0.35f, slew);
+
+    return juce::jlimit(-0.95f, 0.95f, s.spatialPan);
 }
 
 int T5ynthGenerativeSequencer::baseMidiForStrand(const Strand& s) const
@@ -1191,12 +1482,10 @@ int T5ynthGenerativeSequencer::closestMidiForPc(int pc, int anchorMidi) const
 
 int T5ynthGenerativeSequencer::velocityForNote(const Strand& s, int stepIdx, bool isPulse)
 {
-    // V3: every strand uses the same accent + jitter formula. The per-role
+    // Every strand uses the same accent + jitter formula (V3); the per-role
     // mean fixes a CHARACTER (Anchor steady-mid, Line slightly assertive,
-    // Density quieter to fit between events, Gesture punctuating) but the
-    // overall ranges overlap heavily — there is no Lead/Begleitung
-    // hierarchy. The previous foreground bias and contextual modulation
-    // were Pseudo-Prinzip layers and are removed.
+    // Density quieter to fit between events, Gesture punctuating) and the
+    // ranges overlap heavily — the roles are textures, not a mix hierarchy.
     int mean;
     if (strandIndexOf(s) == 0)
         mean = 92;     // strand 0 default — preserves legacy 100/85/55 spread exactly
@@ -1224,6 +1513,14 @@ int T5ynthGenerativeSequencer::velocityForNote(const Strand& s, int stepIdx, boo
         baseVel = !isPulse ? mean - 30
                 : accent   ? mean + 12
                 :            mean;
+
+        // Foreground bias (restored 2026-07-16; removed unauthorized in
+        // b826a898). Semantic ground: strand 0 IS the ensemble's foreground
+        // line — the reference voice the listener follows — so accompanying
+        // strands yield a step so they never mask it. Gesture is exempt:
+        // punctuation must cut through to function as punctuation.
+        if (s.role != Role::Gesture)
+            baseVel -= 5;
     }
 
     std::uniform_int_distribution<int> velJitter(-5, 5);
@@ -1414,10 +1711,15 @@ void T5ynthGenerativeSequencer::processBlock(juce::AudioBuffer<float>& buffer,
             s.lastPlayedNote = -1;
         }
 
-        // V5: isStrong derives from accent pattern alone (downbeat or
-        // longest-gap accent), exactly as strand 0 has always done. The
-        // metric-grouping layer is gone.
+        // Accents and firing stay purely Euclidean (V5): downbeat or
+        // longest-gap accent, exactly as strand 0 has always done. The
+        // metric grouping additionally marks group starts as strong — but
+        // ONLY for the expressive staging (pan movement below); it never
+        // feeds fireProbability, pickNote or velocity.
         const bool isPulse = s.eucPattern[static_cast<size_t>(stepIdx)];
+        const bool isStrong = (stepIdx == 0)
+                           || s.accentPattern[static_cast<size_t>(stepIdx)]
+                           || isMetricStrongStep(s, stepIdx);
         const float fireProb = fireProbability(s, isPulse);
 
         // Resolve the degree for this step. Pulses use their own degree;
@@ -1484,7 +1786,7 @@ void T5ynthGenerativeSequencer::processBlock(juce::AudioBuffer<float>& buffer,
         {
             const int note = pickNote(s, stepIdx, rawDegree);
             const double stepDur = shuffledStrandStepDurationSamples(s, stepIdx);
-            const float pan = updateSpatialPan(s);
+            const float pan = updateSpatialPan(s, stepIdx, isPulse, isStrong);
 
             const int velInt = velocityForNote(s, stepIdx, isPulse);
             // Strand id + pan travel as typed fields — no MIDI channel, no CC10.
