@@ -1585,19 +1585,29 @@ int T5ynthGenerativeSequencer::pickNote(Strand& s, int stepIdx, int rawDegree)
 
     const int targetMidi = closestMidiForPc(pc, anchorMidi);
 
-    // Density on weak steps may insert a single chromatic passing tone in
-    // the direction of the next field-member landing. The strong-beat note
-    // remains a field member (the ordinary pipeline output above), which is
-    // the obligatory landing — that is the "sheets-of-sound"-style figure
-    // hinted at by the manual, rendered as a deterministic walk rather than
-    // a single-step random chromatic.
+    // Density weak-step motion toward the next landing ("sheets of sound").
+    // Structural ground: a chromatic tone is a PASSING tone only if it
+    // resolves on the next step — so chromatic steps are allowed solely to
+    // fill a two-semitone gap. Larger distances run stepwise THROUGH THE
+    // FIELD toward the landing (scalar run), a semitone gap simply arrives.
+    // (The previous rule crept +-1 semitone for ANY distance <= 6, which
+    // turned Density into a chromatic worm parked on non-field pitches —
+    // measured 58% chromatic steps, hammering m7/M7 against sounding
+    // strands. Fixed 2026-07-16.)
     if (s.role == Role::Density && !isStrong && s.previousOutputNote >= 0)
     {
-        const int diff = targetMidi - s.previousOutputNote;
-        if (diff != 0 && std::abs(diff) <= 6)
-        {
-            const int dir = diff > 0 ? 1 : -1;
+        const int diff  = targetMidi - s.previousOutputNote;
+        const int adiff = std::abs(diff);
+        const int dir   = diff > 0 ? 1 : -1;
+
+        if (adiff == 2)
             return juce::jlimit(0, 127, s.previousOutputNote + dir);
+
+        if (adiff > 2 && adiff <= 9)
+        {
+            for (int m = s.previousOutputNote + dir; m != targetMidi; m += dir)
+                if (fieldContains(wrapPc(m)))
+                    return juce::jlimit(0, 127, m);
         }
     }
 
