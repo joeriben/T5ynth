@@ -38,7 +38,15 @@ namespace Calibration
 //   Epoch 1: AT→Cutoff full-scale 10→4 octaves (Phase 1).
 //   Epoch 2: env/LFO/Drift→Cutoff folded into the unified ±4-oct cutoff bus
 //            (was ±10 for env/LFO/Drift); target-conditional on Filter.
-inline constexpr int kEpoch = 2;
+//   Epoch 3: CoordinationMode choice table shrank 4→3 (2026-07-16). The
+//            never-implemented no-op entries "Algebraic"(2)/"Counterpoint"(3)
+//            were removed and raw index 2 became the audible Dialog mode. A
+//            2/3 stored by an older file meant "behaves as Independent" —
+//            keep that meaning instead of silently activating Dialog
+//            (IndexRemap, not a rescale). Only the XML surfaces carry raw
+//            indices; the .t5p JSON stores key strings and maps removed keys
+//            via choiceFromKey's unknown-key fallback.
+inline constexpr int kEpoch = 3;
 
 struct Rescale
 {
@@ -56,6 +64,17 @@ struct CondRescale
     int         sinceEpoch; // applied when the file's epoch < this
     const char* condId;     // sibling TARGET parameter ID to inspect
     int         condValue;  // rescale only when condId's selected index == this
+};
+
+// Choice-index remap: when a choice table changes MEANING (entries removed /
+// repurposed), a raw stored index must be remapped, not rescaled. Any stored
+// index >= minStored maps onto toIndex.
+struct IndexRemap
+{
+    const char* id;         // choice parameter ID whose stored index is remapped
+    int         minStored;  // stored indices >= this...
+    int         toIndex;    // ...become this
+    int         sinceEpoch; // applied when the file's epoch < this
 };
 
 // One entry per unconditionally-recalibrated parameter, in epoch order.
@@ -88,6 +107,20 @@ inline const std::array<CondRescale, 9>& condRescales()
         { PID::drift1Depth, 0.75f, 2, PID::drift1Target, DriftLFO::TgtFilter },
         { PID::drift2Depth, 0.75f, 2, PID::drift2Target, DriftLFO::TgtFilter },
         { PID::drift3Depth, 0.75f, 2, PID::drift3Target, DriftLFO::TgtFilter },
+    } };
+    return table;
+}
+
+// One entry per choice-table meaning change.
+//   Epoch 3: CoordinationMode 4→3. Stored 2 ("Algebraic") / 3 ("Counterpoint")
+//            were silent Independent fall-throughs; map them to Independent so
+//            an old DAW session / snapshot does not silently activate Dialog
+//            (which now owns index 2). Host automation LANES riding those old
+//            indices cannot be detected or migrated — only stored state can.
+inline const std::array<IndexRemap, 1>& indexRemaps()
+{
+    static const std::array<IndexRemap, 1> table = { {
+        { PID::genCoordinationMode, 2, CoordinationMode::Independent, 3 },
     } };
     return table;
 }
@@ -142,6 +175,21 @@ inline void migrateValueTree(juce::ValueTree& tree, int fromEpoch)
                 child.setProperty("value",
                                   static_cast<float>(child.getProperty("value")) * r.factor,
                                   nullptr);
+        }
+    }
+
+    // Choice-index remaps: a stored index whose table entry was removed or
+    // repurposed keeps its OLD meaning.
+    for (const auto& m : indexRemaps())
+    {
+        if (fromEpoch >= m.sinceEpoch)
+            continue;
+        for (int i = 0; i < tree.getNumChildren(); ++i)
+        {
+            auto child = tree.getChild(i);
+            if (child.getProperty("id").toString() == m.id && child.hasProperty("value")
+                && juce::roundToInt(static_cast<double>(child.getProperty("value"))) >= m.minStored)
+                child.setProperty("value", static_cast<float>(m.toIndex), nullptr);
         }
     }
 

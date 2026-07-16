@@ -18,6 +18,7 @@
 #include "JuceHeader.h"
 #include "PluginProcessor.h"
 #include "dsp/BlockParams.h"
+#include "presets/CalibrationMigration.h"
 
 #include <cstdio>
 
@@ -87,6 +88,37 @@ int main()
     CHECK (proc.importJsonPreset (juce::JSON::toString (parsed, true)), "algebraic preset imports");
     CHECK (coordModeIndex (proc) == CoordinationMode::Independent,
            "legacy 'algebraic' (was a silent no-op) maps to Independent");
+
+    // ── 5. XML surfaces (DAW session chunk / .t5p snapshot trees): a raw
+    //       index 2/3 stored under epoch <3 was a silent no-op ("Algebraic"/
+    //       "Counterpoint") and must stay inert (Independent), while a
+    //       modern (epoch 3) index 2 IS Dialog and must survive. ──
+    {
+        auto makeTree = [] (float storedIndex)
+        {
+            juce::ValueTree t ("PARAMS");
+            juce::ValueTree p ("PARAM");
+            p.setProperty ("id", PID::genCoordinationMode, nullptr);
+            p.setProperty ("value", storedIndex, nullptr);
+            t.appendChild (p, nullptr);
+            return t;
+        };
+        auto storedIndex = [] (const juce::ValueTree& t)
+        { return juce::roundToInt (static_cast<double> (t.getChild (0).getProperty ("value"))); };
+
+        auto legacy2 = makeTree (2.0f);
+        auto legacy3 = makeTree (3.0f);
+        auto modern2 = makeTree (2.0f);
+        Calibration::migrateValueTree (legacy2, 2);
+        Calibration::migrateValueTree (legacy3, 0);
+        Calibration::migrateValueTree (modern2, Calibration::kEpoch);
+        CHECK (storedIndex (legacy2) == CoordinationMode::Independent,
+               "epoch-2 stored index 2 (was no-op 'Algebraic') stays inert");
+        CHECK (storedIndex (legacy3) == CoordinationMode::Independent,
+               "epoch-0 stored index 3 (was no-op 'Counterpoint') stays inert");
+        CHECK (storedIndex (modern2) == CoordinationMode::Dialog,
+               "current-epoch stored index 2 stays Dialog");
+    }
 
     std::printf ("%s (%d failure%s)\n", failures ? "FAILED" : "ALL PASS",
                  failures, failures == 1 ? "" : "s");

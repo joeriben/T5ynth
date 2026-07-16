@@ -105,8 +105,8 @@ public:
     void setFieldPivotInterval (int semitones);
 
     // Inter-strand coordination.
-    void setCoordinationMode (int mode);   // 0..3 (CoordinationMode enum)
-    void setCoordinationCap  (int cap);    // 1..4 simultaneous strand notes
+    void setCoordinationMode (int mode);   // 0..2 (CoordinationMode enum)
+    void setCoordinationCap  (int cap);    // 1..5 simultaneous strand notes
 
     // Shared / global
     void setRange(int octaves);
