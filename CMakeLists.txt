@@ -59,6 +59,24 @@ FetchContent_MakeAvailable(signalsmith_stretch)
 
 add_subdirectory(JUCE)
 
+# ── Optional: Csound engine (Phase 1, commit C1) ──────────────────────────
+# Homebrew ships ONLY CsoundLib64.framework for the C API on macOS -- there is
+# no find_package module for Csound and no .dylib to link against (verified
+# ground truth in tools/csound_poc.cpp:13-18). NEVER REQUIRED: CI runners and
+# any dev machine without Csound installed must build exactly as before.
+# T5YNTH_CSOUND_FOUND gates the conditional target_sources/link block below;
+# the ALWAYS-defined T5YNTH_HAS_CSOUND compile definition (near JUCE_USE_CURL)
+# lets every call site branch without a CMake-level #ifdef.
+set(T5YNTH_CSOUND_FOUND FALSE)
+if(APPLE)
+    find_library(T5YNTH_CSOUND_FRAMEWORK NAMES CsoundLib64
+                 PATHS /opt/homebrew/opt/csound/Frameworks /Library/Frameworks
+                 NO_DEFAULT_PATH)
+    if(T5YNTH_CSOUND_FRAMEWORK)
+        set(T5YNTH_CSOUND_FOUND TRUE)
+    endif()
+endif()
+
 set(T5YNTH_PLUGIN_FORMATS Standalone VST3)
 if(APPLE)
     option(T5YNTH_MACOS_STANDALONE_ONLY
@@ -191,6 +209,34 @@ target_sources(T5ynth PRIVATE
     src/presets/PresetUpdater.cpp
 )
 
+# target_sources/link additions must stay inside this if(): CsoundEngine.cpp
+# #includes <csound/csound.h> at file scope and cannot even preprocess without
+# the framework's headers on the include path.
+if(T5YNTH_CSOUND_FOUND)
+    target_sources(T5ynth PRIVATE src/dsp/CsoundEngine.cpp)
+    get_filename_component(_csound_fw_dir "${T5YNTH_CSOUND_FRAMEWORK}" DIRECTORY)
+    # Homebrew's opt-prefix ships an "include/csound" symlink pointing into the
+    # framework's own Headers/ dir (verified on this machine:
+    # /opt/homebrew/opt/csound/include/csound -> ../Frameworks/CsoundLib64.framework/Headers).
+    # That's the SAME include path tools/csound_poc.cpp's proven build recipe
+    # uses ($CSOUND_PREFIX/include) and is what makes `#include <csound/csound.h>`
+    # resolve. _csound_fw_dir is ".../Frameworks"; its parent is the Homebrew prefix.
+    # A /Library/Frameworks install has no such prefix layout -- there the
+    # framework's own Headers/ dir provides csound.h, so map <csound/...> onto it.
+    get_filename_component(_csound_prefix "${_csound_fw_dir}" DIRECTORY)
+    if(EXISTS "${_csound_prefix}/include/csound")
+        target_include_directories(T5ynth PRIVATE "${_csound_prefix}/include")
+    else()
+        # Recreate the same shim in the build tree: <builddir>/csound_include/csound -> Headers
+        file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/csound_include")
+        file(CREATE_LINK "${T5YNTH_CSOUND_FRAMEWORK}/Headers"
+             "${CMAKE_BINARY_DIR}/csound_include/csound" SYMBOLIC)
+        target_include_directories(T5ynth PRIVATE "${CMAKE_BINARY_DIR}/csound_include")
+    endif()
+    target_link_libraries(T5ynth PRIVATE "${T5YNTH_CSOUND_FRAMEWORK}")
+    target_link_options(T5ynth PRIVATE "-Wl,-rpath,${_csound_fw_dir}")
+endif()
+
 target_include_directories(T5ynth PRIVATE
     src
 )
@@ -263,6 +309,7 @@ target_compile_definitions(T5ynth
         NOMINMAX              # prevent windows.h min/max macros
         JUCE_WEB_BROWSER=1
         JUCE_USE_CURL=$<BOOL:${CURL_FOUND}>
+        T5YNTH_HAS_CSOUND=$<BOOL:${T5YNTH_CSOUND_FOUND}>
         JUCE_VST3_CAN_REPLACE_VST2=0
         JUCE_DISPLAY_SPLASH_SCREEN=0
     PRIVATE
