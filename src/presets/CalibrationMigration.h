@@ -117,6 +117,17 @@ inline const std::array<CondRescale, 9>& condRescales()
 //            an old DAW session / snapshot does not silently activate Dialog
 //            (which now owns index 2). Host automation LANES riding those old
 //            indices cannot be detected or migrated — only stored state can.
+//
+//            KNOWN BOUNDARY (verified 2026-07-16, dev-machine-only): the table
+//            meaning changed at 8843e3cc while kEpoch was still 2; the bump to
+//            3 landed one commit later (ece51fe1, ~38 min after). State saved
+//            with Dialog by a dev build inside that window is stamped epoch 2
+//            and is byte-indistinguishable from a genuine old no-op index 2 —
+//            this remap reverts it to Independent. Unresolvable retroactively;
+//            the trade-off deliberately protects every pre-8843e3cc file (the
+//            only kind that exists outside build_clean — no release carries
+//            the window). LESSON: bump kEpoch IN the commit that changes a
+//            table's meaning, never in a follow-up.
 inline const std::array<IndexRemap, 1>& indexRemaps()
 {
     static const std::array<IndexRemap, 1> table = { {
