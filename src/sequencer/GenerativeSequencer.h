@@ -336,7 +336,7 @@ private:
 
     // Pitch context (shared)
     int rangeOctaves = 2;
-    int scaleType    = 1;   // Major (not Off)
+    int scaleType    = 1;   // Major (0 = Chromatic, honored since 2026-07-16)
     int scaleRoot    = 0;   // C
     int primaryTransposeSemitones = 0;
 

@@ -171,8 +171,11 @@ void T5ynthGenerativeSequencer::setRange(int octaves)
 
 void T5ynthGenerativeSequencer::setScale(int type, int root)
 {
-    // If Off, default to Major for generative mode
-    if (type <= 0) type = 1;
+    // Scale 0 (key "off") is labelled "Chromatic" in the UI and the
+    // quantizer tables treat it as the full 12-tone scale — so the
+    // generative mode does too. (It used to coerce 0 -> Major; removed
+    // 2026-07-16: the sequencer must do what the label says.)
+    type = juce::jlimit(0, static_cast<int>(ScaleQuantizer::COUNT) - 1, type);
     if (type != scaleType || root != scaleRoot)
     {
         scaleType = type;
@@ -541,7 +544,7 @@ void T5ynthGenerativeSequencer::rebuildPattern(Strand& s)
 
     // 3. Build scale degrees for melody
     auto scale = static_cast<ScaleQuantizer::Scale>(
-        juce::jlimit(1, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
+        juce::jlimit(0, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
     int dpOct = ScaleQuantizer::degreesPerOctave(scale);
     int totalDegrees = dpOct * rangeOctaves;
     int baseNote = baseMidiForStrand(s);
@@ -706,7 +709,7 @@ void T5ynthGenerativeSequencer::mutatePattern(Strand& s)
     s.evtOp = (int) MutEvent::None;
 
     auto scale = static_cast<ScaleQuantizer::Scale>(
-        juce::jlimit(1, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
+        juce::jlimit(0, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
     int dpOct = ScaleQuantizer::degreesPerOctave(scale);
     int totalDegrees = dpOct * rangeOctaves;
     int baseNote = baseMidiForStrand(s);
@@ -867,7 +870,7 @@ void T5ynthGenerativeSequencer::addPulse(Strand& s)
     if (s.numPulses >= s.numSteps) return;
 
     auto scale = static_cast<ScaleQuantizer::Scale>(
-        juce::jlimit(1, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
+        juce::jlimit(0, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
     int dpOct = ScaleQuantizer::degreesPerOctave(scale);
     int totalDegrees = dpOct * rangeOctaves;
     int baseNote = baseMidiForStrand(s);
@@ -960,7 +963,7 @@ void T5ynthGenerativeSequencer::enforcePulseInvariant(Strand& s)
     if (actual <= 0)
     {
         auto scale = static_cast<ScaleQuantizer::Scale>(
-            juce::jlimit(1, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
+            juce::jlimit(0, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
         s.eucPattern[0] = true;
         s.degreePattern[0] = 0;
         s.notePattern[0] = ScaleQuantizer::degreeToMidi(0, scaleRoot, scale, baseMidiForStrand(s));
@@ -1015,7 +1018,7 @@ void T5ynthGenerativeSequencer::seedFromSteps(const int* midiNotes,
     s.degreePattern.fill(0);
 
     auto scale = static_cast<ScaleQuantizer::Scale>(
-        juce::jlimit(1, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
+        juce::jlimit(0, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
     int dpOct = ScaleQuantizer::degreesPerOctave(scale);
     int baseNote = baseMidiForStrand(s);
 
@@ -1546,7 +1549,7 @@ float T5ynthGenerativeSequencer::roleGateFraction(const Strand& s) const
 int T5ynthGenerativeSequencer::pickNote(Strand& s, int stepIdx, int rawDegree)
 {
     auto scale = static_cast<ScaleQuantizer::Scale>(
-        juce::jlimit(1, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
+        juce::jlimit(0, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
 
     if (strandIndexOf(s) == 0)
     {
@@ -1826,7 +1829,7 @@ void T5ynthGenerativeSequencer::processBlock(juce::AudioBuffer<float>& buffer,
 void T5ynthGenerativeSequencer::rebuildPcSetFromScale()
 {
     auto scale = static_cast<ScaleQuantizer::Scale>(
-        juce::jlimit(1, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
+        juce::jlimit(0, static_cast<int>(ScaleQuantizer::COUNT) - 1, scaleType));
     pitchField.pcSet = ScaleQuantizer::pcSetFromScale(scale, scaleRoot);
     pitchField.centerPc = wrapPc(scaleRoot);
     // Seed row = ascending pcs of current scale, then fill with chromatic

@@ -13,6 +13,8 @@
 //      centre actor S5 hovers around centre stage (|pan| small, both signs).
 //   D. Foreground bias: secondary non-Gesture strands top out 5 below their
 //      unbiased ceiling (mean+12+jitter), Gesture reaches its full ceiling.
+//   E. Scale 0 (UI label "Chromatic") behaves chromatic — non-diatonic
+//      pitch classes actually sound (it used to be coerced to Major).
 //
 // Build (see audition_sampler_follow.cpp header):
 //   FLAGS=build_clean/CMakeFiles/T5ynth.dir/flags.make
@@ -166,6 +168,41 @@ int main()
         if (strand == 3) check(velMax <= 87,  "Density ceiling biased (75+12-5+5)");
         if (strand == 4) check(velMax >= 108 && velMax <= 112,
                                "Gesture UNbiased ceiling reached (95+12+5)");
+    }
+
+    // ── E. Chromatic scale honored (scale 0 = UI "Chromatic") ──
+    {
+        T5ynthGenerativeSequencer chrom;
+        chrom.prepare(SR, BS);
+        chrom.setBpm(BPM);
+        chrom.setDivision(3);
+        chrom.setGate(0.8f);
+        chrom.setShuffle(0.0f);
+        chrom.setScale(0, 0);   // Chromatic, root C
+        chrom.setRange(2);
+        chrom.setStrandRole(1, 1);   // one secondary Line strand (field path)
+        chrom.setStrandEnabled(1, true);
+        chrom.start();
+
+        std::set<int> pcs0, pcs1;
+        for (long pos = 0; pos < total; pos += BS)
+        {
+            out.clear();
+            chrom.processBlock(buf, out);
+            for (const auto& e : out)
+                if (e.type == VoiceEvent::Type::NoteOn)
+                    (e.strandId == 0 ? pcs0 : pcs1).insert(((e.note % 12) + 12) % 12);
+        }
+        auto nonDiatonic = [](const std::set<int>& pcs) {
+            int n = 0;
+            for (int pc : { 1, 3, 6, 8, 10 }) if (pcs.count(pc)) ++n;
+            return n;
+        };
+        std::printf("chromatic: strand0 %zu pcs (%d non-diatonic), strand1 %zu pcs (%d non-diatonic)\n",
+                    pcs0.size(), nonDiatonic(pcs0), pcs1.size(), nonDiatonic(pcs1));
+        check(nonDiatonic(pcs0) >= 2, "Chromatic honored on strand 0 (non-diatonic pcs sound)");
+        check(nonDiatonic(pcs1) >= 2, "Chromatic honored on secondary strand (field path)");
+        check(pcs0.size() >= 9, "chromatic coverage broad on strand 0");
     }
 
     std::printf("%s (%d failure%s)\n", g_failures ? "FAILED" : "ALL PASS",
