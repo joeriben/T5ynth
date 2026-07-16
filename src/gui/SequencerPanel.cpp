@@ -858,12 +858,14 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
             }
             strandOctaveSliders[i].onValueChange();   // initial toggle sync
 
-            // Dom: full-module-width inline bar (Poly-AT style), 0..1.
-            strandDomRows[i] = std::make_unique<SliderRow>("Dominance",
+            // Gravity: full-module-width inline bar (Poly-AT style), 0..1.
+            // (Display name "Gravity" per BJ 2026-07-16; param IDs and preset
+            // keys keep "dominance".)
+            strandDomRows[i] = std::make_unique<SliderRow>("Gravity",
                 [](double v) { return juce::String(v, 2); }, kSeqFill);
             strandDomRows[i]->setInlineLabel(true);
             strandDomRows[i]->getSlider().setTooltip(sName
-                + " dominance — probability of snapping to field center at the cycle downbeat (0..1)");
+                + " gravity — probability of snapping to field center at the cycle downbeat (0..1)");
             addAndMakeVisible(*strandDomRows[i]);
             strandDomA[i] = std::make_unique<SA>(apvts, kDomPIDs[i], strandDomRows[i]->getSlider());
             strandDomRows[i]->getSlider().onValueChange = [this, i] { strandDomRows[i]->updateValue(); };

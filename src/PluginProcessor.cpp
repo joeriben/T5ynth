@@ -1660,7 +1660,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::genDivMult, 1}, "S1 Div",
         toChoices(StrandDivMult::kEntries), StrandDivMult::X));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::genDominance, 1}, "S1 Dominance",
+        juce::ParameterID{PID::genDominance, 1}, "S1 Gravity",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
 
     // ── Strand 2 ──
@@ -1675,7 +1675,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::gen2DivMult, 1}, "S2 Div",
         toChoices(StrandDivMult::kEntries), StrandDivMult::X));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::gen2Dominance, 1}, "S2 Dominance",
+        juce::ParameterID{PID::gen2Dominance, 1}, "S2 Gravity",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{PID::gen2Steps, 1}, "S2 Steps", 2, 32, 16));
@@ -1707,7 +1707,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::gen3DivMult, 1}, "S3 Div",
         toChoices(StrandDivMult::kEntries), StrandDivMult::X));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::gen3Dominance, 1}, "S3 Dominance",
+        juce::ParameterID{PID::gen3Dominance, 1}, "S3 Gravity",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{PID::gen3Steps, 1}, "S3 Steps", 2, 32, 16));
@@ -1739,7 +1739,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::gen4DivMult, 1}, "S4 Div",
         toChoices(StrandDivMult::kEntries), StrandDivMult::X));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::gen4Dominance, 1}, "S4 Dominance",
+        juce::ParameterID{PID::gen4Dominance, 1}, "S4 Gravity",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{PID::gen4Steps, 1}, "S4 Steps", 2, 32, 16));
@@ -1771,7 +1771,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
         juce::ParameterID{PID::gen5DivMult, 1}, "S5 Div",
         toChoices(StrandDivMult::kEntries), StrandDivMult::X));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::gen5Dominance, 1}, "S5 Dominance",
+        juce::ParameterID{PID::gen5Dominance, 1}, "S5 Gravity",
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
         juce::ParameterID{PID::gen5Steps, 1}, "S5 Steps", 2, 32, 16));

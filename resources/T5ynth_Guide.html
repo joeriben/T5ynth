@@ -1361,8 +1361,8 @@ The result is closer to a small ensemble than to a chord arpeggiator: rhythms cr
   <tr><td><strong>Role</strong></td><td>Anchor / Line / Density / Gesture</td><td>Textural function (see below). Not a bass/lead hierarchy &mdash; each role defines register and rhythmic behavior.</td></tr>
   <tr><td><strong>Octave</strong></td><td>&minus;2 &hellip; +2</td><td>Register offset. Use to separate strands vertically.</td></tr>
   <tr><td><strong>Div&times;</strong></td><td>1/4&times;, 1/2&times;, 1&times;, 2&times;, 4&times;, 1/3&times;, 3&times;</td><td>Tempo multiplier relative to global division. Five binary ratios layer nested-subdivision grids (e.g.&nbsp;3 strands at 1&times; / 2&times; / 4&times; gives a quarter-note / eighth-note / sixteenth-note stack). The two ternary ratios 1/3&times; and 3&times; are for true cross-rhythms — pair 1&times; with 3&times; for 3-against-1, or 2&times; with 3&times; for 3-against-2 (hemiola).</td></tr>
-  <tr><td><strong>Dominance</strong></td><td>0.0 &ndash; 1.0</td><td>How strongly the strand snaps to the field's center pitch on strong beats. 0 = pure Turing-machine drift; higher = more tonal anchoring.</td></tr>
-  <tr><td><strong>Steps / Pulses / Rotation / Mutation</strong></td><td>same as monophonic</td><td>Each strand carries its own Euclidean DNA and Fix toggles in the preset. In the GEN panel, though, the Steps / Pulses / Rotation / Evolve sliders edit <strong>Strand&nbsp;1</strong>; Strands&nbsp;2&ndash;5 take these values from the preset or host automation, while in the panel you shape those strands through Role, Div&times;, Octave, and Dominance.</td></tr>
+  <tr><td><strong>Gravity</strong></td><td>0.0 &ndash; 1.0</td><td>How strongly the strand snaps to the field's center pitch on strong beats. 0 = pure Turing-machine drift; higher = more tonal anchoring.</td></tr>
+  <tr><td><strong>Steps / Pulses / Rotation / Mutation</strong></td><td>same as monophonic</td><td>Each strand carries its own Euclidean DNA and Fix toggles in the preset. In the GEN panel, though, the Steps / Pulses / Rotation / Evolve sliders edit <strong>Strand&nbsp;1</strong>; Strands&nbsp;2&ndash;5 take these values from the preset or host automation, while in the panel you shape those strands through Role, Div&times;, Octave, and Gravity.</td></tr>
 </table>
 
 <h4>The Four Roles</h4>
@@ -1371,7 +1371,7 @@ Roles select <em>character</em> only &mdash; register, default rhythmic density,
 </p>
 <table>
   <tr><th>Role</th><th>Character</th><th>Typical Use</th></tr>
-  <tr><td><strong>Anchor</strong></td><td>Low-register support. The strand walks the field via its degree pattern; the optional <em>Dominance</em> control snaps the note to the field center at the top of every other cycle (a cadential return rather than a per-beat tic).</td><td>Pedal foundation</td></tr>
+  <tr><td><strong>Anchor</strong></td><td>Low-register support. The strand walks the field via its degree pattern; the optional <em>Gravity</em> control snaps the note to the field center at the top of every other cycle (a cadential return rather than a per-beat tic).</td><td>Pedal foundation</td></tr>
   <tr><td><strong>Line</strong></td><td>Mid-register voice. Walks the field from the strand's degree pattern; no per-event harmonic check.</td><td>Melodic contour</td></tr>
   <tr><td><strong>Density</strong></td><td>Mid-register, shorter gate. On weak steps the strand may insert a single chromatic passing tone in the direction of the next field-member landing; the strong-step note remains in the field.</td><td>Dense motion fill</td></tr>
   <tr><td><strong>Gesture</strong></td><td>Wider register. Sparse pulses on its own Euclidean pattern.</td><td>Pointillistic accents</td></tr>
@@ -1386,7 +1386,7 @@ The Pitch Field is the shared pitch-class set (pc-set) that all strands draw fro
   <tr><th>Control</th><th>Options</th><th>What It Does</th></tr>
   <tr><td><strong>Mode</strong></td><td>Static / Drift / Transform / Pivot</td><td>How the field evolves on Strand&nbsp;1's cycle boundary.</td></tr>
   <tr><td><strong>Rate</strong></td><td>1 &ndash; 32 cycles</td><td>How often the field changes (Static = never, regardless of rate).</td></tr>
-  <tr><td><strong>Center PC</strong></td><td>derived</td><td>Follows the global <em>Scale Root</em> &mdash; the field anchor is always the chosen tonic. Anchor strands lock to it; Dominance pulls other strands toward it at cycle boundaries.</td></tr>
+  <tr><td><strong>Center PC</strong></td><td>derived</td><td>Follows the global <em>Scale Root</em> &mdash; the field anchor is always the chosen tonic. Anchor strands lock to it; Gravity pulls other strands toward it at cycle boundaries.</td></tr>
   <tr><td><strong>Pivot interval</strong></td><td>derived</td><td>Chosen automatically from the Scale Type's character: <strong>P5</strong> for major-flavoured scales (Major, Mixolydian, Pentatonic, Pelog, Slendro&hellip;), <strong>m3</strong> for minor-flavoured scales (Minor, Dorian, Phrygian, Harmonic Minor, Hirajoshi, Hijaz, Persian&hellip;), <strong>Tri</strong> for symmetric or sharp-fourth scales (Whole-tone, Locrian, Lydian, Hungarian Minor). Used only when Mode = Pivot.</td></tr>
 </table>
 
@@ -1412,7 +1412,7 @@ Strands run independently inside themselves; this control governs how (or whethe
 </table>
 
 <div class="tip">
-  <strong>Workflow:</strong> Start with one strand (Anchor on C, slow Drift, low Dominance). Add Strand 2 as a Line at 2&times; with octave +1. Add Strand 3 as Density at 4&times; with Mutation high. Lock Strand 1's parameters, leave 2&ndash;4 unlocked. The result is an evolving three-voice texture that never settles &mdash; suited to ambient beds, generative practice, or as a melodic source for the diffusion model when paired with Drift/Regenerate.
+  <strong>Workflow:</strong> Start with one strand (Anchor on C, slow Drift, low Gravity). Add Strand 2 as a Line at 2&times; with octave +1. Add Strand 3 as Density at 4&times; with Mutation high. Lock Strand 1's parameters, leave 2&ndash;4 unlocked. The result is an evolving three-voice texture that never settles &mdash; suited to ambient beds, generative practice, or as a melodic source for the diffusion model when paired with Drift/Regenerate.
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
@@ -1678,13 +1678,13 @@ Up to five <strong>Strands</strong> run in parallel, each with its own Euclidean
 Each strand's <em>Role</em> selects a different note-picking strategy from the shared field:
 </p>
 <ul>
-  <li><strong>Anchor</strong> — low-register support. Walks the field via its degree pattern; <em>Dominance</em> probabilistically snaps the note to <code>centerPc</code> at the top of every other cycle (cadential anchor, not a per-beat tic).</li>
+  <li><strong>Anchor</strong> — low-register support. Walks the field via its degree pattern; <em>Gravity</em> probabilistically snaps the note to <code>centerPc</code> at the top of every other cycle (cadential anchor, not a per-beat tic).</li>
   <li><strong>Line</strong> — mid-register voice. Walks the field from its degree pattern.</li>
   <li><strong>Density</strong> — mid-register, shorter gate. On weak steps may take a single chromatic step toward the next field-member landing; the strong-step note remains a field member.</li>
   <li><strong>Gesture</strong> — wider register. Sparse pulses on its own Euclidean pattern.</li>
 </ul>
 <p>
-The <em>Dominance</em> parameter (per strand) controls how strongly the strand returns to <code>centerPc</code> at cycle-pair boundaries. At dominance 0 the strand follows its degree walk freely; at 1.0 the cycle-start note becomes <code>centerPc</code>. There is no per-event harmonic check between strands &mdash; that responsibility is moved to the <em>Coordination Mode</em>.
+The <em>Gravity</em> parameter (per strand) controls how strongly the strand returns to <code>centerPc</code> at cycle-pair boundaries. At dominance 0 the strand follows its degree walk freely; at 1.0 the cycle-start note becomes <code>centerPc</code>. There is no per-event harmonic check between strands &mdash; that responsibility is moved to the <em>Coordination Mode</em>.
 </p>
 
 <h3>Layer 5: The Pitch Field</h3>
@@ -1705,7 +1705,7 @@ Because all strands share the same field, harmonic coherence is provided at the 
 </p>
 
 <div class="note">
-  Roles, dominance, and field modes operate without a Bass/Lead/Pad hierarchy or chord-root tracking. The intent is to produce evolving textures independent of functional harmony. For diatonic results, set Field Mode = Static, Dominance high, and one strand to Anchor.
+  Roles, dominance, and field modes operate without a Bass/Lead/Pad hierarchy or chord-root tracking. The intent is to produce evolving textures independent of functional harmony. For diatonic results, set Field Mode = Static, Gravity high, and one strand to Anchor.
 </div>
 
 <!-- ═══════════════════════════════════════════ -->
