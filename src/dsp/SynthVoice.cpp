@@ -143,6 +143,13 @@ void SynthVoice::prepare(double sampleRate, int samplesPerBlock)
     driveOs2x_->initProcessing(static_cast<size_t>(SUB_BLOCK_SIZE));
     driveOs4x_->initProcessing(static_cast<size_t>(SUB_BLOCK_SIZE));
     driveOs8x_->initProcessing(static_cast<size_t>(SUB_BLOCK_SIZE));
+
+    // Csound engine frequency smoother (Phase-1 spec D7): give it the sample
+    // rate up front (mirroring every other per-voice component above) and
+    // seed it at the voice's default pitch so it reads a valid value even
+    // before the first noteOn/glideToNote.
+    csoundFreq_.reset(sampleRate, 0.0);
+    csoundFreq_.setCurrentAndTargetValue(baseFrequency);
 }
 
 void SynthVoice::reset()
@@ -259,6 +266,13 @@ void SynthVoice::noteOn(int note, float velocity, bool legato)
         freezeEngine.setTransposeRatio(ratio);
         freezeEngine.retrigger();
     }
+    else if (engineMode == EngineMode::Csound)
+    {
+        // Fresh note: snap the smoother straight to the new pitch (no glide) —
+        // same semantics as osc.setFrequency()/sampler.setTransposeRatio()
+        // above, which also snap rather than ramp on noteOn.
+        csoundFreq_.setCurrentAndTargetValue(baseFrequency);
+    }
 }
 
 void SynthVoice::noteOff()
@@ -274,23 +288,49 @@ void SynthVoice::glideToNote(int note, float glideMs)
 {
     currentNote = note;
     int shiftedNote = note + octaveShift_ * 12;
-    if (engineMode == EngineMode::Sampler)
+    // Explicit per-engine switch (no silent fallthrough) — each engine mode
+    // glides its own pitch state; Wavetable was formerly the catch-all
+    // `else` here, which would have silently swallowed a future 5th engine.
+    switch (engineMode)
     {
-        double ratio = static_cast<double>(tunedHz(shiftedNote))
-                     / static_cast<double>(tunedHz(60));
-        sampler.glideToRatio(ratio, glideMs);
-    }
-    else if (engineMode == EngineMode::Freeze)
-    {
-        double ratio = static_cast<double>(tunedHz(shiftedNote))
-                     / static_cast<double>(tunedHz(60));
-        freezeEngine.glideToRatio(ratio, glideMs);
-    }
-    else
-    {
-        float targetFreq = tunedHz(shiftedNote);
-        osc.glideToFrequency(targetFreq, glideMs);
-        oscB.glideToFrequency(targetFreq, glideMs);  // dual A+B DCO, kept in lockstep with A (dual_osc_build_spec.md SYNC)
+        case EngineMode::Sampler:
+        {
+            double ratio = static_cast<double>(tunedHz(shiftedNote))
+                         / static_cast<double>(tunedHz(60));
+            sampler.glideToRatio(ratio, glideMs);
+            break;
+        }
+        case EngineMode::Freeze:
+        {
+            double ratio = static_cast<double>(tunedHz(shiftedNote))
+                         / static_cast<double>(tunedHz(60));
+            freezeEngine.glideToRatio(ratio, glideMs);
+            break;
+        }
+        case EngineMode::Wavetable:
+        {
+            float targetFreq = tunedHz(shiftedNote);
+            osc.glideToFrequency(targetFreq, glideMs);
+            oscB.glideToFrequency(targetFreq, glideMs);  // dual A+B DCO, kept in lockstep with A (dual_osc_build_spec.md SYNC)
+            break;
+        }
+        case EngineMode::Csound:
+        {
+            // Phase-1 spec D7: sample-accurate glide isn't achievable through a
+            // k-rate control channel; this block-rate SmoothedValue on the voice
+            // (advanced at channel-write time in a later commit) plus the
+            // orchestra's own portk is the accepted Phase-1 approximation.
+            // juce::SmoothedValue::reset() SNAPS current to target, so the
+            // current value must be captured BEFORE reset and restored after —
+            // the exact same capture/restore dance as the DCO A/B presence
+            // smoothers' `rearm` lambda above (dcoRecipeChanged branch).
+            const float targetHz = tunedHz(shiftedNote);
+            const float capturedCurrent = csoundFreq_.getCurrentValue();
+            csoundFreq_.reset(sr, glideMs * 0.001);
+            csoundFreq_.setCurrentAndTargetValue(capturedCurrent);
+            csoundFreq_.setTargetValue(targetHz);
+            break;
+        }
     }
 }
 

@@ -2974,13 +2974,15 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.freezeStereo = juce::jlimit(0.0f, 1.0f,
                                    paramCache.freezeStereo->load());
 
-    // Engine mode — read directly from APVTS (0=Sampler, 1=Wavetable, 2=Granular, 3=LCO)
+    // Engine mode — read directly from APVTS (0=Sampler, 1=Wavetable, 2=Granular, 3=LCO, 4=Csound)
     int engineModeRaw = static_cast<int>(paramCache.engineMode->load());
     bp.engineMode = juce::jlimit(static_cast<int>(EngineMode::Sampler),
-                                 static_cast<int>(EngineMode::Lco),
+                                 static_cast<int>(EngineMode::Csound),
                                  engineModeRaw);
     // LCO maps to the SAME Wavetable DSP path — it's a Wavetable bake with a
-    // distinct preset identity, not a distinct SynthVoice engine.
+    // distinct preset identity, not a distinct SynthVoice engine. Csound is
+    // NOT scan-driven (spec §2 item 8) — it stays out of both flags below,
+    // same as Sampler.
     bp.engineIsWavetable = (bp.engineMode == EngineMode::Wavetable || bp.engineMode == EngineMode::Lco);
     bp.engineIsFreeze = (bp.engineMode == EngineMode::Freeze);
     switch (bp.engineMode)
@@ -2991,6 +2993,9 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             break;
         case EngineMode::Freeze:
             voiceManager.setEngineMode(SynthVoice::EngineMode::Freeze);
+            break;
+        case EngineMode::Csound:
+            voiceManager.setEngineMode(SynthVoice::EngineMode::Csound);
             break;
         case EngineMode::Sampler:
         default:

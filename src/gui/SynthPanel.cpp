@@ -445,6 +445,13 @@ SynthPanel::SynthPanel(T5ynthProcessor& processor)
         bool isSampler = id == 1;
         bool isWavetable = id == 2 || id == EngineMode::Lco + 1;
         bool isFreeze = id == 3;
+        // Csound (index 4, id 5) is a REAL 4th DSP path (Phase 1: enum/glide
+        // plumbing only — no bridge yet, so selecting it renders silence). It
+        // has no switch button of its own (D6: no new UI) — isCsound documents
+        // and verifies that none of the three buttons above lights up for it,
+        // rather than leaving that an implicit side effect of id exclusion.
+        const bool isCsound = (id == EngineMode::Csound + 1);
+        jassertquiet(!isCsound || (!isSampler && !isWavetable && !isFreeze));
         samplerBtn.setToggleState(isSampler, juce::dontSendNotification);
         wavetableBtn.setToggleState(isWavetable, juce::dontSendNotification);
         freezeBtn.setToggleState(isFreeze, juce::dontSendNotification);
@@ -1463,6 +1470,14 @@ void SynthPanel::updateVisibility()
     bool isWavetable = engineId == 2 || engineId == EngineMode::Lco + 1;
     bool isFreeze = engineId == 3;
     bool isSampler = !isWavetable && !isFreeze;
+    // Csound (id EngineMode::Csound+1 = 5) is not scan-driven (spec §2 item 8:
+    // it's neither Wavetable nor Freeze), so it already falls into the
+    // isSampler branch above — the same non-scan control-row visibility
+    // Sampler gets. There is no dedicated Csound control surface yet (D6: no
+    // new UI); isCsound documents that this is the deliberate Phase-1
+    // fallback, not an accidental isSampler fallthrough.
+    const bool isCsound = (engineId == EngineMode::Csound + 1);
+    jassertquiet(!isCsound || isSampler);
 
     // A DCO/LCO table owns the oscillator: lock the engine away from Sampler/
     // Granular (the baked table is the sound) and pin the documented 256-frame
@@ -2673,6 +2688,12 @@ void SynthPanel::resized()
     // LCO (id EngineMode::Lco+1 = 4) lays out identically to plain Wavetable.
     const bool isWavetable = engineId == 2 || engineId == EngineMode::Lco + 1;
     const bool isFreeze = engineId == 3;
+    // Csound (id EngineMode::Csound+1 = 5) is not scan-driven, so it falls
+    // into the `else` layout branch below (same as Sampler), which already
+    // calls waveformDisplay.setScanVisible(false) — the WT display stays
+    // non-scan-gated for Csound. isCsound documents this deliberately.
+    const bool isCsound = (engineId == EngineMode::Csound + 1);
+    jassertquiet(!isCsound || (!isWavetable && !isFreeze));
     const int waveformReserveH = juce::roundToInt(WaveformDisplay::HANDLE_RADIUS * 2.0f + 4.0f);
     int samplerCtrlH = waveformReserveH + rowH + gap * 2; // waveform handles + one controls row
     int filterH = headerH + headerGap + rowH + gap + rowH * 2 + gap; // advanced filter height, folded into Easy block

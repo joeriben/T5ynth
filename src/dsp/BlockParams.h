@@ -520,15 +520,24 @@ namespace EngineMode {
     // (docs/PRESET_FORMAT.md format v5). Maps to the SAME SynthVoice::EngineMode
     // Wavetable DSP path — SynthVoice's own enum stays 3-valued; only this
     // BlockParams-level identity gains a 4th value.
-    enum : int { Sampler = 0, Wavetable = 1, Freeze = 2, Lco = 3 };
+    //
+    // Csound: UNLIKE Lco above, this is a REAL DSP path with its OWN
+    // SynthVoice::EngineMode value (SynthVoice.h) — a processor-owned Csound
+    // instance renders the voice's audio directly; it does not collapse onto
+    // Wavetable. The enum value exists on every build unconditionally (Phase-1
+    // spec D5): a .t5p saved with engineMode=csound must not be silently
+    // remapped to another engine on a build without the Csound framework —
+    // on those builds/machines, selecting Csound renders silence instead.
+    enum : int { Sampler = 0, Wavetable = 1, Freeze = 2, Lco = 3, Csound = 4 };
     static constexpr ChoiceEntry kEntries[] = {
         { "sampler",   "Sampler"   },
         { "wavetable", "Wavetable" },
         { "freeze",    "Granular"  },
-        { "lco",       "LCO"       }
+        { "lco",       "LCO"       },
+        { "csound",    "Csound"    }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(Lco + 1 == kCount, "EngineMode out of sync.");
+    static_assert(Csound + 1 == kCount, "EngineMode out of sync.");
 }
 
 // ── Granular texture macro ──

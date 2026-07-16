@@ -78,7 +78,12 @@ public:
     void setTuningTable(const float* table) { tuningHz_ = table; }
 
     // ── Engine mode ──
-    enum class EngineMode { Sampler, Wavetable, Freeze };
+    // Csound: a REAL 4th DSP path — a processor-owned CsoundEngine instance
+    // will render this voice's audio directly (voice bridge + render branch
+    // land in a later commit). This commit is enum/glide plumbing only:
+    // renderBlock has no Csound branch yet, so selecting this mode currently
+    // renders silence (none of samplerMode/freezeMode/oscReady can be true).
+    enum class EngineMode { Sampler, Wavetable, Freeze, Csound };
     void setEngineMode(EngineMode mode) { engineMode = mode; }
     EngineMode getEngineMode() const { return engineMode; }
 
@@ -125,6 +130,12 @@ private:
     // pre-existing instant per-block knob feel (the dual part carries the
     // knob/modulation, the solo part carries unity).
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> dcoSoloSmoothA_, dcoDualSmoothA_, dcoSoloSmoothB_, dcoDualSmoothB_;
+    // Csound engine frequency (Phase-1 spec D7): sample-accurate glide is not
+    // achievable through a k-rate control channel, so glide in Csound mode is
+    // a block-rate SmoothedValue here on the voice, advanced at channel-write
+    // time (later commit); the orchestra's own portk provides the audible
+    // smoothing between steps. noteOn snaps it, glideToNote re-arms it.
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> csoundFreq_;
     bool  dcoSnapPending_ = true;   // fresh (non-legato) note: first block snaps gains to targets
     bool  prevDcoFlagA_ = true,  prevDcoFlagB_ = false;
     float prevDcoGainA_ = 1.0f, prevDcoGainB_ = 1.0f;
