@@ -240,13 +240,18 @@ int main()
         int  transitions[3] = { 0, 0, 0 };    // per strand 0..2
         int  lastStance[3]  = { 0, 0, 0 };
         std::set<int> distinctStances[3];
-        // Per secondary strand: fires and time (blocks) bucketed by
+        // Per secondary strand: fires and dwell TIME (samples) bucketed by
         // (stance × strand-0-sounding). Counter's effect is CONDITIONAL —
         // ×0.70 while strand 0 sounds, +0.15 while it is silent — so an
         // aggregate rate over both conditions can legitimately be a wash;
-        // the mechanism is the redistribution between them.
+        // the mechanism is the redistribution between them. Both counters
+        // use the INSTANTANEOUS s1 state at the event's sampleOffset: the
+        // strands are boundary-synchronized, so any block-granular proxy
+        // (start- or end-of-block state) misattributes systematically, not
+        // as noise — S1's short silent gap sits right before the shared
+        // step boundary where the secondaries decide to fire.
         long fires[3][3][2] = {};             // [strand][stance][s1Sounding]
-        long blocksIn[3][3][2] = {};
+        long dwell[3][3][2] = {};             // samples spent in each bucket
         bool s1Sounding = false;              // tracked from strand-0 events
 
         const long dlgTotal = static_cast<long>(SR) * 600;
@@ -255,33 +260,44 @@ int main()
             out.clear();
             dlg.processBlock(buf, out);
 
-            // Strand 0 is processed first each block, so its events precede
-            // the secondaries' in the vector — updating s1Sounding as we
-            // scan keeps the attribution block-accurate (steps are ~25
-            // blocks long; boundary misattribution is noise-level).
+            // Stances change at most once per phrase — block-granular stance
+            // attribution is fine; only the s1 sounding state needs to be
+            // sample-accurate.
+            int curStance[3];
+            for (int st = 0; st < 3; ++st)
+            {
+                curStance[st] = juce::jlimit(0, 2,
+                    dlg.stanceForGui[static_cast<size_t>(st)].load());
+                distinctStances[st].insert(curStance[st]);
+                if (curStance[st] != lastStance[st]) { ++transitions[st]; lastStance[st] = curStance[st]; }
+            }
+            s1StanceSeen |= dlg.stanceForGui[0].load();
+
+            // The engine emits events in temporal (sampleOffset) order,
+            // interleaved across strands (ties resolve strand 0 first —
+            // matching what the secondaries' fire decision actually saw in
+            // strands[0].lastPlayedNote). Walk them once: accumulate dwell
+            // spans between strand-0 toggles, and read the instantaneous
+            // state at each secondary NoteOn.
+            long cursor = 0;
+            auto addDwell = [&](long upTo)
+            {
+                for (int st = 1; st < 3; ++st)
+                    dwell[st][curStance[st]][s1Sounding ? 1 : 0] += upTo - cursor;
+                cursor = upTo;
+            };
             for (const auto& e : out)
             {
                 if (e.strandId == 0)
                 {
+                    addDwell(e.sampleOffset);
                     if (e.type == VoiceEvent::Type::NoteOn)  s1Sounding = true;
                     if (e.type == VoiceEvent::Type::NoteOff) s1Sounding = false;
                 }
                 else if (e.type == VoiceEvent::Type::NoteOn && e.strandId <= 2)
-                {
-                    const int cur = juce::jlimit(0, 2,
-                        dlg.stanceForGui[static_cast<size_t>(e.strandId)].load());
-                    ++fires[e.strandId][cur][s1Sounding ? 1 : 0];
-                }
+                    ++fires[e.strandId][curStance[e.strandId]][s1Sounding ? 1 : 0];
             }
-
-            for (int st = 0; st < 3; ++st)
-            {
-                const int cur = dlg.stanceForGui[static_cast<size_t>(st)].load();
-                distinctStances[st].insert(cur);
-                if (cur != lastStance[st]) { ++transitions[st]; lastStance[st] = cur; }
-                if (st > 0) ++blocksIn[st][juce::jlimit(0, 2, cur)][s1Sounding ? 1 : 0];
-            }
-            s1StanceSeen |= dlg.stanceForGui[0].load();
+            addDwell(BS);
         }
 
         check(s1StanceSeen == 0, "strand 0 never takes a stance");
@@ -296,22 +312,23 @@ int main()
             check(transitions[st] >= 3, "stances RECUR over time");
 
             // Both halves of the Counter mechanism, each measured under its
-            // own condition. Require enough dwell time per bucket for the
-            // rates to be fair.
+            // own condition (fires per second of dwell). Require enough
+            // dwell time per bucket for the rates to be fair.
             auto rate = [&](int stance, int snd) {
-                return static_cast<double>(fires[st][stance][snd])
-                     / static_cast<double>(blocksIn[st][stance][snd]);
+                return static_cast<double>(fires[st][stance][snd]) * SR
+                     / static_cast<double>(dwell[st][stance][snd]);
             };
-            if (blocksIn[st][0][1] > 1000 && blocksIn[st][2][1] > 1000)
+            const long minDwell = static_cast<long>(SR) * 20;   // 20 s per bucket
+            if (dwell[st][0][1] > minDwell && dwell[st][2][1] > minDwell)
             {
-                std::printf("  while S1 sounds: fire rate independent=%.4f counter=%.4f\n",
+                std::printf("  while S1 sounds: fires/s independent=%.3f counter=%.3f\n",
                             rate(0, 1), rate(2, 1));
                 check(rate(2, 1) < 0.90 * rate(0, 1),
                       "Counter yields the floor while strand 0 sounds");
             }
-            if (blocksIn[st][0][0] > 1000 && blocksIn[st][2][0] > 1000)
+            if (dwell[st][0][0] > minDwell && dwell[st][2][0] > minDwell)
             {
-                std::printf("  while S1 silent: fire rate independent=%.4f counter=%.4f\n",
+                std::printf("  while S1 silent: fires/s independent=%.3f counter=%.3f\n",
                             rate(0, 0), rate(2, 0));
                 check(rate(2, 0) > 1.10 * rate(0, 0),
                       "Counter claims the floor while strand 0 is silent");
