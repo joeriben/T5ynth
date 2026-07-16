@@ -360,7 +360,14 @@ int main()
             if (armed)
             {
                 dlg.setStrandRole(1, 3);   // Anchor -> Gesture mid-flight
-                check(runBlocks(static_cast<long>(SR), [&] { return s2Stance() == 0; }),
+                // Window MUST be far below one step (~11k samples here): the
+                // rebuild fires at the top of the next block, so 4 blocks
+                // suffice — while a 1 s window would also admit the ordinary
+                // next-phrase-end decision (accum was zeroed → Independent)
+                // and pass even WITHOUT the immediate reset. Verified by
+                // ablation: with resetStance in rebuildPattern removed, 4
+                // blocks fails 6/6 runs, 1 s still passed 5/6.
+                check(runBlocks(static_cast<long>(BS) * 4, [&] { return s2Stance() == 0; }),
                       "role change resets the stance with its pendulum");
                 check(runBlocks(static_cast<long>(SR) * 300, [&] { return s2Stance() != 0; }),
                       "stances re-emerge under the new role");
