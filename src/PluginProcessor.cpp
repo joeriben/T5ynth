@@ -6311,6 +6311,12 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     genSeq->setProperty("fixRotation", get(PID::genFixRotation) > 0.5f);
     genSeq->setProperty("fixMutation", get(PID::genFixMutation) > 0.5f);
 
+    // Inter-strand coordination (added 2026-07-16, was never persisted before)
+    genSeq->setProperty("coordination",
+                        choiceToKey(static_cast<int>(get(PID::genCoordinationMode)),
+                                    CoordinationMode::kEntries));
+    genSeq->setProperty("coordinationCap", static_cast<int>(get(PID::genCoordinationCap)));
+
     // Shared pitch field
     juce::DynamicObject::Ptr field = new juce::DynamicObject();
     field->setProperty("mode",     choiceToKey(static_cast<int>(get(PID::genFieldMode)),  FieldMode::kEntries));
@@ -6874,6 +6880,22 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         setParam(parameters, PID::genFixPulses,   static_cast<bool>(gs->getProperty("fixPulses")) ? 1.0f : 0.0f);
         setParam(parameters, PID::genFixRotation, static_cast<bool>(gs->getProperty("fixRotation")) ? 1.0f : 0.0f);
         setParam(parameters, PID::genFixMutation, static_cast<bool>(gs->getProperty("fixMutation")) ? 1.0f : 0.0f);
+
+        // Inter-strand coordination (persisted since 2026-07-16). Absent in
+        // older presets → restore the defaults (Density Budget, cap 3, both
+        // matching the param declarations) rather than inheriting whatever
+        // the session had — a preset is a full patch. NOTE choiceFromKey('')
+        // would yield 0 = Independent, not the default, hence the explicit
+        // hasProperty branch.
+        setParam(parameters, PID::genCoordinationMode,
+                 static_cast<float>(gs->hasProperty("coordination")
+                     ? choiceFromKey(gs->getProperty("coordination").toString(),
+                                     CoordinationMode::kEntries)
+                     : CoordinationMode::DensityBudget));
+        setParam(parameters, PID::genCoordinationCap,
+                 static_cast<float>(gs->hasProperty("coordinationCap")
+                     ? static_cast<int>(gs->getProperty("coordinationCap"))
+                     : 3));
 
         // Shared pitch field (optional — absent in pre-polyphonic presets)
         if (auto* pf = gs->getProperty("pitchField").getDynamicObject())

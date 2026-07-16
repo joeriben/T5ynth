@@ -204,7 +204,7 @@ then patched at `src/presets/PresetFormat.cpp:18-66`:
 | `filter`        | export        | `enabled`, `type`, `slope`, `cutoff` (normalised 0..1), `resonance`, `mix`, `kbdTrack`. |
 | `sequencer`     | export        | Step sequencer state including scale, steps array, division, glide, gate. |
 | `arpeggiator`   | export        | `enabled`, `pattern`, `rate`, `octaveRange`. |
-| `generativeSeq` | export        | Euclidean generator params + fix-flags. |
+| `generativeSeq` | export        | Euclidean generator params + fix-flags + inter-strand coordination (`coordination` key string / `coordinationCap`, both since 2026-07-16; absent → Density Budget, cap 3). |
 | `semanticAxes`  | patch (t5p)   | Array of exactly 3 objects, GUI-only (see 6). |
 | `audio_meta`    | patch (t5p)   | `sampleRate`, `channels`, `numSamples` for the PCM tail (see 4). |
 | `embeddingA`    | patch (t5p)   | Array of floats, typically 768 entries (see 5). Omitted if not yet generated. |
