@@ -27,6 +27,16 @@ public:
     explicit GenSeqCRTMonitor (T5ynthGenerativeSequencer& seq) : seq_ (seq)
     {
         setInterceptsMouseClicks (false, false);   // pure readout, never eats clicks
+
+        // stanceEventForGui outlives editors (it is never cleared; leaving
+        // Dialog resets stances but keeps the last event). Seed from the
+        // current value so a fresh monitor only narrates stance decisions
+        // that happen AFTER it exists — not a stale one from a mode the
+        // engine may have left. (The mutation readout deliberately keeps
+        // its show-last-event-on-open behavior; a stale mutation cannot
+        // mis-attribute a mode.)
+        lastStanceGen_ = T5ynthGenerativeSequencer::unpackStanceEvent (
+            seq_.stanceEventForGui.load (std::memory_order_acquire)).gen;
     }
 
     /** Poll the lock-free atomics; repaint only on a genuine change. Called
