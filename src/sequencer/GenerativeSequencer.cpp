@@ -1409,10 +1409,11 @@ int T5ynthGenerativeSequencer::baseMidiForStrand(const Strand& s) const
         case Role::Gesture: base = 72; break;
     }
 
-    // Default register stagger relative to the role base. S5 is offset an
-    // octave below the role base to give the user a deep-bass option that
-    // is otherwise absent from the {-7, +5, +12} family.
-    static constexpr int kStrandRegisterOffsets[MAX_STRANDS] = { 0, -7, 5, 12, -12 };
+    // Default register stagger relative to the role base. S2 is offset an
+    // octave below the role base — the deep-bass slot sits at the LOWEST
+    // strand number, not the highest (BJ 2026-07-16); S5 takes the fifth
+    // below so the {+5, +12} upper family keeps a lower counterweight.
+    static constexpr int kStrandRegisterOffsets[MAX_STRANDS] = { 0, -12, 5, 12, -7 };
     return juce::jlimit(24, 96, base + kStrandRegisterOffsets[static_cast<size_t>(idx)]);
 }
 
