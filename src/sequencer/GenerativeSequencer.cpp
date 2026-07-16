@@ -261,6 +261,8 @@ void T5ynthGenerativeSequencer::setStrandEnabled(int idx, bool en)
         s.priorOutputNote      = -1;
         s.previousOutputNote   = -1;
         s.cycleCount           = 0;
+        s.stance               = Stance::Independent;
+        stanceForGui[static_cast<size_t>(idx)].store(0, std::memory_order_relaxed);
         if (!s.patternSeeded) s.patternDirty = true;
     }
     s.enabled = en;
@@ -441,7 +443,14 @@ void T5ynthGenerativeSequencer::setFieldPivotInterval(int semitones)
 
 void T5ynthGenerativeSequencer::setCoordinationMode(int mode)
 {
-    coordinationMode = static_cast<CoordinationMode>(juce::jlimit(0, 3, mode));
+    const auto next = static_cast<CoordinationMode>(juce::jlimit(0, 2, mode));
+    if (next != coordinationMode)
+    {
+        coordinationMode = next;
+        // Stances exist only inside Dialog; entering OR leaving the mode
+        // starts everyone from Independent (= today's behavior).
+        resetStances();
+    }
 }
 
 void T5ynthGenerativeSequencer::setCoordinationCap(int cap)
@@ -622,7 +631,7 @@ void T5ynthGenerativeSequencer::rebuildPattern(Strand& s)
     // Warm-up: scramble the deterministic stride walk so the initial
     // pattern is never a boring ascending scale
     for (int w = 0; w < 4; ++w)
-        mutateNotes(s, 1.0f, totalDegrees, static_cast<int>(scale), baseNote);
+        mutateNotes(s, 1.0f, totalDegrees, static_cast<int>(scale), baseNote, 0);
 
     s.patternDirty      = false;
     enforcePulseInvariant(s);
@@ -638,7 +647,7 @@ void T5ynthGenerativeSequencer::rebuildPattern(Strand& s)
 }
 
 void T5ynthGenerativeSequencer::mutateNotes(Strand& s, float rate, int totalDegrees,
-                                             int scaleEnum, int baseNote)
+                                             int scaleEnum, int baseNote, int stanceDir)
 {
     auto scale = static_cast<ScaleQuantizer::Scale>(scaleEnum);
     int pulseIndices[MAX_STEPS];
@@ -661,7 +670,11 @@ void T5ynthGenerativeSequencer::mutateNotes(Strand& s, float rate, int totalDegr
         for (int m = 0; m < numMutations; ++m)
         {
             int idx = pulseIndices[pickDist(rng)];
-            int dir = dirDist(rng) == 0 ? -1 : 1;
+            // Dialog stance may direct the walk along/against strand 0's
+            // last melodic direction; jump size stays Turing either way.
+            // stanceDir == 0 (all non-Dialog paths) = free Turing direction.
+            int dir = stanceDir != 0 ? stanceDir
+                                     : (dirDist(rng) == 0 ? -1 : 1);
             int jump = jumpDist(rng);
             int oldNote = s.notePattern[static_cast<size_t>(idx)];
             int newDeg = s.degreePattern[static_cast<size_t>(idx)] + dir * jump;
@@ -718,7 +731,8 @@ void T5ynthGenerativeSequencer::mutatePattern(Strand& s)
     applyEuclideanDrift(s);
 
     // ── Note mutation: Turing Machine — mutate notes per cycle ──
-    mutateNotes(s, s.mutationRate, totalDegrees, static_cast<int>(scale), baseNote);
+    mutateNotes(s, s.mutationRate, totalDegrees, static_cast<int>(scale), baseNote,
+                stanceMutationDir(s));
 
     publishStrandToGui(s);
 
@@ -1298,6 +1312,62 @@ bool T5ynthGenerativeSequencer::isMetricStrongStep(const Strand& s, int stepIdx)
     return moment.downbeat || moment.groupStart;
 }
 
+// ─── Dialog stances ─────────────────────────────────────────────────────────
+//
+// See the Stance doc in the header for the full derivation. Everything here
+// is deterministic: the WHEN comes from the strand's own metric phrase ends,
+// the WHAT from its pulse-drift pendulum, the direction material from
+// strand 0's already-tracked previous/prior output notes.
+
+std::uint64_t T5ynthGenerativeSequencer::packStanceEvent (unsigned gen, int strand,
+                                                          int stance, int accum) noexcept
+{
+    std::uint64_t w = (std::uint64_t) (strand & 0x7);
+    w |= ((std::uint64_t) (stance & 0x3)) << 3;
+    w |= ((std::uint64_t) juce::jlimit(0, 2047, accum + 1024)) << 5;
+    w |= ((std::uint64_t) gen & 0xFFFFFFFFFFFFULL) << 16;
+    return w;
+}
+
+int T5ynthGenerativeSequencer::stanceMutationDir(const Strand& s) const
+{
+    if (coordinationMode != CoordinationMode::Dialog) return 0;
+    if (strandIndexOf(s) == 0) return 0;                 // the reference has no stance
+    if (s.stance == Stance::Independent) return 0;
+
+    const auto& ref = strands[0];
+    if (ref.previousOutputNote < 0 || ref.priorOutputNote < 0) return 0;
+    const int d = ref.previousOutputNote - ref.priorOutputNote;
+    const int refDir = (d > 0) - (d < 0);
+    if (refDir == 0) return 0;                           // repeated note: free walk
+    return s.stance == Stance::Follow ? refDir : -refDir;
+}
+
+void T5ynthGenerativeSequencer::updateStanceAtPhraseEnd(Strand& s)
+{
+    const Stance next = s.pulseDriftAccum > 0 ? Stance::Counter
+                      : s.pulseDriftAccum < 0 ? Stance::Follow
+                      :                         Stance::Independent;
+    if (next == s.stance) return;
+
+    s.stance = next;
+    const int idx = strandIndexOf(s);
+    stanceForGui[static_cast<size_t>(idx)].store(static_cast<int>(next),
+                                                 std::memory_order_relaxed);
+    stanceEventForGui.store(
+        packStanceEvent(++stanceEventGen_, idx, static_cast<int>(next), s.pulseDriftAccum),
+        std::memory_order_release);
+}
+
+void T5ynthGenerativeSequencer::resetStances()
+{
+    for (int i = 0; i < MAX_STRANDS; ++i)
+    {
+        strands[static_cast<size_t>(i)].stance = Stance::Independent;
+        stanceForGui[static_cast<size_t>(i)].store(0, std::memory_order_relaxed);
+    }
+}
+
 float T5ynthGenerativeSequencer::fireProbability(const Strand& s, bool isPulse) const
 {
     // V4: identical formula for every strand. Symmetric to strand 0's
@@ -1734,7 +1804,22 @@ void T5ynthGenerativeSequencer::processBlock(juce::AudioBuffer<float>& buffer,
         const bool isStrong = (stepIdx == 0)
                            || s.accentPattern[static_cast<size_t>(stepIdx)]
                            || isMetricStrongStep(s, stepIdx);
-        const float fireProb = fireProbability(s, isPulse);
+        float fireProb = fireProbability(s, isPulse);
+
+        // Dialog / Counter: shift fire propensity toward the moments the
+        // reference voice is silent (its sounding state is the same signal
+        // DensityBudget reads). Deterministic staging constants in the
+        // spirit of the existing 0.90/0.15 family; V4's in-strand formula
+        // above stays untouched — this is coordination-layer, like the
+        // budget. Follow deliberately leaves firing alone (it speaks with,
+        // not instead of).
+        if (coordinationMode == CoordinationMode::Dialog
+            && s.stance == Stance::Counter && &s != &strands[0])
+        {
+            fireProb = strands[0].lastPlayedNote >= 0
+                     ? fireProb * 0.70f
+                     : juce::jmin(1.0f, fireProb + 0.15f);
+        }
 
         // Resolve the degree for this step. Pulses use their own degree;
         // ghost positions inherit the nearest pulse's degree (non-destructive
@@ -1756,10 +1841,10 @@ void T5ynthGenerativeSequencer::processBlock(juce::AudioBuffer<float>& buffer,
         bool shouldFire = probDist(rng) < fireProb;
 
         // CoordinationMode dispatch: post-decision filter. Voice-1 principles
-        // (V1-V6) operate inside a strand; this layer is the only place where
-        // strands look at each other. Phase 1 implements DensityBudget;
-        // Independent / AlgebraicCoupling / ContrapuntalChecks reserved IDs
-        // currently fall through to no-op (Independent semantics).
+        // (V1-V6) operate inside a strand; this layer (plus the Dialog stance
+        // hooks: fireProb adjust above, stance-directed mutation, phrase-end
+        // stance update below) is the only place where strands look at each
+        // other. Independent is the no-op fallback.
         if (shouldFire && coordinationMode == CoordinationMode::DensityBudget)
         {
             int activeCount = 0;
@@ -1817,6 +1902,14 @@ void T5ynthGenerativeSequencer::processBlock(juce::AudioBuffer<float>& buffer,
         {
             s.samplesUntilGateOff = -1.0;
         }
+
+        // Dialog: a strand re-decides its stance when its own phrase closes
+        // — effective from the next phrase (this step already sounded).
+        // Runs whether or not the step fired: the phrase boundary exists
+        // either way.
+        if (coordinationMode == CoordinationMode::Dialog && &s != &strands[0]
+            && metricMomentForStep(s, stepIdx).phraseEnd)
+            updateStanceAtPhraseEnd(s);
 
         s.currentStep = stepIdx;
         if (&s == &strands[0])

@@ -15,6 +15,10 @@
 //      unbiased ceiling (mean+12+jitter), Gesture reaches its full ceiling.
 //   E. Scale 0 (UI label "Chromatic") behaves chromatic — non-diatonic
 //      pitch classes actually sound (it used to be coerced to Major).
+//   F. Dialog coordination mode: stances are pendulum-driven and RECUR
+//      (multiple transitions over time), strand 0 never has a stance,
+//      Counter-stance strands fire measurably less while strand 0 sounds,
+//      and outside Dialog mode all stances stay Independent.
 //
 // Build (see audition_sampler_follow.cpp header):
 //   FLAGS=build_clean/CMakeFiles/T5ynth.dir/flags.make
@@ -203,6 +207,116 @@ int main()
         check(nonDiatonic(pcs0) >= 2, "Chromatic honored on strand 0 (non-diatonic pcs sound)");
         check(nonDiatonic(pcs1) >= 2, "Chromatic honored on secondary strand (field path)");
         check(pcs0.size() >= 9, "chromatic coverage broad on strand 0");
+    }
+
+    // Outside Dialog mode (the main run above used the DensityBudget
+    // default), stances must never leave Independent.
+    {
+        bool allIndependent = true;
+        for (int i = 0; i < T5ynthGenerativeSequencer::MAX_STRANDS; ++i)
+            allIndependent = allIndependent
+                && seq.stanceForGui[static_cast<size_t>(i)].load() == 0;
+        check(allIndependent, "no stances outside Dialog mode");
+    }
+
+    // ── F. Dialog mode: pendulum stances ──
+    {
+        T5ynthGenerativeSequencer dlg;
+        dlg.prepare(SR, BS);
+        dlg.setBpm(BPM);
+        dlg.setDivision(3);
+        dlg.setGate(0.9f);
+        dlg.setShuffle(0.0f);
+        dlg.setScale(1, 0);
+        dlg.setRange(2);
+        dlg.setCoordinationMode(2);           // Dialog
+        dlg.setStrandRole(1, 0);              // S2 = Anchor
+        dlg.setStrandEnabled(1, true);
+        dlg.setStrandRole(2, 1);              // S3 = Line
+        dlg.setStrandEnabled(2, true);
+        dlg.start();
+
+        int  s1StanceSeen = 0;
+        int  transitions[3] = { 0, 0, 0 };    // per strand 0..2
+        int  lastStance[3]  = { 0, 0, 0 };
+        std::set<int> distinctStances[3];
+        // Per secondary strand: fires and time (blocks) bucketed by
+        // (stance × strand-0-sounding). Counter's effect is CONDITIONAL —
+        // ×0.70 while strand 0 sounds, +0.15 while it is silent — so an
+        // aggregate rate over both conditions can legitimately be a wash;
+        // the mechanism is the redistribution between them.
+        long fires[3][3][2] = {};             // [strand][stance][s1Sounding]
+        long blocksIn[3][3][2] = {};
+        bool s1Sounding = false;              // tracked from strand-0 events
+
+        const long dlgTotal = static_cast<long>(SR) * 600;
+        for (long pos = 0; pos < dlgTotal; pos += BS)
+        {
+            out.clear();
+            dlg.processBlock(buf, out);
+
+            // Strand 0 is processed first each block, so its events precede
+            // the secondaries' in the vector — updating s1Sounding as we
+            // scan keeps the attribution block-accurate (steps are ~25
+            // blocks long; boundary misattribution is noise-level).
+            for (const auto& e : out)
+            {
+                if (e.strandId == 0)
+                {
+                    if (e.type == VoiceEvent::Type::NoteOn)  s1Sounding = true;
+                    if (e.type == VoiceEvent::Type::NoteOff) s1Sounding = false;
+                }
+                else if (e.type == VoiceEvent::Type::NoteOn && e.strandId <= 2)
+                {
+                    const int cur = juce::jlimit(0, 2,
+                        dlg.stanceForGui[static_cast<size_t>(e.strandId)].load());
+                    ++fires[e.strandId][cur][s1Sounding ? 1 : 0];
+                }
+            }
+
+            for (int st = 0; st < 3; ++st)
+            {
+                const int cur = dlg.stanceForGui[static_cast<size_t>(st)].load();
+                distinctStances[st].insert(cur);
+                if (cur != lastStance[st]) { ++transitions[st]; lastStance[st] = cur; }
+                if (st > 0) ++blocksIn[st][juce::jlimit(0, 2, cur)][s1Sounding ? 1 : 0];
+            }
+            s1StanceSeen |= dlg.stanceForGui[0].load();
+        }
+
+        check(s1StanceSeen == 0, "strand 0 never takes a stance");
+        for (int st = 1; st <= 2; ++st)
+        {
+            const long fI = fires[st][0][0] + fires[st][0][1];
+            const long fF = fires[st][1][0] + fires[st][1][1];
+            const long fC = fires[st][2][0] + fires[st][2][1];
+            std::printf("dialog strand %d: stances=%zu transitions=%d  fires I/F/C = %ld/%ld/%ld\n",
+                        st, distinctStances[st].size(), transitions[st], fI, fF, fC);
+            check(distinctStances[st].size() >= 2, "stances actually change (pendulum alive)");
+            check(transitions[st] >= 3, "stances RECUR over time");
+
+            // Both halves of the Counter mechanism, each measured under its
+            // own condition. Require enough dwell time per bucket for the
+            // rates to be fair.
+            auto rate = [&](int stance, int snd) {
+                return static_cast<double>(fires[st][stance][snd])
+                     / static_cast<double>(blocksIn[st][stance][snd]);
+            };
+            if (blocksIn[st][0][1] > 1000 && blocksIn[st][2][1] > 1000)
+            {
+                std::printf("  while S1 sounds: fire rate independent=%.4f counter=%.4f\n",
+                            rate(0, 1), rate(2, 1));
+                check(rate(2, 1) < 0.90 * rate(0, 1),
+                      "Counter yields the floor while strand 0 sounds");
+            }
+            if (blocksIn[st][0][0] > 1000 && blocksIn[st][2][0] > 1000)
+            {
+                std::printf("  while S1 silent: fire rate independent=%.4f counter=%.4f\n",
+                            rate(0, 0), rate(2, 0));
+                check(rate(2, 0) > 1.10 * rate(0, 0),
+                      "Counter claims the floor while strand 0 is silent");
+            }
+        }
     }
 
     std::printf("%s (%d failure%s)\n", g_failures ? "FAILED" : "ALL PASS",

@@ -163,6 +163,57 @@ public:
         = step i is a pulse. Valid for i in [0, numStepsForGui). */
     std::atomic<std::uint32_t> eucPatternForGui { 0 };
 
+    /**
+     * Dialog stance of a secondary strand toward strand 0 (the reference
+     * voice). BOTH the decision moment and the decision basis are
+     * deterministic, derived from state the music already produces:
+     *
+     * - WHEN: re-decided only at phrase ends of the strand's own metric
+     *   grouping (a player re-orients when their phrase closes).
+     * - WHAT: a function of the strand's pulse-drift pendulum
+     *   (pulseDriftAccum, which already swings −range..+range and back):
+     *   denser than its base  (> 0) → Counter (it differentiates itself),
+     *   thinner than its base (< 0) → Follow  (it leans on the ensemble),
+     *   at its base           (= 0) → Independent (today's behavior).
+     *
+     * Because the pendulum reverses at its bounds, every stance RETURNS —
+     * recurrence is structural, not accidental. Fix-Pulses freezes the
+     * pendulum and therefore the stance (who doesn't breathe doesn't
+     * re-decide). Effects are two staging-level touches: Follow/Counter
+     * direct the Turing mutation direction along/against strand 0's last
+     * melodic direction, and Counter shifts fire propensity toward the
+     * moments strand 0 is silent. Note choice, accents and the V1–V6
+     * in-strand pipeline stay untouched.
+     *
+     * Public because the CRT monitor decodes it for the transparency
+     * readout.
+     */
+    enum class Stance : int
+    {
+        Independent = 0,
+        Follow      = 1,
+        Counter     = 2,
+    };
+
+    /** Dialog-mode transparency: current stance per strand (Stance as int;
+        strand 0 always Independent — it is the reference, it has no stance). */
+    std::array<std::atomic<int>, MAX_STRANDS> stanceForGui{};
+
+    /** Last stance decision for the GUI monitor, packed into one atomic
+        (same tear-free generation-counter pattern as mutationEventForGui).
+        The event carries the DECIDING accumulator value so the monitor can
+        show the reason, not just the result. */
+    std::atomic<std::uint64_t> stanceEventForGui { 0 };
+
+    struct StanceEventData { unsigned gen; int strand; int stance; int accum; };
+    static StanceEventData unpackStanceEvent (std::uint64_t w) noexcept
+    {
+        return { (unsigned) ((w >> 16) & 0xFFFFFFFFFFFFULL),
+                 (int)  ( w        & 0x7u),
+                 (int)  ((w >> 3)  & 0x3u),
+                 (int) (((w >> 5)  & 0x7FFu)) - 1024 };
+    }
+
 private:
     /**
      * Shared pitch material for all strands.
@@ -219,17 +270,28 @@ private:
      * monophonic and never had to answer that question. This enum is where
      * the ensemble-level question is answered.
      *
-     * Phase 1 ships DensityBudget as the default and Independent as a
-     * no-op fallback. AlgebraicCoupling and ContrapuntalChecks are reserved
-     * IDs for Phase 2; until implemented they fall through to Independent.
+     * Independent and DensityBudget are the original pair and remain
+     * bytewise-unchanged — the existing form stays selectable exactly as
+     * it is. Dialog (2026-07-16) replaces the former reserved IDs
+     * "AlgebraicCoupling"/"ContrapuntalChecks": canon and counterpoint
+     * machinery would have made European voice-leading doctrine load-
+     * bearing, which this design deliberately does not do. Conceptual
+     * reference for the ensemble level: G. E. Lewis, "Too Many Notes:
+     * Computers, Complexity and Culture in Voyager", Leonardo Music
+     * Journal 10 (2000) — a nonhierarchical, subject-subject model where
+     * voices take STANCES toward each other (imitate / oppose / ignore).
+     * Dialog is this project's own reduced, fully deterministic mechanism
+     * in that spirit — not a Voyager reimplementation.
      */
     enum class CoordinationMode : int
     {
-        Independent        = 0,  // strands share only the field; no per-event check
-        DensityBudget      = 1,  // cap simultaneous notes; lowest-priority displaces
-        AlgebraicCoupling  = 2,  // (Phase 2) algebraic functions of strand 0 / row
-        ContrapuntalChecks = 3,  // (Phase 2) post-hoc m2-clash check
+        Independent   = 0,  // strands share only the field; no per-event check
+        DensityBudget = 1,  // cap simultaneous notes; lowest-priority displaces
+        Dialog        = 2,  // secondary strands take stances toward strand 0
     };
+
+    // (The Stance enum lives in the public section above — the CRT monitor
+    // decodes it for the transparency readout.)
 
     /**
      * Metric grouping path — how a strand phrases its steps into additive
@@ -318,6 +380,10 @@ private:
         int   octaveShift        = 0;       // −2..+2
         float divisionMultiplier = 1.0f;    // StrandDivMult::kFactor
         float chordToneDominance = 0.0f;    // 0 = pure Turing, higher = snap to centerPc on strong beats
+
+        // Dialog stance toward strand 0 (only meaningful in Dialog mode;
+        // forced Independent otherwise). See Stance doc above.
+        Stance stance            = Stance::Independent;
     };
 
     std::array<Strand, MAX_STRANDS> strands{};
@@ -347,6 +413,7 @@ private:
     std::mt19937 rng { static_cast<std::mt19937::result_type>(std::random_device{}()) };
 
     unsigned mutationEventGen_ = 0;   // increments per published mutation event (audio thread only)
+    unsigned stanceEventGen_   = 0;   // increments per published stance event (audio thread only)
 
     // Internal helpers — all operate on a passed Strand reference.
     double stepDurationSamples() const;
@@ -357,7 +424,14 @@ private:
     static std::uint64_t packMutEvent (unsigned gen, int op, int step,
                                         int oldN, int newN, int a, int b) noexcept;
     void   publishStrandToGui(const Strand& s);
-    void   mutateNotes(Strand& s, float rate, int totalDegrees, int scaleEnum, int baseNote);
+    void   mutateNotes(Strand& s, float rate, int totalDegrees, int scaleEnum,
+                       int baseNote, int stanceDir);
+    // Dialog helpers.
+    int    stanceMutationDir(const Strand& s) const;   // 0 = free Turing direction
+    void   updateStanceAtPhraseEnd(Strand& s);
+    void   resetStances();
+    static std::uint64_t packStanceEvent (unsigned gen, int strand,
+                                          int stance, int accum) noexcept;
     void   applyEuclideanDrift(Strand& s);
     void   applyStepsDrift(Strand& s);
     void   applyMutationDrift(Strand& s);

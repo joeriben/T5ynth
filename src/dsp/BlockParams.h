@@ -1268,19 +1268,22 @@ namespace StrandRole {
 // ── Inter-strand coordination strategy ──
 //
 // Voice-1 principles operate within a strand; this enum chooses how the
-// strands relate to each other. Phase 1 implements DensityBudget (default);
-// Independent is a no-op fallback; AlgebraicCoupling and ContrapuntalChecks
-// are reserved IDs that currently fall through to Independent semantics.
+// strands relate to each other. DensityBudget (default) caps simultaneous
+// onsets by role priority; Dialog adds deterministic per-strand stances
+// toward strand 0 (follow / counter / independent — see the Stance enum in
+// GenerativeSequencer.h; reference: Lewis 2000). The former reserved IDs
+// "AlgebraicCoupling"/"ContrapuntalChecks" (silent Independent fall-throughs,
+// never implemented) were removed 2026-07-16 — Western counterpoint
+// machinery is deliberately out of scope for this ensemble.
 namespace CoordinationMode {
-    enum : int { Independent = 0, DensityBudget = 1, AlgebraicCoupling = 2, ContrapuntalChecks = 3 };
+    enum : int { Independent = 0, DensityBudget = 1, Dialog = 2 };
     static constexpr ChoiceEntry kEntries[] = {
         { "independent",        "Independent"   },
         { "density_budget",     "Density Budget" },
-        { "algebraic",          "Algebraic"      },
-        { "counterpoint",       "Counterpoint"   }
+        { "dialog",             "Dialog"         }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(ContrapuntalChecks + 1 == kCount, "CoordinationMode out of sync.");
+    static_assert(Dialog + 1 == kCount, "CoordinationMode out of sync.");
 }
 
 // ── Strand division multiplier (speed factor relative to global division) ──
