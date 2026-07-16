@@ -112,13 +112,19 @@ private:
     // Dual A+B DCO oscillator's B instance (docs: dual_osc_build_spec.md W1) —
     // see getOscB() above for the full rationale.
     WavetableOscillator oscB;
-    // Per-source smoothed DCO mix gains (held-note A/B presence follow).
-    // Standard per-source gain slew — Linear, monotonic per gain, so no
-    // overshoot regardless of A/B correlation. Re-arms over
+    // Per-source DCO mix weight, SUM-FORM: solo part (recipe base gain, live
+    // only for a solo recipe) + dual part (R1 gain, live only for the dual
+    // recipe) × per-sample equal-power mix position. Both parts glide
+    // Linear, so for a FIXED mix position the per-source weight is itself
+    // linear-in-t between any two recipe endpoints — no overshoot for any R1
+    // gains. (The prior PRODUCT form — baseGain(t)·(1 + d(t)·(eqp−1)) — was
+    // proved to swell measurably, up to +2.4 dB, on a dual->solo flip with an
+    // off-centre knob and dcoGainA > 1.) Re-arms over
     // BlockParams::driftCrossfade when the recipe fingerprint (content flags +
     // R1 gains) changes; oscMix moves inside an unchanged recipe keep the
-    // pre-existing instant per-block knob feel.
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> dcoGainSmoothA_, dcoGainSmoothB_;
+    // pre-existing instant per-block knob feel (the dual part carries the
+    // knob/modulation, the solo part carries unity).
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> dcoSoloSmoothA_, dcoDualSmoothA_, dcoSoloSmoothB_, dcoDualSmoothB_;
     bool  dcoSnapPending_ = true;   // fresh (non-legato) note: first block snaps gains to targets
     bool  prevDcoFlagA_ = true,  prevDcoFlagB_ = false;
     float prevDcoGainA_ = 1.0f, prevDcoGainB_ = 1.0f;

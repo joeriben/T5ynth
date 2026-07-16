@@ -655,21 +655,19 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
     bool freezeMode = (engineMode == EngineMode::Freeze) && freezeEngine.hasAudio();
     bool oscReady = (engineMode == EngineMode::Wavetable) && osc.hasFrames();
 
-    // Target gains from the recipe. Solo = unity (HEAD-identical steady state),
-    // dual = equal-power user mix × R1 energy gains. cos/sin runs once per
-    // block here, not per sample.
-    float dcoTargetA, dcoTargetB;
+    // Target weights from the recipe, SUM-FORM: solo part is unity for a solo
+    // recipe (HEAD-identical steady state) and 0 for the dual recipe; dual
+    // part is the R1 base gain (dcoGainA/dcoGainB) for the dual recipe and 0
+    // for a solo recipe. The equal-power oscMix POSITION factor is applied
+    // PER SAMPLE at the mix site below (knob + per-sample Env/LFO OscMix
+    // modulation), multiplying the dual part only — never here.
+    float dcoTargetSoloA, dcoTargetDualA, dcoTargetSoloB, dcoTargetDualB;
     {
         const bool aHas = p.dcoOscAHasContent, bHas = p.dcoOscBHasContent;
-        if (aHas && bHas)
-        {
-            const float m = juce::jlimit(0.0f, 1.0f, p.oscMix);
-            dcoTargetA = std::cos(m * juce::MathConstants<float>::halfPi) * p.dcoGainA;
-            dcoTargetB = std::sin(m * juce::MathConstants<float>::halfPi) * p.dcoGainB;
-        }
-        else if (aHas) { dcoTargetA = 1.0f; dcoTargetB = 0.0f; }
-        else if (bHas) { dcoTargetA = 0.0f; dcoTargetB = 1.0f; }
-        else           { dcoTargetA = 0.0f; dcoTargetB = 0.0f; }
+        if (aHas && bHas)      { dcoTargetSoloA = 0.0f; dcoTargetDualA = p.dcoGainA; dcoTargetSoloB = 0.0f; dcoTargetDualB = p.dcoGainB; }
+        else if (aHas)         { dcoTargetSoloA = 1.0f; dcoTargetDualA = 0.0f;       dcoTargetSoloB = 0.0f; dcoTargetDualB = 0.0f; }
+        else if (bHas)         { dcoTargetSoloA = 0.0f; dcoTargetDualA = 0.0f;       dcoTargetSoloB = 1.0f; dcoTargetDualB = 0.0f; }
+        else                   { dcoTargetSoloA = 0.0f; dcoTargetDualA = 0.0f;       dcoTargetSoloB = 0.0f; dcoTargetDualB = 0.0f; }
     }
     const bool dcoRecipeChanged = p.dcoOscAHasContent != prevDcoFlagA_
                                || p.dcoOscBHasContent != prevDcoFlagB_
@@ -677,16 +675,20 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                                || p.dcoGainB != prevDcoGainB_;
     if (dcoSnapPending_)
     {
-        // Fresh note: start AT the recipe's gains (the amp env fades the voice in).
-        dcoGainSmoothA_.reset(sr, p.driftCrossfade * 0.001);
-        dcoGainSmoothB_.reset(sr, p.driftCrossfade * 0.001);
-        dcoGainSmoothA_.setCurrentAndTargetValue(dcoTargetA);
-        dcoGainSmoothB_.setCurrentAndTargetValue(dcoTargetB);
+        // Fresh note: start AT the recipe's weights (the amp env fades the voice in).
+        dcoSoloSmoothA_.reset(sr, p.driftCrossfade * 0.001);
+        dcoDualSmoothA_.reset(sr, p.driftCrossfade * 0.001);
+        dcoSoloSmoothB_.reset(sr, p.driftCrossfade * 0.001);
+        dcoDualSmoothB_.reset(sr, p.driftCrossfade * 0.001);
+        dcoSoloSmoothA_.setCurrentAndTargetValue(dcoTargetSoloA);
+        dcoDualSmoothA_.setCurrentAndTargetValue(dcoTargetDualA);
+        dcoSoloSmoothB_.setCurrentAndTargetValue(dcoTargetSoloB);
+        dcoDualSmoothB_.setCurrentAndTargetValue(dcoTargetDualB);
         dcoSnapPending_ = false;
     }
     else if (dcoRecipeChanged)
     {
-        // New recipe on a live voice: glide from wherever each gain is NOW to
+        // New recipe on a live voice: glide from wherever each part is NOW to
         // its new target over the Regen XFade window. juce::SmoothedValue::
         // reset() snaps current to target, so the capture/restore order below
         // is mandatory (also correct for a mid-ramp re-arm).
@@ -697,21 +699,10 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             sm.setCurrentAndTargetValue(cur);
             sm.setTargetValue(target);
         };
-        rearm(dcoGainSmoothA_, dcoTargetA);
-        rearm(dcoGainSmoothB_, dcoTargetB);
-    }
-    else
-    {
-        // Same recipe: oscMix knob moves. In-flight ramps re-target (keep
-        // gliding, never snap mid-ramp); settled gains follow instantly —
-        // exactly the pre-existing per-block knob behavior.
-        auto track = [](auto& sm, float target)
-        {
-            if (sm.isSmoothing())                        sm.setTargetValue(target);
-            else if (target != sm.getTargetValue())      sm.setCurrentAndTargetValue(target);
-        };
-        track(dcoGainSmoothA_, dcoTargetA);
-        track(dcoGainSmoothB_, dcoTargetB);
+        rearm(dcoSoloSmoothA_, dcoTargetSoloA);
+        rearm(dcoDualSmoothA_, dcoTargetDualA);
+        rearm(dcoSoloSmoothB_, dcoTargetSoloB);
+        rearm(dcoDualSmoothB_, dcoTargetDualB);
     }
     prevDcoFlagA_ = p.dcoOscAHasContent;  prevDcoFlagB_ = p.dcoOscBHasContent;
     prevDcoGainA_ = p.dcoGainA;           prevDcoGainB_ = p.dcoGainB;
@@ -726,13 +717,25 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
     // (unconditional hasFrames() check, exactly as before) — A's involvement
     // (aInvolved, below) is computed separately and applied only at the mix
     // step further down, never here.
-    const bool dcoAAudible = dcoGainSmoothA_.getCurrentValue() > 0.0f || dcoGainSmoothA_.getTargetValue() > 0.0f;
-    const bool dcoBAudible = dcoGainSmoothB_.getCurrentValue() > 0.0f || dcoGainSmoothB_.getTargetValue() > 0.0f;
+    const bool dcoAAudible = dcoSoloSmoothA_.getCurrentValue() > 0.0f || dcoSoloSmoothA_.getTargetValue() > 0.0f
+                          || dcoDualSmoothA_.getCurrentValue() > 0.0f || dcoDualSmoothA_.getTargetValue() > 0.0f;
+    const bool dcoBAudible = dcoSoloSmoothB_.getCurrentValue() > 0.0f || dcoSoloSmoothB_.getTargetValue() > 0.0f
+                          || dcoDualSmoothB_.getCurrentValue() > 0.0f || dcoDualSmoothB_.getTargetValue() > 0.0f;
     bool oscBReady = (engineMode == EngineMode::Wavetable) && oscB.hasFrames() && dcoBAudible;
     // A's involvement, mirroring oscBReady above. Both are block-constant —
     // computed once here, not per sample (§3c hoists the mix-site booleans
     // out of the per-sample loop for the same reason).
     const bool aInvolved = oscReady && dcoAAudible;
+
+    // Block-constant: is the equal-power law in play at all (a dual part live
+    // or gliding), and is any source routed to OscMix this block?
+    const bool dcoUseMixLaw = dcoDualSmoothA_.getCurrentValue() > 0.0f || dcoDualSmoothA_.getTargetValue() > 0.0f
+                            || dcoDualSmoothB_.getCurrentValue() > 0.0f || dcoDualSmoothB_.getTargetValue() > 0.0f;
+    const bool oscMixModRouted =
+           p.ampTarget  == EnvTarget::OscMix || p.mod1Target == EnvTarget::OscMix
+        || p.mod2Target == EnvTarget::OscMix
+        || p.lfo1Target == LfoTarget::OscMix || p.lfo2Target == LfoTarget::OscMix
+        || p.lfo3Target == LfoTarget::OscMix;
 
     // Hoist: setInterpolation is a pure setter; tunedHz is block-constant.
     // Shared reference note for A and B, so a dual-split recipe's two
@@ -1055,14 +1058,44 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                     bSample = oscB.processSample();
                 }
 
-                // Per-source smoothed gains. A session that never bakes B has
-                // oscB.hasFrames()==false and the flags at their defaults, so gainA is
-                // pinned at exactly 1.0f and the += is skipped: s == aSample bit-identical
-                // (×1.0f preserves every value incl. -0.0). Do NOT restructure into an
-                // unconditional sum.
                 float s = 0.0f;
-                if (aInvolved)  s  = dcoGainSmoothA_.getNextValue() * aSample;
-                if (oscBReady)  s += dcoGainSmoothB_.getNextValue() * bSample;
+                if (!dcoUseMixLaw)
+                {
+                    // Solo/legacy regime settled (dual parts pinned at 0): solo
+                    // parts only; knob and OscMix modulation are inert by design.
+                    // Non-DCO sessions take exactly this path with the A solo part
+                    // pinned at 1.0f → s == aSample bit-identical (+= skipped).
+                    // Do NOT restructure into an unconditional sum.
+                    if (aInvolved)  s  = dcoSoloSmoothA_.getNextValue() * aSample;
+                    if (oscBReady)  s += dcoSoloSmoothB_.getNextValue() * bSample;
+                }
+                else
+                {
+                    // Dual regime (or gliding into/out of it). Equal-power position
+                    // from knob + per-sample OscMix bus (same source set and
+                    // summing convention as the Scan bus above). SUM-FORM law:
+                    // per-source weight = solo part + dual part × eqp — a linear
+                    // blend of the two recipe endpoints' laws (the dual part
+                    // carries the knob/modulation, the solo part carries unity),
+                    // so for a FIXED mix position the weight is linear-in-t across
+                    // a recipe flip — no product of ramps (the product form was
+                    // proved to swell above unity whenever an R1 gain exceeds 1).
+                    float mixPos = p.oscMix;
+                    if (oscMixModRouted)
+                    {
+                        if (p.ampTarget  == EnvTarget::OscMix) mixPos += ampEnvVal;
+                        if (p.mod1Target == EnvTarget::OscMix) mixPos += mod1EnvVal;
+                        if (p.mod2Target == EnvTarget::OscMix) mixPos += mod2EnvVal;
+                        if (p.lfo1Target == LfoTarget::OscMix) mixPos += lfo1Val;
+                        if (p.lfo2Target == LfoTarget::OscMix) mixPos += lfo2Val;
+                        if (p.lfo3Target == LfoTarget::OscMix) mixPos += lfo3Val;
+                        mixPos = juce::jlimit(0.0f, 1.0f, mixPos);
+                    }
+                    const float eqpA = juce::jmax(0.0f, std::cos(mixPos * juce::MathConstants<float>::halfPi));
+                    const float eqpB = juce::jmax(0.0f, std::sin(mixPos * juce::MathConstants<float>::halfPi));
+                    if (aInvolved)  s  = (dcoSoloSmoothA_.getNextValue() + dcoDualSmoothA_.getNextValue() * eqpA) * aSample;
+                    if (oscBReady)  s += (dcoSoloSmoothB_.getNextValue() + dcoDualSmoothB_.getNextValue() * eqpB) * bSample;
+                }
                 sample = s;
 
                 sampleR = sample;

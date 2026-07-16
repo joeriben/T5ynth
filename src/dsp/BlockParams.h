@@ -346,7 +346,8 @@ namespace EnvTarget {
         LFO2Rate = 12,
         LFO2Depth = 13,
         LFO3Rate = 14,
-        LFO3Depth = 15
+        LFO3Depth = 15,
+        OscMix = 16
     };
     static constexpr ChoiceEntry kEntries[] = {
         { "none",       "---"        },
@@ -364,10 +365,11 @@ namespace EnvTarget {
         { "lfo2_rate",  "LFO2 Rate"  },
         { "lfo2_depth", "LFO2 Amt" },
         { "lfo3_rate",  "LFO3 Rate"  },
-        { "lfo3_depth", "LFO3 Amt" }
+        { "lfo3_depth", "LFO3 Amt" },
+        { "osc_mix",    "Osc Mix" }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(LFO3Depth + 1 == kCount,
+    static_assert(OscMix + 1 == kCount,
                   "EnvTarget enum and kEntries are out of sync.");
 }
 
@@ -388,7 +390,8 @@ namespace LfoTarget {
         Env3Amt = 11,
         Drift1Depth = 12,
         Drift2Depth = 13,
-        Drift3Depth = 14
+        Drift3Depth = 14,
+        OscMix = 15
     };
     static constexpr ChoiceEntry kEntries[] = {
         { "none",       "---"       },
@@ -405,10 +408,11 @@ namespace LfoTarget {
         { "env3_amt",   "ENV3 Amt"  },
         { "drift1_depth","Drift1 Amt" },
         { "drift2_depth","Drift2 Amt" },
-        { "drift3_depth","Drift3 Amt" }
+        { "drift3_depth","Drift3 Amt" },
+        { "osc_mix",    "Osc Mix" }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(Drift3Depth + 1 == kCount,
+    static_assert(OscMix + 1 == kCount,
                   "LfoTarget enum and kEntries are out of sync.");
 }
 

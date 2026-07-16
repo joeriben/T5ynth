@@ -5382,7 +5382,7 @@ void T5ynthProcessor::setDcoOscBalance(bool oscAHasContent, float gainA,
     // so these 4 atomics always describe what THAT recipe routed, never a
     // stale flag/gain left over from an earlier one (docs:
     // dual_osc_build_spec.md R1/W2). Locked: SynthVoice re-arms its per-source
-    // gain glide (dcoGainSmoothA_/dcoGainSmoothB_) whenever the recipe
+    // gain glide (dcoSoloSmooth*/dcoDualSmooth*) whenever the recipe
     // fingerprint — both flags + both gains — changes, so the 4 values must
     // land as ONE consistent set relative to the per-block BlockParams mirror;
     // a torn publish (e.g. flags updated but gains not yet, read mid-store)
