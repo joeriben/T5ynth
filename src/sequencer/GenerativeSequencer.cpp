@@ -68,13 +68,52 @@ double T5ynthGenerativeSequencer::shuffledStrandStepDurationSamples(const Strand
     // compresses. Ground: the grouping structure itself (structural) and the
     // role (semantic — Anchor stays steadier, a crowded ensemble damps the
     // rubato so the weave keeps its lattice).
-    const auto moment = metricMomentForStep(s, stepIdx);
+    //
+    // TIME BALANCE (2026-07-17, BJ ear-report "im Gesamtergebnis chaotisch"):
+    // rubato GIVES BORROWED TIME BACK. The raw stretch moments sum positive,
+    // which made every secondary strand run 0.1–0.25 % slow — an unbounded
+    // phase walk against the rigid strand 0 (measured: ~5.5 steps adrift
+    // after 10 min). Each factor is therefore normalised by the mean raw
+    // factor of its own metric group: the push-pull SHAPE inside the group
+    // is untouched (relative proportions identical), but every group closes
+    // time-neutral, so the ensemble keeps its common lattice. The damping
+    // below is affine around 1 and preserves the balance; the clamp cannot
+    // engage (raw factors stay within ~[0.96, 1.15] after normalisation).
+    const auto path = metricPathForStrand(s);
     const double elasticity = static_cast<double>(0.012f + 0.030f * s.mutationRate);
-    double metricFactor = 1.0;
-    if (moment.downbeat)         metricFactor += elasticity * 0.55;
-    if (moment.groupStart)       metricFactor += elasticity;
-    if (moment.anticipatesGroup) metricFactor -= elasticity * 0.70;
-    if (moment.phraseEnd)        metricFactor += elasticity * (moment.path == MetricPath::OpenBreath ? 1.45 : 0.85);
+
+    int groups[MAX_STEPS];
+    int groupCount = 0;
+    buildMetricGroups(s.numSteps, path, groups, &groupCount);
+    const int phase     = metricPhaseOffset(s, path);
+    const int localStep = positiveModulo(stepIdx + phase, s.numSteps);
+
+    int pos = 0, len = juce::jmax(1, groups[0]), groupIndex = 0;
+    for (int g = 0; g < groupCount; ++g)
+    {
+        if (localStep < pos + groups[g]) { len = groups[g]; groupIndex = g; break; }
+        pos += groups[g];
+    }
+
+    auto rawFactorAt = [&](int local)
+    {
+        const bool groupStart  = local == pos;
+        const bool groupEnd    = local == pos + len - 1;
+        const bool anticipates = len > 1 && local == pos + len - 2;
+        const bool phraseEnd   = groupIndex == groupCount - 1 && groupEnd;
+        const bool downbeat    = positiveModulo(local - phase, s.numSteps) == 0;
+        double f = 1.0;
+        if (downbeat)    f += elasticity * 0.55;
+        if (groupStart)  f += elasticity;
+        if (anticipates) f -= elasticity * 0.70;
+        if (phraseEnd)   f += elasticity * (path == MetricPath::OpenBreath ? 1.45 : 0.85);
+        return f;
+    };
+
+    double groupSum = 0.0;
+    for (int m = pos; m < pos + len; ++m)
+        groupSum += rawFactorAt(m);
+    double metricFactor = rawFactorAt(localStep) * static_cast<double>(len) / groupSum;
 
     const int activeOthers = activeOtherStrandCount(s);
     if (activeOthers >= 2)
