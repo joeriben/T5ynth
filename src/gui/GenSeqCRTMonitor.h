@@ -7,7 +7,9 @@
  * sequencer's per-cycle decisions legible. A CRT-styled phosphor readout that
  * shows which mutation the engine just performed on strand 0 (rotation /
  * pulse add-remove / steps change / Turing note jump), the rule behind it, and
- * the live pattern as a ring + a memory bar.
+ * the live pattern as a ring + a memory bar. In Dialog coordination mode it
+ * also narrates stance re-decisions (which strand takes which stance toward
+ * S1, and the pulse-drift value that decided it).
  *
  * It reads the sequencer's lock-free GUI atomics and is repaint-gated: poll()
  * is driven by SequencerPanel's existing 10 Hz timer and only triggers a
@@ -35,7 +37,18 @@ public:
 
         const auto e = T5ynthGenerativeSequencer::unpackMutEvent (
             seq_.mutationEventForGui.load (std::memory_order_acquire));
-        if (e.gen != lastGen_) { lastGen_ = e.gen; ev_ = e; dirty = true; }
+        if (e.gen != lastGen_) { lastGen_ = e.gen; ev_ = e; stanceLatest_ = false; dirty = true; }
+
+        // Dialog stance changes are far rarer than mutation events (phrase
+        // ends vs. every cycle), so when both arrive in one poll the stance
+        // wins the text lines; the next mutation event reclaims them.
+        const auto se = T5ynthGenerativeSequencer::unpackStanceEvent (
+            seq_.stanceEventForGui.load (std::memory_order_acquire));
+        if (se.gen != lastStanceGen_)
+        {
+            lastStanceGen_ = se.gen;
+            if (se.gen != 0) { sev_ = se; stanceLatest_ = true; dirty = true; }
+        }
 
         const auto pat = seq_.eucPatternForGui.load (std::memory_order_relaxed);
         const int  ns  = seq_.numStepsForGui.load  (std::memory_order_relaxed);
@@ -58,7 +71,10 @@ public:
         for (float y = b.getY(); y < b.getBottom(); y += 3.0f)
             g.fillRect (b.getX(), y, w, 1.0f);
 
-        const bool amberEv = (ev_.op == (int) T5ynthGenerativeSequencer::MutEvent::NoteJump);
+        // Green = rule-derived (all Dialog stances are), amber = the one
+        // rule-less op (Turing random pitch).
+        const bool amberEv = ! stanceLatest_
+            && (ev_.op == (int) T5ynthGenerativeSequencer::MutEvent::NoteJump);
         accent_ = amberEv ? cAmber : cGreen;
 
         auto inner = b.reduced (w * 0.03f, h * 0.06f);
@@ -209,6 +225,22 @@ private:
 
         auto m2 = [] (int s) { return juce::String (s).paddedLeft ('0', 2); };
 
+        if (stanceLatest_)
+        {
+            // Stance re-decision at a phrase end: WHO takes WHICH stance
+            // toward S1, and the deciding value (the strand's pulse-drift
+            // pendulum) — the reason, not just the result.
+            using St = T5ynthGenerativeSequencer::Stance;
+            const auto sn = "S" + juce::String (sev_.strand + 1);
+            op  = "DIALOG";
+            res = sn + ((St) sev_.stance == St::Counter ? " vs S1"
+                      : (St) sev_.stance == St::Follow  ? " with S1"
+                                                        : " alone");
+            why = "drift " + juce::String (sev_.accum > 0 ? "+" : "")
+                           + juce::String (sev_.accum);
+            return;
+        }
+
         switch ((ME) ev_.op)
         {
             case ME::Rotate:
@@ -232,10 +264,13 @@ private:
     }
 
     T5ynthGenerativeSequencer& seq_;
-    unsigned       lastGen_  = 0;
+    unsigned       lastGen_       = 0;
+    unsigned       lastStanceGen_ = 0;
+    bool           stanceLatest_  = false;
     std::uint32_t  pattern_  = 0;
     int            numSteps_ = 0;
-    T5ynthGenerativeSequencer::MutEventData ev_ { 0, 0, 0, 0, 0, 0, 0 };
+    T5ynthGenerativeSequencer::MutEventData    ev_  { 0, 0, 0, 0, 0, 0, 0 };
+    T5ynthGenerativeSequencer::StanceEventData sev_ { 0, 0, 0, 0 };
     juce::Colour   accent_;
 
     // phosphor CRT palette
