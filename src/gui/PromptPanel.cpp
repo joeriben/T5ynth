@@ -2433,12 +2433,13 @@ void PromptPanel::triggerDcoBake()
         return;
     }
 
-    // Bake at the engine's current WT Frames resolution (same index->count
-    // mapping as reextractWavetable).
-    constexpr int frameCounts[] = { 32, 64, 128, 256 };
-    const int fcIdx = static_cast<int>(processorRef.getValueTreeState()
-                          .getRawParameterValue(PID::wtFrames)->load());
-    const int frames = frameCounts[juce::jlimit(0, 3, fcIdx)];
+    // LCO bakes always use the backend's 256-frame table standard (frames=0 =
+    // "no override" on the wire; backend/dco_frames.py defaults to
+    // MAX_FRAMES=256). The neural WT-Frames buttons (32/64/128/256) are a
+    // neural-extraction resolution choice and are greyed out under the DCO
+    // lock — letting their leftover value steer an LCO bake produced
+    // 32-frame tables against the standing 256-frame standard.
+    const int frames = 0;
 
     dcoBaking_ = true;
     if (onLcoBusyChanged) onLcoBusyChanged(true);   // disable the reused GENERATE button
