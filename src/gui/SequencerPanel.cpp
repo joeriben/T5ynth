@@ -755,6 +755,17 @@ SequencerPanel::SequencerPanel(T5ynthProcessor& p)
         addAndMakeVisible(genFieldModeBox);
         genFieldModeA = std::make_unique<CA>(apvts, PID::genFieldMode, genFieldModeBox);
 
+        // Ensemble coordination mode — global (one mode for all strands),
+        // hence in the harmony row rather than any strand module.
+        juce::StringArray coordItems;
+        for (const auto& e : CoordinationMode::kEntries) coordItems.add(e.label);
+        genCoordModeBox.addItemList(coordItems, 1);
+        genCoordModeBox.setColour(juce::ComboBox::backgroundColourId, kSurface);
+        genCoordModeBox.setColour(juce::ComboBox::textColourId, kSeqCol);
+        genCoordModeBox.setColour(juce::ComboBox::outlineColourId, kBorder);
+        addAndMakeVisible(genCoordModeBox);
+        genCoordModeA = std::make_unique<CA>(apvts, PID::genCoordinationMode, genCoordModeBox);
+
         // Cyc — inline slider on the genFieldRate Int param (1..32 cycles).
         genCycRow = std::make_unique<SliderRow>("Cyc", intFmt, kSeqFill);
         genCycRow->setInlineLabel(true);
@@ -1510,6 +1521,7 @@ void SequencerPanel::resized()
     genFixRotationBtn.setVisible(genModeActive);
     genFixMutationBtn.setVisible(genModeActive);
     genFieldModeBox.setVisible(genModeActive);
+    genCoordModeBox.setVisible(genModeActive);
     for (int i = 0; i < kNumExtraStrands; ++i)
     {
         strandEnableBtns[i].setVisible(genModeActive);
@@ -1596,9 +1608,10 @@ void SequencerPanel::resized()
         auto rightCol = colsArea;
 
         // LEFT column — harmony box (framed card; the frame is drawn in paint()).
-        // Everything shares ONE row: Note · Skala · Range · Cyc · Drift. The two
-        // dropdowns and Drift get fixed text-sized widths (Note narrow for "C#",
-        // Skala wider for "Chromatic"); the two inline sliders split the middle.
+        // Everything shares ONE row: Note · Skala · Range · Drift · Cyc · Coord.
+        // The dropdowns get fixed text-sized widths (Note narrow for "C#",
+        // Skala wider for "Chromatic", Coord for "Density Budget"); Cyc takes
+        // the remainder.
         {
             harmonyBoxBounds = leftCol;
             auto row = harmonyBoxBounds.reduced(boxPad);
@@ -1626,6 +1639,12 @@ void SequencerPanel::resized()
                     .getUnion(genRangeBtns[kNumRangeBtns - 1].getBounds());
             }
             genFieldModeBox.setBounds(row.removeFromLeft(juce::jmin(72, row.getWidth())));   row.removeFromLeft(g);
+            // Coordination mode at the row's right end (global ensemble
+            // switch; per BJ 2026-07-16 it lives in the harmony row). Fixed
+            // width sized for "Density Budget", capped at half the remainder
+            // so Cyc always keeps a usable slider.
+            genCoordModeBox.setBounds(row.removeFromRight(juce::jmin(96, row.getWidth() / 2)));
+            row.removeFromRight(g);
             genCycRow->setBounds(row);
         }
 

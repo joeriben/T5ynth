@@ -155,6 +155,9 @@ private:
     // Shared pitch-field controls. "Drift" mode stays a dropdown; "Cyc"
     // (genFieldRate) is now the genCycRow inline slider declared above.
     juce::ComboBox genFieldModeBox;
+    // Ensemble coordination mode (Independent / Density Budget / Dialog) —
+    // global, so it lives in the harmony row, not in a strand module.
+    juce::ComboBox genCoordModeBox;
     // Per-extra-strand (indices 0..3 map to strands 2..5)
     static constexpr int kNumExtraStrands = 4;
     juce::TextButton strandEnableBtns[kNumExtraStrands];
@@ -208,7 +211,7 @@ private:
     std::unique_ptr<BA> genFixStepsA, genFixPulsesA, genFixRotationA, genFixMutationA;
 
     // Polyphony attachments
-    std::unique_ptr<CA> genFieldModeA;
+    std::unique_ptr<CA> genFieldModeA, genCoordModeA;
     std::unique_ptr<BA> strandEnableA[kNumExtraStrands];
     std::unique_ptr<CA> strandRoleA[kNumExtraStrands];
     std::unique_ptr<CA> strandDivA[kNumExtraStrands];
