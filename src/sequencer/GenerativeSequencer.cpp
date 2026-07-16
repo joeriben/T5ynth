@@ -76,9 +76,14 @@ double T5ynthGenerativeSequencer::shuffledStrandStepDurationSamples(const Strand
     // after 10 min). Each factor is therefore normalised by the mean raw
     // factor of its own metric group: the push-pull SHAPE inside the group
     // is untouched (relative proportions identical), but every group closes
-    // time-neutral, so the ensemble keeps its common lattice. The damping
-    // below is affine around 1 and preserves the balance; the clamp cannot
-    // engage (raw factors stay within ~[0.96, 1.15] after normalisation).
+    // time-neutral, so the ensemble keeps its common lattice. The role
+    // damping below is per-strand-constant and affine around 1, preserving
+    // the balance exactly; the ensemble damping is sampled per step, so an
+    // activeOthers change mid-group leaves that one group slightly
+    // non-neutral (bounded; guard section G measures <= 0.05 steps after
+    // 10 min in the densest fluctuating case). The clamp cannot engage:
+    // normalised factors stay in [0.94, 1.06], exhaustive over
+    // path x numSteps(2..32) x phase x elasticity.
     const auto path = metricPathForStrand(s);
     const double elasticity = static_cast<double>(0.012f + 0.030f * s.mutationRate);
 
