@@ -261,8 +261,7 @@ void T5ynthGenerativeSequencer::setStrandEnabled(int idx, bool en)
         s.priorOutputNote      = -1;
         s.previousOutputNote   = -1;
         s.cycleCount           = 0;
-        s.stance               = Stance::Independent;
-        stanceForGui[static_cast<size_t>(idx)].store(0, std::memory_order_relaxed);
+        resetStance(s);
         if (!s.patternSeeded) s.patternDirty = true;
     }
     s.enabled = en;
@@ -643,6 +642,9 @@ void T5ynthGenerativeSequencer::rebuildPattern(Strand& s)
     s.stepsDriftAccum   = 0;
     s.stepsDriftUp      = true;
     s.mutationDriftPhase = 0;
+    resetStance(s);   // pendulum zeroed above — a stance derived from the
+                      // old pendulum (old role/pattern identity) must not
+                      // outlive its decision basis (Rollenwechsel etc.)
     publishStrandToGui(s);
 }
 
@@ -1069,6 +1071,7 @@ void T5ynthGenerativeSequencer::seedFromSteps(const int* midiNotes,
     s.previousOutputNote = -1;
     s.patternDirty    = false;
     s.patternSeeded   = true;
+    resetStance(s);   // seeding zeroes the pendulum — same rule as rebuild
     publishStrandToGui(s);
 }
 
@@ -1359,13 +1362,15 @@ void T5ynthGenerativeSequencer::updateStanceAtPhraseEnd(Strand& s)
         std::memory_order_release);
 }
 
+void T5ynthGenerativeSequencer::resetStance(Strand& s)
+{
+    s.stance = Stance::Independent;
+    stanceForGui[static_cast<size_t>(strandIndexOf(s))].store(0, std::memory_order_relaxed);
+}
+
 void T5ynthGenerativeSequencer::resetStances()
 {
-    for (int i = 0; i < MAX_STRANDS; ++i)
-    {
-        strands[static_cast<size_t>(i)].stance = Stance::Independent;
-        stanceForGui[static_cast<size_t>(i)].store(0, std::memory_order_relaxed);
-    }
+    for (auto& s : strands) resetStance(s);
 }
 
 float T5ynthGenerativeSequencer::fireProbability(const Strand& s, bool isPulse) const

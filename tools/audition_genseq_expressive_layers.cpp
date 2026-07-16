@@ -334,6 +334,38 @@ int main()
                       "Counter claims the floor while strand 0 is silent");
             }
         }
+
+        // ── Role change re-founds the stance (Rollenwechsel). A role switch
+        //    rebuilds the pattern and zeroes the pulse-drift pendulum; a
+        //    stance derived from the OLD identity must not outlive its
+        //    decision basis. Wait for a non-Independent stance, flip the
+        //    role, expect Independent within one step, then expect the
+        //    pendulum to produce stances again. ──
+        {
+            auto runBlocks = [&](long maxSamples, auto stopWhen) -> bool
+            {
+                for (long p = 0; p < maxSamples; p += BS)
+                {
+                    out.clear();
+                    dlg.processBlock(buf, out);
+                    if (stopWhen()) return true;
+                }
+                return stopWhen();
+            };
+            auto s2Stance = [&] { return dlg.stanceForGui[1].load(); };
+
+            const bool armed = runBlocks(static_cast<long>(SR) * 300,
+                                         [&] { return s2Stance() != 0; });
+            check(armed, "role-change probe reaches a non-Independent stance");
+            if (armed)
+            {
+                dlg.setStrandRole(1, 3);   // Anchor -> Gesture mid-flight
+                check(runBlocks(static_cast<long>(SR), [&] { return s2Stance() == 0; }),
+                      "role change resets the stance with its pendulum");
+                check(runBlocks(static_cast<long>(SR) * 300, [&] { return s2Stance() != 0; }),
+                      "stances re-emerge under the new role");
+            }
+        }
     }
 
     std::printf("%s (%d failure%s)\n", g_failures ? "FAILED" : "ALL PASS",

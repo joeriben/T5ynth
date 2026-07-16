@@ -429,6 +429,8 @@ private:
     // Dialog helpers.
     int    stanceMutationDir(const Strand& s) const;   // 0 = free Turing direction
     void   updateStanceAtPhraseEnd(Strand& s);
+    void   resetStance(Strand& s);   // stance follows its decision basis: call
+                                     // wherever pulseDriftAccum is zeroed
     void   resetStances();
     static std::uint64_t packStanceEvent (unsigned gen, int strand,
                                           int stance, int accum) noexcept;
