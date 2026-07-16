@@ -1,4 +1,5 @@
 #include "VoiceManager.h"
+#include "CsoundEngine.h"
 
 namespace
 {
@@ -25,6 +26,7 @@ const char* engineModeName(SynthVoice::EngineMode mode)
         case SynthVoice::EngineMode::Sampler:   return "Sampler";
         case SynthVoice::EngineMode::Wavetable: return "Wavetable";
         case SynthVoice::EngineMode::Freeze:    return "Granular";
+        case SynthVoice::EngineMode::Csound:    return "Csound";
     }
     return "?";
 }
@@ -202,6 +204,7 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
                              + " velocity=" + juce::String(velocity, 3)
                              + " engine=" + juce::String(engineModeName(v.getEngineMode())));
         v.noteOnTimestamp = ++noteOnCounter;
+        v.triggerEpoch = v.noteOnTimestamp;  // genuine fresh strike (D8) — mono, non-legato
         if (lfo1TrigMode) v.getPerVoiceLfo1().reset();
         if (lfo2TrigMode) v.getPerVoiceLfo2().reset();
         if (lfo3TrigMode) v.getPerVoiceLfo3().reset();
@@ -266,6 +269,9 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
             v.glideToNote(note, glideMs);
             // Continued voice is now the newest: keeps it from becoming the steal
             // victim mid-slide, and makes the next same-source bind find it.
+            // Deliberately NOT touching v.triggerEpoch here — a poly BIND is a
+            // glide continuation, not a fresh strike (D8), so the orchestra's
+            // changed2(trig) must not see a change.
             v.noteOnTimestamp = ++noteOnCounter;
             return;
         }
@@ -320,6 +326,7 @@ void VoiceManager::noteOn(int note, float velocity, bool isBind, float glideMs,
                          + " velocity=" + juce::String(velocity, 3)
                          + " engine=" + juce::String(engineModeName(v.getEngineMode())));
     v.noteOnTimestamp = ++noteOnCounter;
+    v.triggerEpoch = v.noteOnTimestamp;  // genuine fresh strike (D8) — poly, new/stolen voice
 
     // LFO trigger mode: reset per-voice LFO phase
     if (lfo1TrigMode)
@@ -561,7 +568,7 @@ void VoiceManager::setTimbre(int midiChannel, float value)
 VoiceManager::VoiceOutput VoiceManager::renderBlock(
     juce::AudioBuffer<float>& buffer, const BlockParams& bp,
     const float* lfo1Buf, const float* lfo2Buf, const float* lfo3Buf,
-    int startSample, int numSamples)
+    int startSample, int numSamples, const CsoundEngine* cs)
 {
     VoiceOutput out;
 
@@ -610,7 +617,26 @@ VoiceManager::VoiceOutput VoiceManager::renderBlock(
         // Use sub-block renderBlock for active voices
         float* scratch = voiceScratch[static_cast<size_t>(vi)].data();
         float* scratchRight = voiceScratchRight[static_cast<size_t>(vi)].data();
-        v.renderBlock(scratch, scratchRight, performanceParams, lfo1Buf, lfo2Buf, lfo3Buf, numSamples);
+        // Csound voice bridge (Phase-1 spec §3): only voice indices below the
+        // fixed 16-instrument orchestra (D1) have a channel/buffer at all — the
+        // vi bound here is MANDATORY, not defensive style. An engine switch
+        // into Csound while >16 voices are already active must not read past
+        // CsoundEngine's fixed-size per-voice array (confirmed crash vector,
+        // adversarial review); voices >= kMaxVoices simply keep rendering
+        // silently (null csoundBuf, SynthVoice's own safety net) until they
+        // end — no forced note-off on an engine switch, ever, in this codebase.
+        // cs->voiceBuffer(vi) is block-aligned (starts at sample 0 of THIS
+        // host block), unlike lfo1Buf/lfo2Buf/lfo3Buf above which the caller
+        // already offset by startSample — so the +startSample offset is
+        // applied here, once, matching what those buffers already reflect.
+        const float* csoundVoiceBuf = nullptr;
+        if (cs != nullptr && vi < CsoundEngine::kMaxVoices)
+        {
+            if (const float* base = cs->voiceBuffer(vi))
+                csoundVoiceBuf = base + startSample;
+        }
+        v.renderBlock(scratch, scratchRight, performanceParams, lfo1Buf, lfo2Buf, lfo3Buf, numSamples,
+                      csoundVoiceBuf);
 
         if (!v.isActive())
         {
@@ -707,6 +733,43 @@ VoiceManager::VoiceOutput VoiceManager::renderBlock(
     }
 
     return out;
+}
+
+void VoiceManager::writeCsoundControls(CsoundEngine& cs, float performancePitchRatio,
+                                       int samplesSinceLastWrite)
+{
+    // Phase-1 spec §3/D2: publishes CURRENT voice state to the orchestra's
+    // cached channels, right before the processor pumps csoundPerformKsmps
+    // forward — so gate/freq/vel/pres/timb/trig always reflect every event
+    // dispatched so far this block. Only voices 0..kMaxVoices-1 have a
+    // Csound instrument at all (D1's fixed 16-voice orchestra); voices beyond
+    // that are silently skipped here (they still render — silently — via
+    // SynthVoice's own null-csoundBuf_ safety net until they end).
+    for (int vi = 0; vi < CsoundEngine::kMaxVoices; ++vi)
+    {
+        auto& v = voices[static_cast<size_t>(vi)];
+
+        CsoundEngine::VoiceControls c;
+        // D3: gate = voice ACTIVE (including release), never bare note-held —
+        // closing the gate on note-off would abort the release tail; the
+        // orchestra's own portk declick (~8ms) is inaudible under the VCA,
+        // which is already at/heading to 0 by then.
+        c.gate     = v.isActive() ? 1.0f : 0.0f;
+        // Composition mirrors effectivePitchRatio (SynthVoice.cpp): smoothed
+        // base Hz × global performance pitch ratio × per-voice MPE bend.
+        c.freqHz   = v.readCsoundFreq(samplesSinceLastWrite)
+                   * performancePitchRatio
+                   * std::exp2(v.getPerVoicePitchBend() / 12.0f);
+        c.velocity = v.getCurrentVelocity();
+        c.pressure = pressureForVoice(vi);
+        c.timbre   = v.getTimbre();
+        // D8: wrap to stay float-exact (well inside float's 24-bit exact-
+        // integer range) — the orchestra only needs changed2() to detect a
+        // step, not the absolute value.
+        c.trigEpoch = static_cast<float>(v.triggerEpoch % 1000000ULL);
+
+        cs.setVoiceControls(vi, c);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1044,6 +1107,7 @@ void VoiceManager::setDroneNote(int note, float velocity, bool lfo1TrigMode, boo
         voiceMpePressure_[static_cast<size_t>(idx)] = 0.0f;
         v.setPerVoicePitchBend(0.0f);
         v.noteOnTimestamp = ++noteOnCounter;
+        v.triggerEpoch = v.noteOnTimestamp;  // genuine fresh strike (D8) — first drone trigger
         if (lfo1TrigMode) v.getPerVoiceLfo1().reset();
         if (lfo2TrigMode) v.getPerVoiceLfo2().reset();
         if (lfo3TrigMode) v.getPerVoiceLfo3().reset();

@@ -416,6 +416,26 @@ T5ynthProcessor::~T5ynthProcessor()
     samplerReprepareThreadShouldExit.store(true, std::memory_order_release);
     if (samplerReprepareThread.joinable())
         samplerReprepareThread.join();
+
+    // D9: join any in-flight background Csound compile (launched from
+    // handleAsyncUpdate on a live engine_mode switch into Csound) before
+    // csoundEngine — a member, destroyed after this body returns — goes away
+    // while that thread might still be calling into it. The thread handle is
+    // moved out UNDER the lifecycle mutex, but join() runs WITHOUT it: the
+    // compile thread itself acquires csoundLifecycleMutex_ for its work, so
+    // joining while holding it deadlocks if the thread was created but has
+    // not yet reached its lock (adversarial-review finding).
+    // cancelPendingUpdate() above already prevents a NEW compile from being
+    // launched past this point.
+    {
+        std::thread toJoin;
+        {
+            std::lock_guard<std::mutex> csoundLock(csoundLifecycleMutex_);
+            toJoin = std::move(csoundCompileThread_);
+        }
+        if (toJoin.joinable())
+            toJoin.join();
+    }
 }
 
 bool T5ynthProcessor::launchPipeInference(const juce::File& backendDir)
@@ -667,6 +687,23 @@ void T5ynthProcessor::logExternalNoteEvent(bool noteOn, int note, float velocity
 
 void T5ynthProcessor::parameterChanged(const juce::String& parameterID, float newValue)
 {
+    // Csound engine (Phase-1 spec D9), live engine_mode switch: this callback
+    // can run on the AUDIO thread (see the eventLog comment just below — the
+    // same hazard applies to every parameter, engine_mode included, if it's
+    // ever MIDI-CC-Learn-bound), so launching a std::thread here would be an
+    // audio-thread-safety violation (allocation + kernel thread creation).
+    // Just flag + triggerAsyncUpdate — both RT-safe — and defer the actual
+    // decision (already ready? already compiling? still even Csound mode by
+    // the time this runs?) to handleAsyncUpdate on the message thread. Placed
+    // BEFORE the eventLog early-return below: engine switching must work
+    // whether or not the event log is recording.
+    if (parameterID == PID::engineMode
+        && juce::roundToInt(newValue) == static_cast<int>(EngineMode::Csound))
+    {
+        csoundWantsPrepare_.store(true, std::memory_order_release);
+        triggerAsyncUpdate();
+    }
+
     // Can run on the audio thread (confirmed: MIDI-CC-Learn-bound params call
     // setValueNotifyingHost from inside processBlock) or the message thread —
     // never assume which. No allocation, no lock beyond the lock-free FIFO.
@@ -1853,6 +1890,55 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 
     masterOsc.prepare(sampleRate, samplesPerBlock);
     masterOscB.prepare(sampleRate, samplesPerBlock);
+
+    // Csound engine (Phase-1 spec D9): lazy compile that never stalls a normal
+    // session load. csoundLifecycleMutex_ (see its declaration comment in
+    // PluginProcessor.h) serializes this against handleAsyncUpdate's
+    // background-compile launch below — prepareToPlay is guaranteed NOT
+    // concurrent with processBlock, but is NOT guaranteed to run on the
+    // message thread (adversarial review: the Standalone wrapper's
+    // AudioProcessorPlayer calls it from the audio-device setup thread),
+    // so without this lock a live engine-mode switch racing a host
+    // prepareToPlay could enter csoundEngine.prepare() from two threads at
+    // once. Held for at most ~100ms, only in that rare interleaving.
+    {
+        // Join any in-flight background compile FIRST. This also IS the
+        // "generation/SR check after async completion" (D9b): if a host
+        // SR/buffer-size change lands mid-compile, this join waits it out,
+        // then the prepare() call below re-checks isReady() and recompiles
+        // at the (possibly new) sampleRate/samplesPerBlock.
+        // The join MUST run without holding csoundLifecycleMutex_: the compile
+        // thread acquires that mutex for its work, so joining under it
+        // deadlocks if the thread was created but has not yet reached its
+        // lock (adversarial-review finding). Move the handle out under the
+        // lock, join outside, then re-lock for the prepare decision.
+        std::thread toJoin;
+        {
+            std::lock_guard<std::mutex> csoundLock(csoundLifecycleMutex_);
+            toJoin = std::move(csoundCompileThread_);
+        }
+        if (toJoin.joinable())
+            toJoin.join();
+
+        // (No csoundCompileInFlight_ store here: the compile thread clears it
+        // itself as its last act, and handleAsyncUpdate may legitimately have
+        // launched a NEW compile in the unlocked window above — clobbering the
+        // flag would break its single-launch guard.)
+        std::lock_guard<std::mutex> csoundLock(csoundLifecycleMutex_);
+
+        // (a): compile synchronously ONLY if a preset/session is loading
+        // straight into Csound mode (~100ms once, off the audio thread) or the
+        // instance is already prepared (an actual SR/buffer-size change here
+        // is a real recompile). Every other case (starting in another engine
+        // mode) leaves csoundEngine untouched — selecting Csound later is what
+        // triggers the background compile path (b), via parameterChanged +
+        // handleAsyncUpdate below.
+        const bool wantsCsoundAtLoad =
+            static_cast<int>(paramCache.engineMode->load()) == static_cast<int>(EngineMode::Csound);
+        if (wantsCsoundAtLoad || csoundEngine.isReady())
+            csoundEngine.prepare(sampleRate, samplesPerBlock);
+    }
+
     masterSampler.prepare(sampleRate, samplesPerBlock);
     masterFreeze.prepare(sampleRate, samplesPerBlock);
     voiceManager.prepare(sampleRate, samplesPerBlock);
@@ -2803,7 +2889,16 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     {
         static constexpr int voiceCounts[] = { 1, 4, 6, 8, 12, 16, 64, 128 };
         int vcIdx = static_cast<int>(paramCache.voiceCount->load());
-        voiceManager.setVoiceLimit(voiceCounts[juce::jlimit(0, 7, vcIdx)]);
+        int effectiveLimit = voiceCounts[juce::jlimit(0, 7, vcIdx)];
+        // D1: Csound mode caps effective polyphony at min(voiceLimit, 16) — the
+        // Phase-1 orchestra is a fixed 16-instrument/channel affair
+        // (CsoundEngine::kMaxVoices), never an always-on-128 variant (idle-CPU
+        // regression risk). bp (with its parsed engineMode) doesn't exist yet
+        // at this point in the block — read the raw engine-mode choice
+        // straight from the paramCache atomic instead.
+        if (static_cast<int>(paramCache.engineMode->load()) == static_cast<int>(EngineMode::Csound))
+            effectiveLimit = juce::jmin(effectiveLimit, CsoundEngine::kMaxVoices);
+        voiceManager.setVoiceLimit(effectiveLimit);
     }
 
     // ── Tuning table ──────────────────────────────────────────────────────────
@@ -3677,6 +3772,21 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             lfo3Buf[i] = l3;
         }
 
+        // Csound engine pump (Phase-1 spec §3/D2/D9): decided ONCE per block —
+        // reused by every per-segment write below and the end-of-block carry
+        // update, so the isReady() atomic load happens once, not per segment.
+        // False whenever the engine mode isn't Csound or the (possibly still
+        // background-compiling) engine isn't ready yet — the entire bridge is
+        // then completely inert, a single bool short-circuit, satisfying the
+        // audioIdle/performance gate's "zero new per-block cost in every other
+        // mode" requirement. startBlock() resets the engine's write position
+        // for this host block and replays any ksmps carry from the previous
+        // one (CsoundEngine's own bookkeeping) — placed next to the LFO fill
+        // above since neither depends on the sample-accurate MIDI split below.
+        const bool csoundActive = (bp.engineMode == EngineMode::Csound) && csoundEngine.isReady();
+        if (csoundActive)
+            csoundEngine.startBlock(numSamples);
+
         // LFO → normalized amount/depth targets (additive, clamped to 0–1)
         {
             float l1End = numSamples > 0 ? lfo1Buf[numSamples - 1] : 0.0f;
@@ -3747,9 +3857,29 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 // Render voices up to this point
                 int subLen = subEnd - renderPos;
                 if (subLen > 0)
+                {
+                    // Csound pump (D2): on-demand, right before this segment
+                    // renders — so gate/freq/vel/pres/timb/trig reflect every
+                    // event dispatched at renderPos, sample-accurate with the
+                    // MIDI split. samplesSinceLastWrite is the length of the
+                    // PRECEDING segment (renderPos minus the position of the
+                    // previous write), which is exactly how far the glide
+                    // smoother needs to advance to catch up to now, since the
+                    // orchestra held the last-written controls constant (via
+                    // its own portk) for that whole span. csoundLastWritePos_
+                    // carries across host-block boundaries as a negative
+                    // offset (see the end-of-loop update below).
+                    if (csoundActive)
+                    {
+                        voiceManager.writeCsoundControls(csoundEngine, bp.performancePitchRatio,
+                                                          renderPos - csoundLastWritePos_);
+                        csoundEngine.renderUpTo(subEnd - 1);
+                        csoundLastWritePos_ = renderPos;
+                    }
                     voiceOut = voiceManager.renderBlock(buffer, bp,
                         lfo1Buf + renderPos, lfo2Buf + renderPos, lfo3Buf + renderPos,
-                        renderPos, subLen);
+                        renderPos, subLen, csoundActive ? &csoundEngine : nullptr);
+                }
 
                 // Dispatch every event at this position, internal and external
                 // interleaved in time order (internal first on a tie so a seq
@@ -4114,6 +4244,17 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 renderPos = subEnd;
             }
         }
+
+        // Csound pump (D2): carry the write-position accounting across the
+        // host-block boundary. The last write this block landed at some
+        // renderPos < numSamples (there's rarely a MIDI event exactly at the
+        // final sample); subtracting numSamples rebases it to a negative
+        // offset so the FIRST write of the next block correctly measures the
+        // gap all the way from that last write, through the unwritten tail of
+        // THIS block, into the next one's renderPos (spec §3/D2 worked example).
+        if (csoundActive)
+            csoundLastWritePos_ -= numSamples;
+
         lastTriggeredNote = voiceOut.lastTriggeredNote;
 
         // Capture last LFO values for block-rate modulation + ghost display
@@ -7146,6 +7287,55 @@ void T5ynthProcessor::handleAsyncUpdate()
     // never left unbound waiting for a manual "XL Map" click.
     if (xlAutoApplyReq_.exchange(false, std::memory_order_acq_rel))
         applyXLDefaultBindings();
+
+    // Csound engine (Phase-1 spec D9b): a live engine_mode switch into Csound
+    // flagged this from parameterChanged (which may have run on the audio
+    // thread — see its comment). This is the message thread, so it's safe to
+    // actually launch the background compile here. Re-check on this thread:
+    // the mode may have changed again since the flag was set, the instance
+    // may already be ready (e.g. a fast toggle back and forth), or a previous
+    // compile may already be running.
+    //
+    // csoundLifecycleMutex_ (adversarial-review finding, post-implementation):
+    // guards this entire join+launch-decision against prepareToPlay, which
+    // is NOT guaranteed to run on this (message) thread — see the mutex's
+    // declaration comment in PluginProcessor.h. The spawned thread below
+    // re-acquires the same mutex around its own csoundEngine.prepare() call
+    // so the two can never run concurrently; that inner lock is only briefly
+    // contended (waits out whichever prepare() call — this one's or
+    // prepareToPlay's — got there first), never held on the message thread
+    // for the actual ~100ms compile.
+    if (csoundWantsPrepare_.exchange(false, std::memory_order_acq_rel))
+    {
+        std::lock_guard<std::mutex> csoundLock(csoundLifecycleMutex_);
+        const bool stillWantsCsound =
+            static_cast<int>(paramCache.engineMode->load()) == static_cast<int>(EngineMode::Csound);
+        if (stillWantsCsound && ! csoundEngine.isReady()
+            && ! csoundCompileInFlight_.load(std::memory_order_acquire))
+        {
+            // A std::thread object must be joined or detached before a new one
+            // is move-assigned onto it; a previous compile's thread, if any,
+            // has already signalled done via csoundCompileInFlight_ above, so
+            // this join is immediate (not a stall).
+            if (csoundCompileThread_.joinable())
+                csoundCompileThread_.join();
+
+            const double sr = getSampleRate();
+            const int blockSize = getBlockSize();
+            if (sr > 0.0 && blockSize > 0)
+            {
+                csoundCompileInFlight_.store(true, std::memory_order_release);
+                csoundCompileThread_ = std::thread([this, sr, blockSize]
+                {
+                    {
+                        std::lock_guard<std::mutex> lock(csoundLifecycleMutex_);
+                        csoundEngine.prepare(sr, blockSize);
+                    }
+                    csoundCompileInFlight_.store(false, std::memory_order_release);
+                });
+            }
+        }
+    }
 
     // The rest is CC-Learn, which only triggers this async update while a learn is
     // armed; a button-only update (above) has nothing more to do.

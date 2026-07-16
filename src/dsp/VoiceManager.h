@@ -4,6 +4,12 @@
 #include <array>
 #include <cmath>
 
+// Forward-declared only — VoiceManager only ever holds/passes a raw pointer
+// (CsoundEngine::voiceBuffer / ::kMaxVoices), so the full CsoundEngine.h
+// (and its conditional real-vs-stub Impl) stays confined to VoiceManager.cpp,
+// mirroring how this header stays JUCE/Csound-agnostic elsewhere.
+class CsoundEngine;
+
 /**
  * Polyphonic voice manager — 8 voices with tiered voice stealing
  * (releasing-oldest first, then lowest-amplitude held voice).
@@ -77,10 +83,23 @@ public:
 
     /** Render all active voices into buffer (summed with 1/sqrt(N) scaling).
      *  Global LFOs are ticked externally; their per-sample values are passed in.
-     *  startSample: offset into the output buffer (for sample-accurate rendering). */
+     *  startSample: offset into the output buffer (for sample-accurate rendering).
+     *  cs: the processor-owned CsoundEngine (Phase-1 spec §3), nullptr in every
+     *  non-Csound mode / not-yet-ready state — the whole bridge is then inert. */
     VoiceOutput renderBlock(juce::AudioBuffer<float>& buffer, const BlockParams& bp,
                             const float* lfo1Buf, const float* lfo2Buf, const float* lfo3Buf,
-                            int startSample, int numSamples);
+                            int startSample, int numSamples, const CsoundEngine* cs = nullptr);
+
+    // Csound voice bridge (Phase-1 spec §3, D2/D8): publishes every active
+    // voice's current state (gate/freq/vel/pres/timb/trig-epoch) to the
+    // engine's cached channel pointers. Called by the processor right before
+    // each csoundEngine.renderUpTo() sub-call, so the orchestra always renders
+    // from control values that reflect every MIDI event dispatched so far this
+    // block (D2's on-demand pump timing). Only voices 0..kMaxVoices-1 have a
+    // Csound instrument/channel set at all (Phase-1 fixed 16-voice orchestra,
+    // D1); voices beyond that are simply not written here (they keep rendering
+    // silently via SynthVoice's null-csoundBuf_ safety net until they end).
+    void writeCsoundControls(CsoundEngine& cs, float performancePitchRatio, int samplesSinceLastWrite);
 
     // ── Engine data distribution ──
     void setEngineMode(SynthVoice::EngineMode mode);

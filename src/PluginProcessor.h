@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include "dsp/VoiceManager.h"
 #include "dsp/VoiceEvent.h"
+#include "dsp/CsoundEngine.h"
 #include "dsp/ParamCache.h"
 #include "dsp/LFO.h"
 #include "dsp/DriftLFO.h"
@@ -460,6 +461,14 @@ private:
 
     // Master data holders (own the audio/frame data, voices share from these)
     WavetableOscillator masterOsc;
+    // Phase-1 Csound engine (spec docs/... SPEC_phase1_csound_engine.md): ONE
+    // processor-owned instance, 16 always-on gate-sustained instruments (one
+    // per voice slot). Value member — like masterOsc, it persists across
+    // prepareToPlay/releaseResources cycles (prepare() is idempotent/cheap
+    // when already prepared at the same sample rate, D9); its own header is a
+    // header-only inert stub when T5YNTH_HAS_CSOUND==0, so this member and
+    // every call site below compiles identically on every build/machine.
+    CsoundEngine csoundEngine;
     // Second, PARALLEL master oscillator for the dual A+B DCO build (docs:
     // dual_osc_build_spec.md). masterOsc (A) stays the harmonic/neural
     // wavetable exactly as before; masterOscB (B) is published ONLY by
@@ -521,6 +530,43 @@ private:
     float samplerReprepareNormalizeStartFrac = 0.0f;
     float samplerReprepareNormalizeEndFrac = 1.0f;
     bool samplerReprepareSourceValid = false;
+
+    // Csound engine — D9 lazy/background compile. A live engine_mode switch
+    // into Csound is caught by parameterChanged (which can run on the AUDIO
+    // thread — see its own comment) and must never launch a thread there,
+    // so it only flags csoundWantsPrepare_ + triggerAsyncUpdate(); the actual
+    // std::thread launch happens in handleAsyncUpdate (message thread, same
+    // pattern as the CC-Learn / XL-button requests below). Mirrors
+    // samplerReprepareThread's shape but is a one-shot compile, not a
+    // recurring poll worker — joined and relaunched per switch, never left
+    // running idle.
+    //
+    // csoundLifecycleMutex_ (adversarial-review finding, post-implementation):
+    // prepareToPlay is NOT guaranteed to run on the message thread — only
+    // guaranteed not to be concurrent with processBlock (e.g. the Standalone
+    // wrapper's AudioProcessorPlayer calls it from the audio-device setup
+    // thread). handleAsyncUpdate's background-compile launch runs on the
+    // message thread. Without a lock, those two could each end up calling
+    // csoundEngine.prepare() concurrently (one directly, one via the spawned
+    // thread) — a data race on Impl's csound*/ready state — and could also
+    // race on csoundCompileThread_'s own join()/joinable()/operator= (calling
+    // std::thread member functions concurrently on the same object from two
+    // threads is itself UB, independent of what CsoundEngine does). This
+    // mutex serializes: (a) all csoundCompileThread_ join/joinable/reassign
+    // sequences, and (b) every csoundEngine.prepare() call, from whichever
+    // thread makes it. Held for ~100ms at most, only in the rare interleaving
+    // where a live engine-mode switch and a host prepareToPlay overlap —
+    // never on the audio thread itself.
+    std::mutex csoundLifecycleMutex_;
+    std::thread csoundCompileThread_;
+    std::atomic<bool> csoundCompileInFlight_ { false };
+    std::atomic<bool> csoundWantsPrepare_ { false };
+    // Audio-thread-only (processBlock): samples-since-last-Csound-channel-write,
+    // carried across host block boundaries as a negative offset (spec §3/D2) so
+    // the freq glide smoother's first advance of a new block correctly accounts
+    // for the tail of the previous block that had no further MIDI event to
+    // trigger a write. Untouched (irrelevant) whenever engine mode isn't Csound.
+    int csoundLastWritePos_ = 0;
 
     // DSP — global (shared across voices, post-sum)
     LFO lfo1;

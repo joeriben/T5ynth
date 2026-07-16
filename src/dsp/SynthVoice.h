@@ -31,6 +31,14 @@ public:
     void noteOn(int note, float velocity, bool legato);
     void noteOff();
     void glideToNote(int note, float glideMs);
+    // Csound voice bridge (Phase-1 spec §3, D7): advances the block-rate
+    // csoundFreq_ smoother by samplesToAdvance (the number of samples rendered
+    // since the previous channel write — VoiceManager passes renderPos delta)
+    // and returns the resulting current value: the raw smoothed base Hz, no
+    // performance-pitch-ratio or per-voice-bend applied (those are composed by
+    // the caller, VoiceManager::writeCsoundControls, exactly like
+    // effectivePitchRatio below).
+    float readCsoundFreq(int samplesToAdvance);
     /** Smooth an immediate same-voice restart by fading from the last rendered sample. */
     void beginRestartFade();
     void setAftertouch(float pressure) { aftertouch_ = juce::jlimit(0.0f, 1.0f, pressure); }
@@ -54,9 +62,13 @@ public:
     void configureForBlock(const BlockParams& p);
 
     /** Block-based rendering with sub-block filter coefficient updates.
-     *  Writes numSamples into output; outputRight receives Granular stereo when provided. */
+     *  Writes numSamples into output; outputRight receives Granular stereo when provided.
+     *  csoundBuf: this voice's block-aligned Csound render (Phase-1 spec §3), already
+     *  offset to the sub-range like the lfo buffers; nullptr in every non-Csound mode
+     *  (and the safety net for a not-yet-ready Csound engine — renders silence). */
     void renderBlock(float* output, float* outputRight, const BlockParams& p,
-                     const float* lfo1Buf, const float* lfo2Buf, const float* lfo3Buf, int numSamples);
+                     const float* lfo1Buf, const float* lfo2Buf, const float* lfo3Buf, int numSamples,
+                     const float* csoundBuf = nullptr);
 
     static constexpr int SUB_BLOCK_SIZE = 32;
 
@@ -73,16 +85,21 @@ public:
     bool isReleasing() const { return active && !noteHeld; }
     int  getCurrentNote() const { return currentNote; }
     float getAmpEnvLevel() const { return ampEnv.isIdle() ? 0.0f : lastAmpEnvLevel; }
+    // Csound voice bridge (Phase-1 spec §3): VoiceManager::writeCsoundControls
+    // reads these every sub-block to publish gate/vel to the orchestra.
+    // currentVelocity/noteHeld were already private state with no getter.
+    float getCurrentVelocity() const { return currentVelocity; }
+    bool isNoteHeld() const { return noteHeld; }
 
     // ── Tuning ──
     void setTuningTable(const float* table) { tuningHz_ = table; }
 
     // ── Engine mode ──
     // Csound: a REAL 4th DSP path — a processor-owned CsoundEngine instance
-    // will render this voice's audio directly (voice bridge + render branch
-    // land in a later commit). This commit is enum/glide plumbing only:
-    // renderBlock has no Csound branch yet, so selecting this mode currently
-    // renders silence (none of samplerMode/freezeMode/oscReady can be true).
+    // renders this voice's audio directly (renderBlock's 4th branch, fed via
+    // the csoundBuf parameter/csoundBuf_ member above). Renders silence
+    // whenever csoundBuf_ is null — not ready yet, engine switched away from
+    // Csound mid-note, or a Csound-less (stub) build.
     enum class EngineMode { Sampler, Wavetable, Freeze, Csound };
     void setEngineMode(EngineMode mode) { engineMode = mode; }
     EngineMode getEngineMode() const { return engineMode; }
@@ -109,8 +126,20 @@ public:
     LFO& getPerVoiceLfo2() { return perVoiceLfo2; }
     LFO& getPerVoiceLfo3() { return perVoiceLfo3; }
 
-    // Voice age for stealing (monotonic counter set by VoiceManager)
+    // Voice age for stealing (monotonic counter set by VoiceManager). NOTE:
+    // this bumps on a poly BIND continuation too (VoiceManager keeps a slid
+    // voice "newest" so it isn't stolen mid-glide) — it is NOT a fresh-strike-
+    // only signal. See triggerEpoch below for that.
     uint64_t noteOnTimestamp = 0;
+    // Csound retrigger epoch (Phase-1 spec D8): set by VoiceManager to a
+    // snapshot of noteOnTimestamp, but ONLY at a genuine fresh strike (mono/
+    // poly/drone noteOn's non-legato path) — never on a legato-glide or a poly
+    // BIND continuation (verified in VoiceManager.cpp: the bind path DOES bump
+    // noteOnTimestamp itself, for voice-stealing-age purposes only, which would
+    // wrongly re-strike the orchestra's changed2(trig) on every slide if reused
+    // here). VoiceManager::writeCsoundControls publishes this (wrapped) as the
+    // orchestra's trigN channel.
+    uint64_t triggerEpoch = 0;
 
 private:
     WavetableOscillator osc;
@@ -136,6 +165,13 @@ private:
     // time (later commit); the orchestra's own portk provides the audible
     // smoothing between steps. noteOn snaps it, glideToNote re-arms it.
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> csoundFreq_;
+    // This block's Csound render input (Phase-1 spec §3), stored from the
+    // renderBlock parameter of the same name — mirrors how lfo1Buf/lfo2Buf/
+    // lfo3Buf are threaded, just captured into a member so the render-branch
+    // condition below (engineMode==Csound && csoundBuf_ != nullptr) reads
+    // naturally next to the other engine-ready flags. Never owned/freed here;
+    // VoiceManager/CsoundEngine own the buffer's lifetime.
+    const float* csoundBuf_ = nullptr;
     bool  dcoSnapPending_ = true;   // fresh (non-legato) note: first block snaps gains to targets
     bool  prevDcoFlagA_ = true,  prevDcoFlagB_ = false;
     float prevDcoGainA_ = 1.0f, prevDcoGainB_ = 1.0f;

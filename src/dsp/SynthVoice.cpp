@@ -334,6 +334,19 @@ void SynthVoice::glideToNote(int note, float glideMs)
     }
 }
 
+float SynthVoice::readCsoundFreq(int samplesToAdvance)
+{
+    // skip() advances the smoother exactly like calling getNextValue()
+    // samplesToAdvance times (clamping to target if it overshoots the
+    // remaining ramp) — juce::SmoothedValue::skip is documented to accept
+    // this directly; a negative/zero request (shouldn't happen per the
+    // processor's carry accounting, but a defensive floor costs nothing) is a
+    // no-op read of the current value.
+    if (samplesToAdvance > 0)
+        csoundFreq_.skip(samplesToAdvance);
+    return csoundFreq_.getCurrentValue();
+}
+
 void SynthVoice::configureForBlock(const BlockParams& p)
 {
     octaveShift_ = p.octaveShift;
@@ -660,8 +673,16 @@ void SynthVoice::updateSamplerPreStretchNorm(const BlockParams& p)
 }
 
 void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParams& p,
-                              const float* lfo1Buf, const float* lfo2Buf, const float* lfo3Buf, int numSamples)
+                              const float* lfo1Buf, const float* lfo2Buf, const float* lfo3Buf, int numSamples,
+                              const float* csoundBuf)
 {
+    // Captured for the block (Phase-1 spec §3) — read by the Csound render
+    // branch below, mirroring how lfo1Buf/lfo2Buf/lfo3Buf are already threaded
+    // straight through as parameters. A null buffer (non-Csound mode, or a
+    // not-yet-ready/stub engine) means that branch stays inert and this voice
+    // renders silence in Csound mode — the documented safety net, not a crash.
+    csoundBuf_ = csoundBuf;
+
     if (!active)
     {
         std::memset(output, 0, sizeof(float) * static_cast<size_t>(numSamples));
@@ -1154,6 +1175,20 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
                     lastModulatedScan_ = osc.getEffectiveScanPosition();
                 else if ((engineMode == EngineMode::Wavetable) && oscB.hasFrames() && p.dcoOscBHasContent)
                     lastModulatedScan_ = oscB.getEffectiveScanPosition();
+            }
+            else if (engineMode == EngineMode::Csound && csoundBuf_ != nullptr)
+            {
+                // Phase-1 Csound engine (spec §3): the processor-owned CsoundEngine
+                // instance renders this voice's raw signal directly (its own
+                // strike/orchestra DSP, driven by gate/freq/vel/pres/timb/trig
+                // channels VoiceManager writes every sub-block). Everything
+                // downstream from here — noise mix, drive, filter, VCA — is the
+                // existing shared path, untouched. A null csoundBuf_ (non-ready
+                // engine, or a stub build) already fails this branch's condition,
+                // so `sample`/`sampleR` simply stay at their 0.0f initial value —
+                // the documented silence safety net, never a crash.
+                sample = csoundBuf_[i];
+                sampleR = sample;
             }
 
             // Mix noise oscillator (goes through drive + filter + VCA with the main signal)
