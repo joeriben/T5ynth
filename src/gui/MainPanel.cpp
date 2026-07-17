@@ -2095,25 +2095,9 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
     {
         if (result.lcoOscAHasContent)
             processorRef.loadDcoWavetable(result.lcoFramesA, result.lcoMotionRateHz);
-        if (result.lcoOscBHasContent && !result.lcoStationsB.empty())
-        {
-            // loadDcoAdditive takes dco::Partial, PresetFormat stores the
-            // engine-level WavetableOscillator::AdditivePartial (identical
-            // {h,a,phase} layout, different type) — convert station-wise.
-            std::vector<std::vector<dco::Partial>> stations;
-            stations.reserve(result.lcoStationsB.size());
-            for (const auto& station : result.lcoStationsB)
-            {
-                std::vector<dco::Partial> conv;
-                conv.reserve(station.size());
-                for (const auto& p : station)
-                    conv.push_back({ p.h, p.a, p.phase });
-                stations.push_back(std::move(conv));
-            }
-            processorRef.loadDcoAdditive(stations, result.lcoMotionRateHz);
-        }
-        processorRef.setDcoOscBalance(result.lcoOscAHasContent, result.lcoGainA,
-                                      result.lcoOscBHasContent, result.lcoGainB);
+        // The dual A+B oscillator's B half is dead (BJ 2026-07-17): an old
+        // preset restores only its A wavetable (above); any stationsB payload it
+        // still carries is parsed but never brought back to life.
         // Re-cache the RESTORED (not re-baked) values so an immediate re-save
         // round-trips without ever calling the LLM again.
         processorRef.setLcoBakeSnapshot(result.lcoPrompt, result.lcoReadingA, result.lcoReadingB,

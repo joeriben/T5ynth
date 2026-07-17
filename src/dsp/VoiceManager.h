@@ -142,17 +142,9 @@ public:
     // Release the per-voice sampler reclaim slots populated by morphToBufferFrom.
     // Off-thread only; sequence before the master republishes its snapshot.
     void drainRetiredSamplerSnapshots();
-    // masterOscB: the dual A+B oscillator's second, parallel master (docs:
-    // dual_osc_build_spec.md W1) — B is a mode of the SAME WavetableOscillator
-    // class as A (masterOsc), just fed via loadDcoAdditive instead of
-    // loadDcoWavetable. Every voice's oscB mirrors masterOscB exactly the way
-    // osc already mirrors masterOsc (share on adopt, morph on held-note
-    // regenerate). Passing an oscillator with no published bank is a safe
-    // no-op (shareFramesFrom/morphToFramesFrom both early-out on hasFrames()),
-    // so callers that only ever populate one master (e.g. neural extraction,
-    // which only ever touches masterOsc) pass the other through unchanged.
-    void distributeWavetableFrames(const WavetableOscillator& masterOsc,
-                                   const WavetableOscillator& masterOscB);
+    // A HELD wavetable-mode voice crossfade-adopts the new bank (morphToFramesFrom),
+    // an inactive voice shares it immediately; an empty master is a safe no-op.
+    void distributeWavetableFrames(const WavetableOscillator& masterOsc);
     // allowMorph=true lets a HELD granular voice crossfade-adopt the new buffer
     // (morphToBufferFrom, morphMs = Drift Crossfade) instead of clinging to the
     // old one. MUST be false at audio-thread call sites — morphToBufferFrom may
@@ -193,11 +185,6 @@ private:
     const float* tuningHz_ = nullptr;
     const SamplePlayer* currentSamplerMaster_ = nullptr;
     const WavetableOscillator* currentWavetableMaster_ = nullptr;
-    // Dual A+B (docs: dual_osc_build_spec.md) — B's master, mirrored the same
-    // way currentWavetableMaster_ (A) is; nullptr only before the very first
-    // distributeWavetableFrames call (mirrors currentWavetableMaster_'s own
-    // pre-first-call state).
-    const WavetableOscillator* currentWavetableMasterB_ = nullptr;
     const FreezeTextureEngine* currentFreezeMaster_ = nullptr;
     BlockParams currentBlockParams_;
     bool hasCurrentBlockParams_ = false;

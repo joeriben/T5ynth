@@ -385,30 +385,9 @@ bool PresetFormat::saveToFile(const juce::File& file, T5ynthProcessor& processor
             }
         }
 
-        if (processor.getLcoOscBHasContent())
-        {
-            std::vector<std::vector<WavetableOscillator::AdditivePartial>> sets;
-            float additiveGain = 1.0f;
-            if (processor.getMasterOscBConst().snapshotAdditiveBank(sets, additiveGain))
-            {
-                juce::Array<juce::var> stationsArr;
-                for (const auto& station : sets)
-                {
-                    juce::Array<juce::var> partArr;
-                    for (const auto& p : station)
-                    {
-                        juce::DynamicObject::Ptr pd = new juce::DynamicObject();
-                        pd->setProperty("h", static_cast<double>(p.h));
-                        pd->setProperty("a", static_cast<double>(p.a));
-                        pd->setProperty("phase", static_cast<double>(p.phase));
-                        partArr.add(pd.get());
-                    }
-                    stationsArr.add(partArr);
-                }
-                lco->setProperty("stationsB", stationsArr);
-                lco->setProperty("additiveGainB", static_cast<double>(additiveGain));
-            }
-        }
+        // The dual A+B oscillator's B half is dead (BJ 2026-07-17): B additive
+        // stations are no longer authored or exported. Old presets that still
+        // carry a stationsB block parse it (below) but it is never restored.
     }
 
     juce::String json = juce::JSON::toString(parsed, true);

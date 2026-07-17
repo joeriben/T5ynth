@@ -17,7 +17,6 @@
 #include "dsp/ConvolutionReverb.h"
 #include "dsp/AlgorithmicReverb.h"
 #include "dsp/Limiter.h"
-#include "dsp/DcoRecipe.h"   // dco::Partial for loadDcoAdditive (JUCE-free, lightweight)
 #include "sequencer/StepSequencer.h"
 #include "sequencer/GenerativeSequencer.h"
 #include "sequencer/Arpeggiator.h"
@@ -94,41 +93,6 @@ public:
      *  bake reverts the table to the neural material — known Slice-4 seam. */
     void loadDcoWavetable(const juce::AudioBuffer<float>& frameStrip,
                           float motionRateHz = 0.0f);
-
-    /** Load an INHARMONIC chain as a real-time additive bank of K index-aligned
-     *  stations (non-integer partial ratios a single looped wavetable cannot hold —
-     *  bells, metal, glass). Message thread. Mirrors loadDcoWavetable's engine-mode
-     *  stash, callback-lock discipline and held-voice crossfade
-     *  (distributeWavetableFrames), publishing an additive bank
-     *  (masterOscB.setAdditiveBank — dual A+B, docs: dual_osc_build_spec.md W1;
-     *  A/masterOsc is untouched by this call) instead of baked frames. K>=2
-     *  stations MOVE: the engine interpolates between them under DCO motion at
-     *  motionRateHz (mirror of loadDcoWavetable), so the Scan control and
-     *  EnvTarget::Scan drive inharmonic timbres too. K==1 is one static
-     *  spectrum — motion off, nothing to scan. Used for any all-Additive chain
-     *  with a non-integer partial; every other recipe still bakes a frame strip
-     *  through loadDcoWavetable. No-op on an empty station list. Callers that
-     *  route a genuine dual split must also call setDcoOscBalance afterwards —
-     *  this function alone does not touch the dcoOscAHasContent/
-     *  dcoOscBHasContent flags. */
-    void loadDcoAdditive(const std::vector<std::vector<dco::Partial>>& stationSets,
-                         float motionRateHz = 0.0f);
-
-    /** Set the dual A+B oscillator's R1 balance gains + per-oscillator
-     *  "current recipe published content here" flags (docs:
-     *  dual_osc_build_spec.md R1/W2). Called by the DCO router
-     *  (PromptPanel::triggerDcoBake) exactly once after each bake action —
-     *  A-only, B-only, or a genuine dual split — so the flags always
-     *  reflect what THIS recipe routed, never a stale bank left by an
-     *  earlier one. gainA/gainB are ignored (oscillators play solo at
-     *  unity) unless BOTH flags are true. A-only passes oscAHasContent=true,
-     *  oscBHasContent=false; B-only passes the reverse (this is the ONE
-     *  place oscAHasContent legitimately goes false — see dcoOscAHasContent_'s
-     *  member comment for why its idle/non-DCO default is true, not false).
-     *  Message thread only (same rule as loadDcoWavetable/loadDcoAdditive);
-     *  mirrored into BlockParams every block for SynthVoice::renderBlock. */
-    void setDcoOscBalance(bool oscAHasContent, float gainA,
-                          bool oscBHasContent, float gainB);
 
     /** Force the engine-mode parameter to Csound, stashing the engine the user
      *  was on beforehand into dcoPrevEngineMode_ — the EXACT SAME host-visible-
@@ -395,7 +359,6 @@ public:
     SamplePlayer& getSampler() { return masterSampler; }
     WavetableOscillator& getMasterOsc() { return masterOsc; }
     const WavetableOscillator& getMasterOscConst() const { return masterOsc; }
-    const WavetableOscillator& getMasterOscBConst() const { return masterOscB; }
 
     /** Re-extract wavetable frames using current bracket region. */
     void reextractWavetable();
@@ -504,15 +467,6 @@ private:
     static constexpr int kNumCsoundEngines = 2;
     CsoundEngine csoundEngines_[kNumCsoundEngines];
     std::atomic<int> csoundActiveIdx_ { 0 };
-    // Second, PARALLEL master oscillator for the dual A+B DCO build (docs:
-    // dual_osc_build_spec.md). masterOsc (A) stays the harmonic/neural
-    // wavetable exactly as before; masterOscB (B) is published ONLY by
-    // loadDcoAdditive (the real-time inharmonic additive bank) — never
-    // touched by neural extraction/sampler/freeze. A second, isolated
-    // instance rather than any change to the shared render/morph hot path
-    // (WavetableOscillator itself is untouched) — see the build spec's
-    // "second instance isolation over cleverness" decision.
-    WavetableOscillator masterOscB;
     // True while masterOsc holds a DCO-baked table (loadDcoWavetable) instead
     // of frames extracted from generated audio. Gates the per-block
     // syncWavetableTraversal in processBlock, which would otherwise re-derive
@@ -521,26 +475,6 @@ private:
     // loaders), audio thread reads relaxed. Any neural (re-)extraction into
     // masterOsc clears it.
     std::atomic<bool> dcoTableActive_ { false };
-    // Dual A+B balance state for the CURRENT DCO recipe (set by
-    // setDcoOscBalance, mirrored into BlockParams every block). See
-    // BlockParams.h's dcoGainA/dcoGainB/dcoOscAHasContent/dcoOscBHasContent
-    // for the full contract. Message thread writes, audio thread reads
-    // relaxed — same discipline as dcoTableActive_.
-    //
-    // Asymmetric defaults, and it's deliberate: masterOsc (A) is ALSO the
-    // plain neural/sampler-extraction target, so "A has content" must default
-    // to true (a session that never touches DCO at all must render A exactly
-    // as it always has — the hard bit-identical invariant). It only ever
-    // flips false for the narrow router case where a DCO recipe is active
-    // (dcoTableActive_) and chose to publish to B only (all-inharmonic
-    // recipe, H empty — "skip A"), so a STALE bake left in masterOsc by an
-    // earlier recipe doesn't leak into the mix under the new one. masterOscB
-    // (B) has NO non-DCO content source, so "B has content" correctly
-    // defaults to false — silent until a recipe actually publishes to it.
-    std::atomic<float> dcoGainA_ { 1.0f };
-    std::atomic<float> dcoGainB_ { 1.0f };
-    std::atomic<bool>  dcoOscAHasContent_ { true };
-    std::atomic<bool>  dcoOscBHasContent_ { false };
     // Engine mode the user was on before a DCO bake forced Lco, or -1.
     // The next fresh neural generation restores it (only if the mode is still
     // Wavetable or Lco, i.e. the user didn't pick another engine in between) so a

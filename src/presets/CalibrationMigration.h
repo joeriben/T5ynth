@@ -46,7 +46,15 @@ namespace Calibration
 //            (IndexRemap, not a rescale). Only the XML surfaces carry raw
 //            indices; the .t5p JSON stores key strings and maps removed keys
 //            via choiceFromKey's unknown-key fallback.
-inline constexpr int kEpoch = 3;
+//   Epoch 4: OscMix mod-target removed (2026-07-17, the dual A+B oscillator
+//            split is dead). OscMix was the LAST slot in both EnvTarget (16)
+//            and LfoTarget (15), so no other target's index shifts; a stored
+//            index of 16 (env target) / 15 (lfo target) — the only values that
+//            meant OscMix — remaps to None. Same two-surface handling as epoch
+//            3: the XML/DAW raw indices migrate via the IndexRemaps below; the
+//            .t5p JSON's now-unknown "osc_mix" key falls back to None via
+//            choiceFromKey.
+inline constexpr int kEpoch = 4;
 
 struct Rescale
 {
@@ -128,10 +136,20 @@ inline const std::array<CondRescale, 9>& condRescales()
 //            only kind that exists outside build_clean — no release carries
 //            the window). LESSON: bump kEpoch IN the commit that changes a
 //            table's meaning, never in a follow-up.
-inline const std::array<IndexRemap, 1>& indexRemaps()
+inline const std::array<IndexRemap, 7>& indexRemaps()
 {
-    static const std::array<IndexRemap, 1> table = { {
+    static const std::array<IndexRemap, 7> table = { {
         { PID::genCoordinationMode, 2, CoordinationMode::Independent, 3 },
+        // Epoch 4: a stored OscMix target → None. OscMix was the removed last
+        // slot: raw index 16 for env targets, 15 for lfo targets (the enum
+        // constants are gone, so these are the literal old stored values).
+        // minStored catches exactly that now-out-of-range index.
+        { PID::ampTarget,  16, EnvTarget::None, 4 },
+        { PID::mod1Target, 16, EnvTarget::None, 4 },
+        { PID::mod2Target, 16, EnvTarget::None, 4 },
+        { PID::lfo1Target, 15, LfoTarget::None, 4 },
+        { PID::lfo2Target, 15, LfoTarget::None, 4 },
+        { PID::lfo3Target, 15, LfoTarget::None, 4 },
     } };
     return table;
 }

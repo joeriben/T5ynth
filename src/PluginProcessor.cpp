@@ -1865,12 +1865,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout T5ynthProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{PID::wtAutoScan, 1}, "WT Auto Scan", true));
 
-    // Dual A+B DCO oscillator crossfade (docs: dual_osc_build_spec.md W2).
-    // A at 0.0, B at 1.0, equal-power; default 0.5 = natural R1 balance.
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{PID::oscMix, 1}, "Osc Mix",
-        juce::NormalisableRange<float>(0.0f, 1.0f), 0.5f));
-
     // Master volume: purely attenuative (0dB max). DAW fader handles boost.
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{PID::masterVol, 1}, "Master Volume",
@@ -1890,7 +1884,6 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     captureEventLogStartStateIfPending();
 
     masterOsc.prepare(sampleRate, samplesPerBlock);
-    masterOscB.prepare(sampleRate, samplesPerBlock);
 
     // Csound engine(s) (Phase-1 spec D9, extended Phase-2 spec S9): lazy
     // compile that never stalls a normal session load. csoundLifecycleMutex_
@@ -2131,7 +2124,6 @@ void T5ynthProcessor::releaseResources()
     {
         const juce::ScopedLock sl(getCallbackLock());
         masterOsc.reset();
-        masterOscB.reset();
         masterSampler.reset();
         masterFreeze.reset();
         voiceManager.reset();
@@ -3170,15 +3162,6 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     bp.noiseLevel = paramCache.noiseLevel->load();
     bp.noiseType = static_cast<int>(paramCache.noiseType->load());
 
-    // Dual A+B DCO oscillator (docs: dual_osc_build_spec.md). oscMix is a
-    // real APVTS control; gainA/gainB/hasContent are derived, router-set
-    // state mirrored from the processor's own atomics (filterDriveGain-style
-    // — NOT read from paramCache/APVTS, see setDcoOscBalance).
-    bp.oscMix = paramCache.oscMix->load();
-    bp.dcoGainA = dcoGainA_.load(std::memory_order_relaxed);
-    bp.dcoGainB = dcoGainB_.load(std::memory_order_relaxed);
-    bp.dcoOscAHasContent = dcoOscAHasContent_.load(std::memory_order_relaxed);
-    bp.dcoOscBHasContent = dcoOscBHasContent_.load(std::memory_order_relaxed);
     bp.driftCrossfade = paramCache.driftCrossfade->load();
 
     // Wavetable smooth
@@ -3839,13 +3822,11 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             // (morphToBufferFrom may free a retired snapshot off-thread). The
             // generation guard makes this a no-op when the buffer is unchanged.
             voiceManager.distributeFreezeBuffer(masterFreeze, 0.0f, false);
-        if (masterOsc.hasFrames() || masterOscB.hasFrames())
+        if (masterOsc.hasFrames())
         {
-            // With a DCO-baked table the traversal was set once by
+            // With a DCO/LCO-baked table the traversal was set once by
             // loadDcoWavetable (full-range motion loop) — re-deriving it from
             // the last neural sample's regions every block would clobber it.
-            // masterOscB is NEVER neural-extracted (only loadDcoAdditive ever
-            // publishes it), so syncWavetableTraversal only ever concerns A.
             if (!dcoTableActive_.load(std::memory_order_relaxed)
                 && generatedAudioFull.getNumSamples() > 0)
                 syncWavetableTraversal(generatedSampleRate, generatedAudioFull.getNumSamples());
@@ -3856,26 +3837,17 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 // not run through the full syncWavetableTraversal — that re-derives
                 // extract brackets and rate from the neural buffer, which do not apply
                 // to a DCO table. Mirror only the two live-adjustable controls every
-                // block: the One-shot/Loop/Ping-pong buttons and the AutoScan toggle;
-                // voices adopt both via distributeWavetableFrames below. LoopMode enum
-                // order matches BlockParams LoopMode (OneShot=0, Loop=1, PingPong=2).
-                // Rate is the recipe's motion tempo, set once at load (loadDcoWavetable
-                // / loadDcoAdditive) — there is no live rate control to mirror here.
-                // Mirrored onto BOTH masters: dcoTableActive_ is a single shared flag
-                // (true whenever EITHER loader published), and A/B must stay in
-                // AutoScan lockstep (dual_osc_build_spec.md SYNC) — a harmless no-op
-                // write on whichever of the two currently has no content.
+                // block: the One-shot/Loop/Ping-pong buttons and the AutoScan toggle.
+                // LoopMode enum order matches BlockParams LoopMode (OneShot=0, Loop=1,
+                // PingPong=2). Rate is the recipe's motion tempo, set once at load.
                 const auto dcoLoopMode = static_cast<WavetableOscillator::LoopMode>(
                     juce::jlimit(0, 2, static_cast<int>(paramCache.loopMode->load())));
                 const bool dcoAutoScanOn = paramCache.wtAutoScan->load() > 0.5f;
                 masterOsc.setAutoScanLoopMode(dcoLoopMode);
                 masterOsc.setAutoScan(dcoAutoScanOn);
-                masterOscB.setAutoScanLoopMode(dcoLoopMode);
-                masterOscB.setAutoScan(dcoAutoScanOn);
             }
             masterOsc.setMorphTimeMs(paramCache.driftCrossfade->load());
-            masterOscB.setMorphTimeMs(paramCache.driftCrossfade->load());
-            voiceManager.distributeWavetableFrames(masterOsc, masterOscB);
+            voiceManager.distributeWavetableFrames(masterOsc);
         }
 
         // Pre-compute global LFO values for the block (needed by VoiceManager)
@@ -5507,15 +5479,7 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
 
         dcoTableActive_.store(false, std::memory_order_relaxed);  // neural frames own masterOsc again
         clearLcoBakeSnapshot();  // masterOsc is neural again — an LCO save block would be stale
-        // Neural regen gives masterOsc fresh, definitely-not-stale content, so
-        // A plays (dcoOscAHasContent=true) — exactly the pre-dual
-        // single-oscillator path, bit-identical. masterOscB has no neural
-        // content source at all, so B is silenced: any leftover bank from an
-        // earlier DCO session must never bleed into this sound (see
-        // BlockParams.h's dcoOscAHasContent/dcoOscBHasContent for the full
-        // asymmetric-default contract).
-        dcoOscAHasContent_.store(true, std::memory_order_relaxed);
-        dcoOscBHasContent_.store(false, std::memory_order_relaxed);
+        // Neural regen gives masterOsc fresh, definitely-not-stale content.
         syncWavetableTraversal(sr, feedBuffer.getNumSamples());
         masterOsc.setMorphTimeMs(paramCache.driftCrossfade->load());
 
@@ -5523,7 +5487,7 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
         // crossfade onto the new snapshot on the next audio-thread distribute pass
         // (false here — off-thread morphing would race the lock-free reader).
         voiceManager.distributeSamplerBuffer(masterSampler, 0.0f, /*allowMorph=*/false);
-        voiceManager.distributeWavetableFrames(masterOsc, masterOscB);
+        voiceManager.distributeWavetableFrames(masterOsc);
         // New inference → held granular voices crossfade-adopt it live (near
         // real-time), mirroring distributeWavetableFrames above. Off the audio
         // thread (under getCallbackLock), so morphToBufferFrom is RT-safe here.
@@ -5631,11 +5595,7 @@ void T5ynthProcessor::loadDcoWavetable(const juce::AudioBuffer<float>& frameStri
         dcoTableActive_.store(true, std::memory_order_relaxed);
         // A HELD note plays the freshly baked table: active wavetable voices
         // equal-power crossfade over the Regen XFade time, silent voices adopt.
-        // masterOscB is untouched by THIS function (A stays bit-identical) —
-        // still passed through so a dual recipe's B stays correctly shared/
-        // morphed too (distributeWavetableFrames is a no-op on whichever
-        // master's generation is unchanged).
-        voiceManager.distributeWavetableFrames(masterOsc, masterOscB);
+        voiceManager.distributeWavetableFrames(masterOsc);
     }
 
     // Publish the baked strip for the engine-window WT display. Message thread
@@ -5646,171 +5606,6 @@ void T5ynthProcessor::loadDcoWavetable(const juce::AudioBuffer<float>& frameStri
     // extraction-region sample view never fires for the LCO.
     wtDisplaySnapshot.makeCopyOf(frameStrip);
     newWtDisplayReady.store(true, std::memory_order_release);
-}
-
-void T5ynthProcessor::loadDcoAdditive(const std::vector<std::vector<dco::Partial>>& stationSets,
-                                      float motionRateHz)
-{
-    // Message thread. An INHARMONIC chain (non-integer partial ratios) cannot be held
-    // by a single looped wavetable cycle, so it is published as a real-time additive
-    // bank of K index-aligned stations instead of baked frames. Publish discipline
-    // mirrors loadDcoWavetable exactly; the only difference from the baked path is the
-    // payload. K>=2 stations move under DCO motion at motionRateHz (spec §3); K==1 is
-    // a single static spectrum with motion off (no keyframes to scan).
-    if (stationSets.empty())
-        return;
-    // Belt-and-braces behind the router's alignment-contract check: an EMPTY station
-    // would collapse the engine's aligned index range to N==0 -> gain 0 -> a published
-    // bank of total silence. Refuse to publish instead (the router never lets this
-    // through; this guards any direct caller).
-    for (const auto& station : stationSets)
-        if (station.empty())
-            return;
-
-    // Convert each recipe station to the engine bank type. setAdditiveBank re-sanitizes
-    // h/a/phase, aligns the stations to a common index length N and drops non-positive
-    // h defensively — this copy just carries the values across, in wire order.
-    std::vector<std::vector<WavetableOscillator::AdditivePartial>> bank;
-    bank.reserve(stationSets.size());
-    for (const auto& station : stationSets)
-    {
-        std::vector<WavetableOscillator::AdditivePartial> conv;
-        conv.reserve(station.size());
-        for (const auto& p : station)
-            conv.push_back({ p.h, p.a, p.phase });
-        bank.push_back(std::move(conv));
-    }
-    const int numSets = static_cast<int>(bank.size());
-
-    // Same engine-mode stash as loadDcoWavetable: remember the pre-DCO engine so the
-    // next neural generation can restore it; a re-bake while the DCO is already
-    // active keeps the original stash.
-    {
-        const int cur = static_cast<int>(paramCache.engineMode->load());
-        if (cur != EngineMode::Lco)
-            dcoPrevEngineMode_ = cur;
-        else if (!dcoTableActive_.load(std::memory_order_relaxed))
-            dcoPrevEngineMode_ = -1;
-    }
-    if (auto* engineParam = parameters.getParameter(PID::engineMode))
-        engineParam->setValueNotifyingHost(
-            engineParam->convertTo0to1(static_cast<float>(EngineMode::Lco)));
-    // Movement by default — mirror of loadDcoWavetable's forced Loop write.
-    if (auto* loopParam = parameters.getParameter(PID::loopMode))
-        loopParam->setValueNotifyingHost(
-            loopParam->convertTo0to1(static_cast<float>(LoopMode::Loop)));
-    // Mirror of loadDcoWavetable's AutoScan host-visible write, only when there
-    // are stations to scan across (K>=2) — a K==1 static spectrum leaves the
-    // user's AutoScan preference untouched, exactly as before (K==1 never
-    // consumes scanNow, so the toggle has no audible effect either way).
-    if (numSets >= 2)
-    {
-        if (auto* autoScanParam = parameters.getParameter(PID::wtAutoScan))
-            autoScanParam->setValueNotifyingHost(1.0f);
-    }
-
-    // Dual A+B (docs: dual_osc_build_spec.md): loadDcoAdditive publishes into
-    // masterOscB, NOT masterOsc — A (masterOsc, loadDcoWavetable) and B
-    // (masterOscB, here) are two PARALLEL master oscillators now, so an
-    // inharmonic chain routed here never touches A's bank. This is the one
-    // behavior change from the pre-dual single-oscillator build; every voice
-    // adopt/share/morph site was mirrored to match (VoiceManager).
-    masterOscB.setAdditiveBank(bank);
-
-    {
-        // Guard engine-state mutation against the realtime callback (same rule as
-        // loadDcoWavetable / loadGeneratedAudio).
-        const juce::ScopedLock sl (getCallbackLock());
-
-        // K>=2 stations move: the engine interpolates between them under the recipe's
-        // motion tempo, through the SAME standard AutoScan transport loadDcoWavetable
-        // uses (the oscillator owns no private motion) — full range [0,1], Loop. The
-        // manual Scan control and the EnvTarget::Scan envelope drive inharmonic
-        // timbres too — the same movement as everywhere, no special path. K==1 is ONE
-        // static spectrum: nothing to scan, motion off (also stops any motion left
-        // from a prior DCO table). Falls back to 0.25 Hz when the recipe left rate
-        // unset — NOTE this fallback is a DIFFERENT constant from loadDcoWavetable's
-        // strip-length fallback; the router resolves ONE shared rate for a genuine
-        // dual split and passes it explicitly here, so this branch only actually
-        // improvises when B is the SOLE DCO oscillator (A untouched this call).
-        if (numSets >= 2)
-        {
-            masterOscB.setAutoScanLoop(0.0f, 1.0f, WavetableOscillator::LoopMode::Loop);
-            masterOscB.setAutoScanStartPos(0.0f);
-            masterOscB.setAutoScanRateHz(motionRateHz > 0.0f ? motionRateHz : 0.25f);
-            masterOscB.setAutoScan(true);
-        }
-        else
-        {
-            masterOscB.setAutoScan(false);
-        }
-        masterOscB.setMorphTimeMs(paramCache.driftCrossfade->load());
-        // Gate the per-block traversal re-sync BEFORE distributing, exactly as the
-        // baked path does, so no audio block re-derives neural scan brackets.
-        dcoTableActive_.store(true, std::memory_order_relaxed);
-        // A HELD note crossfades to the new bank over the Regen XFade (equal-power,
-        // table<->additive), silent voices adopt it — the documented held-note follow.
-        // masterOsc is untouched by THIS function (still passed through so a dual
-        // recipe's A stays correctly shared/morphed too, same no-op reasoning as
-        // loadDcoWavetable's mirrored call).
-        voiceManager.distributeWavetableFrames(masterOsc, masterOscB);
-    }
-
-    // Publish a display strip for the engine-window WT view: one fundamental period
-    // per station laid end-to-end (K*FRAME_SIZE), each period normalized like the
-    // former single image, so the engine-window 2.5D fan shows the stations honestly.
-    // NOT a closed single cycle for inharmonic h (it won't wrap seamlessly), but an
-    // honest picture of each station's spectral content. Message thread, allocation
-    // OK, OUTSIDE the callback lock — display data only.
-    const int frameSize = WavetableOscillator::FRAME_SIZE;
-    juce::AudioBuffer<float> display(1, numSets * frameSize);
-    auto* d = display.getWritePointer(0);
-    for (int s = 0; s < numSets; ++s)
-    {
-        const int base = s * frameSize;
-        float peak = 0.0f;
-        for (int i = 0; i < frameSize; ++i)
-        {
-            const double x = juce::MathConstants<double>::twoPi
-                           * static_cast<double>(i) / static_cast<double>(frameSize);
-            double sum = 0.0;
-            for (const auto& p : bank[static_cast<size_t>(s)])
-                if (p.h > 0.0f && std::isfinite(p.a) && std::isfinite(p.phase))  // match setAdditiveBank's guard so the picture is never NaN
-                    sum += static_cast<double>(p.a) * std::sin(static_cast<double>(p.h) * x
-                                                             + static_cast<double>(p.phase));
-            d[base + i] = static_cast<float>(sum);
-            peak = std::max(peak, std::fabs(d[base + i]));
-        }
-        if (peak > 1.0e-6f)
-            for (int i = 0; i < frameSize; ++i)
-                d[base + i] *= 0.95f / peak;
-    }
-    wtDisplaySnapshot.makeCopyOf(display);
-    newWtDisplayReady.store(true, std::memory_order_release);
-}
-
-void T5ynthProcessor::setDcoOscBalance(bool oscAHasContent, float gainA,
-                                       bool oscBHasContent, float gainB)
-{
-    // Message thread only (same rule as loadDcoWavetable / loadDcoAdditive).
-    // The DCO router (PromptPanel::triggerDcoBake) calls this exactly once
-    // after every bake action it dispatches — dual split, A-only, or B-only —
-    // so these 4 atomics always describe what THAT recipe routed, never a
-    // stale flag/gain left over from an earlier one (docs:
-    // dual_osc_build_spec.md R1/W2). Locked: SynthVoice re-arms its per-source
-    // gain glide (dcoSoloSmooth*/dcoDualSmooth*) whenever the recipe
-    // fingerprint — both flags + both gains — changes, so the 4 values must
-    // land as ONE consistent set relative to the per-block BlockParams mirror;
-    // a torn publish (e.g. flags updated but gains not yet, read mid-store)
-    // could trigger a spurious re-arm toward a half-old fingerprint.
-    // processBlock holds the callback lock on all shipped formats, so this
-    // ScopedLock provides exactly that block-boundary atomicity. Message
-    // thread, once per bake — cost is irrelevant.
-    const juce::ScopedLock sl (getCallbackLock());
-    dcoOscAHasContent_.store(oscAHasContent, std::memory_order_relaxed);
-    dcoOscBHasContent_.store(oscBHasContent, std::memory_order_relaxed);
-    dcoGainA_.store(gainA, std::memory_order_relaxed);
-    dcoGainB_.store(gainB, std::memory_order_relaxed);
 }
 
 void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& processed)
@@ -5878,16 +5673,10 @@ void T5ynthProcessor::reloadProcessedAudio(const juce::AudioBuffer<float>& proce
             dcoTableActive_.store(false, std::memory_order_relaxed);  // re-extracted from processed audio above
             clearLcoBakeSnapshot();
             // Neural extraction reclaims masterOsc with fresh, definitely-not-
-            // stale content, so A plays (dcoOscAHasContent=true) — same
-            // bit-identical reasoning as loadGeneratedAudio. masterOscB has no
-            // neural content source, so B is silenced regardless of whatever
-            // bank (if any) it's still holding from an earlier DCO recipe
-            // (dual A+B, docs: dual_osc_build_spec.md).
-            dcoOscAHasContent_.store(true, std::memory_order_relaxed);
-            dcoOscBHasContent_.store(false, std::memory_order_relaxed);
+            // stale content.
             syncWavetableTraversal(generatedSampleRate, waveformSnapshot.getNumSamples());
             masterOsc.setMorphTimeMs(paramCache.driftCrossfade->load());
-            voiceManager.distributeWavetableFrames(masterOsc, masterOscB);
+            voiceManager.distributeWavetableFrames(masterOsc);
         }
         // Reprocessed audio (e.g. Rumble/HF/Normalize changed) → held granular
         // voices crossfade-adopt it live, like Wavetable above. Off the audio
@@ -5995,14 +5784,10 @@ void T5ynthProcessor::reextractWavetable()
             dcoTableActive_.store(false, std::memory_order_relaxed);  // re-extracted from the snapshot above
             clearLcoBakeSnapshot();
             // Same neural-reclaims-masterOsc transition as reloadProcessedAudio /
-            // loadGeneratedAudio (dual A+B, docs: dual_osc_build_spec.md) — A
-            // plays (fresh content, bit-identical), B is silenced (no neural
-            // content source, so any leftover bank must not bleed in).
-            dcoOscAHasContent_.store(true, std::memory_order_relaxed);
-            dcoOscBHasContent_.store(false, std::memory_order_relaxed);
+            // loadGeneratedAudio: fresh content on A.
             syncWavetableTraversal(generatedSampleRate, waveformSnapshot.getNumSamples());
             masterOsc.setMorphTimeMs(paramCache.driftCrossfade->load());
-            voiceManager.distributeWavetableFrames(masterOsc, masterOscB);
+            voiceManager.distributeWavetableFrames(masterOsc);
         }
     }
 
@@ -6659,10 +6444,6 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     wt->setProperty("frames", choiceToKey(static_cast<int>(get(PID::wtFrames)), WtFrames::kEntries));
     wt->setProperty("smooth", get(PID::wtSmooth) > 0.5f);
     wt->setProperty("autoScan", get(PID::wtAutoScan) > 0.5f);
-    // Dual A+B DCO oscillator balance (H/I slider). A plain APVTS control —
-    // previously omitted here entirely, so it silently reset to its default
-    // on every preset reload regardless of engine mode.
-    wt->setProperty("oscMix", get(PID::oscMix));
     root->setProperty("wavetable", wt.get());
 
     // LCO/DCO bake — prompt, both readings, A/B balance and the router's own
@@ -7198,10 +6979,6 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         setParam(parameters, PID::wtSmooth, wt->getProperty("smooth") ? 1.0f : 0.0f);
         bool autoScan = wt->hasProperty("autoScan") ? static_cast<bool>(wt->getProperty("autoScan")) : true;
         setParam(parameters, PID::wtAutoScan, autoScan ? 1.0f : 0.0f);
-        // Old presets predate the H/I slider being saved — hasProperty-guarded
-        // so they keep the APVTS default (0.5) instead of an implicit 0.
-        if (wt->hasProperty("oscMix"))
-            setParam(parameters, PID::oscMix, static_cast<float>(wt->getProperty("oscMix")));
     }
     // LCO/DCO bake metadata — the frame/station payload itself is restored by
     // PresetFormat::loadFromFile's caller (it alone has the FLAC blob cursor);

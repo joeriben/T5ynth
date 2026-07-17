@@ -185,15 +185,6 @@ namespace PID {
     static constexpr const char* wtFrames         = "wt_frames";
     static constexpr const char* wtSmooth         = "wt_smooth";
     static constexpr const char* wtAutoScan       = "wt_auto_scan";
-    // Dual A+B DCO oscillator crossfade (docs: dual_osc_build_spec.md W2). A at
-    // 0.0, B at 1.0, equal-power. A = the baked wavetable (harmonic body); B =
-    // the real-time additive bank (inharmonic partials). Plumbed via the
-    // noise_level template. gainA/gainB (R1 energy/RMS balance) and the
-    // oscAHasContent/oscBHasContent solo-skip flags are NOT APVTS params —
-    // they are per-recipe derived state set by the DCO router
-    // (T5ynthProcessor::setDcoOscBalance) and mirrored into BlockParams like
-    // filterDriveGain, not user-automatable.
-    static constexpr const char* oscMix           = "osc_mix";
     static constexpr const char* freezeTexture    = "freeze_texture";
     static constexpr const char* freezeStereo     = "freeze_stereo";
     static constexpr const char* seqMode          = "seq_mode";
@@ -346,8 +337,7 @@ namespace EnvTarget {
         LFO2Rate = 12,
         LFO2Depth = 13,
         LFO3Rate = 14,
-        LFO3Depth = 15,
-        OscMix = 16
+        LFO3Depth = 15
     };
     static constexpr ChoiceEntry kEntries[] = {
         { "none",       "---"        },
@@ -365,11 +355,10 @@ namespace EnvTarget {
         { "lfo2_rate",  "LFO2 Rate"  },
         { "lfo2_depth", "LFO2 Amt" },
         { "lfo3_rate",  "LFO3 Rate"  },
-        { "lfo3_depth", "LFO3 Amt" },
-        { "osc_mix",    "Osc Mix" }
+        { "lfo3_depth", "LFO3 Amt" }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(OscMix + 1 == kCount,
+    static_assert(LFO3Depth + 1 == kCount,
                   "EnvTarget enum and kEntries are out of sync.");
 }
 
@@ -390,8 +379,7 @@ namespace LfoTarget {
         Env3Amt = 11,
         Drift1Depth = 12,
         Drift2Depth = 13,
-        Drift3Depth = 14,
-        OscMix = 15
+        Drift3Depth = 14
     };
     static constexpr ChoiceEntry kEntries[] = {
         { "none",       "---"       },
@@ -408,11 +396,10 @@ namespace LfoTarget {
         { "env3_amt",   "ENV3 Amt"  },
         { "drift1_depth","Drift1 Amt" },
         { "drift2_depth","Drift2 Amt" },
-        { "drift3_depth","Drift3 Amt" },
-        { "osc_mix",    "Osc Mix" }
+        { "drift3_depth","Drift3 Amt" }
     };
     static constexpr int kCount = sizeof(kEntries) / sizeof(kEntries[0]);
-    static_assert(OscMix + 1 == kCount,
+    static_assert(Drift3Depth + 1 == kCount,
                   "LfoTarget enum and kEntries are out of sync.");
 }
 
@@ -1451,47 +1438,11 @@ struct BlockParams
     float noiseLevel = 0.0f;      // 0-1 mix level
     int   noiseType = 0;          // NoiseType index
 
-    // Dual A+B DCO oscillator (docs: dual_osc_build_spec.md). oscMix: user
-    // APVTS control, A@0 -> B@1, equal-power at the SynthVoice render site.
-    // dcoGainA/dcoGainB: R1 energy/RMS balance ratio (headroom-scaled),
-    // computed once per DCO recipe bake by the PromptPanel router and
-    // mirrored here every block (filterDriveGain-style derived value — NOT
-    // user-facing).
-    //
-    // dcoOscAHasContent/dcoOscBHasContent, together with dcoGainA/dcoGainB and
-    // oscMix, choose each block's per-oscillator TARGET gain — they no longer
-    // gate synthesis directly. Solo (only one flag true) targets unity gain;
-    // dual (both true) targets equal-power oscMix × the R1 gain on each side.
-    // A false flag targets a gain of 0 for that oscillator — that 0-weight
-    // target, not a synthesis gate, is what now keeps a STALE bank
-    // (osc.hasFrames() / oscB.hasFrames(), which stay true on a bank left by
-    // an earlier recipe) from leaking into the mix. SynthVoice glides each
-    // oscillator's actually-emitted gain toward its target with a per-source
-    // juce::SmoothedValue (Linear) over BlockParams::driftCrossfade whenever
-    // the recipe fingerprint (both flags + both gains) changes, so a bake
-    // landing on a HELD note crossfades presence instead of hard-cutting
-    // (CLAUDE.md held-note invariant) — see SynthVoice::renderBlock.
-    //
-    // The two flags default asymmetrically and deliberately:
-    //  - dcoOscAHasContent defaults TRUE. masterOsc (A) is ALSO the plain
-    //    neural/sampler-extraction target, so a session that never touches
-    //    DCO must render A exactly as it always has (hard bit-identical
-    //    invariant). It only goes false for the narrow case where a DCO
-    //    recipe is active and chose to publish to B only (all-inharmonic
-    //    recipe, H empty — "skip A"), so a stale A bake can't leak into that
-    //    recipe's mix.
-    //  - dcoOscBHasContent defaults FALSE. masterOscB (B) has no non-DCO
-    //    content source at all, so "silent until a recipe actually publishes
-    //    to it" is simply correct, always.
-    float oscMix = 0.5f;
-    float dcoGainA = 1.0f;
-    float dcoGainB = 1.0f;
-    bool  dcoOscAHasContent = true;
-    bool  dcoOscBHasContent = false;
     // Drift Crossfade ("Regen XFade") APVTS value, mirrored each block. Sizes
-    // the per-source DCO gain glide in SynthVoice::renderBlock — the same time
-    // base the wavetable content morphs already use, so a recipe's presence
-    // change and its content change ride the same window.
+    // the held-note wavetable/freeze/sampler content morph in SynthVoice/
+    // VoiceManager — a bake landing on a HELD note crossfades onto the new
+    // bank over this window instead of hard-cutting (CLAUDE.md held-note
+    // invariant).
     float driftCrossfade = 200.0f;
 
     // Octave shift (-2..+2)

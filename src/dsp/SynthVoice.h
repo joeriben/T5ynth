@@ -106,16 +106,6 @@ public:
 
     // ── Access to sub-components ──
     WavetableOscillator& getOsc() { return osc; }
-    // Dual A+B DCO oscillator (docs: dual_osc_build_spec.md W1). B is a SECOND,
-    // PARALLEL instance of the same WavetableOscillator class as osc (A) — not
-    // a different engine. Fed exclusively from masterOscB via
-    // T5ynthProcessor::loadDcoAdditive; every VoiceManager adopt/share/morph
-    // site that touches osc mirrors the identical call onto oscB. When no DCO
-    // additive recipe has published a bank, oscB.hasFrames() is false and it
-    // renders silence — SynthVoice::renderBlock only ever reads it when
-    // BlockParams::dcoOscBHasContent is true, so an idle oscB costs nothing
-    // audible and the pre-existing single-oscillator path stays bit-identical.
-    WavetableOscillator& getOscB() { return oscB; }
     SamplePlayer& getSampler() { return sampler; }
     FreezeTextureEngine& getFreezeEngine() { return freezeEngine; }
     ADSREnvelope& getAmpEnvelope() { return ampEnv; }
@@ -143,22 +133,6 @@ public:
 
 private:
     WavetableOscillator osc;
-    // Dual A+B DCO oscillator's B instance (docs: dual_osc_build_spec.md W1) —
-    // see getOscB() above for the full rationale.
-    WavetableOscillator oscB;
-    // Per-source DCO mix weight, SUM-FORM: solo part (recipe base gain, live
-    // only for a solo recipe) + dual part (R1 gain, live only for the dual
-    // recipe) × per-sample equal-power mix position. Both parts glide
-    // Linear, so for a FIXED mix position the per-source weight is itself
-    // linear-in-t between any two recipe endpoints — no overshoot for any R1
-    // gains. (The prior PRODUCT form — baseGain(t)·(1 + d(t)·(eqp−1)) — was
-    // proved to swell measurably, up to +2.4 dB, on a dual->solo flip with an
-    // off-centre knob and dcoGainA > 1.) Re-arms over
-    // BlockParams::driftCrossfade when the recipe fingerprint (content flags +
-    // R1 gains) changes; oscMix moves inside an unchanged recipe keep the
-    // pre-existing instant per-block knob feel (the dual part carries the
-    // knob/modulation, the solo part carries unity).
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> dcoSoloSmoothA_, dcoDualSmoothA_, dcoSoloSmoothB_, dcoDualSmoothB_;
     // Csound engine frequency (Phase-1 spec D7): sample-accurate glide is not
     // achievable through a k-rate control channel, so glide in Csound mode is
     // a block-rate SmoothedValue here on the voice, advanced at channel-write
@@ -172,9 +146,6 @@ private:
     // naturally next to the other engine-ready flags. Never owned/freed here;
     // VoiceManager/CsoundEngine own the buffer's lifetime.
     const float* csoundBuf_ = nullptr;
-    bool  dcoSnapPending_ = true;   // fresh (non-legato) note: first block snaps gains to targets
-    bool  prevDcoFlagA_ = true,  prevDcoFlagB_ = false;
-    float prevDcoGainA_ = 1.0f, prevDcoGainB_ = 1.0f;
     SamplePlayer sampler;
     FreezeTextureEngine freezeEngine;
     ADSREnvelope ampEnv;
