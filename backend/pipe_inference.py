@@ -897,13 +897,14 @@ def _resolve_coder_model_dir(request):
         candidate = Path(explicit).expanduser()
         return candidate if _is_local_transformers_model_dir(candidate) else None
 
-    # mode=="dco" is a language-UNDERSTANDING task (dco_llm_map.llm_map_to_recipe
-    # reads the WHOLE prompt into lexicon keys), NOT a code-authoring one. The small
-    # coder drop under lco-coder/ empirically cannot interpret prompts — it dumps the
-    # catalogue instead — so when the 7B instruct interpreter is installed directly at
-    # the model root it is PREFERRED over the coder drop. The env overrides above stay
-    # supreme (a deployment that deliberately pins a coder still wins); a missing model
-    # still falls through to None below and the caller raises — there is NO fallback.
+    # mode=="csound" is a language-UNDERSTANDING task (the model reads the WHOLE
+    # prompt into lexicon keys from backend/csound_lexicon.py), NOT a code-authoring
+    # one. The small coder drop under lco-coder/ empirically cannot interpret
+    # prompts — it dumps the catalogue instead — so when the 7B instruct
+    # interpreter is installed directly at the model root it is PREFERRED over
+    # the coder drop. The env overrides above stay supreme (a deployment that
+    # deliberately pins a coder still wins); a missing model still falls through
+    # to None below and the caller raises — there is NO fallback.
     for base in _model_search_base_dirs():
         interpreter = base / "qwen2.5-7b-instruct"
         if _is_local_transformers_model_dir(interpreter):
@@ -3351,49 +3352,15 @@ def main():
                                        repetition_penalty=1.2, no_repeat_ngram_size=3))
                 continue
 
-            # LCO recipe author: the coder LLM authors a wavetable recipe from
-            # the prompt -- it plans 2-3 timbre STATIONS and emits one Csound GEN
-            # spectrum per station; lco_author maps each spectrum to an Additive
-            # keyframe (GEN10 harmonic / GEN09 inharmonic partials) and the
-            # station order to a Motion trajectory, which the C++ DcoBaker bakes.
-            # Like translate/interpret it has no audio-model dependency, so it is
-            # dispatched before audio-model routing. It NEEDS the coder model; if
-            # that is not installed the request raises and the outer try/except
-            # returns the standard \x00 error frame, exactly like translate. The
-            # per-station calls are greedy (deterministic within a device).
-            if request.get("mode") == "dco":
-                from lco_author import build_lco_response
-
-                t_device = request.get("device", default_device)
-                if t_device == "auto" or t_device not in devices:
-                    t_device = default_device
-                coder_dir = _resolve_coder_model_dir(request)
-                if coder_dir is None:
-                    raise RuntimeError("LCO coder model not installed (load it in Settings)")
-                coder_device = _translator_device(t_device)
-
-                def lco_llm(text, system_prompt, max_new_tokens,
-                            _dir=coder_dir, _dev=coder_device):
-                    """The single model surface lco_author needs: a greedy
-                    instruct call on the coder model."""
-                    return run_instruct(text, _dir, _dev, system_prompt,
-                                        max_new_tokens=max_new_tokens)
-
-                response = build_lco_response(request.get("text") or "", lco_llm,
-                                              frames=request.get("frames"))
-                send_text(json.dumps(response))
-                continue
-
             # Csound orchestra author (Phase 4, SPEC_phase4_5_csound_llm_preset.md):
-            # the prompt panel's LCO trigger now authors a Csound layer-spec instead
-            # of a wavetable bake -- the SAME instruct model (mode=="dco"'s coder/
-            # interpreter, resolved identically via _resolve_coder_model_dir) picks
-            # ONLY tool/character/motion/envelope KEYS from backend/csound_lexicon.py;
+            # the prompt panel's LCO trigger authors a Csound layer-spec -- the
+            # instruct model (resolved via _resolve_coder_model_dir) picks ONLY
+            # tool/character/motion/envelope KEYS from backend/csound_lexicon.py;
             # backend/csound_author.py parses+retries, then backend/csound_assembler.py
             # deterministically renders the orchestra text. No audio-model dependency,
-            # dispatched before audio-model routing like translate/interpret/dco/analyze
-            # above; a missing coder model raises the standard \x00 error frame, exactly
-            # like mode=="dco" -- LLM-FIRST, NO FALLBACK.
+            # dispatched before audio-model routing like translate/interpret/analyze
+            # above; a missing coder model raises the standard \x00 error frame --
+            # LLM-FIRST, NO FALLBACK.
             if request.get("mode") == "csound":
                 from csound_author import build_csound_response
 
