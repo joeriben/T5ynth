@@ -560,9 +560,13 @@ def _emit_orchestra(layers):
     lines.append("  ktimb    chnget Stimb")
     lines.append("  ktrigch  chnget Strig")
     lines.append("")
-    lines.append("  kgate    portk kgateraw, 0.008")
-    lines.append("  kfreq0   portk kfreqraw, 0.008")
-    lines.append("  kfreq    limit kfreq0, 20, 12000")
+    # Gate: 1 ms HALF-time = pure declick (portk's arg is HALF-time; 0.008
+    # audibly swallowed strike transients). Amplitude SHAPE is the synth
+    # ADSR's job outside the orchestra. Freq: NO smoothing -- a new note
+    # snaps (phase-continuous), the voice-level glide feature smooths at
+    # block rate; 0.008 here was an audible unordered portamento.
+    lines.append("  kgate    portk kgateraw, 0.001")
+    lines.append("  kfreq    limit kfreqraw, 20, 12000")
     lines.append("")
     lines.append("  ktrig    changed2 ktrigch")
     lines.append("  if ktrig == 1 then")

@@ -111,9 +111,19 @@ namespace
             "  ktimb    chnget Stimb\n"
             "  ktrigch  chnget Strig\n"
             "\n"
-            "  kgate    portk kgateraw, 0.008      ; declick the gate (D3)\n"
-            "  kfreq0   portk kfreqraw, 0.008       ; block-step glide smoothing (D7)\n"
-            "  kfreq    limit kfreq0, 20, 12000\n"
+            // Gate: 1 ms HALF-time = pure declick for the raw engine (guard
+            // tools drive it without the voice ADSR); in the plugin the DCA
+            // envelope shapes amplitude outside, so this must never act as an
+            // attack. 0.008 half-time audibly swallowed strike transients
+            // (BJ 2026-07-17: "kein Anschlag, ein Einschwingen") — portk's
+            // second arg is HALF-time, full settle ~7-10x that value.
+            // Freq: NO smoothing — a new note snaps (phase-continuous in the
+            // oscillators, so no click); 0.008 here was an unordered ~50 ms
+            // exponential portamento (BJ: "deutliches Portamento — entfernen").
+            // The voice-level SmoothedValue already smooths the actual glide
+            // feature at block rate.
+            "  kgate    portk kgateraw, 0.001      ; declick only, NOT an attack\n"
+            "  kfreq    limit kfreqraw, 20, 12000\n"
             "\n"
             "  ktrig    changed2 ktrigch            ; retrigger epoch (D8)\n"
             "  if ktrig == 1 then\n"
