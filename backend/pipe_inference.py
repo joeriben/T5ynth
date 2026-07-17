@@ -3384,6 +3384,38 @@ def main():
                 send_text(json.dumps(response))
                 continue
 
+            # Csound orchestra author (Phase 4, SPEC_phase4_5_csound_llm_preset.md):
+            # the prompt panel's LCO trigger now authors a Csound layer-spec instead
+            # of a wavetable bake -- the SAME instruct model (mode=="dco"'s coder/
+            # interpreter, resolved identically via _resolve_coder_model_dir) picks
+            # ONLY tool/character/motion/envelope KEYS from backend/csound_lexicon.py;
+            # backend/csound_author.py parses+retries, then backend/csound_assembler.py
+            # deterministically renders the orchestra text. No audio-model dependency,
+            # dispatched before audio-model routing like translate/interpret/dco/analyze
+            # above; a missing coder model raises the standard \x00 error frame, exactly
+            # like mode=="dco" -- LLM-FIRST, NO FALLBACK.
+            if request.get("mode") == "csound":
+                from csound_author import build_csound_response
+
+                t_device = request.get("device", default_device)
+                if t_device == "auto" or t_device not in devices:
+                    t_device = default_device
+                coder_dir = _resolve_coder_model_dir(request)
+                if coder_dir is None:
+                    raise RuntimeError("Csound author model not installed (load it in Settings)")
+                coder_device = _translator_device(t_device)
+
+                def csound_llm(text, system_prompt, max_new_tokens,
+                                _dir=coder_dir, _dev=coder_device):
+                    """The single model surface csound_author needs: a greedy
+                    instruct call on the coder/interpreter model."""
+                    return run_instruct(text, _dir, _dev, system_prompt,
+                                        max_new_tokens=max_new_tokens)
+
+                response = build_csound_response(request.get("text") or "", csound_llm)
+                send_text(json.dumps(response))
+                continue
+
             # CLAP machine-listening analysis: decode init_audio → top-k CLAP tags
             # + DSP spectral words, returned in ONE \x03 text frame as JSON. Like
             # translate/interpret it is dispatched BEFORE audio-model routing — it
