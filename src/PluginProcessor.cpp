@@ -417,14 +417,15 @@ T5ynthProcessor::~T5ynthProcessor()
     if (samplerReprepareThread.joinable())
         samplerReprepareThread.join();
 
-    // D9: join any in-flight background Csound compile (launched from
-    // handleAsyncUpdate on a live engine_mode switch into Csound) before
-    // csoundEngine — a member, destroyed after this body returns — goes away
-    // while that thread might still be calling into it. The thread handle is
-    // moved out UNDER the lifecycle mutex, but join() runs WITHOUT it: the
-    // compile thread itself acquires csoundLifecycleMutex_ for its work, so
-    // joining while holding it deadlocks if the thread was created but has
-    // not yet reached its lock (adversarial-review finding).
+    // D9 (extended Phase-2 S8): join any in-flight background Csound compile
+    // — whichever kind, a D9 bootstrap or a Phase-2 orchestra-swap compile,
+    // both share this one thread handle — before csoundEngines_ (members,
+    // destroyed after this body returns) go away while that thread might
+    // still be calling into one of them. The thread handle is moved out UNDER
+    // the lifecycle mutex, but join() runs WITHOUT it: the compile thread
+    // itself acquires csoundLifecycleMutex_ for its work, so joining while
+    // holding it deadlocks if the thread was created but has not yet reached
+    // its lock (adversarial-review finding).
     // cancelPendingUpdate() above already prevents a NEW compile from being
     // launched past this point.
     {
@@ -1891,22 +1892,25 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     masterOsc.prepare(sampleRate, samplesPerBlock);
     masterOscB.prepare(sampleRate, samplesPerBlock);
 
-    // Csound engine (Phase-1 spec D9): lazy compile that never stalls a normal
-    // session load. csoundLifecycleMutex_ (see its declaration comment in
-    // PluginProcessor.h) serializes this against handleAsyncUpdate's
-    // background-compile launch below — prepareToPlay is guaranteed NOT
-    // concurrent with processBlock, but is NOT guaranteed to run on the
-    // message thread (adversarial review: the Standalone wrapper's
-    // AudioProcessorPlayer calls it from the audio-device setup thread),
-    // so without this lock a live engine-mode switch racing a host
-    // prepareToPlay could enter csoundEngine.prepare() from two threads at
-    // once. Held for at most ~100ms, only in that rare interleaving.
+    // Csound engine(s) (Phase-1 spec D9, extended Phase-2 spec S9): lazy
+    // compile that never stalls a normal session load. csoundLifecycleMutex_
+    // (see its declaration comment in PluginProcessor.h) serializes this
+    // against handleAsyncUpdate's background-compile launches below —
+    // prepareToPlay is guaranteed NOT concurrent with processBlock, but is NOT
+    // guaranteed to run on the message thread (adversarial review: the
+    // Standalone wrapper's AudioProcessorPlayer calls it from the audio-device
+    // setup thread), so without this lock a live engine-mode switch or
+    // orchestra-swap racing a host prepareToPlay could enter an engine's
+    // prepare() from two threads at once. Held for at most ~100-400ms, only in
+    // that rare interleaving.
     {
-        // Join any in-flight background compile FIRST. This also IS the
-        // "generation/SR check after async completion" (D9b): if a host
-        // SR/buffer-size change lands mid-compile, this join waits it out,
-        // then the prepare() call below re-checks isReady() and recompiles
-        // at the (possibly new) sampleRate/samplesPerBlock.
+        // Join any in-flight background compile FIRST (whichever kind — D9
+        // bootstrap or a Phase-2 orchestra swap; both share this one thread
+        // handle). This also IS the "generation/SR check after async
+        // completion" (D9b): if a host SR/buffer-size change lands mid-compile,
+        // this join waits it out, then the prepare() call below re-checks
+        // isReady() and recompiles at the (possibly new)
+        // sampleRate/samplesPerBlock.
         // The join MUST run without holding csoundLifecycleMutex_: the compile
         // thread acquires that mutex for its work, so joining under it
         // deadlocks if the thread was created but has not yet reached its
@@ -1926,18 +1930,48 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
         // flag would break its single-launch guard.)
         std::lock_guard<std::mutex> csoundLock(csoundLifecycleMutex_);
 
+        // Phase-2 (S9): a swap that hasn't been consumed by processBlock yet is
+        // DROPPED here — the just-joined compile (if it was a swap) may have
+        // just published csoundSwapPending_, but the inactive engine it primed
+        // was prepared at the PRE-prepareToPlay sample rate/block size (only
+        // the ACTIVE engine is re-prepared, immediately below); resuming that
+        // stale compile into a fade after a real SR/buffer-size change would be
+        // wrong. Documented tradeoff (spec S9) — the UI/Phase 4 re-requests.
+        csoundSwapPending_.store(false, std::memory_order_release);
+        csoundSwapFading_.store(false, std::memory_order_release);
+        csoundFadePos_ = 0;
+        csoundFadeLen_ = 1;
+
         // (a): compile synchronously ONLY if a preset/session is loading
         // straight into Csound mode (~100ms once, off the audio thread) or the
         // instance is already prepared (an actual SR/buffer-size change here
         // is a real recompile). Every other case (starting in another engine
-        // mode) leaves csoundEngine untouched — selecting Csound later is what
-        // triggers the background compile path (b), via parameterChanged +
-        // handleAsyncUpdate below.
+        // mode) leaves the active engine untouched — selecting Csound later is
+        // what triggers the background compile path (b), via parameterChanged
+        // + handleAsyncUpdate below. Re-prepares with its CURRENT orchestra
+        // text (S2 keeps it via orchestraText(); empty = built-in) so an
+        // active custom orchestra survives a plain SR/buffer-size change — the
+        // INACTIVE engine is left exactly as it was (stays inert until the
+        // next swap, S9).
+        const int csoundActiveIdxAtLoad = csoundActiveIdx_.load(std::memory_order_relaxed);
+        auto& csoundActiveEngineAtLoad = csoundEngines_[csoundActiveIdxAtLoad];
+        const std::string activeOrchestraTextAtLoad = csoundActiveEngineAtLoad.orchestraText();
         const bool wantsCsoundAtLoad =
             static_cast<int>(paramCache.engineMode->load()) == static_cast<int>(EngineMode::Csound);
-        if (wantsCsoundAtLoad || csoundEngine.isReady())
-            csoundEngine.prepare(sampleRate, samplesPerBlock);
+        if (wantsCsoundAtLoad || csoundActiveEngineAtLoad.isReady())
+            csoundActiveEngineAtLoad.prepare(sampleRate, samplesPerBlock,
+                activeOrchestraTextAtLoad.empty() ? nullptr : activeOrchestraTextAtLoad.c_str());
     }
+
+    // Phase-2 fade mix buffers (spec S5/S8): preallocated here (message/setup
+    // thread) so the audio thread never allocates during a crossfade.
+    for (auto& buf : csoundMixBufs_)
+        buf.assign((size_t) samplesPerBlock, 0.0f);
+    // Per-sample equal-power gain scratch (adversarial-review finding, see
+    // this file's declaration comment in PluginProcessor.h) — same
+    // preallocate-here-never-on-the-audio-thread discipline as csoundMixBufs_.
+    csoundFadeGainNew_.assign((size_t) samplesPerBlock, 0.0f);
+    csoundFadeGainOld_.assign((size_t) samplesPerBlock, 0.0f);
 
     masterSampler.prepare(sampleRate, samplesPerBlock);
     masterFreeze.prepare(sampleRate, samplesPerBlock);
@@ -1993,6 +2027,47 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
         captureRing.clear();
         captureWritePos.store(0, std::memory_order_relaxed);
     }
+}
+
+bool T5ynthProcessor::requestCsoundOrchestra(const juce::String& orchestraText)
+{
+    // Message thread or background (Phase-2 spec S4) — NEVER the audio thread.
+    // getCallbackLock() below blocks until any in-progress processBlock call
+    // returns, exactly like every other message-thread voice-state reader in
+    // this file (distributeSamplerBuffer et al. — see their call sites'
+    // getCallbackLock comments): that lock is the host-provided processor
+    // callback boundary, not a NEW lock introduced on the audio thread itself,
+    // so taking it here does not violate the audio-thread RT rule — it only
+    // ever blocks the CALLER (this method), never processBlock.
+    float epochs[CsoundEngine::kMaxVoices];
+    float freqs[CsoundEngine::kMaxVoices];
+    {
+        const juce::ScopedLock sl(getCallbackLock());
+        // 1.0f mirrors processBlock's own bp.performancePitchRatio, which the
+        // Csound bridge has read unmodified straight off BlockParams' default
+        // since Phase 1 (see the writeCsoundControls call site in
+        // processBlock) — matching it here keeps a primed voice's freq
+        // consistent with what the real fade will write, not a Phase-2
+        // behavior change of its own.
+        voiceManager.snapshotCsoundState(epochs, freqs, 1.0f);
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(csoundLifecycleMutex_);
+        csoundPendingOrchestraText_ = orchestraText;
+        std::memcpy(csoundPendingEpochs_, epochs, sizeof(csoundPendingEpochs_));
+        std::memcpy(csoundPendingFreqs_, freqs, sizeof(csoundPendingFreqs_));
+        ++csoundSwapRequestGeneration_;
+    }
+
+    triggerAsyncUpdate();
+    return true;
+}
+
+juce::String T5ynthProcessor::csoundCompileError() const
+{
+    std::lock_guard<std::mutex> lock(csoundLifecycleMutex_);
+    return csoundCompileErrorText_;
 }
 
 void T5ynthProcessor::releaseResources()
@@ -3772,20 +3847,56 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             lfo3Buf[i] = l3;
         }
 
-        // Csound engine pump (Phase-1 spec §3/D2/D9): decided ONCE per block —
-        // reused by every per-segment write below and the end-of-block carry
-        // update, so the isReady() atomic load happens once, not per segment.
-        // False whenever the engine mode isn't Csound or the (possibly still
-        // background-compiling) engine isn't ready yet — the entire bridge is
-        // then completely inert, a single bool short-circuit, satisfying the
-        // audioIdle/performance gate's "zero new per-block cost in every other
-        // mode" requirement. startBlock() resets the engine's write position
-        // for this host block and replays any ksmps carry from the previous
-        // one (CsoundEngine's own bookkeeping) — placed next to the LFO fill
-        // above since neither depends on the sample-accurate MIDI split below.
-        const bool csoundActive = (bp.engineMode == EngineMode::Csound) && csoundEngine.isReady();
+        // Csound engine pump (Phase-1 spec §3/D2/D9, extended Phase-2 S1/S4/S5):
+        // decided ONCE per block — reused by every per-segment write below and
+        // the end-of-block carry update, so the isReady() atomic load happens
+        // once, not per segment. False whenever the engine mode isn't Csound or
+        // the (possibly still background-compiling) ACTIVE engine isn't ready
+        // yet — the entire bridge is then completely inert, a single bool
+        // short-circuit, satisfying the audioIdle/performance gate's "zero new
+        // per-block cost in every other mode" requirement.
+        //
+        // csoundActiveIdxNow is a LOCAL, mutable copy of csoundActiveIdx_: it
+        // only ever changes (to the other slot) at the exact sample where a
+        // running fade completes, later in this same function — so the rest of
+        // the block's rendering always indexes the CORRECT engine even across
+        // a mid-block flip (a fade completing partway through a MIDI-event-
+        // bounded sub-range never leaves later sub-ranges reading the OLD
+        // engine).
+        int csoundActiveIdxNow = csoundActiveIdx_.load(std::memory_order_acquire);
+        const bool csoundActive = (bp.engineMode == EngineMode::Csound)
+                                && csoundEngines_[csoundActiveIdxNow].isReady();
+
+        // Consume a compiled+primed swap (S4/S5) at the block's startBlock
+        // site: arm the fade (fadePos=0, fadeLen=driftCrossfade in samples,
+        // read ONCE here — a knob move mid-crossfade never retimes an
+        // in-progress fade, exactly like the other engines' own morph calls
+        // capture morphMs once at crossfade-start). Only when Csound is
+        // actually the live engine mode; a swap requested while some OTHER
+        // mode is selected stays queued untouched (picked up whenever the
+        // user switches back to Csound — the entire bridge is inert until then).
+        if (csoundActive && csoundSwapPending_.exchange(false, std::memory_order_acq_rel))
+        {
+            csoundFadePos_ = 0;
+            csoundFadeLen_ = juce::jmax(1, juce::roundToInt(bp.driftCrossfade * 0.001f * (float) getSampleRate()));
+            csoundSwapFading_.store(true, std::memory_order_release);
+        }
+
+        bool csoundFadingNow = csoundActive && csoundSwapFading_.load(std::memory_order_acquire);
+        const int csoundOtherIdx = 1 - csoundActiveIdxNow;   // only meaningful while csoundFadingNow
+
+        // startBlock() resets an engine's write position for this host block and
+        // replays any ksmps carry from the previous one (CsoundEngine's own
+        // bookkeeping) — placed next to the LFO fill above since neither
+        // depends on the sample-accurate MIDI split below. Both engines are
+        // pumped only while actually fading; a session that never swaps never
+        // touches the second engine at all (byte-identical to Phase 1).
         if (csoundActive)
-            csoundEngine.startBlock(numSamples);
+        {
+            csoundEngines_[csoundActiveIdxNow].startBlock(numSamples);
+            if (csoundFadingNow)
+                csoundEngines_[csoundOtherIdx].startBlock(numSamples);
+        }
 
         // LFO → normalized amount/depth targets (additive, clamped to 0–1)
         {
@@ -3853,32 +3964,142 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                     subEnd = juce::jmin((*midiIter).samplePosition, subEnd);
                 if (intIdx < internalNoteEvents_.size())
                     subEnd = juce::jmin(internalNoteEvents_[intIdx].sampleOffset, subEnd);
+                // Phase-2 (S5): never let a sub-range straddle the fade's
+                // completion point — the flip (csoundActiveIdx_/csoundSwapFading_,
+                // below) must land on an exact sample boundary, right after the
+                // LAST fading sub-range, so the very next sub-range in this same
+                // block (if any) already takes the plain non-fading path with
+                // the newly-active engine.
+                if (csoundFadingNow)
+                    subEnd = juce::jmin(subEnd, renderPos + (csoundFadeLen_ - csoundFadePos_));
 
                 // Render voices up to this point
                 int subLen = subEnd - renderPos;
                 if (subLen > 0)
                 {
-                    // Csound pump (D2): on-demand, right before this segment
-                    // renders — so gate/freq/vel/pres/timb/trig reflect every
-                    // event dispatched at renderPos, sample-accurate with the
-                    // MIDI split. samplesSinceLastWrite is the length of the
-                    // PRECEDING segment (renderPos minus the position of the
-                    // previous write), which is exactly how far the glide
-                    // smoother needs to advance to catch up to now, since the
-                    // orchestra held the last-written controls constant (via
-                    // its own portk) for that whole span. csoundLastWritePos_
-                    // carries across host-block boundaries as a negative
-                    // offset (see the end-of-loop update below).
                     if (csoundActive)
                     {
-                        voiceManager.writeCsoundControls(csoundEngine, bp.performancePitchRatio,
+                        // Csound pump (D2, extended S5/S6): on-demand, right
+                        // before this segment renders — so gate/freq/vel/pres/
+                        // timb/trig reflect every event dispatched at renderPos,
+                        // sample-accurate with the MIDI split. samplesSinceLastWrite
+                        // is the length of the PRECEDING segment (renderPos minus
+                        // the position of the previous write), which is exactly how
+                        // far the glide smoother needs to advance to catch up to
+                        // now, since the orchestra held the last-written controls
+                        // constant (via its own portk) for that whole span.
+                        // csoundLastWritePos_ carries across host-block boundaries
+                        // as a negative offset (see the end-of-loop update below).
+                        //
+                        // S6: writeCsoundControls advances the glide smoother ONCE
+                        // per call regardless of how many engines are fed — BOTH
+                        // engines during a fade get the identical, single-advance
+                        // control set (the "glide-double-advance trap").
+                        CsoundEngine* pumpEngines[2] = { &csoundEngines_[csoundActiveIdxNow], nullptr };
+                        int numPumpEngines = 1;
+                        if (csoundFadingNow)
+                        {
+                            pumpEngines[1] = &csoundEngines_[csoundOtherIdx];
+                            numPumpEngines = 2;
+                        }
+                        voiceManager.writeCsoundControls(pumpEngines, numPumpEngines, bp.performancePitchRatio,
                                                           renderPos - csoundLastWritePos_);
-                        csoundEngine.renderUpTo(subEnd - 1);
+                        for (int e = 0; e < numPumpEngines; ++e)
+                            pumpEngines[e]->renderUpTo(subEnd - 1);
                         csoundLastWritePos_ = renderPos;
+
+                        const float* csoundVoiceBufs[CsoundEngine::kMaxVoices];
+                        if (csoundFadingNow)
+                        {
+                            // Equal-power crossfade (S5): TRUE sin/cos of each
+                            // sample's ABSOLUTE fade position, computed ONCE per
+                            // sample (hoisted above the per-voice loop — every
+                            // voice shares the identical gain at a given sample,
+                            // so this runs subLen times total, never subLen x
+                            // kMaxVoices times). Equal-power (not the per-source-
+                            // SmoothedValue SUM form) is correct here: the two
+                            // orchestras are UNCORRELATED sources, exactly the
+                            // morphToBufferFrom situation (CLAUDE.md invariant).
+                            //
+                            // Adversarial-review finding, post-implementation: an
+                            // earlier version of this code computed sin/cos only
+                            // at the sub-range's start/end, then LINEARLY
+                            // interpolated per sample — which does NOT preserve
+                            // gNew^2+gOld^2==1 in the interior of a sub-range
+                            // (degrades toward a plain linear crossfade, a real
+                            // -3dB power dip at the segment midpoint, whenever a
+                            // sub-range spans a non-trivial arc of the quarter-
+                            // circle — e.g. the WHOLE 200ms fade in one sub-range
+                            // at a short Regen XFade time, or during an offline
+                            // bounce with a large host block). Computing sin/cos
+                            // directly per sample (hoisted above the voice loop)
+                            // is both genuinely equal-power AND cheaper than that
+                            // per-voice lerp was.
+                            for (int s = 0; s < subLen; ++s)
+                            {
+                                const float t = (float) (csoundFadePos_ + s) / (float) csoundFadeLen_;
+                                csoundFadeGainNew_[static_cast<size_t>(renderPos + s)] =
+                                    std::sin(t * juce::MathConstants<float>::halfPi);
+                                csoundFadeGainOld_[static_cast<size_t>(renderPos + s)] =
+                                    std::cos(t * juce::MathConstants<float>::halfPi);
+                            }
+
+                            CsoundEngine& oldEngine = csoundEngines_[csoundActiveIdxNow];
+                            CsoundEngine& newEngine = csoundEngines_[csoundOtherIdx];
+                            for (int vi = 0; vi < CsoundEngine::kMaxVoices; ++vi)
+                            {
+                                const float* oldBuf = oldEngine.voiceBuffer(vi);
+                                const float* newBuf = newEngine.voiceBuffer(vi);
+                                float* mix = csoundMixBufs_[static_cast<size_t>(vi)].data();
+                                for (int s = 0; s < subLen; ++s)
+                                {
+                                    const float gNew = csoundFadeGainNew_[static_cast<size_t>(renderPos + s)];
+                                    const float gOld = csoundFadeGainOld_[static_cast<size_t>(renderPos + s)];
+                                    const float o = oldBuf != nullptr ? oldBuf[renderPos + s] : 0.0f;
+                                    const float n = newBuf != nullptr ? newBuf[renderPos + s] : 0.0f;
+                                    mix[renderPos + s] = gOld * o + gNew * n;
+                                }
+                                csoundVoiceBufs[vi] = mix;
+                            }
+                        }
+                        else
+                        {
+                            for (int vi = 0; vi < CsoundEngine::kMaxVoices; ++vi)
+                                csoundVoiceBufs[vi] = csoundEngines_[csoundActiveIdxNow].voiceBuffer(vi);
+                        }
+
+                        voiceOut = voiceManager.renderBlock(buffer, bp,
+                            lfo1Buf + renderPos, lfo2Buf + renderPos, lfo3Buf + renderPos,
+                            renderPos, subLen, csoundVoiceBufs);
+
+                        if (csoundFadingNow)
+                        {
+                            csoundFadePos_ += subLen;
+                            if (csoundFadePos_ >= csoundFadeLen_)
+                            {
+                                // Fade complete exactly here: flip which engine is
+                                // active (S5), clear the fade state, and rebind the
+                                // LOCAL active-index copy so any remaining
+                                // sub-ranges later in this same block already use
+                                // the newly-active engine via the plain (non-
+                                // fading) path above. The old engine simply stops
+                                // being pumped — its instruments keep whatever
+                                // state they're in, irrelevant until it is
+                                // recompiled on the next swap.
+                                csoundActiveIdx_.store(csoundOtherIdx, std::memory_order_release);
+                                csoundSwapFading_.store(false, std::memory_order_release);
+                                csoundActiveIdxNow = csoundOtherIdx;
+                                csoundFadingNow = false;
+                                triggerAsyncUpdate();   // let a queued request (arrived during this fade) start
+                            }
+                        }
                     }
-                    voiceOut = voiceManager.renderBlock(buffer, bp,
-                        lfo1Buf + renderPos, lfo2Buf + renderPos, lfo3Buf + renderPos,
-                        renderPos, subLen, csoundActive ? &csoundEngine : nullptr);
+                    else
+                    {
+                        voiceOut = voiceManager.renderBlock(buffer, bp,
+                            lfo1Buf + renderPos, lfo2Buf + renderPos, lfo3Buf + renderPos,
+                            renderPos, subLen, static_cast<const float* const*>(nullptr));
+                    }
                 }
 
                 // Dispatch every event at this position, internal and external
@@ -7300,17 +7521,21 @@ void T5ynthProcessor::handleAsyncUpdate()
     // guards this entire join+launch-decision against prepareToPlay, which
     // is NOT guaranteed to run on this (message) thread — see the mutex's
     // declaration comment in PluginProcessor.h. The spawned thread below
-    // re-acquires the same mutex around its own csoundEngine.prepare() call
-    // so the two can never run concurrently; that inner lock is only briefly
-    // contended (waits out whichever prepare() call — this one's or
-    // prepareToPlay's — got there first), never held on the message thread
-    // for the actual ~100ms compile.
+    // re-acquires the same mutex around its own prepare() call so the two can
+    // never run concurrently; that inner lock is only briefly contended
+    // (waits out whichever prepare() call — this one's or prepareToPlay's —
+    // got there first), never held on the message thread for the actual
+    // ~100ms compile. Targets csoundEngines_[activeIdx] (Phase 2, S1) — a
+    // session that never calls requestCsoundOrchestra() never moves
+    // csoundActiveIdx_ off 0, so this is exactly Phase 1's single-engine
+    // bootstrap, just indexed.
     if (csoundWantsPrepare_.exchange(false, std::memory_order_acq_rel))
     {
         std::lock_guard<std::mutex> csoundLock(csoundLifecycleMutex_);
         const bool stillWantsCsound =
             static_cast<int>(paramCache.engineMode->load()) == static_cast<int>(EngineMode::Csound);
-        if (stillWantsCsound && ! csoundEngine.isReady()
+        const int activeIdx = csoundActiveIdx_.load(std::memory_order_relaxed);
+        if (stillWantsCsound && ! csoundEngines_[activeIdx].isReady()
             && ! csoundCompileInFlight_.load(std::memory_order_acquire))
         {
             // A std::thread object must be joined or detached before a new one
@@ -7325,13 +7550,93 @@ void T5ynthProcessor::handleAsyncUpdate()
             if (sr > 0.0 && blockSize > 0)
             {
                 csoundCompileInFlight_.store(true, std::memory_order_release);
-                csoundCompileThread_ = std::thread([this, sr, blockSize]
+                csoundCompileThread_ = std::thread([this, sr, blockSize, activeIdx]
                 {
                     {
                         std::lock_guard<std::mutex> lock(csoundLifecycleMutex_);
-                        csoundEngine.prepare(sr, blockSize);
+                        csoundEngines_[activeIdx].prepare(sr, blockSize);   // built-in orchestra
                     }
                     csoundCompileInFlight_.store(false, std::memory_order_release);
+                    // Phase-2 extension: a requestCsoundOrchestra() call that
+                    // arrived while this bootstrap compile ran would otherwise be
+                    // stranded (both job kinds share csoundCompileInFlight_) until
+                    // some UNRELATED async update happened to fire next. Re-check
+                    // now so a queued swap starts promptly.
+                    triggerAsyncUpdate();
+                });
+            }
+        }
+    }
+
+    // Csound orchestra swap (Phase-2 spec S4): decide whether to launch a NEW
+    // background compile for the latest requestCsoundOrchestra() call. Reuses
+    // the SAME csoundCompileThread_/csoundCompileInFlight_ as the bootstrap
+    // compile above — only one Csound compile (of either kind) runs at a time
+    // — and the SAME csoundLifecycleMutex_ serializes this against
+    // prepareToPlay exactly like the bootstrap path (S8: "extend it to cover
+    // both engines + the pending text"). Runs on every handleAsyncUpdate call
+    // (not gated behind midiLearnActive below), since triggerAsyncUpdate() is
+    // also how a fade-completion or a superseded compile re-arms this check.
+    {
+        std::lock_guard<std::mutex> csoundLock(csoundLifecycleMutex_);
+
+        const bool wantsNewSwapCompile = csoundSwapRequestGeneration_ != csoundSwapStartedGeneration_;
+        const bool freeToStartSwap = ! csoundCompileInFlight_.load(std::memory_order_acquire)
+                                   && ! csoundSwapPending_.load(std::memory_order_acquire)
+                                   && ! csoundSwapFading_.load(std::memory_order_acquire);
+
+        if (wantsNewSwapCompile && freeToStartSwap)
+        {
+            if (csoundCompileThread_.joinable())
+                csoundCompileThread_.join();
+
+            const double sr = getSampleRate();
+            const int blockSize = getBlockSize();
+            if (sr > 0.0 && blockSize > 0)
+            {
+                const uint64_t myGeneration = csoundSwapRequestGeneration_;
+                csoundSwapStartedGeneration_ = myGeneration;
+                // The engine that is INACTIVE right now — stable for the whole
+                // compile: csoundActiveIdx_ only ever flips at a fade's END, and
+                // freeToStartSwap above already guarantees no fade is running.
+                const int inactiveIdx = 1 - csoundActiveIdx_.load(std::memory_order_relaxed);
+                const juce::String textCopy = csoundPendingOrchestraText_;
+                std::array<float, CsoundEngine::kMaxVoices> epochsCopy, freqsCopy;
+                std::memcpy(epochsCopy.data(), csoundPendingEpochs_, sizeof(csoundPendingEpochs_));
+                std::memcpy(freqsCopy.data(), csoundPendingFreqs_, sizeof(csoundPendingFreqs_));
+
+                csoundCompileInFlight_.store(true, std::memory_order_release);
+                csoundCompileThread_ = std::thread([this, sr, blockSize, inactiveIdx, textCopy,
+                                                     epochsCopy, freqsCopy, myGeneration]
+                {
+                    bool ok = false;
+                    {
+                        std::lock_guard<std::mutex> lock(csoundLifecycleMutex_);
+                        ok = csoundEngines_[inactiveIdx].prepare(sr, blockSize,
+                                textCopy.isEmpty() ? nullptr : textCopy.toRawUTF8());
+                        if (ok)
+                            csoundEngines_[inactiveIdx].primeForTakeover(epochsCopy.data(), freqsCopy.data());
+                    }
+
+                    // Latest-wins (spec S4, guard case 6): if a NEWER request
+                    // arrived while this compiled, discard this result
+                    // unconditionally — even on success — and let the next
+                    // handleAsyncUpdate (triggered below) pick up the newer
+                    // text instead. Never publish a stale swap target.
+                    bool stillCurrent = false;
+                    {
+                        std::lock_guard<std::mutex> lock(csoundLifecycleMutex_);
+                        stillCurrent = (myGeneration == csoundSwapRequestGeneration_);
+                        if (stillCurrent)
+                            csoundCompileErrorText_ = ok ? juce::String()
+                                : juce::String("Csound orchestra compile failed (see console log)");
+                    }
+
+                    if (ok && stillCurrent)
+                        csoundSwapPending_.store(true, std::memory_order_release);
+
+                    csoundCompileInFlight_.store(false, std::memory_order_release);
+                    triggerAsyncUpdate();   // re-check: a newer request may be queued
                 });
             }
         }

@@ -461,14 +461,24 @@ private:
 
     // Master data holders (own the audio/frame data, voices share from these)
     WavetableOscillator masterOsc;
-    // Phase-1 Csound engine (spec docs/... SPEC_phase1_csound_engine.md): ONE
-    // processor-owned instance, 16 always-on gate-sustained instruments (one
-    // per voice slot). Value member — like masterOsc, it persists across
-    // prepareToPlay/releaseResources cycles (prepare() is idempotent/cheap
-    // when already prepared at the same sample rate, D9); its own header is a
-    // header-only inert stub when T5YNTH_HAS_CSOUND==0, so this member and
-    // every call site below compiles identically on every build/machine.
-    CsoundEngine csoundEngine;
+    // Csound engine(s) (spec docs/... SPEC_phase1_csound_engine.md,
+    // SPEC_phase2_csound_swap.md). Phase 2 (S1): TWO processor-owned instances
+    // — a new orchestra always compiles into the INACTIVE one and crossfades
+    // in over the Regen XFade time (driftCrossfade), the platform's held-note
+    // invariant (CLAUDE.md) applied to Csound. csoundActiveIdx_ says which is
+    // live; voices/the pump only ever see engines through this index (or,
+    // mid-fade, through csoundMixBufs_ below) — never a bare instance. Value
+    // members — like masterOsc, they persist across prepareToPlay/
+    // releaseResources cycles (prepare() is idempotent/cheap when already
+    // prepared at the same sample rate + orchestra text, D9); the header is a
+    // header-only inert stub when T5YNTH_HAS_CSOUND==0, so these members and
+    // every call site below compile identically on every build/machine. A
+    // session that never calls requestCsoundOrchestra() never moves
+    // csoundActiveIdx_ off 0 — engine 0 alone then behaves exactly like
+    // Phase 1's single `csoundEngine` member (byte-identical).
+    static constexpr int kNumCsoundEngines = 2;
+    CsoundEngine csoundEngines_[kNumCsoundEngines];
+    std::atomic<int> csoundActiveIdx_ { 0 };
     // Second, PARALLEL master oscillator for the dual A+B DCO build (docs:
     // dual_osc_build_spec.md). masterOsc (A) stays the harmonic/neural
     // wavetable exactly as before; masterOscB (B) is published ONLY by
@@ -547,17 +557,22 @@ private:
     // wrapper's AudioProcessorPlayer calls it from the audio-device setup
     // thread). handleAsyncUpdate's background-compile launch runs on the
     // message thread. Without a lock, those two could each end up calling
-    // csoundEngine.prepare() concurrently (one directly, one via the spawned
+    // an engine's prepare() concurrently (one directly, one via the spawned
     // thread) — a data race on Impl's csound*/ready state — and could also
     // race on csoundCompileThread_'s own join()/joinable()/operator= (calling
     // std::thread member functions concurrently on the same object from two
     // threads is itself UB, independent of what CsoundEngine does). This
     // mutex serializes: (a) all csoundCompileThread_ join/joinable/reassign
-    // sequences, and (b) every csoundEngine.prepare() call, from whichever
-    // thread makes it. Held for ~100ms at most, only in the rare interleaving
-    // where a live engine-mode switch and a host prepareToPlay overlap —
-    // never on the audio thread itself.
-    std::mutex csoundLifecycleMutex_;
+    // sequences, (b) every CsoundEngine::prepare() call on EITHER engine, from
+    // whichever thread makes it, and — Phase 2 (S8) — (c) every read/write of
+    // the pending orchestra-swap text/snapshot/generation counters just below
+    // (never touched by the audio thread at all: S8 "text/snapshot live
+    // entirely on the compile side"). Held for ~100ms-400ms at most (compile +
+    // the ~0.25s S3 prime, when a swap is involved), only in the rare
+    // interleaving where a live engine-mode switch / orchestra-swap request
+    // and a host prepareToPlay overlap — never on the audio thread itself.
+    // `mutable` so the const csoundCompileError() status accessor can lock it.
+    mutable std::mutex csoundLifecycleMutex_;
     std::thread csoundCompileThread_;
     std::atomic<bool> csoundCompileInFlight_ { false };
     std::atomic<bool> csoundWantsPrepare_ { false };
@@ -567,6 +582,55 @@ private:
     // for the tail of the previous block that had no further MIDI event to
     // trigger a write. Untouched (irrelevant) whenever engine mode isn't Csound.
     int csoundLastWritePos_ = 0;
+
+    // ── Csound orchestra swap (Phase-2 spec S4/S8) ──────────────────────────
+    // Pending request state: compile-thread-only data, guarded by
+    // csoundLifecycleMutex_ above, NEVER touched by the audio thread.
+    juce::String csoundPendingOrchestraText_;
+    float csoundPendingEpochs_[CsoundEngine::kMaxVoices] {};
+    float csoundPendingFreqs_[CsoundEngine::kMaxVoices] {};
+    // Bumped by requestCsoundOrchestra() on every call ("latest wins", S4);
+    // csoundSwapStartedGeneration_ is the generation the most recently
+    // LAUNCHED compile targeted. handleAsyncUpdate starts a new compile only
+    // when these differ (unconsumed request) and nothing else is in flight —
+    // a request arriving while an older one compiles or fades just re-writes
+    // the pending slot + bumps this counter; the in-flight/just-finished
+    // compile checks it again on completion and, if superseded, discards its
+    // own result (even on success) instead of publishing a stale target.
+    uint64_t csoundSwapRequestGeneration_ = 0;
+    uint64_t csoundSwapStartedGeneration_ = 0;
+    juce::String csoundCompileErrorText_;   // last failure (empty = none)
+
+    // Published by the compile thread on success (release); consumed by
+    // processBlock at the startBlock site (acquire) to arm the fade (S5).
+    std::atomic<bool> csoundSwapPending_ { false };
+    // Set/cleared by the audio thread ONLY (processBlock); read by the message
+    // thread for status display (csoundSwapFading()) and by handleAsyncUpdate
+    // to defer starting the next queued compile until the current fade ends
+    // (S4: "a request arriving during an active fade ... starts after the
+    // fade completes").
+    std::atomic<bool> csoundSwapFading_ { false };
+    // Audio-thread-owned fade position/length (processBlock only, never
+    // touched off that thread — no atomics needed for these two).
+    int csoundFadePos_ = 0;
+    int csoundFadeLen_ = 1;
+    // Fade mix buffers (S5/S8): preallocated in prepareToPlay (message
+    // thread), sized samplesPerBlock. mix[vi][startSample+i] = the crossfaded
+    // sample VoiceManager reads for voice vi during the ~200ms fade window —
+    // the ONLY per-block cost beyond Phase-1's is during that window.
+    std::array<std::vector<float>, CsoundEngine::kMaxVoices> csoundMixBufs_;
+    // Per-sample equal-power gain scratch (adversarial-review finding,
+    // post-implementation): TRUE sin/cos of each sample's ABSOLUTE fade
+    // position, computed ONCE per sample and shared across all
+    // kMaxVoices — never a per-(voice,sample) LINEAR interpolation of two
+    // endpoint sin/cos values, which does NOT preserve gNew^2+gOld^2==1 in
+    // the interior of a sub-range (degrades toward a plain linear crossfade,
+    // a real -3dB power dip at the segment midpoint, whenever a sub-range
+    // spans a non-trivial arc — e.g. the WHOLE 200ms fade in one sub-range at
+    // a short Regen XFade time, or during an offline bounce with a large host
+    // block). Preallocated here so the audio thread never allocates.
+    std::vector<float> csoundFadeGainNew_;
+    std::vector<float> csoundFadeGainOld_;
 
     // DSP — global (shared across voices, post-sum)
     LFO lfo1;
@@ -1167,6 +1231,26 @@ public:
     float getMidiClockBpm()    const noexcept;
     bool  isMidiClockEnabled() const noexcept;
     void  setMidiClockEnabled(bool e);
+
+    // ── Csound orchestra swap (Phase-2 spec S4) — message thread or background,
+    // NEVER the audio thread ─────────────────────────────────────────────────
+    // Compiles `orchestraText` into the currently-inactive Csound engine on the
+    // existing D9 background-compile machinery, primes it (S3) so a held note's
+    // takeover doesn't re-strike, then hands off to processBlock's crossfade
+    // (S5) over the Regen XFade time (driftCrossfade). Always accepted: a
+    // request arriving while another compiles or fades is queued/supersedes the
+    // previous one (latest-wins, S4) — poll the status accessors below for the
+    // outcome. Returns false only if the snapshot/queueing itself couldn't be
+    // taken (should not happen in practice).
+    bool requestCsoundOrchestra(const juce::String& orchestraText);
+    /** Message thread: last compile failure text (empty = none, or the last
+     *  request succeeded). */
+    juce::String csoundCompileError() const;
+    /** Message thread: a compiled+primed orchestra is waiting for processBlock
+     *  to consume it and start the fade. */
+    bool csoundSwapPending() const { return csoundSwapPending_.load(std::memory_order_acquire); }
+    /** Message thread: the audio thread is actively crossfading orchestras right now. */
+    bool csoundSwapFading() const { return csoundSwapFading_.load(std::memory_order_acquire); }
 
 
 private:

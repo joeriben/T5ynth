@@ -570,6 +570,24 @@ VoiceManager::VoiceOutput VoiceManager::renderBlock(
     const float* lfo1Buf, const float* lfo2Buf, const float* lfo3Buf,
     int startSample, int numSamples, const CsoundEngine* cs)
 {
+    // Back-compat single-engine convenience (Phase-1 call sites): builds the
+    // per-voice pointer array cs->voiceBuffer(vi) once and forwards. Mirrors
+    // exactly what this function used to compute inline, per voice, below.
+    if (cs == nullptr)
+        return renderBlock(buffer, bp, lfo1Buf, lfo2Buf, lfo3Buf, startSample, numSamples,
+                            static_cast<const float* const*>(nullptr));
+
+    const float* bufs[CsoundEngine::kMaxVoices];
+    for (int vi = 0; vi < CsoundEngine::kMaxVoices; ++vi)
+        bufs[vi] = cs->voiceBuffer(vi);
+    return renderBlock(buffer, bp, lfo1Buf, lfo2Buf, lfo3Buf, startSample, numSamples, bufs);
+}
+
+VoiceManager::VoiceOutput VoiceManager::renderBlock(
+    juce::AudioBuffer<float>& buffer, const BlockParams& bp,
+    const float* lfo1Buf, const float* lfo2Buf, const float* lfo3Buf,
+    int startSample, int numSamples, const float* const* csoundVoiceBufs)
+{
     VoiceOutput out;
 
     // Early exit when no voices are active — buffer already cleared by caller
@@ -625,14 +643,15 @@ VoiceManager::VoiceOutput VoiceManager::renderBlock(
         // adversarial review); voices >= kMaxVoices simply keep rendering
         // silently (null csoundBuf, SynthVoice's own safety net) until they
         // end — no forced note-off on an engine switch, ever, in this codebase.
-        // cs->voiceBuffer(vi) is block-aligned (starts at sample 0 of THIS
-        // host block), unlike lfo1Buf/lfo2Buf/lfo3Buf above which the caller
-        // already offset by startSample — so the +startSample offset is
-        // applied here, once, matching what those buffers already reflect.
+        // csoundVoiceBufs[vi] is block-aligned (starts at sample 0 of THIS
+        // host block, Phase-2 spec S7), unlike lfo1Buf/lfo2Buf/lfo3Buf above
+        // which the caller already offset by startSample — so the
+        // +startSample offset is applied here, once, matching what those
+        // buffers already reflect.
         const float* csoundVoiceBuf = nullptr;
-        if (cs != nullptr && vi < CsoundEngine::kMaxVoices)
+        if (csoundVoiceBufs != nullptr && vi < CsoundEngine::kMaxVoices)
         {
-            if (const float* base = cs->voiceBuffer(vi))
+            if (const float* base = csoundVoiceBufs[vi])
                 csoundVoiceBuf = base + startSample;
         }
         v.renderBlock(scratch, scratchRight, performanceParams, lfo1Buf, lfo2Buf, lfo3Buf, numSamples,
@@ -735,16 +754,25 @@ VoiceManager::VoiceOutput VoiceManager::renderBlock(
     return out;
 }
 
-void VoiceManager::writeCsoundControls(CsoundEngine& cs, float performancePitchRatio,
-                                       int samplesSinceLastWrite)
+void VoiceManager::writeCsoundControls(CsoundEngine* const* engines, int numEngines,
+                                       float performancePitchRatio, int samplesSinceLastWrite)
 {
-    // Phase-1 spec §3/D2: publishes CURRENT voice state to the orchestra's
-    // cached channels, right before the processor pumps csoundPerformKsmps
-    // forward — so gate/freq/vel/pres/timb/trig always reflect every event
-    // dispatched so far this block. Only voices 0..kMaxVoices-1 have a
-    // Csound instrument at all (D1's fixed 16-voice orchestra); voices beyond
-    // that are silently skipped here (they still render — silently — via
-    // SynthVoice's own null-csoundBuf_ safety net until they end).
+    // Phase-1 spec §3/D2 (extended Phase-2 spec S6): publishes CURRENT voice
+    // state to the orchestra's cached channels, right before the processor
+    // pumps csoundPerformKsmps forward — so gate/freq/vel/pres/timb/trig
+    // always reflect every event dispatched so far this block. Only voices
+    // 0..kMaxVoices-1 have a Csound instrument at all (D1's fixed 16-voice
+    // orchestra); voices beyond that are silently skipped here (they still
+    // render — silently — via SynthVoice's own null-csoundBuf_ safety net
+    // until they end).
+    //
+    // S6: readCsoundFreq() ADVANCES the per-voice glide smoother by
+    // samplesSinceLastWrite — it must be called exactly ONCE per write point,
+    // never once per engine, or a two-engine crossfade would advance the
+    // glide twice as fast as a single-engine write (subtle, audible). Compute
+    // each voice's controls ONCE here, then fan the SAME values out to every
+    // engine in `engines` (numEngines is 1 during normal play, 2 while
+    // crossfading to a new orchestra).
     for (int vi = 0; vi < CsoundEngine::kMaxVoices; ++vi)
     {
         auto& v = voices[static_cast<size_t>(vi)];
@@ -768,7 +796,39 @@ void VoiceManager::writeCsoundControls(CsoundEngine& cs, float performancePitchR
         // step, not the absolute value.
         c.trigEpoch = static_cast<float>(v.triggerEpoch % 1000000ULL);
 
-        cs.setVoiceControls(vi, c);
+        for (int e = 0; e < numEngines; ++e)
+            if (engines[e] != nullptr)
+                engines[e]->setVoiceControls(vi, c);
+    }
+}
+
+void VoiceManager::writeCsoundControls(CsoundEngine& cs, float performancePitchRatio,
+                                       int samplesSinceLastWrite)
+{
+    // Back-compat single-engine convenience (Phase-1 call sites, e.g.
+    // tools/audition_csound_engine.cpp) — forwards to the array form above
+    // with numEngines=1, so the single-advance guarantee (S6) applies here too.
+    CsoundEngine* engines[1] = { &cs };
+    writeCsoundControls(engines, 1, performancePitchRatio, samplesSinceLastWrite);
+}
+
+void VoiceManager::snapshotCsoundState(float epochsOut[], float freqsOut[],
+                                       float performancePitchRatio)
+{
+    // Phase-2 (spec S3/S4): read-only snapshot for CsoundEngine::primeForTakeover,
+    // captured by the requester (PluginProcessor::requestCsoundOrchestra, message
+    // thread, under getCallbackLock — never the audio thread). readCsoundFreq(0)
+    // is a pure peek: samplesToAdvance<=0 skips the smoother's .skip() call (see
+    // its own header comment), so this never advances glide state and is safe to
+    // call off the audio thread. Mirrors writeCsoundControls' formula exactly so a
+    // primed voice's freq matches what the real fade will write moments later.
+    for (int vi = 0; vi < CsoundEngine::kMaxVoices; ++vi)
+    {
+        auto& v = voices[static_cast<size_t>(vi)];
+        epochsOut[vi] = static_cast<float>(v.triggerEpoch % 1000000ULL);
+        freqsOut[vi]  = v.readCsoundFreq(0)
+                      * performancePitchRatio
+                      * std::exp2(v.getPerVoicePitchBend() / 12.0f);
     }
 }
 

@@ -84,8 +84,20 @@ public:
     /** Render all active voices into buffer (summed with 1/sqrt(N) scaling).
      *  Global LFOs are ticked externally; their per-sample values are passed in.
      *  startSample: offset into the output buffer (for sample-accurate rendering).
-     *  cs: the processor-owned CsoundEngine (Phase-1 spec §3), nullptr in every
-     *  non-Csound mode / not-yet-ready state — the whole bridge is then inert. */
+     *  csoundVoiceBufs: per-voice block-aligned Csound render buffers (Phase-2 spec
+     *  S7), entry vi = the buffer SynthVoice vi reads (nullptr entry = silence for
+     *  that voice); VoiceManager adds startSample itself, exactly as before. The
+     *  array pointer itself is nullptr in every non-Csound mode / not-yet-ready
+     *  state — the whole bridge is then inert. The processor builds this array
+     *  from the active engine's own voiceBuffer()s during normal play, or from its
+     *  csoundMixBufs_ while crossfading to a new orchestra (S5). */
+    VoiceOutput renderBlock(juce::AudioBuffer<float>& buffer, const BlockParams& bp,
+                            const float* lfo1Buf, const float* lfo2Buf, const float* lfo3Buf,
+                            int startSample, int numSamples, const float* const* csoundVoiceBufs);
+
+    /** Back-compat single-engine convenience (Phase-1 call sites, e.g.
+     *  tools/audition_csound_engine.cpp): builds the per-voice pointer array from
+     *  `cs` (nullptr = no csound) and forwards to the array-based overload above. */
     VoiceOutput renderBlock(juce::AudioBuffer<float>& buffer, const BlockParams& bp,
                             const float* lfo1Buf, const float* lfo2Buf, const float* lfo3Buf,
                             int startSample, int numSamples, const CsoundEngine* cs = nullptr);
@@ -100,6 +112,23 @@ public:
     // D1); voices beyond that are simply not written here (they keep rendering
     // silently via SynthVoice's null-csoundBuf_ safety net until they end).
     void writeCsoundControls(CsoundEngine& cs, float performancePitchRatio, int samplesSinceLastWrite);
+    // Phase-2 (spec S6): computes each voice's CURRENT control values ONCE
+    // (advancing the per-voice glide smoother exactly once, regardless of how
+    // many engines are being fed), then applies them to every engine in
+    // `engines` — numEngines is 1 during normal play, 2 while crossfading to a
+    // new orchestra (S5). Calling the single-engine overload above twice per
+    // write point would advance the glide smoother twice as fast — the
+    // "double-advance" trap S6 warns about — so the fade path MUST go through
+    // this overload instead.
+    void writeCsoundControls(CsoundEngine* const* engines, int numEngines,
+                             float performancePitchRatio, int samplesSinceLastWrite);
+    // Phase-2 (spec S3/S4): read-only snapshot of every voice's current trigger
+    // epoch + effective Csound frequency, for CsoundEngine::primeForTakeover.
+    // Does NOT advance the glide smoother (readCsoundFreq(0) is a pure peek —
+    // see its own header comment). Callers off the audio thread MUST hold
+    // getCallbackLock() first, exactly like every other message-thread
+    // voice-state reader in this class (distributeSamplerBuffer et al.).
+    void snapshotCsoundState(float epochsOut[], float freqsOut[], float performancePitchRatio);
 
     // ── Engine data distribution ──
     void setEngineMode(SynthVoice::EngineMode mode);

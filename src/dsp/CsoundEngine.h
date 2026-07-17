@@ -1,10 +1,19 @@
 #pragma once
 #include <memory>
+#include <string>
 
 /**
  * Phase-1 Csound engine — one processor-owned Csound instance running 16
  * always-on, gate-sustained instruments (one per voice slot), driven purely
  * by named control channels the audio thread writes every sub-block.
+ *
+ * Phase 2 (SPEC_phase2_csound_swap.md) adds a swappable orchestra: prepare()
+ * takes an optional orchestra-text override (nullptr = the Phase-1 built-in),
+ * orchestraText() reports whichever text is currently compiled, and
+ * primeForTakeover() silently settles a freshly-compiled instance's retrigger
+ * state so a HELD note's later takeover doesn't audibly re-strike (S3). The
+ * processor (PluginProcessor.h/.cpp) owns TWO of these and crossfades between
+ * them; this class itself still only ever knows about ONE Csound instance.
  *
  * This header is compiled on EVERY platform/build and must never #include a
  * csound header (csound/sysdep.h leaks LIKELY, UNLIKELY, DIRSEP, the
@@ -29,11 +38,26 @@ public:
     CsoundEngine();
     ~CsoundEngine();
 
-    // Message/setup thread only (prepareToPlay). Compiles the hard-wired orchestra at this
-    // sample rate, runs the warmup (D4), resolves all channel pointers. Returns false on any
-    // failure (missing framework at runtime cannot happen — link-time — but compile errors
-    // must be loud in DBG and leave the engine inert, never half-armed).
-    bool prepare (double sampleRate, int maxBlockSize);
+    // Message/setup thread only (prepareToPlay, or the D9 background-compile thread).
+    // Compiles the orchestra at this sample rate, runs the warmup (D4), resolves all
+    // channel pointers. orchestraText == nullptr (default) compiles the Phase-1
+    // built-in orchestra, unchanged from before Phase 2; a non-null string is compiled
+    // verbatim (a full CSD, following the Phase-1 channel/instrument contract — the
+    // caller/assembler guarantees that, Phase 3; this method only cares that it
+    // compiles and all 16x6 channels resolve). An explicit orchestraText always forces
+    // a genuine (re)compile even at an unchanged sample rate — the D9 "already
+    // prepared, just grow the buffers" fast path only ever applies when the text is
+    // the SAME as whatever is currently compiled (see orchestraText() below), so an
+    // orchestra-swap request can never be silently swallowed by that fast path.
+    // Returns false on any failure (missing framework at runtime cannot happen —
+    // link-time — but compile errors must be loud in DBG and leave the engine inert,
+    // never half-armed, and must never disturb whatever was compiled before).
+    bool prepare (double sampleRate, int maxBlockSize, const char* orchestraText = nullptr);
+
+    // Currently compiled orchestra text (Phase-2 spec S2): empty when the built-in
+    // orchestra is active. Message/compile-thread only (Phase 5 preset save reads
+    // this off the message thread; never called from the audio thread).
+    const std::string& orchestraText() const;
 
     bool isReady() const;
 
@@ -46,6 +70,17 @@ public:
     void startBlock (int numSamples);            // begins a new host block (resets write pos, replays carry)
     const float* voiceBuffer (int voiceIndex) const;  // block-aligned, sized maxBlockSize
     // ------------------------------------------------------------------------------------
+
+    // Message/compile-thread only (Phase-2 spec S3): call AFTER a successful prepare()
+    // and BEFORE this engine is published as a swap target. Seeds every voice's
+    // trig+freq channel from the snapshot (epochs[kMaxVoices], freqs[kMaxVoices]; gates
+    // stay 0, whatever prepare()'s warmup left them at), then pumps ~0.25s of ksmps,
+    // discarding the output. Rationale: warmup leaves trig=0, so the FIRST real
+    // channel write after a takeover would flip 0->epoch, changed2() would fire, and a
+    // HELD note would audibly re-strike at the swap point. Priming fires that strike
+    // silently (gate closed) and lets portk/the strike envelopes settle before the
+    // real, audible gate-open ever happens. Never called on the audio thread.
+    void primeForTakeover (const float* epochs, const float* freqs);
 
 private:
     struct Impl;                 // owns CSOUND*, spout ptr, channel MYFLT* [16][6], FIFO carry
@@ -72,11 +107,17 @@ struct CsoundEngine::Impl {};
 inline CsoundEngine::CsoundEngine() = default;
 inline CsoundEngine::~CsoundEngine() = default;
 
-inline bool CsoundEngine::prepare (double, int) { return false; }
+inline bool CsoundEngine::prepare (double, int, const char*) { return false; }
+inline const std::string& CsoundEngine::orchestraText() const
+{
+    static const std::string kEmpty;
+    return kEmpty;
+}
 inline bool CsoundEngine::isReady() const { return false; }
 inline void CsoundEngine::setVoiceControls (int, const VoiceControls&) {}
 inline void CsoundEngine::renderUpTo (int) {}
 inline void CsoundEngine::startBlock (int) {}
+inline void CsoundEngine::primeForTakeover (const float*, const float*) {}
 
 inline const float* CsoundEngine::voiceBuffer (int) const
 {

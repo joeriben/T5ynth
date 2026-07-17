@@ -196,6 +196,32 @@ namespace
         }
         return log;
     }
+
+    // Phase-3 integration: backend/csound_assembler.py's generated orchestras
+    // (and tools/csound_orch_check.cpp's own copy of this exact routine) carry
+    // a literal "sr = %SR%" marker instead of a hard-coded sample rate, so a
+    // preset-loaded orchestra can recompile correctly after a host
+    // sample-rate change (D9's early-out above already forces a full
+    // recompile whenever preparedSampleRate changes — this substitution just
+    // has to run fresh on every such recompile, which it does since csdText
+    // is always rebuilt from the ORIGINAL orchestraText, never cached in
+    // substituted form). Plain substring replace (not printf-style
+    // formatting) — mirrors csound_orch_check.cpp's substituteSr() verbatim.
+    // A no-op on text without the marker (the built-in orchestra never
+    // contains it), so this is safe to apply unconditionally.
+    std::string substituteSr (std::string text, double sampleRate)
+    {
+        char srBuf[32];
+        std::snprintf(srBuf, sizeof(srBuf), "%.0f", sampleRate);
+        const std::string marker = "%SR%";
+        size_t pos = 0;
+        while ((pos = text.find(marker, pos)) != std::string::npos)
+        {
+            text.replace(pos, marker.size(), srBuf);
+            pos += std::strlen(srBuf);
+        }
+        return text;
+    }
 }
 
 struct CsoundEngine::Impl
@@ -212,6 +238,12 @@ struct CsoundEngine::Impl
     std::vector<float> voiceBuf[CsoundEngine::kMaxVoices];
     std::array<float, CsoundEngine::kKsmps> carryBuf[CsoundEngine::kMaxVoices] {};
     int carryCount = 0;
+
+    // Phase-2 (spec S2): whichever orchestra text is currently compiled — empty
+    // means the built-in Phase-1 orchestra. Set only on a SUCCESSFUL (re)compile,
+    // right before `ready` is published; read by orchestraText() (message/
+    // compile-thread only) and by prepare()'s own early-out check on the next call.
+    std::string compiledOrchestraText;
 
     // Publish order (D9): pointers + buffers are fully set up in prepare()
     // BEFORE this is stored (release); the audio thread only ever loads it
@@ -246,7 +278,7 @@ struct CsoundEngine::Impl
 CsoundEngine::CsoundEngine() : impl (std::make_unique<Impl>()) {}
 CsoundEngine::~CsoundEngine() = default;
 
-bool CsoundEngine::prepare (double sampleRate, int maxBlockSize)
+bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orchestraText)
 {
     // Phase-0 verified: MYFLT is double on this Homebrew build. A mismatch
     // here means spout would be read at the wrong width further down.
@@ -256,12 +288,22 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize)
 
     const int wantedCapacity = maxBlockSize > 0 ? maxBlockSize : 1;
 
-    // D9 early-out: already prepared at this sample rate. Hosts call
-    // prepareToPlay repeatedly (e.g. on every play/stop); only the FIRST call
-    // (or an actual sample-rate change) may (re)compile/rewarm the Csound
-    // instance. A host block-size-only change just grows the (message-
-    // thread-owned) buffers -- no recompile needed.
-    if (impl->ready.load(std::memory_order_acquire) && impl->preparedSampleRate == sampleRate)
+    // Phase-2 (spec S2): nullptr means "the built-in orchestra"; compare against
+    // whatever is CURRENTLY compiled (empty == built-in) so the D9 early-out just
+    // below can never silently swallow a genuine orchestra-swap request — only a
+    // re-prepare with the SAME text at the SAME sample rate may take that path.
+    const bool requestedIsBuiltIn = (orchestraText == nullptr);
+    const bool sameOrchestraAlreadyCompiled =
+        requestedIsBuiltIn ? impl->compiledOrchestraText.empty()
+                            : impl->compiledOrchestraText == orchestraText;
+
+    // D9 early-out: already prepared at this sample rate with this same text.
+    // Hosts call prepareToPlay repeatedly (e.g. on every play/stop); only the
+    // FIRST call (or an actual sample-rate/orchestra change) may (re)compile/
+    // rewarm the Csound instance. A host block-size-only change just grows the
+    // (message-thread-owned) buffers -- no recompile needed.
+    if (impl->ready.load(std::memory_order_acquire) && impl->preparedSampleRate == sampleRate
+        && sameOrchestraAlreadyCompiled)
     {
         if (wantedCapacity > impl->capacity)
         {
@@ -300,7 +342,8 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize)
     csoundSetOption(cs, "-n");
     csoundSetOption(cs, "-d");
 
-    const std::string csdText = buildOrchestra(sampleRate);
+    const std::string rawText = requestedIsBuiltIn ? buildOrchestra(sampleRate) : std::string(orchestraText);
+    const std::string csdText = substituteSr(rawText, sampleRate);
     if (csoundCompileCsdText(cs, csdText.c_str()) != 0)
     {
         std::fprintf(stderr, "CsoundEngine: compile failed:\n%s\n", drainMessages(cs).c_str());
@@ -406,11 +449,44 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize)
     }
 
     impl->preparedSampleRate = sampleRate;
+    // Phase-2 (spec S2): record what got compiled — empty for the built-in
+    // orchestra — so the NEXT prepare() call's early-out (above) and
+    // orchestraText() (Phase 5 preset save) both see the truth.
+    impl->compiledOrchestraText = requestedIsBuiltIn ? std::string() : std::string(orchestraText);
 
     // Publish order (D9): pointers + buffers fully set up BEFORE the ready
     // flag is stored with release semantics; see the Impl::ready comment.
     impl->ready.store(true, std::memory_order_release);
     return true;
+}
+
+const std::string& CsoundEngine::orchestraText() const
+{
+    return impl->compiledOrchestraText;
+}
+
+void CsoundEngine::primeForTakeover (const float* epochs, const float* freqs)
+{
+    // Message/compile-thread only (spec S3) -- see this method's header-comment
+    // for the full rationale. Must run AFTER prepare() has resolved the cached
+    // channel pointers (guarded defensively below) and BEFORE this engine is
+    // published as a swap target; the audio thread never calls this.
+    if (! impl->ready.load(std::memory_order_acquire))
+        return;
+
+    CSOUND* cs = impl->csound;
+    for (int v = 0; v < kMaxVoices; ++v)
+    {
+        auto& ptrs = impl->channelPtr[v];
+        *ptrs[1] = (MYFLT) freqs[v];    // freq  (index matches kPrefixes order in prepare())
+        *ptrs[5] = (MYFLT) epochs[v];   // trig
+        // gate (ptrs[0]) is left untouched -- prepare()'s warmup already left it
+        // at 0, and priming must never open the gate (that would be audible).
+    }
+
+    const long primeBlocks = (long) std::llround(0.25 * impl->preparedSampleRate / (double) kKsmps);
+    for (long i = 0; i < primeBlocks; ++i)
+        csoundPerformKsmps(cs);
 }
 
 bool CsoundEngine::isReady() const
