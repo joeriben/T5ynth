@@ -150,7 +150,8 @@ check("D retrigger lifts fm_bell at 1s", rms(fb, 1.0, 1.15) > rms(fb, 0.85, 0.99
 plain_mod = slow_mod_depth(load("solo_pad"))
 for mot in ("vibrato", "shimmer", "breathe", "evolve"):
     d = slow_mod_depth(load(f"motion_{mot}_pad"))
-    check(f"E {mot} moves vs plain pad", d > plain_mod * 3,
+    # absolute floor: a silent/broken baseline must not turn the relative check vacuous
+    check(f"E {mot} moves vs plain pad", d > max(plain_mod * 3, 0.05),
           f"{mot}={d:.4f} plain={plain_mod:.4f}")
 
 # F: high-band share warm < harsh
