@@ -55,9 +55,17 @@ REGISTER_RATIOS = {
 def parse_register(value):
     """"16'" -> 0.5, "1.5" / 1.5 -> 1.5. Raises ValueError (never a silent
     default — LLM-first guardrail, mirrored from dco_recipe's own validation
-    discipline) on anything else."""
+    discipline) on anything else -- including a non-finite ratio (nan/inf):
+    Python's own float() happily parses the strings "nan"/"inf"/"infinity"
+    (case-insensitive), so the <=0 check alone would let those through (both
+    comparisons against 0 are False for nan, and inf > 0 is True) --
+    defense-in-depth alongside csound_author.py's own parse-time rejection,
+    since this module is also called directly from tests/tools with
+    arbitrary specs."""
     if isinstance(value, (int, float)):
         ratio = float(value)
+        if not math.isfinite(ratio):
+            raise ValueError(f"register ratio must be finite, got {value!r}")
         if ratio <= 0:
             raise ValueError(f"register ratio must be positive, got {value!r}")
         return ratio
@@ -71,6 +79,8 @@ def parse_register(value):
             f"unknown register {value!r} — expected one of "
             f"{sorted(REGISTER_RATIOS)} or a plain numeric ratio"
         )
+    if not math.isfinite(ratio):
+        raise ValueError(f"register ratio must be finite, got {value!r}")
     if ratio <= 0:
         raise ValueError(f"register ratio must be positive, got {value!r}")
     return ratio

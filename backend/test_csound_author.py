@@ -30,6 +30,13 @@ Covers the spec's checklist for backend/csound_author.py:
      an uncaught exception.
   7. BJ's canonical stacking example ("make one dark bell 16' and above that
      a metallic bell 8'") assembles two register-differentiated bell layers.
+  8. Untrusted-input hardening: a reply containing a bare NaN/Infinity token
+     or an overflowing literal (1e400) is rejected AT PARSE (json.loads'
+     parse_constant/parse_float hooks) and folds into the same retry/honest-
+     error contract as 3/5 above -- never a literal nan/inf reaching the
+     orchestra text or an ok:True response. 8b. every ok:True response this
+     suite produces must survive json.dumps(..., allow_nan=False) (the wire
+     contract pipe_inference.py actually sends).
 
 A real-model smoke (optional, gated behind T5YNTH_CSOUND_AUTHOR_SMOKE=1) is
 NOT included here — the project's IPC-only rule for inference (feedback_
@@ -202,6 +209,130 @@ def test_system_prompt_built_from_lexicon_not_hand_listed():
         assert key in prompt, f"lexicon key {key!r} missing from the generated system prompt"
 
 
+# ─── untrusted-input regression: non-finite numbers (NaN/Infinity/1e400) ────
+# The 7B's JSON is untrusted. Python's json.loads accepts the bare NaN/
+# Infinity/-Infinity tokens (and 1e400 overflows to float('inf')) by default.
+# These must be rejected AT PARSE so they fold into the existing one-retry/
+# honest-error contract, rather than reaching csound_assembler.assemble() as
+# a literal `nan`/`inf` token in the orchestra text, or being echoed back in
+# an ok:True response's `spec` field where json.dumps(..., allow_nan=True)
+# would put the bare (invalid-JSON) token `Infinity` on the wire.
+
+_NAN_CHARACTER_REPLY_RAW = (
+    '{"layers": [{"tool": "bell", "characters": [{"key": "harsh", "amount": NaN}]}]}'
+)
+
+
+def test_retry_recovers_from_nan_character_amount():
+    llm = MockLlm([_NAN_CHARACTER_REPLY_RAW, _VALID_SIMPLE_REPLY])
+    resp = csound_author.build_csound_response("a harsh bell", llm)
+    assert resp["ok"] is True, resp
+    assert llm.call_count == 2, f"expected exactly one retry (2 calls), got {llm.call_count}"
+    retry_text = llm.calls[1][0]
+    assert "a harsh bell" in retry_text
+    assert "non-finite" in retry_text.lower() or "finite" in retry_text.lower()
+
+
+def test_exhausted_retries_nan_character_amount_is_honest_error():
+    llm = MockLlm([_NAN_CHARACTER_REPLY_RAW, _NAN_CHARACTER_REPLY_RAW])
+    resp = csound_author.build_csound_response("a harsh bell", llm)
+    assert resp["ok"] is False, resp
+    assert resp["orchestra"] is None
+    assert resp["reading"] is None
+    assert resp["error"], "an honest failure must carry a non-empty error message"
+    assert "non-finite" in resp["error"].lower() or "finite" in resp["error"].lower()
+    assert llm.call_count == 2, f"must retry EXACTLY once, never more: got {llm.call_count} calls"
+
+
+def test_retry_recovers_from_infinity_level():
+    bad = '{"layers": [{"tool": "saw_stack", "level": Infinity}]}'
+    llm = MockLlm([bad, _VALID_SIMPLE_REPLY])
+    resp = csound_author.build_csound_response("a loud saw", llm)
+    # After the fix, Infinity is rejected at PARSE time (json.loads' own
+    # parse_constant hook), so this recovers via the retry -- it never
+    # reaches csound_assembler.assemble() at all.
+    assert resp["ok"] is True, resp
+    assert llm.call_count == 2
+    retry_text = llm.calls[1][0]
+    assert "non-finite" in retry_text.lower() or "finite" in retry_text.lower()
+
+
+def test_retry_recovers_from_overflow_1e400():
+    # 1e400 is lexically an ordinary JSON float (no NaN/Infinity token), but
+    # Python's float() overflows it to float('inf') -- caught by the
+    # parse_float hook (_finite_parse_float), not parse_constant.
+    bad = '{"layers": [{"tool": "saw_stack", "level": 1e400}]}'
+    llm = MockLlm([bad, _VALID_SIMPLE_REPLY])
+    resp = csound_author.build_csound_response("a loud saw", llm)
+    assert resp["ok"] is True, resp
+    assert llm.call_count == 2
+    retry_text = llm.calls[1][0]
+    assert "non-finite" in retry_text.lower() or "finite" in retry_text.lower()
+
+
+_BIGINT_LEVEL_REPLY_RAW = (
+    '{"layers": [{"tool": "saw_stack", "level": ' + "1" + "0" * 400 + "}]}"
+)
+
+
+def test_retry_recovers_from_overflow_bigint():
+    # A plain INTEGER literal (no exponent, no NaN/Infinity token) is the
+    # parse_int twin of 1e400: json.loads parses it as an arbitrary-precision
+    # Python int (finite AS an int, so neither the parse_constant nor the
+    # parse_float hook sees it), and the assembler's downstream float(level)
+    # overflows to OverflowError -- which is NEITHER ValueError nor TypeError,
+    # so before the parse_int hook it escaped build_csound_response's retry
+    # guard as an UNCAUGHT crash (the module's "never raises" contract broke).
+    # The parse_int hook (_finite_parse_int) rejects it AT PARSE like 1e400.
+    llm = MockLlm([_BIGINT_LEVEL_REPLY_RAW, _VALID_SIMPLE_REPLY])
+    resp = csound_author.build_csound_response("a loud saw", llm)
+    assert resp["ok"] is True, resp
+    assert llm.call_count == 2
+    retry_text = llm.calls[1][0]
+    assert "finite" in retry_text.lower() or "too large" in retry_text.lower()
+
+
+def test_exhausted_retries_overflow_bigint_is_honest_error():
+    # Same input, both attempts bad -> honest ok=False, EXACTLY two calls,
+    # never an uncaught OverflowError (the regression this locks).
+    llm = MockLlm([_BIGINT_LEVEL_REPLY_RAW, _BIGINT_LEVEL_REPLY_RAW])
+    resp = csound_author.build_csound_response("a loud saw", llm)
+    assert resp["ok"] is False, resp
+    assert resp["orchestra"] is None
+    assert resp["reading"] is None
+    assert resp["error"], "an honest failure must carry a non-empty error message"
+    assert llm.call_count == 2, f"must retry EXACTLY once, never more: got {llm.call_count} calls"
+
+
+def test_all_ok_responses_are_wire_safe_json():
+    # Locks the wire contract end-to-end (this is what pipe_inference.py's
+    # send_text(json.dumps(response)) actually sends): every ok:True
+    # response produced by this suite's mock-LLM scenarios must survive
+    # json.dumps(..., allow_nan=False) -- the strict mode that raises
+    # ValueError on any stray NaN/Infinity instead of emitting the
+    # (invalid-JSON) bare token, which is what juce::JSON would choke on.
+    scenarios = [
+        ("a bright saw", [_VALID_SIMPLE_REPLY]),
+        ("a bright saw", [f"```json\n{_VALID_SIMPLE_REPLY}\n```"]),
+        ("a bright saw", ["not json at all, sorry", _VALID_SIMPLE_REPLY]),
+        ("make one dark bell 16' and above that a metallic bell 8'",
+         [_VALID_BELL_STACK_REPLY]),
+        ("a harsh bell", [_NAN_CHARACTER_REPLY_RAW, _VALID_SIMPLE_REPLY]),
+        ("a loud saw", ['{"layers": [{"tool": "saw_stack", "level": Infinity}]}',
+                        _VALID_SIMPLE_REPLY]),
+        ("a loud saw", ['{"layers": [{"tool": "saw_stack", "level": 1e400}]}',
+                        _VALID_SIMPLE_REPLY]),
+        ("a loud saw", [_BIGINT_LEVEL_REPLY_RAW, _VALID_SIMPLE_REPLY]),
+    ]
+    checked = 0
+    for prompt, replies in scenarios:
+        resp = csound_author.build_csound_response(prompt, MockLlm(replies))
+        if resp["ok"]:
+            json.dumps(resp, allow_nan=False)  # raises ValueError if not wire-safe
+            checked += 1
+    assert checked > 0, "expected at least one ok:True scenario to actually check"
+
+
 ALL_TESTS = [
     test_first_try_success,
     test_json_wrapped_in_code_fence,
@@ -215,6 +346,13 @@ ALL_TESTS = [
     test_never_more_than_two_calls_even_if_scripted_longer,
     test_bj_canonical_stacking_prompt,
     test_system_prompt_built_from_lexicon_not_hand_listed,
+    test_retry_recovers_from_nan_character_amount,
+    test_exhausted_retries_nan_character_amount_is_honest_error,
+    test_retry_recovers_from_infinity_level,
+    test_retry_recovers_from_overflow_1e400,
+    test_retry_recovers_from_overflow_bigint,
+    test_exhausted_retries_overflow_bigint_is_honest_error,
+    test_all_ok_responses_are_wire_safe_json,
 ]
 
 

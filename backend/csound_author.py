@@ -29,6 +29,7 @@ forced discipline elsewhere), but spec -> orchestra is always deterministic
 (csound_assembler's own guarantee, Phase 3).
 """
 import json
+import math
 import re
 
 import csound_assembler
@@ -191,15 +192,87 @@ def _extract_json_object(raw):
     return raw[start:]
 
 
+def _reject_non_finite_constant(token):
+    # json.loads' `parse_constant` hook fires for the bare NaN/Infinity/
+    # -Infinity tokens Python's decoder otherwise accepts as an extension
+    # (json.loads defaults to letting these through as float('nan')/inf).
+    # The 7B's JSON is untrusted -- reject AT PARSE so a non-finite number
+    # never reaches assemble() or an ok:True response (see module docstring
+    # and csound_assembler.py's own defense-in-depth _clamp/parse_register).
+    raise ValueError(
+        f"non-finite number token {token!r} in LLM reply -- use plain finite numbers"
+    )
+
+
+def _finite_parse_float(s):
+    # json.loads' `parse_float` hook fires for every JSON float literal;
+    # catches the overflow case (e.g. 1e400 -> float('inf')) the constant
+    # hook above cannot see, since 1e400 is lexically an ordinary float.
+    v = float(s)
+    if not math.isfinite(v):
+        raise ValueError(
+            f"non-finite number {s!r} in LLM reply -- use plain finite numbers "
+            "(no huge exponents)"
+        )
+    return v
+
+
+def _finite_parse_int(s):
+    # json.loads' `parse_int` hook fires for every JSON *integer* literal --
+    # which the two hooks above never see (a bare integer is neither a
+    # NaN/Infinity constant nor a float literal). An integer is always finite
+    # AS an int, but the assembler and parse_register convert every numeric
+    # field to float downstream (float(level)/float(amount)/float(register));
+    # an integer too large to represent as a finite float raises OverflowError
+    # THERE -- and OverflowError is neither ValueError nor TypeError, so
+    # build_csound_response's retry guard would miss it and this module's
+    # "never raises" contract would break on an uncaught crash. A plain
+    # 400-digit integer is the parse_int twin of the 1e400 float _finite_parse_
+    # float already rejects (same magnitude, just written without an exponent);
+    # fold it into the identical finite-number failure. (`int(s)` itself raises
+    # ValueError for an absurd digit count -- sys.int_max_str_digits -- which
+    # the except-ValueError below already folds into the same retry.)
+    v = int(s)
+    try:
+        float(v)
+    except OverflowError:
+        raise ValueError(
+            f"integer {s!r} in LLM reply is too large -- use plain finite numbers "
+            "(no huge integers)"
+        )
+    return v
+
+
 def _parse_spec_json(raw):
     """Raw LLM text -> spec dict. Raises ValueError on anything unparseable
     (fences and leading/trailing prose are stripped first; a JSON array or
-    scalar at the top level is rejected -- assemble() requires an object)."""
+    scalar at the top level is rejected -- assemble() requires an object).
+    Also rejects any non-finite number (NaN/Infinity/-Infinity literals, an
+    overflowing float literal like 1e400, or a plain INTEGER literal too large
+    to survive the assembler's downstream float() conversion, e.g. a 400-digit
+    integer) AT PARSE TIME -- json.loads accepts all of these by default, but a
+    nan/inf (or a float()-overflowing int) reaching csound_assembler.assemble()
+    would either emit a literal `nan`/`inf` token into the orchestra text
+    (silent, non-compilable failure) or -- if clamped away downstream --
+    still get echoed in an ok:True response's `spec` field, which is not
+    valid JSON to send over the wire (json.dumps(..., allow_nan=True) emits
+    the bare token `Infinity`). Rejecting here folds the failure into the
+    existing one-retry/honest-error contract instead."""
     candidate = _extract_json_object(_strip_code_fences(raw))
     try:
-        parsed = json.loads(candidate)
+        parsed = json.loads(
+            candidate,
+            parse_constant=_reject_non_finite_constant,
+            parse_float=_finite_parse_float,
+            parse_int=_finite_parse_int,
+        )
     except json.JSONDecodeError as e:
         raise ValueError(f"could not parse JSON ({e}); raw reply: {(raw or '')[:200]!r}")
+    except ValueError as e:
+        # raised by _reject_non_finite_constant / _finite_parse_float /
+        # _finite_parse_int above (JSONDecodeError, a ValueError subclass, is
+        # already handled by the more specific clause first)
+        raise ValueError(f"{e}; raw reply: {(raw or '')[:200]!r}")
     if not isinstance(parsed, dict):
         raise ValueError(f"expected a JSON object, got {type(parsed).__name__}")
     return parsed

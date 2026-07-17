@@ -140,6 +140,16 @@ class _LayerCtx:
 
 
 def _clamp(v, lo, hi):
+    # Defense-in-depth against untrusted LLM specs (this module is also
+    # called directly from tests/tools with arbitrary specs, not only via
+    # csound_author.py's own parse-time rejection): NaN fails BOTH
+    # comparisons below, so it would silently pass straight through
+    # unclamped and reach the orchestra text as a literal `nan` token.
+    # Raise instead -- ValueError is this module's documented invalid-spec
+    # signal (build_csound_response's assemble() try/except already treats
+    # it as a retry-able failure, same as any other unknown-key/shape error).
+    if not math.isfinite(v):
+        raise ValueError(f"expected a finite number, got {v!r}")
     return lo if v < lo else (hi if v > hi else v)
 
 
