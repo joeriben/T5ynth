@@ -3352,24 +3352,36 @@ def main():
                                        repetition_penalty=1.2, no_repeat_ngram_size=3))
                 continue
 
-            # Csound orchestra author: INTENTIONALLY NOT WIRED. The static-partial
-            # lexicon backend (csound_lexicon.py / csound_assembler.py /
-            # csound_author.py) was a capability regression -- it reduced Csound to
-            # a bank of `oscili` partial tables and could express neither pwm, dirt,
-            # overdrive, nor spectral morph -- and was reverted (see CLAUDE.md
-            # "Migration & Substrate Discipline"). The rich vocabulary is restored
-            # as source material (dco_lexicon.json / dco_llm_map.py / dco_recipe.py /
-            # lco_author.py). The correct backend -- the LLM routing that vocabulary
-            # onto REAL Csound idioms (vco2+kpw, foscil, waveshaping, k-rate morph)
-            # -- is not yet reimplemented. The C++ Csound engine and its swap
-            # plumbing stay live; this returns a clean not-implemented frame so the
-            # prompt path fails loudly rather than silently producing a toy tone.
+            # Csound orchestra author (the CORRECT backend, 2026-07-17): the same
+            # language-UNDERSTANDING 7B that drives the wavetable path routes the
+            # whole prompt to closed-enum lexicon KEYS (technique incl. a "a > b"
+            # morph chain, adjectives, motion); backend/csound_orch.py renders
+            # those keys as REAL Csound idioms (vco2+kpw PWM, foscili FM, tanh
+            # waveshaping dirt, a k-rate additive bank for a genuine spectral
+            # morph) -- never a static partial table. No audio-model dependency,
+            # dispatched before audio-model routing like translate/interpret; a
+            # missing coder model raises the standard error frame. LLM-FIRST, NO
+            # FALLBACK (csound_orch returns ok=false if nothing maps).
             if request.get("mode") == "csound":
-                send_text(json.dumps({
-                    "ok": False,
-                    "error": "Csound orchestra backend not yet reimplemented; "
-                             "the static-partial lexicon was reverted.",
-                }))
+                from csound_orch import build_csound_response
+
+                t_device = request.get("device", default_device)
+                if t_device == "auto" or t_device not in devices:
+                    t_device = default_device
+                coder_dir = _resolve_coder_model_dir(request)
+                if coder_dir is None:
+                    raise RuntimeError("Csound author model not installed (load it in Settings)")
+                coder_device = _translator_device(t_device)
+
+                def csound_llm(text, system_prompt, max_new_tokens,
+                               _dir=coder_dir, _dev=coder_device):
+                    """The single model surface build_csound_response needs: a
+                    greedy instruct call on the interpreter (7B) model."""
+                    return run_instruct(text, _dir, _dev, system_prompt,
+                                        max_new_tokens=max_new_tokens)
+
+                response = build_csound_response(request.get("text") or "", csound_llm)
+                send_text(json.dumps(response))
                 continue
 
             # CLAP machine-listening analysis: decode init_audio → top-k CLAP tags
