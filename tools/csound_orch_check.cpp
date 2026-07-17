@@ -395,6 +395,65 @@ namespace
         return 0;
     }
 
+    // probe: like render but PARAMETERIZED (freq/vel/pres/timb/gate/dur) and
+    // UN-normalized, so the TRUE peak/rms survive for a behavioral gate, with a
+    // SINGLE strike (trig @0) so a morph trajectory is measured cleanly. Silence
+    // is NOT a failure here (a morph-to-zero transient legitimately decays to
+    // silence -- BJ-authorized pseudo-envelope); the Python behavioral layer
+    // judges standing-tone vs authorized transient from the written samples.
+    // Fails only on NaN/Inf, true peak > 1.0, or a premature perform end.
+    int runProbe (const std::string& orcPath, const std::string& wavPath,
+                  double freqHz, double vel, double pres, double timb,
+                  double gateSec, double durSec)
+    {
+        std::string text;
+        try { text = readFile (orcPath); }
+        catch (const std::exception& e) { std::fprintf (stderr, "PROBE FAIL: %s\n", e.what()); return 1; }
+
+        text = substituteSr (text, 48000.0);
+        CsoundHandle h (text);
+        if (! h.ok) { std::fprintf (stderr, "PROBE FAIL (%s): %s\n", orcPath.c_str(), h.diagnostics.c_str()); return 1; }
+
+        MYFLT* ptrs[kMaxVoices][kChannelsPerVoice] = {};
+        if (! resolveAllChannels (h.cs, ptrs)) { std::fprintf (stderr, "PROBE FAIL (%s): channel resolve failed\n", orcPath.c_str()); return 1; }
+
+        const double sr = 48000.0;
+        const uint32_t ksmps = csoundGetKsmps (h.cs);
+        const uint32_t nchnls = csoundGetNchnls (h.cs);
+        const long totalBlocks = (long) std::llround (durSec * sr / ksmps);
+
+        setChan (h.cs, "freq", 1, freqHz);
+        setChan (h.cs, "vel",  1, vel);
+        setChan (h.cs, "pres", 1, pres);
+        setChan (h.cs, "timb", 1, timb);
+        setChan (h.cs, "gate", 1, 1.0);
+        setChan (h.cs, "trig", 1, 1.0);   // single strike @0
+
+        std::vector<float> mono;
+        mono.reserve ((size_t) totalBlocks * ksmps);
+        bool gateOff = false, perfOk = true;
+        for (long i = 0; i < totalBlocks; ++i)
+        {
+            const double t = (double) i * ksmps / sr;
+            if (! gateOff && t >= gateSec) { setChan (h.cs, "gate", 1, 0.0); gateOff = true; }
+            const int fin = csoundPerformKsmps (h.cs);
+            MYFLT* spout = csoundGetSpout (h.cs);
+            for (uint32_t s = 0; s < ksmps; ++s)
+                mono.push_back ((float) spout[(size_t) s * nchnls + 0]);
+            if (fin != 0) { perfOk = false; break; }
+        }
+        if (! perfOk) { std::fprintf (stderr, "PROBE FAIL (%s): perf ended prematurely\n", orcPath.c_str()); return 1; }
+
+        const PeakRms m = measure (mono);
+        if (m.hasNanInf) { std::fprintf (stderr, "PROBE FAIL (%s): NaN/Inf in output\n", orcPath.c_str()); return 1; }
+        if (m.peak > 1.0) { std::fprintf (stderr, "PROBE FAIL (%s): CLIPS -- peak=%.6f > 1.0\n", orcPath.c_str(), m.peak); return 1; }
+
+        writeWav (wavPath, mono, (int) sr);
+        std::printf ("PROBE OK (%s -> %s): freq=%.1f vel=%.2f pres=%.2f timb=%.2f gate=%.2fs dur=%.2fs peak=%.6f rms=%.6f\n",
+                      orcPath.c_str(), wavPath.c_str(), freqHz, vel, pres, timb, gateSec, durSec, m.peak, m.rms);
+        return 0;
+    }
+
     struct TimingStats { double medianUs = 0.0, p99Us = 0.0, maxUs = 0.0; size_t n = 0; };
 
     TimingStats computeStats (std::vector<double> v)
@@ -485,7 +544,8 @@ int main (int argc, char** argv)
             "usage:\n"
             "  %s check  <file.orc>\n"
             "  %s render <file.orc> <out.wav> [freq]\n"
-            "  %s bench  <file.orc>\n", argv[0], argv[0], argv[0]);
+            "  %s probe  <file.orc> <out.wav> [freq vel pres timb gateSec durSec]\n"
+            "  %s bench  <file.orc>\n", argv[0], argv[0], argv[0], argv[0]);
         return 2;
     }
 
@@ -502,6 +562,18 @@ int main (int argc, char** argv)
         const std::string wavPath = argv[3];
         const double freq = argc >= 5 ? std::atof (argv[4]) : 220.0;
         return runRender (orcPath, wavPath, freq);
+    }
+    if (mode == "probe")
+    {
+        if (argc < 4) { std::fprintf (stderr, "probe requires <out.wav> [freq vel pres timb gateSec durSec]\n"); return 2; }
+        const std::string wavPath = argv[3];
+        const double freq    = argc >= 5  ? std::atof (argv[4]) : 220.0;
+        const double vel     = argc >= 6  ? std::atof (argv[5]) : 0.85;
+        const double pres    = argc >= 7  ? std::atof (argv[6]) : 0.0;
+        const double timb    = argc >= 8  ? std::atof (argv[7]) : 0.5;
+        const double gateSec = argc >= 9  ? std::atof (argv[8]) : 2.5;
+        const double durSec  = argc >= 10 ? std::atof (argv[9]) : 3.0;
+        return runProbe (orcPath, wavPath, freq, vel, pres, timb, gateSec, durSec);
     }
 
     std::fprintf (stderr, "unknown mode: %s\n", mode.c_str());

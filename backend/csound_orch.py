@@ -50,15 +50,38 @@ _SPECTRA = {
     "bell":     [(1.00, 1.00), (2.76, 0.55), (5.40, 0.32), (8.93, 0.18)],
     # the reference tone: one partial. A morph endpoint collapses onto this.
     "sine":     [(1.00, 1.00)],
+    # classic waveform harmonic series, as ADDITIVE morph endpoints (a morph is a
+    # trajectory in one additive bank -- so a morph FROM a saw/square/etc. reads
+    # its spectrum here; the STEADY path still uses the live vco2). saw = all
+    # harmonics 1/n; square/triangle = odd only (1/n, 1/n^2); pulse = thin bright
+    # pulse (all harmonics, slow rolloff); cheby/fm = a few strong harmonics.
+    "saw":      [(1.00, 1.00), (2.00, 0.50), (3.00, 0.333), (4.00, 0.25), (5.00, 0.20), (6.00, 0.167)],
+    "square":   [(1.00, 1.00), (3.00, 0.333), (5.00, 0.20), (7.00, 0.143), (9.00, 0.111)],
+    "triangle": [(1.00, 1.00), (3.00, 0.1111), (5.00, 0.0400), (7.00, 0.0204),
+                 (9.00, 0.0123), (11.00, 0.0083)],
+    "pulse":    [(1.00, 1.00), (2.00, 0.80), (3.00, 0.60), (4.00, 0.45), (5.00, 0.33), (6.00, 0.24)],
+    "cheby":    [(1.00, 1.00), (2.00, 0.50), (3.00, 0.35), (4.00, 0.22), (5.00, 0.12)],
+    "fm":       [(1.00, 1.00), (2.00, 0.60), (3.00, 0.40), (4.00, 0.28), (5.00, 0.18), (6.00, 0.10)],
 }
 
-# technique key -> which _SPECTRA entry represents it when it is a MORPH endpoint
-# (a morph interpolates spectra, so every endpoint needs a spectral reading; a
-# technique with no natural spectrum here is not a valid morph endpoint yet).
+# technique key -> which _SPECTRA entry represents it as a MORPH endpoint (a
+# morph interpolates spectra, so every endpoint needs a spectral reading). Every
+# lexicon technique the 7B can emit maps here; anything unlisted defaults to
+# "additive" in _emit_morph, so a morph NEVER silently collapses to a steady tone.
 _MORPH_SPECTRUM = {
-    "sine": "sine", "additive": "additive", "glass": "glass",
+    "sine": "sine", "sub_sine": "sine", "theremin": "sine",
+    "additive": "additive", "organ": "additive", "flute": "additive",
+    "glass": "glass",
     "fm_bell": "bell", "metallic_fm": "bell", "struck_bar": "bell",
+    "fm": "fm", "fm_ep": "fm",
+    "saw": "saw", "supersaw": "saw", "brass": "saw", "strings": "saw",
+    "bass_saw": "saw", "sync": "saw",
+    "square": "square", "clarinet": "square", "chiptune": "square", "pulse": "square",
+    "triangle": "triangle",
+    "pwm": "pulse",
+    "cheby": "cheby",
 }
+_DEFAULT_MORPH_SPECTRUM = "additive"   # a morph endpoint with no reading falls here
 
 
 def _reading(technique_keys, adjective_keys, motion_key):
@@ -93,7 +116,10 @@ def _emit_steady(technique, adjective_keys):
     elif technique in ("square", "clarinet", "chiptune", "pulse"):
         L.append("  asig     vco2 0.6, kfreq, 2, 0.5     ; square (50%% pulse)")
     elif technique == "triangle":
-        L.append("  asig     vco2 0.6, kfreq, 4          ; triangle")
+        # vco2 imode 4 renders SILENT on this Csound build (the triangle band-
+        # limited table is not pre-generated). Use the additive triangle (odd
+        # harmonics ~1/n^2) -- band-limited by construction, guaranteed to sound.
+        L.append(_emit_additive(_SPECTRA["triangle"], gain=0.6))
     elif technique in ("saw", "supersaw", "brass", "strings", "bass_saw", "sync"):
         L.append("  asig     vco2 0.6, kfreq, 0          ; band-limited sawtooth")
     elif technique in ("fm_bell", "fm", "fm_ep", "metallic_fm", "sync"):
@@ -142,11 +168,11 @@ def _emit_morph(technique_keys, imorphtime):
     # no spectral reading for (a morph needs both endpoints as spectra).
     stages = []
     for k in technique_keys:
-        sk = _MORPH_SPECTRUM.get(k)
-        if sk is not None:
-            stages.append(_SPECTRA[sk])
+        sk = _MORPH_SPECTRUM.get(k, _DEFAULT_MORPH_SPECTRUM)
+        stages.append(_SPECTRA[sk])
     if len(stages) < 2:
-        return None  # not a morphable pair; caller falls back to steady
+        return None  # <2 endpoints given; caller falls back to steady (never
+        #              a silent collapse -- every key yields a stage above)
 
     # align all stages to a common partial count (union by index); pad a shorter
     # stage with amp-0 partials that hold the previous ratio, so a fading partial
@@ -319,8 +345,26 @@ def build_csound_response(text, llm):
         system_prompt = dco_llm_map._SYSTEM_PROMPT_HEAD + dco_llm_map._build_catalogue(lexicon)
         raw = llm(text, system_prompt, dco_llm_map._MAX_NEW_TOKENS)
 
-        technique_keys, adjective_keys, motion_key, flags = dco_llm_map._parse_and_validate(
-            raw, tcanon, acanon, mcanon)
+        # Parse like dco_llm_map._parse_and_validate, but tolerate the 7B listing
+        # a COMPOUND technique with commas: "pwm square wave" -> "TECHNIQUE: pwm,
+        # square" (a pwm'd square = ONE sound). The shared parser splits TECHNIQUE
+        # only on ">" (the morph operator), so it takes "pwm, square" as a single
+        # bogus key, drops BOTH and fails the whole prompt. Here ">" alone is a
+        # morph chain (ordered, keep every valid stage); a comma list is one
+        # compound technique -> take the first valid key. Adjective/motion parsing
+        # is identical to the shared parser (reused verbatim below).
+        technique_raw, adjectives_raw, motion_raw = dco_llm_map._parse_reply(raw)
+        if ">" in technique_raw:
+            technique_keys, tflags = dco_llm_map._validate_keys(technique_raw.split(">"), tcanon)
+        else:
+            _valid, tflags = dco_llm_map._validate_keys(technique_raw.split(","), tcanon)
+            technique_keys = _valid[:1]
+        adjective_keys, aflags = dco_llm_map._validate_keys(
+            adjectives_raw.split(",") if adjectives_raw else [], acanon)
+        _motion_keys, mflags = dco_llm_map._validate_keys(
+            [motion_raw] if motion_raw else [], mcanon)
+        motion_key = _motion_keys[0] if _motion_keys else None
+        flags = tflags + aflags + mflags
 
         if not technique_keys and not adjective_keys and not motion_key:
             return {"ok": False,
