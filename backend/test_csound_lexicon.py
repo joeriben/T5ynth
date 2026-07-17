@@ -164,11 +164,16 @@ def _build_sweep():
                 "layers": [{"tool": fam, "characters": [{"key": ch, "amount": 0.8}]}]
             }
 
-    # 16-19. every motion, on pad.
+    # 16-19. every motion, on pad — plus the motionless plain pad, which
+    # tools/csound_lexicon_fidelity.py uses as the motion baseline.
     for mo in lex.MOTION_KEYS:
         sweep[f"motion_{mo}_pad"] = {
             "layers": [{"tool": "pad", "motion": [{"key": mo, "amount": 0.7}]}]
         }
+    sweep["solo_pad"] = {
+        "layers": [{"tool": "pad", "register": "8'", "level": 0.8,
+                    "characters": [], "envelope": "sustain", "motion": []}]
+    }
 
     # 20-23. solo showcase for the sparser/custom families.
     sweep["solo_fm_bell"] = {"layers": [{"tool": "fm_bell", "level": 0.9}]}

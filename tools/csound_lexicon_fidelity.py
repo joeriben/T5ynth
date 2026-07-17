@@ -9,8 +9,8 @@ Checks (48 kHz mono WAVs, rendered by csound_orch_check: gate 0-2 s, trig at 0 a
      saw_stack/square_stack/organ_tone stay ON the grid
   D  envelope truth: strike/decay families decay after onset; sustained families hold level;
      the 1 s retrigger produces a fresh energy rise in strike-enveloped renders
-  E  motion truth: vibrato/shimmer/breathe/evolve renders show more slow-rate level/spectral
-     modulation than the plain pad
+  E  motion truth: vibrato/shimmer/breathe/evolve renders show >=3x the slow-rate
+     amplitude modulation of the motionless plain pad (solo_pad)
   F  warm < harsh in high-frequency energy share (bell + saw_stack)
 All thresholds are ordinal (X > Y), not absolute — robust against level matching.
 Exit 0 only if every check passes; prints a table either way.
@@ -111,11 +111,16 @@ check("A bell bright>dark centroid", cb > cd * 1.15, f"bright={cb:.0f}Hz dark={c
 cbs, cds = centroid(load("char_bright_saw_stack")), centroid(load("char_dark_saw_stack"))
 check("A saw bright>dark centroid", cbs > cds * 1.15, f"bright={cbs:.0f}Hz dark={cds:.0f}Hz")
 
-# B: BJ stack has an octave-down fundamental vs the metallic 8' bell alone
+# B: BJ stack has an octave-down fundamental vs the metallic 8' bell alone.
+# The detail string must not index into a possibly-empty peak list — Python evaluates
+# it eagerly, so a peakless (silent/regressed) render would crash the guard instead of
+# producing the FAIL row it exists for.
 bj = load("bj_dark_bell16_metallic_bell8"); mb = load("char_metallic_bell")
 f_bj, f_mb = peak_freqs(bj, 6), peak_freqs(mb, 6)
-check("B 16' layer adds octave-down energy", f_bj and f_mb and f_bj[0] < f_mb[0] * 0.65,
-      f"lowest peak stack={f_bj[0]:.1f}Hz vs 8'-bell={f_mb[0]:.1f}Hz")
+detail_b = (f"lowest peak stack={f_bj[0]:.1f}Hz vs 8'-bell={f_mb[0]:.1f}Hz"
+            if f_bj and f_mb else f"peakless render (stack={len(f_bj)} bell={len(f_mb)} peaks)")
+check("B 16' layer adds octave-down energy",
+      bool(f_bj and f_mb) and f_bj[0] < f_mb[0] * 0.65, detail_b)
 
 # C: inharmonic vs harmonic families (glass decays fast → early window, lower peak gate)
 inh_bell = inharmonicity(load("char_warm_bell"))
@@ -136,12 +141,17 @@ fb = load("solo_fm_bell")
 check("D retrigger lifts fm_bell at 1s", rms(fb, 1.0, 1.15) > rms(fb, 0.85, 0.995) * 1.15,
       f"post={rms(fb,1.0,1.15):.4f} pre={rms(fb,0.85,0.995):.4f}")
 
-# E: motion — modulated pads move more than static-ish comparison (use evolve as spectral case)
-plain_mod = slow_mod_depth(load("motion_evolve_pad"))  # baseline among pads
-vib, shim, brth = (slow_mod_depth(load(n)) for n in
-                   ("motion_vibrato_pad", "motion_shimmer_pad", "motion_breathe_pad"))
-check("E breathe modulates strongly", brth > 0.02, f"breathe={brth:.4f}")
-check("E shimmer/vibrato alive", max(vib, shim) > 0.005, f"vib={vib:.4f} shim={shim:.4f}")
+# E: motion — every motion render modulates well above the MOTIONLESS plain pad.
+# The baseline is solo_pad's measured wobble (the pad bed has inherent slow beating,
+# ~0.09), not zero. slow_mod_depth reads the AMPLITUDE envelope only — purely spectral
+# motion at constant level would need a flux metric; every current motion tool also
+# amplitude-modulates (measured 6-7x the plain bed), so this stays valid until a
+# constant-level motion key is added.
+plain_mod = slow_mod_depth(load("solo_pad"))
+for mot in ("vibrato", "shimmer", "breathe", "evolve"):
+    d = slow_mod_depth(load(f"motion_{mot}_pad"))
+    check(f"E {mot} moves vs plain pad", d > plain_mod * 3,
+          f"{mot}={d:.4f} plain={plain_mod:.4f}")
 
 # F: high-band share warm < harsh
 hb_w, hb_h = band_share(load("char_warm_bell"), 3000), band_share(load("char_harsh_bell"), 3000)
