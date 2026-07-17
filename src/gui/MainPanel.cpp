@@ -2126,6 +2126,24 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
         promptPanel.setLcoReadingB(result.lcoReadingB);
     }
 
+    // Csound orchestra restore (Phase 5, SPEC_phase4_5_csound_llm_preset.md):
+    // importJsonPreset already issued requestCsoundOrchestra()/setCsoundReading()
+    // as a side effect of parsing the "engine" block (see its own comment there) —
+    // PromptPanel's reading editors are the one piece importJsonPreset (a plain
+    // processor method, no GUI access) cannot reach directly, so push the
+    // now-current stash into the SAME A-card/cleared-B-card shape the live
+    // Csound-authoring flow leaves behind (PromptPanel::triggerDcoBake). Gated
+    // on the just-restored engine mode rather than a new LoadResult field:
+    // exportJsonPreset only ever writes csound_orchestra/csound_reading
+    // together with mode "csound", so "mode == Csound" IS "there was a csound
+    // block" for any file this build wrote.
+    if (static_cast<int>(processorRef.getValueTreeState().getRawParameterValue(PID::engineMode)->load())
+            == static_cast<int>(EngineMode::Csound))
+    {
+        promptPanel.setLcoReadingA(processorRef.getCsoundReading());
+        promptPanel.setLcoReadingB({});
+    }
+
     processorRef.setLastPresetName(result.presetName);
     processorRef.setLastTags(result.tags);
     statusBar.setPresetName(result.presetName);

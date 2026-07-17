@@ -6490,6 +6490,37 @@ juce::String T5ynthProcessor::exportJsonPreset() const
     engine->setProperty("crossfadeMs", get(PID::crossfadeMs));
     engine->setProperty(PID::normalize, get(PID::normalize) > 0.5f);
     engine->setProperty("loopOptimize", choiceToKey(static_cast<int>(get(PID::loopOptimize)), LoopOptimize::kEntries));
+    // Csound orchestra (Phase 5, SPEC_phase4_5_csound_llm_preset.md): only
+    // written when the engine is actually in Csound mode, mirroring the
+    // modality-epoch "absence is the switch" convention above — a preset
+    // saved in any other engine mode carries no csound_orchestra/csound_
+    // reading at all, so an OLDER T5ynth build loading it sees exactly the
+    // same JSON shape it always has. The orchestra TEXT is read from
+    // csoundPendingOrchestraText_ (empty = built-in), NOT from the currently-
+    // ACTIVE CsoundEngine's orchestraText() (adversarial-review finding,
+    // post-implementation): csoundActiveIdx_ only flips at the END of a
+    // post-bake crossfade, but requestCsoundOrchestra() writes
+    // csoundPendingOrchestraText_ synchronously, in lockstep with
+    // PromptPanel's setCsoundReading() call right after it (see
+    // triggerDcoBake's completion lambda) — reading the active engine
+    // instead would pair the OLD orchestra with the NEW reading for any Save
+    // that lands inside that fade window (or before the very first bootstrap
+    // compile has even started). Once the fade settles both sources agree
+    // (the active engine's compiled text catches up to what was pending), so
+    // this is a strict improvement with no behavior change in the settled
+    // state. Locked because csoundPendingOrchestraText_ is written under
+    // csoundLifecycleMutex_ from requestCsoundOrchestra(), which may run on
+    // a different thread than this (const, but the mutex is `mutable`) call.
+    if (static_cast<int>(get(PID::engineMode)) == static_cast<int>(EngineMode::Csound))
+    {
+        juce::String pendingOrchestraText;
+        {
+            std::lock_guard<std::mutex> lock(csoundLifecycleMutex_);
+            pendingOrchestraText = csoundPendingOrchestraText_;
+        }
+        engine->setProperty("csound_orchestra", pendingOrchestraText);
+        engine->setProperty("csound_reading", csoundReading_);
+    }
     root->setProperty("engine", engine.get());
 
     // Modulation: 3 envelopes
@@ -6912,6 +6943,38 @@ bool T5ynthProcessor::importJsonPreset(const juce::String& json)
         setParam(parameters, PID::normalize, static_cast<bool>(engine->getProperty(PID::normalize)) ? 1.0f : 0.0f);
         setParam(parameters, PID::loopOptimize,
                  static_cast<float>(choiceFromKey(engine->getProperty("loopOptimize").toString(), LoopOptimize::kEntries)));
+
+        // Csound orchestra (Phase 5, SPEC_phase4_5_csound_llm_preset.md).
+        // Ordering: the engineMode setParam() just above already fired
+        // parameterChanged() SYNCHRONOUSLY (setValueNotifyingHost is
+        // synchronous) when the file was saved in Csound mode, which flags
+        // csoundWantsPrepare_ + triggerAsyncUpdate() — but that only queues
+        // handleAsyncUpdate, it does not run it inline. requestCsoundOrchestra()
+        // below queues its OWN swap request (bumping
+        // csoundSwapRequestGeneration_) regardless of engine mode — it does not
+        // gate on PID::engineMode at all, only handleAsyncUpdate's bootstrap
+        // branch does — so calling it here, before handleAsyncUpdate has ever
+        // run for this load, is safe and race-free: by the time
+        // handleAsyncUpdate finally runs (message thread, shortly after this
+        // synchronous import returns), the bootstrap guard added in Phase 5
+        // (csoundSwapRequestGeneration_ != csoundSwapStartedGeneration_) sees
+        // this request already queued and skips the built-in bootstrap
+        // entirely, going straight to the swap-compile path. Since the active
+        // Csound engine slot is virtually never already isReady() at this
+        // point (a fresh instance, or an instance that was in a different
+        // engine mode before this load), that path's instant-adopt branch
+        // compiles the restored orchestra directly into the live slot with no
+        // audible fade — exactly the "no ready active engine -> instant adopt"
+        // case the spec calls for. A preset saved in a NON-Csound mode omits
+        // both properties (see exportJsonPreset), so hasProperty guards the
+        // whole thing off for every other engine.
+        if (engine->hasProperty("csound_orchestra"))
+        {
+            requestCsoundOrchestra(engine->getProperty("csound_orchestra").toString());
+            setCsoundReading(engine->hasProperty("csound_reading")
+                                 ? engine->getProperty("csound_reading").toString()
+                                 : juce::String());
+        }
     }
 
     // ── Modulation ──
