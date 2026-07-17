@@ -42,35 +42,39 @@
 
 namespace
 {
-    // Phase-1 hard-wired 12-partial bell/pad character, adapted verbatim
-    // (amp, ratio, strikeDecaySec, vibHz, vibCents, bedLevel columns) from
-    // the BJ-approved tools/csound_poc_out/csound_strike_pad.csd, reshaped
-    // below (buildOrchestra) into gate-sustained + trig-retriggered form
-    // (SPEC §1) instead of the PoC's fixed-p3-duration score-line-per-partial
-    // shape.
-    struct Partial { double amp, ratio, strikeDecay, vibHz, vibCents, bedLevel; };
+    // Hard-wired 12-partial bell/pad SPECTRUM (amp, ratio + a slow per-partial
+    // vibrato: vibHz, vibCents), adapted from the BJ-approved
+    // tools/csound_poc_out/csound_strike_pad.csd. STANDING TONE (BJ 2026-07-17,
+    // "Hüllkurven gehören nicht in den Oszillator. Vollständig entfernen."):
+    // every partial holds at its authored amp for as long as the gate is open —
+    // no strike, no per-partial decay. The strikeDecay/bedLevel envelope columns
+    // the PoC carried are gone; amplitude SHAPE is the downstream synth ADSR/VCA's
+    // job, never the oscillator's. The vibrato is periodic motion (kept — only the
+    // one-shot envelope was ordered removed). Mirrors the backend standing contract
+    // (backend/csound_assembler.py: `oscili amp, freq`, no bed, no decay).
+    struct Partial { double amp, ratio, vibHz, vibCents; };
     constexpr int kNumPartials = 12;
     constexpr Partial kPartials[kNumPartials] = {
-        { 0.28, 0.56,  8.0, 0.0700,  3.00, 0.098  },
-        { 0.30, 1.00,  7.0, 0.1091,  3.82, 0.105  },
-        { 0.22, 1.19,  5.5, 0.1482,  4.64, 0.077  },
-        { 0.20, 1.71,  5.0, 0.1873,  5.45, 0.070  },
-        { 0.16, 2.00,  4.0, 0.2264,  6.27, 0.056  },
-        { 0.16, 2.007, 4.0, 0.2655,  7.09, 0.056  },
-        { 0.14, 2.74,  2.8, 0.3045,  7.91, 0.049  },
-        { 0.11, 3.76,  2.0, 0.3436,  8.73, 0.0385 },
-        { 0.09, 4.07,  1.5, 0.3827,  9.55, 0.0315 },
-        { 0.07, 5.43,  1.0, 0.4218, 10.36, 0.0245 },
-        { 0.05, 6.98,  0.7, 0.4609, 11.18, 0.0175 },
-        { 0.04, 8.21,  0.5, 0.5000, 12.00, 0.0140 },
+        { 0.28, 0.56,  0.0700,  3.00 },
+        { 0.30, 1.00,  0.1091,  3.82 },
+        { 0.22, 1.19,  0.1482,  4.64 },
+        { 0.20, 1.71,  0.1873,  5.45 },
+        { 0.16, 2.00,  0.2264,  6.27 },
+        { 0.16, 2.007, 0.2655,  7.09 },
+        { 0.14, 2.74,  0.3045,  7.91 },
+        { 0.11, 3.76,  0.3436,  8.73 },
+        { 0.09, 4.07,  0.3827,  9.55 },
+        { 0.07, 5.43,  0.4218, 10.36 },
+        { 0.05, 6.98,  0.4609, 11.18 },
+        { 0.04, 8.21,  0.5000, 12.00 },
     };
 
-    // Builds the hard-wired Phase-1 orchestra (SPEC §1): ONE numeric
-    // `instr 1`, 16 always-on score instances (N=1..16=p4=voice index), 6
-    // named channels per voice (gate/freq/vel/pres/timb/trig). Retrigger uses
-    // the standard Csound reinit/rireturn idiom keyed off changed2(trig)
-    // (D8) — NOT a gate edge, since a stolen/reused voice never sees the
-    // gate fall across old->new note. sr is baked in via snprintf at the
+    // Builds the hard-wired orchestra: ONE numeric `instr 1`, 16 always-on
+    // score instances (N=1..16=p4=voice index), 6 named channels per voice
+    // (gate/freq/vel/pres/timb/trig). STANDING TONE: the trig channel is still
+    // read (the 16x6 channel contract with the voice bridge is fixed) but
+    // otherwise unused — every partial simply holds while the gate is open, so
+    // there is no retrigger/reinit epoch. sr is baked in via snprintf at the
     // actual prepared sample rate.
     std::string buildOrchestra (double sampleRate)
     {
@@ -87,14 +91,13 @@ namespace
         csd += "0dbfs = 1\n\n";
 
         csd +=
-            "; Phase-1 hard-wired orchestra. gate = voice ACTIVE (incl. release), not\n"
-            "; note-held (D3) -- the T5ynth ampEnv/VCA shapes attack/release downstream;\n"
-            "; closing this gate on note-off would abort the release tail, so it never\n"
-            "; does. Retrigger is keyed off a wrapping trig-epoch counter via\n"
-            "; changed2()+reinit (D8), never a gate rising edge, because a stolen/\n"
-            "; reused voice stays gate=1 across old->new note. pres/timb are read\n"
-            "; end-to-end but mapped only lightly here -- Phase 3 owns the real\n"
-            "; musical mapping.\n"
+            "; Hard-wired STANDING-TONE orchestra. gate = voice ACTIVE (incl. release),\n"
+            "; not note-held (D3) -- the T5ynth ampEnv/VCA shapes attack/release\n"
+            "; downstream; closing this gate on note-off would abort the release tail,\n"
+            "; so it never does. Every partial holds at its authored amplitude while the\n"
+            "; gate is open (no strike, no decay -- amplitude SHAPE is the synth ADSR's\n"
+            "; job). The trig channel is read for the fixed 16x6 contract but is unused.\n"
+            "; pres/timb are read end-to-end and mapped lightly here.\n"
             "instr 1\n"
             "  ivoice   = p4\n"
             "  Sgate    sprintf \"gate%d\", ivoice\n"
@@ -125,19 +128,9 @@ namespace
             "  kgate    portk kgateraw, 0.001      ; declick only, NOT an attack\n"
             "  kfreq    limit kfreqraw, 20, 12000\n"
             "\n"
-            "  ktrig    changed2 ktrigch            ; retrigger epoch (D8)\n"
-            "  if ktrig == 1 then\n"
-            "    reinit STRIKE\n"
-            "  endif\n"
-            "  STRIKE:\n";
-
-        for (int i = 0; i < kNumPartials; ++i)
-        {
-            std::snprintf(line, sizeof(line),
-                "  kstrike%d transeg 0, 0.002, 0, 1, %.4f, -6, 0.0001\n", i + 1, kPartials[i].strikeDecay);
-            csd += line;
-        }
-        csd += "  rireturn\n\n";
+            "  ; ktrigch is read above for the fixed 16x6 channel contract but is\n"
+            "  ; otherwise unused: every partial below is a STANDING tone for as long\n"
+            "  ; as the gate holds, so there is no retrigger/reinit epoch.\n\n";
 
         for (int i = 0; i < kNumPartials; ++i)
         {
@@ -160,14 +153,17 @@ namespace
                 "  kfreq%-2d  = kfreq * %.4f * cent(kvib%d)\n", i + 1, kPartials[i].ratio, i + 1);
             csd += line;
 
+            // STANDING amplitude: the partial holds at its authored amp (no
+            // strike term, no bed). Upper 6 partials still cross-fade under the
+            // timbre control (ktimbHi), unchanged.
             if (i >= 6)
                 std::snprintf(line, sizeof(line),
-                    "  a%-2d      oscili (%.4f*kstrike%d + %.4f)*ktimbHi, kfreq%d\n",
-                    i + 1, kPartials[i].amp, i + 1, kPartials[i].bedLevel, i + 1);
+                    "  a%-2d      oscili %.4f*ktimbHi, kfreq%d\n",
+                    i + 1, kPartials[i].amp, i + 1);
             else
                 std::snprintf(line, sizeof(line),
-                    "  a%-2d      oscili %.4f*kstrike%d + %.4f, kfreq%d\n",
-                    i + 1, kPartials[i].amp, i + 1, kPartials[i].bedLevel, i + 1);
+                    "  a%-2d      oscili %.4f, kfreq%d\n",
+                    i + 1, kPartials[i].amp, i + 1);
             csd += line;
         }
 
@@ -175,11 +171,9 @@ namespace
             "\n"
             "  asum     = a1+a2+a3+a4+a5+a6+a7+a8+a9+a10+a11+a12\n"
             "  ; headroom: the 0.2 scale bounds the worst-case simultaneous-phase\n"
-            "  ; strike peak across all 12 partials to <= ~0.5 (spec); the voice's\n"
-            "  ; own VCA/DCA chain downstream handles the rest. Gating by kgate here\n"
-            "  ; (rather than only inside the bed term) is defensive: gate is always\n"
-            "  ; 1 whenever a real trig fires (D8), so this never fights D3, and it\n"
-            "  ; keeps an idle/inactive voice provably silent.\n"
+            "  ; sum of all 12 standing partials (amp sum ~1.82) to <= ~0.5; the\n"
+            "  ; voice's own VCA/DCA chain downstream handles the rest. kgate\n"
+            "  ; (declick only) keeps an idle/inactive voice provably silent.\n"
             "  aout     = asum * kgate * kvel * kpresGain * 0.2\n"
             "  outch    ivoice, aout\n"
             "endin\n"
@@ -449,10 +443,10 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
         impl->setNamedChannel("timb", v, 0.0);
         impl->setNamedChannel("trig", v, 0.0);
     }
-    // Flush the zeroed channels through one perform pass so the orchestra's
-    // last-PERFORMED ktrigch is 0. Without this, changed2() sees the warmup
-    // seed (1) as the current value and a first real note with epoch==1 --
-    // the first value every voice emits -- gets no strike (dead attack).
+    // Flush the zeroed channels through one perform pass so the last-performed
+    // k-state reflects a clean zero baseline before the audio thread takes over.
+    // (The trig channel is inert now that the orchestra is a standing tone, but
+    // zeroing every channel here still leaves a defined starting state.)
     csoundPerformKsmps(cs);
 
     // ---- resolve all 16x6 channel pointers ONCE, post-warmup. The audio

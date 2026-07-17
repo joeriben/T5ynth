@@ -4,7 +4,7 @@
 build_csound_response() (mode=="csound" in pipe_inference.py) hands the WHOLE
 prompt to ONE constrained instruct-LLM call: the model plans 1-4 LAYERS, each
 pointing at fixed keys from backend/csound_lexicon.py (a "tool"/family, an
-optional "register", "envelope", "characters" and "motion") plus an optional
+optional "register", "characters" and "motion") plus an optional
 GLOBAL "motion" list. It never writes Csound text or a DSP number itself --
 docs/DCO_LLM_GUARDRAILS.md's central guardrail, mirrored here for the Csound
 paradigm: the LLM only ROUTES to prefabricated, curated Csound code
@@ -59,7 +59,6 @@ def _build_catalogue():
                      lex.CHARACTER_KEYS),
         _vocab_block("MOTION (per-layer or global movement; \"motion\": [{\"key\",\"amount\"}])",
                      lex.MOTION_KEYS),
-        _vocab_block("ENVELOPES (per-layer macro time-shape; \"envelope\" field)", lex.ENVELOPE_KEYS),
         "REGISTER (organ footage, \"register\" field, default \"8'\"):\n"
         "  32' = 0.25x, 16' = 0.5x, 8' = 1x (the played note), 4' = 2x, 2' = 4x\n"
         "  -- a plain numeric ratio (e.g. 1.5) is also accepted verbatim.",
@@ -80,7 +79,7 @@ _FEW_SHOT = [
         "a warm saw pad",
         {
             "layers": [
-                {"tool": "saw_stack", "envelope": "swell",
+                {"tool": "saw_stack",
                  "characters": [{"key": "warm", "amount": 0.5}]},
             ]
         },
@@ -89,7 +88,7 @@ _FEW_SHOT = [
         "a harsh glassy metallic pluck",
         {
             "layers": [
-                {"tool": "pluck", "envelope": "decay_only",
+                {"tool": "pluck",
                  "characters": [
                      {"key": "harsh", "amount": 0.5},
                      {"key": "glassy", "amount": 0.6},
@@ -102,7 +101,7 @@ _FEW_SHOT = [
         "a shimmering evolving pad that breathes slowly",
         {
             "layers": [
-                {"tool": "pad", "envelope": "swell",
+                {"tool": "pad",
                  "motion": [
                      {"key": "shimmer", "amount": 0.5},
                      {"key": "evolve", "amount": 0.5},
@@ -123,7 +122,7 @@ _FEW_SHOT = [
         "a sustained organ tone",
         {
             "layers": [
-                {"tool": "organ_tone", "envelope": "sustain"},
+                {"tool": "organ_tone"},
             ]
         },
     ),
@@ -134,9 +133,12 @@ def _build_system_prompt():
     head = (
         "You design a Csound orchestra as 1-4 LAYERS, each pointing at a fixed "
         "catalogue of prefabricated synthesis tools. You NEVER invent a tool, "
-        "character, motion or envelope name, and you NEVER write Csound code or "
+        "character or motion name, and you NEVER write Csound code or "
         "a DSP number yourself -- you only choose KEYS from the catalogue below, "
-        "plus register footage, level and per-key amounts.\n\n"
+        "plus register footage, level and per-key amounts. Every layer is a "
+        "STANDING tone that holds its level for as long as the note is held -- "
+        "there is no envelope/time-shape concept here; amplitude shape is the "
+        "synth's own ADSR, applied outside this orchestra.\n\n"
         "Reply with STRICT JSON only -- no prose, no markdown code fences, no "
         "explanation. Schema:\n"
         "{\n"
@@ -145,7 +147,6 @@ def _build_system_prompt():
         '      "tool": "<TOOL key>",\n'
         '      "register": "<organ footage or numeric ratio, default \\"8\'\\">",\n'
         '      "level": <0.0-1.5, default 0.8>,\n'
-        '      "envelope": "<ENVELOPE key, default \\"strike\\">",\n'
         '      "characters": [{"key": "<CHARACTER key>", "amount": <0.0-1.0>}, ...],\n'
         '      "motion": [{"key": "<MOTION key>", "amount": <0.0-1.0>}, ...]\n'
         "    }\n"
@@ -153,7 +154,7 @@ def _build_system_prompt():
         '  "motion": [{"key": "<MOTION key>", "amount": <0.0-1.0>}, ...]  '
         "// OPTIONAL, GLOBAL: broadcast to every layer\n"
         "}\n"
-        "\"register\", \"level\", \"envelope\", \"characters\" and \"motion\" are all "
+        "\"register\", \"level\", \"characters\" and \"motion\" are all "
         "optional per layer (omit rather than guess). At most 4 layers total. "
         "Stack multiple layers when the prompt names multiple simultaneous or "
         "registered sounds (e.g. two named registers, or \"and above that\").\n\n"
@@ -320,7 +321,7 @@ def build_csound_response(text, llm):
             last_error = str(e)
             attempt_text = (
                 f"{text}\n\n(Your previous reply used an invalid key or shape: {last_error}. "
-                "Choose ONLY keys from the TOOLS/CHARACTERS/MOTION/ENVELOPES catalogue above. "
+                "Choose ONLY keys from the TOOLS/CHARACTERS/MOTION catalogue above. "
                 "Reply again with STRICT JSON only.)"
             )
             continue

@@ -16,9 +16,10 @@
 //   1. NOTE-ON LATENCY   -- post-VCA onset lands within ~1 ksmps + portk lag.
 //   2. RELEASE INTEGRITY -- D3: gate = voice ACTIVE, not note-held; the T5ynth
 //                           ampEnv release plays out in full after note-off.
-//   3. RETRIGGER         -- D8: a same-slot reused voice re-strikes via the
-//                           trig-epoch channel (changed2), not a gate edge
-//                           (which never falls across old->new note here).
+//   3. STANDING TONE     -- the oscillator holds steady while gated (no strike,
+//                           no decay); reusing a still-active mono slot injects
+//                           no orchestra re-strike (amplitude SHAPE is the synth
+//                           VCA/ADSR's job, not the oscillator's).
 //   4. RT CLEANLINESS    -- D4: zero additional heap blocks across a 10 s
 //                           steady-state pump with note churn, post-warmup.
 //   5. TIMING            -- raw CsoundEngine: a gate/trig write followed by
@@ -379,20 +380,27 @@ static bool caseReleaseIntegrity()
     return ok;
 }
 
-// ═══════════════════════════ Case 3: RETRIGGER ═══════════════════════════
-// D8: a stolen/reused voice stays isActive() across old->new note (gate never
-// falls, D3), so the retrigger signal must be the trig-epoch channel
-// (changed2), not a gate edge. Empirical, comparative design (measure, don't
-// theorize about the exact orchestra decay-curve shape): run the SAME mono
-// voice slot twice -- once with only the first note, once with a
-// note-off + second note-on 50ms later, while the voice is still
-// active/releasing (never idle) the whole time -- and compare energy shortly
-// after the second trigger's expected onset. A real re-strike must leave
-// MORE energy there than the single-note control, which only keeps decaying.
-static bool caseRetrigger()
+// ═══════════════════════════ Case 3: STANDING TONE ═══════════════════════════
+// STANDING-TONE contract (BJ 2026-07-17, "Hüllkurven gehören nicht in den
+// Oszillator. Vollständig entfernen."): the oscillator holds a steady tone for
+// as long as the gate is open -- no strike, no per-partial decay; amplitude
+// SHAPE is the synth VCA/ADSR's job OUTSIDE the orchestra. A stolen/reused mono
+// voice snaps to the new pitch (freq is un-smoothed) and keeps holding -- the
+// orchestra injects no fresh transient of its own. Empirical, comparative
+// (measure, don't theorize about exact levels):
+//   (a) HELD-NOTE STEADINESS -- a single held note's late-window RMS matches
+//       its early post-attack RMS. The OLD strike orchestra decayed here and
+//       would fail; a standing tone holds. This is the decisive proof.
+//   (b) NO RE-STRIKE ON REUSE -- run the SAME mono slot twice (once one note,
+//       once note-off + second note-on 50ms later while the voice is still
+//       active). Shortly after the second note-on both runs sit at the same
+//       steady level (VCA back at sustain, orchestra steady): the retrig run
+//       must NOT spike above the control the way a fresh strike would -- a
+//       two-sided band, not the old one-sided "re-strike is louder".
+static bool caseStandingTone()
 {
-    printf("[3] RETRIGGER (D8: trig-epoch, not gate edge)\n");
-    const float releaseMs = 500.0f;   // long: voice 0 stays active/releasing across both notes
+    printf("[3] STANDING TONE (held note holds; reuse injects no re-strike)\n");
+    const float releaseMs = 500.0f;   // long: voice 0 stays active across both notes
     const int totalSamples = (int) (0.10 * CsoundRig::SR);   // 100ms
 
     CsoundRig rigSingle(2.0f, 20.0f, 1.0f, releaseMs, /*voiceLimit=*/1);
@@ -400,41 +408,57 @@ static bool caseRetrigger()
 
     CsoundRig rigRetrig(2.0f, 20.0f, 1.0f, releaseMs, /*voiceLimit=*/1);
     const int noteOffAt = (int) (0.005 * CsoundRig::SR);    // 5ms
-    const int secondOnAt = (int) (0.050 * CsoundRig::SR);   // 50ms -- voice 0 still active (releasing)
+    const int secondOnAt = (int) (0.050 * CsoundRig::SR);   // 50ms -- voice 0 still active
     auto outRetrig = rigRetrig.renderRange(totalSamples,
         { { 0,          [&] { rigRetrig.noteOn(60); } },
           { noteOffAt,  [&] { rigRetrig.noteOff(60); } },
-          { secondOnAt, [&] { rigRetrig.noteOn(64); } } });   // same voice (mono), different pitch
+          { secondOnAt, [&] { rigRetrig.noteOn(60); } } });   // same voice (mono), SAME pitch:
+                                                              // identical spectrum + phase-continuous
+                                                              // oscillators -> a clean RMS comparison
+                                                              // (a different pitch would beat
+                                                              // differently and confound the level).
 
-    // Sanity: both runs must agree closely BEFORE the retrig run's note-off
-    // (confirms the two rigs are configured identically -- same note, same
-    // envelope, same freq -- before anything is deliberately made to
-    // diverge). Deliberately NOT compared anywhere between noteOffAt and
-    // secondOnAt: the retrig run is releasing there while the single-note
-    // control is still sustaining, which is the whole point of the test, not
-    // a discrepancy to guard against.
-    const int preWindowEnd = noteOffAt - 20;   // safely before the note-off event
-    const double rmsPreDivergeSingle = rmsWindow(outSingle, preWindowEnd - 100, 100);
-    const double rmsPreDivergeRetrig = rmsWindow(outRetrig, preWindowEnd - 100, 100);
-    const bool preMatch = std::fabs(rmsPreDivergeSingle - rmsPreDivergeRetrig)
-                        < 0.25 * std::max(rmsPreDivergeSingle, rmsPreDivergeRetrig) + 1.0e-6;
+    // (a) Steadiness of the single held note. The VCA (2ms attack / 20ms decay
+    // / 1.0 sustain) has fully settled by ~30ms, so any drift between an early
+    // (30-45ms) and a late (82-97ms) window is the ORCHESTRA's -- and a
+    // standing tone must not drift. RMS is pitch-independent, so this isolates
+    // amplitude behaviour.
+    const int winLen  = (int) (0.015 * CsoundRig::SR);
+    const double rmsEarly = rmsWindow(outSingle, (int) (0.030 * CsoundRig::SR), winLen);
+    const double rmsLate  = rmsWindow(outSingle, (int) (0.082 * CsoundRig::SR), winLen);
+    const bool steady = std::fabs(rmsLate - rmsEarly) < 0.20 * std::max(rmsEarly, rmsLate) + 1.0e-6;
 
-    // Measurement point: 15ms after the second trigger, comfortably past one
-    // ksmps block + the gate/strike onset lag.
+    // Sanity: both rigs agree BEFORE the retrig run's note-off (identical setup
+    // -- same note, freq, VCA -- before anything is deliberately made to
+    // diverge). Not compared between noteOffAt and secondOnAt: the retrig run
+    // is releasing there while the control still sustains, which is intended.
+    const int preWindowEnd = noteOffAt - 20;
+    const double rmsPreSingle = rmsWindow(outSingle, preWindowEnd - 100, 100);
+    const double rmsPreRetrig = rmsWindow(outRetrig, preWindowEnd - 100, 100);
+    const bool preMatch = std::fabs(rmsPreSingle - rmsPreRetrig)
+                        < 0.25 * std::max(rmsPreSingle, rmsPreRetrig) + 1.0e-6;
+
+    // (b) 15ms after the second note-on both runs sit at the SAME steady level
+    // (VCA re-attacked back to sustain, orchestra steady, same pitch): a
+    // two-sided band. A fresh orchestra strike would push the retrig run well
+    // above the control; a silent drop-out would push it below.
     const int measureAt = secondOnAt + (int) (0.015 * CsoundRig::SR);
     const double rmsRetrigAfter = rmsWindow(outRetrig, measureAt - 150, 300);
     const double rmsSingleAfter = rmsWindow(outSingle, measureAt - 150, 300);
+    const bool reuseSteady = std::fabs(rmsRetrigAfter - rmsSingleAfter)
+                           < 0.20 * std::max(rmsRetrigAfter, rmsSingleAfter) + 1.0e-6;
 
-    const bool retriggered = rmsRetrigAfter > rmsSingleAfter * 1.2 + 1.0e-6;
-    const bool ok = preMatch && retriggered;
+    const bool ok = steady && preMatch && reuseSteady;
 
+    printf("    steadiness: early=%.4f late=%.4f (steady=%s)\n",
+           rmsEarly, rmsLate, steady ? "yes" : "NO");
     printf("    preDiverge: single=%.4f retrig=%.4f (match=%s)\n",
-           rmsPreDivergeSingle, rmsPreDivergeRetrig, preMatch ? "yes" : "NO");
-    printf("    +15ms post-2nd-trigger: single(control)=%.4f retrig=%.4f -> %s\n",
-           rmsSingleAfter, rmsRetrigAfter, ok ? "PASS" : "*** FAIL ***");
+           rmsPreSingle, rmsPreRetrig, preMatch ? "yes" : "NO");
+    printf("    +15ms post-2nd-note: control=%.4f retrig=%.4f (reuse steady, no re-strike=%s) -> %s\n",
+           rmsSingleAfter, rmsRetrigAfter, reuseSteady ? "yes" : "NO", ok ? "PASS" : "*** FAIL ***");
 
-    writeWavNormalized("tools/csound_engine_out/case3_retrigger_single.wav", outSingle, (int) CsoundRig::SR, -12.0f);
-    writeWavNormalized("tools/csound_engine_out/case3_retrigger_retrig.wav", outRetrig, (int) CsoundRig::SR, -12.0f);
+    writeWavNormalized("tools/csound_engine_out/case3_standing_single.wav", outSingle, (int) CsoundRig::SR, -12.0f);
+    writeWavNormalized("tools/csound_engine_out/case3_standing_retrig.wav", outRetrig, (int) CsoundRig::SR, -12.0f);
     return ok;
 }
 
@@ -552,7 +576,7 @@ int main()
     bool ok = true;
     ok &= caseNoteOnLatency();
     ok &= caseReleaseIntegrity();
-    ok &= caseRetrigger();
+    ok &= caseStandingTone();
     ok &= caseRtCleanliness();
     ok &= caseTiming();
 

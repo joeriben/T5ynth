@@ -9,7 +9,7 @@ csound_orch_check.py's caller loop below prints a LOUD message and exits
 cleanly (never fails) if the binary hasn't been built yet.
 
 Covers (spec's exact checklist):
-  1. EVERY tool/character/motion/envelope key: a minimal one-layer spec ->
+  1. EVERY tool/character/motion key: a minimal one-layer spec ->
      assemble -> `csound_orch_check check` -> must pass.
   2. A ~25-composition sweep (BJ's dark-bell-16'+metallic-bell-8' stack, two
      4-layer stacks, every character on two families, every motion, solo
@@ -115,10 +115,6 @@ def _minimal_motion_spec(key):
     return {"layers": [{"tool": "pad", "motion": [{"key": key, "amount": 0.7}]}]}
 
 
-def _minimal_envelope_spec(key):
-    return {"layers": [{"tool": "bell", "envelope": key}]}
-
-
 # ─── the ~25-composition sweep (stage 2: check + bench + render) ──────────
 # Names double as the .orc/.wav basenames landing in tools/csound_lexicon_out/.
 
@@ -132,10 +128,9 @@ def _build_sweep():
         "layers": [
             {"tool": "bell", "register": "16'", "level": 0.8,
              "characters": [{"key": "dark", "amount": 0.7}],
-             "envelope": "strike", "motion": [{"key": "vibrato", "amount": 0.3}]},
+             "motion": [{"key": "vibrato", "amount": 0.3}]},
             {"tool": "bell", "register": "8'", "level": 0.6,
-             "characters": [{"key": "metallic", "amount": 0.6}],
-             "envelope": "strike"},
+             "characters": [{"key": "metallic", "amount": 0.6}]},
         ],
         "motion": [{"key": "evolve", "amount": 0.5}],
         "space": None,
@@ -172,27 +167,27 @@ def _build_sweep():
         }
     sweep["solo_pad"] = {
         "layers": [{"tool": "pad", "register": "8'", "level": 0.8,
-                    "characters": [], "envelope": "sustain", "motion": []}]
+                    "characters": [], "motion": []}]
     }
 
     # 20-23. solo showcase for the sparser/custom families.
     sweep["solo_fm_bell"] = {"layers": [{"tool": "fm_bell", "level": 0.9}]}
-    sweep["solo_pluck"] = {"layers": [{"tool": "pluck", "level": 0.9, "envelope": "decay_only"}]}
-    sweep["solo_glass"] = {"layers": [{"tool": "glass", "level": 0.9, "envelope": "decay_only"}]}
-    sweep["solo_noise_wash"] = {"layers": [{"tool": "noise_wash", "level": 0.8, "envelope": "swell"}]}
+    sweep["solo_pluck"] = {"layers": [{"tool": "pluck", "level": 0.9}]}
+    sweep["solo_glass"] = {"layers": [{"tool": "glass", "level": 0.9}]}
+    sweep["solo_noise_wash"] = {"layers": [{"tool": "noise_wash", "level": 0.8}]}
 
     # 24-25. register-stacked combos beyond BJ's own example.
     sweep["combo_cymbal_metal"] = {
         "layers": [
-            {"tool": "cymbal", "register": "8'", "level": 0.7, "envelope": "decay_only"},
-            {"tool": "metal", "register": "4'", "level": 0.7, "envelope": "strike"},
+            {"tool": "cymbal", "register": "8'", "level": 0.7},
+            {"tool": "metal", "register": "4'", "level": 0.7},
         ],
     }
     sweep["combo_organ_registers"] = {
         "layers": [
-            {"tool": "organ_tone", "register": "16'", "level": 0.7, "envelope": "sustain"},
-            {"tool": "organ_tone", "register": "8'", "level": 0.6, "envelope": "sustain"},
-            {"tool": "organ_tone", "register": "4'", "level": 0.5, "envelope": "sustain"},
+            {"tool": "organ_tone", "register": "16'", "level": 0.7},
+            {"tool": "organ_tone", "register": "8'", "level": 0.6},
+            {"tool": "organ_tone", "register": "4'", "level": 0.5},
         ],
     }
     return sweep
@@ -205,7 +200,7 @@ EXACT_SPEC_JSON_EXAMPLE = {
     "layers": [
         {"tool": "bell", "register": "16'", "level": 0.8,
          "characters": [{"key": "dark", "amount": 0.7}],
-         "envelope": "strike", "motion": [{"key": "vibrato", "amount": 0.3}]}
+         "motion": [{"key": "vibrato", "amount": 0.3}]}
     ],
     "motion": [{"key": "evolve", "amount": 0.5}],
     "space": None,
@@ -239,8 +234,10 @@ def test_unknown_key_raises_never_silent_default():
     except ValueError:
         pass
     try:
-        asm.assemble({"layers": [{"tool": "bell", "envelope": "not_a_real_envelope"}]})
-        raise AssertionError("assemble() did not raise on an unknown envelope key")
+        asm.assemble({"layers": [{"tool": "bell", "envelope": "strike"}]})
+        raise AssertionError("assemble() did not raise on a rejected 'envelope' field "
+                              "(envelopes were removed entirely -- amplitude shape is "
+                              "the synth's own ADSR, never the oscillator's)")
     except ValueError:
         pass
     try:
@@ -292,7 +289,7 @@ def run_all():
             results["fail_names"].append(t.__name__)
 
     # Stage 1: every key, individually.
-    print("\n--- stage 1: every tool/character/motion/envelope key ---")
+    print("\n--- stage 1: every tool/character/motion key ---")
     per_key_specs = []
     for k in lex.FAMILY_KEYS:
         per_key_specs.append((f"key_family_{k}", _minimal_family_spec(k)))
@@ -300,8 +297,6 @@ def run_all():
         per_key_specs.append((f"key_character_{k}", _minimal_character_spec(k)))
     for k in lex.MOTION_KEYS:
         per_key_specs.append((f"key_motion_{k}", _minimal_motion_spec(k)))
-    for k in lex.ENVELOPE_KEYS:
-        per_key_specs.append((f"key_envelope_{k}", _minimal_envelope_spec(k)))
 
     for name, spec in per_key_specs:
         text, _ = asm.assemble(spec)
@@ -357,8 +352,8 @@ def run_all():
     print(f"  plain tests:        {len(plain_tests) - len([f for f in results['fail_names'] if f in [t.__name__ for t in plain_tests]])}/{len(plain_tests)} passed")
     print(f"  per-key checks:     {results['per_key_pass']}/{results['per_key_pass']+results['per_key_fail']} passed"
           f"  (keys: {len(lex.FAMILY_KEYS)} family + {len(lex.CHARACTER_KEYS)} character + "
-          f"{len(lex.MOTION_KEYS)} motion + {len(lex.ENVELOPE_KEYS)} envelope = "
-          f"{len(lex.FAMILY_KEYS)+len(lex.CHARACTER_KEYS)+len(lex.MOTION_KEYS)+len(lex.ENVELOPE_KEYS)})")
+          f"{len(lex.MOTION_KEYS)} motion = "
+          f"{len(lex.FAMILY_KEYS)+len(lex.CHARACTER_KEYS)+len(lex.MOTION_KEYS)})")
     print(f"  sweep compositions: {len(SWEEP)}")
     print(f"    check:  {results['sweep_check_pass']}/{len(SWEEP)} passed")
     print(f"    bench:  {results['sweep_bench_pass']}/{len(SWEEP)} passed (gate: 133us median)")

@@ -9,19 +9,33 @@ buildOrchestra() (same header shape, same instr-1 voice-bridge prologue, same
 score) — see that function's own comments for the contract this mirrors
 verbatim: ONE numeric `instr 1`, p4 = voice index 1..16, channels
 gateN/freqN/velN/presN/timbN/trigN via sprintf on p4, portk declick on
-gate+freq, retrigger = changed2 on the trig channel + reinit/rireturn, outch
-ivoice, numeric-p1 score `i 1 0 360000 N` x16, ksmps=64, nchnls=16, 0dbfs=1.
-The ONE difference: `sr = %SR%` is left as a literal marker (not baked to a
-number) — the assembler runs offline in Python with no sample rate of its
-own; whatever compiles this text (tools/csound_orch_check.cpp for this
-phase's own testing; the C++ engine in a later phase) substitutes the real
-number in, the same way buildOrchestra() itself bakes sr via snprintf.
+gate+freq, outch ivoice, numeric-p1 score `i 1 0 360000 N` x16, ksmps=64,
+nchnls=16, 0dbfs=1. The ONE difference: `sr = %SR%` is left as a literal
+marker (not baked to a number) — the assembler runs offline in Python with no
+sample rate of its own; whatever compiles this text (tools/csound_orch_check.cpp
+for this phase's own testing; the C++ engine in a later phase) substitutes
+the real number in, the same way buildOrchestra() itself bakes sr via
+snprintf.
+
+STANDING-SOUND CONTRACT (2026-07-17, BJ: "Hüllkurven gehören nicht in den
+Oszillator. Vollständig entfernen."): every layer this assembler emits is a
+STANDING tone — static for as long as the gate holds. There is no envelope
+concept in this orchestra at all; amplitude SHAPE is the synth's own ADSR/VCA
+outside the orchestra, never the oscillator's job. The `trigN` channel is
+still read (`ktrigch chnget Strig` — the 16x6 channel contract with the C++
+voice bridge must still resolve identically) but nothing in the emitted
+orchestra acts on it: a standing tone needs no retrigger/reinit epoch, so the
+old changed2(trig) + reinit/rireturn "STRIKE" block is gone entirely, along
+with every layer's now-nonexistent envelope machinery.
 
 ── Pipeline (per layer, in this exact order — read before editing) ──────────
- 1. Resolve tool/register/envelope/characters/motion keys. ANY unknown key
-    raises ValueError immediately (LLM-first guardrail: an unmapped word is
-    an honest error upstream, never a silent default — dco_recipe's own
-    discipline, mirrored here).
+ 1. Resolve tool/register/characters/motion keys. ANY unknown key raises
+    ValueError immediately (LLM-first guardrail: an unmapped word is an
+    honest error upstream, never a silent default — dco_recipe's own
+    discipline, mirrored here). A layer's own "envelope" field is likewise
+    rejected outright (ValueError) — envelopes were removed entirely, so an
+    LLM reply that still emits one out of old habit is an invalid spec, not
+    a silently-ignored extra field.
  2. kL{ns}_freq0 = kfreq * registerRatio (the layer's register-scaled
     fundamental; every partial's frequency is relative to THIS, never to the
     raw contract kfreq directly).
@@ -37,29 +51,28 @@ number in, the same way buildOrchestra() itself bakes sr via snprintf.
     character is instead QUEUED (ctx.pending_characters) and applied as a
     runtime post-filter after step 5 (there is no discrete partial table to
     mutate). "harsh" (and part of "warm") always accumulates
-    ctx.drive_amount, applied once, after everything else, in step 7 —
+    ctx.drive_amount, applied once, after everything else, in step 6 —
     regardless of family kind.
  4b. Additive-only: re-cap the (possibly character-boosted) partial table's
     total amplitude back to its PRE-character sum — see the "Headroom"
     paragraph below; this is what keeps step 4's tilt/skew from silently
-    invalidating step 8's budget math.
- 5. FAMILY EMISSION. additive_decay (bell/metal/cymbal/glass/pluck): one
-    transeg per partial INSIDE the shared STRIKE:...rireturn block (the
-    envelope key only adjusts onset_scale/bed_multiplier —
-    _DECAY_ENVELOPE_ADJUST — the family's OWN per-partial decay/bed shape,
-    its defining character, is never replaced). additive_continuous
-    (pad/organ_tone/saw_stack/square_stack/noise_wash/sub): partials have NO
-    intrinsic envelope; a single shared per-layer transeg (built straight
-    from the chosen envelope key's fields) is applied to the whole sum in
-    step 6. fm_bell (custom): real 2-operator FM with its own always-on
-    index-decay transeg (bright->plain sidebands) PLUS the same shared
-    per-layer envelope applied to the carrier's amplitude.
- 6. Generic per-layer envelope-gain (additive_continuous + fm_bell only —
-    additive_decay families self-shape in step 5 and skip this).
- 7. MOTION post-emit hooks (shimmer, breathe) + queued CHARACTER runtime
+    invalidating step 7's budget math.
+ 5. FAMILY EMISSION — always a STANDING additive/FM tone (no attack, no
+    decay, no reinit; see the contract note above). additive_continuous
+    (every family except fm_bell: bell/metal/cymbal/glass/pluck/pad/
+    organ_tone/saw_stack/square_stack/noise_wash/sub): each partial is a
+    single `oscili amp, freq` line held at its authored (possibly
+    character-tilted) level for as long as the gate holds — bell/metal/
+    cymbal/glass/pluck's OWN partial-ratio/amplitude fingerprint
+    (csound_lexicon._*_PARTIALS) is what makes them read as bell/metal/
+    cymbal/glass/pluck, not a decay shape. fm_bell (custom): real
+    2-operator FM with a FIXED standing modulation index (no index decay —
+    see _emit_fm_bell) plus the same character/motion pipeline as any other
+    layer.
+ 6. MOTION post-emit hooks (shimmer, breathe) + queued CHARACTER runtime
     fallback (fm_bell only) + harsh/warm drive — all operate directly on the
     fully-formed aL{ns}_raw signal, in that order.
- 8. Level + headroom-budget scale -> aL{ns}_out.
+ 7. Level + headroom-budget scale -> aL{ns}_out.
 
 GLOBAL motion (spec's top-level "motion", optional) is broadcast: appended to
 EVERY layer's own motion list before step 3, each entry keeping its own
@@ -77,7 +90,7 @@ verification pass on this file caught it clipping via ordinary combinations
 like "bright glassy saw" well under the 4-layer cap), so step 4b re-caps an
 additive layer's total partial amplitude back to its PRE-character sum
 (never boosts it — a thinning character's quieter result is left alone),
-and step 8 divides fm_bell's budget by an analytical estimate of its
+and step 7 divides fm_bell's budget by an analytical estimate of its
 runtime-fallback characters' worst-case expansion (_estimate_pending_runtime_gain,
 since fm_bell has no partial table for step 4b to re-cap). Both re-derive
 the SAME "~unit-peak regardless of character stack" guarantee this
@@ -101,16 +114,11 @@ import csound_lexicon as lex  # noqa: E402  (sys.path fixed up above)
 MAX_LAYERS = 4
 _LAYER_BUDGET_NUM = 0.35  # final per-layer scale = _LAYER_BUDGET_NUM / n_layers
 
-# additive_decay envelope-key -> (onset_scale, bed_multiplier). See the
-# module docstring, step 5: additive_decay families keep their OWN authored
-# per-partial bed; the chosen envelope only suppresses the transient
-# ('swell') or rescales how much of that natural bed remains audible.
-_DECAY_ENVELOPE_ADJUST = {
-    "strike":     (1.00, 1.0),
-    "swell":      (0.12, 1.0),
-    "sustain":    (1.00, 2.6),
-    "decay_only": (1.00, 0.0),
-}
+# fm_bell's fixed STANDING modulation index (no attack/decay -- a constant
+# brightness, chosen mid-range between the old removed envelope's onset
+# spike (4.0) and its settled hold (0.35): bright enough to read as FM,
+# never harsh at rest).
+_FM_INDEX = 2.2
 
 _CONTRACT_CHANNELS = ("gate", "freq", "vel", "pres", "timb", "trig")
 
@@ -125,12 +133,11 @@ class _LayerCtx:
     def __init__(self, index):
         self.index = index
         self.ns = f"L{index}"
-        self.reinit_lines = []   # inside the shared STRIKE:...rireturn block
         self.body_lines = []     # main k/a-rate flow
         self.freq_mod_suffix = ""      # e.g. " * cent(kL1_m0_vibC)"
         self.evolve_terms = []         # [(lfo_var, depth_scale), ...]
         self.partials = None           # mutable list[dict] for additive kinds, else None
-        self.kind = None               # "additive_decay" | "additive_continuous" | "custom"
+        self.kind = None               # "additive_continuous" | "custom"
         self.pending_characters = []   # fm_bell-only: [(char_key, amount)] runtime fallback
         self.drive_amount = 0.0        # accumulated waveshaper drive (harsh + a touch of warm)
         self.raw_var = None            # set once family emission completes: "aL{ns}_raw"
@@ -210,7 +217,7 @@ def _apply_motion_post(ctx, idx, key, amount):
 
 # ─── step 4: character application ─────────────────────────────────────────
 
-def _apply_tilt_to_partials(partials, db_per_oct, amount, decay_tilt=0.0):
+def _apply_tilt_to_partials(partials, db_per_oct, amount):
     if not partials:
         return
     for p in partials:
@@ -218,21 +225,15 @@ def _apply_tilt_to_partials(partials, db_per_oct, amount, decay_tilt=0.0):
         octaves = math.log2(ratio)
         gain = 10.0 ** ((db_per_oct * amount * octaves) / 20.0)
         p["amp"] = p["amp"] * gain
-        if decay_tilt and "decay" in p and octaves > 0:
-            # glassy/metallic: upper partials decay FASTER (shorter decay time)
-            shrink = _clamp(1.0 - decay_tilt * amount * min(octaves / 3.0, 1.0), 0.15, 1.0)
-            p["decay"] = p["decay"] * shrink
 
 
-def _apply_skew_to_partials(partials, skew_scale, amount, decay_tilt=0.0):
+def _apply_skew_to_partials(partials, skew_scale, amount):
     if not partials:
         return
     for i, p in enumerate(partials):
         sign = 1.0 if (i % 2 == 0) else -1.0
         p["ratio"] = p["ratio"] * (1.0 + amount * skew_scale * (i + 1) * sign)
         p["amp"] = p["amp"] * (1.0 + 0.10 * amount)  # a touch brighter/clangier too
-        if decay_tilt and "decay" in p:
-            p["decay"] = p["decay"] * _clamp(1.0 - decay_tilt * amount * 0.5, 0.2, 1.0)
 
 
 def _apply_character(ctx, idx, key, amount):
@@ -250,15 +251,13 @@ def _apply_character(ctx, idx, key, amount):
 
     if ctx.partials is not None:
         if kind == "tilt":
-            _apply_tilt_to_partials(ctx.partials, tool["db_per_oct"], amount,
-                                     decay_tilt=tool.get("decay_tilt", 0.0))
+            _apply_tilt_to_partials(ctx.partials, tool["db_per_oct"], amount)
         elif kind == "skew":  # metallic
-            _apply_skew_to_partials(ctx.partials, tool["skew_scale"], amount,
-                                     decay_tilt=tool.get("decay_tilt", 0.0))
+            _apply_skew_to_partials(ctx.partials, tool["skew_scale"], amount)
         return
 
     # No discrete partial table (fm_bell): queue a runtime post-filter,
-    # applied once in step 7 (after the raw signal exists).
+    # applied once in step 6 (after the raw signal exists).
     ctx.pending_characters.append((key, amount))
 
 
@@ -298,7 +297,7 @@ def _estimate_pending_runtime_gain(ctx):
     fallback is a convex blend (`raw*(1-mix) + lp*mix`, weights sum to 1)
     and therefore non-expansive/safe, and metallic's AM fallback is bounded
     to +-15%. Only the expansive terms accumulate here; the result divides
-    the final budget (step 8) so this family gets the SAME "never exceed the
+    the final budget (step 7) so this family gets the SAME "never exceed the
     authored headroom" guarantee step 4b restores for additive families."""
     gain = 1.0
     for key, amount in ctx.pending_characters:
@@ -316,9 +315,9 @@ def _estimate_pending_runtime_gain(ctx):
     return gain
 
 
-# ─── step 5: additive emission (additive_decay / additive_continuous) ──────
+# ─── step 5: additive emission (all additive_continuous families) ─────────
 
-def _emit_additive(ctx, envelope_key):
+def _emit_additive(ctx):
     partials = ctx.partials
     freq_mod = ctx.freq_mod_suffix
     ns = ctx.ns
@@ -336,28 +335,13 @@ def _emit_additive(ctx, envelope_key):
         freq_var = f"kL{ns}_p{p}freq"
         ctx.body_lines.append(f"  {freq_var} = kL{ns}_freq0 * {ratio:.6f}{freq_mod}")
 
-        if ctx.kind == "additive_decay":
-            onset_scale, bed_mult = _DECAY_ENVELOPE_ADJUST[envelope_key]
-            onset = onset_scale
-            hold = _clamp(partial["bed"] * bed_mult, 0.0, 1.0)
-            decay = max(partial["decay"], 0.05)
-            env_var = f"kL{ns}_p{p}env"
-            ctx.reinit_lines.append(
-                f"    {env_var} transeg 0, 0.003, 0, {onset:.4f}, {decay:.4f}, -6, {hold:.6f}")
-            a_var = f"aL{ns}_p{p}"
-            ctx.body_lines.append(f"  {a_var} oscili {amp:.6f}*{env_var}{amp_terms}, {freq_var}")
-        else:  # additive_continuous
-            a_var = f"aL{ns}_p{p}"
-            ctx.body_lines.append(f"  {a_var} oscili {amp:.6f}{amp_terms}, {freq_var}")
+        a_var = f"aL{ns}_p{p}"
+        ctx.body_lines.append(f"  {a_var} oscili {amp:.6f}{amp_terms}, {freq_var}")
         part_vars.append(a_var)
 
     sum_expr = "+".join(part_vars)
-    if ctx.kind == "additive_decay":
-        ctx.raw_var = f"aL{ns}_raw"
-        ctx.body_lines.append(f"  {ctx.raw_var} = {sum_expr}")
-    else:
-        ctx.raw_var = f"aL{ns}_sum"
-        ctx.body_lines.append(f"  {ctx.raw_var} = {sum_expr}")
+    ctx.raw_var = f"aL{ns}_raw"
+    ctx.body_lines.append(f"  {ctx.raw_var} = {sum_expr}")
 
 
 # ─── step 5 (custom): fm_bell ───────────────────────────────────────────────
@@ -368,41 +352,20 @@ def _emit_fm_bell(ctx):
     mod_ratio = 2.0
     car_amp = 0.34
 
-    # FM index: always decays bright -> plain, independent of the chosen
-    # envelope (SPEC: "the FM index has its own fixed decay").
-    idx_var = f"kL{ns}_idx"
-    ctx.reinit_lines.append(f"    {idx_var} transeg 4.0, 0.004, 0, 4.0, 2.4, -6, 0.35")
-
+    # Fixed STANDING modulation index (_FM_INDEX) -- no index decay; the
+    # old envelope-driven "bright -> plain" index trajectory is gone (see
+    # the module docstring's STANDING-SOUND CONTRACT).
     mod_var = f"kL{ns}_mod"
     ctx.body_lines.append(
-        f"  {mod_var} oscili {idx_var}*kL{ns}_freq0*{mod_ratio:.4f}, "
+        f"  {mod_var} oscili {_FM_INDEX:.4f}*kL{ns}_freq0*{mod_ratio:.4f}, "
         f"kL{ns}_freq0*{mod_ratio:.4f}{freq_mod}")
 
-    ctx.raw_var = f"aL{ns}_sum"  # reuses the additive_continuous generic-envelope path
+    ctx.raw_var = f"aL{ns}_raw"
     ctx.body_lines.append(
         f"  {ctx.raw_var} oscili {car_amp:.4f}, kL{ns}_freq0{freq_mod} + {mod_var}")
 
 
-# ─── step 6: generic per-layer envelope-gain (additive_continuous + fm_bell) ─
-
-def _apply_generic_envelope(ctx, envelope_key):
-    env = lex.TOOLS[envelope_key]
-    ns = ctx.ns
-    env_var = f"kL{ns}_envRaw"
-    if env["decay_sec"] > 0:
-        ctx.reinit_lines.append(
-            f"    {env_var} transeg 0, {env['attack_sec']:.4f}, {env['attack_curve']}, "
-            f"{env['onset_level']:.4f}, {env['decay_sec']:.4f}, -6, {env['hold_level']:.4f}")
-    else:
-        ctx.reinit_lines.append(
-            f"    {env_var} transeg 0, {env['attack_sec']:.4f}, {env['attack_curve']}, "
-            f"{env['onset_level']:.4f}")
-    new_raw = f"aL{ns}_raw"
-    ctx.body_lines.append(f"  {new_raw} = {ctx.raw_var} * {env_var}")
-    ctx.raw_var = new_raw
-
-
-# ─── step 7 (tail): harsh/warm drive ────────────────────────────────────────
+# ─── step 6 (tail): motion post-emit, queued character fallback, drive ─────
 
 def _apply_drive(ctx):
     if ctx.drive_amount <= 1e-6:
@@ -420,6 +383,13 @@ def _build_layer(index, layer_spec, global_motion, n_layers):
     if not isinstance(layer_spec, dict):
         raise ValueError(f"layer {index}: expected an object, got {layer_spec!r}")
 
+    if "envelope" in layer_spec:
+        raise ValueError(
+            f"layer {index}: 'envelope' is not a valid field -- envelopes were "
+            "removed from the Csound orchestra entirely (amplitude shape is the "
+            "synth's own ADSR, never the oscillator's); omit it entirely"
+        )
+
     tool_key = layer_spec.get("tool")
     if tool_key is None:
         raise ValueError(f"layer {index}: missing required 'tool' key")
@@ -430,9 +400,6 @@ def _build_layer(index, layer_spec, global_motion, n_layers):
     register_ratio = lex.parse_register(register_str)
 
     level = _clamp(float(layer_spec.get("level", 0.8)), 0.0, 1.5)
-
-    envelope_key = layer_spec.get("envelope", "strike")
-    _validate_key(envelope_key, "envelope", "envelope")
 
     characters = layer_spec.get("characters") or []
     for c in characters:
@@ -457,7 +424,7 @@ def _build_layer(index, layer_spec, global_motion, n_layers):
     if ctx.kind != "custom":
         ctx.partials = [dict(p) for p in family["partials"]]  # private deep-ish copy
         # Headroom invariant (SPEC: "blocks emit ~unit-peak"; the assembler's
-        # budget math at step 8 is only sound if that stays true regardless
+        # budget math at step 7 is only sound if that stays true regardless
         # of which characters got stacked on top). Captured BEFORE any
         # character tilt/skew runs, in step 4 below.
         original_amp_sum = sum(p["amp"] for p in ctx.partials)
@@ -475,7 +442,7 @@ def _build_layer(index, layer_spec, global_motion, n_layers):
     # verification pass): bright/glassy's positive spectral tilt has no
     # ceiling of its own (_apply_tilt_to_partials), so stacking two boosting
     # characters (e.g. "bright glassy saw") — or even "glassy" alone at a
-    # high level — could push the layer's raw sum well past what step 8's
+    # high level — could push the layer's raw sum well past what step 7's
     # budget constant assumes, clipping at the final outch. A dark/thinning
     # character is left alone (its quieter result is the intended effect,
     # not something to re-inflate) — only a NET increase gets scaled back
@@ -492,20 +459,16 @@ def _build_layer(index, layer_spec, global_motion, n_layers):
     if tool_key == "fm_bell":
         _emit_fm_bell(ctx)
     else:
-        _emit_additive(ctx, envelope_key)
+        _emit_additive(ctx)
 
-    # step 6: generic envelope (skipped for additive_decay — self-shaped)
-    if ctx.kind != "additive_decay":
-        _apply_generic_envelope(ctx, envelope_key)
-
-    # step 7: post-emit motion hooks, queued character fallback, drive
+    # step 6: post-emit motion hooks, queued character fallback, drive
     for m_idx, m in enumerate(combined_motion):
         _apply_motion_post(ctx, m_idx, m["key"], _clamp(float(m.get("amount", 0.5)), 0.0, 1.0))
     for c_idx, (key, amount) in enumerate(ctx.pending_characters):
         _apply_pending_character_runtime(ctx, c_idx, key, amount)
     _apply_drive(ctx)
 
-    # step 8: level + headroom budget. custom families (fm_bell) have no
+    # step 7: level + headroom budget. custom families (fm_bell) have no
     # partial table for step 4b's re-cap, so their queued runtime-fallback
     # characters' worst-case expansion is compensated for here analytically
     # instead (never boosted — only ever divided down, same rule as 4b).
@@ -517,7 +480,7 @@ def _build_layer(index, layer_spec, global_motion, n_layers):
 
     char_words = " ".join(ctx.character_reading_bits)
     words = " ".join(w for w in [char_words, tool_key] if w)
-    reading = f"{words} {register_str} \u00b7 {envelope_key}"
+    reading = f"{words} {register_str}"
     if ctx.motion_reading_bits:
         reading += " +" + "+".join(ctx.motion_reading_bits)
     ctx.reading = reading
@@ -540,10 +503,10 @@ def _emit_orchestra(layers):
     lines.append("")
     lines.append("; Phase-3 assembled orchestra (backend/csound_assembler.py).")
     lines.append("; Voice-bridge prologue is a byte-for-byte mirror of the Phase-1")
-    lines.append("; built-in orchestra (src/dsp/CsoundEngine.cpp's buildOrchestra()):")
-    lines.append("; gate = voice ACTIVE (incl. release), never closed on note-off;")
-    lines.append("; retrigger is the changed2(trig)+reinit/rireturn epoch idiom, never")
-    lines.append("; a gate edge (a stolen/reused voice never sees gate fall).")
+    lines.append("; built-in orchestra's (src/dsp/CsoundEngine.cpp's buildOrchestra())")
+    lines.append("; gate/freq/vel/pres/timb/trig channel contract: gate = voice ACTIVE")
+    lines.append("; (incl. release), never closed on note-off. Every layer below is a")
+    lines.append("; STANDING tone while gated -- no envelope, no retrigger epoch.")
     lines.append("instr 1")
     lines.append("  ivoice   = p4")
     lines.append('  Sgate    sprintf "gate%d", ivoice')
@@ -568,14 +531,10 @@ def _emit_orchestra(layers):
     lines.append("  kgate    portk kgateraw, 0.001")
     lines.append("  kfreq    limit kfreqraw, 20, 12000")
     lines.append("")
-    lines.append("  ktrig    changed2 ktrigch")
-    lines.append("  if ktrig == 1 then")
-    lines.append("    reinit STRIKE")
-    lines.append("  endif")
-    lines.append("  STRIKE:")
-    for layer in layers:
-        lines.extend(layer.reinit_lines)
-    lines.append("  rireturn")
+    lines.append("  ; ktrigch is read above (16x6 channel contract with the voice")
+    lines.append("  ; bridge) but otherwise unused here: every layer below is a")
+    lines.append("  ; STANDING tone for as long as the gate holds, so there is no")
+    lines.append("  ; retrigger/reinit epoch to re-arm on strike.")
     lines.append("")
 
     for layer in layers:

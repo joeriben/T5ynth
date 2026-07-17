@@ -205,7 +205,7 @@ def test_bj_canonical_stacking_prompt():
 def test_system_prompt_built_from_lexicon_not_hand_listed():
     import csound_lexicon as lex
     prompt = csound_author._build_system_prompt()
-    for key in lex.FAMILY_KEYS + lex.CHARACTER_KEYS + lex.MOTION_KEYS + lex.ENVELOPE_KEYS:
+    for key in lex.FAMILY_KEYS + lex.CHARACTER_KEYS + lex.MOTION_KEYS:
         assert key in prompt, f"lexicon key {key!r} missing from the generated system prompt"
 
 
