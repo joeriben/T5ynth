@@ -1073,6 +1073,10 @@ void PromptPanel::timerCallback()
     // Auto-regen polling
     pollDriftRegen();
 
+    // Phase 5 Csound compile-window poll (SPEC_phase4_5_csound_llm_preset.md):
+    // a cheap no-op unless triggerDcoBake() opened a window.
+    pollCsoundCompile();
+
     // Reprompt-off deferred clean re-render: when the stance is switched to Off the
     // restore block reverts the prompts AND sets pendingOriginalReRender_, but a loop
     // step / generation is almost always still in flight right at that moment. Fire it
@@ -2390,7 +2394,226 @@ void PromptPanel::setLcoStatus(const juce::String& text, const juce::String& too
     dcoReadingEditorB.setTooltip(tooltip);
 }
 
+// Phase 5 compile-window poll (SPEC_phase4_5_csound_llm_preset.md) — see its
+// declaration comment in PromptPanel.h. Called every tick from the panel's
+// existing 10Hz timerCallback(); a cheap no-op unless triggerDcoBake() just
+// opened a window. Combines csoundCompileInFlight()/csoundSwapPending()/
+// csoundSwapFading() (busy signals covering BOTH the fade path and the
+// "instant adopt, no ready active engine" path — the latter never touches
+// swapPending/swapFading at all, only compileInFlight) with a short grace
+// period so a tick landing in the gap between requestCsoundOrchestra()'s
+// triggerAsyncUpdate() and handleAsyncUpdate() actually running never
+// misreads "hasn't started yet" as "done, no error".
+void PromptPanel::pollCsoundCompile()
+{
+    if (! csoundCompileWatching_)
+        return;
+
+    const bool busyNow = processorRef.csoundCompileInFlight()
+                       || processorRef.csoundSwapPending()
+                       || processorRef.csoundSwapFading();
+
+    if (busyNow)
+    {
+        csoundCompileSeenBusy_ = true;
+        dcoFlagsLabel.setText("compiling...", juce::dontSendNotification);
+        return;   // still going — check again next tick
+    }
+
+    // Not busy this tick. If we've already seen it busy at least once, this
+    // IS the real completion edge — resolve now. Otherwise this could simply
+    // be a tick that landed before the background compile even started
+    // (real Csound compiles run ~100-400ms, comfortably inside a single 10Hz
+    // tick — see handleAsyncUpdate's own "~100ms compile" comment — so most
+    // windows DO catch a busy tick; this grace period only covers the rare
+    // miss): keep reporting "compiling..." until a short wall-clock grace
+    // (900ms — generously above the expected compile time) expires, then
+    // resolve anyway rather than hang the status forever.
+    constexpr double kGraceMs = 900.0;
+    if (! csoundCompileSeenBusy_
+        && (juce::Time::getMillisecondCounterHiRes() - csoundCompileWatchStartMs_) < kGraceMs)
+    {
+        dcoFlagsLabel.setText("compiling...", juce::dontSendNotification);
+        return;
+    }
+
+    csoundCompileWatching_ = false;
+
+    const juce::String err = processorRef.csoundCompileError();
+    if (err.isNotEmpty())
+    {
+        dcoFlagsLabel.setText(err, juce::dontSendNotification);
+        dcoFlagsLabel.setTooltip(err);
+    }
+    else
+    {
+        dcoFlagsLabel.setText({}, juce::dontSendNotification);   // clean: nothing to report
+        dcoFlagsLabel.setTooltip({});
+    }
+    resized();   // flag-area content changed
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Csound orchestra authoring (SPEC_phase4_5_csound_llm_preset.md, Phase 4):
+// the LCO GENERATE trigger's ACTIVE body. The prompt routes through the SAME
+// coder/interpreter model authorDcoRecipe used (backend/csound_author.py —
+// one constrained instruct call against the fixed TOOLS/CHARACTERS/MOTION/
+// ENVELOPES lexicon, at most one retry on a parse/assembly failure, LLM-
+// first — never a keyword-matched or default orchestra), returning either a
+// ready-to-compile orchestra + a human "how it was heard" reading, or an
+// honest failure. On success the engine is forced into Csound mode (reusing
+// dcoPrevEngineMode_ exactly like the retired wavetable path did for Lco —
+// see forceCsoundEngineMode's own comment) and the orchestra is handed to
+// requestCsoundOrchestra(); a compile-window poll (pollCsoundCompile, driven
+// by the panel's own existing 10Hz Timer — see its declaration comment)
+// tracks compiling -> ok/error to completion.
+// ──────────────────────────────────────────────────────────────────────────────
 void PromptPanel::triggerDcoBake()
+{
+    // Same coder-model gate the retired wavetable path used: csound_author.py's
+    // backend handler resolves the SAME installed coder/interpreter model
+    // (_resolve_coder_model_dir), so "coder not installed" is still the exact
+    // failure mode blocking this trigger, and coderAvailable_ is still the
+    // right flag (set from the same model-settings install state).
+    if (! coderAvailable_)
+    {
+        setLcoStatus("Load the LCO coder in Settings");
+        return;
+    }
+
+    // Forcing the engine into Csound mode + swapping its live orchestra is the
+    // same kind of engine-state change a running tape must not race — mirrors
+    // the retired path's identical replay guard.
+    if (processorRef.isReplayActive())
+    {
+        if (onStatusChanged) onStatusChanged("replay running — stop it to bake", false);
+        return;
+    }
+
+    if (dcoBaking_)
+        return;
+    // The pipe is one serialized channel (recursive stateMutex_): authoring
+    // clicked mid-generation would just park behind it for minutes with a
+    // misleading "authoring..." label. Same gate set as the retired bake /
+    // triggerGeneration.
+    if (generating || translatingPrompts_ || loopStepInFlight_)
+    {
+        setLcoStatus("LCO: busy (generation running)");
+        return;
+    }
+    auto pipePtr = processorRef.getPipeInferencePtr();
+    if (pipePtr == nullptr)
+    {
+        setLcoStatus("LCO: backend not running");
+        return;
+    }
+    const auto text = dcoPromptEditor.getText().trim();
+    if (text.isEmpty())
+    {
+        setLcoStatus("LCO: prompt is empty");
+        return;
+    }
+
+    dcoBaking_ = true;
+    if (onLcoBusyChanged) onLcoBusyChanged(true);   // disable the reused GENERATE button
+    setLcoStatus("LCO: authoring...");
+
+    // One blocking IPC round-trip (may lazily load the instruct model) on a
+    // detached background thread — house pattern (triggerGeneration,
+    // triggerDcoReprompt, the retired bake above): only the UI-visible
+    // completion marshals back via SafePointer + callAsync.
+    juce::Component::SafePointer<PromptPanel> safeThis(this);
+    std::thread([safeThis, pipePtr, text]() mutable
+    {
+        auto authored = pipePtr->authorCsoundOrchestra(text);
+
+        juce::MessageManager::callAsync([safeThis, authored, text]()
+        {
+            auto* self = safeThis.getComponent();
+            if (self == nullptr) return;   // panel gone — nothing to write
+
+            self->dcoBaking_ = false;
+            if (self->onLcoBusyChanged) self->onLcoBusyChanged(false);
+
+            if (! authored.success)
+            {
+                // Honest failure (LLM-first, no fallback: csound_author.py
+                // exhausted its one retry without ever falling back to a
+                // default/keyword-matched orchestra) — leave the engine and
+                // any previously-authored orchestra completely untouched.
+                self->setLcoStatus("LCO: " + (authored.errorMessage.isNotEmpty()
+                                                   ? authored.errorMessage
+                                                   : juce::String("authoring failed")));
+                return;
+            }
+
+            // A-card = the reading ("how it was heard"), bright; B-card
+            // cleared — the Csound orchestra is one combined authored voice,
+            // not a dual A/B oscillator split (that split is the retired
+            // paradigm; see triggerDcoWavetableBakeRetired's banner).
+            self->dcoReadingEditorA.setColour(juce::TextEditor::textColourId, kImpulseAText);
+            self->dcoReadingEditorA.setText(authored.reading, juce::dontSendNotification);
+            self->dcoReadingEditorA.setTooltip({});
+            self->dcoReadingEditorB.setColour(juce::TextEditor::textColourId, kDim);
+            self->dcoReadingEditorB.setText({}, juce::dontSendNotification);
+            self->dcoReadingEditorB.setTooltip({});
+            self->dcoStatusLabel.setText("LCO: csound authored", juce::dontSendNotification);
+
+            // Re-Prompt bookkeeping (docs/DCO_REPROMPT_CONCEPT.md): the
+            // chain reads its own last reading/flags to build the next
+            // stance turn, exactly like the retired bake fed it — Csound has
+            // no per-word flags concept, so the flags line is simply empty.
+            self->dcoLastMachineReading_ = authored.reading;
+            self->dcoLastFlagsLine_ = {};
+            if (text != self->dcoLoopLast_)
+            {
+                self->dcoLoopLast_ = text;
+                self->dcoLoopRecent_.clearQuick();
+                self->dcoLoopRecent_.add(text);
+            }
+
+            // Force Csound mode (stash/restore via dcoPrevEngineMode_, EXACTLY
+            // the mechanism the retired path used for Lco — see
+            // forceCsoundEngineMode's own comment) and hand off the compiled
+            // orchestra text. requestCsoundOrchestra() always queues + returns
+            // true; the actual compile runs on the processor's own background
+            // thread (handleAsyncUpdate), tracked below.
+            self->processorRef.forceCsoundEngineMode();
+            self->processorRef.requestCsoundOrchestra(authored.orchestra);
+            self->processorRef.setCsoundReading(authored.reading);
+
+            // Open the compile-window poll: pollCsoundCompile (called every
+            // tick from the panel's existing 10Hz timerCallback) reports
+            // compiling -> ok/error via dcoFlagsLabel until this request
+            // resolves.
+            self->csoundCompileWatching_ = true;
+            self->csoundCompileSeenBusy_ = false;
+            self->csoundCompileWatchStartMs_ = juce::Time::getMillisecondCounterHiRes();
+            self->dcoFlagsLabel.setText("compiling...", juce::dontSendNotification);
+            self->dcoFlagsLabel.setTooltip({});
+
+            self->resized();   // flag-area content changed
+        });
+    }).detach();
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// RETIRED (SPEC_phase4_5_csound_llm_preset.md Phase 4; memory note "A/B-
+// Aufteilung TOT (Csound-Paradigma)", docs/… dco-one-wavetable-no-harmonic-
+// inharmonic-split.md): this is the PRE-Phase-4 triggerDcoBake() body,
+// verbatim, renamed. It authors a DCO recipe (backend dco_llm_map.py) and
+// bakes it into the wavetable/additive engines — the dual A+B / E-O-mix /
+// harmonic-inharmonic-partial-split paradigm BJ ruled dead on 2026-07-17: "in
+// the target picture (LLM -> Csound-lexicon -> code) this split has no
+// successor." Kept COMPILED (every call it makes still typechecks against
+// today's PluginProcessor surface) but UNREACHABLE: no call site anywhere in
+// this UI resolves here any more (triggerLcoGenerate / triggerDcoReprompt both
+// now call the NEW triggerDcoBake() above, which authors a Csound orchestra
+// instead). Full teardown is out of scope for Phase 4/5 — explicitly gated on
+// a future BJ go-ahead (Phase 6) — so this body is left untouched rather than
+// deleted, exactly like lco_author.py's own retained per-station coder path.
+// ──────────────────────────────────────────────────────────────────────────────
+void PromptPanel::triggerDcoWavetableBakeRetired()
 {
     // The base bake needs the LCO coder model (per-station Csound-GEN authoring)
     // to be installed before it can reach the backend at all — checked first,

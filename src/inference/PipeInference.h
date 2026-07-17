@@ -145,6 +145,17 @@ public:
         juce::String errorMessage;  // set when success == false
     };
 
+    /** Phase 4 (SPEC_phase4_5_csound_llm_preset.md): a prompt-authored Csound
+     *  orchestra + its human-readable reading, decoded from the backend's
+     *  {ok, orchestra, reading, spec, error} response. */
+    struct CsoundAuthorResult
+    {
+        bool success = false;
+        juce::String orchestra;     // full CSD text (Phase-3 contract, %SR% unsubstituted)
+        juce::String reading;       // human "how it was heard" line(s), one per layer
+        juce::String errorMessage;  // set when success == false
+    };
+
     /** Blocking generation — call from background thread.
      *  Auto-restarts Python if subprocess died. */
     Result generate(const Request& request);
@@ -188,6 +199,16 @@ public:
      *  recipe JSON with resolved{} + flags[]. `frames` <= 0 uses the backend
      *  default. Empty input returns success == false without a round-trip. */
     DcoAuthorResult authorDcoRecipe(const juce::String& text, int frames = 0);
+
+    /** Blocking Csound orchestra authoring (SPEC_phase4_5_csound_llm_preset.md,
+     *  Phase 4) — call from a background thread. Mirrors authorDcoRecipe: the
+     *  backend routes the WHOLE prompt through the same instruct model + the
+     *  Csound lexicon (backend/csound_author.py — one constrained call, one
+     *  retry on a parse/assembly failure), and returns a ready-to-compile
+     *  orchestra + a human reading, or an honest failure. LLM-first, no
+     *  fallback: never a default/keyword-matched orchestra. Empty input
+     *  returns success == false without a round-trip. */
+    CsoundAuthorResult authorCsoundOrchestra(const juce::String& text);
 
     /** Preload a model+device combo so first generate is fast.
      *  Blocking — call from background thread. Returns true on success. */

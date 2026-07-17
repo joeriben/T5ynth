@@ -130,6 +130,19 @@ public:
     void setDcoOscBalance(bool oscAHasContent, float gainA,
                           bool oscBHasContent, float gainB);
 
+    /** Force the engine-mode parameter to Csound, stashing the engine the user
+     *  was on beforehand into dcoPrevEngineMode_ — the EXACT SAME host-visible-
+     *  parameter-force + previous-mode-stash mechanism loadDcoWavetable uses for
+     *  Lco (see dcoPrevEngineMode_'s member comment and loadGeneratedAudio's
+     *  restore site), extended rather than duplicated (SPEC_phase4_5_csound_llm_
+     *  preset.md Phase 4b: the prompt-authored-orchestra path forces Csound, not
+     *  Lco). Re-triggering while already in Csound mode keeps the ORIGINAL
+     *  pre-Csound stash rather than overwriting it with "Csound" itself. Message
+     *  thread only, called by PromptPanel::triggerDcoBake right after a
+     *  successful authorCsoundOrchestra(). Does NOT touch dcoTableActive_ (the
+     *  wavetable lock) — this path never bakes a table. */
+    void forceCsoundEngineMode();
+
     // Inference cache: raw inference audio only, no duplicate prompt/model metadata.
     struct InferenceCacheEntry
     {
@@ -258,6 +271,18 @@ public:
     float getLcoGainA() const { return lcoGainA_; }
     bool  getLcoOscBHasContent() const { return lcoOscBHasContent_; }
     float getLcoGainB() const { return lcoGainB_; }
+
+    // Csound-authored orchestra reading (Phase 5, SPEC_phase4_5_csound_llm_preset.md):
+    // the UI-only "how it was heard" text PromptPanel::triggerDcoBake's Csound
+    // completion lambda stashes here so exportJsonPreset (a plain const method
+    // with no GUI access) can persist "csound_reading" in the engine block —
+    // mirrors the LCO bake snapshot above, but the orchestra TEXT itself needs
+    // no separate stash: exportJsonPreset reads csoundPendingOrchestraText_,
+    // which requestCsoundOrchestra() writes synchronously in lockstep with this
+    // setter (NOT the active engine's orchestraText(), which lags until a fade
+    // settles — see exportJsonPreset's own comment). Message-thread only.
+    void setCsoundReading(const juce::String& reading) { csoundReading_ = reading; }
+    const juce::String& getCsoundReading() const { return csoundReading_; }
 
     // Semantic axes state (GUI-only, 3 slots: dropdownId + value)
     struct AxisSlotState { int dropdownId = 1; float value = 0.0f; };
@@ -528,6 +553,8 @@ private:
     bool  lcoOscAHasContent_ = false, lcoOscBHasContent_ = false;
     float lcoGainA_ = 1.0f, lcoGainB_ = 1.0f;
     bool  lcoSnapshotValid_ = false;
+    // Csound-authored reading cached for preset save (see setCsoundReading).
+    juce::String csoundReading_;
     SamplePlayer masterSampler;
     FreezeTextureEngine masterFreeze;
     std::thread samplerReprepareThread;
@@ -1251,6 +1278,14 @@ public:
     bool csoundSwapPending() const { return csoundSwapPending_.load(std::memory_order_acquire); }
     /** Message thread: the audio thread is actively crossfading orchestras right now. */
     bool csoundSwapFading() const { return csoundSwapFading_.load(std::memory_order_acquire); }
+    /** Message thread: a background compile (bootstrap OR orchestra-swap) is
+     *  running right now. Phase 5 UI polling (PromptPanel's compile-window
+     *  Timer) combines this with csoundSwapPending()/csoundSwapFading()/
+     *  csoundCompileError() to know when a requestCsoundOrchestra() call has
+     *  fully resolved — including the "instant adopt" case (no ready active
+     *  engine yet), which never sets csoundSwapPending()/csoundSwapFading() at
+     *  all since there is nothing to fade from. */
+    bool csoundCompileInFlight() const { return csoundCompileInFlight_.load(std::memory_order_acquire); }
 
 
 private:

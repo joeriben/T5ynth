@@ -2058,6 +2058,13 @@ bool T5ynthProcessor::requestCsoundOrchestra(const juce::String& orchestraText)
         std::memcpy(csoundPendingEpochs_, epochs, sizeof(csoundPendingEpochs_));
         std::memcpy(csoundPendingFreqs_, freqs, sizeof(csoundPendingFreqs_));
         ++csoundSwapRequestGeneration_;
+        // A fresh request supersedes whatever the PREVIOUS request left behind —
+        // including a stale failure message. Without this, a caller polling
+        // csoundCompileError() right after issuing a brand-new request (Phase 5:
+        // PromptPanel's compile-window Timer) could read an old error belonging
+        // to a completely different, earlier orchestra text and report a false
+        // failure before this request's own compile has even run.
+        csoundCompileErrorText_.clear();
     }
 
     triggerAsyncUpdate();
@@ -2068,6 +2075,24 @@ juce::String T5ynthProcessor::csoundCompileError() const
 {
     std::lock_guard<std::mutex> lock(csoundLifecycleMutex_);
     return csoundCompileErrorText_;
+}
+
+void T5ynthProcessor::forceCsoundEngineMode()
+{
+    // Message thread. Mirrors loadDcoWavetable's engine-mode stash/force EXACTLY
+    // (same dcoPrevEngineMode_ member, same restore site in loadGeneratedAudio —
+    // see that function's isWavetableMode()-or-Csound check) but forces Csound
+    // instead of Lco: the paradigm shift (SPEC_phase4_5_csound_llm_preset.md)
+    // means PromptPanel::triggerDcoBake now authors a Csound orchestra, not a
+    // wavetable bake. Re-triggering while ALREADY in Csound mode keeps the
+    // ORIGINAL pre-Csound stash — the same "don't clobber an existing stash
+    // with the forced mode itself" rule loadDcoWavetable applies for Lco.
+    const int cur = static_cast<int>(paramCache.engineMode->load());
+    if (cur != EngineMode::Csound)
+        dcoPrevEngineMode_ = cur;
+    if (auto* engineParam = parameters.getParameter(PID::engineMode))
+        engineParam->setValueNotifyingHost(
+            engineParam->convertTo0to1(static_cast<float>(EngineMode::Csound)));
 }
 
 void T5ynthProcessor::releaseResources()
@@ -5170,16 +5195,19 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
                              + " sr=" + juce::String(sr, 2)
                              + " masterBefore={" + masterSampler.debugStateString() + "}");
 
-    // A pending bake stash → the bake forced engineMode to Lco; give the
-    // user back the engine they had, but only if they haven't picked another
-    // one since (mode still Wavetable or Lco). Deliberately keyed on the stash, NOT
-    // on dcoTableActive_: a WT-bracket edit or FX reprocess can revert the
-    // table to neural frames without restoring the engine — the stash stays
-    // pending so the next generation still returns the user's engine. Same
-    // message-thread param-write pattern as loadDcoWavetable, before the
-    // engine data lands.
+    // A pending bake stash → the bake forced engineMode to Lco (or, since the
+    // Csound paradigm shift, forceCsoundEngineMode forced it to Csound); give
+    // the user back the engine they had, but only if they haven't picked
+    // another one since (mode still Wavetable/Lco/Csound). Deliberately keyed
+    // on the stash, NOT on dcoTableActive_: a WT-bracket edit or FX reprocess
+    // can revert the table to neural frames without restoring the engine —
+    // the stash stays pending so the next generation still returns the user's
+    // engine. Same message-thread param-write pattern as loadDcoWavetable,
+    // before the engine data lands.
+    const bool curModeIsForcedTarget = isWavetableMode()
+        || static_cast<int>(paramCache.engineMode->load()) == static_cast<int>(EngineMode::Csound);
     if (dcoPrevEngineMode_ >= 0
-        && isWavetableMode())
+        && curModeIsForcedTarget)
     {
         if (auto* engineParam = parameters.getParameter(PID::engineMode))
             engineParam->setValueNotifyingHost(
@@ -7535,8 +7563,19 @@ void T5ynthProcessor::handleAsyncUpdate()
         const bool stillWantsCsound =
             static_cast<int>(paramCache.engineMode->load()) == static_cast<int>(EngineMode::Csound);
         const int activeIdx = csoundActiveIdx_.load(std::memory_order_relaxed);
+        // Skip the built-in bootstrap entirely when a custom-orchestra swap
+        // request is already queued (Phase 5, SPEC_phase4_5_csound_llm_
+        // preset.md: "no ready active engine -> instant adopt without fade").
+        // Without this guard a prompt-authored requestCsoundOrchestra() call
+        // that arrives before the FIRST bootstrap compile has run would still
+        // get the built-in orchestra compiled into activeIdx first, then
+        // immediately need the swap-compile block below to replace it via a
+        // fade — audible built-in-then-custom churn on the very first note,
+        // instead of the custom orchestra landing directly.
+        const bool swapAlreadyQueued = csoundSwapRequestGeneration_ != csoundSwapStartedGeneration_;
         if (stillWantsCsound && ! csoundEngines_[activeIdx].isReady()
-            && ! csoundCompileInFlight_.load(std::memory_order_acquire))
+            && ! csoundCompileInFlight_.load(std::memory_order_acquire)
+            && ! swapAlreadyQueued)
         {
             // A std::thread object must be joined or detached before a new one
             // is move-assigned onto it; a previous compile's thread, if any,
@@ -7600,22 +7639,43 @@ void T5ynthProcessor::handleAsyncUpdate()
                 // compile: csoundActiveIdx_ only ever flips at a fade's END, and
                 // freeToStartSwap above already guarantees no fade is running.
                 const int inactiveIdx = 1 - csoundActiveIdx_.load(std::memory_order_relaxed);
+                const int currentActiveIdx = csoundActiveIdx_.load(std::memory_order_relaxed);
+                // Phase 5 fix (SPEC_phase4_5_csound_llm_preset.md: "no ready
+                // active engine -> instant adopt without fade"): if the engine
+                // that's SUPPOSED to be live right now was never successfully
+                // prepared (fresh instance, prepareToPlay raced ahead of this
+                // request, or a previous compile failed), there is nothing
+                // audible to fade FROM. Compile the new orchestra straight into
+                // the already-active slot instead of the inactive one, so it
+                // becomes ready in place — processBlock's existing
+                // csoundActive check (isReady() on csoundActiveIdx_) picks it
+                // up on the very next block with no swap/fade machinery
+                // involved at all.
+                const bool activeReadyBefore = csoundEngines_[currentActiveIdx].isReady();
+                const int targetIdx = activeReadyBefore ? inactiveIdx : currentActiveIdx;
                 const juce::String textCopy = csoundPendingOrchestraText_;
                 std::array<float, CsoundEngine::kMaxVoices> epochsCopy, freqsCopy;
                 std::memcpy(epochsCopy.data(), csoundPendingEpochs_, sizeof(csoundPendingEpochs_));
                 std::memcpy(freqsCopy.data(), csoundPendingFreqs_, sizeof(csoundPendingFreqs_));
 
                 csoundCompileInFlight_.store(true, std::memory_order_release);
-                csoundCompileThread_ = std::thread([this, sr, blockSize, inactiveIdx, textCopy,
-                                                     epochsCopy, freqsCopy, myGeneration]
+                csoundCompileThread_ = std::thread([this, sr, blockSize, targetIdx, activeReadyBefore,
+                                                     textCopy, epochsCopy, freqsCopy, myGeneration]
                 {
                     bool ok = false;
                     {
                         std::lock_guard<std::mutex> lock(csoundLifecycleMutex_);
-                        ok = csoundEngines_[inactiveIdx].prepare(sr, blockSize,
+                        ok = csoundEngines_[targetIdx].prepare(sr, blockSize,
                                 textCopy.isEmpty() ? nullptr : textCopy.toRawUTF8());
-                        if (ok)
-                            csoundEngines_[inactiveIdx].primeForTakeover(epochsCopy.data(), freqsCopy.data());
+                        // primeForTakeover seeds the NEW engine's voice phase/
+                        // freq state from the OLD (still-active) engine so a
+                        // held note's crossfade doesn't re-strike — only
+                        // meaningful when there IS an old active engine to
+                        // hand off from (the fade case). The instant-adopt
+                        // case has no prior audible engine, so there is
+                        // nothing to prime from and no fade to prepare for.
+                        if (ok && activeReadyBefore)
+                            csoundEngines_[targetIdx].primeForTakeover(epochsCopy.data(), freqsCopy.data());
                     }
 
                     // Latest-wins (spec S4, guard case 6): if a NEWER request
@@ -7632,7 +7692,14 @@ void T5ynthProcessor::handleAsyncUpdate()
                                 : juce::String("Csound orchestra compile failed (see console log)");
                     }
 
-                    if (ok && stillCurrent)
+                    // Only the genuine fade case (an already-ready engine gets
+                    // replaced) arms the crossfade machinery. The instant-adopt
+                    // case compiled directly into csoundActiveIdx_, so it is
+                    // already live — arming csoundSwapPending_ here would tell
+                    // processBlock to fade INTO the same index it's already
+                    // playing, which is a no-op at best and a self-referential
+                    // fade at worst.
+                    if (ok && stillCurrent && activeReadyBefore)
                         csoundSwapPending_.store(true, std::memory_order_release);
 
                     csoundCompileInFlight_.store(false, std::memory_order_release);

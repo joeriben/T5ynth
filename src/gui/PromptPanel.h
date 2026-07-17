@@ -360,11 +360,50 @@ private:
     // when there is no reading yet (setLcoStatus).
     juce::TextEditor dcoReadingEditorA, dcoReadingEditorB;
     bool dcoBaking_ = false;
+    /** The LCO GENERATE trigger (SPEC_phase4_5_csound_llm_preset.md, Phase 4):
+     *  authors a Csound orchestra from dcoPromptEditor's text via the SAME
+     *  coder/interpreter model authorDcoRecipe used (backend/csound_author.py
+     *  — one constrained instruct call + at most one retry, LLM-first, no
+     *  fallback), forces the engine into Csound mode
+     *  (T5ynthProcessor::forceCsoundEngineMode, reusing dcoPrevEngineMode_
+     *  exactly like the retired wavetable bake did for Lco), and hands the
+     *  compiled-orchestra-text off to requestCsoundOrchestra(). The OLD
+     *  wavetable-baking body that used to live under this name is preserved
+     *  verbatim as triggerDcoWavetableBakeRetired() below — compiled, never
+     *  called from anywhere in the UI (see that method's own comment). */
     void triggerDcoBake();
+    /** RETIRED (SPEC_phase4_5_csound_llm_preset.md Phase 4 / memory note
+     *  "A/B-Aufteilung TOT (Csound-Paradigma)"): this is the pre-Phase-4
+     *  triggerDcoBake() body, kept compiled but UNREACHABLE from the UI — no
+     *  call site remains anywhere (triggerLcoGenerate/triggerDcoReprompt both
+     *  now resolve to the NEW triggerDcoBake() above). BJ's 2026-07-17
+     *  ruling is that the dual-oscillator A+B/E-O/partial-split paradigm this
+     *  body authors has no successor in the Csound-lexicon target picture —
+     *  full teardown is future work gated on an explicit BJ go-ahead, so the
+     *  body is left untouched here rather than deleted. */
+    void triggerDcoWavetableBakeRetired();
     /** Write text into both the logical status holder and the visible HEARD AS
      *  box (which doubles as the LCO status/error channel until a reading
      *  exists). tooltip is optional context shown on the box. */
     void setLcoStatus(const juce::String& text, const juce::String& tooltip = {});
+
+    /** Phase 5 compile-window poll (SPEC_phase4_5_csound_llm_preset.md):
+     *  called from the EXISTING 10Hz timerCallback() (PromptPanel is already
+     *  a juce::Timer with a correct stopTimer()-first destructor — see
+     *  ~PromptPanel — so this reuses that established, already-safe Timer
+     *  rather than standing up a second Timer subclass with its own
+     *  lifetime to get right). A cheap no-op every tick except during the
+     *  window triggerDcoBake() opens right after a successful author +
+     *  requestCsoundOrchestra() call: polls csoundCompileInFlight() /
+     *  csoundSwapPending() / csoundSwapFading() / csoundCompileError() until
+     *  the request has resolved (covers BOTH the fade path and the "no ready
+     *  active engine -> instant adopt" path, which never sets
+     *  swapPending/swapFading at all), then reports compiling -> ok/error
+     *  via dcoFlagsLabel. */
+    void pollCsoundCompile();
+    bool   csoundCompileWatching_ = false;   // a compile-window poll is active
+    bool   csoundCompileSeenBusy_ = false;   // observed at least one busy tick this window
+    double csoundCompileWatchStartMs_ = 0.0; // juce::Time::getMillisecondCounterHiRes() at window-open
 
     // DCO Re-Prompt (stance-driven self-reading loop, docs/DCO_REPROMPT_CONCEPT.md):
     // a SECOND stance bar bound to its OWN parameter (dcoRepromptStance — never

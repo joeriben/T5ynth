@@ -1328,6 +1328,138 @@ PipeInference::DcoAuthorResult PipeInference::authorDcoRecipe(const juce::String
     return result;
 }
 
+PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juce::String& text)
+{
+    // Mirrors authorDcoRecipe above verbatim (same lock/restart/timeout
+    // discipline, mode "csound" on the wire) — the only difference is that
+    // the backend's {ok, orchestra, reading, spec, error} response is decoded
+    // here into CsoundAuthorResult's typed fields, so the caller (PromptPanel)
+    // never has to touch raw JSON.
+    const std::lock_guard<std::recursive_mutex> lock(stateMutex_);
+    CsoundAuthorResult result;
+
+    if (text.trim().isEmpty())
+    {
+        // Deliberate divergence from interpret() (which returns success on
+        // empty input): authoring without a prompt is a caller error, not a
+        // no-op — mirrors authorDcoRecipe's own empty-input guard.
+        result.errorMessage = "Empty prompt";
+        return result;
+    }
+
+    // Auto-restart if the subprocess died (mirrors authorDcoRecipe/interpret()).
+    if (ready_ && !isChildAlive())
+    {
+        juce::Logger::writeToLog("PipeInference: subprocess died, restarting...");
+        if (!tryRestart())
+        {
+            result.errorMessage = "Inference crashed — restart failed";
+            return result;
+        }
+        juce::Logger::writeToLog("PipeInference: restarted successfully");
+    }
+
+    if (!ready_ || !isConnected())
+    {
+        result.errorMessage = "Inference not ready";
+        return result;
+    }
+
+    auto json = juce::DynamicObject::Ptr(new juce::DynamicObject());
+    json->setProperty("mode", "csound");
+    json->setProperty("text", text);
+
+    auto jsonStr = juce::JSON::toString(juce::var(json.get()), true);
+    jsonStr = jsonStr.removeCharacters("\n\r") + "\n";
+
+    if (!writeExact(jsonStr.toRawUTF8(), static_cast<int>(jsonStr.getNumBytesAsUTF8())))
+    {
+        if (tryRestart())
+            result.errorMessage = "Inference restarted — try again";
+        else
+            result.errorMessage = "Inference crashed — restart failed";
+        return result;
+    }
+
+    // First call lazily loads the instruct model (several seconds), same
+    // generous timeout as authorDcoRecipe.
+    char status = 0;
+    if (!readExact(&status, 1, 180000))
+    {
+        if (!isChildAlive())
+        {
+            juce::Logger::writeToLog("PipeInference: subprocess died during csound authoring");
+            tryRestart();
+            result.errorMessage = "Inference crashed — restarted, try again";
+        }
+        else
+            result.errorMessage = "Timeout waiting for Csound orchestra";
+        return result;
+    }
+
+    if (status == '\x03')   // text result: the {ok, orchestra, reading, spec, error} JSON
+    {
+        juce::uint32 msgLen = 0;
+        if (!readExact(&msgLen, 4))
+        {
+            result.errorMessage = "Failed to read Csound response length";
+            return result;
+        }
+        juce::String responseJson;
+        if (msgLen > 0)
+        {
+            std::vector<char> msg(msgLen + 1, 0);
+            if (!readExact(msg.data(), static_cast<int>(msgLen)))
+            {
+                result.errorMessage = "Failed to read Csound response";
+                return result;
+            }
+            responseJson = juce::String::fromUTF8(msg.data(), static_cast<int>(msgLen));
+        }
+        if (responseJson.isEmpty())
+        {
+            result.errorMessage = "Empty Csound response";
+            return result;
+        }
+
+        const auto parsed = juce::JSON::parse(responseJson);
+        const bool ok = static_cast<bool>(parsed.getProperty("ok", juce::var(false)));
+        if (ok)
+        {
+            result.orchestra = parsed.getProperty("orchestra", juce::var()).toString();
+            result.reading   = parsed.getProperty("reading", juce::var()).toString();
+            result.success   = result.orchestra.isNotEmpty();
+            if (!result.success)
+                result.errorMessage = "Empty orchestra in Csound response";
+        }
+        else
+        {
+            // Honest failure from build_csound_response (parse/assembler error
+            // surviving the one retry) — LLM-first, no fallback: never
+            // synthesize a default orchestra here.
+            result.errorMessage = parsed.getProperty("error", juce::var("Unknown Csound authoring error")).toString();
+        }
+        return result;
+    }
+
+    if (status == '\x00')   // error
+    {
+        juce::uint32 msgLen = 0;
+        if (readExact(&msgLen, 4))
+        {
+            std::vector<char> msg(msgLen + 1, 0);
+            readExact(msg.data(), static_cast<int>(msgLen));
+            result.errorMessage = juce::String::fromUTF8(msg.data(), static_cast<int>(msgLen));
+        }
+        else
+            result.errorMessage = "Unknown error";
+        return result;
+    }
+
+    result.errorMessage = "Unexpected response: " + juce::String((int)status);
+    return result;
+}
+
 PipeInference::AnalyzeResult PipeInference::analyze(const juce::AudioBuffer<float>& audio,
                                                     double sampleRate,
                                                     int topk,
