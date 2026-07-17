@@ -1903,6 +1903,7 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     // orchestra-swap racing a host prepareToPlay could enter an engine's
     // prepare() from two threads at once. Held for at most ~100-400ms, only in
     // that rare interleaving.
+    bool csoundDroppedUnconsumedSwap = false;
     {
         // Join any in-flight background compile FIRST (whichever kind — D9
         // bootstrap or a Phase-2 orchestra swap; both share this one thread
@@ -1930,13 +1931,19 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
         // flag would break its single-launch guard.)
         std::lock_guard<std::mutex> csoundLock(csoundLifecycleMutex_);
 
-        // Phase-2 (S9): a swap that hasn't been consumed by processBlock yet is
-        // DROPPED here — the just-joined compile (if it was a swap) may have
-        // just published csoundSwapPending_, but the inactive engine it primed
-        // was prepared at the PRE-prepareToPlay sample rate/block size (only
-        // the ACTIVE engine is re-prepared, immediately below); resuming that
-        // stale compile into a fade after a real SR/buffer-size change would be
-        // wrong. Documented tradeoff (spec S9) — the UI/Phase 4 re-requests.
+        // Phase-2 (S9): a swap not yet FINISHED being consumed — either the
+        // just-joined compile just published csoundSwapPending_, or
+        // processBlock had already started fading it (csoundSwapFading_) —
+        // is RE-ARMED here, not dropped. Either way the inactive engine (or,
+        // mid-fade, the fade itself) was prepared at the PRE-prepareToPlay
+        // sample rate/block size (only the ACTIVE engine is re-prepared,
+        // immediately below), so that stale-rate result is discarded. The
+        // pending request itself is captured (below) and rewound so
+        // handleAsyncUpdate recompiles the SAME orchestra text fresh, at the
+        // NEW sample rate, once this lock releases — it is never left
+        // stranded.
+        csoundDroppedUnconsumedSwap = csoundSwapPending_.load(std::memory_order_acquire)
+                                    || csoundSwapFading_.load(std::memory_order_acquire);
         csoundSwapPending_.store(false, std::memory_order_release);
         csoundSwapFading_.store(false, std::memory_order_release);
         csoundFadePos_ = 0;
@@ -1961,7 +1968,21 @@ void T5ynthProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
         if (wantsCsoundAtLoad || csoundActiveEngineAtLoad.isReady())
             csoundActiveEngineAtLoad.prepare(sampleRate, samplesPerBlock,
                 activeOrchestraTextAtLoad.empty() ? nullptr : activeOrchestraTextAtLoad.c_str());
+
+        // Rewind the started-generation marker (generation counters are only
+        // ever touched under csoundLifecycleMutex_, held here) so it no longer
+        // matches csoundSwapRequestGeneration_ — handleAsyncUpdate's
+        // wantsNewSwapCompile sees the pending request as unconsumed again and
+        // recompiles csoundPendingOrchestraText_ (untouched above) into the
+        // proper swap path: priming + fade, or instant-adopt if the active
+        // engine isn't ready.
+        if (csoundDroppedUnconsumedSwap)
+            csoundSwapStartedGeneration_ = csoundSwapRequestGeneration_ - 1;
     }
+    // Outside the lock (matches handleAsyncUpdate's own compile-thread pattern):
+    // wake the message thread to actually launch the re-armed swap compile.
+    if (csoundDroppedUnconsumedSwap)
+        triggerAsyncUpdate();
 
     // Phase-2 fade mix buffers (spec S5/S8): preallocated here (message/setup
     // thread) so the audio thread never allocates during a crossfade.
