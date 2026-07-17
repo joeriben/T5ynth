@@ -2409,6 +2409,24 @@ void PromptPanel::pollCsoundCompile()
     if (! csoundCompileWatching_)
         return;
 
+    // Leaving Csound mode mid-compile/fade (engine button, DAW automation, the
+    // XL) legitimately DEFERS processBlock's swap-consumption until Csound mode
+    // is re-entered — that is correct behavior, but it means csoundSwapPending()/
+    // csoundSwapFading() stay true indefinitely while parked outside Csound, so
+    // the busy check below would otherwise report "compiling..." forever; read
+    // the engine mode the same way the rest of this panel reads APVTS state and
+    // resolve the watch immediately once we're no longer in Csound mode.
+    const int engineModeNow = static_cast<int>(processorRef.getValueTreeState()
+                                  .getRawParameterValue(PID::engineMode)->load());
+    if (engineModeNow != EngineMode::Csound)
+    {
+        csoundCompileWatching_ = false;
+        dcoFlagsLabel.setText({}, juce::dontSendNotification);
+        dcoFlagsLabel.setTooltip({});
+        resized();   // flag-area content changed
+        return;
+    }
+
     const bool busyNow = processorRef.csoundCompileInFlight()
                        || processorRef.csoundSwapPending()
                        || processorRef.csoundSwapFading();
