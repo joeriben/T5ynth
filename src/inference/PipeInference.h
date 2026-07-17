@@ -138,13 +138,6 @@ public:
         juce::String errorMessage;  // set when success == false
     };
 
-    struct DcoAuthorResult
-    {
-        bool success = false;
-        juce::String json;          // full backend response: {ok, recipe, resolved, flags, lexicon_version}
-        juce::String errorMessage;  // set when success == false
-    };
-
     /** Phase 4 (SPEC_phase4_5_csound_llm_preset.md): a prompt-authored Csound
      *  orchestra + its human-readable reading, decoded from the backend's
      *  {ok, orchestra, reading, spec, error} response. */
@@ -193,21 +186,14 @@ public:
                           int topk,
                           const juce::String& device);
 
-    /** Blocking DCO recipe authoring (docs/DCO_LLM_GUARDRAILS.md) — call from a
-     *  background thread. The backend routes the text through its lexicons (one
-     *  constrained instruct-LLM call at most) and ALWAYS returns a bakeable
-     *  recipe JSON with resolved{} + flags[]. `frames` <= 0 uses the backend
-     *  default. Empty input returns success == false without a round-trip. */
-    DcoAuthorResult authorDcoRecipe(const juce::String& text, int frames = 0);
-
     /** Blocking Csound orchestra authoring (SPEC_phase4_5_csound_llm_preset.md,
-     *  Phase 4) — call from a background thread. Mirrors authorDcoRecipe: the
-     *  backend routes the WHOLE prompt through the same instruct model + the
-     *  Csound lexicon (backend/csound_author.py — one constrained call, one
-     *  retry on a parse/assembly failure), and returns a ready-to-compile
-     *  orchestra + a human reading, or an honest failure. LLM-first, no
-     *  fallback: never a default/keyword-matched orchestra. Empty input
-     *  returns success == false without a round-trip. */
+     *  Phase 4) — call from a background thread. The backend routes the WHOLE
+     *  prompt through the instruct model + the Csound lexicon
+     *  (backend/csound_author.py — one constrained call, one retry on a
+     *  parse/assembly failure), and returns a ready-to-compile orchestra + a
+     *  human reading, or an honest failure. LLM-first, no fallback: never a
+     *  default/keyword-matched orchestra. Empty input returns success == false
+     *  without a round-trip. */
     CsoundAuthorResult authorCsoundOrchestra(const juce::String& text);
 
     /** Preload a model+device combo so first generate is fast.

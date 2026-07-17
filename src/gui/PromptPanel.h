@@ -148,12 +148,11 @@ public:
     juce::String getLcoPrompt() const { return dcoPromptEditor.getText(); }
     void setLcoPrompt(const juce::String& t) { dcoPromptEditor.setText(t, juce::dontSendNotification); }
 
-    /** Restore the "HEARD AS" reading boxes on LCO preset load — the same
-     *  text triggerDcoBake's completion lambda writes into them after a
+    /** Restore the "HEARD AS" reading box on LCO preset load — the same
+     *  text triggerDcoBake's completion lambda writes into it after a
      *  bake, so a reload shows the original reading rather than an empty
      *  placeholder or a re-derived one. */
     void setLcoReadingA(const juce::String& t) { dcoReadingEditorA.setText(t, juce::dontSendNotification); }
-    void setLcoReadingB(const juce::String& t) { dcoReadingEditorB.setText(t, juce::dontSendNotification); }
     int getSeed() const;        // defined in the .cpp: T5ynthProcessor is only
     bool isRandomSeed() const;  // forward-declared here
 
@@ -300,21 +299,6 @@ private:
     FlippedVerticalSlider alphaSlider;   // vertical A↔B blend, A at top
     juce::Label alphaLabel, alphaValue;  // retained for callbacks but hidden (gradient is self-describing)
 
-    // E↔O oscillator-mix slider (Advanced/DCO view) — the dual A+B oscillator
-    // crossfade (PID::oscMix), relocated here from SynthPanel. Same visual idiom
-    // as the neural alphaSlider (FlippedVerticalSlider + AlphaSliderLnF gradient),
-    // but a PLAIN control: just a static SliderAttachment to PID::oscMix, with
-    // NONE of alphaSlider's injection-mode / ghost / applyModeToSlider logic.
-    // Labels E (top) = oscMix 0 = A/harmonic, O (bottom) = oscMix 1 = B/inharmonic
-    // — FlippedVerticalSlider puts the parameter MINIMUM at the top, so E↔0 and
-    // O↔1 fall out directly (same reason A sits at the top of the neural slider).
-    // Sits beside the two read fields below (dcoReadingEditorA/B), NOT the
-    // prompt row — the prompt row is full width (resized()'s !easy branch).
-    // oscMixLnF declared BEFORE oscMixSlider (destruction order), like alphaLnF.
-    AlphaSliderLnF oscMixLnF;
-    FlippedVerticalSlider oscMixSlider;
-    juce::Label oscMixLabelE, oscMixLabelO;
-
     // Duration — house-standard inline-bar SliderRow (mirrors MainPanel's
     // RESYNTH row): accent-band label + fill bar in kOscCol, with the "Ns"
     // read-out as the inline value. Easy view only (moved out of Advanced
@@ -332,56 +316,41 @@ private:
     // DCO surface — Advanced IS the DCO panel now (a completely different
     // paradigm from the neural Easy view, not a variant of it): a 3-line
     // prompt editor (panel-local text, NOT bound to Impulse A), the
-    // BAKE/status row, the machine's READING of the prompt (dcoReadingEditorA/B —
+    // BAKE/status row, the machine's READING of the prompt (dcoReadingEditorA —
     // the acoustic interpretation, "how it was heard", where the baked wave
     // used to sit; the wave itself now draws in the engine window), and the
     // flags list (the guardrail honesty channel, one "word: reason" line per
-    // approximated/unmappable term). The bake authors a recipe from the DCO
-    // prompt via the backend lexicon router (docs/DCO_LLM_GUARDRAILS.md), bakes
-    // frames on a background thread, and loads them into the wavetable master.
+    // approximated/unmappable term). GENERATE authors a Csound orchestra from
+    // the DCO prompt via the backend lexicon router (triggerDcoBake), which
+    // forces the engine into Csound mode and hands the compiled orchestra off
+    // to requestCsoundOrchestra().
     juce::TextEditor dcoPromptEditor;
     // Status/error channel — kept as the logical holder (many call sites write
     // it) but no longer laid out as its own visible line; its text is routed
-    // into dcoReadingEditorA/B below (see setLcoStatus).
+    // into dcoReadingEditorA below (see setLcoStatus).
     juce::Label dcoStatusLabel;
     juce::Label dcoFlagsLabel;
     // The machine's reading of the prompt, shown prominently in the middle of
     // the LCO panel in place of the baked wave (which the engine window now
-    // owns) — the "HEARD AS" surface, split one per engine since a dual bake
-    // routes different partials to each (see the dual-split block in
-    // triggerDcoBake's completion lambda). dcoReadingEditorA (Harmonic, styled
-    // like promptAEditor/dcoPromptEditor) and dcoReadingEditorB (Inharmonic,
-    // styled like promptBEditor — the original single HEARD AS box's
-    // identity). Populated from the bake's resolved recipe — the same facts
-    // as dcoLastMachineReading_, formatted for the eye, plus a per-engine
-    // partial-count/gain footer when both engines are genuinely active.
-    // Empty-state placeholder until the first Generate, or when THIS bake
-    // published nothing to that engine. Both also carry status/error text
-    // when there is no reading yet (setLcoStatus).
-    juce::TextEditor dcoReadingEditorA, dcoReadingEditorB;
+    // owns) — the ONE full-width "HEARD AS" surface (dcoReadingEditorA,
+    // styled like promptAEditor/dcoPromptEditor): the reading of the
+    // prompt-authored Csound orchestra (triggerDcoBake's completion lambda).
+    // The dual A+B/harmonic-inharmonic split this used to carry (a second,
+    // twin editor) is retired — BJ 2026-07-17: "this split is dead" — one
+    // combined authored voice has no per-engine reading to show. Populated
+    // from the bake's reading text; empty-state placeholder until the first
+    // Generate. Also carries status/error text when there is no reading yet
+    // (setLcoStatus).
+    juce::TextEditor dcoReadingEditorA;
     bool dcoBaking_ = false;
     /** The LCO GENERATE trigger (SPEC_phase4_5_csound_llm_preset.md, Phase 4):
-     *  authors a Csound orchestra from dcoPromptEditor's text via the SAME
-     *  coder/interpreter model authorDcoRecipe used (backend/csound_author.py
-     *  — one constrained instruct call + at most one retry, LLM-first, no
-     *  fallback), forces the engine into Csound mode
-     *  (T5ynthProcessor::forceCsoundEngineMode, reusing dcoPrevEngineMode_
-     *  exactly like the retired wavetable bake did for Lco), and hands the
-     *  compiled-orchestra-text off to requestCsoundOrchestra(). The OLD
-     *  wavetable-baking body that used to live under this name is preserved
-     *  verbatim as triggerDcoWavetableBakeRetired() below — compiled, never
-     *  called from anywhere in the UI (see that method's own comment). */
+     *  authors a Csound orchestra from dcoPromptEditor's text via the coder/
+     *  interpreter model (backend/csound_author.py — one constrained instruct
+     *  call + at most one retry, LLM-first, no fallback), forces the engine
+     *  into Csound mode (T5ynthProcessor::forceCsoundEngineMode, reusing
+     *  dcoPrevEngineMode_), and hands the compiled orchestra text off to
+     *  requestCsoundOrchestra(). */
     void triggerDcoBake();
-    /** RETIRED (SPEC_phase4_5_csound_llm_preset.md Phase 4 / memory note
-     *  "A/B-Aufteilung TOT (Csound-Paradigma)"): this is the pre-Phase-4
-     *  triggerDcoBake() body, kept compiled but UNREACHABLE from the UI — no
-     *  call site remains anywhere (triggerLcoGenerate/triggerDcoReprompt both
-     *  now resolve to the NEW triggerDcoBake() above). BJ's 2026-07-17
-     *  ruling is that the dual-oscillator A+B/E-O/partial-split paradigm this
-     *  body authors has no successor in the Csound-lexicon target picture —
-     *  full teardown is future work gated on an explicit BJ go-ahead, so the
-     *  body is left untouched here rather than deleted. */
-    void triggerDcoWavetableBakeRetired();
     /** Write text into both the logical status holder and the visible HEARD AS
      *  box (which doubles as the LCO status/error channel until a reading
      *  exists). tooltip is optional context shown on the box. */
@@ -584,7 +553,7 @@ private:
     std::map<juce::String, float> pendingAxes_;          // for SemanticAxes
 
     using Attachment = juce::AudioProcessorValueTreeState::SliderAttachment;
-    std::unique_ptr<Attachment> alphaA, magA, noiseA, durA, oscMixA;
+    std::unique_ptr<Attachment> alphaA, magA, noiseA, durA;
     bool easyMode_ = false;
 
     // Auto-regen state

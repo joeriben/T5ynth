@@ -2549,6 +2549,32 @@ void SynthPanel::paintOverChildren(juce::Graphics& g)
 
     drawSegmentGroup(envTabSwitchBounds, kNumModTabs, false);
 
+    // Csound engine mode (SPEC_phase4_5_csound_llm_preset.md, Phase 4/5): the
+    // waveform display has nothing of its own to show here — the "sound" is a
+    // prompt-authored Csound orchestra, not a table/sample — so whatever the
+    // PREVIOUS engine mode last drew (sample peaks, wavetable fan, frame
+    // count) would otherwise sit there stale. Mask the display area and paint
+    // a centred "PROMPT ORCHESTRA" caption instead. Drawn here, in the panel's
+    // existing paintOverChildren pass (already re-triggered whenever the mode
+    // changes — see the isCsound branches in engineModeHidden.onChange and
+    // resized()) — no new timer or repaint loop (docs/PERFORMANCE_GUIDE.md:
+    // idle-CPU regressions are this project's #1 historical bug class).
+    // Non-interactive; no other new UI.
+    if (engineModeHidden.getSelectedId() == EngineMode::Csound + 1)
+    {
+        auto wfBounds = waveformDisplay.getBounds();
+        if (!wfBounds.isEmpty())
+        {
+            g.setColour(kBg);
+            g.fillRect(wfBounds);
+            g.setColour(kImpulseA);
+            const float capFs = juce::jlimit(14.0f, 26.0f,
+                                              static_cast<float>(wfBounds.getHeight()) * 0.14f);
+            g.setFont(juce::FontOptions(capFs).withStyle("Bold"));
+            g.drawFittedText("PROMPT ORCHESTRA", wfBounds, juce::Justification::centred, 1);
+        }
+    }
+
     if (!oneshotBtn.isVisible()) return;
 
     auto iconCol = [](const juce::TextButton& btn) {
