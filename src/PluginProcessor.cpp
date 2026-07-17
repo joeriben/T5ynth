@@ -6054,6 +6054,22 @@ void T5ynthProcessor::getStateInformation(juce::MemoryBlock& destData)
     xml->setAttribute("midiClockEnabled", midiClockEnabled_.load());
     xml->setAttribute("modalityEpoch", currentModalityEpoch_);
     xml->setAttribute("calibEpoch", Calibration::kEpoch);
+    // Csound orchestra (mirrors exportJsonPreset's engine block): PID::engineMode
+    // is an APVTS param, so a session saved in Csound mode would otherwise reload
+    // with the wrong (built-in, or a reused live instance's previous-project)
+    // orchestra text. Read pending, not the active engine's, for the same reason
+    // exportJsonPreset does (see its fuller comment on the csound_orchestra
+    // property) -- absence (non-Csound save) keeps the old-session XML shape.
+    if (static_cast<int>(paramCache.engineMode->load()) == static_cast<int>(EngineMode::Csound))
+    {
+        juce::String pendingOrchestraText;
+        {
+            std::lock_guard<std::mutex> lock(csoundLifecycleMutex_);
+            pendingOrchestraText = csoundPendingOrchestraText_;
+        }
+        xml->setAttribute("csoundOrchestra", pendingOrchestraText);
+        xml->setAttribute("csoundReading", csoundReading_);
+    }
     copyXmlToBinary(*xml, destData);
 }
 
@@ -6203,6 +6219,25 @@ void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
         // clobbering it to legacy. ABSENT attribute = pre-2.5.0 session -> legacy routing
         // (an old project keeps the Music/SFX-only behaviour it was built with).
         currentModalityEpoch_ = xml->getIntAttribute("modalityEpoch", kLegacyModalityEpoch);
+
+        // Csound orchestra (mirrors importJsonPreset's engine-block handling —
+        // see requestCsoundOrchestra()'s own comment there for why queuing here,
+        // before handleAsyncUpdate has ever run for this load, is race-free).
+        // Absence of the attribute means the session was saved in a different
+        // engine mode (see getStateInformation); if the RESTORED mode is
+        // nonetheless Csound, a reused live instance would otherwise keep
+        // whichever orchestra the PREVIOUS project last compiled -- purge it
+        // back to the built-in so the state defines its own sound.
+        if (xml->hasAttribute("csoundOrchestra"))
+        {
+            requestCsoundOrchestra(xml->getStringAttribute("csoundOrchestra"));
+            setCsoundReading(xml->getStringAttribute("csoundReading"));
+        }
+        else if (static_cast<int>(paramCache.engineMode->load()) == static_cast<int>(EngineMode::Csound))
+        {
+            requestCsoundOrchestra(juce::String());
+            setCsoundReading(juce::String()); // pairs with the built-in orchestra above, not a stale reading
+        }
     }
 
     // Never auto-start sequencers on session restore — no acoustic surprises
