@@ -379,6 +379,21 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
         impl->csound = nullptr;
         return false;
     }
+    // Untrusted preset-authored orchestra text (hand-edited .t5p): chnget
+    // resolves the named control channels independent of the orchestra's
+    // header nchnls, so a mismatched header would still reach ready==true.
+    // renderUpTo() de-interleaves spout with a hardcoded kMaxVoices stride
+    // (spout[s*kMaxVoices+v]) -- a smaller runtime nchnls reads past the
+    // spout buffer on the audio thread.
+    if ((int) csoundGetNchnls(cs) != kMaxVoices)
+    {
+        std::fprintf(stderr, "CsoundEngine: FATAL nchnls mismatch (runtime=%u, expected=%d)\n",
+                      csoundGetNchnls(cs), (unsigned) kMaxVoices);
+        csoundDestroyMessageBuffer(cs);
+        csoundDestroy(cs);
+        impl->csound = nullptr;
+        return false;
+    }
 
     impl->capacity = wantedCapacity;
     for (int v = 0; v < kMaxVoices; ++v)
