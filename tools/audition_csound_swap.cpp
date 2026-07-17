@@ -13,11 +13,15 @@
 // csoundMixBufs_) -- same variable names/shapes, so a reviewer can diff this
 // rig's methods against PluginProcessor.cpp's pump section line-by-line.
 //
-// Six cases (spec's guard-tool section), each a hard assert -- if any fails,
+// Seven cases (spec's guard-tool section), each a hard assert -- if any fails,
 // the CODE under test is wrong, not the assertion:
 //   1. HELD-NOTE TAKEOVER  -- click-free AND actually-transitioning (mirrors
 //                             tools/audition_sampler_follow.cpp's standard).
-//   2. NO RE-STRIKE        -- no attack bump in the energy envelope across the fade.
+//   2. NO RE-STRIKE        -- no attack bump in the energy envelope across the
+//                             fade, asserted BOTH on the mixed output (click
+//                             class) AND directly on the unmixed new-engine
+//                             solo (the sensitive signal for a prime-failure
+//                             re-strike -- see caseNoRestrike()'s comment).
 //   3. FADE TIME           -- transition completes within driftCrossfade (exact,
 //                             by construction of the S5 sub-range clamp), tested
 //                             at 200ms AND 50ms.
@@ -26,6 +30,11 @@
 //                             (post-warmup, post-prime).
 //   6. LATEST-WINS         -- swap B while C compiles / during B's fade converges
 //                             to C, no crash, no stuck state.
+//   7. INSTANT ADOPT       -- active engine never prepared -> held note is
+//                             silent, no fade ever arms, compile lands IN
+//                             PLACE with a correct (portk-smoothed) attack,
+//                             THEN a second request (now that the active
+//                             engine is ready) takes the normal fade path.
 //
 // Renders WAVs (-12 dBFS) into tools/csound_swap_out/ for BJ's ear.
 //
@@ -341,7 +350,14 @@ struct SwapRig
     int lastFadeDurationSamples_ = -1;
     int lastFadeLenTarget_ = -1;
 
-    SwapRig(float driftCrossfadeMs = 200.0f)
+    // skipInitialPrepare (case 7, BLIND SPOT 2): leaves csoundEngines_[0] --
+    // the engine that starts out ACTIVE (csoundActiveIdx_ == 0) -- never
+    // prepared, so isReady() reads false on it from construction. Mirrors
+    // "the active engine was never successfully prepared" (fresh instance,
+    // prepareToPlay raced ahead of the D9 bootstrap, or a previous compile
+    // failed) -- exactly the condition handleAsyncUpdate's activeReadyBefore
+    // branch (PluginProcessor.cpp ~7760-7774) exists for.
+    SwapRig(float driftCrossfadeMs = 200.0f, bool skipInitialPrepare = false)
         : lfoZero((size_t) BS, 0.0f)
     {
         for (int i = 0; i < 128; ++i)
@@ -365,7 +381,7 @@ struct SwapRig
         csoundFadeGainNew_.assign((size_t) BS, 0.0f);
         csoundFadeGainOld_.assign((size_t) BS, 0.0f);
 
-        if (! csoundEngines_[0].prepare(SR, BS))
+        if (! skipInitialPrepare && ! csoundEngines_[0].prepare(SR, BS))
         {
             std::fprintf(stderr, "FATAL: CsoundEngine::prepare() (built-in, engine 0) failed. Aborting.\n");
             std::exit(1);
@@ -428,7 +444,13 @@ struct SwapRig
     }
 
     // Mirrors PluginProcessor::handleAsyncUpdate's swap-launch block exactly
-    // (same lock, same generation/latest-wins logic, same target-index rule).
+    // (same lock, same generation/latest-wins logic, same target-index rule
+    // -- INCLUDING the Phase-5 instant-adopt fix, BLIND SPOT 2: targetIdx/
+    // activeReadyBefore, prime-only-when-ready-before, arm-pending-only-when-
+    // ready-before. Brought up to the production shape (~PluginProcessor.cpp
+    // 7760-7822) from an earlier draft that hardcoded inactiveIdx/always
+    // primed/always armed pending -- that earlier shape never exercised the
+    // instant-adopt path at all, see case 7).
     void maybeStartCompile()
     {
         std::lock_guard<std::mutex> csoundLock(csoundLifecycleMutex_);
@@ -445,22 +467,44 @@ struct SwapRig
 
         const uint64_t myGeneration = csoundSwapRequestGeneration_;
         csoundSwapStartedGeneration_ = myGeneration;
+        // The engine that is INACTIVE right now -- stable for the whole
+        // compile: csoundActiveIdx_ only ever flips at a fade's END, and
+        // freeToStartSwap above already guarantees no fade is running.
         const int inactiveIdx = 1 - csoundActiveIdx_.load(std::memory_order_relaxed);
+        const int currentActiveIdx = csoundActiveIdx_.load(std::memory_order_relaxed);
+        // Phase 5 fix (SPEC_phase4_5_csound_llm_preset.md: "no ready active
+        // engine -> instant adopt without fade"): if the engine that's
+        // SUPPOSED to be live right now was never successfully prepared
+        // (fresh instance, or a previous compile failed -- case 7's whole
+        // point), there is nothing audible to fade FROM. Compile the new
+        // orchestra straight into the already-active slot instead of the
+        // inactive one, so it becomes ready in place -- the render loop's
+        // existing isReady()-gated behaviour picks it up on the very next
+        // block with no swap/fade machinery involved at all.
+        const bool activeReadyBefore = csoundEngines_[currentActiveIdx].isReady();
+        const int targetIdx = activeReadyBefore ? inactiveIdx : currentActiveIdx;
         const juce::String textCopy = csoundPendingOrchestraText_;
         std::array<float, CsoundEngine::kMaxVoices> epochsCopy, freqsCopy;
         std::memcpy(epochsCopy.data(), csoundPendingEpochs_, sizeof(csoundPendingEpochs_));
         std::memcpy(freqsCopy.data(), csoundPendingFreqs_, sizeof(csoundPendingFreqs_));
 
         csoundCompileInFlight_.store(true, std::memory_order_release);
-        csoundCompileThread_ = std::thread([this, inactiveIdx, textCopy, epochsCopy, freqsCopy, myGeneration]
+        csoundCompileThread_ = std::thread([this, targetIdx, activeReadyBefore,
+                                             textCopy, epochsCopy, freqsCopy, myGeneration]
         {
             bool ok = false;
             {
                 std::lock_guard<std::mutex> lock(csoundLifecycleMutex_);
-                ok = csoundEngines_[inactiveIdx].prepare(SR, BS,
+                ok = csoundEngines_[targetIdx].prepare(SR, BS,
                         textCopy.isEmpty() ? nullptr : textCopy.toRawUTF8());
-                if (ok)
-                    csoundEngines_[inactiveIdx].primeForTakeover(epochsCopy.data(), freqsCopy.data());
+                // primeForTakeover seeds the NEW engine's voice phase/freq
+                // state from the OLD (still-active) engine so a held note's
+                // crossfade doesn't re-strike -- only meaningful when there
+                // IS an old active engine to hand off from (the fade case).
+                // The instant-adopt case has no prior audible engine, so
+                // there is nothing to prime from and no fade to prepare for.
+                if (ok && activeReadyBefore)
+                    csoundEngines_[targetIdx].primeForTakeover(epochsCopy.data(), freqsCopy.data());
             }
 
             bool stillCurrent = false;
@@ -472,7 +516,13 @@ struct SwapRig
                         : juce::String("Csound orchestra compile failed");
             }
 
-            if (ok && stillCurrent)
+            // Only the genuine fade case (an already-ready engine gets
+            // replaced) arms the crossfade machinery. The instant-adopt case
+            // compiled directly into csoundActiveIdx_, so it is already
+            // live -- arming csoundSwapPending_ here would tell the render
+            // loop to fade INTO the same index it's already playing, which
+            // is a no-op at best and a self-referential fade at worst.
+            if (ok && stillCurrent && activeReadyBefore)
                 csoundSwapPending_.store(true, std::memory_order_release);
 
             csoundCompileInFlight_.store(false, std::memory_order_release);
@@ -807,31 +857,29 @@ static bool caseNoRestrike()
     const int fadeStart = meas.fadeStartSample;
     const int fadeLen = meas.fadeLen;
 
-    // Diagnostic: attribute any mix-level bump to a specific engine (or rule
-    // both out, pointing at crossfade interference between two coherent
-    // signals -- see renderControlledSwap's header comment on this file's
-    // investigation history).
-    if (! oldSolo.empty() || ! newSolo.empty())
+    // Attribute any mix-level bump to a specific engine (or rule both out,
+    // pointing at crossfade interference between two coherent signals -- see
+    // renderControlledSwap's header comment on this file's investigation
+    // history). Computed unconditionally (not diagnostic-only, see the
+    // BLIND SPOT 1 assertion below, which loads on newMax/newSettled).
+    const int diagWin = (int) (0.005 * SwapRig::SR);
+    double oldMax = 0.0, newMax = 0.0;
+    double oldMaxFrac = -1.0, newMaxFrac = -1.0;
+    for (int pos = 0; pos + diagWin < (int) oldSolo.size(); pos += diagWin / 2)
     {
-        const int diagWin = (int) (0.005 * SwapRig::SR);
-        double oldMax = 0.0, newMax = 0.0;
-        double oldMaxFrac = -1.0, newMaxFrac = -1.0;
-        for (int pos = 0; pos + diagWin < (int) oldSolo.size(); pos += diagWin / 2)
-        {
-            const double r = rmsWindow(oldSolo, pos, diagWin);
-            if (r > oldMax) { oldMax = r; oldMaxFrac = (double) pos / (double) fadeLen; }
-        }
-        for (int pos = 0; pos + diagWin < (int) newSolo.size(); pos += diagWin / 2)
-        {
-            const double r = rmsWindow(newSolo, pos, diagWin);
-            if (r > newMax) { newMax = r; newMaxFrac = (double) pos / (double) fadeLen; }
-        }
-        const double oldSettled = rmsWindow(oldSolo, 0, diagWin);
-        const double newSettled = newSolo.size() > (size_t) diagWin
-            ? rmsWindow(newSolo, (int) newSolo.size() - diagWin, diagWin) : 0.0;
-        printf("    [diag] oldEngine solo: max=%.4f@%.0f%% settled(t=0)=%.4f | newEngine solo: max=%.4f@%.0f%% settled(t=end)=%.4f\n",
-               oldMax, oldMaxFrac * 100.0, oldSettled, newMax, newMaxFrac * 100.0, newSettled);
+        const double r = rmsWindow(oldSolo, pos, diagWin);
+        if (r > oldMax) { oldMax = r; oldMaxFrac = (double) pos / (double) fadeLen; }
     }
+    for (int pos = 0; pos + diagWin < (int) newSolo.size(); pos += diagWin / 2)
+    {
+        const double r = rmsWindow(newSolo, pos, diagWin);
+        if (r > newMax) { newMax = r; newMaxFrac = (double) pos / (double) fadeLen; }
+    }
+    const double oldSettled = rmsWindow(oldSolo, 0, diagWin);
+    const double newSettled = newSolo.size() > (size_t) diagWin
+        ? rmsWindow(newSolo, (int) newSolo.size() - diagWin, diagWin) : 0.0;
+    printf("    [diag] oldEngine solo: max=%.4f@%.0f%% settled(t=0)=%.4f | newEngine solo: max=%.4f@%.0f%% settled(t=end)=%.4f\n",
+           oldMax, oldMaxFrac * 100.0, oldSettled, newMax, newMaxFrac * 100.0, newSettled);
 
     const int winLen = (int) (0.005 * SwapRig::SR);   // 5ms windows, scanned everywhere below
 
@@ -852,8 +900,45 @@ static bool caseNoRestrike()
     }
 
     const double ceiling = std::max(preRms, postRms) * 1.25;
-    const bool ok = meas.becamePending && preRms > 1.0e-6 && postRms > 1.0e-6 && maxFadeRms <= ceiling + 1.0e-6;
 
+    // BLIND SPOT 1 fix (adversarial-review finding, confirmed by ablation --
+    // see the ablation numbers below): the MIXED-output assertion above
+    // (maxFadeRms <= ceiling) is VACUOUS for a prime-failure re-strike --
+    // equal-power gNew = sin(t*pi/2) is ~0 at fade start, so a spurious
+    // attack transient on the NEW engine gets multiplied down to near-
+    // silence in the mix before it can ever bump maxFadeRms. The sensitive
+    // signal is the new engine's own, UNMIXED solo (debugNewSolo_, filled at
+    // renderBlock()'s vi==0 capture, ~line 586-587 of this file): a failed
+    // primeForTakeover() leaves the new engine's trig channel at whatever
+    // prepare()'s warmup left it (0) until the fade's first real control
+    // write flips it to the snapshot epoch -- changed2() fires for real, a
+    // genuine attack transient (the test orchestra's transeg 0->1 over 2ms)
+    // well above the held note's settled, decaying level. A WORKING prime
+    // has already fired that strike silently (gate closed) before this
+    // engine was ever published as a swap target, so a correctly-primed new
+    // engine's solo only DECAYS across the fade -- it never re-attacks.
+    // newSettled (rmsWindow at the END of the captured fade window, where
+    // the new engine is closest to its steady, fully-faded-in level) stands
+    // in for "its settled post-fade windowed RMS" -- debugNewSolo_ is only
+    // filled while csoundFadingNow (never after), so there is no literal
+    // post-fade sample of the solo signal to measure directly.
+    //
+    // Ablation (primeForTakeover's body temporarily made an early-return
+    // no-op in src/dsp/CsoundEngine.cpp, rebuilt, re-run): newMax=0.1422 vs
+    // ceiling(newSettled*1.25)=0.0514 -> FAIL (2.8x over) -- meanwhile the
+    // PRE-EXISTING mixed-output assertion alone, on the SAME broken run,
+    // still measured maxFadeRms=0.1107 <= ceiling=0.1770 -> would have
+    // PASSED, confirming it really is vacuous for this failure mode.
+    // primeForTakeover restored verbatim, rebuilt, re-ran: newMax=0.0411 vs
+    // ceiling=0.0505 -> PASS (matches the pre-ablation run exactly).
+    const double newSoloCeiling = newSettled * 1.25;
+    const bool newSoloOk = ! newSolo.empty() && newMax <= newSoloCeiling + 1.0e-6;
+
+    const bool ok = meas.becamePending && preRms > 1.0e-6 && postRms > 1.0e-6
+                  && maxFadeRms <= ceiling + 1.0e-6 && newSoloOk;
+
+    printf("    [new-engine-solo assert] newMax=%.4f ceiling(newSettled*1.25)=%.4f -> %s\n",
+           newMax, newSoloCeiling, newSoloOk ? "PASS" : "*** FAIL ***");
     printf("    becamePending=%s preRms=%.4f postRms=%.4f maxFadeRms=%.4f @%.0f%%-into-fade ceiling(1.25x max)=%.4f -> %s\n",
            meas.becamePending ? "yes" : "NO", preRms, postRms, maxFadeRms, maxFadeRmsFrac * 100.0, ceiling,
            ok ? "PASS" : "*** FAIL ***");
@@ -1125,6 +1210,192 @@ static bool caseLatestWins()
     return ok;
 }
 
+// ═══════════════════════════ Case 7: INSTANT ADOPT ═══════════════════════════
+//
+// BLIND SPOT 2: the guard never exercised the instant-adopt path (the branch
+// that takes over when csoundEngines_[currentActiveIdx()].isReady() is FALSE
+// at compile-launch time -- see maybeStartCompile()'s activeReadyBefore
+// logic). This rig starts with the active engine (index 0) never prepared at
+// all -- skipInitialPrepare -- to force that branch deterministically rather
+// than racing prepareToPlay.
+//
+// Ablation (adversarial-review finding, confirmed): SwapRig::maybeStartCompile()
+// temporarily reverted to its OLD pre-fix shape (hardcoded inactiveIdx, always
+// primes, always arms pending -- i.e. the shape this case exists to catch),
+// rebuilt, re-run: pendingArmedEver=YES(bad) (caught by the bounded post-
+// isReady() poll added below), becameReady=NO (5s timeout -- the old shape
+// compiles into the INACTIVE slot, so the ACTIVE engine this case holds a
+// note against never becomes ready) -> case 7 FAILS, both part1Ok and
+// part2Ok. Restored the targetIdx/activeReadyBefore shape verbatim, rebuilt,
+// re-ran: ALL PASS again (see this function's own printed numbers).
+static bool caseInstantAdopt()
+{
+    printf("[7] INSTANT ADOPT (active engine never prepared -> held note is silent; compile lands IN PLACE, no fade, correct attack)\n");
+    SwapRig rig(200.0f, /*skipInitialPrepare=*/true);
+    const std::string orchB = buildTestOrchestra(SwapRig::SR, 3.0);
+
+    rig.noteOn(60);   // voice becomes active; engine inert -> must render silence
+    rig.resetTimeline();
+
+    std::vector<float> out;
+    bool pendingArmedEver = false;
+
+    // Pre-roll: confirm the held note is genuinely silent while the active
+    // engine is not ready -- CsoundEngine's own not-ready guards on
+    // startBlock()/renderUpTo()/voiceBuffer() and SynthVoice's null-
+    // csoundBuf_ safety net are what make this a silence, not a crash.
+    const int preRollSamples = (int) (0.1 * SwapRig::SR);
+    for (int done = 0; done < preRollSamples; done += SwapRig::BS)
+    {
+        rig.renderBlock(SwapRig::BS, {}, &out);
+        if (rig.isPending()) pendingArmedEver = true;
+    }
+    const double preRollPeak = peakOf(out);
+
+    rig.requestCsoundOrchestra(orchB);
+
+    // Poll ONLY -- do NOT render here (same reasoning as
+    // renderControlledSwap's own header comment: the background compile
+    // needs real WALL-CLOCK time, which a tight render-only busy loop never
+    // yields, since this offline renderer produces audio far faster than
+    // real time -- a first draft of this case spun through thousands of
+    // renderBlock() calls, and therefore thousands of "sample-time" seconds,
+    // in a handful of real milliseconds, exhausting its guard counter before
+    // Csound's background compile thread ever got scheduled). Polling
+    // isReady() -- NOT isPending()/isFading(), which the instant-adopt path
+    // never touches at all (that's assertion (a) below) -- while nothing
+    // consumes samples means readySample (captured right after) is exactly
+    // where real, ready-engine rendering resumes; no race with a stale
+    // non-ready state mid-block.
+    const bool becameReady = waitFor([&] { return rig.csoundEngines_[rig.getActiveIdx()].isReady(); }, 5000);
+    if (rig.isPending()) pendingArmedEver = true;
+    // Extra bounded, poll-ONLY wait (still nothing rendering to consume the
+    // latch): prepare()'s ready-store and any pending-store are two SEPARATE
+    // atomics written sequentially by the compile thread (see
+    // maybeStartCompile()'s lambda) -- isReady() flipping true is not proof
+    // that a subsequent (hypothetical, regressed) pending-store has already
+    // happened too. Without this, a regression that drops the
+    // "&& activeReadyBefore" guard on the csoundSwapPending_ store could
+    // still slip past the check above via pure scheduling luck (adversarial-
+    // review finding). 300ms is generous relative to the compile itself
+    // (already finished by the time we get here) and to any conceivable
+    // follow-on atomic store on that same thread.
+    if (waitFor([&] { return rig.isPending(); }, 300)) pendingArmedEver = true;
+    const int readySample = (int) out.size();
+
+    // A generous window past readiness for the FIRST real control write
+    // (gate/trig, now that setVoiceControls() is no longer a no-op) to reach
+    // the orchestra and the strike + portk gate-open (~8ms) to become
+    // audible -- several host blocks' worth of slack, not a tight bound.
+    const int onsetSearchWindow = SwapRig::BS * 10;
+    if (becameReady)
+    {
+        for (int done = 0; done < onsetSearchWindow; done += SwapRig::BS)
+        {
+            rig.renderBlock(SwapRig::BS, {}, &out);
+            if (rig.isPending()) pendingArmedEver = true;
+        }
+    }
+
+    double onsetIdx = -1.0;
+    const double onsetThresh = std::max(0.02, preRollPeak * 5.0 + 0.01);
+    if (becameReady)
+        for (int i = readySample; i < (int) out.size(); ++i)
+            if (rmsWindow(out, i, 64) > onsetThresh) { onsetIdx = i; break; }
+
+    const bool becomesAudible = becameReady && onsetIdx >= 0
+                              && (onsetIdx - readySample) < onsetSearchWindow;
+
+    // (c) NaN/inf, across everything rendered so far.
+    bool finiteEverywhere = true;
+    for (float s : out) if (! std::isfinite(s)) { finiteEverywhere = false; break; }
+
+    // (c) no hard click BEYOND the portk-smoothed onset: skip a generous
+    // settle window right after the strike (portk ~8ms + the test
+    // orchestra's own 2ms/50ms strike envelope), then require adjacent-
+    // sample deltas from there on to be bounded by that SAME settled
+    // region's own p99.9 delta x margin -- exactly case 1's click-free
+    // method, just anchored after an onset instead of before a fade.
+    bool noClickPostOnset = false;
+    double afterOnsetMax = -1.0, settledP999 = -1.0;
+    if (becomesAudible)
+    {
+        const int settleSamples = (int) (0.05 * SwapRig::SR);   // 50ms past the strike
+        const int settledStart = (int) onsetIdx + settleSamples;
+        const int settledRefLen = std::min(4000, (int) out.size() - settledStart);
+        if (settledRefLen > 200)
+        {
+            settledP999 = p999AdjacentDelta(out, settledStart, settledRefLen);
+            afterOnsetMax = maxAdjacentDelta(out, settledStart, (int) out.size() - settledStart);
+            noClickPostOnset = afterOnsetMax <= settledP999 * 3.0 + 1.0e-6;
+        }
+    }
+
+    const bool part1Ok = ! pendingArmedEver && preRollPeak < 1.0e-9 && becameReady
+                       && becomesAudible && finiteEverywhere && noClickPostOnset;
+
+    printf("    pendingArmedEver=%s preRollPeak=%.6f becameReady=%s readySample=%d onsetIdx=%.0f (delay=%.0f, bound=%d) becomesAudible=%s\n",
+           pendingArmedEver ? "YES(bad)" : "no", preRollPeak, becameReady ? "yes" : "NO", readySample,
+           onsetIdx, onsetIdx >= 0 ? onsetIdx - readySample : -1.0, onsetSearchWindow, becomesAudible ? "yes" : "NO");
+    printf("    finiteEverywhere=%s afterOnsetMax=%.6f settledP999=%.6f(x3=%.6f) noClickPostOnset=%s -> %s\n",
+           finiteEverywhere ? "yes" : "NO", afterOnsetMax, settledP999, settledP999 * 3.0,
+           noClickPostOnset ? "yes" : "NO", part1Ok ? "PASS" : "*** FAIL ***");
+
+    // (d) a SECOND swap request, now that the active engine IS ready, must
+    // take the NORMAL fade path -- reuses the exact same helper and a
+    // case-1-style click-free/actually-transitioning assertion, on the SAME
+    // rig/held voice, continuing from wherever the instant-adopt left off.
+    const std::string orchC = buildTestOrchestra(SwapRig::SR, 0.5);   // darker, clearly different from orchB
+    auto meas2 = renderControlledSwap(rig, (int) (0.1 * SwapRig::SR), orchC, (int) (0.2 * SwapRig::SR));
+    auto& out2 = meas2.out;
+    const int fadeStartSample = meas2.fadeStartSample;
+    const int fadeLen = meas2.fadeLen;
+
+    const double preFadeP999 = p999AdjacentDelta(out2, fadeStartSample - 4000, 4000);
+    const double fadeWindowMax = maxAdjacentDelta(out2, fadeStartSample, fadeLen + 200);
+    const bool clickFree2 = fadeWindowMax <= preFadeP999 * 3.0 + 1.0e-6;
+
+    const double preBrightness2  = brightnessProxy(out2, fadeStartSample - 4000, 4000);
+    const double postBrightness2 = brightnessProxy(out2, fadeStartSample + fadeLen + 2000, 4000);
+    const bool clearlyDifferent2 = (postBrightness2 > preBrightness2 * 1.3)
+                                 || (postBrightness2 < preBrightness2 * 0.7);
+    // NOTE: case 1's own version of this check seeds prevDist as
+    // |preBrightness - (risingTrend ? postBrightness : preBrightness)| --
+    // correct (the full pre->post swing) for a RISING trend (post > pre,
+    // the only direction any of cases 1/4/6 ever exercise: orchB is always
+    // brighter than whatever it replaces), but it degenerates to 0 for a
+    // FALLING trend, which this case is the first to exercise (orchB-
+    // brighter -> orchC-darker). Fixed HERE (not in case 1, which stays
+    // untouched) with the direction-agnostic form: the full swing either way.
+    bool monotonicIsh2 = true;
+    {
+        const int steps = 5;
+        double prevDist = std::fabs(postBrightness2 - preBrightness2);
+        for (int i = 1; i <= steps; ++i)
+        {
+            const int pos = fadeStartSample + (fadeLen * i) / steps;
+            const double v = brightnessProxy(out2, pos - 500, 1000);
+            const double distToPost = std::fabs(v - postBrightness2);
+            if (distToPost > prevDist + std::fabs(postBrightness2 - preBrightness2) * 0.5 + 1.0e-9)
+                monotonicIsh2 = false;
+            prevDist = distToPost;
+        }
+    }
+
+    const bool part2Ok = meas2.becamePending && clickFree2 && clearlyDifferent2 && monotonicIsh2;
+
+    printf("    [second swap, normal path] becamePending=%s fadeStartSample=%d fadeLen=%d clickFree=%s preBrightness=%.4f postBrightness=%.4f clearlyDifferent=%s monotonicIsh=%s -> %s\n",
+           meas2.becamePending ? "yes" : "NO", fadeStartSample, fadeLen, clickFree2 ? "yes" : "NO",
+           preBrightness2, postBrightness2, clearlyDifferent2 ? "yes" : "NO", monotonicIsh2 ? "yes" : "NO",
+           part2Ok ? "PASS" : "*** FAIL ***");
+
+    const bool ok = part1Ok && part2Ok;
+    printf("    -> %s\n", ok ? "PASS" : "*** FAIL ***");
+
+    writeWavNormalized("tools/csound_swap_out/case7_instant_adopt.wav", out, (int) SwapRig::SR, -12.0f);
+    return ok;
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
@@ -1140,8 +1411,9 @@ int main()
     ok &= caseNewNoteDuringFade();
     ok &= caseRtClean();
     ok &= caseLatestWins();
+    ok &= caseInstantAdopt();
 
-    printf("\nWAVs: tools/csound_swap_out/case{1,2,4}_*.wav\n");
+    printf("\nWAVs: tools/csound_swap_out/case{1,2,4,7}_*.wav\n");
     printf("%s\n", ok ? "ALL PASS" : "*** FAIL ***");
     return ok ? 0 : 1;
 }
