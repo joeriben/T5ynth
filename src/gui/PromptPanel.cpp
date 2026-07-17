@@ -2510,6 +2510,18 @@ void PromptPanel::triggerDcoBake()
 
     if (dcoBaking_)
         return;
+    // Mirrors triggerDcoReprompt's own gate on dcoBaking_ (line ~3243): the
+    // Return-key and Launch Control XL paths both bypass the disabled
+    // on-screen GENERATE button, so without this check a bake could launch
+    // while a reprompt is still in flight — two detached threads racing the
+    // one serialized pipe, and the reprompt's tail would re-enable the button
+    // mid-bake and rewrite the prompt editor out from under it (adversarial
+    // review finding).
+    if (dcoRepromptBusy_)
+    {
+        setLcoStatus("LCO: busy (re-prompt running)");
+        return;
+    }
     // The pipe is one serialized channel (recursive stateMutex_): authoring
     // clicked mid-generation would just park behind it for minutes with a
     // misleading "authoring..." label. Same gate set as the retired bake /
