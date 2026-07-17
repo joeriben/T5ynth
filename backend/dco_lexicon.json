@@ -1,0 +1,3434 @@
+{
+  "lexicon_version": 6,
+  "techniques": [
+    {
+      "key": "saw",
+      "surface_forms": [
+        "saw",
+        "sawtooth",
+        "saw wave",
+        "säge",
+        "sägezahn"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "saw"
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 5,
+      "why": "the canonical bright analogue waveform; full harmonic series decaying 1/h"
+    },
+    {
+      "key": "square",
+      "surface_forms": [
+        "square",
+        "square wave",
+        "rechteck",
+        "rechteckwelle"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "square"
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 5,
+      "why": "odd-only harmonic series; hollow, clarinet-adjacent character by construction"
+    },
+    {
+      "key": "pulse",
+      "surface_forms": [
+        "pulse",
+        "puls",
+        "rectangle",
+        "pulse wave"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "pulse",
+            "width": 0.3
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 5,
+      "why": "narrow rectangular wave (default 30% width); an explicit width% overrides the template default"
+    },
+    {
+      "key": "pwm",
+      "surface_forms": [
+        "pwm",
+        "pulse width modulation",
+        "pulsbreite",
+        "pulsbreitenmodulation",
+        "pulsweitenmodulation"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "pulse",
+            "width": 0.5
+          },
+          {
+            "kind": "pulse",
+            "width": 0.08
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          },
+          {
+            "to": 1,
+            "dur_frac": 0.5,
+            "curve": "lin"
+          },
+          {
+            "to": 0,
+            "dur_frac": 0.5,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.35
+      },
+      "priority": 10,
+      "why": "classic PWM sweep: square (50%) narrowing to a thin pulse (8%) and back, closing the loop"
+    },
+    {
+      "key": "triangle",
+      "surface_forms": [
+        "triangle",
+        "triangle wave",
+        "dreieck",
+        "dreieckwelle"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "triangle"
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 5,
+      "why": "odd harmonics decaying 1/h^2; the softest of the classic analogue waves"
+    },
+    {
+      "key": "sine",
+      "surface_forms": [
+        "sine",
+        "sine wave",
+        "sinus",
+        "sinuswelle"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1,
+                "a": 1.0,
+                "phase": 0.0
+              }
+            ]
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 5,
+      "why": "a single partial; the reference tone with no harmonic content to shape"
+    },
+    {
+      "key": "additive",
+      "surface_forms": [
+        "additive",
+        "additiv",
+        "partials",
+        "harmonics only",
+        "obertöne"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1,
+                "a": 1.0,
+                "phase": 0.0
+              },
+              {
+                "h": 2,
+                "a": 0.3,
+                "phase": 0.0
+              },
+              {
+                "h": 3,
+                "a": 0.15,
+                "phase": 0.0
+              }
+            ]
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 3,
+      "why": "a generic additive base (light 2nd/3rd harmonic) for adjectives to shape from"
+    },
+    {
+      "key": "fm",
+      "surface_forms": [
+        "fm",
+        "fm synthesis",
+        "2 op fm",
+        "2 operator fm",
+        "frequency modulation",
+        "operator"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "fm2",
+            "ratio": 2,
+            "index": 1.5
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 3,
+      "why": "plain 2-operator FM (ratio 2, index 1.5); a neutral starting sideband spread"
+    },
+    {
+      "key": "fm_bell",
+      "surface_forms": [
+        "bell",
+        "glocke",
+        "dx",
+        "dx7",
+        "fm bell",
+        "bell tone"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1,
+                "a": 1.0,
+                "phase": 0.0
+              },
+              {
+                "h": 2.76,
+                "a": 0.55,
+                "phase": 0.0
+              },
+              {
+                "h": 5.4,
+                "a": 0.33,
+                "phase": 0.0
+              },
+              {
+                "h": 8.93,
+                "a": 0.16,
+                "phase": 0.0
+              }
+            ]
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "true inharmonic bell partials (h 2.76/5.4/8.93) synthesized directly by the additive engine, no longer projected onto the harmonic grid"
+    },
+    {
+      "key": "fm_ep",
+      "surface_forms": [
+        "electric piano",
+        "epiano",
+        "rhodes",
+        "e piano",
+        "elektrisches piano"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "fm2",
+            "ratio": 1,
+            "index": 1.2
+          },
+          {
+            "kind": "fm2",
+            "ratio": 1,
+            "index": 0.6
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          },
+          {
+            "to": 1,
+            "dur_frac": 0.7,
+            "curve": "slow"
+          },
+          {
+            "to": 0,
+            "dur_frac": 0.3,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.3
+      },
+      "priority": 10,
+      "why": "1:1 FM with a softening index over the cycle, the classic tine-EP sideband shape"
+    },
+    {
+      "key": "metallic_fm",
+      "surface_forms": [
+        "metal",
+        "bell metal",
+        "metall"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1,
+                "a": 1.0,
+                "phase": 0.0
+              },
+              {
+                "h": 1.73,
+                "a": 0.7,
+                "phase": 0.0
+              },
+              {
+                "h": 3.19,
+                "a": 0.5,
+                "phase": 0.0
+              },
+              {
+                "h": 4.51,
+                "a": 0.3,
+                "phase": 0.0
+              }
+            ]
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "true inharmonic metal partials (h 1.73/3.19/4.51) synthesized directly by the additive engine"
+    },
+    {
+      "key": "struck_bar",
+      "surface_forms": [
+        "music box",
+        "musicbox",
+        "glockenspiel",
+        "celesta",
+        "kalimba",
+        "mbira",
+        "spieluhr"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1,
+                "a": 1.0,
+                "phase": 0.0
+              },
+              {
+                "h": 2.76,
+                "a": 0.55,
+                "phase": 0.0
+              },
+              {
+                "h": 5.4,
+                "a": 0.38,
+                "phase": 0.0
+              },
+              {
+                "h": 8.93,
+                "a": 0.24,
+                "phase": 0.0
+              },
+              {
+                "h": 13.34,
+                "a": 0.13,
+                "phase": 0.0
+              }
+            ]
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "tuned struck metal bar (music box / glockenspiel / celesta / kalimba) — ideal free-free bar partials (h 2.76/5.4/8.93/13.34), brighter and thinner than a big bell, synthesized directly by the additive engine"
+    },
+    {
+      "key": "cymbal",
+      "surface_forms": [
+        "cymbal",
+        "crash cymbal",
+        "ride cymbal",
+        "hi hat",
+        "hihat",
+        "becken"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1.0,
+                "a": 0.15,
+                "phase": 0.0
+              },
+              {
+                "h": 2.43,
+                "a": 0.28,
+                "phase": 0.0
+              },
+              {
+                "h": 3.79,
+                "a": 0.4,
+                "phase": 0.0
+              },
+              {
+                "h": 5.17,
+                "a": 0.55,
+                "phase": 0.0
+              },
+              {
+                "h": 6.94,
+                "a": 0.72,
+                "phase": 0.0
+              },
+              {
+                "h": 8.21,
+                "a": 0.9,
+                "phase": 0.0
+              },
+              {
+                "h": 10.56,
+                "a": 1.0,
+                "phase": 0.0
+              },
+              {
+                "h": 12.83,
+                "a": 0.9,
+                "phase": 0.0
+              },
+              {
+                "h": 15.31,
+                "a": 0.78,
+                "phase": 0.0
+              },
+              {
+                "h": 18.62,
+                "a": 0.62,
+                "phase": 0.0
+              },
+              {
+                "h": 24.05,
+                "a": 0.45,
+                "phase": 0.0
+              },
+              {
+                "h": 31.02,
+                "a": 0.3,
+                "phase": 0.0
+              }
+            ]
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "dense bright inharmonic plate wash (cymbal / crash / ride / hi-hat) — a characteristic additive sketch of a 2-D plate's dense modal spectrum: weak fundamental, energy piled into the upper partials, all off the harmonic grid"
+    },
+    {
+      "key": "ring_mod",
+      "surface_forms": [
+        "ring mod",
+        "ring modulation",
+        "ringmod",
+        "amplitude modulation",
+        "ringmodulation"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "ring",
+            "ratio": 2,
+            "mix": 1.0
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "two-operand sidebands at a 2:1 ratio; closed-form ring/AM spectrum"
+    },
+    {
+      "key": "cheby",
+      "surface_forms": [
+        "waveshaper",
+        "wave shaper",
+        "chebyshev",
+        "waveshaping",
+        "verzerrer",
+        "wellenformer"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "cheby",
+            "order": 3,
+            "drive": 0.7
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "3rd-order Chebyshev waveshaper; exact polynomial-to-harmonic mapping"
+    },
+    {
+      "key": "organ",
+      "surface_forms": [
+        "organ",
+        "orgel",
+        "drawbar",
+        "hammond",
+        "zugriegel"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1,
+                "a": 1.0,
+                "phase": 0.0
+              },
+              {
+                "h": 2,
+                "a": 0.8,
+                "phase": 0.0
+              },
+              {
+                "h": 3,
+                "a": 0.6,
+                "phase": 0.0
+              },
+              {
+                "h": 4,
+                "a": 0.5,
+                "phase": 0.0
+              },
+              {
+                "h": 6,
+                "a": 0.35,
+                "phase": 0.0
+              },
+              {
+                "h": 8,
+                "a": 0.25,
+                "phase": 0.0
+              }
+            ]
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "classic drawbar harmonic set {1,2,3,4,6,8} at typical registration levels"
+    },
+    {
+      "key": "clarinet",
+      "surface_forms": [
+        "clarinet",
+        "klarinette",
+        "hollow reed",
+        "klarinettenton",
+        "klarinettenklang"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1,
+                "a": 1.0,
+                "phase": 0.0
+              },
+              {
+                "h": 3,
+                "a": 0.3333,
+                "phase": 0.0
+              },
+              {
+                "h": 5,
+                "a": 0.2,
+                "phase": 0.0
+              },
+              {
+                "h": 7,
+                "a": 0.1429,
+                "phase": 0.0
+              },
+              {
+                "h": 9,
+                "a": 0.1111,
+                "phase": 0.0
+              },
+              {
+                "h": 11,
+                "a": 0.0909,
+                "phase": 0.0
+              }
+            ]
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "odd-only series (square-family) is the textbook cylindrical-reed approximation"
+    },
+    {
+      "key": "flute",
+      "surface_forms": [
+        "flute",
+        "flöte",
+        "whistle",
+        "querflöte"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1,
+                "a": 1.0,
+                "phase": 0.0
+              },
+              {
+                "h": 2,
+                "a": 0.15,
+                "phase": 0.0
+              },
+              {
+                "h": 3,
+                "a": 0.05,
+                "phase": 0.0
+              }
+            ]
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "near-pure tone with a faint 2nd/3rd harmonic; breath noise itself is not modeled"
+    },
+    {
+      "key": "brass",
+      "surface_forms": [
+        "brass",
+        "trumpet",
+        "trompete",
+        "blech",
+        "blechbläser"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1,
+                "a": 1.0,
+                "phase": 0.0
+              },
+              {
+                "h": 2,
+                "a": 0.5,
+                "phase": 0.0
+              },
+              {
+                "h": 3,
+                "a": 0.3333,
+                "phase": 0.0
+              },
+              {
+                "h": 4,
+                "a": 0.25,
+                "phase": 0.0
+              },
+              {
+                "h": 5,
+                "a": 0.2,
+                "phase": 0.0
+              },
+              {
+                "h": 6,
+                "a": 0.1667,
+                "phase": 0.0
+              }
+            ]
+          },
+          {
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1,
+                "a": 1.0,
+                "phase": 0.0
+              },
+              {
+                "h": 2,
+                "a": 0.5,
+                "phase": 0.0
+              },
+              {
+                "h": 3,
+                "a": 0.3333,
+                "phase": 0.0
+              },
+              {
+                "h": 4,
+                "a": 0.25,
+                "phase": 0.0
+              },
+              {
+                "h": 5,
+                "a": 0.2,
+                "phase": 0.0
+              },
+              {
+                "h": 6,
+                "a": 0.1667,
+                "phase": 0.0
+              },
+              {
+                "h": 7,
+                "a": 0.1429,
+                "phase": 0.0
+              },
+              {
+                "h": 8,
+                "a": 0.125,
+                "phase": 0.0
+              },
+              {
+                "h": 9,
+                "a": 0.1111,
+                "phase": 0.0
+              },
+              {
+                "h": 10,
+                "a": 0.1,
+                "phase": 0.0
+              },
+              {
+                "h": 11,
+                "a": 0.0909,
+                "phase": 0.0
+              },
+              {
+                "h": 12,
+                "a": 0.0833,
+                "phase": 0.0
+              }
+            ]
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          },
+          {
+            "to": 1,
+            "dur_frac": 0.8,
+            "curve": "slow"
+          },
+          {
+            "to": 0,
+            "dur_frac": 0.2,
+            "curve": "fast"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "saw-family spectrum that opens from a dark 6-harmonic set to a brighter 12-harmonic set"
+    },
+    {
+      "key": "strings",
+      "surface_forms": [
+        "strings",
+        "streicher",
+        "violin",
+        "violine",
+        "ensemble strings"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1,
+                "a": 1.0,
+                "phase": 0.0
+              },
+              {
+                "h": 2,
+                "a": 0.5,
+                "phase": 0.0
+              },
+              {
+                "h": 3,
+                "a": 0.3333,
+                "phase": 0.0
+              },
+              {
+                "h": 4,
+                "a": 0.25,
+                "phase": 0.0
+              },
+              {
+                "h": 5,
+                "a": 0.2,
+                "phase": 0.0
+              },
+              {
+                "h": 6,
+                "a": 0.1667,
+                "phase": 0.0
+              },
+              {
+                "h": 7,
+                "a": 0.1429,
+                "phase": 0.0
+              },
+              {
+                "h": 8,
+                "a": 0.125,
+                "phase": 0.0
+              }
+            ]
+          },
+          {
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1,
+                "a": 1.0,
+                "phase": 0.0
+              },
+              {
+                "h": 2,
+                "a": 0.5,
+                "phase": 0.0
+              },
+              {
+                "h": 3,
+                "a": 0.3333,
+                "phase": 0.0
+              },
+              {
+                "h": 4,
+                "a": 0.25,
+                "phase": 0.0
+              },
+              {
+                "h": 5,
+                "a": 0.2,
+                "phase": 0.0
+              }
+            ]
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          },
+          {
+            "to": 1,
+            "dur_frac": 0.6,
+            "curve": "slow"
+          },
+          {
+            "to": 0,
+            "dur_frac": 0.4,
+            "curve": "slow"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.18
+      },
+      "priority": 10,
+      "why": "bright saw-family spectrum with a slow, gentle harmonic-count breathing motion",
+      "mandatory_flags": [
+        "ensemble/detune is a voice-level effect, not a cycle property"
+      ]
+    },
+    {
+      "key": "bass_saw",
+      "surface_forms": [
+        "moog",
+        "bass",
+        "303",
+        "moog bass",
+        "bassline",
+        "bass synth"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1,
+                "a": 1.0,
+                "phase": 0.0
+              },
+              {
+                "h": 2,
+                "a": 0.5,
+                "phase": 0.0
+              },
+              {
+                "h": 3,
+                "a": 0.3333,
+                "phase": 0.0
+              },
+              {
+                "h": 4,
+                "a": 0.25,
+                "phase": 0.0
+              },
+              {
+                "h": 5,
+                "a": 0.2,
+                "phase": 0.0
+              },
+              {
+                "h": 6,
+                "a": 0.1667,
+                "phase": 0.0
+              },
+              {
+                "h": 7,
+                "a": 0.1429,
+                "phase": 0.0
+              },
+              {
+                "h": 8,
+                "a": 0.125,
+                "phase": 0.0
+              },
+              {
+                "h": 9,
+                "a": 0.1111,
+                "phase": 0.0
+              },
+              {
+                "h": 10,
+                "a": 0.1,
+                "phase": 0.0
+              },
+              {
+                "h": 11,
+                "a": 0.0909,
+                "phase": 0.0
+              },
+              {
+                "h": 12,
+                "a": 0.0833,
+                "phase": 0.0
+              },
+              {
+                "h": 13,
+                "a": 0.0769,
+                "phase": 0.0
+              },
+              {
+                "h": 14,
+                "a": 0.0714,
+                "phase": 0.0
+              },
+              {
+                "h": 15,
+                "a": 0.0667,
+                "phase": 0.0
+              },
+              {
+                "h": 16,
+                "a": 0.0625,
+                "phase": 0.0
+              },
+              {
+                "h": 17,
+                "a": 0.0588,
+                "phase": 0.0
+              },
+              {
+                "h": 18,
+                "a": 0.0556,
+                "phase": 0.0
+              },
+              {
+                "h": 19,
+                "a": 0.0526,
+                "phase": 0.0
+              },
+              {
+                "h": 20,
+                "a": 0.05,
+                "phase": 0.0
+              },
+              {
+                "h": 21,
+                "a": 0.0476,
+                "phase": 0.0
+              },
+              {
+                "h": 22,
+                "a": 0.0455,
+                "phase": 0.0
+              },
+              {
+                "h": 23,
+                "a": 0.0435,
+                "phase": 0.0
+              },
+              {
+                "h": 24,
+                "a": 0.0417,
+                "phase": 0.0
+              }
+            ]
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "dark saw-family spectrum, harmonic count ceilinged near 24 for a rolled-off low end"
+    },
+    {
+      "key": "supersaw",
+      "surface_forms": [
+        "supersaw",
+        "super saw",
+        "detuned",
+        "unison",
+        "detune"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1,
+                "a": 1.0,
+                "phase": 0.0
+              },
+              {
+                "h": 2,
+                "a": 0.5,
+                "phase": 0.0
+              },
+              {
+                "h": 3,
+                "a": 0.3333,
+                "phase": 0.0
+              },
+              {
+                "h": 4,
+                "a": 0.25,
+                "phase": 0.0
+              },
+              {
+                "h": 5,
+                "a": 0.2,
+                "phase": 0.0
+              },
+              {
+                "h": 6,
+                "a": 0.1667,
+                "phase": 0.0
+              },
+              {
+                "h": 7,
+                "a": 0.1429,
+                "phase": 0.0
+              },
+              {
+                "h": 8,
+                "a": 0.125,
+                "phase": 0.0
+              },
+              {
+                "h": 9,
+                "a": 0.1111,
+                "phase": 0.0
+              },
+              {
+                "h": 10,
+                "a": 0.1,
+                "phase": 0.0
+              },
+              {
+                "h": 11,
+                "a": 0.0909,
+                "phase": 0.0
+              },
+              {
+                "h": 12,
+                "a": 0.0833,
+                "phase": 0.0
+              },
+              {
+                "h": 13,
+                "a": 0.0769,
+                "phase": 0.0
+              },
+              {
+                "h": 14,
+                "a": 0.0714,
+                "phase": 0.0
+              },
+              {
+                "h": 15,
+                "a": 0.0667,
+                "phase": 0.0
+              },
+              {
+                "h": 16,
+                "a": 0.0625,
+                "phase": 0.0
+              }
+            ]
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "bright single-cycle saw stands in for the spectral brightness; the detune itself is not a cycle property",
+      "mandatory_flags": [
+        "detune/unison is a voice-level effect, not a cycle property"
+      ]
+    },
+    {
+      "key": "sync",
+      "surface_forms": [
+        "sync",
+        "hard sync",
+        "hardsync",
+        "sync sweep",
+        "synchronisation",
+        "oszillatorsync"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "fm2",
+            "ratio": 4,
+            "index": 4.0
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "bright, dense FM stands in for hard sync's sideband-rich character",
+      "mandatory_flags": [
+        "true hard sync is not yet a supported kind; approximated with FM"
+      ]
+    },
+    {
+      "key": "harpsichord",
+      "surface_forms": [
+        "harpsichord",
+        "cembalo"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1,
+                "a": 1.0,
+                "phase": 0.0
+              },
+              {
+                "h": 2,
+                "a": 0.6,
+                "phase": 0.0
+              },
+              {
+                "h": 3,
+                "a": 0.5,
+                "phase": 0.0
+              },
+              {
+                "h": 4,
+                "a": 0.3,
+                "phase": 0.0
+              },
+              {
+                "h": 5,
+                "a": 0.25,
+                "phase": 0.0
+              },
+              {
+                "h": 6,
+                "a": 0.15,
+                "phase": 0.0
+              },
+              {
+                "h": 7,
+                "a": 0.1,
+                "phase": 0.0
+              }
+            ]
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "bright, plucky additive spectrum (many odd+even partials)",
+      "mandatory_flags": [
+        "pluck transient/decay is not modeled by a single-cycle wavetable; only the sustained spectral character is approximated"
+      ]
+    },
+    {
+      "key": "chiptune",
+      "surface_forms": [
+        "chiptune",
+        "8 bit",
+        "8bit",
+        "nes",
+        "gameboy",
+        "chip tune"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "square"
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "retro chiptune leads are classically a square/pulse wave"
+    },
+    {
+      "key": "theremin",
+      "surface_forms": [
+        "theremin"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1,
+                "a": 1.0,
+                "phase": 0.0
+              }
+            ]
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "a pure tone stands in for the instrument's timbre",
+      "mandatory_flags": [
+        "theremin's character is continuous pitch/amplitude glide, not a fixed spectrum; approximated as a pure tone"
+      ]
+    },
+    {
+      "key": "sub_sine",
+      "surface_forms": [
+        "sub bass",
+        "subbass",
+        "sub"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "additive",
+            "partials": [
+              {
+                "h": 1,
+                "a": 1.0,
+                "phase": 0.0
+              }
+            ]
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "a pure sine is the standard sub-bass building block",
+      "mandatory_flags": [
+        "'sub' is a register/mix role, not a distinct spectrum; approximated as a pure sine"
+      ]
+    }
+  ],
+  "adjectives": [
+    {
+      "key": "bright",
+      "surface_forms": [
+        "bright",
+        "hell",
+        "brillant",
+        "helle",
+        "hellem",
+        "hellen",
+        "heller",
+        "helles",
+        "brillante",
+        "brillantem",
+        "brillanten",
+        "brillanter",
+        "brillantes"
+      ],
+      "delta": [
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 2,
+            "from_h": 4
+          }
+        }
+      ],
+      "priority": 10,
+      "why": "more upper-harmonic energy"
+    },
+    {
+      "key": "dark",
+      "surface_forms": [
+        "dark",
+        "dunkel",
+        "dumpf",
+        "dunkle",
+        "dunklem",
+        "dunklen",
+        "dunkler",
+        "dunkles",
+        "dumpfe",
+        "dumpfem",
+        "dumpfen",
+        "dumpfer",
+        "dumpfes"
+      ],
+      "delta": [
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": -3,
+            "from_h": 3
+          }
+        },
+        {
+          "op": "ceiling",
+          "args": {
+            "h_max": 32
+          }
+        }
+      ],
+      "priority": 10,
+      "why": "classic LP-ish cycle"
+    },
+    {
+      "key": "warm",
+      "surface_forms": [
+        "warm",
+        "weich",
+        "warme",
+        "warmem",
+        "warmen",
+        "warmer",
+        "warmes",
+        "weiche",
+        "weichem",
+        "weichen",
+        "weicher",
+        "weiches"
+      ],
+      "delta": [
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": -2,
+            "from_h": 4
+          }
+        },
+        {
+          "op": "boost",
+          "args": {
+            "h": 2,
+            "amount": 0.15
+          }
+        }
+      ],
+      "priority": 10,
+      "why": "dark + 2nd-harmonic glow — a convention, stated, arguable"
+    },
+    {
+      "key": "hollow",
+      "surface_forms": [
+        "hollow",
+        "hohl",
+        "hohle",
+        "hohlem",
+        "hohlen",
+        "hohler",
+        "hohles"
+      ],
+      "delta": [
+        {
+          "op": "even_odd",
+          "args": {
+            "balance": -0.8
+          }
+        }
+      ],
+      "priority": 10,
+      "why": "odd-dominant = clarinet family"
+    },
+    {
+      "key": "nasal",
+      "surface_forms": [
+        "nasal",
+        "näselnd",
+        "näselnde",
+        "näselndem",
+        "näselnden",
+        "näselnder",
+        "näselndes"
+      ],
+      "delta": [
+        {
+          "op": "boost",
+          "args": {
+            "h": 3,
+            "amount": 0.2
+          }
+        },
+        {
+          "op": "boost",
+          "args": {
+            "h": 5,
+            "amount": 0.15
+          }
+        }
+      ],
+      "priority": 10,
+      "why": "mid-harmonic formant-ish bump"
+    },
+    {
+      "key": "fat",
+      "surface_forms": [
+        "fat",
+        "fett",
+        "fette",
+        "fettem",
+        "fetten",
+        "fetter",
+        "fettes"
+      ],
+      "delta": [
+        {
+          "op": "boost",
+          "args": {
+            "h": 1,
+            "amount": 0.1
+          }
+        },
+        {
+          "op": "boost",
+          "args": {
+            "h": 2,
+            "amount": 0.2
+          }
+        },
+        {
+          "op": "width",
+          "args": {
+            "delta": -0.1
+          }
+        }
+      ],
+      "priority": 10,
+      "why": "weight below; unison part is flagged separately, not modeled here"
+    },
+    {
+      "key": "thin",
+      "surface_forms": [
+        "thin",
+        "dünn",
+        "dünne",
+        "dünnem",
+        "dünnen",
+        "dünner",
+        "dünnes"
+      ],
+      "delta": [
+        {
+          "op": "cut",
+          "args": {
+            "h": 1,
+            "amount": -0.3
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 1,
+            "from_h": 2
+          }
+        }
+      ],
+      "priority": 10,
+      "why": "inverse of fat"
+    },
+    {
+      "key": "buzzy",
+      "surface_forms": [
+        "buzzy",
+        "schnarrend",
+        "schnarrende",
+        "schnarrendem",
+        "schnarrenden",
+        "schnarrender",
+        "schnarrendes"
+      ],
+      "delta": [
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 3,
+            "from_h": 8
+          }
+        }
+      ],
+      "priority": 10,
+      "why": "strong high odd content"
+    },
+    {
+      "key": "metallic",
+      "surface_forms": [
+        "metallic",
+        "metallisch",
+        "metallische",
+        "metallischem",
+        "metallischen",
+        "metallischer",
+        "metallisches"
+      ],
+      "delta": [
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 2,
+            "from_h": 8
+          }
+        },
+        {
+          "op": "boost",
+          "args": {
+            "h": 11,
+            "amount": 0.15
+          }
+        },
+        {
+          "op": "fm_index",
+          "args": {
+            "delta": 1.5
+          }
+        },
+        {
+          "op": "fm_ratio",
+          "args": {
+            "delta": 2
+          }
+        },
+        {
+          "op": "inharm",
+          "args": {
+            "amount": 0.5
+          }
+        }
+      ],
+      "priority": 10,
+      "why": "clangy high-partial emphasis on any spectrum; denser sideband spread where FM is present + inharmonic-reading sparse highs on non-FM bases"
+    },
+    {
+      "key": "smooth",
+      "surface_forms": [
+        "smooth",
+        "soft",
+        "sanft",
+        "sanfte",
+        "sanftem",
+        "sanften",
+        "sanfter",
+        "sanftes"
+      ],
+      "delta": [
+        {
+          "op": "ceiling",
+          "args": {
+            "h_max": 16
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": -2,
+            "from_h": 4
+          }
+        }
+      ],
+      "priority": 10,
+      "why": "fewer, gentler partials"
+    },
+    {
+      "key": "shimmering",
+      "surface_forms": [
+        "shimmer",
+        "shimmering",
+        "schimmernd",
+        "schimmernde",
+        "schimmerndem",
+        "schimmernden",
+        "schimmernder",
+        "schimmerndes"
+      ],
+      "delta": [
+        {
+          "op": "motion_rate",
+          "args": {
+            "scale": 0.5
+          }
+        },
+        {
+          "op": "motion_depth",
+          "args": {
+            "scale": 1.3
+          }
+        }
+      ],
+      "priority": 10,
+      "why": "slow, wide morph"
+    },
+    {
+      "key": "airy",
+      "surface_forms": [
+        "airy",
+        "luftig",
+        "luftige",
+        "luftigem",
+        "luftigen",
+        "luftiger",
+        "luftiges"
+      ],
+      "delta": [
+        {
+          "op": "cut",
+          "args": {
+            "h": 1,
+            "amount": -0.1
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 2,
+            "from_h": 6
+          }
+        },
+        {
+          "op": "ceiling",
+          "args": {
+            "h_max": 48
+          }
+        }
+      ],
+      "priority": 8,
+      "why": "light body with sparkly high air"
+    },
+    {
+      "key": "harsh",
+      "surface_forms": [
+        "harsh",
+        "harsch",
+        "schroff",
+        "harsche",
+        "harschem",
+        "harschen",
+        "harscher",
+        "harsches",
+        "schroffe",
+        "schroffem",
+        "schroffen",
+        "schroffer",
+        "schroffes"
+      ],
+      "delta": [
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 4,
+            "from_h": 3
+          }
+        },
+        {
+          "op": "ceiling",
+          "args": {
+            "h_max": 64
+          }
+        }
+      ],
+      "priority": 8,
+      "why": "extreme upper energy, opposite pole of smooth/mellow/gentle"
+    },
+    {
+      "key": "woody",
+      "surface_forms": [
+        "woody",
+        "wooden",
+        "hölzern",
+        "hölzerne",
+        "hölzernem",
+        "hölzernen",
+        "hölzerner",
+        "hölzernes"
+      ],
+      "delta": [
+        {
+          "op": "even_odd",
+          "args": {
+            "balance": -0.4
+          }
+        },
+        {
+          "op": "ceiling",
+          "args": {
+            "h_max": 16
+          }
+        },
+        {
+          "op": "cut",
+          "args": {
+            "h": 2,
+            "amount": -0.15
+          }
+        }
+      ],
+      "priority": 8,
+      "why": "odd-leaning and capped, a wood-resonance reading"
+    },
+    {
+      "key": "deep",
+      "surface_forms": [
+        "deep",
+        "tief",
+        "tiefe",
+        "tiefem",
+        "tiefen",
+        "tiefer",
+        "tiefes"
+      ],
+      "delta": [
+        {
+          "op": "cut",
+          "args": {
+            "h": 2,
+            "amount": -0.2
+          }
+        },
+        {
+          "op": "ceiling",
+          "args": {
+            "h_max": 12
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": -3,
+            "from_h": 2
+          }
+        }
+      ],
+      "priority": 8,
+      "why": "very low-only weight"
+    },
+    {
+      "key": "glassy",
+      "surface_forms": [
+        "glassy",
+        "gläsern",
+        "glasig",
+        "gläserne",
+        "gläsernem",
+        "gläsernen",
+        "gläserner",
+        "gläsernes",
+        "glasige",
+        "glasigem",
+        "glasigen",
+        "glasiger",
+        "glasiges",
+        "glass"
+      ],
+      "delta": [
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 3,
+            "from_h": 5
+          }
+        },
+        {
+          "op": "inharm",
+          "args": {
+            "amount": 0.5
+          }
+        }
+      ],
+      "priority": 8,
+      "why": "bright plus an inharmonic-reading sheen (sparse high odd/prime partials); the single-cycle limit is flagged"
+    },
+    {
+      "key": "brittle",
+      "surface_forms": [
+        "brittle",
+        "spröde",
+        "spröder",
+        "sprödem",
+        "spröden",
+        "sprödes"
+      ],
+      "delta": [
+        {
+          "op": "cut",
+          "args": {
+            "h": 1,
+            "amount": -0.3
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 3,
+            "from_h": 4
+          }
+        },
+        {
+          "op": "inharm",
+          "args": {
+            "amount": 0.4
+          }
+        }
+      ],
+      "priority": 8,
+      "why": "thin fundamental + sharp highs + an inharmonic-reading sparse top — a brittle, glassy crack"
+    },
+    {
+      "key": "clangorous",
+      "surface_forms": [
+        "clangorous",
+        "clangy",
+        "clang",
+        "scheppernd",
+        "scheppernde",
+        "schepperndem",
+        "scheppernden",
+        "scheppernder",
+        "schepperndes"
+      ],
+      "delta": [
+        {
+          "op": "inharm",
+          "args": {
+            "amount": 0.8
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 2,
+            "from_h": 6
+          }
+        }
+      ],
+      "priority": 8,
+      "why": "dense inharmonic-reading metal — the strongest inharm push"
+    },
+    {
+      "key": "growling",
+      "surface_forms": [
+        "growling",
+        "growl",
+        "knurrend",
+        "knurrende",
+        "knurrendem",
+        "knurrenden",
+        "knurrender",
+        "knurrendes"
+      ],
+      "delta": [
+        {
+          "op": "even_odd",
+          "args": {
+            "balance": -0.5
+          }
+        },
+        {
+          "op": "boost",
+          "args": {
+            "h": 2,
+            "amount": 0.3
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": -1,
+            "from_h": 3
+          }
+        }
+      ],
+      "priority": 8,
+      "why": "odd-leaning with low-mid growl"
+    },
+    {
+      "key": "punchy",
+      "surface_forms": [
+        "punchy",
+        "punchig",
+        "punchige",
+        "punchigem",
+        "punchigen",
+        "punchiger",
+        "punchiges"
+      ],
+      "delta": [
+        {
+          "op": "boost",
+          "args": {
+            "h": 1,
+            "amount": 0.15
+          }
+        },
+        {
+          "op": "boost",
+          "args": {
+            "h": 3,
+            "amount": 0.15
+          }
+        },
+        {
+          "op": "ceiling",
+          "args": {
+            "h_max": 24
+          }
+        }
+      ],
+      "priority": 8,
+      "why": "a percussive-reading harmonic push without full brightness"
+    },
+    {
+      "key": "mellow",
+      "surface_forms": [
+        "mellow",
+        "mild",
+        "milde",
+        "mildem",
+        "milden",
+        "milder",
+        "mildes"
+      ],
+      "delta": [
+        {
+          "op": "ceiling",
+          "args": {
+            "h_max": 12
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": -2,
+            "from_h": 3
+          }
+        }
+      ],
+      "priority": 8,
+      "why": "few, gentle partials — a softer smooth"
+    },
+    {
+      "key": "sharp",
+      "surface_forms": [
+        "sharp",
+        "scharf",
+        "scharfe",
+        "scharfem",
+        "scharfen",
+        "scharfer",
+        "scharfes"
+      ],
+      "delta": [
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 3,
+            "from_h": 3
+          }
+        }
+      ],
+      "priority": 8,
+      "why": "an aggressive high-mid edge, harder than bright"
+    },
+    {
+      "key": "round",
+      "surface_forms": [
+        "round",
+        "rund",
+        "runde",
+        "rundem",
+        "runden",
+        "runder",
+        "rundes"
+      ],
+      "delta": [
+        {
+          "op": "cut",
+          "args": {
+            "h": 3,
+            "amount": -0.2
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": -1,
+            "from_h": 4
+          }
+        },
+        {
+          "op": "ceiling",
+          "args": {
+            "h_max": 20
+          }
+        }
+      ],
+      "priority": 8,
+      "why": "softened corners"
+    },
+    {
+      "key": "cold",
+      "surface_forms": [
+        "cold",
+        "kalt",
+        "kalte",
+        "kaltem",
+        "kalten",
+        "kalter",
+        "kaltes"
+      ],
+      "delta": [
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 1,
+            "from_h": 5
+          }
+        },
+        {
+          "op": "even_odd",
+          "args": {
+            "balance": 0.3
+          }
+        }
+      ],
+      "priority": 8,
+      "why": "sterile brightness leaning even harmonics"
+    },
+    {
+      "key": "dirty",
+      "surface_forms": [
+        "dirty",
+        "dreckig",
+        "dreckige",
+        "dreckigem",
+        "dreckigen",
+        "dreckiger",
+        "dreckiges",
+        "gritty"
+      ],
+      "delta": [],
+      "pass": {
+        "name": "dirty",
+        "amp_jitter": 0.12,
+        "phase_jitter": 0.14
+      },
+      "priority": 8,
+      "why": "a grimy per-frame scatter — deterministic amplitude+phase jitter that differs at every station (spec sec.6.3), not a static upper-mid tilt"
+    },
+    {
+      "key": "clean",
+      "surface_forms": [
+        "clean",
+        "sauber",
+        "klar",
+        "saubere",
+        "sauberem",
+        "sauberen",
+        "sauberer",
+        "sauberes",
+        "klare",
+        "klarem",
+        "klaren",
+        "klarer",
+        "klares"
+      ],
+      "delta": [
+        {
+          "op": "ceiling",
+          "args": {
+            "h_max": 24
+          }
+        }
+      ],
+      "priority": 8,
+      "why": "minimal added coloration; just limits harmonic extension"
+    },
+    {
+      "key": "aggressive",
+      "surface_forms": [
+        "aggressive",
+        "aggressiv",
+        "aggressivem",
+        "aggressiven",
+        "aggressiver",
+        "aggressives"
+      ],
+      "delta": [
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 3,
+            "from_h": 3
+          }
+        },
+        {
+          "op": "boost",
+          "args": {
+            "h": 1,
+            "amount": 0.1
+          }
+        }
+      ],
+      "priority": 8,
+      "why": "strong upper-mid push plus fundamental weight"
+    },
+    {
+      "key": "gentle",
+      "surface_forms": [
+        "gentle",
+        "zart",
+        "zarte",
+        "zartem",
+        "zarten",
+        "zarter",
+        "zartes"
+      ],
+      "delta": [
+        {
+          "op": "ceiling",
+          "args": {
+            "h_max": 10
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": -3,
+            "from_h": 3
+          }
+        }
+      ],
+      "priority": 8,
+      "why": "very few, very gentle partials — softer than mellow"
+    },
+    {
+      "key": "brassy",
+      "surface_forms": [
+        "brassy",
+        "blechern",
+        "blecherne",
+        "blechernem",
+        "blechernen",
+        "blecherner",
+        "blechernes"
+      ],
+      "delta": [
+        {
+          "op": "boost",
+          "args": {
+            "h": 2,
+            "amount": 0.2
+          }
+        },
+        {
+          "op": "boost",
+          "args": {
+            "h": 3,
+            "amount": 0.15
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 1,
+            "from_h": 5
+          }
+        }
+      ],
+      "priority": 8,
+      "why": "targeted upper-mid push distinct from raw brightness"
+    },
+    {
+      "key": "breathy",
+      "surface_forms": [
+        "breathy",
+        "hauchig",
+        "hauchige",
+        "hauchigem",
+        "hauchigen",
+        "hauchiger",
+        "hauchiges"
+      ],
+      "delta": [
+        {
+          "op": "cut",
+          "args": {
+            "h": 1,
+            "amount": -0.2
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 2,
+            "from_h": 6
+          }
+        }
+      ],
+      "priority": 8,
+      "why": "thin fundamental with an airy top; breath noise itself is not modeled"
+    },
+    {
+      "key": "crisp",
+      "surface_forms": [
+        "crisp",
+        "knackig",
+        "knackige",
+        "knackigem",
+        "knackigen",
+        "knackiger",
+        "knackiges"
+      ],
+      "delta": [
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 2,
+            "from_h": 6
+          }
+        }
+      ],
+      "priority": 6,
+      "why": "clear high end without full buzz"
+    },
+    {
+      "key": "muddy",
+      "surface_forms": [
+        "muddy",
+        "matschig",
+        "matschige",
+        "matschigem",
+        "matschigen",
+        "matschiger",
+        "matschiges"
+      ],
+      "delta": [
+        {
+          "op": "cut",
+          "args": {
+            "h": 1,
+            "amount": -0.15
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": -2,
+            "from_h": 2
+          }
+        },
+        {
+          "op": "ceiling",
+          "args": {
+            "h_max": 20
+          }
+        }
+      ],
+      "priority": 6,
+      "why": "low-mid mess with rolled-off highs"
+    },
+    {
+      "key": "resonant",
+      "surface_forms": [
+        "resonant",
+        "resonanzreich",
+        "resonanzreiche",
+        "resonanzreichem",
+        "resonanzreichen",
+        "resonanzreicher",
+        "resonanzreiches"
+      ],
+      "delta": [
+        {
+          "op": "boost",
+          "args": {
+            "h": 4,
+            "amount": 0.25
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 1,
+            "from_h": 5
+          }
+        }
+      ],
+      "priority": 6,
+      "why": "a boosted mid-harmonic band"
+    },
+    {
+      "key": "full",
+      "surface_forms": [
+        "full",
+        "füllig",
+        "voll",
+        "füllige",
+        "fülligem",
+        "fülligen",
+        "fülliger",
+        "fülliges",
+        "volle",
+        "vollem",
+        "vollen",
+        "voller",
+        "volles"
+      ],
+      "delta": [
+        {
+          "op": "boost",
+          "args": {
+            "h": 1,
+            "amount": 0.1
+          }
+        },
+        {
+          "op": "boost",
+          "args": {
+            "h": 2,
+            "amount": 0.15
+          }
+        },
+        {
+          "op": "ceiling",
+          "args": {
+            "h_max": 40
+          }
+        }
+      ],
+      "priority": 6,
+      "why": "added low-order weight plus more harmonic room"
+    },
+    {
+      "key": "thick",
+      "surface_forms": [
+        "thick",
+        "dick",
+        "dicke",
+        "dickem",
+        "dicken",
+        "dicker",
+        "dickes"
+      ],
+      "delta": [
+        {
+          "op": "boost",
+          "args": {
+            "h": 2,
+            "amount": 0.15
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": -1,
+            "from_h": 3
+          }
+        }
+      ],
+      "priority": 6,
+      "why": "weight without narrowing (compare fat, which also narrows width)"
+    },
+    {
+      "key": "raspy",
+      "surface_forms": [
+        "raspy",
+        "rasselnd",
+        "rasselnde",
+        "rasselndem",
+        "rasselnden",
+        "rasselnder",
+        "rasselndes"
+      ],
+      "delta": [
+        {
+          "op": "even_odd",
+          "args": {
+            "balance": -0.6
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 2,
+            "from_h": 5
+          }
+        }
+      ],
+      "priority": 6,
+      "why": "odd-harmonic emphasis reads as a reed-like rasp"
+    },
+    {
+      "key": "piercing",
+      "surface_forms": [
+        "piercing",
+        "durchdringend",
+        "stechend",
+        "durchdringende",
+        "durchdringendem",
+        "durchdringenden",
+        "durchdringender",
+        "durchdringendes",
+        "stechende",
+        "stechendem",
+        "stechenden",
+        "stechender",
+        "stechendes"
+      ],
+      "delta": [
+        {
+          "op": "boost",
+          "args": {
+            "h": 6,
+            "amount": 0.3
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 3,
+            "from_h": 6
+          }
+        }
+      ],
+      "priority": 6,
+      "why": "a narrow, extreme high-harmonic spike"
+    },
+    {
+      "key": "velvety",
+      "surface_forms": [
+        "velvety",
+        "samtig",
+        "samtige",
+        "samtigem",
+        "samtigen",
+        "samtiger",
+        "samtiges",
+        "velvet"
+      ],
+      "delta": [
+        {
+          "op": "ceiling",
+          "args": {
+            "h_max": 14
+          }
+        },
+        {
+          "op": "boost",
+          "args": {
+            "h": 2,
+            "amount": 0.1
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": -2,
+            "from_h": 4
+          }
+        }
+      ],
+      "priority": 6,
+      "why": "a smooth+warm hybrid convention"
+    },
+    {
+      "key": "icy",
+      "surface_forms": [
+        "icy",
+        "eisig",
+        "eisige",
+        "eisigem",
+        "eisigen",
+        "eisiger",
+        "eisiges"
+      ],
+      "delta": [
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 3,
+            "from_h": 7
+          }
+        },
+        {
+          "op": "ceiling",
+          "args": {
+            "h_max": 48
+          }
+        }
+      ],
+      "priority": 6,
+      "why": "cold plus extra sparkle"
+    },
+    {
+      "key": "boxy",
+      "surface_forms": [
+        "boxy",
+        "boxig",
+        "boxige",
+        "boxigem",
+        "boxigen",
+        "boxiger",
+        "boxiges"
+      ],
+      "delta": [
+        {
+          "op": "boost",
+          "args": {
+            "h": 3,
+            "amount": 0.25
+          }
+        },
+        {
+          "op": "ceiling",
+          "args": {
+            "h_max": 18
+          }
+        }
+      ],
+      "priority": 6,
+      "why": "classic mid-harmonic congestion, capped highs"
+    },
+    {
+      "key": "reedy",
+      "surface_forms": [
+        "reedy",
+        "rohrig",
+        "rohrige",
+        "rohrigem",
+        "rohrigen",
+        "rohriger",
+        "rohriges"
+      ],
+      "delta": [
+        {
+          "op": "even_odd",
+          "args": {
+            "balance": -0.6
+          }
+        },
+        {
+          "op": "boost",
+          "args": {
+            "h": 3,
+            "amount": 0.15
+          }
+        }
+      ],
+      "priority": 6,
+      "why": "odd-leaning with a mid formant-ish bump, reed-instrument-adjacent"
+    },
+    {
+      "key": "dull",
+      "surface_forms": [
+        "dull",
+        "matt",
+        "stumpf",
+        "matte",
+        "mattem",
+        "matten",
+        "matter",
+        "mattes",
+        "stumpfe",
+        "stumpfem",
+        "stumpfen",
+        "stumpfer",
+        "stumpfes"
+      ],
+      "delta": [
+        {
+          "op": "ceiling",
+          "args": {
+            "h_max": 10
+          }
+        },
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": -3,
+            "from_h": 2
+          }
+        }
+      ],
+      "priority": 6,
+      "why": "very few low partials, no top end"
+    },
+    {
+      "key": "vibrant",
+      "surface_forms": [
+        "vibrant",
+        "lebendig",
+        "lebendige",
+        "lebendigem",
+        "lebendigen",
+        "lebendiger",
+        "lebendiges"
+      ],
+      "delta": [
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 2,
+            "from_h": 4
+          }
+        },
+        {
+          "op": "boost",
+          "args": {
+            "h": 2,
+            "amount": 0.1
+          }
+        }
+      ],
+      "priority": 6,
+      "why": "bright plus a fuller 2nd harmonic"
+    },
+    {
+      "key": "flat",
+      "surface_forms": [
+        "flat",
+        "flach",
+        "flache",
+        "flachem",
+        "flachen",
+        "flacher",
+        "flaches"
+      ],
+      "delta": [
+        {
+          "op": "ceiling",
+          "args": {
+            "h_max": 6
+          }
+        }
+      ],
+      "priority": 6,
+      "why": "very few harmonics, minimal spectral extension"
+    },
+    {
+      "key": "rich",
+      "surface_forms": [
+        "rich",
+        "reich",
+        "reichhaltig",
+        "reiche",
+        "reichem",
+        "reichen",
+        "reicher",
+        "reiches",
+        "reichhaltige",
+        "reichhaltigem",
+        "reichhaltigen",
+        "reichhaltiger",
+        "reichhaltiges"
+      ],
+      "delta": [
+        {
+          "op": "ceiling",
+          "args": {
+            "h_max": 40
+          }
+        },
+        {
+          "op": "boost",
+          "args": {
+            "h": 2,
+            "amount": 0.1
+          }
+        }
+      ],
+      "priority": 6,
+      "why": "many harmonics, deliberately the inverse of sparse"
+    },
+    {
+      "key": "sparse",
+      "surface_forms": [
+        "sparse",
+        "spärlich",
+        "spärliche",
+        "spärlichem",
+        "spärlichen",
+        "spärlicher",
+        "spärliches"
+      ],
+      "delta": [
+        {
+          "op": "ceiling",
+          "args": {
+            "h_max": 8
+          }
+        },
+        {
+          "op": "cut",
+          "args": {
+            "h": 2,
+            "amount": -0.2
+          }
+        }
+      ],
+      "priority": 6,
+      "why": "few harmonics, deliberately the inverse of rich"
+    },
+    {
+      "key": "edgy",
+      "surface_forms": [
+        "edgy",
+        "kantig",
+        "kantige",
+        "kantigem",
+        "kantigen",
+        "kantiger",
+        "kantiges"
+      ],
+      "delta": [
+        {
+          "op": "tilt",
+          "args": {
+            "db_per_oct": 2,
+            "from_h": 5
+          }
+        },
+        {
+          "op": "boost",
+          "args": {
+            "h": 1,
+            "amount": 0.05
+          }
+        }
+      ],
+      "priority": 6,
+      "why": "a percussive-reading edge, milder and more targeted than harsh"
+    },
+    {
+      "key": "distorted",
+      "surface_forms": ["distorted","distortion","verzerrt","overdriven","saturated",
+                        "verzerrte","verzerrtem","verzerrten","verzerrter","verzerrtes"],
+      "delta": [],
+      "pass": { "name": "overdriven", "drive": 0.6 },
+      "priority": 8,
+      "why": "nonlinear soft-clip (tanh waveshaper) computes REAL new harmonics into the spectrum per station — carried on the sets path too, where the render-time shape is ignored (spec sec.6.3)"
+    },
+    {
+      "key": "analog",
+      "surface_forms": ["analog","analogue","analoge","analogem","analogen","analoger","analoges"],
+      "delta": [],
+      "pass": { "name": "analog", "amp_wobble": 0.08, "phase_drift": 0.1, "h_detune": 0.0025 },
+      "priority": 8,
+      "why": "slow coherent drift across the whole chain — amplitude wobble + a tiny analog h micro-detune (sets path), golden-angle offset per partial so nothing repeats (spec sec.6.3)"
+    },
+    {
+      "key": "old",
+      "surface_forms": ["old","aged","worn","alt","alte","altem","alten","alter","altes"],
+      "delta": [],
+      "pass": { "name": "old", "hf_erode": 0.5, "smear": 0.12, "wow": 0.004 },
+      "priority": 8,
+      "why": "age: progressive high-partial erosion + light smear + a tape-tiny wow (slow pitch wobble on the sets path; flagged as not carried on the baked path) — spec sec.6.3"
+    },
+    {
+      "key": "washed_out",
+      "surface_forms": ["washed out","washed","ausgewaschen","verwaschen","verwaschene","verwaschenen"],
+      "delta": [],
+      "pass": { "name": "washed_out", "blur": 0.18 },
+      "priority": 8,
+      "why": "spectral blur — a small fixed kernel leaks energy between h-neighbours so partial edges lose definition (spec sec.6.3)"
+    }
+  ],
+  "motions": [
+    {
+      "key": "open_up",
+      "surface_forms": [
+        "opens up",
+        "opening",
+        "open up",
+        "grows",
+        "growing",
+        "builds up",
+        "glides",
+        "gliding",
+        "öffnet sich",
+        "öffnend",
+        "anschwellend",
+        "aufbauend",
+        "gleitend",
+        "swells",
+        "swelling",
+        "swell",
+        "öffnet"
+      ],
+      "category": "intent",
+      "priority": 8,
+      "why": "dark to bright trajectory, slow build then a fast close back to start",
+      "motion_rate_hz": 0.2
+    },
+    {
+      "key": "close",
+      "surface_forms": [
+        "closes",
+        "closing",
+        "close down",
+        "fades",
+        "fading",
+        "fades away",
+        "schließt sich",
+        "schließt",
+        "schließend",
+        "verklingend",
+        "decays",
+        "decaying"
+      ],
+      "category": "intent",
+      "priority": 8,
+      "why": "the inverse of open_up: starts bright, settles dark",
+      "motion_rate_hz": 0.15
+    },
+    {
+      "key": "sweep",
+      "surface_forms": [
+        "sweep",
+        "sweeping",
+        "fegt",
+        "fegend"
+      ],
+      "category": "intent",
+      "priority": 8,
+      "why": "one gentle there-and-back pass per loop",
+      "motion_rate_hz": 0.3
+    },
+    {
+      "key": "wobble",
+      "surface_forms": [
+        "wobble",
+        "wobbling",
+        "wobbelt",
+        "pulsiert",
+        "pulsating",
+        "pulsierend"
+      ],
+      "category": "texture",
+      "priority": 8,
+      "why": "a per-frame spectral-tilt wobble — two cycles per loop, a timbral rock low<->high (dco_frames texture, not a scan trajectory)",
+      "texture": {"n_cycles": 2, "depth": 0.55}
+    },
+    {
+      "key": "pingpong",
+      "surface_forms": [
+        "back and forth",
+        "hin und her",
+        "ping pong",
+        "pingpong"
+      ],
+      "category": "intent",
+      "priority": 8,
+      "why": "tours every keyframe forward then backward",
+      "motion_rate_hz": 0.5
+    },
+    {
+      "key": "breathe",
+      "surface_forms": [
+        "breathe",
+        "breathing",
+        "atmend"
+      ],
+      "category": "intent",
+      "priority": 8,
+      "why": "a slow, uneven there-and-back pass, gentler than sweep",
+      "motion_rate_hz": 0.12
+    },
+    {
+      "key": "evolve",
+      "surface_forms": [
+        "evolve",
+        "evolving",
+        "entwickelt sich",
+        "entwickelt",
+        "entwicklung",
+        "drift",
+        "drifting",
+        "driftet",
+        "treibend",
+        "movement",
+        "moving"
+      ],
+      "category": "intent",
+      "priority": 8,
+      "why": "a long slow-curve chain touring every keyframe once, then closing",
+      "motion_rate_hz": 0.1
+    },
+    {
+      "key": "static",
+      "surface_forms": [
+        "static",
+        "steady",
+        "statisch",
+        "gleichbleibend",
+        "unbewegt",
+        "stationary"
+      ],
+      "category": "intent",
+      "priority": 8,
+      "why": "collapses motion to a single keyframe — no movement"
+    },
+    {
+      "key": "cycle",
+      "surface_forms": [
+        "cycle",
+        "cycles",
+        "cycling",
+        "kreist",
+        "kreisend",
+        "durchläuft"
+      ],
+      "category": "intent",
+      "priority": 8,
+      "why": "tours every keyframe in index order, equal shares, then closes"
+    },
+    {
+      "key": "flutter",
+      "surface_forms": [
+        "flutter",
+        "fluttering",
+        "flatternd",
+        "stutter",
+        "stutters",
+        "stottert"
+      ],
+      "category": "texture",
+      "priority": 8,
+      "why": "a brisk per-frame timbral flutter — four bright<->dark shimmer cycles per loop (dco_frames texture, not a scan trajectory)",
+      "texture": {"n_cycles": 4, "depth": 0.5}
+    },
+    {
+      "key": "vibrate",
+      "surface_forms": [
+        "vibrate",
+        "vibrating",
+        "shiver",
+        "shivering",
+        "vibriert",
+        "zittert"
+      ],
+      "category": "texture",
+      "priority": 8,
+      "why": "a fast, dense per-frame timbral shimmer — six centroid-wobble cycles per loop; true pitch vibrato is not single-cycle-representable, so it is realized on the timbral axis (dco_frames texture, not a scan trajectory)",
+      "texture": {"n_cycles": 6, "depth": 0.5}
+    },
+    {
+      "key": "tremolo",
+      "surface_forms": [
+        "tremolo",
+        "tremolando",
+        "tremolierend",
+        "tremoliert"
+      ],
+      "category": "texture",
+      "priority": 8,
+      "why": "a periodic per-frame gain modulation — the amplitude pulses (audible because the wire does no per-frame renorm); a dco_frames texture, not a scan trajectory",
+      "texture": {"n_cycles": 4, "depth": 0.4}
+    },
+    {
+      "key": "shimmer",
+      "surface_forms": [
+        "sparkle",
+        "sparkling",
+        "sparkles",
+        "glitter",
+        "glittering",
+        "funkelnd",
+        "funkelt"
+      ],
+      "category": "texture",
+      "priority": 8,
+      "why": "a periodic high-partial sparkle, golden-angle decorrelated so the top of the spectrum glitters; a dco_frames texture, not a scan trajectory. Triggered by sparkle/glitter words — 'shimmer'/'shimmering' remain the pre-existing morph-rate adjective, a distinct concept",
+      "texture": {"n_cycles": 3, "depth": 0.5}
+    },
+    {
+      "key": "settle",
+      "surface_forms": [
+        "settles",
+        "settling",
+        "beruhigt sich",
+        "einpendelnd"
+      ],
+      "category": "intent",
+      "priority": 8,
+      "why": "a quick move to the far keyframe, a long hold, then a fast close"
+    },
+    {
+      "key": "slow",
+      "surface_forms": [
+        "slowly",
+        "langsam",
+        "gemächlich"
+      ],
+      "category": "speed",
+      "priority": 8,
+      "why": "stretches the transition segment(s), scale 0.5"
+    },
+    {
+      "key": "fast",
+      "surface_forms": [
+        "quickly",
+        "fast",
+        "schnell",
+        "rasch",
+        "zügig"
+      ],
+      "category": "speed",
+      "priority": 8,
+      "why": "compresses the transition segment(s), scale 1.7"
+    },
+    {
+      "key": "snap",
+      "surface_forms": [
+        "suddenly",
+        "snap",
+        "snaps",
+        "abrupt",
+        "plötzlich",
+        "schlagartig"
+      ],
+      "category": "speed",
+      "priority": 8,
+      "why": "sharply compresses the transition segment(s), scale 3.0"
+    }
+  ],
+  "connectors": [
+    {
+      "key": "morph_into",
+      "surface_forms": [
+        "into",
+        "morphing",
+        "morphing into",
+        "morphs into",
+        "morph into",
+        "morphing to",
+        "morphed into",
+        "becomes",
+        "becoming",
+        "turns into",
+        "turning into",
+        "blend into",
+        "blending into",
+        "wird zu",
+        "morpht zu",
+        "geht über in",
+        "übergeht in",
+        "übergehend in"
+      ]
+    }
+  ],
+  "degrees": {
+    "slightly": 0.5,
+    "a bit": 0.5,
+    "a little": 0.5,
+    "leicht": 0.5,
+    "etwas": 0.5,
+    "very": 1.5,
+    "really": 1.5,
+    "sehr": 1.5,
+    "extremely": 2.0,
+    "incredibly": 2.0,
+    "extrem": 2.0,
+    "total": 2.0,
+    "völlig": 2.0
+  },
+  "stopwords": [
+    "a",
+    "aber",
+    "an",
+    "and",
+    "are",
+    "auf",
+    "be",
+    "been",
+    "bisschen",
+    "bitte",
+    "but",
+    "chord",
+    "chords",
+    "create",
+    "creates",
+    "das",
+    "dem",
+    "den",
+    "der",
+    "die",
+    "drone",
+    "drones",
+    "ein",
+    "eine",
+    "einer",
+    "eines",
+    "erstelle",
+    "for",
+    "für",
+    "i",
+    "ich",
+    "in",
+    "is",
+    "ist",
+    "it",
+    "its",
+    "kind",
+    "klang",
+    "klingend",
+    "klingt",
+    "klänge",
+    "lead",
+    "leads",
+    "like",
+    "mach",
+    "mache",
+    "make",
+    "makes",
+    "mit",
+    "möchte",
+    "oder",
+    "of",
+    "on",
+    "or",
+    "pad",
+    "pads",
+    "please",
+    "pluck",
+    "plucked",
+    "plucking",
+    "plucks",
+    "sich",
+    "sind",
+    "so",
+    "some",
+    "sound",
+    "sounds",
+    "stab",
+    "stabs",
+    "that",
+    "the",
+    "these",
+    "this",
+    "those",
+    "to",
+    "ton",
+    "tone",
+    "tones",
+    "type",
+    "töne",
+    "und",
+    "want",
+    "war",
+    "waren",
+    "was",
+    "were",
+    "wie",
+    "with",
+    "zu"
+  ]
+}

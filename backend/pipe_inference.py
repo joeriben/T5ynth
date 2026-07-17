@@ -3352,35 +3352,24 @@ def main():
                                        repetition_penalty=1.2, no_repeat_ngram_size=3))
                 continue
 
-            # Csound orchestra author (Phase 4, SPEC_phase4_5_csound_llm_preset.md):
-            # the prompt panel's LCO trigger authors a Csound layer-spec -- the
-            # instruct model (resolved via _resolve_coder_model_dir) picks ONLY
-            # tool/character/motion/envelope KEYS from backend/csound_lexicon.py;
-            # backend/csound_author.py parses+retries, then backend/csound_assembler.py
-            # deterministically renders the orchestra text. No audio-model dependency,
-            # dispatched before audio-model routing like translate/interpret/analyze
-            # above; a missing coder model raises the standard \x00 error frame --
-            # LLM-FIRST, NO FALLBACK.
+            # Csound orchestra author: INTENTIONALLY NOT WIRED. The static-partial
+            # lexicon backend (csound_lexicon.py / csound_assembler.py /
+            # csound_author.py) was a capability regression -- it reduced Csound to
+            # a bank of `oscili` partial tables and could express neither pwm, dirt,
+            # overdrive, nor spectral morph -- and was reverted (see CLAUDE.md
+            # "Migration & Substrate Discipline"). The rich vocabulary is restored
+            # as source material (dco_lexicon.json / dco_llm_map.py / dco_recipe.py /
+            # lco_author.py). The correct backend -- the LLM routing that vocabulary
+            # onto REAL Csound idioms (vco2+kpw, foscil, waveshaping, k-rate morph)
+            # -- is not yet reimplemented. The C++ Csound engine and its swap
+            # plumbing stay live; this returns a clean not-implemented frame so the
+            # prompt path fails loudly rather than silently producing a toy tone.
             if request.get("mode") == "csound":
-                from csound_author import build_csound_response
-
-                t_device = request.get("device", default_device)
-                if t_device == "auto" or t_device not in devices:
-                    t_device = default_device
-                coder_dir = _resolve_coder_model_dir(request)
-                if coder_dir is None:
-                    raise RuntimeError("Csound author model not installed (load it in Settings)")
-                coder_device = _translator_device(t_device)
-
-                def csound_llm(text, system_prompt, max_new_tokens,
-                                _dir=coder_dir, _dev=coder_device):
-                    """The single model surface csound_author needs: a greedy
-                    instruct call on the coder/interpreter model."""
-                    return run_instruct(text, _dir, _dev, system_prompt,
-                                        max_new_tokens=max_new_tokens)
-
-                response = build_csound_response(request.get("text") or "", csound_llm)
-                send_text(json.dumps(response))
+                send_text(json.dumps({
+                    "ok": False,
+                    "error": "Csound orchestra backend not yet reimplemented; "
+                             "the static-partial lexicon was reverted.",
+                }))
                 continue
 
             # CLAP machine-listening analysis: decode init_audio → top-k CLAP tags
