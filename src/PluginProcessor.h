@@ -332,7 +332,7 @@ public:
 
     // Wavetable display data: the frame strip the engine-window WaveformDisplay
     // draws as a frame-decimated, cycle-readable 2.5D fan. Populated for BOTH a
-    // DCO/LCO bake (loadDcoWavetable/loadDcoAdditive) and neural/engine frames
+    // DCO/LCO bake (loadDcoWavetable) and neural/engine frames
     // (publishWtDisplayFromOscFrames), so the fan shows for every wavetable.
     // Separate flag from newWaveformReady so the fan can co-exist with the sample
     // path (a bake sets no sample snapshot at all).
@@ -770,7 +770,7 @@ private:
     std::atomic<bool> newWaveformReady { false };
 
     // Wavetable-display strip for the engine-window WaveformDisplay fan, published
-    // by the DCO/LCO bakes (loadDcoWavetable/loadDcoAdditive) and the neural/engine
+    // by the DCO/LCO bakes (loadDcoWavetable) and the neural/engine
     // path (publishWtDisplayFromOscFrames). Message-thread write + message-thread
     // read (SynthPanel timer) — the atomic flag is the publish handshake, mirroring
     // waveformSnapshot/newWaveformReady.
