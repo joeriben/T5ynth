@@ -115,6 +115,28 @@ def psd(x, sr):
     return f, (p / s if s > 0 else p)
 
 
+def flatness(x, sr):
+    """Spectral flatness (geometric/arithmetic mean of the magnitude spectrum).
+
+    1.0 is white noise, a pitched oscillator sits near 0. This is the ONLY measure
+    here that can see added noise: noise passes every other check in this file
+    trivially -- it is maximally 'lively', it stands, it is bounded, and it never
+    drifts in pitch. That is exactly how a `rand` layer sat inside `airy`,
+    `breathy`, `shimmering`, `icy`, `washed_out` and the `flute` idiom itself
+    until BJ heard it ("ein starkes pinkes rauschen ... 'airy' hat ZERO mit
+    statischem Rauschen zu tun") -- five adjectives and a technique, none of which
+    any gate could fail.
+    """
+    seg = x[int(0.4 * sr):int(1.4 * sr)]
+    if len(seg) < 1024:
+        return 0.0
+    seg = seg * np.hanning(len(seg))
+    mag = np.abs(np.fft.rfft(seg))
+    frq = np.fft.rfftfreq(len(seg), 1.0 / sr)
+    m = mag[(frq > 50) & (frq < 16000)] + 1e-12
+    return float(np.exp(np.log(m).mean()) / m.mean())
+
+
 def liveliness(x, sr):
     """How much the sound MOVES on its own, INDEPENDENT of how rich it is.
 
@@ -272,6 +294,92 @@ def main():
             fails.append(f"DEAD: adjective '{a}' names a moving quality ({sig}) but "
                          f"adds none: {m[sig]:.2f} vs dry {base[sig]:.2f} "
                          f"(need +{need})")
+
+    # ---------------------------------------------------------------- D) noise
+    # The oscillator may NEVER add static noise. The synth owns a noise module,
+    # env-controllable and switchable; an oscillator that bakes hiss in takes that
+    # away from the player, exactly as owning the envelope or the glide would.
+    # Only keys that ARE noise may measure as noise.
+    print("\nD) NO ADDED NOISE — the synth owns the noise module, not the oscillator")
+    # Flatness alone cannot separate "legitimately dense" from "noise bolted on":
+    # a cymbal SHOULD measure dense. So the assertion is split, and each half is
+    # something this measure can actually decide.
+    #
+    # D1 -- ADJECTIVES, asserted as a DELTA over the same dry source. An adjective
+    # is a modifier; whatever the source was, a timbral word must not turn it into
+    # noise. This is exactly the class BJ reported: airy took a dry supersaw from
+    # 0.007 to 0.469. A delta cannot be fooled by a dense base.
+    # The limit sits in a 6x gap, not near either edge. Legitimate MODULATION
+    # smears the spectrum a little -- `analog` wanders a fractional delay (+0.050)
+    # and `dirty` jitters a waveshaper's drive (+0.043); noise as a modulation
+    # SOURCE is fine, it is noise as an audible LAYER that is banned. The actual
+    # violations measured +0.33 to +0.49 (airy, breathy, shimmering, icy,
+    # washed_out). 0.10 is 2x above the honest modulation and 3x below the
+    # cheapest violation.
+    ADJ_DELTA = 0.10
+    dryw = os.path.join(tmp, "noise_dry_saw.wav")
+    orc, _ = co.build_orchestra(["saw"], [], None)
+    render(orc, dryw)
+    xd, srd = _load(dryw)
+    dry_fl = flatness(xd, srd)
+    worst = []
+    for a in sorted(co._ADJ_MAP):
+        orc, _ = co.build_orchestra(["saw"], [a], None)
+        wav = os.path.join(tmp, f"noise_adj_{a}.wav")
+        if not render(orc, wav):
+            continue
+        x, sr = _load(wav)
+        d = flatness(x, sr) - dry_fl
+        worst.append((d, a))
+        if d > ADJ_DELTA:
+            fails.append(f"NOISE: adjective '{a}' raises spectral flatness by "
+                         f"{d:.3f} over the dry source (limit {ADJ_DELTA}) -- it is "
+                         f"adding noise the prompt never asked for")
+    worst.sort(reverse=True)
+    print(f"   D1 {len(worst)} adjectives vs dry saw {dry_fl:.3f}, max delta "
+          f"{ADJ_DELTA}. worst: " + ", ".join(f"{a} +{d:.3f}" for d, a in worst[:4]))
+
+    # D2 -- TECHNIQUES that must be TONAL, as a hand-maintained ledger. Deriving
+    # this from the code would auto-bless whatever the code happens to do, which is
+    # how the aliases hid (see the DISTINCT ledger above). A key is listed here
+    # because the INSTRUMENT it names is a pitched, non-noisy sound.
+    TONAL = {"sine", "saw", "square", "pulse", "triangle", "pwm", "additive",
+             "organ", "clarinet", "flute", "brass", "strings", "bass_saw",
+             "supersaw", "harpsichord", "theremin", "sub_sine",
+             "fm", "fm_bell", "fm_ep", "metallic_fm", "cheby", "ring_mod"}
+    TONAL_LIMIT = 0.10
+    dense = []
+    for t in sorted(TONAL):
+        orc, _ = co.build_orchestra([t], [], None)
+        wav = os.path.join(tmp, f"noise_tech_{t}.wav")
+        if not render(orc, wav):
+            continue
+        x, sr = _load(wav)
+        fl = flatness(x, sr)
+        dense.append((fl, t))
+        if fl > TONAL_LIMIT:
+            fails.append(f"NOISE: '{t}' names a pitched instrument but measures "
+                         f"spectral flatness {fl:.3f} (limit {TONAL_LIMIT})")
+    dense.sort(reverse=True)
+    print(f"   D2 {len(dense)} tonal techniques, limit {TONAL_LIMIT}. noisiest: " +
+          ", ".join(f"{t} {f:.3f}" for f, t in dense[:4]))
+
+    # Reported, deliberately NOT asserted: the keys whose density is either the
+    # point (the modal metals ring high-Q resonators, and a cymbal that measured
+    # tonal would be wrong) or a defect this gate found and cannot yet fix.
+    # `sync` measures ~0.50 at EVERY pitch against a band-limited saw's 0.002 --
+    # its raw syncphasor is not band-limited, so that is aliasing, not timbre.
+    # `chiptune` sits at 0.25-0.35. Both are pre-existing and tracked separately;
+    # they are printed rather than silently exempted so nobody reads their absence
+    # as a pass.
+    print("   -- reported, not asserted (tracked): ", end="")
+    for t in ("sync", "chiptune", "cymbal", "glass", "struck_bar"):
+        orc, _ = co.build_orchestra([t], [], None)
+        wav = os.path.join(tmp, f"noise_watch_{t}.wav")
+        if render(orc, wav):
+            x, sr = _load(wav)
+            print(f"{t} {flatness(x, sr):.3f}  ", end="")
+    print()
 
     print("\n" + "=" * 72)
     if fails:

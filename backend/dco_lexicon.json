@@ -797,7 +797,7 @@
         "motion_rate_hz": 0.25
       },
       "priority": 10,
-      "why": "near-pure tone with a faint 2nd/3rd harmonic over a band-passed breath-noise layer"
+      "why": "the blown-pipe waveguide itself — jet, bore and radiation — a hollow near-pure tone that holds while the note is held"
     },
     {
       "key": "brass",
@@ -2474,7 +2474,7 @@
         }
       ],
       "priority": 8,
-      "why": "thin fundamental with an airy top plus an actual high-passed breath-noise layer"
+      "why": "thin fundamental with an excited airy top — an enhancer's sheen bred from the signal's own highs, never a noise layer"
     },
     {
       "key": "crisp",

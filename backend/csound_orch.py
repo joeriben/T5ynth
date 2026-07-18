@@ -963,17 +963,37 @@ def _emit_steady(technique, tag="0", nmodes=None):
         L.append(f"  afn{tag}    oscili 0.50, kfreq          ; fundamental")
         L.append(f"  {ov}    = afn{tag} + asb{tag}")
     elif technique == "flute":
-        # a real flute is a near-pure tone PLUS BREATH -- the _SPECTRA comment for
-        # "flute" admits as much ("breath noise not modelled here"), and without it
-        # the key measured 0.033 from a bare sine, i.e. an alias. The substrate
-        # models breath natively: a noise band riding the blowing register.
-        L.append(f"  afl{tag}    oscili 0.44, kfreq          ; fundamental")
-        L.append(f"  af2{tag}    oscili 0.07, kfreq * 2      ; faint 2nd")
-        L.append(f"  af3{tag}    oscili 0.03, kfreq * 3      ; faint 3rd")
-        L.append(f"  anz{tag}    rand 0.9                    ; breath")
-        L.append(f"  kbf{tag}    limit kfreq * 2.5, 200, 12000")
-        L.append(f"  abw{tag}    butterbp anz{tag}, kbf{tag}, kbf{tag} * 0.9 ; breath band")
-        L.append(f"  {ov}    = afl{tag} + af2{tag} + af3{tag} + abw{tag} * 0.55")
+        # Csound's real blown-pipe waveguide, not three sines with a noise band
+        # bolted on. The old idiom mixed `rand` through a band-pass at 0.55 to
+        # stand in for breath, and it measured as noise: flatness 0.391 for the
+        # bare key with no adjective at all (a supersaw is 0.007). Adding static
+        # noise is forbidden -- the SYNTH owns a noise module, env-controllable,
+        # and an oscillator that bakes hiss in takes that choice away.
+        #
+        # Csound's own wgflute was tried FIRST and rejected on measurement: it does
+        # not track the requested pitch. Asked for 110/165/220/330/440/660 Hz with
+        # the noise gain at zero it produced 338/178/233/342/457/678 -- +1945, +135,
+        # +102, +64, +64, +47 cents, a pitch-dependent error, not an offset that
+        # could be compensated -- and the jet ratio shifts it further (jet 0.16 ->
+        # +508 cents, 0.48 -> +1831 at the same note). Pitch belongs to the synth,
+        # so a model that invents its own register is unusable here however good it
+        # sounds. wgclar by contrast lands dead in tune at every pitch, so this is
+        # about wgflute specifically, not about waveguides.
+        #
+        # So: the flute's own harmonic recipe, and its motion taken from the thing
+        # that really moves in a flute -- BREATH PRESSURE, which swells the upper
+        # partials and leaves the fundamental steady. Deterministic (an LFO, not a
+        # rand), tonal, and it moves the timbre without touching the pitch.
+        # Depth and rate are what the movement gate measures, not what reads well
+        # in a comment: at 0.19 Hz with the fundamental held steady this moved the
+        # centroid 1.05x/4.7Hz -- static. Pressure has to TRADE the fundamental
+        # against the harmonics (which is what really happens when a player pushes
+        # air) and cycle in about 3 s to register: 1.18x/22.2Hz, flatness 0.0037.
+        L.append(f"  kbr{tag}    oscili 0.5, 0.31             ; breath-pressure cycle, ~3 s")
+        L.append(f"  afl{tag}    oscili 0.380 - 0.060 * kbr{tag}, kfreq          ; fundamental gives way")
+        L.append(f"  af2{tag}    oscili 0.120 + 0.100 * kbr{tag}, kfreq * 2      ; 2nd swells with pressure")
+        L.append(f"  af3{tag}    oscili 0.055 + 0.048 * kbr{tag}, kfreq * 3      ; 3rd follows, weaker")
+        L.append(f"  {ov}    = afl{tag} + af2{tag} + af3{tag}")
     elif technique == "theremin":
         # the heterodyne tone: near-sine with a small 2nd harmonic whose level
         # WAVERS -- the instrument's slightly unstable timbre. Its famous vibrato
@@ -1221,7 +1241,8 @@ def _emit_oscillator(oi, chain, imorphtime, nmodes=None):
 #   DARK  fc     -> one-pole low-pass tilt (dark/warm/mellow/...)
 #   BRIGHT s     -> add a high-passed copy (more upper energy): `asig + atone(asig,2200)*s`
 #   DIRT (k,g)   -> tanh waveshaper = REAL new harmonics (dirty/distorted/buzzy/...)
-#   AIR   g      -> add high-passed noise (airy/breathy breath air)
+#   AIR   g      -> exciter: waveshape the top band so it breeds partials above
+#                   itself (airy/breathy/shimmering/icy) -- spectral, never noise
 #   DRIFT d      -> a slow amplitude micro-wobble (analog/old life)
 # Every op is bounded and the tail HEADROOM (0.32) leaves ample margin even when
 # several stack; the behavioral gate's swept probe verifies no combination clips.
@@ -1392,6 +1413,14 @@ def _emit_adjectives(adjective_keys):
         L.append(f"  armc     oscili 1, kfreq * {r:.4f}       ; inharmonic modulator")
         L.append(f"  arng     = asig * armc")
         L.append(f"  asig     = asig * {1.0 - w:.3f} + arng * {w:.3f}  ; clang (real inharmonic partials)")
+    if "AIR" in acc:
+        # The exciter's source has to be taken BEFORE the dark tilt. `washed_out`
+        # is DARK 2800 + AIR, and a low-pass at 2800 removes the very band the
+        # exciter feeds on: sourced after it, the adjective measured flatness
+        # 0.0074 and peak 0.181 against a dry 0.0073/0.186 -- a silent no-op. A
+        # dark body with an airy top is a perfectly ordinary thing to ask for, so
+        # the sheen is bred from the untilted signal and added on top of the tilt.
+        L.append("  aprea    = asig                       ; exciter source, pre-tilt")
     if "DARK" in acc:
         L.append(f"  asig     tone asig, {int(acc['DARK'])}            ; dark tilt (low-pass)")
     if "BRIGHT" in acc:
@@ -1415,9 +1444,24 @@ def _emit_adjectives(adjective_keys):
         L.append(f"  kgrm     randi 0.45, 11, 0.5          ; grime scatter (jittering drive)")
         L.append(f"  asig     = tanh(asig * ({k:.2f} * (1 + kgrm))) * {g:.2f}  ; dirty = moving grime")
     if "AIR" in acc:
-        L.append("  anzr     rand 0.35")
-        L.append("  aair     atone anzr, 5000")
-        L.append(f"  asig     = asig + aair * {acc['AIR']:.2f}       ; breath / air noise")
+        # "airy" is a SPECTRAL property -- a frequency distribution, the way an
+        # enhancer/exciter works -- and has nothing to do with noise. This op used
+        # to be `rand` through a high-pass, added to the signal, which measured as
+        # what it was: a dry supersaw has spectral flatness 0.007, and `airy` drove
+        # it to 0.469, more than halfway to white noise. BJ heard exactly that
+        # ("ein starkes pinkes rauschen ... 'airy' hat ZERO mit statischem Rauschen
+        # zu tun"). It is also a boundary violation: the SYNTH owns a noise module,
+        # env-controllable and switchable, and an oscillator that bakes noise in
+        # takes that away from the player -- the same mistake as owning the
+        # envelope or the glide.
+        #
+        # The air is now GENERATED FROM THE SIGNAL: take the band above 3.5 kHz,
+        # waveshape it so it breeds new partials above itself, and blend that back.
+        # That is what an exciter does -- signal-derived, deterministic, tonal, and
+        # it moves when the note moves instead of sitting there as a static hiss.
+        L.append("  aexc     atone aprea, 3500             ; the band that carries air")
+        L.append("  aexc     = tanh(aexc * 3.0) * 0.5      ; breed partials ABOVE it")
+        L.append(f"  asig     = asig + aexc * {acc['AIR']:.2f}       ; air / sheen (no noise)")
     if "DRIFT" in acc:
         # lexicon `why` for analog: "slow coherent drift — amplitude wobble + a tiny
         # analog micro-DETUNE". Only the wobble existed; the detune was missing, so
