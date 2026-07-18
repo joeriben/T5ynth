@@ -50,7 +50,29 @@ BESPOKE_TECH = {
     # intentionally (near-)pure sine — a sub / theremin / reference tone
     "sine", "sub_sine", "theremin",
 }
-INTRINSIC_MOVE_TECH = {"pwm"}  # only pwm's duty moves on its own
+# Techniques whose OWN idiom moves. This set is the reason the aliasing survived
+# so long: with only `pwm` in it, 26 of 27 techniques were tested with move=False,
+# which a DEAD tone passes trivially -- so the suite could not tell a hard-synced
+# slave from a plain saw, and stayed green while `supersaw`, `sync`, `brass`,
+# `strings` and `bass_saw` were byte-identical saws. Every entry below is MEASURED
+# (tools/csound_liveliness_gate.py); adding one here makes the suite FAIL if a
+# later change flattens that idiom back into a standing spectrum.
+#
+# NOT here, deliberately: `theremin`. Its famous movement is the player's hand --
+# i.e. PITCH, which belongs to the synth's glide, not to the oscillator. Its
+# oscillator carries only a timbral waver, measured at 1.11x centroid travel
+# (below the 1.15x bar). The distinctness gate is what guards it against
+# collapsing back into a bare sine.
+INTRINSIC_MOVE_TECH = {
+    "pwm",          # duty sweep
+    "sync",         # sweeping hard-sync ratio
+    "chiptune",     # stepped chip duty (12.5 / 25 / 50%)
+    "supersaw",     # 7-saw detune beating
+    "brass",        # breath-pressure filter opening 6 -> 12 harmonics
+    "strings",      # ensemble detune + slow brightness breathing
+    "fm_ep",        # index softening into a mellow standing tine
+    "flute",        # breath is never still
+}
 BESPOKE_ADJ = set(co._ADJ_MAP)   # the assembler's ACTUAL adjective coverage (M3: all 51)
 BESPOKE_MOTION = {"sweep", "evolve", "open_up", "close", "breathe", "wobble",
                   "cycle", "shimmer", "vibrate", "flutter", "tremolo",
@@ -82,8 +104,29 @@ MULTI_ADJ = [
 ]
 
 
+# CPU worst cases. Every case above builds ONE oscillator, so none of them can
+# reach the block budget -- yet the architecture allows THREE, each with its own
+# morph chain, and the expensive idioms multiply. 3x cymbal>glass>struck_bar
+# benched 229us against the 133us gate (172%) and nothing in the suite saw it.
+#
+# `morph_sec` is the second half of the lesson: benching the settled tail measures
+# the CHEAP moment, because by then each chain has landed on a single stage. The
+# same orchestra benches 79us settled and 138us mid-morph. A long morph keeps the
+# bench window inside the crossfade, where two stages per oscillator are open at
+# once -- which is the cost that actually has to fit.
+WORST_CASE_OSC = [
+    ("cpu:3x-modal-morph-midway", [["cymbal", "glass", "struck_bar"]] * 3, 60.0),
+    ("cpu:3x-modal-morph-settled", [["cymbal", "glass", "struck_bar"]] * 3, 2.0),
+    ("cpu:3x-live-morph-midway",  [["supersaw", "strings", "flute"]] * 3, 60.0),
+    ("cpu:3x-voice-morph-midway", [["voice", "voice_ee", "voice_oo"]] * 3, 60.0),
+    ("cpu:3x-noise-morph-midway", [["wind", "rain", "thunder"]] * 3, 60.0),
+    ("cpu:3-modal-oscs",          [["cymbal"], ["glass"], ["struck_bar"]], 2.0),
+    ("cpu:3x-supersaw",           [["supersaw"]] * 3, 2.0),
+]
+
+
 def run():
-    cases = []  # (label, keys, adj, motion, expect, is_gap)
+    cases = []  # (label, keys, adj, motion, expect, is_gap[, build])
     for t in TECHS:
         cases.append((f"tech:{t}", [t], [], None,
                       {"sustain": "stand", "move": t in INTRINSIC_MOVE_TECH},
@@ -136,11 +179,22 @@ def run():
     ]
     for lbl, chain, exp in VOICE_MORPHS:
         cases.append((f"voxmorph:{lbl}", chain, [], None, exp, False))
+    for lbl, chains, msec in WORST_CASE_OSC:
+        cases.append((lbl, None, [], None, {"sustain": "stand"}, False,
+                      {"oscs": [{"chain": c, "vol": 1.0} for c in chains],
+                       "morph_sec": msec}))
 
     passed = failed = 0
     fails, gaps = [], []
-    for label, keys, adj, motion, expect, is_gap in cases:
-        orc, reading = co.build_orchestra(keys, adj, motion)
+    for case in cases:
+        label, keys, adj, motion, expect, is_gap = case[:6]
+        build = case[6] if len(case) > 6 else None
+        if build:
+            orc, reading = co.build_orchestra(None, adj, motion,
+                                              morph_sec=build["morph_sec"],
+                                              oscs=build["oscs"])
+        else:
+            orc, reading = co.build_orchestra(keys, adj, motion)
         r = gate(orc, expect, label=label)
         if r["passed"]:
             passed += 1

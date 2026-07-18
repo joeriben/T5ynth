@@ -59,7 +59,21 @@ _SPECTRA = {
     "square":   [(1.00, 1.00), (3.00, 0.333), (5.00, 0.20), (7.00, 0.143), (9.00, 0.111)],
     "triangle": [(1.00, 1.00), (3.00, 0.1111), (5.00, 0.0400), (7.00, 0.0204),
                  (9.00, 0.0123), (11.00, 0.0083)],
-    "pulse":    [(1.00, 1.00), (2.00, 0.80), (3.00, 0.60), (4.00, 0.45), (5.00, 0.33), (6.00, 0.24)],
+    # a TRUE 30% rectangular wave, A_n = |sin(n*pi*d)|/n normalised (d=0.30) -- the
+    # lexicon's stated default width. The non-monotonic ripple (a weak 3rd, a
+    # strong 5th) is exactly what makes a narrow pulse sound nasal/hollow; the
+    # smooth 1.0/0.8/0.6/0.45 rolloff that stood here was invented, not a pulse.
+    "pulse":    [(1.00, 1.00), (2.00, 0.588), (3.00, 0.127), (4.00, 0.182),
+                 (5.00, 0.247), (6.00, 0.121), (7.00, 0.055), (8.00, 0.147)],
+    # cylindrical reed: odd-dominant with a faint even trace (a real bore is not
+    # ideal) and the clarinet's rolloff above the 7th -- NOT a bare square.
+    "clarinet": [(1.00, 1.00), (2.00, 0.08), (3.00, 0.55), (4.00, 0.06),
+                 (5.00, 0.35), (6.00, 0.04), (7.00, 0.20), (9.00, 0.10)],
+    # dark saw: the lexicon's rolled-off low end (a steeper tilt than 1/n).
+    "bass_saw": [(1.00, 1.00), (2.00, 0.45), (3.00, 0.25), (4.00, 0.14),
+                 (5.00, 0.08), (6.00, 0.04)],
+    # sub oscillator: fundamental plus real weight one octave BELOW it.
+    "sub_sine": [(0.50, 0.36), (1.00, 1.00)],
     "cheby":    [(1.00, 1.00), (2.00, 0.50), (3.00, 0.35), (4.00, 0.22), (5.00, 0.12)],
     "fm":       [(1.00, 1.00), (2.00, 0.60), (3.00, 0.40), (4.00, 0.28), (5.00, 0.18), (6.00, 0.10)],
     # ring modulation of a carrier by a 2x modulator = 1/2[cos(f) - cos(3f)]: a
@@ -96,7 +110,7 @@ _SPECTRA = {
 # lexicon technique the 7B can emit maps here; anything unlisted defaults to
 # "additive" in _emit_morph, so a morph NEVER silently collapses to a steady tone.
 _MORPH_SPECTRUM = {
-    "sine": "sine", "sub_sine": "sine", "theremin": "sine",
+    "sine": "sine", "sub_sine": "sub_sine", "theremin": "sine",
     "additive": "additive",
     "organ": "organ", "flute": "flute", "harpsichord": "harpsichord",
     "glass": "glass",
@@ -104,8 +118,8 @@ _MORPH_SPECTRUM = {
     "struck_bar": "struck_bar", "cymbal": "cymbal",
     "fm": "fm", "fm_ep": "fm", "ring_mod": "ring_mod",
     "saw": "saw", "supersaw": "saw", "brass": "saw", "strings": "saw",
-    "bass_saw": "saw", "sync": "saw",
-    "square": "square", "clarinet": "square", "chiptune": "square", "pulse": "square",
+    "bass_saw": "bass_saw", "sync": "saw",
+    "square": "square", "clarinet": "clarinet", "chiptune": "square", "pulse": "pulse",
     "triangle": "triangle",
     "pwm": "pulse",
     "cheby": "cheby",
@@ -214,6 +228,52 @@ _VOICE_TECH = set(_VOWEL_FORMANTS)
 _NOISE_TECH = {"noise", "pink_noise", "wind", "rain", "surf", "thunder",
                "hiss", "crackle"}
 
+# Techniques rendered as a MODAL RESONATOR BANK (Csound's native `mode` filter),
+# continuously noise-excited: real struck-metal/glass physics (resonators with
+# bandwidth that RING and shimmer under a driven excitation) instead of a static
+# additive sine sum — BJ's ear-finding 2026-07-18: the additive cymbal/glass was a
+# dead sine cluster ("pfeifender hoher Oszillator statt echter metallischer
+# Sounds"), exactly the toy-vocabulary pattern the substrate discipline forbids
+# for these physical objects. The ratio/amp sets stay in _SPECTRA (single source,
+# lexicon-honoured); _MODAL_PARAMS adds what a resonator needs beyond a partial
+# list: excitation level, master gain (empirically calibrated, see
+# tools/csound_keys_gate.py peaks), and a Q range (first->last mode).
+# The exciter is CONTINUOUS, so a held note stands (platform fundamental); the
+# stochastic drive gives the metal live micro-shimmer a static bank cannot have.
+_MODAL_TECH = {"struck_bar", "cymbal", "glass"}
+_MODAL_PARAMS = {
+    #             exc,   master, Q first, Q last
+    "struck_bar": (0.06, 0.150,  900, 1400),   # tuned bar: clear, ringing modes
+    "cymbal":     (0.09, 0.150,  260, 460),    # plate wash: dense, broader bands
+    "glass":      (0.05, 0.150, 1400, 2000),   # glassy: few, very pure, high-Q
+}
+
+# Techniques whose IDENTITY is a live opcode structure -- a hard-synced slave, a
+# detuned stack, a stepping duty, a breathing filter, a wavering partial, a
+# softening FM index. None of them can exist in the additive partial bank that
+# _emit_morph interpolates: reduced to a static spectrum, `supersaw` IS `saw` and
+# `chiptune` IS `square` (the exact aliasing BJ heard as "everything sounds the
+# same"). So a morph touching any of them takes the CROSSFADE path, where every
+# stage renders its own real idiom -- the same reason noise and modal stages do.
+_LIVE_TECH = {"pwm", "sync", "supersaw", "chiptune", "brass", "strings",
+              "theremin", "fm_ep",
+              # flute's identity is tone + BREATH. Noise cannot live in a partial
+              # bank at all, so as a morph stage it fell back to the additive
+              # spectrum this diff itself measured at 0.033 from a bare sine.
+              "flute"}
+
+# Spectra with a partial BELOW the fundamental. _emit_morph aligns stages by
+# partial INDEX, which silently assumes every spectrum starts at ratio 1.0: give
+# it one that starts at 0.5 and index 0 interpolates 1.00 -> 0.50, i.e. the
+# dominant partial GLISSANDOS an octave. Measured on `sine > sub_sine`: 220 ->
+# 210 -> 196 -> 182 -> 170 -> 162 Hz, a 663-cent bend; `sub_sine > saw` bent
+# +884 cents the other way. Pitch belongs to the synth's glide, never to the
+# oscillator, so any such spectrum is barred from the additive morph and takes
+# the crossfade path, which renders each stage's real idiom and never aligns
+# partials at all. Derived from _SPECTRA rather than hand-listed, so a future
+# sub-fundamental spectrum cannot reintroduce the bend by being forgotten here.
+_SUBFUND_SPECTRA = {n for n, sp in _SPECTRA.items() if any(r < 1.0 for r, _ in sp)}
+
 # Validation-ONLY chain terminals: accepted by the closed-enum guard if the 7B
 # emits them, but deliberately NOT listed as pickable techniques in the catalogue
 # (listing "silence" as a technique made the 7B treat it as a standalone
@@ -282,10 +342,19 @@ def _prompt_wants_decay(text):
     return any(w in _DECAY_CUE_WORDS for w in words)
 
 # pwm names a MOVING DUTY on a pulse wave, not a wave in its own right: when the
-# 7B lists it in a morph chain beside a pulse-family wave ("pwm > square"), the
+# 7B lists it in a morph chain beside a plain pulse wave ("pwm > square"), the
 # intent is a pwm'd square (one moving-duty tone), not a near-static pulse->pulse
-# morph. build_csound_response collapses such a chain to the single pwm idiom.
-_PULSE_FAMILY = {"square", "pulse", "chiptune", "clarinet"}
+# morph -- "a pwm square wave" is the canonical prompt that produces it.
+# build_csound_response collapses such a chain to the single pwm idiom.
+#
+# `chiptune` and `clarinet` were in this set and had to come OUT. The set was
+# written when all four pulse-family keys emitted the same 50% square, so
+# collapsing lost nothing. They are distinct idioms now -- chiptune steps its
+# duty, clarinet is a reed rolloff -- so the collapse would silently DELETE the
+# second half of "pwm > chiptune" (verified: it returned ['pwm']). A rule that
+# was merely redundant became a capability loss the moment the aliases were
+# fixed; only genuinely static pulse waves belong here.
+_PULSE_FAMILY = {"square", "pulse"}
 
 
 # ── csound-specific multi-oscillator LLM schema ──────────────────────────────
@@ -408,6 +477,12 @@ def _validate_osc_chain(chain_raw, tcanon, dco_llm_map):
         valid, flags = dco_llm_map._validate_keys(chain_raw.split(","), tcanon)
         keys = valid[:1]
     keys = _strip_nonterminal_silence(keys)
+    # Collapse ADJACENT duplicates: morphing a spectrum into itself is a no-op by
+    # construction, but it still emits a full second stage and reads back as the
+    # nonsense "saw > saw" (observed verbatim in the 7B corpus run for "a fat
+    # detuned saw stacked with a deep sub"). Only adjacent pairs collapse --
+    # "a > b > a" is a real round trip and must survive.
+    keys = [k for i, k in enumerate(keys) if i == 0 or k != keys[i - 1]]
     if "pwm" in keys and all(k == "pwm" or k in _PULSE_FAMILY for k in keys):
         keys = ["pwm"]
     return keys, flags
@@ -531,7 +606,94 @@ def _emit_voice_morph(chain, imorphtime, tag="0"):
     return "\n".join(L)
 
 
-def _emit_steady(technique, tag="0"):
+# An asymmetric rectangular wave carries DC: at duty d and amplitude A its mean is
+# A*(2d-1). Measured at 220 Hz, `pulse` (30% duty) sat at a constant -0.085 -- 34%
+# of its own peak, pure wasted headroom -- and `chiptune` was worse: its duty STEPS
+# between 12.5/25/50%, so the offset stepped with it, 0.000 -> -0.159, a
+# 63%-of-peak DC jump about once a second. That is an audible thump on every step,
+# and nothing in the suite could see it (peak 0.251, note stands, movement present
+# -- all green).
+#
+# Corrected at the SOURCE, not with a DC-blocking filter. `dcblock2` was tried and
+# rejected on measurements: at its default order it costs -12.1 dB at 20 Hz (it
+# deletes the sub-bass this instrument exists to make), and at order 512, which
+# does keep the bass, it delays by 1022 samples = 21.3 ms -- which left the first
+# ~20 ms after every retrigger silent (RMS 0.0001/0.0011/0.0043/0.0086 against
+# 0.1399 undelayed), i.e. it would have hollowed out the front of every percussive
+# sound. Subtracting the known mean costs one multiply-add, has no latency, no
+# filter and no bass loss. The law was verified, not assumed: predicted DC ratio
+# between d=0.30 and d=0.125 is 0.533, measured 0.535.
+_DC_NOTE = "remove the duty's DC offset, A*(2d-1)"
+
+
+def _modal_budget(oscs):
+    """Modes per modal bank, sized by how many banks can sound AT THE SAME TIME.
+
+    A `mode` filter is cheap alone and ruinous in bulk. The count that matters is
+    not how many modal stages the orchestra contains but how many are audible at
+    once: a crossfade morph only ever has its two adjacent stages open, so an
+    oscillator contributes at most 2 banks no matter how long its chain is (and
+    min(2, ...) deliberately over-counts a chain like cymbal>sine>glass, where
+    the two modal stages are never adjacent -- erring toward cheaper).
+
+    The thresholds are MEASURED mid-morph, not at rest. Benching the settled tail
+    understates the cost badly, because by then the morph has landed on a single
+    stage per oscillator: the same 3x cymbal>glass>struck_bar orchestra benches
+    79us settled and 138us mid-morph. Forcing the bench window inside the morph
+    (morph_sec=60) gives the real table, us against the 133us block gate:
+
+        banks    9 modes   7 modes   5 modes   4 modes
+          2         60.9      55.0      45.6      40.0
+          4        118.0     104.6      87.6      80.1
+          6        189.0!    168.5!    138.0!    116.9
+
+    Hence 9 / 7 / 4 below. The suite's own worst case (cpu:3x-modal-morph-midway)
+    lands at ~120us against the 133us gate -- inside it, but only just, so treat
+    that row as the ceiling rather than as room to spend.
+
+    Thinning SUBSAMPLES each spectrum evenly (first and last partial always kept)
+    rather than truncating it, so the metal keeps its spectral SPAN -- the top
+    partials are exactly where a cymbal's brightness lives, and lopping them off
+    would dull the sound instead of merely simplifying it."""
+    sim = sum(min(2, sum(1 for k in o["chain"] if k in _MODAL_TECH)) for o in oscs)
+    return 9 if sim <= 2 else (7 if sim <= 4 else 4)
+
+
+def _thin(spec, nmodes):
+    """Evenly subsample a partial list to `nmodes`, always keeping both ends."""
+    if not nmodes or nmodes >= len(spec) or len(spec) < 2:
+        return spec
+    idx = [round(i * (len(spec) - 1) / (nmodes - 1)) for i in range(nmodes)]
+    return [spec[i] for i in sorted(set(idx))]
+
+
+def _emit_modal(technique, tag="0", nmodes=None):
+    """Struck metal / glass via Csound's native MODAL idiom -> `aosc<tag>`: a bank
+    of `mode` resonators (real bandwidth + ring time) at the technique's
+    inharmonic ratios, driven by continuous low-level noise. The metal is a
+    resonating OBJECT being excited — it rings, beats and shimmers — not a static
+    additive sine sum (the dead cluster BJ's ear caught 2026-07-18). Because the
+    excitation is continuous, a held note STANDS (the synth still owns the
+    envelope); the stochastic drive is the sound's intrinsic micro-life.
+    Per-mode k-rate gating mutes any resonator the played pitch would push past
+    the safe band (a `mode` filter near Nyquist is unstable — muting, not
+    clamping, so no pinned 15 kHz whine)."""
+    exc, master, q0, q1 = _MODAL_PARAMS[technique]
+    spec = _thin(_SPECTRA[technique], nmodes)
+    n = len(spec)
+    L = [f"  aexq{tag}   rand {exc}                    ; continuous exciter -> the metal is driven, a held note stands"]
+    terms = []
+    for i, (r, a) in enumerate(spec):
+        q = int(q0 + (q1 - q0) * (i / (n - 1) if n > 1 else 0.0))
+        L.append(f"  k{tag}qf{i}   limit kfreq * {r:.4f}, 20, 15000")
+        L.append(f"  k{tag}qg{i}   = (kfreq * {r:.4f} < 15000 ? {a:.3f} : 0)")
+        L.append(f"  a{tag}q{i}   mode aexq{tag}, k{tag}qf{i}, {q}      ; mode {i + 1} @ x{r:.2f}, Q {q}")
+        terms.append(f"a{tag}q{i} * k{tag}qg{i}")
+    L.append(f"  aosc{tag}    = ({' + '.join(terms)}) * {master:.3f}")
+    return "\n".join(L)
+
+
+def _emit_steady(technique, tag="0", nmodes=None):
     """A single (non-morph) technique -> `aosc<tag>`. Uses Csound's native
     opcodes; every temporary is suffixed with `tag` (per-osc uniqueness)."""
     ov = f"aosc{tag}"
@@ -540,25 +702,123 @@ def _emit_steady(technique, tag="0"):
         return _emit_noise(technique, tag)
     if technique in _VOICE_TECH:
         return _emit_voice(technique, tag)
+    if technique in _MODAL_TECH:
+        return _emit_modal(technique, tag, nmodes)
     if technique == "pwm":
         # classic PWM: band-limited pulse whose DUTY moves (square 50% -> thin
         # 8% -> back), a genuinely moving spectrum. kpw is the pulse width.
         L.append(f"  klfo{tag}    oscili 0.5, 0.25            ; -0.5..0.5, 4 s period")
-        L.append(f"  kpw{tag}     = 0.29 + 0.21 * (klfo{tag} + 0.5) ; duty 0.08..0.50..0.08")
-        L.append(f"  {ov}    vco2 0.6, kfreq, 2, kpw{tag}     ; imode 2 = pulse, kpw = width")
-    elif technique in ("square", "clarinet", "chiptune", "pulse"):
+        L.append(f"  kpw{tag}     = 0.29 + 0.21 * (klfo{tag} + 0.5) ; duty 0.29..0.50..0.29")
+        L.append(f"  apw{tag}     vco2 0.6, kfreq, 2, kpw{tag}     ; imode 2 = pulse, kpw = width")
+        L.append(f"  {ov}    = apw{tag} - 0.6 * (2 * kpw{tag} - 1) ; {_DC_NOTE}")
+    elif technique == "square":
         L.append(f"  {ov}    vco2 0.6, kfreq, 2, 0.5     ; square (50%% pulse)")
+    elif technique == "pulse":
+        # the lexicon's OWN spec: "narrow rectangular wave (default 30% width)".
+        # It emitted 0.5 -- i.e. a square, a byte-identical alias of `square`.
+        L.append(f"  apl{tag}    vco2 0.6, kfreq, 2, 0.30    ; narrow pulse (30%% width)")
+        L.append(f"  {ov}    = apl{tag} + 0.2400         ; {_DC_NOTE}")
+    elif technique == "clarinet":
+        # cylindrical reed: the odd-only square family IS the textbook
+        # approximation (lexicon), but a real clarinet's odd harmonics roll off
+        # above ~the 9th -- that rolloff is what separates it from a raw square.
+        L.append(f"  acl{tag}    vco2 0.6, kfreq, 2, 0.5     ; odd-only source")
+        L.append(f"  kcl{tag}    limit kfreq * 9, 100, 15000 ; reed rolloff ~9th harmonic")
+        L.append(f"  {ov}    butterlp acl{tag}, kcl{tag}")
+    elif technique == "chiptune":
+        # a real chip lead is a pulse whose DUTY STEPS between the chip's three
+        # settings (12.5 / 25 / 50%) -- the stepping IS the chiptune signature,
+        # and it is movement arising from the idiom, not a bolted-on LFO. tonek
+        # rounds the step over ~5 ms so the duty jump does not click.
+        L.append(f"  kst{tag}    oscili 1.49, 0.9            ; slow 3-zone selector")
+        L.append(f"  kdt{tag}    = (kst{tag} > 0.5 ? 0.125 : (kst{tag} > -0.5 ? 0.25 : 0.5))")
+        L.append(f"  kdw{tag}    tonek kdt{tag}, 30          ; de-click the duty step")
+        L.append(f"  ach{tag}    vco2 0.6, kfreq, 2, kdw{tag}     ; stepped chip duty")
+        L.append(f"  {ov}    = ach{tag} - 0.6 * (2 * kdw{tag} - 1) ; {_DC_NOTE}")
     elif technique == "triangle":
         # vco2 imode 4 renders SILENT on this Csound build (the triangle band-
         # limited table is not pre-generated). Use the additive triangle (odd
         # harmonics ~1/n^2) -- band-limited by construction, guaranteed to sound.
         L.append(_emit_additive(_SPECTRA["triangle"], gain=0.6, tag=tag))
-    elif technique in ("saw", "supersaw", "brass", "strings", "bass_saw", "sync"):
+    elif technique == "saw":
         L.append(f"  {ov}    vco2 0.6, kfreq, 0          ; band-limited sawtooth")
-    elif technique in ("fm_bell", "fm", "fm_ep", "metallic_fm", "sync"):
+    elif technique == "supersaw":
+        # 7 detuned saws (the JP-8000 idiom). The lexicon says the wavetable path
+        # had to fake this because "the detune itself is not a cycle property" --
+        # on a live substrate the detune is simply real, and the beating between
+        # the copies is movement that arises from the structure itself.
+        ratios = (1.0, 1.0035, 0.9965, 1.0071, 0.9929, 1.0110, 0.9890)
+        for i, r in enumerate(ratios):
+            L.append(f"  asu{tag}x{i}  vco2 0.6, kfreq * {r:.4f}, 0")
+        stack = " + ".join(f"asu{tag}x{i}" for i in range(len(ratios)))
+        L.append(f"  {ov}    = ({stack}) * 0.17   ; 7-saw detuned stack")
+    elif technique == "sync":
+        # REAL hard sync. The lexicon admits the wavetable stand-in ("bright,
+        # dense FM stands in for hard sync's sideband-rich character"); Csound
+        # has the actual thing: a slave saw phase-RESET by the master period.
+        # The slave ratio SWEEPS, because a static sync ratio is just a fixed
+        # formant -- the sweep is what makes sync recognisable, exactly as the
+        # moving duty is what makes pwm recognisable.
+        L.append(f"  kswp{tag}   oscili 1.1, 0.16            ; slave-ratio sweep")
+        L.append(f"  krat{tag}   = 2.6 + kswp{tag}            ; 1.5 .. 3.7 x master")
+        L.append(f"  azro{tag}   = 0")
+        L.append(f"  amst{tag}, asyn{tag}  syncphasor kfreq, azro{tag}")
+        L.append(f"  aslv{tag}, adum{tag}  syncphasor kfreq * krat{tag}, asyn{tag}")
+        L.append(f"  {ov}    = (aslv{tag} * 2 - 1) * 0.45  ; hard-synced saw")
+    elif technique == "brass":
+        # the lexicon's own spec taken literally: "opens from a dark 6-harmonic
+        # set to a brighter 12-harmonic set". On a live substrate that is a
+        # resonant lowpass BREATHING between 6*f0 and 12*f0 -- brass under breath
+        # pressure -- rather than two frozen keyframes.
+        L.append(f"  abr{tag}    vco2 0.6, kfreq, 0          ; saw source")
+        L.append(f"  kbr{tag}    oscili 0.5, 0.22            ; slow breath cycle")
+        L.append(f"  kcut{tag}   limit kfreq * (9 + 6 * kbr{tag}), 100, 15000 ; 6..12 harmonics")
+        # rezzy, not moogladder: measured 11.7us vs 116us for the SAME orchestra
+        # (and more centroid travel, 263Hz vs 130Hz). moogladder's cost is real --
+        # three brass oscillators, which the 3-osc architecture allows, benched
+        # 341us against the 133us block gate (257% of budget, a hard FAIL).
+        L.append(f"  arz{tag}    rezzy abr{tag}, kcut{tag}, 8   ; brass formant push")
+        L.append(f"  {ov}    = arz{tag} * 1.35           ; level-match the saw family")
+    elif technique == "strings":
+        # ensemble = several players slightly apart: 3 gently detuned saws, plus
+        # the lexicon's "slow, gentle harmonic-count breathing motion" as a
+        # bright, slow filter breath (brighter, slower and far gentler than brass).
+        for i, r in enumerate((1.0, 1.0042, 0.9958)):
+            L.append(f"  ase{tag}x{i}  vco2 0.6, kfreq * {r:.4f}, 0")
+        L.append(f"  aens{tag}   = (ase{tag}x0 + ase{tag}x1 + ase{tag}x2) * 0.30 ; ensemble")
+        L.append(f"  kbr{tag}    oscili 0.5, 0.13            ; gentle, slow breathing")
+        L.append(f"  kcut{tag}   limit kfreq * (14 + 4 * kbr{tag}), 100, 15000")
+        L.append(f"  {ov}    butterlp aens{tag}, kcut{tag}")
+    elif technique == "bass_saw":
+        # the lexicon's own spec: "harmonic count ceilinged near 24 for a
+        # rolled-off low end" -- a literal 24th-harmonic ceiling the code never had.
+        # The ceiling alone measured only 0.042 from a plain saw (a saw's energy
+        # above its 24th harmonic is tiny), so the key stayed an alias in the ear.
+        # What makes it a BASS saw is the weight below: a sub octave under the
+        # rolled-off saw. Both halves of the name now exist in the code.
+        L.append(f"  abs{tag}    vco2 0.6, kfreq, 0          ; saw source")
+        L.append(f"  kcut{tag}   limit kfreq * 24, 100, 15000 ; 24-harmonic ceiling")
+        L.append(f"  adk{tag}    butterlp abs{tag}, kcut{tag}")
+        L.append(f"  asb{tag}    oscili 0.30, kfreq * 0.5    ; sub-octave weight")
+        L.append(f"  {ov}    = adk{tag} * 0.72 + asb{tag}")
+    elif technique == "fm_ep":
+        # the lexicon's "1:1 FM with a softening index over the cycle, the classic
+        # tine-EP sideband shape". On a live substrate the index actually SOFTENS
+        # and then HOLDS: a tine that mellows into a standing tone. This is a
+        # TIMBRE motion, not an amplitude envelope -- the tone never dies (and
+        # linseg is the same k-rate shaper the morph path already uses; the
+        # forbidden opcodes are the amplitude envelopes).
+        L.append(f"  kndx{tag}   linseg 4.2, 1.6, 1.30       ; bright tine -> mellow, holds")
+        L.append(f"  {ov}    foscili 0.5, kfreq, 1, 1, kndx{tag}, giSine ; 1:1 tine EP")
+    elif technique in ("fm_bell", "fm", "metallic_fm"):
         # FM via foscili: an inharmonic-ish carrier:modulator ratio gives the
-        # bell/metal sideband spectrum natively (no partial table).
-        car, mod, ndx = ("1", "1.41", "3.2") if technique in ("fm_bell", "metallic_fm") else ("1", "2", "1.8")
+        # bell/metal sideband spectrum natively (no partial table). metallic_fm
+        # is a HARSHER CLANG than fm_bell — a wider inharmonic ratio and a much
+        # deeper index spread the sidebands into dissonant metal (they were
+        # byte-identical before, a degenerate duplicate; BJ ear-finding
+        # 2026-07-18).
+        car, mod, ndx = {"fm_bell": ("1", "1.41", "3.2"),
+                         "metallic_fm": ("1", "2.41", "6.0")}.get(technique, ("1", "2", "1.8"))
         L.append(f"  {ov}    foscili 0.5, kfreq, {car}, {mod}, {ndx}, giSine ; FM (foscili)")
     elif technique == "cheby":
         # Chebyshev/tanh waveshaping of a sine = polynomial harmonics (real
@@ -572,9 +832,43 @@ def _emit_steady(technique, tag="0"):
         L.append(f"  acar{tag}    oscili 0.8, kfreq")
         L.append(f"  amod{tag}    oscili 1.0, kfreq * 2.0")
         L.append(f"  {ov}    = acar{tag} * amod{tag}          ; ring modulation (2:1 sidebands)")
+    elif technique == "sub_sine":
+        # a sub oscillator: the fundamental PLUS real weight one octave below it.
+        # (`sine` and `sub_sine` were byte-identical -- the sub is the whole point
+        # of the key. The played pitch still dominates, so this adds weight
+        # without transposing the note: pitch stays the synth's business.)
+        L.append(f"  asb{tag}    oscili 0.18, kfreq * 0.5    ; sub octave")
+        L.append(f"  afn{tag}    oscili 0.50, kfreq          ; fundamental")
+        L.append(f"  {ov}    = afn{tag} + asb{tag}")
+    elif technique == "flute":
+        # a real flute is a near-pure tone PLUS BREATH -- the _SPECTRA comment for
+        # "flute" admits as much ("breath noise not modelled here"), and without it
+        # the key measured 0.033 from a bare sine, i.e. an alias. The substrate
+        # models breath natively: a noise band riding the blowing register.
+        L.append(f"  afl{tag}    oscili 0.44, kfreq          ; fundamental")
+        L.append(f"  af2{tag}    oscili 0.07, kfreq * 2      ; faint 2nd")
+        L.append(f"  af3{tag}    oscili 0.03, kfreq * 3      ; faint 3rd")
+        L.append(f"  anz{tag}    rand 0.9                    ; breath")
+        L.append(f"  kbf{tag}    limit kfreq * 2.5, 200, 12000")
+        L.append(f"  abw{tag}    butterbp anz{tag}, kbf{tag}, kbf{tag} * 0.9 ; breath band")
+        L.append(f"  {ov}    = afl{tag} + af2{tag} + af3{tag} + abw{tag} * 0.55")
+    elif technique == "theremin":
+        # the heterodyne tone: near-sine with a small 2nd harmonic whose level
+        # WAVERS -- the instrument's slightly unstable timbre. Its famous vibrato
+        # is PITCH, which belongs to the synth's glide, not to the oscillator,
+        # so the oscillator carries the timbral waver and nothing else.
+        # the waver has to be DEEP enough to be a timbre, not a rounding error:
+        # at 0.10 +- 0.07 the key measured centroid travel 1.07 / std 6.6 Hz, i.e.
+        # indistinguishable from a static tone. 0.15 +- 0.13 swings the 2nd
+        # harmonic over more than an order of magnitude -- audible instability.
+        L.append(f"  kwv{tag}    oscili 0.5, 0.9             ; slow timbre waver")
+        L.append(f"  kh2{tag}    = 0.15 + 0.13 * kwv{tag}")
+        L.append(f"  ath{tag}    oscili kh2{tag}, kfreq * 2   ; wavering 2nd harmonic")
+        L.append(f"  afn{tag}    oscili 0.55, kfreq")
+        L.append(f"  {ov}    = afn{tag} + ath{tag}")
     else:
-        # sine / additive / theremin / sub_sine / flute / organ / glass and
-        # anything not given a bespoke idiom yet: render its spectrum additively
+        # sine / additive / flute / organ and anything not given a bespoke idiom
+        # yet: render its spectrum additively
         # (real oscils at true ratios), defaulting to a pure sine.
         spec = _SPECTRA.get(_MORPH_SPECTRUM.get(technique, "sine"), _SPECTRA["sine"])
         L.append(_emit_additive(spec, gain=0.6, tag=tag))
@@ -677,11 +971,12 @@ def _emit_morph(technique_keys, imorphtime, tag="0"):
     return "\n".join(L)
 
 
-def _emit_crossfade_morph(chain, imorphtime, tag="0"):
+def _emit_crossfade_morph(chain, imorphtime, tag="0", nmodes=None):
     """A generic amplitude-crossfade morph -> `aosc<tag>`, used whenever a chain
     stage cannot live in the tonal additive-partial bank of _emit_morph: a NOISE
-    texture (aperiodic, no partials) or a VOICE/formant stage (a filtered source,
-    not an oscillator bank), or a mix. The additive morph would silently degrade
+    texture (aperiodic, no partials), a VOICE/formant stage (a filtered source,
+    not an oscillator bank), a MODAL metal/glass stage (a driven resonator bank),
+    or a mix. The additive morph would silently degrade
     such a stage to a PITCHED additive tone -- a migration-discipline capability
     loss the frozen corpus caught (2026-07-18: 'rain > silence' rendered an
     additive tone that faded, pitchedness 0.99, not rain). Here each stage renders
@@ -703,21 +998,35 @@ def _emit_crossfade_morph(chain, imorphtime, tag="0"):
     leg = imorphtime / (n - 1)
     lbl = f"Lnzmorph{tag}"
     L = [f"  ; --- osc {tag}: noise crossfade morph (real noise per stage, trig-epoch reinit) ---"]
-    stage_vars = []
+
+    # The GAINS come first, because each stage's DSP is then rendered INSIDE
+    # `if <its gain> > 0`. In a crossfade only the two adjacent stages around the
+    # playhead are audible; every other stage's tent gain is exactly 0, so its
+    # output is multiplied away -- yet it used to compute a full k-cycle of audio
+    # regardless. That waste is what broke the block budget: 3 oscillators each
+    # morphing cymbal>glass>struck_bar rendered 9 modal banks at once and benched
+    # 229us against the 133us gate (172%), while at most 2 banks were ever heard.
+    # Gating on the tent makes cost track what is AUDIBLE, not what was written.
+    # Verified empirically before adopting (scratchpad/condprobe.csd): an opcode
+    # whose branch is false at i-time still initialises and sounds correctly once
+    # the branch goes true at k-time -- silent while false, full level after.
+    # `init 0` keeps each stage var defined for the sum on the k-cycles it is
+    # skipped; the tent rises from exactly 0, so a resuming stage fades in from
+    # nothing and cannot click.
+    stage_vars, gains = [], []
     for j, k in enumerate(chain):
         if k in ("silence", "zero"):
             stage_vars.append(None)   # terminal fade: neighbours' tents carry it to 0
+            gains.append(None)
             continue
-        sub = f"{tag}m{j}"
-        L.append(_emit_noise(k, sub) if k in _NOISE_TECH else _emit_steady(k, sub))
-        stage_vars.append(f"aosc{sub}")
+        stage_vars.append(f"aosc{tag}m{j}")
+        gains.append(f"k{tag}g{j}")
     L.append("  if changed2(ktrig) == 1 then")
     L.append(f"    reinit {lbl}")
     L.append("  endif")
     L.append(f"{lbl}:")
-    terms = []
-    for j, var in enumerate(stage_vars):
-        if var is None:
+    for j, gj in enumerate(gains):
+        if gj is None:
             continue
         # linear tent: 1 at breakpoint j, 0 at every other breakpoint (adjacent
         # stages cross). n values, n-1 legs of equal duration. In any leg exactly
@@ -726,16 +1035,27 @@ def _emit_crossfade_morph(chain, imorphtime, tag="0"):
         # noise. sqrt is safe: linseg stays in [0,1].
         seg = ", ".join(f"{(1.0 if b == j else 0.0):.4f}, {leg:.4f}" for b in range(n - 1))
         seg += f", {(1.0 if (n - 1) == j else 0.0):.4f}"
-        lj, gj = f"k{tag}L{j}", f"k{tag}g{j}"
-        L.append(f"  {lj}   linseg {seg}")
-        L.append(f"  {gj}   = sqrt({lj})")
-        terms.append(f"{var} * {gj}")
+        L.append(f"  k{tag}L{j}   linseg {seg}")
+        L.append(f"  {gj}   = sqrt(k{tag}L{j})")
     L.append("  rireturn")
+
+    terms = []
+    for j, (var, gj) in enumerate(zip(stage_vars, gains)):
+        if var is None:
+            continue
+        k = chain[j]
+        sub = f"{tag}m{j}"
+        L.append(f"  {var}  init 0")
+        L.append(f"  if {gj} > 0 then")
+        body = _emit_noise(k, sub) if k in _NOISE_TECH else _emit_steady(k, sub, nmodes)
+        L.append("\n".join("  " + ln for ln in body.splitlines()))
+        L.append("  endif")
+        terms.append(f"{var} * {gj}")
     L.append(f"  aosc{tag}    = " + (" + ".join(terms) if terms else "0"))
     return "\n".join(L)
 
 
-def _emit_oscillator(oi, chain, imorphtime):
+def _emit_oscillator(oi, chain, imorphtime, nmodes=None):
     """One oscillator (index `oi`, 0..2) from its technique chain -> (body_lines,
     out_var). >=2 stages -> a morph, choosing the path by stage kind:
       - a PURE vowel sweep (>=2 voice stages, no silence) -> _emit_voice_morph, the
@@ -750,16 +1070,20 @@ def _emit_oscillator(oi, chain, imorphtime):
     if len(chain) >= 2:
         real = [k for k in chain if k not in ("silence", "zero")]
         has_silence = any(k in ("silence", "zero") for k in chain)
-        if any(k in _NOISE_TECH for k in chain):
-            body = _emit_crossfade_morph(chain, imorphtime, tag)
+        if any(k in _NOISE_TECH or k in _MODAL_TECH or k in _LIVE_TECH
+               or _MORPH_SPECTRUM.get(k) in _SUBFUND_SPECTRA for k in chain):
+            # noise, modal AND live-opcode stages cannot live in the additive
+            # partial bank: render each stage real (noise / mode bank / its own
+            # live idiom) and crossfade.
+            body = _emit_crossfade_morph(chain, imorphtime, tag, nmodes)
         elif real and all(k in _VOICE_TECH for k in real) and len(real) >= 2 and not has_silence:
             body = _emit_voice_morph(chain, imorphtime, tag)   # pure vowel sweep
         elif any(k in _VOICE_TECH for k in real):
-            body = _emit_crossfade_morph(chain, imorphtime, tag)  # voice+silence / voice+tonal
+            body = _emit_crossfade_morph(chain, imorphtime, tag, nmodes)  # voice+silence / voice+tonal
         else:
             body = _emit_morph(chain, imorphtime, tag)
     if body is None:
-        body = _emit_steady(chain[0] if chain else "sine", tag)
+        body = _emit_steady(chain[0] if chain else "sine", tag, nmodes)
     return body, f"aosc{tag}"
 
 
@@ -802,7 +1126,12 @@ _ADJ_MAP = {
     "sharp":      [("BRIGHT", 0.85)],
     "round":      [("DARK", 2200)],
     "cold":       [("BRIGHT", 0.60)],
-    "dirty":      [("DIRT", (2.6, 0.70))],
+    # lexicon `why`: "a grimy per-frame SCATTER — deterministic amplitude+phase
+    # jitter …, NOT a static upper-mid tilt". So dirty is NOT the frozen `distorted`
+    # waveshaper it used to share: it gets its own GRIME op whose drive JITTERS, so
+    # the harmonics keep re-scattering. (In the wavetable paradigm the scatter was
+    # per-station; the csound-code equivalent is continuous k-rate jitter.)
+    "dirty":      [("GRIME", (2.6, 0.70))],
     "clean":      [("DARK", 6000)],
     "aggressive": [("DIRT", (2.8, 0.70)), ("BRIGHT", 0.50)],
     "gentle":     [("DARK", 1700)],
@@ -856,6 +1185,8 @@ def _emit_adjectives(adjective_keys):
                 acc[name] = max(acc[name], val)
             elif name == "DIRT":
                 acc[name] = val if val[0] > acc[name][0] else acc[name]   # stronger drive
+            elif name == "GRIME":
+                acc[name] = val if val[0] > acc[name][0] else acc[name]   # grimier scatter
             elif name == "FORMANT":
                 acc[name] = val if val[1] > acc[name][1] else acc[name]   # stronger bump
     if not acc:
@@ -891,13 +1222,41 @@ def _emit_adjectives(adjective_keys):
     if "DIRT" in acc:
         k, g = acc["DIRT"]
         L.append(f"  asig     = tanh(asig * {k:.2f}) * {g:.2f}    ; dirt / overdrive (real harmonics)")
+    if "GRIME" in acc:
+        # `dirty` per lexicon = a grimy SCATTER, not a static tilt: the waveshaper
+        # drive JITTERS (fast interpolated random), so the generated harmonics keep
+        # re-scattering instead of freezing into one fixed distortion. A static tanh
+        # measurably made the sound DEADER than dry (liveliness 3.16 vs 4.07) —
+        # saturation flattens variation, so "dirty" removed life instead of adding
+        # it (tools/csound_liveliness_gate.py, 2026-07-18).
+        k, g = acc["GRIME"]
+        L.append(f"  kgrm     randi 0.45, 11, 2              ; grime scatter (jittering drive)")
+        L.append(f"  asig     = tanh(asig * ({k:.2f} * (1 + kgrm))) * {g:.2f}  ; dirty = moving grime")
     if "AIR" in acc:
         L.append("  anzr     rand 0.35")
         L.append("  aair     atone anzr, 5000")
         L.append(f"  asig     = asig + aair * {acc['AIR']:.2f}       ; breath / air noise")
     if "DRIFT" in acc:
+        # lexicon `why` for analog: "slow coherent drift — amplitude wobble + a tiny
+        # analog micro-DETUNE". Only the wobble existed; the detune was missing, so
+        # `analog` measured no livelier than dry. The detune is done the standard
+        # way for a mixed bus: a slowly wandering fractional delay (vdelay3) REPLACES
+        # the signal (replacing, not mixing, so it micro-detunes instead of combing).
         L.append(f"  adrf     oscili {acc['DRIFT']:.3f}, 0.7")
-        L.append("  asig     = asig * (1 + adrf)         ; slow analog drift")
+        L.append("  asig     = asig * (1 + adrf)         ; slow analog drift (amplitude wobble)")
+        # micro-detune size: the pitch offset is -d(delay)/dt, so for a delay
+        # A*sin(2*pi*f*t) the peak offset is 2*pi*f*A. Two incommensurate slow LFOs
+        # (2.5 ms @ 0.13 Hz -> 3.5 cents, 1.5 ms @ 0.31 Hz -> 5.1 cents) sum to a
+        # never-repeating wander of ~8 cents peak: audible as analog instability,
+        # still "a TINY micro-detune" per the lexicon. DETERMINISTIC on purpose --
+        # `randi` drew a fresh path per run, so the same patch detuned by 6.2 cents
+        # once and 2.0 the next time (measured), which is both an unstable sound and
+        # an unfalsifiable test. MEASURED, not assumed (tools/csound_liveliness_
+        # gate.py tracks f0): +-0.55 ms @ 0.31 Hz gave 0.07% and +-2.5 ms @ 0.6 Hz
+        # only 2.2 cents — both below audibility.
+        L.append("  kdt1     oscili 2.5, 0.13            ; slow tuning wander (~3.5 cents)")
+        L.append("  kdt2     oscili 1.5, 0.31            ; second, incommensurate (~5 cents)")
+        L.append("  asig     vdelay3 asig, 10 + kdt1 + kdt2, 40 ; analog micro-detune")
     return "\n".join(L)
 
 
@@ -996,6 +1355,7 @@ def build_orchestra(technique_keys=None, adjective_keys=None, motion_key=None,
     adjective_keys = [k for k in (adjective_keys or []) if k]
     imorphtime = float(morph_sec) if morph_sec else DEFAULT_MORPH_SEC
     oscs = _normalize_oscs(technique_keys, oscs)
+    nmodes = _modal_budget(oscs)   # thin modal banks to fit the block budget
 
     # emit each oscillator (tagged, collision-free) and build the weighted mix.
     # The mix gain is 1/max(1, sum_vol): per-osc vol is a RELATIVE weight, so
@@ -1007,7 +1367,7 @@ def build_orchestra(technique_keys=None, adjective_keys=None, motion_key=None,
     sum_vol = sum(o["vol"] for o in oscs) or 1.0
     mgain = 1.0 / max(1.0, sum_vol)
     for oi, o in enumerate(oscs):
-        body, outv = _emit_oscillator(oi, o["chain"], imorphtime)
+        body, outv = _emit_oscillator(oi, o["chain"], imorphtime, nmodes)
         bodies.append(body)
         w = o["vol"] * mgain
         if abs(w - 1.0) < 1e-6:
