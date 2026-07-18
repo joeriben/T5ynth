@@ -62,6 +62,10 @@ _SPECTRA = {
     "pulse":    [(1.00, 1.00), (2.00, 0.80), (3.00, 0.60), (4.00, 0.45), (5.00, 0.33), (6.00, 0.24)],
     "cheby":    [(1.00, 1.00), (2.00, 0.50), (3.00, 0.35), (4.00, 0.22), (5.00, 0.12)],
     "fm":       [(1.00, 1.00), (2.00, 0.60), (3.00, 0.40), (4.00, 0.28), (5.00, 0.18), (6.00, 0.10)],
+    # morph-to-zero endpoint: all-amplitude-0. A chain "<x> > silence" fades every
+    # partial of x to nothing over the morph leg -> a clean transient / pseudo-env
+    # (the ONE amplitude shaping BJ authorized, 2026-07-18). norm() guards sum==0.
+    "zero":     [(1.00, 0.00)],
 }
 
 # technique key -> which _SPECTRA entry represents it as a MORPH endpoint (a
@@ -80,6 +84,7 @@ _MORPH_SPECTRUM = {
     "triangle": "triangle",
     "pwm": "pulse",
     "cheby": "cheby",
+    "silence": "zero", "zero": "zero",   # morph-to-zero transient terminal
 }
 _DEFAULT_MORPH_SPECTRUM = "additive"   # a morph endpoint with no reading falls here
 
@@ -99,6 +104,16 @@ _CS_TECH_EXTRA = {
     },
 }
 
+# Validation-ONLY chain terminals: accepted by the closed-enum guard if the 7B
+# emits them, but deliberately NOT listed as pickable techniques in the catalogue
+# (listing "silence" as a technique made the 7B treat it as a standalone
+# oscillator — "OSC1: silence" — or append it to sustained drones/pads; corpus
+# regression 2026-07-18). The 7B learns silence ONLY from the explicit SILENCE
+# RULE + worked example in _CS_SYSTEM_PROMPT_HEAD, where its scope is constrained.
+_CS_TERMINALS = {
+    "silence": ["silence", "zero", "nothing", "silent"],
+}
+
 # pwm names a MOVING DUTY on a pulse wave, not a wave in its own right: when the
 # 7B lists it in a morph chain beside a pulse-family wave ("pwm > square"), the
 # intent is a pwm'd square (one moving-duty tone), not a near-static pulse->pulse
@@ -106,15 +121,140 @@ _CS_TECH_EXTRA = {
 _PULSE_FAMILY = {"square", "pulse", "chiptune", "clarinet"}
 
 
-def _reading(technique_keys, adjective_keys, motion_key):
-    """Short human-readable interpretation for the UI card (mirrors the old
-    'reading' string). e.g. 'glass > sine morph, glassy' or 'pwm, distorted'."""
-    if len(technique_keys) >= 2:
-        head = " > ".join(technique_keys) + " morph"
-    elif technique_keys:
-        head = technique_keys[0]
+# ── csound-specific multi-oscillator LLM schema ──────────────────────────────
+# Up to THREE oscillators, each its own morph chain + volume; the whole sound has
+# adjectives + motion. This is a csound-OWNED schema (BJ 2026-07-18: "bis 3
+# oszillatoren, morph-ketten pro osc, vol pro osc"); it does NOT touch the shared
+# dco_llm_map._SYSTEM_PROMPT_HEAD (lco_author.py depends on that single-technique
+# format). The KEY LISTS still come from dco_llm_map._build_catalogue(lex_cs).
+_CS_MAX_NEW_TOKENS = 160   # 3 osc + vols + adjectives + motion (~8 short lines)
+_CS_SYSTEM_PROMPT_HEAD = (
+    "You translate a sound description into a small synthesizer patch of up to "
+    "THREE oscillators, choosing ONLY keys from the fixed catalogue below. You "
+    "never invent names or numbers.\n"
+    "Reply in EXACTLY this format and nothing else (omit OSC2/OSC3 lines if not "
+    "needed):\n"
+    "OSC1: <key> [> <key> ...]\n"
+    "VOL1: <number 0.0-1.0>\n"
+    "OSC2: <key> [> <key> ...]\n"
+    "VOL2: <number 0.0-1.0>\n"
+    "OSC3: <key> [> <key> ...]\n"
+    "VOL3: <number 0.0-1.0>\n"
+    "ADJECTIVES: <key>, <key>, ...\n"
+    "MOTION: <key>\n"
+    "Rules: use ONE oscillator for a simple sound; add OSC2/OSC3 only to LAYER or "
+    "detune (e.g. a fat saw stacked with a sub, or a bright bell over a warm pad). "
+    "Each OSC line is that layer's waveform/method; if it MORPHS from one sound "
+    "into another, list them in order separated by \" > \" (e.g. glass > sine). "
+    "VOLn is that layer's loudness (main layer 1.0, supporting layers less). "
+    "ADJECTIVES are timbral modifiers for the whole sound (or \"none\"). MOTION is "
+    "how the whole sound moves over time (or \"none\"). Match by MEANING even if "
+    "the wording differs. Use ONLY keys from the catalogue; if nothing in a "
+    "category fits, write \"none\".\n"
+    "SILENCE RULE: only for a sound that literally FADES OUT — a pluck, a stab, a "
+    "percussive hit, or a sound described as decaying / fading to nothing. Then "
+    "append \" > silence\" to that oscillator's chain AFTER at least one real "
+    "waveform (e.g. \"pulse > silence\", \"strings > silence\"). NEVER write "
+    "\"silence\" by itself, and NEVER append silence to a SUSTAINED sound — a "
+    "drone, pad, lead, organ or held note keeps ringing and must not end in "
+    "silence.\n"
+    "Example — a plucked, percussive tone that fades to nothing:\n"
+    "OSC1: pulse > silence\n"
+    "VOL1: 1.0\n"
+    "ADJECTIVES: bright\n"
+    "MOTION: none\n"
+    "CATALOGUE:\n"
+)
+
+import re as _re
+_CS_OSC_RE = _re.compile(r'(?i)^OSC\s*(\d+)\s*:\s*(.*)$')
+_CS_TECH_RE = _re.compile(r'(?i)^TECHNIQUE\s*:\s*(.*)$')   # legacy single-osc reply
+_CS_VOL_RE = _re.compile(r'(?i)^VOL\s*(\d+)\s*:\s*(.*)$')
+_CS_ADJ_RE = _re.compile(r'(?i)^ADJECTIVES?\s*:\s*(.*)$')
+_CS_MOT_RE = _re.compile(r'(?i)^MOTION\s*:\s*(.*)$')        # singular only (not the MOTIONS catalogue header)
+
+
+def _parse_csound_reply(raw):
+    """Parse the multi-osc reply -> (oscs, adjectives_raw, motion_raw) where oscs
+    is an ORDERED list of (chain_raw_string, vol_float). Tolerant: a legacy
+    'TECHNIQUE:' line is read as OSC1; a missing VOLn defaults to 1.0; last
+    occurrence of a label wins (a model that echoes the format before answering).
+    Empty / 'none' oscillator lines are dropped."""
+    osc_chains, osc_vols = {}, {}
+    adjectives_raw, motion_raw = "", ""
+    for line in (raw or "").splitlines():
+        s = line.strip().lstrip("-*• \t")
+        m = _CS_OSC_RE.match(s)
+        if m:
+            osc_chains[int(m.group(1))] = m.group(2).strip()
+            continue
+        m = _CS_TECH_RE.match(s)
+        if m:
+            osc_chains[1] = m.group(1).strip()   # legacy single-technique reply == OSC1
+            continue
+        m = _CS_VOL_RE.match(s)
+        if m:
+            try:
+                osc_vols[int(m.group(1))] = float(m.group(2).strip().split()[0])
+            except (ValueError, IndexError):
+                pass
+            continue
+        m = _CS_ADJ_RE.match(s)
+        if m:
+            adjectives_raw = m.group(1).strip()
+            continue
+        m = _CS_MOT_RE.match(s)
+        if m:
+            motion_raw = m.group(1).strip()
+            continue
+    oscs = []
+    for idx in sorted(osc_chains):
+        chain = osc_chains[idx]
+        if not chain or chain.lower() == "none":
+            continue
+        oscs.append((chain, osc_vols.get(idx, 1.0)))
+    return oscs, adjectives_raw, motion_raw
+
+
+def _strip_nonterminal_silence(chain):
+    """silence/zero is authorized ONLY as a chain's TERMINAL stage — a morph-to-
+    zero fade-OUT (the one sanctioned amplitude shaping, BJ 2026-07-18). A leading
+    or middle silence would make _emit_morph ramp partial amplitudes UP from zero
+    = an unauthorized fade-IN ATTACK envelope, which the synth (JUCE ADSR) owns.
+    So drop any silence/zero token that is not the last element (adversarial
+    review finding, 2026-07-18: "silence > saw" emitted a 1.4 s attack swell)."""
+    n = len(chain)
+    return [k for i, k in enumerate(chain)
+            if k not in ("silence", "zero") or i == n - 1]
+
+
+def _validate_osc_chain(chain_raw, tcanon, dco_llm_map):
+    """One OSC line's raw chain string -> a validated list of technique keys.
+    ">" = morph chain (keep every valid stage, ordered); a bare comma list is one
+    compound technique -> first valid key. Enforces terminal-only silence and the
+    pwm/pulse-family collapse."""
+    if ">" in chain_raw:
+        keys, flags = dco_llm_map._validate_keys(chain_raw.split(">"), tcanon)
     else:
-        head = "sine"
+        valid, flags = dco_llm_map._validate_keys(chain_raw.split(","), tcanon)
+        keys = valid[:1]
+    keys = _strip_nonterminal_silence(keys)
+    if "pwm" in keys and all(k == "pwm" or k in _PULSE_FAMILY for k in keys):
+        keys = ["pwm"]
+    return keys, flags
+
+
+def _reading(oscs, adjective_keys, motion_key):
+    """Short human-readable interpretation for the UI card. Multi-osc: each layer
+    is 'a > b' (morph) or 'a'; layers joined with ' + '. e.g.
+    'saw + sub_sine · warm ~evolve' or 'glass > sine · glassy'."""
+    def osc_str(o):
+        chain = o["chain"]
+        if len(chain) >= 2:
+            return " > ".join(chain)
+        return chain[0] if chain else "sine"
+    heads = [osc_str(o) for o in oscs] or ["sine"]
+    head = " + ".join(heads)
     bits = [head]
     if adjective_keys:
         bits.append(", ".join(adjective_keys))
@@ -123,71 +263,79 @@ def _reading(technique_keys, adjective_keys, motion_key):
     return " · ".join(bits)
 
 
-# ── per-technique synthesis: each returns Csound lines producing `asig` from
-#    `kfreq` (the limited freq channel). Standing tones (hold while gate open). ──
+# ── per-technique synthesis: each returns Csound lines producing the oscillator
+#    signal `aosc<tag>` from `kfreq`. `tag` (the osc index "0"/"1"/"2") suffixes
+#    EVERY generated symbol so up to three oscillators coexist in one `instr 1`
+#    with no variable collision. Standing tones (hold while gate open). ──
 
-def _emit_steady(technique, adjective_keys):
-    """A single (non-morph) technique -> `asig`. Uses Csound's native opcodes."""
+def _emit_steady(technique, tag="0"):
+    """A single (non-morph) technique -> `aosc<tag>`. Uses Csound's native
+    opcodes; every temporary is suffixed with `tag` (per-osc uniqueness)."""
+    ov = f"aosc{tag}"
     L = []
     if technique == "pwm":
         # classic PWM: band-limited pulse whose DUTY moves (square 50% -> thin
         # 8% -> back), a genuinely moving spectrum. kpw is the pulse width.
-        L.append("  klfo     oscili 0.5, 0.25            ; -0.5..0.5, 4 s period")
-        L.append("  kpw      = 0.29 + 0.21 * (klfo + 0.5) ; duty 0.08..0.50..0.08")
-        L.append("  asig     vco2 0.6, kfreq, 2, kpw     ; imode 2 = pulse, kpw = width")
+        L.append(f"  klfo{tag}    oscili 0.5, 0.25            ; -0.5..0.5, 4 s period")
+        L.append(f"  kpw{tag}     = 0.29 + 0.21 * (klfo{tag} + 0.5) ; duty 0.08..0.50..0.08")
+        L.append(f"  {ov}    vco2 0.6, kfreq, 2, kpw{tag}     ; imode 2 = pulse, kpw = width")
     elif technique in ("square", "clarinet", "chiptune", "pulse"):
-        L.append("  asig     vco2 0.6, kfreq, 2, 0.5     ; square (50%% pulse)")
+        L.append(f"  {ov}    vco2 0.6, kfreq, 2, 0.5     ; square (50%% pulse)")
     elif technique == "triangle":
         # vco2 imode 4 renders SILENT on this Csound build (the triangle band-
         # limited table is not pre-generated). Use the additive triangle (odd
         # harmonics ~1/n^2) -- band-limited by construction, guaranteed to sound.
-        L.append(_emit_additive(_SPECTRA["triangle"], gain=0.6))
+        L.append(_emit_additive(_SPECTRA["triangle"], gain=0.6, tag=tag))
     elif technique in ("saw", "supersaw", "brass", "strings", "bass_saw", "sync"):
-        L.append("  asig     vco2 0.6, kfreq, 0          ; band-limited sawtooth")
+        L.append(f"  {ov}    vco2 0.6, kfreq, 0          ; band-limited sawtooth")
     elif technique in ("fm_bell", "fm", "fm_ep", "metallic_fm", "sync"):
         # FM via foscili: an inharmonic-ish carrier:modulator ratio gives the
         # bell/metal sideband spectrum natively (no partial table).
         car, mod, ndx = ("1", "1.41", "3.2") if technique in ("fm_bell", "metallic_fm") else ("1", "2", "1.8")
-        L.append(f"  asig     foscili 0.5, kfreq, {car}, {mod}, {ndx}, giSine ; FM (foscili)")
+        L.append(f"  {ov}    foscili 0.5, kfreq, {car}, {mod}, {ndx}, giSine ; FM (foscili)")
     elif technique == "cheby":
         # Chebyshev/tanh waveshaping of a sine = polynomial harmonics (real
         # waveshaper, the substrate doing dirt natively).
-        L.append("  adrv     oscili 0.9, kfreq")
-        L.append("  asig     = tanh(adrv * 3.0) * 0.5    ; waveshaper harmonics")
+        L.append(f"  adrv{tag}    oscili 0.9, kfreq")
+        L.append(f"  {ov}    = tanh(adrv{tag} * 3.0) * 0.5    ; waveshaper harmonics")
     else:
-        # sine / additive / theremin / sub_sine / flute / organ and anything not
-        # given a bespoke idiom yet: render its spectrum additively (real oscils
-        # at true ratios), defaulting to a pure sine.
+        # sine / additive / theremin / sub_sine / flute / organ / glass and
+        # anything not given a bespoke idiom yet: render its spectrum additively
+        # (real oscils at true ratios), defaulting to a pure sine.
         spec = _SPECTRA.get(_MORPH_SPECTRUM.get(technique, "sine"), _SPECTRA["sine"])
-        L.append(_emit_additive(spec, gain=0.6))
+        L.append(_emit_additive(spec, gain=0.6, tag=tag))
     return "\n".join(L)
 
 
-def _emit_additive(spectrum, gain=0.6):
-    """A static additive bank: one `oscili` per partial at kfreq*ratio. LEGITIMATE
-    here (a genuinely inharmonic tone summed at its true partial frequencies is
-    what Csound additive synthesis is for) — the regression's sin was using this
-    for EVERYTHING incl. pwm/FM/dirt, not additive per se."""
+def _emit_additive(spectrum, gain=0.6, tag="0"):
+    """A static additive bank -> `aosc<tag>`: one `oscili` per partial at
+    kfreq*ratio (partials named `a<tag>p<i>`). LEGITIMATE here (a genuinely
+    inharmonic tone summed at its true partial frequencies is what Csound additive
+    synthesis is for) — the regression's sin was using this for EVERYTHING incl.
+    pwm/FM/dirt, not additive per se."""
     lines = []
     total = sum(a for _, a in spectrum) or 1.0
     scale = gain / total
     terms = []
     for i, (ratio, amp) in enumerate(spectrum):
-        lines.append(f"  ap{i:<2d}     oscili {amp*scale:.4f}, kfreq * {ratio:.4f}")
-        terms.append(f"ap{i}")
-    lines.append("  asig     = " + " + ".join(terms))
+        lines.append(f"  a{tag}p{i:<2d}   oscili {amp*scale:.4f}, kfreq * {ratio:.4f}")
+        terms.append(f"a{tag}p{i}")
+    lines.append(f"  aosc{tag}    = " + " + ".join(terms))
     return "\n".join(lines)
 
 
-def _emit_morph(technique_keys, imorphtime):
-    """A genuine spectral MORPH between two idioms: ONE additive bank whose
-    per-partial amplitudes AND frequency ratios travel A->B over `imorphtime`,
-    (re)started per note off the trig epoch. This is NOT two instances crossfaded
-    (that beats/cancels and plays both at once) — it is the SAME oscillators with
-    moving parameters, so the spectrum genuinely transforms. Multi-stage chains
-    (a > b > c) split the time into equal legs via one linseg across stages."""
-    # resolve each technique key to a spectrum reading; drop any endpoint we have
-    # no spectral reading for (a morph needs both endpoints as spectra).
+def _emit_morph(technique_keys, imorphtime, tag="0"):
+    """A genuine spectral MORPH between idioms -> `aosc<tag>`: ONE additive bank
+    whose per-partial amplitudes AND frequency ratios travel A->B over
+    `imorphtime`, (re)started per note off the trig epoch. This is NOT two
+    instances crossfaded (that beats/cancels and plays both at once) — it is the
+    SAME oscillators with moving parameters, so the spectrum genuinely transforms.
+    Multi-stage chains (a > b > c) split the time into equal legs via one linseg
+    across stages. A `silence`/`zero` terminal fades every partial to 0 (a clean
+    transient / pseudo-env). Every symbol is suffixed with `tag` and the reinit
+    label is `Lmorph<tag>`, so oscillators never collide."""
+    # resolve each technique key to a spectrum reading; unknown endpoint -> the
+    # additive default (a morph NEVER silently collapses to a steady tone).
     stages = []
     for k in technique_keys:
         sk = _MORPH_SPECTRUM.get(k, _DEFAULT_MORPH_SPECTRUM)
@@ -208,7 +356,8 @@ def _emit_morph(technique_keys, imorphtime):
         aligned.append(padded)
 
     # normalize each stage's gain to a common budget so loudness stays ~constant
-    # across the morph (a spectral morph must not read as a volume change).
+    # across the morph (a spectral morph must not read as a volume change). A
+    # zero/silence stage sums to 0 -> guarded to 1.0 -> amps stay 0 (fade-out).
     def norm(stage):
         tot = sum(a for _, a in stage) or 1.0
         return [(r, a / tot) for r, a in stage]
@@ -217,12 +366,13 @@ def _emit_morph(technique_keys, imorphtime):
     nlegs = len(stages) - 1
     leg = imorphtime / nlegs
 
+    lbl = f"Lmorph{tag}"
     L = []
-    L.append("  ; --- per-note spectral morph (trig-epoch reinit; spectral, NOT amp env) ---")
+    L.append(f"  ; --- osc {tag}: per-note spectral morph (trig-epoch reinit; spectral, NOT amp env) ---")
     L.append("  if changed2(ktrig) == 1 then")
-    L.append("    reinit Lmorph")
+    L.append(f"    reinit {lbl}")
     L.append("  endif")
-    L.append("Lmorph:")
+    L.append(f"{lbl}:")
     terms = []
     for i in range(n):
         # ONE linseg per partial through every stage's value, equal legs. linseg
@@ -232,13 +382,26 @@ def _emit_morph(technique_keys, imorphtime):
         amps += f", {aligned[nlegs][i][1]:.4f}"
         rats = ", ".join(f"{aligned[j][i][0]:.4f}, {leg:.4f}" for j in range(nlegs))
         rats += f", {aligned[nlegs][i][0]:.4f}"
-        L.append(f"  ka{i:<2d}     linseg {amps}")
-        L.append(f"  kr{i:<2d}     linseg {rats}")
-        L.append(f"  ap{i:<2d}     oscili ka{i} * 0.6, kfreq * kr{i}")
-        terms.append(f"ap{i}")
+        L.append(f"  k{tag}a{i:<2d}   linseg {amps}")
+        L.append(f"  k{tag}r{i:<2d}   linseg {rats}")
+        L.append(f"  a{tag}p{i:<2d}   oscili k{tag}a{i} * 0.6, kfreq * k{tag}r{i}")
+        terms.append(f"a{tag}p{i}")
     L.append("  rireturn")
-    L.append("  asig     = " + " + ".join(terms))
+    L.append(f"  aosc{tag}    = " + " + ".join(terms))
     return "\n".join(L)
+
+
+def _emit_oscillator(oi, chain, imorphtime):
+    """One oscillator (index `oi`, 0..2) from its technique chain -> (body_lines,
+    out_var). >=2 stages -> a spectral morph; otherwise a steady technique. The
+    out_var is `aosc<oi>`, mixed by build_orchestra."""
+    tag = str(oi)
+    body = None
+    if len(chain) >= 2:
+        body = _emit_morph(chain, imorphtime, tag)
+    if body is None:
+        body = _emit_steady(chain[0] if chain else "sine", tag)
+    return body, f"aosc{tag}"
 
 
 def _emit_adjectives(adjective_keys):
@@ -293,21 +456,80 @@ def _emit_motion(motion_key):
     return ""
 
 
-def build_orchestra(technique_keys, adjective_keys, motion_key, morph_sec=None):
-    """keys -> (orchestra_text, reading). technique_keys is a list (>=2 => morph
-    chain). Deterministic. The returned text carries `sr = %SR%` for the engine
-    to substitute at its real rate."""
-    technique_keys = [k for k in (technique_keys or []) if k]
+def _normalize_oscs(technique_keys, oscs):
+    """Resolve the two call conventions to a clean list of up to 3 oscillator
+    specs [{chain:[keys], vol:float}]. Back-compat: a bare technique_keys list is
+    one oscillator at vol 1.0 (byte-for-byte the pre-M2 single-osc emission).
+    An oscillator whose chain is ONLY silence produces nothing and is dropped; if
+    every osc drops, fall back to a single sine so the orchestra is never empty."""
+    if oscs is None:
+        oscs = [{"chain": list(technique_keys or []), "vol": 1.0}]
+    out = []
+    for o in oscs:
+        chain = [k for k in (o.get("chain") or []) if k]
+        # silence only as a terminal fade-out (never a leading/middle fade-in).
+        chain = _strip_nonterminal_silence(chain)
+        if not chain:
+            chain = ["sine"]
+        if all(k in ("silence", "zero") for k in chain):
+            continue  # an all-silent oscillator adds nothing
+        try:
+            vol = float(o.get("vol", 1.0))
+        except (TypeError, ValueError):
+            vol = 1.0
+        out.append({"chain": chain, "vol": max(0.0, min(1.0, vol))})
+        if len(out) == 3:
+            break
+    # positive-weight floor: a muted supporting layer (vol~0) is dropped when some
+    # other layer is audible; if EVERY layer is muted (a VOL 0.0 / negative the 7B
+    # emitted -- an in-range but degenerate volume), the mix would be dead silent
+    # and shipped as ok=True (adversarial review, fundamental-3 violation). Play
+    # the timbres the model chose at unity instead of emitting a silent instrument.
+    audible = [o for o in out if o["vol"] > 1e-4]
+    if audible:
+        out = audible
+    elif out:
+        for o in out:
+            o["vol"] = 1.0
+    if not out:
+        out = [{"chain": ["sine"], "vol": 1.0}]
+    return out
+
+
+def build_orchestra(technique_keys=None, adjective_keys=None, motion_key=None,
+                    morph_sec=None, oscs=None):
+    """keys -> (orchestra_text, reading). Two conventions:
+      * single osc: technique_keys is a list (>=2 => morph chain), vol implied 1.0
+      * up to 3 osc: oscs=[{chain:[keys], vol:float}, ...] (each its own morph
+        chain + volume; a chain may end in `silence` for a morph-to-zero transient)
+    Deterministic. The returned text carries `sr = %SR%` for the engine to
+    substitute at its real rate."""
     adjective_keys = [k for k in (adjective_keys or []) if k]
     imorphtime = float(morph_sec) if morph_sec else DEFAULT_MORPH_SEC
+    oscs = _normalize_oscs(technique_keys, oscs)
 
-    # synthesis body -> asig
-    body = None
-    if len(technique_keys) >= 2:
-        body = _emit_morph(technique_keys, imorphtime)
-    if body is None:
-        tk = technique_keys[0] if technique_keys else "sine"
-        body = _emit_steady(tk, adjective_keys)
+    # emit each oscillator (tagged, collision-free) and build the weighted mix.
+    # The mix gain is 1/max(1, sum_vol): per-osc vol is a RELATIVE weight, so
+    # overall loudness stays ~constant as layers are added (a "sensible overall
+    # mix" -- adding a layer enriches the timbre without a loudness jump), and a
+    # single osc at vol 1.0 is unchanged (gain 1.0). HEADROOM still bounds it.
+    bodies = []
+    mix_terms = []
+    sum_vol = sum(o["vol"] for o in oscs) or 1.0
+    mgain = 1.0 / max(1.0, sum_vol)
+    for oi, o in enumerate(oscs):
+        body, outv = _emit_oscillator(oi, o["chain"], imorphtime)
+        bodies.append(body)
+        w = o["vol"] * mgain
+        if abs(w - 1.0) < 1e-6:
+            mix_terms.append(outv)
+        else:
+            mix_terms.append(f"{w:.4f} * {outv}")
+    body = "\n".join(bodies)
+    # collapse the per-osc outputs into `asig` (what adjectives/motion/tail read).
+    # Single unit-weight osc -> `asig = aosc0` (one a-rate copy, sound identical
+    # to pre-M2); multi-osc -> the weighted sum.
+    mix = "  asig     = " + " + ".join(mix_terms)
 
     adj = _emit_adjectives(adjective_keys)
     mot = _emit_motion(motion_key)
@@ -347,23 +569,26 @@ def build_orchestra(technique_keys, adjective_keys, motion_key, morph_sec=None):
     score = "".join(f"i 1 0 360000 {v}\n" for v in range(1, NCHNLS + 1))
     score += "e 360000\n</CsScore>\n</CsoundSynthesizer>\n"
 
-    parts = [head, body]
+    parts = [head, body, mix]
     if adj:
         parts.append(adj)
     if mot:
         parts.append(mot)
     orchestra = "\n".join(p for p in parts if p) + tail + score
-    return orchestra, _reading(technique_keys, adjective_keys, motion_key)
+    return orchestra, _reading(oscs, adjective_keys, motion_key)
 
 
 def build_csound_response(text, llm):
     """Prompt -> live Csound orchestra, the REAL pipeline entry (pipe_inference
-    mode=="csound" calls this). Reuses the restored language-understanding layer
-    UNCHANGED: one 7B instruct call routes the whole prompt to closed-enum
-    lexicon keys (technique incl. a "a > b" morph chain, adjectives, motion) via
-    dco_llm_map's own catalogue + parser + injection guard; build_orchestra then
-    renders those keys as real Csound idioms. LLM-first, no fallback: if nothing
-    maps, return an honest ok=false rather than a junk tone.
+    mode=="csound" calls this). One 7B instruct call routes the whole prompt to
+    closed-enum keys under the csound-OWNED multi-oscillator schema (up to 3
+    oscillators, each its own "a > b" morph chain + volume, a chain may end in
+    `silence` for a morph-to-zero transient; plus whole-sound adjectives + motion).
+    The KEY LISTS are the shared lexicon catalogue (dco_llm_map._build_catalogue)
+    plus the csound-local technique extension; validation reuses dco_llm_map's
+    closed-enum injection guard. build_orchestra then renders the oscillators as
+    real Csound idioms. LLM-first, no fallback: if nothing maps, return an honest
+    ok=false rather than a junk tone.
 
     ``llm`` is the caller-injected ``(text, system_prompt, max_new_tokens) ->
     str`` callable (same convention as dco_llm_map / dco_recipe). Returns the
@@ -392,51 +617,66 @@ def build_csound_response(text, llm):
             for k, m in _CS_TECH_EXTRA.items()
         ]
         tcanon = _canon(lex_cs["techniques"])
+        # validation-only chain terminals (silence): accepted if the 7B emits them
+        # per the SILENCE RULE, but never listed as a pickable catalogue technique.
+        for key, forms in _CS_TERMINALS.items():
+            tcanon[key] = key
+            for sf in forms:
+                tcanon[str(sf).strip().lower()] = key
         acanon = _canon(lexicon["adjectives"])
         mcanon = _canon(lexicon["motions"])
 
-        system_prompt = dco_llm_map._SYSTEM_PROMPT_HEAD + dco_llm_map._build_catalogue(lex_cs)
-        raw = llm(text, system_prompt, dco_llm_map._MAX_NEW_TOKENS)
+        # csound-OWNED multi-oscillator schema (up to 3 osc, each its own morph
+        # chain + volume); the key LISTS still come from the shared catalogue.
+        system_prompt = _CS_SYSTEM_PROMPT_HEAD + dco_llm_map._build_catalogue(lex_cs)
+        raw = llm(text, system_prompt, _CS_MAX_NEW_TOKENS)
 
-        # Parse like dco_llm_map._parse_and_validate, but tolerate the 7B listing
-        # a COMPOUND technique with commas: "pwm square wave" -> "TECHNIQUE: pwm,
-        # square" (a pwm'd square = ONE sound). The shared parser splits TECHNIQUE
-        # only on ">" (the morph operator), so it takes "pwm, square" as a single
-        # bogus key, drops BOTH and fails the whole prompt. Here ">" alone is a
-        # morph chain (ordered, keep every valid stage); a comma list is one
-        # compound technique -> take the first valid key. Adjective/motion parsing
-        # is identical to the shared parser (reused verbatim below).
-        technique_raw, adjectives_raw, motion_raw = dco_llm_map._parse_reply(raw)
-        if ">" in technique_raw:
-            technique_keys, tflags = dco_llm_map._validate_keys(technique_raw.split(">"), tcanon)
-        else:
-            _valid, tflags = dco_llm_map._validate_keys(technique_raw.split(","), tcanon)
-            technique_keys = _valid[:1]
-        # "pwm > square"/"pwm > pulse": pwm is a moving DUTY on a pulse wave, not a
-        # morph partner. Collapse a chain of pwm + pulse-family waves to the single
-        # pwm idiom (a genuinely moving square), not a near-static pulse->pulse
-        # morph. A real morph like "pwm > sine" (sine is not pulse-family) is kept.
-        if "pwm" in technique_keys and all(
-                k == "pwm" or k in _PULSE_FAMILY for k in technique_keys):
-            technique_keys = ["pwm"]
+        osc_specs, adjectives_raw, motion_raw = _parse_csound_reply(raw)
+
+        # validate each oscillator's chain independently (morph-chain / compound /
+        # pwm-collapse handled per osc), keep its volume; drop an osc that yields
+        # no valid key. Cap at 3 (the schema promises up to three).
+        oscs, flags = [], []
+        for chain_raw, vol in osc_specs[:3]:
+            keys, kflags = _validate_osc_chain(chain_raw, tcanon, dco_llm_map)
+            flags += kflags
+            # keep only oscillators with real content; an all-silence chain (the
+            # 7B emitting "silence" with no source) produces nothing -> drop it so
+            # the response's oscillator list matches what build_orchestra renders.
+            # Clamp vol to [0,1] here too so the reported metadata equals the mix.
+            if keys and not all(k in ("silence", "zero") for k in keys):
+                try:
+                    v = max(0.0, min(1.0, float(vol)))
+                except (TypeError, ValueError):
+                    v = 1.0
+                oscs.append({"chain": keys, "vol": v})
 
         adjective_keys, aflags = dco_llm_map._validate_keys(
             adjectives_raw.split(",") if adjectives_raw else [], acanon)
         _motion_keys, mflags = dco_llm_map._validate_keys(
             [motion_raw] if motion_raw else [], mcanon)
         motion_key = _motion_keys[0] if _motion_keys else None
-        flags = tflags + aflags + mflags
+        flags += aflags + mflags
 
-        if not technique_keys and not adjective_keys and not motion_key:
+        # LLM-first, no fallback: nothing mapped at all -> honest failure frame.
+        if not oscs and not adjective_keys and not motion_key:
             return {"ok": False,
                     "error": "no synthesis idiom matched the prompt"}
 
-        orchestra, reading = build_orchestra(technique_keys, adjective_keys, motion_key)
+        orchestra, reading = build_orchestra(oscs=oscs, adjective_keys=adjective_keys,
+                                             motion_key=motion_key)
+        # echo the oscillators as ACTUALLY rendered (post terminal-silence strip,
+        # vol clamp, muted-drop / unity-promotion) so the metadata never lies about
+        # what the orchestra plays.
+        rendered = _normalize_oscs(None, oscs)
         return {
             "ok": True,
             "orchestra": orchestra,
             "reading": reading,
-            "technique": technique_keys,
+            "oscillators": rendered,
+            # legacy fields (the first oscillator) so existing UI / tests that read
+            # technique/adjectives/motion keep working.
+            "technique": rendered[0]["chain"] if rendered else [],
             "adjectives": adjective_keys,
             "motion": motion_key,
             "flags": flags,

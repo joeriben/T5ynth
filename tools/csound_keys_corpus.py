@@ -50,6 +50,12 @@ CORPUS = [
     ("an evolving analog drone",                        {"sustain": "stand", "move": True}),
     ("a wobbling acid bass",                            {"sustain": "stand", "move": True}),
     ("a metallic bell morphing into a soft flute",      {"sustain": "stand", "move": True}),
+    # --- M2: multi-oscillator layering (should route OSC1 + OSC2/3) ---
+    ("a fat detuned saw stacked with a deep sub",       {"sustain": "stand", "move": False}),
+    ("a bright bell layered over a warm analog pad",    {"sustain": "stand", "move": False}),
+    # --- M2: morph-to-zero transient (should end a chain with 'silence') ---
+    ("a plucked string that quickly fades to nothing",  {"sustain": "transient", "move": True}),
+    ("a short percussive blip that decays to silence",  {"sustain": "transient", "move": True}),
 ]
 
 
