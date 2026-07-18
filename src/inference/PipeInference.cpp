@@ -299,6 +299,21 @@ bool PipeInference::tryRestart()
     return false;
 }
 
+juce::String PipeInference::handleStatusTimeout(const char* what)
+{
+    const bool alive = isChildAlive();
+    juce::Logger::writeToLog(juce::String("PipeInference: no status byte while waiting for ")
+                             + what + (alive ? " (child alive — restarting to resynchronise "
+                                               "the pipe)"
+                                             : " (subprocess died)"));
+    const bool restarted = tryRestart();
+    if (! alive)
+        return restarted ? "Inference crashed — restarted, try again"
+                         : "Inference crashed — restart failed";
+    return restarted ? juce::String("Timeout waiting for ") + what + " — backend restarted"
+                     : juce::String("Timeout waiting for ") + what + " — restart failed";
+}
+
 bool PipeInference::launch(const juce::File& backendDir)
 {
     const std::lock_guard<std::recursive_mutex> lock(stateMutex_);
@@ -1059,14 +1074,7 @@ PipeInference::TranslateResult PipeInference::translate(const juce::String& text
     char status = 0;
     if (!readExact(&status, 1, 180000))
     {
-        if (!isChildAlive())
-        {
-            juce::Logger::writeToLog("PipeInference: subprocess died during translate");
-            tryRestart();
-            result.errorMessage = "Inference crashed — restarted, try again";
-        }
-        else
-            result.errorMessage = "Timeout waiting for translation";
+        result.errorMessage = handleStatusTimeout("translation");
         return result;
     }
 
@@ -1170,14 +1178,7 @@ PipeInference::InterpretResult PipeInference::interpret(const juce::String& syst
     char status = 0;
     if (!readExact(&status, 1, 180000))
     {
-        if (!isChildAlive())
-        {
-            juce::Logger::writeToLog("PipeInference: subprocess died during interpret");
-            tryRestart();
-            result.errorMessage = "Inference crashed — restarted, try again";
-        }
-        else
-            result.errorMessage = "Timeout waiting for interpretation";
+        result.errorMessage = handleStatusTimeout("interpretation");
         return result;
     }
 
@@ -1278,14 +1279,7 @@ PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juc
     char status = 0;
     if (!readExact(&status, 1, 180000))
     {
-        if (!isChildAlive())
-        {
-            juce::Logger::writeToLog("PipeInference: subprocess died during csound authoring");
-            tryRestart();
-            result.errorMessage = "Inference crashed — restarted, try again";
-        }
-        else
-            result.errorMessage = "Timeout waiting for Csound orchestra";
+        result.errorMessage = handleStatusTimeout("the Csound orchestra");
         return result;
     }
 

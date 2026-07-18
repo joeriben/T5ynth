@@ -238,5 +238,16 @@ private:
     bool writeExact(const void* src, int numBytes);
     bool tryRestart();
 
+    /** Common handling for "the status byte never came". Returns the message to
+     *  report. A dead child is restarted, as before; a LIVE child that missed
+     *  its deadline is restarted too, because the request is still in flight and
+     *  its reply frame will arrive into a pipe nobody is reading — the next
+     *  request would then consume that stale status byte and every later
+     *  response would be off by one frame. There is no drain path: once the
+     *  deadline has passed we cannot know how much is pending, so re-establishing
+     *  a known-good pipe is the only honest resynchronisation.
+     *  @param what  what was being waited for, for the log and the message. */
+    juce::String handleStatusTimeout(const char* what);
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PipeInference)
 };
