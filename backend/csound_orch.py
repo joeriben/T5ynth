@@ -1600,23 +1600,57 @@ def _emit_adjectives(adjective_keys):
     return "\n".join(L)
 
 
-def _emit_motion(motion_key):
+# Techniques whose spectrum is SPARSE enough that a filter sweep has nothing to
+# work on: at most a fundamental plus one or two weak partials. These are exactly
+# the sources for which the waveshaper below is both necessary AND harmless (see
+# _emit_motion's docstring for the measurement that splits the two families).
+_SPARSE_TECH = {"sine", "sub_sine", "theremin", "flute", "triangle"}
+
+
+def _emit_motion(motion_key, oscs=None):
     """A k-rate motion so 'moving' prompts actually move (movement by default).
 
-    The spectral family (sweep/evolve/open_up/close/breathe/wobble/cycle) drives
-    an LFO-swept waveshaper: the drive continuously grows and retracts upper
-    harmonics, so the spectrum opens and closes over time on ANY source — a pure
-    sine or sub bass included. The earlier idiom was a lowpass cutoff sweep, which
-    is INAUDIBLE on a spectrally-poor source (nothing above the cutoff to remove);
-    the frozen NL corpus caught 'evolving analog drone', 'wobbling acid bass' and
-    'a bass that slowly opens up' all rendering static because the 7B routed them
-    onto sub_sine/sine. A waveshaper that MAKES harmonics move is source-agnostic.
+    The spectral family (sweep/evolve/open_up/close/breathe/wobble/cycle) makes the
+    spectrum open and close over the note. HOW it does that depends on what the
+    patch's sources actually contain, because the two available operators fail on
+    exactly opposite material:
+
+      * A WAVESHAPER (tanh at an LFO-swept drive) MAKES harmonics, so it moves even
+        a bare sine -- which is why it was introduced: the frozen NL corpus caught
+        'evolving analog drone', 'wobbling acid bass' and 'a bass that slowly opens
+        up' all rendering static, because the 7B had routed them onto sine/sub_sine
+        and the older cutoff sweep had nothing above the cutoff to remove.
+        But on a DENSE source it intermodulates every partial PAIR, and on an
+        INHARMONIC one those products land off every grid: audible distortion.
+        Measured in the built Standalone on `a slowly evolving bell` (fm_bell,
+        c:m 1:1.41, index 3.2) against the same patch with no motion -- identical
+        source, motion the only difference:
+            crest factor      1.57 constant   ->  1.13 .. 1.35   (waveform squared off)
+            energy above 3kHz 0.036 .. 0.129  ->  0.086 .. 0.244
+            partials          the FM grid     ->  + 1800, 2167, 3367, 3733, 4103 Hz
+        2167 Hz is 2*1213 - 260, a textbook cubic intermodulation product; the 3367/
+        3733/4103 trio is the FM grid regenerated far above where the dry bell has
+        any energy at all. This is BJ's "die Bells und Metals sind im Synth extrem
+        verzerrt" (2026-07-19), and the reason it survived every check for days is
+        the `balance` on the next line: loudness is held identical while the
+        waveform is destroyed, so no peak/RMS gate can see it.
+
+      * A FILTER SWEEP adds NO partial whatsoever -- it only re-weights what is
+        already there -- so it cannot intermodulate anything. It is silent only on
+        a source with nothing to re-weight.
+
+    So the operator is chosen by the material, and the two conditions are
+    complementary: every source falls cleanly into one side. A patch whose every
+    stage is in _SPARSE_TECH gets the waveshaper (safe there precisely BECAUSE the
+    spectrum is sparse: tanh on a near-sine breeds a clean odd-harmonic series,
+    which is the intended "harmonics grow and retract"); everything else gets a
+    pitch-tracked resonant lowpass sweep.
 
     The shimmer family (shimmer/vibrate/flutter/tremolo) stays a fast amplitude
     tremolo (already source-agnostic). The speed/intent motions (slow/fast/snap/
-    pingpong/settle) are the SAME spectral waveshaper at a mapped rate — the
-    lexicon frames them as how-fast the timbre travels, so they are just rate
-    variants (slow 0.08 .. snap 0.9 Hz)."""
+    pingpong/settle) are the same spectral motion at a mapped rate -- the lexicon
+    frames them as how-fast the timbre travels, so they are just rate variants
+    (slow 0.08 .. snap 0.9 Hz)."""
     if not motion_key or motion_key == "static":
         return ""
     _SPECTRAL_RATE = {
@@ -1627,17 +1661,36 @@ def _emit_motion(motion_key):
                       "cycle", "slow", "fast", "snap", "pingpong", "settle"):
         # faster, shallower for the periodic wobble/cycle; slow & deep for the
         # directional-feel evolve/open family (still periodic = keeps living).
-        # `balance` re-scales the waveshaped signal to the pre-shape RMS every
-        # k-frame, so the harmonic content travels (genuine SPECTRAL motion) but
-        # loudness holds steady -- this is NOT the shimmer family's amplitude
-        # tremolo. Without it, tanh(x*kdrv) ~= x*kdrv at small signal, so the
-        # drive LFO would pump overall level ~2.4x (an evolving PAD must not throb
-        # in volume; that belongs to shimmer/tremolo).
         rate = _SPECTRAL_RATE.get(motion_key, 0.16)
+        stages = [k for o in (oscs or []) for k in o.get("chain", [])
+                  if k not in ("silence", "zero")]
+        sparse = bool(stages) and all(k in _SPARSE_TECH for k in stages)
+        if sparse:
+            # Nothing to re-weight: MAKE harmonics. Safe here because a sparse
+            # near-sine spectrum has no partial pairs to intermodulate -- tanh
+            # breeds an ordinary odd-harmonic series on top of the fundamental.
+            # `balance` holds loudness steady: without it tanh(x*kdrv) ~= x*kdrv
+            # at small signal, so the drive LFO would pump level ~2.4x (an
+            # evolving PAD must not throb; that belongs to shimmer/tremolo).
+            return (f"  kmot     oscili 0.5, {rate}             ; -0.5..0.5 motion LFO\n"
+                    "  kdrv     = 1.0 + 3.4 * (kmot + 0.5)   ; waveshaper drive 1.0..4.4\n"
+                    "  awsh     = tanh(asig * kdrv)          ; sparse source: breed harmonics\n"
+                    "  asig     balance awsh, asig           ; steady loudness (spectral, not tremolo)")
+        # Dense / inharmonic source: re-weight what is already there. The cutoff
+        # TRACKS PITCH (a fixed-Hz sweep would sit wide open on a top note and
+        # shut on a bottom one), travelling x1.8 .. x26 the fundamental -- about
+        # 3.9 octaves, from "fundamental plus one partial" to "everything through".
+        # Exponential in the LFO so the sweep is even in pitch, not in Hz.
+        # `rezzy` rather than `moogladder`: measured 11.7us against 116us for the
+        # same orchestra elsewhere in this module, and this stage is post-mix so
+        # the whole patch pays it once. Modest resonance -- enough that passing
+        # partials are emphasised (what makes a sweep read AS a sweep), short of
+        # the self-whistle that would be a new artefact on an inharmonic bank.
         return (f"  kmot     oscili 0.5, {rate}             ; -0.5..0.5 motion LFO\n"
-                "  kdrv     = 1.0 + 3.4 * (kmot + 0.5)   ; waveshaper drive 1.0..4.4\n"
-                "  awsh     = tanh(asig * kdrv)          ; harmonics grow & retract\n"
-                "  asig     balance awsh, asig           ; steady loudness (spectral, not tremolo)")
+                "  apre     = asig                       ; loudness reference\n"
+                "  kcut     limit kfreq * exp(1.923 + 2.670 * kmot), 150, 15000 ; x1.8..x26 f0\n"
+                "  afil     rezzy asig, kcut, 3          ; dense source: re-weight, add nothing\n"
+                "  asig     balance afil, apre           ; steady loudness (spectral, not tremolo)")
     if motion_key in ("shimmer", "vibrate", "flutter", "tremolo"):
         return ("  ksh      oscili 0.18, 5.5\n"
                 "  asig     = asig * (1 + ksh)           ; fast shimmer")
@@ -1791,7 +1844,7 @@ def build_orchestra(technique_keys=None, adjective_keys=None, motion_key=None,
            "  asig     = " + " + ".join(mix_terms))
 
     adj = _emit_adjectives(adjective_keys)
-    mot = _emit_motion(motion_key)
+    mot = _emit_motion(motion_key, oscs)
 
     # The authored mix/register values are SEEDED into their channels once, at
     # orchestra init, before any instrument runs. That makes the authored patch
