@@ -129,7 +129,7 @@
         "motion_rate_hz": 0.35
       },
       "priority": 10,
-      "why": "classic PWM sweep: square (50%) narrowing to a thin pulse (8%) and back, closing the loop"
+      "why": "classic PWM: the duty cycle sweeps continuously from 80% down to 20% and back, ~4 s per round trip, so the tone hollows out and fills back in"
     },
     {
       "key": "triangle",
@@ -797,7 +797,7 @@
         "motion_rate_hz": 0.25
       },
       "priority": 10,
-      "why": "near-pure tone with a faint 2nd/3rd harmonic; breath noise itself is not modeled"
+      "why": "near-pure tone with a faint 2nd/3rd harmonic over a band-passed breath-noise layer"
     },
     {
       "key": "brass",
@@ -1310,7 +1310,7 @@
         "motion_rate_hz": 0.25
       },
       "priority": 10,
-      "why": "bright single-cycle saw stands in for the spectral brightness; the detune itself is not a cycle property",
+      "why": "a stack of seven saws detuned a few cents apart -- the beating between them IS the sound",
       "mandatory_flags": [
         "detune/unison is a voice-level effect, not a cycle property"
       ]
@@ -1345,7 +1345,7 @@
         "motion_rate_hz": 0.25
       },
       "priority": 10,
-      "why": "bright, dense FM stands in for hard sync's sideband-rich character",
+      "why": "true hard sync: a slave saw restarted by the master every cycle, its ratio sweeping 1.5x..3.7x for the classic tearing sweep",
       "mandatory_flags": [
         "true hard sync is not yet a supported kind; approximated with FM"
       ]
@@ -1444,7 +1444,7 @@
         "motion_rate_hz": 0.25
       },
       "priority": 10,
-      "why": "retro chiptune leads are classically a square/pulse wave"
+      "why": "the NES/Game Boy voice: the duty cycle STEPS between three fixed settings (12.5%, 25%, 50%) instead of gliding, giving the hard retro timbre switches"
     },
     {
       "key": "theremin",
@@ -1476,7 +1476,7 @@
         "motion_rate_hz": 0.25
       },
       "priority": 10,
-      "why": "a pure tone stands in for the instrument's timbre",
+      "why": "an almost pure tone whose second harmonic wavers slowly -- the breathing, near-vocal purity of the instrument",
       "mandatory_flags": [
         "theremin's character is continuous pitch/amplitude glide, not a fixed spectrum; approximated as a pure tone"
       ]
@@ -2474,7 +2474,7 @@
         }
       ],
       "priority": 8,
-      "why": "thin fundamental with an airy top; breath noise itself is not modeled"
+      "why": "thin fundamental with an airy top plus an actual high-passed breath-noise layer"
     },
     {
       "key": "crisp",
