@@ -1155,7 +1155,9 @@ def _emit_oscillator(oi, chain, imorphtime, nmodes=None):
 #   BODY  g      -> add a low-passed copy (weight below): `asig + tone(asig,220)*g`
 #   THIN  fc     -> high-pass out the body (thinner): `atone asig, fc`
 #   FORMANT (fc,g) -> a peak-normalised reson bump (nasal/reedy/boxy/resonant)
-#   METAL g      -> a high inharmonic-band reson emphasis (metallic/clangorous)
+#   CLANG (r,w)  -> ring modulation at an irrational ratio of the played note =
+#                   REAL inharmonic partials at f*(n +- r) (metallic/clangorous/
+#                   glassy/brittle, whose lexicon deltas all carry an `inharm` op)
 #   DARK  fc     -> one-pole low-pass tilt (dark/warm/mellow/...)
 #   BRIGHT s     -> add a high-passed copy (more upper energy): `asig + atone(asig,2200)*s`
 #   DIRT (k,g)   -> tanh waveshaper = REAL new harmonics (dirty/distorted/buzzy/...)
@@ -1172,16 +1174,29 @@ _ADJ_MAP = {
     "fat":        [("BODY", 0.50)],
     "thin":       [("THIN", 350)],
     "buzzy":      [("DIRT", (2.0, 0.75)), ("BRIGHT", 0.40)],
-    "metallic":   [("METAL", 0.50)],
+    # The four adjectives whose lexicon delta carries an `inharm` op get REAL
+    # inharmonicity from a ring modulator (see CLANG below), not just the reson
+    # band emphasis they all used to share -- a filter reweights the harmonic
+    # grid, it cannot move a partial off it, and all four measured inharm 0.000.
+    # Ratios differ per adjective so they stay four distinct colours: 1.41 (sqrt2)
+    # is the densest clang per unit wet, 2.37 is what densifies an FM base's
+    # sidebands (13 -> 30 partials on fm_bell), 5.43 throws a sparse high sheen.
+    # Each of the four deltas is TWO claims -- a `tilt` and an `inharm` -- and the
+    # reson band emphasis they all shared served neither: measured across saw,
+    # organ, sine and fm_bell it added 0.000 inharmonicity everywhere, cost ~2x
+    # peak (saw 0.190 -> 0.450), pulled the saw centroid DOWN 500 Hz and lowered
+    # the partial count. So `tilt` is now a modest BRIGHT and `inharm` is CLANG,
+    # and the op that measured as doing neither is gone.
+    "metallic":   [("BRIGHT", 0.35), ("CLANG", (2.37, 0.275))],
     "smooth":     [("DARK", 2600)],
     "shimmering": [("BRIGHT", 0.35), ("AIR", 0.12)],
     "airy":       [("THIN", 300), ("AIR", 0.20)],
     "harsh":      [("DIRT", (3.2, 0.70)), ("BRIGHT", 0.50)],
     "woody":      [("DARK", 1900), ("FORMANT", (600, 0.30))],
     "deep":       [("BODY", 0.60), ("DARK", 900)],
-    "glassy":     [("BRIGHT", 0.50), ("METAL", 0.25)],
-    "brittle":    [("THIN", 400), ("BRIGHT", 0.55), ("METAL", 0.20)],
-    "clangorous": [("METAL", 0.70)],
+    "glassy":     [("BRIGHT", 0.50), ("CLANG", (5.43, 0.275))],
+    "brittle":    [("THIN", 400), ("BRIGHT", 0.55), ("CLANG", (5.43, 0.22))],
+    "clangorous": [("BRIGHT", 0.30), ("CLANG", (1.41, 0.44))],
     "growling":   [("DIRT", (2.6, 0.70)), ("DARK", 1600)],
     "punchy":     [("BRIGHT", 0.40), ("BODY", 0.25)],
     "mellow":     [("DARK", 2000)],
@@ -1243,12 +1258,14 @@ def _emit_adjectives(adjective_keys):
                 acc[name] = min(acc[name], val)          # lower cutoff = darker
             elif name == "THIN":
                 acc[name] = max(acc[name], val)          # higher hp cutoff = thinner
-            elif name in ("BODY", "METAL", "BRIGHT", "AIR", "DRIFT"):
+            elif name in ("BODY", "BRIGHT", "AIR", "DRIFT"):
                 acc[name] = max(acc[name], val)
             elif name == "DIRT":
                 acc[name] = val if val[0] > acc[name][0] else acc[name]   # stronger drive
             elif name == "GRIME":
                 acc[name] = val if val[0] > acc[name][0] else acc[name]   # grimier scatter
+            elif name == "CLANG":
+                acc[name] = val if val[1] > acc[name][1] else acc[name]   # wetter clang wins
             elif name == "FORMANT":
                 acc[name] = val if val[1] > acc[name][1] else acc[name]   # stronger bump
     if not acc:
@@ -1268,14 +1285,53 @@ def _emit_adjectives(adjective_keys):
         L.append("  albd     tone asig, 220")
         L.append(f"  asig     = asig + albd * {acc['BODY']:.2f}       ; body / low weight")
     if "THIN" in acc:
-        L.append(f"  asig     atone asig, {int(acc['THIN'])}            ; thin (remove low body)")
+        # The cutoff must TRACK the note. Fixed at 300-400 Hz it sat above the
+        # fundamental of every note below ~G4 and high-passed the fundamental away:
+        # `an organ, brittle` at A3 came out an octave high (+1200 cents, strongest
+        # partial 440 not 220), because a one-pole at 400 Hz leaves the 2nd harmonic
+        # 1.5x more of its level than the 1st and the organ's fundamental has no
+        # margin to spare. Pitch belongs to the synth, so "thin" has to mean "less
+        # body RELATIVE to this note", not "delete everything under 400 Hz". `limit`
+        # gives min(nominal, kfreq*0.75): unchanged for notes above the nominal,
+        # scaled down below it, so the fundamental keeps ~80% of its level at any
+        # pitch. (Pre-existing since the adjective consolidation; found while
+        # measuring the four inharm adjectives, all of which pass through THIN or
+        # sit next to something that does.)
+        L.append(f"  kthn     limit kfreq * 0.75, 20, {int(acc['THIN'])}       ; thin, but never above the fundamental")
+        L.append(f"  asig     atone asig, kthn            ; thin (remove low body)")
     if "FORMANT" in acc:
         fc, g = acc["FORMANT"]
         L.append(f"  afrm     reson asig, {int(fc)}, {int(fc * 0.4)}, 2")
         L.append(f"  asig     = asig + afrm * {g:.2f}       ; formant / mid bump")
-    if "METAL" in acc:
-        L.append("  amtl     reson asig, 3600, 1500, 2")
-        L.append(f"  asig     = asig + amtl * {acc['METAL']:.2f}       ; metallic high emphasis")
+    if "CLANG" in acc:
+        # Ring modulation = the substrate's own inharmonicity. Sidebands land at
+        # f*(n +- r); for an irrational r they sit OFF the harmonic grid, on any
+        # source spectrum -- which is exactly what the `metallic` why asks for
+        # ("on any spectrum"). Two measured bounds decide the numbers:
+        #   * PITCH. The dry path carries the fundamental (ring mod alone has no
+        #     component at the carrier), and because the blend is CONVEX it scales
+        #     every dry component by the same (1-w): the played fundamental keeps
+        #     exactly 1-w of its level and no dry partial can overtake another.
+        #     Measured across 55/110/220 Hz: 0.725 at w=.275, 0.560 at w=.44, i.e.
+        #     1-w to three decimals, pitch-invariant. The ceiling is the point where
+        #     the ADDED sidebands outweigh what is left of the fundamental: at wet
+        #     0.70 the strongest partial jumps (+1522 cents on saw r=1.41, +2577 on
+        #     saw r=5.43, -1547 on organ r=1.41), which would hand pitch to the
+        #     oscillator, and pitch is the synth's. Wet 0.55 was clean, so the map
+        #     is 0.55 * the lexicon's own inharm amount -- clangorous .8 -> .44,
+        #     metallic/glassy .5 -> .275, brittle .4 -> .22 -- all under the cliff.
+        #     Ring mod also puts DIFFERENCE tones below the fundamental (0.7% of
+        #     total energy at w=.275, 8.8% at w=.44, the same at every pitch). That
+        #     is what a ring modulator is, and it stays bounded; only at the very
+        #     bottom of the range (A1) does any of it fall under 30 Hz.
+        #   * LEVEL is free: |asig * amod| <= |asig| for a unit modulator and the
+        #     blend is convex, so peak cannot rise (measured 0.190 dry -> 0.190 at
+        #     every setting). The reson emphasis these adjectives used to rely on
+        #     alone pushed the same saw to 0.450.
+        r, w = acc["CLANG"]
+        L.append(f"  armc     oscili 1, kfreq * {r:.4f}       ; inharmonic modulator")
+        L.append(f"  arng     = asig * armc")
+        L.append(f"  asig     = asig * {1.0 - w:.3f} + arng * {w:.3f}  ; clang (real inharmonic partials)")
     if "DARK" in acc:
         L.append(f"  asig     tone asig, {int(acc['DARK'])}            ; dark tilt (low-pass)")
     if "BRIGHT" in acc:
