@@ -224,6 +224,63 @@ _CS_TERMINALS = {
     "silence": ["silence", "zero", "nothing", "silent"],
 }
 
+# DECAY-INTENT guard (the morph-to-zero pseudo-env is an ENVELOPE-class decision, and
+# the deterministic layer -- not the 7B -- owns the envelope: a sound STANDS while a
+# note is held unless the prompt itself asks it to fade/decay/stop). The small-7B is
+# intermittently non-deterministic (MPS) and sometimes appends "> silence" to a
+# STANDING prompt ("a shimmering evolving pad" -> both chains end in silence -> the
+# pad wrongly decays), a failure the soft SILENCE RULE cannot reliably prevent. So
+# after routing, if the prompt carries NO decay/transient cue, a trailing terminal
+# silence is STRIPPED (never added -- the guard only removes unmotivated decay). This
+# turns an intermittent hallucination into deterministic-correct behaviour and keeps
+# BJ's authorised morph-to-zero firing ONLY on genuinely transient prompts.
+# The cue set is deliberately GENEROUS (a spurious silence that happens to sit beside
+# a real cue is harmless; wrongly stripping a real transient is not) -- every corpus
+# transient prompt carries one (fades / decays to silence / plucked / percussive blip
+# / vocal stab / rolling thunder). Word-boundary match for single words, substring
+# for the multi-word phrases.
+_DECAY_CUE_WORDS = {
+    "fade", "fades", "fading", "faded", "decay", "decays", "decaying", "decayed",
+    "die", "dies", "dying", "fizzle", "fizzles", "taper", "tapers", "tapering",
+    "dwindle", "dwindles", "wane", "wanes", "ebb", "ebbs", "vanish", "vanishes",
+    "vanishing", "disappear", "disappears", "gone",
+    # inherently short / transient sound types (a note-length event, not a bed)
+    "pluck", "plucked", "plucking", "pizz", "pizzicato", "stab", "stabs",
+    "blip", "blips", "click", "clicks", "snap", "snaps", "staccato",
+    "percussive", "percussion", "transient", "burst", "bursts", "zap", "zaps",
+    "strike", "struck", "knock", "knocks", "thump", "thud", "tap", "taps",
+    "clap", "thunder", "thunderclap", "crack", "plink", "plonk",
+    # DELIBERATELY NOT CUES (adversarial review 2026-07-18): short / brief / quick /
+    # quickly / momentary / sudden describe ATTACK SPEED or duration-of-change, and
+    # pop / hit are a genre and an idiom -- not decay. They made STANDING prompts
+    # read as decaying ("an evolving pad with a quick attack", "a lush synth-pop
+    # pad"), so the unmotivated silence survived and a held pad fell to zero: the
+    # exact Contract-2 failure this guard exists to prevent. They also earn nothing:
+    # every frozen-corpus transient that contains one is already True via a phrase
+    # AND another word ("...quickly fades to nothing" -> "to nothing" + fades +
+    # plucked), so dropping them costs zero coverage. Do not re-add a duration or
+    # speed word here; a decay cue must name the sound ENDING, not how fast it moves.
+}
+_DECAY_CUE_PHRASES = (
+    "to nothing", "to silence", "to zero", "into nothing", "into silence",
+    "trail off", "trails off", "trailing off", "dies away", "die away",
+    "fades out", "fade out", "fades away", "fade away", "cut off", "cuts off",
+    "peter out", "peters out",
+)
+
+
+def _prompt_wants_decay(text):
+    """True iff the prompt itself expresses that the SOUND fades / decays / stops (or
+    is an inherently transient event). Governs whether a routed trailing `silence`
+    (morph-to-zero pseudo-env) is honoured or stripped as an unmotivated 7B artefact."""
+    low = (text or "").lower()
+    if any(ph in low for ph in _DECAY_CUE_PHRASES):
+        return True
+    # split on apostrophes too: no cue word contains one, and keeping them inside a
+    # token made a possessive miss its own cue ("thunder's" != "thunder").
+    words = _re.findall(r"[a-z]+", low)
+    return any(w in _DECAY_CUE_WORDS for w in words)
+
 # pwm names a MOVING DUTY on a pulse wave, not a wave in its own right: when the
 # 7B lists it in a morph chain beside a pulse-family wave ("pwm > square"), the
 # intent is a pwm'd square (one moving-duty tone), not a near-static pulse->pulse
@@ -1068,13 +1125,36 @@ def build_csound_response(text, llm):
 
         osc_specs, adjectives_raw, motion_raw = _parse_csound_reply(raw)
 
+        # DECAY-INTENT guard: the deterministic layer owns the (pseudo-)envelope, so a
+        # routed morph-to-zero is honoured ONLY when the prompt actually asks the sound
+        # to fade/decay/stop. Otherwise a trailing terminal-silence is an unmotivated
+        # 7B artefact (intermittent, MPS non-determinism) and is stripped below, so a
+        # held STANDING sound (pad/drone/bed) never decays on its own.
+        wants_decay = _prompt_wants_decay(text)
+
         # validate each oscillator's chain independently (morph-chain / compound /
         # pwm-collapse handled per osc), keep its volume; drop an osc that yields
         # no valid key. Cap at 3 (the schema promises up to three).
         oscs, flags = [], []
-        for chain_raw, vol in osc_specs[:3]:
+        for oi, (chain_raw, vol) in enumerate(osc_specs[:3], start=1):
             keys, kflags = _validate_osc_chain(chain_raw, tcanon, dco_llm_map)
             flags += kflags
+            # strip an UNMOTIVATED trailing silence (see the decay-intent guard above):
+            # keep the rest of the morph so the sound still evolves, it just no longer
+            # fades to zero. `_validate_osc_chain` has already collapsed any internal
+            # silence, so at most one terminal can be here and >=1 real stage remains.
+            # The flag mirrors the {word, reason, tier} shape every other producer in
+            # the pipeline emits (dco_llm_map._validate_keys) -- a bare string here
+            # would break consumers that do f.get("word") (lco_author.py).
+            if not wants_decay:
+                while len(keys) >= 2 and keys[-1] in ("silence", "zero"):
+                    keys = keys[:-1]
+                    flags.append({
+                        "word": f"OSC{oi}: {keys[-1]} > silence",
+                        "reason": "the prompt does not say the sound fades, so it "
+                                  "holds instead of decaying to nothing",
+                        "tier": "adapted",
+                    })
             # keep only oscillators with real content; an all-silence chain (the
             # 7B emitting "silence" with no source) produces nothing -> drop it so
             # the response's oscillator list matches what build_orchestra renders.
