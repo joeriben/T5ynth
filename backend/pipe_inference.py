@@ -1030,14 +1030,28 @@ def run_instruct(text, model_dir, device, system_prompt, max_new_tokens=None,
         num_beams=1,
         pad_token_id=tokenizer.eos_token_id,
     )
-    # max_new_tokens is OMITTED unless a caller insists on one. A hard output cap
-    # does not make a reply short, it CUTS it mid-sentence: RepromptStances.cpp
-    # carries a whole comment about trimming "function words a mid-sentence
-    # max_new_tokens cut tends to leave dangling", i.e. the truncation was
-    # observed and worked around downstream instead of removed. Greedy decoding
-    # stops at EOS on its own; brevity is the system prompt's job.
-    if max_new_tokens is not None:
-        gen_kwargs["max_new_tokens"] = max_new_tokens
+    # No arbitrary output cap: a hard cap does not make a reply short, it CUTS it
+    # mid-sentence. RepromptStances.cpp carries a whole comment about trimming
+    # "function words a mid-sentence max_new_tokens cut tends to leave dangling",
+    # i.e. the truncation was observed and worked around downstream instead of
+    # removed. Greedy decoding stops at EOS on its own; brevity is the system
+    # prompt's job.
+    #
+    # But OMITTING the parameter is NOT the way to say "no cap": transformers
+    # then falls back to GenerationConfig.max_length, whose default is 20 TOKENS
+    # (measured, 4.57.6) -- a far harsher guillotine than the caps this replaced.
+    # Dropping it cost the Csound author its ADJECTIVES and MOTION lines on every
+    # multi-oscillator prompt, and the frozen corpus caught it. So the default is
+    # the model's OWN ceiling: everything its context window has left after the
+    # prompt. That is a real limit, not an invented one, and it cannot truncate
+    # substance -- when it binds at all, generation has already run past the
+    # context the model can attend to.
+    if max_new_tokens is None:
+        ctx = int(getattr(model.config, "max_position_embeddings", 0) or 0)
+        used = int(input_ids.shape[-1])
+        # keep a small reserve for the chat template's closing tokens
+        max_new_tokens = max(512, ctx - used - 16) if ctx else 4096
+    gen_kwargs["max_new_tokens"] = max_new_tokens
     if repetition_penalty is not None:
         gen_kwargs["repetition_penalty"] = repetition_penalty
     if no_repeat_ngram_size is not None:
