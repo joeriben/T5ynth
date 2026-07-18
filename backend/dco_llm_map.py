@@ -150,22 +150,41 @@ def _canon_fallback(label, canon):
         if direct in canon:
             return canon[direct]
     toks = norm.split()
-    for size in range(len(toks), 0, -1):          # longest phrase wins
-        phrases = [" ".join(toks[i:i + size]) for i in range(len(toks) - size + 1)]
-        hits = {canon[p] for p in phrases if p in canon}
-        if len(hits) == 1:
-            return hits.pop()
-        if len(hits) > 1:
-            # A phrase that IS a catalogue key outranks one that is merely a
-            # surface form of another key. `bass_sine` reaches both `sine` (a key)
-            # and `bass_saw` (via the surface form "bass"), and dropping it as
-            # ambiguous is how BJ's sine-bass layer disappeared -- but the model
-            # plainly named a sine. Keys beat aliases; still ambiguous after that
-            # (`pwm pulse`, two real keys) drops as before.
-            exact = {canon[p] for p in phrases if canon.get(p) == p}
-            if len(exact) == 1:
-                return exact.pop()
-            return None
+    # Every catalogue hit anywhere in the label, with where it sits and how long
+    # it is. Collecting them ALL first matters: a pure longest-phrase-wins loop
+    # accepted "square wave" out of `pwm square wave` and returned `square`
+    # SILENTLY, throwing away the one word that carries the capability -- the
+    # moving pulse width -- and leaving no flag behind (BJ, 2026-07-18, reading
+    # "saw + sine 2' + square" for a prompt ending in "pwm square wave"). That is
+    # precisely the loss CLAUDE.md's substrate discipline is written about.
+    hits = []                                  # (pos, size, key, is_exact_key)
+    for size in range(len(toks), 0, -1):
+        for i in range(len(toks) - size + 1):
+            phrase = " ".join(toks[i:i + size])
+            if phrase in canon:
+                hits.append((i, size, canon[phrase], canon[phrase] == phrase))
+    if not hits:
+        return None
+    if len({h[2] for h in hits}) == 1:
+        return hits[0][2]
+
+    # A phrase that IS a catalogue key outranks one that is merely a surface form
+    # of another key. `bass_sine` reaches both `sine` (a key) and `bass_saw` (via
+    # the surface form "bass"), and dropping it as ambiguous is how BJ's sine-bass
+    # layer disappeared -- but the model plainly named a sine.
+    exact = [h for h in hits if h[3]]
+    if len({h[2] for h in exact}) == 1:
+        return exact[0][2]
+
+    if exact:
+        # Several REAL keys in one label is not an ambiguity to give up on: the
+        # model named a wave together with what is done to it. English puts the
+        # modifier first, and the modifier is the capability -- a pwm'd square IS
+        # the `pwm` idiom, so keeping `square` would discard the movement and keep
+        # only the carrier. `pwm square wave` -> pwm, `pwm pulse` -> pwm (which
+        # previously lost the whole layer). Longest phrase breaks a tie at the
+        # same position.
+        return min(exact, key=lambda h: (h[0], -h[1]))[2]
     return None
 
 

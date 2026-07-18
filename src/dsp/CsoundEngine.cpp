@@ -42,31 +42,37 @@
 
 namespace
 {
-    // Hard-wired 12-partial bell/pad SPECTRUM (amp, ratio + a slow per-partial
-    // vibrato: vibHz, vibCents), adapted from the BJ-approved
-    // tools/csound_poc_out/csound_strike_pad.csd. STANDING TONE (BJ 2026-07-17,
-    // "Hüllkurven gehören nicht in den Oszillator. Vollständig entfernen."):
-    // every partial holds at its authored amp for as long as the gate is open —
-    // no strike, no per-partial decay. The strikeDecay/bedLevel envelope columns
-    // the PoC carried are gone; amplitude SHAPE is the downstream synth ADSR/VCA's
-    // job, never the oscillator's. The vibrato is periodic motion (kept — only the
-    // one-shot envelope was ordered removed). Mirrors the backend standing contract
-    // (backend/csound_assembler.py: `oscili amp, freq`, no bed, no decay).
-    struct Partial { double amp, ratio, vibHz, vibCents; };
+    // Hard-wired 12-partial bell/pad SPECTRUM (amp, ratio), adapted from the
+    // BJ-approved tools/csound_poc_out/csound_strike_pad.csd. STANDING TONE
+    // (BJ 2026-07-17, "Hüllkurven gehören nicht in den Oszillator. Vollständig
+    // entfernen."): every partial holds at its authored amp for as long as the
+    // gate is open — no strike, no per-partial decay. Amplitude SHAPE is the
+    // downstream synth ADSR/VCA's job, never the oscillator's.
+    //
+    // NO VIBRATO (BJ 2026-07-17, "vibrato wird — selbstverständlich — aus dem
+    // Vokabular genommen"). The per-partial vibHz/vibCents columns are gone.
+    // The order named this file and this symbol; I kept them anyway on the
+    // reasoning that "periodic motion stays", which was wrong twice over:
+    // vibrato is PITCH modulation, i.e. expression, and expression belongs to
+    // the synth (LFO -> Pitch), not to the oscillator — the same boundary that
+    // took the envelopes out. And a fixed 0.07-0.5 Hz wobble welded into the
+    // fallback tone is exactly the "always the same, slightly seasick" character
+    // a player hears as unmusical, on every note the engine falls back to.
+    struct Partial { double amp, ratio; };
     constexpr int kNumPartials = 12;
     constexpr Partial kPartials[kNumPartials] = {
-        { 0.28, 0.56,  0.0700,  3.00 },
-        { 0.30, 1.00,  0.1091,  3.82 },
-        { 0.22, 1.19,  0.1482,  4.64 },
-        { 0.20, 1.71,  0.1873,  5.45 },
-        { 0.16, 2.00,  0.2264,  6.27 },
-        { 0.16, 2.007, 0.2655,  7.09 },
-        { 0.14, 2.74,  0.3045,  7.91 },
-        { 0.11, 3.76,  0.3436,  8.73 },
-        { 0.09, 4.07,  0.3827,  9.55 },
-        { 0.07, 5.43,  0.4218, 10.36 },
-        { 0.05, 6.98,  0.4609, 11.18 },
-        { 0.04, 8.21,  0.5000, 12.00 },
+        { 0.28, 0.56  },
+        { 0.30, 1.00  },
+        { 0.22, 1.19  },
+        { 0.20, 1.71  },
+        { 0.16, 2.00  },
+        { 0.16, 2.007 },
+        { 0.14, 2.74  },
+        { 0.11, 3.76  },
+        { 0.09, 4.07  },
+        { 0.07, 5.43  },
+        { 0.05, 6.98  },
+        { 0.04, 8.21  },
     };
 
     // Builds the hard-wired orchestra: ONE numeric `instr 1`, 16 always-on
@@ -132,13 +138,6 @@ namespace
             "  ; otherwise unused: every partial below is a STANDING tone for as long\n"
             "  ; as the gate holds, so there is no retrigger/reinit epoch.\n\n";
 
-        for (int i = 0; i < kNumPartials; ++i)
-        {
-            std::snprintf(line, sizeof(line),
-                "  kvib%-2d   oscili %.4f, %.4f\n", i + 1, kPartials[i].vibCents, kPartials[i].vibHz);
-            csd += line;
-        }
-
         csd +=
             "\n"
             "  ; Phase-1 placeholder pres/timb mapping (channels exist end-to-end;\n"
@@ -150,7 +149,7 @@ namespace
         for (int i = 0; i < kNumPartials; ++i)
         {
             std::snprintf(line, sizeof(line),
-                "  kfreq%-2d  = kfreq * %.4f * cent(kvib%d)\n", i + 1, kPartials[i].ratio, i + 1);
+                "  kfreq%-2d  = kfreq * %.4f\n", i + 1, kPartials[i].ratio);
             csd += line;
 
             // STANDING amplitude: the partial holds at its authored amp (no
