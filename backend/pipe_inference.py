@@ -983,7 +983,7 @@ def _get_translator(model_dir, device):
     return tokenizer, model
 
 
-def run_instruct(text, model_dir, device, system_prompt, max_new_tokens=96,
+def run_instruct(text, model_dir, device, system_prompt, max_new_tokens=None,
                  repetition_penalty=None, no_repeat_ngram_size=None):
     """Run the instruct LLM (the translator's Qwen) with an ARBITRARY system
     prompt on one short user text. Empty in → empty out. Greedy decoding for
@@ -1026,11 +1026,18 @@ def run_instruct(text, model_dir, device, system_prompt, max_new_tokens=96,
     # generation_config (Qwen: repetition_penalty=1.1) stand. Only the interpret
     # path sets them, overriding 1.1 with a stronger 1.2 + a hard 3-gram block.
     gen_kwargs = dict(
-        max_new_tokens=max_new_tokens,
         do_sample=False,
         num_beams=1,
         pad_token_id=tokenizer.eos_token_id,
     )
+    # max_new_tokens is OMITTED unless a caller insists on one. A hard output cap
+    # does not make a reply short, it CUTS it mid-sentence: RepromptStances.cpp
+    # carries a whole comment about trimming "function words a mid-sentence
+    # max_new_tokens cut tends to leave dangling", i.e. the truncation was
+    # observed and worked around downstream instead of removed. Greedy decoding
+    # stops at EOS on its own; brevity is the system prompt's job.
+    if max_new_tokens is not None:
+        gen_kwargs["max_new_tokens"] = max_new_tokens
     if repetition_penalty is not None:
         gen_kwargs["repetition_penalty"] = repetition_penalty
     if no_repeat_ngram_size is not None:
@@ -1048,7 +1055,7 @@ def run_instruct(text, model_dir, device, system_prompt, max_new_tokens=96,
     return tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
 
-def translate_prompt(text, model_dir, device, max_new_tokens=96):
+def translate_prompt(text, model_dir, device, max_new_tokens=None):
     """Translate one short prompt to English. Empty in → empty out."""
     return run_instruct(text, model_dir, device, TRANSLATION_SYSTEM_PROMPT, max_new_tokens)
 
@@ -3339,7 +3346,10 @@ def main():
                     )
                 system_prompt = request.get("system_prompt") or TRANSLATION_SYSTEM_PROMPT
                 source_text = request.get("prompt_a") or request.get("text") or ""
-                max_new = int(request.get("max_new_tokens", 96))
+                # No default cap (see run_instruct): only an explicit request value
+                # still limits the reply, and that one call site is C++-owned.
+                _mn = request.get("max_new_tokens")
+                max_new = int(_mn) if _mn is not None else None
                 # Re-Prompt only: defeat the degenerate token-cycle a long "recombine
                 # these freely" palette provokes ("sharp, thin, metallic, buzzing,
                 # sharp, thin, metallic, …"). Deterministic logit transforms, so the

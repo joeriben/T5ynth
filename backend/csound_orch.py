@@ -374,7 +374,12 @@ _PULSE_FAMILY = {"square", "pulse"}
 # oszillatoren, morph-ketten pro osc, vol pro osc"); it does NOT touch the shared
 # dco_llm_map._SYSTEM_PROMPT_HEAD (lco_author.py depends on that single-technique
 # format). The KEY LISTS still come from dco_llm_map._build_catalogue(lex_cs).
-_CS_MAX_NEW_TOKENS = 160   # 3 osc + vols + adjectives + motion (~8 short lines)
+# No output cap: the reply is a fixed short format and greedy decoding stops at
+# EOS by itself, whereas a cap silently CUTS the last line (a 3-oscillator patch
+# with registers is already ~11 lines, so 160 tokens was within reach of losing
+# the MOTION line entirely -- a truncated reply parses as a valid smaller patch,
+# which is the worst kind of failure: silent and plausible).
+_CS_MAX_NEW_TOKENS = None
 _CS_SYSTEM_PROMPT_HEAD = (
     "You translate a sound description into a small synthesizer patch of up to "
     "THREE oscillators, choosing ONLY keys from the fixed catalogue below. You "
