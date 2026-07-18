@@ -29,6 +29,8 @@ engine (and tools/csound_orch_check) substitute the real rate at compile time.
 """
 from __future__ import annotations
 
+import re as _re
+
 KSMPS = 64
 NCHNLS = 16          # == CsoundEngine::kMaxVoices
 HEADROOM = 0.32      # bounds a single idiom's peak; the voice VCA/DCA shapes the rest
@@ -352,6 +354,51 @@ def _prompt_wants_decay(text):
     words = _re.findall(r"[a-z]+", low)
     return any(w in _DECAY_CUE_WORDS for w in words)
 
+# ── register / footage (organ stop feet) ─────────────────────────────────────
+# 8' is the played pitch, every halving of the number is an octave UP (organ
+# convention): 16'=x0.5, 8'=x1, 4'=x2. The oscillator's register is a SYNTH-side
+# control (a knob the player owns, like glide/level), not part of the spectrum
+# the LLM authors -- so the authored value is only ever a STARTING value.
+_FOOTAGE_MULT = {"32": 0.25, "16": 0.5, "8": 1.0, "4": 2.0, "2": 4.0}
+_FOOTAGE_LABEL = {v: k for k, v in _FOOTAGE_MULT.items()}
+_DEFAULT_FOOTAGE = "8"
+
+# A footage written as a number plus a feet mark: 16', 16", 16ft, 16 feet. The
+# typographic quotes are here because a prompt typed in a text editor gets them
+# by autocorrect ("saw wave 8"" is what BJ's own screenshot showed).
+_FOOTAGE_RE = _re.compile(r"\b(32|16|8|4|2)\s*(?:'|’|\"|”|ft\b|foot\b|feet\b)")
+# ...or named in words. These are the phrases that MOVE a layer's register; a
+# bare "bass"/"high" does NOT belong here (it describes the timbre the LLM
+# routes, not a transposition the player asked for).
+_REGISTER_CUE_PHRASES = (
+    "octave below", "octave down", "octave under", "octave lower",
+    "octave above", "octave up", "octave higher",
+    "sub octave", "sub-octave", "suboctave",
+)
+
+
+def _canon_footage(raw):
+    """'16' / \"16'\" / '16 ft' -> the pitch multiplier (0.5). None if it names no
+    footage. Anything outside the 32..2 organ range is not a footage."""
+    m = _FOOTAGE_RE.search(str(raw or "")) or _re.fullmatch(
+        r"\s*(32|16|8|4|2)\s*", str(raw or ""))
+    return _FOOTAGE_MULT.get(m.group(1)) if m else None
+
+
+def _prompt_names_register(text):
+    """True iff the PROMPT ITSELF names a register/footage. This is the authority
+    gate for overwriting a hand-set octave (BJ 2026-07-18: hand-set values stay
+    put, "nur wenn der Prompt selbst eine Fußlage nennt" does a new prompt reset
+    them). Deterministic on purpose -- the 7B always emits an OCT line, so its
+    emission cannot distinguish "the prompt asked for 16'" from "the model's
+    default"; only the prompt text can. Same shape as _prompt_wants_decay: the
+    model proposes, this authorizes."""
+    low = (text or "").lower()
+    if _FOOTAGE_RE.search(low):
+        return True
+    return any(ph in low for ph in _REGISTER_CUE_PHRASES)
+
+
 # pwm names a MOVING DUTY on a pulse wave, not a wave in its own right: when the
 # 7B lists it in a morph chain beside a plain pulse wave ("pwm > square"), the
 # intent is a pwm'd square (one moving-duty tone), not a near-static pulse->pulse
@@ -386,11 +433,11 @@ _CS_SYSTEM_PROMPT_HEAD = (
     "never invent names or numbers.\n"
     "Reply in EXACTLY this format and nothing else (omit OSC2/OSC3 lines if not "
     "needed):\n"
-    "OSC1: <key> [> <key> ...]\n"
+    "OSC1: <key> [> <key> ...] [<16|8|4>']\n"
     "VOL1: <number 0.0-1.0>\n"
-    "OSC2: <key> [> <key> ...]\n"
+    "OSC2: <key> [> <key> ...] [<16|8|4>']\n"
     "VOL2: <number 0.0-1.0>\n"
-    "OSC3: <key> [> <key> ...]\n"
+    "OSC3: <key> [> <key> ...] [<16|8|4>']\n"
     "VOL3: <number 0.0-1.0>\n"
     "ADJECTIVES: <key>, <key>, ...\n"
     "MOTION: <key>\n"
@@ -399,6 +446,9 @@ _CS_SYSTEM_PROMPT_HEAD = (
     "Each OSC line is that layer's waveform/method; if it MORPHS from one sound "
     "into another, list them in order separated by \" > \" (e.g. glass > sine). "
     "VOLn is that layer's loudness (main layer 1.0, supporting layers less). "
+    "A layer may end with an organ register in feet -- 8' is the played pitch, "
+    "16' one octave lower, 4' one octave higher (e.g. \"OSC2: sine 16'\"). Add "
+    "one ONLY if the prompt asks for a register; otherwise write no feet at all. "
     "ADJECTIVES are timbral modifiers for the whole sound (or \"none\"). MOTION is "
     "how the whole sound moves over time (or \"none\"). Match by MEANING even if "
     "the wording differs. Use ONLY keys from the catalogue; if nothing in a "
@@ -420,7 +470,6 @@ _CS_SYSTEM_PROMPT_HEAD = (
     "CATALOGUE:\n"
 )
 
-import re as _re
 _CS_OSC_RE = _re.compile(r'(?i)^OSC\s*(\d+)\s*:\s*(.*)$')
 _CS_TECH_RE = _re.compile(r'(?i)^TECHNIQUE\s*:\s*(.*)$')   # legacy single-osc reply
 _CS_VOL_RE = _re.compile(r'(?i)^VOL\s*(\d+)\s*:\s*(.*)$')
@@ -430,17 +479,29 @@ _CS_MOT_RE = _re.compile(r'(?i)^MOTION\s*:\s*(.*)$')        # singular only (not
 
 def _parse_csound_reply(raw):
     """Parse the multi-osc reply -> (oscs, adjectives_raw, motion_raw) where oscs
-    is an ORDERED list of (chain_raw_string, vol_float). Tolerant: a legacy
-    'TECHNIQUE:' line is read as OSC1; a missing VOLn defaults to 1.0; last
-    occurrence of a label wins (a model that echoes the format before answering).
-    Empty / 'none' oscillator lines are dropped."""
-    osc_chains, osc_vols = {}, {}
+    is an ORDERED list of (chain_raw_string, vol_float, register_mult_or_None).
+    Tolerant: a legacy 'TECHNIQUE:' line is read as OSC1; a missing VOLn defaults
+    to 1.0; a missing/unreadable OCTn is None (= the model named no register, so
+    the layer plays at 8'); last occurrence of a label wins (a model that echoes
+    the format before answering). Empty / 'none' oscillator lines are dropped."""
+    osc_chains, osc_vols, osc_octs = {}, {}, {}
     adjectives_raw, motion_raw = "", ""
     for line in (raw or "").splitlines():
         s = line.strip().lstrip("-*• \t")
         m = _CS_OSC_RE.match(s)
         if m:
-            osc_chains[int(m.group(1))] = m.group(2).strip()
+            idx, chain = int(m.group(1)), m.group(2).strip()
+            # The register rides ON the oscillator line ("sine 16'"), the way it
+            # is written in a prompt, rather than on a line of its own: a third
+            # line per oscillator broke the reply's rhythm badly enough that the
+            # 7B stopped after it and never emitted ADJECTIVES/MOTION at all
+            # (measured on three corpus prompts). Strip it out here so the chain
+            # validator only ever sees keys.
+            fm = _FOOTAGE_RE.search(chain)
+            if fm:
+                osc_octs[idx] = _FOOTAGE_MULT[fm.group(1)]
+                chain = _FOOTAGE_RE.sub(" ", chain).strip()
+            osc_chains[idx] = chain
             continue
         m = _CS_TECH_RE.match(s)
         if m:
@@ -466,7 +527,7 @@ def _parse_csound_reply(raw):
         chain = osc_chains[idx]
         if not chain or chain.lower() == "none":
             continue
-        oscs.append((chain, osc_vols.get(idx, 1.0)))
+        oscs.append((chain, osc_vols.get(idx, 1.0), osc_octs.get(idx)))
     return oscs, adjectives_raw, motion_raw
 
 
@@ -510,9 +571,13 @@ def _reading(oscs, adjective_keys, motion_key):
     'saw + sub_sine · warm ~evolve' or 'glass > sine · glassy'."""
     def osc_str(o):
         chain = o["chain"]
-        if len(chain) >= 2:
-            return " > ".join(chain)
-        return chain[0] if chain else "sine"
+        s = " > ".join(chain) if len(chain) >= 2 else (chain[0] if chain else "sine")
+        # name the register only when it is NOT the played pitch: "8'" on every
+        # layer would be noise in the card, a "16'" is the thing worth reading.
+        reg = o.get("register", 1.0)
+        if reg != 1.0:
+            s += " " + _FOOTAGE_LABEL.get(reg, "8") + "'"
+        return s
     heads = [osc_str(o) for o in oscs] or ["sine"]
     head = " + ".join(heads)
     bits = [head]
@@ -1541,10 +1606,11 @@ def _emit_motion(motion_key):
 
 def _normalize_oscs(technique_keys, oscs):
     """Resolve the two call conventions to a clean list of up to 3 oscillator
-    specs [{chain:[keys], vol:float}]. Back-compat: a bare technique_keys list is
-    one oscillator at vol 1.0 (byte-for-byte the pre-M2 single-osc emission).
-    An oscillator whose chain is ONLY silence produces nothing and is dropped; if
-    every osc drops, fall back to a single sine so the orchestra is never empty."""
+    specs [{chain:[keys], vol:float, register:float}]. Back-compat: a bare
+    technique_keys list is one oscillator at vol 1.0 and 8' (byte-for-byte the
+    pre-M2 single-osc emission). An oscillator whose chain is ONLY silence
+    produces nothing and is dropped; if every osc drops, fall back to a single
+    sine so the orchestra is never empty."""
     if oscs is None:
         oscs = [{"chain": list(technique_keys or []), "vol": 1.0}]
     out = []
@@ -1560,7 +1626,17 @@ def _normalize_oscs(technique_keys, oscs):
             vol = float(o.get("vol", 1.0))
         except (TypeError, ValueError):
             vol = 1.0
-        out.append({"chain": chain, "vol": max(0.0, min(1.0, vol))})
+        # register: the pitch multiplier of the layer's organ footage. Only the
+        # values the footage table defines are legal -- anything else (a model
+        # writing "12" or a hand-edited preset) falls back to 8' rather than
+        # transposing the layer to an arbitrary interval.
+        try:
+            reg = float(o.get("register", 1.0))
+        except (TypeError, ValueError):
+            reg = 1.0
+        if reg not in _FOOTAGE_MULT.values():
+            reg = 1.0
+        out.append({"chain": chain, "vol": max(0.0, min(1.0, vol)), "register": reg})
         if len(out) == 3:
             break
     # positive-weight floor: a muted supporting layer (vol~0) is dropped when some
@@ -1575,7 +1651,7 @@ def _normalize_oscs(technique_keys, oscs):
         for o in out:
             o["vol"] = 1.0
     if not out:
-        out = [{"chain": ["sine"], "vol": 1.0}]
+        out = [{"chain": ["sine"], "vol": 1.0, "register": 1.0}]
     return out
 
 
@@ -1599,7 +1675,6 @@ def build_orchestra(technique_keys=None, adjective_keys=None, motion_key=None,
     # single osc at vol 1.0 is unchanged (gain 1.0). HEADROOM still bounds it.
     bodies = []
     mix_terms = []
-    sum_vol = sum(o["vol"] for o in oscs) or 1.0
     # ONE gain law for every layer. Independent layers sum INCOHERENTLY, so their
     # combined level grows with sqrt(N), and dividing by sqrt(N) is what actually
     # keeps "adding a layer enriches the timbre without a loudness jump" true. The
@@ -1608,7 +1683,15 @@ def build_orchestra(technique_keys=None, adjective_keys=None, motion_key=None,
     # 3-layer patch 4.8 dB quieter than a single one. There is deliberately no
     # per-case correction here: a mix gain that needs to know whether its inputs
     # happen to correlate is a special case waiting to be wrong.
-    mgain = 1.0 / max(1.0, sum_vol) ** 0.5
+    #
+    # The law is evaluated at K-RATE from the live `oscNvol` channels, not baked
+    # from the authored numbers: mix and register are PLAYER controls (BJ
+    # 2026-07-18, the 3-oscillator decision), and a knob that recompiled the
+    # orchestra on every move would swap-and-crossfade the whole instrument
+    # instead of turning. The authored values are only the STARTING values, and
+    # they are seeded into the same channels in the header below, so an orchestra
+    # rendered offline (csound_orch_check, the gate) or by a host that never
+    # writes the channels sounds exactly as authored.
 
     # Two oscillators carrying the SAME chain are perfectly coherent, and any
     # normalization then cancels the doubling: (x + x)/2 = x, bit for bit.
@@ -1636,26 +1719,50 @@ def build_orchestra(technique_keys=None, adjective_keys=None, motion_key=None,
 
     for oi, o in enumerate(oscs):
         body, outv = _emit_oscillator(oi, o["chain"], imorphtime, nmodes)
+        n = oi + 1                      # 1-based: the channel names name UI slots
         cents = detune.get(oi)
-        if cents:
-            fv = f"kfdt{oi}"
-            body = _re.sub(r"\bkfreq\b", fv, body)
-            body = (f"  {fv}    = kfreq * {2 ** (cents / 1200.0):.6f}"
-                    f"        ; duplicate layer, detuned {cents:+.1f} cents\n" + body)
+        # ONE per-layer frequency: the played pitch times the layer's live
+        # register, times the duplicate-detune factor when there is one. Every
+        # `kfreq` inside the body (including an idiom's own sub-octave weights)
+        # is rewritten to it, so a layer transposes as a whole. The same 20..12000
+        # limit the shared kfreq carries is re-applied AFTER the multiply --
+        # otherwise a 16' layer on a bottom-octave note would run below 20 Hz.
+        fv = f"kfr{n}"
+        factor = f" * {2 ** (cents / 1200.0):.6f}" if cents else ""
+        note = (f"   ; layer {n} register x detune {cents:+.1f} cents" if cents
+                else f"   ; layer {n} at its live register")
+        body = _re.sub(r"\bkfreq\b", fv, body)
+        body = (f"  {fv}    limit kfreq * koct{n}{factor}, 20, 12000{note}\n" + body)
         bodies.append(body)
-        w = o["vol"] * mgain
-        if abs(w - 1.0) < 1e-6:
-            mix_terms.append(outv)
-        else:
-            mix_terms.append(f"{w:.4f} * {outv}")
+        mix_terms.append(f"kvol{n} * kmix * {outv}")
     body = "\n".join(bodies)
-    # collapse the per-osc outputs into `asig` (what adjectives/motion/tail read).
-    # Single unit-weight osc -> `asig = aosc0` (one a-rate copy, sound identical
-    # to pre-M2); multi-osc -> the weighted sum.
-    mix = "  asig     = " + " + ".join(mix_terms)
+    # collapse the per-osc outputs into `asig` (what adjectives/motion/tail read),
+    # k-rate weighted by the live channels. A single layer at vol 1.0 gives
+    # kvol1 = kmix = 1, i.e. the same signal the baked single-osc form produced.
+    mix = ("  kvsum    = " + " + ".join(f"kvol{i + 1}" for i in range(len(oscs))) + "\n"
+           "  kmix     = 1 / sqrt(kvsum < 1 ? 1 : kvsum)"
+           "        ; incoherent layers sum ~sqrt(N)\n"
+           "  asig     = " + " + ".join(mix_terms))
 
     adj = _emit_adjectives(adjective_keys)
     mot = _emit_motion(motion_key)
+
+    # The authored mix/register values are SEEDED into their channels once, at
+    # orchestra init, before any instrument runs. That makes the authored patch
+    # the state of the instrument the moment it is compiled: an offline render
+    # and a host that never writes the channels both play exactly what the prompt
+    # asked for, while the plugin simply overwrites them from its parameters on
+    # the very next block. No sentinel value, no "unset" encoding -- and a mix of
+    # 0.0 stays what it reads as, silence, instead of doubling as "not set".
+    seed = "".join(
+        f"chnset {o['vol']:.4f}, \"osc{i + 1}vol\"\n"
+        f"chnset {o['register']:.4f}, \"osc{i + 1}oct\"\n"
+        for i, o in enumerate(oscs))
+    # ...and read back at k-rate inside the instrument.
+    reads = "".join(
+        f"  kvol{i + 1}    chnget \"osc{i + 1}vol\"\n"
+        f"  koct{i + 1}    chnget \"osc{i + 1}oct\"\n"
+        for i in range(len(oscs)))
 
     head = (
         "<CsoundSynthesizer>\n<CsOptions>\n-n -d\n</CsOptions>\n<CsInstruments>\n"
@@ -1664,6 +1771,7 @@ def build_orchestra(technique_keys=None, adjective_keys=None, motion_key=None,
         f"nchnls = {NCHNLS}\n"
         "0dbfs = 1\n"
         "giSine ftgen 1, 0, 65536, 10, 1\n\n"
+        + seed + "\n"
         "instr 1\n"
         "  ivoice   = p4\n"
         "  Sgate    sprintf \"gate%d\", ivoice\n"
@@ -1678,6 +1786,7 @@ def build_orchestra(technique_keys=None, adjective_keys=None, motion_key=None,
         "  kpres    chnget Spres\n"
         "  ktimb    chnget Stimb\n"
         "  ktrig    chnget Strig\n"
+        + reads +
         "  kgate    portk kgateraw, 0.001\n"
         "  kfreq    limit kfreqraw, 20, 12000\n"
         "  kpresGain = 1.0 + 0.15 * kpres\n\n"
@@ -1766,11 +1875,21 @@ def build_csound_response(text, llm):
         # held STANDING sound (pad/drone/bed) never decays on its own.
         wants_decay = _prompt_wants_decay(text)
 
+        # REGISTER-INTENT guard, the same shape one level up: the octave is a
+        # player control, so a prompt may only move it when the prompt ITSELF
+        # names a register. Without that cue every layer is authored at 8' (the
+        # played pitch) no matter what the model wrote, and the plugin then keeps
+        # whatever the player had dialled in -- BJ 2026-07-18, asked what happens
+        # to hand-set values on a new prompt: "nur wenn der Prompt selbst eine
+        # Fußlage nennt". This flag travels to the UI as `register_authored`; it
+        # is what tells the plugin whether it may overwrite the octave knobs.
+        names_register = _prompt_names_register(text)
+
         # validate each oscillator's chain independently (morph-chain / compound /
         # pwm-collapse handled per osc), keep its volume; drop an osc that yields
         # no valid key. Cap at 3 (the schema promises up to three).
         oscs, flags = [], []
-        for oi, (chain_raw, vol) in enumerate(osc_specs[:3], start=1):
+        for oi, (chain_raw, vol, reg) in enumerate(osc_specs[:3], start=1):
             keys, kflags = _validate_osc_chain(chain_raw, tcanon, dco_llm_map)
             flags += kflags
             # strip an UNMOTIVATED trailing silence (see the decay-intent guard above):
@@ -1798,7 +1917,15 @@ def build_csound_response(text, llm):
                     v = max(0.0, min(1.0, float(vol)))
                 except (TypeError, ValueError):
                     v = 1.0
-                oscs.append({"chain": keys, "vol": v})
+                r = reg if (names_register and reg) else 1.0
+                if reg and reg != 1.0 and not names_register:
+                    flags.append({
+                        "word": f"OSC{oi}: {_FOOTAGE_LABEL.get(reg, '?')}'",
+                        "reason": "the prompt names no register, so the layer plays "
+                                  "at the pitch you hold and the octave stays yours",
+                        "tier": "adapted",
+                    })
+                oscs.append({"chain": keys, "vol": v, "register": r})
 
         adjective_keys, aflags = dco_llm_map._validate_keys(
             adjectives_raw.split(",") if adjectives_raw else [], acanon)
@@ -1823,6 +1950,9 @@ def build_csound_response(text, llm):
             "orchestra": orchestra,
             "reading": reading,
             "oscillators": rendered,
+            # Whether the plugin may overwrite hand-set octave controls with the
+            # registers above: true only when the prompt itself named a footage.
+            "register_authored": bool(names_register),
             # legacy fields (the first oscillator) so existing UI / tests that read
             # technique/adjectives/motion keep working.
             "technique": rendered[0]["chain"] if rendered else [],
