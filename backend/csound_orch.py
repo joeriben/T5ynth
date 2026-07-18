@@ -48,6 +48,17 @@ _SPECTRA = {
     "additive": [(1.00, 1.00), (2.00, 0.45), (3.00, 0.28), (4.00, 0.16), (5.00, 0.09)],
     # inharmonic bell partials (lexicon fm_bell: h 2.76/5.4/8.93).
     "bell":     [(1.00, 1.00), (2.76, 0.55), (5.40, 0.32), (8.93, 0.18)],
+    # metallic_fm's OWN morph reading. The steady path was differentiated from
+    # fm_bell (c:m 1:2.41 at index 6.0 against 1:1.41 at 3.2) but _MORPH_SPECTRUM
+    # still pointed both at "bell", so inside a morph the two stayed byte-identical
+    # -- the last surviving alias. These ratios and weights are the actual sideband
+    # set of that FM pair, computed from the Bessel functions J_n(6.0) that govern
+    # it (scipy.special.jv), not sketched by hand: energy at index 6 spreads far
+    # out from the carrier, which is exactly what makes it a clang rather than a
+    # bell. Truncated at 13x to stay near the other spectra's partial counts.
+    "metal_fm": [(1.00, 0.42), (1.41, 0.76), (3.41, 0.76), (3.82, 0.67),
+                 (5.82, 0.67), (6.23, 0.32), (8.23, 0.32), (8.64, 0.99),
+                 (10.64, 0.99), (11.05, 1.00), (13.05, 1.00)],
     # the reference tone: one partial. A morph endpoint collapses onto this.
     "sine":     [(1.00, 1.00)],
     # classic waveform harmonic series, as ADDITIVE morph endpoints (a morph is a
@@ -114,7 +125,7 @@ _MORPH_SPECTRUM = {
     "additive": "additive",
     "organ": "organ", "flute": "flute", "harpsichord": "harpsichord",
     "glass": "glass",
-    "fm_bell": "bell", "metallic_fm": "bell",
+    "fm_bell": "bell", "metallic_fm": "metal_fm",
     "struck_bar": "struck_bar", "cymbal": "cymbal",
     "fm": "fm", "fm_ep": "fm", "ring_mod": "ring_mod",
     "saw": "saw", "supersaw": "saw", "brass": "saw", "strings": "saw",
@@ -636,33 +647,46 @@ def _modal_budget(oscs):
     min(2, ...) deliberately over-counts a chain like cymbal>sine>glass, where
     the two modal stages are never adjacent -- erring toward cheaper).
 
-    The thresholds are MEASURED mid-morph, not at rest. Benching the settled tail
-    understates the cost badly, because by then the morph has landed on a single
-    stage per oscillator: the same 3x cymbal>glass>struck_bar orchestra benches
-    79us settled and 138us mid-morph. Forcing the bench window inside the morph
-    (morph_sec=60) gives the real table, us against the 133us block gate:
+    The thresholds are MEASURED mid-morph AND under a full adjective stack, because
+    both of those were blind spots that cost a recalibration:
 
-        banks    9 modes   7 modes   5 modes   4 modes
-          2         60.9      55.0      45.6      40.0
-          4        118.0     104.6      87.6      80.1
-          6        189.0!    168.5!    138.0!    116.9
+      - Benching the settled tail understates the cost badly: by then the morph has
+        landed on a single stage per oscillator. The same 3x cymbal>glass>struck_bar
+        orchestra benches 79us settled and 138us mid-morph.
+      - Benching a bare oscillator stack understates it again. The first version of
+        this table was calibrated with adj=[] motion=None -- the same "measure the
+        easy case" blind spot these thresholds exist to prevent -- and adding
+        ordinary timbral words pushed the 6-bank row from 116.9 to 149.8us, i.e.
+        over a gate it had just passed. Any prompt with five adjectives and a
+        motion word reaches that, so it is not a corner case.
 
-    Hence 9 / 7 / 4 below. The suite's own worst case (cpu:3x-modal-morph-midway)
-    lands at ~120us against the 133us gate -- inside it, but only just, so treat
-    that row as the ceiling rather than as room to spend.
+    Mid-morph, with 5 adjectives + wobble, us against the 133us block gate:
+
+        banks    9 modes   7 modes   5 modes   4 modes   3 modes   2 modes
+          2         95.4      85.8      77.8      67.7      61.3      --
+          4        156.2!    142.7!    121.9     107.3      92.1      --
+          6        229.0!    203.4!    172.1!    149.8!    129.6     103.8
+
+    Hence 9 / 4 / 2. The 6-bank row takes 2 rather than 3 modes deliberately: 3
+    benches 124.6-127.6us over five runs, stable but 96% of the gate, leaving
+    nothing for a slower machine. It costs little musically -- five or six modal
+    banks sounding at once is already 10-18 partials, where one bank's individual
+    mode count stops being audible.
 
     Thinning SUBSAMPLES each spectrum evenly (first and last partial always kept)
     rather than truncating it, so the metal keeps its spectral SPAN -- the top
     partials are exactly where a cymbal's brightness lives, and lopping them off
     would dull the sound instead of merely simplifying it."""
     sim = sum(min(2, sum(1 for k in o["chain"] if k in _MODAL_TECH)) for o in oscs)
-    return 9 if sim <= 2 else (7 if sim <= 4 else 4)
+    return 9 if sim <= 2 else (4 if sim <= 4 else 2)
 
 
 def _thin(spec, nmodes):
     """Evenly subsample a partial list to `nmodes`, always keeping both ends."""
     if not nmodes or nmodes >= len(spec) or len(spec) < 2:
         return spec
+    if nmodes < 2:                 # nmodes-1 below would divide by zero
+        return spec[:1]
     idx = [round(i * (len(spec) - 1) / (nmodes - 1)) for i in range(nmodes)]
     return [spec[i] for i in sorted(set(idx))]
 
@@ -707,8 +731,25 @@ def _emit_steady(technique, tag="0", nmodes=None):
     if technique == "pwm":
         # classic PWM: band-limited pulse whose DUTY moves (square 50% -> thin
         # 8% -> back), a genuinely moving spectrum. kpw is the pulse width.
+        # Duty sweeps 80% .. 20% (BJ, 2026-07-18: "pwm square sollte einfach
+        # defaulten, 80/20 oder so etwas"). Duty is the ON fraction of the cycle on
+        # the standard PWM scale, so 80/20 names the two ends of the sweep, and the
+        # square (50%) sits at its centre -- which is what a key called "pwm SQUARE"
+        # should be built around.
+        #
+        # This deliberately DEPARTS from the lexicon `why`, which still reads
+        # "square (50%) narrowing to a thin pulse (8%) and back" -- a wavetable-era
+        # figure. Recorded here rather than left silent, because a comment that
+        # describes something the code does not do is exactly the defect class this
+        # whole pass exists to remove; the why text needs the same edit, which is
+        # a measured change (it steers the LLM's routing) tracked separately.
+        #
+        # The arithmetic was ALSO wrong before: `0.29 + 0.21*(klfo+0.5)` mapped
+        # [-0.5,0.5] onto [0,1], so the excursion was never negative and the duty
+        # crept over 0.29..0.50 -- a quarter of even the old intent. Wrong since
+        # febda214, with the comment above it claiming 8% the whole time.
         L.append(f"  klfo{tag}    oscili 0.5, 0.25            ; -0.5..0.5, 4 s period")
-        L.append(f"  kpw{tag}     = 0.29 + 0.21 * (klfo{tag} + 0.5) ; duty 0.29..0.50..0.29")
+        L.append(f"  kpw{tag}     = 0.5 + 0.6 * klfo{tag}     ; duty 0.20..0.80, square at centre")
         L.append(f"  apw{tag}     vco2 0.6, kfreq, 2, kpw{tag}     ; imode 2 = pulse, kpw = width")
         L.append(f"  {ov}    = apw{tag} - 0.6 * (2 * kpw{tag} - 1) ; {_DC_NOTE}")
     elif technique == "square":
@@ -808,7 +849,28 @@ def _emit_steady(technique, tag="0", nmodes=None):
         # TIMBRE motion, not an amplitude envelope -- the tone never dies (and
         # linseg is the same k-rate shaper the morph path already uses; the
         # forbidden opcodes are the amplitude envelopes).
-        L.append(f"  kndx{tag}   linseg 4.2, 1.6, 1.30       ; bright tine -> mellow, holds")
+        # The index has to soften PER NOTE. A bare `linseg` here fired exactly
+        # once per SESSION: instr 1 is always-on (i 1 0 360000), so the ramp
+        # completed 1.6 s after Csound started and every note the player struck
+        # afterwards got a frozen 1.30 -- the capability never reached the
+        # instrument. Measured: struck at t=0 the centroid ran 686->421 Hz, struck
+        # at t=6 it sat at 421 Hz from the first window. No gate could see it,
+        # because the probe always triggers at t=0.
+        # A per-note counter reset on the trig epoch, NOT a reinit label: this code
+        # is emitted inside the crossfade path's `if <gain> > 0` blocks, where a
+        # label and its reinit would sit inside a conditional.
+        # init 0, not a large "already settled" value: a note whose gate and trig
+        # are already high before the first k-cycle -- which is how the probe and
+        # a held-at-load patch both behave -- gives changed2 no edge to fire on,
+        # so the counter would never start and the index would sit frozen at 1.30.
+        # Starting at 0 ramps that case correctly and still restarts on every
+        # later trigger edge.
+        L.append(f"  ktm{tag}    init 0")
+        L.append(f"  if changed2(ktrig) == 1 then")
+        L.append(f"    ktm{tag}   = 0")
+        L.append(f"  endif")
+        L.append(f"  ktm{tag}    = ktm{tag} + 1/kr           ; seconds since this note")
+        L.append(f"  kndx{tag}   = 1.30 + 2.90 * (1 - min(ktm{tag} / 1.6, 1)) ; tine -> mellow, holds")
         L.append(f"  {ov}    foscili 0.5, kfreq, 1, 1, kndx{tag}, giSine ; 1:1 tine EP")
     elif technique in ("fm_bell", "fm", "metallic_fm"):
         # FM via foscili: an inharmonic-ish carrier:modulator ratio gives the
@@ -1230,7 +1292,11 @@ def _emit_adjectives(adjective_keys):
         # saturation flattens variation, so "dirty" removed life instead of adding
         # it (tools/csound_liveliness_gate.py, 2026-07-18).
         k, g = acc["GRIME"]
-        L.append(f"  kgrm     randi 0.45, 11, 2              ; grime scatter (jittering drive)")
+        # iseed MUST lie in [0,1]. It was 2, and above 1 Csound reseeds from the
+        # system clock: the same patch rendered differently on every run (max|diff|
+        # 0.065 on a 0.188 peak) -- the exact fault that was fixed for the analog
+        # micro-detune a few lines below, left standing here.
+        L.append(f"  kgrm     randi 0.45, 11, 0.5          ; grime scatter (jittering drive)")
         L.append(f"  asig     = tanh(asig * ({k:.2f} * (1 + kgrm))) * {g:.2f}  ; dirty = moving grime")
     if "AIR" in acc:
         L.append("  anzr     rand 0.35")
@@ -1254,9 +1320,13 @@ def _emit_adjectives(adjective_keys):
         # an unfalsifiable test. MEASURED, not assumed (tools/csound_liveliness_
         # gate.py tracks f0): +-0.55 ms @ 0.31 Hz gave 0.07% and +-2.5 ms @ 0.6 Hz
         # only 2.2 cents — both below audibility.
-        L.append("  kdt1     oscili 2.5, 0.13            ; slow tuning wander (~3.5 cents)")
-        L.append("  kdt2     oscili 1.5, 0.31            ; second, incommensurate (~5 cents)")
-        L.append("  asig     vdelay3 asig, 10 + kdt1 + kdt2, 40 ; analog micro-detune")
+        L.append("  kdrfa    oscili 2.5, 0.13            ; slow tuning wander (~3.5 cents)")
+        L.append("  kdrfb    oscili 1.5, 0.31            ; second, incommensurate (~5 cents)")
+        # kdrf*, not kdt*: kdt<n> is chiptune's duty on oscillator n, so the two
+        # collided whenever chiptune landed on oscillator 1 or 2. It was masked
+        # purely by emission order (oscillator bodies precede adjectives), i.e. a
+        # bug waiting for that order to change.
+        L.append("  asig     vdelay3 asig, 10 + kdrfa + kdrfb, 40 ; analog micro-detune")
     return "\n".join(L)
 
 

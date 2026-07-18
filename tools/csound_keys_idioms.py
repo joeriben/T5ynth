@@ -114,14 +114,26 @@ MULTI_ADJ = [
 # same orchestra benches 79us settled and 138us mid-morph. A long morph keeps the
 # bench window inside the crossfade, where two stages per oscillator are open at
 # once -- which is the cost that actually has to fit.
+#
+# Third lesson, and the one that cost a recalibration: the first version of this
+# list ran every case with adj=[] motion=None -- the SAME "measure the easy case"
+# blind spot the list exists to close. Ordinary timbral words are not free: five
+# adjectives plus a motion pushed the modal case from 116.9 to 149.8us, over a gate
+# it had just passed. HEAVY below is what a wordy prompt actually costs.
+HEAVY = (["metallic", "analog", "bright", "fat", "resonant"], "wobble")
 WORST_CASE_OSC = [
-    ("cpu:3x-modal-morph-midway", [["cymbal", "glass", "struck_bar"]] * 3, 60.0),
-    ("cpu:3x-modal-morph-settled", [["cymbal", "glass", "struck_bar"]] * 3, 2.0),
-    ("cpu:3x-live-morph-midway",  [["supersaw", "strings", "flute"]] * 3, 60.0),
-    ("cpu:3x-voice-morph-midway", [["voice", "voice_ee", "voice_oo"]] * 3, 60.0),
-    ("cpu:3x-noise-morph-midway", [["wind", "rain", "thunder"]] * 3, 60.0),
-    ("cpu:3-modal-oscs",          [["cymbal"], ["glass"], ["struck_bar"]], 2.0),
-    ("cpu:3x-supersaw",           [["supersaw"]] * 3, 2.0),
+    ("cpu:3x-modal-morph-midway", [["cymbal", "glass", "struck_bar"]] * 3, 60.0, HEAVY),
+    ("cpu:3x-modal-morph-settled", [["cymbal", "glass", "struck_bar"]] * 3, 2.0, HEAVY),
+    ("cpu:2x-modal-morph-midway", [["cymbal", "glass"]] * 2, 60.0, HEAVY),
+    ("cpu:3x-live-morph-midway",  [["supersaw", "strings", "flute"]] * 3, 60.0, HEAVY),
+    ("cpu:3x-voice-morph-midway", [["voice", "voice_ee", "voice_oo"]] * 3, 60.0, HEAVY),
+    ("cpu:3x-noise-morph-midway", [["wind", "rain", "thunder"]] * 3, 60.0, HEAVY),
+    ("cpu:3-modal-oscs",          [["cymbal"], ["glass"], ["struck_bar"]], 2.0, HEAVY),
+    ("cpu:3x-supersaw",           [["supersaw"]] * 3, 2.0, HEAVY),
+    # the same shapes bare, so a regression in the oscillators themselves is not
+    # hidden inside the adjective layer's cost
+    ("cpu:3x-modal-morph-bare",   [["cymbal", "glass", "struck_bar"]] * 3, 60.0, ([], None)),
+    ("cpu:3x-live-morph-bare",    [["supersaw", "strings", "flute"]] * 3, 60.0, ([], None)),
 ]
 
 
@@ -179,8 +191,8 @@ def run():
     ]
     for lbl, chain, exp in VOICE_MORPHS:
         cases.append((f"voxmorph:{lbl}", chain, [], None, exp, False))
-    for lbl, chains, msec in WORST_CASE_OSC:
-        cases.append((lbl, None, [], None, {"sustain": "stand"}, False,
+    for lbl, chains, msec, (adjs, mot) in WORST_CASE_OSC:
+        cases.append((lbl, None, adjs, mot, {"sustain": "stand"}, False,
                       {"oscs": [{"chain": c, "vol": 1.0} for c in chains],
                        "morph_sec": msec}))
 
