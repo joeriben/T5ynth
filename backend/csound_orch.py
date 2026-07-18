@@ -62,6 +62,29 @@ _SPECTRA = {
     "pulse":    [(1.00, 1.00), (2.00, 0.80), (3.00, 0.60), (4.00, 0.45), (5.00, 0.33), (6.00, 0.24)],
     "cheby":    [(1.00, 1.00), (2.00, 0.50), (3.00, 0.35), (4.00, 0.22), (5.00, 0.12)],
     "fm":       [(1.00, 1.00), (2.00, 0.60), (3.00, 0.40), (4.00, 0.28), (5.00, 0.18), (6.00, 0.10)],
+    # ring modulation of a carrier by a 2x modulator = 1/2[cos(f) - cos(3f)]: a
+    # sparse two-partial product, energy only at f and 3f. Its OWN morph reading
+    # (the steady _emit_steady renders exactly this product); do NOT reuse fm's
+    # dense harmonic series (that misrepresents what ring_mod actually plays).
+    "ring_mod": [(1.00, 1.00), (3.00, 1.00)],
+    # --- M3 consolidation: real spectra for former gap techniques (lexicon "why"
+    #     partial sets honoured verbatim where given). ---
+    # tuned struck metal bar (music box/glocken/celesta/kalimba): ideal free-free
+    # bar partials h 2.76/5.4/8.93/13.34, brighter & THINNER than the big bell
+    # (weaker fundamental, more high energy).
+    "struck_bar": [(1.00, 0.85), (2.76, 0.70), (5.40, 0.50), (8.93, 0.32), (13.34, 0.18)],
+    # dense bright inharmonic plate wash (cymbal/crash/ride/hi-hat): weak
+    # fundamental, energy piled into dense OFF-GRID upper partials (an additive
+    # sketch of a 2-D plate's modal spectrum, per the lexicon; true noise = later).
+    "cymbal":   [(1.00, 0.22), (2.19, 0.38), (3.41, 0.55), (4.83, 0.72), (6.37, 0.88),
+                 (8.09, 1.00), (10.24, 0.86), (12.71, 0.64), (15.83, 0.42)],
+    # classic drawbar harmonic set {1,2,3,4,6,8} at typical registration levels.
+    "organ":    [(1.00, 1.00), (2.00, 0.70), (3.00, 0.50), (4.00, 0.40), (6.00, 0.30), (8.00, 0.25)],
+    # near-pure tone with a faint 2nd/3rd (breath noise not modelled here).
+    "flute":    [(1.00, 1.00), (2.00, 0.12), (3.00, 0.05)],
+    # bright, plucky additive spectrum (many odd+even partials, slow rolloff).
+    "harpsichord": [(1.00, 1.00), (2.00, 0.72), (3.00, 0.56), (4.00, 0.44), (5.00, 0.34),
+                    (6.00, 0.26), (7.00, 0.20), (8.00, 0.15)],
     # morph-to-zero endpoint: all-amplitude-0. A chain "<x> > silence" fades every
     # partial of x to nothing over the morph leg -> a clean transient / pseudo-env
     # (the ONE amplitude shaping BJ authorized, 2026-07-18). norm() guards sum==0.
@@ -74,10 +97,12 @@ _SPECTRA = {
 # "additive" in _emit_morph, so a morph NEVER silently collapses to a steady tone.
 _MORPH_SPECTRUM = {
     "sine": "sine", "sub_sine": "sine", "theremin": "sine",
-    "additive": "additive", "organ": "additive", "flute": "additive",
+    "additive": "additive",
+    "organ": "organ", "flute": "flute", "harpsichord": "harpsichord",
     "glass": "glass",
-    "fm_bell": "bell", "metallic_fm": "bell", "struck_bar": "bell",
-    "fm": "fm", "fm_ep": "fm",
+    "fm_bell": "bell", "metallic_fm": "bell",
+    "struck_bar": "struck_bar", "cymbal": "cymbal",
+    "fm": "fm", "fm_ep": "fm", "ring_mod": "ring_mod",
     "saw": "saw", "supersaw": "saw", "brass": "saw", "strings": "saw",
     "bass_saw": "saw", "sync": "saw",
     "square": "square", "clarinet": "square", "chiptune": "square", "pulse": "square",
@@ -298,6 +323,13 @@ def _emit_steady(technique, tag="0"):
         # waveshaper, the substrate doing dirt natively).
         L.append(f"  adrv{tag}    oscili 0.9, kfreq")
         L.append(f"  {ov}    = tanh(adrv{tag} * 3.0) * 0.5    ; waveshaper harmonics")
+    elif technique == "ring_mod":
+        # ring modulation: carrier * modulator at a 2:1 ratio -> sum/difference
+        # sidebands (the closed-form ring/AM spectrum). The substrate doing RM
+        # natively (a genuine product, not a partial table).
+        L.append(f"  acar{tag}    oscili 0.8, kfreq")
+        L.append(f"  amod{tag}    oscili 1.0, kfreq * 2.0")
+        L.append(f"  {ov}    = acar{tag} * amod{tag}          ; ring modulation (2:1 sidebands)")
     else:
         # sine / additive / theremin / sub_sine / flute / organ / glass and
         # anything not given a bespoke idiom yet: render its spectrum additively
@@ -344,16 +376,28 @@ def _emit_morph(technique_keys, imorphtime, tag="0"):
         return None  # <2 endpoints given; caller falls back to steady (never
         #              a silent collapse -- every key yields a stage above)
 
-    # align all stages to a common partial count (union by index); pad a shorter
-    # stage with amp-0 partials that hold the previous ratio, so a fading partial
-    # never sweeps its frequency audibly.
+    # align all stages to a common partial count (union by index). A stage that
+    # lacks partial i is padded with an amp-0 partial that holds the ratio of the
+    # NEAREST stage ALONG THE CHAIN that actually has partial i -- so every fade leg
+    # (a partial audible at one end, silent at the other) is frequency-FLAT: the
+    # partial fades in/out at its own frequency and never glisses. Only real->real
+    # legs (both ends audible) interpolate ratios, which is the intended spectral
+    # morph. A single GLOBAL reference is wrong for >=2 legs: in saw>square>sine the
+    # shortest stage (sine) would take saw's grid, so square's harmonics glissed
+    # 3->2 etc. as they faded in leg 2 (adversarial review 2026-07-18). Per-leg
+    # "nearest real stage" holds the fade-neighbor's ratio and fixes 3+ stage chains
+    # (2-stage is unchanged: the nearest real stage IS the counterpart).
     n = max(len(s) for s in stages)
+    m = len(stages)
     aligned = []
-    for s in stages:
-        padded = list(s)
-        while len(padded) < n:
-            padded.append((padded[-1][0], 0.0))
-        aligned.append(padded)
+    for j, s in enumerate(stages):
+        row = list(s)
+        while len(row) < n:
+            i = len(row)
+            nearest = min((k for k in range(m) if i < len(stages[k])),
+                          key=lambda k: (abs(k - j), k))
+            row.append((stages[nearest][i][0], 0.0))
+        aligned.append(row)
 
     # normalize each stage's gain to a common budget so loudness stays ~constant
     # across the morph (a spectral morph must not read as a volume change). A
@@ -404,19 +448,141 @@ def _emit_oscillator(oi, chain, imorphtime):
     return body, f"aosc{tag}"
 
 
+# M3 adjective consolidation: every lexicon adjective maps to one or more of a
+# small set of BOUNDED, in-place DSP operations on the mixed `asig`, chosen to
+# honour the lexicon's own "why". Operations (emit order below):
+#   BODY  g      -> add a low-passed copy (weight below): `asig + tone(asig,220)*g`
+#   THIN  fc     -> high-pass out the body (thinner): `atone asig, fc`
+#   FORMANT (fc,g) -> a peak-normalised reson bump (nasal/reedy/boxy/resonant)
+#   METAL g      -> a high inharmonic-band reson emphasis (metallic/clangorous)
+#   DARK  fc     -> one-pole low-pass tilt (dark/warm/mellow/...)
+#   BRIGHT s     -> add a high-passed copy (more upper energy): `asig + atone(asig,2200)*s`
+#   DIRT (k,g)   -> tanh waveshaper = REAL new harmonics (dirty/distorted/buzzy/...)
+#   AIR   g      -> add high-passed noise (airy/breathy breath air)
+#   DRIFT d      -> a slow amplitude micro-wobble (analog/old life)
+# Every op is bounded and the tail HEADROOM (0.32) leaves ample margin even when
+# several stack; the behavioral gate's swept probe verifies no combination clips.
+_ADJ_MAP = {
+    "bright":     [("BRIGHT", 0.70)],
+    "dark":       [("DARK", 1200)],
+    "warm":       [("DARK", 1800), ("BODY", 0.30)],
+    "hollow":     [("FORMANT", (700, 0.35)), ("DARK", 3000)],
+    "nasal":      [("FORMANT", (1300, 0.50))],
+    "fat":        [("BODY", 0.50)],
+    "thin":       [("THIN", 350)],
+    "buzzy":      [("DIRT", (2.0, 0.75)), ("BRIGHT", 0.40)],
+    "metallic":   [("METAL", 0.50)],
+    "smooth":     [("DARK", 2600)],
+    "shimmering": [("BRIGHT", 0.35), ("AIR", 0.12)],
+    "airy":       [("THIN", 300), ("AIR", 0.20)],
+    "harsh":      [("DIRT", (3.2, 0.70)), ("BRIGHT", 0.50)],
+    "woody":      [("DARK", 1900), ("FORMANT", (600, 0.30))],
+    "deep":       [("BODY", 0.60), ("DARK", 900)],
+    "glassy":     [("BRIGHT", 0.50), ("METAL", 0.25)],
+    "brittle":    [("THIN", 400), ("BRIGHT", 0.55), ("METAL", 0.20)],
+    "clangorous": [("METAL", 0.70)],
+    "growling":   [("DIRT", (2.6, 0.70)), ("DARK", 1600)],
+    "punchy":     [("BRIGHT", 0.40), ("BODY", 0.25)],
+    "mellow":     [("DARK", 2000)],
+    "sharp":      [("BRIGHT", 0.85)],
+    "round":      [("DARK", 2200)],
+    "cold":       [("BRIGHT", 0.60)],
+    "dirty":      [("DIRT", (2.6, 0.70))],
+    "clean":      [("DARK", 6000)],
+    "aggressive": [("DIRT", (2.8, 0.70)), ("BRIGHT", 0.50)],
+    "gentle":     [("DARK", 1700)],
+    "brassy":     [("FORMANT", (1600, 0.45)), ("BRIGHT", 0.30)],
+    "breathy":    [("THIN", 400), ("AIR", 0.22)],
+    "crisp":      [("BRIGHT", 0.55)],
+    "muddy":      [("DARK", 700), ("BODY", 0.35)],
+    "resonant":   [("FORMANT", (1100, 0.55))],
+    "full":       [("BODY", 0.45), ("BRIGHT", 0.20)],
+    "thick":      [("BODY", 0.55)],
+    "raspy":      [("DIRT", (2.2, 0.72))],
+    "piercing":   [("BRIGHT", 0.90)],
+    "velvety":    [("DARK", 2100), ("BODY", 0.25)],
+    "icy":        [("BRIGHT", 0.65), ("AIR", 0.15)],
+    "boxy":       [("FORMANT", (500, 0.45)), ("DARK", 2000)],
+    "reedy":      [("FORMANT", (1200, 0.40)), ("DIRT", (1.8, 0.80))],
+    "dull":       [("DARK", 650)],
+    "vibrant":    [("BRIGHT", 0.50), ("BODY", 0.20)],
+    "flat":       [("DARK", 1300)],
+    "rich":       [("BRIGHT", 0.30), ("DIRT", (1.6, 0.85))],
+    "sparse":     [("DARK", 1500)],
+    "edgy":       [("DIRT", (2.0, 0.75))],
+    "distorted":  [("DIRT", (3.4, 0.68))],
+    # 'analog' = the lexicon's authorized amplitude wobble + softened highs
+    # (dco_lexicon 'why': "slow coherent drift ... amplitude wobble"). 'old' is,
+    # per its own 'why', "progressive high-partial erosion + light smear" with a
+    # tape wow that is a slow PITCH wobble "flagged as not carried on the baked
+    # path" -- so old is realized purely SPECTRALLY (darker erosion), NOT with an
+    # amplitude wobble (that belongs to analog, and pitch wow is out of scope here).
+    "analog":     [("DRIFT", 0.03), ("DARK", 3000)],
+    "old":        [("DARK", 2200)],
+    "washed_out": [("DARK", 2800), ("AIR", 0.12)],
+}
+
+
 def _emit_adjectives(adjective_keys):
-    """Post-process `asig` in place for a few slice adjectives. Real DSP: dirt is
-    a tanh waveshaper (new harmonics), bright/dark a one-pole tilt. Unknown
-    adjectives are silently no-ops (they were validated as real lexicon keys;
-    the slice just has no idiom for them yet)."""
+    """Post-process the mixed `asig` in place, mapping each adjective key to the
+    bounded DSP operations in _ADJ_MAP. Operations dedupe (the strongest of each
+    kind wins) and emit in a fixed timbral order. An adjective with no idiom is a
+    silent no-op (still a valid closed-enum key)."""
+    acc = {}
+    for a in adjective_keys:
+        for name, val in _ADJ_MAP.get(a, []):
+            if name not in acc:
+                acc[name] = val
+            elif name == "DARK":
+                acc[name] = min(acc[name], val)          # lower cutoff = darker
+            elif name == "THIN":
+                acc[name] = max(acc[name], val)          # higher hp cutoff = thinner
+            elif name in ("BODY", "METAL", "BRIGHT", "AIR", "DRIFT"):
+                acc[name] = max(acc[name], val)
+            elif name == "DIRT":
+                acc[name] = val if val[0] > acc[name][0] else acc[name]   # stronger drive
+            elif name == "FORMANT":
+                acc[name] = val if val[1] > acc[name][1] else acc[name]   # stronger bump
+    if not acc:
+        return ""
+    # These ops shape TIMBRE only; they do NOT bound level here. A multi-adjective
+    # additive pile-up (boxy+bright+fat+metallic) or an AIR-noise crest stacked on
+    # resonant bumps CAN drive the signal well past unity -- that is bounded ONCE,
+    # globally, by the soft peak-limiter on `aout` in build_orchestra's tail (which
+    # sees the whole mix + adjectives + motion and caps the true output peak). An
+    # earlier RMS-match bound HERE was removed: it matched RMS not PEAK (so an
+    # uncorrelated AIR-noise crest still clipped the final output at bass pitches,
+    # adversarial review 2026-07-18) and it divided the slow DRIFT wobble back out
+    # whenever a hot additive adjective raised the baseline RMS. Peak-limit the
+    # output, don't RMS-normalize the timbre.
     L = []
-    s = set(adjective_keys)
-    if s & {"distorted", "dirty", "aggressive", "growling", "harsh"}:
-        L.append("  asig     = tanh(asig * 2.6) * 0.7    ; overdrive/dirt (real harmonics)")
-    if "bright" in s or "sharp" in s or "piercing" in s:
-        L.append("  asig     tone asig, 7000             ; bright tilt")
-    elif "dark" in s or "muddy" in s or "dull" in s or "warm" in s:
-        L.append("  asig     tone asig, 900              ; dark tilt")
+    if "BODY" in acc:
+        L.append("  albd     tone asig, 220")
+        L.append(f"  asig     = asig + albd * {acc['BODY']:.2f}       ; body / low weight")
+    if "THIN" in acc:
+        L.append(f"  asig     atone asig, {int(acc['THIN'])}            ; thin (remove low body)")
+    if "FORMANT" in acc:
+        fc, g = acc["FORMANT"]
+        L.append(f"  afrm     reson asig, {int(fc)}, {int(fc * 0.4)}, 2")
+        L.append(f"  asig     = asig + afrm * {g:.2f}       ; formant / mid bump")
+    if "METAL" in acc:
+        L.append("  amtl     reson asig, 3600, 1500, 2")
+        L.append(f"  asig     = asig + amtl * {acc['METAL']:.2f}       ; metallic high emphasis")
+    if "DARK" in acc:
+        L.append(f"  asig     tone asig, {int(acc['DARK'])}            ; dark tilt (low-pass)")
+    if "BRIGHT" in acc:
+        L.append("  abrt     atone asig, 2200")
+        L.append(f"  asig     = asig + abrt * {acc['BRIGHT']:.2f}       ; bright tilt (add highs)")
+    if "DIRT" in acc:
+        k, g = acc["DIRT"]
+        L.append(f"  asig     = tanh(asig * {k:.2f}) * {g:.2f}    ; dirt / overdrive (real harmonics)")
+    if "AIR" in acc:
+        L.append("  anzr     rand 0.35")
+        L.append("  aair     atone anzr, 5000")
+        L.append(f"  asig     = asig + aair * {acc['AIR']:.2f}       ; breath / air noise")
+    if "DRIFT" in acc:
+        L.append(f"  adrf     oscili {acc['DRIFT']:.3f}, 0.7")
+        L.append("  asig     = asig * (1 + adrf)         ; slow analog drift")
     return "\n".join(L)
 
 
@@ -433,10 +599,18 @@ def _emit_motion(motion_key):
     onto sub_sine/sine. A waveshaper that MAKES harmonics move is source-agnostic.
 
     The shimmer family (shimmer/vibrate/flutter/tremolo) stays a fast amplitude
-    tremolo (already source-agnostic)."""
+    tremolo (already source-agnostic). The speed/intent motions (slow/fast/snap/
+    pingpong/settle) are the SAME spectral waveshaper at a mapped rate — the
+    lexicon frames them as how-fast the timbre travels, so they are just rate
+    variants (slow 0.08 .. snap 0.9 Hz)."""
     if not motion_key or motion_key == "static":
         return ""
-    if motion_key in ("sweep", "evolve", "open_up", "close", "breathe", "wobble", "cycle"):
+    _SPECTRAL_RATE = {
+        "wobble": 2.2, "cycle": 1.1, "snap": 0.9, "fast": 0.4,
+        "pingpong": 0.25, "settle": 0.12, "slow": 0.08,
+    }
+    if motion_key in ("sweep", "evolve", "open_up", "close", "breathe", "wobble",
+                      "cycle", "slow", "fast", "snap", "pingpong", "settle"):
         # faster, shallower for the periodic wobble/cycle; slow & deep for the
         # directional-feel evolve/open family (still periodic = keeps living).
         # `balance` re-scales the waveshaped signal to the pre-shape RMS every
@@ -445,7 +619,7 @@ def _emit_motion(motion_key):
         # tremolo. Without it, tanh(x*kdrv) ~= x*kdrv at small signal, so the
         # drive LFO would pump overall level ~2.4x (an evolving PAD must not throb
         # in volume; that belongs to shimmer/tremolo).
-        rate = {"wobble": 2.2, "cycle": 1.1}.get(motion_key, 0.16)
+        rate = _SPECTRAL_RATE.get(motion_key, 0.16)
         return (f"  kmot     oscili 0.5, {rate}             ; -0.5..0.5 motion LFO\n"
                 "  kdrv     = 1.0 + 3.4 * (kmot + 0.5)   ; waveshaper drive 1.0..4.4\n"
                 "  awsh     = tanh(asig * kdrv)          ; harmonics grow & retract\n"
@@ -562,6 +736,9 @@ def build_orchestra(technique_keys=None, adjective_keys=None, motion_key=None,
     tail = (
         "\n"
         f"  aout     = asig * kgate * kvel * kpresGain * {HEADROOM}\n"
+        "  aout     clip aout, 0, 0.95, 0.85    ; final soft peak safety: transparent\n"
+        "                                       ; below ~0.8, asymptotes ~0.88 above,\n"
+        "                                       ; bounds ANY op stack / crest / host gain\n"
         "  outch    ivoice, aout\n"
         "endin\n"
         "</CsInstruments>\n<CsScore>\n"

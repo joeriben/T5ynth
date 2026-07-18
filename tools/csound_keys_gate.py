@@ -42,8 +42,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHECK = os.path.join(ROOT, "tools", "csound_orch_check")
 TIMEOUT = 30  # s, hard cap per csound_orch_check invocation
 
-# Pitch sweep for the bounds pass (musical A1..A7-ish).
-SWEEP_HZ = [55.0, 110.0, 220.0, 440.0, 880.0, 1760.0, 3520.0]
+# Pitch sweep for the bounds pass. MUST reach real MIDI bass: kfreq clamps to
+# 20 Hz and a played A0/C1/E1 (27.5/32.7/41.2) sits BELOW the old 55 Hz floor --
+# an AIR-noise + resonant stack clipped only there and the gate certified it clean
+# (adversarial review 2026-07-18). Covers ~kfreq floor (20) up through A7.
+SWEEP_HZ = [20.0, 27.5, 32.7, 41.2, 55.0, 110.0, 220.0, 440.0, 880.0, 1760.0, 3520.0]
 PROBE_DUR = 10.0
 PROBE_GATE = 9.0
 

@@ -31,23 +31,54 @@ TECHS = [t["key"] for t in LX["techniques"]]
 ADJS = [a["key"] for a in LX["adjectives"]]
 MOTIONS = [m["key"] for m in LX["motions"]]
 
-# What the assembler currently gives a BESPOKE idiom (read from _emit_steady /
-# _emit_adjectives / _emit_motion). Everything else falls to a generic fallback
-# -> a documented GAP for the expansion milestones, not a failure.
-BESPOKE_TECH = {"pwm", "square", "clarinet", "chiptune", "pulse", "triangle",
-                "saw", "supersaw", "brass", "strings", "bass_saw", "sync",
-                "fm_bell", "fm", "fm_ep", "metallic_fm", "cheby",
-                "sine", "additive"}  # sine/additive are intentionally additive
-INTRINSIC_MOVE_TECH = {"pwm"}  # techniques whose idiom moves on its own
-BESPOKE_ADJ = {"distorted", "dirty", "aggressive", "growling", "harsh",
-               "bright", "sharp", "piercing", "dark", "muddy", "dull", "warm"}
+# What the assembler gives a BESPOKE idiom (read from _emit_steady / _SPECTRA /
+# _emit_adjectives / _emit_motion). A key NOT listed here falls to a generic
+# fallback -> a documented GAP for the expansion milestones, not a failure. These
+# are FROZEN, HAND-MAINTAINED ledgers of the assembler's real coverage -- NOT
+# derived from the lexicon (that would auto-hide a future key's missing idiom).
+# M3 (2026-07-18) closed every gap the keys-path had: every technique now renders
+# via a live opcode or a real bespoke spectrum; every adjective maps to a bounded
+# _ADJ_MAP op; every non-static motion moves. A NEW key added by an expansion
+# milestone WITHOUT an idiom will correctly re-surface as a GAP below.
+BESPOKE_TECH = {
+    # live-opcode idioms (vco2 / foscili / tanh / product)
+    "pwm", "square", "clarinet", "chiptune", "pulse", "triangle",
+    "saw", "supersaw", "brass", "strings", "bass_saw", "sync",
+    "fm_bell", "fm", "fm_ep", "metallic_fm", "cheby", "ring_mod",
+    # real bespoke additive spectra (M3: honoured lexicon "why" partial sets)
+    "struck_bar", "cymbal", "organ", "flute", "harpsichord", "additive",
+    # intentionally (near-)pure sine — a sub / theremin / reference tone
+    "sine", "sub_sine", "theremin",
+}
+INTRINSIC_MOVE_TECH = {"pwm"}  # only pwm's duty moves on its own
+BESPOKE_ADJ = set(co._ADJ_MAP)   # the assembler's ACTUAL adjective coverage (M3: all 51)
 BESPOKE_MOTION = {"sweep", "evolve", "open_up", "close", "breathe", "wobble",
-                  "cycle", "shimmer", "vibrate", "flutter", "tremolo"}
+                  "cycle", "shimmer", "vibrate", "flutter", "tremolo",
+                  "pingpong", "settle", "slow", "fast", "snap"}  # M3: all non-static move
 
 MORPHS = [
     ["square", "sine"], ["saw", "sine"], ["sine", "fm_bell"], ["triangle", "saw"],
     ["fm_bell", "sine"], ["pwm", "sine"], ["saw", "square", "sine"],
     ["additive", "sine"], ["metallic_fm", "sine"], ["cheby", "sine"],
+    # dense-inharmonic -> sine: must collapse spectrally WITHOUT a pitch glide
+    # (the counterpart-ratio padding fix; adversarial review 2026-07-18).
+    ["cymbal", "sine"], ["glass", "sine"], ["harpsichord", "sine"],
+    ["struck_bar", "sine"], ["organ", "sine"], ["ring_mod", "sine"],
+]
+
+# Multi-adjective stacks on VARIED bases. The single-adjective-per-case coverage
+# above shares the assembler's own blind spot: it never emits the 3+ adjective
+# combos (esp. AIR-noise + resonant/metallic) that drove the final output past
+# unity at bass pitches. With the bass-extended sweep (gate SWEEP_HZ down to 20 Hz)
+# these exercise the global soft peak-limiter across the worst crest cases.
+MULTI_ADJ = [
+    ("saw", ["breathy", "resonant", "clangorous"]),        # the exact clip repro
+    ("saw", ["deep", "resonant", "clangorous", "piercing", "breathy"]),
+    ("square", ["breathy", "resonant", "clangorous"]),      # non-saw base, clips harder
+    ("pulse", ["airy", "metallic", "bright"]),
+    ("saw", ["boxy", "bright", "fat", "metallic"]),         # dense additive pile-up
+    ("sub_sine", ["breathy", "resonant"]),                  # bass source + AIR crest
+    ("fm_bell", ["shimmering", "icy", "brittle"]),          # AIR family on inharmonic
 ]
 
 
@@ -70,6 +101,9 @@ def run():
         cases.append((f"mot:{mo}", ["saw"], [], mo,
                       {"sustain": "stand", "move": want_move},
                       mo not in BESPOKE_MOTION and mo != "static"))
+    for base, adjs in MULTI_ADJ:
+        cases.append((f"multi:{base}+{'+'.join(adjs)}", [base], adjs, None,
+                      {"sustain": "stand"}, False))
 
     passed = failed = 0
     fails, gaps = [], []
