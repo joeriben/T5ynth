@@ -124,6 +124,51 @@ def _parse_reply(raw):
     return technique_raw, adjectives_raw, motion_raw
 
 
+def _canon_fallback(label, canon):
+    """Second chance for a label the catalogue does not carry VERBATIM.
+
+    The exact lookup drops the whole entry on a miss, and for an OSCILLATOR that
+    means the layer disappears from the patch. BJ hit this with
+    `saw wave 8" + sine bass 16" + pwm pulse 4"`: the model answered `bass_sine`
+    for the middle layer, no catalogue entry carries that label, and the sine bass
+    was silently gone from a three-layer prompt. (The same prompt written with a
+    foot mark instead of an inch mark routed all three, which is how arbitrary the
+    failure looked from outside.)
+
+    This is the case _validate_keys' own docstring describes -- "a small model
+    tends to emit the natural word it read rather than the internal key" -- one
+    step further: the model also COMPOUNDS and REORDERS those words. So normalize
+    the separators, then try the whole label, then its longest contiguous
+    sub-phrases, all against the SAME canon map. Nothing outside the catalogue can
+    be produced, and an ambiguous label (tokens reaching two different keys) is
+    dropped exactly as before rather than guessed at.
+    """
+    norm = re.sub(r"[^a-z0-9]+", " ", label).strip()
+    if not norm:
+        return None
+    for direct in (norm, norm.replace(" ", ""), norm.replace(" ", "_")):
+        if direct in canon:
+            return canon[direct]
+    toks = norm.split()
+    for size in range(len(toks), 0, -1):          # longest phrase wins
+        phrases = [" ".join(toks[i:i + size]) for i in range(len(toks) - size + 1)]
+        hits = {canon[p] for p in phrases if p in canon}
+        if len(hits) == 1:
+            return hits.pop()
+        if len(hits) > 1:
+            # A phrase that IS a catalogue key outranks one that is merely a
+            # surface form of another key. `bass_sine` reaches both `sine` (a key)
+            # and `bass_saw` (via the surface form "bass"), and dropping it as
+            # ambiguous is how BJ's sine-bass layer disappeared -- but the model
+            # plainly named a sine. Keys beat aliases; still ambiguous after that
+            # (`pwm pulse`, two real keys) drops as before.
+            exact = {canon[p] for p in phrases if canon.get(p) == p}
+            if len(exact) == 1:
+                return exact.pop()
+            return None
+    return None
+
+
 def _validate_keys(raw_candidates, canon):
     """The closed-enum injection guard, WITH surface-form canonicalization: each
     candidate is looked up in ``canon`` (a {token: canonical-key} map for one
@@ -145,6 +190,8 @@ def _validate_keys(raw_candidates, canon):
         if not c or c == "none":
             continue
         key = canon.get(c)
+        if key is None:
+            key = _canon_fallback(c, canon)
         if key is not None:
             kept.append(key)
         else:

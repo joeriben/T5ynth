@@ -1595,9 +1595,48 @@ def build_orchestra(technique_keys=None, adjective_keys=None, motion_key=None,
     bodies = []
     mix_terms = []
     sum_vol = sum(o["vol"] for o in oscs) or 1.0
-    mgain = 1.0 / max(1.0, sum_vol)
+    # ONE gain law for every layer. Independent layers sum INCOHERENTLY, so their
+    # combined level grows with sqrt(N), and dividing by sqrt(N) is what actually
+    # keeps "adding a layer enriches the timbre without a loudness jump" true. The
+    # old 1/N divided by the coherent bound instead, which only held for layers
+    # that were literally the same signal -- and made every genuinely different
+    # 3-layer patch 4.8 dB quieter than a single one. There is deliberately no
+    # per-case correction here: a mix gain that needs to know whether its inputs
+    # happen to correlate is a special case waiting to be wrong.
+    mgain = 1.0 / max(1.0, sum_vol) ** 0.5
+
+    # Two oscillators carrying the SAME chain are perfectly coherent, and any
+    # normalization then cancels the doubling: (x + x)/2 = x, bit for bit.
+    # `cymbal>glass + 2x supersaw>strings>flute` measured peak 0.2696 / rms 0.0501
+    # for the pair and 0.2696 / 0.0501 for one of them alone -- the second layer
+    # was not merely inaudible, it was arithmetically absent. Duplicates are an
+    # ARTEFACT that should not normally reach here at all (the router should not
+    # emit them unless the prompt really orders two of the same saw), but when one
+    # does, the layers are spread a few cents apart: that is what a doubled layer
+    # means musically, the beating between them IS the thickness. The spread is
+    # SYMMETRIC about the played note (two at -3.5/+3.5 cents, three at -7/0/+7)
+    # so the perceived pitch does not move -- pitch is the synth's. Chains that
+    # already differ are decorrelated by their own content and get nothing.
+    _DUP_CENTS = 7.0
+    _groups = {}
+    for _oi, _o in enumerate(oscs):
+        _groups.setdefault(tuple(_o["chain"]), []).append(_oi)
+    detune = {}
+    for _members in _groups.values():
+        if len(_members) < 2:
+            continue
+        _span = (len(_members) - 1) / 2.0
+        for _slot, _oi in enumerate(_members):
+            detune[_oi] = (_slot - _span) * _DUP_CENTS
+
     for oi, o in enumerate(oscs):
         body, outv = _emit_oscillator(oi, o["chain"], imorphtime, nmodes)
+        cents = detune.get(oi)
+        if cents:
+            fv = f"kfdt{oi}"
+            body = _re.sub(r"\bkfreq\b", fv, body)
+            body = (f"  {fv}    = kfreq * {2 ** (cents / 1200.0):.6f}"
+                    f"        ; duplicate layer, detuned {cents:+.1f} cents\n" + body)
         bodies.append(body)
         w = o["vol"] * mgain
         if abs(w - 1.0) < 1e-6:
