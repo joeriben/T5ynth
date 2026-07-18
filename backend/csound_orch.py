@@ -84,6 +84,28 @@ _MORPH_SPECTRUM = {
 _DEFAULT_MORPH_SPECTRUM = "additive"   # a morph endpoint with no reading falls here
 
 
+# Csound-LOCAL technique keys — real idioms the assembler already knows (they have
+# a _SPECTRA / _MORPH_SPECTRUM reading) but that are NOT in the shared
+# dco_lexicon.json (which lco_author.py also consumes; we do NOT edit it from the
+# csound path). build_csound_response augments the csound canon + catalogue with
+# these so the 7B can route to them for THIS path only. "glass" is BJ's canonical
+# morph START ("a glass sound morphing into a sine wave"): without it the 7B
+# demotes the word to the adjective "glassy" and the whole morph collapses to a
+# bare sine (frozen-corpus finding, 2026-07-18).
+_CS_TECH_EXTRA = {
+    "glass": {
+        "why": "bright inharmonic struck-glass sheen — additive, non-integer partials",
+        "surface_forms": ["glass", "glassy", "glass pad", "glassy pad"],
+    },
+}
+
+# pwm names a MOVING DUTY on a pulse wave, not a wave in its own right: when the
+# 7B lists it in a morph chain beside a pulse-family wave ("pwm > square"), the
+# intent is a pwm'd square (one moving-duty tone), not a near-static pulse->pulse
+# morph. build_csound_response collapses such a chain to the single pwm idiom.
+_PULSE_FAMILY = {"square", "pulse", "chiptune", "clarinet"}
+
+
 def _reading(technique_keys, adjective_keys, motion_key):
     """Short human-readable interpretation for the UI card (mirrors the old
     'reading' string). e.g. 'glass > sine morph, glassy' or 'pwm, distorted'."""
@@ -236,13 +258,35 @@ def _emit_adjectives(adjective_keys):
 
 
 def _emit_motion(motion_key):
-    """A little k-rate spectral motion so 'moving' prompts move (movement by
-    default). Slice: sweep/evolve/open/close -> a slow cutoff LFO on a lowpass."""
+    """A k-rate motion so 'moving' prompts actually move (movement by default).
+
+    The spectral family (sweep/evolve/open_up/close/breathe/wobble/cycle) drives
+    an LFO-swept waveshaper: the drive continuously grows and retracts upper
+    harmonics, so the spectrum opens and closes over time on ANY source — a pure
+    sine or sub bass included. The earlier idiom was a lowpass cutoff sweep, which
+    is INAUDIBLE on a spectrally-poor source (nothing above the cutoff to remove);
+    the frozen NL corpus caught 'evolving analog drone', 'wobbling acid bass' and
+    'a bass that slowly opens up' all rendering static because the 7B routed them
+    onto sub_sine/sine. A waveshaper that MAKES harmonics move is source-agnostic.
+
+    The shimmer family (shimmer/vibrate/flutter/tremolo) stays a fast amplitude
+    tremolo (already source-agnostic)."""
     if not motion_key or motion_key == "static":
         return ""
     if motion_key in ("sweep", "evolve", "open_up", "close", "breathe", "wobble", "cycle"):
-        return ("  kcut     oscili 2200, 0.15\n"
-                "  asig     tone asig, 2600 + kcut       ; slow spectral sweep")
+        # faster, shallower for the periodic wobble/cycle; slow & deep for the
+        # directional-feel evolve/open family (still periodic = keeps living).
+        # `balance` re-scales the waveshaped signal to the pre-shape RMS every
+        # k-frame, so the harmonic content travels (genuine SPECTRAL motion) but
+        # loudness holds steady -- this is NOT the shimmer family's amplitude
+        # tremolo. Without it, tanh(x*kdrv) ~= x*kdrv at small signal, so the
+        # drive LFO would pump overall level ~2.4x (an evolving PAD must not throb
+        # in volume; that belongs to shimmer/tremolo).
+        rate = {"wobble": 2.2, "cycle": 1.1}.get(motion_key, 0.16)
+        return (f"  kmot     oscili 0.5, {rate}             ; -0.5..0.5 motion LFO\n"
+                "  kdrv     = 1.0 + 3.4 * (kmot + 0.5)   ; waveshaper drive 1.0..4.4\n"
+                "  awsh     = tanh(asig * kdrv)          ; harmonics grow & retract\n"
+                "  asig     balance awsh, asig           ; steady loudness (spectral, not tremolo)")
     if motion_key in ("shimmer", "vibrate", "flutter", "tremolo"):
         return ("  ksh      oscili 0.18, 5.5\n"
                 "  asig     = asig * (1 + ksh)           ; fast shimmer")
@@ -338,11 +382,20 @@ def build_csound_response(text, llm):
                     m[str(sf).strip().lower()] = e["key"]
             return m
 
-        tcanon = _canon(lexicon["techniques"])
+        # csound-local technique extension (glass, ...): fold into a shallow copy
+        # of the lexicon so it lands IN the TECHNIQUES section of the catalogue
+        # (the 7B reads it as a technique) and IN the technique canon (validation
+        # accepts it). The shared lexicon object is never mutated.
+        lex_cs = dict(lexicon)
+        lex_cs["techniques"] = list(lexicon["techniques"]) + [
+            {"key": k, "why": m["why"], "surface_forms": m.get("surface_forms", [])}
+            for k, m in _CS_TECH_EXTRA.items()
+        ]
+        tcanon = _canon(lex_cs["techniques"])
         acanon = _canon(lexicon["adjectives"])
         mcanon = _canon(lexicon["motions"])
 
-        system_prompt = dco_llm_map._SYSTEM_PROMPT_HEAD + dco_llm_map._build_catalogue(lexicon)
+        system_prompt = dco_llm_map._SYSTEM_PROMPT_HEAD + dco_llm_map._build_catalogue(lex_cs)
         raw = llm(text, system_prompt, dco_llm_map._MAX_NEW_TOKENS)
 
         # Parse like dco_llm_map._parse_and_validate, but tolerate the 7B listing
@@ -359,6 +412,14 @@ def build_csound_response(text, llm):
         else:
             _valid, tflags = dco_llm_map._validate_keys(technique_raw.split(","), tcanon)
             technique_keys = _valid[:1]
+        # "pwm > square"/"pwm > pulse": pwm is a moving DUTY on a pulse wave, not a
+        # morph partner. Collapse a chain of pwm + pulse-family waves to the single
+        # pwm idiom (a genuinely moving square), not a near-static pulse->pulse
+        # morph. A real morph like "pwm > sine" (sine is not pulse-family) is kept.
+        if "pwm" in technique_keys and all(
+                k == "pwm" or k in _PULSE_FAMILY for k in technique_keys):
+            technique_keys = ["pwm"]
+
         adjective_keys, aflags = dco_llm_map._validate_keys(
             adjectives_raw.split(",") if adjectives_raw else [], acanon)
         _motion_keys, mflags = dco_llm_map._validate_keys(
