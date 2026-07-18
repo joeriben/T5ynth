@@ -120,6 +120,14 @@ MULTI_ADJ = [
 # blind spot the list exists to close. Ordinary timbral words are not free: five
 # adjectives plus a motion pushed the modal case from 116.9 to 149.8us, over a gate
 # it had just passed. HEAVY below is what a wordy prompt actually costs.
+#
+# Fourth lesson, same shape as the third, found by adversarial review the day the
+# third was written: every row below was HOMOGENEOUS -- 3x the same chain -- so a
+# metal layer sitting next to two expensive live layers was never benched. That
+# patch (2 modal banks + 4 costly stages) landed in the most generous modal tier
+# and measured 138.8us against the 133us gate. A list whose rows all share one
+# shape cannot see a cost that only appears when shapes MIX, so the mixed rows
+# below are not optional extras -- they are the cases the tiers are calibrated on.
 HEAVY = (["metallic", "analog", "bright", "fat", "resonant"], "wobble")
 WORST_CASE_OSC = [
     ("cpu:3x-modal-morph-midway", [["cymbal", "glass", "struck_bar"]] * 3, 60.0, HEAVY),
@@ -130,6 +138,19 @@ WORST_CASE_OSC = [
     ("cpu:3x-noise-morph-midway", [["wind", "rain", "thunder"]] * 3, 60.0, HEAVY),
     ("cpu:3-modal-oscs",          [["cymbal"], ["glass"], ["struck_bar"]], 2.0, HEAVY),
     ("cpu:3x-supersaw",           [["supersaw"]] * 3, 2.0, HEAVY),
+    # MIXED shapes -- a modal layer next to expensive live/voice layers. These are
+    # the cost the homogeneous rows above cannot reach.
+    ("cpu:mix-modal+2x-live",     [["cymbal", "glass"],
+                                   ["supersaw", "strings", "flute"],
+                                   ["supersaw", "strings", "flute"]], 60.0, HEAVY),
+    ("cpu:mix-2x-modal+live",     [["cymbal", "glass"], ["cymbal", "glass"],
+                                   ["supersaw", "strings", "flute"]], 60.0, HEAVY),
+    ("cpu:mix-modal+live+voice",  [["cymbal", "glass"],
+                                   ["supersaw", "strings", "flute"],
+                                   ["voice", "voice_ee"]], 60.0, HEAVY),
+    ("cpu:mix-modal+2x-live-bare", [["cymbal", "glass"],
+                                    ["supersaw", "strings", "flute"],
+                                    ["supersaw", "strings", "flute"]], 60.0, ([], None)),
     # the same shapes bare, so a regression in the oscillators themselves is not
     # hidden inside the adjective layer's cost
     ("cpu:3x-modal-morph-bare",   [["cymbal", "glass", "struck_bar"]] * 3, 60.0, ([], None)),

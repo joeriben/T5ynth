@@ -636,6 +636,35 @@ def _emit_voice_morph(chain, imorphtime, tag="0"):
 # between d=0.30 and d=0.125 is 0.533, measured 0.535.
 _DC_NOTE = "remove the duty's DC offset, A*(2d-1)"
 
+# Stages measured to cost clearly under the ~5us/stage line, as marginal cost
+# inside the whole 16-voice orchestra under the heavy adjective stack. This is an
+# ALLOWLIST on purpose: `_modal_budget` counts everything NOT listed here against
+# the block budget, so a key added later is treated as expensive until somebody
+# measures it. Under-counting is exactly how the old budget let a mixed patch
+# through, so the default has to fail expensive. Borderline members are therefore
+# absent rather than included -- `additive` benched 4.9us and 6.6us on two runs and
+# is counted costly; `clarinet` 5.1, `triangle` 6.3, `organ` 6.8, `bass_saw` 6.7,
+# `supersaw` 8.0, `strings` 8.8, `flute` 9.6, the voices 8.2-8.4 and `harpsichord`
+# 10.5 (the most expensive single stage there is) are all well over the line.
+_CHEAP_TECH = frozenset({
+    "sine", "saw", "square", "pulse", "pwm", "silence",
+    "fm", "fm_bell", "fm_ep", "metallic_fm", "cheby", "ring_mod", "sub_sine",
+    "sync", "brass", "chiptune", "theremin",
+    "noise", "pink_noise", "wind", "rain", "surf", "thunder", "hiss", "crackle",
+})
+
+# (simultaneous modal banks, simultaneous costly stages) -> modes per bank.
+# Every cell measured; see _modal_budget's docstring for the bench table and for
+# why the target is 112us rather than the 133us gate.
+_MODAL_BUDGET = {
+    (1, 0): 9, (1, 1): 9, (1, 2): 9, (1, 3): 9, (1, 4): 9, (1, 5): 6,
+    (2, 0): 9, (2, 1): 9, (2, 2): 6, (2, 3): 6, (2, 4): 3,
+    (3, 0): 6, (3, 1): 6, (3, 2): 4, (3, 3): 4,
+    (4, 0): 4, (4, 1): 4, (4, 2): 3,
+    (5, 0): 4, (5, 1): 3,
+    (6, 0): 2,
+}
+
 
 def _modal_budget(oscs):
     """Modes per modal bank, sized by how many banks can sound AT THE SAME TIME.
@@ -660,25 +689,56 @@ def _modal_budget(oscs):
         over a gate it had just passed. Any prompt with five adjectives and a
         motion word reaches that, so it is not a corner case.
 
-    Mid-morph, with 5 adjectives + wobble, us against the 133us block gate:
+      - And the one that cost a SECOND recalibration, found by adversarial review
+        the same day the first landed: sizing the banks by the MODAL count alone is
+        wrong, because the modal layer does not have the block to itself. Two modal
+        banks next to two supersaw>strings>flute layers -- 2 modal, 4 costly, all
+        catalogue keys, all reachable from one prompt -- took the most generous tier
+        and benched 138.8us against a 133us gate. Every row that calibrated the old
+        table was HOMOGENEOUS (3x the same chain), so a mixed patch was never
+        measured: a table that fixed a "measured only the easy case" blind spot
+        reproduced it one dimension over. The budget now costs the WHOLE patch.
 
-        banks    9 modes   7 modes   5 modes   4 modes   3 modes   2 modes
-          2         95.4      85.8      77.8      67.7      61.3      --
-          4        156.2!    142.7!    121.9     107.3      92.1      --
-          6        229.0!    203.4!    172.1!    149.8!    129.6     103.8
+    Measured mid-morph with 5 adjectives + wobble, cells built from the most
+    expensive members of each class (cymbal for modal, supersaw+flute for costly),
+    us against the 133us gate. `--` = not reached, the cell fits at a larger size:
 
-    Hence 9 / 4 / 2. The 6-bank row takes 2 rather than 3 modes deliberately: 3
-    benches 124.6-127.6us over five runs, stable but 96% of the gate, leaving
-    nothing for a slower machine. It costs little musically -- five or six modal
-    banks sounding at once is already 10-18 partials, where one bank's individual
-    mode count stops being audible.
+        modal\\costly     0        1        2        3        4        5
+             1         61.0*    72.4*    80.5*    93.8*   104.0*   116.5/105.7
+             2         94.0*   103.8*   116.3/96.6  124.5/106.4  139.0!/104.0
+             3        125.7/95.5  136.5/108.9  149.1!/103.4  162.0!/111.4
+             4        156.1!/95.0  172.1!/108.0  182.8!/104.4
+             5        190.2!/108.5  209.9!/104.6
+             6        223.3!/92.3
+        (* fits at 9 modes; a/b = benched at 9 modes / at the size finally picked)
+
+    The picked sizes are _MODAL_BUDGET below. They are chosen against a 112us
+    target rather than the 133us gate, so the table keeps ~16% in hand for a
+    slower or busier machine -- the old 6-bank row sat at 96% of the gate, which
+    is a pass on paper and a dropout on a loaded laptop. Several cells came out
+    MORE generous than the old tiers (5 banks 2 -> 4 modes, 6 banks 2 -> 3 before
+    the margin cut it back), because counting only modal stages was too strict
+    where the rest of the patch was cheap and far too loose where it was not.
 
     Thinning SUBSAMPLES each spectrum evenly (first and last partial always kept)
     rather than truncating it, so the metal keeps its spectral SPAN -- the top
     partials are exactly where a cymbal's brightness lives, and lopping them off
     would dull the sound instead of merely simplifying it."""
-    sim = sum(min(2, sum(1 for k in o["chain"] if k in _MODAL_TECH)) for o in oscs)
-    return 9 if sim <= 2 else (4 if sim <= 4 else 2)
+    def sim(o, pred):
+        return min(2, sum(1 for k in o["chain"] if pred(k)))
+    modal = sum(sim(o, lambda k: k in _MODAL_TECH) for o in oscs)
+    if not modal:
+        return 9                      # nothing to thin
+    costly = sum(sim(o, lambda k: k not in _MODAL_TECH and k not in _CHEAP_TECH)
+                 for o in oscs)
+    # Counting the two classes separately can report up to 4 stages for a single
+    # oscillator (cymbal>glass>supersaw>flute) where only 2 are ever open. That
+    # over-count is deliberate -- it errs expensive -- but the grid was measured
+    # only over reachable patches (3 oscillators x 2 open stages = 6), so clamp
+    # back into it rather than falling off the table.
+    modal = min(modal, 6)
+    costly = min(costly, 6 - modal)
+    return _MODAL_BUDGET.get((modal, costly), 2)
 
 
 def _thin(spec, nmodes):
