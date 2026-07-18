@@ -13,14 +13,17 @@ depth + regression catch as the vocabulary grows), across four layers:
              expon/expseg/transeg on the amp path; `portk` on kfreq beyond the
              fixed 1 ms declick) -- the only authorized amplitude shaping is a
              spectral MORPH-TO-ZERO (BJ 2026-07-18, the pseudo-envelope).
-  BOUNDS     an un-normalized `probe` sweep over pitch {55..3520 Hz} at the
-             LOUDEST params (vel=pres=timb=1) -- every render true-peak <= 1,
-             no NaN/Inf, sustained 10 s (offline render is ~100x realtime, so
-             a long sweep is cheap and catches slow filter/feedback buildup).
+  BOUNDS     an un-normalized `probe` sweep over pitch {20..3520 Hz, incl. real
+             MIDI bass} at the LOUDEST params (vel=pres=timb=1) -- every render
+             true-peak <= 1, no NaN/Inf, sustained 10 s (offline render is ~100x
+             realtime, so a long sweep is cheap and catches slow buildup).
   CPU        `bench` median <= 133 us/ksmps (10% of the 1333 us block budget).
-  BEHAVIOR   standing-tone: RMS over the gate-on region does NOT collapse
-             (late >= 0.5x the sustain max) UNLESS the sound is a declared
-             TRANSIENT (morph-to-zero), which must decay to ~0; MOVEMENT:
+  BEHAVIOR   standing-tone: the FINAL RMS window is steady, not still falling
+             toward silence (late >= 0.5x the ADJACENT prior window, and not
+             faded to <2% of peak) UNLESS the sound is a declared TRANSIENT
+             (morph-to-zero), which must decay to ~0. A morph that settles on a
+             lower-RMS spectrum drops then holds -- sustaining, not a decay.
+             MOVEMENT:
              spectral-centroid travel or flux above a floor when movement is
              expected (morph / motion / pwm). Movement-by-default is a
              documented fundamental, so it is asserted, not assumed.
@@ -201,12 +204,26 @@ def gate(orchestra, expect=None, label="orc", keep_dir=None):
                     fail(f"BEHAVIOR: declared transient but did NOT decay "
                          f"(late RMS {late:.4f} vs max {emax:.4f})")
             else:  # stand
+                # A morph legitimately CHANGES level as its spectrum changes: a tone
+                # that settles on a lower-RMS spectrum (e.g. a many-partial cymbal,
+                # RMS ~0.5x a sine at equal partial-sum) drops then HOLDS -- that is
+                # sustaining, not a decay envelope. So compare the final window to the
+                # ADJACENT prior window (is it STILL falling toward silence?), NOT to
+                # the global max (which may be a transient mid-morph peak; comparing
+                # to it false-flagged cymbal>sine>cymbal, which holds a rock-steady
+                # 0.0486 for 8 s). The forbidden-opcode regex already bars a real amp
+                # envelope; this is the sanity net that the sound is still sounding.
+                nwin = len(env)
+                pre = float(np.mean(env[nwin * 3 // 4:nwin * 7 // 8])) if nwin >= 8 else late
                 if emax < 1e-3:
                     fail("BEHAVIOR: sustained tone is silent")
-                elif late < 0.5 * emax:
-                    fail(f"BEHAVIOR: sustained tone COLLAPSES "
-                         f"(late RMS {late:.4f} < 0.5x max {emax:.4f}) -- "
+                elif late < 0.5 * max(pre, 1e-9):
+                    fail(f"BEHAVIOR: sustained tone still DECAYS at the end "
+                         f"(late RMS {late:.4f} < 0.5x adjacent {pre:.4f}) -- "
                          f"an unauthorized decay envelope?")
+                elif late < 0.02 * emax:
+                    fail(f"BEHAVIOR: sustained tone faded to near-silence "
+                         f"(late RMS {late:.4f} vs peak {emax:.4f})")
 
             # movement: SPECTRAL (centroid travel / std) OR AMPLITUDE (RMS-
             # envelope modulation depth). Tremolo/vibrato move the amplitude,
