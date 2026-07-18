@@ -366,35 +366,63 @@ _DEFAULT_FOOTAGE = "8"
 # A footage written as a number plus a feet mark: 16', 16", 16ft, 16 feet. The
 # typographic quotes are here because a prompt typed in a text editor gets them
 # by autocorrect ("saw wave 8"" is what BJ's own screenshot showed).
-_FOOTAGE_RE = _re.compile(r"\b(32|16|8|4|2)\s*(?:'|’|\"|”|ft\b|foot\b|feet\b)")
-# ...or named in words. These are the phrases that MOVE a layer's register; a
-# bare "bass"/"high" does NOT belong here (it describes the timbre the LLM
-# routes, not a transposition the player asked for).
+#
+# Two guards, both from real synth-prompt language rather than caution:
+#   (?<![\d/])  -- a TAPE WIDTH is not an organ stop. `1/4" tape saturation` and
+#                  `1/2" reel` would otherwise read as 4' and 2', i.e. two whole
+#                  octaves off, and worse, they would open the authority gate.
+#   (?![A-Za-z]) -- an OPENING quote is followed by a letter: `the 8 "voices" of
+#                  a choir`, `4 'clicks' then silence`. A real footage is followed
+#                  by a space, a punctuation mark or the end of the prompt.
+_FOOTAGE_RE = _re.compile(
+    r"(?<![\d/])\b(32|16|8|4|2)\s*(?:'|’|\"|”|ft\b|foot\b|feet\b)(?![A-Za-z])")
+# Bare inches that survive the guards above but name a THING, not a register.
+# `2" tape hiss` has no slash and no opening quote, so only the following word
+# tells them apart.
+_NOT_FOOTAGE_NEXT = (
+    "tape", "reel", "speaker", "driver", "woofer", "cone", "monitor", "screen",
+    "vinyl", "record", "disk", "disc", "floppy", "nail", "pipe",
+)
+# ...or named in words. These phrases MOVE a layer's register; a bare
+# "bass"/"high" does NOT belong here (it describes the timbre the LLM routes, not
+# a transposition the player asked for). German too: the instrument is prompted
+# in German as often as in English, and the feature was specified in German.
 _REGISTER_CUE_PHRASES = (
     "octave below", "octave down", "octave under", "octave lower",
     "octave above", "octave up", "octave higher",
     "sub octave", "sub-octave", "suboctave",
+    "oktave tiefer", "oktave höher", "oktave hoeher", "oktave darunter",
+    "oktave darüber", "oktave darueber", "oktave unter", "oktave über",
+    "suboktave", "sub-oktave", "fußlage", "fusslage",
 )
+# German footage: "eine 4 Fuß Orgel", "16 Fuss".
+_FOOTAGE_DE_RE = _re.compile(r"(?<![\d/])\b(32|16|8|4|2)\s*(?:fuß|fuss)\b")
 
 
-def _canon_footage(raw):
-    """'16' / \"16'\" / '16 ft' -> the pitch multiplier (0.5). None if it names no
-    footage. Anything outside the 32..2 organ range is not a footage."""
-    m = _FOOTAGE_RE.search(str(raw or "")) or _re.fullmatch(
-        r"\s*(32|16|8|4|2)\s*", str(raw or ""))
-    return _FOOTAGE_MULT.get(m.group(1)) if m else None
+def _footage_in(text):
+    """The pitch multiplier named by the FIRST real footage in `text`, or None.
+    Shared by the prompt-authority scan and the OSC-line strip so the two can
+    never disagree about what counts as a footage."""
+    low = (text or "").lower()
+    for m in _FOOTAGE_RE.finditer(low):
+        tail = low[m.end():m.end() + 12].strip()
+        if any(tail.startswith(w) for w in _NOT_FOOTAGE_NEXT):
+            continue                     # `2" tape hiss` names tape, not a stop
+        return _FOOTAGE_MULT[m.group(1)]
+    m = _FOOTAGE_DE_RE.search(low)
+    return _FOOTAGE_MULT[m.group(1)] if m else None
 
 
 def _prompt_names_register(text):
     """True iff the PROMPT ITSELF names a register/footage. This is the authority
     gate for overwriting a hand-set octave (BJ 2026-07-18: hand-set values stay
     put, "nur wenn der Prompt selbst eine Fußlage nennt" does a new prompt reset
-    them). Deterministic on purpose -- the 7B always emits an OCT line, so its
-    emission cannot distinguish "the prompt asked for 16'" from "the model's
-    default"; only the prompt text can. Same shape as _prompt_wants_decay: the
-    model proposes, this authorizes."""
+    them). Deterministic on purpose -- the 7B writes a register whenever it feels
+    like one, so its emission cannot distinguish "the prompt asked for 16'" from
+    "the model's habit"; only the prompt text can. Same shape as
+    _prompt_wants_decay: the model proposes, this authorizes."""
     low = (text or "").lower()
-    if _FOOTAGE_RE.search(low):
+    if _footage_in(low) is not None:
         return True
     return any(ph in low for ph in _REGISTER_CUE_PHRASES)
 
@@ -497,10 +525,16 @@ def _parse_csound_reply(raw):
             # 7B stopped after it and never emitted ADJECTIVES/MOTION at all
             # (measured on three corpus prompts). Strip it out here so the chain
             # validator only ever sees keys.
-            fm = _FOOTAGE_RE.search(chain)
-            if fm:
-                osc_octs[idx] = _FOOTAGE_MULT[fm.group(1)]
-                chain = _FOOTAGE_RE.sub(" ", chain).strip()
+            mult = _footage_in(chain)
+            if mult is not None:
+                osc_octs[idx] = mult
+                # strip EVERY footage token, not just the one that supplied the
+                # value: a register belongs to the LAYER, so in "saw 16' > sine
+                # 4'" the trailing 4' has nothing to attach to and is dropped.
+                # Not silent -- the reading card names the register that won
+                # ("saw > sine 16'"), so the discarded one is visible by absence.
+                stripped = _FOOTAGE_DE_RE.sub(" ", _FOOTAGE_RE.sub(" ", chain))
+                chain = " ".join(stripped.split())
             osc_chains[idx] = chain
             continue
         m = _CS_TECH_RE.match(s)
@@ -1706,9 +1740,15 @@ def build_orchestra(technique_keys=None, adjective_keys=None, motion_key=None,
     # so the perceived pitch does not move -- pitch is the synth's. Chains that
     # already differ are decorrelated by their own content and get nothing.
     _DUP_CENTS = 7.0
+    # The group key includes the REGISTER: two layers carrying the same chain an
+    # octave apart are not coherent at all -- that is the classic 8'+16' organ
+    # registration, and (x + x)/2 = x does not apply to it. Grouping on the chain
+    # alone detuned the 8' layer 3.5 cents flat of the played note and made the
+    # octave impure by 7 cents (adversarial review; reachable straight from a
+    # model reply of "OSC1: pwm / OSC2: pwm 16'").
     _groups = {}
     for _oi, _o in enumerate(oscs):
-        _groups.setdefault(tuple(_o["chain"]), []).append(_oi)
+        _groups.setdefault((tuple(_o["chain"]), _o["register"]), []).append(_oi)
     detune = {}
     for _members in _groups.values():
         if len(_members) < 2:
@@ -1951,8 +1991,15 @@ def build_csound_response(text, llm):
             "reading": reading,
             "oscillators": rendered,
             # Whether the plugin may overwrite hand-set octave controls with the
-            # registers above: true only when the prompt itself named a footage.
-            "register_authored": bool(names_register),
+            # registers above. Naming a register in WORDS ("an octave below") is
+            # not enough on its own: the phrase authorizes but carries no value,
+            # so if the model then wrote no footage every layer would be 8' and
+            # this flag would order the plugin to RESET the player's octaves to
+            # 8' -- the exact opposite of what the prompt asked for. It takes a
+            # numeric footage in the prompt, or a register that actually moved.
+            "register_authored": bool(
+                names_register and (_footage_in(text) is not None
+                                    or any(o["register"] != 1.0 for o in rendered))),
             # legacy fields (the first oscillator) so existing UI / tests that read
             # technique/adjectives/motion keep working.
             "technique": rendered[0]["chain"] if rendered else [],

@@ -1047,10 +1047,28 @@ def run_instruct(text, model_dir, device, system_prompt, max_new_tokens=None,
     # substance -- when it binds at all, generation has already run past the
     # context the model can attend to.
     if max_new_tokens is None:
-        ctx = int(getattr(model.config, "max_position_embeddings", 0) or 0)
+        cfg = getattr(model, "config", None)
+        ctx = int(getattr(cfg, "max_position_embeddings", 0) or 0)
+        if not ctx:            # some configs nest it (multimodal wrappers)
+            inner = getattr(cfg, "text_config", None)
+            ctx = int(getattr(inner, "max_position_embeddings", 0) or 0)
+        if not ctx:
+            tml = int(getattr(tokenizer, "model_max_length", 0) or 0)
+            # the tokenizer sentinel for "no limit" is astronomically large
+            ctx = tml if 0 < tml < 10 ** 6 else 0
         used = int(input_ids.shape[-1])
-        # keep a small reserve for the chat template's closing tokens
-        max_new_tokens = max(512, ctx - used - 16) if ctx else 4096
+        if not ctx:
+            raise RuntimeError(
+                "cannot determine the model's context length, so there is no "
+                "honest generation ceiling to derive (would silently truncate)")
+        # No floor: the remainder IS the ceiling. Flooring it to a "reasonable"
+        # number would put back an invented cap, and a floor ABOVE the remainder
+        # would promise room the model does not have.
+        max_new_tokens = ctx - used - 16
+        if max_new_tokens <= 0:
+            raise RuntimeError(
+                f"prompt of {used} tokens leaves no room in a {ctx}-token "
+                f"context window")
     gen_kwargs["max_new_tokens"] = max_new_tokens
     if repetition_penalty is not None:
         gen_kwargs["repetition_penalty"] = repetition_penalty
