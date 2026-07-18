@@ -354,6 +354,68 @@ def _prompt_wants_decay(text):
     words = _re.findall(r"[a-z]+", low)
     return any(w in _DECAY_CUE_WORDS for w in words)
 
+# MOVEMENT-BY-DEFAULT guard (BJ's platform fundamental, 2026-07-13: "wir überlassen
+# nur die Wahl dass KEIN movement stattfindet" -- the platform assumes movement and
+# only the ORDER to stand still is delegated). It was a requirement and never a
+# mechanism: `_emit_motion(None)` emits nothing, so every patch the model gave no
+# MOTION rendered mathematically dead-still. Measured in the built Standalone on
+# 2026-07-18: a held C4 of `saw + sine 2' + square` travelled 1.07x in spectral
+# centroid over three seconds -- a flat line, and BJ's "stereotyp und dull".
+# The 7B will not close this by instruction: told in the system prompt that sounds
+# move, it still returned MOTION: none for "a warm mellow organ" AND for "a breathy
+# wooden flute" (both measured in the synth), so the instruction was reverted rather
+# than left inert in a prompt whose line-rhythm is known to be fragile. This is the
+# deterministic layer's call, exactly like the decay guard above: the model proposes,
+# the platform holds the fundamental, and the prompt can always override it.
+# Mirrors _prompt_wants_decay in shape; the cue set is deliberately NARROW here (the
+# decay guard is generous because a wrong strip is cheap -- here a wrong match makes a
+# sound stand still, which is the very defect this guard exists to prevent).
+_STILL_CUE_WORDS = {
+    "static", "motionless", "unmoving", "unchanging", "unchanged", "unwavering",
+    "immobile", "frozen", "steady", "constant",
+    # German -- the register scan taught this lesson: an English-only cue set makes
+    # a German prompt unable to reach its own guard.
+    "statisch", "unbewegt", "bewegungslos", "gleichbleibend", "konstant", "starr",
+    # DELIBERATELY NOT CUES: sustained / held / long / drone / pad name DURATION or
+    # sound TYPE, not stillness -- a held drone is exactly the case that must move.
+    # Bare "still" is out too: in English it is mostly an adverb ("still bright") and
+    # in German it means quiet, so it earns its place only inside a phrase below.
+}
+_STILL_CUE_PHRASES = (
+    "no movement", "without movement", "no motion", "without motion",
+    "does not move", "doesn't move", "do not move", "never moves",
+    "perfectly still", "dead still", "stands still", "standing still",
+    "holds steady", "keine bewegung", "ohne bewegung", "bewegt sich nicht",
+)
+# Idioms that already carry their own temporal change, so the default would be
+# piling motion on motion. `pwm` is here on MEASUREMENT, not on theory: in the built
+# Standalone its even/odd partial ratio travels 0.26 -> 0.76 and pulses at ~0.6 Hz.
+# The noise family is stochastic by construction (rand / randh drive it).
+_SELF_MOVING_TECH = {"pwm"} | _NOISE_TECH
+
+
+def _prompt_wants_still(text):
+    """True iff the prompt itself orders the sound to STAND STILL. Only then does the
+    movement-by-default guard stand down; everything else moves."""
+    low = (text or "").lower()
+    if any(ph in low for ph in _STILL_CUE_PHRASES):
+        return True
+    words = _re.findall(r"[a-z]+", low)
+    return any(w in _STILL_CUE_WORDS for w in words)
+
+
+def _patch_already_moves(oscs):
+    """True iff the patch travels on its own: a morph chain (two or more stages walk
+    from one spectrum to the next), or an idiom whose identity is movement."""
+    for o in (oscs or []):
+        chain = list(o.get("chain") or [])
+        if len(chain) >= 2:
+            return True
+        if any(k in _SELF_MOVING_TECH for k in chain):
+            return True
+    return False
+
+
 # ── register / footage (organ stop feet) ─────────────────────────────────────
 # 8' is the played pitch, every halving of the number is an octave UP (organ
 # convention): 16'=x0.5, 8'=x1, 4'=x2. The oscillator's register is a SYNTH-side
@@ -1984,6 +2046,23 @@ def build_csound_response(text, llm):
         if not oscs and not adjective_keys and not motion_key:
             return {"ok": False,
                     "error": "no synthesis idiom matched the prompt"}
+
+        # MOVEMENT BY DEFAULT -- placed AFTER the honest-failure frame above, so a
+        # prompt that matched nothing still fails honestly instead of being rescued
+        # into a moving sine. `evolve` is the undirected fallback BJ named: spectrum
+        # into its opposite and back (_emit_motion's slow waveshaper sweep at 0.16 Hz,
+        # loudness held by `balance`), not a tremolo and not a pitch wobble.
+        if (not motion_key or motion_key == "static") \
+                and not _prompt_wants_still(text) \
+                and not _patch_already_moves(oscs):
+            motion_key = "evolve"
+            flags.append({
+                "word": "motion",
+                "reason": "the prompt asks for no particular movement and the sound "
+                          "would otherwise stand perfectly still, so it breathes -- "
+                          "ask for a static or steady tone to hold it still",
+                "tier": "adapted",
+            })
 
         orchestra, reading = build_orchestra(oscs=oscs, adjective_keys=adjective_keys,
                                              motion_key=motion_key)
