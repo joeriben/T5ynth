@@ -104,6 +104,25 @@ def run():
     for base, adjs in MULTI_ADJ:
         cases.append((f"multi:{base}+{'+'.join(adjs)}", [base], adjs, None,
                       {"sustain": "stand"}, False))
+    # M4a noise/texture (Geräusche): csound-local techniques (not in the shared
+    # lexicon TECHS), each must be bounded, STAND, and be genuinely aperiodic NOISE
+    # (pitchedness < 0.4 -- the noise-class gate check, which a pitched tone fails).
+    for t in sorted(co._NOISE_TECH):
+        cases.append((f"noise:{t}", [t], [], None,
+                      {"sustain": "stand", "move": False, "noise": True}, False))
+    # M4a noise-in-MORPH: a noise texture inside a morph chain MUST survive as real
+    # noise (the additive-partial morph would silently degrade it to a pitched tone
+    # -- the migration-discipline capability loss the corpus caught 2026-07-18; the
+    # noise-crossfade morph path fixes it). Assert each stays aperiodic / decays.
+    NOISE_MORPHS = [
+        ("wind>rain",      ["wind", "rain"],       {"sustain": "stand", "move": True, "noise": True}),
+        ("crackle>hiss",   ["crackle", "hiss"],    {"sustain": "stand", "move": True, "noise": True}),
+        ("noise>surf",     ["noise", "surf"],      {"sustain": "stand", "move": True, "noise": True}),
+        ("rain>silence",   ["rain", "silence"],    {"sustain": "transient"}),   # real rain fades (not a tone)
+        ("wind>sine",      ["wind", "sine"],       {"sustain": "stand", "move": True}),  # noise resolving to a tone
+    ]
+    for lbl, chain, exp in NOISE_MORPHS:
+        cases.append((f"nzmorph:{lbl}", chain, [], None, exp, False))
 
     passed = failed = 0
     fails, gaps = [], []

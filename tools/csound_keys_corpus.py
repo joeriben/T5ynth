@@ -56,6 +56,22 @@ CORPUS = [
     # --- M2: morph-to-zero transient (should end a chain with 'silence') ---
     ("a plucked string that quickly fades to nothing",  {"sustain": "transient", "move": True}),
     ("a short percussive blip that decays to silence",  {"sustain": "transient", "move": True}),
+    # --- M4a: noise / Geräusche. The prompt must ROUTE to a noise technique AND
+    #     the render must be genuinely aperiodic (noise:True asserts pitchedness).
+    #     A routing miss (to a tonal key) fails the noise check -- real parity.
+    #     The five STEADY environmental beds enforce `stand` (a held note keeps the
+    #     texture going): they caught the 7B over-appending "> silence" (fixed at
+    #     the SILENCE-RULE layer, 2026-07-18). Thunder is deliberately `transient`:
+    #     "distant rolling thunder" is a decaying EVENT (a roll that swells and
+    #     dies), NOT a steady bed -- the 7B faithfully routes `thunder > silence`,
+    #     and the transient expectation is STRICTER, asserting it really decays AND
+    #     is real aperiodic noise (BJ's authorized morph-to-zero pseudo-env). ---
+    ("white noise",                                     {"sustain": "stand", "move": False, "noise": True}),
+    ("howling wind",                                    {"sustain": "stand", "move": False, "noise": True}),
+    ("heavy rain",                                      {"sustain": "stand", "move": False, "noise": True}),
+    ("distant rolling thunder",                         {"sustain": "transient", "move": False, "noise": True}),
+    ("ocean waves on the shore",                        {"sustain": "stand", "move": False, "noise": True}),
+    ("a crackling campfire",                            {"sustain": "stand", "move": False, "noise": True}),
 ]
 
 

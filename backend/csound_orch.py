@@ -127,7 +127,58 @@ _CS_TECH_EXTRA = {
         "why": "bright inharmonic struck-glass sheen — additive, non-integer partials",
         "surface_forms": ["glass", "glassy", "glass pad", "glassy pad"],
     },
+    # --- M4a: noise / texture (Geräusche). Substrate-native NOISE beds (rand/
+    #     pinkish + real filters), NOT additive fakes. Pitch-independent textures;
+    #     movement comes from the motion layer. Rendered by _emit_noise. ---
+    # Substrate-native NOISE beds (rand/pinkish + real filters). The "why" text is
+    # deliberately CONCISE: a small 7B routes these best on short, plain glosses --
+    # verbose "continuous/sustained/NOISE (not a tone)" edits DESTABILISED routing
+    # (heavy rain -> pulse, ocean -> cymbal; empirically re-tested 2026-07-18). The
+    # rain/surf "> silence" over-append and thunder miss are handled at the SILENCE
+    # RULE / example layer, not by loading these lines.
+    "noise": {
+        "why": "full-spectrum white noise (rand) — a flat hiss/wash",
+        "surface_forms": ["white noise", "noise", "white-noise", "rauschen", "weißes rauschen"],
+    },
+    "pink_noise": {
+        "why": "pink noise (pinkish, 1/f tilt) — softer, warmer broadband hiss",
+        "surface_forms": ["pink noise", "pink-noise", "rosa rauschen"],
+    },
+    "wind": {
+        "why": "wind: wide band-passed noise, a breathy airy howl (no pitch)",
+        "surface_forms": ["wind", "howling wind", "breeze", "gust", "windig", "wind noise"],
+    },
+    "rain": {
+        "why": "rain: bright high-passed noise, a fine hiss/patter",
+        "surface_forms": ["rain", "rainfall", "drizzle", "regen", "raindrops"],
+    },
+    "surf": {
+        "why": "surf/ocean: broad low-mid noise wash, a rolling sea",
+        "surface_forms": ["surf", "ocean", "sea", "waves", "meer", "wellen"],
+    },
+    "thunder": {
+        # mirror the working "wind:"/"rain:" pattern EXACTLY — a SINGLE keyword +
+        # colon (no "thunder/rumble:" slash-compound, which the 7B copied whole as
+        # the key; and no gloss-first, which lost the pick to cymbal). 2026-07-18.
+        "why": "thunder: low broadband-noise rumble, a deep distant storm",
+        "surface_forms": ["thunder", "rolling thunder", "distant thunder", "thunderclap",
+                          "storm", "rumble", "rumbling", "donner", "grollen"],
+    },
+    "hiss": {
+        "why": "hiss/static: bright high-passed noise, tape/radio static",
+        "surface_forms": ["hiss", "static", "tape hiss", "radio static", "zischen"],
+    },
+    "crackle": {
+        "why": "crackle/fire: randomly gated noise, a crackling campfire",
+        "surface_forms": ["crackle", "crackling", "fire", "campfire", "knistern", "feuer"],
+    },
 }
+
+# Techniques rendered by the substrate NOISE path (_emit_noise), not the additive/
+# opcode steady path. They are aperiodic textures -- the behavioral gate's noise
+# check (pitchedness < 0.4) certifies each is really NOISE, not a pitched tone.
+_NOISE_TECH = {"noise", "pink_noise", "wind", "rain", "surf", "thunder",
+               "hiss", "crackle"}
 
 # Validation-ONLY chain terminals: accepted by the closed-enum guard if the 7B
 # emits them, but deliberately NOT listed as pickable techniques in the catalogue
@@ -182,7 +233,9 @@ _CS_SYSTEM_PROMPT_HEAD = (
     "waveform (e.g. \"pulse > silence\", \"strings > silence\"). NEVER write "
     "\"silence\" by itself, and NEVER append silence to a SUSTAINED sound — a "
     "drone, pad, lead, organ or held note keeps ringing and must not end in "
-    "silence.\n"
+    "silence. A continuous texture (wind, rain, sea, fire, noise) does not fade on "
+    "its own; append silence ONLY when the prompt itself says the sound fades, "
+    "decays, or stops.\n"
     "Example — a plucked, percussive tone that fades to nothing:\n"
     "OSC1: pulse > silence\n"
     "VOL1: 1.0\n"
@@ -293,11 +346,52 @@ def _reading(oscs, adjective_keys, motion_key):
 #    EVERY generated symbol so up to three oscillators coexist in one `instr 1`
 #    with no variable collision. Standing tones (hold while gate open). ──
 
+def _emit_noise(technique, tag="0"):
+    """Substrate-native NOISE textures (M4a Geräusche) -> `aosc<tag>` via Csound's
+    real noise generators (rand / pinkish) + real filters -- NOT an additive fake
+    (an additive partial bank cannot be noise; that is the toy-vocabulary trap).
+    Pitch-independent beds (a texture plays the same at every key; movement is the
+    motion layer's job). Every branch is bounded (the tail limiter is the final
+    safety) and verified aperiodic by the gate's noise check (pitchedness < 0.4).
+    Filter cutoffs are tuned to stay broadband: a too-narrow low-pass makes noise
+    quasi-periodic (a 1-pole `tone` at 400 rumbles; a 2-pole at 300 reads pitched)."""
+    ov = f"aosc{tag}"
+    nz = f"anz{tag}"
+    L = [f"  {nz}    rand 1.0                   ; broadband noise source"]
+    if technique == "noise":
+        L.append(f"  {ov}    = {nz} * 0.6                ; white noise (flat hiss)")
+    elif technique == "pink_noise":
+        L.append(f"  {ov}    pinkish {nz}               ; pink noise (1/f tilt)")
+    elif technique == "wind":
+        L.append(f"  {ov}    reson {nz}, 600, 400, 2     ; wind: wide band-passed noise")
+        L.append(f"  {ov}    = {ov} * 0.5")
+    elif technique == "rain":
+        L.append(f"  a{tag}rn  atone {nz}, 1500          ; rain: bright high-passed hiss")
+        L.append(f"  {ov}    = a{tag}rn * 0.5")
+    elif technique == "surf":
+        L.append(f"  {ov}    tone {nz}, 900              ; surf/ocean: broad low-mid wash")
+        L.append(f"  {ov}    = {ov} * 0.7")
+    elif technique == "thunder":
+        L.append(f"  {ov}    tone {nz}, 400              ; thunder/rumble: low broadband")
+        L.append(f"  {ov}    = {ov} * 0.9")
+    elif technique == "hiss":
+        L.append(f"  {ov}    atone {nz}, 6000            ; hiss/static: bright high noise")
+        L.append(f"  {ov}    = {ov} * 0.7")
+    elif technique == "crackle":
+        L.append(f"  k{tag}cr  randh 1, 30                ; 30 Hz random gate")
+        L.append(f"  {ov}    = {nz} * (k{tag}cr > 0.6 ? 1 : 0.15) * 0.6 ; crackle/fire")
+    else:
+        L.append(f"  {ov}    = {nz} * 0.6")
+    return "\n".join(L)
+
+
 def _emit_steady(technique, tag="0"):
     """A single (non-morph) technique -> `aosc<tag>`. Uses Csound's native
     opcodes; every temporary is suffixed with `tag` (per-osc uniqueness)."""
     ov = f"aosc{tag}"
     L = []
+    if technique in _NOISE_TECH:
+        return _emit_noise(technique, tag)
     if technique == "pwm":
         # classic PWM: band-limited pulse whose DUTY moves (square 50% -> thin
         # 8% -> back), a genuinely moving spectrum. kpw is the pulse width.
@@ -435,14 +529,74 @@ def _emit_morph(technique_keys, imorphtime, tag="0"):
     return "\n".join(L)
 
 
+def _emit_noise_morph(chain, imorphtime, tag="0"):
+    """A crossfade morph for chains that CONTAIN a NOISE texture -> `aosc<tag>`.
+    Noise is aperiodic and cannot be an additive partial bank, so the tonal
+    additive-partial morph (_emit_morph) would silently degrade the noise leg to a
+    PITCHED additive tone -- a migration-discipline capability loss the frozen
+    corpus caught (2026-07-18: 'rain > silence' rendered an additive tone that
+    faded, pitchedness 0.99, not rain). Here each stage renders to its OWN audio
+    var (noise stages via _emit_noise, tonal stages via _emit_steady, silence -> no
+    signal) and a per-stage EQUAL-POWER 'tent' gain crossfades between adjacent
+    stages, restarted per note off the trig epoch. Crossfading noise is click-free
+    (incoherent sources do not beat), so an amplitude crossfade -- not the additive
+    morph -- is the correct morph whenever noise is involved. The gains are the
+    SQRT of the linear tents (equal-POWER): incoherent noise sums in power, so
+    linear-amplitude gains would sag ~-3 dB at each crossover midpoint (g0=g1=0.5 ->
+    power 0.5); sqrt gains keep g0^2+g1^2 = 1 across every leg, holding loudness
+    constant like _emit_morph's per-stage norm() budget (adversarial review
+    2026-07-18). The whole thing stays bounded (the tail limiter is the final
+    safety)."""
+    n = len(chain)
+    if n < 2:
+        return None
+    leg = imorphtime / (n - 1)
+    lbl = f"Lnzmorph{tag}"
+    L = [f"  ; --- osc {tag}: noise crossfade morph (real noise per stage, trig-epoch reinit) ---"]
+    stage_vars = []
+    for j, k in enumerate(chain):
+        if k in ("silence", "zero"):
+            stage_vars.append(None)   # terminal fade: neighbours' tents carry it to 0
+            continue
+        sub = f"{tag}m{j}"
+        L.append(_emit_noise(k, sub) if k in _NOISE_TECH else _emit_steady(k, sub))
+        stage_vars.append(f"aosc{sub}")
+    L.append("  if changed2(ktrig) == 1 then")
+    L.append(f"    reinit {lbl}")
+    L.append("  endif")
+    L.append(f"{lbl}:")
+    terms = []
+    for j, var in enumerate(stage_vars):
+        if var is None:
+            continue
+        # linear tent: 1 at breakpoint j, 0 at every other breakpoint (adjacent
+        # stages cross). n values, n-1 legs of equal duration. In any leg exactly
+        # two adjacent tents are non-zero and sum to 1, so sqrt(tent) gives an
+        # equal-POWER crossfade (sum of squares = 1) -- flat loudness for incoherent
+        # noise. sqrt is safe: linseg stays in [0,1].
+        seg = ", ".join(f"{(1.0 if b == j else 0.0):.4f}, {leg:.4f}" for b in range(n - 1))
+        seg += f", {(1.0 if (n - 1) == j else 0.0):.4f}"
+        lj, gj = f"k{tag}L{j}", f"k{tag}g{j}"
+        L.append(f"  {lj}   linseg {seg}")
+        L.append(f"  {gj}   = sqrt({lj})")
+        terms.append(f"{var} * {gj}")
+    L.append("  rireturn")
+    L.append(f"  aosc{tag}    = " + (" + ".join(terms) if terms else "0"))
+    return "\n".join(L)
+
+
 def _emit_oscillator(oi, chain, imorphtime):
     """One oscillator (index `oi`, 0..2) from its technique chain -> (body_lines,
-    out_var). >=2 stages -> a spectral morph; otherwise a steady technique. The
-    out_var is `aosc<oi>`, mixed by build_orchestra."""
+    out_var). >=2 stages -> a morph (a NOISE-crossfade morph if any stage is a
+    noise texture, else the tonal additive-partial morph); otherwise a steady
+    technique. The out_var is `aosc<oi>`, mixed by build_orchestra."""
     tag = str(oi)
     body = None
     if len(chain) >= 2:
-        body = _emit_morph(chain, imorphtime, tag)
+        if any(k in _NOISE_TECH for k in chain):
+            body = _emit_noise_morph(chain, imorphtime, tag)
+        else:
+            body = _emit_morph(chain, imorphtime, tag)
     if body is None:
         body = _emit_steady(chain[0] if chain else "sine", tag)
     return body, f"aosc{tag}"

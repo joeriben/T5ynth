@@ -111,6 +111,27 @@ def _centroid(x, sr, t, win=2048):
     return float((f * mag).sum() / s) if s > 1e-9 else 0.0
 
 
+def _pitchedness(x, sr, t0=0.5, dur=1.0):
+    """Peak normalized autocorrelation over musical lags (periods for 50..2000 Hz).
+    A periodic TONE repeats -> a strong peak (harmonic ~1.0, inharmonic FM ~0.7);
+    broadband NOISE is aperiodic -> low (0.02..0.28), and even resonant/darkened
+    noise stays <=~0.6. This is what actually separates the noise class from a
+    pitched tone: spectral flatness conflates narrow-band noise (wind/thunder,
+    concentrated but aperiodic) with a tone, autocorrelation does not. See the
+    calibrated 0.6 threshold in gate()."""
+    i0 = int(t0 * sr)
+    seg = x[i0:i0 + int(dur * sr)]
+    if len(seg) < sr // 40:
+        return 0.0
+    seg = seg - seg.mean()
+    ac = np.correlate(seg, seg, "full")[len(seg) - 1:]
+    if ac[0] <= 1e-12:
+        return 0.0
+    ac = ac / ac[0]
+    lo, hi = int(sr / 2000), int(sr / 50)
+    return float(ac[lo:hi].max()) if hi > lo else 0.0
+
+
 def _static_checks(orc):
     fails = []
     if "%SR%" not in orc:
@@ -135,13 +156,15 @@ def gate(orchestra, expect=None, label="orc", keep_dir=None):
     """Run the full behavioral gate on an orchestra STRING.
 
     expect: dict {sustain: 'stand'|'transient' (default 'stand'), move: bool
-            (default False)}. Returns {passed: bool, failures: [str],
-            measurements: {...}}.
+            (default False), noise: bool (default False -> assert the sound is
+            aperiodic NOISE, not a pitched tone)}. Returns {passed, failures,
+            measurements}.
     """
     ensure_check()
     expect = expect or {}
     sustain = expect.get("sustain", "stand")
     want_move = bool(expect.get("move", False))
+    want_noise = bool(expect.get("noise", False))
     res = {"passed": True, "failures": [], "measurements": {}, "label": label}
 
     def fail(msg):
@@ -243,6 +266,24 @@ def gate(orchestra, expect=None, label="orc", keep_dir=None):
                 if want_move and not (spectral_move or amp_move):
                     fail(f"BEHAVIOR: movement expected but static "
                          f"(centroid travel {travel:.2f}x std {std:.0f}Hz, amp_mod {amp_mod:.2f})")
+
+            # NOISE class: a technique declared `noise` must be genuinely aperiodic
+            # (a real substrate noise bed), NOT a pitched tone dressed up. The
+            # pitched probe + centroid checks cannot see this (a tone and a noise
+            # both "stand"); pitchedness (peak autocorrelation) is the discriminator.
+            if want_noise:
+                pitch = _pitchedness(x, sr)
+                res["measurements"]["pitchedness"] = round(pitch, 3)
+                # Threshold 0.6, empirically calibrated (2026-07-18) across the whole
+                # space: broadband noise beds sit 0.02-0.28; even RESONANT/DARKENED
+                # noise (thunder + deep + resonant, a legit dark rumble) tops out at
+                # ~0.60; every TONE -- including the lowest, a darkened inharmonic FM
+                # bell -- is >=0.69, and harmonic tones are ~1.0. So 0.6 admits real
+                # (even resonant) noise while still catching any tone dressed as
+                # noise. 0.4 was too strict: it false-flagged resonant thunder.
+                if pitch >= 0.6:
+                    fail(f"NOISE: declared noise but is PITCHED "
+                         f"(pitchedness {pitch:.2f} >= 0.6 -- a tone, not a noise bed)")
     finally:
         if keep_dir is None:
             shutil.rmtree(tmp, ignore_errors=True)
