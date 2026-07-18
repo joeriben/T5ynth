@@ -172,7 +172,41 @@ _CS_TECH_EXTRA = {
         "why": "crackle/fire: randomly gated noise, a crackling campfire",
         "surface_forms": ["crackle", "crackling", "fire", "campfire", "knistern", "feuer"],
     },
+    # --- M4b: VOICE / formant synthesis. A sawtooth glottal source shaped by a
+    #     bank of resonators at vowel formant frequencies (Csound's native formant
+    #     idiom, `reson`) -- NOT an additive vowel sketch. Sustained, pitched; a
+    #     voice>voice chain morphs the FORMANTS (a vowel sweep = a "talking" sound).
+    "voice": {
+        "why": "a sung human voice, an open 'ahh' vowel (formant reson bank), warm vocal/choir",
+        "surface_forms": ["voice", "vocal", "vocals", "choir", "vowel", "ahh", "aah",
+                          "singing", "sung", "soprano", "voix", "stimme", "chor", "gesang", "human voice"],
+    },
+    "voice_ee": {
+        "why": "a bright 'eee' vowel voice (formant reson bank), thin nasal vocal",
+        "surface_forms": ["eee vowel", "ee vowel", "bright voice", "nasal voice", "iii"],
+    },
+    "voice_oo": {
+        "why": "a dark rounded 'ooh' vowel voice (formant reson bank), hollow vocal",
+        "surface_forms": ["ooh vowel", "oo vowel", "dark voice", "hollow voice", "uuu"],
+    },
 }
+
+# M4b VOICE/formant techniques -> _emit_voice / _emit_voice_morph. Each is a
+# sawtooth glottal source through a 3-resonator bank at classic sung-vowel formant
+# frequencies (F1/F2/F3, Hz), (bandwidth Hz, linear amp). A voice is PITCHED (the
+# fundamental is the played note); the vowel is the formant envelope on top. A
+# voice>voice morph glides the formants -> a vowel sweep (the native formant-motion
+# feature). Values are standard sung-vowel formants (bass/tenor register).
+_VOWEL_FORMANTS = {
+    # (F_Hz, bandwidth_Hz, linear amp). Upper formants kept relatively strong for
+    # articulate, recognisable vowels -- and so a vowel sweep MOVES the spectral
+    # centroid enough to register (a weak F2/F3 lets the strong F1 pin the centroid
+    # and a big F2 glide reads as near-static).
+    "voice":    [(600, 60, 1.00), (1040, 80, 0.60), (2250, 120, 0.32)],   # 'ah'
+    "voice_ee": [(270, 50, 1.00), (2290, 100, 0.55), (3010, 130, 0.30)],  # 'ee'
+    "voice_oo": [(300, 55, 1.00), (870, 80, 0.50), (2240, 120, 0.22)],    # 'oo'
+}
+_VOICE_TECH = set(_VOWEL_FORMANTS)
 
 # Techniques rendered by the substrate NOISE path (_emit_noise), not the additive/
 # opcode steady path. They are aperiodic textures -- the behavioral gate's noise
@@ -385,6 +419,61 @@ def _emit_noise(technique, tag="0"):
     return "\n".join(L)
 
 
+def _emit_voice(technique, tag="0"):
+    """VOICE/formant synthesis (M4b) -> `aosc<tag>`: a sawtooth glottal source
+    (rich harmonics for the formants to shape) through a bank of `reson` filters at
+    the vowel's formant frequencies -- Csound's native formant idiom, NOT an
+    additive vowel sketch. Pitched (the fundamental is the played note); the vowel
+    is the formant envelope. reson iscl=2 is peak-normalised per band; the weighted
+    sum is scaled and the tail limiter is the final bound."""
+    ov = f"aosc{tag}"
+    src = f"asrc{tag}"
+    formants = _VOWEL_FORMANTS.get(technique, _VOWEL_FORMANTS["voice"])
+    L = [f"  {src}    vco2 0.5, kfreq, 0           ; glottal saw source ({technique})"]
+    terms = []
+    for i, (f, bw, amp) in enumerate(formants):
+        L.append(f"  a{tag}f{i}   reson {src}, {f}, {bw}, 2      ; formant {i+1} @ {f} Hz")
+        terms.append(f"a{tag}f{i} * {amp:.3f}")
+    L.append(f"  {ov}    = ({' + '.join(terms)}) * 0.5")
+    return "\n".join(L)
+
+
+def _emit_voice_morph(chain, imorphtime, tag="0"):
+    """A VOWEL-SWEEP morph (M4b) -> `aosc<tag>`: one glottal saw source through a
+    3-resonator bank whose formant CENTRE FREQUENCIES and amplitudes travel A->B
+    across the vowels over `imorphtime` (restarted per note off the trig epoch).
+    reson takes k-rate cf/bw, so the formants genuinely glide -- a 'talking' vowel
+    morph (voice > voice_ee = 'ah'->'ee'), the native formant-motion feature. Every
+    vowel has exactly 3 formants, so stages align without padding."""
+    stages = [_VOWEL_FORMANTS.get(k, _VOWEL_FORMANTS["voice"]) for k in chain
+              if k not in ("silence", "zero")]
+    if len(stages) < 2:
+        return None
+    nf = 3
+    nstage = len(stages)
+    leg = imorphtime / (nstage - 1)
+    src = f"asrc{tag}"
+    lbl = f"Lvoxmorph{tag}"
+    L = [f"  ; --- osc {tag}: vowel-sweep formant morph (trig-epoch reinit) ---",
+         f"  {src}    vco2 0.5, kfreq, 0           ; glottal saw source"]
+    L.append("  if changed2(ktrig) == 1 then")
+    L.append(f"    reinit {lbl}")
+    L.append("  endif")
+    L.append(f"{lbl}:")
+    terms = []
+    for i in range(nf):
+        cf = ", ".join(f"{stages[j][i][0]}, {leg:.4f}" for j in range(nstage - 1)) + f", {stages[nstage-1][i][0]}"
+        am = ", ".join(f"{stages[j][i][2]:.3f}, {leg:.4f}" for j in range(nstage - 1)) + f", {stages[nstage-1][i][2]:.3f}"
+        bw = stages[0][i][1]   # bandwidth held at the first vowel's value (stable band)
+        L.append(f"  k{tag}cf{i}  linseg {cf}")
+        L.append(f"  k{tag}am{i}  linseg {am}")
+        L.append(f"  a{tag}f{i}   reson {src}, k{tag}cf{i}, {bw}, 2")
+        terms.append(f"a{tag}f{i} * k{tag}am{i}")
+    L.append("  rireturn")
+    L.append(f"  aosc{tag}    = ({' + '.join(terms)}) * 0.5")
+    return "\n".join(L)
+
+
 def _emit_steady(technique, tag="0"):
     """A single (non-morph) technique -> `aosc<tag>`. Uses Csound's native
     opcodes; every temporary is suffixed with `tag` (per-osc uniqueness)."""
@@ -392,6 +481,8 @@ def _emit_steady(technique, tag="0"):
     L = []
     if technique in _NOISE_TECH:
         return _emit_noise(technique, tag)
+    if technique in _VOICE_TECH:
+        return _emit_voice(technique, tag)
     if technique == "pwm":
         # classic PWM: band-limited pulse whose DUTY moves (square 50% -> thin
         # 8% -> back), a genuinely moving spectrum. kpw is the pulse width.
@@ -529,13 +620,15 @@ def _emit_morph(technique_keys, imorphtime, tag="0"):
     return "\n".join(L)
 
 
-def _emit_noise_morph(chain, imorphtime, tag="0"):
-    """A crossfade morph for chains that CONTAIN a NOISE texture -> `aosc<tag>`.
-    Noise is aperiodic and cannot be an additive partial bank, so the tonal
-    additive-partial morph (_emit_morph) would silently degrade the noise leg to a
-    PITCHED additive tone -- a migration-discipline capability loss the frozen
-    corpus caught (2026-07-18: 'rain > silence' rendered an additive tone that
-    faded, pitchedness 0.99, not rain). Here each stage renders to its OWN audio
+def _emit_crossfade_morph(chain, imorphtime, tag="0"):
+    """A generic amplitude-crossfade morph -> `aosc<tag>`, used whenever a chain
+    stage cannot live in the tonal additive-partial bank of _emit_morph: a NOISE
+    texture (aperiodic, no partials) or a VOICE/formant stage (a filtered source,
+    not an oscillator bank), or a mix. The additive morph would silently degrade
+    such a stage to a PITCHED additive tone -- a migration-discipline capability
+    loss the frozen corpus caught (2026-07-18: 'rain > silence' rendered an
+    additive tone that faded, pitchedness 0.99, not rain). Here each stage renders
+    to its OWN audio
     var (noise stages via _emit_noise, tonal stages via _emit_steady, silence -> no
     signal) and a per-stage EQUAL-POWER 'tent' gain crossfades between adjacent
     stages, restarted per note off the trig epoch. Crossfading noise is click-free
@@ -587,14 +680,25 @@ def _emit_noise_morph(chain, imorphtime, tag="0"):
 
 def _emit_oscillator(oi, chain, imorphtime):
     """One oscillator (index `oi`, 0..2) from its technique chain -> (body_lines,
-    out_var). >=2 stages -> a morph (a NOISE-crossfade morph if any stage is a
-    noise texture, else the tonal additive-partial morph); otherwise a steady
-    technique. The out_var is `aosc<oi>`, mixed by build_orchestra."""
+    out_var). >=2 stages -> a morph, choosing the path by stage kind:
+      - a PURE vowel sweep (>=2 voice stages, no silence) -> _emit_voice_morph, the
+        native formant glide ('ah'->'ee');
+      - any NOISE or VOICE stage otherwise (incl. voice>silence, voice+tonal) ->
+        _emit_crossfade_morph, which renders each stage on its own and amplitude-
+        crossfades (noise/voice cannot live in the additive partial bank);
+      - purely tonal -> _emit_morph, the additive-partial spectral morph.
+    A single stage -> a steady technique. The out_var is `aosc<oi>`."""
     tag = str(oi)
     body = None
     if len(chain) >= 2:
+        real = [k for k in chain if k not in ("silence", "zero")]
+        has_silence = any(k in ("silence", "zero") for k in chain)
         if any(k in _NOISE_TECH for k in chain):
-            body = _emit_noise_morph(chain, imorphtime, tag)
+            body = _emit_crossfade_morph(chain, imorphtime, tag)
+        elif real and all(k in _VOICE_TECH for k in real) and len(real) >= 2 and not has_silence:
+            body = _emit_voice_morph(chain, imorphtime, tag)   # pure vowel sweep
+        elif any(k in _VOICE_TECH for k in real):
+            body = _emit_crossfade_morph(chain, imorphtime, tag)  # voice+silence / voice+tonal
         else:
             body = _emit_morph(chain, imorphtime, tag)
     if body is None:

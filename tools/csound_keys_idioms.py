@@ -123,6 +123,19 @@ def run():
     ]
     for lbl, chain, exp in NOISE_MORPHS:
         cases.append((f"nzmorph:{lbl}", chain, [], None, exp, False))
+    # M4b VOICE/formant: single vowels (pitched, sustained, bounded) + vowel-sweep
+    # morphs whose formants GLIDE (a 'talking' spectral motion -> must move) + a
+    # vocal stab that fades (transient via the authorized morph-to-zero).
+    for t in sorted(co._VOICE_TECH):
+        cases.append((f"voice:{t}", [t], [], None, {"sustain": "stand", "move": False}, False))
+    VOICE_MORPHS = [
+        ("voice>voice_ee",           ["voice", "voice_ee"],            {"sustain": "stand", "move": True}),
+        ("voice_ee>voice_oo",        ["voice_ee", "voice_oo"],         {"sustain": "stand", "move": True}),
+        ("voice_oo>voice>voice_ee",  ["voice_oo", "voice", "voice_ee"], {"sustain": "stand", "move": True}),
+        ("voice>silence",            ["voice", "silence"],             {"sustain": "transient"}),
+    ]
+    for lbl, chain, exp in VOICE_MORPHS:
+        cases.append((f"voxmorph:{lbl}", chain, [], None, exp, False))
 
     passed = failed = 0
     fails, gaps = [], []

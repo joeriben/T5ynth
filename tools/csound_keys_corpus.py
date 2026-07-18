@@ -72,6 +72,17 @@ CORPUS = [
     ("distant rolling thunder",                         {"sustain": "transient", "move": False, "noise": True}),
     ("ocean waves on the shore",                        {"sustain": "stand", "move": False, "noise": True}),
     ("a crackling campfire",                            {"sustain": "stand", "move": False, "noise": True}),
+    # --- M4b: VOICE / formant synthesis. Must route to a voice technique (a sung
+    #     vowel via a formant reson bank). Single vowels stand; the vowel-sweep
+    #     morph must MOVE (formants glide 'ah'->'ee'); a vocal stab fades. "choir"
+    #     and "soprano" phrasings the 7B routes to strings/sine (a defensible tonal
+    #     reading) are deliberately NOT frozen here -- only the prompts that reach
+    #     the formant voice, so the corpus asserts the real class, not a near-miss. ---
+    ("a sung ahh voice",                                {"sustain": "stand", "move": False}),
+    ("a human voice",                                   {"sustain": "stand", "move": False}),
+    ("a bright eee vowel voice",                        {"sustain": "stand", "move": False}),
+    ("a voice morphing from ah to ee",                  {"sustain": "stand", "move": True}),
+    ("a vocal stab that fades out",                     {"sustain": "transient", "move": True}),
 ]
 
 
