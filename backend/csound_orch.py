@@ -282,7 +282,26 @@ _LIVE_TECH = {"pwm", "sync", "supersaw", "chiptune", "brass", "strings",
               # flute's identity is tone + BREATH. Noise cannot live in a partial
               # bank at all, so as a morph stage it fell back to the additive
               # spectrum this diff itself measured at 0.033 from a bare sine.
-              "flute"}
+              "flute",
+              # The ten keys that stopped being tables and became real idioms had
+              # to be added here too, and were not. Standalone they measure
+              # 13.9-52.7% spectral-centroid travel; inside `a > b` all six of
+              # these emitted nothing but `oscili` -- the additive bank this
+              # project forbids -- because being absent from this set is exactly
+              # what routes a chain into the partial-bank path. What each one
+              # lost is its whole reason for existing:
+              #   organ       three gbuzz ranks whose independent wander IS the
+              #               difference between a section and one pipe
+              #   additive    two detuned gbuzz twins; the BEATING is the key
+              #   harpsichord two choirs at 8' and 4', likewise
+              #   clarinet    a foscili bore opened by breath pressure
+              #   cheby       a driven waveshaper; the drive travel is the timbre
+              #   ring_mod    a genuine PRODUCT plus a drifting carrier leak,
+              #               which no bank of partials can express at all
+              # tools/csound_morph_liveness_gate.py measures this rather than
+              # trusting the list, so the next key made live cannot be forgotten.
+              "organ", "additive", "harpsichord", "clarinet", "cheby",
+              "ring_mod"}
 
 # Spectra with a partial BELOW the fundamental. _emit_morph aligns stages by
 # partial INDEX, which silently assumes every spectrum starts at ratio 1.0: give
