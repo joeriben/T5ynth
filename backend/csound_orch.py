@@ -431,7 +431,8 @@ _DEFAULT_FOOTAGE = "8"
 #                  a choir`, `4 'clicks' then silence`. A real footage is followed
 #                  by a space, a punctuation mark or the end of the prompt.
 _FOOTAGE_RE = _re.compile(
-    r"(?<![\d/])\b(32|16|8|4|2)\s*(?:'|’|\"|”|ft\b|foot\b|feet\b)(?![A-Za-z])")
+    r"(?<![\d/])\b(32|16|8|4|2)\s*(?:'|’|\"|”|ft\b|foot\b|feet\b)(?![A-Za-z])",
+    _re.IGNORECASE)
 # Bare inches that survive the guards above but name a THING, not a register.
 # `2" tape hiss` has no slash and no opening quote, so only the following word
 # tells them apart.
@@ -452,21 +453,39 @@ _REGISTER_CUE_PHRASES = (
     "suboktave", "sub-oktave", "fußlage", "fusslage",
 )
 # German footage: "eine 4 Fuß Orgel", "16 Fuss".
-_FOOTAGE_DE_RE = _re.compile(r"(?<![\d/])\b(32|16|8|4|2)\s*(?:fuß|fuss)\b")
+_FOOTAGE_DE_RE = _re.compile(r"(?<![\d/])\b(32|16|8|4|2)\s*(?:fuß|fuss)\b",
+                             _re.IGNORECASE)
+
+
+def _all_footages(text):
+    """EVERY real footage in `text`, in order, as pitch multipliers. English feet
+    first (the order they appear), then any German ones -- which is what makes
+    `_footage_in` below return the first English footage and fall back to German
+    only when there is none, exactly as it always has.
+
+    One function rather than three open-coded scans, because the three had to
+    agree and did not: the strip in `_parse_csound_reply` ran the case-SENSITIVE
+    pattern against the original-case line while detection ran it against a
+    lowercased copy, so "saw 16 FT > glass" detected a register and then left the
+    token sitting in the chain text. Both patterns carry IGNORECASE now, so the
+    scan that finds a footage and the scan that removes it cannot diverge."""
+    low = (text or "").lower()
+    out = []
+    for m in _FOOTAGE_RE.finditer(low):
+        tail = low[m.end():m.end() + 12].strip()
+        if any(tail.startswith(w) for w in _NOT_FOOTAGE_NEXT):
+            continue                     # `2" tape hiss` names tape, not a stop
+        out.append(_FOOTAGE_MULT[m.group(1)])
+    out += [_FOOTAGE_MULT[m.group(1)] for m in _FOOTAGE_DE_RE.finditer(low)]
+    return out
 
 
 def _footage_in(text):
     """The pitch multiplier named by the FIRST real footage in `text`, or None.
     Shared by the prompt-authority scan and the OSC-line strip so the two can
     never disagree about what counts as a footage."""
-    low = (text or "").lower()
-    for m in _FOOTAGE_RE.finditer(low):
-        tail = low[m.end():m.end() + 12].strip()
-        if any(tail.startswith(w) for w in _NOT_FOOTAGE_NEXT):
-            continue                     # `2" tape hiss` names tape, not a stop
-        return _FOOTAGE_MULT[m.group(1)]
-    m = _FOOTAGE_DE_RE.search(low)
-    return _FOOTAGE_MULT[m.group(1)] if m else None
+    feet = _all_footages(text)
+    return feet[0] if feet else None
 
 
 def _prompt_names_register(text):
@@ -574,11 +593,11 @@ _CS_SYSTEM_PROMPT_HEAD = (
     "never invent names or numbers.\n"
     "Reply in EXACTLY this format and nothing else (omit OSC2/OSC3 lines if not "
     "needed):\n"
-    "OSC1: <key> [> <key> ...] [<16|8|4>']\n"
+    "OSC1: <key> [> <key> ...] [<32|16|8|4|2>']\n"
     "VOL1: <number 0.0-1.0>\n"
-    "OSC2: <key> [> <key> ...] [<16|8|4>']\n"
+    "OSC2: <key> [> <key> ...] [<32|16|8|4|2>']\n"
     "VOL2: <number 0.0-1.0>\n"
-    "OSC3: <key> [> <key> ...] [<16|8|4>']\n"
+    "OSC3: <key> [> <key> ...] [<32|16|8|4|2>']\n"
     "VOL3: <number 0.0-1.0>\n"
     "ADJECTIVES: <key>, <key>, ...\n"
     "MOTION: <key>\n"
@@ -587,9 +606,14 @@ _CS_SYSTEM_PROMPT_HEAD = (
     "Each OSC line is that layer's waveform/method; if it MORPHS from one sound "
     "into another, list them in order separated by \" > \" (e.g. glass > sine). "
     "VOLn is that layer's loudness (main layer 1.0, supporting layers less). "
-    "A layer may end with an organ register in feet -- 8' is the played pitch, "
-    "16' one octave lower, 4' one octave higher (e.g. \"OSC2: sine 16'\"). Add "
-    "one ONLY if the prompt asks for a register; otherwise write no feet at all. "
+    "A layer may carry ONE organ register in feet, written at the end of its OSC "
+    "line -- 8' is the played pitch, and every halving of the number is an octave "
+    "UP: 32' two octaves lower, 16' one lower, 8' the played pitch, 4' one higher, "
+    "2' two higher (e.g. \"OSC2: sine 16'\"). Those five are the only legal "
+    "values, and the register applies to the WHOLE layer including every stage of "
+    "its morph. Add one ONLY if the prompt asks for a register; otherwise write no "
+    "feet at all. If the prompt puts feet on several stages of one chain, keep the "
+    "FIRST and write it once at the end of the line. "
     "ADJECTIVES are timbral modifiers for the whole sound (or \"none\"). This "
     "INCLUDES words for the kind of circuit or the age of the gear -- analog, "
     "vintage, old -- which describe how the tone behaves and are catalogue "
@@ -601,10 +625,15 @@ _CS_SYSTEM_PROMPT_HEAD = (
     "reach one of these lines if the catalogue has a key for it.\n"
     "NOTATION: the prompt's own punctuation is binding. \"a > b\" is ONE "
     "oscillator morphing a into b — put both on the SAME OSC line separated by "
-    "\" > \", never on two lines. \"a + b\" is two oscillators on two lines. A "
-    "chain may have three or more stages: a prompt written \"saw > sine > "
-    "square\" is the single line \"OSC1: saw > sine > square\", NOT three "
-    "oscillators.\n"
+    "\" > \", never on two lines. \"a + b\" is two oscillators on two lines. "
+    "COUNT THE \" > \" MARKS: \"saw > sine > square\" has two marks, so it is the "
+    "single line \"OSC1: saw > sine > square\", NOT three oscillators — and feet "
+    "attached to a stage do not change that count, so \"saw 16' > glass 2'\" is "
+    "also ONE oscillator, NOT two layers.\n"
+    "ONLY \" > \" MAKES A MORPH. Two describing words side by side are ONE sound "
+    "and take ONE key: \"pwm saw\" is a single pulse-width-modulated waveform, so "
+    "write \"pwm\", NEVER \"pwm > saw\". Apart from the silence rule below, never "
+    "insert a \" > \" the prompt did not write.\n"
     "PARAMS: a few catalogue keys take named parameters right after the key, "
     "in parentheses: key(name=value, name=value). See that key's own "
     "\"params:\" line in the catalogue for its parameter names and anchor "
@@ -633,6 +662,13 @@ _CS_SYSTEM_PROMPT_HEAD = (
     "VOL2: 1.0\n"
     "ADJECTIVES: analog, warm\n"
     "MOTION: none\n"
+    "Example — the prompt \"gentle saw > flute 4' > epiano\": two \" > \" marks, "
+    "so ONE oscillator with three stages on ONE line, and its one register moved "
+    "to the end where it belongs:\n"
+    "OSC1: saw > flute > fm_ep 4'\n"
+    "VOL1: 1.0\n"
+    "ADJECTIVES: gentle\n"
+    "MOTION: none\n"
     "Example — a named parametrised instrument, driven hard:\n"
     "OSC1: analog_osc(wave=saw, drive=hot, fat=thick, age=worn)\n"
     "VOL1: 1.0\n"
@@ -655,7 +691,7 @@ def _parse_csound_reply(raw):
     to 1.0; a missing/unreadable OCTn is None (= the model named no register, so
     the layer plays at 8'); last occurrence of a label wins (a model that echoes
     the format before answering). Empty / 'none' oscillator lines are dropped."""
-    osc_chains, osc_vols, osc_octs = {}, {}, {}
+    osc_chains, osc_vols, osc_octs, osc_lost_regs = {}, {}, {}, {}
     adjectives_raw, motion_raw = "", ""
     for line in (raw or "").splitlines():
         s = line.strip().lstrip("-*• \t")
@@ -674,8 +710,20 @@ def _parse_csound_reply(raw):
                 # strip EVERY footage token, not just the one that supplied the
                 # value: a register belongs to the LAYER, so in "saw 16' > sine
                 # 4'" the trailing 4' has nothing to attach to and is dropped.
-                # Not silent -- the reading card names the register that won
-                # ("saw > sine 16'"), so the discarded one is visible by absence.
+                #
+                # That drop USED to be described here as "visible by absence,
+                # because the reading card names the register that won". It is
+                # not: adversarial review rendered the case and found flags empty
+                # and the card reading "saw > sine 16'" -- byte-identical to what
+                # a faithful single-register layer produces. Nothing whatsoever
+                # distinguished "you asked for one register" from "you asked for
+                # two and we threw one away", and which one survives is decided by
+                # STAGE ORDER, not intent ("glass 2' > saw 16'" puts the whole
+                # chain at 2'). So the loss is reported now, and the count is
+                # taken BEFORE stripping because after it there is nothing to see.
+                _feet = _all_footages(chain)
+                if len(set(_feet)) > 1:
+                    osc_lost_regs[idx] = [f"{_FOOTAGE_LABEL[f]}'" for f in _feet]
                 stripped = _FOOTAGE_DE_RE.sub(" ", _FOOTAGE_RE.sub(" ", chain))
                 chain = " ".join(stripped.split())
             osc_chains[idx] = chain
@@ -699,13 +747,16 @@ def _parse_csound_reply(raw):
         if m:
             motion_raw = m.group(1).strip()
             continue
-    oscs = []
+    oscs, lost_regs = [], []
     for idx in sorted(osc_chains):
         chain = osc_chains[idx]
         if not chain or chain.lower() == "none":
             continue
         oscs.append((chain, osc_vols.get(idx, 1.0), osc_octs.get(idx)))
-    return oscs, adjectives_raw, motion_raw
+        # collected per SURVIVING layer, in the same order as `oscs`, so a caller
+        # can name the layer without re-deriving which OSCn lines were dropped
+        lost_regs.append(osc_lost_regs.get(idx))
+    return oscs, adjectives_raw, motion_raw, lost_regs
 
 
 def _strip_nonterminal_silence(chain):
@@ -3460,7 +3511,7 @@ def build_csound_response(text, llm):
         system_prompt = _CS_SYSTEM_PROMPT_HEAD + dco_llm_map._build_catalogue(lex_cs)
         raw = llm(text, system_prompt, _CS_MAX_NEW_TOKENS)
 
-        osc_specs, adjectives_raw, motion_raw = _parse_csound_reply(raw)
+        osc_specs, adjectives_raw, motion_raw, lost_regs = _parse_csound_reply(raw)
 
         # DECAY-INTENT guard: the deterministic layer owns the (pseudo-)envelope, so a
         # routed morph-to-zero is honoured ONLY when the prompt actually asks the sound
@@ -3512,6 +3563,19 @@ def build_csound_response(text, llm):
                 except (TypeError, ValueError):
                     v = 1.0
                 r = reg if (names_register and reg) else 1.0
+                # A chain that named SEVERAL registers keeps only the first: the
+                # register is one player knob per layer, so the rest have nothing
+                # to attach to. Say so, rather than letting the card read exactly
+                # as it would for a layer that asked for one register all along.
+                _lost = lost_regs[oi - 1] if oi - 1 < len(lost_regs) else None
+                if _lost and names_register:
+                    flags.append({
+                        "word": f"OSC{oi}: {' > '.join(_lost)}",
+                        "reason": "a layer has ONE register, so the whole chain "
+                                  f"plays at {_lost[0]}; a morph that transposes "
+                                  "between its stages does not exist yet",
+                        "tier": "adapted",
+                    })
                 if reg and reg != 1.0 and not names_register:
                     flags.append({
                         "word": f"OSC{oi}: {_FOOTAGE_LABEL.get(reg, '?')}'",
