@@ -43,38 +43,40 @@ be flattened -- reduced to a static spectrum a saw is still a saw. That is the
 real distinction, and measuring it is the only way to keep it honest as keys are
 rewritten.
 
-The gate grew a second job -- has a key's own control STOPPED somewhere in the
-register? -- because every serious defect in this subsystem has been at the ends
-of it, and three rounds of fixing that check reproduced the same fault one level
-up each time. What survived is in the two comment blocks in main(). Both metrics
-are kept because each is blind where the other sees, and the freeze checks run
-before anything can classify past them.
+The gate grew a second job -- has a key's own control STOPPED? -- because every
+serious defect in this subsystem has been at the ends of the register, and FOUR
+successive rounds of fixing that check reproduced the same fault one level up:
+a magnitude bar across pitches, then a magnitude bar across metrics, each time
+with the comment above it arguing that magnitude bars cannot work. The way out
+was to stop deciding from the current measurement at all. See the comment block
+in main() and BASELINE_PATH.
 
-Falsified, not assumed correct, by injecting ten regressions into a sandbox copy
-of csound_orch.py and requiring a non-zero exit. Six are caught, including all
-three that defeated the previous version -- a plain revert of the FM branch to
-its one-line foscili (with and without the matching _LIVE_TECH removal, both of
-which printed OK before), and the index sweep cut to 2% of its excursion. So are
-the historic min-clip at two different freeze onsets and a nulled per-voice
-analogue drift, which takes saw, triangle and bass_saw down with it.
+Falsified, not assumed correct: seventeen regressions injected into a sandbox
+copy of csound_orch.py, each required to produce a non-zero exit. 13 caught at
+48 kHz, 14 at 44.1 k. The suite is deliberately half AMPLITUDE injections,
+because the previous one was nine-tenths spectral and therefore shared, by
+construction, the blind spot of the code it certified -- it declared the gate
+sound while a plain revert of its sibling commit passed. That revert, the
+doublet ratio collapsed, the doublet silenced outright, and a nulled sub_sine
+divider are all now caught, and none of them was visible before.
 
-KNOWN LIMIT, stated so it is not mistaken for coverage: this gate measures
-motion in absolute terms, so it catches a control that has STOPPED but not
-always one that has been WEAKENED. The four injections it misses are all of that
-kind -- a 100x units slip on the decay constant, a frozen comparator on square
-and on pulse (each of which still has its per-voice drift running), and a nulled
-sub_sine divider, which still reads 3.8% swing against its own 29.5%. Closing
-that needs a per-key baseline of these numbers checked in and compared against,
-which is a different test from this one: absolute motion cannot be judged
-without a reference, and the cross-rate spread is wide enough (glass reads
-123.6% at 55 Hz on 48 kHz and 35.6% on 44.1 k) that the reference has to be per
-sample rate.
+KNOWN LIMIT, stated so it is not mistaken for coverage: the four still missed
+are all REDUNDANT-CONTROL cases -- one of several parallel controls disabled
+while the others keep running, so the key really is still moving. Nulling one
+organ rank's wander leaves two; locking the harpsichord's 4' choir leaves the
+fixed 0.0031 detune beating; freezing pulse's comparator leaves its per-voice
+drift; nulling the strings' bow pressure leaves three players' independent
+intonation. Catching these needs a per-CONTROL probe (null one line, require the
+output to change), not a per-key one. That is a different tool, and worth
+building; what must not happen is reading 13/17 as 17/17.
 
-Run: .venv/bin/python tools/csound_morph_liveness_gate.py
-Exits non-zero on any live key whose idiom a morph discards, and on any key whose
-control has stopped.
+Run: .venv/bin/python tools/csound_morph_liveness_gate.py [--sr 44100]
+Record the reference: ... --update-baseline (both rates), and read the diff.
+Exits non-zero on any live key whose idiom a morph discards, on any key whose
+control has stopped, and on any reading that has fallen below its reference.
 """
 import importlib.util
+import json
 import re
 import shutil
 import subprocess
@@ -87,7 +89,9 @@ from scipy.io import wavfile
 
 ROOT = Path(__file__).resolve().parent.parent
 CS = "/opt/homebrew/bin/csound"
-SR = 48000
+# --sr, because the baseline is per rate and both have to be recorded and
+# checked. Every threshold in this file has been wrong at one rate at least once.
+SR = int(sys.argv[sys.argv.index("--sr") + 1]) if "--sr" in sys.argv else 48000
 DUR = 9.0
 
 # Liveness is measured ACROSS the register, not at one comfortable pitch.
@@ -101,7 +105,14 @@ DUR = 9.0
 # the limit is physical, not a defect: an FM bell or a clarinet bore at 8 kHz has
 # no sideband room left below Nyquist, so it MUST fall still. 4 kHz is the
 # highest pitch at which every live key can still be asked to move.
-SWEEP_HZ = (55.0, 220.0, 1200.0, 4000.0)
+#
+# 40 Hz was added after the BOTTOM turned out to be a blind spot too. A level
+# follower only cancels beats slower than its cutoff, so weakening one is a
+# bass-register regression by construction: reverting the balance fix leaves
+# fm_bell's beat at 0.90 of baseline at 220 Hz, 0.36 at 55, and 0.31 at 40. With
+# the sweep starting at 55 the gate could not fail a plain revert of its own
+# sibling commit. Both ends now, and E1 is an ordinary note.
+SWEEP_HZ = (40.0, 55.0, 220.0, 1200.0, 4000.0)
 
 # Below this, a key is static enough that a partial bank represents it. `sine`
 # measures 0.0% and the reworked acoustic keys 14-68%, so the boundary is wide.
@@ -137,6 +148,50 @@ LIVE_TRAVEL = 5.0
 # drift "produces essentially none" of what a liveness probe measures. That is
 # wrong by a factor of 3.5-24x, and this gate depends on it being wrong.)
 DEAD_TRAVEL = 0.6
+
+# Window for the pitch-scaled swing band, in periods of the played note. 4 sits
+# between the two constraints: above ~2 it rejects the carrier, below ~6 it still
+# resolves a doublet beat (which arrives every 1/|mod2-mod| = 12-20 periods).
+SWING_PERIODS = 4.0
+
+# THE REFERENCE. Every check above this line is absolute -- it asks whether a
+# number is near zero -- and absolute motion cannot be judged without knowing
+# what the key measured when it was right. That sentence was written into this
+# docstring two revisions ago and the reference was deferred as "a different
+# test"; the deferral is exactly the hole that let the next two regressions
+# through, so it is built here.
+#
+# Why nothing armed on a CURRENT measurement can replace it: a regression that
+# lowers a reading also lowers the statistic used to decide whether to check the
+# reading. Arming on the median is defeated by a regression that takes the
+# median down with it (reverting the balance fix drops fm_bell's swing median
+# under the bar); arming on the max is defeated by any key legitimately quiet at
+# one pitch. Self-defeat is inherent, and the way out is a number that does not
+# move when the code breaks.
+#
+# Per sample rate, because the readings genuinely differ (glass measures 123.6%
+# at 55 Hz on 48 kHz and 35.6% on 44.1 k). Regenerate with --update-baseline; the
+# diff is then a visible part of the commit, which is the whole discipline: a
+# baseline regenerated silently proves nothing, and one regenerated from broken
+# code certifies the breakage. Read the diff before committing it.
+BASELINE_PATH = ROOT / "tools" / "csound_liveness_baseline.json"
+
+# Fail when a reading falls below this fraction of its recorded value. The
+# mildest regression this has to catch is a plain revert of the balance fix, at
+# 0.31 on fm_bell at 40 Hz, so the bar sits at 0.45 to keep clear of it.
+BASELINE_FRACTION = 0.45
+
+# Record the baseline as the MINIMUM of this many runs. 38 of 39 keys reproduce
+# bit-identically, but pink_noise does not -- it varies to a min/max of 0.65,
+# which alone would force the fraction below 0.35 and let the balance revert
+# through. Taking the low end as the reference absorbs the variance where it
+# belongs, in the number being compared against, instead of paying for it in the
+# threshold for all 39 keys.
+BASELINE_RUNS = 2
+
+# Below this a baseline reading is too small to divide by -- the key was already
+# near the floor there, and the absolute check is what covers it.
+BASELINE_FLOOR = 2.0
 
 # The one key with NO k-rate control at all, so the only one exempt from the
 # "something must be moving" check. It is an ASSERTION, not a waiver: the gate
@@ -233,7 +288,19 @@ def render(orc, hz, dur=DUR):
         shutil.rmtree(d, ignore_errors=True)
 
 
-def rms_swing(sr, x):
+def _swing_at(x, sr, w):
+    w = max(int(w), 16)
+    if len(x) < 3 * w:
+        return 0.0
+    r = np.array([np.sqrt(np.mean(x[i:i + w] ** 2))
+                  for i in range(0, len(x) - w, w)])
+    r = r[r > 1e-9]
+    if len(r) < 3:
+        return 0.0
+    return float((r.max() - r.min()) / max(r.mean(), 1e-9) * 100.0)
+
+
+def rms_swing(sr, x, hz):
     """Peak-to-peak spread of the short-term rms, as a % of its mean.
 
     The SECOND opinion, and it is not optional. Centroid travel is nearly blind
@@ -241,21 +308,36 @@ def rms_swing(sr, x):
     beat -- the entire point of the key, the reason it uses gbuzz instead of two
     oscili -- reads 0.72% live against 0.53% with its drift LFO nulled. Those are
     0.19 pp apart, so on that metric alone a healthy sub_sine and a dead one are
-    the same reading, and it passed the freeze check by 0.12 pp of luck. On this
-    metric the same pair reads 29.5% against 3.8%.
+    the same reading. On this metric the same pair reads 29.5% against 3.8%.
 
     The blindness runs both ways, which is why both metrics are kept and neither
     is trusted alone: `square`'s comparator drift is purely spectral and reads
-    10.2% travel against 0.02% swing.
+    10.2% travel against 0.22% swing at 55 Hz.
+
+    TWO BANDS, because one window cannot see the phenomenon. A fixed 100 ms
+    window is a ~5 Hz low-pass on the envelope, while the doublet beat runs at
+    |mod2 - mod| * kfreq -- 1 Hz at the bottom of the clamp but 200-320 Hz at
+    4 kHz. So the metric silently retired at the top of the register for every
+    key whose life is a pitch-proportional beat, which is the exact end where
+    every serious defect in this subsystem has lived: fm_bell's beat at 4 kHz
+    read 2.16% through the fixed window and reads 52.66% through this one. It
+    was never dying, it was never being measured. A window of N periods rejects
+    the carrier's own waveform (so N must be at least ~2) while resolving a beat
+    down to f/2N.
+
+    Slow motion still has to count -- sub_sine's divider drifts at 0.067 Hz --
+    so both bands are measured and the larger taken. That is a disjunction
+    WITHIN one phenomenon (amplitude motion at any rate), which is sound, and
+    not one BETWEEN two phenomena, which is the mistake this file is repairing.
+
+    One honest limitation: on a noise bed the short window measures the source's
+    own statistical variance rather than any envelope motion, so `wind` reads
+    365% at 4 kHz. Reproducible to 0.00 pp run-to-run, so it compares correctly
+    against its own baseline, but the absolute number means nothing.
     """
     x = x[int(sr * 0.4):]
-    w = int(sr * 0.1)
-    r = np.array([np.sqrt(np.mean(x[i:i + w] ** 2))
-                  for i in range(0, len(x) - w, w)])
-    r = r[r > 1e-9]
-    if len(r) < 3:
-        return 0.0
-    return float((r.max() - r.min()) / max(r.mean(), 1e-9) * 100.0)
+    return max(_swing_at(x, sr, sr * 0.1),
+               _swing_at(x, sr, sr * SWING_PERIODS / max(hz, 1.0)))
 
 
 def centroid_travel(sr, x):
@@ -301,6 +383,31 @@ def takes_crossfade(M, key):
             or M._MORPH_SPECTRUM.get(key) in M._SUBFUND_SPECTRA)
 
 
+def regressions(ref, travels, swings):
+    """Which readings have fallen materially below what this key recorded.
+
+    Per metric, never combined -- combining them is what let a stopped doublet
+    hide behind a live index. A missing entry returns nothing, so a NEW key is
+    not failed for having no history; it is reported as unbaselined instead,
+    which is a visible prompt to record it rather than a silent pass.
+    """
+    if not ref:
+        return []
+    out = []
+    for i, hz in enumerate(SWEEP_HZ):
+        if i >= len(ref):
+            break
+        for j, (name, cur) in enumerate((("travel", travels[i]),
+                                         ("swing", swings[i]))):
+            was = ref[i][j]
+            if was < BASELINE_FLOOR:
+                continue
+            if cur < BASELINE_FRACTION * was:
+                out.append(f"{name} at {hz:.0f}Hz {cur:.2f} vs {was:.2f} "
+                           f"({cur / was * 100:.0f}%)")
+    return out
+
+
 def technique_keys(M):
     """Every routable key, from the catalogue -- NOT scraped out of the source.
 
@@ -322,27 +429,57 @@ def technique_keys(M):
 
 
 def main():
+    update = "--update-baseline" in sys.argv
     M = _load()
     techs = technique_keys(M)
+    stale = (set(NO_CONTROL) | set(FLATTEN_ANYWAY)) - set(techs)
+    all_base = (json.loads(BASELINE_PATH.read_text())
+                if BASELINE_PATH.exists() else {})
+    base = all_base.get(str(SR), {})
+    measured = {}
+    if update:
+        print(f"--update-baseline: RE-RECORDING {SR} Hz. Read the diff before "
+              f"committing it -- a baseline taken from broken code certifies "
+              f"the breakage.\n")
+    elif not base:
+        print(f"no baseline for {SR} Hz in {BASELINE_PATH.name} -- run with "
+              f"--update-baseline to record one\n")
     print(f"{'key':14s} " + " ".join(f"{h:.0f}Hz".rjust(13) for h in SWEEP_HZ)
           + f"  {'live?':6}  idiom in `key > sine`")
     print(f"{'':14s} " + " ".join("travel/swing".rjust(13) for _ in SWEEP_HZ))
     failures = []
+    # An exemption naming a key that no longer exists is dead text that reads as
+    # cover. Neither set was ever checked against the catalogue, so renaming a
+    # key would have silently voided its entry -- the same forgotten-list failure
+    # this gate exists to eliminate, reintroduced in the gate's own tables.
+    for k in sorted(stale):
+        print(f"{k:14s}  <== declared in NO_CONTROL/FLATTEN_ANYWAY but is not a "
+              f"catalogue key")
+        failures.append((k, "exemption names a key that does not exist", set()))
     for k in techs:
         orc, _ = M.build_orchestra(oscs=[{"chain": [k], "vol": 1.0}])
         travels, swings, silent = [], [], False
         for hz in SWEEP_HZ:
-            sr, x = render(orc, hz)
-            if sr is None:
-                travels = None
+            # Only --update-baseline repeats: the reference is the LOW end of
+            # what a healthy key measures, so the variance is absorbed there
+            # rather than paid for by every key in the threshold.
+            t, s = [], []
+            for _ in range(BASELINE_RUNS if update else 1):
+                sr, x = render(orc, hz)
+                if sr is None:
+                    travels = None
+                    break
+                if float(np.abs(x).max()) < 1e-4:
+                    silent = True
+                    t.append(0.0)
+                    s.append(0.0)
+                    continue
+                t.append(centroid_travel(sr, x))
+                s.append(rms_swing(sr, x, hz))
+            if travels is None:
                 break
-            if float(np.abs(x).max()) < 1e-4:
-                silent = True
-                travels.append(0.0)
-                swings.append(0.0)
-                continue
-            travels.append(centroid_travel(sr, x))
-            swings.append(rms_swing(sr, x))
+            travels.append(min(t))
+            swings.append(min(s))
         if travels is None:
             print(f"{k:14s} {'RENDER FAILED':>8}")
             failures.append((k, "render failed", set()))
@@ -386,22 +523,32 @@ def main():
         # DEAD_TRAVEL two paragraphs up, because for saw and pulse the max IS the
         # vco2 artifact, and that reads 14.92% at 48 kHz against 2.06% at 44.1 k.
         #
-        # So there are two checks and only the second one is armed:
+        # Adding a second metric and combining it with max() moved the SAME fault
+        # up one more level: from a magnitude bar across PITCHES to a magnitude
+        # bar across METRICS. Under `max(travel, swing)` a key with two controls
+        # only ever has to keep the LARGER-READING one alive, so the other may
+        # stop dead at every pitch. Structurally, a fall in swing could not fail
+        # this gate at all -- it could only feed a max already dominated by
+        # travel, or reclassify a key to `static`, which is the laxer outcome.
+        # Measured: a plain `git revert` of the sibling commit that restored the
+        # bells' doublet beat -- swing 0.9% and 0.2% at 1200 and 4000 Hz, under
+        # the dead floor -- left this gate green, as did silencing the doublet
+        # outright. The gate printed the very number that proved the regression
+        # and had no path by which that number could fail.
         #
-        #   A. UNCONDITIONAL. At every pitch, something must be moving -- on
-        #      EITHER metric, since a beat and a spectral sweep are both motion
-        #      and each metric is blind to one of them. Nothing arms this, so
-        #      "dead everywhere" is exactly the case it is strongest on. `sine`
-        #      is the only key with no control at all, and it is declared.
-        #   B. ARMED, on the centroid MEDIAN. Catches a spectral control that
-        #      stops at SOME pitches while running elsewhere -- the historic
-        #      bell index frozen above 2030 Hz, the bow corner inert above 2666,
-        #      the clarinet breath. The median, not the max, so the vco2 artifact
-        #      cannot arm it: saw's median is 3.84% at 48 k and 1.82% at 44.1 k,
-        #      under the bar at both. Centroid only, never swing: an FM beat
-        #      legitimately dies when the sidebands run out of room below Nyquist
-        #      (fm's swing is 21% at 55 Hz and 0.14% at 4 kHz), so arming B on
-        #      swing would fail a healthy key for obeying physics.
+        # So the disjunction is gone. Each metric is now checked on its own
+        # against the baseline, and `alive` is used ONLY for the absolute
+        # "renders something that moves" floor, where a disjunction is correct
+        # because a beat and a spectral sweep are both motion.
+        #
+        #   A. UNCONDITIONAL, absolute. At every pitch something must be moving
+        #      on either metric. Nothing arms it, so "dead everywhere" is the
+        #      case it is strongest on. `sine` is the only key with no control
+        #      at all, and it is declared.
+        #   B. UNCONDITIONAL, relative. Every reading, on BOTH metrics, against
+        #      what that key measured when it was right. Nothing arms this
+        #      either -- which is the point, since every armed variant has been
+        #      defeated by a regression that drags its own arming statistic down.
         dead = [f"{h:.0f}Hz" for h, a in zip(SWEEP_HZ, alive) if a < DEAD_TRAVEL]
         if k in NO_CONTROL:
             # The assertion, checked in the other direction: this key claims to
@@ -420,15 +567,13 @@ def main():
             failures.append((k, "no motion on either metric at "
                              + ", ".join(dead), set()))
             continue
-        if float(np.median(travels)) >= LIVE_TRAVEL:
-            stopped = [f"{h:.0f}Hz" for h, t in zip(SWEEP_HZ, travels)
-                       if t < DEAD_TRAVEL]
-            if stopped:
-                print(f"{k:14s} {row}  {'LIVE':6}  FROZEN at "
-                      + ", ".join(stopped))
-                failures.append((k, "moves elsewhere but its spectral motion has "
-                                 "stopped at " + ", ".join(stopped), set()))
-                continue
+        measured[k] = [[round(t, 3), round(s, 3)]
+                       for t, s in zip(travels, swings)]
+        fell = regressions(base.get(k), travels, swings)
+        if fell and not update:
+            print(f"{k:14s} {row}  {'FELL':6}  " + "; ".join(fell))
+            failures.append((k, "below baseline: " + "; ".join(fell), set()))
+            continue
         # Liveness is judged on the MEDIAN across the sweep, not the best pitch.
         # Best-pitch classification promotes keys on a single outlier reading:
         # `saw` and `pulse` are genuinely static (1.5% in isolation) yet measure
@@ -463,7 +608,6 @@ def main():
             where = "flattened" if not takes_crossfade(M, k) else "crossfaded anyway"
             print(f"{k:14s} {row}  {'static':6}  ({where})")
             continue
-        travel = max(travels)
         crossfaded = takes_crossfade(M, k)
         want = idioms(orc)
         morc, _ = M.build_orchestra(oscs=[{"chain": [k, "sine"], "vol": 1.0}])
@@ -487,6 +631,20 @@ def main():
             for ln in __import__("textwrap").wrap(why, 72):
                 print(f"    {ln}")
             print()
+    if update:
+        all_base[str(SR)] = measured
+        BASELINE_PATH.write_text(
+            json.dumps(all_base, indent=1, sort_keys=True) + "\n")
+        print(f"recorded {len(measured)} keys at {SR} Hz -> "
+              f"{BASELINE_PATH.name}")
+        return 0
+    fresh = sorted(set(measured) - set(base))
+    if fresh:
+        # Not a failure -- a new key legitimately has no history. Printed loudly
+        # so it is recorded deliberately rather than sliding in unprotected,
+        # which is how every hand-maintained list in this subsystem has rotted.
+        print("NOT BASELINED (run --update-baseline to record): "
+              + ", ".join(fresh) + "\n")
     if failures:
         print(f"FAIL: {len(failures)} live key(s) flattened by the morph path")
         for k, why, lost in failures:
