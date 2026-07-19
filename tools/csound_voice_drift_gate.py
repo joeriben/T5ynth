@@ -25,6 +25,17 @@ import csound_orch as C  # noqa: E402
 
 CS = "/opt/homebrew/bin/csound"
 DUR = 10.0
+# --sr, and it is not cosmetic. This gate hardcoded 48000 with no way to change
+# it, while a sibling gate documented `--sr 44100` in its usage line -- so
+# "all three gates green at both rates" was a claim nothing could have produced.
+# Passing --sr here did worse than fail: argv is the KEY LIST, so `--sr 44100`
+# was read as two key names and the run exited 1 on `FAIL --sr: voices do not
+# beat`, which looks like a real finding about a real key.
+SR = 48000
+if "--sr" in sys.argv:
+    i = sys.argv.index("--sr")
+    SR = int(sys.argv[i + 1])
+    del sys.argv[i:i + 2]
 
 
 def ctrl(nvoices, hz):
@@ -38,7 +49,7 @@ def ctrl(nvoices, hz):
 
 def render(key, nvoices, hz=220.0):
     orc, _ = C.build_orchestra(technique_keys=[key])
-    orc = orc.replace("%SR%", "48000").replace("-n -d", "-d")
+    orc = orc.replace("%SR%", str(SR)).replace("-n -d", "-d")
     orc = orc.replace("</CsInstruments>", ctrl(nvoices, hz) + "</CsInstruments>")
     keep = []
     for ln in orc.splitlines():
@@ -77,7 +88,13 @@ def beat_index(sr, sig):
 
 KEYS = sys.argv[1:] or ["sine", "saw", "square", "triangle", "supersaw",
                         "bass_saw", "chiptune", "pwm", "sync"]
-print(f"{'key':11s} {'1 voice':>9} {'3 voices':>9}   reading")
+unknown = [k for k in KEYS if k not in C._MORPH_SPECTRUM and k not in C._CS_TECH_EXTRA]
+if unknown:
+    # A key name that is not in the catalogue renders an orchestra without the
+    # branch under test, which measures 0.0000 and reports as a failed key --
+    # a typo therefore produced a confident, specific, entirely false finding.
+    sys.exit(f"not catalogue keys: {', '.join(unknown)}")
+print(f"{'key':11s} {'1 voice':>9} {'3 voices':>9}   reading   (sr={SR})")
 fails = []
 for k in KEYS:
     b1 = beat_index(*render(k, 1))
