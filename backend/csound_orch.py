@@ -1049,15 +1049,24 @@ def _emit_steady(technique, tag="0", nmodes=None):
         L.append(f"  kw8{tag}    poscil 0.00035, 0.061        ; rank 8' tuning wander")
         L.append(f"  kw4{tag}    poscil 0.00045, 0.083        ; rank 4', incommensurate")
         L.append(f"  kwq{tag}    poscil 0.00030, 0.107        ; quint rank, incommensurate")
-        L.append(f"  a8{tag}     gbuzz 0.30, kfreq * (1 + kw8{tag}), 8, 1, 0.72, giCos ; 8' principal")
-        L.append(f"  a4{tag}     gbuzz 0.15, kfreq * 2.0023 * (1 + kw4{tag}), 5, 1, 0.66, giCos ; 4' octave, +4 cents")
-        L.append(f"  aq{tag}     gbuzz 0.10, kfreq * 1.4987 * (1 + kwq{tag}), 4, 1, 0.60, giCos ; 5 1/3' quint, -1.5 cents")
+        # `gbuzz` normalises to PEAK, and three stacks of in-phase cosines are a
+        # pulse train (crest 5.0), so the amplitudes here are not what the key
+        # SOUNDS like -- read as levels they left the organ 11.7 dB under a sine.
+        # Fewer harmonics per rank brings the crest down; the ranks together still
+        # cover the same series, because they overlap at the octave and the quint.
+        L.append(f"  a8{tag}     gbuzz 0.46, kfreq * (1 + kw8{tag}), 6, 1, 0.72, giCos ; 8' principal")
+        L.append(f"  a4{tag}     gbuzz 0.24, kfreq * 2.0023 * (1 + kw4{tag}), 4, 1, 0.66, giCos ; 4' octave, +4 cents")
+        L.append(f"  aq{tag}     gbuzz 0.16, kfreq * 1.4987 * (1 + kwq{tag}), 3, 1, 0.60, giCos ; 5 1/3' quint, -1.5 cents")
         L.append(f"  {ov}    = a8{tag} + a4{tag} + aq{tag}")
     elif technique == "triangle":
-        # vco2 imode 4 renders SILENT on this Csound build (the triangle band-
-        # limited table is not pre-generated). Use the additive triangle (odd
-        # harmonics ~1/n^2) -- band-limited by construction, guaranteed to sound.
-        L.append(_emit_additive(_SPECTRA["triangle"], gain=0.6, tag=tag))
+        # The real band-limited triangle, replacing a six-row odd-harmonic stand-in.
+        # Nothing had to be pre-generated for it: vco2 builds its table sets on
+        # demand (see the header note -- the older "renders silent" story was a
+        # misdiagnosis of an unrelated argument error). Measured against the
+        # stand-in: h3 -19.1 dB, h5 -28.0, h7 -33.8, no even harmonics, level in
+        # line with the saw family -- and at 12 kHz it produces ZERO content below
+        # the played pitch, where the stand-in aliased at 0.120 relative.
+        L.append(f"  {ov}    vco2 0.6, kfreq, 12         ; band-limited triangle")
     elif technique == "saw":
         L.append(f"  {ov}    vco2 0.6, kfreq, 0          ; band-limited sawtooth")
     elif technique == "supersaw":
@@ -1160,24 +1169,75 @@ def _emit_steady(technique, tag="0", nmodes=None):
                          "metallic_fm": ("1", "2.41", "6.0")}.get(technique, ("1", "2", "1.8"))
         L.append(f"  {ov}    foscili 0.5, kfreq, {car}, {mod}, {ndx}, giSine ; FM (foscili)")
     elif technique == "cheby":
-        # Chebyshev/tanh waveshaping of a sine = polynomial harmonics (real
-        # waveshaper, the substrate doing dirt natively).
-        L.append(f"  adrv{tag}    oscili 0.9, kfreq")
-        L.append(f"  {ov}    = tanh(adrv{tag} * 3.0) * 0.5    ; waveshaper harmonics")
+        # A CHEBYSHEV shaper, which is what the key is named after: a sine read
+        # through a GEN13 transfer function produces exactly the harmonics that
+        # table encodes. The old code was `tanh(sine * 3)` -- a soft clipper whose
+        # harmonics were whatever tanh happened to give, not a chosen spectrum.
+        # The drive is what makes a waveshaper live: at low drive the sine only
+        # touches the middle of the curve and comes out nearly pure, at full drive
+        # it sweeps the whole curve and every harmonic appears. Two incommensurate
+        # wanders so the harmonics do not all rise and fall as one.
+        # `tablei ..., ixmode 1, ixoff 0.5` reads the table over an input range of
+        # -0.5 .. +0.5, so the DRIVE MUST PEAK BELOW 0.5. At 0.62 + 0.22 + 0.09 it
+        # peaked at 0.910 and 34% of all samples sat pinned at a table end (the
+        # ends are not symmetric, so that is a hard clipper, not a shaper -- the
+        # exact "harmonics were whatever the clipper gave" charge this branch was
+        # written to answer). 0.30 + 0.12 + 0.05 = 0.47 stays inside the table and
+        # still sweeps 26%..94% of the curve, which is the whole point: near the
+        # middle the sine comes out almost pure, at the top every harmonic is there.
+        L.append(f"  kdrv{tag}   poscil 0.12, 0.074           ; drive wander")
+        L.append(f"  kdrb{tag}   poscil 0.05, 0.119           ; second, incommensurate")
+        L.append(f"  adrv{tag}   poscil 0.30 + kdrv{tag} + kdrb{tag}, kfreq")
+        L.append(f"  ash{tag}    tablei adrv{tag}, giCheb, 1, 0.5 ; Chebyshev transfer curve")
+        L.append(f"  {ov}    = ash{tag} * 0.55           ; level-match the family")
     elif technique == "ring_mod":
-        # ring modulation: carrier * modulator at a 2:1 ratio -> sum/difference
-        # sidebands (the closed-form ring/AM spectrum). The substrate doing RM
-        # natively (a genuine product, not a partial table).
-        L.append(f"  acar{tag}    oscili 0.8, kfreq")
-        L.append(f"  amod{tag}    oscili 1.0, kfreq * 2.0")
-        L.append(f"  {ov}    = acar{tag} * amod{tag}          ; ring modulation (2:1 sidebands)")
+        # A genuine product of two oscillators -- the sidebands are real, not
+        # tabulated. `poscil` rather than `oscili`: same cost, no table
+        # interpolation error, which matters when the output is a product (both
+        # factors' error multiplies).
+        #
+        # A diode ring is never balanced: the diodes are not matched, so some
+        # carrier LEAKS THROUGH unmodulated, and the leak drifts with temperature.
+        # That feedthrough is the characteristic sound of real analogue ring
+        # modulators -- the played note stays faintly present under the metallic
+        # sidebands instead of vanishing -- and because it drifts, the balance
+        # between note and sidebands keeps shifting.
+        #
+        # The modulator's own oscillator drifts too, and the size of that drift is
+        # what makes it audible or not: at +-0.0009 it moved the sidebands by 0.2 Hz
+        # and measured a spectral travel of 1.01x, i.e. nothing. +-0.004 is about 7
+        # cents on the modulator, which walks the lower sideband audibly and is
+        # honest for a free-running analogue oscillator.
+        L.append(f"  krmw{tag}   poscil 0.004, 0.091          ; modulator drift, ~7 cents")
+        L.append(f"  krlk{tag}   poscil 0.03, 0.037           ; diode imbalance, drifting")
+        L.append(f"  acar{tag}   poscil 0.8, kfreq")
+        L.append(f"  amod{tag}   poscil 1.0, kfreq * (2.0 + krmw{tag})")
+        L.append(f"  {ov}    = acar{tag} * (amod{tag} * 0.88 + 0.10 + krlk{tag}) ; ring mod + carrier leak")
     elif technique == "sub_sine":
-        # a sub oscillator: the fundamental PLUS real weight one octave below it.
+        # A sub oscillator: the fundamental PLUS real weight one octave below it.
         # (`sine` and `sub_sine` were byte-identical -- the sub is the whole point
         # of the key. The played pitch still dominates, so this adds weight
         # without transposing the note: pitch stays the synth's business.)
-        L.append(f"  asb{tag}    oscili 0.18, kfreq * 0.5    ; sub octave")
-        L.append(f"  afn{tag}    oscili 0.50, kfreq          ; fundamental")
+        #
+        # An analogue sub is a DIVIDER, so it is a pulse and rich, never a clean
+        # sine -- and that matters here for more than accuracy: a pure sine at f/2
+        # shares no frequency with the fundamental and cannot beat with it, which
+        # is why the two-oscili version sat perfectly still. `gbuzz` gives the
+        # divider its harmonics, so the sub's 2nd lands ON the fundamental and the
+        # small divider drift makes the pair beat slowly -- the weight breathes
+        # instead of being added as a constant.
+        #
+        # Exactly TWO harmonics. At three, the sub's 3rd sits at 1.5x the played
+        # note and measured -26 dB: an audible hollow fifth in a key whose whole
+        # job is to add weight under the note. (A square-wave divider has odd
+        # harmonics only and no component at f at all, so it could not beat either;
+        # two harmonics is the pulse divider that actually does what the key says.)
+        L.append(f"  ksbw{tag}   poscil 0.0006, 0.067         ; divider drift")
+        # 0.28, not 0.20: gbuzz normalises to peak, so two cosines at kamp 0.20 put
+        # only 0.129 on the 110 Hz partial -- 2.3 dB less weight than the plain
+        # oscili it replaces, in the one key whose entire job is weight.
+        L.append(f"  asb{tag}    gbuzz 0.28, kfreq * 0.5 * (1 + ksbw{tag}), 2, 1, 0.55, giCos ; sub octave (divider)")
+        L.append(f"  afn{tag}    poscil 0.50, kfreq          ; fundamental")
         L.append(f"  {ov}    = afn{tag} + asb{tag}")
     elif technique == "flute":
         # Csound's real blown-pipe waveguide, not three sines with a noise band
@@ -1197,40 +1257,108 @@ def _emit_steady(technique, tag="0", nmodes=None):
         # sounds. wgclar by contrast lands dead in tune at every pitch, so this is
         # about wgflute specifically, not about waveguides.
         #
-        # So: the flute's own harmonic recipe, and its motion taken from the thing
-        # that really moves in a flute -- BREATH PRESSURE, which swells the upper
-        # partials and leaves the fundamental steady. Deterministic (an LFO, not a
-        # rand), tonal, and it moves the timbre without touching the pitch.
-        # Depth and rate are what the movement gate measures, not what reads well
-        # in a comment: at 0.19 Hz with the fundamental held steady this moved the
-        # centroid 1.05x/4.7Hz -- static. Pressure has to TRADE the fundamental
-        # against the harmonics (which is what really happens when a player pushes
-        # air) and cycle in about 3 s to register: 1.18x/22.2Hz, flatness 0.0037.
-        L.append(f"  kbr{tag}    oscili 0.5, 0.31             ; breath-pressure cycle, ~3 s")
-        L.append(f"  afl{tag}    oscili 0.380 - 0.060 * kbr{tag}, kfreq          ; fundamental gives way")
-        L.append(f"  af2{tag}    oscili 0.120 + 0.100 * kbr{tag}, kfreq * 2      ; 2nd swells with pressure")
-        L.append(f"  af3{tag}    oscili 0.055 + 0.048 * kbr{tag}, kfreq * 3      ; 3rd follows, weaker")
-        L.append(f"  {ov}    = afl{tag} + af2{tag} + af3{tag}")
+        # So: the flute's harmonics come from `gbuzz`, whose ROLLOFF is k-rate, and
+        # the thing that moves them is the thing that really moves in a flute --
+        # BREATH PRESSURE. At low kmul the stack collapses towards a sine, at high
+        # kmul the upper partials come up: that IS what harder blowing does, and it
+        # is one continuous k-rate parameter, so no partial has to be listed and
+        # nothing clicks. Depth and rate are what the movement gate measures, not
+        # what reads well in a comment: the earlier three-oscili version at 0.19 Hz
+        # moved the centroid 1.05x/4.7Hz -- static. Pressure has to swing wide and
+        # cycle in about 3 s to register.
+        #
+        # One breath is honestly ONE variable, so the harmonics would all move
+        # together -- true of a flute, but it leaves the tone glassy. A real air
+        # column is never quite stable at the octave, so a separate octave partial
+        # drifts on its own rate and beats against the body's own 2nd harmonic:
+        # one genuinely decorrelated partial, which is what the instrument has.
+        L.append(f"  kbr{tag}    poscil 0.5, 0.31             ; breath-pressure cycle, ~3 s")
+        L.append(f"  kfm{tag}    = 0.24 + 0.16 * kbr{tag}      ; pressure opens the harmonics")
+        L.append(f"  abd{tag}    gbuzz 0.34, kfreq, 4, 1, kfm{tag}, giCos ; blown harmonic stack")
+        L.append(f"  kwo{tag}    poscil 0.0009, 0.077         ; air-column wander, own rate")
+        L.append(f"  aoc{tag}    poscil 0.05, kfreq * 2 * (1 + kwo{tag})  ; octave, beats with the body's 2nd")
+        L.append(f"  {ov}    = abd{tag} + aoc{tag}")
     elif technique == "theremin":
-        # the heterodyne tone: near-sine with a small 2nd harmonic whose level
-        # WAVERS -- the instrument's slightly unstable timbre. Its famous vibrato
-        # is PITCH, which belongs to the synth's glide, not to the oscillator,
-        # so the oscillator carries the timbral waver and nothing else.
-        # the waver has to be DEEP enough to be a timbre, not a rounding error:
-        # at 0.10 +- 0.07 the key measured centroid travel 1.07 / std 6.6 Hz, i.e.
-        # indistinguishable from a static tone. 0.15 +- 0.13 swings the 2nd
-        # harmonic over more than an order of magnitude -- audible instability.
-        L.append(f"  kwv{tag}    oscili 0.5, 0.9             ; slow timbre waver")
-        L.append(f"  kh2{tag}    = 0.15 + 0.13 * kwv{tag}")
-        L.append(f"  ath{tag}    oscili kh2{tag}, kfreq * 2   ; wavering 2nd harmonic")
-        L.append(f"  afn{tag}    oscili 0.55, kfreq")
-        L.append(f"  {ov}    = afn{tag} + ath{tag}")
+        # The heterodyne tone: a theremin makes its note by MIXING two RF
+        # oscillators and keeping the difference, and the mixer's nonlinearity is
+        # what gives the tone its small, unstable upper-partial content. `foscili`
+        # at a 1:1 ratio is that same nonlinear mixing at audio rate -- an index
+        # near zero is a pure sine, and raising it brings the harmonic series up
+        # continuously. So the waver is produced by the mechanism the instrument
+        # actually uses, instead of a hand-set 2nd-harmonic level.
+        #
+        # Its famous vibrato is PITCH, which belongs to the synth's glide, not to
+        # the oscillator, so the oscillator carries the timbral waver and nothing
+        # else. The waver has to be DEEP enough to be a timbre, not a rounding
+        # error: the earlier fixed-partial version at 0.10 +- 0.07 measured centroid
+        # travel 1.07 / std 6.6 Hz, i.e. indistinguishable from a static tone.
+        # A 1:1 ratio is the obvious way to write "mixing" and it is wrong here: in
+        # `foscili` the sideband at kcps*(kcar - n*kmod) lands on DC whenever
+        # kcar/kmod is a whole number, so 1:1 puts -J1(index) straight on 0 Hz.
+        # Measured: -0.032 DC, 18% of peak, and because the index wavers the offset
+        # WANDERS with it at 0.9 Hz. 1:2 has no integer n with kcar = n*kmod, so no
+        # sideband can reach DC -- and the surviving partials are the odd series,
+        # which is what a symmetric nonlinearity produces anyway.
+        L.append(f"  kwv{tag}    poscil 0.5, 0.9              ; slow timbre waver")
+        L.append(f"  kndx{tag}   = 0.42 + 0.34 * kwv{tag}       ; heterodyne mix depth")
+        L.append(f"  {ov}    foscili 0.55, kfreq, 1, 2, kndx{tag}, giSine ; heterodyne nonlinearity")
+    elif technique == "sine":
+        # One oscillator. `poscil` rather than `oscili`: same cost, no table
+        # interpolation error. This is also the movement escape hatch -- when the
+        # prompt asks for a standing tone this is what it gets, so it must be pure.
+        L.append(f"  {ov}    poscil 0.6, kfreq            ; pure tone")
+    elif technique == "additive":
+        # `gbuzz` IS Csound's additive oscillator: it sums cosine harmonics, and
+        # both the harmonic COUNT and the amplitude ROLLOFF are k-rate. So the
+        # generic "a stack of harmonics" key is the substrate's own harmonic stack,
+        # not a typed-out list of levels that can never change.
+        #
+        # Two stacks a few cents apart rather than one, for the reason the organ
+        # taught: one gbuzz is ONE rank, and every partial inside it moves as the
+        # single hidden variable moves. Detuned twins beat instead -- and harmonic n
+        # beats at n times the detuning, so every partial breathes at its OWN rate
+        # with nothing driving them in common. The life is structural.
+        #
+        # LEVELS: `gbuzz` normalises to PEAK, not RMS, and a stack of in-phase
+        # cosines is a pulse train -- crest 3.2 here against a sine's 1.41. Read as
+        # if kamp were an RMS level it lands ~12 dB under its neighbours, which
+        # reads to a player as a broken key rather than a quiet one. Fewer harmonics
+        # (7, not 10) lowers the crest, and the twin sits a third of the way down so
+        # the two peaks do not coincide.
+        L.append(f"  kad{tag}    poscil 0.0004, 0.053         ; slow drift, upper stack")
+        L.append(f"  aa1{tag}    gbuzz 0.52, kfreq, 7, 1, 0.68, giCos          ; harmonic stack")
+        L.append(f"  aa2{tag}    gbuzz 0.34, kfreq * (1.0018 + kad{tag}), 7, 1, 0.64, giCos ; twin, +3 cents")
+        L.append(f"  {ov}    = aa1{tag} + aa2{tag}")
+    elif technique == "harpsichord":
+        # A harpsichord is plucked by a quill and has TWO CHOIRS of strings (8' and
+        # 4'), which is the same rank structure as the organ and the same source of
+        # life: the choirs are never in perfect tune, so the tone rolls slowly.
+        #
+        # `pluck` and the waveguide pluck opcodes were not used, although they are
+        # the obvious "real" idiom: they decay on their own. The oscillator here is
+        # a SPECTRUM source and the synth owns the envelope, so a generator that
+        # insists on its own decay would fight the instrument's amp envelope and
+        # take the choice away from the player. `gbuzz` gives the quill's bright,
+        # nasal spectrum -- a shallow rolloff so the upper harmonics stay strong.
+        #
+        # klh stays 1 on BOTH choirs. Setting the 4' choir to klh=2 was meant to
+        # thin it, but that choir already runs at 2.0031*f, so its lowest partial
+        # landed at 4.006*f: a 2' rank, two octaves up, not the octave choir the
+        # comment claimed. Same level caveat as `additive` -- gbuzz normalises to
+        # peak, and 14 in-phase cosines are a pulse train (crest 4.06), so the key
+        # measured 15 dB under its neighbours until the amplitudes were raised and
+        # the harmonic count brought down.
+        L.append(f"  khw8{tag}   poscil 0.00040, 0.071        ; 8' choir tuning drift")
+        L.append(f"  khw4{tag}   poscil 0.00055, 0.094        ; 4' choir, incommensurate")
+        L.append(f"  ah8{tag}    gbuzz 0.56, kfreq * (1 + khw8{tag}), 9, 1, 0.80, giCos ; 8' choir, bright")
+        L.append(f"  ah4{tag}    gbuzz 0.24, kfreq * 2.0031 * (1 + khw4{tag}), 6, 1, 0.72, giCos ; 4' choir")
+        L.append(f"  {ov}    = ah8{tag} + ah4{tag}")
     else:
-        # sine / additive / flute / organ and anything not given a bespoke idiom
-        # yet: render its spectrum additively
-        # (real oscils at true ratios), defaulting to a pure sine.
-        spec = _SPECTRA.get(_MORPH_SPECTRUM.get(technique, "sine"), _SPECTRA["sine"])
-        L.append(_emit_additive(spec, gain=0.6, tag=tag))
+        # Nothing routable lands here any more -- every key in the catalogue has a
+        # real idiom above. A key with no idiom is the case BJ decided the LLM
+        # should write code for; until that exists it gets a plain tone rather than
+        # a table, so an unrouted key is audible as exactly what it is.
+        L.append(f"  {ov}    poscil 0.6, kfreq            ; unrouted key: bare tone")
     return "\n".join(L)
 
 
@@ -1980,7 +2108,48 @@ def build_orchestra(technique_keys=None, adjective_keys=None, motion_key=None,
         # gbuzz reads a COSINE table (its harmonics are cosines). GEN11 with one
         # partial is exactly that; a sine table here would phase-shift every
         # harmonic against the fundamental.
-        "giCos  ftgen 2, 0, 65536, 11, 1\n\n"
+        "giCos  ftgen 2, 0, 65536, 11, 1\n"
+        # GEN13: a Chebyshev TRANSFER function. Driven through `tablei` by a sine,
+        # it produces exactly the listed harmonic weights -- Csound's own
+        # waveshaping idiom, where `cheby` belongs. (The key used to be a bare
+        # tanh on a sine, which is a soft clipper, not a Chebyshev shaper: the
+        # harmonics it made were whatever tanh happened to produce.)
+        # The coefficients after `13, xint, xamp` start at h0 = DC, so the
+        # FUNDAMENTAL is the second of them. Getting that off by one put a 1 on DC
+        # and a 0 on the fundamental: the key rendered an octave high (measured
+        # +1195..+1201 cents at 110/262/523 Hz) out of even harmonics only, and
+        # carried a DC offset besides.
+        #
+        # ODD harmonics only, and that is not a taste decision. h0 = 0 zeroes the
+        # DC term only when the drive is exactly full scale; the EVEN terms put DC
+        # on every other drive level (measured: this curve with h2/h4 read -0.189
+        # at input 0, and the emitted signal carried +0.070 DC = 16% of peak). This
+        # branch modulates its drive on purpose, so with even terms the offset does
+        # not merely exist, it WANDERS at the LFO rate -- a sub-audio excursion no
+        # trim can remove. An odd-only transfer is antisymmetric, f(0) = 0, so it is
+        # DC-free at EVERY drive: the shaper can be swept freely. That is also what
+        # a symmetric analogue nonlinearity does; the even-harmonic (single-ended)
+        # kind carries DC in real circuits too, which is why they need a coupling
+        # capacitor. Fixed at the source, per the DC note below -- not filtered off.
+        #
+        # ALTERNATING SIGNS, which costs nothing and is not cosmetic: T_n(1) = 1 for
+        # every n, so with all-positive coefficients every harmonic reaches its
+        # maximum together at the input peak and the output is a spike -- measured
+        # crest 4.04, i.e. 10 dB of RMS given away to a transient nobody hears as
+        # loudness. Alternating them leaves each harmonic's MAGNITUDE untouched
+        # (a sign is a phase) while the peak sums to 0.71 instead of 2.01.
+        "giCheb ftgen 3, 0, 8193, 13, 1, 1, 0, 1, 0, -0.5, 0, 0.28, 0, -0.15, 0, 0.08\n"
+        # NO vco2init here, deliberately. It was added on the theory that the
+        # triangle table set is missing on this build and that this was why
+        # `triangle` rendered silent through vco2. Both halves were wrong, and the
+        # check that showed it was removing the line: the render is BIT-IDENTICAL
+        # without it (vco2 generates its sets on demand), and `vco2init 16` does not
+        # mean "every waveform" -- it allocates one set, 130 tables, against 650 for
+        # all five. The real cause of the historical silence was `vco2 0.6, kfreq, 4`
+        # failing with "insufficient required arguments" (imode 4 needs kpw); in
+        # this always-on `instr 1` an init error deletes all 16 score instances,
+        # which IS the silence. Left as a comment because the wrong explanation is
+        # what costs the next reader an evening.\n
         + seed + "\n"
         "instr 1\n"
         "  ivoice   = p4\n"
