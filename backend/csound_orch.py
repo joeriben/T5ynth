@@ -242,7 +242,7 @@ _VOICE_TECH = set(_VOWEL_FORMANTS)
 # has F1 at 270 Hz, barely attenuated by the source pole and only 50 Hz wide, so
 # it comes out loudest by far. One shared constant left 'ee' 14 dB above a sine
 # and 'ah' 5 dB above. Each vowel is scaled to land ~2 dB under a sine.
-_VOWEL_GAIN = {"voice": 0.71, "voice_ee": 0.25, "voice_oo": 0.32}
+_VOWEL_GAIN = {"voice": 10.7, "voice_ee": 4.35, "voice_oo": 5.19}
 
 # Techniques rendered by the substrate NOISE path (_emit_noise), not the additive/
 # opcode steady path. They are aperiodic textures -- the behavioral gate's noise
@@ -810,7 +810,11 @@ def _emit_voice(technique, tag="0"):
     (rich harmonics for the formants to shape) through a bank of `reson` filters at
     the vowel's formant frequencies -- Csound's native formant idiom, NOT an
     additive vowel sketch. Pitched (the fundamental is the played note); the vowel
-    is the formant envelope. reson iscl=2 is peak-normalised per band; the weighted
+    is the formant envelope. reson iscl=1 is the PEAK-normalised mode -- iscl=2 is
+    an RMS normalisation that assumes white-noise input (measured gain 4.4x at
+    1200/900 and 6.8x at 460/380 for a harmonic source), and its scaling constant
+    derives from exp(-2*pi*bw/sr), so it is not even constant across sample rates.
+    Use 2 only for the genuinely noise-excited beds. The weighted
     sum is scaled and the tail limiter is the final bound."""
     ov = f"aosc{tag}"
     src = f"asrc{tag}"
@@ -849,7 +853,7 @@ def _emit_voice(technique, tag="0"):
         # VOWEL must stay this vowel, this is life inside it, not articulation.
         rate = (0.23, 0.31, 0.19)[i % 3]
         L.append(f"  kfw{tag}x{i}  poscil 0.011, {rate}            ; tract wander, formant {i+1}")
-        L.append(f"  a{tag}f{i}   reson aglt{tag}, {f} * (1 + kfw{tag}x{i}), {bw}, 2 "
+        L.append(f"  a{tag}f{i}   reson aglt{tag}, {f} * (1 + kfw{tag}x{i}), {bw}, 1 "
                  f"; formant {i+1} @ {f} Hz")
         terms.append(f"a{tag}f{i} * {amp:.3f}")
     gain = _VOWEL_GAIN.get(technique, 0.5)
@@ -895,7 +899,7 @@ def _emit_voice_morph(chain, imorphtime, tag="0"):
         bw = stages[0][i][1]   # bandwidth held at the first vowel's value (stable band)
         L.append(f"  k{tag}cf{i}  linseg {cf}")
         L.append(f"  k{tag}am{i}  linseg {am}")
-        L.append(f"  a{tag}f{i}   reson {src}, k{tag}cf{i}, {bw}, 2")
+        L.append(f"  a{tag}f{i}   reson {src}, k{tag}cf{i}, {bw}, 1")
         terms.append(f"a{tag}f{i} * k{tag}am{i}")
     # The per-vowel output gain travels too. It has to: the vowels differ by 9 dB
     # through this bank (see _VOWEL_GAIN), so a fixed scale would make the morph
@@ -1158,48 +1162,52 @@ def _emit_steady(technique, tag="0", nmodes=None):
         L.append(f"  apl{tag}    vco2 0.6, kfreq * (1 + kvdr{tag}), 2, 0.30 + kdty{tag} ; narrow pulse (30%% width)")
         L.append(f"  {ov}    = apl{tag} + 0.2400         ; {_DC_NOTE}")
     elif technique == "clarinet":
-        # Csound's own reed waveguide, instead of a square filtered down to look
-        # like one. A clarinet is a cylindrical pipe closed at the reed end, and
-        # the odd-harmonic spectrum is a CONSEQUENCE of that boundary condition,
-        # not a recipe to imitate: wgclar solves the pipe, so the odd series, the
-        # rolloff and the way both shift with embouchure come out for free.
+        # A clarinet is a cylindrical pipe closed at the reed end. That boundary
+        # condition is what produces the odd-harmonic spectrum -- the 2nd, 4th and
+        # 6th are suppressed -- and the reed is a nonlinear valve whose harmonic
+        # output GROWS with blowing pressure. Both facts are modelled here rather
+        # than imitated with a filtered square.
         #
-        # Measured before adopting it (tools/csound_model_probe.py), against the
-        # two criteria this instrument imposes on any library model:
-        #   pitch    +-1 cent at 110 / 220 / 440 / 660 / 880 / 1200 Hz. This is the
-        #            test wgflute FAILED (+1945 cents at 110 Hz), which is why the
-        #            flute is not a waveguide -- the fault was wgflute's, not the
-        #            method's, and wgclar is the proof.
-        #   sustain  1.056 over 4 s: it stands. Its `iatt` is an i-rate onset that
-        #            runs once when the always-on `instr 1` starts, NOT per note,
-        #            so the model is a continuously blown pipe that the synth's own
-        #            envelope gates. The envelope stays the synth's.
-        # Spectrum at 660/880/1200 Hz: 2nd harmonic 44-49 dB down, 3rd only 10-13 dB
-        # down -- the textbook cylindrical bore, which the filtered square only
-        # approximated.
+        # WGCLAR WAS TRIED AND REJECTED ON MEASUREMENT. Do not put it back without
+        # reading this. Its pitch tracking is genuinely excellent (+-1 cent from
+        # 110 to 1200 Hz, sustain 1.056), which is why it was adopted -- but the
+        # probe that cleared it only tested 110/220/440/880 Hz, and the synth
+        # clamps the played pitch to 20..12000 Hz. Across the range the instrument
+        # actually allows, three separate faults:
         #
-        # kngain (breath noise) and the vibrato pair are ZERO on purpose. The synth
-        # owns the noise module and owns vibrato; an oscillator that bakes in either
-        # takes the choice away from the player. What moves is EMBOUCHURE: kstiff is
-        # k-rate, and a player's lip pressure is never constant, which shifts the
-        # reed's reflection and with it the whole harmonic balance.
+        #   * kstiff IS INERT. Rendered output is BIT-IDENTICAL (max difference
+        #     exactly 0.000e+00) for kstiff at 0.05 / 0.10 / 0.26 / 0.35 / 0.90 /
+        #     1.50, and for a k-rate LFO of +-0.80 on it. Every other argument does
+        #     change the output, so this is the opcode, not the harness. The
+        #     embouchure motion written against it was dead code, and the key
+        #     measured 4.1% centroid travel against a 1.2% measurement floor -- a
+        #     standing tone, in an instrument whose fundamental is that sounds move.
+        #   * IT DIES ABOVE sr/10.4 and emits almost pure DC instead of a note
+        #     (4613 Hz at 48 kHz, 4238 Hz at 44.1 kHz). Because the threshold
+        #     follows the sample rate, the same patch and note is audible at 96 kHz
+        #     and a silent DC step at 44.1 kHz. Reachable from ordinary notes: at
+        #     the 4' register, anything from C7 up.
+        #   * BELOW 25 Hz IT IS CATASTROPHICALLY MISTUNED AT FULL LEVEL -- 20 Hz
+        #     renders 100.3 Hz (+2792 cents), 24.5 Hz renders 1291 Hz (+6864
+        #     cents) -- because iminfreq cannot be supplied here (kfreq arrives
+        #     through a chnget on a string channel, which does not resolve at
+        #     i-time) so the delay line is sized for the 50 Hz fallback. It also
+        #     logs "No base frequency for clarinet" 16 times, once per voice, on
+        #     every compile.
         #
-        # The model carries a small positive DC of its own -- a reed is an
-        # asymmetric valve, it opens one way, so this is the physics and not a
-        # defect. Measured stable at +0.0019 .. +0.0022 across 110/262/523/880 Hz
-        # AND across the embouchure cycle (2.5-2.9% of peak), so unlike the
-        # even-harmonic and 1:1-FM offsets elsewhere in this file it does not
-        # wander and can simply be subtracted, the way `chiptune` subtracts its
-        # duty offset. Fixed at the source; no DC-blocking filter.
+        # That is the same class of failure that disqualified wgflute (+1945
+        # cents), just at the ends of the range instead of the middle.
         #
-        # The constant is OSCILLATOR-referred, not output-referred. Everything
-        # downstream multiplies by kvol*kmix*kvel*kpresGain*0.32, so subtracting
-        # the figure measured at the OUTPUT removes only about a quarter of it --
-        # which is exactly what happened on the first attempt: 0.00205 took the
-        # measured 0.0020 down to 0.0015 rather than to zero.
-        L.append(f"  kemb{tag}   poscil 0.09, 0.19            ; embouchure, slow")
-        L.append(f"  acl{tag}    wgclar 0.55, kfreq, 0.26 + kemb{tag}, 0.05, 0.2, 0, 0, 0, giSine")
-        L.append(f"  {ov}    = acl{tag} - 0.0078          ; trim the reed's DC offset")
+        # So: FM at a 1:2 ratio, which produces exactly the odd series a
+        # cylindrical bore does, with the index standing in for the reed's
+        # nonlinearity -- harder blowing, more harmonics, which is the real
+        # behaviour and is what makes a clarinet expressive. 1:2 also cannot put a
+        # sideband on DC (no whole-number kcar/kmod), the fault that had to be
+        # corrected in fm_ep and theremin. k-rate throughout, and it works at every
+        # pitch the synth can ask for.
+        L.append(f"  kbrc{tag}   poscil 0.5, 0.19             ; breath pressure, slow")
+        L.append(f"  kndc{tag}   = 1.15 + 0.55 * kbrc{tag}      ; the reed opens the series")
+        L.append(f"  {ov}    foscili 0.55, kfreq, 1, 2, kndc{tag}, giSine ; cylindrical bore")
     elif technique == "chiptune":
         # a real chip lead is a pulse whose DUTY STEPS between the chip's three
         # settings (12.5 / 25 / 50%) -- the stepping IS the chiptune signature,
@@ -1322,7 +1330,7 @@ def _emit_steady(technique, tag="0", nmodes=None):
         L.append(f"  kbm{tag}    = 0.51 + 0.21 * kbp{tag}       ; pressure steepens the wave")
         L.append(f"  klw{tag}    poscil 0.0006, 0.083         ; lip instability, own rate")
         L.append(f"  abz{tag}    gbuzz 0.5, kfreq * (1 + klw{tag}), 12, 1, kbm{tag}, giCos ; lip + bore")
-        L.append(f"  abl{tag}    reson abz{tag}, 1200, 900, 2   ; bell formant, FIXED in Hz")
+        L.append(f"  abl{tag}    reson abz{tag}, 1200, 900, 1   ; bell formant, FIXED in Hz")
         L.append(f"  {ov}    = abz{tag} * 0.95 + abl{tag} * 0.40")
     elif technique == "strings":
         # A string section is PLAYERS. The old version had the ensemble half right
@@ -1338,22 +1346,36 @@ def _emit_steady(technique, tag="0", nmodes=None):
         # variables where there used to be one, and no partial is driven by
         # anything another partial is driven by.
         #
-        # gbuzz rather than a saw + filter, for the same reason as brass: bow
-        # pressure genuinely changes how much upper harmonic a string radiates,
-        # and kmul does that directly instead of filtering a fixed spectrum.
+        # A saw whose CORNER is rounded, not a cosine stack -- and unlike brass,
+        # that is the physics rather than a convenience. Brass gets brighter when
+        # blown harder because the bore steepens the wave nonlinearly: those
+        # harmonics are genuinely MADE, which is what gbuzz's kmul does. A bowed
+        # string instead has its full Helmholtz sawtooth already, and bow force
+        # changes how sharply the slip-stick corner is ROUNDED (finite bow width,
+        # string bending stiffness) -- a first-order lowpass, which is `tone`.
+        #
+        # Measured, the cosine stack was also lying about the ensemble: three
+        # detuned gbuzz players peaked at EXACTLY 3x one player's amplitude
+        # (0.4500 from 3 x 0.15) at 110/220/440 Hz, because every harmonic sits at
+        # cosine phase and a cosine stack is a pulse train -- so all three pulses
+        # land together however far apart they are tuned. Crest 4.85 against a
+        # rounded saw's 3.14, i.e. 3.3 dB of headroom spent on a spike that the
+        # comment above claimed could not exist.
         players = ((1.0000, 0.061, 0.089), (1.0042, 0.073, 0.107),
                    (0.9958, 0.047, 0.127))
         for i, (det, rd, rb) in enumerate(players):
             L.append(f"  ksd{tag}x{i}  poscil 0.0009, {rd}         ; player {i+1} intonation")
-            L.append(f"  ksb{tag}x{i}  poscil 0.07, {rb}           ; player {i+1} bow pressure")
-            L.append(f"  ase{tag}x{i}  gbuzz 0.30, kfreq * {det:.4f} * (1 + ksd{tag}x{i}), "
-                     f"10, 1, 0.55 + ksb{tag}x{i}, giCos")
+            L.append(f"  ksb{tag}x{i}  poscil 0.35, {rb}           ; player {i+1} bow pressure")
+            L.append(f"  asr{tag}x{i}  vco2 0.30, kfreq * {det:.4f} * (1 + ksd{tag}x{i}), 0")
+            L.append(f"  kbc{tag}x{i}  limit kfreq * (7 + 5 * ksb{tag}x{i}), 200, 14000 "
+                     f"; bow sharpens the corner")
+            L.append(f"  ase{tag}x{i}  tone asr{tag}x{i}, kbc{tag}x{i}")
         L.append(f"  aens{tag}   = ase{tag}x0 + ase{tag}x1 + ase{tag}x2 ; the desk")
         # The instrument's BOX, fixed in Hz like the brass bell: a violin body's
         # main resonances sit near 460 Hz whatever note is stopped, which is why a
         # violin has a register character at all.
-        L.append(f"  abd{tag}    reson aens{tag}, 460, 380, 2 ; body resonance, FIXED")
-        L.append(f"  {ov}    = aens{tag} * 0.85 + abd{tag} * 0.30")
+        L.append(f"  abd{tag}    reson aens{tag}, 460, 380, 1 ; body resonance, FIXED")
+        L.append(f"  {ov}    = aens{tag} * 0.70 + abd{tag} * 0.24")
     elif technique == "bass_saw":
         # the lexicon's own spec: "harmonic count ceilinged near 24 for a
         # rolled-off low end" -- a literal 24th-harmonic ceiling the code never had.
