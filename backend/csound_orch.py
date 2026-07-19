@@ -1603,27 +1603,42 @@ def _emit_steady(technique, tag="0", nmodes=None):
         # bell does.
         L.append(f"  abt{tag}    foscili {a2}, kfreq, {car}, {mod2}, kbnx{tag} * 0.94, giSine ; its doublet")
         L.append(f"  abs{tag}    = abl{tag} + abt{tag}       ; the pair beats")
-        # A falling FM index CONCENTRATES energy into the carrier -- J0 rises as
-        # the index drops -- so the sum gets LOUDER as the bell rings: measured
-        # +2.4 dB strike to rest, a crescendo on a struck sound, and backwards.
-        # With both carriers now on kfreq they also add coherently, which
-        # sharpens it. That is still an amplitude shape owned by the oscillator,
-        # the category this branch is not allowed to touch, just 15 dB smaller
-        # than the tremolo it replaced.
+        # A falling FM index moves energy BETWEEN the carrier and its sidebands
+        # (J0 rises as the index drops), and the sidebands that sit above Nyquist
+        # are simply gone, so the audible level drifts over the ring. That is an
+        # amplitude shape owned by the oscillator, the category this branch is
+        # not allowed to touch, and it needs removing however it points.
         #
         # `balance` against a steady reference is this project's existing answer
         # to exactly that (spectral movement without loudness pumping, as used by
         # the motion waveshaper). It holds the level while the spectrum travels,
         # and as a side effect the level stops drifting with pitch.
         #
-        # The residual, measured strike-to-rest ON THIS CODE rather than carried
-        # over from the ihp-10 version: uncorrected +1.47 / +1.06 / +0.96 dB at
-        # 20 / 55 / 220 Hz, and +0.65 / +0.10 / +0.04 dB corrected. So the
-        # crescendo is removed everywhere it is audible and about a third of it
-        # survives at the 20 Hz clamp floor, where the follower is at the beat
-        # rate and can no longer separate the two. (The "+2.4 -> +0.01 dB" this
-        # paragraph used to quote was the ihp-10 measurement left in place when
-        # the cutoff changed. Neither figure reproduces on any window.)
+        # MEASUREMENT METHOD, stated because without it these numbers are not
+        # reproducible and were twice wrong: rms of the first whole beat period
+        # after the strike against rms of the last, where the beat period is
+        # 1/(|mod2-mod| * kfreq) and the window is rounded UP to a whole number
+        # of those periods (>=250 ms). The rounding is the point. The doublet
+        # beats at 1.0 Hz at the 20 Hz clamp floor, so any shorter window samples
+        # an arbitrary beat phase and reports it as level -- which is why the
+        # previously committed figures could not be reproduced by anyone,
+        # including on re-measurement here: the value swings by ~0.6 dB across
+        # otherwise reasonable window choices, so the digits were beat phase.
+        #
+        # Strike to rest, uncorrected -> corrected, at 20 / 55 / 220 Hz:
+        #   fm_bell      +0.89 / +1.04 / +1.03  ->  -0.03 / -0.00 / -0.01
+        #   metallic_fm  +0.37 / +0.25 / +0.03  ->  +0.01 / -0.06 / -0.13
+        #   fm           -1.53 / -1.02 / -0.86  ->  -0.43 / -0.29 / -0.11
+        # So the drift is removed to within 0.13 dB on the two bells, and `fm`
+        # keeps the largest residual, -0.43 dB at the clamp floor. Note the SIGN:
+        # `fm` gets quieter as it rings while the bells get louder, so the
+        # superseded description of this as "a crescendo, and backwards" was true
+        # of the bells and false of the third key sharing the branch. The
+        # previously committed "+0.65 dB at 20 Hz, about a third surviving" is
+        # withdrawn: measured this way essentially none of it survives on
+        # fm_bell, and the reasoning attached to it (the follower sitting at the
+        # beat rate) was about the BEAT, which is a different quantity measured
+        # separately below.
         #
         # ihp 1, NOT the default 10, and the difference is the whole doublet.
         # `balance` tracks rms through a low-pass at ihp, so it cancels every
@@ -1642,16 +1657,30 @@ def _emit_steady(technique, tag="0", nmodes=None):
         # 1.0 Hz for fm_bell, 1.4 for fm, 1.6 for metallic_fm. fm_bell is
         # therefore the MARGINAL key -- its slowest beat sits exactly on the
         # cutoff, not below it, which is why its 20 Hz retention (80%) is the
-        # worst cell in the table. The separation from the darkening is 15.7x
-        # for fm_bell, 12.6x for fm, 18.9x for metallic_fm. Measured swing
+        # worst cell in the table. The FOLLOWER CUTOFF sits 15.7x above the
+        # darkening for fm_bell, 12.6x for fm, 18.9x for metallic_fm (that is
+        # just 2*pi*tau, tau being 2.5 / 2.0 / 3.0 s). Naming the two rates
+        # explicitly because the bare phrase "the separation" reads as the
+        # BEAT-to-darkening ratio, which is a different quantity and orders the
+        # keys differently (15.7 / 17.6 / 30.2) -- a reviewer took it that way
+        # and scored the sentence as self-contradictory against the "marginal"
+        # claim one line above, which is about the beat side. Both readings are
+        # arithmetic on the same three time constants; only one is what the
+        # sentence is for. Measured swing
         # against no balance at all: 80/79/96/100% retained at 20/30/55/110 Hz
         # where the default kept 33/33/30/53%. Sample-rate independent, since
         # both the beat rate and ihp are specified in Hz -- verified at 44.1 k.
         #
         # It also stops the follower boosting the beat nulls, so the peak DROPS
         # at every pitch: fm_bell at 20 Hz goes 0.2726 -> 0.2081, and three
-        # layers at velocity 1.0 and full pressure peak at 0.4054 on 48 kHz and
-        # 0.4115 on 44.1 k, against the 0.8075 knee.
+        # layers at velocity 1.0 and full pressure peak at about 0.40 at both
+        # rates, against the 0.8075 knee -- under half of it, with nothing over
+        # the knee at any pitch from 20 Hz to 12 kHz. Quoted to two figures on
+        # purpose: two independent measurements of this put it at 0.396 and
+        # 0.412, so the third decimal is method (window and which chain), not
+        # signal, and writing 0.4054 claimed a precision the measurement does
+        # not have. The conclusion is identical either way, which is the test
+        # for whether the extra digits were ever carrying anything.
         #
         # Onset: the oscillator runs continuously inside the always-on `instr 1`,
         # so on the STEADY path the follower is long settled before any gate
