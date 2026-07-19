@@ -137,9 +137,25 @@ The measured facts (do not re-derive):
 
 **Open:** the odd/even balance does not travel over the note the way `fmrhode`'s does (−0.4 → +19.9 dB). Measured: a decaying inharmonic tine cannot move it at all, because a ratio-14.2 pair places partials *between* harmonics and so adds off-comb energy without adding even-harmonic energy. Reproducing that travel needs the body mix itself to move over the note — legal, since it is spectrum and not amplitude, but untested.
 
-### Instrument 3 — resonator engine for drum heads — not started
+### Instrument 3 — drum head (`drum_head`) — BUILT, awaiting BJ's ear
 
-Csound's `mode` filter bank under continuous excitation, the idiom the existing `cymbal`/`glass`/`struck_bar` keys already use. Because the excitation is continuous, a held note stands and no self-decay problem arises. A membrane's mode ratios are not a harmonic series — that is the instrument's substance, and its parameters (tension, damping, strike position, mode count) are its own, per §3.
+Four parameters: `pitched`, `spot`, `tension`, `damping`. A `mode` filter bank at membrane ratios under continuous noise excitation — the idiom `cymbal`/`glass`/`struck_bar` already use. Because the excitation is continuous, a held note stands and no self-decay problem arises. A membrane's mode ratios are not a harmonic series; that is the instrument's substance, not a detail of it.
+
+A real drum is a struck, dying thing. What this actually is, stated honestly, is a **bowed or rubbed head** — a membrane held in excitation. That is a deliberate reading of §4's rule that a self-decay is acceptable only where there is no other way: here there is another way, so it is taken, and the strike belongs to the player's envelope.
+
+Each control measured at 110 Hz: `pitched` moves autocorrelation definiteness 0.26 → 0.53, `spot` centroid 346 → 491 Hz, `tension` 378 → 455 Hz, `damping` in-band energy fraction 0.302 → 0.196. `pitched` moves only whether the drum *has* a note — the played pitch never moves, because pitch belongs to the synth.
+
+The measured facts (do not re-derive):
+
+- **A noise-driven `mode` emits power proportional to Q/f** — fitted over a frequency × Q grid as P ~ Q^1.020 / f^1.015, worst residual 0.63 dB. Not read from the opcode; rendered.
+- **The modes share one exciter, so overlapping bands add in amplitude, not power.** Two modes at Q=5 a fifth apart put out **+0.70 dB** over their power sum; at 1.075 spacing, **+2.74 dB**. The drum's own ratio set contains a 2.136/2.296 pair exactly that close. **No power sum can see this**, which is why the normalisation is a numerical integral of |Σ Hᵢ|² and not a sum. The integral predicts the rendered level within 0.21 dB across 16 corners; `sum(a²)` is 4.62 dB worst.
+- **This is what makes four colour controls colour.** Under `sum(a²)`, `damping` was also a −4 dB fader and `spot` swung 3–5 dB. After: worst full-travel swing 0.24 dB at ≥110 Hz, 0.46 dB at 55 Hz, 1.92 dB at 20 Hz.
+- **Q is bounded by ring-up time, not taste.** A `mode` reaches steady state in ~Q/(π·f) s, and a drum lives at 50–200 Hz. Q=220 at 110 Hz is a 0.64 s time constant — the note is still growing seconds in, measured as a +2.61 dB swell. Q=28 is what held within-note travel inside 1 dB down there.
+- **The master gain is not comparable to the neighbouring banks' gains.** Those scale a peak-normalised spectrum; this scales a power-levelled one. Set on RMS, which is what the ear compares when switching keys: neighbours 0.083–0.093, this 0.085.
+
+**Two measurement traps, both of which produced confident wrong numbers here before being caught.** (a) Two unit-amplitude modes peak near 2.9 against `0dbfs=1`, so a **16-bit render hard-clips** and returns a plausible-looking power-law fit plus an apparent cancellation at Q=28 that does not exist. Render to float. (b) **Csound's `rand` carries its own `iseed` and ignores a global `seed` statement** — so an "ensemble" of renders under different seeds is bit-identical, max abs diff 0.0. Narrowband noise genuinely needs an ensemble and ~1 s windows; check two renders actually differ before averaging many.
+
+**Open — needs an ear, not a measurement.** The air-loaded timpani ratios are 1.00 : 1.50 : 1.99 = 2:3:4 on f/2, a missing-fundamental series an **octave below the played note**; autocorrelation puts the strongest periodicity at 2.03–2.04× the played period, strengthening with `pitched`. This is the physically correct ratio set and a real kettledrum's notated pitch *is* that residue — but a harmonic sieve prefers f, since modes 0/2/4 also approximate 1:2:3 on f. The percept is bistable and the estimators disagree. If the octave-below reading wins by ear, scale the timpani set ×2 and correct `pitched`'s lexicon note, which currently promises the played pitch never changes.
 
 ---
 
@@ -167,6 +183,8 @@ Each of these actually happened. They are recorded because prose rules that depe
 4. **A gate that certified the broken state as correct.** `tools/csound_morph_liveness_gate.py` states in its own header that stages „render their own idiom and are equal-power crossfaded", and its travel assertion only measures whether the summed spectrum's centroid moves — which two co-sounding oscillators do exactly as well as one that transforms. It cannot see the difference it exists to police. The backlog item was marked complete while undone.
 5. **Precision in the wrong place.** Hours of correct measurement (vco2 table semantics to three decimals, fundamental phase alignment) spent on a premise that was wrong. Measurement is not a substitute for checking the premise.
 6. **Building without checking what exists.** `tools/csound_model_probe.py` already vetted opcodes for pitch tracking and sustain; a fresh harness was commissioned without looking.
+7. **Measuring through a broken instrument, and writing the result down as physics.** Building instrument 3, the two-mode overlap and the `mode` power law were measured through a **16-bit render that was hard-clipping** (two unit-amplitude modes peak near 2.9 against `0dbfs=1`). The numbers that came back were not obviously wrong — a clean-looking power-law fit, and an apparent −0.6 dB *cancellation* at Q=28 that does not exist (+0.01 dB). They were about to be committed as measured fact, with the residual attributed to the opcode rather than to the meter. Separately, every "8-seed ensemble" quoted while building that instrument was **eight bit-identical renders**: Csound's `rand` carries its own `iseed` and ignores a global `seed` statement, so the averaging that the noise genuinely required was never happening. Both were caught by adversarial review, not by the measurements themselves. **A measurement harness is an instrument and needs its own calibration** — check that the signal is not clipping and that two supposedly-different runs actually differ, before averaging or fitting anything.
+8. **Levelling a bank on the wrong law, and shipping colour controls that were volume controls.** Instrument 3's mode bank was normalised on `sum(a²)` — the intuitive "add the powers" — which ignores both that a noise-driven resonator's output scales with Q/f and that modes sharing one exciter add coherently where they overlap. Two of the four documented colour controls were therefore also faders (`damping` −4 dB, `spot` 3–5 dB). Every offline measurement of *the controls* passed; what was wrong was the physics underneath. The lesson is narrow and repeatable: **when a control changes a filter's Q or moves energy between modes, it changes loudness unless something is explicitly holding loudness** — and §4's invariant makes that non-optional.
 
 ---
 
@@ -185,7 +203,7 @@ Each of these actually happened. They are recorded because prose rules that depe
 
 1. `age` inaudible on instrument 1 (deferred by BJ; cause **found**, see §5 — two of its three components run at 0.04–0.06 Hz and are a static offset on a short note; needs a faster layer, not more depth).
 2. Instrument 2 (FM electric piano) — built and measured; awaiting BJ's ear in the built Standalone. Its own open item is the odd/even travel (§5).
-3. Instrument 3 (drum-head resonator) — not started.
+3. Instrument 3 (drum head) — built and measured; awaiting BJ's ear. Its own open item is the timpani octave, which is a listening question and not a measurable one (§5).
 4. The anchors are **calculated, not heard.** Where "sharp", "hollow", "old" sit on each axis is BJ's ear, not a measurement. This is the curation step and it cannot be delegated to a gate.
 5. Cross-cutting properties into generation (§8).
 6. The morph as a real waveform morph (§8) — backlog item #9, reopened.
