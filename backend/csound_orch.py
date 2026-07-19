@@ -138,7 +138,6 @@ _MORPH_SPECTRUM = {
     "cheby": "cheby",
     "silence": "zero", "zero": "zero",   # morph-to-zero transient terminal
 }
-_DEFAULT_MORPH_SPECTRUM = "additive"   # a morph endpoint with no reading falls here
 
 
 # Csound-LOCAL technique keys — real idioms the assembler already knows (they have
@@ -309,17 +308,9 @@ _LIVE_TECH = {"pwm", "sync", "supersaw", "chiptune", "brass", "strings",
               # what it is for, and what the hand-maintained list failed at.
               "fm", "fm_bell", "metallic_fm"}
 
-# Spectra with a partial BELOW the fundamental. _emit_morph aligns stages by
-# partial INDEX, which silently assumes every spectrum starts at ratio 1.0: give
-# it one that starts at 0.5 and index 0 interpolates 1.00 -> 0.50, i.e. the
-# dominant partial GLISSANDOS an octave. Measured on `sine > sub_sine`: 220 ->
-# 210 -> 196 -> 182 -> 170 -> 162 Hz, a 663-cent bend; `sub_sine > saw` bent
-# +884 cents the other way. Pitch belongs to the synth's glide, never to the
-# oscillator, so any such spectrum is barred from the additive morph and takes
-# the crossfade path, which renders each stage's real idiom and never aligns
-# partials at all. Derived from _SPECTRA rather than hand-listed, so a future
-# sub-fundamental spectrum cannot reintroduce the bend by being forgotten here.
-_SUBFUND_SPECTRA = {n for n, sp in _SPECTRA.items() if any(r < 1.0 for r, _ in sp)}
+# NOTE: a set of sub-fundamental spectra used to live here, whose ONLY job was
+# to steer such chains around the additive morph. With that morph deleted every
+# chain renders its real idiom, so the exemption has nothing left to except.
 
 # Validation-ONLY chain terminals: accepted by the closed-enum guard if the 7B
 # emits them, but deliberately NOT listed as pickable techniques in the catalogue
@@ -1889,102 +1880,6 @@ def _emit_steady(technique, tag="0", nmodes=None):
     return "\n".join(L)
 
 
-def _emit_additive(spectrum, gain=0.6, tag="0"):
-    """A static additive bank -> `aosc<tag>`: one `oscili` per partial at
-    kfreq*ratio (partials named `a<tag>p<i>`). LEGITIMATE here (a genuinely
-    inharmonic tone summed at its true partial frequencies is what Csound additive
-    synthesis is for) — the regression's sin was using this for EVERYTHING incl.
-    pwm/FM/dirt, not additive per se."""
-    lines = []
-    total = sum(a for _, a in spectrum) or 1.0
-    scale = gain / total
-    terms = []
-    for i, (ratio, amp) in enumerate(spectrum):
-        lines.append(f"  a{tag}p{i:<2d}   oscili {amp*scale:.4f}, kfreq * {ratio:.4f}")
-        terms.append(f"a{tag}p{i}")
-    lines.append(f"  aosc{tag}    = " + " + ".join(terms))
-    return "\n".join(lines)
-
-
-def _emit_morph(technique_keys, imorphtime, tag="0"):
-    """A genuine spectral MORPH between idioms -> `aosc<tag>`: ONE additive bank
-    whose per-partial amplitudes AND frequency ratios travel A->B over
-    `imorphtime`, (re)started per note off the trig epoch. This is NOT two
-    instances crossfaded (that beats/cancels and plays both at once) — it is the
-    SAME oscillators with moving parameters, so the spectrum genuinely transforms.
-    Multi-stage chains (a > b > c) split the time into equal legs via one linseg
-    across stages. A `silence`/`zero` terminal fades every partial to 0 (a clean
-    transient / pseudo-env). Every symbol is suffixed with `tag` and the reinit
-    label is `Lmorph<tag>`, so oscillators never collide."""
-    # resolve each technique key to a spectrum reading; unknown endpoint -> the
-    # additive default (a morph NEVER silently collapses to a steady tone).
-    stages = []
-    for k in technique_keys:
-        sk = _MORPH_SPECTRUM.get(k, _DEFAULT_MORPH_SPECTRUM)
-        stages.append(_SPECTRA[sk])
-    if len(stages) < 2:
-        return None  # <2 endpoints given; caller falls back to steady (never
-        #              a silent collapse -- every key yields a stage above)
-
-    # align all stages to a common partial count (union by index). A stage that
-    # lacks partial i is padded with an amp-0 partial that holds the ratio of the
-    # NEAREST stage ALONG THE CHAIN that actually has partial i -- so every fade leg
-    # (a partial audible at one end, silent at the other) is frequency-FLAT: the
-    # partial fades in/out at its own frequency and never glisses. Only real->real
-    # legs (both ends audible) interpolate ratios, which is the intended spectral
-    # morph. A single GLOBAL reference is wrong for >=2 legs: in saw>square>sine the
-    # shortest stage (sine) would take saw's grid, so square's harmonics glissed
-    # 3->2 etc. as they faded in leg 2 (adversarial review 2026-07-18). Per-leg
-    # "nearest real stage" holds the fade-neighbor's ratio and fixes 3+ stage chains
-    # (2-stage is unchanged: the nearest real stage IS the counterpart).
-    n = max(len(s) for s in stages)
-    m = len(stages)
-    aligned = []
-    for j, s in enumerate(stages):
-        row = list(s)
-        while len(row) < n:
-            i = len(row)
-            nearest = min((k for k in range(m) if i < len(stages[k])),
-                          key=lambda k: (abs(k - j), k))
-            row.append((stages[nearest][i][0], 0.0))
-        aligned.append(row)
-
-    # normalize each stage's gain to a common budget so loudness stays ~constant
-    # across the morph (a spectral morph must not read as a volume change). A
-    # zero/silence stage sums to 0 -> guarded to 1.0 -> amps stay 0 (fade-out).
-    def norm(stage):
-        tot = sum(a for _, a in stage) or 1.0
-        return [(r, a / tot) for r, a in stage]
-    aligned = [norm(s) for s in aligned]
-
-    nlegs = len(stages) - 1
-    leg = imorphtime / nlegs
-
-    lbl = f"Lmorph{tag}"
-    L = []
-    L.append(f"  ; --- osc {tag}: per-note spectral morph (trig-epoch reinit; spectral, NOT amp env) ---")
-    L.append("  if changed2(ktrig) == 1 then")
-    L.append(f"    reinit {lbl}")
-    L.append("  endif")
-    L.append(f"{lbl}:")
-    terms = []
-    for i in range(n):
-        # ONE linseg per partial through every stage's value, equal legs. linseg
-        # natively does the piecewise-linear breakpoint walk and restarts on
-        # reinit, so partial i's amplitude AND ratio travel A->B(->C...) per note.
-        amps = ", ".join(f"{aligned[j][i][1]:.4f}, {leg:.4f}" for j in range(nlegs))
-        amps += f", {aligned[nlegs][i][1]:.4f}"
-        rats = ", ".join(f"{aligned[j][i][0]:.4f}, {leg:.4f}" for j in range(nlegs))
-        rats += f", {aligned[nlegs][i][0]:.4f}"
-        L.append(f"  k{tag}a{i:<2d}   linseg {amps}")
-        L.append(f"  k{tag}r{i:<2d}   linseg {rats}")
-        L.append(f"  a{tag}p{i:<2d}   oscili k{tag}a{i} * 0.6, kfreq * k{tag}r{i}")
-        terms.append(f"a{tag}p{i}")
-    L.append("  rireturn")
-    L.append(f"  aosc{tag}    = " + " + ".join(terms))
-    return "\n".join(L)
-
-
 def _emit_crossfade_morph(chain, imorphtime, tag="0", nmodes=None):
     """A generic amplitude-crossfade morph -> `aosc<tag>`, used whenever a chain
     stage cannot live in the tonal additive-partial bank of _emit_morph: a NOISE
@@ -2071,31 +1966,52 @@ def _emit_crossfade_morph(chain, imorphtime, tag="0", nmodes=None):
 
 def _emit_oscillator(oi, chain, imorphtime, nmodes=None):
     """One oscillator (index `oi`, 0..2) from its technique chain -> (body_lines,
-    out_var). >=2 stages -> a morph, choosing the path by stage kind:
+    out_var). >=2 stages -> a morph, and there are now exactly TWO paths:
       - a PURE vowel sweep (>=2 voice stages, no silence) -> _emit_voice_morph, the
-        native formant glide ('ah'->'ee');
-      - any NOISE or VOICE stage otherwise (incl. voice>silence, voice+tonal) ->
-        _emit_crossfade_morph, which renders each stage on its own and amplitude-
-        crossfades (noise/voice cannot live in the additive partial bank);
-      - purely tonal -> _emit_morph, the additive-partial spectral morph.
-    A single stage -> a steady technique. The out_var is `aosc<oi>`."""
+        native formant glide ('ah'->'ee'), which is a real filter sweep;
+      - everything else -> _emit_crossfade_morph, which renders each stage with
+        its OWN idiom and equal-power crossfades between them.
+    A single stage -> a steady technique. The out_var is `aosc<oi>`.
+
+    There used to be a third path, `_emit_morph`, which interpolated two static
+    partial banks. It is deleted, and the routing condition that steered keys
+    around it is deleted with it -- that condition was the bug, not the fix.
+
+    WHAT IT COST, because this is the whole reason the code now looks like this:
+    a chain that failed all five terms of the old condition was silently
+    implemented as a bank of `oscili`. Six keys still fell through -- saw,
+    square, triangle, pulse, bass_saw, sine, i.e. the basic waveforms, the
+    most-played sounds in the instrument. Measured on `saw > sine` at 220 Hz:
+    the saw alone is `vco2` with 59 partials above -40 dB; through the morph it
+    was 6 partials and no `vco2` at all, with the harmonic amplitudes already
+    ramped down (H2 at 0.131 where a saw wants 0.496), so within a second of
+    the note it was an ordinary sine. BJ's report was "saw > sine does not even
+    work", and that is what it was.
+
+    The history matters more than the diff. Additive banks were ordered removed
+    COMPLETELY. The single-key path was converted (a63dd944); when it emerged
+    that the morph turned those same keys back into `oscili` banks, the response
+    (5e7a8d33) added routing so the noticed keys went around the additive path
+    and left the path standing. The remainder became a backlog note ("morph path
+    loses its spectra -- needs ftmorf") and then the liveness gate encoded it as
+    CORRECT ("a saw reduced to a static spectrum is still a saw"), so the
+    unexecuted half of the order was certified green. An order routed around is
+    an order not carried out; the only safe form is deleting the mechanism, so
+    that no future condition can reach it.
+
+    The audible consequence, stated plainly: a tonal morph is now a crossfade,
+    so mid-morph BOTH endpoints are briefly heard rather than one spectrum
+    turning into the other. That is a real difference. The additive path never
+    delivered the interpolation it promised -- it delivered six partials."""
     tag = str(oi)
     body = None
     if len(chain) >= 2:
         real = [k for k in chain if k not in ("silence", "zero")]
         has_silence = any(k in ("silence", "zero") for k in chain)
-        if any(k in _NOISE_TECH or k in _MODAL_TECH or k in _LIVE_TECH
-               or _MORPH_SPECTRUM.get(k) in _SUBFUND_SPECTRA for k in chain):
-            # noise, modal AND live-opcode stages cannot live in the additive
-            # partial bank: render each stage real (noise / mode bank / its own
-            # live idiom) and crossfade.
-            body = _emit_crossfade_morph(chain, imorphtime, tag, nmodes)
-        elif real and all(k in _VOICE_TECH for k in real) and len(real) >= 2 and not has_silence:
+        if real and all(k in _VOICE_TECH for k in real) and len(real) >= 2 and not has_silence:
             body = _emit_voice_morph(chain, imorphtime, tag)   # pure vowel sweep
-        elif any(k in _VOICE_TECH for k in real):
-            body = _emit_crossfade_morph(chain, imorphtime, tag, nmodes)  # voice+silence / voice+tonal
         else:
-            body = _emit_morph(chain, imorphtime, tag)
+            body = _emit_crossfade_morph(chain, imorphtime, tag, nmodes)
     if body is None:
         body = _emit_steady(chain[0] if chain else "sine", tag, nmodes)
     return body, f"aosc{tag}"
