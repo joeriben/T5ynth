@@ -37,111 +37,49 @@ HEADROOM = 0.32      # bounds a single idiom's peak; the voice VCA/DCA shapes th
 DEFAULT_MORPH_SEC = 1.4   # intrinsic morph duration when the prompt gives no speed cue
 
 
-# ── representative spectra for additive / morph endpoints (ratio, amp) ────────
-# Real partial sets (the inharmonic ones are genuinely non-integer — that is the
-# point). These drive the additive bank and the morph; a single-partial "sine"
-# is the degenerate additive case a morph collapses onto.
-_SPECTRA = {
-    # bright inharmonic "glass" sheen (no dedicated technique key; the 7B reaches
-    # it via `additive`/`glassy`, and it is the canonical morph START of BJ's
-    # example "glass ... morphing into a sine wave").
+# ── mode frequencies for the struck/plate resonator bank (ratio, amp) ─────────
+# NOT an additive table, and the name no longer invites it to become one. These
+# ratios become `mode` resonator centre frequencies driven by a continuous `rand`
+# exciter -- a filter bank excited by noise, which is how a struck object is
+# modelled, not a sum of sine oscillators.
+#
+# This dict used to hold 21 entries under the header "representative spectra for
+# additive / morph endpoints" and fed the deleted additive morph. Eighteen of
+# them had no consumer left the moment that morph went; keeping partial tables
+# named after `saw`, `square` and `sine` lying around is how the additive path
+# grew back the first time. Only the three the resonator bank actually reads
+# survive, and _MODAL_TECH / _MODAL_PARAMS list exactly the same three.
+_MODAL_SPECTRA = {
+    # bright inharmonic "glass" sheen.
     "glass":    [(1.00, 1.00), (2.71, 0.62), (3.83, 0.44), (5.17, 0.30), (6.61, 0.20), (8.09, 0.13)],
-    # generic additive base (light 2nd/3rd), what `additive` resolves to.
-    "additive": [(1.00, 1.00), (2.00, 0.45), (3.00, 0.28), (4.00, 0.16), (5.00, 0.09)],
-    # inharmonic bell partials (lexicon fm_bell: h 2.76/5.4/8.93).
-    "bell":     [(1.00, 1.00), (2.76, 0.55), (5.40, 0.32), (8.93, 0.18)],
-    # metallic_fm's OWN morph reading. The steady path was differentiated from
-    # fm_bell (c:m 1:2.41 at index 6.0 against 1:1.41 at 3.2) but _MORPH_SPECTRUM
-    # still pointed both at "bell", so inside a morph the two stayed byte-identical
-    # -- the last surviving alias. These ratios and weights are the actual sideband
-    # set of that FM pair, computed from the Bessel functions J_n(6.0) that govern
-    # it (scipy.special.jv), not sketched by hand: energy at index 6 spreads far
-    # out from the carrier, which is exactly what makes it a clang rather than a
-    # bell. Truncated at 13x to stay near the other spectra's partial counts.
-    "metal_fm": [(1.00, 0.42), (1.41, 0.76), (3.41, 0.76), (3.82, 0.67),
-                 (5.82, 0.67), (6.23, 0.32), (8.23, 0.32), (8.64, 0.99),
-                 (10.64, 0.99), (11.05, 1.00), (13.05, 1.00)],
-    # the reference tone: one partial. A morph endpoint collapses onto this.
-    "sine":     [(1.00, 1.00)],
-    # classic waveform harmonic series, as ADDITIVE morph endpoints (a morph is a
-    # trajectory in one additive bank -- so a morph FROM a saw/square/etc. reads
-    # its spectrum here; the STEADY path still uses the live vco2). saw = all
-    # harmonics 1/n; square/triangle = odd only (1/n, 1/n^2); pulse = thin bright
-    # pulse (all harmonics, slow rolloff); cheby/fm = a few strong harmonics.
-    "saw":      [(1.00, 1.00), (2.00, 0.50), (3.00, 0.333), (4.00, 0.25), (5.00, 0.20), (6.00, 0.167)],
-    "square":   [(1.00, 1.00), (3.00, 0.333), (5.00, 0.20), (7.00, 0.143), (9.00, 0.111)],
-    "triangle": [(1.00, 1.00), (3.00, 0.1111), (5.00, 0.0400), (7.00, 0.0204),
-                 (9.00, 0.0123), (11.00, 0.0083)],
-    # a TRUE 30% rectangular wave, A_n = |sin(n*pi*d)|/n normalised (d=0.30) -- the
-    # lexicon's stated default width. The non-monotonic ripple (a weak 3rd, a
-    # strong 5th) is exactly what makes a narrow pulse sound nasal/hollow; the
-    # smooth 1.0/0.8/0.6/0.45 rolloff that stood here was invented, not a pulse.
-    "pulse":    [(1.00, 1.00), (2.00, 0.588), (3.00, 0.127), (4.00, 0.182),
-                 (5.00, 0.247), (6.00, 0.121), (7.00, 0.055), (8.00, 0.147)],
-    # cylindrical reed: odd-dominant with a faint even trace (a real bore is not
-    # ideal) and the clarinet's rolloff above the 7th -- NOT a bare square.
-    "clarinet": [(1.00, 1.00), (2.00, 0.08), (3.00, 0.55), (4.00, 0.06),
-                 (5.00, 0.35), (6.00, 0.04), (7.00, 0.20), (9.00, 0.10)],
-    # dark saw: the lexicon's rolled-off low end (a steeper tilt than 1/n).
-    "bass_saw": [(1.00, 1.00), (2.00, 0.45), (3.00, 0.25), (4.00, 0.14),
-                 (5.00, 0.08), (6.00, 0.04)],
-    # sub oscillator: fundamental plus real weight one octave BELOW it.
-    "sub_sine": [(0.50, 0.36), (1.00, 1.00)],
-    "cheby":    [(1.00, 1.00), (2.00, 0.50), (3.00, 0.35), (4.00, 0.22), (5.00, 0.12)],
-    "fm":       [(1.00, 1.00), (2.00, 0.60), (3.00, 0.40), (4.00, 0.28), (5.00, 0.18), (6.00, 0.10)],
-    # ring modulation of a carrier by a 2x modulator = 1/2[cos(f) - cos(3f)]: a
-    # sparse two-partial product, energy only at f and 3f. Its OWN morph reading
-    # (the steady _emit_steady renders exactly this product); do NOT reuse fm's
-    # dense harmonic series (that misrepresents what ring_mod actually plays).
-    "ring_mod": [(1.00, 1.00), (3.00, 1.00)],
-    # --- M3 consolidation: real spectra for former gap techniques (lexicon "why"
-    #     partial sets honoured verbatim where given). ---
     # tuned struck metal bar (music box/glocken/celesta/kalimba): ideal free-free
-    # bar partials h 2.76/5.4/8.93/13.34, brighter & THINNER than the big bell
+    # bar partials h 2.76/5.4/8.93/13.34, brighter & THINNER than a big bell
     # (weaker fundamental, more high energy).
     "struck_bar": [(1.00, 0.85), (2.76, 0.70), (5.40, 0.50), (8.93, 0.32), (13.34, 0.18)],
     # dense bright inharmonic plate wash (cymbal/crash/ride/hi-hat): weak
-    # fundamental, energy piled into dense OFF-GRID upper partials (an additive
-    # sketch of a 2-D plate's modal spectrum, per the lexicon; true noise = later).
+    # fundamental, energy piled into dense OFF-GRID upper partials.
     "cymbal":   [(1.00, 0.22), (2.19, 0.38), (3.41, 0.55), (4.83, 0.72), (6.37, 0.88),
                  (8.09, 1.00), (10.24, 0.86), (12.71, 0.64), (15.83, 0.42)],
-    # classic drawbar harmonic set {1,2,3,4,6,8} at typical registration levels.
-    "organ":    [(1.00, 1.00), (2.00, 0.70), (3.00, 0.50), (4.00, 0.40), (6.00, 0.30), (8.00, 0.25)],
-    # near-pure tone with a faint 2nd/3rd (breath noise not modelled here).
-    "flute":    [(1.00, 1.00), (2.00, 0.12), (3.00, 0.05)],
-    # bright, plucky additive spectrum (many odd+even partials, slow rolloff).
-    "harpsichord": [(1.00, 1.00), (2.00, 0.72), (3.00, 0.56), (4.00, 0.44), (5.00, 0.34),
-                    (6.00, 0.26), (7.00, 0.20), (8.00, 0.15)],
-    # morph-to-zero endpoint: all-amplitude-0. A chain "<x> > silence" fades every
-    # partial of x to nothing over the morph leg -> a clean transient / pseudo-env
-    # (the ONE amplitude shaping BJ authorized, 2026-07-18). norm() guards sum==0.
-    "zero":     [(1.00, 0.00)],
 }
 
-# technique key -> which _SPECTRA entry represents it as a MORPH endpoint (a
-# morph interpolates spectra, so every endpoint needs a spectral reading). Every
-# lexicon technique the 7B can emit maps here; anything unlisted defaults to
-# "additive" in _emit_morph, so a morph NEVER silently collapses to a steady tone.
-_MORPH_SPECTRUM = {
-    "sine": "sine", "sub_sine": "sub_sine", "theremin": "sine",
-    "additive": "additive",
-    "organ": "organ", "flute": "flute", "harpsichord": "harpsichord",
-    "glass": "glass",
-    "fm_bell": "bell", "metallic_fm": "metal_fm",
-    "struck_bar": "struck_bar", "cymbal": "cymbal",
-    "fm": "fm", "fm_ep": "fm", "ring_mod": "ring_mod",
-    "saw": "saw", "supersaw": "saw", "brass": "saw", "strings": "saw",
-    "bass_saw": "bass_saw", "sync": "saw",
-    "square": "square", "clarinet": "clarinet", "chiptune": "square", "pulse": "pulse",
-    "triangle": "triangle",
-    "pwm": "pulse",
-    "cheby": "cheby",
-    "silence": "zero", "zero": "zero",   # morph-to-zero transient terminal
-}
+# The tonal technique keys, as a CATALOGUE. This was a dict mapping each key to
+# the partial set that represented it inside the additive morph; with that morph
+# deleted the values had no reader, but the KEYS are the catalogue every gate
+# enumerates ("a key made live in future cannot be forgotten"), so the mapping is
+# replaced by the set rather than removed with it.
+_TONAL_KEYS = frozenset({
+    "sine", "sub_sine", "theremin", "additive",
+    "organ", "flute", "harpsichord", "glass",
+    "fm_bell", "metallic_fm", "struck_bar", "cymbal",
+    "fm", "fm_ep", "ring_mod",
+    "saw", "supersaw", "brass", "strings", "bass_saw", "sync",
+    "square", "clarinet", "chiptune", "pulse", "triangle", "pwm", "cheby",
+    "silence", "zero",                      # morph-to-zero transient terminals
+})
 
 
 # Csound-LOCAL technique keys — real idioms the assembler already knows (they have
-# a _SPECTRA / _MORPH_SPECTRUM reading) but that are NOT in the shared
+# a spectral reading) but that are NOT in the shared
 # dco_lexicon.json (which lco_author.py also consumes; we do NOT edit it from the
 # csound path). build_csound_response augments the csound canon + catalogue with
 # these so the 7B can route to them for THIS path only. "glass" is BJ's canonical
@@ -255,7 +193,7 @@ _NOISE_TECH = {"noise", "pink_noise", "wind", "rain", "surf", "thunder",
 # additive sine sum — BJ's ear-finding 2026-07-18: the additive cymbal/glass was a
 # dead sine cluster ("pfeifender hoher Oszillator statt echter metallischer
 # Sounds"), exactly the toy-vocabulary pattern the substrate discipline forbids
-# for these physical objects. The ratio/amp sets stay in _SPECTRA (single source,
+# for these physical objects. The ratio/amp sets stay in _MODAL_SPECTRA (single source,
 # lexicon-honoured); _MODAL_PARAMS adds what a resonator needs beyond a partial
 # list: excitation level, master gain (empirically calibrated, see
 # tools/csound_keys_gate.py peaks), and a Q range (first->last mode).
@@ -1075,7 +1013,7 @@ def _emit_modal(technique, tag="0", nmodes=None):
     the safe band (a `mode` filter near Nyquist is unstable — muting, not
     clamping, so no pinned 15 kHz whine)."""
     exc, master, q0, q1 = _MODAL_PARAMS[technique]
-    spec = _thin(_SPECTRA[technique], nmodes)
+    spec = _thin(_MODAL_SPECTRA[technique], nmodes)
     n = len(spec)
     L = [f"  aexq{tag}   rand {exc}                    ; continuous exciter -> the metal is driven, a held note stands"]
     terms = []

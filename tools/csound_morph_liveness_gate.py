@@ -37,12 +37,13 @@ product with a drifting carrier leak -- and did not add one of them to the list.
 Standalone they measured 14-27% spectral-centroid travel. Inside `a > b` all six
 emitted nothing but `oscili`: every idiom gone, silently, with the suite green.
 
-So the gate does not consult the list. It MEASURES which keys move, and then
-requires that a morph preserve the idiom of every key that does:
+So the gate does not consult the list. It MEASURES:
 
-  1. Render every catalogue key alone and measure spectral-centroid travel.
-  2. Any key above LIVE_TRAVEL is live, whatever any set says.
-  3. Require every live key to take the CROSSFADE route.
+  1. Render every catalogue key alone and measure how it moves.
+  2. Render `key > sine` and require the key's idiom to survive it -- for EVERY
+     key, not only the ones step 1 called live. Restricting this to live keys is
+     the exact hole described above.
+  3. Compare every reading against a recorded reference, per cell.
 
 Step 1 takes its key list from the catalogue, not from a regex over the source.
 The first version scraped `technique == "..."` and so tested 30 of 39 keys,
@@ -553,7 +554,7 @@ def technique_keys(M):
     claim -- that a key made live in future cannot be forgotten -- was false for
     precisely the keys it most needed to cover.
     """
-    keys = set(M._MORPH_SPECTRUM) | set(M._CS_TECH_EXTRA)
+    keys = set(M._TONAL_KEYS) | set(M._CS_TECH_EXTRA)
     # Validation-only chain terminals: `x > silence` is a transient, and a
     # terminal rendered alone is silence by definition, which the non-silence
     # check below would rightly reject.

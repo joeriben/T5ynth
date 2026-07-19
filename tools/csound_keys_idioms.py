@@ -31,7 +31,7 @@ TECHS = [t["key"] for t in LX["techniques"]]
 ADJS = [a["key"] for a in LX["adjectives"]]
 MOTIONS = [m["key"] for m in LX["motions"]]
 
-# What the assembler gives a BESPOKE idiom (read from _emit_steady / _SPECTRA /
+# What the assembler gives a BESPOKE idiom (read from _emit_steady /
 # _emit_adjectives / _emit_motion). A key NOT listed here falls to a generic
 # fallback -> a documented GAP for the expansion milestones, not a failure. These
 # are FROZEN, HAND-MAINTAINED ledgers of the assembler's real coverage -- NOT

@@ -15,7 +15,7 @@ the two questions a compiler can answer and a person cannot answer reliably:
      plain oscillators at fixed ratios is the forbidden additive bank, however
      green everything else is.
   3. Does every routable key still have an idiom of its own? `_emit_steady`'s
-     `else` used to degrade an unknown key to its `_MORPH_SPECTRUM` reading; now
+     `else` used to degrade an unknown key to a static partial reading; now
      it emits a bare tone, because that spectrum reading WAS the additive bank.
      That turns "someone adds a key to _CS_TECH_EXTRA and forgets the branch"
      from a visible wrong spectrum into a silent plain sine. Nothing reaches the
@@ -41,7 +41,7 @@ OPLINE = re.compile(r"^\s*(\S+)\s+([a-zA-Z][a-zA-Z0-9_]*)\s")
 
 
 def routable_keys():
-    keys = set(C._MORPH_SPECTRUM) | set(C._CS_TECH_EXTRA)
+    keys = set(C._TONAL_KEYS) | set(C._CS_TECH_EXTRA)
     keys |= set(C._VOICE_TECH) | set(C._NOISE_TECH) | set(C._MODAL_TECH)
     try:
         import json

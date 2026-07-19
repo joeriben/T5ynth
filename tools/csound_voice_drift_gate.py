@@ -88,7 +88,7 @@ def beat_index(sr, sig):
 
 KEYS = sys.argv[1:] or ["sine", "saw", "square", "triangle", "supersaw",
                         "bass_saw", "chiptune", "pwm", "sync"]
-unknown = [k for k in KEYS if k not in C._MORPH_SPECTRUM and k not in C._CS_TECH_EXTRA]
+unknown = [k for k in KEYS if k not in C._TONAL_KEYS and k not in C._CS_TECH_EXTRA]
 if unknown:
     # A key name that is not in the catalogue renders an orchestra without the
     # branch under test, which measures 0.0000 and reports as a failed key --
