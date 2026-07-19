@@ -43,8 +43,36 @@ be flattened -- reduced to a static spectrum a saw is still a saw. That is the
 real distinction, and measuring it is the only way to keep it honest as keys are
 rewritten.
 
+The gate grew a second job -- has a key's own control STOPPED somewhere in the
+register? -- because every serious defect in this subsystem has been at the ends
+of it, and three rounds of fixing that check reproduced the same fault one level
+up each time. What survived is in the two comment blocks in main(). Both metrics
+are kept because each is blind where the other sees, and the freeze checks run
+before anything can classify past them.
+
+Falsified, not assumed correct, by injecting ten regressions into a sandbox copy
+of csound_orch.py and requiring a non-zero exit. Six are caught, including all
+three that defeated the previous version -- a plain revert of the FM branch to
+its one-line foscili (with and without the matching _LIVE_TECH removal, both of
+which printed OK before), and the index sweep cut to 2% of its excursion. So are
+the historic min-clip at two different freeze onsets and a nulled per-voice
+analogue drift, which takes saw, triangle and bass_saw down with it.
+
+KNOWN LIMIT, stated so it is not mistaken for coverage: this gate measures
+motion in absolute terms, so it catches a control that has STOPPED but not
+always one that has been WEAKENED. The four injections it misses are all of that
+kind -- a 100x units slip on the decay constant, a frozen comparator on square
+and on pulse (each of which still has its per-voice drift running), and a nulled
+sub_sine divider, which still reads 3.8% swing against its own 29.5%. Closing
+that needs a per-key baseline of these numbers checked in and compared against,
+which is a different test from this one: absolute motion cannot be judged
+without a reference, and the cross-rate spread is wide enough (glass reads
+123.6% at 55 Hz on 48 kHz and 35.6% on 44.1 k) that the reference has to be per
+sample rate.
+
 Run: .venv/bin/python tools/csound_morph_liveness_gate.py
-Exits non-zero on any live key whose idiom a morph discards.
+Exits non-zero on any live key whose idiom a morph discards, and on any key whose
+control has stopped.
 """
 import importlib.util
 import re
@@ -97,12 +125,44 @@ LIVE_TRAVEL = 5.0
 # threshold that follows the sample rate, which is the exact fault this project
 # rejected wgclar for. Frozen controls read 0.00-0.21%, so 0.6 keeps a factor of
 # ~2 below the worst legitimate reading and ~3 above the worst broken one.
+#
+# The floor it sits under is REAL MOTION, not the estimator's noise -- which had
+# to be checked, because a threshold calibrated against measurement noise would
+# be measuring the FFT window rather than the synth, and would move the moment
+# either changed. Nulling `kvdr`, the per-voice analogue drift, collapses
+# triangle from 2.38/1.09/1.06/1.44% to 0.69/0.29/0.17/0.06 and saw from
+# 1.99/1.66/5.69/14.92 to 0.26/0.01/0.03/0.06. So every key here has a live
+# control at every pitch and the lowest healthy reading, triangle's 1.05% at
+# 44.1 k, is that control being seen. (_emit_vco_drift's own docstring says the
+# drift "produces essentially none" of what a liveness probe measures. That is
+# wrong by a factor of 3.5-24x, and this gate depends on it being wrong.)
 DEAD_TRAVEL = 0.6
+
+# The one key with NO k-rate control at all, so the only one exempt from the
+# "something must be moving" check. It is an ASSERTION, not a waiver: the gate
+# fails if a key listed here is ever measured MOVING, because then the entry is
+# stale and the key has silently lost its freeze cover. That is the difference
+# between this list and `_LIVE_TECH`, whose forgotten entries fail silently and
+# are the reason this gate exists.
+NO_CONTROL = {
+    "sine": (
+        "the designated standing tone and the movement escape hatch, so it is "
+        "mathematically pure by design -- _emit_vco_drift excludes it BY NAME. "
+        "Renders bit-identical with the drift nulled, and reads 0.00% on both "
+        "metrics at every pitch and both sample rates."
+    ),
+}
 
 # Keys that measure live but are deliberately still flattened, each with the
 # reason and the number. NOT a way to quiet the gate: an entry here is a claim
 # that a static partial bank genuinely represents the key, and the gate prints
 # every one of them on each run so the claim stays visible.
+#
+# ROUTING ONLY. An entry says "a bank represents this key inside a morph"; it
+# says nothing about whether the key's own control is allowed to stop, and it
+# used to suppress the freeze failure as well. That let a real regression hide
+# behind an unrelated waiver: freezing square's comparator drift above 150 Hz
+# left the gate green. The freeze checks now ignore this set entirely.
 FLATTEN_ANYWAY = {
     "square": (
         "9.8% travel, from the comparator threshold drift (kdty 0.012 at "
@@ -173,6 +233,31 @@ def render(orc, hz, dur=DUR):
         shutil.rmtree(d, ignore_errors=True)
 
 
+def rms_swing(sr, x):
+    """Peak-to-peak spread of the short-term rms, as a % of its mean.
+
+    The SECOND opinion, and it is not optional. Centroid travel is nearly blind
+    to keys whose life is AMPLITUDE rather than spectrum: `sub_sine`'s divider
+    beat -- the entire point of the key, the reason it uses gbuzz instead of two
+    oscili -- reads 0.72% live against 0.53% with its drift LFO nulled. Those are
+    0.19 pp apart, so on that metric alone a healthy sub_sine and a dead one are
+    the same reading, and it passed the freeze check by 0.12 pp of luck. On this
+    metric the same pair reads 29.5% against 3.8%.
+
+    The blindness runs both ways, which is why both metrics are kept and neither
+    is trusted alone: `square`'s comparator drift is purely spectral and reads
+    10.2% travel against 0.02% swing.
+    """
+    x = x[int(sr * 0.4):]
+    w = int(sr * 0.1)
+    r = np.array([np.sqrt(np.mean(x[i:i + w] ** 2))
+                  for i in range(0, len(x) - w, w)])
+    r = r[r > 1e-9]
+    if len(r) < 3:
+        return 0.0
+    return float((r.max() - r.min()) / max(r.mean(), 1e-9) * 100.0)
+
+
 def centroid_travel(sr, x):
     """Peak-to-peak spread of the spectral centroid, as a % of its mean."""
     x = x[int(sr * 0.4):]
@@ -239,12 +324,13 @@ def technique_keys(M):
 def main():
     M = _load()
     techs = technique_keys(M)
-    print(f"{'key':14s} " + " ".join(f"{h:.0f}Hz".rjust(7) for h in SWEEP_HZ)
+    print(f"{'key':14s} " + " ".join(f"{h:.0f}Hz".rjust(13) for h in SWEEP_HZ)
           + f"  {'live?':6}  idiom in `key > sine`")
+    print(f"{'':14s} " + " ".join("travel/swing".rjust(13) for _ in SWEEP_HZ))
     failures = []
     for k in techs:
         orc, _ = M.build_orchestra(oscs=[{"chain": [k], "vol": 1.0}])
-        travels, silent = [], False
+        travels, swings, silent = [], [], False
         for hz in SWEEP_HZ:
             sr, x = render(orc, hz)
             if sr is None:
@@ -253,13 +339,17 @@ def main():
             if float(np.abs(x).max()) < 1e-4:
                 silent = True
                 travels.append(0.0)
+                swings.append(0.0)
                 continue
             travels.append(centroid_travel(sr, x))
+            swings.append(rms_swing(sr, x))
         if travels is None:
             print(f"{k:14s} {'RENDER FAILED':>8}")
             failures.append((k, "render failed", set()))
             continue
-        row = " ".join(f"{t:6.1f}%" for t in travels)
+        row = " ".join(f"{t:6.1f}/{s:5.1f}" for t, s in zip(travels, swings))
+        # What is moving AT ALL at each pitch, on either metric.
+        alive = [max(t, s) for t, s in zip(travels, swings)]
         # A silent orchestra measures 0.0% travel and would sail through as
         # "static". That is not hypothetical: an init error in a vco2 line
         # deletes all 16 score instances, which IS the silence, and this gate
@@ -283,20 +373,61 @@ def main():
         # freeze started at 2030 Hz and left 2 of 4 pitches alive -- i.e. it
         # tested the single case the design happened to catch. A gate must be
         # falsified where it is WEAKEST, not where the last bug happened to be.
-        # The discriminator is the COLLAPSE, not the magnitude. A magnitude bar
-        # cannot work: `saw`'s vco2 table-switch artifact reads 14.9%, HIGHER
-        # than a genuinely broken bell's best surviving pitch (6.7%). What
-        # separates them is that a healthy static key never reads near zero
-        # anywhere -- saw's floor is 1.7%, pulse's 2.6%, triangle's 1.1% -- while
-        # a stopped control reads 0.00-0.21%. So: moves somewhere, near-zero
-        # somewhere else.
-        if max(travels) >= LIVE_TRAVEL:
-            dead = [f"{h:.0f}Hz" for h, t in zip(SWEEP_HZ, travels)
-                    if t < DEAD_TRAVEL]
-            if dead and k not in FLATTEN_ANYWAY:
-                print(f"{k:14s} {row}  {'LIVE':6}  FROZEN at " + ", ".join(dead))
-                failures.append((k, "moves elsewhere but its motion has stopped "
-                                 "at " + ", ".join(dead), set()))
+        #
+        # Ordering was not enough. The scan was still ARMED on `max(travels) >=
+        # LIVE_TRAVEL`, which is a magnitude bar -- the discriminator the same
+        # commit argued cannot work -- so a key whose control had stopped at ALL
+        # FOUR pitches had max < 5.0, never armed the scan, fell through to the
+        # median branch and was labelled `static`. The boundary moved from 3-of-4
+        # to 4-of-4 and the inverted sensitivity survived: a plain `git revert` of
+        # the commit that made the bells ring gives fm_bell 0.3/0.1/0.0/0.0% and
+        # this gate printed OK, exit 0, at both sample rates. Arming on a
+        # magnitude ALSO reintroduced the sample-rate dependence removed from
+        # DEAD_TRAVEL two paragraphs up, because for saw and pulse the max IS the
+        # vco2 artifact, and that reads 14.92% at 48 kHz against 2.06% at 44.1 k.
+        #
+        # So there are two checks and only the second one is armed:
+        #
+        #   A. UNCONDITIONAL. At every pitch, something must be moving -- on
+        #      EITHER metric, since a beat and a spectral sweep are both motion
+        #      and each metric is blind to one of them. Nothing arms this, so
+        #      "dead everywhere" is exactly the case it is strongest on. `sine`
+        #      is the only key with no control at all, and it is declared.
+        #   B. ARMED, on the centroid MEDIAN. Catches a spectral control that
+        #      stops at SOME pitches while running elsewhere -- the historic
+        #      bell index frozen above 2030 Hz, the bow corner inert above 2666,
+        #      the clarinet breath. The median, not the max, so the vco2 artifact
+        #      cannot arm it: saw's median is 3.84% at 48 k and 1.82% at 44.1 k,
+        #      under the bar at both. Centroid only, never swing: an FM beat
+        #      legitimately dies when the sidebands run out of room below Nyquist
+        #      (fm's swing is 21% at 55 Hz and 0.14% at 4 kHz), so arming B on
+        #      swing would fail a healthy key for obeying physics.
+        dead = [f"{h:.0f}Hz" for h, a in zip(SWEEP_HZ, alive) if a < DEAD_TRAVEL]
+        if k in NO_CONTROL:
+            # The assertion, checked in the other direction: this key claims to
+            # have no control, so it must not be moving.
+            moving = [f"{h:.0f}Hz" for h, a in zip(SWEEP_HZ, alive)
+                      if a >= DEAD_TRAVEL]
+            if moving:
+                print(f"{k:14s} {row}  {'?':6}  MOVES at " + ", ".join(moving)
+                      + " -- NO_CONTROL entry is stale")
+                failures.append((k, "declared NO_CONTROL but moves at "
+                                 + ", ".join(moving), set()))
+                continue
+        elif dead:
+            print(f"{k:14s} {row}  {'DEAD':6}  nothing moving at "
+                  + ", ".join(dead))
+            failures.append((k, "no motion on either metric at "
+                             + ", ".join(dead), set()))
+            continue
+        if float(np.median(travels)) >= LIVE_TRAVEL:
+            stopped = [f"{h:.0f}Hz" for h, t in zip(SWEEP_HZ, travels)
+                       if t < DEAD_TRAVEL]
+            if stopped:
+                print(f"{k:14s} {row}  {'LIVE':6}  FROZEN at "
+                      + ", ".join(stopped))
+                failures.append((k, "moves elsewhere but its spectral motion has "
+                                 "stopped at " + ", ".join(stopped), set()))
                 continue
         # Liveness is judged on the MEDIAN across the sweep, not the best pitch.
         # Best-pitch classification promotes keys on a single outlier reading:
@@ -307,10 +438,24 @@ def main():
         # movement, and treating it as movement would force the two commonest
         # waveforms onto the crossfade path for no musical reason.
         #
-        # The freeze check below still runs per pitch, so using the median here
-        # does not weaken it: a key whose control has stopped somewhere is caught
-        # by DEAD_TRAVEL regardless of what the median says.
-        if float(np.median(travels)) < LIVE_TRAVEL:
+        # Using the median here does not weaken the freeze checks, because both
+        # of them have already run ABOVE and neither can be reached past. (This
+        # comment used to say "the freeze check below still runs per pitch ...
+        # regardless of what the median says", while the check sat after this
+        # branch's `continue` and did not run at all. A comment asserting the
+        # property the code lacks is how the first version of this hole survived
+        # review; it is repeated here as the thing to check for, not as advice.)
+        #
+        # Liveness is EITHER metric, for the same reason the freeze check is: a
+        # key whose identity is a beat -- sub_sine's divider against the
+        # fundamental, at 32% swing and 3.9% travel -- would lose exactly that
+        # beat if a morph flattened it to a partial bank, and on travel alone
+        # this gate would have called it static and allowed it. Nothing changes
+        # verdict today (sub_sine, rain and pink_noise are promoted to LIVE and
+        # all three already crossfade), which is the point: the hole is closed
+        # while it is still theoretical.
+        if (float(np.median(travels)) < LIVE_TRAVEL
+                and float(np.median(swings)) < LIVE_TRAVEL):
             # Evaluate the routing even for static keys: this line used to say
             # "(may be flattened)" unconditionally, which was the opposite of the
             # truth for the noise beds and sub_sine, all of which take the
@@ -335,11 +480,13 @@ def main():
         if not crossfaded and k not in FLATTEN_ANYWAY:
             failures.append((k, "takes the additive path", lost))
     print()
-    for k, why in sorted(FLATTEN_ANYWAY.items()):
-        print(f"documented exception -- {k}:")
-        for ln in __import__("textwrap").wrap(why, 72):
-            print(f"    {ln}")
-        print()
+    for label, entries in (("documented exception", FLATTEN_ANYWAY),
+                           ("declared to have no control", NO_CONTROL)):
+        for k, why in sorted(entries.items()):
+            print(f"{label} -- {k}:")
+            for ln in __import__("textwrap").wrap(why, 72):
+                print(f"    {ln}")
+            print()
     if failures:
         print(f"FAIL: {len(failures)} live key(s) flattened by the morph path")
         for k, why, lost in failures:
