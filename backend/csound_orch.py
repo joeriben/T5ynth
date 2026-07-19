@@ -29,6 +29,7 @@ engine (and tools/csound_orch_check) substitute the real rate at compile time.
 """
 from __future__ import annotations
 
+import math
 import re as _re
 
 KSMPS = 64
@@ -74,6 +75,8 @@ _TONAL_KEYS = frozenset({
     "fm", "fm_ep", "ring_mod",
     "saw", "supersaw", "brass", "strings", "bass_saw", "sync",
     "square", "clarinet", "chiptune", "pulse", "triangle", "pwm", "cheby",
+    "analog_osc",       # the first PARAMETRISED key (wave/drive/fat/age); see
+                        # _emit_analog_osc and dco_lexicon.json's analog_osc.params
     "silence", "zero",                      # morph-to-zero transient terminals
 })
 
@@ -487,6 +490,34 @@ def _prompt_names_register(text):
 _PULSE_FAMILY = {"square", "pulse"}
 
 
+# ── analog_osc: the first PARAMETRISED technique key ─────────────────────────
+# Every other technique is a fixed idiom; analog_osc is a real analogue VCO
+# with four NAMED 0..1 parameters (wave/drive/fat/age) the routing LLM sets
+# directly, in a reply like `analog_osc(wave=saw, drive=hot)`. The anchor
+# tables below are the SINGLE source of truth for (a) resolving an anchor WORD
+# to its number when parsing the LLM's reply, (b) the DSP in _emit_analog_osc,
+# and (c) the nearest-anchor label in _reading -- mirrored BY HAND into
+# dco_lexicon.json's analog_osc.params (which additionally carries the
+# per-anchor GLOSS text the routing LLM reads; this file has no lexicon
+# access, matching every other technique's Python-side constants, e.g.
+# _MODAL_SPECTRA/_VOWEL_FORMANTS restate in Python what the lexicon's "why"
+# describes in prose). Keep the two in sync by hand if either changes.
+_AOSC_ANCHORS = {
+    "wave":  {"triangle": 0.0, "saw": 0.45, "square": 0.55, "pulse": 1.0},
+    "drive": {"clean": 0.0, "warm": 0.3, "hot": 0.6, "screaming": 1.0},
+    "fat":   {"single": 0.0, "subtle": 0.15, "thick": 0.5, "wide": 1.0},
+    "age":   {"new": 0.0, "worn": 0.35, "old": 0.8},
+}
+_AOSC_DEFAULTS = {"wave": 0.45, "drive": 0.0, "fat": 0.0, "age": 0.35}
+
+# Registry of every technique key that takes parameters, keyed by its
+# CANONICAL key -> {param: {anchor: value}}. A future second parametrised
+# instrument just adds its own entry here (and its own _emit_xxx / dispatch
+# line) -- _extract_osc_params below is generic over this registry, not
+# analog_osc-specific.
+_PARAM_SCHEMAS = {"analog_osc": _AOSC_ANCHORS}
+
+
 # ── csound-specific multi-oscillator LLM schema ──────────────────────────────
 # Up to THREE oscillators, each its own morph chain + volume; the whole sound has
 # adjectives + motion. This is a csound-OWNED schema (BJ 2026-07-18: "bis 3
@@ -536,6 +567,12 @@ _CS_SYSTEM_PROMPT_HEAD = (
     "chain may have three or more stages: a prompt written \"saw > sine > "
     "square\" is the single line \"OSC1: saw > sine > square\", NOT three "
     "oscillators.\n"
+    "PARAMS: a few catalogue keys take named parameters right after the key, "
+    "in parentheses: key(name=value, name=value). See that key's own "
+    "\"params:\" line in the catalogue for its parameter names and anchor "
+    "words. A value is an anchor WORD (preferred) or a bare number 0-1 to sit "
+    "between two anchors. Omit a parameter you have no cue for — it keeps its "
+    "own default.\n"
     "SILENCE RULE: only for a sound that literally FADES OUT — a pluck, a stab, a "
     "percussive hit, or a sound described as decaying / fading to nothing. Then "
     "append \" > silence\" to that oscillator's chain AFTER at least one real "
@@ -557,6 +594,11 @@ _CS_SYSTEM_PROMPT_HEAD = (
     "OSC2: sine 4'\n"
     "VOL2: 1.0\n"
     "ADJECTIVES: analog, warm\n"
+    "MOTION: none\n"
+    "Example — a named parametrised instrument, driven hard:\n"
+    "OSC1: analog_osc(wave=saw, drive=hot, fat=thick, age=worn)\n"
+    "VOL1: 1.0\n"
+    "ADJECTIVES: none\n"
     "MOTION: none\n"
     "CATALOGUE:\n"
 )
@@ -640,11 +682,82 @@ def _strip_nonterminal_silence(chain):
             if k not in ("silence", "zero") or i == n - 1]
 
 
+# Parenthesized parameter syntax on an OSC chain stage: KEY(name=value,
+# name=value). Anchor words are what a small model produces reliably; a bare
+# number 0..1 lets it interpolate between anchors. Extraction runs BEFORE
+# _validate_keys ever sees the text, so the existing surface-form/fallback
+# machinery keeps matching plain key text exactly as it always has -- a chain
+# with no parens (every existing key, always) is untouched byte-for-byte.
+_OSC_PARAM_RE = _re.compile(r'([a-zA-Z][a-zA-Z0-9_]*)\s*\(([^)]*)\)')
+
+
+def _parse_param_value(raw, anchors):
+    """One raw param VALUE ("saw", "0.62", " Hot ") -> a float 0..1, or None if
+    it names neither a real anchor nor an in-range number. FORGIVING BY
+    DESIGN: the caller drops a None and keeps the parameter's own default --
+    never drops the key, never fails the whole reply."""
+    s = (raw or "").strip().lower()
+    if not s:
+        return None
+    if s in anchors:
+        return anchors[s]
+    try:
+        v = float(s)
+    except ValueError:
+        return None
+    return v if 0.0 <= v <= 1.0 else None
+
+
+def _extract_osc_params(chain_raw, tcanon):
+    """chain_raw ("analog_osc(wave=saw, drive=hot) > sine") -> (stripped_chain,
+    {canonical_key: {param: value}}). The raw key text in front of each "(...)"
+    is canonicalized through the SAME tcanon map _validate_keys itself uses (so
+    a surface form like "minimoog(drive=hot)" still lands its params on
+    "analog_osc"), then looked up in _PARAM_SCHEMAS; a key with no params
+    schema (i.e. every technique but analog_osc today) has its parenthetical
+    silently dropped -- the bare key text survives and validates normally. An
+    unknown parameter NAME or an unresolvable VALUE is dropped individually
+    (via _parse_param_value's None), never the whole parenthetical.
+
+    Every "(...)" is stripped here regardless of outcome, so _validate_keys
+    downstream always sees plain key text -- this is a PRE-PASS, not a
+    replacement for any existing validation."""
+    found = {}
+
+    def _sub(m):
+        key_raw = m.group(1).strip().lower()
+        canon_key = tcanon.get(key_raw, key_raw)
+        schema = _PARAM_SCHEMAS.get(canon_key)
+        if schema:
+            parsed = {}
+            for piece in m.group(2).split(","):
+                if "=" not in piece:
+                    continue
+                name, val = piece.split("=", 1)
+                name = name.strip().lower()
+                anchors = schema.get(name)
+                if anchors is None:
+                    continue                       # unknown param name -> dropped
+                v = _parse_param_value(val, anchors)
+                if v is not None:
+                    parsed[name] = v               # else: dropped, default stands
+            if parsed:
+                found[canon_key] = parsed
+        return key_raw
+
+    stripped = _OSC_PARAM_RE.sub(_sub, chain_raw)
+    return stripped, found
+
+
 def _validate_osc_chain(chain_raw, tcanon, dco_llm_map):
-    """One OSC line's raw chain string -> a validated list of technique keys.
-    ">" = morph chain (keep every valid stage, ordered); a bare comma list is one
-    compound technique -> first valid key. Enforces terminal-only silence and the
-    pwm/pulse-family collapse."""
+    """One OSC line's raw chain string -> (validated technique keys, flags,
+    params). ">" = morph chain (keep every valid stage, ordered); a bare comma
+    list is one compound technique -> first valid key. Enforces terminal-only
+    silence and the pwm/pulse-family collapse. `params` is
+    {canonical_key: {name: value}}, filtered to the keys that actually
+    survived validation/collapse -- a stage the guard drops takes its
+    parameters with it, never the reverse."""
+    chain_raw, stage_params = _extract_osc_params(chain_raw, tcanon)
     if ">" in chain_raw:
         keys, flags = dco_llm_map._validate_keys(chain_raw.split(">"), tcanon)
     else:
@@ -659,13 +772,30 @@ def _validate_osc_chain(chain_raw, tcanon, dco_llm_map):
     keys = [k for i, k in enumerate(keys) if i == 0 or k != keys[i - 1]]
     if "pwm" in keys and all(k == "pwm" or k in _PULSE_FAMILY for k in keys):
         keys = ["pwm"]
-    return keys, flags
+    params = {k: stage_params[k] for k in keys if k in stage_params}
+    return keys, flags, params
+
+
+def _param_anchor_label(technique_key, name, value):
+    """Nearest anchor WORD for a resolved param value (reading/label only --
+    the DSP always uses the plain float). e.g. 0.62 on analog_osc's "drive"
+    -> "hot" (closest to 0.6). Generic over _PARAM_SCHEMAS, not
+    analog_osc-specific, so a future second parametrised key needs no change
+    here."""
+    anchors = _PARAM_SCHEMAS.get(technique_key, {}).get(name, {})
+    if not anchors:
+        return f"{value:g}"
+    word, _ = min(anchors.items(), key=lambda kv: abs(kv[1] - value))
+    return word
 
 
 def _reading(oscs, adjective_keys, motion_key):
     """Short human-readable interpretation for the UI card. Multi-osc: each layer
     is 'a > b' (morph) or 'a'; layers joined with ' + '. e.g.
-    'saw + sub_sine · warm ~evolve' or 'glass > sine · glassy'."""
+    'saw + sub_sine · warm ~evolve' or 'glass > sine · glassy'. A parametrised
+    key (only analog_osc today) that the LLM actually SET parameters on shows
+    them compactly as anchor words, e.g. 'analog_osc · saw, hot, thick' --
+    a bare, all-default key shows no parameter suffix at all."""
     def osc_str(o):
         chain = o["chain"]
         s = " > ".join(chain) if len(chain) >= 2 else (chain[0] if chain else "sine")
@@ -674,6 +804,14 @@ def _reading(oscs, adjective_keys, motion_key):
         reg = o.get("register", 1.0)
         if reg != 1.0:
             s += " " + _FOOTAGE_LABEL.get(reg, "8") + "'"
+        params = o.get("params") or {}
+        for key in chain:
+            pset = params.get(key)
+            if pset:
+                # dict insertion order == the order the LLM wrote them, which
+                # is already a sensible display order (no re-sort needed).
+                labels = [_param_anchor_label(key, n, v) for n, v in pset.items()]
+                s += " (" + ", ".join(labels) + ")"
         return s
     heads = [osc_str(o) for o in oscs] or ["sine"]
     head = " + ".join(heads)
@@ -1040,8 +1178,14 @@ def _emit_modal(technique, tag="0", nmodes=None):
     return "\n".join(L)
 
 
-def _emit_vco_drift(tag):
+def _emit_vco_drift(tag, depth=0.0007):
     """Per-VOICE analogue oscillator instability -> `kvdr<tag>`, a factor near 1.
+
+    `depth` (default 0.0007, ~1.21 cents -- UNCHANGED, every existing caller
+    passes none and gets exactly this) parametrizes the poscil amplitude for a
+    caller that needs to SCALE it, e.g. analog_osc's `age` (0..0.007 = 0..12
+    cents, see _emit_analog_osc). depth->cents is exact and measured:
+    0.0007->1.21, 0.003->5.19, 0.007->12.08, 0.015->25.78.
 
     BJ's complaint was that the movement in this instrument was "alles langsame
     Filter sweeps, nicht wirklich glockenmovements oder analoge
@@ -1077,12 +1221,168 @@ def _emit_vco_drift(tag):
     analogue drift would be the same category error as filtering a saw for brass.
     """
     return [f"  ivph{tag}   = frac(ivoice * 0.6180339887)   ; per-voice phase",
-            f"  kvdr{tag}   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph{tag}"]
+            f"  kvdr{tag}   poscil {depth:g}, 0.043 + 0.0037 * ivoice, giSine, ivph{tag}"]
 
 
-def _emit_steady(technique, tag="0", nmodes=None):
+# ── analog_osc: constants + params -> Csound (the first PARAMETRISED key) ───
+# wave-axis kpw endpoints (MEASURED, this Csound 6.18 build): vco2 imode 4's
+# kpw=0.5 is a pure symmetric triangle, kpw=0.02 converges EXACTLY onto imode
+# 0's own sawtooth spectrum; imode 2's kpw IS the literal ON-duty fraction,
+# 0.5 a square, 0.10 a narrow pulse.
+_AOSC_KPW_TRIANGLE = 0.5
+_AOSC_KPW_SAW = 0.02
+_AOSC_KPW_SQUARE = 0.5
+_AOSC_KPW_PULSE = 0.10
+_AOSC_WAVE_SEG_A_MAX = 0.45   # wave <= this: pure imode-4 segment
+_AOSC_WAVE_SEG_B_MIN = 0.55   # wave >= this: pure imode-2 segment
+                              # between: linear (coherent, phase-locked) blend,
+                              # segment A parked at its saw endpoint (kpw
+                              # 0.02) and segment B parked at its square
+                              # endpoint (kpw 0.5) -- wave 0.45/0.55 ARE
+                              # exactly the saw/square anchors.
+# imode-2 segment level compensation vs imode-4, MEASURED at kamp 0.6 (see
+# commit report): the two are flat-RMS across their own whole range and
+# differ by a fixed ratio, reproducing the 0.2887/0.4991=0.578 ratio measured
+# at kamp 0.5 (a ratio is scale-invariant; re-verified at 0.6, not assumed).
+_AOSC_SEG2_COMP = 0.578
+_AOSC_KAMP = 0.6              # matches saw/square/pulse/triangle's own kamp
+_AOSC_FAT_MAX_CENTS = 40.0    # total spread at fat=1 (symmetric: +-20 cents)
+# 3-copy unison sum level compensation, MEASURED (see commit report: peak/RMS
+# of the raw 3-copy sum vs a single copy across the wave axis).
+_AOSC_FAT_COMP = {1: 1.0, 3: 0.578}
+_AOSC_AGE_PITCH_DEPTH = 0.007   # -> _emit_vco_drift's depth arg (0..12 cents)
+_AOSC_AGE_AMP_DEPTH = 0.03      # amplitude wobble, 0.7 Hz (mirrors the
+                                # existing "analog" adjective's own DRIFT op)
+_AOSC_AGE_SHAPE_DEPTH = 0.012   # duty/kpw wobble (mirrors square/pulse's own
+                                # existing "kdty poscil 0.012, 0.057" idiom)
+
+
+def _resolve_analog_osc_params(raw):
+    """A possibly-partial/None {name: float 0..1} (whatever _validate_osc_chain
+    survived) -> the complete 4-key dict, filling any missing/invalid entry
+    with its documented default (dco_lexicon.json analog_osc.params[name]
+    .default; mirrored in _AOSC_DEFAULTS). Re-validates defensively so a
+    direct/standalone caller (a test harness invoking _emit_steady with no
+    params at all) still gets a safe, complete, in-range dict."""
+    raw = raw or {}
+    out = dict(_AOSC_DEFAULTS)
+    for k, v in raw.items():
+        if k not in out:
+            continue
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            continue
+        if 0.0 <= fv <= 1.0:
+            out[k] = fv
+    return out
+
+
+def _analog_osc_wave_segments(wave):
+    """wave (0..1) -> [(imode, kpw_base, seg_gain, blend_weight), ...], the 1
+    or 2 active vco2 segments at this wave value. blend_weight sums to 1.0
+    across the returned list."""
+    if wave <= _AOSC_WAVE_SEG_A_MAX:
+        kpw = (_AOSC_KPW_TRIANGLE + (_AOSC_KPW_SAW - _AOSC_KPW_TRIANGLE)
+               * (wave / _AOSC_WAVE_SEG_A_MAX))
+        return [(4, kpw, 1.0, 1.0)]
+    if wave >= _AOSC_WAVE_SEG_B_MIN:
+        span = 1.0 - _AOSC_WAVE_SEG_B_MIN
+        kpw = (_AOSC_KPW_SQUARE + (_AOSC_KPW_PULSE - _AOSC_KPW_SQUARE)
+               * ((wave - _AOSC_WAVE_SEG_B_MIN) / span))
+        return [(2, kpw, _AOSC_SEG2_COMP, 1.0)]
+    blend = (wave - _AOSC_WAVE_SEG_A_MAX) / (_AOSC_WAVE_SEG_B_MIN - _AOSC_WAVE_SEG_A_MAX)
+    return [(4, _AOSC_KPW_SAW, 1.0, 1.0 - blend),
+            (2, _AOSC_KPW_SQUARE, _AOSC_SEG2_COMP, blend)]
+
+
+def _emit_analog_osc(tag, params):
+    """The parametrised analogue VCO -> `aosc<tag>`. wave/drive/fat/age are
+    named 0..1 controls (dco_lexicon.json analog_osc.params), not a fixed
+    idiom -- the lexicon's FIRST parametrised technique key.
+
+    WAVE: two vco2 calls sharing iphs=0 explicitly (MEASURED: at the same
+    kphs and frequency the two imodes' fundamentals sit -93.6/-90.0 degrees
+    apart and a 50/50 sum is BIT-STABLE over time -- a genuine coherent
+    waveform blend, not two oscillators beating, so a LINEAR crossfade is the
+    correct blend, never equal-power). Segment A (imode 4) sweeps kpw 0.5
+    (triangle) -> 0.02 (sawtooth) over wave 0..0.45; segment B (imode 2, the
+    literal ON-duty fraction) sweeps 0.5 (square) -> 0.10 (pulse) over wave
+    0.55..1.0, level-compensated (0.578, MEASURED). Outside 0.45..0.55 only
+    the active segment renders; inside it, both render (each parked at its
+    nearer endpoint) and blend linearly by wave.
+
+    DRIVE: the Minimoog idiom -- no separate drive knob, the mixer is simply
+    pushed past unity into a soft limiter. Maps 0..1 to a tanh pre-gain of
+    1..20 (a compile-time constant, since drive is fixed per note), output-
+    compensated so the peak returns to the oscillator's own nominal level at
+    every setting -- the parameter changes CHARACTER, not loudness. drive=0
+    skips the stage ENTIRELY (audibly clean, not merely low-THD).
+
+    FAT: 0 -> one voice, no unison stage at all. Above 0 -> 3 copies at a
+    symmetric detune (0..40 cents total spread), summed and level-compensated
+    (MEASURED). Kept at 3 copies -- thickness saturates quickly with count and
+    this instrument is deliberately small.
+
+    AGE: one control moving three measured analogue instabilities together --
+    PITCH (reuses _emit_vco_drift, scaled 0..0.007 depth = 0..12 cents),
+    AMPLITUDE (a 0.7 Hz wobble, 0..3%, mirrors the "analog" adjective's own
+    DRIFT op), and SHAPE (the existing square/pulse "kdty" duty-wobble idiom,
+    scaled 0..0.012 on kpw). All three always render (age can legitimately be
+    0, i.e. a harmless always-zero wobble) -- age never changes the CODE
+    SHAPE, only these depths, unlike wave/drive/fat above."""
+    ov = f"aosc{tag}"
+    p = _resolve_analog_osc_params(params)
+    wave, drive, fat, age = p["wave"], p["drive"], p["fat"], p["age"]
+
+    segs = _analog_osc_wave_segments(wave)
+    n_copies = 3 if fat > 0.0 else 1
+
+    L = []
+    L += _emit_vco_drift(tag, depth=age * _AOSC_AGE_PITCH_DEPTH)
+    L.append(f"  kdty{tag}   poscil {age * _AOSC_AGE_SHAPE_DEPTH:g}, 0.057     "
+             f"; age: shape/duty wobble on kpw")
+
+    terms = []
+    for si, (imode, kpw0, seg_gain, blend_w) in enumerate(segs):
+        if blend_w <= 0.0:
+            continue
+        kpwv = f"kpw{tag}s{si}"
+        L.append(f"  {kpwv}   = {kpw0:g} + kdty{tag}")
+        for u in range(n_copies):
+            if n_copies == 1:
+                cents = 0.0
+            else:
+                cents = (u - (n_copies - 1) / 2.0) * (_AOSC_FAT_MAX_CENTS / (n_copies - 1))
+            var = f"aao{tag}s{si}u{u}"
+            freq_expr = "kfreq" if cents == 0.0 else f"kfreq * {2.0 ** (cents / 1200.0):.6f}"
+            note = f"wave seg{si} imode{imode} copy {u}" + (f" ({cents:+.1f}c)" if cents else "")
+            L.append(f"  {var}  vco2 {_AOSC_KAMP}, {freq_expr} * (1 + kvdr{tag}), "
+                     f"{imode}, {kpwv}, 0   ; {note}")
+            gain = seg_gain * blend_w * _AOSC_FAT_COMP[n_copies]
+            terms.append(f"{var} * {gain:.6f}")
+    L.append(f"  acln{tag}   = " + " + ".join(terms) + "    ; clean oscillator (pre-drive)")
+
+    if drive > 0.0:
+        pregain = 1.0 + 19.0 * drive
+        comp = _AOSC_KAMP / math.tanh(_AOSC_KAMP * pregain)
+        L.append(f"  adrv{tag}   = tanh(acln{tag} * {pregain:.4f}) * {comp:.4f}  "
+                 f"; drive {drive:g}: pregain {pregain:.2f}x into tanh, output-compensated")
+    else:
+        L.append(f"  adrv{tag}   = acln{tag}                     ; drive 0: clean, no saturator stage")
+
+    L.append(f"  kagw{tag}   oscili {age * _AOSC_AGE_AMP_DEPTH:g}, 0.7        "
+             f"; age: amplitude wobble")
+    L.append(f"  {ov}    = adrv{tag} * (1 + kagw{tag})")
+    return "\n".join(L)
+
+
+def _emit_steady(technique, tag="0", nmodes=None, params=None):
     """A single (non-morph) technique -> `aosc<tag>`. Uses Csound's native
-    opcodes; every temporary is suffixed with `tag` (per-osc uniqueness)."""
+    opcodes; every temporary is suffixed with `tag` (per-osc uniqueness).
+    `params` ({canonical_key: {name: value}}) is only ever consulted for a
+    technique in _PARAM_SCHEMAS (analog_osc today); every other branch below
+    ignores it, unchanged."""
     ov = f"aosc{tag}"
     L = []
     if technique in _NOISE_TECH:
@@ -1091,6 +1391,8 @@ def _emit_steady(technique, tag="0", nmodes=None):
         return _emit_voice(technique, tag)
     if technique in _MODAL_TECH:
         return _emit_modal(technique, tag, nmodes)
+    if technique == "analog_osc":
+        return _emit_analog_osc(tag, (params or {}).get("analog_osc"))
     if technique == "pwm":
         # classic PWM: band-limited pulse whose DUTY moves (square 50% -> thin
         # 8% -> back), a genuinely moving spectrum. kpw is the pulse width.
@@ -1820,7 +2122,7 @@ def _emit_steady(technique, tag="0", nmodes=None):
     return "\n".join(L)
 
 
-def _emit_crossfade_morph(chain, imorphtime, tag="0", nmodes=None):
+def _emit_crossfade_morph(chain, imorphtime, tag="0", nmodes=None, params=None):
     """A generic amplitude-crossfade morph -> `aosc<tag>`, used whenever a chain
     stage cannot live in the tonal additive-partial bank of _emit_morph: a NOISE
     texture (aperiodic, no partials), a VOICE/formant stage (a filtered source,
@@ -1896,7 +2198,7 @@ def _emit_crossfade_morph(chain, imorphtime, tag="0", nmodes=None):
         sub = f"{tag}m{j}"
         L.append(f"  {var}  init 0")
         L.append(f"  if {gj} > 0 then")
-        body = _emit_noise(k, sub) if k in _NOISE_TECH else _emit_steady(k, sub, nmodes)
+        body = _emit_noise(k, sub) if k in _NOISE_TECH else _emit_steady(k, sub, nmodes, params)
         L.append("\n".join("  " + ln for ln in body.splitlines()))
         L.append("  endif")
         terms.append(f"{var} * {gj}")
@@ -1904,7 +2206,7 @@ def _emit_crossfade_morph(chain, imorphtime, tag="0", nmodes=None):
     return "\n".join(L)
 
 
-def _emit_oscillator(oi, chain, imorphtime, nmodes=None):
+def _emit_oscillator(oi, chain, imorphtime, nmodes=None, params=None):
     """One oscillator (index `oi`, 0..2) from its technique chain -> (body_lines,
     out_var). >=2 stages -> a morph, and there are now exactly TWO paths:
       - a PURE vowel sweep (>=2 voice stages, no silence) -> _emit_voice_morph, the
@@ -1951,9 +2253,9 @@ def _emit_oscillator(oi, chain, imorphtime, nmodes=None):
         if real and all(k in _VOICE_TECH for k in real) and len(real) >= 2 and not has_silence:
             body = _emit_voice_morph(chain, imorphtime, tag)   # pure vowel sweep
         else:
-            body = _emit_crossfade_morph(chain, imorphtime, tag, nmodes)
+            body = _emit_crossfade_morph(chain, imorphtime, tag, nmodes, params)
     if body is None:
-        body = _emit_steady(chain[0] if chain else "sine", tag, nmodes)
+        body = _emit_steady(chain[0] if chain else "sine", tag, nmodes, params)
     return body, f"aosc{tag}"
 
 
@@ -2333,11 +2635,13 @@ def _emit_motion(motion_key, oscs=None):
 
 def _normalize_oscs(technique_keys, oscs):
     """Resolve the two call conventions to a clean list of up to 3 oscillator
-    specs [{chain:[keys], vol:float, register:float}]. Back-compat: a bare
-    technique_keys list is one oscillator at vol 1.0 and 8' (byte-for-byte the
-    pre-M2 single-osc emission). An oscillator whose chain is ONLY silence
-    produces nothing and is dropped; if every osc drops, fall back to a single
-    sine so the orchestra is never empty."""
+    specs [{chain:[keys], vol:float, register:float, params:{key:{name:val}}}].
+    Back-compat: a bare technique_keys list is one oscillator at vol 1.0 and 8'
+    (byte-for-byte the pre-M2 single-osc emission), with an empty params dict
+    (byte-for-byte the pre-analog_osc emission for every technique but it). An
+    oscillator whose chain is ONLY silence produces nothing and is dropped; if
+    every osc drops, fall back to a single sine so the orchestra is never
+    empty."""
     if oscs is None:
         oscs = [{"chain": list(technique_keys or []), "vol": 1.0}]
     out = []
@@ -2363,7 +2667,16 @@ def _normalize_oscs(technique_keys, oscs):
             reg = 1.0
         if reg not in _FOOTAGE_MULT.values():
             reg = 1.0
-        out.append({"chain": chain, "vol": max(0.0, min(1.0, vol)), "register": reg})
+        # params: {canonical_key: {name: value}} for a parametrised technique
+        # in this chain (analog_osc today). Absent/malformed -> {} -- every
+        # existing caller (technique_keys convention, or an oscs dict with no
+        # "params" key at all) gets this, and _emit_analog_osc's own defaults
+        # then apply, exactly as if nothing had been set.
+        params = o.get("params")
+        if not isinstance(params, dict):
+            params = {}
+        out.append({"chain": chain, "vol": max(0.0, min(1.0, vol)), "register": reg,
+                    "params": params})
         if len(out) == 3:
             break
     # positive-weight floor: a muted supporting layer (vol~0) is dropped when some
@@ -2378,7 +2691,7 @@ def _normalize_oscs(technique_keys, oscs):
         for o in out:
             o["vol"] = 1.0
     if not out:
-        out = [{"chain": ["sine"], "vol": 1.0, "register": 1.0}]
+        out = [{"chain": ["sine"], "vol": 1.0, "register": 1.0, "params": {}}]
     return out
 
 
@@ -2451,7 +2764,7 @@ def build_orchestra(technique_keys=None, adjective_keys=None, motion_key=None,
             detune[_oi] = (_slot - _span) * _DUP_CENTS
 
     for oi, o in enumerate(oscs):
-        body, outv = _emit_oscillator(oi, o["chain"], imorphtime, nmodes)
+        body, outv = _emit_oscillator(oi, o["chain"], imorphtime, nmodes, o.get("params"))
         n = oi + 1                      # 1-based: the channel names name UI slots
         cents = detune.get(oi)
         # ONE per-layer frequency: the played pitch times the layer's live
@@ -2668,7 +2981,7 @@ def build_csound_response(text, llm):
         # no valid key. Cap at 3 (the schema promises up to three).
         oscs, flags = [], []
         for oi, (chain_raw, vol, reg) in enumerate(osc_specs[:3], start=1):
-            keys, kflags = _validate_osc_chain(chain_raw, tcanon, dco_llm_map)
+            keys, kflags, stage_params = _validate_osc_chain(chain_raw, tcanon, dco_llm_map)
             flags += kflags
             # strip an UNMOTIVATED trailing silence (see the decay-intent guard above):
             # keep the rest of the morph so the sound still evolves, it just no longer
@@ -2703,7 +3016,7 @@ def build_csound_response(text, llm):
                                   "at the pitch you hold and the octave stays yours",
                         "tier": "adapted",
                     })
-                oscs.append({"chain": keys, "vol": v, "register": r})
+                oscs.append({"chain": keys, "vol": v, "register": r, "params": stage_params})
 
         adjective_keys, aflags = dco_llm_map._validate_keys(
             adjectives_raw.split(",") if adjectives_raw else [], acanon)

@@ -1522,6 +1522,81 @@
       "mandatory_flags": [
         "'sub' is a register/mix role, not a distinct spectrum; approximated as a pure sine"
       ]
+    },
+    {
+      "key": "analog_osc",
+      "surface_forms": [
+        "analog oscillator",
+        "analogue oscillator",
+        "analog osc",
+        "analogue osc",
+        "vco",
+        "minimoog",
+        "sub 37",
+        "analog synth",
+        "analogue synth"
+      ],
+      "template": {
+        "keyframes": [
+          {
+            "kind": "saw"
+          }
+        ],
+        "motion": [
+          {
+            "to": 0,
+            "dur_frac": 0.0,
+            "curve": "lin"
+          }
+        ],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "a real analogue VCO (Minimoog/VCO-style) with four named parameters instead of a fixed spectrum: wave morphs continuously triangle -> saw -> square -> pulse, drive is a soft-clip saturator pushed past unity (the direction it moves the tone depends on wave, see params), fat stacks a detuned unison, age adds analogue pitch/amplitude/shape instability",
+      "params": {
+        "wave": {
+          "range": [0.0, 1.0],
+          "default": 0.45,
+          "anchors": {
+            "triangle": {"value": 0.0, "gloss": "hollow, dark, few harmonics"},
+            "saw": {"value": 0.45, "gloss": "bright, buzzy, all harmonics"},
+            "square": {"value": 0.55, "gloss": "hollow, reedy, odd harmonics only"},
+            "pulse": {"value": 1.0, "gloss": "thin, nasal, narrow"}
+          }
+        },
+        "drive": {
+          "range": [0.0, 1.0],
+          "default": 0.0,
+          "note": "counter-intuitive, and this is the real behaviour of the hardware this models: on a saw or a narrow pulse, drive makes the tone ROUNDER and DARKER (the soft limiter rounds off the sharp edge and takes highs away); on a triangle, drive ADDS harmonics and makes it BRIGHTER. Never describe drive as simply 'brighter'.",
+          "anchors": {
+            "clean": {"value": 0.0, "gloss": "no saturation, the pure oscillator"},
+            "warm": {"value": 0.3, "gloss": "light saturation, gentle rounding"},
+            "hot": {"value": 0.6, "gloss": "heavy saturation, strongly reshaped"},
+            "screaming": {"value": 1.0, "gloss": "maximum saturation, fully driven"}
+          }
+        },
+        "fat": {
+          "range": [0.0, 1.0],
+          "default": 0.0,
+          "anchors": {
+            "single": {"value": 0.0, "gloss": "one oscillator, no thickening"},
+            "subtle": {"value": 0.15, "gloss": "a whisper of ensemble width"},
+            "thick": {"value": 0.5, "gloss": "clearly layered, wide"},
+            "wide": {"value": 1.0, "gloss": "maximally spread, chorus-like"}
+          }
+        },
+        "age": {
+          "range": [0.0, 1.0],
+          "default": 0.35,
+          "anchors": {
+            "new": {"value": 0.0, "gloss": "pristine, stable, no drift"},
+            "worn": {"value": 0.35, "gloss": "gentle analogue life -- pitch, level and shape all drifting slightly"},
+            "old": {"value": 0.8, "gloss": "unstable, wandering pitch and level, worn-in gear"}
+          }
+        }
+      }
     }
   ],
   "adjectives": [
