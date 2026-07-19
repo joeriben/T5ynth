@@ -81,6 +81,7 @@ These are user-observable fundamentals, not preferences. They disqualify otherwi
 - **The oscillator is a SPECTRUM SOURCE.** The synth owns the amplitude envelope, glide, filter and expression. A generator that brings its own amplitude decay fights the player's envelope and takes the choice away.
 - **Colour may travel over the note; loudness may not.** A struck tine that *darkens* as it rings is the oscillator's business. A tone that fades to silence on its own is not.
 - **A self-decay is acceptable ONLY where there is no other way** (BJ, 2026-07-19: „Hüllkurven bei Naturinstrumenten können ja ok sein, aber NUR dort wo es nicht anders geht"). Where an alternative construction exists, it is taken.
+  - **Open, and it may replace this rule of thumb with a user's choice.** After hearing instrument 3, BJ named a prompt-level convention: **`taiko drum wave` = without envelope, `taiko drum` = the real Csound instrument.** The word `wave` would select the spectrum-source reading; its absence would mean the instrument with its own decay. His reasoning is the honest objection to the rule above — taking "the other way" can cost effort *to make the result worse*: a continuously excited drum is a noise you then shape back into a drum with filter, pitch and envelope. He was explicit that this is **not important now**, and it is recorded rather than built. If it is ever built it reopens most of §6's rejection list, since "no decay argument" and "pitch freezes at strike" disqualify an opcode for the `wave` reading and are exactly right for the instrument reading. Note the routing layer has no concept of a modifier word today.
 - **Pitch belongs to the synth.** An opcode that invents its own register is unusable however good it sounds. `kfreq` is k-rate and glides; everything must track it.
 - **Movement by default.** Every sound moves; only an explicit "static" request is delegated to the standing-tone escape hatch.
 - **The LLM is the entrance.** No LLM, no oscillator. No deterministic fallback, no "not understood".
@@ -137,7 +138,7 @@ The measured facts (do not re-derive):
 
 **Open:** the odd/even balance does not travel over the note the way `fmrhode`'s does (−0.4 → +19.9 dB). Measured: a decaying inharmonic tine cannot move it at all, because a ratio-14.2 pair places partials *between* harmonics and so adds off-comb energy without adding even-harmonic energy. Reproducing that travel needs the body mix itself to move over the note — legal, since it is spectrum and not amplitude, but untested.
 
-### Instrument 3 — drum head (`drum_head`) — BUILT, awaiting BJ's ear
+### Instrument 3 — drum head (`drum_head`) — BUILT, ear-approved
 
 Four parameters: `pitched`, `spot`, `tension`, `damping`. A `mode` filter bank at membrane ratios under continuous noise excitation — the idiom `cymbal`/`glass`/`struck_bar` already use. Because the excitation is continuous, a held note stands and no self-decay problem arises. A membrane's mode ratios are not a harmonic series; that is the instrument's substance, not a detail of it.
 
@@ -155,7 +156,9 @@ The measured facts (do not re-derive):
 
 **Two measurement traps, both of which produced confident wrong numbers here before being caught.** (a) Two unit-amplitude modes peak near 2.9 against `0dbfs=1`, so a **16-bit render hard-clips** and returns a plausible-looking power-law fit plus an apparent cancellation at Q=28 that does not exist. Render to float. (b) **Csound's `rand` carries its own `iseed` and ignores a global `seed` statement** — so an "ensemble" of renders under different seeds is bit-identical, max abs diff 0.0. Narrowband noise genuinely needs an ensemble and ~1 s windows; check two renders actually differ before averaging many.
 
-**Open — needs an ear, not a measurement.** The air-loaded timpani ratios are 1.00 : 1.50 : 1.99 = 2:3:4 on f/2, a missing-fundamental series an **octave below the played note**; autocorrelation puts the strongest periodicity at 2.03–2.04× the played period, strengthening with `pitched`. This is the physically correct ratio set and a real kettledrum's notated pitch *is* that residue — but a harmonic sieve prefers f, since modes 0/2/4 also approximate 1:2:3 on f. The percept is bistable and the estimators disagree. If the octave-below reading wins by ear, scale the timpani set ×2 and correct `pitched`'s lexicon note, which currently promises the played pitch never changes.
+**The timpani octave — settled by ear, and worth knowing about before re-measuring.** The air-loaded ratios are 1.00 : 1.50 : 1.99 = 2:3:4 on f/2, a missing-fundamental series an octave below the played note, and autocorrelation duly puts the strongest periodicity at 2.03–2.04× the played period, strengthening with `pitched`. A harmonic sieve disagrees and prefers f, since modes 0/2/4 also approximate 1:2:3 on f. The percept is bistable, the estimators contradict each other, and no measurement settles it. BJ's ear did: *„Ja, es reagiert."* The pitch follows the keyboard, the ratios stay as they are. **Anyone re-measuring this will rediscover the octave-below periodicity and take it for a defect. It is not.**
+
+**BJ's verdict, 2026-07-20** — the four controls read as colour and not as volume (*„ja, gleich laut"*), and it reads as a drum, *„eher ein rauschen. lässt sich mit filter, pitch und env gut bearbeiten"*. That observation is what produced the `wave` convention now recorded in §4: a continuously excited head is a noise you shape back into a drum, which is real effort spent to make the result worse.
 
 ---
 
@@ -202,9 +205,10 @@ Each of these actually happened. They are recorded because prose rules that depe
 ## 9. Open items, ranked
 
 1. `age` inaudible on instrument 1 (deferred by BJ; cause **found**, see §5 — two of its three components run at 0.04–0.06 Hz and are a static offset on a short note; needs a faster layer, not more depth).
-2. Instrument 2 (FM electric piano) — built and measured; awaiting BJ's ear in the built Standalone. Its own open item is the odd/even travel (§5).
-3. Instrument 3 (drum head) — built and measured; awaiting BJ's ear. Its own open item is the timpani octave, which is a listening question and not a measurable one (§5).
+2. **The three instruments are built.** Instruments 1 and 3 are ear-approved. Instrument 2 (FM electric piano) is the one still awaiting BJ's ear; its own open item is the odd/even travel (§5). The proof of concept BJ asked for — „wir beginnen mit 3 unterschiedlichen Instrumenten. die parametrisieren wir" — is complete, so **what comes next is a direction decision, not a fourth instrument.**
+3. **The `wave` convention** (§4) — named by BJ and explicitly deferred by him. It would turn the self-decay rule of thumb into a choice made in the prompt, and would reopen most of §6's rejection list. Not to be built without his say-so.
 4. The anchors are **calculated, not heard.** Where "sharp", "hollow", "old" sit on each axis is BJ's ear, not a measurement. This is the curation step and it cannot be delegated to a gate.
 5. Cross-cutting properties into generation (§8).
 6. The morph as a real waveform morph (§8) — backlog item #9, reopened.
 7. The ten hand-maintained sets (§8) — the growth blocker.
+8. The whole modal family (`glass`, `struck_bar`, `cymbal`, and now `drum_head`) drops ~20 dB and hits the limiter when `kfreq` jumps mid-voice — reachable with legato and glide. Every measurement of this family so far was taken on a *settled* bank, so "1.07 dB of within-note travel" must not be read as "this family has no loudness travel".
