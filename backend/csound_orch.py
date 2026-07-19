@@ -301,7 +301,13 @@ _LIVE_TECH = {"pwm", "sync", "supersaw", "chiptune", "brass", "strings",
               # tools/csound_morph_liveness_gate.py measures this rather than
               # trusting the list, so the next key made live cannot be forgotten.
               "organ", "additive", "harpsichord", "clarinet", "cheby",
-              "ring_mod"}
+              "ring_mod",
+              # The struck-metal FM keys, once their index started falling as the
+              # bell rings and their doublets started beating. A static partial
+              # bank cannot carry either. tools/csound_morph_liveness_gate.py
+              # caught all three the moment they became live -- which is exactly
+              # what it is for, and what the hand-maintained list failed at.
+              "fm", "fm_bell", "metallic_fm"}
 
 # Spectra with a partial BELOW the fundamental. _emit_morph aligns stages by
 # partial INDEX, which silently assumes every spectrum starts at ratio 1.0: give
@@ -1521,9 +1527,48 @@ def _emit_steady(technique, tag="0", nmodes=None):
         # deeper index spread the sidebands into dissonant metal (they were
         # byte-identical before, a degenerate duplicate; BJ ear-finding
         # 2026-07-18).
-        car, mod, ndx = {"fm_bell": ("1", "1.41", "3.2"),
-                         "metallic_fm": ("1", "2.41", "6.0")}.get(technique, ("1", "2", "1.8"))
-        L.append(f"  {ov}    foscili 0.5, kfreq, {car}, {mod}, {ndx}, giSine ; FM (foscili)")
+        # A STRUCK BELL IS NEVER STILL, and these three were: measured 0.0-0.2%
+        # spectral-centroid travel, literal standing tones, which is the "high
+        # whistling oscillator instead of real metallic sounds" finding against
+        # this family. The modal keys (cymbal/glass/struck_bar) were given real
+        # life; these kept a constant index and were left behind.
+        #
+        # Two things make struck metal sound like metal, and both are spectrum,
+        # not amplitude -- the synth still owns the envelope:
+        #
+        #   * The partials decay at DIFFERENT rates. High partials die first, so
+        #     the tone DARKENS as it rings. In FM that is the index falling, and
+        #     it is the same k-rate timbre shaper fm_ep already uses (softens,
+        #     then HOLDS -- the tone never dies on its own).
+        #   * Casting asymmetry splits each mode into a DOUBLET a few cents
+        #     apart, and the pair beats. That warble is what separates a bell
+        #     from a sine; a perfectly symmetric bell would not sound like one.
+        #     The two halves also ring with slightly different brightness, so the
+        #     twin gets its own slightly lower index.
+        #
+        # Per-note counter on the trig epoch rather than a reinit label, for the
+        # reason spelled out in fm_ep: this can be emitted inside the crossfade
+        # path's `if <gain> > 0` blocks, where a label and its reinit would sit
+        # inside a conditional.
+        car, mod, i0, i1, tau, det, a1, a2 = {
+            "fm_bell":     ("1", "1.41", 6.0, 1.45, 2.5, 1.0034, 0.38, 0.32),
+            "metallic_fm": ("1", "2.41", 9.0, 3.00, 3.0, 1.0057, 0.35, 0.30),
+        }.get(technique, ("1", "2", 4.0, 1.80, 2.0, 1.0021, 0.38, 0.32))
+        L.append(f"  ktm{tag}    init 0")
+        L.append(f"  if changed2(ktrig) == 1 then")
+        L.append(f"    ktm{tag}   = 0")
+        L.append(f"  endif")
+        L.append(f"  ktm{tag}    = ktm{tag} + 1/kr           ; seconds since this strike")
+        # foscili is not bandlimited and these indices are large, so the same cap
+        # the clarinet needs applies here: sidebands reach about
+        # kfreq*(car + mod*(index+1)), and past Nyquist they fold back onto a
+        # wrong pitch instead of ringing. Below the cap nothing changes.
+        L.append(f"  kbmx{tag}   limit (sr * 0.45 / kfreq - 1) / {mod} - 1, 0, 40 ; sideband room")
+        L.append(f"  kbrr{tag}   = {i1} + {i0 - i1:.2f} * (1 - min(ktm{tag} / {tau}, 1)) ; darkens as it rings")
+        L.append(f"  kbnx{tag}   min kbrr{tag}, kbmx{tag}       ; never alias the strike")
+        L.append(f"  abl{tag}    foscili {a1}, kfreq, {car}, {mod}, kbnx{tag}, giSine ; the bell")
+        L.append(f"  abt{tag}    foscili {a2}, kfreq * {det}, {car}, {mod}, kbnx{tag} * 0.94, giSine ; its doublet")
+        L.append(f"  {ov}    = abl{tag} + abt{tag}       ; the pair beats")
     elif technique == "cheby":
         # A CHEBYSHEV shaper, which is what the key is named after: a sine read
         # through a GEN13 transfer function produces exactly the harmonics that
