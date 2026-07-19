@@ -1614,12 +1614,38 @@ def _emit_steady(technique, tag="0", nmodes=None):
         # `balance` against a steady reference is this project's existing answer
         # to exactly that (spectral movement without loudness pumping, as used by
         # the motion waveshaper). It holds the level while the spectrum travels:
-        # +2.4 dB -> +0.01 dB with centroid travel unchanged, and as a side
-        # effect the level stops drifting with pitch. Default ihp: the follower
-        # settles inside the first 20 ms frame (0.9 dB below settled, no glitch),
-        # where ihp 50 tightens onset but pushes the peak to 0.82.
+        # +2.4 dB -> +0.01 dB, and as a side effect the level stops drifting with
+        # pitch.
+        #
+        # ihp 1, NOT the default 10, and the difference is the whole doublet.
+        # `balance` tracks rms through a low-pass at ihp, so it cancels every
+        # amplitude motion SLOWER than that -- and the beat is an amplitude
+        # motion, at |mod2 - mod| * kfreq, which is 0.05 * kfreq here. That
+        # crosses 10 Hz at 200 Hz, so the default follower ate the beat across the
+        # whole bottom of the register: measured against the same code without
+        # the line, -80% of the swing at 30 Hz, -74% at 55, -50% at 110, -30% at
+        # 220. A fix for an amplitude artifact was deleting the amplitude FEATURE
+        # tuned two paragraphs above, which is the same shape of loss as the
+        # regression the migration section of CLAUDE.md is about.
+        #
+        # The two are separable because they live on different timescales: the
+        # darkening runs over tau (2-3 s, i.e. ~0.06 Hz), the beat over 0.05 *
+        # kfreq (1 Hz at the 20 Hz clamp floor, 200 Hz at the top of the sweep).
+        # A follower at 1 Hz is ~15x faster than the darkening and at or below
+        # the beat everywhere. Measured swing against no balance at all:
+        # 80/79/96/100% retained at 20/30/55/110 Hz where the default kept
+        # 33/33/30/53%, with drift held to <=0.25 dB (uncorrected: +0.5 to
+        # -0.9 dB). It also stops the follower boosting the beat nulls, so the
+        # peak DROPS at every pitch -- fm_bell at 20 Hz goes 0.2726 -> 0.2081.
+        #
+        # Onset is not a consideration and was checked rather than assumed: the
+        # oscillator runs continuously inside the always-on `instr 1`, so the
+        # follower is long settled before any gate opens. At a retrigger the
+        # slower follower dips ~1 dB more for ~100 ms at the very bottom of the
+        # register (-4.0 vs -2.9 dB at 20 Hz, -1.7 vs -1.3 at 55, both within
+        # 0.3 dB by 200 ms), smoothly, under the synth's own attack.
         L.append(f"  abr{tag}    poscil {aref}, kfreq        ; steady level reference")
-        L.append(f"  {ov}    balance abs{tag}, abr{tag}   ; spectrum moves, loudness does not")
+        L.append(f"  {ov}    balance abs{tag}, abr{tag}, 1 ; loudness held, beat kept")
     elif technique == "cheby":
         # A CHEBYSHEV shaper, which is what the key is named after: a sine read
         # through a GEN13 transfer function produces exactly the harmonics that
