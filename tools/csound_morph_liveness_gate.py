@@ -20,9 +20,15 @@ emitted nothing but `oscili`: every idiom gone, silently, with the suite green.
 So the gate does not consult the list. It MEASURES which keys move, and then
 requires that a morph preserve the idiom of every key that does:
 
-  1. Render each technique alone and measure spectral-centroid travel.
+  1. Render every catalogue key alone and measure spectral-centroid travel.
   2. Any key above LIVE_TRAVEL is live, whatever any set says.
   3. Require every live key to take the CROSSFADE route.
+
+Step 1 takes its key list from the catalogue, not from a regex over the source.
+The first version scraped `technique == "..."` and so tested 30 of 39 keys,
+missing the three dispatched as `technique in (...)` -- which were the only
+untested keys routing to the partial-bank path. A gate that claims nothing has
+to be remembered must not itself depend on being remembered.
 
 Step 3 evaluates the assembler's own routing predicate rather than sniffing the
 emitted orchestra for opcode signatures. Signature-sniffing was tried first and
@@ -164,6 +170,12 @@ def takes_crossfade(M, key):
     because the routing there is entangled with chain assembly; if that condition
     moves, this gate must be updated with it -- which is the point, since the
     condition IS what the gate is testing.
+
+    Exact for the `key > sine` chains this gate builds, on all 39 keys. It is NOT
+    exact in general: a pure vowel pair such as `voice > voice_ee` routes to
+    _emit_voice_morph rather than the crossfade, so the `_VOICE_TECH` term here
+    is what makes it right against `sine` and wrong for vowel-only chains. Do not
+    reuse this for arbitrary chains without re-deriving it.
     """
     return (key in getattr(M, "_NOISE_TECH", set())
             or key in getattr(M, "_MODAL_TECH", set())
@@ -172,10 +184,29 @@ def takes_crossfade(M, key):
             or M._MORPH_SPECTRUM.get(key) in M._SUBFUND_SPECTRA)
 
 
+def technique_keys(M):
+    """Every routable key, from the catalogue -- NOT scraped out of the source.
+
+    This was `re.findall(r'technique == "..."')` over csound_orch.py, which found
+    30 of 39 keys and silently skipped the rest, because `fm`, `fm_bell` and
+    `metallic_fm` are dispatched as `technique in (...)`. Those three are exactly
+    the untested keys that route to the partial-bank path, so the gate's whole
+    claim -- that a key made live in future cannot be forgotten -- was false for
+    precisely the keys it most needed to cover. They measure 0.0% travel today,
+    so nothing is being flattened yet; give one of them a k-rate index wander,
+    which is the same edit that made the other ten keys live, and the old gate
+    stayed green. That is the original failure reproduced one level up.
+    """
+    keys = set(M._MORPH_SPECTRUM) | set(M._CS_TECH_EXTRA)
+    # Validation-only chain terminals: `x > silence` is a transient, and a
+    # terminal rendered alone is silence by definition, which the non-silence
+    # check below would rightly reject.
+    return sorted(keys - {"silence", "zero"})
+
+
 def main():
     M = _load()
-    src = (ROOT / "backend" / "csound_orch.py").read_text()
-    techs = sorted(set(re.findall(r'technique == "([a-z_0-9]+)"', src)))
+    techs = technique_keys(M)
     print(f"{'key':14s} {'travel':>8}  {'live?':6}  idiom in `key > sine`")
     failures = []
     for k in techs:
@@ -185,9 +216,23 @@ def main():
             print(f"{k:14s} {'RENDER FAILED':>8}")
             failures.append((k, "render failed", set()))
             continue
+        # A silent orchestra measures 0.0% travel and would sail through as
+        # "static". That is not hypothetical: an init error in a vco2 line
+        # deletes all 16 score instances, which IS the silence, and this gate
+        # would have called the result a well-behaved static key.
+        peak = float(np.abs(x).max())
+        if peak < 1e-4:
+            print(f"{k:14s} {'SILENT':>8}  <== renders no audio at all")
+            failures.append((k, "renders silent", set()))
+            continue
         travel = centroid_travel(sr, x)
         if travel < LIVE_TRAVEL:
-            print(f"{k:14s} {travel:7.1f}%  {'static':6}  (may be flattened)")
+            # Evaluate the routing even for static keys: this line used to say
+            # "(may be flattened)" unconditionally, which was the opposite of the
+            # truth for the noise beds and sub_sine, all of which take the
+            # crossfade path regardless of how still they are.
+            where = "flattened" if not takes_crossfade(M, k) else "crossfaded anyway"
+            print(f"{k:14s} {travel:7.1f}%  {'static':6}  ({where})")
             continue
         crossfaded = takes_crossfade(M, k)
         want = idioms(orc)
