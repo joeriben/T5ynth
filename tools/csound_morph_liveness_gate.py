@@ -61,11 +61,35 @@ ROOT = Path(__file__).resolve().parent.parent
 CS = "/opt/homebrew/bin/csound"
 SR = 48000
 DUR = 9.0
-HZ = 220.0
+
+# Liveness is measured ACROSS the register, not at one comfortable pitch.
+# Every serious defect in this subsystem has been at the ends: a bow control
+# inert above 2666 Hz, a bell index frozen above 2030 Hz, a reed that aliased
+# above sr/13. All three passed a 220 Hz check, because a key can move
+# perfectly at 220 Hz and be a standing tone two octaves up. A gate that samples
+# one pitch shares the blind spot of the code it is checking.
+#
+# The top of the sweep is 4 kHz rather than the 12 kHz clamp because above that
+# the limit is physical, not a defect: an FM bell or a clarinet bore at 8 kHz has
+# no sideband room left below Nyquist, so it MUST fall still. 4 kHz is the
+# highest pitch at which every live key can still be asked to move.
+SWEEP_HZ = (55.0, 220.0, 1200.0, 4000.0)
 
 # Below this, a key is static enough that a partial bank represents it. `sine`
 # measures 0.0% and the reworked acoustic keys 14-68%, so the boundary is wide.
 LIVE_TRAVEL = 5.0
+
+# Below this a key is not merely quieter in its motion, it is FROZEN --
+# indistinguishable from a key that has no motion at all (`sine` reads 0.0% and
+# `triangle`, which is genuinely static, 1.1-2.4%, so this is the metric's own
+# floor). The distinction matters: a mechanism can legitimately have less to act
+# on at some pitches -- a supersaw at 4 kHz has six harmonics below Nyquist, so
+# its detune moves the centroid 2.5% instead of 43.7% -- and that is physics, not
+# a defect. A control that has STOPPED is a defect, and it looks different:
+# metallic_fm's frozen index measured 0.07-0.21% while running 116% two octaves
+# down. Flagging the first kind would make this gate cry wolf, which costs
+# exactly as much as missing the second kind.
+DEAD_TRAVEL = 1.5
 
 # Keys that measure live but are deliberately still flattened, each with the
 # reason and the number. NOT a way to quiet the gate: an entry here is a claim
@@ -101,7 +125,7 @@ def _load():
     return mod
 
 
-def _playable(orc, dur):
+def _playable(orc, dur, hz):
     """Trim the 100-hour score to one held note on voice 1 and open its gate.
 
     BOTH the `i 1` instances AND the `e 360000` marker have to go: leaving the
@@ -111,7 +135,7 @@ def _playable(orc, dur):
     orc = orc.replace("%SR%", str(SR)).replace("-n -d", "-d")
     ctrl = ('\ninstr 900\n  chnset 1,"gate1"\n  chnset %s,"freq1"\n'
             '  chnset 0.8,"vel1"\n  chnset 1,"pres1"\n  chnset 0,"timb1"\n'
-            '  chnset 1,"trig1"\nendin\n' % HZ)
+            '  chnset 1,"trig1"\nendin\n' % hz)
     orc = orc.replace("</CsInstruments>", ctrl + "</CsInstruments>")
     keep = []
     for ln in orc.splitlines():
@@ -124,10 +148,10 @@ def _playable(orc, dur):
     return "\n".join(keep).replace("<CsScore>", f"<CsScore>\ni 900 0 {dur} 0")
 
 
-def render(orc, dur=DUR):
+def render(orc, hz, dur=DUR):
     d = Path(tempfile.mkdtemp())
     try:
-        (d / "t.csd").write_text(_playable(orc, dur))
+        (d / "t.csd").write_text(_playable(orc, dur, hz))
         subprocess.run([CS, "-o", str(d / "t.wav"), "-W", "--nodisplays",
                         str(d / "t.csd")], capture_output=True, text=True,
                        timeout=180)
@@ -207,33 +231,62 @@ def technique_keys(M):
 def main():
     M = _load()
     techs = technique_keys(M)
-    print(f"{'key':14s} {'travel':>8}  {'live?':6}  idiom in `key > sine`")
+    print(f"{'key':14s} " + " ".join(f"{h:.0f}Hz".rjust(7) for h in SWEEP_HZ)
+          + f"  {'live?':6}  idiom in `key > sine`")
     failures = []
     for k in techs:
         orc, _ = M.build_orchestra(oscs=[{"chain": [k], "vol": 1.0}])
-        sr, x = render(orc)
-        if sr is None:
+        travels, silent = [], False
+        for hz in SWEEP_HZ:
+            sr, x = render(orc, hz)
+            if sr is None:
+                travels = None
+                break
+            if float(np.abs(x).max()) < 1e-4:
+                silent = True
+                travels.append(0.0)
+                continue
+            travels.append(centroid_travel(sr, x))
+        if travels is None:
             print(f"{k:14s} {'RENDER FAILED':>8}")
             failures.append((k, "render failed", set()))
             continue
+        row = " ".join(f"{t:6.1f}%" for t in travels)
         # A silent orchestra measures 0.0% travel and would sail through as
         # "static". That is not hypothetical: an init error in a vco2 line
         # deletes all 16 score instances, which IS the silence, and this gate
         # would have called the result a well-behaved static key.
-        peak = float(np.abs(x).max())
-        if peak < 1e-4:
-            print(f"{k:14s} {'SILENT':>8}  <== renders no audio at all")
+        if silent:
+            print(f"{k:14s} {row}  <== renders no audio at all")
             failures.append((k, "renders silent", set()))
             continue
-        travel = centroid_travel(sr, x)
-        if travel < LIVE_TRAVEL:
+        # Liveness is judged on the MEDIAN across the sweep, not the best pitch.
+        # Best-pitch classification promotes keys on a single outlier reading:
+        # `saw` and `pulse` are genuinely static (1.5% in isolation) yet measure
+        # 14.9% and 9.8% at 4 kHz, because vco2 switches bandlimited tables as the
+        # analogue drift moves pitch across a table boundary and the harmonic
+        # count changes by one. That is a discontinuity in the measurement, not
+        # movement, and treating it as movement would force the two commonest
+        # waveforms onto the crossfade path for no musical reason.
+        #
+        # The freeze check below still runs per pitch, so using the median here
+        # does not weaken it: a key whose control has stopped somewhere is caught
+        # by DEAD_TRAVEL regardless of what the median says.
+        if float(np.median(travels)) < LIVE_TRAVEL:
             # Evaluate the routing even for static keys: this line used to say
             # "(may be flattened)" unconditionally, which was the opposite of the
             # truth for the noise beds and sub_sine, all of which take the
             # crossfade path regardless of how still they are.
             where = "flattened" if not takes_crossfade(M, k) else "crossfaded anyway"
-            print(f"{k:14s} {travel:7.1f}%  {'static':6}  ({where})")
+            print(f"{k:14s} {row}  {'static':6}  ({where})")
             continue
+        dead = [f"{h:.0f}Hz" for h, t in zip(SWEEP_HZ, travels) if t < DEAD_TRAVEL]
+        if dead and k not in FLATTEN_ANYWAY:
+            print(f"{k:14s} {row}  {'LIVE':6}  FROZEN at " + ", ".join(dead))
+            failures.append((k, "moves elsewhere but its motion has stopped at "
+                             + ", ".join(dead), set()))
+            continue
+        travel = max(travels)
         crossfaded = takes_crossfade(M, k)
         want = idioms(orc)
         morc, _ = M.build_orchestra(oscs=[{"chain": [k, "sine"], "vol": 1.0}])
@@ -246,7 +299,7 @@ def main():
             status = "FLATTENED to a partial bank"
             if lost:
                 status += " (loses " + ", ".join(sorted(lost)) + ")"
-        print(f"{k:14s} {travel:7.1f}%  {'LIVE':6}  {status}")
+        print(f"{k:14s} {row}  {'LIVE':6}  {status}")
         if not crossfaded and k not in FLATTEN_ANYWAY:
             failures.append((k, "takes the additive path", lost))
     print()
