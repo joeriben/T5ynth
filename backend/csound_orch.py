@@ -1613,9 +1613,17 @@ def _emit_steady(technique, tag="0", nmodes=None):
         #
         # `balance` against a steady reference is this project's existing answer
         # to exactly that (spectral movement without loudness pumping, as used by
-        # the motion waveshaper). It holds the level while the spectrum travels:
-        # +2.4 dB -> +0.01 dB, and as a side effect the level stops drifting with
-        # pitch.
+        # the motion waveshaper). It holds the level while the spectrum travels,
+        # and as a side effect the level stops drifting with pitch.
+        #
+        # The residual, measured strike-to-rest ON THIS CODE rather than carried
+        # over from the ihp-10 version: uncorrected +1.47 / +1.06 / +0.96 dB at
+        # 20 / 55 / 220 Hz, and +0.65 / +0.10 / +0.04 dB corrected. So the
+        # crescendo is removed everywhere it is audible and about a third of it
+        # survives at the 20 Hz clamp floor, where the follower is at the beat
+        # rate and can no longer separate the two. (The "+2.4 -> +0.01 dB" this
+        # paragraph used to quote was the ihp-10 measurement left in place when
+        # the cutoff changed. Neither figure reproduces on any window.)
         #
         # ihp 1, NOT the default 10, and the difference is the whole doublet.
         # `balance` tracks rms through a low-pass at ihp, so it cancels every
@@ -1629,21 +1637,33 @@ def _emit_steady(technique, tag="0", nmodes=None):
         # regression the migration section of CLAUDE.md is about.
         #
         # The two are separable because they live on different timescales: the
-        # darkening runs over tau (2-3 s, i.e. ~0.06 Hz), the beat over 0.05 *
-        # kfreq (1 Hz at the 20 Hz clamp floor, 200 Hz at the top of the sweep).
-        # A follower at 1 Hz is ~15x faster than the darkening and at or below
-        # the beat everywhere. Measured swing against no balance at all:
-        # 80/79/96/100% retained at 20/30/55/110 Hz where the default kept
-        # 33/33/30/53%, with drift held to <=0.25 dB (uncorrected: +0.5 to
-        # -0.9 dB). It also stops the follower boosting the beat nulls, so the
-        # peak DROPS at every pitch -- fm_bell at 20 Hz goes 0.2726 -> 0.2081.
+        # darkening runs over tau (2-3 s), the beat at |mod2-mod| * kfreq, and
+        # with kfreq clamped to 20 Hz at the bottom the beat never falls below
+        # 1.0 Hz for fm_bell, 1.4 for fm, 1.6 for metallic_fm. fm_bell is
+        # therefore the MARGINAL key -- its slowest beat sits exactly on the
+        # cutoff, not below it, which is why its 20 Hz retention (80%) is the
+        # worst cell in the table. The separation from the darkening is 15.7x
+        # for fm_bell, 12.6x for fm, 18.9x for metallic_fm. Measured swing
+        # against no balance at all: 80/79/96/100% retained at 20/30/55/110 Hz
+        # where the default kept 33/33/30/53%. Sample-rate independent, since
+        # both the beat rate and ihp are specified in Hz -- verified at 44.1 k.
         #
-        # Onset is not a consideration and was checked rather than assumed: the
-        # oscillator runs continuously inside the always-on `instr 1`, so the
-        # follower is long settled before any gate opens. At a retrigger the
-        # slower follower dips ~1 dB more for ~100 ms at the very bottom of the
-        # register (-4.0 vs -2.9 dB at 20 Hz, -1.7 vs -1.3 at 55, both within
-        # 0.3 dB by 200 ms), smoothly, under the synth's own attack.
+        # It also stops the follower boosting the beat nulls, so the peak DROPS
+        # at every pitch: fm_bell at 20 Hz goes 0.2726 -> 0.2081, and three
+        # layers at velocity 1.0 and full pressure peak at 0.4054 on 48 kHz and
+        # 0.4115 on 44.1 k, against the 0.8075 knee.
+        #
+        # Onset: the oscillator runs continuously inside the always-on `instr 1`,
+        # so on the STEADY path the follower is long settled before any gate
+        # opens. That is not true on the crossfade path, where this body is
+        # emitted inside `if <gain> > 0` and a stage's gain is exactly zero for
+        # its whole first leg -- the follower does not run, then restarts with a
+        # ~0.16 s time constant instead of ~0.016 s. Measured on that path, the
+        # worst extra dip against ihp 10 is 0.77 dB over ~150 ms, under a tent
+        # that is itself still below unity. At a retrigger, fm_bell dips -4.08 dB
+        # against -3.37 at 20 Hz and -2.67 against -2.21 at 55 Hz, and `fm` is
+        # the worst at -6.91 against -5.03; fm_bell at 20 Hz is still 0.56 dB
+        # down at 200-400 ms. Smooth, bounded, and under the synth's own attack.
         L.append(f"  abr{tag}    poscil {aref}, kfreq        ; steady level reference")
         L.append(f"  {ov}    balance abs{tag}, abr{tag}, 1 ; loudness held, beat kept")
     elif technique == "cheby":
