@@ -1008,6 +1008,51 @@ def _emit_steady(technique, tag="0", nmodes=None):
         L.append(f"  kdw{tag}    tonek kdt{tag}, 30          ; de-click the duty step")
         L.append(f"  ach{tag}    vco2 0.6, kfreq, 2, kdw{tag}     ; stepped chip duty")
         L.append(f"  {ov}    = ach{tag} - 0.6 * (2 * kdw{tag} - 1) ; {_DC_NOTE}")
+    elif technique == "organ":
+        # A drawbar organ is RANKS, and its life is that the ranks are never in
+        # lockstep -- separate tonewheels/pipes, each drifting on its own. The
+        # six-row (ratio, amp) table this replaces could not express either half
+        # of that: every partial sat at a fixed level on an exact integer, so the
+        # sound was frozen by construction ("ein voellig farbloser, langweiliger,
+        # statischer Orgelsound", BJ 2026-07-19).
+        #
+        # `gbuzz` is the substrate's own living harmonic stack: harmonic COUNT and
+        # amplitude ROLLOFF are k-rate, so the registration itself breathes -- the
+        # spectrum changes without anything sweeping across it. kmul is the ratio
+        # between successive harmonics, so 0.72 gives 1 / .72 / .52 / .37 / .27 /
+        # .19 / .14 / .10, close to the registration this replaces but continuous
+        # over ALL harmonics: the old table skipped the 5th and 7th, which a real
+        # drawbar set does not.
+        #
+        # The QUINT drawbars are what make an organ hollow rather than merely
+        # bright, and they are physically separate pipes -- so they are separate
+        # oscillators here, drifting against the body on their own incommensurate
+        # LFO. aq2 sits at 3x, where the body already has its own 3rd harmonic:
+        # the two beat. At 0.05% detune that is ~0.4 Hz at middle C, the slow roll
+        # a real rank pair has. This is decorrelated micro-life inside the
+        # generator, not one LFO moving everything together.
+        # The life is in the DETUNE BETWEEN RANKS, not in any LFO. A first attempt
+        # here put one slow LFO on gbuzz's kmul and measured 1.02 dB of travel in
+        # the built Standalone -- under the noise floor, i.e. still static, and PC1
+        # 0.675: one hidden variable again, the same mistake as a bus filter, just
+        # moved inside the generator. One gbuzz is ONE rank and cannot have
+        # independent partials by construction.
+        #
+        # So: real ranks, permanently a few cents apart, exactly as a pipe organ is
+        # built. Rank 4' sits +4 cents from where rank 8's own 2nd harmonic falls,
+        # so those two beat at 520*(2^(4/1200)-1) ~ 1.2 Hz; the quint's 2nd harmonic
+        # lands on the body's 3rd a few cents off and beats at its own, DIFFERENT
+        # rate. Every partial therefore beats against a different neighbour at a
+        # different speed -- decorrelated by construction, which no single LFO can
+        # be. The slow wander on top only keeps the beat rates from being perfectly
+        # fixed; it is the seasoning, not the mechanism.
+        L.append(f"  kw8{tag}    poscil 0.00035, 0.061        ; rank 8' tuning wander")
+        L.append(f"  kw4{tag}    poscil 0.00045, 0.083        ; rank 4', incommensurate")
+        L.append(f"  kwq{tag}    poscil 0.00030, 0.107        ; quint rank, incommensurate")
+        L.append(f"  a8{tag}     gbuzz 0.30, kfreq * (1 + kw8{tag}), 8, 1, 0.72, giCos ; 8' principal")
+        L.append(f"  a4{tag}     gbuzz 0.15, kfreq * 2.0023 * (1 + kw4{tag}), 5, 1, 0.66, giCos ; 4' octave, +4 cents")
+        L.append(f"  aq{tag}     gbuzz 0.10, kfreq * 1.4987 * (1 + kwq{tag}), 4, 1, 0.60, giCos ; 5 1/3' quint, -1.5 cents")
+        L.append(f"  {ov}    = a8{tag} + a4{tag} + aq{tag}")
     elif technique == "triangle":
         # vco2 imode 4 renders SILENT on this Csound build (the triangle band-
         # limited table is not pre-generated). Use the additive triangle (odd
@@ -1931,7 +1976,11 @@ def build_orchestra(technique_keys=None, adjective_keys=None, motion_key=None,
         f"ksmps = {KSMPS}\n"
         f"nchnls = {NCHNLS}\n"
         "0dbfs = 1\n"
-        "giSine ftgen 1, 0, 65536, 10, 1\n\n"
+        "giSine ftgen 1, 0, 65536, 10, 1\n"
+        # gbuzz reads a COSINE table (its harmonics are cosines). GEN11 with one
+        # partial is exactly that; a sine table here would phase-shift every
+        # harmonic against the fundamental.
+        "giCos  ftgen 2, 0, 65536, 11, 1\n\n"
         + seed + "\n"
         "instr 1\n"
         "  ivoice   = p4\n"
