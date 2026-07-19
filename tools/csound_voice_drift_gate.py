@@ -11,6 +11,7 @@ Two things must both be true, and they pull in opposite directions:
 So measure both, on the orchestra the engine actually emits.
 """
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -49,17 +50,20 @@ def render(key, nvoices, hz=220.0):
         keep.append("e" if ln.strip() == "e 360000" else ln)
     orc = "\n".join(keep).replace("<CsScore>", f"<CsScore>\ni 900 0 {DUR} 0")
     d = Path(tempfile.mkdtemp())
-    csd, wav = d / "t.csd", d / "t.wav"
-    csd.write_text(orc)
-    subprocess.run([CS, "-o", str(wav), "-W", "--nodisplays", str(csd)],
-                   capture_output=True, text=True, timeout=120)
-    sr, x = wavfile.read(wav)
-    if x.dtype.kind == "i":
-        x = x.astype(np.float64) / np.iinfo(x.dtype).max
-    # voices land on their own channels; sum them the way the engine's mixer does
-    n = min(nvoices, x.shape[1] if x.ndim > 1 else 1)
-    sig = x[:, :n].sum(axis=1) if x.ndim > 1 else x
-    return sr, sig
+    try:
+        csd, wav = d / "t.csd", d / "t.wav"
+        csd.write_text(orc)
+        subprocess.run([CS, "-o", str(wav), "-W", "--nodisplays", str(csd)],
+                       capture_output=True, text=True, timeout=120)
+        sr, x = wavfile.read(wav)
+        if x.dtype.kind == "i":
+            x = x.astype(np.float64) / np.iinfo(x.dtype).max
+        # voices land on their own channels; sum them like the engine's mixer
+        n = min(nvoices, x.shape[1] if x.ndim > 1 else 1)
+        sig = x[:, :n].sum(axis=1) if x.ndim > 1 else x
+        return sr, sig
+    finally:
+        shutil.rmtree(d, ignore_errors=True)   # 16-channel renders are large
 
 
 def beat_index(sr, sig):

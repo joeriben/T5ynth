@@ -1396,7 +1396,45 @@ def _emit_steady(technique, tag="0", nmodes=None):
         L.append(f"  endif")
         L.append(f"  ktm{tag}    = ktm{tag} + 1/kr           ; seconds since this note")
         L.append(f"  kndx{tag}   = 1.30 + 2.90 * (1 - min(ktm{tag} / 1.6, 1)) ; tine -> mellow, holds")
-        L.append(f"  {ov}    foscili 0.5, kfreq, 1, 1, kndx{tag}, giSine ; 1:1 tine EP")
+        L.append(f"  afm{tag}    foscili 0.5, kfreq, 1, 1, kndx{tag}, giSine ; 1:1 tine EP")
+        # A 1:1 carrier:modulator ratio puts a sideband exactly on 0 Hz -- the
+        # partial at kcps*(kcar - n*kmod) reaches DC whenever kcar/kmod is a whole
+        # number. Measured, this was +0.030 = 23.4% of the key's own peak, the
+        # largest offset anywhere in the instrument, and because the index
+        # deliberately travels 4.20 -> 1.30 over the first 1.6 s, the offset
+        # TRAVELS WITH IT (+0.024 .. +0.034): a sub-audio excursion on every note,
+        # thumping as the gate opens and closes on it, and eating headroom
+        # throughout. The other FM keys are clean and cannot have this -- their
+        # ratios (1:1.41, 1:2.41, 1:2) are not whole numbers, so no sideband can
+        # land on zero. Only fm_ep, whose 1:1 IS the tine-EP sound, is exposed.
+        #
+        # The ratio is therefore kept and the offset subtracted at the source,
+        # like `pulse`, `chiptune` and `wgclar` before it. Two things had to be
+        # established first, and the second one cost a wrong fix before it was.
+        #
+        # 1. The offset is PREDICTABLE. Measured on the emitted orchestra it is
+        #    identical across all 16 voices (+0.03074 at every one), and within
+        #    +-2% across 220/330 Hz and 44100/48000 Hz. It depends on the index
+        #    alone, which is what makes a single curve legitimate.
+        # 2. It must be measured HERE, on this orchestra, not on a test
+        #    instrument. A 1:1 ratio's DC term depends on the fixed phase
+        #    relationship between carrier and modulator, and that relationship is
+        #    not the same in a freshly started instrument as in this always-on
+        #    `instr 1`. A curve fitted to a standalone `foscili` came out with the
+        #    opposite sign and made the offset WORSE when applied (23.4% -> 21.2%,
+        #    and swinging both ways instead of one). The numbers below come from
+        #    the real oscillator with the output stage patched to emit it
+        #    unscaled, so they are oscillator-referred -- the frame this
+        #    subtraction lives in.
+        #
+        # It does NOT follow -J1(index)*amp, the textbook Bessel term, so this is
+        # an empirical degree-4 fit over the only range the line above can produce
+        # (index 1.30..4.20): DC runs -0.021 at 4.06, peaks +0.136 near 1.89, and
+        # settles at +0.1205 = 24% of the oscillator's own peak. Residual after
+        # correction 0.0016, i.e. 0.3% of peak against the 24% removed.
+        L.append(f"  kdcf{tag}   = ((((0.0015893 * kndx{tag} - 0.0073783) * kndx{tag} "
+                 f"- 0.0415075) * kndx{tag} + 0.1894223) * kndx{tag} - 0.0437699)")
+        L.append(f"  {ov}    = afm{tag} - kdcf{tag}       ; the 1:1 ratio's DC, measured")
     elif technique in ("fm_bell", "fm", "metallic_fm"):
         # FM via foscili: an inharmonic-ish carrier:modulator ratio gives the
         # bell/metal sideband spectrum natively (no partial table). metallic_fm

@@ -56,6 +56,7 @@ going pins the output at full scale, and a crest factor of 1.00 is not a
 sustaining texture, it is a clipped one. Lowering kamp did not help (bamboo at
 kamp 0.02 still measured crest 1.01) -- the saturation is inside the model.
 """
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -117,20 +118,26 @@ e
 </CsScore>
 </CsoundSynthesizer>
 """
+    # Always clean up: these renders are large, and a probe that fills the disk
+    # is worse than no probe. (Learned the hard way -- an untrimmed 16-channel
+    # score once wrote a single 21 GB wav here.)
     d = Path(tempfile.mkdtemp())
-    csd, wav = d / "t.csd", d / "t.wav"
-    csd.write_text(orc)
-    r = subprocess.run([CS, "-o", str(wav), "-W", "--nodisplays", str(csd)],
-                       capture_output=True, text=True, timeout=90)
-    if not wav.exists():
-        errs = [l for l in (r.stderr or "").splitlines() if "error" in l.lower()]
-        return None, (errs[:2] or [(r.stderr or "")[-160:]])
-    sr, x = wavfile.read(wav)
-    if x.ndim > 1:
-        x = x[:, 0]
-    if x.dtype.kind == "i":
-        x = x.astype(np.float64) / np.iinfo(x.dtype).max
-    return (sr, x.astype(np.float64)), None
+    try:
+        csd, wav = d / "t.csd", d / "t.wav"
+        csd.write_text(orc)
+        r = subprocess.run([CS, "-o", str(wav), "-W", "--nodisplays", str(csd)],
+                           capture_output=True, text=True, timeout=90)
+        if not wav.exists():
+            errs = [l for l in (r.stderr or "").splitlines() if "error" in l.lower()]
+            return None, (errs[:2] or [(r.stderr or "")[-160:]])
+        sr, x = wavfile.read(wav)
+        if x.ndim > 1:
+            x = x[:, 0]
+        if x.dtype.kind == "i":
+            x = x.astype(np.float64) / np.iinfo(x.dtype).max
+        return (sr, x.astype(np.float64)), None
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
 
 
 def f0_of(sr, x, t0, t1):
