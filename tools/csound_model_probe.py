@@ -180,26 +180,6 @@ e
         shutil.rmtree(d, ignore_errors=True)
 
 
-def f0_of(sr, x, t0, t1):
-    """Autocorrelation pitch. The search window must cover the SYNTH's range.
-
-    It used to stop at sr/40, so every probe pitch below 40 Hz was unmeasurable
-    by construction and came back as a wild cents error -- `mode` at 20 Hz read
-    +7973 cents while sitting, spectrally, exactly on 20.0 Hz with 96% of its
-    energy in band. Read harmonic_frac() before believing any verdict from here.
-    """
-    seg = x[int(sr * t0):int(sr * t1)]
-    seg = seg - seg.mean()
-    if not np.any(seg):
-        return 0.0
-    ac = np.correlate(seg, seg, "full")[len(seg) - 1:]
-    ac = ac / ac[0]
-    lo, hi = int(sr / 16000), min(int(sr / 15), len(ac) - 1)
-    if hi <= lo:
-        return 0.0
-    return sr / (lo + int(np.argmax(ac[lo:hi])))
-
-
 def harmonic_frac(sr, x, hz, t0=1.0, t1=3.0):
     """How much energy sits on the comb n*hz -- the one test that fits BOTH kinds.
 
@@ -213,22 +193,36 @@ def harmonic_frac(sr, x, hz, t0=1.0, t1=3.0):
     for -- is the model playing the pitch it was ASKED for -- and it answers it
     the same way for a near-sinusoidal resonator and a full harmonic comb.
 
-    Returns (fraction, n_low). n_low closes this test's OWN blind spot: a model
-    asked for 20 Hz that actually plays 320 Hz scores a perfect comb fraction,
-    because 320 IS a multiple of 20. So we also report the lowest harmonic
-    carrying real energy -- n_low == 1 means the model is on the asked pitch,
-    n_low == 16 means it transposed the whole tone up by four octaves while
-    looking immaculate on the fraction alone.
+    Returns (fraction, n_low, nbins). n_low closes this test's OWN blind spot: a
+    model asked for 20 Hz that actually plays 320 Hz scores a perfect comb
+    fraction, because 320 IS a multiple of 20. So we also report the lowest
+    harmonic carrying real energy -- n_low == 1 means the model is on the asked
+    pitch, n_low == 16 means it transposed the whole tone up by four octaves
+    while looking immaculate on the fraction alone.
+
+    The "carries energy" threshold is 1% of the strongest comb bin, not 10%. It
+    has to admit a genuinely weak fundamental -- streson at 220 Hz peaks on its
+    3rd harmonic and is perfectly in tune -- while still excluding a fundamental
+    that is absent rather than quiet, which for a true octave-up tone sits at
+    numerical zero. 1% separates those cleanly; 10% did not, and a 10% threshold
+    combined with an `n_low > 3` verdict passed a model a full octave-and-a-fifth
+    sharp at every pitch.
+
+    nbins is how many comb members exist below Nyquist. When it is 1 the register
+    check is not merely passing, it is UNANSWERABLE -- at 12 kHz on a 48 kHz
+    orchestra the octave above is 24 kHz, so nothing can distinguish "plays the
+    asked pitch" from "plays the octave". Callers must not read n_low == 1 as a
+    pass there, which is the top of the range this probe exists to cover.
     """
     seg = x[int(sr * t0):int(sr * t1)]
     if seg.size < 1024 or np.abs(seg).max() < 1e-6:
-        return 0.0, 0
+        return 0.0, 0, 0
     w = seg * np.hanning(len(seg))
     mag = np.abs(np.fft.rfft(w)) ** 2
     freq = np.fft.rfftfreq(len(w), 1.0 / sr)
     total = mag.sum()
     if total <= 0:
-        return 0.0, 0
+        return 0.0, 0, 0
     bins = []
     for n in range(1, 25):
         f = hz * n
@@ -238,10 +232,14 @@ def harmonic_frac(sr, x, hz, t0=1.0, t1=3.0):
         # neighbouring harmonic never falls inside it.
         bins.append(float(mag[(freq > f * 0.97) & (freq < f * 1.03)].sum()))
     if not bins:
-        return 0.0, 0
+        return 0.0, 0, 0
     strongest = max(bins)
-    n_low = next((i + 1 for i, b in enumerate(bins) if b >= 0.10 * strongest), 0)
-    return float(sum(bins) / total), n_low
+    if strongest <= 0:
+        # No comb energy at all. Returning n_low = 1 here would read as "on the
+        # asked pitch" for a signal that has nothing on the comb whatsoever.
+        return 0.0, 0, len(bins)
+    n_low = next((i + 1 for i, b in enumerate(bins) if b >= 0.01 * strongest), 0)
+    return float(sum(bins) / total), n_low, len(bins)
 
 
 # The synth's own pitch clamp, ends included. See the module docstring for why
@@ -250,13 +248,13 @@ NOTES = (20.0, 25.0, 40.0, 110.0, 220.0, 440.0, 880.0, 2000.0, 4500.0, 12000.0)
 
 
 def classify(sr, x, hz):
-    """(harmonic fraction, sustain, note) for one rendered pitch.
+    """(harmonic fraction, sustain, note, register_checkable) for one pitch.
 
     `note` names a hard failure so a model cannot be waved through on an average:
     DC and SILENT are disqualifying wherever they appear, not soft marks.
     """
     if x.size == 0 or np.abs(x).max() < 1e-4:
-        return None, 0.0, "SILENT"
+        return None, 0.0, "SILENT", True
     head = np.sqrt(np.mean(x[:int(sr * DUR * 0.2)] ** 2))
     tail = np.sqrt(np.mean(x[int(sr * DUR * 0.8):] ** 2))
     sustain = float(tail / (head or 1e-12))
@@ -265,12 +263,16 @@ def classify(sr, x, hz):
     # the AC part has to be tested separately from the level.
     seg = x[int(sr * 0.5):int(sr * 1.5)]
     if seg.size and np.std(seg) < 0.02 * max(np.abs(seg).max(), 1e-12):
-        return None, sustain, "DC"
-    frac, n_low = harmonic_frac(sr, x, hz)
-    if n_low > 3:
-        # On the comb, but starting octaves up: it is playing its own register.
-        return None, sustain, f"x{n_low}"
-    return frac, sustain, ""
+        return None, sustain, "DC", True
+    frac, n_low, nbins = harmonic_frac(sr, x, hz)
+    checkable = nbins >= 2
+    if checkable and n_low > 1:
+        # On the comb, but not starting on the fundamental: it is playing its
+        # own register. n_low == 2 is an octave sharp and n_low == 3 an
+        # octave-and-a-fifth -- both were passing while `wgflute` was rejected
+        # for the same error expressed in cents.
+        return None, sustain, f"x{n_low}", checkable
+    return frac, sustain, "", checkable
 
 
 names = sys.argv[1:] or list(MODELS)
@@ -279,16 +281,18 @@ print(f"{'opcode':12s} {'sustain':>8}   " +
                 for n in NOTES) + "   verdict")
 for name in names:
     line = MODELS[name]
-    cells, sustains, fail = [], [], None
+    cells, sustains, unchecked, fail = [], [], [], None
     for hz in NOTES:
         out, err = render(line, hz)
         if out is None:
             fail = err
             break
         sr, x = out
-        frac, sus, note = classify(sr, x, hz)
+        frac, sus, note, checkable = classify(sr, x, hz)
         cells.append(note or f"{frac * 100:.0f}%")
         sustains.append(sus)
+        if not checkable:
+            unchecked.append(hz)
     if fail:
         print(f"{name:12s} FAIL {fail}")
         continue
@@ -304,10 +308,19 @@ for name in names:
         verdict.append("DC/inaudible")
     if any(c == "SILENT" for c in cells):
         verdict.append("silent")
-    live = [s for s, c in zip(sustains, cells) if c.endswith("%")]
+    # Sustain is a property of every pitch that produced audio, including ones
+    # rejected on pitch. Restricting it to "%" cells printed 0.000 for a model
+    # that sustains perfectly but is out of tune everywhere -- and in this
+    # table's own legend 0.000 means "one-shot, not a tone", which is what got
+    # marimba and vibes rejected. A model must not be condemned on a figure that
+    # was never measured.
+    live = [s for s, c in zip(sustains, cells) if c != "SILENT"]
     if live and min(live) < 0.15:
         verdict.append("DECAYS")
+    if unchecked:
+        verdict.append("register unverifiable at "
+                       + "/".join(f"{h:.0f}" for h in unchecked))
     row = "  ".join(c.rjust(7) for c in cells)
-    sus = min(live) if live else 0.0
-    print(f"{name:12s} {sus:8.3f}   {row}   "
+    sus = f"{min(live):8.3f}" if live else "     n/a"
+    print(f"{name:12s} {sus}   {row}   "
           + ("  <== " + ", ".join(verdict) if verdict else "usable"))
