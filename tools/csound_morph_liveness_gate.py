@@ -89,7 +89,15 @@ LIVE_TRAVEL = 5.0
 # metallic_fm's frozen index measured 0.07-0.21% while running 116% two octaves
 # down. Flagging the first kind would make this gate cry wolf, which costs
 # exactly as much as missing the second kind.
-DEAD_TRAVEL = 1.5
+#
+# 0.6, not 1.5. The margin has to hold at EVERY sample rate, and the reading it
+# was calibrated against does not: supersaw at 4 kHz measures 2.46% at 48 kHz but
+# 1.27% at 44.1 kHz, because fewer harmonics fit below a lower Nyquist. At 1.5
+# this gate failed a healthy key the moment the orchestra ran at 44.1 k -- a
+# threshold that follows the sample rate, which is the exact fault this project
+# rejected wgclar for. Frozen controls read 0.00-0.21%, so 0.6 keeps a factor of
+# ~2 below the worst legitimate reading and ~3 above the worst broken one.
+DEAD_TRAVEL = 0.6
 
 # Keys that measure live but are deliberately still flattened, each with the
 # reason and the number. NOT a way to quiet the gate: an entry here is a claim
@@ -260,6 +268,36 @@ def main():
             print(f"{k:14s} {row}  <== renders no audio at all")
             failures.append((k, "renders silent", set()))
             continue
+        # THE FREEZE SCAN RUNS FIRST, before any classification can `continue`
+        # past it. It used to sit after the median branch, and that ordering
+        # reproduced, inside this gate, the exact fault the gate exists to catch:
+        # a key frozen at 3 of 4 sweep pitches has a median near zero, so it was
+        # relabelled "static" -- which is also the label that makes a key
+        # eligible for the flatten path -- and its freeze was never reported. The
+        # sensitivity was inverted: the WORSE the regression, the more likely the
+        # gate called it healthy. Injecting the historic clip so that three keys
+        # became standing tones from 167 Hz upward made this gate print OK and
+        # exit 0.
+        #
+        # The commit's own meta-verification passed only because the historic
+        # freeze started at 2030 Hz and left 2 of 4 pitches alive -- i.e. it
+        # tested the single case the design happened to catch. A gate must be
+        # falsified where it is WEAKEST, not where the last bug happened to be.
+        # The discriminator is the COLLAPSE, not the magnitude. A magnitude bar
+        # cannot work: `saw`'s vco2 table-switch artifact reads 14.9%, HIGHER
+        # than a genuinely broken bell's best surviving pitch (6.7%). What
+        # separates them is that a healthy static key never reads near zero
+        # anywhere -- saw's floor is 1.7%, pulse's 2.6%, triangle's 1.1% -- while
+        # a stopped control reads 0.00-0.21%. So: moves somewhere, near-zero
+        # somewhere else.
+        if max(travels) >= LIVE_TRAVEL:
+            dead = [f"{h:.0f}Hz" for h, t in zip(SWEEP_HZ, travels)
+                    if t < DEAD_TRAVEL]
+            if dead and k not in FLATTEN_ANYWAY:
+                print(f"{k:14s} {row}  {'LIVE':6}  FROZEN at " + ", ".join(dead))
+                failures.append((k, "moves elsewhere but its motion has stopped "
+                                 "at " + ", ".join(dead), set()))
+                continue
         # Liveness is judged on the MEDIAN across the sweep, not the best pitch.
         # Best-pitch classification promotes keys on a single outlier reading:
         # `saw` and `pulse` are genuinely static (1.5% in isolation) yet measure
@@ -279,12 +317,6 @@ def main():
             # crossfade path regardless of how still they are.
             where = "flattened" if not takes_crossfade(M, k) else "crossfaded anyway"
             print(f"{k:14s} {row}  {'static':6}  ({where})")
-            continue
-        dead = [f"{h:.0f}Hz" for h, t in zip(SWEEP_HZ, travels) if t < DEAD_TRAVEL]
-        if dead and k not in FLATTEN_ANYWAY:
-            print(f"{k:14s} {row}  {'LIVE':6}  FROZEN at " + ", ".join(dead))
-            failures.append((k, "moves elsewhere but its motion has stopped at "
-                             + ", ".join(dead), set()))
             continue
         travel = max(travels)
         crossfaded = takes_crossfade(M, k)

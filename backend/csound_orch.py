@@ -1558,10 +1558,10 @@ def _emit_steady(technique, tag="0", nmodes=None):
         # reason spelled out in fm_ep: this can be emitted inside the crossfade
         # path's `if <gain> > 0` blocks, where a label and its reinit would sit
         # inside a conditional.
-        car, mod, mod2, i0, i1, tau, a1, a2 = {
-            "fm_bell":     ("1", "1.41", "1.46", 6.0, 1.45, 2.5, 0.40, 0.26),
-            "metallic_fm": ("1", "2.41", "2.49", 9.0, 3.00, 3.0, 0.37, 0.24),
-        }.get(technique, ("1", "2", "2.07", 4.0, 1.80, 2.0, 0.40, 0.26))
+        car, mod, mod2, i0, i1, tau, a1, a2, aref = {
+            "fm_bell":     ("1", "1.41", "1.46", 6.0, 1.45, 2.5, 0.40, 0.26, 0.46),
+            "metallic_fm": ("1", "2.41", "2.49", 9.0, 3.00, 3.0, 0.37, 0.24, 0.44),
+        }.get(technique, ("1", "2", "2.07", 4.0, 1.80, 2.0, 0.40, 0.26, 0.46))
         L.append(f"  ktm{tag}    init 0")
         L.append(f"  if changed2(ktrig) == 1 then")
         L.append(f"    ktm{tag}   = 0")
@@ -1602,7 +1602,24 @@ def _emit_steady(technique, tag="0", nmodes=None):
         # note stays steady while the upper partials shimmer -- which is what a
         # bell does.
         L.append(f"  abt{tag}    foscili {a2}, kfreq, {car}, {mod2}, kbnx{tag} * 0.94, giSine ; its doublet")
-        L.append(f"  {ov}    = abl{tag} + abt{tag}       ; the pair beats")
+        L.append(f"  abs{tag}    = abl{tag} + abt{tag}       ; the pair beats")
+        # A falling FM index CONCENTRATES energy into the carrier -- J0 rises as
+        # the index drops -- so the sum gets LOUDER as the bell rings: measured
+        # +2.4 dB strike to rest, a crescendo on a struck sound, and backwards.
+        # With both carriers now on kfreq they also add coherently, which
+        # sharpens it. That is still an amplitude shape owned by the oscillator,
+        # the category this branch is not allowed to touch, just 15 dB smaller
+        # than the tremolo it replaced.
+        #
+        # `balance` against a steady reference is this project's existing answer
+        # to exactly that (spectral movement without loudness pumping, as used by
+        # the motion waveshaper). It holds the level while the spectrum travels:
+        # +2.4 dB -> +0.01 dB with centroid travel unchanged, and as a side
+        # effect the level stops drifting with pitch. Default ihp: the follower
+        # settles inside the first 20 ms frame (0.9 dB below settled, no glitch),
+        # where ihp 50 tightens onset but pushes the peak to 0.82.
+        L.append(f"  abr{tag}    poscil {aref}, kfreq        ; steady level reference")
+        L.append(f"  {ov}    balance abs{tag}, abr{tag}   ; spectrum moves, loudness does not")
     elif technique == "cheby":
         # A CHEBYSHEV shaper, which is what the key is named after: a sine read
         # through a GEN13 transfer function produces exactly the harmonics that
