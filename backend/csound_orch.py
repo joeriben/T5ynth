@@ -992,12 +992,48 @@ def _emit_steady(technique, tag="0", nmodes=None):
         L.append(f"  apl{tag}    vco2 0.6, kfreq, 2, 0.30    ; narrow pulse (30%% width)")
         L.append(f"  {ov}    = apl{tag} + 0.2400         ; {_DC_NOTE}")
     elif technique == "clarinet":
-        # cylindrical reed: the odd-only square family IS the textbook
-        # approximation (lexicon), but a real clarinet's odd harmonics roll off
-        # above ~the 9th -- that rolloff is what separates it from a raw square.
-        L.append(f"  acl{tag}    vco2 0.6, kfreq, 2, 0.5     ; odd-only source")
-        L.append(f"  kcl{tag}    limit kfreq * 9, 100, 15000 ; reed rolloff ~9th harmonic")
-        L.append(f"  {ov}    butterlp acl{tag}, kcl{tag}")
+        # Csound's own reed waveguide, instead of a square filtered down to look
+        # like one. A clarinet is a cylindrical pipe closed at the reed end, and
+        # the odd-harmonic spectrum is a CONSEQUENCE of that boundary condition,
+        # not a recipe to imitate: wgclar solves the pipe, so the odd series, the
+        # rolloff and the way both shift with embouchure come out for free.
+        #
+        # Measured before adopting it (tools/csound_model_probe.py), against the
+        # two criteria this instrument imposes on any library model:
+        #   pitch    +-1 cent at 110 / 220 / 440 / 660 / 880 / 1200 Hz. This is the
+        #            test wgflute FAILED (+1945 cents at 110 Hz), which is why the
+        #            flute is not a waveguide -- the fault was wgflute's, not the
+        #            method's, and wgclar is the proof.
+        #   sustain  1.056 over 4 s: it stands. Its `iatt` is an i-rate onset that
+        #            runs once when the always-on `instr 1` starts, NOT per note,
+        #            so the model is a continuously blown pipe that the synth's own
+        #            envelope gates. The envelope stays the synth's.
+        # Spectrum at 660/880/1200 Hz: 2nd harmonic 44-49 dB down, 3rd only 10-13 dB
+        # down -- the textbook cylindrical bore, which the filtered square only
+        # approximated.
+        #
+        # kngain (breath noise) and the vibrato pair are ZERO on purpose. The synth
+        # owns the noise module and owns vibrato; an oscillator that bakes in either
+        # takes the choice away from the player. What moves is EMBOUCHURE: kstiff is
+        # k-rate, and a player's lip pressure is never constant, which shifts the
+        # reed's reflection and with it the whole harmonic balance.
+        #
+        # The model carries a small positive DC of its own -- a reed is an
+        # asymmetric valve, it opens one way, so this is the physics and not a
+        # defect. Measured stable at +0.0019 .. +0.0022 across 110/262/523/880 Hz
+        # AND across the embouchure cycle (2.5-2.9% of peak), so unlike the
+        # even-harmonic and 1:1-FM offsets elsewhere in this file it does not
+        # wander and can simply be subtracted, the way `chiptune` subtracts its
+        # duty offset. Fixed at the source; no DC-blocking filter.
+        #
+        # The constant is OSCILLATOR-referred, not output-referred. Everything
+        # downstream multiplies by kvol*kmix*kvel*kpresGain*0.32, so subtracting
+        # the figure measured at the OUTPUT removes only about a quarter of it --
+        # which is exactly what happened on the first attempt: 0.00205 took the
+        # measured 0.0020 down to 0.0015 rather than to zero.
+        L.append(f"  kemb{tag}   poscil 0.09, 0.19            ; embouchure, slow")
+        L.append(f"  acl{tag}    wgclar 0.55, kfreq, 0.26 + kemb{tag}, 0.05, 0.2, 0, 0, 0, giSine")
+        L.append(f"  {ov}    = acl{tag} - 0.0078          ; trim the reed's DC offset")
     elif technique == "chiptune":
         # a real chip lead is a pulse whose DUTY STEPS between the chip's three
         # settings (12.5 / 25 / 50%) -- the stepping IS the chiptune signature,
@@ -1093,29 +1129,61 @@ def _emit_steady(technique, tag="0", nmodes=None):
         L.append(f"  aslv{tag}, adum{tag}  syncphasor kfreq * krat{tag}, asyn{tag}")
         L.append(f"  {ov}    = (aslv{tag} * 2 - 1) * 0.45  ; hard-synced saw")
     elif technique == "brass":
-        # the lexicon's own spec taken literally: "opens from a dark 6-harmonic
-        # set to a brighter 12-harmonic set". On a live substrate that is a
-        # resonant lowpass BREATHING between 6*f0 and 12*f0 -- brass under breath
-        # pressure -- rather than two frozen keyframes.
-        L.append(f"  abr{tag}    vco2 0.6, kfreq, 0          ; saw source")
-        L.append(f"  kbr{tag}    oscili 0.5, 0.22            ; slow breath cycle")
-        L.append(f"  kcut{tag}   limit kfreq * (9 + 6 * kbr{tag}), 100, 15000 ; 6..12 harmonics")
-        # rezzy, not moogladder: measured 11.7us vs 116us for the SAME orchestra
-        # (and more centroid travel, 263Hz vs 130Hz). moogladder's cost is real --
-        # three brass oscillators, which the 3-osc architecture allows, benched
-        # 341us against the 133us block gate (257% of budget, a hard FAIL).
-        L.append(f"  arz{tag}    rezzy abr{tag}, kcut{tag}, 8   ; brass formant push")
-        L.append(f"  {ov}    = arz{tag} * 1.35           ; level-match the saw family")
+        # The lexicon asks for "opens from a dark 6-harmonic set to a brighter
+        # 12-harmonic set", and this used to do it with a resonant lowpass on a
+        # saw. That is backwards about the instrument. A trumpet does not get
+        # bright because something UNCOVERS harmonics that were always there: at
+        # high playing pressure the wave travelling down the bore STEEPENS towards
+        # a shock, and the upper harmonics are MADE by that nonlinearity. It is why
+        # brass is quiet-and-round but loud-and-blazing, and why the change is so
+        # much more dramatic than any filter.
+        #
+        # `gbuzz` generates the series rather than filtering one: kmul is the ratio
+        # between successive harmonics, so breath pressure driving kmul from 0.30
+        # to 0.72 genuinely adds upper partials. No filter anywhere in this branch.
+        #
+        # The BELL FORMANT is fixed in Hz and does NOT track the played pitch --
+        # that is the point of it. A trumpet's bell radiates a broad peak around
+        # 1.2 kHz wherever the note sits, so the timbre changes character across
+        # the register: the same instrument is dark low and piercing high. A
+        # pitch-tracking resonance would have made every note sound identical,
+        # which is the single most synthetic thing about filtered-saw brass.
+        L.append(f"  kbp{tag}    poscil 0.5, 0.22             ; breath pressure, slow")
+        L.append(f"  kbm{tag}    = 0.51 + 0.21 * kbp{tag}       ; pressure steepens the wave")
+        L.append(f"  klw{tag}    poscil 0.0006, 0.083         ; lip instability, own rate")
+        L.append(f"  abz{tag}    gbuzz 0.5, kfreq * (1 + klw{tag}), 12, 1, kbm{tag}, giCos ; lip + bore")
+        L.append(f"  abl{tag}    reson abz{tag}, 1200, 900, 2   ; bell formant, FIXED in Hz")
+        L.append(f"  {ov}    = abz{tag} * 0.95 + abl{tag} * 0.40")
     elif technique == "strings":
-        # ensemble = several players slightly apart: 3 gently detuned saws, plus
-        # the lexicon's "slow, gentle harmonic-count breathing motion" as a
-        # bright, slow filter breath (brighter, slower and far gentler than brass).
-        for i, r in enumerate((1.0, 1.0042, 0.9958)):
-            L.append(f"  ase{tag}x{i}  vco2 0.6, kfreq * {r:.4f}, 0")
-        L.append(f"  aens{tag}   = (ase{tag}x0 + ase{tag}x1 + ase{tag}x2) * 0.30 ; ensemble")
-        L.append(f"  kbr{tag}    oscili 0.5, 0.13            ; gentle, slow breathing")
-        L.append(f"  kcut{tag}   limit kfreq * (14 + 4 * kbr{tag}), 100, 15000")
-        L.append(f"  {ov}    butterlp aens{tag}, kcut{tag}")
+        # A string section is PLAYERS. The old version had the ensemble half right
+        # -- three detuned saws -- but then put ONE slow filter over the sum, so
+        # every player brightened and darkened in perfect unison. Real desks do not
+        # breathe together; that is the whole difference between a section and a
+        # chorus effect on one violin.
+        #
+        # So each player gets two processes of their own, at rates that share no
+        # common factor with anyone else's: an INTONATION drift (nobody holds a
+        # pitch exactly) and a BOW PRESSURE that opens and closes their own
+        # harmonic series (nobody bows at a constant weight). Six independent
+        # variables where there used to be one, and no partial is driven by
+        # anything another partial is driven by.
+        #
+        # gbuzz rather than a saw + filter, for the same reason as brass: bow
+        # pressure genuinely changes how much upper harmonic a string radiates,
+        # and kmul does that directly instead of filtering a fixed spectrum.
+        players = ((1.0000, 0.061, 0.089), (1.0042, 0.073, 0.107),
+                   (0.9958, 0.047, 0.127))
+        for i, (det, rd, rb) in enumerate(players):
+            L.append(f"  ksd{tag}x{i}  poscil 0.0009, {rd}         ; player {i+1} intonation")
+            L.append(f"  ksb{tag}x{i}  poscil 0.07, {rb}           ; player {i+1} bow pressure")
+            L.append(f"  ase{tag}x{i}  gbuzz 0.30, kfreq * {det:.4f} * (1 + ksd{tag}x{i}), "
+                     f"10, 1, 0.55 + ksb{tag}x{i}, giCos")
+        L.append(f"  aens{tag}   = ase{tag}x0 + ase{tag}x1 + ase{tag}x2 ; the desk")
+        # The instrument's BOX, fixed in Hz like the brass bell: a violin body's
+        # main resonances sit near 460 Hz whatever note is stopped, which is why a
+        # violin has a register character at all.
+        L.append(f"  abd{tag}    reson aens{tag}, 460, 380, 2 ; body resonance, FIXED")
+        L.append(f"  {ov}    = aens{tag} * 0.85 + abd{tag} * 0.30")
     elif technique == "bass_saw":
         # the lexicon's own spec: "harmonic count ceilinged near 24 for a
         # rolled-off low end" -- a literal 24th-harmonic ceiling the code never had.
