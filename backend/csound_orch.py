@@ -1250,8 +1250,16 @@ def _emit_steady(technique, tag="0", nmodes=None):
         # there, which is honest: at 12 kHz there is no room for it to move in.
         L.append(f"  kbrc{tag}   poscil 0.5, 0.19             ; breath pressure, slow")
         L.append(f"  kndmx{tag}  limit (sr * 0.45 / kfreq - 1) / 2 - 1, 0, 40 ; sideband room")
-        L.append(f"  kndr{tag}   = 1.15 + 0.55 * kbrc{tag}      ; the reed opens the series")
-        L.append(f"  kndc{tag}   min kndr{tag}, kndmx{tag}       ; never alias the bore")
+        # Scaled into the room rather than clipped to it, for the reason spelled
+        # out at the bell: `min(breath, cap)` kills the breath outright once the
+        # cap drops under its floor. It did -- the cap first binds at 0.0769*sr
+        # (3692 Hz at 48 kHz, i.e. sr/13.0), NOT at the sr/6 = 8000 Hz an earlier
+        # version of this comment claimed, because the reed index only spans
+        # 0.875..1.425 and the cap was sized against a wider range. Breath travel
+        # was fully dead from 4547 Hz. Scaling keeps it alive at every pitch that
+        # has room, shallower as the room shrinks.
+        L.append(f"  kntp{tag}   min 1.425, kndmx{tag}        ; brightest the band allows")
+        L.append(f"  kndc{tag}   = kntp{tag} * (0.807 + 0.386 * kbrc{tag}) ; the reed opens the series")
         L.append(f"  {ov}    foscili 0.55, kfreq, 1, 2, kndc{tag}, giSine ; cylindrical bore")
     elif technique == "chiptune":
         # a real chip lead is a pulse whose DUTY STEPS between the chip's three
@@ -1550,10 +1558,10 @@ def _emit_steady(technique, tag="0", nmodes=None):
         # reason spelled out in fm_ep: this can be emitted inside the crossfade
         # path's `if <gain> > 0` blocks, where a label and its reinit would sit
         # inside a conditional.
-        car, mod, i0, i1, tau, det, a1, a2 = {
-            "fm_bell":     ("1", "1.41", 6.0, 1.45, 2.5, 1.0034, 0.38, 0.32),
-            "metallic_fm": ("1", "2.41", 9.0, 3.00, 3.0, 1.0057, 0.35, 0.30),
-        }.get(technique, ("1", "2", 4.0, 1.80, 2.0, 1.0021, 0.38, 0.32))
+        car, mod, mod2, i0, i1, tau, a1, a2 = {
+            "fm_bell":     ("1", "1.41", "1.46", 6.0, 1.45, 2.5, 0.40, 0.26),
+            "metallic_fm": ("1", "2.41", "2.49", 9.0, 3.00, 3.0, 0.37, 0.24),
+        }.get(technique, ("1", "2", "2.07", 4.0, 1.80, 2.0, 0.40, 0.26))
         L.append(f"  ktm{tag}    init 0")
         L.append(f"  if changed2(ktrig) == 1 then")
         L.append(f"    ktm{tag}   = 0")
@@ -1564,10 +1572,36 @@ def _emit_steady(technique, tag="0", nmodes=None):
         # kfreq*(car + mod*(index+1)), and past Nyquist they fold back onto a
         # wrong pitch instead of ringing. Below the cap nothing changes.
         L.append(f"  kbmx{tag}   limit (sr * 0.45 / kfreq - 1) / {mod} - 1, 0, 40 ; sideband room")
-        L.append(f"  kbrr{tag}   = {i1} + {i0 - i1:.2f} * (1 - min(ktm{tag} / {tau}, 1)) ; darkens as it rings")
-        L.append(f"  kbnx{tag}   min kbrr{tag}, kbmx{tag}       ; never alias the strike")
+        # SCALE the ring into the room, never CLIP it to the room. `min(ramp,
+        # cap)` looks equivalent and is not: as soon as the cap falls below the
+        # ramp's floor it flattens the whole thing, and the key becomes the exact
+        # standing tone this branch exists to remove. metallic_fm froze from
+        # 2030 Hz -- A6, ordinary playing range -- and measured 0.07-0.21%
+        # travel, WORSE than the 0.0-0.2% it replaced, with the threshold
+        # following the sample rate like every other bug in this file's history.
+        # Scaling keeps the same proportional darkening at every pitch that has
+        # any room at all, and only genuinely runs out when the room does.
+        L.append(f"  kbtp{tag}   min {i0}, kbmx{tag}          ; brightest the band allows")
+        L.append(f"  kbnx{tag}   = kbtp{tag} * ({i1 / i0:.4f} + {1 - i1 / i0:.4f} * "
+                 f"(1 - min(ktm{tag} / {tau}, 1))) ; darkens as it rings")
         L.append(f"  abl{tag}    foscili {a1}, kfreq, {car}, {mod}, kbnx{tag}, giSine ; the bell")
-        L.append(f"  abt{tag}    foscili {a2}, kfreq * {det}, {car}, {mod}, kbnx{tag} * 0.94, giSine ; its doublet")
+        # The twin differs by its MODULATOR ratio, and its carrier sits exactly on
+        # the fundamental. Detuning the carrier instead -- the obvious way to
+        # build a doublet -- makes every sideband beat at the same rate and null
+        # at the same instant, so the pair does not warble, it TREMOLOS: measured
+        # 17-19 dB of rms swing at the beat period, an amplitude envelope
+        # generated inside the oscillator, which is precisely what the oscillator
+        # must not own (that belongs to the synth). Removing the carrier detune
+        # took it to 3.5 dB and widening the twin's ratio to 2.2 dB, with the
+        # spectral travel unchanged at ~137%.
+        #
+        # It is also the better physics. A real bell carries a doublet on EACH
+        # partial with a different split, so the nulls never coincide; one shared
+        # carrier detune forces them to. Two modulator ratios spread the
+        # sidebands apart instead, so each beats at its own rate, and the hum
+        # note stays steady while the upper partials shimmer -- which is what a
+        # bell does.
+        L.append(f"  abt{tag}    foscili {a2}, kfreq, {car}, {mod2}, kbnx{tag} * 0.94, giSine ; its doublet")
         L.append(f"  {ov}    = abl{tag} + abt{tag}       ; the pair beats")
     elif technique == "cheby":
         # A CHEBYSHEV shaper, which is what the key is named after: a sine read
