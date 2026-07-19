@@ -49,7 +49,8 @@ DEFAULT_MORPH_SEC = 1.4   # intrinsic morph duration when the prompt gives no sp
 # them had no consumer left the moment that morph went; keeping partial tables
 # named after `saw`, `square` and `sine` lying around is how the additive path
 # grew back the first time. Only the three the resonator bank actually reads
-# survive, and _MODAL_TECH / _MODAL_PARAMS list exactly the same three.
+# survive, and _MODAL_PARAMS lists exactly those same three (_MODAL_TECH also
+# carries the parametrised drum_head, which computes its own spectrum).
 _MODAL_SPECTRA = {
     # bright inharmonic "glass" sheen.
     "glass":    [(1.00, 1.00), (2.71, 0.62), (3.83, 0.44), (5.17, 0.30), (6.61, 0.20), (8.09, 0.13)],
@@ -71,7 +72,7 @@ _MODAL_SPECTRA = {
 _TONAL_KEYS = frozenset({
     "sine", "sub_sine", "theremin", "additive",
     "organ", "flute", "harpsichord", "glass",
-    "fm_bell", "metallic_fm", "struck_bar", "cymbal",
+    "fm_bell", "metallic_fm", "struck_bar", "cymbal", "drum_head",
     "fm", "fm_ep", "ring_mod",
     "saw", "supersaw", "brass", "strings", "bass_saw", "sync",
     "square", "clarinet", "chiptune", "pulse", "triangle", "pwm", "cheby",
@@ -202,7 +203,10 @@ _NOISE_TECH = {"noise", "pink_noise", "wind", "rain", "surf", "thunder",
 # tools/csound_keys_gate.py peaks), and a Q range (first->last mode).
 # The exciter is CONTINUOUS, so a held note stands (platform fundamental); the
 # stochastic drive gives the metal live micro-shimmer a static bank cannot have.
-_MODAL_TECH = {"struck_bar", "cymbal", "glass"}
+# drum_head is here for the CPU budget only -- it has no _MODAL_SPECTRA /
+# _MODAL_PARAMS entry, because its spectrum comes from its four controls.
+# _emit_steady dispatches it before this set is ever tested.
+_MODAL_TECH = {"struck_bar", "cymbal", "glass", "drum_head"}
 _MODAL_PARAMS = {
     #             exc,   master, Q first, Q last
     "struck_bar": (0.06, 0.150,  900, 1400),   # tuned bar: clear, ringing modes
@@ -535,7 +539,21 @@ _FMEP_DEFAULTS = {"ting": 0.55, "ring": 0.25, "reed": 0.75, "strike": 0.64}
 # CANONICAL key -> {param: {anchor: value}}. A future parametrised
 # instrument just adds its own entry here (and its own _emit_xxx / dispatch
 # line) -- _extract_osc_params below is generic over this registry.
-_PARAM_SCHEMAS = {"analog_osc": _AOSC_ANCHORS, "fm_ep": _FMEP_ANCHORS}
+# drum_head: the THIRD parametrised key. Same contract again; see _emit_drum_head.
+_DRUM_ANCHORS = {
+    "pitched": {"tom": 0.0, "mixed": 0.5, "timpani": 1.0},
+    "spot":    {"centre": 0.0, "halfway": 0.5, "rim": 1.0},
+    "tension": {"slack": 0.0, "normal": 0.5, "tight": 1.0},
+    "damping": {"open": 0.0, "damped": 0.5, "muffled": 1.0},
+}
+_DRUM_DEFAULTS = {"pitched": 0.25, "spot": 0.35, "tension": 0.5, "damping": 0.35}
+
+# Registry of every technique key that takes parameters, keyed by its
+# CANONICAL key -> {param: {anchor: value}}. A future parametrised
+# instrument just adds its own entry here (and its own _emit_xxx / dispatch
+# line) -- _extract_osc_params below is generic over this registry.
+_PARAM_SCHEMAS = {"analog_osc": _AOSC_ANCHORS, "fm_ep": _FMEP_ANCHORS,
+                  "drum_head": _DRUM_ANCHORS}
 
 
 # ── csound-specific multi-oscillator LLM schema ──────────────────────────────
@@ -1637,6 +1655,273 @@ def _emit_fm_ep(tag, params):
     return "\n".join(L)
 
 
+# ── drum_head: constants + params -> Csound (the parametrised membrane) ─────
+# A stretched circular membrane rings at the zeros of a Bessel function, which
+# are NOT whole-number multiples of the fundamental -- that is the whole reason
+# a drum reads as a drum and not as a low note, and it is the substance of this
+# instrument rather than a detail of it.
+_DRUM_IDEAL = (1.000, 1.594, 2.136, 2.296, 2.653, 2.918, 3.156, 3.501)
+# Loading the head with the air in a kettle drags those spacings towards whole
+# numbers until a definite pitch appears. These are the principal timpani modes
+# and they are very nearly 2:3:4:5:6:7 -- which is exactly why a kettledrum has
+# a note and a tom does not.
+_DRUM_TIMPANI = (1.000, 1.500, 1.990, 2.440, 2.890, 3.330, 3.770, 4.210)
+# The modes that breathe evenly across the whole skin rather than rippling
+# around it (the axially symmetric ones). A stroke in the dead centre can only
+# wake these; a stroke at the rim barely touches them. Indices into the tuples
+# above.
+_DRUM_AXISYMMETRIC = frozenset({0, 3})
+_DRUM_EXC = 0.07          # continuous exciter, in the range the three existing
+                          # modal keys use (0.05-0.09)
+_DRUM_MASTER = 3.5        # NOT comparable to the other modal banks' master
+                          # gains: those scale a peak-normalised spectrum, this
+                          # scales one levelled on emitted power (_drum_bank_rms),
+                          # which is a different unit. Set by measurement, on RMS
+                          # rather than peak because RMS is what the ear compares
+                          # when switching keys: at 110Hz the three neighbouring
+                          # modal keys sit at rms 0.084-0.090 (cymbal/glass/
+                          # struck_bar), and this lands drum_head at 0.085.
+                          # Headroom checked at the same time, since levelling on
+                          # RMS says nothing about peaks. Worst true peak over 16
+                          # corners x 6 pitches is 0.757, at the brightest,
+                          # longest-ringing corner at 20Hz. Measure PRE-clip if
+                          # you revisit this: the output of `clip 0, 0.95, 0.85`
+                          # asymptotes at ~0.879 no matter how hard it is driven,
+                          # so a post-clip reading of 0.879 is the limiter's
+                          # ceiling being reported as though it were margin --
+                          # at that same corner the pre-clip signal is 1.000 at
+                          # vel=0.8 and 1.601 at vel=1.0 with three layers
+                          # stacked. Inside the 50-200Hz band this instrument is
+                          # for, nothing clips even at vel=1.0 (110Hz: 0.452 one
+                          # layer, 0.767 three). The margin is thin only at the
+                          # infrasonic extreme, and cymbal behaves identically
+                          # (0.762/0.879), so this is the family's shared
+                          # ceiling rather than something drum_head introduced.
+# Q is bounded by RING-UP time, not by taste. A `mode` resonator reaches steady
+# state in roughly Q/(pi*f) seconds, and a drum lives at 50-200Hz where that
+# gets long fast: Q=220 at 110Hz is a 0.64s time constant, so the note is still
+# growing seconds after it starts. Measured at that value, damping=open made
+# loudness travel +2.61dB over the note -- an audible swell, and a straight
+# breach of the rule that colour may travel and loudness may not. Q=60 would
+# give 0.17s there; 28 gives 0.08s, which is what it took to hold the travel
+# inside 1dB at the LOW pitches this instrument actually lives at.
+_DRUM_Q_OPEN = 28.0       # first mode, damping=0: rings, and still settles
+_DRUM_Q_MUFFLED = 5.0     # first mode, damping=1: broad enough to read as a thud
+_DRUM_Q_TILT = 0.35       # the top mode's Q as a fraction of the first mode's --
+                          # higher modes always die back faster on a real skin
+
+
+def _resolve_drum_head_params(raw):
+    """A possibly-partial/None {name: float 0..1} -> the complete 4-key dict,
+    filling any missing or invalid entry with its documented default
+    (dco_lexicon.json drum_head.params[name].default; mirrored in
+    _DRUM_DEFAULTS). Guards the SHAPE as well as the values, because a direct
+    caller of build_orchestra can hand this anything."""
+    raw = raw if isinstance(raw, dict) else {}
+    out = dict(_DRUM_DEFAULTS)
+    for k, v in raw.items():
+        if k not in out:
+            continue
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            continue
+        if 0.0 <= fv <= 1.0:
+            out[k] = fv
+    return out
+
+
+def _drum_head_spectrum(p):
+    """The four controls -> [(ratio, amplitude), ...], the membrane's partials.
+
+    `pitched` interpolates the RATIOS from the ideal membrane to the tuned
+    kettledrum, so the drum acquires a definite pitch without the played pitch
+    moving at all -- pitch belongs to the synth, and this control only decides
+    whether the sound HAS one.
+
+    `spot` and `tension` shape the AMPLITUDES, and they are deliberately two
+    different things rather than two names for brightness. `spot` decides WHICH
+    modes are woken: a centre stroke can only excite the axially symmetric ones
+    and rolls off steeply above them, a rim stroke spreads energy up the bank
+    and barely touches them. `tension` then tilts whatever is there, geometric
+    in the mode index, so a slack head keeps only its lowest partials and a
+    tight one carries its upper ones.
+
+    The amplitudes come back UNNORMALISED. What the bank is worth in loudness
+    depends on the resonator Q as much as on these weights, and Q is not known
+    here -- see `_emit_drum_head`, which levels the bank once it has both."""
+    n = len(_DRUM_IDEAL)
+    pitched, spot = p["pitched"], p["spot"]
+    tilt = 0.35 + 1.30 * p["tension"]
+    spec = []
+    for i in range(n):
+        ratio = _DRUM_IDEAL[i] + (_DRUM_TIMPANI[i] - _DRUM_IDEAL[i]) * pitched
+        centre_w = 1.0 / (1.0 + i)                      # steep: only the low modes
+        rim_w = 0.35 + 0.65 * (i / (n - 1))             # spread up the bank
+        amp = centre_w + (rim_w - centre_w) * spot
+        if i == 0:
+            # The fundamental has to GET OUT OF THE WAY on the tom side, or the
+            # instrument's whole substance is inaudible. Measured with a flat
+            # weight, autocorrelation pitchedness sat at 0.840 for an ideal
+            # membrane and 0.844 for a tuned kettledrum -- i.e. `pitched` moved
+            # nothing, because a dominant partial at ratio 1.0 reads as a pitch
+            # whatever the partials above it are doing. This is also the
+            # physical truth: a tom's lowest mode is heavily air-damped, which
+            # is exactly why it thumps instead of singing.
+            amp *= 0.40 + 0.60 * pitched
+        if i in _DRUM_AXISYMMETRIC:
+            w = 1.40 + (0.50 - 1.40) * spot             # 1.40 at centre, 0.50 at rim
+            # ...but only while those indices ARE the axially symmetric modes.
+            # The two ratio tuples are aligned by list POSITION, not by physical
+            # mode: _DRUM_IDEAL is the Bessel set, whose m=0 modes are indices 0
+            # and 3, while _DRUM_TIMPANI lists (1,1)(2,1)(3,1)... -- not one of
+            # which is axially symmetric. Holding the boost across the
+            # interpolation would apply a centre-strike emphasis to two modes a
+            # centre strike cannot excite at all, so it fades out with `pitched`.
+            amp *= 1.0 + (w - 1.0) * (1.0 - pitched)
+        amp *= tilt ** (i / (n - 1))
+        spec.append((ratio, amp))
+    return spec
+
+
+def _drum_bank_rms(spec, qs):
+    """The RMS a noise-driven `mode` bank will actually emit, in arbitrary units
+    -- for LEVEL-MATCHING one control setting against another, nothing else.
+
+    Why this is an integral and not a sum. The obvious normalisation is
+    sum(a^2): treat the modes as independent and add their powers. They are not
+    independent -- every resonator in the bank is fed the SAME noise, so where
+    two bands overlap they add in amplitude, not in power. Measured on the real
+    opcode, two modes at Q=5 a fifth apart put out 0.70dB MORE than the sum of
+    their powers, and at a 1.075 spacing 2.74dB more. This is not a correction
+    factor, it is the difference between two spacings of the drum's own ratios,
+    and no sum can see it. So integrate |sum_i H_i|^2 over frequency and let the
+    cross terms fall out on their own.
+
+    H_i is a `mode` resonator, whose peak gain runs as a*Q/f -- fixed not by
+    reading the opcode but by rendering it: single-mode power over a grid of
+    frequency and Q fits P ~ Q^1.020 / f^1.015, i.e. Q/f, worst residual 0.63dB.
+    The model reproduces the measured two-mode overlap to within 0.04dB at every
+    spacing and Q tried, and predicts the rendered level of the whole bank to
+    within 0.21dB across the 16 corners -- against 4.62dB worst for sum(a^2).
+
+    MEASURE THIS UNCLIPPED. Two modes at unit amplitude peak near 2.9 against
+    0dbfs=1, so a 16-bit render hard-clips them and every number above comes out
+    wrong in a plausible-looking way: the fit degrades to Q^0.956/f^0.951 with a
+    1.4dB residual that invites being blamed on the opcode, and the Q=28 overlap
+    reads -0.6dB, i.e. an apparent CANCELLATION that does not exist (it is
+    +0.01dB). Render to float, or scale the test signal down.
+
+    Frequency is in units of the played pitch, so kfreq cancels -- it is common
+    to every mode and this is only ever used as a ratio. The grid is
+    logarithmic because the resonances are narrow: at Q=28 a peak's half-width
+    is 1.8% of its centre, and a linear grid coarse enough to be cheap would
+    step straight over it."""
+    if not spec:
+        return 1.0
+    lo = 0.02
+    hi = max(r for r, _ in spec) * 6.0
+    n = 6000
+    step = math.log(hi / lo) / n
+    total = 0.0
+    terms = [(r, a / r, q) for (r, a), q in zip(spec, qs)]
+    for k in range(n + 1):
+        x = lo * math.exp(k * step)
+        sre = sim = 0.0
+        for r, g0, q in terms:
+            u = x / r
+            dre = 1.0 - u * u
+            dim = u / q
+            g = g0 / (dre * dre + dim * dim)
+            sre += g * dre
+            sim -= g * dim
+        total += (sre * sre + sim * sim) * x * step   # dx = x*step on a log grid
+    return math.sqrt(total) or 1.0
+
+
+def _emit_drum_head(tag, params, nmodes=None):
+    """The parametrised drum head -> `aosc<tag>`: a bank of `mode` resonators at
+    a membrane's inharmonic ratios, driven by continuous low-level noise -- the
+    same idiom the cymbal/glass/struck_bar keys already use, and the reason a
+    held note STANDS here. The skin is a resonating object being excited, so
+    there is no self-decay to fake and no amplitude envelope to smuggle in: the
+    synth still owns the envelope, exactly as it does everywhere else.
+
+    A real drum is of course a STRUCK, dying thing, and the honest way to say
+    what this is instead is a bowed or rubbed head -- a membrane held in
+    excitation. That is a deliberate reading of the platform rule that a
+    self-decay is acceptable only where there is no other way: here there is
+    another way, so it is taken, and the strike itself belongs to the player's
+    envelope rather than to the oscillator.
+
+    `damping` sets the resonator Q: open leaves narrow clear resonances that
+    sing, muffled broadens them until the bank reads as a coloured thud. Q
+    always falls across the bank, because higher modes die back faster on a real
+    skin. Because Q is also what decides how much power the bank emits, moving
+    it means re-levelling the bank -- see the normalisation below; without that
+    step `muffled` is a 4dB fader wearing a colour control's name.
+
+    Per-mode k-rate gating mutes any resonator the played pitch would push past
+    the safe band -- a `mode` filter near Nyquist is unstable, so this mutes
+    rather than clamps, and no pinned high whine can survive.
+
+    MEASURING THIS BANK: use RMS windows of about a second, never a tenth. A
+    narrow resonator fed with noise emits narrowband noise, whose envelope
+    fluctuates on a timescale of Q/f -- so two short windows sample one slowly
+    varying random envelope at two arbitrary phases and report the difference
+    as drift. Measured over the same corners: 9.02 dB of apparent loudness
+    travel with 0.1s windows, 1.07 dB with 1.0s windows. The first number is an
+    artefact of the metric and nearly bought a fix for a defect that was not
+    there; the second is the real ring-up and is within tolerance. Re-measured
+    after the normalisation went to _drum_bank_rms: worst first-second-to-last-
+    second travel is 1.57 dB, at maximum Q with only the low modes awake
+    (pitched/centre/slack/open), and it is a 20Hz figure -- that same corner at
+    55Hz is -0.15 dB, and the worst over all 16 corners at 55Hz is 0.43 dB.
+
+    AND A REAL ENSEMBLE IS HARDER THAN IT LOOKS. Averaging over renders is the
+    right instinct, but `rand` carries its OWN iseed (default 0.5) and ignores a
+    global `seed` statement, so an orchestra re-rendered under a dozen different
+    seeds is bit-identical every time -- max abs diff 0.0. Every ensemble figure
+    quoted while this instrument was built was one realisation wearing an
+    ensemble's name; the conclusions survived re-measurement with distinct
+    iseeds, but they were not entitled to. Vary the iseed, and check that two
+    renders actually differ before trusting the average of many."""
+    p = _resolve_drum_head_params(params)
+    spec = _thin(_drum_head_spectrum(p), nmodes)
+    n = len(spec)
+    q0 = _DRUM_Q_OPEN + (_DRUM_Q_MUFFLED - _DRUM_Q_OPEN) * p["damping"]
+    q1 = q0 * _DRUM_Q_TILT
+    qs = [max(2.0, q0 + (q1 - q0) * (i / (n - 1) if n > 1 else 0.0))
+          for i in range(n)]
+    # Level the bank on the power it will ACTUALLY emit, so that four COLOUR
+    # controls do not double as faders. Normalising on sum(a^2) left `damping`
+    # acting as a 4dB volume control and `spot` swinging 3-5dB across its
+    # travel, because it ignored both the Q/f weighting and the overlap between
+    # bands -- see _drum_bank_rms. Done here rather than in _drum_head_spectrum
+    # because Q is only known here, and AFTER _thin so a bank thinned to fit the
+    # CPU budget keeps its loudness instead of quietly losing its dropped modes.
+    # Measured after: worst full-travel swing of any control is 0.24dB at 110Hz
+    # and above, 0.46dB at 55Hz, 1.92dB at 20Hz -- the bottom figure is `mode`
+    # departing from an ideal 2-pole down there, and is left rather than fitted
+    # away, since a drum head at 20Hz is a rumble and the instrument lives at
+    # 50-200Hz. All four colour axes still travel: definiteness 0.26->0.53,
+    # `spot` centroid 346->491Hz, `tension` 378->455Hz, `damping` in-band
+    # fraction 0.302->0.196.
+    norm = _drum_bank_rms(spec, qs)
+    L = [f"  aexq{tag}   rand {_DRUM_EXC}                    ; continuous exciter -- "
+         f"the skin is driven, a held note stands"]
+    terms = []
+    for i, ((r, a), q) in enumerate(zip(spec, qs)):
+        a /= norm
+        L.append(f"  k{tag}qf{i}   limit kfreq * {r:.4f}, 20, 15000")
+        L.append(f"  k{tag}qg{i}   = (kfreq * {r:.4f} < 15000 ? {a:.3f} : 0)")
+        L.append(f"  a{tag}q{i}   mode aexq{tag}, k{tag}qf{i}, {q:.1f}      "
+                 f"; mode {i + 1} @ x{r:.2f}, Q {q:.0f}")
+        terms.append(f"a{tag}q{i} * k{tag}qg{i}")
+    L.append(f"  aosc{tag}    = ({' + '.join(terms)}) * {_DRUM_MASTER:.3f}")
+    return "\n".join(L)
+
+
 def _emit_steady(technique, tag="0", nmodes=None, params=None):
     """A single (non-morph) technique -> `aosc<tag>`. Uses Csound's native
     opcodes; every temporary is suffixed with `tag` (per-osc uniqueness).
@@ -1649,6 +1934,12 @@ def _emit_steady(technique, tag="0", nmodes=None, params=None):
         return _emit_noise(technique, tag)
     if technique in _VOICE_TECH:
         return _emit_voice(technique, tag)
+    if technique == "drum_head":
+        # BEFORE the _MODAL_TECH branch on purpose: drum_head is in that set so
+        # _modal_budget counts its resonator bank against the CPU budget, but
+        # its spectrum is computed from parameters rather than looked up in
+        # _MODAL_SPECTRA, so it must never reach _emit_modal.
+        return _emit_drum_head(tag, (params or {}).get("drum_head"), nmodes)
     if technique in _MODAL_TECH:
         return _emit_modal(technique, tag, nmodes)
     if technique == "analog_osc":
@@ -3287,10 +3578,34 @@ def build_csound_response(text, llm):
         # vol clamp, muted-drop / unity-promotion) so the metadata never lies about
         # what the orchestra plays.
         rendered = _normalize_oscs(None, oscs)
+
+        # The panel's parametrisation surface (BJ, 2026-07-19): NOT the raw Csound
+        # source -- the catalogue entry (why + knob anchor words) each ACTUALLY
+        # rendered technique key resolved to, one block per distinct key in
+        # first-use order. Reuses dco_llm_map's own "<key>: <why>" / "params:"
+        # line builders (the exact text the 7B was shown) so this can never drift
+        # into a second, hand-maintained gloss.
+        by_key = {t["key"]: t for t in lex_cs["techniques"]}
+        seen_keys = set()
+        param_blocks = []
+        for osc in rendered:
+            for key in osc["chain"]:
+                if key in seen_keys or key not in by_key:
+                    continue
+                seen_keys.add(key)
+                t = by_key[key]
+                block = f"{t['key']}: {t['why']}"
+                pl = dco_llm_map._params_line(t)
+                if pl:
+                    block += "\n" + pl
+                param_blocks.append(block)
+        params_text = "\n\n".join(param_blocks)
+
         return {
             "ok": True,
             "orchestra": orchestra,
             "reading": reading,
+            "params_text": params_text,
             "oscillators": rendered,
             # Whether the plugin may overwrite hand-set octave controls with the
             # registers above. Naming a register in WORDS ("an octave below") is

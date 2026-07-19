@@ -424,6 +424,76 @@
       }
     },
     {
+      "key": "drum_head",
+      "surface_forms": [
+        "drum",
+        "drum head",
+        "drumhead",
+        "tom",
+        "floor tom",
+        "timpani",
+        "kettledrum",
+        "membrane",
+        "skin",
+        "taiko",
+        "frame drum",
+        "hand drum",
+        "trommel",
+        "pauke"
+      ],
+      "template": {
+        "keyframes": [{"kind": "saw"}],
+        "motion": [{"to": 0, "dur_frac": 0.0, "curve": "lin"}],
+        "loop": true,
+        "frames": 256,
+        "motion_rate_hz": 0.25
+      },
+      "priority": 10,
+      "why": "drum head / tom / timpani / taiko: a stretched membrane resonating, whose partials are NOT a harmonic series -- that is what makes a drum a drum; pitched = indefinite tom to definite kettledrum, spot = struck in the centre or at the rim, tension = slack and dull to tight and bright, damping = ringing open or muffled to a thud",
+      "params": {
+        "pitched": {
+          "range": [0.0, 1.0],
+          "default": 0.25,
+          "note": "how definite the pitch is. an ideal stretched membrane rings at spacings that are not whole-number multiples, so it has no clear note -- that is a tom. loading the head with air in a kettle pulls those spacings towards whole numbers until a real pitch appears -- that is a timpani. this is the deepest thing about the instrument, not a tuning offset: the played pitch itself never changes here, only whether the drum sounds like it HAS one.",
+          "anchors": {
+            "tom": {"value": 0.0, "gloss": "no clear note, just a low woody thump"},
+            "mixed": {"value": 0.5, "gloss": "a note starts to emerge from the thump"},
+            "timpani": {"value": 1.0, "gloss": "a real singing pitch, a tuned kettledrum"}
+          }
+        },
+        "spot": {
+          "range": [0.0, 1.0],
+          "default": 0.35,
+          "note": "where the head is struck. dead centre wakes only the modes that breathe evenly across the whole skin, which is round and deep; nearer the rim wakes the ones that ripple around it, which is thinner, harder and more sharply coloured. a real player uses this constantly.",
+          "anchors": {
+            "centre": {"value": 0.0, "gloss": "deep, round and full"},
+            "halfway": {"value": 0.5, "gloss": "the normal playing spot"},
+            "rim": {"value": 1.0, "gloss": "thin, hard and edgy"}
+          }
+        },
+        "tension": {
+          "range": [0.0, 1.0],
+          "default": 0.5,
+          "note": "how tightly the head is stretched, heard as which partials carry the sound rather than as pitch. slack leaves only the lowest ones and sounds dull and floppy; tight brings the upper ones up and sounds bright and taut.",
+          "anchors": {
+            "slack": {"value": 0.0, "gloss": "loose, dull and floppy"},
+            "normal": {"value": 0.5, "gloss": "an ordinary working tension"},
+            "tight": {"value": 1.0, "gloss": "taut, bright and singing"}
+          }
+        },
+        "damping": {
+          "range": [0.0, 1.0],
+          "default": 0.35,
+          "note": "how freely the head is allowed to ring, as with a hand or a felt ring on the skin. open leaves narrow clear resonances that sing; muffled broadens them until the drum reads as a thud with a colour rather than a tone.",
+          "anchors": {
+            "open": {"value": 0.0, "gloss": "rings freely and clearly"},
+            "damped": {"value": 0.5, "gloss": "controlled, a studio drum"},
+            "muffled": {"value": 1.0, "gloss": "dead and thuddy, a cloth on the skin"}
+          }
+        }
+      }
+    },
+    {
       "key": "metallic_fm",
       "surface_forms": [
         "metal",
