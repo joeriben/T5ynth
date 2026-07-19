@@ -336,7 +336,11 @@
         "fm-piano",
         "fm e-piano",
         "dx piano",
-        "piano"
+        "piano",
+        "wurlitzer",
+        "wurli",
+        "tine piano",
+        "reed piano"
       ],
       "template": {
         "keyframes": [
@@ -373,7 +377,51 @@
         "motion_rate_hz": 0.3
       },
       "priority": 10,
-      "why": "fm e-piano / electric piano (tine EP): 1:1 FM with a softening index, the classic dx piano"
+      "why": "electric piano / rhodes / wurlitzer / dx piano: a struck tine or reed body with a metallic attack that fades back into it; ting = how much metal is in the strike, ring = how long it rings, reed = full body to hollow reed, strike = how hard the hammer hits",
+      "params": {
+        "ting": {
+          "range": [0.0, 1.0],
+          "default": 0.55,
+          "note": "the metallic 'ting' of the attack. this is the single feature that separates an electric piano from a plain fm tone; at 0 the instrument is only its wooden body. the ting fades back into the body as the note is held -- it loses its brightness, never its loudness.",
+          "anchors": {
+            "none": {"value": 0.0, "gloss": "no metal at all, just the woody body"},
+            "soft": {"value": 0.3, "gloss": "a faint chime on the attack"},
+            "classic": {"value": 0.55, "gloss": "the familiar tine piano strike"},
+            "clangy": {"value": 1.0, "gloss": "a hard bright metallic clang on every note"}
+          }
+        },
+        "ring": {
+          "range": [0.0, 1.0],
+          "default": 0.25,
+          "note": "how long the metallic part keeps ringing before it settles into the body. short is a quick struck-tine click, long is a sustained metallic buzz that stays through the note. both ends are taken from real electric pianos: the short end is a rhodes-like tine, the long end a wurlitzer-like reed.",
+          "anchors": {
+            "short": {"value": 0.0, "gloss": "a quick click, gone almost at once"},
+            "medium": {"value": 0.45, "gloss": "rings briefly, then settles"},
+            "long": {"value": 1.0, "gloss": "a metallic buzz that stays through the note"}
+          }
+        },
+        "reed": {
+          "range": [0.0, 1.0],
+          "default": 0.75,
+          "note": "the body's character, from full to hollow. low keeps every harmonic and sounds broad and piano-like; high keeps only the odd harmonics, which is what makes a reed sound hollow and nasal. 'tine' is where a classic electric piano sits.",
+          "anchors": {
+            "full": {"value": 0.0, "gloss": "broad and full, every harmonic present"},
+            "hollow": {"value": 0.45, "gloss": "starting to hollow out"},
+            "tine": {"value": 0.75, "gloss": "the classic tine electric piano body"},
+            "reed": {"value": 1.0, "gloss": "hollow and nasal, a reed rather than a tine"}
+          }
+        },
+        "strike": {
+          "range": [0.0, 1.0],
+          "default": 0.64,
+          "note": "how hard the hammer hits: how bright the body starts before it softens. this shapes the tone, not the volume -- a hard strike is brighter, not louder.",
+          "anchors": {
+            "soft": {"value": 0.0, "gloss": "mellow and round from the first moment"},
+            "normal": {"value": 0.64, "gloss": "a normal playing strike"},
+            "hard": {"value": 1.0, "gloss": "struck hard, bright and biting before it settles"}
+          }
+        }
+      }
     },
     {
       "key": "metallic_fm",
@@ -1554,7 +1602,7 @@
         "motion_rate_hz": 0.25
       },
       "priority": 10,
-      "why": "a real analogue VCO (Minimoog/VCO-style) with four named parameters instead of a fixed spectrum: wave morphs continuously triangle -> saw -> square -> pulse, drive is a soft-clip saturator pushed past unity (the direction it moves the tone depends on wave, see params), fat stacks a detuned unison, age adds analogue pitch/amplitude/shape instability",
+      "why": "analogue oscillator / vco / minimoog / analogue synth: wave morphs continuously triangle to saw to square to pulse; drive is the mixer pushed past unity into a soft limiter (careful: it makes a saw ROUNDER and darker, only a triangle brighter); fat = detuned unison, age = analogue instability",
       "params": {
         "wave": {
           "range": [0.0, 1.0],

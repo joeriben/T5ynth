@@ -71,13 +71,50 @@ _SYSTEM_PROMPT_HEAD = (
 _MAX_NEW_TOKENS = 120
 
 
+def _params_line(t):
+    """A parametrised technique's controls, as one compact line the routing
+    model can actually use: `  params: name=anchor|anchor|anchor  name=...`,
+    anchors ordered low value to high so the AXIS DIRECTION is visible.
+
+    This line is not decoration. The csound system prompt tells the model to
+    read a key's "params:" line for its parameter names and anchor words, and
+    for the first two parametrised keys that line did not exist -- the lexicon
+    carried the anchors and NOTHING emitted them, so the model was sent to a
+    line that was never written and had to guess both the names and the values
+    from prose. Anything it guessed that was not an exact anchor word or a bare
+    0-1 number was silently dropped back to the default. Symptom, from a real
+    session: "rhodes" and "piano" stopped reaching the electric piano at all.
+
+    Only the anchor WORDS go in, never the numbers or the glosses: the words
+    are what a small model produces reliably, the per-anchor gloss text stays
+    in the lexicon for a human reading it, and the key's own "why" already says
+    in one clause what each control does. Repeating any of that here would cost
+    catalogue tokens for nothing."""
+    params = t.get("params")
+    if not params:
+        return None
+    out = []
+    for name, spec in params.items():
+        anchors = spec.get("anchors") or {}
+        if not anchors:
+            continue
+        words = [w for w, _ in sorted(anchors.items(), key=lambda kv: kv[1]["value"])]
+        out.append(f"{name}={'|'.join(words)}")
+    return "  params: " + "  ".join(out) if out else None
+
+
 def _build_catalogue(lexicon):
     """TECHNIQUES / ADJECTIVES / MOTIONS, one '<key>: <why>' line per entry —
     the lexicon's own "why" fields ARE the interpretation aid handed to the
-    model (no second, hand-maintained gloss that could drift out of sync)."""
+    model (no second, hand-maintained gloss that could drift out of sync) —
+    plus, for a parametrised technique, an indented "params:" line naming its
+    controls and their anchor words (see _params_line)."""
     lines = ["TECHNIQUES:"]
     for t in lexicon["techniques"]:
         lines.append(f"{t['key']}: {t['why']}")
+        pl = _params_line(t)
+        if pl:
+            lines.append(pl)
     lines.append("ADJECTIVES:")
     for a in lexicon["adjectives"]:
         lines.append(f"{a['key']}: {a['why']}")

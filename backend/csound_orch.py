@@ -376,7 +376,12 @@ _STILL_CUE_PHRASES = (
 # stay in this set, so a prompt cannot currently make them evolve. Whether those
 # three should instead leave the set and let the motion layer move them is a
 # routing question with an audible answer, so it is BJ's call, not a silent edit.
-_SELF_MOVING_TECH = {"pwm"} | _NOISE_TECH
+# fm_ep belongs here since it became the parametrised electric piano: its
+# identity IS a struck transient, a metallic attack decaying out of the tone
+# over a measured 86-770ms, on top of the body index softening it always had.
+# A patch built on it already travels, so the movement-by-default guard must
+# not layer a second motion on top of a strike.
+_SELF_MOVING_TECH = {"pwm", "fm_ep"} | _NOISE_TECH
 
 
 def _prompt_wants_still(text):
@@ -510,12 +515,27 @@ _AOSC_ANCHORS = {
 }
 _AOSC_DEFAULTS = {"wave": 0.45, "drive": 0.0, "fat": 0.0, "age": 0.35}
 
+# fm_ep: the SECOND parametrised key. Same contract as _AOSC_ANCHORS above --
+# these tables resolve an anchor WORD to its number, drive _emit_fm_ep's DSP,
+# and label the UI reading, and they are mirrored BY HAND into
+# dco_lexicon.json's fm_ep.params (which carries the per-anchor gloss text).
+_FMEP_ANCHORS = {
+    "ting":   {"none": 0.0, "soft": 0.3, "classic": 0.55, "clangy": 1.0},
+    "ring":   {"short": 0.0, "medium": 0.45, "long": 1.0},
+    "reed":   {"full": 0.0, "hollow": 0.45, "tine": 0.75, "reed": 1.0},
+    "strike": {"soft": 0.0, "normal": 0.64, "hard": 1.0},
+}
+# strike 0.64 -> body index 4.20 and ring 0.25 -> a short tine: these defaults
+# reproduce the pre-parametrisation fm_ep's own starting index exactly, so a
+# prompt that sets nothing gets the key it always got, plus the tine attack it
+# never had. See _emit_fm_ep.
+_FMEP_DEFAULTS = {"ting": 0.55, "ring": 0.25, "reed": 0.75, "strike": 0.64}
+
 # Registry of every technique key that takes parameters, keyed by its
-# CANONICAL key -> {param: {anchor: value}}. A future second parametrised
+# CANONICAL key -> {param: {anchor: value}}. A future parametrised
 # instrument just adds its own entry here (and its own _emit_xxx / dispatch
-# line) -- _extract_osc_params below is generic over this registry, not
-# analog_osc-specific.
-_PARAM_SCHEMAS = {"analog_osc": _AOSC_ANCHORS}
+# line) -- _extract_osc_params below is generic over this registry.
+_PARAM_SCHEMAS = {"analog_osc": _AOSC_ANCHORS, "fm_ep": _FMEP_ANCHORS}
 
 
 # ── csound-specific multi-oscillator LLM schema ──────────────────────────────
@@ -688,7 +708,18 @@ def _strip_nonterminal_silence(chain):
 # _validate_keys ever sees the text, so the existing surface-form/fallback
 # machinery keeps matching plain key text exactly as it always has -- a chain
 # with no parens (every existing key, always) is untouched byte-for-byte.
-_OSC_PARAM_RE = _re.compile(r'([a-zA-Z][a-zA-Z0-9_]*)\s*\(([^)]*)\)')
+#
+# The key pattern MUST admit spaces and hyphens, because most keys are reached
+# by a MULTI-WORD surface form and the model writes the words it was given.
+# With a `\w+`-only pattern `analog oscillator(drive=hot)` captured just
+# "oscillator", the schema lookup missed, and every parameter was silently
+# dropped while the key itself still validated -- a setting that vanishes with
+# no flag anywhere. Measured on the shipped analog_osc: `analog oscillator`,
+# `analog osc` and `analog synth` all lost their parameters, and `fm_ep`
+# escaped only by luck, because all fourteen of its multi-word forms end in
+# "piano" and "piano" is itself a registered form. `>` and `,` stay out of the
+# class so a chain or a compound list can never be swallowed into one key.
+_OSC_PARAM_RE = _re.compile(r'([a-zA-Z][a-zA-Z0-9_ \-]*?)\s*\(([^)]*)\)')
 
 
 def _parse_param_value(raw, anchors):
@@ -783,19 +814,43 @@ def _param_anchor_label(technique_key, name, value):
     analog_osc-specific, so a future second parametrised key needs no change
     here."""
     anchors = _PARAM_SCHEMAS.get(technique_key, {}).get(name, {})
+    value = float(value)
     if not anchors:
         return f"{value:g}"
     word, _ = min(anchors.items(), key=lambda kv: abs(kv[1] - value))
     return word
 
 
+def _param_is_applied(technique_key, name, value):
+    """True iff the emitters' own resolvers would KEEP this setting rather than
+    silently fall back to the parameter's default -- a KNOWN name for this key
+    carrying a number within 0..1.
+
+    `_resolve_analog_osc_params` and `_resolve_fm_ep_params` both re-validate
+    defensively, because a direct caller of build_orchestra can hand them
+    anything, and they drop an unknown name (`if k not in out: continue`) and
+    an out-of-range value alike. The READING has to apply exactly the same two
+    tests or the two disagree, and every way they disagree is a lie in the UI:
+    an out-of-range value would be labelled with its nearest anchor while the
+    oscillator quietly used the default, an unknown name would be printed as a
+    bare number for a control that does not exist, and a non-numeric value used
+    to crash the card outright. The reading is what the user is told the
+    machine understood -- it must show what was applied and nothing else."""
+    if name not in _PARAM_SCHEMAS.get(technique_key, {}):
+        return False
+    try:
+        return 0.0 <= float(value) <= 1.0
+    except (TypeError, ValueError):
+        return False
+
+
 def _reading(oscs, adjective_keys, motion_key):
     """Short human-readable interpretation for the UI card. Multi-osc: each layer
     is 'a > b' (morph) or 'a'; layers joined with ' + '. e.g.
     'saw + sub_sine · warm ~evolve' or 'glass > sine · glassy'. A parametrised
-    key (only analog_osc today) that the LLM actually SET parameters on shows
-    them compactly as anchor words, e.g. 'analog_osc · saw, hot, thick' --
-    a bare, all-default key shows no parameter suffix at all."""
+    key (analog_osc, fm_ep) that the LLM actually SET parameters on shows them
+    compactly as anchor words, e.g. 'analog_osc (saw, hot, thick)' -- a bare,
+    all-default key shows no parameter suffix at all."""
     def osc_str(o):
         chain = o["chain"]
         s = " > ".join(chain) if len(chain) >= 2 else (chain[0] if chain else "sine")
@@ -807,11 +862,19 @@ def _reading(oscs, adjective_keys, motion_key):
         params = o.get("params") or {}
         for key in chain:
             pset = params.get(key)
-            if pset:
+            # isinstance, not truthiness: `_param_is_applied` hardens the
+            # VALUES but nothing upstream guarantees the SHAPE, and a direct
+            # caller of build_orchestra can pass a list or a string here. The
+            # resolvers have the same guard for the same reason.
+            if isinstance(pset, dict) and pset:
                 # dict insertion order == the order the LLM wrote them, which
                 # is already a sensible display order (no re-sort needed).
-                labels = [_param_anchor_label(key, n, v) for n, v in pset.items()]
-                s += " (" + ", ".join(labels) + ")"
+                # Only values the emitter will actually APPLY are shown -- see
+                # _param_is_applied for why the two must not diverge.
+                labels = [_param_anchor_label(key, n, v) for n, v in pset.items()
+                          if _param_is_applied(key, n, v)]
+                if labels:
+                    s += " (" + ", ".join(labels) + ")"
         return s
     heads = [osc_str(o) for o in oscs] or ["sine"]
     head = " + ".join(heads)
@@ -1049,7 +1112,11 @@ _DC_NOTE = "remove the duty's DC offset, A*(2d-1)"
 # 10.5 (the most expensive single stage there is) are all well over the line.
 _CHEAP_TECH = frozenset({
     "sine", "saw", "square", "pulse", "pwm", "silence",
-    "fm", "fm_bell", "fm_ep", "metallic_fm", "cheby", "ring_mod", "sub_sine",
+    # fm_ep was here until it became the parametrised electric piano: three
+    # foscili pairs plus a balance stage measure 16.08us MARGINAL, above three
+    # keys this file already classes costly. See _emit_fm_ep's docstring for
+    # the bench table and for why a whole-orchestra median hid it.
+    "fm", "fm_bell", "metallic_fm", "cheby", "ring_mod", "sub_sine",
     "sync", "brass", "chiptune", "theremin",
     "noise", "pink_noise", "wind", "rain", "surf", "thunder", "hiss", "crackle",
 })
@@ -1264,7 +1331,7 @@ def _resolve_analog_osc_params(raw):
     .default; mirrored in _AOSC_DEFAULTS). Re-validates defensively so a
     direct/standalone caller (a test harness invoking _emit_steady with no
     params at all) still gets a safe, complete, in-range dict."""
-    raw = raw or {}
+    raw = raw if isinstance(raw, dict) else {}
     out = dict(_AOSC_DEFAULTS)
     for k, v in raw.items():
         if k not in out:
@@ -1374,6 +1441,199 @@ def _emit_analog_osc(tag, params):
     L.append(f"  kagw{tag}   oscili {age * _AOSC_AGE_AMP_DEPTH:g}, 0.7        "
              f"; age: amplitude wobble")
     L.append(f"  {ov}    = adrv{tag} * (1 + kagw{tag})")
+    return "\n".join(L)
+
+
+# ── fm_ep: constants + params -> Csound (the parametrised electric piano) ───
+# Two BODY operator pairs crossfaded, plus a TINE pair, through `balance`.
+# Every ratio is car=1, mod=R. DC appears iff car/mod is a positive INTEGER, so
+# any R>1 is DC-safe unconditionally -- which is why the old 1:1 body and its
+# empirical degree-4 DC-correction polynomial are both gone. The trap they
+# existed to patch cannot occur here, and that trap was worse than the old
+# comment knew: measured, the 1:1 DC is HISTORY-dependent, not a function of
+# the current index at all (the same index 1.30 gives -11.2% held statically,
+# +35.5% after a step, +21.8% down the shipped ramp). A fitted correction was
+# therefore only ever valid for the exact ramp it was fitted against, which is
+# precisely what a parametrised strike control would have invalidated.
+_FMEP_BODY_MOD_EVEN = 3   # car=1, mod=3: a body carrying even AND odd harmonics
+_FMEP_BODY_MOD_ODD = 2    # car=1, mod=2: sidebands at f*(1 +- 2n) = f,3f,5f -- odd ONLY
+                          # (measured odd/even +131..135 dB, evens at the numerical floor)
+_FMEP_TINE_MOD = 14.2     # the classic DX-EP region. 14.2 and NOT 14.0: an exact
+                          # integer ratio is perfectly harmonic and reads as a bright
+                          # buzz, while 14.2 places its partials BETWEEN harmonics and
+                          # reads as metal.
+_FMEP_AMP = 0.30          # per-pair source amplitude. Only the RATIO between the three
+                          # matters -- `balance` sets the output level.
+_FMEP_REF_AMP = 0.5       # balance reference: preserves the pre-parametrisation fm_ep's
+                          # own output level (it ran `foscili 0.5`).
+# ihp=10, and deliberately NOT fm_bell's ihp=1. MEASURED across 40 corners of the
+# parameter space: at ihp=1 the follower's ~0.16 s time constant cannot track an
+# 86 ms tine decay, so the onset overshoots the held level and loudness travels up
+# to 1.24 dB at 1760 Hz; ihp=10 brings that to 0.46 dB and IMPROVES 220 Hz as well.
+# fm_bell's 1 exists to protect its doublet beat; this construction has no doublet
+# by design, so there is no amplitude feature here to preserve. Do not "correct"
+# this back to match the neighbouring key.
+_FMEP_BALANCE_IHP = 10
+# The tine index decays to ZERO, and this is not a free choice. At ratio 14.2
+# the tine's partials sit at f*|1 +- 14.2n| -- 13.2x and 15.2x the fundamental
+# -- which is exactly what makes the ATTACK read as struck metal and exactly
+# what must not survive into the held tone. An earlier 0.30 floor was invented
+# here on the reasoning that "a trace of metal keeps the note's material"; BJ's
+# ear found it immediately ("stark dissonant" on the plain `electric piano`
+# prompt), because a permanent 13-15x inharmonic partial is a dissonance, not a
+# material. At index 0 `foscili` emits its carrier alone -- a clean sine at the
+# fundamental -- so the pair leaves the spectrum without leaving a hole.
+_FMEP_TINE_FLOOR = 0.0
+_FMEP_TINE_I0 = (1.5, 2.5)      # ting 0..1 -> starting tine index
+_FMEP_RING_SEC = (0.086, 0.770)  # ring 0..1 -> tine half-life. Both ends MEASURED off
+                                 # the reference opcodes: fmrhode's bright attack has a
+                                 # half-life of ~86 ms, fmwurlie's ~770 ms.
+_FMEP_BODY_IDX = (1.0, 6.0)     # strike 0..1 -> body STARTING index
+_FMEP_BODY_FLOOR = 0.31   # the body index settles to start*0.31, which reproduces the
+                          # pre-parametrisation 1.30/4.20 ratio exactly.
+_FMEP_BODY_SOFTEN_SEC = 1.6     # unchanged from the pre-parametrisation key
+_FMEP_REED_KNEE = 0.75    # see _fm_ep_reed_to_mix
+
+
+def _resolve_fm_ep_params(raw):
+    """A possibly-partial/None {name: float 0..1} -> the complete 4-key dict,
+    filling any missing or invalid entry with its documented default
+    (dco_lexicon.json fm_ep.params[name].default; mirrored in _FMEP_DEFAULTS).
+    Re-validates defensively so a standalone caller still gets a safe dict."""
+    raw = raw if isinstance(raw, dict) else {}
+    out = dict(_FMEP_DEFAULTS)
+    for k, v in raw.items():
+        if k not in out:
+            continue
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            continue
+        if 0.0 <= fv <= 1.0:
+            out[k] = fv
+    return out
+
+
+def _fm_ep_reed_to_mix(reed):
+    """reed (0..1) -> kW, the odd-only body's share of the body mix.
+
+    MEASURED odd/even balance against kW: 0.0 -> -1.5 dB, 0.4 -> +0.3,
+    0.6 -> +4.8, 0.8 -> +12.7, 0.90 -> +19.8, 1.0 -> +66.6 dB -- a cubic over
+    most of the range and then a cliff at the very top, where the even body is
+    gone entirely and the only evens left are `balance`'s own 2*f0 follower
+    ripple. A LINEAR control would spend nine tenths of its travel below a
+    Rhodes and then lurch, so the warp is piecewise: a cube root up to the
+    classic-EP point (kW 0.90, which lands on fmrhode's own measured late
+    odd/even of +19.9 dB), then a short linear run on to the pure reed.
+
+    A modulator-RATIO sweep was tried for this axis first and refuted twice
+    over. Harmonicity is a step function of the ratio's RATIONALITY, not a
+    continuous function of the ratio (mod 1.5 measures 0.411, mod 1.6 measures
+    0.003) -- that is number theory and finer stepping cannot fix it. And
+    approaching mod 2.0 beats at exactly |2-mod|*f0, pitch-proportional,
+    reaching amp_mod 0.118 against the project's own 0.08 movement floor: at
+    220 Hz that is a 22 Hz beat, the same roughness band the fm_bell history
+    already rejected once. Exactly 2.0 is the only beat-free point (amp_mod
+    0.026) and stopping just short of it buys nothing -- 1.98 measures the same
+    odd character AND the beating."""
+    if reed <= _FMEP_REED_KNEE:
+        return 0.9 * (reed / _FMEP_REED_KNEE) ** (1.0 / 3.0)
+    return 0.9 + 0.4 * (reed - _FMEP_REED_KNEE)
+
+
+def _emit_fm_ep(tag, params):
+    """The parametrised FM electric piano -> `aosc<tag>`. ting/ring/reed/strike
+    are named 0..1 controls (dco_lexicon.json fm_ep.params).
+
+    What this replaced and why. The pre-parametrisation fm_ep was a single 1:1
+    `foscili` with a softening index. Measured against Csound's own `fmrhode`
+    and `fmwurlie`, it had the woody body and NO metallic attack whatsoever:
+    0.01% of its energy above the 8th harmonic, where the two references have
+    11.7% and 72.8%. It could not be tuned into one either -- a 1:1 ratio is
+    harmonic by construction and cannot place a partial off the comb.
+
+    The body's index STILL softens over the note and then holds, exactly as
+    before; `strike` sets where that softening starts, and the default lands on
+    the old key's own 4.20 -> 1.30. This is a timbre motion, not an amplitude
+    envelope: the tone never dies.
+
+    TING adds what was missing -- a high-ratio pair whose index decays, so its
+    upper partials fade while the tone's LEVEL holds. That is the whole point
+    of the `balance` stage: colour travels, loudness does not.
+
+    THE TING IS AN ONSET FEATURE, and in a morph chain that does not reach
+    fm_ep until later it is simply not heard. That is a property, not a bug,
+    and the measurement is worth keeping so nobody "fixes" it twice. `knote`
+    counts from the note, so an 86ms tine has decayed to under half a percent
+    by the time a 1.4s morph leg opens: `sine > fm_ep` peaks at 1131Hz against
+    3584Hz for fm_ep alone. Making it audible there would mean re-striking when
+    the stage arrives -- inventing a note-onset that the player never played,
+    which is the same class of error as an oscillator owning its own transport.
+    A hammer that was struck a second ago cannot be heard now.
+
+    KNOWN LIMIT, and it is structural rather than a tuning miss. Above
+    f0 = sr/(2*14.2) -- about 1553 Hz at 44.1 kHz -- the tine's modulator
+    exceeds Nyquist and folds. The `limit` below keeps it legal, but a cap is
+    not a fix: at 1760 Hz the effective ratio becomes 11.28, odd/even collapses
+    from 29.2 to 1.4 dB and above-8th energy from 44.7% to 16.3%. The top
+    octave genuinely will not sound like the bottom. It does NOT read as
+    aliasing and no aliasing check will catch it -- measured energy below the
+    fundamental stays at 0.00% -- it simply gets quietly duller.
+
+    `balance` is also not spectrally transparent: its gain follower ripples at
+    2*f0 and injects even-harmonic content into an odd-only signal (a pure 1:2
+    body measures +135.5 dB odd/even raw but +66.6 dB through the stage). Here
+    that is welcome, because it lands near fmwurlie's own measured +75.9, but
+    it is a real side effect and not a coincidence to be relied on blindly.
+
+    NOT `_CHEAP_TECH` any more, and the first measurement of that said the
+    opposite. Comparing whole-orchestra medians (20.7 us here against `fm`'s
+    19.1) hides the answer, because the orchestra's fixed overhead dominates
+    both. The number that matters is the MARGINAL cost per oscillator,
+    (bench(3 osc) - bench(1 osc)) / 2: this key went 6.29 -> 16.08 us, which is
+    more than `clarinet` (9.42), `harpsichord` (9.79) and `additive` (12.35),
+    all three of which the file classes costly. Left in the allowlist it would
+    contribute ZERO to `_modal_budget`'s costly count, so `cymbal + fm_ep +
+    fm_ep` would claim the most generous thinning tier while being nearly the
+    most expensive patch reachable -- measured 105.2 -> 115.5 us against the
+    133 us gate from this change alone. That is precisely the under-count the
+    allowlist exists to prevent."""
+    ov = f"aosc{tag}"
+    p = _resolve_fm_ep_params(params)
+    ting, ring, reed, strike = p["ting"], p["ring"], p["reed"], p["strike"]
+
+    kw = _fm_ep_reed_to_mix(reed)
+    tine_amt = ting ** 0.65          # linearises above-8th energy against the control
+    tine_i0 = _FMEP_TINE_I0[0] + (_FMEP_TINE_I0[1] - _FMEP_TINE_I0[0]) * ting
+    half = _FMEP_RING_SEC[0] * (_FMEP_RING_SEC[1] / _FMEP_RING_SEC[0]) ** ring
+    idx0 = _FMEP_BODY_IDX[0] + (_FMEP_BODY_IDX[1] - _FMEP_BODY_IDX[0]) * strike
+    idxf = idx0 * _FMEP_BODY_FLOOR
+
+    L = []
+    # `knote` is the shared per-VOICE elapsed-time counter from the orchestra
+    # preamble, deliberately not a private one here: a counter emitted in this
+    # body lands inside _emit_crossfade_morph's `if <tent gain> > 0` block and
+    # counts audible rather than elapsed seconds, which silently swallows an
+    # 86ms tine on every morph chain. See the preamble for the measurement.
+    L.append(f"  kbdx{tag}   = {idxf:g} + {idx0 - idxf:g} * (1 - min(knote / "
+             f"{_FMEP_BODY_SOFTEN_SEC:g}, 1)) ; strike -> mellow, then holds")
+    # exp(), NOT expseg/expon: tools/csound_keys_gate.py's _FORBIDDEN_ENV bars
+    # those opcodes anywhere in the orchestra (the synth owns amplitude). This is
+    # an INDEX decay, not an amplitude one, and exp() is a function, not an opcode.
+    L.append(f"  ktng{tag}   = {_FMEP_TINE_FLOOR:g} + {tine_i0 - _FMEP_TINE_FLOOR:g} "
+             f"* exp(-knote * {0.69315 / half:.4f}) ; the metal fades out of the tone")
+    L.append(f"  ktr{tag}    limit {_FMEP_TINE_MOD:g}, 1, sr * 0.45 / kfreq "
+             f"; tine ratio, capped below Nyquist (see docstring: a cap, not a fix)")
+    L.append(f"  aevn{tag}   foscili {_FMEP_AMP * (1 - kw):.4f}, kfreq, 1, "
+             f"{_FMEP_BODY_MOD_EVEN}, kbdx{tag}, giSine ; body, even + odd harmonics")
+    L.append(f"  aodd{tag}   foscili {_FMEP_AMP * kw:.4f}, kfreq, 1, "
+             f"{_FMEP_BODY_MOD_ODD}, kbdx{tag}, giSine ; body, odd harmonics only")
+    L.append(f"  atin{tag}   foscili {_FMEP_AMP * tine_amt:.4f}, kfreq, 1, "
+             f"ktr{tag}, ktng{tag}, giSine ; the inharmonic ting")
+    L.append(f"  asum{tag}   = aevn{tag} + aodd{tag} + atin{tag}")
+    L.append(f"  aref{tag}   poscil {_FMEP_REF_AMP:g}, kfreq")
+    L.append(f"  {ov}    balance asum{tag}, aref{tag}, {_FMEP_BALANCE_IHP} "
+             f"; colour travels, loudness holds")
     return "\n".join(L)
 
 
@@ -1705,73 +1965,7 @@ def _emit_steady(technique, tag="0", nmodes=None, params=None):
         L.append(f"  asb{tag}    oscili 0.30, kfreq * 0.5    ; sub-octave weight")
         L.append(f"  {ov}    = adk{tag} * 0.72 + asb{tag}")
     elif technique == "fm_ep":
-        # the lexicon's "1:1 FM with a softening index over the cycle, the classic
-        # tine-EP sideband shape". On a live substrate the index actually SOFTENS
-        # and then HOLDS: a tine that mellows into a standing tone. This is a
-        # TIMBRE motion, not an amplitude envelope -- the tone never dies (and
-        # linseg is the same k-rate shaper the morph path already uses; the
-        # forbidden opcodes are the amplitude envelopes).
-        # The index has to soften PER NOTE. A bare `linseg` here fired exactly
-        # once per SESSION: instr 1 is always-on (i 1 0 360000), so the ramp
-        # completed 1.6 s after Csound started and every note the player struck
-        # afterwards got a frozen 1.30 -- the capability never reached the
-        # instrument. Measured: struck at t=0 the centroid ran 686->421 Hz, struck
-        # at t=6 it sat at 421 Hz from the first window. No gate could see it,
-        # because the probe always triggers at t=0.
-        # A per-note counter reset on the trig epoch, NOT a reinit label: this code
-        # is emitted inside the crossfade path's `if <gain> > 0` blocks, where a
-        # label and its reinit would sit inside a conditional.
-        # init 0, not a large "already settled" value: a note whose gate and trig
-        # are already high before the first k-cycle -- which is how the probe and
-        # a held-at-load patch both behave -- gives changed2 no edge to fire on,
-        # so the counter would never start and the index would sit frozen at 1.30.
-        # Starting at 0 ramps that case correctly and still restarts on every
-        # later trigger edge.
-        L.append(f"  ktm{tag}    init 0")
-        L.append(f"  if changed2(ktrig) == 1 then")
-        L.append(f"    ktm{tag}   = 0")
-        L.append(f"  endif")
-        L.append(f"  ktm{tag}    = ktm{tag} + 1/kr           ; seconds since this note")
-        L.append(f"  kndx{tag}   = 1.30 + 2.90 * (1 - min(ktm{tag} / 1.6, 1)) ; tine -> mellow, holds")
-        L.append(f"  afm{tag}    foscili 0.5, kfreq, 1, 1, kndx{tag}, giSine ; 1:1 tine EP")
-        # A 1:1 carrier:modulator ratio puts a sideband exactly on 0 Hz -- the
-        # partial at kcps*(kcar - n*kmod) reaches DC whenever kcar/kmod is a whole
-        # number. Measured, this was +0.030 = 23.4% of the key's own peak, the
-        # largest offset anywhere in the instrument, and because the index
-        # deliberately travels 4.20 -> 1.30 over the first 1.6 s, the offset
-        # TRAVELS WITH IT (+0.024 .. +0.034): a sub-audio excursion on every note,
-        # thumping as the gate opens and closes on it, and eating headroom
-        # throughout. The other FM keys are clean and cannot have this -- their
-        # ratios (1:1.41, 1:2.41, 1:2) are not whole numbers, so no sideband can
-        # land on zero. Only fm_ep, whose 1:1 IS the tine-EP sound, is exposed.
-        #
-        # The ratio is therefore kept and the offset subtracted at the source,
-        # like `pulse`, `chiptune` and `wgclar` before it. Two things had to be
-        # established first, and the second one cost a wrong fix before it was.
-        #
-        # 1. The offset is PREDICTABLE. Measured on the emitted orchestra it is
-        #    identical across all 16 voices (+0.03074 at every one), and within
-        #    +-2% across 220/330 Hz and 44100/48000 Hz. It depends on the index
-        #    alone, which is what makes a single curve legitimate.
-        # 2. It must be measured HERE, on this orchestra, not on a test
-        #    instrument. A 1:1 ratio's DC term depends on the fixed phase
-        #    relationship between carrier and modulator, and that relationship is
-        #    not the same in a freshly started instrument as in this always-on
-        #    `instr 1`. A curve fitted to a standalone `foscili` came out with the
-        #    opposite sign and made the offset WORSE when applied (23.4% -> 21.2%,
-        #    and swinging both ways instead of one). The numbers below come from
-        #    the real oscillator with the output stage patched to emit it
-        #    unscaled, so they are oscillator-referred -- the frame this
-        #    subtraction lives in.
-        #
-        # It does NOT follow -J1(index)*amp, the textbook Bessel term, so this is
-        # an empirical degree-4 fit over the only range the line above can produce
-        # (index 1.30..4.20): DC runs -0.021 at 4.06, peaks +0.136 near 1.89, and
-        # settles at +0.1205 = 24% of the oscillator's own peak. Residual after
-        # correction 0.0016, i.e. 0.3% of peak against the 24% removed.
-        L.append(f"  kdcf{tag}   = ((((0.0015893 * kndx{tag} - 0.0073783) * kndx{tag} "
-                 f"- 0.0415075) * kndx{tag} + 0.1894223) * kndx{tag} - 0.0437699)")
-        L.append(f"  {ov}    = afm{tag} - kdcf{tag}       ; the 1:1 ratio's DC, measured")
+        return _emit_fm_ep(tag, (params or {}).get("fm_ep"))
     elif technique in ("fm_bell", "fm", "metallic_fm"):
         # FM via foscili: an inharmonic-ish carrier:modulator ratio gives the
         # bell/metal sideband spectrum natively (no partial table). metallic_fm
@@ -2880,7 +3074,25 @@ def build_orchestra(technique_keys=None, adjective_keys=None, motion_key=None,
         + reads +
         "  kgate    portk kgateraw, 0.001\n"
         "  kfreq    limit kfreqraw, 20, 12000\n"
-        "  kpresGain = 1.0 + 0.15 * kpres\n\n"
+        "  kpresGain = 1.0 + 0.15 * kpres\n"
+        # Seconds since THIS note, for any stage that shapes timbre over the
+        # note. It lives here, in the per-voice preamble, because it is a
+        # property of the NOTE and not of an oscillator stage: an emitter that
+        # keeps its own counter has it placed inside _emit_crossfade_morph's
+        # `if <tent gain> > 0` block, where it counts AUDIBLE seconds instead
+        # of elapsed ones. A slow ramp survives that (the old fm_ep's 1.6s
+        # softening against a 1.4s morph leg still reads as a softening), but a
+        # struck transient does not: measured, fm_ep's 86ms tine peaked at
+        # 3692Hz on its own and only 1470Hz as `sine > fm_ep`, i.e. the attack
+        # never reached the output at full gain at all.
+        # init 0 rather than a settled value: a note whose gate and trig are
+        # already high before the first k-cycle gives changed2 no edge to fire
+        # on, so a counter starting anywhere else would sit frozen forever.
+        "  knote    init 0\n"
+        "  if changed2(ktrig) == 1 then\n"
+        "    knote  = 0\n"
+        "  endif\n"
+        "  knote    = knote + 1/kr\n\n"
     )
     tail = (
         "\n"
