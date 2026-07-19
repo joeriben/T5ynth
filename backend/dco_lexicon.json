@@ -572,7 +572,7 @@
         "motion_rate_hz": 0.25
       },
       "priority": 10,
-      "why": "dense bright inharmonic plate wash (cymbal / crash / ride / hi-hat) — a characteristic additive sketch of a 2-D plate's dense modal spectrum: weak fundamental, energy piled into the upper partials, all off the harmonic grid"
+      "why": "cymbal / crash / ride / hi-hat: a struck metal plate — a dense bank of high-Q resonators, all off the harmonic grid, rung by a noise exciter; weak fundamental, energy piled into the top"
     },
     {
       "key": "ring_mod",
@@ -2326,7 +2326,7 @@
         "phase_jitter": 0.14
       },
       "priority": 8,
-      "why": "a grimy per-frame scatter — deterministic amplitude+phase jitter that differs at every station (spec sec.6.3), not a static upper-mid tilt"
+      "why": "grimy, grubby, unclean — a tanh waveshaper drives the signal into soft clipping so REAL new harmonics appear, plus an upper-mid lift; dirt you can hear as edge, not a filter setting"
     },
     {
       "key": "clean",
@@ -3019,7 +3019,7 @@
       "delta": [],
       "pass": { "name": "overdriven", "drive": 0.6 },
       "priority": 8,
-      "why": "nonlinear soft-clip (tanh waveshaper) computes REAL new harmonics into the spectrum per station — carried on the sets path too, where the render-time shape is ignored (spec sec.6.3)"
+      "why": "overdriven, clipped, fuzzed — a hard tanh waveshaper computes REAL new harmonics into the spectrum, well past the point where the waveform squares off"
     },
     {
       "key": "analog",
@@ -3027,7 +3027,7 @@
       "delta": [],
       "pass": { "name": "analog", "amp_wobble": 0.08, "phase_drift": 0.1, "h_detune": 0.0025 },
       "priority": 8,
-      "why": "slow coherent drift across the whole chain — amplitude wobble + a tiny analog h micro-detune (sets path), golden-angle offset per partial so nothing repeats (spec sec.6.3)"
+      "why": "analog/analogue oscillator instability: micro-fluctuation in AMPLITUDE and PHASE — a slow amplitude wobble plus a ~8-cent micro-detune from two incommensurate slow LFOs, so the tuning never repeats; the softened top of a discrete VCO. Not a filter sweep and not a vibrato"
     },
     {
       "key": "old",
@@ -3035,7 +3035,7 @@
       "delta": [],
       "pass": { "name": "old", "hf_erode": 0.5, "smear": 0.12, "wow": 0.004 },
       "priority": 8,
-      "why": "age: progressive high-partial erosion + light smear + a tape-tiny wow (slow pitch wobble on the sets path; flagged as not carried on the baked path) — spec sec.6.3"
+      "why": "aged, worn, vintage — the top of the spectrum eroded away, as if the highs had been played off tape too many times; purely spectral (for the unsteady tuning of old gear, say analog)"
     },
     {
       "key": "washed_out",
@@ -3043,7 +3043,7 @@
       "delta": [],
       "pass": { "name": "washed_out", "blur": 0.18 },
       "priority": 8,
-      "why": "spectral blur — a small fixed kernel leaks energy between h-neighbours so partial edges lose definition (spec sec.6.3)"
+      "why": "washed out, faded, distant — the highs rolled well back and a faint sheen left over them, so nothing in the sound has a hard edge any more"
     }
   ],
   "motions": [
@@ -3119,7 +3119,7 @@
       ],
       "category": "texture",
       "priority": 8,
-      "why": "a per-frame spectral-tilt wobble — two cycles per loop, a timbral rock low<->high (dco_frames texture, not a scan trajectory)",
+      "why": "wobbling, warping — the timbre rocks between dark and bright fast enough to hear as a wobble (~2.2 Hz); a timbral rock, not a pitch bend",
       "texture": {"n_cycles": 2, "depth": 0.55}
     },
     {
@@ -3132,7 +3132,7 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "tours every keyframe forward then backward",
+      "why": "the timbre travels out and back, out and back, at a leisurely rate (~0.25 Hz) — a to-and-fro movement",
       "motion_rate_hz": 0.5
     },
     {
@@ -3164,7 +3164,7 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "a long slow-curve chain touring every keyframe once, then closing",
+      "why": "the timbre travels slowly and keeps travelling — the spectrum opens and closes over the note at about 0.16 Hz; the undirected 'it should not stand still' movement",
       "motion_rate_hz": 0.1
     },
     {
@@ -3179,7 +3179,7 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "collapses motion to a single keyframe — no movement"
+      "why": "still, steady, held — no movement is added at all; the escape hatch for a tone that must stand perfectly still"
     },
     {
       "key": "cycle",
@@ -3193,7 +3193,7 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "tours every keyframe in index order, equal shares, then closes"
+      "why": "the timbre travels round and back at a steady, clearly audible rate (~1.1 Hz) — a cycling, circling movement"
     },
     {
       "key": "flutter",
@@ -3207,7 +3207,7 @@
       ],
       "category": "texture",
       "priority": 8,
-      "why": "a brisk per-frame timbral flutter — four bright<->dark shimmer cycles per loop (dco_frames texture, not a scan trajectory)",
+      "why": "fluttering, quivering — a brisk shallow tremolo that makes the sound quiver; an amplitude flutter, not a timbre journey",
       "texture": {"n_cycles": 4, "depth": 0.5}
     },
     {
@@ -3222,7 +3222,7 @@
       ],
       "category": "texture",
       "priority": 8,
-      "why": "a fast, dense per-frame timbral shimmer — six centroid-wobble cycles per loop; true pitch vibrato is not single-cycle-representable, so it is realized on the timbral axis (dco_frames texture, not a scan trajectory)",
+      "why": "vibrating, trembling — a fast shallow tremolo; note that PITCH vibrato belongs to the synth's own expression controls, so this is realized as amplitude trembling",
       "texture": {"n_cycles": 6, "depth": 0.5}
     },
     {
@@ -3235,7 +3235,7 @@
       ],
       "category": "texture",
       "priority": 8,
-      "why": "a periodic per-frame gain modulation — the amplitude pulses (audible because the wire does no per-frame renorm); a dco_frames texture, not a scan trajectory",
+      "why": "tremolo, pulsing, throbbing — a periodic amplitude modulation (~5.5 Hz): the loudness itself pulses, the timbre does not travel",
       "texture": {"n_cycles": 4, "depth": 0.4}
     },
     {
@@ -3251,7 +3251,7 @@
       ],
       "category": "texture",
       "priority": 8,
-      "why": "a periodic high-partial sparkle, golden-angle decorrelated so the top of the spectrum glitters; a dco_frames texture, not a scan trajectory. Triggered by sparkle/glitter words — 'shimmer'/'shimmering' remain the pre-existing morph-rate adjective, a distinct concept",
+      "why": "sparkle, glitter, twinkle — a fast, shallow tremolo (~5.5 Hz) that makes the sound flicker; an amplitude shimmer, not a timbre journey",
       "texture": {"n_cycles": 3, "depth": 0.5}
     },
     {
@@ -3264,7 +3264,7 @@
       ],
       "category": "intent",
       "priority": 8,
-      "why": "a quick move to the far keyframe, a long hold, then a fast close"
+      "why": "the timbre drifts very slowly (~0.12 Hz), as if settling into place — barely-there movement rather than an effect"
     },
     {
       "key": "slow",

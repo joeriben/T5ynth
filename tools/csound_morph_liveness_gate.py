@@ -204,7 +204,10 @@ TRAVEL_FRACTION = 0.45
 
 # Window for the pitch-scaled swing band, in periods of the played note. 4 sits
 # between the two constraints: above ~2 it rejects the carrier, below ~6 it still
-# resolves a doublet beat (which arrives every 1/|mod2-mod| = 12-20 periods).
+# resolves any amplitude motion that scales WITH pitch. (The FM-metal doublet
+# beat used to live here at |mod2-mod|*kfreq; since 0bea3fd1 it is a fixed-Hz
+# warble, 1.1-7.6 Hz, and moved to the swing_slow band -- see swing_pitched
+# below.)
 SWING_PERIODS = 4.0
 
 # THE REFERENCE. Absolute motion cannot be judged without knowing what the key
@@ -393,17 +396,21 @@ def measure(sr, x, hz):
       * `travel` -- spectral. `square`'s comparator drift is purely spectral and
         reads 10.2% travel against 0.22% swing at 55 Hz.
       * `swing_slow` -- amplitude motion below ~5 Hz. A bell's ring crescendo
-        lives here, and so does sub_sine's 0.067 Hz divider drift. Centroid
-        travel is nearly blind to it: sub_sine reads 0.72% live against 0.53%
-        with its drift LFO nulled, 0.19 pp apart, while on swing the same pair
-        reads 29.5% against 3.8%.
+        lives here, and so does sub_sine's 0.067 Hz divider drift. Since
+        0bea3fd1 the FM-metal doublet beat lives here too: a fixed-Hz warble
+        (fm_bell 2.6, metallic_fm 7.6, fm 3.6 Hz) at EVERY pitch, where the old
+        two-ratio law put it at |mod2-mod|*kfreq and let it climb into the
+        roughness band. Centroid travel is nearly blind to all of this:
+        sub_sine reads 0.72% live against 0.53% with its drift LFO nulled, 0.19
+        pp apart, while on swing the same pair reads 29.5% against 3.8%.
       * `swing_pitched` -- amplitude motion at a rate proportional to the note,
-        measured over 4 periods. The doublet beat lives here, at
-        |mod2 - mod| * kfreq: 1 Hz at the bottom of the clamp but 200-320 Hz at
-        4 kHz. A fixed 100 ms window is a ~5 Hz low-pass and cannot see it at
-        all -- fm_bell's beat at 4 kHz reads 2.16% through the slow window and
-        52.66% through this one. It was never dying, it was never being
-        measured.
+        measured over 4 periods. This band still exists to catch a
+        pitch-scaling beat should any key emit one; the FM-metal doublet used
+        to be that case (|mod2-mod|*kfreq, 1 Hz at the clamp floor rising to
+        200-320 Hz at 4 kHz, which a fixed 100 ms window is a ~5 Hz low-pass
+        against and could not see) but no longer is -- its fixed-Hz replacement
+        is caught by swing_slow above, which is why metallic_fm's re-baselined
+        swing_slow@4000 Hz cell now reads MOVES.
 
     These last two were briefly combined as `max(slow, pitched)` under the
     argument that they are one phenomenon (amplitude motion at any rate). They

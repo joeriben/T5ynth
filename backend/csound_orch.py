@@ -521,10 +521,15 @@ _CS_SYSTEM_PROMPT_HEAD = (
     "A layer may end with an organ register in feet -- 8' is the played pitch, "
     "16' one octave lower, 4' one octave higher (e.g. \"OSC2: sine 16'\"). Add "
     "one ONLY if the prompt asks for a register; otherwise write no feet at all. "
-    "ADJECTIVES are timbral modifiers for the whole sound (or \"none\"). MOTION is "
+    "ADJECTIVES are timbral modifiers for the whole sound (or \"none\"). This "
+    "INCLUDES words for the kind of circuit or the age of the gear -- analog, "
+    "vintage, old -- which describe how the tone behaves and are catalogue "
+    "adjectives like any other: if the prompt says analog, ADJECTIVES must "
+    "contain analog. MOTION is "
     "how the whole sound moves over time (or \"none\"). Match by MEANING even if "
     "the wording differs. Use ONLY keys from the catalogue; if nothing in a "
-    "category fits, write \"none\".\n"
+    "category fits, write \"none\". Every descriptive word in the prompt should "
+    "reach one of these lines if the catalogue has a key for it.\n"
     "NOTATION: the prompt's own punctuation is binding. \"a > b\" is ONE "
     "oscillator morphing a into b — put both on the SAME OSC line separated by "
     "\" > \", never on two lines. \"a + b\" is two oscillators on two lines. A "
@@ -544,6 +549,14 @@ _CS_SYSTEM_PROMPT_HEAD = (
     "OSC1: pulse > silence\n"
     "VOL1: 1.0\n"
     "ADJECTIVES: bright\n"
+    "MOTION: none\n"
+    "Example — two layers at named registers, and EVERY descriptive word carried "
+    "(both adjectives listed; no loudness was asked for, so both layers stay 1.0):\n"
+    "OSC1: saw 16'\n"
+    "VOL1: 1.0\n"
+    "OSC2: sine 4'\n"
+    "VOL2: 1.0\n"
+    "ADJECTIVES: analog, warm\n"
     "MOTION: none\n"
     "CATALOGUE:\n"
 )
@@ -2205,51 +2218,83 @@ def _emit_adjectives(adjective_keys):
     return "\n".join(L)
 
 
-# Techniques whose spectrum is SPARSE enough that a filter sweep has nothing to
-# work on: at most a fundamental plus one or two weak partials. These are exactly
-# the sources for which the waveshaper below is both necessary AND harmless (see
-# _emit_motion's docstring for the measurement that splits the two families).
+# Techniques whose spectrum is SPARSE enough to have no partial PAIRS worth
+# speaking of: at most a fundamental plus one or two weak partials. These are
+# exactly the sources for which the waveshaper below is both necessary AND
+# harmless (see _emit_motion's docstring for the measurement that splits the two
+# families).
 _SPARSE_TECH = {"sine", "sub_sine", "theremin", "flute", "triangle"}
+
+
+# The motion words this post-mix layer answers for. Named once because two call
+# sites must agree exactly: the emitter that renders them and the response
+# builder that flags the ones it cannot render. They drifting apart is how a word
+# gets silently swallowed.
+_POSTMIX_SPECTRAL_MOTION = frozenset({
+    "sweep", "evolve", "open_up", "close", "breathe", "wobble",
+    "cycle", "slow", "fast", "snap", "pingpong", "settle",
+})
+
+
+def _sparse_patch(oscs):
+    """True iff EVERY sounding stage of the patch is sparse -- the only case in
+    which the post-mix waveshaper may run. One dense stage anywhere disqualifies
+    the whole patch, because the operator sits on the summed mix and would
+    intermodulate that stage's partial pairs. An empty patch is not sparse: with
+    no stage to reason about, the safe answer is the one that adds nothing."""
+    stages = [k for o in (oscs or []) for k in (o.get("chain") or [])
+              if k not in ("silence", "zero")]
+    return bool(stages) and all(k in _SPARSE_TECH for k in stages)
 
 
 def _emit_motion(motion_key, oscs=None):
     """A k-rate motion so 'moving' prompts actually move (movement by default).
 
-    The spectral family (sweep/evolve/open_up/close/breathe/wobble/cycle) makes the
-    spectrum open and close over the note. HOW it does that depends on what the
-    patch's sources actually contain, because the two available operators fail on
-    exactly opposite material:
+    NO FILTER LIVES HERE. BJ, 2026-07-19, on hearing what `analog saw 16" + sine
+    4"` had become: "ein Filtersweep ist keine analoge Welle. Ein Filtersweep hat
+    null zu suchen, es sei denn, der ist beauftragt oder es gibt interne Gruende
+    dafuer, denn dieser Synthesizer hat einen Filter." A pitch-tracked resonant
+    lowpass used to sit on the finished mix here, sweeping x1.8..x26 the
+    fundamental at 0.16 Hz; on that patch it periodically shut the 4' sine away
+    entirely, and it read to the player as the word "analog" having been
+    translated into a filter sweep. It is deleted, not made quieter.
 
-      * A WAVESHAPER (tanh at an LFO-swept drive) MAKES harmonics, so it moves even
-        a bare sine -- which is why it was introduced: the frozen NL corpus caught
-        'evolving analog drone', 'wobbling acid bass' and 'a bass that slowly opens
-        up' all rendering static, because the 7B had routed them onto sine/sub_sine
-        and the older cutoff sweep had nothing above the cutoff to remove.
-        But on a DENSE source it intermodulates every partial PAIR, and on an
-        INHARMONIC one those products land off every grid: audible distortion.
-        Measured in the built Standalone on `a slowly evolving bell` (fm_bell,
-        c:m 1:1.41, index 3.2) against the same patch with no motion -- identical
-        source, motion the only difference:
+    It is also the wrong LAYER, which is why no replacement filter belongs here.
+    A filter imposes ONE shared frequency-dependent envelope on a summed mix. A
+    dense or inharmonic sound does not evolve that way in the world: its partials
+    change their relative weights at DIFFERENT rates, which cannot be expressed
+    post-mix at all -- only inside the emitter that still knows which partial is
+    which. So for those sources the motion belongs to the key idiom (the FM
+    index darkening as it rings, the modal bank's stochastic exciter, the organ
+    ranks wandering against each other), never to a post-mix operator.
+
+    What remains here is the one operator that is honest post-mix:
+
+      * A WAVESHAPER (tanh at an LFO-swept drive) MAKES harmonics, so it moves
+        even a bare sine -- which is why it exists: the frozen NL corpus caught
+        'evolving analog drone', 'wobbling acid bass' and 'a bass that slowly
+        opens up' all rendering static, because the 7B had routed them onto
+        sine/sub_sine and there was nothing above a cutoff to remove.
+        It is confined to _SPARSE_TECH patches, and that confinement is load
+        bearing: on a DENSE source it intermodulates every partial PAIR, and on
+        an INHARMONIC one those products land off every grid. Measured in the
+        built Standalone on `a slowly evolving bell` (fm_bell, c:m 1:1.41, index
+        3.2) against the same patch with no motion -- identical source, motion
+        the only difference:
             crest factor      1.57 constant   ->  1.13 .. 1.35   (waveform squared off)
             energy above 3kHz 0.036 .. 0.129  ->  0.086 .. 0.244
             partials          the FM grid     ->  + 1800, 2167, 3367, 3733, 4103 Hz
-        2167 Hz is 2*1213 - 260, a textbook cubic intermodulation product; the 3367/
-        3733/4103 trio is the FM grid regenerated far above where the dry bell has
-        any energy at all. This is BJ's "die Bells und Metals sind im Synth extrem
-        verzerrt" (2026-07-19), and the reason it survived every check for days is
-        the `balance` on the next line: loudness is held identical while the
-        waveform is destroyed, so no peak/RMS gate can see it.
+        2167 Hz is 2*1213 - 260, a textbook cubic intermodulation product; the
+        3367/3733/4103 trio is the FM grid regenerated far above where the dry
+        bell has any energy at all. This is BJ's "die Bells und Metals sind im
+        Synth extrem verzerrt" (2026-07-19), and the reason it survived every
+        check for days is the `balance` on the next line: loudness is held
+        identical while the waveform is destroyed, so no peak/RMS gate sees it.
 
-      * A FILTER SWEEP adds NO partial whatsoever -- it only re-weights what is
-        already there -- so it cannot intermodulate anything. It is silent only on
-        a source with nothing to re-weight.
-
-    So the operator is chosen by the material, and the two conditions are
-    complementary: every source falls cleanly into one side. A patch whose every
-    stage is in _SPARSE_TECH gets the waveshaper (safe there precisely BECAUSE the
-    spectrum is sparse: tanh on a near-sine breeds a clean odd-harmonic series,
-    which is the intended "harmonics grow and retract"); everything else gets a
-    pitch-tracked resonant lowpass sweep.
+    A spectral-motion word on a NON-sparse patch therefore emits nothing from
+    this layer. That is a real gap, not a silent one: build_csound_response
+    flags the word so the player is told the movement did not render, instead of
+    being handed a filter and told it is analogue.
 
     The shimmer family (shimmer/vibrate/flutter/tremolo) stays a fast amplitude
     tremolo (already source-agnostic). The speed/intent motions (slow/fast/snap/
@@ -2262,40 +2307,24 @@ def _emit_motion(motion_key, oscs=None):
         "wobble": 2.2, "cycle": 1.1, "snap": 0.9, "fast": 0.4,
         "pingpong": 0.25, "settle": 0.12, "slow": 0.08,
     }
-    if motion_key in ("sweep", "evolve", "open_up", "close", "breathe", "wobble",
-                      "cycle", "slow", "fast", "snap", "pingpong", "settle"):
+    if motion_key in _POSTMIX_SPECTRAL_MOTION:
         # faster, shallower for the periodic wobble/cycle; slow & deep for the
         # directional-feel evolve/open family (still periodic = keeps living).
         rate = _SPECTRAL_RATE.get(motion_key, 0.16)
-        stages = [k for o in (oscs or []) for k in o.get("chain", [])
-                  if k not in ("silence", "zero")]
-        sparse = bool(stages) and all(k in _SPARSE_TECH for k in stages)
-        if sparse:
-            # Nothing to re-weight: MAKE harmonics. Safe here because a sparse
-            # near-sine spectrum has no partial pairs to intermodulate -- tanh
-            # breeds an ordinary odd-harmonic series on top of the fundamental.
-            # `balance` holds loudness steady: without it tanh(x*kdrv) ~= x*kdrv
-            # at small signal, so the drive LFO would pump level ~2.4x (an
-            # evolving PAD must not throb; that belongs to shimmer/tremolo).
-            return (f"  kmot     oscili 0.5, {rate}             ; -0.5..0.5 motion LFO\n"
-                    "  kdrv     = 1.0 + 3.4 * (kmot + 0.5)   ; waveshaper drive 1.0..4.4\n"
-                    "  awsh     = tanh(asig * kdrv)          ; sparse source: breed harmonics\n"
-                    "  asig     balance awsh, asig           ; steady loudness (spectral, not tremolo)")
-        # Dense / inharmonic source: re-weight what is already there. The cutoff
-        # TRACKS PITCH (a fixed-Hz sweep would sit wide open on a top note and
-        # shut on a bottom one), travelling x1.8 .. x26 the fundamental -- about
-        # 3.9 octaves, from "fundamental plus one partial" to "everything through".
-        # Exponential in the LFO so the sweep is even in pitch, not in Hz.
-        # `rezzy` rather than `moogladder`: measured 11.7us against 116us for the
-        # same orchestra elsewhere in this module, and this stage is post-mix so
-        # the whole patch pays it once. Modest resonance -- enough that passing
-        # partials are emphasised (what makes a sweep read AS a sweep), short of
-        # the self-whistle that would be a new artefact on an inharmonic bank.
+        if not _sparse_patch(oscs):
+            # Dense / inharmonic: nothing honest to do post-mix (see docstring).
+            # The word is flagged by build_csound_response, never dropped mute.
+            return ""
+        # Nothing to re-weight: MAKE harmonics. Safe here because a sparse
+        # near-sine spectrum has no partial pairs to intermodulate -- tanh
+        # breeds an ordinary odd-harmonic series on top of the fundamental.
+        # `balance` holds loudness steady: without it tanh(x*kdrv) ~= x*kdrv
+        # at small signal, so the drive LFO would pump level ~2.4x (an
+        # evolving PAD must not throb; that belongs to shimmer/tremolo).
         return (f"  kmot     oscili 0.5, {rate}             ; -0.5..0.5 motion LFO\n"
-                "  apre     = asig                       ; loudness reference\n"
-                "  kcut     limit kfreq * exp(1.923 + 2.670 * kmot), 150, 15000 ; x1.8..x26 f0\n"
-                "  afil     rezzy asig, kcut, 3          ; dense source: re-weight, add nothing\n"
-                "  asig     balance afil, apre           ; steady loudness (spectral, not tremolo)")
+                "  kdrv     = 1.0 + 3.4 * (kmot + 0.5)   ; waveshaper drive 1.0..4.4\n"
+                "  awsh     = tanh(asig * kdrv)          ; sparse source: breed harmonics\n"
+                "  asig     balance awsh, asig           ; steady loudness (spectral, not tremolo)")
     if motion_key in ("shimmer", "vibrate", "flutter", "tremolo"):
         return ("  ksh      oscili 0.18, 5.5\n"
                 "  asig     = asig * (1 + ksh)           ; fast shimmer")
@@ -2693,7 +2722,16 @@ def build_csound_response(text, llm):
         # into a moving sine. `evolve` is the undirected fallback BJ named: spectrum
         # into its opposite and back (_emit_motion's slow waveshaper sweep at 0.16 Hz,
         # loudness held by `balance`), not a tremolo and not a pitch wobble.
+        #
+        # Gated on _sparse_patch since 2026-07-19: the dense/inharmonic branch of
+        # _emit_motion was a post-mix resonant filter sweep, and BJ ordered it out
+        # ("ein Filtersweep hat null zu suchen ... dieser Synthesizer hat einen
+        # Filter"). Without it this default had nothing to render on a dense patch,
+        # so firing anyway would have printed "so it breathes" over a sound that
+        # does not -- the flag would have become the lie. It now fires only where
+        # it renders.
         if (not motion_key or motion_key == "static") \
+                and _sparse_patch(oscs) \
                 and not _prompt_wants_still(text) \
                 and not _patch_already_moves(oscs):
             motion_key = "evolve"
@@ -2704,6 +2742,19 @@ def build_csound_response(text, llm):
                           "ask for a static or steady tone to hold it still",
                 "tier": "adapted",
             })
+        # An ASKED-FOR spectral motion that this layer cannot render is reported,
+        # never dropped mute: the player hears no movement and must be told why,
+        # rather than being handed a filter and told it is the sound's own life.
+        elif motion_key in _POSTMIX_SPECTRAL_MOTION and not _sparse_patch(oscs):
+            flags.append({
+                "word": motion_key,
+                "reason": "this source's partials would have to move at different "
+                          "rates, which cannot be done to a finished mix -- a filter "
+                          "sweep over the whole sound is not that, and is the synth's "
+                          "own filter to apply if you want one",
+                "tier": "dropped",
+            })
+            motion_key = None
 
         orchestra, reading = build_orchestra(oscs=oscs, adjective_keys=adjective_keys,
                                              motion_key=motion_key)
