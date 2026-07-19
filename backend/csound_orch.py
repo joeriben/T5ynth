@@ -235,6 +235,15 @@ _VOWEL_FORMANTS = {
 }
 _VOICE_TECH = set(_VOWEL_FORMANTS)
 
+# Output gain per vowel, MEASURED, not derived. The three vowels differ by 9 dB
+# through the same resonator bank even though their formant amplitudes sum to
+# nearly the same number (1.92 / 1.85 / 1.72): what actually sets the level is
+# where F1 sits relative to the glottal tilt and how narrow the bands are. 'ee'
+# has F1 at 270 Hz, barely attenuated by the source pole and only 50 Hz wide, so
+# it comes out loudest by far. One shared constant left 'ee' 14 dB above a sine
+# and 'ah' 5 dB above. Each vowel is scaled to land ~2 dB under a sine.
+_VOWEL_GAIN = {"voice": 0.71, "voice_ee": 0.25, "voice_oo": 0.32}
+
 # Techniques rendered by the substrate NOISE path (_emit_noise), not the additive/
 # opcode steady path. They are aperiodic textures -- the behavioral gate's noise
 # check (pitchedness < 0.4) certifies each is really NOISE, not a pitched tone.
@@ -744,12 +753,45 @@ def _emit_voice(technique, tag="0"):
     ov = f"aosc{tag}"
     src = f"asrc{tag}"
     formants = _VOWEL_FORMANTS.get(technique, _VOWEL_FORMANTS["voice"])
-    L = [f"  {src}    vco2 0.5, kfreq, 0           ; glottal saw source ({technique})"]
+    # JITTER and SHIMMER. These are the two quantities voice science actually
+    # measures to tell a living voice from a synthetic one: jitter is the
+    # cycle-to-cycle variation in period (a healthy voice runs a few tenths of a
+    # percent), shimmer the same in amplitude (a few percent). A vocal fold is a
+    # wet, asymmetric piece of tissue driven by a turbulent air stream -- it
+    # cannot repeat a cycle exactly, and a source that does is heard as a machine
+    # immediately, however good the formants are. That is what this key sounded
+    # like: one perfectly periodic saw through three filters that never moved.
+    #
+    # Three and two incommensurate rates rather than a random generator. Jitter IS
+    # aperiodic, and `randi` would model that more directly, but it draws a fresh
+    # path every run -- the same patch would then sound different each time and no
+    # measurement of it could be repeated. Rates with no common factor never
+    # realign, which is aperiodic enough to hear and still deterministic.
+    L = [f"  kjta{tag}   poscil 0.0022, 7.3           ; jitter: period, 3 rates",
+         f"  kjtb{tag}   poscil 0.0014, 11.7",
+         f"  kjtc{tag}   poscil 0.0009, 19.1",
+         f"  ksha{tag}   poscil 0.030, 5.1            ; shimmer: amplitude, 2 rates",
+         f"  kshb{tag}   poscil 0.018, 8.9",
+         f"  {src}    vco2 0.5, kfreq * (1 + kjta{tag} + kjtb{tag} + kjtc{tag}), 0"]
+    # The GLOTTAL SLOPE. A sawtooth falls at -6 dB/octave; the glottal flow
+    # derivative a real larynx produces falls at about -12. That single octave of
+    # difference is most of why saw-through-formants sounds buzzy and electronic
+    # rather than voiced -- the upper harmonics are far too strong, so the
+    # formants sit on a bed of buzz. One fixed pole supplies the missing tilt.
+    # Fixed, not swept: this is the source's shape, not a filter effect.
+    L.append(f"  aglt{tag}   tone {src}, 200              ; glottal slope, -6 -> -12 dB/oct")
     terms = []
     for i, (f, bw, amp) in enumerate(formants):
-        L.append(f"  a{tag}f{i}   reson {src}, {f}, {bw}, 2      ; formant {i+1} @ {f} Hz")
+        # The tract is never still either -- tongue and jaw drift continuously,
+        # so each formant wanders slowly on its own rate. Small (about 1%): the
+        # VOWEL must stay this vowel, this is life inside it, not articulation.
+        rate = (0.23, 0.31, 0.19)[i % 3]
+        L.append(f"  kfw{tag}x{i}  poscil 0.011, {rate}            ; tract wander, formant {i+1}")
+        L.append(f"  a{tag}f{i}   reson aglt{tag}, {f} * (1 + kfw{tag}x{i}), {bw}, 2 "
+                 f"; formant {i+1} @ {f} Hz")
         terms.append(f"a{tag}f{i} * {amp:.3f}")
-    L.append(f"  {ov}    = ({' + '.join(terms)}) * 0.5")
+    gain = _VOWEL_GAIN.get(technique, 0.5)
+    L.append(f"  {ov}    = ({' + '.join(terms)}) * {gain} * (1 + ksha{tag} + kshb{tag})")
     return "\n".join(L)
 
 
@@ -769,8 +811,17 @@ def _emit_voice_morph(chain, imorphtime, tag="0"):
     leg = imorphtime / (nstage - 1)
     src = f"asrc{tag}"
     lbl = f"Lvoxmorph{tag}"
+    # The same larynx as the steady vowels -- jitter on the source, the glottal
+    # -12 dB/oct tilt, shimmer on the output. Without this a morph would travel
+    # between two living vowels through a dead one, which is worse than either.
     L = [f"  ; --- osc {tag}: vowel-sweep formant morph (trig-epoch reinit) ---",
-         f"  {src}    vco2 0.5, kfreq, 0           ; glottal saw source"]
+         f"  kjta{tag}   poscil 0.0022, 7.3           ; jitter: period, 3 rates",
+         f"  kjtb{tag}   poscil 0.0014, 11.7",
+         f"  kjtc{tag}   poscil 0.0009, 19.1",
+         f"  ksha{tag}   poscil 0.030, 5.1            ; shimmer: amplitude, 2 rates",
+         f"  kshb{tag}   poscil 0.018, 8.9",
+         f"  {src}0   vco2 0.5, kfreq * (1 + kjta{tag} + kjtb{tag} + kjtc{tag}), 0",
+         f"  {src}    tone {src}0, 200             ; glottal slope, -6 -> -12 dB/oct"]
     L.append("  if changed2(ktrig) == 1 then")
     L.append(f"    reinit {lbl}")
     L.append("  endif")
@@ -784,8 +835,15 @@ def _emit_voice_morph(chain, imorphtime, tag="0"):
         L.append(f"  k{tag}am{i}  linseg {am}")
         L.append(f"  a{tag}f{i}   reson {src}, k{tag}cf{i}, {bw}, 2")
         terms.append(f"a{tag}f{i} * k{tag}am{i}")
+    # The per-vowel output gain travels too. It has to: the vowels differ by 9 dB
+    # through this bank (see _VOWEL_GAIN), so a fixed scale would make the morph
+    # swell or collapse in loudness as it passes through 'ee'.
+    gains = [_VOWEL_GAIN.get(k, 0.5) for k in chain if k not in ("silence", "zero")]
+    gseg = ", ".join(f"{gains[j]}, {leg:.4f}" for j in range(nstage - 1)) + f", {gains[-1]}"
+    L.append(f"  k{tag}gn   linseg {gseg}")
     L.append("  rireturn")
-    L.append(f"  aosc{tag}    = ({' + '.join(terms)}) * 0.5")
+    L.append(f"  aosc{tag}    = ({' + '.join(terms)}) * k{tag}gn "
+             f"* (1 + ksha{tag} + kshb{tag})")
     return "\n".join(L)
 
 
@@ -949,6 +1007,46 @@ def _emit_modal(technique, tag="0", nmodes=None):
     return "\n".join(L)
 
 
+def _emit_vco_drift(tag):
+    """Per-VOICE analogue oscillator instability -> `kvdr<tag>`, a factor near 1.
+
+    BJ's complaint was that the movement in this instrument was "alles langsame
+    Filter sweeps, nicht wirklich glockenmovements oder analoge
+    mikrofluktuationen". This is the second of those two.
+
+    A real analogue polysynth has a separate oscillator board PER VOICE. Each has
+    its own exponential converter at its own temperature, so voice 1 and voice 2
+    drift differently and never quite agree -- which is why a chord on an
+    analogue synth is wide and a chord on a digital one can be sterile. The
+    important word is PER VOICE: a single global LFO applied to every voice would
+    move them all in lockstep and produce none of that, the same mistake as a
+    filter on the sum, one layer down.
+
+    `ivoice` (= p4) is in scope in `instr 1`, so each voice can be given its own
+    phase and its own rate. Golden-ratio phase offsets spread 16 voices about as
+    evenly as possible, and the small per-voice rate difference stops them ever
+    re-aligning. Deterministic -- no random generator, so the same patch drifts
+    the same way twice and a measurement of it can be repeated.
+
+    Measured in isolation: three voices at the SAME nominal pitch produce a
+    wandering beat (envelope std/mean 0.24 over 6 s) instead of standing still.
+
+    Depth is deliberately about a cent. That is below anything anyone would call
+    movement in a single held note -- the liveness probe's own floor is 2 dB of
+    partial travel and this produces essentially none -- so it does not tread on
+    the "static" escape hatch. It becomes audible exactly where it should: when
+    two oscillators or two voices sound together and beat.
+
+    Two keys are deliberately EXCLUDED. `sine` is the designated standing tone and
+    the movement escape hatch, so it stays mathematically pure. `chiptune` is not
+    analogue at all: a chip's oscillator is a divider off a crystal, and being
+    rock-steady in pitch is part of what makes it sound like a chip. Giving it an
+    analogue drift would be the same category error as filtering a saw for brass.
+    """
+    return [f"  ivph{tag}   = frac(ivoice * 0.6180339887)   ; per-voice phase",
+            f"  kvdr{tag}   poscil 0.0007, 0.043 + 0.0037 * ivoice, giSine, ivph{tag}"]
+
+
 def _emit_steady(technique, tag="0", nmodes=None):
     """A single (non-morph) technique -> `aosc<tag>`. Uses Csound's native
     opcodes; every temporary is suffixed with `tag` (per-osc uniqueness)."""
@@ -982,14 +1080,20 @@ def _emit_steady(technique, tag="0", nmodes=None):
         # febda214, with the comment above it claiming 8% the whole time.
         L.append(f"  klfo{tag}    oscili 0.5, 0.25            ; -0.5..0.5, 4 s period")
         L.append(f"  kpw{tag}     = 0.5 + 0.6 * klfo{tag}     ; duty 0.20..0.80, square at centre")
-        L.append(f"  apw{tag}     vco2 0.6, kfreq, 2, kpw{tag}     ; imode 2 = pulse, kpw = width")
+        L += _emit_vco_drift(tag)
+        L.append(f"  apw{tag}     vco2 0.6, kfreq * (1 + kvdr{tag}), 2, kpw{tag} ; imode 2 = pulse, kpw = width")
         L.append(f"  {ov}    = apw{tag} - 0.6 * (2 * kpw{tag} - 1) ; {_DC_NOTE}")
     elif technique == "square":
-        L.append(f"  {ov}    vco2 0.6, kfreq, 2, 0.5     ; square (50%% pulse)")
+        L += _emit_vco_drift(tag)
+        L.append(f"  kdty{tag}   poscil 0.012, 0.057          ; comparator threshold drift")
+        L.append(f"  apw{tag}    vco2 0.6, kfreq * (1 + kvdr{tag}), 2, 0.5 + kdty{tag} ; square")
+        L.append(f"  {ov}    = apw{tag} - 1.2 * kdty{tag}    ; the duty drift carries DC with it")
     elif technique == "pulse":
         # the lexicon's OWN spec: "narrow rectangular wave (default 30% width)".
         # It emitted 0.5 -- i.e. a square, a byte-identical alias of `square`.
-        L.append(f"  apl{tag}    vco2 0.6, kfreq, 2, 0.30    ; narrow pulse (30%% width)")
+        L += _emit_vco_drift(tag)
+        L.append(f"  kdty{tag}   poscil 0.012, 0.057          ; comparator threshold drift")
+        L.append(f"  apl{tag}    vco2 0.6, kfreq * (1 + kvdr{tag}), 2, 0.30 + kdty{tag} ; narrow pulse (30%% width)")
         L.append(f"  {ov}    = apl{tag} + 0.2400         ; {_DC_NOTE}")
     elif technique == "clarinet":
         # Csound's own reed waveguide, instead of a square filtered down to look
@@ -1102,17 +1206,20 @@ def _emit_steady(technique, tag="0", nmodes=None):
         # stand-in: h3 -19.1 dB, h5 -28.0, h7 -33.8, no even harmonics, level in
         # line with the saw family -- and at 12 kHz it produces ZERO content below
         # the played pitch, where the stand-in aliased at 0.120 relative.
-        L.append(f"  {ov}    vco2 0.6, kfreq, 12         ; band-limited triangle")
+        L += _emit_vco_drift(tag)
+        L.append(f"  {ov}    vco2 0.6, kfreq * (1 + kvdr{tag}), 12 ; band-limited triangle")
     elif technique == "saw":
-        L.append(f"  {ov}    vco2 0.6, kfreq, 0          ; band-limited sawtooth")
+        L += _emit_vco_drift(tag)
+        L.append(f"  {ov}    vco2 0.6, kfreq * (1 + kvdr{tag}), 0  ; band-limited sawtooth")
     elif technique == "supersaw":
         # 7 detuned saws (the JP-8000 idiom). The lexicon says the wavetable path
         # had to fake this because "the detune itself is not a cycle property" --
         # on a live substrate the detune is simply real, and the beating between
         # the copies is movement that arises from the structure itself.
+        L += _emit_vco_drift(tag)
         ratios = (1.0, 1.0035, 0.9965, 1.0071, 0.9929, 1.0110, 0.9890)
         for i, r in enumerate(ratios):
-            L.append(f"  asu{tag}x{i}  vco2 0.6, kfreq * {r:.4f}, 0")
+            L.append(f"  asu{tag}x{i}  vco2 0.6, kfreq * {r:.4f} * (1 + kvdr{tag}), 0")
         stack = " + ".join(f"asu{tag}x{i}" for i in range(len(ratios)))
         L.append(f"  {ov}    = ({stack}) * 0.17   ; 7-saw detuned stack")
     elif technique == "sync":
@@ -1122,10 +1229,11 @@ def _emit_steady(technique, tag="0", nmodes=None):
         # The slave ratio SWEEPS, because a static sync ratio is just a fixed
         # formant -- the sweep is what makes sync recognisable, exactly as the
         # moving duty is what makes pwm recognisable.
+        L += _emit_vco_drift(tag)
         L.append(f"  kswp{tag}   oscili 1.1, 0.16            ; slave-ratio sweep")
         L.append(f"  krat{tag}   = 2.6 + kswp{tag}            ; 1.5 .. 3.7 x master")
         L.append(f"  azro{tag}   = 0")
-        L.append(f"  amst{tag}, asyn{tag}  syncphasor kfreq, azro{tag}")
+        L.append(f"  amst{tag}, asyn{tag}  syncphasor kfreq * (1 + kvdr{tag}), azro{tag}")
         L.append(f"  aslv{tag}, adum{tag}  syncphasor kfreq * krat{tag}, asyn{tag}")
         L.append(f"  {ov}    = (aslv{tag} * 2 - 1) * 0.45  ; hard-synced saw")
     elif technique == "brass":
@@ -1191,7 +1299,8 @@ def _emit_steady(technique, tag="0", nmodes=None):
         # above its 24th harmonic is tiny), so the key stayed an alias in the ear.
         # What makes it a BASS saw is the weight below: a sub octave under the
         # rolled-off saw. Both halves of the name now exist in the code.
-        L.append(f"  abs{tag}    vco2 0.6, kfreq, 0          ; saw source")
+        L += _emit_vco_drift(tag)
+        L.append(f"  abs{tag}    vco2 0.6, kfreq * (1 + kvdr{tag}), 0 ; saw source")
         L.append(f"  kcut{tag}   limit kfreq * 24, 100, 15000 ; 24-harmonic ceiling")
         L.append(f"  adk{tag}    butterlp abs{tag}, kcut{tag}")
         L.append(f"  asb{tag}    oscili 0.30, kfreq * 0.5    ; sub-octave weight")
