@@ -1222,10 +1222,30 @@ def _emit_steady(technique, tag="0", nmodes=None):
         # nonlinearity -- harder blowing, more harmonics, which is the real
         # behaviour and is what makes a clarinet expressive. 1:2 also cannot put a
         # sideband on DC (no whole-number kcar/kmod), the fault that had to be
-        # corrected in fm_ep and theremin. k-rate throughout, and it works at every
-        # pitch the synth can ask for.
+        # corrected in fm_ep and theremin.
+        #
+        # foscili is NOT bandlimited, so the index has to be tapered where the
+        # sidebands run out of room, or the bore aliases instead of playing. The
+        # 3rd harmonic crosses Nyquist at kfreq = sr/6, and above that the folded
+        # partials land on a lower odd series: at 9 kHz on a 48 kHz orchestra the
+        # set 3000/9000/15000/21000 reads as a clarinet an octave and a fifth
+        # BELOW the note asked for, and at 12 kHz on 44.1 kHz the loudest partial
+        # is 8100 Hz with the asked pitch 9.2 dB down. That threshold follows the
+        # sample rate, which is precisely the fault wgclar is rejected for above;
+        # an earlier version of this comment claimed the branch "works at every
+        # pitch the synth can ask for", and that was false.
+        #
+        # kndmax is the largest index whose highest significant sideband still
+        # fits: sidebands reach about kfreq*(1 + 2*(index+1)), so solving against
+        # 0.45*sr gives the expression below. Below sr/6 it exceeds the musical
+        # index and nothing changes; above it the reed closes down and the tone
+        # degrades to a sine, which is the correct limit -- a bore that small has
+        # no harmonics to give. It does mean the breath motion fades out up
+        # there, which is honest: at 12 kHz there is no room for it to move in.
         L.append(f"  kbrc{tag}   poscil 0.5, 0.19             ; breath pressure, slow")
-        L.append(f"  kndc{tag}   = 1.15 + 0.55 * kbrc{tag}      ; the reed opens the series")
+        L.append(f"  kndmx{tag}  limit (sr * 0.45 / kfreq - 1) / 2 - 1, 0, 40 ; sideband room")
+        L.append(f"  kndr{tag}   = 1.15 + 0.55 * kbrc{tag}      ; the reed opens the series")
+        L.append(f"  kndc{tag}   min kndr{tag}, kndmx{tag}       ; never alias the bore")
         L.append(f"  {ov}    foscili 0.55, kfreq, 1, 2, kndc{tag}, giSine ; cylindrical bore")
     elif technique == "chiptune":
         # a real chip lead is a pulse whose DUTY STEPS between the chip's three
@@ -1380,14 +1400,32 @@ def _emit_steady(technique, tag="0", nmodes=None):
         # land together however far apart they are tuned. Crest 4.85 against a
         # rounded saw's 3.14, i.e. 3.3 dB of headroom spent on a spike that the
         # comment above claimed could not exist.
+        # How many harmonics FIT below Nyquist, and a corner centre that never
+        # asks for more than that. A fixed 7th-harmonic centre stops meaning
+        # anything once 5.25*kfreq clears Nyquist, and the clamp then pins the
+        # whole excursion -- a dead control, which is what this had. Capping the
+        # centre instead keeps the sweep inside the representable band at every
+        # pitch, so bow pressure still moves the balance of the few harmonics
+        # that remain up there. Below ~2 kHz the cap never binds and the centre
+        # is the authored 7th harmonic exactly.
+        L.append(f"  krm{tag}    = sr * 0.47 / kfreq        ; harmonics that fit")
+        L.append(f"  kctr{tag}   limit krm{tag} * 0.62, 1.6, 7 ; corner centre, capped")
         players = ((1.0000, 0.061, 0.089), (1.0042, 0.073, 0.107),
                    (0.9958, 0.047, 0.127))
         for i, (det, rd, rb) in enumerate(players):
             L.append(f"  ksd{tag}x{i}  poscil 0.0009, {rd}         ; player {i+1} intonation")
             L.append(f"  ksb{tag}x{i}  poscil 0.35, {rb}           ; player {i+1} bow pressure")
             L.append(f"  asr{tag}x{i}  vco2 0.30, kfreq * {det:.4f} * (1 + ksd{tag}x{i}), 0")
-            L.append(f"  kbc{tag}x{i}  limit kfreq * (7 + 5 * ksb{tag}x{i}), 200, 14000 "
-                     f"; bow sharpens the corner")
+            # The clamp has to sit at the edges of what is REPRESENTABLE, not at
+            # a round number, or it silently eats the control. With a 200..14000
+            # clamp the multiplier's own range (7 +- 1.75 = 5.25..8.75) pinned
+            # BOTH ends -- inert below 22.86 Hz and above 2666.67 Hz, which is
+            # E7 at 8', ordinary playing range, and 25.6% of the 20-12000 clamp
+            # in total. Bit-identical output with the LFO nulled, exactly
+            # 0.000e+00: the same dead-control defect this file removed wgclar
+            # for, reintroduced in the same commit that removed it.
+            L.append(f"  kbc{tag}x{i}  limit kfreq * kctr{tag} * (1 + 0.7 * ksb{tag}x{i}), "
+                     f"50, sr * 0.47 ; bow sharpens the corner")
             L.append(f"  ase{tag}x{i}  tone asr{tag}x{i}, kbc{tag}x{i}")
         L.append(f"  aens{tag}   = ase{tag}x0 + ase{tag}x1 + ase{tag}x2 ; the desk")
         # The instrument's BOX, fixed in Hz like the brass bell: a violin body's
