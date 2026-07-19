@@ -1,0 +1,175 @@
+# The LCO — concept, direction, and current state
+
+**Status: authoritative.** This document supersedes every earlier description of the LCO in `docs/` (the `DCO_*` and `HANDOVER_DCO_*` files describe the predecessor and are historical). Written 2026-07-19, at BJ's instruction, after a session in which the direction had to be corrected four times because it was not written down anywhere.
+
+Read this before touching `backend/dco_lexicon.json`, `backend/csound_orch.py`, or `backend/dco_llm_map.py`.
+
+---
+
+## 1. The goal
+
+Language models can write code, and they can translate natural language into sound worlds. But only frontier models do that *consistently*. The LCO exists to get that capability out of a **small, ideally locally running** model.
+
+The mechanism is not a bigger model. It is a **curated library of sound-world code**, with documented parameters and curated perceptual hints, prepared in advance by parametrised sound research. The library supplies the consistency the small model lacks.
+
+BJ, 2026-07-19, dictated for the record:
+
+> „Die Idee war von Beginn an: LLM können Code schreiben. LLM können natural language in Klangwelten übersetzen. Aber nur Frontier-LLM könnten das konsistent. Wir bauen eine Klangwelt-Code-Bibliothek mit zig Instrumenten. Wir informieren über Parameter jeweils dieses Csound-Codes innerhalb seines Spektrums. Wir haben auch übergreifende Klangeigenschaften die in die Codegenerierung einfließen können ('gritty', 'dirty', 'airy', etc.). So versuchen wir mit — idealerweise — lokal laufenden LLM ästhetisch interessanten Csound-Code aus natural language zu machen ohne ein Riesen-Coding-LLM dahinter, und mit mehr Kontrolle durch vorab erfolgende parametrisierte Klangforschung und Kuration (die aber natürlich dem LLM nur Vorschläge und Vorlagen bietet, und Parametrisierungshinweise wie 'square ist sharp wenn Wert x = y, ist hollow wenn x = y', etc.) und LLM übersetzt natural language Adjektive und Metaphern in diese Instrumentkategorie und innerhalb dieser die Parameter, und das wave-morpht die nach Prompt und mixt bis zu 3 davon."
+
+Every design decision is measured against that paragraph.
+
+---
+
+## 2. The architecture
+
+BJ, 2026-07-19, verbatim:
+
+> „Es gibt: 1 Prompt. 1 LLM-Inferenz die Bibliotheken benutzt. Daraus wird 1 Csound-Code für 1-3 Osc, die in sich morphen und was auch immer tun: es ist 1 - EIN - Csound-Code der resultiert. Der wird gefahren, so entstehen die Schwingungen dieses Osc - oder meinetwegen komplexen Meta-Osc."
+
+**One prompt → one inference → one Csound orchestra → it runs.** That is the whole pipeline.
+
+There is no frame store, no wavetable bake, no capture buffer, no transport, no runtime machinery wrapped around the generated code. Anything the sound does — including morphing — is expressed *in the emitted Csound source*. If a design requires a mechanism outside the emitted code, that design is wrong.
+
+Concretely, today: the prompt goes to a small model (currently `qwen2.5-7b-instruct`) which sees a catalogue built from `backend/dco_lexicon.json`; `build_orchestra()` in `backend/csound_orch.py` turns the reply into an orchestra with `ksmps=64`, `nchnls=16`, one numeric `instr 1`, `ivoice = p4`, 16 always-on voice instances, per-voice channels (`gate/freq/vel/pres/timb/trig`), and up to three oscillator slots each with its own chain, volume and register. The plugin runs it live against `CsoundLib64.framework`.
+
+### Naming
+
+**There is no "DCO."** The LCO is the contemporary version of what a DCO used to be — the predecessor, not a component. Never write "the LCO and the DCO", never ask where the boundary between them runs: there is one oscillator. The name survives on ~53 tracked files (`backend/dco_lexicon.json`, `backend/dco_llm_map.py`, `src/dsp/DcoBaker.*`, `docs/DCO_*`, many `tools/dco_*`); some of those files are live and simply kept the old name. Do not infer a subsystem from a filename.
+
+**Wavetables are dead for the LCO** (BJ, 2026-07-19: „wavetable sind TOT für LCO"). `src/dsp/DcoBaker::bake` has no caller anywhere; `backend/lco_author.py`'s entry points are unreachable from the running path. When reasoning about how an LCO sound is produced, go to the lexicon and the orchestra emitter — not to frames.
+
+---
+
+## 3. What an instrument is
+
+The unit of the library is an **instrument**: real, capability-complete Csound code, plus its own parameters, plus what those parameters do.
+
+An instrument entry carries:
+
+1. **The Csound code** — real substrate idioms. Csound was chosen because it natively knows PWM, FM, waveguides, modal resonators and waveshaping. Hand-authoring a crippled substitute for something the substrate already provides throws away the entire reason for the choice.
+2. **Its parameters, with measured ranges.** Not "it has a brightness" — the range, measured on this build.
+3. **Named anchors on each range**, each with a perceptual gloss: `square 0.55 — hollow, reedy, odd harmonics only`. The anchors are what the small model aims at. This is BJ's „square ist sharp wenn x=y, ist hollow wenn x=z".
+4. **Surface forms** — the words that reach it. Validation canon; the model never sees them.
+5. **A `why` text** — what the model *does* see, alongside the parameters and anchors.
+
+### Parameters are per instrument
+
+Settled 2026-07-19. BJ:
+
+> „Ich bin noch skeptisch ob Deine one size fits all Idee überhaupt gut ist, versus jedes instrument hat seine besonderheiten und ergo seine eigene Parametrisierungsentscheidung. Das käme mir erheblich plausibler vor."
+
+He is right, and his original wording already said it: „Wir informieren über Parameter **jeweils dieses** Csound-Codes." "Wave" is meaningless on a drum-head resonator; "membrane tension" is meaningless on an analogue oscillator.
+
+**What is shared is the vocabulary, not the parameter list.** `gritty`, `dirty`, `airy` must mean something in every instrument — but each instrument decides which of *its own* parameters that word moves. A recurring concept (harmonic rolloff appears in seven existing keys; FM index in six) may be given a shared *name* for consistency, but it is never a shared mechanism imposed on an instrument that does not have it.
+
+### The model's job
+
+Translate natural language, adjectives and **metaphors** into (a) the instrument category and (b) the parameters within it. Anchor *words* are what a small model produces reliably; bare numbers are allowed for interpolation between anchors. The curation offers suggestions and templates — not a straitjacket.
+
+**A construction that enumerates permitted timbres, waveforms or shapes ahead of the prompt is on-sight suspect.** That is the old DCO's waveform selector switch rebuilt, and it is a regression to the predecessor, not progress. (This was attempted and reverted on 2026-07-19; see §7.)
+
+### Combination
+
+Instruments wave-morph according to the prompt, and up to three are mixed. Both are properties the library must carry: an entry that only knows how it sounds alone is half an entry.
+
+---
+
+## 4. Platform invariants every instrument must obey
+
+These are user-observable fundamentals, not preferences. They disqualify otherwise attractive Csound opcodes, and they are the reason several obvious choices are unavailable.
+
+- **The oscillator is a SPECTRUM SOURCE.** The synth owns the amplitude envelope, glide, filter and expression. A generator that brings its own amplitude decay fights the player's envelope and takes the choice away.
+- **Colour may travel over the note; loudness may not.** A struck tine that *darkens* as it rings is the oscillator's business. A tone that fades to silence on its own is not.
+- **A self-decay is acceptable ONLY where there is no other way** (BJ, 2026-07-19: „Hüllkurven bei Naturinstrumenten können ja ok sein, aber NUR dort wo es nicht anders geht"). Where an alternative construction exists, it is taken.
+- **Pitch belongs to the synth.** An opcode that invents its own register is unusable however good it sounds. `kfreq` is k-rate and glides; everything must track it.
+- **Movement by default.** Every sound moves; only an explicit "static" request is delegated to the standing-tone escape hatch.
+- **The LLM is the entrance.** No LLM, no oscillator. No deterministic fallback, no "not understood".
+- **Nothing sound-shaping without an explicit order.**
+- **Test in the built Standalone.** Offline measurement is legitimate for objective facts and never as evidence of sound quality.
+
+---
+
+## 5. The three instruments (current proof of concept)
+
+BJ, 2026-07-19: „nein, eigentlich Kernidee zuerst. d.h. wir beginnen mit 3 unterschiedlichen Instrumenten. die parametrisieren wir." And: „Möglicherweise war auch der Fehler von einer quantitativen Mächtigkeit auszugehen statt einem sinnlich-musikalisch getragenen Aufbau dieses Osc. Der kann dann ja auch über Monate wachsen."
+
+Not coverage. Few parameters, musically meaningful, allowed to grow.
+
+### Instrument 1 — analogue oscillator (`analog_osc`) — BUILT, ear-approved
+
+BJ's verdict after testing in the built Standalone: „Klanglich schon überzeugend. Übersteuerung ok, Old funktioniert noch nicht."
+
+Four parameters: `wave`, `drive`, `fat`, `age`.
+
+Measured facts it rests on (Csound 6.18, Homebrew, double, no STK — do not re-derive):
+
+- **The wave axis is two phase-locked `vco2` calls.** Segment A `imode 4`, `kpw` 0.5 → 0.02: a symmetric triangle continuously skewed into a sawtooth, converging *exactly* on `imode 0`'s saw spectrum. Segment B `imode 2`, `kpw` 0.5 → 0.10: square to narrow pulse, where `kpw` is the literal ON-duty fraction. Measured RMS is flat within each segment (0.2887 and 0.4991 at kamp 0.5) and the segments differ by exactly ×0.578 (−4.8 dB), applied as compensation.
+- **The seam is a real waveform blend, not two beating oscillators.** Given the same `kphs=0` and the same frequency the two instances phase-lock: fundamentals at −93.6° and −90.0°, a 50/50 sum bit-stable over time (peak 0.5436 / rms 0.3799 identical at t=0.1/0.4/0.7 s) and adding coherently (|H1| 0.4804 measured vs 0.4806 predicted). Therefore the crossfade across the seam is **linear**, not equal-power — the two signals are coherent.
+- **A table-based construction was tried and rejected on measurement**: `vco2ft`+`tableikt` read with a shared phasor reproduces all four shapes exactly, but the resulting axis swings 9.5 dB in peak and clips past ~8% duty, where native `vco2 imode 2` holds RMS exactly constant at every duty and never clips. The simpler path is also the better one.
+- **`tanh` is the saturator.** Zero DC at every drive level, odd harmonics only, self-bounding; THD 4.6% (k=1) → 45% (k≥16). Rejected on measurement: `distort1` does not distort at all in this build (THD <0.01% across 12+ argument combinations); `powershape` and `distort` get *quieter* as drive rises and `distort` gains DC; `pdclip`/`pdhalf` are phase-distortion shapers and add huge DC; `waveset` fails pitch glide (stayed ~140–220 Hz through a glide reaching 392 Hz); `wshape` does not exist in this build.
+- **Minimoog overdrive, and what it actually does.** Two stages in the real instrument: the mixer (pre-filter — the one modelled here, classically overdriven by feeding the output back into the External Input, internally normalled on the current Model D) and the ladder's own differential-pair limiting (which belongs to the *filter*, and the filter belongs to the synth). The perceptual result is documented as **losing high harmonics — flatter, more closed, but rounder and warmer**. So drive on a saw or narrow pulse makes it **rounder and darker**; on a triangle it **adds** harmonics. The catalogue text says this explicitly, because "drive = brighter" is the intuitive and wrong model. On a Minimoog there is no drive knob at all — the mixer is simply pushed past unity, which is why drive and level are modelled as one motion.
+- **Unison is free.** 0.064 µs/kcycle per extra copy against a 1333 µs/kcycle block budget. Measured beat rates for a detuned pair: 2¢→0.23 Hz, 7¢→0.83 Hz, 20¢→2.34 Hz, 40¢→4.67 Hz.
+- **Analogue instability is THREE things, not one.** (a) Per-voice pitch drift — the existing `_emit_vco_drift`; depth→cents is exact (0.0007→1.21¢, 0.003→5.19¢, 0.007→12.08¢, 0.015→25.78¢) — but on a *single* held note it produces essentially nothing (envelope CV 0.02%); it needs a second voice to beat against. (b) Amplitude wobble — ±3% raises single-voice envelope CV to 1.08%, fifty times more. (c) Shape/duty wobble — moves the spectral centroid ~0.42% with no amplitude change at all. **A single "age" control must move all three or it is inaudible on a held single note.**
+
+**Open: `age` is not audible, and the cause is in the rates, not in the wiring.** All three instabilities *are* connected (verified by reading the emitter, not assumed): pitch via `kvdr` in the `vco2` frequency expression, shape via `kdty` added to `kpw`, amplitude via `kagw` on the output. But the pitch drift runs at `0.043 Hz` (a 23-second period) and the shape wobble at `0.057 Hz` (17.5 seconds), because both were inherited from the per-voice drift idiom, whose job is to pull *voices apart from each other* over time — not to make one held note waver. On a note of a few seconds they are a static offset, not motion. The third, amplitude, is fast enough at 0.7 Hz but reaches only ±2.4% at `age=0.8` ≈ 0.2 dB, below the threshold for slow amplitude modulation. **The fix is a second, faster instability layer, not more depth on these three.** Deliberately deferred by BJ — „Nicht wichtig; semantiken können wir später kalibrieren, wir sind back to PoC".
+
+### Instrument 2 — FM electric piano — survey in flight
+
+The Rhodes/Wurlitzer/DX7-EP family, built on `foscili`, extending the existing `fm_ep` key (1:1 ratio, index ramping 4.20 → 1.30 over ~1.6 s off a note-trigger counter).
+
+The governing question is §4's line: the tine may darken as it rings (colour), it may not fade (loudness). Any construction that is secretly an amplitude envelope must be reported, not smuggled in.
+
+`fmrhode` and `fmwurlie` stay **rejected for the instrument** — they decay to silence by ~2 s and expose no decay-control argument at all in their type signature, and `foscili` is another way — but they are worth measuring as a **reference target** so the built construction has a spectrum to hit rather than being tuned by feel.
+
+### Instrument 3 — resonator engine for drum heads — not started
+
+Csound's `mode` filter bank under continuous excitation, the idiom the existing `cymbal`/`glass`/`struck_bar` keys already use. Because the excitation is continuous, a held note stands and no self-decay problem arises. A membrane's mode ratios are not a harmonic series — that is the instrument's substance, and its parameters (tension, damping, strike position, mode count) are its own, per §3.
+
+---
+
+## 6. What the 28 unused physical-model opcodes actually deliver
+
+Measured 2026-07-19 against §4's constraints. The result is much smaller than the backlog assumed, and the reason is structural, not a bug: struck and plucked models' decay *is* the model.
+
+**Ready as-is:** `wgclar` (tracks 25–4500 Hz at ~0 cents, sustains, glides cleanly, and is the cheapest of all 28 at 0.42 µs/kcycle — the best candidate measured); `fmb3`.
+
+**Usable with a named, verified fix:** `fmmetal` (pre-scale `kfreq` ×1.3654), `fmpercfl` (×0.665), `fmvoice` (only ≥ ~880 Hz — its formants are fixed, so this is a structural floor, not a scale fix), `wgbow` (only 220–880 Hz, and it does not render twice the same — bow stick-slip is chaotic).
+
+**Unusable, with the measurement:** `fmrhode`/`fmwurlie` (best tuning of all 28; no decay argument exists in the signature); `marimba`/`vibes` (`idec` is provably inert — renders bit-identical at 0.05 and 500 — *and* pitch freezes at strike, ignoring glide); `mandol` (no decay argument at all, glide response inconsistent); `gogobel` (+45 dB onset spike when fed a live k-rate frequency, which this host requires); `barmodel` (no frequency argument exists); `prepiano` (segfaults or hangs); `wgflute` (confirms the project's existing rejection — off-pitch, worst +2999 cents at 110 Hz).
+
+**Eleven shakers and scrapers** (`bamboo cabasa crunch dripwater guiro sandpaper sekere shaker sleighbells stix tambourine`) are genuinely unpitched. That is **not a failure — it is the wrong family.** They belong with the existing nature beds (`wind rain surf thunder hiss crackle`), which are unpitched by design and are already built from repeated particle impulses (`dust2` at 1400/s for rain, 22/s for crackle). They cannot sustain — the energy-input parameter was tested directly and does not revive them (silent after ~0.5 s regardless) — but they re-strike cleanly, so a continuous texture is reachable through the existing particle-bed architecture. **This is the route for the natural-sound and animal part of the library, not the opcodes as drop-in sustained tones.**
+
+---
+
+## 7. Failure modes committed on this project — do not repeat
+
+Each of these actually happened. They are recorded because prose rules that depend on self-recognition are exactly what failed.
+
+1. **A whitelist of permitted waveforms.** Told to make the morph a real waveform morph, the response was to define a set of "real waveforms" allowed to morph (saw/square/pulse/triangle/sine/cheby) and leave everything else on the audio crossfade. That is the DCO's selector switch rebuilt. BJ: „ES GIBT HIER KEINE FUCKING VORGEGEBENEN WAVEFORMS. ES GIBT DEN FUCKING OUTPUT VON ZWEI FUCKING VORHER NICHT BEKANNTEN ALGORITHMEN AUS DER LIBRARY." Reverted.
+2. **Collapsing per-instrument parameters into one shared list.** See §3. The same reflex — reduce to a convenient uniform structure — one level up.
+3. **Treating the morph as machinery around two blocks.** Frames, capture buffers, table interpolation: all of it presumed a runtime wrapper. There is one Csound code. See §2.
+4. **A gate that certified the broken state as correct.** `tools/csound_morph_liveness_gate.py` states in its own header that stages „render their own idiom and are equal-power crossfaded", and its travel assertion only measures whether the summed spectrum's centroid moves — which two co-sounding oscillators do exactly as well as one that transforms. It cannot see the difference it exists to police. The backlog item was marked complete while undone.
+5. **Precision in the wrong place.** Hours of correct measurement (vco2 table semantics to three decimals, fundamental phase alignment) spent on a premise that was wrong. Measurement is not a substitute for checking the premise.
+6. **Building without checking what exists.** `tools/csound_model_probe.py` already vetted opcodes for pitch tracking and sustain; a fresh harness was commissioned without looking.
+
+---
+
+## 8. What is structurally in the way
+
+- **Adding one key today requires hand-editing ~10 Python sets** that do not derive from the lexicon (`_TONAL_KEYS`, `_NOISE_TECH`, `_MODAL_TECH`+`_MODAL_SPECTRA`+`_MODAL_PARAMS`, `_VOICE_TECH`, `_LIVE_TECH`, `_CHEAP_TECH`, `_SPARSE_TECH`, `_SELF_MOVING_TECH`, `_PULSE_FAMILY`, `_CS_TERMINALS`). Miss one and the key falls through to a bare `poscil` — and a tools file reports the omission only as a non-fatal "GAP". A library of dozens of instruments cannot grow through ten manual edits per entry with a silent failure path.
+- **Cross-cutting properties are on the wrong side.** `_ADJ_MAP` applies `gritty`/`dirty`/`airy` as bounded DSP operations on the **mixed** signal — a waveshaper hung on the end. §1 requires them to flow into the **code generation**, i.e. to move the instrument's own parameters, falling back to a post-effect only where the instrument has no parameter for that quality.
+- **The morph is still an amplitude crossfade** (`_emit_crossfade_morph`): both stages render their full idiom and their audio is equal-power blended, so mid-morph both are heard. The emitter's own docstring says so.
+- **Nine of the 27 existing keys have no steerable parameter at all** — including `saw`, `square`, `pulse`, `triangle`, the most-played sounds. `square`'s duty is nailed to 0.5 and `pulse`'s to 0.30 as structural constants, which is precisely why BJ's own example („square ist sharp wenn x=y, hollow wenn x=z") was impossible before instrument 1.
+- **Much of the curation already exists as prose.** `backend/csound_orch.py`'s comments carry dozens of measured ranges and rejected values with numbers (cheby pinning 34% of samples at drive 0.91; sub_sine's third harmonic at −26 dB as an audible hollow fifth; ring-mod drift at 0.0009 measuring 1.01× travel, i.e. nothing). That is the beginning of the parameter spectra — written where the model cannot read it.
+
+---
+
+## 9. Open items, ranked
+
+1. `age` inaudible on instrument 1 (deferred by BJ; cause **found**, see §5 — two of its three components run at 0.04–0.06 Hz and are a static offset on a short note; needs a faster layer, not more depth).
+2. Instrument 2 (FM electric piano) — survey in flight.
+3. Instrument 3 (drum-head resonator) — not started.
+4. The anchors are **calculated, not heard.** Where "sharp", "hollow", "old" sit on each axis is BJ's ear, not a measurement. This is the curation step and it cannot be delegated to a gate.
+5. Cross-cutting properties into generation (§8).
+6. The morph as a real waveform morph (§8) — backlog item #9, reopened.
+7. The ten hand-maintained sets (§8) — the growth blocker.
