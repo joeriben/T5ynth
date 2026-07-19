@@ -399,7 +399,26 @@ _STILL_CUE_PHRASES = (
 # Idioms that already carry their own temporal change, so the default would be
 # piling motion on motion. `pwm` is here on MEASUREMENT, not on theory: in the built
 # Standalone its even/odd partial ratio travels 0.26 -> 0.76 and pulses at ~0.6 Hz.
-# The noise family is stochastic by construction (rand / randh drive it).
+#
+# The noise family used to be justified as "stochastic by construction (rand /
+# randh drive it)". That conflates STOCHASTIC with NON-STATIONARY, and they are
+# not the same thing: white noise has a random waveform but its spectrum and its
+# loudness do not change at all over time, which is exactly as static as a held
+# sine. Measured on the beds as they were, RMS variation over 22 s: wind 0.016,
+# rain 0.001, surf 0.005, thunder 0.007 -- i.e. frozen, while sitting in the set
+# that tells the movement guard to stand down. A prompt asking for wind that
+# builds got a stationary hiss and nothing downstream could see it.
+#
+# Those four (and crackle) now really do move, from their own physics -- gusts,
+# drops, swell, roll -- so their membership here is now true: wind 0.274, rain
+# 0.162, surf 0.580, thunder 0.286, crackle 0.204.
+#
+# STILL NOT TRUE for `noise`, `pink_noise` and `hiss`, deliberately: white noise
+# and tape hiss ARE stationary processes, that is what the words mean, and giving
+# them a swell would be inventing a phenomenon rather than modelling one. They
+# stay in this set, so a prompt cannot currently make them evolve. Whether those
+# three should instead leave the set and let the motion layer move them is a
+# routing question with an audible answer, so it is BJ's call, not a silent edit.
 _SELF_MOVING_TECH = {"pwm"} | _NOISE_TECH
 
 
@@ -721,23 +740,66 @@ def _emit_noise(technique, tag="0"):
     elif technique == "pink_noise":
         L.append(f"  {ov}    pinkish {nz}               ; pink noise (1/f tilt)")
     elif technique == "wind":
-        L.append(f"  {ov}    reson {nz}, 600, 400, 2     ; wind: wide band-passed noise")
-        L.append(f"  {ov}    = {ov} * 0.5")
+        # A gust is one physical variable -- air speed -- and it moves TWO things
+        # together: faster air makes the turbulence both louder and higher in
+        # frequency. (Here that coupling is right, unlike the string section where
+        # independence was the point: one gust really does drive both.) Two
+        # incommensurate rates so the gusting never falls into a pattern.
+        L.append(f"  kgsa{tag}   poscil 0.5, 0.071            ; gust, slow")
+        L.append(f"  kgsb{tag}   poscil 0.3, 0.113            ; second, incommensurate")
+        L.append(f"  kgst{tag}   = 0.5 + kgsa{tag} + kgsb{tag}  ; gust strength")
+        L.append(f"  awd{tag}    reson {nz}, 380 + 520 * kgst{tag}, 400, 2 ; higher when it blows")
+        L.append(f"  {ov}    = awd{tag} * (0.30 + 0.42 * kgst{tag}) ; and louder")
     elif technique == "rain":
-        L.append(f"  a{tag}rn  atone {nz}, 1500          ; rain: bright high-passed hiss")
-        L.append(f"  {ov}    = a{tag}rn * 0.5")
+        # Rain is not a hiss, it is thousands of DROPS: discrete impacts, each one
+        # a click that rings whatever it lands on. `dust2` is a Poisson stream of
+        # impulses, which is exactly that process, and it measured what the shape
+        # predicts -- crest 12.05 against filtered noise's ~4, i.e. actual
+        # transients rather than a wash. The high-passed layer underneath is the
+        # many distant drops that no longer arrive separately.
+        L.append(f"  adrp{tag}   dust2 0.5, 1400              ; the patter: ~1400 impacts/s")
+        L.append(f"  arzn{tag}   reson adrp{tag}, 2400, 1800, 2 ; each drop rings the surface")
+        L.append(f"  awsh{tag}   atone {nz}, 2000             ; distant drops, merged to a wash")
+        L.append(f"  kint{tag}   poscil 0.22, 0.043           ; the rain comes and goes")
+        L.append(f"  {ov}    = (arzn{tag} * 0.94 + awsh{tag} * 0.51) * (1 + kint{tag})")
     elif technique == "surf":
-        L.append(f"  {ov}    tone {nz}, 900              ; surf/ocean: broad low-mid wash")
-        L.append(f"  {ov}    = {ov} * 0.7")
+        # Waves. The body of the water is low and always there; the BREAK is
+        # bright and happens only at the crest, which is why the swell is squared
+        # in the break term -- a wave does not break gently on its way up.
+        L.append(f"  kswa{tag}   poscil 0.5, 0.055            ; swell, ~18 s")
+        L.append(f"  kswb{tag}   poscil 0.22, 0.083           ; second, incommensurate")
+        L.append(f"  kswl{tag}   = 0.5 + kswa{tag} + kswb{tag}  ; 0 .. 1.2")
+        L.append(f"  asfl{tag}   tone {nz}, 700               ; the body of the wave")
+        L.append(f"  asfb{tag}   atone {nz}, 1800             ; the break, bright")
+        L.append(f"  {ov}    = asfl{tag} * (0.35 + 0.35 * kswl{tag}) + "
+                 f"asfb{tag} * 0.30 * kswl{tag} * kswl{tag}")
     elif technique == "thunder":
-        L.append(f"  {ov}    tone {nz}, 400              ; thunder/rumble: low broadband")
-        L.append(f"  {ov}    = {ov} * 0.9")
+        # Thunder ROLLS: the shock reaches the ear over a long, dispersive path,
+        # so its loudness swells and fades irregularly for many seconds. A steady
+        # low-passed hiss is a rumble that never rolls. Three incommensurate rates
+        # give a roll with no period anyone can hear.
+        L.append(f"  krla{tag}   poscil 0.5, 0.037            ; the roll")
+        L.append(f"  krlb{tag}   poscil 0.28, 0.061")
+        L.append(f"  krlc{tag}   poscil 0.16, 0.091")
+        L.append(f"  athl{tag}   tone {nz}, 400               ; low broadband body")
+        L.append(f"  {ov}    = athl{tag} * (0.80 + 0.61 * "
+                 f"(krla{tag} + krlb{tag} + krlc{tag}))")
     elif technique == "hiss":
+        # Deliberately left STATIONARY. Tape hiss and radio static really are
+        # stationary processes -- that is what the words mean -- so giving this one
+        # gusts or swells would be inventing a phenomenon rather than modelling it.
         L.append(f"  {ov}    atone {nz}, 6000            ; hiss/static: bright high noise")
         L.append(f"  {ov}    = {ov} * 0.7")
     elif technique == "crackle":
-        L.append(f"  k{tag}cr  randh 1, 30                ; 30 Hz random gate")
-        L.append(f"  {ov}    = {nz} * (k{tag}cr > 0.6 ? 1 : 0.15) * 0.6 ; crackle/fire")
+        # A fire crackles because resin cells burst: discrete pops, each ringing
+        # the wood. The old version gated continuous noise with a 30 Hz random
+        # hold, which is a noise being switched, not a series of events -- the
+        # attacks were the gate's, not the fire's. `dust2` makes the events.
+        L.append(f"  acrk{tag}   dust2 0.8, 22                ; ~22 pops a second")
+        L.append(f"  apop{tag}   reson acrk{tag}, 1600, 1200, 2 ; each pop rings the wood")
+        L.append(f"  kbed{tag}   poscil 0.5, 0.13             ; the fire breathes")
+        L.append(f"  absd{tag}   atone {nz}, 3000             ; fine sizzle between pops")
+        L.append(f"  {ov}    = apop{tag} * 1.90 + absd{tag} * (0.34 + 0.20 * kbed{tag})")
     else:
         L.append(f"  {ov}    = {nz} * 0.6")
     return "\n".join(L)
