@@ -15,24 +15,64 @@ Two hard acceptance criteria before any of them can be used as an oscillator her
 
 Neither is a timbre judgement. Timbre is judged only in the built Standalone.
 
-MEASURED 2026-07-19 on Csound 6.18 (Homebrew, double samples, no STK):
+BOTH ARE MEASURED OVER THE WHOLE RANGE THE SYNTH CAN ASK FOR -- 20 Hz to 12 kHz,
+the clamp in csound_orch.py -- and not over a comfortable middle. This probe
+originally tested 110/220/440/880 Hz only, and that gap is the entire reason
+wgclar was adopted for `clarinet` and then had to be thrown out again: inside
+110-880 it looked immaculate (+1 cent, sustain 1.056), while OUTSIDE it it emits
+near-pure DC above sr/10.4 -- silence, at a pitch that depends on the SAMPLE RATE
+-- and plays +2792..+6864 cents below 25 Hz. A model that is only probed where it
+is comfortable has not been probed. Any candidate must survive the ends.
 
-  opcode       sustain    110Hz   220Hz   440Hz   880Hz   verdict
-  wgclar        1.056       +1      +1      +1   (+1)*    USABLE
-  wgbow         1.215       +1      +9     +17     +17    borderline: +17c is audible
-  mode          1.313       -3      +1      +1     -14    USABLE (the modal path)
-  streson       1.015       +1      +1      +1     -14    USABLE (needs an exciter)
-  wgbrass       1.850    +5021   +3821   +2621    -619    REJECT: plays the bore
-  wgflute       0.652    +1919     +42     +17     +17    REJECT (already documented)
-  wgbowedbar    0.000   silent                            one-shot, not a tone
-  marimba/vibes/mandol  silent with sustaining args       struck models, they decay
+MEASURED 2026-07-19 on Csound 6.18 (Homebrew, double samples, no STK). Cells are
+the share of energy sitting on the comb n*asked_pitch; `xN` means the model is on
+the comb but STARTS at the Nth harmonic, i.e. it is playing its own register N
+times too high; DC means level without oscillation.
 
-  * wgclar reads -1199 cents at 880 Hz by autocorrelation, but that is the
-    METRIC, not the opcode: spectrally the fundamental is strongest at 660/880/
-    1200 Hz (2nd harmonic 44-49 dB down, 3rd only 10-13 dB down -- a textbook
-    cylindrical bore). Autocorrelation can lock onto a longer period when the
-    2nd harmonic is that far below the 3rd. Always confirm a "mistuned" verdict
-    spectrally before believing it.
+  opcode     sustain   20    25    40   110   220   440   880   2.0k  4.5k  12k
+  wgclar       0.929   x5   99%   99%   99%  100%  100%  100%  100%   99%   DC
+  wgbow        1.051  x10    x8    x5   99%   99%  100%   97%   11%   DC    DC
+  mode         0.826  96%   88%   85%   95%   97%   94%   95%   94%   93%   0%
+  streson      0.984   6%    8%   13%   33%   57%   80%   82%   64%   39%   6%
+  wgflute      0.396  x13   x10   x13   84%   80%   87%   87%   77%    0%   0%
+  fof          0.991  x18   x21   x13    x5  100%  100%   99%   DC    DC    DC
+  wgbrass      1.266   x5    x7    x6    x6   x10    x4    x5    0%    0%  SILENT
+  wgbowedbar   0.000  silent                            one-shot, not a tone
+  marimba/vibes/mandol  silent with sustaining args     struck models, they decay
+
+Reading it:
+
+  * wgclar is in tune across the whole musical range and fails only at the ENDS
+    -- its own lowest bore register below ~25 Hz, and pure DC above sr/10.4. That
+    is why `clarinet` no longer uses it.
+  * wgbrass "plays the bore" at every pitch, as long documented.
+  * mode is the one model good over essentially the whole clamp, and it is what
+    the modal path uses. It does die at 12 kHz (0% on the comb) -- the top of the
+    range is NOT covered, which matters because modal keys place partials at
+    RATIOS above kfreq and those ratios reach 12 kHz well before the played note
+    does. Not yet addressed.
+  * streson's low percentages are the EXCITER, not its tuning: `rand` is
+    broadband and most of it passes through unresonated. It carries no wrong-
+    register flag anywhere. Judge it with a real exciter before rejecting it.
+  * fof is usable from about 220 to 880 Hz and nowhere else -- an earlier flat
+    "USABLE" here was wrong.
+
+THREE metrics were needed to get this table, because the first two each lied in a
+different direction and nearly cost real code:
+
+  1. Autocorrelation alone searched sr/2000..sr/40, so nothing below 40 Hz was
+     measurable at all and every low probe came back as a wild error -- `mode` at
+     20 Hz read +7973 cents while sitting exactly on 20.0 Hz with 96% of its
+     energy in band. It also locks onto a longer period when a low harmonic is
+     weak (it called wgclar -1199 at 880 Hz; the bore was textbook-correct).
+  2. "Strongest bin == asked pitch" fails the opposite way on harmonic-rich
+     sources: streson at 220 Hz peaks on its 3rd harmonic with ~2% at the
+     fundamental and is perfectly in tune.
+  3. Comb energy fixes both but has its own hole -- a model asked for 20 Hz that
+     plays 320 Hz scores ~100%, since 320 is a multiple of 20. Hence n_low.
+
+A probe that condemns working code is exactly as expensive as one that passes
+broken code. Confirm any verdict here against a second metric before acting on it.
 
 gogobel/moog/pluck FAIL here on argument types, not availability -- their
 signatures differ from the ones tried; fix the line before concluding anything.
@@ -141,48 +181,133 @@ e
 
 
 def f0_of(sr, x, t0, t1):
+    """Autocorrelation pitch. The search window must cover the SYNTH's range.
+
+    It used to stop at sr/40, so every probe pitch below 40 Hz was unmeasurable
+    by construction and came back as a wild cents error -- `mode` at 20 Hz read
+    +7973 cents while sitting, spectrally, exactly on 20.0 Hz with 96% of its
+    energy in band. Read harmonic_frac() before believing any verdict from here.
+    """
     seg = x[int(sr * t0):int(sr * t1)]
     seg = seg - seg.mean()
     if not np.any(seg):
         return 0.0
     ac = np.correlate(seg, seg, "full")[len(seg) - 1:]
     ac = ac / ac[0]
-    lo, hi = int(sr / 2000), int(sr / 40)
+    lo, hi = int(sr / 16000), min(int(sr / 15), len(ac) - 1)
+    if hi <= lo:
+        return 0.0
     return sr / (lo + int(np.argmax(ac[lo:hi])))
 
 
-NOTES = (110.0, 220.0, 440.0, 880.0)
+def harmonic_frac(sr, x, hz, t0=1.0, t1=3.0):
+    """How much energy sits on the comb n*hz -- the one test that fits BOTH kinds.
+
+    Neither simpler metric survives this corpus on its own. Autocorrelation locks
+    onto a longer period when a low harmonic is weak (it called wgclar -1199 at
+    880 Hz while the bore was textbook-correct). "Strongest bin == asked pitch"
+    breaks the other way on harmonic-rich sources: streson at 220 Hz peaks on its
+    3rd harmonic with only 2% at the fundamental, and is perfectly in tune.
+
+    Energy on integer multiples answers the question both of them were proxies
+    for -- is the model playing the pitch it was ASKED for -- and it answers it
+    the same way for a near-sinusoidal resonator and a full harmonic comb.
+
+    Returns (fraction, n_low). n_low closes this test's OWN blind spot: a model
+    asked for 20 Hz that actually plays 320 Hz scores a perfect comb fraction,
+    because 320 IS a multiple of 20. So we also report the lowest harmonic
+    carrying real energy -- n_low == 1 means the model is on the asked pitch,
+    n_low == 16 means it transposed the whole tone up by four octaves while
+    looking immaculate on the fraction alone.
+    """
+    seg = x[int(sr * t0):int(sr * t1)]
+    if seg.size < 1024 or np.abs(seg).max() < 1e-6:
+        return 0.0, 0
+    w = seg * np.hanning(len(seg))
+    mag = np.abs(np.fft.rfft(w)) ** 2
+    freq = np.fft.rfftfreq(len(w), 1.0 / sr)
+    total = mag.sum()
+    if total <= 0:
+        return 0.0, 0
+    bins = []
+    for n in range(1, 25):
+        f = hz * n
+        if f >= sr / 2:
+            break
+        # +-3% is wider than any tuning we would accept and narrow enough that a
+        # neighbouring harmonic never falls inside it.
+        bins.append(float(mag[(freq > f * 0.97) & (freq < f * 1.03)].sum()))
+    if not bins:
+        return 0.0, 0
+    strongest = max(bins)
+    n_low = next((i + 1 for i, b in enumerate(bins) if b >= 0.10 * strongest), 0)
+    return float(sum(bins) / total), n_low
+
+
+# The synth's own pitch clamp, ends included. See the module docstring for why
+# the ends are not optional.
+NOTES = (20.0, 25.0, 40.0, 110.0, 220.0, 440.0, 880.0, 2000.0, 4500.0, 12000.0)
+
+
+def classify(sr, x, hz):
+    """(harmonic fraction, sustain, note) for one rendered pitch.
+
+    `note` names a hard failure so a model cannot be waved through on an average:
+    DC and SILENT are disqualifying wherever they appear, not soft marks.
+    """
+    if x.size == 0 or np.abs(x).max() < 1e-4:
+        return None, 0.0, "SILENT"
+    head = np.sqrt(np.mean(x[:int(sr * DUR * 0.2)] ** 2))
+    tail = np.sqrt(np.mean(x[int(sr * DUR * 0.8):] ** 2))
+    sustain = float(tail / (head or 1e-12))
+    # A constant offset has amplitude but no oscillation. wgclar above sr/10.4
+    # reads as a healthy peak and a healthy `sustain` while being inaudible, so
+    # the AC part has to be tested separately from the level.
+    seg = x[int(sr * 0.5):int(sr * 1.5)]
+    if seg.size and np.std(seg) < 0.02 * max(np.abs(seg).max(), 1e-12):
+        return None, sustain, "DC"
+    frac, n_low = harmonic_frac(sr, x, hz)
+    if n_low > 3:
+        # On the comb, but starting octaves up: it is playing its own register.
+        return None, sustain, f"x{n_low}"
+    return frac, sustain, ""
+
+
 names = sys.argv[1:] or list(MODELS)
 print(f"{'opcode':12s} {'sustain':>8}   " +
-      "  ".join(f"{n:.0f}Hz".rjust(9) for n in NOTES))
+      "  ".join((f"{n/1000:.1f}k" if n >= 1000 else f"{n:.0f}").rjust(7)
+                for n in NOTES) + "   verdict")
 for name in names:
     line = MODELS[name]
-    cents, sustain = [], None
-    fail = None
+    cells, sustains, fail = [], [], None
     for hz in NOTES:
         out, err = render(line, hz)
         if out is None:
             fail = err
             break
         sr, x = out
-        if x.size == 0 or np.abs(x).max() < 1e-4:
-            cents.append(None)
-            continue
-        if sustain is None:
-            head = np.sqrt(np.mean(x[:int(sr * DUR * 0.2)] ** 2))
-            tail = np.sqrt(np.mean(x[int(sr * DUR * 0.8):] ** 2))
-            sustain = tail / (head or 1e-12)
-        got = f0_of(sr, x, 0.5, 1.5)
-        cents.append(1200 * np.log2(got / hz) if got > 0 else None)
+        frac, sus, note = classify(sr, x, hz)
+        cells.append(note or f"{frac * 100:.0f}%")
+        sustains.append(sus)
     if fail:
         print(f"{name:12s} FAIL {fail}")
         continue
-    cs = "  ".join(("  SILENT" if c is None else f"{c:+8.0f}").rjust(9)
-                   for c in cents)
-    verdict = ""
-    good = [c for c in cents if c is not None]
-    if good and max(abs(c) for c in good) > 20:
-        verdict = "  <== MISTUNED"
-    if sustain is not None and sustain < 0.15:
-        verdict += "  <== DECAYS"
-    print(f"{name:12s} {sustain if sustain is not None else 0:8.3f}   {cs}{verdict}")
+    good = [float(c[:-1]) for c in cells if c.endswith("%")]
+    verdict = []
+    # Below half the energy off the comb, the model is not playing what it was
+    # asked for -- whatever it sounds like on its own.
+    if good and min(good) < 50:
+        verdict.append("OFF-PITCH")
+    if any(c.startswith("x") for c in cells):
+        verdict.append("WRONG REGISTER")
+    if any(c == "DC" for c in cells):
+        verdict.append("DC/inaudible")
+    if any(c == "SILENT" for c in cells):
+        verdict.append("silent")
+    live = [s for s, c in zip(sustains, cells) if c.endswith("%")]
+    if live and min(live) < 0.15:
+        verdict.append("DECAYS")
+    row = "  ".join(c.rjust(7) for c in cells)
+    sus = min(live) if live else 0.0
+    print(f"{name:12s} {sus:8.3f}   {row}   "
+          + ("  <== " + ", ".join(verdict) if verdict else "usable"))
