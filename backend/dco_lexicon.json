@@ -331,7 +331,12 @@
         "epiano",
         "rhodes",
         "e piano",
-        "elektrisches piano"
+        "elektrisches piano",
+        "fm piano",
+        "fm-piano",
+        "fm e-piano",
+        "dx piano",
+        "piano"
       ],
       "template": {
         "keyframes": [
@@ -368,7 +373,7 @@
         "motion_rate_hz": 0.3
       },
       "priority": 10,
-      "why": "1:1 FM with a softening index over the cycle, the classic tine-EP sideband shape"
+      "why": "fm e-piano / electric piano (tine EP): 1:1 FM with a softening index, the classic dx piano"
     },
     {
       "key": "metallic_fm",
