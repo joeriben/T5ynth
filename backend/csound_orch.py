@@ -1487,10 +1487,10 @@ def _emit_steady(technique, tag="0", nmodes=None):
         # reason spelled out in fm_ep: this can be emitted inside the crossfade
         # path's `if <gain> > 0` blocks, where a label and its reinit would sit
         # inside a conditional.
-        car, mod, mod2, i0, i1, tau, a1, a2, aref = {
-            "fm_bell":     ("1", "1.41", "1.46", 6.0, 1.45, 2.5, 0.40, 0.26, 0.46),
-            "metallic_fm": ("1", "2.41", "2.49", 9.0, 3.00, 3.0, 0.37, 0.24, 0.44),
-        }.get(technique, ("1", "2", "2.07", 4.0, 1.80, 2.0, 0.40, 0.26, 0.46))
+        car, mod, dtw, i0, i1, tau, a1, a2, aref = {
+            "fm_bell":     ("1", "1.41", 1.1, 6.0, 1.45, 2.5, 0.40, 0.26, 0.46),
+            "metallic_fm": ("1", "2.41", 1.3, 9.0, 3.00, 3.0, 0.37, 0.24, 0.44),
+        }.get(technique, ("1", "2", 1.2, 4.0, 1.80, 2.0, 0.40, 0.26, 0.46))
         L.append(f"  ktm{tag}    init 0")
         L.append(f"  if changed2(ktrig) == 1 then")
         L.append(f"    ktm{tag}   = 0")
@@ -1514,23 +1514,28 @@ def _emit_steady(technique, tag="0", nmodes=None):
         L.append(f"  kbnx{tag}   = kbtp{tag} * ({i1 / i0:.4f} + {1 - i1 / i0:.4f} * "
                  f"(1 - min(ktm{tag} / {tau}, 1))) ; darkens as it rings")
         L.append(f"  abl{tag}    foscili {a1}, kfreq, {car}, {mod}, kbnx{tag}, giSine ; the bell")
-        # The twin differs by its MODULATOR ratio, and its carrier sits exactly on
-        # the fundamental. Detuning the carrier instead -- the obvious way to
-        # build a doublet -- makes every sideband beat at the same rate and null
-        # at the same instant, so the pair does not warble, it TREMOLOS: measured
-        # 17-19 dB of rms swing at the beat period, an amplitude envelope
-        # generated inside the oscillator, which is precisely what the oscillator
-        # must not own (that belongs to the synth). Removing the carrier detune
-        # took it to 3.5 dB and widening the twin's ratio to 2.2 dB, with the
-        # spectral travel unchanged at ~137%.
+        # The twin is the SAME ratio pair started a fixed few Hz above the
+        # fundamental. Three doublet schemes have been tried; the first two each
+        # failed in a documented, OPPOSITE way:
         #
-        # It is also the better physics. A real bell carries a doublet on EACH
-        # partial with a different split, so the nulls never coincide; one shared
-        # carrier detune forces them to. Two modulator ratios spread the
-        # sidebands apart instead, so each beats at its own rate, and the hum
-        # note stays steady while the upper partials shimmer -- which is what a
-        # bell does.
-        L.append(f"  abt{tag}    foscili {a2}, kfreq, {car}, {mod2}, kbnx{tag} * 0.94, giSine ; its doublet")
+        #   * PROPORTIONAL carrier detune (kfreq * (1+eps)): the pairs' nulls
+        #     coincide, so the doublet does not warble, it TREMOLOS -- measured
+        #     17-19 dB of rms swing, an amplitude envelope generated inside the
+        #     oscillator, which the oscillator must not own.
+        #   * TWO MODULATOR RATIOS (1.41 vs 1.46): kills the tremolo, but pair n
+        #     then beats at n*|mod2-mod|*kfreq -- PROPORTIONAL TO PITCH. Measured
+        #     on the emitted orchestras: 11 Hz at 220 -> 44 Hz at 880 (fm_bell),
+        #     35 -> 70 (metallic_fm), 15 -> 62 (fm). From mid-keyboard up that is
+        #     the 20-70 Hz psychoacoustic ROUGHNESS band -- the BJ ear-finding of
+        #     2026-07-19: "alle glocken, metal, chimes sind ein ALBTRAUM mit
+        #     nichts als hochfrequentem BEATING".
+        #
+        # A real bell's casting asymmetry splits each mode by a few Hz -- an
+        # OFFSET, not a factor. So: same ratio, carrier {dtw} Hz high. Sideband n
+        # of the twin then sits dtw*(1 + n*mod) Hz above its partner: fixed in Hz
+        # at EVERY pitch (warble, never roughness), and DIFFERENT for every pair,
+        # so the nulls never line up and no coherent tremolo can form.
+        L.append(f"  abt{tag}    foscili {a2}, kfreq + {dtw}, {car}, {mod}, kbnx{tag} * 0.94, giSine ; its doublet")
         L.append(f"  abs{tag}    = abl{tag} + abt{tag}       ; the pair beats")
         # A falling FM index moves energy BETWEEN the carrier and its sidebands
         # (J0 rises as the index drops), and the sidebands that sit above Nyquist
@@ -1545,71 +1550,55 @@ def _emit_steady(technique, tag="0", nmodes=None):
         #
         # MEASUREMENT METHOD, stated because without it these numbers are not
         # reproducible and were twice wrong: rms of the first whole beat period
-        # after the strike against rms of the last, where the beat period is
-        # 1/(|mod2-mod| * kfreq) and the window is rounded UP to a whole number
-        # of those periods (>=250 ms). The rounding is the point. The doublet
-        # beats at 1.0 Hz at the 20 Hz clamp floor, so any shorter window samples
-        # an arbitrary beat phase and reports it as level -- which is why the
-        # previously committed figures could not be reproduced by anyone,
-        # including on re-measurement here: the value swings by ~0.6 dB across
-        # otherwise reasonable window choices, so the digits were beat phase.
+        # after the strike against rms of the last. The slowest beat component
+        # is the carrier pair at dtw Hz, so the window is rounded UP to whole
+        # multiples of 1/dtw (>=250 ms). The rounding is the point: a window cut
+        # anywhere else samples beat PHASE and reports it as level, which is how
+        # two earlier sets of committed figures came out unreproducible (~0.6 dB
+        # of apparent level was window choice). Epoch caveat: measured from
+        # score start; the shipped `instr 1` is always on, so a note struck
+        # later meets a settled follower (the Onset paragraph below).
         #
-        # Strike to rest, uncorrected -> corrected, at 20 / 55 / 220 Hz:
-        #   fm_bell      +0.89 / +1.04 / +1.03  ->  -0.03 / -0.00 / -0.01
-        #   metallic_fm  +0.37 / +0.25 / +0.03  ->  +0.01 / -0.06 / -0.13
-        #   fm           -1.53 / -1.02 / -0.86  ->  -0.43 / -0.29 / -0.11
-        # So the drift is removed to within 0.13 dB on the two bells, and `fm`
-        # keeps the largest residual, -0.43 dB at the clamp floor. Note the SIGN:
-        # `fm` gets quieter as it rings while the bells get louder, so the
-        # superseded description of this as "a crescendo, and backwards" was true
-        # of the bells and false of the third key sharing the branch. The
-        # previously committed "+0.65 dB at 20 Hz, about a third surviving" is
-        # withdrawn: measured this way essentially none of it survives on
-        # fm_bell, and the reasoning attached to it (the follower sitting at the
-        # beat rate) was about the BEAT, which is a different quantity measured
-        # separately below.
+        # Strike to rest with balance, at 20 / 55 / 220 Hz -- fixed-Hz doublet,
+        # so unlike the old pitch-proportional law these no longer change with
+        # pitch:
+        #   fm_bell      -0.25 / -0.28 / -0.26
+        #   metallic_fm  -0.03 / +0.14 / +0.20
+        #   fm           -0.20 / -0.22 / -0.23
+        # All residuals <=0.28 dB. They are larger than the <=0.13 dB the
+        # two-ratio scheme measured because the same-position sideband pairs
+        # interfere at full depth, and the first window necessarily starts at an
+        # arbitrary phase of the 2.7-7.6 Hz pair beats riding inside it.
         #
         # ihp 1, NOT the default 10, and the difference is the whole doublet.
         # `balance` tracks rms through a low-pass at ihp, so it cancels every
-        # amplitude motion SLOWER than that -- and the beat is an amplitude
-        # motion, at |mod2 - mod| * kfreq, which is 0.05 * kfreq here. That
-        # crosses 10 Hz at 200 Hz, so the default follower ate the beat across the
-        # whole bottom of the register: measured against the same code without
-        # the line, -80% of the swing at 30 Hz, -74% at 55, -50% at 110, -30% at
-        # 220. A fix for an amplitude artifact was deleting the amplitude FEATURE
-        # tuned two paragraphs above, which is the same shape of loss as the
-        # regression the migration section of CLAUDE.md is about.
+        # amplitude motion SLOWER than that -- and the beat IS an amplitude
+        # motion, now at dtw*(1 + n*mod) Hz: 1.1-7.6 Hz for these three keys, at
+        # EVERY pitch. The default follower would therefore sit on top of the
+        # whole doublet everywhere (under the old pitch-proportional law it only
+        # did below ~200 Hz): measured at 220 Hz against the same code with the
+        # balance line removed, ihp 1 retains 80/93/96% of the swing
+        # (fm_bell/metallic_fm/fm) where ihp 10 keeps 40/73/42%. A fix for an
+        # amplitude artifact must not delete the amplitude FEATURE tuned two
+        # paragraphs above -- the same shape of loss as the regression the
+        # migration section of CLAUDE.md is about.
         #
         # The two are separable because they live on different timescales: the
-        # darkening runs over tau (2-3 s), the beat at |mod2-mod| * kfreq, and
-        # with kfreq clamped to 20 Hz at the bottom the beat never falls below
-        # 1.0 Hz for fm_bell, 1.4 for fm, 1.6 for metallic_fm. fm_bell is
-        # therefore the MARGINAL key -- its slowest beat sits exactly on the
-        # cutoff, not below it, which is why its 20 Hz retention (80%) is the
-        # worst cell in the table. The FOLLOWER CUTOFF sits 15.7x above the
-        # darkening for fm_bell, 12.6x for fm, 18.9x for metallic_fm (that is
-        # just 2*pi*tau, tau being 2.5 / 2.0 / 3.0 s). Naming the two rates
-        # explicitly because the bare phrase "the separation" reads as the
-        # BEAT-to-darkening ratio, which is a different quantity and orders the
-        # keys differently (15.7 / 17.6 / 30.2) -- a reviewer took it that way
-        # and scored the sentence as self-contradictory against the "marginal"
-        # claim one line above, which is about the beat side. Both readings are
-        # arithmetic on the same three time constants; only one is what the
-        # sentence is for. Measured swing
-        # against no balance at all: 80/79/96/100% retained at 20/30/55/110 Hz
-        # where the default kept 33/33/30/53%. Sample-rate independent, since
-        # both the beat rate and ihp are specified in Hz -- verified at 44.1 k.
+        # darkening runs over tau (2-3 s, i.e. 0.05-0.08 Hz), the slowest beat
+        # at dtw (1.1 / 1.3 / 1.2 Hz for fm_bell / metallic_fm / fm) -- and both
+        # are fixed in Hz, so the separation no longer depends on pitch.
+        # fm_bell is the MARGINAL key: dtw = 1.1 sits closest above the ihp 1
+        # cutoff, which is why its retention (80%) is the worst of the three.
+        # Sample-rate independent, since both the beat rate and ihp are
+        # specified in Hz -- verified at 44.1 k.
         #
-        # It also stops the follower boosting the beat nulls, so the peak DROPS
-        # at every pitch: fm_bell at 20 Hz goes 0.2726 -> 0.2081, and three
-        # layers at velocity 1.0 and full pressure peak at about 0.40 at both
-        # rates, against the 0.8075 knee -- under half of it, with nothing over
-        # the knee at any pitch from 20 Hz to 12 kHz. Quoted to two figures on
-        # purpose: two independent measurements of this put it at 0.396 and
-        # 0.412, so the third decimal is method (window and which chain), not
-        # signal, and writing 0.4054 claimed a precision the measurement does
-        # not have. The conclusion is identical either way, which is the test
-        # for whether the extra digits were ever carrying anything.
+        # It also stops the follower boosting the beat nulls. Bounds under the
+        # fixed-Hz doublet are re-verified by the keys gate's loudest-params
+        # sweep (vel=pres=1): peaks 0.32 / 0.28 / 0.29 for fm_bell /
+        # metallic_fm / fm against the 0.8075 knee. Two figures on purpose --
+        # the third decimal of a peak sweep is method (window, chain), not
+        # signal; an earlier pair of independent runs of the three-layer
+        # variant read 0.396 and 0.412 and taught exactly that.
         #
         # Onset: the oscillator runs continuously inside the always-on `instr 1`,
         # so on the STEADY path the follower is long settled before any gate

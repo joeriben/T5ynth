@@ -245,56 +245,56 @@
   },
   "fm": {
    "1200": {
-    "swing_pitched": 62.7757,
-    "swing_slow": 8.7147,
-    "travel": 37.1445
+    "swing_pitched": 104.4477,
+    "swing_slow": 71.0349,
+    "travel": 55.5499
    },
    "220": {
-    "swing_pitched": 62.4468,
-    "swing_slow": 17.8693,
-    "travel": 34.3318
+    "swing_pitched": 101.523,
+    "swing_slow": 71.3133,
+    "travel": 52.601
    },
    "40": {
-    "swing_pitched": 61.2318,
-    "swing_slow": 61.2318,
-    "travel": 39.0197
+    "swing_pitched": 72.4904,
+    "swing_slow": 72.4904,
+    "travel": 44.1285
    },
    "4000": {
-    "swing_pitched": 27.5465,
-    "swing_slow": 1.6161,
-    "travel": 31.3452
+    "swing_pitched": 97.1533,
+    "swing_slow": 89.5022,
+    "travel": 75.4538
    },
    "55": {
-    "swing_pitched": 59.5588,
-    "swing_slow": 52.7539,
-    "travel": 31.1372
+    "swing_pitched": 83.6572,
+    "swing_slow": 72.0937,
+    "travel": 46.6969
    }
   },
   "fm_bell": {
    "1200": {
-    "swing_pitched": 47.6082,
-    "swing_slow": 6.1608,
-    "travel": 141.5417
+    "swing_pitched": 95.4862,
+    "swing_slow": 71.9729,
+    "travel": 160.3218
    },
    "220": {
-    "swing_pitched": 51.0108,
-    "swing_slow": 6.4505,
-    "travel": 140.8812
+    "swing_pitched": 93.4963,
+    "swing_slow": 72.182,
+    "travel": 155.5351
    },
    "40": {
-    "swing_pitched": 51.0551,
-    "swing_slow": 51.0551,
-    "travel": 120.5289
+    "swing_pitched": 74.5173,
+    "swing_slow": 74.5173,
+    "travel": 131.728
    },
    "4000": {
-    "swing_pitched": 54.3878,
-    "swing_slow": 1.8507,
-    "travel": 50.7215
+    "swing_pitched": 103.2965,
+    "swing_slow": 91.1639,
+    "travel": 74.6738
    },
    "55": {
-    "swing_pitched": 48.6507,
-    "swing_slow": 44.1456,
-    "travel": 139.8803
+    "swing_pitched": 81.73,
+    "swing_slow": 73.6997,
+    "travel": 138.5717
    }
   },
   "fm_ep": {
@@ -407,29 +407,29 @@
   },
   "metallic_fm": {
    "1200": {
-    "swing_pitched": 47.3635,
-    "swing_slow": 3.8425,
-    "travel": 104.5022
+    "swing_pitched": 103.1761,
+    "swing_slow": 58.5475,
+    "travel": 110.6562
    },
    "220": {
-    "swing_pitched": 37.9019,
-    "swing_slow": 8.645,
-    "travel": 113.1916
+    "swing_pitched": 101.7218,
+    "swing_slow": 35.2428,
+    "travel": 114.0166
    },
    "40": {
-    "swing_pitched": 21.4287,
-    "swing_slow": 21.4287,
-    "travel": 110.6967
+    "swing_pitched": 35.4727,
+    "swing_slow": 35.4727,
+    "travel": 114.0184
    },
    "4000": {
-    "swing_pitched": 13.865,
-    "swing_slow": 0.3061,
-    "travel": 31.4949
+    "swing_pitched": 109.9201,
+    "swing_slow": 97.6244,
+    "travel": 55.6243
    },
    "55": {
-    "swing_pitched": 30.2658,
-    "swing_slow": 19.1961,
-    "travel": 112.1678
+    "swing_pitched": 58.1832,
+    "swing_slow": 34.2653,
+    "travel": 111.4953
    }
   },
   "noise": {
@@ -488,29 +488,29 @@
   },
   "pink_noise": {
    "1200": {
-    "swing_pitched": 226.105,
-    "swing_slow": 86.8404,
-    "travel": 3.6296
+    "swing_pitched": 225.1439,
+    "swing_slow": 71.414,
+    "travel": 3.3659
    },
    "220": {
-    "swing_pitched": 112.7602,
-    "swing_slow": 65.4138,
-    "travel": 3.0709
+    "swing_pitched": 183.7017,
+    "swing_slow": 101.5084,
+    "travel": 3.8587
    },
    "40": {
-    "swing_pitched": 100.408,
-    "swing_slow": 100.408,
-    "travel": 3.6343
+    "swing_pitched": 84.5312,
+    "swing_slow": 84.5312,
+    "travel": 3.3974
    },
    "4000": {
-    "swing_pitched": 306.674,
-    "swing_slow": 111.7003,
-    "travel": 3.6124
+    "swing_pitched": 315.3112,
+    "swing_slow": 102.1407,
+    "travel": 3.4823
    },
    "55": {
-    "swing_pitched": 114.994,
-    "swing_slow": 111.7261,
-    "travel": 3.4833
+    "swing_pitched": 95.4883,
+    "swing_slow": 76.7566,
+    "travel": 3.6557
    }
   },
   "pulse": {
@@ -1300,56 +1300,56 @@
   },
   "fm": {
    "1200": {
-    "swing_pitched": 62.9497,
-    "swing_slow": 8.7072,
-    "travel": 37.1946
+    "swing_pitched": 104.4042,
+    "swing_slow": 70.9217,
+    "travel": 55.3393
    },
    "220": {
-    "swing_pitched": 63.4851,
-    "swing_slow": 18.0079,
-    "travel": 32.6559
+    "swing_pitched": 101.2359,
+    "swing_slow": 71.1709,
+    "travel": 52.2323
    },
    "40": {
-    "swing_pitched": 61.7767,
-    "swing_slow": 61.7767,
-    "travel": 36.7529
+    "swing_pitched": 73.7731,
+    "swing_slow": 73.7731,
+    "travel": 42.5421
    },
    "4000": {
-    "swing_pitched": 39.1282,
-    "swing_slow": 1.4151,
-    "travel": 32.7063
+    "swing_pitched": 94.2983,
+    "swing_slow": 86.1828,
+    "travel": 71.9588
    },
    "55": {
-    "swing_pitched": 58.6888,
-    "swing_slow": 52.6805,
-    "travel": 30.2949
+    "swing_pitched": 82.7081,
+    "swing_slow": 71.9465,
+    "travel": 45.5288
    }
   },
   "fm_bell": {
    "1200": {
-    "swing_pitched": 48.1591,
-    "swing_slow": 6.1447,
-    "travel": 140.8019
+    "swing_pitched": 95.5291,
+    "swing_slow": 72.3473,
+    "travel": 158.9551
    },
    "220": {
-    "swing_pitched": 49.1319,
-    "swing_slow": 6.3242,
-    "travel": 139.6561
+    "swing_pitched": 93.7268,
+    "swing_slow": 72.6289,
+    "travel": 153.6298
    },
    "40": {
-    "swing_pitched": 51.2088,
-    "swing_slow": 51.2088,
-    "travel": 116.2327
+    "swing_pitched": 74.7925,
+    "swing_slow": 74.7925,
+    "travel": 128.1437
    },
    "4000": {
-    "swing_pitched": 52.662,
-    "swing_slow": 2.1566,
-    "travel": 61.4539
+    "swing_pitched": 103.5786,
+    "swing_slow": 90.6277,
+    "travel": 83.0031
    },
    "55": {
-    "swing_pitched": 48.9695,
-    "swing_slow": 44.0913,
-    "travel": 137.1224
+    "swing_pitched": 81.2797,
+    "swing_slow": 74.0808,
+    "travel": 135.2428
    }
   },
   "fm_ep": {
@@ -1462,29 +1462,29 @@
   },
   "metallic_fm": {
    "1200": {
-    "swing_pitched": 46.5632,
-    "swing_slow": 3.1261,
-    "travel": 109.1931
+    "swing_pitched": 104.4933,
+    "swing_slow": 55.0475,
+    "travel": 107.7287
    },
    "220": {
-    "swing_pitched": 38.2331,
-    "swing_slow": 8.6429,
-    "travel": 112.602
+    "swing_pitched": 97.5936,
+    "swing_slow": 32.8437,
+    "travel": 113.1116
    },
    "40": {
-    "swing_pitched": 21.4772,
-    "swing_slow": 21.4772,
-    "travel": 109.5461
+    "swing_pitched": 31.2596,
+    "swing_slow": 31.2596,
+    "travel": 112.3057
    },
    "4000": {
-    "swing_pitched": 16.0429,
-    "swing_slow": 0.4712,
-    "travel": 37.965
+    "swing_pitched": 109.6595,
+    "swing_slow": 96.306,
+    "travel": 58.7413
    },
    "55": {
-    "swing_pitched": 30.5351,
-    "swing_slow": 19.1943,
-    "travel": 111.1671
+    "swing_pitched": 60.9071,
+    "swing_slow": 34.7429,
+    "travel": 110.689
    }
   },
   "noise": {
@@ -1543,29 +1543,29 @@
   },
   "pink_noise": {
    "1200": {
-    "swing_pitched": 215.0198,
-    "swing_slow": 73.2676,
-    "travel": 3.2203
+    "swing_pitched": 232.3395,
+    "swing_slow": 85.5128,
+    "travel": 2.9329
    },
    "220": {
-    "swing_pitched": 175.1702,
-    "swing_slow": 98.3136,
-    "travel": 3.3363
+    "swing_pitched": 155.9393,
+    "swing_slow": 94.3093,
+    "travel": 2.961
    },
    "40": {
-    "swing_pitched": 96.7776,
-    "swing_slow": 96.7776,
-    "travel": 3.4917
+    "swing_pitched": 68.4999,
+    "swing_slow": 68.4999,
+    "travel": 3.5889
    },
    "4000": {
-    "swing_pitched": 330.9519,
-    "swing_slow": 137.1471,
-    "travel": 3.1267
+    "swing_pitched": 322.5686,
+    "swing_slow": 91.9754,
+    "travel": 2.521
    },
    "55": {
-    "swing_pitched": 122.3102,
-    "swing_slow": 116.541,
-    "travel": 3.3289
+    "swing_pitched": 92.7545,
+    "swing_slow": 81.4454,
+    "travel": 3.615
    }
   },
   "pulse": {
