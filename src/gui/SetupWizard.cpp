@@ -397,14 +397,15 @@ static const KnownModel kKnownModels[] = {
       "from HuggingFace (ungated, no account). By downloading you accept the Qwen "
       "Research License terms and take responsibility for compliance.", true, false,
       nullptr, 0 },
-    // Optional LCO interpreter LLM (NOT a generation engine). Preparation only:
-    // the model files "will come" later — this entry lets the app recognize,
-    // name, and install it now. When wired up, it will read the user's prompt
-    // and select/combine timbre recipes from the LCO lexicon (a larger, more
-    // capable sibling of the coder above). isGenerationEngine=false routes it
-    // through the plain HF tree-API download and keeps it out of the engine rows
-    // AND the backend-activation glue (onDownloadFinished), exactly like the
-    // coder above. It installs to <model root>/interpret/qwen2.5-7b-instruct.
+    // Optional LCO interpreter LLM (NOT a generation engine). This IS the LCO's
+    // brain now: the backend's _resolve_coder_model_dir PREFERS this 7B over the
+    // 3B coder (the small coder empirically cannot interpret prompts), so it reads
+    // the user's prompt into lexicon keys, authors the Csound orchestra, and drives
+    // the self-check. isGenerationEngine=false routes it through the plain HF
+    // tree-API download and keeps it out of the engine rows AND the
+    // backend-activation glue (onDownloadFinished), exactly like the coder above.
+    // It installs to <model root>/interpret/qwen2.5-7b-instruct, which the backend
+    // resolver now accepts directly (the two used to disagree — BJ 2026-07-21).
     // Ungated (no HuggingFace account needed) and Apache-2.0 licensed — unlike
     // the coder's Qwen Research License, this one has no commercial restriction.
     { "interpret/qwen2.5-7b-instruct", "LCO interpreter (Qwen2.5-7B)",
@@ -923,9 +924,9 @@ SettingsPage::SettingsPage()
     // (shares the "OPTIONAL MODELS" family header), and likewise auxiliary:
     // clicking Download sets activeOpModelId_ and runs the normal download path,
     // which onDownloadFinished routes around the engine glue. No onBrowse —
-    // nothing to import by hand for this ungated auto-discovered helper. The
-    // model files "will come" later; this row lets T5ynth recognize, name, and
-    // install it now.
+    // nothing to import by hand for this ungated auto-discovered helper. This is
+    // the active LCO interpreter/author (see the catalog comment above); the
+    // backend resolves it from the install slot this row writes.
     {
         const auto& im = kKnownModels[catalogIndexForId("interpret/qwen2.5-7b-instruct")];
         interpreterRow_ = std::make_unique<ModelRow>("interpret/qwen2.5-7b-instruct",
@@ -3646,8 +3647,9 @@ bool SettingsPage::interpreterModelInstalled() const
     // Mirrors coderModelInstalled(): the in-app Download slot at <model root>/
     // interpret/qwen2.5-7b-instruct, or a flat legacy dev-drop at <model root>/
     // qwen2.5-7b-instruct (covers a hand-placed ~/Library/T5ynth/models/
-    // qwen2.5-7b-instruct copy). Preparation only -- the model files "will come"
-    // later; this lets the app recognize them once they land.
+    // qwen2.5-7b-instruct copy). Both paths are what the backend's
+    // _resolve_coder_model_dir now accepts, so an install detected here is one the
+    // LCO author/interpreter actually loads.
     const auto& im = kKnownModels[catalogIndexForId("interpret/qwen2.5-7b-instruct")];
     if (scanForModelById("interpret/qwen2.5-7b-instruct", im.hfRepo).exists())
         return true;
