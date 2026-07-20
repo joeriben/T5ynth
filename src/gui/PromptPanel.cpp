@@ -5,8 +5,10 @@
 #include "../PluginProcessor.h"
 #include "../dsp/BlockParams.h"
 #include "../inference/RepromptStances.h"
+#include "../dsp/CsoundEngine.h"   // renderBareOscillator: the self-check's probe tone
 #include <thread>
 #include <cmath>
+#include <cstring>
 
 namespace
 {
@@ -2142,6 +2144,13 @@ void PromptPanel::setLcoStatus(const juce::String& text, const juce::String& too
     dcoReadingEditorA.setColour(juce::TextEditor::textColourId, kDim);
     dcoReadingEditorA.setText(text, juce::dontSendNotification);
     dcoReadingEditorA.setTooltip(tooltip);
+    // Any status write replaces the card, so a self-check still in flight no
+    // longer describes what is on screen — including the case this exists for: a
+    // REJECTED generate attempt ("prompt is empty") never reaches the bump inside
+    // triggerDcoBake, and without this the late finding would silently overwrite
+    // the error the user was just shown.
+    ++dcoBakeSeq_;
+    dcoSelfCheck_.clear();
 }
 
 // Phase 5 compile-window poll (SPEC_phase4_5_csound_llm_preset.md) — see its
@@ -2212,6 +2221,12 @@ void PromptPanel::pollCsoundCompile()
     {
         dcoFlagsLabel.setText(err, juce::dontSendNotification);
         dcoFlagsLabel.setTooltip(err);
+        // The swap FAILED: the engine still plays the previous orchestra. An
+        // in-flight self-check rendered the NEW text, so its finding describes a
+        // sound nobody can hear — drop it. This is the one invalidation that comes
+        // from the engine rather than from the UI.
+        ++dcoBakeSeq_;
+        dcoSelfCheck_.clear();
     }
     else
     {
@@ -2304,7 +2319,8 @@ void PromptPanel::triggerDcoBake()
     // triggerDcoReprompt, the retired bake above): only the UI-visible
     // completion marshals back via SafePointer + callAsync.
     juce::Component::SafePointer<PromptPanel> safeThis(this);
-    std::thread([safeThis, pipePtr, text]() mutable
+    const unsigned long long bakeSeq = ++dcoBakeSeq_;
+    std::thread([safeThis, pipePtr, text, bakeSeq]() mutable
     {
         auto authored = pipePtr->authorCsoundOrchestra(text);
 
@@ -2313,8 +2329,18 @@ void PromptPanel::triggerDcoBake()
             auto* self = safeThis.getComponent();
             if (self == nullptr) return;   // panel gone — nothing to write
 
-            self->dcoBaking_ = false;
-            if (self->onLcoBusyChanged) self->onLcoBusyChanged(false);
+            // Stay BUSY while the self-check still holds the serialized inference
+            // pipe. Clearing it here would re-enable GENERATE over a pipe that is
+            // still occupied for a CLAP analyze plus an uncapped LLM turn, and the
+            // next press would park behind it showing "authoring..." while doing
+            // nothing — the exact misleading state triggerDcoBake's own gates
+            // exist to prevent. The self-check's single exit clears it instead.
+            const bool selfCheckWillRun = authored.success && authored.orchestra.isNotEmpty();
+            if (! selfCheckWillRun)
+            {
+                self->dcoBaking_ = false;
+                if (self->onLcoBusyChanged) self->onLcoBusyChanged(false);
+            }
 
             if (! authored.success)
             {
@@ -2376,6 +2402,92 @@ void PromptPanel::triggerDcoBake()
             self->dcoFlagsLabel.setTooltip({});
 
             self->resized();   // flag-area content changed
+        });
+
+        // ── Self-check: does the oscillator's translation arrive in the result? ──
+        // Continues on THIS thread, after the card-filling callAsync above (message
+        // queue is FIFO, so that one always lands first). The sound is already
+        // playable; this only delays the next GENERATE, which is honest because
+        // the pipe really is occupied.
+        //
+        // ONE exit on purpose. Every failure here still has to hand the busy flag
+        // back, so the steps write into locals and fall through to a single
+        // callAsync rather than returning early — a check that cannot run must not
+        // leave the panel wedged.
+        if (! authored.success || authored.orchestra.isEmpty())
+            return;   // busy was already cleared above; nothing was started
+
+        juce::String description, finding;
+
+        // NOTE: this thread reaches the probe before the message thread has run
+        // the callAsync above far enough to start the live orchestra swap, and both
+        // take the same process-wide Csound lifecycle lock. The probe therefore
+        // holds that lock for its own create/compile/start (~50-165 ms measured)
+        // while the swap waits, so the new sound becomes audible that much later.
+        // The render itself no longer holds it (see renderBareOscillator). Ordering
+        // the two properly needs a message-thread handshake this thread has no safe
+        // way to do — SafePointer and processorRef are message-thread-only, and
+        // every other access here obeys that.
+        //
+        // The BARE oscillator (BJ's choice): the Csound output alone, no ADSR and
+        // no filter. What is under examination is the OSCILLATOR's reading of the
+        // prompt, not what a patch later does to it.
+        const auto samples = CsoundEngine::renderBareOscillator(authored.orchestra.toStdString());
+        if (! samples.empty())
+        {
+            juce::AudioBuffer<float> probe (1, (int) samples.size());
+            std::memcpy(probe.getWritePointer(0), samples.data(), samples.size() * sizeof(float));
+
+            const auto heard = pipePtr->analyze(probe, 48000.0, 5, {});
+            if (heard.success)
+            {
+                // The listener has now DESCRIBED the sound. A second model
+                // COMPARES that description with the request: two texts, one
+                // language task — the audio is not part of the comparison. The
+                // SAME string goes to the card below, so the user reads exactly
+                // what the comparison had to work with.
+                //
+                // The comparing model is the AUTHOR model with the backend's
+                // anti-cycling transforms OFF; both are measured requirements,
+                // see syspSelfCheck for what each one broke.
+                description = RepromptStances::composeHeardDescription(heard.tags,
+                                                                       heard.spectral);
+                auto verdict = pipePtr->interpret(
+                    RepromptStances::stanceSystemPrompt("selfcheck"),
+                    RepromptStances::buildSelfCheckUserTurn(text, description),
+                    0, {}, {}, /*useCoderModel=*/true, /*antiCycling=*/false);
+                if (verdict.success)
+                    finding = verdict.text.trim();
+            }
+        }
+
+        juce::MessageManager::callAsync([safeThis, bakeSeq, description, finding]()
+        {
+            auto* self = safeThis.getComponent();
+            if (self == nullptr) return;
+
+            self->dcoBaking_ = false;
+            if (self->onLcoBusyChanged) self->onLcoBusyChanged(false);
+
+            // Drop the finding if it no longer describes what is loaded. Any later
+            // bake, preset load or status write bumps the counter — see
+            // dcoBakeSeq_'s declaration. Note the busy flag above is released
+            // regardless: it belongs to THIS thread and must not leak.
+            if (bakeSeq != self->dcoBakeSeq_) return;
+            self->dcoSelfCheck_ = formatSelfCheck(description, finding);
+            if (self->dcoSelfCheck_.isEmpty()) return;
+
+            // Rebuild from the processor's stash rather than appending to the
+            // editor's text, so the section cannot be added twice. The colour has
+            // to be re-asserted: this editor doubles as the LCO status channel and
+            // setLcoStatus leaves it dimmed, which would render a real reading in
+            // the colour reserved for errors.
+            self->dcoReadingEditorA.setColour(juce::TextEditor::textColourId, kImpulseAText);
+            self->dcoReadingEditorA.setText(
+                formatLcoDisclosure(self->processorRef.getCsoundReading(),
+                                    self->processorRef.getCsoundParamsText(),
+                                    self->dcoSelfCheck_),
+                juce::dontSendNotification);
         });
     }).detach();
 }

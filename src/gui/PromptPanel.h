@@ -152,7 +152,16 @@ public:
      *  text triggerDcoBake's completion lambda writes into it after a
      *  bake, so a reload shows the original reading rather than an empty
      *  placeholder or a re-derived one. */
-    void setLcoReadingA(const juce::String& t) { dcoReadingEditorA.setText(t, juce::dontSendNotification); }
+    // Preset restore writes the card directly. Bumping the bake generation here
+    // is what stops an in-flight self-check — started on the PREVIOUS orchestra,
+    // still running because CLAP plus an LLM turn take many seconds — from landing
+    // on the freshly loaded preset and describing a sound that is no longer loaded.
+    void setLcoReadingA(const juce::String& t)
+    {
+        ++dcoBakeSeq_;
+        dcoSelfCheck_.clear();
+        dcoReadingEditorA.setText(t, juce::dontSendNotification);
+    }
 
     /** Compose the HEARD AS box's full disclosure text: the short human
      *  reading followed by its parametrisation — one "<key>: <why>" /
@@ -162,13 +171,38 @@ public:
      *  be visible, not raw Csound source — used both by triggerDcoBake's
      *  completion lambda and by MainPanel's Csound-preset restore path, so
      *  the two never drift. */
-    static juce::String formatLcoDisclosure(const juce::String& reading, const juce::String& paramsText)
+    static juce::String formatLcoDisclosure(const juce::String& reading,
+                                            const juce::String& paramsText,
+                                            const juce::String& selfCheck = {})
     {
-        if (paramsText.isEmpty())
-            return reading;
         // fromUTF8: the box-drawing rule (U+2500) is non-ASCII, and a raw literal
         // mojibakes through juce::String's default narrow-string constructor.
-        return reading + juce::String::fromUTF8("\n\n── Parametrisation ──\n") + paramsText;
+        juce::String out = reading;
+        if (paramsText.isNotEmpty())
+            out += juce::String::fromUTF8("\n\n── Parametrisation ──\n") + paramsText;
+        if (selfCheck.isNotEmpty())
+            out += juce::String::fromUTF8("\n\n── Self-check ──\n") + selfCheck;
+        return out;
+    }
+
+    /** The self-check section: how a machine listener DESCRIBED the bare
+     *  oscillator, and the one sentence a second model wrote comparing that
+     *  description with the prompt.
+     *
+     *  The description is printed in full, above the finding, and is the same
+     *  string the comparison was made on (RepromptStances::composeHeardDescription
+     *  builds both). That is deliberate: the finding is one model's reading of
+     *  another model's words, so showing only the conclusion would present it as
+     *  a fact about the sound. With the description on screen the user can see
+     *  what the comparison actually had to work with — and disagree with it.
+     *  No score, no percentage, no verdict on the sound. */
+    static juce::String formatSelfCheck(const juce::String& description,
+                                        const juce::String& finding)
+    {
+        juce::String out;
+        if (description.isNotEmpty()) out += "heard as: " + description + "\n";
+        if (finding.isNotEmpty())     out += finding;
+        return out.trimEnd();
     }
     int getSeed() const;        // defined in the .cpp: T5ynthProcessor is only
     bool isRandomSeed() const;  // forward-declared here
@@ -410,6 +444,18 @@ private:
     // one re-prompt step.
     ModuleBox dcoRepromptBox;
     juce::String dcoLastMachineReading_, dcoLastFlagsLine_, dcoLoopLast_;
+    // Self-check section for the current bake. Message-thread only. Deliberately
+    // NOT stashed on the processor and NOT persisted: it is a finding about the
+    // sound THIS bake made, and a restored preset that showed one would be
+    // asserting a check that never ran on this session's render.
+    juce::String dcoSelfCheck_;
+    // Bake generation, bumped by triggerDcoBake. The self-check runs long after
+    // its bake (render + CLAP + interpret) and must prove it is still describing
+    // the sound on screen. A busy FLAG cannot do that: by the time a slow check
+    // returns, a second bake may have both started AND finished, clearing the
+    // flag — and the stale finding would then be appended to the new bake's card,
+    // asserting a measurement of a sound that is no longer loaded.
+    unsigned long long dcoBakeSeq_ = 0;
     juce::StringArray dcoLoopRecent_;
     // The Re-Prompt LLM's allowed palette — the scanner's own vocabulary, sent
     // back as a sibling field on every author response (backend dco_recipe.
