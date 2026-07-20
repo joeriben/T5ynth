@@ -131,6 +131,17 @@ namespace RepromptStances
     juce::String buildSelfCheckUserTurn (const juce::String& intention,
                                          const juce::String& description);
 
+    /** Does a selfcheck finding accuse the sound of missing the request?
+     *
+     *  Decodes syspSelfCheck's answer contract — exactly "matches", or one
+     *  "asked for X, but the sound is described as Y" line — into the boolean the
+     *  correction loop branches on. An EMPTY finding is not a mismatch: it means
+     *  the check never ran (no render, analyze failed, the model errored), and
+     *  correcting against a complaint nobody made would be worse than not
+     *  correcting. Anything the stance did not contract to say is likewise not
+     *  read as an accusation. */
+    bool selfCheckReportsMismatch (const juce::String& finding);
+
     /** Compose the machine listener's DESCRIPTION of one sound from the two
      *  outputs of the shipped analyze op: the learned timbre words (CLAP top-k)
      *  and the computed spectral words. This is the describing agent's product —

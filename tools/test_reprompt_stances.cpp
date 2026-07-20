@@ -234,6 +234,16 @@ int main()
     check ("description composed",
            composeHeardDescription ("chime, glassy", "bright, thin, tonal"),
            "chime, glassy; bright, thin, tonal");
+    // The verdict predicate the correction loop branches on. An EMPTY finding must
+    // NOT read as a mismatch: it means the check never ran, and a correction pass
+    // against a complaint nobody made is worse than no correction.
+    checkTrue ("mismatch: accusation",
+               selfCheckReportsMismatch ("asked for dark, but the sound is described as bright."));
+    checkTrue ("mismatch: matches",     ! selfCheckReportsMismatch ("matches"));
+    checkTrue ("mismatch: matches.",    ! selfCheckReportsMismatch ("Matches."));
+    checkTrue ("mismatch: empty",       ! selfCheckReportsMismatch (""));
+    checkTrue ("mismatch: whitespace",  ! selfCheckReportsMismatch ("  \n "));
+    checkTrue ("mismatch: off-contract", ! selfCheckReportsMismatch ("I cannot answer that."));
     check ("description tags only",     composeHeardDescription ("chime, glassy", ""), "chime, glassy");
     check ("description spectral only", composeHeardDescription ("", "bright, thin"), "bright, thin");
     checkTrue ("description both empty", composeHeardDescription ("", "  ").isEmpty());

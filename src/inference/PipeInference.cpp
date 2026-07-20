@@ -1238,7 +1238,9 @@ PipeInference::InterpretResult PipeInference::interpret(const juce::String& syst
     return result;
 }
 
-PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juce::String& text)
+PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juce::String& text,
+                                                                       const juce::String& correction,
+                                                                       const juce::String& previous)
 {
     // Same lock/restart/timeout discipline as interpret() (mode "csound" on
     // the wire) — the backend's {ok, orchestra, reading, params_text, spec,
@@ -1277,6 +1279,15 @@ PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juc
     auto json = juce::DynamicObject::Ptr(new juce::DynamicObject());
     json->setProperty("mode", "csound");
     json->setProperty("text", text);
+    // Omitted when empty, so a first authoring's wire bytes are unchanged.
+    // `previous` rides only alongside a correction: on its own it would put a
+    // patch in front of the model with no reason to change it.
+    if (correction.trim().isNotEmpty())
+    {
+        json->setProperty("correction", correction.trim());
+        if (previous.trim().isNotEmpty())
+            json->setProperty("previous", previous.trim());
+    }
 
     auto jsonStr = juce::JSON::toString(juce::var(json.get()), true);
     jsonStr = jsonStr.removeCharacters("\n\r") + "\n";

@@ -3445,7 +3445,9 @@ def main():
                     return run_instruct(text, _dir, _dev, system_prompt,
                                         max_new_tokens=max_new_tokens)
 
-                response = build_csound_response(request.get("text") or "", csound_llm)
+                response = build_csound_response(request.get("text") or "", csound_llm,
+                                                 request.get("correction") or "",
+                                                 request.get("previous") or "")
                 send_text(json.dumps(response))
                 continue
 

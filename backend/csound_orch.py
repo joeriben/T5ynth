@@ -770,6 +770,29 @@ _PARAM_SCHEMAS = {"analog_osc": _AOSC_ANCHORS, "fm_ep": _FMEP_ANCHORS,
 # the MOTION line entirely -- a truncated reply parses as a valid smaller patch,
 # which is the worst kind of failure: silent and plausible).
 _CS_MAX_NEW_TOKENS = None
+# Appended to the system prompt ONLY on a correction pass (see
+# build_csound_response's `correction`). Kept out of the normal head so the first
+# authoring is byte-identical to what it has always been: the model must not read
+# a rule about repairing a previous attempt when there is no previous attempt.
+_CS_CORRECTION_RULE = (
+    "\nTHIS IS A SECOND ATTEMPT. Two extra lines follow the request. YOU WROTE is "
+    "the patch you produced last time. A LISTENER HEARD is how a listener "
+    "described that patch and which quality of the request it missed.\n"
+    "Start from YOU WROTE and repair it. The listener's word says what the patch "
+    "CAME OUT AS; it is not a word to delete but a direction to move AWAY from. "
+    "Keep the oscillators and the adjectives the listener did not name, and add "
+    "or exchange keys that pull the opposite way. Deleting adjectives is not a "
+    "repair -- it removes what was already right and usually makes the miss "
+    "worse. Your answer must be a COMPLETE patch, not a diff.\n"
+    "Example: request \"a soft wooden flute\", YOU WROTE \"flute 8' - woody, "
+    "bright\", A LISTENER HEARD \"asked for soft, but the sound is described as "
+    "harsh\" -> keep flute, keep woody, drop bright because it pulls the wrong "
+    "way, add mellow.\n"
+    "The original request still stands -- never drop it, and never answer the "
+    "listener instead of the request. Reply in EXACTLY the same format as "
+    "always: the OSC/VOL/ADJECTIVES/MOTION lines and nothing else.\n"
+)
+
 _CS_SYSTEM_PROMPT_HEAD = (
     "You translate a sound description into a small synthesizer patch of up to "
     "THREE oscillators, choosing ONLY keys from the fixed catalogue below. You "
@@ -3760,7 +3783,7 @@ def build_orchestra(technique_keys=None, adjective_keys=None, motion_key=None,
     return orchestra, _reading(oscs, adjective_keys, motion_key)
 
 
-def build_csound_response(text, llm):
+def build_csound_response(text, llm, correction="", previous=""):
     """Prompt -> live Csound orchestra, the REAL pipeline entry (pipe_inference
     mode=="csound" calls this). One 7B instruct call routes the whole prompt to
     closed-enum keys under the csound-OWNED multi-oscillator schema (up to 3
@@ -3824,7 +3847,27 @@ def build_csound_response(text, llm):
         # csound-OWNED multi-oscillator schema (up to 3 osc, each its own morph
         # chain + volume); the key LISTS still come from the shared catalogue.
         system_prompt = _CS_SYSTEM_PROMPT_HEAD + dco_llm_map._build_catalogue(lex_cs)
-        raw = llm(text, system_prompt, _CS_MAX_NEW_TOKENS)
+        # The correction rides in the USER turn, and `text` stays the untouched
+        # prompt: every intent guard below (_prompt_wants_decay, _prompt_names_
+        # register, _prompt_wants_sustain, _prompt_wants_still) reads the PROMPT to
+        # decide what the user asked for. Feeding them the augmented turn would let
+        # a listener's word ("the sound is described as bright") count as if the
+        # user had written it -- the guards would start honouring the machine's
+        # complaint as intent.
+        user_turn = text
+        if correction:
+            system_prompt += _CS_CORRECTION_RULE
+            # `previous` is the last pass's own reading. Without it the brief's
+            # "keep what the listener did not name" is unfollowable -- each call is
+            # fresh, so the model has never seen the patch it is being asked to
+            # repair, and it guesses by deleting. Measured: without this line the
+            # 7B answered "church organ" + "described as bright" by dropping the
+            # rich/deep it had just chosen, which moves the sound the wrong way.
+            user_turn = text
+            if previous:
+                user_turn += "\n\nYOU WROTE: " + str(previous).strip()
+            user_turn += "\nA LISTENER HEARD: " + str(correction).strip()
+        raw = llm(user_turn, system_prompt, _CS_MAX_NEW_TOKENS)
 
         osc_specs, adjectives_raw, motion_raw, lost_regs = _parse_csound_reply(raw)
 

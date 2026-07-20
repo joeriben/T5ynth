@@ -285,6 +285,29 @@ juce::String composeHeardDescription (const juce::String& tags,
     return t + "; " + s;
 }
 
+bool selfCheckReportsMismatch (const juce::String& finding)
+{
+    // Lives next to syspSelfCheck because it decodes THAT prompt's contract: the
+    // stance answers either exactly "matches" or one "asked for X, but ..." line.
+    //
+    // NO FINDING IS NOT A MISMATCH. An empty string means the check never ran (no
+    // render, analyze failed, the model errored) — treating that as a miss would
+    // send a correction pass off against a complaint nobody made.
+    const juce::String f = finding.trim()
+                                  .trimCharactersAtEnd (".!")
+                                  .trim()
+                                  .toLowerCase();
+    if (f.isEmpty())
+        return false;
+    // startsWith, not ==: a model that prefixes its verdict ("matches.") or adds a
+    // clause after it is still saying it matched, and only the leading token is
+    // contracted. Anything else — including a refusal or a stray sentence — is
+    // NOT read as a mismatch either; only the stance's own accusation form is.
+    if (f.startsWith ("matches"))
+        return false;
+    return f.startsWith ("asked for");
+}
+
 juce::String buildSelfCheckUserTurn (const juce::String& intention,
                                      const juce::String& description)
 {

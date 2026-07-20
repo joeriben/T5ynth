@@ -217,7 +217,20 @@ public:
      *  human reading, or an honest failure. LLM-first, no fallback: never a
      *  default/keyword-matched orchestra. Empty input returns success == false
      *  without a round-trip. */
-    CsoundAuthorResult authorCsoundOrchestra(const juce::String& text);
+    /** @param correction  a self-check finding from a PREVIOUS attempt at this
+     *                     same prompt ("asked for X, but the sound is described
+     *                     as Y"). Empty = a first authoring, and the wire bytes
+     *                     are then exactly what they always were. Non-empty puts
+     *                     the author on its correction brief: repair that miss,
+     *                     keep the request. It is never a replacement prompt.
+     *  @param previous    that previous attempt's own reading. Each author call is
+     *                     fresh, so without this the brief's "keep what the
+     *                     listener did not name" points at a patch the model has
+     *                     never seen — and it then repairs by deleting what was
+     *                     already right. Only read when `correction` is set. */
+    CsoundAuthorResult authorCsoundOrchestra(const juce::String& text,
+                                             const juce::String& correction = {},
+                                             const juce::String& previous = {});
 
     /** Preload a model+device combo so first generate is fast.
      *  Blocking — call from background thread. Returns true on success. */
