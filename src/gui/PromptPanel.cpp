@@ -2312,6 +2312,7 @@ void PromptPanel::triggerDcoBake()
 
     dcoBaking_ = true;
     if (onLcoBusyChanged) onLcoBusyChanged(true);   // disable the reused GENERATE button
+    if (onNewGenerationStarted) onNewGenerationStarted();
     setLcoStatus("LCO: authoring...");
 
     // One blocking IPC round-trip (may lazily load the instruct model) on a

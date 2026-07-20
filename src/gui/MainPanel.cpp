@@ -1046,6 +1046,17 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
             mainGenerateBtn.setEnabled(!busy);
     };
 
+    // A fresh bake makes the current audio a new, unsaved sound — detach it from
+    // whatever preset was last loaded/saved so Save's "Replace" warning (and its
+    // pre-filled name) stops pointing at an unrelated old file (prompts/tags/seed
+    // stay untouched; only the saved-file identity is stale here, unlike Init).
+    promptPanel.onNewGenerationStarted = [this] {
+        currentPresetFile = juce::File();
+        processorRef.setLastPresetName({});
+        statusBar.setPresetName({});
+        presetManager.setCurrentPreset(currentPresetFile, {});
+    };
+
     // Left-header: same grammar as the RE-PROMPT/VARIATION headers (accent band,
     // dark bold left-aligned title), rotated to the left edge of this single-row
     // switchbox module. No frame on the label itself -- the frame is the switchbox's.

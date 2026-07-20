@@ -239,6 +239,16 @@ public:
      *  authoring pass (the neural glow/cache path never runs in LCO). */
     std::function<void(bool busy)> onLcoBusyChanged;
 
+    /** Fired once, right as a fresh LCO bake commits to producing new audio
+     *  (triggerDcoBake, past all its early-reject guards). The just-baked sound
+     *  is not the loaded/last-saved preset any more, so MainPanel drops the
+     *  stale currentPresetFile/lastPresetName identity here — otherwise the
+     *  Save dialog keeps defaulting to that old name and shows a "Replace"
+     *  warning for a file the new sound has nothing to do with. Re-prompt
+     *  corrections don't need their own call: they only run after a bake in
+     *  the same session already fired this once. */
+    std::function<void()> onNewGenerationStarted;
+
     /** Callback to read AxesPanel values with per-slot drift offsets (wired by MainPanel). */
     std::function<std::map<juce::String, float>(float, float, float)> getAxisValuesCallback;
 
