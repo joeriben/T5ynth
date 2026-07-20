@@ -57,6 +57,17 @@ Reading it:
   * fof is usable from about 220 to 880 Hz and nowhere else -- an earlier flat
     "USABLE" here was wrong.
 
+THE COMB COLUMNS ARE MEANINGLESS FOR A MODEL THAT DECAYS. They are computed over
+the whole DUR-second render, so a struck instrument whose half-life is 40 ms is
+measured across ~3.96 s of noise floor. Re-run 2026-07-20 after fixing the strike
+tables, `marimba` reports 0% on the comb at every pitch -- while a float render
+windowed to its actual first second is dead in tune (±0 cents, 110..880 Hz).
+`vibes`, which rings ten times longer, reports 100% across the entire 20 Hz..12 kHz
+clamp in the same run. The tool's own sustain column already tells you which case
+you are in: WHEN SUSTAIN IS NEAR ZERO, READ THE CENTS FROM A WINDOW MATCHED TO THE
+DECAY, NOT FROM THIS TABLE. Same lesson as the strike tables below, one layer up --
+a metric that is correct for standing tones is not thereby correct for struck ones.
+
 THREE metrics were needed to get this table, because the first two each lied in a
 different direction and nearly cost real code:
 
@@ -124,10 +135,22 @@ MODELS = {
     # CHANT formant grains -- the alternative voice idiom to saw+reson.
     "fof":      ("asig fof 0.5, kfr, 600, 0, 60, 0.003, 0.02, 0.007, "
                  "20, giSine, giWin, 3600"),
-    "gogobel":  "asig gogobel 0.6, kfr, 0.9, 0.5, 0.02, giSine, 1000",
-    "marimba":  "asig marimba 0.6, kfr, 0.9, 0.5, 0.02, giSine, 1000, 0.1, 0.5",
-    "vibes":    "asig vibes 0.6, kfr, 0.9, 0.5, 0.02, giSine, 1000, 0.1, 0.5",
-    "mandol":   "asig mandol 0.6, kfr, 0.0, 0.7, 0.4, 0.5, giSine",
+    # CORRECTED 2026-07-20. These three took `imp` -- a function-table number for
+    # the STRIKE IMPULSE -- as the scalar 0.02, so Csound raised "No table for
+    # Marimba strike" and DELETED THE NOTE on every run. The resulting silence was
+    # read as "the model decays on its own" and became §6's rejection of marimba
+    # and vibes in docs/LCO_CONCEPT.md. It is also why the table above records
+    # them as "silent with sustaining args". Signature is
+    #   kamp, kfreq, ihrd, ipos, imp, kvibf, kvamp, ivibfn, idec[, idoubles]
+    # (gogobel has no idec). Re-measured with this line at --format=float:
+    # marimba and vibes are dead in tune 55..880 Hz and idec plainly works;
+    # gogobel plays 20 Hz whatever it is asked for, so it stays rejected.
+    "gogobel":  "asig gogobel 0.6, kfr, 0.9, 0.5, giImp, 6, 0.01, giSine",
+    "marimba":  "asig marimba 0.6, kfr, 0.9, 0.5, giImp, 6, 0.01, giSine, 0.5",
+    "vibes":    "asig vibes 0.6, kfr, 0.9, 0.5, giImp, 6, 0.01, giSine, 0.5",
+    # kpluck=0 is NO excitation: this renders exact silence, which is what the
+    # "glide response inconsistent" verdict was actually looking at.
+    "mandol":   "asig mandol 0.6, kfr, 0.7, 0.7, 0.4, 0.5, giSine",
     "moog":     "asig moog 0.6, kfr, 0.1, 0.9, 0.5, 0.5, 0.8, giSine, giSine, giSine",
     "pluck":    "asig pluck 0.6, kfr, kfr, 0, 1",
     "streson":  "aexc rand 0.02\n  asig streson aexc, kfr, 0.9",
@@ -146,6 +169,12 @@ nchnls = 1
 0dbfs = 1
 giSine ftgen 1, 0, 65536, 10, 1
 giWin  ftgen 9, 0, 4096, 19, 0.5, 0.5, 270, 0.5   ; fof grain envelope
+; STRIKE IMPULSE for the Perry Cook struck models (marimba/vibes/gogobel). Their
+; `imp` argument is a TABLE NUMBER, not a scalar -- passing a scalar makes Csound
+; delete the note with "No table for Marimba strike", and a silent render then
+; reads exactly like a model that decays on its own. That mistake is what
+; rejected marimba and vibes; see failure mode 9 in docs/LCO_CONCEPT.md.
+giImp  ftgen 2, 0, 256, 10, 1, 0.5, 0.3, 0.2, 0.1
 instr 1
   kfr = {hz}
   {line}
@@ -170,6 +199,20 @@ e
         if not wav.exists():
             errs = [l for l in (r.stderr or "").splitlines() if "error" in l.lower()]
             return None, (errs[:2] or [(r.stderr or "")[-160:]])
+        # PROOF OF CONTACT, before a single sample is read. Csound writes a wav
+        # even when the note was DELETED at init, so "the file exists" proves
+        # nothing: an init error yields a perfectly readable file full of
+        # silence, and silence is indistinguishable from "this model decays on
+        # its own" -- which is exactly how marimba and vibes came to be rejected
+        # (failure mode 9, docs/LCO_CONCEPT.md). A negative result about an
+        # opcode needs the same proof of contact as a positive one.
+        blob = (r.stderr or "") + (r.stdout or "")
+        bad = [l for l in blob.splitlines()
+               if "INIT ERROR" in l or "PERF ERROR" in l or "note deleted" in l
+               or "not found" in l.lower() or "no table" in l.lower()]
+        if bad:
+            return None, ["RENDER DID NOT HAPPEN -- " + bad[0].strip()] + [
+                l.strip() for l in bad[1:2]]
         sr, x = wavfile.read(wav)
         if x.ndim > 1:
             x = x[:, 0]
