@@ -2328,12 +2328,16 @@ void PromptPanel::triggerDcoBake()
                 return;
             }
 
-            // The ONE HEARD AS card = the reading ("how it was heard"),
-            // bright — the Csound orchestra is one combined authored voice,
-            // not a dual A/B oscillator split (that split is retired — BJ
-            // 2026-07-17: "this split is dead").
+            // The ONE HEARD AS card = the reading ("how it was heard") PLUS
+            // its parametrisation beneath it — the reading alone was a terse
+            // gloss ("saw > fm_bell"); BJ asked for the real parametrisation
+            // (catalogue entry + resolved knob words) to be visible too, not
+            // raw Csound source. The Csound orchestra is one combined
+            // authored voice, not a dual A/B oscillator split (that split is
+            // retired — BJ 2026-07-17: "this split is dead").
             self->dcoReadingEditorA.setColour(juce::TextEditor::textColourId, kImpulseAText);
-            self->dcoReadingEditorA.setText(authored.reading, juce::dontSendNotification);
+            self->dcoReadingEditorA.setText(formatLcoDisclosure(authored.reading, authored.paramsText),
+                                             juce::dontSendNotification);
             self->dcoReadingEditorA.setTooltip({});
             self->dcoStatusLabel.setText("LCO: csound authored", juce::dontSendNotification);
 
@@ -2359,6 +2363,7 @@ void PromptPanel::triggerDcoBake()
             self->processorRef.forceCsoundEngineMode();
             self->processorRef.requestCsoundOrchestra(authored.orchestra);
             self->processorRef.setCsoundReading(authored.reading);
+            self->processorRef.setCsoundParamsText(authored.paramsText);
 
             // Open the compile-window poll: pollCsoundCompile (called every
             // tick from the panel's existing 10Hz timerCallback) reports

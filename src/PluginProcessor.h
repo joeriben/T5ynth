@@ -248,6 +248,16 @@ public:
     void setCsoundReading(const juce::String& reading) { csoundReading_ = reading; }
     const juce::String& getCsoundReading() const { return csoundReading_; }
 
+    // The parametrisation behind that reading (transparency surface for the
+    // LCO panel: the reading alone is a terse "saw > fm_bell" gloss; this is
+    // the catalogue entry — "<key>: <why>" plus, for a parametrised key, its
+    // "params: name=anchor|anchor|..." line — that each technique actually
+    // resolved to, straight from backend/csound_orch.py's params_text field).
+    // Same stash/persistence shape as csoundReading_ above, set by the same
+    // completion lambda. Message-thread only.
+    void setCsoundParamsText(const juce::String& text) { csoundParamsText_ = text; }
+    const juce::String& getCsoundParamsText() const { return csoundParamsText_; }
+
     // Semantic axes state (GUI-only, 3 slots: dropdownId + value)
     struct AxisSlotState { int dropdownId = 1; float value = 0.0f; };
     void setLastAxes(const std::array<AxisSlotState, 3>& a) { lastAxes = a; }
@@ -489,6 +499,8 @@ private:
     bool  lcoSnapshotValid_ = false;
     // Csound-authored reading cached for preset save (see setCsoundReading).
     juce::String csoundReading_;
+    // Csound-authored parametrisation text cached for preset save (see setCsoundParamsText).
+    juce::String csoundParamsText_;
     SamplePlayer masterSampler;
     FreezeTextureEngine masterFreeze;
     std::thread samplerReprepareThread;

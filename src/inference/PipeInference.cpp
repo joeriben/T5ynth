@@ -1233,9 +1233,9 @@ PipeInference::InterpretResult PipeInference::interpret(const juce::String& syst
 PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juce::String& text)
 {
     // Same lock/restart/timeout discipline as interpret() (mode "csound" on
-    // the wire) — the backend's {ok, orchestra, reading, spec, error}
-    // response is decoded here into CsoundAuthorResult's typed fields, so the
-    // caller (PromptPanel) never has to touch raw JSON.
+    // the wire) — the backend's {ok, orchestra, reading, params_text, spec,
+    // error} response is decoded here into CsoundAuthorResult's typed fields,
+    // so the caller (PromptPanel) never has to touch raw JSON.
     const std::lock_guard<std::recursive_mutex> lock(stateMutex_);
     CsoundAuthorResult result;
 
@@ -1320,9 +1320,10 @@ PipeInference::CsoundAuthorResult PipeInference::authorCsoundOrchestra(const juc
         const bool ok = static_cast<bool>(parsed.getProperty("ok", juce::var(false)));
         if (ok)
         {
-            result.orchestra = parsed.getProperty("orchestra", juce::var()).toString();
-            result.reading   = parsed.getProperty("reading", juce::var()).toString();
-            result.success   = result.orchestra.isNotEmpty();
+            result.orchestra  = parsed.getProperty("orchestra", juce::var()).toString();
+            result.reading    = parsed.getProperty("reading", juce::var()).toString();
+            result.paramsText = parsed.getProperty("params_text", juce::var()).toString();
+            result.success    = result.orchestra.isNotEmpty();
             if (!result.success)
                 result.errorMessage = "Empty orchestra in Csound response";
         }

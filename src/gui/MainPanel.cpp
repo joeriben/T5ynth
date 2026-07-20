@@ -2123,7 +2123,8 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
     if (static_cast<int>(processorRef.getValueTreeState().getRawParameterValue(PID::engineMode)->load())
             == static_cast<int>(EngineMode::Csound))
     {
-        promptPanel.setLcoReadingA(processorRef.getCsoundReading());
+        promptPanel.setLcoReadingA(PromptPanel::formatLcoDisclosure(
+            processorRef.getCsoundReading(), processorRef.getCsoundParamsText()));
     }
 
     processorRef.setLastPresetName(result.presetName);

@@ -140,12 +140,14 @@ public:
 
     /** Phase 4 (SPEC_phase4_5_csound_llm_preset.md): a prompt-authored Csound
      *  orchestra + its human-readable reading, decoded from the backend's
-     *  {ok, orchestra, reading, spec, error} response. */
+     *  {ok, orchestra, reading, params_text, spec, error} response. */
     struct CsoundAuthorResult
     {
         bool success = false;
         juce::String orchestra;     // full CSD text (Phase-3 contract, %SR% unsubstituted)
         juce::String reading;       // human "how it was heard" line(s), one per layer
+        juce::String paramsText;    // catalogue "<key>: <why>" + "params: ..." block per
+                                     // resolved technique — the panel's transparency surface
         juce::String errorMessage;  // set when success == false
     };
 

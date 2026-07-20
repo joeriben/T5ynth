@@ -153,6 +153,23 @@ public:
      *  bake, so a reload shows the original reading rather than an empty
      *  placeholder or a re-derived one. */
     void setLcoReadingA(const juce::String& t) { dcoReadingEditorA.setText(t, juce::dontSendNotification); }
+
+    /** Compose the HEARD AS box's full disclosure text: the short human
+     *  reading followed by its parametrisation — one "<key>: <why>" /
+     *  "params: name=anchor|anchor|..." catalogue block per technique that
+     *  actually resolved into the sound. The reading alone ("saw > fm_bell")
+     *  is a terse gloss; BJ asked for the real parametrisation behind it to
+     *  be visible, not raw Csound source — used both by triggerDcoBake's
+     *  completion lambda and by MainPanel's Csound-preset restore path, so
+     *  the two never drift. */
+    static juce::String formatLcoDisclosure(const juce::String& reading, const juce::String& paramsText)
+    {
+        if (paramsText.isEmpty())
+            return reading;
+        // fromUTF8: the box-drawing rule (U+2500) is non-ASCII, and a raw literal
+        // mojibakes through juce::String's default narrow-string constructor.
+        return reading + juce::String::fromUTF8("\n\n── Parametrisation ──\n") + paramsText;
+    }
     int getSeed() const;        // defined in the .cpp: T5ynthProcessor is only
     bool isRandomSeed() const;  // forward-declared here
 
