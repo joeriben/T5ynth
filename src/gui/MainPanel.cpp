@@ -1520,7 +1520,7 @@ void MainPanel::setOscEasyMode(bool easy, bool persist)
     // out the mode's real name instead (no separate subtitle line any more —
     // the LCO panel's own dcoSubtitleLabel was removed, PromptPanel.cpp).
     oscHeader.setText(neural ? juce::String(" T5 OSCILLATOR")
-                             : juce::String::fromUTF8(" Language-Controlled Oscillator"),
+                             : juce::String::fromUTF8(" Language-Controlled Oscillator (Alpha)"),
                       juce::dontSendNotification);
 
     // Axes|Dim segment + the Stability credit are neural-only (no LCO meaning).
