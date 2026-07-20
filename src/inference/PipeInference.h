@@ -181,12 +181,24 @@ public:
      *         Pass a positive number ONLY to deliberately truncate — the backend
      *         keeps no cap of its own and treats this call site as the owner of
      *         that decision, so any hard output limit in this system originates
-     *         here. A cap does not error when it bites; it cuts mid-sentence. */
+     *         here. A cap does not error when it bites; it cuts mid-sentence.
+     *
+     *  @param useCoderModel  route to the AUTHOR model instead of the small
+     *         translator. Measured: the 1.5B collapses to a constant answer on a
+     *         comparison task, replying "matches" to a request for dark against a
+     *         measurement of bright.
+     *  @param antiCycling  the backend's repetition_penalty / no_repeat_ngram_size
+     *         pair, on by default. Turn OFF for any task whose correct answer is
+     *         REPETITIVE: the n-gram block spans the prompt, so a system prompt
+     *         that spells out a required answer form makes that form unemittable
+     *         ("butthe sound measuresbrightandthin", plus rare-token leakage). */
     InterpretResult interpret(const juce::String& systemPrompt,
                               const juce::String& userText,
                               int maxNewTokens,
                               const juce::String& device,
-                              const juce::String& modelPath = {});
+                              const juce::String& modelPath = {},
+                              bool useCoderModel = false,
+                              bool antiCycling = true);
 
     /** Blocking CLAP machine-listening analysis of an audio buffer → top-k timbre
      *  tags + DSP spectral words — call from a background thread. The audio is sent

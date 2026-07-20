@@ -3370,7 +3370,19 @@ def main():
                 t_device = request.get("device", default_device)
                 if t_device == "auto" or t_device not in devices:
                     t_device = default_device
-                translation_dir = _resolve_translation_model_dir(request)
+                # The self-check judges with the SAME model that authored the
+                # orchestra, not the small translator: measured 2026-07-20, the
+                # 1.5B collapses to a constant answer on a comparison task (it
+                # replied "matches" to a prompt asking for dark against a
+                # measurement of bright), while the author model gets it right.
+                # Resolved the same way mode="csound" resolves it, so the check
+                # follows whatever the user loaded in Settings.
+                if request.get("use_coder_model"):
+                    translation_dir = _resolve_coder_model_dir(request)
+                    if translation_dir is None:
+                        raise ValueError("Author model is not installed (load it in Settings).")
+                else:
+                    translation_dir = _resolve_translation_model_dir(request)
                 if translation_dir is None:
                     raise ValueError(
                         "Instruct/translation model is not installed "
@@ -3382,16 +3394,27 @@ def main():
                 # still limits the reply, and that one call site is C++-owned.
                 _mn = request.get("max_new_tokens")
                 max_new = int(_mn) if _mn is not None else None
-                # Re-Prompt only: defeat the degenerate token-cycle a long "recombine
-                # these freely" palette provokes ("sharp, thin, metallic, buzzing,
-                # sharp, thin, metallic, …"). Deterministic logit transforms, so the
-                # rewrite stays reproducible; translate + DCO S2 (which never take
-                # this branch) are byte-identical. no_repeat_ngram_size=3 blocks any
-                # verbatim 3-gram loop; a mild repetition_penalty discourages the
-                # slower drift into it without suppressing legitimate word reuse.
+                # Anti-cycling logit transforms, ON by default (every existing
+                # caller keeps byte-identical behaviour): they defeat the
+                # degenerate token-cycle a long "recombine these freely" palette
+                # provokes ("sharp, thin, metallic, buzzing, sharp, thin, …").
+                # Deterministic, so the rewrite stays reproducible; translate +
+                # DCO S2 never take this branch at all.
+                #
+                # OPT-OUT EXISTS because these are wrong for a task whose correct
+                # answer is REPETITIVE. no_repeat_ngram_size=3 spans the prompt as
+                # well as the output, so a system prompt that spells out a required
+                # answer form forbids the model from ever emitting that form:
+                # measured 2026-07-20, the self-check's "asked for X, but the sound
+                # measures Y" came back as "butthe sound measuresbrightandthin",
+                # with the repetition penalty pushing into rare tokens ("noise洗").
+                # Removing the required form instead is not an option — without it
+                # the model stops comparing and answers "matches" to everything.
+                anti_cycle = request.get("anti_cycle", True)
+                extra = ({"repetition_penalty": 1.2, "no_repeat_ngram_size": 3}
+                         if anti_cycle else {})
                 send_text(run_instruct(source_text, translation_dir, t_device,
-                                       system_prompt, max_new,
-                                       repetition_penalty=1.2, no_repeat_ngram_size=3))
+                                       system_prompt, max_new, **extra))
                 continue
 
             # Csound orchestra author (the CORRECT backend, 2026-07-17): the same
