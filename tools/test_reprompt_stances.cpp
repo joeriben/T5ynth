@@ -160,6 +160,21 @@ int main()
         checkTrue (k, stanceSystemPrompt (k).isNotEmpty());
     checkTrue ("off → empty sysp", stanceSystemPrompt ("off").isEmpty());
     checkTrue ("planetarizer not shipped", stanceSystemPrompt ("planetarizer").isEmpty());
+    // selfcheck is the JUDGING stance — reachable via stanceSystemPrompt, but
+    // deliberately absent from BlockParams kEntries (offering it as a loop stance
+    // would make the chain generate findings instead of prompts).
+    checkTrue ("selfcheck sysp present", stanceSystemPrompt ("selfcheck").isNotEmpty());
+    checkTrue ("selfcheck ascii (no em-dash)",
+               ! stanceSystemPrompt ("selfcheck").contains (juce::String::fromUTF8 ("\xe2\x80\x94")));
+    checkTrue ("selfcheck worked example", stanceSystemPrompt ("selfcheck").contains ("the two ears disagree"));
+    // The three load-bearing clauses. Each exists because of a measured failure
+    // mode, so each is asserted rather than left to a future edit's good taste:
+    // the exact "matches" token (the card branches on it), the unreliability
+    // warning (without it the model invents misses), and the no-fix rule
+    // (proposing a better prompt would be unauthorized sound-shaping).
+    checkTrue ("selfcheck exact match token", stanceSystemPrompt ("selfcheck").contains ("reply exactly: matches"));
+    checkTrue ("selfcheck warns ear unreliable", stanceSystemPrompt ("selfcheck").contains ("often wrong"));
+    checkTrue ("selfcheck forbids fixing", stanceSystemPrompt ("selfcheck").contains ("Never suggest a better prompt"));
 
     // UTF-8 fidelity: the non-ASCII chars must round-trip as proper UTF-8 (NOT the
     // double-encoded mojibake the implicit const char*→String ctor would produce).
@@ -197,6 +212,16 @@ int main()
            "Current prompt: \"sunset romance\"\nHeard: bright");
     checkTrue ("off → empty turn",
                buildStanceUserTurn ("off", "x", "y", {}, "").isEmpty());
+    // selfcheck turn: labels must match the system prompt's nouns verbatim, and a
+    // missing reading must SAY it is missing — a blank line reads to a small model
+    // as "nothing there", which is a different claim from "not measured".
+    check ("selfcheck turn",
+           buildSelfCheckUserTurn ("a glass bell", "warm, full-bodied, tonal", "buzzing, harsh"),
+           "Asked for: a glass bell\nMeasured: warm, full-bodied, tonal\nNeural ear: buzzing, harsh");
+    check ("selfcheck absent ear named, not blank",
+           buildSelfCheckUserTurn ("a glass bell", "warm, tonal", ""),
+           "Asked for: a glass bell\nMeasured: warm, tonal\nNeural ear: (not available)");
+    checkTrue ("selfcheck turn never empty", buildSelfCheckUserTurn ("", "", "").isNotEmpty());
 
     std::printf ("DCO user turns (buildDcoStanceUserTurn):\n");
     {

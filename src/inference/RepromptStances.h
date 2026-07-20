@@ -24,11 +24,24 @@
  *   transcribe, entkitscher, verniedlicher, variation, abduction, opposite.
  * (planetarizer/develop/critique from the tool are intentionally NOT ported —
  * too complex for the local Qwen2.5-1.5B interpreter; see clap_llm_loop notes.)
+ *
+ * ONE stance is NOT a port and has no Python mirror: "selfcheck" (below). It
+ * JUDGES a sound instead of generating the next prompt, so it is absent from both
+ * clap_llm_loop.py MODES and BlockParams kEntries, and the "VERBATIM from
+ * clap_llm_loop.py" contract above does not cover it — its wording was derived
+ * from measurements taken in this repo, and its tests assert against itself.
  */
 namespace RepromptStances
 {
     /** The system prompt (the "stance") for a given stance key, VERBATIM from
-     *  clap_llm_loop.py MODES[key]. Empty for an unknown key or "off". */
+     *  clap_llm_loop.py MODES[key]. Empty for an unknown key or "off".
+     *
+     *  Also serves the "selfcheck" key — the one stance that JUDGES instead of
+     *  generating. It is deliberately NOT in BlockParams.h kEntries: the six loop
+     *  stances are user-selectable and each produce the next prompt, whereas
+     *  selfcheck produces a finding about the current one and is never a link in
+     *  the chain. Putting it in kEntries would offer it as a generator and break
+     *  the loop. See buildSelfCheckUserTurn. */
     juce::String stanceSystemPrompt (const juce::String& stanceKey);
 
     /** Build the per-turn user text for a stance, mirroring the matching
@@ -88,6 +101,38 @@ namespace RepromptStances
                                          const juce::String& flagsLine,
                                          const juce::String& prevPrompt,
                                          const juce::StringArray& recentList);
+
+    /** Build the user turn for the "selfcheck" stance: does the oscillator's
+     *  translation of the prompt actually arrive in the result?
+     *
+     *  Deliberately NOT part of buildStanceUserTurn's key dispatch — its inputs
+     *  are different in kind (it judges one sound instead of generating the next
+     *  prompt), exactly as buildDcoStanceUserTurn is its own function.
+     *
+     *  DIVISION OF LABOUR, and it is load-bearing: the three inputs are assembled
+     *  as FACTS by the caller and handed over verbatim. The model is asked for the
+     *  ONE thing a 1.5B is good at — naming which asked-for quality is missing from
+     *  those words. "Asked X, measured Y" is string work, not an LLM task, so the
+     *  card still shows real data when the model fails or is absent.
+     *
+     *  WHY THE TWO READINGS ARE NEVER MERGED (measured 2026-07-20, six bare
+     *  oscillators through the shipped analyze op): the neural ear is not a stable
+     *  function of the audio at this resolution — the two acoustically CLOSEST
+     *  renders in the set (log-spectral distance 0.131, less than half the
+     *  next-closest pair) drew the two most OPPOSED tag sets ("warm/mellow" vs
+     *  "dark/harsh"), both against the intent. The computed descriptors got that
+     *  same pair right. So a single-ear verdict would manufacture false
+     *  accusations at a high rate; only the DISAGREEMENT between the two ears is
+     *  reportable, and an ear/ear split is a finding about the EAR.
+     *
+     *  @param intention   what the prompt asked for, in the user's own words
+     *  @param measured    spectral_words — computed, not learned: coarse (three
+     *                     thresholds) but it never lies
+     *  @param neuralEar   the CLAP tags — rich but unstable; see above
+     *  @return the user-turn string; never empty (the facts always survive). */
+    juce::String buildSelfCheckUserTurn (const juce::String& intention,
+                                         const juce::String& measured,
+                                         const juce::String& neuralEar);
 
     /** Frames the DCO/LCO reference vocabulary (backend dco_recipe.reference_
      *  vocabulary — the exact palette the scanner resolves) as a constraint

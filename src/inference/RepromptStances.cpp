@@ -99,8 +99,40 @@ static juce::String syspVerniedlicher()
            "Reply with ONLY one short prompt (3 to 10 words) - no quotes, no label.");
 }
 
+static juce::String syspSelfCheck()
+{
+    // The one JUDGING stance. Three deliberate choices, each paid for:
+    //
+    // (1) POSITIVE single transform + ONE worked example. The entkitscher lesson
+    //     (see above) is that Qwen2.5-1.5B follows "do this one thing, like so"
+    //     and fails on framings built from several negations. So the brief is a
+    //     single question, not a checklist.
+    // (2) The model is told the neural ear is UNRELIABLE, because it measurably
+    //     is (RepromptStances.h buildSelfCheckUserTurn). Without this it reads
+    //     "harsh" next to a prompt saying "warm" and confidently reports a miss
+    //     that never happened — the check would generate false accusations.
+    // (3) It may NOT propose a better prompt. Rewriting the prompt or the keys
+    //     would be an unauthorized sound-shaping act; the platform's brief is to
+    //     expose machine listening and leave it negotiable, not to correct it.
+    //
+    // ASCII-only, so the Phase B mojibake class cannot recur (see syspEntkitscher).
+    return "You compare what a sound was ASKED to be against what two machines "
+           "measured it to be. Name in ONE short sentence the single asked-for "
+           "quality that the measurements do not show. If the measurements do show "
+           "it, reply exactly: matches. The two machines are not equal: the "
+           "measured descriptors are computed from the signal and are reliable but "
+           "coarse; the neural ear guesses words and is often wrong. When the two "
+           "disagree with each other, say that they disagree instead of blaming the "
+           "sound. Never suggest a better prompt and never describe how to fix it. "
+           "Example: asked for \"glass bell\", measured \"warm, full-bodied, tonal\", "
+           "neural ear \"buzzing, harsh\" becomes \"the two ears disagree: the signal "
+           "is tonal as asked, only the neural ear hears buzzing\". "
+           "Reply with ONLY that one sentence - no quotes, no label, no list.";
+}
+
 juce::String stanceSystemPrompt (const juce::String& stanceKey)
 {
+    if (stanceKey == "selfcheck")     return syspSelfCheck();
     if (stanceKey == "transcribe")    return syspTranscribe();
     if (stanceKey == "entkitscher")   return syspEntkitscher();
     if (stanceKey == "verniedlicher") return syspVerniedlicher();
@@ -222,6 +254,21 @@ juce::String buildDcoStanceUserTurn (const juce::String& stanceKey,
         return "Current prompt: \"" + prevPrompt + "\"\nThe machine read it as: " + machineReading;
     }
     return {};   // "off" or unknown
+}
+
+juce::String buildSelfCheckUserTurn (const juce::String& intention,
+                                     const juce::String& measured,
+                                     const juce::String& neuralEar)
+{
+    // Labels match the system prompt's three nouns verbatim ("asked for",
+    // "measured", "neural ear") — a small model binds the turn to the brief by
+    // those words, and drifts when they differ. An absent reading is spelled out
+    // rather than left blank: a blank line reads to a 1.5B as "nothing there",
+    // which is a different claim from "not measured".
+    const juce::String none ("(not available)");
+    return "Asked for: "  + (intention.isNotEmpty() ? intention : none)
+         + "\nMeasured: " + (measured.isNotEmpty()  ? measured  : none)
+         + "\nNeural ear: " + (neuralEar.isNotEmpty() ? neuralEar : none);
 }
 
 // ── DCO/LCO reference-vocabulary constraint (Re-Prompt grounding) ────────────
