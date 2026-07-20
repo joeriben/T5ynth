@@ -178,12 +178,16 @@ int main()
     checkTrue ("selfcheck answer form", stanceSystemPrompt ("selfcheck").contains ("asked for X, but the sound is described as Y"));
     checkTrue ("selfcheck forbids fixing", stanceSystemPrompt ("selfcheck").contains ("Never suggest a better request"));
     // The clauses that let a partly associative, multi-word description be compared
-    // against at all: judge the WHOLE (one stray tag among agreeing ones convicted
-    // "shattering glass" on "velvety"), absence-is-not-evidence (a quality the
-    // top-k did not cover is not a miss), and the neighbour rule ("brilliant" for
-    // "bright" is not a contradiction).
-    checkTrue ("selfcheck whole-set rule", stanceSystemPrompt ("selfcheck").contains ("judge it AS A WHOLE"));
-    checkTrue ("selfcheck stray-word rule", stanceSystemPrompt ("selfcheck").contains ("listener's noise, not a mismatch"));
+    // against at all: the DOMINANT-CHARACTER firing criterion (the earlier "MOST
+    // opposite AND little or nothing matches" never held for a named instrument —
+    // some generic word always fits — so the verdict was structurally always
+    // "matches"; A/B 2026-07-21), judge the WHOLE (one stray tag among agreeing
+    // ones convicted "shattering glass" on "velvety"), absence-is-not-evidence (a
+    // quality the top-k did not cover is not a miss), and the neighbour rule
+    // ("brilliant" for "bright" is not a contradiction).
+    checkTrue ("selfcheck dominant-character criterion", stanceSystemPrompt ("selfcheck").contains ("could a sound described this way be what"));
+    checkTrue ("selfcheck whole-set rule", stanceSystemPrompt ("selfcheck").contains ("AS A WHOLE, by its dominant character"));
+    checkTrue ("selfcheck stray-word rule", stanceSystemPrompt ("selfcheck").contains ("are the listener's noise"));
     checkTrue ("selfcheck absence rule", stanceSystemPrompt ("selfcheck").contains ("does not mention is not a mismatch"));
     checkTrue ("selfcheck neighbour rule", stanceSystemPrompt ("selfcheck").contains ("Close or neighbouring qualities agree"));
 

@@ -102,54 +102,70 @@ static juce::String syspVerniedlicher()
 static juce::String syspSelfCheck()
 {
     // The one JUDGING stance. Every clause below survived a measurement on the
-    // real models (2026-07-20); earlier drafts that read better all failed.
+    // real 7B (A/B 2026-07-21); earlier drafts that read better all failed.
     //
     // (1) The REQUIRED ANSWER FORM is what makes the comparison happen at all.
-    //     Removing it — trying "in one short sentence, name…" — made both the
-    //     1.5B and the 7B answer "matches" to every case, including a request for
-    //     dark against a measurement of bright. The form is load-bearing, not
-    //     decoration. It also forces anti_cycle=false at the call site: the
+    //     Removing it — trying "in one short sentence, name…" — made the 7B
+    //     answer "matches" to every case, including dark-vs-bright. Load-bearing,
+    //     not decoration. It also forces anti_cycle=false at the call site: the
     //     backend's no_repeat_ngram_size spans the prompt, so spelling the form
     //     out here makes it unemittable unless that transform is disabled.
-    // (2) THE DESCRIPTION IS A SET, judged AS A WHOLE. The reported failure
-    //     (2026-07-20): request "shattering glass", description "huge, clangy,
-    //     steely, velvety, buzzing; warm, full-bodied, tonal" -> the model
-    //     convicted on "velvety" alone, though clangy/steely/buzzing ARE
-    //     shattering glass. The learned half lists several loosely-associated
-    //     words at once, so one stray word among agreeing ones is the ear's
-    //     noise, not a miss. A mismatch requires the description's WHOLE character
-    //     to lean the wrong way — nothing in it matching, and something opposing.
-    // (3) CONTRADICTION, not absence. A quality the description does not mention
-    //     says nothing: the listener does not name everything it hears, so
-    //     "does not mention evolving" is not evidence the sound is static.
-    // (4) "Close qualities agree" sets the bias to SILENCE ON DOUBT — an earlier
-    //     draft reported "asked for bright, but described as brilliant" on a sound
-    //     that matched. A missed flag still leaves the full description on screen;
-    //     a false flag teaches the user to ignore the section.
-    // (5) It may NOT propose a better prompt. Rewriting the prompt or the keys
-    //     would be an unauthorized sound-shaping act; the platform's brief is to
-    //     expose machine listening and leave it negotiable, not to correct it.
+    // (2) THE FIRING CRITERION is the DOMINANT CHARACTER, not a word count. The
+    //     earlier draft fired "ONLY when MOST of the description names the
+    //     opposite AND little or nothing in it matches". That AND can never hold
+    //     for a named instrument: a wrong render still measures some generic word
+    //     — warm / full-bodied / tonal — that fits, so "little or nothing
+    //     matches" is always false and the verdict was structurally always
+    //     "matches" (reported 2026-07-21: a "wurlitzer" built as metallic_fm and
+    //     a "detuned rhodes" built as a saw>pulse morph both passed). Recalibrated
+    //     to "could a sound described this way BE what was asked for — judge the
+    //     whole, by its dominant character". Measured A/B on the 7B: 3 missed
+    //     mismatches → 1, still 0 false accusations (the velvety "shattering
+    //     glass" and correctly-rendered electric pianos all still pass).
+    //     KNOWN RESIDUAL LIMIT: a wrong render whose machine-listening words are
+    //     genuinely instrument-compatible (a warm, full-bodied metallic_fm heard
+    //     as "wurlitzer") is NOT catchable from the description alone — the
+    //     category error does not surface in CLAP's coarse words, and feeding the
+    //     author's chosen method into the comparer was measured not to move this
+    //     model. That case needs a sonic reference, not a better prompt.
+    // (3) THE DESCRIPTION IS A SET. One stray tag among agreeing ones is the ear's
+    //     noise (clangy/steely/buzzing ARE shattering glass; a lone "velvety" is
+    //     not a miss).
+    // (4) CONTRADICTION, not absence. A quality the description does not mention
+    //     says nothing: the listener does not name everything it hears.
+    // (5) "Close qualities agree" sets the bias to SILENCE ON DOUBT — a false flag
+    //     teaches the user to ignore the section; a missed flag still leaves the
+    //     full description on screen.
+    // (6) It may NOT propose a better prompt (unauthorized sound-shaping).
     //
     // ASCII-only, so the Phase B mojibake class cannot recur (see syspEntkitscher).
     return "You are given a REQUEST for a sound, and a DESCRIPTION of the sound that "
            "was actually made. The description comes from a machine listener: timbre "
            "words it associated with the sound, plus measured words for its "
-           "brightness, body and texture. Compare the two. "
-           "The description names SEVERAL qualities at once; judge it AS A WHOLE. "
-           "Report a mismatch ONLY when MOST of the description names the OPPOSITE of "
-           "the request and little or nothing in it matches. If the described "
-           "qualities mostly match the request, or are mixed, the sound arrived - a "
-           "stray or opposite word among agreeing ones is the listener's noise, not a "
-           "mismatch. A quality the request asks for that the "
-           "description simply does not mention is not a mismatch either: the listener "
-           "does not name everything it hears. Close or neighbouring qualities agree. "
+           "brightness, body and texture. "
+           "Decide one thing: could a sound described this way be what the request asks "
+           "for? Judge the description AS A WHOLE, by its dominant character, not word "
+           "by word. "
+           "If the description's main character is the kind of sound the request asks "
+           "for, the sound arrived - one or two stray or even opposite words among "
+           "fitting ones are the listener's noise, reply matches. "
+           "If the description's main character is a DIFFERENT kind of sound than the "
+           "request asks for, report a mismatch - even when one or two of its words "
+           "happen to fit the request. "
+           "A quality the request asks for that the description simply does not mention "
+           "is not a mismatch: the listener does not name everything it hears. Close or "
+           "neighbouring qualities agree, and when the description is genuinely mixed "
+           "with no clear lean, reply matches. "
            "Answer in exactly this form: asked for X, but the sound is described as Y. "
-           "If the description does not contradict the request as a whole, reply exactly: matches. "
+           "If a sound described this way could be what was asked for, reply exactly: matches. "
            "Never suggest a better request and never say how to fix it. "
            "Example 1: request \"shattering glass\", description \"huge, clangy, steely, "
            "velvety, buzzing; bright, thin, tonal\" -> matches (clangy, steely and buzzing "
            "are shattering glass; velvety is one stray word). "
-           "Example 2: request \"a dark drone\", description \"glassy, brilliant, airy; "
+           "Example 2: request \"a warm mellow flute\", description \"harsh, metallic, "
+           "piercing, thin; brilliant, thin, tonal\" -> asked for warm and mellow, but "
+           "the sound is described as harsh and metallic. "
+           "Example 3: request \"a dark drone\", description \"glassy, brilliant, airy; "
            "brilliant, thin, tonal\" -> asked for dark, but the sound is described as "
            "brilliant.";
 }
