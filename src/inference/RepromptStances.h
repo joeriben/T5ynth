@@ -109,30 +109,36 @@ namespace RepromptStances
      *  are different in kind (it judges one sound instead of generating the next
      *  prompt), exactly as buildDcoStanceUserTurn is its own function.
      *
-     *  DIVISION OF LABOUR, and it is load-bearing: the three inputs are assembled
-     *  as FACTS by the caller and handed over verbatim. The model is asked for the
-     *  ONE thing a 1.5B is good at — naming which asked-for quality is missing from
-     *  those words. "Asked X, measured Y" is string work, not an LLM task, so the
-     *  card still shows real data when the model fails or is absent.
+     *  TWO AGENTS, TWO JOBS. The machine listener DESCRIBES the sound; this turn
+     *  hands that description, as text, to a second model that COMPARES it with
+     *  the request. Nothing here weighs audio against intent — the comparison is
+     *  text against text, which is what a language model is for. So the
+     *  description arrives whole: the learned timbre words AND the computed
+     *  spectral words, composed by composeHeardDescription.
      *
-     *  WHY THE TWO READINGS ARE NEVER MERGED (measured 2026-07-20, six bare
-     *  oscillators through the shipped analyze op): the neural ear is not a stable
-     *  function of the audio at this resolution — the two acoustically CLOSEST
-     *  renders in the set (log-spectral distance 0.131, less than half the
-     *  next-closest pair) drew the two most OPPOSED tag sets ("warm/mellow" vs
-     *  "dark/harsh"), both against the intent. The computed descriptors got that
-     *  same pair right. So a single-ear verdict would manufacture false
-     *  accusations at a high rate; only the DISAGREEMENT between the two ears is
-     *  reportable, and an ear/ear split is a finding about the EAR.
+     *  The guard against a description that is partly noisy is not to withhold
+     *  half of it, but to require a CONTRADICTION: a quality the request asks for
+     *  and the description merely fails to mention is never a mismatch (see
+     *  syspSelfCheck). Absence is not evidence.
      *
-     *  @param intention   what the prompt asked for, in the user's own words
-     *  @param measured    spectral_words — computed, not learned: coarse (three
-     *                     thresholds) but it never lies
-     *  @param neuralEar   the CLAP tags — rich but unstable; see above
-     *  @return the user-turn string; never empty (the facts always survive). */
+     *  MODEL: run this on the AUTHOR model, not the small translator, and with the
+     *  backend's anti-cycling transforms OFF. Both are measured requirements, not
+     *  preferences — see syspSelfCheck's comment for what each one broke.
+     *
+     *  @param intention    what the prompt asked for, in the user's own words
+     *  @param description  the listener's description (composeHeardDescription)
+     *  @return the user-turn string. */
     juce::String buildSelfCheckUserTurn (const juce::String& intention,
-                                         const juce::String& measured,
-                                         const juce::String& neuralEar);
+                                         const juce::String& description);
+
+    /** Compose the machine listener's DESCRIPTION of one sound from the two
+     *  outputs of the shipped analyze op: the learned timbre words (CLAP top-k)
+     *  and the computed spectral words. This is the describing agent's product —
+     *  what buildSelfCheckUserTurn hands to the comparing one, and what the
+     *  HEARD AS field shows, so the user reads the same description the
+     *  comparison was made on. Either half may be empty. */
+    juce::String composeHeardDescription (const juce::String& tags,
+                                          const juce::String& spectral);
 
     /** Frames the DCO/LCO reference vocabulary (backend dco_recipe.reference_
      *  vocabulary — the exact palette the scanner resolves) as a constraint

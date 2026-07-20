@@ -166,15 +166,24 @@ int main()
     checkTrue ("selfcheck sysp present", stanceSystemPrompt ("selfcheck").isNotEmpty());
     checkTrue ("selfcheck ascii (no em-dash)",
                ! stanceSystemPrompt ("selfcheck").contains (juce::String::fromUTF8 ("\xe2\x80\x94")));
-    checkTrue ("selfcheck worked example", stanceSystemPrompt ("selfcheck").contains ("the two ears disagree"));
-    // The three load-bearing clauses. Each exists because of a measured failure
-    // mode, so each is asserted rather than left to a future edit's good taste:
-    // the exact "matches" token (the card branches on it), the unreliability
-    // warning (without it the model invents misses), and the no-fix rule
-    // (proposing a better prompt would be unauthorized sound-shaping).
+    checkTrue ("selfcheck worked example", stanceSystemPrompt ("selfcheck").contains ("asked for dark, but the sound is described as brilliant"));
+    // The load-bearing clauses. Each exists because of a measured failure mode, so
+    // each is asserted rather than left to a future edit's good taste: the exact
+    // "matches" token (it is printed verbatim into the card, so a model that
+    // improvises a synonym reads as an unexplained sentence), the answer form (without
+    // it the model answered "matches" to everything, including dark-vs-bright),
+    // and the no-fix rule (proposing a better prompt would be unauthorized
+    // sound-shaping).
     checkTrue ("selfcheck exact match token", stanceSystemPrompt ("selfcheck").contains ("reply exactly: matches"));
-    checkTrue ("selfcheck warns ear unreliable", stanceSystemPrompt ("selfcheck").contains ("often wrong"));
-    checkTrue ("selfcheck forbids fixing", stanceSystemPrompt ("selfcheck").contains ("Never suggest a better prompt"));
+    checkTrue ("selfcheck answer form", stanceSystemPrompt ("selfcheck").contains ("asked for X, but the sound is described as Y"));
+    checkTrue ("selfcheck forbids fixing", stanceSystemPrompt ("selfcheck").contains ("Never suggest a better request"));
+    // Absence-is-not-evidence + the neighbour rule are what let a partly
+    // associative description be compared against at all: without them every
+    // quality the top-k happened not to cover became an accusation, and a
+    // neighbouring value ("brilliant" for "bright") read as a contradiction.
+    checkTrue ("selfcheck contradiction rule", stanceSystemPrompt ("selfcheck").contains ("CONTRADICTS the request"));
+    checkTrue ("selfcheck absence rule", stanceSystemPrompt ("selfcheck").contains ("does not mention is NOT a mismatch"));
+    checkTrue ("selfcheck neighbour rule", stanceSystemPrompt ("selfcheck").contains ("Close or neighbouring qualities agree"));
 
     // UTF-8 fidelity: the non-ASCII chars must round-trip as proper UTF-8 (NOT the
     // double-encoded mojibake the implicit const char*→String ctor would produce).
@@ -212,16 +221,22 @@ int main()
            "Current prompt: \"sunset romance\"\nHeard: bright");
     checkTrue ("off → empty turn",
                buildStanceUserTurn ("off", "x", "y", {}, "").isEmpty());
-    // selfcheck turn: labels must match the system prompt's nouns verbatim, and a
-    // missing reading must SAY it is missing — a blank line reads to a small model
-    // as "nothing there", which is a different claim from "not measured".
+    // selfcheck turn: labels must match the system prompt's nouns verbatim
+    // ("request"/"asked for", "description"/"described as") — the model binds the
+    // turn to the brief by those words and drifts when they differ.
     check ("selfcheck turn",
-           buildSelfCheckUserTurn ("a glass bell", "warm, full-bodied, tonal", "buzzing, harsh"),
-           "Asked for: a glass bell\nMeasured: warm, full-bodied, tonal\nNeural ear: buzzing, harsh");
-    check ("selfcheck absent ear named, not blank",
-           buildSelfCheckUserTurn ("a glass bell", "warm, tonal", ""),
-           "Asked for: a glass bell\nMeasured: warm, tonal\nNeural ear: (not available)");
-    checkTrue ("selfcheck turn never empty", buildSelfCheckUserTurn ("", "", "").isNotEmpty());
+           buildSelfCheckUserTurn ("a glass bell", "chime, glassy; bright, thin, tonal"),
+           "Asked for: a glass bell\nDescribed: chime, glassy; bright, thin, tonal");
+    // The description the comparison reads and the one the card prints are the
+    // same string, built here. Semicolon between the halves: the left is what the
+    // listener associated, the right what was measured, and a single comma list
+    // would invite the comparing model to weigh them alike.
+    check ("description composed",
+           composeHeardDescription ("chime, glassy", "bright, thin, tonal"),
+           "chime, glassy; bright, thin, tonal");
+    check ("description tags only",     composeHeardDescription ("chime, glassy", ""), "chime, glassy");
+    check ("description spectral only", composeHeardDescription ("", "bright, thin"), "bright, thin");
+    checkTrue ("description both empty", composeHeardDescription ("", "  ").isEmpty());
 
     std::printf ("DCO user turns (buildDcoStanceUserTurn):\n");
     {

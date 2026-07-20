@@ -101,33 +101,48 @@ static juce::String syspVerniedlicher()
 
 static juce::String syspSelfCheck()
 {
-    // The one JUDGING stance. Three deliberate choices, each paid for:
+    // The one JUDGING stance. Every clause below survived a measurement on the
+    // real models (2026-07-20); earlier drafts that read better all failed.
     //
-    // (1) POSITIVE single transform + ONE worked example. The entkitscher lesson
-    //     (see above) is that Qwen2.5-1.5B follows "do this one thing, like so"
-    //     and fails on framings built from several negations. So the brief is a
-    //     single question, not a checklist.
-    // (2) The model is told the neural ear is UNRELIABLE, because it measurably
-    //     is (RepromptStances.h buildSelfCheckUserTurn). Without this it reads
-    //     "harsh" next to a prompt saying "warm" and confidently reports a miss
-    //     that never happened — the check would generate false accusations.
-    // (3) It may NOT propose a better prompt. Rewriting the prompt or the keys
+    // (1) The REQUIRED ANSWER FORM is what makes the comparison happen at all.
+    //     Removing it — trying "in one short sentence, name…" — made both the
+    //     1.5B and the 7B answer "matches" to every case, including a request for
+    //     dark against a measurement of bright. The form is load-bearing, not
+    //     decoration. It also forces anti_cycle=false at the call site: the
+    //     backend's no_repeat_ngram_size spans the prompt, so spelling the form
+    //     out here makes it unemittable unless that transform is disabled.
+    // (2) CONTRADICTION, not absence. This is what makes a partly unreliable
+    //     description safe to compare against. The learned half of it names only
+    //     a handful of associations and stays silent about most of what is in the
+    //     sound, so "the description does not mention evolving" says nothing
+    //     about whether the sound evolves. Only a description that asserts the
+    //     OPPOSITE of the request is evidence. Without this clause every quality
+    //     the top-k happened not to cover became an accusation.
+    // (3) "Close qualities agree" sets the bias to SILENCE ON DOUBT — the earlier
+    //     draft reported "asked for bright, but the sound is described as
+    //     brilliant" on a sound that matched. A missed flag still leaves the full
+    //     description on screen for the user to read; a false flag teaches them
+    //     to ignore the section.
+    // (4) It may NOT propose a better prompt. Rewriting the prompt or the keys
     //     would be an unauthorized sound-shaping act; the platform's brief is to
     //     expose machine listening and leave it negotiable, not to correct it.
     //
     // ASCII-only, so the Phase B mojibake class cannot recur (see syspEntkitscher).
-    return "You compare what a sound was ASKED to be against what two machines "
-           "measured it to be. Name in ONE short sentence the single asked-for "
-           "quality that the measurements do not show. If the measurements do show "
-           "it, reply exactly: matches. The two machines are not equal: the "
-           "measured descriptors are computed from the signal and are reliable but "
-           "coarse; the neural ear guesses words and is often wrong. When the two "
-           "disagree with each other, say that they disagree instead of blaming the "
-           "sound. Never suggest a better prompt and never describe how to fix it. "
-           "Example: asked for \"glass bell\", measured \"warm, full-bodied, tonal\", "
-           "neural ear \"buzzing, harsh\" becomes \"the two ears disagree: the signal "
-           "is tonal as asked, only the neural ear hears buzzing\". "
-           "Reply with ONLY that one sentence - no quotes, no label, no list.";
+    return "You are given a REQUEST for a sound, and a DESCRIPTION of the sound that "
+           "was actually made. The description comes from a machine listener: timbre "
+           "words it associated with the sound, plus measured words for its "
+           "brightness, body and texture. Compare the two. "
+           "Report a mismatch ONLY when the description states something that "
+           "CONTRADICTS the request - the request asks for one quality and the "
+           "description names its opposite. A quality the request asks for that the "
+           "description simply does not mention is NOT a mismatch: the listener does "
+           "not name everything it hears. Close or neighbouring qualities agree. "
+           "Answer in exactly this form: asked for X, but the sound is described as Y. "
+           "If nothing in the description contradicts the request, reply exactly: matches. "
+           "Never suggest a better request and never say how to fix it. "
+           "Example: request \"a dark drone\", description \"cymbal, metallic, glassy; "
+           "brilliant, thin, tonal\" -> asked for dark, but the sound is described as "
+           "brilliant.";
 }
 
 juce::String stanceSystemPrompt (const juce::String& stanceKey)
@@ -256,19 +271,28 @@ juce::String buildDcoStanceUserTurn (const juce::String& stanceKey,
     return {};   // "off" or unknown
 }
 
-juce::String buildSelfCheckUserTurn (const juce::String& intention,
-                                     const juce::String& measured,
-                                     const juce::String& neuralEar)
+juce::String composeHeardDescription (const juce::String& tags,
+                                      const juce::String& spectral)
 {
-    // Labels match the system prompt's three nouns verbatim ("asked for",
-    // "measured", "neural ear") — a small model binds the turn to the brief by
-    // those words, and drifts when they differ. An absent reading is spelled out
-    // rather than left blank: a blank line reads to a 1.5B as "nothing there",
-    // which is a different claim from "not measured".
-    const juce::String none ("(not available)");
-    return "Asked for: "  + (intention.isNotEmpty() ? intention : none)
-         + "\nMeasured: " + (measured.isNotEmpty()  ? measured  : none)
-         + "\nNeural ear: " + (neuralEar.isNotEmpty() ? neuralEar : none);
+    // Semicolon, not comma: the two halves are different kinds of statement — the
+    // left one associative, the right one computed — and running them into a
+    // single comma list invites the comparing model to weigh a top-k association
+    // exactly as hard as a measurement. The order matches the HEARD AS field, so
+    // the description in the prompt and the one on screen read the same.
+    const juce::String t = tags.trim(), s = spectral.trim();
+    if (t.isEmpty()) return s;
+    if (s.isEmpty()) return t;
+    return t + "; " + s;
+}
+
+juce::String buildSelfCheckUserTurn (const juce::String& intention,
+                                     const juce::String& description)
+{
+    // Labels match the system prompt's nouns verbatim ("request"/"asked for",
+    // "description"/"described as") — the model binds the turn to the brief by
+    // those words and drifts when they differ.
+    return "Asked for: "   + intention
+         + "\nDescribed: " + description;
 }
 
 // ── DCO/LCO reference-vocabulary constraint (Re-Prompt grounding) ────────────
