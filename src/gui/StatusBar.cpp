@@ -55,7 +55,7 @@ StatusBar::StatusBar()
     // disconnect-state dot (kept inline rather than promoted to a palette
     // entry — Panic is the only red surface in the bar).
     panicBtn.setColour(juce::TextButton::textColourOffId, kError);
-    panicBtn.setTooltip("MIDI Panic — release all hanging voices");
+    panicBtn.setTooltip(juce::String::fromUTF8("MIDI Panic \xe2\x80\x94 release all hanging voices"));
 
     newBtn.onClick      = [this] { if (onNewPreset) onNewPreset(); };
     saveBtn.onClick     = [this] { if (onSavePreset) onSavePreset(); };
@@ -68,12 +68,12 @@ StatusBar::StatusBar()
         // divides "writes a file" from "plays one back" — both are about the same
         // .t5evt, which is why replay lives here rather than under Library.
         juce::PopupMenu m;
-        m.addItem(1, "Export WAV…", onExportWav != nullptr);
+        m.addItem(1, juce::String::fromUTF8("Export WAV\xe2\x80\xa6"), onExportWav != nullptr);
         const bool hasLog = sessionLogAvailable && sessionLogAvailable();
-        m.addItem(2, "Save Session Log…", hasLog && onSaveSessionLog != nullptr);
+        m.addItem(2, juce::String::fromUTF8("Save Session Log\xe2\x80\xa6"), hasLog && onSaveSessionLog != nullptr);
         m.addSeparator();
         const bool replaying = replayActive && replayActive();
-        m.addItem(3, "Play Session Log…", onPlaySessionLog != nullptr && ! replaying);
+        m.addItem(3, juce::String::fromUTF8("Play Session Log\xe2\x80\xa6"), onPlaySessionLog != nullptr && ! replaying);
         // SafePointer, not raw `this`: the callback fires later off the message
         // loop (matches the SafePointer idiom elsewhere in the GUI).
         juce::Component::SafePointer<StatusBar> safeThis(this);
@@ -342,14 +342,14 @@ void StatusBar::setMidiClockState(bool enabled, bool active, float bpm)
     {
         extClockBtn_.setColour(juce::TextButton::buttonColourId, kSuccess.withAlpha(0.25f));
         extClockBtn_.setColour(juce::TextButton::textColourOffId, kSuccess);
-        extClockBtn_.setTooltip(juce::String("Ext. Clock active — ")
+        extClockBtn_.setTooltip(juce::String::fromUTF8("Ext. Clock active \xe2\x80\x94 ")
                                 + juce::String(bpm, 1) + " BPM");
     }
     else
     {
         extClockBtn_.setColour(juce::TextButton::buttonColourId, kWarning.withAlpha(0.20f));
         extClockBtn_.setColour(juce::TextButton::textColourOffId, kWarning);
-        extClockBtn_.setTooltip("Ext. Clock enabled — no signal received");
+        extClockBtn_.setTooltip(juce::String::fromUTF8("Ext. Clock enabled \xe2\x80\x94 no signal received"));
     }
     extClockBtn_.repaint();
 }
