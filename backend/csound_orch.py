@@ -2545,8 +2545,16 @@ def _emit_steady(technique, tag="0", nmodes=None, params=None, strike_gate=None)
         # much more dramatic than any filter.
         #
         # `gbuzz` generates the series rather than filtering one: kmul is the ratio
-        # between successive harmonics, so breath pressure driving kmul from 0.30
-        # to 0.72 genuinely adds upper partials. No filter anywhere in this branch.
+        # between successive harmonics, so kmul rising from 0.30 to 0.72 genuinely
+        # adds upper partials. No filter anywhere in this branch.
+        #
+        # kmul's rise is tied to `knote` (seconds since this note), one-shot and
+        # asymptotic -- it opens once and then holds, matching the lexicon's own
+        # wording ("opens from dark... to brighter"). BJ 2026-07-20: the previous
+        # version drove kmul with poscil 0.5, 0.22 (an unconditional ~4.5s cycle),
+        # which was not a filter but read exactly like one by ear -- a periodic
+        # brightness wobble for the whole note's duration. Banned same as the
+        # filter-cutoff LFO this branch's comment above already argues against.
         #
         # The BELL FORMANT is fixed in Hz and does NOT track the played pitch --
         # that is the point of it. A trumpet's bell radiates a broad peak around
@@ -2554,8 +2562,8 @@ def _emit_steady(technique, tag="0", nmodes=None, params=None, strike_gate=None)
         # the register: the same instrument is dark low and piercing high. A
         # pitch-tracking resonance would have made every note sound identical,
         # which is the single most synthetic thing about filtered-saw brass.
-        L.append(f"  kbp{tag}    poscil 0.5, 0.22             ; breath pressure, slow")
-        L.append(f"  kbm{tag}    = 0.51 + 0.21 * kbp{tag}       ; pressure steepens the wave")
+        L.append(f"  kop{tag}    = 1 - exp(-knote * 2.2)       ; attack opens the series ONCE")
+        L.append(f"  kbm{tag}    = 0.30 + kop{tag} * 0.42       ; dark at onset -> bright, then holds")
         L.append(f"  klw{tag}    poscil 0.0006, 0.083         ; lip instability, own rate")
         L.append(f"  abz{tag}    gbuzz 0.5, kfreq * (1 + klw{tag}), 12, 1, kbm{tag}, giCos ; lip + bore")
         L.append(f"  abl{tag}    reson abz{tag}, 1200, 900, 1   ; bell formant, FIXED in Hz")
