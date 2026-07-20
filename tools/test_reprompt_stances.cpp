@@ -177,12 +177,14 @@ int main()
     checkTrue ("selfcheck exact match token", stanceSystemPrompt ("selfcheck").contains ("reply exactly: matches"));
     checkTrue ("selfcheck answer form", stanceSystemPrompt ("selfcheck").contains ("asked for X, but the sound is described as Y"));
     checkTrue ("selfcheck forbids fixing", stanceSystemPrompt ("selfcheck").contains ("Never suggest a better request"));
-    // Absence-is-not-evidence + the neighbour rule are what let a partly
-    // associative description be compared against at all: without them every
-    // quality the top-k happened not to cover became an accusation, and a
-    // neighbouring value ("brilliant" for "bright") read as a contradiction.
-    checkTrue ("selfcheck contradiction rule", stanceSystemPrompt ("selfcheck").contains ("CONTRADICTS the request"));
-    checkTrue ("selfcheck absence rule", stanceSystemPrompt ("selfcheck").contains ("does not mention is NOT a mismatch"));
+    // The clauses that let a partly associative, multi-word description be compared
+    // against at all: judge the WHOLE (one stray tag among agreeing ones convicted
+    // "shattering glass" on "velvety"), absence-is-not-evidence (a quality the
+    // top-k did not cover is not a miss), and the neighbour rule ("brilliant" for
+    // "bright" is not a contradiction).
+    checkTrue ("selfcheck whole-set rule", stanceSystemPrompt ("selfcheck").contains ("judge it AS A WHOLE"));
+    checkTrue ("selfcheck stray-word rule", stanceSystemPrompt ("selfcheck").contains ("listener's noise, not a mismatch"));
+    checkTrue ("selfcheck absence rule", stanceSystemPrompt ("selfcheck").contains ("does not mention is not a mismatch"));
     checkTrue ("selfcheck neighbour rule", stanceSystemPrompt ("selfcheck").contains ("Close or neighbouring qualities agree"));
 
     // UTF-8 fidelity: the non-ASCII chars must round-trip as proper UTF-8 (NOT the

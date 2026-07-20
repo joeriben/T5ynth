@@ -111,19 +111,22 @@ static juce::String syspSelfCheck()
     //     decoration. It also forces anti_cycle=false at the call site: the
     //     backend's no_repeat_ngram_size spans the prompt, so spelling the form
     //     out here makes it unemittable unless that transform is disabled.
-    // (2) CONTRADICTION, not absence. This is what makes a partly unreliable
-    //     description safe to compare against. The learned half of it names only
-    //     a handful of associations and stays silent about most of what is in the
-    //     sound, so "the description does not mention evolving" says nothing
-    //     about whether the sound evolves. Only a description that asserts the
-    //     OPPOSITE of the request is evidence. Without this clause every quality
-    //     the top-k happened not to cover became an accusation.
-    // (3) "Close qualities agree" sets the bias to SILENCE ON DOUBT — the earlier
-    //     draft reported "asked for bright, but the sound is described as
-    //     brilliant" on a sound that matched. A missed flag still leaves the full
-    //     description on screen for the user to read; a false flag teaches them
-    //     to ignore the section.
-    // (4) It may NOT propose a better prompt. Rewriting the prompt or the keys
+    // (2) THE DESCRIPTION IS A SET, judged AS A WHOLE. The reported failure
+    //     (2026-07-20): request "shattering glass", description "huge, clangy,
+    //     steely, velvety, buzzing; warm, full-bodied, tonal" -> the model
+    //     convicted on "velvety" alone, though clangy/steely/buzzing ARE
+    //     shattering glass. The learned half lists several loosely-associated
+    //     words at once, so one stray word among agreeing ones is the ear's
+    //     noise, not a miss. A mismatch requires the description's WHOLE character
+    //     to lean the wrong way — nothing in it matching, and something opposing.
+    // (3) CONTRADICTION, not absence. A quality the description does not mention
+    //     says nothing: the listener does not name everything it hears, so
+    //     "does not mention evolving" is not evidence the sound is static.
+    // (4) "Close qualities agree" sets the bias to SILENCE ON DOUBT — an earlier
+    //     draft reported "asked for bright, but described as brilliant" on a sound
+    //     that matched. A missed flag still leaves the full description on screen;
+    //     a false flag teaches the user to ignore the section.
+    // (5) It may NOT propose a better prompt. Rewriting the prompt or the keys
     //     would be an unauthorized sound-shaping act; the platform's brief is to
     //     expose machine listening and leave it negotiable, not to correct it.
     //
@@ -132,15 +135,21 @@ static juce::String syspSelfCheck()
            "was actually made. The description comes from a machine listener: timbre "
            "words it associated with the sound, plus measured words for its "
            "brightness, body and texture. Compare the two. "
-           "Report a mismatch ONLY when the description states something that "
-           "CONTRADICTS the request - the request asks for one quality and the "
-           "description names its opposite. A quality the request asks for that the "
-           "description simply does not mention is NOT a mismatch: the listener does "
-           "not name everything it hears. Close or neighbouring qualities agree. "
+           "The description names SEVERAL qualities at once; judge it AS A WHOLE. "
+           "Report a mismatch ONLY when MOST of the description names the OPPOSITE of "
+           "the request and little or nothing in it matches. If the described "
+           "qualities mostly match the request, or are mixed, the sound arrived - a "
+           "stray or opposite word among agreeing ones is the listener's noise, not a "
+           "mismatch. A quality the request asks for that the "
+           "description simply does not mention is not a mismatch either: the listener "
+           "does not name everything it hears. Close or neighbouring qualities agree. "
            "Answer in exactly this form: asked for X, but the sound is described as Y. "
-           "If nothing in the description contradicts the request, reply exactly: matches. "
+           "If the description does not contradict the request as a whole, reply exactly: matches. "
            "Never suggest a better request and never say how to fix it. "
-           "Example: request \"a dark drone\", description \"cymbal, metallic, glassy; "
+           "Example 1: request \"shattering glass\", description \"huge, clangy, steely, "
+           "velvety, buzzing; bright, thin, tonal\" -> matches (clangy, steely and buzzing "
+           "are shattering glass; velvety is one stray word). "
+           "Example 2: request \"a dark drone\", description \"glassy, brilliant, airy; "
            "brilliant, thin, tonal\" -> asked for dark, but the sound is described as "
            "brilliant.";
 }
