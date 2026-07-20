@@ -3920,9 +3920,14 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
         // LFO → normalized amount/depth targets (additive, clamped to 0–1)
         {
-            float l1End = numSamples > 0 ? lfo1Buf[numSamples - 1] : 0.0f;
-            float l2End = numSamples > 0 ? lfo2Buf[numSamples - 1] : 0.0f;
-            float l3End = numSamples > 0 ? lfo3Buf[numSamples - 1] : 0.0f;
+            // lfo?Buf holds the raw unit-amplitude LFO (the oscillators run at
+            // setDepth(1.0)); the per-voice path multiplies by the LFO Amount
+            // (bp.lfo?Depth) before use, so this block-rate Env-Amt/Drift-Depth
+            // path must apply the same Amount too — otherwise the Amt control is
+            // bypassed here and these targets always see full depth (100%).
+            float l1End = (numSamples > 0 ? lfo1Buf[numSamples - 1] : 0.0f) * baseLfo1Depth;
+            float l2End = (numSamples > 0 ? lfo2Buf[numSamples - 1] : 0.0f) * baseLfo2Depth;
+            float l3End = (numSamples > 0 ? lfo3Buf[numSamples - 1] : 0.0f) * baseLfo3Depth;
             if (bp.lfo1Target == LfoTarget::Env1Amt) bp.ampAmount  = applyNormalizedOffset(bp.ampAmount,  l1End);
             if (bp.lfo1Target == LfoTarget::Env2Amt) bp.mod1Amount = applyNormalizedOffset(bp.mod1Amount, l1End);
             if (bp.lfo1Target == LfoTarget::Env3Amt) bp.mod2Amount = applyNormalizedOffset(bp.mod2Amount, l1End);
