@@ -1,6 +1,7 @@
 #pragma once
 #include <memory>
 #include <string>
+#include <vector>
 
 /**
  * Phase-1 Csound engine — one processor-owned Csound instance running 16
@@ -82,6 +83,50 @@ public:
     // real, audible gate-open ever happens. Never called on the audio thread.
     void primeForTakeover (const float* epochs, const float* freqs);
 
+    /** ONE-SHOT OFFLINE RENDER of an orchestra text to mono samples — the BARE
+     *  oscillator: no ADSR, no filter, no VCA, only what the orchestra itself
+     *  does. For machine-listening probes (the self-check), never for playback.
+     *
+     *  Static and instance-free ON PURPOSE. It creates, uses and destroys its own
+     *  CSOUND*, so it never touches the processor's two live engines and cannot
+     *  disturb a sounding note. It also deliberately skips prepare()'s ~1.2 s
+     *  warmup: that warmup exists so a freshly compiled engine can take over a
+     *  HELD note without a click, which has no meaning for a render nobody hears.
+     *
+     *  THREADING: call from a background thread. It cannot reach the processor's
+     *  csoundLifecycleMutex_ (static, owns no engine), so instead it takes the
+     *  process-wide lock every prepare() also takes, which keeps the
+     *  create/compile/start/destroy sequence serialised across ALL instances —
+     *  the invariant the processor already maintains for its two engines, rather
+     *  than an exemption from it.
+     *
+     *  IT DOES NOT WAIT FOR A CONCURRENT ORCHESTRA SWAP — the swap waits for IT.
+     *  Called right after a bake, this thread reaches create/compile before the
+     *  message thread has run the swap's own prepare(), and wins the lock. The
+     *  render loop releases it (only create/compile/start/destroy are held, ~50-165
+     *  ms measured), but for that window a live swap stalls, so the new sound is
+     *  audible that much later. Do not call this on a path where that delay is not
+     *  acceptable.
+     *
+     *  Voice 1 only (channel 0 of the 16-channel bus). Gate opens at t=0 with a
+     *  single trigger and closes at `gateOffSeconds`, so a self-decaying key gets
+     *  its tail inside the window and a standing tone gets a clean release.
+     *
+     *  Peak-normalised to -12 dBFS, because an absolute level would confound a
+     *  learned ear that is level-sensitive. A render whose peak never leaves the
+     *  noise floor is returned EMPTY rather than amplified: "the oscillator made
+     *  no sound" is a finding, and normalising silence would hide it behind
+     *  amplified numerical dust.
+     *
+     *  @return interleaved-free mono samples at `sampleRate`; EMPTY on a compile
+     *          error, a contract violation (ksmps/nchnls/MYFLT), a silent render,
+     *          or in a build without Csound. Never throws. */
+    static std::vector<float> renderBareOscillator (const std::string& orchestraText,
+                                                    double sampleRate     = 48000.0,
+                                                    double freqHz         = 220.0,
+                                                    double seconds        = 3.0,
+                                                    double gateOffSeconds = 2.5);
+
 private:
     struct Impl;                 // owns CSOUND*, spout ptr, channel MYFLT* [16][6], FIFO carry
     std::unique_ptr<Impl> impl;  // null in the stub build
@@ -118,6 +163,13 @@ inline void CsoundEngine::setVoiceControls (int, const VoiceControls&) {}
 inline void CsoundEngine::renderUpTo (int) {}
 inline void CsoundEngine::startBlock (int) {}
 inline void CsoundEngine::primeForTakeover (const float*, const float*) {}
+inline std::vector<float> CsoundEngine::renderBareOscillator (const std::string&, double,
+                                                              double, double, double)
+{
+    // Empty, not silence: callers distinguish "no Csound in this build" from
+    // "the orchestra rendered nothing", and both are correctly "nothing to hear".
+    return {};
+}
 
 inline const float* CsoundEngine::voiceBuffer (int) const
 {

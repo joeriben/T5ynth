@@ -37,6 +37,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -212,6 +213,23 @@ namespace
     // formatting) — mirrors csound_orch_check.cpp's substituteSr() verbatim.
     // A no-op on text without the marker (the built-in orchestra never
     // contains it), so this is safe to apply unconditionally.
+    // Serialises the csoundCreate/CompileCsdText/Start/Destroy sequence across
+    // ALL CsoundEngine instances in this process, including the instance-free
+    // offline probe. The processor's csoundLifecycleMutex_ already serialises
+    // every prepare() on its two engines and was added by adversarial review
+    // because concurrent prepare() was judged a race; the probe cannot reach that
+    // mutex (it is static and owns no engine), so without this the probe would be
+    // the one path violating an invariant the rest of the code maintains.
+    //
+    // Lock ORDER is always csoundLifecycleMutex_ -> this one, never the reverse:
+    // prepare() is only ever called under the processor's mutex, and this mutex is
+    // released before any caller could take the processor's. No cycle, no deadlock.
+    std::mutex& csoundLifecycleGlobal()
+    {
+        static std::mutex m;
+        return m;
+    }
+
     std::string substituteSr (std::string text, double sampleRate)
     {
         char srBuf[32];
@@ -257,7 +275,15 @@ struct CsoundEngine::Impl
     ~Impl()
     {
         if (csound != nullptr)
+        {
+            // Destroy is part of the serialized lifecycle sequence, and this one
+            // can run while the offline probe (renderBareOscillator, a detached
+            // thread holding no reference to this processor) is inside its own
+            // create/compile — so it takes the same lock every other lifecycle
+            // call takes. See csoundLifecycleGlobal().
+            const std::lock_guard<std::mutex> lifecycleLock (csoundLifecycleGlobal());
             csoundDestroy(csound);
+        }
     }
 
     // Message/setup-thread-only helper (warmup): sets a channel by name.
@@ -325,6 +351,11 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
     // (Re)compile path -- first prepare(), or a sample-rate change. Keep the
     // engine inert (never half-armed) until every step below has succeeded.
     impl->ready.store(false, std::memory_order_release);
+
+    // Held across destroy/create/compile/start only — NOT across the warmup below,
+    // which is per-instance csoundPerformKsmps and safe concurrently. Released
+    // explicitly after the contract checks; every early return releases it too.
+    std::unique_lock<std::mutex> lifecycleLock (csoundLifecycleGlobal());
 
     if (impl->csound != nullptr)
     {
@@ -398,6 +429,10 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
         return false;
     }
 
+    // Compile phase over: the remaining work (channel resolution, buffer sizing,
+    // the ~1.2 s warmup) touches only this instance.
+    lifecycleLock.unlock();
+
     impl->capacity = wantedCapacity;
     for (int v = 0; v < kMaxVoices; ++v)
     {
@@ -460,6 +495,10 @@ bool CsoundEngine::prepare (double sampleRate, int maxBlockSize, const char* orc
     if (!allResolved)
     {
         std::fprintf(stderr, "CsoundEngine: failed to resolve one or more channel pointers\n");
+        // Re-take the lifecycle lock dropped above: this is the one failure path
+        // that destroys an instance AFTER the compile phase, and destroy belongs
+        // inside the serialized sequence like every other lifecycle call.
+        lifecycleLock.lock();
         csoundDestroyMessageBuffer(cs);
         csoundDestroy(cs);
         impl->csound = nullptr;
@@ -609,6 +648,178 @@ const float* CsoundEngine::voiceBuffer (int voiceIndex) const
     if (! impl->ready.load (std::memory_order_acquire))
         return nullptr;
     return impl->voiceBuf[voiceIndex].data();
+}
+
+std::vector<float> CsoundEngine::renderBareOscillator (const std::string& orchestraText,
+                                                       double sampleRate,
+                                                       double freqHz,
+                                                       double seconds,
+                                                       double gateOffSeconds)
+{
+    // `! (x > 0.0)` rather than `x <= 0.0`: it rejects NaN too, which every
+    // comparison below would silently pass through into the render.
+    if (orchestraText.empty() || ! (sampleRate > 0.0) || ! (seconds > 0.0)
+        || ! (freqHz > 0.0))
+        return {};
+
+    // Upper bounds, not just lower ones: a caller passing a wild `seconds` would
+    // overflow the block count and make reserve() throw out of a detached thread —
+    // std::terminate, from a probe whose entire contract is that it cannot damage
+    // anything. 60 s is far past any useful probe window.
+    sampleRate = std::min(sampleRate, 192000.0);
+    seconds    = std::min(seconds, 60.0);
+    freqHz     = std::min(freqHz, sampleRate * 0.5);
+
+    // Clamp INTO the window, in BLOCK units, because the loop below compares block
+    // indices: below one block the gate closes before the first perform pass
+    // (guaranteed silence), and at `seconds` the index equals totalBlocks, which
+    // the `b < totalBlocks` loop never reaches (the gate never closes, so no
+    // release is captured). Both ends need a whole block of margin, not an epsilon.
+    // A window too short to hold both is left gate-open rather than silent.
+    {
+        const double oneBlock = (double) kKsmps / sampleRate;
+        const double minGate  = oneBlock;
+        const double maxGate  = seconds - oneBlock;
+        gateOffSeconds = (maxGate <= minGate)
+                       ? minGate
+                       : std::min(std::max(gateOffSeconds, minGate), maxGate);
+    }
+
+    // Own instance, own lifetime. The lock covers create/compile/start and the
+    // destroy for the same reason prepare() takes it — see csoundLifecycleGlobal().
+    // It is RELEASED before the render loop: that loop touches only this instance,
+    // and holding it there would stall the live orchestra swap (prepare() takes the
+    // same mutex) for the whole render, delaying the sound the user is waiting for.
+    std::unique_lock<std::mutex> lifecycleLock (csoundLifecycleGlobal());
+
+    CSOUND* cs = csoundCreate(nullptr);
+    if (cs == nullptr)
+        return {};
+
+    // RAII: every early return below must destroy the instance, and there are
+    // nine of them. A guard object is the only way that stays true when a later
+    // contract check is inserted in the middle. It re-takes the lifecycle lock if
+    // the render already dropped it, so destroy stays inside the serialized
+    // sequence; declared AFTER the lock, it therefore runs BEFORE the lock's own
+    // destructor releases it.
+    struct Guard
+    {
+        CSOUND* cs;
+        std::unique_lock<std::mutex>& lk;
+        ~Guard()
+        {
+            if (cs == nullptr) return;
+            if (! lk.owns_lock()) lk.lock();
+            csoundDestroyMessageBuffer(cs);
+            csoundDestroy(cs);
+        }
+    } guard { cs, lifecycleLock };
+
+    csoundCreateMessageBuffer(cs, 0);
+    csoundSetOption(cs, "-n");   // no audio device: this render is never heard
+    csoundSetOption(cs, "-d");   // no displays
+
+    if (csoundCompileCsdText(cs, substituteSr(orchestraText, sampleRate).c_str()) != 0)
+    {
+        std::fprintf(stderr, "CsoundEngine::renderBareOscillator: compile failed:\n%s\n",
+                      drainMessages(cs).c_str());
+        return {};
+    }
+    if (csoundStart(cs) != 0)
+    {
+        std::fprintf(stderr, "CsoundEngine::renderBareOscillator: start failed:\n%s\n",
+                      drainMessages(cs).c_str());
+        return {};
+    }
+
+    // The SAME three contract checks prepare() makes, for the same reasons: the
+    // spout read below strides by kMaxVoices and reads MYFLT, so a mismatched
+    // nchnls or MYFLT width would read out of bounds. An orchestra reaching this
+    // path can come from a hand-edited .t5p, so it is not trusted here either.
+    if (csoundGetSizeOfMYFLT() != (int) sizeof(MYFLT)
+        || (int) csoundGetKsmps(cs) != kKsmps
+        || (int) csoundGetNchnls(cs) != kMaxVoices)
+    {
+        std::fprintf(stderr, "CsoundEngine::renderBareOscillator: contract mismatch "
+                             "(MYFLT=%d ksmps=%u nchnls=%u)\n",
+                      csoundGetSizeOfMYFLT(), csoundGetKsmps(cs), csoundGetNchnls(cs));
+        return {};
+    }
+
+    // Voice 1 only. Names must match prepare()'s kPrefixes order/spelling.
+    MYFLT* gate = nullptr; MYFLT* freq = nullptr; MYFLT* vel  = nullptr;
+    MYFLT* pres = nullptr; MYFLT* timb = nullptr; MYFLT* trig = nullptr;
+    auto resolve = [cs] (const char* name, MYFLT*& out)
+    {
+        return csoundGetChannelPtr(cs, &out, name,
+                   CSOUND_CONTROL_CHANNEL | CSOUND_INPUT_CHANNEL) == 0 && out != nullptr;
+    };
+    if (! (resolve("gate1", gate) && resolve("freq1", freq) && resolve("vel1", vel)
+           && resolve("pres1", pres) && resolve("timb1", timb) && resolve("trig1", trig)))
+    {
+        std::fprintf(stderr, "CsoundEngine::renderBareOscillator: channel resolve failed\n");
+        return {};
+    }
+
+    // Neutral performance controls: mid velocity, no pressure, mid timbre — the
+    // probe asks what the ORCHESTRA sounds like, not what a performance does to it.
+    *gate = (MYFLT) 1.0;  *freq = (MYFLT) freqHz;  *vel  = (MYFLT) 0.85;
+    *pres = (MYFLT) 0.0;  *timb = (MYFLT) 0.5;     *trig = (MYFLT) 1.0;
+
+    const long totalBlocks = (long) std::llround(seconds * sampleRate / (double) kKsmps);
+    const long gateOffBlk  = (long) std::llround(gateOffSeconds * sampleRate / (double) kKsmps);
+
+    std::vector<float> mono;
+    mono.reserve((size_t) std::max(0L, totalBlocks) * (size_t) kKsmps);
+
+    // Compile phase over — everything from here to the Guard touches only this
+    // instance. Mirrors prepare()'s own unlock at the same point in its sequence.
+    lifecycleLock.unlock();
+
+    for (long b = 0; b < totalBlocks; ++b)
+    {
+        if (b == gateOffBlk)
+            *gate = (MYFLT) 0.0;
+        if (csoundPerformKsmps(cs) != 0)
+            break;                       // score ended early: keep what was rendered
+        const MYFLT* spout = csoundGetSpout(cs);
+        for (int s = 0; s < kKsmps; ++s)
+            mono.push_back((float) spout[(size_t) s * (size_t) kMaxVoices]);   // voice 1
+    }
+
+    // Drain and discard: the message buffer grows for the whole render (Csound
+    // queues a per-note and an end-of-performance summary), and nothing has read
+    // it since the compile check. Failures above already printed what they needed.
+    (void) drainMessages(cs);
+
+    // Peak-normalise to -12 dBFS. A render that never left the noise floor is
+    // returned empty instead: normalising it would manufacture a loud signal out
+    // of numerical dust and hand the ear something to hallucinate words about.
+    //
+    // The finiteness check is NOT redundant with the peak guard: std::max(a, NaN)
+    // returns a, so a NaN would skip past `peak` untouched and be scaled, encoded
+    // and posted to the analyser. The orchestra text is LLM-authored, and an
+    // unstable filter or a divide by zero in it lands here — tools/
+    // csound_orch_check.cpp already rejects orchestras on exactly this ground.
+    float peak = 0.0f;
+    for (float v : mono)
+    {
+        if (! std::isfinite(v))
+        {
+            std::fprintf(stderr, "CsoundEngine::renderBareOscillator: non-finite sample, "
+                                 "discarding the render\n");
+            return {};
+        }
+        peak = std::max(peak, std::fabs(v));
+    }
+    constexpr float kSilenceFloor = 1.0e-6f;
+    if (mono.empty() || peak < kSilenceFloor)
+        return {};
+
+    const float scale = 0.251f / peak;   // 0.251 == -12 dBFS
+    for (float& v : mono)
+        v *= scale;
+    return mono;
 }
 
 #endif // T5YNTH_HAS_CSOUND
