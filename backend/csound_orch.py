@@ -78,6 +78,9 @@ _TONAL_KEYS = frozenset({
     "square", "clarinet", "chiptune", "pulse", "triangle", "pwm", "cheby",
     "analog_osc",       # the first PARAMETRISED key (wave/drive/fat/age); see
                         # _emit_analog_osc and dco_lexicon.json's analog_osc.params
+    # the STRUCK instruments -- the first keys that bring their own decay, under
+    # BJ's `wave` convention (§4). See _emit_struck.
+    "rhodes", "wurlitzer", "vibraphone",
     "silence", "zero",                      # morph-to-zero transient terminals
 })
 
@@ -157,6 +160,142 @@ _CS_TECH_EXTRA = {
         "why": "a dark rounded 'ooh' vowel voice (formant reson bank), hollow vocal",
         "surface_forms": ["ooh vowel", "oo vowel", "dark voice", "hollow voice", "uuu"],
     },
+    # --- THE INSTRUMENT READING (BJ, 2026-07-20). These three are the first keys
+    #     in the library that bring their OWN amplitude decay, and they exist
+    #     because BJ released them: see the `wave` convention in §4 of
+    #     docs/LCO_CONCEPT.md. A struck instrument that fades is not fighting the
+    #     player's envelope here -- it IS the instrument, and the spectrum-source
+    #     reading of the same sound stays reachable by writing `wave` after it.
+    #     All three re-strike on the trig epoch, so a new note is a new strike.
+    #     Measured 2026-07-20 at --format=float, kamp 0.3, 0dbfs=1 (see
+    #     tools/csound_model_probe.py and §6): dead in tune (+-0 cents) over the
+    #     whole 55..1760 Hz sweep, unlike almost everything else in that list.
+    "rhodes": {
+        "why": "a real Rhodes tine piano that RINGS AND FADES on its own "
+               "(~0.6 s half-life) -- bell-like metallic attack over a woody "
+               "body; the note dies whether or not the key is held. Write "
+               "\"epiano wave\" instead for the standing-tone version.",
+        # "piano" and "elektrisches piano" are here because fm_ep held them before
+        # the convention and nothing else claims them -- an acoustic piano key
+        # does not exist, so the electric one is where they have always landed.
+        # Verified by diffing the whole canon before/after: no word that routed
+        # somewhere now routes nowhere.
+        "surface_forms": ["rhodes", "fender rhodes", "electric piano", "epiano",
+                          "e-piano", "tine piano", "e piano", "elektrisches klavier",
+                          "piano", "elektrisches piano"],
+    },
+    "wurlitzer": {
+        "why": "a real Wurlitzer reed piano that RINGS AND FADES on its own "
+               "(~0.7 s half-life) -- reedier and barkier than a Rhodes, its "
+               "brightness sitting on the odd harmonics rather than off the comb.",
+        "surface_forms": ["wurlitzer", "wurli", "reed piano", "wurlitzer piano"],
+    },
+    "vibraphone": {
+        "why": "a real struck metal bar that RINGS AND FADES on its own "
+               "(~0.3 s half-life) -- soft mallet on aluminium, sweet and round "
+               "rather than clangorous.",
+        "surface_forms": ["vibraphone", "vibes", "vibraharp", "metallophone",
+                          "vibraphon", "metallophon"],
+    },
+}
+
+# The other half of BJ's `wave` convention, applied to the CSOUND PATH ONLY.
+#
+# BJ, 2026-07-19: „taiko drum wave" = ohne env, „taiko drum" = das echte Csound
+# Instrument -- and, hearing instrument 2 the next day, „das wäre schon ein
+# kandidat für ‚epiano wave'". So the BARE words name the real instrument, and
+# the spectrum-source reading keeps them only with `wave` appended.
+#
+# Which means the keys that already own those bare words have to give them up.
+# `fm_ep` answers to "epiano"/"electric piano"/"piano"/"rhodes" today; left
+# alone, the new `rhodes` key would be unreachable and the convention would be
+# decoration. So its surface forms are REWRITTEN here, in the shallow per-request
+# copy of the lexicon that build_csound_response already builds -- NOT in
+# backend/dco_lexicon.json, which lco_author.py also reads and which has no
+# `fmrhode` to disambiguate against. The shared lexicon stays untouched.
+#
+# NOTHING IS DELETED. fm_ep keeps its key, its parameters, its emitter and its
+# ear-approval; only the words that reach it change, and every one of them stays
+# reachable with `wave`. Confirmed by BJ 2026-07-20 as a deliberate behaviour
+# change to an approved instrument, not a side effect.
+# THE WAVE FORMS ARE DERIVED, NEVER HAND-WRITTEN. A hand-written replacement list
+# was the first attempt and it silently destroyed capability: of `fm_ep`'s 14
+# surface forms it re-listed 7, so "piano" and "elektrisches piano" routed
+# NOWHERE, and -- worse, because the fallback matches a sub-phrase and raises no
+# flag -- "dx piano" rendered a BELL (`dx` belongs to fm_bell) and "fm piano"
+# collapsed onto the bare `fm` key. Deriving `f + " wave"` from the key's OWN
+# current list makes that class of loss impossible and keeps working when the
+# shared lexicon changes underneath.
+#
+# Two different operations, and the difference is the whole rule:
+#
+#   _CS_WAVE_HANDOVER -- the key GIVES UP its bare words to a real instrument
+#       that exists, and answers only to "<form> wave" plus whatever bare forms
+#       are listed here as deliberately kept.
+#   _CS_WAVE_ALSO -- the key KEEPS every bare word AND additionally answers to
+#       "<form> wave". For keys that are the `wave` reading but have no
+#       instrument counterpart built yet.
+#
+# A KEY ONLY GIVES UP A WORD TO A KEY THAT EXISTS. `drum_head` is in the second
+# table, not the first, even though BJ's convention was first stated about a drum
+# ("taiko drum wave"): no struck drum key is built, so stripping "taiko"/"tom"/
+# "timpani" would not hand them to an instrument reading -- it would make them
+# unroutable and delete a working sound. It gains the `wave` forms so BJ's own
+# originating example routes, and loses nothing. Move it to the handover table on
+# the day a struck drum lands, and not before.
+_CS_WAVE_HANDOVER = {
+    # `fm_ep` hands the plain electric-piano words to `rhodes`/`wurlitzer` and
+    # KEEPS the ones that already name the SYNTHETIC version by construction --
+    # "fm piano" and "dx piano" are asking for FM, which is exactly what fm_ep
+    # is. Those would be actively wrong on a physical-model Rhodes.
+    "fm_ep": ["fm piano", "fm-piano", "fm e-piano", "dx piano",
+              "fm electric piano", "dx electric piano"],
+}
+_CS_WAVE_ALSO = {"drum_head"}
+
+
+def _wave_forms(entry):
+    """A lexicon technique entry -> its surface_forms under the `wave` convention.
+
+    Derived from the entry's own list so nothing can be dropped by hand. Returns
+    the list unchanged for a key the convention does not touch."""
+    key = entry.get("key")
+    forms = list(entry.get("surface_forms", []))
+    # Both spellings of every hyphen/space pair, because _canon matches the
+    # literal string and does not normalise: without this, "e piano" survives as
+    # "e-piano wave" only, and "e piano wave" routes nowhere.
+    variants = []
+    for f in forms:
+        variants.append(f)
+        if "-" in f:
+            variants.append(f.replace("-", " "))
+        elif " " in f:
+            variants.append(f.replace(" ", "-"))
+    waves = [f"{v} wave" for v in variants]
+    if key in _CS_WAVE_ALSO:
+        return forms + waves
+    if key in _CS_WAVE_HANDOVER:
+        return waves + _CS_WAVE_HANDOVER[key]
+    return forms
+
+
+# The catalogue the model actually reads prints ONLY "<key>: <why>" --
+# dco_llm_map._build_catalogue never emits surface_forms. So a convention that
+# lives purely in surface_forms is invisible to the layer that has to apply it:
+# the forms decide whether the model's ANSWER is accepted, the `why` decides what
+# it PICKS. fm_ep's shared `why` still opens "electric piano / rhodes /
+# wurlitzer / dx piano", three of which now belong to other keys. Rewritten here,
+# on the same per-request copy, for the same reason.
+_CS_WHY_OVERRIDE = {
+    "fm_ep": ("the STANDING-TONE electric piano, asked for as \"epiano wave\" or "
+              "\"rhodes wave\" -- a struck tine body with a metallic attack that "
+              "settles into a tone and then HOLDS for as long as the note is "
+              "held. Also the right key for \"fm piano\" and \"dx piano\", which "
+              "name the synthetic version outright. For an electric piano that "
+              "rings and fades by itself, use `rhodes` or `wurlitzer` instead."),
+    "drum_head": ("a struck drum head that KEEPS SOUNDING while the note is held "
+                  "-- tom, timpani, taiko, frame drum. Also answers to \"drum "
+                  "wave\", \"taiko drum wave\" and so on."),
 }
 
 # M4b VOICE/formant techniques -> _emit_voice / _emit_voice_morph. Each is a
@@ -351,6 +490,46 @@ _STILL_CUE_WORDS = {
     # Bare "still" is out too: in English it is mostly an adverb ("still bright") and
     # in German it means quiet, so it earns its place only inside a phrase below.
 }
+# SUSTAIN-INTENT guard, the mirror of the decay guard for the struck instruments.
+#
+# The words the stillness set above deliberately excludes -- pad, drone, held --
+# because they name DURATION rather than stillness. Duration is exactly what
+# matters here: `rhodes`, `wurlitzer` and `vibraphone` ring and die on their own,
+# so "a warm electric piano PAD" routed to `rhodes` is a pad that is silent after
+# 1.5 seconds (measured: a held note's RMS is 0.0000 from 3 s on). The prompt asked
+# for a sound that stands; the convention says a bare instrument name means the one
+# that fades; the two collide, and the prompt wins, because the deterministic layer
+# owns the envelope -- the same principle the decay guard already applies in the
+# opposite direction.
+#
+# Narrow on purpose. A wrong match here silently denies the user the real
+# instrument they asked for, which is the more expensive error.
+_SUSTAIN_CUE_WORDS = {
+    "pad", "pads", "drone", "drones", "bed", "beds", "wash", "sustained",
+    "sustain", "sustaining", "held", "holding", "continuous", "endless",
+    "ambient", "atmosphere", "atmospheric", "soundscape",
+    # German, for the same reason the stillness set carries it: an English-only
+    # cue set makes a German prompt unable to reach its own guard.
+    "fläche", "flächen", "flaeche", "teppich", "dauerton", "gehalten",
+    "liegeton", "liegetöne", "schwebend",
+}
+# Where a struck key goes when the prompt asked for a standing sound. Each target
+# is the SAME sound family with a continuous excitation, i.e. exactly the `wave`
+# reading of the convention -- not a downgrade to a generic tone.
+_STRUCK_SUSTAIN_COUNTERPART = {
+    "rhodes": "fm_ep",        # the standing-tone electric piano this key came from
+    "wurlitzer": "fm_ep",
+    "vibraphone": "struck_bar",   # a continuously excited metal-bar modal bank
+}
+
+
+def _prompt_wants_sustain(text):
+    """True iff the prompt itself names a sound that must STAND -- pad, drone,
+    held. Only then is a self-decaying instrument overridden."""
+    low = (text or "").lower()
+    return any(w in _SUSTAIN_CUE_WORDS for w in _re.findall(r"[a-zäöüß]+", low))
+
+
 _STILL_CUE_PHRASES = (
     "no movement", "without movement", "no motion", "without motion",
     "does not move", "doesn't move", "do not move", "never moves",
@@ -385,7 +564,11 @@ _STILL_CUE_PHRASES = (
 # over a measured 86-770ms, on top of the body index softening it always had.
 # A patch built on it already travels, so the movement-by-default guard must
 # not layer a second motion on top of a strike.
-_SELF_MOVING_TECH = {"pwm", "fm_ep"} | _NOISE_TECH
+# The struck instruments belong here for the same reason and more strongly: their
+# identity IS a strike decaying away, a trajectory the model owns end to end. A
+# second motion layer on top would modulate a sound that is already leaving.
+_STRUCK_TECH = {"rhodes", "wurlitzer", "vibraphone"}
+_SELF_MOVING_TECH = {"pwm", "fm_ep"} | _NOISE_TECH | _STRUCK_TECH
 
 
 def _prompt_wants_still(text):
@@ -634,6 +817,19 @@ _CS_SYSTEM_PROMPT_HEAD = (
     "and take ONE key: \"pwm saw\" is a single pulse-width-modulated waveform, so "
     "write \"pwm\", NEVER \"pwm > saw\". Apart from the silence rule below, never "
     "insert a \" > \" the prompt did not write.\n"
+    "THE WORD \"wave\" IS NOT A DESCRIBING WORD — it picks between two DIFFERENT "
+    "catalogue keys for the same instrument. Written on its own after an "
+    "instrument (\"epiano wave\", \"rhodes wave\") it asks for the STANDING-TONE "
+    "version, which holds as long as the note is held. Left off (\"epiano\", "
+    "\"rhodes\") it asks for the REAL INSTRUMENT, which rings and fades by itself "
+    "like a struck string or bar. They are two SEPARATE catalogue keys, so read "
+    "both entries and pick the one whose description matches: \"epiano\" is the "
+    "key `rhodes`, \"epiano wave\" is the key `fm_ep`. This does NOT apply to "
+    "\"saw wave\", \"square wave\", \"sine wave\" and the like, where \"wave\" is "
+    "simply part of the waveform's ordinary name.\n"
+    "A KEY THAT ALREADY FADES BY ITSELF NEEDS NO SILENCE. `rhodes`, `wurlitzer` "
+    "and `vibraphone` ring and die on their own, so never append \" > silence\" to "
+    "them — that would cut the sound off twice.\n"
     "PARAMS: a few catalogue keys take named parameters right after the key, "
     "in parentheses: key(name=value, name=value). See that key's own "
     "\"params:\" line in the catalogue for its parameter names and anchor "
@@ -662,9 +858,11 @@ _CS_SYSTEM_PROMPT_HEAD = (
     "VOL2: 1.0\n"
     "ADJECTIVES: analog, warm\n"
     "MOTION: none\n"
-    "Example — the prompt \"gentle saw > flute 4' > epiano\": two \" > \" marks, "
-    "so ONE oscillator with three stages on ONE line, and its one register moved "
-    "to the end where it belongs:\n"
+    "Example — the prompt \"gentle saw > flute 4' > epiano wave\": two \" > \" "
+    "marks, so ONE oscillator with three stages on ONE line, its one register "
+    "moved to the end where it belongs, and \"epiano wave\" resolving to the "
+    "standing-tone key rather than the struck instrument (bare \"epiano\" here "
+    "would be `rhodes`):\n"
     "OSC1: saw > flute > fm_ep 4'\n"
     "VOL1: 1.0\n"
     "ADJECTIVES: gentle\n"
@@ -1762,6 +1960,98 @@ _DRUM_Q_TILT = 0.35       # the top mode's Q as a fraction of the first mode's -
                           # higher modes always die back faster on a real skin
 
 
+# ── The struck instruments: keys that own their own decay ────────────────────
+#
+# The first three keys in this library where the sound FADES BY ITSELF. §4's
+# invariant says the oscillator is a spectrum source and the synth owns the
+# amplitude envelope; BJ narrowed that on 2026-07-20 from a rule into a CHOICE
+# THE PROMPT MAKES (the `wave` convention). These are the other half of it.
+#
+# Each re-strikes on the trigger epoch via the same changed2/reinit idiom the
+# vowel-sweep and morph emitters already use -- so a new note is a new strike
+# and a repeated note does not keep ringing the first one.
+#
+# LEVELS ARE MEASURED, NOT CHOSEN. Rendered at --format=float (so nothing clips
+# and the numbers are the models', not the meter's) with kamp swept x2, then the
+# peak checked at seven pitches across 55..3520 Hz:
+#
+#   fmrhode   kamp LINEAR (x2.00, x1.99); peak FLAT 0.60 at every pitch measured
+#   fmwurlie  kamp LINEAR (x1.98, x2.03); peak FLAT 0.60-0.61 at every pitch
+#   vibes     kamp NOT linear (x2.14, x2.07); peak runs 3.52 at 40 Hz down to
+#             0.58 at 440 and back to 0.80 at 3520 -- a 15 dB tilt across the
+#             register, which is a VOLUME control called "pitch" and exactly the
+#             defect §7 failure mode 8 is about. Compensated below.
+_RHODES_AMP = 0.7821      # -> peak 0.60, flat across the register (measured)
+_WURLI_AMP = 0.9839       # -> peak 0.60, flat across the register (measured)
+_VIBES_AMP = 0.1863       # -> peak 0.58 AT 440 Hz ONLY; see _VIBES_TILT
+# Below ~440 Hz vibes gets louder as the note gets lower, on a clean power law:
+# measured +15.4/+13.0/+10.5/+8.5/+6.5/+4.7/+2.0 dB at 40/55/80/110/160/220/320
+# against its own 440 Hz level. An exponent of 0.73 on (f/440) tracks that within
+# 0.4 dB. Above 440 the model RISES about 2.6 dB to 3520 (0.185 -> 0.249) -- an
+# earlier version of this comment claimed "flat within ~1 dB" while quoting
+# figures that were 2.8 dB apart, i.e. it contradicted itself. The compensation is
+# still capped at 1.0 up there, because 2.6 dB of gentle brightening across three
+# octaves is inside what every other key in this file is allowed, and because a
+# polynomial spanning both regimes fits 5-7 dB worse than this two-regime form.
+_VIBES_TILT = 0.73
+# ...and above ~4 kHz vibes collapses: measured peak 0.249 at 3520 Hz, 0.124 at
+# 4000, 0.062 at 5000. A structural ceiling of the model, like fmvoice's formant
+# floor -- not tunable, and reachable from an ordinary note at the 2' register.
+# UNHANDLED, deliberately: clamping the key's register or crossfading to a modal
+# bank above the ceiling are both audible decisions, and BJ has not heard the
+# instrument yet. Tracked as task #34 rather than decided here.
+
+
+def _emit_struck(technique, tag, strike_gate=None):
+    """One of the struck instruments -> `aosc<tag>`, re-struck on the trig epoch.
+
+    The opcode call sits INSIDE the reinit block on purpose: these models put
+    their whole envelope in the init pass, so re-running init is what makes a new
+    note a new strike. Outside it, the first note of a session would ring and
+    every note after it would be silent.
+
+    `strike_gate` is the crossfade-morph tent gain for THIS stage, and it exists
+    because of a defect found in review: a struck key in a LATER morph stage
+    struck at note-on, decayed to nothing during the earlier stages, and its leg
+    then opened onto silence. Measured before the fix -- `saw > rhodes`, note held
+    to 8 s, went permanently silent at 2.0 s and the rhodes was never heard at
+    all. So the stage also re-strikes when its own gain RISES off zero, which is
+    the moment the morph actually arrives at it. `trigger` mode 0 is the
+    rising-edge crossing; it first runs on the k-cycle the enclosing `if gain > 0`
+    branch goes true, with its internal previous value still at its init 0, so
+    that first crossing is caught rather than missed."""
+    ov = f"aosc{tag}"
+    lbl = f"strike{tag}"
+    L = [f"  ; --- osc {tag}: {technique} -- struck instrument, decays on its own ---"]
+    if strike_gate:
+        L.append(f"  ktrg{tag}   trigger {strike_gate}, 0.0001, 0"
+                 f"   ; this morph stage's leg opening = a fresh strike")
+        L.append(f"  if changed2(ktrig) == 1 || ktrg{tag} == 1 then")
+    else:
+        L.append("  if changed2(ktrig) == 1 then")
+    L.append(f"    reinit {lbl}")
+    L.append("  endif")
+    L.append(f"{lbl}:")
+    if technique == "rhodes":
+        # kc1/kc2 are the two FM index scalars; kvdepth/kvrate the built-in
+        # vibrato, kept shallow (0.01 at 6 Hz) because vibrato belongs to the
+        # synth's LFO, not to the oscillator. Tables 1,1,1,1,1 = the sine table.
+        L.append(f"  {ov}    fmrhode {_RHODES_AMP:.4f}, kfreq, 1, 1, 0.01, 6, 1, 1, 1, 1, 1")
+    elif technique == "wurlitzer":
+        L.append(f"  {ov}    fmwurlie {_WURLI_AMP:.4f}, kfreq, 1, 1, 0.01, 6, 1, 1, 1, 1, 1")
+    else:  # vibraphone
+        # ihrd 0.9 = hard mallet, ipos 0.5 = struck at the centre, table 4 = the
+        # strike impulse (a TABLE number -- passing a scalar here deletes the note
+        # at init and renders silence; that mistake is what rejected this opcode
+        # in the first place, see failure mode 9 in docs/LCO_CONCEPT.md).
+        L.append(f"  kvtl{tag}   limit kfreq / 440, 0.001, 1   ; 1.0 at and above 440 Hz")
+        L.append(f"  kvamp{tag}  = {_VIBES_AMP:.4f} * kvtl{tag} ^ {_VIBES_TILT}"
+                 f"   ; undo the model's 15 dB register tilt")
+        L.append(f"  {ov}    vibes kvamp{tag}, kfreq, 0.9, 0.5, 4, 6, 0.01, 1, 0.5")
+    L.append("  rireturn")
+    return "\n".join(L)
+
+
 def _resolve_drum_head_params(raw):
     """A possibly-partial/None {name: float 0..1} -> the complete 4-key dict,
     filling any missing or invalid entry with its documented default
@@ -1973,7 +2263,7 @@ def _emit_drum_head(tag, params, nmodes=None):
     return "\n".join(L)
 
 
-def _emit_steady(technique, tag="0", nmodes=None, params=None):
+def _emit_steady(technique, tag="0", nmodes=None, params=None, strike_gate=None):
     """A single (non-morph) technique -> `aosc<tag>`. Uses Csound's native
     opcodes; every temporary is suffixed with `tag` (per-osc uniqueness).
     `params` ({canonical_key: {name: value}}) is only ever consulted for a
@@ -1991,6 +2281,8 @@ def _emit_steady(technique, tag="0", nmodes=None, params=None):
         # its spectrum is computed from parameters rather than looked up in
         # _MODAL_SPECTRA, so it must never reach _emit_modal.
         return _emit_drum_head(tag, (params or {}).get("drum_head"), nmodes)
+    if technique in _STRUCK_TECH:
+        return _emit_struck(technique, tag, strike_gate)
     if technique in _MODAL_TECH:
         return _emit_modal(technique, tag, nmodes)
     if technique == "analog_osc":
@@ -2734,7 +3026,9 @@ def _emit_crossfade_morph(chain, imorphtime, tag="0", nmodes=None, params=None):
         sub = f"{tag}m{j}"
         L.append(f"  {var}  init 0")
         L.append(f"  if {gj} > 0 then")
-        body = _emit_noise(k, sub) if k in _NOISE_TECH else _emit_steady(k, sub, nmodes, params)
+        # strike_gate=gj: a struck stage re-strikes when ITS leg opens, not only
+        # at note-on -- see _emit_struck. Harmless for every other key (ignored).
+        body = _emit_noise(k, sub) if k in _NOISE_TECH else _emit_steady(k, sub, nmodes, params, gj)
         L.append("\n".join("  " + ln for ln in body.splitlines()))
         L.append("  endif")
         terms.append(f"{var} * {gj}")
@@ -3387,6 +3681,14 @@ def build_orchestra(technique_keys=None, adjective_keys=None, motion_key=None,
         # loudness. Alternating them leaves each harmonic's MAGNITUDE untouched
         # (a sign is a phase) while the peak sums to 0.71 instead of 2.01.
         "giCheb ftgen 3, 0, 8193, 13, 1, 1, 0, 1, 0, -0.5, 0, 0.28, 0, -0.15, 0, 0.08\n"
+        # STRIKE IMPULSE for the struck instruments (`vibes`, _emit_struck). Perry
+        # Cook's models take their `imp` argument as a TABLE NUMBER, not a scalar:
+        # hand them a number that is not a table and Csound raises "No table for
+        # Marimba strike" and DELETES THE NOTE -- which renders as silence, reads
+        # exactly like a model that decays on its own, and is what got this whole
+        # family wrongly rejected (failure mode 9, docs/LCO_CONCEPT.md). A short
+        # decaying harmonic burst is the mallet contact.
+        "giImp  ftgen 4, 0, 256, 10, 1, 0.5, 0.3, 0.2, 0.1\n"
         # NO vco2init here, deliberately. It was added on the theory that the
         # triangle table set is missing on this build and that this was why
         # `triangle` rendered silent through vco2. Both halves were wrong, and the
@@ -3492,7 +3794,20 @@ def build_csound_response(text, llm):
         # (the 7B reads it as a technique) and IN the technique canon (validation
         # accepts it). The shared lexicon object is never mutated.
         lex_cs = dict(lexicon)
-        lex_cs["techniques"] = list(lexicon["techniques"]) + [
+        # The `wave` convention (§4, BJ 2026-07-20): a key whose bare words now
+        # name a REAL INSTRUMENT keeps them only with `wave` appended. Rewritten
+        # on the per-request copy, entry by entry, so backend/dco_lexicon.json --
+        # which lco_author.py also reads, and which has no instrument reading to
+        # disambiguate against -- is never touched. Only surface_forms change; the
+        # key, its `why` and its emitter are untouched, so nothing becomes
+        # unreachable, it just answers to `... wave` instead.
+        lex_cs["techniques"] = [
+            (dict(e, surface_forms=_wave_forms(e),
+                  why=_CS_WHY_OVERRIDE.get(e["key"], e.get("why", "")))
+             if (e.get("key") in _CS_WAVE_HANDOVER or e.get("key") in _CS_WAVE_ALSO
+                 or e.get("key") in _CS_WHY_OVERRIDE) else e)
+            for e in lexicon["techniques"]
+        ] + [
             {"key": k, "why": m["why"], "surface_forms": m.get("surface_forms", [])}
             for k, m in _CS_TECH_EXTRA.items()
         ]
@@ -3519,6 +3834,11 @@ def build_csound_response(text, llm):
         # 7B artefact (intermittent, MPS non-determinism) and is stripped below, so a
         # held STANDING sound (pad/drone/bed) never decays on its own.
         wants_decay = _prompt_wants_decay(text)
+
+        # SUSTAIN-INTENT guard, the mirror of the line above for the struck
+        # instruments (rhodes/wurlitzer/vibraphone), which bring their own decay.
+        # See _prompt_wants_sustain and _STRUCK_SUSTAIN_COUNTERPART.
+        wants_sustain = _prompt_wants_sustain(text)
 
         # REGISTER-INTENT guard, the same shape one level up: the octave is a
         # player control, so a prompt may only move it when the prompt ITSELF
@@ -3551,6 +3871,28 @@ def build_csound_response(text, llm):
                         "word": f"OSC{oi}: {keys[-1]} > silence",
                         "reason": "the prompt does not say the sound fades, so it "
                                   "holds instead of decaying to nothing",
+                        "tier": "adapted",
+                    })
+            # SUSTAIN-INTENT guard: a struck instrument rings and dies, so a prompt
+            # that asked for a sound which STANDS (pad, drone, held) gets the
+            # continuously-excited member of the same family instead. The prompt
+            # wins over the convention's bare-name rule for the same reason the
+            # decay guard above wins over the model: the deterministic layer owns
+            # the envelope. Without this, "a warm electric piano pad" is silent
+            # after 1.5 s and nothing anywhere says why.
+            if wants_sustain:
+                for _ki, _k in enumerate(keys):
+                    _sub = _STRUCK_SUSTAIN_COUNTERPART.get(_k)
+                    if _sub is None:
+                        continue
+                    keys[_ki] = _sub
+                    flags.append({
+                        "word": f"OSC{oi}: {_k}",
+                        "reason": f"{_k} rings and fades by itself, but the prompt "
+                                  f"asks for a sound that holds — using {_sub}, the "
+                                  f"standing-tone version of the same instrument. "
+                                  f"Write \"{_k}\" without a pad/drone word to get "
+                                  f"the real one.",
                         "tier": "adapted",
                     })
             # keep only oscillators with real content; an all-silence chain (the
