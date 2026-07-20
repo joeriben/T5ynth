@@ -2477,9 +2477,12 @@ void PromptPanel::triggerDcoReprompt()
         const bool leavesAcoustic = (stanceKey == "abduction" || stanceKey == "verniedlicher");
         if (userTurn.isNotEmpty() && ! leavesAcoustic)
             userTurn += RepromptStances::dcoVocabularyConstraintBlock(vocab);
-        // 64 == the same maxNewTokens runSemanticLoopStep passes to interpret()
-        // for the neural loop's short (3-8 word) prompt rewrites.
-        auto r = pipePtr->interpret(sysp, userTurn, 64, device);
+        // 0 == no cap (see PipeInference::interpret): the stance already asks for
+        // 3-8 words and cleanPrompt enforces the budget AFTER the fact, on a whole
+        // reply. The former hard 64 could only ever cut a longer reply mid-sentence
+        // — silently, since a truncated generation is not an error — and cleanPrompt
+        // would then trim the fragment into something that reads finished.
+        auto r = pipePtr->interpret(sysp, userTurn, 0, device);
         const juce::String cleaned = r.success ? RepromptStances::cleanPrompt(r.text) : juce::String();
 
         juce::MessageManager::callAsync(
@@ -3884,7 +3887,9 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
         {
             const juce::String userTurn =
                 RepromptStances::buildStanceUserTurn(stanceKey, tags, prev, recent, spectral);
-            auto r = pipePtr->interpret(sysp, userTurn, 64, device);
+            // 0 == no cap; cleanPrompt bounds the result instead (see the DCO
+            // twin's call site above for why a hard token limit is wrong here).
+            auto r = pipePtr->interpret(sysp, userTurn, 0, device);
             const juce::String cleaned =
                 r.success ? RepromptStances::cleanPrompt(r.text) : juce::String();
             return cleaned.isNotEmpty() ? cleaned : fallback;

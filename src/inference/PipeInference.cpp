@@ -1156,7 +1156,15 @@ PipeInference::InterpretResult PipeInference::interpret(const juce::String& syst
     json->setProperty("mode", "interpret");
     json->setProperty("system_prompt", systemPrompt);
     json->setProperty("prompt_a", userText);
-    json->setProperty("max_new_tokens", maxNewTokens);
+    // maxNewTokens <= 0 means NO CAP: omit the key entirely so the backend's
+    // run_instruct takes its uncapped branch and sizes the reply to the real
+    // model context (ctx - used - 16, pipe_inference.py:1049-1067). The backend
+    // deliberately has no default cap of its own and documents this call site as
+    // the owner of that decision — so sending a number here is the ONLY way a
+    // hard output limit can enter the system, and a truncated reply is a silent
+    // mid-sentence cut, not an error.
+    if (maxNewTokens > 0)
+        json->setProperty("max_new_tokens", maxNewTokens);
     if (device.isNotEmpty())
         json->setProperty("device", device);
     if (modelPath.isNotEmpty())

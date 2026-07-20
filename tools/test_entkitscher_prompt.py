@@ -86,11 +86,15 @@ def main():
             print(f'KITSCH IN : "{prev}"')
             print(f"  heard   : {tags}")
             for name, sysp in CANDIDATES.items():
+                # No max_new_tokens: omitting the key lets run_instruct size the
+                # reply to the real model context. A cap here would truncate a
+                # candidate stance mid-sentence and make it look like the stance
+                # rambles or trails off — i.e. it would bias the very comparison
+                # this tool exists to make.
                 out = client.request_text({
                     "mode": "interpret",
                     "system_prompt": sysp,
                     "prompt_a": user_turn(prev, tags),
-                    "max_new_tokens": 40,
                     "device": "cpu",
                 }).strip()
                 print(f"  {name:18s}: {out}")

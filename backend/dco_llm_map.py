@@ -68,7 +68,13 @@ _SYSTEM_PROMPT_HEAD = (
     "CATALOGUE:\n"
 )
 
-_MAX_NEW_TOKENS = 120
+# None = no cap: run_instruct then sizes the reply to the real model context
+# (ctx - used - 16). A fixed number here truncates mid-sentence WITHOUT raising,
+# so a clipped recipe reads as a model that answered badly rather than one that
+# was cut off. This path is currently dormant (the live Csound author reaches
+# only _build_catalogue/_validate_keys), and the cap is cleared now so reviving
+# the path cannot revive the cap with it.
+_MAX_NEW_TOKENS = None
 
 
 def _params_line(t):

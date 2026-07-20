@@ -462,7 +462,10 @@ SPECTRUM_SYS = (
 def _plan_stations(prompt, llm):
     """Model -> ordered list of 2-3 short timbre phrases (planning, its strength).
     Falls back to the prompt itself as a single station if nothing usable comes."""
-    raw = llm(prompt, STATION_SYS, 80)
+    # None = no cap (see dco_llm_map._MAX_NEW_TOKENS): a truncated station list
+    # loses its LAST station silently, which reads as "the model planned fewer
+    # stations" — indistinguishable from a real short plan.
+    raw = llm(prompt, STATION_SYS, None)
     stations = []
     for line in raw.splitlines():
         # Strip only a real leading list-marker ("-", "*", "1.", "1)"), NOT a
@@ -475,7 +478,9 @@ def _plan_stations(prompt, llm):
 
 def _emit_spectrum(phrase, llm):
     """Model -> one GEN spectrum for one station phrase (the narrow task it can do)."""
-    raw = llm(phrase, SPECTRUM_SYS, 160)
+    # None = no cap: a cut spectrum loses its high partials, which is a QUIETER,
+    # duller sound rather than a visible failure — the worst kind of truncation.
+    raw = llm(phrase, SPECTRUM_SYS, None)
     return _parse_one_spectrum(raw)
 
 

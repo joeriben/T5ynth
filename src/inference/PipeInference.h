@@ -170,7 +170,16 @@ public:
      *  background thread. `device`/`modelPath` may be empty (backend defaults).
      *  Empty input returns success with empty text and no round-trip. Returns
      *  success == false (errorMessage set) when no instruct model is installed.
-     *  This is the LLM half of the CLAP→LLM semantic loop. */
+     *  This is the LLM half of the CLAP→LLM semantic loop.
+     *
+     *  @param maxNewTokens  pass 0 for NO CAP — the key is then omitted from the
+     *         request and the backend sizes the reply to the real model context.
+     *         There is deliberately no default argument (the following `device`
+     *         parameter has none either): every call site must state its choice.
+     *         Pass a positive number ONLY to deliberately truncate — the backend
+     *         keeps no cap of its own and treats this call site as the owner of
+     *         that decision, so any hard output limit in this system originates
+     *         here. A cap does not error when it bites; it cuts mid-sentence. */
     InterpretResult interpret(const juce::String& systemPrompt,
                               const juce::String& userText,
                               int maxNewTokens,
