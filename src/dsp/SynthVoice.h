@@ -91,6 +91,25 @@ public:
     float getCurrentVelocity() const { return currentVelocity; }
     bool isNoteHeld() const { return noteHeld; }
 
+    // ── The PITCH MODULATION BUS ──────────────────────────────────────────
+    // Normalized semitone-fractions; multiply by ModCalib::kPitchModSemitones
+    // for semitones. Every engine path resolves pitch through this ONE
+    // function, the Csound bridge included, because the three copies that
+    // preceded it were identical by hand and the Csound path was simply
+    // missing -- vibrato worked on wavetable/sampler/freeze and was silently
+    // dropped on the LCO. Three hand-kept copies is how that happens again.
+    float pitchBusSemitones(const BlockParams& p,
+                            float ampEnvVal, float mod1EnvVal, float mod2EnvVal,
+                            float lfo1Val, float lfo2Val, float lfo3Val) const;
+
+    // The same bus as a frequency RATIO, resolved from RAW (un-depthed) LFO
+    // samples using this voice's current envelope levels. For callers OUTSIDE
+    // the render loop: the Csound bridge must publish its control channels
+    // BEFORE the orchestra renders, so it cannot use the per-sample values
+    // renderBlock computes -- it reads the LFOs at the segment start instead.
+    float pitchBusRatioFromRawLfo(const BlockParams& p,
+                                  float lfo1Raw, float lfo2Raw, float lfo3Raw) const;
+
     // ── Tuning ──
     void setTuningTable(const float* table) { tuningHz_ = table; }
 

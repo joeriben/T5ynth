@@ -120,8 +120,17 @@ public:
     // write point would advance the glide smoother twice as fast — the
     // "double-advance" trap S6 warns about — so the fade path MUST go through
     // this overload instead.
+    //
+    // `modParams` carries the PITCH MODULATION BUS (LFO/env/drift/aftertouch
+    // routed to Pitch) into the published freq, together with the three RAW
+    // global LFO samples at this write point. It is optional so that offline
+    // audition tools can drive the bridge with no modulation at all -- passing
+    // nullptr publishes bends only, which is exactly what this bridge did for
+    // every caller before, and is why vibrato never reached the orchestra.
     void writeCsoundControls(CsoundEngine* const* engines, int numEngines,
-                             float performancePitchRatio, int samplesSinceLastWrite);
+                             float performancePitchRatio, int samplesSinceLastWrite,
+                             const BlockParams* modParams = nullptr,
+                             float lfo1Raw = 0.0f, float lfo2Raw = 0.0f, float lfo3Raw = 0.0f);
     // Phase-2 (spec S3/S4): read-only snapshot of every voice's current trigger
     // epoch + effective Csound frequency, for CsoundEngine::primeForTakeover.
     // Does NOT advance the glide smoother (readCsoundFreq(0) is a pure peek —
@@ -129,6 +138,17 @@ public:
     // getCallbackLock() first, exactly like every other message-thread
     // voice-state reader in this class (distributeSamplerBuffer et al.).
     void snapshotCsoundState(float epochsOut[], float freqsOut[], float performancePitchRatio);
+    // The GLOBAL pitch-bend wheel as a frequency multiplier — the same value
+    // applyPerformanceControllers() writes into BlockParams::performancePitchRatio
+    // for the internal engines. Exposed because processBlock's own `bp` NEVER
+    // carries it: performancePitchRatio is assigned only on the COPY that
+    // applyPerformanceControllers returns, so `bp.performancePitchRatio` sits at
+    // its 1.0f default forever. The Csound bridge read that default from Phase 1
+    // onward, which meant the pitch WHEEL never reached the orchestra at all
+    // (per-voice MPE bend did — it comes from the voice, not from bp). Callers
+    // on the audio thread pass this instead of bp's dead field; the accessor
+    // exists so they need not copy the whole BlockParams per MIDI sub-segment.
+    float globalPitchBendRatio() const { return std::exp2(pitchBendSemitones / 12.0f); }
 
     // ── Engine data distribution ──
     void setEngineMode(SynthVoice::EngineMode mode);

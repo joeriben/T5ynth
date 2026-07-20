@@ -2057,13 +2057,15 @@ bool T5ynthProcessor::requestCsoundOrchestra(const juce::String& orchestraText)
     float freqs[CsoundEngine::kMaxVoices];
     {
         const juce::ScopedLock sl(getCallbackLock());
-        // 1.0f mirrors processBlock's own bp.performancePitchRatio, which the
-        // Csound bridge has read unmodified straight off BlockParams' default
-        // since Phase 1 (see the writeCsoundControls call site in
-        // processBlock) — matching it here keeps a primed voice's freq
-        // consistent with what the real fade will write, not a Phase-2
-        // behavior change of its own.
-        voiceManager.snapshotCsoundState(epochs, freqs, 1.0f);
+        // Mirrors what the real fade will write, which is the whole point of the
+        // snapshot. This used to be a hardcoded 1.0f, justified in a comment as
+        // matching processBlock's bp.performancePitchRatio — true at the time,
+        // but only because THAT was itself a dead default and the pitch wheel
+        // reached the orchestra nowhere. Now that the bridge publishes the real
+        // wheel, passing 1.0f here would prime a swapped-in orchestra at the
+        // unbent pitch while the fade immediately writes the bent one. Safe to
+        // read: we hold getCallbackLock().
+        voiceManager.snapshotCsoundState(epochs, freqs, voiceManager.globalPitchBendRatio());
     }
 
     {
@@ -4020,8 +4022,33 @@ void T5ynthProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                             pumpEngines[1] = &csoundEngines_[csoundOtherIdx];
                             numPumpEngines = 2;
                         }
-                        voiceManager.writeCsoundControls(pumpEngines, numPumpEngines, bp.performancePitchRatio,
-                                                          renderPos - csoundLastWritePos_);
+                        // Two pitch factors that never reached the orchestra,
+                        // fixed together because they are one defect wearing two
+                        // hats -- the bridge could not see what the synth does to
+                        // pitch (§4: "pitch belongs to the synth; everything must
+                        // track it"):
+                        //
+                        //  - globalPitchBendRatio(): the pitch WHEEL. This used
+                        //    to pass bp.performancePitchRatio, which is assigned
+                        //    only on the copy applyPerformanceControllers()
+                        //    returns and so is a hard 1.0f here -- the wheel bent
+                        //    every other engine and left the LCO standing.
+                        //  - &bp + the three RAW global LFO samples AT this write
+                        //    point: the pitch-modulation bus (LFO/env/drift/
+                        //    aftertouch routed to Pitch). Without them an LFO on
+                        //    Pitch was inaudible on the Csound engine while
+                        //    reaching all three others, which resolve the bus per
+                        //    sample inside renderBlock.
+                        //
+                        // See writeCsoundControls' body for the two known limits
+                        // of publishing the bus at block rate rather than per
+                        // sample (fast-LFO aliasing; Trig-mode LFOs unreadable).
+                        voiceManager.writeCsoundControls(pumpEngines, numPumpEngines,
+                                                          voiceManager.globalPitchBendRatio(),
+                                                          renderPos - csoundLastWritePos_,
+                                                          &bp,
+                                                          lfo1Buf[renderPos], lfo2Buf[renderPos],
+                                                          lfo3Buf[renderPos]);
                         for (int e = 0; e < numPumpEngines; ++e)
                             pumpEngines[e]->renderUpTo(subEnd - 1);
                         csoundLastWritePos_ = renderPos;

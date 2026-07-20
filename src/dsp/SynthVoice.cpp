@@ -324,6 +324,52 @@ void SynthVoice::glideToNote(int note, float glideMs)
     }
 }
 
+float SynthVoice::pitchBusSemitones(const BlockParams& p,
+                                    float ampEnvVal, float mod1EnvVal, float mod2EnvVal,
+                                    float lfo1Val, float lfo2Val, float lfo3Val) const
+{
+    // Every source contributes a NORMALIZED semitone-fraction; the caller
+    // applies ModCalib::kPitchModSemitones once, as an equal-tempered ratio.
+    // The LFO terms arrive ALREADY depth-scaled, because the render loop has
+    // its depths in hand and should not pay to resolve them twice.
+    float semis = p.driftPitchOffset;
+    if (p.ampTarget  == EnvTarget::Pitch) semis += ampEnvVal;
+    if (p.mod1Target == EnvTarget::Pitch) semis += mod1EnvVal;
+    if (p.mod2Target == EnvTarget::Pitch) semis += mod2EnvVal;
+    if (p.lfo1Target == LfoTarget::Pitch) semis += lfo1Val;
+    if (p.lfo2Target == LfoTarget::Pitch) semis += lfo2Val;
+    if (p.lfo3Target == LfoTarget::Pitch) semis += lfo3Val;
+    return semis + aftertouchDrive(p, AftertouchTarget::Pitch, aftertouch_);
+}
+
+float SynthVoice::pitchBusRatioFromRawLfo(const BlockParams& p,
+                                          float lfo1Raw, float lfo2Raw, float lfo3Raw) const
+{
+    // The env levels are this voice's LAST rendered values, one segment behind:
+    // the bridge runs before the orchestra renders, so nothing newer exists yet.
+    // At the control rate this is written (once per MIDI sub-segment, so once
+    // per host block when no events fall inside it) that lag is well under a
+    // millisecond of envelope travel and inaudible -- whereas the LFO term it
+    // carries is the whole point.
+    const float d1 = applyAftertouchTarget(p, AftertouchTarget::LFO1Depth,
+        computeEffectiveLfoDepth(p, EnvTarget::LFO1Depth, p.lfo1Depth,
+                                 lastAmpEnvLevel, lastMod1Val_, lastMod2Val_), aftertouch_);
+    const float d2 = applyAftertouchTarget(p, AftertouchTarget::LFO2Depth,
+        computeEffectiveLfoDepth(p, EnvTarget::LFO2Depth, p.lfo2Depth,
+                                 lastAmpEnvLevel, lastMod1Val_, lastMod2Val_), aftertouch_);
+    const float d3 = applyAftertouchTarget(p, AftertouchTarget::LFO3Depth,
+        computeEffectiveLfoDepth(p, EnvTarget::LFO3Depth, p.lfo3Depth,
+                                 lastAmpEnvLevel, lastMod1Val_, lastMod2Val_), aftertouch_);
+    const float semis = pitchBusSemitones(p, lastAmpEnvLevel, lastMod1Val_, lastMod2Val_,
+                                          lfo1Raw * d1, lfo2Raw * d2, lfo3Raw * d3);
+    // Clamped like the freeze path's own pitch ratio: a full-scale bus is +-1
+    // octave, but several sources summing can exceed that, and the orchestra's
+    // `limit kfreq, 20, 12000` would then pin the note to a rail rather than
+    // bend it.
+    return juce::jlimit(0.0625f, 16.0f,
+                        std::pow(2.0f, semis * ModCalib::kPitchModSemitones / 12.0f));
+}
+
 float SynthVoice::readCsoundFreq(int samplesToAdvance)
 {
     // skip() advances the smoother exactly like calling getNextValue()
@@ -737,16 +783,12 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             computeEffectiveLfoDepth(p, EnvTarget::LFO3Depth, p.lfo3Depth,
                                      lastAmpEnvLevel, lastMod1Val_, lastMod2Val_), aftertouch_);
         // ── Pitch modulation bus ──────────────────────────────────────
-        // Every source contributes a NORMALIZED semitone-fraction; one full-scale
-        // (ModCalib::kPitchModSemitones) applied once as an equal-tempered ratio.
-        float pitchSemis = p.driftPitchOffset;
-        if (p.ampTarget  == EnvTarget::Pitch) pitchSemis += lastAmpEnvLevel;
-        if (p.mod1Target == EnvTarget::Pitch) pitchSemis += lastMod1Val_;
-        if (p.mod2Target == EnvTarget::Pitch) pitchSemis += lastMod2Val_;
-        if (p.lfo1Target == LfoTarget::Pitch) pitchSemis += lfo1Buf[mid] * lfo1Depth;
-        if (p.lfo2Target == LfoTarget::Pitch) pitchSemis += lfo2Buf[mid] * lfo2Depth;
-        if (p.lfo3Target == LfoTarget::Pitch) pitchSemis += lfo3Buf[mid] * lfo3Depth;
-        pitchSemis += aftertouchDrive(p, AftertouchTarget::Pitch, aftertouch_);
+        // One full-scale (ModCalib::kPitchModSemitones) applied once as an
+        // equal-tempered ratio. See SynthVoice::pitchBusSemitones for why the
+        // sum itself lives in one place.
+        const float pitchSemis = pitchBusSemitones(
+            p, lastAmpEnvLevel, lastMod1Val_, lastMod2Val_,
+            lfo1Buf[mid] * lfo1Depth, lfo2Buf[mid] * lfo2Depth, lfo3Buf[mid] * lfo3Depth);
         sampler.setPitchModulation(effectivePitchRatio
             * std::pow(2.0f, pitchSemis * ModCalib::kPitchModSemitones / 12.0f));
 
@@ -939,14 +981,8 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             }
             else if (freezeMode)
             {
-                float pitchSemis = p.driftPitchOffset;
-                if (p.ampTarget  == EnvTarget::Pitch) pitchSemis += ampEnvVal;
-                if (p.mod1Target == EnvTarget::Pitch) pitchSemis += mod1EnvVal;
-                if (p.mod2Target == EnvTarget::Pitch) pitchSemis += mod2EnvVal;
-                if (p.lfo1Target == LfoTarget::Pitch) pitchSemis += lfo1Val;
-                if (p.lfo2Target == LfoTarget::Pitch) pitchSemis += lfo2Val;
-                if (p.lfo3Target == LfoTarget::Pitch) pitchSemis += lfo3Val;
-                pitchSemis += aftertouchDrive(p, AftertouchTarget::Pitch, aftertouch_);
+                const float pitchSemis = pitchBusSemitones(
+                    p, ampEnvVal, mod1EnvVal, mod2EnvVal, lfo1Val, lfo2Val, lfo3Val);
                 freezeEngine.setPitchModulation(effectivePitchRatio
                     * juce::jlimit(0.0625f, 16.0f,
                                    std::pow(2.0f, pitchSemis * ModCalib::kPitchModSemitones / 12.0f)));
@@ -971,14 +1007,8 @@ void SynthVoice::renderBlock(float* output, float* outputRight, const BlockParam
             else if (oscReady)
             {
                 // Wavetable: per-sample pitch/scan modulation.
-                float pitchSemis = p.driftPitchOffset;
-                if (p.ampTarget  == EnvTarget::Pitch) pitchSemis += ampEnvVal;
-                if (p.mod1Target == EnvTarget::Pitch) pitchSemis += mod1EnvVal;
-                if (p.mod2Target == EnvTarget::Pitch) pitchSemis += mod2EnvVal;
-                if (p.lfo1Target == LfoTarget::Pitch) pitchSemis += lfo1Val;
-                if (p.lfo2Target == LfoTarget::Pitch) pitchSemis += lfo2Val;
-                if (p.lfo3Target == LfoTarget::Pitch) pitchSemis += lfo3Val;
-                pitchSemis += aftertouchDrive(p, AftertouchTarget::Pitch, aftertouch_);
+                const float pitchSemis = pitchBusSemitones(
+                    p, ampEnvVal, mod1EnvVal, mod2EnvVal, lfo1Val, lfo2Val, lfo3Val);
                 const float wtTargetFreq = blockBaseFreqWavetable * effectivePitchRatio
                     * std::pow(2.0f, pitchSemis * ModCalib::kPitchModSemitones / 12.0f);
 

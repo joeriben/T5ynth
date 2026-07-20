@@ -740,7 +740,9 @@ VoiceManager::VoiceOutput VoiceManager::renderBlock(
 }
 
 void VoiceManager::writeCsoundControls(CsoundEngine* const* engines, int numEngines,
-                                       float performancePitchRatio, int samplesSinceLastWrite)
+                                       float performancePitchRatio, int samplesSinceLastWrite,
+                                       const BlockParams* modParams,
+                                       float lfo1Raw, float lfo2Raw, float lfo3Raw)
 {
     // Phase-1 spec §3/D2 (extended Phase-2 spec S6): publishes CURRENT voice
     // state to the orchestra's cached channels, right before the processor
@@ -769,10 +771,50 @@ void VoiceManager::writeCsoundControls(CsoundEngine* const* engines, int numEngi
         // which is already at/heading to 0 by then.
         c.gate     = v.isActive() ? 1.0f : 0.0f;
         // Composition mirrors effectivePitchRatio (SynthVoice.cpp): smoothed
-        // base Hz × global performance pitch ratio × per-voice MPE bend.
+        // base Hz × global performance pitch ratio × per-voice MPE bend ×
+        // the PITCH MODULATION BUS.
+        //
+        // That last factor was missing, and its absence is what made vibrato
+        // not work on the Csound engine at all: an LFO routed to Pitch reached
+        // wavetable/sampler/freeze (which resolve the bus per sample inside
+        // renderBlock) and reached the orchestra never, because the only pitch
+        // factors published here were the two BENDS. The wire existed, carried
+        // a value, and nobody summed the bus into it -- so vibrato was not weak
+        // on the LCO, it was absent. Both paths now call the same
+        // SynthVoice::pitchBusSemitones, which is the point of it being one
+        // function rather than a fourth hand-kept copy.
+        //
+        // KNOWN LIMITS of publishing the bus here rather than per sample. Both
+        // were found by adversarial review, and neither is "coarseness":
+        //
+        //  (a) The control rate is the HOST BLOCK, so a fast LFO ALIASES to a
+        //      WRONG RATE, not merely a stepped one. Writes happen once per MIDI
+        //      sub-segment -- once per block with no event inside. At 2048
+        //      samples / 48 kHz that is 23.4 Hz, so anything above ~11.7 Hz
+        //      folds: a 20 Hz LFO (the rate range reaches 30) reads as 3.4 Hz on
+        //      the orchestra while the internal engines play it at 20. The
+        //      sampling instants are also non-uniform, because MIDI events split
+        //      the block -- in dense passages the vibrato is jittered by note
+        //      timing. Correct for the slow vibrato this fixes; wrong above
+        //      ~11.7 Hz at 2048, ~16.9 Hz at 1024. `kfreq` carries no portk in
+        //      the orchestra (only `kgate` does), so nothing smooths it after.
+        //
+        //  (b) Trig-mode LFOs are invisible here. SynthVoice::renderBlock swaps
+        //      in the per-voice, note-reset perVoiceLfoBuf*_ when p.lfoNTrigMode
+        //      -- but it FILLS those buffers itself, and it runs AFTER this
+        //      write. So at this point the per-voice LFO has not been advanced
+        //      for this block and cannot be read; the orchestra gets the global
+        //      free-running LFO instead. Same rate, wrong phase: with LFO1 in
+        //      Trig mode routed to Pitch, the other three engines give note-
+        //      synced vibrato and the LCO gives free-running. Advancing the
+        //      per-voice LFO from here would be the S6 double-advance trap in a
+        //      second place; the real fix is ordering, not a peek.
         c.freqHz   = v.readCsoundFreq(samplesSinceLastWrite)
                    * performancePitchRatio
-                   * std::exp2(v.getPerVoicePitchBend() / 12.0f);
+                   * std::exp2(v.getPerVoicePitchBend() / 12.0f)
+                   * (modParams != nullptr
+                        ? v.pitchBusRatioFromRawLfo(*modParams, lfo1Raw, lfo2Raw, lfo3Raw)
+                        : 1.0f);
         c.velocity = v.getCurrentVelocity();
         c.pressure = pressureForVoice(vi);
         c.timbre   = v.getTimbre();
@@ -805,8 +847,16 @@ void VoiceManager::snapshotCsoundState(float epochsOut[], float freqsOut[],
     // thread, under getCallbackLock — never the audio thread). readCsoundFreq(0)
     // is a pure peek: samplesToAdvance<=0 skips the smoother's .skip() call (see
     // its own header comment), so this never advances glide state and is safe to
-    // call off the audio thread. Mirrors writeCsoundControls' formula exactly so a
-    // primed voice's freq matches what the real fade will write moments later.
+    // call off the audio thread.
+    //
+    // Mirrors writeCsoundControls' formula EXCEPT its pitch-modulation-bus
+    // factor, and cannot do otherwise: this runs on the message thread, where no
+    // LFO sample for a given block position exists. The divergence is bounded
+    // and deliberate -- primeForTakeover settles the fresh orchestra for 0.25 s
+    // with the gate CLOSED, so the cost is that its filter/reverb state settles
+    // at the unmodulated pitch instead of the vibrato'd one. Do not "fix" this
+    // by reaching for a live LFO value here; the honest options are to accept it
+    // or to snapshot the bus factor alongside the freq at request time.
     for (int vi = 0; vi < CsoundEngine::kMaxVoices; ++vi)
     {
         auto& v = voices[static_cast<size_t>(vi)];
