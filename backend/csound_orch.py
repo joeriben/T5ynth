@@ -37,6 +37,20 @@ NCHNLS = 16          # == CsoundEngine::kMaxVoices
 HEADROOM = 0.32      # bounds a single idiom's peak; the voice VCA/DCA shapes the rest
 DEFAULT_MORPH_SEC = 1.4   # intrinsic morph duration when the prompt gives no speed cue
 
+# Every bare `rand xamp` in Csound uses a 16-bit generator whose sequence REPEATS
+# after 2**16 = 65536 samples -- 1.365 s at 48k. Fed into a resonator bank or read
+# as broadband noise, the output then replays IDENTICALLY at that period; BJ heard
+# it on `glass` as "ca. 1 Sekunde als Schwingungsintervall, dann komplette
+# Wiederholung" (2026-07-20). Measured: the stock modal glass has a razor
+# autocorrelation spike of +0.83 at exactly 65536 samples. `, 0.5, 1` selects the
+# 31-bit generator (period 2**31 ~= 12.4 h), fixed seed 0.5 so the patch stays
+# deterministic; the amplitude distribution is UNCHANGED (uniform +-xamp), so every
+# downstream level normalisation that assumed white `rand` input stays valid -- the
+# reason this is a suffix on `rand`, not a swap to `noise`/`gauss`. Append to any
+# FULL-BAND `rand` exciter/source (NOT to `randi`/`randh` at a low kcps: those emit
+# few numbers per second, so 65536 of them span minutes, no audible loop).
+_RAND31 = ", 0.5, 1"     # 31-bit + fixed seed -> aperiodic within any real note
+
 
 # ── mode frequencies for the struck/plate resonator bank (ratio, amp) ─────────
 # NOT an additive table, and the name no longer invites it to become one. These
@@ -1192,7 +1206,7 @@ def _emit_noise(technique, tag="0"):
     quasi-periodic (a 1-pole `tone` at 400 rumbles; a 2-pole at 300 reads pitched)."""
     ov = f"aosc{tag}"
     nz = f"anz{tag}"
-    L = [f"  {nz}    rand 1.0                   ; broadband noise source"]
+    L = [f"  {nz}    rand 1.0{_RAND31}         ; broadband noise source (31-bit: no 1.365 s loop)"]
     if technique == "noise":
         L.append(f"  {ov}    = {nz} * 0.6                ; white noise (flat hiss)")
     elif technique == "pink_noise":
@@ -1523,7 +1537,7 @@ def _emit_modal(technique, tag="0", nmodes=None):
     exc, master, q0, q1 = _MODAL_PARAMS[technique]
     spec = _thin(_MODAL_SPECTRA[technique], nmodes)
     n = len(spec)
-    L = [f"  aexq{tag}   rand {exc}                    ; continuous exciter -> the metal is driven, a held note stands"]
+    L = [f"  aexq{tag}   rand {exc}{_RAND31}          ; continuous exciter -> the metal is driven, a held note stands (31-bit: no 1.365 s loop)"]
     terms = []
     for i, (r, a) in enumerate(spec):
         q = int(q0 + (q1 - q0) * (i / (n - 1) if n > 1 else 0.0))
@@ -2272,8 +2286,8 @@ def _emit_drum_head(tag, params, nmodes=None):
     # `spot` centroid 346->491Hz, `tension` 378->455Hz, `damping` in-band
     # fraction 0.302->0.196.
     norm = _drum_bank_rms(spec, qs)
-    L = [f"  aexq{tag}   rand {_DRUM_EXC}                    ; continuous exciter -- "
-         f"the skin is driven, a held note stands"]
+    L = [f"  aexq{tag}   rand {_DRUM_EXC}{_RAND31}          ; continuous exciter -- "
+         f"the skin is driven, a held note stands (31-bit: no 1.365 s loop)"]
     terms = []
     for i, ((r, a), q) in enumerate(zip(spec, qs)):
         a /= norm
