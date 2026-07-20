@@ -2138,6 +2138,25 @@ void MainPanel::applyLoadedPreset(const PresetFormat::LoadResult& result, const 
             processorRef.getCsoundReading(), processorRef.getCsoundParamsText()));
     }
 
+    // Preset selection must ALSO switch the oscillator MODE to match the restored
+    // engine (BJ 2026-07-21: it did not — an LCO preset opened inside the neural
+    // panel). The neural<->LCO toggle is GUI state (oscEasyMode), NOT an APVTS
+    // param, so restoring engineMode alone left the panel and the GENERATE/prompt
+    // routing in the previous mode. engineMode's two language values — Lco (the
+    // legacy wavetable bake) and Csound (the live oscillator) — ARE the LCO;
+    // Sampler/Wavetable/Freeze are the neural T5osc. persist=false: loading a
+    // preset must not rewrite the user's global default mode. Guarded so an
+    // already-correct mode does not trigger a redundant relayout.
+    {
+        const int em = static_cast<int>(
+            processorRef.getValueTreeState().getRawParameterValue(PID::engineMode)->load());
+        const bool presetIsLco = (em == static_cast<int>(EngineMode::Lco)
+                                  || em == static_cast<int>(EngineMode::Csound));
+        const bool wantNeural = ! presetIsLco;
+        if (oscEasyMode != wantNeural)
+            setOscEasyMode(wantNeural, /*persist=*/false);
+    }
+
     processorRef.setLastPresetName(result.presetName);
     processorRef.setLastTags(result.tags);
     statusBar.setPresetName(result.presetName);
