@@ -2322,21 +2322,26 @@ void PromptPanel::triggerDcoBake()
     const unsigned long long bakeSeq = ++dcoBakeSeq_;
     std::thread([safeThis, pipePtr, text, bakeSeq]() mutable
     {
-        auto authored = pipePtr->authorCsoundOrchestra(text);
-
-        juce::MessageManager::callAsync([safeThis, authored, text]()
+      // Publishing ONE attempt — engine swap, card, Re-Prompt bookkeeping. The
+      // first authoring and every correction publish identically (a correction IS
+      // the sound now, not a preview), so this is one lambda rather than two
+      // copies that could drift apart.
+      auto publish = [safeThis, text] (const PipeInference::CsoundAuthorResult& authored,
+                                       int attempt, bool moreToCome)
+      {
+        juce::MessageManager::callAsync([safeThis, authored, text, attempt, moreToCome]()
         {
             auto* self = safeThis.getComponent();
             if (self == nullptr) return;   // panel gone — nothing to write
 
-            // Stay BUSY while the self-check still holds the serialized inference
-            // pipe. Clearing it here would re-enable GENERATE over a pipe that is
-            // still occupied for a CLAP analyze plus an uncapped LLM turn, and the
-            // next press would park behind it showing "authoring..." while doing
-            // nothing — the exact misleading state triggerDcoBake's own gates
-            // exist to prevent. The self-check's single exit clears it instead.
-            const bool selfCheckWillRun = authored.success && authored.orchestra.isNotEmpty();
-            if (! selfCheckWillRun)
+            // Stay BUSY while the self-check and any correction still hold the
+            // serialized inference pipe. Clearing it here would re-enable GENERATE
+            // over a pipe that is still occupied for a CLAP analyze plus an
+            // uncapped LLM turn, and the next press would park behind it showing
+            // "authoring..." while doing nothing — the exact misleading state
+            // triggerDcoBake's own gates exist to prevent. The loop's single exit
+            // clears it instead.
+            if (! moreToCome)
             {
                 self->dcoBaking_ = false;
                 if (self->onLcoBusyChanged) self->onLcoBusyChanged(false);
@@ -2361,9 +2366,25 @@ void PromptPanel::triggerDcoBake()
             // raw Csound source. The Csound orchestra is one combined
             // authored voice, not a dual A/B oscillator split (that split is
             // retired — BJ 2026-07-17: "this split is dead").
+            // Progress goes in the CARD, in the Self-check slot the real finding
+            // will overwrite. Not dcoStatusLabel: that one is never laid out (see
+            // setLcoStatus) and nothing written there is visible. Not setLcoStatus
+            // either: it bumps dcoBakeSeq_, which would make the loop discard its
+            // own finding as stale. Without this the panel looks finished while
+            // GENERATE stays disabled through up to five more author + render +
+            // analyze + compare rounds — minutes of the exact misleading state
+            // triggerDcoBake's gates exist to prevent.
+            juce::String progress;
+            if (moreToCome)
+                progress = (attempt == 0)
+                         ? juce::String("listening to what was built...")
+                         : ("correction " + juce::String(attempt) + " of "
+                            + juce::String(kMaxSelfCorrections) + " — listening...");
+
             self->dcoReadingEditorA.setColour(juce::TextEditor::textColourId, kImpulseAText);
-            self->dcoReadingEditorA.setText(formatLcoDisclosure(authored.reading, authored.paramsText),
-                                             juce::dontSendNotification);
+            self->dcoReadingEditorA.setText(
+                formatLcoDisclosure(authored.reading, authored.paramsText, progress),
+                juce::dontSendNotification);
             self->dcoReadingEditorA.setTooltip({});
             self->dcoStatusLabel.setText("LCO: csound authored", juce::dontSendNotification);
 
@@ -2403,62 +2424,103 @@ void PromptPanel::triggerDcoBake()
 
             self->resized();   // flag-area content changed
         });
+      };
 
-        // ── Self-check: does the oscillator's translation arrive in the result? ──
-        // Continues on THIS thread, after the card-filling callAsync above (message
-        // queue is FIFO, so that one always lands first). The sound is already
-        // playable; this only delays the next GENERATE, which is honest because
-        // the pipe really is occupied.
+        // ── Listen, compare, correct ────────────────────────────────────────────
+        // Each pass: author → publish (the sound is playable NOW) → render it bare
+        // → let the listener describe it → let a second model compare description
+        // and request. A mismatch feeds the FINDING back into the author as a
+        // correction brief and the pass repeats, up to kMaxSelfCorrections.
         //
-        // ONE exit on purpose. Every failure here still has to hand the busy flag
-        // back, so the steps write into locals and fall through to a single
-        // callAsync rather than returning early — a check that cannot run must not
-        // leave the panel wedged.
-        if (! authored.success || authored.orchestra.isEmpty())
-            return;   // busy was already cleared above; nothing was started
-
-        juce::String description, finding;
-
-        // NOTE: this thread reaches the probe before the message thread has run
-        // the callAsync above far enough to start the live orchestra swap, and both
-        // take the same process-wide Csound lifecycle lock. The probe therefore
-        // holds that lock for its own create/compile/start (~50-165 ms measured)
-        // while the swap waits, so the new sound becomes audible that much later.
-        // The render itself no longer holds it (see renderBareOscillator). Ordering
-        // the two properly needs a message-thread handshake this thread has no safe
-        // way to do — SafePointer and processorRef are message-thread-only, and
-        // every other access here obeys that.
+        // What is NOT here: choosing the best among the attempts. That needs a
+        // proximity index, and the index needs a reference BJ has not handed over
+        // yet. Until then the loop simply stops at the first attempt the comparer
+        // does not accuse — so the accepted configuration is one that matched, not
+        // one that scored highest.
         //
-        // The BARE oscillator (BJ's choice): the Csound output alone, no ADSR and
-        // no filter. What is under examination is the OSCILLATOR's reading of the
-        // prompt, not what a patch later does to it.
-        const auto samples = CsoundEngine::renderBareOscillator(authored.orchestra.toStdString());
-        if (! samples.empty())
+        // ONE exit on purpose. Every path out still has to hand the busy flag
+        // back, so the steps write into locals and fall through to a single final
+        // callAsync — a check that cannot run must not leave the panel wedged.
+        juce::String description, finding, correction, previousReading;
+
+        for (int attempt = 0; attempt <= kMaxSelfCorrections; ++attempt)
         {
-            juce::AudioBuffer<float> probe (1, (int) samples.size());
-            std::memcpy(probe.getWritePointer(0), samples.data(), samples.size() * sizeof(float));
+            auto authored = pipePtr->authorCsoundOrchestra(text, correction, previousReading);
 
-            const auto heard = pipePtr->analyze(probe, 48000.0, 5, {});
-            if (heard.success)
+            const bool canContinue = authored.success && authored.orchestra.isNotEmpty();
+
+            // A CORRECTION that fails is not a failed bake. The sound from the
+            // previous pass is loaded and playing; publishing this result would
+            // replace a good card with "authoring failed" and tell the user the
+            // bake broke when only the improvement did. Leave with what plays, and
+            // with the finding that describes it. (Measured: a correction pass can
+            // come back "no synthesis idiom matched" where the first pass mapped
+            // cleanly.) At attempt 0 there is nothing to fall back to, so the
+            // failure is the result and is published as one.
+            if (! canContinue && attempt > 0)
+                break;
+
+            publish(authored, attempt, canContinue);
+            if (! canContinue)
+                return;   // busy was already released by publish()
+
+            description.clear();
+            finding.clear();
+
+            // NOTE: this thread reaches the probe before the message thread has run
+            // publish()'s callAsync far enough to start the live orchestra swap, and
+            // both take the same process-wide Csound lifecycle lock. The probe
+            // therefore holds that lock for its own create/compile/start (~50-165 ms
+            // measured) while the swap waits, so the new sound becomes audible that
+            // much later. The render itself no longer holds it (see
+            // renderBareOscillator). Ordering the two properly needs a message-thread
+            // handshake this thread has no safe way to do — SafePointer and
+            // processorRef are message-thread-only, and every access here obeys that.
+            //
+            // The BARE oscillator (BJ's choice): the Csound output alone, no ADSR and
+            // no filter. What is under examination is the OSCILLATOR's reading of the
+            // prompt, not what a patch later does to it.
+            const auto samples = CsoundEngine::renderBareOscillator(authored.orchestra.toStdString());
+            if (! samples.empty())
             {
-                // The listener has now DESCRIBED the sound. A second model
-                // COMPARES that description with the request: two texts, one
-                // language task — the audio is not part of the comparison. The
-                // SAME string goes to the card below, so the user reads exactly
-                // what the comparison had to work with.
-                //
-                // The comparing model is the AUTHOR model with the backend's
-                // anti-cycling transforms OFF; both are measured requirements,
-                // see syspSelfCheck for what each one broke.
-                description = RepromptStances::composeHeardDescription(heard.tags,
-                                                                       heard.spectral);
-                auto verdict = pipePtr->interpret(
-                    RepromptStances::stanceSystemPrompt("selfcheck"),
-                    RepromptStances::buildSelfCheckUserTurn(text, description),
-                    0, {}, {}, /*useCoderModel=*/true, /*antiCycling=*/false);
-                if (verdict.success)
-                    finding = verdict.text.trim();
+                juce::AudioBuffer<float> probe (1, (int) samples.size());
+                std::memcpy(probe.getWritePointer(0), samples.data(), samples.size() * sizeof(float));
+
+                const auto heard = pipePtr->analyze(probe, 48000.0, 5, {});
+                if (heard.success)
+                {
+                    // The listener has now DESCRIBED the sound. A second model
+                    // COMPARES that description with the request: two texts, one
+                    // language task — the audio is not part of the comparison. The
+                    // SAME string goes to the card below, so the user reads exactly
+                    // what the comparison had to work with.
+                    //
+                    // The comparing model is the AUTHOR model with the backend's
+                    // anti-cycling transforms OFF; both are measured requirements,
+                    // see syspSelfCheck for what each one broke.
+                    description = RepromptStances::composeHeardDescription(heard.tags,
+                                                                           heard.spectral);
+                    auto verdict = pipePtr->interpret(
+                        RepromptStances::stanceSystemPrompt("selfcheck"),
+                        RepromptStances::buildSelfCheckUserTurn(text, description),
+                        0, {}, {}, /*useCoderModel=*/true, /*antiCycling=*/false);
+                    if (verdict.success)
+                        finding = verdict.text.trim();
+                }
             }
+
+            // No accusation — either it matched or the check could not run. Either
+            // way there is nothing to repair, so stop and keep this sound.
+            if (! RepromptStances::selfCheckReportsMismatch(finding))
+                break;
+
+            // The finding, not a rewritten prompt, is what goes back in: the author
+            // re-reads the ORIGINAL request under a correction brief. Rewriting the
+            // user's words would be an unauthorized sound-shaping act. The reading
+            // travels with it so the brief has a patch to repair rather than a
+            // complaint to guess against.
+            correction      = finding;
+            previousReading = authored.reading;
         }
 
         juce::MessageManager::callAsync([safeThis, bakeSeq, description, finding]()

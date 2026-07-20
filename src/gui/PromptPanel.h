@@ -456,6 +456,12 @@ private:
     // flag — and the stale finding would then be appended to the new bake's card,
     // asserting a measurement of a sound that is no longer loaded.
     unsigned long long dcoBakeSeq_ = 0;
+    // How many times a bake may re-author itself after the comparer accuses the
+    // sound of missing the request. BJ, 2026-07-20: "es gibt max 5 Korrekturen".
+    // Each correction costs a full author + render + analyze + compare, and the
+    // panel stays busy for all of them, so this is a hard stop and not a target —
+    // the loop leaves as soon as a pass is not accused.
+    static constexpr int kMaxSelfCorrections = 5;
     juce::StringArray dcoLoopRecent_;
     // The Re-Prompt LLM's allowed palette — the scanner's own vocabulary, sent
     // back as a sibling field on every author response (backend dco_recipe.
