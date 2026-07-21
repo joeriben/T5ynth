@@ -768,10 +768,32 @@ _DRUM_DEFAULTS = {"pitched": 0.25, "spot": 0.35, "tension": 0.5, "damping": 0.35
 # CANONICAL key -> {param: {anchor: value}}. A future parametrised
 # instrument just adds its own entry here (and its own _emit_xxx / dispatch
 # line) -- _extract_osc_params below is generic over this registry.
+# The four classic waveform WORDS are no longer bespoke oscillators: each is the
+# single analogue VCO (_emit_analog_osc) parked at its own point on the continuous
+# wave axis (BJ 2026-07-21: "es gibt EIN Instrument analogue osc, das Wellenformen
+# kontinuierlich abbilden kann. Ich wuesste nicht wieso es daneben einzelne
+# Instrumente fuer eine Wellenform geben sollte"). The word seeds `wave`; drive/
+# fat/age default like any analog_osc, and adjectives bend all four at the source.
+# The keys stay distinct so a cross-waveform morph (`triangle > saw`) still renders
+# as two real points on the axis rather than collapsing to one.
+_WAVEFORM_KEYS = {"triangle": 0.0, "saw": 0.45, "square": 0.55, "pulse": 1.0}
+
+# pwm is a SEPARATE instrument -- a moving duty sweep, not a static waveform. Its
+# one parameter is the sweep RATE, seconds per HALF cycle (BJ 2026-07-21: slow 2 s,
+# default 1 s, fast 0.5 s). rate 0..1 -> LFO 0.25 * 4^rate Hz = 0.25 / 0.5 / 1.0 Hz,
+# so the round trip is 4 / 2 / 1 s. slow/fast (lexicon MOTIONS) bind here when a
+# pwm oscillator is in the patch; see _bind_speed_to_pwm.
+_PWM_ANCHORS = {"rate": {"slow": 0.0, "medium": 0.5, "fast": 1.0}}
+_PWM_DEFAULTS = {"rate": 0.5}
+
 _PARAM_SCHEMAS = {"analog_osc": _AOSC_ANCHORS, "fm_ep": _FMEP_ANCHORS,
-                  "drum_head": _DRUM_ANCHORS}
+                  "drum_head": _DRUM_ANCHORS, "pwm": _PWM_ANCHORS}
 _PARAM_DEFAULTS = {"analog_osc": _AOSC_DEFAULTS, "fm_ep": _FMEP_DEFAULTS,
-                   "drum_head": _DRUM_DEFAULTS}
+                   "drum_head": _DRUM_DEFAULTS, "pwm": _PWM_DEFAULTS}
+# The four waveform words share analog_osc's schema, each with its own wave default.
+for _wk, _wv in _WAVEFORM_KEYS.items():
+    _PARAM_SCHEMAS[_wk] = _AOSC_ANCHORS
+    _PARAM_DEFAULTS[_wk] = {**_AOSC_DEFAULTS, "wave": _wv}
 
 
 # ── adjectives -> per-instrument parameter bindings ──────────────────────────
@@ -802,10 +824,13 @@ _PARAM_DEFAULTS = {"analog_osc": _AOSC_DEFAULTS, "fm_ep": _FMEP_DEFAULTS,
 # sound, instead of the word silently doing nothing.
 _ADJ_PARAM_BINDINGS = {
     "analog_osc": {
-        "hollow":     [("wave", "set", 0.55)],   # square: "hollow, reedy, odd harmonics only"
-        "reedy":      [("wave", "set", 0.55)],
-        "nasal":      [("wave", "set", 1.0)],    # pulse: "thin, nasal, narrow"
-        "thin":       [("wave", "set", 1.0)],
+        # WAVE adjectives NUDGE (add) from wherever the waveform word parked the
+        # axis, so "thin square" bends the square narrower instead of replacing it
+        # with a stock pulse. drive/fat/age name an absolute LEVEL, so they SET.
+        "hollow":     [("wave", "add", 0.10)],   # toward the hollow/square end
+        "reedy":      [("wave", "add", 0.10)],
+        "nasal":      [("wave", "add", 0.45)],   # strongly toward the nasal pulse
+        "thin":       [("wave", "add", 0.30)],   # narrower
         "warm":       [("drive", "set", 0.3)],   # the anchor is literally named "warm"
         "distorted":  [("drive", "set", 1.0)],   # screaming: "maximum saturation, fully driven"
         "old":        [("age", "set", 0.8)],     # old: "unstable, wandering pitch and level"
@@ -837,6 +862,9 @@ _ADJ_PARAM_BINDINGS = {
         "resonant":   [("damping", "set", 0.0)], # open: "rings freely and clearly"
     },
 }
+# The four waveform words are analog_osc facets, so they bend by the SAME table.
+for _wk in _WAVEFORM_KEYS:
+    _ADJ_PARAM_BINDINGS[_wk] = _ADJ_PARAM_BINDINGS["analog_osc"]
 
 
 def _bind_adjectives(oscs, adjective_keys):
@@ -877,6 +905,47 @@ def _bind_adjectives(oscs, adjective_keys):
             if new_vals:
                 o.setdefault("params", {}).setdefault(key, {}).update(new_vals)
     return consumed
+
+
+def _resolve_pwm_params(params):
+    """pwm's one parameter: sweep RATE 0..1 (the emitter maps it to the LFO
+    frequency = seconds per half-cycle). Forgiving like the analog_osc resolver
+    -- a missing or bad value falls back to the default, never drops the key."""
+    r = (params or {}).get("rate", _PWM_DEFAULTS["rate"])
+    try:
+        r = min(1.0, max(0.0, float(r)))
+    except (TypeError, ValueError):
+        r = _PWM_DEFAULTS["rate"]
+    return {"rate": r}
+
+
+def _bind_speed_to_pwm(oscs, motion_key):
+    """The lexicon speed MOTIONS slow/fast set pwm's OWN sweep rate when a pwm
+    oscillator is in the patch (BJ 2026-07-21: "verdrahte das auch als slow pwm
+    vs fast pwm"), and are then CONSUMED (returns "static") so the sweep is not
+    doubled by a post-mix motion.
+
+    Consuming whenever a pwm is present -- even if an explicit pwm(rate=...) blocks
+    the value write (setdefault) -- is DELIBERATE and unlike _bind_adjectives'
+    blocked-not-consumed rule: for slow/fast on a pwm the only post-mix "fallback"
+    is the spectral-motion gate in build_csound_response, which DROPS them as
+    un-renderable on a dense mix. Falling through there would falsely flag the
+    movement as lost, so the pwm sweep is the honest realisation of the word and
+    the word is spent on it. The explicit rate still wins the VALUE.
+
+    A patch with no pwm is untouched (the key returns unchanged, e.g. `slow
+    flute` keeps its global motion). Mutates the caller's osc params; on the live
+    path those are build_csound_response's own stage_params, copied again inside
+    build_orchestra, so nothing shared leaks."""
+    if motion_key not in ("slow", "fast"):
+        return motion_key
+    rate = 0.0 if motion_key == "slow" else 1.0
+    touched = False
+    for o in oscs:
+        if "pwm" in (o.get("chain") or []):
+            o.setdefault("params", {}).setdefault("pwm", {}).setdefault("rate", rate)
+            touched = True
+    return "static" if touched else motion_key
 
 
 # ── csound-specific multi-oscillator LLM schema ──────────────────────────────
@@ -2431,6 +2500,16 @@ def _emit_steady(technique, tag="0", nmodes=None, params=None, strike_gate=None)
         return _emit_modal(technique, tag, nmodes)
     if technique == "analog_osc":
         return _emit_analog_osc(tag, (params or {}).get("analog_osc"))
+    if technique in _WAVEFORM_KEYS:
+        # a classic waveform WORD = the analogue VCO parked at its wave anchor.
+        # The word seeds `wave`; an adjective nudge or explicit LLM value that
+        # already wrote it wins (setdefault); drive/fat/age default as usual.
+        # isinstance guard, not truthiness: a direct caller can hand junk here,
+        # same reason the resolvers and the reading defend the SHAPE.
+        wp = (params or {}).get(technique)
+        wp = dict(wp) if isinstance(wp, dict) else {}
+        wp.setdefault("wave", _WAVEFORM_KEYS[technique])
+        return _emit_analog_osc(tag, wp)
     if technique == "pwm":
         # classic PWM: band-limited pulse whose DUTY moves (square 50% -> thin
         # 8% -> back), a genuinely moving spectrum. kpw is the pulse width.
@@ -2451,23 +2530,16 @@ def _emit_steady(technique, tag="0", nmodes=None, params=None, strike_gate=None)
         # [-0.5,0.5] onto [0,1], so the excursion was never negative and the duty
         # crept over 0.29..0.50 -- a quarter of even the old intent. Wrong since
         # febda214, with the comment above it claiming 8% the whole time.
-        L.append(f"  klfo{tag}    oscili 0.5, 0.25            ; -0.5..0.5, 4 s period")
+        prate = _resolve_pwm_params((params or {}).get("pwm"))["rate"]
+        pfreq = 0.25 * (4.0 ** prate)   # slow 0.25 .. medium 0.5 .. fast 1.0 Hz
+        L.append(f"  klfo{tag}    oscili 0.5, {pfreq:g}            ; -0.5..0.5, {0.5 / pfreq:g}s per half-cycle")
         L.append(f"  kpw{tag}     = 0.5 + 0.6 * klfo{tag}     ; duty 0.20..0.80, square at centre")
         L += _emit_vco_drift(tag)
         L.append(f"  apw{tag}     vco2 0.6, kfreq * (1 + kvdr{tag}), 2, kpw{tag} ; imode 2 = pulse, kpw = width")
         L.append(f"  {ov}    = apw{tag} - 0.6 * (2 * kpw{tag} - 1) ; {_DC_NOTE}")
-    elif technique == "square":
-        L += _emit_vco_drift(tag)
-        L.append(f"  kdty{tag}   poscil 0.012, 0.057          ; comparator threshold drift")
-        L.append(f"  apw{tag}    vco2 0.6, kfreq * (1 + kvdr{tag}), 2, 0.5 + kdty{tag} ; square")
-        L.append(f"  {ov}    = apw{tag} - 1.2 * kdty{tag}    ; the duty drift carries DC with it")
-    elif technique == "pulse":
-        # the lexicon's OWN spec: "narrow rectangular wave (default 30% width)".
-        # It emitted 0.5 -- i.e. a square, a byte-identical alias of `square`.
-        L += _emit_vco_drift(tag)
-        L.append(f"  kdty{tag}   poscil 0.012, 0.057          ; comparator threshold drift")
-        L.append(f"  apl{tag}    vco2 0.6, kfreq * (1 + kvdr{tag}), 2, 0.30 + kdty{tag} ; narrow pulse (30%% width)")
-        L.append(f"  {ov}    = apl{tag} + 0.2400         ; {_DC_NOTE}")
+    # square / pulse / triangle / saw are handled by the _WAVEFORM_KEYS early
+    # return above (each is _emit_analog_osc at its wave anchor); the old bespoke
+    # branches here are gone so there is exactly one analogue-waveform generator.
     elif technique == "clarinet":
         # A clarinet is a cylindrical pipe closed at the reed end. That boundary
         # condition is what produces the odd-harmonic spectrum -- the 2nd, 4th and
@@ -2603,19 +2675,6 @@ def _emit_steady(technique, tag="0", nmodes=None, params=None, strike_gate=None)
         L.append(f"  a4{tag}     gbuzz 0.24, kfreq * 2.0023 * (1 + kw4{tag}), 4, 1, 0.66, giCos ; 4' octave, +4 cents")
         L.append(f"  aq{tag}     gbuzz 0.16, kfreq * 1.4987 * (1 + kwq{tag}), 3, 1, 0.60, giCos ; 5 1/3' quint, -1.5 cents")
         L.append(f"  {ov}    = a8{tag} + a4{tag} + aq{tag}")
-    elif technique == "triangle":
-        # The real band-limited triangle, replacing a six-row odd-harmonic stand-in.
-        # Nothing had to be pre-generated for it: vco2 builds its table sets on
-        # demand (see the header note -- the older "renders silent" story was a
-        # misdiagnosis of an unrelated argument error). Measured against the
-        # stand-in: h3 -19.1 dB, h5 -28.0, h7 -33.8, no even harmonics, level in
-        # line with the saw family -- and at 12 kHz it produces ZERO content below
-        # the played pitch, where the stand-in aliased at 0.120 relative.
-        L += _emit_vco_drift(tag)
-        L.append(f"  {ov}    vco2 0.6, kfreq * (1 + kvdr{tag}), 12 ; band-limited triangle")
-    elif technique == "saw":
-        L += _emit_vco_drift(tag)
-        L.append(f"  {ov}    vco2 0.6, kfreq * (1 + kvdr{tag}), 0  ; band-limited sawtooth")
     elif technique == "supersaw":
         # 7 detuned saws (the JP-8000 idiom). The lexicon says the wavetable path
         # had to fake this because "the detune itself is not a cycle property" --
@@ -4137,6 +4196,14 @@ def build_csound_response(text, llm, correction="", previous=""):
         if not oscs and not adjective_keys and not motion_key:
             return {"ok": False,
                     "error": "no synthesis idiom matched the prompt"}
+
+        # slow/fast set a pwm oscillator's OWN sweep rate and are then consumed --
+        # MUST run BEFORE the two motion blocks below. Otherwise the post-mix
+        # spectral-motion gate ("cannot be done to a finished mix") drops slow/fast
+        # on the always-non-sparse pwm patch and falsely flags the movement as
+        # un-renderable, and the sweep never responds to the word (the exact case
+        # this feature exists for: BJ "slow pwm vs fast pwm").
+        motion_key = _bind_speed_to_pwm(oscs, motion_key)
 
         # MOVEMENT BY DEFAULT -- placed AFTER the honest-failure frame above, so a
         # prompt that matched nothing still fails honestly instead of being rescued

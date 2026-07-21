@@ -46,6 +46,7 @@ _POSTMIX_SIGNATURE = {
     "bright": "atone asig, 2200",
     "airy": "atone aprea, 3500",
     "resonant": "reson asig, 1100",
+    "thin": "atone asig, 350",
 }
 
 
@@ -85,8 +86,8 @@ check("consumed: analog_osc+hollow drops post-mix FORMANT",
 o, r = orch(["analog_osc"], ["airy"])
 check("unbound: analog_osc+airy keeps post-mix AIR",
       _POSTMIX_SIGNATURE["airy"] in o)
-o, r = orch(["saw"], ["hollow"])
-check("unparametrised key: saw+hollow keeps post-mix FORMANT",
+o, r = orch(["organ"], ["hollow"])
+check("unparametrised key: organ+hollow keeps post-mix FORMANT",
       _POSTMIX_SIGNATURE["hollow"] in o)
 # multi-osc: one binder in the patch consumes for the whole mix
 o, r = co.build_orchestra(oscs=[
@@ -121,8 +122,8 @@ finally:
 oscs = [{"chain": ["analog_osc"], "vol": 1.0, "register": 1.0, "params": {}}]
 co._bind_adjectives(oscs, ["hollow", "nasal"])
 v = oscs[0]["params"]["analog_osc"]["wave"]
-check("averaging: hollow(0.55)+nasal(1.0) -> wave 0.775",
-      abs(v - 0.775) < 1e-9, f"got {v}")
+check("nudge sum: default 0.45 + hollow(+.10) + nasal(+.45) -> wave 1.0 (clamped)",
+      abs(v - 1.0) < 1e-9, f"got {v}")
 _o, r = orch(["analog_osc"], ["hollow"])
 check("reading: nudged param shows anchor word", "(square)" in r)
 check("reading: the adjective stays listed", "hollow" in r)
@@ -148,6 +149,80 @@ co.build_orchestra(oscs=oscs_in, adjective_keys=["hollow"], rendered_out=rendere
 check("rendered_out: nudge present in echoed oscillators",
       rendered and rendered[0]["params"].get("analog_osc", {}).get("wave") == 0.55)
 check("rendered_out: still did not leak into caller", oscs_in[0]["params"] == {})
+
+# ── 7. waveform words delegate to the single analogue VCO ────────────────────
+# square/saw/pulse/triangle are now _emit_analog_osc at a wave anchor, not bespoke
+# oscillators: the old idioms are gone, and an adjective bends them at the source.
+for wk, anchor in (("square", "square"), ("saw", "saw"),
+                   ("pulse", "pulse"), ("triangle", "triangle")):
+    o, _r = orch([wk])
+    check(f"{wk}: delegates to analog_osc (aosc body, no bespoke branch)",
+          "aosc0" in o and "wave seg" in o)
+check("square: old comparator-drift branch is gone",
+      "comparator threshold drift" not in orch(["square"])[0])
+# "thin square" BENDS the square narrower (source changes) AND consumes thin.
+sq, _ = orch(["square"])
+tsq, tr = orch(["square"], ["thin"])
+check("thin square: bends the source (wave nudged from the square anchor)",
+      sq.split("kvsum")[0] != tsq.split("kvsum")[0])
+check("thin square: thin is consumed (post-mix THIN gone)",
+      _POSTMIX_SIGNATURE["thin"] not in tsq)
+check("thin square: reading still lists thin (understood at the source)",
+      "thin" in tr)
+# a cross-waveform morph stays TWO distinct stages (keys not merged, no collapse).
+o, mr = orch(["triangle", "saw"])
+check("triangle>saw: stays a two-stage morph (distinct keys survive)",
+      mr.count(">") == 1 and o.count("clean oscillator (pre-drive)") >= 2)
+
+# ── 8. pwm rate is a real parameter driven by slow/fast ──────────────────────
+import re as _re
+
+
+def _pwm_lfo_hz(orch):
+    m = _re.search(r"klfo0\s+oscili 0\.5, ([0-9.]+)", orch)
+    return float(m.group(1)) if m else None
+
+
+def _pwm_hz(motion=None, params=None):
+    """The REAL composition: the speed word binds (build_csound_response's step),
+    THEN build_orchestra renders the resulting rate. build_orchestra itself no
+    longer binds -- that would be too late on the live path (see section 9)."""
+    oscs = [{"chain": ["pwm"], "vol": 1.0, "register": 1.0, "params": params or {}}]
+    mk = co._bind_speed_to_pwm(oscs, motion) if motion else motion
+    o, _ = co.build_orchestra(oscs=oscs)
+    return _pwm_lfo_hz(o), mk
+
+
+hz, _ = _pwm_hz()
+check("pwm default rate -> 0.5 Hz (1 s per half-cycle)", hz == 0.5)
+hz, mk = _pwm_hz("slow")
+check("slow pwm -> 0.25 Hz + consumed to static", hz == 0.25 and mk == "static")
+hz, mk = _pwm_hz("fast")
+check("fast pwm -> 1.0 Hz + consumed to static", hz == 1.0 and mk == "static")
+# an explicit pwm(rate=...) wins the VALUE over the speed word.
+hz, _ = _pwm_hz("slow", {"pwm": {"rate": 1.0}})
+check("explicit pwm rate beats the speed motion", hz == 1.0)
+# a patch with NO pwm keeps its global motion untouched.
+check("slow+flute leaves the global motion intact",
+      co._bind_speed_to_pwm([{"chain": ["flute"], "params": {}}], "slow") == "slow")
+
+# ── 9. LIVE PATH: slow/fast bind BEFORE the spectral-motion drop gate ─────────
+# Guards the adversarial find: build_csound_response's post-mix motion gate
+# consumed slow/fast on the (always non-sparse) pwm patch and flagged the movement
+# as un-renderable BEFORE the pwm binding ran -- so the sweep never moved and the
+# user was misinformed. Exercise the REAL entry point with a canned reply.
+def _fake_llm(reply):
+    return lambda user, system, maxtok: reply
+
+
+for word, want in (("slowly", 0.25), ("quickly", 1.0)):
+    resp = co.build_csound_response(f"a {word} pwm",
+                                    _fake_llm(f"OSC1: pwm\nMOTION: {word}"))
+    got = resp.get("ok") and _pwm_lfo_hz(resp.get("orchestra", "")) == want
+    dropped = any(f.get("word") in ("slow", "fast") and f.get("tier") == "dropped"
+                  for f in resp.get("flags", []))
+    check(f"live path: '{word} pwm' sweeps at {want} Hz", got)
+    check(f"live path: '{word} pwm' does NOT falsely drop the motion", not dropped)
 
 # ── summary ──────────────────────────────────────────────────────────────────
 print()

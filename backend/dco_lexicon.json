@@ -1,5 +1,5 @@
 {
-  "lexicon_version": 6,
+  "lexicon_version": 7,
   "techniques": [
     {
       "key": "saw",
@@ -85,7 +85,7 @@
         "motion_rate_hz": 0.25
       },
       "priority": 5,
-      "why": "narrow rectangular wave (default 30% width); an explicit width% overrides the template default"
+      "why": "narrow rectangular wave (~10% width), the thin nasal end of the analogue waveform axis"
     },
     {
       "key": "pwm",
@@ -129,7 +129,7 @@
         "motion_rate_hz": 0.35
       },
       "priority": 10,
-      "why": "classic PWM: the duty cycle sweeps continuously from 80% down to 20% and back, ~4 s per round trip, so the tone hollows out and fills back in"
+      "why": "classic PWM: the duty cycle sweeps continuously from 80% down to 20% and back, ~2 s per round trip by default (1 s per half-cycle); slow/fast stretch or compress it to 4 s / 1 s, so the tone hollows out and fills back in"
     },
     {
       "key": "triangle",
