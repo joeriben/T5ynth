@@ -770,6 +770,113 @@ _DRUM_DEFAULTS = {"pitched": 0.25, "spot": 0.35, "tension": 0.5, "damping": 0.35
 # line) -- _extract_osc_params below is generic over this registry.
 _PARAM_SCHEMAS = {"analog_osc": _AOSC_ANCHORS, "fm_ep": _FMEP_ANCHORS,
                   "drum_head": _DRUM_ANCHORS}
+_PARAM_DEFAULTS = {"analog_osc": _AOSC_DEFAULTS, "fm_ep": _FMEP_DEFAULTS,
+                   "drum_head": _DRUM_DEFAULTS}
+
+
+# ── adjectives -> per-instrument parameter bindings ──────────────────────────
+# BJ, 2026-07-21: "Selbstverständlich müssen viele - nicht alle - Adjektive die
+# Parameter IM Algo ändern. Manche Adjektive werden Effekte triggern die
+# sättigung etc." So an adjective now resolves PER OSCILLATOR, in this order:
+# if the oscillator's instrument binds the word to one of its own parameters,
+# the word moves that parameter at GENERATION time -- the sound is MADE hollow
+# or worn or clangy at the source. Only a word no oscillator binds falls
+# through to _emit_adjectives' post-mix DSP, unchanged. A word that was bound
+# anywhere is CONSUMED (removed from the post-mix list) so it never applies
+# twice; the READING keeps the full adjective list, because the word WAS
+# understood and applied -- at the source instead of after the mix.
+#
+# Every entry below is derived from the instrument's own anchor GLOSSES in
+# dco_lexicon.json (curation that already exists), not invented here: `hollow`
+# -> wave 0.55 because the square anchor's gloss reads "hollow, reedy, odd
+# harmonics only"; `bright` -> drum tension 1.0 because the tight anchor reads
+# "taut, bright and singing". Fine placement is BJ's ear (LCO_CONCEPT.md §9.4)
+# -- which is why this is a plain data table and not code.
+#
+# Binding ops: ("set", v) pulls the parameter to an anchor value; several sets
+# on one param AVERAGE (deterministic and order-free, so "hollow nasal" lands
+# between square and pulse). ("add", d) is a signed nudge from the base (the
+# set-average when present, else the default), summed then clamped to [0,1].
+# An explicitly LLM-set parameter is NEVER overridden, and a binding blocked
+# that way does NOT consume its word -- the post-mix idiom still colours the
+# sound, instead of the word silently doing nothing.
+_ADJ_PARAM_BINDINGS = {
+    "analog_osc": {
+        "hollow":     [("wave", "set", 0.55)],   # square: "hollow, reedy, odd harmonics only"
+        "reedy":      [("wave", "set", 0.55)],
+        "nasal":      [("wave", "set", 1.0)],    # pulse: "thin, nasal, narrow"
+        "thin":       [("wave", "set", 1.0)],
+        "warm":       [("drive", "set", 0.3)],   # the anchor is literally named "warm"
+        "distorted":  [("drive", "set", 1.0)],   # screaming: "maximum saturation, fully driven"
+        "old":        [("age", "set", 0.8)],     # old: "unstable, wandering pitch and level"
+        "fat":        [("fat", "set", 0.5)],     # thick: "clearly layered, wide"
+        "thick":      [("fat", "set", 0.5)],
+    },
+    "fm_ep": {
+        "clangorous": [("ting", "set", 1.0)],    # clangy: "a hard bright metallic clang"
+        "metallic":   [("ting", "set", 1.0)],
+        "woody":      [("ting", "set", 0.0)],    # none: "no metal at all, just the woody body"
+        "bright":     [("strike", "set", 1.0)],  # hard: "struck hard, bright and biting"
+        "mellow":     [("strike", "set", 0.0)],  # soft: "mellow and round from the first moment"
+        "gentle":     [("strike", "set", 0.0)],
+        "round":      [("strike", "set", 0.0)],
+        "hollow":     [("reed", "set", 0.45)],   # the anchor is literally named "hollow"
+        "nasal":      [("reed", "set", 1.0)],    # reed: "hollow and nasal, a reed rather than a tine"
+        "full":       [("reed", "set", 0.0)],    # full: "broad and full, every harmonic present"
+    },
+    "drum_head": {
+        "deep":       [("spot", "set", 0.0)],    # centre: "deep, round and full"
+        "round":      [("spot", "set", 0.0)],
+        "full":       [("spot", "set", 0.0)],
+        "thin":       [("spot", "set", 1.0)],    # rim: "thin, hard and edgy"
+        "edgy":       [("spot", "set", 1.0)],
+        "sharp":      [("spot", "set", 1.0)],    # spot note: "more sharply coloured" at the rim
+        "dull":       [("tension", "set", 0.0)], # slack: "loose, dull and floppy"
+        "bright":     [("tension", "set", 1.0)], # tight: "taut, bright and singing"
+        "muddy":      [("damping", "set", 1.0)], # muffled: "dead and thuddy"
+        "resonant":   [("damping", "set", 0.0)], # open: "rings freely and clearly"
+    },
+}
+
+
+def _bind_adjectives(oscs, adjective_keys):
+    """Resolve adjectives into per-instrument parameter nudges (the generation
+    side of the split above). Mutates each osc's params in place; returns the
+    set of adjective keys that were actually bound somewhere. The caller keeps
+    the full list for the reading and hands only the remainder to post-mix.
+
+    A nudge that lands exactly on the parameter's default writes nothing and
+    consumes nothing: the instrument already sounds that way, and eating the
+    word would strip its post-mix colour in exchange for a silent no-op."""
+    consumed = set()
+    if not adjective_keys:
+        return consumed
+    for o in oscs:
+        for key in o.get("chain", []):
+            bind = _ADJ_PARAM_BINDINGS.get(key)
+            if not bind:
+                continue
+            defaults = _PARAM_DEFAULTS[key]
+            existing = (o.get("params") or {}).get(key) or {}
+            ops_per_param = {}
+            for a in adjective_keys:
+                for pname, mode, val in bind.get(a, []):
+                    if pname in existing:
+                        continue      # LLM-set value wins; word NOT consumed here
+                    ops_per_param.setdefault(pname, []).append((a, mode, val))
+            new_vals = {}
+            for pname, ops in ops_per_param.items():
+                sets = [v for _, m, v in ops if m == "set"]
+                adds = sum(v for _, m, v in ops if m == "add")
+                base = (sum(sets) / len(sets)) if sets else defaults[pname]
+                value = min(1.0, max(0.0, base + adds))
+                if abs(value - defaults[pname]) < 1e-9:
+                    continue          # no-op nudge: leave the word to post-mix
+                new_vals[pname] = value
+                consumed.update(a for a, _, _ in ops)
+            if new_vals:
+                o.setdefault("params", {}).setdefault(key, {}).update(new_vals)
+    return consumed
 
 
 # ── csound-specific multi-oscillator LLM schema ──────────────────────────────
@@ -3550,6 +3657,18 @@ def _normalize_oscs(technique_keys, oscs):
         params = o.get("params")
         if not isinstance(params, dict):
             params = {}
+        else:
+            # COPY, two levels deep. build_orchestra binds adjectives INTO these
+            # dicts (_bind_adjectives writes generation nudges), and the input is
+            # the CALLER's -- the live path's stage_params, a tool's literal.
+            # Mutating it in place rewrote the caller's state and, worse, made a
+            # second build on the same list non-idempotent: a nudged value reads
+            # back as an explicit one, blocks its own word from being consumed,
+            # and the post-mix idiom is re-added -- the quality applied twice. The
+            # effective oscs (with nudges) are returned via build_orchestra's
+            # rendered_out, so nothing needs to read them back off the input.
+            params = {k: (dict(v) if isinstance(v, dict) else v)
+                      for k, v in params.items()}
         out.append({"chain": chain, "vol": max(0.0, min(1.0, vol)), "register": reg,
                     "params": params})
         if len(out) == 3:
@@ -3571,16 +3690,31 @@ def _normalize_oscs(technique_keys, oscs):
 
 
 def build_orchestra(technique_keys=None, adjective_keys=None, motion_key=None,
-                    morph_sec=None, oscs=None):
+                    morph_sec=None, oscs=None, rendered_out=None):
     """keys -> (orchestra_text, reading). Two conventions:
       * single osc: technique_keys is a list (>=2 => morph chain), vol implied 1.0
       * up to 3 osc: oscs=[{chain:[keys], vol:float}, ...] (each its own morph
         chain + volume; a chain may end in `silence` for a morph-to-zero transient)
-    Deterministic. The returned text carries `sr = %SR%` for the engine to
-    substitute at its real rate."""
+    Deterministic, and PURE: the input `oscs` is never mutated (its params are
+    copied). If `rendered_out` is a list, it is filled with the oscillators AS
+    ACTUALLY RENDERED -- normalised AND with adjective->parameter nudges bound in
+    -- so a caller can echo metadata that matches the orchestra without a second
+    normalise pass (which would miss the nudges). The returned text carries
+    `sr = %SR%` for the engine to substitute at its real rate."""
     adjective_keys = [k for k in (adjective_keys or []) if k]
     imorphtime = float(morph_sec) if morph_sec else DEFAULT_MORPH_SEC
     oscs = _normalize_oscs(technique_keys, oscs)
+    # Adjectives resolve INTO the instruments first (generation-time parameter
+    # nudges, _ADJ_PARAM_BINDINGS); only the unbound remainder reaches the
+    # post-mix DSP below. The reading keeps the FULL list -- a bound word was
+    # understood and applied, at the source.
+    bound = _bind_adjectives(oscs, adjective_keys)
+    postmix_adjectives = [a for a in adjective_keys if a not in bound]
+    if rendered_out is not None:
+        # the effective oscillators (post-normalise, post-bind). Nothing below
+        # mutates oscs, so sharing the references is safe; these dicts are
+        # build_orchestra's own copies, independent of the caller's input.
+        rendered_out[:] = oscs
     nmodes = _modal_budget(oscs)   # thin modal banks to fit the block budget
 
     # emit each oscillator (tagged, collision-free) and build the weighted mix.
@@ -3665,7 +3799,7 @@ def build_orchestra(technique_keys=None, adjective_keys=None, motion_key=None,
            "        ; incoherent layers sum ~sqrt(N)\n"
            "  asig     = " + " + ".join(mix_terms))
 
-    adj = _emit_adjectives(adjective_keys)
+    adj = _emit_adjectives(postmix_adjectives)
     mot = _emit_motion(motion_key, oscs)
 
     # The authored mix/register values are SEEDED into their channels once, at
@@ -4043,12 +4177,16 @@ def build_csound_response(text, llm, correction="", previous=""):
             })
             motion_key = None
 
-        orchestra, reading = build_orchestra(oscs=oscs, adjective_keys=adjective_keys,
-                                             motion_key=motion_key)
         # echo the oscillators as ACTUALLY rendered (post terminal-silence strip,
-        # vol clamp, muted-drop / unity-promotion) so the metadata never lies about
-        # what the orchestra plays.
-        rendered = _normalize_oscs(None, oscs)
+        # vol clamp, muted-drop / unity-promotion, AND adjective->parameter nudges
+        # bound in) so the metadata never lies about what the orchestra plays.
+        # build_orchestra fills `rendered`; a second _normalize_oscs pass here
+        # would miss the nudges, which live on build_orchestra's own copy and
+        # never touch the caller's `oscs`.
+        rendered = []
+        orchestra, reading = build_orchestra(oscs=oscs, adjective_keys=adjective_keys,
+                                             motion_key=motion_key,
+                                             rendered_out=rendered)
 
         # The panel's parametrisation surface (BJ, 2026-07-19): NOT the raw Csound
         # source -- the catalogue entry (why + knob anchor words) each ACTUALLY
