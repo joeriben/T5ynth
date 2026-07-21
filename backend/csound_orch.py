@@ -751,6 +751,34 @@ _FMEP_ANCHORS = {
 # never had. See _emit_fm_ep.
 _FMEP_DEFAULTS = {"ting": 0.55, "ring": 0.25, "reed": 0.75, "strike": 0.64}
 
+# fm / fm_bell / metallic_fm: the FM bell-and-metal family, one shared foscili
+# emitter for three keys (Phase B, BJ 2026-07-21, resumed after the analogue
+# boden). Three CONTINUOUS axes an adjective may now bend AT THE SOURCE:
+#   bite    -> i0,  the peak FM index (brightness / sideband richness)
+#   fade    -> tau, how long the bright attack rings before it darkens
+#   shimmer -> dtw, the fixed-Hz doublet detune (casting warble; 0 = a still tone)
+# The carrier:modulator RATIO stays a per-key constant and is NEVER a param:
+# FM harmonicity is a step function of the ratio's rationality, refuted as a
+# continuous axis twice over (see _fm_ep_reed_to_mix's docstring). The darkening
+# FLOOR (i1/i0) stays a key constant too, so a brighter strike still darkens to a
+# proportionally brighter rest. The per-key defaults reproduce the old hard-coded
+# table exactly (parity): a prompt that sets nothing gets the key it always got.
+_FM_I0_RANGE, _FM_TAU_RANGE, _FM_DTW_RANGE = (1.0, 16.0), (0.5, 5.0), (0.0, 2.0)
+_FM_ANCHORS = {
+    "bite":    {"mellow": 0.13, "warm": 0.27, "bright": 0.60, "harsh": 0.82, "screaming": 1.0},
+    "fade":    {"quick": 0.11, "medium": 0.44, "long": 0.89},
+    "shimmer": {"pure": 0.0, "gentle": 0.40, "shimmering": 0.85},
+}
+# The old table's (i0, tau, dtw) per key -> the 0..1 params that map back to them.
+_FM_OLD_TABLE = {"fm": (4.0, 2.0, 1.2), "fm_bell": (6.0, 2.5, 1.1),
+                 "metallic_fm": (9.0, 3.0, 1.3)}
+_FM_DEFAULTS = {
+    _fk: {"bite":    (_i0 - _FM_I0_RANGE[0])  / (_FM_I0_RANGE[1]  - _FM_I0_RANGE[0]),
+          "fade":    (_tau - _FM_TAU_RANGE[0]) / (_FM_TAU_RANGE[1] - _FM_TAU_RANGE[0]),
+          "shimmer": _dtw / _FM_DTW_RANGE[1]}
+    for _fk, (_i0, _tau, _dtw) in _FM_OLD_TABLE.items()
+}
+
 # Registry of every technique key that takes parameters, keyed by its
 # CANONICAL key -> {param: {anchor: value}}. A future parametrised
 # instrument just adds its own entry here (and its own _emit_xxx / dispatch
@@ -794,6 +822,11 @@ _PARAM_DEFAULTS = {"analog_osc": _AOSC_DEFAULTS, "fm_ep": _FMEP_DEFAULTS,
 for _wk, _wv in _WAVEFORM_KEYS.items():
     _PARAM_SCHEMAS[_wk] = _AOSC_ANCHORS
     _PARAM_DEFAULTS[_wk] = {**_AOSC_DEFAULTS, "wave": _wv}
+# The FM bell/metal family: three keys share the anchor schema, each its own
+# parity default (mapped from the old hard-coded table by _FM_OLD_TABLE above).
+for _fk in _FM_DEFAULTS:
+    _PARAM_SCHEMAS[_fk] = _FM_ANCHORS
+    _PARAM_DEFAULTS[_fk] = _FM_DEFAULTS[_fk]
 
 
 # ── adjectives -> per-instrument parameter bindings ──────────────────────────
@@ -861,10 +894,30 @@ _ADJ_PARAM_BINDINGS = {
         "muddy":      [("damping", "set", 1.0)], # muffled: "dead and thuddy"
         "resonant":   [("damping", "set", 0.0)], # open: "rings freely and clearly"
     },
+    "fm": {
+        # the FM bell/metal family: index (bite) and doublet detune (shimmer) at
+        # the source. Ratio (harmonic vs bell vs metal) stays the KEY's own choice,
+        # so these bend brightness and warble WITHIN whichever FM key was named.
+        "bright":      [("bite", "set", 0.60)],    # more sidebands
+        "harsh":       [("bite", "set", 0.82)],
+        "aggressive":  [("bite", "set", 0.82)],
+        "piercing":    [("bite", "set", 0.90)],
+        "clangorous":  [("bite", "set", 0.85)],    # a harder, brighter clang
+        "brittle":     [("bite", "set", 0.75)],
+        "mellow":      [("bite", "set", 0.13)],    # near-sine, few sidebands
+        "dark":        [("bite", "set", 0.10)],
+        "dull":        [("bite", "set", 0.13)],
+        "shimmering":  [("shimmer", "set", 0.85)], # a wider casting warble
+        "vibrant":     [("shimmer", "set", 0.75)],
+        "clean":       [("shimmer", "set", 0.0)],  # a still, single tone
+    },
 }
 # The four waveform words are analog_osc facets, so they bend by the SAME table.
 for _wk in _WAVEFORM_KEYS:
     _ADJ_PARAM_BINDINGS[_wk] = _ADJ_PARAM_BINDINGS["analog_osc"]
+# fm_bell and metallic_fm share fm's binding table (one shared foscili emitter).
+for _fk in ("fm_bell", "metallic_fm"):
+    _ADJ_PARAM_BINDINGS[_fk] = _ADJ_PARAM_BINDINGS["fm"]
 
 
 def _bind_adjectives(oscs, adjective_keys):
@@ -968,19 +1021,29 @@ _CS_CORRECTION_RULE = (
     "\nTHIS IS A SECOND ATTEMPT. Two extra lines follow the request. YOU WROTE is "
     "the patch you produced last time. A LISTENER HEARD is how a listener "
     "described that patch and which quality of the request it missed.\n"
-    "Start from YOU WROTE and repair it. The listener's word says what the patch "
-    "CAME OUT AS; it is not a word to delete but a direction to move AWAY from. "
-    "Keep the oscillators and the adjectives the listener did not name, and add "
-    "or exchange keys that pull the opposite way. Deleting adjectives is not a "
-    "repair -- it removes what was already right and usually makes the miss "
-    "worse. Your answer must be a COMPLETE patch, not a diff.\n"
-    "Example: request \"a soft wooden flute\", YOU WROTE \"flute 8' - woody, "
-    "bright\", A LISTENER HEARD \"asked for soft, but the sound is described as "
-    "harsh\" -> keep flute, keep woody, drop bright because it pulls the wrong "
-    "way, add mellow.\n"
+    "THE INSTRUMENT IS ALREADY CHOSEN AND DOES NOT CHANGE. Copy the OSC lines "
+    "from YOU WROTE EXACTLY -- the same oscillator keys, the same morph stages "
+    "(the \" > \" chains), the same layers and the same registers. You are NOT "
+    "picking an instrument again; you already picked it. What you repair is ONLY "
+    "how that instrument is SET: its ADJECTIVES, its per-key PARAMS, its VOL and "
+    "its MOTION. NEVER add, drop, or exchange an oscillator key -- swapping the "
+    "instrument (answering a flute that came out too warm with a sine, say) "
+    "throws away the very thing the request asked for and is always wrong.\n"
+    "The listener's word says what the patch CAME OUT AS; it is a direction to "
+    "move AWAY from, not a word to delete. Keep the adjectives and parameters the "
+    "listener did not name; add or swap ADJECTIVES and PARAMS that pull the "
+    "opposite way, or move a numeric param toward the anchor that does. Deleting "
+    "what was already right is not a repair -- it usually makes the miss worse. "
+    "Your answer must be a COMPLETE patch, not a diff.\n"
+    "Example: request \"a soft wooden flute\", YOU WROTE OSC1 \"flute\" with "
+    "ADJECTIVES \"woody, bright\", A LISTENER HEARD \"asked for soft, but the "
+    "sound is described as harsh\" -> keep OSC1 flute UNCHANGED, keep woody, drop "
+    "bright because it pulls the wrong way, add mellow. The oscillator key stays "
+    "flute; only its adjectives move.\n"
     "The original request still stands -- never drop it, and never answer the "
     "listener instead of the request. Reply in EXACTLY the same format as "
-    "always: the OSC/VOL/ADJECTIVES/MOTION lines and nothing else.\n"
+    "always: the OSC/VOL/ADJECTIVES/MOTION lines and nothing else, with the SAME "
+    "OSC keys as YOU WROTE.\n"
 )
 
 _CS_SYSTEM_PROMPT_HEAD = (
@@ -1994,6 +2057,25 @@ def _resolve_fm_ep_params(raw):
     return out
 
 
+def _resolve_fm_params(raw, key):
+    """A possibly-partial/None {bite,fade,shimmer} 0..1 dict -> the complete
+    3-key dict, filling any missing/invalid entry with this KEY's parity default
+    (_FM_DEFAULTS[key]; mirrored in dco_lexicon.json). Same forgiving contract as
+    _resolve_fm_ep_params -- a bad value falls back, never drops the oscillator."""
+    raw = raw if isinstance(raw, dict) else {}
+    out = dict(_FM_DEFAULTS.get(key, _FM_DEFAULTS["fm"]))
+    for k, v in raw.items():
+        if k not in out:
+            continue
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            continue
+        if 0.0 <= fv <= 1.0:
+            out[k] = fv
+    return out
+
+
 def _fm_ep_reed_to_mix(reed):
     """reed (0..1) -> kW, the odd-only body's share of the body mix.
 
@@ -2841,10 +2923,21 @@ def _emit_steady(technique, tag="0", nmodes=None, params=None, strike_gate=None)
         # reason spelled out in fm_ep: this can be emitted inside the crossfade
         # path's `if <gain> > 0` blocks, where a label and its reinit would sit
         # inside a conditional.
-        car, mod, dtw, i0, i1, tau, a1, a2, aref = {
-            "fm_bell":     ("1", "1.41", 1.1, 6.0, 1.45, 2.5, 0.40, 0.26, 0.46),
-            "metallic_fm": ("1", "2.41", 1.3, 9.0, 3.00, 3.0, 0.37, 0.24, 0.44),
-        }.get(technique, ("1", "2", 1.2, 4.0, 1.80, 2.0, 0.40, 0.26, 0.46))
+        # Per-key CONSTANTS: the carrier:modulator ratio (discrete -- never a
+        # param), the doublet/reference amplitudes, and the darkening FLOOR
+        # (i1/i0, how far the bright attack falls). The three CONTINUOUS axes --
+        # index peak i0, darkening time tau, doublet detune dtw -- come from
+        # params (bite/fade/shimmer) so an adjective bends them at the source;
+        # the defaults reproduce the old (i0, tau, dtw) = 4/6/9, 2.0/2.5/3.0,
+        # 1.2/1.1/1.3 exactly (see _FM_OLD_TABLE / _FM_DEFAULTS).
+        car, mod, a1, a2, aref, floor = {
+            "fm_bell":     ("1", "1.41", 0.40, 0.26, 0.46, 1.45 / 6.0),
+            "metallic_fm": ("1", "2.41", 0.37, 0.24, 0.44, 3.00 / 9.0),
+        }.get(technique, ("1", "2", 0.40, 0.26, 0.46, 1.80 / 4.0))
+        fp = _resolve_fm_params((params or {}).get(technique), technique)
+        i0  = _FM_I0_RANGE[0]  + fp["bite"] * (_FM_I0_RANGE[1]  - _FM_I0_RANGE[0])
+        tau = _FM_TAU_RANGE[0] + fp["fade"] * (_FM_TAU_RANGE[1] - _FM_TAU_RANGE[0])
+        dtw = fp["shimmer"] * _FM_DTW_RANGE[1]
         L.append(f"  ktm{tag}    init 0")
         L.append(f"  if changed2(ktrig) == 1 then")
         L.append(f"    ktm{tag}   = 0")
@@ -2864,9 +2957,9 @@ def _emit_steady(technique, tag="0", nmodes=None, params=None, strike_gate=None)
         # following the sample rate like every other bug in this file's history.
         # Scaling keeps the same proportional darkening at every pitch that has
         # any room at all, and only genuinely runs out when the room does.
-        L.append(f"  kbtp{tag}   min {i0}, kbmx{tag}          ; brightest the band allows")
-        L.append(f"  kbnx{tag}   = kbtp{tag} * ({i1 / i0:.4f} + {1 - i1 / i0:.4f} * "
-                 f"(1 - min(ktm{tag} / {tau}, 1))) ; darkens as it rings")
+        L.append(f"  kbtp{tag}   min {i0:.1f}, kbmx{tag}          ; brightest the band allows")
+        L.append(f"  kbnx{tag}   = kbtp{tag} * ({floor:.4f} + {1 - floor:.4f} * "
+                 f"(1 - min(ktm{tag} / {tau:.1f}, 1))) ; darkens as it rings")
         L.append(f"  abl{tag}    foscili {a1}, kfreq, {car}, {mod}, kbnx{tag}, giSine ; the bell")
         # The twin is the SAME ratio pair started a fixed few Hz above the
         # fundamental. Three doublet schemes have been tried; the first two each
@@ -2889,7 +2982,7 @@ def _emit_steady(technique, tag="0", nmodes=None, params=None, strike_gate=None)
         # of the twin then sits dtw*(1 + n*mod) Hz above its partner: fixed in Hz
         # at EVERY pitch (warble, never roughness), and DIFFERENT for every pair,
         # so the nulls never line up and no coherent tremolo can form.
-        L.append(f"  abt{tag}    foscili {a2}, kfreq + {dtw}, {car}, {mod}, kbnx{tag} * 0.94, giSine ; its doublet")
+        L.append(f"  abt{tag}    foscili {a2}, kfreq + {dtw:.1f}, {car}, {mod}, kbnx{tag} * 0.94, giSine ; its doublet")
         L.append(f"  abs{tag}    = abl{tag} + abt{tag}       ; the pair beats")
         # A falling FM index moves energy BETWEEN the carrier and its sidebands
         # (J0 rises as the index drops), and the sidebands that sit above Nyquist
