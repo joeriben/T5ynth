@@ -185,7 +185,11 @@ public:
         return out;
     }
 
-    /** The self-check section: how a machine listener DESCRIBED the bare
+    /** DEPRECATED (LCO self-check deactivated, BJ 2026-07-21): no longer called
+     *  on any live path — see PromptPanel.cpp's T5YNTH_LCO_SELFCHECK switch.
+     *  Retained, not deleted.
+     *
+     *  The self-check section: how a machine listener DESCRIBED the bare
      *  oscillator, and the one sentence a second model wrote comparing that
      *  description with the prompt.
      *
@@ -454,6 +458,10 @@ private:
     // one re-prompt step.
     ModuleBox dcoRepromptBox;
     juce::String dcoLastMachineReading_, dcoLastFlagsLine_, dcoLoopLast_;
+    // DEPRECATED (self-check deactivated 2026-07-21): the disabled
+    // T5YNTH_LCO_SELFCHECK loop was its only writer, so it now stays empty and no
+    // "Self-check" card section is produced; the remaining .clear() calls are
+    // harmless. Retained, not deleted.
     // Self-check section for the current bake. Message-thread only. Deliberately
     // NOT stashed on the processor and NOT persisted: it is a finding about the
     // sound THIS bake made, and a restored preset that showed one would be
@@ -466,6 +474,8 @@ private:
     // flag — and the stale finding would then be appended to the new bake's card,
     // asserting a measurement of a sound that is no longer loaded.
     unsigned long long dcoBakeSeq_ = 0;
+    // DEPRECATED (self-check deactivated 2026-07-21): read only by the disabled
+    // T5YNTH_LCO_SELFCHECK loop. Retained, not deleted.
     // How many times a bake may re-author itself after the comparer accuses the
     // sound of missing the request. BJ, 2026-07-20: "es gibt max 5 Korrekturen".
     // Each correction costs a full author + render + analyze + compare, and the

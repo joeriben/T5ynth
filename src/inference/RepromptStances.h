@@ -102,6 +102,12 @@ namespace RepromptStances
                                          const juce::String& prevPrompt,
                                          const juce::StringArray& recentList);
 
+    // ── DEPRECATED: LCO self-check (deactivated, BJ 2026-07-21) ──────────────
+    // The three declarations below drive the self-listen / compare loop, which is
+    // switched OFF in the product (PromptPanel.cpp T5YNTH_LCO_SELFCHECK = 0). They
+    // are retained — and still unit-tested by tools/test_reprompt_stances.cpp — not
+    // deleted, so the loop can be resurrected. Not called on any live path.
+
     /** Build the user turn for the "selfcheck" stance: does the oscillator's
      *  translation of the prompt actually arrive in the result?
      *

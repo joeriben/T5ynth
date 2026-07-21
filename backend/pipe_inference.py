@@ -3453,6 +3453,12 @@ def main():
                     return run_instruct(text, _dir, _dev, system_prompt,
                                         max_new_tokens=max_new_tokens)
 
+                # DEPRECATED (LCO self-check deactivated 2026-07-21): the product no
+                # longer sends `correction`/`previous` — the C++ bake stopped running
+                # the self-listen / compare / correct loop (PromptPanel.cpp
+                # T5YNTH_LCO_SELFCHECK = 0). These .get()s stay for wire compatibility
+                # but now resolve to "", so build_csound_response's correction branch
+                # and _CS_CORRECTION_RULE (csound_orch.py) are dead code, retained.
                 response = build_csound_response(request.get("text") or "", csound_llm,
                                                  request.get("correction") or "",
                                                  request.get("previous") or "")

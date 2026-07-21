@@ -101,6 +101,11 @@ static juce::String syspVerniedlicher()
 
 static juce::String syspSelfCheck()
 {
+    // DEPRECATED (LCO self-check deactivated 2026-07-21): still dispatched by
+    // stanceSystemPrompt("selfcheck") so the unit test keeps building, but no live
+    // path requests the "selfcheck" stance — see PromptPanel.cpp's disabled
+    // T5YNTH_LCO_SELFCHECK loop. Retained, not deleted.
+    //
     // The one JUDGING stance. Every clause below survived a measurement on the
     // real 7B (A/B 2026-07-21); earlier drafts that read better all failed.
     //
@@ -296,6 +301,10 @@ juce::String buildDcoStanceUserTurn (const juce::String& stanceKey,
     return {};   // "off" or unknown
 }
 
+// ── DEPRECATED: LCO self-check helpers (deactivated, BJ 2026-07-21) ──────────
+// composeHeardDescription / selfCheckReportsMismatch / buildSelfCheckUserTurn
+// below feed the self-listen / compare loop, which is switched OFF in the product
+// (PromptPanel.cpp T5YNTH_LCO_SELFCHECK = 0). Retained + unit-tested, not deleted.
 juce::String composeHeardDescription (const juce::String& tags,
                                       const juce::String& spectral)
 {

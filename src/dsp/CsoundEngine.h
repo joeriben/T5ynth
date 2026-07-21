@@ -120,7 +120,12 @@ public:
      *
      *  @return interleaved-free mono samples at `sampleRate`; EMPTY on a compile
      *          error, a contract violation (ksmps/nchnls/MYFLT), a silent render,
-     *          or in a build without Csound. Never throws. */
+     *          or in a build without Csound. Never throws.
+     *
+     *  DEPRECATED (LCO self-check deactivated, BJ 2026-07-21): this offline probe
+     *  existed only to feed the self-listen / compare loop, which is switched OFF
+     *  (PromptPanel.cpp T5YNTH_LCO_SELFCHECK = 0). No live caller remains.
+     *  Retained, not deleted. */
     static std::vector<float> renderBareOscillator (const std::string& orchestraText,
                                                     double sampleRate     = 48000.0,
                                                     double freqHz         = 220.0,

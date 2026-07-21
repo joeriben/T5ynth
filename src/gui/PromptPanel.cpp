@@ -5,10 +5,18 @@
 #include "../PluginProcessor.h"
 #include "../dsp/BlockParams.h"
 #include "../inference/RepromptStances.h"
-#include "../dsp/CsoundEngine.h"   // renderBareOscillator: the self-check's probe tone
+#include "../dsp/CsoundEngine.h"   // renderBareOscillator (DEPRECATED: self-check probe)
 #include <thread>
 #include <cmath>
 #include <cstring>
+
+// LCO self-check master switch — DEACTIVATED / DEPRECATED (BJ 2026-07-21,
+// "self check ist eine katastrophe"). 0 = the self-listen / compare / correct
+// loop in triggerDcoBake() is compiled out; a bake authors the orchestra once
+// and plays it. The loop and every helper it drives are retained (each marked
+// DEPRECATED), not deleted, so flipping this to 1 resurrects them unchanged.
+// Full rationale at triggerDcoBake()'s #if T5YNTH_LCO_SELFCHECK.
+#define T5YNTH_LCO_SELFCHECK 0
 
 namespace
 {
@@ -2427,6 +2435,19 @@ void PromptPanel::triggerDcoBake()
         });
       };
 
+        // ── SELF-CHECK DEACTIVATED — DEPRECATED (BJ 2026-07-21) ──────────────────
+        // "self check ist eine katastrophe": the self-listen / describe / compare /
+        // correct loop is switched OFF. A bake now authors the orchestra ONCE and
+        // plays it — no bare-oscillator probe, no CLAP description, no comparer
+        // verdict, no correction pass, and no "Self-check" card section. The loop is
+        // retained verbatim under the (compiled-out) T5YNTH_LCO_SELFCHECK switch so
+        // the machinery is preserved-and-marked, not deleted — see the #else path for
+        // the active bake. Every helper it drives carries a matching DEPRECATED
+        // banner: RepromptStances::{syspSelfCheck, composeHeardDescription,
+        // buildSelfCheckUserTurn, selfCheckReportsMismatch}, PromptPanel::
+        // formatSelfCheck, CsoundEngine::renderBareOscillator, and the backend
+        // build_csound_response correction branch (_CS_CORRECTION_RULE).
+#if T5YNTH_LCO_SELFCHECK
         // ── Listen, compare, correct ────────────────────────────────────────────
         // Each pass: author → publish (the sound is playable NOW) → render it bare
         // → let the listener describe it → let a second model compare description
@@ -2552,6 +2573,16 @@ void PromptPanel::triggerDcoBake()
                                     self->dcoSelfCheck_),
                 juce::dontSendNotification);
         });
+#else
+        // ── Deactivated bake: author once, publish, done ────────────────────────
+        // publish() with moreToCome=false releases the busy flag on BOTH success
+        // and honest failure, so this single call is the whole body — no probe, no
+        // listen, no correction. bakeSeq is still bumped at the call site to
+        // invalidate any stale in-flight card; nothing here consumes it now.
+        juce::ignoreUnused(bakeSeq);
+        auto authored = pipePtr->authorCsoundOrchestra(text);
+        publish(authored, /*attempt=*/0, /*moreToCome=*/false);
+#endif
     }).detach();
 }
 
