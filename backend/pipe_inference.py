@@ -3592,18 +3592,19 @@ def main():
                                               t_device, max_new))
                 continue
 
-            # Csound orchestra author (the CORRECT backend, 2026-07-17): the same
-            # language-UNDERSTANDING 7B that drives the wavetable path routes the
-            # whole prompt to closed-enum lexicon KEYS (technique incl. a "a > b"
-            # morph chain, adjectives, motion); backend/csound_orch.py renders
-            # those keys as REAL Csound idioms (vco2+kpw PWM, foscili FM, tanh
-            # waveshaping dirt, a k-rate additive bank for a genuine spectral
-            # morph) -- never a static partial table. No audio-model dependency,
-            # dispatched before audio-model routing like translate/interpret; a
-            # missing coder model raises the standard error frame. LLM-FIRST, NO
-            # FALLBACK (csound_orch returns ok=false if nothing maps).
+            # The LCO: the LLM WRITES the Csound orchestra. One prompt, one
+            # inference against the curated library of real idioms
+            # (backend/lco_write.py), one orchestra, and it runs. Morph, loop,
+            # mix and motion are IN the emitted code because the model writes
+            # them -- Csound is a programming language, and a loop is code.
+            # Python assembles the prompt, wraps the body in the host scaffold
+            # and lets the compiler judge it; a failure goes back to the model
+            # with Csound's own error. No audio-model dependency, dispatched
+            # before audio-model routing like translate/interpret; a missing
+            # author model raises the standard error frame. LLM-FIRST, NO
+            # FALLBACK -- no model, no oscillator, never a prefabricated tone.
             if request.get("mode") == "csound":
-                from csound_orch import build_csound_response
+                from lco_write import build_csound_response
 
                 t_device = request.get("device", default_device)
                 if t_device == "auto" or t_device not in devices:
@@ -3631,8 +3632,7 @@ def main():
                 # longer sends `correction`/`previous` — the C++ bake stopped running
                 # the self-listen / compare / correct loop (PromptPanel.cpp
                 # T5YNTH_LCO_SELFCHECK = 0). These .get()s stay for wire compatibility
-                # but now resolve to "", so build_csound_response's correction branch
-                # and _CS_CORRECTION_RULE (csound_orch.py) are dead code, retained.
+                # but now resolve to "".
                 response = build_csound_response(request.get("text") or "", csound_llm,
                                                  request.get("correction") or "",
                                                  request.get("previous") or "")

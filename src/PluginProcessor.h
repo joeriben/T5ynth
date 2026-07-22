@@ -278,7 +278,7 @@ public:
     // LCO panel: the reading alone is a terse "saw > fm_bell" gloss; this is
     // the catalogue entry — "<key>: <why>" plus, for a parametrised key, its
     // "params: name=anchor|anchor|..." line — that each technique actually
-    // resolved to, straight from backend/csound_orch.py's params_text field).
+    // resolved to, straight from backend/lco_write.py's params_text field).
     // Same stash/persistence shape as csoundReading_ above, set by the same
     // completion lambda. Message-thread only.
     void setCsoundParamsText(const juce::String& text) { csoundParamsText_ = text; }
@@ -831,6 +831,15 @@ private:
     // importJsonPreset (message thread) syncs it after restoring a custom step
     // pattern so a stale mismatch can't reload the canned preset over it.
     int lastReverbIr = -1;
+
+    // Reverb dry/wet gains from the previous block, so the crossfade RAMPS instead
+    // of stepping. The FxMixLaw dry curve steepens to about -8.5 near mix=1.0 —
+    // ~8x the old `dry = 1-mix` slope — so a modulated Mix high in its travel would
+    // otherwise zipper at block rate. Audio thread only; reset to bypass (dry 1,
+    // wet 0) whenever the reverb is not in circuit, so re-enabling fades in.
+    float prevReverbDry_ = 1.0f;
+    float prevReverbWet_ = 0.0f;
+
     std::atomic<int> lastSeqPreset { -1 };
     // Set by setStateInformation, consumed once by the next processBlock preset
     // apply: distinguishes a DAW state-restore (preserve the saved seqSteps)

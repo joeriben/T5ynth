@@ -146,8 +146,8 @@ public:
         bool success = false;
         juce::String orchestra;     // full CSD text (Phase-3 contract, %SR% unsubstituted)
         juce::String reading;       // human "how it was heard" line(s), one per layer
-        juce::String paramsText;    // catalogue "<key>: <why>" + "params: ..." block per
-                                     // resolved technique — the panel's transparency surface
+        juce::String paramsText;    // the Csound the model actually wrote (the authored
+                                     // body) — the panel's transparency surface
         juce::String authorModel;   // directory name of the model that ACTUALLY wrote this
                                      // orchestra, straight from the backend's resolver. The
                                      // panel names this instead of a compiled-in string, so a
