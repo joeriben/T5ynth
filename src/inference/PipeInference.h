@@ -159,23 +159,21 @@ public:
      *  Auto-restarts Python if subprocess died. */
     Result generate(const Request& request);
 
-    /** Blocking prompt translation to English via the optional, separately
-     *  installed translation model — call from a background thread.
-     *  Auto-restarts Python if the subprocess died. `device` may be empty
-     *  (backend default). `modelPath` may be empty, in which case the backend
-     *  auto-discovers an installed translation model. Empty input returns
-     *  success with empty text and no subprocess round-trip. Returns
-     *  success == false (errorMessage set) when no translation model is
-     *  installed. */
+    /** Blocking prompt translation to English via the app's ONE language model
+     *  (the same model that authors the LCO's Csound) — call from a background
+     *  thread. Auto-restarts Python if the subprocess died. `device` may be empty
+     *  (backend default); the backend resolves the model itself, there is no
+     *  model to choose. Empty input returns success with empty text and no
+     *  subprocess round-trip. Returns success == false (errorMessage set) when the
+     *  language model is not installed. */
     TranslateResult translate(const juce::String& text,
-                              const juce::String& device,
-                              const juce::String& modelPath = {});
+                              const juce::String& device);
 
-    /** Blocking prompt INTERPRETATION via the same instruct model as translate(),
+    /** Blocking prompt INTERPRETATION via the same language model as translate(),
      *  but the caller supplies the system prompt (the loop "stance") — call from a
-     *  background thread. `device`/`modelPath` may be empty (backend defaults).
+     *  background thread. `device` may be empty (backend default).
      *  Empty input returns success with empty text and no round-trip. Returns
-     *  success == false (errorMessage set) when no instruct model is installed.
+     *  success == false (errorMessage set) when the language model is not installed.
      *  This is the LLM half of the CLAP→LLM semantic loop.
      *
      *  @param maxNewTokens  pass 0 for NO CAP — the key is then omitted from the
@@ -187,10 +185,6 @@ public:
      *         that decision, so any hard output limit in this system originates
      *         here. A cap does not error when it bites; it cuts mid-sentence.
      *
-     *  @param useCoderModel  route to the AUTHOR model instead of the small
-     *         translator. Measured: the 1.5B collapses to a constant answer on a
-     *         comparison task, replying "matches" to a request for dark against a
-     *         measurement of bright.
      *  @param antiCycling  the backend's repetition_penalty / no_repeat_ngram_size
      *         pair, on by default. Turn OFF for any task whose correct answer is
      *         REPETITIVE: the n-gram block spans the prompt, so a system prompt
@@ -200,8 +194,6 @@ public:
                               const juce::String& userText,
                               int maxNewTokens,
                               const juce::String& device,
-                              const juce::String& modelPath = {},
-                              bool useCoderModel = false,
                               bool antiCycling = true);
 
     /** Blocking CLAP machine-listening analysis of an audio buffer → top-k timbre

@@ -100,20 +100,15 @@ public:
     int getPreferredHeightForWidth(int width) const;
     void setEasyMode(bool easy);
 
-    // Enable/disable the controls that REQUIRE the optional translation LLM (Qwen):
-    // the Re-Prompt stance bar + coupling and the Translate flag. Driven by the
+    // Enable/disable every control that REQUIRES the language model: the LCO bake
+    // (triggerDcoBake) and its model tab, the Re-Prompt stance bar + coupling, and
+    // the Translate flag. ONE model serves all three, so this is ONE gate — a
+    // second flag could only ever say the same thing, or lie. Driven by the
     // model-settings install state (MainPanel). Disabled controls dim and explain
     // themselves via tooltip; the loop also bails (runSemanticLoopStep) so a preset
-    // with an engaged stance can't silently no-op when Qwen is absent. Message thread.
-    void setQwenAvailable(bool available);
-
-    // Enable/disable the base LCO generate path (triggerDcoBake), which REQUIRES
-    // the optional LCO coder LLM (Qwen2.5-Coder-7B). Driven by the model-settings
-    // install state (MainPanel), mirroring setQwenAvailable/qwenAvailable_ — but
-    // scoped to just the one flag triggerDcoBake reads; Re-Prompt
-    // (triggerDcoReprompt) is untouched, it already has its own qwenAvailable_
-    // gate for the (different) translation model. Message thread.
-    void setCoderAvailable(bool available);
+    // with an engaged stance can't silently no-op when the model is absent.
+    // Message thread.
+    void setLlmAvailable(bool available);
 
     /** Name the model that authored the orchestra just received, as reported by
      *  the backend resolver (`author_model` on the csound response). Empty leaves
@@ -504,8 +499,9 @@ private:
     void syncSeedModeFromCurrentState();
     void syncSeedModeButtons();
 
-    // Refresh the LCO single-tab model strip from the coder install flag: the
-    // tab shows the model at full opacity when installed and dimmed when absent.
+    // Refresh the LCO single-tab model strip from the language-model install
+    // flag: the tab shows the model at full opacity when installed and dimmed
+    // when absent.
     void updateLcoModelTabs();
 
     // Model selector (fixed 4-slot switchbox: SA3 Music | SA1 Open | SA1 Small | AudioLDM2).
@@ -515,8 +511,8 @@ private:
     // Declared BEFORE modelBtns so it outlives them (LnF destruction order).
     ModelSwitchLnF modelSwitchLnF;
     juce::TextButton modelBtns[kNumModelSlots];
-    // LCO (Advanced) model selector — a single-tab strip surfacing the LCO's one
-    // author LLM (the 7B coder), styled EXACTLY like modelBtns[] (same
+    // LCO (Advanced) model selector — a single-tab strip surfacing the LCO's
+    // author LLM (which is also the app's only LLM), styled EXACTLY like modelBtns[] (same
     // modelSwitchLnF, connected edges). Display-only for now (selection is future
     // work); the tab lights when the model is installed and dims when absent
     // (updateLcoModelTabs). Must stay declared AFTER modelSwitchLnF above (LnF
@@ -678,8 +674,8 @@ private:
     // the generation-complete callbacks, and runSemanticLoopStep's callAsync tail).
     bool loopStepInFlight_ = false;   // re-entrancy guard (like `generating`)
     bool loopEngaged_ = false;        // false→true edge = capture the human originals
-    bool qwenAvailable_ = true;       // translation LLM installed? gates Re-Prompt + Translate
-    bool coderAvailable_ = true;      // LCO coder LLM installed? gates triggerDcoBake only
+    bool llmAvailable_ = true;        // language model installed? gates LCO bake + Re-Prompt + Translate
+    bool llmAvailableKnown_ = false;  // has setLlmAvailable run once? (first call must not early-out)
     juce::String loopOriginalA_, loopOriginalB_;  // glieder[0] (the human impulse, kept by concat) — FULL, incl. musical suffix (for restore)
     juce::String loopLastA_, loopLastB_;          // glieder[-1] (the chain's own last link) — CORE only (no musical suffix)
     juce::StringArray loopRecentA_, loopRecentB_; // glieder[-3:] anti-stasis memory (last 3 links) — CORE only

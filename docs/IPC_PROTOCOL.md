@@ -220,7 +220,7 @@ All fields below are from `PipeInference::generate()` serialization
 | `device`           | string                    | —            | no       | `default_device` from handshake    | One of `"mps"`, `"cuda"`, `"cpu"`, or `"auto"`. Unknown/unreachable values fall through to `default_device`.                                    |
 | `model`            | string                    | —            | no       | `default_model` from handshake     | Model directory name. Unknown values fall through to `default_model`.                                                                          |
 | `mode`             | string                    | —            | no       | `"generate"`                       | One of `"generate"`, `"preload"`, `"interpolate"`, `"decode_cached"`, `"translate"`, `"interpret"`, `"analyze"`. The middle two are latent-cache operations; `"translate"`/`"interpret"` are optional LLM pre-steps and `"analyze"` is the CLAP machine-listening op; see §3.3.                     |
-| `model_path`       | string                    | —            | mode=translate | (absent) → auto-discover     | Absolute path to the optional translation-model directory. If absent, the server resolves `$T5YNTH_TRANSLATION_MODEL`, then `<model root>/translation/<dir>`. Ignored by all other modes. |
+| `coder_model_path` | string                    | —            | no       | (absent) → auto-discover           | Absolute path to the language-model directory used by `translate`, `interpret` and `csound`. If absent, the server resolves `$T5YNTH_CODER_MODEL` / `$LCO_MODEL_DIR`, then `<model root>/coder/<slot>`. There is ONE such model, and it is the only model these three modes use; the audio model (`model`) plays no part in them. |
 | `text`             | string                    | —            | mode=translate | falls back to `prompt_a`     | Source text to translate. The server reads `prompt_a` first, then `text`. Ignored by all other modes. |
 | `dimension_offsets`| array of `[int, number]`  | unitless     | no       | (absent) → no-op                   | DimensionExplorer offsets. Each pair is `[dim_index, delta]`. Applied as `manipulated[:, :, idx] += delta` (`pipe_inference.py:815-819`). `dim_index` out of range is silently ignored. This is a **sparse** list, not a 768-element dense array. |
 | `semantic_axes`    | object `{string → number}`| unitless     | no       | (absent) → no-op                   | Per-axis deltas. Keys MUST match the server's `SEMANTIC_AXIS_POLES` dict (`pipe_inference.py:380-389`): `music_noise`, `acoustic_electronic`, `improvised_composed`, `refined_raw`, `solo_ensemble`, `sacred_secular`, `tonal_noisy`, `rhythmic_sustained`. Unknown keys are silently dropped. `abs(value) < 0.001` is skipped. |
@@ -259,23 +259,25 @@ valid.
   a single cached latent. SA Open only.
 
 - **`"translate"`** (`backend/pipe_inference.py`, intercepted at the top of
-  the request loop): translates `prompt_a` (or `text`) to English using an
-  optional, separately-installed small instruct LLM, and responds with a
+  the request loop): translates `prompt_a` (or `text`) to English using the
+  product's ONE language model — the same model `interpret` and `csound` use
+  (`run_author_instruct` → `_resolve_coder_model_dir`) — and responds with a
   **text frame** (`\x03`, see §4.5) — NOT an audio frame. It is handled
   **before** audio-model routing, so it never requires (and never hard-fails
-  on) an audio model being installed. Decoding is greedy
-  (`do_sample=False, num_beams=1`) so it is deterministic on a given device.
+  on) an audio model being installed. Decoding is greedy (temperature 0,
+  `do_sample=False, num_beams=1`) so it is deterministic on a given device.
   The translation is intended as an ephemeral pre-step: the client keeps the
   user's original-language text and conditions generation on the returned
   English. An empty source yields an empty text frame with no model load.
 
 - **`"interpret"`** (`backend/pipe_inference.py`, intercepted at the top of
-  the request loop, right after `translate`): the SAME instruct LLM as
+  the request loop, right after `translate`): the SAME language model as
   `translate`, but the caller supplies the `system_prompt`, so the model can do
   more than translate — vary a prompt, abduct a scene from heard timbres,
   contextualise, etc. ("CLAP is the ear, the LLM is the interpreter"). Reads
   `prompt_a` (or `text`) as the user turn, optional `system_prompt` (defaults to
-  the translation prompt) and optional `max_new_tokens` (default 96); responds
+  the translation prompt) and optional `max_new_tokens` (no cap when absent —
+  the server sizes the reply to the real model context); responds
   with a **text frame** (`\x03`). Same pre-routing, greedy/deterministic decoding
   and no-audio-model guarantee as `translate`. Used by the CLAP→LLM semantic-loop
   tooling (`tools/clap_llm_loop.py`) and wired into the JUCE client as
@@ -456,12 +458,11 @@ the error frame but with a distinct success status byte:
 
 Written by `send_text()`. A client that issued the `translate` request reads
 the `uint32` length and then that many UTF-8 bytes as the English
-translation (which may be empty: length `0`, zero bytes). Because `\x03` is
-only emitted in reply to a `translate` request — which the current JUCE
-client does not yet send — older clients never observe this byte, so adding
-it is backwards-compatible on the wire. A client that issues `translate`
-MUST handle `\x03` (success) and `\x00` (error, e.g. translation model not
-installed) for the same request.
+translation (which may be empty: length `0`, zero bytes). A client that
+issues any of these three modes MUST handle `\x03` (success) and `\x00`
+(error, e.g. the language model is not installed) for the same request.
+Note the length width differs from the handshake frame (§2.4), which prefixes
+its JSON with a `uint16`.
 
 ---
 

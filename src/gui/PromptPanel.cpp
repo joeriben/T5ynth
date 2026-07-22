@@ -396,8 +396,8 @@ PromptPanel::PromptPanel(T5ynthProcessor& processor)
         // The LCO title now lives in the panel header (MainPanel::setOscEasyMode /
         // the header layout), so there is no separate subtitle line here any more.
 
-        // LCO model strip — a single tab surfacing the LCO's one author LLM (the
-        // 7B coder, Qwen2.5-Coder-7B), styled EXACTLY like a T5osc model button
+        // LCO model strip — a single tab surfacing the LCO's author LLM, which is
+        // also the app's only LLM, styled EXACTLY like a T5osc model button
         // (modelBtns[], below): same LnF, same styleSwitchButton accent. Display-
         // only for now (selection is future work); the tab lights when the model
         // is installed and dims when absent (updateLcoModelTabs, driven by
@@ -2281,14 +2281,12 @@ void PromptPanel::pollCsoundCompile()
 // ──────────────────────────────────────────────────────────────────────────────
 void PromptPanel::triggerDcoBake()
 {
-    // Same coder-model gate the retired wavetable path used: csound_author.py's
-    // backend handler resolves the SAME installed coder/interpreter model
-    // (_resolve_coder_model_dir), so "coder not installed" is still the exact
-    // failure mode blocking this trigger, and coderAvailable_ is still the
-    // right flag (set from the same model-settings install state).
-    if (! coderAvailable_)
+    // csound_author.py's backend handler resolves the SAME installed model this
+    // flag tracks (_resolve_coder_model_dir), so "language model not installed"
+    // is the exact failure mode blocking this trigger.
+    if (! llmAvailable_)
     {
-        setLcoStatus("Load the LCO coder in Settings");
+        setLcoStatus("Load the language model in Settings");
         return;
     }
 
@@ -2547,15 +2545,14 @@ void PromptPanel::triggerDcoBake()
                     // SAME string goes to the card below, so the user reads exactly
                     // what the comparison had to work with.
                     //
-                    // The comparing model is the AUTHOR model with the backend's
-                    // anti-cycling transforms OFF; both are measured requirements,
-                    // see syspSelfCheck for what each one broke.
+                    // Runs with the backend's anti-cycling transforms OFF — a
+                    // measured requirement, see syspSelfCheck for what it broke.
                     description = RepromptStances::composeHeardDescription(heard.tags,
                                                                            heard.spectral);
                     auto verdict = pipePtr->interpret(
                         RepromptStances::stanceSystemPrompt("selfcheck"),
                         RepromptStances::buildSelfCheckUserTurn(text, description),
-                        0, {}, {}, /*useCoderModel=*/true, /*antiCycling=*/false);
+                        0, {}, /*antiCycling=*/false);
                     if (verdict.success)
                         finding = verdict.text.trim();
                 }
@@ -2655,9 +2652,9 @@ void PromptPanel::triggerDcoReprompt()
         setLcoStatus("LCO: busy (generation running)");
         return;
     }
-    if (! qwenAvailable_)
+    if (! llmAvailable_)
     {
-        setLcoStatus("LCO: re-prompt needs the translation model");
+        setLcoStatus("LCO: re-prompt needs the language model");
         return;
     }
     const int stanceIdx = static_cast<int>(processorRef.getValueTreeState()
@@ -3074,20 +3071,23 @@ bool PromptPanel::playNextCachedInference()
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Qwen (translation LLM) availability gate
+// Language-model availability gate
 // ──────────────────────────────────────────────────────────────────────────────
-// Re-Prompt (stance + coupling) and the Union-Jack Translate flag both REQUIRE the
-// optional translation model. When it is absent they fail silently — Translate keeps
-// the original text, and the Re-Prompt interpreter falls back to the previous prompt
-// every step (an invisible no-op loop). So mirror the model-settings install state:
-// disable the controls (they dim) and explain why via tooltip when Qwen is missing,
-// and re-enable the instant it is installed. The loop guard in runSemanticLoopStep
-// covers any preset/automation that engaged a stance while Qwen is gone.
-void PromptPanel::setQwenAvailable(bool available)
+// One model does all three LLM jobs: it writes the LCO's Csound orchestra, it
+// translates prompts, and it is the Re-Prompt interpreter. So there is one gate.
+// When the model is absent those features fail silently — the LCO bake has nothing
+// to author with, Translate keeps the original text, and the interpreter falls back
+// to the previous prompt every step (an invisible no-op loop). Mirror the
+// model-settings install state instead: disable the controls (they dim) and explain
+// why via tooltip, and re-enable the instant it is installed. The bake gate lives at
+// the top of triggerDcoBake and the loop guard in runSemanticLoopStep covers any
+// preset/automation that engaged a stance while the model is gone.
+void PromptPanel::setLlmAvailable(bool available)
 {
-    if (available == qwenAvailable_)
-        return;   // idempotent: onTranslationModelChanged may re-send the same value
-    qwenAvailable_ = available;
+    if (llmAvailableKnown_ && available == llmAvailable_)
+        return;   // idempotent: onCoderModelChanged may re-send the same value
+    llmAvailableKnown_ = true;
+    llmAvailable_ = available;
 
     translateToggle.setEnabled(available);
     repromptStanceBar.setEnabled(available);
@@ -3098,35 +3098,21 @@ void PromptPanel::setQwenAvailable(bool available)
     translateToggle.setTooltip(available
         ? "Translate prompts to English in place "
           "(auto-regen pauses during translation, then resumes)"
-        : "Install the translation model (Qwen2.5-1.5B) in the Modelle settings "
-          "tab to translate prompts.");
+        : "Install the language model in the Modelle settings tab to translate "
+          "prompts.");
     // Empty → the stance bar's per-glyph hover tooltips resume (set in mouseMove).
     repromptStanceBar.setTooltip(available
         ? juce::String()
-        : juce::String("Re-Prompt needs the translation model (Qwen2.5-1.5B). "
-                       "Install it in the Modelle settings tab."));
+        : juce::String("Re-Prompt needs the language model. Install it in the "
+                       "Modelle settings tab."));
     dcoStanceBar.setTooltip(available
         ? juce::String()
-        : juce::String("LCO Re-Prompt needs the translation model (Qwen2.5-1.5B). "
-                       "Install it in the Modelle settings tab."));
+        : juce::String("LCO Re-Prompt needs the language model. Install it in the "
+                       "Modelle settings tab."));
 
     repromptStanceBar.repaint();   // a raw Component: reflect the dim immediately
     dcoStanceBar.repaint();        // same custom-paint dim logic as repromptStanceBar
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// LCO coder availability gate
-// ──────────────────────────────────────────────────────────────────────────────
-// The base LCO bake (triggerDcoBake) requires the optional Qwen2.5-Coder-7B model
-// (Csound orchestra authoring). Unlike qwenAvailable_ above, no control here
-// dims or grows a tooltip — the gate lives entirely at the top of triggerDcoBake,
-// so this setter records the flag AND lights/dims the single-tab LCO model strip.
-// Re-Prompt (triggerDcoReprompt) reads the DIFFERENT qwenAvailable_ flag and is
-// untouched by this one.
-void PromptPanel::setCoderAvailable(bool available)
-{
-    coderAvailable_ = available;
-    updateLcoModelTabs();
+    updateLcoModelTabs();          // the LCO model tab lights/dims with the same flag
 }
 
 // Name the model that ACTUALLY wrote the orchestra. The backend puts its
@@ -3148,7 +3134,7 @@ void PromptPanel::setLcoAuthorModel(const juce::String& modelDirName)
 // opacity when installed and dimmed (0.3, matching modelBtns[]) when absent.
 void PromptPanel::updateLcoModelTabs()
 {
-    const bool installed[kNumLcoModelSlots] = { coderAvailable_ };
+    const bool installed[kNumLcoModelSlots] = { llmAvailable_ };
     for (int i = 0; i < kNumLcoModelSlots; ++i)
     {
         dcoModelBtns[i].setAlpha(installed[i] ? 1.0f : 0.3f);
@@ -3191,11 +3177,11 @@ void PromptPanel::translatePromptsInPlace()
         return;
     }
 
-    // Defensive: the flag is disabled when Qwen is absent, so onClick can't fire —
+    // Defensive: the flag is disabled when the model is absent, so onClick can't fire —
     // but never reach the backend for a translate that can only return an error.
-    if (!qwenAvailable_)
+    if (!llmAvailable_)
     {
-        if (onStatusChanged) onStatusChanged("Translation model not installed", false);
+        if (onStatusChanged) onStatusChanged("Language model not installed", false);
         return;
     }
 
@@ -3229,7 +3215,7 @@ void PromptPanel::translatePromptsInPlace()
             const juce::String suffix = RepromptStances::trailingMusicSuffix(s);
             const juce::String core   = RepromptStances::stripMusicSuffix(s);
             if (core.isEmpty()) return s;  // nothing but tokens → leave verbatim
-            auto tr = pipePtr->translate(core, device, {});  // blocks behind any in-flight generate()
+            auto tr = pipePtr->translate(core, device);  // blocks behind any in-flight generate()
             if (tr.success && tr.text.isNotEmpty())
                 return suffix.isEmpty() ? tr.text
                                         : RepromptStances::reattachMusicSuffix(tr.text, suffix);
@@ -4028,11 +4014,11 @@ void PromptPanel::runSemanticLoopStep(const PipeInference::Result& result)
     // OPTIONAL init_audio signal carry (Resynth) is SA3-only, layered on top by
     // buildInferenceRequest when present; non-SA3 simply runs the pure word loop
     // (fresh render from the rewritten prompt each step).
-    // Qwen gate: the interpreter REQUIRES the translation model. Without it every
+    // Model gate: the interpreter REQUIRES the language model. Without it every
     // interpret() errors and the loop falls back to the previous prompt each step,
     // an invisible no-op. Bail instead. The UI also disables the stance bar; this
-    // covers a preset/automation that engaged a stance while Qwen is absent.
-    if (! qwenAvailable_)
+    // covers a preset/automation that engaged a stance while the model is absent.
+    if (! llmAvailable_)
         return;
     // (2) Re-entrancy guard: a fast Auto-Regen cadence must not stack steps, and a
     //     manual Generate mid-step must not contend on the single IPC pipe.

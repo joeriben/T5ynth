@@ -583,24 +583,17 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
         tryLoadInferenceModels(true);
     };
 
-    // Gate the Qwen-dependent controls (Re-Prompt stance + coupling, Translate flag)
-    // on the optional translation model's install state: disabled and explained via
-    // tooltip when absent, re-enabled the instant it is installed (no restart). The
-    // callback fires on transitions; this initial push sets the startup state.
-    // The LCO coder model has its OWN parallel callback (onCoderModelChanged), so
-    // installing either auxiliary model alone refreshes its dependent control live.
-    settingsPage.onTranslationModelChanged = [this](bool installed)
-    {
-        promptPanel.setQwenAvailable(installed);
-    };
-    // The LCO panel shows a single model tab (the 7B coding author,
-    // Qwen2.5-Coder-7B), lit when installed and dimmed when absent.
+    // Gate every LLM-dependent control (the LCO bake and its model tab, the
+    // Re-Prompt stance bar + coupling, the Translate flag) on the language model's
+    // install state: disabled and explained via tooltip when absent, re-enabled the
+    // instant it is installed (no restart). ONE model does all three jobs, so it is
+    // one callback and one gate. The callback fires on transitions; this initial
+    // push sets the startup state.
     settingsPage.onCoderModelChanged = [this](bool installed)
     {
-        promptPanel.setCoderAvailable(installed);
+        promptPanel.setLlmAvailable(installed);
     };
-    promptPanel.setQwenAvailable(settingsPage.isTranslationModelInstalled());
-    promptPanel.setCoderAvailable(settingsPage.isCoderModelInstalled());
+    promptPanel.setLlmAvailable(settingsPage.isCoderModelInstalled());
 
     presetScrim.onClick = [this] { hidePresetManager(); };
     presetScrim.setVisible(false);

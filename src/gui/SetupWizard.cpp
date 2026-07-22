@@ -432,32 +432,14 @@ static const KnownModel kKnownModels[] = {
       "Comfy-Org repository. By downloading you accept BOTH licenses and take\n"
       "responsibility for compliance. Copies are written into the model folder.", true, true,
       nullptr, 0, "t5gemma-b-b-ul2", kSa3MediumAssets, 2 },
-    // Optional prompt-translation LLM (NOT a generation engine). When enabled in
-    // PromptPanel, it translates an international prompt to English in the
-    // background before the audio model conditions on it (Stable Audio models are
-    // trained on English captions); the user's typed text is never changed.
-    // isGenerationEngine=false routes it through the plain HF tree-API download
-    // and keeps it out of the engine rows AND the backend-activation glue
-    // (onDownloadFinished). It installs to <model root>/translation/
-    // qwen2.5-1.5b-instruct, exactly where the backend auto-discovers it.
-    // Ungated, Apache-2.0, no HuggingFace account.
-    { "translation/qwen2.5-1.5b-instruct", "Prompt translation (Qwen2.5-1.5B)",
-      "Qwen/Qwen2.5-1.5B-Instruct", nullptr,
-      "https://www.apache.org/licenses/LICENSE-2.0",
-      "Qwen2.5-1.5B-Instruct is licensed under Apache License 2.0 (open, no "
-      "restrictions).\n\n"
-      "Optional helper: when you enable the EN toggle next to the prompt, it "
-      "translates your prompt to English in the background before the audio model "
-      "sees it. Your typed text is never changed. T5ynth does not provide the "
-      "weights; they download from HuggingFace (ungated, no account). By "
-      "downloading you accept the Apache 2.0 license.", true, false,
-      nullptr, 0 },
-    // The LCO's author LLM: it WRITES the Csound orchestra for the user's prompt.
-    // NOT a generation engine: isGenerationEngine=false routes it through the plain
-    // HF tree-API download and keeps it out of the engine rows AND the backend-
-    // activation glue (onDownloadFinished), exactly like the translation model
-    // above. It installs to <model root>/coder/gemma-4-12b-it-qat-q4_0, where the
-    // backend's _resolve_coder_model_dir finds it by that exact name.
+    // The one language model. It WRITES the Csound orchestra for the user's prompt
+    // (the LCO's author), and the same model also serves prompt translation and the
+    // Re-Prompt interpreter — there is no second, smaller LLM. NOT a generation
+    // engine: isGenerationEngine=false routes it through the plain HF tree-API
+    // download and keeps it out of the engine rows AND the backend-activation glue
+    // (onDownloadFinished). It installs to <model root>/coder/
+    // gemma-4-12b-it-qat-q4_0, where the backend's _resolve_coder_model_dir finds
+    // it by that exact name.
     //
     // A single 4-bit GGUF, quantization-aware trained by Google, run through
     // llama.cpp rather than transformers. That is what makes a 12B usable here at
@@ -468,15 +450,16 @@ static const KnownModel kKnownModels[] = {
     // static -- it passed 10 of 11 at a 12 s median, while the previous
     // Qwen2.5-Coder-7B passed 8 of 11 at 20 s and did not fit a 16 GB Mac at all.
     // Ungated (no HuggingFace account needed) and Apache-2.0.
-    { "coder/gemma-4-12b-it-qat-q4_0", "LCO coder (Gemma 4 12B, 4-bit)",
+    { "coder/gemma-4-12b-it-qat-q4_0", "Language model (Gemma 4 12B, 4-bit)",
       "google/gemma-4-12B-it-qat-q4_0-gguf", nullptr,
       "https://www.apache.org/licenses/LICENSE-2.0",
       "Gemma 4 12B (QAT, 4-bit) is licensed under Apache License 2.0 (open, no "
       "restrictions).\n\n"
-      "Required for the LCO: this coding model writes the Csound orchestra for "
-      "your prompt. About 7 GB. T5ynth does not provide the weights; they download "
-      "from HuggingFace (ungated, no account). By downloading you accept the "
-      "Apache 2.0 license.", true, false,
+      "Required for the LCO, where it writes the Csound orchestra for your prompt; "
+      "it also translates prompts to English and drives Re-Prompt. About 7 GB. "
+      "T5ynth does not provide the weights; they download from HuggingFace "
+      "(ungated, no account). By downloading you accept the Apache 2.0 "
+      "license.", true, false,
       nullptr, 0 },
 };
 static constexpr int kNumKnownModels = sizeof(kKnownModels) / sizeof(kKnownModels[0]);
@@ -926,44 +909,18 @@ SettingsPage::SettingsPage()
     }
     // familyHeaders_ (text + rect) is rebuilt in resized() and consumed by paint().
 
-    // Optional prompt-translation row — same ModelRow widget as the engines (its
-    // "PROMPT TRANSLATION" family header is painted in paint()), but the model is
+    // The language-model row — same ModelRow widget as the engines (its own
+    // "LANGUAGE MODEL" family header is painted in paint()), but the model is
     // auxiliary: clicking Download sets activeOpModelId_ and runs the normal
     // download path, which onDownloadFinished routes around the engine glue. The
     // longer explanation lives in the detail strip (updateStatus), exactly like
-    // the engines describe themselves there. No onBrowse — there is nothing to
-    // import by hand for this ungated auto-discovered helper.
-    {
-        const auto& tm = kKnownModels[catalogIndexForId("translation/qwen2.5-1.5b-instruct")];
-        translationRow_ = std::make_unique<ModelRow>("translation/qwen2.5-1.5b-instruct",
-                                                     tm.displayName,
-                                                     "translates prompts to English");
-        translationRow_->onAction = [this](juce::String id) {
-            activeOpModelId_ = id;
-            startDownload();
-        };
-        translationRow_->onCancel = [this](juce::String) { cancelDownload(); };
-        translationRow_->onOpenPage = [this](juce::String id) {
-            activeOpModelId_ = id;
-            juce::URL("https://huggingface.co/" + selectedHfRepo()).launchInDefaultBrowser();
-        };
-        translationRow_->onReveal = [](juce::String) {
-            auto dir = getAppSupportModelDir("translation/qwen2.5-1.5b-instruct");
-            if (dir.exists()) dir.revealToUser();
-        };
-        addAndMakeVisible(*translationRow_);
-    }
-
-    // Optional LCO-coder row — same ModelRow widget as the translation row (its
-    // own "LCO CODER" family header is painted in paint()), and likewise
-    // auxiliary: clicking Download sets activeOpModelId_ and runs the normal
-    // download path, which onDownloadFinished routes around the engine glue. No
-    // onBrowse — nothing to import by hand for this ungated auto-discovered helper.
+    // the engines describe themselves there. No onBrowse — nothing to import by
+    // hand for this ungated auto-discovered model.
     {
         const auto& cm = kKnownModels[catalogIndexForId("coder/gemma-4-12b-it-qat-q4_0")];
         coderRow_ = std::make_unique<ModelRow>("coder/gemma-4-12b-it-qat-q4_0",
                                                cm.displayName,
-                                               "writes the Csound orchestra for the LCO");
+                                               "writes the LCO orchestra, translates, re-prompts");
         coderRow_->onAction = [this](juce::String id) {
             activeOpModelId_ = id;
             startDownload();
@@ -982,7 +939,7 @@ SettingsPage::SettingsPage()
 
     auto found = scanForModel();
     if (found.exists()) modelPath = found;
-    updateStatus();  // calls refreshAllRows() -> refreshTranslationRow() + refreshCoderRow()
+    updateStatus();  // calls refreshAllRows() -> refreshCoderRow()
 
     setSize(500, 480);
 }
@@ -3411,8 +3368,6 @@ SettingsPage::ModelRow* SettingsPage::activeRow()
     for (auto& r : rows_)
         if (r->modelId() == downloadModelId_)
             return r.get();
-    if (translationRow_ && translationRow_->modelId() == downloadModelId_)
-        return translationRow_.get();
     if (coderRow_ && coderRow_->modelId() == downloadModelId_)
         return coderRow_.get();
     return nullptr;
@@ -3486,7 +3441,7 @@ void SettingsPage::onDownloadFinished(bool success, const juce::String& error)
     refreshAllRows();  // downloading == false now -> re-enable row action buttons
 
     // Capture whether this finished download targeted an AUXILIARY model (the
-    // optional translation LLM) before any branch below reads activeOpModelId_.
+    // language model) before any branch below reads activeOpModelId_.
     // Auxiliary models are never activated as an engine; we must restore engine
     // focus afterward on BOTH success AND failure, so the engine-centric
     // updateStatus() (called from later backend callbacks) never mistakes the
@@ -3517,7 +3472,7 @@ void SettingsPage::onDownloadFinished(bool success, const juce::String& error)
         }
         else
         {
-            // Auxiliary model (the optional translation LLM): it has landed on
+            // Auxiliary model (the language model): it has landed on
             // disk where the backend auto-discovers it; it must NOT be activated
             // as a generation engine (no setModelPath / backend restart). The
             // engine-focus restore happens below, after the success/failure split.
@@ -3626,78 +3581,52 @@ void SettingsPage::refreshAllRows()
         row->setState(installed, status, action, !busy);
     }
 
-    refreshTranslationRow();
     refreshCoderRow();
-}
-
-bool SettingsPage::translationModelInstalled() const
-{
-    auto dir = getAppSupportModelDir("translation/qwen2.5-1.5b-instruct");
-    if (!dir.isDirectory())
-        return false;
-    // Mirror the backend's _is_local_transformers_model_dir gate: a config, a
-    // tokenizer, and weights (single or sharded). Qwen-1.5B ships a single
-    // model.safetensors; the index check future-proofs larger sharded models.
-    const bool hasConfig    = dir.getChildFile("config.json").existsAsFile();
-    const bool hasTokenizer = dir.getChildFile("tokenizer.json").existsAsFile();
-    const bool hasWeights   = dir.getChildFile("model.safetensors").existsAsFile()
-                           || dir.getChildFile("model.safetensors.index.json").existsAsFile();
-    return hasConfig && hasTokenizer && hasWeights;
-}
-
-void SettingsPage::refreshTranslationRow()
-{
-    if (translationRow_ == nullptr)
-        return;
-    const bool busy      = downloading.load() || modelInstallBusy_.load();
-    const bool installed = translationModelInstalled();
-
-    // Mirror the engine rows: the active download owns its own visuals (inline
-    // meter + Cancel); otherwise show the idle Installed / Download state. The
-    // auxiliary model is always "downloadable", so it never shows a Gated state.
-    if (downloading.load() && downloadModelId_ == "translation/qwen2.5-1.5b-instruct")
-    {
-        translationRow_->enterDownloadingState();
-        return;
-    }
-    translationRow_->setState(installed,
-                              installed ? "Installed" : "Not installed",
-                              installed ? ModelRow::Action::Installed
-                                        : ModelRow::Action::Download,
-                              !busy);
-
-    // Notify the editor's Qwen gate only on an install-state TRANSITION: this is
-    // called on every refresh (construction, download/import complete, backend
-    // connect), so an unconditional fire would re-notify on unchanged state.
-    // MainPanel pushes the initial state explicitly; this catches live install/removal.
-    if (! translationInstalledKnown_ || installed != translationInstalledLast_)
-    {
-        translationInstalledKnown_ = true;
-        translationInstalledLast_  = installed;
-        if (onTranslationModelChanged)
-            onTranslationModelChanged(installed);
-    }
 }
 
 bool SettingsPage::coderModelInstalled() const
 {
-    // The install slot the backend's _resolve_coder_model_dir checks by that exact
-    // name, plus the dev drop it also accepts at <model root>/lco-coder/<dir>.
+    // Mirrors the backend's _resolve_coder_model_dir, step for step AND in its
+    // precedence order. This one gate now decides Translate, Re-Prompt AND the LCO
+    // bake, so a check that recognises FEWER models than the backend does disables
+    // all three for a user the backend would have served perfectly well.
     //
     // Deliberately NOT scanForModelById: that gates on hasModelMarker, which
     // requires .safetensors and cannot see a GGUF author at all. The gate here is
     // the BACKEND's, so the row says "Installed" exactly when the backend can open
     // the model -- a row that claims more than that hides the Download button and
     // strands the user while authoring silently goes somewhere else.
+
+    // 1. Env override. When it is set it is the ONLY answer: the backend does not
+    //    fall through to the scan below (a deployment that pins a model gets that
+    //    model or an honest failure), and neither may this. Same environment on
+    //    both sides -- the backend is our own child process.
+    for (auto* var : { "T5YNTH_CODER_MODEL", "LCO_MODEL_DIR" })
+    {
+        auto pinned = juce::SystemStats::getEnvironmentVariable(var, {}).trim();
+        if (pinned.isEmpty())
+            continue;
+        if (pinned.startsWith("~"))   // the backend expanduser()s; juce::File does not
+            pinned = juce::File::getSpecialLocation(juce::File::userHomeDirectory)
+                         .getFullPathName() + pinned.substring(1);
+        return juce::File::isAbsolutePath(pinned) && isLoadableCoderDir(juce::File(pinned));
+    }
+
+    // 2. The current install slot, by its exact name.
     const auto& cm = kKnownModels[catalogIndexForId("coder/gemma-4-12b-it-qat-q4_0")];
     for (auto& dir : modelDirCandidates("coder/gemma-4-12b-it-qat-q4_0", cm.hfRepo))
         if (isLoadableCoderDir(dir))
             return true;
-    for (auto& dir : modelDirCandidates("lco-coder", {}))
-        if (dir.isDirectory())
-            for (auto& child : dir.findChildFiles(juce::File::findDirectories, false))
-                if (isLoadableCoderDir(child))
-                    return true;
+
+    // 3. Any other model sitting in coder/ or lco-coder/ -- an install predating
+    //    the current slot, or a hand-dropped dev copy. The backend serves these,
+    //    so the UI must not pretend they are absent.
+    for (auto* sub : { "coder", "lco-coder" })
+        for (auto& dir : modelDirCandidates(sub, {}))
+            if (dir.isDirectory())
+                for (auto& child : dir.findChildFiles(juce::File::findDirectories, false))
+                    if (isLoadableCoderDir(child))
+                        return true;
     return false;
 }
 
@@ -3708,9 +3637,9 @@ void SettingsPage::refreshCoderRow()
     const bool busy      = downloading.load() || modelInstallBusy_.load();
     const bool installed = coderModelInstalled();
 
-    // Mirror refreshTranslationRow(): the active download owns its own visuals
-    // (inline meter + Cancel); otherwise show the idle Installed / Download
-    // state. Always "downloadable", so it never shows a Gated state.
+    // Mirror the engine rows: the active download owns its own visuals (inline
+    // meter + Cancel); otherwise show the idle Installed / Download state. The
+    // auxiliary model is always "downloadable", so it never shows a Gated state.
     if (downloading.load() && downloadModelId_ == "coder/gemma-4-12b-it-qat-q4_0")
     {
         coderRow_->enterDownloadingState();
@@ -3722,10 +3651,12 @@ void SettingsPage::refreshCoderRow()
                                   : ModelRow::Action::Download,
                         !busy);
 
-    // Notify the editor's coder gate only on an install-state TRANSITION (mirrors
-    // refreshTranslationRow above): this runs on every refresh, so an unconditional
-    // fire would re-notify on unchanged state. Lets a coder-only install refresh the
-    // base LCO bake gate live, without a reopen.
+    // Notify the editor's language-model gate only on an install-state TRANSITION:
+    // this is called on every refresh (construction, download/import complete,
+    // backend connect), so an unconditional fire would re-notify on unchanged
+    // state. MainPanel pushes the initial state explicitly; this catches a live
+    // install/removal, so the LCO bake, Translate and Re-Prompt all come alive
+    // without a reopen.
     if (! coderInstalledKnown_ || installed != coderInstalledLast_)
     {
         coderInstalledKnown_ = true;
@@ -3753,39 +3684,23 @@ void SettingsPage::updateStatus()
     const auto display   = selectedModelDisplay();
     const auto targetPath = getAppSupportModelDir(id).getFullPathName();
 
-    // The optional translation helper is auxiliary (not a generation engine): it
-    // has its own install gate and never activates a backend, so describe it on
-    // its own terms rather than running the engine installed/active logic below.
-    if (id == "translation/qwen2.5-1.5b-instruct")
-    {
-        if (translationModelInstalled())
-            setInstructionsText(instructionsLabel,
-                display + " is installed. Enable it per prompt with the EN button "
-                "next to the prompt; your typed text is never changed.");
-        else
-            setInstructionsText(instructionsLabel,
-                "Optional helper -- translates your prompt to English in the "
-                "background before the audio model sees it (Stable Audio models are "
-                "trained on English captions); your typed text is never changed. "
-                "Toggle it per prompt with the EN button. Ungated, Apache-2.0, no "
-                "HuggingFace account.\n  Target: " + targetPath);
-        return;
-    }
-
-    // The optional LCO coder is likewise auxiliary: same treatment as the
-    // translation branch above, own terms rather than the engine installed/
-    // active logic below.
+    // The language model is auxiliary (not a generation engine): it has its own
+    // install gate and never activates a backend, so describe it on its own terms
+    // rather than running the engine installed/active logic below.
     if (id == "coder/gemma-4-12b-it-qat-q4_0")
     {
         if (coderModelInstalled())
             setInstructionsText(instructionsLabel,
                 display + " is installed. The LCO (classic oscillator) uses it to "
-                "write the Csound orchestra for your prompt whenever you bake.");
+                "write the Csound orchestra for your prompt whenever you bake; the "
+                "EN button and Re-Prompt use the same model.");
         else
             setInstructionsText(instructionsLabel,
-                "Required by the LCO (classic oscillator) -- this 7B coding model "
-                "writes the Csound orchestra for your prompt. About 15 GB. Ungated, "
-                "no HuggingFace account. License: Apache 2.0 (open, no "
+                "Required by the LCO (classic oscillator) -- this model writes the "
+                "Csound orchestra for your prompt. It also translates your prompt to "
+                "English in the background when you enable the EN button (your typed "
+                "text is never changed), and it drives Re-Prompt. About 7 GB. "
+                "Ungated, no HuggingFace account. License: Apache 2.0 (open, no "
                 "restrictions).\n"
                 "  Target: " + targetPath);
         return;
@@ -4028,15 +3943,13 @@ void SettingsPage::resized()
     familyHeaders_.clear();
     const int headerH = 13;
     const int detailMin = 40;        // detail strip floor; grows on larger panels
-    // The two optional auxiliary rows below the engines (prompt translation +
-    // LCO coder) SHARE one "OPTIONAL MODELS" family header, so their fixed
-    // vertical cost is one top gap + one header + two engine-height
-    // rows. Reserve it in the row budget so the engine rows shrink to fit instead
-    // of pushing the aux rows down INTO (and hiding) the detail strip. One shared
-    // header (not one per model) keeps the extra aux models from cramming the
-    // strip. The host sizes this page 300–500 px tall (MainPanel), so the rows
-    // MUST give up this space.
-    const int auxBandH = 8 + headerH + 2 * 44;   // 44 = max engine rowH (upper bound)
+    // The auxiliary row below the engines (the language model) carries its own
+    // "LANGUAGE MODEL" family header, so its fixed vertical cost is one top gap +
+    // one header + one engine-height row. Reserve it in the row budget so the
+    // engine rows shrink to fit instead of pushing the aux row down INTO (and
+    // hiding) the detail strip. The host sizes this page 300–500 px tall
+    // (MainPanel), so the rows MUST give up this space.
+    const int auxBandH = 8 + headerH + 44;   // 44 = max engine rowH (upper bound)
     int numHeaders = 0;
     for (int i = 0; i < kNumRowSpecs; ++i)
         if (kRowSpecs[i].familyHeader != nullptr) ++numHeaders;
@@ -4055,19 +3968,16 @@ void SettingsPage::resized()
         rows_[(size_t) i]->setBounds(area.removeFromTop(rowH));
     }
 
-    // The two optional auxiliary models (prompt translation + LCO coder) share
-    // ONE "OPTIONAL MODELS" family header (painted like the engine headers)
-    // above their two engine-height ModelRows, between the engine rows and the
-    // shared detail strip. One shared header, not one per model, so adding
-    // another aux model does not cram the detail strip — each ModelRow already
-    // names its own model.
+    // The language model gets its own family header (painted like the engine
+    // headers) above its engine-height ModelRow, between the engine rows and the
+    // shared detail strip. It is not a generation engine — it writes the LCO's
+    // Csound orchestra, translates prompts and drives Re-Prompt — so it sits
+    // apart from the five engines rather than among them.
     area.removeFromTop(8);
     {
         auto hr = area.removeFromTop(headerH);
-        familyHeaders_.push_back({ "OPTIONAL MODELS", hr });
+        familyHeaders_.push_back({ "LANGUAGE MODEL", hr });
     }
-    if (translationRow_ != nullptr)
-        translationRow_->setBounds(area.removeFromTop(rowH));
     if (coderRow_ != nullptr)
         coderRow_->setBounds(area.removeFromTop(rowH));
 

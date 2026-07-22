@@ -1063,8 +1063,7 @@ PipeInference::Result PipeInference::generate(const Request& request)
 }
 
 PipeInference::TranslateResult PipeInference::translate(const juce::String& text,
-                                                        const juce::String& device,
-                                                        const juce::String& modelPath)
+                                                        const juce::String& device)
 {
     const std::lock_guard<std::recursive_mutex> lock(stateMutex_);
     TranslateResult result;
@@ -1099,8 +1098,8 @@ PipeInference::TranslateResult PipeInference::translate(const juce::String& text
     json->setProperty("prompt_a", text);
     if (device.isNotEmpty())
         json->setProperty("device", device);
-    if (modelPath.isNotEmpty())
-        json->setProperty("model_path", modelPath);
+    // No model key: the backend resolves the ONE language model itself
+    // (_resolve_coder_model_dir). There is nothing here to choose between.
 
     auto jsonStr = juce::JSON::toString(juce::var(json.get()), true);
     jsonStr = jsonStr.removeCharacters("\n\r") + "\n";
@@ -1167,8 +1166,6 @@ PipeInference::InterpretResult PipeInference::interpret(const juce::String& syst
                                                         const juce::String& userText,
                                                         int maxNewTokens,
                                                         const juce::String& device,
-                                                        const juce::String& modelPath,
-                                                        bool useCoderModel,
                                                         bool antiCycling)
 {
     const std::lock_guard<std::recursive_mutex> lock(stateMutex_);
@@ -1212,16 +1209,14 @@ PipeInference::InterpretResult PipeInference::interpret(const juce::String& syst
     // mid-sentence cut, not an error.
     if (maxNewTokens > 0)
         json->setProperty("max_new_tokens", maxNewTokens);
-    // Both keys are omitted at their default so every existing request is
-    // byte-identical on the wire and the backend keeps its own defaults.
-    if (useCoderModel)
-        json->setProperty("use_coder_model", true);
+    // Omitted at its default so an unchanged request stays byte-identical on the
+    // wire and the backend keeps its own defaults.
     if (! antiCycling)
         json->setProperty("anti_cycle", false);
     if (device.isNotEmpty())
         json->setProperty("device", device);
-    if (modelPath.isNotEmpty())
-        json->setProperty("model_path", modelPath);
+    // No model key: as in translate() above, the backend resolves the one
+    // language model itself.
 
     auto jsonStr = juce::JSON::toString(juce::var(json.get()), true);
     jsonStr = jsonStr.removeCharacters("\n\r") + "\n";

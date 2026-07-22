@@ -46,25 +46,15 @@ public:
     /** Called when a model becomes available (after download or browse). */
     std::function<void()> onModelReady;
 
-    /** Fired when the OPTIONAL translation model's install state TRANSITIONS
-     *  (download / import / removal), with the new installed flag. Lets the editor
-     *  enable or disable the Qwen-dependent controls (Re-Prompt, Translate) live. */
-    std::function<void(bool)> onTranslationModelChanged;
-
-    /** Fired when the OPTIONAL LCO coder model's install state TRANSITIONS
-     *  (download / import / removal), with the new installed flag. Lets the editor
-     *  enable the coder-dependent base LCO bake live (mirrors
-     *  onTranslationModelChanged) so a coder-only install needs no reopen. */
+    /** Fired when the language model's install state TRANSITIONS (download /
+     *  import / removal), with the new installed flag. One model serves all three
+     *  LLM-dependent features, so this single callback lets the editor bring the
+     *  LCO bake, Translate and Re-Prompt to life live, without a reopen. */
     std::function<void(bool)> onCoderModelChanged;
 
-    /** True iff the optional prompt-translation LLM (Qwen) is installed on disk.
-     *  Public wrapper over the internal install gate for the editor's UI gating. */
-    bool isTranslationModelInstalled() const { return translationModelInstalled(); }
-
-    /** True iff the optional LCO coder LLM (Qwen2.5-Coder-7B) is installed on
-     *  disk, at either the in-app Download slot or the lco-coder/ dev-drop
-     *  location. Public wrapper over the internal install gate for the editor's
-     *  UI gating (mirrors isTranslationModelInstalled()). */
+    /** True iff the language model is installed on disk, at either the in-app
+     *  Download slot or the lco-coder/ dev-drop location. Public wrapper over the
+     *  internal install gate for the editor's UI gating. */
     bool isCoderModelInstalled() const { return coderModelInstalled(); }
 
     static juce::File getAppSupportModelDir();
@@ -87,35 +77,21 @@ private:
     // the on-disk scan. Cheap and idempotent: each ModelRow caches its visual
     // state and only repaints on an actual change (idle-CPU safe).
     void refreshAllRows();
-    // Refresh the optional translation-model ROW (installed light / status /
-    // button, or download mode if its download is active) from the on-disk
-    // install check. Called at the end of refreshAllRows().
-    void refreshTranslationRow();
-    // True iff the optional prompt-translation LLM is fully installed on disk
-    // (config.json + tokenizer.json + model weights — mirrors the backend's
-    // _is_local_transformers_model_dir gate).
-    bool translationModelInstalled() const;
-    // Refresh the optional LCO-coder ROW (installed light / status / button, or
+    // Refresh the language-model ROW (installed light / status / button, or
     // download mode if its download is active) from the on-disk install check.
-    // Called at the end of refreshAllRows(), mirroring refreshTranslationRow() --
-    // including its transition-latch fire of onCoderModelChanged, so installing the
-    // coder alone (without touching the translation model) refreshes the gate live.
+    // Called at the end of refreshAllRows(), including its transition-latch fire
+    // of onCoderModelChanged so an install refreshes the gate live.
     void refreshCoderRow();
-    // True iff the optional LCO coder LLM is installed on disk, checking BOTH
-    // locations the backend's _resolve_coder_model_dir (pipe_inference.py)
-    // accepts: the in-app Download slot (<model root>/coder/...) and a manually
-    // dropped dev copy (<model root>/lco-coder/...). Mirrors
-    // translationModelInstalled() via the same scanForModelById/hasModelMarker
-    // install-check machinery every other row uses.
+    // True iff the language model is installed on disk, checking BOTH locations
+    // the backend's _resolve_coder_model_dir (pipe_inference.py) accepts: the
+    // in-app Download slot (<model root>/coder/...) and a manually dropped dev
+    // copy (<model root>/lco-coder/...).
     bool coderModelInstalled() const;
-    // Transition latch for onTranslationModelChanged: refreshTranslationRow() is called
-    // on every refresh (construction, download/import, backend connect), so it notifies
-    // only when `installed` actually changes. `known` stays false until the first
-    // refresh; MainPanel also pushes an explicit initial state, so a missed ctor-time
-    // fire (callback not wired yet) is harmless.
-    bool translationInstalledLast_  = false;
-    bool translationInstalledKnown_ = false;
-    // Transition latch for onCoderModelChanged, exactly as the translation pair above.
+    // Transition latch for onCoderModelChanged: refreshCoderRow() is called on
+    // every refresh (construction, download/import, backend connect), so it
+    // notifies only when `installed` actually changes. `known` stays false until
+    // the first refresh; MainPanel also pushes an explicit initial state, so a
+    // missed ctor-time fire (callback not wired yet) is harmless.
     bool coderInstalledLast_  = false;
     bool coderInstalledKnown_ = false;
     void timerCallback() override;
@@ -261,18 +237,12 @@ private:
     struct FamilyHeader { juce::String text; juce::Rectangle<int> bounds; };
     std::vector<FamilyHeader> familyHeaders_;
 
-    // Optional prompt-translation row — visually identical to the engine rows
-    // (its own "PROMPT TRANSLATION" family header is drawn in paint()), but the
-    // model is an auxiliary asset: it never activates as a generation engine, so
-    // its installed-check uses translationModelInstalled() and onDownloadFinished
-    // routes around the engine-activation glue. Kept out of rows_ so the
-    // engine-row loop stays purely about generation engines.
-    std::unique_ptr<ModelRow> translationRow_;
-
-    // Optional LCO-coder row — same shape as translationRow_ (own "LCO CODER"
-    // family header is drawn in paint()); also an auxiliary asset (never a
-    // generation engine), so its installed-check uses coderModelInstalled() and
-    // onDownloadFinished routes around the engine-activation glue the same way.
+    // The language-model row — visually identical to the engine rows (its own
+    // "LANGUAGE MODEL" family header is drawn in paint()), but the model is an
+    // auxiliary asset: it never activates as a generation engine, so its
+    // installed-check uses coderModelInstalled() and onDownloadFinished routes
+    // around the engine-activation glue. Kept out of rows_ so the engine-row loop
+    // stays purely about generation engines.
     std::unique_ptr<ModelRow> coderRow_;
 
     std::unique_ptr<juce::FileChooser> fileChooser;

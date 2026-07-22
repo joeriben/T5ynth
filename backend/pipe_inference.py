@@ -945,14 +945,14 @@ def _resolve_coder_model_dir(request):
     Precedence:
       1. request["coder_model_path"]              — explicit path from the client
       2. $T5YNTH_CODER_MODEL / $LCO_MODEL_DIR     — override (dev/testing)
-      3. <model root>/coder/qwen2.5-coder-7b-instruct — the authoritative 7B coder
-                                                    install slot (checked by EXACT
-                                                    name, so it wins even if an
-                                                    older coder dir also exists)
-      4. <model root>/coder/<dir>                 — auto-discovered installed coder
+      3. <model root>/coder/<_CODER_SLOT>         — the authoritative install slot
+                                                    (checked by EXACT name, so it
+                                                    wins even if an older coder dir
+                                                    also exists)
+      4. <model root>/coder/<dir>                 — auto-discovered installed model
          <model root>/lco-coder/<dir>                (dev/legacy drop)
     The retired "LCO interpreter" (interpret/qwen2.5-7b-instruct) is NOT resolved:
-    the LCO author is the 7B coding model or nothing (LLM-first, no fallback).
+    it is this model or nothing (LLM-first, no fallback).
     """
     explicit = (request.get("coder_model_path")
                 or os.environ.get("T5YNTH_CODER_MODEL")
@@ -961,15 +961,14 @@ def _resolve_coder_model_dir(request):
         candidate = Path(explicit).expanduser()
         return candidate if _is_local_coder_model_dir(candidate) else None
 
-    # The LCO's author is a 7B CODING model (Qwen2.5-Coder-7B-Instruct) that
-    # WRITES the Csound orchestra for the prompt. Check its exact, current
-    # install slot FIRST and BY NAME rather than folding it into the sorted
-    # directory scan below: that scan sorts alphabetically, so a leftover
-    # `coder/qwen2.5-coder-3b-instruct` from a previous install would sort
-    # BEFORE (and shadow) `coder/qwen2.5-coder-7b-instruct`. Checking the
-    # authoritative name explicitly makes the 7B coder win regardless of
-    # whatever else is sitting in coder/. The env overrides above stay supreme
-    # (a deployment that deliberately pins a model still wins).
+    # Check the exact, current install slot FIRST and BY NAME rather than folding
+    # it into the sorted directory scan below: that scan sorts alphabetically, so a
+    # leftover model from a previous install can sort BEFORE (and shadow) the one
+    # the user actually installed -- that is how a stale 3B silently took over
+    # authoring for an afternoon. Checking the authoritative name explicitly makes
+    # the current model win regardless of whatever else is sitting in coder/. The
+    # env overrides above stay supreme (a deployment that deliberately pins a model
+    # still wins).
     for base in _model_search_base_dirs():
         authoritative = base / "coder" / _CODER_SLOT
         if _is_local_coder_model_dir(authoritative):
@@ -985,9 +984,9 @@ def _resolve_coder_model_dir(request):
                     return child
 
     # No fallback beyond the coder dirs above: the retired "LCO interpreter"
-    # (interpret/qwen2.5-7b-instruct) is deliberately NOT resolved — the LCO
-    # author is the 7B coding model or nothing (LLM-first). A missing model
-    # returns None and the caller raises the standard error frame.
+    # (interpret/qwen2.5-7b-instruct) and the retired 1.5B translator are
+    # deliberately NOT resolved — it is this model or nothing (LLM-first). A
+    # missing model returns None and the caller raises the standard error frame.
     return None
 
 
@@ -3564,17 +3563,11 @@ def main():
                 t_device = request.get("device", default_device)
                 if t_device == "auto" or t_device not in devices:
                     t_device = default_device
-                # The self-check judges with the SAME model that authored the
-                # orchestra, not the small translator: measured 2026-07-20, the
-                # 1.5B collapses to a constant answer on a comparison task (it
-                # replied "matches" to a prompt asking for dark against a
-                # measurement of bright), while the author model gets it right.
-                # Resolved the same way mode="csound" resolves it, so the check
-                # follows whatever the user loaded in Settings.
-                # `use_coder_model` is still accepted on the wire but no longer
-                # selects anything: there IS only the author model now. The flag
-                # existed because the self-check needed the bigger model while
-                # Re-Prompt was stuck on the 1.5B — the split it named is gone.
+                # Resolved the same way mode="csound" resolves it, so every
+                # interpretation follows whatever the user loaded in Settings.
+                # The retired `use_coder_model` flag once picked the author model
+                # over the small translator; with one model there is nothing left
+                # to pick, and neither side sends it any more.
                 system_prompt = request.get("system_prompt") or TRANSLATION_SYSTEM_PROMPT
                 source_text = request.get("prompt_a") or request.get("text") or ""
                 # No default cap (see run_instruct): only an explicit request value
