@@ -589,22 +589,14 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     {
         promptPanel.setQwenAvailable(installed);
     };
-    // The LCO panel surfaces BOTH its LLMs as a two-tab strip (coder Qwen2.5-Coder-3B
-    // | interpreter Qwen2.5-7B); each tab lights when its model is installed and dims
-    // when absent. The two install callbacks feed the two tabs independently, so
-    // installing/removing either model alone updates the correct tab live — neither
-    // is preferred over the other, both are always shown.
+    // The LCO panel shows a single model tab (the 7B coding author,
+    // Qwen2.5-Coder-7B), lit when installed and dimmed when absent.
     settingsPage.onCoderModelChanged = [this](bool installed)
     {
         promptPanel.setCoderAvailable(installed);
     };
-    settingsPage.onInterpreterModelChanged = [this](bool installed)
-    {
-        promptPanel.setInterpreterAvailable(installed);
-    };
     promptPanel.setQwenAvailable(settingsPage.isTranslationModelInstalled());
     promptPanel.setCoderAvailable(settingsPage.isCoderModelInstalled());
-    promptPanel.setInterpreterAvailable(settingsPage.isInterpreterModelInstalled());
 
     presetScrim.onClick = [this] { hidePresetManager(); };
     presetScrim.setVisible(false);

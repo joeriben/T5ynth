@@ -108,18 +108,12 @@ public:
     void setQwenAvailable(bool available);
 
     // Enable/disable the base LCO generate path (triggerDcoBake), which REQUIRES
-    // the optional LCO coder LLM (Qwen2.5-Coder-3B). Driven by the model-settings
+    // the optional LCO coder LLM (Qwen2.5-Coder-7B). Driven by the model-settings
     // install state (MainPanel), mirroring setQwenAvailable/qwenAvailable_ — but
     // scoped to just the one flag triggerDcoBake reads; Re-Prompt
     // (triggerDcoReprompt) is untouched, it already has its own qwenAvailable_
     // gate for the (different) translation model. Message thread.
     void setCoderAvailable(bool available);
-
-    /** The LCO panel surfaces BOTH of its LLMs as a two-tab strip: the coder
-     *  (Qwen2.5-Coder-3B, slot 0) and the interpreter (Qwen2.5-7B, slot 1).
-     *  setCoderAvailable above lights/dims the coder tab; this lights/dims the
-     *  interpreter tab. Driven by the model-settings install state (MainPanel). */
-    void setInterpreterAvailable(bool available);
     bool isEasyMode() const { return easyMode_; }
     bool hasHiddenActiveState() const;
 
@@ -505,9 +499,8 @@ private:
     void syncSeedModeFromCurrentState();
     void syncSeedModeButtons();
 
-    // Refresh the LCO two-tab model strip from the coder/interpreter install
-    // flags: each tab shows its model at full opacity when installed and dimmed
-    // when absent, so BOTH LCO LLMs stay visible (the missing one greyed).
+    // Refresh the LCO single-tab model strip from the coder install flag: the
+    // tab shows the model at full opacity when installed and dimmed when absent.
     void updateLcoModelTabs();
 
     // Model selector (fixed 4-slot switchbox: SA3 Music | SA1 Open | SA1 Small | AudioLDM2).
@@ -517,16 +510,15 @@ private:
     // Declared BEFORE modelBtns so it outlives them (LnF destruction order).
     ModelSwitchLnF modelSwitchLnF;
     juce::TextButton modelBtns[kNumModelSlots];
-    // LCO (Advanced) model selector — a TWO-tab strip surfacing BOTH LCO LLMs
-    // (slot 0 = coder Qwen2.5-Coder-3B, slot 1 = interpreter Qwen2.5-7B), styled
-    // EXACTLY like modelBtns[] (same modelSwitchLnF, connected edges). Display-only
-    // for now (selection is future work); each tab lights when its model is
-    // installed and dims when absent (updateLcoModelTabs). Must stay declared AFTER
-    // modelSwitchLnF above (LnF destruction-order rule: the LnF must outlive every
-    // component whose setLookAndFeel points at it).
-    static constexpr int kNumLcoModelSlots = 2;   // coder (3B) + interpreter (7B)
+    // LCO (Advanced) model selector — a single-tab strip surfacing the LCO's one
+    // author LLM (the 7B coder), styled EXACTLY like modelBtns[] (same
+    // modelSwitchLnF, connected edges). Display-only for now (selection is future
+    // work); the tab lights when the model is installed and dims when absent
+    // (updateLcoModelTabs). Must stay declared AFTER modelSwitchLnF above (LnF
+    // destruction-order rule: the LnF must outlive every component whose
+    // setLookAndFeel points at it).
+    static constexpr int kNumLcoModelSlots = 1;   // the 7B coder (the LCO author)
     juce::TextButton dcoModelBtns[kNumLcoModelSlots];
-    bool interpreterAvailable_ = false;           // LCO interpreter (Qwen2.5-7B) installed? lights slot 1
     juce::String modelSlotIds[kNumModelSlots];  // resolved model directory name per slot
     juce::Rectangle<int> modelSwitchBounds;
 

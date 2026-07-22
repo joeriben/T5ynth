@@ -885,12 +885,14 @@ def _resolve_coder_model_dir(request):
     Precedence:
       1. request["coder_model_path"]              — explicit path from the client
       2. $T5YNTH_CODER_MODEL / $LCO_MODEL_DIR     — override (dev/testing)
-      3. <model root>/qwen2.5-7b-instruct         — the 7B instruct INTERPRETER,
-         <model root>/interpret/qwen2.5-7b-instruct  flat legacy dev-drop OR the
-                                                    in-app Settings download slot
-                                                    (preferred when installed)
+      3. <model root>/coder/qwen2.5-coder-7b-instruct — the authoritative 7B coder
+                                                    install slot (checked by EXACT
+                                                    name, so it wins even if an
+                                                    older coder dir also exists)
       4. <model root>/coder/<dir>                 — auto-discovered installed coder
-      5. <model root>/lco-coder/<dir>             — dev drop (the local coder dir)
+         <model root>/lco-coder/<dir>                (dev/legacy drop)
+    The retired "LCO interpreter" (interpret/qwen2.5-7b-instruct) is NOT resolved:
+    the LCO author is the 7B coding model or nothing (LLM-first, no fallback).
     """
     explicit = (request.get("coder_model_path")
                 or os.environ.get("T5YNTH_CODER_MODEL")
@@ -899,24 +901,19 @@ def _resolve_coder_model_dir(request):
         candidate = Path(explicit).expanduser()
         return candidate if _is_local_transformers_model_dir(candidate) else None
 
-    # mode=="csound" is a language-UNDERSTANDING task (the model reads the WHOLE
-    # prompt into lexicon keys from backend/csound_lexicon.py), NOT a code-authoring
-    # one. The small coder drop under lco-coder/ empirically cannot interpret
-    # prompts — it dumps the catalogue instead — so when the 7B instruct
-    # interpreter is installed directly at the model root it is PREFERRED over
-    # the coder drop. The env overrides above stay supreme (a deployment that
-    # deliberately pins a coder still wins); a missing model still falls through
-    # to None below and the caller raises — there is NO fallback.
+    # The LCO's author is a 7B CODING model (Qwen2.5-Coder-7B-Instruct) that
+    # WRITES the Csound orchestra for the prompt. Check its exact, current
+    # install slot FIRST and BY NAME rather than folding it into the sorted
+    # directory scan below: that scan sorts alphabetically, so a leftover
+    # `coder/qwen2.5-coder-3b-instruct` from a previous install would sort
+    # BEFORE (and shadow) `coder/qwen2.5-coder-7b-instruct`. Checking the
+    # authoritative name explicitly makes the 7B coder win regardless of
+    # whatever else is sitting in coder/. The env overrides above stay supreme
+    # (a deployment that deliberately pins a model still wins).
     for base in _model_search_base_dirs():
-        # Accept BOTH the in-app Settings download slot
-        # (interpret/qwen2.5-7b-instruct, where SetupWizard installs it) and a flat
-        # legacy dev-drop (qwen2.5-7b-instruct). These used to disagree — the
-        # Settings download landed under interpret/ but the resolver only looked at
-        # the flat path, so a user-downloaded 7B was never picked up (BJ 2026-07-21).
-        for rel in ("qwen2.5-7b-instruct", "interpret/qwen2.5-7b-instruct"):
-            interpreter = base / rel
-            if _is_local_transformers_model_dir(interpreter):
-                return interpreter
+        coder7b = base / "coder" / "qwen2.5-coder-7b-instruct"
+        if _is_local_transformers_model_dir(coder7b):
+            return coder7b
 
     for base in _model_search_base_dirs():
         for sub in ("coder", "lco-coder"):
@@ -926,6 +923,11 @@ def _resolve_coder_model_dir(request):
             for child in sorted(coder_dir.iterdir()):
                 if _is_local_transformers_model_dir(child):
                     return child
+
+    # No fallback beyond the coder dirs above: the retired "LCO interpreter"
+    # (interpret/qwen2.5-7b-instruct) is deliberately NOT resolved — the LCO
+    # author is the 7B coding model or nothing (LLM-first). A missing model
+    # returns None and the caller raises the standard error frame.
     return None
 
 

@@ -57,27 +57,15 @@ public:
      *  onTranslationModelChanged) so a coder-only install needs no reopen. */
     std::function<void(bool)> onCoderModelChanged;
 
-    /** Fired when the OPTIONAL LCO interpreter model's install state TRANSITIONS
-     *  (download / import / removal), with the new installed flag. Mirrors
-     *  onCoderModelChanged; lights/dims the interpreter (7B) tab of the LCO
-     *  model strip the instant it changes (the coder tab has its own callback). */
-    std::function<void(bool)> onInterpreterModelChanged;
-
     /** True iff the optional prompt-translation LLM (Qwen) is installed on disk.
      *  Public wrapper over the internal install gate for the editor's UI gating. */
     bool isTranslationModelInstalled() const { return translationModelInstalled(); }
 
-    /** True iff the optional LCO coder LLM (Qwen2.5-Coder-3B) is installed on
+    /** True iff the optional LCO coder LLM (Qwen2.5-Coder-7B) is installed on
      *  disk, at either the in-app Download slot or the lco-coder/ dev-drop
      *  location. Public wrapper over the internal install gate for the editor's
      *  UI gating (mirrors isTranslationModelInstalled()). */
     bool isCoderModelInstalled() const { return coderModelInstalled(); }
-
-    /** True iff the optional LCO interpreter LLM (Qwen2.5-7B-Instruct) is
-     *  installed on disk, at either the in-app Download slot or the flat
-     *  qwen2.5-7b-instruct/ dev-drop location. Public wrapper over the internal
-     *  install gate for the editor's UI gating (mirrors isCoderModelInstalled()). */
-    bool isInterpreterModelInstalled() const { return interpreterModelInstalled(); }
 
     static juce::File getAppSupportModelDir();
     static juce::File getAppSupportModelDir(const juce::String& modelId);
@@ -120,17 +108,6 @@ private:
     // translationModelInstalled() via the same scanForModelById/hasModelMarker
     // install-check machinery every other row uses.
     bool coderModelInstalled() const;
-    // Refresh the optional LCO-interpreter ROW (installed light / status /
-    // button, or download mode if its download is active) from the on-disk
-    // install check. Called at the end of refreshAllRows(), mirroring
-    // refreshCoderRow() -- including its transition-latch fire of
-    // onInterpreterModelChanged.
-    void refreshInterpreterRow();
-    // True iff the optional LCO interpreter LLM (Qwen2.5-7B-Instruct) is
-    // installed on disk, checking BOTH the in-app Download slot
-    // (<model root>/interpret/qwen2.5-7b-instruct) and a flat legacy dev-drop
-    // (<model root>/qwen2.5-7b-instruct). Mirrors coderModelInstalled().
-    bool interpreterModelInstalled() const;
     // Transition latch for onTranslationModelChanged: refreshTranslationRow() is called
     // on every refresh (construction, download/import, backend connect), so it notifies
     // only when `installed` actually changes. `known` stays false until the first
@@ -141,9 +118,6 @@ private:
     // Transition latch for onCoderModelChanged, exactly as the translation pair above.
     bool coderInstalledLast_  = false;
     bool coderInstalledKnown_ = false;
-    // Transition latch for onInterpreterModelChanged, exactly as the coder pair above.
-    bool interpreterInstalledLast_  = false;
-    bool interpreterInstalledKnown_ = false;
     void timerCallback() override;
     void setModelInstallBusy(bool busy, const juce::String& statusText = {});
     juce::Result importModelDirectoryForId(const juce::String& modelId,
@@ -300,13 +274,6 @@ private:
     // generation engine), so its installed-check uses coderModelInstalled() and
     // onDownloadFinished routes around the engine-activation glue the same way.
     std::unique_ptr<ModelRow> coderRow_;
-
-    // Optional LCO-interpreter row — same shape as coderRow_; shares the one
-    // "OPTIONAL MODELS" family header with the translation + coder rows (built in
-    // resized()). Auxiliary asset (never a generation engine), so its installed-
-    // check uses interpreterModelInstalled() and onDownloadFinished routes around
-    // the engine-activation glue the same way.
-    std::unique_ptr<ModelRow> interpreterRow_;
 
     std::unique_ptr<juce::FileChooser> fileChooser;
 
