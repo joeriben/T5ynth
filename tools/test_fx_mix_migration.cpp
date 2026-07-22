@@ -76,8 +76,15 @@ int main()
         { "delay Digital", PID::delayMix,  PID::delayType,  DelayType::Digital, 1, 1.0 },
         { "delay Tape",    PID::delayMix,  PID::delayType,  DelayType::Tape,    1, 1.0 / FxMixLaw::kDelayTrimTape },
         { "delay BBD",     PID::delayMix,  PID::delayType,  DelayType::Bbd,     1, 1.0 / FxMixLaw::kDelayTrimBbd  },
-        { "reverb Plate",  PID::reverbMix, PID::reverbType, ReverbType::Medium, 1, 2.0 },
-        { "reverb Algo",   PID::reverbMix, PID::reverbType, ReverbType::Algo,   2, 1.0 / FxMixLaw::kReverbTrimAlgo },
+        // The plate's OLD path gain is the retired kPlateWetGain = 2.0 comp times
+        // the IR's own gain (= 1 / its trim) — NOT 2.0 alone. An energy-normalised
+        // EMT-140 IR is 14-18 dB below unity, which is exactly the fact the first
+        // measurement missed.
+        { "reverb Plate Dk", PID::reverbMix, PID::reverbType, ReverbType::Dark,   1, 2.0 / FxMixLaw::kReverbTrimPlateDark },
+        { "reverb Plate Md", PID::reverbMix, PID::reverbType, ReverbType::Medium, 1, 2.0 / FxMixLaw::kReverbTrimPlateMedium },
+        { "reverb Plate Br", PID::reverbMix, PID::reverbType, ReverbType::Bright, 1, 2.0 / FxMixLaw::kReverbTrimPlateBright },
+        { "reverb Freeverb", PID::reverbMix, PID::reverbType, ReverbType::Algo,   2, 1.0 / FxMixLaw::kReverbTrimAlgo },
+        { "reverb Freeverb+",PID::reverbMix, PID::reverbType, ReverbType::AlgoPlus, 2, 1.0 / FxMixLaw::kReverbTrimAlgoPlus },
     };
 
     // 1. The balance a preset had must survive the migration.
@@ -94,7 +101,7 @@ int main()
                                               - db(oldRatio(stored, c.oldPow, c.oldGain))));
         }
         char msg[128];
-        std::snprintf(msg, sizeof msg, "%-14s worst drift %.4f dB", c.label, worst);
+        std::snprintf(msg, sizeof msg, "%-16s worst drift %.4f dB", c.label, worst);
         check(worst < 0.05, msg);
     }
 
@@ -107,7 +114,7 @@ int main()
         const float once = mixOf(t, c.mixId);
         Calibration::migrateValueTree(t, Calibration::kEpoch);   // re-loaded after a save
         char msg[128];
-        std::snprintf(msg, sizeof msg, "%-14s stays at %.4f", c.label, once);
+        std::snprintf(msg, sizeof msg, "%-16s stays at %.4f", c.label, once);
         check(std::fabs(mixOf(t, c.mixId) - once) < 1e-6f, msg);
     }
 
@@ -118,7 +125,7 @@ int main()
         auto t = makeTree(c.mixId, 0.30f, c.typeId, c.type, false);
         Calibration::migrateValueTree(t, 4);
         char msg[128];
-        std::snprintf(msg, sizeof msg, "%-14s still %.4f", c.label, mixOf(t, c.mixId));
+        std::snprintf(msg, sizeof msg, "%-16s still %.4f", c.label, mixOf(t, c.mixId));
         check(std::fabs(mixOf(t, c.mixId) - 0.30f) < 1e-6f, msg);
     }
 
@@ -131,7 +138,7 @@ int main()
         Calibration::migrateValueTree(t0, 4);
         Calibration::migrateValueTree(t1, 4);
         char msg[128];
-        std::snprintf(msg, sizeof msg, "%-14s 0 -> %.3f, 1 -> %.3f", c.label,
+        std::snprintf(msg, sizeof msg, "%-16s 0 -> %.3f, 1 -> %.3f", c.label,
                       mixOf(t0, c.mixId), mixOf(t1, c.mixId));
         check(mixOf(t0, c.mixId) == 0.0f && mixOf(t1, c.mixId) == 1.0f, msg);
     }

@@ -652,14 +652,17 @@ namespace DelayType {
     enum : int { Off = 0, Digital = 1, PingPong = 2, Tape = 3, Bbd = 4,
                  TapeWarm = 5, TapeWild = 6, BbdClean = 7, BbdDegraded = 8,
                  TapeOld = 9 };
+    // Every member of a family carries its character in its name — the plain
+    // "Tape" and "BBD" said nothing about which of their four/three characters
+    // they were, which is confusing in a menu listing all of them side by side.
     static constexpr ChoiceEntry kEntries[] = {
         { "off",         "Off"         },
         { "stereo",      "Digital"     },   // clean dual-mono; key kept for preset back-compat
         { "pingpong",    "Ping-Pong"   },   // true ping-pong (mono-sum in, cross feedback)
-        { "tape3",       "Tape"        },   // 3-head tape echo (RE-201 1:2:3 spacing). Key
+        { "tape3",       "Tape Clean"  },   // 3-head tape echo (RE-201 1:2:3 spacing). Key
                                             // "tape3" kept for back-compat; the retired 2-head
                                             // "tape2" folds in on load (see setStateInformation).
-        { "bbd",         "BBD"         },   // bucket-brigade (analog): dark steep recon, grit
+        { "bbd",         "BBD Warm"    },   // bucket-brigade (analog): dark steep recon, grit
         { "tape_warm",   "Tape Warm"   },   // tape + deeper wow + subtle 9.7 Hz zitter
         { "tape_wild",   "Tape Wild"   },   // tape + heavy wow + 6.0 + 9.7 Hz flutter
         { "bbd_clean",   "BBD Clean"   },   // BBD + bright recon + low grit (DM-2 style)
@@ -775,12 +778,28 @@ namespace FxMixLaw {
     static constexpr float kDelayTrimClean  = 1.000f;  // Digital / Ping-Pong: +0.00 dB
     static constexpr float kDelayTrimTape   = 0.579f;  // Tape family:  +4.74 dB (3 heads)
     static constexpr float kDelayTrimBbd    = 1.338f;  // BBD family:   -2.53 dB (recon + HP loss)
-    static constexpr float kReverbTrimAlgo  = 0.533f;  // Freeverb wetLevel=1.0: +5.46 dB @ Room 0.7
-    static constexpr float kReverbTrimPlate = 1.000f;  // EMT-140 IRs are already unity
-    static constexpr float kReverbTrimAlgoPlus = 0.744f;  // Freeverb+ : +2.57 dB @ Room 0.7.
-                                                          // Quieter than bare Freeverb because the
-                                                          // combs are fed from the normalised
-                                                          // reflection bank, not the raw input.
+    // The REVERB trims come from a different meter than the delay ones, because a
+    // steady tone cannot measure a reverb: it samples the wet path only where the
+    // stimulus has harmonics, and it says nothing about the tail, which is the part
+    // a reverb is judged by. Worse, the first version of that measurement read the
+    // plates while juce::dsp::Convolution was still loading their IR on its
+    // background thread — Convolution passes audio through UNCHANGED until the swap
+    // lands, so it measured the dry signal and reported the perfectly plausible
+    // "the EMT-140 IRs are already unity". They are not: energy-normalised IRs
+    // (Convolution::Normalise::yes) spread the same energy over a long dense decay,
+    // which is quiet at every instant. Measured properly (tools/measure_reverb_tail.cpp:
+    // K-weighted loudness of a 300 ms note AND its tail, channel powers summed,
+    // never mono-folded) the plates sat 14.0 / 16.7 / 18.5 dB below Freeverb —
+    // audible as "Bright is barely there, Dark is fine", which is what it sounded like.
+    //
+    // Freeverb at Room 0.7 is the anchor: its level was judged right, so every
+    // other type is trimmed onto it.
+    static constexpr float kReverbTrimAlgo  = 0.533f;  // ANCHOR. Freeverb wetLevel=1.0 @ Room 0.7
+    static constexpr float kReverbTrimAlgoPlus = 0.703f;  // -2.40 dB vs Freeverb: the combs are fed
+                                                          // from the normalised reflection bank
+    static constexpr float kReverbTrimPlateDark   = 2.670f;  // -13.99 dB vs Freeverb
+    static constexpr float kReverbTrimPlateMedium = 3.646f;  // -16.70 dB
+    static constexpr float kReverbTrimPlateBright = 4.483f;  // -18.50 dB
 
     inline float delayTrim(int baseMode)
     {
@@ -790,9 +809,15 @@ namespace FxMixLaw {
     }
     inline float reverbTrim(int reverbType)
     {
-        if (reverbType == ReverbType::Algo)     return kReverbTrimAlgo;
-        if (reverbType == ReverbType::AlgoPlus) return kReverbTrimAlgoPlus;
-        return kReverbTrimPlate;
+        switch (reverbType)
+        {
+            case ReverbType::Algo:     return kReverbTrimAlgo;
+            case ReverbType::AlgoPlus: return kReverbTrimAlgoPlus;
+            case ReverbType::Dark:     return kReverbTrimPlateDark;
+            case ReverbType::Medium:   return kReverbTrimPlateMedium;
+            case ReverbType::Bright:   return kReverbTrimPlateBright;
+            default:                   return kReverbTrimPlateMedium;   // Off: see the note below
+        }
     }
 
     // ── Migration (calibration epoch 5) ──
@@ -817,11 +842,14 @@ namespace FxMixLaw {
     }
     inline float migrateReverbMix(float mOld, int reverbType)
     {
-        // Plate's old path gain was the retired kPlateWetGain = 2.0 comp, not the
-        // IR itself; Algo's was the untrimmed Freeverb, and Algo alone was squared.
-        return reverbType == ReverbType::Algo
-            ? migrateMix(mOld, 2, 1.0f / kReverbTrimAlgo)
-            : migrateMix(mOld, 1, 2.0f);
+        // The old path gain is the raw wet path (= 1 / its trim) times whatever
+        // extra gain the old code applied on top: nothing for the algorithmic
+        // types, the retired kPlateWetGain = 2.0 comp for the plates. Algo alone
+        // squared the knob.
+        const float raw = 1.0f / reverbTrim(reverbType);
+        return ReverbType::isAlgorithmic(reverbType)
+            ? migrateMix(mOld, 2, raw)
+            : migrateMix(mOld, 1, 2.0f * raw);
     }
     // An effect stored as Off still migrates (against the plate / clean-delay path):
     // the parked value is a knob position in the OLD law's units, and leaving it

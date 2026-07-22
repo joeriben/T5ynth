@@ -129,6 +129,7 @@ static void curve(const char* name, double wetRel,
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
+    juce::ScopedJuceInitialiser_GUI juceInit;
 
     std::vector<float> dryL, dryR;
     makeSteady(dryL, dryR);
@@ -217,6 +218,12 @@ int main()
                 db(algoWet), 1.0 / algoWet);
     std::printf("  Freeverb+ (room 0.7) : %+6.2f dB   -> trim %.3f\n",
                 db(algoPlusWet), 1.0 / algoPlusWet);
+    // NOTE: a steady tone is the wrong meter for a reverb TAIL, and this loop also
+    // has to wait out juce::dsp::Convolution's background IR load — until the swap
+    // lands the convolution passes audio through unchanged, which measures as a
+    // flattering "the IRs are already unity". tools/measure_reverb_tail.cpp is the
+    // meter the reverb trims actually come from; this column is only the
+    // steady-state cross-check.
     double plateWet = 1.0;
     for (auto& ir : irs)
     {
@@ -224,9 +231,15 @@ int main()
         rv.prepare(SR, BS);
         rv.setMix(1.0f);
         rv.loadImpulseResponse(ir.data, static_cast<size_t>(ir.size));
+        {
+            juce::AudioBuffer<float> silence(2, BS);
+            for (int i = 0; i < 40; ++i) { juce::Thread::sleep(25); silence.clear(); rv.processBlock(silence); }
+        }
+        const int type = ir.name[0] == 'B' ? ReverbType::Bright
+                       : ir.name[0] == 'M' ? ReverbType::Medium : ReverbType::Dark;
         const double g = wetGain([&](juce::AudioBuffer<float>& b) {
             rv.processBlock(b);
-            b.applyGain(FxMixLaw::kReverbTrimPlate);   // exactly what the processor does
+            b.applyGain(FxMixLaw::reverbTrim(type));   // exactly what the processor does
         }, dryL, dryR);
         std::printf("  Plate %s (trimmed)   : %+6.2f dB\n", ir.name, db(g));
         if (ir.name[0] == 'M') plateWet = g;
