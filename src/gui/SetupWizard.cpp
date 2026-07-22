@@ -39,6 +39,29 @@ static bool hasModelMarker(const juce::File& dir)
     return weightBytes >= kMinWeightBytes;
 }
 
+// Mirrors the backend's `_is_local_transformers_model_dir`
+// (backend/pipe_inference.py): a config, a tokenizer, and weights transformers
+// can actually RESOLVE -- single-file, or the shard map of a multi-file
+// checkpoint.
+//
+// hasModelMarker above is NOT a substitute for a transformers model dir. It
+// proves only that some .safetensors exist somewhere below the directory, so a
+// sharded install whose model.safetensors.index.json never arrived passes it:
+// the row then reports "Installed", hides the Download button, and leaves no way
+// to repair -- while from_pretrained finds no weights at all and the backend's
+// resolver quietly walks on to whatever OTHER coder it can find.
+static bool isLoadableTransformersDir(const juce::File& dir)
+{
+    if (! dir.isDirectory())
+        return false;
+    const bool hasConfig    = dir.getChildFile("config.json").existsAsFile();
+    const bool hasTokenizer = dir.getChildFile("tokenizer.json").existsAsFile()
+                           || dir.getChildFile("spiece.model").existsAsFile();
+    const bool hasWeights   = dir.getChildFile("model.safetensors").existsAsFile()
+                           || dir.getChildFile("model.safetensors.index.json").existsAsFile();
+    return hasConfig && hasTokenizer && hasWeights;
+}
+
 // A model must live in its OWN folder. Importing a SHARED user folder (Downloads,
 // Desktop, the home dir, a volume root) is refused, for two reasons: the import
 // MOVES the selected directory into the app's model folder, so accepting
@@ -109,8 +132,13 @@ static bool isEssentialDiffusersFile(const juce::String& remotePath)
     // (4 shards, 15 GB): the download completed, the Model Manager showed
     // "Installed", and the model could not be loaded. Every sharded repo the
     // in-app downloader installs is affected.
-    if (path.endsWith(".safetensors.index.json")
-        || path.endsWith(".bin.index.json"))
+    // Deliberately NOT `.bin.index.json`: the rule below fetches only
+    // `.safetensors` weights, so a bin-sharded repo would land its shard map with
+    // zero shards behind it -- which flips the backend's load gate from
+    // correctly-false to wrongly-true and hands a weightless directory to
+    // from_pretrained instead of failing cleanly. Add bin shards first if such a
+    // repo is ever added to the catalogue.
+    if (path.endsWith(".safetensors.index.json"))
         return true;
 
     // Root-level config/tokenizer files for flat transformers repos (t5-base).
@@ -3610,13 +3638,19 @@ bool SettingsPage::coderModelInstalled() const
     // accepts: the in-app Download slot at <model root>/coder/qwen2.5-coder-7b-
     // instruct, or a manually dropped dev copy at <model root>/lco-coder/qwen2.5-
     // coder-7b-instruct. scanForModelById covers BOTH the current and legacy
-    // per-user install roots (plus the HF cache) for each -- the same
-    // hasModelMarker gate every other row's install check already uses, so the
-    // coder row agrees with the rest of the Model Manager on what "installed" means.
+    // per-user install roots (plus the HF cache) for each.
+    //
+    // The found directory must then pass the BACKEND's load gate, not merely
+    // hasModelMarker: this model ships as four shards, and an install missing
+    // model.safetensors.index.json satisfies hasModelMarker while transformers
+    // cannot load it. Reporting that as "Installed" hides the Download button and
+    // strands the user, and the backend resolver silently falls through to
+    // another coder. Mirror translationModelInstalled() and agree with what the
+    // backend can actually open.
     const auto& cm = kKnownModels[catalogIndexForId("coder/qwen2.5-coder-7b-instruct")];
-    if (scanForModelById("coder/qwen2.5-coder-7b-instruct", cm.hfRepo).exists())
+    if (isLoadableTransformersDir(scanForModelById("coder/qwen2.5-coder-7b-instruct", cm.hfRepo)))
         return true;
-    return scanForModelById("lco-coder/qwen2.5-coder-7b-instruct", {}).exists();
+    return isLoadableTransformersDir(scanForModelById("lco-coder/qwen2.5-coder-7b-instruct", {}));
 }
 
 void SettingsPage::refreshCoderRow()
