@@ -449,7 +449,11 @@ MainPanel::MainPanel(T5ynthProcessor& processor)
     oscModeToggle.setColour(juce::TextButton::textColourOffId, kOscCol);
     oscModeToggle.setColour(juce::TextButton::textColourOnId, kOscCol);
     oscModeToggle.setTooltip("Switch oscillator mode: T5osc (neural generator) / LCO (language-controlled)");
-    oscModeToggle.onClick = [this] { setOscEasyMode(!oscEasyMode, true); };
+    oscModeToggle.onClick = [this] {
+        const bool wantNeural = !oscEasyMode;
+        setOscEasyMode(wantNeural, true);
+        applyOscModeToEngine(wantNeural);
+    };
     addAndMakeVisible(oscModeToggle);
 
     // Semantic Axes | Dim Explorer — a 2-segment switch (switchbox template, same
@@ -1582,6 +1586,39 @@ void MainPanel::setOscEasyMode(bool easy, bool persist)
 
     resized();
     repaint();
+}
+
+void MainPanel::applyOscModeToEngine(bool neural)
+{
+    // The toggle IS the paradigm switch (BlockParams.h: engineMode's Lco/Csound
+    // values ARE the LCO, Sampler/Wavetable/Granular are the neural T5osc), so
+    // it owns the engine too. Without this the panel flipped and the previous
+    // paradigm kept sounding: switching LCO -> T5osc left the authored orchestra
+    // playing, and only a SUCCESSFUL generation happened to restore the engine —
+    // never on a failed one, and never at all in a session that started in
+    // Csound (an LCO preset / DAW state has no stashed engine to restore).
+    //
+    // Called ONLY from the user's own toggle click: setOscEasyMode's other
+    // callers (startup default, preset load) get their engine mode from state
+    // that is already authoritative, and must not have it rewritten from the
+    // panel's GUI state.
+    if (neural)
+    {
+        processorRef.restoreNeuralEngineMode();
+        return;
+    }
+
+    // Back to the LCO: return to the exact paradigm the toggle left — Csound,
+    // or the legacy Lco wavetable a restored v5 preset baked. Only when the
+    // toggle has never left one does the authored-orchestra test decide.
+    // OPEN (BJ's call): with nothing ever authored in the session the engine is
+    // deliberately left alone, so the last neural sample keeps sounding under
+    // an LCO panel until the first bake. Pairing it would mean switching to an
+    // orchestra nobody wrote (an empty orchestra text is the engine's BUILT-IN
+    // one, which does sound) — a language oscillator making sound with no
+    // language behind it.
+    if (!processorRef.restoreLanguageEngineMode() && processorRef.hasCsoundOrchestra())
+        processorRef.forceCsoundEngineMode();
 }
 
 bool MainPanel::hasOscHiddenActiveState() const

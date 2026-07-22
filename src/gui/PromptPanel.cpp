@@ -2430,7 +2430,15 @@ void PromptPanel::triggerDcoBake()
             // orchestra text. requestCsoundOrchestra() always queues + returns
             // true; the actual compile runs on the processor's own background
             // thread (handleAsyncUpdate), tracked below.
-            self->processorRef.forceCsoundEngineMode();
+            //
+            // Only while the LCO is still the ACTIVE paradigm: authoring takes
+            // seconds to minutes, and the toggle stays live throughout, so a
+            // user who has moved on to T5osc in the meantime would otherwise get
+            // the engine yanked into Csound under a neural panel by a bake they
+            // already left behind. The orchestra is handed over either way — it
+            // is what switching back to the LCO then sounds.
+            if (! self->easyMode_)
+                self->processorRef.forceCsoundEngineMode();
             self->processorRef.requestCsoundOrchestra(authored.orchestra);
             self->processorRef.setCsoundReading(authored.reading);
             self->processorRef.setCsoundParamsText(authored.paramsText);

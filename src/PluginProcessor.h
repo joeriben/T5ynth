@@ -107,6 +107,32 @@ public:
      *  wavetable lock) — this path never bakes a table. */
     void forceCsoundEngineMode();
 
+    /** Counterpart to forceCsoundEngineMode(): hand the engine back to the
+     *  neural (T5osc) side. The oscillator-mode toggle is GUI state, so leaving
+     *  the LCO left the authored orchestra rendering under a T5osc panel and
+     *  only a following neural generation ever undid it — a session that
+     *  STARTED in a language mode (preset load, DAW state) has no stash, so
+     *  there it never came back at all (BJ 2026-07-22: "LCO klingt weiterhin").
+     *  Restores the stashed pre-LCO engine, falling back to Sampler (the engine
+     *  a fresh generation feeds) when there is no stash. Consumes the stash and
+     *  remembers the language mode it left for restoreLanguageEngineMode().
+     *  No-op (but still clears the stash) unless the engine currently IS on a
+     *  language mode. Message thread only. */
+    void restoreNeuralEngineMode();
+
+    /** Re-enter the language mode restoreNeuralEngineMode() last left, stashing
+     *  the neural engine on the way in exactly like forceCsoundEngineMode().
+     *  Returns false — changing nothing — when the toggle has not left one, so
+     *  the caller can decide what a first-ever switch into the LCO should do.
+     *  Message thread only. */
+    bool restoreLanguageEngineMode();
+
+    /** True when an orchestra has been authored (bake) or restored (preset) —
+     *  i.e. when a first-ever switch into the LCO has something to sound.
+     *  Empty means the BUILT-IN orchestra, so this is deliberately not the test
+     *  for "was in Csound mode": that is restoreLanguageEngineMode()'s job. */
+    bool hasCsoundOrchestra() const;
+
     // Inference cache: raw inference audio only, no duplicate prompt/model metadata.
     struct InferenceCacheEntry
     {
@@ -485,12 +511,23 @@ private:
     // loaders), audio thread reads relaxed. Any neural (re-)extraction into
     // masterOsc clears it.
     std::atomic<bool> dcoTableActive_ { false };
-    // Engine mode the user was on before a DCO bake forced Lco, or -1.
-    // The next fresh neural generation restores it (only if the mode is still
-    // Wavetable or Lco, i.e. the user didn't pick another engine in between) so a
-    // bake never permanently hijacks the neural signal path. Message thread
-    // only (loadDcoWavetable / loadGeneratedAudio / setStateInformation).
+    // Engine mode the user was on before a bake forced a language mode, or -1.
+    // Leaving the language oscillator restores it (restoreNeuralEngineMode, the
+    // sole consumer) so a bake never permanently hijacks the neural signal path.
+    // It used to be consumed by the next fresh neural generation instead, which
+    // both missed the case where no generation follows and let an unrelated
+    // audio reload (HF-boost reprocess, snapshot recall, auto-regen) pull the
+    // engine out from under an LCO panel. Message thread only (loadDcoWavetable
+    // / forceCsoundEngineMode write, restoreNeuralEngineMode / setStateInformation
+    // clear).
     int dcoPrevEngineMode_ = -1;
+    // The language mode (Csound, or legacy Lco for a restored wavetable bake)
+    // the oscillator-mode toggle last left, or -1. Its counterpart to the stash
+    // above: switching back to the LCO panel returns to exactly the paradigm the
+    // user left, rather than guessing one from whether an orchestra text exists
+    // (which is empty for the built-in orchestra and never set at all by a
+    // legacy Lco bake). Message thread only.
+    int lcoEngineMode_ = -1;
     // Bake-time inputs cached for LCO preset save (see setLcoBakeSnapshot).
     juce::String lcoPrompt_, lcoReadingA_, lcoReadingB_;
     float lcoMotionRateHz_ = 0.0f;

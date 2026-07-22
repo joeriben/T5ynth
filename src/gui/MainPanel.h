@@ -195,6 +195,10 @@ private:
     void syncInferenceCacheUi();
     void updateGenerateButtonsForCacheState(bool pulseCacheHit);
     void setOscEasyMode(bool easy, bool persist);
+    // Hands the engine to the paradigm the toggle just selected. User-click
+    // path only — see the definition's comment on why startup/preset must not
+    // call it.
+    void applyOscModeToEngine(bool neural);
     bool loadOscEasyModeSetting() const;
     void saveOscEasyModeSetting() const;
     juce::String loadSa3TierSetting() const;

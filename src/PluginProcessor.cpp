@@ -2111,6 +2111,56 @@ void T5ynthProcessor::forceCsoundEngineMode()
             engineParam->convertTo0to1(static_cast<float>(EngineMode::Csound)));
 }
 
+void T5ynthProcessor::restoreNeuralEngineMode()
+{
+    // Message thread. The exact inverse of forceCsoundEngineMode above.
+    const int cur = static_cast<int>(paramCache.engineMode->load());
+    const bool onLanguageMode = (cur == EngineMode::Csound || cur == EngineMode::Lco);
+
+    int target = dcoPrevEngineMode_;
+    if (target < 0 || target == EngineMode::Csound || target == EngineMode::Lco)
+        target = EngineMode::Sampler; // no stash to restore, or a language mode
+    // Consume the stash unconditionally: it describes where to return FROM a
+    // language mode, so once we are (or already were) on a neural engine it is
+    // spent. Leaving it behind would let a stash written three steps ago
+    // override an engine the user has since picked by hand.
+    dcoPrevEngineMode_ = -1;
+
+    if (!onLanguageMode)
+        return;                       // already on a neural engine
+
+    lcoEngineMode_ = cur;             // come back to THIS one, not a guess
+    if (auto* engineParam = parameters.getParameter(PID::engineMode))
+        engineParam->setValueNotifyingHost(
+            engineParam->convertTo0to1(static_cast<float>(target)));
+}
+
+bool T5ynthProcessor::restoreLanguageEngineMode()
+{
+    // Message thread. Mirror image of restoreNeuralEngineMode: same stash, same
+    // "don't clobber an existing stash with a language mode" rule as
+    // forceCsoundEngineMode.
+    if (lcoEngineMode_ < 0)
+        return false;
+
+    const int cur = static_cast<int>(paramCache.engineMode->load());
+    if (cur != EngineMode::Csound && cur != EngineMode::Lco)
+        dcoPrevEngineMode_ = cur;
+
+    const int target = lcoEngineMode_;
+    lcoEngineMode_ = -1;              // consumed; leaving again records it anew
+    if (auto* engineParam = parameters.getParameter(PID::engineMode))
+        engineParam->setValueNotifyingHost(
+            engineParam->convertTo0to1(static_cast<float>(target)));
+    return true;
+}
+
+bool T5ynthProcessor::hasCsoundOrchestra() const
+{
+    std::lock_guard<std::mutex> lock(csoundLifecycleMutex_);
+    return csoundPendingOrchestraText_.isNotEmpty();
+}
+
 void T5ynthProcessor::releaseResources()
 {
     // The sampler-reprepare worker (samplerReprepareThreadMain) is NOT joined here
@@ -5220,25 +5270,16 @@ void T5ynthProcessor::loadGeneratedAudio(const juce::AudioBuffer<float>& audioBu
                              + " sr=" + juce::String(sr, 2)
                              + " masterBefore={" + masterSampler.debugStateString() + "}");
 
-    // A pending bake stash → the bake forced engineMode to Lco (or, since the
-    // Csound paradigm shift, forceCsoundEngineMode forced it to Csound); give
-    // the user back the engine they had, but only if they haven't picked
-    // another one since (mode still Wavetable/Lco/Csound). Deliberately keyed
-    // on the stash, NOT on dcoTableActive_: a WT-bracket edit or FX reprocess
-    // can revert the table to neural frames without restoring the engine —
-    // the stash stays pending so the next generation still returns the user's
-    // engine. Same message-thread param-write pattern as loadDcoWavetable,
-    // before the engine data lands.
-    const bool curModeIsForcedTarget = isWavetableMode()
-        || static_cast<int>(paramCache.engineMode->load()) == static_cast<int>(EngineMode::Csound);
-    if (dcoPrevEngineMode_ >= 0
-        && curModeIsForcedTarget)
-    {
-        if (auto* engineParam = parameters.getParameter(PID::engineMode))
-            engineParam->setValueNotifyingHost(
-                engineParam->convertTo0to1(static_cast<float>(dcoPrevEngineMode_)));
-    }
-    dcoPrevEngineMode_ = -1;
+    // NOTE (BJ 2026-07-22): this used to be where a bake's engine stash was
+    // spent — a fresh generation handed the user back the engine the bake had
+    // forced away. That made loading audio a paradigm switch, which is not what
+    // it is: it fired on every audio reload (HF-boost reprocess, snapshot
+    // recall, preset audio, an auto-regen landing) and could pull the engine
+    // out from under a panel still showing the LCO, while the case it was meant
+    // for — leaving the LCO — went unhandled whenever no generation followed or
+    // the session had started in a language mode with no stash to spend. The
+    // oscillator-mode toggle owns that switch now (restoreNeuralEngineMode /
+    // restoreLanguageEngineMode); loading audio only loads audio.
 
     // Store raw audio (unmodified) for preset embedding and re-apply on toggle
     if (&audioBuffer != &generatedAudioRaw)
@@ -5894,8 +5935,12 @@ void T5ynthProcessor::getStateInformation(juce::MemoryBlock& destData)
 void T5ynthProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     // A loaded state defines its own engine mode; a stale pre-bake stash must
-    // not "restore" over it when the state's audio loads below.
+    // not "restore" over it when the state's audio loads below. Same for the
+    // language mode a toggle left BEFORE this state arrived: restoring it would
+    // send the mode toggle back to a paradigm this state knows nothing about
+    // (e.g. legacy Lco over a state that came back in Csound).
     dcoPrevEngineMode_ = -1;
+    lcoEngineMode_ = -1;
 
     // Consume the caller's marker name HERE, not inside the guard block below: a
     // blob that fails the xml/tag check never reaches the guard, and a name left
