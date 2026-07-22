@@ -39,6 +39,37 @@ static bool hasModelMarker(const juce::File& dir)
     return weightBytes >= kMinWeightBytes;
 }
 
+// A model must live in its OWN folder. Importing a SHARED user folder (Downloads,
+// Desktop, the home dir, a volume root) is refused, for two reasons: the import
+// MOVES the selected directory into the app's model folder, so accepting
+// ~/Downloads would move the user's entire Downloads folder; and hasModelMarker
+// only proves that SOME .safetensors exist somewhere below the directory, so two
+// unrelated encoder files lying in Downloads were enough to light a model slot as
+// "Installed" while the actual model was never there.
+static bool isProtectedUserFolder(const juce::File& dir)
+{
+    if (dir.getParentDirectory() == dir)          // volume root ("/")
+        return true;
+
+    for (auto id : { juce::File::userHomeDirectory,      juce::File::userDesktopDirectory,
+                     juce::File::userDocumentsDirectory, juce::File::userMusicDirectory,
+                     juce::File::userPicturesDirectory,  juce::File::userMoviesDirectory,
+                     juce::File::userApplicationDataDirectory,
+                     juce::File::commonApplicationDataDirectory,
+                     juce::File::commonDocumentsDirectory,
+                     juce::File::globalApplicationsDirectory })
+        if (juce::File::getSpecialLocation(id) == dir)
+            return true;
+
+    // JUCE has no Downloads special location, so match it by name directly under
+    // the home directory — the exact case this guard exists for.
+    if (dir.getFileName().equalsIgnoreCase("Downloads")
+        && dir.getParentDirectory() == juce::File::getSpecialLocation(juce::File::userHomeDirectory))
+        return true;
+
+    return false;
+}
+
 static void setInstructionsText(juce::TextEditor& editor, const juce::String& text)
 {
     editor.setText(text, false);
@@ -1021,6 +1052,16 @@ juce::Result SettingsPage::importModelDirectoryForId(const juce::String& modelId
     if (!sourceDir.isDirectory() || !hasModelMarker(sourceDir))
         return juce::Result::fail("This directory does not contain a valid model.");
 
+    // The import MOVES this directory into the app's model folder, so a shared
+    // folder must never be accepted: importing ~/Downloads would move the whole
+    // Downloads folder (and used to make the model slot mean "whatever is in
+    // Downloads right now").
+    if (isProtectedUserFolder(sourceDir))
+        return juce::Result::fail("Refusing to import a shared system folder as a model:\n  "
+                                  + sourceDir.getFullPathName()
+                                  + "\n\nPut the model files in their own folder and "
+                                    "select that folder.");
+
     auto targetDir = getAppSupportModelDir(modelId);
     const auto sourcePath = sourceDir.getFullPathName();
     const auto targetPath = targetDir.getFullPathName();
@@ -1031,18 +1072,17 @@ juce::Result SettingsPage::importModelDirectoryForId(const juce::String& modelId
         return juce::Result::ok();
     }
 
-    const bool targetPresent = targetDir.exists() || targetDir.isSymbolicLink();
-    if (targetPresent)
+    // A slot that IS a symlink is a LEGACY import (this function used to link the
+    // source in instead of moving it). It is never valid now — a model must be a
+    // real directory inside the app's model folder — so the link is dropped and the
+    // import proceeds. Deleting a symlink removes the LINK only, never the files it
+    // points at: juce::File::deleteRecursively does not follow symlinks by default.
+    if (targetDir.isSymbolicLink())
     {
-        const auto linkedTarget = targetDir.isSymbolicLink() ? targetDir.getLinkedTarget()
-                                                             : juce::File();
-        if (hasModelMarker(targetDir)
-            && linkedTarget.getFullPathName() == sourcePath)
-        {
-            activeDir = targetDir;
-            return juce::Result::ok();
-        }
-
+        targetDir.deleteRecursively();
+    }
+    else if (targetDir.exists())
+    {
         if (!replaceExistingTarget && hasModelMarker(targetDir))
         {
             activeDir = targetDir;
@@ -1059,11 +1099,26 @@ juce::Result SettingsPage::importModelDirectoryForId(const juce::String& modelId
         return juce::Result::fail("Could not create the model directory:\n  "
                                   + parentDir.getFullPathName());
 
-    if (!sourceDir.createSymbolicLink(targetDir, false))
-        return juce::Result::fail("Could not import the model into:\n  "
+    // COPY the model INTO the models folder — never link back to wherever the user
+    // happened to leave it. A link left multi-GB weights sitting in the user's
+    // Downloads folder and made the slot mean "whatever is in Downloads right now";
+    // it also broke silently when the source was moved, renamed or cache-pruned.
+    // The user's own copy is NEVER touched: nothing outside the models folder is
+    // moved or deleted. Only a partial copy WE just wrote is cleaned up on failure.
+    if (!sourceDir.copyDirectoryTo(targetDir))
+    {
+        targetDir.deleteRecursively();
+        return juce::Result::fail("Could not copy the model into:\n  "
                                   + targetPath
                                   + "\n\nSource:\n  "
                                   + sourcePath);
+    }
+
+    if (!hasModelMarker(targetDir))
+    {
+        targetDir.deleteRecursively();
+        return juce::Result::fail("The model copy is incomplete:\n  " + targetPath);
+    }
 
     activeDir = targetDir;
     return juce::Result::ok();
