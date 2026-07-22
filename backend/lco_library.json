@@ -1,6 +1,6 @@
 {
  "generated_from": {
-  "lexicon_version": 7,
+  "lexicon_version": 8,
   "parked_tag": "parked/keys-path-csound-20260721"
  },
  "instruments": [
@@ -42,12 +42,178 @@
   {
    "key": "fm",
    "why": "plain 2-operator FM (ratio 2, index 1.5); a neutral starting sideband spread",
-   "code": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 2 - 1, 0, 40 ; sideband room\nkbtp0   min 4.0, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.4500 + 0.5500 * (1 - min(ktm0 / 2.0, 1))) ; darkens as it rings\nabl0    foscili 0.4, (kfreq * koct1), 1, 2, kbnx0, giSine ; the bell\nabt0    foscili 0.26, (kfreq * koct1) + 1.2, 1, 2, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.46, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept"
+   "code": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 2 - 1, 0, 40 ; sideband room\nkbtp0   min 4.0, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.4500 + 0.5500 * (1 - min(ktm0 / 2.0, 1))) ; darkens as it rings\nabl0    foscili 0.4, (kfreq * koct1), 1, 2, kbnx0, giSine ; the bell\nabt0    foscili 0.26, (kfreq * koct1) + 1.2, 1, 2, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.46, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept",
+   "params": {
+    "bite": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.2,
+     "note": "the peak FM index: how many sidebands the tone carries -- how bright and rich it is. As it rises the spectrum brightens steeply while the loudness stays constant (a balance stage holds the level), so only the colour moves, never the volume.",
+     "anchors": {
+      "mellow": {
+       "value": 0.13,
+       "gloss": "few sidebands, close to a pure sine -- soft and round"
+      },
+      "warm": {
+       "value": 0.27,
+       "gloss": "a warm, contained brightness"
+      },
+      "bright": {
+       "value": 0.6,
+       "gloss": "a full, singing brightness with rich sidebands"
+      },
+      "harsh": {
+       "value": 0.82,
+       "gloss": "hard and edgy, the sidebands crowding the top"
+      },
+      "screaming": {
+       "value": 1.0,
+       "gloss": "the brightest, most aggressive FM -- sidebands to the ceiling"
+      }
+     }
+    },
+    "fade": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.3333,
+     "note": "how long the bright attack rings before the tone darkens. Every FM note begins bright and loses its highs as it is held -- never its loudness. Low collapses to a dark body almost at once; high stays bright deep into the note.",
+     "anchors": {
+      "quick": {
+       "value": 0.11,
+       "gloss": "the brightness collapses almost at once, leaving a dark body"
+      },
+      "medium": {
+       "value": 0.44,
+       "gloss": "the bright attack settles into a darker sustain"
+      },
+      "long": {
+       "value": 0.89,
+       "gloss": "stays bright well into the note before it darkens"
+      }
+     }
+    },
+    "shimmer": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.6,
+     "note": "a second voice detuned a fixed few Hz above the first, so the tone beats and shimmers as the two drift. At 0 it stands perfectly still (the static escape); higher is a wider, more present warble. It is a fixed-Hz warble, equal at every pitch -- not pitch vibrato, which belongs to the synth.",
+     "anchors": {
+      "pure": {
+       "value": 0.0,
+       "gloss": "a single still tone, no beating"
+      },
+      "gentle": {
+       "value": 0.4,
+       "gloss": "a slow gentle warble as the two voices drift"
+      },
+      "shimmering": {
+       "value": 0.85,
+       "gloss": "a full shimmering beat, the voices audibly casting"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "bite=0.13  (mellow: few sidebands, close to a pure sine -- soft and round)": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 2 - 1, 0, 40 ; sideband room\nkbtp0   min 3.0, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.4500 + 0.5500 * (1 - min(ktm0 / 2.0, 1))) ; darkens as it rings\nabl0    foscili 0.4, (kfreq * koct1), 1, 2, kbnx0, giSine ; the bell\nabt0    foscili 0.26, (kfreq * koct1) + 1.2, 1, 2, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.46, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept",
+    "bite=0.27  (warm: a warm, contained brightness)": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 2 - 1, 0, 40 ; sideband room\nkbtp0   min 5.1, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.4500 + 0.5500 * (1 - min(ktm0 / 2.0, 1))) ; darkens as it rings\nabl0    foscili 0.4, (kfreq * koct1), 1, 2, kbnx0, giSine ; the bell\nabt0    foscili 0.26, (kfreq * koct1) + 1.2, 1, 2, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.46, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept",
+    "bite=0.6  (bright: a full, singing brightness with rich sidebands)": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 2 - 1, 0, 40 ; sideband room\nkbtp0   min 10.0, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.4500 + 0.5500 * (1 - min(ktm0 / 2.0, 1))) ; darkens as it rings\nabl0    foscili 0.4, (kfreq * koct1), 1, 2, kbnx0, giSine ; the bell\nabt0    foscili 0.26, (kfreq * koct1) + 1.2, 1, 2, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.46, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept",
+    "bite=0.82  (harsh: hard and edgy, the sidebands crowding the top)": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 2 - 1, 0, 40 ; sideband room\nkbtp0   min 13.3, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.4500 + 0.5500 * (1 - min(ktm0 / 2.0, 1))) ; darkens as it rings\nabl0    foscili 0.4, (kfreq * koct1), 1, 2, kbnx0, giSine ; the bell\nabt0    foscili 0.26, (kfreq * koct1) + 1.2, 1, 2, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.46, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept",
+    "bite=1.0  (screaming: the brightest, most aggressive FM -- sidebands to the ceiling)": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 2 - 1, 0, 40 ; sideband room\nkbtp0   min 16.0, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.4500 + 0.5500 * (1 - min(ktm0 / 2.0, 1))) ; darkens as it rings\nabl0    foscili 0.4, (kfreq * koct1), 1, 2, kbnx0, giSine ; the bell\nabt0    foscili 0.26, (kfreq * koct1) + 1.2, 1, 2, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.46, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept"
+   }
   },
   {
    "key": "fm_bell",
    "why": "true inharmonic bell partials (h 2.76/5.4/8.93) synthesized directly by the additive engine, no longer projected onto the harmonic grid",
-   "code": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 1.41 - 1, 0, 40 ; sideband room\nkbtp0   min 6.0, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.2417 + 0.7583 * (1 - min(ktm0 / 2.5, 1))) ; darkens as it rings\nabl0    foscili 0.4, (kfreq * koct1), 1, 1.41, kbnx0, giSine ; the bell\nabt0    foscili 0.26, (kfreq * koct1) + 1.1, 1, 1.41, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.46, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept"
+   "code": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 1.41 - 1, 0, 40 ; sideband room\nkbtp0   min 6.0, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.2417 + 0.7583 * (1 - min(ktm0 / 2.5, 1))) ; darkens as it rings\nabl0    foscili 0.4, (kfreq * koct1), 1, 1.41, kbnx0, giSine ; the bell\nabt0    foscili 0.26, (kfreq * koct1) + 1.1, 1, 1.41, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.46, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept",
+   "params": {
+    "bite": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.3333,
+     "note": "the peak FM index: how many sidebands the tone carries -- how bright and rich it is. As it rises the spectrum brightens steeply while the loudness stays constant (a balance stage holds the level), so only the colour moves, never the volume.",
+     "anchors": {
+      "mellow": {
+       "value": 0.13,
+       "gloss": "few sidebands, close to a pure sine -- soft and round"
+      },
+      "warm": {
+       "value": 0.27,
+       "gloss": "a warm, contained brightness"
+      },
+      "bright": {
+       "value": 0.6,
+       "gloss": "a full, singing brightness with rich sidebands"
+      },
+      "harsh": {
+       "value": 0.82,
+       "gloss": "hard and edgy, the sidebands crowding the top"
+      },
+      "screaming": {
+       "value": 1.0,
+       "gloss": "the brightest, most aggressive FM -- sidebands to the ceiling"
+      }
+     }
+    },
+    "fade": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.4444,
+     "note": "how long the bright attack rings before the tone darkens. Every FM note begins bright and loses its highs as it is held -- never its loudness. Low collapses to a dark body almost at once; high stays bright deep into the note.",
+     "anchors": {
+      "quick": {
+       "value": 0.11,
+       "gloss": "the brightness collapses almost at once, leaving a dark body"
+      },
+      "medium": {
+       "value": 0.44,
+       "gloss": "the bright attack settles into a darker sustain"
+      },
+      "long": {
+       "value": 0.89,
+       "gloss": "stays bright well into the note before it darkens"
+      }
+     }
+    },
+    "shimmer": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.55,
+     "note": "a second voice detuned a fixed few Hz above the first, so the tone beats and shimmers as the two drift. At 0 it stands perfectly still (the static escape); higher is a wider, more present warble. It is a fixed-Hz warble, equal at every pitch -- not pitch vibrato, which belongs to the synth.",
+     "anchors": {
+      "pure": {
+       "value": 0.0,
+       "gloss": "a single still tone, no beating"
+      },
+      "gentle": {
+       "value": 0.4,
+       "gloss": "a slow gentle warble as the two voices drift"
+      },
+      "shimmering": {
+       "value": 0.85,
+       "gloss": "a full shimmering beat, the voices audibly casting"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "bite=0.13  (mellow: few sidebands, close to a pure sine -- soft and round)": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 1.41 - 1, 0, 40 ; sideband room\nkbtp0   min 3.0, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.2417 + 0.7583 * (1 - min(ktm0 / 2.5, 1))) ; darkens as it rings\nabl0    foscili 0.4, (kfreq * koct1), 1, 1.41, kbnx0, giSine ; the bell\nabt0    foscili 0.26, (kfreq * koct1) + 1.1, 1, 1.41, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.46, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept",
+    "bite=0.27  (warm: a warm, contained brightness)": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 1.41 - 1, 0, 40 ; sideband room\nkbtp0   min 5.1, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.2417 + 0.7583 * (1 - min(ktm0 / 2.5, 1))) ; darkens as it rings\nabl0    foscili 0.4, (kfreq * koct1), 1, 1.41, kbnx0, giSine ; the bell\nabt0    foscili 0.26, (kfreq * koct1) + 1.1, 1, 1.41, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.46, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept",
+    "bite=0.6  (bright: a full, singing brightness with rich sidebands)": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 1.41 - 1, 0, 40 ; sideband room\nkbtp0   min 10.0, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.2417 + 0.7583 * (1 - min(ktm0 / 2.5, 1))) ; darkens as it rings\nabl0    foscili 0.4, (kfreq * koct1), 1, 1.41, kbnx0, giSine ; the bell\nabt0    foscili 0.26, (kfreq * koct1) + 1.1, 1, 1.41, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.46, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept",
+    "bite=0.82  (harsh: hard and edgy, the sidebands crowding the top)": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 1.41 - 1, 0, 40 ; sideband room\nkbtp0   min 13.3, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.2417 + 0.7583 * (1 - min(ktm0 / 2.5, 1))) ; darkens as it rings\nabl0    foscili 0.4, (kfreq * koct1), 1, 1.41, kbnx0, giSine ; the bell\nabt0    foscili 0.26, (kfreq * koct1) + 1.1, 1, 1.41, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.46, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept",
+    "bite=1.0  (screaming: the brightest, most aggressive FM -- sidebands to the ceiling)": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 1.41 - 1, 0, 40 ; sideband room\nkbtp0   min 16.0, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.2417 + 0.7583 * (1 - min(ktm0 / 2.5, 1))) ; darkens as it rings\nabl0    foscili 0.4, (kfreq * koct1), 1, 1.41, kbnx0, giSine ; the bell\nabt0    foscili 0.26, (kfreq * koct1) + 1.1, 1, 1.41, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.46, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept"
+   }
   },
   {
    "key": "fm_ep",
@@ -152,10 +318,10 @@
     }
    },
    "anchor_code": {
-    "ting=0.0  (none: no metal at all, just the woody body)": "kbdx0   = 1.302 + 2.898 * (1 - min(knote / 1.6, 1)) ; strike -> mellow, then holds\nktng0   = 0 + 2.05 * exp(-knote * 4.6594) ; the metal fades out of the tone\nktr0    limit 14.2, 1, sr * 0.45 / (kfreq * koct1) ; tine ratio, capped below Nyquist (see docstring: a cap, not a fix)\naevn0   foscili 0.0300, (kfreq * koct1), 1, 3, kbdx0, giSine ; body, even + odd harmonics\naodd0   foscili 0.2700, (kfreq * koct1), 1, 2, kbdx0, giSine ; body, odd harmonics only\natin0   foscili 0.2034, (kfreq * koct1), 1, ktr0, ktng0, giSine ; the inharmonic ting\nasum0   = aevn0 + aodd0 + atin0\naref0   poscil 0.5, (kfreq * koct1)\naosc0    balance asum0, aref0, 10 ; colour travels, loudness holds",
-    "ting=0.3  (soft: a faint chime on the attack)": "kbdx0   = 1.302 + 2.898 * (1 - min(knote / 1.6, 1)) ; strike -> mellow, then holds\nktng0   = 0 + 2.05 * exp(-knote * 4.6594) ; the metal fades out of the tone\nktr0    limit 14.2, 1, sr * 0.45 / (kfreq * koct1) ; tine ratio, capped below Nyquist (see docstring: a cap, not a fix)\naevn0   foscili 0.0300, (kfreq * koct1), 1, 3, kbdx0, giSine ; body, even + odd harmonics\naodd0   foscili 0.2700, (kfreq * koct1), 1, 2, kbdx0, giSine ; body, odd harmonics only\natin0   foscili 0.2034, (kfreq * koct1), 1, ktr0, ktng0, giSine ; the inharmonic ting\nasum0   = aevn0 + aodd0 + atin0\naref0   poscil 0.5, (kfreq * koct1)\naosc0    balance asum0, aref0, 10 ; colour travels, loudness holds",
+    "ting=0.0  (none: no metal at all, just the woody body)": "kbdx0   = 1.302 + 2.898 * (1 - min(knote / 1.6, 1)) ; strike -> mellow, then holds\nktng0   = 0 + 1.5 * exp(-knote * 4.6594) ; the metal fades out of the tone\nktr0    limit 14.2, 1, sr * 0.45 / (kfreq * koct1) ; tine ratio, capped below Nyquist (see docstring: a cap, not a fix)\naevn0   foscili 0.0300, (kfreq * koct1), 1, 3, kbdx0, giSine ; body, even + odd harmonics\naodd0   foscili 0.2700, (kfreq * koct1), 1, 2, kbdx0, giSine ; body, odd harmonics only\natin0   foscili 0.0000, (kfreq * koct1), 1, ktr0, ktng0, giSine ; the inharmonic ting\nasum0   = aevn0 + aodd0 + atin0\naref0   poscil 0.5, (kfreq * koct1)\naosc0    balance asum0, aref0, 10 ; colour travels, loudness holds",
+    "ting=0.3  (soft: a faint chime on the attack)": "kbdx0   = 1.302 + 2.898 * (1 - min(knote / 1.6, 1)) ; strike -> mellow, then holds\nktng0   = 0 + 1.8 * exp(-knote * 4.6594) ; the metal fades out of the tone\nktr0    limit 14.2, 1, sr * 0.45 / (kfreq * koct1) ; tine ratio, capped below Nyquist (see docstring: a cap, not a fix)\naevn0   foscili 0.0300, (kfreq * koct1), 1, 3, kbdx0, giSine ; body, even + odd harmonics\naodd0   foscili 0.2700, (kfreq * koct1), 1, 2, kbdx0, giSine ; body, odd harmonics only\natin0   foscili 0.1372, (kfreq * koct1), 1, ktr0, ktng0, giSine ; the inharmonic ting\nasum0   = aevn0 + aodd0 + atin0\naref0   poscil 0.5, (kfreq * koct1)\naosc0    balance asum0, aref0, 10 ; colour travels, loudness holds",
     "ting=0.55  (classic: the familiar tine piano strike)": "kbdx0   = 1.302 + 2.898 * (1 - min(knote / 1.6, 1)) ; strike -> mellow, then holds\nktng0   = 0 + 2.05 * exp(-knote * 4.6594) ; the metal fades out of the tone\nktr0    limit 14.2, 1, sr * 0.45 / (kfreq * koct1) ; tine ratio, capped below Nyquist (see docstring: a cap, not a fix)\naevn0   foscili 0.0300, (kfreq * koct1), 1, 3, kbdx0, giSine ; body, even + odd harmonics\naodd0   foscili 0.2700, (kfreq * koct1), 1, 2, kbdx0, giSine ; body, odd harmonics only\natin0   foscili 0.2034, (kfreq * koct1), 1, ktr0, ktng0, giSine ; the inharmonic ting\nasum0   = aevn0 + aodd0 + atin0\naref0   poscil 0.5, (kfreq * koct1)\naosc0    balance asum0, aref0, 10 ; colour travels, loudness holds",
-    "ting=1.0  (clangy: a hard bright metallic clang on every note)": "kbdx0   = 1.302 + 2.898 * (1 - min(knote / 1.6, 1)) ; strike -> mellow, then holds\nktng0   = 0 + 2.05 * exp(-knote * 4.6594) ; the metal fades out of the tone\nktr0    limit 14.2, 1, sr * 0.45 / (kfreq * koct1) ; tine ratio, capped below Nyquist (see docstring: a cap, not a fix)\naevn0   foscili 0.0300, (kfreq * koct1), 1, 3, kbdx0, giSine ; body, even + odd harmonics\naodd0   foscili 0.2700, (kfreq * koct1), 1, 2, kbdx0, giSine ; body, odd harmonics only\natin0   foscili 0.2034, (kfreq * koct1), 1, ktr0, ktng0, giSine ; the inharmonic ting\nasum0   = aevn0 + aodd0 + atin0\naref0   poscil 0.5, (kfreq * koct1)\naosc0    balance asum0, aref0, 10 ; colour travels, loudness holds"
+    "ting=1.0  (clangy: a hard bright metallic clang on every note)": "kbdx0   = 1.302 + 2.898 * (1 - min(knote / 1.6, 1)) ; strike -> mellow, then holds\nktng0   = 0 + 2.5 * exp(-knote * 4.6594) ; the metal fades out of the tone\nktr0    limit 14.2, 1, sr * 0.45 / (kfreq * koct1) ; tine ratio, capped below Nyquist (see docstring: a cap, not a fix)\naevn0   foscili 0.0300, (kfreq * koct1), 1, 3, kbdx0, giSine ; body, even + odd harmonics\naodd0   foscili 0.2700, (kfreq * koct1), 1, 2, kbdx0, giSine ; body, odd harmonics only\natin0   foscili 0.3000, (kfreq * koct1), 1, ktr0, ktng0, giSine ; the inharmonic ting\nasum0   = aevn0 + aodd0 + atin0\naref0   poscil 0.5, (kfreq * koct1)\naosc0    balance asum0, aref0, 10 ; colour travels, loudness holds"
    }
   },
   {
@@ -253,15 +419,98 @@
     }
    },
    "anchor_code": {
-    "pitched=0.0  (tom: no clear note, just a low woody thump)": "aexq0   rand 0.07, 0.5, 1          ; continuous exciter -- the skin is driven, a held note stands (31-bit: no 1.365 s loop)\nk0qf0   limit (kfreq * koct1) * 1.0000, 20, 15000\nk0qg0   = ((kfreq * koct1) * 1.0000 < 15000 ? 0.093 : 0)\na0q0   mode aexq0, k0qf0, 20.0      ; mode 1 @ x1.00, Q 20\nk0qf1   limit (kfreq * koct1) * 1.5705, 20, 15000\nk0qg1   = ((kfreq * koct1) * 1.5705 < 15000 ? 0.099 : 0)\na0q1   mode aexq0, k0qf1, 18.1      ; mode 2 @ x1.57, Q 18\nk0qf2   limit (kfreq * koct1) * 2.0995, 20, 15000\nk0qg2   = ((kfreq * koct1) * 2.0995 < 15000 ? 0.083 : 0)\na0q2   mode aexq0, k0qf2, 16.2      ; mode 3 @ x2.10, Q 16\nk0qf3   limit (kfreq * koct1) * 2.3320, 20, 15000\nk0qg3   = ((kfreq * koct1) * 2.3320 < 15000 ? 0.084 : 0)\na0q3   mode aexq0, k0qf3, 14.4      ; mode 4 @ x2.33, Q 14\nk0qf4   limit (kfreq * koct1) * 2.7123, 20, 15000\nk0qg4   = ((kfreq * koct1) * 2.7123 < 15000 ? 0.079 : 0)\na0q4   mode aexq0, k0qf4, 12.5      ; mode 5 @ x2.71, Q 13\nk0qf5   limit (kfreq * koct1) * 3.0210, 20, 15000\nk0qg5   = ((kfreq * koct1) * 3.0210 < 15000 ? 0.081 : 0)\na0q5   mode aexq0, k0qf5, 10.7      ; mode 6 @ x3.02, Q 11\nk0qf6   limit (kfreq * koct1) * 3.3095, 20, 15000\nk0qg6   = ((kfreq * koct1) * 3.3095 < 15000 ? 0.084 : 0)\na0q6   mode aexq0, k0qf6, 8.8      ; mode 7 @ x3.31, Q 9\nk0qf7   limit (kfreq * koct1) * 3.6782, 20, 15000\nk0qg7   = ((kfreq * koct1) * 3.6782 < 15000 ? 0.089 : 0)\na0q7   mode aexq0, k0qf7, 7.0      ; mode 8 @ x3.68, Q 7\naosc0    = (a0q0 * k0qg0 + a0q1 * k0qg1 + a0q2 * k0qg2 + a0q3 * k0qg3 + a0q4 * k0qg4 + a0q5 * k0qg5 + a0q6 * k0qg6 + a0q7 * k0qg7) * 3.500",
-    "pitched=0.5  (mixed: a note starts to emerge from the thump)": "aexq0   rand 0.07, 0.5, 1          ; continuous exciter -- the skin is driven, a held note stands (31-bit: no 1.365 s loop)\nk0qf0   limit (kfreq * koct1) * 1.0000, 20, 15000\nk0qg0   = ((kfreq * koct1) * 1.0000 < 15000 ? 0.093 : 0)\na0q0   mode aexq0, k0qf0, 20.0      ; mode 1 @ x1.00, Q 20\nk0qf1   limit (kfreq * koct1) * 1.5705, 20, 15000\nk0qg1   = ((kfreq * koct1) * 1.5705 < 15000 ? 0.099 : 0)\na0q1   mode aexq0, k0qf1, 18.1      ; mode 2 @ x1.57, Q 18\nk0qf2   limit (kfreq * koct1) * 2.0995, 20, 15000\nk0qg2   = ((kfreq * koct1) * 2.0995 < 15000 ? 0.083 : 0)\na0q2   mode aexq0, k0qf2, 16.2      ; mode 3 @ x2.10, Q 16\nk0qf3   limit (kfreq * koct1) * 2.3320, 20, 15000\nk0qg3   = ((kfreq * koct1) * 2.3320 < 15000 ? 0.084 : 0)\na0q3   mode aexq0, k0qf3, 14.4      ; mode 4 @ x2.33, Q 14\nk0qf4   limit (kfreq * koct1) * 2.7123, 20, 15000\nk0qg4   = ((kfreq * koct1) * 2.7123 < 15000 ? 0.079 : 0)\na0q4   mode aexq0, k0qf4, 12.5      ; mode 5 @ x2.71, Q 13\nk0qf5   limit (kfreq * koct1) * 3.0210, 20, 15000\nk0qg5   = ((kfreq * koct1) * 3.0210 < 15000 ? 0.081 : 0)\na0q5   mode aexq0, k0qf5, 10.7      ; mode 6 @ x3.02, Q 11\nk0qf6   limit (kfreq * koct1) * 3.3095, 20, 15000\nk0qg6   = ((kfreq * koct1) * 3.3095 < 15000 ? 0.084 : 0)\na0q6   mode aexq0, k0qf6, 8.8      ; mode 7 @ x3.31, Q 9\nk0qf7   limit (kfreq * koct1) * 3.6782, 20, 15000\nk0qg7   = ((kfreq * koct1) * 3.6782 < 15000 ? 0.089 : 0)\na0q7   mode aexq0, k0qf7, 7.0      ; mode 8 @ x3.68, Q 7\naosc0    = (a0q0 * k0qg0 + a0q1 * k0qg1 + a0q2 * k0qg2 + a0q3 * k0qg3 + a0q4 * k0qg4 + a0q5 * k0qg5 + a0q6 * k0qg6 + a0q7 * k0qg7) * 3.500",
-    "pitched=1.0  (timpani: a real singing pitch, a tuned kettledrum)": "aexq0   rand 0.07, 0.5, 1          ; continuous exciter -- the skin is driven, a held note stands (31-bit: no 1.365 s loop)\nk0qf0   limit (kfreq * koct1) * 1.0000, 20, 15000\nk0qg0   = ((kfreq * koct1) * 1.0000 < 15000 ? 0.093 : 0)\na0q0   mode aexq0, k0qf0, 20.0      ; mode 1 @ x1.00, Q 20\nk0qf1   limit (kfreq * koct1) * 1.5705, 20, 15000\nk0qg1   = ((kfreq * koct1) * 1.5705 < 15000 ? 0.099 : 0)\na0q1   mode aexq0, k0qf1, 18.1      ; mode 2 @ x1.57, Q 18\nk0qf2   limit (kfreq * koct1) * 2.0995, 20, 15000\nk0qg2   = ((kfreq * koct1) * 2.0995 < 15000 ? 0.083 : 0)\na0q2   mode aexq0, k0qf2, 16.2      ; mode 3 @ x2.10, Q 16\nk0qf3   limit (kfreq * koct1) * 2.3320, 20, 15000\nk0qg3   = ((kfreq * koct1) * 2.3320 < 15000 ? 0.084 : 0)\na0q3   mode aexq0, k0qf3, 14.4      ; mode 4 @ x2.33, Q 14\nk0qf4   limit (kfreq * koct1) * 2.7123, 20, 15000\nk0qg4   = ((kfreq * koct1) * 2.7123 < 15000 ? 0.079 : 0)\na0q4   mode aexq0, k0qf4, 12.5      ; mode 5 @ x2.71, Q 13\nk0qf5   limit (kfreq * koct1) * 3.0210, 20, 15000\nk0qg5   = ((kfreq * koct1) * 3.0210 < 15000 ? 0.081 : 0)\na0q5   mode aexq0, k0qf5, 10.7      ; mode 6 @ x3.02, Q 11\nk0qf6   limit (kfreq * koct1) * 3.3095, 20, 15000\nk0qg6   = ((kfreq * koct1) * 3.3095 < 15000 ? 0.084 : 0)\na0q6   mode aexq0, k0qf6, 8.8      ; mode 7 @ x3.31, Q 9\nk0qf7   limit (kfreq * koct1) * 3.6782, 20, 15000\nk0qg7   = ((kfreq * koct1) * 3.6782 < 15000 ? 0.089 : 0)\na0q7   mode aexq0, k0qf7, 7.0      ; mode 8 @ x3.68, Q 7\naosc0    = (a0q0 * k0qg0 + a0q1 * k0qg1 + a0q2 * k0qg2 + a0q3 * k0qg3 + a0q4 * k0qg4 + a0q5 * k0qg5 + a0q6 * k0qg6 + a0q7 * k0qg7) * 3.500"
+    "pitched=0.0  (tom: no clear note, just a low woody thump)": "aexq0   rand 0.07, 0.5, 1          ; continuous exciter -- the skin is driven, a held note stands (31-bit: no 1.365 s loop)\nk0qf0   limit (kfreq * koct1) * 1.0000, 20, 15000\nk0qg0   = ((kfreq * koct1) * 1.0000 < 15000 ? 0.071 : 0)\na0q0   mode aexq0, k0qf0, 20.0      ; mode 1 @ x1.00, Q 20\nk0qf1   limit (kfreq * koct1) * 1.5940, 20, 15000\nk0qg1   = ((kfreq * koct1) * 1.5940 < 15000 ? 0.101 : 0)\na0q1   mode aexq0, k0qf1, 18.1      ; mode 2 @ x1.59, Q 18\nk0qf2   limit (kfreq * koct1) * 2.1360, 20, 15000\nk0qg2   = ((kfreq * koct1) * 2.1360 < 15000 ? 0.085 : 0)\na0q2   mode aexq0, k0qf2, 16.2      ; mode 3 @ x2.14, Q 16\nk0qf3   limit (kfreq * koct1) * 2.2960, 20, 15000\nk0qg3   = ((kfreq * koct1) * 2.2960 < 15000 ? 0.088 : 0)\na0q3   mode aexq0, k0qf3, 14.4      ; mode 4 @ x2.30, Q 14\nk0qf4   limit (kfreq * koct1) * 2.6530, 20, 15000\nk0qg4   = ((kfreq * koct1) * 2.6530 < 15000 ? 0.081 : 0)\na0q4   mode aexq0, k0qf4, 12.5      ; mode 5 @ x2.65, Q 13\nk0qf5   limit (kfreq * koct1) * 2.9180, 20, 15000\nk0qg5   = ((kfreq * koct1) * 2.9180 < 15000 ? 0.083 : 0)\na0q5   mode aexq0, k0qf5, 10.7      ; mode 6 @ x2.92, Q 11\nk0qf6   limit (kfreq * koct1) * 3.1560, 20, 15000\nk0qg6   = ((kfreq * koct1) * 3.1560 < 15000 ? 0.087 : 0)\na0q6   mode aexq0, k0qf6, 8.8      ; mode 7 @ x3.16, Q 9\nk0qf7   limit (kfreq * koct1) * 3.5010, 20, 15000\nk0qg7   = ((kfreq * koct1) * 3.5010 < 15000 ? 0.091 : 0)\na0q7   mode aexq0, k0qf7, 7.0      ; mode 8 @ x3.50, Q 7\naosc0    = (a0q0 * k0qg0 + a0q1 * k0qg1 + a0q2 * k0qg2 + a0q3 * k0qg3 + a0q4 * k0qg4 + a0q5 * k0qg5 + a0q6 * k0qg6 + a0q7 * k0qg7) * 3.500",
+    "pitched=0.5  (mixed: a note starts to emerge from the thump)": "aexq0   rand 0.07, 0.5, 1          ; continuous exciter -- the skin is driven, a held note stands (31-bit: no 1.365 s loop)\nk0qf0   limit (kfreq * koct1) * 1.0000, 20, 15000\nk0qg0   = ((kfreq * koct1) * 1.0000 < 15000 ? 0.110 : 0)\na0q0   mode aexq0, k0qf0, 20.0      ; mode 1 @ x1.00, Q 20\nk0qf1   limit (kfreq * koct1) * 1.5470, 20, 15000\nk0qg1   = ((kfreq * koct1) * 1.5470 < 15000 ? 0.094 : 0)\na0q1   mode aexq0, k0qf1, 18.1      ; mode 2 @ x1.55, Q 18\nk0qf2   limit (kfreq * koct1) * 2.0630, 20, 15000\nk0qg2   = ((kfreq * koct1) * 2.0630 < 15000 ? 0.079 : 0)\na0q2   mode aexq0, k0qf2, 16.2      ; mode 3 @ x2.06, Q 16\nk0qf3   limit (kfreq * koct1) * 2.3680, 20, 15000\nk0qg3   = ((kfreq * koct1) * 2.3680 < 15000 ? 0.078 : 0)\na0q3   mode aexq0, k0qf3, 14.4      ; mode 4 @ x2.37, Q 14\nk0qf4   limit (kfreq * koct1) * 2.7715, 20, 15000\nk0qg4   = ((kfreq * koct1) * 2.7715 < 15000 ? 0.075 : 0)\na0q4   mode aexq0, k0qf4, 12.5      ; mode 5 @ x2.77, Q 13\nk0qf5   limit (kfreq * koct1) * 3.1240, 20, 15000\nk0qg5   = ((kfreq * koct1) * 3.1240 < 15000 ? 0.077 : 0)\na0q5   mode aexq0, k0qf5, 10.7      ; mode 6 @ x3.12, Q 11\nk0qf6   limit (kfreq * koct1) * 3.4630, 20, 15000\nk0qg6   = ((kfreq * koct1) * 3.4630 < 15000 ? 0.080 : 0)\na0q6   mode aexq0, k0qf6, 8.8      ; mode 7 @ x3.46, Q 9\nk0qf7   limit (kfreq * koct1) * 3.8555, 20, 15000\nk0qg7   = ((kfreq * koct1) * 3.8555 < 15000 ? 0.084 : 0)\na0q7   mode aexq0, k0qf7, 7.0      ; mode 8 @ x3.86, Q 7\naosc0    = (a0q0 * k0qg0 + a0q1 * k0qg1 + a0q2 * k0qg2 + a0q3 * k0qg3 + a0q4 * k0qg4 + a0q5 * k0qg5 + a0q6 * k0qg6 + a0q7 * k0qg7) * 3.500",
+    "pitched=1.0  (timpani: a real singing pitch, a tuned kettledrum)": "aexq0   rand 0.07, 0.5, 1          ; continuous exciter -- the skin is driven, a held note stands (31-bit: no 1.365 s loop)\nk0qf0   limit (kfreq * koct1) * 1.0000, 20, 15000\nk0qg0   = ((kfreq * koct1) * 1.0000 < 15000 ? 0.133 : 0)\na0q0   mode aexq0, k0qf0, 20.0      ; mode 1 @ x1.00, Q 20\nk0qf1   limit (kfreq * koct1) * 1.5000, 20, 15000\nk0qg1   = ((kfreq * koct1) * 1.5000 < 15000 ? 0.083 : 0)\na0q1   mode aexq0, k0qf1, 18.1      ; mode 2 @ x1.50, Q 18\nk0qf2   limit (kfreq * koct1) * 1.9900, 20, 15000\nk0qg2   = ((kfreq * koct1) * 1.9900 < 15000 ? 0.070 : 0)\na0q2   mode aexq0, k0qf2, 16.2      ; mode 3 @ x1.99, Q 16\nk0qf3   limit (kfreq * koct1) * 2.4400, 20, 15000\nk0qg3   = ((kfreq * koct1) * 2.4400 < 15000 ? 0.066 : 0)\na0q3   mode aexq0, k0qf3, 14.4      ; mode 4 @ x2.44, Q 14\nk0qf4   limit (kfreq * koct1) * 2.8900, 20, 15000\nk0qg4   = ((kfreq * koct1) * 2.8900 < 15000 ? 0.066 : 0)\na0q4   mode aexq0, k0qf4, 12.5      ; mode 5 @ x2.89, Q 13\nk0qf5   limit (kfreq * koct1) * 3.3300, 20, 15000\nk0qg5   = ((kfreq * koct1) * 3.3300 < 15000 ? 0.068 : 0)\na0q5   mode aexq0, k0qf5, 10.7      ; mode 6 @ x3.33, Q 11\nk0qf6   limit (kfreq * koct1) * 3.7700, 20, 15000\nk0qg6   = ((kfreq * koct1) * 3.7700 < 15000 ? 0.071 : 0)\na0q6   mode aexq0, k0qf6, 8.8      ; mode 7 @ x3.77, Q 9\nk0qf7   limit (kfreq * koct1) * 4.2100, 20, 15000\nk0qg7   = ((kfreq * koct1) * 4.2100 < 15000 ? 0.074 : 0)\na0q7   mode aexq0, k0qf7, 7.0      ; mode 8 @ x4.21, Q 7\naosc0    = (a0q0 * k0qg0 + a0q1 * k0qg1 + a0q2 * k0qg2 + a0q3 * k0qg3 + a0q4 * k0qg4 + a0q5 * k0qg5 + a0q6 * k0qg6 + a0q7 * k0qg7) * 3.500"
    }
   },
   {
    "key": "metallic_fm",
    "why": "true inharmonic metal partials (h 1.73/3.19/4.51) synthesized directly by the additive engine",
-   "code": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 2.41 - 1, 0, 40 ; sideband room\nkbtp0   min 9.0, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.3333 + 0.6667 * (1 - min(ktm0 / 3.0, 1))) ; darkens as it rings\nabl0    foscili 0.37, (kfreq * koct1), 1, 2.41, kbnx0, giSine ; the bell\nabt0    foscili 0.24, (kfreq * koct1) + 1.3, 1, 2.41, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.44, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept"
+   "code": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 2.41 - 1, 0, 40 ; sideband room\nkbtp0   min 9.0, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.3333 + 0.6667 * (1 - min(ktm0 / 3.0, 1))) ; darkens as it rings\nabl0    foscili 0.37, (kfreq * koct1), 1, 2.41, kbnx0, giSine ; the bell\nabt0    foscili 0.24, (kfreq * koct1) + 1.3, 1, 2.41, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.44, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept",
+   "params": {
+    "bite": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.5333,
+     "note": "the peak FM index: how many sidebands the tone carries -- how bright and rich it is. As it rises the spectrum brightens steeply while the loudness stays constant (a balance stage holds the level), so only the colour moves, never the volume.",
+     "anchors": {
+      "mellow": {
+       "value": 0.13,
+       "gloss": "few sidebands, close to a pure sine -- soft and round"
+      },
+      "warm": {
+       "value": 0.27,
+       "gloss": "a warm, contained brightness"
+      },
+      "bright": {
+       "value": 0.6,
+       "gloss": "a full, singing brightness with rich sidebands"
+      },
+      "harsh": {
+       "value": 0.82,
+       "gloss": "hard and edgy, the sidebands crowding the top"
+      },
+      "screaming": {
+       "value": 1.0,
+       "gloss": "the brightest, most aggressive FM -- sidebands to the ceiling"
+      }
+     }
+    },
+    "fade": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.5556,
+     "note": "how long the bright attack rings before the tone darkens. Every FM note begins bright and loses its highs as it is held -- never its loudness. Low collapses to a dark body almost at once; high stays bright deep into the note.",
+     "anchors": {
+      "quick": {
+       "value": 0.11,
+       "gloss": "the brightness collapses almost at once, leaving a dark body"
+      },
+      "medium": {
+       "value": 0.44,
+       "gloss": "the bright attack settles into a darker sustain"
+      },
+      "long": {
+       "value": 0.89,
+       "gloss": "stays bright well into the note before it darkens"
+      }
+     }
+    },
+    "shimmer": {
+     "range": [
+      0.0,
+      1.0
+     ],
+     "default": 0.65,
+     "note": "a second voice detuned a fixed few Hz above the first, so the tone beats and shimmers as the two drift. At 0 it stands perfectly still (the static escape); higher is a wider, more present warble. It is a fixed-Hz warble, equal at every pitch -- not pitch vibrato, which belongs to the synth.",
+     "anchors": {
+      "pure": {
+       "value": 0.0,
+       "gloss": "a single still tone, no beating"
+      },
+      "gentle": {
+       "value": 0.4,
+       "gloss": "a slow gentle warble as the two voices drift"
+      },
+      "shimmering": {
+       "value": 0.85,
+       "gloss": "a full shimmering beat, the voices audibly casting"
+      }
+     }
+    }
+   },
+   "anchor_code": {
+    "bite=0.13  (mellow: few sidebands, close to a pure sine -- soft and round)": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 2.41 - 1, 0, 40 ; sideband room\nkbtp0   min 3.0, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.3333 + 0.6667 * (1 - min(ktm0 / 3.0, 1))) ; darkens as it rings\nabl0    foscili 0.37, (kfreq * koct1), 1, 2.41, kbnx0, giSine ; the bell\nabt0    foscili 0.24, (kfreq * koct1) + 1.3, 1, 2.41, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.44, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept",
+    "bite=0.27  (warm: a warm, contained brightness)": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 2.41 - 1, 0, 40 ; sideband room\nkbtp0   min 5.1, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.3333 + 0.6667 * (1 - min(ktm0 / 3.0, 1))) ; darkens as it rings\nabl0    foscili 0.37, (kfreq * koct1), 1, 2.41, kbnx0, giSine ; the bell\nabt0    foscili 0.24, (kfreq * koct1) + 1.3, 1, 2.41, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.44, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept",
+    "bite=0.6  (bright: a full, singing brightness with rich sidebands)": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 2.41 - 1, 0, 40 ; sideband room\nkbtp0   min 10.0, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.3333 + 0.6667 * (1 - min(ktm0 / 3.0, 1))) ; darkens as it rings\nabl0    foscili 0.37, (kfreq * koct1), 1, 2.41, kbnx0, giSine ; the bell\nabt0    foscili 0.24, (kfreq * koct1) + 1.3, 1, 2.41, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.44, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept",
+    "bite=0.82  (harsh: hard and edgy, the sidebands crowding the top)": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 2.41 - 1, 0, 40 ; sideband room\nkbtp0   min 13.3, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.3333 + 0.6667 * (1 - min(ktm0 / 3.0, 1))) ; darkens as it rings\nabl0    foscili 0.37, (kfreq * koct1), 1, 2.41, kbnx0, giSine ; the bell\nabt0    foscili 0.24, (kfreq * koct1) + 1.3, 1, 2.41, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.44, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept",
+    "bite=1.0  (screaming: the brightest, most aggressive FM -- sidebands to the ceiling)": "ktm0    init 0\nif changed2(ktrig) == 1 then\n  ktm0   = 0\nendif\nktm0    = ktm0 + 1/kr           ; seconds since this strike\nkbmx0   limit (sr * 0.45 / (kfreq * koct1) - 1) / 2.41 - 1, 0, 40 ; sideband room\nkbtp0   min 16.0, kbmx0          ; brightest the band allows\nkbnx0   = kbtp0 * (0.3333 + 0.6667 * (1 - min(ktm0 / 3.0, 1))) ; darkens as it rings\nabl0    foscili 0.37, (kfreq * koct1), 1, 2.41, kbnx0, giSine ; the bell\nabt0    foscili 0.24, (kfreq * koct1) + 1.3, 1, 2.41, kbnx0 * 0.94, giSine ; its doublet\nabs0    = abl0 + abt0       ; the pair beats\nabr0    poscil 0.44, (kfreq * koct1)        ; steady level reference\naosc0    balance abs0, abr0, 1 ; loudness held, beat kept"
+   }
   },
   {
    "key": "struck_bar",
@@ -450,10 +699,10 @@
     }
    },
    "anchor_code": {
-    "wave=0.0  (triangle: hollow, dark, few harmonics)": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.02 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\naosc0    = adrv0 * (1 + kagw0)",
+    "wave=0.0  (triangle: hollow, dark, few harmonics)": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.5 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\naosc0    = adrv0 * (1 + kagw0)",
     "wave=0.45  (saw: bright, buzzy, all harmonics)": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.02 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\naosc0    = adrv0 * (1 + kagw0)",
-    "wave=0.55  (square: hollow, reedy, odd harmonics only)": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.02 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\naosc0    = adrv0 * (1 + kagw0)",
-    "wave=1.0  (pulse: thin, nasal, narrow)": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.02 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 4, kpw0s0, 0   ; wave seg0 imode4 copy 0\nacln0   = aao0s0u0 * 1.000000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\naosc0    = adrv0 * (1 + kagw0)"
+    "wave=0.55  (square: hollow, reedy, odd harmonics only)": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.5 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\naosc0    = adrv0 * (1 + kagw0)",
+    "wave=1.0  (pulse: thin, nasal, narrow)": "ivph0   = frac(ivoice * 0.6180339887)   ; per-voice phase\nkvdr0   poscil 0.00245, 0.043 + 0.0037 * ivoice, giSine, ivph0\nkdty0   poscil 0.0042, 0.057     ; age: shape/duty wobble on kpw\nkpw0s0   = 0.1 + kdty0\naao0s0u0  vco2 0.6, (kfreq * koct1) * (1 + kvdr0), 2, kpw0s0, 0   ; wave seg0 imode2 copy 0\nacln0   = aao0s0u0 * 0.578000    ; clean oscillator (pre-drive)\nadrv0   = acln0                     ; drive 0: clean, no saturator stage\nkagw0   oscili 0.0105, 0.7        ; age: amplitude wobble\naosc0    = adrv0 * (1 + kagw0)"
    }
   }
  ],

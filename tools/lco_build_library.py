@@ -116,11 +116,18 @@ def harvest(P, lex):
             first = next(iter(params))
             variants = {}
             for aname, aspec in (params[first].get("anchors") or {}).items():
+                # The emitter reads params as {technique_key: {name: value}}
+                # (_normalize_oscs -> _emit_oscillator). Keying by the bare param
+                # name lands nowhere: the value is silently dropped and every
+                # anchor harvests the DEFAULT emission, identical across the row.
                 code = emit(P, oscs=[{"chain": [key], "vol": 1.0,
-                                      "params": {first: aspec["value"]}}])
+                                      "params": {key: {first: aspec["value"]}}}])
                 if code and not code.startswith(";"):
                     variants[f"{first}={aspec['value']}  ({aname}: {aspec.get('gloss','')})"] = code
-            if variants:
+            # Only keep the anchor_code if it actually MOVES across anchors -- a
+            # single distinct body means the parameter never reached the emitter,
+            # which is a harvest bug, not a one-anchor instrument.
+            if len(set(variants.values())) > 1:
                 item["anchor_code"] = variants
         instruments.append(item)
 

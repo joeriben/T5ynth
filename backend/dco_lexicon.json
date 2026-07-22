@@ -1,5 +1,5 @@
 {
-  "lexicon_version": 7,
+  "lexicon_version": 8,
   "techniques": [
     {
       "key": "saw",
@@ -270,7 +270,41 @@
         "motion_rate_hz": 0.25
       },
       "priority": 3,
-      "why": "plain 2-operator FM (ratio 2, index 1.5); a neutral starting sideband spread"
+      "why": "plain 2-operator FM (ratio 2, index 1.5); a neutral starting sideband spread",
+      "params": {
+        "bite": {
+          "range": [0.0, 1.0],
+          "default": 0.2,
+          "note": "the peak FM index: how many sidebands the tone carries -- how bright and rich it is. As it rises the spectrum brightens steeply while the loudness stays constant (a balance stage holds the level), so only the colour moves, never the volume.",
+          "anchors": {
+            "mellow": {"value": 0.13, "gloss": "few sidebands, close to a pure sine -- soft and round"},
+            "warm": {"value": 0.27, "gloss": "a warm, contained brightness"},
+            "bright": {"value": 0.6, "gloss": "a full, singing brightness with rich sidebands"},
+            "harsh": {"value": 0.82, "gloss": "hard and edgy, the sidebands crowding the top"},
+            "screaming": {"value": 1.0, "gloss": "the brightest, most aggressive FM -- sidebands to the ceiling"}
+          }
+        },
+        "fade": {
+          "range": [0.0, 1.0],
+          "default": 0.3333,
+          "note": "how long the bright attack rings before the tone darkens. Every FM note begins bright and loses its highs as it is held -- never its loudness. Low collapses to a dark body almost at once; high stays bright deep into the note.",
+          "anchors": {
+            "quick": {"value": 0.11, "gloss": "the brightness collapses almost at once, leaving a dark body"},
+            "medium": {"value": 0.44, "gloss": "the bright attack settles into a darker sustain"},
+            "long": {"value": 0.89, "gloss": "stays bright well into the note before it darkens"}
+          }
+        },
+        "shimmer": {
+          "range": [0.0, 1.0],
+          "default": 0.6,
+          "note": "a second voice detuned a fixed few Hz above the first, so the tone beats and shimmers as the two drift. At 0 it stands perfectly still (the static escape); higher is a wider, more present warble. It is a fixed-Hz warble, equal at every pitch -- not pitch vibrato, which belongs to the synth.",
+          "anchors": {
+            "pure": {"value": 0.0, "gloss": "a single still tone, no beating"},
+            "gentle": {"value": 0.4, "gloss": "a slow gentle warble as the two voices drift"},
+            "shimmering": {"value": 0.85, "gloss": "a full shimmering beat, the voices audibly casting"}
+          }
+        }
+      }
     },
     {
       "key": "fm_bell",
@@ -322,7 +356,41 @@
         "motion_rate_hz": 0.25
       },
       "priority": 10,
-      "why": "true inharmonic bell partials (h 2.76/5.4/8.93) synthesized directly by the additive engine, no longer projected onto the harmonic grid"
+      "why": "true inharmonic bell partials (h 2.76/5.4/8.93) synthesized directly by the additive engine, no longer projected onto the harmonic grid",
+      "params": {
+        "bite": {
+          "range": [0.0, 1.0],
+          "default": 0.3333,
+          "note": "the peak FM index: how many sidebands the tone carries -- how bright and rich it is. As it rises the spectrum brightens steeply while the loudness stays constant (a balance stage holds the level), so only the colour moves, never the volume.",
+          "anchors": {
+            "mellow": {"value": 0.13, "gloss": "few sidebands, close to a pure sine -- soft and round"},
+            "warm": {"value": 0.27, "gloss": "a warm, contained brightness"},
+            "bright": {"value": 0.6, "gloss": "a full, singing brightness with rich sidebands"},
+            "harsh": {"value": 0.82, "gloss": "hard and edgy, the sidebands crowding the top"},
+            "screaming": {"value": 1.0, "gloss": "the brightest, most aggressive FM -- sidebands to the ceiling"}
+          }
+        },
+        "fade": {
+          "range": [0.0, 1.0],
+          "default": 0.4444,
+          "note": "how long the bright attack rings before the tone darkens. Every FM note begins bright and loses its highs as it is held -- never its loudness. Low collapses to a dark body almost at once; high stays bright deep into the note.",
+          "anchors": {
+            "quick": {"value": 0.11, "gloss": "the brightness collapses almost at once, leaving a dark body"},
+            "medium": {"value": 0.44, "gloss": "the bright attack settles into a darker sustain"},
+            "long": {"value": 0.89, "gloss": "stays bright well into the note before it darkens"}
+          }
+        },
+        "shimmer": {
+          "range": [0.0, 1.0],
+          "default": 0.55,
+          "note": "a second voice detuned a fixed few Hz above the first, so the tone beats and shimmers as the two drift. At 0 it stands perfectly still (the static escape); higher is a wider, more present warble. It is a fixed-Hz warble, equal at every pitch -- not pitch vibrato, which belongs to the synth.",
+          "anchors": {
+            "pure": {"value": 0.0, "gloss": "a single still tone, no beating"},
+            "gentle": {"value": 0.4, "gloss": "a slow gentle warble as the two voices drift"},
+            "shimmering": {"value": 0.85, "gloss": "a full shimmering beat, the voices audibly casting"}
+          }
+        }
+      }
     },
     {
       "key": "fm_ep",
@@ -540,7 +608,41 @@
         "motion_rate_hz": 0.25
       },
       "priority": 10,
-      "why": "true inharmonic metal partials (h 1.73/3.19/4.51) synthesized directly by the additive engine"
+      "why": "true inharmonic metal partials (h 1.73/3.19/4.51) synthesized directly by the additive engine",
+      "params": {
+        "bite": {
+          "range": [0.0, 1.0],
+          "default": 0.5333,
+          "note": "the peak FM index: how many sidebands the tone carries -- how bright and rich it is. As it rises the spectrum brightens steeply while the loudness stays constant (a balance stage holds the level), so only the colour moves, never the volume.",
+          "anchors": {
+            "mellow": {"value": 0.13, "gloss": "few sidebands, close to a pure sine -- soft and round"},
+            "warm": {"value": 0.27, "gloss": "a warm, contained brightness"},
+            "bright": {"value": 0.6, "gloss": "a full, singing brightness with rich sidebands"},
+            "harsh": {"value": 0.82, "gloss": "hard and edgy, the sidebands crowding the top"},
+            "screaming": {"value": 1.0, "gloss": "the brightest, most aggressive FM -- sidebands to the ceiling"}
+          }
+        },
+        "fade": {
+          "range": [0.0, 1.0],
+          "default": 0.5556,
+          "note": "how long the bright attack rings before the tone darkens. Every FM note begins bright and loses its highs as it is held -- never its loudness. Low collapses to a dark body almost at once; high stays bright deep into the note.",
+          "anchors": {
+            "quick": {"value": 0.11, "gloss": "the brightness collapses almost at once, leaving a dark body"},
+            "medium": {"value": 0.44, "gloss": "the bright attack settles into a darker sustain"},
+            "long": {"value": 0.89, "gloss": "stays bright well into the note before it darkens"}
+          }
+        },
+        "shimmer": {
+          "range": [0.0, 1.0],
+          "default": 0.65,
+          "note": "a second voice detuned a fixed few Hz above the first, so the tone beats and shimmers as the two drift. At 0 it stands perfectly still (the static escape); higher is a wider, more present warble. It is a fixed-Hz warble, equal at every pitch -- not pitch vibrato, which belongs to the synth.",
+          "anchors": {
+            "pure": {"value": 0.0, "gloss": "a single still tone, no beating"},
+            "gentle": {"value": 0.4, "gloss": "a slow gentle warble as the two voices drift"},
+            "shimmering": {"value": 0.85, "gloss": "a full shimmering beat, the voices audibly casting"}
+          }
+        }
+      }
     },
     {
       "key": "struck_bar",

@@ -209,9 +209,22 @@ def render_library(sel=None):
                        f"{spec.get('default')}: {spec.get('note', '')}")
             for aname, a in (spec.get("anchors") or {}).items():
                 out.append(f"    {pname}={a['value']} — {aname}: {a['gloss']}")
+        # The anchor code shows which LINE moves with the character parameter. The
+        # full body is already printed above, so quote only the lines that differ
+        # from it at each anchor — the base plus five copies of the same twelve
+        # lines is exactly the recital this file just stopped doing.
+        base_lines = set((it.get("code") or "").splitlines())
+        deltas = []
         for label, code in (it.get("anchor_code") or {}).items():
-            out.append(f"  # {it['key']} at {label}")
-            out.append(_indent(code, "  "))
+            changed = [l for l in code.splitlines() if l not in base_lines]
+            if changed:
+                deltas.append((label, changed))
+        if deltas:
+            out.append(f"  # how the code changes across `{next(iter(it['params']))}`:")
+            for label, changed in deltas:
+                out.append(f"    # {label}")
+                for l in changed:
+                    out.append(f"    {l.strip()}")
 
     _catalogue(out, lib, "instruments",
                "Also in the library, not quoted here. If one of these is what the "
