@@ -185,16 +185,11 @@ public:
      *         that decision, so any hard output limit in this system originates
      *         here. A cap does not error when it bites; it cuts mid-sentence.
      *
-     *  @param antiCycling  the backend's repetition_penalty / no_repeat_ngram_size
-     *         pair, on by default. Turn OFF for any task whose correct answer is
-     *         REPETITIVE: the n-gram block spans the prompt, so a system prompt
-     *         that spells out a required answer form makes that form unemittable
-     *         ("butthe sound measuresbrightandthin", plus rare-token leakage). */
+     */
     InterpretResult interpret(const juce::String& systemPrompt,
                               const juce::String& userText,
                               int maxNewTokens,
-                              const juce::String& device,
-                              bool antiCycling = true);
+                              const juce::String& device);
 
     /** Blocking CLAP machine-listening analysis of an audio buffer → top-k timbre
      *  tags + DSP spectral words — call from a background thread. The audio is sent

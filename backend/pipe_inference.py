@@ -3574,27 +3574,22 @@ def main():
                 # still limits the reply, and that one call site is C++-owned.
                 _mn = request.get("max_new_tokens")
                 max_new = int(_mn) if _mn is not None else None
-                # Anti-cycling logit transforms, ON by default (every existing
-                # caller keeps byte-identical behaviour): they defeat the
-                # degenerate token-cycle a long "recombine these freely" palette
-                # provokes ("sharp, thin, metallic, buzzing, sharp, thin, …").
-                # Deterministic, so the rewrite stays reproducible; translate +
-                # DCO S2 never take this branch at all.
-                #
-                # OPT-OUT EXISTS because these are wrong for a task whose correct
-                # answer is REPETITIVE. no_repeat_ngram_size=3 spans the prompt as
-                # well as the output, so a system prompt that spells out a required
-                # answer form forbids the model from ever emitting that form:
-                # measured 2026-07-20, the self-check's "asked for X, but the sound
+                # No anti-cycling logit transforms. They existed to defeat the
+                # degenerate token-cycle the 1.5B fell into on a long "recombine
+                # these freely" palette ("sharp, thin, metallic, buzzing, sharp,
+                # thin, …"), and they came at a real cost: no_repeat_ngram_size=3
+                # spans the PROMPT as well as the output, so a system prompt that
+                # spells out a required answer form forbade the model from ever
+                # emitting that form — the self-check's "asked for X, but the sound
                 # measures Y" came back as "butthe sound measuresbrightandthin",
                 # with the repetition penalty pushing into rare tokens ("noise洗").
-                # Removing the required form instead is not an option — without it
-                # the model stops comparing and answers "matches" to everything.
-                anti_cycle = request.get("anti_cycle", True)
-                extra = ({"repetition_penalty": 1.2, "no_repeat_ngram_size": 3}
-                         if anti_cycle else {})
+                # Measured 2026-07-22 on the author model, all seven stances (the
+                # real system prompts and user turns, over this wire): zero
+                # repeated 3-grams either way, the self-check's required form
+                # intact, and every reply identical with the transforms on and off.
+                # The pathology was the small model, not the task.
                 send_text(run_author_instruct(request, source_text, system_prompt,
-                                              t_device, max_new, **extra))
+                                              t_device, max_new))
                 continue
 
             # Csound orchestra author (the CORRECT backend, 2026-07-17): the same

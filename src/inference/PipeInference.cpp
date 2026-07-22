@@ -1165,8 +1165,7 @@ PipeInference::TranslateResult PipeInference::translate(const juce::String& text
 PipeInference::InterpretResult PipeInference::interpret(const juce::String& systemPrompt,
                                                         const juce::String& userText,
                                                         int maxNewTokens,
-                                                        const juce::String& device,
-                                                        bool antiCycling)
+                                                        const juce::String& device)
 {
     const std::lock_guard<std::recursive_mutex> lock(stateMutex_);
     InterpretResult result;
@@ -1209,10 +1208,6 @@ PipeInference::InterpretResult PipeInference::interpret(const juce::String& syst
     // mid-sentence cut, not an error.
     if (maxNewTokens > 0)
         json->setProperty("max_new_tokens", maxNewTokens);
-    // Omitted at its default so an unchanged request stays byte-identical on the
-    // wire and the backend keeps its own defaults.
-    if (! antiCycling)
-        json->setProperty("anti_cycle", false);
     if (device.isNotEmpty())
         json->setProperty("device", device);
     // No model key: as in translate() above, the backend resolves the one

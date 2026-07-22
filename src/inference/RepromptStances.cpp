@@ -112,9 +112,11 @@ static juce::String syspSelfCheck()
     // (1) The REQUIRED ANSWER FORM is what makes the comparison happen at all.
     //     Removing it — trying "in one short sentence, name…" — made the 7B
     //     answer "matches" to every case, including dark-vs-bright. Load-bearing,
-    //     not decoration. It also forces anti_cycle=false at the call site: the
-    //     backend's no_repeat_ngram_size spans the prompt, so spelling the form
-    //     out here makes it unemittable unless that transform is disabled.
+    //     not decoration. It used to force anti_cycle=false at the call site --
+    //     the backend's no_repeat_ngram_size spanned the prompt, so spelling the
+    //     form out here made it unemittable. Those transforms are gone (measured
+    //     2026-07-22: they were the small model's crutch), so the form stands on
+    //     its own now.
     // (2) THE FIRING CRITERION is the DOMINANT CHARACTER, not a word count. The
     //     earlier draft fired "ONLY when MOST of the description names the
     //     opposite AND little or nothing in it matches". That AND can never hold

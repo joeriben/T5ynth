@@ -2545,14 +2545,12 @@ void PromptPanel::triggerDcoBake()
                     // SAME string goes to the card below, so the user reads exactly
                     // what the comparison had to work with.
                     //
-                    // Runs with the backend's anti-cycling transforms OFF — a
-                    // measured requirement, see syspSelfCheck for what it broke.
                     description = RepromptStances::composeHeardDescription(heard.tags,
                                                                            heard.spectral);
                     auto verdict = pipePtr->interpret(
                         RepromptStances::stanceSystemPrompt("selfcheck"),
                         RepromptStances::buildSelfCheckUserTurn(text, description),
-                        0, {}, /*antiCycling=*/false);
+                        0, {});
                     if (verdict.success)
                         finding = verdict.text.trim();
                 }
