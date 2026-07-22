@@ -178,6 +178,13 @@ static bool shouldDownloadHfFile(const juce::String& remotePath,
     if (path.endsWith(".safetensors"))
         return true;
 
+    // Single-file GGUF weights (the LCO author). `mmproj*` is the vision/audio
+    // projector shipped beside the model -- 190 MB that no text-authoring path
+    // ever loads, and a second .gguf in the slot would make the author ambiguous
+    // for both the backend resolver and isLoadableCoderDir.
+    if (path.endsWith(".gguf"))
+        return ! path.fromLastOccurrenceOf("/", false, false).startsWithIgnoreCase("mmproj");
+
     // Everything else is optional noise for the in-app downloader
     // (README, .gitattributes, examples, pickle/bin/checkpoint formats, etc.).
     juce::ignoreUnused(allPaths);
@@ -445,22 +452,29 @@ static const KnownModel kKnownModels[] = {
       "weights; they download from HuggingFace (ungated, no account). By "
       "downloading you accept the Apache 2.0 license.", true, false,
       nullptr, 0 },
-    // The LCO's author LLM: a 7B CODING model (Qwen2.5-Coder-7B-Instruct) that
-    // writes the Csound orchestra for the user's prompt. NOT a generation engine:
-    // isGenerationEngine=false routes it through the plain HF tree-API download and
-    // keeps it out of the engine rows AND the backend-activation glue
-    // (onDownloadFinished), exactly like the translation model above. It installs
-    // to <model root>/coder/qwen2.5-coder-7b-instruct, where the backend's
-    // _resolve_coder_model_dir discovers it (it also accepts a dev drop at
-    // <model root>/lco-coder/...). Ungated (no HuggingFace account needed) and
-    // Apache-2.0 licensed -- open, no commercial restriction.
-    { "coder/qwen2.5-coder-7b-instruct", "LCO coder (Qwen2.5-Coder-7B)",
-      "Qwen/Qwen2.5-Coder-7B-Instruct", nullptr,
+    // The LCO's author LLM: it WRITES the Csound orchestra for the user's prompt.
+    // NOT a generation engine: isGenerationEngine=false routes it through the plain
+    // HF tree-API download and keeps it out of the engine rows AND the backend-
+    // activation glue (onDownloadFinished), exactly like the translation model
+    // above. It installs to <model root>/coder/gemma-4-12b-it-qat-q4_0, where the
+    // backend's _resolve_coder_model_dir finds it by that exact name.
+    //
+    // A single 4-bit GGUF, quantization-aware trained by Google, run through
+    // llama.cpp rather than transformers. That is what makes a 12B usable here at
+    // all: 6.98 GB against 23.9 GB for the same model in bf16, so it fits a 16 GB
+    // Mac, and one file serves Metal and CUDA alike (transformers has no working
+    // 4-bit path on MPS). Measured against the alternatives on the LCO's own
+    // capability corpus -- pwm, morph, loop, inharmonic, dirt, additive, supersaw,
+    // static -- it passed 10 of 11 at a 12 s median, while the previous
+    // Qwen2.5-Coder-7B passed 8 of 11 at 20 s and did not fit a 16 GB Mac at all.
+    // Ungated (no HuggingFace account needed) and Apache-2.0.
+    { "coder/gemma-4-12b-it-qat-q4_0", "LCO coder (Gemma 4 12B, 4-bit)",
+      "google/gemma-4-12B-it-qat-q4_0-gguf", nullptr,
       "https://www.apache.org/licenses/LICENSE-2.0",
-      "Qwen2.5-Coder-7B-Instruct is licensed under Apache License 2.0 (open, no "
+      "Gemma 4 12B (QAT, 4-bit) is licensed under Apache License 2.0 (open, no "
       "restrictions).\n\n"
-      "Required for the LCO: this 7B coding model writes the Csound orchestra for "
-      "your prompt. About 15 GB. T5ynth does not provide the weights; they download "
+      "Required for the LCO: this coding model writes the Csound orchestra for "
+      "your prompt. About 7 GB. T5ynth does not provide the weights; they download "
       "from HuggingFace (ungated, no account). By downloading you accept the "
       "Apache 2.0 license.", true, false,
       nullptr, 0 },
@@ -946,8 +960,8 @@ SettingsPage::SettingsPage()
     // download path, which onDownloadFinished routes around the engine glue. No
     // onBrowse — nothing to import by hand for this ungated auto-discovered helper.
     {
-        const auto& cm = kKnownModels[catalogIndexForId("coder/qwen2.5-coder-7b-instruct")];
-        coderRow_ = std::make_unique<ModelRow>("coder/qwen2.5-coder-7b-instruct",
+        const auto& cm = kKnownModels[catalogIndexForId("coder/gemma-4-12b-it-qat-q4_0")];
+        coderRow_ = std::make_unique<ModelRow>("coder/gemma-4-12b-it-qat-q4_0",
                                                cm.displayName,
                                                "writes the Csound orchestra for the LCO");
         coderRow_->onAction = [this](juce::String id) {
@@ -960,7 +974,7 @@ SettingsPage::SettingsPage()
             juce::URL("https://huggingface.co/" + selectedHfRepo()).launchInDefaultBrowser();
         };
         coderRow_->onReveal = [](juce::String) {
-            auto dir = getAppSupportModelDir("coder/qwen2.5-coder-7b-instruct");
+            auto dir = getAppSupportModelDir("coder/gemma-4-12b-it-qat-q4_0");
             if (dir.exists()) dir.revealToUser();
         };
         addAndMakeVisible(*coderRow_);
@@ -1025,14 +1039,18 @@ static bool modelHasRequiredAuxAssets(const juce::String& id, const juce::File& 
 }
 
 // ── Scan ────────────────────────────────────────────────────────────────────
-static juce::File scanForModelById(const juce::String& id, const juce::String& hfRepo)
+// The install roots a model id can live in. Exposed separately from
+// scanForModelById so a slot with its OWN validity gate can search exactly the
+// same places without widening hasModelMarker for every engine row.
+static std::vector<juce::File> modelDirCandidates(const juce::String& id,
+                                                  const juce::String& hfRepo)
 {
     // HF cache uses "--" as separator: "models--stabilityai--stable-audio-open-1.0"
     auto hfCacheDir = "models--" + hfRepo.replace("/", "--");
 
     auto home = juce::File::getSpecialLocation(juce::File::userHomeDirectory);
     auto oldAppData = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
-    std::vector<juce::File> candidates = {
+    return {
         SettingsPage::getAppSupportModelDir(id),               // preferred (system or user, see fallback logic)
        #if JUCE_MAC
         juce::File("/Library/Application Support/T5ynth/models/" + id),  // system-wide (.pkg)
@@ -1042,6 +1060,35 @@ static juce::File scanForModelById(const juce::String& id, const juce::String& h
         home.getChildFile("t5ynth/models/" + id),
         home.getChildFile(".cache/huggingface/hub/" + hfCacheDir),
     };
+}
+
+// A usable LCO author slot, mirroring the backend's _is_local_coder_model_dir:
+// a directory holding exactly ONE text GGUF -- the shipped 4-bit author, run
+// through llama.cpp, which has no config.json and no .safetensors and is
+// therefore invisible to hasModelMarker -- or a self-contained transformers
+// directory (a dev drop, or an install predating the GGUF author).
+//
+// Google ships an `mmproj*` file beside the model: that is the vision/audio
+// tower, not a language model, so it does not count and must never be picked.
+// More than one text GGUF is ambiguous and is refused rather than guessed at.
+static bool isLoadableCoderDir(const juce::File& dir)
+{
+    if (! dir.isDirectory())
+        return false;
+
+    int textGgufs = 0;
+    for (auto& f : dir.findChildFiles(juce::File::findFiles, false, "*.gguf"))
+        if (! f.getFileName().startsWithIgnoreCase("mmproj"))
+            ++textGgufs;
+    if (textGgufs == 1)
+        return true;
+
+    return isLoadableTransformersDir(dir);
+}
+
+static juce::File scanForModelById(const juce::String& id, const juce::String& hfRepo)
+{
+    auto candidates = modelDirCandidates(id, hfRepo);
     for (auto& dir : candidates)
     {
         if (!dir.isDirectory()) continue;
@@ -3634,23 +3681,24 @@ void SettingsPage::refreshTranslationRow()
 
 bool SettingsPage::coderModelInstalled() const
 {
-    // Two install shapes the backend's _resolve_coder_model_dir (pipe_inference.py)
-    // accepts: the in-app Download slot at <model root>/coder/qwen2.5-coder-7b-
-    // instruct, or a manually dropped dev copy at <model root>/lco-coder/qwen2.5-
-    // coder-7b-instruct. scanForModelById covers BOTH the current and legacy
-    // per-user install roots (plus the HF cache) for each.
+    // The install slot the backend's _resolve_coder_model_dir checks by that exact
+    // name, plus the dev drop it also accepts at <model root>/lco-coder/<dir>.
     //
-    // The found directory must then pass the BACKEND's load gate, not merely
-    // hasModelMarker: this model ships as four shards, and an install missing
-    // model.safetensors.index.json satisfies hasModelMarker while transformers
-    // cannot load it. Reporting that as "Installed" hides the Download button and
-    // strands the user, and the backend resolver silently falls through to
-    // another coder. Mirror translationModelInstalled() and agree with what the
-    // backend can actually open.
-    const auto& cm = kKnownModels[catalogIndexForId("coder/qwen2.5-coder-7b-instruct")];
-    if (isLoadableTransformersDir(scanForModelById("coder/qwen2.5-coder-7b-instruct", cm.hfRepo)))
-        return true;
-    return isLoadableTransformersDir(scanForModelById("lco-coder/qwen2.5-coder-7b-instruct", {}));
+    // Deliberately NOT scanForModelById: that gates on hasModelMarker, which
+    // requires .safetensors and cannot see a GGUF author at all. The gate here is
+    // the BACKEND's, so the row says "Installed" exactly when the backend can open
+    // the model -- a row that claims more than that hides the Download button and
+    // strands the user while authoring silently goes somewhere else.
+    const auto& cm = kKnownModels[catalogIndexForId("coder/gemma-4-12b-it-qat-q4_0")];
+    for (auto& dir : modelDirCandidates("coder/gemma-4-12b-it-qat-q4_0", cm.hfRepo))
+        if (isLoadableCoderDir(dir))
+            return true;
+    for (auto& dir : modelDirCandidates("lco-coder", {}))
+        if (dir.isDirectory())
+            for (auto& child : dir.findChildFiles(juce::File::findDirectories, false))
+                if (isLoadableCoderDir(child))
+                    return true;
+    return false;
 }
 
 void SettingsPage::refreshCoderRow()
@@ -3663,7 +3711,7 @@ void SettingsPage::refreshCoderRow()
     // Mirror refreshTranslationRow(): the active download owns its own visuals
     // (inline meter + Cancel); otherwise show the idle Installed / Download
     // state. Always "downloadable", so it never shows a Gated state.
-    if (downloading.load() && downloadModelId_ == "coder/qwen2.5-coder-7b-instruct")
+    if (downloading.load() && downloadModelId_ == "coder/gemma-4-12b-it-qat-q4_0")
     {
         coderRow_->enterDownloadingState();
         return;
@@ -3727,7 +3775,7 @@ void SettingsPage::updateStatus()
     // The optional LCO coder is likewise auxiliary: same treatment as the
     // translation branch above, own terms rather than the engine installed/
     // active logic below.
-    if (id == "coder/qwen2.5-coder-7b-instruct")
+    if (id == "coder/gemma-4-12b-it-qat-q4_0")
     {
         if (coderModelInstalled())
             setInstructionsText(instructionsLabel,
